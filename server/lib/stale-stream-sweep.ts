@@ -224,6 +224,43 @@ function announceAlive(deps: StaleStreamSweepDeps, sessionKey: string, stream: S
 }
 
 /**
+ * The rescue's re-attach, sent to whoever owns the session, with its outcome
+ * SAID (T18).
+ *
+ * It used to be a one-liner in `server.ts` that dropped the answer:
+ * `owner?.resyncStream?.(sk)`. Three of its four outcomes left no trace. No
+ * owner, an owner with nothing to re-attach (a provider without
+ * `resyncStream`), a `false` from the provider: the log said "re-attaching the
+ * stream and waiting" and nothing followed, which is how the production log
+ * came to show the rescues going on after 03/10 with no resync, failed or done,
+ * written after them. A rescue that cannot act now says so, and why.
+ */
+export async function rescueByOwner(
+  sessionKey: string,
+  owner: unknown,
+  warn: (msg: string) => void,
+): Promise<boolean> {
+  if (owner === null || owner === undefined) {
+    warn(`[StaleStream] rescue of ${sessionKey} cannot act: no provider owns the session, so there is no stream to re-attach`);
+    return false;
+  }
+  const provider = owner as { name?: string; resyncStream?: (sk: string) => Promise<boolean> };
+  const name = provider.name ?? "?";
+  if (typeof provider.resyncStream !== "function") {
+    warn(`[StaleStream] rescue of ${sessionKey} cannot act: provider ${name} has no stream to re-attach (no resyncStream); the turn is judged on its liveness alone`);
+    return false;
+  }
+  try {
+    const ok = await provider.resyncStream(sessionKey);
+    if (!ok) warn(`[StaleStream] rescue of ${sessionKey}: provider ${name} did not re-attach the stream (the line before this one says why)`);
+    return ok;
+  } catch (err) {
+    warn(`[StaleStream] rescue of ${sessionKey} failed in provider ${name}: ${err instanceof Error ? err.message : String(err)}`);
+    return false;
+  }
+}
+
+/**
  * The e2e bench's silence threshold, in place of the three minutes server.ts
  * passes (`POST /api/test/stale-stream-clock`). A spec cannot wait three
  * minutes for each tick to act; `null` gives the caller's back.

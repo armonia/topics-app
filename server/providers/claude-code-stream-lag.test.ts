@@ -255,6 +255,39 @@ describe("claude-code provider · a live turn catches up by itself (B1)", () => 
   }, 40_000);
 });
 
+describe("claude-code provider · a rescue that cannot act says why (B2)", () => {
+  test("the daemon holds a live child no process of ours drives: the rescue re-attaches nothing and says so", async () => {
+    const sessionKey = "topic:lag-orphan";
+    await seedTopic(sessionKey, "t-lag-orphan");
+    const { ClaudeCodeProvider } = await import("./claude-code");
+    const { getAiBridgeClient } = await import("../lib/ai-bridge-client");
+    const { rescueByOwner } = await import("../lib/stale-stream-sweep");
+    const provider: any = new ClaudeCodeProvider({ type: "claude-code", defaultWorkspace: tempDir });
+    provider.start();
+    // A child alive in the daemon, absent from `processes`: a server that lost
+    // the session while the daemon kept it, the boot adoption not there yet.
+    const client = getAiBridgeClient();
+    client.registerHandlers(sessionKey, { onData: () => {} });
+    await client.spawn(sessionKey, { cliPath: "cat", args: [], cwd: tempDir, env: {} });
+    client.unregister(sessionKey);
+    const said: string[] = [];
+    const realWarn = console.warn;
+    console.warn = (...args: unknown[]) => { said.push(args.map(String).join(" ")); };
+    try {
+      const ok = await rescueByOwner(sessionKey, provider, (m) => said.push(m));
+      expect(ok).toBe(false);
+    } finally {
+      console.warn = realWarn;
+      provider.stop();
+      try { client.kill(sessionKey); } catch { /* gone */ }
+    }
+    // The provider says what it found, the daemon side included.
+    expect(said.some((l) => l.includes(`Stream resync for ${sessionKey}: nothing to re-attach`) && l.includes("the daemon holds a live child"))).toBe(true);
+    // And the rescue says it did nothing.
+    expect(said.some((l) => l.includes(`rescue of ${sessionKey}`) && l.includes("did not re-attach"))).toBe(true);
+  }, 30_000);
+});
+
 describe("claude-code provider · a silent, healthy child is left alone (B4)", () => {
   test("a long silence with the stream attached: the probe never re-attaches, the answer arrives once", async () => {
     const sessionKey = "topic:lag-silent";

@@ -3313,7 +3313,13 @@ export class ClaudeCodeProvider implements AIProvider {
   async resyncStream(sessionKey: string): Promise<boolean> {
     if (!USE_AI_BRIDGE) return false;
     const pp = this.processes.get(sessionKey);
-    if (!pp || !pp.alive) return false;
+    if (!pp || !pp.alive) {
+      // It used to return here without a word, and every caller but the
+      // route's watchdog dropped the answer: a rescue that did nothing looked
+      // exactly like one still on its way (T18).
+      console.warn(`[claude-code] Stream resync for ${sessionKey}: nothing to re-attach, ${await this.whyNoResync(sessionKey, pp)}`);
+      return false;
+    }
     // ONE re-attach at a time per session. The reconnect chain, the route's
     // grace expiry, the sweep and the lag probe can all ask at once; each
     // extra `attach` replayed the same bytes for nothing.
@@ -3321,6 +3327,27 @@ export class ClaudeCodeProvider implements AIProvider {
     const run = this.resyncNow(sessionKey, pp);
     pp.resyncing = run;
     try { return await run; } finally { if (pp.resyncing === run) pp.resyncing = undefined; }
+  }
+
+  /**
+   * The reason a resync found nothing to re-attach, daemon side included: "the
+   * daemon still holds a live child" is the case where a turn is really lost to
+   * us (no handler of ours to deliver it to), and the log has to tell it apart.
+   * `peekSessions`, not `hasLiveSession`: an explanation must never recycle the
+   * socket under everybody else's turns.
+   */
+  private async whyNoResync(sessionKey: string, pp: PersistentProcess | undefined): Promise<string> {
+    if (pp) return "its process has exited";
+    let daemon: string;
+    try {
+      const info = (await getAiBridgeClient().peekSessions()).find((s) => s.id === sessionKey);
+      daemon = info?.alive
+        ? `the daemon holds a live child for it (pid ${info.pid}, ${info.endOffset} byte(s)) that no process of ours drives: no turn handler to deliver it to`
+        : "the daemon holds no live child for it either";
+    } catch (err) {
+      daemon = `the daemon did not answer (${err instanceof Error ? err.message : String(err)})`;
+    }
+    return `no process of ours holds the session; ${daemon}`;
   }
 
   private async resyncNow(sessionKey: string, pp: PersistentProcess): Promise<boolean> {
