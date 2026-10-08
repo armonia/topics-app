@@ -26,7 +26,7 @@ const ALLOWED: Array<{ file: string; snippet: string; why: string }> = [
   { file: "server/routes/processes.ts", snippet: `Bun.spawnSync(["ps", "-o", "lstart="`, why: "pidStartTime: the identity stamp of a re-adopted row at boot, and of a row at its launch, which must be on disk before the launch answers (a server that exits right after a launch must still re-adopt it: CMDRUN-03). Never on a timer." },
   { file: "server/utils/path-env.ts", snippet: "execFileSync(shell", why: "the login shell's PATH, read once at boot" },
   { file: "server/lib/nome-installazione.ts", snippet: "execFileSync(\"/usr/sbin/scutil\"", why: "the computer name, memoized after the first read" },
-  { file: "server/services/discord-ipc.ts", snippet: "execFileSync(\"/usr/bin/getconf\"", why: "the per-user temp dir, macOS only, at each Discord presence connect attempt (every 30 s while Discord is closed)" },
+  { file: "server/services/discord-ipc.ts", snippet: "execFileSync(\"/usr/bin/getconf\"", why: "the per-user temp dir, macOS only, remembered after the first good read (the presence asks on every connect attempt, every 30 s while Discord is closed)" },
   { file: "server/services/browser-orphan-reap.ts", snippet: "Bun.spawnSync([\"ps\"", why: "the orphan browser sweep, at boot only (reapOrphanBrowsersAtBoot)" },
   { file: "server/browser-chromium-sidecar.ts", snippet: "execFileSync(\"ps\"", why: "the profile's stale browsers, once per sidecar launch" },
   { file: "server/browser-chromium-sidecar.ts", snippet: "execFileSync(\"lsof\"", why: "who owns the CDP port, once per sidecar launch" },
