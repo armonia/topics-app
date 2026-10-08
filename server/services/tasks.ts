@@ -60,6 +60,8 @@ import { CLOSER_LABELS, KIND_LABELS, deriveCloser, deriveKind, isCloserLabel, is
 import { findNeighbours, type Neighbour } from "../../shared/task-similarity";
 import type { TaskStatus, TaskComment, CardComment, BoardSettings, BoardSettingsPatch, BlockerRef, QueueReason, SubtaskWork, TaskWeight, GlobalDispatchCap, GlobalCapPatch, TaskActionOrigin } from "../../shared/board";
 import { budgetShare } from "../../shared/board";
+import { sliceCodePoints } from "../lib/code-points";
+import { allWideRows } from "../lib/wide-rows";
 import type { Task, CreateTaskInput, UpdateTaskPatch, ListTasksInput } from "./task-shapes";
 
 import { markTargetSeenAndAnnounce } from "../notification-registry";
@@ -1775,7 +1777,7 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
    * `Array.from` itera per punti di codice, che è l'unità di `substr`.
    */
   const previewOf = (s: string): string =>
-    Array.from(anteprimaUtile(s)).slice(0, DESCRIPTION_PREVIEW_CHARS).join("");
+    sliceCodePoints(anteprimaUtile(s), DESCRIPTION_PREVIEW_CHARS);
 
   /**
    * LA PROIEZIONE DELLA LISTA: tutte le colonne meno le due grasse.
@@ -1791,7 +1793,7 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
    * dello stesso task con campi diversi. Se il PRAGMA non risponde si ricade su
    * `*`: una risposta grassa è meglio di una rotta.
    */
-  const listColumnsCache = new Map<string, string>();
+  const listColumnsCache = new Map<string, ListProjection>();
   /**
    * Columns that ride in every board feed and that NOBODY reads off a Task.
    *
@@ -1820,23 +1822,27 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
     "nudge_repeats",
   ];
 
-  function listColumns(withDescription: boolean): string {
+  // `names`: the columns in SELECT order, for `allWideRows` (Bun 1.3.8 lists `columnNames` backwards past 62);
+  // `null` on the `*` fallback, whose order only SQLite knows, so that read goes through `.all()`.
+  type ListProjection = { sql: string; names: readonly string[] | null };
+  function listColumns(withDescription: boolean): ListProjection {
     const key = withDescription ? "full" : "lean";
     const hit = listColumnsCache.get(key);
     if (hit) return hit;
-    let sql: string;
+    const preview = `substr(description, 1, ${PREVIEW_SQL_CHARS}) AS description_preview`;
+    let projection: ListProjection;
     try {
       const cols = (db.query("PRAGMA table_info(tasks)").all() as Array<{ name: string }>)
         .map((c) => c.name)
         .filter((n) => n !== "checks_json" && (withDescription || n !== "description"))
         .filter((n) => !COLUMNS_WITH_NO_READER.includes(n));
       if (!cols.length) throw new Error("no columns");
-      sql = `${cols.join(", ")}, substr(description, 1, ${PREVIEW_SQL_CHARS}) AS description_preview`;
+      projection = { sql: `${cols.join(", ")}, ${preview}`, names: [...cols, "description_preview"] };
     } catch {
-      sql = `*, substr(description, 1, ${PREVIEW_SQL_CHARS}) AS description_preview`;
+      projection = { sql: `*, ${preview}`, names: null };
     }
-    listColumnsCache.set(key, sql);
-    return sql;
+    listColumnsCache.set(key, projection);
+    return projection;
   }
 
   /**
@@ -3759,9 +3765,10 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       const where = clauses.length ? `WHERE ${clauses.join(" AND ")}` : "";
       // project scope → board order (status then kanban_order); global feed → recency.
       const order = input.scope === "all" ? "updated_at DESC" : "kanban_order ASC";
-      const rows = db.query(
-        `SELECT ${listColumns(input.withDescription === true)} FROM tasks ${where} ORDER BY ${order}`,
-      ).all(...params) as any[];
+      // `allWideRows` and not `.all()`: the projection is wider than the 62
+      // columns past which bun:sqlite builds each row object four times slower.
+      const { sql: columns, names } = listColumns(input.withDescription === true);
+      const rows = allWideRows(db.query(`SELECT ${columns} FROM tasks ${where} ORDER BY ${order}`), names, ...params) as any[];
       return withSubtaskCounts(rowsToTasks(rows));
     },
 

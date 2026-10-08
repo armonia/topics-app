@@ -1099,3 +1099,32 @@ callback, which runs before that.
 - **WHEN** the user switches to another tab, the rest of its history is merged above the row they were reading, and the user comes back
 - **THEN** that row is on the first frame of the return at the place it had (the same row at the top, less than a pixel from its old offset), not the first row of the 400 px overscan above it
 - **AND** it does not move by a pixel or more in the frames after: before, the rows were placed from sizes kept by index (stale after the merge) and moved by 72-99 px once measured, sometimes back and forth
+
+### Requirement: FEEDCOST-01 — The board feed costs its rows, not the width of the table
+
+`GET /api/all-boards/tasks` is re-read by every open window on every board
+event that a frame cannot settle. Building it SHALL NOT pay for work whose
+result is thrown away: a per-card array of every character of an 800-character
+preview to keep 240 of them, or a JavaScript object per row built the slow way
+because the projection is wide. The answer SHALL stay the same: the preview cut
+is the same cut, on code points, and a list row carries the same keys in the
+same order with the same values.
+
+#### Scenario: the preview cut is the same cut
+- **GIVEN** strings mixing ASCII, characters of the basic plane, surrogate pairs and lone surrogates
+- **WHEN** the first N code points are taken with `sliceCodePoints`
+- **THEN** the result SHALL equal `Array.from(s).slice(0, N).join("")` for every N, zero and past the end included
+
+#### Scenario: a wide row is the same row
+- **GIVEN** a SELECT of more than 62 columns over every SQLite type, nulls and blobs included
+- **WHEN** its rows are read with `allWideRows`
+- **THEN** they SHALL deep-equal the rows of `.all()`, with the keys in the same order
+- **AND** the keys SHALL come from the names the caller wrote the SELECT with, never from the order of `statement.columnNames` (Bun 1.3.8 lists it backwards past 62 columns)
+- **AND** a column list that is not made of plain identifiers, no list, or a list that is not the statement's columns SHALL be read with `.all()`
+
+#### Scenario: the feed drops only what no client reads
+- **GIVEN** cards whose dispatcher bookkeeping, delegated-run ids and unread stamps all have a value
+- **WHEN** the board reads `GET /api/all-boards/tasks`
+- **THEN** none of the fields listed in `shared/board-feed.ts` SHALL be on a card, and every other field SHALL equal `svc.list`
+- **AND** a field in that list SHALL have no reader in `client/src`, its `BoardTask` declaration aside
+- **AND** a `task:updated` frame the store absorbs SHALL leave the row with the keys the feed brings, so re-reading an unchanged board publishes nothing
