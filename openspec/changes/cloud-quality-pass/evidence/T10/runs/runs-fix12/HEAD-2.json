@@ -1,0 +1,25 @@
+{
+  "uptime": "01:01:58 up 19 min,  0 user,  load average: 0.53, 0.99, 0.83",
+  "http": {
+    "/api/all-boards/tasks": {
+      "p50": 3.92,
+      "p95": 6.38
+    },
+    "/api/system/dispatch-capacity": {
+      "p50": 1.29,
+      "p95": 2.22
+    }
+  },
+  "inProcess": {
+    "list_p50": 1.87,
+    "list_p95": 3.14,
+    "listJson_p50": 2.04,
+    "listJson_p95": 3.48
+  },
+  "bytes": {
+    "raw": 259143,
+    "gzip": 8870,
+    "gzip_ms_p50": 0.48
+  },
+  "keysPerTask": 69
+}

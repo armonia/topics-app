@@ -1,0 +1,20 @@
+{
+  "rows": 150,
+  "rowsAfter": 150,
+  "diffs": 0,
+  "keysBefore": 69,
+  "keysAfter": 60,
+  "droppedKeys": {
+    "dispatchAttempts": 150,
+    "dispatchDeferredUntil": 150,
+    "waitStreak": 150,
+    "waitReason": 150,
+    "waitSince": 150,
+    "dispatchWeight": 150,
+    "previewRejected": 150,
+    "checksCommit": 150,
+    "doneActor": 150
+  },
+  "bytesBefore": 259143,
+  "bytesAfter": 232143
+}
