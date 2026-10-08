@@ -26,9 +26,12 @@ branches are genuinely already in `main` (delivery lands as a squash, so
 builds (the server sidecar is compiled with it) and the Mac that runs the production
 server all use that one. Two defects of the cloud quality pass came from the Mac running
 1.3.8 while CI tested `latest`: `columnNames` reversed past 62 columns, and `require`
-ignoring `with { type: "text" }`. To move to a new Bun, change `.bun-version` and install
-the same version on the Mac in the same change:
-`curl -fsSL https://bun.sh/install | bash -s "bun-v$(cat .bun-version)"`.
+ignoring `with { type: "text" }`. On the Mac the server runs a Bun of its own,
+`~/.topics/bun/<version>/bun`, chosen by `scripts/pinned-bun.sh` at every server launch:
+the global `bun` stays as it is for every other project. To move to a new Bun, change
+`.bun-version` and, on the Mac, run `scripts/install-bun.sh` (official release, checked
+against its `SHASUMS256.txt`) before the reload that brings the change. Without it the
+server starts on the global `bun` and its log names the command.
 
 ### Se il terminale non parte: `posix_spawnp failed`
 
