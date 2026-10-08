@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, type RefObject } from 'react';
-import { setFramesCovered } from '../components/Browser/hostedIframe';
+import { setFramesCovered } from '../components/Browser/frameCover';
 
 /**
  * IL CASSETTO STA SOTTO IL DITO, per tutta la corsa.

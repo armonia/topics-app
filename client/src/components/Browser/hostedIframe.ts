@@ -31,6 +31,8 @@
  * (menus and tooltips at 100, dialogs above) and nothing has to freeze.
  */
 
+import { FRAME_LAYER_ATTR, framesCovered } from './frameCover';
+
 /** The layer's z-index. Overlays in this app start at 60 (`z-[60]`), so anything
  *  that can float over a pane - menu, popover, tooltip, dialog - already wins.
  *
@@ -38,7 +40,7 @@
  *  root is `position: fixed` (App.tsx), a stacking context of its own at
  *  z-index auto: whatever is drawn inside it paints under this layer, whatever
  *  its z-index there. The surface that meets this is the phone's list drawer
- *  (`z-50` inside the root, over the panes): see `setFramesCovered`. */
+ *  (`z-50` inside the root, over the panes): see `frameCover.ts`. */
 const LAYER_Z = 1;
 
 /** How long a frame outlives its last pane. A cross-group drag unmounts the old
@@ -201,29 +203,6 @@ export function setFramesInteractive(interactive: boolean): void {
   }
 }
 
-/**
- * WHILE THE PHONE'S LIST COVERS THE PANES, THE PAGES ARE NOT PAINTED.
- *
- * On the phone the list is a drawer as wide as the screen, drawn over the
- * panes from INSIDE the app's root, so it paints under this layer (see
- * `LAYER_Z`). With a browser tab behind it, the tab's page covered the list
- * from the top row to the button row, and the «bundle rebuilt» notice docked
- * at its bottom with it: Reload and close answered `browser-iframe`
- * (usability audit, phone, 07/10; `browser-frame-under-phone-list.spec.ts`).
- * The pane shows nothing while the drawer is open, so its page must not
- * either.
- *
- * The whole layer goes `visibility: hidden`, and nothing else changes: no frame
- * is detached, moved or hidden one by one, so no page reloads and each keeps
- * its rectangle for the moment the list goes away. A hidden layer takes no
- * taps either. The drawer's own hook says when (`useSidebarSwipe`).
- */
-let framesCovered = false;
-export function setFramesCovered(covered: boolean): void {
-  framesCovered = covered;
-  if (layer) layer.style.visibility = covered ? 'hidden' : '';
-}
-
 let dragPassThroughArmed = false;
 function armDragPassThrough(): void {
   if (dragPassThroughArmed) return;
@@ -239,12 +218,12 @@ function armDragPassThrough(): void {
 function hostLayer(): HTMLDivElement {
   if (layer?.isConnected) return layer;
   const el = document.createElement('div');
-  el.setAttribute('data-browser-frame-layer', '');
+  el.setAttribute(FRAME_LAYER_ATTR, '');
   // `pointer-events: none` on the layer, `auto` on each frame: the empty space
   // between frames must not eat clicks meant for the app underneath.
   el.style.cssText =
     `position:fixed;inset:0;pointer-events:none;z-index:${LAYER_Z};`;
-  if (framesCovered) el.style.visibility = 'hidden';
+  if (framesCovered()) el.style.visibility = 'hidden';
   document.body.appendChild(el);
   layer = el;
   armDragPassThrough();
