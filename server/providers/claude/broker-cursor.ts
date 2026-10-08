@@ -29,7 +29,7 @@ export interface BrokerCursor {
   aborting?: boolean;
   stoppedExit?: unknown;
   attachPending?: boolean;
-  /** The cursor was left by a failed re-adoption: the next re-attach is live (`resyncNow`), unless a frame folds first (`admitFrame`). */
+  /** A scan cut short left the cursor inside the history: the next re-attach is live (`resyncNow`), unless a frame folds first (`admitFrame`). */
   reattachLive?: boolean;
   /** The tail being fetched by `closeAfterTail`, until the turn is closed. */
   exitTail?: Promise<void>;
@@ -54,8 +54,8 @@ export interface BrokerCursor {
  * offset: until a frame starts exactly there, every frame is one the replay
  * will repeat, and is dropped; from there on the replay is contiguous.
  *
- * A FOLDED FRAME SPENDS THE MARK A FAILED RE-ADOPTION LEFT. `reattachLive` says
- * the cursor stopped inside history that a re-attach must not replay. After the
+ * A FOLDED FRAME SPENDS THE MARK A SCAN CUT SHORT LEFT. `reattachLive` says the
+ * cursor stopped inside history that a re-attach must not replay. After the
  * failure the frames that reach us are live ones, and the first one folded puts
  * the cursor at the store's end: nothing behind it is left to skip. Left on, the
  * mark outlived those frames, and the first resync of a later turn jumped to the
@@ -121,7 +121,7 @@ export function closeAfterTail(
   const skip = !c.alive ? "its process was already given up"
     : c.aborting || c.stoppedExit ? "the turn was stopped, and a stopped child's tail is dropped"
     : c.attachPending ? "its first attach had not landed, so there is no cursor of ours to fetch from"
-    : c.reattachLive ? "its cursor was left by a failed re-adoption, and the history behind it is no new turn"
+    : c.reattachLive ? "its cursor was left inside the history by a scan cut short, and what follows it there is no new turn"
     : null;
   if (skip) {
     console.warn(`[claude-code] ${c.sessionKey} exited ${gap} byte(s) past what we folded, not fetched: ${skip}`);

@@ -1,23 +1,24 @@
 /**
- * THE MARK A FAILED RE-ADOPTION LEAVES ENDS AT THE FIRST FRAME FOLDED AFTER IT
- * (T19, verification).
+ * A RE-ADOPTION REFUSED PAST ITS SCAN LEAVES THE CURSOR EXACT (T19, verification).
  *
  * The server restarts with a turn in flight and re-adopts it. The adopted turn
- * is refused (here a rate limit on the CLI's stderr) with the child alive, and
- * `finalizeFailedReattach` leaves `reattachLive`: the next resync goes to the
- * store's end. Nothing spent the mark while the frames after it were folded, so
- * it outlived them, and the first resync of a turn that later lost its attach
- * jumped past that turn's own tail, `result` included. The answer came out cut
- * and the row hung until the watchdog.
+ * is refused (here a rate limit on the CLI's stderr) with the child alive. The
+ * scan had finished, so the cursor stood exactly where the store ended, and yet
+ * `finalizeFailedReattach` marked it as left inside the history: the next
+ * resync went live, to the store's end, past bytes that were no history at all.
+ * When a turn later lost its attach, it lost its own tail, `result` included.
  *
- * Two turns hit it, one test each:
+ * Three turns hit it, one test each:
  *  - the next healthy turn the person sends ("a1,a2," instead of "a1,a2,a3,");
- *  - the refused turn itself, going on after the 529 as a woken turn. That one
- *    is no send of ours, which is why spending the mark when a send starts was
- *    not enough.
+ *  - the refused turn itself, going on after the 529 as a woken turn;
+ *  - the same turn silent through its API retry when the attach is lost: its
+ *    whole answer went, its `result` never folded, and the next send waited on
+ *    a CLI turn that never ended.
+ * Two earlier fixes spent the mark sooner (when the next send starts, then at
+ * the first frame folded); the independent verifier refuted both, with the
+ * second and the third. Only a scan cut short marks the cursor now.
  *
- * Both are red on the code before `admitFrame` spent the mark. The scenarios
- * and the CLI are the independent verifier's.
+ * Red on the code before. The scenarios and the CLI are the verifier's.
  *
  * @covers CCLI-04
  */
@@ -145,7 +146,6 @@ done`));
   await Promise.race([sr.done, pause(14_000)]);
   await reattached;
   expect(sr.ended, "the adopted turn is refused for the rate limit").toContain("RATE_LIMIT");
-  expect(pp().reattachLive, "and the failed re-adoption leaves its mark").toBe(true);
   return { sessionKey, client, second, pp, g };
 }
 
@@ -161,7 +161,7 @@ async function loseAttachThenProbe(ctx: Awaited<ReturnType<typeof refusedReadopt
   await second.probeStreamLag(); await second.probeStreamLag();
 }
 
-describe("claude-code provider · the mark a failed re-adoption leaves", () => {
+describe("claude-code provider · a re-adoption refused past its scan", () => {
   test("the next turn, losing its attach, still gets its whole answer", async () => {
     const ctx = await refusedReadoption("next-turn",
       `    printf '%s\\n' '${text("t1b,")}' '${RESULT}'`,
@@ -213,6 +213,33 @@ describe("claude-code provider · the mark a failed re-adoption leaves", () => {
       await Promise.race([wake.done, pause(3_000)]);
       expect(wake.text).toBe("t1b,t1c,");
       expect(wake.ended).toBe("done");
+    } finally {
+      ClaudeCodeProvider.observeWokenTurns(() => false);
+      second.stop();
+      try { client.kill(sessionKey); } catch { /* the child may be gone already */ }
+    }
+  }, 60_000);
+
+  test("the refused turn, silent in its retry when its attach is lost, keeps its answer, and the next send goes", async () => {
+    const { ClaudeCodeProvider } = await import("./claude-code");
+    const ctx = await refusedReadoption("quiet",
+      `    printf '%s\\n' '${text("t1b,")}' '${text("t1c,")}' '${RESULT}'`,
+      `    printf '%s\\n' '${text("x,")}' '${RESULT}'`);
+    const { sessionKey, client, second } = ctx;
+    const wake = counting();
+    ClaudeCodeProvider.observeWokenTurns((sk) => sk === sessionKey && second.adoptWokenTurn(sk, wake.handler));
+    try {
+      // Nothing has folded since the refusal: the CLI is in its API retry. The attach is lost, then the retry ends.
+      await loseAttachThenProbe(ctx, 1);
+      await Promise.race([wake.done, pause(2_000)]);
+      expect(wake.text).toBe("t1b,t1c,");
+      expect(wake.ended).toBe("done");
+      // The person writes again: the CLI's turn is over, so the message reaches it.
+      const next = counting();
+      void second.sendChat(sessionKey, "again", next.handler).catch(() => {});
+      await Promise.race([next.done, pause(5_000)]);
+      expect(next.text).toBe("x,");
+      expect(next.ended).toBe("done");
     } finally {
       ClaudeCodeProvider.observeWokenTurns(() => false);
       second.stop();
