@@ -1,0 +1,46 @@
+// Scratch, never committed: the box of a picture waiting for its bytes, in light and dark.
+import { expect, test, type APIRequestContext } from "@playwright/test";
+import { createTopic, deleteTopic, resetPaneStore } from "./helpers/api-fixtures";
+import { seedMessage } from "./helpers/seed-messages";
+import { E2E_BASE } from "./helpers/test-server";
+import { hermetic } from "./fixtures/hermetic";
+import { holdPicture, uploadPng } from "./helpers/png-fixture";
+
+hermetic(test);
+test.use({ viewport: { width: 1280, height: 800 }, serviceWorkers: "block" });
+
+async function sessionKeyOf(request: APIRequestContext, topicId: string): Promise<string> {
+  const res = await request.get(`${E2E_BASE}/api/topics`);
+  const { topics } = (await res.json()) as { topics: Record<string, { sessionKey: string }> };
+  return topics[topicId]!.sessionKey;
+}
+
+for (const scheme of ["light", "dark"] as const) {
+  test.describe(scheme, () => {
+    test.use({ colorScheme: scheme });
+    test(`placeholder ${scheme}`, async ({ page, request }) => {
+      const topic = await createTopic(request, `placeholder-${scheme}-${Date.now()}`);
+      const key = await sessionKeyOf(request, topic.id);
+      try {
+        for (let i = 1; i <= 6; i++) await seedMessage(request, { sessionKey: key, role: i % 2 ? "user" : "assistant", content: `Row #${i}.` });
+        const name = `t7b-ph-${scheme}-${Date.now()}.png`;
+        const picture = await uploadPng(request, name, 900, 500);
+        await seedMessage(request, { sessionKey: key, role: "assistant", content: `PLACEHOLDER: the chart.\nMEDIA:${picture}` });
+        await resetPaneStore(request, [topic.id]);
+        await holdPicture(page, name, 8000);
+        await page.addInitScript((id) => localStorage.setItem("pane-store-focused-id", id), topic.id);
+        await page.goto("/");
+        const reply = page.locator(`[data-pane-shell="${topic.id}"] [data-testid="chat-message"]`).filter({ hasText: "PLACEHOLDER" });
+        await expect(reply).toBeVisible({ timeout: 20_000 });
+        const img = reply.getByTestId("media-image");
+        await page.waitForTimeout(800);
+        const info = await img.evaluate((el: HTMLImageElement) => ({ complete: el.complete, boxed: el.hasAttribute("data-media-box"), bg: getComputedStyle(el).backgroundColor, page: getComputedStyle(document.body).backgroundColor, h: Math.round(el.getBoundingClientRect().height), w: Math.round(el.getBoundingClientRect().width), dark: document.documentElement.classList.contains("dark") }));
+        console.log(`[placeholder:${scheme}] ${JSON.stringify(info)}`);
+        await reply.screenshot({ path: test.info().outputPath(`placeholder-${scheme}.png`) });
+        expect(info.boxed).toBe(true);
+      } finally {
+        await deleteTopic(request, topic.id).catch(() => {});
+      }
+    });
+  });
+}
