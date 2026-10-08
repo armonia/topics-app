@@ -26,6 +26,8 @@ export interface BrokerCursor {
   replayMute?: boolean;
   /** The one rewind we asked for, below the cursor: see `admitFrame`. */
   rewindFrom?: number;
+  /** A rewind given up before it landed (`abandonRewind`): the live frames it dropped are owed, from the cursor on. */
+  rewindLost?: boolean;
   aborting?: boolean;
   stoppedExit?: unknown;
   attachPending?: boolean;
@@ -64,6 +66,14 @@ export interface BrokerCursor {
  * Spending it when the next turn starts was refuted too: the refused turn goes
  * on as a woken turn, which is no send of ours, and the round trip that spent it
  * widened the window in which a wake folds into the new turn's row.
+ *
+ * A REWIND GIVEN UP OWES WHAT IT DROPPED. While it waits, the live frames are
+ * dropped because its replay will repeat them. If its attach fails (the 90 s ack
+ * cap keeps the socket up), the next live frame used to be folded past the
+ * cursor, and the replay that came late fell below it: the frames in between were
+ * lost (37 numbers out of 380, verification of T19). Now a frame past the cursor
+ * waits for one that starts at or below it: the late replay, a resync of the lag
+ * probe, or the tail fetched at the exit.
  */
 export function admitFrame(c: BrokerCursor, chunk: Buffer, offset: number): { chunk: Buffer; offset: number } | null {
   if (c.rewindFrom !== undefined) {
@@ -71,6 +81,7 @@ export function admitFrame(c: BrokerCursor, chunk: Buffer, offset: number): { ch
     c.rewindFrom = undefined;
     return folded(c, chunk, offset);
   }
+  if (c.rewindLost && offset > c.consumedOffset) return null;
   if (offset < c.consumedOffset && !c.replayMute) {
     const seen = c.consumedOffset - offset;
     if (seen >= chunk.byteLength) return null;
@@ -81,7 +92,15 @@ export function admitFrame(c: BrokerCursor, chunk: Buffer, offset: number): { ch
 
 function folded(c: BrokerCursor, chunk: Buffer, offset: number): { chunk: Buffer; offset: number } {
   c.reattachLive = false;
+  c.rewindLost = false;
   return { chunk, offset };
+}
+
+/** The rewind will not land (its attach failed, or the re-adoption did): what it dropped is owed (`admitFrame`). */
+export function abandonRewind(c: BrokerCursor): void {
+  if (c.rewindFrom === undefined) return;
+  c.rewindFrom = undefined;
+  c.rewindLost = true;
 }
 
 /**

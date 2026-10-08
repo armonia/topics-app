@@ -18,6 +18,11 @@
  * the first frame folded); the independent verifier refuted both, with the
  * second and the third. Only a scan cut short marks the cursor now.
  *
+ * And a fourth, on the same boundary: the re-adoption's rewind attach capped
+ * after it had dropped live frames (they wait for its replay). The next live
+ * frame was folded past them and the late replay fell below the cursor: 37
+ * numbers out of 380 never reached the row. A rewind given up now owes them.
+ *
  * Red on the code before. The scenarios and the CLI are the verifier's.
  *
  * @covers CCLI-04
@@ -63,6 +68,18 @@ function counting() {
     onError: (e: string) => end(`error:${e}`),
   };
   return { handler, done, get text() { return received; }, get deltas() { return deltas; }, get ended() { return ended; } };
+}
+const storeFile = (storeDir: string, sessionKey: string) => join(storeDir, `${sessionKey.replace(/[^A-Za-z0-9_.-]/g, "_")}.ndjson`);
+/** The numbers whose line starts at or past `from`, in store order. */
+function numbersFrom(store: string, from: number): number[] {
+  const out: number[] = [];
+  let at = 0;
+  for (const line of store.split("\n")) {
+    const m = /"text":"(\d+),"/.exec(line);
+    if (m && at >= from) out.push(Number(m[1]));
+    at += Buffer.byteLength(line) + 1;
+  }
+  return out;
 }
 function storeSize(storeDir: string, sessionKey: string): number {
   const p = join(storeDir, `${sessionKey.replace(/[^A-Za-z0-9_.-]/g, "_")}.ndjson`);
@@ -241,6 +258,73 @@ describe("claude-code provider · a re-adoption refused past its scan", () => {
       expect(next.text).toBe("x,");
       expect(next.ended).toBe("done");
     } finally {
+      ClaudeCodeProvider.observeWokenTurns(() => false);
+      second.stop();
+      try { client.kill(sessionKey); } catch { /* the child may be gone already */ }
+    }
+  }, 60_000);
+
+  test("a rewind capped after it dropped live frames owes them: the turn going on gets every number", async () => {
+    const { ClaudeCodeProvider } = await import("./claude-code");
+    const { getAiBridgeClient, BridgeAckStalled } = await import("../lib/ai-bridge-client");
+    const sessionKey = "topic:live-mark-rewind-capped";
+    await seedTopic(sessionKey, "t-live-mark-rewind-capped");
+    setEnv("TOPICS_CLAUDE_CLI_PATH", writeCli("rewind-capped.sh", `while read line; do
+  i=1
+  while [ $i -le 400 ]; do printf '{"type":"assistant","message":{"content":[{"type":"text","text":"%d,"}]}}\\n' $i; sleep 0.005; i=$((i+1)); done
+  printf '%s\\n' '${RESULT}'
+done`));
+    const client: any = getAiBridgeClient();
+    // Server 1: the CLI writes a number every 5 ms.
+    const first = await newProvider();
+    const s1 = counting();
+    void first.sendChat(sessionKey, "go", s1.handler).catch(() => {});
+    let until = Date.now() + 10_000;
+    while (s1.deltas < 20 && Date.now() < until) await pause(10);
+    first.stop();
+    first.processes = new Map();
+    const second = await newProvider();
+    // The re-adoption's second attach (the rewind) goes out while the pipe from the daemon is congested: our live
+    // frames keep arriving for 300 ms and are dropped (the rewind waits), then the pipe backs up, the daemon reads
+    // the attach late, and the ack waiter hits its cap, which keeps the socket. The backlog drains after.
+    const realAttach = client.attach.bind(client);
+    const realFrame = client.handleFrame.bind(client);
+    let held: any[] | null = null;
+    client.handleFrame = (m: any) => { if (held && m?.id === sessionKey) { held.push(m); return; } realFrame(m); };
+    let attaches = 0;
+    let scanEnd = -1;
+    client.attach = async (id: string, from: number, attempts?: number) => {
+      if (id === sessionKey && ++attaches === 2) {
+        scanEnd = second.processes.get(sessionKey).consumedOffset;
+        await pause(300);
+        held = [];
+        await pause(60);
+        realAttach(id, from, attempts).catch(() => {});
+        await pause(60);
+        throw new BridgeAckStalled(`ai-bridge: ack timeout (attach ${id}, cap 90s)`, false);
+      }
+      return realAttach(id, from, attempts);
+    };
+    const wake = counting();
+    ClaudeCodeProvider.observeWokenTurns((sk) => sk === sessionKey && second.adoptWokenTurn(sk, wake.handler));
+    try {
+      await second.reattach(sessionKey, counting().handler);
+      client.attach = realAttach;
+      const backlog = held ?? [];
+      held = null;
+      for (const m of backlog) realFrame(m);
+      until = Date.now() + 10_000;
+      while (wake.ended === null && Date.now() < until) await pause(20);
+      await pause(300);
+      const owed = numbersFrom(readFileSync(storeFile(client.storeDir, sessionKey), "utf8"), scanEnd);
+      const got = wake.text.split(",").filter(Boolean).map(Number);
+      expect(wake.ended).toBe("done");
+      expect(owed.length, "the turn went on past the scan").toBeGreaterThan(100);
+      expect(owed.filter((n) => !got.includes(n)), "numbers past the scan that never reached the row").toEqual([]);
+    } finally {
+      client.attach = realAttach;
+      client.handleFrame = realFrame;
+      held = null;
       ClaudeCodeProvider.observeWokenTurns(() => false);
       second.stop();
       try { client.kill(sessionKey); } catch { /* the child may be gone already */ }

@@ -60,7 +60,7 @@ import {
   readCommandOutcome,
   readSyntheticText,
 } from "./claude/events";
-import { admitFrame, closeAfterTail } from "./claude/broker-cursor";
+import { abandonRewind, admitFrame, closeAfterTail } from "./claude/broker-cursor";
 import { isWokenTurnLine, bufferWoken, drainWoken, unattendedLineFate, type WakeObserver, type HeldEvent } from "./claude/woken-turn";
 import { resolveWakeSource } from "./claude/wake-source";
 import { attentionBackgroundOf, type AttentionBackground, backgroundWorkKey, closedWork, type ClosedWork, datedByLastWrite, describeBackgroundWork, hasArmedCron, hasLiveTasks, hasTaskWork, isBackgroundWorkAlive, isWakeQueued, newBackgroundWork, noteBackgroundLine, wakeQueuedUntil, type BackgroundWork, type BackgroundWorkDetail } from "./claude/background-work";
@@ -3571,7 +3571,7 @@ export class ClaudeCodeProvider implements AIProvider {
         try {
           if (own) { pp.replaySilent = true; pp.rewindFrom = own.from; dateReplay(pp, await client.attach(sessionKey, own.from)); }
           if (pp.streamHandler === handler && pp.replayLastResult) this.handleStreamEvent(pp, pp.replayLastResult); // the replay did not reach it
-        } finally { pp.replaySilent = false; pp.rewindFrom = undefined; release(); }
+        } finally { pp.replaySilent = false; abandonRewind(pp); release(); }
         return "completed";
       }
       // Empty store (child idle since spawn, or nothing meaningful): nothing
@@ -3661,7 +3661,7 @@ export class ClaudeCodeProvider implements AIProvider {
     // torna e ricomincia a consegnare, un turno vivo scorrerebbe muto.
     pp.replayMute = false;
     pp.replaySilent = false;
-    pp.rewindFrom = undefined; // a rewind still awaited would drop every frame from here on
+    abandonRewind(pp); // a rewind still awaited would drop every frame from here on; what it dropped is owed
     // No `reattachLive` here: past the scan the cursor is exact, and a live re-attach skipped real bytes (T19).
     if (pp.pendingResolve) {
       const r = pp.pendingResolve;
