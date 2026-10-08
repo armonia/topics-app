@@ -255,6 +255,51 @@ describe("claude-code provider · a live turn catches up by itself (B1)", () => 
   }, 40_000);
 });
 
+describe("claude-code provider · a child that wakes by itself is heard (woken turn)", () => {
+  test("detached between turns, the child opens a turn of its own: its bytes reach us within 15 s", async () => {
+    // No stream is open while the child is idle, so neither the route's grace
+    // nor the stale-stream sweep looks at it: before the probe nothing would
+    // ever notice that the wake (a Monitor, a background task reporting) was
+    // written to a store nobody reads.
+    const sessionKey = "topic:lag-woken";
+    await seedTopic(sessionKey, "t-lag-woken");
+    const cli = join(tempDir, "cli-woken.sh");
+    writeFileSync(cli, `#!/bin/sh
+while read line; do
+  printf '{"type":"result","result":"first","usage":{"input_tokens":1,"output_tokens":1},"duration_ms":1,"total_cost_usd":0}\\n'
+  sleep 2
+  i=1
+  while [ $i -le 40 ]; do
+    printf '{"type":"assistant","message":{"content":[{"type":"text","text":"w%d,"}]}}\\n' $i
+    sleep 0.05
+    i=$((i+1))
+  done
+done
+`);
+    chmodSync(cli, 0o755);
+    setEnv("TOPICS_CLAUDE_CLI_PATH", cli);
+    const { ClaudeCodeProvider } = await import("./claude-code");
+    const { getAiBridgeClient } = await import("../lib/ai-bridge-client");
+    const provider: any = new ClaudeCodeProvider({ type: "claude-code", defaultWorkspace: tempDir });
+    provider.start();
+    const sink = counting();
+    try {
+      await provider.sendChat(sessionKey, "go", sink.handler);
+      expect(sink.ended).toBe("done");
+      // Deaf between turns: the wake below lands in the store only.
+      const cutAt = Date.now();
+      getAiBridgeClient().detach(sessionKey);
+      await waitBehind(provider, sessionKey, 200);
+      const ms = await msToAlign(provider, sessionKey, ALIGN_BUDGET_MS, cutAt);
+      console.log(`[T18 woken] aligned after ${ms === null ? `>${ALIGN_BUDGET_MS}` : ms} ms`);
+      expect(ms).not.toBeNull();
+    } finally {
+      provider.stop();
+      try { getAiBridgeClient().kill(sessionKey); } catch { /* gone */ }
+    }
+  }, 40_000);
+});
+
 describe("claude-code provider · a rescue that cannot act says why (B2)", () => {
   test("the daemon holds a live child no process of ours drives: the rescue re-attaches nothing and says so", async () => {
     const sessionKey = "topic:lag-orphan";
