@@ -1,5 +1,48 @@
 [
   {
+    "version": "2.2.459",
+    "date": "2026-10-08",
+    "sections": {
+      "new": [
+        {
+          "text": "show_view, the agent sends data and Topics draws it",
+          "scope": "views"
+        },
+        {
+          "text": "table and timeline views, and the views as MCP Apps resources",
+          "scope": "views"
+        }
+      ],
+      "fixes": [
+        {
+          "text": "a spawned agent's page opens in its parent chat's window",
+          "scope": "browser"
+        },
+        {
+          "text": "CI gates on #259",
+          "scope": "views"
+        },
+        {
+          "text": "ciò che si scrive mentre la chat si apre è ciò che parte",
+          "scope": "chat"
+        },
+        {
+          "text": "the rest of the CI gates on #259",
+          "scope": "views"
+        },
+        {
+          "text": "la sonda non riattacca un figlio adottato prima che il suo aggancio atterri",
+          "scope": "claude-code"
+        },
+        {
+          "text": "CI-only reds of #259",
+          "scope": "views"
+        }
+      ],
+      "perf": []
+    }
+  },
+  {
     "version": "2.2.458",
     "date": "2026-10-08",
     "sections": {
@@ -8,9 +51,38 @@
         {
           "text": "il log di una riga si apre sotto di lei, come suo contenuto",
           "scope": "chat"
+        },
+        {
+          "text": "il riaggancio delle sessioni vive parte con la connessione, chiunque la apra",
+          "scope": "ai-bridge"
+        },
+        {
+          "text": "con il fuoco in una tab browser nativa gli spinner non si fermano piu'",
+          "scope": "anim"
+        },
+        {
+          "text": "un soccorso che non puo' agire lo dice, con il motivo",
+          "scope": "stale-stream"
+        },
+        {
+          "text": "con due proprietari della sessione risponde quello che ha il turno vivo",
+          "scope": "providers"
+        },
+        {
+          "text": "i quattro cancelli statici che i commit T18 avevano fatto diventare rossi",
+          "scope": "gates"
+        },
+        {
+          "text": "la citazione nello spec B3 in inglese, come vuole check:comment-language",
+          "scope": "gates"
         }
       ],
-      "perf": []
+      "perf": [
+        {
+          "text": "lo stato «lista sopra le pagine» in un modulo suo, fuori dal bundle di avvio",
+          "scope": "browser"
+        }
+      ]
     }
   },
   {
@@ -29,6 +101,10 @@
           "scope": "server"
         },
         {
+          "text": "cleanupTestDataDir rimette DATA_DIR, system-notices non legge il DB di born-seen",
+          "scope": "test"
+        },
+        {
           "text": "tool-result-clamp riparte dal fondo solo a riga aperta",
           "scope": "test"
         },
@@ -45,12 +121,32 @@
           "scope": "native-parity"
         },
         {
+          "text": "projectSidebarHeights rimette i globali come li ha trovati, non lascia il localStorage finto",
+          "scope": "test"
+        },
+        {
           "text": "una scadenza di git non è «non è un repo»",
           "scope": "native-parity"
         },
         {
+          "text": "una chiave DOM rimessa a undefined è una perdita; la guardia del preload la conta",
+          "scope": "test"
+        },
+        {
           "text": "striscia senza tetto, e la presa di un toggle non perde il pin",
           "scope": "chat"
+        },
+        {
+          "text": "sul telefono la lista aperta non sta piu' sotto la pagina di una tab browser",
+          "scope": "browser"
+        },
+        {
+          "text": "un riattacco non ripiega mai due volte lo stesso byte",
+          "scope": "claude-code"
+        },
+        {
+          "text": "uno stream rimasto indietro si riallinea da solo in pochi secondi",
+          "scope": "claude-code"
         }
       ],
       "perf": []

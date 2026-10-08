@@ -2,10 +2,53 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.2.459 — 2026-10-08
+
+### Novità
+- **views** · show_view, the agent sends data and Topics draws it
+- **views** · table and timeline views, and the views as MCP Apps resources
+
+### Correzioni
+- **browser** · a spawned agent's page opens in its parent chat's window
+- **views** · CI gates on #259
+- **chat** · ciò che si scrive mentre la chat si apre è ciò che parte
+- **views** · the rest of the CI gates on #259
+- **claude-code** · la sonda non riattacca un figlio adottato prima che il suo aggancio atterri
+- **views** · CI-only reds of #259
+
+### Sotto il cofano
+- **openspec** · VERIFICA, T18 e il fix della sonda
+- **chat** · TypedInput al posto di Keystroke, che il controllo dei nomi non conosce
+
 ## 2.2.458 — 2026-10-08
 
 ### Correzioni
 - **chat** · il log di una riga si apre sotto di lei, come suo contenuto
+- **ai-bridge** · il riaggancio delle sessioni vive parte con la connessione, chiunque la apra
+- **anim** · con il fuoco in una tab browser nativa gli spinner non si fermano piu'
+- **stale-stream** · un soccorso che non puo' agire lo dice, con il motivo
+- **providers** · con due proprietari della sessione risponde quello che ha il turno vivo
+- **gates** · i quattro cancelli statici che i commit T18 avevano fatto diventare rossi
+- **gates** · la citazione nello spec B3 in inglese, come vuole check:comment-language
+
+### Prestazioni
+- **browser** · lo stato «lista sopra le pagine» in un modulo suo, fuori dal bundle di avvio
+
+### Sotto il cofano
+- **browser** · answerAtCenter, non answerAtCentre: check:identifier-language non conosce la grafia britannica
+- **openspec** · REPORT T17, bozza con B1-B3 e le tre risposte; barra del dopo in corso
+- **openspec** · REPORT di T15, le perdite d'ordine della suite
+- **openspec** · REPORT T17, il modulo frameCover e il bundle; barra del dopo in corso
+- **openspec** · VERIFICA, T15 e gli spinner fermi con il fuoco in una tab browser nativa
+- **claude-code** · un turno aperto dal figlio da solo arriva anche dopo un distacco
+- **openspec** · REPORT T17, barra del dopo e il rosso preesistente di system-notices
+- **e2e** · la spec della lista sopra la pagina di una tab browser gira anche in WebKit, il motore che esce
+- **openspec** · VERIFICA, T17
+- **e2e** · un socket del browser che cade a meta' turno torna al turno intero senza ricaricare
+- **e2e** · i .deb dei browser di Playwright da una cache, non dal mirror che si ferma
+- **e2e** · la cache dei .deb segue l'immagine del runner e non accumula versioni vecchie
+- **openspec** · REPORT T18, la chat in corso si riallinea da sola
+- **openspec** · REPORT T18, costo finale del sottoagente della barra
 
 ## 2.2.457 — 2026-10-08
 
@@ -14,27 +57,39 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 
 ### Correzioni
 - **server** · i processi esterni arrivati con main dentro le guardie di T5
+- **test** · cleanupTestDataDir rimette DATA_DIR, system-notices non legge il DB di born-seen
 - **test** · tool-result-clamp riparte dal fondo solo a riga aperta
 - **sidecar-smoke** · su Windows uno smoke passato usciva 143 in pulizia
 - **native-auth** · il turno legge il Portachiavi senza fermare il loop
 - **native-parity** · la radice git della memoria non si chiede più a ogni turno
+- **test** · projectSidebarHeights rimette i globali come li ha trovati, non lascia il localStorage finto
 - **native-parity** · una scadenza di git non è «non è un repo»
+- **test** · una chiave DOM rimessa a undefined è una perdita; la guardia del preload la conta
 - **chat** · striscia senza tetto, e la presa di un toggle non perde il pin
+- **browser** · sul telefono la lista aperta non sta piu' sotto la pagina di una tab browser
+- **claude-code** · un riattacco non ripiega mai due volte lo stesso byte
+- **claude-code** · uno stream rimasto indietro si riallinea da solo in pochi secondi
 
 ### Sotto il cofano
 - **openspec** · REPORT di T14, runBounded nei runner di git
+- **openspec** · cloud-quality-pass, traccia T15 per le perdite d'ordine della suite
 - **bun** · una versione sola, 1.4.2 in .bun-version, per CI, release e produzione
 - **openspec** · cloud-quality-pass, traccia T16 per un turno nativo senza spawn sincroni
 - **sidecar** · il server compilato parte davvero su macOS, Windows e Linux
 - **openspec** · VERIFICA, come la sessione madre ha controllato ogni consegna cloud
 - **e2e** · aggiorna durate shard dal nightly del 2026-10-08 [skip ci]
+- **openspec** · _comuni.md, Setup installa anche WebKit (RECAPTURE-01 era la VM)
 - **native-parity** · il memo della radice git si prova dalla risposta, anche su Bun 1.3.8
 - **openspec** · REPORT T16, turno nativo senza spawn sincroni (barra dopo in corso)
+- **openspec** · REPORT T16, barra dopo (gate 0, bundle 0, unit 1 rosso non della traccia)
 - **openspec** · VERIFICA, Bun unica, sidecar in CI e T16
 - **openspec** · REPORT T13, la chat ferma sopra il fondo in tool-result-clamp
 - **openspec** · REPORT T13, il ramo claude/ della sessione
 - **chat** · il commento del ResizeObserver non promette piu' un secondo passaggio
 - **openspec** · VERIFICA, T13
+- **openspec** · brief T17, il banner del bundle sotto l'iframe del browser sul telefono
+- **openspec** · brief T18, una chat in corso non resta indietro
+- **browser** · la spec della lista sul telefono riapre la lista sopra una pagina gia' davanti
 
 ## 2.2.456 — 2026-10-08
 
@@ -185,6 +240,7 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 - **openspec** · REPORT T9, il loop del server senza spawn sincroni
 - **openspec** · traccia T7b, il sipario non aspetta un'immagine che ha gia' il riquadro
 - **openspec** · regole comuni, il codice server si prova anche su Bun 1.3.8
+- **openspec** · REPORT T7, barra finale e il flaky preesistente
 - **openspec** · CHAT-MEDIA-BOX-01, il sipario e la bolla di chi allega
 - **cloud-quality-pass** · REPORT di T2b, l'età della card avanza da sola
 - **cloud-quality-pass** · REPORT di T2b, costo vero del sottoagente Haiku

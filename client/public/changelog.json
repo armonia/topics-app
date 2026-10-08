@@ -1,5 +1,78 @@
 [
   {
+    "version": "2.2.459",
+    "date": "2026-10-08",
+    "sections": {
+      "new": [
+        {
+          "it": "show_view, the agent sends data and Topics draws it",
+          "en": "",
+          "scope": "views",
+          "breaking": false
+        },
+        {
+          "it": "table and timeline views, and the views as MCP Apps resources",
+          "en": "",
+          "scope": "views",
+          "breaking": false
+        }
+      ],
+      "fixes": [
+        {
+          "it": "a spawned agent's page opens in its parent chat's window",
+          "en": "",
+          "scope": "browser",
+          "breaking": false
+        },
+        {
+          "it": "CI gates on #259",
+          "en": "",
+          "scope": "views",
+          "breaking": false
+        },
+        {
+          "it": "ciò che si scrive mentre la chat si apre è ciò che parte",
+          "en": "",
+          "scope": "chat",
+          "breaking": false
+        },
+        {
+          "it": "the rest of the CI gates on #259",
+          "en": "",
+          "scope": "views",
+          "breaking": false
+        },
+        {
+          "it": "la sonda non riattacca un figlio adottato prima che il suo aggancio atterri",
+          "en": "",
+          "scope": "claude-code",
+          "breaking": false
+        },
+        {
+          "it": "CI-only reds of #259",
+          "en": "",
+          "scope": "views",
+          "breaking": false
+        }
+      ],
+      "perf": [],
+      "internal": [
+        {
+          "it": "VERIFICA, T18 e il fix della sonda",
+          "en": "",
+          "scope": "openspec",
+          "breaking": false
+        },
+        {
+          "it": "TypedInput al posto di Keystroke, che il controllo dei nomi non conosce",
+          "en": "",
+          "scope": "chat",
+          "breaking": false
+        }
+      ]
+    }
+  },
+  {
     "version": "2.2.458",
     "date": "2026-10-08",
     "sections": {
@@ -10,10 +83,138 @@
           "en": "",
           "scope": "chat",
           "breaking": false
+        },
+        {
+          "it": "il riaggancio delle sessioni vive parte con la connessione, chiunque la apra",
+          "en": "",
+          "scope": "ai-bridge",
+          "breaking": false
+        },
+        {
+          "it": "con il fuoco in una tab browser nativa gli spinner non si fermano piu'",
+          "en": "",
+          "scope": "anim",
+          "breaking": false
+        },
+        {
+          "it": "un soccorso che non puo' agire lo dice, con il motivo",
+          "en": "",
+          "scope": "stale-stream",
+          "breaking": false
+        },
+        {
+          "it": "con due proprietari della sessione risponde quello che ha il turno vivo",
+          "en": "",
+          "scope": "providers",
+          "breaking": false
+        },
+        {
+          "it": "i quattro cancelli statici che i commit T18 avevano fatto diventare rossi",
+          "en": "",
+          "scope": "gates",
+          "breaking": false
+        },
+        {
+          "it": "la citazione nello spec B3 in inglese, come vuole check:comment-language",
+          "en": "",
+          "scope": "gates",
+          "breaking": false
         }
       ],
-      "perf": [],
-      "internal": []
+      "perf": [
+        {
+          "it": "lo stato «lista sopra le pagine» in un modulo suo, fuori dal bundle di avvio",
+          "en": "",
+          "scope": "browser",
+          "breaking": false
+        }
+      ],
+      "internal": [
+        {
+          "it": "answerAtCenter, non answerAtCentre: check:identifier-language non conosce la grafia britannica",
+          "en": "",
+          "scope": "browser",
+          "breaking": false
+        },
+        {
+          "it": "REPORT T17, bozza con B1-B3 e le tre risposte; barra del dopo in corso",
+          "en": "",
+          "scope": "openspec",
+          "breaking": false
+        },
+        {
+          "it": "REPORT di T15, le perdite d'ordine della suite",
+          "en": "",
+          "scope": "openspec",
+          "breaking": false
+        },
+        {
+          "it": "REPORT T17, il modulo frameCover e il bundle; barra del dopo in corso",
+          "en": "",
+          "scope": "openspec",
+          "breaking": false
+        },
+        {
+          "it": "VERIFICA, T15 e gli spinner fermi con il fuoco in una tab browser nativa",
+          "en": "",
+          "scope": "openspec",
+          "breaking": false
+        },
+        {
+          "it": "un turno aperto dal figlio da solo arriva anche dopo un distacco",
+          "en": "",
+          "scope": "claude-code",
+          "breaking": false
+        },
+        {
+          "it": "REPORT T17, barra del dopo e il rosso preesistente di system-notices",
+          "en": "",
+          "scope": "openspec",
+          "breaking": false
+        },
+        {
+          "it": "la spec della lista sopra la pagina di una tab browser gira anche in WebKit, il motore che esce",
+          "en": "",
+          "scope": "e2e",
+          "breaking": false
+        },
+        {
+          "it": "VERIFICA, T17",
+          "en": "",
+          "scope": "openspec",
+          "breaking": false
+        },
+        {
+          "it": "un socket del browser che cade a meta' turno torna al turno intero senza ricaricare",
+          "en": "",
+          "scope": "e2e",
+          "breaking": false
+        },
+        {
+          "it": "i .deb dei browser di Playwright da una cache, non dal mirror che si ferma",
+          "en": "",
+          "scope": "e2e",
+          "breaking": false
+        },
+        {
+          "it": "la cache dei .deb segue l'immagine del runner e non accumula versioni vecchie",
+          "en": "",
+          "scope": "e2e",
+          "breaking": false
+        },
+        {
+          "it": "REPORT T18, la chat in corso si riallinea da sola",
+          "en": "",
+          "scope": "openspec",
+          "breaking": false
+        },
+        {
+          "it": "REPORT T18, costo finale del sottoagente della barra",
+          "en": "",
+          "scope": "openspec",
+          "breaking": false
+        }
+      ]
     }
   },
   {
@@ -33,6 +234,12 @@
           "it": "i processi esterni arrivati con main dentro le guardie di T5",
           "en": "",
           "scope": "server",
+          "breaking": false
+        },
+        {
+          "it": "cleanupTestDataDir rimette DATA_DIR, system-notices non legge il DB di born-seen",
+          "en": "",
+          "scope": "test",
           "breaking": false
         },
         {
@@ -60,9 +267,21 @@
           "breaking": false
         },
         {
+          "it": "projectSidebarHeights rimette i globali come li ha trovati, non lascia il localStorage finto",
+          "en": "",
+          "scope": "test",
+          "breaking": false
+        },
+        {
           "it": "una scadenza di git non è «non è un repo»",
           "en": "",
           "scope": "native-parity",
+          "breaking": false
+        },
+        {
+          "it": "una chiave DOM rimessa a undefined è una perdita; la guardia del preload la conta",
+          "en": "",
+          "scope": "test",
           "breaking": false
         },
         {
@@ -70,12 +289,36 @@
           "en": "",
           "scope": "chat",
           "breaking": false
+        },
+        {
+          "it": "sul telefono la lista aperta non sta piu' sotto la pagina di una tab browser",
+          "en": "",
+          "scope": "browser",
+          "breaking": false
+        },
+        {
+          "it": "un riattacco non ripiega mai due volte lo stesso byte",
+          "en": "",
+          "scope": "claude-code",
+          "breaking": false
+        },
+        {
+          "it": "uno stream rimasto indietro si riallinea da solo in pochi secondi",
+          "en": "",
+          "scope": "claude-code",
+          "breaking": false
         }
       ],
       "perf": [],
       "internal": [
         {
           "it": "REPORT di T14, runBounded nei runner di git",
+          "en": "",
+          "scope": "openspec",
+          "breaking": false
+        },
+        {
+          "it": "cloud-quality-pass, traccia T15 per le perdite d'ordine della suite",
           "en": "",
           "scope": "openspec",
           "breaking": false
@@ -111,6 +354,12 @@
           "breaking": false
         },
         {
+          "it": "_comuni.md, Setup installa anche WebKit (RECAPTURE-01 era la VM)",
+          "en": "",
+          "scope": "openspec",
+          "breaking": false
+        },
+        {
           "it": "il memo della radice git si prova dalla risposta, anche su Bun 1.3.8",
           "en": "",
           "scope": "native-parity",
@@ -118,6 +367,12 @@
         },
         {
           "it": "REPORT T16, turno nativo senza spawn sincroni (barra dopo in corso)",
+          "en": "",
+          "scope": "openspec",
+          "breaking": false
+        },
+        {
+          "it": "REPORT T16, barra dopo (gate 0, bundle 0, unit 1 rosso non della traccia)",
           "en": "",
           "scope": "openspec",
           "breaking": false
@@ -150,6 +405,24 @@
           "it": "VERIFICA, T13",
           "en": "",
           "scope": "openspec",
+          "breaking": false
+        },
+        {
+          "it": "brief T17, il banner del bundle sotto l'iframe del browser sul telefono",
+          "en": "",
+          "scope": "openspec",
+          "breaking": false
+        },
+        {
+          "it": "brief T18, una chat in corso non resta indietro",
+          "en": "",
+          "scope": "openspec",
+          "breaking": false
+        },
+        {
+          "it": "la spec della lista sul telefono riapre la lista sopra una pagina gia' davanti",
+          "en": "",
+          "scope": "browser",
           "breaking": false
         }
       ]
@@ -1000,6 +1273,12 @@
         },
         {
           "it": "regole comuni, il codice server si prova anche su Bun 1.3.8",
+          "en": "",
+          "scope": "openspec",
+          "breaking": false
+        },
+        {
+          "it": "REPORT T7, barra finale e il flaky preesistente",
           "en": "",
           "scope": "openspec",
           "breaking": false
