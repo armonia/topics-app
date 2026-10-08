@@ -2,7 +2,7 @@
  * The tail of a broker turn is never lost (T19).
  *
  * Each case drives a REAL ai-bridge daemon and a fake CLI, on the path T18
- * aligned (`claude-code-stream-lag.test.ts`), through two holes it left:
+ * aligned (`claude-code-stream-lag.test.ts`), through the three holes it left:
  *
  *  - B1-B3: the child writes its final text and its `result` while we are
  *    detached, then exits. The daemon's `exit` is a broadcast, so it reaches us
@@ -14,6 +14,9 @@
  *  - B4: the second attach of a re-adoption (phase 2) rewinds to the start of
  *    the open turn while the scan's attach still delivers live frames: a frame
  *    folded live in between was folded again by the replay.
+ *  - B4b: a re-adoption that failed left the cursor where the scan stopped,
+ *    0 included, and the next re-attach (the reconnect hook, the lag probe)
+ *    replayed the child's history unmuted: old lines opened a "woken" turn.
  * @covers CCLI-04
  */
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
@@ -300,4 +303,111 @@ describe("claude-code provider · a re-adoption under a child that keeps writing
       try { client.kill(sessionKey); } catch { /* gone */ }
     }
   }, 40_000);
+});
+
+describe("claude-code provider · after a failed re-adoption the next re-attach is live (B4b)", () => {
+  /** Server 1 runs one whole turn; its child stays idle in the daemon. Server 2's re-adoption then fails at the scan. */
+  async function failedReadoption(sessionKey: string, failScan: (client: any) => void) {
+    await seedTopic(sessionKey, sessionKey.replace(/\W/g, "-"));
+    setEnv("TOPICS_CLAUDE_CLI_PATH", writeCli(`${sessionKey.replace(/\W/g, "_")}.sh`, `while read line; do
+  printf '%s\\n' '${text("old1,")}' '${text("old2,")}' '${RESULT}'
+done`));
+    const { ClaudeCodeProvider } = await import("./claude-code");
+    const { getAiBridgeClient } = await import("../lib/ai-bridge-client");
+    const client: any = getAiBridgeClient();
+    const first = await newProvider();
+    const turn1 = counting();
+    await first.sendChat(sessionKey, "first", turn1.handler);
+    expect(turn1.text).toBe("old1,old2,");
+    first.stop();
+    first.processes = new Map();
+    const second = await newProvider();
+    const wakes: string[] = [];
+    ClaudeCodeProvider.observeWokenTurns((sk: string) => { if (sk === sessionKey) wakes.push(sk); });
+    failScan(client);
+    const sink = counting();
+    const outcome = await second.reattach(sessionKey, sink.handler);
+    expect(outcome).toBe("dead");
+    expect(sink.ended?.startsWith("error:Riadozione del turno non riuscita")).toBe(true);
+    const pp = second.processes.get(sessionKey);
+    expect(pp?.alive).toBe(true); // kept, so the reconnect can heal it
+    return { second, client, wakes, pp, ClaudeCodeProvider };
+  }
+
+  /** What a woken turn would hold: the old answer read again as a new message. */
+  function heldText(pp: any): string {
+    return (pp?.wokenBuffer ?? []).map((h: any) => h.event?.message?.content?.[0]?.text ?? "").join("");
+  }
+
+  test("the scan is cut by a dropped socket, the reconnect re-attaches: no old line folds again", async () => {
+    const sessionKey = "topic:tail-failed-reconnect";
+    let ctx: any;
+    try {
+      ctx = await failedReadoption(sessionKey, (client) => {
+        // The scan's frame leaves and the socket dies under it; the retry's
+        // connect fails once (swap, the spawn cap), so the scan gives up. The
+        // reconnect scheduled by `close` then succeeds and owes the re-attach.
+        const realSend = client.send.bind(client);
+        const realEnsure = client.ensureConnected.bind(client);
+        let cut = false;
+        let refused = false;
+        client.send = (m: any) => {
+          if (!cut && m?.type === "attach" && m.id === sessionKey) {
+            cut = true;
+            client.send = realSend;
+            client.ensureConnected = () => {
+              if (!refused) { refused = true; client.ensureConnected = realEnsure; return Promise.reject(new Error("ai-bridge: failed to connect after spawning daemon")); }
+              return realEnsure();
+            };
+            const ok = realSend(m);
+            client.socket?.destroy();
+            return ok;
+          }
+          return realSend(m);
+        };
+      });
+      const { second, client, wakes, pp } = ctx;
+      const until = Date.now() + 8_000;
+      const size = () => storeSize(client.storeDir, sessionKey);
+      while (Date.now() < until && !(client.ready && pp.consumedOffset >= size() && !pp.resyncing)) await pause(50);
+      await pause(300);
+      console.log(`[T19 B4b reconnect] wakes ${wakes.length}, held "${heldText(pp)}", cursor ${pp.consumedOffset}/${size()}`);
+      expect(wakes).toEqual([]);
+      expect(heldText(pp)).toBe("");
+      expect(pp.consumedOffset).toBe(size());
+      void second;
+    } finally {
+      ctx?.ClaudeCodeProvider.observeWokenTurns(null as any);
+      ctx?.second.stop();
+      try { ctx?.client.kill(sessionKey); } catch { /* gone */ }
+    }
+  }, 30_000);
+
+  test("the scan's ack times out, the lag probe re-attaches: no old line folds again", async () => {
+    const sessionKey = "topic:tail-failed-probe";
+    let ctx: any;
+    try {
+      ctx = await failedReadoption(sessionKey, (client) => {
+        const realAttach = client.attach.bind(client);
+        client.attach = async (id: string, from: number, attempts?: number) => {
+          if (id === sessionKey) { client.attach = realAttach; throw new Error("ai-bridge: ack timeout (attach, muto da 15s)"); }
+          return realAttach(id, from, attempts);
+        };
+      });
+      const { second, client, wakes, pp } = ctx;
+      // Two rounds see the same gap (4 s apart in production), the second acts.
+      await second.probeStreamLag();
+      await second.probeStreamLag();
+      await pause(300);
+      const size = storeSize(client.storeDir, sessionKey);
+      console.log(`[T19 B4b probe] wakes ${wakes.length}, held "${heldText(pp)}", cursor ${pp.consumedOffset}/${size}`);
+      expect(wakes).toEqual([]);
+      expect(heldText(pp)).toBe("");
+      expect(pp.consumedOffset).toBe(size);
+    } finally {
+      ctx?.ClaudeCodeProvider.observeWokenTurns(null as any);
+      ctx?.second.stop();
+      try { ctx?.client.kill(sessionKey); } catch { /* gone */ }
+    }
+  }, 30_000);
 });

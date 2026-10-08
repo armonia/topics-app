@@ -690,12 +690,12 @@ export class AiBridgeClient {
    * MAX_SAFE_INTEGER would wrap to 0 and replay everything) — so we read the
    * current `endOffset` from `list` and attach there. Bytes appended between
    * the two round-trips are still delivered: `attach` replays [from, endOffset]
-   * as of when it lands.
+   * as of when it lands. `attempts: 1` (the lag probe's): neither round trip recycles the socket.
    */
-  async attachLive(id: string): Promise<AttachResult & { fromOffset: number }> {
-    const info = (await this.list()).find((s) => s.id === id);
+  async attachLive(id: string, attempts?: number): Promise<AttachResult & { fromOffset: number }> {
+    const info = (await (attempts === 1 ? this.peekSessions() : this.list())).find((s) => s.id === id);
     const fromOffset = info?.endOffset ?? 0;
-    return { ...(await this.attach(id, fromOffset)), fromOffset };
+    return { ...(await this.attach(id, fromOffset, attempts)), fromOffset };
   }
 
   /**

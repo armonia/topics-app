@@ -984,6 +984,8 @@ interface PersistentProcess {
   attachPending?: boolean;
   /** The offset of the one rewind below `consumedOffset` the reattach asked for, until it lands (`admitFrame`). */
   rewindFrom?: number;
+  /** Left by a failed re-adoption: `consumedOffset` is where its scan stopped, so the next resync attaches live. */
+  reattachLive?: boolean;
   /** True while replaying buffered NDJSON on reattach — suppresses live-only
    *  client side effects (onUserInputRequired) while in-memory state rebuilds. */
   replaySilent?: boolean;
@@ -3359,7 +3361,9 @@ export class ClaudeCodeProvider implements AIProvider {
     // already moved — reading it after would log the destination, not the gap.
     const from = pp.consumedOffset;
     try {
-      const res = await getAiBridgeClient().attach(sessionKey, from, attempts);
+      const live = pp.reattachLive ? await getAiBridgeClient().attachLive(sessionKey, attempts) : null; // `finalizeFailedReattach`
+      const res = live ?? await getAiBridgeClient().attach(sessionKey, from, attempts);
+      if (live) { pp.reattachLive = false; pp.consumedOffset = Math.max(pp.consumedOffset, live.fromOffset); }
       // A LIVE daemon answering "I don't have that session" (or "its child is
       // gone") is proof the child died: the daemon is the authority on that,
       // and if it died WITH the daemon (daemon crash, then the client respawns
@@ -3385,7 +3389,7 @@ export class ClaudeCodeProvider implements AIProvider {
         this.finalizeDeadReattach(pp, cause);
         return false;
       }
-      console.log(`[claude-code] Stream resync for ${sessionKey}: re-attached from offset ${from}, recovered ${Math.max(0, res.endOffset - from)} byte(s)`);
+      console.log(`[claude-code] Stream resync for ${sessionKey}: ${live ? `attached live at offset ${live.fromOffset}, past the history a failed re-adoption left` : `re-attached from offset ${from}, recovered ${Math.max(0, res.endOffset - from)} byte(s)`}`);
       return true;
     } catch (err: any) {
       console.warn(`[claude-code] Stream resync failed for ${sessionKey}: ${err?.message ?? err}`);
@@ -3598,12 +3602,10 @@ export class ClaudeCodeProvider implements AIProvider {
     // rejection: the whole server went down. The awaits below still see it.
     turnDone.catch(() => {});
 
-    // A rewind below the cursor the scan carried to the end, named by its offset: the scan's attach is
-    // still live, and the frames it delivers meanwhile are the replay's to fold (`admitFrame`, T19).
+    // A rewind below the scan's cursor, named: what the scan's live attach delivers meanwhile is the replay's (`admitFrame`).
     pp.rewindFrom = own?.from ?? pp.replayAfterLastResultOffset ?? 0;
     const res = await client.attach(sessionKey, pp.rewindFrom);
-    pp.replaySilent = false;
-    pp.rewindFrom = undefined;
+    pp.replaySilent = false; pp.rewindFrom = undefined;
     dateReplay(pp, res);
 
     // Replay is fully folded now (synchronous onData). Classify from pp state.
@@ -3659,6 +3661,9 @@ export class ClaudeCodeProvider implements AIProvider {
     pp.replayMute = false;
     pp.replaySilent = false;
     pp.rewindFrom = undefined; // a rewind still awaited would drop every frame from here on
+    // The cursor is where the scan stopped: a re-attach from there folded the child's history as a woken turn
+    // (T19). The next one is live instead; not `attachPending`, which refuses the resync the self-heal needs.
+    pp.reattachLive = true;
     if (pp.pendingResolve) {
       const r = pp.pendingResolve;
       pp.pendingResolve = null;

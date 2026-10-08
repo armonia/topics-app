@@ -29,6 +29,8 @@ export interface BrokerCursor {
   aborting?: boolean;
   stoppedExit?: unknown;
   attachPending?: boolean;
+  /** The cursor was left by a failed re-adoption: the next re-attach is live (`resyncNow`). */
+  reattachLive?: boolean;
 }
 
 /**
@@ -97,6 +99,7 @@ export function closeAfterTail(
   const skip = !c.alive ? "its process was already given up"
     : c.aborting || c.stoppedExit ? "the turn was stopped, and a stopped child's tail is dropped"
     : c.attachPending ? "its first attach had not landed, so there is no cursor of ours to fetch from"
+    : c.reattachLive ? "its cursor was left by a failed re-adoption, and the history behind it is no new turn"
     : null;
   if (skip) {
     console.warn(`[claude-code] ${c.sessionKey} exited ${gap} byte(s) past what we folded, not fetched: ${skip}`);
