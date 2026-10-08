@@ -198,6 +198,8 @@ interface Entry {
    * like any other. Memory only: after a restart it is quiet again until reopened.
    */
   engaged?: boolean;
+  /** The last `FINISHED_KEEP` ids of tasks whose end was read (`finishBackgroundTasks`). Memory only. */
+  finishedTasks?: Set<string>;
 }
 
 const entries = new Map<string, Entry>();
@@ -691,13 +693,25 @@ export function setBackgroundTasks(subject: string, tasks: AttentionTaskMap): At
   return recompose(subject, { live: true });
 }
 
-/** One task leaves (its report arrived). False when it was not in the map. */
-export function removeBackgroundTask(subject: string, id: string): boolean {
-  const e = peek(subject);
-  if (!e || !(id in e.row.background)) return false;
+/** How many finished task ids a subject remembers: more than the hooks still on their way. */
+const FINISHED_KEEP = 64;
+
+/**
+ * Tasks leave: their reports arrived, each under every id it may sit under
+ * (the CLI's, and its call's until `PostToolUse` re-keys it). The ids stay
+ * known, so a hook still on its way (hooks are async, `lib/hook-order.ts`)
+ * does not put a finished task back. False when the map did not change.
+ */
+export function finishBackgroundTasks(subject: string, ids: readonly string[]): boolean {
+  const e = entryOf(subject);
+  const finished = (e.finishedTasks ??= new Set());
+  for (const id of ids) { finished.delete(id); finished.add(id); }
+  for (const id of finished) { if (finished.size <= FINISHED_KEEP) break; finished.delete(id); }
+  const gone = ids.filter((id) => id in e.row.background);
+  if (gone.length === 0) return false;
   const before = e.row.background;
   const next = { ...e.row.background };
-  delete next[id];
+  for (const id of gone) delete next[id];
   e.row.background = next;
   armGraceOnLastTask(subject, e, before);
   recompose(subject, { live: true });
@@ -718,7 +732,10 @@ export function applyTaskChanges(subject: string, changes: readonly TaskChange[]
     else if (c.op === "remove") delete next[c.id];
     else if (c.op === "remove-kind") { for (const [k, t] of Object.entries(next)) if (t.kind === c.kind) delete next[k]; }
     else if (c.op === "remove-one-shot-crons") { for (const [k, t] of Object.entries(next)) if (t.kind === "cron" && !t.recurring) delete next[k]; }
-    else {
+    else if (e.finishedTasks?.has(c.id) || (c.replaces && e.finishedTasks?.has(c.replaces))) {
+      // A hook that arrives after the task's end (`finishBackgroundTasks`): the task stays out.
+      if (c.replaces) delete next[c.replaces];
+    } else {
       const prev = c.replaces ? next[c.replaces] : undefined;
       if (c.replaces) delete next[c.replaces];
       next[c.id] = { ...c.task, startedAt: prev?.startedAt ?? next[c.id]?.startedAt ?? c.task.startedAt };
@@ -730,11 +747,6 @@ export function applyTaskChanges(subject: string, changes: readonly TaskChange[]
   else armGraceOnLastTask(subject, e, before);
   recompose(subject, { live: true });
   return true;
-}
-
-/** The kind of one task in flight, or null. */
-export function taskKind(subject: string, id: string): string | null {
-  return peek(subject)?.row.background[id]?.kind ?? null;
 }
 
 /** A wait opens (T8). The same id again is the same wait: no new epoch. */

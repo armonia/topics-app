@@ -185,6 +185,13 @@ L'avviso di fine SHALL valere anche quando la CLI lo assorbe a metà turno: dall
 non diventa una riga utente, e lo nomina solo il record di coda `queue-operation`
 `enqueue`, che la CLI scrive per ogni avviso, consegnato o assorbito.
 
+L'avviso SHALL chiudere il compito sotto qualunque id la mappa lo tenga: anche sotto il
+`tool-use-id` della chiamata che l'avviso nomina, finché il `PostToolUse` non l'ha ri-chiavato.
+Gli hook sono asincroni e arrivano anche secondi dopo: un hook arrivato dopo l'avviso NON
+SHALL rimettere nella mappa il compito che quell'avviso ha chiuso. Un Monitor SHALL
+chiudersi solo con le parole della CLI: uno `<status>`, la sua scadenza, il suo timeout.
+Il testo di un suo evento è del programma che guarda: «stopped» lì non è il Monitor.
+
 La mappa dei compiti SHALL sopravvivere a un ricarico del server finché il processo che
 la tiene è vivo. La fine del processo SHALL svuotarla (ATTN-15). Un terminale riattaccato
 dopo un ricarico SHALL rileggere dal suo transcript gli avvisi dei compiti ancora in
@@ -219,6 +226,16 @@ chiude il suo compito come gli altri.
 - **GIVEN** un terminale o una chat con un Bash in background in volo
 - **WHEN** il compito finisce mentre un turno gira, la CLI scrive solo i record di coda (`enqueue`, poi `remove` con `absorbed_mid_turn`) e arriva lo `Stop`
 - **THEN** il compito SHALL uscire dalla mappa e la fase SHALL essere `awaiting-user`
+
+#### Scenario: l'avviso letto prima del PostToolUse
+- **GIVEN** un terminale o una chat con un Bash in background appena lanciato, nella mappa dal suo `PreToolUse`
+- **WHEN** il transcript ne porta l'avviso di fine prima del `PostToolUse`, poi arriva il `PostToolUse` e poi lo `Stop`
+- **THEN** il compito SHALL restare fuori dalla mappa e la fase SHALL essere `awaiting-user`
+
+#### Scenario: un evento di Monitor che dice «stopped»
+- **GIVEN** un terminale con un Monitor in volo
+- **WHEN** arriva un suo evento il cui testo dice «stopped»
+- **THEN** il Monitor SHALL restare nella mappa, e il suo timeout lo SHALL chiudere
 
 #### Scenario: l'avviso scritto mentre il server non leggeva
 - **GIVEN** un terminale in `watching` per un Bash in background

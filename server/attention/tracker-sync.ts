@@ -6,7 +6,7 @@
  * with the subject of the session it is applying.
  */
 import type { ClaudeSessionState, HookPayload } from '../lib/claude-session-state';
-import { applyTaskChanges, closeHold, openHold, processEnded, removeBackgroundTask, taskKind, turnEnded, turnStarted } from './store';
+import { applyTaskChanges, closeHold, finishBackgroundTasks, openHold, processEnded, turnEnded, turnStarted } from './store';
 import { finishedTasksOfTranscriptLine, taskChangesOfHook } from './background-tasks';
 
 /**
@@ -68,11 +68,12 @@ function isTurnWorkPhaseOf(s: ClaudeSessionState): boolean {
   return s.phase === 'running' || s.phase === 'tool-running' || s.phase === 'awaiting-approval';
 }
 
-/** The tasks a transcript line reports finished leave the subject's map. */
+/** The tasks a transcript line reports finished leave the subject's map, under the CLI's id and their call's. */
 export function transcriptTasks(subject: string | null, line: string): void {
   if (!subject) return;
   try {
-    for (const id of finishedTasksOfTranscriptLine(line, (taskId) => taskKind(subject, taskId))) removeBackgroundTask(subject, id);
+    const finished = finishedTasksOfTranscriptLine(line);
+    if (finished.length) finishBackgroundTasks(subject, finished.flatMap((f) => (f.toolUseId ? [f.id, f.toolUseId] : [f.id])));
   } catch (err) {
     console.warn('[claude-session-tracker] attention transcript failed', err);
   }

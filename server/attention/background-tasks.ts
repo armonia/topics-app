@@ -21,6 +21,7 @@
  * when the `PostToolUse` names it.
  */
 import type { AttentionTask } from "../../shared/attention";
+import { readMonitorEnd } from "../providers/claude/wake-source";
 
 type TaskInfo = Omit<AttentionTask, "id">;
 
@@ -161,34 +162,43 @@ function notificationText(parsed: Record<string, unknown>): string {
   return "";
 }
 
+/** The CLI's own notices that end a Monitor with no `<status>`: it expired, or it timed out. */
+const MONITOR_LAPSED = /^\[Monitor (?:expired|timed out)\b/;
+
 /**
- * The tasks a transcript line reports as finished. A Bash, an Agent, a
- * Workflow report once, at their end. A Monitor reports every event: only its
- * END closes it (a `<status>`, or an event that says it expired, ended or
- * stopped). A one-shot cron is closed by its fire, which the transcript does
- * not name: the next turn that opens in a terminal (`remove-one-shot-crons`,
- * `tracker-sync.ts`), `PostToolUse` of `CronDelete`, or the end of the process
- * take it.
+ * Whether a notification reports its task's END. Every task reports it with a
+ * `<status>`; a Monitor also reports each event in between (an `<event>`, no
+ * status), and there only the CLI's own words end it: an expiry or a timeout
+ * (`MONITOR_LAPSED`), or its end (`readMonitorEnd`). The event's text is the
+ * watched program's and may say anything: «stopped» there is not the Monitor's.
+ * Read off the notification, not off the map: the task may still sit there
+ * under its call's id, or not at all yet (hooks arrive late, `lib/hook-order.ts`).
  */
-export function finishedTasksOfTranscriptLine(line: string, kindOf: (id: string) => string | null): string[] {
+function reportsEnd(body: string): boolean {
+  if (tag(body, "status")) return true;
+  const event = tag(body, "event");
+  return event === null || MONITOR_LAPSED.test(event) || readMonitorEnd(tag(body, "summary") ?? "") !== null;
+}
+
+/** A task a transcript line reports finished: the CLI's id, and its call's when the notification names it. */
+export interface FinishedTask { id: string; toolUseId: string | null }
+
+/**
+ * The tasks a transcript line reports as finished (`reportsEnd`). A one-shot
+ * cron is closed by its fire, which the transcript does not name: the next
+ * turn that opens in a terminal (`remove-one-shot-crons`, `tracker-sync.ts`),
+ * `PostToolUse` of `CronDelete`, or the end of the process take it.
+ */
+export function finishedTasksOfTranscriptLine(line: string): FinishedTask[] {
   let parsed: Record<string, unknown>;
   try { parsed = JSON.parse(line); } catch { return []; }
   if (!parsed) return [];
   const text = notificationText(parsed);
   if (!text.includes("<task-notification>")) return [];
-  const out: string[] = [];
+  const out: FinishedTask[] = [];
   for (const m of text.matchAll(TASK_NOTIFICATION)) {
-    const body = m[1];
-    const id = tag(body, "task-id");
-    if (!id) continue;
-    if (kindOf(id) === "monitor") {
-      const event = tag(body, "event") ?? "";
-      const status = tag(body, "status");
-      const summary = tag(body, "summary") ?? "";
-      const ended = !!status || /\[Monitor expired|stream ended|stopped/i.test(event) || /stream ended|stopped/i.test(summary);
-      if (!ended) continue;
-    }
-    out.push(id);
+    const id = tag(m[1], "task-id");
+    if (id && reportsEnd(m[1])) out.push({ id, toolUseId: tag(m[1], "tool-use-id") });
   }
   return out;
 }

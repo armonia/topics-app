@@ -87,6 +87,13 @@ const BASH_ABSORBED: Tool = { tool_name: 'Bash', tool_input: { command: 'make ga
   tool_response: { stdout: '', stderr: '', interrupted: false, isImage: false, noOutputExpected: false, backgroundTaskId: 'b76lzwo0d' } };
 const ABSORBED_LINES = readFileSync(join(import.meta.dir, '..', '..', 'tests', 'fixtures', 'claude-cli-2.1.292-absorbed-task-notification.transcript.jsonl'), 'utf8')
   .split('\n').filter(Boolean);
+/** The call that launched it, as its notice names it (`<tool-use-id>`). */
+const ABSORBED_CALL = 'toolu_0182HmRXHPENtS8FfLU8wmT4';
+const MONITOR: Tool = { tool_name: 'Monitor', tool_input: { command: 'tail -f worker.log', description: 'detect stopped workers' },
+  tool_response: { taskId: 'bmon0stop', timeoutMs: 900000, persistent: false } };
+/** A Monitor's notice absorbed mid-turn, as the CLI's queue records it (2.1.292). */
+const monitorNotice = (body: string, at: number) => JSON.stringify({ type: 'queue-operation', operation: 'enqueue', timestamp: new Date(at).toISOString(),
+  sessionId: '00000000-0000-4000-8000-0000000000b2', content: `<task-notification>\n<task-id>bmon0stop</task-id>\n${body}\n</task-notification>` });
 const BASH_FG: Tool = { tool_name: 'Bash', tool_input: { command: 'bun test' },
   tool_response: { stdout: 'ok', stderr: '', interrupted: false, isImage: false, noOutputExpected: false } };
 
@@ -173,7 +180,63 @@ describe('the phase at Stop counts every task in flight, by id, in the attention
       expect(phaseOf(tracker, sid)).toBe('awaiting-user');
       expect(getAttention(subject).background).toEqual([]);
     });
+
+    // Hooks are async and arrive late (`lib/hook-order.ts`): the tail can read the end first.
+    it(`${label}: a notice read before the PostToolUse closes the task under its call's id, and the late hook does not bring it back`, () => {
+      const { tracker, sid, subject } = make([]);
+      let t = T0;
+      const hook = (h: Record<string, unknown>) => tracker.ingestHook({ ...h, session_id: sid } as never, (t += 200));
+      hook({ hook_event_name: 'UserPromptSubmit' });
+      hook({ hook_event_name: 'PreToolUse', tool_use_id: ABSORBED_CALL, ...BASH_ABSORBED });
+      for (const line of ABSORBED_LINES) tracker.ingestTranscriptLine(sid, line, (t += 200));
+      expect(countingTasks(subject)).toBe(0);
+      hook({ hook_event_name: 'PostToolUse', tool_use_id: ABSORBED_CALL, ...BASH_ABSORBED });
+      expect(countingTasks(subject)).toBe(0);
+      hook({ hook_event_name: 'Stop' });
+      expect(phaseOf(tracker, sid)).toBe('awaiting-user');
+      expect(getAttention(subject).background).toEqual([]);
+    });
+
+    it(`${label}: a notice read before both of its hooks keeps the task out when they arrive`, () => {
+      const { tracker, sid, subject } = make([]);
+      let t = T0;
+      const hook = (h: Record<string, unknown>) => tracker.ingestHook({ ...h, session_id: sid } as never, (t += 200));
+      hook({ hook_event_name: 'UserPromptSubmit' });
+      for (const line of ABSORBED_LINES) tracker.ingestTranscriptLine(sid, line, (t += 200));
+      hook({ hook_event_name: 'PreToolUse', tool_use_id: ABSORBED_CALL, ...BASH_ABSORBED });
+      hook({ hook_event_name: 'PostToolUse', tool_use_id: ABSORBED_CALL, ...BASH_ABSORBED });
+      expect(countingTasks(subject)).toBe(0);
+      hook({ hook_event_name: 'Stop' });
+      expect(phaseOf(tracker, sid)).toBe('awaiting-user');
+    });
   }
+
+  it('terminal: a Monitor event that says «stopped» is the watched program talking, and only the CLI\'s own notice ends the Monitor', () => {
+    const { tracker, sid, subject } = terminalTracker([]);
+    let t = T0;
+    turn([MONITOR]).forEach((h) => tracker.ingestHook({ ...h, session_id: sid } as never, (t += 200)));
+    expect(countingTasks(subject)).toBe(1);
+    // Its description says «stopped» too, and every event's summary repeats it.
+    tracker.ingestTranscriptLine(sid, monitorNotice('<summary>Monitor event: "detect stopped workers"</summary>\n<event>worker stopped, restarting</event>', (t += 200)), t);
+    expect(countingTasks(subject)).toBe(1);
+    tracker.ingestTranscriptLine(sid, monitorNotice('<summary>Monitor event: "detect stopped workers"</summary>\n<event>[Monitor timed out \u2014 re-arm if needed.]</event>', (t += 200)), t);
+    expect(countingTasks(subject)).toBe(0);
+  });
+
+  it('terminal: a Monitor event read before its PostToolUse does not end it, and its end does', () => {
+    const { tracker, sid, subject } = terminalTracker([]);
+    let t = T0;
+    const hook = (h: Record<string, unknown>) => tracker.ingestHook({ ...h, session_id: sid } as never, (t += 200));
+    hook({ hook_event_name: 'UserPromptSubmit' });
+    hook({ hook_event_name: 'PreToolUse', tool_use_id: 'toolu_m', ...MONITOR });
+    tracker.ingestTranscriptLine(sid, monitorNotice('<summary>Monitor event: "detect stopped workers"</summary>\n<event>worker 3 up</event>', (t += 200)), t);
+    hook({ hook_event_name: 'PostToolUse', tool_use_id: 'toolu_m', ...MONITOR });
+    expect(countingTasks(subject)).toBe(1);
+    tracker.ingestTranscriptLine(sid, monitorNotice('<tool-use-id>toolu_m</tool-use-id>\n<status>completed</status>\n<summary>Monitor "detect stopped workers" stream ended</summary>', (t += 200)), t);
+    expect(countingTasks(subject)).toBe(0);
+    hook({ hook_event_name: 'Stop' });
+    expect(phaseOf(tracker, sid)).toBe('awaiting-user');
+  });
 
   it('terminal: a one-shot cron leaves at the next turn (its fire), and that turn finishes with one announce (ATTN-03)', () => {
     const frames: any[] = [];
