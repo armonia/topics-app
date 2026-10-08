@@ -383,36 +383,7 @@ rimesse sulla base locale con `cloud-ricuci`; la firma SSH della VM cade, autore
 - Aggiunto qui: la spec nuova nel `testMatch` del progetto `webkit`, come chiedeva il REPORT (il config era
   nei file dei rami aperti). La prova di quella riga è la CI di #258.
 
-## T18 · Una chat in corso si riallinea da sola — accettata con un fix mio (fusa in `91ed43ff1`)
+## Il seguito
 
-- Sul Mac i 4 file di test di T18 danno 57 pass e 0 fail su 1.3.8 e 1.4.2. Riallineamento dal taglio:
-
-  | Caso | Tempo |
-  |---|---|
-  | Attacco perso | 6,8–7,4 s |
-  | Socket del broker caduto | 3,5 s |
-  | Turno «woken» | 8,0 s |
-  | Controllo (socket caduto, riconnessione riuscita) | 0,56–0,71 s |
-
-  Prima: mai entro 15 s.
-- Mutazione su una worktree scratch, sonda spenta: rossi «attacco perso», «socket caduto e prima riconnessione
-  fallita» (il debito di riaggancio si salda alla prossima richiesta, e senza sonda non ne parte nessuna) e
-  «woken». Il controllo resta verde.
-- **Trovato in verifica (verificatore indipendente, con un test che lo riproduce col demone vero).** Dopo un
-  riavvio il server adotta il figlio ancora vivo nel demone (`resumed`), e fino all'arrivo di `attachLive` il
-  suo `consumedOffset` vale 0. Se quell'aggancio tardava oltre un giro della sonda, cosa probabile sotto swap,
-  la sonda leggeva un buco da 0 e riattaccava da lì. Ripiegata nello stesso blocco della risposta
-  dell'aggancio, **la storia intera del figlio diventava la risposta del turno nuovo**. Sarebbe morso proprio
-  al riavvio di un deploy.
-- **Fix:** `attachPending` dallo spawn finché l'aggancio iniziale non atterra. `resyncStream` non parte da un
-  offset che non sappiamo, e la sonda salta quei processi. In più il riattacco della sonda fa un tentativo
-  solo: con un ack in stallo il buco aspetta 30 s invece di riciclare il socket di tutti i turni (il caveat
-  del verificatore).
-- Il test di regressione (l'ultimo `describe` di `claude-code-stream-lag.test.ts`, frame trattenuti come in un
-  loop in stallo) è rosso sul codice di prima (resync da 0) e verde col fix su 1.3.8 e 1.4.2.
-- Le altre tre affermazioni reggono:
-  - la guardia di `onData` non perde byte (ogni riavvolgimento voluto passa con `replayMute`/`replaySilent`);
-  - il routing con un solo proprietario dà lo stesso risultato;
-  - nessun bisogno di un demone nuovo (`list` con `endOffset` c'è dal 17/07).
-- Lasciato a T19: il figlio che esce mentre siamo staccati perde la coda del turno, e la fase 2 della
-  riadozione può ripiegare frame (doppi, non persi).
+T18, T19 e le PR fuse la sera dell'08/10 stanno in [VERIFICA-giro3.md](VERIFICA-giro3.md): questo file
+aveva passato le 400 righe.
