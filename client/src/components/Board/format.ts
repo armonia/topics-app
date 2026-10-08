@@ -9,6 +9,7 @@ import { TASK_STATUSES, attemptHasWork, type TaskAttempt, type TaskStatus } from
 // 983469e3). The definition now sits next to `splitModelId`, which that picker
 // already imports.
 import { friendlyModelLabel } from '../../lib/modelLabel';
+import { settledRects } from './settledRects';
 export { friendlyModelLabel };
 
 /** La firma di `useT()`, per le funzioni che formattano fuori da un componente. */
@@ -64,13 +65,17 @@ export const autoGrow = (el: HTMLTextAreaElement | null) => {
  * column area is the column); corner distance only breaks ties when the
  * pointer is outside every droppable (fast flicks).
  */
+// Both stages read the droppable rects as plain copies (`settledRects`): the
+// rects dnd-kit hands over re-read every scrollable ancestor on each property
+// access, and this runs on every pointer move.
 export const boardCollision: CollisionDetection = (args) => {
-  const within = pointerWithin(args);
+  const settled = { ...args, droppableRects: settledRects(args.droppableRects) };
+  const within = pointerWithin(settled);
   if (within.length) {
     const card = within.find((c) => !TASK_STATUSES.includes(String(c.id) as TaskStatus));
     return card ? [card] : within;
   }
-  return closestCorners(args);
+  return closestCorners(settled);
 };
 
 // FORMATTERS ARE BUILT ONCE. `toLocaleTimeString(locale, options)` constructs a
