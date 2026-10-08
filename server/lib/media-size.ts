@@ -27,10 +27,9 @@
 import { closeSync, openSync, readSync, statSync } from "node:fs";
 import { isAbsolute, join, relative, resolve } from "node:path";
 import { imageShape } from "../services/image-shape";
+import type { MediaSize, MediaSizes } from "../../shared/media-sizes";
 
-/** `[width, height]` in CSS pixels, as the browser will lay the picture out. */
-export type MediaSize = [number, number];
-export type MediaSizes = Record<string, MediaSize>;
+export type { MediaSizes } from "../../shared/media-sizes";
 
 /** What `MediaImage` draws as a picture (`isImage` in `MessageContent.tsx`), minus SVG, whose laid-out size is not its header's. */
 const RASTER_EXT = /\.(png|jpe?g|gif|webp)$/i;

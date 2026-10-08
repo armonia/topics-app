@@ -25,9 +25,9 @@
  * the picture behaves exactly as before.
  */
 import { createContext, useContext } from 'react';
+import type { MediaSize, MediaSizes } from '../../../../shared/media-sizes';
 
-export type MediaSize = [number, number];
-export type MediaSizes = Record<string, MediaSize>;
+export type { MediaSizes } from '../../../../shared/media-sizes';
 
 /** The sizes of the pictures of the message being drawn, by path. */
 export const MediaSizesContext = createContext<MediaSizes | undefined>(undefined);
