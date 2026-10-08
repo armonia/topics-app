@@ -2,6 +2,56 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.2.456 — 2026-10-08
+
+### Novità
+- **processes** · il log di run_command segue il file su cui il comando redirige lo stdout
+- **chat** · GET /api/topics/:id/live-work, ciò che lavora adesso per una chat
+- **processes** · il log vuoto dice cosa aspetta e da quando
+- **chat** · la striscia sotto la chat mostra ciò che lavora adesso
+- **chat-live-work** · la riga di un comando sa se la sua fine sveglia la chat
+- **chat** · un comando è una riga sola, nella striscia, con Ferma e la sveglia
+- **chat** · le strisce sono la fine del trascritto, e la riga di un comando apre la sua card
+
+### Correzioni
+- **model-selector** · hint fuori dal bottone Automatico, banda 44px su phone
+- **model-selector** · AC-21/AC-07 rivisti, la lista providers scorre nel pannello stretto
+- **model-selector** · commento in inglese per il gate
+- **terminal** · rifare i ponti rimasti fuori dalla sessione grafica
+- **chat** · il riquadro «Drop files here» si spegne quando il trascinamento finisce altrove
+- **processi** · l'avviso di fine comando senza i codici colore del terminale
+- **media** · una cartella aperta nel pannello risponde 400, non con l'errore di Bun
+- **chat** · la card di un comando finito senza i codici colore anche nelle righe gia' salvate
+- **native** · la lingua scelta torna in fondo al contesto a ogni giro
+- **chat-live-work** · i cancelli della lingua tornano verdi sui file della change
+- **chat** · il log dal vivo nella card di un comando senza codici colore
+- **chat** · il log dal vivo nella card segue l'ultima riga
+- **gates** · via useEndedSubAgents, export morto dopo le strisce in fondo al trascritto
+- **gates** · import statici di pty-bridge-platform.mjs annotati runtime-dep-ok
+- **chat** · la fascia di atterraggio sulla riga, non come scroll-padding dello scroller
+
+### Prestazioni
+- **chat** · il log della striscia si carica quando lo si apre
+
+### Sotto il cofano
+- **e2e** · aggiorna durate shard dal nightly del 2026-10-07 [skip ci]
+- The native runtime gets Claude Code's memory: the MEMORY.md index and the per-prompt recall
+- chat-live-work, la striscia della chat mostra cio' che lavora adesso
+- **e2e** · chat-live-work, i tre scenari filmati su WebKit
+- bloat: chat.ts registrato a 4301 righe, con le cinque corsie che l'hanno fatto crescere
+- **chat-strips-in-transcript** · le strisce in fondo al trascritto, la riga apre la sua card
+- **gates** · commenti in inglese, nomi interi e @covers, i tre controlli di nuovo verdi
+- **chat-strips** · la base si legge a vista ferma, e il lettore sta a meta' storia
+- **chat-strips** · il lettore sale un colpo alla volta, finche' non e' sopra i 600 px
+
+## 2.2.455 — 2026-10-06
+
+### Novità
+- **model-selector** · one vertical list instead of side-by-side columns
+
+### Correzioni
+- **model-selector** · one-line band and hidden hint on desktop compact
+
 ## 2.2.454 — 2026-10-06
 
 ### Sotto il cofano

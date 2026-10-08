@@ -1,5 +1,234 @@
 [
   {
+    "version": "2.2.456",
+    "date": "2026-10-08",
+    "sections": {
+      "new": [
+        {
+          "it": "il log di run_command segue il file su cui il comando redirige lo stdout",
+          "en": "",
+          "scope": "processes",
+          "breaking": false
+        },
+        {
+          "it": "GET /api/topics/:id/live-work, ciò che lavora adesso per una chat",
+          "en": "",
+          "scope": "chat",
+          "breaking": false
+        },
+        {
+          "it": "il log vuoto dice cosa aspetta e da quando",
+          "en": "",
+          "scope": "processes",
+          "breaking": false
+        },
+        {
+          "it": "la striscia sotto la chat mostra ciò che lavora adesso",
+          "en": "",
+          "scope": "chat",
+          "breaking": false
+        },
+        {
+          "it": "la riga di un comando sa se la sua fine sveglia la chat",
+          "en": "",
+          "scope": "chat-live-work",
+          "breaking": false
+        },
+        {
+          "it": "un comando è una riga sola, nella striscia, con Ferma e la sveglia",
+          "en": "",
+          "scope": "chat",
+          "breaking": false
+        },
+        {
+          "it": "le strisce sono la fine del trascritto, e la riga di un comando apre la sua card",
+          "en": "",
+          "scope": "chat",
+          "breaking": false
+        }
+      ],
+      "fixes": [
+        {
+          "it": "hint fuori dal bottone Automatico, banda 44px su phone",
+          "en": "",
+          "scope": "model-selector",
+          "breaking": false
+        },
+        {
+          "it": "AC-21/AC-07 rivisti, la lista providers scorre nel pannello stretto",
+          "en": "",
+          "scope": "model-selector",
+          "breaking": false
+        },
+        {
+          "it": "commento in inglese per il gate",
+          "en": "",
+          "scope": "model-selector",
+          "breaking": false
+        },
+        {
+          "it": "rifare i ponti rimasti fuori dalla sessione grafica",
+          "en": "",
+          "scope": "terminal",
+          "breaking": false
+        },
+        {
+          "it": "il riquadro «Drop files here» si spegne quando il trascinamento finisce altrove",
+          "en": "",
+          "scope": "chat",
+          "breaking": false
+        },
+        {
+          "it": "l'avviso di fine comando senza i codici colore del terminale",
+          "en": "",
+          "scope": "processi",
+          "breaking": false
+        },
+        {
+          "it": "una cartella aperta nel pannello risponde 400, non con l'errore di Bun",
+          "en": "",
+          "scope": "media",
+          "breaking": false
+        },
+        {
+          "it": "la card di un comando finito senza i codici colore anche nelle righe gia' salvate",
+          "en": "",
+          "scope": "chat",
+          "breaking": false
+        },
+        {
+          "it": "la lingua scelta torna in fondo al contesto a ogni giro",
+          "en": "",
+          "scope": "native",
+          "breaking": false
+        },
+        {
+          "it": "i cancelli della lingua tornano verdi sui file della change",
+          "en": "",
+          "scope": "chat-live-work",
+          "breaking": false
+        },
+        {
+          "it": "il log dal vivo nella card di un comando senza codici colore",
+          "en": "",
+          "scope": "chat",
+          "breaking": false
+        },
+        {
+          "it": "il log dal vivo nella card segue l'ultima riga",
+          "en": "",
+          "scope": "chat",
+          "breaking": false
+        },
+        {
+          "it": "via useEndedSubAgents, export morto dopo le strisce in fondo al trascritto",
+          "en": "",
+          "scope": "gates",
+          "breaking": false
+        },
+        {
+          "it": "import statici di pty-bridge-platform.mjs annotati runtime-dep-ok",
+          "en": "",
+          "scope": "gates",
+          "breaking": false
+        },
+        {
+          "it": "la fascia di atterraggio sulla riga, non come scroll-padding dello scroller",
+          "en": "",
+          "scope": "chat",
+          "breaking": false
+        }
+      ],
+      "perf": [
+        {
+          "it": "il log della striscia si carica quando lo si apre",
+          "en": "",
+          "scope": "chat",
+          "breaking": false
+        }
+      ],
+      "internal": [
+        {
+          "it": "aggiorna durate shard dal nightly del 2026-10-07 [skip ci]",
+          "en": "",
+          "scope": "e2e",
+          "breaking": false
+        },
+        {
+          "it": "The native runtime gets Claude Code's memory: the MEMORY.md index and the per-prompt recall",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "chat-live-work, la striscia della chat mostra cio' che lavora adesso",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "chat-live-work, i tre scenari filmati su WebKit",
+          "en": "",
+          "scope": "e2e",
+          "breaking": false
+        },
+        {
+          "it": "bloat: chat.ts registrato a 4301 righe, con le cinque corsie che l'hanno fatto crescere",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "le strisce in fondo al trascritto, la riga apre la sua card",
+          "en": "",
+          "scope": "chat-strips-in-transcript",
+          "breaking": false
+        },
+        {
+          "it": "commenti in inglese, nomi interi e @covers, i tre controlli di nuovo verdi",
+          "en": "",
+          "scope": "gates",
+          "breaking": false
+        },
+        {
+          "it": "la base si legge a vista ferma, e il lettore sta a meta' storia",
+          "en": "",
+          "scope": "chat-strips",
+          "breaking": false
+        },
+        {
+          "it": "il lettore sale un colpo alla volta, finche' non e' sopra i 600 px",
+          "en": "",
+          "scope": "chat-strips",
+          "breaking": false
+        }
+      ]
+    }
+  },
+  {
+    "version": "2.2.455",
+    "date": "2026-10-06",
+    "sections": {
+      "new": [
+        {
+          "it": "one vertical list instead of side-by-side columns",
+          "en": "",
+          "scope": "model-selector",
+          "breaking": false
+        }
+      ],
+      "fixes": [
+        {
+          "it": "one-line band and hidden hint on desktop compact",
+          "en": "",
+          "scope": "model-selector",
+          "breaking": false
+        }
+      ],
+      "perf": [],
+      "internal": []
+    }
+  },
+  {
     "version": "2.2.454",
     "date": "2026-10-06",
     "sections": {
