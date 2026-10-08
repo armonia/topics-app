@@ -23,8 +23,7 @@ import { forkModeFor } from '../../../../shared/chat-fork';
 import { providerLabel } from '../../../../shared/provider-labels';
 import { useConfirm } from '../../hooks/useConfirm';
 import { chatAcceptsFileDrag } from './chatFileDrop';
-import { readPictureSize, sizesByPath } from './attachmentSizes';
-import type { MediaSize } from '../../../../shared/media-sizes';
+import { readPictureSize, sizesByPath, type PendingSize } from './attachmentSizes';
 import { dragLeftHost } from '../../lib/dragLeave';
 import { errMessage } from '../../lib/errMessage';
 import { BAND_OWN_PROPERTY } from '../../lib/selectionStyles';
@@ -977,7 +976,7 @@ function ChatPaneComponent({
   // testo avanzava una riga vuota.
 
   const uploadFiles = useCallback(async (files: File[]) => {
-    const uploaded: Array<{ file: File; path: string }> = []; const failed: string[] = [];
+    const uploaded: { file: File; path: string }[] = []; const failed: string[] = [];
     for (const f of files) { try { const r = await uploadApi.uploadFile(f); uploaded.push({ file: f, path: r.path }); } catch (e) { console.error('[ChatPane] file upload failed:', f.name, e); failed.push(f.name); } }
     if (failed.length > 0) toast.error(`Upload failed: ${failed.join(', ')}`);
     return uploaded;
@@ -1685,7 +1684,7 @@ function ChatPaneComponent({
     const curFiles = [...pendingFiles], curImages = [...pendingImages], curReply = invocation ? null : replyingTo, curMentioned = [...mentionedFiles];
     setMessage(''); setPendingFiles([]); setPendingImages([]); setMentionedFiles([]); if (!invocation) setReplyingTo(null);
     // The sizes of the attached pictures, read while they upload: the bubble draws them in their box (`attachmentSizes.ts`).
-    const sized: Array<readonly [string, Promise<MediaSize | undefined>]> = [];
+    const sized: PendingSize[] = [];
     if (curFiles.length > 0 || curImages.length > 0) {
       setUploading(true);
       try {

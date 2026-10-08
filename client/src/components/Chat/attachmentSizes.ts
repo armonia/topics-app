@@ -42,8 +42,11 @@ export function readPictureSize(source: Blob | string): Promise<MediaSize | unde
   });
 }
 
+/** An uploaded picture's path, and the reading of its size still under way. */
+export type PendingSize = readonly [path: string, size: Promise<MediaSize | undefined>];
+
 /** The sizes of the uploaded pictures, by the path each one is attached under. */
-export async function sizesByPath(uploads: ReadonlyArray<readonly [path: string, size: Promise<MediaSize | undefined>]>): Promise<MediaSizes | undefined> {
+export async function sizesByPath(uploads: readonly PendingSize[]): Promise<MediaSizes | undefined> {
   const sizes: MediaSizes = {};
   for (const [path, size] of uploads) {
     const s = await size;
