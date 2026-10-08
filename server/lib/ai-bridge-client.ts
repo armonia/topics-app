@@ -231,11 +231,7 @@ export class AiBridgeClient {
   private lastByteAt = 0;
   private disposed = false;
   private connectedDaemonPid: number | null = null;
-  /**
-   * A socket was lost and the re-attach callbacks have not run since. Settled
-   * by the NEXT connection, whoever opens it (see `tryConnect`).
-   */
-  private reconnectOwed = false;
+  private reconnectOwed = false; // a socket was lost, the re-attach callbacks not run since: the next connection settles it
 
   /**
    * The pid of the daemon on the other end, as its pong says; null until it
@@ -359,16 +355,9 @@ export class AiBridgeClient {
         this.send({ type: "ping", pid: process.pid, rid: ++this.ridSeq });
         console.log("[AI Bridge] Connected to daemon");
         res(true);
-        // THE CALLBACKS BELONG TO THE CONNECTION, not to the reconnect the
-        // `close` handler schedules. They used to run only when that one
-        // succeeded; when it failed (a daemon slow to start under swap, the
-        // spawn cap) its `.catch` swallowed the error, the next request
-        // connected on its own, and no live session was ever re-attached:
-        // deaf until a watchdog, minutes later (T18).
-        if (this.reconnectOwed) {
-          this.reconnectOwed = false;
-          queueMicrotask(() => { for (const cb of this.reconnectCbs) { try { cb(); } catch { /* handler own errors */ } } });
-        }
+        // The re-attach callbacks belong to the CONNECTION, whoever opens it: tied to the reconnect
+        // `close` schedules, its failure (under swap) left every live session deaf for minutes (T18).
+        if (this.reconnectOwed) { this.reconnectOwed = false; queueMicrotask(() => { for (const cb of this.reconnectCbs) { try { cb(); } catch { /* handler own errors */ } } }); }
       });
       socket.on("error", () => res(false));
       setTimeout(() => { if (!this.ready) { socket.destroy(); res(false); } }, 1000);
@@ -417,11 +406,7 @@ export class AiBridgeClient {
       if (this.disposed) return; // shut down deliberately — do NOT respawn
       console.log("[AI Bridge] socket closed — reconnecting");
       this.reconnectOwed = true;
-      setTimeout(() => {
-        // The callbacks run from `tryConnect`, on whichever connection comes
-        // next: this one, or a later request's if this one fails.
-        this.ensureConnected().catch(() => { /* next call retries */ });
-      }, 500);
+      setTimeout(() => { this.ensureConnected().catch(() => { /* next call retries; the callbacks wait for it */ }); }, 500);
     });
     socket.on("error", () => { /* 'close' follows */ });
   }
@@ -754,16 +739,10 @@ export class AiBridgeClient {
     return (m.sessions ?? []) as SessionInfo[];
   }
 
-  /**
-   * The same `list`, asked by a probe that runs every few seconds: ONE attempt,
-   * and a timeout never recycles the socket. `request` drops the socket before
-   * it retries, which is right for a turn's own frame and wrong for a periodic
-   * look: on a machine in swap a slow answer would detach every live session
-   * and set off the very re-attach burst the probe is there to avoid.
-   */
+  /** `list` for a periodic probe: ONE attempt, so a slow answer never recycles the socket (`request` drops it
+   *  before retrying), which under swap would detach every live session (T18, `probeStreamLag`). */
   async peekSessions(): Promise<SessionInfo[]> {
-    const m = await this.request({ type: "list" }, (f) => f.type === "list", ACK_TIMEOUT_MS, "list (probe)", undefined, 1);
-    return (m.sessions ?? []) as SessionInfo[];
+    return ((await this.request({ type: "list" }, (f) => f.type === "list", ACK_TIMEOUT_MS, "list (probe)", undefined, 1)).sessions ?? []) as SessionInfo[];
   }
 
   /** True if the daemon holds a session for `id` whose child is still alive. */

@@ -139,7 +139,7 @@ beforeAll(async () => {
 afterAll(async () => {
   const { __resetAiBridgeClientForTests } = await import("../lib/ai-bridge-client");
   __resetAiBridgeClientForTests();
-  try { (await import("../db")).closeDatabase(); } catch { /* not opened */ }
+  try { const { closeDatabase } = await import("../db"); closeDatabase(); } catch { /* not opened */ }
   try {
     const pidPath = SOCK.replace(/\.sock$/, ".pid");
     if (existsSync(pidPath)) process.kill(Number(readFileSync(pidPath, "utf8").trim()), "SIGTERM");
@@ -354,9 +354,9 @@ done
     const { getAiBridgeClient } = await import("../lib/ai-bridge-client");
     const provider: any = new ClaudeCodeProvider({ type: "claude-code", defaultWorkspace: tempDir });
     provider.start();
-    let resyncs = 0;
+    let reattachCount = 0;
     const real = provider.resyncStream.bind(provider);
-    provider.resyncStream = (sk: string) => { resyncs++; return real(sk); };
+    provider.resyncStream = (sk: string) => { reattachCount++; return real(sk); };
     const sink = counting();
     const turn = provider.sendChat(sessionKey, "go", sink.handler).catch(() => {});
     try {
@@ -371,7 +371,7 @@ done
       await sink.done;
       await turn;
       expect(sink.ended).toBe("done");
-      expect(resyncs).toBe(0);
+      expect(reattachCount).toBe(0);
       expect(sink.text).toBe("1,2,");
     } finally {
       provider.stop();

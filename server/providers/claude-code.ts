@@ -3417,10 +3417,10 @@ export class ClaudeCodeProvider implements AIProvider {
       let sessions: SessionInfo[];
       try {
         sessions = await getAiBridgeClient().peekSessions();
-      } catch (err: any) {
+      } catch (err) {
         if (Date.now() - this.lagProbeWarnedAt > 60_000) {
           this.lagProbeWarnedAt = Date.now();
-          console.warn(`[claude-code] Stream lag probe: the daemon did not answer (${err?.message ?? err}), skipping this round`);
+          console.warn(`[claude-code] Stream lag probe: the daemon did not answer (${err instanceof Error ? err.message : String(err)}), skipping this round`);
         }
         return;
       }
