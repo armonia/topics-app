@@ -36,7 +36,7 @@ hermetic(test);
 
 /** What answers a tap at the centre of `target`: the element itself (or one
  *  of its children), or the testid / tag of whatever is in front of it. */
-async function answerAtCentre(page: Page, target: Locator): Promise<string> {
+async function answerAtCenter(page: Page, target: Locator): Promise<string> {
   const box = await target.boundingBox();
   expect(box, "the target has a box").not.toBeNull();
   return target.evaluate((el, { x, y }) => {
@@ -110,8 +110,8 @@ test.describe.serial("a browser tab behind the phone's list", () => {
       const reload = page.getByTestId("bundle-stale-reload");
       const dismiss = page.getByTestId("update-banner-dismiss");
       await expect(reload).toBeVisible({ timeout: 5_000 });
-      expect(await answerAtCentre(page, reload), "the banner's Reload").toBe("itself");
-      expect(await answerAtCentre(page, dismiss), "the banner's close").toBe("itself");
+      expect(await answerAtCenter(page, reload), "the banner's Reload").toBe("itself");
+      expect(await answerAtCenter(page, dismiss), "the banner's close").toBe("itself");
       await dismiss.tap();
       await expect(page.getByTestId("bundle-stale-toast")).toHaveCount(0);
 
