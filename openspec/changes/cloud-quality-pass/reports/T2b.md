@@ -167,9 +167,12 @@ si disegna. Tutto il resto del fix sta in due file nuovi, per non allargare il c
   La sola differenza fra i rossi di partenza e quelli finali è `subagent-native-engine`, codice
   server che il fix non tocca.
 - Sottoagenti: un Haiku ha lanciato lo script delle misure alternate (render e crescita):
-  46 mila token, 1 chiamata. Ho fermato io lo script a metà per il conflitto di porta con la barra
-  (sopra) e ho rilanciato la crescita da me, con lo stesso script e `E2E_PORT=13344`; i numeri
-  vengono dai log e dai JSON che lo script scrive, letti da me. Il costo di Haiku qui è quasi tutto
+  65 mila token, 7 chiamate in tutto (46 mila per il lancio). Ho fermato io lo script a metà per il
+  conflitto di porta con la barra (sopra) e ho rilanciato la crescita da me, con lo stesso script e
+  `E2E_PORT=13344`; i numeri vengono dai log e dai JSON che lo script scrive, letti da me. Haiku, a
+  fine corsa, ha ricopiato gli stessi log e JSON: i suoi numeri coincidono con i miei, render e
+  crescita (i log di crescita che ha letto sono quelli del mio rilancio, stessi nomi di file). Il
+  costo di Haiku qui è quasi tutto
   contesto di partenza, lo stesso che pagherebbe un Sonnet `low`: per un lavoro così corto non
   conveniva nessuno dei due, e non ho delegato altro. Studio del codice, progetto, fix, test,
   mutazioni e REPORT li ho fatti io.
