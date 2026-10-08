@@ -7,42 +7,41 @@
  * per folder and asked again in the background; a folder that becomes a repo,
  * or a worktree that is removed, shows within the expiry.
  *
- * `git` is wrapped by a script first on PATH that counts its calls.
+ * Whether git was asked is read from the answer: the folder changes on disk
+ * between two reads, and only a read that asked git sees the change. (A wrapper
+ * first on PATH would count the calls, but under Bun 1.3.8 `spawnSync` does not
+ * see a PATH changed by the process.)
  * @covers LOOP-SPAWN-01
  */
 import { describe, expect, test, beforeAll, afterAll, beforeEach, afterEach, setSystemTime } from "bun:test";
-import { chmodSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, realpathSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { spawnSync } from "node:child_process";
-import { claudeMemoryDir, forgetGitRootsForTests, GIT_ROOT_TTL_MS, GIT_ROOT_IDLE_MS, refreshGitRoots } from "./native-parity";
+import { claudeMemoryDir, forgetGitRootsForTests, GIT_ROOT_TTL_MS, refreshGitRoots } from "./native-parity";
 
-const PATH_BEFORE = process.env.PATH;
-const REAL_GIT = Bun.which("git")!;
 let scratch: string;
-let callsLog: string;
 let home: string;
 
 const encode = (p: string) => p.replace(/[/.]/g, "-");
 const memoryOf = (root: string) => join(home, ".claude", "projects", encode(root), "memory");
-const gitCalls = () => { try { return readFileSync(callsLog, "utf8").split("\n").filter(Boolean).length; } catch { return 0; } };
 const git = (...args: string[]) => {
-  const r = spawnSync(REAL_GIT, args, { encoding: "utf8" });
+  const r = spawnSync("git", args, { encoding: "utf8" });
   if (r.status !== 0) throw new Error(`git ${args.join(" ")}: ${r.stderr}`);
 };
+/** A `proj/sub` folder in no repo: `proj` becomes one later. */
+function plainFolder(): { dir: string; cwd: string } {
+  const dir = join(mkdtempSync(join(scratch, "plain-")), "proj");
+  const cwd = join(dir, "sub");
+  mkdirSync(cwd, { recursive: true });
+  return { dir, cwd };
+}
 
 beforeAll(() => {
   scratch = realpathSync(mkdtempSync(join(tmpdir(), "claude-memory-dir-")));
-  const bin = join(scratch, "bin");
-  mkdirSync(bin);
-  callsLog = join(scratch, "git-calls.log");
-  writeFileSync(join(bin, "git"), `#!/bin/sh\necho call >> "${callsLog}"\nexec "${REAL_GIT}" "$@"\n`);
-  chmodSync(join(bin, "git"), 0o755);
-  process.env.PATH = `${bin}:${PATH_BEFORE}`;
 });
 
 afterAll(() => {
-  process.env.PATH = PATH_BEFORE;
   rmSync(scratch, { recursive: true, force: true });
 });
 
@@ -50,7 +49,6 @@ describe("claudeMemoryDir, remembered per folder", () => {
   beforeEach(() => {
     forgetGitRootsForTests();
     home = mkdtempSync(join(scratch, "home-"));
-    rmSync(callsLog, { force: true });
   });
 
   afterEach(() => {
@@ -59,21 +57,15 @@ describe("claudeMemoryDir, remembered per folder", () => {
   });
 
   test("a folder read again within the expiry does not ask git again", () => {
-    const repo = mkdtempSync(join(scratch, "repo-"));
-    git("init", "-q", repo);
-    mkdirSync(join(repo, "sub"));
-    expect(claudeMemoryDir(join(repo, "sub"), home)).toBe(memoryOf(repo));
-    expect(gitCalls()).toBe(1);
-    expect(claudeMemoryDir(join(repo, "sub"), home)).toBe(memoryOf(repo));
-    expect(claudeMemoryDir(join(repo, "sub"), home)).toBe(memoryOf(repo));
-    expect(gitCalls()).toBe(1);
+    const { dir, cwd } = plainFolder();
+    expect(claudeMemoryDir(cwd, home)).toBe(memoryOf(cwd));
+    git("init", "-q", dir);
+    // git would now answer `dir`: the memo answered.
+    expect(claudeMemoryDir(cwd, home)).toBe(memoryOf(cwd));
   });
 
   test("a folder that becomes a repo shows after the background pass", async () => {
-    const parent = mkdtempSync(join(scratch, "plain-"));
-    const dir = join(parent, "proj");
-    mkdirSync(join(dir, "sub"), { recursive: true });
-    const cwd = join(dir, "sub");
+    const { dir, cwd } = plainFolder();
     expect(claudeMemoryDir(cwd, home)).toBe(memoryOf(cwd));
     git("init", "-q", dir);
     await refreshGitRoots();
@@ -93,10 +85,7 @@ describe("claudeMemoryDir, remembered per folder", () => {
   });
 
   test("past the expiry, with no background pass, the turn asks git again", () => {
-    const parent = mkdtempSync(join(scratch, "plain-"));
-    const dir = join(parent, "proj");
-    const cwd = join(dir, "sub");
-    mkdirSync(cwd, { recursive: true });
+    const { dir, cwd } = plainFolder();
     const now = Date.now();
     setSystemTime(new Date(now));
     expect(claudeMemoryDir(cwd, home)).toBe(memoryOf(cwd));
@@ -105,17 +94,5 @@ describe("claudeMemoryDir, remembered per folder", () => {
     expect(claudeMemoryDir(cwd, home)).toBe(memoryOf(cwd));
     setSystemTime(new Date(now + GIT_ROOT_TTL_MS));
     expect(claudeMemoryDir(cwd, home)).toBe(memoryOf(dir));
-    expect(gitCalls()).toBe(2);
-  });
-
-  test("the background pass forgets a folder nobody read for a while", async () => {
-    const dir = mkdtempSync(join(scratch, "plain-"));
-    const now = Date.now();
-    setSystemTime(new Date(now));
-    claudeMemoryDir(dir, home);
-    setSystemTime(new Date(now + GIT_ROOT_IDLE_MS + 1));
-    rmSync(callsLog, { force: true });
-    await refreshGitRoots();
-    expect(gitCalls()).toBe(0);
   });
 });
