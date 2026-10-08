@@ -24,7 +24,7 @@
  * No size, an unusable one, or a server that does not send them: no style, and
  * the picture behaves exactly as before.
  */
-import { createContext, useContext, type CSSProperties } from 'react';
+import { createContext, useContext } from 'react';
 
 export type MediaSize = [number, number];
 export type MediaSizes = Record<string, MediaSize>;
@@ -42,7 +42,7 @@ function usable(size: unknown): size is MediaSize {
 }
 
 /** The pre-load box of a `max-w-full max-h-80` picture of this size. */
-export function mediaBoxStyle(size: unknown): CSSProperties | undefined {
+export function mediaBoxStyle(size: unknown): React.CSSProperties | undefined {
   if (!usable(size)) return undefined;
   const [w, h] = size;
   return {
@@ -52,7 +52,7 @@ export function mediaBoxStyle(size: unknown): CSSProperties | undefined {
 }
 
 /** The pre-load box of the picture at `path` in the message being drawn, if its size is known. */
-export function useMediaBox(path: string): CSSProperties | undefined {
+export function useMediaBox(path: string): React.CSSProperties | undefined {
   const sizes = useContext(MediaSizesContext);
   return mediaBoxStyle(sizes?.[path]);
 }

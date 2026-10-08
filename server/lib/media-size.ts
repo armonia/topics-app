@@ -109,11 +109,11 @@ function tiffOrientation(t: Buffer): number {
   const le = order === "II";
   const u16 = (o: number) => (le ? t.readUInt16LE(o) : t.readUInt16BE(o));
   const u32 = (o: number) => (le ? t.readUInt32LE(o) : t.readUInt32BE(o));
-  const ifd = u32(4);
-  if (ifd + 2 > t.length) return 1;
-  const count = u16(ifd);
+  const directory = u32(4);
+  if (directory + 2 > t.length) return 1;
+  const count = u16(directory);
   for (let k = 0; k < count; k++) {
-    const entry = ifd + 2 + k * 12;
+    const entry = directory + 2 + k * 12;
     if (entry + 12 > t.length) return 1;
     if (u16(entry) === 0x0112) {
       const v = u16(entry + 8);
@@ -129,9 +129,9 @@ function readHead(path: string): Buffer | null {
   let fd: number | null = null;
   try {
     fd = openSync(path, "r");
-    const buf = Buffer.alloc(HEAD_BYTES);
-    const n = readSync(fd, buf, 0, HEAD_BYTES, 0);
-    return n > 0 ? buf.subarray(0, n) : null;
+    const head = Buffer.alloc(HEAD_BYTES);
+    const n = readSync(fd, head, 0, HEAD_BYTES, 0);
+    return n > 0 ? head.subarray(0, n) : null;
   } catch {
     return null;
   } finally {
@@ -183,7 +183,7 @@ export interface MediaFileRules {
   isPathAllowed: (file: string) => boolean;
 }
 
-/** The file a client path is served from, or null when the server would not serve it. */
+/** Where on disk a path named by a message lives, or null when the server would refuse to send it. */
 export function mediaFileOf(path: string, rules: MediaFileRules): string | null {
   if (path.startsWith("/uploads/")) {
     const root = resolve(rules.uploadsDir);
