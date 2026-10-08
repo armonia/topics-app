@@ -31,8 +31,9 @@ riga apre il suo log lì, la striscia sta nel trascritto) si aggiornano nello st
 ## Scenario 2: la riga apre il suo log lì, ad accordion (SUBSTRIP-02)
 
 - **GIVEN** un turno vero (CLI finta) che lancia un comando con `run_command`, che stampa
-  «CMDWATCH-TICK N» ogni 0,3 s, e finisce con 60 righe che portano la card fuori vista; chi legge
-  è in fondo
+  «CMDWATCH-TICK N» ogni 0,3 s, e finisce con 60 righe che portano la card fuori vista; altri
+  cinque comandi, più righe di quante la striscia ne mostrasse prima di scorrere dentro di sé;
+  chi legge è in fondo
 - **WHEN** si clicca la riga del comando nella striscia
 - **THEN** la riga è aperta (`data-open`, `aria-expanded`) con sopra di sé il log dal vivo della
   card (`shell-live-output`), che avanza, si legge senza codici colore (i tick escono in verde) e
@@ -40,7 +41,9 @@ riga apre il suo log lì, la striscia sta nel trascritto) si aggiornano nello st
 - **AND** la riga resta dov'era e chi era in fondo resta in fondo (entro 1 px); `scrollTop` cresce
   esattamente quanto la striscia (entro 1 px): la trascrizione non va da nessuna parte
 - **AND** la card d'origine resta chiusa e fuori vista
-- **WHEN** parte un secondo comando (dalla sola route) e si clicca la sua riga
+- **WHEN** parte un secondo comando (dalla sola route) mentre il log si apre
+- **THEN** la sua riga arriva sotto chi legge in fondo, che resta in fondo (entro 1 px)
+- **WHEN** si clicca la sua riga
 - **THEN** si apre il suo log e si chiude il primo: al massimo una riga aperta, e la riga cliccata
   resta dov'era
 - **WHEN** si clicca di nuovo la stessa riga
@@ -56,6 +59,11 @@ riga apre il suo log lì, la striscia sta nel trascritto) si aggiornano nello st
 
 - In una copia di `client/` dove il clic sulla riga, oltre ad aprire il log, rimette il salto alla
   card d'origine (`findLaunchCard` e `revealToolCall` come in HEAD), lo scenario 2 FALLISCE.
+- Col bundle di prima del fix della presa (che contava come movimento il mezzo pixel e non
+  recuperava il pin respinto), lo scenario 2 FALLISCE: la riga del secondo comando resta 24 px
+  sotto chi era in fondo.
+- Con la presa minima portata a 2,5 s, così che quella riga arrivi dentro la presa, togliere il
+  recupero del pin fa fallire lo scenario 2; col recupero passa.
 
 ## Prova
 

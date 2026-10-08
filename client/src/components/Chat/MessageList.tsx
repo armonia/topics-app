@@ -689,6 +689,8 @@ export function MessageList({
    *  fondo perché ce l'abbiamo portata noi» da «ci è saltata da sola». */
   const lastPinAtRef = useRef(0);
   const disclosureHoldingRef = useRef<() => boolean>(() => false); // a fold toggled by hand holds the view (useDisclosureAnchor)
+  /** A pin the hold turned away, owed once it settles: see `onDisclosureSettled`. */
+  const pinAfterHoldRef = useRef(false);
   /** Finestra entro cui un arrivo al fondo è ancora attribuibile al nostro pin. */
   const PIN_ATTRIBUTION_MS = 500;
   /** Entro tanto da un nostro pin, un calo di `scrollTop` è il riassestamento
@@ -722,7 +724,8 @@ export function MessageList({
    * dropped a line and came back (UI audit 2026-09-29, core:F03).
    */
   const pinToBottom = useCallback((opts?: { viaVirtuoso?: boolean; frames?: 1 | 2; force?: boolean; settleFrames?: number; now?: boolean; renderNow?: boolean }) => {
-    if (disclosureHoldingRef.current() || (!opts?.force && !shouldPin(authorityRef.current, { jumpPending: jumpPending() }))) return;
+    if (disclosureHoldingRef.current()) { pinAfterHoldRef.current = true; return; }
+    if (!opts?.force && !shouldPin(authorityRef.current, { jumpPending: jumpPending() })) return;
     if (opts?.viaVirtuoso) {
       virtuosoRef.current?.scrollToIndex({ index: 'LAST', align: 'end' });
       // `renderNow`: the offset is written at once, but Virtuoso renders its
@@ -745,7 +748,8 @@ export function MessageList({
       // Ri-controllo dentro il frame: uno scroll dell'utente arrivato fra la
       // programmazione e l'esecuzione non va sovrascritto da un pin ormai vecchio.
       if (!el) return;
-      if (disclosureHoldingRef.current() || (!opts?.force && !shouldPin(authorityRef.current, { jumpPending: jumpPending() }))) return;
+      if (disclosureHoldingRef.current()) { pinAfterHoldRef.current = true; return; }
+      if (!opts?.force && !shouldPin(authorityRef.current, { jumpPending: jumpPending() })) return;
       // DOPO le guardie: qui si registrano i pin ESEGUITI, non quelli tentati.
       // Stava in cima, quindi un pin che poi si tirava indietro rinfrescava
       // comunque la finestra di attribuzione — e per 500ms un auto-riancoraggio
@@ -771,8 +775,20 @@ export function MessageList({
     if (decision.pin) pinToBottom(pinOpts);
   }, [pinToBottom]);
   // A toggle is a hand on the chat, like a wheel: the hold, the opening's forced pins standing down.
-  const onDisclosureHold = useCallback(() => { userTouchedRef.current = true; openingUntilRef.current = 0; dispatchScroll({ type: 'disclosure-toggled' }); }, [dispatchScroll]);
-  const onDisclosureSettled = useCallback((d: number) => { if (d <= BOTTOM_RELEASE_PX) dispatchScroll({ type: 'reached-bottom', distanceFromBottom: d }); }, [dispatchScroll]);
+  const onDisclosureHold = useCallback(() => { userTouchedRef.current = true; openingUntilRef.current = 0; pinAfterHoldRef.current = false; dispatchScroll({ type: 'disclosure-toggled' }); }, [dispatchScroll]);
+  /**
+   * A hold only delays the pins: one it turned away is owed now, and asks the authority as any pin
+   * does. A row that arrived under a reader at the bottom while a strip row opened its log was
+   * left 24 px below the view for good (scenario 2 of chat-strips-in-transcript, 2 runs in 6 on
+   * Chromium): nothing else grew to pin it. A reader who opened a fold below its header still holds
+   * the view (`disclosure-toggled`), and the pin stands down.
+   */
+  const onDisclosureSettled = useCallback((d: number) => {
+    if (d <= BOTTOM_RELEASE_PX) dispatchScroll({ type: 'reached-bottom', distanceFromBottom: d });
+    const owed = pinAfterHoldRef.current;
+    pinAfterHoldRef.current = false;
+    if (owed && d > 1) pinToBottom({ now: true });
+  }, [dispatchScroll, pinToBottom]);
   const disclosure = useDisclosureAnchor({ scrollerElRef, scrollerEl, holdingRef: disclosureHoldingRef, onHold: onDisclosureHold, onSettled: onDisclosureSettled });
 
   /**

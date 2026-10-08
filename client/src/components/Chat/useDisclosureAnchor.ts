@@ -151,7 +151,10 @@ export function useDisclosureAnchor({ scrollerElRef, scrollerEl, holdingRef, onH
     // fills the room it had left: what the view no longer needs goes now.
     if (slackRef.current > 0) writeSlack(el, slackAfter(slackRef.current, el.scrollTop, el.clientHeight, el.scrollHeight));
     const content = el.scrollHeight - slackRef.current;
-    hold.stillFrames = content === hold.lastContent && Math.abs(dy) < 0.5 ? hold.stillFrames + 1 : 0;
+    // Under a pixel is not movement: scroll offsets snap to device pixels, so an anchor half a pixel
+    // off stays there. A strip row under its 321.5 px log (08/10) did, and every hold ran to its hard
+    // stop: three seconds of pins standing down after each click.
+    hold.stillFrames = content === hold.lastContent && Math.abs(dy) < 1 ? hold.stillFrames + 1 : 0;
     hold.lastContent = content;
     if ((now >= hold.minUntil && hold.stillFrames >= DISCLOSURE_SETTLE_FRAMES) || now >= hold.hardStop) {
       release();

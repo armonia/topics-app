@@ -41,6 +41,13 @@ import { useDisclosureToggle } from './transcriptDisclosure';
  * without «Open» and «Stop», until the log is closed: its end is what one
  * opened it to read. Its own «Stop» closes it, and the row leaves as before.
  *
+ * NO CAP ON THE ROWS. Docked over the composer they stopped at 7.5rem and
+ * scrolled inside it; in the transcript the strip scrolls with the chat, and
+ * the cap was a scroller inside the scroller. Lifted to open a log, it showed
+ * the rows it hid under the row clicked: on the Prince of Persia chat (08/10,
+ * six commands) the reader at the bottom ended 27 px above it, and the chat
+ * stopped following its new messages.
+ *
  * A command is also where it stops («Stop», the Processes panel's route) and
  * where it says that its end will wake the chat. Both used to be two more
  * rows under the transcript, the background line and a server's row
@@ -124,8 +131,8 @@ function CommandRow({ row, open, ended, onToggle, onStop }: {
   };
   return (
     <div data-testid="live-command-row" data-process-id={row.id} data-open={open ? 'true' : 'false'}>
-      {/* Above its row, in the strip's flow (`DockedStripPanel`); the class lifts the cap of the rows. */}
-      <DockedStripPanel open={open} testId="live-command-log" className="live-command-log px-2.5 py-1.5">
+      {/* Above its row, in the strip's flow: see `DockedStripPanel`. */}
+      <DockedStripPanel open={open} testId="live-command-log" className="px-2.5 py-1.5">
         <ProcessTail processId={row.id} />
       </DockedStripPanel>
       <div className="flex min-w-0 items-center" title={row.wakes ? `${row.command}\n${wakes}` : row.command}>
@@ -196,21 +203,18 @@ export const SubAgentsStrip = memo(function SubAgentsStrip({ topicId }: { topicI
 
   return (
     <div data-testid="subagents-strip" className={`${CHAT_STRIP_NEUTRAL} overflow-hidden`}>
-      {/* The rows scroll past their cap only while every log is shut: an open or closing one would scroll inside it. */}
-      <div className="max-h-[7.5rem] overflow-y-auto [&:has(.live-command-log)]:max-h-none">
-        {rows.map((row) => (row.kind === 'agent'
-          ? <AgentRow key={row.id} row={row} />
-          : (
-            <CommandRow
-              key={row.id}
-              row={row}
-              open={open?.id === row.id}
-              ended={ended && open?.id === row.id}
-              onToggle={(anchor) => toggle(row, anchor)}
-              onStop={() => { if (open?.id === row.id) setOpen(null); }}
-            />
-          )))}
-      </div>
+      {rows.map((row) => (row.kind === 'agent'
+        ? <AgentRow key={row.id} row={row} />
+        : (
+          <CommandRow
+            key={row.id}
+            row={row}
+            open={open?.id === row.id}
+            ended={ended && open?.id === row.id}
+            onToggle={(anchor) => toggle(row, anchor)}
+            onStop={() => { if (open?.id === row.id) setOpen(null); }}
+          />
+        )))}
     </div>
   );
 });

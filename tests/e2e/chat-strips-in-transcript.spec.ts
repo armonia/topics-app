@@ -233,6 +233,13 @@ test("a command's row opens its live log right there, as an accordion: the trans
   await expect(page.getByText("STARTED").first()).toBeVisible({ timeout: 30_000 });
   writeFileSync(join(switches, "release"), "");
   await expect(page.getByText("filler 60")).toBeVisible({ timeout: 30_000 });
+  // More commands than the rows the strip showed before scrolling inside itself (7.5rem): lifted to open
+  // a log, that cap showed the rows it hid under the one clicked, and the reader at the bottom ended above
+  // it (the Prince of Persia chat, six commands, 08/10).
+  for (let i = 1; i <= 5; i++) {
+    const more = await runCommand(request, "sleep 600", `E2E more ${i} ${STAMP}`);
+    await expect(commandRow(page, more)).toHaveCount(1, { timeout: 15_000 });
+  }
   await expect.poll(() => fromBottom(page), { timeout: 10_000 }).toBeLessThanOrEqual(1);
   const card = page.getByTestId("tool-call-row-toolu_cmdwatch");
   const sc = await box(scroller(page));
@@ -261,6 +268,15 @@ test("a command's row opens its live log right there, as an accordion: the trans
     await expect(page.locator('[data-testid="tool-call-row-toolu_cmdwatch"] > button').first()).toHaveAttribute("aria-expanded", "false");
     await expect(card).not.toBeInViewport();
   }
+  // A second command, started by the route alone as the log opens: its row arrives under the reader at
+  // the bottom, who stays there. The click's hold turned that pin away and the row stayed 24 px below the
+  // view (Chromium, 2 runs in 6, 08/10).
+  const bare = await runCommand(request, 'for i in $(seq 1 600); do echo "bare tick $i"; sleep 1; done', `E2E bare ${STAMP}`);
+  const bareRow = commandRow(page, bare);
+  const bareHeader = bareRow.getByRole("button").first();
+  await expect(bareRow).toHaveCount(1, { timeout: 15_000 });
+  await expect.poll(() => fromBottom(page), { timeout: 5_000 }).toBeLessThanOrEqual(1);
+
   const seen = tickOf(await live.textContent());
   await expect.poll(async () => tickOf(await live.textContent()), { timeout: 6_000 }).toBeGreaterThan(seen);
   // Printed in colour, read as text: on the Prince of Persia chat (08/10) the escape codes showed as boxes.
@@ -269,11 +285,7 @@ test("a command's row opens its live log right there, as an accordion: the trans
   await expect.poll(() => live.evaluate((el) => el.scrollHeight > el.clientHeight), { timeout: 15_000 }).toBe(true);
   await expect.poll(() => live.evaluate((el) => el.scrollHeight - el.scrollTop - el.clientHeight), { timeout: 3_000 }).toBeLessThanOrEqual(2);
 
-  // A second command, started by the route alone: opening its row shuts the first. One log open at a time.
-  const bare = await runCommand(request, 'for i in $(seq 1 600); do echo "bare tick $i"; sleep 1; done', `E2E bare ${STAMP}`);
-  const bareRow = commandRow(page, bare);
-  const bareHeader = bareRow.getByRole("button").first();
-  await expect(bareRow).toHaveCount(1, { timeout: 15_000 });
+  // Opening the second row shuts the first. One log open at a time.
   await still(page);
   const beforeBare = await place(bareHeader);
   await bareHeader.click();

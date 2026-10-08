@@ -800,8 +800,11 @@ The chat's strips at the end of the transcript (the goal, the todo list, the
 files this chat touched, the checkpoints; CHAT-END-01) open their content ABOVE
 their header, in the flow of the strip: the header keeps its place under the
 pointer and the transcript above it moves up with the opened list, so its
-newest row stays in sight above the strip (while the agent writes, too). A
-strip is on screen only at the end of the chat, so it has no middle case.
+newest row stays in sight above the strip (while the agent writes, too). The
+reader at the bottom stays at the true bottom, so the follow stays theirs: what
+arrives under them while the strip settles (a new row, a reply) is followed once
+it has settled; the hold delays that pin and does not drop it. A strip is on
+screen only at the end of the chat, so it has no middle case.
 
 #### Scenario: opening a fold at the bottom of the chat
 - **GIVEN** a chat at its true bottom whose last message holds a closed fold

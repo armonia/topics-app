@@ -12,7 +12,9 @@ Lo stato di una traccia lo danno git e i test, non le caselle.
 3. **Le strisce in fondo al trascritto.** Footer di Virtuoso stabile con le strisce di `ChatPane`
    (fuori dal blocco del composer, salvo chat vuota); la fascia di atterraggio sulla riga
    (`ToolCallRow`, scroll-margin); i toggle
-   delle strisce tengono la vista (`useDisclosureToggle`). Barra: scenario 1, `chat-changed-files`,
+   delle strisce tengono la vista (`useDisclosureToggle`), la presa finisce quando la riga è ferma
+   entro il pixel e recupera il pin che ha respinto (`useDisclosureAnchor`, `MessageList`).
+   Barra: scenario 1, `chat-changed-files`,
    `chat-accordion-no-shift` (le strisce: solo il caso in fondo).
 4. **E2E, video e mutazione.** `tests/e2e/chat-strips-in-transcript.spec.ts`, spec aggiornate di
    proposito (`chat-command-visible`, `chat-running-server`, `chat-live-work`,

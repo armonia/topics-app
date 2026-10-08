@@ -59,9 +59,18 @@ Le righe dei sotto-agenti · il layout mobile, oltre a non romperlo · il server
   di avvio) e senza Apri e Ferma, finché non lo chiudi: la sua fine è ciò che lo avevi aperto a
   leggere, come col log agganciato di prima. Ferma sulla riga aperta chiude il log, così la riga
   se ne va come prima.
-- Il tetto delle righe (7,5 rem, poi scorrono) vale solo coi log chiusi: un log aperto o in
-  chiusura lo toglie (`:has()`), o scorrerebbe dentro il tetto.
+- Le righe non hanno più un tetto. Sopra il composer si fermavano a 7,5 rem e scorrevano dentro;
+  nel trascritto la striscia scorre con la chat, e il tetto era uno scroll dentro lo scroll.
+  Tolto per aprire un log, mostrava le righe che nascondeva sotto quella cliccata: sulla chat
+  Prince of Persia (08/10, sei comandi) chi era in fondo finiva 27 px sopra, e la chat smetteva
+  di seguire i messaggi nuovi. Per questo lo scenario 2 ha sei comandi.
 - Nessun log agganciato per i comandi senza card: ogni riga comando ha lo stesso accordion.
+- La presa di un toggle (`useDisclosureAnchor`) finisce quando la riga è ferma entro il pixel, non
+  entro il mezzo: lo scroll si muove a pixel interi, la riga sotto un log di 321,5 px restava a
+  0,5 px per sempre, e ogni clic sulla striscia fermava i pin per 3 s, fino al tetto. E un pin che
+  la presa ha respinto si recupera quando lei finisce (`MessageList`), chiedendo all'autorità come
+  ogni pin: una riga arrivata in quei 3 s restava 24 px sotto chi era in fondo (Chromium, 2 volte
+  su 6). Chi apre una piega sotto la sua testata resta padrone della vista come prima.
 - Tolti `revealToolCall`, il fuoco `reveal` della ricerca, il suo effetto in `ToolCallRow` e
   `findLaunchCard`: senza il salto non li usa nessuno. `liveWorkCard.ts` diventa
   `launchedProcess.ts`, con il solo `launchedProcessId`.
