@@ -17,6 +17,12 @@ background e leggi il log; mai un `sleep` in primo piano.
 2. Bun: `bun --version`. Sotto la 1.4.0 il proxy della VM risponde 401 a `bun install`
    (credenziali del proxy codificate male, oven-sh/bun#31782): `npm i -g bun@latest`, poi
    `hash -r; bun --version`. Le release GitHub di Bun dal proxy danno 403: solo npm.
+   **Bun di produzione: 1.3.8.** Il server in produzione gira sulla 1.3.8 (il Mac), gli installer
+   desktop sono compilati con la latest: il codice server deve essere giusto su tutte e due.
+   Una 1.3.8 accanto alla tua, solo per i test (con la 1.3.8 `bun install` non passa dal proxy):
+   `npm i --prefix /tmp/bun138 bun@1.3.8` → `/tmp/bun138/node_modules/.bin/bun test <file>`.
+   Un test server verde sulla latest e rosso sulla 1.3.8 è un difetto in produzione (T10, 08/10:
+   21 rossi su 185 in `server/services/tasks.test.ts`, solo sulla 1.3.8).
 3. Dipendenze, gli stessi passi della CI:
    ```bash
    bun install --frozen-lockfile --ignore-scripts
