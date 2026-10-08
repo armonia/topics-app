@@ -1,0 +1,13 @@
+[BrowserService] restoreAllContexts: 0 restored, 0 failed, 0 deferred to lazy (cap 0)
+[server] browser restore: 0 restored, 0 failed
+V3DBG tool-result-clamp settled
+V3DBG tool-result-clamp settled
+V3DBG tool-result-clamp settled
+V3DBG tool-result-clamp settled
+V3DBG tool-result-clamp settled
+V3DBG tool-result-clamp settled
+V3DBG tool-result-clamp settled
+V3DBG tool-result-clamp settled
+V3DBG tool-result-clamp settled
+V3DBG tool-result-clamp settled
+[1A[2K  10 passed (2.2m)

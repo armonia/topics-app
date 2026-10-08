@@ -1,0 +1,18 @@
+pair 1 head {"label":"head","mode":"warm","boots":"469 410 436 519 470","median_ms":469,"load1":"0.36"} load=[0.36 0.66 1.08]
+pair 1 fix  {"label":"fix","mode":"warm","boots":"510 521 403 496 451","median_ms":496,"load1":"0.29"} load=[0.29 0.62 1.06]
+pair 2 head {"label":"head","mode":"warm","boots":"488 486 466 403 444","median_ms":466,"load1":"0.47"} load=[0.47 0.63 1.05]
+pair 2 fix  {"label":"fix","mode":"warm","boots":"466 440 442 462 527","median_ms":462,"load1":"0.53"} load=[0.53 0.63 1.04]
+pair 3 head {"label":"head","mode":"warm","boots":"421 439 488 402 427","median_ms":427,"load1":"0.35"} load=[0.35 0.58 1.01]
+pair 3 fix  {"label":"fix","mode":"warm","boots":"445 470 444 492 532","median_ms":470,"load1":"0.23"} load=[0.23 0.53 0.98]
+pair 4 fix  {"label":"fix","mode":"warm","boots":"463 422 501 429 502","median_ms":463,"load1":"0.11"} load=[0.11 0.46 0.94]
+pair 4 head {"label":"head","mode":"warm","boots":"466 453 656 475 459","median_ms":466,"load1":"0.07"} load=[0.07 0.42 0.91]
+pair 5 fix  {"label":"fix","mode":"warm","boots":"455 484 506 494 490","median_ms":490,"load1":"0.05"} load=[0.05 0.39 0.89]
+pair 5 head {"label":"head","mode":"warm","boots":"457 496 463 458 429","median_ms":458,"load1":"0.10"} load=[0.10 0.37 0.87]
+pair 6 fix  {"label":"fix","mode":"warm","boots":"410 435 417 436 527","median_ms":435,"load1":"0.06"} load=[0.06 0.34 0.84]
+pair 6 head {"label":"head","mode":"warm","boots":"398 429 392 420 415","median_ms":415,"load1":"0.42"} load=[0.42 0.41 0.86]
+AA pair 1 head  {"label":"head","mode":"warm","boots":"409 463 446 490 520","median_ms":463,"load1":"0.58"}
+AA pair 1 headS {"label":"headS","mode":"warm","boots":"494 445 435 446 456","median_ms":446,"load1":"0.44"}
+AA pair 2 head  {"label":"head","mode":"warm","boots":"398 436 528 468 539","median_ms":468,"load1":"0.48"}
+AA pair 2 headS {"label":"headS","mode":"warm","boots":"534 441 433 500 587","median_ms":500,"load1":"0.66"}
+AA pair 3 head  {"label":"head","mode":"warm","boots":"433 425 510 421 503","median_ms":433,"load1":"0.85"}
+AA pair 3 headS {"label":"headS","mode":"warm","boots":"446 457 496 569 452","median_ms":457,"load1":"0.62"}

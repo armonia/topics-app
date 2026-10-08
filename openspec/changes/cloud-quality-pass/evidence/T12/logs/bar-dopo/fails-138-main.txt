@@ -1,0 +1,23 @@
+client/src/hooks/useChat.ownBubbleByKey.test.ts › a queued send the server stored before answering with an error › V1b: no echo, the person writes again: the stored message goes alone under its key, the new words are never merged into it
+client/src/hooks/useChat.ownBubbleByKey.test.ts › a queued send the server stored before answering with an error › V1b: the person writes again after the late echo: the new words leave under a key of their own and arrive
+client/src/hooks/useTauriBrowser.move.test.ts › useTauriBrowser: moving a live page to another surface keeps it › a real close is still a close: nobody remounts, the view goes after the grace
+client/src/lib/featureWeightText.test.ts › fmt — il raggruppamento italiano, non «un punto ogni tre cifre» › coincide con il runtime dove il runtime ha un'opinione
+client/src/state/pane/adapters/projectLayoutSync.durability.test.ts › project channel PUT durability › a 409 (row moved on) on the teardown keepalive fallback is TERMINAL, no retry storm
+client/src/state/pane/adapters/projectLayoutSync.durability.test.ts › project channel PUT durability › a failing PUT (server down) is RETAINED as un-acked, not swallowed
+client/src/state/pane/adapters/projectLayoutSync.durability.test.ts › project channel PUT durability › teardown flush beacons the un-acked repoint out synchronously
+scripts/check-security.test.ts › check:security - i pezzi che vogliono l&apos;albero vero › la copia parte verde sui tre pezzi che non chiedono la rete
+scripts/reload-gate-migration.test.ts › server-reload-gate.sh — cancello migration SQL › A: migration pending ROTTA → exit 1, non tocca il DB vivo
+scripts/reload-gate-migration.test.ts › server-reload-gate.sh — cancello migration SQL › F: migration ROTTA senza DATA_DIR → exit 1 (percorso default = APP_DIR/data)
+server/attention/system-notices.test.ts › a system notice › a freeze and its thaw are one system row, on a system subject, and no chat lights up
+server/git-watcher.test.ts › WORKTREE-05 — the watcher speaks for the worktree, not for its parent › a git operation INSIDE the worktree actually reaches the broadcast
+server/lib/file-tree.test.ts › a file that cannot be stat-ed still comes out, without a size, next to its siblings
+server/lib/loopback-probe.test.ts › isPortListening › un server in ascolto SOLO su ::1 non va dato per morto
+server/routes/processes.shell-sweep.test.ts › sweep dei figli orfani di una shell morta › cattura il sottoalbero da viva e chiude i figli quando la shell muore
+server/services/worktree-manager.test.ts › worktree-manager.del(): la cartella prima della riga › cartella che non si puo' togliere: la riga RESTA, il ramo resta, si lancia e si notifica
+tests/integration/ask-user-poll-loop.test.ts › ask_user_question — anello bridge ⇄ route › la risposta arriva dopo che una gamba è già scaduta, e il tool la restituisce
+tests/integration/ask-user-poll-loop.test.ts › ask_user_question — anello bridge ⇄ route › una domanda annullata diventa un errore del tool, mai una risposta inventata
+tests/integration/installed-app-home-isolation.test.ts › an installed Topics writes only into its own home › a boot and a session leave nothing outside ~/.topics
+tests/integration/installed-app-home-isolation.test.ts › an installed Topics writes only into its own home › a home that already has ~/.openclaw keeps using it
+tests/integration/leak-ws-registries.test.ts › (unnamed)
+tests/integration/topic-read-seen-propagation.test.ts › (unnamed)
+tests/unit/no-home-paths-tracked.test.ts › nessun percorso di home in un file tracciato › la home di chi esegue non compare in nessuno di essi

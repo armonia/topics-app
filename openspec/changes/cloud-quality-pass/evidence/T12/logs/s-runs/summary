@@ -1,0 +1,10 @@
+start 2026-10-08T08:09:40Z N=40 BLK=10  08:09:40 up 59 min,  0 user,  load average: 1.91, 1.15, 0.83
+head block=1 exit=0 10 passed 0 failed secs=128 load=[5.25 2.83 1.51]
+main block=1 exit=0 10 passed 0 failed secs=128 load=[6.00 4.02 2.12]
+head block=2 exit=0 10 passed 0 failed secs=134 load=[6.13 4.73 2.64]
+main block=2 exit=0 10 passed 0 failed secs=127 load=[5.57 5.08 3.05]
+head block=3 exit=0 10 passed 0 failed secs=121 load=[6.57 5.65 3.51]
+main block=3 exit=0 10 passed 0 failed secs=123 load=[6.99 6.21 3.99]
+head block=4 exit=0 10 passed 0 failed secs=127 load=[5.52 5.95 4.19]
+main block=4 exit=0 10 passed 0 failed secs=129 load=[5.82 5.98 4.43]
+DONE 2026-10-08T08:26:37Z  08:26:37 up  1:16,  0 user,  load average: 5.82, 5.98, 4.43

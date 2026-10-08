@@ -1,0 +1,21 @@
+client/src/hooks/useChat.ownBubbleByKey.test.ts › a queued send a history read shows under its key › history-drops-queued: the echo never came, the read brings the row with my key: the item leaves the queue and is not resent
+client/src/hooks/useChat.ownBubbleByKey.test.ts › a queued send a history read shows under its key › the same words under ANOTHER key are not my message: my queued item is still resent, and drawn
+client/src/hooks/useTauriBrowser.move.test.ts › useTauriBrowser: moving a live page to another surface keeps it › a real close is still a close: nobody remounts, the view goes after the grace
+client/src/lib/featureWeightText.test.ts › fmt — il raggruppamento italiano, non «un punto ogni tre cifre» › coincide con il runtime dove il runtime ha un'opinione
+client/src/lib/i18n.test.ts › t › (unnamed)
+client/src/lib/settings.test.ts › gate di idratazione › …e parte appena l’idratazione ha esito, col valore parcheggiato
+client/src/state/pane/middleware/syncServer.test.ts › syncServer — re-arm the push after a WS drop › a PUT aborted mid-flight by the drop is re-sent on the next open
+client/src/state/pane/middleware/syncServer.test.ts › syncServer — re-arm the push after a WS drop › an open with nothing owed does not push
+scripts/check-security.test.ts › check:security - i pezzi che vogliono l&apos;albero vero › la copia parte verde sui tre pezzi che non chiedono la rete
+scripts/reload-gate-migration.test.ts › server-reload-gate.sh — cancello migration SQL › A: migration pending ROTTA → exit 1, non tocca il DB vivo
+scripts/reload-gate-migration.test.ts › server-reload-gate.sh — cancello migration SQL › F: migration ROTTA senza DATA_DIR → exit 1 (percorso default = APP_DIR/data)
+server/attention/system-notices.test.ts › a system notice › a freeze and its thaw are one system row, on a system subject, and no chat lights up
+server/lib/file-tree.test.ts › a file that cannot be stat-ed still comes out, without a size, next to its siblings
+server/lib/loopback-probe.test.ts › isPortListening › un server in ascolto SOLO su ::1 non va dato per morto
+server/routes/processes.shell-sweep.test.ts › sweep dei figli orfani di una shell morta › cattura il sottoalbero da viva e chiude i figli quando la shell muore
+server/services/worktree-manager.test.ts › worktree-manager.del(): la cartella prima della riga › cartella che non si puo' togliere: la riga RESTA, il ramo resta, si lancia e si notifica
+tests/integration/installed-app-home-isolation.test.ts › an installed Topics writes only into its own home › a boot and a session leave nothing outside ~/.topics
+tests/integration/installed-app-home-isolation.test.ts › an installed Topics writes only into its own home › a home that already has ~/.openclaw keeps using it
+tests/integration/leak-ws-registries.test.ts › (unnamed)
+tests/integration/topic-read-seen-propagation.test.ts › (unnamed)
+tests/unit/no-home-paths-tracked.test.ts › nessun percorso di home in un file tracciato › la home di chi esegue non compare in nessuno di essi

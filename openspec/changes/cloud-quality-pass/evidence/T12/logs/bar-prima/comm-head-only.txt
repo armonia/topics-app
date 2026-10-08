@@ -1,0 +1,15 @@
+server/db/migrations-embedded.test.ts › embedded manifest matches disk 1:1 on version + name + SQL content
+server/db/migrations-embedded.test.ts › without the migrations folder (compiled sidecar) the schema is built from the manifest
+server/db/v3-embedded-fallback-fresh-process.test.ts › without the migrations folder, in a fresh process, the schema is built from the manifest's SQL
+server/lib/ripresa-boot-queued-stopped.test.ts › the Stop the server writes is the Stop the sweep reads › a message stopped before the restart is not resent after it
+server/providers/turn-liveness-routing.test.ts › chi è vivo, e chi non lo sa › con il solo claude-code registrato, la sua risposta vale ancora
+server/providers/turn-liveness-routing.test.ts › chi è vivo, e chi non lo sa › nessun provider che sappia rispondere → `null`, non `false`
+server/providers/turn-liveness-routing.test.ts › chi è vivo, e chi non lo sa › sessione di un provider ACP: claude-code non risponde per lui
+server/providers/turn-liveness-routing.test.ts › chi è vivo, e chi non lo sa › sessione posseduta dall'ACP: risponde LUI, e la rete resta accesa
+server/providers/turn-liveness-routing.test.ts › the sweeper probe, by name › IL CASO CHE HA UCCISO IL TURNO: il proprietario dice vivo, e la sonda lo riporta
+server/providers/turn-liveness-routing.test.ts › the sweeper probe, by name › il soccorso va al proprietario, non a claude-code
+server/providers/turn-liveness-routing.test.ts › the sweeper probe, by name › un turno che NON e' di nessuno resta `undefined`, non `false`
+server/utils-secret-path.test.ts › (unnamed)
+tests/integration/live-phase-gate.test.ts › catena riattaccata: bridge → registrazione → primo frame › il primo frame dopo la riattaccata non annuncia niente e non risveglia la fase
+tests/unit/db-nasce-da-zero.test.ts › un&apos;installazione nuova si avvia › il database nato dal nulla ha le tabelle che il prodotto usa
+tests/unit/db-nasce-da-zero.test.ts › un&apos;installazione nuova si avvia › la catena delle migration gira dal nulla, in ordine

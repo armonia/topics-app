@@ -1,0 +1,1 @@
+server/git-watcher.test.ts › WORKTREE-05 — the watcher speaks for the worktree, not for its parent › a git operation INSIDE the worktree actually reaches the broadcast

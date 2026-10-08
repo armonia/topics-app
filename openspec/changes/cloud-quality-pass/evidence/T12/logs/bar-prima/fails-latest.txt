@@ -1,0 +1,2 @@
+server/attention/system-notices.test.ts › a system notice › a freeze and its thaw are one system row, on a system subject, and no chat lights up
+server/v3-guest-media-sizes.test.ts › a guest holding the chat does not learn the size of a picture it cannot fetch

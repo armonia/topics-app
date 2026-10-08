@@ -1,0 +1,3 @@
+client/src/lib/featureWeightText.test.ts › fmt — il raggruppamento italiano, non «un punto ogni tre cifre» › coincide con il runtime dove il runtime ha un'opinione
+server/git-watcher.test.ts › WORKTREE-05 — the watcher speaks for the worktree, not for its parent › a git operation INSIDE the worktree actually reaches the broadcast
+tests/integration/live-phase-gate.test.ts › catena riattaccata: bridge → registrazione → primo frame › il primo frame dopo la riattaccata non annuncia niente e non risveglia la fase
