@@ -2,6 +2,11 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.2.460 — 2026-10-08
+
+### Correzioni
+- **gates** · check:deadcode-blindspots non cancella più le modifiche fatte mentre gira
+
 ## 2.2.459 — 2026-10-08
 
 ### Novità
@@ -14,7 +19,10 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 - **chat** · ciò che si scrive mentre la chat si apre è ciò che parte
 - **views** · the rest of the CI gates on #259
 - **claude-code** · la sonda non riattacca un figlio adottato prima che il suo aggancio atterri
+- **chat** · una piega non mostra più il corpo aperto per un fotogramma quando parte
 - **views** · CI-only reds of #259
+- **chat** · una piega ripremuta mentre si muove torna indietro da dov'è
+- **native** · un motore fermato non apre più un turno
 
 ### Sotto il cofano
 - **openspec** · VERIFICA, T18 e il fix della sonda

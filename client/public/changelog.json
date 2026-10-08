@@ -1,5 +1,22 @@
 [
   {
+    "version": "2.2.460",
+    "date": "2026-10-08",
+    "sections": {
+      "new": [],
+      "fixes": [
+        {
+          "it": "check:deadcode-blindspots non cancella più le modifiche fatte mentre gira",
+          "en": "",
+          "scope": "gates",
+          "breaking": false
+        }
+      ],
+      "perf": [],
+      "internal": []
+    }
+  },
+  {
     "version": "2.2.459",
     "date": "2026-10-08",
     "sections": {
@@ -49,9 +66,27 @@
           "breaking": false
         },
         {
+          "it": "una piega non mostra più il corpo aperto per un fotogramma quando parte",
+          "en": "",
+          "scope": "chat",
+          "breaking": false
+        },
+        {
           "it": "CI-only reds of #259",
           "en": "",
           "scope": "views",
+          "breaking": false
+        },
+        {
+          "it": "una piega ripremuta mentre si muove torna indietro da dov'è",
+          "en": "",
+          "scope": "chat",
+          "breaking": false
+        },
+        {
+          "it": "un motore fermato non apre più un turno",
+          "en": "",
+          "scope": "native",
           "breaking": false
         }
       ],
