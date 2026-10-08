@@ -1080,6 +1080,38 @@ nel log.
 - **WHEN** il server viene riavviato
 - **THEN** il riavvio SHALL avvenire lo stesso, con l'ambiente di prima e una riga di log
 
+### Requirement: BOOT-BUN-01 — Il server di produzione gira sulla Bun di `.bun-version`
+
+Il server avviato da `scripts/start-prod.sh` SHALL girare sulla versione di Bun
+fissata in `.bun-version`, la stessa di CI, release e test, installata da
+`scripts/install-bun.sh` in `~/.topics/bun/<versione>/bun`. La `bun` globale del
+Mac NON SHALL cambiare: è di tutti gli altri progetti. Due difetti del quality
+pass cloud (`columnNames` rovesciato oltre 62 colonne, `require` che ignora
+`with { type: "text" }`) venivano dal Mac rimasto sulla 1.3.8 mentre la CI
+provava un'altra versione.
+
+La scelta SHALL rifarsi a ogni avvio del server, dopo la rilettura della
+configurazione (BOOT-ENV-01): un cambio di versione arriva con il ricarico che
+porta il codice, senza riavviare il supervisore. Una versione non installata NON
+SHALL fermare il server: parte con la `bun` globale e il log dice quale comando
+la installa. `install-bun.sh` SHALL installare solo un archivio ufficiale il cui
+SHA-256 combacia con lo `SHASUMS256.txt` della stessa release.
+
+#### Scenario: la versione fissata è installata
+- **GIVEN** `.bun-version` e la stessa versione in `~/.topics/bun`
+- **WHEN** il server parte o viene ricaricato
+- **THEN** SHALL girare su quel binario, non sulla `bun` globale
+
+#### Scenario: la versione fissata manca
+- **GIVEN** una `.bun-version` non installata
+- **WHEN** il server parte
+- **THEN** SHALL partire con la `bun` globale e una riga di log che nomina `scripts/install-bun.sh`
+
+#### Scenario: un archivio che non combacia
+- **GIVEN** un archivio il cui SHA-256 non è quello di `SHASUMS256.txt`
+- **WHEN** `install-bun.sh` lo scarica
+- **THEN** SHALL uscire non-zero senza installare niente
+
 
 ### Requirement: RUNTIME-22 — «Pulito» è un conteggio, non un giudizio di chi ha lavorato
 
