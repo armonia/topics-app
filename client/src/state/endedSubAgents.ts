@@ -284,14 +284,6 @@ export function dismissSubAgent(sessionId: string): void {
   update((m) => dismissInMemory(m, sessionId));
 }
 
-function currentEnded(): readonly EndedSubAgent[] {
-  return subAgentMemorySnapshot().ended;
-}
-
-export function useEndedSubAgents(): readonly EndedSubAgent[] {
-  return useSyncExternalStore(subscribeSubAgentMemory, currentEnded, currentEnded);
-}
-
 function currentDismissed(): readonly string[] {
   return subAgentMemorySnapshot().dismissed;
 }
