@@ -45,7 +45,7 @@ export function filterUniqueSourceFiles(paths: string[]): string[] {
  * `runGit` opzionale con default al git vero: chi non lo passa (l'audit, il GC)
  * si comporta esattamente come prima.
  */
-async function gitExit(cwd: string, args: string[], run?: GitRunner): Promise<number> {
+export async function gitExit(cwd: string, args: string[], run?: GitRunner): Promise<number> {
   if (run) {
     try { return (await run(cwd, args)).code; } catch { return 1; }
   }
@@ -55,7 +55,7 @@ async function gitExit(cwd: string, args: string[], run?: GitRunner): Promise<nu
   } catch { return 1; }
 }
 
-async function gitOut(cwd: string, args: string[], run?: GitRunner): Promise<string> {
+export async function gitOut(cwd: string, args: string[], run?: GitRunner): Promise<string> {
   if (run) {
     try { const r = await run(cwd, args); return r.code === 0 ? r.stdout : ""; } catch { return ""; }
   }

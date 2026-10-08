@@ -331,7 +331,7 @@ export interface BuildOutcome extends GitRunResult {
   artifact?: string | null;
 }
 
-async function defaultRunGit(cwd: string, args: string[]): Promise<GitRunResult> {
+export async function defaultRunGit(cwd: string, args: string[]): Promise<GitRunResult> {
   try {
     // L'identità di chi firma, e solo dove manca: il land CREA commit (i due
     // merge e i cherry-pick), e git senza identità esce 128 prima di toccare
@@ -383,7 +383,7 @@ const GENERATED_BASELINES: Record<string, string> = {
  * PATH. When the manager is missing the answer is a failed result whose
  * stderr names the tool, on the same channel a failed build would use.
  */
-async function runRepoScript(cwd: string, args: string[]): Promise<GitRunResult> {
+export async function runRepoScript(cwd: string, args: string[]): Promise<GitRunResult> {
   const missing = missingPackageManager(cwd);
   if (missing) return { code: 1, stdout: "", stderr: missing };
   try {

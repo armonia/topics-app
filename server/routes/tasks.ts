@@ -472,7 +472,7 @@ export interface TasksRouterOpts {
  * failure) and disables the credential prompt so a push that needs auth fails
  * fast instead of hanging the request.
  */
-async function runGitCap(cwd: string, args: string[], timeoutMs: number = SPAWN_TIMEOUT.write): Promise<{ code: number; out: string; err: string }> {
+export async function runGitCap(cwd: string, args: string[], timeoutMs: number = SPAWN_TIMEOUT.write): Promise<{ code: number; out: string; err: string }> {
   try {
     const p = spawnBounded(["git", ...args], {
       cwd,

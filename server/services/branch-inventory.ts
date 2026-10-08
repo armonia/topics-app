@@ -62,7 +62,7 @@ export type BranchScan =
 
 const BASE_CANDIDATES = ["main", "master"] as const;
 
-async function run(cwd: string, args: string[], runGit?: GitRunner): Promise<{ code: number; stdout: string }> {
+export async function run(cwd: string, args: string[], runGit?: GitRunner): Promise<{ code: number; stdout: string }> {
   if (runGit) {
     try { const r = await runGit(cwd, args); return { code: r.code, stdout: r.stdout }; }
     catch { return { code: 1, stdout: "" }; }

@@ -46,7 +46,7 @@ export interface WorktreeBaseRefOptions {
   runGit?: GitRunner;
 }
 
-async function defaultRunGit(cwd: string, args: string[]) {
+export async function defaultRunGit(cwd: string, args: string[]) {
   try {
     const proc = spawnBounded(["git", "-C", cwd, ...args], { stdout: "pipe", stderr: "pipe", timeoutMs: SPAWN_TIMEOUT.query });
     const [stdout, stderr] = await Promise.all([

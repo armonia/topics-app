@@ -89,7 +89,7 @@ function hasConflict(porcelain: string): boolean {
     });
 }
 
-async function defaultRunGit(cwd: string, args: string[]): Promise<GitRunResult> {
+export async function defaultRunGit(cwd: string, args: string[]): Promise<GitRunResult> {
   try {
     // Senza identità git esce 128 PRIMA di toccare l'albero, e questa funzione
     // crea un commit: stessa ragione (e stesso ripiego) di `task-automerge`.
