@@ -111,7 +111,13 @@ export function Column({ status, tasks, onOpen, onCreate, canCreate, showProject
   // fresh array only when the task set actually changes, not every render. Gli id
   // sono quelli DISEGNATI: un id senza nodo nel registro di dnd-kit è un
   // bersaglio che non esiste.
-  const itemIds = useMemo(() => slice.rows.map((t) => t.id), [slice]);
+  //
+  // Keyed on the ids, not on `slice`: the column array is new on every
+  // `task:updated` (one row changed), and a new `items` array is a new
+  // SortableContext value, which re-renders every `useSortable` card under it
+  // at identical props. Same ids in the same order = the same array.
+  const idsKey = slice.rows.map((t) => t.id).join('\n');
+  const itemIds = useMemo(() => (idsKey ? idsKey.split('\n') : []), [idsKey]);
 
   // Responsive columns. The board is a scroll-snap carousel at EVERY breakpoint:
   // each column `snap-center`s to the middle as its own "slide", so whenever the

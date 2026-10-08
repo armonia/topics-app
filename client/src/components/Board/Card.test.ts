@@ -37,8 +37,10 @@ describe('il corpo della colonna', () => {
   test('gli id di SortableContext sono quelli DISEGNATI', () => {
     // Un id nel registro di dnd-kit senza un nodo sotto è un bersaglio di drop
     // che non esiste: il gesto muore in silenzio, che è il modo peggiore.
-    const itemIds = src.slice(src.indexOf('const itemIds'), src.indexOf('\n', src.indexOf('const itemIds')));
-    expect(itemIds).toContain('slice.rows');
+    // The ids are keyed through `idsKey` so the array stays the same while they
+    // do (dndStableProps.test.ts); `idsKey` is where they come from.
+    const idsKey = src.slice(src.indexOf('const idsKey'), src.indexOf('\n', src.indexOf('const idsKey')));
+    expect(idsKey).toContain('slice.rows');
   });
 
   test('la coda dice quante card restano e come tirarle su', () => {

@@ -59,6 +59,20 @@ describe('kanban sensors are referentially stable', () => {
     }
   });
 
+  test('a column hands SortableContext the same items while its ids do not change', () => {
+    // The column array is new on every `task:updated` (one row changed), and a
+    // new `items` array is a new SortableContext value, which re-renders every
+    // `useSortable` card under it at identical props. Measured on a 66-card
+    // board (board-update-renders.spec.ts): 588 board renders per frame with
+    // `items` keyed on the column, 94 with it keyed on the ids.
+    const memoCall = /const itemIds = useMemo\(([\s\S]*?)\);/.exec(card);
+    expect(memoCall, 'Column no longer builds `itemIds` with useMemo: this test guards nothing').not.toBeNull();
+    const deps = /\[([^\]]*)\]\s*$/.exec(memoCall![1]!.trim())?.[1]?.split(',').map((d) => d.trim()) ?? [];
+    expect(deps, 'itemIds must not depend on an array that is new on every frame').not.toContain('slice');
+    expect(deps).toEqual(['idsKey']);
+    expect(card).toMatch(/const idsKey = slice\.rows\.map\(\(t\) => t\.id\)\.join\(/);
+  });
+
   test('the card stays memoized: without it a stable context buys nothing', () => {
     expect(card).toContain('memo(');
     expect(card).toMatch(/const Card = memo\(|export const Card = memo\(/);
