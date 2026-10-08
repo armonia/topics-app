@@ -18,6 +18,8 @@ import { augmentPath } from "../utils/path-env";
 import { envDataDir, resolveStateDir } from "./data-dir";
 import { registerFleetSocket } from "./fleet-usage";
 import { aiBridgeDaemonLaunch } from "./ai-bridge-daemon-argv";
+import { BridgeAckStalled, BridgeConnectionLost, isRetryableBridgeError, shouldRecycleSocket } from "./ai-bridge-errors";
+export { BridgeAckStalled, BridgeConnectionLost, isRetryableBridgeError, shouldRecycleSocket } from "./ai-bridge-errors";
 // runtime-dep-ok: a static import, not a spawn. The compiled server bundles this
 // module like any other, so there is no loose .mjs to miss and no runtime to run it.
 import { bridgeOutsideGuiSession, guiSessionName } from "../pty-bridge-platform.mjs";
@@ -95,7 +97,7 @@ const PONG_TIMEOUT_MS = Number(process.env.TOPICS_AI_BRIDGE_PONG_MS) || 45_000;
  * Quindi: finché ARRIVANO BYTE dal daemon, il ponte non è morto — è occupato.
  * Un tetto assoluto resta, perché «occupato per sempre» va comunque chiuso.
  */
-const MAX_ACK_WAIT_MS = 90_000;
+const MAX_ACK_WAIT_MS = Number(process.env.TOPICS_AI_BRIDGE_MAX_ACK_MS) || 90_000;
 /** Ogni quanto il waiter si sveglia per chiedersi se il ponte è ancora muto. */
 const STALL_TICK_MS = Number(process.env.TOPICS_AI_BRIDGE_STALL_TICK_MS) || 1_000;
 /**
@@ -124,70 +126,14 @@ const SPAWN_WINDOW_MS = 60_000;
 const SPAWN_MAX = 3;
 const recentSpawns = new Map<string, number[]>();
 
-/**
- * Il guasto è la CONNESSIONE, non il daemon.
- *
- * Distinguerli è ciò che rende sensato un secondo tentativo: se il frame non è
- * mai partito (socket appena caduto, riaggancio in corso) riprovare è corretto e
- * risolve; se invece il daemon ha ricevuto e tace, riprovare raddoppia solo
- * l'attesa. Le tre richieste del ponte — spawn, attach, list — sono tutte
- * idempotenti per costruzione (uno `spawn` su una sessione viva la RIPRENDE,
- * un `attach` rirende dallo stesso offset), quindi il secondo tentativo è
- * sicuro.
- */
-export class BridgeConnectionLost extends Error {
-  constructor(message: string) {
-    super(message);
-    this.name = "BridgeConnectionLost";
-  }
-}
-
-/**
- * Il ponte è rimasto MUTO oltre la deadline: né l'ack né un solo byte per
- * nessun'altra sessione.
- *
- * Separato da `BridgeConnectionLost` perché racconta un guasto diverso — lì il
- * frame non è mai partito, qui è partito e non è tornato niente — ma condivide
- * con esso l'unica proprietà che conta per chi lo cattura: si può RIPROVARE.
- * Prima questa era una `Error` nuda, e nuda voleva dire definitiva: un solo ack
- * scaduto e il turno moriva con «Riadozione del turno non riuscita» in chat,
- * anche quando il figlio `claude` stava lavorando benissimo dentro il daemon.
- */
-export class BridgeAckStalled extends Error {
-  /**
-   * Rimandare il frame ha senso? SÌ quando il ponte taceva davvero — NO quando
-   * a scadere è il tetto assoluto mentre i byte scorrevano ancora: lì rimandare
-   * un `attach` significa rifare da capo lo stesso replay da megabyte che stava
-   * già arrivando, cioè aggiungere benzina alla coda che ha causato l'attesa.
-   */
-  readonly retryable: boolean;
-  constructor(message: string, retryable: boolean) {
-    super(message);
-    this.name = "BridgeAckStalled";
-    this.retryable = retryable;
-  }
-}
-
-/** Vale la pena rimandare il frame? Vero per i due guasti di TRASPORTO — mai
- *  per un `error` applicativo del daemon, che una seconda volta risponderebbe
- *  la stessa cosa. */
-export function isRetryableBridgeError(e: unknown): boolean {
-  if (e instanceof BridgeConnectionLost) return true;
-  return e instanceof BridgeAckStalled && e.retryable;
-}
-
-/**
- * Il verdetto del watchdog, estratto perché è UNA riga con due modi di
- * sbagliare e nessuno dei due si può aspettare 45 secondi in un test.
- *
- * Un pong in ritardo NON basta a dichiarare morto il ponte: viaggia sulla
- * stessa coda del resto e durante un riattacco pesante finisce dietro decine
- * di MB di replay. Se nel frattempo sono arrivati BYTE, il daemon è vivo — e
- * riciclare il socket lì è la mossa peggiore possibile, perché stacca ogni
- * attacco e fa ripartire tutti i replay da capo.
- */
-export function shouldRecycleSocket(now: number, lastPongAt: number, lastByteAt: number, pongTimeoutMs: number): boolean {
-  return now - lastPongAt > pongTimeoutMs && now - lastByteAt > pongTimeoutMs;
+/** The daemon's answer to an `attach`. */
+type AttachedFrame = { type: "attached"; id: string; endOffset: number; alive: boolean; exitCode?: number | null; missing?: boolean; lastDataAt?: unknown; protocol?: unknown };
+function attachResult(m: AttachedFrame): AttachResult {
+  return {
+    endOffset: m.endOffset, alive: m.alive, exitCode: m.exitCode ?? null, missing: m.missing === true,
+    ...(typeof m.lastDataAt === "number" ? { lastDataAt: m.lastDataAt } : {}),
+    protocol: typeof m.protocol === "number" ? m.protocol : 1,
+  };
 }
 
 type Waiter = {
@@ -222,6 +168,10 @@ export class AiBridgeClient {
    */
   private readonly spawnsInFlight = new Map<string, { rid: number }>();
   private readonly waiters: Waiter[] = [];
+  /** The replies whose waiter hit the cap, by rid (`BridgeAckStalled.late`). */
+  private readonly lateReplies = new Map<number, (reply: unknown) => void>();
+  /** The daemon echoes rids (protocol 4): without them a late reply cannot be told from any other. */
+  private ridEcho = false;
   /** Last request id handed out: every frame that can be answered gets a fresh one. */
   private ridSeq = 0;
   private readonly reconnectCbs = new Set<() => void>();
@@ -431,6 +381,7 @@ export class AiBridgeClient {
     // A frame that echoes a waiter's rid but is not the answer it waits for
     // (an `error` to an attach or a list) REJECTS it: settling it with that
     // frame would read an error as "not alive" or as an empty list.
+    if (msg.rid != null) this.ridEcho = true;
     const i = msg.rid != null
       ? this.waiters.findIndex((w) => w.rid === msg.rid)
       : this.waiters.findIndex((w) => w.pred(msg));
@@ -439,6 +390,10 @@ export class AiBridgeClient {
       clearTimeout(w.timer);
       if (w.pred(msg)) w.resolve(msg);
       else w.reject(new Error(`ai-bridge: ${msg.type === "error" ? msg.error ?? "error" : `unexpected ${msg.type}`}`));
+    } else if (msg.rid != null && this.lateReplies.has(msg.rid)) {
+      const late = this.lateReplies.get(msg.rid)!;
+      this.lateReplies.delete(msg.rid);
+      late(msg);
     }
     if (msg.type === "pong") {
       this.lastPongAt = Date.now();
@@ -505,7 +460,8 @@ export class AiBridgeClient {
         this.dropWaiter(entry);
         const muto = mute >= timeoutMs;
         const why = muto ? `muto da ${Math.round(mute / 1000)}s` : `tetto ${Math.round((hardDeadline - armedAt) / 1000)}s`;
-        rej(new BridgeAckStalled(`ai-bridge: ack timeout (${what}, ${why})`, muto));
+        const late = muto || !this.ridEcho ? undefined : new Promise<unknown>((r) => this.lateReplies.set(rid, r));
+        rej(new BridgeAckStalled(`ai-bridge: ack timeout (${what}, ${why})`, muto, late));
       };
       entry = { rid, pred, resolve: res, reject: rej, timer: setTimeout(tick, STALL_TICK_MS), silentSince: armedAt };
       this.waiters.push(entry);
@@ -537,6 +493,9 @@ export class AiBridgeClient {
       clearTimeout(w.timer);
       w.reject(err);
     }
+    // A reply after the cap would have come on this socket too.
+    for (const late of this.lateReplies.values()) late(null);
+    this.lateReplies.clear();
   }
 
   /**
@@ -670,17 +629,31 @@ export class AiBridgeClient {
 
   /** Re-attach to an existing session, replaying the store from `fromOffset`; one attempt never recycles the socket. */
   async attach(id: string, fromOffset: number, attempts?: number): Promise<AttachResult> {
-    const m = await this.request(
-      { type: "attach", id, fromOffset },
-      (f) => f.type === "attached" && f.id === id,
-      ATTACH_ACK_TIMEOUT_MS,
-      `attach ${id}`, undefined, attempts,
-    );
-    return {
-      endOffset: m.endOffset, alive: m.alive, exitCode: m.exitCode ?? null, missing: m.missing === true,
-      ...(typeof m.lastDataAt === "number" ? { lastDataAt: m.lastDataAt } : {}),
-      protocol: typeof m.protocol === "number" ? m.protocol : 1,
-    };
+    const attached = (f: unknown): f is AttachedFrame => (f as AttachedFrame | null)?.type === "attached" && (f as AttachedFrame).id === id;
+    const m: AttachedFrame = await this.request({ type: "attach", id, fromOffset }, attached, ATTACH_ACK_TIMEOUT_MS, `attach ${id}`, undefined, attempts)
+      .catch((err: unknown) => {
+        // The cap's late reply, read as an attach: an `error` frame in its place is no ack.
+        if (!(err instanceof BridgeAckStalled) || !err.late) throw err;
+        throw new BridgeAckStalled(err.message, err.retryable, err.late.then((f) => (attached(f) ? attachResult(f) : null)));
+      });
+    return attachResult(m);
+  }
+
+  /**
+   * `attach` for a replay that must not be cut: past the cap it takes the late ack instead of failing. The cap fires
+   * while the replay is still arriving, and the daemon writes the ack right behind it on the same socket, so every
+   * frame until then belongs to the replay. Failing there handed those frames to whoever folded them next.
+   * Still fails when the socket goes first, or on a daemon that does not echo rids.
+   */
+  async attachWhole(id: string, fromOffset: number): Promise<AttachResult> {
+    try {
+      return await this.attach(id, fromOffset);
+    } catch (err) {
+      const late = err instanceof BridgeAckStalled ? ((await err.late) as AttachResult | null | undefined) : null;
+      if (!late) throw err;
+      console.warn(`[AI Bridge] attach ${id}: ${(err as Error).message}, with its replay still arriving: its late ack came, the attach stands`);
+      return late;
+    }
   }
 
   /**

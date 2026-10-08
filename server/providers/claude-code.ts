@@ -3213,6 +3213,7 @@ export class ClaudeCodeProvider implements AIProvider {
     client: AiBridgeClient,
     sessionKey: string,
     pp: PersistentProcess,
+    whole = false, // a re-adoption's scan: past the cap it waits for its late ack, muted, instead of failing (`attachWhole`)
   ): Promise<{ missing: boolean; alive: boolean }> {
     pp.replayMute = true;
     pp.replayTailOpen = false;
@@ -3222,7 +3223,7 @@ export class ClaudeCodeProvider implements AIProvider {
     pp.replayRowTurns = undefined;
     // Cut short, the scan leaves the cursor inside the history: the next re-attach goes live instead of folding it
     // again as a woken turn (T19, B4b). Not `attachPending`, which refuses the resync the self-heal needs.
-    const scan = await client.attach(sessionKey, 0).catch((err: unknown) => { pp.reattachLive = true; throw err; });
+    const scan = await (whole ? client.attachWhole(sessionKey, 0) : client.attach(sessionKey, 0)).catch((err: unknown) => { pp.reattachLive = true; throw err; });
     pp.daemonPid = client.daemonPid;
     dateReplay(pp, scan);
     return { missing: scan.missing === true, alive: scan.alive === true };
@@ -3547,7 +3548,7 @@ export class ClaudeCodeProvider implements AIProvider {
     // is current (`onSessionClosed` lowers it), and it cannot be missing: the daemon had it a moment ago.
     const scan = preScanned
       ? { missing: false, alive: pp.alive }
-      : await this.scanBrokerStore(client, sessionKey, pp);
+      : await this.scanBrokerStore(client, sessionKey, pp, true);
     pp.replayMute = false;
     if (scan.missing) {
       pp.streamHandler = handler;
