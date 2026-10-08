@@ -2,8 +2,8 @@
  * A WINDOW WHOSE SOCKET DROPS IN THE MIDDLE OF A TURN GETS BACK WHAT IT MISSED,
  * WITHOUT A RELOAD (T18, bar B3).
  *
- * "Ogni tanto la sessione è lenta e devo fare aggiorna per vedere il vero
- * progresso" (08/10). On the server side the provider now catches up with its
+ * The report of 08/10: "now and then the session is slow and I have to reload
+ * to see the real progress". On the server side the provider now catches up with its
  * child by itself; this is the other half of the path: the browser's own
  * socket. The proxy closes it while a fake CLI is writing one chunk a second,
  * the chunks of the gap reach nobody, and after the hook's backoff the new
