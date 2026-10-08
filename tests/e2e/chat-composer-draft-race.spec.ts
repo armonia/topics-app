@@ -54,24 +54,24 @@ test.afterEach(async ({ request }) => {
   project = "";
 });
 
-interface Keystroke {
+interface TypedInput {
   /** The chat whose composer gets it, by the name its field is labelled with. */
   name: string;
   text: string;
 }
 
 interface TypistWindow {
-  __typist: { armed: Keystroke | null };
+  __typist: { armed: TypedInput | null };
 }
 
 /**
  * Types into the armed chat's composer in the commit that first shows it,
  * before that commit's effects, armed from the page's first load or later
  * (`armTypist`). A real input event, with the value set the way the browser
- * sets it, so React reads it as a keystroke. Disarms itself.
+ * sets it, so React reads it as a typedInput. Disarms itself.
  */
-async function typeAsComposerAppears(page: Page, first: Keystroke | null): Promise<void> {
-  await page.addInitScript((armed: Keystroke | null) => {
+async function typeAsComposerAppears(page: Page, first: TypedInput | null): Promise<void> {
+  await page.addInitScript((armed: TypedInput | null) => {
     const typist = { armed };
     (window as unknown as TypistWindow).__typist = typist;
     const setValue = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")!.set!;
@@ -103,7 +103,7 @@ async function typeAsComposerAppears(page: Page, first: Keystroke | null): Promi
 }
 
 /** Arms the typist again, for a composer that appears later in the same page. */
-const armTypist = (page: Page, next: Keystroke) =>
+const armTypist = (page: Page, next: TypedInput) =>
   page.evaluate((armed) => {
     (window as unknown as TypistWindow).__typist.armed = armed;
   }, next);
@@ -124,12 +124,12 @@ const cliGot = (logPath: string, text: string) => () =>
   existsSync(logPath) && readFileSync(logPath, "utf8").split("\n").some((l) => l.includes('"event":"stdin"') && l.includes(text));
 
 /** What was typed is still there, Enter sends it, and it reaches the transcript and the engine. */
-async function sendWhatWasTyped(page: Page, keystroke: Keystroke, cliLog: string): Promise<void> {
-  const field = composer(page, keystroke.name);
-  await expect(field, "what was typed as the chat opened is still in the composer").toHaveValue(keystroke.text, { timeout: 2_000 });
+async function sendWhatWasTyped(page: Page, typedInput: TypedInput, cliLog: string): Promise<void> {
+  const field = composer(page, typedInput.name);
+  await expect(field, "what was typed as the chat opened is still in the composer").toHaveValue(typedInput.text, { timeout: 2_000 });
   await field.press("Enter");
-  await expect(page.getByTestId("chat-message").filter({ hasText: keystroke.text }).first(), "the message is in the transcript").toBeVisible({ timeout: 10_000 });
-  await expect.poll(cliGot(cliLog, keystroke.text), { timeout: 15_000, message: "the message reached the engine" }).toBe(true);
+  await expect(page.getByTestId("chat-message").filter({ hasText: typedInput.text }).first(), "the message is in the transcript").toBeVisible({ timeout: 10_000 });
+  await expect.poll(cliGot(cliLog, typedInput.text), { timeout: 15_000, message: "the message reached the engine" }).toBe(true);
   await expect(field, "the composer empties once the message is sent").toHaveValue("");
 }
 
@@ -138,7 +138,7 @@ async function sendWhatWasTyped(page: Page, keystroke: Keystroke, cliLog: string
  * front, each with the text that will be typed into it. The fake CLI writes
  * down what it gets.
  */
-async function projectWithTwoChats(request: APIRequestContext, label: string): Promise<{ first: Keystroke; second: Keystroke; cliLog: string }> {
+async function projectWithTwoChats(request: APIRequestContext, label: string): Promise<{ first: TypedInput; second: TypedInput; cliLog: string }> {
   project = canonicalTmpDir(`e2e-draft-race-${label}`);
   mkdirSync(project, { recursive: true });
   const first = { name: `E2E draft race ${label} first ${STAMP}`, text: `typed into the first chat as it opened ${STAMP}` };
