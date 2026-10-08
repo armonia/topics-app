@@ -25,7 +25,7 @@ export function useLoadOnReach(load: () => void, state: ListState): (el: HTMLEle
   useEffect(() => {
     latest.current = { load, state };
   });
-  const ctl = useRef<LoadOnReach | null>(null);
+  const controllerRef = useRef<LoadOnReach | null>(null);
   // One controller per row element, settled at once with the list as it is.
   useEffect(() => {
     if (!row || typeof IntersectionObserver === 'undefined') return;
@@ -47,16 +47,16 @@ export function useLoadOnReach(load: () => void, state: ListState): (el: HTMLEle
     };
     const controller = loadOnReach(() => latest.current.load(), watch);
     watch();
-    ctl.current = controller;
+    controllerRef.current = controller;
     controller.settle(latest.current.state);
     return () => {
       io?.disconnect();
-      ctl.current = null;
+      controllerRef.current = null;
     };
   }, [row]);
   const { more, loading, count, enabled } = state;
   useEffect(() => {
-    ctl.current?.settle({ more, loading, count, enabled });
+    controllerRef.current?.settle({ more, loading, count, enabled });
   }, [more, loading, count, enabled]);
   return setRow;
 }

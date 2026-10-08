@@ -24,6 +24,7 @@ import {
   reduceScroll,
   shouldPin,
   isUserScrollUp,
+  USER_SCROLL_UP_PX,
   initialScrollAuthority,
   AT_BOTTOM_TOLERANCE_PX,
   BOTTOM_RELEASE_PX,
@@ -1734,9 +1735,10 @@ export function MessageList({
     const onWheel = (e: WheelEvent) => {
       markGesture();
       if (e.deltaY < 0) releaseToUser('gesture');
-      // A wheel turned up asks even where the list cannot move any more: a jump that reached the top
-      // right after one of our pins was taken for ours, and no scroll event would come after it.
-      if (e.deltaY < 0 && !e.ctrlKey) headingUp(el.scrollTop);
+      // At the top a wheel turned up asks by itself: the list cannot move there, so no scroll says the
+      // reader heads up (a jump that reached it right after one of our pins was taken for ours).
+      // Elsewhere the scroll that follows asks: asking here merged at the start of an animated step.
+      if (e.deltaY < 0 && !e.ctrlKey && el.scrollTop <= USER_SCROLL_UP_PX) headingUp(el.scrollTop);
     };
     // The row at the top of the viewport (`topRowRef`), read in the frame after
     // a scroll, once Virtuoso has rendered that scroll's rows. Only while the

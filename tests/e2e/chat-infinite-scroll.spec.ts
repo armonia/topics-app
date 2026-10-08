@@ -14,7 +14,7 @@ hermetic(test);
  * earlier messages arrive by themselves, and the rows being read do not move.
  *
  * THE CONTRACT THIS REPLACES. Until 2026-10-08 the messages before the first
- * page came only on a click on «Carica i messaggi precedenti»: prepending under
+ * page came only on a click on the row that loads them: prepending under
  * the reader with Virtuoso's `firstItemIndex` cost a blank frame and a CLS of
  * 0.60 on Virtuoso 4.18.1 (tag `archive/experiment-chat-tail-first-virtuoso-
  * prepend`). Virtuoso 4.18.13 lands the compensating scroll in the same paint.
@@ -25,10 +25,14 @@ hermetic(test);
  * ordinal, and whether any row is in view at all. The reader goes up with the
  * wheel and waits for a still view after each step (WebKit on Linux animates
  * the wheel: a reading taken mid-animation is a lie). Big steps bring it just
- * short of the merge, then steps of `NUDGE_PX` cross it, so the frame pair
- * around the merge can move the rows by at most one nudge. A merge that is not
- * compensated moves them by the height of the page it adds, or out of view.
- * CLS is read on Chromium only: WebKit has no Layout Instability API.
+ * short of the merge, then steps of `NUDGE_PX` cross it, so from the frame
+ * before the merge until the step that crossed it has landed the rows move by
+ * at most one nudge, and not at all after. "Landed", not "the next frame": an
+ * engine that animates the wheel spreads the step over frames, and the merge
+ * can fall in the middle of it. A merge that is not compensated moves the rows
+ * by the height of the page it adds, or out of view. CLS is read on Chromium
+ * only: WebKit has no Layout Instability API. Its sources are logged, because a
+ * shift between a frame's sample and its paint never reaches the probe.
  *
  * @covers CHAT-HIST-01
  */
@@ -70,19 +74,30 @@ async function seedThread(request: APIRequestContext, sessionKey: string, count:
 }
 
 type Frame = { t: number; state: string | null; rows: Record<string, number>; inView: number; st: number };
+/** A layout shift, with up to three of the nodes it moved (`tag[testid or index] y<before>-><after> h<height>`). */
+type Shift = { value: number; t: number; sources: string[] };
 
 /** Samples every frame of the visible chat scroller until `__probeStop`. */
 async function armFrameProbe(page: Page): Promise<void> {
   await page.evaluate(({ sel, rowPattern }) => {
-    const w = window as unknown as { __frames: unknown[]; __probeStop?: boolean; __shifts: { value: number; t: number }[] };
+    const w = window as unknown as { __frames: unknown[]; __probeStop?: boolean; __shifts: Shift[] };
     w.__frames = [];
     w.__shifts = [];
     w.__probeStop = false;
     const pattern = new RegExp(rowPattern);
+    const named = (node: Node | null): string => {
+      if (!(node instanceof Element)) return node?.nodeName ?? "?";
+      const id = node.getAttribute("data-testid") ?? node.getAttribute("data-index");
+      return id ? `${node.tagName.toLowerCase()}[${id}]` : node.tagName.toLowerCase();
+    };
+    type Source = { node: Node | null; previousRect: DOMRectReadOnly; currentRect: DOMRectReadOnly };
     try {
       new PerformanceObserver((list) => {
-        for (const e of list.getEntries() as (PerformanceEntry & { value: number; hadRecentInput: boolean })[]) {
-          if (!e.hadRecentInput) w.__shifts.push({ value: e.value, t: e.startTime });
+        for (const e of list.getEntries() as (PerformanceEntry & { value: number; hadRecentInput: boolean; sources?: Source[] })[]) {
+          if (e.hadRecentInput) continue;
+          const sources = (e.sources ?? []).slice(0, 3).map((src) =>
+            `${named(src.node)} y${Math.round(src.previousRect.y)}->${Math.round(src.currentRect.y)} h${Math.round(src.currentRect.height)}`);
+          w.__shifts.push({ value: e.value, t: e.startTime, sources });
         }
       }).observe({ type: "layout-shift" });
     } catch { /* WebKit: no Layout Instability API */ }
@@ -108,9 +123,9 @@ async function armFrameProbe(page: Page): Promise<void> {
   }, { sel: SCROLLER, rowPattern: ROW.source });
 }
 
-async function stopProbe(page: Page): Promise<{ frames: Frame[]; shifts: { value: number; t: number }[] }> {
+async function stopProbe(page: Page): Promise<{ frames: Frame[]; shifts: Shift[] }> {
   return await page.evaluate(() => {
-    const w = window as unknown as { __frames: Frame[]; __probeStop?: boolean; __shifts: { value: number; t: number }[] };
+    const w = window as unknown as { __frames: Frame[]; __probeStop?: boolean; __shifts: Shift[] };
     w.__probeStop = true;
     return { frames: w.__frames, shifts: w.__shifts };
   });
@@ -210,16 +225,21 @@ test.describe("Infinite scroll della chat", () => {
 
     const at = frames.findIndex((f) => f.state === "complete");
     expect(at, "the merge happened while the probe was sampling").toBeGreaterThan(0);
-    const across = moved(frames[at - 1], frames[at]);
-    const settling = frames.slice(at, at + 8).map((f, i, all) => (i === 0 ? 0 : moved(all[i - 1], f)));
+    // Where the step that crossed the merge has landed: the first frame whose `scrollTop` the next one keeps.
+    let landed = at;
+    while (landed + 1 < frames.length && frames[landed + 1].st !== frames[landed].st) landed++;
+    const across = moved(frames[at - 1], frames[landed]);
+    const landing = frames.slice(at, landed + 1).map((f, i) => moved(frames[at + i - 1], f));
+    const settling = frames.slice(landed, landed + 8).map((f, i, all) => (i === 0 ? 0 : moved(all[i - 1], f)));
     const blank = frames.filter((f) => f.inView === 0).length;
-    const mergeShifts = shifts.filter((s) => s.t >= frames[at - 1].t - 50 && s.t <= frames[Math.min(at + 8, frames.length - 1)].t + 50);
+    const mergeShifts = shifts.filter((s) => s.t >= frames[at - 1].t - 50 && s.t <= frames[Math.min(landed + 8, frames.length - 1)].t + 50);
     const cls = mergeShifts.reduce((sum, s) => sum + s.value, 0);
-    console.log(`[infinite-scroll:${browserName}] frames=${frames.length} mergeFrame=${at} step=${lastStep} across=${across} settling=${JSON.stringify(settling)} blank=${blank} cls=${cls.toFixed(4)} (${mergeShifts.length} shifts)`);
+    console.log(`[infinite-scroll:${browserName}] frames=${frames.length} mergeFrame=${at} landed=${landed} step=${lastStep} across=${across} landing=${JSON.stringify(landing)} settling=${JSON.stringify(settling)} blank=${blank} cls=${cls.toFixed(4)} (${mergeShifts.length} shifts)${mergeShifts.length ? ` ${JSON.stringify(mergeShifts.map((s) => [Number(s.value.toFixed(4)), ...s.sources]))}` : ""}`);
 
-    expect(across, "a row read before the merge is still in view after it").not.toBeNull();
-    expect(across!, "across the merge the rows move by at most the step that crossed it").toBeLessThanOrEqual(lastStep + STILL_PX);
-    for (const m of settling) expect(m ?? Infinity, "after the merge the rows stay still").toBeLessThanOrEqual(STILL_PX);
+    expect(across, "a row read before the merge is still in view once the step has landed").not.toBeNull();
+    expect(across!, "from the merge until the step lands, the rows move by at most that step").toBeLessThanOrEqual(lastStep + STILL_PX);
+    for (const m of landing) expect(m ?? Infinity, "no frame of the landing moves the rows by more than the step").toBeLessThanOrEqual(lastStep + STILL_PX);
+    for (const m of settling) expect(m ?? Infinity, "once the step has landed the rows stay still").toBeLessThanOrEqual(STILL_PX);
     expect(blank, "no frame without a row in view").toBe(0);
     if (browserName === "chromium") expect(cls, "CLS of the merge").toBeLessThanOrEqual(CLS_BUDGET);
     await didascalia(page, "Sopra la soglia i messaggi precedenti entrano da soli, e la riga letta non si muove");

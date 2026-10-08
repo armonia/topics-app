@@ -4521,9 +4521,12 @@ virtuale indirizza le righe per indice, e anteporre ottanta messaggi cambia ciò
 che «la riga 30» mostra: il rimedio è `firstItemIndex` di Virtuoso, dalla 4.18.13
 in poi, che compensa lo scorrimento nello stesso fotogramma (con la 4.18.1 costava
 un fotogramma vuoto e un CLS di 0,60). Il contratto, misurato fotogramma per
-fotogramma: nel fotogramma della fusione la riga letta si sposta al più del passo
-di rotella che la attraversa, nei fotogrammi dopo di 0 px; nessun fotogramma resta
-senza righe; CLS al più 0,01 dove il motore lo misura (PERF-01). Al ritorno della
+fotogramma: dalla fusione a quando il passo di rotella che la attraversa è
+atterrato la riga letta si sposta in tutto al più di quel passo (un motore che
+anima la rotella lo spalma su più fotogrammi, e la fusione può cadere a metà),
+poi di 0 px; nessun fotogramma resta senza righe; CLS al più 0,01 dove il motore
+lo misura (PERF-01). Il resto lo chiede lo scroll di chi sale; la rotella lo
+chiede da sé solo in cima, dove la lista non si muove più e nessuno scroll arriva. Al ritorno della
 pane la viewport SHALL trovarsi dove era: in fondo se lì riposava, sulla riga che
 aveva in cima se la persona aveva scorso. Nessuno scheletro nuovo.
 
@@ -4559,7 +4562,7 @@ ramo, cancellazione, ricarico dopo una modifica) SHALL marcare la chat completa.
 - **GIVEN** una chat di tre pagine aperta sulla coda
 - **WHEN** la persona risale con la rotella fino a oltre la fusione
 - **THEN** i messaggi precedenti sono chiesti una volta sola, senza click
-- **AND** nel fotogramma della fusione le righe a schermo si spostano al più del passo di rotella, e di 0 px nei fotogrammi dopo
+- **AND** dalla fusione all'atterraggio del passo di rotella che la attraversa le righe a schermo si spostano in tutto al più di quel passo, e di 0 px nei fotogrammi dopo
 - **AND** nessun fotogramma resta senza righe, e il CLS resta al più 0,01
 - **AND** scorrendo ancora il primo messaggio della chat è visibile, e la riga «Carica i messaggi precedenti» non c'è più
 
