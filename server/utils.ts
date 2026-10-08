@@ -1040,6 +1040,15 @@ export function createAppContext(baseDir: string): AppContext {
     return withMediaSizes(message, { uploadsDir: UPLOADS_DIR, isPathAllowed });
   }
 
+  /** A GUEST gets the frame without `mediaSizes`: each key is a picture served by `/uploads/` or `/api/media`, both
+   *  closed to guests, so a size would only tell it what sits on the owner's disk (V3, D2). Not filtered key by key:
+   *  the keys are disk paths too, and a disk path under `/media/` would pass the rule written for the `/media/` route. */
+  function guestPayloadOf(message: OutboundMessage, payload: string): string {
+    if (!("mediaSizes" in message)) return payload;
+    const { mediaSizes: _ownerOnly, ...rest } = message as OutboundMessage & { mediaSizes?: unknown };
+    return JSON.stringify(rest);
+  }
+
   function broadcastToAll(message: OutboundMessage) {
     const presentedMessage = presentTopicInOutboundMessage(withFrameMediaSizes(message));
     devValidateOutbound(presentedMessage);
@@ -1054,10 +1063,13 @@ export function createAppContext(baseDir: string): AppContext {
     // passare gli altri 52. Per entità perché un tipo ammesso non basta —
     // `task:updated` di un task non condiviso resta roba d'altri.
     const guests = guestSocketFilter();
+    let guestPayload: string | undefined;
     for (const ws of wsClients) {
       if (ws.readyState !== 1) continue;
-      if (guests && isGuestSocket(ws) && !guests.mayReceiveFrame(ws.data.deviceId!, presentedMessage)) continue;
-      sendFrame(ws, payload, presentedMessage.type);
+      const guest = guests && isGuestSocket(ws);
+      if (guest && !guests.mayReceiveFrame(ws.data.deviceId!, presentedMessage)) continue;
+      // Built once per fan-out, and only when a guest is reached.
+      sendFrame(ws, guest ? (guestPayload ??= guestPayloadOf(presentedMessage, payload)) : payload, presentedMessage.type);
     }
     // No push from here any more (notifications-redesign, design section
     // 10.1): a frame is not a fact. The push and the history row of a new

@@ -29,9 +29,8 @@
     "esModuleInterop": true,
     "resolveJsonModule": true
   },
-  // Le spec di integrazione importano moduli del server, che a loro volta
-  // importano i .sql delle migration (import testuale di Bun): senza la sua
-  // dichiarazione ambient il programma vede 60 moduli inesistenti. Idem per lo
-  // script degli hook, importato come testo da `server/lib/topics-hook-script.ts`.
-  "include": ["tests", "playwright.config.ts", "server/db/sql-modules.d.ts", "server/lib/sh-modules.d.ts"]
+  // The integration specs import server modules, and one of them imports the
+  // hook script as text (Bun text import, `server/lib/topics-hook-script.ts`):
+  // without its ambient declaration the program sees a module that does not exist.
+  "include": ["tests", "playwright.config.ts", "server/lib/sh-modules.d.ts"]
 }
