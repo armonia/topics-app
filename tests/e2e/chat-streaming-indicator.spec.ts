@@ -359,7 +359,16 @@ test.describe("Chat waiting on background work", () => {
     const ws = await interceptWebSocket(page, /\/ws(?:\?|$)/);
     let background = true;
     let tasks: typeof TASKS = TASKS;
-    const publish = async (): Promise<void> => {
+    // ONE FRAME AFTER THE OTHER, in the order the test set them. The setters
+    // below do not await, and each frame waits for the socket's
+    // `attention:init` on `expect.poll`'s backoff (100 ms, then 250, 500, 1 s):
+    // the `false` set before `goToApp` was still waiting when the `true` set
+    // after it had already gone out, and under load it landed second. The
+    // client takes the last frame, so the line came and went before the test
+    // looked at it ("0 elements" in the scroller, the chat idle on screen).
+    let queue: Promise<void> = Promise.resolve();
+    const inOrder = (send: () => Promise<void>): Promise<void> => (queue = queue.then(send));
+    const publish = (): Promise<void> => inOrder(async () => {
       await stageAttention(ws, attentionUpdated(`topic:${bgTopicId}`, background
         ? {
             state: "working",
@@ -370,9 +379,9 @@ test.describe("Chat waiting on background work", () => {
               : [{ id: "wake", kind: "wake", label: "Verifica build", startedAt: new Date().toISOString() }],
           }
         : { state: "idle" }));
-    };
+    });
     publishStatus = publish;
-    publishStopped = () => stageAttention(ws, attentionUpdated(`topic:${bgTopicId}`, { state: "idle" }));
+    publishStopped = () => inOrder(() => stageAttention(ws, attentionUpdated(`topic:${bgTopicId}`, { state: "idle" })));
     const status: BackgroundStatus = {
       get background() { return background; },
       set background(v: boolean) { background = v; void publish(); },
