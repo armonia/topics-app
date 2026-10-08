@@ -1845,9 +1845,9 @@ export function MessageList({
       // A growth inside a gesture window is never "the silent last growth":
       // it's the row that was just opened by hand. Pinning here scrolls it
       // out of Virtuoso's overscan, which unmounts and remounts it collapsed
-      // — the tool-call collapse. Nothing is lost by waiting: once the
-      // window ends, if the list is still at the bottom, this same observer
-      // passes through here again.
+      // — the tool-call collapse. Waiting has a cost: this observer fires only
+      // when a size changes, so a growth that ends inside the window never
+      // comes back here, and nothing pins it once the window is over.
       // ...unless it is a tool body animating its height (`rowResizeUntilRef`).
       if (Date.now() < gestureUntilRef.current && Date.now() >= rowResizeUntilRef.current) return;
       // NOTA sull'anello, per chi passerà di qui a «ottimizzare».
