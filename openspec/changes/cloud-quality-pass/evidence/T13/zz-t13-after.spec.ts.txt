@@ -1,0 +1,765 @@
+import { mkdirSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
+import { expect, test, type APIRequestContext, type Locator, type Page, type TestInfo } from "@playwright/test";
+import { goToApp } from "./helpers";
+import { createTopic, deleteTopic, resetPaneStore, unarchiveTopic } from "./helpers/api-fixtures";
+import { seedMessage, type SeedMessageOpts } from "./helpers/seed-messages";
+import { E2E_BASE, E2E_HOME } from "./helpers/test-server";
+import { canonicalTmpRoot } from "./helpers/test-server";
+import { interceptWebSocket } from "./helpers/ws-helpers";
+import { faults, frameCount, installProbe, measure, sampleFor, startProbe, stopProbe, waitStill, type Frame, type Measure, type Probe } from "./helpers/fold-probe";
+import { hermetic } from "./fixtures/hermetic";
+
+hermetic(test);
+
+/**
+ * A FOLD OPENED BY HAND DOES NOT MOVE THE TRANSCRIPT.
+ *
+ * The owner's report (01/10): "when I open the accordions in a topic they make
+ * an ugly layout shift". Every expand/collapse surface a person can click in a
+ * topic's view is opened and closed here, in the two places a reader is when
+ * they do it: at the very bottom of the chat (the follow-output case, where the
+ * list used to re-pin to the new bottom and take the clicked row with it) and
+ * in the middle of a long history (scrolled there with the wheel, as a person
+ * does). For ~900 ms after each click, a sampler records in the last callback
+ * before every paint:
+ *   - the clicked header's top and left on screen;
+ *   - the top of the message row right above it (for a strip at the end of
+ *     the transcript: the last message row on screen above it);
+ *   - the height of the fold (header plus body).
+ *
+ * THE INVARIANT, per frame: the header stays at the same Y (±1 px) and the
+ * same X, nothing above it moves, and the fold changes height in ONE run (an
+ * animation or an instant reveal), never a placeholder that pops to its real
+ * size later. A strip at the end of the transcript (chat-strips-in-transcript)
+ * opens its list ABOVE its header: the header stays and the transcript above
+ * it moves up with the list, so there the rule is that the newest row stays in
+ * sight above the strip. Such a strip is on screen only at the end of the
+ * chat: it has no middle case.
+ * Each test writes its measurements next to its result, and logs one line per
+ * case (`ACCORDION kind case phase ...`) so a run on the old code
+ * reads as the diagnosis table.
+ *
+ * @covers CHAT-FOLD-01
+ */
+test.use({ contextOptions: { reducedMotion: "no-preference" } });
+
+// ---------------------------------------------------------------------------
+// The folds.
+// ---------------------------------------------------------------------------
+
+type Seed = Omit<SeedMessageOpts, "sessionKey">;
+type Kind = {
+  name: string;
+  /** The rows of ONE instance of the fold, tagged so the two instances differ. */
+  seed: (tag: string) => Seed[];
+  /** What the person clicks. */
+  click: (tag: string) => string;
+  /** What must not move (defaults to `click`): the fold's own header. */
+  header?: (tag: string) => string;
+  /** The fold: header plus body. */
+  fold: (tag: string) => string;
+  /** Opens by default: the first click closes it. */
+  startsOpen?: boolean;
+  /** One of the chat's strips: one instance, at the end of the transcript, opening upward. */
+  docked?: boolean;
+  /** Seen once open, to know the click did open it. */
+  opened: (page: Page, tag: string) => Locator;
+  /** Runs once the chat exists, before it is opened (a goal, a command file). */
+  setup?: (request: APIRequestContext, topicId: string) => Promise<void>;
+  /** Reaches the control first, once the instance is in sight (a toggle inside a tool's body). */
+  prepare?: (page: Page, tag: string) => Promise<void>;
+  /** The toggle swaps content in a box that keeps its height: the fold must NOT change height. */
+  sameHeight?: boolean;
+};
+
+const LINES = (n: number, what: string) => Array.from({ length: n }, (_, i) => `${what} line ${i + 1}`).join("\n");
+const now = Date.now();
+const WORK_DIR = join(canonicalTmpRoot(), "e2e-accordion-no-shift");
+const SLASH_COMMAND = "accfold";
+const LONG_GOAL = "Bring every gate to green and keep the transcript still while the folds open, a long objective that wraps on several lines once it is open";
+const todoItems = (tag: string) => Array.from({ length: 6 }, (_, i) => ({ content: `Step ${i + 1} ${tag}`, activeForm: `Doing step ${i + 1}`, status: i < 2 ? "completed" : i === 2 ? "in_progress" : "pending" }));
+
+const KINDS: Kind[] = [
+  {
+    name: "tool-group",
+    seed: (tag) => [{
+      role: "assistant",
+      content: "",
+      toolCalls: [1, 2, 3, 4].map((i) => ({
+        id: `${tag}-g${i}`, name: "Read", args: { file_path: `/tmp/${tag}/file-${i}.ts` }, status: "success" as const,
+        result: LINES(6, `read ${i}`), startedAt: now - 3000, endedAt: now - 2000,
+      })),
+    }],
+    click: (tag) => `[data-group-id="${tag}-g1"] [data-testid="tool-group-summary"]`,
+    fold: (tag) => `[data-group-id="${tag}-g1"]`,
+    opened: (page, tag) => page.locator(`[data-testid="tool-call-row-${tag}-g4"]`),
+  },
+  {
+    name: "tool-row",
+    seed: (tag) => [{
+      role: "assistant",
+      content: "",
+      toolCalls: [{ id: `${tag}-t1`, name: "Bash", args: { command: `ls -la /tmp/${tag}` }, status: "success", result: LINES(14, "output"), startedAt: now - 2000, endedAt: now - 1000 }],
+    }],
+    click: (tag) => `[data-testid="tool-call-row-${tag}-t1"] > button`,
+    fold: (tag) => `[data-testid="tool-call-row-${tag}-t1"]`,
+    opened: (page, tag) => page.locator(`[data-testid="tool-call-row-${tag}-t1"]`).getByText("output line 14"),
+  },
+  {
+    // The history ships this row's output blank (`detailBytes`): the body is
+    // fetched on first open, which is where a reveal could pop.
+    name: "tool-row-lazy",
+    seed: (tag) => [{
+      role: "assistant",
+      content: "",
+      toolCalls: [{
+        id: `${tag}-l1`, name: "Bash", args: { command: `cat /tmp/${tag}/log` }, status: "success",
+        detail: { type: "shell", command: `cat /tmp/${tag}/log`, output: LINES(16, "lazy") },
+        startedAt: now - 2000, endedAt: now - 1000,
+      }],
+    }],
+    click: (tag) => `[data-testid="tool-call-row-${tag}-l1"] > button`,
+    fold: (tag) => `[data-testid="tool-call-row-${tag}-l1"]`,
+    opened: (page, tag) => page.locator(`[data-testid="tool-call-row-${tag}-l1"]`).getByText("lazy line 16"),
+  },
+  {
+    // A tool output past the inline budget (CHAT-PERF-01): «Show all» swaps the
+    // text inside a box that keeps its cap, inside a tool row opened first.
+    name: "tool-result-clamp",
+    seed: (tag) => [{
+      role: "assistant",
+      content: "",
+      toolCalls: [{
+        id: `${tag}-c1`, name: "mcp__probe__dump", args: { what: tag }, status: "success",
+        detail: { type: "mcp", server: "probe", tool: "dump", args: { what: tag }, result: LINES(2400, `dump ${tag}`) },
+        startedAt: now - 2000, endedAt: now - 1000,
+      }],
+    }],
+    click: (tag) => `[data-testid="tool-call-row-${tag}-c1"] [data-testid="tool-call-result-toggle"]`,
+    fold: (tag) => `[data-testid="tool-call-row-${tag}-c1"]`,
+    opened: (page, tag) => page.locator(`[data-testid="tool-call-row-${tag}-c1"] [data-testid="tool-call-result-toggle"][aria-expanded="true"]`),
+    prepare: async (page, tag) => {
+      const row = `[data-testid="tool-call-row-${tag}-c1"]`;
+      await locate(page, `${row} > button`).click();
+      await expect(locate(page, `${row} [data-testid="tool-call-result-toggle"]`)).toBeVisible({ timeout: 10_000 });
+      // The toggle is "visible" from the first frame of the opening, while the
+      // body is still 0 px tall (a clipped child keeps its box). The reader
+      // goes on once the row HAS opened: going back to the end before it grew
+      // found the end already reached, and the opening then held its header
+      // up to 350 px above the new end, so the bottom case never started.
+      await startProbe(page, { header: `${row} > button`, fold: row, docked: false });
+      await waitStill(page);
+      await stopProbe(page);
+    },
+    sameHeight: true,
+  },
+  {
+    name: "turn-work",
+    seed: (tag) => [{
+      role: "assistant",
+      content: `Answer ${tag}`,
+      blocks: [
+        ...[1, 2, 3].map((i) => ({ kind: "tool", toolCall: { id: `${tag}-w${i}`, name: "Read", args: { file_path: `/tmp/${tag}/w${i}.ts` }, status: "success", result: LINES(4, `w${i}`), startedAt: now - 3000, endedAt: now - 2500 } })),
+        { kind: "text", text: `Answer ${tag}: the work is folded above.` },
+      ],
+    }],
+    click: (tag) => `msg:Answer ${tag}|[data-testid="turn-work-fold"] [data-testid="task-work-summary"]`,
+    fold: (tag) => `msg:Answer ${tag}|[data-testid="turn-work-fold"]`,
+    // Three calls make a group inside the fold (CHAT-TOOL-02).
+    opened: (page, tag) => page.locator(`[data-group-id="${tag}-w1"]`),
+  },
+  {
+    name: "reasoning",
+    seed: (tag) => [{
+      role: "assistant",
+      content: `Thought ${tag}`,
+      blocks: [
+        { kind: "thinking", text: LINES(12, `thinking ${tag}`) },
+        { kind: "text", text: `Thought ${tag}: done thinking.` },
+      ],
+    }],
+    click: (tag) => `msg:Thought ${tag}|[data-testid="reasoning-row"] > button`,
+    fold: (tag) => `msg:Thought ${tag}|[data-testid="reasoning-row"]`,
+    opened: (page, tag) => page.getByText(`thinking ${tag} line 12`),
+  },
+  {
+    // Open by default: its action log is the point. Closed first, then opened.
+    name: "subagent",
+    seed: (tag) => [{
+      role: "assistant",
+      content: "",
+      toolCalls: [{
+        id: `${tag}-s1`, name: "Task", args: { description: `Survey ${tag}`, prompt: "look around", subagent_type: "general-purpose" }, status: "success",
+        detail: { type: "sub_agent", subAgentType: "general-purpose", description: `Survey ${tag}`, actions: Array.from({ length: 8 }, (_, i) => ({ index: i, toolName: "Read", summary: `file ${i}.ts`, status: "success" })) },
+        startedAt: now - 5000, endedAt: now - 1000,
+      }],
+    }],
+    click: (tag) => `[data-testid="tool-call-row-${tag}-s1"] > button`,
+    fold: (tag) => `[data-testid="tool-call-row-${tag}-s1"]`,
+    startsOpen: true,
+    opened: (page, tag) => page.locator(`[data-testid="tool-call-row-${tag}-s1"]`).getByText("file 7.ts"),
+  },
+  {
+    name: "turn-error",
+    seed: (tag) => [{
+      role: "assistant",
+      content: `Failed ${tag}`,
+      blocks: [
+        { kind: "error", text: `API Error: 500 ${JSON.stringify({ type: "error", error: { type: "api_error", message: `Internal ${tag}`, trace: LINES(10, "frame") }, request_id: `req_${tag}` })}` },
+        { kind: "text", text: `Failed ${tag}: the turn stopped here.` },
+      ],
+    }],
+    click: (tag) => `msg:Failed ${tag}|[data-testid="turn-error-details"] > summary`,
+    fold: (tag) => `msg:Failed ${tag}|[data-testid="turn-error"]`,
+    opened: (page, tag) => page.locator('[data-testid="chat-message"]', { hasText: `Failed ${tag}` }).locator('[data-testid="turn-error-details"] pre'),
+  },
+  {
+    // The control is under the code, the block's own header is what stays.
+    name: "code-block",
+    seed: (tag) => [{
+      role: "assistant",
+      content: `Code ${tag}\n\n\`\`\`ts\n${Array.from({ length: 40 }, (_, i) => `const v${i} = ${i}; // ${tag}`).join("\n")}\n\`\`\``,
+    }],
+    click: (tag) => `msg:Code ${tag}|.code-block-wrapper > button`,
+    // Folded from its end with its header out of sight, the control under
+    // the body is what stays (the reader is not dropped past the block).
+    header: (tag) => `msg:Code ${tag}|.code-block-wrapper > div;;msg:Code ${tag}|.code-block-wrapper > button`,
+    fold: (tag) => `msg:Code ${tag}|.code-block-wrapper`,
+    opened: (page, tag) => page.getByText(`const v39 = 39; // ${tag}`),
+  },
+  {
+    // Three openings of one browser context are one marker (CHAT-BROWSER-01):
+    // its «3 pages» list is a fold under the marker's row.
+    name: "browser-pages",
+    seed: (tag) => [{
+      role: "assistant",
+      content: `Pages ${tag}`,
+      blocks: [
+        ...["a", "b", "c"].map((p) => ({
+          kind: "tool",
+          toolCall: {
+            id: `${tag}-bp-${p}`, name: "mcp__topics__open_browser_pane", args: { url: `https://example.com/${tag}/${p}` }, status: "success",
+            result: `Opened browser pane at https://example.com/${tag}/${p} (title: Page ${p} ${tag}) [contextId: ctx-${tag}]`,
+          },
+        })),
+        { kind: "text", text: `Pages ${tag}: three pages opened.` },
+      ],
+    }],
+    click: (tag) => `msg:Pages ${tag}|[data-testid="browser-open-marker-pages"]`,
+    fold: (tag) => `msg:Pages ${tag}|[data-testid="browser-open-marker"]`,
+    opened: (page, tag) => page.locator('[data-testid="chat-message"]', { hasText: `Pages ${tag}` }).getByTestId("browser-open-marker-page-list"),
+  },
+  {
+    name: "compaction-recap",
+    seed: (tag) => [{
+      role: "assistant",
+      content: `Recap ${tag}\n\nThis session is being continued from a previous conversation that ran out of context. The summary below covers it.\n\n${LINES(10, `recap ${tag}`).split("\n").map((l) => `- ${l}`).join("\n")}`,
+    }],
+    click: (tag) => `msg:Recap ${tag}|[data-testid="compaction-summary-fold"] > button`,
+    fold: (tag) => `msg:Recap ${tag}|[data-testid="compaction-summary-fold"]`,
+    opened: (page, tag) => page.getByText(`recap ${tag} line 10`),
+  },
+  {
+    name: "dispatch-envelope",
+    seed: (tag) => [{
+      id: `${tag}-env`,
+      role: "user",
+      content: `Kickoff ${tag}\n${LINES(10, `envelope ${tag}`)}`,
+      blocks: [{ kind: "dispatched-envelope" }],
+    }],
+    click: (tag) => `[data-message-id="${tag}-env"] [data-testid="dispatch-envelope-toggle"]`,
+    fold: (tag) => `[data-message-id="${tag}-env"]`,
+    opened: (page, tag) => page.getByText(`envelope ${tag} line 10`),
+  },
+  {
+    name: "process-exit",
+    seed: (tag) => [{
+      id: `${tag}-exit`,
+      role: "user",
+      content: `Process finished: exit 0\n${LINES(10, `tail ${tag}`)}`,
+      blocks: [{ kind: "process-exit", processId: `${tag}-proc`, exitCode: 0, label: `build ${tag}` }],
+    }],
+    click: (tag) => `[data-message-id="${tag}-exit"] [data-testid="process-exit-toggle"]`,
+    fold: (tag) => `[data-message-id="${tag}-exit"]`,
+    opened: (page, tag) => page.getByText(`tail ${tag} line 10`),
+  },
+  {
+    // A message that IS a command: its body is the command's file, read from
+    // the server's home on the first open, inside a bubble aligned right.
+    name: "slash-command",
+    seed: (tag) => [{ role: "user", content: `/${SLASH_COMMAND} ${tag}` }],
+    click: (tag) => `msg:${tag}|[data-testid="user-slash-command-toggle"]`,
+    fold: (tag) => `msg:${tag}|[data-testid="user-slash-command"]`,
+    opened: (page, tag) => page.locator('[data-testid="chat-message"]', { hasText: tag }).getByTestId("invoked-command-body"),
+    setup: async () => {
+      const dir = join(E2E_HOME, ".claude", "commands");
+      mkdirSync(dir, { recursive: true });
+      writeFileSync(join(dir, `${SLASH_COMMAND}.md`), LINES(12, "Fold the command body"));
+    },
+  },
+  {
+    name: "goal-bar",
+    docked: true,
+    // No steps of its own: the plan shown is the last TodoWrite of the chat.
+    seed: (tag) => [{
+      role: "assistant",
+      content: "",
+      toolCalls: [{ id: `${tag}-goaltodo`, name: "TodoWrite", status: "success", args: { todos: todoItems(tag) }, detail: { type: "todo", items: todoItems(tag) } }],
+    }],
+    click: () => '[data-testid="goal-bar-toggle"]',
+    fold: () => '[data-testid="goal-bar"]',
+    opened: (page) => page.getByTestId("goal-bar-full-text"),
+    setup: async (request, topicId) => {
+      const res = await request.put(`${E2E_BASE}/api/topics/${topicId}/goal`, { data: { content: LONG_GOAL } });
+      expect(res.ok(), "the goal is set").toBe(true);
+    },
+  },
+  {
+    name: "todo-strip",
+    docked: true,
+    seed: (tag) => [{
+      role: "assistant",
+      content: "",
+      toolCalls: [{
+        id: `${tag}-todo`, name: "TodoWrite", status: "success",
+        args: { todos: Array.from({ length: 6 }, (_, i) => ({ content: `Step ${i + 1} ${tag}`, activeForm: `Doing step ${i + 1}`, status: i < 2 ? "completed" : i === 2 ? "in_progress" : "pending" })) },
+        detail: { type: "todo", items: Array.from({ length: 6 }, (_, i) => ({ content: `Step ${i + 1} ${tag}`, activeForm: `Doing step ${i + 1}`, status: i < 2 ? "completed" : i === 2 ? "in_progress" : "pending" })) },
+      }],
+    }],
+    click: () => '[data-testid="todo-strip"] > button',
+    fold: () => '[data-testid="todo-strip"]',
+    opened: (page, tag) => page.getByText(`Step 6 ${tag}`),
+  },
+  {
+    name: "changed-files",
+    docked: true,
+    seed: (tag) => [{
+      role: "assistant",
+      content: "",
+      toolCalls: Array.from({ length: 5 }, (_, i) => ({ id: `${tag}-wr${i}`, name: "Write", args: { file_path: `${WORK_DIR}/${tag}-${i}.ts` }, status: "success" as const })),
+    }],
+    click: () => '[data-testid="chat-changes-chip"]',
+    fold: () => '[data-testid="chat-changes-strip"]',
+    opened: (page) => page.getByTestId("chat-changes-list"),
+  },
+];
+
+// ---------------------------------------------------------------------------
+
+async function sessionKeyOf(request: APIRequestContext, topicId: string): Promise<string> {
+  const res = await request.get(`${E2E_BASE}/api/topics`);
+  const topics = ((await res.json()) as { topics: Record<string, { id: string; sessionKey: string }> }).topics;
+  return Object.values(topics).find((x) => x.id === topicId)!.sessionKey;
+}
+
+const filler = (i: number) => i % 2 === 0
+  ? `Question ${i}: ${"what about the next part of the plan? ".repeat(1 + (i % 3))}`
+  : `Reply ${i}. ${"Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor. ".repeat(1 + (i % 4))}`;
+
+/**
+ * One chat per fold: 18 filler rows, the MIDDLE instance, 18 more, and the
+ * LAST instance at the bottom. 40 rows in all, so the tail the history opens
+ * with holds both, and the middle one sits two screens above the bottom.
+ */
+async function seedChat(request: APIRequestContext, kind: Kind) {
+  const stamp = `${kind.name.replace(/-/g, "")}${Date.now().toString(36)}`;
+  const t = await createTopic(request, `Fold ${kind.name} ${stamp}`);
+  const sessionKey = await sessionKeyOf(request, t.id);
+  const mid = `mid${stamp}`;
+  const last = `end${stamp}`;
+  const put = (m: Seed) => seedMessage(request, { sessionKey, ...m });
+  let n = 0;
+  const fill = async (count: number) => {
+    for (let i = 0; i < count; i++) await put({ role: n % 2 === 0 ? "user" : "assistant", content: filler(n++) });
+  };
+  await fill(18);
+  if (!kind.docked) {
+    if (kind.seed(mid)[0]!.role === "assistant") await put({ role: "user", content: `Show me ${mid}` });
+    for (const m of kind.seed(mid)) await put(m);
+    n = 0;
+  }
+  await fill(18);
+  if (kind.seed(last)[0]!.role === "assistant") await put({ role: "user", content: `Show me ${last}` });
+  for (const m of kind.seed(last)) await put(m);
+  await kind.setup?.(request, t.id);
+  await unarchiveTopic(request, t.id);
+  return { topicId: t.id, mid: kind.docked ? last : mid, last };
+}
+
+async function openChat(page: Page, request: APIRequestContext, topicId: string) {
+  await resetPaneStore(request, [topicId]);
+  await page.goto("/favicon.ico", { waitUntil: "commit" }).catch(() => {});
+  await page.evaluate((id) => localStorage.setItem("pane-store-focused-id", id), topicId);
+  await goToApp(page);
+  await page.keyboard.press("Escape");
+}
+
+const scrollerOf = (page: Page) => page.locator('[data-testid="chat-input-area"]:visible').locator("xpath=..").locator("[data-virtuoso-scroller]").first();
+
+function locate(page: Page, target: string): Locator {
+  if (!target.startsWith("msg:")) return page.locator(target).first();
+  const [text, css] = target.slice(4).split("|");
+  const row = page.locator('[data-testid="chat-message"]', { hasText: text! }).first();
+  return css ? row.locator(css).first() : row;
+}
+
+/**
+ * Wheels, as a reader does, until `target` sits in a band of the view (by
+ * default its middle): down while it is below the band, up otherwise.
+ */
+async function wheelToMiddle(page: Page, target: string, band = { lo: 0.3, hi: 0.6, down: 160, up: 240 }) {
+  const sc = scrollerOf(page);
+  const box = (await sc.boundingBox())!;
+  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+  for (let i = 0; i < 80; i++) {
+    const t = locate(page, target);
+    const tb = (await t.count()) ? await t.boundingBox() : null;
+    if (tb && tb.y > box.y + box.height * band.lo && tb.y < box.y + box.height * band.hi) return;
+    const delta = tb && tb.y > box.y + box.height * band.hi ? band.down : -band.up;
+    await page.mouse.wheel(0, delta);
+    await page.waitForFunction(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(() => r(true)))));
+  }
+  throw new Error(`could not bring ${target} to the middle of the view`);
+}
+
+/**
+ * Wheels, as a reader does, until `target` is in sight above the composer: a
+ * control under a long body (the end of a code block) is reached by scrolling
+ * to it, and a click that had to scroll first would move the page itself.
+ */
+async function bringIntoView(page: Page, target: string) {
+  const sc = scrollerOf(page);
+  const box = (await sc.boundingBox())!;
+  const dock = (await page.locator('[data-testid="chat-input-area"]:visible').first().boundingBox())!;
+  const top = box.y + 40;
+  const bottom = dock.y - 16;
+  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 3);
+  for (let i = 0; i < 30; i++) {
+    const tb = await locate(page, target).boundingBox();
+    if (!tb) return;
+    if (tb.y >= top && tb.y + tb.height <= bottom) return;
+    const delta = tb.y + tb.height > bottom ? tb.y + tb.height - bottom + 60 : tb.y - top - 60;
+    await page.mouse.wheel(0, Math.max(-400, Math.min(400, delta)));
+    await page.waitForFunction(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(() => r(true)))));
+  }
+}
+
+/**
+ * Whether the newest row of the transcript is hidden under the composer's
+ * block: what is painted at the bottom of that row belongs to the block and
+ * not to the row.
+ */
+async function newestRowCovered(page: Page): Promise<string | null> {
+  return page.evaluate(() => {
+    const pane = [...document.querySelectorAll('[data-testid="chat-input-area"]')].find((x) => x.getBoundingClientRect().height > 0)?.parentElement;
+    const rows = [...(pane?.querySelectorAll('[data-testid="chat-message"]') ?? [])];
+    const last = rows[rows.length - 1]?.getBoundingClientRect();
+    if (!last) return "no row";
+    const hit = document.elementFromPoint(last.left + last.width / 2, last.bottom - 6);
+    if (!hit) return "nothing painted";
+    if (hit.closest('[data-testid="chat-message"]')) return null;
+    return hit.closest('[data-testid="chat-input-area"]') ? `under the dock (${hit.tagName.toLowerCase()})` : null;
+  });
+}
+
+async function togglePhase(page: Page, kind: Kind, tag: string, where: Measure["where"], phase: Measure["phase"]): Promise<{ m: Measure; frames: Frame[] }> {
+  // A strip is measured only at the bottom, where it is in sight: no wheel first.
+  if (!kind.docked) await bringIntoView(page, kind.click(tag));
+  const header = (kind.header ?? kind.click)(tag);
+  await startProbe(page, { header, fold: kind.fold(tag), docked: !!kind.docked });
+  await waitStill(page);
+  const clickAt = await frameCount(page);
+  await locate(page, kind.click(tag)).click();
+  await sampleFor(page, clickAt, 900);
+  const frames = await stopProbe(page);
+  // The click is sampled from the first frame after it was sent.
+  return { m: measure(kind.name, where, phase, frames, clickAt), frames };
+}
+
+test.describe("a fold opened by hand does not move the transcript", () => {
+  test.describe.configure({ timeout: 180_000 });
+  const created: string[] = [];
+  test.afterAll(async ({ request }) => {
+    for (const id of created) await deleteTopic(request, id).catch(() => {});
+  });
+
+  for (const kind of KINDS) {
+    test(`${kind.name}: open and close, at the bottom and in the middle`, async ({ page, request }, testInfo: TestInfo) => {
+      test.info().annotations.push({ type: "spec", description: "CHAT-FOLD-01" });
+      const chat = await seedChat(request, kind);
+      created.push(chat.topicId);
+      await installProbe(page);
+      await openChat(page, request, chat.topicId);
+      if (process.env.T13_ANIM_RATE) { const cdp = await page.context().newCDPSession(page); await cdp.send('Animation.enable'); await cdp.send('Animation.setPlaybackRate', { playbackRate: Number(process.env.T13_ANIM_RATE) }); }
+      const sc = scrollerOf(page);
+      if (kind.prepare) {
+        await expect(locate(page, kind.fold(chat.last))).toBeVisible({ timeout: 30_000 });
+        await kind.prepare(page, chat.last);
+        // Back to the end, as a reader does: the bottom case starts from a chat that follows its output.
+        const box = (await sc.boundingBox())!;
+        await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+        for (let i = 0; i < 40; i++) {
+          if (await sc.evaluate((el) => el.scrollHeight - el.scrollTop - el.clientHeight <= 1)) break;
+          await page.mouse.wheel(0, 600);
+          await page.waitForFunction(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(() => r(true)))));
+        }
+      }
+      const lastClick = locate(page, kind.click(chat.last));
+      await expect(lastClick).toBeVisible({ timeout: 30_000 });
+
+      const results: Measure[] = [];
+      const all: Record<string, Frame[]> = {};
+      const phases: Measure["phase"][] = kind.startsOpen ? ["close", "open"] : ["open", "close"];
+
+      // AT THE BOTTOM: the reader follows the output, nothing touched.
+      await startProbe(page, { header: kind.click(chat.last), fold: kind.fold(chat.last), docked: !!kind.docked });
+      await page.waitForFunction(() => {
+        const f = (window as unknown as { __acc: Probe }).__acc.frames.slice(-15);
+        return f.length === 15 && f.every((x) => x.st === f[0]!.st && x.sh === f[0]!.sh && x.sh - x.st - x.ch <= 1);
+      }, null, { timeout: 30_000 }).catch(async (e) => {
+        const dump = await page.evaluate(() => (window as unknown as { __acc: Probe }).__acc.frames.slice(-20).map((x) => `${Math.round(x.t)} st=${x.st} sh=${x.sh} ch=${x.ch} res=${x.sh - x.st - x.ch} hy=${x.hy} fh=${x.fh}`)).catch(() => null);
+        console.log(`T13PROBE ${kind.name} ${JSON.stringify(dump)}`);
+        throw e;
+      });
+      await stopProbe(page);
+      const covered: string[] = [];
+      for (const phase of phases) {
+        const { m, frames } = await togglePhase(page, kind, chat.last, "bottom", phase);
+        results.push(m);
+        all[`bottom-${phase}`] = frames;
+        if (phase === "open") await expect.soft(kind.opened(page, chat.last), `${kind.name} bottom: the click opened it`).toBeVisible();
+        const under = kind.docked && phase === "open" ? await newestRowCovered(page) : null;
+        if (under) covered.push(`${kind.name} bottom open: the newest row is ${under}`);
+      }
+
+      // IN THE MIDDLE: wheeled up to an older instance. A strip has none: read
+      // two screens up, the end of the transcript it sits at is out of sight.
+      if (!kind.docked) {
+        if (kind.prepare) {
+          await wheelToMiddle(page, kind.fold(chat.mid));
+          await kind.prepare(page, chat.mid);
+        }
+        await wheelToMiddle(page, (kind.header ?? kind.click)(chat.mid).split(";;")[0]!);
+        const residual = await sc.evaluate((el) => el.scrollHeight - el.scrollTop - el.clientHeight);
+        expect(residual, "the middle case is away from the bottom").toBeGreaterThan(300);
+        for (const phase of phases) {
+          const { m, frames } = await togglePhase(page, kind, chat.mid, "middle", phase);
+          results.push(m);
+          all[`middle-${phase}`] = frames;
+          if (phase === "open") await expect.soft(kind.opened(page, chat.mid), `${kind.name} middle: the click opened it`).toBeVisible();
+        }
+      }
+
+      const engine = testInfo.project.use.browserName ?? testInfo.project.name;
+      for (const m of results) {
+        const px = (n: number) => `${Math.round(n * 10) / 10}px`;
+        console.log(`ACCORDION ${engine} ${m.kind} ${m.where} ${m.phase} header=${px(m.headerJump)} above=${px(m.aboveJump)} side=${px(m.sideJump)} runs=${m.foldRuns} fold=${px(m.foldDelta)} frames=${m.frames}${m.headerLost ? " LOST" : ""}`);
+      }
+      const path = testInfo.outputPath(`${kind.name}.json`);
+      writeFileSync(path, JSON.stringify({ results, frames: all }));
+      await testInfo.attach(`${kind.name}.json`, { path });
+
+      for (const m of results) {
+        if (kind.docked) continue;
+        if (kind.sameHeight) expect(Math.abs(m.foldDelta), `${m.kind} ${m.where} ${m.phase}: the box kept its height`).toBeLessThanOrEqual(1);
+        else expect(Math.abs(m.foldDelta), `${m.kind} ${m.where} ${m.phase}: the fold did change height`).toBeGreaterThan(10);
+      }
+      expect([...results.flatMap((m) => faults(m, !!kind.docked)), ...covered], "the clicked header and everything above it stay put, the newest row in sight").toEqual([]);
+    });
+  }
+});
+
+/**
+ * The paths a single open and close does not reach: the reader clicking twice
+ * in a row, reading down to the true end of the chat, and the agent writing
+ * while a docked list is open.
+ */
+test.describe("a fold opened by hand: at the true end of the chat", () => {
+  test.describe.configure({ timeout: 180_000 });
+  const created: string[] = [];
+  test.afterAll(async ({ request }) => {
+    for (const id of created) await deleteTopic(request, id).catch(() => {});
+  });
+
+  /** A chat of filler rows ending with `last`. */
+  async function chatEndingWith(request: APIRequestContext, name: string, last: Seed[]) {
+    const t = await createTopic(request, `Fold end ${name} ${Date.now().toString(36)}`);
+    created.push(t.id);
+    const sessionKey = await sessionKeyOf(request, t.id);
+    for (let i = 0; i < 36; i++) await seedMessage(request, { sessionKey, role: i % 2 === 0 ? "user" : "assistant", content: filler(i) });
+    for (const m of last) await seedMessage(request, { sessionKey, ...m });
+    await unarchiveTopic(request, t.id);
+    return { topicId: t.id, sessionKey };
+  }
+
+  async function waitAtBottom(page: Page, header: string, fold: string) {
+    await startProbe(page, { header, fold, docked: false });
+    await page.waitForFunction(() => {
+      const f = (window as unknown as { __acc: Probe }).__acc.frames.slice(-15);
+      return f.length === 15 && f.every((x) => x.st === f[0]!.st && x.sh === f[0]!.sh && x.sh - x.st - x.ch <= 1);
+    }, null, { timeout: 30_000 });
+    await stopProbe(page);
+  }
+
+  async function act(page: Page, kind: string, spec: NonNullable<Probe["spec"]>, phase: Measure["phase"], run: () => Promise<void>, ms: number) {
+    await startProbe(page, spec);
+    await waitStill(page);
+    const clickAt = await frameCount(page);
+    await run();
+    await sampleFor(page, clickAt, ms);
+    return measure(kind, "bottom", phase, await stopProbe(page), clickAt);
+  }
+
+  async function wheelDown(page: Page, times: number, delta = 300) {
+    const box = (await scrollerOf(page).boundingBox())!;
+    await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+    for (let i = 0; i < times; i++) {
+      await page.mouse.wheel(0, delta);
+      await page.waitForFunction(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(() => r(true)))));
+    }
+  }
+
+  test("a fold toggled from the keyboard keeps the focus on its header, so the next key closes it", async ({ page, request }) => {
+    test.info().annotations.push({ type: "spec", description: "CHAT-FOLD-01" });
+    const id = `kbd${Date.now().toString(36)}`;
+    const chat = await chatEndingWith(request, "keyboard", [
+      { role: "user", content: "run it" },
+      { role: "assistant", content: "", toolCalls: [{ id, name: "Bash", args: { command: `ls -la /tmp/${id}` }, status: "success", result: LINES(6, "output"), startedAt: now - 2000, endedAt: now - 1000 }] },
+    ]);
+    await openChat(page, request, chat.topicId);
+    const header = page.locator(`[data-testid="tool-call-row-${id}"] > button`);
+    await expect(header).toBeVisible({ timeout: 30_000 });
+    await header.focus();
+    await page.keyboard.press("Enter");
+    await expect(header).toHaveAttribute("aria-expanded", "true");
+    // The press made the pane the focused one, and the pane hands the focus
+    // to its composer 50 ms later: twenty frames outlast that.
+    await page.waitForFunction(() => new Promise((r) => {
+      let n = 0;
+      const tick = () => (++n >= 20 ? r(true) : requestAnimationFrame(tick));
+      requestAnimationFrame(tick);
+    }));
+    await expect(header, "the header still holds the focus").toBeFocused();
+    await page.keyboard.press("Space");
+    await expect(header, "Space closed the fold").toHaveAttribute("aria-expanded", "false");
+  });
+
+  test("closed and reopened at once at the true bottom: the header stays and the fold ends open", async ({ page, request }) => {
+    test.info().annotations.push({ type: "spec", description: "CHAT-FOLD-01" });
+    const id = `dbl${Date.now().toString(36)}`;
+    const chat = await chatEndingWith(request, "double", [
+      { role: "user", content: "run it" },
+      { role: "assistant", content: "", toolCalls: [{ id, name: "Bash", args: { command: `ls -la /tmp/${id}` }, status: "success", result: LINES(14, "output"), startedAt: now - 2000, endedAt: now - 1000 }] },
+    ]);
+    await installProbe(page);
+    await openChat(page, request, chat.topicId);
+    const header = `[data-testid="tool-call-row-${id}"] > button`;
+    const fold = `[data-testid="tool-call-row-${id}"]`;
+    await expect(page.locator(header)).toBeVisible({ timeout: 30_000 });
+    await waitAtBottom(page, header, fold);
+    // A real press: down, held 100 ms as a hand does, up.
+    const press = async () => {
+      const b = (await page.locator(header).boundingBox())!;
+      await page.mouse.click(b.x + 40, b.y + b.height / 2, { delay: 100 });
+    };
+    const open = await act(page, "tool-row", { header, fold, docked: false }, "open", press, 900);
+    // Read the body down to the true end of the chat, then a quick double
+    // press: closed and opened again while the close is still animating.
+    await wheelDown(page, 8);
+    await waitAtBottom(page, header, fold);
+    const twice = await act(page, "tool-row", { header, fold, docked: false }, "close", async () => {
+      await press();
+      await press();
+    }, 1500);
+    console.log(`ACCORDION double open=${open.headerJump}px close+reopen=${twice.headerJump}px`);
+    expect([...faults(open, false), ...faults(twice, false)], "the header stays under the pointer").toEqual([]);
+    await expect(page.locator(header), "the second press reopened it").toHaveAttribute("aria-expanded", "true");
+  });
+
+  test("the room a fold leaves when closed near the end scrolls away with the wheel", async ({ page, request }) => {
+    test.info().annotations.push({ type: "spec", description: "CHAT-FOLD-01" });
+    const tag = `tall${Date.now().toString(36)}`;
+    const calls = Array.from({ length: 30 }, (_, i) => ({ id: `${tag}-${i}`, name: "Read", args: { file_path: `/tmp/${tag}/file-${i}.ts` }, status: "success" as const, result: LINES(3, `r${i}`), startedAt: now - 3000, endedAt: now - 2000 }));
+    const chat = await chatEndingWith(request, "tall", [{ role: "user", content: "read all" }, { role: "assistant", content: "", toolCalls: calls }, { role: "assistant", content: "All read." }]);
+    await installProbe(page);
+    await openChat(page, request, chat.topicId);
+    const header = `[data-group-id="${tag}-0"] [data-testid="tool-group-summary"]`;
+    const fold = `[data-group-id="${tag}-0"]`;
+    await expect(page.locator(header)).toBeVisible({ timeout: 30_000 });
+    await waitAtBottom(page, header, fold);
+    await act(page, "tool-group", { header, fold, docked: false }, "open", () => page.locator(header).click(), 900);
+    // Down to the end, then up until the header is near the top of the view:
+    // closing it there leaves most of the view below the last row.
+    await wheelDown(page, 12);
+    await wheelToMiddle(page, header, { lo: 0.02, hi: 0.2, down: 40, up: 40 });
+    const close = await act(page, "tool-group", { header, fold, docked: false }, "close", () => page.locator(header).click(), 1200);
+    expect(faults(close, false), "closing holds the header").toEqual([]);
+    const geometry = () => page.evaluate(() => {
+      const pane = [...document.querySelectorAll('[data-testid="chat-input-area"]')].find((x) => x.getBoundingClientRect().height > 0)?.parentElement;
+      const sc = pane?.querySelector<HTMLElement>("[data-virtuoso-scroller]");
+      const rows = [...(pane?.querySelectorAll('[data-testid="chat-message"]') ?? [])];
+      const dock = pane?.querySelector('[data-testid="chat-input-area"]')?.getBoundingClientRect();
+      const last = rows[rows.length - 1]?.getBoundingClientRect();
+      return {
+        room: parseFloat(sc ? getComputedStyle(sc).getPropertyValue("--chat-anchor-slack") || "0" : "0") || 0,
+        blank: dock && last ? Math.round(dock.top - last.bottom) : null,
+      };
+    });
+    const closed = await geometry();
+    await wheelDown(page, 5);
+    await expect.poll(async () => (await geometry()).room, { message: `room after the close ${JSON.stringify(closed)}: a wheel down takes it away` }).toBe(0);
+    const after = await geometry();
+    console.log(`ACCORDION room closed=${JSON.stringify(closed)} after-wheel=${JSON.stringify(after)}`);
+    // The last row rests on the composer again: the gutter, not an empty view.
+    expect(after.blank!, "the last row is back above the composer").toBeLessThanOrEqual(40);
+  });
+
+  test("a docked list open while the agent writes: the newest output stays in sight", async ({ page, request }) => {
+    test.info().annotations.push({ type: "spec", description: "CHAT-FOLD-01" });
+    const tag = `dock${Date.now().toString(36)}`;
+    const items = Array.from({ length: 8 }, (_, i) => ({ content: `Step ${i + 1} ${tag}`, activeForm: `Doing ${i + 1}`, status: i < 2 ? "completed" : i === 2 ? "in_progress" : "pending" }));
+    const chat = await chatEndingWith(request, "dock", [
+      { role: "user", content: "go" },
+      { role: "assistant", content: "", toolCalls: [{ id: `${tag}-todo`, name: "TodoWrite", status: "success", args: { todos: items }, detail: { type: "todo", items } }] },
+      { role: "user", content: "continue" },
+    ]);
+    const ws = await interceptWebSocket(page);
+    await installProbe(page);
+    await openChat(page, request, chat.topicId);
+    const strip = page.locator('[data-testid="todo-strip"] > button').first();
+    await expect(strip).toBeVisible({ timeout: 30_000 });
+    await waitAtBottom(page, '[data-testid="todo-strip"] > button', '[data-testid="todo-strip"]');
+    await strip.click();
+    await expect(page.getByText(`Step 8 ${tag}`)).toBeVisible();
+    const messageId = `msg_${tag}`;
+    ws.send({ type: "stream:start", sessionKey: chat.sessionKey, topicId: chat.topicId, messageId });
+    // One chunk at a time, each sent once the one before is on screen.
+    for (let i = 0; i < 40; i++) {
+      ws.send({ type: "stream:content_chunk", sessionKey: chat.sessionKey, topicId: chat.topicId, content: `fresh${i} ` + (i % 5 === 0 ? "\n\n" : "") });
+      await expect(page.getByText(`fresh${i}`).first()).toBeAttached();
+    }
+    await expect(page.getByText("fresh39")).toBeAttached();
+    await expect.poll(() => page.evaluate(() => {
+      // What is painted on the last streamed word: the message, or the list over it.
+      const rows = [...document.querySelectorAll('[data-testid="chat-message"]')];
+      const row = rows[rows.length - 1];
+      if (!row) return "no row";
+      const walker = document.createTreeWalker(row, NodeFilter.SHOW_TEXT);
+      let n: Node | null;
+      let lastText: Text | null = null;
+      while ((n = walker.nextNode())) if ((n.textContent ?? "").includes("fresh")) lastText = n as Text;
+      if (!lastText) return "no streamed text";
+      const range = document.createRange();
+      range.selectNodeContents(lastText);
+      const boxes = range.getClientRects();
+      const box = boxes[boxes.length - 1];
+      if (!box) return "not laid out";
+      const hit = document.elementFromPoint(box.left + 2, box.top + box.height / 2);
+      if (!hit) return "nothing painted";
+      if (hit.closest('[data-testid="todo-strip"]')) return "under the open list";
+      return hit.closest('[data-testid="chat-message"]') ? "in sight" : `under ${hit.tagName.toLowerCase()}`;
+    }), { message: "the newest streamed word" }).toBe("in sight");
+    ws.send({ type: "stream:end", sessionKey: chat.sessionKey, topicId: chat.topicId, messageId });
+  });
+});
