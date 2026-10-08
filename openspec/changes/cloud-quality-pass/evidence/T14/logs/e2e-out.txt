@@ -1,0 +1,2 @@
+prima EXIT=0 secs=57 d99bc03  10:43:20 up 41 min,  0 user,  load average: 1.44, 0.99, 0.90
+dopo EXIT=0 secs=57 0fbd5d4  10:44:18 up 42 min,  0 user,  load average: 1.88, 1.18, 0.97
