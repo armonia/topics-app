@@ -29,6 +29,7 @@
  * `-c` non basterebbe a coprire tutti i modi in cui l'identità può mancare.
  * L'ambiente li copre tutti perché ha la precedenza su tutto.
  */
+import { SPAWN_TIMEOUT, spawnBounded } from "./bounded-spawn";
 
 /** L'identità che il server usa SOLO quando la macchina non ne ha una. */
 export const FALLBACK_GIT_IDENTITY = {
@@ -60,10 +61,11 @@ export function resetGitIdentityCache(): void {
 
 async function probe(cwd: string): Promise<boolean> {
   try {
-    const proc = Bun.spawn(["git", "var", "GIT_COMMITTER_IDENT"], {
+    const proc = spawnBounded(["git", "var", "GIT_COMMITTER_IDENT"], {
       cwd,
       stdout: "pipe",
       stderr: "pipe",
+      timeoutMs: SPAWN_TIMEOUT.query,
       // `env` esplicito e non ereditato: `Bun.spawn` senza `env` passa al figlio
       // l'ambiente FOTOGRAFATO all'avvio del processo, non `process.env` di
       // adesso. La domanda e la risposta devono guardare lo stesso ambiente.
@@ -71,7 +73,11 @@ async function probe(cwd: string): Promise<boolean> {
     });
     // Gli stream si drenano comunque: un pipe non letto può bloccare il figlio.
     await Promise.all([new Response(proc.stdout).text(), new Response(proc.stderr).text()]);
-    return (await proc.exited) === 0;
+    const code = await proc.exited;
+    // Timed out: git did not answer, not even about the identity. As for "did not start",
+    // the environment is left as it is instead of inventing a fallback for an unanswered question.
+    if (proc.timedOut) return true;
+    return code === 0;
   } catch {
     // git non è partito affatto: non è una domanda sull'identità, e mettere un
     // ripiego non aiuterebbe. Si lascia l'ambiente com'è.

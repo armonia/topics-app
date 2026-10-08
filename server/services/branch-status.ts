@@ -20,6 +20,7 @@
  */
 
 import { commitIsIn, listOwnCommits, type GitRunner } from "./own-commits";
+import { SPAWN_TIMEOUT, spawnBounded } from "../lib/bounded-spawn";
 
 /** Generated, build-output, lockfile and lockstep-version paths — never unique work. */
 const NOISE_RE =
@@ -49,8 +50,8 @@ async function gitExit(cwd: string, args: string[], run?: GitRunner): Promise<nu
     try { return (await run(cwd, args)).code; } catch { return 1; }
   }
   try {
-    const proc = Bun.spawn(["git", "-C", cwd, ...args], { stdout: "ignore", stderr: "ignore" });
-    return await proc.exited;
+    const proc = spawnBounded(["git", "-C", cwd, ...args], { stdout: "ignore", stderr: "ignore", timeoutMs: SPAWN_TIMEOUT.query });
+    return (await proc.exited) ?? 1;
   } catch { return 1; }
 }
 
@@ -59,7 +60,7 @@ async function gitOut(cwd: string, args: string[], run?: GitRunner): Promise<str
     try { const r = await run(cwd, args); return r.code === 0 ? r.stdout : ""; } catch { return ""; }
   }
   try {
-    const proc = Bun.spawn(["git", "-C", cwd, ...args], { stdout: "pipe", stderr: "ignore" });
+    const proc = spawnBounded(["git", "-C", cwd, ...args], { stdout: "pipe", stderr: "ignore", timeoutMs: SPAWN_TIMEOUT.query });
     const out = await new Response(proc.stdout).text();
     await proc.exited;
     return out;
@@ -89,8 +90,8 @@ export async function commitIsAncestor(
   mainRef = "main",
 ): Promise<boolean | null> {
   try {
-    const proc = Bun.spawn(["git", "-C", repoPath, "merge-base", "--is-ancestor", commit, mainRef], {
-      stdout: "ignore", stderr: "ignore",
+    const proc = spawnBounded(["git", "-C", repoPath, "merge-base", "--is-ancestor", commit, mainRef], {
+      stdout: "ignore", stderr: "ignore", timeoutMs: SPAWN_TIMEOUT.query,
     });
     const code = await proc.exited;
     if (code === 0) return true;

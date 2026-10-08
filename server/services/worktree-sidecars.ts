@@ -35,6 +35,7 @@
 
 import { existsSync, lstatSync, symlinkSync } from "node:fs";
 import { join } from "node:path";
+import { SPAWN_TIMEOUT, spawnBounded } from "../lib/bounded-spawn";
 
 /** Where the sidecars live, relative to a checkout root. */
 export const SIDECAR_DIR_REL = join("desktop-tauri", "src-tauri", "binaries");
@@ -107,7 +108,7 @@ export async function provisionTauriSidecars(
   let lastError = "no clone command on this platform";
   if (cmd) {
     try {
-      const proc = Bun.spawn(cmd, { stdout: "pipe", stderr: "pipe" });
+      const proc = spawnBounded(cmd, { stdout: "pipe", stderr: "pipe", timeoutMs: SPAWN_TIMEOUT.long });
       const code = await proc.exited;
       if (code === 0 && existsSync(dest)) return done("cloned");
       lastError = (await new Response(proc.stderr).text()).trim() || `${cmd[0]} exited ${code}`;

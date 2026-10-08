@@ -25,6 +25,7 @@
  */
 
 import type { GitRunner } from "./own-commits";
+import { SPAWN_TIMEOUT, spawnBounded } from "../lib/bounded-spawn";
 
 export interface WorktreeBaseRef {
   /** Il ref da passare a `worktreeManager.create({ baseRef })`. */
@@ -47,12 +48,12 @@ export interface WorktreeBaseRefOptions {
 
 async function defaultRunGit(cwd: string, args: string[]) {
   try {
-    const proc = Bun.spawn(["git", "-C", cwd, ...args], { stdout: "pipe", stderr: "pipe" });
+    const proc = spawnBounded(["git", "-C", cwd, ...args], { stdout: "pipe", stderr: "pipe", timeoutMs: SPAWN_TIMEOUT.query });
     const [stdout, stderr] = await Promise.all([
       new Response(proc.stdout).text(),
       new Response(proc.stderr).text(),
     ]);
-    return { code: await proc.exited, stdout, stderr };
+    return { code: (await proc.exited) ?? 1, stdout, stderr };
   } catch (e) {
     return { code: 1, stdout: "", stderr: e instanceof Error ? e.message : String(e) };
   }

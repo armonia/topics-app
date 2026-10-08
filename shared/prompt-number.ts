@@ -31,7 +31,8 @@ export function hasMachineMark(blocks: readonly { kind?: unknown }[] | null | un
  */
 export const MACHINE_ROW_SQL = `(typeof(blocks) = 'text' AND (${MACHINE_ROW_KINDS.map((k) => `blocks LIKE '%"kind":"${k}"%'`).join(" OR ")}))`;
 
-const CONTEXT_PREFIX = "[Chat messages since your last reply";
+/** The gateway's context envelope: a user-role row that is not a prompt (exported for the SQL twin of this test). */
+export const CONTEXT_PREFIX = "[Chat messages since your last reply";
 
 export interface NumberableMessage {
   id: string;

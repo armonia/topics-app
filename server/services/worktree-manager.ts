@@ -47,6 +47,7 @@ import type { LifecycleHookRunner } from "./lifecycle-hooks";
 import { join, resolve } from "node:path";
 import { isTopicsSpawned, type OwnedScript } from "../lib/ghost-script";
 import type { NotificationRecordInput } from "../../shared/notification-log";
+import { SPAWN_TIMEOUT, spawnBounded } from "../lib/bounded-spawn";
 
 export class WorktreeRefusalError extends Error {
   constructor(reason: string) {
@@ -254,16 +255,17 @@ export function createWorktreeManager(
     cwd: string,
     args: string[],
   ): Promise<{ stdout: string; stderr: string }> {
-    const proc = Bun.spawn(["git", ...args], {
+    const proc = spawnBounded(["git", ...args], {
       cwd,
       stdout: "pipe",
       stderr: "pipe",
+      timeoutMs: SPAWN_TIMEOUT.long,
     });
     const [stdout, stderr] = await Promise.all([
       new Response(proc.stdout).text(),
       new Response(proc.stderr).text(),
     ]);
-    const exitCode = await proc.exited;
+    const exitCode = (await proc.exited) ?? 124;
     if (exitCode !== 0) {
       throw new WorktreeOperationError(
         `git ${args[0] || "?"} failed (exit ${exitCode})`,

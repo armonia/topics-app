@@ -36,6 +36,7 @@ import { applyJobQuota } from "../services/agent-job-quota";
 import { commandLabel, commandWorkOver, pushBackgroundChanged } from "../lib/command-background";
 import { commandProcessesOf, serviceWatch, servicesOver, SERVICE_END_SHOWN_MS, SERVICE_WATCH_MIN_MS, type ServiceRowLike } from "../lib/command-services";
 import { getListeningPorts, listenersOf, readProcessProbe, servesHtml } from "../lib/listening-ports";
+import { SPAWN_TIMEOUT, spawnBounded } from "../lib/bounded-spawn";
 
 interface ScriptProcess {
   processId: string;
@@ -390,7 +391,7 @@ function loadState() {
  */
 function pidStartTime(pid: number): string | undefined {
   try {
-    const result = Bun.spawnSync(["ps", "-o", "lstart=", "-p", String(pid)]);
+    const result = Bun.spawnSync(["ps", "-o", "lstart=", "-p", String(pid)], { timeout: 3000, killSignal: "SIGKILL" });
     const out = new TextDecoder().decode(result.stdout).trim();
     return out || undefined;
   } catch {
@@ -435,7 +436,7 @@ function isPidAlive(pid: number): boolean {
   }
   // signal 0 succeeds for zombies too — check actual state via ps
   try {
-    const result = Bun.spawnSync(["ps", "-o", "stat=", "-p", String(pid)]);
+    const result = Bun.spawnSync(["ps", "-o", "stat=", "-p", String(pid)], { timeout: 3000, killSignal: "SIGKILL" });
     const stat = new TextDecoder().decode(result.stdout).trim();
     if (stat.startsWith("Z")) return false; // zombie
   } catch {}
@@ -1364,7 +1365,7 @@ async function getCommandsForPids(pids: number[]): Promise<Map<number, string>> 
   const out = new Map<number, string>();
   if (!pids.length) return out;
   try {
-    const proc = Bun.spawn(["ps", "-o", "pid=,command=", "-p", pids.join(",")], { stdout: "pipe", stderr: "ignore" });
+    const proc = spawnBounded(["ps", "-o", "pid=,command=", "-p", pids.join(",")], { stdout: "pipe", stderr: "ignore", timeoutMs: SPAWN_TIMEOUT.query });
     const text = await new Response(proc.stdout).text();
     await proc.exited;
     for (const line of text.split("\n")) {
@@ -1551,7 +1552,7 @@ function isNoiseCommand(cmd: string): boolean {
 /** Full argv of a pid (`ps -o command=`), for a readable label. Falls back to "". */
 async function getCommandForPid(pid: number): Promise<string> {
   try {
-    const proc = Bun.spawn(["ps", "-o", "command=", "-p", String(pid)], { stdout: "pipe", stderr: "ignore" });
+    const proc = spawnBounded(["ps", "-o", "command=", "-p", String(pid)], { stdout: "pipe", stderr: "ignore", timeoutMs: SPAWN_TIMEOUT.query });
     const out = (await new Response(proc.stdout).text()).trim();
     await proc.exited;
     return out.split("\n")[0] || "";
@@ -1583,7 +1584,7 @@ async function getProcessCwds(pids: number[]): Promise<Map<number, string>> {
   const out = new Map<number, string>();
   if (pids.length === 0) return out;
   try {
-    const proc = Bun.spawn(["/usr/sbin/lsof", "-a", "-d", "cwd", "-Fpn", "-p", pids.join(",")], { stdout: "pipe", stderr: "ignore" });
+    const proc = spawnBounded(["/usr/sbin/lsof", "-a", "-d", "cwd", "-Fpn", "-p", pids.join(",")], { stdout: "pipe", stderr: "ignore", timeoutMs: SPAWN_TIMEOUT.query });
     const text = await new Response(proc.stdout).text();
     await proc.exited;
     let cur = 0;

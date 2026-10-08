@@ -26,6 +26,7 @@
 
 import type { TaskFile } from "../../shared/task-labels";
 import { RESIDUE_SUBJECT } from "./worktree-residue";
+import { SPAWN_TIMEOUT, spawnBounded } from "../lib/bounded-spawn";
 
 export interface GitRunResult {
   code: number;
@@ -93,16 +94,20 @@ function refName(name: string): string {
  */
 export async function defaultRunGit(cwd: string, args: string[], opts?: GitRunEnv): Promise<GitRunResult> {
   try {
-    const proc = Bun.spawn(["git", "-C", cwd, ...args], {
+    const proc = spawnBounded(["git", "-C", cwd, ...args], {
       stdout: "pipe",
       stderr: "pipe",
+      timeoutMs: SPAWN_TIMEOUT.query,
       ...(opts?.env ? { env: { ...process.env, ...opts.env } } : {}),
     });
     const [stdout, stderr] = await Promise.all([
       new Response(proc.stdout).text(),
       new Response(proc.stderr).text(),
     ]);
-    const code = await proc.exited;
+    // A timeout is not "exit 1": `commitIsIn` reads 1 as "verified outside" and
+    // acts on it, while "could not answer" must stay `null`. 124 is the
+    // convention of `timeout(1)`; any code other than 0 and 1 is "no answer".
+    const code = (await proc.exited) ?? 124;
     return { code, stdout, stderr };
   } catch (e) {
     return { code: 1, stdout: "", stderr: e instanceof Error ? e.message : String(e) };

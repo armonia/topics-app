@@ -35,6 +35,7 @@ import { parseTaskPatch, unapplicableFieldsBody, checkConstraintBody, type Field
 import { getTerminalSessionById } from "./terminal";
 import { createBoardRoutes } from "./tasks-board";
 import { applySpendCapPatch, hasSpendCapPatch, spendCapFields, spendSnapshot } from "./task-spend-caps";
+import { SPAWN_TIMEOUT, spawnBounded } from "../lib/bounded-spawn";
 
 /**
  * The global cap as the client reads it, in ONE place for the GET, the PATCH
@@ -470,16 +471,17 @@ export interface TasksRouterOpts {
  * failure) and disables the credential prompt so a push that needs auth fails
  * fast instead of hanging the request.
  */
-async function runGitCap(cwd: string, args: string[]): Promise<{ code: number; out: string; err: string }> {
+async function runGitCap(cwd: string, args: string[], timeoutMs: number = SPAWN_TIMEOUT.write): Promise<{ code: number; out: string; err: string }> {
   try {
-    const p = Bun.spawn(["git", ...args], {
+    const p = spawnBounded(["git", ...args], {
       cwd,
       stdout: "pipe",
       stderr: "pipe",
       env: { ...process.env, GIT_TERMINAL_PROMPT: "0" },
+      timeoutMs,
     });
     const [out, err] = await Promise.all([new Response(p.stdout).text(), new Response(p.stderr).text()]);
-    const code = await p.exited;
+    const code = (await p.exited) ?? 124;
     return { code, out, err };
   } catch (e) {
     return { code: 1, out: "", err: String((e as Error)?.message ?? e) };
@@ -2078,16 +2080,17 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
     };
     if (!cwd) { settle(false, "progetto non risolvibile su questo host: nessun checkout da usare."); return; }
     try {
-      const p = Bun.spawn(["bash", "-lc", command], {
-        cwd, stdout: "pipe", stderr: "pipe",
-        env: { ...process.env, GIT_TERMINAL_PROMPT: "0" },
-      });
       // 10 minutes: a deploy that does not return within this window is a stuck
       // deploy, not a slow one — better to say so than stay "running" forever.
-      const killer = setTimeout(() => { try { p.kill(); } catch { /* already exited */ } }, 10 * 60 * 1000);
+      // `spawnBounded` and not a `setTimeout` + `kill()`: the shell's children kept
+      // the pipe open after the kill and the deploy stayed "running" regardless.
+      const p = spawnBounded(["bash", "-lc", command], {
+        cwd, stdout: "pipe", stderr: "pipe",
+        env: { ...process.env, GIT_TERMINAL_PROMPT: "0" },
+        timeoutMs: 10 * 60 * 1000,
+      });
       const [out, err] = await Promise.all([new Response(p.stdout).text(), new Response(p.stderr).text()]);
-      const code = await p.exited;
-      clearTimeout(killer);
+      const code = (await p.exited) ?? 124;
       const tail = (s: string) => s.trim().slice(-1500);
       const body = tail(err) || tail(out);
       const detail = `\`${command}\` (exit ${code})` + (body ? `\n\n\`\`\`\n${body}\n\`\`\`` : "");
@@ -2107,7 +2110,9 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
     if (!path) return { ok: false, error: "project not found", code: "not_found" };
     const branch = (await runGitCap(path, ["symbolic-ref", "--short", "HEAD"])).out.trim();
     if (!branch) return { ok: false, error: "detached HEAD: nothing to publish.", code: "detached_head" };
-    const push = await runGitCap(path, ["push", "origin", branch]);
+    // 10 minutes: a pre-push hook (tests, lint) may run for minutes, and this push had
+    // no deadline at all before T5. 120 s would turn a slow hook into a failed publish.
+    const push = await runGitCap(path, ["push", "origin", branch], SPAWN_TIMEOUT.long);
     if (push.code !== 0) return { ok: false, branch, error: (push.err || push.out).trim().slice(-400) || "git push fallito" };
     return { ok: true, branch, output: (push.err + "\n" + push.out).trim().slice(-400) };
   }
