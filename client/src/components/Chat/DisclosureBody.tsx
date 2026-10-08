@@ -47,12 +47,17 @@ export function DisclosureBody({ open, children, className, id, testId, onMotion
     }
     for (const a of track.getAnimations()) a.cancel();
     const clip = track.firstElementChild as HTMLElement | null;
+    // Filled backwards too. Chromium may start a new animation a tenth of a
+    // millisecond after the time of the next frame, and that frame is then
+    // before the start: without the fill it painted the track's own style, the
+    // body wide open for one frame between two closed ones (08/10, start 13.3
+    // and frame 13.2; chat-accordion-no-shift, "2 separate runs").
     const animation = animateEl(
       track,
       open
         ? [{ gridTemplateRows: '0fr', opacity: 0 }, { gridTemplateRows: '1fr', opacity: 1 }]
         : [{ gridTemplateRows: '1fr', opacity: 1 }, { gridTemplateRows: '0fr', opacity: 0 }],
-      { duration: MOTION.base, easing: EASE.standard, fill: open ? 'none' : 'forwards' },
+      { duration: MOTION.base, easing: EASE.standard, fill: open ? 'backwards' : 'both' },
     );
     onMotion?.(animation ? MOTION.base : 0);
     if (animation && clip) {
