@@ -240,6 +240,23 @@ const CHAT_IT: Dict = {
   'processlog.stopTitle': 'Ferma il processo',
   'processlog.fetchFailed': 'Lettura del log non riuscita',
   'processlog.readError': 'Errore: {error}',
+  'views.compare.kind': 'Confronto · {n} opzioni',
+  'views.recommended': 'Consigliata',
+  'views.verdict': 'Verdetto',
+  'views.openPage': 'Apri come pagina',
+  'views.openLink': 'Apri',
+  'views.pro': 'A favore',
+  'views.con': 'Contro',
+  'views.metric.best': 'il migliore',
+  'views.metric.worst': 'il peggiore',
+  'views.metric.missing': 'n/d',
+  'views.gallery.prev': 'Foto precedente',
+  'views.gallery.next': 'Foto successiva',
+  'views.gallery.count': '{i} di {n}',
+  'views.gallery.label': 'Foto di {title}',
+  'views.page.loading': 'Caricamento della vista',
+  'views.page.notFound': 'Questa vista non esiste più.',
+  'views.page.from': 'Vista creata in Topics il {date}',
 };
 
 export default CHAT_IT;

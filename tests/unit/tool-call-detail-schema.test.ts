@@ -143,6 +143,9 @@ const validDetails: ToolCallDetail[] = [
   { type: 'browser', url: 'http://localhost:5173/' },
   { type: 'browser', url: 'https://app.test/', contextId: 'task-12345678-napp', title: 'App', name: 'App', visible: false, result: 'Browser context ready at https://app.test/' },
 
+  { type: 'view', view: { view: 'compare', title: 'T', options: [{ title: 'A' }, { title: 'B', recommended: true }] } },
+  { type: 'view', viewId: '0123456789abcdef', result: 'page /v/0123456789abcdef', view: { view: 'compare', title: 'T', options: [{ title: 'A', price: { amount: 184, currency: 'EUR' }, metrics: [{ label: 'to centre', value: 3, unit: 'min', better: 'lower' }] }, { title: 'B' }] } },
+
   { type: 'ask_user', questions: [] },
   {
     type: 'ask_user',
@@ -271,8 +274,8 @@ function variantsOf(schema: any): any[] {
 }
 
 describe('schema completeness', () => {
-  test('exactly 24 variants in the union', () => {
-    expect(variantsOf(toolCallDetailSchema).length).toBe(24);
+  test('exactly 25 variants in the union', () => {
+    expect(variantsOf(toolCallDetailSchema).length).toBe(25);
   });
 
   test('all variant discriminators are unique', () => {
@@ -310,6 +313,7 @@ describe('schema completeness', () => {
         'artifact',
         'ask_user',
         'browser',
+        'view',
         'unknown',
       ]),
     );

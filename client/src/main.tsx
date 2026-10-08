@@ -19,6 +19,7 @@ import { SessionRoot } from './components/Share/SessionRoot';
 import { warmGuestView } from './components/Share/guestViewLazy';
 import { getSession } from './lib/auth/session';
 import { ErrorBoundary } from './components/Shared/ErrorBoundary';
+import { standaloneViewId } from './components/Views/viewRoute';
 
 // Shim di rete: sotto Tauri riscrive le fetch relative verso l'origine del data
 // server. Deve girare prima di ogni fetch di bootstrap. Su web non si installa —
@@ -90,54 +91,65 @@ installContextMenuSupport(browserContextMenuHost(window));
 // `chunkReloadGuard` raises the DevBundleToast from the same three events.
 // The user reloads; nothing reloads under the user.
 
-bootstrapPaneStore();
-// Cross-window presence: subscribe the store to the WS frame bus so "open in
-// another window" markers work from the first `presence:windows` snapshot.
-initWindowPresence();
+// A standalone view (`/v/<id>`, GENUI-01) is a page of data, not the app: it
+// mounts its own small tree and none of the panes, stores or sockets below.
+const standaloneView = standaloneViewId(window.location.pathname);
+if (standaloneView) {
+  void import('./components/Views/ViewPage').then(({ mountViewPage }) => mountViewPage(container, standaloneView));
+} else {
+  bootApp(container);
+}
 
-const root = createRoot(container);
-// The first frame waits for the chunks of the panes on screen, up to a cap: a
-// cached chunk still settles in a later task than React's first render, and
-// rendering before it paints a spinner per tile that the real body replaces a
-// frame later. A complete frame a few dozen milliseconds later is the gesture
-// a reload owes the reader; past the cap the app renders anyway and the
-// suspense boundaries report what is missing. See `lib/firstFrameGate`.
-const gateStartedAt = performance.now();
-// A returning guest mounts the guest screen on the first render (the session
-// store starts from the cached pairing), so its chunk joins the same gate.
-const cachedSession = getSession();
-const guestScreenWarm = cachedSession.status === 'paired' && cachedSession.role === 'guest'
-  ? warmGuestView()
-  : Promise.resolve();
-void awaitWithCap(Promise.all([paneChunksWarm(), guestScreenWarm]), FIRST_FRAME_WARM_CAP_MS).then((outcome) => {
-  // The gate's own cost, written down where a probe can read it back — it used
-  // to be thrown away, and from the outside a change to the warm set was
-  // indistinguishable from noise in the rest of the boot. See `firstFrameGate`.
-  recordFirstFrameGate(outcome, performance.now() - gateStartedAt);
-  // The first frame waited for the panes on screen; the ones a tab switch away
-  // are warmed right after, at idle (PERF-02, `paneTypesToWarmWhenIdle`).
-  warmOpenPaneChunksWhenIdle();
-  root.render(
-    <StrictMode>
-      {/* THE NET UNDERNEATH, which was not there.
-          The sidebar, the status band, the panels, Settings and every pane have
-          had one for a long time, each of them added after a real failure. The
-          ROOT did not: a throw in the render of `App` - 2,635 lines of hooks,
-          all mounted together before the first frame - left an empty page with
-          nothing but the theme's background on it. That is not a hypothetical,
-          it is written in `App.tsx` next to Settings' own net: "a white screen,
-          with not even a way to close it", from a device with no `id`.
-          Inside `StrictMode` and OUTSIDE `SessionRoot`, because `SessionRoot`
-          is the first thing that talks to the server and a throw of its own is
-          exactly what nobody would get to see. */}
-      <ErrorBoundary fallbackMessageKey="crash.app">
-        {/* Chi entra decide COSA si monta. Un ospite non deve far partire l'app
-            sotto una schermata che lo copre: ogni suo pezzo chiederebbe al server
-            cose che il gate nega, e il risultato è una pagina di errori. */}
-        <SessionRoot>
-          <App />
-        </SessionRoot>
-      </ErrorBoundary>
-    </StrictMode>,
-  );
-});
+function bootApp(container: HTMLElement): void {
+  bootstrapPaneStore();
+  // Cross-window presence: subscribe the store to the WS frame bus so "open in
+  // another window" markers work from the first `presence:windows` snapshot.
+  initWindowPresence();
+
+  const root = createRoot(container);
+  // The first frame waits for the chunks of the panes on screen, up to a cap: a
+  // cached chunk still settles in a later task than React's first render, and
+  // rendering before it paints a spinner per tile that the real body replaces a
+  // frame later. A complete frame a few dozen milliseconds later is the gesture
+  // a reload owes the reader; past the cap the app renders anyway and the
+  // suspense boundaries report what is missing. See `lib/firstFrameGate`.
+  const gateStartedAt = performance.now();
+  // A returning guest mounts the guest screen on the first render (the session
+  // store starts from the cached pairing), so its chunk joins the same gate.
+  const cachedSession = getSession();
+  const guestScreenWarm = cachedSession.status === 'paired' && cachedSession.role === 'guest'
+    ? warmGuestView()
+    : Promise.resolve();
+  void awaitWithCap(Promise.all([paneChunksWarm(), guestScreenWarm]), FIRST_FRAME_WARM_CAP_MS).then((outcome) => {
+    // The gate's own cost, written down where a probe can read it back — it used
+    // to be thrown away, and from the outside a change to the warm set was
+    // indistinguishable from noise in the rest of the boot. See `firstFrameGate`.
+    recordFirstFrameGate(outcome, performance.now() - gateStartedAt);
+    // The first frame waited for the panes on screen; the ones a tab switch away
+    // are warmed right after, at idle (PERF-02, `paneTypesToWarmWhenIdle`).
+    warmOpenPaneChunksWhenIdle();
+    root.render(
+      <StrictMode>
+        {/* THE NET UNDERNEATH, which was not there.
+            The sidebar, the status band, the panels, Settings and every pane have
+            had one for a long time, each of them added after a real failure. The
+            ROOT did not: a throw in the render of `App` - 2,635 lines of hooks,
+            all mounted together before the first frame - left an empty page with
+            nothing but the theme's background on it. That is not a hypothetical,
+            it is written in `App.tsx` next to Settings' own net: "a white screen,
+            with not even a way to close it", from a device with no `id`.
+            Inside `StrictMode` and OUTSIDE `SessionRoot`, because `SessionRoot`
+            is the first thing that talks to the server and a throw of its own is
+            exactly what nobody would get to see. */}
+        <ErrorBoundary fallbackMessageKey="crash.app">
+          {/* Chi entra decide COSA si monta. Un ospite non deve far partire l'app
+              sotto una schermata che lo copre: ogni suo pezzo chiederebbe al server
+              cose che il gate nega, e il risultato è una pagina di errori. */}
+          <SessionRoot>
+            <App />
+          </SessionRoot>
+        </ErrorBoundary>
+      </StrictMode>,
+    );
+  });
+}

@@ -219,6 +219,23 @@ const CHAT_EN: Dict = {
   'processlog.stopTitle': 'Stop process',
   'processlog.fetchFailed': 'Failed to fetch output',
   'processlog.readError': 'Error: {error}',
+  'views.compare.kind': 'Comparison · {n} options',
+  'views.recommended': 'Recommended',
+  'views.verdict': 'Verdict',
+  'views.openPage': 'Open as page',
+  'views.openLink': 'Open',
+  'views.pro': 'In favour',
+  'views.con': 'Against',
+  'views.metric.best': 'the best',
+  'views.metric.worst': 'the worst',
+  'views.metric.missing': 'n/a',
+  'views.gallery.prev': 'Previous photo',
+  'views.gallery.next': 'Next photo',
+  'views.gallery.count': '{i} of {n}',
+  'views.gallery.label': 'Photos of {title}',
+  'views.page.loading': 'Loading the view',
+  'views.page.notFound': 'This view no longer exists.',
+  'views.page.from': 'View created in Topics on {date}',
 };
 
 export default CHAT_EN;

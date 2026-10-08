@@ -34,6 +34,7 @@ import { commentAuthorLabel } from "../../shared/comment-author";
 import { CHECKS_LEG_MS } from "../services/checks-gate";
 import { OUTBOUND_TOOLS, callGoogleCall, callSendMail } from "./outbound-tools";
 import { COMMAND_TOOLS, RUN_COMMAND_BOARD_DESCRIPTION, callRunCommand, isBoardProfile } from "./command-tools";
+import { SHOW_VIEW_TOOL, callShowView } from "./view-tools";
 import { hasCommandShell } from "../lib/command-process";
 import { HttpAnswerError, httpJson, lostRequestError, loopbackInit, REQUEST_TIMEOUT_MS } from "./topics-http";
 import { homedir } from "os";
@@ -576,6 +577,7 @@ const TOOLS = [
     // Topics: la domanda va alla persona che ha la chat aperta.
     annotations: { ...SOLA_LETTURA, title: "Chiedi all'umano (pannello in chat)" },
   },
+  SHOW_VIEW_TOOL,
   {
     // IL CANALE DI PERMESSO. Non lo chiama il modello: lo chiama la CLI, al
     // posto del prompt interattivo, perché lo spawn passa
@@ -2915,6 +2917,7 @@ export const TOOL_HANDLERS: Record<
   // Volutamente FUORI da DISPATCH_EXCLUDED_TOOLS: anche un agente di board
   // riceve link incollati dall'umano nel thread del task.
   resolve_tab: (a, t) => callResolveTab(a, t as { ref?: unknown }),
+  show_view: (a, t) => callShowView(a, t as Record<string, unknown>),
 };
 
 // Register the ref-based browser tools (observe/act/extract/get_text/screenshot/

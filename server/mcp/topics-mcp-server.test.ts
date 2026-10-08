@@ -610,6 +610,8 @@ describe("handleMessage", () => {
       "send_mail",
       "google_call",
       "ask_user_question",
+      // A designed view in the chat (GENUI-01), right after the question panel.
+      "show_view",
       // Il canale di permesso: pubblicato sempre. Lo designa
       // `--permission-prompt-tool`, e la CLI lo toglie da sé dall'elenco che
       // il modello vede — quindi non costa contesto, e non esiste una
@@ -681,6 +683,8 @@ describe("handleMessage", () => {
       "read_chat_messages", "resolve_tab",
       // Chiedere a una persona non cambia niente: è la lettura più pura che ci sia.
       "ask_user_question", "approval_prompt",
+      // Showing a view stores a page of data and changes nothing else (GENUI-01).
+      "show_view",
     ].sort();
     const MODIFICANO = [
       // Aprono, chiudono, spostano o scrivono qualcosa — pane, processi, board,

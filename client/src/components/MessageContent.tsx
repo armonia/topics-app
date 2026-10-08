@@ -24,6 +24,8 @@ import { useDisclosureToggle } from './Chat/transcriptDisclosure';
 import { DisclosureBody } from './Chat/DisclosureBody';
 import { foldFinishedTurn, noteWatchedLive, wasWatchedLive } from './Chat/turnFold';
 import { coalesceBrowserOpens, type BrowserMarker } from './Chat/browserOpens';
+import { viewOf, type ViewOpen } from './Chat/viewOpens';
+import { ViewBlock } from './Views/ViewBlock';
 import { BrowserOpenMarker } from './Chat/BrowserOpenMarker';
 import { useTaskWorkFold } from './Chat/taskWorkFoldContext';
 import type { ToolCall } from '../types';
@@ -1046,7 +1048,8 @@ type BlockGroup =
   | { kind: 'text'; idx: number; text: string }
   | { kind: 'media'; idx: number; path: string; seq: number }
   | { kind: 'tools'; startIdx: number; tools: ToolCall[] }
-  | { kind: 'browser'; idx: number; marker: BrowserMarker };
+  | { kind: 'browser'; idx: number; marker: BrowserMarker }
+  | { kind: 'view'; idx: number; tool: ToolCall; view: ViewOpen };
 
 /**
  * DA DOVE VIENE QUESTA RISPOSTA.
@@ -1242,6 +1245,8 @@ export const MessageContent = memo(function MessageContent({ content, role, thin
         const marker = browserOpens.get(b.toolCall.id);
         if (marker === null) continue;
         if (marker) { out.push({ kind: 'browser', idx: i, marker }); continue; }
+        const view = viewOf(b.toolCall);
+        if (view) { out.push({ kind: 'view', idx: i, tool: b.toolCall, view }); continue; }
         const last = out[out.length - 1];
         if (last && last.kind === 'tools') last.tools.push(b.toolCall);
         else out.push({ kind: 'tools', startIdx: i, tools: [b.toolCall] });
@@ -1389,6 +1394,7 @@ export const MessageContent = memo(function MessageContent({ content, role, thin
             );
           }
           if (g.kind === 'browser') return <BrowserOpenMarker key={`g-br-${g.idx}`} marker={g.marker} />;
+          if (g.kind === 'view') return <ViewBlock key={`g-view-${g.idx}`} spec={g.view.spec} viewId={g.view.viewId} />;
           if (g.kind === 'tools') {
             // Consecutive runs of ≥3 aggregatable calls collapse into a
             // single summary row with per-tool counts (CHAT-TOOL-02);
