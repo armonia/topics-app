@@ -92,9 +92,6 @@ async function box(locator: Locator): Promise<{ top: number; bottom: number; lef
   return { top: b!.y, bottom: b!.y + b!.height, left: b!.x, right: b!.x + b!.width };
 }
 
-/** Two frames: whatever a change pins or moves has painted. */
-const frames = (page: Page) => page.waitForFunction(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(() => r(true)))));
-
 /**
  * Ten frames in a row with the transcript at the same scroll position. A wheel
  * can still be landing when `mouse.wheel` returns: WebKit for Linux animates it
@@ -172,15 +169,17 @@ test("the strips are the end of the transcript: after the last message, out of t
 
   // A reader further up: the strips change under them and nothing on screen moves.
   // Up in the middle of the history, not at its top: at scrollTop 0 a shift up
-  // is clamped away and the check below could not see it.
+  // is clamped away and the check below could not see it. One notch at a time,
+  // each landed before the next: on WebKit for Linux a notch is animated and
+  // can be cut short, so how far it goes varies (CI 08/10: three notches ended
+  // 446-573 px from the bottom). Where the reader ends up is what counts.
   const sc = await box(scroller(page));
   await page.mouse.move((sc.left + sc.right) / 2, (sc.top + sc.bottom) / 2);
-  for (let i = 0; i < 3; i++) {
+  for (let i = 0; i < 8 && (await fromBottom(page)) <= 600; i++) {
     await page.mouse.wheel(0, -300);
-    await frames(page);
+    await still(page);
   }
-  await expect.poll(() => fromBottom(page)).toBeGreaterThan(600);
-  await still(page);
+  expect(await fromBottom(page), "the reader is well above the end").toBeGreaterThan(600);
   expect(await scroller(page).evaluate((el) => el.scrollTop), "the reader is not at the top of the history").toBeGreaterThan(100);
   const read = page.getByTestId("chat-message").filter({ hasText: await firstInSight(page) });
   const before = (await box(read)).top;
