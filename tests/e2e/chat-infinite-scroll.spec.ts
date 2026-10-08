@@ -274,18 +274,28 @@ test.describe("Infinite scroll della chat", () => {
       expect(older, "typing fetched nothing").toBe(0);
       await expect(list).toHaveAttribute("data-history", "partial");
 
-      // Higher in the list, a wheel turned DOWN: a gesture, but not one that goes up.
-      await list.evaluate((el, h) => { (el as HTMLElement).scrollTop = Math.round(h / 2); }, screen);
-      await stillView(page);
+      // Higher in the list, a wheel turned DOWN: a gesture, but not one that goes up. The list is put
+      // there without a gesture, and put again until it stays: right after opening, the chat pins
+      // itself to the bottom for a few seconds, and keys typed in a field no longer cut that short.
+      const high = Math.round(screen / 2);
+      let before = await stillView(page);
+      for (let i = 0; i < 40 && before > high + 24; i++) {
+        await list.evaluate((el, top) => { (el as HTMLElement).scrollTop = top; }, high);
+        before = await stillView(page);
+      }
+      expect(before, "the list holds inside the band where heading up merges").toBeLessThan(screen * OLDER_MERGE_SCREENS);
       const box = (await list.boundingBox())!;
       await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
       await page.mouse.wheel(0, 120);
-      await stillView(page);
+      expect(await stillView(page), "the wheel moved the list down").toBeGreaterThan(before);
       expect(older, "a wheel turned down fetched nothing").toBe(0);
       await expect(list).toHaveAttribute("data-history", "partial");
 
-      // The control: the same wheel turned up brings the rest in.
-      await page.mouse.wheel(0, -240);
+      // The control: the same wheel turned up brings the rest in, with one request.
+      for (let i = 0; i < 20 && (await list.getAttribute("data-history")) !== "complete"; i++) {
+        await page.mouse.wheel(0, -120);
+        await stillView(page);
+      }
       await expect(list).toHaveAttribute("data-history", "complete", { timeout: 10000 });
       expect(older).toBe(1);
     } finally {

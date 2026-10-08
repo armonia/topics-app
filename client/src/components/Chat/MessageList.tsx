@@ -1718,9 +1718,25 @@ export function MessageList({
       if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)) return;
       if (SCROLL_KEYS.has(e.key)) markGesture();
     };
+    // INFINITE SCROLL (CHAT-HIST-01): heading up, the reader gets the rest of the thread without asking.
+    // Fetched a few screens before the top, merged two screens before it, where the prepend
+    // (`firstItemIndex`) and the divider it lifts from the first row are both out of sight.
+    const headingUp = (st: number) => {
+      if (st >= el.clientHeight * OLDER_STAGE_SCREENS || !isHistoryIncomplete(completenessRef.current)) return;
+      if (st < el.clientHeight * OLDER_MERGE_SCREENS) {
+        // A reader faster than the network reaches the divider first: it says the rest is on its way.
+        setOlderLoading(true);
+        void requestHistoryCompletion(sessionKeyRef.current, 'apply').finally(() => setOlderLoading(false));
+      } else {
+        void requestHistoryCompletion(sessionKeyRef.current, 'stage');
+      }
+    };
     const onWheel = (e: WheelEvent) => {
       markGesture();
       if (e.deltaY < 0) releaseToUser('gesture');
+      // A wheel turned up asks even where the list cannot move any more: a jump that reached the top
+      // right after one of our pins was taken for ours, and no scroll event would come after it.
+      if (e.deltaY < 0 && !e.ctrlKey) headingUp(el.scrollTop);
     };
     // The row at the top of the viewport (`topRowRef`), read in the frame after
     // a scroll, once Virtuoso has rendered that scroll's rows. Only while the
@@ -1786,20 +1802,9 @@ export function MessageList({
       // Kept for `completeOutOfSight`: once the pane is hidden its geometry
       // reads zero, and this is the last honest distance from the bottom.
       lastDistanceFromBottomRef.current = Math.max(0, el.scrollHeight - st - el.clientHeight);
-      // INFINITE SCROLL (CHAT-HIST-01): heading up, the reader gets the rest of the thread without asking.
-      // Fetched a few screens before the top, merged two screens before it, where the prepend
-      // (`firstItemIndex`) and the divider it lifts from the first row are both out of sight. Only when the
-      // reader goes up: a wheel turned down, our own pins and the list settling under the composer never
-      // pull it in.
-      if (readerUp && st < el.clientHeight * OLDER_STAGE_SCREENS && isHistoryIncomplete(completenessRef.current)) {
-        if (st < el.clientHeight * OLDER_MERGE_SCREENS) {
-          // A reader faster than the network reaches the divider first: it says the rest is on its way.
-          setOlderLoading(true);
-          void requestHistoryCompletion(sessionKeyRef.current, 'apply').finally(() => setOlderLoading(false));
-        } else {
-          void requestHistoryCompletion(sessionKeyRef.current, 'stage');
-        }
-      }
+      // Only when the reader goes up (`headingUp`): a wheel turned down, our own pins and the list
+      // settling under the composer never pull the rest in.
+      if (readerUp) headingUp(st);
       // La freccia si ri-sincronizza QUI, dove la geometria è già sotto mano.
       syncArrow(el);
       // Fondo VERO raggiunto a mano: qui si scioglie la presa, e serve un
