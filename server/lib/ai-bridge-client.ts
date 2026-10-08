@@ -33,8 +33,8 @@ export interface SessionHandlers {
   onData: (chunk: Buffer, offset: number) => void;
   /** A stderr chunk (rate-limit / missing-session detection lives in the provider). */
   onStderr?: (chunk: Buffer) => void;
-  /** The child exited (crash/normal). `exitCode` null = signal/error. */
-  onExit?: (exitCode: number | null) => void;
+  /** The child exited (crash/normal). `exitCode` null = signal/error; `endOffset` absent from a daemon older than the field. */
+  onExit?: (exitCode: number | null, endOffset?: number) => void;
 }
 export interface AttachResult {
   endOffset: number;
@@ -471,7 +471,7 @@ export class AiBridgeClient {
           console.warn(`[ai-bridge-client] exit of the replaced child of ${id} dropped: its successor is still being spawned`);
           break;
         }
-        h.onExit?.(typeof msg.exitCode === "number" ? msg.exitCode : null);
+        h.onExit?.(typeof msg.exitCode === "number" ? msg.exitCode : null, typeof msg.endOffset === "number" ? msg.endOffset : undefined);
         break;
     }
   }

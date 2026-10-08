@@ -60,6 +60,7 @@ import {
   readCommandOutcome,
   readSyntheticText,
 } from "./claude/events";
+import { closeAfterTail } from "./claude/broker-cursor";
 import { isWokenTurnLine, bufferWoken, drainWoken, unattendedLineFate, type WakeObserver, type HeldEvent } from "./claude/woken-turn";
 import { resolveWakeSource } from "./claude/wake-source";
 import { attentionBackgroundOf, type AttentionBackground, backgroundWorkKey, closedWork, type ClosedWork, datedByLastWrite, describeBackgroundWork, hasArmedCron, hasLiveTasks, hasTaskWork, isBackgroundWorkAlive, isWakeQueued, newBackgroundWork, noteBackgroundLine, wakeQueuedUntil, type BackgroundWork, type BackgroundWorkDetail } from "./claude/background-work";
@@ -2984,7 +2985,7 @@ export class ClaudeCodeProvider implements AIProvider {
         pp.consumedOffset = offset + chunk.byteLength;
       },
       onStderr: (chunk) => this.handleStderrData(pp, sessionKey, chunk),
-      onExit: (code) => this.onSessionClosed(pp, code),
+      onExit: (code, end) => closeAfterTail(pp, end, (from) => client.attach(sessionKey, from, 1), (wasAlive) => this.onSessionClosed(pp, code, wasAlive)),
     });
   }
 
@@ -3757,10 +3758,10 @@ export class ClaudeCodeProvider implements AIProvider {
     }
   }
 
-  // Child exited (direct: proc 'close'; broker: daemon `exit` frame). Rejects a
-  // pending turn and surfaces the error to a live stream, then drops timers.
-  private onSessionClosed(pp: PersistentProcess, code: number | null): void {
-    if (pp.alive) this.sayProcessEnded(pp.sessionKey, "cli-exit", pp.aborting === true || code === 0);
+  // Child exited (direct: proc 'close'; broker: daemon `exit` frame, once its tail is folded, `closeAfterTail`).
+  // Rejects a pending turn and surfaces the error to a live stream, then drops timers.
+  private onSessionClosed(pp: PersistentProcess, code: number | null, wasAlive = pp.alive): void {
+    if (wasAlive) this.sayProcessEnded(pp.sessionKey, "cli-exit", pp.aborting === true || code === 0);
     pp.alive = false;
     this.noteCliTurn(pp, false);
     if (pp.background?.tasks.size) this.sayBackgroundChanged(pp.sessionKey);
