@@ -33,18 +33,22 @@ const STAGED = join(E2E_DATA_DIR, ".topics-home", "media", "genui-sitges");
 function stagePhotos(): void {
   mkdirSync(STAGED, { recursive: true });
   const all = [...STAY_PHOTOS.bh, ...STAY_PHOTOS.naut, ...STAY_PHOTOS.cid];
-  for (const [i, f] of all.entries()) {
+  for (const f of all) {
     const src = join(REAL_PHOTOS, f);
     if (existsSync(src)) copyFileSync(src, join(STAGED, f));
-    else writeFileSync(join(STAGED, f), standInSvg(i));
+    else writeFileSync(join(STAGED, f), STAND_IN_JPEG);
   }
 }
 
-/** A flat tile, so the layout has an image to lay out where the real photo is missing. */
-function standInSvg(i: number): string {
-  const hue = (i * 47) % 360;
-  return `<svg xmlns="http://www.w3.org/2000/svg" width="640" height="480"><rect width="640" height="480" fill="hsl(${hue} 40% 55%)"/></svg>`;
-}
+/**
+ * A flat 64x48 JPEG tile, where the real photo is missing (CI). A real JPEG:
+ * the files are served as image/jpeg by name, and an SVG under that type
+ * does not decode (naturalWidth 0, the red of the first CI run).
+ */
+const STAND_IN_JPEG = Buffer.from(
+  "/9j/4AAQSkZJRgABAQAASABIAAD/4QBMRXhpZgAATU0AKgAAAAgAAYdpAAQAAAABAAAAGgAAAAAAA6ABAAMAAAABAAEAAKACAAQAAAABAAAAQKADAAQAAAABAAAAMAAAAAD/7QA4UGhvdG9zaG9wIDMuMAA4QklNBAQAAAAAAAA4QklNBCUAAAAAABDUHYzZjwCyBOmACZjs+EJ+/8AAEQgAMABAAwEiAAIRAQMRAf/EAB8AAAEFAQEBAQEBAAAAAAAAAAABAgMEBQYHCAkKC//EALUQAAIBAwMCBAMFBQQEAAABfQECAwAEEQUSITFBBhNRYQcicRQygZGhCCNCscEVUtHwJDNicoIJChYXGBkaJSYnKCkqNDU2Nzg5OkNERUZHSElKU1RVVldYWVpjZGVmZ2hpanN0dXZ3eHl6g4SFhoeIiYqSk5SVlpeYmZqio6Slpqeoqaqys7S1tre4ubrCw8TFxsfIycrS09TV1tfY2drh4uPk5ebn6Onq8fLz9PX29/j5+v/EAB8BAAMBAQEBAQEBAQEAAAAAAAABAgMEBQYHCAkKC//EALURAAIBAgQEAwQHBQQEAAECdwABAgMRBAUhMQYSQVEHYXETIjKBCBRCkaGxwQkjM1LwFWJy0QoWJDThJfEXGBkaJicoKSo1Njc4OTpDREVGR0hJSlNUVVZXWFlaY2RlZmdoaWpzdHV2d3h5eoKDhIWGh4iJipKTlJWWl5iZmqKjpKWmp6ipqrKztLW2t7i5usLDxMXGx8jJytLT1NXW19jZ2uLj5OXm5+jp6vLz9PX29/j5+v/bAEMABAQEBAQEBgQEBgkGBgYJDAkJCQkMDwwMDAwMDxIPDw8PDw8SEhISEhISEhUVFRUVFRkZGRkZHBwcHBwcHBwcHP/bAEMBBAUFBwcHDAcHDB0UEBQdHR0dHR0dHR0dHR0dHR0dHR0dHR0dHR0dHR0dHR0dHR0dHR0dHR0dHR0dHR0dHR0dHf/dAAQABP/aAAwDAQACEQMRAD8AKKKK+uPiQooooAKKKKACiiigD//QKKKK+uPiQooooAKKKKACiiigD//RKKKK+uPiQooooAKKKKACiiigD//Z",
+  "base64",
+);
 
 interface Box { x: number; y: number; width: number; height: number; right: number; bottom: number }
 const boxes = (page: Page, sel: string): Promise<Box[]> =>
