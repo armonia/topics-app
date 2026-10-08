@@ -231,6 +231,11 @@ export class AiBridgeClient {
   private lastByteAt = 0;
   private disposed = false;
   private connectedDaemonPid: number | null = null;
+  /**
+   * A socket was lost and the re-attach callbacks have not run since. Settled
+   * by the NEXT connection, whoever opens it (see `tryConnect`).
+   */
+  private reconnectOwed = false;
 
   /**
    * The pid of the daemon on the other end, as its pong says; null until it
@@ -354,6 +359,16 @@ export class AiBridgeClient {
         this.send({ type: "ping", pid: process.pid, rid: ++this.ridSeq });
         console.log("[AI Bridge] Connected to daemon");
         res(true);
+        // THE CALLBACKS BELONG TO THE CONNECTION, not to the reconnect the
+        // `close` handler schedules. They used to run only when that one
+        // succeeded; when it failed (a daemon slow to start under swap, the
+        // spawn cap) its `.catch` swallowed the error, the next request
+        // connected on its own, and no live session was ever re-attached:
+        // deaf until a watchdog, minutes later (T18).
+        if (this.reconnectOwed) {
+          this.reconnectOwed = false;
+          queueMicrotask(() => { for (const cb of this.reconnectCbs) { try { cb(); } catch { /* handler own errors */ } } });
+        }
       });
       socket.on("error", () => res(false));
       setTimeout(() => { if (!this.ready) { socket.destroy(); res(false); } }, 1000);
@@ -401,10 +416,11 @@ export class AiBridgeClient {
       this.failWaiters(new BridgeConnectionLost("ai-bridge: connessione al daemon caduta"));
       if (this.disposed) return; // shut down deliberately — do NOT respawn
       console.log("[AI Bridge] socket closed — reconnecting");
+      this.reconnectOwed = true;
       setTimeout(() => {
-        this.ensureConnected()
-          .then(() => { for (const cb of this.reconnectCbs) { try { cb(); } catch { /* handler own errors */ } } })
-          .catch(() => { /* next call retries */ });
+        // The callbacks run from `tryConnect`, on whichever connection comes
+        // next: this one, or a later request's if this one fails.
+        this.ensureConnected().catch(() => { /* next call retries */ });
       }, 500);
     });
     socket.on("error", () => { /* 'close' follows */ });
