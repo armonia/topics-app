@@ -27,6 +27,7 @@ import { commitIsAncestor, gitExit, gitOut } from "./branch-status";
 import { run as inventoryRun } from "./branch-inventory";
 import { runGitCap } from "../routes/tasks";
 import { gitEnvFor } from "../lib/git-identity";
+import { gitEnv } from "../../tests/setup/bun-test-preload";
 
 const MARK = "t14-contract-mark";
 const SPAWN_ERROR = "t14: the process did not start";
@@ -50,7 +51,7 @@ const realSpawn = Bun.spawn;
 beforeAll(async () => {
   dir = mkdtempSync(join(tmpdir(), "git-runners-contract-"));
   writeFileSync(join(dir, "bun.lock"), ""); // `runRepoScript` resolves the package manager from it
-  Bun.spawnSync(["git", "init", "-q"], { cwd: dir });
+  Bun.spawnSync(["git", "init", "-q"], { cwd: dir, env: gitEnv() });
   await gitEnvFor(dir); // the identity probe runs once per folder, on the real git, before any fake
   process.env.TOPICS_SPAWN_TIMEOUT_CAP_MS = "300";
   spy = spyOn(Bun, "spawn").mockImplementation(((argv: string[], opts: Parameters<typeof Bun.spawn>[1]) => {
