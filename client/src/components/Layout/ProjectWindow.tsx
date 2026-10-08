@@ -421,9 +421,9 @@ export function ProjectWindowPane({
       seeded = existing.trim() ? `${existing.trimEnd()}\n\n${text}` : text;
       localStorage.setItem(`draft:${topicId}`, seeded);
     } catch { /* private mode: la bozza vive comunque nell'evento qui sotto */ }
-    // La pane può essere GIÀ montata su quel topic, e in quel caso l'effetto che
-    // rilegge la bozza (dipende da `topic.id`) non riparte: senza questo evento
-    // la missione resterebbe scritta su localStorage e invisibile.
+    // The pane may ALREADY be mounted on that topic, and a mounted pane reads
+    // the draft only when it mounts or changes topic: without this event the
+    // mission would sit in localStorage, unseen.
     window.dispatchEvent(new CustomEvent('topics:seed-composer', { detail: { topicId, text: seeded } }));
     chatSync.reopenTopic(topicId);
     return null;

@@ -176,6 +176,11 @@ const EMPTY_MESSAGES: ChatMessage[] = [];
 const QUEUE_KICK_ATTEMPTS = 6;
 const QUEUE_KICK_RETRY_MS = 150;
 
+/** The composer's saved text (`draft:<topicId>`), empty when there is none or localStorage refuses (private mode). */
+function readDraft(key: string): string {
+  try { return localStorage.getItem(key) || ''; } catch { return ''; }
+}
+
 function ChatPaneComponent({
   topic, isFocused,
   getSessionMessages, getCompactionMarkers, isSessionLoading, isSessionStreaming, wasSessionStopped, stopSession, sendMessage, loadHistory,
@@ -202,14 +207,20 @@ function ChatPaneComponent({
 
   const draftKey = `draft:${topic.id}`;
 
-  const [message, setMessage] = useState(() => {
-    try { return localStorage.getItem(draftKey) || ''; } catch { return ''; }
-  });
-  // Restore draft + caret on topic switch / mount. The caret restore is deferred
-  // one frame so it runs after the setMessage re-render commits the text into the
-  // textarea — otherwise setSelectionRange would clamp against an empty value.
+  // The draft is read while rendering, never in an effect after the commit. An
+  // effect can run a task later, and a keystroke that lands in between was
+  // overwritten by the draft saved before it: the chat opened, took the typed
+  // text, and its Enter sent nothing (CHAT-COMPOSER-02). When this pane is
+  // handed another topic, that topic's draft is set in the render that brings it.
+  const [message, setMessage] = useState(() => readDraft(draftKey));
+  const [draftTopicId, setDraftTopicId] = useState(topic.id);
+  if (draftTopicId !== topic.id) {
+    setDraftTopicId(topic.id);
+    setMessage(readDraft(draftKey));
+  }
+  // The caret, one frame after the commit that put the draft in the field:
+  // setSelectionRange against an empty value would clamp it.
   useEffect(() => {
-    try { setMessage(localStorage.getItem(`draft:${topic.id}`) || ''); } catch { setMessage(''); }
     const raf = requestAnimationFrame(() => restoreCursor(`chat:${topic.id}`, textareaRef.current));
     return () => cancelAnimationFrame(raf);
   }, [topic.id]);
@@ -219,12 +230,12 @@ function ChatPaneComponent({
   }, [message, draftKey]);
 
   /**
-   * Qualcuno ha messo del testo nella bozza di QUESTA chat mentre era già
-   * montata — oggi: una missione scelta dalla board accanto (`ProjectWindow`).
-   * L'effetto qui sopra che rilegge `draft:<id>` dipende da `topic.id`, quindi
-   * su una pane già aperta non ripartirebbe e la missione resterebbe scritta su
-   * localStorage senza comparire mai. Il fuoco va con essa: il testo è davanti
-   * a chi lo deve mandare, e a mandarlo è lui.
+   * Text put in THIS chat's draft while the chat is already mounted: today, a
+   * mission picked from the board next to it (`ProjectWindow`). The draft is
+   * read when the pane mounts or changes topic, so an open pane would never
+   * read it again, and the mission would sit in localStorage without ever
+   * showing. The focus goes with it: the text is in front of the person who
+   * sends it, and sending is theirs.
    */
   //
   // `mode: 'append'` adds the text at the end of the draft instead of replacing

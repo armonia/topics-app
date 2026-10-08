@@ -721,6 +721,10 @@ export default defineConfig({
         // The strips at the end of the transcript, and a command's row opening
         // the card that started it with its live log (chat-strips-in-transcript).
         "**/chat-strips-in-transcript.spec.ts",
+        // A keystroke that lands as a chat opens, before the effects of the
+        // commit that showed its composer: the run that lost a message was a
+        // WebKit one (chat-composer-draft-race).
+        "**/chat-composer-draft-race.spec.ts",
       ],
       use: {
         browserName: "webkit",

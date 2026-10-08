@@ -1141,6 +1141,35 @@ paperclip chip and the image thumbnail.
 - **THEN** the attachment SHALL be removed
 - **AND** no message SHALL be sent, and no upload or chat request SHALL leave
 
+### Requirement: CHAT-COMPOSER-02 - What is typed as a chat opens is what gets sent
+
+The composer SHALL take its saved draft (`draft:<topicId>` in localStorage) in
+the render that mounts the chat, or that brings another topic to the same pane,
+and never in an effect after that render. An effect runs after the commit, and
+when the render was not a synchronous one it runs a task later:
+a keystroke that lands in between was overwritten by the draft saved before it,
+and the Enter after it found an empty field and sent nothing, with no word on
+screen. Seen on 08/10 in a WebKit run on a loaded Mac: a `fill` and an Enter in a
+chat that had just opened, then no bubble, no POST /api/chat and an empty
+composer.
+
+Measured on the Mac the same day: in both ways of opening below, the composer
+commits in a synchronous render and its effects run in the same task, so no
+keystroke from outside lands first unless the machine is loaded. The bench SHALL
+therefore type in the commit that first shows the composer, before that commit's
+effects, which is the order of the run that lost its message.
+
+#### Scenario: Typed as the page opens the chat
+- **GIVEN** a chat in front of its project window as the page loads
+- **WHEN** text is typed into its composer in the commit that first shows it, and Enter is pressed
+- **THEN** the composer SHALL still hold the text before Enter
+- **AND** the message SHALL appear in the transcript and reach the engine
+
+#### Scenario: Typed as a click on its tab opens the chat
+- **GIVEN** a chat open as a tab of its project window and never shown
+- **WHEN** its tab is clicked, text is typed into its composer in the commit that first shows it, and Enter is pressed
+- **THEN** the message SHALL appear in the transcript and reach the engine
+
 ### Requirement: CHAT-RND-01 — Syntax Highlighting In Code Blocks
 
 > Promoted from `2026-07-10-chat-rendering-parity` and translated into English. The safe-degradation scenario (unknown language, blocks over 50 000 characters, tokenizer failure) is not restated: no test exercises it. The behaviour is in `highlightCode`, which returns null in those cases and leaves the block plain.
