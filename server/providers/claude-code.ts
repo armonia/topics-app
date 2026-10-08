@@ -2977,7 +2977,7 @@ export class ClaudeCodeProvider implements AIProvider {
         pp.consumedOffset = frame.offset + frame.chunk.byteLength;
       },
       onStderr: (chunk) => this.handleStderrData(pp, sessionKey, chunk),
-      onExit: (code, end) => closeAfterTail(pp, end, (from) => client.attach(sessionKey, from, 1), (wasAlive) => this.onSessionClosed(pp, code, wasAlive)),
+      onExit: (code, end) => closeAfterTail(pp, end, (from) => client.attachWhole(sessionKey, from, 1), (wasAlive) => this.onSessionClosed(pp, code, wasAlive)),
     });
   }
 

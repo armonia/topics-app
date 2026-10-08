@@ -643,11 +643,12 @@ export class AiBridgeClient {
    * `attach` for a replay that must not be cut: past the cap it takes the late ack instead of failing. The cap fires
    * while the replay is still arriving, and the daemon writes the ack right behind it on the same socket, so every
    * frame until then belongs to the replay. Failing there handed those frames to whoever folded them next.
-   * Still fails when the socket goes first, or on a daemon that does not echo rids.
+   * Still fails when the socket goes first, or on a daemon that does not echo rids. Used by a re-adoption's scan
+   * and rewinds, and by the tail fetch of a child that exited behind them (`attempts: 1`, as `attach`).
    */
-  async attachWhole(id: string, fromOffset: number): Promise<AttachResult> {
+  async attachWhole(id: string, fromOffset: number, attempts?: number): Promise<AttachResult> {
     try {
-      return await this.attach(id, fromOffset);
+      return await this.attach(id, fromOffset, attempts);
     } catch (err) {
       const late = err instanceof BridgeAckStalled ? ((await err.late) as AttachResult | null | undefined) : null;
       if (!late) throw err;

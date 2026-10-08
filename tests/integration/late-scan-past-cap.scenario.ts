@@ -1,9 +1,14 @@
 /**
- * The scenario of `late-scan-phase2-cap.test.ts`, run in a child `bun test` of its own: the ack caps are
- * read once per process, at import (`server/lib/ai-bridge-client.ts`). The cap is the real one, scaled
- * down; the backlog is a real 20 MB store replayed by the real daemon. Found by the verification of
- * PR #268: the scan waited for its late ack, and the rewind after it (phase 2) still failed at the cap,
- * closing the open turn as «Riadozione del turno non riuscita» with 2012 numbers out of 10600.
+ * The scenarios of `late-scan-past-cap.test.ts`, each run in a child `bun test` of its own: the ack caps
+ * are read once per process, at import (`server/lib/ai-bridge-client.ts`). The cap is the real one, scaled
+ * down; the backlog is a real 20 MB store replayed by the real daemon. Every attach of a re-adoption sits
+ * behind that backlog, so each must wait for its late ack. Found by the verifications of PR #268, one case
+ * each (`LATE_SCAN_CASE`):
+ *  - `open`: the rewind after the scan (phase 2) failed at the cap and closed the open turn with
+ *    the failed re-adoption notice, with 2012 numbers out of 10600;
+ *  - `completed`: the turn ended while detached, and the rewind of its own replay failed the same way;
+ *  - `exit`: the CLI wrote the rest of the turn and exited while the backlog drained, and the fetch of its
+ *    tail gave up at the cap: the row closed as a normal answer, cut at 1006 numbers out of 10600.
  */
 process.env.TOPICS_AI_BRIDGE_ATTACH_ACK_MS ??= "300";
 process.env.TOPICS_AI_BRIDGE_MAX_ACK_MS ??= "300";
@@ -17,6 +22,7 @@ let tempDir = "";
 let dataRoot = "";
 const savedEnv: Record<string, string | undefined> = {};
 function setEnv(k: string, v: string) { savedEnv[k] = process.env[k]; process.env[k] = v; }
+const CASE = process.env.LATE_SCAN_CASE ?? "open";
 const RESULT = `{"type":"result","result":"FINAL-RESULT","usage":{"input_tokens":1,"output_tokens":1},"duration_ms":1,"total_cost_usd":0}`;
 const FAST = 10_000;
 const SLOW = 600;
@@ -35,15 +41,29 @@ beforeAll(async () => {
   setEnv("TOPICS_STREAM_SOFT_MS", "600000");
   setEnv("TOPICS_STREAM_GRACE_MS", "600000");
   const cli = join(tempDir, "cli.sh");
-  // A turn whose first FAST lines are fat (2 KB each, ~20 MB of store), then SLOW thin ones, then the result.
+  // A turn whose first FAST lines are fat (2 KB each, ~20 MB of store), then SLOW more, then the result:
+  // still arriving when re-adopted (`open`), all written while detached (`completed`), or written once the
+  // re-adoption has started, then the CLI exits (`exit`).
+  const rest = {
+    open: `while [ $i -le ${N} ]; do printf '{"type":"assistant","message":{"content":[{"type":"text","text":"%d,"}]}}\\n' $i; sleep 0.02; i=$((i+1)); done
+  printf '%s\\n' '${RESULT}'`,
+    completed: `sleep 3
+  while [ $i -le ${N} ]; do printf '{"type":"assistant","message":{"content":[{"type":"text","text":"%d,"}]}}\\n' $i; i=$((i+1)); done
+  printf '%s\\n' '${RESULT}'`,
+    exit: `while [ ! -f ${join(tempDir, "exit")} ]; do sleep 0.01; done
+  PAD2=$(head -c 1000 /dev/zero | tr '\\0' 'y')
+  while [ $i -le ${N} ]; do printf '{"type":"assistant","pad":"%s","message":{"content":[{"type":"text","text":"%d,"}]}}\\n' "$PAD2" $i; i=$((i+1)); done
+  printf '%s\\n' '${RESULT}'
+  exit 0`,
+  }[CASE];
+  if (!rest) throw new Error(`unknown LATE_SCAN_CASE ${CASE}`);
   writeFileSync(cli, `#!/bin/sh
 trap 'exit 0' INT
 PAD=$(head -c 2000 /dev/zero | tr '\\0' 'x')
 while read line; do
   i=1
   while [ $i -le ${FAST} ]; do printf '{"type":"assistant","pad":"%s","message":{"content":[{"type":"text","text":"%d,"}]}}\\n' "$PAD" $i; i=$((i+1)); done
-  while [ $i -le ${N} ]; do printf '{"type":"assistant","message":{"content":[{"type":"text","text":"%d,"}]}}\\n' $i; sleep 0.02; i=$((i+1)); done
-  printf '%s\\n' '${RESULT}'
+  ${rest}
 done
 `);
   chmodSync(cli, 0o755);
@@ -70,8 +90,8 @@ async function waitFor(what: string, check: () => boolean, ms = 60_000): Promise
 }
 const nums = (text: string) => text.split(",").map((s) => s.trim()).filter((s) => /^\d+$/.test(s)).map(Number);
 
-describe("a re-adoption whose rewind runs past the ack cap", () => {
-  test("the open turn arrives whole into its own row", async () => {
+describe(`a re-adoption past the ack cap (${CASE})`, () => {
+  test("the turn arrives whole into its own row", async () => {
     const { setupTestDataDir, createTestAppContext, testTmpDir } = await import("./helpers");
     dataRoot = testTmpDir("late-scan-phase2");
     setupTestDataDir(dataRoot);
@@ -99,26 +119,38 @@ describe("a re-adoption whose rewind runs past the ack cap", () => {
     void post(createTopicsRouter(ctx), { messages: [{ role: "user", content: "go" }] });
     await waitFor("the fat part in the store", () => existsSync(store()) && statSync(store()).size >= FAST * 2080);
     const storePath = store();
-    console.log(`[phase2-cap] store at shutdown: ${statSync(storePath).size} bytes`);
+    console.log(`[past-cap:${CASE}] store at shutdown: ${statSync(storePath).size} bytes`);
     provider1.stop();
     removeProvider("claude-code");
     __resetAiBridgeClientForTests();
     ctx.activeStreams.delete(sk);
+    // Nobody attached: the turn ends in the store alone, and the re-adoption finds it complete.
+    if (CASE === "completed") await waitFor("the turn to end while detached", () => readFileSync(storePath, "utf8").includes("FINAL-RESULT"), 30_000);
 
     registerProvider({ type: "claude-code", defaultWorkspace: tempDir } as never);
     const client: any = getAiBridgeClient();
     await client.ensureConnected();
+    if (CASE === "exit") {
+      // The CLI finishes and exits while the scan's backlog still drains: its last lines and its exit sit on
+      // the socket behind the scan's ack, ahead of the rewind's replay (as a 90 s drain would in production).
+      const whole = client.attachWhole.bind(client);
+      let calls = 0;
+      client.attachWhole = (id: string, from: number, attempts?: number) => {
+        if (++calls === 1) setTimeout(() => writeFileSync(join(tempDir, "exit"), ""), 50);
+        return whole(id, from, attempts);
+      };
+    }
     const t0 = Date.now();
     const drained = post(createTopicsRouter(ctx), { messages: [], mode: "reattach", dispatched: true, provider: "claude-code" });
     try {
       await waitFor("the adopted row to close", () => rows().every((r) => r.partial === 0), 90_000);
       await drained.catch(() => {});
-      console.log(`[phase2-cap] adopted row closed after ${Date.now() - t0} ms`);
+      console.log(`[past-cap:${CASE}] adopted row closed after ${Date.now() - t0} ms`);
       await waitFor("the CLI's result in the store", () => readFileSync(storePath, "utf8").includes("FINAL-RESULT"), 30_000).catch(() => {});
-      const asst = rows().filter((r) => r.role === "assistant");
-      for (const r of asst) console.log(`[phase2-cap] assistant row ${r.id}: ${nums(r.content).length} numbers, last ${nums(r.content).slice(-1)[0]}, tail: ${JSON.stringify(r.content.slice(-160))}`);
+      const assistantRows = rows().filter((r) => r.role === "assistant");
+      for (const r of assistantRows) console.log(`[past-cap:${CASE}] assistant row ${r.id}: ${nums(r.content).length} numbers, last ${nums(r.content).slice(-1)[0]}, tail: ${JSON.stringify(r.content.slice(-160))}`);
       expect(readFileSync(storePath, "utf8")).toContain("FINAL-RESULT");
-      const answer = asst.pop()?.content ?? "";
+      const answer = assistantRows.pop()?.content ?? "";
       expect(answer).not.toContain("Riadozione del turno non riuscita");
       expect(nums(answer)).toEqual(Array.from({ length: N }, (_, i) => i + 1));
     } finally {
