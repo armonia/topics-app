@@ -13,9 +13,10 @@
  * starts right after a poll went out, so only a push can show it in time), and
  * the background line does not name it a second time (chat-live-work); the
  * turn ends and the row stays, with its own Stop and no composer Stop that
- * would stop nothing; a click on the row opens the command's log, docked over
- * the strip; the command ends, the row goes, and the answer to its wake
- * carries a banner naming the command, its exit code and its last line.
+ * would stop nothing; a click on the row opens the card of the `run_command`
+ * that started it, with the command's live log (SUBSTRIP-02); the command ends,
+ * the row goes, and the answer to its wake carries a banner naming the
+ * command, its exit code and its last line.
  */
 import { chmodSync, mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -52,7 +53,7 @@ test.describe("a run_command in the chat", () => {
     if (dir) rmSync(dir, { recursive: true, force: true });
   });
 
-  test("the strip shows the command during the turn that started it and after, a click opens its log, and its wake names it with its exit code and last line", async ({ page, request, chatPage }) => {
+  test("the strip shows the command during the turn that started it and after, a click opens its card with its live log, and its wake names it with its exit code and last line", async ({ page, request, chatPage }) => {
     test.info().annotations.push({ type: "spec", description: "BGVIS-07" });
     dir = realpathSync(mkdtempSync(join(tmpdir(), "cmdwatch-")));
     const project = join(dir, "project");
@@ -97,9 +98,11 @@ test.describe("a run_command in the chat", () => {
       await expect(command).toHaveCount(1);
       await expect(command.getByTestId("live-work-stop")).toBeVisible();
 
-      // A click on the row opens the command's log, docked over the strip.
+      // A click on the row opens the card that started it, with the command's live log: no second log over the strip.
       await command.getByRole("button").first().click();
-      await expect(strip.getByTestId("process-log-output")).toBeVisible({ timeout: 10_000 });
+      const card = page.getByTestId("tool-call-row-toolu_cmdwatch");
+      await expect(card.getByTestId("shell-live-status")).toHaveAttribute("data-status", "running", { timeout: 10_000 });
+      await expect(strip.getByTestId("process-log-output")).toHaveCount(0);
 
       // The command ends: its row goes, and the wake's answer names it, how it ended and its last line.
       writeFileSync(join(dir, "finish"), "");

@@ -7,12 +7,16 @@ import { listenLabel, listenUrl } from '../../../../shared/background-work';
 import type { LiveAgentRow, LiveCommandRow } from '../../../../shared/live-work';
 import { dismissSubAgent, useDismissedSubAgents } from '../../state/endedSubAgents';
 import { useLiveWork, visibleRows } from '../../state/liveWork';
+import { getSessionMessagesFromStore } from '../../state/messageStore';
+import { revealToolCall } from '../../state/revealToolCall';
 import { CHAT_STRIP_NEUTRAL } from '../../lib/chatStripStyles';
 import { openLink, isExternalLinkGesture } from '../../lib/openLink';
 import { subscribeFrames } from '../../lib/wsFrameBus';
 import { lazyWarm } from '../../lib/lazyWarm';
 import { loadProcessLog } from '../../state/pane/panePreload';
 import { DockedStripPanel } from './DockedStripPanel';
+import { findLaunchCard } from './liveWorkCard';
+import { useDisclosureToggle } from './transcriptDisclosure';
 import type { WSMessage } from '../../types';
 
 // The log opens on a click: its pane stays out of the entry chunk, as everywhere else
@@ -20,7 +24,7 @@ import type { WSMessage } from '../../types';
 const ProcessLogPane = lazyWarm(loadProcessLog, (m) => m.ProcessLogPane);
 
 /**
- * WHAT WORKS NOW FOR THIS CHAT, one row each, under the chat (chat-live-work):
+ * WHAT WORKS NOW FOR THIS CHAT, one row each, at the end of the transcript (chat-live-work):
  * the sub-agents it spawned that are working or waiting for their prompt
  * (native and CLI), and the processes it runs (`run_command`, a `run_script`
  * of its agent), each with the line it is on. The rows come from the server
@@ -32,8 +36,12 @@ const ProcessLogPane = lazyWarm(loadProcessLog, (m) => m.ProcessLogPane);
  * leaves, and a command is a row like a sub-agent.
  *
  * A row opens what it is: a CLI child's terminal, a native child's chat, a
- * command's live log, docked above the rows (`DockedStripPanel`) so the chat
- * keeps its place. A server has its address and «Open» on the row.
+ * command's card in the transcript, the `run_command` that started it, opened
+ * with its live log and brought into view (`liveWorkCard.ts`). On 08/10 the
+ * row docked a second log over the strip instead, next to the card the agent
+ * already had. Only a command whose card this transcript does not hold
+ * (another session's, or history not loaded) docks its log above the rows
+ * (`DockedStripPanel`). A server has its address and «Open» on the row.
  *
  * A command is also where it stops («Stop», the Processes panel's route) and
  * where it says that its end will wake the chat. Both used to be two more
@@ -98,7 +106,7 @@ function AgentRow({ row }: { row: LiveAgentRow }) {
   );
 }
 
-function CommandRow({ row, open, onToggle }: { row: LiveCommandRow; open: boolean; onToggle: () => void }) {
+function CommandRow({ row, open, onOpen }: { row: LiveCommandRow; open: boolean; onOpen: (anchor: HTMLElement) => void }) {
   const tr = useT();
   const toast = useToast();
   const [stopping, setStopping] = useState(false);
@@ -114,7 +122,7 @@ function CommandRow({ row, open, onToggle }: { row: LiveCommandRow; open: boolea
   };
   return (
     <div data-testid="live-command-row" data-process-id={row.id} data-open={open ? 'true' : 'false'} className="flex min-w-0 items-center" title={row.wakes ? `${row.command}\n${wakes}` : row.command}>
-      <button type="button" aria-expanded={open} aria-label={title} onClick={(e) => { e.stopPropagation(); onToggle(); }} className={ROW}>
+      <button type="button" aria-expanded={open} aria-label={title} onClick={(e) => { e.stopPropagation(); onOpen(e.currentTarget); }} className={ROW}>
         {first
           ? <Server size={11} aria-hidden="true" className="text-emerald-600 dark:text-emerald-400 flex-shrink-0" />
           : <SquareTerminal size={11} aria-hidden="true" className="text-app-text-secondary flex-shrink-0" />}
@@ -152,12 +160,25 @@ function CommandRow({ row, open, onToggle }: { row: LiveCommandRow; open: boolea
   );
 }
 
-export const SubAgentsStrip = memo(function SubAgentsStrip({ topicId }: { topicId: string }) {
+export const SubAgentsStrip = memo(function SubAgentsStrip({ topicId, sessionKey }: { topicId: string; sessionKey: string }) {
   const dismissed = useDismissedSubAgents();
   const rows = visibleRows(useLiveWork(topicId), dismissed);
+  const disclose = useDisclosureToggle();
   // The log stays open when its command ends and its row leaves: its end is what one opens it to read.
   const [log, setLog] = useState<{ id: string; name: string } | null>(null);
   if (rows.length === 0 && !log) return null;
+
+  // The messages are read at the click, not subscribed to: the strip does not redraw on every token.
+  const openCommand = (row: LiveCommandRow, anchor: HTMLElement) => {
+    const card = log?.id === row.id ? null : findLaunchCard(getSessionMessagesFromStore(sessionKey), row);
+    if (card) {
+      revealToolCall({ topicId, ...card }, anchor.closest('[data-testid="chat-scroll-container"]') ?? document);
+      return;
+    }
+    // The docked log opens above the row: the transcript holds the row where it was (CHAT-FOLD-01).
+    disclose(anchor);
+    setLog(log?.id === row.id ? null : { id: row.id, name: row.name });
+  };
 
   return (
     <div data-testid="subagents-strip" className={`${CHAT_STRIP_NEUTRAL} overflow-hidden`}>
@@ -173,7 +194,7 @@ export const SubAgentsStrip = memo(function SubAgentsStrip({ topicId }: { topicI
       <div className="max-h-[7.5rem] overflow-y-auto">
         {rows.map((row) => (row.kind === 'agent'
           ? <AgentRow key={row.id} row={row} />
-          : <CommandRow key={row.id} row={row} open={log?.id === row.id} onToggle={() => setLog(log?.id === row.id ? null : { id: row.id, name: row.name })} />))}
+          : <CommandRow key={row.id} row={row} open={log?.id === row.id} onOpen={(anchor) => openCommand(row, anchor)} />))}
       </div>
     </div>
   );

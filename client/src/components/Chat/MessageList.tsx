@@ -1,4 +1,4 @@
-import { useState, useEffect, useLayoutEffect, useRef, useCallback, useMemo, forwardRef, type ComponentProps, type MutableRefObject } from 'react';
+import { useState, useEffect, useLayoutEffect, useRef, useCallback, useMemo, forwardRef, createContext, useContext, type ComponentProps, type MutableRefObject, type ReactNode } from 'react';
 import { Paperclip } from 'lucide-react';
 import type { Topic, ChatMessage, WSMessage, CompactionMarker } from '../../types';
 import type { PlanDecisionHandler } from './planDetection';
@@ -103,8 +103,74 @@ const ChatList = forwardRef<HTMLDivElement, ComponentProps<'div'>>(
   },
 );
 
-/** Identità stabile per la coda assente: un `[]` nuovo a ogni render farebbe
- *  ricostruire la mappa `components` di Virtuoso a ogni token di streaming. */
+/**
+ * What the transcript draws after its last row: `head` (the background work
+ * line, then the turns still queued) and `strips` (the chat's goal or todo
+ * list, its live work, checkpoints and changed files, built by `ChatPane`).
+ * Passed by context so that the Footer is ONE component for the life of the
+ * list: built in a `useMemo` it became a new component type whenever its
+ * inputs changed, a turn starting or ending among them, and React remounted
+ * everything in it, which strips with an open panel or an edit in progress
+ * cannot afford.
+ */
+const ChatFooterContext = createContext<{ head: ReactNode; strips: ReactNode } | null>(null);
+
+/**
+ * Everything here grows attached to the last row, and its growth reaches
+ * `totalListHeightChanged`, the hook that keeps the view at the bottom: the
+ * scroller is as tall as the whole cell, so anything appended AFTER the list
+ * would be born under its bottom edge, in a second scroller nobody scrolls.
+ *
+ * Below the content, the composer's height plus a fixed gap. Measured before
+ * the gap existed: six pixels between the last line and the composer, zero as
+ * soon as the input area shrank. The gap absorbs the last late settle (a
+ * re-measured height, a font, a banner) so it eats into the gap, never into
+ * the text.
+ */
+function ChatFooter() {
+  const footer = useContext(ChatFooterContext);
+  return (
+    <>
+      {footer?.head}
+      {/* The chat's state, at the end of the transcript (chat-strips-in-transcript), on the composer's
+          column. A strip that grows under a reader at the bottom leaves them there: that growth is
+          `totalListHeightChanged`'s, like a row's. */}
+      {footer?.strips && <div data-testid="chat-end-strips" className="chat-measure">{footer.strips}</div>}
+      <div style={{ height: `var(${ANCHOR_SLACK_PROPERTY}, 0px)` }} />{/* Room a fold closed near the end keeps below the last row (useDisclosureAnchor). */}
+      {/* The composer's height as a CSS variable, written by its observer before the paint (panes:F15). */}
+      <div style={{ height: `calc(var(${COMPOSER_HEIGHT_PROPERTY}, 0px) + ${CHAT_BOTTOM_GUTTER_PX}px)` }} />
+    </>
+  );
+}
+
+/**
+ * The Footer's twin at the top: the tab bar is a glass outside the flow
+ * (`.pane-chrome-bar`), so the cell starts under it and the first message
+ * would be born covered. `--chat-gutter` and not `--chrome-bar-h`: with a
+ * banner above the transcript the cell already took the inset, and one CSS
+ * rule (`.chat-under-chrome:first-child`, index.css) turns the negative margin
+ * and this gap on together. 0 by default: a list with no bar above gets no gap.
+ */
+function ChatHeader() {
+  return <div data-testid="chat-top-gutter" style={{ height: 'var(--chat-gutter, 0px)' }} />;
+}
+
+/**
+ * The scroller's box. Its scroll padding is where `scrollIntoView` lands (a
+ * tool call opened from the strip, `ToolCallRow`): under the tab bar and above
+ * the composer, the two bands the transcript runs under.
+ */
+const SCROLLER_BOX = {
+  height: '100%',
+  scrollPaddingTop: 'var(--chat-gutter, 0px)',
+  scrollPaddingBottom: `calc(var(${COMPOSER_HEIGHT_PROPERTY}, 0px) + ${CHAT_BOTTOM_GUTTER_PX}px)`,
+};
+
+/** Stable for the life of the module: Virtuoso remounts a component whose type changes. */
+const VIRTUOSO_COMPONENTS = { Footer: ChatFooter, Header: ChatHeader, List: ChatList };
+
+/** Stable identity for the missing queue: a new `[]` at every render would
+ *  rebuild the Footer's head at every streaming token. */
 const NO_QUEUED: QueuedTurn[] = [];
 /** The leading compaction dividers of a PARTIAL transcript: none, see `itemContent`. */
 const NO_MARKERS: CompactionMarker[] = [];
@@ -177,6 +243,8 @@ interface MessageListProps {
   onSendQueueNow?: () => void;
   /** Un turno è in volo: solo allora «invia subito» ha qualcosa da anticipare. */
   queueBusy?: boolean;
+  /** The chat's strips, drawn after the last row inside the scroll (`ChatFooter`). */
+  footerStrips?: ReactNode;
 }
 
 export function MessageList({
@@ -217,6 +285,7 @@ export function MessageList({
   onClearQueue,
   onSendQueueNow,
   queueBusy,
+  footerStrips,
 }: MessageListProps) {
   const virtuosoRef = useRef<VirtuosoHandle>(null);
   const scrollerElRef = useRef<HTMLElement | null>(null);
@@ -323,92 +392,32 @@ export function MessageList({
    */
   const scrollerStyle = useMemo(() => {
     const band = Math.round(inputAreaHeight);
-    if (composerCentered || band <= 0) return { height: '100%' };
+    if (composerCentered || band <= 0) return SCROLLER_BOX;
     const mask = `linear-gradient(to bottom, #000 0, #000 calc(100% - ${band + INK_FADE_RAMP_PX}px), transparent calc(100% - ${band}px))`;
-    return { height: '100%', maskImage: mask, WebkitMaskImage: mask };
+    return { ...SCROLLER_BOX, maskImage: mask, WebkitMaskImage: mask };
   }, [inputAreaHeight, composerCentered]);
 
-  // Stable Virtuoso `components` map: a fresh object + Footer fn identity every
-  // render defeats Virtuoso's bailout, so the footer churned per streaming
-  // token. Il Footer dipende da `inputAreaHeight` e dalla coda, e nessuna delle
-  // due cambia per token: la coda arriva da `useChatQueue`, che tiene fermo lo
-  // stesso array finché nessuno la tocca.
+  // What the Footer draws (`ChatFooterContext`). None of it changes per
+  // streaming token: the queue comes from `useChatQueue`, which keeps the same
+  // array until someone touches it. The background work line comes first, right
+  // under the last message: it is the tail of the turn that left the work
+  // running. A chat's commands and servers are rows of the live-work strip
+  // (`SubAgentsStrip`, BGVIS-07/08), among the strips after it.
   const queued = queuedTurns ?? NO_QUEUED;
-  const virtuosoComponents = useMemo(() => ({
-    // Il Footer riserva l'altezza del composer PIÙ un varco fisso.
-    //
-    // Misurato prima di metterlo: fra l'ultima riga di risposta e il bordo del
-    // composer c'erano SEI pixel — cioè il testo ci stava appiccicato — e
-    // bastava che l'area input si RESTRINGESSE (il banner di compattazione che
-    // si chiude, le righe del composer che si riassorbono) perché diventassero
-    // ZERO, con in più sei pixel di scroll residuo che nessuno chiudeva.
-    //
-    // Il varco non è decorazione: è il margine che assorbe l'ULTIMO
-    // assestamento. Ogni cosa che arriva tardi — un'altezza rimisurata, un
-    // font che si assesta, un banner che compare — si mangia lo spazio sotto
-    // l'ultima riga, e senza margine se lo mangia dal TESTO. Ventiquattro
-    // pixel: poco, dentro la banda in cui stanno le superfici di chat serie, e
-    // abbastanza da non far mai toccare le due cose.
-    //
-    // Qui dentro, SOPRA il varco, stanno anche le bolle di quello che è ancora
-    // in coda (`QueuedTurns`). Il posto non è arbitrario: lo scroller di
-    // Virtuoso è alto quanto tutta la cella (`height: 100%` in `scrollerStyle`),
-    // quindi qualunque cosa appesa DOPO la lista nascerebbe sotto il bordo
-    // inferiore, in un secondo scroller che nessuno scorre. Dentro il Footer
-    // invece crescono attaccate all'ultima risposta, e la loro crescita passa
-    // da `totalListHeightChanged`, cioè dall'aggancio che tiene la vista in
-    // fondo.
-    // The background work line (`BackgroundWorkLine`) is the first row here,
-    // right under the last message: it is the tail of the turn that left the
-    // work running, and here its coming and going cannot move the composer.
-    // A chat's commands and servers are rows of the strip under the chat
-    // (`SubAgentsStrip`, BGVIS-07/08), not of the transcript.
-    Footer: () => (
-      <>
-        <BackgroundWorkLine topicId={topic.id} isMobile={isMobile} />
-        <QueuedTurns
-          turns={queued}
-          isMobile={isMobile}
-          onUpdate={onUpdateQueued}
-          onRemove={onRemoveQueued}
-          onClear={onClearQueue}
-          onSendNow={onSendQueueNow}
-          busy={queueBusy}
-        />
-        <div style={{ height: `var(${ANCHOR_SLACK_PROPERTY}, 0px)` }} />{/* Room a fold closed near the end keeps below the last row (useDisclosureAnchor). */}
-        {/* The composer's height as a CSS variable, written by its observer before the paint (panes:F15). */}
-        <div style={{ height: `calc(var(${COMPOSER_HEIGHT_PROPERTY}, 0px) + ${CHAT_BOTTOM_GUTTER_PX}px)` }} />
-      </>
-    ),
-    // IL VARCO IN CIMA È IL GEMELLO DEL FOOTER, e nasce dallo stesso fatto: la
-    // conversazione confina con del CHROME, non con il bordo della finestra.
-    //
-    // Da quando la barra delle tab è un vetro fuori dal flusso
-    // (`.pane-chrome-bar`), la cella della chat comincia SOTTO di lei: senza
-    // questo varco il primo messaggio nascerebbe già coperto. Con, a riposo non
-    // c'è niente di nascosto — e scorrendo i messaggi le passano sotto, che è
-    // tutto il punto dell'overlay.
-    //
-    // Altezza in `var()` e non in pixel, al contrario del Footer, e la
-    // differenza è chi conosce il numero. L'altezza del composer la MISURA
-    // JavaScript (`inputAreaHeight`), quindi tanto vale sommarla lì; quella
-    // della barra è una costante dichiarata dalla card che la possiede
-    // (CHROME_BAR_H_VAR), e leggerla in CSS evita di ricopiarla in un terzo
-    // posto. Virtuoso misura l'Header col suo ResizeObserver, quindi il numero
-    // risolto lo scopre da sé.
-    //
-    // La variabile è `--chat-gutter` e NON `--chrome-bar-h`, e la differenza è
-    // il caso in cui sopra il trascritto c'è un banner: lì il rientro se l'è
-    // già preso la cella, e questo varco deve valere zero o i 40px si contano
-    // due volte. A deciderlo è UNA regola CSS (`.chat-under-chrome:first-child`,
-    // index.css) che accende insieme il margine negativo e il varco: da qui non
-    // si vede la condizione, si legge solo il risultato.
-    //
-    // Il default è 0: una lista montata dove non c'è nessuna barra sopra —
-    // oggi nessuna, domani chissà — non si prende un buco per sbaglio.
-    Header: () => <div data-testid="chat-top-gutter" style={{ height: 'var(--chat-gutter, 0px)' }} />,
-    List: ChatList,
-  }), [queued, isMobile, onUpdateQueued, onRemoveQueued, onClearQueue, onSendQueueNow, queueBusy, topic.id]);
+  const footerHead = useMemo(() => (
+    <>
+      <BackgroundWorkLine topicId={topic.id} isMobile={isMobile} />
+      <QueuedTurns
+        turns={queued}
+        isMobile={isMobile}
+        onUpdate={onUpdateQueued}
+        onRemove={onRemoveQueued}
+        onClear={onClearQueue}
+        onSendNow={onSendQueueNow}
+        busy={queueBusy}
+      />
+    </>
+  ), [queued, isMobile, onUpdateQueued, onRemoveQueued, onClearQueue, onSendQueueNow, queueBusy, topic.id]);
 
   /**
    * LA CODA VIVA SI SEPARA DAL RESTO — perché è l'unica cosa che cambia.
@@ -2060,12 +2069,14 @@ export function MessageList({
     setShowNewBanner(false);
   }, [pinToBottom, disclosure]);
 
+  const footer = useMemo(() => ({ head: footerHead, strips: footerStrips }), [footerHead, footerStrips]);
+
   // data-testid on the outer wrapper ensures the selector is always queryable
   // regardless of loading/empty/Virtuoso state (pane-undo.spec.ts relies on
   // [data-testid='chat-scroll-container']). The Virtuoso internal scroller is
   // targeted via scrollerElRef without a separate testid.
   return (
-    <TranscriptRowResizeContext.Provider value={onRowResize}><TranscriptDisclosureContext.Provider value={disclosure}>
+    <TranscriptRowResizeContext.Provider value={onRowResize}><TranscriptDisclosureContext.Provider value={disclosure}><ChatFooterContext.Provider value={footer}>
     <div
       data-testid="chat-scroll-container"
       ref={chatContainerRef}
@@ -2355,7 +2366,7 @@ export function MessageList({
               </div>
             );
           }}
-          components={virtuosoComponents}
+          components={VIRTUOSO_COMPONENTS}
           // `visibility` e non `opacity`: un elemento a opacità zero VIENE
           // DIPINTO (e i suoi spostamenti contano lo stesso nel CLS), uno
           // `hidden` no — ma tiene il layout, quindi Virtuoso continua a
@@ -2374,6 +2385,6 @@ export function MessageList({
       <div ref={messagesEndRef} />
       <ScrollToBottom show={isScrolledUp} newCount={newMsgCount} onClick={scrollToBottom} bottomOffset={inputAreaHeight} />
     </div>
-    </TranscriptDisclosureContext.Provider></TranscriptRowResizeContext.Provider>
+    </ChatFooterContext.Provider></TranscriptDisclosureContext.Provider></TranscriptRowResizeContext.Provider>
   );
 }

@@ -718,6 +718,9 @@ export default defineConfig({
         // ticking command, a file-redirected log, a local server's Open.
         // Filmed on the engine that ships (chat-live-work).
         "**/chat-live-work.spec.ts",
+        // The strips at the end of the transcript, and a command's row opening
+        // the card that started it with its live log (chat-strips-in-transcript).
+        "**/chat-strips-in-transcript.spec.ts",
       ],
       use: {
         browserName: "webkit",

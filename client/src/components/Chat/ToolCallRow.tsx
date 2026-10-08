@@ -25,7 +25,8 @@ import { ToolDetailFetchStatus, type ToolDetailFetchState } from './ToolDetailFe
 import { TranscriptRowResizeContext } from './transcriptRowResize';
 import { useDisclosureToggle } from './transcriptDisclosure';
 import { DisclosureBody } from './DisclosureBody';
-import { FindToolIdContext, useFindFocusTool } from '../../state/chatFindFocus';
+import { FindToolIdContext, useFindFocusTool, useRevealTool } from '../../state/chatFindFocus';
+import { MOTION } from '../../lib/motion';
 
 // The answer form only exists for the few calls that stop and ask, so it does
 // not belong in the entry. It is also the ONE lazy surface here that appears
@@ -304,6 +305,24 @@ export const ToolCallRow = memo(function ToolCallRow({ toolCall, label, sessionK
     // `?.` on the method too: old WebKit and layout-less test benches lack it.
     rowRef.current?.scrollIntoView?.({ block: 'nearest', behavior: 'smooth' });
   }, [highlighted]);
+  // Opened from the strip (`revealToolCall`): the header goes to the top of the
+  // view, under the chrome (the scroller's `scroll-padding`), once the fold
+  // around the row and its own body have unrolled, so it is read at its final
+  // place. In one step, then held there as a fold opened by hand is: the reader
+  // asked for this row, so the next output of a chat still writing does not take
+  // the view back to the bottom (it did, in the e2e's first take), and what the
+  // body still gains (the fetched output, the live log) grows below the header.
+  const revealSeq = useRevealTool(toolCall.id);
+  useEffect(() => {
+    if (!revealSeq) return;
+    const t = setTimeout(() => {
+      const row = rowRef.current;
+      if (!row) return;
+      row.scrollIntoView?.({ block: 'start' });
+      disclose(row);
+    }, MOTION.base + 50);
+    return () => clearTimeout(t);
+  }, [revealSeq, disclose]);
 
   // Lazy fetch: the first time a trimmed row is opened (or pressed, see
   // `onPointerDown`), we pull the whole detail and args from the server and

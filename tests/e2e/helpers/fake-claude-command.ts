@@ -11,6 +11,12 @@
  * says "STARTED" and stays open until the file `release`, then ends with
  * "RUN-DONE". The command waits for the file `finish` (or for the folder to
  * go), prints two lines and exits 0; its end wakes the topic with a message the fake answers "CMD-WOKEN".
+ *
+ * Two switches, off unless a test sets them: `CMDWATCH_TICKS=1` makes the
+ * command print "CMDWATCH-TICK N" every 0.3 s while it waits, a live log to
+ * follow; `CMDWATCH_DONE_LINES=N` ends the turn with N more lines after
+ * "RUN-DONE", "filler 1" to "filler N", which push the tool call's card out
+ * of sight.
  */
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
@@ -21,6 +27,8 @@ const DIR = process.env.CMDWATCH_DIR ?? "";
 const CWD = process.env.CMDWATCH_CWD ?? process.cwd();
 const TOOL = "toolu_cmdwatch";
 const JOB_DESCRIPTION = "CMDWATCH-JOB";
+const TICKS = process.env.CMDWATCH_TICKS === "1";
+const DONE_LINES = Number(process.env.CMDWATCH_DONE_LINES ?? 0);
 let waitingRun = false;
 let holding = false;
 
@@ -58,11 +66,11 @@ function bridgeArgs(): { baseUrl: string; sessionKey: string; gatewayToken?: str
 }
 
 async function runCommand(): Promise<void> {
-  const input = {
-    // It also stops once the test's folder is gone: a failed run must not leave it looping.
-    command: `while [ -d '${DIR}' ] && [ ! -f '${join(DIR, "finish")}' ]; do sleep 0.2; done; echo CMDWATCH-OUT; echo CMDWATCH-LAST 42`,
-    description: JOB_DESCRIPTION,
-  };
+  // It also stops once the test's folder is gone: a failed run must not leave it looping.
+  const wait = TICKS
+    ? `i=0; while [ -d '${DIR}' ] && [ ! -f '${join(DIR, "finish")}' ]; do i=$((i+1)); echo "CMDWATCH-TICK $i"; sleep 0.3; done`
+    : `while [ -d '${DIR}' ] && [ ! -f '${join(DIR, "finish")}' ]; do sleep 0.2; done`;
+  const input = { command: `${wait}; echo CMDWATCH-OUT; echo CMDWATCH-LAST 42`, description: JOB_DESCRIPTION };
   out({ type: "assistant", session_id: SESSION_ID, message: { role: "assistant", content: [{ type: "tool_use", id: TOOL, name: "mcp__topics__run_command", input }], model: "claude-finto" } });
   const args = bridgeArgs();
   let result: string;
@@ -84,7 +92,7 @@ setInterval(() => {
   }
   if (holding && existsSync(join(DIR, "release"))) {
     holding = false;
-    finish("RUN-DONE");
+    finish(["RUN-DONE", ...Array.from({ length: DONE_LINES }, (_, i) => `filler ${i + 1}`)].join("\n\n"));
   }
 }, 150);
 

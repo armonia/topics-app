@@ -184,6 +184,7 @@ test("only what works now: the working sub-agent and the commands, the one that 
 test("the output a command redirects to a file shows in its log", async ({ page, request }) => {
   test.info().annotations.push({ type: "spec", description: "CMDRUN-03" });
   await chatWithProject(request, "redirect");
+  // allow-literal-tmp: the file the command writes its output to, not an identity the app compares.
   const file = `/tmp/topics-e2e-${STAMP}.log`;
   const id = await runCommand(request, `for i in $(seq 1 30); do echo "tick $i"; sleep 1; done > ${file}`, "ticks to a file");
   await openChat(page, request);

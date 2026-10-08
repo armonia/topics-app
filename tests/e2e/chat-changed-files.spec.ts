@@ -196,22 +196,25 @@ test.describe("I file che questa conversazione ha toccato", () => {
         await p.goto("/");
         await p.getByTestId(`pane-tab-${written.id}`).click();
 
-        // FIRST STATE: the topic that wrote. The strip is INSIDE the bottom
-        // block of its chat (the `filter` is the containment assertion: one
-        // input area holds the strip) and sits above the textarea, on the
-        // composer's column.
+        // FIRST STATE: the topic that wrote. The strip is the END of its
+        // transcript (chat-strips-in-transcript; the `filter` is the
+        // containment assertion: one transcript holds the strip): after the
+        // last message, above the composer's block, on the composer's column.
         const strip = p.getByTestId("chat-changes-strip");
         await expect(strip).toBeVisible({ timeout: 20000 });
-        await didascalia(p, "Un topic che ha scritto: la barretta sopra il composer");
-        const inputArea = p.getByTestId("chat-input-area").filter({ has: strip });
-        await expect(inputArea).toHaveCount(1);
+        await didascalia(p, "Un topic che ha scritto: la barretta in fondo alla chat");
+        const transcript = p.getByTestId("chat-scroll-container").filter({ has: strip });
+        await expect(transcript).toHaveCount(1);
+        await expect(transcript.getByTestId("chat-end-strips").getByTestId("chat-changes-strip")).toHaveCount(1);
         const composer = composerOf(p, `strip-written-${stamp}`);
         await expect(composer).toBeVisible();
+        const inputArea = p.getByTestId("chat-input-area").filter({ has: composer });
+        await expect(inputArea.getByTestId("chat-changes-strip")).toHaveCount(0);
         const stripBox = await boxOf(strip);
         const composerBox = await boxOf(composer);
         const areaBox = await boxOf(inputArea);
-        expect(stripBox.bottom).toBeLessThanOrEqual(composerBox.top + 1);
-        expect(stripBox.top).toBeGreaterThanOrEqual(areaBox.top - 1);
+        expect(stripBox.top).toBeGreaterThanOrEqual((await boxOf(transcript.getByTestId("chat-message").last())).bottom - 1);
+        expect(stripBox.bottom).toBeLessThanOrEqual(areaBox.top + 1);
         expect(stripBox.left).toBeGreaterThanOrEqual(areaBox.left - 1);
         expect(stripBox.right).toBeLessThanOrEqual(areaBox.right + 1);
 
@@ -238,6 +241,7 @@ test.describe("I file che questa conversazione ha toccato", () => {
         const areaAlone = p.getByTestId("chat-input-area").filter({ has: composerOf(p, `strip-read-${stamp}`) });
         await expect(areaAlone).toHaveCount(1);
         await expect(areaAlone.getByTestId("chat-changes-strip")).toHaveCount(0);
+        await expect(p.getByTestId("chat-scroll-container").filter({ hasText: "ho solo guardato" }).getByTestId("chat-changes-strip")).toHaveCount(0);
         await expect(p.getByTestId("chat-changes-strip")).toBeHidden();
         const composerAlone = await boxOf(composerOf(p, `strip-read-${stamp}`));
         expect(composerAlone.bottom).toBeGreaterThanOrEqual(composerBox.bottom - 1);

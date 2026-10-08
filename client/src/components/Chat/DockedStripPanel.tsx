@@ -1,20 +1,19 @@
 /**
- * WHAT A STRIP ABOVE THE COMPOSER OPENS, OPENS ABOVE ITS OWN HEADER.
+ * WHAT A STRIP OPENS, OPENS ABOVE ITS OWN HEADER.
  *
- * The strips docked over the composer (the todo list, the files this chat
- * touched, the checkpoints, the goal) sit in the block docked to the bottom
- * edge of the pane, so whatever they open can only grow upward. Opened below
- * the header, as they used to, the header climbed by the height of the list
- * under the pointer (measured in `tests/e2e/chat-accordion-no-shift.spec.ts`).
+ * The strips (the todo list, the files this chat touched, the checkpoints, the
+ * goal, the live work) are the last thing in the transcript, right above the
+ * composer (chat-strips-in-transcript). Whatever they open unrolls ABOVE the
+ * header, in the flow of the strip: the header is the strip's bottom line and
+ * stays under the pointer, held there by the transcript's disclosure anchor
+ * (`useDisclosureToggle`) while the body animates, and the panel takes its
+ * room upward, in sight. Opened below the header, at the bottom of the
+ * transcript, the panel would unroll under the composer, out of sight.
  *
- * Here the list unrolls ABOVE the header, in the flow of the strip: the header
- * is the strip's bottom line and stays under the pointer. The block gets
- * taller, and the transcript, which reserves the block's height below its last
- * row, keeps its newest row right above the strip when it was following the
- * bottom (the composer's own resize pin, frame by frame while the body
- * animates); a transcript read further up does not move. A panel floating
- * over the transcript instead kept everything still but hid the newest output
- * under it while the agent was writing.
+ * Until 08/10 the strips sat in the block docked over the composer, where the
+ * same rule held for the opposite reason: that block could only grow upward,
+ * and a list opened under the header climbed it by its own height under the
+ * pointer (measured in `tests/e2e/chat-accordion-no-shift.spec.ts`).
  *
  * Same body as every fold (`DisclosureBody`): height animated, nothing under
  * reduced motion. A rule under the list separates it from the header.

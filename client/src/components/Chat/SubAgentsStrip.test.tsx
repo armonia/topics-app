@@ -9,7 +9,11 @@
  * `liveWorkApi` and `scriptsApi` answering, the window a stand-in that records
  * the events the rows dispatch.
  *
+ * A command whose card the transcript holds opens that card instead of a log
+ * of its own (chat-strips-in-transcript): the message store holds the card.
+ *
  * @covers SUBSTRIP-01
+ * @covers SUBSTRIP-02
  */
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
 import { createElement } from 'react';
@@ -19,11 +23,13 @@ import { dispatchFrame } from '../../lib/wsFrameBus';
 import { resetOpenLinkDedupeForTest } from '../../lib/openLink';
 import { warm } from '../../lib/lazyWarm';
 import { loadProcessLog } from '../../state/pane/panePreload';
+import { __resetMessageStore, updateMessages } from '../../state/messageStore';
+import { getChatFindFocus, setChatFindFocus } from '../../state/chatFindFocus';
 import { SubAgentsStrip } from './SubAgentsStrip';
 import type { LiveWorkRow } from '../../../../shared/live-work';
 
 const g = globalThis as unknown as Record<string, unknown>;
-const saved = { window: g.window };
+const saved = { window: g.window, requestAnimationFrame: g.requestAnimationFrame };
 const real = { get: liveWorkApi.get, output: scriptsApi.output, list: scriptsApi.list, stop: scriptsApi.stop };
 let events: Array<{ type: string; detail: unknown }> = [];
 let harness: Harness | null = null;
@@ -67,6 +73,9 @@ afterEach(() => {
   scriptsApi.list = real.list;
   scriptsApi.stop = real.stop;
   if (saved.window === undefined) delete g.window; else g.window = saved.window;
+  if (saved.requestAnimationFrame === undefined) delete g.requestAnimationFrame; else g.requestAnimationFrame = saved.requestAnimationFrame;
+  __resetMessageStore();
+  setChatFindFocus(null);
 });
 
 const flush = () => new Promise<void>((resolve) => setTimeout(resolve, 0));
@@ -86,10 +95,10 @@ function inRow(h: Harness, processId: string, testId: string): HostNode | undefi
   const end = all.findIndex((n, i) => i > at && (n.props['data-testid'] === 'live-command-row' || n.props['data-testid'] === 'subagent-row'));
   return all.slice(at + 1, end < 0 ? undefined : end).find((n) => n.props['data-testid'] === testId);
 }
-const click = (node: HostNode) => (node.props.onClick as (e: unknown) => void)({ stopPropagation() {}, currentTarget: null });
+const click = (node: HostNode, currentTarget: unknown = null) => (node.props.onClick as (e: unknown) => void)({ stopPropagation() {}, currentTarget });
 
 async function mounted(): Promise<Harness> {
-  harness = mount(createElement(SubAgentsStrip, { topicId: 'topic-1' }));
+  harness = mount(createElement(SubAgentsStrip, { topicId: 'topic-1', sessionKey: 'topic:topic-1' }));
   await flush();
   harness.rerender();
   return harness;
@@ -165,6 +174,25 @@ describe('a row opens what it is', () => {
     click(rowButton(h, 'live-command-row', 'data-process-id', 'p1'));
     h.rerender();
     expect(hosts(h, 'process-log-output')).toHaveLength(0);
+  });
+
+  test('a command whose card the transcript holds opens that card, and docks no log', async () => {
+    updateMessages((prev) => ({
+      ...prev,
+      'topic:topic-1': [{
+        id: 'm1', role: 'assistant', content: '', timestamp: t0,
+        toolCalls: [{ id: 'toolu_tick', name: 'run_command', args: { command: 'while true; do echo tick; sleep 1; done' }, status: 'success', result: 'started · processId=p1 · pid=7' }],
+      }],
+    }));
+    const frames: Array<() => void> = [];
+    g.requestAnimationFrame = (cb: () => void) => { frames.push(cb); return frames.length; };
+    // The transcript the row sits in, where the card is already drawn: no jump to its message.
+    const transcript = { querySelector: () => ({}) };
+    const h = await mounted();
+    click(rowButton(h, 'live-command-row', 'data-process-id', 'p1'), { closest: () => transcript });
+    h.rerender();
+    expect(getChatFindFocus()).toMatchObject({ topicId: 'topic-1', messageId: 'm1', toolCallId: 'toolu_tick', part: 'tool', reveal: true });
+    expect(hosts(h, 'live-command-row').find((n) => n.props['data-process-id'] === 'p1')!.props['data-open']).toBe('false');
   });
 
   test("a server shows its address, and «Open» opens it in a tab", async () => {

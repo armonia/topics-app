@@ -32,6 +32,7 @@ import type { TopicGoal } from '../../types';
 import type { TodoSnapshot } from './selectLatestTodo';
 import { CHAT_STRIP_NEUTRAL } from '../../lib/chatStripStyles';
 import { DockedStripPanel } from './DockedStripPanel';
+import { useDisclosureToggle } from './transcriptDisclosure';
 
 interface Props {
   goal: TopicGoal;
@@ -59,6 +60,7 @@ export function GoalBar({ goal, fallback, onClose, onEdit, onStopLoop, onPromote
   // input got in the way of typing (24/09). The closed line still carries the
   // step in progress and the done/total counter, which is what a glance needs.
   const [expanded, setExpanded] = useState(false);
+  const disclose = useDisclosureToggle();
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(goal.content);
   // The write is in flight. Two jobs: no second write (Enter and then the blur
@@ -211,7 +213,7 @@ export function GoalBar({ goal, fallback, onClose, onEdit, onStopLoop, onPromote
           // to one line was readable only through the native tooltip, which is
           // slow, small and gone on touch (23/09). Open, the panel above shows
           // it whole.
-          onClick={() => setExpanded(!expanded)}
+          onClick={(e) => { disclose(e.currentTarget); setExpanded(!expanded); }}
           className="flex min-w-0 flex-1 items-center gap-2 text-left"
           aria-expanded={expanded}
           data-testid="goal-bar-toggle"
