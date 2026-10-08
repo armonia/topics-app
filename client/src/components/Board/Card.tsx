@@ -2,7 +2,6 @@ import { contextTokens, costTokens, partsFromTask } from '../../../../shared/tok
 import { memo, useState, useEffect, useCallback, useMemo, useRef, useSyncExternalStore } from 'react';
 import { useDroppable } from '@dnd-kit/core';
 import { SortableContext, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable';
-import { CSS } from '@dnd-kit/utilities';
 import { reviewEvidence } from '../../lib/reviewEvidence';
 import { AlertTriangle, ArchiveRestore, ArrowRightLeft, CircleSlash, ClipboardList, Copy, Cpu, GitBranch, Hourglass, Lock, MessageSquare, Plus, RotateCcw, Send, Server, ShieldCheck, Square, Trash2, UserRound, X } from 'lucide-react';
 import { ChatMarkdown } from '../ChatMarkdown';
@@ -18,6 +17,7 @@ import { useConfirm } from '../../hooks/useConfirm';
 import { useLongPress, openContextMenuAt, type LongPressTarget } from '../../hooks/useLongPress';
 import { useMobile } from '../../hooks/useMobile';
 import { releaseTouchDrag } from './dndSensors';
+import { reflowTransform } from './sortableReflow';
 import { MorphText } from '../Shared/MorphText';
 import { PreviewMedia } from './PreviewMedia';
 import type { DraftPreview } from './draftPreview';
@@ -378,7 +378,7 @@ export const Card = memo(function Card(props: CardProps) {
       dragAttributes={attributes}
       dragListeners={listeners}
       isDragging={isDragging}
-      dragTransform={isDragging ? undefined : CSS.Transform.toString(transform)}
+      dragTransform={reflowTransform(transform, isDragging)}
       dragTransition={transition}
     />
   );
@@ -390,7 +390,7 @@ type CardDragProps = {
   dragAttributes: ReturnType<typeof useSortable>['attributes'];
   dragListeners: ReturnType<typeof useSortable>['listeners'];
   isDragging: boolean;
-  /** The reflow transform as CSS, already a string: dnd-kit's object is new on every render, a string compares by value. */
+  /** The reflow transform as CSS (`reflowTransform`): a string compares by value, dnd-kit's object is new on every render. */
   dragTransform: string | undefined;
   dragTransition: string | undefined;
 };

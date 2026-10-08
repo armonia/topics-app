@@ -94,8 +94,9 @@ describe('kanban sensors are referentially stable', () => {
     const body = card.slice(bodyAt, card.indexOf('\n});', bodyAt));
     expect(body, 'the body subscribes to dnd-kit again: the memo is bypassed on every over change').not.toMatch(/useSortable\(|useDraggable\(|useDroppable\(|useDndContext\(/);
     // dnd-kit's transform is a new object on every render: it must reach the
-    // body already turned into a string, which compares by value.
-    expect(shell).toMatch(/dragTransform=\{[^}]*CSS\.Transform\.toString\(/);
+    // body already turned into a string, which compares by value
+    // (`reflowTransform`, tested in sortableReflow.test.ts).
+    expect(shell).toContain('dragTransform={reflowTransform(transform, isDragging)}');
   });
 
   test('the column reads its droppable in a shell too: the header does not re-render on every over change', () => {
