@@ -11,10 +11,10 @@ partenza (`/home/user/t7b-base`, `node_modules` in link) con le stesse spec del 
 
 | Pezzo | Prima (`8246707`) | Dopo |
 |---|---|---|
-| `./scripts/qa-gate.sh --veloce` | exit 0 · 153 s | (in corso: barra finale) |
-| `bun run test:unit:shards` | exit 1 · 10.607 passati nello shard 0 + shard 1 verde, 46 saltati, **1 rosso**: `tests/integration/terminal-revive-race.test.ts` («due revive concorrenti»), con la VM a load 6 (girava insieme alla mia prima e2e: 2 shard invece di 4); rilanciato da solo sulla base: 2/2 verdi, exit 0. Non è mio e non è un difetto: è il carico · 803 s | (in corso: barra finale) |
-| `bun run build:client && bun run check:bundle` | exit 0 / 0 · eager raw 1.670.772 B, gz 533.003 B | (in corso: barra finale) |
-| `SERVER_HOST=127.0.0.1 E2E_TIER=pr npx playwright test --project=chromium tests/e2e/topic-*.spec.ts tests/e2e/chat-*.spec.ts tests/e2e/*cls*.spec.ts` (B4; comprende `refresh-cls` e `pane-return-cls`) | (in corso: barra finale) | (in corso: barra finale) |
+| `./scripts/qa-gate.sh --veloce` | exit 0 · 153 s | **exit 0** · 38 s · «BARRA VERDE» su `b257c68`. Sulla prima barra finale (`44b6405`) era **rosso `check:ui-language`** (exit 1): corretto in `b257c68`, vedi Fatto 4 |
+| `bun run test:unit:shards` | exit 1 · 10.607 passati nello shard 0 + shard 1 verde, 46 saltati, **1 rosso**: `tests/integration/terminal-revive-race.test.ts` («due revive concorrenti»), con la VM a load 6 (girava insieme alla mia prima e2e: 2 shard invece di 4); rilanciato da solo sulla base: 2/2 verdi, exit 0. Non è mio e non è un difetto: è il carico · 803 s | **exit 0** · PASS 1843 file (i 1842 della base + `attachmentSizes.test.ts`) in 4 shard, 0 rossi · 473 s (load 1,0-2,0) |
+| `bun run build:client && bun run check:bundle` | exit 0 / 0 · eager raw 1.670.772 B, gz 533.003 B | **exit 0 / 0** · eager raw 1.671.931 B (+1.159), gz 533.523 B (+520), dentro il budget |
+| `SERVER_HOST=127.0.0.1 E2E_TIER=pr npx playwright test --project=chromium tests/e2e/topic-*.spec.ts tests/e2e/chat-*.spec.ts tests/e2e/*cls*.spec.ts` (B4; comprende `refresh-cls` e `pane-return-cls`) | exit 1 · 267 passati, **2 rossi = le due scene nuove** (attese: sono B1 e B2 sul codice di prima), 2 flaky (`chat-streaming-indicator` «at the bottom the line comes and goes…», `chat-transcript-motion` F02) · 1339 s | **exit 0** · 270 passati (i 267 + le 2 scene nuove + `chat-transcript-motion` F02, flaky sulla base e verde qui), 0 rossi, 1 flaky (`chat-streaming-indicator`, lo stesso della base) · 1282 s. Girata su `44b6405`: `b257c68` cambia solo la forma di due tipi in `ChatPane.tsx`, nessun cambio di comportamento |
 
 `SERVER_HOST=127.0.0.1` solo sull'e2e: la VM non ha IPv6 (lo stesso di T0/T1/T7). Il bundle dell'e2e
 è costruito a parte per lato (`TOPICS_E2E_BUNDLE_DIR`, `vite build --outDir` della worktree), così
@@ -98,9 +98,24 @@ toccati.
 Due scenari nel delta `specs/chat/spec.md` (la topic visitata che si scopre senza aspettare i byte,
 la bolla di chi allega) e la regola del riquadro in attesa.
 
+### 4. `b257c68` fix(chat): niente generici nelle righe del composer
+
+La prima barra finale era rossa su `check:ui-language` (exit 1, 7 colpi in `ChatPane.tsx`): lo
+scanner del cancello legge un `Array<…>` in un `.tsx` come un tag JSX, e da lì prendeva per testo
+dell'interfaccia stringhe che c'erano già («Upload failed», «[Attached file:», «New Chat»). Nuova
+era solo la forma dei due tipi del commit 2. Ora `{ file: File; path: string }[]` e l'alias
+`PendingSize` in `attachmentSizes.ts`. Prova: `check:ui-language` exit 1 → 0, barra intera verde.
+Non ho toccato il cancello (fuori recinto), ma è un falso positivo da sapere: «Trovato e non fatto» 6.
+
 ### Evidenze
 
-Ramo `cloud/t7b-topic-sipario-evidenza`: (in corso: barra finale)
+Ramo `cloud/t7b-topic-sipario-evidenza` (`5d6104c`, 3,7 MB): `evidenze/T7b/prima` e `dopo`, un video e un trace
+per scena (`sipario`, `bolla`), le foto del riquadro in chiaro e scuro (`riquadro/`) e
+`LEGGIMI.md`. Prima: sipario a 75 frame / 1260 ms, bolla a CLS 0,0488; dopo: 16 frame / 283 ms,
+CLS 0. Letti sui fotogrammi estratti con ffmpeg: prima ~1,5 s di scheletro e la bolla che entra
+senza immagine e poi si allunga; dopo un fotogramma di scheletro, poi la topic con il riquadro
+grigio che si riempie, e la bolla che entra già alta. Le stesse cartelle restano nella VM in
+`/home/user/t7b-base/test-results/artifacts-13401` e `/home/user/topics-app/test-results/artifacts-13402`.
 
 ## Trovato e non fatto
 
@@ -121,6 +136,14 @@ Ramo `cloud/t7b-topic-sipario-evidenza`: (in corso: barra finale)
    ora sulla bolla di chi invia lo scrive anche il composer. Lasciato: il file è nell'elenco dei rami
    aperti e il campo non cambia forma.
 
+6. **`check:ui-language` scambia un generico TypeScript per JSX** (`scripts/check-ui-language.ts`,
+   la regola `jsx-expr`): un `Array<{…}>` in un `.tsx` fa leggere come testo d'interfaccia le
+   stringhe delle righe dopo. L'ho aggirato nel codice (Fatto 4); correggere lo scanner è di T6
+   (elenco dei cancelli).
+7. **B4: `chat-streaming-indicator` «at the bottom the line comes and goes…» è flaky** sulla base e
+   sul ramo, `chat-transcript-motion` F02 solo sulla base: non toccati da questa traccia, non
+   indagati.
+
 ## Rifiutato
 
 - «Il sipario prima del fix si alza comunque prima dei byte, quindi B1 non distingue»: vero per i
@@ -138,7 +161,7 @@ Ramo `cloud/t7b-topic-sipario-evidenza`: (in corso: barra finale)
 
 - `client/src/components/MessageContent.tsx`: in `MediaImage` 1 costante con il commento, e sull'`<img>`
   la classe della tinta, lo `style` e `data-media-box`.
-- `client/src/components/Chat/ChatPane.tsx`: 2 import, `uploadFiles` (restituisce `{file, path}`),
+- `client/src/components/Chat/ChatPane.tsx`: 1 import, `uploadFiles` (restituisce `{file, path}`),
   4 righe nell'invio con allegati (lettura per file e per immagini incollate) e 3 righe al
   `sendMessage`.
 - `client/src/hooks/useChat.ts`: 1 import di tipo, il campo `mediaSizes` in `SendMessageOptions`,
@@ -157,4 +180,6 @@ Ramo `cloud/t7b-topic-sipario-evidenza`: (in corso: barra finale)
   e p95: ~64 mila token in 2 chiamate, quasi tutti di contesto, nessun ragionamento lungo; un Sonnet a
   effort `low` avrebbe caricato lo stesso contesto, quindi sono rimasto su Haiku. Ho riestratto io
   tutte le righe dai log: i numeri coincidono.
-- Consegna: (in corso: barra finale)
+- Consegna: `git push origin HEAD:refs/heads/cloud/t7b-topic-sipario` (exit 0), anche sul ramo
+  `claude/task-xmt7av` che l'ambiente assegna alla sessione. Evidenze su
+  `cloud/t7b-topic-sipario-evidenza`.
