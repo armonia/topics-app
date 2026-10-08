@@ -1712,7 +1712,12 @@ export function MessageList({
     // vedrebbe mai (gli eventi salgono, non scendono). Con Home o PagSu la
     // lista si muoveva e l'app non se ne accorgeva: restava «ancorata» e il
     // messaggio dopo la ributtava in fondo a chi stava leggendo indietro.
-    const onKeyDown = (e: KeyboardEvent) => { if (SCROLL_KEYS.has(e.key)) markGesture(); };
+    // A key typed into a field (the composer, a search) moves its caret, never the list.
+    const onKeyDown = (e: KeyboardEvent) => {
+      const t = e.target as HTMLElement | null;
+      if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)) return;
+      if (SCROLL_KEYS.has(e.key)) markGesture();
+    };
     const onWheel = (e: WheelEvent) => {
       markGesture();
       if (e.deltaY < 0) releaseToUser('gesture');
@@ -1755,6 +1760,8 @@ export function MessageList({
       // accorge (ed è giusto così: non è l'utente).
       if (!gesto || st > scrollUpAnchorRef.current) scrollUpAnchorRef.current = st;
       const riferimento = gesto ? scrollUpAnchorRef.current : lastScrollTopRef.current;
+      // The reader's own move up: a gesture that lowered the list, and not one of our pins settling.
+      let readerUp = false;
       if (isUserScrollUp(riferimento, st)) {
         // Right after one of OUR pins the drop is ours, even if a finger was just
         // there: `scrollToIndex('LAST')` then Virtuoso's re-measure LOWERS
@@ -1771,6 +1778,7 @@ export function MessageList({
         } else {
           releaseToUser(gesto ? 'gesture' : 'delta');
           scrollUpAnchorRef.current = st;
+          readerUp = gesto;
         }
       }
       lastScrollTopRef.current = st;
@@ -1780,9 +1788,10 @@ export function MessageList({
       lastDistanceFromBottomRef.current = Math.max(0, el.scrollHeight - st - el.clientHeight);
       // INFINITE SCROLL (CHAT-HIST-01): heading up, the reader gets the rest of the thread without asking.
       // Fetched a few screens before the top, merged two screens before it, where the prepend
-      // (`firstItemIndex`) and the divider it lifts from the first row are both out of sight. Only on a
-      // gesture: our own pins and the list settling never pull it in.
-      if (gesto && st < el.clientHeight * OLDER_STAGE_SCREENS && isHistoryIncomplete(completenessRef.current)) {
+      // (`firstItemIndex`) and the divider it lifts from the first row are both out of sight. Only when the
+      // reader goes up: a wheel turned down, our own pins and the list settling under the composer never
+      // pull it in.
+      if (readerUp && st < el.clientHeight * OLDER_STAGE_SCREENS && isHistoryIncomplete(completenessRef.current)) {
         if (st < el.clientHeight * OLDER_MERGE_SCREENS) {
           // A reader faster than the network reaches the divider first: it says the rest is on its way.
           setOlderLoading(true);

@@ -236,4 +236,60 @@ test.describe("Infinite scroll della chat", () => {
     await didascalia(page, "Scorrendo ancora, il primo messaggio della chat: nessun click");
     await beat(page, 1200);
   });
+
+  test("scrivere nel composer o girare la rotella in giù non scarica niente: solo chi sale", async ({ page, request }) => {
+    test.info().annotations.push({ type: "spec", description: "CHAT-HIST-01" });
+    // Short rows: the first page is short, so its tail already sits where heading up would fetch.
+    const quiet = await createTopic(request, `infinite-scroll-quiet-${Date.now()}`);
+    try {
+      const key = await sessionKeyOf(request, quiet.id);
+      const last = HISTORY_FIRST_PAGE + 30;
+      for (let i = 1; i <= last; i++) {
+        await seedMessage(request, { sessionKey: key, role: i % 2 === 1 ? "user" : "assistant", content: `${seededText(i)} short` });
+      }
+      await resetPaneStore(request, [quiet.id]);
+      let older = 0;
+      page.on("request", (req) => {
+        if (req.url().includes(`/api/history/${encodeURIComponent(key)}`) && (req.postData() || "").includes('"before"')) older++;
+      });
+      await page.goto("/");
+      await page.getByTestId(`pane-tab-${quiet.id}`).click();
+      const list = page.locator(SCROLLER);
+      await expect(list.getByText(seededText(last))).toBeVisible({ timeout: 15000 });
+      await expect(list).toHaveAttribute("data-history", "partial");
+      const screen = await viewHeight(page);
+      expect(await stillView(page), "the tail sits inside the band where heading up fetches").toBeLessThan(screen * OLDER_STAGE_SCREENS);
+
+      // Caret keys in the composer, then lines that grow it: the list re-pins itself under it.
+      const input = page.getByTestId("chat-input-area").locator("textarea").first();
+      await input.focus();
+      await page.keyboard.type("ciao");
+      for (const k of ["ArrowLeft", "ArrowUp", "Home"]) await page.keyboard.press(k);
+      for (let i = 0; i < 4; i++) await page.keyboard.press("Shift+Enter");
+      await stillView(page);
+      // Emptied right after a caret key, the composer shrinks and the list climbs by itself.
+      await page.keyboard.press("ArrowLeft");
+      await input.fill("");
+      await stillView(page);
+      expect(older, "typing fetched nothing").toBe(0);
+      await expect(list).toHaveAttribute("data-history", "partial");
+
+      // Higher in the list, a wheel turned DOWN: a gesture, but not one that goes up.
+      await list.evaluate((el, h) => { (el as HTMLElement).scrollTop = Math.round(h / 2); }, screen);
+      await stillView(page);
+      const box = (await list.boundingBox())!;
+      await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+      await page.mouse.wheel(0, 120);
+      await stillView(page);
+      expect(older, "a wheel turned down fetched nothing").toBe(0);
+      await expect(list).toHaveAttribute("data-history", "partial");
+
+      // The control: the same wheel turned up brings the rest in.
+      await page.mouse.wheel(0, -240);
+      await expect(list).toHaveAttribute("data-history", "complete", { timeout: 10000 });
+      expect(older).toBe(1);
+    } finally {
+      await deleteTopic(request, quiet.id).catch(() => {});
+    }
+  });
 });

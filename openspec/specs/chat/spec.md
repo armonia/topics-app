@@ -4572,6 +4572,14 @@ ramo, cancellazione, ricarico dopo una modifica) SHALL marcare la chat completa.
 - **THEN** il resto entra senza click, la riga sparisce, e la riga che si stava leggendo resta dov'era, al più spostata dell'altezza della riga sparita
 - **AND** scorrendo ancora in alto il primo messaggio della chat è visibile
 
+#### Scenario: scrivere nel composer o scorrere in giù non carica la storia
+- **GIVEN** una chat parziale di righe corte, aperta sulla coda, con la coda già dentro la fascia in cui salire carica
+- **WHEN** la persona scrive nel composer muovendo il cursore con le frecce, lo allunga di quattro righe e poi lo svuota
+- **AND** più in alto nella lista gira la rotella in giù
+- **THEN** i messaggi precedenti non sono stati chiesti e la chat resta parziale
+- **WHEN** la persona gira la rotella in su
+- **THEN** il resto arriva da solo, con una richiesta sola
+
 #### Scenario: una chat più corta di una pagina
 - **GIVEN** una chat con meno di `HISTORY_FIRST_PAGE` messaggi
 - **WHEN** la persona ricarica
