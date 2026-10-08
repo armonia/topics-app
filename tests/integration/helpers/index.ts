@@ -201,6 +201,21 @@ export interface RealServer {
 }
 
 /**
+ * The bind host for a server a test spawns. The server defaults to "::" (dual
+ * stack) and on a machine with no IPv6 loopback (the cloud VM, some containers)
+ * `listen` fails with EAFNOSUPPORT, so the child never answers and the test
+ * reads "the spawned server never answered" for a reason that is not the code.
+ * Without IPv6 the child is told to bind 127.0.0.1, which is all these tests
+ * probe; with IPv6 nothing changes and it keeps the default.
+ */
+export function spawnedServerHostEnv(): Record<string, string> {
+  const hasIpv6 = Object.values(os.networkInterfaces())
+    .flat()
+    .some((i) => i?.family === "IPv6" && i.address === "::1");
+  return hasIpv6 ? {} : { SERVER_HOST: "127.0.0.1" };
+}
+
+/**
  * Boot `server.ts` as a child process on a free port, isolated from the app the
  * developer has open, and resolve once it answers `GET /api/system/status`.
  *
@@ -247,6 +262,7 @@ export async function spawnRealServer(root: string): Promise<RealServer> {
       TOPICS_PTY_SOCKET: path.join(root, "pty.sock"),
       TOPICS_AI_BRIDGE: "0",
       TOPICS_AI_BRIDGE_SOCKET: path.join(root, "ai.sock"),
+      ...spawnedServerHostEnv(),
     },
     stdout: "pipe",
     stderr: "pipe",

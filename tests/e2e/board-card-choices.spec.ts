@@ -21,7 +21,7 @@
 import { test } from "./fixtures/layout.fixture";
 import { projectRow } from "./helpers/project-row";
 import { expect, type Page, type APIRequestContext } from "@playwright/test";
-import { createTopic, deleteTopic, resetPaneStore, resetProjectPanes, seedProjectPane, deleteTask } from "./helpers/api-fixtures";
+import { createTopic, deleteTopic, holdDispatchReconcile, resetPaneStore, resetProjectPanes, seedProjectPane, deleteTask } from "./helpers/api-fixtures";
 import { execFileSync } from "child_process";
 import { existsSync, mkdirSync, writeFileSync } from "fs";
 import { canonicalTmpDir, removeTmpDir } from "./helpers/file-project";
@@ -180,6 +180,15 @@ test.describe("Scelte sempre presenti sulla card", () => {
 
   test("quattro stati, quattro decisioni in un click — senza scrivere niente", async ({ page }) => {
     test.info().annotations.push({ type: "spec", description: "KANBAN-02" });
+    // The working card is staged with no live turn behind it, the shape the
+    // dispatcher's 10s reconcile recovers: re-queued, its DOM node replaced, and
+    // the choices menu open on it detached under the click ("element is not
+    // stable / detached from the DOM"). The poll in step 3 only re-arms the
+    // chip; it cannot stop a sweep landing between the menu opening and the
+    // click on the stop choice.
+    // So the reconcile is held for the whole scene (120s = the describe
+    // timeout, the brake cannot outlive it), as `board-card-stop` does.
+    await holdDispatchReconcile(page.request, 120_000);
     await page.goto("/");
     await openProjectBoard(page);
 

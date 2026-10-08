@@ -20,6 +20,7 @@
 import { useSyncExternalStore } from 'react';
 import type { BoardTask } from './board';
 import { boardRowsCacheWriter, readBoardRowsCache, serializeBoardRowsCache } from './boardRowsCache';
+import { toFeedTask } from '../../../shared/board-feed';
 
 /** The scope of the cross-project feed inside the rows cache. */
 export const ALL_BOARDS_SCOPE = 'all';
@@ -150,10 +151,15 @@ export function patchBoardTask(id: string, patch: Partial<BoardTask>): void {
   const i = tasks.findIndex((t) => t.id === id);
   if (i < 0) return;
   const row = tasks[i];
-  const keys = Object.keys(patch) as (keyof BoardTask)[];
-  if (keys.every((key) => Object.hasOwn(row, key) && sameTaskValue(row[key], patch[key]))) return;
+  // The feed does not carry some fields (`shared/board-feed.ts`), and a frame
+  // or a write's answer does. Taken as they come, they would give the row keys
+  // the next read does not have, and that read would republish a board that
+  // did not change.
+  const lean = toFeedTask(patch) as Partial<BoardTask>;
+  const keys = Object.keys(lean) as (keyof BoardTask)[];
+  if (keys.every((key) => Object.hasOwn(row, key) && sameTaskValue(row[key], lean[key]))) return;
   const next = tasks.slice();
-  next[i] = { ...row, ...patch };
+  next[i] = { ...row, ...lean };
   setBoardTasks(next);
 }
 

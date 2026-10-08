@@ -877,3 +877,42 @@ sintetico, come `tests/integration/migration-074-messages-timestamp-index.test.t
 - **GIVEN** una risposta con due esecuzioni salvate
 - **WHEN** la risposta viene cancellata (`DELETE /api/messages/:id`)
 - **THEN** in `command_runs` non restano righe con quel `message_id`
+
+### Requirement: LOOP-SPAWN-01 — The server loop does not stop to ask about a process
+
+The server runs on a single event loop: a synchronous spawn (`Bun.spawnSync`,
+`execSync`, `execFileSync`) stops streams, WebSockets and every other request
+for as long as the child lives. A path that runs periodically (a timer, a
+detector cycle, a poll of the status panel) or on every request of a route
+SHALL NOT spawn synchronously.
+
+Whether a tracked pid is still a live process SHALL be answered without a
+process where the system can (`kill(pid, 0)` and `/proc/<pid>/stat` on Linux),
+and elsewhere with ONE asynchronous `ps` for every pid of a round, never one
+per pid. A zombie SHALL still count as dead. A probe that fails SHALL read as
+before: alive when `kill` reaches the pid.
+
+The synchronous spawns that remain under `server/` SHALL be listed, each with
+the reason it is not on a periodic or per-request path (boot only, once per
+process lifetime, a user action that must be on disk before it is answered),
+in `server/lib/sync-spawn-scan.test.ts`; a new one SHALL turn that test red.
+
+> **Why.** T5 left `isPidAlive` and `pidStartTime` in `routes/processes.ts`
+> running `Bun.spawnSync(["ps", ...])`: every 3 s for every re-adopted script,
+> and twice per background shell every detector cycle, the whole server stood
+> still for the length of a `ps`; on the production Mac `ps` walks ~900
+> processes.
+
+#### Scenario: a zombie among the tracked pids
+- **GIVEN** a tracked pid whose process has exited and was not reaped
+- **WHEN** its liveness is asked
+- **THEN** it is dead, and its live parent is alive
+
+#### Scenario: twenty re-adopted scripts on a system without /proc
+- **GIVEN** twenty pids to check in one round
+- **WHEN** the round runs
+- **THEN** one process listing is made, not twenty
+
+#### Scenario: a new synchronous spawn
+- **WHEN** a `spawnSync`, `execSync` or `execFileSync` is added under `server/` and is not in the list
+- **THEN** `server/lib/sync-spawn-scan.test.ts` is red

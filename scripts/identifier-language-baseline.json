@@ -2298,11 +2298,7 @@
     ],
     "scripts/gen-migrations-manifest.ts": [
       "EMBEDDED_MIGRATIONS",
-      "EmbeddedMigration",
-      "gemello",
-      "ident",
-      "identOf",
-      "visti"
+      "EmbeddedMigration"
     ],
     "scripts/handoff-evidence.ts": [
       "esito",

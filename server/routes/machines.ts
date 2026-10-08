@@ -21,6 +21,7 @@ import { actingPersonId } from "../lib/orgs";
 import { normalizeRepositoryKey } from "../lib/delegated-agent-start";
 import { canonicalProjectIdentity } from "../lib/project-identity";
 import { createDelegatedRevocationRetry, type DelegatedRevocationRetry } from "../services/delegated-revocation-retry";
+import { SPAWN_TIMEOUT, spawnBounded } from "../lib/bounded-spawn";
 
 const NAME_MAX = 200;
 
@@ -133,7 +134,7 @@ export function createMachinesRouter(ctx: AppContext, opts: { revocations?: Dele
     const identity = canonicalProjectIdentity(ctx.db, projectId);
     const project = ctx.projectStore.get(identity.storeId) ?? null;
     if (!project) return null;
-    const proc = Bun.spawn(["git", "-C", project.path, "remote", "get-url", "origin"], { stdout: "pipe", stderr: "ignore" });
+    const proc = spawnBounded(["git", "-C", project.path, "remote", "get-url", "origin"], { stdout: "pipe", stderr: "ignore", timeoutMs: SPAWN_TIMEOUT.query });
     const output = await new Response(proc.stdout).text();
     return (await proc.exited) === 0 ? normalizeRepositoryKey(output) : null;
   };

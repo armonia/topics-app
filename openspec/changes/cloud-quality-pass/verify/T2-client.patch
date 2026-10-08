@@ -1,0 +1,453 @@
+diff --git a/client/src/components/Board/Card.test.ts b/client/src/components/Board/Card.test.ts
+index ba89560e2..784c6befe 100644
+--- a/client/src/components/Board/Card.test.ts
++++ b/client/src/components/Board/Card.test.ts
+@@ -37,8 +37,10 @@ describe('il corpo della colonna', () => {
+   test('gli id di SortableContext sono quelli DISEGNATI', () => {
+     // Un id nel registro di dnd-kit senza un nodo sotto è un bersaglio di drop
+     // che non esiste: il gesto muore in silenzio, che è il modo peggiore.
+-    const itemIds = src.slice(src.indexOf('const itemIds'), src.indexOf('\n', src.indexOf('const itemIds')));
+-    expect(itemIds).toContain('slice.rows');
++    // The ids are keyed through `idsKey` so the array stays the same while they
++    // do (dndStableProps.test.ts); `idsKey` is where they come from.
++    const idsKey = src.slice(src.indexOf('const idsKey'), src.indexOf('\n', src.indexOf('const idsKey')));
++    expect(idsKey).toContain('slice.rows');
+   });
+ 
+   test('la coda dice quante card restano e come tirarle su', () => {
+diff --git a/client/src/components/Board/Card.tsx b/client/src/components/Board/Card.tsx
+index 8b03b1754..b57d3bbdc 100644
+--- a/client/src/components/Board/Card.tsx
++++ b/client/src/components/Board/Card.tsx
+@@ -111,7 +111,13 @@ export function Column({ status, tasks, onOpen, onCreate, canCreate, showProject
+   // fresh array only when the task set actually changes, not every render. Gli id
+   // sono quelli DISEGNATI: un id senza nodo nel registro di dnd-kit è un
+   // bersaglio che non esiste.
+-  const itemIds = useMemo(() => slice.rows.map((t) => t.id), [slice]);
++  //
++  // Keyed on the ids, not on `slice`: the column array is new on every
++  // `task:updated` (one row changed), and a new `items` array is a new
++  // SortableContext value, which re-renders every `useSortable` card under it
++  // at identical props. Same ids in the same order = the same array.
++  const idsKey = slice.rows.map((t) => t.id).join('\n');
++  const itemIds = useMemo(() => (idsKey ? idsKey.split('\n') : []), [idsKey]);
+ 
+   // Responsive columns. The board is a scroll-snap carousel at EVERY breakpoint:
+   // each column `snap-center`s to the middle as its own "slide", so whenever the
+diff --git a/client/src/components/Board/KanbanBoardPane.tsx b/client/src/components/Board/KanbanBoardPane.tsx
+index 97c7a4a08..5ca2e43a1 100644
+--- a/client/src/components/Board/KanbanBoardPane.tsx
++++ b/client/src/components/Board/KanbanBoardPane.tsx
+@@ -2179,6 +2179,7 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, loadHi
+             projectId={drawerTask.projectId}
+             taskId={drawerTask.id}
+             initialStatus={drawerTask.status}
++            initialTitle={drawerTask.text}
+             bump={taskDetailBump(drawerTask)}
+             onClose={() => setSelectedId(null)}
+             onChanged={refetch}
+diff --git a/client/src/components/Board/TaskDetail.tsx b/client/src/components/Board/TaskDetail.tsx
+index 92d094e54..1a9bb81e0 100644
+--- a/client/src/components/Board/TaskDetail.tsx
++++ b/client/src/components/Board/TaskDetail.tsx
+@@ -769,7 +769,7 @@ function AttemptDiff({ projectId, taskId, attemptId }: { projectId: string; task
+ 
+ // ── Detail: drawer by default, expandable review surface ────────────────────
+ 
+-export function TaskDetail({ projectId, taskId, initialStatus, bump, onClose, onChanged, onOpenTask, onOpenTopic, onMessage, loadHistory, sessionState = 'unknown', focusPaneId, boardTopicsRoutingDefault = null, boardDispatchModel = null }: {
++export function TaskDetail({ projectId, taskId, initialStatus, initialTitle, bump, onClose, onChanged, onOpenTask, onOpenTopic, onMessage, loadHistory, sessionState = 'unknown', focusPaneId, boardTopicsRoutingDefault = null, boardDispatchModel = null }: {
+   projectId: string; taskId: string; onClose: () => void; onChanged: () => void;
+   /**
+    * The status the board already holds for this card. The chip draws it on the
+@@ -777,6 +777,14 @@ export function TaskDetail({ projectId, taskId, initialStatus, bump, onClose, on
+    * the header changed size 30 ms after mount (fluidity audit panes:F6).
+    */
+   initialStatus?: TaskStatus;
++  /**
++   * The title the board already holds for this card. Without it the drawer
++   * showed a spinner until `boardApi.get` (thread, children, everything) came
++   * back, so the title - the one thing that tells you the right card opened -
++   * arrived only with the rest. With it the header (project and title) is
++   * readable on the first frame, and the real row replaces it when it lands.
++   */
++  initialTitle?: string;
+   /**
+    * Change signal (`taskDetailBump` of the board's live row: its updatedAt and
+    * its queue reason): any WS task:updated (a step flipping, a new comment, a
+@@ -1460,12 +1468,15 @@ export function TaskDetail({ projectId, taskId, initialStatus, bump, onClose, on
+   // quello del composer e delle card.
+   const projects = useBoardProjects();
+   const openProjMenu = () => setProjMenuOpen(true);
+-  const currentProject = projects?.find((p) => p.projectId === task?.projectId) ?? null;
+-  const projectLabel = task && isProjectlessId(task.projectId)
++  // The row's project, or the board's until the row arrives: the header is
++  // already drawn with the title the board knows (`initialTitle`).
++  const headerProjectId = task?.projectId ?? (initialTitle != null ? projectId : undefined);
++  const currentProject = projects?.find((p) => p.projectId === headerProjectId) ?? null;
++  const projectLabel = headerProjectId && isProjectlessId(headerProjectId)
+     ? 'Nessun progetto'
+     // `?? UNKNOWN_PROJECT_NAME`: da un id che non ha un nome dentro (un UUID)
+     // `projectNameFromId` torna `null`, e a schermo va la frase, non il codice.
+-    : currentProject?.name ?? (task ? projectNameFromId(task.projectId) ?? UNKNOWN_PROJECT_NAME : '');
++    : currentProject?.name ?? (headerProjectId ? projectNameFromId(headerProjectId) ?? UNKNOWN_PROJECT_NAME : '');
+   const moveBlocked = !task ? null
+     : task.parentTaskId ? 'I sottotask si spostano col loro task padre.'
+     : task.assignedTopicId || isAgentWorking(task.dispatchState)
+@@ -2065,11 +2076,12 @@ export function TaskDetail({ projectId, taskId, initialStatus, bump, onClose, on
+         {/* Project EYEBROW + PRIMARY STATE on one row — favicon + name on the
+             left, the dispatch chip aligned right (card's top-right slot). The
+             title below then gets the FULL width, no chip competing with it. */}
+-        {task && (
++        {(task || initialTitle != null) && (
+           <div className="mb-1 flex items-center gap-2">
+             <button
+               ref={projChipRef}
+               onClick={openProjMenu}
++              disabled={!task}
+               data-testid="task-project-chip"
+               title={tr('board.task.projectChipTitle', { label: projectLabel })}
+               // 24 tall with the mouse (`tap-expand-y`, 3.5px over a 4px gap),
+@@ -2092,11 +2104,11 @@ export function TaskDetail({ projectId, taskId, initialStatus, bump, onClose, on
+             )}
+             {/* Stessa precedenza della card: la ragione della coda batte il
+                 chip di stato, e le due superfici restano in passo. */}
+-            {task.queueReason ? (
++            {task?.queueReason ? (
+               <QueueReasonChip reason={task.queueReason} />
+-            ) : (task.dispatchState && DISPATCH_CHIP[task.dispatchState]) ? (
++            ) : (task?.dispatchState && DISPATCH_CHIP[task.dispatchState]) ? (
+               <DispatchChip state={task.dispatchState} error={task.dispatchError} deliveredBy={task.deliveredBy} />
+-            ) : showsStoppedChip(task) ? (
++            ) : task && showsStoppedChip(task) ? (
+               // Same rule as the card, one module: `stoppedChip.ts`.
+               <span className="shrink-0 rounded bg-rose-500/15 px-1.5 py-0.5 text-mini text-rose-300" title={task.dispatchError ?? undefined}>{tr('board.task.stopped')}</span>
+             ) : null}
+@@ -2142,7 +2154,7 @@ export function TaskDetail({ projectId, taskId, initialStatus, bump, onClose, on
+             onClick={() => { if (task) { setTitleDraft(task.text); setEditingTitle(true); } }}
+             title={tr('board.task.editTitleTitle')}
+             className="-mx-1.5 line-clamp-2 cursor-text break-words rounded px-1.5 py-1 text-body-lg leading-5 text-app-text hover:bg-white/5"
+-          >{task ? <MorphText text={task.text} /> : null}</p>
++          >{task ? <MorphText text={task.text} /> : initialTitle != null ? <MorphText text={initialTitle} /> : null}</p>
+         )}
+         {/* THE WAIT IS IDENTITY, NOT METADATA. It used to sit in the meta row,
+             which now lives behind the collapsed "details" toggle: a blocked
+@@ -2980,8 +2992,11 @@ export function TaskDetail({ projectId, taskId, initialStatus, bump, onClose, on
+           </button>
+         </div>
+       ) : !task ? (
+-        <div className="flex flex-1 items-center justify-center">
+-          <Spinner size="md" tone="current" className="text-app-text-muted" />
++        <div className="flex min-h-0 flex-1 flex-col">
++          {initialTitle != null && <div className="shrink-0" data-testid="task-brief-header">{identityCard}</div>}
++          <div className="flex flex-1 items-center justify-center">
++            <Spinner size="md" tone="current" className="text-app-text-muted" />
++          </div>
+         </div>
+       ) : (
+       <div className="flex min-h-0 flex-1 flex-col">
+diff --git a/client/src/components/Board/dndStableProps.test.ts b/client/src/components/Board/dndStableProps.test.ts
+index 9c133ead1..a5bced6ae 100644
+--- a/client/src/components/Board/dndStableProps.test.ts
++++ b/client/src/components/Board/dndStableProps.test.ts
+@@ -59,6 +59,20 @@ describe('kanban sensors are referentially stable', () => {
+     }
+   });
+ 
++  test('a column hands SortableContext the same items while its ids do not change', () => {
++    // The column array is new on every `task:updated` (one row changed), and a
++    // new `items` array is a new SortableContext value, which re-renders every
++    // `useSortable` card under it at identical props. Measured on a 66-card
++    // board (board-update-renders.spec.ts): 588 board renders per frame with
++    // `items` keyed on the column, 94 with it keyed on the ids.
++    const memoCall = /const itemIds = useMemo\(([\s\S]*?)\);/.exec(card);
++    expect(memoCall, 'Column no longer builds `itemIds` with useMemo: this test guards nothing').not.toBeNull();
++    const deps = /\[([^\]]*)\]\s*$/.exec(memoCall![1]!.trim())?.[1]?.split(',').map((d) => d.trim()) ?? [];
++    expect(deps, 'itemIds must not depend on an array that is new on every frame').not.toContain('slice');
++    expect(deps).toEqual(['idsKey']);
++    expect(card).toMatch(/const idsKey = slice\.rows\.map\(\(t\) => t\.id\)\.join\(/);
++  });
++
+   test('the card stays memoized: without it a stable context buys nothing', () => {
+     expect(card).toContain('memo(');
+     expect(card).toMatch(/const Card = memo\(|export const Card = memo\(/);
+diff --git a/client/src/hooks/useBoardFeed.test.ts b/client/src/hooks/useBoardFeed.test.ts
+index d30f6bd87..b46948cf4 100644
+--- a/client/src/hooks/useBoardFeed.test.ts
++++ b/client/src/hooks/useBoardFeed.test.ts
+@@ -356,7 +356,7 @@ describe('il feed globale ha un lettore solo', () => {
+     // shared chat store.
+     const s = src('./useTaskTopicIndex.ts');
+     expect(s.includes('boardApi.')).toBe(false);
+-    expect(s.includes('useBoardTasks(')).toBe(true);
++    expect(s.includes('subscribeBoardTasks(')).toBe(true);
+   });
+ 
+   test('e chi scrive la rilascia quando la PATCH ha risposto, non prima', () => {
+diff --git a/client/src/hooks/useGlobalBoard.test.ts b/client/src/hooks/useGlobalBoard.test.ts
+index 789535967..72676b861 100644
+--- a/client/src/hooks/useGlobalBoard.test.ts
++++ b/client/src/hooks/useGlobalBoard.test.ts
+@@ -21,11 +21,11 @@
+  * @covers KANBAN-06
+  */
+ import { describe, expect, test, afterEach, beforeEach, jest } from 'bun:test';
+-import { createElement } from 'react';
++import { createElement, useEffect } from 'react';
+ import { mount } from '../test/reactHarness';
+ import { boardApi, type BoardTask } from '../lib/board';
+ import { dispatchLifecycle } from '../lib/wsFrameBus';
+-import { __resetBoardTasks, getBoardTasks, getBoardTasksError, hasLoadedBoardTasks, setBoardTasks } from '../lib/boardTasksStore';
++import { __resetBoardTasks, applyBoardTaskFrame, getBoardTasks, getBoardTasksError, hasLoadedBoardTasks, setBoardTasks } from '../lib/boardTasksStore';
+ import { useGlobalBoard } from './useGlobalBoard';
+ import type { WSMessage } from '../types';
+ 
+@@ -284,6 +284,32 @@ describe('useGlobalBoard: the frame is the answer', () => {
+     b.unmount();
+   });
+ 
++  test('a frame that changes no column hands App the SAME board', async () => {
++    // React bails out of a `useSyncExternalStore` render when the snapshot is
++    // the same object (`Object.is`); this harness re-renders on every notice
++    // instead, so what is asserted is the identity React compares.
++    const box: { board: ReturnType<typeof useGlobalBoard> | null } = { board: null };
++    const Probe = (): null => {
++      const board = useGlobalBoard();
++      useEffect(() => { box.board = board; });
++      return null;
++    };
++    const h = mount(createElement(Probe));
++    setBoardTasks([row('a'), row('b')]);
++    const shown = box.board;
++
++    // A title and a dispatch chip: the store takes them, the summary does not move.
++    applyBoardTaskFrame(row('a', { text: 'agent at work', dispatchState: 'working' } as Partial<BoardTask>));
++    expect(getBoardTasks()[0]!.text).toBe('agent at work');
++    expect(box.board, 'App got a new board object for a title').toBe(shown);
++
++    // A card that changed column is a new shape: a new object, the counts move.
++    setBoardTasks([row('a', { status: 'done' }), row('b')]);
++    expect(box.board).not.toBe(shown);
++    expect(box.board!.activeCount).toBe(1);
++    h.unmount();
++  });
++
+   test('after a minute of absorbed frames one read leaves anyway', async () => {
+     const b = mountBoard();
+     await settle();
+diff --git a/client/src/hooks/useGlobalBoard.ts b/client/src/hooks/useGlobalBoard.ts
+index d4f490cee..b6f64e008 100644
+--- a/client/src/hooks/useGlobalBoard.ts
++++ b/client/src/hooks/useGlobalBoard.ts
+@@ -30,12 +30,12 @@
+  * lands in the coalescer above. See `useBoardFeed` for the numbers of the day
+  * three of them were reading the same feed on their own.
+  */
+-import { useCallback, useEffect, useMemo, useRef } from 'react';
++import { useCallback, useEffect, useRef, useSyncExternalStore } from 'react';
+ import type { WSMessage } from '../types';
+ import { boardApi, type BoardTask, type TaskStatus } from '../lib/board';
+ import { groupByStatus } from '../lib/boardOrder';
+ import {
+-  applyBoardTaskFrame, markBoardTasksFailed, setBoardTasks, setBoardTasksRefresher, useBoardTasks,
++  applyBoardTaskFrame, getBoardTasks, markBoardTasksFailed, setBoardTasks, setBoardTasksRefresher, subscribeBoardTasks,
+ } from '../lib/boardTasksStore';
+ import { createCoalescedReader, type Coalescer } from '../lib/burstCoalescer';
+ import { BOOT_READ_TTL_MS } from '../lib/coalesceFetch';
+@@ -75,10 +75,60 @@ type GlobalReadOutcome =
+ export interface GlobalBoard {
+   /** Tasks not yet `done`, across every project. */
+   activeCount: number;
+-  /** The rows per kanban column, ordered the way the board shows them. */
++  /**
++   * The rows per kanban column, ordered the way the board shows them.
++   *
++   * It changes only when the SHAPE of the board changes (a card enters,
++   * leaves, changes column or project): a frame that rewrites a title or a
++   * dispatch chip leaves it as it was, rows included. Whoever needs the live
++   * row reads `boardTasksStore` (`useBoardTasks`), like the board itself does.
++   */
+   byStatus: Record<TaskStatus, BoardTask[]>;
+ }
+ 
++/**
++ * THE SHAPE, NOT THE ROWS: what `App` actually reads of the board.
++ *
++ * This hook lives in `App`, and it was subscribed to EVERY write of the store:
++ * an agent at work re-emits its row every few seconds, the store absorbs each
++ * frame (`applyBoardTaskFrame`), and each absorption re-rendered `App` - the
++ * sidebar, every resident pane and the board under them - to repaint a title
++ * only the board shows. What leaves this hook is the count of active cards and
++ * `byStatus`, which the sidebar reduces to cards per column and per project
++ * (`BoardRowSummary`): id, status and project are all it can see. So the
++ * subscription compares those, and hands back the SAME object while they hold.
++ *
++ * Module state and not a ref: the store is one per document, and so is its
++ * summary. The key is the identity of the rows array, which the store replaces
++ * on every real change and keeps on a repeated feed.
++ */
++let summaryRows: readonly BoardTask[] | null = null;
++let summaryShape = '';
++let summary: GlobalBoard | null = null;
++
++function boardShape(tasks: readonly BoardTask[]): string {
++  let shape = '';
++  for (const t of tasks) shape += `${t.id}\u0000${t.status}\u0000${t.projectId}\u0001`;
++  return shape;
++}
++
++function getGlobalBoardSummary(): GlobalBoard {
++  const tasks = getBoardTasks();
++  if (summary && tasks === summaryRows) return summary;
++  summaryRows = tasks;
++  const shape = boardShape(tasks);
++  if (summary && shape === summaryShape) return summary;
++  summaryShape = shape;
++  let activeCount = 0;
++  for (const task of tasks) if (task.status !== 'done') activeCount++;
++  // Stesso ordinamento della board vera, così la fascia non racconta un ordine
++  // diverso da quello che si vede aprendola. Scope `cross-project`: qui i task
++  // vengono da board diverse e `kanbanOrder` non si confronta fra sequenze
++  // indipendenti (vedi `lib/boardOrder`).
++  summary = { activeCount, byStatus: groupByStatus(tasks, 'cross-project') };
++  return summary;
++}
++
+ /** A window nobody is looking at. `document.hidden` and not the focus test of
+  *  `isWindowAwake`: an app merely BEHIND another still shows its board on
+  *  screen, and a board that stopped updating while you can read it is a lie. */
+@@ -89,7 +139,7 @@ function windowHidden(): boolean {
+ export function useGlobalBoard(
+   onMessage?: (handler: (msg: WSMessage) => void) => () => void,
+ ): GlobalBoard {
+-  const tasks = useBoardTasks();
++  const board = useSyncExternalStore(subscribeBoardTasks, getGlobalBoardSummary, getGlobalBoardSummary);
+   // A refresh that came due while the window was hidden. It is remembered, not
+   // dropped: the moment somebody looks again, ONE read brings back whatever the
+   // agents did in the meantime.
+@@ -227,13 +277,5 @@ export function useGlobalBoard(
+     return () => { stopReconnectListener(); stopOpenListener(); };
+   }, [ensure]);
+ 
+-  return useMemo(() => {
+-    let activeCount = 0;
+-    for (const task of tasks) if (task.status !== 'done') activeCount++;
+-    // Stesso ordinamento della board vera, così la fascia non racconta un ordine
+-    // diverso da quello che si vede aprendola. Scope `cross-project`: qui i task
+-    // vengono da board diverse e `kanbanOrder` non si confronta fra sequenze
+-    // indipendenti (vedi `lib/boardOrder`).
+-    return { activeCount, byStatus: groupByStatus(tasks, 'cross-project') };
+-  }, [tasks]);
++  return board;
+ }
+diff --git a/client/src/hooks/useTaskTopicIndex.test.ts b/client/src/hooks/useTaskTopicIndex.test.ts
+new file mode 100644
+index 000000000..98838c10d
+--- /dev/null
++++ b/client/src/hooks/useTaskTopicIndex.test.ts
+@@ -0,0 +1,46 @@
++/**
++ * The topic -> task index follows the board store without rendering its host.
++ *
++ * `useTaskTopicIndex` is mounted in `App`. It used to read the rows through
++ * `useBoardTasks()`, so every write of the store (every `task:updated` an agent
++ * at work re-emits) re-rendered `App` just to run an effect. The test harness
++ * re-renders on every notice of a store a component subscribed to in render,
++ * which is exactly the dependency this file refuses.
++ *
++ * @covers KANBAN-01
++ */
++import { afterEach, describe, expect, test } from 'bun:test';
++import { createElement, useEffect } from 'react';
++import { mount } from '../test/reactHarness';
++import type { BoardTask } from '../lib/board';
++import { __resetBoardTasks, setBoardTasks } from '../lib/boardTasksStore';
++import { useTaskTopicIndex, type TopicTaskResolver } from './useTaskTopicIndex';
++
++const row = (id: string, over: Partial<BoardTask> = {}): BoardTask =>
++  ({ id, projectId: 'p1', text: id, status: 'todo', kanbanOrder: 0, parentTaskId: null, assignedTopicId: null, dispatchState: null, ...over } as BoardTask);
++
++afterEach(() => { __resetBoardTasks(); });
++
++describe('useTaskTopicIndex', () => {
++  test('a store write updates the index and renders nobody', () => {
++    let renders = 0;
++    const box: { resolve: TopicTaskResolver | null } = { resolve: null };
++    const Probe = (): null => {
++      renders++;
++      const resolve = useTaskTopicIndex();
++      useEffect(() => { box.resolve = resolve; });
++      return null;
++    };
++    const h = mount(createElement(Probe));
++    const afterMount = renders;
++    expect(box.resolve!('topic-1')).toBeNull();
++
++    setBoardTasks([row('t1', { assignedTopicId: 'topic-1', dispatchState: 'working' })]);
++    expect(box.resolve!('topic-1')).toEqual({ taskId: 't1', status: 'todo', dispatchState: 'working' });
++
++    setBoardTasks([row('t1', { assignedTopicId: 'topic-1', dispatchState: null, text: 'renamed' })]);
++    expect(box.resolve!('topic-1')?.dispatchState).toBeNull();
++    expect(renders, 'the host re-rendered for a store write').toBe(afterMount);
++    h.unmount();
++  });
++});
+diff --git a/client/src/hooks/useTaskTopicIndex.ts b/client/src/hooks/useTaskTopicIndex.ts
+index fb6daac88..fcde940c4 100644
+--- a/client/src/hooks/useTaskTopicIndex.ts
++++ b/client/src/hooks/useTaskTopicIndex.ts
+@@ -29,8 +29,9 @@
+  * è precisamente la cosa che decide se una notifica si vede o no. Derivandolo
+  * dallo store la fetch è una sola, ed è già ordinata all'origine.
+  */
+-import { useCallback, useEffect, useMemo, useRef } from 'react';
+-import { useBoardTasks } from '../lib/boardTasksStore';
++import { useCallback, useEffect, useRef } from 'react';
++import type { BoardTask } from '../lib/board';
++import { getBoardTasks, subscribeBoardTasks } from '../lib/boardTasksStore';
+ import { buildTopicTaskIndex, type TopicTaskRef } from '../lib/taskTopicIndex';
+ import { applyTaskSessionIndex } from '../state/taskSessions';
+ 
+@@ -38,18 +39,34 @@ export type { TopicTaskRef };
+ 
+ export type TopicTaskResolver = (topicId: string) => TopicTaskRef | null;
+ 
++/**
++ * SUBSCRIBED OUTSIDE THE RENDER. This hook is mounted in `App`, and nothing it
++ * returns changes: the resolver is stable and reads a ref, and the chat store
++ * is written from here. It used to read the rows with `useBoardTasks()`, which
++ * made `App` re-render on every write of the store, that is on every
++ * `task:updated` an agent at work re-emits, only to run an effect. Now the
++ * store wakes a plain callback, which rebuilds the index when the rows changed
++ * (the store keeps the array on a repeated feed) and renders nobody.
++ */
+ export function useTaskTopicIndex(): TopicTaskResolver {
+-  const tasks = useBoardTasks();
+-  const index = useMemo(() => buildTopicTaskIndex(tasks), [tasks]);
+-  const mapRef = useRef(index.byTopic);
++  const mapRef = useRef<Map<string, TopicTaskRef>>(new Map());
+ 
+   useEffect(() => {
+-    mapRef.current = index.byTopic;
+-    // Sostituzione dell'indice intero: `applyTaskSessionIndex` sveglia solo i
+-    // topic in cui qualcosa è davvero cambiato, quindi un giro a vuoto (lo
+-    // store riscritto con le stesse righe) non costa un render a nessuna chat.
+-    applyTaskSessionIndex(index.forStore);
+-  }, [index]);
++    let seen: readonly BoardTask[] | null = null;
++    const sync = () => {
++      const tasks = getBoardTasks();
++      if (tasks === seen) return;
++      seen = tasks;
++      const index = buildTopicTaskIndex(tasks);
++      mapRef.current = index.byTopic;
++      // Sostituzione dell'indice intero: `applyTaskSessionIndex` sveglia solo i
++      // topic in cui qualcosa è davvero cambiato, quindi un giro a vuoto (lo
++      // store riscritto con le stesse righe) non costa un render a nessuna chat.
++      applyTaskSessionIndex(index.forStore);
++    };
++    sync();
++    return subscribeBoardTasks(sync);
++  }, []);
+ 
+   return useCallback((topicId: string) => mapRef.current.get(topicId) ?? null, []);
+ }

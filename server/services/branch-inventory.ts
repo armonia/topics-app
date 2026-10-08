@@ -25,6 +25,7 @@
 
 import { existsSync } from "node:fs";
 import type { GitRunner } from "./own-commits";
+import { SPAWN_TIMEOUT, runBounded } from "../lib/bounded-spawn";
 
 /**
  * THE SCAN, kept apart from the pairing so that both halves can be measured.
@@ -61,16 +62,13 @@ export type BranchScan =
 
 const BASE_CANDIDATES = ["main", "master"] as const;
 
-async function run(cwd: string, args: string[], runGit?: GitRunner): Promise<{ code: number; stdout: string }> {
+export async function run(cwd: string, args: string[], runGit?: GitRunner): Promise<{ code: number; stdout: string }> {
   if (runGit) {
     try { const r = await runGit(cwd, args); return { code: r.code, stdout: r.stdout }; }
     catch { return { code: 1, stdout: "" }; }
   }
-  try {
-    const proc = Bun.spawn(["git", "-C", cwd, ...args], { stdout: "pipe", stderr: "ignore" });
-    const stdout = await new Response(proc.stdout).text();
-    return { code: await proc.exited, stdout };
-  } catch { return { code: 1, stdout: "" }; }
+  const r = await runBounded(["git", "-C", cwd, ...args], { timeoutMs: SPAWN_TIMEOUT.query });
+  return { code: r.exitCode ?? 1, stdout: r.stdout };
 }
 
 /** Local branches that are not merged into the repo's base branch, and how far ahead. */

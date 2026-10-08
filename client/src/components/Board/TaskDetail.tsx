@@ -769,7 +769,7 @@ function AttemptDiff({ projectId, taskId, attemptId }: { projectId: string; task
 
 // ── Detail: drawer by default, expandable review surface ────────────────────
 
-export function TaskDetail({ projectId, taskId, initialStatus, bump, onClose, onChanged, onOpenTask, onOpenTopic, onMessage, loadHistory, sessionState = 'unknown', focusPaneId, boardTopicsRoutingDefault = null, boardDispatchModel = null }: {
+export function TaskDetail({ projectId, taskId, initialStatus, initialTitle, bump, onClose, onChanged, onOpenTask, onOpenTopic, onMessage, loadHistory, sessionState = 'unknown', focusPaneId, boardTopicsRoutingDefault = null, boardDispatchModel = null }: {
   projectId: string; taskId: string; onClose: () => void; onChanged: () => void;
   /**
    * The status the board already holds for this card. The chip draws it on the
@@ -777,6 +777,14 @@ export function TaskDetail({ projectId, taskId, initialStatus, bump, onClose, on
    * the header changed size 30 ms after mount (fluidity audit panes:F6).
    */
   initialStatus?: TaskStatus;
+  /**
+   * The title the board already holds for this card. Without it the drawer
+   * showed a spinner until `boardApi.get` (thread, children, everything) came
+   * back, so the title - the one thing that tells you the right card opened -
+   * arrived only with the rest. With it the header (project and title) is
+   * readable on the first frame, and the real row replaces it when it lands.
+   */
+  initialTitle?: string;
   /**
    * Change signal (`taskDetailBump` of the board's live row: its updatedAt and
    * its queue reason): any WS task:updated (a step flipping, a new comment, a
@@ -1460,12 +1468,15 @@ export function TaskDetail({ projectId, taskId, initialStatus, bump, onClose, on
   // quello del composer e delle card.
   const projects = useBoardProjects();
   const openProjMenu = () => setProjMenuOpen(true);
-  const currentProject = projects?.find((p) => p.projectId === task?.projectId) ?? null;
-  const projectLabel = task && isProjectlessId(task.projectId)
+  // The row's project, or the board's until the row arrives: the header is
+  // already drawn with the title the board knows (`initialTitle`).
+  const headerProjectId = task?.projectId ?? (initialTitle != null ? projectId : undefined);
+  const currentProject = projects?.find((p) => p.projectId === headerProjectId) ?? null;
+  const projectLabel = headerProjectId && isProjectlessId(headerProjectId)
     ? 'Nessun progetto'
     // `?? UNKNOWN_PROJECT_NAME`: da un id che non ha un nome dentro (un UUID)
     // `projectNameFromId` torna `null`, e a schermo va la frase, non il codice.
-    : currentProject?.name ?? (task ? projectNameFromId(task.projectId) ?? UNKNOWN_PROJECT_NAME : '');
+    : currentProject?.name ?? (headerProjectId ? projectNameFromId(headerProjectId) ?? UNKNOWN_PROJECT_NAME : '');
   const moveBlocked = !task ? null
     : task.parentTaskId ? 'I sottotask si spostano col loro task padre.'
     : task.assignedTopicId || isAgentWorking(task.dispatchState)
@@ -2065,11 +2076,12 @@ export function TaskDetail({ projectId, taskId, initialStatus, bump, onClose, on
         {/* Project EYEBROW + PRIMARY STATE on one row — favicon + name on the
             left, the dispatch chip aligned right (card's top-right slot). The
             title below then gets the FULL width, no chip competing with it. */}
-        {task && (
+        {(task || initialTitle != null) && (
           <div className="mb-1 flex items-center gap-2">
             <button
               ref={projChipRef}
               onClick={openProjMenu}
+              disabled={!task}
               data-testid="task-project-chip"
               title={tr('board.task.projectChipTitle', { label: projectLabel })}
               // 24 tall with the mouse (`tap-expand-y`, 3.5px over a 4px gap),
@@ -2092,11 +2104,11 @@ export function TaskDetail({ projectId, taskId, initialStatus, bump, onClose, on
             )}
             {/* Stessa precedenza della card: la ragione della coda batte il
                 chip di stato, e le due superfici restano in passo. */}
-            {task.queueReason ? (
+            {task?.queueReason ? (
               <QueueReasonChip reason={task.queueReason} />
-            ) : (task.dispatchState && DISPATCH_CHIP[task.dispatchState]) ? (
+            ) : (task?.dispatchState && DISPATCH_CHIP[task.dispatchState]) ? (
               <DispatchChip state={task.dispatchState} error={task.dispatchError} deliveredBy={task.deliveredBy} />
-            ) : showsStoppedChip(task) ? (
+            ) : task && showsStoppedChip(task) ? (
               // Same rule as the card, one module: `stoppedChip.ts`.
               <span className="shrink-0 rounded bg-rose-500/15 px-1.5 py-0.5 text-mini text-rose-300" title={task.dispatchError ?? undefined}>{tr('board.task.stopped')}</span>
             ) : null}
@@ -2142,7 +2154,7 @@ export function TaskDetail({ projectId, taskId, initialStatus, bump, onClose, on
             onClick={() => { if (task) { setTitleDraft(task.text); setEditingTitle(true); } }}
             title={tr('board.task.editTitleTitle')}
             className="-mx-1.5 line-clamp-2 cursor-text break-words rounded px-1.5 py-1 text-body-lg leading-5 text-app-text hover:bg-white/5"
-          >{task ? <MorphText text={task.text} /> : null}</p>
+          >{task ? <MorphText text={task.text} /> : initialTitle != null ? <MorphText text={initialTitle} /> : null}</p>
         )}
         {/* THE WAIT IS IDENTITY, NOT METADATA. It used to sit in the meta row,
             which now lives behind the collapsed "details" toggle: a blocked
@@ -2980,8 +2992,11 @@ export function TaskDetail({ projectId, taskId, initialStatus, bump, onClose, on
           </button>
         </div>
       ) : !task ? (
-        <div className="flex flex-1 items-center justify-center">
-          <Spinner size="md" tone="current" className="text-app-text-muted" />
+        <div className="flex min-h-0 flex-1 flex-col">
+          {initialTitle != null && <div className="shrink-0" data-testid="task-brief-header">{identityCard}</div>}
+          <div className="flex flex-1 items-center justify-center">
+            <Spinner size="md" tone="current" className="text-app-text-muted" />
+          </div>
         </div>
       ) : (
       <div className="flex min-h-0 flex-1 flex-col">

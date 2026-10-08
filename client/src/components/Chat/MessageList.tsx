@@ -31,6 +31,7 @@ import {
 import { coalesceToolRuns, itemHolds, type CoalescedMessage } from './coalesceToolRun';
 import { SkeletonChatMessages } from '../Shared/Skeleton';
 import { listPaintedAndWhole } from './listPaintedAndWhole';
+import { showsLocalCopyRows } from '../../state/localCopyRows';
 import { useListStateCache } from './listStateCache';
 import { MessageEntrance } from './messageEntrance';
 import { decideHistoryCompletion } from './historyCompletionDecision';
@@ -1303,7 +1304,13 @@ export function MessageList({
       // curtain right before the list moved (see LIST_REVEAL_HARD_CAP_MS), so
       // the frame count only starts once there is something painted, whole,
       // and authoritative to hold still.
-      const ready = !currentLoadingRef.current && listPaintedAndWhole(el);
+      // On the device's local copy there is no waiting for the network: the
+      // copy IS the first page (`shared/history-paging.ts`, and
+      // `rowsAboveLocalCopy` keeps a shorter copy from growing at the top), so
+      // the answer confirms it or appends to it. Waiting held the skeleton over
+      // rows already in the store for the whole request: 75 frames against 15
+      // in `topic-visited-first-frame.spec.ts`, up to the hard cap below.
+      const ready = (!currentLoadingRef.current || showsLocalCopyRows(topic.sessionKey)) && listPaintedAndWhole(el);
       const h = el.scrollHeight;
       const top = Math.round(el.scrollTop);
       if (ready && h === ultimaH && top === ultimoTop) fermi += 1; else fermi = 0;
@@ -1318,7 +1325,7 @@ export function MessageList({
     };
     raf = requestAnimationFrame(guarda);
     return () => cancelAnimationFrame(raf);
-  }, [listSettled, scrollerEl, filteredMessages.length, viewKey, grewFromEmpty]);
+  }, [listSettled, scrollerEl, filteredMessages.length, viewKey, grewFromEmpty, topic.sessionKey]);
 
   // Scroll to bottom after messages load for a new topic.
   // Skipped while a palette jump target is pending (peekScrollToMessage): the
@@ -1531,6 +1538,26 @@ export function MessageList({
     // this pin scrolls the row out of Virtuoso's overscan, which unmounts
     // and remounts it collapsed. See `gestureUntilRef`.
     if (_currentStreaming && Date.now() >= gestureUntilRef.current) pinToBottom({ now: true });
+  }, [filteredMessages, _currentStreaming, pinToBottom]);
+  // The bottom of a view at rest, kept in the same layout as the change, for
+  // rows that change while NO turn streams: the pictures stapled to the end of
+  // a turn (`message:media`), a reply landed while the reader was away, a row
+  // filled from a broadcast. Left to the append effect (two frames) or to the
+  // ResizeObserver below, the scroll lands after a layout that already pushed
+  // the footer down, and Chrome counts that as a layout shift even when it is
+  // fixed before the paint: measured on a bare scroller growing 300 px, a pin
+  // in the same task or in the next rAF counts 0, the same pin in a
+  // ResizeObserver callback counts 0.0197. Here: CLS 0.034 on a 320 px picture
+  // box, 0.039 on a 383 px reply (CHAT-MEDIA-BOX-01).
+  // A MICROTASK, not this effect: Virtuoso draws the changed row in a second
+  // commit that React runs synchronously after this one (its own layout effect
+  // publishes the new data), so the row is not grown yet here; the microtask
+  // runs after that commit and before the frame's layout.
+  // Only for a view resting at the bottom; `shouldPin` keeps the last word.
+  useLayoutEffect(() => {
+    if (_currentStreaming || lastDistanceFromBottomRef.current > 1) return;
+    if (Date.now() < gestureUntilRef.current) return;
+    queueMicrotask(() => pinToBottom({ now: true }));
   }, [filteredMessages, _currentStreaming, pinToBottom]);
   /** Until when a tool body animates its height (`transcriptRowResize.ts`):
    *  its growth is pinned frame by frame even inside a gesture window, since a
@@ -1818,9 +1845,9 @@ export function MessageList({
       // A growth inside a gesture window is never "the silent last growth":
       // it's the row that was just opened by hand. Pinning here scrolls it
       // out of Virtuoso's overscan, which unmounts and remounts it collapsed
-      // — the tool-call collapse. Nothing is lost by waiting: once the
-      // window ends, if the list is still at the bottom, this same observer
-      // passes through here again.
+      // — the tool-call collapse. Waiting has a cost: this observer fires only
+      // when a size changes, so a growth that ends inside the window never
+      // comes back here, and nothing pins it once the window is over.
       // ...unless it is a tool body animating its height (`rowResizeUntilRef`).
       if (Date.now() < gestureUntilRef.current && Date.now() >= rowResizeUntilRef.current) return;
       // NOTA sull'anello, per chi passerà di qui a «ottimizzare».

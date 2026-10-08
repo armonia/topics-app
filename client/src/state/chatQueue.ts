@@ -53,6 +53,7 @@
 
 import { useSyncExternalStore } from 'react';
 import type { SendMessageOptions } from '../hooks/useChat';
+import type { MediaSizes } from '../../../shared/media-sizes';
 import type { QueueStorage } from '../hooks/outboundQueue';
 import { lastStopOf, onStopHeard, serverTurnOf, type ServerTurn, type TurnRef } from './serverTurn';
 
@@ -435,11 +436,17 @@ function sameOptions(a?: SendMessageOptions, b?: SendMessageOptions): boolean {
  */
 export const BATCH_SEPARATOR = '\n\n';
 
-/** Il batch come UN turno solo: testo unito, opzioni della testa (sono uguali per costruzione). */
+/**
+ * Il batch come UN turno solo: testo unito, opzioni della testa (sono uguali per costruzione).
+ * The sizes of the attached pictures are not an option of the turn: each message
+ * brings its own, and the one bubble of the batch draws them all.
+ */
 export function mergeBatch(batch: QueuedTurn[]): { content: string; options?: SendMessageOptions } {
+  const mediaSizes = batch.reduce<MediaSizes | undefined>((all, i) => (i.options?.mediaSizes ? { ...all, ...i.options.mediaSizes } : all), undefined);
+  const head = batch[0]?.options;
   return {
     content: batch.map(i => i.content).join(BATCH_SEPARATOR),
-    options: batch[0]?.options,
+    options: mediaSizes ? { ...head, mediaSizes } : head,
   };
 }
 

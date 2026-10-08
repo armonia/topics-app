@@ -92,13 +92,14 @@ async function queryRows(dbPath: string, domains: string[]): Promise<Row[]> {
     where = `WHERE ${clauses}`;
   }
   const sql = `SELECT host_key, name, path, hex(encrypted_value) AS enc, expires_utc, is_secure, is_httponly, samesite FROM cookies ${where};`;
-  const { stdout } = await pExecFile("sqlite3", ["-json", dbPath, sql], { maxBuffer: 256 * 1024 * 1024 });
+  const { stdout } = await pExecFile("sqlite3", ["-json", dbPath, sql], { maxBuffer: 256 * 1024 * 1024, timeout: 30_000, killSignal: "SIGKILL" });
   const out = stdout.toString().trim();
   return out ? (JSON.parse(out) as Row[]) : [];
 }
 
 async function keychainKey(browser: CookieBrowser): Promise<Buffer> {
-  const { stdout } = await pExecFile("security", ["find-generic-password", "-ws", COOKIE_BROWSERS[browser].keychain]);
+  // The keychain may open a consent dialog: two minutes to answer, then the request returns with an error.
+  const { stdout } = await pExecFile("security", ["find-generic-password", "-ws", COOKIE_BROWSERS[browser].keychain], { timeout: 120_000, killSignal: "SIGKILL" });
   const pw = stdout.toString().replace(/\n$/, "");
   return pbkdf2Sync(pw, "saltysalt", 1003, 16, "sha1");
 }

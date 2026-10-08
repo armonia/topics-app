@@ -25,6 +25,7 @@
  */
 import { existsSync, mkdirSync, renameSync, writeFileSync } from "fs";
 import { basename, dirname, extname, join, resolve } from "path";
+import { SPAWN_TIMEOUT, spawnBounded } from "./bounded-spawn";
 
 export interface TrashResult {
   ok: boolean;
@@ -82,12 +83,13 @@ async function trySystemTrash(absPath: string): Promise<TrashResult | null> {
   for (const { bin, args } of SYSTEM_TRASH) {
     if (!existsSync(bin)) continue;
     try {
-      const proc = Bun.spawn([bin, ...args(absPath)], { stdout: "pipe", stderr: "pipe" });
+      const proc = spawnBounded([bin, ...args(absPath)], { stdout: "pipe", stderr: "pipe", timeoutMs: SPAWN_TIMEOUT.write });
       const stderr = await new Response(proc.stderr).text();
       await proc.exited;
       if (proc.exitCode === 0) return { ok: true, via: "system" };
       // Il binario c'è ma si è rifiutato: lo si dice invece di provare il
       // prossimo, che fallirebbe per la stessa ragione (permessi, file in uso).
+      if (proc.timedOut) return { ok: false, error: `${basename(bin)} non ha risposto in tempo` };
       return { ok: false, error: stderr.trim() || `${basename(bin)} è uscito con ${proc.exitCode}` };
     } catch {
       // Non eseguibile: si prova il candidato dopo.
