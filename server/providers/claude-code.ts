@@ -3570,7 +3570,7 @@ export class ClaudeCodeProvider implements AIProvider {
         const replayed = new Promise<void>((r) => { release = () => r(); });
         if (own) this.queues.set(sessionKey, (this.queues.get(sessionKey) ?? Promise.resolve()).then(() => replayed));
         try {
-          if (own) { pp.replaySilent = true; pp.rewindFrom = own.from; dateReplay(pp, await client.attach(sessionKey, own.from)); }
+          if (own) { pp.replaySilent = true; pp.rewindFrom = own.from; dateReplay(pp, await client.attachWhole(sessionKey, own.from)); }
           if (pp.streamHandler === handler && pp.replayLastResult) this.handleStreamEvent(pp, pp.replayLastResult); // the replay did not reach it
         } finally { pp.replaySilent = false; abandonRewind(pp); release(); }
         return "completed";
@@ -3604,9 +3604,9 @@ export class ClaudeCodeProvider implements AIProvider {
     // rejection: the whole server went down. The awaits below still see it.
     turnDone.catch(() => {});
 
-    // A rewind below the scan's cursor, named: what the scan's live attach delivers meanwhile is the replay's (`admitFrame`).
+    // A rewind below the scan's cursor, named and whole: the scan's live frames meanwhile are the replay's (`admitFrame`), and its ack, behind the same backlog, may come past the cap.
     pp.rewindFrom = own?.from ?? pp.replayAfterLastResultOffset ?? 0;
-    const res = await client.attach(sessionKey, pp.rewindFrom);
+    const res = await client.attachWhole(sessionKey, pp.rewindFrom);
     pp.replaySilent = false; pp.rewindFrom = undefined;
     dateReplay(pp, res);
 
