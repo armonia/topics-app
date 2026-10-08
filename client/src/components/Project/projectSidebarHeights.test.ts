@@ -63,20 +63,32 @@ describe('il tetto di una sezione aperta', () => {
 describe('readProjectSidebarWidth', () => {
   const PROJECT = '/Users/someone/Projects/thing';
 
-  /** Fake stores, removed afterwards: a DOM global left behind poisons every
-   *  test file that runs after this one (`scripts/check-test-globals.ts`). */
-  function withStorage(local: Record<string, string>, session: Record<string, string>, body: () => void): void {
+  /** Fake globals for `body`, then exactly what was there before: the old
+   *  property, or no property at all. A DOM global left behind poisons every
+   *  test file that runs after this one (`scripts/check-test-globals.ts`).
+   *  Deciding with `'localStorage' in globalThis` left the fake behind when an
+   *  earlier file had left the key set to `undefined`
+   *  (`focusBrowserContext.live.test.ts`, 08/10/2026): `in` said it was there,
+   *  nothing was removed, and the preload guard turned the whole shard red. */
+  function withGlobals(fakes: Record<string, unknown>, body: () => void): void {
     const g = globalThis as Record<string, unknown>;
-    const hadLocal = 'localStorage' in g;
-    const hadSession = 'sessionStorage' in g;
-    g.localStorage = { getItem: (k: string) => local[k] ?? null };
-    g.sessionStorage = { getItem: (k: string) => session[k] ?? null };
+    const found = Object.keys(fakes).map((k) => [k, Object.getOwnPropertyDescriptor(g, k)] as const);
+    Object.assign(g, fakes);
     try {
       body();
     } finally {
-      if (!hadLocal) delete g.localStorage;
-      if (!hadSession) delete g.sessionStorage;
+      for (const [k, descriptor] of found) {
+        if (descriptor) Object.defineProperty(g, k, descriptor);
+        else delete g[k];
+      }
     }
+  }
+
+  function withStorage(local: Record<string, string>, session: Record<string, string>, body: () => void): void {
+    withGlobals({
+      localStorage: { getItem: (k: string) => local[k] ?? null },
+      sessionStorage: { getItem: (k: string) => session[k] ?? null },
+    }, body);
   }
 
   test('restores the width the user dragged this project to', () => {
@@ -116,13 +128,21 @@ describe('readProjectSidebarWidth', () => {
   });
 
   test('storage denied (private mode) is answered, not thrown', () => {
-    const g = globalThis as Record<string, unknown>;
-    const had = 'localStorage' in g;
-    g.localStorage = { getItem: () => { throw new Error('SecurityError'); } };
-    try {
+    withGlobals({ localStorage: { getItem: () => { throw new Error('SecurityError'); } } }, () => {
       expect(readProjectSidebarWidth(PROJECT)).toBe(DEFAULT_SIDEBAR_W);
+    });
+  });
+
+  test('the fakes leave globalThis as they found it, a key left undefined included', () => {
+    const g = globalThis as Record<string, unknown>;
+    const before = Object.getOwnPropertyDescriptor(g, 'localStorage');
+    g.localStorage = undefined;
+    try {
+      withStorage({}, {}, () => {});
+      expect(Object.getOwnPropertyDescriptor(g, 'localStorage')).toEqual({ value: undefined, writable: true, enumerable: true, configurable: true });
     } finally {
-      if (!had) delete g.localStorage;
+      if (before) Object.defineProperty(g, 'localStorage', before);
+      else delete g.localStorage;
     }
   });
 
