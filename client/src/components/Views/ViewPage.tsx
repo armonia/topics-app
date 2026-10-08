@@ -2,13 +2,12 @@
  * The standalone page of a generative view: `/v/<id>` (GENUI-01).
  *
  * The same `ViewBody` the chat draws, given the room of a page. It mounts
- * its own small React tree from `main.tsx` and nothing of the app (no panes,
+ * its own small React tree (`mountViewPage`, from `main.tsx`) and nothing of the app (no panes,
  * no socket, no sidebar): it is something to look at, share on the LAN, or
  * keep open beside the chat. The theme comes from `boot.js` like the app's,
  * so dark stays dark.
  */
-import { StrictMode, useEffect, useState } from 'react';
-import { createRoot } from 'react-dom/client';
+import { useEffect, useState } from 'react';
 import { useLocale, useT } from '../../hooks/useT';
 import { apiFetch } from '../../lib/shell/net';
 import { parseViewSpec, type ViewSpec } from '../../../../shared/views';
@@ -61,13 +60,5 @@ export function ViewPage({ id }: { id: string }) {
         )}
       </main>
     </div>
-  );
-}
-
-export function mountViewPage(container: HTMLElement, id: string): void {
-  createRoot(container).render(
-    <StrictMode>
-      <ViewPage id={id} />
-    </StrictMode>,
   );
 }

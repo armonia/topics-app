@@ -18,7 +18,12 @@ import { viewPageUrl } from './viewRoute';
 // The renderers are a chunk of their own: a chat without views does not pay
 // for three of them in the eager bundle (`check:bundle`). The header above is
 // eager, so the block keeps its place while the body arrives.
-const ViewBody = lazyWarm(() => import('./ViewBody'), (m) => m.ViewBody);
+// Destructured with `await` so knip sees which export is read (check:deadcode-blindspots).
+const loadViewBody = async () => {
+  const { ViewBody } = await import('./ViewBody');
+  return { ViewBody };
+};
+const ViewBody = lazyWarm(loadViewBody, (m) => m.ViewBody);
 
 export const ViewBlock = memo(function ViewBlock({ spec, viewId }: { spec: ViewSpec; viewId?: string }) {
   const tr = useT();

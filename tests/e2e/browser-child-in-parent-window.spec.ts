@@ -14,7 +14,7 @@
  * @covers GENUI-05
  */
 import { test, expect, type APIRequestContext } from "@playwright/test";
-import { DatabaseSync } from "node:sqlite";
+import { execFileSync } from "node:child_process";
 import { join } from "node:path";
 import { goToApp } from "./helpers";
 import { E2E_BASE, E2E_DATA_DIR } from "./helpers/test-server";
@@ -35,17 +35,14 @@ const URL_OF = (label: string): string =>
 
 /** Link `childId` to `parentId` the way `spawn_agent` does for a native child. */
 function linkChild(parentId: string, childId: string): void {
-  const db = new DatabaseSync(join(E2E_DATA_DIR, "topics.db"));
-  try {
-    const key = (id: string) =>
-      (db.prepare("SELECT session_key AS k FROM topics WHERE id = ?").get(id) as { k: string }).k;
-    db.prepare(
-      `INSERT INTO subagents (id, parent_session_key, name, cwd, state, created_at, runtime, session_key)
-       VALUES (?, ?, 'child', '/tmp', 'stopped', ?, 'topics', ?)`,
-    ).run(childId, key(parentId), new Date().toISOString(), key(childId));
-  } finally {
-    db.close();
-  }
+  // The sqlite3 CLI, as the other specs do: CI's Node has no `node:sqlite`.
+  const db = join(E2E_DATA_DIR, "topics.db");
+  const q = (id: string) => `(SELECT session_key FROM topics WHERE id = '${id.replace(/'/g, "''")}')`;
+  execFileSync("sqlite3", [
+    db,
+    `INSERT INTO subagents (id, parent_session_key, name, cwd, state, created_at, runtime, session_key)
+     VALUES ('${childId.replace(/'/g, "''")}', ${q(parentId)}, 'child', '/tmp', 'stopped', '${new Date().toISOString()}', 'topics', ${q(childId)});`,
+  ]);
 }
 
 async function openPane(request: APIRequestContext, topicId: string, label: string, name: string) {

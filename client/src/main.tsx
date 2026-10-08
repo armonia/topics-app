@@ -95,7 +95,10 @@ installContextMenuSupport(browserContextMenuHost(window));
 // mounts its own small tree and none of the panes, stores or sockets below.
 const standaloneView = standaloneViewId(window.location.pathname);
 if (standaloneView) {
-  void import('./components/Views/ViewPage').then(({ mountViewPage }) => mountViewPage(container, standaloneView));
+  void (async () => {
+    const { mountViewPage } = await import('./components/Views/mountViewPage');
+    mountViewPage(container, standaloneView);
+  })();
 } else {
   bootApp(container);
 }

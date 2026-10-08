@@ -67,7 +67,6 @@ export type ViewMetric = z.infer<typeof metricSchema>;
 export type CompareOption = z.infer<typeof compareOptionSchema>;
 export type CompareViewSpec = z.infer<typeof compareViewSchema>;
 export type ViewSpec = z.infer<typeof viewSpecSchema>;
-export type { TableViewSpec, TimelineViewSpec };
 
 export type NormalizeResult = { ok: true; spec: ViewSpec } | { ok: false; errors: string[] };
 
