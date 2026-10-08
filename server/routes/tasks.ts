@@ -28,6 +28,7 @@ import { resolvePrincipals } from "../lib/principals";
 import { liveAgentStartCapability, queueDelegatedRun } from "../lib/delegated-agent-start";
 import type { OutboundMessage } from "../../shared/ws-outbound";
 import { budgetShare, capMode, isAgentWorking, isCiEvidenceCheck, type CheckRun, isThreadSpeech, PARKED_WAITED_OUT, pendingQuestion, TASK_STATUSES, type DispatchAdmission, type GlobalDispatchCap, type PendingQuestionComment, type TaskStatus } from "../../shared/board";
+import { toFeedTask } from "../../shared/board-feed";
 import { AGENT_AUTHOR, AGENT_AUTHOR_PREFIX } from "../../shared/comment-author";
 import { isPreviewablePath } from "../../shared/media-kind";
 import { isBlankLikeImage } from "../services/image-shape";
@@ -2816,7 +2817,7 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
       // clausola, e un insieme vuoto esce senza interrogare niente.
       if (pathname === "/api/all-boards/tasks") {
         if (method !== "GET") return json({ error: "read only", code: "guest_read_only" }, 403);
-        return json({ tasks: svc.list({ scope: "all", rootsOnly: true, ids: [...condivisi], doneLimit: DONE_FEED_LIMIT }) });
+        return json({ tasks: svc.list({ scope: "all", rootsOnly: true, ids: [...condivisi], doneLimit: DONE_FEED_LIMIT }).map(toFeedTask) });
       }
 
       // A single task: reads the level — not just whether it's shared, as it
@@ -2913,7 +2914,8 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
       // The `done` column of the global feed is capped: see DONE_FEED_LIMIT.
       // An explicit `?status=done` is a request for that column and is served
       // capped too - it is the same rows the board would draw.
-      try { return json({ tasks: svc.list({ scope: "all", status: asTaskStatus(status), rootsOnly: true, includeOrphanSubtasks: true, doneLimit: DONE_FEED_LIMIT }) }); }
+      // The feed drops the fields no client reads (shared/board-feed.ts).
+      try { return json({ tasks: svc.list({ scope: "all", status: asTaskStatus(status), rootsOnly: true, includeOrphanSubtasks: true, doneLimit: DONE_FEED_LIMIT }).map(toFeedTask) }); }
       catch (e) { return fail(e); }
     }
 

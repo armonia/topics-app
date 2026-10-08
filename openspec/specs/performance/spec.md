@@ -1120,3 +1120,10 @@ same order with the same values.
 - **WHEN** its rows are read with `allWideRows`
 - **THEN** they SHALL deep-equal the rows of `.all()`, with the keys in the same order
 - **AND** a column list that is not made of plain identifiers SHALL be read with `.all()`
+
+#### Scenario: the feed drops only what no client reads
+- **GIVEN** cards whose dispatcher bookkeeping, delegated-run ids and unread stamps all have a value
+- **WHEN** the board reads `GET /api/all-boards/tasks`
+- **THEN** none of the fields listed in `shared/board-feed.ts` SHALL be on a card, and every other field SHALL equal `svc.list`
+- **AND** a field in that list SHALL have no reader in `client/src`, its `BoardTask` declaration aside
+- **AND** a `task:updated` frame the store absorbs SHALL leave the row with the keys the feed brings, so re-reading an unchanged board publishes nothing
