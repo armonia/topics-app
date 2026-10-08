@@ -17,7 +17,9 @@ const g = globalThis as unknown as { window: FakeWindow | undefined };
 const realWindow = g.window;
 
 afterEach(() => {
-  g.window = realWindow;
+  // Removed, not set to undefined: a key left behind still answers `in`.
+  if (realWindow === undefined) delete g.window;
+  else g.window = realWindow;
   resetReducedMotionCache();
 });
 

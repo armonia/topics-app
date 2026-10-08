@@ -34,7 +34,9 @@ const ORIGINALS: Globals = {
 
 function setGlobals(g: Globals) {
   for (const [k, v] of Object.entries(g)) {
-    Object.defineProperty(globalThis, k, { value: v, configurable: true, writable: true });
+    // Removed, not set to undefined: a key left behind still answers `in`.
+    if (v === undefined) delete (globalThis as Record<string, unknown>)[k];
+    else Object.defineProperty(globalThis, k, { value: v, configurable: true, writable: true });
   }
 }
 
