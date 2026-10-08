@@ -84,7 +84,10 @@ if [ "$OS" = "smoke" ]; then
   SMOKE_PID=$!
   # Wait for the binary to exit before removing its data dir: one still writing
   # there made `rm -rf` fail ("Directory not empty") and the smoke exit 1.
-  cleanup_smoke() { kill "$SMOKE_PID" 2>/dev/null; wait "$SMOKE_PID" 2>/dev/null; rm -rf "$WORK"; rm -f "$SOCK"; }
+  # The verdict is already printed when this runs, so the binary's own exit status
+  # is not one: on Windows `kill` is TerminateProcess, no SIGTERM handler runs,
+  # `wait` reports 143 and `set -e` turned a passed smoke into exit 143.
+  cleanup_smoke() { kill "$SMOKE_PID" 2>/dev/null; wait "$SMOKE_PID" 2>/dev/null || true; rm -rf "$WORK"; rm -f "$SOCK"; }
   trap cleanup_smoke EXIT
   # Wait for the API.
   ok=""
