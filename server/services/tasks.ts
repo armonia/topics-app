@@ -60,6 +60,7 @@ import { CLOSER_LABELS, KIND_LABELS, deriveCloser, deriveKind, isCloserLabel, is
 import { findNeighbours, type Neighbour } from "../../shared/task-similarity";
 import type { TaskStatus, TaskComment, CardComment, BoardSettings, BoardSettingsPatch, BlockerRef, QueueReason, SubtaskWork, TaskWeight, GlobalDispatchCap, GlobalCapPatch, TaskActionOrigin } from "../../shared/board";
 import { budgetShare } from "../../shared/board";
+import { sliceCodePoints } from "../lib/code-points";
 import type { Task, CreateTaskInput, UpdateTaskPatch, ListTasksInput } from "./task-shapes";
 
 import { markTargetSeenAndAnnounce } from "../notification-registry";
@@ -1775,7 +1776,7 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
    * `Array.from` itera per punti di codice, che è l'unità di `substr`.
    */
   const previewOf = (s: string): string =>
-    Array.from(anteprimaUtile(s)).slice(0, DESCRIPTION_PREVIEW_CHARS).join("");
+    sliceCodePoints(anteprimaUtile(s), DESCRIPTION_PREVIEW_CHARS);
 
   /**
    * LA PROIEZIONE DELLA LISTA: tutte le colonne meno le due grasse.

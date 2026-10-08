@@ -1099,3 +1099,18 @@ callback, which runs before that.
 - **WHEN** the user switches to another tab, the rest of its history is merged above the row they were reading, and the user comes back
 - **THEN** that row is on the first frame of the return at the place it had (the same row at the top, less than a pixel from its old offset), not the first row of the 400 px overscan above it
 - **AND** it does not move by a pixel or more in the frames after: before, the rows were placed from sizes kept by index (stale after the merge) and moved by 72-99 px once measured, sometimes back and forth
+
+### Requirement: FEEDCOST-01 — The board feed costs its rows, not the width of the table
+
+`GET /api/all-boards/tasks` is re-read by every open window on every board
+event that a frame cannot settle. Building it SHALL NOT pay for work whose
+result is thrown away: a per-card array of every character of an 800-character
+preview to keep 240 of them, or a JavaScript object per row built the slow way
+because the projection is wide. The answer SHALL stay the same: the preview cut
+is the same cut, on code points, and a list row carries the same keys in the
+same order with the same values.
+
+#### Scenario: the preview cut is the same cut
+- **GIVEN** strings mixing ASCII, characters of the basic plane, surrogate pairs and lone surrogates
+- **WHEN** the first N code points are taken with `sliceCodePoints`
+- **THEN** the result SHALL equal `Array.from(s).slice(0, N).join("")` for every N, zero and past the end included
