@@ -12,9 +12,11 @@
 // exact SQL). Fix a failure with:  bun run scripts/gen-migrations-manifest.ts
 
 import { test, expect } from "bun:test";
-import { readdirSync, readFileSync } from "fs";
+import { mkdtempSync, readdirSync, readFileSync, rmSync } from "fs";
+import { tmpdir } from "os";
 import { join } from "path";
 import { EMBEDDED_MIGRATIONS } from "./migrations-embedded";
+import { closeDatabase, initDatabase } from "../db";
 
 const MIGRATIONS_DIR = join(import.meta.dir, "migrations");
 
@@ -70,5 +72,25 @@ test("ogni migration compare UNA volta nel manifest, e il numero è quello del n
   for (const m of EMBEDDED_MIGRATIONS) {
     expect(m.version, `numero incoerente col nome per ${m.name}`)
       .toBe(parseInt(m.name.match(/^(\d+)-/)![1], 10));
+  }
+});
+
+test("without the migrations folder (compiled sidecar) the schema is built from the manifest", () => {
+  // `db.ts` loads the manifest only in this case, with a lazy `require`: this
+  // checks that the branch really works, not just that the manifest matches
+  // the disk. The base has no `server/db/migrations`, like the binary.
+  const root = mkdtempSync(join(tmpdir(), "embedded-fallback-"));
+  const savedDataDir = process.env.DATA_DIR;
+  delete process.env.DATA_DIR;
+  try {
+    closeDatabase();
+    const db = initDatabase(join(root, "bundle"), root);
+    const applied = (db.query("SELECT name FROM schema_migrations").all() as { name: string }[]).map((r) => r.name).sort();
+    expect(applied).toEqual(EMBEDDED_MIGRATIONS.map((m) => m.name).sort());
+  } finally {
+    closeDatabase();
+    if (savedDataDir === undefined) delete process.env.DATA_DIR;
+    else process.env.DATA_DIR = savedDataDir;
+    rmSync(root, { recursive: true, force: true });
   }
 });

@@ -27,7 +27,6 @@
  * è una funzione del flusso, e ricalcolarlo è più onesto che tenerne una copia
  * che può sfasarsi.
  */
-import { Terminal } from "@xterm/headless";
 
 export interface TerminalScreen {
   /** Le righe visibili, dalla prima all'ultima, senza spazi in coda. */
@@ -66,6 +65,11 @@ export async function renderScreen(
   const cols = opts.cols && opts.cols > 0 ? opts.cols : DEFAULT_COLS;
   const rows = opts.rows && opts.rows > 0 ? opts.rows : DEFAULT_ROWS;
 
+  // The emulator loads on the first read, not at boot: the static import
+  // evaluated it before `listen` on every start (~15 ms measured in isolation,
+  // `bun -e` with `await import`) for a function only needed when an agent asks
+  // for a terminal's screen. Destructured, so knip can still see through it.
+  const { Terminal } = await import("@xterm/headless");
   const term = new Terminal({ cols, rows, allowProposedApi: true, scrollback: 0 });
   try {
     // `write` è asincrona (l'emulatore fa il parsing a chunk): senza aspettare
