@@ -10,7 +10,7 @@ import { permissionModeForAutonomy, PERMISSION_PROMPT_TOOL } from "../lib/autono
 import { spawn, ChildProcess } from "child_process";
 import { join } from "path";
 import { createInterface, Interface } from "readline";
-import { getAiBridgeClient, type AiBridgeClient } from "../lib/ai-bridge-client";
+import { getAiBridgeClient, type AiBridgeClient, type SessionInfo } from "../lib/ai-bridge-client";
 import { createLineFolder } from "../lib/ndjson-lines";
 import { agentBaseEnv } from "../lib/agent-env";
 import { readdirSync, existsSync, mkdirSync, writeFileSync, unlinkSync, readFileSync, chmodSync } from "fs";
@@ -145,6 +145,16 @@ const LIFETIME_REARM_MS = 60 * 1000;
  *  rete per il caso in cui la riadozione non parta MAI — altrimenti resterebbe
  *  un attacco al daemon senza padrone per tutta la vita del processo. */
 const PARKED_SCAN_TTL_MS = 60_000;
+/**
+ * How often the provider checks it has HEARD every byte its broker children
+ * wrote (T18, `probeStreamLag`). A detached stream used to wait for the route's
+ * grace expiry (two minutes, SSE turns only) or the stale-stream sweep (three):
+ * two rounds of this find it in eight seconds. A round is one `list` for every
+ * session together, and it runs only while a child is alive.
+ */
+const LAG_PROBE_EVERY_MS = Number(process.env.TOPICS_STREAM_LAG_PROBE_MS) || 4_000;
+/** A re-attach that did not close its gap is tried again on the same gap only after this. */
+const LAG_RETRY_MS = 30_000;
 const MESSAGE_TIMEOUT_MS = 30 * 60 * 1000;        // 30 min
 const RATE_LIMIT_GRACE_MS = 10_000;               // 10s grace after rate limit detection
 
@@ -962,6 +972,10 @@ interface PersistentProcess {
   sessionKey: string;
   /** Byte cursor consumed from the broker store (for reattach). Direct: unused. */
   consumedOffset: number;
+  /** The re-attach in flight (`resyncStream`): a second caller joins it instead of sending its own. */
+  resyncing?: Promise<boolean>;
+  /** A gap the lag probe saw: the daemon held bytes past `from` that we had not folded (`probeStreamLag`). */
+  lag?: { from: number; seenAt: number; triedAt?: number };
   /** True while replaying buffered NDJSON on reattach — suppresses live-only
    *  client side effects (onUserInputRequired) while in-memory state rebuilds. */
   replaySilent?: boolean;
@@ -1307,6 +1321,10 @@ export class ClaudeCodeProvider implements AIProvider {
   private started = false;
   /** Unsubscribe for the broker reconnect hook armed in start(). */
   private unsubscribeReconnect: (() => void) | null = null;
+  /** The stream lag probe armed in start() (`probeStreamLag`), and whether a round is running. */
+  private lagProbe: ReturnType<typeof setInterval> | null = null;
+  private lagProbing = false;
+  private lagProbeWarnedAt = 0;
   /**
    * Il verdetto sulla versione della CLI installata (vedi `claude/cli-compat.ts`).
    * Si calcola nel probe di `diagnose()` e in un probe di `start()`, e serve a
@@ -1639,6 +1657,11 @@ export class ClaudeCodeProvider implements AIProvider {
       } catch (err) {
         console.warn("[claude-code] Could not arm the broker reconnect hook:", err);
       }
+      // The reconnect hook covers ONE way of going deaf, and only when its
+      // reconnect succeeds. The probe covers them all by looking at the fact
+      // itself: bytes the daemon holds that we never folded.
+      this.lagProbe = setInterval(() => { void this.probeStreamLag(); }, LAG_PROBE_EVERY_MS);
+      this.lagProbe.unref?.();
     }
     console.log("[claude-code] Provider started");
   }
@@ -1646,6 +1669,7 @@ export class ClaudeCodeProvider implements AIProvider {
   stop(): void {
     this.started = false;
     if (this.unsubscribeReconnect) { this.unsubscribeReconnect(); this.unsubscribeReconnect = null; }
+    if (this.lagProbe) { clearInterval(this.lagProbe); this.lagProbe = null; }
     // A send still waiting for a stopped child to exit must not spawn a new
     // child on a provider that is going away (in direct mode that child would
     // outlive the server). It ends here, and its chat says why.
@@ -2881,7 +2905,10 @@ export class ClaudeCodeProvider implements AIProvider {
           // consumedOffset must land ON the attach point, not stay at 0: it is
           // where resyncStream() re-attaches from, and 0 against an adopted
           // child's store would re-fold that child's whole history.
-          pp.consumedOffset = (await client.attachLive(sessionKey)).fromOffset;
+          // Never backwards: what the attach replayed is folded by the time it
+          // resolves, and a cursor moved back under it would replay it again.
+          const { fromOffset } = await client.attachLive(sessionKey);
+          pp.consumedOffset = Math.max(pp.consumedOffset, fromOffset);
         })
         .catch((err) => this.onSessionErrored(pp, err instanceof Error ? err : new Error(String(err))));
     } else {
@@ -2928,6 +2955,20 @@ export class ClaudeCodeProvider implements AIProvider {
     });
     client.registerHandlers(sessionKey, {
       onData: (chunk, offset) => {
+        // A BYTE IS FOLDED ONCE. A re-attach replays from the cursor it was
+        // SENT with, and frames the daemon had already written to the socket
+        // before it read that `attach` arrive first: the replay then repeats
+        // them, and folding them again doubled the deltas on screen (137
+        // numbers out of 1500 with overlapping re-attaches, T18). Below the
+        // cursor only a deliberate rewind may fold, and every one of those
+        // (the reattach's scan and its replay of the open turn) runs muted or
+        // silent.
+        if (offset < pp.consumedOffset && !pp.replayMute && !pp.replaySilent) {
+          const seen = pp.consumedOffset - offset;
+          if (seen >= chunk.byteLength) return;
+          chunk = chunk.subarray(seen);
+          offset = pp.consumedOffset;
+        }
         // La consegna riparte da un punto diverso (un `attach` da un offset:
         // la fase 2 della riadozione fa esattamente questo). Il mezzo pezzo di
         // riga tenuto da parte apparteneva a un'altra regione dello store.
@@ -3261,13 +3302,10 @@ export class ClaudeCodeProvider implements AIProvider {
    * replays zero bytes and the daemon just refreshes our delivery cursor. Safe
    * to call speculatively, which is exactly what the route's watchdog does.
    *
-   * Precondition, and why the callers all satisfy it: call this only after a
-   * stretch of SILENCE (grace expiry, the stale sweeper, a socket reconnect).
-   * `consumedOffset` advances when onData folds a chunk, so calling it while
-   * frames are still in flight in the socket buffer would replay bytes that are
-   * about to arrive anyway — duplicated deltas. After a minute of nothing there
-   * is nothing in flight, and after a reconnect the in-flight bytes are gone
-   * for good, which is precisely what makes the replay the right answer.
+   * Frames still in flight when it is called are NOT a hazard any more: the
+   * replay repeats them, and `onData` drops every byte below `consumedOffset`
+   * outside a deliberate rewind (see `wireBrokerHandlers`). It used to need a
+   * stretch of silence first, and overlapping callers broke that rule.
    *
    * Returns true when a live session was re-attached (the caller may recover),
    * false when there was nothing to resync (no broker, dead child, no process).
@@ -3275,7 +3313,44 @@ export class ClaudeCodeProvider implements AIProvider {
   async resyncStream(sessionKey: string): Promise<boolean> {
     if (!USE_AI_BRIDGE) return false;
     const pp = this.processes.get(sessionKey);
-    if (!pp || !pp.alive) return false;
+    if (!pp || !pp.alive) {
+      // It used to return here without a word, and every caller but the
+      // route's watchdog dropped the answer: a rescue that did nothing looked
+      // exactly like one still on its way (T18).
+      console.warn(`[claude-code] Stream resync for ${sessionKey}: nothing to re-attach, ${await this.whyNoResync(sessionKey, pp)}`);
+      return false;
+    }
+    // ONE re-attach at a time per session. The reconnect chain, the route's
+    // grace expiry, the sweep and the lag probe can all ask at once; each
+    // extra `attach` replayed the same bytes for nothing.
+    if (pp.resyncing) return pp.resyncing;
+    const run = this.resyncNow(sessionKey, pp);
+    pp.resyncing = run;
+    try { return await run; } finally { if (pp.resyncing === run) pp.resyncing = undefined; }
+  }
+
+  /**
+   * The reason a resync found nothing to re-attach, daemon side included: "the
+   * daemon still holds a live child" is the case where a turn is really lost to
+   * us (no handler of ours to deliver it to), and the log has to tell it apart.
+   * `peekSessions`, not `hasLiveSession`: an explanation must never recycle the
+   * socket under everybody else's turns.
+   */
+  private async whyNoResync(sessionKey: string, pp: PersistentProcess | undefined): Promise<string> {
+    if (pp) return "its process has exited";
+    let daemon: string;
+    try {
+      const info = (await getAiBridgeClient().peekSessions()).find((s) => s.id === sessionKey);
+      daemon = info?.alive
+        ? `the daemon holds a live child for it (pid ${info.pid}, ${info.endOffset} byte(s)) that no process of ours drives: no turn handler to deliver it to`
+        : "the daemon holds no live child for it either";
+    } catch (err) {
+      daemon = `the daemon did not answer (${err instanceof Error ? err.message : String(err)})`;
+    }
+    return `no process of ours holds the session; ${daemon}`;
+  }
+
+  private async resyncNow(sessionKey: string, pp: PersistentProcess): Promise<boolean> {
     // Snapshot BEFORE the await: the replay this attach triggers is folded
     // synchronously by onData, so by the time it resolves pp.consumedOffset has
     // already moved — reading it after would log the destination, not the gap.
@@ -3312,6 +3387,62 @@ export class ClaudeCodeProvider implements AIProvider {
     } catch (err: any) {
       console.warn(`[claude-code] Stream resync failed for ${sessionKey}: ${err?.message ?? err}`);
       return false;
+    }
+  }
+
+  /**
+   * Is any live session BEHIND the daemon? One round of the lag probe (T18).
+   *
+   * The question asked of the fact, not of a clock: the daemon's `endOffset`
+   * against the `consumedOffset` we folded. The comparison is exact the moment
+   * the `list` answer is read. The daemon is single-threaded and writes to one
+   * socket in order, so every `data` frame it sent us before that answer has
+   * already been folded (frames are folded synchronously, line by line); a byte
+   * it holds and we have not folded is a byte it never sent us. A child that is
+   * silent and healthy (a long thought, a tool of minutes) has no such byte, so
+   * the probe never re-attaches it, however long the silence.
+   *
+   * Acted on at the SECOND sighting of the same gap (same cursor, no progress
+   * in between): one round more of latency, and a guard against anything this
+   * reasoning does not foresee. One re-attach per gap; a re-attach that did not
+   * close it is retried on that gap after `LAG_RETRY_MS`, saying so. The
+   * re-attaches run one at a time, for the reason the reconnect hook gives.
+   */
+  async probeStreamLag(): Promise<void> {
+    if (!USE_AI_BRIDGE || this.lagProbing) return;
+    const live = [...this.processes].filter(([, pp]) => pp.alive && !pp.stoppedExit && !pp.replayMute && !pp.replaySilent);
+    if (live.length === 0) return;
+    this.lagProbing = true;
+    try {
+      let sessions: SessionInfo[];
+      try {
+        sessions = await getAiBridgeClient().peekSessions();
+      } catch (err) {
+        if (Date.now() - this.lagProbeWarnedAt > 60_000) {
+          this.lagProbeWarnedAt = Date.now();
+          console.warn(`[claude-code] Stream lag probe: the daemon did not answer (${err instanceof Error ? err.message : String(err)}), skipping this round`);
+        }
+        return;
+      }
+      const ends = new Map(sessions.map((info) => [info.id, info.endOffset]));
+      const now = Date.now();
+      for (const [key, pp] of live) {
+        if (this.processes.get(key) !== pp || !pp.alive || pp.resyncing) continue;
+        const end = ends.get(key);
+        if (end === undefined || end <= pp.consumedOffset) { pp.lag = undefined; continue; }
+        const gap = pp.lag;
+        if (!gap || gap.from !== pp.consumedOffset) { pp.lag = { from: pp.consumedOffset, seenAt: now }; continue; }
+        if (gap.triedAt !== undefined && now - gap.triedAt < LAG_RETRY_MS) continue;
+        const retry = gap.triedAt !== undefined;
+        gap.triedAt = now;
+        console.warn(`[claude-code] Stream behind on ${key}: the daemon holds ${end - pp.consumedOffset} byte(s) past offset ${pp.consumedOffset} that never reached us (${now - gap.seenAt} ms) — ${retry ? "re-attaching again" : "re-attaching"}`);
+        const ok = await this.resyncStream(key).catch(() => false);
+        if (!ok && this.processes.get(key) === pp && pp.alive) {
+          console.warn(`[claude-code] Stream behind on ${key}: the re-attach did not land, next try on this gap in ${LAG_RETRY_MS / 1000} s`);
+        }
+      }
+    } finally {
+      this.lagProbing = false;
     }
   }
 

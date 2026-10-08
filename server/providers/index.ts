@@ -722,16 +722,23 @@ export function initProvider(config?: ProviderConfig): AIProvider {
  * somebody else's turn was a silent no-op — a recovery that recovered nothing.
  */
 export function resolveSessionOwner(sessionKey: string): unknown | null {
+  // TWO OWNERS ARE POSSIBLE: a topic switched provider leaves its idle session
+  // in the old one for a while. The one RUNNING the turn wins, or the rescue
+  // and the abort land on the idle one (T18); with no live turn, the first
+  // owner, as before. Same rule as `resolveTurnAlive` just below.
+  let first: unknown | null = null;
   for (const [, p] of _providers) {
-    const probe = p as unknown as { ownsSession?: (sk: string) => boolean };
+    const probe = p as unknown as { ownsSession?: (sk: string) => boolean; isTurnProcessAlive?: (sk: string) => boolean };
     if (typeof probe.ownsSession !== "function") continue;
     try {
-      if (probe.ownsSession(sessionKey)) return p;
+      if (!probe.ownsSession(sessionKey)) continue;
+      if (probe.isTurnProcessAlive?.(sessionKey) === true) return p;
+      first ??= p;
     } catch {
       return null;
     }
   }
-  return null;
+  return first;
 }
 
 /**
@@ -758,6 +765,10 @@ export function childAliveForSweep(sessionKey: string): boolean | undefined {
 }
 
 export function resolveTurnAlive(sessionKey: string): boolean | null {
+  // The FIRST owner's answer, unless another owner is running the turn: an idle
+  // session left behind by a provider switch must not answer "dead" for a turn
+  // the other provider is running (T18, see `resolveSessionOwner`).
+  let answer: boolean | null = null;
   for (const [, p] of _providers) {
     const probe = p as unknown as {
       ownsSession?: (sk: string) => boolean;
@@ -769,12 +780,14 @@ export function resolveTurnAlive(sessionKey: string): boolean | null {
     if (typeof probe.ownsSession !== "function") continue;
     try {
       if (!probe.ownsSession(sessionKey)) continue;
-      return probe.isTurnProcessAlive(sessionKey);
+      const alive = probe.isTurnProcessAlive(sessionKey);
+      if (alive) return true;
+      answer ??= alive;
     } catch {
       return null;
     }
   }
-  return null;
+  return answer;
 }
 
 /**

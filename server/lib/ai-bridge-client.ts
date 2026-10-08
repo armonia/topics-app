@@ -231,6 +231,7 @@ export class AiBridgeClient {
   private lastByteAt = 0;
   private disposed = false;
   private connectedDaemonPid: number | null = null;
+  private reconnectOwed = false; // a socket was lost, the re-attach callbacks not run since: the next connection settles it
 
   /**
    * The pid of the daemon on the other end, as its pong says; null until it
@@ -354,6 +355,9 @@ export class AiBridgeClient {
         this.send({ type: "ping", pid: process.pid, rid: ++this.ridSeq });
         console.log("[AI Bridge] Connected to daemon");
         res(true);
+        // The re-attach callbacks belong to the CONNECTION, whoever opens it: tied to the reconnect
+        // `close` schedules, its failure (under swap) left every live session deaf for minutes (T18).
+        if (this.reconnectOwed) { this.reconnectOwed = false; queueMicrotask(() => { for (const cb of this.reconnectCbs) { try { cb(); } catch { /* handler own errors */ } } }); }
       });
       socket.on("error", () => res(false));
       setTimeout(() => { if (!this.ready) { socket.destroy(); res(false); } }, 1000);
@@ -401,11 +405,8 @@ export class AiBridgeClient {
       this.failWaiters(new BridgeConnectionLost("ai-bridge: connessione al daemon caduta"));
       if (this.disposed) return; // shut down deliberately — do NOT respawn
       console.log("[AI Bridge] socket closed — reconnecting");
-      setTimeout(() => {
-        this.ensureConnected()
-          .then(() => { for (const cb of this.reconnectCbs) { try { cb(); } catch { /* handler own errors */ } } })
-          .catch(() => { /* next call retries */ });
-      }, 500);
+      this.reconnectOwed = true;
+      setTimeout(() => { this.ensureConnected().catch(() => { /* next call retries; the callbacks wait for it */ }); }, 500);
     });
     socket.on("error", () => { /* 'close' follows */ });
   }
@@ -548,9 +549,9 @@ export class AiBridgeClient {
    * timeout. La fessura fra l'ensureConnected e il write è larga quanto un
    * hot-reload del server, cioè quanto capita ogni giorno.
    */
-  private async request(frame: object, pred: (m: any) => boolean, timeoutMs: number, what: string, onAttempt?: (rid: number) => void): Promise<any> {
+  private async request(frame: object, pred: (m: any) => boolean, timeoutMs: number, what: string, onAttempt?: (rid: number) => void, attempts = REQUEST_ATTEMPTS): Promise<any> {
     let last: Error | null = null;
-    for (let attempt = 0; attempt < REQUEST_ATTEMPTS; attempt++) {
+    for (let attempt = 0; attempt < attempts; attempt++) {
       await this.ensureConnected();
       // A fresh rid per attempt: the previous attempt's ack, if it ever
       // arrives, must not answer this one.
@@ -568,9 +569,9 @@ export class AiBridgeClient {
         // su una sessione viva la RIPRENDE, un `attach` rirende dallo stesso
         // offset), quindi rimandarle è sicuro; e visto che il waiter rigetta
         // solo dopo un silenzio VERO, qui non si arriva mai per lentezza.
-        if (!isRetryableBridgeError(err) || attempt === REQUEST_ATTEMPTS - 1) throw err;
+        if (!isRetryableBridgeError(err) || attempt === attempts - 1) throw err;
         last = err;
-        console.warn(`[AI Bridge] ${what}: ${err.message} — riprovo (${attempt + 1}/${REQUEST_ATTEMPTS - 1})`);
+        console.warn(`[AI Bridge] ${what}: ${err.message} — riprovo (${attempt + 1}/${attempts - 1})`);
         // Il socket va BUTTATO prima di riprovare. `ensureConnected` si fida
         // di `ready` e di `destroyed`, e un socket può essere rotto senza
         // essere nessuno dei due (write che fallisce, peer sparito senza
@@ -736,6 +737,12 @@ export class AiBridgeClient {
   async list(): Promise<SessionInfo[]> {
     const m = await this.request({ type: "list" }, (f) => f.type === "list", ACK_TIMEOUT_MS, "list");
     return (m.sessions ?? []) as SessionInfo[];
+  }
+
+  /** `list` for a periodic probe: ONE attempt, so a slow answer never recycles the socket (`request` drops it
+   *  before retrying), which under swap would detach every live session (T18, `probeStreamLag`). */
+  async peekSessions(): Promise<SessionInfo[]> {
+    return ((await this.request({ type: "list" }, (f) => f.type === "list", ACK_TIMEOUT_MS, "list (probe)", undefined, 1)).sessions ?? []) as SessionInfo[];
   }
 
   /** True if the daemon holds a session for `id` whose child is still alive. */

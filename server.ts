@@ -60,7 +60,7 @@ import { setUploadRootsProvider } from "./server/browser-tool-dispatcher";
 import { setLocalFileServing } from "./server/browser-local-file-url";
 import { uploadAllowedRoots, parseExtraRoots } from "./server/lib/upload-allowlist";
 import { servedFileHeaders } from "./server/lib/served-file-headers";
-import { sweepStaleStreams, type SilenceMark } from "./server/lib/stale-stream-sweep";
+import { sweepStaleStreams, rescueByOwner, type SilenceMark } from "./server/lib/stale-stream-sweep";
 import { buildStreamCatchupFrame } from "./server/lib/stream-catchup-frame";
 import { flushTurnBody } from "./server/lib/turn-body-flush";
 import { endReattachLeg, finalizeStaleRow } from "./server/lib/closed-outside";
@@ -4997,12 +4997,9 @@ const staleStreamTimer = setInterval(() => {
     frozenMsSince: (sk, since) => swapFrozenMsSince(sk, since),
     resyncStream: (sk) => {
       // The rescue went to claude-code too: for somebody else's turn it was a
-      // mute no-op, a recovery attempt that attempted nothing.
-      const owner = resolveSessionOwner(sk) as
-        | { resyncStream?: (sk: string) => Promise<boolean> }
-        | null;
-      owner?.resyncStream?.(sk)
-        ?.catch((err) => console.warn(`[StaleStream] resync failed for ${sk}:`, err));
+      // mute no-op, a recovery attempt that attempted nothing. Now it goes to
+      // the owner and its outcome is read (`rescueByOwner`).
+      void rescueByOwner(sk, resolveSessionOwner(sk), (msg) => console.warn(msg));
     },
     cancelAsk,
     updateStreamActivity: (sk) => ctx.updateStreamActivity(sk),
