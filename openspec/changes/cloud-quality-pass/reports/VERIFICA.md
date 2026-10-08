@@ -318,3 +318,18 @@ rimesse sulla base locale con `cloud-ricuci`; la firma SSH della VM cade, autore
   1.4.2 e 1.3.8 (cartella `-sub`), verde con. `server/lib` + `providers/native` sul Mac: 3.316 pass, 0 fail.
 - Visto per caso: su Bun 1.3.8 **e 1.4.2** `Bun.spawn` senza `env` dà al figlio l'ambiente di avvio, non un
   `process.env` cambiato dopo (con `env: process.env` lo vede). Il REPORT lo dava come difetto della sola 1.3.8.
+
+## T13 · La chat in fondo che «non si ferma» — accettata (fusa in `d17277615`)
+
+- Diff letto: solo `chat-accordion-no-shift.spec.ts` (+11 −2), nessun retry, timeout o sleep in più; il caso
+  aspetta la riga aperta e ferma con gli helper che la spec usa già (`startProbe`, `waitStill`).
+- Il fix nel test non nasconde un difetto dell'app: la vista ferma 352 px sopra il fondo è il comportamento
+  voluto di una riga aperta a mano (CHAT-FOLD-01, l'header resta fermo), e nel rosso di CI il giro della
+  rotella usciva a `i=0`, zero rotellate. Firma uguale nella sonda di T13 e nel rosso della CI (run 37508090467).
+- Sul Mac non si riproduce per regola (la spec gira solo in Chromium, il config la rifiuta qui; PC escluso):
+  contano B1 di T13 (8/10 → 0/10, due volte, nel contesto ripetibile con le animazioni a 0,1×), B2 (21/21 ×3)
+  e i video del ramo `cloud/t13-chat-ferma-evidenza`, guardati: prima la riga si apre sotto il composer e la
+  vista resta immobile da 8 a 31 s con la freccia «torna in fondo»; dopo il caso riparte dal fondo vero.
+- Il commento falso trovato da T13 in `MessageList.tsx` («Nothing is lost by waiting») corretto qui. Resta
+  aperto, raro e fuori recinto: una rotellata verso il fondo entro ~100 ms dal clic che apre l'ultima riga si
+  ferma 14-122 px sopra il fondo.
