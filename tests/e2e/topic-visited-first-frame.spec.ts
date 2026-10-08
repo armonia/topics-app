@@ -20,9 +20,9 @@
  * WHAT THE EARLY REVEAL COSTS, measured here too: an answer that brings a
  * reply landed while the reader was away is a message arriving under their
  * eyes, and it enters at the bottom with nothing moving (CLS 0). A reply that
- * carries an image of unknown size grows when the image loads: CLS 0.034 on
- * that one case when the server is slower than the reveal (the report of the
- * track has the number and the follow-up).
+ * carried an image of unknown size grew when the image loaded: CLS 0.034 on
+ * that one case when the server is slower than the reveal. The image now has
+ * its box before its bytes (CHAT-MEDIA-BOX-01), and the case has its own test.
  *
  * WHY THE SERVER IS HELD BACK. On a test machine the history answers in a few
  * milliseconds, so "the rows came from the device" and "the rows came from the
@@ -52,6 +52,7 @@ import { interceptWebSocket } from "./helpers/ws-helpers";
 import { armObserver, buildReport, collectShifts, settledUntilQuiet, summarize, waitForLocalCopy } from "./helpers/cls-return";
 import { beat, didascalia } from "./helpers/evidence";
 import { wheelUpUntilVisible } from "./helpers/wheel-scroll";
+import { holdPicture, uploadPng } from "./helpers/png-fixture";
 
 hermetic(test);
 test.use({ viewport: { width: 1280, height: 800 } });
@@ -402,10 +403,8 @@ test.describe("Una topic gia' visitata si apre gia' pronta", () => {
       await expect(shell.locator('[data-testid="chat-message"]').filter({ hasText: "Away row #30." })).toBeVisible({ timeout: 20_000 });
       await waitForLocalCopy(page, "messages-cache-", "Away row #30.");
 
-      // The reply the local copy does not have. Text only: with an image of
-      // unknown size the reply grows when it loads (CLS 0.034 measured, see
-      // the header), which is a property of images without a box, not of the
-      // reveal.
+      // The reply the local copy does not have. Text only: the same return
+      // with an image in the reply is the next test.
       await seedMessage(request, {
         sessionKey: awayKey,
         role: "assistant",
@@ -424,6 +423,57 @@ test.describe("Una topic gia' visitata si apre gia' pronta", () => {
       // At the bottom, on the reply.
       const list = shell.locator('[data-testid="chat-message-list"]');
       await expect.poll(() => list.evaluate((el) => Math.round(el.scrollHeight - el.scrollTop - el.clientHeight)), { timeout: 10_000 }).toBeLessThanOrEqual(2);
+    } finally {
+      await deleteTopic(request, away.id).catch(() => {});
+    }
+  });
+
+  test("una risposta con un'immagine arrivata mentre ero via entra in fondo con il suo spazio gia' preso", async ({ page, request }) => {
+    test.info().annotations.push({ type: "spec", description: "TOPIC-FIRST-01" });
+    test.info().annotations.push({ type: "spec", description: "CHAT-MEDIA-BOX-01" });
+    test.setTimeout(120_000);
+    const away = await createTopic(request, `visited-away-image-${Date.now()}`);
+    const awayKey = await sessionKeyOf(request, away.id);
+    try {
+      for (let i = 1; i <= 30; i++) {
+        await seedMessage(request, { sessionKey: awayKey, role: i % 2 ? "user" : "assistant", content: `Away row #${i}. ${"Lorem ipsum dolor sit amet. ".repeat(i % 5 === 0 ? 8 : 2)}` });
+      }
+      await resetPaneStore(request, [away.id, other.id]);
+      const shell = page.locator(`[data-pane-shell="${away.id}"]`);
+      await page.goto("/favicon.ico", { waitUntil: "commit" }).catch(() => {});
+      await page.evaluate((id) => localStorage.setItem("pane-store-focused-id", id), away.id);
+      await page.goto("/");
+      await page.getByTestId(`pane-tab-${away.id}`).click();
+      await expect(shell.locator('[data-testid="chat-message"]').filter({ hasText: "Away row #30." })).toBeVisible({ timeout: 20_000 });
+      await waitForLocalCopy(page, "messages-cache-", "Away row #30.");
+
+      // The reply the local copy does not have, with the picture the server
+      // staples to the end of a turn. 900x500: wider than tall, so in the
+      // column it is drawn 320 px tall (`max-h-80`), and it loads late.
+      const picture = await uploadPng(request, "t7-away-reply.png", 900, 500);
+      await seedMessage(request, {
+        sessionKey: awayKey,
+        role: "assistant",
+        content: `AWAY-IMAGE: the chart you asked for, drawn while you were away.\nMEDIA:${picture}`,
+      });
+      await armObserver(page);
+      const probe = await holdTail(page, awayKey, HOLD_MS);
+      const late = await holdPicture(page, "t7-away-reply.png", 1000);
+      await page.reload();
+      const reply = shell.locator('[data-testid="chat-message"]').filter({ hasText: "AWAY-IMAGE" });
+      await expect(reply).toBeVisible({ timeout: 20_000 });
+      const img = reply.getByTestId("media-image");
+      await expect.poll(() => img.evaluate((el: HTMLImageElement) => el.complete && el.naturalWidth > 0), { timeout: 20_000 }).toBe(true);
+      await settledUntilQuiet(page, { quietMs: 1500, timeout: 30_000 });
+      const report = buildReport(await collectShifts(page));
+      console.log(`[topic-first-frame:away-image] held=${probe.held} picture=${late.held} CLS=${report.cls.toFixed(4)} shifts=${report.count}\n${summarize(report)}`);
+      expect(probe.held, "the tail request was never held").toBeGreaterThan(0);
+      expect(late.held, "the picture was never held").toBeGreaterThan(0);
+      expect(report.cls, `who moved:\n${summarize(report)}`).toBeLessThanOrEqual(0.01);
+      // At the bottom, on the whole picture.
+      const list = shell.locator('[data-testid="chat-message-list"]');
+      await expect.poll(() => list.evaluate((el) => Math.round(el.scrollHeight - el.scrollTop - el.clientHeight)), { timeout: 10_000 }).toBeLessThanOrEqual(2);
+      await expect(img).toBeInViewport({ ratio: 1 });
     } finally {
       await deleteTopic(request, away.id).catch(() => {});
     }

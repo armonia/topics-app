@@ -8,9 +8,14 @@
  * picture with the frame (`mediaSizes`, `server/lib/media-size.ts`) and the
  * client draws its box at once (`components/Chat/mediaBox.ts`).
  *
- * THE DOOR: `message:new`, here from the real server (`POST …/system-message`,
- * the same broadcast every new row goes through, `withFrameMediaSizes` in
- * server/utils.ts).
+ * TWO DOORS, the two by which a picture reaches an open chat live:
+ *   - `message:new`, here from the real server (`POST …/system-message`, the
+ *     same broadcast every new row goes through);
+ *   - `message:media`, the pictures the server staples to the end of a turn.
+ *     That frame leaves only after a real turn, so here it is sent into the
+ *     socket, carrying the sizes the server put on a real frame for the same
+ *     picture: the server half of it is `withFrameMediaSizes` (server/utils.ts),
+ *     the same function the first door goes through.
  *
  * WHY THE PICTURE IS HELD. On a test machine its bytes arrive in a few
  * milliseconds, and "the box was there" would look the same as "the bytes were
@@ -124,6 +129,54 @@ test.describe("Un'immagine che arriva dal vivo ha il suo spazio prima dei suoi b
       expect(frame?.mediaSizes, "the server sent the size with the frame").toEqual({ [picture]: [900, 500] });
     } finally {
       await deleteTopic(request, topic.id).catch(() => {});
+    }
+  });
+
+  test("le immagini di fine turno (message:media): niente si sposta quando si caricano", async ({ page, request }) => {
+    test.info().annotations.push({ type: "spec", description: "CHAT-MEDIA-BOX-01" });
+    test.setTimeout(120_000);
+    const topic = await createTopic(request, `image-live-media-${Date.now()}`);
+    const scratch = await createTopic(request, `image-live-scratch-${Date.now()}`);
+    const key = await sessionKeyOf(request, topic.id);
+    try {
+      await seedThread(request, key, "Turn");
+      await seedMessage(request, { sessionKey: key, role: "assistant", content: "TURN-END: done, the screenshot follows." });
+      await resetPaneStore(request, [topic.id]);
+      const picture = await uploadPng(request, "t7-live-media.png", 900, 500);
+      const ws = await interceptWebSocket(page);
+      await armObserver(page);
+      const late = await holdPicture(page, "t7-live-media.png", PICTURE_HOLD_MS);
+      await openAtBottom(page, topic.id, "TURN-END");
+
+      // What the server puts on a frame for this picture: a real broadcast of a
+      // row naming it, in another chat (see the header).
+      await postSystemMessage(request, scratch.id, `SIZE-PROBE\nMEDIA:${picture}`);
+      await expect.poll(() => ws.getByType("message:new").some((m) => m.data.includes("SIZE-PROBE")), { timeout: 10_000 }).toBe(true);
+      const probe = JSON.parse(ws.getByType("message:new").find((m) => m.data.includes("SIZE-PROBE"))!.data) as { mediaSizes?: Record<string, [number, number]> };
+      await settledUntilQuiet(page, { quietMs: 1000, timeout: 30_000 });
+      await didascalia(page, "Fine del turno: arriva lo screenshot, con i byte in ritardo");
+      await beat(page, 800);
+
+      const shell = page.locator(`[data-pane-shell="${topic.id}"]`);
+      const since = await page.evaluate(() => performance.now());
+      ws.send({ type: "message:media", sessionKey: key, topicId: topic.id, media: [picture], ...(probe.mediaSizes ? { mediaSizes: probe.mediaSizes } : {}) });
+      const reply = shell.locator('[data-testid="chat-message"]').filter({ hasText: "TURN-END" });
+      const img = reply.getByTestId("media-image");
+      await expect(img).toHaveCount(1, { timeout: 10_000 });
+      await expect.poll(() => img.evaluate((el: HTMLImageElement) => el.complete && el.naturalWidth > 0), { timeout: 20_000 }).toBe(true);
+      await settledUntilQuiet(page, { quietMs: 1500, timeout: 30_000 });
+      await beat(page, 800);
+      const report = await clsSince(page, since);
+      console.log(`[chat-image-box:media] picture=${late.held} sized=${!!probe.mediaSizes} CLS=${report.cls.toFixed(4)} shifts=${report.count}\n${summarize(report)}`);
+
+      expect(late.held, "the picture was never held").toBeGreaterThan(0);
+      expect(report.cls, `who moved:\n${summarize(report)}`).toBeLessThanOrEqual(CLS_CAP);
+      const list = shell.locator('[data-testid="chat-message-list"]');
+      await expect.poll(() => list.evaluate((el) => Math.round(el.scrollHeight - el.scrollTop - el.clientHeight)), { timeout: 10_000 }).toBeLessThanOrEqual(2);
+      expect(probe.mediaSizes, "the server sent the size with the frame").toEqual({ [picture]: [900, 500] });
+    } finally {
+      await deleteTopic(request, topic.id).catch(() => {});
+      await deleteTopic(request, scratch.id).catch(() => {});
     }
   });
 });
