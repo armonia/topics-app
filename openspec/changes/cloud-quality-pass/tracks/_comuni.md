@@ -96,11 +96,12 @@ E2E_TIER=pr npx playwright test --project=chromium <le spec della tua area>
 - Ti fermi quando la barra è verde e i numeri della traccia sono al target, oppure dopo 4 ore di
   lavoro, oppure se ricevi «chiudi»: in quel caso finisci il fix in corso, barra, REPORT, consegna.
 
-### Consegna esatta (vale al posto del push)
+### Consegna esatta
 
-La sessione parte da uno snapshot senza storia e senza remote: il push fallisce, e una patch
-ricopiata nel testo arriva corrotta. Video e trace restano nella VM: nel REPORT scrivi dove sono e
-cosa mostrano. Quando hai finito fai SOLO questo, senza commenti fra un comando e l'altro:
+Prima prova il push: `git push origin HEAD:refs/heads/cloud/<ramo della traccia>`. Se esce 0 hai
+consegnato (ultimo messaggio: ramo e sha). Se fallisce (snapshot senza remote, proxy 403), il
+bundle qui sotto: una patch ricopiata nel testo arriva corrotta. Video e trace restano nella VM: nel REPORT scrivi dove sono e
+cosa mostrano. Per il bundle fai SOLO questo, senza commenti fra un comando e l'altro:
 1. `git bundle create /tmp/consegna.bundle $BASE..HEAD` (BASE = il commit da cui sei partita,
    i commit del REPORT inclusi).
 2. `base64 -w0 /tmp/consegna.bundle | fold -w 20000 > /tmp/consegna.b64 && wc -l /tmp/consegna.b64 && sha256sum /tmp/consegna.bundle`
