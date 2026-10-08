@@ -411,3 +411,79 @@ describe("claude-code provider · a re-attach never folds a byte twice", () => {
     }
   }, 40_000);
 });
+
+describe("claude-code provider · an adopted child before its first attach lands", () => {
+  // Found in verification: after a restart the server adopts the child that is
+  // still alive in the daemon (`resumed`), and until `attachLive` lands its
+  // `consumedOffset` is 0. The probe read that as a gap from 0 and re-attached
+  // from there: the whole history of the child replayed, and folded in the same
+  // chunk as the live attach's reply it became the new turn's answer. Frames are
+  // held and released in batches, which is what a server loop stalled by swap
+  // does with a multi-line chunk; the probe is ticked by hand between them.
+  test("a resumed child under a stalled loop: the probe never re-attaches it, the new turn gets its own answer", async () => {
+    const sessionKey = "topic:lag-resumed";
+    await seedTopic(sessionKey, "t-lag-resumed");
+    const cli = join(tempDir, "cli-resumed.sh");
+    writeFileSync(cli, `#!/bin/sh
+n=0
+while read line; do
+  n=$((n+1))
+  printf '{"type":"assistant","message":{"content":[{"type":"text","text":"turn%d,"}]}}\\n' $n
+  printf '{"type":"result","result":"done%d","usage":{"input_tokens":1,"output_tokens":1},"duration_ms":1,"total_cost_usd":0}\\n' $n
+done
+`);
+    chmodSync(cli, 0o755);
+    setEnv("TOPICS_CLAUDE_CLI_PATH", cli);
+    const { ClaudeCodeProvider } = await import("./claude-code");
+    const { getAiBridgeClient } = await import("../lib/ai-bridge-client");
+    const client: any = getAiBridgeClient();
+
+    // Server 1 runs one whole turn; its child stays alive and idle in the daemon.
+    const first: any = new ClaudeCodeProvider({ type: "claude-code", defaultWorkspace: tempDir });
+    first.start();
+    const turn1 = counting();
+    await first.sendChat(sessionKey, "first", turn1.handler);
+    expect(turn1.text).toBe("turn1,");
+    // The restart: server 1 forgets its process, the child lives on.
+    first.stop();
+    first.processes = new Map();
+    const second: any = new ClaudeCodeProvider({ type: "claude-code", defaultWorkspace: tempDir });
+    second.start();
+
+    const reattachedFrom: number[] = [];
+    const realReattach = second.resyncNow.bind(second);
+    second.resyncNow = (sk: string, pp: any, attempts?: number) => { reattachedFrom.push(pp.consumedOffset); return realReattach(sk, pp, attempts); };
+    const realFrame = client.handleFrame.bind(client);
+    let held: any[] | null = null;
+    client.handleFrame = (m: any) => { if (held) held.push(m); else realFrame(m); };
+    const stall = () => { held = []; };
+    const release = () => { const batch = held ?? []; held = null; for (const m of batch) realFrame(m); };
+    const pause = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+    const turn2 = counting();
+    try {
+      stall();
+      const sent = second.sendChat(sessionKey, "second", turn2.handler).catch(() => {});
+      await pause(300); // the spawn is sent, its `resumed` reply held
+      const tick1 = second.probeStreamLag();
+      await pause(300);
+      release(); stall(); // the spawn reply and the probe's list: attachLive sends its own list
+      await tick1;
+      const tick2 = second.probeStreamLag(); // in production, one 4 s tick later
+      await pause(300);
+      release(); stall(); // attachLive's list reply and the probe's
+      await pause(300);
+      release(); // attachLive's `attached`, and any replay a resync asked for
+      await tick2;
+      await Promise.race([turn2.done, pause(5_000)]);
+      await sent;
+      expect(reattachedFrom).toEqual([]);
+      expect(turn2.text).toBe("turn2,");
+      expect(turn2.ended).toBe("done");
+    } finally {
+      client.handleFrame = realFrame;
+      second.stop();
+      try { client.kill(sessionKey); } catch { /* gone */ }
+    }
+  }, 40_000);
+});

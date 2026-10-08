@@ -668,13 +668,13 @@ export class AiBridgeClient {
     }
   }
 
-  /** Re-attach to an existing session, replaying the store from `fromOffset`. */
-  async attach(id: string, fromOffset: number): Promise<AttachResult> {
+  /** Re-attach to an existing session, replaying the store from `fromOffset`; one attempt never recycles the socket. */
+  async attach(id: string, fromOffset: number, attempts?: number): Promise<AttachResult> {
     const m = await this.request(
       { type: "attach", id, fromOffset },
       (f) => f.type === "attached" && f.id === id,
       ATTACH_ACK_TIMEOUT_MS,
-      `attach ${id}`,
+      `attach ${id}`, undefined, attempts,
     );
     return {
       endOffset: m.endOffset, alive: m.alive, exitCode: m.exitCode ?? null, missing: m.missing === true,

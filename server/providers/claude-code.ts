@@ -976,6 +976,11 @@ interface PersistentProcess {
   resyncing?: Promise<boolean>;
   /** A gap the lag probe saw: the daemon held bytes past `from` that we had not folded (`probeStreamLag`). */
   lag?: { from: number; seenAt: number; triedAt?: number };
+  /** True from a broker spawn until its ack, and for an adopted (`resumed`) child until
+   *  `attachLive` lands: `consumedOffset` (0) is not our place in the store yet, so no
+   *  resync may start from it. One from 0 replays the child's whole history, and folded
+   *  with the live attach's reply it became the new turn's answer (T18, verification). */
+  attachPending?: boolean;
   /** True while replaying buffered NDJSON on reattach — suppresses live-only
    *  client side effects (onUserInputRequired) while in-memory state rebuilds. */
   replaySilent?: boolean;
@@ -2882,6 +2887,7 @@ export class ClaudeCodeProvider implements AIProvider {
       // Fire the spawn; expose readiness so the first stdin write (sendChat)
       // waits for the child to exist. spawn and write share the socket FIFO,
       // but spawn's send sits behind an ensureConnected microtask.
+      pp.attachPending = true;
       pp.ready = client.spawn(sessionKey, { cliPath: resolveCliPath(), args, cwd: workspace, env })
         // Il pid del figlio è l'ancora delle shell in background: senza, una
         // `bun run dev` lasciata da questa sessione è indistinguibile da una
@@ -2910,7 +2916,8 @@ export class ClaudeCodeProvider implements AIProvider {
           const { fromOffset } = await client.attachLive(sessionKey);
           pp.consumedOffset = Math.max(pp.consumedOffset, fromOffset);
         })
-        .catch((err) => this.onSessionErrored(pp, err instanceof Error ? err : new Error(String(err))));
+        .catch((err) => this.onSessionErrored(pp, err instanceof Error ? err : new Error(String(err))))
+        .finally(() => { pp.attachPending = false; });
     } else {
       const proc = spawn(resolveCliPath(), args, { cwd: workspace, stdio: ["pipe", "pipe", "pipe"], env });
       const rl = createInterface({ input: proc.stdout! });
@@ -3310,7 +3317,7 @@ export class ClaudeCodeProvider implements AIProvider {
    * Returns true when a live session was re-attached (the caller may recover),
    * false when there was nothing to resync (no broker, dead child, no process).
    */
-  async resyncStream(sessionKey: string): Promise<boolean> {
+  async resyncStream(sessionKey: string, opts: { attempts?: number } = {}): Promise<boolean> {
     if (!USE_AI_BRIDGE) return false;
     const pp = this.processes.get(sessionKey);
     if (!pp || !pp.alive) {
@@ -3320,11 +3327,15 @@ export class ClaudeCodeProvider implements AIProvider {
       console.warn(`[claude-code] Stream resync for ${sessionKey}: nothing to re-attach, ${await this.whyNoResync(sessionKey, pp)}`);
       return false;
     }
+    if (pp.attachPending) {
+      console.warn(`[claude-code] Stream resync for ${sessionKey}: its first attach has not landed yet, so there is no offset to re-attach from`);
+      return false;
+    }
     // ONE re-attach at a time per session. The reconnect chain, the route's
     // grace expiry, the sweep and the lag probe can all ask at once; each
     // extra `attach` replayed the same bytes for nothing.
     if (pp.resyncing) return pp.resyncing;
-    const run = this.resyncNow(sessionKey, pp);
+    const run = this.resyncNow(sessionKey, pp, opts.attempts);
     pp.resyncing = run;
     try { return await run; } finally { if (pp.resyncing === run) pp.resyncing = undefined; }
   }
@@ -3350,13 +3361,13 @@ export class ClaudeCodeProvider implements AIProvider {
     return `no process of ours holds the session; ${daemon}`;
   }
 
-  private async resyncNow(sessionKey: string, pp: PersistentProcess): Promise<boolean> {
+  private async resyncNow(sessionKey: string, pp: PersistentProcess, attempts?: number): Promise<boolean> {
     // Snapshot BEFORE the await: the replay this attach triggers is folded
     // synchronously by onData, so by the time it resolves pp.consumedOffset has
     // already moved — reading it after would log the destination, not the gap.
     const from = pp.consumedOffset;
     try {
-      const res = await getAiBridgeClient().attach(sessionKey, from);
+      const res = await getAiBridgeClient().attach(sessionKey, from, attempts);
       // A LIVE daemon answering "I don't have that session" (or "its child is
       // gone") is proof the child died: the daemon is the authority on that,
       // and if it died WITH the daemon (daemon crash, then the client respawns
@@ -3410,7 +3421,7 @@ export class ClaudeCodeProvider implements AIProvider {
    */
   async probeStreamLag(): Promise<void> {
     if (!USE_AI_BRIDGE || this.lagProbing) return;
-    const live = [...this.processes].filter(([, pp]) => pp.alive && !pp.stoppedExit && !pp.replayMute && !pp.replaySilent);
+    const live = [...this.processes].filter(([, pp]) => pp.alive && !pp.attachPending && !pp.stoppedExit && !pp.replayMute && !pp.replaySilent);
     if (live.length === 0) return;
     this.lagProbing = true;
     try {
@@ -3436,7 +3447,9 @@ export class ClaudeCodeProvider implements AIProvider {
         const retry = gap.triedAt !== undefined;
         gap.triedAt = now;
         console.warn(`[claude-code] Stream behind on ${key}: the daemon holds ${end - pp.consumedOffset} byte(s) past offset ${pp.consumedOffset} that never reached us (${now - gap.seenAt} ms) — ${retry ? "re-attaching again" : "re-attaching"}`);
-        const ok = await this.resyncStream(key).catch(() => false);
+        // One attempt: a retry after an ack timeout drops the socket every turn shares, and the
+        // stall that cut this stream is the likeliest cause of that timeout. The gap waits instead.
+        const ok = await this.resyncStream(key, { attempts: 1 }).catch(() => false);
         if (!ok && this.processes.get(key) === pp && pp.alive) {
           console.warn(`[claude-code] Stream behind on ${key}: the re-attach did not land, next try on this gap in ${LAG_RETRY_MS / 1000} s`);
         }
