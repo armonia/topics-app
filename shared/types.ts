@@ -27,6 +27,7 @@
 // dependency (and no zod on the client through the back door).
 import type { STOP_CAUSES } from './ws-outbound';
 import type { MovedOutputMark } from './lean-tool-call';
+import type { ViewSpec } from './views';
 
 // ─── Language (the interface AND the model's answers) ──────────────────
 
@@ -781,7 +782,11 @@ export type ToolCallDetail =
    *  brings the page back (CHAT-BROWSER-01). `contextId` is absent on rows older
    *  than BROWSER-CHAT-05; `visible: false` = loaded but on no screen. */
   | { type: 'browser'; url: string; contextId?: string; title?: string; name?: string; visible?: boolean; result?: string }
-  | { type: 'unknown'; raw: { args?: Record<string, unknown>; result?: string } };
+  /** `show_view`: the agent sent typed data (a comparison, ...) and Topics
+   *  draws it in the chat and at `/v/<viewId>` (GENUI-01). `viewId` arrives
+   *  with the result; a running call has only the spec. */
+  | { type: 'view'; view: ViewSpec; viewId?: string; result?: string }
+  | { type: 'unknown';raw: { args?: Record<string, unknown>; result?: string } };
 
 export interface ToolCall {
   id: string;

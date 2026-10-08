@@ -540,7 +540,11 @@ export function usePaneOrdering(args: UsePaneOrderingArgs): UsePaneOrderingRetur
   useEffect(() => {
     const unsub = onWSMessage((msg: WSMessage) => {
       if (msg.type === 'browser:navigate' && msg.url) {
-        const navTopicId = msg.topicId;
+        // A spawned child's browser is shown where its PARENT chat is: the
+        // child's own topic is a tab nowhere, so keying on it made nobody claim
+        // the open and the server's force-open added a layout tab per child.
+        // Only the placement moves; the pane keeps the child's contextId.
+        const navTopicId = msg.hostTopicId ?? msg.topicId;
         // Ownership: with a topicId, MEMBERSHIP decides (the reducer below bails
         // unless the topic is a tab of THIS group), so a project-owned topic is
         // never hijacked here — useProjectBrowserPanes claims those. The old

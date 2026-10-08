@@ -649,6 +649,15 @@ export default defineConfig({
         // The page the agent opened stays in sight in the turn and brings the
         // page back from the topic's window: filmed on the engine that ships.
         "**/chat-browser-open-marker.spec.ts",
+        // A view the agent sent as data (show_view) is a block in the chat and
+        // a page at /v/<id>: phone layout and both themes, on the shipping engine.
+        "**/chat-generative-view.spec.ts",
+        // Table and timeline views, and the same views inside an MCP Apps host
+        // driven by the real bridge process: layout measured on the shipping engine.
+        "**/chat-generative-view-kinds.spec.ts",
+        // A spawned agent's browser lands in its parent chat's window, not in a
+        // layout tab per child: the window's native view is WebKit.
+        "**/browser-child-in-parent-window.spec.ts",
         // A page taken back by the topic window on another device leaves this
         // device's project layout too: two clients, the native view is WebKit.
         "**/topic-browser-window-remote-return.spec.ts",

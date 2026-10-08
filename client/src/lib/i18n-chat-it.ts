@@ -17,6 +17,7 @@
  * did not govern the single surface people look at all day.
  */
 import type { Dict } from './i18n-types';
+import { VIEWS_IT } from '../../../shared/i18n-views-it';
 
 const CHAT_IT: Dict = {
   // Empty state: the invitation and the starter chips. The chip carries two
@@ -240,6 +241,7 @@ const CHAT_IT: Dict = {
   'processlog.stopTitle': 'Ferma il processo',
   'processlog.fetchFailed': 'Lettura del log non riuscita',
   'processlog.readError': 'Errore: {error}',
+  ...VIEWS_IT,
 };
 
 export default CHAT_IT;

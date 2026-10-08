@@ -33,6 +33,7 @@ import { isAwaitingHuman } from '../../../../shared/types';
 import { isActiveTool } from './toolGrouping';
 import { COMPACTION_PREAMBLE } from '../../lib/compactionSummary';
 import type { BrowserMarker } from './browserOpens';
+import type { ViewOpen } from './viewOpens';
 
 /** The groups `MessageContent` builds from a message's blocks. */
 export type FoldableGroup =
@@ -40,7 +41,8 @@ export type FoldableGroup =
   | { kind: 'thinking'; idx: number; text: string }
   | { kind: 'text'; idx: number; text: string }
   | { kind: 'media'; idx: number; path: string; seq: number }
-  | { kind: 'browser'; idx: number; marker: BrowserMarker };
+  | { kind: 'browser'; idx: number; marker: BrowserMarker }
+  | { kind: 'view'; idx: number; tool: ToolCall; view: ViewOpen };
 
 export interface TurnFold<G extends FoldableGroup> {
   /** Everything up to and including a compaction recap: never folded. */
@@ -91,7 +93,7 @@ export function foldFinishedTurn<G extends FoldableGroup>(groups: readonly G[], 
   const work: G[] = [];
   const kept: G[] = [];
   for (const g of before) {
-    if (g.kind === 'media' || g.kind === 'browser') { kept.push(g); continue; }
+    if (g.kind === 'media' || g.kind === 'browser' || g.kind === 'view') { kept.push(g); continue; }
     if (g.kind !== 'tools' || !g.tools.some(isAnswered)) { work.push(g); continue; }
     let run: ToolCall[] = [];
     let runStart = 0;

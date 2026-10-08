@@ -498,10 +498,10 @@ describe("parity with the CLI's tools", () => {
   test("the bare-name lists match the real tool tables", () => {
     // The lists are literals so the client mirror can hold the same ones; this
     // is what stops them drifting from the tables they copy.
-    // Three have a card of their own (ask_user, wait) or are never rendered
+    // Four have a card of their own (ask_user, wait, view) or are never rendered
     // (approval_prompt is the CLI's permission channel); the browser tools are
     // listed separately so their card can say "browser".
-    const own = new Set(["approval_prompt", "ask_user_question", "wait_for_process", ...TOPICS_BROWSER_TOOLS]);
+    const own = new Set(["approval_prompt", "ask_user_question", "show_view", "wait_for_process", ...TOPICS_BROWSER_TOOLS]);
     const bridge = Object.keys(TOOL_HANDLERS).filter((n) => !own.has(n));
     expect([...TOPICS_BRIDGE_TOOLS].sort()).toEqual(bridge.sort());
     expect([...TOPICS_BROWSER_TOOLS].sort()).toEqual(BROWSER_TOOL_SPECS.map((t) => t.name).sort());

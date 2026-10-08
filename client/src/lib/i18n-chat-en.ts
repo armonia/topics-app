@@ -7,6 +7,7 @@
  * of being pulled back into the eager bundle.
  */
 import type { Dict } from './i18n-types';
+import { VIEWS_EN } from '../../../shared/i18n-views-en';
 
 const CHAT_EN: Dict = {
   'chat.empty.systemPrompt': 'Custom system prompt active',
@@ -219,6 +220,7 @@ const CHAT_EN: Dict = {
   'processlog.stopTitle': 'Stop process',
   'processlog.fetchFailed': 'Failed to fetch output',
   'processlog.readError': 'Error: {error}',
+  ...VIEWS_EN,
 };
 
 export default CHAT_EN;

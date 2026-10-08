@@ -196,6 +196,9 @@ export function buildToolDisplayLabel(detail: ToolCallDetail, rawName?: string):
     case 'browser':
       // The page, the way the marker names it; the whole URL on hover.
       return { name: 'Browser', summary: browserPageLabel(detail), tooltip: detail.url };
+    case 'view':
+      // While it runs (or inside a task's folded work) the row names the view.
+      return { name: 'View', summary: detail.view.title };
     case 'unknown':
       // A bare "Tool" row is unreadable — surface the provider's actual tool
       // name plus a scalar-args digest so the collapsed row stands on its own.

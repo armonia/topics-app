@@ -58,6 +58,7 @@ export const API_ROUTER_ORDER = [
   "appSettingsRouter",
   "calendarRouter",
   "tabsRouter",
+  "viewsRouter",
   "claudeHooksRouter",
   "e2eRouter",
 ] as const;

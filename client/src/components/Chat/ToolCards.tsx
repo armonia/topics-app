@@ -22,6 +22,7 @@ import { SpawnAgentCard } from './SubAgentResultCard';
 import type { ReactNode } from 'react';
 import type { Components } from 'react-markdown';
 import { AgentMessageCard, AgentControlCard, ArtifactCard, AskUserCard } from './ToolCardsFleet';
+import { ViewBlock } from '../Views/ViewBlock';
 import type { ToolCallDetail } from '../../types';
 import { ChatMarkdown } from '../ChatMarkdown';
 import { highlightCode, langFromPath, subscribeHighlighter, highlighterReady } from '../../lib/syntaxHighlight';
@@ -756,6 +757,8 @@ export function ToolCardBody({ detail, isError, error, isRunning, sessionKey, li
     case 'browser':
       // The same body as a fetch: the whole URL, clickable, and what came back.
       return <FetchCard url={detail.url} result={detail.result} />;
+    case 'view':
+      return <ViewBlock spec={detail.view} viewId={detail.viewId} />;
     case 'unknown':
       return <UnknownCard args={detail.raw.args} result={detail.raw.result} />;
   }
