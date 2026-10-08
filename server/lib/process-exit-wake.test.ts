@@ -30,6 +30,21 @@ const FACTS = {
   lines: ["tick 1", "tick 2"],
 };
 
+describe("terminal colour codes", () => {
+  // freeagent's own red error line, as it reached topic:d740f8ae on 07/10.
+  const red = "\x1b[91m\x1b[1mError: \x1b[0mThe user rejected permission to use this specific tool call.";
+
+  test("never reach the agent's text", () => {
+    const text = processExitText({ ...FACTS, lines: ["ok", red] });
+    expect(text).not.toContain("\x1b");
+    expect(text).toContain("Error: The user rejected permission to use this specific tool call.");
+  });
+
+  test("never reach the card's last line", () => {
+    expect(processExitLastLine(["ok", red])).toBe("Error: The user rejected permission to use this specific tool call.");
+  });
+});
+
 describe("processExitText", () => {
   test("says the command, the exit code, the duration and the last lines, as data", () => {
     const text = processExitText(FACTS);

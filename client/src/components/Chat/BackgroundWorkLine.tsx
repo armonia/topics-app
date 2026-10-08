@@ -7,8 +7,7 @@
  * This line names that work, from the tasks of the chat's attention state
  * (`useTopicBackgroundTasks`, the frame the working ring and the fill read too,
  * ATTN-12), and goes away with it. The poll of `/api/topics/streaming` adds
- * only what the attention state does not carry: the process of each
- * `run_command` (its link to the Processes pane) and when the CLI last said
+ * only what the attention state does not carry: when the CLI last said
  * something about the work (the stale readout).
  *
  * NO STOP HERE. The composer already offers it with an empty field
@@ -41,13 +40,12 @@
  * with a start time its running time. The CLI lists a Monitor as a plain
  * `local_bash`; the server recognises it from the tool call that armed it.
  *
- * A COMMAND OF TOPICS IS WORK TOO (BGVIS-07). A process the agent started with
- * `run_command` lives in Topics' registry, not in the CLI, and the chat showed
- * nothing while it ran (30/09: "no UI at all, I don't know what it is doing").
- * It is listed here like the CLI's tasks, with a terminal icon, its running
- * time and, when its end will wake the chat, that it will. A click opens it in
- * the Processes pane of the chat's project window, where its Stop is: the
- * composer's Stop stops the CLI's work, and a command outlives the CLI.
+ * A COMMAND OF TOPICS IS NOT NAMED HERE (BGVIS-07). A process the agent started
+ * with `run_command` is a row of the strip under the chat (`SubAgentsStrip`,
+ * chat-live-work), with the line it prints, its Stop and, when its end will
+ * wake the chat, that it will. Named here as well, every command was on
+ * screen twice (07/10, the Prince of Persia chat). This line names the CLI's
+ * own work, which only the CLI knows of.
  *
  * A NEW TURN DOES NOT TAKE IT AWAY. The work of an earlier turn keeps running
  * while the next one is open, and the line keeps naming it until it ends
@@ -55,7 +53,7 @@
  * and the composer's Stop is the turn's.
  */
 import { memo } from 'react';
-import { Activity, SquareTerminal } from 'lucide-react';
+import { Activity } from 'lucide-react';
 import { useT } from '../../hooks/useT';
 import { useTopicBackgroundDetail, useTopicBackgroundTasks, useTopicLoading } from '../../state/signals';
 import type { TopicBackgroundWork } from '../../state/backgroundWork';
@@ -65,69 +63,45 @@ import { useSharedNow } from '../../state/useSharedNow';
 import { deriveWorkLongevity, formatElapsedCompact, formatRunningFor } from '../../state/workLongevity';
 import { CHAT_STRIP_ROW } from '../../lib/chatStripStyles';
 import { OrbitLoader } from '../Layout/StreamingIndicator';
-import { OPEN_PROCESS_LOG_EVENT } from '../Layout/fileOpenScope';
 
-export const BackgroundWorkLine = memo(function BackgroundWorkLine({ topicId, projectPath, isMobile }: { topicId: string; projectPath?: string; isMobile: boolean }) {
+export const BackgroundWorkLine = memo(function BackgroundWorkLine({ topicId, isMobile }: { topicId: string; isMobile: boolean }) {
   const tasks = useTopicBackgroundTasks(topicId);
   const detail = useTopicBackgroundDetail(topicId);
-  // A command that wakes nobody is no task of the attention state, and still
-  // runs: the poll lists it, and the line names it (BGVIS-07).
-  const hasCommands = !!detail?.tasks.some((t) => t.type === 'command');
-  const work = tasks.length > 0 || hasCommands ? lineWork(tasks, detail) : undefined;
+  // A command alone is the strip's (BGVIS-07): with nothing else the line does not come up.
+  const work = tasks.some((t) => t.kind !== 'command') ? lineWork(tasks, detail) : undefined;
   const turnOpen = useTopicLoading(topicId);
   // Mounted only while there is work, so the shared clock ticks only then.
   return work ? (
     <div className={`chat-measure pb-2 ${isMobile ? 'px-2' : 'px-4'}`}>
-      <Line work={work} turnOpen={turnOpen} projectPath={projectPath} />
+      <Line work={work} turnOpen={turnOpen} />
     </div>
   ) : null;
 });
 
 /**
- * What the line names: the attention state's tasks, in its order, with the
- * poll's detail where it has one. A `command` of the attention state stands
- * for every `run_command` of the chat: the poll lists them one by one, with
- * the process the click opens, and lists too the ones that wake nobody, which
- * the attention state does not carry. A Monitor is a `monitor` here and in
- * the poll.
+ * What the line names: the attention state's tasks, in its order, but the
+ * commands, which are rows of the strip under the chat. The poll adds when the
+ * CLI last said something about the work. A Monitor is a `monitor` here and
+ * in the poll.
  */
 function lineWork(tasks: readonly AttentionTask[], detail: TopicBackgroundWork | undefined): TopicBackgroundWork {
-  const commands = (detail?.tasks ?? []).filter((t) => t.type === 'command');
   const named: BackgroundTaskSummary[] = [];
-  let commandsNamed = false;
   for (const t of tasks) {
     // A queued wake is no work: it is the CLI about to answer a report. It
     // keeps the line up and is named by «about to resume» (n = 0 below), the
     // branch that otherwise no attention state could reach.
-    if (t.kind === 'wake') continue;
-    if (t.kind === 'command' && commands.length > 0) { named.push(...commands); commandsNamed = true; continue; }
+    if (t.kind === 'wake' || t.kind === 'command') continue;
     const startedAt = Date.parse(t.startedAt);
     named.push({ type: t.kind, description: t.label, ...(Number.isFinite(startedAt) ? { startedAt } : {}) });
   }
-  // The commands that owe no wake are not in the attention state's map.
-  if (!commandsNamed) named.push(...commands);
   return { sessionKey: detail?.sessionKey ?? '', tasks: named, lastSignalAt: detail?.lastSignalAt ?? 0 };
 }
 
-/**
- * Opens a command's log as a pane of the project window that hosts this chat
- * (`useProjectFileOpen`, scoped by project like `open-file-diff`). A chat with
- * no project window around it has nobody listening, and nothing opens.
- */
-function openCommandProcess(task: BackgroundTaskSummary, projectPath: string | undefined): void {
-  if (!task.processId) return;
-  window.dispatchEvent(new CustomEvent(OPEN_PROCESS_LOG_EVENT, {
-    detail: { processId: task.processId, scriptName: task.description, projectPath },
-  }));
-}
-
-function Line({ work, turnOpen, projectPath }: { work: TopicBackgroundWork; turnOpen: boolean; projectPath?: string }) {
+function Line({ work, turnOpen }: { work: TopicBackgroundWork; turnOpen: boolean }) {
   const tr = useT();
   const now = useSharedNow();
   const n = work.tasks.length;
   const names = work.tasks.map((t) => t.description).join(', ');
-  // Commands only: the composer's Stop has nothing to stop, their own Stop is in the Processes pane.
-  const commandsOnly = n > 0 && work.tasks.every((t) => t.type === 'command');
   // With no task listed a report is waking the CLI right now: that is news.
   const { isStale, elapsedMs } = deriveWorkLongevity(n > 0 && work.lastSignalAt > 0 ? work.lastSignalAt : undefined, now);
   return (
@@ -135,7 +109,7 @@ function Line({ work, turnOpen, projectPath }: { work: TopicBackgroundWork; turn
       data-testid="background-work-line"
       data-stale={isStale ? 'true' : undefined}
       className="rounded-lg border border-app-border/60 bg-app-hover/40 text-app-text"
-      title={[names, turnOpen ? '' : tr(commandsOnly ? 'chat.background.freeCommands' : 'chat.background.free')].filter(Boolean).join('\n')}
+      title={[names, turnOpen ? '' : tr('chat.background.free')].filter(Boolean).join('\n')}
     >
       <div className={`${CHAT_STRIP_ROW} flex-wrap gap-y-0.5`}>
         <span className="flex min-w-0 items-center gap-2">
@@ -150,7 +124,7 @@ function Line({ work, turnOpen, projectPath }: { work: TopicBackgroundWork; turn
         </span>
         {n > 0 && (
           <span data-testid="background-work-names" className="min-w-0 grow basis-24 truncate text-compact text-app-text">
-            {work.tasks.map((t, i) => <Task key={`${i}:${t.processId ?? t.description}`} task={t} now={now} last={i === n - 1} projectPath={projectPath} />)}
+            {work.tasks.map((t, i) => <Task key={`${i}:${t.description}`} task={t} now={now} last={i === n - 1} />)}
           </span>
         )}
         {isStale && (
@@ -163,41 +137,18 @@ function Line({ work, turnOpen, projectPath }: { work: TopicBackgroundWork; turn
   );
 }
 
-function Task({ task, now, last, projectPath }: { task: BackgroundTaskSummary; now: number; last: boolean; projectPath?: string }) {
+function Task({ task, now, last }: { task: BackgroundTaskSummary; now: number; last: boolean }) {
   const tr = useT();
-  const monitor = task.type === 'monitor';
-  const command = task.type === 'command';
   const running = task.startedAt ? formatRunningFor(Math.max(0, now - task.startedAt)) : '';
-  const body = (
-    <>
-      {monitor && (
+  return (
+    <span data-testid="background-work-task" data-type={task.type}>
+      {task.type === 'monitor' && (
         <Activity className="mr-0.5 inline h-3 w-3 align-[-1px] text-app-text-secondary" role="img" aria-label={tr('chat.background.monitor')} />
-      )}
-      {command && (
-        <SquareTerminal className="mr-0.5 inline h-3 w-3 align-[-1px] text-app-text-secondary" role="img" aria-label={tr('chat.background.command')} />
       )}
       {task.description}
       {running && (
         <span data-testid="background-work-running" className="tabular-nums text-app-text-secondary">{` ${running}`}</span>
       )}
-      {command && task.wakes && (
-        <span data-testid="background-work-wakes" className="text-app-text-secondary">{` · ${tr('chat.background.wakes')}`}</span>
-      )}
-    </>
-  );
-  return (
-    <span data-testid="background-work-task" data-type={task.type} data-process-id={task.processId}>
-      {command && task.processId ? (
-        <button
-          type="button"
-          data-testid="background-work-open"
-          onClick={() => openCommandProcess(task, projectPath)}
-          title={tr('chat.background.openProcess')}
-          className="inline max-w-full truncate text-left underline-offset-2 hover:underline"
-        >
-          {body}
-        </button>
-      ) : body}
       {!last && ', '}
     </span>
   );

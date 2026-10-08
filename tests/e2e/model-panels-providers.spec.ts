@@ -113,12 +113,12 @@ for (const viewport of [{ width: 1440, height: 900 }, { width: 1024, height: 768
       const { picker } = await openChat(page, request, KEYS);
       await picker.click();
       await expect(models(page)).toBeVisible();
-      // The models as somebody left them: a search typed, a section opened, a column scrolled.
+      // The models as somebody left them: a search typed, a section opened, the list scrolled.
       await models(page).getByTestId("model-section-anthropic").getByTestId("model-section-older").click();
       await models(page).getByTestId("model-selector-search").fill("o");
-      const column = models(page).locator('[data-model-column="1"]');
-      await column.evaluate((el) => { el.scrollTop = 40; });
-      const scrolled = await column.evaluate((el) => el.scrollTop);
+      const scroller = models(page).getByTestId("model-selector-sections");
+      await scroller.evaluate((el) => { el.scrollTop = 40; });
+      const scrolled = await scroller.evaluate((el) => el.scrollTop);
       expect(scrolled).toBeGreaterThan(0);
       const before = await rect(popover(page));
       const footerTail = await models(page).getByTestId("ai-selector-providers-tail").innerText();
@@ -135,16 +135,28 @@ for (const viewport of [{ width: 1440, height: 900 }, { width: 1024, height: 768
       await expect(page.getByTestId("providers-level-count")).toHaveText("9 pronti · 1 errore");
       expect(footerTail).toBe("9 pronti · 1 errore");
       expect(await level(page).locator(':scope > li[data-status="ready"]').count()).toBe(9);
-      // AC-21: the list does not scroll.
+      // AC-21 (amended 06/10): in the narrow panel the list scrolls like the
+      // phone's; every card is reachable and none is cut: top card whole at
+      // the top, last card whole at the bottom.
       const scroll = page.getByTestId("providers-level-scroll");
-      expect(await scroll.evaluate((el) => el.scrollHeight <= el.clientHeight + 1)).toBe(true);
+      const cards = level(page).locator(":scope > li");
+      await expect(cards).toHaveCount(10);
+      await scroll.evaluate((el) => { el.scrollTop = 0; });
+      const [first, top] = [await rect(cards.first()), await rect(scroll)];
+      expect(first.y).toBeGreaterThanOrEqual(top.y - 0.5);
+      expect(first.y + first.height).toBeLessThanOrEqual(top.y + top.height + 0.5);
+      await scroll.evaluate((el) => { el.scrollTop = el.scrollHeight; });
+      const [last, bottom] = [await rect(cards.last()), await rect(scroll)];
+      expect(last.y).toBeGreaterThanOrEqual(bottom.y - 0.5);
+      expect(last.y + last.height).toBeLessThanOrEqual(bottom.y + bottom.height + 0.5);
+      await scroll.evaluate((el) => { el.scrollTop = 0; });
       await page.screenshot({ path: test.info().outputPath(`providers-level-${viewport.width}.png`) });
 
       // ‹ goes back to the models as they were.
       await page.getByTestId("level-back").click();
       await expect(models(page)).toBeVisible();
       await expect(models(page).getByTestId("model-selector-search")).toHaveValue("o");
-      expect(await column.evaluate((el) => el.scrollTop)).toBe(scrolled);
+      expect(await scroller.evaluate((el) => el.scrollTop)).toBe(scrolled);
       await expect(models(page).getByTestId("ai-selector-providers")).toBeFocused();
 
       // Escape too, and a second Escape closes with the focus on the chip.
@@ -153,7 +165,7 @@ for (const viewport of [{ width: 1440, height: 900 }, { width: 1024, height: 768
       await page.keyboard.press("Escape");
       await expect(models(page)).toBeVisible();
       await expect(models(page).getByTestId("model-selector-search")).toHaveValue("o");
-      expect(await column.evaluate((el) => el.scrollTop)).toBe(scrolled);
+      expect(await scroller.evaluate((el) => el.scrollTop)).toBe(scrolled);
       // The section opened before the search is still open once it is cleared.
       await models(page).getByTestId("model-selector-search").fill("");
       await expect(models(page).getByTestId("model-section-anthropic").getByTestId("model-section-older")).toHaveAttribute("aria-expanded", "true");
@@ -192,6 +204,9 @@ for (const viewport of [{ width: 1440, height: 900 }, { width: 1024, height: 768
         // «Topics» is who runs it through the band: the Topics card.
         const cards = level(page).locator(":scope > li").filter({ has: page.locator(`[data-testid="provider-card-open"] >> text="${engine}"`) });
         await expect(cards, `${engine}`).toHaveCount(1);
+        // AC-07 (amended 06/10): the list scrolls, so each card is brought
+        // into view before the check; a card in view is whole, not cut.
+        await cards.scrollIntoViewIfNeeded();
         const box = await rect(cards);
         expect(box.y >= scroll.y - 0.5 && box.y + box.height <= scroll.y + scroll.height + 0.5, `${engine} in view`).toBe(true);
         const makers = cards.getByTestId("provider-card-makers");

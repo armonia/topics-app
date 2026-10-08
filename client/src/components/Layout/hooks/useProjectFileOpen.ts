@@ -31,7 +31,7 @@ import { useCallback, useEffect } from 'react';
 import type { Pane, PaneGroup } from '../../../types';
 import { createPaneId } from '../../../state/pane/adapters';
 import { basename } from '../../../lib/path-utils';
-import { OPEN_PROCESS_LOG_EVENT, shouldHandleOpenFile, shouldHandleOpenDiff } from '../fileOpenScope';
+import { shouldHandleOpenFile, shouldHandleOpenDiff } from '../fileOpenScope';
 import { planOpenPane } from './paneOpenPlan';
 
 export interface UseProjectFileOpenArgs {
@@ -185,19 +185,6 @@ export function useProjectFileOpen({
     window.addEventListener('open-file-diff', handler);
     return () => window.removeEventListener('open-file-diff', handler);
   }, [openDiff, wrapperPaneId, focusedPanelIdRef]);
-
-  // A command the chat's background line names (BGVIS-07): its log opens here,
-  // in the chat's own project window, as a click on its Processes row does.
-  useEffect(() => {
-    const handler = (e: Event) => {
-      const detail = (e as CustomEvent).detail as { processId?: string; scriptName?: string; projectPath?: string };
-      if (!detail?.processId) return;
-      if (!shouldHandleOpenDiff(detail, wrapperPaneId, focusedPanelIdRef.current, p => createPaneId('project', p))) return;
-      openProcessLog(detail.processId, detail.scriptName || detail.processId);
-    };
-    window.addEventListener(OPEN_PROCESS_LOG_EVENT, handler);
-    return () => window.removeEventListener(OPEN_PROCESS_LOG_EVENT, handler);
-  }, [openProcessLog, wrapperPaneId, focusedPanelIdRef]);
 
   useEffect(() => {
     const handler = (e: Event) => {

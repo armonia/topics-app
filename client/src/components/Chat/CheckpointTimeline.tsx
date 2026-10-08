@@ -6,6 +6,7 @@ import { useConfirm } from '../../hooks/useConfirm';
 import { useT } from '../../hooks/useT';
 import { BLOCKER_KEY, rollbackButtonState, rollbackDialogText } from './checkpointPlan';
 import { DockedStripPanel } from './DockedStripPanel';
+import { useDisclosureToggle } from './transcriptDisclosure';
 
 interface CheckpointTimelineProps {
   topicId: string;
@@ -25,6 +26,7 @@ function formatTimeAgo(ts: string): string {
 export function CheckpointTimeline({ topicId, onRollback }: CheckpointTimelineProps) {
   const { checkpoints, loading: _loading, error, load, create, rollback, fetchPlan, plans } = useCheckpoints(topicId);
   const [expanded, setExpanded] = useState(false);
+  const disclose = useDisclosureToggle();
   const [hoveredIdx, setHoveredIdx] = useState<number | null>(null);
   const [rollingBack, setRollingBack] = useState(false);
   const toast = useToast();
@@ -165,7 +167,7 @@ export function CheckpointTimeline({ topicId, onRollback }: CheckpointTimelinePr
       </DockedStripPanel>
       {/* Compact bar */}
       <button
-        onClick={() => setExpanded(!expanded)}
+        onClick={(e) => { disclose(e.currentTarget); setExpanded(!expanded); }}
         className="w-full flex items-center gap-2 px-3 py-1.5 text-mini text-app-text-tertiary hover:bg-app-hover transition-colors"
       >
         <Clock size={12} />

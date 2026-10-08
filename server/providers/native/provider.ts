@@ -48,7 +48,7 @@ import type {
   StreamHandler,
 } from "../types";
 import { recordTurnEnd } from "../turn-end-registry";
-import { languageDirective, resolveClaudeEffort } from "../../lib/topics-agent-prompt";
+import { languageDirective, languageReminder, resolveClaudeEffort } from "../../lib/topics-agent-prompt";
 import { resolveClaudeModel, resolveClaudeMaxTokens } from "../../services/app-settings";
 import {
   isEligibleGlobalOrchestratorSession,
@@ -743,6 +743,7 @@ export class NativeProvider implements AIProvider {
           // workspace and only its five board tools, so adding that ordinary
           // note would falsely advertise web/file capabilities.
           system: nativeSystemPrompt({ base: options?.systemPrompt, workspace: !!workspace, globalOrchestrator: !!globalOrchestrator }),
+          reminder: languageReminder(),
           history: session.history,
           // Passed by REFERENCE: every turn restarts from what the previous
           // one measured, instead of from the assumed 4 chars per token.

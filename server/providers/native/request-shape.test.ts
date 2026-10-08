@@ -148,4 +148,35 @@ describe("la forma della richiesta", () => {
       expect(body).toContain("riga 1999 ");
     });
   });
+
+  // 07/10, topic:d740f8ae: Italian in the system prompt, five rounds of English
+  // tool output, an English answer. The reminder is what the model reads last.
+  describe("il promemoria in fondo", () => {
+    const R = "<system-reminder>Rispondi in italiano.</system-reminder>";
+    const lastBlock = (req: Record<string, unknown>) => {
+      const msgs = req.messages as AgentMessage[];
+      return (msgs[msgs.length - 1]!.content as Block[]).at(-1)!;
+    };
+    const bare = (msgs: unknown) => JSON.parse(JSON.stringify(msgs, (k, v) => (k === "cache_control" ? undefined : v)));
+
+    test("chiude il messaggio della persona e ogni giro di risultati", async () => {
+      const { sent } = await turn({ reminder: R }, readRound, healthyRound);
+      expect(lastBlock(sent[0]!).text).toBe(R);
+      const results = (sent[1]!.messages as AgentMessage[]).at(-1)!.content as Block[];
+      expect(results.map((b) => b.type)).toEqual(["tool_result", "text"]);
+      expect(results[1]!.text).toBe(R);
+    });
+
+    test("resta dove l'ha messo: il giro dopo rimanda lo stesso prefisso, e la cache regge", async () => {
+      const { sent } = await turn({ reminder: R }, readRound, healthyRound);
+      const first = sent[0]!.messages as AgentMessage[];
+      expect(bare((sent[1]!.messages as AgentMessage[]).slice(0, first.length))).toEqual(bare(first));
+    });
+
+    test("senza promemoria la richiesta e' quella di prima", async () => {
+      const { sent, history } = await turn({}, readRound, healthyRound);
+      expect(bare((sent[0]!.messages as AgentMessage[])[0]!.content)).toEqual([{ type: "text", text: "vai" }]);
+      expect((history[2]!.content as Block[]).length).toBe(1);
+    });
+  });
 });
