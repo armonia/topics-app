@@ -1,0 +1,6 @@
+wsopen new 1 exit=0 0 failed 1 passed 
+wsopen base 1 exit=0 0 failed 1 passed 
+wsopen new 2 exit=0 0 failed 1 passed 
+wsopen base 2 exit=0 0 failed 1 passed 
+wsopen new 3 exit=0 0 failed 1 passed 
+wsopen base 3 exit=0 0 failed 1 passed 

@@ -1,0 +1,7 @@
+new base 1 load=[0.29] drag(exit=0)={"rendersPerMove":61.4,"commitsPerMove":1.4,"activationRenders":986} own(exit=1)=CLS=0.0488 ago(exit=1)=0 failed 0 failed 2 failed 1 passed 
+new new 1 load=[0.32] drag(exit=0)={"rendersPerMove":28.5,"commitsPerMove":1.4,"activationRenders":292} own(exit=0)=CLS=0.0000 ago(exit=0)=0 failed 0 failed 3 passed 
+new base 2 load=[0.57] drag(exit=0)={"rendersPerMove":61.4,"commitsPerMove":1.4,"activationRenders":986} own(exit=1)=CLS=0.0488 ago(exit=1)=0 failed 0 failed 2 failed 1 passed 
+new new 2 load=[0.59] drag(exit=0)={"rendersPerMove":28.8,"commitsPerMove":1.4,"activationRenders":292} own(exit=0)=CLS=0.0000 ago(exit=0)=0 failed 0 failed 3 passed 
+new base 3 load=[0.70] drag(exit=0)={"rendersPerMove":61.4,"commitsPerMove":1.4,"activationRenders":989} own(exit=1)=CLS=0.0488 ago(exit=1)=0 failed 0 failed 2 failed 1 passed 
+new new 3 load=[0.28] drag(exit=0)={"rendersPerMove":28.8,"commitsPerMove":1.4,"activationRenders":292} own(exit=0)=CLS=0.0000 ago(exit=0)=0 failed 0 failed 3 passed 
+b2new DONE

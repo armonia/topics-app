@@ -1,0 +1,8 @@
+── test:unit shards (ibrido: fase1 parallela + fase2 seriale) ──
+  fase1 shard 0: ok   930 file  752.7s
+  fase1 shard 1: RED  921 file  526.1s
+  fase2 seriale : ok   3 file  44.4s
+fase1 shard 1, test rossi (1):
+  ✗ server/attention/system-notices.test.ts › a system notice › a freeze and its thaw are one system row, on a system subject, and no chat lights up
+  FAIL  1854 file (1851 par / 3 ser) in 2 shard  wall 797.0s  (exit 1)
+error: script "test:unit:shards" exited with code 1

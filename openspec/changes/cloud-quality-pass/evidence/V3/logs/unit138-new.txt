@@ -1,0 +1,30 @@
+── test:unit shards (ibrido: fase1 parallela + fase2 seriale) ──
+  fase1 shard 0: RED  470 file  298.1s
+  fase1 shard 1: ok   461 file  264.1s
+  fase1 shard 2: RED  460 file  531.5s
+  fase1 shard 3: RED  460 file  235.5s
+  fase2 seriale : ok   3 file  44.6s
+fase1 shard 0, test rossi (4):
+  ✗ server/lib/ripresa-boot-queued-stopped.test.ts › the Stop the server writes is the Stop the sweep reads › a message stopped before the restart is not resent after it
+  ✗ server/db/terminal-session-types.test.ts › terminal_sessions.type — schema e codice dicono la stessa cosa › il CHECK enumera esattamente TERMINAL_SESSION_TYPES
+  ✗ server/db/terminal-session-types.test.ts › terminal_sessions.type — schema e codice dicono la stessa cosa › ogni tipo dichiarato è davvero inseribile
+  ✗ server/db/terminal-session-types.test.ts › terminal_sessions.type — schema e codice dicono la stessa cosa › un tipo fuori elenco è ancora rifiutato dal vincolo
+fase1 shard 2, test rossi (4):
+  ✗ server/utils-secret-path.test.ts › (unnamed)
+  ✗ tests/integration/master-sessions.test.ts › Master session control — read / write / close (shell sessions) › creates a shell session, writes to it, reads its buffer, then closes it
+  ✗ client/src/state/pane/middleware/syncServer.test.ts › syncServer — re-arm the push after a WS drop › an edit made just before the drop is pushed on the next open
+  ✗ client/src/state/pane/adapters/projectLayoutSync.durability.test.ts › project channel PUT durability › a successful debounced PUT lands and leaves nothing un-acked
+fase1 shard 3, test rossi (11):
+  ✗ server/git-watcher.test.ts › WORKTREE-05 — the watcher speaks for the worktree, not for its parent › a git operation INSIDE the worktree actually reaches the broadcast
+  ✗ server/providers/claude-code-pending-send.test.ts › sessionHasPendingSend › no provider exposes the probe: nothing pending
+  ✗ server/providers/claude-code-pending-send.test.ts › sessionHasPendingSend › a queued send counts even when the provider no longer holds a process for the session
+  ✗ server/providers/turn-liveness-routing.test.ts › chi è vivo, e chi non lo sa › nessun provider che sappia rispondere → `null`, non `false`
+  ✗ server/providers/turn-liveness-routing.test.ts › chi è vivo, e chi non lo sa › sessione di un provider ACP: claude-code non risponde per lui
+  ✗ server/providers/turn-liveness-routing.test.ts › chi è vivo, e chi non lo sa › con il solo claude-code registrato, la sua risposta vale ancora
+  ✗ server/providers/turn-liveness-routing.test.ts › chi è vivo, e chi non lo sa › sessione posseduta dall'ACP: risponde LUI, e la rete resta accesa
+  ✗ server/providers/turn-liveness-routing.test.ts › the sweeper probe, by name › IL CASO CHE HA UCCISO IL TURNO: il proprietario dice vivo, e la sonda lo riporta
+  ✗ server/providers/turn-liveness-routing.test.ts › the sweeper probe, by name › un turno che NON e' di nessuno resta `undefined`, non `false`
+  ✗ server/providers/turn-liveness-routing.test.ts › the sweeper probe, by name › il soccorso va al proprietario, non a claude-code
+  ✗ client/src/lib/featureWeightText.test.ts › fmt — il raggruppamento italiano, non «un punto ogni tre cifre» › coincide con il runtime dove il runtime ha un'opinione
+  FAIL  1854 file (1851 par / 3 ser) in 4 shard  wall 576.1s  (exit 1)
+error: script "test:unit:shards" exited with code 1
