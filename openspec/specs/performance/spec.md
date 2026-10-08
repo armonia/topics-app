@@ -1114,3 +1114,9 @@ same order with the same values.
 - **GIVEN** strings mixing ASCII, characters of the basic plane, surrogate pairs and lone surrogates
 - **WHEN** the first N code points are taken with `sliceCodePoints`
 - **THEN** the result SHALL equal `Array.from(s).slice(0, N).join("")` for every N, zero and past the end included
+
+#### Scenario: a wide row is the same row
+- **GIVEN** a SELECT of more than 62 columns over every SQLite type, nulls and blobs included
+- **WHEN** its rows are read with `allWideRows`
+- **THEN** they SHALL deep-equal the rows of `.all()`, with the keys in the same order
+- **AND** a column list that is not made of plain identifiers SHALL be read with `.all()`

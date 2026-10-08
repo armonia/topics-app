@@ -61,6 +61,7 @@ import { findNeighbours, type Neighbour } from "../../shared/task-similarity";
 import type { TaskStatus, TaskComment, CardComment, BoardSettings, BoardSettingsPatch, BlockerRef, QueueReason, SubtaskWork, TaskWeight, GlobalDispatchCap, GlobalCapPatch, TaskActionOrigin } from "../../shared/board";
 import { budgetShare } from "../../shared/board";
 import { sliceCodePoints } from "../lib/code-points";
+import { allWideRows } from "../lib/wide-rows";
 import type { Task, CreateTaskInput, UpdateTaskPatch, ListTasksInput } from "./task-shapes";
 
 import { markTargetSeenAndAnnounce } from "../notification-registry";
@@ -3760,9 +3761,11 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       const where = clauses.length ? `WHERE ${clauses.join(" AND ")}` : "";
       // project scope → board order (status then kanban_order); global feed → recency.
       const order = input.scope === "all" ? "updated_at DESC" : "kanban_order ASC";
-      const rows = db.query(
+      // `allWideRows` and not `.all()`: the projection is wider than the 62
+      // columns past which bun:sqlite builds each row object four times slower.
+      const rows = allWideRows(db.query(
         `SELECT ${listColumns(input.withDescription === true)} FROM tasks ${where} ORDER BY ${order}`,
-      ).all(...params) as any[];
+      ), ...params) as any[];
       return withSubtaskCounts(rowsToTasks(rows));
     },
 
