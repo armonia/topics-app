@@ -976,7 +976,15 @@ const CardBody = memo(function CardBody({ task, onOpen, showProject, error, onEr
       // dichiarazione in index.css invece che per quello che è successo alla
       // card. Lo spostamento batte la nascita — nascere è l'evento più debole
       // dei due, e una card che nasce non ha attraversato nessun confine.
-      className={`group cursor-grab rounded-md border border-app-border bg-surface p-2.5 text-body-lg leading-5 text-app-text shadow-sm hover:border-app-border-light ${isDragging ? 'opacity-40' : ''} ${justMovedTo ? `task-flash task-flash-${justMovedTo}` : justCreated ? 'task-flash task-flash-created' : ''}`}
+      //
+      // `relative` ALWAYS, not only under a freeze: the frost below is
+      // `absolute inset-0`, and `.swap-ice-host` (which positions the card)
+      // is added only while frozen. Idle, every card's empty glints box took
+      // the whole board area as its containing block, outside the column's
+      // scroll clip: 37 such boxes on the drag bench, and the browser paid for
+      // them on every frame of a drag (main thread per pass ~360 -> ~290 ms,
+      // board-drag-frames.spec.ts). Positioned here, they stay inside the card.
+      className={`group relative cursor-grab rounded-md border border-app-border bg-surface p-2.5 text-body-lg leading-5 text-app-text shadow-sm hover:border-app-border-light ${isDragging ? 'opacity-40' : ''} ${justMovedTo ? `task-flash task-flash-${justMovedTo}` : justCreated ? 'task-flash task-flash-created' : ''}`}
     >
       {/* THE FROST, first child and under everything else: `.swap-ice-host`
           lifts every other child one layer, so the text stays above it and

@@ -199,3 +199,17 @@ describe('the card route label', () => {
     expect(src.includes('cardRunsThroughTopics(task, getProvidersSnapshotState().snapshot) &&')).toBe(false);
   });
 });
+
+describe('the card is the containing block of its frost', () => {
+  test('the card root is positioned whether or not a freeze is on', () => {
+    // `SwapIce` mounts `absolute inset-0` boxes in every card and positions
+    // the card (`.swap-ice-host`) only while frozen. Without `relative` on the
+    // root, each idle card's empty glints box spanned the whole board area,
+    // outside the column's scroll clip, and a drag paid for it on every frame
+    // (board-drag-frames.spec.ts: ~360 -> ~290 ms of main thread per pass).
+    const root = /className=\{`group ([^`]*?)\$\{isDragging/.exec(src);
+    expect(root, 'the card root className moved: this test guards nothing').not.toBeNull();
+    expect(root![1]!.split(/\s+/)).toContain('relative');
+    expect(src).toContain('<SwapIce freeze={swapFreeze} size="card" />');
+  });
+});
