@@ -1793,7 +1793,6 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
    * dello stesso task con campi diversi. Se il PRAGMA non risponde si ricade su
    * `*`: una risposta grassa è meglio di una rotta.
    */
-  type ListProjection = { sql: string; names: readonly string[] | null };
   const listColumnsCache = new Map<string, ListProjection>();
   /**
    * Columns that ride in every board feed and that NOBODY reads off a Task.
@@ -1823,16 +1822,14 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
     "nudge_repeats",
   ];
 
-  /**
-   * `names` are the result columns in SELECT order, for `allWideRows`: whoever
-   * writes the projection knows them, and on Bun 1.3.8 `columnNames` past 62
-   * columns does not (it lists them backwards). `null` on the `*` fallback,
-   * whose order only SQLite knows: that read goes through `.all()`.
-   */
+  // `names`: the columns in SELECT order, for `allWideRows` (Bun 1.3.8 lists `columnNames` backwards past 62);
+  // `null` on the `*` fallback, whose order only SQLite knows, so that read goes through `.all()`.
+  type ListProjection = { sql: string; names: readonly string[] | null };
   function listColumns(withDescription: boolean): ListProjection {
     const key = withDescription ? "full" : "lean";
     const hit = listColumnsCache.get(key);
     if (hit) return hit;
+    const preview = `substr(description, 1, ${PREVIEW_SQL_CHARS}) AS description_preview`;
     let projection: ListProjection;
     try {
       const cols = (db.query("PRAGMA table_info(tasks)").all() as Array<{ name: string }>)
@@ -1840,12 +1837,9 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
         .filter((n) => n !== "checks_json" && (withDescription || n !== "description"))
         .filter((n) => !COLUMNS_WITH_NO_READER.includes(n));
       if (!cols.length) throw new Error("no columns");
-      projection = {
-        sql: `${cols.join(", ")}, substr(description, 1, ${PREVIEW_SQL_CHARS}) AS description_preview`,
-        names: [...cols, "description_preview"],
-      };
+      projection = { sql: `${cols.join(", ")}, ${preview}`, names: [...cols, "description_preview"] };
     } catch {
-      projection = { sql: `*, substr(description, 1, ${PREVIEW_SQL_CHARS}) AS description_preview`, names: null };
+      projection = { sql: `*, ${preview}`, names: null };
     }
     listColumnsCache.set(key, projection);
     return projection;
@@ -3773,10 +3767,8 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       const order = input.scope === "all" ? "updated_at DESC" : "kanban_order ASC";
       // `allWideRows` and not `.all()`: the projection is wider than the 62
       // columns past which bun:sqlite builds each row object four times slower.
-      const projection = listColumns(input.withDescription === true);
-      const rows = allWideRows(db.query(
-        `SELECT ${projection.sql} FROM tasks ${where} ORDER BY ${order}`,
-      ), projection.names, ...params) as any[];
+      const { sql: columns, names } = listColumns(input.withDescription === true);
+      const rows = allWideRows(db.query(`SELECT ${columns} FROM tasks ${where} ORDER BY ${order}`), names, ...params) as any[];
       return withSubtaskCounts(rowsToTasks(rows));
     },
 
