@@ -209,6 +209,8 @@ test("a command's row opens the card that started it, in sight, with its live lo
   await expect(card.getByTestId("shell-live-status")).toHaveAttribute("data-status", "running");
   const seen = tickOf(await live.textContent());
   await expect.poll(async () => tickOf(await live.textContent()), { timeout: 6_000 }).toBeGreaterThan(seen);
+  // Printed in colour, read as text: on the Prince of Persia chat (08/10) the escape codes showed as boxes.
+  expect(await live.textContent()).not.toMatch(/\x1b|\[\d*m/);
   await expect(page.getByTestId("live-work-log")).toHaveCount(0);
   await expect(row).toHaveAttribute("data-open", "false");
 

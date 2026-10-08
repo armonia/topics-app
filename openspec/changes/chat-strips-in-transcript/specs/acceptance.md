@@ -33,7 +33,8 @@ riga apre la card, la striscia sta nel trascritto) si aggiornano nello stesso co
   «CMDWATCH-TICK N» ogni 0,3 s, e finisce con 60 righe che portano la card fuori vista
 - **WHEN** si clicca la riga del comando nella striscia
 - **THEN** la card `tool-call-row-toolu_cmdwatch` è in vista fra la barra delle tab e il composer,
-  aperta, con il log dal vivo che avanza; nessun log agganciato
+  aperta, con il log dal vivo che avanza e si legge senza codici colore (i tick escono in verde);
+  nessun log agganciato
 - **AND** dopo un reload (la storia arriva senza risposta) lo stesso clic trova la stessa card
 - **AND** un comando lanciato dalla sola route, senza card, apre il log agganciato sopra le righe
 - **WHEN** il comando finisce

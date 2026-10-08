@@ -13,8 +13,9 @@
  * go), prints two lines and exits 0; its end wakes the topic with a message the fake answers "CMD-WOKEN".
  *
  * Two switches, off unless a test sets them: `CMDWATCH_TICKS=1` makes the
- * command print "CMDWATCH-TICK N" every 0.3 s while it waits, a live log to
- * follow; `CMDWATCH_DONE_LINES=N` ends the turn with N more lines after
+ * command print "CMDWATCH-TICK N" in green every 0.3 s while it waits, a live
+ * log to follow with the colour codes a real tool prints; `CMDWATCH_DONE_LINES=N`
+ * ends the turn with N more lines after
  * "RUN-DONE", "filler 1" to "filler N", which push the tool call's card out
  * of sight.
  */
@@ -68,7 +69,7 @@ function bridgeArgs(): { baseUrl: string; sessionKey: string; gatewayToken?: str
 async function runCommand(): Promise<void> {
   // It also stops once the test's folder is gone: a failed run must not leave it looping.
   const wait = TICKS
-    ? `i=0; while [ -d '${DIR}' ] && [ ! -f '${join(DIR, "finish")}' ]; do i=$((i+1)); echo "CMDWATCH-TICK $i"; sleep 0.3; done`
+    ? `i=0; while [ -d '${DIR}' ] && [ ! -f '${join(DIR, "finish")}' ]; do i=$((i+1)); printf '\\033[32mCMDWATCH-TICK %s\\033[0m\\n' "$i"; sleep 0.3; done`
     : `while [ -d '${DIR}' ] && [ ! -f '${join(DIR, "finish")}' ]; do sleep 0.2; done`;
   const input = { command: `${wait}; echo CMDWATCH-OUT; echo CMDWATCH-LAST 42`, description: JOB_DESCRIPTION };
   out({ type: "assistant", session_id: SESSION_ID, message: { role: "assistant", content: [{ type: "tool_use", id: TOOL, name: "mcp__topics__run_command", input }], model: "claude-finto" } });

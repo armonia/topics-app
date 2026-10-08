@@ -14,6 +14,7 @@
  */
 import { useT } from '../../hooks/useT';
 import { useLaunchedProcess, type LiveBackgroundShell } from '../../hooks/useBackgroundShell';
+import { stripAnsi } from '../../lib/stripAnsi';
 import { launchedProcessId } from './liveWorkCard';
 
 export function LiveShellTail({ live }: { live: LiveBackgroundShell }) {
@@ -38,7 +39,9 @@ export function LiveShellTail({ live }: { live: LiveBackgroundShell }) {
           data-testid="shell-live-output"
           className="tool-card-code text-mini font-mono text-app-text-secondary whitespace-pre-wrap overflow-auto max-h-72 bg-app-hover/40 rounded px-2 py-1.5"
         >
-          {live.output}
+          {/* Without colour and cursor codes, as the docked log reads them: on the
+              Prince of Persia chat (08/10) Muse's escape codes showed as boxes. */}
+          {stripAnsi(live.output)}
         </pre>
       )}
     </div>
