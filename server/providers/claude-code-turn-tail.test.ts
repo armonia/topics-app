@@ -234,6 +234,60 @@ describe("claude-code provider · the tail of a turn whose child exits while we 
     }
   }, 30_000);
 
+  test("B1b: a send that arrives while the tail is on its way waits for it, and its new child gets its own answer", async () => {
+    // Frames name only the session: a child spawned before the old one's tail
+    // lands would fold that tail with its own handlers, and the tail's offsets
+    // (past its own) would make it drop the first bytes of its own answer.
+    const sessionKey = "topic:tail-then-send";
+    await seedTopic(sessionKey, "t-tail-send");
+    const gate = join(tempDir, "tail-then-send.go");
+    setEnv("TOPICS_CLAUDE_CLI_PATH", writeCli("tail-then-send.sh", `read line
+printf '%s\\n' '${text("answer,")}' '${RESULT}'
+while [ ! -f '${gate}' ]; do sleep 0.02; done
+printf '%s\\n' '${text("late, written while nobody listened")}'
+exit 0`));
+    const provider = await newProvider();
+    const { getAiBridgeClient } = await import("../lib/ai-bridge-client");
+    const client: any = getAiBridgeClient();
+    const realFrame = client.handleFrame.bind(client);
+    try {
+      const first = counting();
+      await provider.sendChat(sessionKey, "first", first.handler);
+      expect(first.text).toBe("answer,");
+      client.detach(sessionKey);
+      await pause(100);
+      // From the exit on, frames are held, as by a server loop stalled by swap:
+      // the tail's replay is on its way when the next send comes in.
+      let held: any[] | null = null;
+      client.handleFrame = (m: any) => {
+        if (held) { held.push(m); return; }
+        realFrame(m);
+        if (m?.type === "exit" && m.id === sessionKey) held = [];
+      };
+      writeFileSync(gate, "");
+      const until = Date.now() + 5_000;
+      while (held === null && Date.now() < until) await pause(10);
+      expect(held).not.toBeNull();
+      rmSync(gate);
+      const second = counting();
+      const sent = provider.sendChat(sessionKey, "second", second.handler).catch(() => {});
+      await pause(300);
+      const batch: any[] = held ?? [];
+      held = null;
+      client.handleFrame = realFrame;
+      for (const m of batch) realFrame(m);
+      await Promise.race([second.done, pause(8_000)]);
+      await Promise.race([sent, pause(2_000)]);
+      console.log(`[T19 B1b] second turn ended ${second.ended}, text "${second.text}"`);
+      expect(second.text).toBe("answer,");
+      expect(second.ended).toBe("done");
+    } finally {
+      client.handleFrame = realFrame;
+      provider.stop();
+      try { client.kill(sessionKey); } catch { /* gone */ }
+    }
+  }, 30_000);
+
   test("B3: a daemon older than `endOffset` on the exit frame: the turn closes as before, no error", async () => {
     const sessionKey = "topic:tail-old-daemon";
     await seedTopic(sessionKey, "t-tail-old");

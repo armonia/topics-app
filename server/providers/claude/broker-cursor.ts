@@ -85,17 +85,19 @@ export function admitFrame(c: BrokerCursor, chunk: Buffer, offset: number): { ch
  *
  * `alive` drops before the fetch: a send queued behind this turn starts the
  * moment its `result` folds, and must spawn a fresh child, not write to this
- * dead one. One attempt, like the lag probe: a retry recycles the socket every
- * session shares.
+ * dead one. It waits for the returned promise first (`processForTurn`): frames
+ * name only the session, so a tail still on its way when the next child is
+ * spawned would be folded by that child's handlers. One attempt, like the lag
+ * probe: a retry recycles the socket every session shares.
  */
 export function closeAfterTail(
   c: BrokerCursor,
   endOffset: number | undefined,
   fetch: (from: number) => Promise<{ missing?: boolean }>,
   close: (wasAlive: boolean) => void,
-): void {
+): Promise<void> | undefined {
   const gap = typeof endOffset === "number" ? endOffset - c.consumedOffset : 0;
-  if (gap <= 0) { close(c.alive); return; }
+  if (gap <= 0) { close(c.alive); return undefined; }
   const skip = !c.alive ? "its process was already given up"
     : c.aborting || c.stoppedExit ? "the turn was stopped, and a stopped child's tail is dropped"
     : c.attachPending ? "its first attach had not landed, so there is no cursor of ours to fetch from"
@@ -104,12 +106,12 @@ export function closeAfterTail(
   if (skip) {
     console.warn(`[claude-code] ${c.sessionKey} exited ${gap} byte(s) past what we folded, not fetched: ${skip}`);
     close(c.alive);
-    return;
+    return undefined;
   }
   const wasAlive = c.alive;
   c.alive = false;
   console.warn(`[claude-code] ${c.sessionKey} exited while detached: ${gap} byte(s) past offset ${c.consumedOffset} never reached us, fetching them before closing`);
-  fetch(c.consumedOffset)
+  return fetch(c.consumedOffset)
     .then(
       (res) => { if (res.missing) console.warn(`[claude-code] ${c.sessionKey}: its tail is lost, the daemon dropped its store (the child was killed)`); },
       (err) => console.warn(`[claude-code] ${c.sessionKey}: could not fetch its tail (${err instanceof Error ? err.message : String(err)}), closing without it`),

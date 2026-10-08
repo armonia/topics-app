@@ -982,10 +982,9 @@ interface PersistentProcess {
    *  resync may start from it. One from 0 replays the child's whole history, and folded
    *  with the live attach's reply it became the new turn's answer (T18, verification). */
   attachPending?: boolean;
-  /** The offset of the one rewind below `consumedOffset` the reattach asked for, until it lands (`admitFrame`). */
-  rewindFrom?: number;
-  /** Left by a failed re-adoption: `consumedOffset` is where its scan stopped, so the next resync attaches live. */
-  reattachLive?: boolean;
+  rewindFrom?: number; // the one rewind below `consumedOffset` the reattach asked for, until it lands (`admitFrame`)
+  reattachLive?: boolean; // left by a failed re-adoption: the cursor is where its scan stopped, the next resync is live
+  exitTail?: Promise<void>; // the tail of a child that exited while we were detached, being folded (`closeAfterTail`)
   /** True while replaying buffered NDJSON on reattach — suppresses live-only
    *  client side effects (onUserInputRequired) while in-memory state rebuilds. */
   replaySilent?: boolean;
@@ -2596,6 +2595,7 @@ export class ClaudeCodeProvider implements AIProvider {
     handler?: StreamHandler,
   ): Promise<PersistentProcess | null> {
     const existing = this.processes.get(sessionKey);
+    await existing?.exitTail; // replaced before its tail lands, the tail's frames would reach the new child's handlers
     if (existing?.stoppedExit && existing.alive) {
       const waiting = handler ? { handler, cancelled: false } : null;
       if (waiting) this.waitingSends.set(sessionKey, waiting);
@@ -2967,8 +2967,7 @@ export class ClaudeCodeProvider implements AIProvider {
     });
     client.registerHandlers(sessionKey, {
       onData: (raw, at) => {
-        // A byte is folded once: below the cursor only the rewind we asked for (`admitFrame`).
-        const frame = admitFrame(pp, raw, at);
+        const frame = admitFrame(pp, raw, at); // a byte is folded once: below the cursor only the rewind we asked for
         if (!frame) return;
         // La consegna riparte da un punto diverso (un `attach` da un offset:
         // la fase 2 della riadozione fa esattamente questo). Il mezzo pezzo di
@@ -2978,7 +2977,7 @@ export class ClaudeCodeProvider implements AIProvider {
         pp.consumedOffset = frame.offset + frame.chunk.byteLength;
       },
       onStderr: (chunk) => this.handleStderrData(pp, sessionKey, chunk),
-      onExit: (code, end) => closeAfterTail(pp, end, (from) => client.attach(sessionKey, from, 1), (wasAlive) => this.onSessionClosed(pp, code, wasAlive)),
+      onExit: (code, end) => { pp.exitTail = closeAfterTail(pp, end, (from) => client.attach(sessionKey, from, 1), (wasAlive) => this.onSessionClosed(pp, code, wasAlive)); },
     });
   }
 
