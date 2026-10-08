@@ -2471,7 +2471,10 @@ topic. La finestra SHALL stare in uno di questi stati:
 
 La barra della finestra SHALL elencare le schede della topic, con la scheda attiva
 che mostra la pagina viva; le schede aperte da altre superfici del progetto SHALL
-essere raggiungibili dal «+», non elencate.
+essere raggiungibili dal «+», non elencate. Con più schede di quante ne stanno, la
+barra SHALL scorrere di lato invece di stringerle: ogni scheda SHALL restare larga
+almeno 88 px, il titolo leggibile accanto alla sua X; la scheda attiva SHALL essere
+in vista; il «+» SHALL restare intero (24 px) e visibile fuori dalla parte che scorre.
 
 Una scheda SHALL poter diventare **tab**: una pane browser nel layout, con lo stesso
 `contextId`, quindi la stessa pagina, cronologia e agente che la guida. Da tab SHALL
@@ -2514,6 +2517,14 @@ come tab.
 - **GIVEN** un viewport largo 390 px
 - **WHEN** un link della chat apre un sito
 - **THEN** non c'è nessuna finestra flottante e il sito si apre come tab
+
+#### Scenario: quindici pagine, la barra scorre
+- **GIVEN** una finestra minimizzata con quindici schede, attiva l'ultima
+- **WHEN** si misura la barra
+- **THEN** ogni scheda è larga almeno 88 px e la barra scorre, aperta sulla scheda attiva
+- **AND** il «+» è largo 24 px, dentro la finestra, e raggiungibile
+- **WHEN** l'utente scorre la barra fino alla prima scheda e la clicca
+- **THEN** la prima scheda è attiva e in vista
 
 ### Requirement: TOPIC-BROWSER-02 — La tab è l'unica chrome, e si apre in un foglio
 
