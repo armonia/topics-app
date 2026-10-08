@@ -45,7 +45,8 @@ import { prefersReducedMotion } from '../../lib/reducedMotion';
 import { PRIORITY_DOT, PRIORITY_LABEL, DISPATCH_CHIP, COMPACT_MD_CLS, COMMENTO_PIEGA_CHARS, RICHIESTA_PIEGA_CHARS, mediaPaneIdFor, type LiveUsage, type OpenTask } from './constants';
 import { copyText } from '../../lib/clipboard';
 import { canOpenTaskSession, shouldExplainMissingSession, type TaskSessionState } from '../../lib/taskSession';
-import { fmtMs, fmtTok, fmtUpdatedAt, fmtAttesa, fmtUsd, taskCopyText } from './format';
+import { fmtMs, fmtTok, fmtAttesa, fmtUsd, taskCopyText } from './format';
+import { UpdatedAgo } from './UpdatedAgo';
 import { StatusIcon, DispatchChip, QueueReasonChip, TaskIdChip, LabelChip } from './atoms';
 import { LiveEffortChip, LiveToolLine, RETRY_NOW_MESSAGE, RetryWaitChip } from './CardLive';
 import { SwapIce } from '../Shared/SwapIce';
@@ -1733,7 +1734,7 @@ export const Card = memo(function Card({ task, onOpen, showProject, error, onErr
         <span
           className="ml-auto text-compact leading-4 md:text-mini text-app-text-muted"
           title={tr('board.card.lastUpdate', { when: new Date(task.updatedAt).toLocaleString(locale) })}
-        >{fmtUpdatedAt(task.updatedAt)}</span>
+        ><UpdatedAgo iso={task.updatedAt} /></span>
       </div>
       {/* WHAT IT IS DOING RIGHT NOW: the tool the session is running and for
           how long. A 14-minute stopwatch did not tell a unit suite that has
