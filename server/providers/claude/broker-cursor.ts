@@ -123,3 +123,31 @@ export function closeAfterTail(
     .then(() => { c.exitTail = undefined; close(wasAlive); })
     .catch((err) => console.error(`[claude-code] closing ${c.sessionKey} after its tail threw:`, err));
 }
+
+/**
+ * A FAILED RE-ADOPTION'S MARK ENDS WHERE THE NEXT TURN BEGINS.
+ *
+ * `finalizeFailedReattach` leaves `reattachLive`: the cursor is where the scan
+ * stopped, and the next resync starts at the store's end, past the history the
+ * scan left unfolded (`resyncNow`). Nothing else spent the mark: with the cursor
+ * already at the end the lag probe sees no gap and never resyncs. It outlived
+ * whole turns, and the first resync of a later, healthy turn jumped to the end
+ * past that turn's own tail, `result` included. The answer came out cut and the
+ * turn hung until the watchdog (verification of T19, 08/10: "a1,a2," instead of
+ * "a1,a2,a3,"; the turn adopted after the restart had been refused for a rate
+ * limit, with its child alive).
+ *
+ * When a turn starts, everything already in the store is history: the cursor
+ * moves to the end before the message goes, and the mark is spent. If the
+ * daemon cannot be reached, the mark stays for the next resync, as before.
+ */
+export async function spendLiveMark(c: BrokerCursor, attachLive: () => Promise<{ fromOffset: number }>): Promise<void> {
+  if (!c.reattachLive) return;
+  try {
+    const { fromOffset } = await attachLive();
+    c.consumedOffset = Math.max(c.consumedOffset, fromOffset);
+    c.reattachLive = false;
+  } catch (err) {
+    console.warn(`[claude-code] ${c.sessionKey}: could not move past a failed re-adoption's history before the turn (${err instanceof Error ? err.message : String(err)}); the next resync stays live`);
+  }
+}

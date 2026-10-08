@@ -60,7 +60,7 @@ import {
   readCommandOutcome,
   readSyntheticText,
 } from "./claude/events";
-import { admitFrame, closeAfterTail } from "./claude/broker-cursor";
+import { admitFrame, closeAfterTail, spendLiveMark } from "./claude/broker-cursor";
 import { isWokenTurnLine, bufferWoken, drainWoken, unattendedLineFate, type WakeObserver, type HeldEvent } from "./claude/woken-turn";
 import { resolveWakeSource } from "./claude/wake-source";
 import { attentionBackgroundOf, type AttentionBackground, backgroundWorkKey, closedWork, type ClosedWork, datedByLastWrite, describeBackgroundWork, hasArmedCron, hasLiveTasks, hasTaskWork, isBackgroundWorkAlive, isWakeQueued, newBackgroundWork, noteBackgroundLine, wakeQueuedUntil, type BackgroundWork, type BackgroundWorkDetail } from "./claude/background-work";
@@ -1940,6 +1940,7 @@ export class ClaudeCodeProvider implements AIProvider {
     // write (spawn + write share the socket FIFO, but spawn's send is behind an
     // ensureConnected microtask). No-op in direct mode (ready resolved at spawn).
     await pp.ready;
+    if (pp.reattachLive) await spendLiveMark(pp, () => getAiBridgeClient().attachLive(sessionKey, 1)); // the turn starts past a failed re-adoption's history
     // Stopped, or taken off this turn, while the child was being spawned. No
     // send was waiting yet, so `abort()` had nothing to reject and told the
     // handler itself, and a SIGINT sent before the spawn reached nobody.
