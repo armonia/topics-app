@@ -31,6 +31,8 @@ export interface BrokerCursor {
   attachPending?: boolean;
   /** The cursor was left by a failed re-adoption: the next re-attach is live (`resyncNow`). */
   reattachLive?: boolean;
+  /** The tail being fetched by `closeAfterTail`, until the turn is closed. */
+  exitTail?: Promise<void>;
 }
 
 /**
@@ -85,19 +87,21 @@ export function admitFrame(c: BrokerCursor, chunk: Buffer, offset: number): { ch
  *
  * `alive` drops before the fetch: a send queued behind this turn starts the
  * moment its `result` folds, and must spawn a fresh child, not write to this
- * dead one. It waits for the returned promise first (`processForTurn`): frames
- * name only the session, so a tail still on its way when the next child is
- * spawned would be folded by that child's handlers. One attempt, like the lag
- * probe: a retry recycles the socket every session shares.
+ * dead one. It waits for `exitTail` first (`processForTurn`): frames name only
+ * the session, so a tail still on its way when the next child is spawned would
+ * be folded by that child's handlers. Set only while a tail is on its way: a
+ * send that awaited it on every turn gave a Stop one tick less to find it
+ * waiting. One attempt, like the lag probe: a retry recycles the socket every
+ * session shares.
  */
 export function closeAfterTail(
   c: BrokerCursor,
   endOffset: number | undefined,
   fetch: (from: number) => Promise<{ missing?: boolean }>,
   close: (wasAlive: boolean) => void,
-): Promise<void> | undefined {
+): void {
   const gap = typeof endOffset === "number" ? endOffset - c.consumedOffset : 0;
-  if (gap <= 0) { close(c.alive); return undefined; }
+  if (gap <= 0) { close(c.alive); return; }
   const skip = !c.alive ? "its process was already given up"
     : c.aborting || c.stoppedExit ? "the turn was stopped, and a stopped child's tail is dropped"
     : c.attachPending ? "its first attach had not landed, so there is no cursor of ours to fetch from"
@@ -106,16 +110,16 @@ export function closeAfterTail(
   if (skip) {
     console.warn(`[claude-code] ${c.sessionKey} exited ${gap} byte(s) past what we folded, not fetched: ${skip}`);
     close(c.alive);
-    return undefined;
+    return;
   }
   const wasAlive = c.alive;
   c.alive = false;
   console.warn(`[claude-code] ${c.sessionKey} exited while detached: ${gap} byte(s) past offset ${c.consumedOffset} never reached us, fetching them before closing`);
-  return fetch(c.consumedOffset)
+  c.exitTail = fetch(c.consumedOffset)
     .then(
       (res) => { if (res.missing) console.warn(`[claude-code] ${c.sessionKey}: its tail is lost, the daemon dropped its store (the child was killed)`); },
       (err) => console.warn(`[claude-code] ${c.sessionKey}: could not fetch its tail (${err instanceof Error ? err.message : String(err)}), closing without it`),
     )
-    .then(() => close(wasAlive))
+    .then(() => { c.exitTail = undefined; close(wasAlive); })
     .catch((err) => console.error(`[claude-code] closing ${c.sessionKey} after its tail threw:`, err));
 }
