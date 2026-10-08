@@ -1,5 +1,5 @@
 import { markDraftTouched } from '../../state/draftPane';
-import { useState, useRef, useEffect, useCallback, useMemo, useSyncExternalStore } from 'react';
+import { useState, useRef, useEffect, useLayoutEffect, useCallback, useMemo, useSyncExternalStore } from 'react';
 import { MessageSquare, FolderTree, Globe, Terminal, GitBranch, Activity, BookOpen, Cpu, FileCode, BarChart3, Kanban, Clock, UserRound } from 'lucide-react';
 import { usePanePendingStatus } from '../../contexts/PendingActionContext';
 import { PendingActionProgressOverlay } from '../Shared/PendingActionProgressOverlay';
@@ -47,7 +47,7 @@ import { getBrowserPaneChrome } from '../../state/browserPaneChrome';
 import { browserTabLabel, browserTabSubtitle, NEW_TAB_LABEL } from '../../lib/browserTabLabel';
 import { releaseNativeFocus } from '../../lib/shell/tauri';
 import { DRAG_REGION, NO_DRAG_REGION } from '../../lib/shell/dragRegion';
-import { useActiveTabInView } from '../../hooks/useActiveTabInView';
+import { prefersReducedMotion } from '../../lib/reducedMotion';
 
 /** The width of a tab, in px. Fixed on purpose: tabs that resize with their
  *  own content make the tab under the pointer move while you are aiming at it. */
@@ -419,9 +419,50 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
   const zoomAvailableFor = (paneId: string): boolean =>
     !!onToggleZoom && (isZoomed || !!canZoom) && !isDraftPaneId(paneId);
 
-  // The active tab is brought into view when it changes: see `useActiveTabInView`.
+  // Auto-scroll the active tab into view when it changes. The FIRST positioning
+  // (mount / reload) must be INSTANT — a tab bar that was already scrolled
+  // should reappear already scrolled, not animate from 0. Only genuine tab
+  // switches after mount animate. useLayoutEffect runs before paint, so the
+  // instant case lands with no visible jump from scrollLeft 0.
+  // Adjust the strip's OWN scrollLeft directly (never element.scrollIntoView():
+  // a freshly-mounted tab can still be 0-width when this fires, so the
+  // browser's ancestor-walk escapes past this strip onto a distant unrelated
+  // overflow-hidden ancestor — scrolling whole panes out of view elsewhere in
+  // the app with no scrollbar to recover it).
   const scrollContainerRef = useRef<HTMLDivElement>(null);
-  useActiveTabInView(scrollContainerRef, activePaneId ? `[data-pane-id="${CSS.escape(activePaneId)}"]` : null);
+  const didInitialScrollRef = useRef(false);
+  useLayoutEffect(() => {
+    const container = scrollContainerRef.current;
+    if (!activePaneId || !container) return;
+    const el = container.querySelector(`[data-pane-id="${CSS.escape(activePaneId)}"]`) as HTMLElement;
+    if (el) {
+      // `prefers-reduced-motion` vale anche qui, e questa e' l'unica strada per
+      // farglielo rispettare: le tre media query in `index.css` spengono le
+      // transizioni CSS, ma uno scroll animato in JS non le vede — chi ha
+      // chiesto al sistema di ridurre il movimento se lo prendeva lo stesso,
+      // ogni volta che cambiava tab.
+      //
+      // Adesso lo esercita la suite intera: `reducedMotion: "reduce"` sta nel
+      // `use` di playwright.config.ts, quindi OGNI spec che cambia tab passa di
+      // qui col ramo istantaneo. Restava chiuso da un difetto che sembrava di
+      // questa famiglia e non lo era — `reopen-closed-tab` andava in timeout sul
+      // click all'angolo della barra — ma la causa era mezzo pixel di inset del
+      // comando in testa alla riga, identico nelle due modalita': vedi
+      // `tests/e2e/reduced-motion-chrome-controls.spec.ts`, che ora misura
+      // posizione e cliccabilita' con e senza movimento ridotto.
+      const reduceMovement = prefersReducedMotion();
+      const behavior: ScrollBehavior =
+        didInitialScrollRef.current && !reduceMovement ? 'smooth' : 'auto';
+      const containerRect = container.getBoundingClientRect();
+      const elRect = el.getBoundingClientRect();
+      if (elRect.left < containerRect.left) {
+        container.scrollBy({ left: elRect.left - containerRect.left, behavior });
+      } else if (elRect.right > containerRect.right) {
+        container.scrollBy({ left: elRect.right - containerRect.right, behavior });
+      }
+      didInitialScrollRef.current = true;
+    }
+  }, [activePaneId]);
 
   // A RIGHT CLICK, A LONG PRESS AND SHIFT+F10 OPEN THE TAB'S SHEET, from the
   // commands door (TABSHEET-01): the same surface a click on an active browser

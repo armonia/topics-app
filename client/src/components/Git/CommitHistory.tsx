@@ -5,7 +5,6 @@ import { basename as pathBasename } from '../../lib/path-utils';
 import { Spinner } from '../Shared/Spinner';
 import type { GitLogEntry, GitCommitDetail, GitCommitFile } from '../../types';
 import { useT } from '../../hooks/useT';
-import { useLoadOnReach } from '../../hooks/useLoadOnReach';
 
 /**
  * La cronologia dei commit.
@@ -111,8 +110,6 @@ export function CommitHistory({ projectPath, onOpenFile, reloadKey, variant = 's
   // subito un altro lascia in vista i file del primo se la sua risposta arriva
   // per seconda.
   const requestRef = useRef(0);
-  // Infinite scroll: the next twenty come as the tail of the list comes into view.
-  const moreRef = useLoadOnReach(() => setLimit(l => l + PAGINA), { more: commits.length >= limit, loading, count: commits.length });
 
   const carica = useCallback(async (quanti: number) => {
     setLoading(true);
@@ -260,7 +257,6 @@ export function CommitHistory({ projectPath, onOpenFile, reloadKey, variant = 's
               mostrarne venti è lavoro buttato. */}
           {commits.length >= limit && (
             <button
-              ref={moreRef}
               onClick={() => setLimit(l => l + PAGINA)}
               className="w-full px-3 py-1 text-mini text-primary hover:underline text-left"
             >

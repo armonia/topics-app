@@ -272,11 +272,7 @@
     "3046 unrecorded; +11 are show_view (import, tool, handler line, the rich tools/call line) and the resources",
     "capability with its one-call dispatch. The tool, the resources and the call result live in mcp/view-tools.ts.",
     "server/mcp/topics-mcp-server.test.ts 2337 -> 2457: +4 the capability and show_view in both tool lists, the rest",
-    "landed on main. Recorded by hand, these two rows only.",
-    "08/10, infinite scroll (LIST-PAGE-01): client/src/components/Board/Card.tsx 1927 -> 2051 (ceiling 2047). main",
-    "stood at 2047 unrecorded; +4 are the column's load-on-reach hook (import, call, the show-more row's ref) and",
-    "the drag flag the column needs so it does not grow under a carried card. The logic lives in lib/loadOnReach.ts",
-    "and hooks/useLoadOnReach.ts. Recorded by hand, this row only."
+    "landed on main. Recorded by hand, these two rows only."
   ],
   "tolerance_pct": 5,
   "max_lines": 800,
@@ -296,7 +292,7 @@
       ]
     },
 
-    "client/src/components/Board/Card.tsx": 2051,
+    "client/src/components/Board/Card.tsx": 1927,
 
     "client/src/components/Board/KanbanBoardPane.tsx": 2123,
 
