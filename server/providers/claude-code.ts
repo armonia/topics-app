@@ -60,7 +60,7 @@ import {
   readCommandOutcome,
   readSyntheticText,
 } from "./claude/events";
-import { closeAfterTail } from "./claude/broker-cursor";
+import { admitFrame, closeAfterTail } from "./claude/broker-cursor";
 import { isWokenTurnLine, bufferWoken, drainWoken, unattendedLineFate, type WakeObserver, type HeldEvent } from "./claude/woken-turn";
 import { resolveWakeSource } from "./claude/wake-source";
 import { attentionBackgroundOf, type AttentionBackground, backgroundWorkKey, closedWork, type ClosedWork, datedByLastWrite, describeBackgroundWork, hasArmedCron, hasLiveTasks, hasTaskWork, isBackgroundWorkAlive, isWakeQueued, newBackgroundWork, noteBackgroundLine, wakeQueuedUntil, type BackgroundWork, type BackgroundWorkDetail } from "./claude/background-work";
@@ -982,6 +982,8 @@ interface PersistentProcess {
    *  resync may start from it. One from 0 replays the child's whole history, and folded
    *  with the live attach's reply it became the new turn's answer (T18, verification). */
   attachPending?: boolean;
+  /** The offset of the one rewind below `consumedOffset` the reattach asked for, until it lands (`admitFrame`). */
+  rewindFrom?: number;
   /** True while replaying buffered NDJSON on reattach — suppresses live-only
    *  client side effects (onUserInputRequired) while in-memory state rebuilds. */
   replaySilent?: boolean;
@@ -2962,27 +2964,16 @@ export class ClaudeCodeProvider implements AIProvider {
       onLine(line);
     });
     client.registerHandlers(sessionKey, {
-      onData: (chunk, offset) => {
-        // A BYTE IS FOLDED ONCE. A re-attach replays from the cursor it was
-        // SENT with, and frames the daemon had already written to the socket
-        // before it read that `attach` arrive first: the replay then repeats
-        // them, and folding them again doubled the deltas on screen (137
-        // numbers out of 1500 with overlapping re-attaches, T18). Below the
-        // cursor only a deliberate rewind may fold, and every one of those
-        // (the reattach's scan and its replay of the open turn) runs muted or
-        // silent.
-        if (offset < pp.consumedOffset && !pp.replayMute && !pp.replaySilent) {
-          const seen = pp.consumedOffset - offset;
-          if (seen >= chunk.byteLength) return;
-          chunk = chunk.subarray(seen);
-          offset = pp.consumedOffset;
-        }
+      onData: (raw, at) => {
+        // A byte is folded once: below the cursor only the rewind we asked for (`admitFrame`).
+        const frame = admitFrame(pp, raw, at);
+        if (!frame) return;
         // La consegna riparte da un punto diverso (un `attach` da un offset:
         // la fase 2 della riadozione fa esattamente questo). Il mezzo pezzo di
         // riga tenuto da parte apparteneva a un'altra regione dello store.
-        if (offset !== pp.consumedOffset) fold.reset(offset);
-        fold(chunk);
-        pp.consumedOffset = offset + chunk.byteLength;
+        if (frame.offset !== pp.consumedOffset) fold.reset(frame.offset);
+        fold(frame.chunk);
+        pp.consumedOffset = frame.offset + frame.chunk.byteLength;
       },
       onStderr: (chunk) => this.handleStderrData(pp, sessionKey, chunk),
       onExit: (code, end) => closeAfterTail(pp, end, (from) => client.attach(sessionKey, from, 1), (wasAlive) => this.onSessionClosed(pp, code, wasAlive)),
@@ -3573,9 +3564,9 @@ export class ClaudeCodeProvider implements AIProvider {
         const replayed = new Promise<void>((r) => { release = () => r(); });
         if (own) this.queues.set(sessionKey, (this.queues.get(sessionKey) ?? Promise.resolve()).then(() => replayed));
         try {
-          if (own) { pp.replaySilent = true; dateReplay(pp, await client.attach(sessionKey, own.from)); }
+          if (own) { pp.replaySilent = true; pp.rewindFrom = own.from; dateReplay(pp, await client.attach(sessionKey, own.from)); }
           if (pp.streamHandler === handler && pp.replayLastResult) this.handleStreamEvent(pp, pp.replayLastResult); // the replay did not reach it
-        } finally { pp.replaySilent = false; release(); }
+        } finally { pp.replaySilent = false; pp.rewindFrom = undefined; release(); }
         return "completed";
       }
       // Empty store (child idle since spawn, or nothing meaningful): nothing
@@ -3607,8 +3598,12 @@ export class ClaudeCodeProvider implements AIProvider {
     // rejection: the whole server went down. The awaits below still see it.
     turnDone.catch(() => {});
 
-    const res = await client.attach(sessionKey, own?.from ?? pp.replayAfterLastResultOffset ?? 0);
+    // A rewind below the cursor the scan carried to the end, named by its offset: the scan's attach is
+    // still live, and the frames it delivers meanwhile are the replay's to fold (`admitFrame`, T19).
+    pp.rewindFrom = own?.from ?? pp.replayAfterLastResultOffset ?? 0;
+    const res = await client.attach(sessionKey, pp.rewindFrom);
     pp.replaySilent = false;
+    pp.rewindFrom = undefined;
     dateReplay(pp, res);
 
     // Replay is fully folded now (synchronous onData). Classify from pp state.
@@ -3663,6 +3658,7 @@ export class ClaudeCodeProvider implements AIProvider {
     // torna e ricomincia a consegnare, un turno vivo scorrerebbe muto.
     pp.replayMute = false;
     pp.replaySilent = false;
+    pp.rewindFrom = undefined; // a rewind still awaited would drop every frame from here on
     if (pp.pendingResolve) {
       const r = pp.pendingResolve;
       pp.pendingResolve = null;

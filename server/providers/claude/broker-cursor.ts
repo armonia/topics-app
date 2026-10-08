@@ -1,14 +1,19 @@
 /**
- * WHERE A BROKER SESSION STANDS IN ITS STORE, and the rule that keeps that
- * place honest when its child exits (T19).
+ * WHERE A BROKER SESSION STANDS IN ITS STORE, and the two rules that keep that
+ * place honest (T18, T19).
  *
  * The ai-bridge daemon keeps each child's output in an append-only store and
  * sends it to us in `data` frames addressed by offset. The provider folds them
- * synchronously and moves `consumedOffset` past them. When the child exits
- * while we are detached, its `exit` is a broadcast and reaches us anyway, but
- * the bytes it wrote after the cut were never sent to us (`closeAfterTail`).
+ * synchronously and moves `consumedOffset` past them. Two things happen around
+ * that cursor that the provider used to get wrong:
  *
- * Kept out of `claude-code.ts` because it is a rule about offsets, not about
+ *  - a re-attach replays from the cursor it was SENT with, so frames already in
+ *    flight arrive twice (`admitFrame`);
+ *  - the child exits while we are detached: its `exit` is a broadcast and
+ *    reaches us anyway, but the bytes it wrote after the cut were never sent to
+ *    us (`closeAfterTail`).
+ *
+ * Kept out of `claude-code.ts` because they are rules about offsets, not about
  * the turn, and that file sits at its size ceiling (`check-bloat`).
  */
 
@@ -17,9 +22,46 @@ export interface BrokerCursor {
   sessionKey: string;
   consumedOffset: number;
   alive: boolean;
+  /** The reattach's muted scan: it folds nothing visible, so a repeat costs nothing. */
+  replayMute?: boolean;
+  /** The one rewind we asked for, below the cursor: see `admitFrame`. */
+  rewindFrom?: number;
   aborting?: boolean;
   stoppedExit?: unknown;
   attachPending?: boolean;
+}
+
+/**
+ * A BYTE IS FOLDED ONCE. Which part of a `data` frame may be folded, or null
+ * for none of it.
+ *
+ * A re-attach replays from the cursor it was SENT with, and frames the daemon
+ * had already written to the socket before it read that `attach` arrive first:
+ * the replay then repeats them, and folding them again doubled the deltas on
+ * screen (137 numbers out of 1500 with overlapping re-attaches, T18). Below the
+ * cursor only the muted scan may fold.
+ *
+ * And the one rewind we ask for on purpose: the reattach's second attach (and
+ * its replay of a turn that completed while we were away) starts at the open
+ * turn, below a cursor the scan has carried to the end. It used to be let
+ * through by its `replaySilent` flag, and so was every frame of the scan's
+ * still-live attach that landed while it was on its way: folded live, then
+ * again by the replay (43 numbers out of 600, T19). Now it is named by its
+ * offset: until a frame starts exactly there, every frame is one the replay
+ * will repeat, and is dropped; from there on the replay is contiguous.
+ */
+export function admitFrame(c: BrokerCursor, chunk: Buffer, offset: number): { chunk: Buffer; offset: number } | null {
+  if (c.rewindFrom !== undefined) {
+    if (offset !== c.rewindFrom) return null;
+    c.rewindFrom = undefined;
+    return { chunk, offset };
+  }
+  if (offset < c.consumedOffset && !c.replayMute) {
+    const seen = c.consumedOffset - offset;
+    if (seen >= chunk.byteLength) return null;
+    return { chunk: chunk.subarray(seen), offset: c.consumedOffset };
+  }
+  return { chunk, offset };
 }
 
 /**

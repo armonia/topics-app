@@ -2,7 +2,7 @@
  * The tail of a broker turn is never lost (T19).
  *
  * Each case drives a REAL ai-bridge daemon and a fake CLI, on the path T18
- * aligned (`claude-code-stream-lag.test.ts`), through the first hole it left:
+ * aligned (`claude-code-stream-lag.test.ts`), through two holes it left:
  *
  *  - B1-B3: the child writes its final text and its `result` while we are
  *    detached, then exits. The daemon's `exit` is a broadcast, so it reaches us
@@ -11,6 +11,9 @@
  *    (Case 1, "late attach"), so they can be fetched before closing; a killed
  *    child's store is gone, and a daemon older than `endOffset` on the frame
  *    says nothing about a gap.
+ *  - B4: the second attach of a re-adoption (phase 2) rewinds to the start of
+ *    the open turn while the scan's attach still delivers live frames: a frame
+ *    folded live in between was folded again by the replay.
  * @covers CCLI-04
  */
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
@@ -72,7 +75,7 @@ async function seedTopic(sessionKey: string, id: string) {
 }
 
 function counting() {
-  let acc = "";
+  let received = "";
   let deltas = 0;
   let dones = 0;
   let ended: string | null = null;
@@ -81,7 +84,7 @@ function counting() {
   const done = new Promise<void>((r) => { resolveDone = r; });
   const end = (how: string) => { ended ??= how; endedAt ||= Date.now(); resolveDone(); };
   const handler: any = {
-    onTextDelta: (delta: string) => { acc += delta; deltas++; },
+    onTextDelta: (delta: string) => { received += delta; deltas++; },
     onToolStart: () => {}, onToolResult: () => {}, onSubAgentUpdate: () => {}, onUserInputRequired: () => {},
     onAborted: (info: any) => end(`aborted:${info?.turnEnd?.cause ?? info?.turnEnd?.end ?? "?"}`),
     onDone: () => { dones++; end("done"); },
@@ -89,7 +92,7 @@ function counting() {
   };
   return {
     handler, done,
-    get text() { return acc; }, get deltas() { return deltas; }, get dones() { return dones; },
+    get text() { return received; }, get deltas() { return deltas; }, get dones() { return dones; },
     get ended() { return ended; }, get endedAt() { return endedAt; },
   };
 }
@@ -110,7 +113,7 @@ function storeSize(storeDir: string, sessionKey: string): number {
 }
 
 /** Collects console.warn / console.log lines while `fn` runs. */
-async function capturing<T>(fn: (said: string[]) => Promise<T>): Promise<T> {
+async function withLogLines<T>(fn: (said: string[]) => Promise<T>): Promise<T> {
   const said: string[] = [];
   const warn = console.warn;
   const log = console.log;
@@ -180,7 +183,7 @@ describe("claude-code provider · the tail of a turn whose child exits while we 
     await seedTopic(sessionKey, "t-tail-det");
     const { provider, client, sink, turn, gate } = await detachedTurn(sessionKey, true);
     try {
-      await capturing(async (said) => {
+      await withLogLines(async (said) => {
         const exitAt = Date.now();
         writeFileSync(gate, "");
         await Promise.race([sink.done, pause(5_000)]);
@@ -205,7 +208,7 @@ describe("claude-code provider · the tail of a turn whose child exits while we 
     await seedTopic(sessionKey, "t-tail-kill");
     const { provider, client, sink, turn, gate } = await detachedTurn(sessionKey, false);
     try {
-      await capturing(async (said) => {
+      await withLogLines(async (said) => {
         writeFileSync(gate, "");
         // `final,` is in the store, not with us: there is a tail to lose.
         const until = Date.now() + 5_000;
@@ -237,7 +240,7 @@ describe("claude-code provider · the tail of a turn whose child exits while we 
       if (m?.type === "exit") { const { endOffset: _gone, ...old } = m; realFrame(old); } else realFrame(m);
     };
     try {
-      await capturing(async (said) => {
+      await withLogLines(async (said) => {
         writeFileSync(gate, "");
         await Promise.race([sink.done, pause(5_000)]);
         await turn;
@@ -252,4 +255,49 @@ describe("claude-code provider · the tail of a turn whose child exits while we 
       try { client.kill(sessionKey); } catch { /* gone */ }
     }
   }, 30_000);
+});
+
+describe("claude-code provider · a re-adoption under a child that keeps writing (B4)", () => {
+  test("server restarted mid-turn, the child writes through the scan and phase 2: every number once", async () => {
+    const sessionKey = "topic:tail-readopt";
+    await seedTopic(sessionKey, "t-tail-readopt");
+    const COUNT = 600;
+    setEnv("TOPICS_CLAUDE_CLI_PATH", countingCli("cli-readopt.sh", COUNT, "0.005"));
+    const { getAiBridgeClient } = await import("../lib/ai-bridge-client");
+    const client: any = getAiBridgeClient();
+    const first = await newProvider();
+    const turn1 = counting();
+    void first.sendChat(sessionKey, "go", turn1.handler).catch(() => {});
+    let until = Date.now() + 10_000;
+    while (turn1.deltas < 20 && Date.now() < until) await pause(10);
+    // The restart: server 1 detaches and forgets, the child keeps writing.
+    first.stop();
+    first.processes = new Map();
+    const second = await newProvider();
+    // Phase 2's attach leaves a little after the scan's, as it does behind a
+    // loop busy with the boot: the scan's attach is still live meanwhile.
+    const realAttach = client.attach.bind(client);
+    let attaches = 0;
+    client.attach = async (id: string, from: number, attempts?: number) => {
+      if (id === sessionKey && ++attaches === 2) await pause(300);
+      return realAttach(id, from, attempts);
+    };
+    const sink = counting();
+    try {
+      const outcome = await second.reattach(sessionKey, sink.handler);
+      until = Date.now() + 15_000;
+      while (sink.ended === null && Date.now() < until) await pause(20);
+      const got = numbersOf(sink.text);
+      const dup = got.length - new Set(got).size;
+      console.log(`[T19 B4] outcome ${outcome}, ended ${sink.ended}, ${got.length} numbers, ${dup} repeated, last ${got[got.length - 1]}`);
+      expect(attaches).toBeGreaterThanOrEqual(2);
+      expect(sink.ended).toBe("done");
+      expectContiguous(sink.text);
+      expect(got.length).toBe(COUNT);
+    } finally {
+      client.attach = realAttach;
+      second.stop();
+      try { client.kill(sessionKey); } catch { /* gone */ }
+    }
+  }, 40_000);
 });
