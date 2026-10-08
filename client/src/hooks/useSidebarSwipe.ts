@@ -1,4 +1,5 @@
-import { useEffect, useRef, type RefObject } from 'react';
+import { useEffect, useLayoutEffect, useRef, type RefObject } from 'react';
+import { setFramesCovered } from '../components/Browser/frameCover';
 
 /**
  * IL CASSETTO STA SOTTO IL DITO, per tutta la corsa.
@@ -101,6 +102,12 @@ export function useSidebarSwipe({ enabled, sidebarRef, collapsed, setCollapsed }
     // `data-drawer` now matches the state: visibility belongs to CSS again.
     if (enabled) sidebarRef.current?.style.removeProperty('visibility');
   }, [collapsed, enabled, sidebarRef]);
+  // The open drawer covers every pane, and a browser tab's page paints above
+  // the drawer unless it is told to step aside (`setFramesCovered`). A layout
+  // effect: the page must not show over the list for the frame in between.
+  useLayoutEffect(() => {
+    setFramesCovered(enabled && !collapsed);
+  }, [collapsed, enabled]);
 
   useEffect(() => {
     if (!enabled) return;
