@@ -22,8 +22,9 @@
  * the phone and asks the screen who answers a tap: a row of the list, the
  * banner's Reload, the banner's close. And it waits for the page to be
  * PLACED first: a frame that never arrived covers nothing, and the test would
- * be green for free. The last step closes the list and asks the opposite: the
- * page must be back over its pane.
+ * be green for free. Then it closes the list and asks the opposite: the
+ * page must be back over its pane. Last, the gesture a person makes from
+ * there: the list opened again over a page that is already on screen.
  *
  * @covers TOPIC-BROWSER-03 UI-READ-01
  */
@@ -43,6 +44,15 @@ async function answerAtCentre(page: Page, target: Locator): Promise<string> {
     if (hit && (hit === el || el.contains(hit))) return "itself";
     return hit?.getAttribute("data-testid") ?? hit?.tagName ?? "nothing";
   }, { x: box!.x + box!.width / 2, y: box!.y + box!.height / 2 });
+}
+
+/** Who answers a tap in the middle of the screen: "the list", or the testid /
+ *  tag of whatever is in front of it. */
+async function middleAnswer(page: Page): Promise<string> {
+  return page.evaluate(() => {
+    const hit = document.elementFromPoint(window.innerWidth / 2, window.innerHeight / 2);
+    return hit?.closest('[aria-label="Topics sidebar"]') ? "the list" : (hit?.getAttribute("data-testid") ?? hit?.tagName ?? "nothing");
+  });
 }
 
 /** The page has been given a rectangle: its wrapper carries `data-at`. */
@@ -94,11 +104,7 @@ test.describe.serial("a browser tab behind the phone's list", () => {
       // The middle of the screen, where the list is and the page was: the first
       // row sits above the page's rectangle (it starts under the 40px top row)
       // and would answer either way.
-      const middle = await page.evaluate(() => {
-        const hit = document.elementFromPoint(window.innerWidth / 2, window.innerHeight / 2);
-        return hit?.closest('[aria-label="Topics sidebar"]') ? "the list" : (hit?.getAttribute("data-testid") ?? hit?.tagName ?? "nothing");
-      });
-      expect(middle, "the middle of the screen").toBe("the list");
+      expect(await middleAnswer(page), "the middle of the screen").toBe("the list");
 
       await page.evaluate(() => window.dispatchEvent(new CustomEvent("topics:bundle-stale")));
       const reload = page.getByTestId("bundle-stale-reload");
@@ -119,6 +125,13 @@ test.describe.serial("a browser tab behind the phone's list", () => {
         if (!box) return "no box";
         return page.evaluate(({ x, y }) => document.elementFromPoint(x, y)?.getAttribute("data-testid") ?? "other", { x: box.x + box.width / 2, y: box.y + box.height / 2 });
       }, { timeout: 5_000, message: "the page answers over its pane" }).toBe("browser-iframe");
+
+      // And the gesture a person makes from there: the page is in front, the
+      // list is opened over it. The frame already exists this time, so the
+      // layer has to step aside while it is on screen, not only be born hidden.
+      await page.getByTestId("sidebar-reopen").first().tap();
+      await expect(page.locator("[data-drawer]")).toHaveAttribute("data-drawer", "open");
+      await expect.poll(() => middleAnswer(page), { timeout: 5_000, message: "the middle of the screen, list reopened" }).toBe("the list");
     });
   });
 });
