@@ -333,3 +333,30 @@ rimesse sulla base locale con `cloud-ricuci`; la firma SSH della VM cade, autore
 - Il commento falso trovato da T13 in `MessageList.tsx` («Nothing is lost by waiting») corretto qui. Resta
   aperto, raro e fuori recinto: una rotellata verso il fondo entro ~100 ms dal clic che apre l'ultima riga si
   ferma 14-122 px sopra il fondo.
+
+## T15 · Le perdite d'ordine della suite — accettata (fusa in `dc773b2e3`)
+
+- Diff letto: i fix stanno in chi sporca. `cleanupTestDataDir` rimette il `DATA_DIR` trovato prima del primo
+  setup senza risposta, quindi un file che non pulisce non passa la sua cartella al file dopo. La guardia del
+  preload chiede `k in globalThis`, e altri 12 file non lasciano più una chiave DOM a `undefined`.
+  RECAPTURE-01 era la VM senza WebKit: il test non si tocca.
+- Sul Mac, 5 corse per contesto per Bun:
+  - **Contesto 2 (`localStorage`):** 5/5 rossi prima, 0/5 dopo, su 1.3.8 e 1.4.2.
+  - **Contesto 1 (`system-notices`):** 0/5 già prima. Qui Bun non mette `browser-state-store` davanti.
+    Vale la guardia deterministica di T15 (file fixture numerati in processi figli): verde dopo; su una
+    worktree scratch senza il ripristino falliscono i 2 casi del ripristino.
+- I 16 file di test cambiati: 94 pass, 0 fail su 1.3.8 e 1.4.2.
+
+## Fuori traccia · Gli spinner fermi con il fuoco in una tab browser nativa (`924960ad4`)
+
+- Segnalazione di Attilio dell'08/10, arrivata da un'altra sessione: cambiando tab gli spinner della chat in
+  streaming si fermano fino al ritorno o a un ricarica.
+- Lato server lo stream c'era: alle 15:43 il topic in questione aveva tool avviati e conclusi.
+- Causa: `useAnimationPause` metteva `.anims-paused` con `document.hidden || !document.hasFocus()`. Un click in
+  una WKWebView figlia la rende key e l'ospite legge `hasFocus()` falso mentre si usa l'app. I poll lo
+  correggevano già con `isWindowAwake()` (RUNTIME-11: una vista figlia non ferma gli orologi), le
+  animazioni no.
+- Fix: lo stesso predicato, con `onWindowAwakeChange`. `useAnimationPause.test.ts` è verde su 1.3.8 e 1.4.2.
+  Con la vecchia condizione, su una copia scratch, il caso della pane nativa è rosso.
+- Prezzo, lo stesso già accettato per i poll: con pane browser native vive e l'app davvero dietro un'altra,
+  le animazioni girano.
