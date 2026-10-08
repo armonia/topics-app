@@ -130,6 +130,7 @@ describe("MCP stdio server (subprocess)", () => {
       // `outbound-tools.ts` and are spread into the list here.
       "send_mail", "google_call",
       "ask_user_question",
+      "show_view",
       // Il canale di permesso, pubblicato sempre: lo designa
       // `--permission-prompt-tool` e la CLI lo toglie da sé dall'elenco che
       // il modello vede. Non esiste una combinazione in cui la CLI lo cerchi

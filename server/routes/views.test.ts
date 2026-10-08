@@ -13,7 +13,7 @@ import { join } from "node:path";
 import { createViewsRouter } from "./views";
 import { callShowView } from "../mcp/view-tools";
 import type { AppContext } from "../types";
-import { sitgesCompare } from "../../tests/e2e/fixtures/sitges-compare";
+import { staysCompare } from "../../tests/e2e/fixtures/sitges-compare";
 
 const dir = mkdtempSync(join(tmpdir(), "views-route-"));
 afterAll(() => rmSync(dir, { recursive: true, force: true }));
@@ -35,6 +35,7 @@ const ctx = {
   json: (data: unknown, status = 200) => Response.json(data, { status }),
   matchRoute,
   getTopicBySessionKey: (key: string) => (key === "topic:64095902" ? { id: "64095902" } : null),
+  isPathAllowed: () => false,
 } as unknown as AppContext;
 
 const router = createViewsRouter(ctx, { dir });
@@ -48,7 +49,7 @@ const call = (method: string, path: string, body?: unknown) =>
 
 describe("views router", () => {
   test("POST stores the normalized view, GET gives it back with its topic", async () => {
-    const res = (await call("POST", "/api/sessions/topic%3A64095902/views", sitgesCompare("/i")))!;
+    const res = (await call("POST", "/api/sessions/topic%3A64095902/views", staysCompare("/i")))!;
     expect(res.status).toBe(201);
     const body = (await res.json()) as { id: string; path: string };
     expect(body.id).toMatch(/^[0-9a-f]{16}$/);
@@ -92,7 +93,7 @@ describe("show_view bridge tool", () => {
   const args = { baseUrl: "https://127.0.0.1:3333", sessionKey: "topic:64095902" };
 
   test("returns the page address, which the chat reads the view id from", async () => {
-    const out = await callShowView(args, sitgesCompare("/i"), viaRouter);
+    const out = await callShowView(args, staysCompare("/i"), viaRouter);
     expect(out).toMatch(/^shown in chat · compare · 3 options · page https:\/\/127\.0\.0\.1:3333\/v\/[0-9a-f]{16}$/);
   });
 

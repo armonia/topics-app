@@ -2,7 +2,7 @@
  * A SPAWNED AGENT'S BROWSER OPENS IN THE WINDOW OF THE CHAT THAT SPAWNED IT.
  *
  * Seen on 2026-10-08 in a real chat: every `spawn_agent` child that called
- * `open_browser_pane` ("Terza opzione alloggio", "Treni Huesca") added a new
+ * `open_browser_pane` (the stay search, the train search) added a new
  * layout tab. A child runs in a topic of its own that is a tab nowhere, so no
  * surface claimed its `browser:navigate`, and the server's `browser:force-open`
  * fallback mounted a standalone pane per child. The `name` the agent passes

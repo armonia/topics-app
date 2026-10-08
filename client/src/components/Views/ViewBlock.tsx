@@ -7,18 +7,25 @@
  * and offers the same view as a page, opened as a tab of the Topics browser
  * (or the system browser with the usual modifier gesture).
  */
-import { memo, type MouseEvent } from 'react';
-import { ArrowUpRight, LayoutGrid } from 'lucide-react';
+import { memo, Suspense, type MouseEvent } from 'react';
+import { ArrowUpRight, LayoutGrid, ListOrdered, Table2 } from 'lucide-react';
 import { useLocale, useT } from '../../hooks/useT';
 import { openLink, isExternalLinkGesture } from '../../lib/openLink';
-import type { ViewSpec } from '../../../../shared/views';
-import { CompareView } from './CompareView';
+import { viewSummary, type ViewSpec } from '../../../../shared/views';
+import { lazyWarm } from '../../lib/lazyWarm';
 import { viewPageUrl } from './viewRoute';
+
+// The renderers are a chunk of their own: a chat without views does not pay
+// for three of them in the eager bundle (`check:bundle`). The header above is
+// eager, so the block keeps its place while the body arrives.
+const ViewBody = lazyWarm(() => import('./ViewBody'), (m) => m.ViewBody);
 
 export const ViewBlock = memo(function ViewBlock({ spec, viewId }: { spec: ViewSpec; viewId?: string }) {
   const tr = useT();
   const locale = useLocale();
   const pageUrl = viewId ? viewPageUrl(viewId) : null;
+  const summary = viewSummary(spec);
+  const KindIcon = spec.view === 'table' ? Table2 : spec.view === 'timeline' ? ListOrdered : LayoutGrid;
   return (
     <div
       data-testid="view-block"
@@ -27,8 +34,8 @@ export const ViewBlock = memo(function ViewBlock({ spec, viewId }: { spec: ViewS
       className="my-2 rounded-lg border border-app-border bg-app-bg p-3"
     >
       <div className="mb-2 flex items-center gap-2 text-mini text-app-text-muted">
-        <LayoutGrid size={12} aria-hidden />
-        <span>{tr('views.compare.kind', { n: spec.options.length })}</span>
+        <KindIcon size={12} aria-hidden />
+        <span>{tr(`views.${summary.kind}.kind`, { n: summary.count })}</span>
         {pageUrl && (
           <a
             data-testid="view-open-page"
@@ -46,7 +53,9 @@ export const ViewBlock = memo(function ViewBlock({ spec, viewId }: { spec: ViewS
           </a>
         )}
       </div>
-      <CompareView spec={spec} variant="chat" locale={locale} />
+      <Suspense fallback={<div className="min-h-24" aria-busy="true" />}>
+        <ViewBody spec={spec} variant="chat" locale={locale} />
+      </Suspense>
     </div>
   );
 });

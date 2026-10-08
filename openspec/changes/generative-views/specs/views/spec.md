@@ -66,3 +66,54 @@ that chat's browser window, and the layout SHALL gain no browser tab.
 - **GIVEN** the parent chat on screen, which opened two pages named «Nautilus» and «El Cid»
 - **WHEN** its child opens a page named «Terza opzione»
 - **THEN** the parent's window shows 2 sheets (its own and the child's) and no `browser:` pane exists in the layout
+
+### Requirement: GENUI-06 — A table view for rows read across columns
+
+`show_view` SHALL accept `view: "table"`: 1-8 columns and 1-40 rows, cells
+string, number or null. A short row SHALL be padded with nulls, a longer row
+refused. A column MAY declare `format` (`duration`: minutes read as "3 h 19";
+`price`: an amount in the column's currency) and `better`; the best value of a
+ranked column SHALL be marked, ties sharing it, all-equal ranking nobody. A
+null SHALL read as unknown ("n/d"), never as a guess. At most one row is
+`recommended`. Wide, it SHALL be a table with numbers right-aligned on one
+edge; at a narrow container (chat column, phone) a card per row, with nothing
+to pan sideways.
+
+#### Scenario: her trains, Huesca to Sants
+- **GIVEN** the AVE 08:05 → 11:24 (price unknown), the train via Zaragoza (3 h, 22,30 €) and the Avanza bus 16:30 (3 h 50, 12,70 €)
+- **WHEN** the table is shown
+- **THEN** the AVE row is recommended, 3 h and 12,70 € are marked best, the AVE price reads "n/d"
+- **AND** at 390 px each train is a card and the page does not pan sideways
+
+### Requirement: GENUI-07 — A timeline view for a plan in order
+
+`show_view` SHALL accept `view: "timeline"`: 1-24 steps with title and,
+optionally, `day`, `time` (HH:MM, else a written error), `mode`, `duration`,
+`price`, `detail`, `link`, `deadline` and up to 3 `alternatives` for the same
+leg. Consecutive steps of the same day SHALL be drawn under one heading, times
+on one column edge, a deadline as a limit.
+
+#### Scenario: his door to door plan
+- **GIVEN** landing at T1 16:00, bus 1149 at 16:50 (32 min, 9,25 €) or a taxi at 47-53 €, and Wednesday back to T2 for easyJet U24212 at 14:10
+- **WHEN** the timeline is shown
+- **THEN** it has two days and six steps, the taxi is the alternative of the bus leg, 12:40 is drawn as the deadline
+
+### Requirement: GENUI-08 — The same views in any MCP Apps host
+
+The MCP bridge SHALL declare the `resources` capability and expose the views
+as MCP Apps resources (`text/html;profile=mcp-app`): `ui://topics/view`, a
+generic app, and `ui://topics/view/<id>`, one stored view, listed by
+`resources/list` and `resources/templates/list` and read by `resources/read`
+(an unknown id answers -32002). `show_view` SHALL carry
+`_meta.ui.resourceUri = "ui://topics/view"`, and its result SHALL carry the
+drawn view in `_meta["topics/view"]`, not in the text the model reads. Each
+document SHALL be self-contained (own CSS, escaped data, https photos declared
+in `_meta.ui.csp.resourceDomains`, allowed local photos inlined within a
+budget), speak the MCP Apps postMessage protocol (`ui/initialize`, host theme
+and colour variables, `size-changed`, links through `ui/open-link`) and pass
+axe.
+
+#### Scenario: a host renders the plan the bridge returned
+- **GIVEN** the real bridge process and a sandboxed host frame answering `ui/initialize` with a dark theme
+- **WHEN** the host calls `show_view`, reads `ui://topics/view` and posts the tool result
+- **THEN** the frame shows six steps in the host's colours, reports its height, and a link click reaches the host as `ui/open-link`

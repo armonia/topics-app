@@ -6,7 +6,7 @@
  */
 import { describe, expect, test } from "bun:test";
 import { normalizeViewSpec, parseViewSpec, rankMetrics, viewIdFromResult, type CompareViewSpec } from "./views";
-import { sitgesCompare } from "../tests/e2e/fixtures/sitges-compare";
+import { staysCompare } from "../tests/e2e/fixtures/sitges-compare";
 
 const ok = (input: unknown): CompareViewSpec => {
   const r = normalizeViewSpec(input);
@@ -16,7 +16,7 @@ const ok = (input: unknown): CompareViewSpec => {
 
 describe("normalizeViewSpec", () => {
   test("the real comparison passes whole: three options, one recommended, photos and metrics kept", () => {
-    const spec = ok(sitgesCompare("/Users/x/.topics/media/sitges-alloggi/img"));
+    const spec = ok(staysCompare("/Users/x/.topics/media/sitges-alloggi/img"));
     expect(spec.options.map((o) => o.title)).toEqual(["Beach Haven", "Nautilus", "Hotel El Cid"]);
     expect(spec.options.filter((o) => o.recommended).map((o) => o.title)).toEqual(["Nautilus"]);
     expect(spec.options[2].price).toEqual({ amount: 180, currency: "EUR", note: "colazione inclusa, 2 notti" });
@@ -55,13 +55,13 @@ describe("normalizeViewSpec", () => {
     const one = normalizeViewSpec({ title: "T", options: [{ title: "A" }] });
     expect(one.ok ? [] : one.errors).toEqual(["'options' must have 2-4 items (got 1)"]);
     const kind = normalizeViewSpec({ view: "map", title: "T" });
-    expect(kind.ok ? [] : kind.errors).toEqual(["unknown view 'map' (known: compare)"]);
+    expect(kind.ok ? [] : kind.errors).toEqual(["unknown view 'map' (known: compare, table, timeline)"]);
   });
 });
 
 describe("rankMetrics", () => {
   test("lower wins: best and worst per metric, ties share the rank, equal values rank nobody", () => {
-    const spec = ok(sitgesCompare("/i"));
+    const spec = ok(staysCompare("/i"));
     const ranks = rankMetrics(spec.options);
     // centre 12 / 3 / 6, station 17 / 6 / 6 (tie), bus 9 / 7 / 4
     expect(ranks.map((r) => r.centro)).toEqual(["worst", "best", undefined]);

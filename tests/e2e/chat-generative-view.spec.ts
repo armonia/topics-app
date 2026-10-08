@@ -6,7 +6,7 @@ import { goToApp, openTopic } from "./helpers";
 import { createTopic, deleteTopic, resetPaneStore } from "./helpers/api-fixtures";
 import { E2E_BASE, E2E_DATA_DIR } from "./helpers/test-server";
 import { hermetic } from "./fixtures/hermetic";
-import { SITGES_PHOTOS, sitgesCompare } from "./fixtures/sitges-compare";
+import { STAY_PHOTOS, staysCompare } from "./fixtures/sitges-compare";
 
 hermetic(test);
 
@@ -32,7 +32,7 @@ const STAGED = join(E2E_DATA_DIR, ".topics-home", "media", "genui-sitges");
 
 function stagePhotos(): void {
   mkdirSync(STAGED, { recursive: true });
-  const all = [...SITGES_PHOTOS.bh, ...SITGES_PHOTOS.naut, ...SITGES_PHOTOS.cid];
+  const all = [...STAY_PHOTOS.bh, ...STAY_PHOTOS.naut, ...STAY_PHOTOS.cid];
   for (const [i, f] of all.entries()) {
     const src = join(REAL_PHOTOS, f);
     if (existsSync(src)) copyFileSync(src, join(STAGED, f));
@@ -99,7 +99,7 @@ test.describe("chat generative view", () => {
     stagePhotos();
     topicName = `genui-${Date.now()}`;
     topicId = (await createTopic(request, topicName)).id;
-    const spec = sitgesCompare(STAGED);
+    const spec = staysCompare(STAGED);
     // The photos are reachable through the door the page uses, or the layout
     // checks below would measure broken images.
     const probe = await request.get(`${E2E_BASE}/api/media?path=${encodeURIComponent(spec.options[0].images[0].src)}`, { ignoreHTTPSErrors: true });
@@ -159,9 +159,9 @@ test.describe("chat generative view", () => {
     await expect(block.getByTestId("compare-price").first()).toContainText("184");
 
     // Who wins a metric is marked, the worst too (walking minutes: lower wins).
-    const centre = block.getByTestId("compare-metric").filter({ hasText: "centro" });
-    await expect(centre.nth(0)).toHaveAttribute("data-rank", "worst");
-    await expect(centre.nth(1)).toHaveAttribute("data-rank", "best");
+    const center = block.getByTestId("compare-metric").filter({ hasText: "centro" });
+    await expect(center.nth(0)).toHaveAttribute("data-rank", "worst");
+    await expect(center.nth(1)).toHaveAttribute("data-rank", "best");
 
     // Every photo loaded (a broken image has naturalWidth 0).
     await expect.poll(() => block.locator("img[loading=eager]").evaluateAll((imgs) => imgs.map((i) => (i as HTMLImageElement).naturalWidth > 0))).toEqual([true, true, true]);
@@ -209,8 +209,8 @@ test.describe("chat generative view", () => {
       expect(Math.max(...desk.map((b) => b.width)) - Math.min(...desk.map((b) => b.width))).toBeLessThanOrEqual(1);
       expect(await sidewaysOverflow(page), "nothing sticks out sideways").toEqual([]);
       // Metric rows line up across cards: same label, same height on screen.
-      const centreTops = await boxes(page, '[data-testid="compare-metric"]:first-child');
-      expect(new Set(centreTops.map((b) => Math.round(b.y))).size, "first metric aligned").toBe(1);
+      const centerTops = await boxes(page, '[data-testid="compare-metric"]:first-child');
+      expect(new Set(centerTops.map((b) => Math.round(b.y))).size, "first metric aligned").toBe(1);
       await page.screenshot({ path: test.info().outputPath(`genui-page-desktop-${scheme}.png`)});
       const deskAxe = await axe(page, '[data-testid="view-page"]');
       expect(deskAxe.map((v) => `${v.id}: ${v.help}`), `axe on the page (${scheme}, desktop)`).toEqual([]);

@@ -559,7 +559,7 @@ describe("handleMessage", () => {
     expect(resp!.id).toBe(1);
     const result = resp!.result as any;
     expect(result.protocolVersion).toBe("2024-11-05");
-    expect(result.capabilities).toEqual({ tools: {} });
+    expect(result.capabilities).toEqual({ tools: {}, resources: {} });
     expect(result.serverInfo.name).toBe("topics-app");
   });
 

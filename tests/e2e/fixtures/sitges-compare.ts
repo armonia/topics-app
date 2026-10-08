@@ -13,7 +13,7 @@
  * stand-ins where those files do not exist (CI).
  */
 
-export const SITGES_PHOTOS = {
+export const STAY_PHOTOS = {
   bh: ["bh_01.jpg", "bh_04.jpg", "bh_06.jpg", "bh_03.jpg", "bh_02.jpg", "bh_11.jpg"],
   naut: ["naut_00.jpg", "naut_02.jpg", "naut_03.jpg", "naut_01.jpg", "naut_07.jpg"],
   cid: ["cid_00.jpg", "cid_01.jpg", "cid_02.jpg", "cid_04.jpg", "cid_06.jpg"],
@@ -29,7 +29,7 @@ const walk = (centre: number, beach: number, station: number, bus: number) => [
 const photos = (img: string, files: readonly string[], captions: string[]) =>
   files.map((f, i) => ({ src: `${img}/${f}`, caption: captions[i] }));
 
-export function sitgesCompare(img: string) {
+export function staysCompare(img: string) {
   return {
     view: "compare",
     title: "Sitges, lun 19 - mer 21 ottobre",
@@ -40,7 +40,7 @@ export function sitgesCompare(img: string) {
         title: "Beach Haven",
         subtitle: "Camera in casa dell'host, lungomare ovest · Airbnb · 4,86 su 21",
         price: { amount: 184, currency: "EUR", note: "totale, 2 notti" },
-        images: photos(img, SITGES_PHOTOS.bh, ["Terrazza vista mare", "Colazione in terrazza", "Camera", "Soggiorno della casa", "Piscina condominiale", "Vista dalla finestra"]),
+        images: photos(img, STAY_PHOTOS.bh, ["Terrazza vista mare", "Colazione in terrazza", "Camera", "Soggiorno della casa", "Piscina condominiale", "Vista dalla finestra"]),
         pros: ["Colazione inclusa", "Terrazza vista mare: l'annuncio dice che lì si fuma", "Mare a 30 m, zona tranquilla, piscina"],
         cons: ["In casa dell'host: terrazza in comune, camera senza serratura", "Il più lontano da centro e stazione"],
         metrics: walk(12, 3, 17, 9),
@@ -50,7 +50,7 @@ export function sitgesCompare(img: string) {
         title: "Nautilus",
         subtitle: "Suite in boutique hotel, centro storico · Airbnb · 4,62 su 101",
         price: { amount: 184, currency: "EUR", note: "totale, 2 notti" },
-        images: photos(img, SITGES_PHOTOS.naut, ["Camera con porta-finestra", "Letto", "Angolo TV e tavolino", "Bagno", "La via"]),
+        images: photos(img, STAY_PHOTOS.naut, ["Camera con porta-finestra", "Letto", "Angolo TV e tavolino", "Bagno", "La via"]),
         pros: ["Il più centrale: tutto entro 7 minuti", "Regolamento: si fuma sui balconi, se la suite ce l'ha", "Suite tutta vostra, voto posizione 4,8"],
         cons: ["Niente colazione: al bar, circa 10 € a testa", "Il balcone va chiesto all'host: non tutte le suite ce l'hanno"],
         metrics: walk(3, 4, 6, 7),
@@ -61,7 +61,7 @@ export function sitgesCompare(img: string) {
         title: "Hotel El Cid",
         subtitle: "Camera con balcone, 16 m² · Booking · posizione 9,5 su 3.246 giudizi",
         price: { amount: 180, currency: "EUR", note: "colazione inclusa, 2 notti" },
-        images: photos(img, SITGES_PHOTOS.cid, ["Camera (foto tipo)", "Terrazza sui tetti", "Colazione a buffet", "Piscina", "Bagno"]),
+        images: photos(img, STAY_PHOTOS.cid, ["Camera (foto tipo)", "Terrazza sui tetti", "Colazione a buffet", "Piscina", "Bagno"]),
         pros: ["Colazione a buffet inclusa, ed è il più economico", "Bus aeroporto a 4 minuti, stazione a 6", "Cancellazione gratis fino al 17 ottobre, paghi in hotel"],
         cons: ["Hotel per non fumatori: sul balcone non lo dice", "Arredo vecchio stile"],
         metrics: walk(6, 6, 6, 4),

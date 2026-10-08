@@ -1,7 +1,7 @@
 /**
  * The standalone page of a generative view: `/v/<id>` (GENUI-01).
  *
- * The same `CompareView` the chat draws, given the room of a page. It mounts
+ * The same `ViewBody` the chat draws, given the room of a page. It mounts
  * its own small React tree from `main.tsx` and nothing of the app (no panes,
  * no socket, no sidebar): it is something to look at, share on the LAN, or
  * keep open beside the chat. The theme comes from `boot.js` like the app's,
@@ -12,7 +12,7 @@ import { createRoot } from 'react-dom/client';
 import { useLocale, useT } from '../../hooks/useT';
 import { apiFetch } from '../../lib/shell/net';
 import { parseViewSpec, type ViewSpec } from '../../../../shared/views';
-import { CompareView } from './CompareView';
+import { ViewBody } from './ViewBody';
 
 type Loaded = { state: 'loading' } | { state: 'missing' } | { state: 'ready'; spec: ViewSpec; createdAt?: string };
 
@@ -51,7 +51,7 @@ export function ViewPage({ id }: { id: string }) {
         )}
         {loaded.state === 'ready' && (
           <>
-            <CompareView spec={loaded.spec} variant="page" locale={locale} />
+            <ViewBody spec={loaded.spec} variant="page" locale={locale} />
             {loaded.createdAt && (
               <footer className="mt-6 border-t border-app-border pt-3 text-mini text-app-text-muted">
                 {tr('views.page.from', { date: new Date(loaded.createdAt).toLocaleString(locale, { dateStyle: 'medium', timeStyle: 'short' }) })}

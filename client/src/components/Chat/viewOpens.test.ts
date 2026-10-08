@@ -29,7 +29,7 @@ describe('viewOf', () => {
     const v = viewOf(shown('v1'))!;
     expect(v.viewId).toBe('0123456789abcdef');
     expect(v.spec.view).toBe('compare');
-    expect(v.spec.options.map((o) => o.price?.amount)).toEqual([184, 184]);
+    expect(v.spec.view === 'compare' ? v.spec.options.map((o) => o.price?.amount) : []).toEqual([184, 184]);
   });
 
   test('the bare name of the native runtime is the same view', () => {

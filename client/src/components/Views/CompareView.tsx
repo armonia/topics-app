@@ -19,30 +19,11 @@ import { useMemo, useRef, useState, type MouseEvent } from 'react';
 import { ArrowUpRight, Check, ChevronLeft, ChevronRight, Minus } from 'lucide-react';
 import { useT } from '../../hooks/useT';
 import { openLink, isExternalLinkGesture } from '../../lib/openLink';
-import { rankMetrics, type CompareOption, type CompareViewSpec, type MetricRank, type ViewMetric } from '../../../../shared/views';
+import { metricLabelsInOrder, rankMetrics, type CompareOption, type CompareViewSpec, type MetricRank, type ViewMetric } from '../../../../shared/views';
+import { formatPrice } from '../../../../shared/views-format';
 import { viewImageUrl } from './viewRoute';
 
 type Variant = 'chat' | 'page';
-
-export function formatPrice(amount: number, currency: string, locale: string): string {
-  try {
-    return new Intl.NumberFormat(locale, {
-      style: 'currency',
-      currency,
-      maximumFractionDigits: Number.isInteger(amount) ? 0 : 2,
-    }).format(amount);
-  } catch {
-    // An unknown currency code is still a price: show the code after it.
-    return `${amount} ${currency}`;
-  }
-}
-
-/** Metric labels in order of first appearance across options: the shared row order. */
-export function metricOrder(options: readonly CompareOption[]): string[] {
-  const seen: string[] = [];
-  for (const o of options) for (const m of o.metrics ?? []) if (!seen.includes(m.label)) seen.push(m.label);
-  return seen;
-}
 
 /**
  * From which container width the strip becomes a grid, per option count: about
@@ -58,7 +39,7 @@ const LAYOUT: Record<2 | 3 | 4, { list: string; item: string; cell: string }> = 
 export function CompareView({ spec, variant, locale }: { spec: CompareViewSpec; variant: Variant; locale: string }) {
   const tr = useT();
   const ranks = useMemo(() => rankMetrics(spec.options), [spec.options]);
-  const order = useMemo(() => metricOrder(spec.options), [spec.options]);
+  const order = useMemo(() => metricLabelsInOrder(spec.options), [spec.options]);
   const n = spec.options.length;
   const layout = LAYOUT[Math.min(Math.max(n, 2), 4) as 2 | 3 | 4];
   const page = variant === 'page';
@@ -102,7 +83,7 @@ function OptionCard({ option, ranks, order, locale, page, cell }: {
   option: CompareOption; ranks: Record<string, MetricRank>; order: string[]; locale: string; page: boolean; cell: string;
 }) {
   const tr = useT();
-  const rec = !!option.recommended;
+  const isRecommended = !!option.recommended;
   const metricsByLabel = new Map(option.metrics?.map((m) => [m.label, m]) ?? []);
   const hasPoints = !!(option.pros?.length || option.cons?.length);
   // Five sections, always five children, so that in the grid each one sits on
@@ -112,13 +93,13 @@ function OptionCard({ option, ranks, order, locale, page, cell }: {
   return (
     <article
       data-testid="compare-option"
-      data-recommended={rec ? 'true' : 'false'}
-      aria-label={rec ? `${option.title}, ${tr('views.recommended')}` : option.title}
-      className={`flex w-full min-w-0 flex-col overflow-hidden rounded-lg border bg-surface ${cell} ${rec ? 'border-primary ring-1 ring-primary' : 'border-app-border'}`}
+      data-recommended={isRecommended ? 'true' : 'false'}
+      aria-label={isRecommended ? `${option.title}, ${tr('views.recommended')}` : option.title}
+      className={`flex w-full min-w-0 flex-col overflow-hidden rounded-lg border bg-surface ${cell} ${isRecommended ? 'border-primary ring-1 ring-primary' : 'border-app-border'}`}
     >
       {option.images && option.images.length > 0 ? <Gallery images={option.images} title={option.title} tall={page} /> : <div />}
       <div className="px-3 pt-3">
-        {rec && (
+        {isRecommended && (
           <span data-testid="compare-recommended" className="mb-1.5 inline-flex items-center gap-1 rounded-sm bg-primary px-1.5 py-0.5 text-mini font-semibold text-white">
             <Check size={11} strokeWidth={3} aria-hidden />
             {tr('views.recommended')}

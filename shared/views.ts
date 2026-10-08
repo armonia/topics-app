@@ -14,9 +14,12 @@
  * a metric). No DOM, no fs.
  */
 import { z } from 'zod/mini';
+import { imageSrc, linkOf, priceOf, str, strList, MAX_TITLE } from './views-util';
+import { normalizeTable, tableViewSchema, type TableViewSpec } from './views-table';
+import { normalizeTimeline, timelineViewSchema, type TimelineViewSpec } from './views-timeline';
 
-/** The views the catalogue knows. One today; the union grows a member per view. */
-export const VIEW_KINDS = ['compare'] as const;
+/** The views the catalogue knows; the union grows a member per view. */
+export const VIEW_KINDS = ['compare', 'table', 'timeline'] as const;
 export type ViewKind = (typeof VIEW_KINDS)[number];
 
 // Limits. Not cosmetic: they keep the view readable and the payload small (the
@@ -24,10 +27,7 @@ export type ViewKind = (typeof VIEW_KINDS)[number];
 export const COMPARE_MIN_OPTIONS = 2;
 export const COMPARE_MAX_OPTIONS = 4;
 const MAX_IMAGES = 12;
-const MAX_LIST = 8;
 const MAX_METRICS = 8;
-const MAX_TEXT = 400;
-const MAX_TITLE = 140;
 
 const metricSchema = z.object({
   label: z.string(),
@@ -61,61 +61,15 @@ const compareViewSchema = z.object({
 });
 
 /** The NORMALIZED shape: what `normalizeViewSpec` returns and what renderers read. */
-export const viewSpecSchema = z.discriminatedUnion('view', [compareViewSchema]);
+export const viewSpecSchema = z.discriminatedUnion('view', [compareViewSchema, tableViewSchema, timelineViewSchema]);
 
 export type ViewMetric = z.infer<typeof metricSchema>;
 export type CompareOption = z.infer<typeof compareOptionSchema>;
 export type CompareViewSpec = z.infer<typeof compareViewSchema>;
 export type ViewSpec = z.infer<typeof viewSpecSchema>;
+export type { TableViewSpec, TimelineViewSpec };
 
 export type NormalizeResult = { ok: true; spec: ViewSpec } | { ok: false; errors: string[] };
-
-const str = (v: unknown, max = MAX_TEXT): string | undefined => {
-  if (typeof v !== 'string') return undefined;
-  const t = v.trim();
-  if (!t) return undefined;
-  return t.length > max ? `${t.slice(0, max - 1)}…` : t;
-};
-
-const strList = (v: unknown, max = MAX_LIST): string[] | undefined => {
-  if (!Array.isArray(v)) return undefined;
-  const out = v.map((x) => str(x)).filter((x): x is string => !!x).slice(0, max);
-  return out.length ? out : undefined;
-};
-
-/** "184 EUR", "184,50" -> 184.5. A price written as text is the common case. */
-function parseAmount(v: unknown): number | undefined {
-  if (typeof v === 'number' && Number.isFinite(v)) return v;
-  if (typeof v !== 'string') return undefined;
-  const m = v.replace(/\s/g, '').match(/-?\d+(?:[.,]\d+)?/);
-  if (!m) return undefined;
-  const n = Number(m[0].replace(',', '.'));
-  return Number.isFinite(n) ? n : undefined;
-}
-
-function currencyOf(v: unknown): string {
-  const s = str(v, 8);
-  if (!s) return 'EUR';
-  if (s === '€') return 'EUR';
-  if (s === '$') return 'USD';
-  if (s === '£') return 'GBP';
-  return s.toUpperCase();
-}
-
-/** Only what a page may load: http(s), an absolute local path (served via /api/media), or /uploads/. */
-function imageSrc(v: unknown): string | undefined {
-  const s = str(v, 2048);
-  if (!s) return undefined;
-  if (/^https?:\/\//i.test(s)) return s;
-  if (s.startsWith('file://')) return decodeURIComponent(s.slice('file://'.length).replace(/^localhost/, ''));
-  if (s.startsWith('/')) return s;
-  return undefined;
-}
-
-function linkUrl(v: unknown): string | undefined {
-  const s = str(v, 2048);
-  return s && /^https?:\/\//i.test(s) ? s : undefined;
-}
 
 function normalizeCompare(raw: Record<string, unknown>, errors: string[]): CompareViewSpec | null {
   const title = str(raw.title, MAX_TITLE);
@@ -127,20 +81,17 @@ function normalizeCompare(raw: Record<string, unknown>, errors: string[]): Compa
   const options: CompareOption[] = [];
   rawOptions.slice(0, COMPARE_MAX_OPTIONS).forEach((o, i) => {
     const r = (o && typeof o === 'object' ? o : {}) as Record<string, unknown>;
-    const otitle = str(r.title, MAX_TITLE);
-    if (!otitle) { errors.push(`options[${i}].title (string) is required`); return; }
-    const opt: CompareOption = { title: otitle };
+    const optionTitle = str(r.title, MAX_TITLE);
+    if (!optionTitle) { errors.push(`options[${i}].title (string) is required`); return; }
+    const opt: CompareOption = { title: optionTitle };
     const subtitle = str(r.subtitle);
     if (subtitle) opt.subtitle = subtitle;
     // A price comes in three shapes: number, text ("184 EUR"), object.
-    const p = r.price;
-    const pObj = (p && typeof p === 'object' ? p : null) as Record<string, unknown> | null;
-    const amount = parseAmount(pObj ? pObj.amount : p);
-    if (amount !== undefined) {
-      opt.price = { amount, currency: currencyOf(pObj?.currency ?? r.currency ?? (typeof p === 'string' && p.includes('$') ? '$' : undefined)) };
-      const note = str(pObj?.note ?? r.price_note ?? r.priceNote, 80);
-      if (note) opt.price.note = note;
-    }
+    const price = priceOf(
+      typeof r.price === 'number' && typeof r.currency === 'string' ? { amount: r.price, currency: r.currency } : r.price,
+      r.price_note ?? r.priceNote,
+    );
+    if (price) opt.price = price;
     if (Array.isArray(r.images)) {
       const images = r.images
         .map((im) => {
@@ -175,18 +126,14 @@ function normalizeCompare(raw: Record<string, unknown>, errors: string[]): Compa
         .slice(0, MAX_METRICS);
       if (metrics.length) opt.metrics = metrics;
     }
-    const lo = (r.link && typeof r.link === 'object' ? r.link : null) as Record<string, unknown> | null;
-    const url = linkUrl(lo ? lo.url : r.link ?? r.url);
-    if (url) {
-      const label = str(lo?.label, 40);
-      opt.link = label ? { url, label } : { url };
-    }
+    const link = linkOf(r.link ?? r.url);
+    if (link) opt.link = link;
     if (r.recommended === true) opt.recommended = true;
     options.push(opt);
   });
   // One recommendation at most: a second one recommends nothing.
-  const rec = options.filter((o) => o.recommended);
-  if (rec.length > 1) errors.push(`at most one option may be 'recommended' (got ${rec.length})`);
+  const recommended = options.filter((o) => o.recommended);
+  if (recommended.length > 1) errors.push(`at most one option may be 'recommended' (got ${recommended.length})`);
   if (errors.length || !title) return null;
   const spec: CompareViewSpec = { view: 'compare', title, options };
   const subtitle = str(raw.subtitle);
@@ -204,8 +151,12 @@ export function normalizeViewSpec(input: unknown): NormalizeResult {
   const raw = (input && typeof input === 'object' ? input : {}) as Record<string, unknown>;
   const kind = raw.view ?? 'compare';
   const errors: string[] = [];
-  if (kind !== 'compare') return { ok: false, errors: [`unknown view '${String(kind)}' (known: ${VIEW_KINDS.join(', ')})`] };
-  const spec = normalizeCompare(raw, errors);
+  const spec =
+    kind === 'compare' ? normalizeCompare(raw, errors)
+    : kind === 'table' ? normalizeTable(raw, errors)
+    : kind === 'timeline' ? normalizeTimeline(raw, errors)
+    : null;
+  if (!spec && !errors.length) errors.push(`unknown view '${String(kind)}' (known: ${VIEW_KINDS.join(', ')})`);
   return spec ? { ok: true, spec } : { ok: false, errors };
 }
 
@@ -216,6 +167,13 @@ export function parseViewSpec(value: unknown): ViewSpec | null {
 }
 
 // Metrics: who wins.
+
+/** Metric labels in order of first appearance across options: the shared row order. */
+export function metricLabelsInOrder(options: readonly CompareOption[]): string[] {
+  const seen: string[] = [];
+  for (const o of options) for (const m of o.metrics ?? []) if (!seen.includes(m.label)) seen.push(m.label);
+  return seen;
+}
 
 export type MetricRank = 'best' | 'worst' | undefined;
 
@@ -257,6 +215,13 @@ export const VIEW_ID_RE = /^[0-9a-f]{16}$/;
 
 export function viewPath(id: string): string {
   return `/v/${id}`;
+}
+
+/** "compare · 3 options": what the tool answer and the chat header say about a view. */
+export function viewSummary(spec: ViewSpec): { kind: ViewKind; count: number; unit: 'options' | 'rows' | 'steps' } {
+  if (spec.view === 'compare') return { kind: 'compare', count: spec.options.length, unit: 'options' };
+  if (spec.view === 'table') return { kind: 'table', count: spec.rows.length, unit: 'rows' };
+  return { kind: 'timeline', count: spec.steps.length, unit: 'steps' };
 }
 
 /** The view id inside a `show_view` tool result, if any. */
