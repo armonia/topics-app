@@ -20,7 +20,7 @@
  */
 
 import { commitIsIn, listOwnCommits, type GitRunner } from "./own-commits";
-import { SPAWN_TIMEOUT, spawnBounded } from "../lib/bounded-spawn";
+import { SPAWN_TIMEOUT, runBounded } from "../lib/bounded-spawn";
 
 /** Generated, build-output, lockfile and lockstep-version paths — never unique work. */
 const NOISE_RE =
@@ -45,26 +45,18 @@ export function filterUniqueSourceFiles(paths: string[]): string[] {
  * `runGit` opzionale con default al git vero: chi non lo passa (l'audit, il GC)
  * si comporta esattamente come prima.
  */
-async function gitExit(cwd: string, args: string[], run?: GitRunner): Promise<number> {
+export async function gitExit(cwd: string, args: string[], run?: GitRunner): Promise<number> {
   if (run) {
     try { return (await run(cwd, args)).code; } catch { return 1; }
   }
-  try {
-    const proc = spawnBounded(["git", "-C", cwd, ...args], { stdout: "ignore", stderr: "ignore", timeoutMs: SPAWN_TIMEOUT.query });
-    return (await proc.exited) ?? 1;
-  } catch { return 1; }
+  return (await runBounded(["git", "-C", cwd, ...args], { stdout: "ignore", timeoutMs: SPAWN_TIMEOUT.query })).exitCode ?? 1;
 }
 
-async function gitOut(cwd: string, args: string[], run?: GitRunner): Promise<string> {
+export async function gitOut(cwd: string, args: string[], run?: GitRunner): Promise<string> {
   if (run) {
     try { const r = await run(cwd, args); return r.code === 0 ? r.stdout : ""; } catch { return ""; }
   }
-  try {
-    const proc = spawnBounded(["git", "-C", cwd, ...args], { stdout: "pipe", stderr: "ignore", timeoutMs: SPAWN_TIMEOUT.query });
-    const out = await new Response(proc.stdout).text();
-    await proc.exited;
-    return out;
-  } catch { return ""; }
+  return (await runBounded(["git", "-C", cwd, ...args], { timeoutMs: SPAWN_TIMEOUT.query })).stdout;
 }
 
 /**
@@ -89,15 +81,12 @@ export async function commitIsAncestor(
   commit: string,
   mainRef = "main",
 ): Promise<boolean | null> {
-  try {
-    const proc = spawnBounded(["git", "-C", repoPath, "merge-base", "--is-ancestor", commit, mainRef], {
-      stdout: "ignore", stderr: "ignore", timeoutMs: SPAWN_TIMEOUT.query,
-    });
-    const code = await proc.exited;
-    if (code === 0) return true;
-    if (code === 1) return false;
-    return null;
-  } catch { return null; }
+  const { exitCode } = await runBounded(["git", "-C", repoPath, "merge-base", "--is-ancestor", commit, mainRef], {
+    stdout: "ignore", timeoutMs: SPAWN_TIMEOUT.query,
+  });
+  if (exitCode === 0) return true;
+  if (exitCode === 1) return false;
+  return null;
 }
 
 export type BranchStatus = "gone" | "merged" | "unmerged";
