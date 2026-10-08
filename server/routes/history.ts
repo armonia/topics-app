@@ -13,6 +13,7 @@ import { decodeCol } from "../../shared/message-blob";
 import { flushTurnBody } from "../lib/turn-body-flush";
 import { withLiveToolTails } from "../lib/stream-catchup-frame";
 import { streamOfRow } from "../lib/live-tool-tail";
+import { withMediaSizes, type MediaFileRules } from "../lib/media-size";
 import { appendChatFind, CHAT_FIND_MAX_HITS, type ChatFindResult } from "../../shared/chat-find";
 
 /**
@@ -58,6 +59,11 @@ export interface HistoryDeps {
 export function createHistoryRouter(ctx: AppContext, deps: HistoryDeps): RouteHandler {
   const { json, readJSON, loadLocalMessages, hydrateMessageBodies, appendLocalMessage, isStreaming, getStreamContent, SESSIONS_DIR } = ctx;
   const { matchHistoryRoute, providerForSessionKey } = deps;
+  // Where the pictures of a message are read from, for their sizes (`lib/media-size.ts`).
+  // Absent in a test context built without them: the rows then go out without sizes.
+  const mediaRules: MediaFileRules | null = ctx.UPLOADS_DIR && ctx.isPathAllowed
+    ? { uploadsDir: ctx.UPLOADS_DIR, isPathAllowed: ctx.isPathAllowed }
+    : null;
 
   /** Il verdetto del broker, o `unknown` se il provider non sa rispondere. Non
    *  lancia mai: una diagnosi che fallisce non deve rompere un caricamento. */
@@ -310,7 +316,10 @@ export function createHistoryRouter(ctx: AppContext, deps: HistoryDeps): RouteHa
         if (currentStream && m === pageLast && out.role === 'assistant' && out.partial) {
           out = withLiveToolTails(out, streamOfRow(currentStream, m.id)?.liveToolTails);
         }
-        return leanMessagesForHistory(leanMessagesForWire([out]))[0]!;
+        const lean = leanMessagesForHistory(leanMessagesForWire([out]))[0]!;
+        // The size of each picture the row draws, so the client gives it its
+        // box before the bytes arrive (`lib/media-size.ts`).
+        return mediaRules ? withMediaSizes(lean, mediaRules) : lean;
       };
       // One read for the whole page, one decode per row the budget reaches.
       const hydrateOne = cappedRead && !wantsAll

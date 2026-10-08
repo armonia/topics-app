@@ -52,6 +52,7 @@ import { announceTurnEnded } from "./lib/turn-ended";
 import { isAwaitingHuman } from "../shared/types";
 import type { OutboundMessage } from "../shared/ws-outbound";
 import { imageShape } from "./services/image-shape";
+import { withMediaSizes } from "./lib/media-size";
 import { httpLogLine } from "./lib/http-log";
 import { keepFirstTimes } from "./lib/tool-call-times";
 import {
@@ -1031,8 +1032,16 @@ export function createAppContext(baseDir: string): AppContext {
    *  test: scritta a mano dentro tre cicli sarebbe tre regole che divergono. */
   const isGuestSocket = (ws: ServerWebSocket<WSData>) => isGuestSocketData(ws.data);
 
+  // A row that reaches the windows live carries the size of each picture it
+  // draws, like a history page does (`lib/media-size.ts`): the box is there
+  // before the bytes. Only the two frames that bring a message's pictures.
+  function withFrameMediaSizes(message: OutboundMessage): OutboundMessage {
+    if (message.type !== "message:new" && message.type !== "message:media") return message;
+    return withMediaSizes(message, { uploadsDir: UPLOADS_DIR, isPathAllowed });
+  }
+
   function broadcastToAll(message: OutboundMessage) {
-    const presentedMessage = presentTopicInOutboundMessage(message);
+    const presentedMessage = presentTopicInOutboundMessage(withFrameMediaSizes(message));
     devValidateOutbound(presentedMessage);
     const payload = JSON.stringify(presentedMessage);
     // Un OSPITE non riceve tutto. Il gate controlla le RICHIESTE, e un broadcast
