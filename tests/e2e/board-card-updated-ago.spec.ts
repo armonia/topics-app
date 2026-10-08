@@ -20,6 +20,14 @@
  * The page clock runs ahead of the server's: a card the server touches now
  * looks minutes old to the page. Only the quiet card's age is asserted.
  *
+ * THE THIRD CASE (defect D2 of T2b). A card updated twice within the same
+ * «ora»: the second frame brings a newer `updatedAt` but the same text. The
+ * label once skipped that render (`memo` comparing the TEXT), so React kept the
+ * OLD `iso` on it, and the next tick computed the age from the first update:
+ * one minute ahead for good. The test lines the two updates up across an age
+ * threshold of the server clock, then lets the page clock run to the first
+ * tick where the two ages differ: the label must show the newer one.
+ *
  * @covers KANBAN-01
  */
 import { expect, test, type Page } from "@playwright/test";
@@ -93,5 +101,56 @@ test.describe("Board: a quiet card's «Nm fa» moves on with time", () => {
     }
 
     await expect(age, "the quiet card still says how old it was at its last render").toHaveText("3m fa", { timeout: 5_000 });
+  });
+
+  test("a card updated twice within the same «ora» counts its age from the second update", async ({ page }) => {
+    test.info().annotations.push({ type: "spec", description: "KANBAN-01" });
+    test.setTimeout(150_000);
+
+    // The two updates must straddle a server-clock instant where the age
+    // label changes at a tick: «ora» -> «0m fa» happens 45 s after the update,
+    // «0m fa» -> «1m fa» 60 s after it, and ticks fall on whole minutes, so
+    // the instants are the :00 and :15 of each minute. Wait (real time) until
+    // one is 1.5-2.5 s away, update before it, update again 3 s after it.
+    const nextEdge = (t: number) => {
+      const base = t - (t % MINUTE);
+      return [base, base + 15_000, base + MINUTE].find((p) => p > t) as number;
+    };
+    await expect
+      .poll(() => nextEdge(Date.now()) - Date.now(), { timeout: 60_000, intervals: [100] })
+      .toBeLessThanOrEqual(2_500);
+    const first = await page.request.post(`${E2E_BASE}/api/boards/${BOARD_ID}/tasks`, {
+      data: { text: `Ago twice ${stamp}`, status: "backlog" },
+    });
+    expect(first.ok()).toBe(true);
+    const seeded = (await first.json()) as { id: string; updatedAt: string };
+    created.push(seeded.id);
+    const iso1 = Date.parse(seeded.updatedAt);
+    const edge = nextEdge(iso1);
+    expect(edge - iso1, "the first update did not land just before the edge").toBeGreaterThan(500);
+
+    const age = await openBoard(page, seeded.id);
+    await expect.poll(() => Date.now(), { timeout: 10_000, intervals: [100] }).toBeGreaterThan(edge + 3_000);
+    const text = `Ago twice ${stamp} v2`;
+    const second = await page.request.patch(`${E2E_BASE}/api/boards/${BOARD_ID}/tasks/${seeded.id}`, { data: { text } });
+    expect(second.ok()).toBe(true);
+    const iso2 = Date.parse(((await second.json()) as { updatedAt: string }).updatedAt);
+    await expect(page.locator(`[data-task-card="${seeded.id}"]`).getByText(text, { exact: true })).toBeVisible({ timeout: 10_000 });
+    // Both updates are seconds old: the frame changed `updatedAt`, not the text.
+    await expect(age).toHaveText("ora");
+
+    // The first whole minute of the page clock where the two ages differ.
+    const ageAt = (iso: number, now: number) => {
+      const ms = now - iso;
+      return ms < 45_000 ? "ora" : `${Math.floor(ms / MINUTE)}m fa`;
+    };
+    const pageNow = await page.evaluate(() => Date.now());
+    let tick = pageNow - (pageNow % MINUTE) + MINUTE;
+    while (ageAt(iso1, tick) === ageAt(iso2, tick)) tick += MINUTE;
+    expect(tick - pageNow, "no tick separates the two updates within three minutes").toBeLessThan(3 * MINUTE);
+
+    await page.clock.runFor(tick - pageNow + 100);
+    await expect(age, `at the tick the age must count from the second update, not the first (${ageAt(iso1, tick)})`)
+      .toHaveText(ageAt(iso2, tick), { timeout: 5_000 });
   });
 });
