@@ -127,7 +127,23 @@ describe("nessun percorso di home in un file tracciato", () => {
     ).toEqual([]);
   });
 
-  test("la home di chi esegue non compare in nessuno di essi", () => {
+  /**
+   * `/root` is the home of every container, so it is nobody's. Inside a VM or a
+   * build image that runs as superuser `HOME` is `/root`, and the string `/root`
+   * matches 18 occurrences in 13 tracked files that have nothing to do with a
+   * home (`/pinned/root`, `/$bunfs/root`, `agent_path: "/root/worker"` in the
+   * codex fixtures). The red this gave (measured 2026-10-07) stopped
+   * `check:security` and the bar on every root VM with nothing leaked.
+   *
+   * Not an exemption on content: no file is forgiven, and where HOME is a real
+   * home (the Mac of whoever commits, `/home/runner`) the comparison is
+   * unchanged. Same reason the user-name proof above switches off for `root` and
+   * `runner` (`filtraTermini`): there is no person to protect. The SKIP is
+   * spelled in the title so it shows in the report.
+   */
+  const HOME_BELONGS_TO_NOBODY = HOME === "/root";
+
+  test.skipIf(HOME_BELONGS_TO_NOBODY)("la home di chi esegue non compare in nessuno di essi (saltato con HOME=/root: nessuna persona)", () => {
     const colpevoli: string[] = [];
     for (const rel of files) {
       const abs = join(ROOT, rel);

@@ -4,7 +4,7 @@
 import { describe, test, expect, afterAll } from "bun:test";
 import { spawnSync } from "child_process";
 import { mkdtempSync, mkdirSync, writeFileSync, appendFileSync, readFileSync, copyFileSync, existsSync, rmSync } from "fs";
-import { tmpdir, homedir, userInfo } from "os";
+import { tmpdir, userInfo } from "os";
 import { join, resolve } from "path";
 import { filtraTermini } from "../tests/unit/no-personal-data-tracked.test";
 
@@ -43,10 +43,15 @@ const SCRIPT = join(ROOT, "scripts/check-security.ts");
 
 /** Il comando sotto esame, puntato su una copia. Torna esito piu' referto. */
 function esegui(root: string, ...args: string[]): { code: number; out: string } {
+  return runWithEnv(root, {}, ...args);
+}
+
+/** The same command, plus extra environment variables for the process under test. */
+function runWithEnv(root: string, env: Record<string, string>, ...args: string[]): { code: number; out: string } {
   const res = spawnSync("bun", ["run", SCRIPT, `--root=${root}`, ...args], {
     encoding: "utf8",
     maxBuffer: 32 * 1024 * 1024,
-    env: { ...process.env, NO_COLOR: "1" },
+    env: { ...process.env, NO_COLOR: "1", ...env },
   });
   return { code: res.status ?? -1, out: `${res.stdout ?? ""}${res.stderr ?? ""}` };
 }
@@ -339,8 +344,13 @@ describe("check:security - i pezzi che vogliono l'albero vero", () => {
 
   test("PEZZO home: il percorso della home in un file tracciato fa ROSSO", () => {
     prepareCopy();
-    appendFileSync(join(copia, "README.md"), `\nlog in ${homedir()}/prova.log\n`);
-    const { code, out } = esegui(copia, "--only=home");
+    // A fake home in the process under test, not the one of whoever runs this:
+    // with HOME=/root (VM, container) the home piece switches itself off on
+    // purpose, and a proof that depends on who runs it proves nothing
+    // (measured 2026-10-07).
+    const fakeHome = "/home/fake-owner";
+    appendFileSync(join(copia, "README.md"), `\nlog in ${fakeHome}/prova.log\n`);
+    const { code, out } = runWithEnv(copia, { HOME: fakeHome }, "--only=home");
     expect(out).toContain("ROSSO");
     expect(code).toBe(1);
     ripristina();

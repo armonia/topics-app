@@ -22,6 +22,13 @@ import { join } from "node:path";
 const sock = join(tmpdir(), `ai-bridge-freeze-${process.pid}.sock`);
 const store = mkdtempSync(join(tmpdir(), "ai-bridge-freeze-store-"));
 process.env.TOPICS_AI_BRIDGE_SOCKET = sock;
+// The client resolves its state dir from the environment, and the guard in
+// data-dir.ts refuses the live one under a test. This file used to get a
+// temporary DATA_DIR from whichever file ran before it in the same process, so
+// it was green or red depending on how the shards were grouped (red alone, and
+// red in a 4-shard grouping that put it first). It sets its own, and gives it back.
+const previousDataDir = process.env.DATA_DIR;
+process.env.DATA_DIR = store;
 const { AiBridgeClient } = await import("./ai-bridge-client");
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -39,6 +46,8 @@ afterAll(() => {
   for (const f of cleanup.reverse()) { try { f(); } catch { /* best effort */ } }
   try { process.kill(Number(readFileSync(sock.replace(/\.sock$/, ".pid"), "utf8")), "SIGKILL"); } catch { /* gone */ }
   try { rmSync(store, { recursive: true, force: true }); } catch { /* best effort */ }
+  if (previousDataDir === undefined) delete process.env.DATA_DIR;
+  else process.env.DATA_DIR = previousDataDir;
 });
 
 describe("the ai-bridge through a stalled server loop", () => {

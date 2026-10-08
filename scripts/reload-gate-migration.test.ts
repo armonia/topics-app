@@ -104,6 +104,16 @@ function eseguiCancello(appDir: string, env?: Record<string, string>): { code: n
   };
 }
 
+/**
+ * The gate reads the migrations registry through the `sqlite3` CLI and, by
+ * design (case E), lets the reload through when the CLI is missing. A and F
+ * need the CLI to see anything: on a machine without it (the cloud VM image)
+ * the gate exits 0 for a broken migration, which is what E asserts, so those
+ * two are skipped there, and the skip is spelled in the title. CI runners and
+ * the Mac have `sqlite3`, where both stay red-capable.
+ */
+const HAS_SQLITE3 = Bun.which("sqlite3") !== null;
+
 const daPulire: string[] = [];
 afterEach(() => {
   for (const d of daPulire.splice(0)) rmSync(d, { recursive: true, force: true });
@@ -112,7 +122,7 @@ afterEach(() => {
 // ─── test ────────────────────────────────────────────────────────────────────
 
 describe("server-reload-gate.sh — cancello migration SQL", () => {
-  it("A: migration pending ROTTA → exit 1, non tocca il DB vivo", () => {
+  it.skipIf(!HAS_SQLITE3)("A: migration pending ROTTA → exit 1, non tocca il DB vivo (saltato senza sqlite3)", () => {
     const dir = fakeAppDir({
       migrations: [
         { name: "20260817120000-ok.sql", sql: "SELECT 1;", applied: true },
@@ -221,7 +231,7 @@ describe("server-reload-gate.sh — cancello migration SQL", () => {
     expect(out).toContain("sqlite3 non trovato");
   });
 
-  it("F: migration ROTTA senza DATA_DIR → exit 1 (percorso default = APP_DIR/data)", () => {
+  it.skipIf(!HAS_SQLITE3)("F: migration ROTTA senza DATA_DIR → exit 1 (percorso default = APP_DIR/data) (saltato senza sqlite3)", () => {
     // Questo è il caso che falsificava il cancello:
     //   $ echo "CREATE TABEL rotta(" > server/db/migrations/29990101000000-prova-rotta.sql
     //   $ bash scripts/server-reload-gate.sh <appdir>
