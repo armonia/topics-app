@@ -1,5 +1,35 @@
 [
   {
+    "version": "2.2.461",
+    "date": "2026-10-08",
+    "sections": {
+      "new": [],
+      "fixes": [
+        {
+          "it": "il segno lo lascia solo uno scan interrotto",
+          "en": "",
+          "scope": "claude-code",
+          "breaking": false
+        },
+        {
+          "it": "un riavvolgimento abbandonato restituisce i frame che aveva scartato",
+          "en": "",
+          "scope": "claude-code",
+          "breaking": false
+        }
+      ],
+      "perf": [],
+      "internal": [
+        {
+          "it": "VERIFICA del terzo giro, T18 e T19 in un file a parte",
+          "en": "",
+          "scope": "openspec",
+          "breaking": false
+        }
+      ]
+    }
+  },
+  {
     "version": "2.2.460",
     "date": "2026-10-08",
     "sections": {
@@ -9,6 +39,18 @@
           "it": "check:deadcode-blindspots non cancella più le modifiche fatte mentre gira",
           "en": "",
           "scope": "gates",
+          "breaking": false
+        },
+        {
+          "it": "il segno «live» di una riadozione fallita si spende all'inizio del turno dopo",
+          "en": "",
+          "scope": "claude-code",
+          "breaking": false
+        },
+        {
+          "it": "il segno di una riadozione fallita lo spende il primo frame piegato",
+          "en": "",
+          "scope": "claude-code",
           "breaking": false
         }
       ],
@@ -66,9 +108,27 @@
           "breaking": false
         },
         {
+          "it": "la coda di un turno il cui figlio esce mentre siamo staccati arriva",
+          "en": "",
+          "scope": "claude-code",
+          "breaking": false
+        },
+        {
+          "it": "la fase 2 della riadozione non ripiega i frame dal vivo arrivati prima del suo replay",
+          "en": "",
+          "scope": "claude-code",
+          "breaking": false
+        },
+        {
           "it": "una piega non mostra più il corpo aperto per un fotogramma quando parte",
           "en": "",
           "scope": "chat",
+          "breaking": false
+        },
+        {
+          "it": "dopo una riadozione fallita il prossimo riattacco parte dalla fine dello store",
+          "en": "",
+          "scope": "claude-code",
           "breaking": false
         },
         {
@@ -78,9 +138,21 @@
           "breaking": false
         },
         {
+          "it": "un invio che arriva mentre la coda di un figlio uscito è in viaggio la aspetta",
+          "en": "",
+          "scope": "claude-code",
+          "breaking": false
+        },
+        {
           "it": "una piega ripremuta mentre si muove torna indietro da dov'è",
           "en": "",
           "scope": "chat",
+          "breaking": false
+        },
+        {
+          "it": "l'invio aspetta la coda solo quando ce n'è una in viaggio",
+          "en": "",
+          "scope": "claude-code",
           "breaking": false
         },
         {
@@ -99,9 +171,21 @@
           "breaking": false
         },
         {
+          "it": "brief T19, la coda del turno e la riadozione",
+          "en": "",
+          "scope": "openspec",
+          "breaking": false
+        },
+        {
           "it": "TypedInput al posto di Keystroke, che il controllo dei nomi non conosce",
           "en": "",
           "scope": "chat",
+          "breaking": false
+        },
+        {
+          "it": "REPORT T19, la coda del turno e la riadozione sotto scrittura",
+          "en": "",
+          "scope": "openspec",
           "breaking": false
         }
       ]

@@ -2,10 +2,21 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.2.461 — 2026-10-08
+
+### Correzioni
+- **claude-code** · il segno lo lascia solo uno scan interrotto
+- **claude-code** · un riavvolgimento abbandonato restituisce i frame che aveva scartato
+
+### Sotto il cofano
+- **openspec** · VERIFICA del terzo giro, T18 e T19 in un file a parte
+
 ## 2.2.460 — 2026-10-08
 
 ### Correzioni
 - **gates** · check:deadcode-blindspots non cancella più le modifiche fatte mentre gira
+- **claude-code** · il segno «live» di una riadozione fallita si spende all'inizio del turno dopo
+- **claude-code** · il segno di una riadozione fallita lo spende il primo frame piegato
 
 ## 2.2.459 — 2026-10-08
 
@@ -19,14 +30,21 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 - **chat** · ciò che si scrive mentre la chat si apre è ciò che parte
 - **views** · the rest of the CI gates on #259
 - **claude-code** · la sonda non riattacca un figlio adottato prima che il suo aggancio atterri
+- **claude-code** · la coda di un turno il cui figlio esce mentre siamo staccati arriva
+- **claude-code** · la fase 2 della riadozione non ripiega i frame dal vivo arrivati prima del suo replay
 - **chat** · una piega non mostra più il corpo aperto per un fotogramma quando parte
+- **claude-code** · dopo una riadozione fallita il prossimo riattacco parte dalla fine dello store
 - **views** · CI-only reds of #259
+- **claude-code** · un invio che arriva mentre la coda di un figlio uscito è in viaggio la aspetta
 - **chat** · una piega ripremuta mentre si muove torna indietro da dov'è
+- **claude-code** · l'invio aspetta la coda solo quando ce n'è una in viaggio
 - **native** · un motore fermato non apre più un turno
 
 ### Sotto il cofano
 - **openspec** · VERIFICA, T18 e il fix della sonda
+- **openspec** · brief T19, la coda del turno e la riadozione
 - **chat** · TypedInput al posto di Keystroke, che il controllo dei nomi non conosce
+- **openspec** · REPORT T19, la coda del turno e la riadozione sotto scrittura
 
 ## 2.2.458 — 2026-10-08
 
