@@ -59,11 +59,8 @@ import { getProvidersSnapshotState, subscribeProvidersSnapshot } from '../../lib
 import { cardRunsThroughTopics } from '../../lib/topicsRoutingGate';
 
 // ── Column ────────────────────────────────────────────────────────────────
-// The droppable SHELL, for the same reason as `Card` below: `useDroppable`
-// reads dnd-kit's InternalContext, which changes whenever the droppable under
-// the pointer changes, so during a drag the column re-ran its header (status
-// icon, load gauge, count) on every over change at identical props. The shell
-// takes that re-render; `ColumnBody` is memoized and only sees `isOver` flip.
+// The droppable SHELL, for the same reason as `Card` below: during a drag the
+// header re-ran on every over change; `ColumnBody` only sees `isOver` flip.
 export function Column(props: ColumnProps) {
   const { setNodeRef, isOver } = useDroppable({ id: props.status });
   return <ColumnBody {...props} setNodeRef={setNodeRef} isOver={isOver} />;
@@ -346,18 +343,10 @@ function openCardMenuAt(target: LongPressTarget): void {
 // sensors passed to DndContext must be referentially stable across renders
 // (see the module-level sensor options in KanbanBoardPane) or the memo is
 // bypassed by the context, which is exactly what happened until 2026-09-07.
-//
-// TWO LAYERS, because a stable context is not enough DURING a drag. dnd-kit's
-// InternalContext changes by design whenever the droppable under the pointer
-// changes, and every `useSortable` re-runs then: measured on a 33-card board
-// (board-drag-renders.spec.ts), 61 component renders per pointer move, each
-// card with its whole subtree (MorphText, chips, SwapIce) about a dozen times
-// per drag at identical props. So `Card` is only the sortable SHELL: it reads
-// dnd-kit and hands `CardBody` the few values the card draws with, all of them
-// stable while the card is not the one being displaced (refs and listeners
-// are memoized by dnd-kit, the transform travels as a string). `CardBody` is
-// memoized on those plus the card's own props, so a pointer move costs one
-// cheap hook pass per card and a full render only for the cards that move.
+// TWO LAYERS: dnd-kit's InternalContext changes on every over change during a
+// drag, so `Card` is only the sortable SHELL and hands memoized `CardBody` the
+// few values it draws with, stable unless this card moves (61 -> 32 renders per
+// pointer move, board-drag-renders.spec.ts).
 export const Card = memo(function Card(props: CardProps) {
   // Sortable: the source card is dimmed (the DragOverlay carries the visual)
   // but its NEIGHBOURS get the reflow transform — the list opens a gap under
@@ -976,14 +965,10 @@ const CardBody = memo(function CardBody({ task, onOpen, showProject, error, onEr
       // dichiarazione in index.css invece che per quello che è successo alla
       // card. Lo spostamento batte la nascita — nascere è l'evento più debole
       // dei due, e una card che nasce non ha attraversato nessun confine.
-      //
-      // `relative` ALWAYS, not only under a freeze: the frost below is
-      // `absolute inset-0`, and `.swap-ice-host` (which positions the card)
-      // is added only while frozen. Idle, every card's empty glints box took
-      // the whole board area as its containing block, outside the column's
-      // scroll clip: 37 such boxes on the drag bench, and the browser paid for
-      // them on every frame of a drag (main thread per pass ~360 -> ~290 ms,
-      // board-drag-frames.spec.ts). Positioned here, they stay inside the card.
+      // `relative` ALWAYS: the frost below is `absolute inset-0` and
+      // `.swap-ice-host` positions the card only while frozen; idle, each glints
+      // box spanned the whole board outside the column clip, paid on every drag
+      // frame (main thread per pass ~360 -> ~290 ms, board-drag-frames.spec.ts).
       className={`group relative cursor-grab rounded-md border border-app-border bg-surface p-2.5 text-body-lg leading-5 text-app-text shadow-sm hover:border-app-border-light ${isDragging ? 'opacity-40' : ''} ${justMovedTo ? `task-flash task-flash-${justMovedTo}` : justCreated ? 'task-flash task-flash-created' : ''}`}
     >
       {/* THE FROST, first child and under everything else: `.swap-ice-host`
