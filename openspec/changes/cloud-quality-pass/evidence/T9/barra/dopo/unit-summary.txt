@@ -1,0 +1,21 @@
+(fail) a system notice > a freeze and its thaw are one system row, on a system subject, and no chat lights up [3.13ms]
+(fail) worktree-manager.del(): la cartella prima della riga > cartella che non si puo' togliere: la riga RESTA, il ramo resta, si lancia e si notifica [82.70ms]
+(fail) isPortListening > un server in ascolto SOLO su ::1 non va dato per morto [0.58ms]
+(fail) POST /revive è serializzato sull'id > due revive concorrenti: un solo create, e due risposte sulla STESSA sessione [6.20ms]
+(fail) (unnamed) [15208.01ms]
+ 10432 pass
+ 14 skip
+ 5 fail
+Ran 10451 tests across 914 files. [482.32s]
+(fail) check:security - i pezzi che vogliono l'albero vero > la copia parte verde sui tre pezzi che non chiedono la rete [5521.67ms]
+(fail) check-bloat, refusing to guess > the repo's own baseline is green today [2343.20ms]
+(fail) a file that cannot be stat-ed still comes out, without a size, next to its siblings [4.32ms]
+(fail) an installed Topics writes only into its own home > a boot and a session leave nothing outside ~/.topics [616.46ms]
+(fail) an installed Topics writes only into its own home > a home that already has ~/.openclaw keeps using it [615.02ms]
+(fail) (unnamed) [721.28ms]
+(fail) i test che lanciano git si portano l'ambiente isolato > nessun file di test lancia git senza passare un env [68.57ms]
+(fail) nessun percorso di home in un file tracciato > la home di chi esegue non compare in nessuno di essi [138.55ms]
+ 10593 pass
+ 48 skip
+ 8 fail
+Ran 10649 tests across 925 files. [685.90s]

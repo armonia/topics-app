@@ -1,0 +1,7 @@
+HEAD a584d32
+ 01:25:49 up 43 min,  0 user,  load average: 0.96, 0.69, 0.55
+qa-gate exit=1
+unit exit=1
+bundle exit=0
+e2e exit=0
+ 01:41:12 up 59 min,  0 user,  load average: 1.02, 0.82, 0.69
