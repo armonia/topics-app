@@ -1,0 +1,8 @@
+== base-latest bun 1.4.2  02:15:36 up 14 min,  0 user,  load average: 1.92, 0.99, 0.46
+server/services/tasks.test.ts: exit 0  185 pass 0 fail 
+server/lib/wide-rows.test.ts: ABSENT
+server/lib/code-points.test.ts: ABSENT
+tests/unit/board-feed-fields.test.ts: ABSENT
+tests/integration/board-feed-lean.test.ts: ABSENT
+server/ suite: exit 1  10005 pass 58 skip 3 fail 
+server/ fails listed in /tmp/claude-0/-home-user-topics-app/b31c7c56-3b0f-5998-b893-910039f80563/scratchpad/bar/start/base-latest.server-suite.fails (3)

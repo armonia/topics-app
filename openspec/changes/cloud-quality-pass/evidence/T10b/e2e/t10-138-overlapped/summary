@@ -1,0 +1,9 @@
+== t10-138 repo /tmp/claude-0/-home-user-topics-app/b31c7c56-3b0f-5998-b893-910039f80563/scratchpad/t10 bun 1.3.8  03:44:26 up  1:42,  0 user,  load average: 1.70, 1.14, 1.01
+exit 1  2 failed 
+  ✘  1 [chromium] › tests/e2e/board-feed-reads.spec.ts:121:7 › Kanban board — letture del feed › BOARD-19: una raffica di 10 eventi costa al massimo DUE letture del feed globale (12.2s)
+  ✘  2 [chromium] › tests/e2e/board-feed-reads.spec.ts:121:7 › Kanban board — letture del feed › BOARD-19: una raffica di 10 eventi costa al massimo DUE letture del feed globale (retry #1) (12.2s)
+  ✘  3 [chromium] › tests/e2e/board-feed-reads.spec.ts:121:7 › Kanban board — letture del feed › BOARD-19: una raffica di 10 eventi costa al massimo DUE letture del feed globale (retry #2) (12.3s)
+  ✘  4 [chromium] › tests/e2e/board-feed-reads.spec.ts:220:7 › Kanban board — letture del feed › BOARD-20: la lettura parcheggiata durante il drag non riporta indietro la card (12.5s)
+  ✘  5 [chromium] › tests/e2e/board-feed-reads.spec.ts:220:7 › Kanban board — letture del feed › BOARD-20: la lettura parcheggiata durante il drag non riporta indietro la card (retry #1) (12.6s)
+  ✘  6 [chromium] › tests/e2e/board-feed-reads.spec.ts:220:7 › Kanban board — letture del feed › BOARD-20: la lettura parcheggiata durante il drag non riporta indietro la card (retry #2) (12.5s)
+videos: 6

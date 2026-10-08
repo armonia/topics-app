@@ -1,0 +1,27 @@
+{
+  "uptime": "03:49:29 up  1:47,  0 user,  load average: 1.02, 1.02, 0.99",
+  "benchBun": "1.3.8",
+  "serverBun": "/tmp/bun138/node_modules/bun/bin/bun.exe",
+  "http": {
+    "/api/all-boards/tasks": {
+      "p50": 9.45,
+      "p95": 15.54
+    },
+    "/api/system/dispatch-capacity": {
+      "p50": 2.92,
+      "p95": 7.15
+    }
+  },
+  "inProcess": {
+    "list_p50": 4.61,
+    "list_p95": 7.58,
+    "listJson_p50": 5.31,
+    "listJson_p95": 8.03
+  },
+  "bytes": {
+    "raw": 325101,
+    "gzip": 8466,
+    "gzip_ms_p50": 1.98
+  },
+  "keysPerTask": 63
+}

@@ -1,0 +1,3 @@
+(fail) a file that cannot be stat-ed still comes out, without a size, next to its siblings [3.24ms]
+(fail) isPortListening > un server in ascolto SOLO su ::1 non va dato per morto [0.61ms]
+(fail) worktree-manager.del(): la cartella prima della riga > cartella che non si puo' togliere: la riga RESTA, il ramo resta, si lancia e si notifica [73.39ms]

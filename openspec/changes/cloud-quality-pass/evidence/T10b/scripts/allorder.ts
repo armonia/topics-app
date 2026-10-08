@@ -1,0 +1,11 @@
+import { Database } from "bun:sqlite";
+const db = new Database(":memory:");
+const n = 63;
+db.run(`CREATE TABLE t (${Array.from({ length: n }, (_, i) => `c${i} TEXT`).join(", ")})`);
+db.run(`INSERT INTO t VALUES (${Array.from({ length: n }, (_, i) => `'v${i}'`).join(", ")})`);
+const st = db.prepare("SELECT *, 'x' AS extra FROM t");
+const row = st.all()[0] as Record<string, unknown>;
+const keys = Object.keys(row);
+console.log(Bun.version, "all keys", keys.slice(0, 3).join(","), "...", keys.at(-1), "c0=", row.c0, "extra=", row.extra);
+console.log(Bun.version, "values", (st.values()[0] as unknown[]).slice(0, 3).join(","), "...", (st.values()[0] as unknown[]).at(-1));
+console.log(Bun.version, "get keys", Object.keys(st.get() as object).slice(0, 2).join(","));

@@ -1,0 +1,8 @@
+== t10-latest bun 1.4.2  02:33:58 up 32 min,  0 user,  load average: 0.34, 0.43, 0.52
+server/services/tasks.test.ts: exit 0  185 pass 0 fail 
+server/lib/wide-rows.test.ts: exit 0  3 pass 0 fail 
+server/lib/code-points.test.ts: exit 0  3 pass 0 fail 
+tests/unit/board-feed-fields.test.ts: exit 0  2 pass 0 fail 
+tests/integration/board-feed-lean.test.ts: exit 0  1 pass 0 fail 
+server/ suite: exit 1  10011 pass 58 skip 3 fail 
+server/ fails listed in /tmp/claude-0/-home-user-topics-app/b31c7c56-3b0f-5998-b893-910039f80563/scratchpad/bar/start/t10-latest.server-suite.fails (3)

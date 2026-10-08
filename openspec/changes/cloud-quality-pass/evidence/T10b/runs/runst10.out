@@ -1,0 +1,4 @@
+138-T10-1 server /tmp/bun138/node_modules/bun/bin/bun.exe p50 9.45 p95 15.54 raw 325101 gzip 8466 keys 63 list_p50 4.61 | 03:49:29 up  1:47,  0 user,  load average: 1.02, 1.02, 0.99
+138-T10-2 server /tmp/bun138/node_modules/bun/bin/bun.exe p50 9.53 p95 16.18 raw 325101 gzip 8462 keys 63 list_p50 4.96 | 03:49:36 up  1:48,  0 user,  load average: 1.31, 1.08, 1.01
+latest-T10-1 server /root/.bun/bin/bun p50 4.58 p95 7.84 raw 232143 gzip 8576 keys 60 list_p50 2.35 | 03:49:41 up  1:48,  0 user,  load average: 1.28, 1.08, 1.01
+latest-T10-2 server /root/.bun/bin/bun p50 4.54 p95 7.6 raw 232143 gzip 8787 keys 60 list_p50 2.57 | 03:49:46 up  1:48,  0 user,  load average: 1.26, 1.08, 1.01

@@ -1,0 +1,12 @@
+== latest-BASE-1 bun 1.4.2  03:26:56 up  1:25,  0 user,  load average: 1.11, 0.70, 0.56
+latest-BASE-1 bun 1.4.2 p50 9.22 p95 15.01 raw 259143 gzip 9051 keys 69 list_p50 9.18
+== latest-T10B-1 bun 1.4.2  03:27:04 up  1:25,  0 user,  load average: 1.09, 0.71, 0.56
+latest-T10B-1 bun 1.4.2 p50 4.74 p95 7.85 raw 232143 gzip 8698 keys 60 list_p50 2.22
+== latest-BASE-2 bun 1.4.2  03:27:09 up  1:25,  0 user,  load average: 1.00, 0.70, 0.56
+latest-BASE-2 bun 1.4.2 p50 9.39 p95 16.29 raw 259143 gzip 9067 keys 69 list_p50 9.28
+== latest-T10B-2 bun 1.4.2  03:27:17 up  1:25,  0 user,  load average: 1.08, 0.72, 0.57
+latest-T10B-2 bun 1.4.2 p50 4.69 p95 7.73 raw 232143 gzip 8630 keys 60 list_p50 2.63
+== latest-BASE-3 bun 1.4.2  03:27:22 up  1:25,  0 user,  load average: 1.08, 0.72, 0.57
+latest-BASE-3 bun 1.4.2 p50 9.62 p95 17.33 raw 259143 gzip 9212 keys 69 list_p50 9.24
+== latest-T10B-3 bun 1.4.2  03:27:30 up  1:25,  0 user,  load average: 1.06, 0.73, 0.57
+latest-T10B-3 bun 1.4.2 p50 4.52 p95 7.79 raw 232143 gzip 8677 keys 60 list_p50 2.38
