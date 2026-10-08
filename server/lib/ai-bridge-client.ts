@@ -548,9 +548,9 @@ export class AiBridgeClient {
    * timeout. La fessura fra l'ensureConnected e il write è larga quanto un
    * hot-reload del server, cioè quanto capita ogni giorno.
    */
-  private async request(frame: object, pred: (m: any) => boolean, timeoutMs: number, what: string, onAttempt?: (rid: number) => void): Promise<any> {
+  private async request(frame: object, pred: (m: any) => boolean, timeoutMs: number, what: string, onAttempt?: (rid: number) => void, attempts = REQUEST_ATTEMPTS): Promise<any> {
     let last: Error | null = null;
-    for (let attempt = 0; attempt < REQUEST_ATTEMPTS; attempt++) {
+    for (let attempt = 0; attempt < attempts; attempt++) {
       await this.ensureConnected();
       // A fresh rid per attempt: the previous attempt's ack, if it ever
       // arrives, must not answer this one.
@@ -568,9 +568,9 @@ export class AiBridgeClient {
         // su una sessione viva la RIPRENDE, un `attach` rirende dallo stesso
         // offset), quindi rimandarle è sicuro; e visto che il waiter rigetta
         // solo dopo un silenzio VERO, qui non si arriva mai per lentezza.
-        if (!isRetryableBridgeError(err) || attempt === REQUEST_ATTEMPTS - 1) throw err;
+        if (!isRetryableBridgeError(err) || attempt === attempts - 1) throw err;
         last = err;
-        console.warn(`[AI Bridge] ${what}: ${err.message} — riprovo (${attempt + 1}/${REQUEST_ATTEMPTS - 1})`);
+        console.warn(`[AI Bridge] ${what}: ${err.message} — riprovo (${attempt + 1}/${attempts - 1})`);
         // Il socket va BUTTATO prima di riprovare. `ensureConnected` si fida
         // di `ready` e di `destroyed`, e un socket può essere rotto senza
         // essere nessuno dei due (write che fallisce, peer sparito senza
@@ -735,6 +735,18 @@ export class AiBridgeClient {
 
   async list(): Promise<SessionInfo[]> {
     const m = await this.request({ type: "list" }, (f) => f.type === "list", ACK_TIMEOUT_MS, "list");
+    return (m.sessions ?? []) as SessionInfo[];
+  }
+
+  /**
+   * The same `list`, asked by a probe that runs every few seconds: ONE attempt,
+   * and a timeout never recycles the socket. `request` drops the socket before
+   * it retries, which is right for a turn's own frame and wrong for a periodic
+   * look: on a machine in swap a slow answer would detach every live session
+   * and set off the very re-attach burst the probe is there to avoid.
+   */
+  async peekSessions(): Promise<SessionInfo[]> {
+    const m = await this.request({ type: "list" }, (f) => f.type === "list", ACK_TIMEOUT_MS, "list (probe)", undefined, 1);
     return (m.sessions ?? []) as SessionInfo[];
   }
 
