@@ -34,7 +34,7 @@ import { missingPackageManager, runScriptArgv } from "../lib/project-scripts";
 import { MIGRATIONS_DIR, findNumberCollisions } from "../../shared/migration-numbers";
 import { makeSerialQueue } from "../lib/serial-queue";
 import { bundleBreakageReason } from "../lib/client-bundle";
-import { SPAWN_TIMEOUT, spawnBounded } from "../lib/bounded-spawn";
+import { SPAWN_TIMEOUT, runBounded } from "../lib/bounded-spawn";
 
 export type AutoMergeResult =
   | {
@@ -337,13 +337,9 @@ export async function defaultRunGit(cwd: string, args: string[]): Promise<GitRun
     // merge e i cherry-pick), e git senza identità esce 128 prima di toccare
     // l'albero. Il perché e la regola del ripiego stanno in `git-identity.ts`.
     const env = await gitEnvFor(cwd);
-    const proc = spawnBounded(["git", ...args], { cwd, stdout: "pipe", stderr: "pipe", env, timeoutMs: SPAWN_TIMEOUT.long });
-    const [stdout, stderr] = await Promise.all([
-      new Response(proc.stdout).text(),
-      new Response(proc.stderr).text(),
-    ]);
-    const code = (await proc.exited) ?? 124;
-    return { code, stdout, stderr };
+    const r = await runBounded(["git", ...args], { cwd, stderr: "pipe", env, timeoutMs: SPAWN_TIMEOUT.long });
+    if (r.spawnFailed) return { code: 1, stdout: "", stderr: r.spawnError ?? "" };
+    return { code: r.exitCode ?? 124, stdout: r.stdout, stderr: r.stderr };
   } catch (e) {
     return { code: 1, stdout: "", stderr: e instanceof Error ? e.message : String(e) };
   }
@@ -386,18 +382,10 @@ const GENERATED_BASELINES: Record<string, string> = {
 export async function runRepoScript(cwd: string, args: string[]): Promise<GitRunResult> {
   const missing = missingPackageManager(cwd);
   if (missing) return { code: 1, stdout: "", stderr: missing };
-  try {
-    // Real deadline (`spawnBounded`): with a bare `proc.kill()` on the wrapper, the script's children kept the pipe and the wait never ended.
-    const proc = spawnBounded(runScriptArgv(cwd, args), { cwd, stdout: "pipe", stderr: "pipe", timeoutMs: BUILD_TIMEOUT_MS }); // runtime-dep-ok: the package manager of the USER's project, resolved from its lockfile, not a tool Topics assumes
-    const [stdout, stderr] = await Promise.all([
-      new Response(proc.stdout).text(),
-      new Response(proc.stderr).text(),
-    ]);
-    const code = (await proc.exited) ?? 124;
-    return { code, stdout, stderr };
-  } catch (e) {
-    return { code: 1, stdout: "", stderr: e instanceof Error ? e.message : String(e) };
-  }
+  // Real deadline (`runBounded`): with a bare `proc.kill()` on the wrapper, the script's children kept the pipe and the wait never ended.
+  const r = await runBounded(runScriptArgv(cwd, args), { cwd, stderr: "pipe", timeoutMs: BUILD_TIMEOUT_MS }); // runtime-dep-ok: the package manager of the USER's project, resolved from its lockfile, not a tool Topics assumes
+  if (r.spawnFailed) return { code: 1, stdout: "", stderr: r.spawnError ?? "" };
+  return { code: r.exitCode ?? 124, stdout: r.stdout, stderr: r.stderr };
 }
 
 async function defaultRegenerateBaseline(cwd: string, file: string): Promise<GitRunResult> {
