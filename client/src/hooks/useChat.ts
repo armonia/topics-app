@@ -10,7 +10,7 @@ import { mergeCatchupIntoPartial, shouldAdoptIntoPlaceholder, CLIENT_MESSAGE_ID_
 import { clearPartialForReattach, reviveClosedBubble } from './streamReattachReset';
 import { LiveTurnIds, carryLateStart, frameTargetIndex, lateStartContent, liveAssistantIndex, queueLateDelta, shouldFillFromBroadcast, takeLateDeltas, type LateDelta } from './liveTurn';
 import { liveInterruptionBlock } from '../components/Chat/turnError';
-import { mergeMediaSizes } from '../components/Chat/mediaBox';
+import { mergeMediaSizes, type MediaSizes } from '../components/Chat/mediaBox';
 import { decideCacheWrite } from './messageCacheWrite';
 import { decideCachePrune } from './messageCachePrune';
 import { mergeHistoryPage, mergeOlderHistory, pageOverlapsExisting, rowsAboveLocalCopy } from './historyPaging';
@@ -220,6 +220,8 @@ export interface SendMessageOptions {
   userMessageId?: string;
   /** This message already left once under `clientMessageId`, and the server may hold it (`QueuedTurn.sent`). */
   mayBeStored?: boolean;
+  /** The sizes of the pictures the person attached, read in the composer: the bubble's pictures have their box before their bytes (`Chat/attachmentSizes.ts`). */
+  mediaSizes?: MediaSizes;
 }
 
 export type { QueuedMessage };
@@ -1985,6 +1987,7 @@ export function useChat() {
       // the outbound queue, same key) takes it instead of a second bubble.
       setMessages(prev => ({ ...prev, [sessionKey]: placeOwnBubble(prev[sessionKey] ?? [], {
         id: options?.userMessageId ?? generateMessageId(), role: 'user', content, timestamp: new Date().toISOString(), clientMessageId: idemKey,
+        ...(options?.mediaSizes ? { mediaSizes: options.mediaSizes } : {}),
       }, options?.userMessageId, options?.mayBeStored) }));
 
       // La coda, non tutto. Il ramo legato a una topic legge solo l'ultimo

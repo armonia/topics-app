@@ -163,6 +163,15 @@ describe('la coda parte tutta insieme, non uno alla volta', () => {
     expect(mergeBatch(claimBatch(SK, 'w1', 1_000)).options).toEqual({ fastMode: true, model: 'opus' });
   });
 
+  test('the sizes of the pictures do not split the batch, and the one bubble gets those of every message', () => {
+    enqueueTurn(SK, '[Attached file: /uploads/a.png]', { fastMode: true, mediaSizes: { '/uploads/a.png': [900, 500] } });
+    enqueueTurn(SK, 'no picture', { fastMode: true });
+    enqueueTurn(SK, '[Attached file: /uploads/b.png]', { fastMode: true, mediaSizes: { '/uploads/b.png': [300, 400] } });
+    const batch = claimBatch(SK, 'w1', 1_000);
+    expect(batch).toHaveLength(3);
+    expect(mergeBatch(batch).options).toEqual({ fastMode: true, mediaSizes: { '/uploads/a.png': [900, 500], '/uploads/b.png': [300, 400] } });
+  });
+
   test('opzioni diverse spezzano il batch: il resto parte al turno dopo', () => {
     enqueueTurn(SK, 'normale');
     enqueueTurn(SK, 'ancora normale');

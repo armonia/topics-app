@@ -17,6 +17,12 @@
  *     picture: the server half of it is `withFrameMediaSizes` (server/utils.ts),
  *     the same function the first door goes through.
  *
+ * AND THE PERSON'S OWN PICTURE: the bubble of a send is drawn before the server
+ * has its row, so its size is read from the file in the composer
+ * (`components/Chat/attachmentSizes.ts`). The turn is held there, so the bubble
+ * measured is the optimistic one. Measured before the fix (T7b): 0 px tall
+ * before its bytes, CLS 0.0488.
+ *
  * WHY THE PICTURE IS HELD. On a test machine its bytes arrive in a few
  * milliseconds, and "the box was there" would look the same as "the bytes were
  * fast" (`helpers/png-fixture.ts`).
@@ -34,7 +40,7 @@ import { E2E_BASE } from "./helpers/test-server";
 import { hermetic } from "./fixtures/hermetic";
 import { interceptWebSocket } from "./helpers/ws-helpers";
 import { armObserver, buildReport, collectShifts, settledUntilQuiet, summarize, type Shift } from "./helpers/cls-return";
-import { holdPicture, uploadPng } from "./helpers/png-fixture";
+import { bandedPng, holdPicture, uploadPng } from "./helpers/png-fixture";
 import { beat, didascalia } from "./helpers/evidence";
 
 hermetic(test);
@@ -177,6 +183,61 @@ test.describe("Un'immagine che arriva dal vivo ha il suo spazio prima dei suoi b
     } finally {
       await deleteTopic(request, topic.id).catch(() => {});
       await deleteTopic(request, scratch.id).catch(() => {});
+    }
+  });
+
+  test("la bolla di chi allega un'immagine: niente si sposta quando l'immagine si carica", async ({ page, request }) => {
+    test.info().annotations.push({ type: "spec", description: "CHAT-MEDIA-BOX-01" });
+    test.setTimeout(120_000);
+    const topic = await createTopic(request, `image-own-bubble-${Date.now()}`);
+    const key = await sessionKeyOf(request, topic.id);
+    try {
+      await seedThread(request, key, "Own");
+      await resetPaneStore(request, [topic.id]);
+      const name = `t7b-own-${Date.now()}.png`;
+      // The turn is held: what is measured is the person's own bubble, drawn
+      // before the server has its row, with the bytes of its picture late.
+      let releaseTurn = () => {};
+      const turnHeld = new Promise<void>((r) => { releaseTurn = r; });
+      await page.route(/\/api\/chat$/, async (route) => {
+        if (route.request().method() !== "POST") return route.fallback();
+        await turnHeld;
+        await route.fulfill({ status: 200, headers: { "Content-Type": "text/event-stream" }, body: 'data: {"choices":[{"index":0,"delta":{"content":"ok"}}]}\n\ndata: [DONE]\n\n' });
+      });
+      await armObserver(page);
+      const late = await holdPicture(page, name, PICTURE_HOLD_MS);
+      await openAtBottom(page, topic.id, "Own row #24.");
+
+      const shell = page.locator(`[data-pane-shell="${topic.id}"]`);
+      const composer = page.locator('[data-testid="chat-input-area"]:visible');
+      await composer.locator('input[type="file"]').first().setInputFiles({ name, mimeType: "image/png", buffer: bandedPng(900, 500) });
+      await expect(composer.getByTestId("composer-attachment")).toHaveCount(1);
+      await settledUntilQuiet(page, { quietMs: 1000, timeout: 30_000 });
+      await didascalia(page, "Allego un'immagine e invio: i suoi byte arrivano in ritardo");
+      await beat(page, 800);
+
+      const since = await page.evaluate(() => performance.now());
+      await composer.locator("textarea").first().fill("OWN-IMAGE: the screenshot of the page.");
+      await composer.locator("textarea").first().press("Enter");
+      const bubble = shell.locator('[data-testid="chat-message"]').filter({ hasText: "OWN-IMAGE" });
+      await expect(bubble).toBeVisible({ timeout: 20_000 });
+      const img = bubble.getByTestId("media-image");
+      await expect(img).toHaveCount(1, { timeout: 10_000 });
+      const placeholder = await img.evaluate((el: HTMLImageElement) => ({ complete: el.complete, h: Math.round(el.getBoundingClientRect().height) }));
+      await expect.poll(() => img.evaluate((el: HTMLImageElement) => el.complete && el.naturalWidth > 0), { timeout: 20_000 }).toBe(true);
+      await settledUntilQuiet(page, { quietMs: 1500, timeout: 30_000 });
+      await beat(page, 800);
+      const report = await clsSince(page, since);
+      console.log(`[chat-image-box:own] picture=${late.held} placeholder=${JSON.stringify(placeholder)} CLS=${report.cls.toFixed(4)} shifts=${report.count}\n${summarize(report)}`);
+      releaseTurn();
+
+      expect(late.held, "the picture was never held").toBeGreaterThan(0);
+      expect(report.cls, `who moved:\n${summarize(report)}`).toBeLessThanOrEqual(CLS_CAP);
+      expect(placeholder.h, "the picture held its box while its bytes were late").toBeGreaterThan(300);
+      const list = shell.locator('[data-testid="chat-message-list"]');
+      await expect.poll(() => list.evaluate((el) => Math.round(el.scrollHeight - el.scrollTop - el.clientHeight)), { timeout: 10_000 }).toBeLessThanOrEqual(2);
+    } finally {
+      await deleteTopic(request, topic.id).catch(() => {});
     }
   });
 });
