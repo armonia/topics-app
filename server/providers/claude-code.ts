@@ -60,6 +60,7 @@ import {
   readCommandOutcome,
   readSyntheticText,
 } from "./claude/events";
+import { admitFrame, closeAfterTail } from "./claude/broker-cursor";
 import { isWokenTurnLine, bufferWoken, drainWoken, unattendedLineFate, type WakeObserver, type HeldEvent } from "./claude/woken-turn";
 import { resolveWakeSource } from "./claude/wake-source";
 import { attentionBackgroundOf, type AttentionBackground, backgroundWorkKey, closedWork, type ClosedWork, datedByLastWrite, describeBackgroundWork, hasArmedCron, hasLiveTasks, hasTaskWork, isBackgroundWorkAlive, isWakeQueued, newBackgroundWork, noteBackgroundLine, wakeQueuedUntil, type BackgroundWork, type BackgroundWorkDetail } from "./claude/background-work";
@@ -981,6 +982,9 @@ interface PersistentProcess {
    *  resync may start from it. One from 0 replays the child's whole history, and folded
    *  with the live attach's reply it became the new turn's answer (T18, verification). */
   attachPending?: boolean;
+  rewindFrom?: number; // the one rewind below `consumedOffset` the reattach asked for, until it lands (`admitFrame`)
+  reattachLive?: boolean; // left by a failed re-adoption: the cursor is where its scan stopped, the next resync is live
+  exitTail?: Promise<void>; // the tail of a child that exited while we were detached, until it is folded (`closeAfterTail`)
   /** True while replaying buffered NDJSON on reattach — suppresses live-only
    *  client side effects (onUserInputRequired) while in-memory state rebuilds. */
   replaySilent?: boolean;
@@ -2591,6 +2595,7 @@ export class ClaudeCodeProvider implements AIProvider {
     handler?: StreamHandler,
   ): Promise<PersistentProcess | null> {
     const existing = this.processes.get(sessionKey);
+    if (existing?.exitTail) await existing.exitTail; // replaced first, the tail's frames would reach the new child's handlers
     if (existing?.stoppedExit && existing.alive) {
       const waiting = handler ? { handler, cancelled: false } : null;
       if (waiting) this.waitingSends.set(sessionKey, waiting);
@@ -2961,30 +2966,18 @@ export class ClaudeCodeProvider implements AIProvider {
       onLine(line);
     });
     client.registerHandlers(sessionKey, {
-      onData: (chunk, offset) => {
-        // A BYTE IS FOLDED ONCE. A re-attach replays from the cursor it was
-        // SENT with, and frames the daemon had already written to the socket
-        // before it read that `attach` arrive first: the replay then repeats
-        // them, and folding them again doubled the deltas on screen (137
-        // numbers out of 1500 with overlapping re-attaches, T18). Below the
-        // cursor only a deliberate rewind may fold, and every one of those
-        // (the reattach's scan and its replay of the open turn) runs muted or
-        // silent.
-        if (offset < pp.consumedOffset && !pp.replayMute && !pp.replaySilent) {
-          const seen = pp.consumedOffset - offset;
-          if (seen >= chunk.byteLength) return;
-          chunk = chunk.subarray(seen);
-          offset = pp.consumedOffset;
-        }
+      onData: (raw, at) => {
+        const frame = admitFrame(pp, raw, at); // a byte is folded once: below the cursor only the rewind we asked for
+        if (!frame) return;
         // La consegna riparte da un punto diverso (un `attach` da un offset:
         // la fase 2 della riadozione fa esattamente questo). Il mezzo pezzo di
         // riga tenuto da parte apparteneva a un'altra regione dello store.
-        if (offset !== pp.consumedOffset) fold.reset(offset);
-        fold(chunk);
-        pp.consumedOffset = offset + chunk.byteLength;
+        if (frame.offset !== pp.consumedOffset) fold.reset(frame.offset);
+        fold(frame.chunk);
+        pp.consumedOffset = frame.offset + frame.chunk.byteLength;
       },
       onStderr: (chunk) => this.handleStderrData(pp, sessionKey, chunk),
-      onExit: (code) => this.onSessionClosed(pp, code),
+      onExit: (code, end) => closeAfterTail(pp, end, (from) => client.attach(sessionKey, from, 1), (wasAlive) => this.onSessionClosed(pp, code, wasAlive)),
     });
   }
 
@@ -3367,7 +3360,9 @@ export class ClaudeCodeProvider implements AIProvider {
     // already moved — reading it after would log the destination, not the gap.
     const from = pp.consumedOffset;
     try {
-      const res = await getAiBridgeClient().attach(sessionKey, from, attempts);
+      const live = pp.reattachLive ? await getAiBridgeClient().attachLive(sessionKey, attempts) : null; // `finalizeFailedReattach`
+      const res = live ?? await getAiBridgeClient().attach(sessionKey, from, attempts);
+      if (live) { pp.reattachLive = false; pp.consumedOffset = Math.max(pp.consumedOffset, live.fromOffset); }
       // A LIVE daemon answering "I don't have that session" (or "its child is
       // gone") is proof the child died: the daemon is the authority on that,
       // and if it died WITH the daemon (daemon crash, then the client respawns
@@ -3393,7 +3388,7 @@ export class ClaudeCodeProvider implements AIProvider {
         this.finalizeDeadReattach(pp, cause);
         return false;
       }
-      console.log(`[claude-code] Stream resync for ${sessionKey}: re-attached from offset ${from}, recovered ${Math.max(0, res.endOffset - from)} byte(s)`);
+      console.log(`[claude-code] Stream resync for ${sessionKey}: ${live ? `attached live at offset ${live.fromOffset}, past the history a failed re-adoption left` : `re-attached from offset ${from}, recovered ${Math.max(0, res.endOffset - from)} byte(s)`}`);
       return true;
     } catch (err: any) {
       console.warn(`[claude-code] Stream resync failed for ${sessionKey}: ${err?.message ?? err}`);
@@ -3572,9 +3567,9 @@ export class ClaudeCodeProvider implements AIProvider {
         const replayed = new Promise<void>((r) => { release = () => r(); });
         if (own) this.queues.set(sessionKey, (this.queues.get(sessionKey) ?? Promise.resolve()).then(() => replayed));
         try {
-          if (own) { pp.replaySilent = true; dateReplay(pp, await client.attach(sessionKey, own.from)); }
+          if (own) { pp.replaySilent = true; pp.rewindFrom = own.from; dateReplay(pp, await client.attach(sessionKey, own.from)); }
           if (pp.streamHandler === handler && pp.replayLastResult) this.handleStreamEvent(pp, pp.replayLastResult); // the replay did not reach it
-        } finally { pp.replaySilent = false; release(); }
+        } finally { pp.replaySilent = false; pp.rewindFrom = undefined; release(); }
         return "completed";
       }
       // Empty store (child idle since spawn, or nothing meaningful): nothing
@@ -3606,8 +3601,10 @@ export class ClaudeCodeProvider implements AIProvider {
     // rejection: the whole server went down. The awaits below still see it.
     turnDone.catch(() => {});
 
-    const res = await client.attach(sessionKey, own?.from ?? pp.replayAfterLastResultOffset ?? 0);
-    pp.replaySilent = false;
+    // A rewind below the scan's cursor, named: what the scan's live attach delivers meanwhile is the replay's (`admitFrame`).
+    pp.rewindFrom = own?.from ?? pp.replayAfterLastResultOffset ?? 0;
+    const res = await client.attach(sessionKey, pp.rewindFrom);
+    pp.replaySilent = false; pp.rewindFrom = undefined;
     dateReplay(pp, res);
 
     // Replay is fully folded now (synchronous onData). Classify from pp state.
@@ -3662,6 +3659,10 @@ export class ClaudeCodeProvider implements AIProvider {
     // torna e ricomincia a consegnare, un turno vivo scorrerebbe muto.
     pp.replayMute = false;
     pp.replaySilent = false;
+    pp.rewindFrom = undefined; // a rewind still awaited would drop every frame from here on
+    // The cursor is where the scan stopped: a re-attach from there folded the child's history as a woken turn
+    // (T19). The next one is live instead; not `attachPending`, which refuses the resync the self-heal needs.
+    pp.reattachLive = true;
     if (pp.pendingResolve) {
       const r = pp.pendingResolve;
       pp.pendingResolve = null;
@@ -3757,10 +3758,10 @@ export class ClaudeCodeProvider implements AIProvider {
     }
   }
 
-  // Child exited (direct: proc 'close'; broker: daemon `exit` frame). Rejects a
-  // pending turn and surfaces the error to a live stream, then drops timers.
-  private onSessionClosed(pp: PersistentProcess, code: number | null): void {
-    if (pp.alive) this.sayProcessEnded(pp.sessionKey, "cli-exit", pp.aborting === true || code === 0);
+  // Child exited (direct: proc 'close'; broker: daemon `exit` frame, once its tail is folded, `closeAfterTail`).
+  // Rejects a pending turn and surfaces the error to a live stream, then drops timers.
+  private onSessionClosed(pp: PersistentProcess, code: number | null, wasAlive = pp.alive): void {
+    if (wasAlive) this.sayProcessEnded(pp.sessionKey, "cli-exit", pp.aborting === true || code === 0);
     pp.alive = false;
     this.noteCliTurn(pp, false);
     if (pp.background?.tasks.size) this.sayBackgroundChanged(pp.sessionKey);
