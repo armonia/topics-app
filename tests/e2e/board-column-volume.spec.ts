@@ -270,4 +270,24 @@ test.describe("Kanban — il volume di una colonna", () => {
     await afterFrames(page, 10);
     expect(await cardsIn(page, "done").count(), "one page per reach, not a chain").toBe(COLUMN_PAGE * 2);
   });
+
+  test("COLVOL-05: a una finestra alta la colonna fuori schermo aspetta chi ci arriva", async ({ page }) => {
+    test.info().annotations.push({ type: "spec", description: "LIST-PAGE-01" });
+    // Tall enough that Done's show-more row sits inside its own column, while Done starts past the
+    // right edge: the column clips the row, the board clips the column, and only the first is its root.
+    await page.setViewportSize({ width: 1600, height: 1800 });
+    await page.goto("/");
+    await openProjectBoard(page);
+    await expect(cardsIn(page, "done").first()).toBeAttached({ timeout: 20000 });
+    const body = page.getByTestId("kanban-column-body-done");
+    expect((await body.boundingBox())!.x, "Done starts off screen").toBeGreaterThanOrEqual(page.viewportSize()!.width);
+    await afterFrames(page, 120);
+    expect(await cardsIn(page, "done").count(), "nothing loads before the reader gets there").toBe(COLUMN_PAGE);
+
+    // The reader brings Done on screen: its row is in view there, and one page comes.
+    await body.scrollIntoViewIfNeeded();
+    await expect.poll(() => cardsIn(page, "done").count(), { timeout: 10000 }).toBe(COLUMN_PAGE * 2);
+    await afterFrames(page, 10);
+    expect(await cardsIn(page, "done").count(), "one page per reach, not a chain").toBe(COLUMN_PAGE * 2);
+  });
 });

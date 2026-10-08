@@ -3445,7 +3445,9 @@ che chi legge esca e rientri, invece di interrogare il server in un ciclo
 (`client/src/lib/loadOnReach.ts`). Ogni cambio del numero di righe, anche una riga
 arrivata mentre una pagina è in viaggio, SHALL far guardare di nuovo la riga prima di
 chiedere; e il contenitore guardato SHALL essere quello che la scorre in quel momento,
-anche dopo un cambio di disposizione. Mentre una card della board viene trascinata la
+anche dopo un cambio di disposizione. In vista vuol dire anche a schermo: una colonna
+fuori dalla board che scorre di lato NON SHALL caricare, nemmeno quando la sua riga
+sta dentro la colonna stessa (una finestra alta). Mentre una card della board viene trascinata la
 colonna NON SHALL crescere sotto il puntatore. La riga SHALL restare un bottone,
 per la tastiera e per un browser senza IntersectionObserver.
 
@@ -3469,4 +3471,11 @@ per la tastiera e per un browser senza IntersectionObserver.
 - **WHEN** la persona passa alla disposizione a lista e non scorre
 - **THEN** la colonna Done resta a una pagina
 - **WHEN** la persona scorre fino alla riga «mostra altri» di Done
+- **THEN** arriva una pagina sola
+
+#### Scenario: a una finestra alta la colonna fuori schermo aspetta
+- **GIVEN** la board in una finestra alta 1800 px, con la riga «mostra altri» di Done dentro la sua colonna e Done oltre il bordo destro
+- **WHEN** nessuno scorre
+- **THEN** la colonna Done resta a una pagina
+- **WHEN** la persona porta Done a schermo
 - **THEN** arriva una pagina sola

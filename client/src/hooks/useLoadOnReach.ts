@@ -30,20 +30,34 @@ export function useLoadOnReach(load: () => void, state: ListState): (el: HTMLEle
   useEffect(() => {
     if (!row || typeof IntersectionObserver === 'undefined') return;
     let io: IntersectionObserver | null = null;
+    let onScreen: IntersectionObserver | null = null;
     // A new observer always gives a first answer: that is the fresh look a moved list asks for. It is
     // rebuilt on the element that scrolls the row NOW: a layout switch (a board column turned list) takes
     // the scroll away from the old root, which then holds the row in view forever and pages chain.
+    // The root clips only its own content: a column scrolled out of the board still sees its row, so the
+    // root itself must be on screen too (a second observer, on the viewport, which every clip counts in).
     const watch = (): void => {
       io?.disconnect();
+      onScreen?.disconnect();
       const root = scrollParent(row);
+      let near = false;
+      let shown = !root;
+      const tell = (): void => controller.seen(near && shown);
       io = new IntersectionObserver((entries) => {
         if (scrollParent(row) !== root) {
           watch();
           return;
         }
-        for (const entry of entries) controller.seen(entry.isIntersecting);
+        for (const entry of entries) near = entry.isIntersecting;
+        tell();
       }, { root, rootMargin: `0px 0px ${AHEAD_PX}px 0px` });
       io.observe(row);
+      if (!root) return;
+      onScreen = new IntersectionObserver((entries) => {
+        for (const entry of entries) shown = entry.isIntersecting;
+        tell();
+      });
+      onScreen.observe(root);
     };
     const controller = loadOnReach(() => latest.current.load(), watch);
     watch();
@@ -51,6 +65,7 @@ export function useLoadOnReach(load: () => void, state: ListState): (el: HTMLEle
     controller.settle(latest.current.state);
     return () => {
       io?.disconnect();
+      onScreen?.disconnect();
       controllerRef.current = null;
     };
   }, [row]);
