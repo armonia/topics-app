@@ -952,12 +952,48 @@ jobs:
       # in locale non si vede mai perche' la macchina di sviluppo i browser li
       # ha entrambi. Misurato sul run 32430381446: 4 shard su 4 rossi, e i
       # falliti di webkit erano i 5 test di drag-preview.
+      #
+      # I .deb di sistema dei due motori passano da una cache. Prima arrivavano
+      # ogni volta da azure.archive.ubuntu.com, e quel mirror a volte resta
+      # fermo minuti su un solo pacchetto. L'08/10 è successo in 3 run su 9:
+      # uno shard è rimasto 24-31 minuti su questo passo invece di circa 65 s
+      # (run 37786849832, 37776837653, e quella delle 11:54). Con i .deb già in
+      # /var/cache/apt/archives apt non li scarica, e scarica solo quelli
+      # cambiati nel frattempo.
+      #
+      # La chiave contiene l'immagine del runner. Se ubuntu-latest si aggiorna
+      # ma la chiave resta uguale, la cache non viene più salvata e ogni run
+      # riscarica le versioni nuove senza che nessuno se ne accorga. ImageOS e
+      # ImageVersion sono variabili della macchina, non del contesto `env`,
+      # quindi passano da un output.
+      - name: Read the runner image
+        id: runner-image
+        run: echo "id=${ImageOS:-unknown}-${ImageVersion:-unknown}" >> "$GITHUB_OUTPUT"
+
+      - name: Restore the apt packages of the Playwright browsers
+        uses: actions/cache@v4
+        with:
+          path: ~/apt-playwright
+          key: apt-playwright-${{ runner.arch }}-${{ steps.runner-image.outputs.id }}-${{ hashFiles('bun.lock') }}
+          restore-keys: apt-playwright-${{ runner.arch }}-
+
       - name: Build client, and install Playwright browsers (Chromium + WebKit) meanwhile
         run: |
           build_log="$RUNNER_TEMP/build-client.log"
           bun run build:client > "$build_log" 2>&1 &
           build_pid=$!
+          if compgen -G "$HOME/apt-playwright/*.deb" > /dev/null; then
+            sudo cp "$HOME"/apt-playwright/*.deb /var/cache/apt/archives/
+          fi
           npx playwright install --with-deps chromium webkit
+          # Quello che apt ha appena installato torna nella cache, che si salva a
+          # fine job. autoclean toglie le versioni superate, così la cache presa
+          # da un'immagine vecchia non cresce a ogni aggiornamento.
+          sudo apt-get autoclean -qq
+          rm -rf "$HOME/apt-playwright" && mkdir -p "$HOME/apt-playwright"
+          if compgen -G "/var/cache/apt/archives/*.deb" > /dev/null; then
+            cp /var/cache/apt/archives/*.deb "$HOME/apt-playwright/"
+          fi
           if ! wait "$build_pid"; then
             cat "$build_log"
             echo "::error title=Build client failed::bun run build:client exited non-zero (output above)"
