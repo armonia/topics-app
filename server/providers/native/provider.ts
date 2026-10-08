@@ -539,13 +539,24 @@ export class NativeProvider implements AIProvider {
       /** The turn's name: it rides on every end recorded here, so a late end is never taken for the next turn's. */
       turnId?: string;
     },
-  ): Promise<{ runId?: string }> {
+  ): Promise<{ runId?: string; notSent?: boolean }> {
     if (this.hasGlobalCoordinatorRole(sessionKey)) {
       handler.onError("the global coordinator is Codex-only; reopen it from the Kanban");
       return {};
     }
     const session = this.sessionFor(sessionKey, options?.messageRows);
     await this.supersedeLiveTurn(sessionKey, session);
+    // A STOPPED ENGINE STARTS NO TURN. The chat route holds this instance across
+    // its own awaits (the `memrecall` run) between opening the stream and calling
+    // here, so a `stop()` (engine removed, provider replaced) can land in that
+    // gap: it finds no session to abort, and the turn would then run to its end
+    // on an instance the registry no longer has. It ends here instead, with the
+    // cause `stop()` gives the turns it does reach, as claude-code ends the sends
+    // it had queued. No await below this line: the check and the claim are one step.
+    if (this.stopped) {
+      handler.onAborted?.({ turnEnd: cancelled("server-shutdown" satisfies StopCause) });
+      return { notSent: true };
+    }
 
     // La storia del CHIAMANTE vince su quella in memoria: è lui che sa cosa è
     // successo davvero (riavvii, rami, modifiche). La nostra è una comodità,
