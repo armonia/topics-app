@@ -140,8 +140,17 @@ const KINDS: Kind[] = [
     fold: (tag) => `[data-testid="tool-call-row-${tag}-c1"]`,
     opened: (page, tag) => page.locator(`[data-testid="tool-call-row-${tag}-c1"] [data-testid="tool-call-result-toggle"][aria-expanded="true"]`),
     prepare: async (page, tag) => {
-      await locate(page, `[data-testid="tool-call-row-${tag}-c1"] > button`).click();
-      await expect(locate(page, `[data-testid="tool-call-row-${tag}-c1"] [data-testid="tool-call-result-toggle"]`)).toBeVisible({ timeout: 10_000 });
+      const row = `[data-testid="tool-call-row-${tag}-c1"]`;
+      await locate(page, `${row} > button`).click();
+      await expect(locate(page, `${row} [data-testid="tool-call-result-toggle"]`)).toBeVisible({ timeout: 10_000 });
+      // The toggle is "visible" from the first frame of the opening, while the
+      // body is still 0 px tall (a clipped child keeps its box). The reader
+      // goes on once the row HAS opened: going back to the end before it grew
+      // found the end already reached, and the opening then held its header
+      // up to 350 px above the new end, so the bottom case never started.
+      await startProbe(page, { header: `${row} > button`, fold: row, docked: false });
+      await waitStill(page);
+      await stopProbe(page);
     },
     sameHeight: true,
   },
