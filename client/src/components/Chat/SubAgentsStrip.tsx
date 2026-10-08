@@ -9,7 +9,7 @@ import { dismissSubAgent, useDismissedSubAgents } from '../../state/endedSubAgen
 import { useLiveWork, visibleRows } from '../../state/liveWork';
 import { CHAT_STRIP_NEUTRAL } from '../../lib/chatStripStyles';
 import { openLink, isExternalLinkGesture } from '../../lib/openLink';
-import { DockedStripPanel } from './DockedStripPanel';
+import { DisclosureBody } from './DisclosureBody';
 import { ProcessTail } from './LiveShellTail';
 import { useDisclosureToggle } from './transcriptDisclosure';
 
@@ -34,12 +34,25 @@ import { useDisclosureToggle } from './transcriptDisclosure';
  * where they were opened»: a server started the day before is at the top of
  * it). One log is open at a time, and a second click on its row closes it.
  *
- * The log unrolls above its row, as everything a strip opens
- * (`DockedStripPanel`): the row stays under the pointer, held by the
- * transcript's disclosure anchor, and the transcript above moves up by the
- * log. A command that ends with its log open keeps its row, in its place and
+ * The log unrolls UNDER its row, as any accordion, and is drawn as the row's
+ * own content: indented under its name, on the row's surface, a line from the
+ * row's icon down its side. On 08/10 it opened above the row as the other
+ * strips do (`DockedStripPanel`), boxed like a terminal: «it opens above, not
+ * below», «you can't tell it belongs to that row». A reader at the bottom
+ * stays at the bottom (the transcript's hold keeps the bottom, `atEnd`): the
+ * log comes into sight above the composer, and closing it gives the view back
+ * where it was. A reader further up keeps the row under the pointer, open and
+ * shut. The log scrolls back to the first line the registry has, and a reader
+ * gone up in it is left there while new lines arrive (`LiveShellTail`).
+ *
+ * A command that ends with its log open keeps its row, in its place and
  * without «Open» and «Stop», until the log is closed: its end is what one
  * opened it to read. Its own «Stop» closes it, and the row leaves as before.
+ *
+ * The alarm clock next to the name says that the command's end wakes the chat.
+ * It is a sign, not a control: part of the row's label, no hover or focus of
+ * its own, its tooltip saying what it means. Alone between «Open» and «Stop» it
+ * looked like a third button («maybe it isn't a button», 08/10).
  *
  * NO CAP ON THE ROWS. Docked over the composer they stopped at 7.5rem and
  * scrolled inside it; in the transcript the strip scrolls with the chat, and
@@ -62,6 +75,8 @@ import { useDisclosureToggle } from './transcriptDisclosure';
  */
 
 const ROW = 'flex min-w-0 flex-1 items-center gap-1.5 px-2.5 py-1 text-left text-mini hover:bg-app-hover transition-colors';
+/** An open command's row and its log, one surface. */
+const OPEN_ROW = 'bg-app-hover/70';
 const SIDE_BUTTON = 'flex flex-shrink-0 items-center gap-1 rounded px-1.5 py-0.5 mr-1 text-mini text-app-text-secondary hover:bg-app-hover hover:text-app-text';
 
 function AgentRow({ row }: { row: LiveAgentRow }) {
@@ -129,26 +144,25 @@ function CommandRow({ row, open, ended, onToggle, onStop }: {
     onStop();
     try { await scriptsApi.stop(row.id); } catch { toast.error(tr('livework.stopFailed', { name: row.name })); setStopping(false); }
   };
+  const logId = `live-command-log-${row.id}`;
+  // Inside the button, the sign's own label is hidden by the button's: it describes the button instead.
+  const wakesId = row.wakes && !ended ? `live-command-wakes-${row.id}` : undefined;
   return (
-    <div data-testid="live-command-row" data-process-id={row.id} data-open={open ? 'true' : 'false'}>
-      {/* Above its row, in the strip's flow: see `DockedStripPanel`. */}
-      <DockedStripPanel open={open} testId="live-command-log" className="px-2.5 py-1.5">
-        <ProcessTail processId={row.id} />
-      </DockedStripPanel>
-      <div className="flex min-w-0 items-center" title={row.wakes ? `${row.command}\n${wakes}` : row.command}>
-        <button type="button" aria-expanded={open} aria-label={title} onClick={(e) => { e.stopPropagation(); onToggle(e.currentTarget); }} className={ROW}>
+    <div data-testid="live-command-row" data-process-id={row.id} data-open={open ? 'true' : 'false'} className={open ? OPEN_ROW : undefined}>
+      <div className="flex min-w-0 items-center" title={row.command}>
+        <button type="button" aria-expanded={open} aria-controls={open ? logId : undefined} aria-label={title} aria-describedby={wakesId} onClick={(e) => { e.stopPropagation(); onToggle(e.currentTarget); }} className={ROW}>
           {first
             ? <Server size={11} aria-hidden="true" className="text-emerald-600 dark:text-emerald-400 flex-shrink-0" />
             : <SquareTerminal size={11} aria-hidden="true" className="text-app-text-secondary flex-shrink-0" />}
           <span className="max-w-[40%] flex-shrink-0 truncate text-app-text">{row.name}</span>
+          {wakesId && (
+            <span id={wakesId} data-testid="live-work-wakes" role="img" aria-label={wakes} title={wakes} className="flex flex-shrink-0 cursor-default text-app-text-tertiary">
+              <AlarmClock size={10} aria-hidden="true" />
+            </span>
+          )}
           {first && !ended && <span data-testid="live-work-address" className="flex-shrink-0 tabular-nums text-app-text-secondary">{row.listen.map(listenLabel).join(', ')}</span>}
           {!ended && <span data-testid="live-work-preview" className="min-w-0 flex-1 truncate font-mono text-app-text-tertiary">{row.preview}</span>}
         </button>
-        {row.wakes && !ended && (
-          <span data-testid="live-work-wakes" role="img" aria-label={wakes} title={wakes} className="flex flex-shrink-0 px-1 text-app-text-secondary">
-            <AlarmClock size={11} aria-hidden="true" />
-          </span>
-        )}
         {url && (
           <button
             type="button"
@@ -173,6 +187,10 @@ function CommandRow({ row, open, ended, onToggle, onStop }: {
           </button>
         )}
       </div>
+      {/* Under its row, indented under the name: the line runs down from the row's icon. */}
+      <DisclosureBody open={open} id={logId} testId="live-command-log" className="ml-[15px] mr-2.5 mb-1.5 border-l border-app-border pl-[11px]">
+        <ProcessTail processId={row.id} variant="row" />
+      </DisclosureBody>
     </div>
   );
 }
@@ -195,9 +213,9 @@ export const SubAgentsStrip = memo(function SubAgentsStrip({ topicId }: { topicI
 
   const toggle = (row: LiveCommandRow, anchor: HTMLElement) => {
     const wasOpen = open?.id === row.id;
-    // The log opens and closes above the row, and the transcript holds the row where it was
-    // (CHAT-FOLD-01). An ended row leaves with its log: there is nothing left to hold.
-    if (!(wasOpen && ended)) disclose(anchor);
+    // The log opens and closes under the row: the transcript keeps a reader at the bottom there,
+    // anyone else's row where it was (CHAT-FOLD-01). An ended row leaves with its log: nothing to hold.
+    if (!(wasOpen && ended)) disclose(anchor, { atEnd: true });
     setOpen(wasOpen ? null : row);
   };
 

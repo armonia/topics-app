@@ -88,7 +88,7 @@ const CHAT_IT: Dict = {
   'chat.background.stale': 'nessuna notizia da {t}',
   'chat.background.free': 'La chat è libera, puoi scrivere. Per fermare il lavoro c\'è lo Stop del composer, a campo vuoto',
   'chat.background.monitor': 'Monitor',
-  'chat.background.wakes': 'sveglia la chat quando finisce',
+  'chat.background.wakes': 'Quando questo comando finisce, la chat si sveglia e va avanti da sola',
   'chat.service.open': 'Apri',
   'chat.service.openTitle': 'Apri {url} in una tab del browser',
   'chat.service.stop': 'Ferma',

@@ -72,7 +72,7 @@ const CHAT_EN: Dict = {
   'chat.background.stale': 'no news for {t}',
   'chat.background.free': 'The chat is free, you can write. To stop the work, use the composer Stop with an empty field',
   'chat.background.monitor': 'Monitor',
-  'chat.background.wakes': 'wakes the chat when it ends',
+  'chat.background.wakes': 'When this command ends, the chat wakes up and carries on by itself',
   'chat.service.open': 'Open',
   'chat.service.openTitle': 'Open {url} in a browser tab',
   'chat.service.stop': 'Stop',

@@ -10,6 +10,12 @@
  * where they were opened», when they should open «right from the panel at the
  * bottom of the chat, as an accordion».
  *
+ * Then, on the accordion itself (08/10): «it opens above, not below»; «you
+ * can't tell it belongs to that row, it looks like a terminal»; «there's no
+ * scroll to go back to the earlier lines»; «I don't get what the little alarm
+ * button is for, maybe it isn't a button»; «when I open and then close it, it
+ * stays scrolled».
+ *
  * Real pieces only. The commands start through the route `run_command` calls,
  * or from a fake CLI turn that calls `run_command` through the bridge's own code
  * (`helpers/fake-claude-command.ts`), so the card is the one a real turn draws.
@@ -101,7 +107,7 @@ async function box(locator: Locator): Promise<{ top: number; bottom: number; lef
  * (CI 08/10: the reader "moved" 54 and then 11 px with the view still gliding),
  * and a place read before the view stops is no baseline for what moves it next.
  */
-const still = (page: Page) => scroller(page).evaluate((el) => new Promise<void>((resolve, reject) => {
+const rest = (scrolling: Locator) => scrolling.evaluate((el) => new Promise<void>((resolve, reject) => {
   let last = el.scrollTop;
   let same = 0;
   let frame = 0;
@@ -109,11 +115,12 @@ const still = (page: Page) => scroller(page).evaluate((el) => new Promise<void>(
     if (el.scrollTop === last) same++;
     else { last = el.scrollTop; same = 0; }
     if (same >= 10) return resolve();
-    if (++frame > 600) return reject(new Error(`the transcript never stopped scrolling (scrollTop ${el.scrollTop})`));
+    if (++frame > 600) return reject(new Error(`never stopped scrolling (scrollTop ${el.scrollTop})`));
     requestAnimationFrame(tick);
   };
   requestAnimationFrame(tick);
 }));
+const still = (page: Page) => rest(scroller(page));
 
 /** The first seeded message wholly on screen, by the words that name it ("Reply 21."). */
 async function firstInSight(page: Page): Promise<string> {
@@ -214,7 +221,34 @@ const place = (header: Locator) => header.evaluate((el) => {
   };
 });
 
-test("a command's row opens its live log right there, as an accordion: the transcript does not go to the card that started it, a second click shuts it, one log open at a time", async ({ page, request, chatPage }) => {
+/** A computed background with nothing painted. */
+const CLEAR = "rgba(0, 0, 0, 0)";
+const surface = (locator: Locator) => locator.evaluate((el) => getComputedStyle(el).backgroundColor);
+
+/** How far a command's log is from its first line ("start") or from its last ("end"). */
+const logRoom = (live: Locator, side: "start" | "end") =>
+  live.evaluate((el, side) => (side === "start" ? el.scrollTop : el.scrollHeight - el.scrollTop - el.clientHeight), side);
+
+/**
+ * A wheel inside a command's log, a notch at a time and each landed, until the
+ * log shows its first line or its last. Never more than the room left: the
+ * rest of a notch would go on to the transcript.
+ */
+async function wheelLog(page: Page, live: Locator, side: "start" | "end"): Promise<void> {
+  const logBox = await box(live);
+  const view = await box(scroller(page));
+  const composer = await box(page.getByTestId("chat-input-area").filter({ visible: true }));
+  await page.mouse.move((logBox.left + logBox.right) / 2, (Math.max(logBox.top, view.top) + Math.min(logBox.bottom, composer.top)) / 2);
+  for (let i = 0; i < 40; i++) {
+    const room = await logRoom(live, side);
+    if (room <= 1) return;
+    await page.mouse.wheel(0, side === "start" ? -Math.min(120, room) : Math.min(120, room));
+    await rest(live);
+  }
+  throw new Error(`the log never reached its ${side}`);
+}
+
+test("a command's row opens its live log under itself, as the row's own content: the log scrolls back to its first line, a second click shuts it and gives the view back, one log open at a time, the alarm clock is a sign", async ({ page, request, chatPage }) => {
   test.info().annotations.push({ type: "spec", description: "SUBSTRIP-02" });
   switches = realpathSync(mkdtempSync(join(tmpdir(), "cmdwatch-")));
   await chatWithProject(request, "card", "claude-code");
@@ -246,68 +280,165 @@ test("a command's row opens its live log right there, as an accordion: the trans
   const out = (await card.count()) ? await card.boundingBox() : null;
   expect(!out || out.y + out.height < sc.top + 40, "the card is out of sight before the click").toBe(true);
 
-  // The click opens the row where it is, with the tail the card shows, moving. The row stays under the
-  // pointer and the reader at the bottom stays there: the transcript moves by the log's room, nothing else.
+  // The click opens the log UNDER its row («it opens above, not below», 08/10), with the tail the
+  // card shows, moving. The reader at the bottom stays there: the transcript moves up by the log's room
+  // and nothing else, so the log comes into sight above the composer with its row right on top of it.
   const header = row.getByRole("button").first();
+  const log = row.getByTestId("live-command-log");
+  const live = row.getByTestId("shell-live-output");
+  const inputArea = page.getByTestId("chat-input-area").filter({ visible: true });
   await still(page);
   const before = await place(header);
   await header.click();
   await expect(row).toHaveAttribute("data-open", "true");
   await expect(header).toHaveAttribute("aria-expanded", "true");
-  const live = row.getByTestId("shell-live-output");
   await expect(live).toContainText("CMDWATCH-TICK", { timeout: 10_000 });
   await expect(row.getByTestId("shell-live-status")).toHaveAttribute("data-status", "running");
   await still(page);
   const after = await place(header);
-  expect(Math.abs(after.header - before.header), "the row stays under the pointer").toBeLessThanOrEqual(1);
+  expect(await header.getAttribute("aria-controls"), "the row's button names the log it opens").toBe(await log.getAttribute("id"));
+  const headerBox = await box(header);
+  expect((await box(log)).top, "the log is under its row").toBeGreaterThanOrEqual(headerBox.bottom - 1);
+  expect(headerBox.top, "the row clicked is in sight").toBeGreaterThanOrEqual((await box(scroller(page))).top - 1);
+  expect((await box(log)).bottom, "its log is in sight, above the composer").toBeLessThanOrEqual((await box(inputArea)).top + 1);
   expect(after.fromBottom, "the reader at the bottom stays there").toBeLessThanOrEqual(1);
   expect(after.strip - before.strip, "the log took room in the strip").toBeGreaterThan(40);
   expect(Math.abs(after.scrollTop - before.scrollTop - (after.strip - before.strip)), "the transcript moved by the log's room and nothing else").toBeLessThanOrEqual(1);
+  expect(Math.abs(before.header - after.header - (after.strip - before.strip)), "the row went up by the log under it").toBeLessThanOrEqual(1);
+  // The row's own content, not a terminal of its own («it looks like a terminal»): no box of its own, on the
+  // open row's surface, indented under the row's name.
+  expect(await surface(live), "the log has no box of its own").toBe(CLEAR);
+  expect(await surface(row), "the open row and its log are one surface").not.toBe(CLEAR);
+  expect((await box(live)).left, "the log is indented under its row").toBeGreaterThan(headerBox.left + 16);
   // The card that started the command stays shut, out of sight.
   if (await card.count()) {
     await expect(page.locator('[data-testid="tool-call-row-toolu_cmdwatch"] > button').first()).toHaveAttribute("aria-expanded", "false");
     await expect(card).not.toBeInViewport();
   }
-  // A second command, started by the route alone as the log opens: its row arrives under the reader at
-  // the bottom, who stays there. The click's hold turned that pin away and the row stayed 24 px below the
-  // view (Chromium, 2 runs in 6, 08/10).
+  // A second command, started by the route alone: its row arrives under the reader at the bottom, who
+  // stays there. A toggle's hold turned that pin away and the row stayed 24 px below the view
+  // (Chromium, 2 runs in 6, 08/10).
   const bare = await runCommand(request, 'for i in $(seq 1 600); do echo "bare tick $i"; sleep 1; done', `E2E bare ${STAMP}`);
   const bareRow = commandRow(page, bare);
   const bareHeader = bareRow.getByRole("button").first();
   await expect(bareRow).toHaveCount(1, { timeout: 15_000 });
   await expect.poll(() => fromBottom(page), { timeout: 5_000 }).toBeLessThanOrEqual(1);
 
+  // The log follows its newest line, printed in colour and read as text: on the Prince of Persia chat
+  // (08/10) the escape codes showed as boxes.
   const seen = tickOf(await live.textContent());
   await expect.poll(async () => tickOf(await live.textContent()), { timeout: 6_000 }).toBeGreaterThan(seen);
-  // Printed in colour, read as text: on the Prince of Persia chat (08/10) the escape codes showed as boxes.
   expect(await live.textContent()).not.toMatch(/\x1b|\[\d*m/);
-  // Once the log outgrows its box, the box shows its newest line.
   await expect.poll(() => live.evaluate((el) => el.scrollHeight > el.clientHeight), { timeout: 15_000 }).toBe(true);
-  await expect.poll(() => live.evaluate((el) => el.scrollHeight - el.scrollTop - el.clientHeight), { timeout: 3_000 }).toBeLessThanOrEqual(2);
+  await expect.poll(() => logRoom(live, "end"), { timeout: 3_000 }).toBeLessThanOrEqual(2);
 
-  // Opening the second row shuts the first. One log open at a time.
+  // Back to the command's first line, inside the log («there's no scroll to go back to the earlier lines»).
+  // Up there the reader stays while new lines arrive. The wheel moved the log and not the chat, which
+  // is still at its end and still follows it: a third command's row arrives in sight. Its scroll is no
+  // measure of that: the end it follows can still grow (by 4 px, a second after the second row, WebKit
+  // 1 run in 6, 08/10).
+  await wheelLog(page, live, "start");
+  expect(await live.evaluate((el) => (el.textContent ?? "").split("\n")[0]), "the log goes back to the command's first line").toBe("CMDWATCH-TICK 1");
+  const upAt = tickOf(await live.textContent());
+  await expect.poll(async () => tickOf(await live.textContent()), { timeout: 6_000 }).toBeGreaterThan(upAt + 1);
+  await rest(live);
+  expect(await logRoom(live, "start"), "new lines leave the reader where they went").toBeLessThanOrEqual(1);
+  await expect.poll(() => fromBottom(page), { timeout: 2_000, message: "a wheel in the log moves the log, not the chat" }).toBeLessThanOrEqual(1);
+  const third = await runCommand(request, "sleep 600", `E2E third ${STAMP}`);
+  await expect(commandRow(page, third)).toHaveCount(1, { timeout: 15_000 });
+  await expect.poll(() => fromBottom(page), { timeout: 5_000 }).toBeLessThanOrEqual(1);
+  // Back at the log's end, it follows again.
+  await wheelLog(page, live, "end");
+  const backAt = tickOf(await live.textContent());
+  await expect.poll(async () => tickOf(await live.textContent()), { timeout: 6_000 }).toBeGreaterThan(backAt);
+  await expect.poll(() => logRoom(live, "end"), { timeout: 3_000 }).toBeLessThanOrEqual(2);
+
+  // Opening another row shuts the first: one log open at a time, under the row clicked.
   await still(page);
-  const beforeBare = await place(bareHeader);
   await bareHeader.click();
   await expect(bareRow.getByTestId("shell-live-output")).toContainText("bare tick", { timeout: 10_000 });
   await expect(bareRow).toHaveAttribute("data-open", "true");
   await expect(row).toHaveAttribute("data-open", "false");
-  await expect(row.getByTestId("live-command-log")).toHaveCount(0);
+  await expect(log).toHaveCount(0);
   await expect(strip(page).locator('[data-testid="live-command-row"][data-open="true"]')).toHaveCount(1);
   await still(page);
-  expect(Math.abs((await place(bareHeader)).header - beforeBare.header), "the row clicked stays under the pointer").toBeLessThanOrEqual(1);
-
-  // The second click on the same row shuts its log, and the row stays where it was.
-  const beforeShut = await place(bareHeader);
+  expect((await box(bareRow.getByTestId("live-command-log"))).top, "the log is under the row clicked").toBeGreaterThanOrEqual((await box(bareHeader)).bottom - 1);
+  expect(await fromBottom(page)).toBeLessThanOrEqual(1);
+  // A second click on the same row shuts its log.
   await bareHeader.click();
   await expect(bareRow).toHaveAttribute("data-open", "false");
   await expect(bareHeader).toHaveAttribute("aria-expanded", "false");
   await expect(bareRow.getByTestId("live-command-log")).toHaveCount(0);
   await expect(strip(page).locator('[data-testid="live-command-row"][data-open="true"]')).toHaveCount(0);
   await still(page);
-  const shut = await place(bareHeader);
-  expect(Math.abs(shut.header - beforeShut.header), "the row stays under the pointer as its log shuts").toBeLessThanOrEqual(1);
-  expect(shut.fromBottom).toBeLessThanOrEqual(1);
+  expect(await fromBottom(page)).toBeLessThanOrEqual(1);
+
+  // Shut, the view is back where it was («when I open and then close it, it stays scrolled»).
+  /** One click on the command's row, landed: its log in or out, and the view at rest. */
+  const toggle = async (open: boolean) => {
+    await header.click();
+    await expect(row).toHaveAttribute("data-open", String(open));
+    if (open) await expect(live).toContainText("CMDWATCH-TICK", { timeout: 10_000 });
+    else await expect(log).toHaveCount(0);
+    await still(page);
+  };
+  // A reader at the bottom: the same bottom, the row at the same height, no room left under the strip.
+  const p0 = await place(header);
+  await toggle(true);
+  await toggle(false);
+  const p1 = await place(header);
+  expect(Math.abs(p1.scrollTop - p0.scrollTop), "the view is back where it was").toBeLessThanOrEqual(1);
+  expect(Math.abs(p1.header - p0.header), "the row is back at its height").toBeLessThanOrEqual(1);
+  expect(p1.fromBottom, "at the bottom").toBeLessThanOrEqual(1);
+  expect(await surface(row), "shut, the row has no surface of its own").toBe(CLEAR);
+  // A reader who went up the chat with the log open: shutting it lets the end come down instead of
+  // keeping empty room under the strip, and the view is back at the bottom the log was opened from.
+  await toggle(true);
+  const view = await box(scroller(page));
+  await page.mouse.move((view.left + view.right) / 2, view.top + 60);
+  await page.mouse.wheel(0, -100);
+  await still(page);
+  expect(await fromBottom(page), "the reader went up").toBeGreaterThan(4);
+  await toggle(false);
+  const p2 = await place(header);
+  expect(Math.abs(p2.scrollTop - p0.scrollTop), "the view is back at the bottom the log was opened from").toBeLessThanOrEqual(1);
+  expect(p2.fromBottom).toBeLessThanOrEqual(1);
+  // A reader further up: the row stays where it is, open and shut, and so does the view.
+  await page.mouse.move((view.left + view.right) / 2, view.top + 60);
+  await page.mouse.wheel(0, -100);
+  await still(page);
+  const q0 = await place(header);
+  expect(q0.fromBottom, "the reader is above the end").toBeGreaterThan(4);
+  await toggle(true);
+  expect(Math.abs((await place(header)).header - q0.header), "the row stays where it was").toBeLessThanOrEqual(1);
+  expect((await box(log)).top, "its log under it").toBeGreaterThanOrEqual((await box(header)).bottom - 1);
+  await toggle(false);
+  const q1 = await place(header);
+  expect(Math.abs(q1.header - q0.header), "shut, the row is where it was").toBeLessThanOrEqual(1);
+  expect(Math.abs(q1.scrollTop - q0.scrollTop), "and so is the view").toBeLessThanOrEqual(1);
+  for (let i = 0; i < 6 && (await fromBottom(page)) > 1; i++) {
+    await page.mouse.wheel(0, 300);
+    await still(page);
+  }
+  expect(await fromBottom(page), "back at the bottom").toBeLessThanOrEqual(1);
+
+  // The alarm clock says that the command's end wakes the chat: a sign in the row's label, not a third
+  // button («maybe it isn't a button», 08/10). No role of a control, no focus, no hover of its own, and a
+  // tooltip that says what it means.
+  const wakes = row.getByTestId("live-work-wakes");
+  await expect(wakes).toBeVisible();
+  await expect(wakes).not.toHaveAttribute("role", "button");
+  expect(await wakes.evaluate((el) => el.parentElement?.closest("button") !== null), "part of the row's own button").toBe(true);
+  expect(await wakes.evaluate((el) => (el as HTMLElement).tabIndex), "not a stop of the keyboard").toBeLessThan(0);
+  expect(await wakes.evaluate((el) => { (el as HTMLElement).focus(); return document.activeElement === el; }), "it cannot take the focus").toBe(false);
+  const meaning = await wakes.getAttribute("aria-label");
+  expect(meaning, "it says what it means").toMatch(/the chat wakes up|la chat si sveglia/);
+  await expect(wakes).toHaveAttribute("title", meaning!);
+  expect(await header.evaluate((el) => el.getAttribute("aria-describedby")), "the row's button is described by it").toBe(await wakes.getAttribute("id"));
+  await wakes.hover();
+  expect(await wakes.evaluate((el) => getComputedStyle(el).cursor), "no hand of a button").toBe("default");
+  expect(await surface(wakes), "no hover of its own").toBe(CLEAR);
+  await expect(page.getByTestId("app-tooltip"), "its tooltip says it").toContainText(meaning!);
 
   // The command ends with its log open: its row stays, says how it ended with its last lines, and has no Stop.
   await header.click();

@@ -5,10 +5,10 @@
 ```bash
 cd ~/Projects/topics-app
 bun test client/src/components/Chat/launchedProcess.test.ts client/src/components/Chat/SubAgentsStrip.test.tsx \
-  client/src/hooks/useBackgroundShell.test.ts
+  client/src/hooks/useBackgroundShell.test.ts client/src/components/Chat/useDisclosureAnchor.test.ts
 # Server isolato :13334, video in test-results/artifacts/
 bunx playwright test tests/e2e/chat-strips-in-transcript.spec.ts --project=webkit --repeat-each=3
-GITHUB_ACTIONS=true bunx playwright test tests/e2e/chat-strips-in-transcript.spec.ts --project=chromium
+GITHUB_ACTIONS=true bunx playwright test tests/e2e/chat-strips-in-transcript.spec.ts --project=chromium --repeat-each=3
 ```
 
 Exit 0 tutti e tre. Ciò che è verde resta verde: `bun test client/src/components/Chat
@@ -28,26 +28,42 @@ riga apre il suo log lì, la striscia sta nel trascritto) si aggiornano nello st
 - **WHEN** chi legge sale di sei colpi di rotella, e sotto di lui arriva una riga e se ne va un'altra
 - **THEN** il messaggio che legge non si sposta (≤ 1 px)
 
-## Scenario 2: la riga apre il suo log lì, ad accordion (SUBSTRIP-02)
+## Scenario 2: la riga apre il suo log sotto di sé, ad accordion (SUBSTRIP-02)
 
 - **GIVEN** un turno vero (CLI finta) che lancia un comando con `run_command`, che stampa
   «CMDWATCH-TICK N» ogni 0,3 s, e finisce con 60 righe che portano la card fuori vista; altri
   cinque comandi, più righe di quante la striscia ne mostrasse prima di scorrere dentro di sé;
   chi legge è in fondo
 - **WHEN** si clicca la riga del comando nella striscia
-- **THEN** la riga è aperta (`data-open`, `aria-expanded`) con sopra di sé il log dal vivo della
-  card (`shell-live-output`), che avanza, si legge senza codici colore (i tick escono in verde) e
-  mostra l'ultima riga
-- **AND** la riga resta dov'era e chi era in fondo resta in fondo (entro 1 px); `scrollTop` cresce
-  esattamente quanto la striscia (entro 1 px): la trascrizione non va da nessuna parte
-- **AND** la card d'origine resta chiusa e fuori vista
-- **WHEN** parte un secondo comando (dalla sola route) mentre il log si apre
+- **THEN** la riga è aperta (`data-open`, `aria-expanded`, `aria-controls` = l'id del log) con
+  SOTTO di sé il log dal vivo della card (`shell-live-output`), in vista sopra il composer, che
+  avanza, si legge senza codici colore (i tick escono in verde) e mostra l'ultima riga
+- **AND** il log è rientrato sotto la riga, senza fondo suo, sul fondo della riga aperta
+- **AND** chi era in fondo resta in fondo (entro 1 px): `scrollTop` cresce quanto la striscia e la
+  riga sale quanto il log (entro 1 px); la card d'origine resta chiusa e fuori vista
+- **WHEN** parte un secondo comando (dalla sola route)
 - **THEN** la sua riga arriva sotto chi legge in fondo, che resta in fondo (entro 1 px)
-- **WHEN** si clicca la sua riga
-- **THEN** si apre il suo log e si chiude il primo: al massimo una riga aperta, e la riga cliccata
-  resta dov'era
+- **WHEN** chi legge sale con la rotella dentro il log fino in cima
+- **THEN** il log mostra la prima riga del comando («CMDWATCH-TICK 1») e ci resta mentre arrivano
+  tick nuovi; la chat non si è mossa (entro 1 px) e segue ancora il fondo: la riga di un terzo
+  comando arriva in vista
+- **WHEN** torna con la rotella in fondo al log
+- **THEN** il log segue di nuovo le righe nuove
+- **WHEN** si clicca la riga del secondo comando
+- **THEN** si apre il suo log, sotto di lei, e si chiude il primo: al massimo una riga aperta
 - **WHEN** si clicca di nuovo la stessa riga
-- **THEN** il log si chiude, nessuna riga è aperta, la riga resta dov'era e chi legge è in fondo
+- **THEN** il log si chiude, nessuna riga è aperta, chi legge è in fondo
+- **WHEN** chi è in fondo apre il primo log e lo chiude
+- **THEN** `scrollTop` e la riga tornano dov'erano (entro 1 px), in fondo, e la riga chiusa non ha
+  più fondo suo
+- **WHEN** chi è in fondo apre il log, sale di un colpo di rotella sulla chat e lo chiude
+- **THEN** la vista torna al fondo da cui l'aveva aperto (`scrollTop` entro 1 px), senza spazio
+  vuoto sotto la striscia
+- **WHEN** chi è salito di un colpo di rotella apre il log e lo chiude
+- **THEN** la riga resta dov'era da aperta e da chiusa, e così `scrollTop` (entro 1 px)
+- **AND** la sveglia della riga sta dentro il suo bottone, non ha `role="button"`, non prende il
+  fuoco (`tabIndex` < 0, `focus()` non la attiva), al passaggio ha il cursore normale e nessun
+  fondo suo, il tooltip dell'app dice cosa vuol dire, e descrive il bottone (`aria-describedby`)
 - **WHEN** il primo comando, riaperto, finisce
 - **THEN** la sua riga resta aperta, dice com'è finito con le ultime righe («CMDWATCH-LAST 42») e
   non ha più Ferma
@@ -64,6 +80,12 @@ riga apre il suo log lì, la striscia sta nel trascritto) si aggiornano nello st
   sotto chi era in fondo.
 - Con la presa minima portata a 2,5 s, così che quella riga arrivi dentro la presa, togliere il
   recupero del pin fa fallire lo scenario 2; col recupero passa.
+- M1, il log rimesso sopra la riga (`DisclosureBody` prima della testata): lo scenario 2 FALLISCE
+  su «the log is under its row».
+- M5, la chiusura tenuta sulla riga come ogni piega (`atEnd: !wasOpen`): lo scenario 2 FALLISCE,
+  la vista resta sullo spazio vuoto lasciato dal log.
+- M5b, una piega `atEnd` che lascia spazio vuoto sotto la striscia come le altre: lo scenario 2
+  FALLISCE sul lettore salito col log aperto.
 
 ## Prova
 

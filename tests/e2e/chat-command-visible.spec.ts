@@ -85,7 +85,7 @@ test.describe("a run_command in the chat", () => {
       // saying that its end wakes the chat.
       await expect(command).toHaveCount(1, { timeout: 5_000 });
       await expect(page.getByText("STARTED").first()).toBeVisible({ timeout: 30_000 });
-      await expect(command.getByTestId("live-work-wakes")).toHaveAttribute("aria-label", /^(wakes the chat when it ends|sveglia la chat quando finisce)$/);
+      await expect(command.getByTestId("live-work-wakes")).toHaveAttribute("aria-label", /^(When this command ends, the chat wakes up and carries on by itself|Quando questo comando finisce, la chat si sveglia e va avanti da sola)$/);
       await expect(page.locator(STOP).first()).toBeVisible();
       // Named once: the background line does not list it again.
       await expect(page.locator(LINE)).toHaveCount(0);

@@ -182,6 +182,17 @@ describe('a row opens what it is', () => {
     expect(rowButton(h, 'live-command-row', 'data-process-id', 'p1').props['aria-expanded']).toBe(false);
   });
 
+  test("the log is drawn under its row's header, as an accordion", async () => {
+    const h = await mounted();
+    await toggle(h, 'p1');
+    const all = h.last().hosts;
+    const header = all.indexOf(rowButton(h, 'live-command-row', 'data-process-id', 'p1'));
+    const log = all.findIndex((n) => n.props['data-testid'] === 'live-command-log');
+    expect(header).toBeGreaterThan(-1);
+    expect(log).toBeGreaterThan(header);
+    expect(rowButton(h, 'live-command-row', 'data-process-id', 'p1').props['aria-controls']).toBe(all[log]!.props.id);
+  });
+
   test('one log open at a time: opening a row closes the other', async () => {
     const h = await mounted();
     await toggle(h, 'p1');
@@ -271,5 +282,20 @@ describe('a command stops from its row, and says when its end wakes the chat', (
     const h = await mounted();
     expect(inRow(h, 'p1', 'live-work-wakes')).toBeDefined();
     expect(inRow(h, 'p2', 'live-work-wakes')).toBeUndefined();
+  });
+
+  test('the alarm clock is a sign in the row\'s label, not a control of its own', async () => {
+    const h = await mounted();
+    const sign = inRow(h, 'p1', 'live-work-wakes')!;
+    expect(sign.type).toBe('span');
+    expect(sign.props.role).toBe('img');
+    expect(sign.props.tabIndex).toBeUndefined();
+    expect(sign.props.onClick).toBeUndefined();
+    expect(sign.props.title).toBe(sign.props['aria-label']);
+    const button = rowButton(h, 'live-command-row', 'data-process-id', 'p1');
+    const label = button.props.children as Array<{ props?: Record<string, unknown> } | false | null>;
+    expect(label.some((child) => !!child && child.props?.['data-testid'] === 'live-work-wakes')).toBe(true);
+    // The button's own label hides the sign's: the sign describes the button.
+    expect(button.props['aria-describedby']).toBe(sign.props.id);
   });
 });
