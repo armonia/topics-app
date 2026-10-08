@@ -788,7 +788,8 @@ scroll does: the list does not re-pin to the bottom while the body settles, and
 afterwards the follow comes back only when the reader is at the true bottom again
 (or sends, or asks for the bottom). A second click on the same header while it
 is still closing (a quick close and reopen) is part of the same hold, not a
-scroll. Closing a fold near the end keeps the missing height as empty room below
+scroll, and the body turns back from where it is: it does not first jump shut
+and then reopen. Closing a fold near the end keeps the missing height as empty room below
 the last row instead of pulling every row down; that room is given back as soon
 as it is out of sight or filled by new output, and a scroll down past the end
 (wheel or finger) takes it away by the same amount, so the last row comes back
@@ -832,6 +833,7 @@ down, back to the bottom.
 - **GIVEN** a fold open at the end of the chat, read down to the true bottom
 - **WHEN** the person presses its header twice in a row, the second press while the body is still closing
 - **THEN** the header stays within 1 px of where it was in every frame
+- **AND** the body turns back from the height the close had reached, never lower
 - **AND** the fold ends open
 
 #### Scenario: the room left near the end scrolls away

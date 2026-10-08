@@ -14,8 +14,10 @@ export type Frame = {
   hx: number | null;
   ay: number | null;
   fh: number | null;
+  /** Clicks seen since the probe started, when the frame was sampled. */
+  k: number;
 };
-export type Probe = { frames: Frame[]; running: boolean; spec: { header: string; fold: string; docked: boolean } | null };
+export type Probe = { frames: Frame[]; running: boolean; clicks: number; spec: { header: string; fold: string; docked: boolean } | null };
 
 /**
  * A target is `css` (inside the visible chat pane) or `msg:<text>|<css>` (inside
@@ -23,7 +25,7 @@ export type Probe = { frames: Frame[]; running: boolean; spec: { header: string;
  */
 export async function installProbe(page: Page) {
   await page.addInitScript(() => {
-    const p: Probe = { frames: [], running: false, spec: null };
+    const p: Probe = { frames: [], running: false, clicks: 0, spec: null };
     (window as unknown as { __acc: Probe }).__acc = p;
     const r1 = (n: number) => Math.round(n * 10) / 10;
     const visiblePane = (): Element | null => {
@@ -75,6 +77,7 @@ export async function installProbe(page: Page) {
         hx: hr && hr.height > 0 ? r1(hr.left) : null,
         ay: above ? r1(above.getBoundingClientRect().top) : null,
         fh: fold ? r1(fold.getBoundingClientRect().height) : null,
+        k: p.clicks,
       });
     };
     // Sampled in a ResizeObserver callback on a marker resized every frame:
@@ -102,7 +105,12 @@ export async function installProbe(page: Page) {
     // of its own in the click handler (the fold's hold), so the sampler is
     // created again right after every click, in the bubble phase on window,
     // which runs after React's handler: it stays the last code before paint.
-    window.addEventListener("click", () => { if (p.running) arm(); });
+    // Counted too, so a second press can be told apart in the frames.
+    window.addEventListener("click", () => {
+      if (!p.running) return;
+      p.clicks++;
+      arm();
+    });
   });
 }
 
@@ -124,7 +132,7 @@ export async function startProbe(page: Page, spec: Probe["spec"]) {
       s.header = el && sc && el.getBoundingClientRect().top >= sc.getBoundingClientRect().top ? a! : b!;
     }
     const p = (window as unknown as { __acc: Probe }).__acc;
-    p.frames = []; p.spec = s; p.running = true;
+    p.frames = []; p.spec = s; p.running = true; p.clicks = 0;
     (window as unknown as { __accArm: () => void }).__accArm();
   }, spec);
 }
@@ -189,6 +197,8 @@ export type Measure = {
   sideJump: number;
   foldRuns: number;
   foldDelta: number;
+  /** How far a second press first took the fold the way it was already going, before turning it back. */
+  turnJump: number;
   headerLost: boolean;
 };
 
@@ -197,6 +207,13 @@ export function measure(kind: string, where: Measure["where"], phase: Measure["p
   const after = frames.slice(clickAt);
   const max = (xs: number[]) => xs.reduce((m, x) => Math.max(m, x), 0);
   const hs = [base, ...after].map((f) => f.fh ?? 0);
+  // A second press turns the fold back (a quick close and reopen). It must
+  // turn from where the fold was, not jump first to the end it was heading
+  // to and set off again from there.
+  const second = after.findIndex((f) => f.k >= 2);
+  const atTurn = (second > 0 ? after[second - 1]! : base).fh ?? 0;
+  const past = second < 0 ? [] : after.slice(second).map((f) => f.fh ?? 0);
+  const overshoot = past.length === 0 ? 0 : phase === "close" ? atTurn - Math.min(...past) : Math.max(...past) - atTurn;
   return {
     kind,
     where,
@@ -208,6 +225,7 @@ export function measure(kind: string, where: Measure["where"], phase: Measure["p
     sideJump: base.hx === null ? 0 : max(after.filter((f) => f.hx !== null).map((f) => Math.abs(f.hx! - base.hx!))),
     foldRuns: heightRuns(hs, phase === "open" ? 1 : -1),
     foldDelta: Math.round(((after[after.length - 1]?.fh ?? 0) - (base.fh ?? 0)) * 10) / 10,
+    turnJump: Math.max(0, Math.round(overshoot * 10) / 10),
   };
 }
 
@@ -221,5 +239,6 @@ export function faults(m: Measure, docked: boolean): string[] {
   if (m.aboveJump > 1 && !(docked && m.where === "bottom")) out.push(`${at}: the row above moved ${m.aboveJump}px`);
   if (m.sideJump > 1) out.push(`${at}: the header moved ${m.sideJump}px sideways`);
   if (!docked && m.foldRuns > 1) out.push(`${at}: the fold changed height in ${m.foldRuns} separate runs (a reveal that pops)`);
+  if (m.turnJump > 1) out.push(`${at}: the second press jumped the fold ${m.turnJump}px further before turning it back (a turn that snaps)`);
   return out;
 }
