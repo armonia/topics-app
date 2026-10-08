@@ -521,11 +521,8 @@ export function createFilesRouter(ctx: AppContext): RouteHandler {
         interface GitBranch { name: string; current: boolean; isRemote: boolean; ahead: number; behind: number; shortName?: string; remote?: string }
         const branches: GitBranch[] = [];
         for (const ref of parseBranchLines(branchText)) {
-          let ahead = 0, behind = 0;
-          if (!ref.isRemote && ref.upstream) {
-            try { const revProc = spawnBounded(["git", "rev-list", "--left-right", "--count", `${ref.name}...${ref.upstream}`], { cwd: resolvedDir, stdout: "pipe", stderr: "pipe", timeoutMs: SPAWN_TIMEOUT.query }); const revText = (await new Response(revProc.stdout).text()).trim(); const parts = revText.split(/\s+/); if (parts.length >= 2) { ahead = parseInt(parts[0]) || 0; behind = parseInt(parts[1]) || 0; } } catch {}
-          }
-          const entry: GitBranch = { name: ref.name, current: ref.current, isRemote: ref.isRemote, ahead, behind };
+          // The distance from the upstream comes with the listing (`BRANCH_FORMAT`).
+          const entry: GitBranch = { name: ref.name, current: ref.current, isRemote: ref.isRemote, ahead: ref.ahead ?? 0, behind: ref.behind ?? 0 };
           if (ref.isRemote) { entry.remote = ref.remote; entry.shortName = ref.shortName; }
           branches.push(entry);
         }
