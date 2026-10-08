@@ -62,6 +62,18 @@ import { pathFromImageCaption } from "./image-normalize";
  */
 const COMPACT_AT = 0.75;
 
+/**
+ * Dove la compattazione riporta la conversazione: SOTTO la soglia, non sopra.
+ *
+ * Bersaglio uguale alla soglia = nessun margine: si chiudeva a 149,6k su una
+ * soglia di 150k e il giro dopo ricompattava. Misurato su topic:64095902
+ * (08/10): 68 compattazioni in 34 ore, 40 chiuse a ≥145k, quattro in sette
+ * minuti. Ognuna tagliava i turni più vecchi e cambiava il prefisso della
+ * richiesta, quindi niente cache. Lo scarto (20% della finestra) è il respiro
+ * per qualche giro prima della prossima.
+ */
+const COMPACT_TO = 0.55;
+
 /** Quanti messaggi in coda restano SEMPRE intatti. */
 const KEEP_RECENT = 6;
 
@@ -329,7 +341,10 @@ export function compact(
   const before = estimateTokens(messages, overhead, ratio);
   // The target the history has to get back under, when the caller says so.
   // Without one, the only signal left is "it freed nothing".
-  const target = opts?.windowTokens != null ? opts.windowTokens * COMPACT_AT : null;
+  // Two numbers, not one: the CEILING is the trigger, the TARGET sits below it
+  // so the next round does not compact again (see `COMPACT_TO`).
+  const ceiling = opts?.windowTokens != null ? opts.windowTokens * COMPACT_AT : null;
+  const target = opts?.windowTokens != null ? opts.windowTokens * COMPACT_TO : null;
 
   let next = messages;
   if (messages.length > KEEP_RECENT + 1) {
@@ -351,7 +366,9 @@ export function compact(
   // to re-read the missing piece: the model has not consumed them yet, so it
   // loses nothing it had already used, and it can re-read in slices what it
   // needs.
-  const stillOver = target != null ? after > target : after >= before;
+  // Against the CEILING, not the target: clipping results the model has not
+  // read yet is the emergency measure, not the way to buy headroom.
+  const stillOver = ceiling != null ? after > ceiling : after >= before;
   if (stillOver) {
     next = clipTailResults(next);
     after = estimateTokens(next, overhead, ratio);
