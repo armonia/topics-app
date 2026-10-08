@@ -610,8 +610,7 @@ describe("handleMessage", () => {
       "send_mail",
       "google_call",
       "ask_user_question",
-      // A designed view in the chat (GENUI-01), right after the question panel.
-      "show_view",
+      "show_view", // GENUI-01: a designed view in the chat
       // Il canale di permesso: pubblicato sempre. Lo designa
       // `--permission-prompt-tool`, e la CLI lo toglie da sé dall'elenco che
       // il modello vede — quindi non costa contesto, e non esiste una

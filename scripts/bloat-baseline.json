@@ -267,7 +267,12 @@
     "that marks the whole tree before its first await. Recorded by hand, this row only.",
     "05/10, same PR, review 5. server/lib/native-subagents.ts 844 -> 884: +40 one open turn per child chat closed by",
     "any end, the shutdown kept as a suspended turn, the driven turn known by its key and a refused send answered as",
-    "an error. The report chain's dedup set and the end-time guesses went. Recorded by hand, this row only."
+    "an error. The report chain's dedup set and the end-time guesses went. Recorded by hand, this row only.",
+    "08/10, PR #259 generative views: server/mcp/topics-mcp-server.ts 2905 -> 3057 (ceiling 3050). main stood at",
+    "3046 unrecorded; +11 are show_view (import, tool, handler line, the rich tools/call line) and the resources",
+    "capability with its one-call dispatch. The tool, the resources and the call result live in mcp/view-tools.ts.",
+    "server/mcp/topics-mcp-server.test.ts 2337 -> 2457: +4 the capability and show_view in both tool lists, the rest",
+    "landed on main. Recorded by hand, these two rows only."
   ],
   "tolerance_pct": 5,
   "max_lines": 800,
@@ -414,9 +419,9 @@
 
     "server/lib/tab-resolver.ts": 1018,
 
-    "server/mcp/topics-mcp-server.test.ts": 2337,
+    "server/mcp/topics-mcp-server.test.ts": 2457,
 
-    "server/mcp/topics-mcp-server.ts": 2905,
+    "server/mcp/topics-mcp-server.ts": 3057,
 
     "server/providers/acp.ts": 805,
 

@@ -44,14 +44,14 @@ export interface ViewPrice { amount: number; currency: string; note?: string }
 
 /** A price in any of the three shapes an agent sends: number, text, object. */
 export function priceOf(p: unknown, fallbackNote?: unknown): ViewPrice | undefined {
-  const pObj = (p && typeof p === 'object' ? p : null) as Record<string, unknown> | null;
-  const amount = parseAmount(pObj ? pObj.amount : p);
+  const priceRecord = (p && typeof p === 'object' ? p : null) as Record<string, unknown> | null;
+  const amount = parseAmount(priceRecord ? priceRecord.amount : p);
   if (amount === undefined) return undefined;
   const price: ViewPrice = {
     amount,
-    currency: currencyOf(pObj?.currency ?? (typeof p === 'string' && p.includes('$') ? '$' : undefined)),
+    currency: currencyOf(priceRecord?.currency ?? (typeof p === 'string' && p.includes('$') ? '$' : undefined)),
   };
-  const note = str(pObj?.note ?? fallbackNote, 80);
+  const note = str(priceRecord?.note ?? fallbackNote, 80);
   if (note) price.note = note;
   return price;
 }

@@ -26,6 +26,7 @@ import {
   waitForTopicVisible,
 } from "./helpers/api-fixtures";
 import { hermetic } from "./fixtures/hermetic";
+import { beat } from "./helpers/evidence";
 
 hermetic(test);
 
@@ -74,15 +75,12 @@ test.describe("GENUI-05 one browser window per chat", () => {
   });
 
   test("the parent's two named opens and the child's open: one window, no layout tab", async ({ page, request }) => {
-    const beat = (ms: number) =>
-      process.env.E2E_EVIDENCE === "1" ? page.waitForTimeout(ms) : Promise.resolve();
-
     await resetPaneStore(request, [parentId]);
     await goToApp(page);
     await waitForTopicVisible(page, parentId, { timeout: 15_000 });
     await page.locator(`[data-pane-id="${parentId}"], [data-topic-id="${parentId}"]`).first().click();
     await expect(page.locator('[data-testid="chat-panel"]').first()).toBeVisible({ timeout: 15_000 });
-    await beat(800);
+    await beat(page, 800);
 
     // The parent opens twice under two names: still ONE sheet on its context.
     expect((await openPane(request, parentId, "Nautilus", "Nautilus")).contextId).toBe(parentId);
@@ -90,7 +88,7 @@ test.describe("GENUI-05 one browser window per chat", () => {
     const windowEl = page.locator('[data-testid="topic-browser-window"]');
     await expect(windowEl).toBeVisible({ timeout: 20_000 });
     await expect(page.locator('[data-testid="topic-browser-tab"]')).toHaveCount(1, { timeout: 15_000 });
-    await beat(1200);
+    await beat(page, 1200);
 
     // The child opens: its own context, shown as a second sheet of the SAME window.
     const child = await openPane(request, childId, "Terza opzione", "Terza opzione");
@@ -103,6 +101,6 @@ test.describe("GENUI-05 one browser window per chat", () => {
 
     // And the layout gained no browser tab at all (the defect: one per child).
     await expect(page.locator('[data-pane-id^="browser:"]')).toHaveCount(0);
-    await beat(2500);
+    await beat(page, 2500);
   });
 });

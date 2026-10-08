@@ -30,7 +30,7 @@ export const MCP_APP_MIME = "text/html;profile=mcp-app";
 /** The key of the tool result's `_meta` that carries the drawn view to the generic app. */
 export const VIEW_META_KEY = "topics/view";
 
-export const esc = (s: string): string =>
+export const escapeHtml = (s: string): string =>
   s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#39;");
 
 function words(language: ViewLanguage): (key: string, vars?: Record<string, string | number>) => string {
@@ -53,12 +53,12 @@ export interface RenderOpts {
 type T = ReturnType<typeof words>;
 
 function link(url: string, label: string, cls = "lnk"): string {
-  return `<a class="${cls}" href="${esc(url)}" target="_blank" rel="noopener noreferrer">${esc(label)} <span aria-hidden="true">↗</span></a>`;
+  return `<a class="${cls}" href="${escapeHtml(url)}" target="_blank" rel="noopener noreferrer">${escapeHtml(label)} <span aria-hidden="true">↗</span></a>`;
 }
 
 function header(spec: { title: string; subtitle?: string; verdict?: string }, t: T): string {
-  return `<header><h1>${esc(spec.title)}</h1>${spec.subtitle ? `<p class="sub">${esc(spec.subtitle)}</p>` : ""}</header>` +
-    (spec.verdict ? `<p class="verdict"><strong>${esc(t("views.verdict"))}:</strong> ${esc(spec.verdict)}</p>` : "");
+  return `<header><h1>${escapeHtml(spec.title)}</h1>${spec.subtitle ? `<p class="sub">${escapeHtml(spec.subtitle)}</p>` : ""}</header>` +
+    (spec.verdict ? `<p class="verdict"><strong>${escapeHtml(t("views.verdict"))}:</strong> ${escapeHtml(spec.verdict)}</p>` : "");
 }
 
 function compareBody(spec: CompareViewSpec, t: T, language: ViewLanguage, o: RenderOpts): string {
@@ -70,21 +70,21 @@ function compareBody(spec: CompareViewSpec, t: T, language: ViewLanguage, o: Ren
     const metrics = order.map((label) => {
       const m = opt.metrics?.find((x) => x.label === label);
       const rank = ranks[i][label];
-      const val = m ? `${esc(String(m.value))}${m.unit ? ` <small>${esc(m.unit)}</small>` : ""}` : `<span class="muted">${esc(t("views.metric.missing"))}</span>`;
-      const sr = rank ? `<span class="sr">, ${esc(t(rank === "best" ? "views.metric.best" : "views.metric.worst"))}</span>` : "";
-      return `<div class="m${rank ? ` ${rank}` : ""}"><dt>${esc(label)}</dt><dd>${val}${sr}</dd></div>`;
+      const val = m ? `${escapeHtml(String(m.value))}${m.unit ? ` <small>${escapeHtml(m.unit)}</small>` : ""}` : `<span class="muted">${escapeHtml(t("views.metric.missing"))}</span>`;
+      const sr = rank ? `<span class="sr">, ${escapeHtml(t(rank === "best" ? "views.metric.best" : "views.metric.worst"))}</span>` : "";
+      return `<div class="m${rank ? ` ${rank}` : ""}"><dt>${escapeHtml(label)}</dt><dd>${val}${sr}</dd></div>`;
     }).join("");
     const points = [
-      ...(opt.pros ?? []).map((p) => `<li class="pro"><span class="sr">${esc(t("views.pro"))}: </span>${esc(p)}</li>`),
-      ...(opt.cons ?? []).map((c) => `<li class="con"><span class="sr">${esc(t("views.con"))}: </span>${esc(c)}</li>`),
+      ...(opt.pros ?? []).map((p) => `<li class="pro"><span class="sr">${escapeHtml(t("views.pro"))}: </span>${escapeHtml(p)}</li>`),
+      ...(opt.cons ?? []).map((c) => `<li class="con"><span class="sr">${escapeHtml(t("views.con"))}: </span>${escapeHtml(c)}</li>`),
     ].join("");
     return `<article class="card${opt.recommended ? " rec" : ""}">` +
-      (img ? `<img src="${esc(img)}" alt="${esc(cover?.caption ?? opt.title)}" loading="lazy">` : "") +
+      (img ? `<img src="${escapeHtml(img)}" alt="${escapeHtml(cover?.caption ?? opt.title)}" loading="lazy">` : "") +
       `<div class="pad">` +
-      (opt.recommended ? `<span class="badge">${esc(t("views.recommended"))}</span>` : "") +
-      `<div class="row"><h2>${esc(opt.title)}</h2>${opt.price ? `<span class="price">${esc(formatPrice(opt.price.amount, opt.price.currency, language))}</span>` : ""}</div>` +
-      (opt.price?.note ? `<p class="note r">${esc(opt.price.note)}</p>` : "") +
-      (opt.subtitle ? `<p class="sub">${esc(opt.subtitle)}</p>` : "") +
+      (opt.recommended ? `<span class="badge">${escapeHtml(t("views.recommended"))}</span>` : "") +
+      `<div class="row"><h2>${escapeHtml(opt.title)}</h2>${opt.price ? `<span class="price">${escapeHtml(formatPrice(opt.price.amount, opt.price.currency, language))}</span>` : ""}</div>` +
+      (opt.price?.note ? `<p class="note r">${escapeHtml(opt.price.note)}</p>` : "") +
+      (opt.subtitle ? `<p class="sub">${escapeHtml(opt.subtitle)}</p>` : "") +
       (metrics ? `<dl class="metrics">${metrics}</dl>` : "") +
       (points ? `<ul class="points">${points}</ul>` : "") +
       (opt.link ? link(opt.link.url, opt.link.label ?? t("views.openLink"), "btn") : "") +
@@ -95,28 +95,28 @@ function compareBody(spec: CompareViewSpec, t: T, language: ViewLanguage, o: Ren
 
 function tableBody(spec: TableViewSpec, t: T, language: ViewLanguage): string {
   const ranks = rankColumns(spec);
-  const head = spec.columns.map((c) => `<th scope="col"${c.align === "end" ? ' class="num"' : ""}>${esc(c.label)}</th>`).join("");
+  const head = spec.columns.map((c) => `<th scope="col"${c.align === "end" ? ' class="num"' : ""}>${escapeHtml(c.label)}</th>`).join("");
   const rows = spec.rows.map((r, i) => {
     const cells = r.cells.map((v, j) => {
       const col = spec.columns[j];
       const text = cellText(v, col, language);
       const rank = ranks[i][j];
       const inner = text === null
-        ? `<span class="muted">${esc(t("views.metric.missing"))}</span>`
-        : `<span${rank === "best" ? ' class="best"' : ""}>${esc(text)}${rank === "best" ? `<span class="sr">, ${esc(t("views.metric.best"))}</span>` : ""}</span>`;
+        ? `<span class="muted">${escapeHtml(t("views.metric.missing"))}</span>`
+        : `<span${rank === "best" ? ' class="best"' : ""}>${escapeHtml(text)}${rank === "best" ? `<span class="sr">, ${escapeHtml(t("views.metric.best"))}</span>` : ""}</span>`;
       const extra = j === 0
-        ? (r.recommended ? `<span class="badge">${esc(t("views.recommended"))}</span> ` : "")
+        ? (r.recommended ? `<span class="badge">${escapeHtml(t("views.recommended"))}</span> ` : "")
         : "";
       const tail = j === 0
-        ? (r.note ? `<small class="note">${esc(r.note)}</small>` : "") + (r.link ? `<div>${link(r.link.url, r.link.label ?? t("views.openLink"))}</div>` : "")
+        ? (r.note ? `<small class="note">${escapeHtml(r.note)}</small>` : "") + (r.link ? `<div>${link(r.link.url, r.link.label ?? t("views.openLink"))}</div>` : "")
         : "";
       const tag = j === 0 ? 'th scope="row"' : "td";
       return `<${tag}${col.align === "end" ? ' class="num"' : ""}>${extra}${inner}${tail}</${tag.split(" ")[0]}>`;
     }).join("");
     return `<tr${r.recommended ? ' class="rec"' : ""}>${cells}</tr>`;
   }).join("");
-  return `<div class="scroll" tabindex="0" role="region" aria-label="${esc(spec.title)}"><table><caption class="sr">${esc(spec.title)}</caption><thead><tr>${head}</tr></thead><tbody>${rows}</tbody></table></div>` +
-    (spec.footnote ? `<p class="note">${esc(spec.footnote)}</p>` : "");
+  return `<div class="scroll" tabindex="0" role="region" aria-label="${escapeHtml(spec.title)}"><table><caption class="sr">${escapeHtml(spec.title)}</caption><thead><tr>${head}</tr></thead><tbody>${rows}</tbody></table></div>` +
+    (spec.footnote ? `<p class="note">${escapeHtml(spec.footnote)}</p>` : "");
 }
 
 function stepFacts(s: { duration?: string; price?: TimelineStep["price"] }, language: ViewLanguage): string[] {
@@ -129,18 +129,18 @@ function timelineBody(spec: TimelineViewSpec, t: T, language: ViewLanguage): str
       const facts = stepFacts(s, language);
       const alts = (s.alternatives ?? []).map((a) => {
         const meta = [...stepFacts(a, language), ...(a.detail ? [a.detail] : [])];
-        return `<li><span class="muted">${esc(t("views.timeline.or"))}</span> <strong>${esc(a.title)}</strong>${meta.length ? ` · ${esc(meta.join(" · "))}` : ""}</li>`;
+        return `<li><span class="muted">${escapeHtml(t("views.timeline.or"))}</span> <strong>${escapeHtml(a.title)}</strong>${meta.length ? ` · ${escapeHtml(meta.join(" · "))}` : ""}</li>`;
       }).join("");
       const kind = s.deadline ? t("views.timeline.deadline") : t(`views.mode.${s.mode ?? "other"}`);
-      return `<li class="step${s.deadline ? " deadline" : ""}"><time>${esc(s.time ?? "")}</time><div>` +
-        `<p class="what"><span class="kind">${esc(kind)}</span> ${esc(s.title)}</p>` +
-        (facts.length ? `<p class="facts">${esc(facts.join(" · "))}</p>` : "") +
-        (s.detail ? `<p>${esc(s.detail)}</p>` : "") +
+      return `<li class="step${s.deadline ? " deadline" : ""}"><time>${escapeHtml(s.time ?? "")}</time><div>` +
+        `<p class="what"><span class="kind">${escapeHtml(kind)}</span> ${escapeHtml(s.title)}</p>` +
+        (facts.length ? `<p class="facts">${escapeHtml(facts.join(" · "))}</p>` : "") +
+        (s.detail ? `<p>${escapeHtml(s.detail)}</p>` : "") +
         (alts ? `<ul class="alts">${alts}</ul>` : "") +
         (s.link ? link(s.link.url, s.link.label ?? t("views.openLink")) : "") +
         `</div></li>`;
     }).join("");
-    return `<section class="day">${g.day ? `<h2>${esc(g.day)}</h2>` : ""}<ol class="steps">${steps}</ol></section>`;
+    return `<section class="day">${g.day ? `<h2>${escapeHtml(g.day)}</h2>` : ""}<ol class="steps">${steps}</ol></section>`;
   }).join("");
 }
 
@@ -214,7 +214,7 @@ if(window.ResizeObserver)new ResizeObserver(size).observe(document.body);
 })();`;
 
 export function documentOf(title: string, language: ViewLanguage, inner: string): string {
-  return `<!doctype html><html lang="${language}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${esc(title)}</title><style>${CSS}</style></head><body><main id="view">${inner}</main><script>${BRIDGE}</script></body></html>`;
+  return `<!doctype html><html lang="${language}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${escapeHtml(title)}</title><style>${CSS}</style></head><body><main id="view">${inner}</main><script>${BRIDGE}</script></body></html>`;
 }
 
 /** One stored view as a whole document (`ui://topics/view/<id>`, `/api/views/:id/app`). */

@@ -58,6 +58,8 @@ export const I18N_CATALOGUES = new Set([
   "client/src/lib/i18n-find-en.ts",
   "client/src/lib/i18n-attention-it.ts",
   "client/src/lib/i18n-attention-en.ts",
+  "shared/i18n-views-it.ts",
+  "shared/i18n-views-en.ts",
 ]);
 
 /**

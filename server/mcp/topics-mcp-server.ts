@@ -34,7 +34,7 @@ import { commentAuthorLabel } from "../../shared/comment-author";
 import { CHECKS_LEG_MS } from "../services/checks-gate";
 import { OUTBOUND_TOOLS, callGoogleCall, callSendMail } from "./outbound-tools";
 import { COMMAND_TOOLS, RUN_COMMAND_BOARD_DESCRIPTION, callRunCommand, isBoardProfile } from "./command-tools";
-import { SHOW_VIEW_TOOL, callShowView, listViewResourceTemplates, listViewResources, readViewResource, showView } from "./view-tools";
+import { SHOW_VIEW_TOOL, answerResourceMethod, callShowView, showViewCallResult } from "./view-tools";
 import { hasCommandShell } from "../lib/command-process";
 import { HttpAnswerError, httpJson, lostRequestError, loopbackInit, REQUEST_TIMEOUT_MS } from "./topics-http";
 import { homedir } from "os";
@@ -2949,6 +2949,10 @@ export async function handleMessage(
     return null;
   }
 
+  // `resources/*`: the views as `ui://` documents for MCP Apps hosts (GENUI-08).
+  const viewAnswer = method.startsWith("resources/") ? await answerResourceMethod(args, method, params) : undefined;
+  if (viewAnswer) return { jsonrpc: "2.0", id, ...viewAnswer };
+
   switch (method) {
     case "initialize":
       return {
@@ -2972,19 +2976,6 @@ export async function handleMessage(
         result: { tools: toolsForProfile(args.profile) },
       };
 
-    case "resources/list":
-      return { jsonrpc: "2.0", id, result: await listViewResources(args) };
-
-    case "resources/templates/list":
-      return { jsonrpc: "2.0", id, result: listViewResourceTemplates() };
-
-    case "resources/read": {
-      const uri = (params as { uri?: string } | undefined)?.uri ?? "";
-      const read = await readViewResource(args, uri);
-      // -32002 is the MCP code for "resource not found".
-      return read ? { jsonrpc: "2.0", id, result: read } : error(id, -32002, `Resource not found: ${uri}`);
-    }
-
     case "tools/call": {
       const name = (params as { name?: string } | undefined)?.name;
       const toolArgs = (params as { arguments?: Record<string, unknown> } | undefined)?.arguments ?? {};
@@ -3002,17 +2993,8 @@ export async function handleMessage(
         ? {}
         : { onProgress: (progress, message) => emit(progressNotification(progressToken, progress, message)) };
       try {
-        // show_view answers MORE than text over MCP: the drawn view for an MCP
-        // Apps host rides in `_meta` (GENUI-08). The native runtime keeps the
-        // text-only handler.
-        if (name === "show_view") {
-          const r = await showView(args, toolArgs);
-          return {
-            jsonrpc: "2.0",
-            id,
-            result: { content: [{ type: "text", text: r.text }], structuredContent: r.structuredContent, _meta: r._meta },
-          };
-        }
+        // Over MCP show_view also carries the drawn view, in `_meta` (GENUI-08).
+        if (name === "show_view") return { jsonrpc: "2.0", id, result: await showViewCallResult(args, toolArgs) };
         const text = await handler(args, toolArgs, ctx);
         return {
           jsonrpc: "2.0",

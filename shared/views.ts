@@ -15,8 +15,8 @@
  */
 import { z } from 'zod/mini';
 import { imageSrc, linkOf, priceOf, str, strList, MAX_TITLE } from './views-util';
-import { normalizeTable, tableViewSchema, type TableViewSpec } from './views-table';
-import { normalizeTimeline, timelineViewSchema, type TimelineViewSpec } from './views-timeline';
+import { normalizeTable, tableViewSchema } from './views-table';
+import { normalizeTimeline, timelineViewSchema } from './views-timeline';
 
 /** The views the catalogue knows; the union grows a member per view. */
 export const VIEW_KINDS = ['compare', 'table', 'timeline'] as const;

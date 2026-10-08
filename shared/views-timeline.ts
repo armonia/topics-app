@@ -75,9 +75,9 @@ export function normalizeTimeline(raw: Record<string, unknown>, errors: string[]
   const steps: TimelineStep[] = [];
   rawSteps.slice(0, TIMELINE_MAX_STEPS).forEach((st, i) => {
     const r = asRecord(st);
-    const stitle = str(r.title, MAX_TITLE);
-    if (!stitle) { errors.push(`steps[${i}].title (string) is required`); return; }
-    const step: TimelineStep = { title: stitle };
+    const stepTitle = str(r.title, MAX_TITLE);
+    if (!stepTitle) { errors.push(`steps[${i}].title (string) is required`); return; }
+    const step: TimelineStep = { title: stepTitle };
     const day = str(r.day, 40);
     if (day) step.day = day;
     const time = timeOf(r.time);
@@ -100,17 +100,17 @@ export function normalizeTimeline(raw: Record<string, unknown>, errors: string[]
       }
       const alts = r.alternatives.slice(0, TIMELINE_MAX_ALTERNATIVES).map((a): TimelineAlternative | null => {
         const ar = asRecord(a);
-        const atitle = str(ar.title, 80);
-        if (!atitle) return null;
-        const alt: TimelineAlternative = { title: atitle };
-        const amode = modeOf(ar.mode);
-        if (amode) alt.mode = amode;
-        const adetail = str(ar.detail, 160);
-        if (adetail) alt.detail = adetail;
-        const adur = str(ar.duration, 24);
-        if (adur) alt.duration = adur;
-        const aprice = priceOf(ar.price, ar.price_note ?? ar.priceNote);
-        if (aprice) alt.price = aprice;
+        const altTitle = str(ar.title, 80);
+        if (!altTitle) return null;
+        const alt: TimelineAlternative = { title: altTitle };
+        const altMode = modeOf(ar.mode);
+        if (altMode) alt.mode = altMode;
+        const altDetail = str(ar.detail, 160);
+        if (altDetail) alt.detail = altDetail;
+        const altDuration = str(ar.duration, 24);
+        if (altDuration) alt.duration = altDuration;
+        const altPrice = priceOf(ar.price, ar.price_note ?? ar.priceNote);
+        if (altPrice) alt.price = altPrice;
         return alt;
       }).filter((x): x is TimelineAlternative => !!x);
       if (alts.length) step.alternatives = alts;

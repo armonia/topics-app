@@ -246,3 +246,24 @@ export async function readViewResource(args: ParsedArgs, uri: string, fetchImpl:
     }],
   };
 }
+
+/** `resources/*` answered whole, so the MCP server's switch stays out of it. Undefined for any other method. */
+export async function answerResourceMethod(
+  args: ParsedArgs,
+  method: string,
+  params: unknown,
+): Promise<{ result: unknown } | { error: { code: number; message: string } } | undefined> {
+  if (method === "resources/list") return { result: await listViewResources(args) };
+  if (method === "resources/templates/list") return { result: listViewResourceTemplates() };
+  if (method !== "resources/read") return undefined;
+  const uri = (params as { uri?: string } | undefined)?.uri ?? "";
+  const read = await readViewResource(args, uri);
+  // -32002 is the MCP code for "resource not found".
+  return read ? { result: read } : { error: { code: -32002, message: `Resource not found: ${uri}` } };
+}
+
+/** show_view's `tools/call` result over MCP: text for the model, the drawn view in `_meta`. */
+export async function showViewCallResult(args: ParsedArgs, toolArgs: Record<string, unknown> | undefined) {
+  const r = await showView(args, toolArgs);
+  return { content: [{ type: "text", text: r.text }], structuredContent: r.structuredContent, _meta: r._meta };
+}
