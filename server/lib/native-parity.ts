@@ -184,6 +184,9 @@ export async function refreshGitRoots(): Promise<void> {
         timeoutMs: 1000,
       })
         .then((r) => {
+          // No answer (the deadline, or no git to run) is not "not a repo": the
+          // last answer stands until it expires, then a turn asks synchronously.
+          if (r.exitCode === null) return;
           // A synchronous ask may have answered meanwhile: the newer answer stays.
           if (startedAt < entry.checkedAt) return;
           entry.root = rootFromCommonDir(cwd, r.exitCode, r.stdout);

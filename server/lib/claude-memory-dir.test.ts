@@ -14,7 +14,7 @@
  * @covers LOOP-SPAWN-01
  */
 import { describe, expect, test, beforeAll, afterAll, beforeEach, afterEach, setSystemTime } from "bun:test";
-import { mkdirSync, mkdtempSync, realpathSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, realpathSync, renameSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { spawnSync } from "node:child_process";
@@ -82,6 +82,30 @@ describe("claudeMemoryDir, remembered per folder", () => {
     git("-C", repo, "worktree", "remove", wt);
     await refreshGitRoots();
     expect(claudeMemoryDir(wt, home)).toBe(memoryOf(wt));
+  });
+
+  test("a background ask that gets no answer keeps the last one", async () => {
+    const repo = mkdtempSync(join(scratch, "repo-"));
+    git("init", "-q", repo);
+    const cwd = join(repo, "sub");
+    mkdirSync(cwd);
+    expect(claudeMemoryDir(cwd, home)).toBe(memoryOf(repo));
+    // A HEAD that is a FIFO nobody writes blocks git while it finds the repo, so
+    // the background ask runs into its deadline: the load that slows git down on
+    // a busy machine, without the load.
+    const head = join(repo, ".git", "HEAD");
+    renameSync(head, `${head}.real`);
+    expect(spawnSync("mkfifo", [head]).status).toBe(0);
+    const startedAt = performance.now();
+    try {
+      await refreshGitRoots();
+    } finally {
+      rmSync(head);
+      renameSync(`${head}.real`, head);
+    }
+    // The scene happened: the ask waited for its deadline.
+    expect(performance.now() - startedAt).toBeGreaterThanOrEqual(900);
+    expect(claudeMemoryDir(cwd, home)).toBe(memoryOf(repo));
   });
 
   test("past the expiry, with no background pass, the turn asks git again", () => {
