@@ -1886,38 +1886,45 @@ The ended rows and the dismissals SHALL be shared by every window of the same br
 - **WHEN** one window dismisses a row and the other then dismisses another
 - **THEN** the first row SHALL disappear from the other window too, and neither row SHALL come back after a reload
 
-### Requirement: SUBSTRIP-02 — A command's row opens the card that started it
+### Requirement: SUBSTRIP-02 — A command's row opens its live log right there, as an accordion
 
-A click on a command's row of the strip SHALL open the card of the tool call
-that started that command in this chat's transcript (`run_command` /
-`run_script`): the turn's fold, the tool group and the row that hold it open,
-and the row is brought into view under the tab bar, with the command's live log
-under its answer (`LaunchedProcessTail`, from the process registry: running,
-then its exit and its last lines). The card is the one whose answer names the
-process; on a card the history shipped without its answer, the one that ran the
-same command (or script) closest to the process's start. Once revealed, the
-card keeps the view: new output of the chat does not take it back to the bottom
-until the reader returns there. Only a command whose card the loaded transcript
-does not hold (another session's, started by the route alone, history not
-loaded) SHALL dock its log above the rows, as before. (chat-strips-in-transcript,
-08/10: «si apre un nuovo accordion sopra invece di sfruttare quello già
-dell'agente».) A sub-agent's row keeps opening its chat or its terminal.
+A click on a command's row of the strip SHALL open that command's live log in
+the strip, above the row: the same tail the card of the tool call that started
+it shows (`ProcessTail`, `LiveShellTail`, `useLaunchedProcess`, from the process
+registry: running, then its exit and its last lines), with the row's Open and
+Stop. A second click on the row SHALL close it, and at most one row SHALL be
+open at a time. The transcript SHALL NOT go to the card that started the
+command, which stays as it was: the row stays under the pointer (the
+transcript's disclosure anchor, CHAT-FOLD-01) and the transcript above it moves
+up by the log's room, as for everything a strip opens; a reader at the bottom
+stays there. A command that ends with its log open SHALL keep its row, in its
+place and without Open and Stop, until the log is closed; its own Stop closes
+the log, and the row leaves as before. The card of a `run_command` /
+`run_script` in the transcript keeps the same live log under its answer.
+(chat-strips-in-transcript, 08/10: «si apre un nuovo accordion sopra invece di
+sfruttare quello già dell'agente», then «i server si stanno aprendo dove si sono
+aperti. In realtà si devono aprire direttamente dal pannellino a fondo chat, ad
+accordion».) A sub-agent's row keeps opening its chat or its terminal.
 
-#### Scenario: the row opens the card, in sight, with the live log
-- **GIVEN** a turn that started a ticking command with `run_command` and then pushed its card out of sight
+#### Scenario: the row opens its live log where it is
+- **GIVEN** a turn that started a ticking command with `run_command` and then pushed its card out of sight, the reader at the bottom
 - **WHEN** the person clicks the command's row in the strip
-- **THEN** the card is in view, open, its live log moving, and no log is docked over the strip
-- **AND** after a reload, which ships the card without its answer, the same click opens the same card
+- **THEN** the row is open with its live log above it, moving; the row has not moved (1 px), the reader is still at the bottom, and the transcript moved by the log's room only
+- **AND** the card that started the command is still closed and out of sight
 
-#### Scenario: a command with no card docks its log
-- **GIVEN** a command of the chat started by the route alone
-- **WHEN** the person clicks its row
-- **THEN** its log opens docked above the rows
+#### Scenario: one log at a time, and a second click closes it
+- **GIVEN** a command's row open
+- **WHEN** the person clicks another command's row
+- **THEN** that row opens and the first one closes
+- **WHEN** the person clicks it again
+- **THEN** its log closes and no row is open
 
-#### Scenario: the revealed card keeps the view
-- **GIVEN** a card opened from the strip, the chat scrolled up to it
-- **WHEN** the command ends and its wake makes the chat write again below
-- **THEN** the card says how the command ended and stays in view, and the new output is counted on the scroll-to-bottom arrow
+#### Scenario: a command that ends with its log open
+- **GIVEN** a command's row open
+- **WHEN** the command ends and its wake makes the chat write again
+- **THEN** the row stays open, says how the command ended with its last lines, and has no Stop; a reader at the bottom stays there
+- **WHEN** the person clicks the row
+- **THEN** the log closes and the row leaves
 
 ### Requirement: TODO-01 — The session's latest todo list is the plan shown at the end of the transcript
 
@@ -5377,9 +5384,9 @@ Topics (`server/routes/processes.ts`), non nella CLI: la chat non mostrava nient
   stampa e, se una sveglia è dovuta, l'icona lucide `AlarmClock`
   (`live-work-wakes`, etichetta i18n `chat.background.wakes`: «sveglia la chat
   quando finisce»), dal campo `wakes` di `GET /api/topics/:id/live-work`. Un
-  clic sulla riga apre la card della tool call che l'ha lanciato, con il log
-  dal vivo del processo (SUBSTRIP-02); solo un comando senza card nel
-  trascritto apre il log agganciato sopra le righe.
+  clic sulla riga apre lì, sopra la riga, il log dal vivo del processo, la
+  stessa coda della card che l'ha lanciato (SUBSTRIP-02); un secondo clic lo
+  chiude.
 - Stop: lo Stop del composer ferma il lavoro della CLI, non i comandi (vivono
   fuori dalla CLI apposta). Una chat con soli comandi NON SHALL entrare
   nell'insieme per sessione del composer (`composerStopsWork`,

@@ -1,11 +1,14 @@
 /**
  * THE CHAT'S STRIPS ARE THE END OF THE TRANSCRIPT, AND A COMMAND OF THE STRIP
- * OPENS THE CARD THAT STARTED IT (chat-strips-in-transcript).
+ * OPENS ITS LIVE LOG IN ITS OWN ROW (chat-strips-in-transcript).
  *
  * Attilio, 08/10, on the Prince of Persia chat: a row of the live-work strip
  * opened a second log over the strip «instead of using the one the agent
  * already has», and the goal, the todo list and the other strips «should stay
- * at the end of the chat» instead of docked over the composer.
+ * at the end of the chat» instead of docked over the composer. Once the row
+ * opened the card that started the command, up in the history: «they open
+ * where they were opened», when they should open «right from the panel at the
+ * bottom of the chat, as an accordion».
  *
  * Real pieces only. The commands start through the route `run_command` calls,
  * or from a fake CLI turn that calls `run_command` through the bridge's own code
@@ -195,7 +198,23 @@ test("the strips are the end of the transcript: after the last message, out of t
   expect(await fromBottom(page)).toBeGreaterThan(300);
 });
 
-test("a command's row opens the card that started it, in sight, with its live log; a command with no card here docks its log", async ({ page, request, chatPage }) => {
+/**
+ * Where the transcript is and where `header` is on screen, read in one frame:
+ * the log of a command row grows by itself, so two reads could straddle a line.
+ */
+const place = (header: Locator) => header.evaluate((el) => {
+  const list = el.closest('[data-testid="chat-message-list"]');
+  const rows = el.closest('[data-testid="subagents-strip"]');
+  if (!list || !rows) throw new Error("the row is not in a transcript's strip");
+  return {
+    scrollTop: list.scrollTop,
+    fromBottom: list.scrollHeight - list.scrollTop - list.clientHeight,
+    strip: rows.getBoundingClientRect().height,
+    header: el.getBoundingClientRect().top,
+  };
+});
+
+test("a command's row opens its live log right there, as an accordion: the transcript does not go to the card that started it, a second click shuts it, one log open at a time", async ({ page, request, chatPage }) => {
   test.info().annotations.push({ type: "spec", description: "SUBSTRIP-02" });
   switches = realpathSync(mkdtempSync(join(tmpdir(), "cmdwatch-")));
   await chatWithProject(request, "card", "claude-code");
@@ -220,61 +239,78 @@ test("a command's row opens the card that started it, in sight, with its live lo
   const out = (await card.count()) ? await card.boundingBox() : null;
   expect(!out || out.y + out.height < sc.top + 40, "the card is out of sight before the click").toBe(true);
 
-  // The row opens that card: in sight between the tab bar and the composer, open, its log moving. No second log.
-  await row.getByRole("button").first().click();
-  await expect(card).toBeInViewport({ timeout: 5_000 });
-  const header = page.locator('[data-testid="tool-call-row-toolu_cmdwatch"] > button').first();
+  // The click opens the row where it is, with the tail the card shows, moving. The row stays under the
+  // pointer and the reader at the bottom stays there: the transcript moves by the log's room, nothing else.
+  const header = row.getByRole("button").first();
+  await still(page);
+  const before = await place(header);
+  await header.click();
+  await expect(row).toHaveAttribute("data-open", "true");
   await expect(header).toHaveAttribute("aria-expanded", "true");
-  const headerBox = await box(header);
-  expect(headerBox.top).toBeGreaterThanOrEqual(sc.top - 1);
-  expect(headerBox.bottom).toBeLessThanOrEqual((await box(page.getByTestId("chat-input-area").filter({ visible: true }))).top + 1);
-  const live = card.getByTestId("shell-live-output");
+  const live = row.getByTestId("shell-live-output");
   await expect(live).toContainText("CMDWATCH-TICK", { timeout: 10_000 });
-  await expect(card.getByTestId("shell-live-status")).toHaveAttribute("data-status", "running");
+  await expect(row.getByTestId("shell-live-status")).toHaveAttribute("data-status", "running");
+  await still(page);
+  const after = await place(header);
+  expect(Math.abs(after.header - before.header), "the row stays under the pointer").toBeLessThanOrEqual(1);
+  expect(after.fromBottom, "the reader at the bottom stays there").toBeLessThanOrEqual(1);
+  expect(after.strip - before.strip, "the log took room in the strip").toBeGreaterThan(40);
+  expect(Math.abs(after.scrollTop - before.scrollTop - (after.strip - before.strip)), "the transcript moved by the log's room and nothing else").toBeLessThanOrEqual(1);
+  // The card that started the command stays shut, out of sight.
+  if (await card.count()) {
+    await expect(page.locator('[data-testid="tool-call-row-toolu_cmdwatch"] > button').first()).toHaveAttribute("aria-expanded", "false");
+    await expect(card).not.toBeInViewport();
+  }
   const seen = tickOf(await live.textContent());
   await expect.poll(async () => tickOf(await live.textContent()), { timeout: 6_000 }).toBeGreaterThan(seen);
   // Printed in colour, read as text: on the Prince of Persia chat (08/10) the escape codes showed as boxes.
   expect(await live.textContent()).not.toMatch(/\x1b|\[\d*m/);
-  // Once the log outgrows its box, the box shows its newest line, as the docked log did.
+  // Once the log outgrows its box, the box shows its newest line.
   await expect.poll(() => live.evaluate((el) => el.scrollHeight > el.clientHeight), { timeout: 15_000 }).toBe(true);
   await expect.poll(() => live.evaluate((el) => el.scrollHeight - el.scrollTop - el.clientHeight), { timeout: 3_000 }).toBeLessThanOrEqual(2);
-  await expect(page.getByTestId("live-work-log")).toHaveCount(0);
-  await expect(row).toHaveAttribute("data-open", "false");
 
-  // A command no card of this chat started (here, the route alone): its row docks its log, as before.
+  // A second command, started by the route alone: opening its row shuts the first. One log open at a time.
   const bare = await runCommand(request, 'for i in $(seq 1 600); do echo "bare tick $i"; sleep 1; done', `E2E bare ${STAMP}`);
-  await commandRow(page, bare).getByRole("button").first().click();
-  await expect(strip(page).getByTestId("process-log-output")).toContainText("bare tick", { timeout: 10_000 });
-  await expect(commandRow(page, bare)).toHaveAttribute("data-open", "true");
+  const bareRow = commandRow(page, bare);
+  const bareHeader = bareRow.getByRole("button").first();
+  await expect(bareRow).toHaveCount(1, { timeout: 15_000 });
+  await still(page);
+  const beforeBare = await place(bareHeader);
+  await bareHeader.click();
+  await expect(bareRow.getByTestId("shell-live-output")).toContainText("bare tick", { timeout: 10_000 });
+  await expect(bareRow).toHaveAttribute("data-open", "true");
+  await expect(row).toHaveAttribute("data-open", "false");
+  await expect(row.getByTestId("live-command-log")).toHaveCount(0);
+  await expect(strip(page).locator('[data-testid="live-command-row"][data-open="true"]')).toHaveCount(1);
+  await still(page);
+  expect(Math.abs((await place(bareHeader)).header - beforeBare.header), "the row clicked stays under the pointer").toBeLessThanOrEqual(1);
 
-  // After a reload the card comes from the history, which ships it without its answer: the same click finds it.
-  await page.reload();
-  await expect(page.getByText("filler 60")).toBeVisible({ timeout: 30_000 });
-  await expect(row).toHaveCount(1, { timeout: 20_000 });
-  await row.getByRole("button").first().click();
-  await expect(card).toBeInViewport({ timeout: 5_000 });
-  await expect(card.getByTestId("shell-live-output")).toContainText("CMDWATCH-TICK", { timeout: 10_000 });
-  await expect(page.getByTestId("live-work-log")).toHaveCount(0);
-  // From here on, in every frame: how near the view came back to the bottom.
-  await scroller(page).evaluate((el) => {
-    const w = window as unknown as { __nearest: number };
-    w.__nearest = Infinity;
-    const tick = () => {
-      w.__nearest = Math.min(w.__nearest, el.scrollHeight - el.scrollTop - el.clientHeight);
-      requestAnimationFrame(tick);
-    };
-    requestAnimationFrame(tick);
-  });
+  // The second click on the same row shuts its log, and the row stays where it was.
+  const beforeShut = await place(bareHeader);
+  await bareHeader.click();
+  await expect(bareRow).toHaveAttribute("data-open", "false");
+  await expect(bareHeader).toHaveAttribute("aria-expanded", "false");
+  await expect(bareRow.getByTestId("live-command-log")).toHaveCount(0);
+  await expect(strip(page).locator('[data-testid="live-command-row"][data-open="true"]')).toHaveCount(0);
+  await still(page);
+  const shut = await place(bareHeader);
+  expect(Math.abs(shut.header - beforeShut.header), "the row stays under the pointer as its log shuts").toBeLessThanOrEqual(1);
+  expect(shut.fromBottom).toBeLessThanOrEqual(1);
 
-  // The command ends: its row goes, and the card, still in sight, says how it ended, with its last lines.
+  // The command ends with its log open: its row stays, says how it ended with its last lines, and has no Stop.
+  await header.click();
+  await expect(live).toContainText("CMDWATCH-TICK", { timeout: 10_000 });
   writeFileSync(join(switches, "finish"), "");
-  await expect(row).toHaveCount(0, { timeout: 15_000 });
-  await expect(card.getByTestId("shell-live-status")).toHaveAttribute("data-status", "ended", { timeout: 10_000 });
-  await expect(card.getByTestId("shell-live-output")).toContainText("CMDWATCH-LAST 42");
-  // Its end wakes the chat, which writes again below: counted on the arrow, the reader left on the card.
-  await expect(page.getByTestId("scroll-to-bottom")).toBeVisible();
-  await expect(page.getByTestId("scroll-to-bottom")).toContainText(/\d/, { timeout: 30_000 });
-  await expect(card).toBeInViewport();
-  const nearest = await page.evaluate(() => (window as unknown as { __nearest: number }).__nearest);
-  expect(nearest, "no frame took the view back to the bottom").toBeGreaterThan(300);
+  await expect(row.getByTestId("shell-live-status")).toHaveAttribute("data-status", "ended", { timeout: 15_000 });
+  await expect(live).toContainText("CMDWATCH-LAST 42");
+  await expect(row.getByTestId("live-work-stop")).toHaveCount(0, { timeout: 15_000 });
+  await expect(row).toHaveAttribute("data-open", "true");
+  // Its end wakes the chat, which answers below: the reader at the bottom stays there.
+  await expect(page.getByText("CMD-WOKEN").first()).toBeVisible({ timeout: 30_000 });
+  await expect.poll(() => fromBottom(page), { timeout: 5_000 }).toBeLessThanOrEqual(1);
+  // A click shuts the log, and the ended row goes with it.
+  await header.click();
+  await expect(row).toHaveCount(0, { timeout: 5_000 });
+  await expect(bareRow).toHaveCount(1);
+  await expect.poll(() => fromBottom(page), { timeout: 5_000 }).toBeLessThanOrEqual(1);
 });

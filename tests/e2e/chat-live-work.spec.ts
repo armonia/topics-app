@@ -193,7 +193,7 @@ test("the output a command redirects to a file shows in its log", async ({ page,
   await expect(row.getByTestId("live-work-preview")).toHaveText(/tick \d+/, { timeout: 15_000 });
 
   // Everything the log shows from the click on, to prove it never sat empty.
-  const log = page.getByTestId("process-log-output");
+  const log = row.getByTestId("shell-live-output");
   await row.getByRole("button").first().click();
   const clickedAt = Date.now();
   await expect(log).toBeVisible({ timeout: 5_000 });

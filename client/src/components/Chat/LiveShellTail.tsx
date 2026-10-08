@@ -9,14 +9,14 @@
  * nothing is drawn and the card stays as it was: no placeholder for a state we
  * do not have.
  *
- * The launched process is what a row of the strip opens (chat-strips-in-transcript,
- * `liveWorkCard.ts`): its card shows the log the strip used to dock over itself.
+ * A command's row in the strip under the chat opens the same tail of the same
+ * process (`ProcessTail`, `SubAgentsStrip`): one log, the card's, in two places.
  */
 import { useLayoutEffect, useRef } from 'react';
 import { useT } from '../../hooks/useT';
 import { useLaunchedProcess, type LiveBackgroundShell } from '../../hooks/useBackgroundShell';
 import { stripAnsi } from '../../lib/stripAnsi';
-import { launchedProcessId } from './liveWorkCard';
+import { launchedProcessId } from './launchedProcess';
 
 export function LiveShellTail({ live }: { live: LiveBackgroundShell }) {
   const tr = useT();
@@ -66,6 +66,7 @@ export function LaunchedProcessTail({ answer }: { answer?: string }) {
   return processId ? <ProcessTail processId={processId} /> : null;
 }
 
-function ProcessTail({ processId }: { processId: string }) {
+/** The tail of a process by its id: in its card, and in its row of the strip. */
+export function ProcessTail({ processId }: { processId: string }) {
   return <LiveShellTail live={useLaunchedProcess(processId)} />;
 }

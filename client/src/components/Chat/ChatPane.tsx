@@ -1909,7 +1909,7 @@ function ChatPaneComponent({
       ) : (
         latestTodo && <TodoStrip snapshot={latestTodo} />
       )}
-      {!isGlobalOrchestrator && <SubAgentsStrip topicId={topic.id} sessionKey={topic.sessionKey} />}
+      {!isGlobalOrchestrator && <SubAgentsStrip topicId={topic.id} />}
       {!isGlobalOrchestrator && <CheckpointTimeline topicId={topic.id} onRollback={() => loadHistory(topic.sessionKey)} />}
       {/* What the agent wrote in this conversation, counted from its own write
           tool calls: silent in a chat that wrote nothing. Hidden for the

@@ -1,27 +1,17 @@
-import { memo, Suspense, useState, type MouseEvent } from 'react';
+import { memo, useState, type MouseEvent } from 'react';
 import { AlarmClock, CircleCheck, ExternalLink, Hourglass, Loader2, Server, Square, SquareTerminal, X } from 'lucide-react';
 import { useT } from '../../hooks/useT';
 import { scriptsApi } from '../../lib/api';
 import { useToast } from '../Shared/Toast';
 import { listenLabel, listenUrl } from '../../../../shared/background-work';
-import type { LiveAgentRow, LiveCommandRow } from '../../../../shared/live-work';
+import type { LiveAgentRow, LiveCommandRow, LiveWorkRow } from '../../../../shared/live-work';
 import { dismissSubAgent, useDismissedSubAgents } from '../../state/endedSubAgents';
 import { useLiveWork, visibleRows } from '../../state/liveWork';
-import { getSessionMessagesFromStore } from '../../state/messageStore';
-import { revealToolCall } from '../../state/revealToolCall';
 import { CHAT_STRIP_NEUTRAL } from '../../lib/chatStripStyles';
 import { openLink, isExternalLinkGesture } from '../../lib/openLink';
-import { subscribeFrames } from '../../lib/wsFrameBus';
-import { lazyWarm } from '../../lib/lazyWarm';
-import { loadProcessLog } from '../../state/pane/panePreload';
 import { DockedStripPanel } from './DockedStripPanel';
-import { findLaunchCard } from './liveWorkCard';
+import { ProcessTail } from './LiveShellTail';
 import { useDisclosureToggle } from './transcriptDisclosure';
-import type { WSMessage } from '../../types';
-
-// The log opens on a click: its pane stays out of the entry chunk, as everywhere else
-// (`panePreload`). Imported statically here it added 2.8 kB gz to the entry and broke `check:bundle`.
-const ProcessLogPane = lazyWarm(loadProcessLog, (m) => m.ProcessLogPane);
 
 /**
  * WHAT WORKS NOW FOR THIS CHAT, one row each, at the end of the transcript (chat-live-work):
@@ -35,13 +25,21 @@ const ProcessLogPane = lazyWarm(loadProcessLog, (m) => m.ProcessLogPane);
  * waiting on. So an ended sub-agent stays one minute with its check, then
  * leaves, and a command is a row like a sub-agent.
  *
- * A row opens what it is: a CLI child's terminal, a native child's chat, a
- * command's card in the transcript, the `run_command` that started it, opened
- * with its live log and brought into view (`liveWorkCard.ts`). On 08/10 the
- * row docked a second log over the strip instead, next to the card the agent
- * already had. Only a command whose card this transcript does not hold
- * (another session's, or history not loaded) docks its log above the rows
- * (`DockedStripPanel`). A server has its address and «Open» on the row.
+ * A row opens what it is: a CLI child's terminal, a native child's chat, and a
+ * command its live log, right there, as an accordion: the tail its card in the
+ * transcript shows (`ProcessTail`, from the process registry), with the row's
+ * «Open» (a server's address) and «Stop». On 08/10 the row first docked a
+ * second log over the strip, another widget next to the card the agent already
+ * had; then it opened that card, wherever it was in the history («they open
+ * where they were opened»: a server started the day before is at the top of
+ * it). One log is open at a time, and a second click on its row closes it.
+ *
+ * The log unrolls above its row, as everything a strip opens
+ * (`DockedStripPanel`): the row stays under the pointer, held by the
+ * transcript's disclosure anchor, and the transcript above moves up by the
+ * log. A command that ends with its log open keeps its row, in its place and
+ * without «Open» and «Stop», until the log is closed: its end is what one
+ * opened it to read. Its own «Stop» closes it, and the row leaves as before.
  *
  * A command is also where it stops («Stop», the Processes panel's route) and
  * where it says that its end will wake the chat. Both used to be two more
@@ -58,10 +56,6 @@ const ProcessLogPane = lazyWarm(loadProcessLog, (m) => m.ProcessLogPane);
 
 const ROW = 'flex min-w-0 flex-1 items-center gap-1.5 px-2.5 py-1 text-left text-mini hover:bg-app-hover transition-colors';
 const SIDE_BUTTON = 'flex flex-shrink-0 items-center gap-1 rounded px-1.5 py-0.5 mr-1 text-mini text-app-text-secondary hover:bg-app-hover hover:text-app-text';
-
-/** The log's live updates, on the frame bus every window already has. */
-const onScriptFrames = (handler: (msg: WSMessage) => void) =>
-  subscribeFrames((frame) => handler(frame as WSMessage), { types: ['scripts:output'] });
 
 function AgentRow({ row }: { row: LiveAgentRow }) {
   const tr = useT();
@@ -106,95 +100,116 @@ function AgentRow({ row }: { row: LiveAgentRow }) {
   );
 }
 
-function CommandRow({ row, open, onOpen }: { row: LiveCommandRow; open: boolean; onOpen: (anchor: HTMLElement) => void }) {
+function CommandRow({ row, open, ended, onToggle, onStop }: {
+  row: LiveCommandRow;
+  open: boolean;
+  /** Its command is over: the row is still here only for its open log. */
+  ended: boolean;
+  onToggle: (anchor: HTMLElement) => void;
+  onStop: () => void;
+}) {
   const tr = useT();
   const toast = useToast();
   const [stopping, setStopping] = useState(false);
   // The server puts the page first when the command serves more than one port.
   const first = row.listen[0];
-  const url = first ? listenUrl(first) : '';
+  const url = first && !ended ? listenUrl(first) : '';
   const title = tr('livework.logTitle', { name: row.name });
   const wakes = tr('chat.background.wakes');
   // The row leaves once the server sees the process end; until then its Stop stays pressed.
   const stop = async () => {
     setStopping(true);
+    onStop();
     try { await scriptsApi.stop(row.id); } catch { toast.error(tr('livework.stopFailed', { name: row.name })); setStopping(false); }
   };
   return (
-    <div data-testid="live-command-row" data-process-id={row.id} data-open={open ? 'true' : 'false'} className="flex min-w-0 items-center" title={row.wakes ? `${row.command}\n${wakes}` : row.command}>
-      <button type="button" aria-expanded={open} aria-label={title} onClick={(e) => { e.stopPropagation(); onOpen(e.currentTarget); }} className={ROW}>
-        {first
-          ? <Server size={11} aria-hidden="true" className="text-emerald-600 dark:text-emerald-400 flex-shrink-0" />
-          : <SquareTerminal size={11} aria-hidden="true" className="text-app-text-secondary flex-shrink-0" />}
-        <span className="max-w-[40%] flex-shrink-0 truncate text-app-text">{row.name}</span>
-        {first && <span data-testid="live-work-address" className="flex-shrink-0 tabular-nums text-app-text-secondary">{row.listen.map(listenLabel).join(', ')}</span>}
-        <span data-testid="live-work-preview" className="min-w-0 flex-1 truncate font-mono text-app-text-tertiary">{row.preview}</span>
-      </button>
-      {row.wakes && (
-        <span data-testid="live-work-wakes" role="img" aria-label={wakes} title={wakes} className="flex flex-shrink-0 px-1 text-app-text-secondary">
-          <AlarmClock size={11} aria-hidden="true" />
-        </span>
-      )}
-      {url && (
-        <button
-          type="button"
-          data-testid="live-work-open"
-          className={SIDE_BUTTON}
-          title={tr('chat.service.openTitle', { url })}
-          onClick={(e) => { e.stopPropagation(); openLink(url, { external: isExternalLinkGesture(e), origin: e.currentTarget }); }}
-        >
-          <ExternalLink className="h-3 w-3" aria-hidden="true" />{tr('chat.service.open')}
+    <div data-testid="live-command-row" data-process-id={row.id} data-open={open ? 'true' : 'false'}>
+      {/* Above its row, in the strip's flow (`DockedStripPanel`); the class lifts the cap of the rows. */}
+      <DockedStripPanel open={open} testId="live-command-log" className="live-command-log px-2.5 py-1.5">
+        <ProcessTail processId={row.id} />
+      </DockedStripPanel>
+      <div className="flex min-w-0 items-center" title={row.wakes ? `${row.command}\n${wakes}` : row.command}>
+        <button type="button" aria-expanded={open} aria-label={title} onClick={(e) => { e.stopPropagation(); onToggle(e.currentTarget); }} className={ROW}>
+          {first
+            ? <Server size={11} aria-hidden="true" className="text-emerald-600 dark:text-emerald-400 flex-shrink-0" />
+            : <SquareTerminal size={11} aria-hidden="true" className="text-app-text-secondary flex-shrink-0" />}
+          <span className="max-w-[40%] flex-shrink-0 truncate text-app-text">{row.name}</span>
+          {first && !ended && <span data-testid="live-work-address" className="flex-shrink-0 tabular-nums text-app-text-secondary">{row.listen.map(listenLabel).join(', ')}</span>}
+          {!ended && <span data-testid="live-work-preview" className="min-w-0 flex-1 truncate font-mono text-app-text-tertiary">{row.preview}</span>}
         </button>
-      )}
-      <button
-        type="button"
-        data-testid="live-work-stop"
-        className={`${SIDE_BUTTON} disabled:opacity-50`}
-        disabled={stopping}
-        title={tr('livework.stopTitle', { name: row.name })}
-        onClick={(e) => { e.stopPropagation(); void stop(); }}
-      >
-        <Square className="h-3 w-3" aria-hidden="true" />{tr('chat.service.stop')}
-      </button>
+        {row.wakes && !ended && (
+          <span data-testid="live-work-wakes" role="img" aria-label={wakes} title={wakes} className="flex flex-shrink-0 px-1 text-app-text-secondary">
+            <AlarmClock size={11} aria-hidden="true" />
+          </span>
+        )}
+        {url && (
+          <button
+            type="button"
+            data-testid="live-work-open"
+            className={SIDE_BUTTON}
+            title={tr('chat.service.openTitle', { url })}
+            onClick={(e) => { e.stopPropagation(); openLink(url, { external: isExternalLinkGesture(e), origin: e.currentTarget }); }}
+          >
+            <ExternalLink className="h-3 w-3" aria-hidden="true" />{tr('chat.service.open')}
+          </button>
+        )}
+        {!ended && (
+          <button
+            type="button"
+            data-testid="live-work-stop"
+            className={`${SIDE_BUTTON} disabled:opacity-50`}
+            disabled={stopping}
+            title={tr('livework.stopTitle', { name: row.name })}
+            onClick={(e) => { e.stopPropagation(); void stop(); }}
+          >
+            <Square className="h-3 w-3" aria-hidden="true" />{tr('chat.service.stop')}
+          </button>
+        )}
+      </div>
     </div>
   );
 }
 
-export const SubAgentsStrip = memo(function SubAgentsStrip({ topicId, sessionKey }: { topicId: string; sessionKey: string }) {
-  const dismissed = useDismissedSubAgents();
-  const rows = visibleRows(useLiveWork(topicId), dismissed);
-  const disclose = useDisclosureToggle();
-  // The log stays open when its command ends and its row leaves: its end is what one opens it to read.
-  const [log, setLog] = useState<{ id: string; name: string } | null>(null);
-  if (rows.length === 0 && !log) return null;
+/** The rows with a command that ended back in its place: the server lists the commands by their start. */
+function withEnded(rows: readonly LiveWorkRow[], gone: LiveCommandRow): readonly LiveWorkRow[] {
+  const at = rows.findIndex((r) => r.kind === 'command' && r.startedAt.localeCompare(gone.startedAt) > 0);
+  return at < 0 ? [...rows, gone] : [...rows.slice(0, at), gone, ...rows.slice(at)];
+}
 
-  // The messages are read at the click, not subscribed to: the strip does not redraw on every token.
-  const openCommand = (row: LiveCommandRow, anchor: HTMLElement) => {
-    const card = log?.id === row.id ? null : findLaunchCard(getSessionMessagesFromStore(sessionKey), row);
-    if (card) {
-      revealToolCall({ topicId, ...card }, anchor.closest('[data-testid="chat-scroll-container"]') ?? document);
-      return;
-    }
-    // The docked log opens above the row: the transcript holds the row where it was (CHAT-FOLD-01).
-    disclose(anchor);
-    setLog(log?.id === row.id ? null : { id: row.id, name: row.name });
+export const SubAgentsStrip = memo(function SubAgentsStrip({ topicId }: { topicId: string }) {
+  const dismissed = useDismissedSubAgents();
+  const live = visibleRows(useLiveWork(topicId), dismissed);
+  const disclose = useDisclosureToggle();
+  // The command whose log is open: ended with its log open, it keeps its row until the log closes.
+  const [open, setOpen] = useState<LiveCommandRow | null>(null);
+  const ended = !!open && !live.some((r) => r.id === open.id);
+  const rows = open && ended ? withEnded(live, open) : live;
+  if (rows.length === 0) return null;
+
+  const toggle = (row: LiveCommandRow, anchor: HTMLElement) => {
+    const wasOpen = open?.id === row.id;
+    // The log opens and closes above the row, and the transcript holds the row where it was
+    // (CHAT-FOLD-01). An ended row leaves with its log: there is nothing left to hold.
+    if (!(wasOpen && ended)) disclose(anchor);
+    setOpen(wasOpen ? null : row);
   };
 
   return (
     <div data-testid="subagents-strip" className={`${CHAT_STRIP_NEUTRAL} overflow-hidden`}>
-      <DockedStripPanel open={!!log} testId="live-work-log">
-        {log && (
-          <div className="h-56">
-            <Suspense fallback={null}>
-              <ProcessLogPane key={log.id} processId={log.id} scriptName={log.name} onMessage={onScriptFrames} onClose={() => setLog(null)} />
-            </Suspense>
-          </div>
-        )}
-      </DockedStripPanel>
-      <div className="max-h-[7.5rem] overflow-y-auto">
+      {/* The rows scroll past their cap only while every log is shut: an open or closing one would scroll inside it. */}
+      <div className="max-h-[7.5rem] overflow-y-auto [&:has(.live-command-log)]:max-h-none">
         {rows.map((row) => (row.kind === 'agent'
           ? <AgentRow key={row.id} row={row} />
-          : <CommandRow key={row.id} row={row} open={log?.id === row.id} onOpen={(anchor) => openCommand(row, anchor)} />))}
+          : (
+            <CommandRow
+              key={row.id}
+              row={row}
+              open={open?.id === row.id}
+              ended={ended && open?.id === row.id}
+              onToggle={(anchor) => toggle(row, anchor)}
+              onStop={() => { if (open?.id === row.id) setOpen(null); }}
+            />
+          )))}
       </div>
     </div>
   );

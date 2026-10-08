@@ -6,6 +6,10 @@ Attilio, 08/10 ~02:20, guardando la chat Prince of Persia: «si apre un nuovo ac
 di sfruttare quello già dell'agente. inoltre il goal e tutte le cose sopra l'input in realtà
 dovrebbero restare a fondo chat, meglio.»
 
+Poi, nel pomeriggio, con la riga che portava alla card d'origine: «i server si stanno aprendo dove
+si sono aperti. In realtà si devono aprire direttamente dal pannellino a fondo chat, ad
+accordion». Per un server partito il 07/10 quella card sta in cima alla storia.
+
 Sul codice:
 
 - Il clic su una riga comando della striscia (`SubAgentsStrip.tsx`) apriva un secondo log
@@ -17,12 +21,12 @@ Sul codice:
 
 ## What Changes
 
-1. **Una riga comando apre la card che l'ha lanciato.** La card si trova nei messaggi della chat:
-   per il processId scritto nella risposta, e sulla storia (che arriva senza risposta) per
-   comando e ora di avvio. Si apre con il meccanismo della ricerca (CHAT-FIND-02: turno, gruppo,
-   riga) e scorre in vista sotto la barra delle tab. La card di un `run_command` mostra il log dal
-   vivo del processo, dal registro dei processi. Se la card non c'è (comando lanciato da un'altra
-   sessione o dalla sola route, storia non caricata) resta il log agganciato di oggi.
+1. **Una riga comando apre il suo log lì, ad accordion.** Il clic apre sopra la riga, dentro la
+   striscia, la coda dal vivo del processo con lo stesso componente e lo stesso stato della card
+   del `run_command` (`ProcessTail` → `LiveShellTail`, `useLaunchedProcess`, dal registro dei
+   processi), e la riga tiene Apri e Ferma. Un secondo clic la chiude; se ne apre una alla volta.
+   La trascrizione non va più alla card d'origine, che resta chiusa; la card nel trascritto
+   continua a mostrare lo stesso log dal vivo.
 2. **Le strisce sono la fine del trascritto.** Goal o todo, lavoro vivo, checkpoint e file
    modificati stanno dentro lo scroll dopo l'ultimo messaggio, sulla colonna del composer. Sopra
    l'input restano solo le cose dell'invio: PlanApprovalBar, SwapFreezeLabel, UnsentStrip,
@@ -31,9 +35,9 @@ Sul codice:
 
 ## Barra
 
-`specs/acceptance.md`: unit test, due scenari Playwright filmati su WebKit contro il server
-isolato :13334, una mutazione su una copia in scratch che li fa fallire, e le spec che toccano
-queste strisce restano verdi.
+`specs/acceptance.md`: unit test, due scenari Playwright filmati su WebKit (`--repeat-each=3`) e
+Chromium contro il server isolato :13334, la mutazione che rimette il salto alla card d'origine
+fa fallire lo scenario 2, e le spec che toccano queste strisce restano verdi.
 
 ## Fuori
 
@@ -45,8 +49,22 @@ Le righe dei sotto-agenti · il layout mobile, oltre a non romperlo · il server
 - Le righe dei sotto-agenti restano come sono: aprono la chat del figlio o il suo terminale, che
   è il loro «accordion». La card `spawn_agent` nel trascritto ha solo il prompt.
 - La card di un `run_command` (e di un `run_script`) mostra il log dal vivo, stesso registro e
-  stesso polling della shell in background: senza, portare lì il clic avrebbe tolto il log che il
-  pannello mostrava.
+  stesso polling della shell in background, e la riga della striscia ne apre la stessa coda.
+- Il log si apre SOPRA la riga, come la lista del todo e i checkpoint (`DockedStripPanel`): la riga
+  resta sotto il puntatore e la trascrizione sopra sale dell'altezza del log. Aperto sotto, in
+  fondo al trascritto, finirebbe sotto il composer. Per questo `scrollTop` non resta fermo: cresce
+  esattamente quanto la striscia, e lo scenario 2 misura quello, con la riga ferma entro 1 px e
+  chi è in fondo ancora in fondo.
+- Un comando che finisce col log aperto tiene la sua riga, al suo posto (i comandi sono in ordine
+  di avvio) e senza Apri e Ferma, finché non lo chiudi: la sua fine è ciò che lo avevi aperto a
+  leggere, come col log agganciato di prima. Ferma sulla riga aperta chiude il log, così la riga
+  se ne va come prima.
+- Il tetto delle righe (7,5 rem, poi scorrono) vale solo coi log chiusi: un log aperto o in
+  chiusura lo toglie (`:has()`), o scorrerebbe dentro il tetto.
+- Nessun log agganciato per i comandi senza card: ogni riga comando ha lo stesso accordion.
+- Tolti `revealToolCall`, il fuoco `reveal` della ricerca, il suo effetto in `ToolCallRow` e
+  `findLaunchCard`: senza il salto non li usa nessuno. `liveWorkCard.ts` diventa
+  `launchedProcess.ts`, con il solo `launchedProcessId`.
 - Finché la chat non ha messaggi (vuota col composer al centro, o con la storia ancora in arrivo)
   le strisce restano nel blocco del composer: non c'è un trascritto che le contenga. Al primo
   messaggio passano in fondo al trascritto.
