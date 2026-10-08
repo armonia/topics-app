@@ -44,7 +44,7 @@ import { ForkOriginDivider } from './ForkOriginDivider';
 import { BackgroundWorkLine } from './BackgroundWorkLine';
 import { ROW_RESIZE_SLACK_MS, TranscriptRowResizeContext } from './transcriptRowResize';
 import { ANCHOR_SLACK_PROPERTY, TranscriptDisclosureContext, useDisclosureAnchor } from './useDisclosureAnchor';
-import { COMPOSER_HEIGHT_PROPERTY, type ComposerResizeHandler } from './useComposerDock';
+import { CHAT_BOTTOM_GUTTER_PX, COMPOSER_HEIGHT_PROPERTY, type ComposerResizeHandler } from './useComposerDock';
 import { conversationViewKey } from '../../state/composerHandoff';
 import { useHiddenTurnReturn } from './useHiddenTurnReturn';
 
@@ -66,15 +66,6 @@ import { useHiddenTurnReturn } from './useHiddenTurnReturn';
  * `data-testid="virtuoso-item-list"`, che l'osservatore della crescita
  * (`ro.observe(lista)`, più sotto) usa per trovare questo elemento.
  */
-/**
- * Il respiro fra l'ultima risposta e il composer, in pixel.
- *
- * Sta qui e non in una classe perché è ALTEZZA RISERVATA dentro il contenuto
- * scrollato (il Footer di Virtuoso), non un margine: dev'essere un numero che
- * il calcolo della posizione conosce.
- */
-const CHAT_BOTTOM_GUTTER_PX = 24;
-
 /**
  * LA FASCIA DIETRO L'INPUT NON È UN POSTO DOVE VA IL TESTO.
  *
@@ -154,17 +145,6 @@ function ChatFooter() {
 function ChatHeader() {
   return <div data-testid="chat-top-gutter" style={{ height: 'var(--chat-gutter, 0px)' }} />;
 }
-
-/**
- * The scroller's box. Its scroll padding is where `scrollIntoView` lands (a
- * tool call opened from the strip, `ToolCallRow`): under the tab bar and above
- * the composer, the two bands the transcript runs under.
- */
-const SCROLLER_BOX = {
-  height: '100%',
-  scrollPaddingTop: 'var(--chat-gutter, 0px)',
-  scrollPaddingBottom: `calc(var(${COMPOSER_HEIGHT_PROPERTY}, 0px) + ${CHAT_BOTTOM_GUTTER_PX}px)`,
-};
 
 /** Stable for the life of the module: Virtuoso remounts a component whose type changes. */
 const VIRTUOSO_COMPONENTS = { Footer: ChatFooter, Header: ChatHeader, List: ChatList };
@@ -392,9 +372,9 @@ export function MessageList({
    */
   const scrollerStyle = useMemo(() => {
     const band = Math.round(inputAreaHeight);
-    if (composerCentered || band <= 0) return SCROLLER_BOX;
+    if (composerCentered || band <= 0) return { height: '100%' };
     const mask = `linear-gradient(to bottom, #000 0, #000 calc(100% - ${band + INK_FADE_RAMP_PX}px), transparent calc(100% - ${band}px))`;
-    return { ...SCROLLER_BOX, maskImage: mask, WebkitMaskImage: mask };
+    return { height: '100%', maskImage: mask, WebkitMaskImage: mask };
   }, [inputAreaHeight, composerCentered]);
 
   // What the Footer draws (`ChatFooterContext`). None of it changes per
