@@ -272,11 +272,17 @@ export function spawnBounded(argv: string[], opts: SpawnBoundedOptions): Bounded
 export interface BoundedResult {
   stdout: string;
   stderr: string;
-  /** `null` if the process was killed by a signal, the deadline included, or never started. */
+  /**
+   * What `exited` settled with: `null` at the deadline or when the process never
+   * started. A signal from elsewhere reads as Bun's 128 + n (137 for SIGKILL),
+   * the code the git runners handed their callers before they used this.
+   */
   exitCode: number | null;
   timedOut: boolean;
   /** The process did not even start (missing binary, missing cwd). */
   spawnFailed: boolean;
+  /** Why it did not start, the error's message: the runners report it in their stderr. */
+  spawnError?: string;
 }
 
 /** Launches, reads everything, returns a result: for callers that do not need to touch the streams. */
@@ -287,8 +293,8 @@ export async function runBounded(
   let proc: BoundedProcess;
   try {
     proc = spawnBounded(argv, { ...opts, stdin: opts.stdinData === undefined ? "ignore" : "pipe" });
-  } catch {
-    return { stdout: "", stderr: "", exitCode: null, timedOut: false, spawnFailed: true };
+  } catch (e) {
+    return { stdout: "", stderr: "", exitCode: null, timedOut: false, spawnFailed: true, spawnError: e instanceof Error ? e.message : String(e) };
   }
   if (opts.stdinData !== undefined && proc.stdin) {
     try {
@@ -300,6 +306,6 @@ export async function runBounded(
     new Response(proc.stdout).text(),
     new Response(proc.stderr).text(),
   ]);
-  await proc.exited;
-  return { stdout, stderr, exitCode: proc.exitCode, timedOut: proc.timedOut, spawnFailed: false };
+  const exitCode = await proc.exited;
+  return { stdout, stderr, exitCode, timedOut: proc.timedOut, spawnFailed: false };
 }

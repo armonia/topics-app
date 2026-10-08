@@ -47,6 +47,17 @@ describe("runBounded", () => {
     const r = await runBounded(["/nonexistent/binary-xyz"], { timeoutMs: 1000 });
     expect(r.spawnFailed).toBe(true);
     expect(r.timedOut).toBe(false);
+    // The runners put it in their stderr: "did not start" without a why reaches nobody.
+    let expected = "";
+    try { Bun.spawn(["/nonexistent/binary-xyz"]); } catch (e) { expected = (e as Error).message; }
+    expect(r.spawnError).toBe(expected);
+    expect(expected).not.toBe("");
+  });
+
+  it("un processo ucciso da un segnale esterno esce 128 + n, come `exited`", async () => {
+    // Not the deadline: somebody else's SIGKILL. The git runners have always handed this on as 137.
+    const r = await runBounded(["sh", "-c", "kill -9 $$"], { timeoutMs: 5000 });
+    expect(r).toEqual({ stdout: "", stderr: "", exitCode: 137, timedOut: false, spawnFailed: false });
   });
 
   it("TOPICS_SPAWN_TIMEOUT_CAP_MS abbassa ogni scadenza", async () => {
