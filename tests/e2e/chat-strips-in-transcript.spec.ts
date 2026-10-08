@@ -95,6 +95,26 @@ async function box(locator: Locator): Promise<{ top: number; bottom: number; lef
 /** Two frames: whatever a change pins or moves has painted. */
 const frames = (page: Page) => page.waitForFunction(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(() => r(true)))));
 
+/**
+ * Ten frames in a row with the transcript at the same scroll position. A wheel
+ * can still be landing when `mouse.wheel` returns: WebKit for Linux animates it
+ * (CI 08/10: the reader "moved" 54 and then 11 px with the view still gliding),
+ * and a place read before the view stops is no baseline for what moves it next.
+ */
+const still = (page: Page) => scroller(page).evaluate((el) => new Promise<void>((resolve, reject) => {
+  let last = el.scrollTop;
+  let same = 0;
+  let frame = 0;
+  const tick = () => {
+    if (el.scrollTop === last) same++;
+    else { last = el.scrollTop; same = 0; }
+    if (same >= 10) return resolve();
+    if (++frame > 600) return reject(new Error(`the transcript never stopped scrolling (scrollTop ${el.scrollTop})`));
+    requestAnimationFrame(tick);
+  };
+  requestAnimationFrame(tick);
+}));
+
 /** The first seeded message wholly on screen, by the words that name it ("Reply 21."). */
 async function firstInSight(page: Page): Promise<string> {
   const label = await scroller(page).evaluate((el) => {
@@ -151,22 +171,27 @@ test("the strips are the end of the transcript: after the last message, out of t
   expect((await box(page.getByTestId("goal-bar"))).bottom).toBeLessThanOrEqual(areaBox.top + 1);
 
   // A reader further up: the strips change under them and nothing on screen moves.
+  // Up in the middle of the history, not at its top: at scrollTop 0 a shift up
+  // is clamped away and the check below could not see it.
   const sc = await box(scroller(page));
   await page.mouse.move((sc.left + sc.right) / 2, (sc.top + sc.bottom) / 2);
-  for (let i = 0; i < 6; i++) {
+  for (let i = 0; i < 3; i++) {
     await page.mouse.wheel(0, -300);
     await frames(page);
   }
   await expect.poll(() => fromBottom(page)).toBeGreaterThan(600);
+  await still(page);
+  expect(await scroller(page).evaluate((el) => el.scrollTop), "the reader is not at the top of the history").toBeGreaterThan(100);
   const read = page.getByTestId("chat-message").filter({ hasText: await firstInSight(page) });
   const before = (await box(read)).top;
   const second = await runCommand(request, "sleep 600", `E2E second ${STAMP}`);
   await expect(commandRow(page, second)).toHaveCount(1, { timeout: 20_000 });
-  await frames(page);
+  // Read once the view has stopped: a shift that takes a few frames is measured whole.
+  await still(page);
   expect(Math.abs((await box(read)).top - before), "a row arriving under the reader moves nothing").toBeLessThanOrEqual(1);
   await request.post(`${E2E_BASE}/api/scripts/${first}/stop`);
   await expect(commandRow(page, first)).toHaveCount(0, { timeout: 15_000 });
-  await frames(page);
+  await still(page);
   expect(Math.abs((await box(read)).top - before), "a row leaving under the reader moves nothing").toBeLessThanOrEqual(1);
   expect(await fromBottom(page)).toBeGreaterThan(300);
 });
