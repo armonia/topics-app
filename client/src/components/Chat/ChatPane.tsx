@@ -23,6 +23,7 @@ import { forkModeFor } from '../../../../shared/chat-fork';
 import { providerLabel } from '../../../../shared/provider-labels';
 import { useConfirm } from '../../hooks/useConfirm';
 import { chatAcceptsFileDrag } from './chatFileDrop';
+import { readPictureSize, sizesByPath, type PendingSize } from './attachmentSizes';
 import { dragLeftHost } from '../../lib/dragLeave';
 import { errMessage } from '../../lib/errMessage';
 import { BAND_OWN_PROPERTY } from '../../lib/selectionStyles';
@@ -975,10 +976,10 @@ function ChatPaneComponent({
   // testo avanzava una riga vuota.
 
   const uploadFiles = useCallback(async (files: File[]) => {
-    const paths: string[] = []; const failed: string[] = [];
-    for (const f of files) { try { const r = await uploadApi.uploadFile(f); paths.push(r.path); } catch (e) { console.error('[ChatPane] file upload failed:', f.name, e); failed.push(f.name); } }
+    const uploaded: { file: File; path: string }[] = []; const failed: string[] = [];
+    for (const f of files) { try { const r = await uploadApi.uploadFile(f); uploaded.push({ file: f, path: r.path }); } catch (e) { console.error('[ChatPane] file upload failed:', f.name, e); failed.push(f.name); } }
     if (failed.length > 0) toast.error(`Upload failed: ${failed.join(', ')}`);
-    return paths;
+    return uploaded;
   }, [toast]);
 
   // The turn `/goal <text>` starts, with the composer's options of THIS render
@@ -1682,16 +1683,19 @@ function ChatPaneComponent({
     const invocation = invokedName(finalMessage) !== null;
     const curFiles = [...pendingFiles], curImages = [...pendingImages], curReply = invocation ? null : replyingTo, curMentioned = [...mentionedFiles];
     setMessage(''); setPendingFiles([]); setPendingImages([]); setMentionedFiles([]); if (!invocation) setReplyingTo(null);
+    // The sizes of the attached pictures, read while they upload: the bubble draws them in their box (`attachmentSizes.ts`).
+    const sized: PendingSize[] = [];
     if (curFiles.length > 0 || curImages.length > 0) {
       setUploading(true);
       try {
-        if (curFiles.length > 0) { const paths = await uploadFiles(curFiles); finalMessage = paths.map(p => `[Attached file: ${p}]`).join('\n') + (finalMessage ? '\n' + finalMessage : ''); }
+        if (curFiles.length > 0) { const reading = new Map(curFiles.map(f => [f, readPictureSize(f)])); const uploaded = await uploadFiles(curFiles); for (const u of uploaded) sized.push([u.path, reading.get(u.file)!]); finalMessage = uploaded.map(u => `[Attached file: ${u.path}]`).join('\n') + (finalMessage ? '\n' + finalMessage : ''); }
         if (curImages.length > 0) {
           const urls: string[] = []; let imgFailCount = 0;
           for (const img of curImages) {
             try {
+              const reading = readPictureSize(img.dataUrl);
               const res = await apiFetch('/api/upload-image', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ dataUrl: img.dataUrl, mimeType: img.mimeType }) });
-              if (res.ok) urls.push((await res.json()).url); else { imgFailCount++; console.error('[ChatPane] image upload failed:', res.status, res.statusText); }
+              if (res.ok) { const url = (await res.json()).url; urls.push(url); sized.push([url, reading]); } else { imgFailCount++; console.error('[ChatPane] image upload failed:', res.status, res.statusText); }
             } catch (e) { imgFailCount++; console.error('[ChatPane] image upload failed:', e); }
           }
           if (imgFailCount > 0) toast.error(`${imgFailCount} image${imgFailCount > 1 ? 's' : ''} failed to upload`);
@@ -1720,7 +1724,9 @@ function ChatPaneComponent({
 
     if (finalMessage) {
       if (isDraft) startDescent();
-      await sendMessage(topic.sessionKey, finalMessage, currentSendOptions());
+      const mediaSizes = await sizesByPath(sized);
+      const sendOptions = currentSendOptions();
+      await sendMessage(topic.sessionKey, finalMessage, mediaSizes ? { ...sendOptions, mediaSizes } : sendOptions);
       if (isDraft) settleDescent();
     }
   };

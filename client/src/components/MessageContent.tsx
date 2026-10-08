@@ -155,6 +155,10 @@ function MediaImage({ path }: { path: string }) {
   const src = getMediaUrl(path);
   const [loadedSrc, setLoadedSrc] = useState<string | null>(null);
   const loaded = loadedSrc === src;
+  // In its box and still without its bytes: the box reads as the place of a
+  // picture (a neutral tint of the theme), and the curtain of the list does not
+  // wait for it (`data-media-box`, `Chat/listPaintedAndWhole.ts`).
+  const boxed = !!box && !loaded;
 
   if (error) {
     return (
@@ -166,7 +170,7 @@ function MediaImage({ path }: { path: string }) {
 
   return (
     <>
-      <img data-testid="media-image" src={src} alt={getFileName(path)} className="max-w-full max-h-80 rounded-lg cursor-pointer hover:opacity-90 transition-opacity my-1" style={loaded ? undefined : box} onLoad={box ? () => setLoadedSrc(src) : undefined} onClick={() => setLightbox(true)} onError={() => setError(true)} loading="lazy" />
+      <img data-testid="media-image" src={src} alt={getFileName(path)} className={`max-w-full max-h-80 rounded-lg cursor-pointer hover:opacity-90 transition-opacity my-1${boxed ? ' bg-app-hover dark:bg-elevated' : ''}`} style={boxed ? box : undefined} data-media-box={boxed ? '' : undefined} onLoad={box ? () => setLoadedSrc(src) : undefined} onClick={() => setLightbox(true)} onError={() => setError(true)} loading="lazy" />
       {lightbox && <ImageLightbox src={src} alt={getFileName(path)} onClose={() => setLightbox(false)} />}
     </>
   );

@@ -23,6 +23,9 @@
  * carried an image of unknown size grew when the image loaded: CLS 0.034 on
  * that one case when the server is slower than the reveal. The image now has
  * its box before its bytes (CHAT-MEDIA-BOX-01), and the case has its own test.
+ * With that box the curtain no longer waits for the picture's bytes either: it
+ * waited up to its hard cap, 74-75 frames (~1270 ms) on a visited topic with a
+ * picture at the bottom, against 16 once a boxed picture is not waited for (T7b).
  *
  * WHY THE SERVER IS HELD BACK. On a test machine the history answers in a few
  * milliseconds, so "the rows came from the device" and "the rows came from the
@@ -476,6 +479,100 @@ test.describe("Una topic gia' visitata si apre gia' pronta", () => {
       await expect(img).toBeInViewport({ ratio: 1 });
     } finally {
       await deleteTopic(request, away.id).catch(() => {});
+    }
+  });
+
+  test("una topic visitata con un'immagine in vista si scopre senza aspettare i byte dell'immagine", async ({ page, request }) => {
+    test.info().annotations.push({ type: "spec", description: "TOPIC-FIRST-01" });
+    test.info().annotations.push({ type: "spec", description: "CHAT-MEDIA-BOX-01" });
+    test.setTimeout(120_000);
+    const visited = await createTopic(request, `visited-picture-${Date.now()}`);
+    const visitedKey = await sessionKeyOf(request, visited.id);
+    try {
+      for (let i = 1; i <= 30; i++) {
+        await seedMessage(request, { sessionKey: visitedKey, role: i % 2 ? "user" : "assistant", content: `Picture row #${i}. ${"Lorem ipsum dolor sit amet. ".repeat(i % 5 === 0 ? 8 : 2)}` });
+      }
+      // The last reply carries a picture whose size the server knows
+      // (900x500, drawn 320 px tall in the column), so it has its box.
+      const name = `t7b-curtain-${Date.now()}.png`;
+      const picture = await uploadPng(request, name, 900, 500);
+      await seedMessage(request, { sessionKey: visitedKey, role: "assistant", content: `CURTAIN-IMAGE: the chart of the last run.\nMEDIA:${picture}` });
+      await resetPaneStore(request, [visited.id, other.id]);
+      const shell = page.locator(`[data-pane-shell="${visited.id}"]`);
+      const reply = shell.locator('[data-testid="chat-message"]').filter({ hasText: "CURTAIN-IMAGE" });
+      const img = reply.getByTestId("media-image");
+
+      // 1) The visit: read to the bottom, picture loaded, tail on the device.
+      await page.goto("/favicon.ico", { waitUntil: "commit" }).catch(() => {});
+      await page.evaluate((id) => localStorage.setItem("pane-store-focused-id", id), visited.id);
+      await page.goto("/");
+      await page.getByTestId(`pane-tab-${visited.id}`).click();
+      await expect(reply).toBeVisible({ timeout: 20_000 });
+      await expect.poll(() => img.evaluate((el: HTMLImageElement) => el.complete && el.naturalWidth > 0), { timeout: 20_000 }).toBe(true);
+      await waitForLocalCopy(page, "messages-cache-", "CURTAIN-IMAGE");
+
+      // 2) The app again, on the other tab: the visited chat comes back from
+      //    the device, and its picture's bytes come late.
+      await page.evaluate((id) => localStorage.setItem("pane-store-focused-id", id), other.id);
+      await armObserver(page);
+      await page.reload();
+      await expect(page.getByText("The other tab").first()).toBeVisible({ timeout: 20_000 });
+      await settledUntilQuiet(page, { quietMs: 1000, timeout: 30_000 });
+      const late = await holdPicture(page, name, HOLD_MS);
+      await didascalia(page, "Torno su una topic gia' letta: l'ultima risposta ha un'immagine, i suoi byte sono lenti");
+
+      // The clock starts at the click on the tab and stops on the first frame
+      // the list is shown (the curtain is `visibility: hidden` on the scroller).
+      await page.evaluate((key) => {
+        const out = { clickAt: 0, clickWall: 0, liftAt: 0, liftWall: 0, frames: 0, done: false };
+        (window as unknown as { __curtain: typeof out }).__curtain = out;
+        const tab = document.querySelector(`[data-testid="pane-tab-${CSS.escape(key)}"]`);
+        tab?.addEventListener("pointerdown", () => {
+          out.clickAt = performance.now();
+          out.clickWall = Date.now();
+          const tick = () => {
+            out.frames += 1;
+            const list = document.querySelector(`[data-pane-shell="${CSS.escape(key)}"] [data-testid="chat-message-list"]`) as HTMLElement | null;
+            if (list && list.style.visibility !== "hidden" && list.getBoundingClientRect().height > 0) {
+              out.liftAt = performance.now();
+              out.liftWall = Date.now();
+              out.done = true;
+              return;
+            }
+            if (out.frames < 600) requestAnimationFrame(tick);
+          };
+          requestAnimationFrame(tick);
+        }, { capture: true, once: true });
+      }, visited.id);
+      await page.getByTestId(`pane-tab-${visited.id}`).click();
+      await page.waitForFunction(() => (window as unknown as { __curtain?: { done: boolean } }).__curtain?.done === true, null, { timeout: 30_000 });
+      const curtain = (await page.evaluate(() => (window as unknown as { __curtain: { clickAt: number; clickWall: number; liftAt: number; liftWall: number; frames: number } }).__curtain));
+      await expect(reply).toBeVisible({ timeout: 20_000 });
+      // The picture is in view under the lifted curtain, still without its bytes.
+      const placeholder = await img.evaluate((el: HTMLImageElement) => ({ complete: el.complete, h: Math.round(el.getBoundingClientRect().height) }));
+      await expect.poll(() => img.evaluate((el: HTMLImageElement) => el.complete && el.naturalWidth > 0), { timeout: 20_000 }).toBe(true);
+      await settledUntilQuiet(page, { quietMs: 1500, timeout: 30_000 });
+      const report = buildReport((await collectShifts(page)).filter((s) => s.at >= curtain.clickAt));
+      const liftMs = Math.round(curtain.liftAt - curtain.clickAt);
+      const beforeRelease = late.releasedAt === null ? "never" : `${late.releasedAt - curtain.liftWall}ms`;
+      console.log(`[topic-first-frame:curtain-picture] picture=${late.held} liftMs=${liftMs} liftFrames=${curtain.frames} beforeRelease=${beforeRelease} placeholder=${JSON.stringify(placeholder)} CLS=${report.cls.toFixed(4)} shifts=${report.count}\n${summarize(report)}`);
+      await didascalia(page, "Il sipario si e' alzato prima dei byte: l'immagine ha gia' il suo posto");
+      await beat(page, 1200);
+
+      expect(late.held, "the picture was never held").toBeGreaterThan(0);
+      expect(late.releasedAt, "the picture was released").not.toBeNull();
+      // Lifted while the picture's bytes were still held: it did not wait for them.
+      expect(curtain.liftWall, `the curtain waited for the picture's bytes (lift ${liftMs} ms after the click)`).toBeLessThan(late.releasedAt!);
+      // And not by the curtain's hard cap (1200 ms, 72 frames at 60 Hz), which
+      // also ends before the release: counted in frames, as the rest of this spec.
+      expect(curtain.frames, `the curtain waited for its hard cap (lift ${liftMs} ms after the click)`).toBeLessThanOrEqual(SKELETON_CAP);
+      expect(placeholder.h, "the picture held its box while its bytes were late").toBeGreaterThan(300);
+      expect(report.cls, `who moved:\n${summarize(report)}`).toBeLessThanOrEqual(0.01);
+      const list = shell.locator('[data-testid="chat-message-list"]');
+      await expect.poll(() => list.evaluate((el) => Math.round(el.scrollHeight - el.scrollTop - el.clientHeight)), { timeout: 10_000 }).toBeLessThanOrEqual(2);
+      await expect(img).toBeInViewport({ ratio: 1 });
+    } finally {
+      await deleteTopic(request, visited.id).catch(() => {});
     }
   });
 

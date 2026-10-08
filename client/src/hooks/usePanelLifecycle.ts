@@ -2211,7 +2211,7 @@ export function usePanelLifecycle(args: UsePanelLifecycleArgs): UsePanelLifecycl
     // on the frame after the key instead of after the round trip and the
     // promotion's renders (see `state/firstSend.ts`).
     const draftKey = draftSessionKey(draftId);
-    const bubbleId = stageFirstBubble(draftKey, firstMessage);
+    const bubbleId = stageFirstBubble(draftKey, firstMessage, options?.mediaSizes);
     const topic = await createTopic({
       name: 'New Chat',
       icon: DEFAULT_TOPIC_ICON,
