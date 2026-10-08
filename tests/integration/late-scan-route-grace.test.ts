@@ -25,6 +25,8 @@ import { join } from "path";
 import { tmpdir } from "os";
 
 let tempDir = "";
+/** The test's own data root (`setupTestDataDir`), put back in `afterAll`. */
+let dataRoot = "";
 const savedEnv: Record<string, string | undefined> = {};
 function setEnv(k: string, v: string) { savedEnv[k] = process.env[k]; process.env[k] = v; }
 const RESULT = `{"type":"result","result":"FINAL-RESULT","usage":{"input_tokens":1,"output_tokens":1},"duration_ms":1,"total_cost_usd":0}`;
@@ -66,6 +68,10 @@ afterAll(async () => {
   __resetAiBridgeClientForTests();
   const pidFile = join(tempDir, "ai-bridge.pid");
   try { if (existsSync(pidFile)) process.kill(Number(readFileSync(pidFile, "utf8").trim()), "SIGTERM"); } catch { /* already gone */ }
+  if (dataRoot) {
+    const { cleanupTestDataDir } = await import("./helpers");
+    cleanupTestDataDir(dataRoot);
+  }
   for (const [k, v] of Object.entries(savedEnv)) { if (v === undefined) delete process.env[k]; else process.env[k] = v; }
   if (tempDir && existsSync(tempDir)) rmSync(tempDir, { recursive: true, force: true });
 });
@@ -79,7 +85,8 @@ const nums = (text: string) => text.split(",").filter(Boolean).map(Number);
 describe("a re-adoption's scan past the route's silence budget", () => {
   test("the route waits for the late ack: the CLI finishes its turn and the row gets it whole", async () => {
     const { setupTestDataDir, createTestAppContext, testTmpDir } = await import("./helpers");
-    setupTestDataDir(testTmpDir("late-scan-route-grace"));
+    dataRoot = testTmpDir("late-scan-route-grace");
+    setupTestDataDir(dataRoot);
     const { createTopicsRouter } = await import("../../server/routes/topics");
     const { registerProvider, removeProvider } = await import("../../server/providers");
     const { __resetAiBridgeClientForTests, getAiBridgeClient, BridgeAckStalled } = await import("../../server/lib/ai-bridge-client");
