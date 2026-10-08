@@ -1,0 +1,7 @@
+ink base 1 load=[0.13 0.19 0.50] exit=0 {"card":57.9,"tab":27.5,"send":16.5}
+ink head 1 load=[0.96 0.37 0.55] exit=0 {"card":27.5,"tab":25.6,"send":13.5}
+ink base 2 load=[1.11 0.44 0.57] exit=0 {"card":44.1,"tab":25.3,"send":12}
+ink head 2 load=[1.25 0.52 0.59] exit=0 {"card":27,"tab":25.2,"send":16.8}
+ink base 3 load=[1.31 0.58 0.61] exit=0 {"card":58.3,"tab":21.7,"send":17.5}
+ink head 3 load=[1.09 0.56 0.60] exit=0 {"card":26.8,"tab":22.2,"send":25.6}
+ink DONE

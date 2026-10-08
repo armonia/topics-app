@@ -1,0 +1,33 @@
+/** V3 · B3.3 probe (not committed to the suite): what reaches App from the board store. */
+import { expect, test } from 'bun:test';
+import { createElement, useEffect } from 'react';
+import { mount } from '../test/reactHarness';
+import type { BoardTask } from '../lib/board';
+import { __resetBoardTasks, applyBoardTaskFrame, setBoardTasks } from '../lib/boardTasksStore';
+import { useGlobalBoard } from './useGlobalBoard';
+import { boardProjectChips } from '../components/Sidebar/boardProjectChips';
+
+const row = (id: string, over: Partial<BoardTask> = {}): BoardTask =>
+  ({ id, projectId: 'p1', text: id, status: 'todo', kanbanOrder: 0, parentTaskId: null, ...over } as BoardTask);
+
+test('live frames: title stays out, project and status reach the sidebar', () => {
+  __resetBoardTasks();
+  const box: { board: ReturnType<typeof useGlobalBoard> | null } = { board: null };
+  const Probe = (): null => { const b = useGlobalBoard(); useEffect(() => { box.board = b; }); return null; };
+  const h = mount(createElement(Probe));
+  setBoardTasks([row('a'), row('b'), row('c', { projectId: 'p2' })]);
+  const first = box.board!;
+  const chips = (b: typeof first) => boardProjectChips(b.byStatus, null).map((c) => `${c.projectId}:${c.n}`).join(' ');
+  console.log('[v3-b33] start', first.activeCount, chips(first));
+  expect(applyBoardTaskFrame(row('a', { text: 'agent at work' }))).toBe(true);
+  console.log('[v3-b33] title frame: same object =', box.board === first);
+  expect(box.board).toBe(first);
+  // A project move at the same status is absorbed by the store (no read): does the sidebar see it?
+  expect(applyBoardTaskFrame(row('b', { projectId: 'p2' }))).toBe(true);
+  console.log('[v3-b33] project frame: same object =', box.board === first, chips(box.board!));
+  expect(chips(box.board!)).toBe('p2:2 p1:1');
+  setBoardTasks([row('a', { text: 'agent at work', status: 'done' }), row('b', { projectId: 'p2' }), row('c', { projectId: 'p2' })]);
+  console.log('[v3-b33] status after read:', box.board!.activeCount, chips(box.board!));
+  expect(box.board!.activeCount).toBe(2);
+  h.unmount();
+});

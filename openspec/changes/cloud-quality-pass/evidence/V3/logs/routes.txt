@@ -1,0 +1,7 @@
+routes base 1 load=[1.42 2.23 1.91] {"label":"base","load1":1.36,"topic_messages":{"p50":10.63,"p95":17.67},"history_40":{"p50":14.41,"p95":22.83}}
+routes head 1 load=[1.35 2.19 1.90] Bun v1.4.2 (Linux x64)
+routes base 2 load=[1.25 2.15 1.89] {"label":"base","load1":1.29,"topic_messages":{"p50":10.05,"p95":18.83},"history_40":{"p50":13.13,"p95":21.92}}
+routes head 2 load=[1.29 2.13 1.89] Bun v1.4.2 (Linux x64)
+routes base 3 load=[1.18 2.10 1.88] {"label":"base","load1":1.55,"topic_messages":{"p50":10.98,"p95":18.67},"history_40":{"p50":14.67,"p95":24.1}}
+routes head 3 load=[1.54 2.14 1.89] Bun v1.4.2 (Linux x64)
+routes DONE

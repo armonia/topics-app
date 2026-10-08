@@ -1,0 +1,7 @@
+loop base 1 load=[0.28 0.31 0.75] {"label":"base-1","uptime":"0.31, 0.28, 0.70","readopted":"20","aliveAtEnd":"20","polls":26,"eld":{"windowMs":60000,"count":50654,"p50":0.12,"p90":0.17,"p99":1.72,"max":27.31,"mean":0.18}}
+loop head 1 load=[0.28 0.27 0.70] {"label":"head-1","uptime":"0.26, 0.28, 0.66","readopted":"20","aliveAtEnd":"20","polls":26,"eld":{"windowMs":60000,"count":52608,"p50":0.12,"p90":0.17,"p99":0.45,"max":16.81,"mean":0.14}}
+loop base 2 load=[0.30 0.29 0.66] {"label":"base-2","uptime":"0.25, 0.26, 0.62","readopted":"20","aliveAtEnd":"20","polls":26,"eld":{"windowMs":60000,"count":51000,"p50":0.12,"p90":0.16,"p99":1.77,"max":13.67,"mean":0.18}}
+loop head 2 load=[0.23 0.26 0.62] {"label":"head-2","uptime":"0.21, 0.23, 0.57","readopted":"20","aliveAtEnd":"20","polls":26,"eld":{"windowMs":60000,"count":52842,"p50":0.12,"p90":0.16,"p99":0.33,"max":9.26,"mean":0.14}}
+loop base 3 load=[0.32 0.25 0.58] {"label":"base-3","uptime":"0.13, 0.20, 0.53","readopted":"20","aliveAtEnd":"20","polls":26,"eld":{"windowMs":60000,"count":50638,"p50":0.12,"p90":0.17,"p99":1.65,"max":44.84,"mean":0.18}}
+loop head 3 load=[0.20 0.22 0.53] {"label":"head-3","uptime":"0.14, 0.19, 0.50","readopted":"20","aliveAtEnd":"20","polls":26,"eld":{"windowMs":60001,"count":52702,"p50":0.12,"p90":0.17,"p99":0.44,"max":6.97,"mean":0.14}}
+loop DONE

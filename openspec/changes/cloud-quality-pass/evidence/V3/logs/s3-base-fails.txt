@@ -1,0 +1,7 @@
+(fail) WORKTREE-05 — the watcher speaks for the worktree, not for its parent > a git operation INSIDE the worktree actually reaches the broadcast [6151.68ms]
+(fail) worktree-manager.del(): la cartella prima della riga > cartella che non si puo' togliere: la riga RESTA, il ramo resta, si lancia e si notifica [59.92ms]
+(fail) a file that cannot be stat-ed still comes out, without a size, next to its siblings [2.99ms]
+(fail) fmt — il raggruppamento italiano, non «un punto ogni tre cifre» > coincide con il runtime dove il runtime ha un'opinione [0.60ms]
+ 5108 pass
+ 3 skip
+ 4 fail

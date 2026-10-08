@@ -1,0 +1,219 @@
+/**
+ * V3 · B3.1: where the chat's pins meet (cloud-quality-pass, verification).
+ *
+ * Three tracks touch the same scroll: T1 lifts the curtain on the local copy,
+ * T7 pins a view resting at the bottom in a microtask whenever the rows change
+ * outside a stream (`MessageList.tsx`, CHAT-MEDIA-BOX-01), and the streaming
+ * pin was already there. Each was verified alone; this spec puts them on the
+ * same list:
+ *   1. a chat at the bottom receives rows, and a streamed turn: it ends at the
+ *      bottom and is never pulled back up;
+ *   2. a reader scrolled up receives rows, a streamed turn and a
+ *      `message:media`: the row being read does not move;
+ *   3. a topic switch while a row lands: the chat being read keeps its row, the
+ *      chat at the bottom is at the bottom when it comes back.
+ *
+ * @covers CHAT-01, CHAT-MEDIA-BOX-01
+ */
+import { expect, test, type APIRequestContext, type Locator, type Page } from "@playwright/test";
+import { createTopic, deleteTopic, resetPaneStore } from "./helpers/api-fixtures";
+import { E2E_BASE } from "./helpers/test-server";
+import { hermetic } from "./fixtures/hermetic";
+import { interceptWebSocket } from "./helpers/ws-helpers";
+
+hermetic(test);
+test.use({ viewport: { width: 1280, height: 800 } });
+
+async function sessionKeyOf(request: APIRequestContext, topicId: string): Promise<string> {
+  const res = await request.get(`${E2E_BASE}/api/topics`, { ignoreHTTPSErrors: true });
+  const { topics } = (await res.json()) as { topics: Record<string, { sessionKey: string }> };
+  return topics[topicId]!.sessionKey;
+}
+
+async function post(request: APIRequestContext, topicId: string, content: string): Promise<void> {
+  const res = await request.post(`${E2E_BASE}/api/topics/${topicId}/system-message`, { data: { content }, ignoreHTTPSErrors: true });
+  expect(res.ok(), `system-message ${res.status()}`).toBe(true);
+}
+
+async function seed(request: APIRequestContext, topicId: string, tag: string, n = 50): Promise<void> {
+  for (let i = 1; i <= n; i++) await post(request, topicId, `${tag} #${i} ${"Lorem ipsum dolor sit amet, consectetur. ".repeat(i % 4 === 0 ? 7 : 2)}`);
+}
+
+function scrollerOf(page: Page, topicId: string): Locator {
+  return page.locator(`[data-pane-shell="${topicId}"] [data-testid="chat-message-list"]`);
+}
+
+const distance = (s: Locator) => s.evaluate((el) => Math.round(el.scrollHeight - el.scrollTop - el.clientHeight));
+
+/** The row at the top of the viewport and its offset: what a reader looks at. */
+async function readingRow(s: Locator): Promise<{ id: string; offset: number } | null> {
+  return s.evaluate((el) => {
+    const top = el.getBoundingClientRect().top;
+    for (const row of el.querySelectorAll<HTMLElement>("[data-message-id]")) {
+      const r = row.getBoundingClientRect();
+      if (r.bottom > top + 4) return { id: row.dataset.messageId!, offset: Math.round(r.top - top) };
+    }
+    return null;
+  });
+}
+
+async function quiet(page: Page, ms: number): Promise<void> {
+  await page.evaluate((t) => new Promise((r) => setTimeout(r, t)), ms);
+}
+
+/** Records every frame's scrollTop/scrollHeight of the scroller, in the page. */
+async function traceStart(s: Locator, key: string): Promise<void> {
+  await s.evaluate((el, k) => {
+    const w = window as unknown as Record<string, { t: number; top: number; h: number }[]>;
+    w[k] = [];
+    const t0 = performance.now();
+    const tick = () => {
+      w[k]!.push({ t: Math.round(performance.now() - t0), top: Math.round(el.scrollTop), h: el.scrollHeight });
+      if (performance.now() - t0 < 15_000) requestAnimationFrame(tick);
+    };
+    requestAnimationFrame(tick);
+  }, key);
+}
+
+async function traceDrops(page: Page, key: string): Promise<{ t: number; from: number; to: number }[]> {
+  const trace = await page.evaluate((k) => (window as unknown as Record<string, { t: number; top: number }[]>)[k]!, key);
+  const drops: { t: number; from: number; to: number }[] = [];
+  for (let i = 1; i < trace.length; i++) if (trace[i]!.top < trace[i - 1]!.top - 1) drops.push({ t: trace[i]!.t, from: trace[i - 1]!.top, to: trace[i]!.top });
+  return drops;
+}
+
+async function openAtBottom(page: Page, topicId: string): Promise<Locator> {
+  await page.addInitScript((id) => localStorage.setItem("pane-store-focused-id", id), topicId);
+  await page.goto("/");
+  await page.getByTestId(`pane-tab-${topicId}`).click();
+  const s = scrollerOf(page, topicId);
+  await expect.poll(() => s.evaluate((el) => el.scrollHeight - el.clientHeight > 600), { timeout: 20_000 }).toBe(true);
+  await expect.poll(() => distance(s), { timeout: 20_000 }).toBeLessThanOrEqual(2);
+  await quiet(page, 1500);
+  return s;
+}
+
+/** A real wheel up, until the view is well away from the bottom. */
+async function readAbove(page: Page, s: Locator): Promise<void> {
+  for (let i = 0; i < 6 && (await distance(s)) < 900; i++) {
+    await s.hover();
+    await page.mouse.wheel(0, -500);
+    await quiet(page, 250);
+  }
+  expect(await distance(s), "the wheel did not take the view up").toBeGreaterThan(600);
+  await quiet(page, 1200);
+}
+
+async function streamTurn(wire: Awaited<ReturnType<typeof interceptWebSocket>>, page: Page, sessionKey: string, topicId: string, tag: string): Promise<void> {
+  const id = `${tag}-${Date.now()}`;
+  wire.send({ type: "stream:start", sessionKey, topicId, messageId: id });
+  for (let i = 0; i < 40; i++) {
+    wire.send({ type: "stream:content_chunk", sessionKey, topicId, messageId: id, content: `word${i} ` + (i % 10 === 9 ? "\n\n" : "") });
+    await quiet(page, 30);
+  }
+  wire.send({ type: "stream:end", sessionKey, topicId, messageId: id });
+}
+
+test.describe("V3 B3.1: the chat's pins on the same list", () => {
+  test.use({ serviceWorkers: "block" });
+
+  test("a chat at the bottom receives rows and a streamed turn: it ends at the bottom and never goes up", async ({ page, request }) => {
+    test.setTimeout(180_000);
+    const topic = await createTopic(request, `v3-pin-bottom-${Date.now()}`);
+    try {
+      await seed(request, topic.id, "Bottom");
+      const key = await sessionKeyOf(request, topic.id);
+      await resetPaneStore(request, [topic.id]);
+      const wire = await interceptWebSocket(page);
+      const s = await openAtBottom(page, topic.id);
+      await traceStart(s, "__v3a");
+      for (let i = 0; i < 5; i++) await post(request, topic.id, `ARRIVED-${i} ${"new row text. ".repeat(10)}`);
+      await streamTurn(wire, page, key, topic.id, "v3a");
+      for (let i = 5; i < 8; i++) await post(request, topic.id, `ARRIVED-${i} ${"new row text. ".repeat(10)}`);
+      await expect(page.locator(`[data-pane-shell="${topic.id}"] [data-testid="chat-message"]`).filter({ hasText: "ARRIVED-7" })).toBeVisible({ timeout: 15_000 });
+      await quiet(page, 2500);
+      const drops = await traceDrops(page, "__v3a");
+      const d = await distance(s);
+      console.log(`[v3-b31:bottom] distance=${d} drops=${JSON.stringify(drops)}`);
+      expect(d, "the chat at the bottom did not stay at the bottom").toBeLessThanOrEqual(2);
+      expect(drops, "the view was pulled back up while nobody touched it").toEqual([]);
+    } finally {
+      await deleteTopic(request, topic.id).catch(() => {});
+    }
+  });
+
+  test("a reader scrolled up: rows, a streamed turn and message:media do not move the row being read", async ({ page, request }) => {
+    test.setTimeout(180_000);
+    const topic = await createTopic(request, `v3-pin-reader-${Date.now()}`);
+    try {
+      await seed(request, topic.id, "Reader");
+      const key = await sessionKeyOf(request, topic.id);
+      await resetPaneStore(request, [topic.id]);
+      const wire = await interceptWebSocket(page);
+      const s = await openAtBottom(page, topic.id);
+      await readAbove(page, s);
+      const before = await readingRow(s);
+      expect(before).not.toBeNull();
+      for (let i = 0; i < 4; i++) await post(request, topic.id, `WHILE-READING-${i} ${"row. ".repeat(30)}`);
+      await streamTurn(wire, page, key, topic.id, "v3b");
+      wire.send({ type: "message:media", sessionKey: key, topicId: topic.id, media: ["/uploads/v3-none.png"], mediaSizes: { "/uploads/v3-none.png": [900, 500] } });
+      await quiet(page, 3000);
+      const after = await readingRow(s);
+      const d = await distance(s);
+      console.log(`[v3-b31:reader] before=${JSON.stringify(before)} after=${JSON.stringify(after)} distance=${d}`);
+      expect(d, "the reader was taken to the bottom").toBeGreaterThan(300);
+      expect(after?.id, "the row being read changed").toBe(before!.id);
+      expect(Math.abs((after?.offset ?? 0) - before!.offset), "the row being read moved").toBeLessThanOrEqual(4);
+    } finally {
+      await deleteTopic(request, topic.id).catch(() => {});
+    }
+  });
+
+  test("a topic switch while a row lands: the reader keeps the row, the chat at the bottom comes back at the bottom", async ({ page, request }) => {
+    test.setTimeout(240_000);
+    const a = await createTopic(request, `v3-pin-a-${Date.now()}`);
+    const b = await createTopic(request, `v3-pin-b-${Date.now()}`);
+    try {
+      await seed(request, a.id, "Alpha");
+      await seed(request, b.id, "Bravo");
+      await resetPaneStore(request, [a.id, b.id]);
+      const wire = await interceptWebSocket(page);
+      // B open first: the reader scrolls up in it.
+      const sb = await openAtBottom(page, b.id);
+      await readAbove(page, sb);
+      const reading = await readingRow(sb);
+      expect(reading).not.toBeNull();
+      // A at the bottom.
+      await page.getByTestId(`pane-tab-${a.id}`).click();
+      const sa = scrollerOf(page, a.id);
+      await expect.poll(() => distance(sa), { timeout: 20_000 }).toBeLessThanOrEqual(2);
+      await quiet(page, 1500);
+      // A row lands in A and in B while the person goes back to B.
+      const landing = Promise.all([
+        post(request, a.id, `LAND-A ${"row. ".repeat(30)}`),
+        post(request, b.id, `LAND-B ${"row. ".repeat(30)}`),
+      ]);
+      await page.getByTestId(`pane-tab-${b.id}`).click();
+      await landing;
+      // B's new row lands below a reader scrolled up: Virtuoso does not mount it, so the frame is the witness.
+      await expect.poll(() => wire.getByType("message:new").some((m) => m.data.includes("LAND-B")), { timeout: 15_000 }).toBe(true);
+      await quiet(page, 2500);
+      const back = await readingRow(sb);
+      const db = await distance(sb);
+      console.log(`[v3-b31:switch] B reading=${JSON.stringify(reading)} back=${JSON.stringify(back)} distance=${db}`);
+      expect(db, "the reader in B was taken to the bottom").toBeGreaterThan(300);
+      expect(back?.id, "B's row being read changed").toBe(reading!.id);
+      expect(Math.abs((back?.offset ?? 0) - reading!.offset), "B's row being read moved").toBeLessThanOrEqual(4);
+      // Back to A: at the bottom, on the new row.
+      await page.getByTestId(`pane-tab-${a.id}`).click();
+      await expect(page.locator(`[data-pane-shell="${a.id}"] [data-testid="chat-message"]`).filter({ hasText: "LAND-A" })).toBeVisible({ timeout: 15_000 });
+      await quiet(page, 1500);
+      const da = await distance(sa);
+      console.log(`[v3-b31:switch] A distance on return=${da}`);
+      expect(da, "A, left at the bottom, came back off the bottom").toBeLessThanOrEqual(2);
+    } finally {
+      await deleteTopic(request, a.id).catch(() => {});
+      await deleteTopic(request, b.id).catch(() => {});
+    }
+  });
+});

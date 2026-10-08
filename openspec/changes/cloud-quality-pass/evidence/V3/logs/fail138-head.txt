@@ -1,0 +1,9 @@
+(fail) Master session control — read / write / close (shell sessions) > creates a shell session, writes to it, reads its buffer, then closes it
+(fail) a system notice > a freeze and its thaw are one system row, on a system subject, and no chat lights up
+(fail) embedded manifest matches disk 1:1 on version + name + SQL content
+(fail) project channel PUT durability > a 409 (row moved on) on the teardown keepalive fallback is TERMINAL, no retry storm
+(fail) project channel PUT durability > a failing PUT (server down) is RETAINED as un-acked, not swallowed
+(fail) project channel PUT durability > a later successful PUT clears the un-acked entry (no perpetual re-send)
+(fail) un'installazione nuova si avvia > il database nato dal nulla ha le tabelle che il prodotto usa
+(fail) un'installazione nuova si avvia > la catena delle migration gira dal nulla, in ordine
+(fail) without the migrations folder (compiled sidecar) the schema is built from the manifest

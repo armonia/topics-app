@@ -1,0 +1,7 @@
+renders base 1 load=[0.97 0.69 0.65] exit=0 {"r":666.3,"layout":78.3,"pane":588}
+renders head 1 load=[0.89 0.69 0.65] exit=0 {"r":103.3,"layout":9.3,"pane":94}
+renders base 2 load=[0.76 0.68 0.64] exit=0 {"r":666.3,"layout":78.3,"pane":588}
+renders head 2 load=[1.07 0.76 0.67] exit=0 {"r":103.3,"layout":9.3,"pane":94}
+renders base 3 load=[1.05 0.77 0.68] exit=0 {"r":666.3,"layout":78.3,"pane":588}
+renders head 3 load=[0.88 0.75 0.67] exit=0 {"r":103.3,"layout":9.3,"pane":94}
+renders DONE

@@ -1,0 +1,12 @@
+accfull-base-1.log: 0 failed 21 passed  17 settled
+accfull-base-2.log: 0 failed 21 passed  17 settled
+accfull-base-3.log: 0 failed 21 passed  17 settled
+accfull-head-1.log: 0 failed 21 passed  17 settled
+accfull-head-2.log: 0 failed 21 passed  17 settled
+accfull-head-3.log: 0 failed 21 passed  17 settled
+accload-base-1.log: 0 failed 6 passed  6 settled
+accload-base-2.log: 0 failed 6 passed  6 settled
+accload-head-1.log: 0 failed 6 passed  6 settled
+accload-head-2.log: 0 failed 6 passed  6 settled
+accdbg-base.log: 0 failed 8 passed  8 settled
+accdbg-head.log: 0 failed 8 passed  8 settled

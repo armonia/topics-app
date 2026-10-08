@@ -1,0 +1,25 @@
+  check:any                verde    0s  [check-any] OK — 6 file(s) scanned, all clean.
+  check:any-budget         verde    1s  [any-budget] OK — 339 'any', esattamente il tetto.
+  check:ref-callbacks      verde    0s  [ref-callbacks] OK — 378 file, nessuna callback ref inline che tocca
+  check:nul                verde    0s  ✓ nessun byte NUL nei sorgenti tracciati
+  check:eslint-disable     verde    1s  [check-eslint-disable] OK — 3502 file, ogni disable ha un motivo scr
+  check:test-skips         verde    0s  [check-test-skips] skip/fixme totali: 24 (baseline 24)
+  check:emdash             verde    1s  [check-emdash] OK: 1772 file(s), no long dash in any app text.
+  check:bloat              verde    3s  [check-bloat] OK - 126 file(s) over 800 lines and 482 duplicated lines
+  check:route-shadowing    verde    1s  ✓ no unreviewed overlap between routers
+  check:typography         verde    4s  [typography] OK - 11 steps, 1680 files, no size outside the scale.
+  check:ui-language        verde    2s      client/src/components/Layout/PaneTabBar.tsx: 3 -> 0
+  check:comment-language   verde    1s      client/src/components/Browser/RemoteBrowserPanel.tsx: 130 -> 116
+  check:identifier-language verde    1s  [identifier-language] OK - 5424 nomi non inglesi, tutti gia' nella bas
+  check:sleeps             verde    1s  [check-sleeps] OK: nessun file ha guadagnato un sonno fisso.
+  check:tmp-canonical      verde    0s  check:tmp-canonical: no literal /tmp/ in the specs where a path is an 
+  check:module-mock-restore verde    0s  [check-module-mock-restore] OK - 26 file(s) use mock.module, 2 specifi
+  check:api-door           verde    0s  check:api-door: ok, no raw fetch('/api…') outside client/src/lib/she
+  check:untraced-tests     verde    0s  [untraced-tests] OK: 0 file senza dichiarazione (linea di partenza 0),
+  check:spec-coverage      verde    1s  Verde. Debito noto: 0 scoperti, 0 ambigui, 0 penzolanti — e non e' c
+  check:migrations         verde    0s  ✓ migration a posto (184 file sul branch vs origin/main)
+  check:deadcode           verde   11s  Unused tag in client/src/state/pane/adapters/projectLayoutSync.ts: __r
+  check:deadcode-blindspots verde    9s  Nessuna regressione: il cancello guarda tutto il resto.
+  typecheck                verde  123s  $ ./client/node_modules/.bin/tsc -p relay/tsconfig.json
+  lint                     verde  151s  $ bun run scripts/lint.ts server
+BARRA ROSSA: 1 cancello/i.

@@ -1,0 +1,7 @@
+cls base 1 load=[0.69 0.72 0.66] exit=1 [chat-image-box:new] CLS=0.0330 [chat-image-box:media] CLS=0.0330 [topic-first-frame:away-image] CLS=0.0330 
+cls head 1 load=[0.86 0.78 0.69] exit=0 [chat-image-box:new] CLS=0.0000 [chat-image-box:media] CLS=0.0000 [topic-first-frame:away-image] CLS=0.0000 
+cls base 2 load=[0.85 0.78 0.69] exit=1 [chat-image-box:new] CLS=0.0330 [chat-image-box:media] CLS=0.0330 [topic-first-frame:away-image] CLS=0.0330 
+cls head 2 load=[0.75 0.77 0.69] exit=0 [chat-image-box:new] CLS=0.0000 [chat-image-box:media] CLS=0.0000 [topic-first-frame:away-image] CLS=0.0000 
+cls base 3 load=[1.08 0.87 0.73] exit=1 [chat-image-box:new] CLS=0.0330 [chat-image-box:media] CLS=0.0330 [topic-first-frame:away-image] CLS=0.0330 
+cls head 3 load=[1.10 0.91 0.75] exit=0 [chat-image-box:new] CLS=0.0000 [chat-image-box:media] CLS=0.0000 [topic-first-frame:away-image] CLS=0.0000 
+cls DONE

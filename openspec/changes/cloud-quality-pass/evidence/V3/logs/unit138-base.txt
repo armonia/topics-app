@@ -1,0 +1,31 @@
+── test:unit shards (ibrido: fase1 parallela + fase2 seriale) ──
+  fase1 shard 0: RED  908 file  682.7s
+  fase1 shard 1: RED  918 file  530.6s
+  fase2 seriale : ok   3 file  44.2s
+fase1 shard 0, test rossi (42):
+  ✗ scripts/reload-gate-migration.test.ts › server-reload-gate.sh — cancello migration SQL › A: migration pending ROTTA → exit 1, non tocca il DB vivo
+  ✗ scripts/reload-gate-migration.test.ts › server-reload-gate.sh — cancello migration SQL › F: migration ROTTA senza DATA_DIR → exit 1 (percorso default = APP_DIR/data)
+  ✗ server/services/worktree-manager.test.ts › worktree-manager.del(): la cartella prima della riga › cartella che non si puo' togliere: la riga RESTA, il ramo resta, si lancia e si notifica
+  ✗ server/lib/loopback-probe.test.ts › isPortListening › un server in ascolto SOLO su ::1 non va dato per morto
+  ✗ tests/integration/installed-app-home-isolation.test.ts › an installed Topics writes only into its own home › a boot and a session leave nothing outside ~/.topics
+  ✗ tests/integration/installed-app-home-isolation.test.ts › an installed Topics writes only into its own home › a home that already has ~/.openclaw keeps using it
+  ✗ tests/integration/leak-ws-registries.test.ts › (unnamed)
+  ✗ tests/integration/ask-user-poll-loop.test.ts › ask_user_question — anello bridge ⇄ route › la risposta arriva dopo che una gamba è già scaduta, e il tool la restituisce
+  ✗ tests/integration/ask-user-poll-loop.test.ts › ask_user_question — anello bridge ⇄ route › una domanda annullata diventa un errore del tool, mai una risposta inventata
+  ✗ client/src/hooks/useTauriBrowser.move.test.ts › useTauriBrowser: moving a live page to another surface keeps it › a handed-over move survives a pane that mounts two seconds late
+  ✗ client/src/hooks/useChat.ownBubbleByKey.test.ts › the order the two handlers hear my echo in › K1: the panes hear it before the chat, the turn still streaming: one copy, in the bubble's place
+  ✗ client/src/hooks/useChat.ownBubbleByKey.test.ts › a network error, and the resend with the same key › N1: the bubble is marked queued by its key and the empty placeholder goes, with a row written beside it
+  … e altri 30
+fase1 shard 1, test rossi (10):
+  ✗ server/git-watcher.test.ts › WORKTREE-05 — the watcher speaks for the worktree, not for its parent › a git operation INSIDE the worktree actually reaches the broadcast
+  ✗ scripts/check-security.test.ts › check:security - i pezzi che vogliono l&apos;albero vero › la copia parte verde sui tre pezzi che non chiedono la rete
+  ✗ server/attention/system-notices.test.ts › a system notice › a freeze and its thaw are one system row, on a system subject, and no chat lights up
+  ✗ server/lib/file-tree.test.ts › a file that cannot be stat-ed still comes out, without a size, next to its siblings
+  ✗ server/routes/processes.shell-sweep.test.ts › sweep dei figli orfani di una shell morta › cattura il sottoalbero da viva e chiude i figli quando la shell muore
+  ✗ tests/integration/topic-read-seen-propagation.test.ts › (unnamed)
+  ✗ tests/unit/no-home-paths-tracked.test.ts › nessun percorso di home in un file tracciato › la home di chi esegue non compare in nessuno di essi
+  ✗ client/src/lib/featureWeightText.test.ts › fmt — il raggruppamento italiano, non «un punto ogni tre cifre» › coincide con il runtime dove il runtime ha un'opinione
+  ✗ client/src/state/pane/middleware/syncServer.test.ts › syncServer — re-arm the push after a WS drop › a PUT aborted mid-flight by the drop is re-sent on the next open
+  ✗ client/src/state/pane/adapters/projectLayoutSync.durability.test.ts › project channel PUT durability › a failing PUT (server down) is RETAINED as un-acked, not swallowed
+  FAIL  1829 file (1826 par / 3 ser) in 2 shard  wall 726.9s  (exit 1)
+error: script "test:unit:shards" exited with code 1

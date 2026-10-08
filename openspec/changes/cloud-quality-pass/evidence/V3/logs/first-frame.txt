@@ -1,0 +1,7 @@
+first-frame base 1 load=[1.21 0.62 0.62] exit=1 skeletonFrames=71 seq=-----SSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSS
+first-frame head 1 load=[1.08 0.62 0.62] exit=0 skeletonFrames=14 seq=------SSSSSSSSSSSSSSCCCCCCCCCCCCCCCCCCCC
+first-frame base 2 load=[0.97 0.63 0.63] exit=1 skeletonFrames=72 seq=------SSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSS
+first-frame head 2 load=[0.89 0.63 0.63] exit=0 skeletonFrames=14 seq=-------SSSSSSSSSSSSSSCCCCCCCCCCCCCCCCCCC
+first-frame base 3 load=[0.69 0.60 0.62] exit=1 skeletonFrames=70 seq=-----SSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSS
+first-frame head 3 load=[0.97 0.67 0.64] exit=0 skeletonFrames=13 seq=------SSSSSSSSSSSSSCCCCCCCCCCCCCCCCCCCCC
+first-frame DONE

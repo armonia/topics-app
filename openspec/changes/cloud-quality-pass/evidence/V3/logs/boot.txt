@@ -1,0 +1,7 @@
+boot base 1 load=[0.22 0.30 0.94] {"label":"base","mode":"warm","boots":"507 566 495 524 513","median_ms":513,"load1":"0.14"} {"label":"base","mode":"fresh","boots":"957 930 813 946 788","median_ms":930,"load1":"0.17"}
+boot head 1 load=[0.17 0.27 0.89] {"label":"head","mode":"warm","boots":"440 488 460 431 471","median_ms":460,"load1":"0.11"} {"label":"head","mode":"fresh","boots":"751 870 892 894 899","median_ms":892,"load1":"0.07"}
+boot base 2 load=[0.07 0.22 0.84] {"label":"base","mode":"warm","boots":"532 538 541 482 568","median_ms":538,"load1":"0.13"} {"label":"base","mode":"fresh","boots":"981 1023 939 905 1174","median_ms":981,"load1":"0.14"}
+boot head 2 load=[0.13 0.21 0.80] {"label":"head","mode":"warm","boots":"494 493 493 445 480","median_ms":493,"load1":"0.15"} {"label":"head","mode":"fresh","boots":"738 901 1082 1148 980","median_ms":980,"load1":"0.71"}
+boot base 3 load=[0.65 0.34 0.81] {"label":"base","mode":"warm","boots":"555 541 504 492 504","median_ms":504,"load1":"0.64"} {"label":"base","mode":"fresh","boots":"923 997 991 1106 1070","median_ms":997,"load1":"0.42"}
+boot head 3 load=[0.42 0.33 0.79] {"label":"head","mode":"warm","boots":"502 416 521 423 521","median_ms":502,"load1":"0.43"} {"label":"head","mode":"fresh","boots":"829 949 1112 966 896","median_ms":949,"load1":"0.28"}
+boot DONE

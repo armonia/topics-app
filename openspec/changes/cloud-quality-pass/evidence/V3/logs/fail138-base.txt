@@ -1,0 +1,51 @@
+(fail) (unnamed)
+(fail) WORKTREE-05 — the watcher speaks for the worktree, not for its parent > a git operation INSIDE the worktree actually reaches the broadcast
+(fail) a file that cannot be stat-ed still comes out, without a size, next to its siblings
+(fail) a network error, and the resend with the same key > N1: the bubble is marked queued by its key and the empty placeholder goes, with a row written beside it
+(fail) a system notice > a freeze and its thaw are one system row, on a system subject, and no chat lights up
+(fail) an installed Topics writes only into its own home > a boot and a session leave nothing outside ~/.topics
+(fail) an installed Topics writes only into its own home > a home that already has ~/.openclaw keeps using it
+(fail) ask_user_question — anello bridge ⇄ route > la risposta arriva dopo che una gamba è già scaduta, e il tool la restituisce
+(fail) ask_user_question — anello bridge ⇄ route > una domanda annullata diventa un errore del tool, mai una risposta inventata
+(fail) browserSingletonReducer > context-less open reuses the first browser pane in the group (legacy)
+(fail) browserSingletonReducer > context-less open with no browser anywhere creates a fresh pane
+(fail) browserSingletonReducer > contextId with no match CREATES a new pane — never rebinds another context's pane
+(fail) browserSingletonReducer > exact contextId match reuses the existing pane
+(fail) browserSingletonReducer > un browser ALTROVE nell'app viene riusato, non duplicato (ramo globale)
+(fail) check:security - i pezzi che vogliono l'albero vero > la copia parte verde sui tre pezzi che non chiedono la rete
+(fail) cross-device browser close eviction > IGNORES a stale close outside the TTL window (won't strip a long-open tab)
+(fail) cross-device browser close eviction > KEEPS a pane re-opened AFTER the close (openedAt newer than the tombstone)
+(fail) cross-device browser close eviction > evicts an open pane (no openedAt) when a fresh remote tombstone arrives
+(fail) cross-device browser close eviction > no-op when the pane isn't open here
+(fail) failed PUT > the server's old value does not overwrite the local one, and the PUT is sent again
+(fail) failed PUT, other keys > only the key that failed is protected and re-sent; another device's change applies
+(fail) fmt — il raggruppamento italiano, non «un punto ogni tre cifre» > coincide con il runtime dove il runtime ha un'opinione
+(fail) gate di idratazione > …e parte appena l’idratazione ha esito, col valore parcheggiato
+(fail) isPortListening > un server in ascolto SOLO su ::1 non va dato per morto
+(fail) nessun percorso di home in un file tracciato > la home di chi esegue non compare in nessuno di essi
+(fail) open-project project pane survives the store↔React reorder bridge > REORDER_PANES DROPS a project pane id that was never registered (the bug)
+(fail) open-project project pane survives the store↔React reorder bridge > a REGISTERED project pane survives the same reorder (the fix)
+(fail) open-project project pane survives the store↔React reorder bridge > registering a project pane already open is idempotent (open_project into an OPEN project — the move-while-already-open case)
+(fail) paneForContext — la pane si cerca in tutto il layout, non nella cella > IL GUASTO: la pane sta in una cella ACCANTO ⇒ conta come già aperta
+(fail) paneForContext — la pane si cerca in tutto il layout, non nella cella > la pane è una tab di questa cella ⇒ la trova senza passare dallo store
+(fail) paneForContext — la pane si cerca in tutto il layout, non nella cella > nessuna pane su quel contesto, da nessuna parte ⇒ la porta può prenderla
+(fail) paneForContext — la pane si cerca in tutto il layout, non nella cella > senza contextId non c'è nessuna domanda da fare
+(fail) paneReducer (PANE-01, PANE-03, PANE-04) > HYDRATE_FROM_SNAPSHOT leaves lastSeq at clean.lastSeq (no dispatcher double-bump)
+(fail) paneReducer (PANE-01, PANE-03, PANE-04) > LWW gate: local dispatch bursts do not block newer remote frames (audit HIGH)
+(fail) paneReducer (PANE-01, PANE-03, PANE-04) > LWW gate: snapshot without server_seq is dropped
+(fail) paneReducer (PANE-01, PANE-03, PANE-04) > LWW gate: warm-boot snapshot with server_seq 0 applies on an empty store, not mid-session
+(fail) paneReducer (PANE-01, PANE-03, PANE-04) > lastSeq monotonicity: CLEAR_CLOSED_* advance the store's seq by 1 per dispatch
+(fail) project channel PUT durability > a failing PUT (server down) is RETAINED as un-acked, not swallowed
+(fail) releaseArrivedSheetFromLayout (a page put back elsewhere) > a PROJECT pane holding the page is reclaimed through its project window
+(fail) releaseArrivedSheetFromLayout (a page put back elsewhere) > a WORKSPACE pane holding the page leaves the pane store, without an undo record
+(fail) releaseArrivedSheetFromLayout (a page put back elsewhere) > a page no layout here holds touches nothing
+(fail) reopenClosedTab: la revive che trova la coda occupata > il rovescio: una 404 vera conia ancora una sessione nuova
+(fail) reopenClosedTab: la revive che trova la coda occupata > un 500 resta un fallimento: la sessione nuova è meglio di una tab morta
+(fail) server-reload-gate.sh — cancello migration SQL > A: migration pending ROTTA → exit 1, non tocca il DB vivo
+(fail) server-reload-gate.sh — cancello migration SQL > F: migration ROTTA senza DATA_DIR → exit 1 (percorso default = APP_DIR/data)
+(fail) sweep dei figli orfani di una shell morta > cattura il sottoalbero da viva e chiude i figli quando la shell muore
+(fail) syncServer — re-arm the push after a WS drop > a PUT aborted mid-flight by the drop is re-sent on the next open
+(fail) t > (unnamed)
+(fail) the order the two handlers hear my echo in > K1: the panes hear it before the chat, the turn still streaming: one copy, in the bubble's place
+(fail) useTauriBrowser: moving a live page to another surface keeps it > a handed-over move survives a pane that mounts two seconds late
+(fail) worktree-manager.del(): la cartella prima della riga > cartella che non si puo' togliere: la riga RESTA, il ramo resta, si lancia e si notifica

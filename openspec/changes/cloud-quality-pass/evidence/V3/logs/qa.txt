@@ -1,0 +1,7 @@
+qa base 1 load=[1.04 0.92 0.75] exit=1 seconds=319
+qa head 1 load=[1.14 1.27 1.00] exit=0 seconds=152
+qa base 2 load=[5.55 4.17 2.22] exit=1 seconds=317
+qa head 2 load=[1.87 2.60 2.08] exit=0 seconds=150
+qa base 3 load=[5.52 4.90 3.10] exit=1 seconds=342
+qa head 3 load=[1.64 2.63 2.61] exit=0 seconds=159
+qa DONE

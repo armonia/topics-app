@@ -1,0 +1,3 @@
+{"expected":465,"unexpected":1,"flaky":1,"skipped":2}
+UNEXPECTED board-recapture-preview.spec.ts:246 RECAPTURE-01: card senza evidenza → un click → l'anteprima sulla card [failed,failed,failed] Error: expect(locator).toBeVisible() failed
+FLAKY chat-accordion-no-shift.spec.ts:479 tool-result-clamp: open and close, at the bottom and in the middle [failed,passed] TimeoutError: page.waitForFunction: Timeout 30000ms exceeded.

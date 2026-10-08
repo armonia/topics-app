@@ -1,0 +1,28 @@
+--- a/tests/e2e/chat-accordion-no-shift.spec.ts
++++ b/tests/e2e/chat-accordion-no-shift.spec.ts
+@@ -504,10 +504,21 @@
+ 
+       // AT THE BOTTOM: the reader follows the output, nothing touched.
+       await startProbe(page, { header: kind.click(chat.last), fold: kind.fold(chat.last), docked: !!kind.docked });
+-      await page.waitForFunction(() => {
+-        const f = (window as unknown as { __acc: Probe }).__acc.frames.slice(-15);
+-        return f.length === 15 && f.every((x) => x.st === f[0]!.st && x.sh === f[0]!.sh && x.sh - x.st - x.ch <= 1);
+-      }, null, { timeout: 30_000 });
++      try {
++        await page.waitForFunction(() => {
++          const f = (window as unknown as { __acc: Probe }).__acc.frames.slice(-15);
++          return f.length === 15 && f.every((x) => x.st === f[0]!.st && x.sh === f[0]!.sh && x.sh - x.st - x.ch <= 1);
++        }, null, { timeout: 30_000 });
++        console.log(`V3DBG ${kind.name} settled`);
++      } catch (e) {
++        const fr = await page.evaluate(() => (window as unknown as { __acc: Probe }).__acc.frames);
++        const sig = fr.map((x) => `${x.st}/${x.sh}/${x.ch}`);
++        const runs: string[] = []; let prev = ""; let n = 0;
++        for (const k of sig) { if (k === prev) n++; else { if (prev) runs.push(`${prev}x${n}`); prev = k; n = 1; } }
++        runs.push(`${prev}x${n}`);
++        console.log(`V3DBG ${kind.name} NOT SETTLED frames=${fr.length} runs(last 40)=${runs.slice(-40).join(" ")}`);
++        throw e;
++      }
+       await stopProbe(page);
+       const covered: string[] = [];
+       for (const phase of phases) {

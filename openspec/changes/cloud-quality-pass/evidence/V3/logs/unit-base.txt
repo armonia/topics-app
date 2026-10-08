@@ -1,0 +1,21 @@
+── test:unit shards (ibrido: fase1 parallela + fase2 seriale) ──
+  fase1 shard 0: RED  908 file  666.6s
+  fase1 shard 1: RED  918 file  512.8s
+  fase2 seriale : ok   3 file  44.6s
+fase1 shard 0, test rossi (7):
+  ✗ scripts/reload-gate-migration.test.ts › server-reload-gate.sh — cancello migration SQL › A: migration pending ROTTA → exit 1, non tocca il DB vivo
+  ✗ scripts/reload-gate-migration.test.ts › server-reload-gate.sh — cancello migration SQL › F: migration ROTTA senza DATA_DIR → exit 1 (percorso default = APP_DIR/data)
+  ✗ server/services/worktree-manager.test.ts › worktree-manager.del(): la cartella prima della riga › cartella che non si puo' togliere: la riga RESTA, il ramo resta, si lancia e si notifica
+  ✗ server/lib/loopback-probe.test.ts › isPortListening › un server in ascolto SOLO su ::1 non va dato per morto
+  ✗ tests/integration/installed-app-home-isolation.test.ts › an installed Topics writes only into its own home › a boot and a session leave nothing outside ~/.topics
+  ✗ tests/integration/installed-app-home-isolation.test.ts › an installed Topics writes only into its own home › a home that already has ~/.openclaw keeps using it
+  ✗ tests/integration/leak-ws-registries.test.ts › (unnamed)
+fase1 shard 1, test rossi (6):
+  ✗ scripts/check-security.test.ts › check:security - i pezzi che vogliono l'albero vero › la copia parte verde sui tre pezzi che non chiedono la rete
+  ✗ server/attention/system-notices.test.ts › a system notice › a freeze and its thaw are one system row, on a system subject, and no chat lights up
+  ✗ server/lib/file-tree.test.ts › a file that cannot be stat-ed still comes out, without a size, next to its siblings
+  ✗ server/routes/processes.shell-sweep.test.ts › sweep dei figli orfani di una shell morta › cattura il sottoalbero da viva e chiude i figli quando la shell muore
+  ✗ tests/integration/topic-read-seen-propagation.test.ts › (unnamed)
+  ✗ tests/unit/no-home-paths-tracked.test.ts › nessun percorso di home in un file tracciato › la home di chi esegue non compare in nessuno di essi
+  FAIL  1829 file (1826 par / 3 ser) in 2 shard  wall 711.3s  (exit 1)
+error: script "test:unit:shards" exited with code 1

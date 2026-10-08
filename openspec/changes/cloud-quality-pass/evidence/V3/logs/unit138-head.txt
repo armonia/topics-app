@@ -1,0 +1,20 @@
+── test:unit shards (ibrido: fase1 parallela + fase2 seriale) ──
+  fase1 shard 0: ok   458 file  353.8s
+  fase1 shard 1: RED  468 file  258.0s
+  fase1 shard 2: RED  458 file  367.6s
+  fase1 shard 3: RED  458 file  1263.4s
+  fase2 seriale : ok   3 file  45.1s
+fase1 shard 1, test rossi (5):
+  ✗ server/attention/system-notices.test.ts › a system notice › a freeze and its thaw are one system row, on a system subject, and no chat lights up
+  ✗ server/db/migrations-embedded.test.ts › embedded manifest matches disk 1:1 on version + name + SQL content
+  ✗ server/db/migrations-embedded.test.ts › without the migrations folder (compiled sidecar) the schema is built from the manifest
+  ✗ tests/unit/db-nasce-da-zero.test.ts › un&apos;installazione nuova si avvia › la catena delle migration gira dal nulla, in ordine
+  ✗ tests/unit/db-nasce-da-zero.test.ts › un&apos;installazione nuova si avvia › il database nato dal nulla ha le tabelle che il prodotto usa
+fase1 shard 2, test rossi (4):
+  ✗ tests/integration/master-sessions.test.ts › Master session control — read / write / close (shell sessions) › creates a shell session, writes to it, reads its buffer, then closes it
+  ✗ client/src/state/pane/adapters/projectLayoutSync.durability.test.ts › project channel PUT durability › a failing PUT (server down) is RETAINED as un-acked, not swallowed
+  ✗ client/src/state/pane/adapters/projectLayoutSync.durability.test.ts › project channel PUT durability › a later successful PUT clears the un-acked entry (no perpetual re-send)
+  ✗ client/src/state/pane/adapters/projectLayoutSync.durability.test.ts › project channel PUT durability › a 409 (row moved on) on the teardown keepalive fallback is TERMINAL, no retry storm
+fase1 shard 3: nessun test rosso nel referto junit — il rosso e' un hook scaduto, un crash o un timeout di processo: leggi l'output del shard qui sopra
+  FAIL  1845 file (1842 par / 3 ser) in 4 shard  wall 1308.5s  (exit 1)
+error: script "test:unit:shards" exited with code 1

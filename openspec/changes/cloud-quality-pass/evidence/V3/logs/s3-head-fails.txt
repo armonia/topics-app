@@ -1,0 +1,14 @@
+(fail) WORKTREE-05 — the watcher speaks for the worktree, not for its parent > a git operation INSIDE the worktree actually reaches the broadcast [6086.97ms]
+(fail) (unnamed) [14.68ms]
+(fail) chi è vivo, e chi non lo sa > nessun provider che sappia rispondere → `null`, non `false` [19.16ms]
+(fail) chi è vivo, e chi non lo sa > sessione di un provider ACP: claude-code non risponde per lui [5.26ms]
+(fail) chi è vivo, e chi non lo sa > con il solo claude-code registrato, la sua risposta vale ancora [4.71ms]
+(fail) chi è vivo, e chi non lo sa > sessione posseduta dall'ACP: risponde LUI, e la rete resta accesa [4.44ms]
+(fail) the sweeper probe, by name > IL CASO CHE HA UCCISO IL TURNO: il proprietario dice vivo, e la sonda lo riporta [3.62ms]
+(fail) the sweeper probe, by name > un turno che NON e' di nessuno resta `undefined`, non `false` [3.50ms]
+(fail) the sweeper probe, by name > il soccorso va al proprietario, non a claude-code [3.62ms]
+(fail) the Stop the server writes is the Stop the sweep reads > a message stopped before the restart is not resent after it [8.57ms]
+(fail) fmt — il raggruppamento italiano, non «un punto ogni tre cifre» > coincide con il runtime dove il runtime ha un'opinione [0.59ms]
+ 5119 pass
+ 5 skip
+ 11 fail

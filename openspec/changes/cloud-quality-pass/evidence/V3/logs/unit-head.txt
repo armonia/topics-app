@@ -1,0 +1,5 @@
+── test:unit shards (ibrido: fase1 parallela + fase2 seriale) ──
+  fase1 shard 0: ok   916 file  606.3s
+  fase1 shard 1: ok   926 file  658.8s
+  fase2 seriale : ok   3 file  44.7s
+  PASS  1845 file (1842 par / 3 ser) in 2 shard  wall 703.5s

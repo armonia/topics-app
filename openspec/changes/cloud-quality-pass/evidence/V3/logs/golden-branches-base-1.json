@@ -1,0 +1,658 @@
+[
+ {
+  "name": "feature/b00",
+  "current": false,
+  "isRemote": false,
+  "ahead": 1,
+  "behind": 2
+ },
+ {
+  "name": "feature/b01",
+  "current": false,
+  "isRemote": false,
+  "ahead": 0,
+  "behind": 0
+ },
+ {
+  "name": "feature/b02",
+  "current": false,
+  "isRemote": false,
+  "ahead": 0,
+  "behind": 0
+ },
+ {
+  "name": "feature/b03",
+  "current": false,
+  "isRemote": false,
+  "ahead": 0,
+  "behind": 2
+ },
+ {
+  "name": "feature/b04",
+  "current": false,
+  "isRemote": false,
+  "ahead": 1,
+  "behind": 0
+ },
+ {
+  "name": "feature/b05",
+  "current": false,
+  "isRemote": false,
+  "ahead": 0,
+  "behind": 0
+ },
+ {
+  "name": "feature/b06",
+  "current": false,
+  "isRemote": false,
+  "ahead": 0,
+  "behind": 2
+ },
+ {
+  "name": "feature/b07",
+  "current": false,
+  "isRemote": false,
+  "ahead": 0,
+  "behind": 0
+ },
+ {
+  "name": "feature/b08",
+  "current": false,
+  "isRemote": false,
+  "ahead": 1,
+  "behind": 0
+ },
+ {
+  "name": "feature/b09",
+  "current": false,
+  "isRemote": false,
+  "ahead": 0,
+  "behind": 2
+ },
+ {
+  "name": "feature/b10",
+  "current": false,
+  "isRemote": false,
+  "ahead": 0,
+  "behind": 0
+ },
+ {
+  "name": "feature/b11",
+  "current": false,
+  "isRemote": false,
+  "ahead": 0,
+  "behind": 0
+ },
+ {
+  "name": "feature/b12",
+  "current": false,
+  "isRemote": false,
+  "ahead": 1,
+  "behind": 2
+ },
+ {
+  "name": "feature/b13",
+  "current": false,
+  "isRemote": false,
+  "ahead": 0,
+  "behind": 0
+ },
+ {
+  "name": "feature/b14",
+  "current": false,
+  "isRemote": false,
+  "ahead": 0,
+  "behind": 0
+ },
+ {
+  "name": "feature/b15",
+  "current": false,
+  "isRemote": false,
+  "ahead": 0,
+  "behind": 2
+ },
+ {
+  "name": "feature/b16",
+  "current": false,
+  "isRemote": false,
+  "ahead": 1,
+  "behind": 0
+ },
+ {
+  "name": "feature/b17",
+  "current": false,
+  "isRemote": false,
+  "ahead": 0,
+  "behind": 0
+ },
+ {
+  "name": "feature/b18",
+  "current": false,
+  "isRemote": false,
+  "ahead": 0,
+  "behind": 2
+ },
+ {
+  "name": "feature/b19",
+  "current": false,
+  "isRemote": false,
+  "ahead": 0,
+  "behind": 0
+ },
+ {
+  "name": "feature/b20",
+  "current": false,
+  "isRemote": false,
+  "ahead": 1,
+  "behind": 0
+ },
+ {
+  "name": "feature/b21",
+  "current": false,
+  "isRemote": false,
+  "ahead": 0,
+  "behind": 2
+ },
+ {
+  "name": "feature/b22",
+  "current": false,
+  "isRemote": false,
+  "ahead": 0,
+  "behind": 0
+ },
+ {
+  "name": "feature/b23",
+  "current": false,
+  "isRemote": false,
+  "ahead": 0,
+  "behind": 0
+ },
+ {
+  "name": "feature/b24",
+  "current": false,
+  "isRemote": false,
+  "ahead": 1,
+  "behind": 2
+ },
+ {
+  "name": "feature/b25",
+  "current": false,
+  "isRemote": false,
+  "ahead": 0,
+  "behind": 0
+ },
+ {
+  "name": "feature/b26",
+  "current": false,
+  "isRemote": false,
+  "ahead": 0,
+  "behind": 0
+ },
+ {
+  "name": "feature/b27",
+  "current": false,
+  "isRemote": false,
+  "ahead": 0,
+  "behind": 2
+ },
+ {
+  "name": "feature/b28",
+  "current": false,
+  "isRemote": false,
+  "ahead": 1,
+  "behind": 0
+ },
+ {
+  "name": "feature/b29",
+  "current": false,
+  "isRemote": false,
+  "ahead": 0,
+  "behind": 0
+ },
+ {
+  "name": "feature/b30",
+  "current": false,
+  "isRemote": false,
+  "ahead": 0,
+  "behind": 2
+ },
+ {
+  "name": "feature/b31",
+  "current": false,
+  "isRemote": false,
+  "ahead": 0,
+  "behind": 0
+ },
+ {
+  "name": "feature/b32",
+  "current": false,
+  "isRemote": false,
+  "ahead": 1,
+  "behind": 0
+ },
+ {
+  "name": "feature/b33",
+  "current": false,
+  "isRemote": false,
+  "ahead": 0,
+  "behind": 2
+ },
+ {
+  "name": "feature/b34",
+  "current": false,
+  "isRemote": false,
+  "ahead": 0,
+  "behind": 0
+ },
+ {
+  "name": "feature/b35",
+  "current": false,
+  "isRemote": false,
+  "ahead": 0,
+  "behind": 0
+ },
+ {
+  "name": "feature/b36",
+  "current": false,
+  "isRemote": false,
+  "ahead": 1,
+  "behind": 2
+ },
+ {
+  "name": "feature/b37",
+  "current": false,
+  "isRemote": false,
+  "ahead": 0,
+  "behind": 0
+ },
+ {
+  "name": "feature/b38",
+  "current": false,
+  "isRemote": false,
+  "ahead": 0,
+  "behind": 0
+ },
+ {
+  "name": "feature/b39",
+  "current": false,
+  "isRemote": false,
+  "ahead": 0,
+  "behind": 2
+ },
+ {
+  "name": "main",
+  "current": true,
+  "isRemote": false,
+  "ahead": 0,
+  "behind": 0
+ },
+ {
+  "name": "origin/feature/b00",
+  "current": false,
+  "isRemote": true,
+  "ahead": 0,
+  "behind": 0,
+  "remote": "origin",
+  "shortName": "feature/b00"
+ },
+ {
+  "name": "origin/feature/b01",
+  "current": false,
+  "isRemote": true,
+  "ahead": 0,
+  "behind": 0,
+  "remote": "origin",
+  "shortName": "feature/b01"
+ },
+ {
+  "name": "origin/feature/b02",
+  "current": false,
+  "isRemote": true,
+  "ahead": 0,
+  "behind": 0,
+  "remote": "origin",
+  "shortName": "feature/b02"
+ },
+ {
+  "name": "origin/feature/b03",
+  "current": false,
+  "isRemote": true,
+  "ahead": 0,
+  "behind": 0,
+  "remote": "origin",
+  "shortName": "feature/b03"
+ },
+ {
+  "name": "origin/feature/b04",
+  "current": false,
+  "isRemote": true,
+  "ahead": 0,
+  "behind": 0,
+  "remote": "origin",
+  "shortName": "feature/b04"
+ },
+ {
+  "name": "origin/feature/b05",
+  "current": false,
+  "isRemote": true,
+  "ahead": 0,
+  "behind": 0,
+  "remote": "origin",
+  "shortName": "feature/b05"
+ },
+ {
+  "name": "origin/feature/b06",
+  "current": false,
+  "isRemote": true,
+  "ahead": 0,
+  "behind": 0,
+  "remote": "origin",
+  "shortName": "feature/b06"
+ },
+ {
+  "name": "origin/feature/b07",
+  "current": false,
+  "isRemote": true,
+  "ahead": 0,
+  "behind": 0,
+  "remote": "origin",
+  "shortName": "feature/b07"
+ },
+ {
+  "name": "origin/feature/b08",
+  "current": false,
+  "isRemote": true,
+  "ahead": 0,
+  "behind": 0,
+  "remote": "origin",
+  "shortName": "feature/b08"
+ },
+ {
+  "name": "origin/feature/b09",
+  "current": false,
+  "isRemote": true,
+  "ahead": 0,
+  "behind": 0,
+  "remote": "origin",
+  "shortName": "feature/b09"
+ },
+ {
+  "name": "origin/feature/b10",
+  "current": false,
+  "isRemote": true,
+  "ahead": 0,
+  "behind": 0,
+  "remote": "origin",
+  "shortName": "feature/b10"
+ },
+ {
+  "name": "origin/feature/b11",
+  "current": false,
+  "isRemote": true,
+  "ahead": 0,
+  "behind": 0,
+  "remote": "origin",
+  "shortName": "feature/b11"
+ },
+ {
+  "name": "origin/feature/b12",
+  "current": false,
+  "isRemote": true,
+  "ahead": 0,
+  "behind": 0,
+  "remote": "origin",
+  "shortName": "feature/b12"
+ },
+ {
+  "name": "origin/feature/b13",
+  "current": false,
+  "isRemote": true,
+  "ahead": 0,
+  "behind": 0,
+  "remote": "origin",
+  "shortName": "feature/b13"
+ },
+ {
+  "name": "origin/feature/b14",
+  "current": false,
+  "isRemote": true,
+  "ahead": 0,
+  "behind": 0,
+  "remote": "origin",
+  "shortName": "feature/b14"
+ },
+ {
+  "name": "origin/feature/b15",
+  "current": false,
+  "isRemote": true,
+  "ahead": 0,
+  "behind": 0,
+  "remote": "origin",
+  "shortName": "feature/b15"
+ },
+ {
+  "name": "origin/feature/b16",
+  "current": false,
+  "isRemote": true,
+  "ahead": 0,
+  "behind": 0,
+  "remote": "origin",
+  "shortName": "feature/b16"
+ },
+ {
+  "name": "origin/feature/b17",
+  "current": false,
+  "isRemote": true,
+  "ahead": 0,
+  "behind": 0,
+  "remote": "origin",
+  "shortName": "feature/b17"
+ },
+ {
+  "name": "origin/feature/b18",
+  "current": false,
+  "isRemote": true,
+  "ahead": 0,
+  "behind": 0,
+  "remote": "origin",
+  "shortName": "feature/b18"
+ },
+ {
+  "name": "origin/feature/b19",
+  "current": false,
+  "isRemote": true,
+  "ahead": 0,
+  "behind": 0,
+  "remote": "origin",
+  "shortName": "feature/b19"
+ },
+ {
+  "name": "origin/feature/b20",
+  "current": false,
+  "isRemote": true,
+  "ahead": 0,
+  "behind": 0,
+  "remote": "origin",
+  "shortName": "feature/b20"
+ },
+ {
+  "name": "origin/feature/b21",
+  "current": false,
+  "isRemote": true,
+  "ahead": 0,
+  "behind": 0,
+  "remote": "origin",
+  "shortName": "feature/b21"
+ },
+ {
+  "name": "origin/feature/b22",
+  "current": false,
+  "isRemote": true,
+  "ahead": 0,
+  "behind": 0,
+  "remote": "origin",
+  "shortName": "feature/b22"
+ },
+ {
+  "name": "origin/feature/b23",
+  "current": false,
+  "isRemote": true,
+  "ahead": 0,
+  "behind": 0,
+  "remote": "origin",
+  "shortName": "feature/b23"
+ },
+ {
+  "name": "origin/feature/b24",
+  "current": false,
+  "isRemote": true,
+  "ahead": 0,
+  "behind": 0,
+  "remote": "origin",
+  "shortName": "feature/b24"
+ },
+ {
+  "name": "origin/feature/b25",
+  "current": false,
+  "isRemote": true,
+  "ahead": 0,
+  "behind": 0,
+  "remote": "origin",
+  "shortName": "feature/b25"
+ },
+ {
+  "name": "origin/feature/b26",
+  "current": false,
+  "isRemote": true,
+  "ahead": 0,
+  "behind": 0,
+  "remote": "origin",
+  "shortName": "feature/b26"
+ },
+ {
+  "name": "origin/feature/b27",
+  "current": false,
+  "isRemote": true,
+  "ahead": 0,
+  "behind": 0,
+  "remote": "origin",
+  "shortName": "feature/b27"
+ },
+ {
+  "name": "origin/feature/b28",
+  "current": false,
+  "isRemote": true,
+  "ahead": 0,
+  "behind": 0,
+  "remote": "origin",
+  "shortName": "feature/b28"
+ },
+ {
+  "name": "origin/feature/b29",
+  "current": false,
+  "isRemote": true,
+  "ahead": 0,
+  "behind": 0,
+  "remote": "origin",
+  "shortName": "feature/b29"
+ },
+ {
+  "name": "origin/feature/b30",
+  "current": false,
+  "isRemote": true,
+  "ahead": 0,
+  "behind": 0,
+  "remote": "origin",
+  "shortName": "feature/b30"
+ },
+ {
+  "name": "origin/feature/b31",
+  "current": false,
+  "isRemote": true,
+  "ahead": 0,
+  "behind": 0,
+  "remote": "origin",
+  "shortName": "feature/b31"
+ },
+ {
+  "name": "origin/feature/b32",
+  "current": false,
+  "isRemote": true,
+  "ahead": 0,
+  "behind": 0,
+  "remote": "origin",
+  "shortName": "feature/b32"
+ },
+ {
+  "name": "origin/feature/b33",
+  "current": false,
+  "isRemote": true,
+  "ahead": 0,
+  "behind": 0,
+  "remote": "origin",
+  "shortName": "feature/b33"
+ },
+ {
+  "name": "origin/feature/b34",
+  "current": false,
+  "isRemote": true,
+  "ahead": 0,
+  "behind": 0,
+  "remote": "origin",
+  "shortName": "feature/b34"
+ },
+ {
+  "name": "origin/feature/b35",
+  "current": false,
+  "isRemote": true,
+  "ahead": 0,
+  "behind": 0,
+  "remote": "origin",
+  "shortName": "feature/b35"
+ },
+ {
+  "name": "origin/feature/b36",
+  "current": false,
+  "isRemote": true,
+  "ahead": 0,
+  "behind": 0,
+  "remote": "origin",
+  "shortName": "feature/b36"
+ },
+ {
+  "name": "origin/feature/b37",
+  "current": false,
+  "isRemote": true,
+  "ahead": 0,
+  "behind": 0,
+  "remote": "origin",
+  "shortName": "feature/b37"
+ },
+ {
+  "name": "origin/feature/b38",
+  "current": false,
+  "isRemote": true,
+  "ahead": 0,
+  "behind": 0,
+  "remote": "origin",
+  "shortName": "feature/b38"
+ },
+ {
+  "name": "origin/feature/b39",
+  "current": false,
+  "isRemote": true,
+  "ahead": 0,
+  "behind": 0,
+  "remote": "origin",
+  "shortName": "feature/b39"
+ },
+ {
+  "name": "origin/main",
+  "current": false,
+  "isRemote": true,
+  "ahead": 0,
+  "behind": 0,
+  "remote": "origin",
+  "shortName": "main"
+ }
+]

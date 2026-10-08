@@ -1,0 +1,12 @@
+accordion head 1 exit=0 load=[1.65 0.97 0.74] 0 failed 0 failed 17 passed 
+accordion base 1 exit=0 load=[1.25 1.08 0.81] 0 failed 0 failed 17 passed 
+accordion head 2 exit=1 load=[1.97 1.41 0.97] 0 failed 0 failed 1 failed 16 passed 
+accordion base 2 exit=0 load=[1.45 1.47 1.06] 0 failed 0 failed 17 passed 
+accordion head 3 exit=0 load=[1.33 1.61 1.18] 0 failed 0 failed 17 passed 
+accordion base 3 exit=0 load=[1.67 1.73 1.28] 0 failed 0 failed 17 passed 
+b31 head 1 exit=0 load=[4.60 3.55 3.23] 0 failed 0 failed 3 passed 
+b31 base 1 exit=0 load=[5.84 4.06 3.42] 0 failed 0 failed 3 passed 
+b31 head 2 exit=0 load=[6.46 4.41 3.56] 0 failed 0 failed 3 passed 
+b31 base 2 exit=0 load=[5.89 4.53 3.64] 0 failed 0 failed 3 passed 
+b31 head 3 exit=1 load=[5.84 4.72 3.74] 0 failed 0 failed 1 failed 2 passed 
+b31 base 3 exit=0 load=[5.08 4.73 3.80] 0 failed 0 failed 3 passed 
