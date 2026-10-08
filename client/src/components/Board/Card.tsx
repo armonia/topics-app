@@ -15,6 +15,7 @@ import { columnSlice, COLUMN_PAGE } from '../../lib/boardOrder';
 import { cardCommentsFromRow, cardDetailNeed, isMachineVoice, selectCardComments, showsCardThread, type CardComments } from './cardComments';
 import { useConfirm } from '../../hooks/useConfirm';
 import { useLongPress, openContextMenuAt, type LongPressTarget } from '../../hooks/useLongPress';
+import { useLoadOnReach } from '../../hooks/useLoadOnReach';
 import { useMobile } from '../../hooks/useMobile';
 import { releaseTouchDrag } from './dndSensors';
 import { reflowTransform } from './sortableReflow';
@@ -63,8 +64,8 @@ import { cardRunsThroughTopics } from '../../lib/topicsRoutingGate';
 // The droppable SHELL, for the same reason as `Card` below: during a drag the
 // header re-ran on every over change; `ColumnBody` only sees `isOver` flip.
 export function Column(props: ColumnProps) {
-  const { setNodeRef, isOver } = useDroppable({ id: props.status });
-  return <ColumnBody {...props} setNodeRef={setNodeRef} isOver={isOver} />;
+  const { setNodeRef, isOver, active } = useDroppable({ id: props.status });
+  return <ColumnBody {...props} setNodeRef={setNodeRef} isOver={isOver} dragging={active !== null} />;
 }
 
 type ColumnProps = {
@@ -107,8 +108,8 @@ type ColumnProps = {
   layout?: 'grid' | 'list';
 };
 
-const ColumnBody = memo(function ColumnBody({ status, tasks, onOpen, onCreate, canCreate, showProject, cardError, onCardError, onRefetch, onOpenTopic, resolveSession, tasksById, projectPathById, liveById, awaitingHuman, justMoved, justCreated, archived = false, draft, onOpenSettings, layout = 'grid', setNodeRef, isOver }: ColumnProps & {
-  setNodeRef: (element: HTMLElement | null) => void; isOver: boolean;
+const ColumnBody = memo(function ColumnBody({ status, tasks, onOpen, onCreate, canCreate, showProject, cardError, onCardError, onRefetch, onOpenTopic, resolveSession, tasksById, projectPathById, liveById, awaitingHuman, justMoved, justCreated, archived = false, draft, onOpenSettings, layout = 'grid', setNodeRef, isOver, dragging }: ColumnProps & {
+  setNodeRef: (element: HTMLElement | null) => void; isOver: boolean; dragging: boolean;
 }) {
   const tr = useT();
   const [adding, setAdding] = useState(false);
@@ -118,6 +119,8 @@ const ColumnBody = memo(function ColumnBody({ status, tasks, onOpen, onCreate, c
   // sta in `columnSlice`; qui c'è solo la memoria di quante ne hai chieste.
   const [shown, setShown] = useState(COLUMN_PAGE);
   const slice = useMemo(() => columnSlice(status, tasks, shown), [status, tasks, shown]);
+  // Infinite scroll: the next page comes as the column's tail comes into view, never while a card is carried.
+  const moreRef = useLoadOnReach(() => setShown((n) => n + COLUMN_PAGE), { more: slice.hidden > 0, loading: false, count: slice.rows.length, enabled: !dragging });
   // Stable identity across the board's 4s live-usage tick: SortableContext gets a
   // fresh array only when the task set actually changes, not every render. Gli id
   // sono quelli DISEGNATI: un id senza nodo nel registro di dnd-kit è un
@@ -284,6 +287,7 @@ const ColumnBody = memo(function ColumnBody({ status, tasks, onOpen, onCreate, c
             tagliata in silenzio è una colonna che sembra vuota di storia. */}
         {slice.hidden > 0 && (
           <button
+            ref={moreRef}
             onClick={() => setShown((n) => n + COLUMN_PAGE)}
             data-testid={`kanban-column-more-${status}`}
             className="flex w-full items-center justify-center gap-1 rounded-md border border-app-border px-2 py-1.5 text-compact leading-4 text-app-text-secondary hover:bg-white/5"

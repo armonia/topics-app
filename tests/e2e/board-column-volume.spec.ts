@@ -14,8 +14,9 @@
  *  1. **Done si sfoglia.** Trecento task chiusi non sono trecento card vive.
  *     Il numero in testa alla colonna resta il TOTALE — è la storia, non deve
  *     rimpicciolirsi perché non la si disegna tutta.
- *  2. **La coda si tira su.** «Mostra altri» esiste, dice quante ne restano, e
- *     una pressione ne aggiunge una pagina: niente è nascosto per sempre.
+ *  2. **The tail comes up.** The show-more row is there, says how many are
+ *     left, and reaching it by scrolling adds ONE page by itself (LIST-PAGE-01):
+ *     nothing is hidden for good, and nothing arrives in bulk.
  *  3. **Le colonne di LAVORO non si toccano.** Backlog, Todo e In Progress si
  *     disegnano intere anche a trenta card, perché lì si trascina: una card non
  *     disegnata è un bersaglio di drop che non esiste, e un gesto che muore in
@@ -170,6 +171,7 @@ test.describe("Kanban — il volume di una colonna", () => {
   });
 
   test("COLVOL-02: la coda si tira su, una pagina per volta", async ({ page }) => {
+    test.info().annotations.push({ type: "spec", description: "LIST-PAGE-01" });
     await page.goto("/");
     await openProjectBoard(page);
     await expect(cardsIn(page, "done").first()).toBeVisible({ timeout: 20000 });
@@ -179,10 +181,33 @@ test.describe("Kanban — il volume di una colonna", () => {
     // Il numero è nel bottone: una colonna tagliata in silenzio sembra una
     // colonna senza storia.
     await expect(altri).toContainText(String(DONE_SEEDED - COLUMN_PAGE));
+    expect(await cardsIn(page, "done").count(), "nothing loads before the reader gets there").toBe(COLUMN_PAGE);
 
-    await altri.click();
+    // Scrolling down the column, the next page arrives by itself when the row
+    // comes into view: no click. Done is the last column and starts past the
+    // right edge (x 1917 at 1600 px on WebKit), so the board is scrolled
+    // sideways first, as a reader would. The wheel stops as soon as a page lands.
+    const column = page.getByTestId("kanban-column-body-done");
+    await column.scrollIntoViewIfNeeded();
+    const body = (await column.boundingBox())!;
+    expect(body.x + body.width, "the Done column is on screen").toBeLessThanOrEqual(page.viewportSize()!.width);
+    await page.mouse.move(body.x + body.width / 2, body.y + body.height / 2);
+    for (let i = 0; i < 60 && (await cardsIn(page, "done").count()) === COLUMN_PAGE; i++) {
+      await page.mouse.wheel(0, 400);
+      await page.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(() => r(null)))));
+    }
     await expect.poll(() => cardsIn(page, "done").count(), { timeout: 10000 }).toBe(COLUMN_PAGE * 2);
     await expect(altri).toContainText(String(DONE_SEEDED - COLUMN_PAGE * 2));
+
+    // ONE page: the row moved down with the new cards and waits for the reader.
+    // Trusting the old "in view" chained page after page before the observer
+    // could say the row had gone.
+    await page.evaluate(() => new Promise((r) => {
+      let frames = 0;
+      const tick = (): void => { if (++frames >= 10) r(null); else requestAnimationFrame(tick); };
+      requestAnimationFrame(tick);
+    }));
+    expect(await cardsIn(page, "done").count(), "one page per reach, not a chain").toBe(COLUMN_PAGE * 2);
   });
 
   test("COLVOL-03: le colonne di LAVORO restano intere, e la card in fondo si trascina", async ({ page }) => {

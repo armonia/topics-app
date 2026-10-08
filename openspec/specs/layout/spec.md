@@ -3432,3 +3432,31 @@ puntatore, non l'assenza di un nome.
   senza fasce vuote (MOBILE-GEOM-05)
 - **AND** passare anche sotto la barra di stato richiede `black-translucent`, e SHALL essere deciso
   solo dopo aver misurato `innerHeight` contro `screen.height` in standalone su un iPhone vero
+
+### Requirement: LIST-PAGE-01 — Una lista che cresce in basso carica la pagina dopo da sola
+
+Le liste che mostrano una pagina alla volta — la colonna della board, lo storico
+delle notifiche, lo storico dei commit, le sessioni da riprendere — SHALL caricare
+la pagina successiva da sole quando la loro riga «mostra altri» entra in vista (con
+240 px di anticipo dentro il contenitore che scorre), senza click. Una richiesta
+alla volta; una riga ancora in vista dopo una pagina arrivata SHALL chiedere di
+nuovo solo se quella pagina ha aggiunto righe: una pagina fallita o vuota aspetta
+che chi legge esca e rientri, invece di interrogare il server in un ciclo
+(`client/src/lib/loadOnReach.ts`). Mentre una card della board viene trascinata la
+colonna NON SHALL crescere sotto il puntatore. La riga SHALL restare un bottone,
+per la tastiera e per un browser senza IntersectionObserver.
+
+#### Scenario: la riga entra in vista e la pagina arriva
+- **GIVEN** una lista con più righe di una pagina
+- **WHEN** chi legge scorre fino alla riga «mostra altri»
+- **THEN** la pagina successiva è chiesta una volta, senza click
+
+#### Scenario: una pagina che non aggiunge niente non fa un ciclo
+- **GIVEN** la riga in vista e una richiesta che torna senza righe nuove
+- **WHEN** la riga resta in vista
+- **THEN** nessuna nuova richiesta parte finché la riga non esce e rientra in vista
+
+#### Scenario: durante un trascinamento la colonna non cresce
+- **GIVEN** una card della board in trascinamento
+- **WHEN** la riga «mostra altri» di una colonna entra in vista
+- **THEN** la colonna non carica niente finché il trascinamento non finisce
