@@ -1040,17 +1040,9 @@ export function createAppContext(baseDir: string): AppContext {
     return withMediaSizes(message, { uploadsDir: UPLOADS_DIR, isPathAllowed });
   }
 
-  /**
-   * What a GUEST socket receives of a frame it may receive: the same frame
-   * without `mediaSizes`. Every key there is a picture the client fetches from
-   * `/uploads/…` or through `/api/media`, and neither is in
-   * `isGuestAllowedPath`: the size would tell a guest that a file exists on the
-   * owner's disk and how big it is, for a picture it can never load (V3, D2).
-   * Not filtered key by key with `isGuestAllowedPath`: the keys are disk paths
-   * as well as URLs, and a disk path under `/media/` (a mounted volume on Linux)
-   * would pass a check written for the `/media/` route. Built once per fan-out,
-   * and only when a guest is reached.
-   */
+  /** A GUEST gets the frame without `mediaSizes`: each key is a picture served by `/uploads/` or `/api/media`, both
+   *  closed to guests, so a size would only tell it what sits on the owner's disk (V3, D2). Not filtered key by key:
+   *  the keys are disk paths too, and a disk path under `/media/` would pass the rule written for the `/media/` route. */
   function guestPayloadOf(message: OutboundMessage, payload: string): string {
     if (!("mediaSizes" in message)) return payload;
     const { mediaSizes: _ownerOnly, ...rest } = message as OutboundMessage & { mediaSizes?: unknown };
@@ -1074,13 +1066,10 @@ export function createAppContext(baseDir: string): AppContext {
     let guestPayload: string | undefined;
     for (const ws of wsClients) {
       if (ws.readyState !== 1) continue;
-      if (guests && isGuestSocket(ws)) {
-        if (!guests.mayReceiveFrame(ws.data.deviceId!, presentedMessage)) continue;
-        guestPayload ??= guestPayloadOf(presentedMessage, payload);
-        sendFrame(ws, guestPayload, presentedMessage.type);
-        continue;
-      }
-      sendFrame(ws, payload, presentedMessage.type);
+      const guest = guests && isGuestSocket(ws);
+      if (guest && !guests.mayReceiveFrame(ws.data.deviceId!, presentedMessage)) continue;
+      // Built once per fan-out, and only when a guest is reached.
+      sendFrame(ws, guest ? (guestPayload ??= guestPayloadOf(presentedMessage, payload)) : payload, presentedMessage.type);
     }
     // No push from here any more (notifications-redesign, design section
     // 10.1): a frame is not a fact. The push and the history row of a new
