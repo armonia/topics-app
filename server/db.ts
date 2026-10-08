@@ -243,7 +243,10 @@ function resolveMigrations(migrationsDir: string): MigrationEntry[] {
   // (371 KB of text) joined the graph of every boot, in dev and under launchd
   // too, where migrations are read from disk: ~12 ms before `listen`, measured
   // in isolation. A `require` with a literal path stays visible to
-  // `bun build --compile`, which bundles it into the sidecar as before.
+  // `bun build --compile`, which bundles it into the sidecar as before. The
+  // manifest holds the SQL as string literals, not `.sql` text imports: through
+  // `require`, Bun 1.3.8 ignores `with { type: "text" }` and returns file paths
+  // (scripts/gen-migrations-manifest.ts has the why).
   // eslint-disable-next-line @typescript-eslint/no-require-imports -- loaded only by the compiled sidecar, where the migrations folder does not exist: a static import would pay for it on every boot
   const { EMBEDDED_MIGRATIONS } = require("./db/migrations-embedded") as { EMBEDDED_MIGRATIONS: EmbeddedMigration[] };
   if (EMBEDDED_MIGRATIONS.length > 0) {

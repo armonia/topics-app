@@ -1,32 +1,42 @@
 #!/usr/bin/env bun
-// Regenerate server/db/migrations-embedded.ts — a manifest that STATIC-imports
-// every server/db/migrations/*.sql as text (`with { type: "text" }`).
+// Regenerate server/db/migrations-embedded.ts — a manifest that carries the TEXT
+// of every server/db/migrations/*.sql as a string literal.
 //
 // WHY: the release ships the server as a `bun build --compile` single binary
 // (the Tauri sidecar). In a compiled binary `import.meta.dir` is a virtual path
 // (`/$bunfs/root`) and `readdirSync`/`readFileSync` over the migrations dir find
-// NOTHING on disk, so the DB would boot with no tables. Static text imports, by
-// contrast, are embedded into the binary and survive `--compile` (verified). This
-// manifest is the embedded fallback `runMigrations` uses when the on-disk
-// migrations dir is absent; dev / launchd runs still read from disk and ignore it.
+// NOTHING on disk, so the DB would boot with no tables. This manifest is the
+// embedded fallback `runMigrations` uses when the on-disk migrations dir is
+// absent; dev / launchd runs still read from disk and never load it.
 //
-// Run this whenever you ADD or RENAME a migration:
+// WHY STRING LITERALS AND NOT `import x from "./m.sql" with { type: "text" }`.
+// The manifest is loaded by a lazy `require` (server/db.ts, `resolveMigrations`),
+// so that the migrations stay out of the boot graph when the folder exists.
+// Through `require`, Bun 1.3.8 (the production server's runtime) ignores the
+// import attribute and hands back the FILE PATH of each `.sql` instead of its
+// text; worse, the module cache then holds those paths, so a later static import
+// of the manifest in the same process gets paths too (order-dependent reds in the
+// 1.3.8 unit suite, cloud-quality-pass V3 D1). A string literal is a string on
+// every Bun, through `require`, `import` and `--compile` alike: there is no
+// loader left to get wrong. Measured with server/db/embedded-fallback-fresh-process.test.ts.
+//
+// The price: the SQL lives twice in the repo, and EDITING a migration (not only
+// adding one) now needs a regeneration. Both are guarded: the drift gate
+// (server/db/migrations-embedded.test.ts) compares every entry to the file byte
+// for byte, and CI reruns this script and fails on a stale manifest.
+//
+// Run this whenever you ADD, RENAME or EDIT a migration:
 //   bun run scripts/gen-migrations-manifest.ts
-// (`bun run migration:new <slug>` lo lancia da sé; CI lo rilancia e fallisce se
-// il manifest è vecchio — vedi CONTRIBUTING.)
+// (`bun run migration:new <slug>` runs it by itself.)
 //
-// PERCHÉ GLI IDENTIFICATORI VENGONO DAL NOME e non dalla posizione: due card in
-// parallelo aggiungono ciascuna la propria migration, e questo file è l'unico
-// posto che TUTTE e due devono toccare. Con `m000, m001, …` per indice, le due
-// aggiunte si contendono lo stesso identificatore e il merge è un conflitto da
-// risolvere a mano — la stessa contesa che il prefisso timestamp toglie ai nomi
-// dei file (scripts/new-migration.ts). Con l'identificatore derivato dal nome le
-// due righe sono diverse, e `.gitattributes` marca questo file `merge=union`:
-// git tiene entrambe le aggiunte e il merge passa liscio. L'ORDINE dell'array
-// dopo un merge del genere può non essere crescente, e va bene: `resolveMigrations`
-// in server/db.ts riordina sempre per (numero, nome) prima di applicare.
+// ONE LINE PER MIGRATION, on purpose: two cards in parallel each add their own
+// migration, and this file is the one place both must touch. `.gitattributes`
+// marks it `merge=union`, so git keeps both added lines and the merge goes
+// through. The ORDER of the array after such a merge may not be ascending, and
+// that is fine: `resolveMigrations` in server/db.ts always sorts by (number,
+// name) before applying.
 
-import { readdirSync, writeFileSync } from "fs";
+import { readdirSync, readFileSync, writeFileSync } from "fs";
 import { join } from "path";
 
 const repoRoot = join(import.meta.dir, "..");
@@ -46,37 +56,20 @@ if (files.length === 0) {
   process.exit(1);
 }
 
-/** `089-retirements.sql` → `m089_retirements`. Dal NOME, mai dalla posizione. */
-const identOf = (file: string) => `m${file.replace(/\.sql$/, "").replace(/[^A-Za-z0-9]/g, "_")}`;
-
-const imports: string[] = [];
-const entries: string[] = [];
-const visti = new Map<string, string>();
-for (const file of files) {
-  const ident = identOf(file);
-  const gemello = visti.get(ident);
-  if (gemello) {
-    // Non può succedere finché i nomi sono `<numero>-<slug-in-kebab>.sql`, ma se
-    // succedesse il file generato non compilerebbe: meglio dirlo qui.
-    console.error(`[gen-migrations] ${file} e ${gemello} danno lo stesso identificatore (${ident})`);
-    process.exit(1);
-  }
-  visti.set(ident, file);
-  imports.push(`import ${ident} from "./migrations/${file}" with { type: "text" };`);
-  entries.push(`  { version: ${versionOf(file)}, name: ${JSON.stringify(file)}, sql: ${ident} },`);
-}
+const entries = files.map((file) => {
+  const sql = readFileSync(join(migrationsDir, file), "utf-8");
+  return `  { version: ${versionOf(file)}, name: ${JSON.stringify(file)}, sql: ${JSON.stringify(sql)} },`;
+});
 
 const banner = `// AUTO-GENERATED by scripts/gen-migrations-manifest.ts — DO NOT EDIT BY HAND.
-// Regenerate after adding/renaming a migration:  bun run scripts/gen-migrations-manifest.ts
+// Regenerate after adding/renaming/editing a migration:  bun run scripts/gen-migrations-manifest.ts
 //
-// Embeds every server/db/migrations/*.sql as text so the \`bun build --compile\`
+// Embeds the text of every server/db/migrations/*.sql, one line each, so the \`bun build --compile\`
 // server sidecar can run migrations without the on-disk dir (see the script header
 // and server/db.ts runMigrations for the disk-vs-embedded fallback).
 `;
 
 const body = `${banner}
-${imports.join("\n")}
-
 export interface EmbeddedMigration {
   version: number;
   name: string;
