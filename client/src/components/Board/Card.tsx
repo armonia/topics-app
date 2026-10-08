@@ -333,7 +333,56 @@ function openCardMenuAt(target: LongPressTarget): void {
 // sensors passed to DndContext must be referentially stable across renders
 // (see the module-level sensor options in KanbanBoardPane) or the memo is
 // bypassed by the context, which is exactly what happened until 2026-09-07.
-export const Card = memo(function Card({ task, onOpen, showProject, error, onError, onRefetch, onOpenTopic, sessionState = 'unknown', parentTitle, projectPath, live, awaiting, justMovedTo, justCreated, archived = false }: {
+//
+// TWO LAYERS, because a stable context is not enough DURING a drag. dnd-kit's
+// InternalContext changes by design whenever the droppable under the pointer
+// changes, and every `useSortable` re-runs then: measured on a 33-card board
+// (board-drag-renders.spec.ts), 61 component renders per pointer move, each
+// card with its whole subtree (MorphText, chips, SwapIce) about a dozen times
+// per drag at identical props. So `Card` is only the sortable SHELL: it reads
+// dnd-kit and hands `CardBody` the few values the card draws with, all of them
+// stable while the card is not the one being displaced (refs and listeners
+// are memoized by dnd-kit, the transform travels as a string). `CardBody` is
+// memoized on those plus the card's own props, so a pointer move costs one
+// cheap hook pass per card and a full render only for the cards that move.
+export const Card = memo(function Card(props: CardProps) {
+  // Sortable: the source card is dimmed (the DragOverlay carries the visual)
+  // but its NEIGHBOURS get the reflow transform — the list opens a gap under
+  // the pointer, so dropping "between two cards" reads as such. The ACTIVE
+  // card must NOT get its transform (that one follows the pointer): applied,
+  // the dim source card flew across the board alongside the overlay and the
+  // drop targeting went with it.
+  const { attributes, listeners, setNodeRef, isDragging, transform, transition } = useSortable({
+    id: props.task.id,
+    // The neighbours' reflow runs on the app's tokens, not dnd-kit's default
+    // `200ms ease`, and not at all when the person asked for less motion.
+    transition: prefersReducedMotion() ? null : SORTABLE_TRANSITION,
+  });
+  return (
+    <CardBody
+      {...props}
+      setNodeRef={setNodeRef}
+      dragAttributes={attributes}
+      dragListeners={listeners}
+      isDragging={isDragging}
+      dragTransform={isDragging ? undefined : CSS.Transform.toString(transform)}
+      dragTransition={transition}
+    />
+  );
+});
+
+/** What the sortable shell hands the body. Every field is stable across pointer moves unless the card itself moves. */
+type CardDragProps = {
+  setNodeRef: (element: HTMLElement | null) => void;
+  dragAttributes: ReturnType<typeof useSortable>['attributes'];
+  dragListeners: ReturnType<typeof useSortable>['listeners'];
+  isDragging: boolean;
+  /** The reflow transform as CSS, already a string: dnd-kit's object is new on every render, a string compares by value. */
+  dragTransform: string | undefined;
+  dragTransition: string | undefined;
+};
+
+type CardProps = {
   task: BoardTask; onOpen: OpenTask; showProject: boolean;
   /** Il perché l'ultimo click non ha fatto niente, disegnato SULLA card (in coda,
    *  sotto le sue scelte): la barra in cima al board sta a colonne di distanza,
@@ -364,7 +413,9 @@ export const Card = memo(function Card({ task, onOpen, showProject, error, onErr
   /** La card viene dall'ARCHIVIO (vista `?archived=1`): il gesto in coda al
    *  menu non è più archiviare — è già archiviata — ma riportarla indietro. */
   archived?: boolean;
-}) {
+};
+
+const CardBody = memo(function CardBody({ task, onOpen, showProject, error, onError, onRefetch, onOpenTopic, sessionState = 'unknown', parentTitle, projectPath, live, awaiting, justMovedTo, justCreated, archived = false, setNodeRef, dragAttributes: attributes, dragListeners: listeners, isDragging, dragTransform, dragTransition: transition }: CardProps & CardDragProps) {
   // MSEL-01: subscribed, so a snapshot that lands after the first paint adds
   // «· via Topics»; the boolean re-renders the card only when it flips.
   const runsThroughTopics = useSyncExternalStore(subscribeProvidersSnapshot, () => cardRunsThroughTopics(task, getProvidersSnapshotState().snapshot));
@@ -374,18 +425,6 @@ export const Card = memo(function Card({ task, onOpen, showProject, error, onErr
   const modelLine = useSyncExternalStore(subscribeProvidersSnapshot, () => taskTriggerLine(task.model, {
     snapshot: getProvidersSnapshotState().snapshot, tr: tm, surface: 'task', viaTopics: runsThroughTopics,
   }));
-  // Sortable: the source card is dimmed (the DragOverlay carries the visual)
-  // but its NEIGHBOURS get the reflow transform — the list opens a gap under
-  // the pointer, so dropping "between two cards" reads as such. The ACTIVE
-  // card must NOT get its transform (that one follows the pointer): applied,
-  // the dim source card flew across the board alongside the overlay and the
-  // drop targeting went with it.
-  const { attributes, listeners, setNodeRef, isDragging, transform, transition } = useSortable({
-    id: task.id,
-    // The neighbours' reflow runs on the app's tokens, not dnd-kit's default
-    // `200ms ease`, and not at all when the person asked for less motion.
-    transition: prefersReducedMotion() ? null : SORTABLE_TRANSITION,
-  });
 
   // Review context. The comment PAIR (`selectCardComments`) — the thread's last
   // word as a quick-reply with option buttons when it's a question block and
@@ -899,7 +938,7 @@ export const Card = memo(function Card({ task, onOpen, showProject, error, onErr
     <div
       ref={setNodeRef} {...attributes} {...listeners}
       data-task-card={task.id}
-      style={{ transform: isDragging ? undefined : CSS.Transform.toString(transform), transition }}
+      style={{ transform: dragTransform, transition }}
       onClick={() => onOpen(task.id)}
       {...cardLongPress.handlers}
       // AFTER both spreads, and on purpose: this is the composed one (see
