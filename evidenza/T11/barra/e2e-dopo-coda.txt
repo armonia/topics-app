@@ -1,0 +1,12 @@
+    attachment #3: screenshot (image/png) ──────────────────────────────────────────────────────────
+    test-results/artifacts/board-recapture-preview-Bo-276ff-ck-→-l-anteprima-sulla-card-chromium-retry2/test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: test-results/artifacts/board-recapture-preview-Bo-276ff-ck-→-l-anteprima-sulla-card-chromium-retry2/error-context.md
+
+    Error Context: test-results/artifacts/board-recapture-preview-Bo-276ff-ck-→-l-anteprima-sulla-card-chromium-retry2/error-context.md
+
+  1 failed
+    [chromium] › tests/e2e/board-recapture-preview.spec.ts:246:7 › Board · «Ricattura evidenza» su una card in review › RECAPTURE-01: card senza evidenza → un click → l'anteprima sulla card 
+  2 skipped
+  409 passed (31.5m)

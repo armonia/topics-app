@@ -1,0 +1,11 @@
+HEAD 9f86fa6 bun 1.4.2 load=4x yes N1=30 NE=20
+== T1 start 04:12:21 uptime:  04:12:21 up 5 min,  0 user,  load average: 1.51, 0.55, 0.21
+== T1 red=0/30 end 04:12:46 uptime:  04:12:46 up 5 min,  0 user,  load average: 3.02, 0.99, 0.36
+== T2 start 04:12:46 uptime:  04:12:46 up 5 min,  0 user,  load average: 3.02, 0.99, 0.36
+== T2 red=0/30 end 04:18:23 uptime:  04:18:23 up 11 min,  0 user,  load average: 4.10, 3.14, 1.53
+== T3 start 04:18:23 uptime:  04:18:23 up 11 min,  0 user,  load average: 4.10, 3.14, 1.53
+== T3 red=0/30 end 04:20:23 uptime:  04:20:23 up 13 min,  0 user,  load average: 4.04, 3.44, 1.84
+== T4 start 04:20:23 uptime:  04:20:23 up 13 min,  0 user,  load average: 4.04, 3.44, 1.84
+== T4 exit=1 0 passed 8 failed end 04:20:52 uptime:  04:20:52 up 13 min,  0 user,  load average: 5.30, 3.80, 2.01
+== T5 start 04:20:52 uptime:  04:20:52 up 13 min,  0 user,  load average: 5.30, 3.80, 2.01
+(T4 corsa annullata: browser non trovato in /opt/pw-browsers, non e' una misura)

@@ -1,0 +1,6 @@
+HEAD 946a22e3 bun 1.4.2 load=4x yes N1=30 NE=20
+== T4 start 05:22:54 uptime:  05:22:54 up  1:15,  0 user,  load average: 4.50, 4.49, 4.79
+== T4 exit=0 20 passed 0 failed end 05:25:54 uptime:  05:25:54 up  1:18,  0 user,  load average: 6.72, 5.47, 5.12
+== T5 start 05:25:54 uptime:  05:25:54 up  1:18,  0 user,  load average: 6.72, 5.47, 5.12
+== T5 exit=1 0 passed 0 failed end 05:26:03 uptime:  05:26:03 up  1:19,  0 user,  load average: 6.54, 5.47, 5.12
+DONE

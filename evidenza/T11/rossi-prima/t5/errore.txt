@@ -1,0 +1,51 @@
+  1) [chromium] › tests/e2e/chat-streaming-indicator.spec.ts:426:7 › Chat waiting on background work › at the bottom the line comes and goes as the transcript's last row, and the composer does not move 
+
+    Error: [2mexpect([22m[31mlocator[39m[2m).[22mtoHaveCount[2m([22m[32mexpected[39m[2m)[22m failed
+
+    Locator:  locator('[data-virtuoso-scroller]').first().getByTestId('background-work-line')
+    Expected: [32m1[39m
+    Received: [31m0[39m
+    Timeout:  10000ms
+
+    Call log:
+    [2m  - Expect "toHaveCount" with timeout 10000ms[22m
+    [2m  - waiting for locator('[data-virtuoso-scroller]').first().getByTestId('background-work-line')[22m
+    [2m    14 × locator resolved to 0 elements[22m
+    [2m       - unexpected value "0"[22m
+
+
+      443 |     // THE LAST ROW OF THE TRANSCRIPT: inside the scroller, under the last
+      444 |     // message, and above the composer rather than behind it.
+    > 445 |     await expect(page.locator("[data-virtuoso-scroller]").first().getByTestId("background-work-line")).toHaveCount(1);
+          |                                                                                                        ^
+      446 |     const geometry = await line.evaluate((el) => {
+      447 |       const scroller = el.closest("[data-virtuoso-scroller]")!;
+      448 |       const rows = [...scroller.querySelectorAll<HTMLElement>("[data-index]")];
+        at /home/user/topics-app/tests/e2e/chat-streaming-indicator.spec.ts:445:104
+
+    attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+    ../../../tmp/claude-0/-home-user-topics-app/9eb862f0-ca18-56b3-9aa9-f42b30337175/scratchpad/logs/b1-prima-e2e/t5-results/chat-streaming-indicator-C-66766--the-composer-does-not-move-chromium-repeat2/test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    attachment #2: video (video/webm) ──────────────────────────────────────────────────────────────
+    ../../../tmp/claude-0/-home-user-topics-app/9eb862f0-ca18-56b3-9aa9-f42b30337175/scratchpad/logs/b1-prima-e2e/t5-results/chat-streaming-indicator-C-66766--the-composer-does-not-move-chromium-repeat2/video.webm
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: ../../../tmp/claude-0/-home-user-topics-app/9eb862f0-ca18-56b3-9aa9-f42b30337175/scratchpad/logs/b1-prima-e2e/t5-results/chat-streaming-indicator-C-66766--the-composer-does-not-move-chromium-repeat2/error-context.md
+
+    Error Context: ../../../tmp/claude-0/-home-user-topics-app/9eb862f0-ca18-56b3-9aa9-f42b30337175/scratchpad/logs/b1-prima-e2e/t5-results/chat-streaming-indicator-C-66766--the-composer-does-not-move-chromium-repeat2/error-context.md
+
+  2) [chromium] › tests/e2e/chat-streaming-indicator.spec.ts:426:7 › Chat waiting on background work › at the bottom the line comes and goes as the transcript's last row, and the composer does not move 
+
+    Error: [2mexpect([22m[31mlocator[39m[2m).[22mtoHaveCount[2m([22m[32mexpected[39m[2m)[22m failed
+
+    Locator:  locator('[data-virtuoso-scroller]').first().getByTestId('background-work-line')
+    Expected: [32m1[39m
+    Received: [31m0[39m
+    Timeout:  10000ms
+
+    Call log:
+    [2m  - Expect "toHaveCount" with timeout 10000ms[22m
+    [2m  - waiting for locator('[data-virtuoso-scroller]').first().getByTestId('background-work-line')[22m
+    [2m    14 × locator resolved to 0 elements[22m
+    [2m       - unexpected value "0"[22m

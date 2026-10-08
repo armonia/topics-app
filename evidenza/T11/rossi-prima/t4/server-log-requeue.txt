@@ -1,0 +1,27 @@
+[test-server] 2026-10-08T04:25:21.379Z [HTTP] ✓ GET /api/worktrees 200 0ms
+[test-server] 2026-10-08T04:25:21.434Z [HTTP] ✓ GET /api/worktrees/branches 200 54ms
+2026-10-08T04:25:21.436Z [HTTP] ✓ GET /api/all-boards/settings 200 1ms
+[test-server] 2026-10-08T04:25:21.444Z [HTTP] ✓ GET /api/system/dispatch-capacity 200 1ms
+[test-server] 2026-10-08T04:25:21.449Z [HTTP] ✓ GET /api/stt/capabilities 200 0ms
+2026-10-08T04:25:21.450Z [HTTP] ✓ GET /api/ui-state/board-composer-draft 200 0ms
+[test-server] 2026-10-08T04:25:21.465Z [HTTP] ✓ GET /api/all-boards/publish-status 200 21ms
+[test-server] 2026-10-08T04:25:21.559Z [HTTP] ✓ PATCH /api/boards/e2e-scelte-1791433518594-a65cwv/tasks/6709d6e5-28b3-43e7-95fc-a3d6dfb9f3da 200 3ms
+[test-server] 2026-10-08T04:25:21.574Z [HTTP] ✓ PUT /api/ui-state/topics-project-panes-a65cwv 200 1ms
+[test-server] 2026-10-08T04:25:21.587Z [HTTP] ✓ GET /api/all-boards/tasks 200 2ms
+[test-server] 2026-10-08T04:25:21.775Z [HTTP] ✓ GET /api/boards/e2e-scelte-1791433518594-a65cwv/tasks 200 2ms
+[test-server] 2026-10-08T04:25:22.926Z [HTTP] ✓ POST /api/boards/e2e-scelte-1791433518594-a65cwv/tasks/5d62912f-9fad-4846-a76e-6a1a6280b9d9/review 200 3ms
+[test-server] 2026-10-08T04:25:22.944Z [HTTP] ✓ GET /api/all-boards/tasks 200 2ms
+2026-10-08T04:25:22.947Z [HTTP] ✓ GET /api/boards/e2e-scelte-1791433518594-a65cwv/tasks 200 3ms
+[test-server] 2026-10-08T04:25:23.098Z [HTTP] ✓ POST /api/test/tasks/a8f994ad-ebc1-4170-a864-527a4a44b825/dispatch-state 200 1ms
+[test-server] 2026-10-08T04:25:23.107Z [HTTP] ✓ PATCH /api/boards/e2e-scelte-1791433518594-a65cwv/tasks/a8f994ad-ebc1-4170-a864-527a4a44b825 200 2ms
+[test-server] [dispatcher] riavvio: 0 riprese (0 in diretta, 0 da capo), 0 in attesa di un posto, 1 rimesse in coda, 0 trattenute a dispatch spento, 0 fan-out chiusi, 0 non recuperabili
+[test-server] 2026-10-08T04:25:23.346Z [HTTP] ✓ GET /api/all-boards/tasks 200 2ms
+[test-server] 2026-10-08T04:25:23.353Z [HTTP] ✓ GET /api/boards/e2e-scelte-1791433518594-a65cwv/tasks 200 2ms
+[test-server] [worktree-gc] 1 tenuti (di 1) — 1× task 'in_progress' attivo
+[test-server] 2026-10-08T04:25:35.461Z [HTTP] ✓ GET /api/topics/streaming 200 1ms
+[test-server] 2026-10-08T04:25:35.751Z [HTTP] ✓ GET /api/scripts 200 1ms
+[test-server] 2026-10-08T04:25:36.436Z [HTTP] ✓ GET /api/system/dispatch-capacity 200 1ms
+[test-server] 2026-10-08T04:25:36.438Z [HTTP] ✓ GET /api/all-boards/settings 200 0ms
+[test-server] [WS] Client disconnected: 6eb031fa-bbbc-4f27-bb1f-e9926331b8a1 (total: 0)
+[test-server] 2026-10-08T04:25:38.979Z [HTTP] ✓ DELETE /api/boards/e2e-scelte-1791433518594-a65cwv/tasks/5da2c75d-6263-4760-97ad-16560f3807eb 200 3ms
+[test-server] 2026-10-08T04:25:38.988Z [HTTP] ✓ DELETE /api/boards/e2e-scelte-1791433518594-a65cwv/tasks/a01cf4d1-7d0b-47e6-9e24-7af5ccec8280 200 1ms

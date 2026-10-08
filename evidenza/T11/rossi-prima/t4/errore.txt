@@ -1,0 +1,43 @@
+  1) [chromium] › tests/e2e/board-card-choices.spec.ts:181:7 › Scelte sempre presenti sulla card › quattro stati, quattro decisioni in un click — senza scrivere niente 
+
+    TimeoutError: locator.click: Timeout 15000ms exceeded.
+    Call log:
+    [2m  - waiting for locator('[data-task-card="a8f994ad-ebc1-4170-a864-527a4a44b825"]').getByTestId('task-choices-menu')[22m
+    [2m    - locator resolved to <button aria-haspopup="menu" aria-expanded="false" title="Azioni su questo turno" data-testid="task-choices-menu" aria-label="Azioni su questo turno" class="flex shrink-0 items-center rounded-md px-1.5 py-1.5 text-app-text-secondary hover:bg-white/10 hover:text-app-text disabled:opacity-50 ">…</button>[22m
+    [2m  - attempting click action[22m
+    [2m    2 × waiting for element to be visible, enabled and stable[22m
+    [2m      - element is not stable[22m
+    [2m    - retrying click action[22m
+    [2m    - waiting 20ms[22m
+    [2m    2 × waiting for element to be visible, enabled and stable[22m
+    [2m      - element is not stable[22m
+    [2m    - retrying click action[22m
+    [2m      - waiting 100ms[22m
+    [2m    - waiting for element to be visible, enabled and stable[22m
+    [2m  - element was detached from the DOM, retrying[22m
+
+
+      237 |     // E la card in corso NON porta più la riga di bottoni: è il punto del menu.
+      238 |     await expect(card(taskIds.corso).getByTestId("task-choices")).toHaveCount(0);
+    > 239 |     await menuBtn.click();
+          |                   ^
+      240 |     const menu = page.getByTestId("task-choices-panel");
+      241 |     await expect(menu.getByTestId("task-choice-stop")).toHaveText("Ferma");
+      242 |     await expect(menu.getByTestId("task-choice-deliver-now")).toHaveText("Consegna quello che hai");
+        at /home/user/topics-app/tests/e2e/board-card-choices.spec.ts:239:19
+
+    attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+    ../../../tmp/claude-0/-home-user-topics-app/9eb862f0-ca18-56b3-9aa9-f42b30337175/scratchpad/logs/b1-prima-e2e/t4-results/board-card-choices-Scelte--9f62e-ick-—-senza-scrivere-niente-chromium-repeat13/test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    attachment #2: video (video/webm) ──────────────────────────────────────────────────────────────
+    ../../../tmp/claude-0/-home-user-topics-app/9eb862f0-ca18-56b3-9aa9-f42b30337175/scratchpad/logs/b1-prima-e2e/t4-results/board-card-choices-Scelte--9f62e-ick-—-senza-scrivere-niente-chromium-repeat13/video.webm
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: ../../../tmp/claude-0/-home-user-topics-app/9eb862f0-ca18-56b3-9aa9-f42b30337175/scratchpad/logs/b1-prima-e2e/t4-results/board-card-choices-Scelte--9f62e-ick-—-senza-scrivere-niente-chromium-repeat13/error-context.md
+
+    Error Context: ../../../tmp/claude-0/-home-user-topics-app/9eb862f0-ca18-56b3-9aa9-f42b30337175/scratchpad/logs/b1-prima-e2e/t4-results/board-card-choices-Scelte--9f62e-ick-—-senza-scrivere-niente-chromium-repeat13/error-context.md
+
+  1 failed
+    [chromium] › tests/e2e/board-card-choices.spec.ts:181:7 › Scelte sempre presenti sulla card › quattro stati, quattro decisioni in un click — senza scrivere niente 
+  19 passed (3.0m)

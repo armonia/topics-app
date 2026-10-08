@@ -1,0 +1,8 @@
+HEAD 9f86fa60 bun 1.4.2 load=4x yes N1=60 NE=20
+== T1 start 04:38:02 uptime:  04:38:02 up 31 min,  0 user,  load average: 2.60, 4.97, 4.36
+== T1 red=0/60 end 04:38:52 uptime:  04:38:52 up 31 min,  0 user,  load average: 4.18, 5.03, 4.41
+== T2 start 04:38:52 uptime:  04:38:52 up 31 min,  0 user,  load average: 4.18, 5.03, 4.41
+== T2 red=0/60 end 04:50:06 uptime:  04:50:06 up 43 min,  0 user,  load average: 4.27, 4.43, 4.38
+== T3 start 04:50:06 uptime:  04:50:06 up 43 min,  0 user,  load average: 4.27, 4.43, 4.38
+== T3 red=0/60 end 04:54:06 uptime:  04:54:06 up 47 min,  0 user,  load average: 4.01, 4.21, 4.30
+DONE

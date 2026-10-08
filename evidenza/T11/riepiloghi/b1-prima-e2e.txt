@@ -1,0 +1,8 @@
+HEAD 9f86fa6 bun 1.4.2 load=4x yes N1=30 NE=20
+== T4 start 04:23:30 uptime:  04:23:30 up 16 min,  0 user,  load average: 4.90, 4.18, 2.44
+== T4 exit=1 19 passed 1 failed end 04:26:31 uptime:  04:26:31 up 19 min,  0 user,  load average: 5.63, 4.88, 3.02
+== T5 start 04:26:31 uptime:  04:26:31 up 19 min,  0 user,  load average: 5.63, 4.88, 3.02
+== T5 exit=1 18 passed 2 failed end 04:28:14 uptime:  04:28:14 up 21 min,  0 user,  load average: 5.84, 5.24, 3.35
+== T6 start 04:28:14 uptime:  04:28:14 up 21 min,  0 user,  load average: 5.84, 5.24, 3.35
+== T6 exit=0 20 passed 0 failed end 04:34:39 uptime:  04:34:39 up 27 min,  0 user,  load average: 6.46, 6.18, 4.45
+DONE

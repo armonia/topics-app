@@ -1,0 +1,8 @@
+HEAD 9f86fa60 bun 1.4.2 load=test:unit:shards x4 in parallel N1=30
+== T1 start 06:15:14 uptime:  06:15:14 up  2:08,  0 user,  load average: 4.27, 2.68, 1.91
+== T1 red=0/30 end 06:15:32 uptime:  06:15:32 up  2:08,  0 user,  load average: 3.76, 2.67, 1.92 shards-alive=yes
+== T3 start 06:15:32 uptime:  06:15:32 up  2:08,  0 user,  load average: 3.76, 2.67, 1.92
+== T3 red=0/30 end 06:17:33 uptime:  06:17:33 up  2:10,  0 user,  load average: 2.22, 2.37, 1.90 shards-alive=yes
+== T2 start 06:17:33 uptime:  06:17:33 up  2:10,  0 user,  load average: 2.22, 2.37, 1.90
+== T2 red=0/30 end 06:23:00 uptime:  06:23:00 up  2:16,  0 user,  load average: 0.29, 1.05, 1.46 shards-alive=yes
+DONE

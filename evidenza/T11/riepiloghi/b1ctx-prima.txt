@@ -1,0 +1,8 @@
+HEAD 9f86fa60 bun 1.4.2 load=4x yes + shard context N1=30
+== T1 start 05:07:09 files: tests/integration/live-phase-gate.test.ts server/services/deliveryReportChecks.test.ts tests/integration/terminal-input-dropped.test.ts tests/integration/terminal-revive-race.test.ts uptime:  05:07:09 up  1:00,  0 user,  load average: 5.99, 6.22, 5.52
+== T1 red=0/30 end 05:10:17 uptime:  05:10:17 up  1:03,  0 user,  load average: 4.49, 5.36, 5.31
+== T2 start 05:10:17 files: tests/integration/terminal-input-dropped.test.ts server/lib/ai-bridge-socket-error.test.ts server/services/ci-evidence.test.ts tests/integration/subagent-native-engine.test.ts uptime:  05:10:17 up  1:03,  0 user,  load average: 4.49, 5.36, 5.31
+== T2 red=0/30 end 05:19:18 uptime:  05:19:18 up  1:12,  0 user,  load average: 4.34, 4.59, 4.90
+== T3 start 05:19:18 files: tests/integration/terminal-input-dropped.test.ts server/lib/ai-bridge-socket-error.test.ts server/services/ci-evidence.test.ts uptime:  05:19:18 up  1:12,  0 user,  load average: 4.34, 4.59, 4.90
+== T3 red=0/30 end 05:22:49 uptime:  05:22:49 up  1:15,  0 user,  load average: 4.55, 4.50, 4.80
+DONE
