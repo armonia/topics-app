@@ -441,24 +441,24 @@ sia la gamma di un worktree che la sidebar puo' aver aperto a un secondo topic.
 
 #### Scenario: il chip compare dopo un turno che ha scritto
 - **GIVEN** un topic la cui conversazione contiene una tool call `write` su un file
-- **WHEN** l'utente guarda il blocco sopra il composer della chat
-- **THEN** vede un chip con il conteggio dei file toccati, sopra l'input e sulla sua stessa colonna
+- **WHEN** l'utente guarda la fine del trascritto della chat
+- **THEN** vede un chip con il conteggio dei file toccati, dopo l'ultimo messaggio, sopra l'input e sulla sua stessa colonna (CHAT-END-01)
 - **AND** cliccandolo si apre l'elenco con il path relativo e lo stato del file
 
 #### Scenario: una conversazione che non ha scritto niente non mostra il chip
 - **GIVEN** un topic le cui tool call sono solo letture, ricerche e comandi
-- **WHEN** l'utente guarda il blocco sopra il composer della chat
+- **WHEN** l'utente guarda la fine del trascritto della chat
 - **THEN** non c'e' nessun chip dei file modificati
 
 #### Scenario: un topic senza worktree non mostra il branch
 - **GIVEN** un topic non legato a un worktree, la cui conversazione ha scritto dei file
-- **WHEN** l'utente guarda la striscia sopra il composer
+- **WHEN** l'utente guarda la striscia in fondo al trascritto
 - **THEN** vede il chip con il conteggio dei file
 - **AND** non vede nessun nome di branch, nemmeno se il topic lavora dentro un repository
 
 #### Scenario: un topic legato a un worktree mostra il suo branch
 - **GIVEN** un topic con `worktreeId` non nullo, che lavora dentro un repository e ha scritto dei file
-- **WHEN** l'utente guarda la striscia sopra il composer
+- **WHEN** l'utente guarda la striscia in fondo al trascritto
 - **THEN** accanto al chip vede il nome del branch del worktree, con la root del repository come titolo
 
 #### Scenario: i conteggi vengono da git e riguardano solo i file del topic
@@ -584,7 +584,7 @@ contiene.
 
 ### Requirement: CHGSET-03 — La striscia della chat apre il diff con il pannello unico
 
-La tendina della striscia dei file modificati (`ChangedFilesStrip`, sopra il composer) SHALL
+La tendina della striscia dei file modificati (`ChangedFilesStrip`, in fondo al trascritto) SHALL
 disegnare `UnifiedDiff` sul changeset del topic (CHGSET-02) al posto dell'elenco semplice, con
 una sorgente nuova `{ kind: 'topic', topicId }` in `DiffPanelSource`. Ogni riga resta la riga
 condivisa `ChangedFileEntry` e, aperta, mostra quello che mostra in una card: il diff, la
@@ -796,12 +796,12 @@ onto the composer under the reader's own hand. Motion
 is the shared height animation of the body (`MOTION.base`), and nothing animates
 under `prefers-reduced-motion`.
 
-The strips docked above the composer (the goal, the todo list, the files this
-chat touched, the checkpoints) open their content ABOVE their header, in the
-flow of the docked block: the header keeps its place under the pointer, and a
-transcript that was following the bottom follows the block up, so its newest
-row is never hidden under the opened list (while the agent writes, too). A
-transcript read further up does not move.
+The chat's strips at the end of the transcript (the goal, the todo list, the
+files this chat touched, the checkpoints; CHAT-END-01) open their content ABOVE
+their header, in the flow of the strip: the header keeps its place under the
+pointer and the transcript above it moves up with the opened list, so its
+newest row stays in sight above the strip (while the agent writes, too). A
+strip is on screen only at the end of the chat, so it has no middle case.
 
 #### Scenario: opening a fold at the bottom of the chat
 - **GIVEN** a chat at its true bottom whose last message holds a closed fold
@@ -837,11 +837,11 @@ transcript read further up does not move.
 - **WHEN** the person opens it
 - **THEN** the body opens onto the whole output in one run, not onto a loading line that the output pushes down later
 
-#### Scenario: a strip docked over the composer
-- **GIVEN** the goal bar, the todo strip or the changed-files strip above the composer
+#### Scenario: a strip at the end of the transcript
+- **GIVEN** the goal bar, the todo strip or the changed-files strip at the end of the transcript, with the chat at its bottom
 - **WHEN** the person opens and closes it
 - **THEN** the strip's header stays where it was
-- **AND** with the chat at its bottom the newest row stays in sight above the opened list; read further up, the rows on screen do not move
+- **AND** the newest row stays in sight above the opened list
 
 #### Scenario: a docked list open while the agent writes
 - **GIVEN** the todo strip open with the chat at its bottom
@@ -853,6 +853,35 @@ transcript read further up does not move.
 - **WHEN** new output arrives
 - **THEN** the view stays on the header the person opened
 - **AND** once the reader scrolls back to the true bottom, or sends, new output is followed again
+
+### Requirement: CHAT-END-01 — The chat's strips are the end of the transcript
+
+The strips that say where the chat stands (the goal or, without one, the agent's
+latest todo list; the live work, SUBSTRIP-01; the checkpoints; the files this
+chat touched) SHALL be drawn at the end of the transcript, inside its scroll,
+after the last message and on the composer's column, not in the block docked
+above the composer. That block SHALL keep only what belongs to the send: the
+plan approval bar, the frozen-command line, the unsent messages and the answer
+of a command typed in the composer. A chat with no messages (empty, its
+composer in the middle of the pane, or its history still on the way) SHALL keep
+the strips in the composer's block, since it has no transcript to hold them.
+
+A reader at the bottom of the chat SHALL stay at the bottom when a strip
+appears, grows or shrinks; a reader further up SHALL see nothing on screen move
+when the strips change below. (chat-strips-in-transcript, 08/10: «il goal e
+tutte le cose sopra l'input in realtà dovrebbero restare a fondo chat».)
+
+#### Scenario: the strips sit after the last message
+- **GIVEN** a chat with messages, read at its bottom
+- **WHEN** one of its commands starts and then its goal is set
+- **THEN** the command's row and the goal bar are in the transcript after the last message, above the composer's block and within its column
+- **AND** the composer's block holds neither
+- **AND** the view is still at the bottom after each of them appears
+
+#### Scenario: a reader further up does not move
+- **GIVEN** a reader who scrolled up the same chat with the wheel
+- **WHEN** a row of the strip arrives and another leaves
+- **THEN** the message they are reading stays where it was on screen
 
 ### Requirement: CHAT-TOOL-04 — Codice formattato nei body dei tool
 
@@ -1857,7 +1886,40 @@ The ended rows and the dismissals SHALL be shared by every window of the same br
 - **WHEN** one window dismisses a row and the other then dismisses another
 - **THEN** the first row SHALL disappear from the other window too, and neither row SHALL come back after a reload
 
-### Requirement: TODO-01 — The session's latest todo list is the plan pinned above the composer
+### Requirement: SUBSTRIP-02 — A command's row opens the card that started it
+
+A click on a command's row of the strip SHALL open the card of the tool call
+that started that command in this chat's transcript (`run_command` /
+`run_script`): the turn's fold, the tool group and the row that hold it open,
+and the row is brought into view under the tab bar, with the command's live log
+under its answer (`LaunchedProcessTail`, from the process registry: running,
+then its exit and its last lines). The card is the one whose answer names the
+process; on a card the history shipped without its answer, the one that ran the
+same command (or script) closest to the process's start. Once revealed, the
+card keeps the view: new output of the chat does not take it back to the bottom
+until the reader returns there. Only a command whose card the loaded transcript
+does not hold (another session's, started by the route alone, history not
+loaded) SHALL dock its log above the rows, as before. (chat-strips-in-transcript,
+08/10: «si apre un nuovo accordion sopra invece di sfruttare quello già
+dell'agente».) A sub-agent's row keeps opening its chat or its terminal.
+
+#### Scenario: the row opens the card, in sight, with the live log
+- **GIVEN** a turn that started a ticking command with `run_command` and then pushed its card out of sight
+- **WHEN** the person clicks the command's row in the strip
+- **THEN** the card is in view, open, its live log moving, and no log is docked over the strip
+- **AND** after a reload, which ships the card without its answer, the same click opens the same card
+
+#### Scenario: a command with no card docks its log
+- **GIVEN** a command of the chat started by the route alone
+- **WHEN** the person clicks its row
+- **THEN** its log opens docked above the rows
+
+#### Scenario: the revealed card keeps the view
+- **GIVEN** a card opened from the strip, the chat scrolled up to it
+- **WHEN** the command ends and its wake makes the chat write again below
+- **THEN** the card says how the command ended and stays in view, and the new output is counted on the scroll-to-bottom arrow
+
+### Requirement: TODO-01 — The session's latest todo list is the plan shown at the end of the transcript
 
 The system SHALL keep the most recent todo list written by the agent
 (`TodoWrite`) available as a snapshot of the current plan: the items, how many
@@ -5315,7 +5377,9 @@ Topics (`server/routes/processes.ts`), non nella CLI: la chat non mostrava nient
   stampa e, se una sveglia è dovuta, l'icona lucide `AlarmClock`
   (`live-work-wakes`, etichetta i18n `chat.background.wakes`: «sveglia la chat
   quando finisce»), dal campo `wakes` di `GET /api/topics/:id/live-work`. Un
-  clic sulla riga apre il log del processo, agganciato sopra la striscia.
+  clic sulla riga apre la card della tool call che l'ha lanciato, con il log
+  dal vivo del processo (SUBSTRIP-02); solo un comando senza card nel
+  trascritto apre il log agganciato sopra le righe.
 - Stop: lo Stop del composer ferma il lavoro della CLI, non i comandi (vivono
   fuori dalla CLI apposta). Una chat con soli comandi NON SHALL entrare
   nell'insieme per sessione del composer (`composerStopsWork`,
