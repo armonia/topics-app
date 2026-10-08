@@ -74,7 +74,9 @@ if [ "$OS" = "smoke" ]; then
     TOPICS_PTY_SOCKET="$SOCK" TOPICS_DISABLE_PTY_BRIDGE=1 TOPICS_EMBEDDED=1 HOME="$WORK/fakehome" \
     "$BIN" > "$WORK/smoke.log" 2>&1 &
   SMOKE_PID=$!
-  cleanup_smoke() { kill "$SMOKE_PID" 2>/dev/null; rm -rf "$WORK"; rm -f "$SOCK"; }
+  # Wait for the binary to exit before removing its data dir: one still writing
+  # there made `rm -rf` fail ("Directory not empty") and the smoke exit 1.
+  cleanup_smoke() { kill "$SMOKE_PID" 2>/dev/null; wait "$SMOKE_PID" 2>/dev/null; rm -rf "$WORK"; rm -f "$SOCK"; }
   trap cleanup_smoke EXIT
   # Wait for the API.
   ok=""
@@ -85,6 +87,12 @@ if [ "$OS" = "smoke" ]; then
   if [ -z "$ok" ]; then echo "[smoke] FAIL: server never answered"; tail -30 "$WORK/smoke.log"; exit 1; fi
   echo "[smoke] /api/topics: $(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:$PORT/api/topics)"
   echo "[smoke] /api/terminal/sessions (expect 503 standalone): $(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:$PORT/api/terminal/sessions)"
+  # The binary's stdout reaches the file after it already answers: grepping at
+  # once read an empty log 4 times in 6 (T12, both Buns). Wait up to 5 s for it.
+  for _ in $(seq 1 20); do
+    grep -qE "embedded migration|All migrations" "$WORK/smoke.log" && break
+    sleep 0.25
+  done
   echo "[smoke] migrations line:"; grep -E "embedded migration|All migrations" "$WORK/smoke.log" | head -1
   echo "[smoke] bridge touched? (must be EMPTY):"; grep -i "PTY bridge daemon" "$WORK/smoke.log" || echo "  (none — good)"
   echo "[smoke] journal sync (expect disabled, no ConnectionRefused spam):"
