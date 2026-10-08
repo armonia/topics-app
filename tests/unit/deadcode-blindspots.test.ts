@@ -21,6 +21,7 @@ import {
   entriesFromPackageScripts,
   withProbe,
   withoutProbe,
+  restoredContent,
   filesWhereProbeWasSeen,
   KNOWN_BLIND,
 } from "../../scripts/check-deadcode-blindspots";
@@ -90,6 +91,25 @@ describe("check-deadcode-blindspots — i pezzi puri", () => {
     // Se knip non produce JSON, `seen` è vuoto e il check grida invece di
     // passare in silenzio: l'errore rumoroso è quello giusto per un cancello.
     expect(filesWhereProbeWasSeen("non è json").size).toBe(0);
+  });
+});
+
+describe("check-deadcode-blindspots — what a run puts back", () => {
+  const original = "export const a = 1;\n";
+
+  it("a file nobody touched gets its original back", () => {
+    expect(restoredContent(withProbe(original), original)).toBe(original);
+    expect(restoredContent(original, original)).toBeNull();
+  });
+
+  it("an edit made while the probe was in place stays, and only the probe comes out", () => {
+    // The edit lands on the probed file: the probe line is still at the end.
+    const edited = withProbe(original).replace("= 1", "= 2");
+    expect(restoredContent(edited, original)).toBe("export const a = 2;\n");
+  });
+
+  it("a file rewritten whole during the run, without the probe, is left as it is", () => {
+    expect(restoredContent("export const a = 3;\n", original)).toBeNull();
   });
 });
 
