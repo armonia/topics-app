@@ -1,0 +1,65 @@
+### b1-prima.summary
+== prima chromium  13:32:47 up 39 min,  0 user,  load average: 3.00, 2.87, 2.95
+exit 1
+  10 failed
+  10 passed (1.0m)
+     10 Error: the middle of the screen
+== prima webkit  13:33:49 up 40 min,  0 user,  load average: 2.37, 2.70, 2.88
+exit 1
+  10 failed
+  10 passed (1.2m)
+     10 Error: the middle of the screen
+### b1-after2.summary
+== chromium start  13:14:18 up 20 min,  0 user,  load average: 8.26, 7.44, 3.53
+== chromium exit 0  13:15:23 up 21 min,  0 user,  load average: 4.22, 6.40, 3.44
+  20 passed (1.1m)
+== webkit start  13:15:23 up 21 min,  0 user,  load average: 4.22, 6.40, 3.44
+== webkit exit 0  13:16:36 up 22 min,  0 user,  load average: 3.62, 5.83, 3.47
+  20 passed (1.2m)
+### b2.summary
+== chromium run1 start  13:20:09 up 26 min,  0 user,  load average: 2.38, 4.09, 3.24
+== chromium run1 exit 0  13:21:24 up 27 min,  0 user,  load average: 3.09, 3.94, 3.26
+  14 passed (1.2m)
+== chromium run2 start  13:21:24 up 27 min,  0 user,  load average: 3.09, 3.94, 3.26
+== chromium run2 exit 0  13:22:42 up 28 min,  0 user,  load average: 2.60, 3.65, 3.22
+  14 passed (1.3m)
+== chromium run3 start  13:22:42 up 28 min,  0 user,  load average: 2.60, 3.65, 3.22
+== chromium run3 exit 0  13:24:06 up 30 min,  0 user,  load average: 2.08, 3.27, 3.12
+  14 passed (1.4m)
+== webkit run1 start  13:24:06 up 30 min,  0 user,  load average: 2.08, 3.27, 3.12
+== webkit run1 exit 0  13:26:03 up 32 min,  0 user,  load average: 2.76, 3.15, 3.09
+  14 passed (1.9m)
+== webkit run2 start  13:26:03 up 32 min,  0 user,  load average: 2.76, 3.15, 3.09
+== webkit run2 exit 0  13:27:55 up 34 min,  0 user,  load average: 1.84, 2.66, 2.92
+  14 passed (1.8m)
+== webkit run3 start  13:27:55 up 34 min,  0 user,  load average: 1.84, 2.66, 2.92
+== webkit run3 exit 0  13:29:50 up 36 min,  0 user,  load average: 3.32, 2.98, 3.01
+  14 passed (1.9m)
+### B3 M2 (setFramesCovered non tocca lo strato esistente)
+chromium   3 failed
+chromium   3 passed (39.0s)
+      3 Error: the page answers over its pane
+webkit   3 failed
+webkit   3 passed (41.3s)
+      3 Error: the page answers over its pane
+### B3 M1 (il cassetto non manda il segnale)
+chromium   3 failed
+chromium   3 passed (23.2s)
+      3 Error: the middle of the screen
+webkit   3 failed
+webkit   3 passed (27.0s)
+      3 Error: the middle of the screen
+### Q1 telefono da solo, base
+  1 passed (14.3s)
+### Q3 gruppo browser desktop + telefono, base, --retries=1
+425:[test-server] 2026-10-08T13:35:32.654Z [HTTP] ✓ POST /api/test/reset 200 5ms
+522:  ✓  1 [chromium] › tests/e2e/usability-audit.spec.ts:707:7 › usability audit — desktop 1440x900 › browser pane, its tab strip, and the add-pane menu (5.7s)
+604:  ✘  2 [chromium] › tests/e2e/usability-audit.spec.ts:482:7 › usability audit — phone 390x844, touch › sidebar and the bundle banner (3.3s)
+612:[test-server] 2026-10-08T13:35:43.587Z [HTTP] ✓ POST /api/test/reset 200 16ms
+734:  ✓  3 [chromium] › tests/e2e/usability-audit.spec.ts:482:7 › usability audit — phone 390x844, touch › sidebar and the bundle banner (retry #1) (5.5s)
+754:  1) [chromium] › tests/e2e/usability-audit.spec.ts:482:7 › usability audit — phone 390x844, touch › sidebar and the bundle banner 
+765:    [31m+   "banner: bundle rebuilt [light+dark] target-covered [data-testid=\"bundle-stale-reload\"] :: centre answered by [data-testid=\"browser-iframe\"]; box 46x18 -> client/src/components/DevBundleToast.tsx",[
+766:    [31m+   "banner: bundle rebuilt [light+dark] target-covered [data-testid=\"update-banner-dismiss\"] :: centre answered by [data-testid=\"browser-iframe\"]; box 24x24 -> client/src/components/Shared/SidebarUpdate
+791:  1 flaky
+792:    [chromium] › tests/e2e/usability-audit.spec.ts:482:7 › usability audit — phone 390x844, touch › sidebar and the bundle banner 
+793:  1 passed (25.4s)
