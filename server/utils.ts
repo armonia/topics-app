@@ -1040,6 +1040,23 @@ export function createAppContext(baseDir: string): AppContext {
     return withMediaSizes(message, { uploadsDir: UPLOADS_DIR, isPathAllowed });
   }
 
+  /**
+   * What a GUEST socket receives of a frame it may receive: the same frame
+   * without `mediaSizes`. Every key there is a picture the client fetches from
+   * `/uploads/…` or through `/api/media`, and neither is in
+   * `isGuestAllowedPath`: the size would tell a guest that a file exists on the
+   * owner's disk and how big it is, for a picture it can never load (V3, D2).
+   * Not filtered key by key with `isGuestAllowedPath`: the keys are disk paths
+   * as well as URLs, and a disk path under `/media/` (a mounted volume on Linux)
+   * would pass a check written for the `/media/` route. Built once per fan-out,
+   * and only when a guest is reached.
+   */
+  function guestPayloadOf(message: OutboundMessage, payload: string): string {
+    if (!("mediaSizes" in message)) return payload;
+    const { mediaSizes: _ownerOnly, ...rest } = message as OutboundMessage & { mediaSizes?: unknown };
+    return JSON.stringify(rest);
+  }
+
   function broadcastToAll(message: OutboundMessage) {
     const presentedMessage = presentTopicInOutboundMessage(withFrameMediaSizes(message));
     devValidateOutbound(presentedMessage);
@@ -1054,9 +1071,15 @@ export function createAppContext(baseDir: string): AppContext {
     // passare gli altri 52. Per entità perché un tipo ammesso non basta —
     // `task:updated` di un task non condiviso resta roba d'altri.
     const guests = guestSocketFilter();
+    let guestPayload: string | undefined;
     for (const ws of wsClients) {
       if (ws.readyState !== 1) continue;
-      if (guests && isGuestSocket(ws) && !guests.mayReceiveFrame(ws.data.deviceId!, presentedMessage)) continue;
+      if (guests && isGuestSocket(ws)) {
+        if (!guests.mayReceiveFrame(ws.data.deviceId!, presentedMessage)) continue;
+        guestPayload ??= guestPayloadOf(presentedMessage, payload);
+        sendFrame(ws, guestPayload, presentedMessage.type);
+        continue;
+      }
       sendFrame(ws, payload, presentedMessage.type);
     }
     // No push from here any more (notifications-redesign, design section
