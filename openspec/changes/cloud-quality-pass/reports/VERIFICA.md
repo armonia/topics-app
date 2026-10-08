@@ -360,3 +360,25 @@ rimesse sulla base locale con `cloud-ricuci`; la firma SSH della VM cade, autore
   Con la vecchia condizione, su una copia scratch, il caso della pane nativa è rosso.
 - Prezzo, lo stesso già accettato per i poll: con pane browser native vive e l'app davvero dietro un'altra,
   le animazioni girano.
+
+## T17 · Sul telefono la lista sotto la pagina di una tab browser — accettata (fusa in `bf3ce7b4f`)
+
+- Difetto dell'app, non del test. Sul telefono il cassetto della lista si dipinge dentro la radice
+  dell'app (`position: fixed`, un contesto di impilamento suo), cioè sotto lo strato delle pagine browser
+  appeso a `body`. Con una tab browser aperta la pagina copriva la lista intera, non solo il banner.
+- Fix:
+  - Mentre il cassetto è aperto lo strato va in `visibility: hidden` (`frameCover.ts`, chiamato da
+    `useSidebarSwipe`). Nessun frame staccato o ricaricato.
+  - Diff letto: solo lo strato tocca `visibility`, quindi i frame ereditano. L'hook è montato una volta in
+    `App.tsx`, che non si smonta, quindi la cleanup mancante qui non morde.
+  - Il modulo a parte tiene `hostedIframe` fuori dal chunk di avvio: +105 byte gz sul percorso critico.
+- Prova visiva (ramo `cloud/t17-banner-iframe-evidenza`), letta con l'OCR delle due metà del fotogramma:
+  prima il testo di example.com al posto della lista, dopo la lista con «cerca», «Nuova Task» e «Profilo».
+- Barre di T17, sulla VM:
+  - **B1:** 10/10 rossi → 10/10 verdi, in Chromium e in WebKit.
+  - **B2:** `usability-audit` ×3 verde nei due motori.
+  - **B3:** due mutazioni, entrambe rosse.
+  - Barra finale: gate 0, 16 spec e2e dell'area con 83 passate e nessun retry.
+  - L'unico rosso negli unit è `system-notices`, la perdita chiusa da T15 (`dc773b2e3`).
+- Aggiunto qui: la spec nuova nel `testMatch` del progetto `webkit`, come chiedeva il REPORT (il config era
+  nei file dei rami aperti). La prova di quella riga è la CI di #258.
