@@ -59,7 +59,17 @@ import { getProvidersSnapshotState, subscribeProvidersSnapshot } from '../../lib
 import { cardRunsThroughTopics } from '../../lib/topicsRoutingGate';
 
 // ── Column ────────────────────────────────────────────────────────────────
-export function Column({ status, tasks, onOpen, onCreate, canCreate, showProject, cardError, onCardError, onRefetch, onOpenTopic, resolveSession, tasksById, projectPathById, liveById, awaitingHuman, justMoved, justCreated, archived = false, draft, onOpenSettings, layout = 'grid' }: {
+// The droppable SHELL, for the same reason as `Card` below: `useDroppable`
+// reads dnd-kit's InternalContext, which changes whenever the droppable under
+// the pointer changes, so during a drag the column re-ran its header (status
+// icon, load gauge, count) on every over change at identical props. The shell
+// takes that re-render; `ColumnBody` is memoized and only sees `isOver` flip.
+export function Column(props: ColumnProps) {
+  const { setNodeRef, isOver } = useDroppable({ id: props.status });
+  return <ColumnBody {...props} setNodeRef={setNodeRef} isOver={isOver} />;
+}
+
+type ColumnProps = {
   status: TaskStatus; tasks: BoardTask[]; onOpen: OpenTask; onCreate: (text: string) => void;
   canCreate: boolean; showProject: boolean; onRefetch: () => void;
   /** L'errore dell'ULTIMA azione fallita, con la card a cui appartiene: la
@@ -97,9 +107,12 @@ export function Column({ status, tasks, onOpen, onCreate, canCreate, showProject
    *  "add" affordance mid-list), so it collapses instead of leaving a bare
    *  header floating between two populated ones. */
   layout?: 'grid' | 'list';
+};
+
+const ColumnBody = memo(function ColumnBody({ status, tasks, onOpen, onCreate, canCreate, showProject, cardError, onCardError, onRefetch, onOpenTopic, resolveSession, tasksById, projectPathById, liveById, awaitingHuman, justMoved, justCreated, archived = false, draft, onOpenSettings, layout = 'grid', setNodeRef, isOver }: ColumnProps & {
+  setNodeRef: (element: HTMLElement | null) => void; isOver: boolean;
 }) {
   const tr = useT();
-  const { setNodeRef, isOver } = useDroppable({ id: status });
   const [adding, setAdding] = useState(false);
   const [text, setText] = useState('');
   const submit = () => { const v = text.trim(); if (v) { onCreate(v); } setText(''); setAdding(false); };
@@ -300,7 +313,7 @@ export function Column({ status, tasks, onOpen, onCreate, canCreate, showProject
       </div>
     </div>
   );
-}
+});
 
 /**
  * The long press on a card: the SAME menu the right button opens, and the

@@ -97,4 +97,16 @@ describe('kanban sensors are referentially stable', () => {
     // body already turned into a string, which compares by value.
     expect(shell).toMatch(/dragTransform=\{[^}]*CSS\.Transform\.toString\(/);
   });
+
+  test('the column reads its droppable in a shell too: the header does not re-render on every over change', () => {
+    const shellAt = card.indexOf('export function Column(');
+    const bodyAt = card.indexOf('const ColumnBody = memo(function ColumnBody(');
+    expect(shellAt, 'the droppable shell is gone: this test guards nothing').toBeGreaterThan(0);
+    expect(bodyAt, 'the column body is no longer memoized on its own').toBeGreaterThan(0);
+    const shell = card.slice(shellAt, card.indexOf('\n}', shellAt));
+    expect(shell).toContain('useDroppable(');
+    expect(shell).toContain('<ColumnBody');
+    const body = card.slice(bodyAt, card.indexOf('\n});', bodyAt));
+    expect(body).not.toMatch(/useDroppable\(|useDndContext\(/);
+  });
 });
