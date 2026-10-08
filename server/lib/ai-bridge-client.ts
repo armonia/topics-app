@@ -18,6 +18,8 @@ import { augmentPath } from "../utils/path-env";
 import { envDataDir, resolveStateDir } from "./data-dir";
 import { registerFleetSocket } from "./fleet-usage";
 import { aiBridgeDaemonLaunch } from "./ai-bridge-daemon-argv";
+// runtime-dep-ok: a static import, not a spawn. The compiled server bundles this
+// module like any other, so there is no loose .mjs to miss and no runtime to run it.
 import { bridgeOutsideGuiSession, guiSessionName } from "../pty-bridge-platform.mjs";
 
 export interface SpawnOpts {

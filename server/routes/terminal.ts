@@ -13,6 +13,8 @@ import fs from "fs";
 import { homedir, tmpdir } from "os";
 import { isAgentWorkspace, lowerPriority } from "../lib/low-priority";
 import { augmentPath, realHome } from "../utils/path-env";
+// runtime-dep-ok: a static import, not a spawn. The compiled server bundles this
+// module like any other, so there is no loose .mjs to miss and no runtime to run it.
 import { bridgeOutsideGuiSession, guiSessionName } from "../pty-bridge-platform.mjs";
 import { resolveCodexBin } from "../lib/codex-bin";
 import { envDataDir } from "../lib/data-dir";
