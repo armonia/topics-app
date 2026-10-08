@@ -211,6 +211,9 @@ test("a command's row opens the card that started it, in sight, with its live lo
   await expect.poll(async () => tickOf(await live.textContent()), { timeout: 6_000 }).toBeGreaterThan(seen);
   // Printed in colour, read as text: on the Prince of Persia chat (08/10) the escape codes showed as boxes.
   expect(await live.textContent()).not.toMatch(/\x1b|\[\d*m/);
+  // Once the log outgrows its box, the box shows its newest line, as the docked log did.
+  await expect.poll(() => live.evaluate((el) => el.scrollHeight > el.clientHeight), { timeout: 15_000 }).toBe(true);
+  await expect.poll(() => live.evaluate((el) => el.scrollHeight - el.scrollTop - el.clientHeight), { timeout: 3_000 }).toBeLessThanOrEqual(2);
   await expect(page.getByTestId("live-work-log")).toHaveCount(0);
   await expect(row).toHaveAttribute("data-open", "false");
 

@@ -12,6 +12,7 @@
  * The launched process is what a row of the strip opens (chat-strips-in-transcript,
  * `liveWorkCard.ts`): its card shows the log the strip used to dock over itself.
  */
+import { useLayoutEffect, useRef } from 'react';
 import { useT } from '../../hooks/useT';
 import { useLaunchedProcess, type LiveBackgroundShell } from '../../hooks/useBackgroundShell';
 import { stripAnsi } from '../../lib/stripAnsi';
@@ -19,6 +20,17 @@ import { launchedProcessId } from './liveWorkCard';
 
 export function LiveShellTail({ live }: { live: LiveBackgroundShell }) {
   const tr = useT();
+  // Without colour and cursor codes, as the docked log reads them: on the
+  // Prince of Persia chat (08/10) Muse's escape codes showed as boxes.
+  const text = stripAnsi(live.output);
+  // The newest line in sight, as the docked log keeps it (`ProcessLogPane`):
+  // the box follows the end until the reader scrolls up inside it.
+  const outputRef = useRef<HTMLPreElement>(null);
+  const followRef = useRef(true);
+  useLayoutEffect(() => {
+    const el = outputRef.current;
+    if (el && followRef.current) el.scrollTop = el.scrollHeight;
+  }, [text]);
   if (!live.known) return null;
   const running = live.status === 'running';
   return (
@@ -36,12 +48,12 @@ export function LiveShellTail({ live }: { live: LiveBackgroundShell }) {
       )}
       {live.output && (
         <pre
+          ref={outputRef}
           data-testid="shell-live-output"
+          onScroll={(e) => { const el = e.currentTarget; followRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 40; }}
           className="tool-card-code text-mini font-mono text-app-text-secondary whitespace-pre-wrap overflow-auto max-h-72 bg-app-hover/40 rounded px-2 py-1.5"
         >
-          {/* Without colour and cursor codes, as the docked log reads them: on the
-              Prince of Persia chat (08/10) Muse's escape codes showed as boxes. */}
-          {stripAnsi(live.output)}
+          {text}
         </pre>
       )}
     </div>
