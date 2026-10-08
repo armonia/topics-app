@@ -25,17 +25,16 @@ import { ToolDetailFetchStatus, type ToolDetailFetchState } from './ToolDetailFe
 import { TranscriptRowResizeContext } from './transcriptRowResize';
 import { useDisclosureToggle } from './transcriptDisclosure';
 import { DisclosureBody } from './DisclosureBody';
-import { FindToolIdContext, useFindFocusTool, useRevealTool } from '../../state/chatFindFocus';
-import { MOTION } from '../../lib/motion';
+import { FindToolIdContext, useFindFocusTool } from '../../state/chatFindFocus';
 import { CHAT_BOTTOM_GUTTER_PX, COMPOSER_HEIGHT_PROPERTY } from './useComposerDock';
 
 /**
- * Where a `scrollIntoView` of the row lands (opened from the strip, a find
- * match): below the tab bar and above the composer, the two glass bands the
- * transcript runs under. On the row and not as the scroller's `scroll-padding`:
- * Chromium also scrolls a header clicked inside that padding into view as it
- * takes the focus, before a fold's hold reads where the header was, and the
- * transcript moved under the pointer (chat-accordion-no-shift on Chromium).
+ * Where a `scrollIntoView` of the row lands (the row a failure badge opened):
+ * below the tab bar and above the composer, the two glass bands the transcript
+ * runs under. On the row and not as the scroller's `scroll-padding`: Chromium
+ * also scrolls a header clicked inside that padding into view as it takes the
+ * focus, before a fold's hold reads where the header was, and the transcript
+ * moved under the pointer (chat-accordion-no-shift on Chromium).
  */
 const SCROLL_LANDING = {
   scrollMarginTop: 'var(--chat-gutter, 0px)',
@@ -319,24 +318,6 @@ export const ToolCallRow = memo(function ToolCallRow({ toolCall, label, sessionK
     // `?.` on the method too: old WebKit and layout-less test benches lack it.
     rowRef.current?.scrollIntoView?.({ block: 'nearest', behavior: 'smooth' });
   }, [highlighted]);
-  // Opened from the strip (`revealToolCall`): the header goes to the top of the
-  // view, under the chrome (`SCROLL_LANDING`), once the fold around the row and
-  // its own body have unrolled, so it is read at its final place. In one step,
-  // then held there as a fold opened by hand is: the reader asked for this row,
-  // so the next output of a chat still writing does not take the view back to
-  // the bottom (it did, in the e2e's first take), and what the body still gains
-  // (the fetched output, the live log) grows below the header.
-  const revealSeq = useRevealTool(toolCall.id);
-  useEffect(() => {
-    if (!revealSeq) return;
-    const t = setTimeout(() => {
-      const row = rowRef.current;
-      if (!row) return;
-      row.scrollIntoView?.({ block: 'start' });
-      disclose(row);
-    }, MOTION.base + 50);
-    return () => clearTimeout(t);
-  }, [revealSeq, disclose]);
 
   // Lazy fetch: the first time a trimmed row is opened (or pressed, see
   // `onPointerDown`), we pull the whole detail and args from the server and

@@ -160,7 +160,7 @@ test("only what works now: the working sub-agent and the commands, the one that 
 
   // The command whose end wakes the chat says so on its row, the other does
   // not; and it is named once: the background line no longer lists commands.
-  await expect(buildRow.getByTestId("live-work-wakes")).toHaveAttribute("aria-label", /^(wakes the chat when it ends|sveglia la chat quando finisce)$/);
+  await expect(buildRow.getByTestId("live-work-wakes")).toHaveAttribute("aria-label", /^(When this command ends, the chat wakes up and carries on by itself|Quando questo comando finisce, la chat si sveglia e va avanti da sola)$/);
   await expect(commandRow.getByTestId("live-work-wakes")).toHaveCount(0);
   await expect(page.getByText(`E2E build ${STAMP}`)).toHaveCount(1);
 
@@ -193,7 +193,7 @@ test("the output a command redirects to a file shows in its log", async ({ page,
   await expect(row.getByTestId("live-work-preview")).toHaveText(/tick \d+/, { timeout: 15_000 });
 
   // Everything the log shows from the click on, to prove it never sat empty.
-  const log = page.getByTestId("process-log-output");
+  const log = row.getByTestId("shell-live-output");
   await row.getByRole("button").first().click();
   const clickedAt = Date.now();
   await expect(log).toBeVisible({ timeout: 5_000 });

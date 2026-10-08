@@ -9,8 +9,8 @@
  * `liveWorkApi` and `scriptsApi` answering, the window a stand-in that records
  * the events the rows dispatch.
  *
- * A command whose card the transcript holds opens that card instead of a log
- * of its own (chat-strips-in-transcript): the message store holds the card.
+ * A command opens its live log in its own row, the tail its card shows, one
+ * row at a time (chat-strips-in-transcript): the process registry answers it.
  *
  * @covers SUBSTRIP-01
  * @covers SUBSTRIP-02
@@ -21,15 +21,11 @@ import { mount, type Harness, type HostNode } from '../../test/reactHarness';
 import { liveWorkApi, scriptsApi } from '../../lib/api';
 import { dispatchFrame } from '../../lib/wsFrameBus';
 import { resetOpenLinkDedupeForTest } from '../../lib/openLink';
-import { warm } from '../../lib/lazyWarm';
-import { loadProcessLog } from '../../state/pane/panePreload';
-import { __resetMessageStore, updateMessages } from '../../state/messageStore';
-import { getChatFindFocus, setChatFindFocus } from '../../state/chatFindFocus';
 import { SubAgentsStrip } from './SubAgentsStrip';
 import type { LiveWorkRow } from '../../../../shared/live-work';
 
 const g = globalThis as unknown as Record<string, unknown>;
-const saved = { window: g.window, requestAnimationFrame: g.requestAnimationFrame };
+const saved = { window: g.window };
 const real = { get: liveWorkApi.get, output: scriptsApi.output, list: scriptsApi.list, stop: scriptsApi.stop };
 let events: Array<{ type: string; detail: unknown }> = [];
 let harness: Harness | null = null;
@@ -42,7 +38,7 @@ const ROWS: LiveWorkRow[] = [
   { kind: 'agent', id: 'nat-1', name: 'Muse', runtime: 'topics', sessionKey: 'topic:nat1', state: 'waiting', preview: '', startedAt: t0 },
   { kind: 'agent', id: 'old-1', name: 'anim-fix', runtime: 'topics', state: 'ended', preview: '', startedAt: t0, endedAt: t0, goneInMs: 80 },
   { kind: 'command', id: 'p1', name: 'tick', command: 'while true; do echo tick; sleep 1; done', preview: 'tick 1', startedAt: t0, listen: [], wakes: true },
-  { kind: 'command', id: 'p2', name: 'clips', command: 'python3 -m http.server 8781 --bind 127.0.0.1', preview: '', startedAt: t0, listen: [{ host: '127.0.0.1', port: 8781 }], wakes: false },
+  { kind: 'command', id: 'p2', name: 'clips', command: 'python3 -m http.server 8781 --bind 127.0.0.1', preview: '', startedAt: '2026-10-07T20:00:05.000Z', listen: [{ host: '127.0.0.1', port: 8781 }], wakes: false },
 ];
 
 beforeEach(() => {
@@ -62,7 +58,10 @@ beforeEach(() => {
   };
   liveWorkApi.get = (async () => ({ rows: answers[Math.min(asked++, answers.length - 1)]! })) as typeof liveWorkApi.get;
   scriptsApi.output = (async () => ({ output: 'tick 1\ntick 2', offset: 2, done: false, status: 'running' })) as typeof scriptsApi.output;
-  scriptsApi.list = (async () => ({ scripts: [] })) as unknown as typeof scriptsApi.list;
+  // The registry knows the two commands, as it does every row the strip lists.
+  scriptsApi.list = (async () => ({
+    scripts: ['p1', 'p2'].map((processId) => ({ processId, scriptName: processId, command: '', projectPath: '/p', status: 'running', pid: 1, startedAt: t0, ports: [], source: 'command' })),
+  })) as unknown as typeof scriptsApi.list;
 });
 
 afterEach(() => {
@@ -73,9 +72,6 @@ afterEach(() => {
   scriptsApi.list = real.list;
   scriptsApi.stop = real.stop;
   if (saved.window === undefined) delete g.window; else g.window = saved.window;
-  if (saved.requestAnimationFrame === undefined) delete g.requestAnimationFrame; else g.requestAnimationFrame = saved.requestAnimationFrame;
-  __resetMessageStore();
-  setChatFindFocus(null);
 });
 
 const flush = () => new Promise<void>((resolve) => setTimeout(resolve, 0));
@@ -98,10 +94,23 @@ function inRow(h: Harness, processId: string, testId: string): HostNode | undefi
 const click = (node: HostNode, currentTarget: unknown = null) => (node.props.onClick as (e: unknown) => void)({ stopPropagation() {}, currentTarget });
 
 async function mounted(): Promise<Harness> {
-  harness = mount(createElement(SubAgentsStrip, { topicId: 'topic-1', sessionKey: 'topic:topic-1' }));
+  harness = mount(createElement(SubAgentsStrip, { topicId: 'topic-1' }));
   await flush();
   harness.rerender();
   return harness;
+}
+
+/** A row's open state, as the strip draws it. */
+const openOf = (h: Harness, processId: string) => hosts(h, 'live-command-row').find((n) => n.props['data-process-id'] === processId)?.props['data-open'];
+
+/** Clicks a command's row, then lets the registry and the log answer. */
+async function toggle(h: Harness, processId: string): Promise<void> {
+  click(rowButton(h, 'live-command-row', 'data-process-id', processId));
+  for (let i = 0; i < 3; i++) {
+    h.rerender();
+    await flush();
+  }
+  h.rerender();
 }
 
 describe('the rows of what works now', () => {
@@ -160,39 +169,62 @@ describe('a row opens what it is', () => {
     ]);
   });
 
-  test('a command its live log, docked above the rows, and the same click closes it', async () => {
-    // The pane is a lazy chunk: warm, it renders in the click's own pass (`lazyWarm`).
-    await warm(loadProcessLog);
+  test("a command its live log, in its own row: the card's tail, and the same click closes it", async () => {
     const h = await mounted();
-    expect(hosts(h, 'process-log-output')).toHaveLength(0);
-    click(rowButton(h, 'live-command-row', 'data-process-id', 'p1'));
-    h.rerender();
-    await flush();
-    h.rerender();
-    expect(hosts(h, 'process-log-output')).toHaveLength(1);
-    expect(h.last().text).toContain('tick 2');
-    click(rowButton(h, 'live-command-row', 'data-process-id', 'p1'));
-    h.rerender();
-    expect(hosts(h, 'process-log-output')).toHaveLength(0);
+    expect(openOf(h, 'p1')).toBe('false');
+    await toggle(h, 'p1');
+    expect(openOf(h, 'p1')).toBe('true');
+    expect(rowButton(h, 'live-command-row', 'data-process-id', 'p1').props['aria-expanded']).toBe(true);
+    expect(inRow(h, 'p1', 'shell-live-output')?.props.children).toBe('tick 1\ntick 2');
+    expect(inRow(h, 'p2', 'shell-live-output')).toBeUndefined();
+    await toggle(h, 'p1');
+    expect(openOf(h, 'p1')).toBe('false');
+    expect(rowButton(h, 'live-command-row', 'data-process-id', 'p1').props['aria-expanded']).toBe(false);
   });
 
-  test('a command whose card the transcript holds opens that card, and docks no log', async () => {
-    updateMessages((prev) => ({
-      ...prev,
-      'topic:topic-1': [{
-        id: 'm1', role: 'assistant', content: '', timestamp: t0,
-        toolCalls: [{ id: 'toolu_tick', name: 'run_command', args: { command: 'while true; do echo tick; sleep 1; done' }, status: 'success', result: 'started · processId=p1 · pid=7' }],
-      }],
-    }));
-    const frames: Array<() => void> = [];
-    g.requestAnimationFrame = (cb: () => void) => { frames.push(cb); return frames.length; };
-    // The transcript the row sits in, where the card is already drawn: no jump to its message.
-    const transcript = { querySelector: () => ({}) };
+  test("the log is drawn under its row's header, as an accordion", async () => {
     const h = await mounted();
-    click(rowButton(h, 'live-command-row', 'data-process-id', 'p1'), { closest: () => transcript });
+    await toggle(h, 'p1');
+    const all = h.last().hosts;
+    const header = all.indexOf(rowButton(h, 'live-command-row', 'data-process-id', 'p1'));
+    const log = all.findIndex((n) => n.props['data-testid'] === 'live-command-log');
+    expect(header).toBeGreaterThan(-1);
+    expect(log).toBeGreaterThan(header);
+    expect(rowButton(h, 'live-command-row', 'data-process-id', 'p1').props['aria-controls']).toBe(all[log]!.props.id);
+  });
+
+  test('one log open at a time: opening a row closes the other', async () => {
+    const h = await mounted();
+    await toggle(h, 'p1');
+    await toggle(h, 'p2');
+    expect(openOf(h, 'p1')).toBe('false');
+    expect(openOf(h, 'p2')).toBe('true');
+    expect(hosts(h, 'live-command-row').filter((n) => n.props['data-open'] === 'true')).toHaveLength(1);
+  });
+
+  test('a command that ends with its log open keeps its row, in its place and without Open and Stop, until the log closes', async () => {
+    answers = [ROWS, ROWS.filter((r) => r.id !== 'p1')];
+    const h = await mounted();
+    await toggle(h, 'p1');
+    dispatchFrame({ type: 'scripts:updated' });
+    await new Promise<void>((resolve) => setTimeout(resolve, 600));
     h.rerender();
-    expect(getChatFindFocus()).toMatchObject({ topicId: 'topic-1', messageId: 'm1', toolCallId: 'toolu_tick', part: 'tool', reveal: true });
-    expect(hosts(h, 'live-command-row').find((n) => n.props['data-process-id'] === 'p1')!.props['data-open']).toBe('false');
+    expect(asked).toBe(2);
+    expect(hosts(h, 'live-command-row').map((n) => [n.props['data-process-id'], n.props['data-open']])).toEqual([['p1', 'true'], ['p2', 'false']]);
+    expect(inRow(h, 'p1', 'live-work-stop')).toBeUndefined();
+    expect(inRow(h, 'p1', 'live-work-wakes')).toBeUndefined();
+    expect(inRow(h, 'p2', 'live-work-stop')).toBeDefined();
+    await toggle(h, 'p1');
+    expect(hosts(h, 'live-command-row').map((n) => n.props['data-process-id'])).toEqual(['p2']);
+  });
+
+  test('a command that ends with its log shut leaves', async () => {
+    answers = [ROWS, ROWS.filter((r) => r.id !== 'p1')];
+    const h = await mounted();
+    dispatchFrame({ type: 'scripts:updated' });
+    await new Promise<void>((resolve) => setTimeout(resolve, 600));
+    h.rerender();
+    expect(hosts(h, 'live-command-row').map((n) => n.props['data-process-id'])).toEqual(['p2']);
   });
 
   test("a server shows its address, and «Open» opens it in a tab", async () => {
@@ -223,6 +255,16 @@ describe('a command stops from its row, and says when its end wakes the chat', (
     expect(inRow(h, 'p1', 'live-work-stop')!.props.disabled).toBe(false);
   });
 
+  test('Stop on a row with its log open closes the log, so the row leaves as it would shut', async () => {
+    scriptsApi.stop = (async () => ({ ok: true })) as unknown as typeof scriptsApi.stop;
+    const h = await mounted();
+    await toggle(h, 'p1');
+    click(inRow(h, 'p1', 'live-work-stop')!);
+    await flush();
+    h.rerender();
+    expect(openOf(h, 'p1')).toBe('false');
+  });
+
   test('a stop that fails leaves its button usable again', async () => {
     let fail: (e: Error) => void = () => {};
     scriptsApi.stop = (() => new Promise((_, reject) => { fail = reject; })) as typeof scriptsApi.stop;
@@ -240,5 +282,20 @@ describe('a command stops from its row, and says when its end wakes the chat', (
     const h = await mounted();
     expect(inRow(h, 'p1', 'live-work-wakes')).toBeDefined();
     expect(inRow(h, 'p2', 'live-work-wakes')).toBeUndefined();
+  });
+
+  test('the alarm clock is a sign in the row\'s label, not a control of its own', async () => {
+    const h = await mounted();
+    const sign = inRow(h, 'p1', 'live-work-wakes')!;
+    expect(sign.type).toBe('span');
+    expect(sign.props.role).toBe('img');
+    expect(sign.props.tabIndex).toBeUndefined();
+    expect(sign.props.onClick).toBeUndefined();
+    expect(sign.props.title).toBe(sign.props['aria-label']);
+    const button = rowButton(h, 'live-command-row', 'data-process-id', 'p1');
+    const label = button.props.children as Array<{ props?: Record<string, unknown> } | false | null>;
+    expect(label.some((child) => !!child && child.props?.['data-testid'] === 'live-work-wakes')).toBe(true);
+    // The button's own label hides the sign's: the sign describes the button.
+    expect(button.props['aria-describedby']).toBe(sign.props.id);
   });
 });

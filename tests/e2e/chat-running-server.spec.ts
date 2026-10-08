@@ -12,10 +12,10 @@
  * waiting line, no ring and no composer Stop, and the strip under the chat
  * shows it as one row with its address, Open (a browser tab of the app, on
  * that address) and Stop (chat-live-work: the server's own row under the
- * transcript named it a second time); a click on the row opens the card of the
- * `run_command` that started it, with the server's live log (SUBSTRIP-02); the
- * chat's processes list it; Stop ends it and its row goes. A server started WITH a wake is
- * still work the chat waits for, and its row says so.
+ * transcript named it a second time); a click on the row opens the server's
+ * live log right there, the tail its card shows (SUBSTRIP-02); the chat's
+ * processes list it; Stop ends it and its row goes. A server started WITH a
+ * wake is still work the chat waits for, and its row says so.
  */
 import { createServer } from "node:net";
 import { chmodSync, mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
@@ -141,12 +141,13 @@ test.describe("a server the chat started", () => {
       await expect.poll(() => page.evaluate(() => (window as unknown as { __openTabs: unknown[] }).__openTabs), { timeout: 5_000 })
         .toEqual([{ url: `http://127.0.0.1:${port}/`, topicId: topic.id }]);
 
-      // A click on the row opens the card that started it, with the server's live log: no second log over the strip.
+      // A click on the row opens the server's live log right there, the tail its card shows; the card stays shut.
       await row.getByRole("button").first().click();
-      await expect(page.getByTestId("tool-call-row-toolu_srvcard_srv").getByTestId("shell-live-output")).toContainText("SRVCARD-LISTENING", { timeout: 10_000 });
-      await expect(page.getByTestId("subagents-strip").getByTestId("process-log-output")).toHaveCount(0);
+      await expect(row.getByTestId("shell-live-output")).toContainText("SRVCARD-LISTENING", { timeout: 10_000 });
+      await expect(row).toHaveAttribute("data-open", "true");
+      await expect(page.locator('[data-testid="tool-call-row-toolu_srvcard_srv"] > button[aria-expanded="true"]')).toHaveCount(0);
 
-      // Stop: the server ends and its row goes; no waiting line ever came.
+      // Stop: the server ends and its row goes, its log with it; no waiting line ever came.
       await row.getByTestId("live-work-stop").click();
       await expect(row).toHaveCount(0, { timeout: 10_000 });
       await expect.poll(async () => request.get(`http://127.0.0.1:${port}/`).then(() => "up", () => "down"), { timeout: 10_000 }).toBe("down");

@@ -22,6 +22,18 @@
  * closing (a quick close and reopen) would otherwise end the hold mid-way, and
  * the list, shorter for an instant, was clamped under the pointer.
  *
+ * A FOLD AT THE END (`atEnd`: a command's row in the strip, which opens under
+ * itself). Toggled by a reader at the bottom, the hold keeps the view's distance
+ * from the bottom instead of the row's top: the log comes into sight above the
+ * composer as it opens, and closing gives the view back where it was. Held by
+ * the row, the log would unroll under the composer, and closing it would leave
+ * the view where the open log had put it, over empty room below the strip. The
+ * end comes up no further than the row's own top: a log taller than the room
+ * above its row goes on under the composer, the row it belongs to stays in
+ * sight (`holdShift`). And such a fold never keeps room below the last row: a
+ * close the row cannot be held through lets the end come down, so the view
+ * goes back to the bottom it was opened from («it stays scrolled», 08/10).
+ *
  * THE ROOM BELOW THE LAST ROW. Closing near the end keeps the missing height as
  * empty room under the last row (`--chat-anchor-slack`). It is given back as
  * soon as it is out of sight (a scroll up, new output, a fold reopened), on a
@@ -43,7 +55,8 @@
  */
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, type MutableRefObject, type RefObject } from 'react';
 import { MOTION } from '../../lib/motion';
-import { ANCHOR_SLACK_PROPERTY, type TranscriptDisclosure } from './transcriptDisclosure';
+import { BOTTOM_RELEASE_PX } from './scrollAuthority';
+import { ANCHOR_SLACK_PROPERTY, type DisclosureOptions, type TranscriptDisclosure } from './transcriptDisclosure';
 
 export { ANCHOR_SLACK_PROPERTY, TranscriptDisclosureContext } from './transcriptDisclosure';
 
@@ -58,6 +71,14 @@ interface Hold {
   anchor: Element;
   /** The anchor's top, measured from the scroller's top, when it was clicked. */
   y0: number;
+  /** A fold at the end of the transcript (`atEnd`): no room is ever kept below the last row for it. */
+  atEnd: boolean;
+  /**
+   * What the hold keeps in place of the anchor's top: the view's distance from
+   * the bottom, for a fold at the end toggled by a reader at the bottom, or
+   * whose row could not be held through a close. `null` keeps the anchor.
+   */
+  fromBottom: number | null;
   minUntil: number;
   hardStop: number;
   lastContent: number;
@@ -69,6 +90,17 @@ interface Hold {
  * keeps `scrollTop` valid without moving it, never more than `current` (room is
  * only ever given back here; it is added by the hold alone). Pure, for a test.
  */
+/**
+ * How far the view moves for the hold to put back what it keeps: the anchor's
+ * top (`fromBottom` null), or the view's distance from the bottom. Keeping the
+ * bottom, the end comes up no further than the anchor's own top: the row
+ * clicked stays in sight. Pure, for a test.
+ */
+export function holdShift(fromBottom: number | null, y0: number, anchorTop: number, distanceFromBottom: number): number {
+  if (fromBottom === null) return anchorTop - y0;
+  return Math.min(distanceFromBottom - fromBottom, Math.max(0, anchorTop));
+}
+
 export function slackAfter(current: number, scrollTop: number, clientHeight: number, scrollHeight: number): number {
   if (current <= 0) return 0;
   const contentBottom = scrollHeight - current;
@@ -136,22 +168,29 @@ export function useDisclosureAnchor({ scrollerElRef, scrollerEl, holdingRef, onH
       release();
       return;
     }
-    const y = hold.anchor.getBoundingClientRect().top - el.getBoundingClientRect().top;
-    const dy = y - hold.y0;
+    const anchorTop = hold.anchor.getBoundingClientRect().top - el.getBoundingClientRect().top;
+    const dy = holdShift(hold.fromBottom, hold.y0, anchorTop, el.scrollHeight - el.scrollTop - el.clientHeight);
     if (Math.abs(dy) >= 0.5) {
       const target = el.scrollTop + dy;
       const max = el.scrollHeight - el.clientHeight;
-      // The list got shorter than the place the anchor needs: the missing
-      // height becomes room below the last row, or the browser's clamp would
-      // pull every row down by it.
-      if (target > max) writeSlack(el, slackRef.current + Math.ceil(target - max));
+      if (target > max) {
+        // The list got shorter than the place the anchor needs. A fold at the
+        // end lets the end come down and keeps it from here on; anywhere else
+        // the missing height becomes room below the last row, or the browser's
+        // clamp would pull every row down by it.
+        if (hold.atEnd) hold.fromBottom = 0;
+        else writeSlack(el, slackRef.current + Math.ceil(target - max));
+      }
       el.scrollTop = Math.max(0, target);
     }
     // A body that grows back (the same fold reopened while it was closing)
     // fills the room it had left: what the view no longer needs goes now.
     if (slackRef.current > 0) writeSlack(el, slackAfter(slackRef.current, el.scrollTop, el.clientHeight, el.scrollHeight));
     const content = el.scrollHeight - slackRef.current;
-    hold.stillFrames = content === hold.lastContent && Math.abs(dy) < 0.5 ? hold.stillFrames + 1 : 0;
+    // Under a pixel is not movement: scroll offsets snap to device pixels, so an anchor half a pixel
+    // off stays there. A strip row under its 321.5 px log (08/10) did, and every hold ran to its hard
+    // stop: three seconds of pins standing down after each click.
+    hold.stillFrames = content === hold.lastContent && Math.abs(dy) < 1 ? hold.stillFrames + 1 : 0;
     hold.lastContent = content;
     if ((now >= hold.minUntil && hold.stillFrames >= DISCLOSURE_SETTLE_FRAMES) || now >= hold.hardStop) {
       release();
@@ -173,7 +212,7 @@ export function useDisclosureAnchor({ scrollerElRef, scrollerEl, holdingRef, onH
     };
   }, []);
 
-  const toggled = useCallback((anchor: Element) => {
+  const toggled = useCallback((anchor: Element, opts?: DisclosureOptions) => {
     const el = scrollerElRef.current;
     if (!el || !el.contains(anchor)) return;
     if (!markerRef.current) {
@@ -189,9 +228,12 @@ export function useDisclosureAnchor({ scrollerElRef, scrollerEl, holdingRef, onH
       observerRef.current = observer;
     }
     const now = Date.now();
+    const fromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
     holdRef.current = {
       anchor,
       y0: anchor.getBoundingClientRect().top - el.getBoundingClientRect().top,
+      atEnd: !!opts?.atEnd,
+      fromBottom: opts?.atEnd && fromBottom <= BOTTOM_RELEASE_PX ? fromBottom : null,
       minUntil: now + DISCLOSURE_MIN_HOLD_MS,
       hardStop: now + DISCLOSURE_HARD_STOP_MS,
       lastContent: el.scrollHeight - slackRef.current,

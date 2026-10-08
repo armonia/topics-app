@@ -27,6 +27,13 @@
  *    room is given back as soon as it is out of sight, filled by new output,
  *    or scrolled away by a scroll down past the end.
  *
+ * A fold at the END of the transcript (a command's row in the strip, which
+ * opens under itself) passes `atEnd`: a reader at the bottom then keeps the
+ * bottom instead of the row, so what opens comes into sight above the composer
+ * and what closes gives the view back where it was. Anyone further up keeps the
+ * row, as with every fold, and no close of such a fold leaves empty room below
+ * the strip: where the row cannot be held, the end comes down.
+ *
  * `null` outside a transcript (the board's task drawer renders the same rows):
  * a fold there toggles as before.
  */
@@ -38,7 +45,12 @@ export interface TranscriptDisclosure {
    * in the click handler, BEFORE the state that opens or closes it changes:
    * the anchor's place is read while the layout is still the old one.
    */
-  toggled(anchor: Element): void;
+  toggled(anchor: Element, opts?: DisclosureOptions): void;
+}
+
+export interface DisclosureOptions {
+  /** The fold is the end of the transcript: a reader at the bottom stays at the bottom, and no room is kept below it. */
+  atEnd?: boolean;
 }
 
 export const TranscriptDisclosureContext = createContext<TranscriptDisclosure | null>(null);
@@ -50,9 +62,9 @@ export const ANCHOR_SLACK_PROPERTY = '--chat-anchor-slack';
  * The call a fold makes from its click handler. Stable, and a no-op outside a
  * transcript, so every fold can call it unconditionally.
  */
-export function useDisclosureToggle(): (anchor: Element | null | undefined) => void {
+export function useDisclosureToggle(): (anchor: Element | null | undefined, opts?: DisclosureOptions) => void {
   const transcript = useContext(TranscriptDisclosureContext);
-  return useCallback((anchor) => {
-    if (anchor) transcript?.toggled(anchor);
+  return useCallback((anchor, opts) => {
+    if (anchor) transcript?.toggled(anchor, opts);
   }, [transcript]);
 }
