@@ -8,11 +8,12 @@ import { leanMessagesForWire, leanMessagesForHistory } from "../../shared/lean-t
 import { isTurnStillLive, shouldConsultBroker, type BrokerTurnState } from "./historyCleanupPolicy";
 import { isGlobalOrchestratorSession } from "../services/global-orchestrator-session";
 import { HISTORY_PAGE_MAX_BYTES } from "../../shared/history-paging";
-import { MACHINE_ROW_SQL, promptNumbers } from "../../shared/prompt-number";
+import { CONTEXT_PREFIX, MACHINE_ROW_SQL, promptNumbers } from "../../shared/prompt-number";
 import { decodeCol } from "../../shared/message-blob";
 import { flushTurnBody } from "../lib/turn-body-flush";
 import { withLiveToolTails } from "../lib/stream-catchup-frame";
 import { streamOfRow } from "../lib/live-tool-tail";
+import { withMediaSizes, type MediaFileRules } from "../lib/media-size";
 import { appendChatFind, CHAT_FIND_MAX_HITS, type ChatFindResult } from "../../shared/chat-find";
 
 /**
@@ -58,6 +59,11 @@ export interface HistoryDeps {
 export function createHistoryRouter(ctx: AppContext, deps: HistoryDeps): RouteHandler {
   const { json, readJSON, loadLocalMessages, hydrateMessageBodies, appendLocalMessage, isStreaming, getStreamContent, SESSIONS_DIR } = ctx;
   const { matchHistoryRoute, providerForSessionKey } = deps;
+  // Where the pictures of a message are read from, for their sizes (`lib/media-size.ts`).
+  // Absent in a test context built without them: the rows then go out without sizes.
+  const mediaRules: MediaFileRules | null = ctx.UPLOADS_DIR && ctx.isPathAllowed
+    ? { uploadsDir: ctx.UPLOADS_DIR, isPathAllowed: ctx.isPathAllowed }
+    : null;
 
   /** Il verdetto del broker, o `unknown` se il provider non sa rispondere. Non
    *  lancia mai: una diagnosi che fallisce non deve rompere un caricamento. */
@@ -141,8 +147,31 @@ export function createHistoryRouter(ctx: AppContext, deps: HistoryDeps): RouteHa
     // `leanMessagesForHistory` below) and the row fetches it on expand from
     // the detail route; reading it here was most of what a page decompressed.
     // Gate: tests/integration/history-tool-output-store.test.ts.
-    const localMsgs = cappedRead
-      ? loadLocalMessages(sessionKey, { withBlocks: false, withToolCalls: false })
+    //
+    // A CAPPED page does not even read the text of the rows it will not send.
+    // The whole thread is walked as a SKELETON (id, role, partial, context
+    // envelope, branch annotations: `loadThreadSkeleton`) and stands in for the
+    // lean thread everywhere below that only counts, orders or numbers it. The
+    // real rows are read for the PARTIAL ones (the cleanup decides on their
+    // text) and, after the slice, for the page itself. On the route bench
+    // (3000 messages, `limit=40`) the lean read of the whole thread was 8 of
+    // the 11 ms. Gates: tests/integration/history-window-equivalence.test.ts
+    // (same answer as the full read), history-limit-cost, history-decode-cost.
+    const skeleton = cappedRead ? ctx.loadThreadSkeleton(sessionKey, { forPrompts: true }) : null;
+    const partialRows = new Map<string, StoredMessage>();
+    if (skeleton) {
+      for (const m of ctx.loadThreadRows(skeleton.filter((n) => n.partial))) partialRows.set(m.id, m);
+    }
+    const localMsgs: StoredMessage[] = skeleton
+      ? skeleton.map((n) => partialRows.get(n.id) ?? ({
+          id: n.id,
+          role: n.role ?? "assistant",
+          // Enough for `promptNumbers`: it only asks whether a user row opens with the context envelope.
+          content: n.ctxPrefix ? CONTEXT_PREFIX : "",
+          timestamp: "",
+          siblingCount: n.siblingCount,
+          activeBranchIndex: n.activeBranchIndex,
+        } satisfies StoredMessage))
       : loadLocalMessages(sessionKey, { withToolOutputs: false });
     // On a lean read the "is this an empty partial?" question cannot be asked
     // of the message: its two columns were left in the table. It is asked of
@@ -222,7 +251,19 @@ export function createHistoryRouter(ctx: AppContext, deps: HistoryDeps): RouteHa
       const beforeAt = before ? completeMsgs.findIndex((m) => m.id === before) : -1;
       const pool = beforeAt >= 0 ? completeMsgs.slice(0, beforeAt) : completeMsgs;
       const sliced = offset > 0 ? pool.slice(0, Math.max(0, pool.length - offset)) : pool;
-      const capped = wantsAll ? sliced : sliced.slice(-limit);
+      const cappedStubs = wantsAll ? sliced : sliced.slice(-limit);
+      // The page itself: the real lean rows, in the same order. A partial row is
+      // already one (and the cleanup above has already touched it in memory).
+      const capped = skeleton
+        ? (() => {
+            const fetched = new Map<string, StoredMessage>();
+            for (const m of ctx.loadThreadRows(cappedStubs.filter((m) => !partialRows.has(m.id)))) fetched.set(m.id, m);
+            return cappedStubs.flatMap((m) => {
+              const real = partialRows.get(m.id) ?? fetched.get(m.id);
+              return real ? [real] : [];
+            });
+          })()
+        : cappedStubs;
       // «This is my 50th prompt»: numbered on the WHOLE thread, since the page
       // may be its tail. The lean read left `blocks` in the table, so the rows
       // the machine wrote are asked of SQLite by their marks (a few bytes of
@@ -275,7 +316,10 @@ export function createHistoryRouter(ctx: AppContext, deps: HistoryDeps): RouteHa
         if (currentStream && m === pageLast && out.role === 'assistant' && out.partial) {
           out = withLiveToolTails(out, streamOfRow(currentStream, m.id)?.liveToolTails);
         }
-        return leanMessagesForHistory(leanMessagesForWire([out]))[0]!;
+        const lean = leanMessagesForHistory(leanMessagesForWire([out]))[0]!;
+        // The size of each picture the row draws, so the client gives it its
+        // box before the bytes arrive (`lib/media-size.ts`).
+        return mediaRules ? withMediaSizes(lean, mediaRules) : lean;
       };
       // One read for the whole page, one decode per row the budget reaches.
       const hydrateOne = cappedRead && !wantsAll

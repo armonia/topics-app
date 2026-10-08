@@ -70,6 +70,11 @@ fi
 # Il cancello rimane aperto (exit 0) — meglio un reload di un blocco perpetuo.
 SQLITE3="$(command -v sqlite3 2>/dev/null)"
 if [ -z "$SQLITE3" ]; then
+  # Aperto, ma DICENDOLO: un cancello che non guarda niente e non lo scrive e'
+  # indistinguibile da uno che ha guardato e ha trovato tutto in ordine. Il
+  # test della VM cloud (senza il binario `sqlite3`) lo ha preso per un difetto
+  # del cancello: era un cancello spento in silenzio.
+  echo "[reload-gate] sqlite3 non trovato — cancello migration disattivato" >&2
   exit 0
 fi
 

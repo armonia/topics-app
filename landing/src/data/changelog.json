@@ -1,5 +1,434 @@
 [
   {
+    "version": "2.2.457",
+    "date": "2026-10-08",
+    "sections": {
+      "new": [],
+      "fixes": [
+        {
+          "text": "i processi esterni arrivati con main dentro le guardie di T5",
+          "scope": "server"
+        },
+        {
+          "text": "tool-result-clamp riparte dal fondo solo a riga aperta",
+          "scope": "test"
+        },
+        {
+          "text": "su Windows uno smoke passato usciva 143 in pulizia",
+          "scope": "sidecar-smoke"
+        },
+        {
+          "text": "il turno legge il Portachiavi senza fermare il loop",
+          "scope": "native-auth"
+        },
+        {
+          "text": "la radice git della memoria non si chiede più a ogni turno",
+          "scope": "native-parity"
+        },
+        {
+          "text": "una scadenza di git non è «non è un repo»",
+          "scope": "native-parity"
+        }
+      ],
+      "perf": []
+    }
+  },
+  {
+    "version": "2.2.456",
+    "date": "2026-10-08",
+    "sections": {
+      "new": [
+        {
+          "text": "il log di run_command segue il file su cui il comando redirige lo stdout",
+          "scope": "processes"
+        },
+        {
+          "text": "GET /api/topics/:id/live-work, ciò che lavora adesso per una chat",
+          "scope": "chat"
+        },
+        {
+          "text": "il log vuoto dice cosa aspetta e da quando",
+          "scope": "processes"
+        },
+        {
+          "text": "la striscia sotto la chat mostra ciò che lavora adesso",
+          "scope": "chat"
+        },
+        {
+          "text": "la riga di un comando sa se la sua fine sveglia la chat",
+          "scope": "chat-live-work"
+        },
+        {
+          "text": "un comando è una riga sola, nella striscia, con Ferma e la sveglia",
+          "scope": "chat"
+        },
+        {
+          "text": "le strisce sono la fine del trascritto, e la riga di un comando apre la sua card",
+          "scope": "chat"
+        }
+      ],
+      "fixes": [
+        {
+          "text": "hint fuori dal bottone Automatico, banda 44px su phone",
+          "scope": "model-selector"
+        },
+        {
+          "text": "AC-21/AC-07 rivisti, la lista providers scorre nel pannello stretto",
+          "scope": "model-selector"
+        },
+        {
+          "text": "commento in inglese per il gate",
+          "scope": "model-selector"
+        },
+        {
+          "text": "rifare i ponti rimasti fuori dalla sessione grafica",
+          "scope": "terminal"
+        },
+        {
+          "text": "il riquadro «Drop files here» si spegne quando il trascinamento finisce altrove",
+          "scope": "chat"
+        },
+        {
+          "text": "l'avviso di fine comando senza i codici colore del terminale",
+          "scope": "processes"
+        },
+        {
+          "text": "una cartella aperta nel pannello risponde 400, non con l'errore di Bun",
+          "scope": "media"
+        },
+        {
+          "text": "la card di un comando finito senza i codici colore anche nelle righe gia' salvate",
+          "scope": "chat"
+        },
+        {
+          "text": "la lingua scelta torna in fondo al contesto a ogni giro",
+          "scope": "native"
+        },
+        {
+          "text": "i cancelli della lingua tornano verdi sui file della change",
+          "scope": "chat-live-work"
+        },
+        {
+          "text": "fondere una card ne libera le tab come archiviarla",
+          "scope": "board"
+        },
+        {
+          "text": "«archivia» sui sottotask parcheggiati ne libera le tab",
+          "scope": "board"
+        },
+        {
+          "text": "la prova della home non si arrende con HOME=/root",
+          "scope": "security"
+        },
+        {
+          "text": "reload-gate-migration dice di aver bisogno di sqlite3",
+          "scope": "test"
+        },
+        {
+          "text": "tre test dicono quando l'ambiente non li permette (root, niente IPv6)",
+          "scope": "test"
+        },
+        {
+          "text": "i server spawnati dai test si legano a 127.0.0.1 dove manca IPv6",
+          "scope": "test"
+        },
+        {
+          "text": "il titolo della scheda resta `<MorphText text={task.text} />`",
+          "scope": "board"
+        },
+        {
+          "text": "il server di prova si lega a 127.0.0.1 dove manca IPv6",
+          "scope": "e2e"
+        },
+        {
+          "text": "la prima pagina non antepone righe sopra la copia locale",
+          "scope": "chat"
+        },
+        {
+          "text": "il cancello di ricarica dice quando e' spento; due test non scambiano la VM per un difetto",
+          "scope": "gate"
+        },
+        {
+          "text": "ogni processo esterno del percorso di una richiesta ha una scadenza vera",
+          "scope": "server"
+        },
+        {
+          "text": "ai-bridge-loop-freeze non vive del DATA_DIR di un altro file",
+          "scope": "test"
+        },
+        {
+          "text": "un figlio ucciso e non raccolto non e' vivo (shell-sweep)",
+          "scope": "test"
+        },
+        {
+          "text": "la scadenza manda SIGTERM al gruppo, poi SIGKILL dopo una grazia",
+          "scope": "spawn"
+        },
+        {
+          "text": "la scadenza limita la RISPOSTA, non il figlio diretto",
+          "scope": "spawn"
+        },
+        {
+          "text": "all'arresto il server chiude i gruppi che ha lanciato",
+          "scope": "spawn"
+        },
+        {
+          "text": "cp -r e push di publish hanno la scadenza lunga; un cp scaduto non lascia mezza copia",
+          "scope": "server"
+        },
+        {
+          "text": "un git scaduto non e' \"verificato fuori\"",
+          "scope": "own-commits"
+        },
+        {
+          "text": "il Cancello 2 fallisce chiuso se git non risponde",
+          "scope": "worktree-slim"
+        },
+        {
+          "text": "un blob troncato dalla scadenza non finisce come risposta completa",
+          "scope": "task-diff-file"
+        },
+        {
+          "text": "un'immagine di un messaggio ha il suo riquadro prima di caricarsi",
+          "scope": "chat"
+        },
+        {
+          "text": "una riga che cresce in fondo, fuori dallo streaming, resta in fondo nello stesso layout",
+          "scope": "chat"
+        },
+        {
+          "text": "nomi e un commento del riquadro delle immagini in inglese",
+          "scope": "chat"
+        },
+        {
+          "text": "nomi inglesi in settledRects (cancello identifier-language)",
+          "scope": "board"
+        },
+        {
+          "text": "Card.tsx torna sotto il tetto di check:bloat",
+          "scope": "board"
+        },
+        {
+          "text": "i tipi delle dimensioni delle immagini stanno in shared/, una volta sola",
+          "scope": "chat"
+        },
+        {
+          "text": "l'età della card avanza da sola, con un orologio al minuto per documento",
+          "scope": "board"
+        },
+        {
+          "text": "le righe larghe del feed prendono i nomi da chi scrive la SELECT",
+          "scope": "board"
+        },
+        {
+          "text": "il log dal vivo nella card di un comando senza codici colore",
+          "scope": "chat"
+        },
+        {
+          "text": "il log dal vivo nella card segue l'ultima riga",
+          "scope": "chat"
+        },
+        {
+          "text": "il sipario non aspetta un'immagine che ha gia' il suo riquadro",
+          "scope": "chat"
+        },
+        {
+          "text": "la bolla di chi allega un'immagine ha il riquadro prima dei byte",
+          "scope": "chat"
+        },
+        {
+          "text": "l'età della card segue l'ultimo `updatedAt` anche quando il testo non cambia",
+          "scope": "board"
+        },
+        {
+          "text": "la proiezione della lista rientra nel tetto di check:bloat",
+          "scope": "board"
+        },
+        {
+          "text": "niente generici nelle righe del composer, check:ui-language torna verde",
+          "scope": "chat"
+        },
+        {
+          "text": "board-card-choices tiene fermo il reconcile del dispatcher per tutta la scena",
+          "scope": "e2e"
+        },
+        {
+          "text": "chat-streaming-indicator manda gli stati del lavoro in background nell'ordine in cui li mette",
+          "scope": "e2e"
+        },
+        {
+          "text": "via useEndedSubAgents, export morto dopo le strisce in fondo al trascritto",
+          "scope": "gates"
+        },
+        {
+          "text": "import statici di pty-bridge-platform.mjs annotati runtime-dep-ok",
+          "scope": "gates"
+        },
+        {
+          "text": "il manifest delle migration porta l'SQL come stringhe, giusto anche su Bun 1.3.8",
+          "scope": "db"
+        },
+        {
+          "text": "un ospite riceve message:new senza le dimensioni delle immagini",
+          "scope": "ws"
+        },
+        {
+          "text": "la fascia di atterraggio sulla riga, non come scroll-padding dello scroller",
+          "scope": "chat"
+        },
+        {
+          "text": "lo smoke del sidecar aspetta il log e l'uscita del binario",
+          "scope": "scripts"
+        },
+        {
+          "text": "l'SQL del manifest in base64, fuori dagli scanner dei sorgenti",
+          "scope": "db"
+        },
+        {
+          "text": "il filtro di D2 sta nel tetto di check:bloat di server/utils.ts",
+          "scope": "ws"
+        },
+        {
+          "text": "niente nome utente nel commento di claude-session-tracker.test.ts",
+          "scope": "test"
+        },
+        {
+          "text": "runBounded dice perché un processo non è partito e tiene il 137 di un segnale",
+          "scope": "spawn"
+        },
+        {
+          "text": "il test dei contratti dei runner crea il repo con l'env isolato",
+          "scope": "test"
+        }
+      ],
+      "perf": [
+        {
+          "text": "un frame che non sposta card non ridisegna App",
+          "scope": "board"
+        },
+        {
+          "text": "la board di progetto tiene le righe che non cambiano",
+          "scope": "board"
+        },
+        {
+          "text": "la scheda mostra il titolo della card al primo frame",
+          "scope": "board"
+        },
+        {
+          "text": "l'indice topic → task non ridisegna App a ogni frame",
+          "scope": "board"
+        },
+        {
+          "text": "le card non si ridisegnano tutte a ogni `task:updated`",
+          "scope": "board"
+        },
+        {
+          "text": "il log della striscia si carica quando lo si apre",
+          "scope": "chat"
+        },
+        {
+          "text": "typecheck e lint eseguono i loro pezzi insieme",
+          "scope": "gates"
+        },
+        {
+          "text": "tipi, lint e cancelli statici in tre corsie",
+          "scope": "qa-gate"
+        },
+        {
+          "text": "una topic gia' visitata si apre dalla copia locale, senza aspettare il server",
+          "scope": "chat"
+        },
+        {
+          "text": "messages e history con tetto scelgono la finestra su uno scheletro del filo",
+          "scope": "history"
+        },
+        {
+          "text": "le shard di default sono una per core, da due a quattro",
+          "scope": "test-unit"
+        },
+        {
+          "text": "web-push si carica alla prima consegna, non al boot",
+          "scope": "server"
+        },
+        {
+          "text": "@xterm/headless si carica alla prima lettura dello schermo",
+          "scope": "server"
+        },
+        {
+          "text": "il manifest delle migration embedded si carica solo nel sidecar",
+          "scope": "server"
+        },
+        {
+          "text": "l'SDK Anthropic si carica alla prima richiesta del provider claude",
+          "scope": "server"
+        },
+        {
+          "text": "l'anteprima della card si taglia senza un array per carattere",
+          "scope": "board"
+        },
+        {
+          "text": "durante il drag la card ridisegna solo il guscio ordinabile",
+          "scope": "board"
+        },
+        {
+          "text": "le righe della lista si leggono come array, non come oggetti larghi",
+          "scope": "board"
+        },
+        {
+          "text": "durante il drag la colonna ridisegna solo il guscio droppable",
+          "scope": "board"
+        },
+        {
+          "text": "la collisione del drag legge i rettangoli una volta per scroll",
+          "scope": "board"
+        },
+        {
+          "text": "la card è il contenitore della sua brina, anche senza freeze",
+          "scope": "board"
+        },
+        {
+          "text": "il vicino che il varco non sposta non riceve un transform",
+          "scope": "board"
+        },
+        {
+          "text": "il feed globale non porta i campi che nessun client legge",
+          "scope": "board"
+        },
+        {
+          "text": "la vivezza dei pid senza ps sincrono, un giro solo per tutti",
+          "scope": "processes"
+        },
+        {
+          "text": "/api/git/branches con un solo git, non uno per ramo",
+          "scope": "files"
+        },
+        {
+          "text": "getconf una volta per processo, non a ogni tentativo",
+          "scope": "discord"
+        }
+      ]
+    }
+  },
+  {
+    "version": "2.2.455",
+    "date": "2026-10-06",
+    "sections": {
+      "new": [
+        {
+          "text": "one vertical list instead of side-by-side columns",
+          "scope": "model-selector"
+        }
+      ],
+      "fixes": [
+        {
+          "text": "one-line band and hidden hint on desktop compact",
+          "scope": "model-selector"
+        }
+      ],
+      "perf": []
+    }
+  },
+  {
     "version": "2.2.452",
     "date": "2026-10-06",
     "sections": {

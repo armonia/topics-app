@@ -37,6 +37,8 @@ import { applyJobQuota } from "../services/agent-job-quota";
 import { commandLabel, commandWorkOver, pushBackgroundChanged } from "../lib/command-background";
 import { commandProcessesOf, serviceWatch, servicesOver, SERVICE_END_SHOWN_MS, SERVICE_WATCH_MIN_MS, type ServiceRowLike } from "../lib/command-services";
 import { getListeningPorts, listenersOf, readProcessProbe, servesHtml } from "../lib/listening-ports";
+import { SPAWN_TIMEOUT, spawnBounded } from "../lib/bounded-spawn";
+import { isPidAlive, livePids, watchPidExits } from "../lib/pid-liveness";
 
 interface ScriptProcess {
   processId: string;
@@ -407,7 +409,7 @@ function loadState() {
  */
 function pidStartTime(pid: number): string | undefined {
   try {
-    const result = Bun.spawnSync(["ps", "-o", "lstart=", "-p", String(pid)]);
+    const result = Bun.spawnSync(["ps", "-o", "lstart=", "-p", String(pid)], { timeout: 3000, killSignal: "SIGKILL" });
     const out = new TextDecoder().decode(result.stdout).trim();
     return out || undefined;
   } catch {
@@ -444,41 +446,28 @@ export function readoptVerdict(args: {
   return live === args.pidLstart ? "adopt" : "dead";
 }
 
-function isPidAlive(pid: number): boolean {
-  try {
-    process.kill(pid, 0); // signal 0 = just check
-  } catch {
-    return false;
-  }
-  // signal 0 succeeds for zombies too — check actual state via ps
-  try {
-    const result = Bun.spawnSync(["ps", "-o", "stat=", "-p", String(pid)]);
-    const stat = new TextDecoder().decode(result.stdout).trim();
-    if (stat.startsWith("Z")) return false; // zombie
-  } catch {}
-  return true;
-}
-
 let _broadcastCtx: AppContext | null = null;
 
-function pollPidExit(sp: ScriptProcess) {
-  const check = () => {
-    if (sp.cmd && sp.status !== "running") return; // a Stop already closed it
-    if (sp.cmd && (!sp.pid || !isPidAlive(sp.pid))) { finishCommand(sp); return; }
-    if (!sp.pid || !isPidAlive(sp.pid)) {
-      sp.status = "done";
-      sp.completedAt = new Date().toISOString();
-      sp.proc = null;
-      runningScripts.delete(sp.processId);
-      addToRecent(sp);
-      saveState();
-      if (_broadcastCtx) broadcastScriptsUpdate(_broadcastCtx);
-      return;
-    }
-    setTimeout(check, 3000);
-  };
-  setTimeout(check, 3000);
-}
+/**
+ * A re-adopted row has no handle whose exit it could wait on: its pid is checked
+ * every 3 s, all rows in one round with one probe (`watchPidExits`), where each
+ * row used to run its own synchronous `ps` and stop the loop with it.
+ */
+const pollPidExit = watchPidExits<ScriptProcess>({
+  everyMs: 3000,
+  pidOf: (sp) => sp.pid,
+  settled: (sp) => !!sp.cmd && sp.status !== "running", // a Stop already closed it
+  onGone: (sp) => {
+    if (sp.cmd) { finishCommand(sp); return; }
+    sp.status = "done";
+    sp.completedAt = new Date().toISOString();
+    sp.proc = null;
+    runningScripts.delete(sp.processId);
+    addToRecent(sp);
+    saveState();
+    if (_broadcastCtx) broadcastScriptsUpdate(_broadcastCtx);
+  },
+});
 
 // ── Port detection per process ───────────────────────────────────────────────
 
@@ -1430,13 +1419,18 @@ async function reconcileBackgroundShells(): Promise<boolean> {
   const claimed = new Set<number>();
   for (const sp of runningScripts.values()) if (sp.pid) claimed.add(sp.pid);
 
+  // Shells and owners in one liveness probe; a pid it did not cover (an owner that changed meanwhile) is asked alone.
+  const probed = shells.flatMap((sp) => [sp.pid, getSessionCliPid(sp.shell!.sessionKey) ?? sp.shell!.ownerPid]).filter((pid): pid is number => !!pid);
+  const live = await livePids(probed);
+  const isAlive = (pid: number) => (probed.includes(pid) ? live.has(pid) : isPidAlive(pid));
+
   for (const sp of shells) {
     const meta = sp.shell!;
     // Pid noto: la shell è viva finché il suo processo E il CLI padre lo sono.
     if (sp.pid) {
       const owner = getSessionCliPid(meta.sessionKey) ?? meta.ownerPid;
-      const shellDead = !isPidAlive(sp.pid);
-      const ownerDead = !owner || !isPidAlive(owner);
+      const shellDead = !isAlive(sp.pid);
+      const ownerDead = !owner || !isAlive(owner);
       if (shellDead || ownerDead) {
         // Il processo che ci ancorava è morto. La riga sparisce dal pannello —
         // ma i figli che la shell aveva spawnato (server, headless browser) NON
@@ -1479,7 +1473,7 @@ async function reconcileBackgroundShells(): Promise<boolean> {
     // onesta — una riga «running» eterna è una bugia che il pannello non
     // potrebbe più correggere. (Il pid non è mai stato risolto, quindi non
     // c'è sottoalbero da spazzare: best effort, no-op.)
-    if (!owner || !isPidAlive(owner)) {
+    if (!owner || !isAlive(owner)) {
       await sweepOrphanedShellTree(meta);
       // Stessa lettura del ramo sopra: è morto il CLI che la teneva, quindi la
       // shell è stata interrotta — non è arrivata in fondo.
@@ -1528,7 +1522,7 @@ async function getCommandsForPids(pids: number[]): Promise<Map<number, string>> 
   const out = new Map<number, string>();
   if (!pids.length) return out;
   try {
-    const proc = Bun.spawn(["ps", "-o", "pid=,command=", "-p", pids.join(",")], { stdout: "pipe", stderr: "ignore" });
+    const proc = spawnBounded(["ps", "-o", "pid=,command=", "-p", pids.join(",")], { stdout: "pipe", stderr: "ignore", timeoutMs: SPAWN_TIMEOUT.query });
     const text = await new Response(proc.stdout).text();
     await proc.exited;
     for (const line of text.split("\n")) {
@@ -1715,7 +1709,7 @@ function isNoiseCommand(cmd: string): boolean {
 /** Full argv of a pid (`ps -o command=`), for a readable label. Falls back to "". */
 async function getCommandForPid(pid: number): Promise<string> {
   try {
-    const proc = Bun.spawn(["ps", "-o", "command=", "-p", String(pid)], { stdout: "pipe", stderr: "ignore" });
+    const proc = spawnBounded(["ps", "-o", "command=", "-p", String(pid)], { stdout: "pipe", stderr: "ignore", timeoutMs: SPAWN_TIMEOUT.query });
     const out = (await new Response(proc.stdout).text()).trim();
     await proc.exited;
     return out.split("\n")[0] || "";
@@ -1747,7 +1741,7 @@ async function getProcessCwds(pids: number[]): Promise<Map<number, string>> {
   const out = new Map<number, string>();
   if (pids.length === 0) return out;
   try {
-    const proc = Bun.spawn(["/usr/sbin/lsof", "-a", "-d", "cwd", "-Fpn", "-p", pids.join(",")], { stdout: "pipe", stderr: "ignore" });
+    const proc = spawnBounded(["/usr/sbin/lsof", "-a", "-d", "cwd", "-Fpn", "-p", pids.join(",")], { stdout: "pipe", stderr: "ignore", timeoutMs: SPAWN_TIMEOUT.query });
     const text = await new Response(proc.stdout).text();
     await proc.exited;
     let cur = 0;

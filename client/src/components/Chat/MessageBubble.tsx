@@ -26,6 +26,7 @@ import { useMobile } from '../../hooks/useMobile';
 import { hoverRevealClass } from '../../lib/hoverReveal';
 import { useLongPress } from '../../hooks/useLongPress';
 import { useDismissable } from '../../hooks/useDismissable';
+import { MediaSizesContext } from './mediaBox';
 
 // «Sono su un dispositivo touch?» si chiede a `useMobile`, e basta. Qui c'era
 // una costante di MODULO valutata una volta sola all'import: un valore che non
@@ -522,6 +523,7 @@ export const MessageBubble = memo(function MessageBubble({
                   always been. `isMachineWork` decides, and the accordion opens
                   onto exactly these same rows. */}
               <FoldWork fold={foldWork} msg={msg}>
+              <MediaSizesContext.Provider value={msg.mediaSizes}>
               <MessageContent
                 content={msg.content}
                 role={msg.role}
@@ -535,6 +537,7 @@ export const MessageBubble = memo(function MessageBubble({
                 messageId={msg.id}
                 runnable
               />
+              </MediaSizesContext.Provider>
               </FoldWork>
             </div>
           </div>

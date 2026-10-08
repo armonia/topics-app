@@ -2,7 +2,6 @@ import { contextTokens, costTokens, partsFromTask } from '../../../../shared/tok
 import { memo, useState, useEffect, useCallback, useMemo, useRef, useSyncExternalStore } from 'react';
 import { useDroppable } from '@dnd-kit/core';
 import { SortableContext, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable';
-import { CSS } from '@dnd-kit/utilities';
 import { reviewEvidence } from '../../lib/reviewEvidence';
 import { AlertTriangle, ArchiveRestore, ArrowRightLeft, CircleSlash, ClipboardList, Copy, Cpu, GitBranch, Hourglass, Lock, MessageSquare, Plus, RotateCcw, Send, Server, ShieldCheck, Square, Trash2, UserRound, X } from 'lucide-react';
 import { ChatMarkdown } from '../ChatMarkdown';
@@ -18,6 +17,7 @@ import { useConfirm } from '../../hooks/useConfirm';
 import { useLongPress, openContextMenuAt, type LongPressTarget } from '../../hooks/useLongPress';
 import { useMobile } from '../../hooks/useMobile';
 import { releaseTouchDrag } from './dndSensors';
+import { reflowTransform } from './sortableReflow';
 import { MorphText } from '../Shared/MorphText';
 import { PreviewMedia } from './PreviewMedia';
 import type { DraftPreview } from './draftPreview';
@@ -45,7 +45,8 @@ import { prefersReducedMotion } from '../../lib/reducedMotion';
 import { PRIORITY_DOT, PRIORITY_LABEL, DISPATCH_CHIP, COMPACT_MD_CLS, COMMENTO_PIEGA_CHARS, RICHIESTA_PIEGA_CHARS, mediaPaneIdFor, type LiveUsage, type OpenTask } from './constants';
 import { copyText } from '../../lib/clipboard';
 import { canOpenTaskSession, shouldExplainMissingSession, type TaskSessionState } from '../../lib/taskSession';
-import { fmtMs, fmtTok, fmtUpdatedAt, fmtAttesa, fmtUsd, taskCopyText } from './format';
+import { fmtMs, fmtTok, fmtAttesa, fmtUsd, taskCopyText } from './format';
+import { UpdatedAgo } from './UpdatedAgo';
 import { StatusIcon, DispatchChip, QueueReasonChip, TaskIdChip, LabelChip } from './atoms';
 import { LiveEffortChip, LiveToolLine, RETRY_NOW_MESSAGE, RetryWaitChip } from './CardLive';
 import { SwapIce } from '../Shared/SwapIce';
@@ -59,7 +60,14 @@ import { getProvidersSnapshotState, subscribeProvidersSnapshot } from '../../lib
 import { cardRunsThroughTopics } from '../../lib/topicsRoutingGate';
 
 // ── Column ────────────────────────────────────────────────────────────────
-export function Column({ status, tasks, onOpen, onCreate, canCreate, showProject, cardError, onCardError, onRefetch, onOpenTopic, resolveSession, tasksById, projectPathById, liveById, awaitingHuman, justMoved, justCreated, archived = false, draft, onOpenSettings, layout = 'grid' }: {
+// The droppable SHELL, for the same reason as `Card` below: during a drag the
+// header re-ran on every over change; `ColumnBody` only sees `isOver` flip.
+export function Column(props: ColumnProps) {
+  const { setNodeRef, isOver } = useDroppable({ id: props.status });
+  return <ColumnBody {...props} setNodeRef={setNodeRef} isOver={isOver} />;
+}
+
+type ColumnProps = {
   status: TaskStatus; tasks: BoardTask[]; onOpen: OpenTask; onCreate: (text: string) => void;
   canCreate: boolean; showProject: boolean; onRefetch: () => void;
   /** L'errore dell'ULTIMA azione fallita, con la card a cui appartiene: la
@@ -97,9 +105,12 @@ export function Column({ status, tasks, onOpen, onCreate, canCreate, showProject
    *  "add" affordance mid-list), so it collapses instead of leaving a bare
    *  header floating between two populated ones. */
   layout?: 'grid' | 'list';
+};
+
+const ColumnBody = memo(function ColumnBody({ status, tasks, onOpen, onCreate, canCreate, showProject, cardError, onCardError, onRefetch, onOpenTopic, resolveSession, tasksById, projectPathById, liveById, awaitingHuman, justMoved, justCreated, archived = false, draft, onOpenSettings, layout = 'grid', setNodeRef, isOver }: ColumnProps & {
+  setNodeRef: (element: HTMLElement | null) => void; isOver: boolean;
 }) {
   const tr = useT();
-  const { setNodeRef, isOver } = useDroppable({ id: status });
   const [adding, setAdding] = useState(false);
   const [text, setText] = useState('');
   const submit = () => { const v = text.trim(); if (v) { onCreate(v); } setText(''); setAdding(false); };
@@ -111,7 +122,13 @@ export function Column({ status, tasks, onOpen, onCreate, canCreate, showProject
   // fresh array only when the task set actually changes, not every render. Gli id
   // sono quelli DISEGNATI: un id senza nodo nel registro di dnd-kit è un
   // bersaglio che non esiste.
-  const itemIds = useMemo(() => slice.rows.map((t) => t.id), [slice]);
+  //
+  // Keyed on the ids, not on `slice`: the column array is new on every
+  // `task:updated` (one row changed), and a new `items` array is a new
+  // SortableContext value, which re-renders every `useSortable` card under it
+  // at identical props. Same ids in the same order = the same array.
+  const idsKey = slice.rows.map((t) => t.id).join('\n');
+  const itemIds = useMemo(() => (idsKey ? idsKey.split('\n') : []), [idsKey]);
 
   // Responsive columns. The board is a scroll-snap carousel at EVERY breakpoint:
   // each column `snap-center`s to the middle as its own "slide", so whenever the
@@ -294,7 +311,7 @@ export function Column({ status, tasks, onOpen, onCreate, canCreate, showProject
       </div>
     </div>
   );
-}
+});
 
 /**
  * The long press on a card: the SAME menu the right button opens, and the
@@ -327,7 +344,48 @@ function openCardMenuAt(target: LongPressTarget): void {
 // sensors passed to DndContext must be referentially stable across renders
 // (see the module-level sensor options in KanbanBoardPane) or the memo is
 // bypassed by the context, which is exactly what happened until 2026-09-07.
-export const Card = memo(function Card({ task, onOpen, showProject, error, onError, onRefetch, onOpenTopic, sessionState = 'unknown', parentTitle, projectPath, live, awaiting, justMovedTo, justCreated, archived = false }: {
+// TWO LAYERS: dnd-kit's InternalContext changes on every over change during a
+// drag, so `Card` is only the sortable SHELL and hands memoized `CardBody` the
+// few values it draws with, stable unless this card moves (61 -> 32 renders per
+// pointer move, board-drag-renders.spec.ts).
+export const Card = memo(function Card(props: CardProps) {
+  // Sortable: the source card is dimmed (the DragOverlay carries the visual)
+  // but its NEIGHBOURS get the reflow transform — the list opens a gap under
+  // the pointer, so dropping "between two cards" reads as such. The ACTIVE
+  // card must NOT get its transform (that one follows the pointer): applied,
+  // the dim source card flew across the board alongside the overlay and the
+  // drop targeting went with it.
+  const { attributes, listeners, setNodeRef, isDragging, transform, transition } = useSortable({
+    id: props.task.id,
+    // The neighbours' reflow runs on the app's tokens, not dnd-kit's default
+    // `200ms ease`, and not at all when the person asked for less motion.
+    transition: prefersReducedMotion() ? null : SORTABLE_TRANSITION,
+  });
+  return (
+    <CardBody
+      {...props}
+      setNodeRef={setNodeRef}
+      dragAttributes={attributes}
+      dragListeners={listeners}
+      isDragging={isDragging}
+      dragTransform={reflowTransform(transform, isDragging)}
+      dragTransition={transition}
+    />
+  );
+});
+
+/** What the sortable shell hands the body. Every field is stable across pointer moves unless the card itself moves. */
+type CardDragProps = {
+  setNodeRef: (element: HTMLElement | null) => void;
+  dragAttributes: ReturnType<typeof useSortable>['attributes'];
+  dragListeners: ReturnType<typeof useSortable>['listeners'];
+  isDragging: boolean;
+  /** The reflow transform as CSS (`reflowTransform`): a string compares by value, dnd-kit's object is new on every render. */
+  dragTransform: string | undefined;
+  dragTransition: string | undefined;
+};
+
+type CardProps = {
   task: BoardTask; onOpen: OpenTask; showProject: boolean;
   /** Il perché l'ultimo click non ha fatto niente, disegnato SULLA card (in coda,
    *  sotto le sue scelte): la barra in cima al board sta a colonne di distanza,
@@ -358,7 +416,9 @@ export const Card = memo(function Card({ task, onOpen, showProject, error, onErr
   /** La card viene dall'ARCHIVIO (vista `?archived=1`): il gesto in coda al
    *  menu non è più archiviare — è già archiviata — ma riportarla indietro. */
   archived?: boolean;
-}) {
+};
+
+const CardBody = memo(function CardBody({ task, onOpen, showProject, error, onError, onRefetch, onOpenTopic, sessionState = 'unknown', parentTitle, projectPath, live, awaiting, justMovedTo, justCreated, archived = false, setNodeRef, dragAttributes: attributes, dragListeners: listeners, isDragging, dragTransform, dragTransition: transition }: CardProps & CardDragProps) {
   // MSEL-01: subscribed, so a snapshot that lands after the first paint adds
   // «· via Topics»; the boolean re-renders the card only when it flips.
   const runsThroughTopics = useSyncExternalStore(subscribeProvidersSnapshot, () => cardRunsThroughTopics(task, getProvidersSnapshotState().snapshot));
@@ -368,18 +428,6 @@ export const Card = memo(function Card({ task, onOpen, showProject, error, onErr
   const modelLine = useSyncExternalStore(subscribeProvidersSnapshot, () => taskTriggerLine(task.model, {
     snapshot: getProvidersSnapshotState().snapshot, tr: tm, surface: 'task', viaTopics: runsThroughTopics,
   }));
-  // Sortable: the source card is dimmed (the DragOverlay carries the visual)
-  // but its NEIGHBOURS get the reflow transform — the list opens a gap under
-  // the pointer, so dropping "between two cards" reads as such. The ACTIVE
-  // card must NOT get its transform (that one follows the pointer): applied,
-  // the dim source card flew across the board alongside the overlay and the
-  // drop targeting went with it.
-  const { attributes, listeners, setNodeRef, isDragging, transform, transition } = useSortable({
-    id: task.id,
-    // The neighbours' reflow runs on the app's tokens, not dnd-kit's default
-    // `200ms ease`, and not at all when the person asked for less motion.
-    transition: prefersReducedMotion() ? null : SORTABLE_TRANSITION,
-  });
 
   // Review context. The comment PAIR (`selectCardComments`) — the thread's last
   // word as a quick-reply with option buttons when it's a question block and
@@ -893,7 +941,7 @@ export const Card = memo(function Card({ task, onOpen, showProject, error, onErr
     <div
       ref={setNodeRef} {...attributes} {...listeners}
       data-task-card={task.id}
-      style={{ transform: isDragging ? undefined : CSS.Transform.toString(transform), transition }}
+      style={{ transform: dragTransform, transition }}
       onClick={() => onOpen(task.id)}
       {...cardLongPress.handlers}
       // AFTER both spreads, and on purpose: this is the composed one (see
@@ -918,7 +966,11 @@ export const Card = memo(function Card({ task, onOpen, showProject, error, onErr
       // dichiarazione in index.css invece che per quello che è successo alla
       // card. Lo spostamento batte la nascita — nascere è l'evento più debole
       // dei due, e una card che nasce non ha attraversato nessun confine.
-      className={`group cursor-grab rounded-md border border-app-border bg-surface p-2.5 text-body-lg leading-5 text-app-text shadow-sm hover:border-app-border-light ${isDragging ? 'opacity-40' : ''} ${justMovedTo ? `task-flash task-flash-${justMovedTo}` : justCreated ? 'task-flash task-flash-created' : ''}`}
+      // `relative` ALWAYS: the frost below is `absolute inset-0` and
+      // `.swap-ice-host` positions the card only while frozen; idle, each glints
+      // box spanned the whole board outside the column clip, paid on every drag
+      // frame (main thread per pass ~360 -> ~290 ms, board-drag-frames.spec.ts).
+      className={`group relative cursor-grab rounded-md border border-app-border bg-surface p-2.5 text-body-lg leading-5 text-app-text shadow-sm hover:border-app-border-light ${isDragging ? 'opacity-40' : ''} ${justMovedTo ? `task-flash task-flash-${justMovedTo}` : justCreated ? 'task-flash task-flash-created' : ''}`}
     >
       {/* THE FROST, first child and under everything else: `.swap-ice-host`
           lifts every other child one layer, so the text stays above it and
@@ -1727,7 +1779,7 @@ export const Card = memo(function Card({ task, onOpen, showProject, error, onErr
         <span
           className="ml-auto text-compact leading-4 md:text-mini text-app-text-muted"
           title={tr('board.card.lastUpdate', { when: new Date(task.updatedAt).toLocaleString(locale) })}
-        >{fmtUpdatedAt(task.updatedAt)}</span>
+        ><UpdatedAgo iso={task.updatedAt} /></span>
       </div>
       {/* WHAT IT IS DOING RIGHT NOW: the tool the session is running and for
           how long. A 14-minute stopwatch did not tell a unit suite that has

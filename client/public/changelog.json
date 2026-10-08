@@ -1,5 +1,1163 @@
 [
   {
+    "version": "2.2.457",
+    "date": "2026-10-08",
+    "sections": {
+      "new": [],
+      "fixes": [
+        {
+          "it": "i processi esterni arrivati con main dentro le guardie di T5",
+          "en": "",
+          "scope": "server",
+          "breaking": false
+        },
+        {
+          "it": "tool-result-clamp riparte dal fondo solo a riga aperta",
+          "en": "",
+          "scope": "test",
+          "breaking": false
+        },
+        {
+          "it": "su Windows uno smoke passato usciva 143 in pulizia",
+          "en": "",
+          "scope": "sidecar-smoke",
+          "breaking": false
+        },
+        {
+          "it": "il turno legge il Portachiavi senza fermare il loop",
+          "en": "",
+          "scope": "native-auth",
+          "breaking": false
+        },
+        {
+          "it": "la radice git della memoria non si chiede più a ogni turno",
+          "en": "",
+          "scope": "native-parity",
+          "breaking": false
+        },
+        {
+          "it": "una scadenza di git non è «non è un repo»",
+          "en": "",
+          "scope": "native-parity",
+          "breaking": false
+        }
+      ],
+      "perf": [],
+      "internal": [
+        {
+          "it": "REPORT di T14, runBounded nei runner di git",
+          "en": "",
+          "scope": "openspec",
+          "breaking": false
+        },
+        {
+          "it": "una versione sola, 1.4.2 in .bun-version, per CI, release e produzione",
+          "en": "",
+          "scope": "bun",
+          "breaking": false
+        },
+        {
+          "it": "cloud-quality-pass, traccia T16 per un turno nativo senza spawn sincroni",
+          "en": "",
+          "scope": "openspec",
+          "breaking": false
+        },
+        {
+          "it": "il server compilato parte davvero su macOS, Windows e Linux",
+          "en": "",
+          "scope": "sidecar",
+          "breaking": false
+        },
+        {
+          "it": "VERIFICA, come la sessione madre ha controllato ogni consegna cloud",
+          "en": "",
+          "scope": "openspec",
+          "breaking": false
+        },
+        {
+          "it": "aggiorna durate shard dal nightly del 2026-10-08 [skip ci]",
+          "en": "",
+          "scope": "e2e",
+          "breaking": false
+        },
+        {
+          "it": "il memo della radice git si prova dalla risposta, anche su Bun 1.3.8",
+          "en": "",
+          "scope": "native-parity",
+          "breaking": false
+        },
+        {
+          "it": "REPORT T16, turno nativo senza spawn sincroni (barra dopo in corso)",
+          "en": "",
+          "scope": "openspec",
+          "breaking": false
+        },
+        {
+          "it": "VERIFICA, Bun unica, sidecar in CI e T16",
+          "en": "",
+          "scope": "openspec",
+          "breaking": false
+        },
+        {
+          "it": "REPORT T13, la chat ferma sopra il fondo in tool-result-clamp",
+          "en": "",
+          "scope": "openspec",
+          "breaking": false
+        },
+        {
+          "it": "REPORT T13, il ramo claude/ della sessione",
+          "en": "",
+          "scope": "openspec",
+          "breaking": false
+        },
+        {
+          "it": "il commento del ResizeObserver non promette piu' un secondo passaggio",
+          "en": "",
+          "scope": "chat",
+          "breaking": false
+        },
+        {
+          "it": "VERIFICA, T13",
+          "en": "",
+          "scope": "openspec",
+          "breaking": false
+        }
+      ]
+    }
+  },
+  {
+    "version": "2.2.456",
+    "date": "2026-10-08",
+    "sections": {
+      "new": [
+        {
+          "it": "il log di run_command segue il file su cui il comando redirige lo stdout",
+          "en": "",
+          "scope": "processes",
+          "breaking": false
+        },
+        {
+          "it": "GET /api/topics/:id/live-work, ciò che lavora adesso per una chat",
+          "en": "",
+          "scope": "chat",
+          "breaking": false
+        },
+        {
+          "it": "il log vuoto dice cosa aspetta e da quando",
+          "en": "",
+          "scope": "processes",
+          "breaking": false
+        },
+        {
+          "it": "la striscia sotto la chat mostra ciò che lavora adesso",
+          "en": "",
+          "scope": "chat",
+          "breaking": false
+        },
+        {
+          "it": "la riga di un comando sa se la sua fine sveglia la chat",
+          "en": "",
+          "scope": "chat-live-work",
+          "breaking": false
+        },
+        {
+          "it": "un comando è una riga sola, nella striscia, con Ferma e la sveglia",
+          "en": "",
+          "scope": "chat",
+          "breaking": false
+        },
+        {
+          "it": "le strisce sono la fine del trascritto, e la riga di un comando apre la sua card",
+          "en": "",
+          "scope": "chat",
+          "breaking": false
+        }
+      ],
+      "fixes": [
+        {
+          "it": "hint fuori dal bottone Automatico, banda 44px su phone",
+          "en": "",
+          "scope": "model-selector",
+          "breaking": false
+        },
+        {
+          "it": "AC-21/AC-07 rivisti, la lista providers scorre nel pannello stretto",
+          "en": "",
+          "scope": "model-selector",
+          "breaking": false
+        },
+        {
+          "it": "commento in inglese per il gate",
+          "en": "",
+          "scope": "model-selector",
+          "breaking": false
+        },
+        {
+          "it": "rifare i ponti rimasti fuori dalla sessione grafica",
+          "en": "",
+          "scope": "terminal",
+          "breaking": false
+        },
+        {
+          "it": "il riquadro «Drop files here» si spegne quando il trascinamento finisce altrove",
+          "en": "",
+          "scope": "chat",
+          "breaking": false
+        },
+        {
+          "it": "l'avviso di fine comando senza i codici colore del terminale",
+          "en": "",
+          "scope": "processi",
+          "breaking": false
+        },
+        {
+          "it": "una cartella aperta nel pannello risponde 400, non con l'errore di Bun",
+          "en": "",
+          "scope": "media",
+          "breaking": false
+        },
+        {
+          "it": "la card di un comando finito senza i codici colore anche nelle righe gia' salvate",
+          "en": "",
+          "scope": "chat",
+          "breaking": false
+        },
+        {
+          "it": "la lingua scelta torna in fondo al contesto a ogni giro",
+          "en": "",
+          "scope": "native",
+          "breaking": false
+        },
+        {
+          "it": "i cancelli della lingua tornano verdi sui file della change",
+          "en": "",
+          "scope": "chat-live-work",
+          "breaking": false
+        },
+        {
+          "it": "fondere una card ne libera le tab come archiviarla",
+          "en": "",
+          "scope": "board",
+          "breaking": false
+        },
+        {
+          "it": "«archivia» sui sottotask parcheggiati ne libera le tab",
+          "en": "",
+          "scope": "board",
+          "breaking": false
+        },
+        {
+          "it": "la prova della home non si arrende con HOME=/root",
+          "en": "",
+          "scope": "security",
+          "breaking": false
+        },
+        {
+          "it": "reload-gate-migration dice di aver bisogno di sqlite3",
+          "en": "",
+          "scope": "test",
+          "breaking": false
+        },
+        {
+          "it": "tre test dicono quando l'ambiente non li permette (root, niente IPv6)",
+          "en": "",
+          "scope": "test",
+          "breaking": false
+        },
+        {
+          "it": "i server spawnati dai test si legano a 127.0.0.1 dove manca IPv6",
+          "en": "",
+          "scope": "test",
+          "breaking": false
+        },
+        {
+          "it": "il titolo della scheda resta `<MorphText text={task.text} />`",
+          "en": "",
+          "scope": "board",
+          "breaking": false
+        },
+        {
+          "it": "il server di prova si lega a 127.0.0.1 dove manca IPv6",
+          "en": "",
+          "scope": "e2e",
+          "breaking": false
+        },
+        {
+          "it": "la prima pagina non antepone righe sopra la copia locale",
+          "en": "",
+          "scope": "chat",
+          "breaking": false
+        },
+        {
+          "it": "il cancello di ricarica dice quando e' spento; due test non scambiano la VM per un difetto",
+          "en": "",
+          "scope": "gate",
+          "breaking": false
+        },
+        {
+          "it": "ogni processo esterno del percorso di una richiesta ha una scadenza vera",
+          "en": "",
+          "scope": "server",
+          "breaking": false
+        },
+        {
+          "it": "ai-bridge-loop-freeze non vive del DATA_DIR di un altro file",
+          "en": "",
+          "scope": "test",
+          "breaking": false
+        },
+        {
+          "it": "un figlio ucciso e non raccolto non e' vivo (shell-sweep)",
+          "en": "",
+          "scope": "test",
+          "breaking": false
+        },
+        {
+          "it": "la scadenza manda SIGTERM al gruppo, poi SIGKILL dopo una grazia",
+          "en": "",
+          "scope": "spawn",
+          "breaking": false
+        },
+        {
+          "it": "la scadenza limita la RISPOSTA, non il figlio diretto",
+          "en": "",
+          "scope": "spawn",
+          "breaking": false
+        },
+        {
+          "it": "all'arresto il server chiude i gruppi che ha lanciato",
+          "en": "",
+          "scope": "spawn",
+          "breaking": false
+        },
+        {
+          "it": "cp -r e push di publish hanno la scadenza lunga; un cp scaduto non lascia mezza copia",
+          "en": "",
+          "scope": "server",
+          "breaking": false
+        },
+        {
+          "it": "un git scaduto non e' \"verificato fuori\"",
+          "en": "",
+          "scope": "own-commits",
+          "breaking": false
+        },
+        {
+          "it": "il Cancello 2 fallisce chiuso se git non risponde",
+          "en": "",
+          "scope": "worktree-slim",
+          "breaking": false
+        },
+        {
+          "it": "un blob troncato dalla scadenza non finisce come risposta completa",
+          "en": "",
+          "scope": "task-diff-file",
+          "breaking": false
+        },
+        {
+          "it": "un'immagine di un messaggio ha il suo riquadro prima di caricarsi",
+          "en": "",
+          "scope": "chat",
+          "breaking": false
+        },
+        {
+          "it": "una riga che cresce in fondo, fuori dallo streaming, resta in fondo nello stesso layout",
+          "en": "",
+          "scope": "chat",
+          "breaking": false
+        },
+        {
+          "it": "nomi e un commento del riquadro delle immagini in inglese",
+          "en": "",
+          "scope": "chat",
+          "breaking": false
+        },
+        {
+          "it": "nomi inglesi in settledRects (cancello identifier-language)",
+          "en": "",
+          "scope": "board",
+          "breaking": false
+        },
+        {
+          "it": "Card.tsx torna sotto il tetto di check:bloat",
+          "en": "",
+          "scope": "board",
+          "breaking": false
+        },
+        {
+          "it": "i tipi delle dimensioni delle immagini stanno in shared/, una volta sola",
+          "en": "",
+          "scope": "chat",
+          "breaking": false
+        },
+        {
+          "it": "l'età della card avanza da sola, con un orologio al minuto per documento",
+          "en": "",
+          "scope": "board",
+          "breaking": false
+        },
+        {
+          "it": "le righe larghe del feed prendono i nomi da chi scrive la SELECT",
+          "en": "",
+          "scope": "board",
+          "breaking": false
+        },
+        {
+          "it": "il log dal vivo nella card di un comando senza codici colore",
+          "en": "",
+          "scope": "chat",
+          "breaking": false
+        },
+        {
+          "it": "il log dal vivo nella card segue l'ultima riga",
+          "en": "",
+          "scope": "chat",
+          "breaking": false
+        },
+        {
+          "it": "il sipario non aspetta un'immagine che ha gia' il suo riquadro",
+          "en": "",
+          "scope": "chat",
+          "breaking": false
+        },
+        {
+          "it": "la bolla di chi allega un'immagine ha il riquadro prima dei byte",
+          "en": "",
+          "scope": "chat",
+          "breaking": false
+        },
+        {
+          "it": "l'età della card segue l'ultimo `updatedAt` anche quando il testo non cambia",
+          "en": "",
+          "scope": "board",
+          "breaking": false
+        },
+        {
+          "it": "la proiezione della lista rientra nel tetto di check:bloat",
+          "en": "",
+          "scope": "board",
+          "breaking": false
+        },
+        {
+          "it": "niente generici nelle righe del composer, check:ui-language torna verde",
+          "en": "",
+          "scope": "chat",
+          "breaking": false
+        },
+        {
+          "it": "board-card-choices tiene fermo il reconcile del dispatcher per tutta la scena",
+          "en": "",
+          "scope": "e2e",
+          "breaking": false
+        },
+        {
+          "it": "chat-streaming-indicator manda gli stati del lavoro in background nell'ordine in cui li mette",
+          "en": "",
+          "scope": "e2e",
+          "breaking": false
+        },
+        {
+          "it": "via useEndedSubAgents, export morto dopo le strisce in fondo al trascritto",
+          "en": "",
+          "scope": "gates",
+          "breaking": false
+        },
+        {
+          "it": "import statici di pty-bridge-platform.mjs annotati runtime-dep-ok",
+          "en": "",
+          "scope": "gates",
+          "breaking": false
+        },
+        {
+          "it": "il manifest delle migration porta l'SQL come stringhe, giusto anche su Bun 1.3.8",
+          "en": "",
+          "scope": "db",
+          "breaking": false
+        },
+        {
+          "it": "un ospite riceve message:new senza le dimensioni delle immagini",
+          "en": "",
+          "scope": "ws",
+          "breaking": false
+        },
+        {
+          "it": "la fascia di atterraggio sulla riga, non come scroll-padding dello scroller",
+          "en": "",
+          "scope": "chat",
+          "breaking": false
+        },
+        {
+          "it": "lo smoke del sidecar aspetta il log e l'uscita del binario",
+          "en": "",
+          "scope": "scripts",
+          "breaking": false
+        },
+        {
+          "it": "l'SQL del manifest in base64, fuori dagli scanner dei sorgenti",
+          "en": "",
+          "scope": "db",
+          "breaking": false
+        },
+        {
+          "it": "il filtro di D2 sta nel tetto di check:bloat di server/utils.ts",
+          "en": "",
+          "scope": "ws",
+          "breaking": false
+        },
+        {
+          "it": "niente nome utente nel commento di claude-session-tracker.test.ts",
+          "en": "",
+          "scope": "test",
+          "breaking": false
+        },
+        {
+          "it": "runBounded dice perché un processo non è partito e tiene il 137 di un segnale",
+          "en": "",
+          "scope": "spawn",
+          "breaking": false
+        },
+        {
+          "it": "il test dei contratti dei runner crea il repo con l'env isolato",
+          "en": "",
+          "scope": "test",
+          "breaking": false
+        }
+      ],
+      "perf": [
+        {
+          "it": "un frame che non sposta card non ridisegna App",
+          "en": "",
+          "scope": "board",
+          "breaking": false
+        },
+        {
+          "it": "la board di progetto tiene le righe che non cambiano",
+          "en": "",
+          "scope": "board",
+          "breaking": false
+        },
+        {
+          "it": "la scheda mostra il titolo della card al primo frame",
+          "en": "",
+          "scope": "board",
+          "breaking": false
+        },
+        {
+          "it": "l'indice topic → task non ridisegna App a ogni frame",
+          "en": "",
+          "scope": "board",
+          "breaking": false
+        },
+        {
+          "it": "le card non si ridisegnano tutte a ogni `task:updated`",
+          "en": "",
+          "scope": "board",
+          "breaking": false
+        },
+        {
+          "it": "il log della striscia si carica quando lo si apre",
+          "en": "",
+          "scope": "chat",
+          "breaking": false
+        },
+        {
+          "it": "typecheck e lint eseguono i loro pezzi insieme",
+          "en": "",
+          "scope": "gates",
+          "breaking": false
+        },
+        {
+          "it": "tipi, lint e cancelli statici in tre corsie",
+          "en": "",
+          "scope": "qa-gate",
+          "breaking": false
+        },
+        {
+          "it": "una topic gia' visitata si apre dalla copia locale, senza aspettare il server",
+          "en": "",
+          "scope": "chat",
+          "breaking": false
+        },
+        {
+          "it": "messages e history con tetto scelgono la finestra su uno scheletro del filo",
+          "en": "",
+          "scope": "history",
+          "breaking": false
+        },
+        {
+          "it": "le shard di default sono una per core, da due a quattro",
+          "en": "",
+          "scope": "test-unit",
+          "breaking": false
+        },
+        {
+          "it": "web-push si carica alla prima consegna, non al boot",
+          "en": "",
+          "scope": "server",
+          "breaking": false
+        },
+        {
+          "it": "@xterm/headless si carica alla prima lettura dello schermo",
+          "en": "",
+          "scope": "server",
+          "breaking": false
+        },
+        {
+          "it": "il manifest delle migration embedded si carica solo nel sidecar",
+          "en": "",
+          "scope": "server",
+          "breaking": false
+        },
+        {
+          "it": "l'SDK Anthropic si carica alla prima richiesta del provider claude",
+          "en": "",
+          "scope": "server",
+          "breaking": false
+        },
+        {
+          "it": "l'anteprima della card si taglia senza un array per carattere",
+          "en": "",
+          "scope": "board",
+          "breaking": false
+        },
+        {
+          "it": "durante il drag la card ridisegna solo il guscio ordinabile",
+          "en": "",
+          "scope": "board",
+          "breaking": false
+        },
+        {
+          "it": "le righe della lista si leggono come array, non come oggetti larghi",
+          "en": "",
+          "scope": "board",
+          "breaking": false
+        },
+        {
+          "it": "durante il drag la colonna ridisegna solo il guscio droppable",
+          "en": "",
+          "scope": "board",
+          "breaking": false
+        },
+        {
+          "it": "la collisione del drag legge i rettangoli una volta per scroll",
+          "en": "",
+          "scope": "board",
+          "breaking": false
+        },
+        {
+          "it": "la card è il contenitore della sua brina, anche senza freeze",
+          "en": "",
+          "scope": "board",
+          "breaking": false
+        },
+        {
+          "it": "il vicino che il varco non sposta non riceve un transform",
+          "en": "",
+          "scope": "board",
+          "breaking": false
+        },
+        {
+          "it": "il feed globale non porta i campi che nessun client legge",
+          "en": "",
+          "scope": "board",
+          "breaking": false
+        },
+        {
+          "it": "la vivezza dei pid senza ps sincrono, un giro solo per tutti",
+          "en": "",
+          "scope": "processes",
+          "breaking": false
+        },
+        {
+          "it": "/api/git/branches con un solo git, non uno per ramo",
+          "en": "",
+          "scope": "files",
+          "breaking": false
+        },
+        {
+          "it": "getconf una volta per processo, non a ogni tentativo",
+          "en": "",
+          "scope": "discord",
+          "breaking": false
+        }
+      ],
+      "internal": [
+        {
+          "it": "aggiorna durate shard dal nightly del 2026-10-07 [skip ci]",
+          "en": "",
+          "scope": "e2e",
+          "breaking": false
+        },
+        {
+          "it": "The native runtime gets Claude Code's memory: the MEMORY.md index and the per-prompt recall",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "chat-live-work, la striscia della chat mostra cio' che lavora adesso",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "change cloud-quality-pass, sette tracce per le sessioni cloud",
+          "en": "",
+          "scope": "openspec",
+          "breaking": false
+        },
+        {
+          "it": "chat-live-work, i tre scenari filmati su WebKit",
+          "en": "",
+          "scope": "e2e",
+          "breaking": false
+        },
+        {
+          "it": "linea di partenza del pilota T0 e tracce aggiornate",
+          "en": "",
+          "scope": "openspec",
+          "breaking": false
+        },
+        {
+          "it": "banco dei render per frame `task:updated`",
+          "en": "",
+          "scope": "board",
+          "breaking": false
+        },
+        {
+          "it": "bloat: chat.ts registrato a 4301 righe, con le cinque corsie che l'hanno fatto crescere",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "il banco del drag misura anche il tempo di main thread",
+          "en": "",
+          "scope": "board",
+          "breaking": false
+        },
+        {
+          "it": "il flusso Task in una sola ripresa, e il banco dei render a notte",
+          "en": "",
+          "scope": "board",
+          "breaking": false
+        },
+        {
+          "it": "il banco dei render chiude la finestra a condizione",
+          "en": "",
+          "scope": "board",
+          "breaking": false
+        },
+        {
+          "it": "nomi inglesi nella spec del flusso Task",
+          "en": "",
+          "scope": "board",
+          "breaking": false
+        },
+        {
+          "it": "gli id disegnati si leggono da `idsKey`",
+          "en": "",
+          "scope": "board",
+          "breaking": false
+        },
+        {
+          "it": "REPORT della traccia server (percorso caldo)",
+          "en": "",
+          "scope": "T5",
+          "breaking": false
+        },
+        {
+          "it": "cloud-quality-pass, commenti in inglese come vuole il repo",
+          "en": "",
+          "scope": "openspec",
+          "breaking": false
+        },
+        {
+          "it": "REPORT della traccia T1",
+          "en": "",
+          "scope": "cloud-quality-pass",
+          "breaking": false
+        },
+        {
+          "it": "le corsie restano sicure, e un cancello misurato si riferisce sempre",
+          "en": "",
+          "scope": "qa-gate",
+          "breaking": false
+        },
+        {
+          "it": "baseline senza il percorso home del runner CI",
+          "en": "",
+          "scope": "openspec",
+          "breaking": false
+        },
+        {
+          "it": "GIT-DEADLINE-01 con SIGTERM + grazia, risposta completa, arresto e copie",
+          "en": "",
+          "scope": "spec",
+          "breaking": false
+        },
+        {
+          "it": "Revert \"perf(board): la board di progetto tiene le righe che non cambiano\"",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "REPORT con le correzioni del revisore",
+          "en": "",
+          "scope": "T5",
+          "breaking": false
+        },
+        {
+          "it": "la ricerca ha un solo timer, quello di spawnBounded",
+          "en": "",
+          "scope": "files",
+          "breaking": false
+        },
+        {
+          "it": "la finestra dei messaggi riusa restoreToolCallsFromBlocks di utils",
+          "en": "",
+          "scope": "topics",
+          "breaking": false
+        },
+        {
+          "it": "la scansione legge le opzioni della chiamata, non le parole intorno",
+          "en": "",
+          "scope": "spawn-scan",
+          "breaking": false
+        },
+        {
+          "it": "REPORT con il secondo giro di revisione",
+          "en": "",
+          "scope": "T5",
+          "breaking": false
+        },
+        {
+          "it": "REPORT di T3 (avvio e bundle)",
+          "en": "",
+          "scope": "openspec",
+          "breaking": false
+        },
+        {
+          "it": "la card coi tentativi finiti può essere già parcheggiata",
+          "en": "",
+          "scope": "board",
+          "breaking": false
+        },
+        {
+          "it": "REPORT della traccia T2",
+          "en": "",
+          "scope": "cloud-quality-pass",
+          "breaking": false
+        },
+        {
+          "it": "cloud-quality-pass, verifica V2 di T2 e regole comuni",
+          "en": "",
+          "scope": "openspec",
+          "breaking": false
+        },
+        {
+          "it": "cloud-quality-pass, tracce T7-T10 sulla base integrata",
+          "en": "",
+          "scope": "openspec",
+          "breaking": false
+        },
+        {
+          "it": "i git di bounded-spawn.test passano l'ambiente isolato",
+          "en": "",
+          "scope": "server",
+          "breaking": false
+        },
+        {
+          "it": "REPORT T6, i 44 cancelli e i numeri della barra",
+          "en": "",
+          "scope": "cloud-quality-pass",
+          "breaking": false
+        },
+        {
+          "it": "l'età di una card ferma resta indietro dopo T2 (rosso voluto)",
+          "en": "",
+          "scope": "board",
+          "breaking": false
+        },
+        {
+          "it": "i campi propri della card seguono il loro frame, prima e dopo T2",
+          "en": "",
+          "scope": "board",
+          "breaking": false
+        },
+        {
+          "it": "banco dei render per mossa durante il drag",
+          "en": "",
+          "scope": "board",
+          "breaking": false
+        },
+        {
+          "it": "l'indice topic → task segue la vita del topic, prima e dopo T2",
+          "en": "",
+          "scope": "board",
+          "breaking": false
+        },
+        {
+          "it": "REPORT della verifica V2 di T2",
+          "en": "",
+          "scope": "cloud-quality-pass",
+          "breaking": false
+        },
+        {
+          "it": "cloud-quality-pass, traccia T2b per il difetto D1 di V2",
+          "en": "",
+          "scope": "openspec",
+          "breaking": false
+        },
+        {
+          "it": "REPORT di T10, il feed della board",
+          "en": "",
+          "scope": "openspec",
+          "breaking": false
+        },
+        {
+          "it": "l'età della card ferma deve avanzare col tempo, con e senza frame",
+          "en": "",
+          "scope": "board",
+          "breaking": false
+        },
+        {
+          "it": "traccia T10b, il feed giusto anche su Bun 1.3.8",
+          "en": "",
+          "scope": "openspec",
+          "breaking": false
+        },
+        {
+          "it": "gli hash del REPORT di T2 puntano ai commit del ramo",
+          "en": "",
+          "scope": "cloud-quality-pass",
+          "breaking": false
+        },
+        {
+          "it": "le strisce in fondo al trascritto, la riga apre la sua card",
+          "en": "",
+          "scope": "chat-strips-in-transcript",
+          "breaking": false
+        },
+        {
+          "it": "REPORT T7, immagini con il loro riquadro",
+          "en": "",
+          "scope": "openspec",
+          "breaking": false
+        },
+        {
+          "it": "la fixture d'arresto mette l'handler di SIGTERM prima di stampare il pid",
+          "en": "",
+          "scope": "server",
+          "breaking": false
+        },
+        {
+          "it": "il contratto del reflow trascina sopra un vicino che si sposta davvero",
+          "en": "",
+          "scope": "board",
+          "breaking": false
+        },
+        {
+          "it": "REPORT T9, il loop del server senza spawn sincroni",
+          "en": "",
+          "scope": "openspec",
+          "breaking": false
+        },
+        {
+          "it": "traccia T7b, il sipario non aspetta un'immagine che ha gia' il riquadro",
+          "en": "",
+          "scope": "openspec",
+          "breaking": false
+        },
+        {
+          "it": "regole comuni, il codice server si prova anche su Bun 1.3.8",
+          "en": "",
+          "scope": "openspec",
+          "breaking": false
+        },
+        {
+          "it": "CHAT-MEDIA-BOX-01, il sipario e la bolla di chi allega",
+          "en": "",
+          "scope": "openspec",
+          "breaking": false
+        },
+        {
+          "it": "REPORT di T2b, l'età della card avanza da sola",
+          "en": "",
+          "scope": "cloud-quality-pass",
+          "breaking": false
+        },
+        {
+          "it": "REPORT di T2b, costo vero del sottoagente Haiku",
+          "en": "",
+          "scope": "cloud-quality-pass",
+          "breaking": false
+        },
+        {
+          "it": "REPORT T7b, bozza (barra finale in corso)",
+          "en": "",
+          "scope": "openspec",
+          "breaking": false
+        },
+        {
+          "it": "due aggiornamenti nello stesso «ora», poi lo scatto: l'età conta dal secondo",
+          "en": "",
+          "scope": "board",
+          "breaking": false
+        },
+        {
+          "it": "REPORT T8, drag della board",
+          "en": "",
+          "scope": "openspec",
+          "breaking": false
+        },
+        {
+          "it": "REPORT di T2b con il difetto D2, il fix e i numeri nuovi",
+          "en": "",
+          "scope": "cloud-quality-pass",
+          "breaking": false
+        },
+        {
+          "it": "REPORT T7b, barra finale e consegna",
+          "en": "",
+          "scope": "openspec",
+          "breaking": false
+        },
+        {
+          "it": "REPORT di T10b, il feed giusto anche su Bun 1.3.8",
+          "en": "",
+          "scope": "openspec",
+          "breaking": false
+        },
+        {
+          "it": "cloud-quality-pass, traccia T11 per i test instabili ricorrenti",
+          "en": "",
+          "scope": "openspec",
+          "breaking": false
+        },
+        {
+          "it": "commenti in inglese, nomi interi e @covers, i tre controlli di nuovo verdi",
+          "en": "",
+          "scope": "gates",
+          "breaking": false
+        },
+        {
+          "it": "REPORT di T11, i test instabili ricorrenti",
+          "en": "",
+          "scope": "openspec",
+          "breaking": false
+        },
+        {
+          "it": "due test rossi che provano i difetti dell'integrazione",
+          "en": "",
+          "scope": "v3",
+          "breaking": false
+        },
+        {
+          "it": "cloud-quality-pass, traccia T12 per i difetti D1 e D2 di V3",
+          "en": "",
+          "scope": "openspec",
+          "breaking": false
+        },
+        {
+          "it": "la base si legge a vista ferma, e il lettore sta a meta' storia",
+          "en": "",
+          "scope": "chat-strips",
+          "breaking": false
+        },
+        {
+          "it": "il lettore sale un colpo alla volta, finche' non e' sopra i 600 px",
+          "en": "",
+          "scope": "chat-strips",
+          "breaking": false
+        },
+        {
+          "it": "REPORT di T12, i difetti D1 e D2 di V3 e il sospetto della chat",
+          "en": "",
+          "scope": "openspec",
+          "breaking": false
+        },
+        {
+          "it": "REPORT di T12, dove sono le prove",
+          "en": "",
+          "scope": "openspec",
+          "breaking": false
+        },
+        {
+          "it": "cloud-quality-pass, traccia T13 per la chat che in CI non si ferma in fondo",
+          "en": "",
+          "scope": "openspec",
+          "breaking": false
+        },
+        {
+          "it": "cloud-quality-pass, traccia T14 per adottare runBounded nei wrapper di git",
+          "en": "",
+          "scope": "openspec",
+          "breaking": false
+        },
+        {
+          "it": "fissa gli esiti dei runner di git prima che passino a runBounded",
+          "en": "",
+          "scope": "server",
+          "breaking": false
+        },
+        {
+          "it": "defaultRunGit lancia git con runBounded",
+          "en": "",
+          "scope": "own-commits",
+          "breaking": false
+        },
+        {
+          "it": "defaultRunGit e runRepoScript lanciano con runBounded",
+          "en": "",
+          "scope": "task-automerge",
+          "breaking": false
+        },
+        {
+          "it": "il runner di default lancia git con runBounded",
+          "en": "",
+          "scope": "branch-inventory",
+          "breaking": false
+        },
+        {
+          "it": "gitExit, gitOut e commitIsAncestor lanciano con runBounded",
+          "en": "",
+          "scope": "branch-status",
+          "breaking": false
+        },
+        {
+          "it": "runGitCap e il deploy confermato lanciano con runBounded",
+          "en": "",
+          "scope": "routes/tasks",
+          "breaking": false
+        }
+      ]
+    }
+  },
+  {
+    "version": "2.2.455",
+    "date": "2026-10-06",
+    "sections": {
+      "new": [
+        {
+          "it": "one vertical list instead of side-by-side columns",
+          "en": "",
+          "scope": "model-selector",
+          "breaking": false
+        }
+      ],
+      "fixes": [
+        {
+          "it": "one-line band and hidden hint on desktop compact",
+          "en": "",
+          "scope": "model-selector",
+          "breaking": false
+        }
+      ],
+      "perf": [],
+      "internal": []
+    }
+  },
+  {
     "version": "2.2.454",
     "date": "2026-10-06",
     "sections": {

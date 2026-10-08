@@ -8,10 +8,27 @@
 # imitazione, e costa di piu' di non averlo perche' fa credere che la classe di
 # difetti sia coperta.
 #
-# COSA FA. Li esegue in ordine di costo crescente, stampa UNA riga per cancello
-# con il suo exit code, e alla fine esce non-zero se anche uno solo e' rosso.
-# Non si ferma al primo rosso: un giro solo deve dire TUTTO cio' che c'e' da
-# sistemare, altrimenti si scoprono i problemi uno alla volta, un giro per uno.
+# COSA FA. Stampa UNA riga per cancello con il suo exit code, e alla fine esce
+# non-zero se anche uno solo e' rosso. Non si ferma al primo rosso: un giro solo
+# deve dire TUTTO cio' che c'e' da sistemare, altrimenti si scoprono i problemi
+# uno alla volta, un giro per uno.
+#
+# IN PARALLELO, MA SOLO CIO' CHE E' INDIPENDENTE. Misurato a freddo nella VM
+# cloud (4 vCPU): `typecheck` 100 s e `lint` 109 s, in fila, erano l'87% dei
+# 240 s della barra veloce, mentre i 21 cancelli statici insieme ne costano 25.
+# Girano ora in tre corsie: tipi, lint, statici. Le righe del riepilogo escono
+# nello stesso ordine di prima (la corsia non cambia COSA si dice, solo quando).
+# Cosa tiene al sicuro il parallelo:
+#   · ogni cancello scrive solo nel PROPRIO file temporaneo (`$TMPD/<id>.*`),
+#     nessun file condiviso e nessuna porta: l'unico che scrive nei sorgenti,
+#     `check:deadcode-blindspots` (aggiunge una sonda a ogni file di progetto e
+#     la toglie in `finally`), gira DA SOLO a corsie finite, altrimenti
+#     typecheck e lint vedrebbero un export in piu';
+#   · `check:tmp-canonical` e' statico apposta, nessun cancello qui usa /tmp
+#     con un nome fisso;
+#   · gli slot di `scripts/slot.ts` (typecheck, lint, deadcode) restano: la
+#     macchina condivisa con altri agenti non viene sovraccaricata, il cancello
+#     che non trova uno slot aspetta il suo turno invece di rifiutarsi.
 #
 # Uso:
 #   ./scripts/qa-gate.sh              tutto (E2E compresa: minuti)
@@ -67,14 +84,32 @@ done
 
 ROSSI=0
 esiti=()
+TMPD="$(mktemp -d)"
+trap 'rm -rf "$TMPD"' EXIT
 
-esegui() {
-  local nome="$1"; shift
-  local t0=$SECONDS
-  local out; out="$("$@" 2>&1)"; local code=$?
-  local dt=$((SECONDS - t0))
-  local ultima; ultima="$(printf '%s' "$out" | tail -1 | cut -c1-70)"
-  if [ $code -ne 0 ]; then
+# misura <id> <comando...>: esegue e lascia l'esito nei file di <id> sotto
+# $TMPD. E' l'unica cosa che le corsie fanno; non stampa niente, cosi' le righe
+# non si mescolano.
+misura() {
+  local id="$1"; shift
+  local t0=$SECONDS out code
+  out="$("$@" 2>&1)"; code=$?
+  printf '%s' "$out" > "$TMPD/$id.out"
+  printf '%s %s' "$code" "$((SECONDS - t0))" > "$TMPD/$id.res"
+}
+
+# riferisci <id>: stampa (se rosso) e registra l'esito di un cancello gia' misurato.
+riferisci() {
+  local nome="$1" code dt out ultima
+  # Una corsia interrotta (Ctrl-C) non lascia l'esito: e' un rosso, non un verde.
+  if [ -f "$TMPD/$nome.res" ]; then
+    read -r code dt < "$TMPD/$nome.res"
+    out="$(cat "$TMPD/$nome.out")"
+  else
+    code=99; dt=0; out="$nome: non ha lasciato un esito (corsia interrotta?)"
+  fi
+  ultima="$(printf '%s' "$out" | tail -1 | cut -c1-70)"
+  if [ "$code" -ne 0 ]; then
     ROSSI=$((ROSSI + 1))
     esiti+=("$(printf '  %-24s ROSSO  %3ss  %s' "$nome" "$dt" "$ultima")")
     printf '%s\n' "$out" | tail -25
@@ -83,19 +118,33 @@ esegui() {
   fi
 }
 
-echo "== guard rail statici =="
-for c in check:any check:any-budget check:ref-callbacks check:nul check:eslint-disable \
-         check:test-skips check:emdash check:bloat check:route-shadowing check:typography check:ui-language check:comment-language \
-         check:identifier-language check:sleeps check:tmp-canonical \
-         check:module-mock-restore check:api-door \
-         check:untraced-tests check:spec-coverage \
-         check:migrations check:security check:deadcode check:deadcode-blindspots; do
-  esegui "$c" bun run "$c"
-done
+esegui() {
+  misura "$1" "${@:2}"
+  riferisci "$1"
+}
 
-echo "== tipi e lint =="
-esegui typecheck bun run typecheck
-esegui lint bun run lint
+# I cancelli statici, in ordine di costo crescente. `check:deadcode-blindspots`
+# non e' qui: scrive nei sorgenti e gira da solo, sotto.
+STATICI=(check:any check:any-budget check:ref-callbacks check:nul check:eslint-disable
+         check:test-skips check:emdash check:bloat check:route-shadowing check:typography check:ui-language check:comment-language
+         check:identifier-language check:sleeps check:tmp-canonical
+         check:module-mock-restore check:api-door
+         check:untraced-tests check:spec-coverage
+         check:migrations check:security check:deadcode)
+
+echo "== guard rail statici, tipi e lint (in parallelo) =="
+(for c in "${STATICI[@]}"; do misura "$c" bun run "$c"; done) &
+misura typecheck bun run typecheck &
+misura lint bun run lint &
+wait
+
+# Da solo, a corsie finite: aggiunge una sonda a ogni file di progetto.
+misura check:deadcode-blindspots bun run check:deadcode-blindspots
+
+# Il riepilogo nell'ordine di sempre: statici, blindspots, tipi, lint.
+for c in "${STATICI[@]}" check:deadcode-blindspots typecheck lint; do
+  riferisci "$c"
+done
 
 if [ "$VELOCE" = "0" ]; then
   echo "== unit + integrazione =="

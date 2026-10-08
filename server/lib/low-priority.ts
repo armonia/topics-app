@@ -132,7 +132,7 @@ function pgrepChildren(pid: number): Promise<number[]> {
     if (!existsSync(PGREP_BIN)) return resolve([]);
     let out = "";
     try {
-      const p = spawn(PGREP_BIN, ["-P", String(pid)], { stdio: ["ignore", "pipe", "ignore"] });
+      const p = spawn(PGREP_BIN, ["-P", String(pid)], { stdio: ["ignore", "pipe", "ignore"], timeout: 3000, killSignal: "SIGKILL" });
       p.stdout?.on("data", (chunk) => { out += String(chunk); });
       p.on("error", () => resolve([]));
       p.on("close", () => resolve(

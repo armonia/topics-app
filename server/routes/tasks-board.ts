@@ -538,7 +538,15 @@ export function createBoardRoutes(deps: BoardRouteDeps) {
           projectId: bMerge.projectId,
           by: HUMAN,
         });
-        broadcastToAll({ type: "task:deleted", projectId: bMerge.projectId, taskId: bMerge.taskId });
+        // The merged card is archived exactly like a DELETE, so its tabs go the
+        // same way: without this they stayed alive until the next boot sweep.
+        // Its subtasks have already moved under the survivor, so the subtree
+        // here is the merged card alone and the children keep their tabs.
+        const torn = opts?.teardownTaskBrowserState?.(bMerge.taskId);
+        broadcastToAll({
+          type: "task:deleted", projectId: bMerge.projectId, taskId: bMerge.taskId,
+          taskIds: torn?.taskIds ?? [bMerge.taskId],
+        });
         broadcastToAll({ type: "task:updated", projectId: bMerge.projectId, task: esito.survivor });
         return json(esito);
       } catch (e) { return fail(e); }
@@ -639,7 +647,7 @@ export function createBoardRoutes(deps: BoardRouteDeps) {
         // route instead of this one.
         {
           const intercepted = interceptBoardAction(
-            { svc, dispatcher, broadcast: broadcastToAll, enqueueLand, checksRedGate, json, by: HUMAN },
+            { svc, dispatcher, broadcast: broadcastToAll, enqueueLand, checksRedGate, json, by: HUMAN, teardownTaskBrowserState: opts?.teardownTaskBrowserState },
             { projectId: bReview.projectId, taskId: bReview.taskId },
             comment,
             { force: body?.force },
@@ -1001,7 +1009,7 @@ export function createBoardRoutes(deps: BoardRouteDeps) {
         {
           const root = dispatcher ? svc.boundRootOf(bComments.taskId) : null;
           const intercepted = interceptBoardAction(
-            { svc, dispatcher, broadcast: broadcastToAll, enqueueLand, checksRedGate, json, by: HUMAN },
+            { svc, dispatcher, broadcast: broadcastToAll, enqueueLand, checksRedGate, json, by: HUMAN, teardownTaskBrowserState: opts?.teardownTaskBrowserState },
             { projectId: bComments.projectId, taskId: root?.id ?? bComments.taskId },
             typeof body?.content === "string" ? body.content : "",
             { force: body?.force },

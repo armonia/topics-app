@@ -197,7 +197,7 @@ export function createWebrtcBridge(): WebrtcBridge {
    *  finishes before the caller spawns the replacement (no self-kill race). */
   function reapOrphanBridges(): void {
     if (process.platform === "win32") return;
-    try { spawnSync("pkill", ["-f", `webrtc-bridge --socket ${SOCK}`], { stdio: "ignore" }); }
+    try { spawnSync("pkill", ["-f", `webrtc-bridge --socket ${SOCK}`], { stdio: "ignore", timeout: 3000, killSignal: "SIGKILL" }); }
     catch { /* pkill missing — best effort */ }
   }
 

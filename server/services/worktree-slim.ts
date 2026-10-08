@@ -46,6 +46,7 @@
 import { existsSync } from "node:fs";
 import { readdir, rm, lstat } from "node:fs/promises";
 import { join, relative, sep } from "node:path";
+import { SPAWN_TIMEOUT, spawnBounded } from "../lib/bounded-spawn";
 
 /**
  * Nomi di cartella che sono, per convenzione universale del loro ecosistema,
@@ -126,7 +127,7 @@ export function isSlimmableDirName(
   return marker ? hasMarker(marker) : false;
 }
 
-export type SlimRefusal = "non ignorato da git" | "contiene file tracciati";
+export type SlimRefusal = "non ignorato da git" | "contiene file tracciati" | "git non ha risposto";
 
 export interface SlimVerdict {
   /** Percorsi (relativi alla radice del worktree) che si possono cancellare. */
@@ -167,13 +168,14 @@ export function pickSlimTargets(
 
 async function gitOut(cwd: string, args: string[], stdin?: string): Promise<{ out: string; code: number }> {
   try {
-    const proc = Bun.spawn(["git", "-C", cwd, ...args], {
+    const proc = spawnBounded(["git", "-C", cwd, ...args], {
       stdout: "pipe",
       stderr: "ignore",
       stdin: stdin === undefined ? "ignore" : new TextEncoder().encode(stdin),
+      timeoutMs: SPAWN_TIMEOUT.long,
     });
     const out = await new Response(proc.stdout).text();
-    const code = await proc.exited;
+    const code = (await proc.exited) ?? 128;
     return { out, code };
   } catch {
     return { out: "", code: 128 };
@@ -287,6 +289,12 @@ export async function slimWorktree(root: string, skip: ReadonlySet<string> = new
   // percorso ignorato è raro e legale, ed è l'unico modo in cui cancellare
   // sporcherebbe `git status`.
   const ls = await gitOut(root, ["ls-files", "-z", "--", ...candidates]);
+  // FAIL CLOSED, like gate 1. `gitOut` turns a git that does not answer (deadline,
+  // missing binary) into code 128 with an empty output, and an empty list reads as
+  // "nothing tracked down there": the guard would skip and the directories would
+  // be deleted on the strength of a question git never answered. Any code other
+  // than 0 means we do not know: nothing is touched.
+  if (ls.code !== 0) return { ...EMPTY, refused: candidates.map((relPath) => ({ relPath, reason: "git non ha risposto" as const })) };
   const trackedFiles = ls.out.split("\0").filter(Boolean).map(toPosix);
   const trackedUnder = new Set(
     candidates.filter((c) => trackedFiles.some((f) => f === c || f.startsWith(`${c}/`))),

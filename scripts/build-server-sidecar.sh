@@ -61,9 +61,17 @@ compile() {
 # MUST run through this path — it sets a private socket, DATA_DIR, HOME, a high port,
 # AND the standalone kill-switch, and never runs from the repo cwd's default socket.
 if [ "$OS" = "smoke" ]; then
-  HOST_TARGET="$(uname -s | grep -qi darwin && echo bun-darwin-arm64 || echo bun-linux-x64)"
+  # The host's own target: CI smokes the three shipped systems (sidecar-smoke.yml),
+  # and Git Bash on Windows reports MINGW*/MSYS*, which used to fall to linux-x64.
+  ARCH="$(uname -m | grep -qE 'arm64|aarch64' && echo arm64 || echo x64)"
+  EXE=""
+  case "$(uname -s)" in
+    Darwin) HOST_TARGET="bun-darwin-$ARCH" ;;
+    Linux)  HOST_TARGET="bun-linux-$ARCH" ;;
+    *)      HOST_TARGET="bun-windows-x64"; EXE=".exe" ;;
+  esac
   WORK="$(mktemp -d)"
-  BIN="$WORK/topics-server-smoke"
+  BIN="$WORK/topics-server-smoke$EXE"
   PORT="${SMOKE_PORT:-13460}"
   SOCK="/tmp/sidecar-smoke-$$-$RANDOM.sock"
   echo "[smoke] compiling host binary ($HOST_TARGET) -> $BIN"
@@ -74,7 +82,12 @@ if [ "$OS" = "smoke" ]; then
     TOPICS_PTY_SOCKET="$SOCK" TOPICS_DISABLE_PTY_BRIDGE=1 TOPICS_EMBEDDED=1 HOME="$WORK/fakehome" \
     "$BIN" > "$WORK/smoke.log" 2>&1 &
   SMOKE_PID=$!
-  cleanup_smoke() { kill "$SMOKE_PID" 2>/dev/null; rm -rf "$WORK"; rm -f "$SOCK"; }
+  # Wait for the binary to exit before removing its data dir: one still writing
+  # there made `rm -rf` fail ("Directory not empty") and the smoke exit 1.
+  # The verdict is already printed when this runs, so the binary's own exit status
+  # is not one: on Windows `kill` is TerminateProcess, no SIGTERM handler runs,
+  # `wait` reports 143 and `set -e` turned a passed smoke into exit 143.
+  cleanup_smoke() { kill "$SMOKE_PID" 2>/dev/null; wait "$SMOKE_PID" 2>/dev/null || true; rm -rf "$WORK"; rm -f "$SOCK"; }
   trap cleanup_smoke EXIT
   # Wait for the API.
   ok=""
@@ -83,13 +96,25 @@ if [ "$OS" = "smoke" ]; then
     sleep 0.25
   done
   if [ -z "$ok" ]; then echo "[smoke] FAIL: server never answered"; tail -30 "$WORK/smoke.log"; exit 1; fi
-  echo "[smoke] /api/topics: $(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:$PORT/api/topics)"
-  echo "[smoke] /api/terminal/sessions (expect 503 standalone): $(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:$PORT/api/terminal/sessions)"
+  topics_code="$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:$PORT/api/topics)"
+  sessions_code="$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:$PORT/api/terminal/sessions)"
+  echo "[smoke] /api/topics: $topics_code"
+  echo "[smoke] /api/terminal/sessions (expect 503 standalone): $sessions_code"
+  # The binary's stdout reaches the file after it already answers: grepping at
+  # once read an empty log 4 times in 6 (T12, both Buns). Wait up to 5 s for it.
+  for _ in $(seq 1 20); do
+    grep -qE "embedded migration|All migrations" "$WORK/smoke.log" && break
+    sleep 0.25
+  done
   echo "[smoke] migrations line:"; grep -E "embedded migration|All migrations" "$WORK/smoke.log" | head -1
-  echo "[smoke] bridge touched? (must be EMPTY):"; grep -i "PTY bridge daemon" "$WORK/smoke.log" || echo "  (none — good)"
-  echo "[smoke] journal sync (expect disabled, no ConnectionRefused spam):"
-  grep -i "gateway journal sync disabled" "$WORK/smoke.log" | head -1 || echo "  (gate line not found)"
-  if grep -qi "Collection failed" "$WORK/smoke.log"; then echo "  WARN: journal Collection failed spam present"; fi
+  # A gate, not a printout (CI runs it on every server change): a schema that did
+  # not build answers 500, and a 200 on the sessions route means the bridge is live.
+  fail=""
+  [ "$topics_code" = "200" ] || fail="/api/topics answered $topics_code"
+  [ "$sessions_code" = "503" ] || fail="${fail:+$fail; }/api/terminal/sessions answered $sessions_code"
+  grep -qE "embedded migration|All migrations" "$WORK/smoke.log" || fail="${fail:+$fail; }no migrations line in the log"
+  grep -qi "PTY bridge daemon" "$WORK/smoke.log" && fail="${fail:+$fail; }the standalone binary reached a PTY bridge"
+  if [ -n "$fail" ]; then echo "[smoke] FAIL: $fail"; tail -30 "$WORK/smoke.log"; exit 1; fi
   echo "[smoke] OK"
   exit 0
 fi

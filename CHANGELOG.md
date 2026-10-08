@@ -2,6 +2,215 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.2.457 — 2026-10-08
+
+### Correzioni
+- **server** · i processi esterni arrivati con main dentro le guardie di T5
+- **test** · tool-result-clamp riparte dal fondo solo a riga aperta
+- **sidecar-smoke** · su Windows uno smoke passato usciva 143 in pulizia
+- **native-auth** · il turno legge il Portachiavi senza fermare il loop
+- **native-parity** · la radice git della memoria non si chiede più a ogni turno
+- **native-parity** · una scadenza di git non è «non è un repo»
+
+### Sotto il cofano
+- **openspec** · REPORT di T14, runBounded nei runner di git
+- **bun** · una versione sola, 1.4.2 in .bun-version, per CI, release e produzione
+- **openspec** · cloud-quality-pass, traccia T16 per un turno nativo senza spawn sincroni
+- **sidecar** · il server compilato parte davvero su macOS, Windows e Linux
+- **openspec** · VERIFICA, come la sessione madre ha controllato ogni consegna cloud
+- **e2e** · aggiorna durate shard dal nightly del 2026-10-08 [skip ci]
+- **native-parity** · il memo della radice git si prova dalla risposta, anche su Bun 1.3.8
+- **openspec** · REPORT T16, turno nativo senza spawn sincroni (barra dopo in corso)
+- **openspec** · VERIFICA, Bun unica, sidecar in CI e T16
+- **openspec** · REPORT T13, la chat ferma sopra il fondo in tool-result-clamp
+- **openspec** · REPORT T13, il ramo claude/ della sessione
+- **chat** · il commento del ResizeObserver non promette piu' un secondo passaggio
+- **openspec** · VERIFICA, T13
+
+## 2.2.456 — 2026-10-08
+
+### Novità
+- **processes** · il log di run_command segue il file su cui il comando redirige lo stdout
+- **chat** · GET /api/topics/:id/live-work, ciò che lavora adesso per una chat
+- **processes** · il log vuoto dice cosa aspetta e da quando
+- **chat** · la striscia sotto la chat mostra ciò che lavora adesso
+- **chat-live-work** · la riga di un comando sa se la sua fine sveglia la chat
+- **chat** · un comando è una riga sola, nella striscia, con Ferma e la sveglia
+- **chat** · le strisce sono la fine del trascritto, e la riga di un comando apre la sua card
+
+### Correzioni
+- **model-selector** · hint fuori dal bottone Automatico, banda 44px su phone
+- **model-selector** · AC-21/AC-07 rivisti, la lista providers scorre nel pannello stretto
+- **model-selector** · commento in inglese per il gate
+- **terminal** · rifare i ponti rimasti fuori dalla sessione grafica
+- **chat** · il riquadro «Drop files here» si spegne quando il trascinamento finisce altrove
+- **processi** · l'avviso di fine comando senza i codici colore del terminale
+- **media** · una cartella aperta nel pannello risponde 400, non con l'errore di Bun
+- **chat** · la card di un comando finito senza i codici colore anche nelle righe gia' salvate
+- **native** · la lingua scelta torna in fondo al contesto a ogni giro
+- **chat-live-work** · i cancelli della lingua tornano verdi sui file della change
+- **board** · fondere una card ne libera le tab come archiviarla
+- **board** · «archivia» sui sottotask parcheggiati ne libera le tab
+- **security** · la prova della home non si arrende con HOME=/root
+- **test** · reload-gate-migration dice di aver bisogno di sqlite3
+- **test** · tre test dicono quando l'ambiente non li permette (root, niente IPv6)
+- **test** · i server spawnati dai test si legano a 127.0.0.1 dove manca IPv6
+- **board** · il titolo della scheda resta `<MorphText text={task.text} />`
+- **e2e** · il server di prova si lega a 127.0.0.1 dove manca IPv6
+- **chat** · la prima pagina non antepone righe sopra la copia locale
+- **gate** · il cancello di ricarica dice quando e' spento; due test non scambiano la VM per un difetto
+- **server** · ogni processo esterno del percorso di una richiesta ha una scadenza vera
+- **test** · ai-bridge-loop-freeze non vive del DATA_DIR di un altro file
+- **test** · un figlio ucciso e non raccolto non e' vivo (shell-sweep)
+- **spawn** · la scadenza manda SIGTERM al gruppo, poi SIGKILL dopo una grazia
+- **spawn** · la scadenza limita la RISPOSTA, non il figlio diretto
+- **spawn** · all'arresto il server chiude i gruppi che ha lanciato
+- **server** · cp -r e push di publish hanno la scadenza lunga; un cp scaduto non lascia mezza copia
+- **own-commits** · un git scaduto non e' "verificato fuori"
+- **worktree-slim** · il Cancello 2 fallisce chiuso se git non risponde
+- **task-diff-file** · un blob troncato dalla scadenza non finisce come risposta completa
+- **chat** · un'immagine di un messaggio ha il suo riquadro prima di caricarsi
+- **chat** · una riga che cresce in fondo, fuori dallo streaming, resta in fondo nello stesso layout
+- **chat** · nomi e un commento del riquadro delle immagini in inglese
+- **board** · nomi inglesi in settledRects (cancello identifier-language)
+- **board** · Card.tsx torna sotto il tetto di check:bloat
+- **chat** · i tipi delle dimensioni delle immagini stanno in shared/, una volta sola
+- **board** · l'età della card avanza da sola, con un orologio al minuto per documento
+- **board** · le righe larghe del feed prendono i nomi da chi scrive la SELECT
+- **chat** · il log dal vivo nella card di un comando senza codici colore
+- **chat** · il log dal vivo nella card segue l'ultima riga
+- **chat** · il sipario non aspetta un'immagine che ha gia' il suo riquadro
+- **chat** · la bolla di chi allega un'immagine ha il riquadro prima dei byte
+- **board** · l'età della card segue l'ultimo `updatedAt` anche quando il testo non cambia
+- **board** · la proiezione della lista rientra nel tetto di check:bloat
+- **chat** · niente generici nelle righe del composer, check:ui-language torna verde
+- **e2e** · board-card-choices tiene fermo il reconcile del dispatcher per tutta la scena
+- **e2e** · chat-streaming-indicator manda gli stati del lavoro in background nell'ordine in cui li mette
+- **gates** · via useEndedSubAgents, export morto dopo le strisce in fondo al trascritto
+- **gates** · import statici di pty-bridge-platform.mjs annotati runtime-dep-ok
+- **db** · il manifest delle migration porta l'SQL come stringhe, giusto anche su Bun 1.3.8
+- **ws** · un ospite riceve message:new senza le dimensioni delle immagini
+- **chat** · la fascia di atterraggio sulla riga, non come scroll-padding dello scroller
+- **scripts** · lo smoke del sidecar aspetta il log e l'uscita del binario
+- **db** · l'SQL del manifest in base64, fuori dagli scanner dei sorgenti
+- **ws** · il filtro di D2 sta nel tetto di check:bloat di server/utils.ts
+- **test** · niente nome utente nel commento di claude-session-tracker.test.ts
+- **spawn** · runBounded dice perché un processo non è partito e tiene il 137 di un segnale
+- **test** · il test dei contratti dei runner crea il repo con l'env isolato
+
+### Prestazioni
+- **board** · un frame che non sposta card non ridisegna App
+- **board** · la board di progetto tiene le righe che non cambiano
+- **board** · la scheda mostra il titolo della card al primo frame
+- **board** · l'indice topic → task non ridisegna App a ogni frame
+- **board** · le card non si ridisegnano tutte a ogni `task:updated`
+- **chat** · il log della striscia si carica quando lo si apre
+- **gates** · typecheck e lint eseguono i loro pezzi insieme
+- **qa-gate** · tipi, lint e cancelli statici in tre corsie
+- **chat** · una topic gia' visitata si apre dalla copia locale, senza aspettare il server
+- **history** · messages e history con tetto scelgono la finestra su uno scheletro del filo
+- **test-unit** · le shard di default sono una per core, da due a quattro
+- **server** · web-push si carica alla prima consegna, non al boot
+- **server** · @xterm/headless si carica alla prima lettura dello schermo
+- **server** · il manifest delle migration embedded si carica solo nel sidecar
+- **server** · l'SDK Anthropic si carica alla prima richiesta del provider claude
+- **board** · l'anteprima della card si taglia senza un array per carattere
+- **board** · durante il drag la card ridisegna solo il guscio ordinabile
+- **board** · le righe della lista si leggono come array, non come oggetti larghi
+- **board** · durante il drag la colonna ridisegna solo il guscio droppable
+- **board** · la collisione del drag legge i rettangoli una volta per scroll
+- **board** · la card è il contenitore della sua brina, anche senza freeze
+- **board** · il vicino che il varco non sposta non riceve un transform
+- **board** · il feed globale non porta i campi che nessun client legge
+- **processes** · la vivezza dei pid senza ps sincrono, un giro solo per tutti
+- **files** · /api/git/branches con un solo git, non uno per ramo
+- **discord** · getconf una volta per processo, non a ogni tentativo
+
+### Sotto il cofano
+- **e2e** · aggiorna durate shard dal nightly del 2026-10-07 [skip ci]
+- The native runtime gets Claude Code's memory: the MEMORY.md index and the per-prompt recall
+- chat-live-work, la striscia della chat mostra cio' che lavora adesso
+- **openspec** · change cloud-quality-pass, sette tracce per le sessioni cloud
+- **e2e** · chat-live-work, i tre scenari filmati su WebKit
+- **openspec** · linea di partenza del pilota T0 e tracce aggiornate
+- **board** · banco dei render per frame `task:updated`
+- bloat: chat.ts registrato a 4301 righe, con le cinque corsie che l'hanno fatto crescere
+- **board** · il banco del drag misura anche il tempo di main thread
+- **board** · il flusso Task in una sola ripresa, e il banco dei render a notte
+- **board** · il banco dei render chiude la finestra a condizione
+- **board** · nomi inglesi nella spec del flusso Task
+- **board** · gli id disegnati si leggono da `idsKey`
+- **T5** · REPORT della traccia server (percorso caldo)
+- **openspec** · cloud-quality-pass, commenti in inglese come vuole il repo
+- **cloud-quality-pass** · REPORT della traccia T1
+- **qa-gate** · le corsie restano sicure, e un cancello misurato si riferisce sempre
+- **openspec** · baseline senza il percorso home del runner CI
+- **spec** · GIT-DEADLINE-01 con SIGTERM + grazia, risposta completa, arresto e copie
+- Revert "perf(board): la board di progetto tiene le righe che non cambiano"
+- **T5** · REPORT con le correzioni del revisore
+- **files** · la ricerca ha un solo timer, quello di spawnBounded
+- **topics** · la finestra dei messaggi riusa restoreToolCallsFromBlocks di utils
+- **spawn-scan** · la scansione legge le opzioni della chiamata, non le parole intorno
+- **T5** · REPORT con il secondo giro di revisione
+- **openspec** · REPORT di T3 (avvio e bundle)
+- **board** · la card coi tentativi finiti può essere già parcheggiata
+- **cloud-quality-pass** · REPORT della traccia T2
+- **openspec** · cloud-quality-pass, verifica V2 di T2 e regole comuni
+- **openspec** · cloud-quality-pass, tracce T7-T10 sulla base integrata
+- **server** · i git di bounded-spawn.test passano l'ambiente isolato
+- **cloud-quality-pass** · REPORT T6, i 44 cancelli e i numeri della barra
+- **board** · l'età di una card ferma resta indietro dopo T2 (rosso voluto)
+- **board** · i campi propri della card seguono il loro frame, prima e dopo T2
+- **board** · banco dei render per mossa durante il drag
+- **board** · l'indice topic → task segue la vita del topic, prima e dopo T2
+- **cloud-quality-pass** · REPORT della verifica V2 di T2
+- **openspec** · cloud-quality-pass, traccia T2b per il difetto D1 di V2
+- **openspec** · REPORT di T10, il feed della board
+- **board** · l'età della card ferma deve avanzare col tempo, con e senza frame
+- **openspec** · traccia T10b, il feed giusto anche su Bun 1.3.8
+- **cloud-quality-pass** · gli hash del REPORT di T2 puntano ai commit del ramo
+- **chat-strips-in-transcript** · le strisce in fondo al trascritto, la riga apre la sua card
+- **openspec** · REPORT T7, immagini con il loro riquadro
+- **server** · la fixture d'arresto mette l'handler di SIGTERM prima di stampare il pid
+- **board** · il contratto del reflow trascina sopra un vicino che si sposta davvero
+- **openspec** · REPORT T9, il loop del server senza spawn sincroni
+- **openspec** · traccia T7b, il sipario non aspetta un'immagine che ha gia' il riquadro
+- **openspec** · regole comuni, il codice server si prova anche su Bun 1.3.8
+- **openspec** · CHAT-MEDIA-BOX-01, il sipario e la bolla di chi allega
+- **cloud-quality-pass** · REPORT di T2b, l'età della card avanza da sola
+- **cloud-quality-pass** · REPORT di T2b, costo vero del sottoagente Haiku
+- **openspec** · REPORT T7b, bozza (barra finale in corso)
+- **board** · due aggiornamenti nello stesso «ora», poi lo scatto: l'età conta dal secondo
+- **openspec** · REPORT T8, drag della board
+- **cloud-quality-pass** · REPORT di T2b con il difetto D2, il fix e i numeri nuovi
+- **openspec** · REPORT T7b, barra finale e consegna
+- **openspec** · REPORT di T10b, il feed giusto anche su Bun 1.3.8
+- **openspec** · cloud-quality-pass, traccia T11 per i test instabili ricorrenti
+- **gates** · commenti in inglese, nomi interi e @covers, i tre controlli di nuovo verdi
+- **openspec** · REPORT di T11, i test instabili ricorrenti
+- **v3** · due test rossi che provano i difetti dell'integrazione
+- **openspec** · cloud-quality-pass, traccia T12 per i difetti D1 e D2 di V3
+- **chat-strips** · la base si legge a vista ferma, e il lettore sta a meta' storia
+- **chat-strips** · il lettore sale un colpo alla volta, finche' non e' sopra i 600 px
+- **openspec** · REPORT di T12, i difetti D1 e D2 di V3 e il sospetto della chat
+- **openspec** · REPORT di T12, dove sono le prove
+- **openspec** · cloud-quality-pass, traccia T13 per la chat che in CI non si ferma in fondo
+- **openspec** · cloud-quality-pass, traccia T14 per adottare runBounded nei wrapper di git
+- **server** · fissa gli esiti dei runner di git prima che passino a runBounded
+- **own-commits** · defaultRunGit lancia git con runBounded
+- **task-automerge** · defaultRunGit e runRepoScript lanciano con runBounded
+- **branch-inventory** · il runner di default lancia git con runBounded
+- **branch-status** · gitExit, gitOut e commitIsAncestor lanciano con runBounded
+- **routes/tasks** · runGitCap e il deploy confermato lanciano con runBounded
+
+## 2.2.455 — 2026-10-06
+
+### Novità
+- **model-selector** · one vertical list instead of side-by-side columns
+
+### Correzioni
+- **model-selector** · one-line band and hidden hint on desktop compact
+
 ## 2.2.454 — 2026-10-06
 
 ### Sotto il cofano

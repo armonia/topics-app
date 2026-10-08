@@ -2179,6 +2179,7 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, loadHi
             projectId={drawerTask.projectId}
             taskId={drawerTask.id}
             initialStatus={drawerTask.status}
+            initialTitle={drawerTask.text}
             bump={taskDetailBump(drawerTask)}
             onClose={() => setSelectedId(null)}
             onChanged={refetch}

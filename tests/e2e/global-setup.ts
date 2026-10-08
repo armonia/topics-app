@@ -11,7 +11,7 @@
 
 import { spawn, type ChildProcess } from "child_process";
 import { cpSync, existsSync, mkdirSync, readdirSync, rmSync, statSync } from "fs";
-import { homedir } from "os";
+import { homedir, networkInterfaces } from "os";
 import { dirname, join, resolve } from "path";
 import { webkit } from "@playwright/test";
 import {
@@ -35,6 +35,13 @@ import { missingBundleAssets } from "../../server/lib/client-bundle";
 import { SERVER_DEATH_GRACE_MS, portHolders } from "./helpers/server-death";
 import { killSavedTestServer, killTestListeners, refuseProductionPort } from "./helpers/port-guard";
 import { removeTmpDir } from "./helpers/file-project";
+
+/** True when the machine can listen on ::1 (the server's default bind is "::"). */
+function hasIpv6Loopback(): boolean {
+  return Object.values(networkInterfaces())
+    .flat()
+    .some((i) => i?.family === "IPv6" && i.address === "::1");
+}
 
 // Test server runs WITHOUT TLS for simplicity (NO_TLS=1)
 // Port 13334 is the default per il checkout principale, chosen to avoid
@@ -343,6 +350,10 @@ async function startTestServer(): Promise<void> {
       // qui, dentro start-test-server.sh e dentro lo spec che riavvia il server
       // — tre copie già divergenti fra loro.
       ...testServerEnv(TEST_SERVER_PORT),
+      // Without an IPv6 loopback (the cloud VM) the server's default bind "::"
+      // fails with EAFNOSUPPORT and the test server never answers on its port.
+      // An explicit SERVER_HOST in the environment always wins.
+      ...(process.env.SERVER_HOST || hasIpv6Loopback() ? {} : { SERVER_HOST: "127.0.0.1" }),
       // Phase 30 plan 30-05: server's playwright-core ships an older
       // chromium-1208 manifest, but @playwright/test installs the current
       // chromium-1217 binary. Pin the BrowserService Chromium to the

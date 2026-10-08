@@ -67,7 +67,7 @@
  * green shuffle x shard repro (see the header).
  *
  * USAGE
- *   bun run scripts/test-unit-shards.ts            # N = TOPICS_UNIT_SHARDS or 2
+ *   bun run scripts/test-unit-shards.ts            # N = TOPICS_UNIT_SHARDS or defaultShards(cores)
  *   TOPICS_UNIT_SHARDS=6 bun run scripts/test-unit-shards.ts
  * In production it enters from the bar as:
  *   bun run scripts/slot.ts test:unit -- 'bun run scripts/test-unit-shards.ts'
@@ -112,6 +112,19 @@ export interface LoadPlan {
   slowdown: number;
   /** One line for the output when the plan changed; null on a quiet machine. */
   note: string | null;
+}
+/**
+ * How many shards a run takes when nobody asked: one per core, never fewer than
+ * two nor more than four. It was a flat 2, and on the 4-vCPU cloud VM that left
+ * the cores watching (most of the suite waits on timers and I/O, see the header):
+ * measured 697 s with 2 shards and 325 s with 4, the four balanced at 246-280 s
+ * where the two were 472 s and 653 s apart (LPT plans by durations recorded on
+ * another machine, and the imbalance is the first thing that breaks). The load
+ * plan below still takes shards away under pressure, and TOPICS_UNIT_SHARDS=2
+ * puts the old value back.
+ */
+export function defaultShards(cores: number): number {
+  return Math.max(2, Math.min(4, Math.floor(cores)));
 }
 export const LOAD_PRESSURE_FLOOR = 1.25;
 export function planUnderLoad(input: {
@@ -393,7 +406,7 @@ async function runBunTest(
 
 // ── CLI ──────────────────────────────────────────────────────────────────────
 if (import.meta.main) {
-  const baseShards = Math.max(1, Number(process.env.TOPICS_UNIT_SHARDS) || 2);
+  const baseShards = Math.max(1, Number(process.env.TOPICS_UNIT_SHARDS) || defaultShards(cpus().length || 1));
   // Exactly the shell expansion used by test:unit. Preserve the raw override
   // too: an invalid value must reach Bun and fail, not silently become 30s.
   const timeoutMs = process.env.TOPICS_TEST_TIMEOUT_MS || "30000";
