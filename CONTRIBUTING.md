@@ -22,6 +22,14 @@ Run the count on its own with `bun run check:repo-pulito`. To find out which
 branches are genuinely already in `main` (delivery lands as a squash, so
 `git branch --merged` calls them alive forever), use `bun run report:branches`.
 
+**One Bun, everywhere.** The version is pinned in `.bun-version`, and CI, the release
+builds (the server sidecar is compiled with it) and the Mac that runs the production
+server all use that one. Two defects of the cloud quality pass came from the Mac running
+1.3.8 while CI tested `latest`: `columnNames` reversed past 62 columns, and `require`
+ignoring `with { type: "text" }`. To move to a new Bun, change `.bun-version` and install
+the same version on the Mac in the same change:
+`curl -fsSL https://bun.sh/install | bash -s "bun-v$(cat .bun-version)"`.
+
 ### Se il terminale non parte: `posix_spawnp failed`
 
 Sintomo: apri una shell e non compare niente, e nel log del ponte
