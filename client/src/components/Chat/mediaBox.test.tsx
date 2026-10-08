@@ -61,4 +61,19 @@ describe('a picture of a message', () => {
     expect(img).not.toContain('style=');
     expect(imgOf(render('MEDIA:/uploads/other.png', undefined))).not.toContain('style=');
   });
+
+  test('in its box before its bytes: marked for the curtain, which does not wait for it, and tinted as the place of a picture', () => {
+    const img = imgOf(render('MEDIA:/uploads/shot.png', { '/uploads/shot.png': [1600, 900] }));
+    expect(img).toContain('data-media-box=""');
+    expect(img).toContain('bg-app-hover');
+    expect(img).toContain('dark:bg-elevated');
+  });
+
+  test('without a box: no mark, so the curtain waits for it as before, and no tint', () => {
+    for (const sizes of [undefined, { '/uploads/shot.png': [1600, 900] } as MediaSizes]) {
+      const img = imgOf(render('MEDIA:/uploads/other.png', sizes));
+      expect(img).not.toContain('data-media-box');
+      expect(img).not.toContain('bg-app-hover');
+    }
+  });
 });

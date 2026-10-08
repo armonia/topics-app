@@ -69,12 +69,16 @@ export async function uploadPng(request: APIRequestContext, name: string, width:
   return path;
 }
 
-/** Holds every request for a picture whose URL carries `needle` for `ms`. */
-export async function holdPicture(page: Page, needle: string, ms: number): Promise<{ held: number }> {
-  const probe = { held: 0 };
+/**
+ * Holds every request for a picture whose URL carries `needle` for `ms`.
+ * `releasedAt` is the wall clock (`Date.now()`) the first held request went on.
+ */
+export async function holdPicture(page: Page, needle: string, ms: number): Promise<{ held: number; releasedAt: number | null }> {
+  const probe = { held: 0, releasedAt: null as number | null };
   await page.route((url) => url.pathname.endsWith("/api/media") && url.search.includes(encodeURIComponent(needle)), async (route) => {
     probe.held += 1;
     await new Promise((r) => setTimeout(r, ms));
+    probe.releasedAt ??= Date.now();
     await route.continue();
   });
   return probe;
