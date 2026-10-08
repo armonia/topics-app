@@ -8,8 +8,9 @@ import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "no
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { runBounded, spawnBounded } from "./bounded-spawn";
+import { gitEnv } from "../../tests/setup/bun-test-preload";
 
-const sh = (cwd: string, ...args: string[]) => Bun.spawnSync(["git", ...args], { cwd, stdout: "pipe", stderr: "pipe" });
+const sh = (cwd: string, ...args: string[]) => Bun.spawnSync(["git", ...args], { cwd, env: gitEnv(), stdout: "pipe", stderr: "pipe" });
 
 describe("runBounded", () => {
   it("restituisce stdout, stderr e l'esito di un processo che risponde", async () => {
@@ -100,7 +101,7 @@ describe("the deadline asks politely first (SIGTERM), then forces (SIGKILL)", ()
       sh(dir, "config", "filter.slow.clean", "sleep 5; cat");
       writeFileSync(join(dir, ".gitattributes"), "* filter=slow\n");
       writeFileSync(join(dir, "a.txt"), "a\n");
-      const r = await runBounded(["git", "add", "-A", "--", "."], { cwd: dir, timeoutMs: 1500, graceMs: 3000 });
+      const r = await runBounded(["git", "add", "-A", "--", "."], { cwd: dir, env: gitEnv(), timeoutMs: 1500, graceMs: 3000 });
       expect(r.timedOut).toBe(true);
       // SIGKILL would have left the lock: the next git would exit 128 "index.lock: File exists".
       expect(existsSync(join(dir, ".git", "index.lock"))).toBe(false);
