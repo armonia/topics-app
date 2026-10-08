@@ -94,6 +94,9 @@ const MONITOR: Tool = { tool_name: 'Monitor', tool_input: { command: 'tail -f wo
 /** A Monitor's notice absorbed mid-turn, as the CLI's queue records it (2.1.292). */
 const monitorNotice = (body: string, at: number) => JSON.stringify({ type: 'queue-operation', operation: 'enqueue', timestamp: new Date(at).toISOString(),
   sessionId: '00000000-0000-4000-8000-0000000000b2', content: `<task-notification>\n<task-id>bmon0stop</task-id>\n${body}\n</task-notification>` });
+/** An Agent's end absorbed mid-turn that names no call: a few of them do not (4 in about 470 first notices). */
+const AGENT_END_NO_CALL = JSON.stringify({ type: 'queue-operation', operation: 'enqueue', timestamp: new Date(T0 + 900).toISOString(),
+  sessionId: '00000000-0000-4000-8000-0000000000b3', content: '<task-notification>\n<task-id>a4bb623e3ab5ee41a</task-id>\n<status>failed</status>\n<summary>Agent "verify render" failed</summary>\n</task-notification>' });
 const BASH_FG: Tool = { tool_name: 'Bash', tool_input: { command: 'bun test' },
   tool_response: { stdout: 'ok', stderr: '', interrupted: false, isImage: false, noOutputExpected: false } };
 
@@ -209,6 +212,21 @@ describe('the phase at Stop counts every task in flight, by id, in the attention
       hook({ hook_event_name: 'Stop' });
       expect(phaseOf(tracker, sid)).toBe('awaiting-user');
     });
+
+    it(`${label}: a notice that names no call, then the Stop, then the late PostToolUse: the hook closes the task and the turn rests`, () => {
+      const { tracker, sid, subject } = make([]);
+      const hook = (h: Record<string, unknown>, firedAt: number, at = firedAt) =>
+        tracker.ingestHook({ ...h, session_id: sid, fired_at: firedAt } as never, at);
+      hook({ hook_event_name: 'UserPromptSubmit' }, T0 + 100);
+      hook({ hook_event_name: 'PreToolUse', tool_use_id: 'toolu_a', ...AGENT_BG }, T0 + 300);
+      tracker.ingestTranscriptLine(sid, AGENT_END_NO_CALL, T0 + 900);
+      hook({ hook_event_name: 'Stop' }, T0 + 1500);
+      expect(phaseOf(tracker, sid)).toBe('watching');
+      // Fired before the Stop, read after it.
+      hook({ hook_event_name: 'PostToolUse', tool_use_id: 'toolu_a', ...AGENT_BG }, T0 + 400, T0 + 2500);
+      expect(countingTasks(subject)).toBe(0);
+      expect(phaseOf(tracker, sid)).toBe('awaiting-user');
+    });
   }
 
   it('terminal: a Monitor event that says «stopped» is the watched program talking, and only the CLI\'s own notice ends the Monitor', () => {
@@ -237,6 +255,23 @@ describe('the phase at Stop counts every task in flight, by id, in the attention
     hook({ hook_event_name: 'Stop' });
     expect(phaseOf(tracker, sid)).toBe('awaiting-user');
   });
+
+  // The CLI stops a Monitor itself (2.1.295): after 30 s of too much output, or at a TaskStop. No `<status>` follows.
+  for (const { why, event } of [
+    { why: 'too much output', event: '[Monitor stopped \u2014 too much output (412 events suppressed over 31s). Restart with a more selective source.]' },
+    { why: 'a TaskStop', event: '[Monitor stopped]' },
+  ]) {
+    it(`terminal: a Monitor the CLI stopped for ${why} leaves the map, and the next Stop is awaiting-user`, () => {
+      const { tracker, sid, subject } = terminalTracker([]);
+      let t = T0;
+      turn([MONITOR]).forEach((h) => tracker.ingestHook({ ...h, session_id: sid } as never, (t += 200)));
+      expect(phaseOf(tracker, sid)).toBe('watching');
+      tracker.ingestTranscriptLine(sid, monitorNotice(`<summary>Monitor event: "detect stopped workers"</summary>\n<event>${event}</event>`, (t += 200)), t);
+      expect(countingTasks(subject)).toBe(0);
+      tracker.ingestHook({ hook_event_name: 'Stop', session_id: sid } as never, (t += 200));
+      expect(phaseOf(tracker, sid)).toBe('awaiting-user');
+    });
+  }
 
   it('terminal: a one-shot cron leaves at the next turn (its fire), and that turn finishes with one announce (ATTN-03)', () => {
     const frames: any[] = [];

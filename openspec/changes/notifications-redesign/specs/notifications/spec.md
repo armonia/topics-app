@@ -188,9 +188,12 @@ non diventa una riga utente, e lo nomina solo il record di coda `queue-operation
 L'avviso SHALL chiudere il compito sotto qualunque id la mappa lo tenga: anche sotto il
 `tool-use-id` della chiamata che l'avviso nomina, finché il `PostToolUse` non l'ha ri-chiavato.
 Gli hook sono asincroni e arrivano anche secondi dopo: un hook arrivato dopo l'avviso NON
-SHALL rimettere nella mappa il compito che quell'avviso ha chiuso. Un Monitor SHALL
-chiudersi solo con le parole della CLI: uno `<status>`, la sua scadenza, il suo timeout.
-Il testo di un suo evento è del programma che guarda: «stopped» lì non è il Monitor.
+SHALL rimettere nella mappa il compito che quell'avviso ha chiuso; se quell'hook toglie
+l'ultimo compito di un turno già parcheggiato in `watching`, la fase SHALL scendere a
+`awaiting-user`, come avrebbe detto lo `Stop`. Un Monitor SHALL chiudersi solo con le
+parole della CLI: uno `<status>`, la sua scadenza, il suo timeout, il suo arresto da parte
+della CLI (`[Monitor stopped …]`, per troppo output o per un TaskStop). Il resto di un suo
+evento è il testo del programma che guarda: «stopped» lì non è il Monitor.
 
 La mappa dei compiti SHALL sopravvivere a un ricarico del server finché il processo che
 la tiene è vivo. La fine del processo SHALL svuotarla (ATTN-15). Un terminale riattaccato
@@ -236,6 +239,16 @@ chiude il suo compito come gli altri.
 - **GIVEN** un terminale con un Monitor in volo
 - **WHEN** arriva un suo evento il cui testo dice «stopped»
 - **THEN** il Monitor SHALL restare nella mappa, e il suo timeout lo SHALL chiudere
+
+#### Scenario: un Monitor fermato dalla CLI
+- **GIVEN** un terminale in `watching` per un Monitor
+- **WHEN** la CLI lo ferma e lo dice con un evento `[Monitor stopped …]`, senza `<status>`, e arriva lo `Stop`
+- **THEN** il Monitor SHALL uscire dalla mappa e la fase SHALL essere `awaiting-user`
+
+#### Scenario: l'avviso che non nomina la chiamata, prima dello Stop e del PostToolUse
+- **GIVEN** un terminale o una chat con un Agent in background, nella mappa dal suo `PreToolUse`
+- **WHEN** il transcript ne porta l'avviso di fine senza `<tool-use-id>`, poi arriva lo `Stop` e dopo lo `Stop` il `PostToolUse`, partito prima
+- **THEN** il compito SHALL uscire dalla mappa e la fase SHALL essere `awaiting-user`
 
 #### Scenario: l'avviso scritto mentre il server non leggeva
 - **GIVEN** un terminale in `watching` per un Bash in background

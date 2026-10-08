@@ -427,7 +427,10 @@ export function applyHook(
  *  - `SessionStart`: the transcript path, which no later hook declares;
  *  - any other: a turn already over (`awaiting-user`) that now has a task of
  *    its own in flight is `watching`, as the `Stop` would have said had the
- *    late `PreToolUse(Monitor)` reached the server before it.
+ *    late `PreToolUse(Monitor)` reached the server before it; and a turn
+ *    parked `watching` whose last task this hook just closed (its notice was
+ *    read first and named no call, `finishedTasks` in the store) is
+ *    `awaiting-user`, for the same reason. No report will wake that one.
  * Returns `prev` itself when nothing moves.
  */
 export function applyStaleHook(
@@ -442,6 +445,9 @@ export function applyStaleHook(
   }
   if (prev.phase === 'awaiting-user' && (opts.countingTasks ?? 0) > 0) {
     return transition(prev, { phase: 'watching' }, now);
+  }
+  if (prev.phase === 'watching' && opts.countingTasks === 0) {
+    return transition(prev, { phase: 'awaiting-user' }, now);
   }
   return prev;
 }
