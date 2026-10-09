@@ -79,7 +79,7 @@ const COMPACT_TO = 0.55;
 const KEEP_RECENT = 6;
 
 /** Il testo che prende il posto di un risultato buttato. */
-const DROPPED = "[risultato rimosso per fare spazio: la conversazione era troppo lunga]"; // allow-italian: testo che legge il modello, non UI
+export const DROPPED = "[risultato rimosso per fare spazio: la conversazione era troppo lunga]"; // allow-italian: testo che legge il modello, non UI
 
 function hasImageBlock(blocks: unknown[]): boolean {
   return blocks.some((b) => (b as { type?: string })?.type === "image");
@@ -398,6 +398,19 @@ export function compact(
     }
   }
   return { messages: next, before, after, droppedMessages };
+}
+
+/**
+ * Compacts to an explicit budget instead of a window: the budget IS the
+ * target. For a history that is not about to be sent to this loop (the
+ * handoff to a CLI session, `providers/handoff.ts`), there is no window to
+ * leave headroom in.
+ */
+export function compactToBudget(
+  messages: AgentMessage[],
+  budgetTokens: number,
+): ReturnType<typeof compact> {
+  return compact(messages, { windowTokens: budgetTokens / COMPACT_TO });
 }
 
 /** The notice left on the initial request when turns have been cut away. */

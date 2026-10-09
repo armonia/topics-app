@@ -47,6 +47,7 @@ import type { ModelInfo } from "../../shared/types";
 import { getDatabase } from "../db";
 import { applyJobQuota } from "../services/agent-job-quota";
 import { demoteAgentCli } from "./agent-cli-priority";
+import { freshSessionPreamble } from "./handoff";
 
 // ============ Config ============
 
@@ -244,51 +245,6 @@ export function museSessionLogExists(sessionId: string): boolean {
 
 // ============ Helpers ============
 
-/**
- * Maximum non-system transcript turns to ship on a fresh turn. Muse's resume
- * carries native context server-side, so this only bounds the client-side
- * markdown preamble of a turn that starts a NEW session. System messages are
- * always preserved (pinned context: SOUL.md, project hints, ...).
- */
-const MUSE_HISTORY_TURN_CAP = 20;
-
-/**
- * Format a chat transcript as a markdown preamble for a fresh `muse exec`,
- * which otherwise has no memory of prior turns. Kept turns are labelled by
- * role; system messages flow through as `## Context` blocks.
- */
-function renderHistoryAsPrompt(history: ChatMessage[]): string {
-  const systemMessages = history.filter((m) => m.role === "system");
-  const conversational = history.filter((m) => m.role === "user" || m.role === "assistant");
-
-  let truncated = false;
-  let kept = conversational;
-  if (conversational.length > MUSE_HISTORY_TURN_CAP) {
-    kept = conversational.slice(-MUSE_HISTORY_TURN_CAP);
-    truncated = true;
-  }
-
-  const lines: string[] = ["# Conversation so far"];
-  if (truncated) {
-    lines.push(
-      "",
-      `> _(Earlier ${conversational.length - kept.length} turns omitted; only the most recent ${kept.length} are shown.)_`
-    );
-  }
-
-  for (const m of systemMessages) {
-    lines.push("", "## Context", "", m.content);
-  }
-  for (const m of kept) {
-    if (m.role === "user") {
-      lines.push("", "## User", "", m.content);
-    } else if (m.role === "assistant") {
-      lines.push("", "## Assistant", "", m.content);
-    }
-  }
-  return lines.join("\n");
-}
-
 // ============ Provider ============
 
 /** Per-turn bookkeeping shared between the JSONL event router and the close
@@ -455,9 +411,8 @@ export class MuseProvider implements AIProvider {
     // it is the surface that breaks every CLI release. The decisions stay
     // here (which model, which effort, which session).
     const history = options?.history ?? [];
-    const prompt = invocation.mode === "fresh" && history.length > 0
-      ? renderHistoryAsPrompt(history) + "\n\n## Current message\n\n" + message
-      : message;
+    const preamble = invocation.mode === "fresh" ? freshSessionPreamble(sessionKey, history) : "";
+    const prompt = preamble ? preamble + "\n\n## Current message\n\n" + message : message;
     // `muse exec` does not read the prompt from stdin: it comes from a file
     // (`--prompt-file`, see `muse/args.ts`). Own directory per turn, deleted on close.
     const promptDir = mkdtempSync(join(tmpdir(), "topics-muse-prompt-"));
@@ -664,9 +619,8 @@ export class MuseProvider implements AIProvider {
         const freshSessionId = crypto.randomUUID();
         const freshDir = mkdtempSync(join(tmpdir(), "topics-muse-prompt-"));
         const freshFile = join(freshDir, "prompt.md");
-        const freshPrompt = history.length > 0
-          ? renderHistoryAsPrompt(history) + "\n\n## Current message\n\n" + message
-          : message;
+        const freshPreamble = freshSessionPreamble(sessionKey, history);
+        const freshPrompt = freshPreamble ? freshPreamble + "\n\n## Current message\n\n" + message : message;
         writeFileSync(freshFile, freshPrompt);
         const freshArgs = buildMuseArgs({
           model: explicitModel,
