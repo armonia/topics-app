@@ -4515,22 +4515,37 @@ come PagSu e Shift+Spazio, una pressione tenuta come la barra trascinata, e lo
 scorrere che continua dopo, come l'inerzia di un colpo di dito) a meno di
 `OLDER_STAGE_SCREENS` schermate dalla cima della finestra caricata il client
 SHALL chiederli e tenerli da parte; a meno di `OLDER_MERGE_SCREENS` schermate
-SHALL fonderli (`shared/history-paging.ts`). Chi resta sulla coda senza scorrere
-NON SHALL far partire nessuna richiesta.
+SHALL fonderli (`shared/history-paging.ts`), ma solo a lista FERMA: nessuno
+scroll da 150 ms, nessuna pressione tenuta, righe arrivate, scheda a schermo
+(`mergeAtRest`). Chi sale ne esprime il desiderio, non l'ora: PagSu,
+Shift+Spazio e Home scorrono animati per una dozzina di fotogrammi, e una
+fusione caduta a metà dell'animazione faceva saltare le righe lette di
+migliaia di px. Chi resta sulla coda senza scorrere NON SHALL far partire
+nessuna richiesta.
 
 La fusione SHALL lasciare ferme le righe sotto gli occhi di chi legge. Una lista
 virtuale indirizza le righe per indice, e anteporre ottanta messaggi cambia ciò
 che «la riga 30» mostra: il rimedio è `firstItemIndex` di Virtuoso, dalla 4.18.13
 in poi, che compensa lo scorrimento nello stesso fotogramma (con la 4.18.1 costava
 un fotogramma vuoto e un CLS di 0,60). Il contratto, misurato fotogramma per
-fotogramma: dalla fusione a quando il passo di rotella che la attraversa è
-atterrato la riga letta si sposta in tutto al più di quel passo (un motore che
-anima la rotella lo spalma su più fotogrammi, e la fusione può cadere a metà),
-poi di 0 px; nessun fotogramma resta senza righe; CLS al più 0,01 dove il motore
-lo misura (PERF-01). Il resto lo chiede lo scroll di chi sale; la rotella lo
+fotogramma sul TESTO dei messaggi in vista, sia nel fotogramma d'animazione sia
+dopo il layout e i ResizeObserver dell'app, prima del paint: dal fotogramma
+prima della fusione ai venti dopo il testo letto non si sposta più di 1 px;
+nessun fotogramma resta senza righe; CLS al più 0,01 dove il motore lo misura
+(PERF-01), contando gli spostamenti che si vedono a schermo. Ciò che la fusione
+toglie dalla prima riga caricata (la riga «Carica i messaggi precedenti», il
+separatore di data del primo messaggio) sta sopra il testo letto, e la riga si
+tiene per il suo bordo inferiore; le righe anteposte che cadono subito sopra
+chi legge sono misurate nel fotogramma in cui compaiono. Il resto lo chiede lo scroll di chi sale; la rotella lo
 chiede da sé solo in cima, dove la lista non si muove più e nessuno scroll arriva. Al ritorno della
 pane la viewport SHALL trovarsi dove era: in fondo se lì riposava, sulla riga che
-aveva in cima se la persona aveva scorso. Nessuno scheletro nuovo.
+aveva in cima se la persona aveva scorso, anche quando la richiesta era partita
+risalendo e la risposta arriva a scheda nascosta. Nessuno scheletro nuovo.
+
+Il «↓ N» (il pulsante per tornare in fondo) SHALL contare solo i messaggi
+cresciuti in FONDO alla lista: il resto della storia fuso sopra chi legge è
+vecchio, NON SHALL far crescere il numero né far comparire il banner dei
+messaggi nuovi.
 
 Finché il resto non è arrivato la chat è PARZIALE, e in cima alla finestra
 caricata SHALL comparire una riga discreta «Carica i messaggi precedenti (n)» —
@@ -4562,11 +4577,27 @@ ramo, cancellazione, ricarico dopo una modifica) SHALL marcare la chat completa.
 
 #### Scenario: salendo, i messaggi precedenti arrivano da soli e le righe lette restano ferme
 - **GIVEN** una chat di tre pagine aperta sulla coda
-- **WHEN** la persona risale con la rotella fino a oltre la fusione
+- **WHEN** la persona risale con la rotella fino a oltre la soglia della fusione, fermandosi dopo ogni colpo
 - **THEN** i messaggi precedenti sono chiesti una volta sola, senza click
-- **AND** dalla fusione all'atterraggio del passo di rotella che la attraversa le righe a schermo si spostano in tutto al più di quel passo, e di 0 px nei fotogrammi dopo
+- **AND** la fusione cade a lista ferma, e le righe a schermo si spostano di 0 px (± 1 px) nei fotogrammi dopo
 - **AND** nessun fotogramma resta senza righe, e il CLS resta al più 0,01
 - **AND** scorrendo ancora il primo messaggio della chat è visibile, e la riga «Carica i messaggi precedenti» non c'è più
+
+#### Scenario: con PagSu, Shift+Spazio e Home la fusione aspetta la lista ferma
+- **GIVEN** una chat di tre pagine aperta sulla coda
+- **WHEN** la persona risale con PagSu, con Shift+Spazio o con Home, anche con la risposta ai messaggi precedenti in ritardo di 1500 ms, e Home la porta in cima alla finestra caricata
+- **THEN** dal fotogramma prima della fusione ai venti dopo il testo dei messaggi letti non si sposta più di 1 px, campionato in rAF e dopo i ResizeObserver
+- **AND** intorno alla fusione nessun fotogramma resta senza righe, e la richiesta è una sola
+
+#### Scenario: la scheda lasciata col resto in volo
+- **GIVEN** due chat nella stessa finestra, una lunga aperta sulla coda
+- **WHEN** la persona risale nella fascia della fusione con la risposta trattenuta, passa all'altra scheda, la risposta arriva, torna
+- **THEN** in cima c'è lo stesso messaggio, con l'offset entro 2 px
+
+#### Scenario: il «↓» non conta i messaggi vecchi
+- **GIVEN** una chat di tre pagine aperta sulla coda
+- **WHEN** la persona risale con la rotella finché il resto è fuso
+- **THEN** il «↓» non porta un numero e il banner «New messages» non c'è
 
 #### Scenario: chi arriva in cima prima della rete trova la riga in attesa, e il resto entra da solo
 - **GIVEN** la chat parziale appena ricaricata, con la risposta ai messaggi precedenti trattenuta
