@@ -208,6 +208,13 @@ interface Entry {
   engaged?: boolean;
   /** The last `FINISHED_KEEP` ids of tasks whose end was read (`finishBackgroundTasks`). Memory only. */
   finishedTasks?: Set<string>;
+  /**
+   * The ids of the tasks the row held when this process loaded it: the ones in flight across the
+   * restart, whichever turn launched them. A late read marks its turn only once none is left
+   * (`finishBackgroundTasks`). Memory only, kept through the start's reread, which would also see
+   * the tasks this process watched being launched.
+   */
+  restored?: Set<string>;
 }
 
 const entries = new Map<string, Entry>();
@@ -278,7 +285,7 @@ function ensureLoaded(): void {
   } else {
     for (const r of memoryTable.values()) rows.push(structuredClone(r));
   }
-  for (const row of rows) entries.set(row.subject, { row, live: { holds: {} }, graceTimer: null, sentKey: null, ...carriedOf(row) });
+  for (const row of rows) entries.set(row.subject, { row, live: { holds: {} }, graceTimer: null, sentKey: null, restored: new Set(Object.keys(row.background)), ...carriedOf(row) });
 }
 
 /**
@@ -734,13 +741,13 @@ export function finishBackgroundTasks(subject: string, ids: readonly string[], o
   for (const id of gone) delete next[id];
   e.row.background = next;
   if (opts.late && !e.lastTurnLive) {
-    // Marked only when this read takes out the last task the closed turn left in flight: one that
-    // started before that turn ended (the tracker stamps both with the hook's time). With one still
-    // in flight the turn goes on past the restart, and that task's end, read live, announces it as
-    // always. A task of a live turn opened since is not that turn's, whether its hooks land before
-    // or after this read.
+    // Marked only when this read takes out the last task in flight across the restart (`restored`),
+    // recurring crons aside. With one still in flight, the closed turn's or one put to rest without an
+    // outcome, the work of before goes on past the restart, and that task's end, read live, announces
+    // as it would have without one. A task this process watched being launched is a live turn's, and
+    // holds nothing, whether its hooks land before or after this read.
     const closed = e.row.lastTurn;
-    if (closed && !Object.values(e.row.background).some((t) => !t.recurring && !(t.startedAt > closed.at))) e.row.lastTurn = { ...closed, late: true };
+    if (closed && !Object.entries(e.row.background).some(([id, t]) => !t.recurring && e.restored?.has(id))) e.row.lastTurn = { ...closed, late: true };
     recompose(subject, { live: false });
     return true;
   }
@@ -769,6 +776,7 @@ export function applyTaskChanges(subject: string, changes: readonly TaskChange[]
     } else {
       const prev = c.replaces ? next[c.replaces] : undefined;
       if (c.replaces) delete next[c.replaces];
+      if (c.replaces && e.restored?.has(c.replaces)) e.restored.add(c.id);
       next[c.id] = { ...c.task, startedAt: prev?.startedAt ?? next[c.id]?.startedAt ?? c.task.startedAt };
     }
   }
@@ -1092,10 +1100,13 @@ export function recomposeAttentionOnBoot(reader: AttentionBootReader = {}): void
   const closedLive = new Set<string>();
   // A grace this process armed stays armed through the reread, for a full grace.
   const graced = new Set<string>();
+  // The tasks of before the restart, as this process first loaded them: the table now holds its own too.
+  const restored = new Map<string, Set<string> | undefined>();
   for (const [subject, e] of entries) {
     if (e.live.turnOpen || Object.keys(e.live.holds).length) prior.set(subject, { holds: { ...e.live.holds }, ...(e.live.turnOpen ? { turnOpen: true } : {}) });
     if (e.lastTurnLive) closedLive.add(subject);
     if (e.live.backgroundGrace) graced.add(subject);
+    restored.set(subject, e.restored);
   }
   loadedFrom = null;
   ensureLoaded();
@@ -1103,6 +1114,7 @@ export function recomposeAttentionOnBoot(reader: AttentionBootReader = {}): void
     clearGrace(e);
     e.live = prior.get(subject) ?? { holds: {} };
     if (closedLive.has(subject)) e.lastTurnLive = true;
+    if (restored.has(subject)) e.restored = restored.get(subject);
     if (Object.keys(e.live.holds).length) e.carriedHolds = undefined;
     e.sentKey = null;
   }

@@ -204,10 +204,11 @@ ricompone come ogni riavvio: senza riga, senza annuncio, senza push e senza un'e
 Un turno chiuso dal vivo dopo il riavvio, anche mentre il riattacco sta ancora leggendo, SHALL
 essere annunciato come sempre. La fine letta dopo il fatto SHALL restare senza epoca anche se
 un turno dal vivo si apre mentre il riattacco legge e chiude senza esito. Se dopo la lettura
-resta in volo un altro compito di quel turno, partito prima della sua fine, il turno non è finito
-prima del riavvio: la fine di quel compito, letta dal vivo, SHALL essere annunciata come sempre.
-Un compito lanciato da un turno dal vivo dopo il riavvio non è di quel turno, in qualunque ordine
-arrivino i suoi hook rispetto alla lettura.
+resta in volo un compito lanciato prima del riavvio, dal turno chiuso o da un turno messo a riposo
+senza esito, il lavoro di prima non è finito: la fine di quel compito, letta dal vivo, SHALL essere
+annunciata come lo sarebbe stata senza il riavvio. Un compito lanciato dopo il riavvio è di un
+turno dal vivo e non trattiene la fine letta dopo il fatto, in qualunque ordine arrivino i suoi
+hook rispetto alla lettura.
 
 #### Scenario: Bash, Agent e Workflow in un terminale
 - **GIVEN** un terminale claude-code con hook
@@ -287,6 +288,13 @@ arrivino i suoi hook rispetto alla lettura.
 - **WHEN** il riattacco toglie il Bash, e più tardi l'Agent finisce e la coda viva ne legge l'avviso
 - **THEN** dopo il riattacco lo stato SHALL restare `working`
 - **AND** la fine dell'Agent SHALL essere annunciata una volta: una riga, un push, un'epoca nuova
+
+#### Scenario: un compito di un turno messo a riposo prima del riavvio
+- **GIVEN** un terminale con un turno chiuso sul suo Bash in background, poi un turno che lancia un altro Bash e si interrompe senza esito, e il server ricaricato
+- **AND** il transcript con l'avviso di fine del primo Bash, scritto mentre nessun server leggeva
+- **WHEN** il riattacco toglie il primo Bash, e più tardi il secondo finisce e la coda viva ne legge l'avviso
+- **THEN** dopo il riattacco lo stato SHALL restare `working`
+- **AND** la fine del secondo Bash SHALL essere annunciata una volta, come senza il riavvio: una riga, un push, un'epoca nuova, anche se il suo `PostToolUse` arriva solo al server ricaricato
 
 ### Requirement: ATTN-04 — Una persona in mezzo è «ti serve», da qualunque porta arrivi
 
