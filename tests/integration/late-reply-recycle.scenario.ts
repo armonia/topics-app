@@ -9,8 +9,9 @@
  * `abandon`: the exit tail (`attachWhole`, one attempt) given up on takes its socket with it, its replay never
  * lands. `probe`: the lag probe's one-attempt `attach` given up on keeps it, the gap waits. `respawn` and its
  * variants share one body: the same probe, then its process killed and replaced, with the kill landing after
- * the give-up (`respawn`), before it (`respawn-before`), before the resume (`respawn-inflight`), or with a
- * daemon that echoes no rids (`respawn-norid`): the old replay never reaches the successor.
+ * the give-up (`respawn`), before it (`respawn-before`), before the resume (`respawn-inflight`), with a daemon
+ * that echoes no rids (`respawn-norid`), or with its first send failing (`respawn-killfail`, no probe and no
+ * pause): the old replay never reaches the successor.
  */
 process.env.TOPICS_AI_BRIDGE_ATTACH_ACK_MS ??= "300";
 process.env.TOPICS_AI_BRIDGE_MAX_ACK_MS ??= "300";
@@ -252,17 +253,19 @@ if (CASE === "norid") {
       }
     }, 20_000);
   });
-} else if (CASE === "respawn" || CASE === "respawn-before" || CASE === "respawn-inflight" || CASE === "respawn-norid") {
+} else if (CASE === "respawn" || CASE === "respawn-before" || CASE === "respawn-inflight" || CASE === "respawn-norid" || CASE === "respawn-killfail") {
   // `respawn` and its variants: the lag probe's attach, then its process killed and a successor spawned under the
   // same id while the daemon is still paused (Stop and a resend, or /clear and a send). The daemon answers in order:
   // the probe's replay and its ack, then the kill, then the spawn and the successor's output. Frames carry only the
   // id: the old replay must not reach the successor, whose own output must, on the same socket. `respawn` kills after
   // the give-up, `respawn-before` kills before it, `respawn-inflight` resumes before it so the attach still resolves,
-  // `respawn-norid` runs the replacement against a daemon that echoes no rids.
+  // `respawn-norid` runs the replacement against a daemon that echoes no rids, `respawn-killfail` drops the socket
+  // so the kill's first send fails, with no probe and no pause: the resend must keep the successor's handlers.
   describe("the lag probe's attach, then its process killed and replaced", () => {
     test("the successor gets its own output and none of the old replay", async () => {
       const { AiBridgeClient } = await import("../../server/lib/ai-bridge-client");
       const norid = CASE === "respawn-norid";
+      const killFail = CASE === "respawn-killfail";
       let connections = 0;
       const sockets = new Set<net.Socket>();
       const queued: Array<{ sock: net.Socket; f: any }> = [];
@@ -325,7 +328,9 @@ if (CASE === "norid") {
           for (const { sock, f } of queued.splice(0)) answer(sock, f);
         };
         const probe = () => c.attach("topic:a", 3, 1).then(() => "resolved", (e: Error) => e.name);
-        paused = true;
+        const killSends: boolean[] = [];
+        let successor: unknown = null;
+        if (!killFail) paused = true;
         let a = "";
         let sp = "";
         if (CASE === "respawn") {
@@ -352,6 +357,18 @@ if (CASE === "norid") {
           a = await attachP;
           sp = await spawned;
           await sleep(300);
+        } else if (killFail) {
+          const origSend = (c as any).send.bind(c);
+          (c as any).send = (m: any) => {
+            const ok = origSend(m);
+            if (m.type === "kill") killSends.push(ok);
+            return ok;
+          };
+          (c as any).dropSocket();
+          const spawned = replace();
+          successor = (c as any).handlers.get("topic:a");
+          sp = await spawned;
+          await sleep(300); // the successor's output has arrived
         } else {
           a = await probe();
           resume();
@@ -366,6 +383,13 @@ if (CASE === "norid") {
           expect([a, sp]).toEqual(["BridgeAckStalled", "ok"]);
           expect(firstOld).toEqual([3, 4, 5, 6, 7]);
           expect(seen).toEqual({ connections: 1, reconnects: 0, firstOld: 5, old: 0, own: 3, exits: 1 });
+        } else if (killFail) {
+          const seen = { connections, reconnects, old: got.filter((x) => x === "old").length, own: got.filter((x) => x === "new").length };
+          console.log(`[recycle:${CASE}] spawn: ${sp} · ${JSON.stringify(seen)}`);
+          expect(sp).toBe("ok");
+          expect(killSends).toEqual([false, true]);
+          expect((c as any).handlers.get("topic:a")).toBe(successor);
+          expect(seen).toEqual({ connections: 2, reconnects: 1, old: 0, own: 3 });
         } else {
           const seen = { connections, reconnects, old: got.filter((x) => x === "old").length, own: got.filter((x) => x === "new").length };
           console.log(`[recycle:${CASE}] attach: ${a} · spawn: ${sp} · ${JSON.stringify(seen)}`);

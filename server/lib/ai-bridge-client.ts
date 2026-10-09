@@ -698,8 +698,10 @@ export class AiBridgeClient {
     if (this.send({ type: "kill", id })) { this.handlers.delete(id); this.killed.add(id); return; }
     // Il frame non è uscito: l'handler NON si cancella ancora, o il figlio
     // resterebbe vivo e irraggiungibile. Si riaggancia e si rimanda una volta.
+    // At the resend the handler goes only if it is still the killed child's: a successor spawned meanwhile keeps its own.
+    const h = this.handlers.get(id);
     void this.ensureConnected()
-      .then(() => { if (this.send({ type: "kill", id })) { this.handlers.delete(id); this.killed.add(id); } })
+      .then(() => { if (this.send({ type: "kill", id })) { if (this.handlers.get(id) === h) this.handlers.delete(id); this.killed.add(id); } })
       .catch(() => { /* client chiuso o daemon irraggiungibile: lo raccoglie il monitor orfani */ });
   }
 

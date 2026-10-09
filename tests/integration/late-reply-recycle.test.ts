@@ -68,3 +68,6 @@ test("an attach in flight across a kill and spawn resolves, yet its replay does 
 // The same replacement against a daemon that echoes no rids: the successor still gets its output and exit.
 test("without rids, the successor of a killed probe still gets its own output and exit", () =>
   runCase("respawn-norid", { TOPICS_AI_BRIDGE_ATTACH_ACK_MS: "1000", TOPICS_AI_BRIDGE_MAX_ACK_MS: "60000" }), 300_000);
+// The same replacement with the kill's first send failing on a dropped socket: the resend keeps the successor's handlers.
+test("a kill whose first send fails still leaves the successor with its handlers and output", () =>
+  runCase("respawn-killfail", { TOPICS_AI_BRIDGE_ATTACH_ACK_MS: "1000", TOPICS_AI_BRIDGE_MAX_ACK_MS: "60000" }), 300_000);
