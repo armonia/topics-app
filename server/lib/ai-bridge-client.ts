@@ -508,7 +508,7 @@ export class AiBridgeClient {
    * timeout. La fessura fra l'ensureConnected e il write è larga quanto un
    * hot-reload del server, cioè quanto capita ogni giorno.
    */
-  private async request(frame: object, pred: (m: any) => boolean, timeoutMs: number, what: string, onAttempt?: (rid: number) => void, attempts = REQUEST_ATTEMPTS): Promise<any> {
+  private async request(frame: object, pred: (m: any) => boolean, timeoutMs: number, what: string, onAttempt?: (rid: number) => void, attempts = REQUEST_ATTEMPTS, keepOnSilence = false): Promise<any> {
     let last: Error | null = null;
     for (let attempt = 0; attempt < attempts; attempt++) {
       await this.ensureConnected();
@@ -534,8 +534,9 @@ export class AiBridgeClient {
           // Given up on for silence at its last attempt, an attach or a spawn still takes its
           // socket with it: the daemon answers it later all the same, and the replay would land in
           // whatever turn the session runs next (a CLI's exit tail fetched in vain, then a send on a
-          // new process, which reads from offset 0).
-          if (err instanceof BridgeAckStalled && !streamless) this.dropSocket();
+          // new process, which reads from offset 0). Not a probe (`keepOnSilence`): its process
+          // lives on and folds the late replay once, and the gap it probed waits.
+          if (err instanceof BridgeAckStalled && !streamless && !keepOnSilence) this.dropSocket();
           throw err;
         }
         last = err;
@@ -644,10 +645,13 @@ export class AiBridgeClient {
     }
   }
 
-  /** Re-attach to an existing session, replaying the store from `fromOffset`; one attempt never recycles the socket. */
-  async attach(id: string, fromOffset: number, attempts?: number): Promise<AttachResult> {
+  /**
+   * Re-attach to an existing session, replaying the store from `fromOffset`. One attempt is a probe (the lag
+   * probe's): given up on for silence it never recycles the socket, since its live process folds the late replay.
+   */
+  async attach(id: string, fromOffset: number, attempts?: number, keepOnSilence = attempts === 1): Promise<AttachResult> {
     const attached = (f: unknown): f is AttachedFrame => (f as AttachedFrame | null)?.type === "attached" && (f as AttachedFrame).id === id;
-    const m: AttachedFrame = await this.request({ type: "attach", id, fromOffset }, attached, ATTACH_ACK_TIMEOUT_MS, `attach ${id}`, undefined, attempts)
+    const m: AttachedFrame = await this.request({ type: "attach", id, fromOffset }, attached, ATTACH_ACK_TIMEOUT_MS, `attach ${id}`, undefined, attempts, keepOnSilence)
       .catch((err: unknown) => {
         // The cap's late reply, read as an attach: an `error` frame in its place is no ack.
         if (!(err instanceof BridgeAckStalled) || !err.late) throw err;
@@ -661,11 +665,12 @@ export class AiBridgeClient {
    * while the replay is still arriving, and the daemon writes the ack right behind it on the same socket, so every
    * frame until then belongs to the replay. Failing there handed those frames to whoever folded them next.
    * Still fails when the socket goes first, or on a daemon that does not echo rids. Used by a re-adoption's scan
-   * and rewinds, and by the tail fetch of a child that exited behind them (`attempts: 1`, as `attach`).
+   * and rewinds, and by the tail fetch of a child that exited behind them (`attempts: 1`). Given up on for silence
+   * it takes the socket with it even in one attempt: nothing folds its replay, which would land in the next turn.
    */
   async attachWhole(id: string, fromOffset: number, attempts?: number): Promise<AttachResult> {
     try {
-      return await this.attach(id, fromOffset, attempts);
+      return await this.attach(id, fromOffset, attempts, false);
     } catch (err) {
       const late = err instanceof BridgeAckStalled ? ((await err.late) as AttachResult | null | undefined) : null;
       if (!late) throw err;
