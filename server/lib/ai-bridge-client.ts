@@ -140,11 +140,12 @@ export class AiBridgeClient {
   /** The replies whose waiter hit the cap, by rid (`BridgeAckStalled.late`). */
   private readonly lateReplies = new Map<number, (reply: unknown) => void>();
   /**
-   * A probe's attach given up on for silence, by session id, until its late ack (`request`). Its process folds the
-   * replay once. Killed or respawned meanwhile (`stale`), the frames before that ack are the old process's replay:
-   * dropped, or the successor would fold them, since frames carry only the id.
+   * Ids killed and not respawned yet. Until the ack of the next spawn, every frame for such an id is the old
+   * incarnation's: the daemon answers a socket's lines in order and stops streaming a child it kills, so what
+   * comes before that ack is an attach's replay answered before the kill, or output printed before it. Frames
+   * carry only the id: delivered, the successor would fold them. Needs no rid: the window closes at the `spawned`.
    */
-  private readonly probes = new Map<string, { rid: number; stale: boolean }>();
+  private readonly killed = new Set<string>();
   /** The daemon echoes rids (protocol 4): without them a late reply cannot be told from any other. */
   private ridEcho = false;
   /** Last request id handed out: every frame that can be answered gets a fresh one. */
@@ -357,7 +358,6 @@ export class AiBridgeClient {
     // (an `error` to an attach or a list) REJECTS it: settling it with that
     // frame would read an error as "not alive" or as an empty list.
     if (msg.rid != null) this.ridEcho = true;
-    if (msg.rid != null && this.probes.get(msg.id)?.rid === msg.rid) this.probes.delete(msg.id);
     const i = msg.rid != null
       ? this.waiters.findIndex((w) => w.rid === msg.rid)
       : this.waiters.findIndex((w) => w.pred(msg));
@@ -391,9 +391,9 @@ export class AiBridgeClient {
     // does: a `spawned` echoing the rid of an earlier spawn for this id (one
     // that gave up, or one a kill + respawn overtook) says nothing about it,
     // and the killed predecessor's exit may still be on its way.
-    if (msg.type === "spawned" && (msg.rid == null || this.spawnsInFlight.get(id)?.rid === msg.rid)) this.spawnsInFlight.delete(id);
+    if (msg.type === "spawned" && (msg.rid == null || this.spawnsInFlight.get(id)?.rid === msg.rid)) { this.spawnsInFlight.delete(id); this.killed.delete(id); }
     const h = this.handlers.get(id);
-    if (!h || this.probes.get(id)?.stale) return;
+    if (!h || this.killed.has(id)) return;
     switch (msg.type) {
       case "data": h.onData(Buffer.from(msg.chunk ?? "", "base64"), msg.offset ?? 0); break;
       case "stderr": h.onStderr?.(Buffer.from(msg.chunk ?? "", "base64")); break;
@@ -472,7 +472,7 @@ export class AiBridgeClient {
     // A reply after the cap would have come on this socket too.
     for (const late of this.lateReplies.values()) late(null);
     this.lateReplies.clear();
-    this.probes.clear();
+    this.killed.clear();
   }
 
   /**
@@ -512,8 +512,8 @@ export class AiBridgeClient {
           // socket with it: the daemon answers it later all the same, and the replay would land in
           // whatever turn the session runs next (a CLI's exit tail fetched in vain, then a send on a
           // new process, which reads from offset 0). Not a probe (`keepOnSilence`): its process
-          // lives on and folds the late replay once, and the gap it probed waits (`probes`).
-          if (err instanceof BridgeAckStalled && !streamless) { if (keepOnSilence) this.probes.set((frame as { id: string }).id, { rid, stale: false }); else this.dropSocket(); }
+          // folds the late replay, and if it is killed meanwhile the replay goes nowhere, see `killed`.
+          if (err instanceof BridgeAckStalled && !streamless && !keepOnSilence) this.dropSocket();
           throw err;
         }
         last = err;
@@ -605,7 +605,6 @@ export class AiBridgeClient {
 
   /** Spawn (or, if a live session for `id` already exists, resume) a child. */
   async spawn(id: string, opts: SpawnOpts): Promise<{ pid: number; resumed: boolean }> {
-    this.staleProbe(id);
     const token = { rid: 0 };
     this.spawnsInFlight.set(id, token);
     try {
@@ -695,15 +694,12 @@ export class AiBridgeClient {
   detach(id: string): void { this.send({ type: "detach", id }); }
   signal(id: string, sig: string): void { this.throwOnDrop(this.send({ type: "signal", id, signal: sig }), `signal ${sig} ${id}`); }
 
-  private staleProbe(id: string): void { const probe = this.probes.get(id); if (probe) probe.stale = true; }
-
   kill(id: string): void {
-    this.staleProbe(id);
-    if (this.send({ type: "kill", id })) { this.handlers.delete(id); return; }
+    if (this.send({ type: "kill", id })) { this.handlers.delete(id); this.killed.add(id); return; }
     // Il frame non è uscito: l'handler NON si cancella ancora, o il figlio
     // resterebbe vivo e irraggiungibile. Si riaggancia e si rimanda una volta.
     void this.ensureConnected()
-      .then(() => { if (this.send({ type: "kill", id })) this.handlers.delete(id); })
+      .then(() => { if (this.send({ type: "kill", id })) { this.handlers.delete(id); this.killed.add(id); } })
       .catch(() => { /* client chiuso o daemon irraggiungibile: lo raccoglie il monitor orfani */ });
   }
 

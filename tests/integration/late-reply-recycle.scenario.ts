@@ -7,8 +7,10 @@
  * under its cap (5 s, with 1.5 s of patience for silence), in one attempt: the exit tail's form. `norid`
  * is the other side of the same guard: a daemon that echoes no rids, whose retried socket must go.
  * `abandon`: the exit tail (`attachWhole`, one attempt) given up on takes its socket with it, its replay never
- * lands. `probe`: the lag probe's one-attempt `attach` given up on keeps it, the gap waits. `respawn`: the same
- * probe, then its process killed and replaced in the pause: the old replay does not reach the successor.
+ * lands. `probe`: the lag probe's one-attempt `attach` given up on keeps it, the gap waits. `respawn` and its
+ * variants share one body: the same probe, then its process killed and replaced, with the kill landing after
+ * the give-up (`respawn`), before it (`respawn-before`), before the resume (`respawn-inflight`), or with a
+ * daemon that echoes no rids (`respawn-norid`): the old replay never reaches the successor.
  */
 process.env.TOPICS_AI_BRIDGE_ATTACH_ACK_MS ??= "300";
 process.env.TOPICS_AI_BRIDGE_MAX_ACK_MS ??= "300";
@@ -250,14 +252,17 @@ if (CASE === "norid") {
       }
     }, 20_000);
   });
-} else if (CASE === "respawn") {
-  // `respawn`: the lag probe's attach given up on, then its process killed and a successor spawned under the same
-  // id while the daemon is still paused (Stop and a resend, or /clear and a send). The daemon answers in order: the
-  // probe's replay and its ack, then the kill, then the spawn and the successor's output. Frames carry only the id:
-  // the old replay must not reach the successor, whose own output must, on the same socket.
-  describe("the lag probe's attach given up on, then its process killed and replaced in the pause", () => {
+} else if (CASE === "respawn" || CASE === "respawn-before" || CASE === "respawn-inflight" || CASE === "respawn-norid") {
+  // `respawn` and its variants: the lag probe's attach, then its process killed and a successor spawned under the
+  // same id while the daemon is still paused (Stop and a resend, or /clear and a send). The daemon answers in order:
+  // the probe's replay and its ack, then the kill, then the spawn and the successor's output. Frames carry only the
+  // id: the old replay must not reach the successor, whose own output must, on the same socket. `respawn` kills after
+  // the give-up, `respawn-before` kills before it, `respawn-inflight` resumes before it so the attach still resolves,
+  // `respawn-norid` runs the replacement against a daemon that echoes no rids.
+  describe("the lag probe's attach, then its process killed and replaced", () => {
     test("the successor gets its own output and none of the old replay", async () => {
       const { AiBridgeClient } = await import("../../server/lib/ai-bridge-client");
+      const norid = CASE === "respawn-norid";
       let connections = 0;
       const sockets = new Set<net.Socket>();
       const queued: Array<{ sock: net.Socket; f: any }> = [];
@@ -265,14 +270,19 @@ if (CASE === "norid") {
       const write = (sock: net.Socket, m: object) => { if (!sock.destroyed) sock.write(JSON.stringify(m) + "\n"); };
       const chunk = (text: string) => Buffer.from(text).toString("base64");
       const answer = (sock: net.Socket, f: any) => {
-        if (f.type === "ping") write(sock, { type: "pong", pid: 1, rid: f.rid, live: 1 });
+        if (f.type === "ping") write(sock, norid ? { type: "pong", pid: 1, live: 1 } : { type: "pong", pid: 1, rid: f.rid, live: 1 });
         if (f.type === "attach") {
           for (let off = f.fromOffset; off < 8; off++) write(sock, { type: "data", id: f.id, offset: off, chunk: chunk("old") });
-          write(sock, { type: "attached", id: f.id, endOffset: 8, alive: true, exitCode: null, protocol: 4, rid: f.rid });
+          write(sock, norid
+            ? { type: "attached", id: f.id, endOffset: 8, alive: true, exitCode: null, protocol: 3 }
+            : { type: "attached", id: f.id, endOffset: 8, alive: true, exitCode: null, protocol: 4, rid: f.rid });
         }
         if (f.type === "spawn") {
-          write(sock, { type: "spawned", id: f.id, pid: 2, resumed: false, rid: f.rid });
+          write(sock, norid
+            ? { type: "spawned", id: f.id, pid: 2, resumed: false }
+            : { type: "spawned", id: f.id, pid: 2, resumed: false, rid: f.rid });
           for (let off = 0; off < 3; off++) write(sock, { type: "data", id: f.id, offset: off, chunk: chunk("new") });
+          if (norid) write(sock, { type: "exit", id: f.id, exitCode: 0 });
         }
       };
       const daemon = net.createServer((sock) => {
@@ -300,23 +310,68 @@ if (CASE === "norid") {
         let reconnects = 0;
         c.onReconnect(() => { reconnects++; });
         await c.ensureConnected();
-        await sleep(150); // the pong is in: rids are echoed
-        c.registerHandlers("topic:a", { onData: () => {}, onExit: () => {} });
-        paused = true;
-        const a = await c.attach("topic:a", 3, 1).then(() => "resolved", (e: Error) => e.name);
-        c.kill("topic:a");
+        await sleep(150); // the pong is in
+        const firstOld: number[] = [];
+        c.registerHandlers("topic:a", { onData: (_data: Buffer, offset: number) => { firstOld.push(offset); }, onExit: () => {} });
         const got: string[] = [];
-        c.registerHandlers("topic:a", { onData: (data: Buffer) => { got.push(data.toString()); }, onExit: () => {} });
-        const spawned = c.spawn("topic:a", { cliPath: "/bin/cat", args: [], cwd: tempDir, env: {} }).then(() => "ok", (e: Error) => e.name);
-        await sleep(100); // the spawn goes out behind the kill
-        paused = false;
-        for (const { sock, f } of queued.splice(0)) answer(sock, f);
-        const sp = await spawned;
-        await sleep(300); // whatever the resumed daemon sends has arrived
-        const seen = { connections, reconnects, old: got.filter((x) => x === "old").length, own: got.filter((x) => x === "new").length };
-        console.log(`[recycle:respawn] attach: ${a} · spawn: ${sp} · ${JSON.stringify(seen)}`);
-        expect([a, sp]).toEqual(["BridgeAckStalled", "ok"]);
-        expect(seen).toEqual({ connections: 1, reconnects: 0, old: 0, own: 3 });
+        let exits = 0;
+        const replace = () => {
+          c.kill("topic:a");
+          c.registerHandlers("topic:a", { onData: (data: Buffer) => { got.push(data.toString()); }, onExit: () => { exits++; } });
+          return c.spawn("topic:a", { cliPath: "/bin/cat", args: [], cwd: tempDir, env: {} }).then(() => "ok", (e: Error) => e.name);
+        };
+        const resume = () => {
+          paused = false;
+          for (const { sock, f } of queued.splice(0)) answer(sock, f);
+        };
+        const probe = () => c.attach("topic:a", 3, 1).then(() => "resolved", (e: Error) => e.name);
+        paused = true;
+        let a = "";
+        let sp = "";
+        if (CASE === "respawn") {
+          a = await probe();
+          const spawned = replace();
+          await sleep(100); // the spawn goes out behind the kill
+          resume();
+          sp = await spawned;
+          await sleep(300); // whatever the resumed daemon sends has arrived
+        } else if (CASE === "respawn-before") {
+          const attachP = probe();
+          await sleep(300); // well before the 1000 ms give-up
+          const spawned = replace();
+          a = await attachP;
+          resume();
+          sp = await spawned;
+          await sleep(300);
+        } else if (CASE === "respawn-inflight") {
+          const attachP = probe();
+          await sleep(300);
+          const spawned = replace();
+          await sleep(300); // resume before the give-up: the attach still resolves
+          resume();
+          a = await attachP;
+          sp = await spawned;
+          await sleep(300);
+        } else {
+          a = await probe();
+          resume();
+          await sleep(300); // the first process folds the late replay
+          const spawned = replace(); // the daemon answers at once now
+          sp = await spawned;
+          await sleep(300);
+        }
+        if (norid) {
+          const seen = { connections, reconnects, firstOld: firstOld.length, old: got.filter((x) => x === "old").length, own: got.filter((x) => x === "new").length, exits };
+          console.log(`[recycle:${CASE}] attach: ${a} · spawn: ${sp} · ${JSON.stringify(seen)}`);
+          expect([a, sp]).toEqual(["BridgeAckStalled", "ok"]);
+          expect(firstOld).toEqual([3, 4, 5, 6, 7]);
+          expect(seen).toEqual({ connections: 1, reconnects: 0, firstOld: 5, old: 0, own: 3, exits: 1 });
+        } else {
+          const seen = { connections, reconnects, old: got.filter((x) => x === "old").length, own: got.filter((x) => x === "new").length };
+          console.log(`[recycle:${CASE}] attach: ${a} · spawn: ${sp} · ${JSON.stringify(seen)}`);
+          expect([a, sp]).toEqual([CASE === "respawn-inflight" ? "resolved" : "BridgeAckStalled", "ok"]);
+          expect(seen).toEqual({ connections: 1, reconnects: 0, old: 0, own: 3 });
+        }
       } finally {
         try { c.dispose(); } catch { /* already gone */ }
         for (const s of sockets) s.destroy();

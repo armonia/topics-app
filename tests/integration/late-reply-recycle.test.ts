@@ -59,3 +59,12 @@ test("the lag probe's one-attempt attach given up on keeps the socket: its late 
 // The same probe, then its process killed and replaced before the daemon resumes: the replay is the old process's.
 test("a probe's late replay does not reach the process that replaced its own, which gets its own output", () =>
   runCase("respawn", { TOPICS_AI_BRIDGE_ATTACH_ACK_MS: "1000", TOPICS_AI_BRIDGE_MAX_ACK_MS: "60000" }), 300_000);
+// The same replacement while the probe's attach still waits: the kill lands before its give-up.
+test("a kill and spawn before the probe's give-up still keeps the old replay from the successor", () =>
+  runCase("respawn-before", { TOPICS_AI_BRIDGE_ATTACH_ACK_MS: "1000", TOPICS_AI_BRIDGE_MAX_ACK_MS: "60000" }), 300_000);
+// The same replacement with the daemon resuming before the give-up: the attach still resolves.
+test("an attach in flight across a kill and spawn resolves, yet its replay does not reach the successor", () =>
+  runCase("respawn-inflight", { TOPICS_AI_BRIDGE_ATTACH_ACK_MS: "1000", TOPICS_AI_BRIDGE_MAX_ACK_MS: "60000" }), 300_000);
+// The same replacement against a daemon that echoes no rids: the successor still gets its output and exit.
+test("without rids, the successor of a killed probe still gets its own output and exit", () =>
+  runCase("respawn-norid", { TOPICS_AI_BRIDGE_ATTACH_ACK_MS: "1000", TOPICS_AI_BRIDGE_MAX_ACK_MS: "60000" }), 300_000);
