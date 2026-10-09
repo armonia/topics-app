@@ -349,6 +349,10 @@ export function createClaudeSessionTracker(opts: ClaudeSessionTrackerOptions): C
   // design: terminal.ts re-registers on reconcile after a restart and the next
   // hook re-establishes phase.
   const terminalStates = new Map<string, ClaudeSessionState>();
+  // The task ends the live tail reads while a reattach's catch-up still reads the history before them, per
+  // subject: they wait for it, so the task map takes the file's order. An end the catch-up reads late then
+  // stays of before the restart even when the CLI's delivery row of it is read live first (ATTN-03).
+  const heldForCatchUp = new Map<string, { lines: string[]; readers: number }>();
   // Stato del "seguire il fork", per sessionKey adottata: quando abbiamo
   // guardato l'ultima volta e quali file vicini abbiamo già scartato (con il
   // loro mtime, così un file che cambia torna candidabile). Volatile: al
@@ -584,7 +588,7 @@ export function createClaudeSessionTracker(opts: ClaudeSessionTrackerOptions): C
     const prev = dbPrev ?? terminalStates.get(claudeSessionId);
     if (!prev) return false;
     const subject = subjectOf(prev);
-    transcriptTasks(subject, line);
+    liveTranscriptTasks(subject, line);
     const ev = parseJsonlLine(line);
     if (!ev) return false;
     const next = applyJsonlEvent(prev, ev, t);
@@ -677,22 +681,41 @@ export function createClaudeSessionTracker(opts: ClaudeSessionTrackerOptions): C
   async function catchUpTasks(state: ClaudeSessionState, jsonlPath: string, end: number): Promise<void> {
     const subject = subjectOf(state);
     if (!subject || countingTasks(subject) === 0) return;
-    const fh = await fsp.open(jsonlPath, 'r');
+    // Set before the first await: a line the tail reads from here on comes after the history in the file.
+    const held = heldForCatchUp.get(subject) ?? { lines: [], readers: 0 };
+    held.readers += 1;
+    heldForCatchUp.set(subject, held);
     try {
-      const decoder = new TextDecoder();
-      const buf = Buffer.alloc(1 << 20);
-      let rest = '';
-      for (let at = 0; at < end && countingTasks(subject) > 0;) {
-        const { bytesRead } = await fh.read(buf, 0, Math.min(buf.length, end - at), at);
-        if (bytesRead === 0) break;
-        at += bytesRead;
-        const { lines, remainder } = splitJsonlChunk(rest + decoder.decode(buf.subarray(0, bytesRead), { stream: true }));
-        rest = remainder;
-        for (const line of lines) if (line.includes('<task-notification>')) transcriptTasks(subject, line, { late: true });
+      const fh = await fsp.open(jsonlPath, 'r');
+      try {
+        const decoder = new TextDecoder();
+        const buf = Buffer.alloc(1 << 20);
+        let rest = '';
+        for (let at = 0; at < end && countingTasks(subject) > 0;) {
+          const { bytesRead } = await fh.read(buf, 0, Math.min(buf.length, end - at), at);
+          if (bytesRead === 0) break;
+          at += bytesRead;
+          const { lines, remainder } = splitJsonlChunk(rest + decoder.decode(buf.subarray(0, bytesRead), { stream: true }));
+          rest = remainder;
+          for (const line of lines) if (line.includes('<task-notification>')) transcriptTasks(subject, line, { late: true });
+        }
+      } finally {
+        await fh.close();
       }
     } finally {
-      await fh.close();
+      // The last of the reattach's readers lets the held lines in, live and in the order they were read.
+      if ((held.readers -= 1) === 0) {
+        heldForCatchUp.delete(subject);
+        for (const line of held.lines) transcriptTasks(subject, line);
+      }
     }
+  }
+
+  /** The task ends of a line the live tail reads, held while a catch-up of its subject still reads (`heldForCatchUp`). */
+  function liveTranscriptTasks(subject: string | null, line: string): void {
+    const held = subject ? heldForCatchUp.get(subject) : undefined;
+    if (!held) transcriptTasks(subject, line);
+    else if (line.includes('<task-notification>')) held.lines.push(line);
   }
 
   function dropTerminalSession(claudeSessionId: string): void {
@@ -789,7 +812,7 @@ export function createClaudeSessionTracker(opts: ClaudeSessionTrackerOptions): C
         let cur = sess;
         const subject = subjectOf(sess);
         for (const line of lines) {
-          transcriptTasks(subject, line);
+          liveTranscriptTasks(subject, line);
           const ev = parseJsonlLine(line);
           if (!ev) continue;
           cur = applyJsonlEvent(cur, ev, t);

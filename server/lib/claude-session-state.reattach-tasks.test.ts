@@ -177,8 +177,9 @@ describe('a reattached terminal drops the tasks its transcript already reports f
   }
 
   // T1 leaves a Bash, which ends while the server is down, and an Agent, whose end the live tail reads while
-  // the catch-up still reads: the work of before ended live, and the read that takes the Bash out announces it.
-  it('terminal: a task of before the restart that ends live while the catch-up reads: the late read announces the turn once', async () => {
+  // the catch-up still reads: that end waits for the catch-up, whose lines come first in the file. The work of
+  // before ended live, and the Agent's end, let in after the Bash's, announces it.
+  it('terminal: a task of before the restart that ends live while the catch-up reads: the turn is announced once', async () => {
     const home = mkdtempSync(join(tmpdir(), 'bg-reattach-race-'));
     try {
       const cwd = '/work/project';
@@ -195,7 +196,7 @@ describe('a reattached terminal drops the tasks its transcript already reports f
       const end = agentBgEnd(t + 500);
       appendFileSync(path, end + '\n');
       after.ingestTranscriptLine(sid, end, (t += 500));
-      expect(getAttention(subject).background.map((x: { id: string }) => x.id)).toEqual(['b76lzwo0d']);
+      expect(getAttention(subject).background.map((x: { id: string }) => x.id).sort()).toEqual(['a4bb623e3ab5ee41a', 'b76lzwo0d']);
       const deadline = Date.now() + 3_000;
       while (countingTasks(subject) > 0 && Date.now() < deadline) await new Promise((r) => setTimeout(r, 5));
       boot();
@@ -377,8 +378,8 @@ describe('a reattached terminal drops the tasks its transcript already reports f
     });
   }
 
-  // The same Agent, its end naming no call read live while the catch-up reads, its PostToolUse after: the work of
-  // before ended live, and the late read that takes the Bash out announces it once.
+  // The same Agent, its end naming no call read live while the catch-up reads, its PostToolUse after: the end waits
+  // for the catch-up, the work of before ended live, and the Agent's end, let in after the Bash's, announces it once.
   it('terminal: an Agent of before the restart whose end names no call, read live before its PostToolUse, is announced once', async () => {
     const home = mkdtempSync(join(tmpdir(), 'bg-reattach-nocall-live-'));
     try {
@@ -399,7 +400,7 @@ describe('a reattached terminal drops the tasks its transcript already reports f
       appendFileSync(path, AGENT_END_NO_CALL + '\n');
       after.ingestTranscriptLine(sid, AGENT_END_NO_CALL, (t += 500));
       after.ingestHook({ hook_event_name: 'PostToolUse', tool_use_id: 'toolu_1', ...AGENT_BG, session_id: sid } as never, (t += 200));
-      expect(getAttention(subject).background.map((x: { id: string }) => x.id)).toEqual(['b76lzwo0d']);
+      expect(getAttention(subject).background.map((x: { id: string }) => x.id).sort()).toEqual(['a4bb623e3ab5ee41a', 'b76lzwo0d']);
       const deadline = Date.now() + 3_000;
       while (countingTasks(subject) > 0 && Date.now() < deadline) await new Promise((r) => setTimeout(r, 5));
       boot();
@@ -615,9 +616,11 @@ describe('a reattached terminal drops the tasks its transcript already reports f
     }
   });
 
-  // The same NOCALL end read late and live, in either order: the late mark sticks, the heal stays silent.
-  for (const order of ['late then live', 'live then late'] as const) {
-    it(`terminal: an end read late stays of before the restart when its delivery row is read live (${order})`, async () => {
+  // The same NOCALL end read late and live, in either order, with the Agent's PostToolUse before the restart, between
+  // it and the late read, or after both reads: the late mark sticks, the heal stays silent. A delivery row read live
+  // while the catch-up reads waits for it, the task already under the Agent's id.
+  for (const post of ['before the restart', 'before the late read', 'after both reads'] as const) for (const order of ['late then live', 'live then late'] as const) {
+    it(`terminal: an end read late stays of before the restart when its delivery row is read live (${order}, PostToolUse ${post})`, async () => {
       const home = mkdtempSync(join(tmpdir(), 'bg-reattach-flip-'));
       try {
         const cwd = '/work/project';
@@ -626,6 +629,7 @@ describe('a reattached terminal drops the tasks its transcript already reports f
         const first = (h: Record<string, unknown>) => tracker.ingestHook({ ...h, session_id: sid } as never, (t += 200));
         turn([BASH_ABSORBED]).slice(0, -1).forEach((h) => first(h));
         first({ hook_event_name: 'PreToolUse', tool_use_id: 'toolu_1', tool_name: AGENT_BG.tool_name, tool_input: AGENT_BG.tool_input });
+        if (post === 'before the restart') first({ hook_event_name: 'PostToolUse', tool_use_id: 'toolu_1', ...AGENT_BG });
         first({ hook_event_name: 'Stop' });
         const path = deriveTranscriptPath(home, cwd, sid);
         mkdirSync(dirname(path), { recursive: true });
@@ -634,13 +638,15 @@ describe('a reattached terminal drops the tasks its transcript already reports f
         const before = { epoch: getAttention(subject).epoch, pushes: pushes.length, rows: rows.length };
         const after = createClaudeSessionTracker({ db: freshDb(), broadcast: () => {}, coalesceWindowMs: 5, dedupWindowMs: 100, rateLimitPerSec: 50, attentionSubject: subjectOf, homeDir: home });
         after.registerTerminalSession(sid, { cwd, now: (t += 200) });
+        const postToolUse = () => after.ingestHook({ hook_event_name: 'PostToolUse', tool_use_id: 'toolu_1', ...AGENT_BG, session_id: sid } as never, (t += 200));
+        if (post === 'before the late read') postToolUse();
         const live = () => { appendFileSync(path, USER_LINE + '\n'); after.ingestTranscriptLine(sid, USER_LINE, (t += 200)); };
         if (order === 'live then late') live();
         const deadline = Date.now() + 3_000;
         while (getAttention(subject).background.some((x: { id: string }) => x.id === 'b76lzwo0d') && Date.now() < deadline) await new Promise((r) => setTimeout(r, 5));
         boot();
         if (order === 'late then live') live();
-        after.ingestHook({ hook_event_name: 'PostToolUse', tool_use_id: 'toolu_1', ...AGENT_BG, session_id: sid } as never, (t += 200));
+        if (post === 'after both reads') postToolUse();
         await new Promise((r) => setTimeout(r, 100));
         expect(getAttention(subject).state).toBe('finished');
         expect(getAttention(subject).background).toEqual([]);

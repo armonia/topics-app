@@ -212,8 +212,10 @@ annunciata come lo sarebbe stata senza il riavvio. Un compito lanciato dopo il r
 turno dal vivo e non trattiene la fine letta dopo il fatto, in qualunque ordine arrivino i suoi
 hook rispetto alla lettura. Un compito di prima del riavvio che teneva il turno (un cron ricorrente no) ed esce dal vivo (la sua fine letta
 dalla coda viva, o un cron una tantum consumato dal prompt dopo) rende dal vivo la fine di quel
-lavoro: la lettura tardiva che toglie gli altri SHALL annunciarla come sempre, anche quando
-l'uscita dal vivo arriva mentre il riattacco sta ancora leggendo. Un compito di prima del
+lavoro, che SHALL essere annunciata una volta come sempre, anche quando l'uscita dal vivo arriva
+mentre il riattacco sta ancora leggendo. Le fini che la coda viva legge mentre il riattacco sta
+ancora leggendo SHALL aspettare che finisca: nel file stanno dopo la storia, e la mappa dei
+compiti le prende in quell'ordine. Un compito di prima del
 riavvio ancora sotto l'id della chiamata, con un avviso che non la nomina, SHALL uscire col suo
 `PostToolUse` nel modo in cui la sua fine è stata letta: dal vivo o dopo il fatto. Una fine letta
 anche una sola volta dopo il fatto è di prima del riavvio: rileggerla dal vivo, per esempio nella
@@ -311,8 +313,8 @@ riga con cui la CLI consegna l'avviso, NON SHALL renderla dal vivo.
 - **AND** il transcript con la fine di tutti e due, quella dell'Agent senza `<tool-use-id>`, scritto mentre nessun server leggeva
 - **WHEN** il `PostToolUse` dell'Agent arriva prima o dopo la lettura tardiva
 - **THEN** lo stato SHALL essere `finished` e la guarigione SHALL restare muta, nei due ordini
-- **AND** se la fine dell'Agent la legge la coda viva, la lettura tardiva che toglie il Bash SHALL annunciare il turno una volta
-- **AND** se la riga che consegna l'avviso dell'Agent si legge dal vivo, prima o dopo la lettura tardiva, la guarigione SHALL restare muta
+- **AND** se la fine dell'Agent la legge la coda viva, il turno SHALL essere annunciato una volta
+- **AND** se la riga che consegna l'avviso dell'Agent si legge dal vivo, prima o dopo la lettura tardiva, la guarigione SHALL restare muta, anche con il `PostToolUse` arrivato prima del riavvio o prima della lettura, il compito già sotto l'id dell'Agent
 
 #### Scenario: un hook dopo la ricomposizione di avvio
 - **GIVEN** un compito la cui fine è già stata letta, dalla coda viva o dalla lettura tardiva, prima del suo `PostToolUse`
