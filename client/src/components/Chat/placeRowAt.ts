@@ -104,7 +104,7 @@ export const HOLD_ROW_FRAMES = 20;
 export function rowHolder(el: HTMLElement): { hold(indexOf: () => number, bottom: number, onDrawn: () => void): void; release(): void; dispose(): void } {
   let target: { indexOf: () => number; bottom: number; onDrawn: (() => void) | null } | null = null;
   let left = 0;
-  let raf = 0;
+  let frameRequest = 0;
   // Every move ends going up, for the reason a hold opens that way.
   const scrollBy = (delta: number): void => {
     el.scrollTop += delta + 1;
@@ -135,7 +135,7 @@ export function rowHolder(el: HTMLElement): { hold(indexOf: () => number, bottom
   const release = (): void => {
     target?.onDrawn?.();
     target = null;
-    cancelAnimationFrame(raf);
+    cancelAnimationFrame(frameRequest);
     if (list) ro.unobserve(list);
     list = null;
     ro.unobserve(sentinel);
@@ -143,7 +143,7 @@ export function rowHolder(el: HTMLElement): { hold(indexOf: () => number, bottom
   };
   const tick = (): void => {
     sentinel.style.width = `${(left % 2) + 1}px`;
-    if (--left > 0) raf = requestAnimationFrame(tick);
+    if (--left > 0) frameRequest = requestAnimationFrame(tick);
     else release();
   };
   return {
@@ -156,7 +156,7 @@ export function rowHolder(el: HTMLElement): { hold(indexOf: () => number, bottom
       ro.observe(sentinel);
       scrollBy(0);
       left = HOLD_ROW_FRAMES;
-      raf = requestAnimationFrame(tick);
+      frameRequest = requestAnimationFrame(tick);
     },
     release,
     dispose() {
