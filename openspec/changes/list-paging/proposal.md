@@ -39,7 +39,9 @@ non sono a click e restano fuori. Nessuna rotta nuova: i cursori esistono.
 - Dopo ogni pagina arrivata una lista chiede all'osservatore uno sguardo nuovo prima di caricare
   ancora: fidarsi del «in vista» di prima caricava pagine a catena dentro un fotogramma (chiuso
   da tre test unitari, rossi sul comportamento vecchio).
-- Il contenitore che scorre si ricontrolla a ogni risposta dell'osservatore: passando da griglia a
-  lista lo scorrimento cambia contenitore e la riga no (COLVOL-06, rosso sul bundle di prima).
+- Il contenitore che scorre si ricontrolla a ogni risposta dell'osservatore e a ogni cambio di
+  disposizione: passando da griglia a lista lo scorrimento cambia contenitore e la riga no
+  (COLVOL-06), e tornando alla griglia nessun osservatore risponde (COLVOL-07). Entrambi rossi
+  sul bundle di prima.
 - La barra delle schede scorre come la barra delle tab del layout (stessa barra di scorrimento
   nascosta, nessun dirottamento della rotella verticale).

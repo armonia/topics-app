@@ -14,13 +14,15 @@ Ciò che è verde resta verde: le e2e della board, della finestra browser e dell
 - **THEN** arriva UNA pagina senza click, e dieci fotogrammi dopo la colonna ne ha ancora una sola
   in più (COLVOL-02)
 - **AND** passare da griglia a lista non carica niente da solo (COLVOL-04), una colonna fuori
-  schermo aspetta anche a una finestra alta (COLVOL-05), e da griglia a lista conta la riga, non
-  la cima della colonna (COLVOL-06)
+  schermo aspetta anche a una finestra alta (COLVOL-05), da griglia a lista conta la riga, non
+  la cima della colonna (COLVOL-06), e tornata alla griglia la colonna carica ancora 240 px
+  prima della riga (COLVOL-07)
 - **AND** una pagina vuota o fallita non fa partire un ciclo; durante un trascinamento la colonna
   non cresce
 
 Mutazione: con il controllore che si fida del «in vista» di prima, tre test unitari su sei vanno rossi.
-COLVOL-06 è rosso sul bundle di prima (il contenitore guardato era quello della griglia).
+COLVOL-06 è rosso sul bundle di prima (il contenitore guardato era quello della griglia), COLVOL-07
+sul bundle di 9f6d5fe74 (tornata la griglia, il contenitore guardato restava quello della lista).
 
 ## Barra delle schede della finestra browser (TOPIC-BROWSER-01)
 

@@ -3445,9 +3445,10 @@ che chi legge esca e rientri, invece di interrogare il server in un ciclo
 (`client/src/lib/loadOnReach.ts`). Ogni cambio del numero di righe, anche una riga
 arrivata mentre una pagina è in viaggio, SHALL far guardare di nuovo la riga prima di
 chiedere; e il contenitore guardato SHALL essere quello che la scorre in quel momento,
-anche dopo un cambio di disposizione, verificato a ogni risposta: il cambio sposta lo
-scorrimento e non la riga, e il contenitore di prima può non dire più niente o tenerla
-vicina per sempre. In vista vuol dire anche a schermo: una colonna
+anche dopo un cambio di disposizione, verificato a ogni risposta e a ogni cambio: il cambio
+sposta lo scorrimento e non la riga, il contenitore di prima può non dire più niente o
+tenerla vicina per sempre, e tornando alla griglia nessun osservatore risponde. In vista
+vuol dire anche a schermo: una colonna
 fuori dalla board che scorre di lato NON SHALL caricare, nemmeno quando la sua riga
 sta dentro la colonna stessa (una finestra alta). Mentre una card della board viene trascinata la
 colonna NON SHALL crescere sotto il puntatore. La riga SHALL restare un bottone,
@@ -3488,3 +3489,8 @@ per la tastiera e per un browser senza IntersectionObserver.
 - **THEN** la colonna Done resta a una pagina
 - **WHEN** la persona scorre fino alla riga
 - **THEN** arriva una pagina sola
+
+#### Scenario: tornata da lista a griglia, la colonna carica ancora in anticipo
+- **GIVEN** la board passata da griglia a lista e tornata a griglia, con Done a una pagina
+- **WHEN** la persona scorre Done finché la riga «mostra altri» è 120 px sotto ciò che la colonna mostra
+- **THEN** arriva una pagina sola, prima che la riga entri in vista

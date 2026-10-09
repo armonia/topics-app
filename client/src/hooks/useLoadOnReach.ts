@@ -18,14 +18,19 @@ function scrollParent(el: HTMLElement): Element | null {
  * "show more" row, which then loads the next page by itself as it comes into
  * view (see `lib/loadOnReach.ts` for when). The row stays a button, so the
  * keyboard and a browser without IntersectionObserver keep the click.
+ *
+ * `layout` names how the list is laid out, for a list that can switch (a board
+ * column, grid or list): a switch hands the row to another scroller without a
+ * word from the observers, so the hook looks again.
  */
-export function useLoadOnReach(load: () => void, state: ListState): (el: HTMLElement | null) => void {
+export function useLoadOnReach(load: () => void, state: ListState, layout?: string): (el: HTMLElement | null) => void {
   const [row, setRow] = useState<HTMLElement | null>(null);
   const latest = useRef({ load, state });
   useEffect(() => {
     latest.current = { load, state };
   });
   const controllerRef = useRef<LoadOnReach | null>(null);
+  const watchRef = useRef<(() => void) | null>(null);
   // One controller per row element, settled at once with the list as it is.
   useEffect(() => {
     if (!row || typeof IntersectionObserver === 'undefined') return;
@@ -38,6 +43,8 @@ export function useLoadOnReach(load: () => void, state: ListState): (el: HTMLEle
     // root itself must be on screen too (a second observer, on the viewport, which every clip counts in).
     // Every answer of either one checks the root first: the switch moves the scroll and not the row, so the
     // old root may never speak again, and the old column coming on screen would load from far above the row.
+    // That covers a switch the old observers see. Back from list to grid they see nothing (the row, far down,
+    // stays out of view), so the switch itself calls `watch` too (the `layout` effect below).
     const watch = (): void => {
       io?.disconnect();
       onScreen?.disconnect();
@@ -63,13 +70,21 @@ export function useLoadOnReach(load: () => void, state: ListState): (el: HTMLEle
     const controller = loadOnReach(() => latest.current.load(), watch);
     watch();
     controllerRef.current = controller;
+    watchRef.current = watch;
     controller.settle(latest.current.state);
     return () => {
       io?.disconnect();
       onScreen?.disconnect();
       controllerRef.current = null;
+      watchRef.current = null;
     };
   }, [row]);
+  const layoutRef = useRef(layout);
+  useEffect(() => {
+    if (layoutRef.current === layout) return;
+    layoutRef.current = layout;
+    watchRef.current?.();
+  }, [layout]);
   const { more, loading, count, enabled } = state;
   useEffect(() => {
     controllerRef.current?.settle({ more, loading, count, enabled });

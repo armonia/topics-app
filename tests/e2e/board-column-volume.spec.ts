@@ -332,4 +332,39 @@ test.describe("Kanban — il volume di una colonna", () => {
     await afterFrames(page, 10);
     expect(await cardsIn(page, "done").count(), "one page per reach, not a chain").toBe(COLUMN_PAGE * 2);
   });
+
+  test("COLVOL-07: tornata da lista a griglia, la colonna carica ancora prima che la riga entri in vista", async ({ page }) => {
+    test.info().annotations.push({ type: "spec", description: "LIST-PAGE-01" });
+    // Back in the grid the row sits far down its own column again, and nothing the old observers watched
+    // changed: they kept the list's scroller as root, where the 240 px ahead never counts inside the column.
+    // Done then loaded only once its row was on screen, and the reader waited at every page.
+    await page.setViewportSize({ width: 1600, height: 900 });
+    await page.goto("/");
+    await openProjectBoard(page);
+    await expect(cardsIn(page, "done").first()).toBeAttached({ timeout: 20000 });
+    const toggle = page.getByTestId("board-layout-toggle");
+    if ((await toggle.getAttribute("aria-pressed")) === "true") await toggle.click();
+    await expect(toggle).toHaveAttribute("aria-pressed", "false");
+    await toggle.click();
+    await expect(toggle).toHaveAttribute("aria-pressed", "true");
+    await afterFrames(page, 30);
+    await toggle.click();
+    await expect(toggle).toHaveAttribute("aria-pressed", "false");
+    await afterFrames(page, 30);
+    expect(await cardsIn(page, "done").count()).toBe(COLUMN_PAGE);
+
+    // Done on screen, its row 120 px below what the column shows: inside the lookahead, not yet in view.
+    await page.getByTestId("kanban-column-body-done").scrollIntoViewIfNeeded();
+    const gap = await page.evaluate(() => {
+      const body = document.querySelector('[data-testid="kanban-column-body-done"]') as HTMLElement;
+      const row = document.querySelector('[data-testid="kanban-column-more-done"]') as HTMLElement;
+      body.scrollBy({ top: row.getBoundingClientRect().top - body.getBoundingClientRect().bottom - 120, behavior: "instant" });
+      return Math.round(row.getBoundingClientRect().top - body.getBoundingClientRect().bottom);
+    });
+    expect(gap, "the row is below the column's visible bottom").toBeGreaterThan(0);
+    expect(gap, "and within the 240 px ahead").toBeLessThan(240);
+    await expect.poll(() => cardsIn(page, "done").count(), { timeout: 10000 }).toBe(COLUMN_PAGE * 2);
+    await afterFrames(page, 10);
+    expect(await cardsIn(page, "done").count(), "one page per reach, not a chain").toBe(COLUMN_PAGE * 2);
+  });
 });

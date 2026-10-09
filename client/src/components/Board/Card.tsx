@@ -120,7 +120,7 @@ const ColumnBody = memo(function ColumnBody({ status, tasks, onOpen, onCreate, c
   const [shown, setShown] = useState(COLUMN_PAGE);
   const slice = useMemo(() => columnSlice(status, tasks, shown), [status, tasks, shown]);
   // Infinite scroll: the next page comes as the column's tail comes into view, never while a card is carried.
-  const moreRef = useLoadOnReach(() => setShown((n) => n + COLUMN_PAGE), { more: slice.hidden > 0, loading: false, count: slice.rows.length, enabled: !dragging });
+  const moreRef = useLoadOnReach(() => setShown((n) => n + COLUMN_PAGE), { more: slice.hidden > 0, loading: false, count: slice.rows.length, enabled: !dragging }, layout);
   // Stable identity across the board's 4s live-usage tick: SortableContext gets a
   // fresh array only when the task set actually changes, not every render. Gli id
   // sono quelli DISEGNATI: un id senza nodo nel registro di dnd-kit è un
