@@ -12,8 +12,18 @@ session in `watching` at `Stop` whenever at least one task is in flight, and in
 `awaiting-user` when none is. A task SHALL leave the set when its own completion arrives
 (the transcript's `<task-notification>` for that id, the Monitor's delivery or end
 including expiry, the cron's first fire or `CronDelete`), not on any wake of the session.
-`SessionEnd` and process exit SHALL empty the set. The set SHALL survive a server reload
-while the process holding it is alive.
+A notice the CLI only queues (`enqueue`) SHALL leave its task in the set until its fate: the
+row that delivers it, the queue letting it go undelivered (`remove`: a turn absorbed it, or
+it was dropped), or a minute after the turn stopped with neither; while the turn still runs
+that minute SHALL NOT start. `SessionEnd` and process exit SHALL empty the set. The set SHALL
+survive a server reload while the process holding it is alive. A session parked in
+`watching` whose last counting task a transcript line or that minute takes out SHALL go to
+`awaiting-user`, dated at its `Stop`: nothing is left to wake it. A hook that fired before the
+`Stop` and lands after it SHALL move the phase the same way, dated at the `Stop` too: to
+`watching` when it adds a counting task, back to `awaiting-user` when it takes out the last
+one, so a line the CLI wrote after the `Stop` still wakes the turn. A notice queued before the
+restart of the server SHALL end its task as one of before the restart, wherever its fate is
+read.
 
 The set SHALL have one holder, the attention store (`subject_attention.background`): the
 phase machine SHALL read from it how many tasks count at `Stop` rather than keep a set of
@@ -51,6 +61,35 @@ show it, but SHALL NOT count toward `watching`.
 - **GIVEN** a session in `watching` with one task in flight
 - **WHEN** its completion arrives and the woken turn ends
 - **THEN** `phase = 'awaiting-user'`
+
+#### Scenario: The tail reaches an absorbed notice after the Stop
+- **GIVEN** a session whose last task ended mid-turn, its notice absorbed, and whose `Stop` reached the server before the transcript tail read that notice
+- **WHEN** the tail reads it
+- **THEN** `phase = 'awaiting-user'`, not `watching`
+- **AND** the same for a reattached terminal whose turn stopped while the late read still held or had not yet taken out its last tasks
+
+#### Scenario: A notice delivered after the Stop, read in two sweeps
+- **GIVEN** a session parked in `watching` on its last task, which ends after the `Stop`
+- **WHEN** one sweep of the tail reads the notice's enqueue and the next its delivery row
+- **THEN** the phase stays `watching` after the first sweep and is `running` after the second, never `awaiting-user` in between
+
+#### Scenario: A notice queued while the turn answers, delivered after the Stop
+- **GIVEN** a session whose last task ends while its turn still answers, the notice queued and neither absorbed nor let go
+- **WHEN** the `Stop` arrives, before or after the tail reads the enqueue, and the delivery row then wakes the turn
+- **THEN** the `Stop` parks the session in `watching`, and `running` follows, never `awaiting-user` in between
+- **AND** the attention state announces the two turns once, at the end of the turn the notice woke
+
+#### Scenario: The CLI lets a notice go after the Stop
+- **GIVEN** a session parked in `watching` on its last task, which ends after the `Stop`
+- **WHEN** the CLI's queue lets the notice go without delivering it (`remove`)
+- **THEN** `phase = 'awaiting-user'`
+- **AND** not while an earlier notice queued and still undelivered holds its task: that one wakes the turn
+
+#### Scenario: A notice the CLI neither delivers nor lets go
+- **GIVEN** a session whose last task's notice is queued and then neither delivered nor let go
+- **WHEN** a minute passes after the `Stop`
+- **THEN** the task leaves the set and `phase = 'awaiting-user'`
+- **AND** not while the turn still runs: the CLI may absorb the notice at its next tool call
 
 #### Scenario: An expired Monitor on a terminal
 - **GIVEN** a terminal session in `watching` for one Monitor

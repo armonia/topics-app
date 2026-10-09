@@ -30,6 +30,8 @@ export interface AttentionLastTurn {
   outcome: AttentionOutcome;
   at: string;
   detail?: string | null;
+  /** Its end was read after the fact, by a reattach; it opens no epoch of its own. */
+  late?: boolean;
 }
 
 export interface AttentionInputs {
