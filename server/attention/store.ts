@@ -208,8 +208,11 @@ interface Entry {
    * like any other. Memory only: after a restart it is quiet again until reopened.
    */
   engaged?: boolean;
-  /** The last `FINISHED_KEEP` ids of tasks whose end was read (`finishBackgroundTasks`). Memory only. */
-  finishedTasks?: Set<string>;
+  /**
+   * The last `FINISHED_KEEP` ids of tasks whose end was read (`finishBackgroundTasks`), and whether a late read
+   * read it. Memory only, kept through the start's reread: a hook still on its way must not put the task back.
+   */
+  finishedTasks?: Map<string, boolean>;
   /**
    * The ids of the tasks the row held when this process loaded it: the ones in flight across the
    * restart, whichever turn launched them. A late read marks its turn only once none is left
@@ -733,9 +736,9 @@ const FINISHED_KEEP = 64;
  */
 export function finishBackgroundTasks(subject: string, ids: readonly string[], opts: { late?: boolean } = {}): boolean {
   const e = entryOf(subject);
-  const finished = (e.finishedTasks ??= new Set());
-  for (const id of ids) { finished.delete(id); finished.add(id); }
-  for (const id of finished) { if (finished.size <= FINISHED_KEEP) break; finished.delete(id); }
+  const finished = (e.finishedTasks ??= new Map());
+  for (const id of ids) { finished.delete(id); finished.set(id, !!opts.late); }
+  for (const id of finished.keys()) { if (finished.size <= FINISHED_KEEP) break; finished.delete(id); }
   const gone = ids.filter((id) => id in e.row.background);
   if (gone.length === 0) return false;
   const before = e.row.background;
@@ -749,14 +752,19 @@ export function finishBackgroundTasks(subject: string, ids: readonly string[], o
     // outcome, the work of before goes on past the restart, and that task's end, read live, announces
     // as it would have without one. A task this process watched being launched is a live turn's, and
     // holds nothing, whether its hooks land before or after this read.
-    const closed = e.row.lastTurn;
-    if (closed && !Object.entries(e.row.background).some(([id, t]) => !t.recurring && e.restored?.has(id))) e.row.lastTurn = { ...closed, late: true };
+    markLate(e);
     recompose(subject, { live: false });
     return true;
   }
   armGraceOnLastTask(subject, e, before);
   recompose(subject, { live: true });
   return true;
+}
+
+/** The late mark (`finishBackgroundTasks`): once no task in flight across the restart is left, recurring crons aside. */
+function markLate(e: Entry): void {
+  const closed = e.row.lastTurn;
+  if (closed && !Object.entries(e.row.background).some(([id, t]) => !t.recurring && e.restored?.has(id))) e.row.lastTurn = { ...closed, late: true };
 }
 
 /**
@@ -769,14 +777,24 @@ export function applyTaskChanges(subject: string, changes: readonly TaskChange[]
   const before = e.row.background;
   const next: AttentionTaskMap = { ...e.row.background };
   const replaced = new Set<string>();
+  const finished = e.finishedTasks;
+  let lateOut = false;
   for (const c of changes) {
     if (c.op === "clear") for (const k of Object.keys(next)) delete next[k];
     else if (c.op === "remove") delete next[c.id];
     else if (c.op === "remove-kind") { for (const [k, t] of Object.entries(next)) if (t.kind === c.kind) delete next[k]; }
     else if (c.op === "remove-one-shot-crons") { for (const [k, t] of Object.entries(next)) if (t.kind === "cron" && !t.recurring) delete next[k]; }
-    else if (e.finishedTasks?.has(c.id) || (c.replaces && e.finishedTasks?.has(c.replaces))) {
-      // A hook that arrives after the task's end (`finishBackgroundTasks`): the task stays out.
-      if (c.replaces) { delete next[c.replaces]; replaced.add(c.replaces); }
+    else if (finished?.has(c.id) || (c.replaces && finished?.has(c.replaces))) {
+      // A hook that arrives after the task's end (`finishBackgroundTasks`): the task stays out. One of before the restart
+      // still under its call's id (an end that names no call) leaves here, the way its end was read: live or late.
+      if (c.replaces) {
+        const held = next[c.replaces];
+        if (held && !held.recurring && e.restored?.has(c.replaces)) {
+          if (finished!.get(c.id) ?? finished!.get(c.replaces)) lateOut = true;
+          else e.lastTurnLive = true;
+        }
+        delete next[c.replaces]; replaced.add(c.replaces);
+      }
     } else {
       const prev = c.replaces ? next[c.replaces] : undefined;
       if (c.replaces) { delete next[c.replaces]; replaced.add(c.replaces); }
@@ -788,6 +806,12 @@ export function applyTaskChanges(subject: string, changes: readonly TaskChange[]
   // A task of before the restart taken out live, not re-keyed: see `lastTurnLive`. A recurring cron never held the turn.
   if (Object.keys(before).some((id) => !(id in next) && !replaced.has(id) && !before[id].recurring && e.restored?.has(id))) e.lastTurnLive = true;
   e.row.background = next;
+  if (lateOut && !e.lastTurnLive) {
+    // Its end was read late and its hook came after: the late read's removal, recomposed the same way.
+    markLate(e);
+    recompose(subject, { live: false });
+    return true;
+  }
   if (countingTaskCount(next) > 0) clearGrace(e);
   else armGraceOnLastTask(subject, e, before);
   recompose(subject, { live: true });
@@ -1106,13 +1130,14 @@ export function recomposeAttentionOnBoot(reader: AttentionBootReader = {}): void
   const closedLive = new Set<string>();
   // A grace this process armed stays armed through the reread, for a full grace.
   const graced = new Set<string>();
-  // The tasks of before the restart, as this process first loaded them: the table now holds its own too.
-  const restored = new Map<string, Set<string> | undefined>();
+  // The tasks of before the restart, as this process first loaded them (the table now holds its own too), and the
+  // tasks whose end it read.
+  const kept = new Map<string, Pick<Entry, "restored" | "finishedTasks">>();
   for (const [subject, e] of entries) {
     if (e.live.turnOpen || Object.keys(e.live.holds).length) prior.set(subject, { holds: { ...e.live.holds }, ...(e.live.turnOpen ? { turnOpen: true } : {}) });
     if (e.lastTurnLive) closedLive.add(subject);
     if (e.live.backgroundGrace) graced.add(subject);
-    restored.set(subject, e.restored);
+    kept.set(subject, { restored: e.restored, finishedTasks: e.finishedTasks });
   }
   loadedFrom = null;
   ensureLoaded();
@@ -1120,7 +1145,8 @@ export function recomposeAttentionOnBoot(reader: AttentionBootReader = {}): void
     clearGrace(e);
     e.live = prior.get(subject) ?? { holds: {} };
     if (closedLive.has(subject)) e.lastTurnLive = true;
-    if (restored.has(subject)) e.restored = restored.get(subject);
+    const k = kept.get(subject);
+    if (k) { e.restored = k.restored; e.finishedTasks = k.finishedTasks; }
     if (Object.keys(e.live.holds).length) e.carriedHolds = undefined;
     e.sentKey = null;
   }

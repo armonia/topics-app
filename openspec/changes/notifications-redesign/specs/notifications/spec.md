@@ -188,7 +188,8 @@ non diventa una riga utente, e lo nomina solo il record di coda `queue-operation
 L'avviso SHALL chiudere il compito sotto qualunque id la mappa lo tenga: anche sotto il
 `tool-use-id` della chiamata che l'avviso nomina, finché il `PostToolUse` non l'ha ri-chiavato.
 Gli hook sono asincroni e arrivano anche secondi dopo: un hook arrivato dopo l'avviso NON
-SHALL rimettere nella mappa il compito che quell'avviso ha chiuso; se quell'hook toglie
+SHALL rimettere nella mappa il compito che quell'avviso ha chiuso, neanche dopo la
+ricomposizione di avvio; se quell'hook toglie
 l'ultimo compito di un turno già parcheggiato in `watching`, la fase SHALL scendere a
 `awaiting-user`, come avrebbe detto lo `Stop`. Un Monitor SHALL chiudersi solo con le
 parole della CLI: uno `<status>`, la sua scadenza, il suo timeout, il suo arresto da parte
@@ -211,7 +212,9 @@ turno dal vivo e non trattiene la fine letta dopo il fatto, in qualunque ordine 
 hook rispetto alla lettura. Un compito di prima del riavvio che teneva il turno (un cron ricorrente no) ed esce dal vivo (la sua fine letta
 dalla coda viva, o un cron una tantum consumato dal prompt dopo) rende dal vivo la fine di quel
 lavoro: la lettura tardiva che toglie gli altri SHALL annunciarla come sempre, anche quando
-l'uscita dal vivo arriva mentre il riattacco sta ancora leggendo.
+l'uscita dal vivo arriva mentre il riattacco sta ancora leggendo. Un compito di prima del
+riavvio ancora sotto l'id della chiamata, con un avviso che non la nomina, SHALL uscire col suo
+`PostToolUse` nel modo in cui la sua fine è stata letta: dal vivo o dopo il fatto.
 
 #### Scenario: Bash, Agent e Workflow in un terminale
 - **GIVEN** un terminale claude-code con hook
@@ -299,6 +302,18 @@ l'uscita dal vivo arriva mentre il riattacco sta ancora leggendo.
 - **THEN** lo stato SHALL essere `finished` e la fine del turno SHALL essere annunciata una volta: una riga, un push, un'epoca nuova
 - **AND** lo stesso SHALL valere per un cron una tantum consumato dal prompt dopo, prima o dopo la lettura
 - **AND** un cron ricorrente di prima del riavvio cancellato dal vivo, che il turno non lo teneva, SHALL lasciare la guarigione muta
+
+#### Scenario: l'avviso senza chiamata di un compito di prima del riavvio
+- **GIVEN** un terminale con un turno chiuso su un Bash e un Agent ancora sotto l'id della chiamata, il cui `PostToolUse` arriva solo al server ricaricato
+- **AND** il transcript con la fine di tutti e due, quella dell'Agent senza `<tool-use-id>`, scritto mentre nessun server leggeva
+- **WHEN** il `PostToolUse` dell'Agent arriva prima o dopo la lettura tardiva
+- **THEN** lo stato SHALL essere `finished` e la guarigione SHALL restare muta, nei due ordini
+- **AND** se la fine dell'Agent la legge la coda viva, la lettura tardiva che toglie il Bash SHALL annunciare il turno una volta
+
+#### Scenario: un hook dopo la ricomposizione di avvio
+- **GIVEN** un compito la cui fine è già stata letta, dalla coda viva o dalla lettura tardiva, prima del suo `PostToolUse`
+- **WHEN** la ricomposizione di avvio rilegge la tabella e poi arriva il `PostToolUse`
+- **THEN** il compito NON SHALL tornare nella mappa, e il terminale SHALL arrivare a `finished`
 
 #### Scenario: un compito di un turno messo a riposo prima del riavvio
 - **GIVEN** un terminale con un turno chiuso sul suo Bash in background, poi un turno che lancia un altro Bash e si interrompe senza esito, e il server ricaricato
