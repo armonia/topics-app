@@ -150,17 +150,24 @@ function lineText(parsed: Record<string, unknown>): string {
 }
 
 /**
- * Where a line carries its `<task-notification>`. One that lands while a turn
- * runs never becomes a user line: Claude Code absorbs it mid-turn, and only its
- * `queue-operation` enqueue names it (2.1.292,
- * `tests/fixtures/claude-cli-2.1.292-absorbed-task-notification.transcript.jsonl`).
- * The enqueue is written for every notification, delivered or absorbed; the
- * `remove` when the queue lets one go undelivered (absorbed, or dropped).
+ * Where a line carries its `<task-notification>`, and whether it only queues
+ * it. The CLI writes a queue `enqueue` for every notice when its task ends;
+ * the notice's fate comes after: the `user` row that delivers it to a turn at
+ * rest (and wakes it), or the queue's `remove` that lets it go undelivered,
+ * because a turn absorbed it mid-turn (it never becomes a user line,
+ * `tests/fixtures/claude-cli-2.1.292-absorbed-task-notification.transcript.jsonl`)
+ * or because it was dropped. Measured on 200 transcripts of 2.1.284 to
+ * 2.1.295: every absorbed notice has its `remove` (364), every `remove` names
+ * its notice, and 27 notices queued while a turn still answered were
+ * delivered once it stopped, none of them removed first.
  */
-function notificationText(parsed: Record<string, unknown>): string {
-  if (parsed.type === "user") return lineText(parsed);
-  if (parsed.type === "queue-operation" && (parsed.operation === "enqueue" || parsed.operation === "remove") && typeof parsed.content === "string") return parsed.content;
-  return "";
+function notificationOf(parsed: Record<string, unknown>): { text: string; queued: boolean } {
+  if (parsed.type === "user") return { text: lineText(parsed), queued: false };
+  if (parsed.type === "queue-operation" && typeof parsed.content === "string") {
+    if (parsed.operation === "remove") return { text: parsed.content, queued: false };
+    if (parsed.operation === "enqueue") return { text: parsed.content, queued: true };
+  }
+  return { text: "", queued: false };
 }
 
 /** The CLI's own notices that end a Monitor with no `<status>`: it expired, it timed out, or the CLI stopped it (too much output, a TaskStop). */
@@ -185,24 +192,40 @@ function reportsEnd(body: string): boolean {
 /** A task a transcript line reports finished: the CLI's id, and its call's when the notification names it. */
 export interface FinishedTask { id: string; toolUseId: string | null }
 
-/**
- * The tasks a transcript line reports as finished (`reportsEnd`). A one-shot
- * cron is closed by its fire, which the transcript does not name: the next
- * turn that opens in a terminal (`remove-one-shot-crons`, `tracker-sync.ts`),
- * `PostToolUse` of `CronDelete`, or the end of the process take it.
- */
-export function finishedTasksOfTranscriptLine(line: string): FinishedTask[] {
+/** The ends (`reportsEnd`) a transcript line reports, if it delivers or lets go its notices (`queued` false) or only queues them (true). */
+function endsOfLine(line: string, queued: boolean): FinishedTask[] {
   let parsed: Record<string, unknown>;
   try { parsed = JSON.parse(line); } catch { return []; }
   if (!parsed) return [];
-  const text = notificationText(parsed);
-  if (!text.includes("<task-notification>")) return [];
+  const notice = notificationOf(parsed);
+  if (notice.queued !== queued || !notice.text.includes("<task-notification>")) return [];
   const out: FinishedTask[] = [];
-  for (const m of text.matchAll(TASK_NOTIFICATION)) {
+  for (const m of notice.text.matchAll(TASK_NOTIFICATION)) {
     const id = tag(m[1], "task-id");
     if (id && reportsEnd(m[1])) out.push({ id, toolUseId: tag(m[1], "tool-use-id") });
   }
   return out;
+}
+
+/**
+ * The tasks a transcript line reports as finished: their notice delivered, or
+ * let go (`notificationOf`). A one-shot cron is closed by its fire, which the
+ * transcript does not name: the next turn that opens in a terminal
+ * (`remove-one-shot-crons`, `tracker-sync.ts`), `PostToolUse` of `CronDelete`,
+ * or the end of the process take it.
+ */
+export function finishedTasksOfTranscriptLine(line: string): FinishedTask[] {
+  return endsOfLine(line, false);
+}
+
+/**
+ * The tasks whose end a transcript line only queues (`enqueue`): still in
+ * flight, until the CLI delivers or lets go their notice
+ * (`claude-session-tracker.ts` keeps them, and a minute after their turn
+ * stopped with neither, `NOTICE_WAKE_MS`).
+ */
+export function queuedTasksOfTranscriptLine(line: string): FinishedTask[] {
+  return endsOfLine(line, true);
 }
 
 /** What `commandWakeState` (`routes/processes.ts`) says of a session's Topics commands. */

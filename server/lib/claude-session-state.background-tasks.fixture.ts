@@ -7,6 +7,7 @@ import { Database } from 'bun:sqlite';
 import { readFileSync, readdirSync } from 'fs';
 import { join } from 'path';
 import { createClaudeSessionTracker } from './claude-session-tracker';
+import { configureAttentionStore, recomposeAttentionOnBoot, resetAttentionStore } from '../attention/store';
 
 export const T0 = 1_700_000_000_000;
 
@@ -59,9 +60,11 @@ export const ABSORBED_LINES = readFileSync(join(import.meta.dir, '..', '..', 'te
   .split('\n').filter(Boolean);
 /** When the CLI wrote that end: the turn that absorbed it was running, and stopped later (9.8 s at the least, measured on 361 absorbed ends). */
 export const ABSORBED_AT = Date.parse(JSON.parse(ABSORBED_LINES[0]).timestamp);
-/** An Agent's end absorbed mid-turn that names no call: a few of them do not (4 in about 470 first notices). */
+/** An Agent's end that names no call, as the CLI queues it: a few of them do not (4 in about 470 first notices). */
 export const AGENT_END_NO_CALL = JSON.stringify({ type: 'queue-operation', operation: 'enqueue', timestamp: new Date(T0 + 900).toISOString(),
   sessionId: '00000000-0000-4000-8000-0000000000b3', content: '<task-notification>\n<task-id>a4bb623e3ab5ee41a</task-id>\n<status>failed</status>\n<summary>Agent "verify render" failed</summary>\n</task-notification>' });
+/** The same notice let go by the queue, absorbed by the turn that ran when it came: the Agent's task ends here. */
+export const AGENT_END_NO_CALL_LET_GO = JSON.stringify({ ...JSON.parse(AGENT_END_NO_CALL), operation: 'remove', timestamp: new Date(T0 + 905).toISOString() });
 
 export const subjectOf = (s: { sessionKey: string | null; claudeSessionId: string }) =>
   s.sessionKey ? `topic:${s.sessionKey.slice('topic:'.length)}` : `terminal:${s.claudeSessionId}`;
@@ -74,4 +77,47 @@ export function terminalTracker(frames: unknown[]) {
 
 export function phaseOf(tracker: ReturnType<typeof createClaudeSessionTracker>, sid: string) {
   return tracker.getSession(sid)?.phase;
+}
+
+/** The attention table alone: what a restart of the server keeps, where its memory is lost. */
+function attentionTable(): Database {
+  const db = new Database(':memory:');
+  const sql = readFileSync(join(import.meta.dir, '..', 'db', 'migrations', '20261003214001-subject-attention.sql'), 'utf-8')
+    .split('\n').filter((l) => !l.trim().startsWith('--')).join('\n');
+  for (const statement of sql.split(';').map((s) => s.trim()).filter(Boolean)) db.run(statement);
+  return db;
+}
+
+/**
+ * The attention store of a server that restarts: the table stays, the memory
+ * does not. It counts its pushes and rows, with a grace above zero as in
+ * production (the one the live path arms would announce once it ran out).
+ * `reset` before each test.
+ */
+export function durableAttention() {
+  const pushes: unknown[] = [];
+  const rows: unknown[] = [];
+  let table = attentionTable();
+  const configure = () => configureAttentionStore({ db: () => table, sendPush: (p) => { pushes.push(p); }, recordRow: (r) => { rows.push(r); return null; }, graceMs: 20 });
+  return {
+    pushes,
+    rows,
+    table: () => table,
+    reset: () => {
+      pushes.length = 0;
+      rows.length = 0;
+      table = attentionTable();
+      resetAttentionStore();
+      configure();
+    },
+    /** A restart of the server: nothing in memory survives, the table does. */
+    restart: () => {
+      resetAttentionStore();
+      configure();
+    },
+    /** The start recomposition, after the surviving turns are adopted: the reattach comes first. */
+    boot: () => {
+      recomposeAttentionOnBoot({ liveProcess: () => true });
+    },
+  };
 }

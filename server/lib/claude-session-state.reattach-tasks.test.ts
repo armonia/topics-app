@@ -5,36 +5,32 @@
  * @covers ATTN-03
  */
 import { afterAll, beforeEach, describe, expect, it } from 'bun:test';
-import { Database } from 'bun:sqlite';
-import { appendFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'fs';
+import { appendFileSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'fs';
 import { tmpdir } from 'os';
 import { dirname, join } from 'path';
 import { createClaudeSessionTracker } from './claude-session-tracker';
 import { deriveTranscriptPath } from './claude-session-state';
-import { configureAttentionStore, resetAttentionStore, getAttention, countingTasks, finishBackgroundTasks, recomposeAttentionOnBoot, setBackgroundTasks, turnEnded, turnStarted } from '../attention/store';
-import { T0, freshDb, turn, BASH_BG, AGENT_BG, CRON_ONCE, CRON_LOOP, BASH_ABSORBED, ABSORBED_LINES, ABSORBED_AT, AGENT_END_NO_CALL, subjectOf, terminalTracker, phaseOf } from './claude-session-state.background-tasks.fixture';
+import { resetAttentionStore, getAttention, countingTasks, finishBackgroundTasks, recomposeAttentionOnBoot, setBackgroundTasks, turnEnded, turnStarted } from '../attention/store';
+import { T0, freshDb, turn, BASH_BG, AGENT_BG, CRON_ONCE, CRON_LOOP, BASH_ABSORBED, ABSORBED_LINES, ABSORBED_AT, AGENT_END_NO_CALL, AGENT_END_NO_CALL_LET_GO, subjectOf, terminalTracker, phaseOf, durableAttention } from './claude-session-state.background-tasks.fixture';
 
 // The store is a process singleton: leave it as the next file expects it.
 afterAll(() => resetAttentionStore());
 
-/** The attention table alone: what a restart of the server keeps, where its memory is lost. */
-function attentionTable(): Database {
-  const db = new Database(':memory:');
-  const sql = readFileSync(join(import.meta.dir, '..', 'db', 'migrations', '20261003214001-subject-attention.sql'), 'utf-8')
-    .split('\n').filter((l) => !l.trim().startsWith('--')).join('\n');
-  for (const statement of sql.split(';').map((s) => s.trim()).filter(Boolean)) db.run(statement);
-  return db;
-}
-
-/** The notice the CLI writes when AGENT_BG, launched by the call `toolu_1`, ends. */
-const agentBgEnd = (at: number) => JSON.stringify({ type: 'queue-operation', operation: 'enqueue', timestamp: new Date(at).toISOString(), sessionId: '00000000-0000-4000-8000-0000000000b2',
-  content: '<task-notification>\n<task-id>a4bb623e3ab5ee41a</task-id>\n<tool-use-id>toolu_1</tool-use-id>\n<status>completed</status>\n<summary>Agent "verify render" completed</summary>\n</task-notification>' });
-/** The notice the CLI writes when BASH_BG, launched by the call `toolu_n0`, ends. */
-const bashBgEnd = (at: number) => JSON.stringify({ type: 'queue-operation', operation: 'enqueue', timestamp: new Date(at).toISOString(), sessionId: '00000000-0000-4000-8000-0000000000b2',
-  content: '<task-notification>\n<task-id>b7kapz0ad</task-id>\n<tool-use-id>toolu_n0</tool-use-id>\n<status>completed</status>\n<summary>Background command "sleep 600 && make build" completed (exit code 0)</summary>\n</task-notification>' });
-/** The notice the CLI writes when a task ends: its id, and its call's when the notice names it. */
-const taskEnd = (taskId: string, call: string | null, at: number) => JSON.stringify({ type: 'queue-operation', operation: 'enqueue', timestamp: new Date(at).toISOString(), sessionId: '00000000-0000-4000-8000-0000000000b2',
-  content: `<task-notification>\n<task-id>${taskId}</task-id>\n${call ? `<tool-use-id>${call}</tool-use-id>\n` : ''}<status>completed</status>\n<summary>done</summary>\n</task-notification>` });
+/** A queue record of the CLI for a notice: `enqueue` when its task ends, `remove` when the queue lets it go undelivered. */
+const queueRecord = (operation: 'enqueue' | 'remove', content: string, at: number) => JSON.stringify({ type: 'queue-operation', operation, timestamp: new Date(at).toISOString(), sessionId: '00000000-0000-4000-8000-0000000000b2', content });
+/** A notice queued and let go: a turn absorbed it, or the queue dropped it. Its task ends with the `remove`. */
+const letGo = (content: string, at: number) => [queueRecord('enqueue', content, at), queueRecord('remove', content, at + 5)].join('\n');
+/** The notice of AGENT_BG, launched by the call `toolu_1`. */
+const AGENT_BG_NOTICE = '<task-notification>\n<task-id>a4bb623e3ab5ee41a</task-id>\n<tool-use-id>toolu_1</tool-use-id>\n<status>completed</status>\n<summary>Agent "verify render" completed</summary>\n</task-notification>';
+/** The notice of BASH_BG, launched by the call `toolu_n0`. */
+const BASH_BG_NOTICE = '<task-notification>\n<task-id>b7kapz0ad</task-id>\n<tool-use-id>toolu_n0</tool-use-id>\n<status>completed</status>\n<summary>Background command "sleep 600 && make build" completed (exit code 0)</summary>\n</task-notification>';
+/** The lines the CLI writes when AGENT_BG ends and its notice is let go. */
+const agentBgEnd = (at: number) => letGo(AGENT_BG_NOTICE, at);
+/** The lines the CLI writes when BASH_BG ends and its notice is let go. */
+const bashBgEnd = (at: number) => letGo(BASH_BG_NOTICE, at);
+/** The lines the CLI writes when a task ends and its notice is let go: its id, and its call's when the notice names it. */
+const taskEnd = (taskId: string, call: string | null, at: number) =>
+  letGo(`<task-notification>\n<task-id>${taskId}</task-id>\n${call ? `<tool-use-id>${call}</tool-use-id>\n` : ''}<status>completed</status>\n<summary>done</summary>\n</task-notification>`, at);
 // The same NOCALL Agent end as a user delivery row, what the live tail reads after the reattach.
 const USER_LINE = JSON.stringify({ type: 'user', message: { role: 'user', content: JSON.parse(AGENT_END_NO_CALL).content }, timestamp: new Date(T0 + 5_000).toISOString() });
 
@@ -45,27 +41,8 @@ const USER_LINE = JSON.stringify({ type: 'user', message: { role: 'user', conten
  * or the terminal reads «working» until its PTY exits (ATTN-03).
  */
 describe('a reattached terminal drops the tasks its transcript already reports finished', () => {
-  // A grace above zero, as in production: the one the live path arms would announce once it ran out.
-  const pushes: unknown[] = [];
-  const rows: unknown[] = [];
-  let table: Database;
-  const configure = () => configureAttentionStore({ db: () => table, sendPush: (p) => { pushes.push(p); }, recordRow: (r) => { rows.push(r); return null; }, graceMs: 20 });
-  /** A restart of the server: nothing in memory survives, the table does. */
-  const restart = () => {
-    resetAttentionStore();
-    configure();
-  };
-  /** The start recomposition, after the surviving turns are adopted: the reattach comes first. */
-  const boot = () => {
-    recomposeAttentionOnBoot({ liveProcess: () => true });
-  };
-  beforeEach(() => {
-    pushes.length = 0;
-    rows.length = 0;
-    table = attentionTable();
-    resetAttentionStore();
-    configure();
-  });
+  const { pushes, rows, table, reset, restart, boot } = durableAttention();
+  beforeEach(reset);
 
   it('terminal: the notification sits in the transcript, the reattach takes its task out, replays no phase and announces nothing', async () => {
     const home = mkdtempSync(join(tmpdir(), 'bg-reattach-'));
@@ -195,7 +172,8 @@ describe('a reattached terminal drops the tasks its transcript already reports f
       after.registerTerminalSession(sid, { cwd, now: (t += 200) });
       const end = agentBgEnd(t + 500);
       appendFileSync(path, end + '\n');
-      after.ingestTranscriptLine(sid, end, (t += 500));
+      t += 500;
+      for (const line of end.split('\n')) after.ingestTranscriptLine(sid, line, t);
       expect(getAttention(subject).background.map((x: { id: string }) => x.id).sort()).toEqual(['a4bb623e3ab5ee41a', 'b76lzwo0d']);
       const deadline = Date.now() + 3_000;
       while (countingTasks(subject) > 0 && Date.now() < deadline) await new Promise((r) => setTimeout(r, 5));
@@ -357,7 +335,7 @@ describe('a reattached terminal drops the tasks its transcript already reports f
         const path = deriveTranscriptPath(home, cwd, sid);
         mkdirSync(dirname(path), { recursive: true });
         // The Agent's end first: once the Bash is out, the late read has read both.
-        writeFileSync(path, [AGENT_END_NO_CALL, ...ABSORBED_LINES].join('\n') + '\n');
+        writeFileSync(path, [AGENT_END_NO_CALL, AGENT_END_NO_CALL_LET_GO, ...ABSORBED_LINES].join('\n') + '\n');
         restart();
         const before = { epoch: getAttention(subject).epoch, pushes: pushes.length, rows: rows.length };
         const after = createClaudeSessionTracker({ db: freshDb(), broadcast: () => {}, coalesceWindowMs: 5, dedupWindowMs: 100, rateLimitPerSec: 50, attentionSubject: subjectOf, homeDir: home });
@@ -397,8 +375,9 @@ describe('a reattached terminal drops the tasks its transcript already reports f
       const before = { epoch: getAttention(subject).epoch, pushes: pushes.length, rows: rows.length };
       const after = createClaudeSessionTracker({ db: freshDb(), broadcast: () => {}, coalesceWindowMs: 5, dedupWindowMs: 100, rateLimitPerSec: 50, attentionSubject: subjectOf, homeDir: home });
       after.registerTerminalSession(sid, { cwd, now: (t += 200) });
-      appendFileSync(path, AGENT_END_NO_CALL + '\n');
-      after.ingestTranscriptLine(sid, AGENT_END_NO_CALL, (t += 500));
+      appendFileSync(path, [AGENT_END_NO_CALL, AGENT_END_NO_CALL_LET_GO].join('\n') + '\n');
+      t += 500;
+      for (const line of [AGENT_END_NO_CALL, AGENT_END_NO_CALL_LET_GO]) after.ingestTranscriptLine(sid, line, t);
       after.ingestHook({ hook_event_name: 'PostToolUse', tool_use_id: 'toolu_1', ...AGENT_BG, session_id: sid } as never, (t += 200));
       expect(getAttention(subject).background.map((x: { id: string }) => x.id).sort()).toEqual(['a4bb623e3ab5ee41a', 'b76lzwo0d']);
       const deadline = Date.now() + 3_000;
@@ -564,7 +543,8 @@ describe('a reattached terminal drops the tasks its transcript already reports f
       hook({ hook_event_name: 'PreToolUse', tool_use_id: 'toolu_n0', ...BASH_BG });
       const end = bashBgEnd(t + 100);
       appendFileSync(path, end + '\n');
-      after.ingestTranscriptLine(sid, end, (t += 100));
+      t += 100;
+      for (const line of end.split('\n')) after.ingestTranscriptLine(sid, line, t);
       // The catch-up reads the whole history behind the live read: let it land before the hook does.
       await new Promise((r) => setTimeout(r, 150));
       boot();
@@ -573,7 +553,8 @@ describe('a reattached terminal drops the tasks its transcript already reports f
       // Minutes later the Agent ends, read live: announced once, as without a restart.
       const agentEnd = taskEnd('a4bb623e3ab5ee41a', 'toolu_0', t + 60_000);
       appendFileSync(path, agentEnd + '\n');
-      after.ingestTranscriptLine(sid, agentEnd, (t += 60_000));
+      t += 60_000;
+      for (const line of agentEnd.split('\n')) after.ingestTranscriptLine(sid, line, t);
       await new Promise((r) => setTimeout(r, 100));
       expect(getAttention(subject).state).toBe('finished');
       expect(getAttention(subject).background).toEqual([]);
@@ -600,8 +581,9 @@ describe('a reattached terminal drops the tasks its transcript already reports f
       after.registerTerminalSession(sid, { cwd, now: (t += 200) });
       const end = taskEnd('b7kapz0ad', 'toolu_c0', t + 100);
       appendFileSync(path, end + '\n');
-      after.ingestTranscriptLine(sid, end, (t += 100));
-      const rowBefore = !!table.query('SELECT 1 FROM subject_attention WHERE subject = ?').get(subject);
+      t += 100;
+      for (const line of end.split('\n')) after.ingestTranscriptLine(sid, line, t);
+      const rowBefore = !!table().query('SELECT 1 FROM subject_attention WHERE subject = ?').get(subject);
       expect(rowBefore).toBe(false);
       boot();
       // The prompt and the PreToolUse were lost while the server was down: only the PostToolUse lands, then the Stop.
@@ -684,7 +666,8 @@ describe('a reattached terminal drops the tasks its transcript already reports f
           hook({ hook_event_name: 'PostToolUse', tool_use_id: 'toolu_n0', ...BASH_BG });
           const end = bashBgEnd(t + 100);
           appendFileSync(path, end + '\n');
-          after.ingestTranscriptLine(sid, end, (t += 100));
+          t += 100;
+      for (const line of end.split('\n')) after.ingestTranscriptLine(sid, line, t);
         }
         hook({ hook_event_name: 'Stop' });
         expect(phaseOf(after, sid)).toBe('watching');
@@ -723,15 +706,15 @@ describe('a reattached terminal drops the tasks its transcript already reports f
       hook({ hook_event_name: 'PreToolUse', tool_use_id: 'toolu_n0', ...BASH_BG });
       hook({ hook_event_name: 'PostToolUse', tool_use_id: 'toolu_n0', ...BASH_BG });
       hook({ hook_event_name: 'Stop' });
-      const end = bashBgEnd(t + 100);
+      const end = queueRecord('enqueue', BASH_BG_NOTICE, t + 100);
       appendFileSync(path, end + '\n');
       after.ingestTranscriptLine(sid, end, (t += 100));
       const deadline = Date.now() + 3_000;
-      while (countingTasks(subject) > 0 && Date.now() < deadline) await new Promise((r) => setTimeout(r, 5));
+      while (countingTasks(subject) > 1 && Date.now() < deadline) await new Promise((r) => setTimeout(r, 5));
       boot();
       await new Promise((r) => setTimeout(r, 100));
       expect(phaseOf(after, sid)).toBe('watching');
-      const row = JSON.stringify({ type: 'user', uuid: 'u-wake', timestamp: new Date(t + 32).toISOString(), message: { role: 'user', content: JSON.parse(end).content } });
+      const row = JSON.stringify({ type: 'user', uuid: 'u-wake', timestamp: new Date(t + 32).toISOString(), message: { role: 'user', content: BASH_BG_NOTICE } });
       appendFileSync(path, row + '\n');
       after.ingestTranscriptLine(sid, row, (t += 100));
       expect(phaseOf(after, sid)).toBe('running');
@@ -758,7 +741,8 @@ describe('a reattached terminal drops the tasks its transcript already reports f
       after.registerTerminalSession(sid, { cwd, now: (t += 200) });
       const end = agentBgEnd(t + 500);
       appendFileSync(path, end + '\n');
-      after.ingestTranscriptLine(sid, end, (t += 500));
+      t += 500;
+      for (const line of end.split('\n')) after.ingestTranscriptLine(sid, line, t);
       after.registerTerminalSession(sid, { cwd, now: (t += 200) });
       const deadline = Date.now() + 3_000;
       while (countingTasks(subject) > 0 && Date.now() < deadline) await new Promise((r) => setTimeout(r, 5));

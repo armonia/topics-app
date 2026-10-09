@@ -182,8 +182,11 @@ un compito in volo, qualunque sia il tool che l'ha lanciato, e `awaiting-user` q
 ne ha.
 
 L'avviso di fine SHALL valere anche quando la CLI lo assorbe a metà turno: dalla 2.1.292
-non diventa una riga utente, e lo nomina solo il record di coda `queue-operation`
-`enqueue`, che la CLI scrive per ogni avviso, consegnato o assorbito.
+non diventa una riga utente, e lo nominano solo i record di coda `queue-operation`:
+l'`enqueue`, che la CLI scrive per ogni avviso, e il `remove` con cui lo lascia andare senza
+consegnarlo. L'`enqueue` da solo NON SHALL chiudere il compito: la CLI può ancora consegnare
+l'avviso a turno fermo e svegliare la sessione. Lo chiude la sorte dell'avviso: la riga che lo
+consegna, il `remove`, o un minuto dopo lo `Stop` senza né l'una né l'altro.
 
 L'avviso SHALL chiudere il compito sotto qualunque id la mappa lo tenga: anche sotto il
 `tool-use-id` della chiamata che l'avviso nomina, finché il `PostToolUse` non l'ha ri-chiavato.
