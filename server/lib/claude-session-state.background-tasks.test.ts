@@ -180,6 +180,41 @@ describe('the phase at Stop counts every task in flight, by id, in the attention
       expect(countingTasks(subject)).toBe(0);
       expect(phaseOf(tracker, sid)).toBe('awaiting-user');
     });
+
+    // The late hooks correct the Stop's verdict, dated at the Stop: a line the CLI wrote after it, read after them, still wakes the turn.
+    it(`${label}: late hooks that raise the resting turn leave it to the delivery written before they landed, which wakes it`, () => {
+      const { tracker, sid, subject } = make([]);
+      const hook = (h: Record<string, unknown>, firedAt: number, at = firedAt) =>
+        tracker.ingestHook({ ...h, session_id: sid, fired_at: firedAt } as never, at);
+      hook({ hook_event_name: 'UserPromptSubmit' }, T0 + 100);
+      hook({ hook_event_name: 'Stop' }, T0 + 1_000);
+      const phases = [phaseOf(tracker, sid)];
+      hook({ hook_event_name: 'PreToolUse', tool_use_id: 'toolu_0', ...BASH_BG }, T0 + 800, T0 + 3_000);
+      hook({ hook_event_name: 'PostToolUse', tool_use_id: 'toolu_0', ...BASH_BG }, T0 + 900, T0 + 3_010);
+      phases.push(phaseOf(tracker, sid));
+      // The Bash ended 1 s after the Stop and the CLI, idle, delivered it 31 ms later.
+      for (const line of [enqueued(BASH_BG_END, T0 + 2_000), delivered(BASH_BG_END, T0 + 2_031)]) tracker.ingestTranscriptLine(sid, line, T0 + 3_500);
+      phases.push(phaseOf(tracker, sid));
+      expect(phases).toEqual(['awaiting-user', 'watching', 'running']);
+      expect(countingTasks(subject)).toBe(0);
+    });
+
+    it(`${label}: a late hook that takes out the last task rests the turn, and the next prompt written before it landed still wakes it`, () => {
+      const { tracker, sid } = make([]);
+      const hook = (h: Record<string, unknown>, firedAt: number, at = firedAt) =>
+        tracker.ingestHook({ ...h, session_id: sid, fired_at: firedAt } as never, at);
+      hook({ hook_event_name: 'UserPromptSubmit' }, T0 + 100);
+      hook({ hook_event_name: 'PreToolUse', tool_use_id: 'toolu_a', ...AGENT_BG }, T0 + 300);
+      for (const line of [AGENT_END_NO_CALL, AGENT_END_NO_CALL_LET_GO]) tracker.ingestTranscriptLine(sid, line, T0 + 900);
+      hook({ hook_event_name: 'Stop' }, T0 + 1_500);
+      const phases = [phaseOf(tracker, sid)];
+      hook({ hook_event_name: 'PostToolUse', tool_use_id: 'toolu_a', ...AGENT_BG }, T0 + 400, T0 + 2_500);
+      phases.push(phaseOf(tracker, sid));
+      // Typed half a second after the Stop; its UserPromptSubmit is as late as the PostToolUse.
+      tracker.ingestTranscriptLine(sid, JSON.stringify({ type: 'user', uuid: 'u-next', timestamp: new Date(T0 + 2_000).toISOString(), message: { role: 'user', content: 'now the docs' } }), T0 + 3_000);
+      phases.push(phaseOf(tracker, sid));
+      expect(phases).toEqual(['watching', 'awaiting-user', 'running']);
+    });
   }
 
   it('terminal: a Monitor event that says «stopped» is the watched program talking, and only the CLI\'s own notice ends the Monitor', () => {

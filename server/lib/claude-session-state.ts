@@ -431,6 +431,9 @@ export function applyHook(
  *    parked `watching` whose last task this hook just closed (its notice was
  *    read first and named no call, `finishedTasks` in the store) is
  *    `awaiting-user`, for the same reason. No report will wake that one.
+ *    Either move corrects the `Stop`'s verdict and is dated at it, as
+ *    `settleWatching` is: a line the CLI wrote after the `Stop` (the delivery
+ *    that wakes the turn) still passes `applyJsonlEvent`'s causal gate.
  * Returns `prev` itself when nothing moves.
  */
 export function applyStaleHook(
@@ -444,10 +447,10 @@ export function applyStaleHook(
     return transition(prev, { jsonlPath: hook.transcript_path }, now);
   }
   if (prev.phase === 'awaiting-user' && (opts.countingTasks ?? 0) > 0) {
-    return transition(prev, { phase: 'watching' }, now);
+    return { ...transition(prev, { phase: 'watching' }, now), phaseUpdatedAt: prev.phaseUpdatedAt };
   }
   if (prev.phase === 'watching' && opts.countingTasks === 0) {
-    return transition(prev, { phase: 'awaiting-user' }, now);
+    return { ...transition(prev, { phase: 'awaiting-user' }, now), phaseUpdatedAt: prev.phaseUpdatedAt };
   }
   return prev;
 }
