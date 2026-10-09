@@ -20,7 +20,7 @@
  */
 import { afterAll, beforeEach, describe, expect, it } from 'bun:test';
 import { Database } from 'bun:sqlite';
-import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'fs';
+import { appendFileSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'fs';
 import { tmpdir } from 'os';
 import { dirname, join } from 'path';
 import { createClaudeSessionTracker } from './claude-session-tracker';
@@ -416,6 +416,41 @@ describe('a reattached terminal drops the tasks its transcript already reports f
       expect(getAttention(subject)).toMatchObject({ background: [] });
       expect(getAttention(subject).state).not.toBe('working');
       expect(phaseOf(after, sid)).toBe('dormant');
+    } finally {
+      rmSync(home, { recursive: true, force: true });
+    }
+  });
+
+  it('terminal: a task still in flight after the late read is announced once when it ends live', async () => {
+    const home = mkdtempSync(join(tmpdir(), 'bg-reattach-rest-'));
+    try {
+      const cwd = '/work/project';
+      const { tracker, sid, subject } = terminalTracker([]);
+      let t = T0;
+      turn([BASH_ABSORBED, AGENT_BG]).forEach((h) => tracker.ingestHook({ ...h, session_id: sid } as never, (t += 200)));
+      expect(countingTasks(subject)).toBe(2);
+      // The Bash ends while no server reads the file; the Agent still runs.
+      const path = deriveTranscriptPath(home, cwd, sid);
+      mkdirSync(dirname(path), { recursive: true });
+      writeFileSync(path, ABSORBED_LINES.join('\n') + '\n');
+      restart();
+      const before = { epoch: getAttention(subject).epoch, pushes: pushes.length, rows: rows.length };
+      const after = createClaudeSessionTracker({ db: freshDb(), broadcast: () => {}, coalesceWindowMs: 5, dedupWindowMs: 100, rateLimitPerSec: 50, attentionSubject: subjectOf, homeDir: home });
+      after.registerTerminalSession(sid, { cwd, now: (t += 200) });
+      const deadline = Date.now() + 3_000;
+      while (countingTasks(subject) > 1 && Date.now() < deadline) await new Promise((r) => setTimeout(r, 10));
+      expect(countingTasks(subject)).toBe(1);
+      boot();
+      expect(getAttention(subject).state).toBe('working');
+      // Minutes later the Agent ends: the CLI writes its notice and the live tail reads it.
+      const agentEnd = JSON.stringify({ type: 'queue-operation', operation: 'enqueue', timestamp: new Date(T0 + 60_000).toISOString(), sessionId: '00000000-0000-4000-8000-0000000000b2',
+        content: '<task-notification>\n<task-id>a4bb623e3ab5ee41a</task-id>\n<tool-use-id>toolu_1</tool-use-id>\n<status>completed</status>\n<summary>Agent "verify render" completed</summary>\n</task-notification>' });
+      appendFileSync(path, agentEnd + '\n');
+      await after.tailOnce((t += 60_000));
+      expect(countingTasks(subject)).toBe(0);
+      await new Promise((r) => setTimeout(r, 100));
+      expect(getAttention(subject).state).toBe('finished');
+      expect({ epoch: getAttention(subject).epoch - before.epoch, pushes: pushes.length - before.pushes, rows: rows.length - before.rows }).toEqual({ epoch: 1, pushes: 1, rows: 1 });
     } finally {
       rmSync(home, { recursive: true, force: true });
     }

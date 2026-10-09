@@ -203,7 +203,9 @@ chiude il suo compito come gli altri. Ciò che chiude è finito prima del riavvi
 ricompone come ogni riavvio: senza riga, senza annuncio, senza push e senza un'epoca nuova.
 Un turno chiuso dal vivo dopo il riavvio, anche mentre il riattacco sta ancora leggendo, SHALL
 essere annunciato come sempre. La fine letta dopo il fatto SHALL restare senza epoca anche se
-un turno dal vivo si apre mentre il riattacco legge e chiude senza esito.
+un turno dal vivo si apre mentre il riattacco legge e chiude senza esito. Se dopo la lettura
+resta in volo un altro compito, il turno non è finito prima del riavvio: la fine di quel compito,
+letta dal vivo, SHALL essere annunciata come sempre.
 
 #### Scenario: Bash, Agent e Workflow in un terminale
 - **GIVEN** un terminale claude-code con hook
@@ -271,6 +273,13 @@ un turno dal vivo si apre mentre il riattacco legge e chiude senza esito.
 - **WHEN** un turno dal vivo si apre mentre il riattacco sta ancora leggendo e chiude senza esito
 - **THEN** al riattacco il compito SHALL uscire dalla mappa e lo stato SHALL essere `finished(done)`
 - **AND** la fine del turno di prima NON SHALL essere annunciata: nessuna riga, nessun push, la stessa epoca
+
+#### Scenario: un compito ancora in volo dopo la lettura del riattacco
+- **GIVEN** un terminale in `watching` per un Bash e un Agent in background, e il server ricaricato
+- **AND** il transcript con l'avviso di fine del Bash, scritto mentre nessun server leggeva
+- **WHEN** il riattacco toglie il Bash, e più tardi l'Agent finisce e la coda viva ne legge l'avviso
+- **THEN** dopo il riattacco lo stato SHALL restare `working`
+- **AND** la fine dell'Agent SHALL essere annunciata una volta: una riga, un push, un'epoca nuova
 
 ### Requirement: ATTN-04 — Una persona in mezzo è «ti serve», da qualunque porta arrivi
 

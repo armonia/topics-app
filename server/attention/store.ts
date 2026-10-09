@@ -734,7 +734,10 @@ export function finishBackgroundTasks(subject: string, ids: readonly string[], o
   for (const id of gone) delete next[id];
   e.row.background = next;
   if (opts.late && !e.lastTurnLive) {
-    if (e.row.lastTurn) e.row.lastTurn = { ...e.row.lastTurn, late: true };
+    // Marked only when this read takes out the last task that held the turn. With another still in
+    // flight the turn goes on past the restart, and that task's end, read live, announces it as
+    // always. A live turn open meanwhile does not count: it is not the turn this read closes.
+    if (e.row.lastTurn && countingTaskCount(e.row.background) === 0) e.row.lastTurn = { ...e.row.lastTurn, late: true };
     recompose(subject, { live: false });
     return true;
   }
