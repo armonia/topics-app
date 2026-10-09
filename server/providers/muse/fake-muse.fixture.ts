@@ -67,7 +67,21 @@ emit("turn.input.user", { kind: "turn_input_user", command_id: commandId, run_st
 emit("run.lifecycle.started", { kind: "run_started", command_id: commandId, run_stream: { kind: "run", id: commandId }, prompt: prompt.slice(0, 60) });
 
 const hasHistory = prompt.includes("## Current message");
-const tag = `[sid=${sessionId} history=${hasHistory ? "yes" : "no"}]`;
+// `MCP`: echoes the bridge the CLI would mount, read from where the real CLI
+// reads it ($XDG_CONFIG_HOME/muse/settings.json), so a test sees the spawn env
+// and not a helper's return value.
+let mcpTag = "";
+if (prompt.includes("MCP")) {
+  const dir = process.env.XDG_CONFIG_HOME;
+  let bridge = "none";
+  try {
+    const settings = JSON.parse(readFileSync(`${dir}/muse/settings.json`, "utf8"));
+    const topics = settings.mcpServers?.topics;
+    if (topics) bridge = `${topics.transport}:${(topics.args as string[]).find((a) => a.startsWith("--session-key=")) ?? "?"}`;
+  } catch { /* no staged config: bridge stays "none" */ }
+  mcpTag = ` mcp=${bridge}`;
+}
+const tag = `[sid=${sessionId} history=${hasHistory ? "yes" : "no"}${mcpTag}]`;
 
 if (prompt.includes("TOOL")) {
   const task = "task-fake-read";

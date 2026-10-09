@@ -288,4 +288,20 @@ describe("muse-integration", () => {
       provider.stop();
     }
   });
+  test("the CLI is spawned with the Topics bridge bound to this session", async () => {
+    // RED BEFORE: `muse exec` has no --mcp-config and the provider passed
+    // only the user's settings, so a Muse chat had no `topics` tools at all.
+    const sessionKey = "topic:muse-int-mcp";
+    seedTopic(sessionKey);
+    const provider = new MuseProvider({ type: "muse", defaultWorkspace: tempRoot });
+    provider.start();
+    try {
+      const tape = recorder();
+      await provider.sendChat(sessionKey, "check MCP", tape.handler, {});
+      const result = await timed(tape.done, "onDone");
+      expect(result).toContain(`mcp=stdio:--session-key=${sessionKey}`);
+    } finally {
+      provider.stop();
+    }
+  });
 });
