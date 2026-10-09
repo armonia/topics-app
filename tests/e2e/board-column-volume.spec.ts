@@ -333,6 +333,42 @@ test.describe("Kanban — il volume di una colonna", () => {
     expect(await cardsIn(page, "done").count(), "one page per reach, not a chain").toBe(COLUMN_PAGE * 2);
   });
 
+  test("COLVOL-08: a 390x844, cambiata vista e tornata, Done ritrova le pagine che aveva caricato", async ({ page }) => {
+    test.info().annotations.push({ type: "spec", description: "LIST-PAGE-01" });
+    // The view that changes is the board's own: the archive toggle (and the project/all one) sends the
+    // board back to its skeleton for a fresh read, which unmounts the columns. Done then restarted from its
+    // first page, and the reader who had scrolled to 50 cards found 25 and scrolled through them again.
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.goto("/");
+    await openProjectBoard(page);
+    await expect(cardsIn(page, "done").first()).toBeAttached({ timeout: 20000 });
+    expect(await cardsIn(page, "done").count()).toBe(COLUMN_PAGE);
+
+    await page.getByTestId("kanban-column-body-done").scrollIntoViewIfNeeded();
+    await page.getByTestId("kanban-column-more-done").scrollIntoViewIfNeeded();
+    await expect.poll(() => cardsIn(page, "done").count(), { timeout: 10000 }).toBe(COLUMN_PAGE * 2);
+    await afterFrames(page, 10);
+
+    // Away (the archive) and back: the board remounts its columns on each read.
+    const archive = page.getByTestId("board-archived-toggle");
+    await archive.click();
+    await expect(archive).toHaveAttribute("aria-pressed", "true");
+    await expect(page.getByTestId("board-archived-banner")).toBeVisible({ timeout: 10000 });
+    await archive.click();
+    await expect(archive).toHaveAttribute("aria-pressed", "false");
+    await expect(cardsIn(page, "done").first()).toBeAttached({ timeout: 20000 });
+    await afterFrames(page, 60);
+    expect(await cardsIn(page, "done").count(), "the pages already loaded survive the remount").toBe(COLUMN_PAGE * 2);
+    expect(await cardsIn(page, "done").count(), "and nothing more is loaded for a reader who has not got there").toBe(COLUMN_PAGE * 2);
+
+    // The list still pages from where it was: reaching the row adds ONE page.
+    await page.getByTestId("kanban-column-body-done").scrollIntoViewIfNeeded();
+    await page.getByTestId("kanban-column-more-done").scrollIntoViewIfNeeded();
+    await expect.poll(() => cardsIn(page, "done").count(), { timeout: 10000 }).toBe(COLUMN_PAGE * 3);
+    await afterFrames(page, 10);
+    expect(await cardsIn(page, "done").count(), "one page per reach, not a chain").toBe(COLUMN_PAGE * 3);
+  });
+
   test("COLVOL-07: tornata da lista a griglia, la colonna carica ancora prima che la riga entri in vista", async ({ page }) => {
     test.info().annotations.push({ type: "spec", description: "LIST-PAGE-01" });
     // Back in the grid the row sits far down its own column again, and nothing the old observers watched
