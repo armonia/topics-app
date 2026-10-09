@@ -7,7 +7,7 @@
  * tests never touch — spawn, argv, prompt from file, sid resume, abort of a
  * live turn, exit≠0.
  *
- * @covers MUSE-02, MUSE-03
+ * @covers MUSE-02, MUSE-03, MUSE-05
  */
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { chmodSync, mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "fs";
