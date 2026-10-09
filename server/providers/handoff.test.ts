@@ -77,6 +77,24 @@ describe("handoff", () => {
     expect(pre).not.toContain("dalla rotta");
   });
 
+  test("the written text stays within budget even with hundreds of small tool calls", () => {
+    // RED BEFORE: the budget was applied to the messages, and the text adds a
+    // line per call. On the real chat (1,483 calls) 60k came out at ~84k.
+    const thread: PersistedTurn[] = [u("inizio")];
+    for (let i = 0; i < 400; i++) {
+      thread.push({ role: "assistant", content: "", toolCalls: Array.from({ length: 4 }, (_, k) =>
+        tc({ id: `t${i}-${k}`, args: { command: `ls -la /some/path/${i}/${k}` }, result: "ok ".repeat(40), contentOffset: 0 })) });
+      thread.push(u(`passo ${i}`));
+    }
+    thread.push(u("nuovo"));
+    useStore(thread);
+    const budget = 10_000;
+    const text = handoffFromStore("topic:x", { budgetTokens: budget })!;
+    expect(estimateTokens([{ role: "user", content: text }])).toBeLessThanOrEqual(budget);
+    expect(text).toContain("passo 399");
+    expect(text).not.toContain("risultato rimosso");
+  });
+
   test("a history that fits is handed over whole, with no notice", () => {
     useStore([u("breve"), { role: "assistant", content: "ok" }, u("nuovo")]);
     const text = handoffFromStore("topic:x")!;

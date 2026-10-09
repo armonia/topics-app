@@ -21,7 +21,7 @@
 import type { ChatMessage } from "./types";
 import type { AgentMessage, Block } from "./native/agent-loop";
 import { rehydrateHistory } from "./native/history-rehydrate";
-import { compactToBudget, DROPPED } from "./native/compaction";
+import { compactToBudget, DROPPED, estimateTokens } from "./native/compaction";
 
 /**
  * How much of the new session's window the handoff may take, in estimated
@@ -30,6 +30,9 @@ import { compactToBudget, DROPPED } from "./native/compaction";
  * turn that is about to run.
  */
 export const HANDOFF_BUDGET_TOKENS = 60_000;
+
+/** Write-measure-shrink rounds before the handoff is accepted as is. */
+const MAX_FIT_ROUNDS = 4;
 
 /** The legacy cap, kept ONLY for the text fallback when the DB has nothing. */
 const LEGACY_TURN_CAP = 20;
@@ -75,6 +78,9 @@ function renderTurn(turn: AgentMessage, names: Map<string, string>): string {
       const input = clip(JSON.stringify(b.input ?? {}), TOOL_INPUT_CHARS, 0);
       out.push(`- tool \`${b.name ?? "?"}\` ${input}`);
     } else if (b.type === "tool_result") {
+      // An emptied result is not written: the heading already says results
+      // were shortened, and 1,483 copies of the placeholder are pure weight.
+      if (resultText(b.content) === DROPPED) continue;
       const name = (b.tool_use_id && names.get(b.tool_use_id)) || "tool";
       const text = clip(resultText(b.content), TOOL_RESULT_HEAD_CHARS, TOOL_RESULT_TAIL_CHARS);
       out.push(`- result of \`${name}\`${b.is_error ? " (error)" : ""}:\n${text.replace(/^/gm, "  ")}`);
@@ -132,14 +138,27 @@ export function handoffFromStore(
 ): string | null {
   const turns = rehydrateHistory(sessionKey, opts.messageRows ?? 1);
   if (turns.length === 0) return null;
-  const c = compactToBudget(turns, opts.budgetTokens ?? HANDOFF_BUDGET_TOKENS);
-  return renderHandoff(c.messages, {
-    droppedTurns: droppedFrom(c.messages) || c.droppedMessages,
-    // Not `after < before`: `rehydrateHistory` already compacts to its own
-    // ceiling, so the results can arrive emptied before this budget applies.
-    shortened: c.messages.some((m) => Array.isArray(m.content)
-      && m.content.some((b) => b.type === "tool_result" && resultText(b.content) === DROPPED)),
-  });
+  const target = opts.budgetTokens ?? HANDOFF_BUDGET_TOKENS;
+  // THE BUDGET IS CHECKED ON THE TEXT, not on the messages. `compact` measures
+  // the message array; the written text adds a line per call, and on a chat
+  // with 1,483 tool calls (topic:64095902, 09/10) a 60k budget came out at
+  // ~84k. So: write, measure, and compact tighter until the text fits.
+  let budget = target;
+  let text = "";
+  for (let round = 0; round < MAX_FIT_ROUNDS; round++) {
+    const c = compactToBudget(turns, budget);
+    text = renderHandoff(c.messages, {
+      droppedTurns: droppedFrom(c.messages) || c.droppedMessages,
+      // Not `after < before`: `rehydrateHistory` already compacts to its own
+      // ceiling, so the results can arrive emptied before this budget applies.
+      shortened: c.messages.some((m) => Array.isArray(m.content)
+        && m.content.some((b) => b.type === "tool_result" && resultText(b.content) === DROPPED)),
+    });
+    const used = estimateTokens([{ role: "user", content: text }]);
+    if (used <= target) break;
+    budget = Math.floor(budget * (target / used) * 0.9);
+  }
+  return text;
 }
 
 /**
