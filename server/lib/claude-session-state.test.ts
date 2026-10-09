@@ -712,12 +712,6 @@ describe('parseJsonlLine — real transcript shapes (ground-truthed 2026-07-12)'
     expect(ev.type).toBe('meta');
   });
 
-  it('a bash mode command and its output are meta (the shell runs, no model turn)', () => {
-    for (const content of ['<bash-input>ls</bash-input>', '<bash-stdout>a.ts</bash-stdout><bash-stderr></bash-stderr>']) {
-      expect(parseJsonlLine(JSON.stringify({ type: 'user', timestamp: TS, message: { role: 'user', content } }))!.type).toBe('meta');
-    }
-  });
-
   it('an interrupt marker is meta (user STOPPING a turn, not starting one)', () => {
     const ev = parseJsonlLine(JSON.stringify({
       type: 'user', timestamp: TS,

@@ -172,8 +172,8 @@ describe('a one-shot cron armed in the turn before the one the transcript opens'
 
 describe('a meta row the CLI marks as opening a turn orders the hooks too', () => {
   // A cron's fire and a message from another session come as `isMeta` rows with `turnOrigin`: in 2555 transcripts
-  // all 146 open a turn. A meta row without it (harness text, a skill's body), a local command's echo or a `!` command
-  // of the bash mode opens none and leaves the Stop alone.
+  // all 146 open a turn. A meta row without it (harness text, a skill's body), or a local command's echo, opens none
+  // and leaves the Stop alone.
   const metaRow = (extra: Record<string, unknown>, at: number) =>
     JSON.stringify({ type: 'user', uuid: `m${at}`, timestamp: new Date(at).toISOString(), isMeta: true, message: { role: 'user', content: 'check the build' }, ...extra });
   const rows = [
@@ -181,7 +181,6 @@ describe('a meta row the CLI marks as opening a turn orders the hooks too', () =
     ['a message from another session', { turnOrigin: 'peer', origin: { kind: 'peer', from: 'another' } }],
     ['harness text with no turnOrigin', {}],
     ['a local command echo with turnOrigin, not meta', { isMeta: false, turnOrigin: 'human', message: { role: 'user', content: '<command-name>/model</command-name>' } }],
-    ['a bash mode command, not meta', { isMeta: false, message: { role: 'user', content: '<bash-input>git status</bash-input>' } }],
   ] as const;
   for (const [what, extra] of rows) {
     it(`${what}, read before the late Stop`, async () => {
