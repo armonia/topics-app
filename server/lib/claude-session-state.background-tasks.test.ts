@@ -25,7 +25,7 @@ import { tmpdir } from 'os';
 import { dirname, join } from 'path';
 import { createClaudeSessionTracker } from './claude-session-tracker';
 import { deriveTranscriptPath } from './claude-session-state';
-import { configureAttentionStore, resetAttentionStore, getAttention, countingTasks } from '../attention/store';
+import { configureAttentionStore, resetAttentionStore, getAttention, countingTasks, finishBackgroundTasks, recomposeAttentionOnBoot, setBackgroundTasks, turnEnded, turnStarted } from '../attention/store';
 
 // The store is a process singleton: leave it as the next file expects it.
 afterAll(() => resetAttentionStore());
@@ -50,6 +50,15 @@ function freshDb(): Database {
     const sql = readFileSync(join(migDir, file), 'utf-8').split('\n').filter((l) => !l.trim().startsWith('--')).join('\n');
     for (const statement of sql.split(';').map((s) => s.trim()).filter(Boolean)) db.run(statement);
   }
+  return db;
+}
+
+/** The attention table alone: what a restart of the server keeps, where its memory is lost. */
+function attentionTable(): Database {
+  const db = new Database(':memory:');
+  const sql = readFileSync(join(import.meta.dir, '..', 'db', 'migrations', '20261003214001-subject-attention.sql'), 'utf-8')
+    .split('\n').filter((l) => !l.trim().startsWith('--')).join('\n');
+  for (const statement of sql.split(';').map((s) => s.trim()).filter(Boolean)) db.run(statement);
   return db;
 }
 
@@ -360,11 +369,20 @@ describe('a reattached terminal drops the tasks its transcript already reports f
   // A grace above zero, as in production: the one the live path arms would announce once it ran out.
   const pushes: unknown[] = [];
   const rows: unknown[] = [];
+  let table: Database;
+  const configure = () => configureAttentionStore({ db: () => table, sendPush: (p) => { pushes.push(p); }, recordRow: (r) => { rows.push(r); return null; }, graceMs: 20 });
+  /** A restart of the server: nothing in memory survives, the table does, and the start recomposes it. */
+  const restart = () => {
+    resetAttentionStore();
+    configure();
+    recomposeAttentionOnBoot({ liveProcess: () => true });
+  };
   beforeEach(() => {
     pushes.length = 0;
     rows.length = 0;
+    table = attentionTable();
     resetAttentionStore();
-    configureAttentionStore({ db: () => null, sendPush: (p) => { pushes.push(p); }, recordRow: (r) => { rows.push(r); return null; }, graceMs: 20 });
+    configure();
   });
 
   it('terminal: the notification sits in the transcript, the reattach takes its task out, replays no phase and announces nothing', async () => {
@@ -380,7 +398,8 @@ describe('a reattached terminal drops the tasks its transcript already reports f
       mkdirSync(dirname(path), { recursive: true });
       writeFileSync(path, ABSORBED_LINES.join('\n') + '\n');
       const before = { epoch: getAttention(subject).epoch, pushes: pushes.length, rows: rows.length };
-      // The restart: a new tracker reattaches the terminal; the store keeps its map, as its table does.
+      // The restart: the store keeps its table and none of its memory, a new tracker reattaches the terminal.
+      restart();
       const after = createClaudeSessionTracker({ db: freshDb(), broadcast: () => {}, coalesceWindowMs: 5, dedupWindowMs: 100, rateLimitPerSec: 50, attentionSubject: subjectOf, homeDir: home });
       after.registerTerminalSession(sid, { cwd, now: (t += 200) });
       const deadline = Date.now() + 3_000;
@@ -396,5 +415,54 @@ describe('a reattached terminal drops the tasks its transcript already reports f
     } finally {
       rmSync(home, { recursive: true, force: true });
     }
+  });
+
+  it('terminal: a live turn that ends while the catch-up still reads is announced once', async () => {
+    const home = mkdtempSync(join(tmpdir(), 'bg-reattach-live-'));
+    try {
+      const cwd = '/work/project';
+      const { tracker, sid, subject } = terminalTracker([]);
+      let t = T0;
+      turn([BASH_ABSORBED]).forEach((h) => tracker.ingestHook({ ...h, session_id: sid } as never, (t += 200)));
+      expect(phaseOf(tracker, sid)).toBe('watching');
+      const path = deriveTranscriptPath(home, cwd, sid);
+      mkdirSync(dirname(path), { recursive: true });
+      writeFileSync(path, ABSORBED_LINES.join('\n') + '\n');
+      restart();
+      const after = createClaudeSessionTracker({ db: freshDb(), broadcast: () => {}, coalesceWindowMs: 5, dedupWindowMs: 100, rateLimitPerSec: 50, attentionSubject: subjectOf, homeDir: home });
+      after.registerTerminalSession(sid, { cwd, now: (t += 200) });
+      const before = { epoch: getAttention(subject).epoch, pushes: pushes.length, rows: rows.length };
+      // A live turn of the still-running CLI, synchronously: the catch-up awaits the file open,
+      // so the Stop deterministically sees the stale task still in the map.
+      after.ingestHook({ hook_event_name: 'UserPromptSubmit', session_id: sid } as never, (t += 200));
+      expect(countingTasks(subject)).toBeGreaterThan(0);
+      after.ingestHook({ hook_event_name: 'Stop', session_id: sid } as never, (t += 200));
+      expect(countingTasks(subject)).toBeGreaterThan(0);
+      const deadline = Date.now() + 3_000;
+      while (countingTasks(subject) > 0 && Date.now() < deadline) await new Promise((r) => setTimeout(r, 10));
+      expect(countingTasks(subject)).toBe(0);
+      await new Promise((r) => setTimeout(r, 100));
+      expect(getAttention(subject)).toMatchObject({ state: 'finished', background: [] });
+      expect(getAttention(subject).epoch - before.epoch).toBe(1);
+      expect(pushes.length - before.pushes).toBe(1);
+      expect(rows.length - before.rows).toBe(1);
+    } finally {
+      rmSync(home, { recursive: true, force: true });
+    }
+  });
+
+  it('a turn closed live before the start recomposed is still announced when a late read frees it', async () => {
+    // The start's recomposition waits for the surviving turns to be adopted, and hooks arrive meanwhile.
+    const subject = 'terminal:boot-window';
+    setBackgroundTasks(subject, { b1: { kind: 'bash', label: 'make gates', startedAt: new Date(T0).toISOString() } });
+    turnStarted(subject);
+    turnEnded(subject, { turnId: 'live-1', outcome: 'done' });
+    expect(getAttention(subject).state).toBe('working');
+    recomposeAttentionOnBoot({ liveProcess: () => true });
+    const before = { epoch: getAttention(subject).epoch, pushes: pushes.length, rows: rows.length };
+    finishBackgroundTasks(subject, ['b1'], { late: true });
+    await new Promise((r) => setTimeout(r, 100));
+    expect(getAttention(subject).state).toBe('finished');
+    expect({ epoch: getAttention(subject).epoch - before.epoch, pushes: pushes.length - before.pushes, rows: rows.length - before.rows }).toEqual({ epoch: 1, pushes: 1, rows: 1 });
   });
 });

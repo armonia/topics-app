@@ -201,6 +201,8 @@ dopo un ricarico SHALL rileggere dal suo transcript gli avvisi dei compiti ancor
 volo, senza ripercorrere la fase: un avviso scritto mentre nessun server leggeva il file
 chiude il suo compito come gli altri. Ciò che chiude è finito prima del riavvio, quindi si
 ricompone come ogni riavvio: senza riga, senza annuncio, senza push e senza un'epoca nuova.
+Un turno chiuso dal vivo dopo il riavvio, anche mentre il riattacco sta ancora leggendo, SHALL
+essere annunciato come sempre.
 
 #### Scenario: Bash, Agent e Workflow in un terminale
 - **GIVEN** un terminale claude-code con hook
@@ -256,6 +258,12 @@ ricompone come ogni riavvio: senza riga, senza annuncio, senza push e senza un'e
 - **WHEN** il server si ricarica e il transcript contiene già l'avviso di fine di quel compito
 - **THEN** al riattacco il compito SHALL uscire dalla mappa, lo stato non SHALL essere `working` e la fase SHALL restare `dormant`
 - **AND** la fine di quel turno NON SHALL essere annunciata: nessuna riga, nessun push, la stessa epoca
+
+#### Scenario: un turno dal vivo mentre il riattacco legge ancora
+- **GIVEN** un terminale in `watching` per un Bash in background, il server ricaricato e il transcript con già l'avviso di fine
+- **WHEN** un turno dal vivo chiude mentre il riattacco sta ancora leggendo
+- **THEN** al riattacco il compito SHALL uscire dalla mappa e lo stato SHALL essere `finished(done)`
+- **AND** la fine di quel turno SHALL essere annunciata come sempre: una riga, un push, un'epoca nuova
 
 ### Requirement: ATTN-04 — Una persona in mezzo è «ti serve», da qualunque porta arrivi
 

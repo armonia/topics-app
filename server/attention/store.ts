@@ -194,6 +194,14 @@ interface Entry {
   /** Causes that are the current epoch's too: the wait open at the restart, and what its end left. */
   sameEpochCauses?: Set<string>;
   /**
+   * The last turn closed live under this process: its end is a live fact, even when a
+   * reattach's catch-up is what removes the task that held it. Memory only: what the
+   * table holds at a start closed before it. The start's recomposition keeps it, as it
+   * keeps the rest this process said: it runs after the surviving turns are adopted,
+   * with hooks already arriving.
+   */
+  lastTurnLive?: boolean;
+  /**
    * The person opened this sub-agent (its seen door): from then on it is a chat
    * like any other. Memory only: after a restart it is quiet again until reopened.
    */
@@ -682,6 +690,7 @@ export function turnEnded(subject: string, end: TurnEnd): AttentionSnapshot {
       at: after(e.row.lastTurn?.at, end.at ?? nowIso()),
       ...(end.detail ? { detail: end.detail } : {}),
     };
+    e.lastTurnLive = true;
   }
   return recompose(subject, { live: true, turnClosed: !!end.outcome });
 }
@@ -706,7 +715,9 @@ const FINISHED_KEEP = 64;
  *
  * `late`: reports read after the fact, by a reattach's catch-up. What they
  * close ended before this server could tell, so it is recomposed the way a
- * restart is: no row, no announce, no push, no new epoch, no grace to fire one.
+ * restart is: no row, no announce, no push, no new epoch, no grace to fire
+ * one. Unless the turn they held closed under this server: then its end is
+ * live and announced as always.
  */
 export function finishBackgroundTasks(subject: string, ids: readonly string[], opts: { late?: boolean } = {}): boolean {
   const e = entryOf(subject);
@@ -719,7 +730,7 @@ export function finishBackgroundTasks(subject: string, ids: readonly string[], o
   const next = { ...e.row.background };
   for (const id of gone) delete next[id];
   e.row.background = next;
-  if (opts.late) {
+  if (opts.late && !e.lastTurnLive) {
     recompose(subject, { live: false, sameEpoch: true });
     return true;
   }
@@ -908,6 +919,7 @@ export function processEnded(
         ? `Il processo è finito con ${counted} ${counted === 1 ? "compito" : "compiti"} in volo`
         : "Il processo è finito a metà turno",
     };
+    if (end.cause !== "restart") e.lastTurnLive = true;
   }
   return recompose(subject, { live: end.cause !== "restart" });
 }
@@ -1066,14 +1078,18 @@ export function recomposeAttentionOnBoot(reader: AttentionBootReader = {}): void
   // What THIS process already said before the recomposition (a reattached
   // turn's `stream:start`, a bridge's wait) is current: it survives the reread.
   const prior = new Map<string, LiveInputs>();
+  // A turn this process closed live stays live through the reread (`lastTurnLive`).
+  const closedLive = new Set<string>();
   for (const [subject, e] of entries) {
     if (e.live.turnOpen || Object.keys(e.live.holds).length) prior.set(subject, { holds: { ...e.live.holds }, ...(e.live.turnOpen ? { turnOpen: true } : {}) });
+    if (e.lastTurnLive) closedLive.add(subject);
   }
   loadedFrom = null;
   ensureLoaded();
   for (const [subject, e] of entries) {
     clearGrace(e);
     e.live = prior.get(subject) ?? { holds: {} };
+    if (closedLive.has(subject)) e.lastTurnLive = true;
     if (Object.keys(e.live.holds).length) e.carriedHolds = undefined;
     e.sentKey = null;
   }
