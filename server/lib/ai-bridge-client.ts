@@ -24,39 +24,8 @@ export { BridgeAckStalled, isRetryableBridgeError, shouldRecycleSocket } from ".
 // module like any other, so there is no loose .mjs to miss and no runtime to run it.
 import { bridgeOutsideGuiSession, guiSessionName } from "../pty-bridge-platform.mjs";
 
-export interface SpawnOpts {
-  cliPath: string;
-  args: string[];
-  cwd: string;
-  env: Record<string, string>;
-}
-export interface SessionHandlers {
-  /** A stdout NDJSON chunk arrived at byte `offset` in the durable store. */
-  onData: (chunk: Buffer, offset: number) => void;
-  /** A stderr chunk (rate-limit / missing-session detection lives in the provider). */
-  onStderr?: (chunk: Buffer) => void;
-  /** The child exited (crash/normal). `exitCode` null = signal/error; `endOffset` absent from a daemon older than the field. */
-  onExit?: (exitCode: number | null, endOffset?: number) => void;
-}
-export interface AttachResult {
-  endOffset: number;
-  alive: boolean;
-  exitCode: number | null;
-  /** True when the daemon had no session for this id (nothing to re-attach). */
-  missing?: boolean;
-  /** When the child last wrote to its store (epoch ms); absent from a daemon older than the field. */
-  lastDataAt?: number;
-  /** The daemon's frame protocol (`PROTOCOL` in ai-bridge.mjs); 1 for a daemon that predates the field. */
-  protocol: number;
-}
-export interface SessionInfo {
-  id: string;
-  pid: number;
-  alive: boolean;
-  exitCode: number | null;
-  endOffset: number;
-  createdAt: number;
-}
+import type { AttachResult, SessionHandlers, SessionInfo, SpawnOpts } from "./ai-bridge-types";
+export type { AttachResult, SessionHandlers, SessionInfo, SpawnOpts } from "./ai-bridge-types";
 
 /**
  * How long an ack is awaited, per request type.
@@ -170,6 +139,12 @@ export class AiBridgeClient {
   private readonly waiters: Waiter[] = [];
   /** The replies whose waiter hit the cap, by rid (`BridgeAckStalled.late`). */
   private readonly lateReplies = new Map<number, (reply: unknown) => void>();
+  /**
+   * A probe's attach given up on for silence, by session id, until its late ack (`request`). Its process folds the
+   * replay once. Killed or respawned meanwhile (`stale`), the frames before that ack are the old process's replay:
+   * dropped, or the successor would fold them, since frames carry only the id.
+   */
+  private readonly probes = new Map<string, { rid: number; stale: boolean }>();
   /** The daemon echoes rids (protocol 4): without them a late reply cannot be told from any other. */
   private ridEcho = false;
   /** Last request id handed out: every frame that can be answered gets a fresh one. */
@@ -382,6 +357,7 @@ export class AiBridgeClient {
     // (an `error` to an attach or a list) REJECTS it: settling it with that
     // frame would read an error as "not alive" or as an empty list.
     if (msg.rid != null) this.ridEcho = true;
+    if (msg.rid != null && this.probes.get(msg.id)?.rid === msg.rid) this.probes.delete(msg.id);
     const i = msg.rid != null
       ? this.waiters.findIndex((w) => w.rid === msg.rid)
       : this.waiters.findIndex((w) => w.pred(msg));
@@ -417,7 +393,7 @@ export class AiBridgeClient {
     // and the killed predecessor's exit may still be on its way.
     if (msg.type === "spawned" && (msg.rid == null || this.spawnsInFlight.get(id)?.rid === msg.rid)) this.spawnsInFlight.delete(id);
     const h = this.handlers.get(id);
-    if (!h) return;
+    if (!h || this.probes.get(id)?.stale) return;
     switch (msg.type) {
       case "data": h.onData(Buffer.from(msg.chunk ?? "", "base64"), msg.offset ?? 0); break;
       case "stderr": h.onStderr?.(Buffer.from(msg.chunk ?? "", "base64")); break;
@@ -496,6 +472,7 @@ export class AiBridgeClient {
     // A reply after the cap would have come on this socket too.
     for (const late of this.lateReplies.values()) late(null);
     this.lateReplies.clear();
+    this.probes.clear();
   }
 
   /**
@@ -535,8 +512,8 @@ export class AiBridgeClient {
           // socket with it: the daemon answers it later all the same, and the replay would land in
           // whatever turn the session runs next (a CLI's exit tail fetched in vain, then a send on a
           // new process, which reads from offset 0). Not a probe (`keepOnSilence`): its process
-          // lives on and folds the late replay once, and the gap it probed waits.
-          if (err instanceof BridgeAckStalled && !streamless && !keepOnSilence) this.dropSocket();
+          // lives on and folds the late replay once, and the gap it probed waits (`probes`).
+          if (err instanceof BridgeAckStalled && !streamless) { if (keepOnSilence) this.probes.set((frame as { id: string }).id, { rid, stale: false }); else this.dropSocket(); }
           throw err;
         }
         last = err;
@@ -628,6 +605,7 @@ export class AiBridgeClient {
 
   /** Spawn (or, if a live session for `id` already exists, resume) a child. */
   async spawn(id: string, opts: SpawnOpts): Promise<{ pid: number; resumed: boolean }> {
+    this.staleProbe(id);
     const token = { rid: 0 };
     this.spawnsInFlight.set(id, token);
     try {
@@ -717,7 +695,10 @@ export class AiBridgeClient {
   detach(id: string): void { this.send({ type: "detach", id }); }
   signal(id: string, sig: string): void { this.throwOnDrop(this.send({ type: "signal", id, signal: sig }), `signal ${sig} ${id}`); }
 
+  private staleProbe(id: string): void { const probe = this.probes.get(id); if (probe) probe.stale = true; }
+
   kill(id: string): void {
+    this.staleProbe(id);
     if (this.send({ type: "kill", id })) { this.handlers.delete(id); return; }
     // Il frame non è uscito: l'handler NON si cancella ancora, o il figlio
     // resterebbe vivo e irraggiungibile. Si riaggancia e si rimanda una volta.

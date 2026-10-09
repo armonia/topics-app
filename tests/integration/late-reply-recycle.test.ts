@@ -56,3 +56,6 @@ test("the exit tail's attach given up on at its last attempt drops the socket: i
 // The lag probe's attach in one attempt, given up on, keeps the socket: its process folds the replay, the gap waits.
 test("the lag probe's one-attempt attach given up on keeps the socket: its late replay and another stream arrive", () =>
   runCase("probe", { TOPICS_AI_BRIDGE_ATTACH_ACK_MS: "1000", TOPICS_AI_BRIDGE_MAX_ACK_MS: "60000" }), 300_000);
+// The same probe, then its process killed and replaced before the daemon resumes: the replay is the old process's.
+test("a probe's late replay does not reach the process that replaced its own, which gets its own output", () =>
+  runCase("respawn", { TOPICS_AI_BRIDGE_ATTACH_ACK_MS: "1000", TOPICS_AI_BRIDGE_MAX_ACK_MS: "60000" }), 300_000);
