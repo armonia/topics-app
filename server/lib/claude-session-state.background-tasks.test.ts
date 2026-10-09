@@ -357,9 +357,17 @@ describe('a terminal turn put to rest without a Stop is over for the attention s
  * or the terminal reads «working» until its PTY exits (ATTN-03).
  */
 describe('a reattached terminal drops the tasks its transcript already reports finished', () => {
-  beforeEach(() => { resetAttentionStore(); configureAttentionStore({ db: () => null, sendPush: () => {}, recordRow: () => null, graceMs: 0 }); });
+  // A grace above zero, as in production: the one the live path arms would announce once it ran out.
+  const pushes: unknown[] = [];
+  const rows: unknown[] = [];
+  beforeEach(() => {
+    pushes.length = 0;
+    rows.length = 0;
+    resetAttentionStore();
+    configureAttentionStore({ db: () => null, sendPush: (p) => { pushes.push(p); }, recordRow: (r) => { rows.push(r); return null; }, graceMs: 20 });
+  });
 
-  it('terminal: the notification sits in the transcript, the reattach takes its task out and replays no phase', async () => {
+  it('terminal: the notification sits in the transcript, the reattach takes its task out, replays no phase and announces nothing', async () => {
     const home = mkdtempSync(join(tmpdir(), 'bg-reattach-'));
     try {
       const cwd = '/work/project';
@@ -371,12 +379,17 @@ describe('a reattached terminal drops the tasks its transcript already reports f
       const path = deriveTranscriptPath(home, cwd, sid);
       mkdirSync(dirname(path), { recursive: true });
       writeFileSync(path, ABSORBED_LINES.join('\n') + '\n');
+      const before = { epoch: getAttention(subject).epoch, pushes: pushes.length, rows: rows.length };
       // The restart: a new tracker reattaches the terminal; the store keeps its map, as its table does.
       const after = createClaudeSessionTracker({ db: freshDb(), broadcast: () => {}, coalesceWindowMs: 5, dedupWindowMs: 100, rateLimitPerSec: 50, attentionSubject: subjectOf, homeDir: home });
       after.registerTerminalSession(sid, { cwd, now: (t += 200) });
       const deadline = Date.now() + 3_000;
       while (countingTasks(subject) > 0 && Date.now() < deadline) await new Promise((r) => setTimeout(r, 10));
       expect(countingTasks(subject)).toBe(0);
+      // A turn that closed before the restart: the restart recomposes it, it does not announce it,
+      // not even once a grace has run out.
+      await new Promise((r) => setTimeout(r, 100));
+      expect({ epoch: getAttention(subject).epoch, pushes: pushes.length, rows: rows.length }).toEqual(before);
       expect(getAttention(subject)).toMatchObject({ background: [] });
       expect(getAttention(subject).state).not.toBe('working');
       expect(phaseOf(after, sid)).toBe('dormant');

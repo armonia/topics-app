@@ -199,7 +199,8 @@ La mappa dei compiti SHALL sopravvivere a un ricarico del server finché il proc
 la tiene è vivo. La fine del processo SHALL svuotarla (ATTN-15). Un terminale riattaccato
 dopo un ricarico SHALL rileggere dal suo transcript gli avvisi dei compiti ancora in
 volo, senza ripercorrere la fase: un avviso scritto mentre nessun server leggeva il file
-chiude il suo compito come gli altri.
+chiude il suo compito come gli altri. Ciò che chiude è finito prima del riavvio, quindi si
+ricompone come ogni riavvio: senza riga, senza annuncio, senza push e senza un'epoca nuova.
 
 #### Scenario: Bash, Agent e Workflow in un terminale
 - **GIVEN** un terminale claude-code con hook
@@ -254,6 +255,7 @@ chiude il suo compito come gli altri.
 - **GIVEN** un terminale in `watching` per un Bash in background
 - **WHEN** il server si ricarica e il transcript contiene già l'avviso di fine di quel compito
 - **THEN** al riattacco il compito SHALL uscire dalla mappa, lo stato non SHALL essere `working` e la fase SHALL restare `dormant`
+- **AND** la fine di quel turno NON SHALL essere annunciata: nessuna riga, nessun push, la stessa epoca
 
 ### Requirement: ATTN-04 — Una persona in mezzo è «ti serve», da qualunque porta arrivi
 

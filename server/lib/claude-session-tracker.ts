@@ -671,7 +671,8 @@ export function createClaudeSessionTracker(opts: ClaudeSessionTrackerOptions): C
    * reports finished. A notification written while no server read the file, or
    * one an older parser skipped (the absorbed enqueue of Claude Code 2.1.292),
    * would keep the subject «working» until its PTY exits. Only the task map
-   * moves (`transcriptTasks`), read in chunks up to where the live tail starts.
+   * moves (`transcriptTasks`), read in chunks up to where the live tail starts,
+   * and it moves the way a restart recomposes: nothing is announced (ATTN-03).
    */
   async function catchUpTasks(state: ClaudeSessionState, jsonlPath: string, end: number): Promise<void> {
     const subject = subjectOf(state);
@@ -687,7 +688,7 @@ export function createClaudeSessionTracker(opts: ClaudeSessionTrackerOptions): C
         at += bytesRead;
         const { lines, remainder } = splitJsonlChunk(rest + decoder.decode(buf.subarray(0, bytesRead), { stream: true }));
         rest = remainder;
-        for (const line of lines) if (line.includes('<task-notification>')) transcriptTasks(subject, line);
+        for (const line of lines) if (line.includes('<task-notification>')) transcriptTasks(subject, line, { late: true });
       }
     } finally {
       await fh.close();

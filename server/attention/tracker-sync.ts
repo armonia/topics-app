@@ -68,12 +68,15 @@ function isTurnWorkPhaseOf(s: ClaudeSessionState): boolean {
   return s.phase === 'running' || s.phase === 'tool-running' || s.phase === 'awaiting-approval';
 }
 
-/** The tasks a transcript line reports finished leave the subject's map, under the CLI's id and their call's. */
-export function transcriptTasks(subject: string | null, line: string): void {
+/**
+ * The tasks a transcript line reports finished leave the subject's map, under the CLI's id and their call's.
+ * `late`: a reattach's catch-up, which announces nothing (`finishBackgroundTasks`).
+ */
+export function transcriptTasks(subject: string | null, line: string, opts: { late?: boolean } = {}): void {
   if (!subject) return;
   try {
     const finished = finishedTasksOfTranscriptLine(line);
-    if (finished.length) finishBackgroundTasks(subject, finished.flatMap((f) => (f.toolUseId ? [f.id, f.toolUseId] : [f.id])));
+    if (finished.length) finishBackgroundTasks(subject, finished.flatMap((f) => (f.toolUseId ? [f.id, f.toolUseId] : [f.id])), opts);
   } catch (err) {
     console.warn('[claude-session-tracker] attention transcript failed', err);
   }

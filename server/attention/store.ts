@@ -462,6 +462,8 @@ interface RecomposeOpts {
   boot?: boolean;
   /** A turn of the subject just closed: it is seen if the subject is in front of the person (T3, T5). */
   turnClosed?: boolean;
+  /** Facts that happened while no server read them (a reattach's catch-up): recomposed under the same epoch. */
+  sameEpoch?: boolean;
   /** The seen door: the frame goes out even when nothing changed (defect E). */
   force?: boolean;
 }
@@ -509,7 +511,7 @@ function recompose(subject: string, opts: RecomposeOpts): AttentionSnapshot {
   let bornSeen = false;
 
   const cause = isLitComposition(composition) ? composition.cause : null;
-  if (cause && cause !== row.epochCause && (e.sameEpochCauses?.has(cause) || (opts.boot && e.sameEpochCauses?.size))) {
+  if (cause && cause !== row.epochCause && (opts.sameEpoch || e.sameEpochCauses?.has(cause) || (opts.boot && e.sameEpochCauses?.size))) {
     // The same epoch under another of its causes: no bump, no announce.
     e.sameEpochCauses?.add(cause);
     row.epochCause = cause;
@@ -701,8 +703,12 @@ const FINISHED_KEEP = 64;
  * (the CLI's, and its call's until `PostToolUse` re-keys it). The ids stay
  * known, so a hook still on its way (hooks are async, `lib/hook-order.ts`)
  * does not put a finished task back. False when the map did not change.
+ *
+ * `late`: reports read after the fact, by a reattach's catch-up. What they
+ * close ended before this server could tell, so it is recomposed the way a
+ * restart is: no row, no announce, no push, no new epoch, no grace to fire one.
  */
-export function finishBackgroundTasks(subject: string, ids: readonly string[]): boolean {
+export function finishBackgroundTasks(subject: string, ids: readonly string[], opts: { late?: boolean } = {}): boolean {
   const e = entryOf(subject);
   const finished = (e.finishedTasks ??= new Set());
   for (const id of ids) { finished.delete(id); finished.add(id); }
@@ -713,6 +719,10 @@ export function finishBackgroundTasks(subject: string, ids: readonly string[]): 
   const next = { ...e.row.background };
   for (const id of gone) delete next[id];
   e.row.background = next;
+  if (opts.late) {
+    recompose(subject, { live: false, sameEpoch: true });
+    return true;
+  }
   armGraceOnLastTask(subject, e, before);
   recompose(subject, { live: true });
   return true;
