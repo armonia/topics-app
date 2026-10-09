@@ -16,6 +16,12 @@
           "en": "",
           "scope": "test",
           "breaking": false
+        },
+        {
+          "it": "il follow della conversazione sopravvive al resize del drawer",
+          "en": "",
+          "scope": "board",
+          "breaking": false
         }
       ],
       "perf": [],

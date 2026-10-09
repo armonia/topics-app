@@ -12,6 +12,10 @@
         {
           "text": "turn-write-cost chiude il database ereditato prima di aprire il suo",
           "scope": "test"
+        },
+        {
+          "text": "il follow della conversazione sopravvive al resize del drawer",
+          "scope": "board"
         }
       ],
       "perf": []

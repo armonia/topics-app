@@ -7,6 +7,7 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 ### Correzioni
 - **chat** · rowHolder, `frameRequest` al posto di `raf` (check:identifier-language)
 - **test** · turn-write-cost chiude il database ereditato prima di aprire il suo
+- **board** · il follow della conversazione sopravvive al resize del drawer
 
 ### Sotto il cofano
 - **chat** · Home con il resto in ritardo lo fa arrivare a lista ferma in cima
