@@ -154,11 +154,12 @@ function lineText(parsed: Record<string, unknown>): string {
  * runs never becomes a user line: Claude Code absorbs it mid-turn, and only its
  * `queue-operation` enqueue names it (2.1.292,
  * `tests/fixtures/claude-cli-2.1.292-absorbed-task-notification.transcript.jsonl`).
- * The enqueue is written for every notification, delivered or absorbed.
+ * The enqueue is written for every notification, delivered or absorbed; the
+ * `remove` when the queue lets one go undelivered (absorbed, or dropped).
  */
 function notificationText(parsed: Record<string, unknown>): string {
   if (parsed.type === "user") return lineText(parsed);
-  if (parsed.type === "queue-operation" && parsed.operation === "enqueue" && typeof parsed.content === "string") return parsed.content;
+  if (parsed.type === "queue-operation" && (parsed.operation === "enqueue" || parsed.operation === "remove") && typeof parsed.content === "string") return parsed.content;
   return "";
 }
 

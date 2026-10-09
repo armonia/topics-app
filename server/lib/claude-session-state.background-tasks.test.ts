@@ -26,7 +26,7 @@ import { dirname, join } from 'path';
 import { createClaudeSessionTracker } from './claude-session-tracker';
 import { deriveTranscriptPath } from './claude-session-state';
 import { configureAttentionStore, resetAttentionStore, getAttention, countingTasks } from '../attention/store';
-import { T0, freshDb, turn, BASH_BG, AGENT_BG, CRON_ONCE, CRON_LOOP, BASH_ABSORBED, ABSORBED_LINES, AGENT_END_NO_CALL, subjectOf, terminalTracker, phaseOf, type Tool } from './claude-session-state.background-tasks.fixture';
+import { T0, freshDb, turn, BASH_BG, AGENT_BG, CRON_ONCE, CRON_LOOP, BASH_ABSORBED, ABSORBED_LINES, ABSORBED_AT, AGENT_END_NO_CALL, subjectOf, terminalTracker, phaseOf, type Tool } from './claude-session-state.background-tasks.fixture';
 
 // The store is a process singleton: leave it as the next file expects it.
 afterAll(() => resetAttentionStore());
@@ -124,11 +124,12 @@ describe('the phase at Stop counts every task in flight, by id, in the attention
     // the `Stop`, which parked the turn `watching` on a task already over. Nothing will wake that turn.
     it(`${label}: a notice absorbed mid-turn that the tail reads after the Stop lets the turn rest`, () => {
       const { tracker, sid, subject } = make([]);
-      let t = T0;
+      let t = ABSORBED_AT - 1_000;
       const hook = (h: Record<string, unknown>) => tracker.ingestHook({ ...h, session_id: sid } as never, (t += 200));
       hook({ hook_event_name: 'UserPromptSubmit' });
       hook({ hook_event_name: 'PreToolUse', tool_use_id: 'toolu_0', ...BASH_ABSORBED });
       hook({ hook_event_name: 'PostToolUse', tool_use_id: 'toolu_0', ...BASH_ABSORBED });
+      t = ABSORBED_AT + 9_800;
       hook({ hook_event_name: 'Stop' });
       expect(phaseOf(tracker, sid)).toBe('watching');
       for (const line of ABSORBED_LINES) tracker.ingestTranscriptLine(sid, line, (t += 200));
@@ -276,12 +277,13 @@ describe('the phase at Stop counts every task in flight, by id, in the attention
       mkdirSync(dirname(path), { recursive: true });
       writeFileSync(path, '');
       const tracker = createClaudeSessionTracker({ db: freshDb(), broadcast: () => {}, coalesceWindowMs: 5, dedupWindowMs: 100, rateLimitPerSec: 50, attentionSubject: subjectOf, homeDir: home });
-      tracker.registerTerminalSession(sid, { cwd, now: T0 });
-      let t = T0;
+      let t = ABSORBED_AT - 1_000;
+      tracker.registerTerminalSession(sid, { cwd, now: t });
       const hook = (h: Record<string, unknown>) => tracker.ingestHook({ ...h, session_id: sid } as never, (t += 200));
       hook({ hook_event_name: 'UserPromptSubmit' });
       hook({ hook_event_name: 'PreToolUse', tool_use_id: 'toolu_0', ...BASH_ABSORBED });
       hook({ hook_event_name: 'PostToolUse', tool_use_id: 'toolu_0', ...BASH_ABSORBED });
+      t = ABSORBED_AT + 9_800;
       hook({ hook_event_name: 'Stop' });
       expect(phaseOf(tracker, sid)).toBe('watching');
       appendFileSync(path, ABSORBED_LINES.join('\n') + '\n');
@@ -292,6 +294,177 @@ describe('the phase at Stop counts every task in flight, by id, in the attention
       rmSync(home, { recursive: true, force: true });
     }
   });
+});
+
+/** BASH_BG's notice, as the CLI words it, under the call that launched it in `turn`. */
+const BASH_BG_END = '<task-notification>\n<task-id>b7kapz0ad</task-id>\n<tool-use-id>toolu_0</tool-use-id>\n<status>completed</status>\n<summary>Background command "sleep 600 && make build" completed (exit code 0)</summary>\n</task-notification>';
+/** The CLI's queue record of a notice, written when its task ends, whether a turn absorbs it or it is delivered. */
+const enqueued = (content: string, at: number) => JSON.stringify({ type: 'queue-operation', operation: 'enqueue', timestamp: new Date(at).toISOString(), sessionId: '00000000-0000-4000-8000-0000000000b4', content });
+/** The row that delivers a notice to a turn at rest, and wakes it. */
+const delivered = (content: string, at: number) => JSON.stringify({ type: 'user', uuid: `u${at}`, timestamp: new Date(at).toISOString(), message: { role: 'user', content }, origin: { kind: 'task-notification' } });
+
+/** AGENT_BG's notice, under the call that launched it second in `turn`. */
+const AGENT_BG_END = '<task-notification>\n<task-id>a4bb623e3ab5ee41a</task-id>\n<tool-use-id>toolu_1</tool-use-id>\n<status>completed</status>\n<summary>Agent "verify render" completed</summary>\n</task-notification>';
+/** The CLI's queue letting a notice go without delivering it: a turn absorbed it, or it was dropped. */
+const removed = (content: string, at: number) => JSON.stringify({ type: 'queue-operation', operation: 'remove', timestamp: new Date(at).toISOString(), sessionId: '00000000-0000-4000-8000-0000000000b4', content });
+
+/** A chat or a terminal whose transcript, under `home`, the live tail follows. */
+function tailed(kind: 'chat' | 'terminal', home: string) {
+  const sid = `cli-${kind}`, cwd = '/work/project', path = deriveTranscriptPath(home, cwd, sid);
+  mkdirSync(dirname(path), { recursive: true });
+  writeFileSync(path, '');
+  const db = freshDb();
+  if (kind === 'chat') seedChat(db, 'topic:bg', sid);
+  const tracker = createClaudeSessionTracker({ db, broadcast: () => {}, coalesceWindowMs: 5, dedupWindowMs: 100, rateLimitPerSec: 50, attentionSubject: subjectOf, homeDir: home });
+  if (kind === 'terminal') tracker.registerTerminalSession(sid, { cwd, now: T0 });
+  else tracker.ingestHook({ hook_event_name: 'SessionStart', source: 'resume', transcript_path: path, session_id: sid } as never, T0);
+  let t = T0;
+  const hook = (h: Record<string, unknown>) => tracker.ingestHook({ ...h, session_id: sid } as never, (t += 200));
+  return { tracker, sid, subject: kind === 'chat' ? 'topic:bg' : `terminal:${sid}`, hook, now: () => t, write: (...lines: string[]) => appendFileSync(path, lines.join('\n') + '\n') };
+}
+
+/**
+ * A turn parked `watching` rests on the ends the tail reads after its `Stop`
+ * once none of them can wake it: each written before the `Stop` (absorbed, or
+ * queued while the turn still answered), or let go by the CLI's queue
+ * (`remove`). An end written after it and still queued is the report the turn
+ * waits for, and the CLI's row that delivers it wakes the turn: until then it
+ * stays `watching` (MONITOR-04). Measured on 200 transcripts: the delivery row
+ * comes 32 ms after its enqueue at the median, so one sweep in eight reads the
+ * two apart; 27 of 464 delivered notices were queued before the `Stop`; 766
+ * ends were let go while the session rested, 242 of them while an earlier one
+ * still waited to be delivered; 11 of 1203 were neither, and a minute later
+ * they no longer hold the turn (`NOTICE_WAKE_MS`).
+ */
+describe('a parked turn rests on the ends the tail reads late once none of them can wake it', () => {
+  beforeEach(() => { resetAttentionStore(); configureAttentionStore({ db: () => null, sendPush: () => {}, recordRow: () => null }); });
+  const withHome = async (body: (home: string) => Promise<void>) => {
+    const home = mkdtempSync(join(tmpdir(), 'bg-tail-late-end-'));
+    try { await body(home); } finally { rmSync(home, { recursive: true, force: true }); }
+  };
+
+  for (const kind of ['chat', 'terminal'] as const) {
+    // Two of 453 delivery rows are stamped before their own enqueue: still after the Stop.
+    for (const row of ['32 ms after it', 'stamped before it'] as const) {
+      it(`${kind}: a notice delivered after the Stop, its enqueue and its delivery row read in two sweeps, wakes the turn from watching (row ${row})`, () => withHome(async (home) => {
+        const { tracker, sid, hook, now, write } = tailed(kind, home);
+        turn([BASH_BG]).forEach((h) => hook(h));
+        const stop = now(), seen = [phaseOf(tracker, sid)];
+        write(enqueued(BASH_BG_END, stop + 300));
+        await tracker.tailOnce(stop + 305);
+        seen.push(phaseOf(tracker, sid));
+        write(delivered(BASH_BG_END, row === '32 ms after it' ? stop + 332 : stop + 200));
+        await tracker.tailOnce(stop + 1_805);
+        seen.push(phaseOf(tracker, sid));
+        expect(seen).toEqual(['watching', 'watching', 'running']);
+      }));
+    }
+
+    // Queued while the turn still answered, the notice is delivered once it stops: the turn rests from its Stop, as
+    // when the tail reads the enqueue first, and the delivery row wakes it although it is stamped before the sweep.
+    it(`${kind}: a notice queued before the Stop and delivered after it lets the turn rest, and its delivery row wakes it`, () => withHome(async (home) => {
+      const { tracker, sid, hook, now, write } = tailed(kind, home);
+      turn([BASH_BG]).slice(0, -1).forEach((h) => hook(h));
+      const queued = now() + 100;
+      hook({ hook_event_name: 'Stop' });
+      const stop = now(), seen = [phaseOf(tracker, sid)];
+      write(enqueued(BASH_BG_END, queued));
+      await tracker.tailOnce(stop + 1_000);
+      seen.push(phaseOf(tracker, sid));
+      write(delivered(BASH_BG_END, stop + 300));
+      await tracker.tailOnce(stop + 2_500);
+      seen.push(phaseOf(tracker, sid));
+      expect(seen).toEqual(['watching', 'awaiting-user', 'running']);
+    }));
+
+    // At rest the CLI can let a notice go instead of delivering it: then nothing will wake the turn.
+    it(`${kind}: a notice the CLI lets go after the Stop lets the turn rest`, () => withHome(async (home) => {
+      const { tracker, sid, hook, now, write } = tailed(kind, home);
+      turn([BASH_BG]).forEach((h) => hook(h));
+      const stop = now(), seen = [phaseOf(tracker, sid)];
+      write(enqueued(BASH_BG_END, stop + 300));
+      await tracker.tailOnce(stop + 305);
+      seen.push(phaseOf(tracker, sid));
+      write(removed(BASH_BG_END, stop + 4_000));
+      await tracker.tailOnce(stop + 4_005);
+      seen.push(phaseOf(tracker, sid));
+      expect(seen).toEqual(['watching', 'watching', 'awaiting-user']);
+    }));
+
+    // Neither delivered nor let go (11 of 1203 at rest): after a minute (MONITOR-04) it wakes nothing, and the reaper
+    // lets the turn rest while the tail has nothing more to read.
+    it(`${kind}: a notice the CLI neither delivers nor lets go stops holding the turn after a minute`, () => withHome(async (home) => {
+      const { tracker, sid, hook, now, write } = tailed(kind, home);
+      turn([BASH_BG]).forEach((h) => hook(h));
+      const stop = now(), seen = [phaseOf(tracker, sid)];
+      write(enqueued(BASH_BG_END, stop + 300));
+      await tracker.tailOnce(stop + 305);
+      tracker.reapOnce(stop + 300 + 59_999);
+      seen.push(phaseOf(tracker, sid));
+      tracker.reapOnce(stop + 300 + 60_000);
+      seen.push(phaseOf(tracker, sid));
+      expect(seen).toEqual(['watching', 'watching', 'awaiting-user']);
+    }));
+
+    // Two ends after the Stop, and the CLI lets the second go while the first still waits to be delivered.
+    it(`${kind}: a notice let go while an earlier one still waits keeps the turn watching until that one wakes it`, () => withHome(async (home) => {
+      const { tracker, sid, hook, now, write } = tailed(kind, home);
+      turn([BASH_BG, AGENT_BG]).forEach((h) => hook(h));
+      const stop = now(), seen = [phaseOf(tracker, sid)];
+      write(enqueued(AGENT_BG_END, stop + 300), enqueued(BASH_BG_END, stop + 900), removed(BASH_BG_END, stop + 950));
+      await tracker.tailOnce(stop + 1_000);
+      seen.push(phaseOf(tracker, sid));
+      write(delivered(AGENT_BG_END, stop + 1_200));
+      await tracker.tailOnce(stop + 2_500);
+      seen.push(phaseOf(tracker, sid));
+      expect(seen).toEqual(['watching', 'watching', 'running']);
+    }));
+  }
+
+  // A hook that lands while the sweep reads overtakes its commit: the next sweep reads the same lines again, their
+  // task already out of the map.
+  it('terminal: an end read by a sweep a hook overtook lets the turn rest at the next sweep', () => withHome(async (home) => {
+    const { tracker, sid, subject, hook, now, write } = tailed('terminal', home);
+    turn([BASH_BG]).slice(0, -1).forEach((h) => hook(h));
+    write(enqueued(BASH_BG_END, now() + 100));
+    hook({ hook_event_name: 'Stop' });
+    const stop = now();
+    const sweep = tracker.tailOnce(stop + 1_000);
+    tracker.ingestHook({ hook_event_name: 'SubagentStop', session_id: sid } as never, stop + 900);
+    await sweep;
+    expect(countingTasks(subject)).toBe(0);
+    expect(phaseOf(tracker, sid)).toBe('watching');
+    await tracker.tailOnce(stop + 2_500);
+    expect(phaseOf(tracker, sid)).toBe('awaiting-user');
+  }));
+
+  // A Monitor delivered to a parked chat leaves the map before its wake writes anything (`noteWatchDelivered`), and no
+  // transcript line took the last task out: the turn waits for the wake, whatever the tail reads meanwhile, also after
+  // a turn that rested on an end read late.
+  it('chat: a Monitor delivered to the parked turn leaves it watching for the wake, whatever the tail reads meanwhile', () => withHome(async (home) => {
+    const { tracker, sid, subject, hook, now, write } = tailed('chat', home);
+    turn([BASH_BG]).slice(0, -1).forEach((h) => hook(h));
+    write(enqueued(BASH_BG_END, now() + 100));
+    hook({ hook_event_name: 'Stop' });
+    await tracker.tailOnce(now() + 1_000);
+    expect(phaseOf(tracker, sid)).toBe('awaiting-user');
+    // The next turn parks on an Agent and a Monitor; the Agent's end, absorbed, reaches the tail after the Stop.
+    hook({ hook_event_name: 'UserPromptSubmit' });
+    for (const [call, tool] of [['toolu_1', AGENT_BG], ['toolu_m', MONITOR]] as const) {
+      hook({ hook_event_name: 'PreToolUse', tool_use_id: call, tool_name: tool.tool_name, tool_input: tool.tool_input });
+      hook({ hook_event_name: 'PostToolUse', tool_use_id: call, ...tool });
+    }
+    write(enqueued(AGENT_BG_END, now() + 100));
+    hook({ hook_event_name: 'Stop' });
+    const stop = now();
+    await tracker.tailOnce(stop + 1_000);
+    expect(phaseOf(tracker, sid)).toBe('watching');
+    tracker.noteWatchDelivered('topic:bg', stop + 1_500);
+    expect(countingTasks(subject)).toBe(0);
+    write(JSON.stringify({ type: 'assistant', uuid: 'a-last', timestamp: new Date(stop - 50).toISOString(), message: { role: 'assistant', content: [{ type: 'text', text: 'Watching the workers.' }] } }));
+    await tracker.tailOnce(stop + 2_500);
+    expect(phaseOf(tracker, sid)).toBe('watching');
+  }));
 });
 
 /**

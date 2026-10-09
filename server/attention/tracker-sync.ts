@@ -7,7 +7,7 @@
  */
 import type { ClaudeSessionState, HookPayload } from '../lib/claude-session-state';
 import { applyTaskChanges, closeHold, finishBackgroundTasks, openHold, processEnded, turnEnded, turnStarted } from './store';
-import { finishedTasksOfTranscriptLine, taskChangesOfHook } from './background-tasks';
+import { finishedTasksOfTranscriptLine, taskChangesOfHook, type FinishedTask } from './background-tasks';
 
 /**
  * What a hook tells the attention store, besides the phase: the tasks it
@@ -70,14 +70,16 @@ function isTurnWorkPhaseOf(s: ClaudeSessionState): boolean {
 
 /**
  * The tasks a transcript line reports finished leave the subject's map, under the CLI's id and their call's.
- * `late`: a reattach's catch-up, which announces nothing (`finishBackgroundTasks`).
+ * `late`: a reattach's catch-up, which announces nothing (`finishBackgroundTasks`). Returns the ends the line reports.
  */
-export function transcriptTasks(subject: string | null, line: string, opts: { late?: boolean } = {}): void {
-  if (!subject) return;
+export function transcriptTasks(subject: string | null, line: string, opts: { late?: boolean } = {}): readonly FinishedTask[] {
+  if (!subject) return [];
   try {
     const finished = finishedTasksOfTranscriptLine(line);
     if (finished.length) finishBackgroundTasks(subject, finished.flatMap((f) => (f.toolUseId ? [f.id, f.toolUseId] : [f.id])), opts);
+    return finished;
   } catch (err) {
     console.warn('[claude-session-tracker] attention transcript failed', err);
+    return [];
   }
 }

@@ -12,7 +12,7 @@ import { dirname, join } from 'path';
 import { createClaudeSessionTracker } from './claude-session-tracker';
 import { deriveTranscriptPath } from './claude-session-state';
 import { configureAttentionStore, resetAttentionStore, getAttention, countingTasks, finishBackgroundTasks, recomposeAttentionOnBoot, setBackgroundTasks, turnEnded, turnStarted } from '../attention/store';
-import { T0, freshDb, turn, BASH_BG, AGENT_BG, CRON_ONCE, CRON_LOOP, BASH_ABSORBED, ABSORBED_LINES, AGENT_END_NO_CALL, subjectOf, terminalTracker, phaseOf } from './claude-session-state.background-tasks.fixture';
+import { T0, freshDb, turn, BASH_BG, AGENT_BG, CRON_ONCE, CRON_LOOP, BASH_ABSORBED, ABSORBED_LINES, ABSORBED_AT, AGENT_END_NO_CALL, subjectOf, terminalTracker, phaseOf } from './claude-session-state.background-tasks.fixture';
 
 // The store is a process singleton: leave it as the next file expects it.
 afterAll(() => resetAttentionStore());
@@ -667,12 +667,13 @@ describe('a reattached terminal drops the tasks its transcript already reports f
       try {
         const cwd = '/work/project';
         const { tracker, sid, subject } = terminalTracker([]);
-        let t = T0;
+        let t = ABSORBED_AT - 60_000;
         turn([BASH_ABSORBED]).forEach((h) => tracker.ingestHook({ ...h, session_id: sid } as never, (t += 200)));
         const path = deriveTranscriptPath(home, cwd, sid);
         mkdirSync(dirname(path), { recursive: true });
         writeFileSync(path, ABSORBED_LINES.join('\n') + '\n');
         restart();
+        t = ABSORBED_AT + 600_000;
         const before = { epoch: getAttention(subject).epoch, pushes: pushes.length, rows: rows.length };
         const after = createClaudeSessionTracker({ db: freshDb(), broadcast: () => {}, coalesceWindowMs: 5, dedupWindowMs: 100, rateLimitPerSec: 50, attentionSubject: subjectOf, homeDir: home });
         after.registerTerminalSession(sid, { cwd, now: (t += 200) });
@@ -699,6 +700,45 @@ describe('a reattached terminal drops the tasks its transcript already reports f
       }
     });
   }
+
+  // The same live turn whose own Bash ends after its Stop, read by the tail while the catch-up reads and held: that end
+  // is the report the turn waits for. The read done, the turn is still `watching`, and the row that delivers it wakes it.
+  it('terminal: a live turn whose own Bash ends after its Stop while the catch-up reads stays watching for the delivery', async () => {
+    const home = mkdtempSync(join(tmpdir(), 'bg-reattach-wait-'));
+    try {
+      const cwd = '/work/project';
+      const { tracker, sid, subject } = terminalTracker([]);
+      let t = ABSORBED_AT - 60_000;
+      turn([BASH_ABSORBED]).forEach((h) => tracker.ingestHook({ ...h, session_id: sid } as never, (t += 200)));
+      const path = deriveTranscriptPath(home, cwd, sid);
+      mkdirSync(dirname(path), { recursive: true });
+      writeFileSync(path, ABSORBED_LINES.join('\n') + '\n');
+      restart();
+      t = ABSORBED_AT + 600_000;
+      // The release reads the tracker's clock: the test's, for the delivery to be still on its way.
+      const after = createClaudeSessionTracker({ db: freshDb(), broadcast: () => {}, coalesceWindowMs: 5, dedupWindowMs: 100, rateLimitPerSec: 50, attentionSubject: subjectOf, homeDir: home, now: () => t });
+      after.registerTerminalSession(sid, { cwd, now: (t += 200) });
+      const hook = (h: Record<string, unknown>) => after.ingestHook({ ...h, session_id: sid } as never, (t += 200));
+      hook({ hook_event_name: 'UserPromptSubmit' });
+      hook({ hook_event_name: 'PreToolUse', tool_use_id: 'toolu_n0', ...BASH_BG });
+      hook({ hook_event_name: 'PostToolUse', tool_use_id: 'toolu_n0', ...BASH_BG });
+      hook({ hook_event_name: 'Stop' });
+      const end = bashBgEnd(t + 100);
+      appendFileSync(path, end + '\n');
+      after.ingestTranscriptLine(sid, end, (t += 100));
+      const deadline = Date.now() + 3_000;
+      while (countingTasks(subject) > 0 && Date.now() < deadline) await new Promise((r) => setTimeout(r, 5));
+      boot();
+      await new Promise((r) => setTimeout(r, 100));
+      expect(phaseOf(after, sid)).toBe('watching');
+      const row = JSON.stringify({ type: 'user', uuid: 'u-wake', timestamp: new Date(t + 32).toISOString(), message: { role: 'user', content: JSON.parse(end).content } });
+      appendFileSync(path, row + '\n');
+      after.ingestTranscriptLine(sid, row, (t += 100));
+      expect(phaseOf(after, sid)).toBe('running');
+    } finally {
+      rmSync(home, { recursive: true, force: true });
+    }
+  });
 
   // The terminal registered again while the first catch-up still reads (a second reconcile, the phase at rest) starts
   // a read of its own over the line the tail holds. That line stays live: the turn of before is announced once.

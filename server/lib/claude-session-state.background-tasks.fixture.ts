@@ -57,6 +57,8 @@ export const BASH_ABSORBED: Tool = { tool_name: 'Bash', tool_input: { command: '
   tool_response: { stdout: '', stderr: '', interrupted: false, isImage: false, noOutputExpected: false, backgroundTaskId: 'b76lzwo0d' } };
 export const ABSORBED_LINES = readFileSync(join(import.meta.dir, '..', '..', 'tests', 'fixtures', 'claude-cli-2.1.292-absorbed-task-notification.transcript.jsonl'), 'utf8')
   .split('\n').filter(Boolean);
+/** When the CLI wrote that end: the turn that absorbed it was running, and stopped later (9.8 s at the least, measured on 361 absorbed ends). */
+export const ABSORBED_AT = Date.parse(JSON.parse(ABSORBED_LINES[0]).timestamp);
 /** An Agent's end absorbed mid-turn that names no call: a few of them do not (4 in about 470 first notices). */
 export const AGENT_END_NO_CALL = JSON.stringify({ type: 'queue-operation', operation: 'enqueue', timestamp: new Date(T0 + 900).toISOString(),
   sessionId: '00000000-0000-4000-8000-0000000000b3', content: '<task-notification>\n<task-id>a4bb623e3ab5ee41a</task-id>\n<status>failed</status>\n<summary>Agent "verify render" failed</summary>\n</task-notification>' });

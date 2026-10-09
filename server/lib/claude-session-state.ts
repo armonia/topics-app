@@ -453,16 +453,50 @@ export function applyStaleHook(
 }
 
 /**
- * A turn parked `watching` whose last task a transcript line closed after its
- * `Stop`: an absorbed notice the tail reached after the hook, or an end a
- * reattach read late or held through its read. The `Stop` would have said
- * `awaiting-user` had the line come first, and an absorbed notice wakes
- * nothing. A report that does wake it moves it on from there. Returns `prev`
- * itself when nothing moves.
+ * The task ends a transcript reported since a turn last parked `watching`, per
+ * notice (its `<task-id>`): when the CLI wrote it, and whether its queue then
+ * let it go (`isQueueRemoval`) rather than deliver it. `emptied`: one of them
+ * took the last counting task out.
  */
-export function settleWatching(prev: ClaudeSessionState, countingTasks: number, now: number): ClaudeSessionState {
-  if (prev.phase !== 'watching' || countingTasks > 0) return prev;
-  return transition(prev, { phase: 'awaiting-user' }, now);
+export interface ParkedEnds {
+  emptied: boolean;
+  notices: Map<string, { at?: number; removed: boolean }>;
+}
+
+/**
+ * How long a notice the CLI has neither delivered nor let go can still wake a
+ * parked turn. At rest the CLI delivers one 31 ms after its enqueue at the
+ * median, 4.1 s at the 99th percentile (437 measured); 11 of 1203 it neither
+ * delivers nor lets go, and those must not hold the turn `watching` for good.
+ */
+export const NOTICE_WAKE_MS = 60_000;
+
+/**
+ * A turn parked `watching` whose last counting task a transcript line took out
+ * rests once no notice read since can wake it: each was written before the
+ * turn parked (absorbed mid-turn, queued while it still answered, or read late
+ * by a reattach), the CLI's queue let it go, or it went undelivered for
+ * `NOTICE_WAKE_MS` (the reaper looks again while nothing is read). The `Stop` would have said
+ * `awaiting-user` had those lines come first, so the turn rests dated at it,
+ * and a wake written after still passes `applyJsonlEvent`'s causal gate. A
+ * notice written after the `Stop` and still queued is the report the turn
+ * waits for, and the CLI's delivery row of it wakes the turn: it stays
+ * `watching`. Returns `prev` itself when nothing moves.
+ */
+export function settleWatching(prev: ClaudeSessionState, countingTasks: number, ends: ParkedEnds | undefined, now: number): ClaudeSessionState {
+  if (prev.phase !== 'watching' || countingTasks > 0 || !ends?.emptied) return prev;
+  for (const n of ends.notices.values()) if (!n.removed && n.at !== undefined && n.at > prev.phaseUpdatedAt && now - n.at < NOTICE_WAKE_MS) return prev;
+  return { ...transition(prev, { phase: 'awaiting-user' }, now), phaseUpdatedAt: prev.phaseUpdatedAt };
+}
+
+/**
+ * The CLI's queue letting a notice go without delivering it (`remove`): a turn
+ * absorbed it, or it was dropped. A delivered one is a `dequeue`, which names
+ * nothing, then the row that delivers it.
+ */
+export function isQueueRemoval(ev: JsonlEvent | null): boolean {
+  const raw = ev?.type === 'other' ? (ev.raw as { type?: unknown; operation?: unknown } | null) : null;
+  return raw?.type === 'queue-operation' && raw.operation === 'remove';
 }
 
 /**

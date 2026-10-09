@@ -14,9 +14,13 @@ session in `watching` at `Stop` whenever at least one task is in flight, and in
 including expiry, the cron's first fire or `CronDelete`), not on any wake of the session.
 `SessionEnd` and process exit SHALL empty the set. The set SHALL survive a server reload
 while the process holding it is alive. A session parked in `watching` whose last counting
-task leaves by a transcript line read after its `Stop` (a notice absorbed mid-turn that the
-transcript tail reaches after the hook, or an end a reattached terminal reads late or holds
-through that read) SHALL go to `awaiting-user`: nothing will wake it.
+task a transcript line takes out SHALL go to `awaiting-user`, dated at its `Stop`, once no
+task end read since it parked can wake it: each was written before the `Stop` (a notice
+absorbed mid-turn that the transcript tail reaches after the hook, one queued while the turn
+still answered, an end a reattached terminal reads late or holds through that read), the
+CLI's queue let it go undelivered (`remove`), or a minute went by without its delivery. An
+end written after the `Stop` and still queued is the report the session waits for: it SHALL
+stay `watching` until the row that delivers it wakes the turn.
 
 The set SHALL have one holder, the attention store (`subject_attention.background`): the
 phase machine SHALL read from it how many tasks count at `Stop` rather than keep a set of
@@ -60,6 +64,17 @@ show it, but SHALL NOT count toward `watching`.
 - **WHEN** the tail reads it
 - **THEN** `phase = 'awaiting-user'`, not `watching`
 - **AND** the same for a reattached terminal whose turn stopped while the late read still held or had not yet taken out its last tasks
+
+#### Scenario: A notice delivered after the Stop, read in two sweeps
+- **GIVEN** a session parked in `watching` on its last task, which ends after the `Stop`
+- **WHEN** one sweep of the tail reads the notice's enqueue and the next its delivery row
+- **THEN** the phase stays `watching` after the first sweep and is `running` after the second, never `awaiting-user` in between
+
+#### Scenario: The CLI lets a notice go after the Stop
+- **GIVEN** a session parked in `watching` on its last task, which ends after the `Stop`
+- **WHEN** the CLI's queue lets the notice go without delivering it (`remove`)
+- **THEN** `phase = 'awaiting-user'`
+- **AND** not while an earlier notice read since the `Stop` still waits to be delivered: that one wakes the turn
 
 #### Scenario: An expired Monitor on a terminal
 - **GIVEN** a terminal session in `watching` for one Monitor
