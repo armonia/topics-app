@@ -63,14 +63,15 @@ import { pathFromImageCaption } from "./image-normalize";
 const COMPACT_AT = 0.75;
 
 /**
- * Dove la compattazione riporta la conversazione: SOTTO la soglia, non sopra.
+ * Where compaction brings the conversation back to: BELOW the threshold, not
+ * at it.
  *
- * Bersaglio uguale alla soglia = nessun margine: si chiudeva a 149,6k su una
- * soglia di 150k e il giro dopo ricompattava. Misurato su topic:64095902
- * (08/10): 68 compattazioni in 34 ore, 40 chiuse a ≥145k, quattro in sette
- * minuti. Ognuna tagliava i turni più vecchi e cambiava il prefisso della
- * richiesta, quindi niente cache. Lo scarto (20% della finestra) è il respiro
- * per qualche giro prima della prossima.
+ * Target equal to the threshold means no headroom: the history came out at
+ * 149.6k on a 150k threshold and the next round compacted again. Measured on
+ * topic:64095902 (08/10): 68 compactions in 34 hours, 40 closed at >=145k,
+ * four in seven minutes. Each one cut the oldest turns and changed the request
+ * prefix, so the prompt cache never held. The gap (20% of the window) buys a
+ * few rounds before the next one.
  */
 const COMPACT_TO = 0.55;
 
