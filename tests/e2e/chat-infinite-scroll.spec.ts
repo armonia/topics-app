@@ -546,7 +546,12 @@ test.describe("Infinite scroll della chat", () => {
   for (const { key, delay } of KEY_RUNS) {
     test(`${key}${delay ? `, con il resto in ritardo di ${delay} ms` : ""}: la fusione cade a lista ferma e le righe lette non si muovono`, async ({ page, request, browserName }) => {
       test.info().annotations.push({ type: "spec", description: "CHAT-HIST-01" });
-      const { list, older } = await openOnTail(page, request, delay ? { answer: () => new Promise((r) => setTimeout(r, delay)) } : {});
+      // A late answer lands on a list at rest at the very top: the case where the rows prepended in the
+      // overscan are measured with no scroll going up. Not before the list rests there, and not before `delay`.
+      let atTop: () => void = () => {};
+      const reachedTop = new Promise<void>((resolve) => (atTop = resolve));
+      const late = () => Promise.all([new Promise((r) => setTimeout(r, delay)), reachedTop]).then(() => {});
+      const { list, older } = await openOnTail(page, request, delay ? { answer: late } : {});
       // A click on a message gives the list the keyboard, and ends the re-pin of the opening.
       await list.getByText(seededText(SEEDED - 1)).click();
       await stillView(page);
@@ -557,7 +562,7 @@ test.describe("Infinite scroll della chat", () => {
       for (let i = 0; i < 300 && !(await completeWithin(page, 30)); i++) {
         await page.keyboard.press(key);
         presses++;
-        await stillView(page);
+        if ((await stillView(page)) === 0) atTop();
       }
       await expect(list).toHaveAttribute("data-history", "complete", { timeout: 10000 });
       await afterFrames(page, 30);
