@@ -1,4 +1,5 @@
 import { useState, useEffect, useLayoutEffect, useRef, useCallback, useMemo, forwardRef, createContext, useContext, type ComponentProps, type MutableRefObject, type ReactNode } from 'react';
+import { flushSync } from 'react-dom';
 import { Paperclip } from 'lucide-react';
 import type { Topic, ChatMessage, WSMessage, CompactionMarker } from '../../types';
 import type { PlanDecisionHandler } from './planDetection';
@@ -7,6 +8,8 @@ import { CompactionDivider } from './CompactionDivider';
 import { LoadOlderDivider } from './LoadOlderDivider';
 import { countItemsAddedAbove } from './itemsAddedAbove';
 import { readerGesture } from './readerGesture';
+import { mergeAtRest, type MergeAtRest } from './mergeAtRest';
+import { placeRowAt as placeRowAtOffset } from './placeRowAt';
 import { OLDER_MERGE_SCREENS, OLDER_STAGE_SCREENS } from '../../../../shared/history-paging';
 import { CompactionHoistContext } from './compactionHoist';
 import { splitCompactionSummary } from '../../lib/compactionSummary';
@@ -39,7 +42,7 @@ import { showsLocalCopyRows } from '../../state/localCopyRows';
 import { useListStateCache } from './listStateCache';
 import { MessageEntrance } from './messageEntrance';
 import { decideHistoryCompletion } from './historyCompletionDecision';
-import { isHistoryIncomplete, requestHistoryCompletion, useHistoryCompleteness } from '../../state/historyCompleteness';
+import { getHistoryCompleteness, isHistoryIncomplete, requestHistoryCompletion, useHistoryCompleteness } from '../../state/historyCompleteness';
 import { resolvePromptNumbers } from './promptNumber';
 import { usePaneAlive } from '../../state/paneLiveness';
 import type { QueuedTurn } from '../../state/chatQueue';
@@ -592,6 +595,8 @@ export function MessageList({
    * of the "pane returns visible" branch already land that.
    */
   const restoreAnchorRef = useRef<{ id: string; offset?: number } | null>(null);
+  /** The rest of the history merged at rest (`mergeAtRest`), owned by the scroll effect; the rows landing poke it. */
+  const mergerRef = useRef<MergeAtRest | null>(null);
   /** The rest is on its way, asked by a click on the divider or by the scroll heading up to it. */
   const [olderLoading, setOlderLoading] = useState(false);
 
@@ -1129,60 +1134,13 @@ export function MessageList({
     }
     void requestHistoryCompletion(topic.sessionKey, 'apply');
   }, [topic.sessionKey]);
-  /**
-   * Puts the row at `index` with its top `offset` px from the viewport's top,
-   * rendered and final before the frame paints.
-   *
-   * Not with `scrollToIndex`. After a merge made while hidden, the sizes
-   * Virtuoso keeps by index belong to other rows, so it lands on an estimate,
-   * and it re-scrolls to the index once the rows are measured, a frame later:
-   * the row being read moved by 72-99 px, sometimes back and forth over three
-   * frames (tab-switch audit, TABSWITCH-03 reader scrolled up), and even from
-   * the exact place, that re-scroll still moved it by 2 px (its offsets and the
-   * DOM disagree by the rounding of the sizes). Here the same estimate is
-   * computed from Virtuoso's sizes and written as a plain scroll offset, which
-   * arms no re-scroll; the rows are rendered at once (the `scroll` event, see
-   * `renderNow` in `pinToBottom`), the row's real place is read and the
-   * difference scrolled, in the same callback.
-   */
-  const placeRowAt = useCallback((el: HTMLElement, index: number, offset: number) => {
-    let estimate = 0;
-    virtuosoRef.current?.getState(({ ranges }) => {
-      for (const range of ranges) {
-        if (range.startIndex >= index) break;
-        estimate += (Math.min(range.endIndex, index - 1) - range.startIndex + 1) * range.size;
-      }
-    });
-    el.scrollTop = estimate - offset;
-    el.dispatchEvent(new Event('scroll'));
-    // Each correction renders a slightly different range above the row, which
-    // can shift it again: measured, three corrections (-123, -36, +0.1 px) and
-    // a fourth read that finds it in place.
-    for (let pass = 0; pass < 4; pass++) {
-      const row = el.querySelector(`[data-testid="virtuoso-item-list"] > [data-index="${index}"]`);
-      if (!row) return;
-      const off = row.getBoundingClientRect().top - el.getBoundingClientRect().top - offset;
-      if (Math.abs(off) < 0.5) break;
-      el.scrollTop += off;
-      el.dispatchEvent(new Event('scroll'));
-    }
-    // The last step goes DOWN, by one pixel and back. Virtuoso compensates for
-    // "rows above resized" only while its last scroll went up (`scrollDirection`,
-    // reset after 50 ms without scrolling), and the next frame it measures the
-    // rows rendered here, at sizes other than the stale ones it had: when the
-    // last correction went up, it scrolled by their whole difference, rows that
-    // were already in place (-471 px, 1 return in 5). Same offset, no direction.
-    if (el.scrollTop >= 1) {
-      el.scrollTop -= 1;
-      el.dispatchEvent(new Event('scroll'));
-      el.scrollTop += 1;
-      el.dispatchEvent(new Event('scroll'));
-    }
-  }, []);
+  /** Puts the row at `index` with its top `offset` px from the viewport's top, final before the frame paints. */
+  const placeRowAt = useCallback((el: HTMLElement, index: number, offset: number) => placeRowAtOffset(el, virtuosoRef.current, index, offset), []);
   const completeOutOfSightRef = useRef(completeOutOfSight);
   completeOutOfSightRef.current = completeOutOfSight;
   useEffect(() => {
     completeOutOfSight();
+    mergerRef.current?.poke();
   }, [completeness, paneAlive, completeOutOfSight]);
 
   /**
@@ -1709,17 +1667,21 @@ export function MessageList({
       if (SCROLL_KEYS.has(e.key) || (e.key === ' ' && e.shiftKey)) markGesture(); // Shift+Space pages up too
     };
     // INFINITE SCROLL (CHAT-HIST-01): heading up, the reader gets the rest of the thread without asking.
-    // Fetched a few screens before the top, merged two screens before it, where the prepend
-    // (`firstItemIndex`) and the divider it lifts from the first row are both out of sight.
+    // Fetched a few screens before the top and held; merged inside two screens of it, once the list is at
+    // rest (`merger`), never on the network's schedule: an answer landing mid-glide or on a hidden pane moved
+    // the rows under the reader.
     const headingUp = (st: number) => {
       if (st >= el.clientHeight * OLDER_STAGE_SCREENS || !isHistoryIncomplete(completenessRef.current)) return;
-      if (st < el.clientHeight * OLDER_MERGE_SCREENS) {
-        // A reader faster than the network reaches the divider first: it says the rest is on its way.
+      const key = sessionKeyRef.current;
+      const asked = requestHistoryCompletion(key, 'stage');
+      if (st >= el.clientHeight * OLDER_MERGE_SCREENS) return;
+      if (getHistoryCompleteness(key).state === 'partial') {
+        // A reader faster than the network reaches the divider first: it says the rest is on its way,
+        // and turns back into a button if the request fails.
         setOlderLoading(true);
-        void requestHistoryCompletion(sessionKeyRef.current, 'apply').finally(() => setOlderLoading(false));
-      } else {
-        void requestHistoryCompletion(sessionKeyRef.current, 'stage');
+        void asked.then(() => { if (getHistoryCompleteness(key).state === 'partial') setOlderLoading(false); });
       }
+      merger.want();
     };
     const onWheel = (e: WheelEvent) => {
       markGesture();
@@ -1733,22 +1695,46 @@ export function MessageList({
     // a scroll, once Virtuoso has rendered that scroll's rows. Only while the
     // rest of the history is still to be merged: nothing reads it otherwise.
     let topRowFrame = 0;
-    const readTopRow = () => {
-      topRowFrame = 0;
-      if (el.clientHeight === 0) return;
+    const topRow = (): { id: string; offset: number } | null | undefined => {
       const viewTop = el.getBoundingClientRect().top;
       const rows = el.querySelector('[data-testid="virtuoso-item-list"]')?.children ?? [];
       for (const row of Array.from(rows)) {
         const box = row.getBoundingClientRect();
         if (box.bottom <= viewTop) continue;
         const item = itemsRef.current[Number((row as HTMLElement).dataset.index)];
-        topRowRef.current = item?.id ? { id: item.id, offset: box.top - viewTop } : null;
-        return;
+        return item?.id ? { id: item.id, offset: box.top - viewTop } : null;
       }
+      return undefined;
     };
+    const readTopRow = () => {
+      topRowFrame = 0;
+      const row = el.clientHeight === 0 ? undefined : topRow();
+      if (row !== undefined) topRowRef.current = row;
+    };
+    // The merge itself (CHAT-HIST-01), once the list is at rest: committed at once, then the row being read
+    // put back to the pixel, before the frame paints. Virtuoso's own compensation stands on estimated sizes.
+    const merger = mergeAtRest({
+      now: Date.now,
+      later: (fn, ms) => { const t = setTimeout(fn, ms); return () => clearTimeout(t); },
+      state: () => getHistoryCompleteness(sessionKeyRef.current).state,
+      visible: () => paneAliveRef.current && el.clientHeight > 0,
+      inBand: () => el.scrollTop < el.clientHeight * OLDER_MERGE_SCREENS,
+      pressed: () => gesture.held(),
+      merge: () => {
+        const anchor = topRow();
+        flushSync(() => { void requestHistoryCompletion(sessionKeyRef.current, 'apply'); });
+        setOlderLoading(false);
+        const target = anchor ? carrierRef.current.get(anchor.id) ?? anchor.id : null;
+        const index = target ? itemsRef.current.findIndex((m) => m.id === target) : -1;
+        if (anchor && index > 0) placeRowAt(el, index, anchor.offset);
+        syncArrow(el);
+      },
+    });
+    mergerRef.current = merger;
     const onScroll = () => {
       const st = el.scrollTop;
       const gesto = gesture.scrolled(Date.now());
+      merger.scrolled();
       if (!topRowFrame && isHistoryIncomplete(completenessRef.current)) topRowFrame = requestAnimationFrame(readTopRow);
       // I cali si SOMMANO, ma solo mentre l'utente ha le mani sopra.
       //
@@ -1836,6 +1822,7 @@ export function MessageList({
       const hidden = el.clientHeight === 0;
       if (wasHidden && !hidden) {
         wasHidden = hidden;
+        merger.poke();
         // FORZATO se nessuno l'ha toccata, e la differenza si vede solo sulle
         // tab in secondo piano: una pane nascosta ha viewport alta 0, quindi il
         // pin di apertura ci ha scritto sopra a vuoto e si e' consumato. Quando
@@ -1966,6 +1953,8 @@ export function MessageList({
 
     return () => {
       ro.disconnect();
+      merger.dispose();
+      mergerRef.current = null;
       cancelAnimationFrame(topRowFrame);
       el.removeEventListener('wheel', onWheel);
       el.removeEventListener('scroll', onScroll);
@@ -2058,18 +2047,21 @@ export function MessageList({
   }, [composerResizeRef, pinToBottom]);
 
   // Detect new messages while scrolled up
+  const countedItemsRef = useRef(filteredMessages);
   useEffect(() => {
     // Sui messaggi RESI, non su quelli grezzi: la lista filtra (turni vuoti,
     // marcatori) e fonde le corse di tool in un item solo, quindi contare
     // `currentMessages` prometteva «+3 nuovi» per righe che a schermo non
     // esistono — e cliccando non si trovava niente di nuovo.
-    if (filteredMessages.length > prevMsgCountRef.current && isScrolledUp) {
-      const newCount = filteredMessages.length - prevMsgCountRef.current;
-      setNewMsgCount(prev => prev + newCount);
+    // And only what grew at the BOTTOM: the rest of the history merged above is old (CHAT-HIST-01).
+    const grown = filteredMessages.length - prevMsgCountRef.current - countItemsAddedAbove(countedItemsRef.current, filteredMessages, carrierById);
+    if (grown > 0 && isScrolledUp) {
+      setNewMsgCount(prev => prev + grown);
       setShowNewBanner(true);
     }
     prevMsgCountRef.current = filteredMessages.length;
-  }, [filteredMessages.length, isScrolledUp]);
+    countedItemsRef.current = filteredMessages;
+  }, [filteredMessages, carrierById, isScrolledUp]);
 
   // PANE-03 scroll-restore (review I1). Apply the undo-captured offset once
   // per topic mount, AFTER Virtuoso's default bottom-anchor settles. We run

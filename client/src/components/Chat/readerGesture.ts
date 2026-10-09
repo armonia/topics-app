@@ -19,6 +19,8 @@ export interface ReaderGesture {
   /** A press on the list: the reader's until it is released. Returns when its window closes. */
   press(now: number): number;
   release(now: number): void;
+  /** A press is held on the list now. */
+  held(): boolean;
   /** One scroll event: whether it is the reader's. Every event of the list goes through here. */
   scrolled(now: number): boolean;
 }
@@ -40,6 +42,7 @@ export function readerGesture(): ReaderGesture {
       held = false;
       until = Math.max(until, now + GESTURE_WINDOW_MS);
     },
+    held: () => held,
     scrolled(now) {
       const reader = now < until || held || (lastWasReader && now - lastScroll <= SCROLL_CHAIN_MS);
       lastScroll = now;
