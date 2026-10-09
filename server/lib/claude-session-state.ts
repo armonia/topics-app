@@ -840,6 +840,8 @@ function userLineText(content: unknown): string {
  *   - `<command-name>` / `<local-command…` — a local slash-command echo; no
  *     model turn follows, so treating it as `running` would pin a false
  *     spinner until the reaper's 10-minute demotion.
+ *   - `<bash-input>` / `<bash-stdout>` / `<bash-stderr>` — a `!` command of
+ *     the bash mode and its output, the same: the shell runs, no model turn.
  *   - `[Request interrupted…` — the user STOPPING a turn, not starting one.
  * The check is exclusion-based on purpose: an unrecognised injected-turn
  * flavour (new origin kinds) defaults to a real turn, erring toward showing
@@ -850,6 +852,7 @@ function isMetaUserLine(obj: any): boolean {
   const text = userLineText(obj.message?.content).trimStart();
   return text.startsWith('<command-name>')
     || text.startsWith('<local-command')
+    || /^<bash-(input|stdout|stderr)>/.test(text)
     || text.startsWith('[Request interrupted');
 }
 
