@@ -206,27 +206,3 @@ describe('a meta row the CLI marks as opening a turn orders the hooks too', () =
     });
   }
 });
-
-describe('a turn that starts and stops between two sweeps of the tail', () => {
-  // A short woken turn, or a cron's: the tail reads none of it before its Stop, which finds the phase already at
-  // rest and so changes nothing. Its rows, read after, are older than that Stop and must not reopen it.
-  for (const opener of ['a delivered notice', 'a cron fire'] as const) {
-    it(`opened by ${opener}`, async () => {
-      const w = world('terminal');
-      try {
-        const notice = opener === 'a delivered notice';
-        if (notice) openTurn(w); else w.hook({ hook_event_name: 'UserPromptSubmit' }, T0 + 200);
-        const S = T0 + 7_000, D = S + 800, S2 = D + 900;
-        const seq: string[] = [];
-        w.add(assistant(S - 500)); await w.tracker.tailOnce(S - 300);
-        w.hook({ hook_event_name: 'Stop' }, S + 30, S); seq.push(`Stop ${w.phase()}`);
-        const opening = notice ? userRow(BASH_END, D) : JSON.stringify({ type: 'user', uuid: `m${D}`, timestamp: new Date(D).toISOString(), isMeta: true, turnOrigin: 'scheduled', message: { role: 'user', content: 'check the build' } });
-        w.add(...(notice ? [q('enqueue', BASH_END, D - 30)] : []), opening, assistant(D + 600));
-        w.hook({ hook_event_name: 'Stop' }, S2 + 30, S2); seq.push(`its Stop ${w.phase()}`);
-        await w.tracker.tailOnce(S2 + 200); seq.push(`tail ${w.phase()}`);
-        expect(seq).toEqual([`Stop ${notice ? 'watching' : 'awaiting-user'}`, `its Stop ${notice ? 'watching' : 'awaiting-user'}`, 'tail awaiting-user']);
-        expect(w.tracker.getSession(w.sid)?.phaseUpdatedAt).toBe(S2);
-      } finally { w.done(); }
-    });
-  }
-});

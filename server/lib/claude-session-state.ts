@@ -357,22 +357,16 @@ export function applyHook(
       }, now);
     }
 
-    case 'Stop': {
+    case 'Stop':
       // Turn ended. With a task of its own still in flight (a background Bash
       // or Agent, a Workflow, a Monitor, a one-shot cron: MONITOR-04), the
       // session is not idle: it is parked WATCHING for the report, which will
       // wake it. Otherwise the turn simply finished → awaiting-user.
-      const next = transition(base, {
+      return transition(base, {
         phase: waiting ? 'watching' : 'awaiting-user',
         pendingApproval: undefined,
         lastTool: undefined,
       }, now);
-      // Already at that rest: a turn the tail never saw (a short woken one, a
-      // cron's, all of it between two sweeps) ended here. Dated to this Stop,
-      // its rows read after are older and reopen nothing.
-      if (next.phase !== prev.phase || now <= next.phaseUpdatedAt) return next;
-      return { ...next, phaseUpdatedAt: now, rev: next === base ? base.rev + 1 : next.rev };
-    }
 
     case 'SubagentStop':
       // Subagent completions are recorded but don't move the parent's phase.
