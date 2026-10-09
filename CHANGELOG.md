@@ -2,6 +2,15 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.2.469 — 2026-10-09
+
+### Correzioni
+- **muse** · configHome invece di xdgConfigHome (check:identifier-language)
+
+### Sotto il cofano
+- **verifica** · giro 3, le PR del 9/10 e l'aggiornamento di prod
+- **muse** · MUSE-05, la chat Muse ha i tool di Topics; @covers sui test (check:untraced-tests)
+
 ## 2.2.468 — 2026-10-09
 
 ### Correzioni
@@ -71,6 +80,7 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 - **liste** · la riga «mostra altri» carica da sola entrando in vista (LIST-PAGE-01)
 - **liste** · le liste con «mostra altri» caricano da sole, e la barra delle schede del browser della topic scorre
 - **chat** · la fusione in cima aspetta la lista ferma e rimette la riga letta al pixel (bozza)
+- **muse** · le chat Muse montano il bridge MCP di Topics
 
 ### Correzioni
 - **chat** · mentre lo scan aspetta il suo ack in ritardo, la rotta non uccide il turno

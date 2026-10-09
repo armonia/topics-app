@@ -1,5 +1,35 @@
 [
   {
+    "version": "2.2.469",
+    "date": "2026-10-09",
+    "sections": {
+      "new": [],
+      "fixes": [
+        {
+          "it": "configHome invece di xdgConfigHome (check:identifier-language)",
+          "en": "",
+          "scope": "muse",
+          "breaking": false
+        }
+      ],
+      "perf": [],
+      "internal": [
+        {
+          "it": "giro 3, le PR del 9/10 e l'aggiornamento di prod",
+          "en": "",
+          "scope": "verifica",
+          "breaking": false
+        },
+        {
+          "it": "MUSE-05, la chat Muse ha i tool di Topics; @covers sui test (check:untraced-tests)",
+          "en": "",
+          "scope": "muse",
+          "breaking": false
+        }
+      ]
+    }
+  },
+  {
     "version": "2.2.468",
     "date": "2026-10-09",
     "sections": {
@@ -300,6 +330,12 @@
           "it": "la fusione in cima aspetta la lista ferma e rimette la riga letta al pixel (bozza)",
           "en": "",
           "scope": "chat",
+          "breaking": false
+        },
+        {
+          "it": "le chat Muse montano il bridge MCP di Topics",
+          "en": "",
+          "scope": "muse",
           "breaking": false
         }
       ],

@@ -1,5 +1,19 @@
 [
   {
+    "version": "2.2.469",
+    "date": "2026-10-09",
+    "sections": {
+      "new": [],
+      "fixes": [
+        {
+          "text": "configHome invece di xdgConfigHome (check:identifier-language)",
+          "scope": "muse"
+        }
+      ],
+      "perf": []
+    }
+  },
+  {
     "version": "2.2.468",
     "date": "2026-10-09",
     "sections": {
@@ -185,6 +199,10 @@
         {
           "text": "la fusione in cima aspetta la lista ferma e rimette la riga letta al pixel (bozza)",
           "scope": "chat"
+        },
+        {
+          "text": "le chat Muse montano il bridge MCP di Topics",
+          "scope": "muse"
         }
       ],
       "fixes": [
