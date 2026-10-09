@@ -98,6 +98,9 @@ const ABSORBED_LINES = readFileSync(join(import.meta.dir, '..', '..', 'tests', '
   .split('\n').filter(Boolean);
 /** The call that launched it, as its notice names it (`<tool-use-id>`). */
 const ABSORBED_CALL = 'toolu_0182HmRXHPENtS8FfLU8wmT4';
+/** The notice the CLI writes when AGENT_BG, launched by the call `toolu_1`, ends. */
+const agentBgEnd = (at: number) => JSON.stringify({ type: 'queue-operation', operation: 'enqueue', timestamp: new Date(at).toISOString(), sessionId: '00000000-0000-4000-8000-0000000000b2',
+  content: '<task-notification>\n<task-id>a4bb623e3ab5ee41a</task-id>\n<tool-use-id>toolu_1</tool-use-id>\n<status>completed</status>\n<summary>Agent "verify render" completed</summary>\n</task-notification>' });
 /** The notice the CLI writes when BASH_BG, launched by the call `toolu_n0`, ends. */
 const bashBgEnd = (at: number) => JSON.stringify({ type: 'queue-operation', operation: 'enqueue', timestamp: new Date(at).toISOString(), sessionId: '00000000-0000-4000-8000-0000000000b2',
   content: '<task-notification>\n<task-id>b7kapz0ad</task-id>\n<tool-use-id>toolu_n0</tool-use-id>\n<status>completed</status>\n<summary>Background command "sleep 600 && make build" completed (exit code 0)</summary>\n</task-notification>' });
@@ -446,9 +449,7 @@ describe('a reattached terminal drops the tasks its transcript already reports f
       boot();
       expect(getAttention(subject).state).toBe('working');
       // Minutes later the Agent ends: the CLI writes its notice and the live tail reads it.
-      const agentEnd = JSON.stringify({ type: 'queue-operation', operation: 'enqueue', timestamp: new Date(T0 + 60_000).toISOString(), sessionId: '00000000-0000-4000-8000-0000000000b2',
-        content: '<task-notification>\n<task-id>a4bb623e3ab5ee41a</task-id>\n<tool-use-id>toolu_1</tool-use-id>\n<status>completed</status>\n<summary>Agent "verify render" completed</summary>\n</task-notification>' });
-      appendFileSync(path, agentEnd + '\n');
+      appendFileSync(path, agentBgEnd(T0 + 60_000) + '\n');
       await after.tailOnce((t += 60_000));
       expect(countingTasks(subject)).toBe(0);
       await new Promise((r) => setTimeout(r, 100));
@@ -493,6 +494,70 @@ describe('a reattached terminal drops the tasks its transcript already reports f
         await after.tailOnce((t += 60_000));
         if (variant === 'start recomposition after its end') boot();
         expect(countingTasks(subject)).toBe(0);
+        await new Promise((r) => setTimeout(r, 100));
+        expect(getAttention(subject).state).toBe('finished');
+        expect({ epoch: getAttention(subject).epoch - before.epoch, pushes: pushes.length - before.pushes, rows: rows.length - before.rows }).toEqual({ epoch: 1, pushes: 1, rows: 1 });
+      } finally {
+        rmSync(home, { recursive: true, force: true });
+      }
+    });
+  }
+
+  // T1 leaves a Bash, which ends while the server is down, and an Agent, whose end the live tail reads while
+  // the catch-up still reads: the work of before ended live, and the read that takes the Bash out announces it.
+  it('terminal: a task of before the restart that ends live while the catch-up reads: the late read announces the turn once', async () => {
+    const home = mkdtempSync(join(tmpdir(), 'bg-reattach-race-'));
+    try {
+      const cwd = '/work/project';
+      const { tracker, sid, subject } = terminalTracker([]);
+      let t = T0;
+      turn([BASH_ABSORBED, AGENT_BG]).forEach((h) => tracker.ingestHook({ ...h, session_id: sid } as never, (t += 200)));
+      const path = deriveTranscriptPath(home, cwd, sid);
+      mkdirSync(dirname(path), { recursive: true });
+      writeFileSync(path, ABSORBED_LINES.join('\n') + '\n');
+      restart();
+      const before = { epoch: getAttention(subject).epoch, pushes: pushes.length, rows: rows.length };
+      const after = createClaudeSessionTracker({ db: freshDb(), broadcast: () => {}, coalesceWindowMs: 5, dedupWindowMs: 100, rateLimitPerSec: 50, attentionSubject: subjectOf, homeDir: home });
+      after.registerTerminalSession(sid, { cwd, now: (t += 200) });
+      const end = agentBgEnd(t + 500);
+      appendFileSync(path, end + '\n');
+      after.ingestTranscriptLine(sid, end, (t += 500));
+      expect(getAttention(subject).background.map((x: { id: string }) => x.id)).toEqual(['b76lzwo0d']);
+      const deadline = Date.now() + 3_000;
+      while (countingTasks(subject) > 0 && Date.now() < deadline) await new Promise((r) => setTimeout(r, 5));
+      boot();
+      await new Promise((r) => setTimeout(r, 100));
+      expect(getAttention(subject).state).toBe('finished');
+      expect({ epoch: getAttention(subject).epoch - before.epoch, pushes: pushes.length - before.pushes, rows: rows.length - before.rows }).toEqual({ epoch: 1, pushes: 1, rows: 1 });
+    } finally {
+      rmSync(home, { recursive: true, force: true });
+    }
+  });
+
+  // T1 leaves a Bash, which ends while the server is down, and a one-shot cron that the next prompt fires; then
+  // that prompt's turn is put to rest by Esc. Without a restart the turn of before is announced once.
+  for (const order of ['before', 'after'] as const) {
+    it(`terminal: a one-shot cron of before the restart, fired by a prompt ${order} the late read: the turn is announced once`, async () => {
+      const home = mkdtempSync(join(tmpdir(), 'bg-reattach-cron-'));
+      try {
+        const cwd = '/work/project';
+        const { tracker, sid, subject } = terminalTracker([]);
+        let t = T0;
+        turn([BASH_ABSORBED, CRON_ONCE]).forEach((h) => tracker.ingestHook({ ...h, session_id: sid } as never, (t += 200)));
+        const path = deriveTranscriptPath(home, cwd, sid);
+        mkdirSync(dirname(path), { recursive: true });
+        writeFileSync(path, ABSORBED_LINES.join('\n') + '\n');
+        restart();
+        const before = { epoch: getAttention(subject).epoch, pushes: pushes.length, rows: rows.length };
+        const after = createClaudeSessionTracker({ db: freshDb(), broadcast: () => {}, coalesceWindowMs: 5, dedupWindowMs: 100, rateLimitPerSec: 50, attentionSubject: subjectOf, homeDir: home });
+        after.registerTerminalSession(sid, { cwd, now: (t += 200) });
+        const prompt = () => after.ingestHook({ hook_event_name: 'UserPromptSubmit', session_id: sid } as never, (t += 200));
+        if (order === 'before') prompt();
+        const deadline = Date.now() + 3_000;
+        while (getAttention(subject).background.some((x: { id: string }) => x.id === 'b76lzwo0d') && Date.now() < deadline) await new Promise((r) => setTimeout(r, 5));
+        if (order === 'after') prompt();
+        boot();
+        after.reapOnce(t + 2 * 60 * 60 * 1000);
         await new Promise((r) => setTimeout(r, 100));
         expect(getAttention(subject).state).toBe('finished');
         expect({ epoch: getAttention(subject).epoch - before.epoch, pushes: pushes.length - before.pushes, rows: rows.length - before.rows }).toEqual({ epoch: 1, pushes: 1, rows: 1 });

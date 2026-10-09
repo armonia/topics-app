@@ -194,9 +194,10 @@ interface Entry {
   /** Causes that are the current epoch's too: the wait open at the restart, and what its end left. */
   sameEpochCauses?: Set<string>;
   /**
-   * The last turn closed live under this process: its end is a live fact, even when a
-   * reattach's catch-up is what removes the task that held it. Memory only: what the
-   * table holds at a start closed before it. The start's recomposition keeps it, as it
+   * The last turn closed live under this process, or a task in flight across the restart
+   * (`restored`) left live, its end read or a cron fired by a prompt: the end of that work is
+   * a live fact, even when a reattach's catch-up is what removes the task that held it last.
+   * Memory only: what the table holds at a start closed before it. The start's recomposition keeps it, as it
    * keeps the rest this process said: it runs after the surviving turns are adopted,
    * with hooks already arriving.
    */
@@ -740,6 +741,7 @@ export function finishBackgroundTasks(subject: string, ids: readonly string[], o
   const next = { ...e.row.background };
   for (const id of gone) delete next[id];
   e.row.background = next;
+  if (!opts.late && gone.some((id) => e.restored?.has(id))) e.lastTurnLive = true;
   if (opts.late && !e.lastTurnLive) {
     // Marked only when this read takes out the last task in flight across the restart (`restored`),
     // recurring crons aside. With one still in flight, the closed turn's or one put to rest without an
@@ -765,6 +767,7 @@ export function applyTaskChanges(subject: string, changes: readonly TaskChange[]
   const e = entryOf(subject);
   const before = e.row.background;
   const next: AttentionTaskMap = { ...e.row.background };
+  const replaced = new Set<string>();
   for (const c of changes) {
     if (c.op === "clear") for (const k of Object.keys(next)) delete next[k];
     else if (c.op === "remove") delete next[c.id];
@@ -772,15 +775,17 @@ export function applyTaskChanges(subject: string, changes: readonly TaskChange[]
     else if (c.op === "remove-one-shot-crons") { for (const [k, t] of Object.entries(next)) if (t.kind === "cron" && !t.recurring) delete next[k]; }
     else if (e.finishedTasks?.has(c.id) || (c.replaces && e.finishedTasks?.has(c.replaces))) {
       // A hook that arrives after the task's end (`finishBackgroundTasks`): the task stays out.
-      if (c.replaces) delete next[c.replaces];
+      if (c.replaces) { delete next[c.replaces]; replaced.add(c.replaces); }
     } else {
       const prev = c.replaces ? next[c.replaces] : undefined;
-      if (c.replaces) delete next[c.replaces];
+      if (c.replaces) { delete next[c.replaces]; replaced.add(c.replaces); }
       if (c.replaces && e.restored?.has(c.replaces)) e.restored.add(c.id);
       next[c.id] = { ...c.task, startedAt: prev?.startedAt ?? next[c.id]?.startedAt ?? c.task.startedAt };
     }
   }
   if (JSON.stringify(next) === JSON.stringify(e.row.background)) return false;
+  // A task of before the restart taken out live, not re-keyed: see `lastTurnLive`.
+  if (Object.keys(before).some((id) => !(id in next) && !replaced.has(id) && e.restored?.has(id))) e.lastTurnLive = true;
   e.row.background = next;
   if (countingTaskCount(next) > 0) clearGrace(e);
   else armGraceOnLastTask(subject, e, before);
