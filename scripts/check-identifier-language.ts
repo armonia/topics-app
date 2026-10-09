@@ -91,7 +91,7 @@ export const PROJECT_WORDS = new Set([
   // with the dictionary meaning of the word. `lucide` is the icon library the
   // UI draws every glyph with; its type `LucideIcon` has no other name
   // (2026-10-04, `components/Sidebar/Inbox.tsx`).
-  "inbox", "lucide",
+  "inbox", "lucide", "handoff", // handoff: the English word, `providers/handoff.ts` (MP-HANDOFF-01)
   // `tailwind` is the name of the framework this client's classes come from,
   // and the constant that lists ITS font-size steps (the ones the type scale
   // switches off) has to name it to be understood. `scanned` is a regular past

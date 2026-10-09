@@ -7,7 +7,7 @@
  * tests never touch — spawn, argv, prompt from file, sid resume, abort of a
  * live turn, exit≠0.
  *
- * @covers MUSE-02, MUSE-03, MUSE-05
+ * @covers MUSE-02, MUSE-03, MUSE-05, MP-HANDOFF-01
  */
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { chmodSync, mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "fs";
@@ -17,6 +17,7 @@ import { closeDatabase, getDatabase, initDatabase } from "../db";
 import { _resetMuseBinCache } from "../lib/muse-bin";
 import { MuseProvider } from "./muse";
 import type { StreamHandler } from "./types";
+import { configureNativeHistorySource } from "./native/history-rehydrate";
 
 let tempRoot: string;
 const previousBin = process.env.MUSE_BIN;
@@ -302,6 +303,28 @@ describe("muse-integration", () => {
       expect(result).toContain(`mcp=stdio:--session-key=${sessionKey}`);
     } finally {
       provider.stop();
+    }
+  });
+  test("a fresh session gets the stored conversation even when the route passes none", async () => {
+    // RED BEFORE: the preamble was built from `history` only, so a chat whose
+    // route sent no history (or switched provider) started blank on Muse.
+    const sessionKey = "topic:muse-int-handoff";
+    seedTopic(sessionKey);
+    configureNativeHistorySource(() => [
+      { role: "user", content: "earlier question" },
+      { role: "assistant", content: "earlier answer" },
+      { role: "user", content: "new question" },
+    ]);
+    const provider = new MuseProvider({ type: "muse", defaultWorkspace: tempRoot });
+    provider.start();
+    try {
+      const tape = recorder();
+      await provider.sendChat(sessionKey, "new question", tape.handler, {});
+      const result = await timed(tape.done, "onDone");
+      expect(result).toContain("history=yes");
+    } finally {
+      provider.stop();
+      configureNativeHistorySource(null);
     }
   });
 });
