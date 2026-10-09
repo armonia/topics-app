@@ -92,6 +92,10 @@ export const PROJECT_WORDS = new Set([
   // UI draws every glyph with; its type `LucideIcon` has no other name
   // (2026-10-04, `components/Sidebar/Inbox.tsx`).
   "inbox", "lucide",
+  // `handoff` is the conversation a fresh CLI session inherits from the store,
+  // with its tool calls (`providers/handoff.ts`, MP-HANDOFF-01): the English
+  // word, missing from the dictionary (2026-10-09).
+  "handoff",
   // `tailwind` is the name of the framework this client's classes come from,
   // and the constant that lists ITS font-size steps (the ones the type scale
   // switches off) has to name it to be understood. `scanned` is a regular past

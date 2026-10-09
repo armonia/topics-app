@@ -60,21 +60,21 @@ describe("handoff", () => {
   });
 
   test("without the store, the route's history is used, pinned context first", () => {
-    const pre = freshSessionPreamble("topic:none", [
+    const preamble = freshSessionPreamble("topic:none", [
       { role: "system", content: "SOUL" },
       { role: "user", content: "ciao" },
       { role: "assistant", content: "ehi" },
     ]);
-    expect(pre.startsWith("# Conversation so far\n\n## Context\n\nSOUL")).toBe(true);
-    expect(pre).toContain("## User\n\nciao");
-    expect(pre).toContain("## Assistant\n\nehi");
+    expect(preamble.startsWith("# Conversation so far\n\n## Context\n\nSOUL")).toBe(true);
+    expect(preamble).toContain("## User\n\nciao");
+    expect(preamble).toContain("## Assistant\n\nehi");
   });
 
   test("the store wins over the route's prose when it has the session", () => {
     useStore([u("dal db"), { role: "assistant", content: "ok" }, u("nuovo")]);
-    const pre = freshSessionPreamble("topic:x", [{ role: "user", content: "dalla rotta" }]);
-    expect(pre).toContain("dal db");
-    expect(pre).not.toContain("dalla rotta");
+    const preamble = freshSessionPreamble("topic:x", [{ role: "user", content: "dalla rotta" }]);
+    expect(preamble).toContain("dal db");
+    expect(preamble).not.toContain("dalla rotta");
   });
 
   test("the written text stays within budget even with hundreds of small tool calls", () => {
