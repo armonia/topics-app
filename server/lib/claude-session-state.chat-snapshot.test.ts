@@ -194,8 +194,8 @@ describe('a chat snapshot that empties the map rests the parked turn once quiet'
     expect(seen).toEqual(['watching', 'watching', 'watching']);
   }));
   // The verifier's race: the sweep that reads the delivery loses its commit to the server adopting the woken turn
-  // (`noteWatchDelivered`, a new rev), and a reaper tick lands before the next sweep. The row that opened the turn,
-  // written after the map emptied, outdates the emptying: the turn waits for that sweep instead of resting.
+  // (`noteWatchDelivered`, a new rev), and a reaper tick lands before the next sweep. The row woke the turn, so the
+  // emptying is no rest any more: the turn waits for that sweep instead of resting.
   it('a delivery read after the snapshot keeps the turn from resting, even when its sweep loses the commit', () => withHome(async (home) => {
     const c = setupChat(home);
     turn([MONITOR]).slice(0, -1).forEach((h) => c.hook(h));
@@ -214,6 +214,26 @@ describe('a chat snapshot that empties the map rests the parked turn once quiet'
     c.at(E + 5_000); c.tracker.reapOnce(c.now()); seen.push(phaseOf(c.tracker, c.sid));
     c.at(E + 5_500); await c.tracker.tailOnce(c.now()); seen.push(phaseOf(c.tracker, c.sid));
     expect(seen).toEqual(['watching', 'watching', 'watching', 'watching', 'running']);
+  }));
+
+  it('a delivery the CLI stamped before the server took the snapshot wakes the turn the same way', () => withHome(async (home) => {
+    // A quick delivery (31 ms after its enqueue at the median) and a server late on the CLI's stdout: the row is older
+    // than the emptying on the server's clock, and the tail, late too, reads it in the sweep that loses its commit.
+    const c = setupChat(home);
+    turn([MONITOR]).slice(0, -1).forEach((h) => c.hook(h));
+    c.hook({ hook_event_name: 'Stop' });
+    const S = c.now(), seen = [phaseOf(c.tracker, c.sid)];
+    c.at(S + 100); setBackgroundTasks(c.subject, { bmon0stop: { kind: 'monitor', label: 'detect stopped workers', startedAt: iso(S) } });
+    const E = S + 5_000;
+    c.write(enqueued(MONITOR_END, E - 40), delivered(MONITOR_END, E - 20));
+    c.at(E); setBackgroundTasks(c.subject, {});
+    c.at(E + 4_000);
+    const sweep = c.tracker.tailOnce(c.now());
+    c.tracker.noteWatchDelivered('topic:bg', c.now());
+    await sweep; seen.push(phaseOf(c.tracker, c.sid));
+    c.at(E + 5_000); c.tracker.reapOnce(c.now()); seen.push(phaseOf(c.tracker, c.sid));
+    c.at(E + 5_500); await c.tracker.tailOnce(c.now()); seen.push(phaseOf(c.tracker, c.sid));
+    expect(seen).toEqual(['watching', 'watching', 'watching', 'running']);
   }));
 
   it('a row written before the snapshot and read late leaves the emptying: the turn still rests once quiet', () => withHome(async (home) => {

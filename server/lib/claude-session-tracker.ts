@@ -33,6 +33,7 @@ import {
   deriveTranscriptPath,
   type HookPayload,
   type ClaudeSessionState,
+  type JsonlEvent,
   type ReaperConfig,
   DEFAULT_REAPER_CONFIG,
 } from './claude-session-state';
@@ -598,7 +599,7 @@ export function createClaudeSessionTracker(opts: ClaudeSessionTrackerOptions): C
     liveTranscriptTasks(subject, line);
     const ev = parseJsonlLine(line);
     if (ev?.type === 'user' && ev.ts !== undefined) turnOpened(prev, subject, ev.ts);
-    const moved = ev ? applyJsonlEvent(prev, ev, t) : prev;
+    const moved = ev ? applyRow(prev, ev, subject, t) : prev;
     const next = subject ? settleWatching(moved, countingTasks(subject), transcriptEnds.drained(subject, t), t) : moved;
     if (!ev && next === prev) return false;
     const res = dbPrev ? commit(dbPrev, next) : commitTerminal(prev, next);
@@ -738,14 +739,19 @@ export function createClaudeSessionTracker(opts: ClaudeSessionTrackerOptions): C
   }
 
   /**
-   * A row that opens a turn, at its own time: it orders the hooks (`hook-order.ts`), outdates an emptying of the map
-   * before it and, newest of all, opens a terminal's turn that its late `Stop` will not (`transcriptTurnStarted`).
+   * A row that opens a turn, at its own time: it orders the hooks (`hook-order.ts`) and, newest of all, opens a
+   * terminal's turn that its late `Stop` will not (`transcriptTurnStarted`).
    */
   function turnOpened(prev: ClaudeSessionState, subject: string | null, at: number): void {
     const newest = hookOrder.opened(prev.claudeSessionId, at);
-    if (!subject) return;
-    transcriptEnds.opened(subject, at);
-    if (newest && terminalStates.has(prev.claudeSessionId)) transcriptTurnStarted(subject, prev);
+    if (subject && newest && terminalStates.has(prev.claudeSessionId)) transcriptTurnStarted(subject, prev);
+  }
+
+  /** A row on the phase: one that wakes a parked turn outdates an emptying of its map (`transcriptEnds.woke`). */
+  function applyRow(prev: ClaudeSessionState, ev: JsonlEvent, subject: string | null, t: number): ClaudeSessionState {
+    const next = applyJsonlEvent(prev, ev, t);
+    if (subject && prev.phase === 'watching' && next.phase !== 'watching') transcriptEnds.woke(subject);
+    return next;
   }
 
   /** The task ends of a line the live tail reads, held while a catch-up of its subject still reads (`heldForCatchUp`). */
@@ -868,7 +874,7 @@ export function createClaudeSessionTracker(opts: ClaudeSessionTrackerOptions): C
           const ev = parseJsonlLine(line);
           if (ev?.type === 'user' && ev.ts !== undefined) turnOpened(cur, subject, ev.ts);
           if (!ev) continue;
-          cur = applyJsonlEvent(cur, ev, t);
+          cur = applyRow(cur, ev, subject, t);
         }
         if (subject) cur = settleWatching(cur, countingTasks(subject), transcriptEnds.drained(subject, t), t);
         // Persist offset = bytes consumed up to last newline.

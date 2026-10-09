@@ -182,15 +182,13 @@ export function createTranscriptEnds() {
      */
     emptied: (subject: string, at: number): void => { emptiedAt.set(subject, at); },
     /**
-     * A row that opens a turn (a prompt, a delivered notice), written at `at`:
-     * an emptying before it no longer means nothing is left to wake the turn,
-     * even while the sweep that read it has not committed yet. An older row,
-     * read late, leaves it.
+     * A row of the transcript woke the parked turn (written after its `Stop`,
+     * `applyJsonlEvent`): the emptying no longer means nothing is left to wake
+     * it, even while the sweep that read the row has not committed yet. The
+     * phase decides, not the time: the CLI may write the row before the server
+     * takes the snapshot that emptied the map.
      */
-    opened: (subject: string, at: number): void => {
-      const was = emptiedAt.get(subject);
-      if (was !== undefined && at > was) emptiedAt.delete(subject);
-    },
+    woke: (subject: string): void => { emptiedAt.delete(subject); },
     drained: (subject: string, t: number): boolean => {
       if (drained.has(subject)) return true;
       const at = emptiedAt.get(subject);
