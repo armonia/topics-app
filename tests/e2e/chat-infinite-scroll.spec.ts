@@ -29,7 +29,10 @@ hermetic(test);
  * before the merge until the step that crossed it has landed the rows move by
  * at most one nudge, and not at all after. "Landed", not "the next frame": an
  * engine that animates the wheel spreads the step over frames, and the merge
- * can fall in the middle of it. A merge that is not compensated moves the rows
+ * can fall in the middle of it. Since T20 the merge waits for a list at rest
+ * (`mergeAtRest`), so after each step the reader gives it the frames it needs
+ * before the next: nudges a stillView apart never left it 150 ms, and the merge
+ * slid up to the top of the list. A merge that is not compensated moves the rows
  * by the height of the page it adds, or out of view. CLS is read on Chromium
  * only: WebKit has no Layout Instability API. Its sources are logged, because a
  * shift between a frame's sample and its paint never reaches the probe.
@@ -74,8 +77,12 @@ async function seedThread(request: APIRequestContext, sessionKey: string, count:
 }
 
 type Frame = { t: number; state: string | null; rows: Record<string, number>; inView: number; st: number };
-/** A layout shift, with up to three of the nodes it moved (`tag[testid or index] y<before>-><after> h<height>`). */
-type Shift = { value: number; t: number; sources: string[] };
+/**
+ * A layout shift, with up to three of the nodes it moved (`tag[testid or index] y<before>-><after> h<height>`),
+ * and whether any of them shows anywhere else on screen (`seen`): a container taller than the view whose
+ * `paddingTop` grows while `scrollTop` makes up for it is reported with the same visible rect before and after.
+ */
+type Shift = { value: number; t: number; sources: string[]; seen: boolean };
 
 /** Samples every frame of the visible chat scroller until `__probeStop`. */
 async function armFrameProbe(page: Page): Promise<void> {
@@ -97,7 +104,9 @@ async function armFrameProbe(page: Page): Promise<void> {
           if (e.hadRecentInput) continue;
           const sources = (e.sources ?? []).slice(0, 3).map((src) =>
             `${named(src.node)} y${Math.round(src.previousRect.y)}->${Math.round(src.currentRect.y)} h${Math.round(src.currentRect.height)}`);
-          w.__shifts.push({ value: e.value, t: e.startTime, sources });
+          const same = (a: DOMRectReadOnly, b: DOMRectReadOnly) => [a.x - b.x, a.y - b.y, a.width - b.width, a.height - b.height].every((d) => Math.abs(d) < 1);
+          const seen = (e.sources ?? []).some((src) => !same(src.previousRect, src.currentRect));
+          w.__shifts.push({ value: e.value, t: e.startTime, sources, seen });
         }
       }).observe({ type: "layout-shift" });
     } catch { /* WebKit: no Layout Instability API */ }
@@ -168,10 +177,11 @@ function moved(a: Frame, b: Frame): number | null {
 }
 
 /**
- * One frame as the reader sees it: where the top of each seeded MESSAGE is (not
- * its row: the divider over the first row goes away at the merge, and a row
- * box that keeps its top while its message moves up is still a jump), which of
- * them are in view, and whether any row is.
+ * One frame as the reader sees it: where the line of text of each seeded
+ * message is, which of them are in view, and whether any row is. The text, not
+ * the row or the message box: the merge takes away what sits above the first
+ * row's text (the divider, the date separator of a first message), and a box
+ * that keeps its top while the text in it moves up is still a jump.
  */
 type Reading = { state: string | null; msgs: Record<string, number>; vis: string[]; inView: number; st: number };
 
@@ -202,9 +212,14 @@ async function armReadingProbe(page: Page): Promise<void> {
         const rowIn = box.bottom > view.top && box.top < view.bottom;
         if (rowIn) inView++;
         for (const m of row.querySelectorAll('[data-testid="chat-message"]')) {
-          const n = pattern.exec(m.textContent || "")?.[1];
-          if (!n) continue;
-          const r = m.getBoundingClientRect();
+          const walker = document.createTreeWalker(m, NodeFilter.SHOW_TEXT);
+          let text: Node | null = null;
+          while ((text = walker.nextNode()) && !pattern.test(text.nodeValue || ""));
+          const n = text && pattern.exec(text.nodeValue || "")?.[1];
+          if (!text || !n) continue;
+          const range = document.createRange();
+          range.selectNodeContents(text);
+          const r = range.getBoundingClientRect();
           msgs[n] = Math.round((r.top - view.top) * 10) / 10;
           if (r.bottom > view.top && r.top < view.bottom) vis.push(n);
         }
@@ -262,15 +277,21 @@ async function completeWithin(page: Page, n: number): Promise<boolean> {
   }), { sel: SCROLLER, count: n });
 }
 
-/** The first message whose bottom is in view, by its seeded ordinal, and where its top is from the viewport's top. */
+/** The first message whose bottom is in view, by its seeded ordinal, and where its line of text is from the viewport's top. */
 async function readingAt(list: Locator): Promise<{ n: string; offset: number }> {
   return await list.evaluate((el, rowPattern) => {
     const top = el.getBoundingClientRect().top;
     const pattern = new RegExp(rowPattern);
     for (const m of el.querySelectorAll('[data-testid="chat-message"]')) {
-      const r = m.getBoundingClientRect();
-      const n = pattern.exec(m.textContent || "")?.[1];
-      if (n && r.bottom > top + 2) return { n, offset: Math.round((r.top - top) * 10) / 10 };
+      if (m.getBoundingClientRect().bottom <= top + 2) continue;
+      const walker = document.createTreeWalker(m, NodeFilter.SHOW_TEXT);
+      let text: Node | null = null;
+      while ((text = walker.nextNode()) && !pattern.test(text.nodeValue || ""));
+      const n = text && pattern.exec(text.nodeValue || "")?.[1];
+      if (!text || !n) continue;
+      const range = document.createRange();
+      range.selectNodeContents(text);
+      return { n, offset: Math.round((range.getBoundingClientRect().top - top) * 10) / 10 };
     }
     return { n: "", offset: 0 };
   }, ROW.source);
@@ -402,6 +423,7 @@ test.describe("Infinite scroll della chat", () => {
       lastStep = gap > APPROACH_PX + NUDGE_PX ? Math.min(600, gap - APPROACH_PX) : NUDGE_PX;
       await page.mouse.wheel(0, -lastStep);
       st = await stillView(page);
+      await completeWithin(page, 30);
     }
     for (let i = 0; i < 10; i++) await stillView(page);
     const { frames, shifts } = await stopProbe(page);
@@ -417,8 +439,11 @@ test.describe("Infinite scroll della chat", () => {
     const settling = frames.slice(landed, landed + 8).map((f, i, all) => (i === 0 ? 0 : moved(all[i - 1], f)));
     const blank = frames.filter((f) => f.inView === 0).length;
     const mergeShifts = shifts.filter((s) => s.t >= frames[at - 1].t - 50 && s.t <= frames[Math.min(landed + 8, frames.length - 1)].t + 50);
-    const cls = mergeShifts.reduce((sum, s) => sum + s.value, 0);
-    console.log(`[infinite-scroll:${browserName}] frames=${frames.length} mergeFrame=${at} landed=${landed} step=${lastStep} across=${across} landing=${JSON.stringify(landing)} settling=${JSON.stringify(settling)} blank=${blank} cls=${cls.toFixed(4)} (${mergeShifts.length} shifts)${mergeShifts.length ? ` ${JSON.stringify(mergeShifts.map((s) => [Number(s.value.toFixed(4)), ...s.sources]))}` : ""}`);
+    // Since T20 the merge at rest reports the item list itself (its rect on screen the same before and
+    // after, the rows in it still in every frame above): a shift no source of which moved is not counted.
+    const cls = mergeShifts.filter((s) => s.seen).reduce((sum, s) => sum + s.value, 0);
+    const unseen = mergeShifts.filter((s) => !s.seen).reduce((sum, s) => sum + s.value, 0);
+    console.log(`[infinite-scroll:${browserName}] frames=${frames.length} mergeFrame=${at} landed=${landed} step=${lastStep} across=${across} landing=${JSON.stringify(landing)} settling=${JSON.stringify(settling)} blank=${blank} cls=${cls.toFixed(4)} unseen=${unseen.toFixed(4)} (${mergeShifts.length} shifts)${mergeShifts.length ? ` ${JSON.stringify(mergeShifts.map((s) => [Number(s.value.toFixed(4)), s.seen ? "seen" : "unseen", ...s.sources]))}` : ""}`);
 
     expect(across, "a row read before the merge is still in view once the step has landed").not.toBeNull();
     expect(across!, "from the merge until the step lands, the rows move by at most that step").toBeLessThanOrEqual(lastStep + STILL_PX);
@@ -537,16 +562,20 @@ test.describe("Infinite scroll della chat", () => {
       await expect(list).toHaveAttribute("data-history", "complete", { timeout: 10000 });
       await afterFrames(page, 30);
       const probe = await stopReadingProbe(page);
-      for (const [mode, frames] of Object.entries(probe)) {
+      const runs = Object.entries(probe).map(([mode, frames]) => {
         const at = frames.findIndex((f) => f.state === "complete");
         const after = at > 0 ? frames.slice(at, at + 20).map((f) => readMoved(frames[at - 1], f)) : [];
+        // Blank frames are counted where the merge is: the glide of Home from the bottom has its own (see the REPORT of T20).
         const blankAt = frames.flatMap((f, i) => (f.inView === 0 ? [`${i - at}@${f.st}`] : []));
-        const blank = blankAt.length;
-        console.log(`[merge-at-rest:${browserName}:${key}:${delay}:${mode}] presses=${presses} older=${older()} frames=${frames.length} mergeFrame=${at} st=${frames[at - 1]?.st}->${frames[at]?.st} moved=${JSON.stringify(after)} blank=${blank}${blank ? ` (frame-from-merge@scrollTop ${blankAt.join(" ")})` : ""}`);
+        const blank = at > 0 ? frames.slice(at - 1, at + 20).filter((f) => f.inView === 0).length : 0;
+        console.log(`[merge-at-rest:${browserName}:${key}:${delay}:${mode}] presses=${presses} older=${older()} frames=${frames.length} mergeFrame=${at} st=${frames[at - 1]?.st}->${frames[at]?.st} moved=${JSON.stringify(after)} blank=${blank}${blankAt.length ? ` (any, frame-from-merge@scrollTop: ${blankAt.join(" ")})` : ""}`);
+        return { mode, frames, at, after, blank };
+      });
+      for (const { mode, frames, at, after, blank } of runs) {
         expect(at, `${mode}: the merge happened while the probe was sampling`).toBeGreaterThan(0);
         expect(frames.length - at, `${mode}: twenty frames sampled after the merge`).toBeGreaterThanOrEqual(20);
         for (const m of after) expect(m ?? Infinity, `${mode}: from the frame before the merge, the messages read do not move`).toBeLessThanOrEqual(STILL_PX);
-        expect(blank, `${mode}: no frame without a row in view`).toBe(0);
+        expect(blank, `${mode}: around the merge, no frame without a row in view`).toBe(0);
       }
       expect(older(), "one request for the whole rest").toBe(1);
     });

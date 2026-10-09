@@ -9,7 +9,7 @@ import { LoadOlderDivider } from './LoadOlderDivider';
 import { countItemsAddedAbove } from './itemsAddedAbove';
 import { readerGesture } from './readerGesture';
 import { mergeAtRest, type MergeAtRest } from './mergeAtRest';
-import { placeRowAt as placeRowAtOffset } from './placeRowAt';
+import { placeRowAt as placeRowAtOffset, rowBody, rowHolder } from './placeRowAt';
 import { OLDER_MERGE_SCREENS, OLDER_STAGE_SCREENS } from '../../../../shared/history-paging';
 import { CompactionHoistContext } from './compactionHoist';
 import { splitCompactionSummary } from '../../lib/compactionSummary';
@@ -599,6 +599,8 @@ export function MessageList({
   const mergerRef = useRef<MergeAtRest | null>(null);
   /** The rest is on its way, asked by a click on the divider or by the scroll heading up to it. */
   const [olderLoading, setOlderLoading] = useState(false);
+  /** The row that was first before a merge keeps its head (divider, date) until the new range is drawn (`rowHolder`). */
+  const [headKept, setHeadKept] = useState<string | null>(null);
 
   // Position compaction dividers within the visible transcript (CHAT-COMPACT-01).
   // Sui messaggi VISIBILI, non sugli item: un marker ancorato a un messaggio
@@ -1637,12 +1639,15 @@ export function MessageList({
 
     // Whether a scroll follows an input of the reader's, and can override the guard window (`readerGesture`).
     const gesture = readerGesture();
+    /** The row being read, held while a merge settles (`rowHolder`); a gesture lets go. */
+    const holder = rowHolder(el);
     const releasePress = () => gesture.release(Date.now());
     const markGesture = (e?: Event) => {
       // Shared with `totalListHeightChanged` and the general ResizeObserver
       // below: both need to suspect a growth that follows this same gesture,
       // not just the local scroll effect.
       gestureUntilRef.current = e?.type === 'pointerdown' ? gesture.press(Date.now()) : gesture.input(Date.now());
+      holder.release();
       // Il primo input CHIUDE la finestra di apertura, e non è un dettaglio: il
       // ri-pin di apertura è forzato, quindi finché quella finestra è aperta
       // combatterebbe con chi scrolla. `userTouchedRef` da solo non basta —
@@ -1695,14 +1700,14 @@ export function MessageList({
     // a scroll, once Virtuoso has rendered that scroll's rows. Only while the
     // rest of the history is still to be merged: nothing reads it otherwise.
     let topRowFrame = 0;
-    const topRow = (): { id: string; offset: number } | null | undefined => {
+    const topRow = (): { id: string; offset: number; bottom: number } | null | undefined => {
       const viewTop = el.getBoundingClientRect().top;
       const rows = el.querySelector('[data-testid="virtuoso-item-list"]')?.children ?? [];
       for (const row of Array.from(rows)) {
-        const box = row.getBoundingClientRect();
-        if (box.bottom <= viewTop) continue;
+        if (row.getBoundingClientRect().bottom <= viewTop) continue;
         const item = itemsRef.current[Number((row as HTMLElement).dataset.index)];
-        return item?.id ? { id: item.id, offset: box.top - viewTop } : null;
+        const body = rowBody(row).getBoundingClientRect();
+        return item?.id ? { id: item.id, offset: body.top - viewTop, bottom: body.bottom - viewTop } : null;
       }
       return undefined;
     };
@@ -1712,7 +1717,7 @@ export function MessageList({
       if (row !== undefined) topRowRef.current = row;
     };
     // The merge itself (CHAT-HIST-01), once the list is at rest: committed at once, then the row being read
-    // put back to the pixel, before the frame paints. Virtuoso's own compensation stands on estimated sizes.
+    // held to the pixel while Virtuoso renders and measures the new range (`holder`).
     const merger = mergeAtRest({
       now: Date.now,
       later: (fn, ms) => { const t = setTimeout(fn, ms); return () => clearTimeout(t); },
@@ -1722,11 +1727,12 @@ export function MessageList({
       pressed: () => gesture.held(),
       merge: () => {
         const anchor = topRow();
-        flushSync(() => { void requestHistoryCompletion(sessionKeyRef.current, 'apply'); });
+        flushSync(() => { setHeadKept(itemsRef.current[0]?.id ?? null); void requestHistoryCompletion(sessionKeyRef.current, 'apply'); });
         setOlderLoading(false);
         const target = anchor ? carrierRef.current.get(anchor.id) ?? anchor.id : null;
-        const index = target ? itemsRef.current.findIndex((m) => m.id === target) : -1;
-        if (anchor && index > 0) placeRowAt(el, index, anchor.offset);
+        const dropHead = () => flushSync(() => setHeadKept(null));
+        if (anchor && target) holder.hold(() => itemsRef.current.findIndex((m) => m.id === target), anchor.bottom, dropHead);
+        else dropHead();
         syncArrow(el);
       },
     });
@@ -1955,6 +1961,8 @@ export function MessageList({
       ro.disconnect();
       merger.dispose();
       mergerRef.current = null;
+      holder.dispose();
+      setHeadKept(null);
       cancelAnimationFrame(topRowFrame);
       el.removeEventListener('wheel', onWheel);
       el.removeEventListener('scroll', onScroll);
@@ -2361,6 +2369,9 @@ export function MessageList({
             });
           }}
           increaseViewportBy={{ top: 400, bottom: 400 }}
+          // Rows measured in the frame they are drawn, not the one after: the rest of the history merged at
+          // the top drew unmeasured rows above the reader, and a frame painted on their estimates (`rowHolder`).
+          skipAnimationFrameInResizeObserver
           itemContent={(absoluteIdx, msg) => {
             // Virtuoso hands out the index offset by `firstItemIndex`; the list is addressed by its own.
             const idx = absoluteIdx - firstItemIndex;
@@ -2395,7 +2406,7 @@ export function MessageList({
             // down" of 24/09, measured in `chat-scroll-down-jitter.spec.ts`.
             return (
               <div className="flow-root">
-              {idx === 0 && historyPartial && (
+              {((idx === 0 && historyPartial) || msg.id === headKept) && (
                 <LoadOlderDivider count={missingAbove} loading={olderLoading} onLoad={loadOlder} />
               )}
               {idx === 0 && leading.map((mk, i) => (
@@ -2407,6 +2418,7 @@ export function MessageList({
               ))}
               <CompactionHoistContext.Provider value={hoistOwnSummary}>
               <div
+                data-row-body
                 className={
                   (isMobile ? 'px-2' : 'px-4') +
                   (msg.id === jumpHighlightId ? ' chat-msg-jump-highlight' : '')
@@ -2415,7 +2427,7 @@ export function MessageList({
               >
                 <MessageBubble
                   msg={msg}
-                  prev={prev}
+                  prev={msg.id === headKept ? undefined : prev}
                   idx={idx}
                   isLast={idx === filteredMessages.length - 1}
                   topic={topic}
