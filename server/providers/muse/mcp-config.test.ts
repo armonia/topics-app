@@ -35,8 +35,8 @@ describe("muse MCP config", () => {
 
   test("staging writes the merged settings 0600 and links auth and skills", () => {
     const real = realDir({ model: "m", mcpServers: { exa: { transport: "streamable_http", url: "u" } } });
-    const { xdgConfigHome, cleanup } = stageMuseConfig(bridge, real);
-    const staged = join(xdgConfigHome, "muse");
+    const { configHome, cleanup } = stageMuseConfig(bridge, real);
+    const staged = join(configHome, "muse");
     const settings = JSON.parse(readFileSync(join(staged, "settings.json"), "utf8"));
     expect(Object.keys(settings.mcpServers)).toEqual(["exa", "topics"]);
     expect(statSync(join(staged, "settings.json")).mode & 0o777).toBe(0o600);
@@ -45,14 +45,14 @@ describe("muse MCP config", () => {
     // The real settings are never touched.
     expect(JSON.parse(readFileSync(join(real, "settings.json"), "utf8")).mcpServers.topics).toBeUndefined();
     cleanup();
-    expect(existsSync(xdgConfigHome)).toBe(false);
+    expect(existsSync(configHome)).toBe(false);
   });
 
   test("without a real settings file the bridge is the only server", () => {
     const real = mkdtempSync(join(tmpdir(), "muse-empty-"));
     dirs.push(real);
-    const { xdgConfigHome, cleanup } = stageMuseConfig(bridge, real);
-    const settings = JSON.parse(readFileSync(join(xdgConfigHome, "muse", "settings.json"), "utf8"));
+    const { configHome, cleanup } = stageMuseConfig(bridge, real);
+    const settings = JSON.parse(readFileSync(join(configHome, "muse", "settings.json"), "utf8"));
     expect(settings.mcpServers).toEqual({ topics: bridge });
     cleanup();
   });

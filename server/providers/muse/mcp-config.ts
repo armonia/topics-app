@@ -52,16 +52,16 @@ export function realMuseConfigDir(env: NodeJS.ProcessEnv = process.env): string 
 export function stageMuseConfig(
   bridge: MuseMcpServer,
   realDir: string = realMuseConfigDir(),
-): { xdgConfigHome: string; cleanup: () => void } {
+): { configHome: string; cleanup: () => void } {
   const source = join(realDir, "settings.json");
   let real: Record<string, unknown> = {};
   if (existsSync(source)) {
     try { real = JSON.parse(readFileSync(source, "utf8")); } catch { /* malformed: the CLI would refuse it too, start empty */ }
   }
-  const xdgConfigHome = mkdtempSync(join(tmpdir(), "topics-muse-xdg-"));
-  const cleanup = () => { try { rmSync(xdgConfigHome, { recursive: true, force: true }); } catch { /* an orphan in tmp is harmless */ } };
+  const configHome = mkdtempSync(join(tmpdir(), "topics-muse-xdg-"));
+  const cleanup = () => { try { rmSync(configHome, { recursive: true, force: true }); } catch { /* an orphan in tmp is harmless */ } };
   try {
-    const staged = join(xdgConfigHome, "muse");
+    const staged = join(configHome, "muse");
     mkdirSync(staged);
     // 0600: the bridge args carry the gateway token.
     writeFileSync(join(staged, "settings.json"), JSON.stringify(mergeMuseSettings(real, bridge)), { mode: 0o600 });
@@ -72,5 +72,5 @@ export function stageMuseConfig(
     cleanup();
     throw err;
   }
-  return { xdgConfigHome, cleanup };
+  return { configHome, cleanup };
 }

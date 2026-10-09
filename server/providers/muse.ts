@@ -556,7 +556,7 @@ export class MuseProvider implements AIProvider {
 
     // Staged per SPAWN, not per turn: the fresh retry below runs its own child
     // after this one's close handler has already removed this directory.
-    let staged: { xdgConfigHome: string; cleanup: () => void } | null = null;
+    let staged: { configHome: string; cleanup: () => void } | null = null;
     if (bridge) {
       try { staged = stageMuseConfig(bridge); } catch (err) {
         console.warn(`[muse] staging the MCP config failed for ${sessionKey}, running without the Topics bridge:`, err);
@@ -566,7 +566,7 @@ export class MuseProvider implements AIProvider {
     const child = spawn(bin, args, {
       cwd: workspace,
       stdio: ["pipe", "pipe", "pipe"],
-      env: staged ? { ...env, XDG_CONFIG_HOME: staged.xdgConfigHome } : env,
+      env: staged ? { ...env, XDG_CONFIG_HOME: staged.configHome } : env,
     });
     // A card's CLI steps aside for the person (KANBAN-78); its children inherit.
     demoteAgentCli(sessionKey, workspace, child.pid);
