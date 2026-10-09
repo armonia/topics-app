@@ -567,6 +567,39 @@ describe('a reattached terminal drops the tasks its transcript already reports f
     });
   }
 
+  // T1 leaves a Bash, which ends while the server is down, and a recurring cron, which never held the turn. A live
+  // turn deletes the cron while the catch-up reads, then Esc: without a restart nothing more is announced.
+  it('terminal: a recurring cron of before the restart, deleted live while the catch-up reads, leaves the turn of before unannounced', async () => {
+    const home = mkdtempSync(join(tmpdir(), 'bg-reattach-loop-'));
+    try {
+      const cwd = '/work/project';
+      const { tracker, sid, subject } = terminalTracker([]);
+      let t = T0;
+      turn([BASH_ABSORBED, CRON_LOOP]).forEach((h) => tracker.ingestHook({ ...h, session_id: sid } as never, (t += 200)));
+      const path = deriveTranscriptPath(home, cwd, sid);
+      mkdirSync(dirname(path), { recursive: true });
+      writeFileSync(path, ABSORBED_LINES.join('\n') + '\n');
+      restart();
+      const before = { epoch: getAttention(subject).epoch, pushes: pushes.length, rows: rows.length };
+      const after = createClaudeSessionTracker({ db: freshDb(), broadcast: () => {}, coalesceWindowMs: 5, dedupWindowMs: 100, rateLimitPerSec: 50, attentionSubject: subjectOf, homeDir: home });
+      after.registerTerminalSession(sid, { cwd, now: (t += 200) });
+      const hook = (h: Record<string, unknown>) => after.ingestHook({ ...h, session_id: sid } as never, (t += 200));
+      hook({ hook_event_name: 'UserPromptSubmit' });
+      hook({ hook_event_name: 'PostToolUse', tool_use_id: 'toolu_d0', tool_name: 'CronDelete', tool_input: { id: 'c0ffee01' }, tool_response: {} });
+      expect(getAttention(subject).background.map((x: { id: string }) => x.id)).toEqual(['b76lzwo0d']);
+      const deadline = Date.now() + 3_000;
+      while (countingTasks(subject) > 0 && Date.now() < deadline) await new Promise((r) => setTimeout(r, 5));
+      boot();
+      // Esc: no Stop, the reaper puts the turn to rest.
+      after.reapOnce(t + 2 * 60 * 60 * 1000);
+      await new Promise((r) => setTimeout(r, 100));
+      expect(getAttention(subject).state).toBe('finished');
+      expect({ epoch: getAttention(subject).epoch - before.epoch, pushes: pushes.length - before.pushes, rows: rows.length - before.rows }).toEqual({ epoch: 0, pushes: 0, rows: 0 });
+    } finally {
+      rmSync(home, { recursive: true, force: true });
+    }
+  });
+
   // `boot-first`: the start recomposition runs while the catch-up still reads, and rereads a table that
   // already holds the live turn's task.
   for (const order of ['before', 'after', 'boot-first'] as const) {

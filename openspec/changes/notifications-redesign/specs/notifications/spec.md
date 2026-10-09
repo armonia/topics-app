@@ -208,7 +208,7 @@ resta in volo un compito lanciato prima del riavvio, dal turno chiuso o da un tu
 senza esito, il lavoro di prima non è finito: la fine di quel compito, letta dal vivo, SHALL essere
 annunciata come lo sarebbe stata senza il riavvio. Un compito lanciato dopo il riavvio è di un
 turno dal vivo e non trattiene la fine letta dopo il fatto, in qualunque ordine arrivino i suoi
-hook rispetto alla lettura. Un compito di prima del riavvio che esce dal vivo (la sua fine letta
+hook rispetto alla lettura. Un compito di prima del riavvio che teneva il turno (un cron ricorrente no) ed esce dal vivo (la sua fine letta
 dalla coda viva, o un cron una tantum consumato dal prompt dopo) rende dal vivo la fine di quel
 lavoro: la lettura tardiva che toglie gli altri SHALL annunciarla come sempre, anche quando
 l'uscita dal vivo arriva mentre il riattacco sta ancora leggendo.
@@ -298,6 +298,7 @@ l'uscita dal vivo arriva mentre il riattacco sta ancora leggendo.
 - **WHEN** la coda viva legge la fine dell'Agent mentre il riattacco sta ancora leggendo, e poi il riattacco toglie il Bash
 - **THEN** lo stato SHALL essere `finished` e la fine del turno SHALL essere annunciata una volta: una riga, un push, un'epoca nuova
 - **AND** lo stesso SHALL valere per un cron una tantum consumato dal prompt dopo, prima o dopo la lettura
+- **AND** un cron ricorrente di prima del riavvio cancellato dal vivo, che il turno non lo teneva, SHALL lasciare la guarigione muta
 
 #### Scenario: un compito di un turno messo a riposo prima del riavvio
 - **GIVEN** un terminale con un turno chiuso sul suo Bash in background, poi un turno che lancia un altro Bash e si interrompe senza esito, e il server ricaricato

@@ -195,8 +195,9 @@ interface Entry {
   sameEpochCauses?: Set<string>;
   /**
    * The last turn closed live under this process, or a task in flight across the restart
-   * (`restored`) left live, its end read or a cron fired by a prompt: the end of that work is
-   * a live fact, even when a reattach's catch-up is what removes the task that held it last.
+   * (`restored`) that held the turn left live, its end read or a cron fired by a prompt: the end
+   * of that work is a live fact, even when a reattach's catch-up is what removes the task that
+   * held it last.
    * Memory only: what the table holds at a start closed before it. The start's recomposition keeps it, as it
    * keeps the rest this process said: it runs after the surviving turns are adopted,
    * with hooks already arriving.
@@ -784,8 +785,8 @@ export function applyTaskChanges(subject: string, changes: readonly TaskChange[]
     }
   }
   if (JSON.stringify(next) === JSON.stringify(e.row.background)) return false;
-  // A task of before the restart taken out live, not re-keyed: see `lastTurnLive`.
-  if (Object.keys(before).some((id) => !(id in next) && !replaced.has(id) && e.restored?.has(id))) e.lastTurnLive = true;
+  // A task of before the restart taken out live, not re-keyed: see `lastTurnLive`. A recurring cron never held the turn.
+  if (Object.keys(before).some((id) => !(id in next) && !replaced.has(id) && !before[id].recurring && e.restored?.has(id))) e.lastTurnLive = true;
   e.row.background = next;
   if (countingTaskCount(next) > 0) clearGrace(e);
   else armGraceOnLastTask(subject, e, before);
