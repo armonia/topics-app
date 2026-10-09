@@ -1,5 +1,24 @@
 [
   {
+    "version": "2.2.470",
+    "date": "2026-10-09",
+    "sections": {
+      "new": [
+        {
+          "text": "un solo passaggio di consegne per le sessioni CLI nuove",
+          "scope": "providers"
+        }
+      ],
+      "fixes": [
+        {
+          "text": "il budget del passaggio si misura sul testo scritto",
+          "scope": "providers"
+        }
+      ],
+      "perf": []
+    }
+  },
+  {
     "version": "2.2.469",
     "date": "2026-10-09",
     "sections": {

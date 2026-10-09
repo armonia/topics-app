@@ -2,6 +2,20 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.2.470 — 2026-10-09
+
+### Novità
+- **providers** · un solo passaggio di consegne per le sessioni CLI nuove
+
+### Correzioni
+- **providers** · il budget del passaggio si misura sul testo scritto
+
+### Sotto il cofano
+- handoff in PROJECT_WORDS, preamble invece di pre (check:identifier-language)
+- baseline identifier-language scesa (handoff ora è una parola nota)
+- handoff in PROJECT_WORDS su una riga (check:bloat, soglia 800)
+- **e2e** · aggiorna durate shard dal nightly del 2026-10-09 [skip ci]
+
 ## 2.2.469 — 2026-10-09
 
 ### Correzioni

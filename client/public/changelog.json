@@ -1,5 +1,54 @@
 [
   {
+    "version": "2.2.470",
+    "date": "2026-10-09",
+    "sections": {
+      "new": [
+        {
+          "it": "un solo passaggio di consegne per le sessioni CLI nuove",
+          "en": "",
+          "scope": "providers",
+          "breaking": false
+        }
+      ],
+      "fixes": [
+        {
+          "it": "il budget del passaggio si misura sul testo scritto",
+          "en": "",
+          "scope": "providers",
+          "breaking": false
+        }
+      ],
+      "perf": [],
+      "internal": [
+        {
+          "it": "handoff in PROJECT_WORDS, preamble invece di pre (check:identifier-language)",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "baseline identifier-language scesa (handoff ora è una parola nota)",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "handoff in PROJECT_WORDS su una riga (check:bloat, soglia 800)",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "aggiorna durate shard dal nightly del 2026-10-09 [skip ci]",
+          "en": "",
+          "scope": "e2e",
+          "breaking": false
+        }
+      ]
+    }
+  },
+  {
     "version": "2.2.469",
     "date": "2026-10-09",
     "sections": {
