@@ -7,7 +7,9 @@
  * `failWaiters` resolved every late reply with null, and the scan failed
  * although the daemon was alive and about to answer. The same pause before
  * the cap cut an attach still waiting with more patience than the list: the
- * exit tail of a CLI was lost, a scan replayed again from 0.
+ * exit tail of a CLI was lost, a scan replayed again from 0. A daemon that
+ * echoes no rids is the exception: its answers match by shape, so its socket
+ * still goes, or a late answer settles a newer request.
  *
  * Each case runs in a child `bun test`. The caps are module constants read at
  * import, so shrinking them in this process would either do nothing (another
@@ -44,3 +46,6 @@ test("control: no concurrent list, the late ack lands", () => runCase("no-list")
 // silence against 300 ms), and the exit tail's single attempt has no retry to fall back on.
 test("before the cap, a list that goes mute does not cut the attach still waiting", () =>
   runCase("precap", { TOPICS_AI_BRIDGE_ATTACH_ACK_MS: "1500", TOPICS_AI_BRIDGE_MAX_ACK_MS: "5000" }), 300_000);
+// A daemon older than protocol 4: the socket goes, or the first list's late answer settles the second.
+test("a daemon without rids: a list's retry drops the socket, the list after a kill does not find the session", () =>
+  runCase("norid", { TOPICS_AI_BRIDGE_ATTACH_ACK_MS: "1000", TOPICS_AI_BRIDGE_ACK_MS: "1000", TOPICS_AI_BRIDGE_MAX_ACK_MS: "60000" }), 300_000);

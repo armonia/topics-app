@@ -536,11 +536,16 @@ export class AiBridgeClient {
         // essere nessuno dei due (write che fallisce, peer sparito senza
         // FIN): senza questo, il secondo tentativo tornerebbe a scrivere
         // sullo stesso tubo morto e il ritentativo sarebbe finto.
-        // Silence is not a death, though. While anything else still waits on this socket (a late
-        // reply, or a request with more patience, like a scan's attach under its cap), dropping it
-        // fails them too: the most patient waiter, or the watchdog (ping/pong), decides. A socket
-        // that failed a write is dropped at once.
-        if (err instanceof BridgeConnectionLost || (this.waiters.length === 0 && this.lateReplies.size === 0)) this.dropSocket();
+        // Silence is not a death, though, for a `list`, which starts no stream: while anything
+        // else still waits on this socket (a late reply, or a request with more patience, like a
+        // scan's attach under its cap), dropping it fails them too, so the most patient waiter,
+        // or the watchdog (ping/pong), decides. An attach or a spawn takes its socket with it,
+        // as before: kept, the replay of an attach given up on lands later in whatever turn the
+        // session runs next. So does a socket that failed a write, and one to a daemon that
+        // echoes no rids (protocol < 4), whose answers match by shape: kept, the late answer to
+        // this request would settle a newer one of the same shape, sent after a kill.
+        const streamless = (frame as { type?: string }).type === "list";
+        if (err instanceof BridgeConnectionLost || !this.ridEcho || !streamless || (this.waiters.length === 0 && this.lateReplies.size === 0)) this.dropSocket();
         await new Promise((r) => setTimeout(r, RETRY_BACKOFF_MS * (attempt + 1)));
       }
     }
