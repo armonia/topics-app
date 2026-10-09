@@ -467,6 +467,24 @@ export function countingTasks(subject: string): number {
   return countingTaskCount(peek(subject)?.row.background);
 }
 
+let onTasksEmptied: ((subject: string) => void) | null = null;
+
+/**
+ * Who hears that a rewrite of a subject's whole map (a chat's CLI snapshot, or
+ * the chat route's turn end) took out its last counting task: the session
+ * tracker, whose parked turn no transcript line tells (`createTranscriptEnds`).
+ * The observer must not call back into the store.
+ */
+export function observeTasksEmptied(fn: ((subject: string) => void) | null): void {
+  onTasksEmptied = fn;
+}
+
+/** Tell the observer when a whole-map rewrite took out the last counting task. */
+function noteTasksEmptied(subject: string, before: number, after: number): void {
+  if (before <= 0 || after !== 0) return;
+  try { onTasksEmptied?.(subject); } catch (err) { console.warn("[attention] tasks emptied observer failed:", err); }
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // The recomposition: the one place that moves the epoch, writes the row of a
 // new epoch, announces and pushes.
@@ -690,7 +708,11 @@ export interface TurnEnd {
 /** T2, T3, T5, T6, T10, T12, T17: a turn closes. */
 export function turnEnded(subject: string, end: TurnEnd): AttentionSnapshot {
   const e = entryOf(subject);
-  if (end.background !== undefined) e.row.background = { ...end.background };
+  if (end.background !== undefined) {
+    const beforeCount = countingTaskCount(e.row.background);
+    e.row.background = { ...end.background };
+    noteTasksEmptied(subject, beforeCount, countingTaskCount(e.row.background));
+  }
   if (end.resumes) {
     // The resend reopens the turn: until then the subject stays at work.
     e.live.turnOpen = true;
@@ -715,7 +737,9 @@ export function turnEnded(subject: string, end: TurnEnd): AttentionSnapshot {
 export function setBackgroundTasks(subject: string, tasks: AttentionTaskMap): AttentionSnapshot {
   const e = entryOf(subject);
   const before = e.row.background;
+  const beforeCount = countingTaskCount(before);
   e.row.background = { ...tasks };
+  noteTasksEmptied(subject, beforeCount, countingTaskCount(e.row.background));
   armGraceOnLastTask(subject, e, before);
   return recompose(subject, { live: true });
 }
