@@ -204,8 +204,10 @@ ricompone come ogni riavvio: senza riga, senza annuncio, senza push e senza un'e
 Un turno chiuso dal vivo dopo il riavvio, anche mentre il riattacco sta ancora leggendo, SHALL
 essere annunciato come sempre. La fine letta dopo il fatto SHALL restare senza epoca anche se
 un turno dal vivo si apre mentre il riattacco legge e chiude senza esito. Se dopo la lettura
-resta in volo un altro compito, il turno non è finito prima del riavvio: la fine di quel compito,
-letta dal vivo, SHALL essere annunciata come sempre.
+resta in volo un altro compito di quel turno, partito prima della sua fine, il turno non è finito
+prima del riavvio: la fine di quel compito, letta dal vivo, SHALL essere annunciata come sempre.
+Un compito lanciato da un turno dal vivo dopo il riavvio non è di quel turno, in qualunque ordine
+arrivino i suoi hook rispetto alla lettura.
 
 #### Scenario: Bash, Agent e Workflow in un terminale
 - **GIVEN** un terminale claude-code con hook
@@ -273,6 +275,11 @@ letta dal vivo, SHALL essere annunciata come sempre.
 - **WHEN** un turno dal vivo si apre mentre il riattacco sta ancora leggendo e chiude senza esito
 - **THEN** al riattacco il compito SHALL uscire dalla mappa e lo stato SHALL essere `finished(done)`
 - **AND** la fine del turno di prima NON SHALL essere annunciata: nessuna riga, nessun push, la stessa epoca
+
+#### Scenario: un turno dal vivo lancia un suo compito mentre il riattacco legge
+- **GIVEN** un terminale in `watching` per un Bash in background, il server ricaricato e il transcript con già l'avviso di fine
+- **WHEN** un turno dal vivo si apre mentre il riattacco legge, lancia un suo Bash in background (gli hook arrivano prima o dopo la lettura), si interrompe senza esito e più tardi il suo Bash finisce
+- **THEN** la fine del turno di prima NON SHALL essere annunciata, in nessuno dei due ordini: nessuna riga, nessun push, la stessa epoca
 
 #### Scenario: un compito ancora in volo dopo la lettura del riattacco
 - **GIVEN** un terminale in `watching` per un Bash e un Agent in background, e il server ricaricato

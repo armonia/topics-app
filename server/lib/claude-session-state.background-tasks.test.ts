@@ -456,6 +456,50 @@ describe('a reattached terminal drops the tasks its transcript already reports f
     }
   });
 
+  for (const order of ['before', 'after'] as const) {
+    it(`terminal: a live turn's own task, its hooks ${order} the late read, does not announce the turn of before when it ends`, async () => {
+      const home = mkdtempSync(join(tmpdir(), 'bg-reattach-own-'));
+      try {
+        const cwd = '/work/project';
+        const { tracker, sid, subject } = terminalTracker([]);
+        let t = T0;
+        turn([BASH_ABSORBED]).forEach((h) => tracker.ingestHook({ ...h, session_id: sid } as never, (t += 200)));
+        const path = deriveTranscriptPath(home, cwd, sid);
+        mkdirSync(dirname(path), { recursive: true });
+        writeFileSync(path, ABSORBED_LINES.join('\n') + '\n');
+        restart();
+        const before = { epoch: getAttention(subject).epoch, pushes: pushes.length, rows: rows.length };
+        const after = createClaudeSessionTracker({ db: freshDb(), broadcast: () => {}, coalesceWindowMs: 5, dedupWindowMs: 100, rateLimitPerSec: 50, attentionSubject: subjectOf, homeDir: home });
+        after.registerTerminalSession(sid, { cwd, now: (t += 200) });
+        const hook = (h: Record<string, unknown>) => after.ingestHook({ ...h, session_id: sid } as never, (t += 200));
+        // A live turn opens while the catch-up reads, and launches a Bash of its own.
+        const launch = () => {
+          hook({ hook_event_name: 'PreToolUse', tool_use_id: 'toolu_n0', ...BASH_BG });
+          hook({ hook_event_name: 'PostToolUse', tool_use_id: 'toolu_n0', ...BASH_BG });
+        };
+        hook({ hook_event_name: 'UserPromptSubmit' });
+        if (order === 'before') launch();
+        const deadline = Date.now() + 3_000;
+        while (getAttention(subject).background.some((x: { id: string }) => x.id === 'b76lzwo0d') && Date.now() < deadline) await new Promise((r) => setTimeout(r, 5));
+        if (order === 'after') launch();
+        boot();
+        expect(countingTasks(subject)).toBe(1);
+        // Esc: no Stop, the reaper puts the turn to rest. Later its Bash ends, read live.
+        after.reapOnce(t + 2 * 60 * 60 * 1000);
+        const bashEnd = JSON.stringify({ type: 'queue-operation', operation: 'enqueue', timestamp: new Date(T0 + 3 * 60 * 60 * 1000).toISOString(), sessionId: '00000000-0000-4000-8000-0000000000b2',
+          content: '<task-notification>\n<task-id>b7kapz0ad</task-id>\n<tool-use-id>toolu_n0</tool-use-id>\n<status>completed</status>\n<summary>Background command "sleep 600 && make build" completed (exit code 0)</summary>\n</task-notification>' });
+        appendFileSync(path, bashEnd + '\n');
+        await after.tailOnce((t += 3 * 60 * 60 * 1000));
+        expect(countingTasks(subject)).toBe(0);
+        await new Promise((r) => setTimeout(r, 100));
+        // The turn that closed before the restart stays unannounced in either order, as it would without a restart.
+        expect({ epoch: getAttention(subject).epoch - before.epoch, pushes: pushes.length - before.pushes, rows: rows.length - before.rows }).toEqual({ epoch: 0, pushes: 0, rows: 0 });
+      } finally {
+        rmSync(home, { recursive: true, force: true });
+      }
+    });
+  }
+
   it('terminal: a live turn that ends while the catch-up still reads is announced once', async () => {
     const home = mkdtempSync(join(tmpdir(), 'bg-reattach-live-'));
     try {

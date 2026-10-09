@@ -734,10 +734,13 @@ export function finishBackgroundTasks(subject: string, ids: readonly string[], o
   for (const id of gone) delete next[id];
   e.row.background = next;
   if (opts.late && !e.lastTurnLive) {
-    // Marked only when this read takes out the last task that held the turn. With another still in
-    // flight the turn goes on past the restart, and that task's end, read live, announces it as
-    // always. A live turn open meanwhile does not count: it is not the turn this read closes.
-    if (e.row.lastTurn && countingTaskCount(e.row.background) === 0) e.row.lastTurn = { ...e.row.lastTurn, late: true };
+    // Marked only when this read takes out the last task the closed turn left in flight: one that
+    // started before that turn ended (the tracker stamps both with the hook's time). With one still
+    // in flight the turn goes on past the restart, and that task's end, read live, announces it as
+    // always. A task of a live turn opened since is not that turn's, whether its hooks land before
+    // or after this read.
+    const closed = e.row.lastTurn;
+    if (closed && !Object.values(e.row.background).some((t) => !t.recurring && !(t.startedAt > closed.at))) e.row.lastTurn = { ...closed, late: true };
     recompose(subject, { live: false });
     return true;
   }
