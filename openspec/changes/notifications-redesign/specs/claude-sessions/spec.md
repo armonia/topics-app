@@ -13,7 +13,10 @@ session in `watching` at `Stop` whenever at least one task is in flight, and in
 (the transcript's `<task-notification>` for that id, the Monitor's delivery or end
 including expiry, the cron's first fire or `CronDelete`), not on any wake of the session.
 `SessionEnd` and process exit SHALL empty the set. The set SHALL survive a server reload
-while the process holding it is alive.
+while the process holding it is alive. A session parked in `watching` whose last counting
+task leaves by a transcript line read after its `Stop` (a notice absorbed mid-turn that the
+transcript tail reaches after the hook, or an end a reattached terminal reads late or holds
+through that read) SHALL go to `awaiting-user`: nothing will wake it.
 
 The set SHALL have one holder, the attention store (`subject_attention.background`): the
 phase machine SHALL read from it how many tasks count at `Stop` rather than keep a set of
@@ -51,6 +54,12 @@ show it, but SHALL NOT count toward `watching`.
 - **GIVEN** a session in `watching` with one task in flight
 - **WHEN** its completion arrives and the woken turn ends
 - **THEN** `phase = 'awaiting-user'`
+
+#### Scenario: The tail reaches an absorbed notice after the Stop
+- **GIVEN** a session whose last task ended mid-turn, its notice absorbed, and whose `Stop` reached the server before the transcript tail read that notice
+- **WHEN** the tail reads it
+- **THEN** `phase = 'awaiting-user'`, not `watching`
+- **AND** the same for a reattached terminal whose turn stopped while the late read still held or had not yet taken out its last tasks
 
 #### Scenario: An expired Monitor on a terminal
 - **GIVEN** a terminal session in `watching` for one Monitor

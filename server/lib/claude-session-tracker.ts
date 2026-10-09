@@ -17,6 +17,7 @@ import { homedir } from 'os';
 import {
   applyHook,
   applyStaleHook,
+  settleWatching,
   newSessionFromByteZero,
   applyJsonlEvent,
   reapStaleSession,
@@ -590,8 +591,9 @@ export function createClaudeSessionTracker(opts: ClaudeSessionTrackerOptions): C
     const subject = subjectOf(prev);
     liveTranscriptTasks(subject, line);
     const ev = parseJsonlLine(line);
-    if (!ev) return false;
-    const next = applyJsonlEvent(prev, ev, t);
+    const moved = ev ? applyJsonlEvent(prev, ev, t) : prev;
+    const next = subject ? settleWatching(moved, countingTasks(subject), t) : moved;
+    if (!ev && next === prev) return false;
     const res = dbPrev ? commit(dbPrev, next) : commitTerminal(prev, next);
     if (!dbPrev) syncAttention(subject, prev, res.state, null, true, t);
     return res.changed;
@@ -697,7 +699,8 @@ export function createClaudeSessionTracker(opts: ClaudeSessionTrackerOptions): C
           at += bytesRead;
           const { lines, remainder } = splitJsonlChunk(rest + decoder.decode(buf.subarray(0, bytesRead), { stream: true }));
           rest = remainder;
-          for (const line of lines) if (line.includes('<task-notification>')) transcriptTasks(subject, line, { late: true });
+          // A line the tail already read and holds is live: a second reattach reading over it leaves it to the hold.
+          for (const line of lines) if (line.includes('<task-notification>') && !held.lines.includes(line)) transcriptTasks(subject, line, { late: true });
         }
       } finally {
         await fh.close();
@@ -707,8 +710,21 @@ export function createClaudeSessionTracker(opts: ClaudeSessionTrackerOptions): C
       if ((held.readers -= 1) === 0) {
         heldForCatchUp.delete(subject);
         for (const line of held.lines) transcriptTasks(subject, line);
+        settleTerminal(state.claudeSessionId);
       }
     }
+  }
+
+  /** A terminal whose `Stop` came while the read held its last tasks, or before it took them out: `settleWatching`. */
+  function settleTerminal(claudeSessionId: string): void {
+    const prev = terminalStates.get(claudeSessionId);
+    const subject = prev ? subjectOf(prev) : null;
+    if (!prev || !subject) return;
+    const t = now();
+    const next = settleWatching(prev, countingTasks(subject), t);
+    if (next === prev) return;
+    const res = commitTerminal(prev, next);
+    syncAttention(subject, prev, res.state, null, true, t);
   }
 
   /** The task ends of a line the live tail reads, held while a catch-up of its subject still reads (`heldForCatchUp`). */
@@ -817,6 +833,7 @@ export function createClaudeSessionTracker(opts: ClaudeSessionTrackerOptions): C
           if (!ev) continue;
           cur = applyJsonlEvent(cur, ev, t);
         }
+        if (subject) cur = settleWatching(cur, countingTasks(subject), t);
         // Persist offset = bytes consumed up to last newline.
         const consumedBytes = len - Buffer.byteLength(remainder, 'utf-8');
         const nextOffset = sess.jsonlOffset + consumedBytes;

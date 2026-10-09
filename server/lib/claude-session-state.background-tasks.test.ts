@@ -20,9 +20,11 @@
  */
 import { afterAll, beforeEach, describe, expect, it } from 'bun:test';
 import { Database } from 'bun:sqlite';
-import { readFileSync } from 'fs';
-import { join } from 'path';
+import { appendFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'fs';
+import { tmpdir } from 'os';
+import { dirname, join } from 'path';
 import { createClaudeSessionTracker } from './claude-session-tracker';
+import { deriveTranscriptPath } from './claude-session-state';
 import { configureAttentionStore, resetAttentionStore, getAttention, countingTasks } from '../attention/store';
 import { T0, freshDb, turn, BASH_BG, AGENT_BG, CRON_ONCE, CRON_LOOP, BASH_ABSORBED, ABSORBED_LINES, AGENT_END_NO_CALL, subjectOf, terminalTracker, phaseOf, type Tool } from './claude-session-state.background-tasks.fixture';
 
@@ -116,6 +118,22 @@ describe('the phase at Stop counts every task in flight, by id, in the attention
       hook({ hook_event_name: 'Stop' });
       expect(phaseOf(tracker, sid)).toBe('awaiting-user');
       expect(getAttention(subject).background).toEqual([]);
+    });
+
+    // The tail reads at its own pace: the records of a notice absorbed near the end of the turn can reach it after
+    // the `Stop`, which parked the turn `watching` on a task already over. Nothing will wake that turn.
+    it(`${label}: a notice absorbed mid-turn that the tail reads after the Stop lets the turn rest`, () => {
+      const { tracker, sid, subject } = make([]);
+      let t = T0;
+      const hook = (h: Record<string, unknown>) => tracker.ingestHook({ ...h, session_id: sid } as never, (t += 200));
+      hook({ hook_event_name: 'UserPromptSubmit' });
+      hook({ hook_event_name: 'PreToolUse', tool_use_id: 'toolu_0', ...BASH_ABSORBED });
+      hook({ hook_event_name: 'PostToolUse', tool_use_id: 'toolu_0', ...BASH_ABSORBED });
+      hook({ hook_event_name: 'Stop' });
+      expect(phaseOf(tracker, sid)).toBe('watching');
+      for (const line of ABSORBED_LINES) tracker.ingestTranscriptLine(sid, line, (t += 200));
+      expect(countingTasks(subject)).toBe(0);
+      expect(phaseOf(tracker, sid)).toBe('awaiting-user');
     });
 
     // Hooks are async and arrive late (`lib/hook-order.ts`): the tail can read the end first.
@@ -247,6 +265,32 @@ describe('the phase at Stop counts every task in flight, by id, in the attention
     expect(countingTasks(subject)).toBe(0);
     tracker.ingestHook({ hook_event_name: 'Stop', session_id: sid } as never, Date.parse('2026-09-30T20:54:00Z'));
     expect(phaseOf(tracker, sid)).toBe('awaiting-user');
+  });
+
+  // The same late records read by the live tail itself, `tailOnce`, rather than line by line.
+  it('terminal: the live tail that reads an absorbed notice after the Stop lets the turn rest', async () => {
+    const home = mkdtempSync(join(tmpdir(), 'bg-tail-settle-'));
+    try {
+      const cwd = '/work/project', sid = 'cli-tail', subject = 'terminal:cli-tail';
+      const path = deriveTranscriptPath(home, cwd, sid);
+      mkdirSync(dirname(path), { recursive: true });
+      writeFileSync(path, '');
+      const tracker = createClaudeSessionTracker({ db: freshDb(), broadcast: () => {}, coalesceWindowMs: 5, dedupWindowMs: 100, rateLimitPerSec: 50, attentionSubject: subjectOf, homeDir: home });
+      tracker.registerTerminalSession(sid, { cwd, now: T0 });
+      let t = T0;
+      const hook = (h: Record<string, unknown>) => tracker.ingestHook({ ...h, session_id: sid } as never, (t += 200));
+      hook({ hook_event_name: 'UserPromptSubmit' });
+      hook({ hook_event_name: 'PreToolUse', tool_use_id: 'toolu_0', ...BASH_ABSORBED });
+      hook({ hook_event_name: 'PostToolUse', tool_use_id: 'toolu_0', ...BASH_ABSORBED });
+      hook({ hook_event_name: 'Stop' });
+      expect(phaseOf(tracker, sid)).toBe('watching');
+      appendFileSync(path, ABSORBED_LINES.join('\n') + '\n');
+      await tracker.tailOnce((t += 200));
+      expect(countingTasks(subject)).toBe(0);
+      expect(phaseOf(tracker, sid)).toBe('awaiting-user');
+    } finally {
+      rmSync(home, { recursive: true, force: true });
+    }
   });
 });
 

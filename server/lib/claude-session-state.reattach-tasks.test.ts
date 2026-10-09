@@ -656,4 +656,78 @@ describe('a reattached terminal drops the tasks its transcript already reports f
       }
     });
   }
+
+  // After the reattach a live turn stops while the catch-up still reads, with its own Bash (its end absorbed, read by
+  // the tail meanwhile and held) or with no task: the Stop parks it `watching` on work the read is about to close, the
+  // Bash of before ended while the server was down. Once the read is done nothing is in flight and nothing will wake
+  // the turn: it rests, and its end is announced once, as without the restart.
+  for (const own of ['its own Bash', 'no task'] as const) {
+    it(`terminal: a live turn that stops while the catch-up reads, with ${own}, rests when the read is done`, async () => {
+      const home = mkdtempSync(join(tmpdir(), 'bg-reattach-settle-'));
+      try {
+        const cwd = '/work/project';
+        const { tracker, sid, subject } = terminalTracker([]);
+        let t = T0;
+        turn([BASH_ABSORBED]).forEach((h) => tracker.ingestHook({ ...h, session_id: sid } as never, (t += 200)));
+        const path = deriveTranscriptPath(home, cwd, sid);
+        mkdirSync(dirname(path), { recursive: true });
+        writeFileSync(path, ABSORBED_LINES.join('\n') + '\n');
+        restart();
+        const before = { epoch: getAttention(subject).epoch, pushes: pushes.length, rows: rows.length };
+        const after = createClaudeSessionTracker({ db: freshDb(), broadcast: () => {}, coalesceWindowMs: 5, dedupWindowMs: 100, rateLimitPerSec: 50, attentionSubject: subjectOf, homeDir: home });
+        after.registerTerminalSession(sid, { cwd, now: (t += 200) });
+        const hook = (h: Record<string, unknown>) => after.ingestHook({ ...h, session_id: sid } as never, (t += 200));
+        hook({ hook_event_name: 'UserPromptSubmit' });
+        if (own === 'its own Bash') {
+          hook({ hook_event_name: 'PreToolUse', tool_use_id: 'toolu_n0', ...BASH_BG });
+          hook({ hook_event_name: 'PostToolUse', tool_use_id: 'toolu_n0', ...BASH_BG });
+          const end = bashBgEnd(t + 100);
+          appendFileSync(path, end + '\n');
+          after.ingestTranscriptLine(sid, end, (t += 100));
+        }
+        hook({ hook_event_name: 'Stop' });
+        expect(phaseOf(after, sid)).toBe('watching');
+        const deadline = Date.now() + 3_000;
+        while (countingTasks(subject) > 0 && Date.now() < deadline) await new Promise((r) => setTimeout(r, 5));
+        boot();
+        await new Promise((r) => setTimeout(r, 100));
+        expect(phaseOf(after, sid)).toBe('awaiting-user');
+        expect(getAttention(subject).state).toBe('finished');
+        expect({ epoch: getAttention(subject).epoch - before.epoch, pushes: pushes.length - before.pushes, rows: rows.length - before.rows }).toEqual({ epoch: 1, pushes: 1, rows: 1 });
+      } finally {
+        rmSync(home, { recursive: true, force: true });
+      }
+    });
+  }
+
+  // The terminal registered again while the first catch-up still reads (a second reconcile, the phase at rest) starts
+  // a read of its own over the line the tail holds. That line stays live: the turn of before is announced once.
+  it('terminal: a second reattach while the catch-up reads leaves the end the tail holds live', async () => {
+    const home = mkdtempSync(join(tmpdir(), 'bg-reattach-twice-'));
+    try {
+      const cwd = '/work/project';
+      const { tracker, sid, subject } = terminalTracker([]);
+      let t = T0;
+      turn([BASH_ABSORBED, AGENT_BG]).forEach((h) => tracker.ingestHook({ ...h, session_id: sid } as never, (t += 200)));
+      const path = deriveTranscriptPath(home, cwd, sid);
+      mkdirSync(dirname(path), { recursive: true });
+      writeFileSync(path, ABSORBED_LINES.join('\n') + '\n');
+      restart();
+      const before = { epoch: getAttention(subject).epoch, pushes: pushes.length, rows: rows.length };
+      const after = createClaudeSessionTracker({ db: freshDb(), broadcast: () => {}, coalesceWindowMs: 5, dedupWindowMs: 100, rateLimitPerSec: 50, attentionSubject: subjectOf, homeDir: home });
+      after.registerTerminalSession(sid, { cwd, now: (t += 200) });
+      const end = agentBgEnd(t + 500);
+      appendFileSync(path, end + '\n');
+      after.ingestTranscriptLine(sid, end, (t += 500));
+      after.registerTerminalSession(sid, { cwd, now: (t += 200) });
+      const deadline = Date.now() + 3_000;
+      while (countingTasks(subject) > 0 && Date.now() < deadline) await new Promise((r) => setTimeout(r, 5));
+      boot();
+      await new Promise((r) => setTimeout(r, 100));
+      expect(getAttention(subject).state).toBe('finished');
+      expect({ epoch: getAttention(subject).epoch - before.epoch, pushes: pushes.length - before.pushes, rows: rows.length - before.rows }).toEqual({ epoch: 1, pushes: 1, rows: 1 });
+    } finally {
+      rmSync(home, { recursive: true, force: true });
+    }
+  });
 });

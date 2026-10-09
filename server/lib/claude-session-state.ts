@@ -453,6 +453,19 @@ export function applyStaleHook(
 }
 
 /**
+ * A turn parked `watching` whose last task a transcript line closed after its
+ * `Stop`: an absorbed notice the tail reached after the hook, or an end a
+ * reattach read late or held through its read. The `Stop` would have said
+ * `awaiting-user` had the line come first, and an absorbed notice wakes
+ * nothing. A report that does wake it moves it on from there. Returns `prev`
+ * itself when nothing moves.
+ */
+export function settleWatching(prev: ClaudeSessionState, countingTasks: number, now: number): ClaudeSessionState {
+  if (prev.phase !== 'watching' || countingTasks > 0) return prev;
+  return transition(prev, { phase: 'awaiting-user' }, now);
+}
+
+/**
  * A `SessionStart` of a session just born (`source: "startup"`) declares a
  * transcript that holds only this session: it is followed from byte 0, not
  * from its size when the hook arrives. The hook is async, and on a loaded Mac

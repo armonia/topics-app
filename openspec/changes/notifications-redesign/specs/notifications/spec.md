@@ -215,7 +215,8 @@ dalla coda viva, o un cron una tantum consumato dal prompt dopo) rende dal vivo 
 lavoro, che SHALL essere annunciata una volta come sempre, anche quando l'uscita dal vivo arriva
 mentre il riattacco sta ancora leggendo. Le fini che la coda viva legge mentre il riattacco sta
 ancora leggendo SHALL aspettare che finisca: nel file stanno dopo la storia, e la mappa dei
-compiti le prende in quell'ordine. Un compito di prima del
+compiti le prende in quell'ordine. Restano dal vivo anche se un secondo riattacco rilegge il
+file mentre aspettano. Un compito di prima del
 riavvio ancora sotto l'id della chiamata, con un avviso che non la nomina, SHALL uscire col suo
 `PostToolUse` nel modo in cui la sua fine è stata letta: dal vivo o dopo il fatto. Una fine letta
 anche una sola volta dopo il fatto è di prima del riavvio: rileggerla dal vivo, per esempio nella
