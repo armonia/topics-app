@@ -1296,11 +1296,12 @@ export class ClaudeCodeProvider implements AIProvider {
   private config: ClaudeCodeProviderConfig;
   private processes = new Map<string, PersistentProcess>();
   /**
-   * The send that is waiting for a stopped child to exit (`processForTurn`),
-   * per session. It is the session's current turn even though no child has it
-   * yet, so a Stop pressed on it must reach it here: otherwise the SIGINT hit
-   * the child already dying, the wait ended, and the stopped send was written
-   * to a fresh child anyway (and stole the handler of the message after it).
+   * The send that is waiting for a stopped child to exit, or for the tail of one
+   * that exited (`processForTurn`), per session. It is the session's current
+   * turn even though no child has it yet, so a Stop pressed on it must reach it
+   * here: otherwise the SIGINT hit the child already dying, the wait ended, and
+   * the stopped send was written to a fresh child anyway (and stole the handler
+   * of the message after it).
    */
   private waitingSends = new Map<string, WaitingSend>();
   /**
@@ -2595,29 +2596,26 @@ export class ClaudeCodeProvider implements AIProvider {
     handler?: StreamHandler,
   ): Promise<PersistentProcess | null> {
     const existing = this.processes.get(sessionKey);
-    if (existing?.exitTail) await existing.exitTail; // replaced first, the tail's frames would reach the new child's handlers
-    if (existing?.stoppedExit && existing.alive) {
-      const waiting = handler ? { handler, cancelled: false } : null;
-      if (waiting) this.waitingSends.set(sessionKey, waiting);
-      let timer: ReturnType<typeof setTimeout> | undefined;
-      const capped = new Promise<"timeout">((r) => { timer = setTimeout(() => r("timeout"), waitMs); });
-      let outcome: "exited" | "timeout";
-      try {
-        outcome = await Promise.race([existing.stoppedExit.done.then(() => "exited" as const), capped]);
-      } finally {
-        clearTimeout(timer);
-        if (waiting && this.waitingSends.get(sessionKey) === waiting) this.waitingSends.delete(sessionKey);
+    // Registered before the tail too: a Stop while it lands must find this send.
+    const waiting = handler ? { handler, cancelled: false } : null;
+    if (waiting) this.waitingSends.set(sessionKey, waiting);
+    try {
+      if (existing?.exitTail) await existing.exitTail; // replaced first, the tail's frames would reach the new child's handlers
+      if (existing?.stoppedExit && existing.alive && !waiting?.cancelled) {
+        let timer: ReturnType<typeof setTimeout> | undefined;
+        const capped = new Promise<"timeout">((r) => { timer = setTimeout(() => r("timeout"), waitMs); });
+        const outcome = await Promise.race([existing.stoppedExit.done.then(() => "exited" as const), capped]).finally(() => clearTimeout(timer));
+        if (outcome === "timeout" && existing.alive) {
+          console.warn(`[claude-code] ${sessionKey}: the stopped child did not exit within ${waitMs} ms, killing it before the next turn`);
+          this.killProcess(existing, "stopped-child");
+        }
+        if (this.processes.get(sessionKey) === existing) this.processes.delete(sessionKey);
       }
-      if (outcome === "timeout" && existing.alive) {
-        console.warn(`[claude-code] ${sessionKey}: the stopped child did not exit within ${waitMs} ms, killing it before the next turn`);
-        this.killProcess(existing, "stopped-child");
-      }
-      if (this.processes.get(sessionKey) === existing) this.processes.delete(sessionKey);
-      // Stopped while it waited (a second Stop, or the provider shutting down):
-      // no child is spawned for it.
-      if (waiting?.cancelled) return null;
+      // Stopped while it waited (a second Stop, or the provider shutting down): no child is spawned for it.
+      return waiting?.cancelled ? null : this.getOrCreateProcess(sessionKey);
+    } finally {
+      if (waiting && this.waitingSends.get(sessionKey) === waiting) this.waitingSends.delete(sessionKey);
     }
-    return this.getOrCreateProcess(sessionKey);
   }
 
   /**
@@ -2977,7 +2975,7 @@ export class ClaudeCodeProvider implements AIProvider {
         pp.consumedOffset = frame.offset + frame.chunk.byteLength;
       },
       onStderr: (chunk) => this.handleStderrData(pp, sessionKey, chunk),
-      onExit: (code, end) => closeAfterTail(pp, end, (from) => client.attach(sessionKey, from, 1), (wasAlive) => this.onSessionClosed(pp, code, wasAlive)),
+      onExit: (code, end) => closeAfterTail(pp, end, (from) => client.attachWhole(sessionKey, from, 1), (wasAlive) => this.onSessionClosed(pp, code, wasAlive)),
     });
   }
 
@@ -3021,16 +3019,16 @@ export class ClaudeCodeProvider implements AIProvider {
     return pp;
   }
 
-  /** Watchdog liveness probe (see Provider.isTurnProcessAlive): true while the
-   *  session's child is running — direct or broker mode. A live-but-mute child
-   *  (auto-compact) must not be finalized as a timeout. */
+  /** Watchdog liveness probe (see Provider.isTurnProcessAlive): true while the session's child is running, direct
+   *  or broker mode. A live-but-mute child (auto-compact) must not be finalized as a timeout. */
   isTurnProcessAlive(sessionKey: string): boolean {
     const pp = this.processes.get(sessionKey);
-    // Alive AND mid-turn. A fresh idle child that took the key after a kill is
-    // alive too, and answering yes for it kept a dead stream on the extend path (silent but
-    // its child is ALIVE) for hours (2026-09-03, topic ada7e7db):
-    // the route was asking about the turn, and the turn's child was gone.
-    return !!pp && pp.alive && pp.streamHandler !== null;
+    // Alive AND mid-turn, or about to know: a re-adoption still scanning the store (`replayMute`) has no handler
+    // yet, and a route reading «dead» there would SIGINT the very turn its late ack is about to adopt (CCLI-04).
+    // So is a child that exited while detached, until its tail lands: `exitTail`, waiting behind the backlog.
+    // A fresh idle child that took the key after a kill is alive too, and answering yes for it kept a dead
+    // stream on the extend path for hours (2026-09-03, topic ada7e7db): the turn's child was gone.
+    return !!pp && (pp.exitTail !== undefined || (pp.alive && (pp.streamHandler !== null || pp.replayMute === true)));
   }
 
   /**
@@ -3176,7 +3174,7 @@ export class ClaudeCodeProvider implements AIProvider {
     let park = false;
     let keep = false;
     try {
-      const scan = await this.scanBrokerStore(getAiBridgeClient(), sessionKey, pp);
+      const scan = await this.scanBrokerStore(getAiBridgeClient(), sessionKey, pp, opts?.park === true); // parked, it is the re-adoption's phase 1
       if (scan.missing || !scan.alive) return "idle";
       if (!pp.replayTailOpen) {
         // No turn in flight, but its background work is: the scan becomes the
@@ -3213,6 +3211,7 @@ export class ClaudeCodeProvider implements AIProvider {
     client: AiBridgeClient,
     sessionKey: string,
     pp: PersistentProcess,
+    whole = false, // a re-adoption's scan: past the cap it waits for its late ack, muted, instead of failing (`attachWhole`)
   ): Promise<{ missing: boolean; alive: boolean }> {
     pp.replayMute = true;
     pp.replayTailOpen = false;
@@ -3222,7 +3221,7 @@ export class ClaudeCodeProvider implements AIProvider {
     pp.replayRowTurns = undefined;
     // Cut short, the scan leaves the cursor inside the history: the next re-attach goes live instead of folding it
     // again as a woken turn (T19, B4b). Not `attachPending`, which refuses the resync the self-heal needs.
-    const scan = await client.attach(sessionKey, 0).catch((err: unknown) => { pp.reattachLive = true; throw err; });
+    const scan = await (whole ? client.attachWhole(sessionKey, 0) : client.attach(sessionKey, 0)).catch((err: unknown) => { pp.reattachLive = true; throw err; });
     pp.daemonPid = client.daemonPid;
     dateReplay(pp, scan);
     return { missing: scan.missing === true, alive: scan.alive === true };
@@ -3322,8 +3321,8 @@ export class ClaudeCodeProvider implements AIProvider {
       console.warn(`[claude-code] Stream resync for ${sessionKey}: nothing to re-attach, ${await this.whyNoResync(sessionKey, pp)}`);
       return false;
     }
-    if (pp.attachPending) {
-      console.warn(`[claude-code] Stream resync for ${sessionKey}: its first attach has not landed yet, so there is no offset to re-attach from`);
+    if (pp.attachPending || pp.replayMute) {
+      console.warn(`[claude-code] Stream resync for ${sessionKey}: its first attach (a spawn's, or a re-adoption's scan) has not landed yet, so there is no offset to re-attach from`);
       return false;
     }
     // ONE re-attach at a time per session. The reconnect chain, the route's
@@ -3547,7 +3546,7 @@ export class ClaudeCodeProvider implements AIProvider {
     // is current (`onSessionClosed` lowers it), and it cannot be missing: the daemon had it a moment ago.
     const scan = preScanned
       ? { missing: false, alive: pp.alive }
-      : await this.scanBrokerStore(client, sessionKey, pp);
+      : await this.scanBrokerStore(client, sessionKey, pp, true);
     pp.replayMute = false;
     if (scan.missing) {
       pp.streamHandler = handler;
@@ -3569,7 +3568,7 @@ export class ClaudeCodeProvider implements AIProvider {
         const replayed = new Promise<void>((r) => { release = () => r(); });
         if (own) this.queues.set(sessionKey, (this.queues.get(sessionKey) ?? Promise.resolve()).then(() => replayed));
         try {
-          if (own) { pp.replaySilent = true; pp.rewindFrom = own.from; dateReplay(pp, await client.attach(sessionKey, own.from)); }
+          if (own) { pp.replaySilent = true; pp.rewindFrom = own.from; dateReplay(pp, await client.attachWhole(sessionKey, own.from)); }
           if (pp.streamHandler === handler && pp.replayLastResult) this.handleStreamEvent(pp, pp.replayLastResult); // the replay did not reach it
         } finally { pp.replaySilent = false; abandonRewind(pp); release(); }
         return "completed";
@@ -3603,9 +3602,9 @@ export class ClaudeCodeProvider implements AIProvider {
     // rejection: the whole server went down. The awaits below still see it.
     turnDone.catch(() => {});
 
-    // A rewind below the scan's cursor, named: what the scan's live attach delivers meanwhile is the replay's (`admitFrame`).
+    // A rewind below the scan's cursor, named and whole: the scan's live frames meanwhile are the replay's (`admitFrame`), and its ack, behind the same backlog, may come past the cap.
     pp.rewindFrom = own?.from ?? pp.replayAfterLastResultOffset ?? 0;
-    const res = await client.attach(sessionKey, pp.rewindFrom);
+    const res = await client.attachWhole(sessionKey, pp.rewindFrom);
     pp.replaySilent = false; pp.rewindFrom = undefined;
     dateReplay(pp, res);
 

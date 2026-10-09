@@ -2780,7 +2780,6 @@
       "vero"
     ],
     "server/lib/ai-bridge-client.ts": [
-      "isRetryableBridgeError",
       "muto"
     ],
     "server/lib/ask-user-bridge.ts": [

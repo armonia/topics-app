@@ -588,8 +588,8 @@ export const PROJECT_WORDS = new Set([
   // `routable`: the regular adjective from `route`, same case as `scanned`
   // above. AICTRL-01's routing switch asks exactly this question of a
   // provider/model pair, and no other word says it (2026-09-22,
-  // `shared/task-coding-models.ts`).
-  "routable",
+  // `shared/task-coding-models.ts`); `retryable`, of a bridge error (2026-10-08).
+  "routable", "retryable",
   // `ihdr`, `idat`, `crc`: PNG's own chunk names and checksum, spelled exactly
   // as the PNG spec (ISO/IEC 15948) does, lowercased. The test fixture that
   // builds a real, `sips`-decodable PNG byte-for-byte has no other honest name
