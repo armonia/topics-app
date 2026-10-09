@@ -1,17 +1,65 @@
 [
   {
+    "version": "2.2.467",
+    "date": "2026-10-09",
+    "sections": {
+      "new": [],
+      "fixes": [
+        {
+          "text": "il kill rimandato non cancella gli handler del successore",
+          "scope": "chat"
+        }
+      ],
+      "perf": []
+    }
+  },
+  {
+    "version": "2.2.466",
+    "date": "2026-10-09",
+    "sections": {
+      "new": [],
+      "fixes": [
+        {
+          "text": "il replay di una sonda abbandonata non arriva al processo che ha preso il posto del suo",
+          "scope": "chat"
+        },
+        {
+          "text": "dopo un kill, i frame di quell'id restano fuori fino allo spawn successivo",
+          "scope": "chat"
+        }
+      ],
+      "perf": []
+    }
+  },
+  {
     "version": "2.2.465",
     "date": "2026-10-09",
     "sections": {
       "new": [],
       "fixes": [
         {
+          "text": "il silenzio di un list non ricicla il socket finché qualcun altro ci aspetta, anche sotto il tetto",
+          "scope": "chat"
+        },
+        {
           "text": "rowHolder, `frameRequest` al posto di `raf` (check:identifier-language)",
+          "scope": "chat"
+        },
+        {
+          "text": "resta sul socket solo un list muto, e mai con un daemon senza rid",
+          "scope": "chat"
+        },
+        {
+          "text": "un attach o uno spawn abbandonati per silenzio all'ultimo tentativo si portano via il socket",
           "scope": "chat"
         },
         {
           "text": "turn-write-cost chiude il database ereditato prima di aprire il suo",
           "scope": "test"
+        },
+        {
+          "text": "la sonda del lag in un tentativo tiene il socket, la coda d'uscita lo porta via",
+          "scope": "chat"
         },
         {
           "text": "il follow della conversazione sopravvive al resize del drawer",
@@ -30,6 +78,10 @@
         {
           "text": "il fuoco entra nella palette ⌘N nello stesso commit che la disegna",
           "scope": "add-menu"
+        },
+        {
+          "text": "un list scaduto non ricicla il socket sotto uno scan in ritardo, e uno Stop durante la coda di una CLI uscita tiene",
+          "scope": "chat"
         },
         {
           "text": "la fusione a lista ferma tiene la riga letta al pixel, anche in cima",
@@ -67,8 +119,16 @@
       ],
       "fixes": [
         {
+          "text": "mentre lo scan aspetta il suo ack in ritardo, la rotta non uccide il turno",
+          "scope": "chat"
+        },
+        {
           "text": "la barra delle schede della topic scorre invece di schiacciarle (TOPIC-BROWSER-01)",
           "scope": "browser"
+        },
+        {
+          "text": "anche il riavvolgimento dopo lo scan aspetta il suo ack in ritardo",
+          "scope": "chat"
         },
         {
           "text": "la storia arriva solo quando chi legge sale",
@@ -83,6 +143,10 @@
           "scope": "chat"
         },
         {
+          "text": "anche la coda di un figlio uscito dietro lo scan aspetta il suo ack in ritardo",
+          "scope": "chat"
+        },
+        {
           "text": "la rotella chiede la storia da sé solo in cima, e la fusione si misura fino all'atterraggio del passo",
           "scope": "chat"
         },
@@ -93,6 +157,10 @@
         {
           "text": "la riga «mostra altri» carica solo se il suo contenitore e' a schermo",
           "scope": "liste"
+        },
+        {
+          "text": "la sonda di boot e la coda di una CLI uscita aspettano anche loro l'ack in ritardo",
+          "scope": "chat"
         },
         {
           "text": "la compattazione scende sotto la soglia invece di fermarcisi",
@@ -113,6 +181,20 @@
         {
           "text": "una scrittura rimandata dal throttle non sopravvive al database",
           "scope": "persist"
+        }
+      ],
+      "perf": []
+    }
+  },
+  {
+    "version": "2.2.462",
+    "date": "2026-10-08",
+    "sections": {
+      "new": [],
+      "fixes": [
+        {
+          "text": "lo scan di una riadozione oltre il tetto aspetta il suo ack in ritardo",
+          "scope": "chat"
         }
       ],
       "perf": []

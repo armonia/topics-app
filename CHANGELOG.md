@@ -2,11 +2,26 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.2.467 — 2026-10-09
+
+### Correzioni
+- **chat** · il kill rimandato non cancella gli handler del successore
+
+## 2.2.466 — 2026-10-09
+
+### Correzioni
+- **chat** · il replay di una sonda abbandonata non arriva al processo che ha preso il posto del suo
+- **chat** · dopo un kill, i frame di quell'id restano fuori fino allo spawn successivo
+
 ## 2.2.465 — 2026-10-09
 
 ### Correzioni
+- **chat** · il silenzio di un list non ricicla il socket finché qualcun altro ci aspetta, anche sotto il tetto
 - **chat** · rowHolder, `frameRequest` al posto di `raf` (check:identifier-language)
+- **chat** · resta sul socket solo un list muto, e mai con un daemon senza rid
+- **chat** · un attach o uno spawn abbandonati per silenzio all'ultimo tentativo si portano via il socket
 - **test** · turn-write-cost chiude il database ereditato prima di aprire il suo
+- **chat** · la sonda del lag in un tentativo tiene il socket, la coda d'uscita lo porta via
 - **board** · il follow della conversazione sopravvive al resize del drawer
 
 ### Sotto il cofano
@@ -19,6 +34,7 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 
 ### Correzioni
 - **add-menu** · il fuoco entra nella palette ⌘N nello stesso commit che la disegna
+- **chat** · un list scaduto non ricicla il socket sotto uno scan in ritardo, e uno Stop durante la coda di una CLI uscita tiene
 - **chat** · la fusione a lista ferma tiene la riga letta al pixel, anche in cima
 - **test** · il kill del figlio aspetta il resync della riconnessione
 
@@ -35,13 +51,17 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 - **chat** · la fusione in cima aspetta la lista ferma e rimette la riga letta al pixel (bozza)
 
 ### Correzioni
+- **chat** · mentre lo scan aspetta il suo ack in ritardo, la rotta non uccide il turno
 - **browser** · la barra delle schede della topic scorre invece di schiacciarle (TOPIC-BROWSER-01)
+- **chat** · anche il riavvolgimento dopo lo scan aspetta il suo ack in ritardo
 - **chat** · la storia arriva solo quando chi legge sale
 - **liste** · la riga «mostra altri» guarda il contenitore che scorre adesso
 - **chat** · una rotella girata in su chiede la storia anche dove la lista non si muove piu'
+- **chat** · anche la coda di un figlio uscito dietro lo scan aspetta il suo ack in ritardo
 - **chat** · la rotella chiede la storia da sé solo in cima, e la fusione si misura fino all'atterraggio del passo
 - **chat** · il resto arriva anche con Shift+Spazio, la barra trascinata e l'inerzia, e una fusione a scheda nascosta torna dov'era
 - **liste** · la riga «mostra altri» carica solo se il suo contenitore e' a schermo
+- **chat** · la sonda di boot e la coda di una CLI uscita aspettano anche loro l'ack in ritardo
 - **native** · la compattazione scende sotto la soglia invece di fermarcisi
 - **native** · commento di COMPACT_TO in inglese (check:comment-language)
 - **liste** · tornata da lista a griglia, la colonna della board carica ancora in anticipo
@@ -51,10 +71,16 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 ### Sotto il cofano
 - **deps** · react-virtuoso 4.18.16
 - **openspec** · change infinite-scroll
+- **chat** · late-scan-route-grace rimette DATA_DIR a fine file
 - **chat** · liste e barra delle schede passano alla change list-paging, qui resta la chat
 - **cloud** · brief della traccia T20, la chat fonde il resto della storia a lista ferma
 - **cloud** · brief della traccia T21, test instabili secondo giro
 - **chat** · la fusione a lista ferma, la scheda lasciata col resto in volo, il «↓» dopo la fusione
+
+## 2.2.462 — 2026-10-08
+
+### Correzioni
+- **chat** · lo scan di una riadozione oltre il tetto aspetta il suo ack in ritardo
 
 ## 2.2.461 — 2026-10-08
 

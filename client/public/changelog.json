@@ -1,12 +1,70 @@
 [
   {
+    "version": "2.2.467",
+    "date": "2026-10-09",
+    "sections": {
+      "new": [],
+      "fixes": [
+        {
+          "it": "il kill rimandato non cancella gli handler del successore",
+          "en": "",
+          "scope": "chat",
+          "breaking": false
+        }
+      ],
+      "perf": [],
+      "internal": []
+    }
+  },
+  {
+    "version": "2.2.466",
+    "date": "2026-10-09",
+    "sections": {
+      "new": [],
+      "fixes": [
+        {
+          "it": "il replay di una sonda abbandonata non arriva al processo che ha preso il posto del suo",
+          "en": "",
+          "scope": "chat",
+          "breaking": false
+        },
+        {
+          "it": "dopo un kill, i frame di quell'id restano fuori fino allo spawn successivo",
+          "en": "",
+          "scope": "chat",
+          "breaking": false
+        }
+      ],
+      "perf": [],
+      "internal": []
+    }
+  },
+  {
     "version": "2.2.465",
     "date": "2026-10-09",
     "sections": {
       "new": [],
       "fixes": [
         {
+          "it": "il silenzio di un list non ricicla il socket finché qualcun altro ci aspetta, anche sotto il tetto",
+          "en": "",
+          "scope": "chat",
+          "breaking": false
+        },
+        {
           "it": "rowHolder, `frameRequest` al posto di `raf` (check:identifier-language)",
+          "en": "",
+          "scope": "chat",
+          "breaking": false
+        },
+        {
+          "it": "resta sul socket solo un list muto, e mai con un daemon senza rid",
+          "en": "",
+          "scope": "chat",
+          "breaking": false
+        },
+        {
+          "it": "un attach o uno spawn abbandonati per silenzio all'ultimo tentativo si portano via il socket",
           "en": "",
           "scope": "chat",
           "breaking": false
@@ -15,6 +73,12 @@
           "it": "turn-write-cost chiude il database ereditato prima di aprire il suo",
           "en": "",
           "scope": "test",
+          "breaking": false
+        },
+        {
+          "it": "la sonda del lag in un tentativo tiene il socket, la coda d'uscita lo porta via",
+          "en": "",
+          "scope": "chat",
           "breaking": false
         },
         {
@@ -63,6 +127,12 @@
           "it": "il fuoco entra nella palette ⌘N nello stesso commit che la disegna",
           "en": "",
           "scope": "add-menu",
+          "breaking": false
+        },
+        {
+          "it": "un list scaduto non ricicla il socket sotto uno scan in ritardo, e uno Stop durante la coda di una CLI uscita tiene",
+          "en": "",
+          "scope": "chat",
           "breaking": false
         },
         {
@@ -127,9 +197,21 @@
       ],
       "fixes": [
         {
+          "it": "mentre lo scan aspetta il suo ack in ritardo, la rotta non uccide il turno",
+          "en": "",
+          "scope": "chat",
+          "breaking": false
+        },
+        {
           "it": "la barra delle schede della topic scorre invece di schiacciarle (TOPIC-BROWSER-01)",
           "en": "",
           "scope": "browser",
+          "breaking": false
+        },
+        {
+          "it": "anche il riavvolgimento dopo lo scan aspetta il suo ack in ritardo",
+          "en": "",
+          "scope": "chat",
           "breaking": false
         },
         {
@@ -151,6 +233,12 @@
           "breaking": false
         },
         {
+          "it": "anche la coda di un figlio uscito dietro lo scan aspetta il suo ack in ritardo",
+          "en": "",
+          "scope": "chat",
+          "breaking": false
+        },
+        {
           "it": "la rotella chiede la storia da sé solo in cima, e la fusione si misura fino all'atterraggio del passo",
           "en": "",
           "scope": "chat",
@@ -166,6 +254,12 @@
           "it": "la riga «mostra altri» carica solo se il suo contenitore e' a schermo",
           "en": "",
           "scope": "liste",
+          "breaking": false
+        },
+        {
+          "it": "la sonda di boot e la coda di una CLI uscita aspettano anche loro l'ack in ritardo",
+          "en": "",
+          "scope": "chat",
           "breaking": false
         },
         {
@@ -214,6 +308,12 @@
           "breaking": false
         },
         {
+          "it": "late-scan-route-grace rimette DATA_DIR a fine file",
+          "en": "",
+          "scope": "chat",
+          "breaking": false
+        },
+        {
           "it": "liste e barra delle schede passano alla change list-paging, qui resta la chat",
           "en": "",
           "scope": "chat",
@@ -238,6 +338,23 @@
           "breaking": false
         }
       ]
+    }
+  },
+  {
+    "version": "2.2.462",
+    "date": "2026-10-08",
+    "sections": {
+      "new": [],
+      "fixes": [
+        {
+          "it": "lo scan di una riadozione oltre il tetto aspetta il suo ack in ritardo",
+          "en": "",
+          "scope": "chat",
+          "breaking": false
+        }
+      ],
+      "perf": [],
+      "internal": []
     }
   },
   {
