@@ -482,9 +482,6 @@
     "client/src/components/Layout/spaceHelpers.test.ts": [
       "morto"
     ],
-    "client/src/components/Layout/spaceHelpers.ts": [
-      "dissolveIfEmptied"
-    ],
     "client/src/components/Layout/usePanelGridPersistence.ts": [
       "hsum",
       "wsum"

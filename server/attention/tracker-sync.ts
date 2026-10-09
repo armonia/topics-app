@@ -77,6 +77,14 @@ function isTurnWorkPhaseOf(s: ClaudeSessionState): boolean {
  */
 export const NOTICE_WAKE_MS = 60_000;
 
+/**
+ * How long after a chat's CLI snapshot emptied its map a parked turn waits
+ * before resting: the CLI queues the notice that wakes it ms after the
+ * snapshot (fixture 2.1.282, lines 161-163), and the tail reads the
+ * transcript every 1.5 s.
+ */
+export const EMPTIED_QUIET_MS = 5_000;
+
 /** A notice the CLI queued: its task, when the CLI wrote it, and whether a reattach's catch-up read it. */
 interface QueuedNotice { task: FinishedTask; at: number; late: boolean }
 
@@ -89,13 +97,16 @@ interface QueuedNotice { task: FinishedTask; at: number; late: boolean }
  * wherever its fate is read, and announces nothing (`finishBackgroundTasks`).
  * In memory: after a restart a terminal's catch-up reads its notices again, a
  * chat's are lost. `drained`: the subject's parked turn lost its last counting
- * task to a line or the clock since it parked (`settleWatching`). Kept per
- * subject, not per read: a sweep whose commit a hook overtook reads its lines
- * again, and finds their tasks gone.
+ * task to a line, the clock, or a chat's whole-map rewrite that emptied it
+ * once quiet for `EMPTIED_QUIET_MS` with no notice of its transcript still
+ * queued, since it parked (`settleWatching`). Kept per subject, not per read:
+ * a sweep whose commit a hook overtook reads its lines again, and finds their
+ * tasks gone.
  */
 export function createTranscriptEnds() {
   const queued = new Map<string, Map<string, QueuedNotice>>();
   const drained = new Set<string>();
+  const emptiedAt = new Map<string, number>();
   const finish = (subject: string, tasks: readonly FinishedTask[], late: boolean) => {
     if (!tasks.length) return;
     const before = countingTasks(subject);
@@ -146,8 +157,17 @@ export function createTranscriptEnds() {
         console.warn('[claude-session-tracker] attention tasks failed', err);
       }
     },
-    drained: (subject: string): boolean => drained.has(subject),
+    /**
+     * A chat's whole-map rewrite took out the last counting task at `at`: the
+     * parked turn rests once quiet, unless a notice wakes it first.
+     */
+    emptied: (subject: string, at: number): void => { emptiedAt.set(subject, at); },
+    drained: (subject: string, t: number): boolean => {
+      if (drained.has(subject)) return true;
+      const at = emptiedAt.get(subject);
+      return at !== undefined && t - at >= EMPTIED_QUIET_MS && !queued.get(subject)?.size;
+    },
     /** A turn that parks starts over: only the ends read from here on let it rest. */
-    parked: (subject: string): void => { drained.delete(subject); },
+    parked: (subject: string): void => { drained.delete(subject); emptiedAt.delete(subject); },
   };
 }

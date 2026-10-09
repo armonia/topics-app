@@ -462,6 +462,8 @@ export function applyStaleHook(
  * delivers wakes the turn with the same row. The `Stop` would have said
  * `awaiting-user` had those ends come first, so the turn rests dated at it,
  * and a wake written after still passes `applyJsonlEvent`'s causal gate.
+ * A chat's whole-map rewrite that took out the last task counts as `drained`
+ * once quiet (`EMPTIED_QUIET_MS`, `tracker-sync.ts`).
  * Returns `prev` itself when nothing moves.
  */
 export function settleWatching(prev: ClaudeSessionState, countingTasks: number, drained: boolean, now: number): ClaudeSessionState {

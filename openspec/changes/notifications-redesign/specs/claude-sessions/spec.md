@@ -18,7 +18,10 @@ it was dropped), or a minute after the turn stopped with neither; while the turn
 that minute SHALL NOT start. `SessionEnd` and process exit SHALL empty the set. The set SHALL
 survive a server reload while the process holding it is alive. A session parked in
 `watching` whose last counting task a transcript line or that minute takes out SHALL go to
-`awaiting-user`, dated at its `Stop`: nothing is left to wake it. A hook that fired before the
+`awaiting-user`, dated at its `Stop`: nothing is left to wake it. A chat whose CLI snapshot
+takes the parked turn's last task out of the map SHALL rest the same way, dated at its `Stop`,
+once five seconds passed with no notice of its transcript still queued; a notice delivered
+meanwhile SHALL wake it with no rest in between. A hook that fired before the
 `Stop` and lands after it SHALL move the phase the same way, dated at the `Stop` too: to
 `watching` when it adds a counting task, back to `awaiting-user` when it takes out the last
 one, so a line the CLI wrote after the `Stop` still wakes the turn. A notice queued before the

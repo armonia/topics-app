@@ -41,7 +41,7 @@ import { findForkContinuation } from './transcript-fork';
 import { basename } from 'path';
 import { parseTranscriptDelta } from './claude-transcript-import';
 import type { StoredMessage } from '../types';
-import { applyTaskChanges, countingTasks, processEnded } from '../attention/store';
+import { applyTaskChanges, countingTasks, observeTasksEmptied, processEnded } from '../attention/store';
 import { createTranscriptEnds, hookTasks, syncAttention } from '../attention/tracker-sync';
 import { createHookOrder, hookDedupKey, hookEventTime } from './hook-order';
 
@@ -357,6 +357,7 @@ export function createClaudeSessionTracker(opts: ClaudeSessionTrackerOptions): C
   // The task ends each subject's transcript reports: the notices the CLI queued and has not settled yet, and whether
   // a parked turn lost its last counting task since it parked (`createTranscriptEnds`).
   const transcriptEnds = createTranscriptEnds();
+  observeTasksEmptied((subject) => transcriptEnds.emptied(subject, now()));
   // Stato del "seguire il fork", per sessionKey adottata: quando abbiamo
   // guardato l'ultima volta e quali file vicini abbiamo già scartato (con il
   // loro mtime, così un file che cambia torna candidabile). Volatile: al
@@ -597,7 +598,7 @@ export function createClaudeSessionTracker(opts: ClaudeSessionTrackerOptions): C
     liveTranscriptTasks(subject, line);
     const ev = parseJsonlLine(line);
     const moved = ev ? applyJsonlEvent(prev, ev, t) : prev;
-    const next = subject ? settleWatching(moved, countingTasks(subject), transcriptEnds.drained(subject), t) : moved;
+    const next = subject ? settleWatching(moved, countingTasks(subject), transcriptEnds.drained(subject, t), t) : moved;
     if (!ev && next === prev) return false;
     const res = dbPrev ? commit(dbPrev, next) : commitTerminal(prev, next);
     if (!dbPrev) syncAttention(subject, prev, res.state, null, true, t);
@@ -729,7 +730,7 @@ export function createClaudeSessionTracker(opts: ClaudeSessionTrackerOptions): C
     const subject = prev ? subjectOf(prev) : null;
     if (!prev || !subject) return;
     const t = now();
-    const next = settleWatching(prev, countingTasks(subject), transcriptEnds.drained(subject), t);
+    const next = settleWatching(prev, countingTasks(subject), transcriptEnds.drained(subject, t), t);
     if (next === prev) return;
     const res = commitTerminal(prev, next);
     syncAttention(subject, prev, res.state, null, true, t);
@@ -805,7 +806,7 @@ export function createClaudeSessionTracker(opts: ClaudeSessionTrackerOptions): C
   /** `settleWatching` while nothing is read, once the clock took out the notices it expired (`transcriptEnds`). */
   function settleParked(s: ClaudeSessionState, t: number): ClaudeSessionState {
     const subject = s.phase === 'watching' ? subjectOf(s) : null;
-    return subject ? settleWatching(s, countingTasks(subject), transcriptEnds.drained(subject), t) : s;
+    return subject ? settleWatching(s, countingTasks(subject), transcriptEnds.drained(subject, t), t) : s;
   }
 
   function listSessions(): ClaudeSessionState[] {
@@ -856,7 +857,7 @@ export function createClaudeSessionTracker(opts: ClaudeSessionTrackerOptions): C
           if (!ev) continue;
           cur = applyJsonlEvent(cur, ev, t);
         }
-        if (subject) cur = settleWatching(cur, countingTasks(subject), transcriptEnds.drained(subject), t);
+        if (subject) cur = settleWatching(cur, countingTasks(subject), transcriptEnds.drained(subject, t), t);
         // Persist offset = bytes consumed up to last newline.
         const consumedBytes = len - Buffer.byteLength(remainder, 'utf-8');
         const nextOffset = sess.jsonlOffset + consumedBytes;

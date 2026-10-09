@@ -603,6 +603,12 @@ export const PROJECT_WORDS = new Set([
   // and its last report. A name for that pair has no other honest word
   // (2026-10-06, `server/lib/subagent-migration.ts`).
   "handover",
+  // Another regular past participle the 1934 list does not carry, next to
+  // `held`, `denied` and `omitted` above. It names the moment a whole-map
+  // rewrite takes out the last counting task (`emptiedAt` in
+  // `server/attention/tracker-sync.ts`, `observeTasksEmptied` in
+  // `server/attention/store.ts`).
+  "emptied",
 ]);
 
 function trackedFiles(): string[] {
