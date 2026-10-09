@@ -78,9 +78,10 @@ export interface HookOrder {
   /**
    * A turn the transcript opened at `at` (a prompt or a delivered notice, read
    * by the tail): a hook fired before it and arriving after is stale news, as
-   * one fired before a hook already applied.
+   * one fired before a hook already applied. True when it is the newest fact:
+   * no hook fired after it has been applied yet.
    */
-  opened(claudeSessionId: string, at: number): void;
+  opened(claudeSessionId: string, at: number): boolean;
 }
 
 export function createHookOrder(): HookOrder {
@@ -122,7 +123,10 @@ export function createHookOrder(): HookOrder {
     },
     opened(sid, at) {
       const s = orderOf(sid);
-      if (at > s.newestAt) { s.newestAt = at; s.lastStartedCall = null; }
+      if (at <= s.newestAt) return false;
+      s.newestAt = at;
+      s.lastStartedCall = null;
+      return true;
     },
   };
 }

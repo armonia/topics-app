@@ -125,3 +125,47 @@ describe('a Stop that lands after the tail read the woken turn', () => {
     });
   }
 });
+
+describe('a one-shot cron armed in the turn before the one the transcript opens', () => {
+  // ATTN-03: the first turn after the one that armed it takes it. With the Stop late the phase never leaves work, so
+  // only the row that opens the turn can open it in the store; left armed, the cron would hold the turn for ever.
+  const CRON = { tool_name: 'CronCreate', tool_input: { cron: '57 9 25 9 *', prompt: 'check the build', recurring: false },
+    tool_response: { id: 'afc60409', recurring: false, humanSchedule: 'at 09:57' } };
+  const openers = ['delivered notice', 'queued prompt, its UserPromptSubmit fired 3 ms before the row', 'queued prompt, its UserPromptSubmit fired 20 ms after the row'] as const;
+  for (const opener of openers) for (const stop of ['in time', 'late'] as const) {
+    it(`${opener}, Stop ${stop}`, async () => {
+      const w = world('terminal');
+      try {
+        const notice = opener === 'delivered notice';
+        if (notice) openTurn(w); else w.hook({ hook_event_name: 'UserPromptSubmit' }, T0 + 200);
+        w.hook({ hook_event_name: 'PreToolUse', tool_use_id: 'toolu_c', ...CRON }, T0 + 800);
+        w.hook({ hook_event_name: 'PostToolUse', tool_use_id: 'toolu_c', ...CRON }, T0 + 1_000);
+        const E = T0 + 5_000, S = T0 + 7_000, D = S + 800, W = D + 1_500, S2 = W + 2_000;
+        const c0 = snap(w.subject);
+        const seq: string[] = [];
+        w.add(...(notice ? [q('enqueue', BASH_END, E)] : []), assistant(S - 500)); await w.tracker.tailOnce(E + 600);
+        if (stop === 'in time') w.hook({ hook_event_name: 'Stop' }, S + 30, S);
+        w.add(userRow(notice ? BASH_END : 'and then the tests', D)); await w.tracker.tailOnce(D + 200); seq.push(`opened ${w.phase()}`);
+        if (stop === 'late') w.hook({ hook_event_name: 'Stop' }, D + 400, S);
+        if (!notice) w.hook({ hook_event_name: 'UserPromptSubmit' }, D + 450, opener.includes('3 ms before') ? D - 3 : D + 20);
+        w.add(assistant(W)); await w.tracker.tailOnce(W + 200); seq.push(`answer ${w.phase()}`);
+        const mid = diff(w.subject, c0);
+        w.hook({ hook_event_name: 'Stop' }, S2 + 30, S2); seq.push(`Stop ${w.phase()} with ${store.countingTasks(w.subject)} tasks`);
+        expect(seq).toEqual(['opened running', 'answer running', 'Stop awaiting-user with 0 tasks']);
+        expect([mid, diff(w.subject, c0)]).toEqual([[0, 0, 0], [1, 1, 1]]);
+      } finally { w.done(); }
+    });
+  }
+
+  it('a prompt row the tail reads after its own turn armed the cron leaves the cron to that turn', async () => {
+    const w = world('terminal');
+    try {
+      w.hook({ hook_event_name: 'UserPromptSubmit' }, T0 + 200);
+      w.hook({ hook_event_name: 'PreToolUse', tool_use_id: 'toolu_c', ...CRON }, T0 + 800);
+      w.hook({ hook_event_name: 'PostToolUse', tool_use_id: 'toolu_c', ...CRON }, T0 + 1_000);
+      w.add(userRow('check the build at 09:57', T0 + 190), assistant(T0 + 700)); await w.tracker.tailOnce(T0 + 1_500);
+      w.hook({ hook_event_name: 'Stop' }, T0 + 3_030, T0 + 3_000);
+      expect([w.phase(), store.countingTasks(w.subject)]).toEqual(['watching', 1]);
+    } finally { w.done(); }
+  });
+});

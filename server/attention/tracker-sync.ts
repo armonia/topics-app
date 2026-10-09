@@ -40,11 +40,7 @@ export function syncAttention(subject: string | null, prev: ClaudeSessionState, 
     }
     if (!terminal) return;
     if (event === 'UserPromptSubmit' || (event === null && next.phase === 'running' && prev.phase !== 'running' && !isTurnWorkPhaseOf(prev))) {
-      // A terminal's one-shot cron fires as a turn the transcript does not
-      // tell apart from any other: the first turn after the one that armed it
-      // takes it (ATTN-03), or the subject would wait on it for ever.
-      applyTaskChanges(subject, [{ op: 'remove-one-shot-crons' }]);
-      turnStarted(subject);
+      startTerminalTurn(subject);
     } else if (event === 'Stop') {
       turnEnded(subject, { turnId: `stop:${next.claudeSessionId}:${t}`, outcome: 'done', at: new Date(t).toISOString() });
     } else if (event === 'SessionEnd') {
@@ -59,6 +55,29 @@ export function syncAttention(subject: string | null, prev: ClaudeSessionState, 
   } catch (err) {
     console.warn('[claude-session-tracker] attention sync failed', err);
   }
+}
+
+/**
+ * A terminal's turn the transcript opened while the turn before it still
+ * reads at work, its `Stop` on the way: that `Stop` lands as stale news
+ * (`lib/hook-order.ts`) and the phase never leaves work, so neither opens this
+ * turn in the store. The row does.
+ */
+export function transcriptTurnStarted(subject: string, prev: ClaudeSessionState): void {
+  if (!isTurnWorkPhaseOf(prev)) return;
+  try { startTerminalTurn(subject); } catch (err) {
+    console.warn('[claude-session-tracker] attention sync failed', err);
+  }
+}
+
+/**
+ * A terminal's one-shot cron fires as a turn the transcript does not tell
+ * apart from any other: the first turn after the one that armed it takes it
+ * (ATTN-03), or the subject would wait on it for ever.
+ */
+function startTerminalTurn(subject: string): void {
+  applyTaskChanges(subject, [{ op: 'remove-one-shot-crons' }]);
+  turnStarted(subject);
 }
 
 /** Phases a turn rests at: not at work, and no wait on the person (`paused` is one). */

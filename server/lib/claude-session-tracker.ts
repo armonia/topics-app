@@ -42,7 +42,7 @@ import { basename } from 'path';
 import { parseTranscriptDelta } from './claude-transcript-import';
 import type { StoredMessage } from '../types';
 import { applyTaskChanges, countingTasks, observeTasksEmptied, processEnded } from '../attention/store';
-import { createTranscriptEnds, hookTasks, syncAttention } from '../attention/tracker-sync';
+import { createTranscriptEnds, hookTasks, syncAttention, transcriptTurnStarted } from '../attention/tracker-sync';
 import { createHookOrder, hookDedupKey, hookEventTime } from './hook-order';
 
 export type Broadcaster = (msg: OutboundMessage) => void;
@@ -597,7 +597,7 @@ export function createClaudeSessionTracker(opts: ClaudeSessionTrackerOptions): C
     const subject = subjectOf(prev);
     liveTranscriptTasks(subject, line);
     const ev = parseJsonlLine(line);
-    if (ev?.type === 'user' && ev.ts !== undefined) turnOpened(claudeSessionId, subject, ev.ts);
+    if (ev?.type === 'user' && ev.ts !== undefined) turnOpened(prev, subject, ev.ts);
     const moved = ev ? applyJsonlEvent(prev, ev, t) : prev;
     const next = subject ? settleWatching(moved, countingTasks(subject), transcriptEnds.drained(subject, t), t) : moved;
     if (!ev && next === prev) return false;
@@ -737,10 +737,15 @@ export function createClaudeSessionTracker(opts: ClaudeSessionTrackerOptions): C
     syncAttention(subject, prev, res.state, null, true, t);
   }
 
-  /** A row that opens a turn, at its own time: it orders the hooks (`hook-order.ts`) and outdates an emptying of the map before it. */
-  function turnOpened(claudeSessionId: string, subject: string | null, at: number): void {
-    hookOrder.opened(claudeSessionId, at);
-    if (subject) transcriptEnds.opened(subject, at);
+  /**
+   * A row that opens a turn, at its own time: it orders the hooks (`hook-order.ts`), outdates an emptying of the map
+   * before it and, newest of all, opens a terminal's turn that its late `Stop` will not (`transcriptTurnStarted`).
+   */
+  function turnOpened(prev: ClaudeSessionState, subject: string | null, at: number): void {
+    const newest = hookOrder.opened(prev.claudeSessionId, at);
+    if (!subject) return;
+    transcriptEnds.opened(subject, at);
+    if (newest && terminalStates.has(prev.claudeSessionId)) transcriptTurnStarted(subject, prev);
   }
 
   /** The task ends of a line the live tail reads, held while a catch-up of its subject still reads (`heldForCatchUp`). */
@@ -861,7 +866,7 @@ export function createClaudeSessionTracker(opts: ClaudeSessionTrackerOptions): C
         for (const line of lines) {
           liveTranscriptTasks(subject, line);
           const ev = parseJsonlLine(line);
-          if (ev?.type === 'user' && ev.ts !== undefined) turnOpened(sess.claudeSessionId, subject, ev.ts);
+          if (ev?.type === 'user' && ev.ts !== undefined) turnOpened(cur, subject, ev.ts);
           if (!ev) continue;
           cur = applyJsonlEvent(cur, ev, t);
         }
