@@ -162,6 +162,16 @@ export function createTranscriptEnds() {
      * parked turn rests once quiet, unless a notice wakes it first.
      */
     emptied: (subject: string, at: number): void => { emptiedAt.set(subject, at); },
+    /**
+     * A row that opens a turn (a prompt, a delivered notice), written at `at`:
+     * an emptying before it no longer means nothing is left to wake the turn,
+     * even while the sweep that read it has not committed yet. An older row,
+     * read late, leaves it.
+     */
+    opened: (subject: string, at: number): void => {
+      const was = emptiedAt.get(subject);
+      if (was !== undefined && at > was) emptiedAt.delete(subject);
+    },
     drained: (subject: string, t: number): boolean => {
       if (drained.has(subject)) return true;
       const at = emptiedAt.get(subject);

@@ -33,6 +33,10 @@ const MONITOR: Tool = { tool_name: 'Monitor', tool_input: { command: 'tail -f wo
   tool_response: { taskId: 'bmon0stop', timeoutMs: 900000, persistent: false } };
 
 const iso = (at: number) => new Date(at).toISOString();
+/** The Monitor's end, as the CLI words its notice, under the call that launched it first in `turn`. */
+const MONITOR_END = '<task-notification>\n<task-id>bmon0stop</task-id>\n<tool-use-id>toolu_0</tool-use-id>\n<status>completed</status>\n<summary>Monitor "detect stopped workers" stream ended</summary>\n</task-notification>';
+/** A prompt the person typed, as the transcript keeps it. */
+const prompted = (text: string, at: number) => JSON.stringify({ type: 'user', uuid: `p${at}`, timestamp: new Date(at).toISOString(), message: { role: 'user', content: text } });
 /** The Bash task as the provider lists it, keyed by the CLI's id. */
 const bashMap = (at: number) => ({ b7kapz0ad: { kind: 'bash', label: 'sleep 600 && make build', startedAt: iso(at) } });
 /** The wake task as the provider lists it, keyed the way the CLI names it. */
@@ -188,5 +192,41 @@ describe('a chat snapshot that empties the map rests the parked turn once quiet'
     c.tracker.noteWatchDelivered('topic:bg', c.now()); seen.push(phaseOf(c.tracker, c.sid));
     c.at(X + 60_000); c.tracker.reapOnce(c.now()); seen.push(phaseOf(c.tracker, c.sid));
     expect(seen).toEqual(['watching', 'watching', 'watching']);
+  }));
+  // The verifier's race: the sweep that reads the delivery loses its commit to the server adopting the woken turn
+  // (`noteWatchDelivered`, a new rev), and a reaper tick lands before the next sweep. The row that opened the turn,
+  // written after the map emptied, outdates the emptying: the turn waits for that sweep instead of resting.
+  it('a delivery read after the snapshot keeps the turn from resting, even when its sweep loses the commit', () => withHome(async (home) => {
+    const c = setupChat(home);
+    turn([MONITOR]).slice(0, -1).forEach((h) => c.hook(h));
+    c.hook({ hook_event_name: 'Stop' });
+    const S = c.now(), seen = [phaseOf(c.tracker, c.sid)];
+    c.at(S + 100); setBackgroundTasks(c.subject, { bmon0stop: { kind: 'monitor', label: 'detect stopped workers', startedAt: iso(S) } });
+    const E = S + 5_000;
+    c.at(E); setBackgroundTasks(c.subject, {});
+    c.write(enqueued(MONITOR_END, E + 5));
+    c.at(E + 1_000); await c.tracker.tailOnce(c.now()); seen.push(phaseOf(c.tracker, c.sid));
+    c.write(delivered(MONITOR_END, E + 3_900));
+    c.at(E + 4_000);
+    const sweep = c.tracker.tailOnce(c.now());
+    c.tracker.noteWatchDelivered('topic:bg', c.now());
+    await sweep; seen.push(phaseOf(c.tracker, c.sid));
+    c.at(E + 5_000); c.tracker.reapOnce(c.now()); seen.push(phaseOf(c.tracker, c.sid));
+    c.at(E + 5_500); await c.tracker.tailOnce(c.now()); seen.push(phaseOf(c.tracker, c.sid));
+    expect(seen).toEqual(['watching', 'watching', 'watching', 'watching', 'running']);
+  }));
+
+  it('a row written before the snapshot and read late leaves the emptying: the turn still rests once quiet', () => withHome(async (home) => {
+    const c = setupChat(home);
+    turn([BASH_BG]).slice(0, -1).forEach((h) => c.hook(h));
+    c.hook({ hook_event_name: 'Stop' });
+    const S = c.now(), seen = [phaseOf(c.tracker, c.sid)];
+    const E = S + 5_000;
+    c.at(E); setBackgroundTasks(c.subject, {});
+    c.write(prompted('make the build', T0 + 100), enqueued(BASH_BG_END, E + 5), removed(BASH_BG_END, E + 25));
+    c.at(E + 1_000); await c.tracker.tailOnce(c.now()); seen.push(phaseOf(c.tracker, c.sid));
+    c.at(E + 5_000); c.tracker.reapOnce(c.now()); seen.push(phaseOf(c.tracker, c.sid));
+    expect(seen).toEqual(['watching', 'watching', 'awaiting-user']);
+    expect(c.tracker.getSession(c.sid)?.phaseUpdatedAt).toBe(S);
   }));
 });
