@@ -1,6 +1,13 @@
 import { describe, expect, test } from 'bun:test';
 import { MERGE_REST_MS, mergeAtRest, type MergeAtRestDeps } from './mergeAtRest';
 
+/**
+ * When the rest of a chat's history is merged above the reader: only with the
+ * list at rest, the rows here and the pane on screen (`mergeAtRest`).
+ *
+ * @covers CHAT-HIST-01
+ */
+
 /** A list and a clock under the test's hand: a timer runs only when `advance` reaches its time. */
 function bench(over: Partial<{ state: string; visible: boolean; inBand: boolean; pressed: boolean }> = {}) {
   let now = 1_000;
