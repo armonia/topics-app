@@ -25,7 +25,9 @@ meanwhile SHALL wake it with no rest in between, whichever of the snapshot and t
 server reads first. A hook that fired before the
 `Stop` and lands after it SHALL move the phase the same way, dated at the `Stop` too: to
 `watching` when it adds a counting task, back to `awaiting-user` when it takes out the last
-one, so a line the CLI wrote after the `Stop` still wakes the turn. A row of the
+one, so a line the CLI wrote after the `Stop` still wakes the turn. A `Stop` that finds the
+phase already at the rest it brings (a turn the tail never saw, all of it between two reads)
+SHALL still date it, so that turn's rows, read after, SHALL NOT reopen it. A row of the
 transcript that opens a turn (a prompt, a delivered notice, a meta row the CLI marks with
 `turnOrigin`: a cron's fire, a message from another session) SHALL order the hooks the same
 way: a hook that fired before it and lands after it SHALL NOT end or reopen the turn it
