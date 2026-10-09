@@ -24,7 +24,8 @@ hermetic(test);
 
 /**
  * CHAT-HIST-01 - the chat opens on its TAIL, and the rest of the history
- * arrives when nobody is looking at the list.
+ * arrives by itself: while nobody is looking at the list, or as the reader
+ * heads up towards it.
  *
  * THE DEFECT, measured on the desktop's own state on 2026-09-05: after a reload
  * the chat sat behind its skeleton for 500-1200 ms - up to the curtain's hard
@@ -32,8 +33,9 @@ hermetic(test);
  * weighs 200 KB to 2.6 MB per chat and lands in 0.7-1.7 s. This spec pins the
  * shape that replaces it: one request for the last `HISTORY_FIRST_PAGE`
  * messages, the curtain lifting on THAT page, and the messages before it fetched
- * and merged only while the pane is hidden (a tab behind another) or when the
- * reader clicks the row at the top of the loaded window.
+ * and merged while the pane is hidden (a tab behind another) or as the reader
+ * scrolls up towards them, never while the reader just sits on the tail
+ * (`chat-infinite-scroll.spec.ts` measures that merge frame by frame).
  *
  * THE METHOD is the one of `refresh-cls.spec.ts` (observer armed before any
  * line of the app, second load, web-vitals session windows) plus two probes of
@@ -143,8 +145,9 @@ type Probe = {
 };
 
 /** Counts the two kinds of history request for ONE session and holds the older
- *  page back, so "not asked for while on screen" is a fact and not a race. */
-async function probeHistoryRequests(page: Page, sessionKey: string): Promise<Probe> {
+ *  page back, so "not asked for while on screen" is a fact and not a race: for
+ *  `OLDER_DELAY_MS`, or until `gate` opens when the scene decides when it lands. */
+async function probeHistoryRequests(page: Page, sessionKey: string, gate?: Promise<void>): Promise<Probe> {
   const probe: Probe = { firstPage: 0, older: 0, olderReleased: 0 };
   await page.route(`**/api/history/${encodeURIComponent(sessionKey)}*`, async (route) => {
     let body: { before?: string } = {};
@@ -155,7 +158,7 @@ async function probeHistoryRequests(page: Page, sessionKey: string): Promise<Pro
     }
     if (body.before) {
       probe.older += 1;
-      await new Promise((r) => setTimeout(r, OLDER_DELAY_MS));
+      await (gate ?? new Promise((r) => setTimeout(r, OLDER_DELAY_MS)));
       probe.olderReleased += 1;
       await route.continue();
       return;
@@ -305,7 +308,7 @@ test.describe("La chat si apre sulla coda", () => {
     });
   });
 
-  test("chi scorre in alto prima del completamento trova la riga «Carica i messaggi precedenti», e il click lo porta al primo messaggio", async ({ request }) => {
+  test("chi arriva in cima prima del resto trova la riga che lo sta caricando, e il resto entra da solo", async ({ request }) => {
     test.info().annotations.push({ type: "spec", description: "CHAT-HIST-01" });
     test.setTimeout(120_000);
     await resetPaneStore(request, [longTopic.id]);
@@ -328,33 +331,41 @@ test.describe("La chat si apre sulla coda", () => {
         await waitForLocalCopy(p, "messages-cache-", seededText(SEEDED));
       },
       scena: async (p) => {
-        probe = await probeHistoryRequests(p, longKey);
+        // The older page lands when the scene says so: here the reader is faster than the network.
+        let release = (): void => {};
+        const gate = new Promise<void>((r) => { release = r; });
+        probe = await probeHistoryRequests(p, longKey, gate);
         await p.goto("/");
         await expect(rowOf(p, SEEDED)).toBeVisible({ timeout: 15000 });
 
-        // Straight up, before anything else: the loaded window begins at #081,
-        // and above it sits the row, naming the eighty messages it hides.
+        // Straight up: heading there, the scroll asks for the rest by itself, and the
+        // row at the top of the loaded window says it is on its way.
         const divider = p.getByTestId("chat-load-older");
         await wheelUpUntilVisible(p, divider);
-        await expect(rowOf(p, HISTORY_FIRST_PAGE * 2 + 1)).toBeVisible();
+        const firstLoaded = rowOf(p, HISTORY_FIRST_PAGE * 2 + 1);
+        await expect(firstLoaded).toBeVisible();
         await expect(divider).toContainText(`(${MISSING})`);
-        expect(probe.older, "scrolling to the top must not load anything by itself").toBe(0);
-        await didascalia(p, `In cima alla finestra caricata: «Carica i messaggi precedenti (${MISSING})»`);
+        expect(probe.older, "the scroll asks for the rest by itself, once").toBe(1);
+        await expect(p.getByTestId("chat-load-older-button")).toHaveAttribute("aria-busy", "true");
+        await didascalia(p, `In cima prima della rete: i ${MISSING} messaggi precedenti stanno arrivando`);
         await beat(p, 1500);
 
-        // The click is the request. The list re-anchors on the row that was
-        // first, so the reader keeps reading upwards from where they were.
-        await p.getByTestId("chat-load-older-button").click();
-        await expect.poll(() => probe.older, { timeout: 10000 }).toBe(1);
+        // It lands and is merged with no click. The row being read keeps its place, give or
+        // take the divider it no longer carries above it.
+        const [dividerBox, before] = await Promise.all([divider.boundingBox(), firstLoaded.boundingBox()]);
+        release();
         await expect(p.locator(SCROLLER)).toHaveAttribute("data-history", "complete", { timeout: 15000 });
         await expect(divider).toHaveCount(0);
-        await expect(rowOf(p, HISTORY_FIRST_PAGE * 2 + 1)).toBeVisible({ timeout: 10000 });
-        await didascalia(p, "Il click carica il resto e riancora sul messaggio che era il primo");
+        const after = await firstLoaded.boundingBox();
+        expect(after, "the row being read is still on screen").not.toBeNull();
+        expect(Math.abs(after!.y - before!.y), "the row being read moved").toBeLessThanOrEqual(dividerBox!.height + 1);
+        expect(probe.older, "the messages before the tail were asked for more than once").toBe(1);
+        await didascalia(p, "Il resto entra da solo, e la riga letta resta dov'era");
         await beat(p, 1500);
 
-        // And the head is now reachable by scrolling on.
+        // And the head is reachable by scrolling on.
         await wheelUpUntilVisible(p, rowOf(p, 1), 120);
-        await didascalia(p, "Scorrendo ancora, il primo messaggio della chat");
+        await didascalia(p, "Scorrendo ancora, il primo messaggio della chat: nessun click");
         await beat(p, 1500);
         expect(probe.firstPage, "requests for the tail").toBe(1);
       },
