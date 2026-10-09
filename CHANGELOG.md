@@ -2,6 +2,12 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.2.463 — 2026-10-09
+
+### Correzioni
+- **native** · la compattazione scende sotto la soglia invece di fermarcisi
+- **native** · commento di COMPACT_TO in inglese (check:comment-language)
+
 ## 2.2.461 — 2026-10-08
 
 ### Correzioni

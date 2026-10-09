@@ -1,5 +1,28 @@
 [
   {
+    "version": "2.2.463",
+    "date": "2026-10-09",
+    "sections": {
+      "new": [],
+      "fixes": [
+        {
+          "it": "la compattazione scende sotto la soglia invece di fermarcisi",
+          "en": "",
+          "scope": "native",
+          "breaking": false
+        },
+        {
+          "it": "commento di COMPACT_TO in inglese (check:comment-language)",
+          "en": "",
+          "scope": "native",
+          "breaking": false
+        }
+      ],
+      "perf": [],
+      "internal": []
+    }
+  },
+  {
     "version": "2.2.461",
     "date": "2026-10-08",
     "sections": {
