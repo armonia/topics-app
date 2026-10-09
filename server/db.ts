@@ -95,11 +95,34 @@ export function refreshPlannerStats(db: Database): void {
   db.run("ANALYZE tasks");
 }
 
+/** Writes still owed to the open handle, run by `closeDatabase` before it goes. */
+const beforeClose = new Set<() => void>();
+
+/**
+ * Register a write the database is still owed: `closeDatabase` runs it on the
+ * open handle before closing it. For work held on a timer (the body throttle of
+ * a turn, `lib/block-persist-throttle.ts`): without this the timer outlived the
+ * handle and wrote through statements prepared on a closed database. Returns
+ * the unregister, which the owner calls once the write is done or dropped.
+ */
+export function onBeforeDatabaseClose(write: () => void): () => void {
+  beforeClose.add(write);
+  return () => { beforeClose.delete(write); };
+}
+
 /**
  * Close the database connection (for graceful shutdown).
  */
 export function closeDatabase(): void {
   if (_db) {
+    // Every write registered here belongs to the handle about to close, so the
+    // set empties whatever a write does: one that throws must not run again
+    // against the next database.
+    const owed = [...beforeClose];
+    beforeClose.clear();
+    for (const write of owed) {
+      try { write(); } catch (err) { console.warn("[DB] A write owed before close failed:", err); }
+    }
     _db.close();
     _db = null;
     console.log("[DB] Database closed");

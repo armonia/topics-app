@@ -160,8 +160,24 @@ test.describe.serial("Add menu — sistema", () => {
     await resetPaneStore(request, []);
     await cleanApp(page);
 
+    // Where the focus is in the microtask right after the palette enters the
+    // DOM, i.e. before the browser can paint it or deliver the next key. The
+    // focus used to arrive in a passive effect, after the paint: the palette
+    // was on screen with the focus on the body, and a B typed in that window
+    // (up to 90ms under load) did nothing (CI run 37857303064; 5 runs in 80).
+    await page.evaluate(() => {
+      const w = window as unknown as { focusWhenPaletteAppeared?: string };
+      const observer = new MutationObserver(() => {
+        if (!document.querySelector('[data-testid="pane-add-palette"]')) return;
+        w.focusWhenPaletteAppeared = document.activeElement?.getAttribute("data-testid") ?? document.activeElement?.tagName ?? "none";
+        observer.disconnect();
+      });
+      observer.observe(document.body, { childList: true, subtree: true });
+    });
     await page.keyboard.press("Meta+n");
     await expect(page.getByTestId("pane-add-palette")).toBeVisible();
+    expect(await page.evaluate(() => (window as unknown as { focusWhenPaletteAppeared?: string }).focusWhenPaletteAppeared))
+      .toBe("pane-add-menu");
 
     // La riga dichiara la sua lettera in modo verificabile, non solo dipinta.
     await expect(page.getByTestId("pane-add-menu-browser")).toHaveAttribute("data-mnemonic", "B");

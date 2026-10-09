@@ -208,9 +208,15 @@ describe("claude-code provider · broker turns always reach the end", () => {
       onDone: () => { ended = "done"; },
       onError: () => { ended = "error"; },
     } as any).catch((e: Error) => { ended = ended ?? `rejected:${e.message}`; return {}; });
-    await new Promise((r) => setTimeout(r, 400));
 
     const client = getAiBridgeClient() as any;
+    // The child spawned and recorded under the connected daemon: before that
+    // there is no socket to drop. A fixed 400ms wait found `client.socket`
+    // still null once in 150 runs on Bun 1.3.8 under load.
+    const processes = (provider as any).processes as Map<string, { daemonPid?: number | null }>;
+    const spawned = Date.now() + 10_000;
+    while (!(typeof processes.get(sessionKey)?.daemonPid === "number" && client.socket) && Date.now() < spawned) await new Promise((r) => setTimeout(r, 20));
+    expect(client.socket).not.toBeNull();
     const pidPath = SOCK.replace(/\.sock$/, ".pid");
     const daemonPid = readFileSync(pidPath, "utf8").trim();
     const realTryConnect = client.tryConnect;
@@ -232,6 +238,14 @@ describe("claude-code provider · broker turns always reach the end", () => {
     }
     expect(readFileSync(pidPath, "utf8").trim()).toBe(daemonPid);
     expect(String(getAiBridgeClient().daemonPid)).toBe(daemonPid);
+    // The reconnect re-attaches the live child on its own (the provider's
+    // `onReconnect` hook), and a resync asked while one is running gets THAT
+    // one's answer. Killed with it still in flight, the resync below read the
+    // "alive" the daemon gave before the kill: 3 runs in 100 on Bun 1.3.8 under
+    // load, each one with the reconnect's resync still pending at the kill.
+    // Asked here, the resync waits for it (or re-attaches itself): the child is
+    // alive and attached before it is killed.
+    expect(await provider.resyncStream(sessionKey)).toBe(true);
 
     getAiBridgeClient().kill(sessionKey);
     expect(await provider.resyncStream(sessionKey)).toBe(false);
