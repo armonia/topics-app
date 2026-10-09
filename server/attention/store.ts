@@ -211,6 +211,7 @@ interface Entry {
   /**
    * The last `FINISHED_KEEP` ids of tasks whose end was read (`finishBackgroundTasks`), and whether a late read
    * read it. Memory only, kept through the start's reread: a hook still on its way must not put the task back.
+   * Over the cap the late ones leave first.
    */
   finishedTasks?: Map<string, boolean>;
   /**
@@ -738,6 +739,8 @@ export function finishBackgroundTasks(subject: string, ids: readonly string[], o
   const e = entryOf(subject);
   const finished = (e.finishedTasks ??= new Map());
   for (const id of ids) { finished.delete(id); finished.set(id, !!opts.late); }
+  // Over the cap the ends read late go first: a catch-up reads the whole history, and must not push out an end read live, whose hook may still be on its way.
+  for (const [id, late] of finished) { if (finished.size <= FINISHED_KEEP) break; if (late) finished.delete(id); }
   for (const id of finished.keys()) { if (finished.size <= FINISHED_KEEP) break; finished.delete(id); }
   const gone = ids.filter((id) => id in e.row.background);
   if (gone.length === 0) return false;

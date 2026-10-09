@@ -189,7 +189,8 @@ L'avviso SHALL chiudere il compito sotto qualunque id la mappa lo tenga: anche s
 `tool-use-id` della chiamata che l'avviso nomina, finché il `PostToolUse` non l'ha ri-chiavato.
 Gli hook sono asincroni e arrivano anche secondi dopo: un hook arrivato dopo l'avviso NON
 SHALL rimettere nella mappa il compito che quell'avviso ha chiuso, neanche dopo la
-ricomposizione di avvio; se quell'hook toglie
+ricomposizione di avvio, né dopo una lettura tardiva che ripercorre più avvisi di quanti
+se ne ricordano; se quell'hook toglie
 l'ultimo compito di un turno già parcheggiato in `watching`, la fase SHALL scendere a
 `awaiting-user`, come avrebbe detto lo `Stop`. Un Monitor SHALL chiudersi solo con le
 parole della CLI: uno `<status>`, la sua scadenza, il suo timeout, il suo arresto da parte
@@ -314,6 +315,12 @@ riavvio ancora sotto l'id della chiamata, con un avviso che non la nomina, SHALL
 - **GIVEN** un compito la cui fine è già stata letta, dalla coda viva o dalla lettura tardiva, prima del suo `PostToolUse`
 - **WHEN** la ricomposizione di avvio rilegge la tabella e poi arriva il `PostToolUse`
 - **THEN** il compito NON SHALL tornare nella mappa, e il terminale SHALL arrivare a `finished`
+
+#### Scenario: una storia lunga letta dal riattacco
+- **GIVEN** un terminale riattaccato con un Agent di prima del riavvio ancora in volo, e 40 avvisi di fine vecchi nel transcript
+- **AND** un turno dal vivo che lancia un Bash, la cui fine la coda viva legge prima del suo `PostToolUse`, mentre la lettura tardiva legge ancora
+- **WHEN** arrivano il `PostToolUse` e lo `Stop`, e più tardi l'Agent finisce
+- **THEN** il Bash NON SHALL tornare nella mappa, e il terminale SHALL arrivare a `finished` con un solo annuncio, come senza riavvio
 
 #### Scenario: un compito di un turno messo a riposo prima del riavvio
 - **GIVEN** un terminale con un turno chiuso sul suo Bash in background, poi un turno che lancia un altro Bash e si interrompe senza esito, e il server ricaricato
