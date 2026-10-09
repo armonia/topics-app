@@ -2,6 +2,16 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.2.463 — 2026-10-09
+
+### Novità
+- **liste** · le liste con «mostra altri» caricano da sole, e la barra delle schede del browser della topic scorre
+
+### Correzioni
+- **native** · la compattazione scende sotto la soglia invece di fermarcisi
+- **native** · commento di COMPACT_TO in inglese (check:comment-language)
+- **liste** · tornata da lista a griglia, la colonna della board carica ancora in anticipo
+
 ## 2.2.461 — 2026-10-08
 
 ### Correzioni

@@ -1,5 +1,32 @@
 [
   {
+    "version": "2.2.463",
+    "date": "2026-10-09",
+    "sections": {
+      "new": [
+        {
+          "text": "le liste con «mostra altri» caricano da sole, e la barra delle schede del browser della topic scorre",
+          "scope": "liste"
+        }
+      ],
+      "fixes": [
+        {
+          "text": "la compattazione scende sotto la soglia invece di fermarcisi",
+          "scope": "native"
+        },
+        {
+          "text": "commento di COMPACT_TO in inglese (check:comment-language)",
+          "scope": "native"
+        },
+        {
+          "text": "tornata da lista a griglia, la colonna della board carica ancora in anticipo",
+          "scope": "liste"
+        }
+      ],
+      "perf": []
+    }
+  },
+  {
     "version": "2.2.461",
     "date": "2026-10-08",
     "sections": {

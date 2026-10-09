@@ -603,6 +603,9 @@ export default defineConfig({
         "**/chat-scroll-down-jitter.spec.ts",
         // The prepend under the reader is measured on both engines: the shipped one is WebKit.
         "**/chat-infinite-scroll.spec.ts",
+        // The bar of a topic's browser window with more pages than fit: what a page keeps of its width is
+        // measured where the product ships.
+        "**/topic-browser-tab-strip.spec.ts",
         "**/sender-sees-question.spec.ts",
         // A question waits for its person across a reload and the death of its
         // asker, and the answer reaches the model: read in the engine that ships.
