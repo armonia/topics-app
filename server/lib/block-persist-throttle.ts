@@ -37,7 +37,18 @@
  *
  * The deferred write calls `write()`, which serializes the LIVE array: a
  * postponed write is never a stale one, it is a fresher one.
+ *
+ * ## A held write never outlives the database
+ *
+ * While a write waits for its timer, `closeDatabase` owes it: closing writes it
+ * first, on the handle that is still open. Before, the timer fired after the
+ * close and went through statements prepared on the closed handle: in a test
+ * run of many files that was the next file's database closing under it
+ * (`SQLiteError: out of memory` on Bun 1.3.8, a silent write into the closed
+ * file on 1.4.2), and at the server's shutdown the held window was lost.
  */
+
+import { onBeforeDatabaseClose } from "../db";
 
 /**
  * Growth factor that earns an immediate write.
@@ -81,6 +92,7 @@ export function createBlockPersistThrottle(opts: BlockPersistThrottleOptions): B
   let lastSize = -1;
   let pendingSize: number | null = null;
   let timer: ReturnType<typeof setTimeout> | null = null;
+  let releaseClose: (() => void) | null = null;
   const stats = { writes: 0, deferred: 0 };
 
   const clearTimer = () => {
@@ -88,6 +100,8 @@ export function createBlockPersistThrottle(opts: BlockPersistThrottleOptions): B
       clearTimeout(timer);
       timer = null;
     }
+    releaseClose?.();
+    releaseClose = null;
   };
 
   const doWrite = (size: number) => {
@@ -108,6 +122,8 @@ export function createBlockPersistThrottle(opts: BlockPersistThrottleOptions): B
     // A pending write must never keep the process alive on its own: the turn
     // that owns it is what decides how long this server stays up.
     (timer as { unref?: () => void }).unref?.();
+    // ...nor outlive the database it writes to (see the header).
+    releaseClose = onBeforeDatabaseClose(() => { if (pendingSize !== null) doWrite(pendingSize); });
   };
 
   return {
