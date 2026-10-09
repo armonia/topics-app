@@ -49,3 +49,7 @@ test("before the cap, a list that goes mute does not cut the attach still waitin
 // A daemon older than protocol 4: the socket goes, or the first list's late answer settles the second.
 test("a daemon without rids: a list's retry drops the socket, the list after a kill does not find the session", () =>
   runCase("norid", { TOPICS_AI_BRIDGE_ATTACH_ACK_MS: "1000", TOPICS_AI_BRIDGE_ACK_MS: "1000", TOPICS_AI_BRIDGE_MAX_ACK_MS: "60000" }), 300_000);
+// An attach given up on at its last attempt (a CLI's exit tail) takes the socket with it, even with a list
+// behind it that kept the socket while the attach still waited: its replay would land in the next turn.
+test("an attach given up on at its last attempt drops the socket: its replay never reaches the session", () =>
+  runCase("abandon", { TOPICS_AI_BRIDGE_ATTACH_ACK_MS: "1000", TOPICS_AI_BRIDGE_MAX_ACK_MS: "60000" }), 300_000);

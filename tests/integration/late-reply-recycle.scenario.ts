@@ -6,6 +6,7 @@
  * runs the same attach with no concurrent list. `precap` runs the same pause while the attach is still
  * under its cap (5 s, with 1.5 s of patience for silence), in one attempt: the exit tail's form. `norid`
  * is the other side of the same guard: a daemon that echoes no rids, whose retried socket must go.
+ * `abandon`: an attach given up on at its last attempt takes its socket with it, its replay never lands.
  */
 process.env.TOPICS_AI_BRIDGE_ATTACH_ACK_MS ??= "300";
 process.env.TOPICS_AI_BRIDGE_MAX_ACK_MS ??= "300";
@@ -101,6 +102,71 @@ if (CASE === "norid") {
         const [b, a] = await Promise.all([before, after]);
         console.log(`[recycle:norid] list sent before the kill: ${b} · hasLiveSession after the kill: ${a}`);
         expect(a).toBe(false);
+      } finally {
+        try { c.dispose(); } catch { /* already gone */ }
+        for (const s of sockets) s.destroy();
+        await new Promise<void>((r) => daemon.close(() => r()));
+      }
+    }, 20_000);
+  });
+} else if (CASE === "abandon") {
+  // `abandon`: an attach in one attempt (a CLI's exit tail) and a list behind it, then a pause longer than
+  // the attach's patience and shorter than the watchdog. The list's silence keeps the socket, since the
+  // attach still waits on it; then the attach gives up. Kept, the socket would deliver its replay once the
+  // daemon resumes, into whatever turn the session runs next.
+  describe("an attach given up on at its last attempt, with a list behind it", () => {
+    test("its replay does not reach the session once the daemon resumes", async () => {
+      const { AiBridgeClient } = await import("../../server/lib/ai-bridge-client");
+      const sockets = new Set<net.Socket>();
+      const queued: Array<{ sock: net.Socket; f: any }> = [];
+      let paused = false;
+      const answer = (sock: net.Socket, f: any) => {
+        const write = (m: object) => { if (!sock.destroyed) sock.write(JSON.stringify(m) + "\n"); };
+        if (f.type === "ping") write({ type: "pong", pid: 1, rid: f.rid, live: 1 });
+        if (f.type === "list") write({ type: "list", sessions: [{ id: "topic:a", alive: true, endOffset: 5 }], rid: f.rid });
+        if (f.type === "attach") {
+          for (let off = 0; off < 5; off++) write({ type: "data", id: f.id, offset: off, chunk: Buffer.from(`OLD${off}`).toString("base64") });
+          write({ type: "attached", id: f.id, endOffset: 5, alive: true, exitCode: null, protocol: 4, rid: f.rid });
+        }
+      };
+      const daemon = net.createServer((sock) => {
+        sockets.add(sock);
+        let buffer = "";
+        sock.on("error", () => {});
+        sock.on("close", () => sockets.delete(sock));
+        sock.on("data", (c) => {
+          buffer += c.toString();
+          let nl: number;
+          while ((nl = buffer.indexOf("\n")) !== -1) {
+            const line = buffer.slice(0, nl);
+            buffer = buffer.slice(nl + 1);
+            let f: any;
+            try { f = JSON.parse(line); } catch { continue; }
+            if (paused) queued.push({ sock, f });
+            else answer(sock, f);
+          }
+        });
+      });
+      await new Promise<void>((r) => daemon.listen(sockPath, () => r()));
+      const c = new AiBridgeClient();
+      try {
+        await c.ensureConnected();
+        await sleep(150); // the pong is in: rids are echoed
+        const landed: number[] = [];
+        let givenUp = false;
+        c.registerHandlers("topic:a", { onData: (_chunk: Buffer, offset: number) => { if (givenUp) landed.push(offset); }, onExit: () => {} });
+        paused = true;
+        const attach = c.attach("topic:a", 0, 1).then(() => "resolved", (e: Error) => { givenUp = true; return e.name; });
+        await sleep(50); // the list goes out behind the attach
+        const list = c.list().then(() => "resolved", (e: Error) => e.name);
+        const [a] = await Promise.all([attach, list]);
+        await sleep(300); // still paused, past the attach's patience
+        paused = false;
+        for (const { sock, f } of queued.splice(0)) answer(sock, f);
+        await sleep(300); // whatever the resumed daemon sends has arrived
+        console.log(`[recycle:abandon] attach: ${a} · frames after it was given up on: ${landed.length}`);
+        expect(a).toBe("BridgeAckStalled");
+        expect(landed).toEqual([]);
       } finally {
         try { c.dispose(); } catch { /* already gone */ }
         for (const s of sockets) s.destroy();

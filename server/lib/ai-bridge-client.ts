@@ -528,7 +528,16 @@ export class AiBridgeClient {
         // su una sessione viva la RIPRENDE, un `attach` rirende dallo stesso
         // offset), quindi rimandarle è sicuro; e visto che il waiter rigetta
         // solo dopo un silenzio VERO, qui non si arriva mai per lentezza.
-        if (!isRetryableBridgeError(err) || attempt === attempts - 1) throw err;
+        if (!isRetryableBridgeError(err)) throw err;
+        const streamless = (frame as { type?: string }).type === "list";
+        if (attempt === attempts - 1) {
+          // Given up on for silence at its last attempt, an attach or a spawn still takes its
+          // socket with it: the daemon answers it later all the same, and the replay would land in
+          // whatever turn the session runs next (a CLI's exit tail fetched in vain, then a send on a
+          // new process, which reads from offset 0).
+          if (err instanceof BridgeAckStalled && !streamless) this.dropSocket();
+          throw err;
+        }
         last = err;
         console.warn(`[AI Bridge] ${what}: ${err.message} — riprovo (${attempt + 1}/${attempts - 1})`);
         // Il socket va BUTTATO prima di riprovare. `ensureConnected` si fida
@@ -544,7 +553,6 @@ export class AiBridgeClient {
         // session runs next. So does a socket that failed a write, and one to a daemon that
         // echoes no rids (protocol < 4), whose answers match by shape: kept, the late answer to
         // this request would settle a newer one of the same shape, sent after a kill.
-        const streamless = (frame as { type?: string }).type === "list";
         if (err instanceof BridgeConnectionLost || !this.ridEcho || !streamless || (this.waiters.length === 0 && this.lateReplies.size === 0)) this.dropSocket();
         await new Promise((r) => setTimeout(r, RETRY_BACKOFF_MS * (attempt + 1)));
       }
