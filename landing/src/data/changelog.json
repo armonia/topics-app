@@ -1,5 +1,124 @@
 [
   {
+    "version": "2.2.465",
+    "date": "2026-10-09",
+    "sections": {
+      "new": [],
+      "fixes": [
+        {
+          "text": "rowHolder, `frameRequest` al posto di `raf` (check:identifier-language)",
+          "scope": "chat"
+        },
+        {
+          "text": "turn-write-cost chiude il database ereditato prima di aprire il suo",
+          "scope": "test"
+        },
+        {
+          "text": "il follow della conversazione sopravvive al resize del drawer",
+          "scope": "board"
+        }
+      ],
+      "perf": []
+    }
+  },
+  {
+    "version": "2.2.464",
+    "date": "2026-10-09",
+    "sections": {
+      "new": [],
+      "fixes": [
+        {
+          "text": "il fuoco entra nella palette ⌘N nello stesso commit che la disegna",
+          "scope": "add-menu"
+        },
+        {
+          "text": "la fusione a lista ferma tiene la riga letta al pixel, anche in cima",
+          "scope": "chat"
+        },
+        {
+          "text": "il kill del figlio aspetta il resync della riconnessione",
+          "scope": "test"
+        }
+      ],
+      "perf": []
+    }
+  },
+  {
+    "version": "2.2.463",
+    "date": "2026-10-09",
+    "sections": {
+      "new": [
+        {
+          "text": "risalendo, i messaggi precedenti arrivano da soli (CHAT-HIST-01)",
+          "scope": "chat"
+        },
+        {
+          "text": "la riga «mostra altri» carica da sola entrando in vista (LIST-PAGE-01)",
+          "scope": "liste"
+        },
+        {
+          "text": "le liste con «mostra altri» caricano da sole, e la barra delle schede del browser della topic scorre",
+          "scope": "liste"
+        },
+        {
+          "text": "la fusione in cima aspetta la lista ferma e rimette la riga letta al pixel (bozza)",
+          "scope": "chat"
+        }
+      ],
+      "fixes": [
+        {
+          "text": "la barra delle schede della topic scorre invece di schiacciarle (TOPIC-BROWSER-01)",
+          "scope": "browser"
+        },
+        {
+          "text": "la storia arriva solo quando chi legge sale",
+          "scope": "chat"
+        },
+        {
+          "text": "la riga «mostra altri» guarda il contenitore che scorre adesso",
+          "scope": "liste"
+        },
+        {
+          "text": "una rotella girata in su chiede la storia anche dove la lista non si muove piu'",
+          "scope": "chat"
+        },
+        {
+          "text": "la rotella chiede la storia da sé solo in cima, e la fusione si misura fino all'atterraggio del passo",
+          "scope": "chat"
+        },
+        {
+          "text": "il resto arriva anche con Shift+Spazio, la barra trascinata e l'inerzia, e una fusione a scheda nascosta torna dov'era",
+          "scope": "chat"
+        },
+        {
+          "text": "la riga «mostra altri» carica solo se il suo contenitore e' a schermo",
+          "scope": "liste"
+        },
+        {
+          "text": "la compattazione scende sotto la soglia invece di fermarcisi",
+          "scope": "native"
+        },
+        {
+          "text": "commento di COMPACT_TO in inglese (check:comment-language)",
+          "scope": "native"
+        },
+        {
+          "text": "tornata da lista a griglia, la colonna della board carica ancora in anticipo",
+          "scope": "liste"
+        },
+        {
+          "text": "la correzione su schermo stretto conta solo quando il campo la mostra",
+          "scope": "e2e"
+        },
+        {
+          "text": "una scrittura rimandata dal throttle non sopravvive al database",
+          "scope": "persist"
+        }
+      ],
+      "perf": []
+    }
+  },
+  {
     "version": "2.2.461",
     "date": "2026-10-08",
     "sections": {

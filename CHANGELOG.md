@@ -2,6 +2,60 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.2.465 — 2026-10-09
+
+### Correzioni
+- **chat** · rowHolder, `frameRequest` al posto di `raf` (check:identifier-language)
+- **test** · turn-write-cost chiude il database ereditato prima di aprire il suo
+- **board** · il follow della conversazione sopravvive al resize del drawer
+
+### Sotto il cofano
+- **chat** · Home con il resto in ritardo lo fa arrivare a lista ferma in cima
+- **cloud** · REPORT della traccia T21, test instabili secondo giro
+- **cloud** · T21, il ramo che l'ambiente impone nel REPORT
+- **cloud** · REPORT di T20, e via le sonde del verificatore
+
+## 2.2.464 — 2026-10-09
+
+### Correzioni
+- **add-menu** · il fuoco entra nella palette ⌘N nello stesso commit che la disegna
+- **chat** · la fusione a lista ferma tiene la riga letta al pixel, anche in cima
+- **test** · il kill del figlio aspetta il resync della riconnessione
+
+### Sotto il cofano
+- **chat** · mergeAtRest.test dichiara cosa copre (CHAT-HIST-01)
+- **chat** · CHAT-HIST-01, la fusione a lista ferma e il «↓» che conta solo il fondo
+
+## 2.2.463 — 2026-10-09
+
+### Novità
+- **chat** · risalendo, i messaggi precedenti arrivano da soli (CHAT-HIST-01)
+- **liste** · la riga «mostra altri» carica da sola entrando in vista (LIST-PAGE-01)
+- **liste** · le liste con «mostra altri» caricano da sole, e la barra delle schede del browser della topic scorre
+- **chat** · la fusione in cima aspetta la lista ferma e rimette la riga letta al pixel (bozza)
+
+### Correzioni
+- **browser** · la barra delle schede della topic scorre invece di schiacciarle (TOPIC-BROWSER-01)
+- **chat** · la storia arriva solo quando chi legge sale
+- **liste** · la riga «mostra altri» guarda il contenitore che scorre adesso
+- **chat** · una rotella girata in su chiede la storia anche dove la lista non si muove piu'
+- **chat** · la rotella chiede la storia da sé solo in cima, e la fusione si misura fino all'atterraggio del passo
+- **chat** · il resto arriva anche con Shift+Spazio, la barra trascinata e l'inerzia, e una fusione a scheda nascosta torna dov'era
+- **liste** · la riga «mostra altri» carica solo se il suo contenitore e' a schermo
+- **native** · la compattazione scende sotto la soglia invece di fermarcisi
+- **native** · commento di COMPACT_TO in inglese (check:comment-language)
+- **liste** · tornata da lista a griglia, la colonna della board carica ancora in anticipo
+- **e2e** · la correzione su schermo stretto conta solo quando il campo la mostra
+- **persist** · una scrittura rimandata dal throttle non sopravvive al database
+
+### Sotto il cofano
+- **deps** · react-virtuoso 4.18.16
+- **openspec** · change infinite-scroll
+- **chat** · liste e barra delle schede passano alla change list-paging, qui resta la chat
+- **cloud** · brief della traccia T20, la chat fonde il resto della storia a lista ferma
+- **cloud** · brief della traccia T21, test instabili secondo giro
+- **chat** · la fusione a lista ferma, la scheda lasciata col resto in volo, il «↓» dopo la fusione
+
 ## 2.2.461 — 2026-10-08
 
 ### Correzioni

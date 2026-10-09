@@ -6,6 +6,7 @@ import { topicsApi, type ResumableSession } from '../../lib/api';
 import { errMessage } from '../../lib/errMessage';
 import { useConfirm } from '../../hooks/useConfirm';
 import { useLocale, useT } from '../../hooks/useT';
+import { useLoadOnReach } from '../../hooks/useLoadOnReach';
 import { useToast } from '../Shared/Toast';
 
 /**
@@ -64,6 +65,8 @@ export function ResumePicker({ topicId, filter, inputRef, isMobile, onClose, onA
   }, [topicId]);
 
   useEffect(() => { void loadPage(null); }, [loadPage]);
+  // Infinite scroll: the next page comes as the «more» row comes into view.
+  const moreRef = useLoadOnReach(() => { if (cursor) void loadPage(cursor); }, { more: more && cursor !== null, loading, count: sessions.length });
 
   const rows = useMemo((): Row[] => {
     const words = filter.trim().toLowerCase().split(/\s+/).filter(Boolean);
@@ -166,7 +169,7 @@ export function ResumePicker({ topicId, filter, inputRef, isMobile, onClose, onA
         const base = `w-full px-3 ${isMobile ? 'min-h-[44px]' : ''} py-1.5 text-left flex items-center gap-2.5 transition-colors ${on ? 'bg-primary/10' : 'hover:bg-app-hover'}`;
         if (row.kind === 'more') {
           return (
-            <button type="button" role="option" aria-selected={on} data-testid="resume-load-more" className={base}
+            <button ref={moreRef} type="button" role="option" aria-selected={on} data-testid="resume-load-more" className={base}
               onMouseDown={(e) => e.preventDefault()} onMouseEnter={() => setSelected(idx)} onClick={() => void choose(row)}>
               {loading ? <Spinner size="sm" /> : <ChevronsDown size={14} className="text-app-text-muted shrink-0" />}
               <span className="text-compact text-app-text-secondary">{tr('chat.resume.loadMore')}</span>
