@@ -38,6 +38,7 @@
  * (`useTauriBrowser`, BROWSER_CLOSE_GRACE_MS).
  */
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, type RefObject } from 'react';
+import { useActiveTabInView } from '../../hooks/useActiveTabInView';
 import { createPortal } from 'react-dom';
 import { POPOVER_SURFACE, Z_CONTEXT_MENU, Z_POPOVER_SCRIM } from '@/lib/popoverStyles';
 import { useExitGhost } from '@/lib/exitGhost';
@@ -493,10 +494,6 @@ export function TopicBrowserWindow({ topicId, areaRef, projectPath }: TopicBrows
     window.addEventListener('keydown', onKey);
     return () => { window.removeEventListener('keydown', onKey); };
   }, [addOpen, layoutBrowsers.length]);
-  if (!topicId) return null;
-  if (!barOnly && !state.tabs.length) return null;
-
-
   // The topic is not the one on screen (its chat pane is collapsed to zero, or
   // it was never measured): the window is PARKED, not unmounted. Unmounting it
   // would take RemoteBrowserPanel down with it and destroy the page, so coming
@@ -509,6 +506,16 @@ export function TopicBrowserWindow({ topicId, areaRef, projectPath }: TopicBrows
   // what the topic switch is careful to keep.
   const hidden = !barOnly && state.mode === 'hidden';
   const parked = !rect || hidden;
+
+  // Once its pages outgrow the bar it scrolls sideways, and the active page is brought into view: when
+  // it changes, and when a parked window comes back (a hidden strip has nothing to measure).
+  const stripRef = useRef<HTMLDivElement>(null);
+  useActiveTabInView(stripRef, active && !parked ? `[data-context-id="${CSS.escape(active.contextId)}"]` : null);
+
+  if (!topicId) return null;
+  if (!barOnly && !state.tabs.length) return null;
+
+
   const box = rect ?? lastRect.current;
   // One answer for the whole render: if the area cannot host a docked window,
   // `exp` is not what this window IS, whatever the persisted state says. The
@@ -551,7 +558,15 @@ export function TopicBrowserWindow({ topicId, areaRef, projectPath }: TopicBrows
         onPointerDown={(e) => { if ((e.currentTarget as Node).contains(e.target as Node)) startMove(e); }}
         className={`flex items-center gap-1 px-1.5 h-9 flex-shrink-0 border-b border-app-border bg-surface ${expanded ? '' : 'cursor-grab active:cursor-grabbing'}`}
       >
-        <div className="flex items-center gap-1 min-w-0 flex-1 overflow-hidden">
+        {/* The pages scroll sideways once they outgrow the bar. Squeezed to fit instead, eight
+            of them in a minimized window were 35 px each with 14 px of title, fifteen were 17 px
+            with none, and the «+» shrank to 13 px (measured 2026-10-08). */}
+        <div
+          ref={stripRef}
+          data-testid="topic-browser-strip"
+          className="flex items-center gap-1 min-w-0 flex-initial overflow-x-auto scrollbar-topbar"
+          style={{ touchAction: 'pan-x' }}
+        >
           {state.tabs.map((t) => {
             const sheetKey = createPaneId('browser', t.contextId);
             const isActive = t.contextId === active?.contextId;
@@ -587,11 +602,12 @@ export function TopicBrowserWindow({ topicId, areaRef, projectPath }: TopicBrows
                   openTabSheet(sheetKey, 'commands');
                 }}
                 {...sheetLongPress.handlers}
-                className={`flex items-center gap-1 px-2 h-7 rounded text-mini truncate max-w-[160px] ${isActive ? 'bg-app-hover text-app-text' : 'text-app-text-tertiary hover:bg-app-hover'}`}
+                className={`flex items-center gap-1 px-2 h-7 rounded text-mini truncate min-w-[88px] max-w-[160px] ${isActive ? 'bg-app-hover text-app-text' : 'text-app-text-tertiary hover:bg-app-hover'}`}
               >
-                <span className="truncate">{label}</span>
+                <span className="truncate flex-1">{label}</span>
                 <X
                   size={11}
+                  className="flex-shrink-0"
                   data-testid="topic-browser-tab-close"
                   onClick={(e) => { e.stopPropagation(); topicBrowserWindow.close(topicId, t.contextId); }}
                 />
@@ -612,26 +628,28 @@ export function TopicBrowserWindow({ topicId, areaRef, projectPath }: TopicBrows
               </button>
             );
           })}
-          <button
-            ref={addButtonRef}
-            data-testid="topic-browser-add"
-            aria-label={tr('topicBrowser.add')}
-            aria-haspopup="menu"
-            aria-expanded={addOpen}
-            title={tr('topicBrowser.add')}
-            onClick={() => setAddOpen((v) => !v)}
-            className="w-6 h-6 flex items-center justify-center rounded text-app-text-tertiary hover:bg-app-hover"
-          >
-            <Plus size={13} />
-          </button>
         </div>
+        <button
+          ref={addButtonRef}
+          data-testid="topic-browser-add"
+          aria-label={tr('topicBrowser.add')}
+          aria-haspopup="menu"
+          aria-expanded={addOpen}
+          title={tr('topicBrowser.add')}
+          onClick={() => setAddOpen((v) => !v)}
+          className="w-6 h-6 flex-shrink-0 flex items-center justify-center rounded text-app-text-tertiary hover:bg-app-hover"
+        >
+          <Plus size={13} />
+        </button>
+        {/* What is left of the bar: the handle the minimized window is dragged by. */}
+        <div className="flex-1 self-stretch" />
         <button
           data-testid="topic-browser-open-as-tab"
           aria-label={tr('topicBrowser.openAsTab')}
           title={tr('topicBrowser.openAsTab')}
           disabled={!active}
           onClick={() => { if (active) openAsTab(active.contextId, active.url); }}
-          className="w-6 h-6 flex items-center justify-center rounded text-app-text-tertiary hover:bg-app-hover disabled:opacity-40"
+          className="w-6 h-6 flex-shrink-0 flex items-center justify-center rounded text-app-text-tertiary hover:bg-app-hover disabled:opacity-40"
         >
           <ExternalLink size={13} />
         </button>
@@ -641,7 +659,7 @@ export function TopicBrowserWindow({ topicId, areaRef, projectPath }: TopicBrows
           aria-label={expanded ? tr('topicBrowser.minimize') : tr('topicBrowser.expand')}
           title={expanded ? tr('topicBrowser.minimize') : tr('topicBrowser.expand')}
           onClick={() => topicBrowserWindow.setMode(topicId, expanded ? 'min' : 'exp')}
-          className="w-6 h-6 flex items-center justify-center rounded text-app-text-tertiary hover:bg-app-hover"
+          className="w-6 h-6 flex-shrink-0 flex items-center justify-center rounded text-app-text-tertiary hover:bg-app-hover"
         >
           {expanded ? <Minimize2 size={13} /> : <Maximize2 size={13} />}
         </button>
@@ -651,7 +669,7 @@ export function TopicBrowserWindow({ topicId, areaRef, projectPath }: TopicBrows
           aria-label={tr('topicBrowser.close')}
           title={tr('topicBrowser.close')}
           onClick={() => topicBrowserWindow.setMode(topicId, 'hidden')}
-          className="w-6 h-6 flex items-center justify-center rounded text-app-text-tertiary hover:bg-app-hover"
+          className="w-6 h-6 flex-shrink-0 flex items-center justify-center rounded text-app-text-tertiary hover:bg-app-hover"
         >
           <X size={13} />
         </button>
