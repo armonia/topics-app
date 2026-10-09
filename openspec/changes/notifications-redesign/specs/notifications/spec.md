@@ -202,7 +202,8 @@ volo, senza ripercorrere la fase: un avviso scritto mentre nessun server leggeva
 chiude il suo compito come gli altri. Ciò che chiude è finito prima del riavvio, quindi si
 ricompone come ogni riavvio: senza riga, senza annuncio, senza push e senza un'epoca nuova.
 Un turno chiuso dal vivo dopo il riavvio, anche mentre il riattacco sta ancora leggendo, SHALL
-essere annunciato come sempre.
+essere annunciato come sempre. La fine letta dopo il fatto SHALL restare senza epoca anche se
+un turno dal vivo si apre mentre il riattacco legge e chiude senza esito.
 
 #### Scenario: Bash, Agent e Workflow in un terminale
 - **GIVEN** un terminale claude-code con hook
@@ -264,6 +265,12 @@ essere annunciato come sempre.
 - **WHEN** un turno dal vivo chiude mentre il riattacco sta ancora leggendo
 - **THEN** al riattacco il compito SHALL uscire dalla mappa e lo stato SHALL essere `finished(done)`
 - **AND** la fine di quel turno SHALL essere annunciata come sempre: una riga, un push, un'epoca nuova
+
+#### Scenario: un turno dal vivo senza esito mentre il riattacco legge ancora
+- **GIVEN** un terminale in `watching` per un Bash in background, il server ricaricato e il transcript con già l'avviso di fine
+- **WHEN** un turno dal vivo si apre mentre il riattacco sta ancora leggendo e chiude senza esito
+- **THEN** al riattacco il compito SHALL uscire dalla mappa e lo stato SHALL essere `finished(done)`
+- **AND** la fine del turno di prima NON SHALL essere annunciata: nessuna riga, nessun push, la stessa epoca
 
 ### Requirement: ATTN-04 — Una persona in mezzo è «ti serve», da qualunque porta arrivi
 

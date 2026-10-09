@@ -470,8 +470,6 @@ interface RecomposeOpts {
   boot?: boolean;
   /** A turn of the subject just closed: it is seen if the subject is in front of the person (T3, T5). */
   turnClosed?: boolean;
-  /** Facts that happened while no server read them (a reattach's catch-up): recomposed under the same epoch. */
-  sameEpoch?: boolean;
   /** The seen door: the frame goes out even when nothing changed (defect E). */
   force?: boolean;
 }
@@ -519,7 +517,7 @@ function recompose(subject: string, opts: RecomposeOpts): AttentionSnapshot {
   let bornSeen = false;
 
   const cause = isLitComposition(composition) ? composition.cause : null;
-  if (cause && cause !== row.epochCause && (opts.sameEpoch || e.sameEpochCauses?.has(cause) || (opts.boot && e.sameEpochCauses?.size))) {
+  if (cause && cause !== row.epochCause && (e.sameEpochCauses?.has(cause) || (opts.boot && e.sameEpochCauses?.size) || (composition.state === "finished" && row.lastTurn?.late))) {
     // The same epoch under another of its causes: no bump, no announce.
     e.sameEpochCauses?.add(cause);
     row.epochCause = cause;
@@ -628,6 +626,11 @@ function armGraceOnLastTask(subject: string, e: Entry, before: AttentionTaskMap)
   if (counted.length === 0 || countingTaskCount(e.row.background) > 0 || e.live.turnOpen) return;
   if (counted.every((t) => t.kind === "wake")) return;
   if (deps.graceMs <= 0) return;
+  armGrace(subject, e);
+}
+
+/** Hold `working` for a full grace, so its own live recompose announces. */
+function armGrace(subject: string, e: Entry): void {
   clearGrace(e);
   e.live.backgroundGrace = true;
   e.graceTimer = setTimeout(() => {
@@ -731,7 +734,8 @@ export function finishBackgroundTasks(subject: string, ids: readonly string[], o
   for (const id of gone) delete next[id];
   e.row.background = next;
   if (opts.late && !e.lastTurnLive) {
-    recompose(subject, { live: false, sameEpoch: true });
+    if (e.row.lastTurn) e.row.lastTurn = { ...e.row.lastTurn, late: true };
+    recompose(subject, { live: false });
     return true;
   }
   armGraceOnLastTask(subject, e, before);
@@ -1080,9 +1084,12 @@ export function recomposeAttentionOnBoot(reader: AttentionBootReader = {}): void
   const prior = new Map<string, LiveInputs>();
   // A turn this process closed live stays live through the reread (`lastTurnLive`).
   const closedLive = new Set<string>();
+  // A grace this process armed stays armed through the reread, for a full grace.
+  const graced = new Set<string>();
   for (const [subject, e] of entries) {
     if (e.live.turnOpen || Object.keys(e.live.holds).length) prior.set(subject, { holds: { ...e.live.holds }, ...(e.live.turnOpen ? { turnOpen: true } : {}) });
     if (e.lastTurnLive) closedLive.add(subject);
+    if (e.live.backgroundGrace) graced.add(subject);
   }
   loadedFrom = null;
   ensureLoaded();
@@ -1094,6 +1101,7 @@ export function recomposeAttentionOnBoot(reader: AttentionBootReader = {}): void
     e.sentKey = null;
   }
   for (const [subject, live] of prior) if (!entries.has(subject)) entryOf(subject).live = live;
+  for (const subject of graced) armGrace(subject, entries.get(subject) ?? entryOf(subject));
   for (const c of reader.cards?.() ?? []) {
     const subject = `task:${c.taskId}`;
     const e = entryOf(subject);

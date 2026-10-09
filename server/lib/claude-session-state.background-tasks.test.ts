@@ -371,10 +371,13 @@ describe('a reattached terminal drops the tasks its transcript already reports f
   const rows: unknown[] = [];
   let table: Database;
   const configure = () => configureAttentionStore({ db: () => table, sendPush: (p) => { pushes.push(p); }, recordRow: (r) => { rows.push(r); return null; }, graceMs: 20 });
-  /** A restart of the server: nothing in memory survives, the table does, and the start recomposes it. */
+  /** A restart of the server: nothing in memory survives, the table does. */
   const restart = () => {
     resetAttentionStore();
     configure();
+  };
+  /** The start recomposition, after the surviving turns are adopted: the reattach comes first. */
+  const boot = () => {
     recomposeAttentionOnBoot({ liveProcess: () => true });
   };
   beforeEach(() => {
@@ -405,6 +408,7 @@ describe('a reattached terminal drops the tasks its transcript already reports f
       const deadline = Date.now() + 3_000;
       while (countingTasks(subject) > 0 && Date.now() < deadline) await new Promise((r) => setTimeout(r, 10));
       expect(countingTasks(subject)).toBe(0);
+      boot();
       // A turn that closed before the restart: the restart recomposes it, it does not announce it,
       // not even once a grace has run out.
       await new Promise((r) => setTimeout(r, 100));
@@ -428,10 +432,10 @@ describe('a reattached terminal drops the tasks its transcript already reports f
       const path = deriveTranscriptPath(home, cwd, sid);
       mkdirSync(dirname(path), { recursive: true });
       writeFileSync(path, ABSORBED_LINES.join('\n') + '\n');
+      const before = { epoch: getAttention(subject).epoch, pushes: pushes.length, rows: rows.length };
       restart();
       const after = createClaudeSessionTracker({ db: freshDb(), broadcast: () => {}, coalesceWindowMs: 5, dedupWindowMs: 100, rateLimitPerSec: 50, attentionSubject: subjectOf, homeDir: home });
       after.registerTerminalSession(sid, { cwd, now: (t += 200) });
-      const before = { epoch: getAttention(subject).epoch, pushes: pushes.length, rows: rows.length };
       // A live turn of the still-running CLI, synchronously: the catch-up awaits the file open,
       // so the Stop deterministically sees the stale task still in the map.
       after.ingestHook({ hook_event_name: 'UserPromptSubmit', session_id: sid } as never, (t += 200));
@@ -441,11 +445,45 @@ describe('a reattached terminal drops the tasks its transcript already reports f
       const deadline = Date.now() + 3_000;
       while (countingTasks(subject) > 0 && Date.now() < deadline) await new Promise((r) => setTimeout(r, 10));
       expect(countingTasks(subject)).toBe(0);
+      // The start recomposition lands inside the grace: the live turn still announces once.
+      boot();
       await new Promise((r) => setTimeout(r, 100));
       expect(getAttention(subject)).toMatchObject({ state: 'finished', background: [] });
       expect(getAttention(subject).epoch - before.epoch).toBe(1);
       expect(pushes.length - before.pushes).toBe(1);
       expect(rows.length - before.rows).toBe(1);
+    } finally {
+      rmSync(home, { recursive: true, force: true });
+    }
+  });
+
+  it('terminal: a live turn opened during the read and closed without an outcome does not announce the turn of before', async () => {
+    const home = mkdtempSync(join(tmpdir(), 'bg-reattach-null-'));
+    try {
+      const cwd = '/work/project';
+      const { tracker, sid, subject } = terminalTracker([]);
+      let t = T0;
+      turn([BASH_ABSORBED]).forEach((h) => tracker.ingestHook({ ...h, session_id: sid } as never, (t += 200)));
+      expect(phaseOf(tracker, sid)).toBe('watching');
+      const path = deriveTranscriptPath(home, cwd, sid);
+      mkdirSync(dirname(path), { recursive: true });
+      writeFileSync(path, ABSORBED_LINES.join('\n') + '\n');
+      const before = { epoch: getAttention(subject).epoch, pushes: pushes.length, rows: rows.length };
+      restart();
+      const after = createClaudeSessionTracker({ db: freshDb(), broadcast: () => {}, coalesceWindowMs: 5, dedupWindowMs: 100, rateLimitPerSec: 50, attentionSubject: subjectOf, homeDir: home });
+      after.registerTerminalSession(sid, { cwd, now: (t += 200) });
+      // The live turn opens while the catch-up still reads: the stale task is still counted.
+      after.ingestHook({ hook_event_name: 'UserPromptSubmit', session_id: sid } as never, (t += 200));
+      expect(countingTasks(subject)).toBeGreaterThan(0);
+      const deadline = Date.now() + 3_000;
+      while (countingTasks(subject) > 0 && Date.now() < deadline) await new Promise((r) => setTimeout(r, 10));
+      expect(countingTasks(subject)).toBe(0);
+      boot();
+      // The live turn closes with nothing to announce: the turn of before stays without an epoch.
+      turnEnded(subject, { outcome: null });
+      await new Promise((r) => setTimeout(r, 100));
+      expect(getAttention(subject)).toMatchObject({ state: 'finished', background: [] });
+      expect({ epoch: getAttention(subject).epoch, pushes: pushes.length, rows: rows.length }).toEqual(before);
     } finally {
       rmSync(home, { recursive: true, force: true });
     }
