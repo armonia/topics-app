@@ -68,3 +68,19 @@ selectable rows. Selecting one SHALL route the topic's turns to it.
 - **GIVEN** a topic
 - **WHEN** a muse model is picked and a message sent
 - **THEN** the assistant answer arrives on that topic
+
+### Requirement: MUSE-05 — A Muse chat has the Topics tools
+
+The provider SHALL launch every `muse exec` with a private copy of the user's
+Muse settings that adds the `topics` MCP bridge bound to that session, so a
+Muse chat has the same Topics tools as a Claude or Codex chat (browser pane,
+processes, sub-agents, goals). A dispatched task chat (`mcp_policy`
+`bridge-only`) SHALL get the narrow `dispatch` profile. The user's own servers
+stay, the real settings file is never written, and the copy is removed when
+the process ends.
+
+#### Scenario: the spawned CLI sees the bridge
+- **GIVEN** a topic on the muse provider
+- **WHEN** a turn runs
+- **THEN** the settings the CLI reads list a `topics` stdio server whose
+  arguments carry this topic's session key

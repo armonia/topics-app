@@ -40,6 +40,8 @@ import { resolveMuseBin } from "../lib/muse-bin";
 import { resolveMuseReasoningEffort } from "../lib/topics-agent-prompt";
 import { getTopicWorkspaceForSession } from "../lib/agent-workspace";
 import { buildMuseArgs, buildMuseSingleShotArgs } from "./muse/args";
+import { museBridgeEntry, stageMuseConfig, type MuseMcpServer } from "./muse/mcp-config";
+import { topicsMcpBridgeSpec } from "./claude-code";
 import { readMuseModels, readMuseConfiguredModel, museDefaultModel, museContextWindows, museModelInfo } from "./muse/models";
 import type { ModelInfo } from "../../shared/types";
 import { getDatabase } from "../db";
@@ -483,12 +485,27 @@ export class MuseProvider implements AIProvider {
       }
     } catch { /* no fence: the session starts anyway, as it always has */ }
 
+    // The Topics bridge, as Codex mounts it: a dispatched task chat gets the
+    // narrow "dispatch" surface, every other chat the full one. A bridge that
+    // cannot be built degrades the turn to the user's own servers, it does not
+    // stop it.
+    let bridge: MuseMcpServer | null = null;
+    try {
+      const policy = getDatabase()
+        .prepare("SELECT mcp_policy FROM topics WHERE session_key = ? LIMIT 1")
+        .get(sessionKey) as { mcp_policy?: string | null } | undefined;
+      bridge = museBridgeEntry(topicsMcpBridgeSpec(sessionKey, policy?.mcp_policy === "bridge-only" ? "dispatch" : undefined));
+    } catch (err) {
+      console.warn(`[muse] MCP bridge config failed for ${sessionKey}:`, err);
+    }
+
     this.runMuseTurn({
       sessionKey,
       bin,
       args,
       workspace,
       env,
+      bridge,
       handler,
       explicitModel,
       invocationMode: invocation.mode,
@@ -522,6 +539,7 @@ export class MuseProvider implements AIProvider {
     args: string[];
     workspace: string;
     env: NodeJS.ProcessEnv;
+    bridge: MuseMcpServer | null;
     handler: StreamHandler;
     explicitModel?: string;
     invocationMode: "resume" | "fresh";
@@ -534,12 +552,21 @@ export class MuseProvider implements AIProvider {
     allowResumeFallback: boolean;
     idPrefix?: string;
   }): void {
-    const { sessionKey, bin, args, workspace, env, handler, explicitModel, invocationMode, sessionId, message, history, reasoningEffort, promptDir, allowResumeFallback, idPrefix } = params;
+    const { sessionKey, bin, args, workspace, env, bridge, handler, explicitModel, invocationMode, sessionId, message, history, reasoningEffort, promptDir, allowResumeFallback, idPrefix } = params;
+
+    // Staged per SPAWN, not per turn: the fresh retry below runs its own child
+    // after this one's close handler has already removed this directory.
+    let staged: { configHome: string; cleanup: () => void } | null = null;
+    if (bridge) {
+      try { staged = stageMuseConfig(bridge); } catch (err) {
+        console.warn(`[muse] staging the MCP config failed for ${sessionKey}, running without the Topics bridge:`, err);
+      }
+    }
 
     const child = spawn(bin, args, {
       cwd: workspace,
       stdio: ["pipe", "pipe", "pipe"],
-      env,
+      env: staged ? { ...env, XDG_CONFIG_HOME: staged.configHome } : env,
     });
     // A card's CLI steps aside for the person (KANBAN-78); its children inherit.
     demoteAgentCli(sessionKey, workspace, child.pid);
@@ -618,6 +645,7 @@ export class MuseProvider implements AIProvider {
       if (this.activeChildren.get(sessionKey) === child) this.activeChildren.delete(sessionKey);
       try { rl.close(); } catch {}
       try { rmSync(promptDir, { recursive: true, force: true }); } catch { /* un prompt orfano in tmp: innocuo */ }
+      staged?.cleanup();
 
       const state = turnState;
       if (this.sessionState.get(sessionKey) === turnState) this.sessionState.delete(sessionKey);
@@ -649,7 +677,7 @@ export class MuseProvider implements AIProvider {
           promptFile: freshFile,
         });
         this.runMuseTurn({
-          sessionKey, bin, args: freshArgs, workspace, env, handler, explicitModel,
+          sessionKey, bin, args: freshArgs, workspace, env, bridge, handler, explicitModel,
           invocationMode: "fresh", sessionId: freshSessionId, prompt: freshPrompt, message, history,
           reasoningEffort, promptDir: freshDir,
           allowResumeFallback: false, idPrefix: "retry:",
@@ -705,6 +733,7 @@ export class MuseProvider implements AIProvider {
       if (this.activeChildren.get(sessionKey) === child) this.activeChildren.delete(sessionKey);
       if (this.sessionState.get(sessionKey) === turnState) this.sessionState.delete(sessionKey);
       try { rmSync(promptDir, { recursive: true, force: true }); } catch { /* see above */ }
+      staged?.cleanup();
       handler.onError(err.message);
     });
   }
