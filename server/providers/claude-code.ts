@@ -1296,11 +1296,12 @@ export class ClaudeCodeProvider implements AIProvider {
   private config: ClaudeCodeProviderConfig;
   private processes = new Map<string, PersistentProcess>();
   /**
-   * The send that is waiting for a stopped child to exit (`processForTurn`),
-   * per session. It is the session's current turn even though no child has it
-   * yet, so a Stop pressed on it must reach it here: otherwise the SIGINT hit
-   * the child already dying, the wait ended, and the stopped send was written
-   * to a fresh child anyway (and stole the handler of the message after it).
+   * The send that is waiting for a stopped child to exit, or for the tail of one
+   * that exited (`processForTurn`), per session. It is the session's current
+   * turn even though no child has it yet, so a Stop pressed on it must reach it
+   * here: otherwise the SIGINT hit the child already dying, the wait ended, and
+   * the stopped send was written to a fresh child anyway (and stole the handler
+   * of the message after it).
    */
   private waitingSends = new Map<string, WaitingSend>();
   /**
@@ -2595,29 +2596,26 @@ export class ClaudeCodeProvider implements AIProvider {
     handler?: StreamHandler,
   ): Promise<PersistentProcess | null> {
     const existing = this.processes.get(sessionKey);
-    if (existing?.exitTail) await existing.exitTail; // replaced first, the tail's frames would reach the new child's handlers
-    if (existing?.stoppedExit && existing.alive) {
-      const waiting = handler ? { handler, cancelled: false } : null;
-      if (waiting) this.waitingSends.set(sessionKey, waiting);
-      let timer: ReturnType<typeof setTimeout> | undefined;
-      const capped = new Promise<"timeout">((r) => { timer = setTimeout(() => r("timeout"), waitMs); });
-      let outcome: "exited" | "timeout";
-      try {
-        outcome = await Promise.race([existing.stoppedExit.done.then(() => "exited" as const), capped]);
-      } finally {
-        clearTimeout(timer);
-        if (waiting && this.waitingSends.get(sessionKey) === waiting) this.waitingSends.delete(sessionKey);
+    // Registered before the tail too: a Stop while it lands must find this send.
+    const waiting = handler ? { handler, cancelled: false } : null;
+    if (waiting) this.waitingSends.set(sessionKey, waiting);
+    try {
+      if (existing?.exitTail) await existing.exitTail; // replaced first, the tail's frames would reach the new child's handlers
+      if (existing?.stoppedExit && existing.alive && !waiting?.cancelled) {
+        let timer: ReturnType<typeof setTimeout> | undefined;
+        const capped = new Promise<"timeout">((r) => { timer = setTimeout(() => r("timeout"), waitMs); });
+        const outcome = await Promise.race([existing.stoppedExit.done.then(() => "exited" as const), capped]).finally(() => clearTimeout(timer));
+        if (outcome === "timeout" && existing.alive) {
+          console.warn(`[claude-code] ${sessionKey}: the stopped child did not exit within ${waitMs} ms, killing it before the next turn`);
+          this.killProcess(existing, "stopped-child");
+        }
+        if (this.processes.get(sessionKey) === existing) this.processes.delete(sessionKey);
       }
-      if (outcome === "timeout" && existing.alive) {
-        console.warn(`[claude-code] ${sessionKey}: the stopped child did not exit within ${waitMs} ms, killing it before the next turn`);
-        this.killProcess(existing, "stopped-child");
-      }
-      if (this.processes.get(sessionKey) === existing) this.processes.delete(sessionKey);
-      // Stopped while it waited (a second Stop, or the provider shutting down):
-      // no child is spawned for it.
-      if (waiting?.cancelled) return null;
+      // Stopped while it waited (a second Stop, or the provider shutting down): no child is spawned for it.
+      return waiting?.cancelled ? null : this.getOrCreateProcess(sessionKey);
+    } finally {
+      if (waiting && this.waitingSends.get(sessionKey) === waiting) this.waitingSends.delete(sessionKey);
     }
-    return this.getOrCreateProcess(sessionKey);
   }
 
   /**
