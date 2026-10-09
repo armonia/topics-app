@@ -210,8 +210,8 @@ interface Entry {
   engaged?: boolean;
   /**
    * The last `FINISHED_KEEP` ids of tasks whose end was read (`finishBackgroundTasks`), and whether a late read
-   * read it. Memory only, kept through the start's reread: a hook still on its way must not put the task back.
-   * Over the cap the late ones leave first.
+   * read it, even once: then it ended before the restart. Memory only, kept through the start's reread: a hook
+   * still on its way must not put the task back. Over the cap the late ones leave first.
    */
   finishedTasks?: Map<string, boolean>;
   /**
@@ -738,7 +738,7 @@ const FINISHED_KEEP = 64;
 export function finishBackgroundTasks(subject: string, ids: readonly string[], opts: { late?: boolean } = {}): boolean {
   const e = entryOf(subject);
   const finished = (e.finishedTasks ??= new Map());
-  for (const id of ids) { finished.delete(id); finished.set(id, !!opts.late); }
+  for (const id of ids) { const late = !!opts.late || finished.get(id) === true; finished.delete(id); finished.set(id, late); }
   // Over the cap the ends read late go first: a catch-up reads the whole history, and must not push out an end read live, whose hook may still be on its way.
   for (const [id, late] of finished) { if (finished.size <= FINISHED_KEEP) break; if (late) finished.delete(id); }
   for (const id of finished.keys()) { if (finished.size <= FINISHED_KEEP) break; finished.delete(id); }
@@ -1134,7 +1134,7 @@ export function recomposeAttentionOnBoot(reader: AttentionBootReader = {}): void
   // A grace this process armed stays armed through the reread, for a full grace.
   const graced = new Set<string>();
   // The tasks of before the restart, as this process first loaded them (the table now holds its own too), and the
-  // tasks whose end it read.
+  // tasks whose end it read, also for a subject with no row yet (its first event fell before the reread).
   const kept = new Map<string, Pick<Entry, "restored" | "finishedTasks">>();
   for (const [subject, e] of entries) {
     if (e.live.turnOpen || Object.keys(e.live.holds).length) prior.set(subject, { holds: { ...e.live.holds }, ...(e.live.turnOpen ? { turnOpen: true } : {}) });
@@ -1154,6 +1154,7 @@ export function recomposeAttentionOnBoot(reader: AttentionBootReader = {}): void
     e.sentKey = null;
   }
   for (const [subject, live] of prior) if (!entries.has(subject)) entryOf(subject).live = live;
+  for (const [subject, k] of kept) if (k.finishedTasks?.size && !entries.get(subject)?.finishedTasks) entryOf(subject).finishedTasks = k.finishedTasks;
   for (const subject of graced) armGrace(subject, entries.get(subject) ?? entryOf(subject));
   for (const c of reader.cards?.() ?? []) {
     const subject = `task:${c.taskId}`;

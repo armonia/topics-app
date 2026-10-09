@@ -35,6 +35,8 @@ const bashBgEnd = (at: number) => JSON.stringify({ type: 'queue-operation', oper
 /** The notice the CLI writes when a task ends: its id, and its call's when the notice names it. */
 const taskEnd = (taskId: string, call: string | null, at: number) => JSON.stringify({ type: 'queue-operation', operation: 'enqueue', timestamp: new Date(at).toISOString(), sessionId: '00000000-0000-4000-8000-0000000000b2',
   content: `<task-notification>\n<task-id>${taskId}</task-id>\n${call ? `<tool-use-id>${call}</tool-use-id>\n` : ''}<status>completed</status>\n<summary>done</summary>\n</task-notification>` });
+// The same NOCALL Agent end as a user delivery row, what the live tail reads after the reattach.
+const USER_LINE = JSON.stringify({ type: 'user', message: { role: 'user', content: JSON.parse(AGENT_END_NO_CALL).content }, timestamp: new Date(T0 + 5_000).toISOString() });
 
 /**
  * A server restart reattaches a terminal without replaying its history: the
@@ -579,4 +581,73 @@ describe('a reattached terminal drops the tasks its transcript already reports f
       rmSync(home, { recursive: true, force: true });
     }
   });
+
+  // No row yet: the end is read before any hook, the start recomposition keeps it, then the late hooks land.
+  it('terminal: a terminal with no row yet keeps an end read before its hooks through the start recomposition', async () => {
+    const home = mkdtempSync(join(tmpdir(), 'bg-reattach-rowless-'));
+    try {
+      const cwd = '/work/project';
+      const sid = 'cli-term';
+      const subject = 'terminal:cli-term';
+      let t = T0;
+      const path = deriveTranscriptPath(home, cwd, sid);
+      mkdirSync(dirname(path), { recursive: true });
+      writeFileSync(path, ABSORBED_LINES[0] + '\n');
+      restart();
+      const before = { epoch: getAttention(subject).epoch, pushes: pushes.length, rows: rows.length };
+      const after = createClaudeSessionTracker({ db: freshDb(), broadcast: () => {}, coalesceWindowMs: 5, dedupWindowMs: 100, rateLimitPerSec: 50, attentionSubject: subjectOf, homeDir: home });
+      after.registerTerminalSession(sid, { cwd, now: (t += 200) });
+      const end = taskEnd('b7kapz0ad', 'toolu_c0', t + 100);
+      appendFileSync(path, end + '\n');
+      after.ingestTranscriptLine(sid, end, (t += 100));
+      const rowBefore = !!table.query('SELECT 1 FROM subject_attention WHERE subject = ?').get(subject);
+      expect(rowBefore).toBe(false);
+      boot();
+      // The prompt and the PreToolUse were lost while the server was down: only the PostToolUse lands, then the Stop.
+      after.ingestHook({ hook_event_name: 'PostToolUse', tool_use_id: 'toolu_c0', ...BASH_BG, session_id: sid } as never, (t += 200));
+      after.ingestHook({ hook_event_name: 'Stop', session_id: sid } as never, (t += 200));
+      await new Promise((r) => setTimeout(r, 100));
+      expect(getAttention(subject).state).toBe('finished');
+      expect(getAttention(subject).background).toEqual([]);
+      expect({ epoch: getAttention(subject).epoch - before.epoch, pushes: pushes.length - before.pushes, rows: rows.length - before.rows }).toEqual({ epoch: 1, pushes: 1, rows: 1 });
+    } finally {
+      rmSync(home, { recursive: true, force: true });
+    }
+  });
+
+  // The same NOCALL end read late and live, in either order: the late mark sticks, the heal stays silent.
+  for (const order of ['late then live', 'live then late'] as const) {
+    it(`terminal: an end read late stays of before the restart when its delivery row is read live (${order})`, async () => {
+      const home = mkdtempSync(join(tmpdir(), 'bg-reattach-flip-'));
+      try {
+        const cwd = '/work/project';
+        const { tracker, sid, subject } = terminalTracker([]);
+        let t = T0;
+        const first = (h: Record<string, unknown>) => tracker.ingestHook({ ...h, session_id: sid } as never, (t += 200));
+        turn([BASH_ABSORBED]).slice(0, -1).forEach((h) => first(h));
+        first({ hook_event_name: 'PreToolUse', tool_use_id: 'toolu_1', tool_name: AGENT_BG.tool_name, tool_input: AGENT_BG.tool_input });
+        first({ hook_event_name: 'Stop' });
+        const path = deriveTranscriptPath(home, cwd, sid);
+        mkdirSync(dirname(path), { recursive: true });
+        writeFileSync(path, [AGENT_END_NO_CALL, ...ABSORBED_LINES].join('\n') + '\n');
+        restart();
+        const before = { epoch: getAttention(subject).epoch, pushes: pushes.length, rows: rows.length };
+        const after = createClaudeSessionTracker({ db: freshDb(), broadcast: () => {}, coalesceWindowMs: 5, dedupWindowMs: 100, rateLimitPerSec: 50, attentionSubject: subjectOf, homeDir: home });
+        after.registerTerminalSession(sid, { cwd, now: (t += 200) });
+        const live = () => { appendFileSync(path, USER_LINE + '\n'); after.ingestTranscriptLine(sid, USER_LINE, (t += 200)); };
+        if (order === 'live then late') live();
+        const deadline = Date.now() + 3_000;
+        while (getAttention(subject).background.some((x: { id: string }) => x.id === 'b76lzwo0d') && Date.now() < deadline) await new Promise((r) => setTimeout(r, 5));
+        boot();
+        if (order === 'late then live') live();
+        after.ingestHook({ hook_event_name: 'PostToolUse', tool_use_id: 'toolu_1', ...AGENT_BG, session_id: sid } as never, (t += 200));
+        await new Promise((r) => setTimeout(r, 100));
+        expect(getAttention(subject).state).toBe('finished');
+        expect(getAttention(subject).background).toEqual([]);
+        expect({ epoch: getAttention(subject).epoch - before.epoch, pushes: pushes.length - before.pushes, rows: rows.length - before.rows }).toEqual({ epoch: 0, pushes: 0, rows: 0 });
+      } finally {
+        rmSync(home, { recursive: true, force: true });
+      }
+    });
+  }
 });
