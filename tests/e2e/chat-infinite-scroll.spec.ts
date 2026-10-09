@@ -1,4 +1,4 @@
-import { expect, test, type APIRequestContext, type Page } from "@playwright/test";
+import { expect, test, type APIRequestContext, type Locator, type Page } from "@playwright/test";
 import { hermetic } from "./fixtures/hermetic";
 import { createTopic, deleteTopic, resetPaneStore } from "./helpers/api-fixtures";
 import { seedMessage } from "./helpers/seed-messages";
@@ -167,6 +167,115 @@ function moved(a: Frame, b: Frame): number | null {
   return Math.max(...common.map((k) => Math.abs(b.rows[k] - a.rows[k])));
 }
 
+/**
+ * One frame as the reader sees it: where the top of each seeded MESSAGE is (not
+ * its row: the divider over the first row goes away at the merge, and a row
+ * box that keeps its top while its message moves up is still a jump), which of
+ * them are in view, and whether any row is.
+ */
+type Reading = { state: string | null; msgs: Record<string, number>; vis: string[]; inView: number; st: number };
+
+/**
+ * Samples the visible chat twice per frame until `__readingStop`: in the
+ * animation frame (`__raf`), and after the frame's layout and the app's own
+ * ResizeObservers, before paint (`__ro`). The second is a ResizeObserver on a
+ * sentinel resized every frame, created after the app's, so it runs after
+ * theirs: a correction they make in the same frame is in it, and a shift they
+ * leave is too. A merge that a later observer corrected looked still at rAF.
+ */
+async function armReadingProbe(page: Page): Promise<void> {
+  await page.evaluate(({ sel, rowPattern }) => {
+    const w = window as unknown as { __raf: unknown[]; __ro: unknown[]; __readingStop?: boolean };
+    w.__raf = [];
+    w.__ro = [];
+    w.__readingStop = false;
+    const pattern = new RegExp(rowPattern);
+    const read = (into: unknown[]) => {
+      const scroller = [...document.querySelectorAll(sel.replace(":visible", ""))].find((el) => (el as HTMLElement).offsetParent !== null) as HTMLElement | undefined;
+      if (!scroller) return;
+      const view = scroller.getBoundingClientRect();
+      const msgs: Record<string, number> = {};
+      const vis: string[] = [];
+      let inView = 0;
+      for (const row of scroller.querySelectorAll("[data-index]")) {
+        const box = row.getBoundingClientRect();
+        const rowIn = box.bottom > view.top && box.top < view.bottom;
+        if (rowIn) inView++;
+        for (const m of row.querySelectorAll('[data-testid="chat-message"]')) {
+          const n = pattern.exec(m.textContent || "")?.[1];
+          if (!n) continue;
+          const r = m.getBoundingClientRect();
+          msgs[n] = Math.round((r.top - view.top) * 10) / 10;
+          if (r.bottom > view.top && r.top < view.bottom) vis.push(n);
+        }
+      }
+      into.push({ state: scroller.getAttribute("data-history"), msgs, vis, inView, st: Math.round(scroller.scrollTop) });
+    };
+    const sentinel = document.createElement("div");
+    sentinel.style.cssText = "position:fixed;left:0;top:0;width:1px;height:1px;opacity:0;pointer-events:none";
+    document.body.appendChild(sentinel);
+    let frame = 0;
+    let readFrame = -1;
+    const ro = new ResizeObserver(() => {
+      if (readFrame === frame || w.__readingStop) return;
+      readFrame = frame;
+      read(w.__ro);
+    });
+    ro.observe(sentinel);
+    const tick = () => {
+      if (w.__readingStop) { ro.disconnect(); sentinel.remove(); return; }
+      frame++;
+      read(w.__raf);
+      sentinel.style.width = `${(frame % 2) + 1}px`;
+      requestAnimationFrame(tick);
+    };
+    requestAnimationFrame(tick);
+  }, { sel: SCROLLER, rowPattern: ROW.source });
+}
+
+async function stopReadingProbe(page: Page): Promise<{ raf: Reading[]; ro: Reading[] }> {
+  return await page.evaluate(() => {
+    const w = window as unknown as { __raf: Reading[]; __ro: Reading[]; __readingStop?: boolean };
+    w.__readingStop = true;
+    return { raf: w.__raf, ro: w.__ro };
+  });
+}
+
+/** How far the messages in view in `a` have moved by `b`, rendered there in view or not; null when none is rendered. */
+function readMoved(a: Reading, b: Reading): number | null {
+  const common = a.vis.filter((k) => k in b.msgs);
+  if (common.length === 0) return null;
+  return Math.max(...common.map((k) => Math.abs(b.msgs[k] - a.msgs[k])));
+}
+
+/** Waits up to `n` frames for the visible chat to hold the whole thread; whether it does. */
+async function completeWithin(page: Page, n: number): Promise<boolean> {
+  return await page.evaluate(({ sel, count }) => new Promise<boolean>((resolve) => {
+    let left = count;
+    const tick = (): void => {
+      const scroller = [...document.querySelectorAll(sel.replace(":visible", ""))].find((el) => (el as HTMLElement).offsetParent !== null);
+      if (scroller?.getAttribute("data-history") === "complete") resolve(true);
+      else if (--left <= 0) resolve(false);
+      else requestAnimationFrame(tick);
+    };
+    requestAnimationFrame(tick);
+  }), { sel: SCROLLER, count: n });
+}
+
+/** The first message whose bottom is in view, by its seeded ordinal, and where its top is from the viewport's top. */
+async function readingAt(list: Locator): Promise<{ n: string; offset: number }> {
+  return await list.evaluate((el, rowPattern) => {
+    const top = el.getBoundingClientRect().top;
+    const pattern = new RegExp(rowPattern);
+    for (const m of el.querySelectorAll('[data-testid="chat-message"]')) {
+      const r = m.getBoundingClientRect();
+      const n = pattern.exec(m.textContent || "")?.[1];
+      if (n && r.bottom > top + 2) return { n, offset: Math.round((r.top - top) * 10) / 10 };
+    }
+    return { n: "", offset: 0 };
+  }, ROW.source);
+}
+
 test.describe("Infinite scroll della chat", () => {
   // Seeding three pages and reading a chat from its tail to its head with the wheel takes its time.
   test.describe.configure({ timeout: 180_000 });
@@ -189,13 +298,23 @@ test.describe("Infinite scroll della chat", () => {
     if (longTopic) await deleteTopic(request, longTopic.id).catch(() => {});
   });
 
-  /** The long chat opened on its tail, with a counter of the requests for the rest. */
-  async function openOnTail(page: Page, request: APIRequestContext) {
-    await resetPaneStore(request, [longTopic.id]);
+  /**
+   * The long chat opened on its tail, with a counter of the requests for the rest. With `answer`, the
+   * answer to that request waits for it (a delay, a release), as a slow network would.
+   */
+  async function openOnTail(page: Page, request: APIRequestContext, opts: { tabs?: string[]; answer?: () => Promise<void> } = {}) {
+    await resetPaneStore(request, [longTopic.id, ...(opts.tabs ?? [])]);
     let older = 0;
-    page.on("request", (req) => {
-      if (req.url().includes(`/api/history/${encodeURIComponent(longKey)}`) && (req.postData() || "").includes('"before"')) older++;
-    });
+    const isOlder = (url: string, body: string | null) => url.includes(`/api/history/${encodeURIComponent(longKey)}`) && (body || "").includes('"before"');
+    const answer = opts.answer;
+    if (answer) {
+      await page.route(`**/api/history/${encodeURIComponent(longKey)}*`, async (route) => {
+        if (isOlder(route.request().url(), route.request().postData())) { older++; await answer(); }
+        await route.continue();
+      });
+    } else {
+      page.on("request", (req) => { if (isOlder(req.url(), req.postData())) older++; });
+    }
     await page.goto("/");
     await page.getByTestId(`pane-tab-${longTopic.id}`).click();
     const list = page.locator(SCROLLER);
@@ -386,5 +505,120 @@ test.describe("Infinite scroll della chat", () => {
     } finally {
       await deleteTopic(request, quiet.id).catch(() => {});
     }
+  });
+
+  // THE MERGE WAITS FOR A STILL LIST (CHAT-HIST-01). Page Up, Shift+Space and Home glide over a dozen
+  // frames, and a merge landing in the glide was carried on by the browser from the old offset: the rows
+  // read jumped by thousands of px. At the top, with the list already still, the rows prepended in the
+  // overscan were measured when Virtuoso no longer compensated, and the divider above the first row went
+  // away in view. So: from the frame before the merge to twenty after, the messages in view do not move.
+  const KEY_RUNS = [
+    { key: "PageUp", delay: 0 },
+    { key: "Shift+Space", delay: 0 },
+    { key: "Home", delay: 0 },
+    { key: "Home", delay: 1500 },
+  ] as const;
+  for (const { key, delay } of KEY_RUNS) {
+    test(`${key}${delay ? `, con il resto in ritardo di ${delay} ms` : ""}: la fusione cade a lista ferma e le righe lette non si muovono`, async ({ page, request, browserName }) => {
+      test.info().annotations.push({ type: "spec", description: "CHAT-HIST-01" });
+      const { list, older } = await openOnTail(page, request, delay ? { answer: () => new Promise((r) => setTimeout(r, delay)) } : {});
+      // A click on a message gives the list the keyboard, and ends the re-pin of the opening.
+      await list.getByText(seededText(SEEDED - 1)).click();
+      await stillView(page);
+      await armReadingProbe(page);
+      let presses = 0;
+      // Each press once the list is still and a merge it would wait for has had its time: a press
+      // right after the merge would move the rows by itself.
+      for (let i = 0; i < 300 && !(await completeWithin(page, 30)); i++) {
+        await page.keyboard.press(key);
+        presses++;
+        await stillView(page);
+      }
+      await expect(list).toHaveAttribute("data-history", "complete", { timeout: 10000 });
+      await afterFrames(page, 30);
+      const probe = await stopReadingProbe(page);
+      for (const [mode, frames] of Object.entries(probe)) {
+        const at = frames.findIndex((f) => f.state === "complete");
+        const after = at > 0 ? frames.slice(at, at + 20).map((f) => readMoved(frames[at - 1], f)) : [];
+        const blankAt = frames.flatMap((f, i) => (f.inView === 0 ? [`${i - at}@${f.st}`] : []));
+        const blank = blankAt.length;
+        console.log(`[merge-at-rest:${browserName}:${key}:${delay}:${mode}] presses=${presses} older=${older()} frames=${frames.length} mergeFrame=${at} st=${frames[at - 1]?.st}->${frames[at]?.st} moved=${JSON.stringify(after)} blank=${blank}${blank ? ` (frame-from-merge@scrollTop ${blankAt.join(" ")})` : ""}`);
+        expect(at, `${mode}: the merge happened while the probe was sampling`).toBeGreaterThan(0);
+        expect(frames.length - at, `${mode}: twenty frames sampled after the merge`).toBeGreaterThanOrEqual(20);
+        for (const m of after) expect(m ?? Infinity, `${mode}: from the frame before the merge, the messages read do not move`).toBeLessThanOrEqual(STILL_PX);
+        expect(blank, `${mode}: no frame without a row in view`).toBe(0);
+      }
+      expect(older(), "one request for the whole rest").toBe(1);
+    });
+  }
+
+  // A TAB LEFT WITH THE REST IN FLIGHT. The answer lands on a hidden pane: merged there, out of sight, and
+  // the row being read is put back where it was when the pane returns. Merged on the network's schedule,
+  // it landed with no anchor, and the return found the reader somewhere else.
+  test("si sale, il resto e' in volo, si cambia scheda: al ritorno la riga letta e' dov'era", async ({ page, request }) => {
+    test.info().annotations.push({ type: "spec", description: "CHAT-HIST-01" });
+    const side = await createTopic(request, `infinite-scroll-side-${Date.now()}`);
+    try {
+      const sideKey = await sessionKeyOf(request, side.id);
+      for (let i = 1; i <= 6; i++) await seedMessage(request, { sessionKey: sideKey, role: i % 2 === 1 ? "user" : "assistant", content: `Side message ${i}` });
+      let release: () => void = () => {};
+      const released = new Promise<void>((resolve) => (release = resolve));
+      const { list, older } = await openOnTail(page, request, { tabs: [side.id], answer: () => released });
+      const longList = page.locator(`[data-pane-shell="${longTopic.id}"] [data-testid="chat-message-list"]`);
+      await list.getByText(seededText(SEEDED - 1)).click();
+      const box = (await list.boundingBox())!;
+      await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+      const mergeAt = (await viewHeight(page)) * OLDER_MERGE_SCREENS;
+      // Up with the wheel into the band where the rest is merged, its answer held.
+      let st = await stillView(page);
+      for (let i = 0; i < 400 && st > mergeAt - APPROACH_PX; i++) {
+        await page.mouse.wheel(0, -Math.min(600, Math.max(NUDGE_PX, st - mergeAt + APPROACH_PX)));
+        st = await stillView(page);
+      }
+      await afterFrames(page, 30);
+      expect(older(), "the rest was asked for on the way up").toBe(1);
+      await expect(longList).toHaveAttribute("data-history", "partial");
+      const reading = await readingAt(longList);
+      expect(reading.n, "a seeded message is being read").not.toBe("");
+
+      // Away, the answer lands while the pane is hidden, back.
+      await page.getByTestId(`pane-tab-${side.id}`).click();
+      await expect(page.locator(SCROLLER).getByText("Side message 6")).toBeVisible();
+      await expect.poll(() => longList.evaluate((el) => (el as HTMLElement).clientHeight)).toBe(0);
+      release();
+      await expect(longList).toHaveAttribute("data-history", "complete", { timeout: 15000 });
+      await afterFrames(page, 10);
+      await page.getByTestId(`pane-tab-${longTopic.id}`).click();
+      await expect.poll(() => longList.evaluate((el) => (el as HTMLElement).clientHeight)).toBeGreaterThan(0);
+      for (let i = 0; i < 4; i++) await stillView(page);
+      const back = await readingAt(longList);
+      console.log(`[merge-hidden] reading=${JSON.stringify(reading)} back=${JSON.stringify(back)} older=${older()}`);
+      expect(back.n, "the same message is at the top").toBe(reading.n);
+      expect(Math.abs(back.offset - reading.offset), "at the same offset").toBeLessThanOrEqual(2);
+      expect(older(), "one request for the whole rest").toBe(1);
+    } finally {
+      await deleteTopic(request, side.id).catch(() => {});
+    }
+  });
+
+  // OLD ROWS ARE NOT NEWS. The rest of the history merged above the reader grows the list, and the
+  // "↓ N" counted it as messages arrived below, with the "New messages" banner on top.
+  test("dopo una fusione con la rotella il ↓ non conta i messaggi vecchi e non c'e' il banner dei nuovi", async ({ page, request }) => {
+    test.info().annotations.push({ type: "spec", description: "CHAT-HIST-01" });
+    const { list, older } = await openOnTail(page, request);
+    await list.getByText(seededText(SEEDED - 1)).click();
+    const box = (await list.boundingBox())!;
+    await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+    for (let i = 0; i < 300 && !(await completeWithin(page, 30)); i++) {
+      await page.mouse.wheel(0, -300);
+      await stillView(page);
+    }
+    await expect(list).toHaveAttribute("data-history", "complete");
+    await afterFrames(page, 30);
+    const pill = page.getByTestId("scroll-to-bottom");
+    await expect(pill, "far from the bottom, the arrow is there").toBeVisible();
+    expect((await pill.innerText()).trim(), "no message arrived: the arrow carries no number").not.toMatch(/\d/);
+    await expect(page.getByRole("button", { name: /New messages/ })).toHaveCount(0);
+    expect(older()).toBe(1);
   });
 });
