@@ -24,9 +24,11 @@ once five seconds passed with no notice of its transcript still queued; a notice
 meanwhile SHALL wake it with no rest in between. A hook that fired before the
 `Stop` and lands after it SHALL move the phase the same way, dated at the `Stop` too: to
 `watching` when it adds a counting task, back to `awaiting-user` when it takes out the last
-one, so a line the CLI wrote after the `Stop` still wakes the turn. A notice queued before the
-restart of the server SHALL end its task as one of before the restart, wherever its fate is
-read.
+one, so a line the CLI wrote after the `Stop` still wakes the turn. A row of the
+transcript that opens a turn (a prompt, a delivered notice) SHALL order the hooks the same
+way: a hook that fired before it and lands after it SHALL NOT end or reopen the turn it
+opened. A notice queued before the restart of the server SHALL end its task as one of
+before the restart, wherever its fate is read.
 
 The set SHALL have one holder, the attention store (`subject_attention.background`): the
 phase machine SHALL read from it how many tasks count at `Stop` rather than keep a set of

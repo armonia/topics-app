@@ -20,6 +20,9 @@
  *    `PostToolUse` that comes right after its own `PreToolUse` closes that call
  *    even when the jitter of the two shells stamped it a few ms earlier.
  *
+ * A turn the transcript opens counts as a fact too (see `opened`): the tail
+ * reads it before the late hook lands.
+ *
  * Pure and in memory: after a server restart the first hook of a session is
  * simply in order, which is what it was before this existed.
  */
@@ -72,6 +75,12 @@ interface SessionOrder {
 
 export interface HookOrder {
   admit(claudeSessionId: string, event: string, toolUseId: unknown, at: number): HookOrderVerdict;
+  /**
+   * A turn the transcript opened at `at` (a prompt or a delivered notice, read
+   * by the tail): a hook fired before it and arriving after is stale news, as
+   * one fired before a hook already applied.
+   */
+  opened(claudeSessionId: string, at: number): void;
 }
 
 export function createHookOrder(): HookOrder {
@@ -110,6 +119,10 @@ export function createHookOrder(): HookOrder {
       s.newestAt = at;
       s.lastStartedCall = event === "PreToolUse" ? id : null;
       return "in-order";
+    },
+    opened(sid, at) {
+      const s = orderOf(sid);
+      if (at > s.newestAt) { s.newestAt = at; s.lastStartedCall = null; }
     },
   };
 }

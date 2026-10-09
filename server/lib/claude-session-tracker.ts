@@ -597,6 +597,7 @@ export function createClaudeSessionTracker(opts: ClaudeSessionTrackerOptions): C
     const subject = subjectOf(prev);
     liveTranscriptTasks(subject, line);
     const ev = parseJsonlLine(line);
+    if (ev?.type === 'user' && ev.ts !== undefined) hookOrder.opened(claudeSessionId, ev.ts);
     const moved = ev ? applyJsonlEvent(prev, ev, t) : prev;
     const next = subject ? settleWatching(moved, countingTasks(subject), transcriptEnds.drained(subject, t), t) : moved;
     if (!ev && next === prev) return false;
@@ -854,6 +855,7 @@ export function createClaudeSessionTracker(opts: ClaudeSessionTrackerOptions): C
         for (const line of lines) {
           liveTranscriptTasks(subject, line);
           const ev = parseJsonlLine(line);
+          if (ev?.type === 'user' && ev.ts !== undefined) hookOrder.opened(sess.claudeSessionId, ev.ts);
           if (!ev) continue;
           cur = applyJsonlEvent(cur, ev, t);
         }
