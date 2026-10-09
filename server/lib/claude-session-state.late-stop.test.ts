@@ -169,3 +169,39 @@ describe('a one-shot cron armed in the turn before the one the transcript opens'
     } finally { w.done(); }
   });
 });
+
+describe('a meta row the CLI marks as opening a turn orders the hooks too', () => {
+  // A cron's fire and a message from another session come as `isMeta` rows with `turnOrigin`: in 2555 transcripts
+  // all 146 open a turn. A meta row without it (harness text, a skill's body), or a local command's echo, opens none
+  // and leaves the Stop alone.
+  const metaRow = (extra: Record<string, unknown>, at: number) =>
+    JSON.stringify({ type: 'user', uuid: `m${at}`, timestamp: new Date(at).toISOString(), isMeta: true, message: { role: 'user', content: 'check the build' }, ...extra });
+  const rows = [
+    ['a cron fire', { turnOrigin: 'scheduled', promptSource: 'system' }],
+    ['a message from another session', { turnOrigin: 'peer', origin: { kind: 'peer', from: 'another' } }],
+    ['harness text with no turnOrigin', {}],
+    ['a local command echo with turnOrigin, not meta', { isMeta: false, turnOrigin: 'human', message: { role: 'user', content: '<command-name>/model</command-name>' } }],
+  ] as const;
+  for (const [what, extra] of rows) {
+    it(`${what}, read before the late Stop`, async () => {
+      const w = world('terminal');
+      try {
+        w.hook({ hook_event_name: 'UserPromptSubmit' }, T0 + 200);
+        const S = T0 + 7_000, D = S + 800, W = D + 1_500, S2 = W + 2_000;
+        const c0 = snap(w.subject);
+        const seq: string[] = [];
+        w.add(assistant(S - 500), metaRow(extra, D)); await w.tracker.tailOnce(D + 200);
+        w.hook({ hook_event_name: 'Stop' }, D + 400, S); seq.push(`late Stop ${w.phase()}`);
+        const mid = diff(w.subject, c0);
+        if (!what.startsWith('a cron') && !what.startsWith('a message')) {
+          expect([seq, mid]).toEqual([['late Stop awaiting-user'], [1, 1, 1]]);
+          return;
+        }
+        w.add(assistant(W)); await w.tracker.tailOnce(W + 200); seq.push(`answer ${w.phase()}`);
+        w.hook({ hook_event_name: 'Stop' }, S2 + 30, S2); seq.push(`its Stop ${w.phase()}`);
+        expect(seq).toEqual(['late Stop running', 'answer running', 'its Stop awaiting-user']);
+        expect([mid, diff(w.subject, c0)]).toEqual([[0, 0, 0], [1, 1, 1]]);
+      } finally { w.done(); }
+    });
+  }
+});

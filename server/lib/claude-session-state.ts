@@ -848,6 +848,19 @@ function isMetaUserLine(obj: any): boolean {
 }
 
 /**
+ * A row that opens a turn: a qualifying `user` line, or a `meta` one the CLI
+ * marks with the turn it opens (`turnOrigin`: a cron's fire, a message from
+ * another session). In 2555 transcripts (CLI 2.1.191 to 2.1.295) the 146
+ * meta rows with `turnOrigin` all open a turn, none of them mid-turn. Their
+ * phase still moves with the turn's first answer.
+ */
+export function opensTurn(ev: JsonlEvent): boolean {
+  if (ev.type === 'user') return true;
+  const raw = ev.type === 'meta' ? (ev.raw as { isMeta?: unknown; turnOrigin?: unknown }) : null;
+  return raw?.isMeta === true && typeof raw.turnOrigin === 'string';
+}
+
+/**
  * Parse a single JSONL line. Tolerant of unknown shapes: returns `type:'other'`
  * rather than throwing, so the offset can advance safely.
  */
