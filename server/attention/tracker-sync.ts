@@ -6,8 +6,8 @@
  * with the subject of the session it is applying.
  */
 import type { ClaudeSessionState, HookPayload } from '../lib/claude-session-state';
-import { applyTaskChanges, closeHold, openHold, processEnded, removeBackgroundTask, taskKind, turnEnded, turnStarted } from './store';
-import { finishedTasksOfTranscriptLine, taskChangesOfHook } from './background-tasks';
+import { applyTaskChanges, closeHold, countingTasks, finishBackgroundTasks, openHold, processEnded, turnEnded, turnStarted } from './store';
+import { finishedTasksOfTranscriptLine, queuedTasksOfTranscriptLine, taskChangesOfHook, type FinishedTask } from './background-tasks';
 
 /**
  * What a hook tells the attention store, besides the phase: the tasks it
@@ -68,12 +68,86 @@ function isTurnWorkPhaseOf(s: ClaudeSessionState): boolean {
   return s.phase === 'running' || s.phase === 'tool-running' || s.phase === 'awaiting-approval';
 }
 
-/** The tasks a transcript line reports finished leave the subject's map. */
-export function transcriptTasks(subject: string | null, line: string): void {
-  if (!subject) return;
-  try {
-    for (const id of finishedTasksOfTranscriptLine(line, (taskId) => taskKind(subject, taskId))) removeBackgroundTask(subject, id);
-  } catch (err) {
-    console.warn('[claude-session-tracker] attention transcript failed', err);
-  }
+/**
+ * How long a notice the CLI queued and neither delivered nor let go keeps its
+ * task in flight, from when its turn stopped. At rest the CLI delivers one
+ * 31 ms after its enqueue at the median, 4.1 s at the 99th percentile, 3 of
+ * 437 after more than a minute; 16 of about 1800 it neither delivers nor lets
+ * go, and those must not hold the turn for good.
+ */
+export const NOTICE_WAKE_MS = 60_000;
+
+/** A notice the CLI queued: its task, when the CLI wrote it, and whether a reattach's catch-up read it. */
+interface QueuedNotice { task: FinishedTask; at: number; late: boolean }
+
+/**
+ * The task ends a session's transcript reports, per subject (MONITOR-04,
+ * ATTN-03). A notice the CLI only queues (`enqueue`) keeps its task in flight
+ * until its fate, the row that delivers it or the queue's `remove`
+ * (`background-tasks.ts`), or until `NOTICE_WAKE_MS` after its turn stopped
+ * with neither. One a reattach's catch-up queued is of before the restart
+ * wherever its fate is read, and announces nothing (`finishBackgroundTasks`).
+ * In memory: after a restart a terminal's catch-up reads its notices again, a
+ * chat's are lost. `drained`: the subject's parked turn lost its last counting
+ * task to a line or the clock since it parked (`settleWatching`). Kept per
+ * subject, not per read: a sweep whose commit a hook overtook reads its lines
+ * again, and finds their tasks gone.
+ */
+export function createTranscriptEnds() {
+  const queued = new Map<string, Map<string, QueuedNotice>>();
+  const drained = new Set<string>();
+  const finish = (subject: string, tasks: readonly FinishedTask[], late: boolean) => {
+    if (!tasks.length) return;
+    const before = countingTasks(subject);
+    finishBackgroundTasks(subject, tasks.flatMap((f) => (f.toolUseId ? [f.id, f.toolUseId] : [f.id])), { late });
+    if (before > 0 && countingTasks(subject) === 0) drained.add(subject);
+  };
+  const settle = (subject: string, tasks: readonly FinishedTask[]) => {
+    const notices = queued.get(subject);
+    for (const f of tasks) notices?.delete(f.id);
+    if (notices && !notices.size) queued.delete(subject);
+  };
+  return {
+    /**
+     * A transcript line the CLI wrote at `at`: the notices it queues are kept,
+     * the first read winning (a line read live stays live when a catch-up reads
+     * it again), and the tasks it delivers or lets go leave the map. `late`: a
+     * reattach's catch-up.
+     */
+    read(subject: string, line: string, at: number, late = false): void {
+      try {
+        const notices = queued.get(subject) ?? new Map<string, QueuedNotice>();
+        for (const task of queuedTasksOfTranscriptLine(line)) if (!notices.has(task.id)) notices.set(task.id, { task, at, late });
+        if (notices.size) queued.set(subject, notices);
+        const finished = finishedTasksOfTranscriptLine(line);
+        const ofBefore = finished.filter((f) => late || notices.get(f.id)?.late);
+        finish(subject, ofBefore, true);
+        finish(subject, finished.filter((f) => !ofBefore.includes(f)), false);
+        settle(subject, finished);
+      } catch (err) {
+        console.warn('[claude-session-tracker] attention transcript failed', err);
+      }
+    },
+    /**
+     * The notices `s` still holds `NOTICE_WAKE_MS` after its turn stopped,
+     * neither delivered nor let go, leave the map. Never while a turn runs: the
+     * CLI absorbs a notice as late as the turn's next tool call. One a catch-up
+     * queued counts from when it was written, its turn's end being of before.
+     */
+    expire(subject: string, s: ClaudeSessionState, t: number): void {
+      const notices = queued.get(subject);
+      if (!notices || s.phase === 'running' || s.phase === 'tool-running' || s.phase === 'awaiting-approval' || s.phase === 'paused') return;
+      const expired = [...notices.values()].filter((n) => t - (n.late ? n.at : Math.max(n.at, s.phaseUpdatedAt)) >= NOTICE_WAKE_MS);
+      settle(subject, expired.map((n) => n.task));
+      try {
+        finish(subject, expired.filter((n) => n.late).map((n) => n.task), true);
+        finish(subject, expired.filter((n) => !n.late).map((n) => n.task), false);
+      } catch (err) {
+        console.warn('[claude-session-tracker] attention tasks failed', err);
+      }
+    },
+    drained: (subject: string): boolean => drained.has(subject),
+    /** A turn that parks starts over: only the ends read from here on let it rest. */
+    parked: (subject: string): void => { drained.delete(subject); },
+  };
 }

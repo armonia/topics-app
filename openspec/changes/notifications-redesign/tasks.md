@@ -38,6 +38,7 @@ rossi; diventano verdi con le sezioni 2 e 3.
   in primo piano → `awaiting-user`;
   il Monitor scaduto della fixture `claude-cli-2.1.285-monitor-wakes.transcript.jsonl`
   esce dall'insieme; uno di due tornati resta `watching`.
+  le riletture del riattacco stanno in `server/lib/claude-session-state.reattach-tasks.test.ts`.
 - [x] 1.3 `server/attention/holds.test.ts` (D6, D8): `PreToolUse` di
   `mcp__topics__ask_user_question` e l'evento del bridge danno `needs-you(question)`;
   il permission bridge dà `needs-you(permission)`; il pannello del piano dà

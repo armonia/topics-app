@@ -272,7 +272,15 @@
     "3046 unrecorded; +11 are show_view (import, tool, handler line, the rich tools/call line) and the resources",
     "capability with its one-call dispatch. The tool, the resources and the call result live in mcp/view-tools.ts.",
     "server/mcp/topics-mcp-server.test.ts 2337 -> 2457: +4 the capability and show_view in both tool lists, the rest",
-    "landed on main. Recorded by hand, these two rows only."
+    "landed on main. Recorded by hand, these two rows only.",
+    "08/10, infinite scroll (LIST-PAGE-01): client/src/components/Board/Card.tsx 1927 -> 2051 (ceiling 2047). main",
+    "stood at 2047 unrecorded; +4 are the column's load-on-reach hook (import, call, the show-more row's ref) and",
+    "the drag flag the column needs so it does not grow under a carried card. The logic lives in lib/loadOnReach.ts",
+    "and hooks/useLoadOnReach.ts. Recorded by hand, this row only.",
+    "09/10, absorbed task notices (PR #270). server/attention/store.ts 1093 on main -> 1193: +100 a reattached",
+    "terminal's catch-up of the task ends written while the server was down (finishBackgroundTasks late, markLate),",
+    "the tasks in flight across the restart and the finished ids kept through the start's reread, and an end that",
+    "leaves the way it was read, live or late. Recorded by hand, this row only."
   ],
   "tolerance_pct": 5,
   "max_lines": 800,
@@ -292,7 +300,7 @@
       ]
     },
 
-    "client/src/components/Board/Card.tsx": 1927,
+    "client/src/components/Board/Card.tsx": 2051,
 
     "client/src/components/Board/KanbanBoardPane.tsx": 2123,
 
@@ -394,7 +402,7 @@
 
     "server.ts": 6674,
 
-    "server/attention/store.ts": {"lines": 1072, "why": ["2026-10-04, notifications-redesign: new, the ONE writer of subject_attention (design 2.2, checked by server/attention/boundary.test.ts). Its pure parts already live apart (compose.ts, background-tasks.ts, the words in push-triggers.ts); splitting the writer would open a second door on the table."]},
+    "server/attention/store.ts": {"lines": 1193, "why": ["2026-10-04, notifications-redesign: new, the ONE writer of subject_attention (design 2.2, checked by server/attention/boundary.test.ts). Its pure parts already live apart (compose.ts, background-tasks.ts, the words in push-triggers.ts); splitting the writer would open a second door on the table."]},
     "server/browser-service.ts": 2361,
 
     "server/browser-tools-handler.ts": 810,

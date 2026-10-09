@@ -1,5 +1,495 @@
 [
   {
+    "version": "2.2.468",
+    "date": "2026-10-09",
+    "sections": {
+      "new": [],
+      "fixes": [
+        {
+          "it": "riposo solo quando nessun avviso può svegliare il turno",
+          "en": "",
+          "scope": "attention",
+          "breaking": false
+        },
+        {
+          "it": "l'enqueue mette in coda l'avviso, lo chiude la sua sorte",
+          "en": "",
+          "scope": "attention",
+          "breaking": false
+        },
+        {
+          "it": "l'hook in ritardo corregge il verdetto dello Stop, datato allo Stop",
+          "en": "",
+          "scope": "attention",
+          "breaking": false
+        }
+      ],
+      "perf": [],
+      "internal": []
+    }
+  },
+  {
+    "version": "2.2.467",
+    "date": "2026-10-09",
+    "sections": {
+      "new": [],
+      "fixes": [
+        {
+          "it": "la memoria degli id finiti resta anche a un terminale senza riga, e una fine letta tardi resta tardi",
+          "en": "",
+          "scope": "attenzione",
+          "breaking": false
+        },
+        {
+          "it": "le fini lette dal vivo durante la lettura tardiva la aspettano",
+          "en": "",
+          "scope": "attenzione",
+          "breaking": false
+        },
+        {
+          "it": "il kill rimandato non cancella gli handler del successore",
+          "en": "",
+          "scope": "chat",
+          "breaking": false
+        },
+        {
+          "it": "il turno in watching riposa quando l'ultimo compito esce dal transcript dopo lo Stop",
+          "en": "",
+          "scope": "attenzione",
+          "breaking": false
+        }
+      ],
+      "perf": [],
+      "internal": [
+        {
+          "it": "i frame del fixture sono unknown, non any",
+          "en": "",
+          "scope": "attenzione",
+          "breaking": false
+        }
+      ]
+    }
+  },
+  {
+    "version": "2.2.466",
+    "date": "2026-10-09",
+    "sections": {
+      "new": [],
+      "fixes": [
+        {
+          "it": "il replay di una sonda abbandonata non arriva al processo che ha preso il posto del suo",
+          "en": "",
+          "scope": "chat",
+          "breaking": false
+        },
+        {
+          "it": "la ricomposizione di avvio non dimentica i compiti finiti, e un avviso senza chiamata esce come è stato letto",
+          "en": "",
+          "scope": "attenzione",
+          "breaking": false
+        },
+        {
+          "it": "dopo un kill, i frame di quell'id restano fuori fino allo spawn successivo",
+          "en": "",
+          "scope": "chat",
+          "breaking": false
+        },
+        {
+          "it": "una storia lunga letta dal riattacco non scaccia le fini lette dal vivo",
+          "en": "",
+          "scope": "attenzione",
+          "breaking": false
+        }
+      ],
+      "perf": [],
+      "internal": []
+    }
+  },
+  {
+    "version": "2.2.465",
+    "date": "2026-10-09",
+    "sections": {
+      "new": [],
+      "fixes": [
+        {
+          "it": "il silenzio di un list non ricicla il socket finché qualcun altro ci aspetta, anche sotto il tetto",
+          "en": "",
+          "scope": "chat",
+          "breaking": false
+        },
+        {
+          "it": "rowHolder, `frameRequest` al posto di `raf` (check:identifier-language)",
+          "en": "",
+          "scope": "chat",
+          "breaking": false
+        },
+        {
+          "it": "la fine letta dopo i fatti resta senza epoca, e la grazia attraversa la ricomposizione di avvio",
+          "en": "",
+          "scope": "attenzione",
+          "breaking": false
+        },
+        {
+          "it": "resta sul socket solo un list muto, e mai con un daemon senza rid",
+          "en": "",
+          "scope": "chat",
+          "breaking": false
+        },
+        {
+          "it": "il segno della fine letta dopo i fatti solo quando toglie l'ultimo compito del turno",
+          "en": "",
+          "scope": "attenzione",
+          "breaking": false
+        },
+        {
+          "it": "il segno guarda solo i compiti del turno chiuso, non quelli di un turno dal vivo",
+          "en": "",
+          "scope": "attenzione",
+          "breaking": false
+        },
+        {
+          "it": "un attach o uno spawn abbandonati per silenzio all'ultimo tentativo si portano via il socket",
+          "en": "",
+          "scope": "chat",
+          "breaking": false
+        },
+        {
+          "it": "il segno della fine letta dopo i fatti guarda i compiti di prima del riavvio, non l'ora del turno chiuso",
+          "en": "",
+          "scope": "attenzione",
+          "breaking": false
+        },
+        {
+          "it": "turn-write-cost chiude il database ereditato prima di aprire il suo",
+          "en": "",
+          "scope": "test",
+          "breaking": false
+        },
+        {
+          "it": "la sonda del lag in un tentativo tiene il socket, la coda d'uscita lo porta via",
+          "en": "",
+          "scope": "chat",
+          "breaking": false
+        },
+        {
+          "it": "un compito di prima del riavvio che esce dal vivo rende dal vivo la fine del suo lavoro",
+          "en": "",
+          "scope": "attenzione",
+          "breaking": false
+        },
+        {
+          "it": "il follow della conversazione sopravvive al resize del drawer",
+          "en": "",
+          "scope": "board",
+          "breaking": false
+        },
+        {
+          "it": "un cron ricorrente cancellato dal vivo non rende dal vivo la fine del turno di prima",
+          "en": "",
+          "scope": "attenzione",
+          "breaking": false
+        }
+      ],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Home con il resto in ritardo lo fa arrivare a lista ferma in cima",
+          "en": "",
+          "scope": "chat",
+          "breaking": false
+        },
+        {
+          "it": "REPORT della traccia T21, test instabili secondo giro",
+          "en": "",
+          "scope": "cloud",
+          "breaking": false
+        },
+        {
+          "it": "T21, il ramo che l'ambiente impone nel REPORT",
+          "en": "",
+          "scope": "cloud",
+          "breaking": false
+        },
+        {
+          "it": "REPORT di T20, e via le sonde del verificatore",
+          "en": "",
+          "scope": "cloud",
+          "breaking": false
+        }
+      ]
+    }
+  },
+  {
+    "version": "2.2.464",
+    "date": "2026-10-09",
+    "sections": {
+      "new": [],
+      "fixes": [
+        {
+          "it": "un turno chiuso dal vivo si annuncia anche se è il riattacco a liberarlo",
+          "en": "",
+          "scope": "attenzione",
+          "breaking": false
+        },
+        {
+          "it": "il fuoco entra nella palette ⌘N nello stesso commit che la disegna",
+          "en": "",
+          "scope": "add-menu",
+          "breaking": false
+        },
+        {
+          "it": "un list scaduto non ricicla il socket sotto uno scan in ritardo, e uno Stop durante la coda di una CLI uscita tiene",
+          "en": "",
+          "scope": "chat",
+          "breaking": false
+        },
+        {
+          "it": "la fusione a lista ferma tiene la riga letta al pixel, anche in cima",
+          "en": "",
+          "scope": "chat",
+          "breaking": false
+        },
+        {
+          "it": "il kill del figlio aspetta il resync della riconnessione",
+          "en": "",
+          "scope": "test",
+          "breaking": false
+        }
+      ],
+      "perf": [],
+      "internal": [
+        {
+          "it": "mergeAtRest.test dichiara cosa copre (CHAT-HIST-01)",
+          "en": "",
+          "scope": "chat",
+          "breaking": false
+        },
+        {
+          "it": "CHAT-HIST-01, la fusione a lista ferma e il «↓» che conta solo il fondo",
+          "en": "",
+          "scope": "chat",
+          "breaking": false
+        }
+      ]
+    }
+  },
+  {
+    "version": "2.2.463",
+    "date": "2026-10-09",
+    "sections": {
+      "new": [
+        {
+          "it": "risalendo, i messaggi precedenti arrivano da soli (CHAT-HIST-01)",
+          "en": "",
+          "scope": "chat",
+          "breaking": false
+        },
+        {
+          "it": "la riga «mostra altri» carica da sola entrando in vista (LIST-PAGE-01)",
+          "en": "",
+          "scope": "liste",
+          "breaking": false
+        },
+        {
+          "it": "le liste con «mostra altri» caricano da sole, e la barra delle schede del browser della topic scorre",
+          "en": "",
+          "scope": "liste",
+          "breaking": false
+        },
+        {
+          "it": "la fusione in cima aspetta la lista ferma e rimette la riga letta al pixel (bozza)",
+          "en": "",
+          "scope": "chat",
+          "breaking": false
+        }
+      ],
+      "fixes": [
+        {
+          "it": "mentre lo scan aspetta il suo ack in ritardo, la rotta non uccide il turno",
+          "en": "",
+          "scope": "chat",
+          "breaking": false
+        },
+        {
+          "it": "la barra delle schede della topic scorre invece di schiacciarle (TOPIC-BROWSER-01)",
+          "en": "",
+          "scope": "browser",
+          "breaking": false
+        },
+        {
+          "it": "anche il riavvolgimento dopo lo scan aspetta il suo ack in ritardo",
+          "en": "",
+          "scope": "chat",
+          "breaking": false
+        },
+        {
+          "it": "la storia arriva solo quando chi legge sale",
+          "en": "",
+          "scope": "chat",
+          "breaking": false
+        },
+        {
+          "it": "la riga «mostra altri» guarda il contenitore che scorre adesso",
+          "en": "",
+          "scope": "liste",
+          "breaking": false
+        },
+        {
+          "it": "un compito finito non tiene una sessione «in corso»",
+          "en": "",
+          "scope": "attenzione",
+          "breaking": false
+        },
+        {
+          "it": "una rotella girata in su chiede la storia anche dove la lista non si muove piu'",
+          "en": "",
+          "scope": "chat",
+          "breaking": false
+        },
+        {
+          "it": "anche la coda di un figlio uscito dietro lo scan aspetta il suo ack in ritardo",
+          "en": "",
+          "scope": "chat",
+          "breaking": false
+        },
+        {
+          "it": "la rotella chiede la storia da sé solo in cima, e la fusione si misura fino all'atterraggio del passo",
+          "en": "",
+          "scope": "chat",
+          "breaking": false
+        },
+        {
+          "it": "l'avviso chiude il compito anche prima del PostToolUse, e un Monitor si chiude solo con le parole della CLI",
+          "en": "",
+          "scope": "attenzione",
+          "breaking": false
+        },
+        {
+          "it": "il resto arriva anche con Shift+Spazio, la barra trascinata e l'inerzia, e una fusione a scheda nascosta torna dov'era",
+          "en": "",
+          "scope": "chat",
+          "breaking": false
+        },
+        {
+          "it": "la riga «mostra altri» carica solo se il suo contenitore e' a schermo",
+          "en": "",
+          "scope": "liste",
+          "breaking": false
+        },
+        {
+          "it": "la CLI che ferma un Monitor lo chiude, e un hook in ritardo che toglie l'ultimo compito riporta il turno a riposo",
+          "en": "",
+          "scope": "attenzione",
+          "breaking": false
+        },
+        {
+          "it": "la sonda di boot e la coda di una CLI uscita aspettano anche loro l'ack in ritardo",
+          "en": "",
+          "scope": "chat",
+          "breaking": false
+        },
+        {
+          "it": "la compattazione scende sotto la soglia invece di fermarcisi",
+          "en": "",
+          "scope": "native",
+          "breaking": false
+        },
+        {
+          "it": "commento di COMPACT_TO in inglese (check:comment-language)",
+          "en": "",
+          "scope": "native",
+          "breaking": false
+        },
+        {
+          "it": "la guarigione al riattacco non annuncia un turno finito prima del riavvio",
+          "en": "",
+          "scope": "attenzione",
+          "breaking": false
+        },
+        {
+          "it": "tornata da lista a griglia, la colonna della board carica ancora in anticipo",
+          "en": "",
+          "scope": "liste",
+          "breaking": false
+        },
+        {
+          "it": "la correzione su schermo stretto conta solo quando il campo la mostra",
+          "en": "",
+          "scope": "e2e",
+          "breaking": false
+        },
+        {
+          "it": "una scrittura rimandata dal throttle non sopravvive al database",
+          "en": "",
+          "scope": "persist",
+          "breaking": false
+        }
+      ],
+      "perf": [],
+      "internal": [
+        {
+          "it": "react-virtuoso 4.18.16",
+          "en": "",
+          "scope": "deps",
+          "breaking": false
+        },
+        {
+          "it": "change infinite-scroll",
+          "en": "",
+          "scope": "openspec",
+          "breaking": false
+        },
+        {
+          "it": "late-scan-route-grace rimette DATA_DIR a fine file",
+          "en": "",
+          "scope": "chat",
+          "breaking": false
+        },
+        {
+          "it": "liste e barra delle schede passano alla change list-paging, qui resta la chat",
+          "en": "",
+          "scope": "chat",
+          "breaking": false
+        },
+        {
+          "it": "brief della traccia T20, la chat fonde il resto della storia a lista ferma",
+          "en": "",
+          "scope": "cloud",
+          "breaking": false
+        },
+        {
+          "it": "brief della traccia T21, test instabili secondo giro",
+          "en": "",
+          "scope": "cloud",
+          "breaking": false
+        },
+        {
+          "it": "la fusione a lista ferma, la scheda lasciata col resto in volo, il «↓» dopo la fusione",
+          "en": "",
+          "scope": "chat",
+          "breaking": false
+        }
+      ]
+    }
+  },
+  {
+    "version": "2.2.462",
+    "date": "2026-10-08",
+    "sections": {
+      "new": [],
+      "fixes": [
+        {
+          "it": "lo scan di una riadozione oltre il tetto aspetta il suo ack in ritardo",
+          "en": "",
+          "scope": "chat",
+          "breaking": false
+        }
+      ],
+      "perf": [],
+      "internal": []
+    }
+  },
+  {
     "version": "2.2.461",
     "date": "2026-10-08",
     "sections": {

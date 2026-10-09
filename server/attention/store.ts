@@ -194,10 +194,33 @@ interface Entry {
   /** Causes that are the current epoch's too: the wait open at the restart, and what its end left. */
   sameEpochCauses?: Set<string>;
   /**
+   * The last turn closed live under this process, or a task in flight across the restart
+   * (`restored`) that held the turn left live, its end read or a cron fired by a prompt: the end
+   * of that work is a live fact, even when a reattach's catch-up is what removes the task that
+   * held it last.
+   * Memory only: what the table holds at a start closed before it. The start's recomposition keeps it, as it
+   * keeps the rest this process said: it runs after the surviving turns are adopted,
+   * with hooks already arriving.
+   */
+  lastTurnLive?: boolean;
+  /**
    * The person opened this sub-agent (its seen door): from then on it is a chat
    * like any other. Memory only: after a restart it is quiet again until reopened.
    */
   engaged?: boolean;
+  /**
+   * The last `FINISHED_KEEP` ids of tasks whose end was read (`finishBackgroundTasks`), and whether a late read
+   * read it, even once: then it ended before the restart. Memory only, kept through the start's reread: a hook
+   * still on its way must not put the task back. Over the cap the late ones leave first.
+   */
+  finishedTasks?: Map<string, boolean>;
+  /**
+   * The ids of the tasks the row held when this process loaded it: the ones in flight across the
+   * restart, whichever turn launched them. A late read marks its turn only once none is left
+   * (`finishBackgroundTasks`). Memory only, kept through the start's reread, which would also see
+   * the tasks this process watched being launched.
+   */
+  restored?: Set<string>;
 }
 
 const entries = new Map<string, Entry>();
@@ -268,7 +291,7 @@ function ensureLoaded(): void {
   } else {
     for (const r of memoryTable.values()) rows.push(structuredClone(r));
   }
-  for (const row of rows) entries.set(row.subject, { row, live: { holds: {} }, graceTimer: null, sentKey: null, ...carriedOf(row) });
+  for (const row of rows) entries.set(row.subject, { row, live: { holds: {} }, graceTimer: null, sentKey: null, restored: new Set(Object.keys(row.background)), ...carriedOf(row) });
 }
 
 /**
@@ -507,7 +530,7 @@ function recompose(subject: string, opts: RecomposeOpts): AttentionSnapshot {
   let bornSeen = false;
 
   const cause = isLitComposition(composition) ? composition.cause : null;
-  if (cause && cause !== row.epochCause && (e.sameEpochCauses?.has(cause) || (opts.boot && e.sameEpochCauses?.size))) {
+  if (cause && cause !== row.epochCause && (e.sameEpochCauses?.has(cause) || (opts.boot && e.sameEpochCauses?.size) || (composition.state === "finished" && row.lastTurn?.late))) {
     // The same epoch under another of its causes: no bump, no announce.
     e.sameEpochCauses?.add(cause);
     row.epochCause = cause;
@@ -616,6 +639,11 @@ function armGraceOnLastTask(subject: string, e: Entry, before: AttentionTaskMap)
   if (counted.length === 0 || countingTaskCount(e.row.background) > 0 || e.live.turnOpen) return;
   if (counted.every((t) => t.kind === "wake")) return;
   if (deps.graceMs <= 0) return;
+  armGrace(subject, e);
+}
+
+/** Hold `working` for a full grace, so its own live recompose announces. */
+function armGrace(subject: string, e: Entry): void {
   clearGrace(e);
   e.live.backgroundGrace = true;
   e.graceTimer = setTimeout(() => {
@@ -678,6 +706,7 @@ export function turnEnded(subject: string, end: TurnEnd): AttentionSnapshot {
       at: after(e.row.lastTurn?.at, end.at ?? nowIso()),
       ...(end.detail ? { detail: end.detail } : {}),
     };
+    e.lastTurnLive = true;
   }
   return recompose(subject, { live: true, turnClosed: !!end.outcome });
 }
@@ -691,17 +720,54 @@ export function setBackgroundTasks(subject: string, tasks: AttentionTaskMap): At
   return recompose(subject, { live: true });
 }
 
-/** One task leaves (its report arrived). False when it was not in the map. */
-export function removeBackgroundTask(subject: string, id: string): boolean {
-  const e = peek(subject);
-  if (!e || !(id in e.row.background)) return false;
+/** How many finished task ids a subject remembers: more than the hooks still on their way. */
+const FINISHED_KEEP = 64;
+
+/**
+ * Tasks leave: their reports arrived, each under every id it may sit under
+ * (the CLI's, and its call's until `PostToolUse` re-keys it). The ids stay
+ * known, so a hook still on its way (hooks are async, `lib/hook-order.ts`)
+ * does not put a finished task back. False when the map did not change.
+ *
+ * `late`: reports read after the fact, by a reattach's catch-up. What they
+ * close ended before this server could tell, so it is recomposed the way a
+ * restart is: no row, no announce, no push, no new epoch, no grace to fire
+ * one. Unless the turn they held closed under this server: then its end is
+ * live and announced as always.
+ */
+export function finishBackgroundTasks(subject: string, ids: readonly string[], opts: { late?: boolean } = {}): boolean {
+  const e = entryOf(subject);
+  const finished = (e.finishedTasks ??= new Map());
+  for (const id of ids) { const late = !!opts.late || finished.get(id) === true; finished.delete(id); finished.set(id, late); }
+  // Over the cap the ends read late go first: a catch-up reads the whole history, and must not push out an end read live, whose hook may still be on its way.
+  for (const [id, late] of finished) { if (finished.size <= FINISHED_KEEP) break; if (late) finished.delete(id); }
+  for (const id of finished.keys()) { if (finished.size <= FINISHED_KEEP) break; finished.delete(id); }
+  const gone = ids.filter((id) => id in e.row.background);
+  if (gone.length === 0) return false;
   const before = e.row.background;
   const next = { ...e.row.background };
-  delete next[id];
+  for (const id of gone) delete next[id];
   e.row.background = next;
+  if (!opts.late && gone.some((id) => e.restored?.has(id))) e.lastTurnLive = true;
+  if (opts.late && !e.lastTurnLive) {
+    // Marked only when this read takes out the last task in flight across the restart (`restored`),
+    // recurring crons aside. With one still in flight, the closed turn's or one put to rest without an
+    // outcome, the work of before goes on past the restart, and that task's end, read live, announces
+    // as it would have without one. A task this process watched being launched is a live turn's, and
+    // holds nothing, whether its hooks land before or after this read.
+    markLate(e);
+    recompose(subject, { live: false });
+    return true;
+  }
   armGraceOnLastTask(subject, e, before);
   recompose(subject, { live: true });
   return true;
+}
+
+/** The late mark (`finishBackgroundTasks`): once no task in flight across the restart is left, recurring crons aside. */
+function markLate(e: Entry): void {
+  const closed = e.row.lastTurn;
+  if (closed && !Object.entries(e.row.background).some(([id, t]) => !t.recurring && e.restored?.has(id))) e.row.lastTurn = { ...closed, late: true };
 }
 
 /**
@@ -713,28 +779,46 @@ export function applyTaskChanges(subject: string, changes: readonly TaskChange[]
   const e = entryOf(subject);
   const before = e.row.background;
   const next: AttentionTaskMap = { ...e.row.background };
+  const replaced = new Set<string>();
+  const finished = e.finishedTasks;
+  let lateOut = false;
   for (const c of changes) {
     if (c.op === "clear") for (const k of Object.keys(next)) delete next[k];
     else if (c.op === "remove") delete next[c.id];
     else if (c.op === "remove-kind") { for (const [k, t] of Object.entries(next)) if (t.kind === c.kind) delete next[k]; }
     else if (c.op === "remove-one-shot-crons") { for (const [k, t] of Object.entries(next)) if (t.kind === "cron" && !t.recurring) delete next[k]; }
-    else {
+    else if (finished?.has(c.id) || (c.replaces && finished?.has(c.replaces))) {
+      // A hook that arrives after the task's end (`finishBackgroundTasks`): the task stays out. One of before the restart
+      // still under its call's id (an end that names no call) leaves here, the way its end was read: live or late.
+      if (c.replaces) {
+        const held = next[c.replaces];
+        if (held && !held.recurring && e.restored?.has(c.replaces)) {
+          if (finished!.get(c.id) ?? finished!.get(c.replaces)) lateOut = true;
+          else e.lastTurnLive = true;
+        }
+        delete next[c.replaces]; replaced.add(c.replaces);
+      }
+    } else {
       const prev = c.replaces ? next[c.replaces] : undefined;
-      if (c.replaces) delete next[c.replaces];
+      if (c.replaces) { delete next[c.replaces]; replaced.add(c.replaces); }
+      if (c.replaces && e.restored?.has(c.replaces)) e.restored.add(c.id);
       next[c.id] = { ...c.task, startedAt: prev?.startedAt ?? next[c.id]?.startedAt ?? c.task.startedAt };
     }
   }
   if (JSON.stringify(next) === JSON.stringify(e.row.background)) return false;
+  // A task of before the restart taken out live, not re-keyed: see `lastTurnLive`. A recurring cron never held the turn.
+  if (Object.keys(before).some((id) => !(id in next) && !replaced.has(id) && !before[id].recurring && e.restored?.has(id))) e.lastTurnLive = true;
   e.row.background = next;
+  if (lateOut && !e.lastTurnLive) {
+    // Its end was read late and its hook came after: the late read's removal, recomposed the same way.
+    markLate(e);
+    recompose(subject, { live: false });
+    return true;
+  }
   if (countingTaskCount(next) > 0) clearGrace(e);
   else armGraceOnLastTask(subject, e, before);
   recompose(subject, { live: true });
   return true;
-}
-
-/** The kind of one task in flight, or null. */
-export function taskKind(subject: string, id: string): string | null {
-  return peek(subject)?.row.background[id]?.kind ?? null;
 }
 
 /** A wait opens (T8). The same id again is the same wait: no new epoch. */
@@ -886,6 +970,7 @@ export function processEnded(
         ? `Il processo è finito con ${counted} ${counted === 1 ? "compito" : "compiti"} in volo`
         : "Il processo è finito a metà turno",
     };
+    if (end.cause !== "restart") e.lastTurnLive = true;
   }
   return recompose(subject, { live: end.cause !== "restart" });
 }
@@ -1044,18 +1129,33 @@ export function recomposeAttentionOnBoot(reader: AttentionBootReader = {}): void
   // What THIS process already said before the recomposition (a reattached
   // turn's `stream:start`, a bridge's wait) is current: it survives the reread.
   const prior = new Map<string, LiveInputs>();
+  // A turn this process closed live stays live through the reread (`lastTurnLive`).
+  const closedLive = new Set<string>();
+  // A grace this process armed stays armed through the reread, for a full grace.
+  const graced = new Set<string>();
+  // The tasks of before the restart, as this process first loaded them (the table now holds its own too), and the
+  // tasks whose end it read, also for a subject with no row yet (its first event fell before the reread).
+  const kept = new Map<string, Pick<Entry, "restored" | "finishedTasks">>();
   for (const [subject, e] of entries) {
     if (e.live.turnOpen || Object.keys(e.live.holds).length) prior.set(subject, { holds: { ...e.live.holds }, ...(e.live.turnOpen ? { turnOpen: true } : {}) });
+    if (e.lastTurnLive) closedLive.add(subject);
+    if (e.live.backgroundGrace) graced.add(subject);
+    kept.set(subject, { restored: e.restored, finishedTasks: e.finishedTasks });
   }
   loadedFrom = null;
   ensureLoaded();
   for (const [subject, e] of entries) {
     clearGrace(e);
     e.live = prior.get(subject) ?? { holds: {} };
+    if (closedLive.has(subject)) e.lastTurnLive = true;
+    const k = kept.get(subject);
+    if (k) { e.restored = k.restored; e.finishedTasks = k.finishedTasks; }
     if (Object.keys(e.live.holds).length) e.carriedHolds = undefined;
     e.sentKey = null;
   }
   for (const [subject, live] of prior) if (!entries.has(subject)) entryOf(subject).live = live;
+  for (const [subject, k] of kept) if (k.finishedTasks?.size && !entries.get(subject)?.finishedTasks) entryOf(subject).finishedTasks = k.finishedTasks;
+  for (const subject of graced) armGrace(subject, entries.get(subject) ?? entryOf(subject));
   for (const c of reader.cards?.() ?? []) {
     const subject = `task:${c.taskId}`;
     const e = entryOf(subject);

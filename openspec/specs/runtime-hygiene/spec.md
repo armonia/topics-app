@@ -233,6 +233,11 @@ sola macchina, alcuni vecchi di tre giorni.**
 - **GIVEN** un'attesa che supera il tetto mentre i byte scorrevano
 - **THEN** NON SHALL essere ritentata
 
+#### Scenario: la risposta arriva dopo il tetto
+- **GIVEN** un'attesa scaduta al tetto, con il canale ancora aperto e un processo remoto che ripete l'identificativo delle richieste
+- **WHEN** la risposta arriva dopo
+- **THEN** SHALL essere consegnata a chi la aspetta ancora, e un canale caduto prima SHALL chiudere quell'attesa a vuoto
+
 ### Requirement: RUNTIME-07 — Prima la cura economica, poi quella cara — e chi rinviene si ferma
 
 La sorveglianza del ponte SHALL agire per GRADI: al primo silenzio completo SHALL

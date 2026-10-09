@@ -964,6 +964,10 @@ export function TaskDetail({ projectId, taskId, initialStatus, initialTitle, bum
    */
   const threadScrollRef = useRef<HTMLDivElement>(null);
   const stickRef = useRef(true);
+  // Last observed scroll position: telling a scroll the layout caused from
+  // one the reader did needs the sample from before this event.
+  const lastTopRef = useRef(Number.POSITIVE_INFINITY);
+  const lastHeightRef = useRef(Number.POSITIVE_INFINITY);
   const detailsScrollRequested = useRef(false);
   useLayoutEffect(() => {
     if (detailsScrollRequested.current && (detailsOpen || deliveryOpen) && !workspaceOpen && threadScrollRef.current) {
@@ -989,6 +993,26 @@ export function TaskDetail({ projectId, taskId, initialStatus, initialTitle, bum
     measure();
     const observer = new ResizeObserver(measure);
     observer.observe(el);
+    return () => observer.disconnect();
+  }, [task?.id, workspaceOpen, twoCol]);
+
+  // The thread re-wraps when the drawer narrows, and rows render after the
+  // last re-pin: while the reader is following, any size change of the
+  // thread or its scroller re-pins. A reader who scrolled up is left alone.
+  const threadContentRef = useRef<HTMLDivElement>(null);
+  useLayoutEffect(() => {
+    const scroll = threadScrollRef.current;
+    const content = threadContentRef.current;
+    if (!scroll || !content) return;
+    const repin = () => {
+      lastTopRef.current = scroll.scrollTop;
+      lastHeightRef.current = scroll.scrollHeight;
+      if (stickRef.current) scroll.scrollTop = scroll.scrollHeight;
+    };
+    repin();
+    const observer = new ResizeObserver(repin);
+    observer.observe(scroll);
+    observer.observe(content);
     return () => observer.disconnect();
   }, [task?.id, workspaceOpen, twoCol]);
 
@@ -1937,7 +1961,16 @@ export function TaskDetail({ projectId, taskId, initialStatus, initialTitle, bum
         data-testid="task-conversation-scroll"
         onScroll={() => {
           const el = threadScrollRef.current;
-          if (el) stickRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
+          if (!el) return;
+          // Layout moves scrollTop by itself: when the thread re-wraps
+          // taller on a resize, WebKit's anchor adjustment fires scroll
+          // BEFORE any ResizeObserver re-pins. Growth the reader did not
+          // scroll away from is not intent: it must not unstick the follow.
+          const grew = el.scrollHeight > lastHeightRef.current;
+          const movedUp = el.scrollTop < lastTopRef.current;
+          if (!(grew && !movedUp)) stickRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
+          lastTopRef.current = el.scrollTop;
+          lastHeightRef.current = el.scrollHeight;
         }}
         className="min-h-0 flex-1 overflow-y-auto py-3"
         style={{
@@ -1946,7 +1979,7 @@ export function TaskDetail({ projectId, taskId, initialStatus, initialTitle, bum
           WebkitMaskImage: `linear-gradient(to bottom, #000 0, #000 calc(100% - ${composerHeight + 24}px), transparent calc(100% - ${composerHeight}px))`,
         }}
       >
-        <div className="chat-measure space-y-2 px-3">
+        <div ref={threadContentRef} className="chat-measure space-y-2 px-3">
         {details}
         {task.previewImage && !previewInThread && (
           <button type="button" data-testid="task-conversation-attachment" onClick={() => openTaskPane(mediaPaneIdFor(task.previewImage!))}

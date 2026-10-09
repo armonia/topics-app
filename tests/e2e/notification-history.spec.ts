@@ -171,8 +171,9 @@ test.describe("Cronologia notifiche", () => {
     await expect(button(page)).toBeVisible({ timeout: 15_000 });
     await openHistory(page);
     await expect(historyRows(page)).toHaveCount(50, { timeout: 15_000 });
-    // The list says it is cut, and the next page MERGES below the first.
-    await page.getByTestId("inbox-history-more").click();
+    // The list says it is cut, and the next page MERGES below the first: it comes by itself once that
+    // row is in view (LIST-PAGE-01), and a click racing it would find the row gone.
+    await page.getByTestId("inbox-history-more").scrollIntoViewIfNeeded();
     await expect
       .poll(() => historyRows(page).count(), { timeout: 15_000, message: "la seconda pagina non è mai arrivata" })
       .toBeGreaterThan(50);
