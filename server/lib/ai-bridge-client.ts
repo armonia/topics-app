@@ -536,11 +536,11 @@ export class AiBridgeClient {
         // essere nessuno dei due (write che fallisce, peer sparito senza
         // FIN): senza questo, il secondo tentativo tornerebbe a scrivere
         // sullo stesso tubo morto e il ritentativo sarebbe finto.
-        // Not while a late reply still rides on this socket (a scan past its cap, its replay
-        // still arriving): dropping it would fail that scan to retry this request. Whether the
-        // daemon died is the watchdog's call (ping/pong), which recycles the socket and fails
-        // every waiter anyway.
-        if (this.lateReplies.size === 0) this.dropSocket();
+        // Silence is not a death, though. While anything else still waits on this socket (a late
+        // reply, or a request with more patience, like a scan's attach under its cap), dropping it
+        // fails them too: the most patient waiter, or the watchdog (ping/pong), decides. A socket
+        // that failed a write is dropped at once.
+        if (err instanceof BridgeConnectionLost || (this.waiters.length === 0 && this.lateReplies.size === 0)) this.dropSocket();
         await new Promise((r) => setTimeout(r, RETRY_BACKOFF_MS * (attempt + 1)));
       }
     }

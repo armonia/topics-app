@@ -3,7 +3,8 @@
  * are read once per process, at import (`server/lib/ai-bridge-client.ts`). A fake daemon on a unix socket;
  * the attach replay trickles past the cap, then the daemon stalls, then sends the attach ack and answers
  * the list; a `list()` armed as the stall starts (`LATE_RECYCLE_CASE=with-list`). The control (`no-list`)
- * runs the same attach with no concurrent list.
+ * runs the same attach with no concurrent list. `precap` runs the same pause while the attach is still
+ * under its cap (5 s, with 1.5 s of patience for silence), in one attempt: the exit tail's form.
  */
 process.env.TOPICS_AI_BRIDGE_ATTACH_ACK_MS ??= "300";
 process.env.TOPICS_AI_BRIDGE_MAX_ACK_MS ??= "300";
@@ -16,6 +17,8 @@ import { join } from "path";
 import { tmpdir } from "os";
 
 const CASE = process.env.LATE_RECYCLE_CASE ?? "with-list";
+// `precap`: the same pause while the attach is still under its cap, in the exit tail's form (one attempt).
+const ATTEMPTS = CASE === "precap" ? 1 : undefined;
 let tempDir = "";
 let sockPath = "";
 const savedEnv: Record<string, string | undefined> = {};
@@ -92,9 +95,9 @@ describe(`a scan past the cap while a list goes mute (${CASE})`, () => {
       await c.ensureConnected();
       await sleep(100); // pong in: rids are echoed
       const t0 = Date.now();
-      const wholeP = c.attachWhole("topic:scan", 0).then((v: unknown) => ({ ok: v }), (e: unknown) => ({ err: e }));
+      const wholeP = c.attachWhole("topic:scan", 0, ATTEMPTS).then((v: unknown) => ({ ok: v }), (e: unknown) => ({ err: e }));
       let listP: Promise<{ ok: unknown } | { err: unknown }> | null = null;
-      if (CASE === "with-list") {
+      if (CASE !== "no-list") {
         await sleep(750); // armed as the stall starts
         listP = c.list().then((v: unknown) => ({ ok: v }), (e: unknown) => ({ err: e }));
       }
@@ -104,7 +107,7 @@ describe(`a scan past the cap while a list goes mute (${CASE})`, () => {
       else console.log(`[recycle:${CASE}] attach rejected after ${ms} ms: ${(out.err as Error).name}: ${(out.err as Error).message}`);
       expect("ok" in out).toBe(true);
       if ("ok" in out) expect((out.ok as { endOffset: number }).endOffset).toBe(7);
-      if (CASE === "with-list") {
+      if (CASE !== "no-list") {
         const listOut = await listP!;
         if ("ok" in listOut) console.log(`[recycle:${CASE}] list resolved`);
         else console.log(`[recycle:${CASE}] list rejected: ${(listOut.err as Error).message}`);
