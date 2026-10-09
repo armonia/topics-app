@@ -64,7 +64,7 @@ export const AGENT_END_NO_CALL = JSON.stringify({ type: 'queue-operation', opera
 export const subjectOf = (s: { sessionKey: string | null; claudeSessionId: string }) =>
   s.sessionKey ? `topic:${s.sessionKey.slice('topic:'.length)}` : `terminal:${s.claudeSessionId}`;
 
-export function terminalTracker(frames: any[]) {
+export function terminalTracker(frames: unknown[]) {
   const tracker = createClaudeSessionTracker({ db: freshDb(), broadcast: (m) => frames.push(m), coalesceWindowMs: 5, dedupWindowMs: 100, rateLimitPerSec: 50, attentionSubject: subjectOf });
   tracker.registerTerminalSession('cli-term', { now: T0 });
   return { tracker, sid: 'cli-term', subject: 'terminal:cli-term' };
