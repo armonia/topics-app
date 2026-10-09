@@ -91,8 +91,8 @@ function openTurn(w: ReturnType<typeof world>) {
 describe('a Stop that lands after the tail read the woken turn', () => {
   // S = Stop fired; D = delivery written S+800; W = the woken turn's first answer, D+1500.
   const forms = ['stop in time', 'stop after the delivery sweep', 'stop after the sweep of delivery and first answer'] as const;
-  for (const kind of ['terminal', 'chat'] as const) for (const form of forms) for (const enq of ['enqueue read before Stop', 'enqueue read with delivery'] as const) {
-    it(`${kind} ${form} ${enq}`, async () => {
+  for (const kind of ['terminal', 'chat'] as const) for (const form of forms) for (const queueRead of ['enqueue read before Stop', 'enqueue read with delivery'] as const) {
+    it(`${kind} ${form} ${queueRead}`, async () => {
       const w = world(kind);
       try {
         openTurn(w);
@@ -100,7 +100,7 @@ describe('a Stop that lands after the tail read the woken turn', () => {
         const c0 = snap(w.subject);
         const seq: string[] = [];
         w.add(q('enqueue', BASH_END, E), assistant(S - 500));
-        if (enq === 'enqueue read before Stop') { await w.tracker.tailOnce(E + 600); seq.push(`tail(enqueue) ${w.phase()}`); }
+        if (queueRead === 'enqueue read before Stop') { await w.tracker.tailOnce(E + 600); seq.push(`tail(enqueue) ${w.phase()}`); }
         const stop = () => { w.hook({ hook_event_name: 'Stop' }, form === 'stop in time' ? S + 30 : form === 'stop after the delivery sweep' ? D + 400 : W + 300, S); seq.push(`Stop ${w.phase()}`); };
         if (form === 'stop in time') stop();
         w.add(userRow(BASH_END, D));
