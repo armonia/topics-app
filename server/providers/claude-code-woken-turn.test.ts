@@ -103,14 +103,14 @@ describe("claude-code · il turno che nasce da solo", () => {
   // condiviso fra i test di questo file. Si disarma dopo ognuno, o il caso
   // «nessuno in ascolto» erediterebbe la sveglia di quello prima e passerebbe
   // per il motivo sbagliato.
-  afterEach(() => { ClaudeCodeProvider.observeWokenTurns(() => {}); });
+  afterEach(() => { ClaudeCodeProvider.observeWokenTurns(() => false); });
 
   // L'osservatore è STATICO (deve sopravvivere alla registrazione tardiva del
   // provider e alla sua sostituzione: vedi `observeWokenTurns`), quindi è stato
   // condiviso fra i test di questo file. Si disarma dopo ognuno, o il caso
   // «nessuno in ascolto» erediterebbe la sveglia di quello prima e passerebbe
   // per il motivo sbagliato.
-  afterEach(() => { ClaudeCodeProvider.observeWokenTurns(() => {}); });
+  afterEach(() => { ClaudeCodeProvider.observeWokenTurns(() => false); });
   test("senza handler, un evento di contenuto SVEGLIA invece di cadere", () => {
     const { provider, pp } = makeProviderWithStubProcess("topic:woken1");
     const sveglie: string[] = [];
@@ -414,7 +414,7 @@ describe("claude-code · il turno che nasce da solo", () => {
  * @covers MONITOR-02
  */
 describe("claude-code · a background agent's lines open no turn", () => {
-  afterEach(() => { ClaudeCodeProvider.observeWokenTurns(() => {}); });
+  afterEach(() => { ClaudeCodeProvider.observeWokenTurns(() => false); });
 
   test("replaying the recorded session: every wake starts on a line of the model, and each gets its own result", () => {
     const { provider, pp } = makeProviderWithStubProcess("topic:bgwork1");

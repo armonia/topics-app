@@ -88,7 +88,7 @@ describe("the stopped turn's tail after abort()", () => {
       expect(spontaneousTurns).toEqual([]);
       expect(stopped.calls).toEqual(["aborted"]);
     } finally {
-      ClaudeCodeProvider.observeWokenTurns(() => {});
+      ClaudeCodeProvider.observeWokenTurns(() => false);
     }
   });
 

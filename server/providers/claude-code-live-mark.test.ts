@@ -36,7 +36,9 @@ const REPO_ROOT = join(import.meta.dir, "..", "..");
 let tempDir = "";
 const SOCK = join(tmpdir(), `ai-bridge-live-mark-${process.pid}.sock`);
 const savedEnv: Record<string, string | undefined> = {};
-function setEnv(k: string, v: string) { savedEnv[k] = process.env[k]; process.env[k] = v; }
+// The first value only: a second call for the same key (one CLI script per scenario) must not make the
+// restore put back the PREVIOUS scenario's script, a path in a directory that is gone by then.
+function setEnv(k: string, v: string) { if (!(k in savedEnv)) savedEnv[k] = process.env[k]; process.env[k] = v; }
 const pause = (ms: number) => new Promise((r) => setTimeout(r, ms));
 const RESULT = `{"type":"result","result":"done","usage":{"input_tokens":1,"output_tokens":1},"duration_ms":1,"total_cost_usd":0}`;
 const text = (t: string) => `{"type":"assistant","message":{"content":[{"type":"text","text":"${t}"}]}}`;

@@ -2071,6 +2071,7 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, loadHi
                   canCreate={mode === 'project' && !showArchived}
                   showProject={mode === 'all'}
                   layout={boardLayout}
+                  viewKey={`${mode === 'all' ? 'all' : projectId}:${showArchived ? 'archive' : 'live'}`}
                   cardError={cardError}
                   onCardError={onCardError}
                   onRefetch={refetch}

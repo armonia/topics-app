@@ -592,6 +592,9 @@ export default defineConfig({
         // The board on a phone: the bar that does not scroll, the 44px search,
         // the columns that fill and the room under the last card (05/10).
         "**/board-mobile-phone.spec.ts",
+        // The conversation of a task follows its last answer while the drawer narrows: WebKit moves
+        // scrollTop for the anchor before any ResizeObserver runs, and that is what the second net guards.
+        "**/task-conversation-follow.spec.ts",
         // The phone list over a browser tab's page: the drawer paints inside the
         // app's root, under the page layer, unless the layer steps aside (T17).
         "**/browser-frame-under-phone-list.spec.ts",

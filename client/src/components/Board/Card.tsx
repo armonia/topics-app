@@ -12,6 +12,7 @@ import { questionToProse } from '../../../../shared/question-prose';
 import { isSettledParkedQuestion } from '../../../../shared/parked-question';
 import { STATUS_LABEL, blockedByChip, boardApi, commentAuthorLabel, isAgentWorking, isProjectlessId, nothingDeliveredWins, parseQuestionBlock, reopenedChip, showsLandingDebt, subtaskWorkChip, systemDeliveryChip, waitingOnThisChip, whoCloses, type BoardTask, type TaskStatus, priorityAwaitingAgent } from '../../lib/board';
 import { columnSlice, COLUMN_PAGE } from '../../lib/boardOrder';
+import { recallColumnPages, rememberColumnPages } from '../../lib/columnPages';
 import { cardCommentsFromRow, cardDetailNeed, isMachineVoice, selectCardComments, showsCardThread, type CardComments } from './cardComments';
 import { useConfirm } from '../../hooks/useConfirm';
 import { useLongPress, openContextMenuAt, type LongPressTarget } from '../../hooks/useLongPress';
@@ -106,9 +107,12 @@ type ColumnProps = {
    *  "add" affordance mid-list), so it collapses instead of leaving a bare
    *  header floating between two populated ones. */
   layout?: 'grid' | 'list';
+  /** Names the board view this column belongs to (which board, live or archive), so the pages the reader
+   *  reached outlive the unmount a view change causes. Without it the column starts from its first page. */
+  viewKey?: string;
 };
 
-const ColumnBody = memo(function ColumnBody({ status, tasks, onOpen, onCreate, canCreate, showProject, cardError, onCardError, onRefetch, onOpenTopic, resolveSession, tasksById, projectPathById, liveById, awaitingHuman, justMoved, justCreated, archived = false, draft, onOpenSettings, layout = 'grid', setNodeRef, isOver, dragging }: ColumnProps & {
+const ColumnBody = memo(function ColumnBody({ status, tasks, onOpen, onCreate, canCreate, showProject, cardError, onCardError, onRefetch, onOpenTopic, resolveSession, tasksById, projectPathById, liveById, awaitingHuman, justMoved, justCreated, archived = false, draft, onOpenSettings, layout = 'grid', viewKey, setNodeRef, isOver, dragging }: ColumnProps & {
   setNodeRef: (element: HTMLElement | null) => void; isOver: boolean; dragging: boolean;
 }) {
   const tr = useT();
@@ -117,7 +121,10 @@ const ColumnBody = memo(function ColumnBody({ status, tasks, onOpen, onCreate, c
   const submit = () => { const v = text.trim(); if (v) { onCreate(v); } setText(''); setAdding(false); };
   // QUANTE card si disegnano. La regola (e il perché vale solo su Review e Done)
   // sta in `columnSlice`; qui c'è solo la memoria di quante ne hai chieste.
-  const [shown, setShown] = useState(COLUMN_PAGE);
+  const [shown, setShown] = useState(() => (viewKey === undefined ? COLUMN_PAGE : recallColumnPages(viewKey, status)));
+  useEffect(() => {
+    if (viewKey !== undefined) rememberColumnPages(viewKey, status, shown);
+  }, [viewKey, status, shown]);
   const slice = useMemo(() => columnSlice(status, tasks, shown), [status, tasks, shown]);
   // Infinite scroll: the next page comes as the column's tail comes into view, never while a card is carried.
   const moreRef = useLoadOnReach(() => setShown((n) => n + COLUMN_PAGE), { more: slice.hidden > 0, loading: false, count: slice.rows.length, enabled: !dragging }, layout);

@@ -131,7 +131,7 @@ afterAll(() => {
 });
 afterEach(() => {
   setSystemTime();
-  ClaudeCodeProvider.observeWokenTurns(() => {});
+  ClaudeCodeProvider.observeWokenTurns(() => false);
 });
 
 describe("a Monitor in a real chat, replayed through the provider", () => {
