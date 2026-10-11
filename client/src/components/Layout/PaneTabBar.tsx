@@ -32,7 +32,7 @@ import { useTabNotifications } from '../../hooks/useTabNotifications';
 import { useT } from '../../hooks/useT';
 import { TabSlot, TabLabel, ProjectTabLead } from './TabSlot';
 import { useSpawnedBrowserMap } from '../../state/browserSpawner';
-import { TAB_SELECTED_SURFACE, TAB_SELECTED_SURFACE_SOFT, TAB_RESTING_SURFACE, ROW_PX, ROW_GAP, CARD_H, ROW_CARD, CHROME_ROW_ACTION_INSET, TAB_GAP_CLASS, TIER_DONE_BG, TIER_ERROR_BG, TIER_INPUT_BG, attentionSurface, TAB_LABEL } from '../../lib/selectionStyles';
+import { TAB_SELECTED_SURFACE, TAB_SELECTED_SURFACE_SOFT, TAB_RESTING_SURFACE, ROW_PX, ROW_GAP, CARD_H, ROW_CARD, CHROME_ROW_ACTION_INSET, CHROME_ROW_ACTION_RESERVE, CHROME_ROW_ACTION_RESERVE_LEFT, TAB_GAP_CLASS, TIER_DONE_BG, TIER_ERROR_BG, TIER_INPUT_BG, attentionSurface, TAB_LABEL } from '../../lib/selectionStyles';
 import { ensurePaneUsageFresh, formatPaneUsageLine, subscribePaneUsage, getPaneUsageVersion } from '@/lib/paneUsage';
 import { useTopics, useTerminalSessions } from '../../contexts/TopicsContext';
 import {
@@ -958,9 +958,9 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
         ref={scrollContainerRef}
         // DOVE SI FERMA LA STRIP, ai due capi, con la stessa regola.
         //
-        // Con un'azione, lo scrollport finisce prima del bottone sovrapposto:
-        // il padding da solo lascerebbe scorrere le tab sotto il comando.
-        // Senza: `pl-1.5`/`pr-1.5`, cioè gli stessi
+        // Con un comando: `ROW_INSET + box + ROW_INSET`
+        // (CHROME_ROW_ACTION_RESERVE) — il bottone sta 6 dal bordo e la tab si
+        // ferma altri 6 prima di lui. Senza: `pl-1.5`/`pr-1.5`, cioè gli stessi
         // 6 con cui ogni riga della colonna sta lontana dal bordo, così le due
         // liste si allineano ai lati.
         //
@@ -991,10 +991,10 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
         // comando. È la stessa regola della colonna — «il primo non porta la sua
         // metà perché sopra c'è chi l'ha già messa» — applicata in orizzontale.
         className={`flex items-center ${TAB_GAP_CLASS} min-w-0 min-h-7 overflow-x-auto scrollbar-topbar ${
-          hasMenuItems ? 'mr-[48px] md:mr-[40px]' : 'pr-1.5'
+          hasMenuItems ? CHROME_ROW_ACTION_RESERVE : 'pr-1.5'
         } ${
           hasLeftOverlay
-            ? 'ml-[48px] md:ml-[40px]'
+            ? CHROME_ROW_ACTION_RESERVE_LEFT
             : hasLeadingBlock && panes.length === 0
               ? 'pl-0'
               : 'pl-1.5'

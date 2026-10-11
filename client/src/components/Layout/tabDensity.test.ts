@@ -67,12 +67,12 @@ describe('tabDensity', () => {
 
   it('keeps the narrowest multi-tab layout monotone and scrolls only below square capacity', () => {
     const availableWidths = [1_000, 700, 600, 500, 340, 266, 240];
-    const occupiedWidths = availableWidths.map((available) => {
+    const usedWidths = availableWidths.map((available) => {
       const result = tabDensity(available, gapPx, tabHeightPx, mixedTabs);
       return result.widths.reduce((sum, width) => sum + width, 0) + gapPx * (mixedTabs.length - 1);
     });
-    for (let index = 1; index < occupiedWidths.length; index += 1) {
-      expect(occupiedWidths[index]).toBeLessThanOrEqual(occupiedWidths[index - 1]!);
+    for (let index = 1; index < usedWidths.length; index += 1) {
+      expect(usedWidths[index]).toBeLessThanOrEqual(usedWidths[index - 1]!);
     }
     expect(tabDensity(240, gapPx, tabHeightPx, mixedTabs).mode).toBe('scroll');
   });

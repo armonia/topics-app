@@ -327,12 +327,12 @@ test("DENS-06: pointer close freezes survivors until the pointer leaves the bar"
     x: measured.x,
     width: measured.width,
   }]));
-  const closing = tab(page, chatId(1));
-  await closing.hover();
-  const close = closing.getByTestId("pane-tab-close");
+  const doomed = tab(page, chatId(1));
+  await doomed.hover();
+  const close = doomed.getByTestId("pane-tab-close");
   await expect(close).toBeVisible({ timeout: 5_000 });
   await close.click();
-  await expect(closing).toHaveCount(0, { timeout: 15_000 });
+  await expect(doomed).toHaveCount(0, { timeout: 15_000 });
 
   const frozen = await measureStrip(page, ids[0]!);
   const survivors = ids.filter((id) => id !== chatId(1));
