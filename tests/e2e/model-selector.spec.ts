@@ -142,7 +142,9 @@ test.describe("desktop, 1280 × 900", () => {
     const path: string[] = [];
     const walkTo = async (model: string) => {
       const target = modelRow(page, model);
-      for (let i = 0; i < 24 && !(await target.evaluate((el) => el === document.activeElement)); i++) {
+      // A row of a closed section is not in the DOM yet: it cannot have the focus.
+      const focused = async () => (await target.count()) > 0 && target.evaluate((el) => el === document.activeElement);
+      for (let i = 0; i < 24 && !(await focused()); i++) {
         const closed = panel(page).locator('[data-testid="model-section-toggle"][aria-expanded="false"]:focus');
         if ((await closed.count()) > 0) {
           await page.keyboard.press("Enter");

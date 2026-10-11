@@ -55,6 +55,12 @@ async function openSelector(page: Page, request: Parameters<typeof resetPaneStor
 const panel = (page: Page) => page.getByTestId("model-selector-panel");
 const section = (page: Page, maker: string) => panel(page).getByTestId(`model-section-${maker}`);
 const sectionToggle = (page: Page, maker: string) => section(page, maker).getByTestId("model-section-toggle");
+/** Opens a section if the accordion has it closed: a click on an open heading would close it. */
+const openSection = async (page: Page, maker: string) => {
+  const toggle = sectionToggle(page, maker);
+  if ((await toggle.getAttribute("aria-expanded")) !== "true") await toggle.click();
+  await expect(toggle).toHaveAttribute("aria-expanded", "true");
+};
 const box = async (page: Page, selector: string) => page.locator(selector).first().evaluate((el) => {
   const r = el.getBoundingClientRect();
   return { top: r.top, bottom: r.bottom, left: r.left, right: r.right, height: r.height };
@@ -136,6 +142,8 @@ test.describe("desktop 1440 × 900, with keys", () => {
 
     // AC-09: the first section whole in view; the list scrolls; at the bottom the last section whole.
     const sections = panel(page).getByTestId("model-selector-sections");
+    // Opening every heading moved the list; the first section is measured from its top.
+    await sections.evaluate((el) => { el.scrollTop = 0; });
     const anthropic = await visibleStops(page, "anthropic");
     expect(anthropic.visible).toBe(anthropic.total);
     expect(await sections.evaluate((el) => el.scrollHeight > el.clientHeight + 1)).toBe(true);
@@ -413,6 +421,7 @@ test.describe("without keys, 1440 × 900", () => {
     expect(await page.evaluate(() => (window as unknown as { __terminal: unknown[] }).__terminal)).toEqual([{ command: "codex login" }]);
 
     await page.getByTestId("provider-model-picker").click();
+    await openSection(page, "openai");
     await section(page, "openai").getByTestId("model-connect-hide").click();
     await expect(section(page, "openai")).toHaveCount(0);
     await page.keyboard.press("Escape");
@@ -451,8 +460,12 @@ test.describe("phone 390 × 844", () => {
 
   test("holding the chat's name opens the chat settings, whose model trigger opens a sheet from the bottom, and Escape goes back to them (AC-39)", async ({ page, request, browserName }) => {
     await openSelector(page, request, KEYS);
-    await page.keyboard.press("Escape");
-    await expect(panel(page)).toHaveCount(0);
+    // Setup only: the selector the helper opened goes away. An Escape that lands while the sheet is
+    // still coming in can be dropped (1 run in 5 on main in WebKit), so it is pressed until it closes.
+    await expect(async () => {
+      await page.keyboard.press("Escape");
+      await expect(panel(page)).toHaveCount(0, { timeout: 1_000 });
+    }).toPass({ timeout: 10_000 });
     // The title opens the chat's sheet from the bottom (TABSHEET-04).
     const item = page.getByTestId("tab-sheet").getByRole("menuitem", { name: "Impostazioni della chat" });
     // WebKit has no `Touch` constructor, so there the hold is the `contextmenu`
@@ -570,7 +583,7 @@ test.describe("Automatico, named with the app's default (revision §3.7)", () =>
     await picker.waitFor({ state: "visible", timeout: 10_000 });
     await picker.click();
     // A new draft chooses nothing, so Google is closed: its heading opens it.
-    await sectionToggle(page, "google").click();
+    await openSection(page, "google");
     await section(page, "google").getByTestId("model-row-automatic-within").click();
     await expect(panel(page)).toHaveCount(0);
     await expect(picker.getByTestId("provider-model-picker-label")).toHaveText("Automatico · Gemini CLI");
