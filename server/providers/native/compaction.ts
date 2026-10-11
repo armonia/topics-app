@@ -54,26 +54,32 @@ import { imageShapeFromBuffer } from "../../services/image-shape";
 import { pathFromImageCaption } from "./image-normalize";
 
 /**
- * Quanto della finestra si può usare prima di intervenire.
+ * How much of the window may be used before compacting.
  *
- * 0.75 e non 0.95: la compattazione deve avvenire PRIMA che il turno sbatta,
- * e il conto dei token è una stima (vedi `estimateTokens`). Il margine copre
- * l'errore della stima più la risposta che deve ancora arrivare.
+ * The uncalibrated estimate stays at 0.75, not 0.95: before the first API
+ * count, the token estimate can be wrong, and the margin covers that error
+ * plus the response still to come. After a real API count calibrates the
+ * estimate, it can safely use 0.85. On 11/10, 182 compactions cut only 15% on
+ * average (168k to 138k), and chat 18b232ac compacted five times in 20 minutes.
  */
-const COMPACT_AT = 0.75;
+export const COMPACT_AT = 0.85;
+export const COMPACT_AT_UNMEASURED = 0.75;
 
 /**
  * Where compaction brings the conversation back to: BELOW the threshold, not
  * at it.
  *
  * Target equal to the threshold means no headroom: the history came out at
- * 149.6k on a 150k threshold and the next round compacted again. Measured on
- * topic:64095902 (08/10): 68 compactions in 34 hours, 40 closed at >=145k,
- * four in seven minutes. Each one cut the oldest turns and changed the request
- * prefix, so the prompt cache never held. The gap (20% of the window) buys a
- * few rounds before the next one.
+ * 149.6k on a 150k threshold and the next round compacted again. On
+ * topic:64095902 (08/10), 68 compactions in 34 hours left 40 histories at
+ * >=145k, including four compactions in seven minutes. Each changed the
+ * request prefix, so the prompt cache never held; the 20% gap then bought a
+ * few rounds before the next rewrite. The 11/10 measurement found 182
+ * compactions with a 15% average cut; five rewrote about 115k tokens each on
+ * chat 18b232ac, whose four turns read 6.3M cache tokens and wrote 1.21M.
+ * The new 0.40 target leaves about 90k tokens of headroom in a 200k window.
  */
-const COMPACT_TO = 0.55;
+export const COMPACT_TO = 0.40;
 
 /** Quanti messaggi in coda restano SEMPRE intatti. */
 const KEEP_RECENT = 6;
@@ -276,8 +282,9 @@ export function needsCompaction(
   windowTokens: number,
   overheadChars = 0,
   charsPerToken: number = DEFAULT_CHARS_PER_TOKEN,
+  compactAt = COMPACT_AT_UNMEASURED,
 ): boolean {
-  return estimateTokens(messages, overheadChars, charsPerToken) > windowTokens * COMPACT_AT;
+  return estimateTokens(messages, overheadChars, charsPerToken) > windowTokens * compactAt;
 }
 
 /**
@@ -335,17 +342,19 @@ export function clipToolResult(text: string, head: number, tail: number): string
  */
 export function compact(
   messages: AgentMessage[],
-  opts?: { windowTokens?: number; overheadChars?: number; charsPerToken?: number },
+  opts?: { windowTokens?: number; overheadChars?: number; charsPerToken?: number; compactAt?: number; compactTo?: number },
 ): { messages: AgentMessage[]; before: number; after: number; droppedMessages: number } {
   const overhead = opts?.overheadChars ?? 0;
   const ratio = opts?.charsPerToken ?? DEFAULT_CHARS_PER_TOKEN;
+  const compactAt = opts?.compactAt ?? COMPACT_AT_UNMEASURED;
+  const compactTo = opts?.compactTo ?? COMPACT_TO;
   const before = estimateTokens(messages, overhead, ratio);
   // The target the history has to get back under, when the caller says so.
   // Without one, the only signal left is "it freed nothing".
   // Two numbers, not one: the CEILING is the trigger, the TARGET sits below it
   // so the next round does not compact again (see `COMPACT_TO`).
-  const ceiling = opts?.windowTokens != null ? opts.windowTokens * COMPACT_AT : null;
-  const target = opts?.windowTokens != null ? opts.windowTokens * COMPACT_TO : null;
+  const ceiling = opts?.windowTokens != null ? opts.windowTokens * compactAt : null;
+  const target = opts?.windowTokens != null ? opts.windowTokens * compactTo : null;
 
   let next = messages;
   if (messages.length > KEEP_RECENT + 1) {
