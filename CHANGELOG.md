@@ -2,6 +2,21 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.2.476 — 2026-10-11
+
+### Correzioni
+- **native** · i nomi dei tool registrati da un altro motore tornano all'API come nomi validi
+
+### Sotto il cofano
+- token-audit: registrato come probe:tokens, così knip non lo dà per morto
+- native-token-economy: requisito CHAT-COMPACT-05 e il test che lo copre
+
+## 2.2.475 — 2026-10-11
+
+### Sotto il cofano
+- Riduci le riscritture ripetute della cache nativa
+- token-audit: le compattazioni già salvate nel DB quando il log non nomina la chat
+
 ## 2.2.474 — 2026-10-11
 
 ### Correzioni

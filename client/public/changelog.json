@@ -1,5 +1,54 @@
 [
   {
+    "version": "2.2.476",
+    "date": "2026-10-11",
+    "sections": {
+      "new": [],
+      "fixes": [
+        {
+          "it": "i nomi dei tool registrati da un altro motore tornano all'API come nomi validi",
+          "en": "",
+          "scope": "native",
+          "breaking": false
+        }
+      ],
+      "perf": [],
+      "internal": [
+        {
+          "it": "token-audit: registrato come probe:tokens, così knip non lo dà per morto",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "native-token-economy: requisito CHAT-COMPACT-05 e il test che lo copre",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
+    "version": "2.2.475",
+    "date": "2026-10-11",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Riduci le riscritture ripetute della cache nativa",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "token-audit: le compattazioni già salvate nel DB quando il log non nomina la chat",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
     "version": "2.2.474",
     "date": "2026-10-11",
     "sections": {
