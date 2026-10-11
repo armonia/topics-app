@@ -1526,6 +1526,9 @@ test.describe("TOPIC-BROWSER-04 le aperture che nessuno ha chiesto a mano", () =
     const topic = await createTopic(request, `E2E-TBW-AgentProj-${Date.now()}`, { projectPath });
     const url = AGENT_URL("dall-agente-nel-progetto");
     try {
+      // The main layout first, as in 04d: panes left by earlier specs keep the
+      // new project window out of the active slot, and its chat tab never shows.
+      await resetPaneStore(request, []);
       await resetProjectPanes(request, projectPath);
       await seedProjectPane(request, projectPath);
       await seedProjectLayout(request, projectPath, topic.id, null);
