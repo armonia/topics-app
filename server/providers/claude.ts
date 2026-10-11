@@ -479,7 +479,10 @@ export class ClaudeProvider implements AIProvider {
    */
   private applyThinking(params: Anthropic.MessageCreateParams, model: string, maxTokens: number): void {
     if (thinkingGenerationOf(model) !== "legacy") {
-      params.thinking = { type: "adaptive" } as any;
+      // `summarized`: from the 5 family the default is `omitted`, a silent
+      // think the route's soft timer takes for a dead stream. See
+      // `thinkingConfigFor` in lib/native-parity.ts.
+      params.thinking = { type: "adaptive", display: "summarized" } as any;
       return;
     }
     if (THINKING_MODELS.test(model)) {

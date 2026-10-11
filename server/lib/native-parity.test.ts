@@ -139,7 +139,7 @@ describe("thinkingConfigFor", () => {
     for (const model of ["claude-opus-5", "claude-sonnet-5", "claude-fable-5", "claude-opus-4-7", "claude-opus-4-8"]) {
       for (const tier of ["low", "medium", "high", "xhigh", "max"]) {
         const c = thinkingConfigFor(model, tier);
-        expect(c.thinking, `${model}/${tier}`).toEqual({ type: "adaptive" });
+        expect(c.thinking, `${model}/${tier}`).toEqual({ type: "adaptive", display: "summarized" });
         expect(c.output_config, `${model}/${tier}`).toEqual({ effort: tier });
         expect(c.minMaxTokens).toBe(0);
       }
@@ -148,7 +148,7 @@ describe("thinkingConfigFor", () => {
 
   it("low sulla famiglia 5 NON e' «nessun pensiero»: Fable rifiuta disabled, Opus 5 lo rifiuta a xhigh/max", () => {
     const c = thinkingConfigFor("claude-fable-5", "low");
-    expect(c.thinking).toEqual({ type: "adaptive" });
+    expect(c.thinking).toEqual({ type: "adaptive", display: "summarized" });
     expect(c.output_config).toEqual({ effort: "low" });
   });
 
@@ -159,7 +159,7 @@ describe("thinkingConfigFor", () => {
   it("la 4.6 vuole adaptive ESPLICITO e non conosce xhigh: si abbassa a high", () => {
     for (const model of ["claude-opus-4-6", "claude-sonnet-4-6"]) {
       expect(thinkingConfigFor(model, "xhigh")).toEqual({
-        thinking: { type: "adaptive" }, output_config: { effort: "high" }, minMaxTokens: 0,
+        thinking: { type: "adaptive", display: "summarized" }, output_config: { effort: "high" }, minMaxTokens: 0,
       });
       expect(thinkingConfigFor(model, "max").output_config).toEqual({ effort: "max" });
     }
@@ -168,14 +168,14 @@ describe("thinkingConfigFor", () => {
   it("un tier assente o sconosciuto sulla famiglia 5 lascia decidere il modello: adaptive, nessun effort", () => {
     for (const tier of [null, undefined, "turbo", ""]) {
       const c = thinkingConfigFor("claude-opus-5", tier);
-      expect(c.thinking).toEqual({ type: "adaptive" });
+      expect(c.thinking).toEqual({ type: "adaptive", display: "summarized" });
       expect("output_config" in c).toBe(false);
     }
   });
 
   it("an id nobody has listed yet is adaptive unless it is explicitly legacy", () => {
     for (const model of ["claude-opus-5-5", "claude-fable-5-1", "claude-sonnet-4-7", "claude-haiku-5"]) {
-      expect(thinkingConfigFor(model, "high").thinking, model).toEqual({ type: "adaptive" });
+      expect(thinkingConfigFor(model, "high").thinking, model).toEqual({ type: "adaptive", display: "summarized" });
     }
   });
 
