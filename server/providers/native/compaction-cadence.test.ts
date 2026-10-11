@@ -1,3 +1,8 @@
+/**
+ * Compacting often costs more than compacting deeper: every compaction rewrites
+ * the whole history into the prompt cache. Simulated on the real functions.
+ * @covers CHAT-COMPACT-05
+ */
 import { describe, expect, test } from "bun:test";
 import { COMPACT_AT, COMPACT_TO, compact, needsCompaction } from "./compaction";
 import type { AgentMessage } from "./agent-loop";
