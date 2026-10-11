@@ -19,7 +19,7 @@ afterEach(() => {
 
 describe('project chat agent browser door', () => {
   it('accepts the first agent page in the minimized topic window while the first link stays in the project', async () => {
-    globalThis.fetch = (async () => new Response(null, { status: 404 })) as typeof fetch;
+    globalThis.fetch = (async () => new Response(null, { status: 404 })) as unknown as typeof fetch;
     const store = await loadTopicWindowStore();
     await store.ensureTopicWindowLoaded(TOPIC);
 
