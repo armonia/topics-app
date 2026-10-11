@@ -18,7 +18,7 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { existsSync, mkdirSync, realpathSync, writeFileSync } from "fs";
 import { join } from "path";
-import { createTestAppContext, freePort, setupTestDataDir, testTmpDir } from "./helpers";
+import { cleanupTestDataDir, createTestAppContext, freePort, setupTestDataDir, testTmpDir } from "./helpers";
 import type { AppContext, Topic } from "../../server/types";
 import type { AttentionTaskMap } from "../../shared/attention";
 import { topicSubject } from "../../shared/attention";
@@ -65,6 +65,7 @@ afterAll(async () => {
   await Promise.all(shells.map((s) => s.exited));
   const { closeDatabase } = await import("../../server/db");
   closeDatabase();
+  cleanupTestDataDir(ROOT);
 });
 
 let seq = 0;
