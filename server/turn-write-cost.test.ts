@@ -164,6 +164,11 @@ beforeAll(() => {
     writeFileSync(join(migDir, f), readFileSync(join(realMigDir, f), "utf-8"));
   }
   mkdirSync(join(tmpRoot, "public"), { recursive: true });
+  // The database is a process singleton and `bun test` runs every file in one process: a file run
+  // before this one may leave its handle open (`chat-tool-response-live-turn` does), and
+  // `createAppContext` would hand back THAT database, whose WAL is not the file measured here
+  // (0 bytes both ways). Closing is idempotent.
+  closeDatabase();
   process.env.DATA_DIR = join(tmpRoot, "data");
   process.env.OPENCLAW_DIR = join(tmpRoot, "openclaw");
   ctx = createAppContext(tmpRoot);

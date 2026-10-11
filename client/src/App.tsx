@@ -69,6 +69,7 @@ import { POPOVER_SURFACE, POPOVER_MARGIN, POPOVER_SHEET, Z_POPOVER, Z_POPOVER_SC
 import { useExitGhost } from './lib/exitGhost';
 import { SidebarSystemMenu } from './components/Sidebar/SidebarSystemMenu';
 import { MobileIdentityMenuItems, TopicsMenuItems, prefetchTopicsMenuItems } from './components/Sidebar/topicsMenuItemsLazy';
+import { TopicsBackRow, TopicsEntryRow } from './components/Sidebar/UserMenuTopicsNav';
 import { TopicsLoadDot } from './components/Sidebar/TopicsLoadDot';
 
 // Tauri-on-macOS: the native traffic lights are permanent and the shell pins
@@ -114,9 +115,10 @@ import { DEFAULT_SPACE_ID } from './state/pane/types';
 import { useSignalsSync } from './state/useSignalsSync';
 import { useSeenFocusedPane } from './state/paneSeen';
 import { NEXT_WAITING_EVENT, useWaitingQueueStore } from './state/waitingQueue';
+import { OPEN_INBOX_EVENT } from './lib/inboxEvents';
 import { useTaskBrowserTabsSync } from './hooks/useTaskBrowserTabsSync';
 import { PaneAddMenu } from './components/Shared/PaneAddMenu';
-import { GLYPH_KBD_PADDING, MOBILE_SIDEBAR_HEADER_H, RAISED_CONTROL, ROW_INSET, ROW_PX, SIDEBAR_ACTIVE, SIDEBAR_HOVER, BAND_OWN_PROPERTY, SIDEBAR_SCROLL_BOTTOM_PROPERTY, SIDEBAR_SCROLL_TOP_PROPERTY } from './lib/selectionStyles';
+import { GLYPH_KBD_PADDING, MOBILE_SIDEBAR_HEADER_H, MOBILE_SIDEBAR_HEADER_H_COMPACT, RAISED_CONTROL, ROW_INSET, ROW_PX, SIDEBAR_ACTIVE, SIDEBAR_HOVER, BAND_OWN_PROPERTY, SIDEBAR_SCROLL_BOTTOM_PROPERTY, SIDEBAR_SCROLL_TOP_PROPERTY } from './lib/selectionStyles';
 import { initEdgeSwipeGuard } from './lib/edgeSwipeGuard';
 import { normalizeTerminalAgent } from './lib/terminalAgents';
 import { popOutTopic } from './lib/popOutTopic';
@@ -370,6 +372,12 @@ function App() {
   // observe it for the macOS traffic-light effect (CRITIQUE C10: modal
   // state stays in App, but the side-effect lives in the layout hook).
   const [showTopicsMenu, setShowTopicsMenu] = useState(false);
+  // A1: two states that live on the phone only. `mobileTopFull`: the top row
+  // is compact at the head of the list and reveals itself whole once the list
+  // moves. `mobileSheetTopics`: the user sheet has two floors, the root and
+  // the Topics floor — false is the root, where the sheet always opens.
+  const [mobileTopFull, setMobileTopFull] = useState(false);
+  const [mobileSheetTopics, setMobileSheetTopics] = useState(false);
   // Il changelog aperto dal menu del telefono: sul desktop ci si arriva dal
   // numero di versione nella barra di stato, che sotto i 768px non c'è più.
   const [showChangelogFromMenu, setShowChangelogFromMenu] = useState<string | null>(null);
@@ -667,6 +675,35 @@ function App() {
     if (!isMobile) return;
     const timer = setTimeout(prefetchTopicsMenuItems, 0);
     return () => clearTimeout(timer);
+  }, [isMobile]);
+  // A1: THE SHEET OPENS AT THE ROOT — unless a door asks for a precise floor.
+  // Appearance, notifications and view live on the Topics floor, so a request
+  // for one of them opens the sheet already down there (the bell with the
+  // gear, the shortcut, and the palette commands land where they landed when
+  // the list was flat). Plan and devices stay at the root.
+  useEffect(() => {
+    if (!showTopicsMenu || !isMobile) return;
+    const level = topicsMenuRequest.level;
+    setMobileSheetTopics(level === 'appearance' || level === 'notifications' || level === 'view');
+  }, [showTopicsMenu, isMobile, topicsMenuRequest]);
+  // A1: THE TOP ROW REVEALS ITSELF ON SCROLL. At the head it is compact (44,
+  // its buttons and nothing else); once the list moves it takes the whole
+  // size. The listener is on CAPTURE on the wrapper: `scroll` does not
+  // bubble, so it does not matter which scroller is inside right now (the
+  // list or the skeleton). One boolean, and only when it flips: a state per
+  // pixel would be a render per pixel.
+  useEffect(() => {
+    if (!isMobile) return;
+    const wrap = sidebarContentRef.current;
+    if (!wrap) return;
+    const onScroll = (e: Event) => {
+      const top = (e.target as HTMLElement | null)?.scrollTop ?? 0;
+      // Same boolean, no render: React bails out by itself when the value is
+      // unchanged, so no hand-written guard is needed here.
+      setMobileTopFull(top > 8);
+    };
+    wrap.addEventListener('scroll', onScroll, { capture: true, passive: true });
+    return () => wrap.removeEventListener('scroll', onScroll, { capture: true });
   }, [isMobile]);
   // Claude Code session tracker — subscribes to /api/claude-hooks-driven
   // `session:state` broadcasts. Feeds the unified signals store (useSignalsSync
@@ -1579,13 +1616,15 @@ function App() {
           // it, and under the safe area too". A padding on THIS element cannot
           // do that: it moves the scroller down, so the list ends where the row
           // begins and nothing ever passes behind it. So down there the inset
-          // (plus the height of the row) becomes `--sidebar-scroll-top`, which
-          // the scrolling column takes as its own padding-top: at rest nothing
-          // is hidden, and what scrolls travels behind the row and behind the
-          // status bar, the way a native list does.
+          // ALONE becomes `--sidebar-scroll-top`, which the scrolling column
+          // takes as its own padding-top: the rows start right after the safe
+          // area (mobile-chrome-feedback A1) and travel behind the row and
+          // behind the status bar from the first pixel, the way a native list
+          // does. It used to carry the height of the row on top of the inset,
+          // which left a full row of dead space under the notch.
           paddingTop: isMobile ? 0 : 'env(safe-area-inset-top, 0px)',
           [SIDEBAR_SCROLL_TOP_PROPERTY as string]: isMobile
-            ? `calc(env(safe-area-inset-top, 0px) + ${MOBILE_SIDEBAR_HEADER_H}px)`
+            ? 'var(--sat, 0px)'
             : '0px',
           // The column is `fixed inset-y-0`: it escapes the root's padding, so
           // it reserves the bottom band itself. And it reserves it INSIDE the
@@ -1638,13 +1677,27 @@ function App() {
           // scrolling underneath, or the column would carry 56px of glass at
           // the top that stop a scroll without saying why.
           className={`sidebar-header flex items-center justify-between flex-shrink-0 app-drag-region ${
-            isMobile ? 'mobile-top-veil pointer-events-none absolute inset-x-0 z-10 h-14 [&>*]:pointer-events-auto' : 'h-10'
+            // `pointer-events-none` WITHOUT `[&>*]:pointer-events-auto`: under
+            // the row the tabs run from right after the safe area (A1), and
+            // the two groups it is made of — one `flex-1`, wide as the whole
+            // row — would eat the taps of the first one. Only the BUTTONS take
+            // a tap, each on its own (Topics and the bell with inline
+            // `pointerEvents: 'auto'`, the window controls with their own
+            // class): the wrappers let everything through.
+            isMobile ? 'mobile-top-veil pointer-events-none absolute inset-x-0 z-10' : 'h-10'
           }`} {...DRAG_REGION}
+          // A1: compact at the head (44, the buttons), whole while scrolling
+          // (56). Out of flow in both cases, so the size moves nothing —
+          // `data-compact` is the spec's handle.
+          data-compact={isMobile ? String(!mobileTopFull) : undefined}
           style={{
             paddingRight: ROW_INSET,
             paddingLeft: ROW_INSET,
             gap: ROW_INSET,
-            ...(isMobile ? { top: 'env(safe-area-inset-top, 0px)' } : null),
+            ...(isMobile ? {
+              top: 'env(safe-area-inset-top, 0px)',
+              height: mobileTopFull ? MOBILE_SIDEBAR_HEADER_H : MOBILE_SIDEBAR_HEADER_H_COMPACT,
+            } : null),
           }}
         >
           {/* ONE STEP FROM EDGE TO EDGE. The pair at the other end of this row
@@ -2042,14 +2095,15 @@ function App() {
         )}
       </div>
 
-      {/* LE QUATTRO PORTE DEL TELEFONO — cerca · aggiungi · task · profilo.
-          Sta FUORI dalla colonna, non dentro: la fila deve restare sotto le
-          dita anche col cassetto chiuso, altrimenti l'interruttore della board
-          sarebbe di sola andata (aperta la board, il tasto per tornare alla
-          lista se ne sarebbe andato con la colonna). È anche il motivo per cui
-          si dipinge da sé invece di ereditare il chrome della sidebar.
-          Il «+» è lo STESSO `PaneAddMenu` del desktop, con la faccia della
-          fila: l'elenco delle cose creabili è uno solo. */}
+      {/* THE PHONE'S FIVE DOORS — search · pencil · task · waiting · profile.
+          It stands OUTSIDE the column, not inside: the row must stay under the
+          fingers even with the drawer shut, or the board switch would be a
+          one-way street (board open, the button back to the list gone with the
+          column). That is also why it paints itself instead of inheriting the
+          sidebar's chrome. The pencil is the SAME `PaneAddMenu` as the
+          desktop, wearing the row's face: the list of things to create is one,
+          the tap opens a chat straight away and the long press opens the whole
+          menu (A6). */}
       {/* THE TRANSPORT ALARM ON THE PHONE. The «Offline» / «Reconnecting…» /
           «cached data» rows lived ONLY inside the `{!isMobile && …}` block of
           the bar at the foot of the column, i.e. they did not exist at all on
@@ -2069,9 +2123,11 @@ function App() {
             scope="standalone"
             onNewChat={() => handleQuickCreateTopic()}
             onAddPane={handleStandaloneAddPane}
-            triggerTitle="Aggiungi"
             triggerVariant="bar"
-            triggerLabel="Aggiungi"
+            // A6: the pencil. The menu brings its own name and title (i18n
+            // inside `PaneAddMenu`), where the trigger lives too: two literals
+            // here would be the only check-ui-language hits left in the file.
+            quickChat
           />
         }
         boardInFront={boardInFront}
@@ -2090,7 +2146,10 @@ function App() {
         // il cassetto. La sezione in Impostazioni resta dov'era.
         onOpenProfile={() => { window.dispatchEvent(new CustomEvent('topics:open-utility', { detail: { type: 'profile' } })); setShowTopicsMenu(false); }}
         waitingCount={waitingCount}
-        onNextWaiting={() => window.dispatchEvent(new CustomEvent(NEXT_WAITING_EVENT))}
+        // A5: the door ALWAYS answers. With a queue it takes the ⌘J step, with
+        // an empty queue it opens the Waiting page (the Inbox's Now) instead
+        // of staying mute. One prop, so detaching it silences both branches.
+        onNextWaiting={() => window.dispatchEvent(new CustomEvent(waitingCount === 0 ? OPEN_INBOX_EVENT : NEXT_WAITING_EVENT))}
       />
 
       {/* Sidebar resize handle. The sidebar is position:fixed (FLIP push), so a
@@ -2332,7 +2391,14 @@ function App() {
               people, the groups and the devices are the same component in
               both hosts (USERMENU-09). Before, the phone reached sign-in,
               rename and revoke only through the Settings panel. */}
-          {isMobile && (
+          {/* A1: THE SHEET HAS TWO FLOORS, on the phone. The root is the user
+              menu — who you are and how the machine is doing — and the
+              «Topics» entry walks down to the floor with the rows. One floor
+              MOUNTS while the other unmounts: with `hidden` the hidden buttons
+              would stay under the finger of the MOBILE-CHROME-05 tests. On the
+              desktop nothing changes: the mobile branches are off and the
+              output is what it was, fragments included. */}
+          {isMobile && !mobileSheetTopics && (
             <>
               <Suspense fallback={null}>
                 <MobileIdentityMenuItems
@@ -2342,6 +2408,7 @@ function App() {
                 />
               </Suspense>
               <div className="border-t border-app-border" />
+              <TopicsEntryRow onOpen={() => setMobileSheetTopics(true)} />
             </>
           )}
           {/* THE ROWS ARE A COMPONENT, not a copy. The same ones sit in the
@@ -2349,33 +2416,43 @@ function App() {
               is the only door of this chrome: two hand-written lists are two
               lists that one day answer differently - the same rule
               SIDEBAR-STATUS-01 writes for the status rows. */}
-          <Suspense fallback={null}>
-          <TopicsMenuItems
-            key={topicsMenuRequest.n}
-            isMobile={isMobile}
-            showArchived={sidebar.showArchived}
-            onToggleArchived={() => { sidebar.toggleShowArchived(); }}
-            viewMode={sidebar.viewMode}
-            onViewModeChange={sidebar.setViewMode}
-            preferences={menuPreferences}
-            splitLayoutAvailable={splitLayoutAvailable}
-            onOpenHistory={() => { setSearchScope('history'); setShowSearch(true); setShowTopicsMenu(false); }}
-            onReopenClosedTab={handleReopenClosedTab}
-            onOpenHistoryUrl={openHistoryUrl}
-            onClose={() => setShowTopicsMenu(false)}
-            openLevel={topicsMenuRequest.level}
-          />
-          </Suspense>
+          {(!isMobile || mobileSheetTopics) && (
+            <>
+              {isMobile && <TopicsBackRow onBack={() => setMobileSheetTopics(false)} />}
+              {isMobile && <div className="border-t border-app-border" />}
+              <Suspense fallback={null}>
+              <TopicsMenuItems
+                key={topicsMenuRequest.n}
+                isMobile={isMobile}
+                showArchived={sidebar.showArchived}
+                onToggleArchived={() => { sidebar.toggleShowArchived(); }}
+                viewMode={sidebar.viewMode}
+                onViewModeChange={sidebar.setViewMode}
+                preferences={menuPreferences}
+                splitLayoutAvailable={splitLayoutAvailable}
+                onOpenHistory={() => { setSearchScope('history'); setShowSearch(true); setShowTopicsMenu(false); }}
+                onReopenClosedTab={handleReopenClosedTab}
+                onOpenHistoryUrl={openHistoryUrl}
+                onClose={() => setShowTopicsMenu(false)}
+                openLevel={topicsMenuRequest.level}
+              />
+              </Suspense>
+            </>
+          )}
           {/* THE STATE SITS AT THE BOTTOM, under the commands: above the things
               that DO something, below the things that SAY something. Same
               component on both screens, never a second copy counting the same
               memory. The alarms are NOT in here: they stay at the foot of the
               column, visible without opening anything (`SidebarStatusBar`). */}
-          <div className="my-1 border-t border-app-border" />
-          <SidebarSystemMenu
-            isMobile={isMobile}
-            onOpenChangelog={(version) => { setShowTopicsMenu(false); setShowChangelogFromMenu(version); }}
-          />
+          {(!isMobile || !mobileSheetTopics) && (
+            <>
+              <div className="my-1 border-t border-app-border" />
+              <SidebarSystemMenu
+                isMobile={isMobile}
+                onOpenChangelog={(version) => { setShowTopicsMenu(false); setShowChangelogFromMenu(version); }}
+              />
+            </>
+          )}
           </ConfirmInsidePopoverContext.Provider>
         </div>
         </>,

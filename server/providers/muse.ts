@@ -40,11 +40,14 @@ import { resolveMuseBin } from "../lib/muse-bin";
 import { resolveMuseReasoningEffort } from "../lib/topics-agent-prompt";
 import { getTopicWorkspaceForSession } from "../lib/agent-workspace";
 import { buildMuseArgs, buildMuseSingleShotArgs } from "./muse/args";
+import { museBridgeEntry, stageMuseConfig, type MuseMcpServer } from "./muse/mcp-config";
+import { topicsMcpBridgeSpec } from "./claude-code";
 import { readMuseModels, readMuseConfiguredModel, museDefaultModel, museContextWindows, museModelInfo } from "./muse/models";
 import type { ModelInfo } from "../../shared/types";
 import { getDatabase } from "../db";
 import { applyJobQuota } from "../services/agent-job-quota";
 import { demoteAgentCli } from "./agent-cli-priority";
+import { freshSessionPreamble } from "./handoff";
 
 // ============ Config ============
 
@@ -242,51 +245,6 @@ export function museSessionLogExists(sessionId: string): boolean {
 
 // ============ Helpers ============
 
-/**
- * Maximum non-system transcript turns to ship on a fresh turn. Muse's resume
- * carries native context server-side, so this only bounds the client-side
- * markdown preamble of a turn that starts a NEW session. System messages are
- * always preserved (pinned context: SOUL.md, project hints, ...).
- */
-const MUSE_HISTORY_TURN_CAP = 20;
-
-/**
- * Format a chat transcript as a markdown preamble for a fresh `muse exec`,
- * which otherwise has no memory of prior turns. Kept turns are labelled by
- * role; system messages flow through as `## Context` blocks.
- */
-function renderHistoryAsPrompt(history: ChatMessage[]): string {
-  const systemMessages = history.filter((m) => m.role === "system");
-  const conversational = history.filter((m) => m.role === "user" || m.role === "assistant");
-
-  let truncated = false;
-  let kept = conversational;
-  if (conversational.length > MUSE_HISTORY_TURN_CAP) {
-    kept = conversational.slice(-MUSE_HISTORY_TURN_CAP);
-    truncated = true;
-  }
-
-  const lines: string[] = ["# Conversation so far"];
-  if (truncated) {
-    lines.push(
-      "",
-      `> _(Earlier ${conversational.length - kept.length} turns omitted; only the most recent ${kept.length} are shown.)_`
-    );
-  }
-
-  for (const m of systemMessages) {
-    lines.push("", "## Context", "", m.content);
-  }
-  for (const m of kept) {
-    if (m.role === "user") {
-      lines.push("", "## User", "", m.content);
-    } else if (m.role === "assistant") {
-      lines.push("", "## Assistant", "", m.content);
-    }
-  }
-  return lines.join("\n");
-}
-
 // ============ Provider ============
 
 /** Per-turn bookkeeping shared between the JSONL event router and the close
@@ -453,9 +411,8 @@ export class MuseProvider implements AIProvider {
     // it is the surface that breaks every CLI release. The decisions stay
     // here (which model, which effort, which session).
     const history = options?.history ?? [];
-    const prompt = invocation.mode === "fresh" && history.length > 0
-      ? renderHistoryAsPrompt(history) + "\n\n## Current message\n\n" + message
-      : message;
+    const preamble = invocation.mode === "fresh" ? freshSessionPreamble(sessionKey, history) : "";
+    const prompt = preamble ? preamble + "\n\n## Current message\n\n" + message : message;
     // `muse exec` does not read the prompt from stdin: it comes from a file
     // (`--prompt-file`, see `muse/args.ts`). Own directory per turn, deleted on close.
     const promptDir = mkdtempSync(join(tmpdir(), "topics-muse-prompt-"));
@@ -483,12 +440,27 @@ export class MuseProvider implements AIProvider {
       }
     } catch { /* no fence: the session starts anyway, as it always has */ }
 
+    // The Topics bridge, as Codex mounts it: a dispatched task chat gets the
+    // narrow "dispatch" surface, every other chat the full one. A bridge that
+    // cannot be built degrades the turn to the user's own servers, it does not
+    // stop it.
+    let bridge: MuseMcpServer | null = null;
+    try {
+      const policy = getDatabase()
+        .prepare("SELECT mcp_policy FROM topics WHERE session_key = ? LIMIT 1")
+        .get(sessionKey) as { mcp_policy?: string | null } | undefined;
+      bridge = museBridgeEntry(topicsMcpBridgeSpec(sessionKey, policy?.mcp_policy === "bridge-only" ? "dispatch" : undefined));
+    } catch (err) {
+      console.warn(`[muse] MCP bridge config failed for ${sessionKey}:`, err);
+    }
+
     this.runMuseTurn({
       sessionKey,
       bin,
       args,
       workspace,
       env,
+      bridge,
       handler,
       explicitModel,
       invocationMode: invocation.mode,
@@ -522,6 +494,7 @@ export class MuseProvider implements AIProvider {
     args: string[];
     workspace: string;
     env: NodeJS.ProcessEnv;
+    bridge: MuseMcpServer | null;
     handler: StreamHandler;
     explicitModel?: string;
     invocationMode: "resume" | "fresh";
@@ -534,12 +507,21 @@ export class MuseProvider implements AIProvider {
     allowResumeFallback: boolean;
     idPrefix?: string;
   }): void {
-    const { sessionKey, bin, args, workspace, env, handler, explicitModel, invocationMode, sessionId, message, history, reasoningEffort, promptDir, allowResumeFallback, idPrefix } = params;
+    const { sessionKey, bin, args, workspace, env, bridge, handler, explicitModel, invocationMode, sessionId, message, history, reasoningEffort, promptDir, allowResumeFallback, idPrefix } = params;
+
+    // Staged per SPAWN, not per turn: the fresh retry below runs its own child
+    // after this one's close handler has already removed this directory.
+    let staged: { configHome: string; cleanup: () => void } | null = null;
+    if (bridge) {
+      try { staged = stageMuseConfig(bridge); } catch (err) {
+        console.warn(`[muse] staging the MCP config failed for ${sessionKey}, running without the Topics bridge:`, err);
+      }
+    }
 
     const child = spawn(bin, args, {
       cwd: workspace,
       stdio: ["pipe", "pipe", "pipe"],
-      env,
+      env: staged ? { ...env, XDG_CONFIG_HOME: staged.configHome } : env,
     });
     // A card's CLI steps aside for the person (KANBAN-78); its children inherit.
     demoteAgentCli(sessionKey, workspace, child.pid);
@@ -618,6 +600,7 @@ export class MuseProvider implements AIProvider {
       if (this.activeChildren.get(sessionKey) === child) this.activeChildren.delete(sessionKey);
       try { rl.close(); } catch {}
       try { rmSync(promptDir, { recursive: true, force: true }); } catch { /* un prompt orfano in tmp: innocuo */ }
+      staged?.cleanup();
 
       const state = turnState;
       if (this.sessionState.get(sessionKey) === turnState) this.sessionState.delete(sessionKey);
@@ -636,9 +619,8 @@ export class MuseProvider implements AIProvider {
         const freshSessionId = crypto.randomUUID();
         const freshDir = mkdtempSync(join(tmpdir(), "topics-muse-prompt-"));
         const freshFile = join(freshDir, "prompt.md");
-        const freshPrompt = history.length > 0
-          ? renderHistoryAsPrompt(history) + "\n\n## Current message\n\n" + message
-          : message;
+        const freshPreamble = freshSessionPreamble(sessionKey, history);
+        const freshPrompt = freshPreamble ? freshPreamble + "\n\n## Current message\n\n" + message : message;
         writeFileSync(freshFile, freshPrompt);
         const freshArgs = buildMuseArgs({
           model: explicitModel,
@@ -649,7 +631,7 @@ export class MuseProvider implements AIProvider {
           promptFile: freshFile,
         });
         this.runMuseTurn({
-          sessionKey, bin, args: freshArgs, workspace, env, handler, explicitModel,
+          sessionKey, bin, args: freshArgs, workspace, env, bridge, handler, explicitModel,
           invocationMode: "fresh", sessionId: freshSessionId, prompt: freshPrompt, message, history,
           reasoningEffort, promptDir: freshDir,
           allowResumeFallback: false, idPrefix: "retry:",
@@ -705,6 +687,7 @@ export class MuseProvider implements AIProvider {
       if (this.activeChildren.get(sessionKey) === child) this.activeChildren.delete(sessionKey);
       if (this.sessionState.get(sessionKey) === turnState) this.sessionState.delete(sessionKey);
       try { rmSync(promptDir, { recursive: true, force: true }); } catch { /* see above */ }
+      staged?.cleanup();
       handler.onError(err.message);
     });
   }

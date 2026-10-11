@@ -32,7 +32,7 @@ import {
 } from "../services/global-orchestrator-session";
 import { globalOrchestratorBoardSnapshot } from "../services/global-orchestrator-board-context";
 import { languageDirective } from "../lib/topics-agent-prompt";
-import { readUserRulesSource, skillsBlock } from "../lib/native-parity";
+import { nativeWorkingDir, readClaudeMemoryIndex, readUserRulesSource, skillsBlock } from "../lib/native-parity";
 import { skillDirs } from "../lib/slash-command-source";
 
 import { contextWindowFor } from "../usage/context-window";
@@ -276,6 +276,9 @@ export function assembleTopicContext(ctx: AppContext, args: AssembleArgs): Conte
     if (!leanContext && (canUseOrdinaryTopicContext || isGlobalOrchestrator)) {
       pushUserRulesBlock(systemBlocks, isEnabled);
       pushSkillsBlock(systemBlocks, isEnabled);
+    }
+    if (!leanContext && canUseOrdinaryTopicContext) {
+      pushClaudeMemoryIndexBlock(systemBlocks, nativeWorkingDir(ctx.resolveTopicCwd(topic)), isEnabled);
     }
     // Lean (dispatcher resume/continuation): system prompt + cwd awareness ONLY.
     // The persistent CLI session already carries CLAUDE.md/README, the browser
@@ -956,6 +959,30 @@ function pushUserRulesBlock(blocks: SystemBlock[], isEnabled: (id: string) => bo
     enabled: isEnabled("user:CLAUDE.md"),
     countInBudget: true,
     sourceUri: path,
+    editable: false,
+    injectedByTopicsApp: true,
+  });
+}
+
+/**
+ * Claude Code's memory index for the folder the turn runs in (`MEMORY.md` of the
+ * repo, or of the home without a project). Native only, like the rules: `claude`
+ * injects it by itself. The cards themselves are not here: the per-prompt recall
+ * travels with the user's message (`routes/chat.ts`), as the CLI's hook does.
+ */
+function pushClaudeMemoryIndexBlock(blocks: SystemBlock[], cwd: string, isEnabled: (id: string) => boolean): void {
+  const index = readClaudeMemoryIndex(cwd);
+  if (!index) return;
+  const id = "user:MEMORY.md";
+  blocks.push({
+    id,
+    label: tildePath(index.path),
+    category: "memory",
+    content: index.content,
+    tokens: estimateTokens(index.content),
+    enabled: isEnabled(id),
+    countInBudget: true,
+    sourceUri: index.path,
     editable: false,
     injectedByTopicsApp: true,
   });

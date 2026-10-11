@@ -24,6 +24,8 @@ import { useDisclosureToggle } from './Chat/transcriptDisclosure';
 import { DisclosureBody } from './Chat/DisclosureBody';
 import { foldFinishedTurn, noteWatchedLive, wasWatchedLive } from './Chat/turnFold';
 import { coalesceBrowserOpens, type BrowserMarker } from './Chat/browserOpens';
+import { viewOf, type ViewOpen } from './Chat/viewOpens';
+import { ViewBlock } from './Views/ViewBlock';
 import { BrowserOpenMarker } from './Chat/BrowserOpenMarker';
 import { useTaskWorkFold } from './Chat/taskWorkFoldContext';
 import type { ToolCall } from '../types';
@@ -37,8 +39,10 @@ import { useKnownSlashName } from '../state/knownSlashNames';
 import { extractMediaPaths, splitBlockMedia } from './messageMedia';
 import { getSession, subscribeSession } from '../lib/auth/session';
 import { CommandRunContext, type CommandRunTarget } from './Chat/commandRunContext';
+import { useMediaBox } from './Chat/mediaBox';
 import { useCommandRun } from './Chat/useCommandRun';
 import { RunButtons, RunConfirmStrip } from './Chat/CodeBlockRunControls';
+import { stripAnsi } from '../lib/stripAnsi';
 
 // Only a block that has been run draws one: its output reader stays out of the first load.
 const CommandRunBlock = lazy(async () => {
@@ -149,7 +153,15 @@ function FileIcon({ path, size = 24 }: { path: string; size?: number }) {
 function MediaImage({ path }: { path: string }) {
   const [lightbox, setLightbox] = useState(false);
   const [error, setError] = useState(false);
+  // Its box before the bytes, from the size the server sent (`Chat/mediaBox.ts`).
+  const box = useMediaBox(path);
   const src = getMediaUrl(path);
+  const [loadedSrc, setLoadedSrc] = useState<string | null>(null);
+  const loaded = loadedSrc === src;
+  // In its box and still without its bytes: the box reads as the place of a
+  // picture (a neutral tint of the theme), and the curtain of the list does not
+  // wait for it (`data-media-box`, `Chat/listPaintedAndWhole.ts`).
+  const boxed = !!box && !loaded;
 
   if (error) {
     return (
@@ -161,7 +173,7 @@ function MediaImage({ path }: { path: string }) {
 
   return (
     <>
-      <img data-testid="media-image" src={src} alt={getFileName(path)} className="max-w-full max-h-80 rounded-lg cursor-pointer hover:opacity-90 transition-opacity my-1" onClick={() => setLightbox(true)} onError={() => setError(true)} loading="lazy" />
+      <img data-testid="media-image" src={src} alt={getFileName(path)} className={`max-w-full max-h-80 rounded-lg cursor-pointer hover:opacity-90 transition-opacity my-1${boxed ? ' bg-app-hover dark:bg-elevated' : ''}`} style={boxed ? box : undefined} data-media-box={boxed ? '' : undefined} onLoad={box ? () => setLoadedSrc(src) : undefined} onClick={() => setLightbox(true)} onError={() => setError(true)} loading="lazy" />
       {lightbox && <ImageLightbox src={src} alt={getFileName(path)} onClose={() => setLightbox(false)} />}
     </>
   );
@@ -1036,7 +1048,8 @@ type BlockGroup =
   | { kind: 'text'; idx: number; text: string }
   | { kind: 'media'; idx: number; path: string; seq: number }
   | { kind: 'tools'; startIdx: number; tools: ToolCall[] }
-  | { kind: 'browser'; idx: number; marker: BrowserMarker };
+  | { kind: 'browser'; idx: number; marker: BrowserMarker }
+  | { kind: 'view'; idx: number; tool: ToolCall; view: ViewOpen };
 
 /**
  * DA DOVE VIENE QUESTA RISPOSTA.
@@ -1080,7 +1093,7 @@ function WokenBanner({ woken }: { woken: WakeBlock }) {
       <span className="min-w-0 break-words">
         {title}
         {text && (
-          <span data-testid="woken-event" className="mt-0.5 block max-h-24 overflow-y-auto whitespace-pre-wrap font-mono text-mini text-blue-900/80 dark:text-blue-200/80">{text}</span>
+          <span data-testid="woken-event" className="mt-0.5 block max-h-24 overflow-y-auto whitespace-pre-wrap font-mono text-mini text-blue-900/80 dark:text-blue-200/80">{stripAnsi(text)}</span>
         )}
       </span>
     </div>
@@ -1232,6 +1245,8 @@ export const MessageContent = memo(function MessageContent({ content, role, thin
         const marker = browserOpens.get(b.toolCall.id);
         if (marker === null) continue;
         if (marker) { out.push({ kind: 'browser', idx: i, marker }); continue; }
+        const view = viewOf(b.toolCall);
+        if (view) { out.push({ kind: 'view', idx: i, tool: b.toolCall, view }); continue; }
         const last = out[out.length - 1];
         if (last && last.kind === 'tools') last.tools.push(b.toolCall);
         else out.push({ kind: 'tools', startIdx: i, tools: [b.toolCall] });
@@ -1379,6 +1394,7 @@ export const MessageContent = memo(function MessageContent({ content, role, thin
             );
           }
           if (g.kind === 'browser') return <BrowserOpenMarker key={`g-br-${g.idx}`} marker={g.marker} />;
+          if (g.kind === 'view') return <ViewBlock key={`g-view-${g.idx}`} spec={g.view.spec} viewId={g.view.viewId} />;
           if (g.kind === 'tools') {
             // Consecutive runs of ≥3 aggregatable calls collapse into a
             // single summary row with per-tool counts (CHAT-TOOL-02);

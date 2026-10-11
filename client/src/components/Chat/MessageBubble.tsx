@@ -15,6 +15,7 @@ import { isAwaitingHuman } from '../../../../shared/types';
 import { turnIsOnlyError } from './turnError';
 import { goalLoopRowOf } from './goalLoopRow';
 import { machineStopOf } from './machineRow';
+import { messageHasView } from './viewOpens';
 import { MachineStopLine } from './MachineStopLine';
 import { StreamTokenRateIndicator } from './StreamTokenRateIndicator';
 import { isDispatchedEnvelope } from './dispatchedEnvelope';
@@ -26,6 +27,7 @@ import { useMobile } from '../../hooks/useMobile';
 import { hoverRevealClass } from '../../lib/hoverReveal';
 import { useLongPress } from '../../hooks/useLongPress';
 import { useDismissable } from '../../hooks/useDismissable';
+import { MediaSizesContext } from './mediaBox';
 
 // «Sono su un dispositivo touch?» si chiede a `useMobile`, e basta. Qui c'era
 // una costante di MODULO valutata una volta sola all'import: un valore che non
@@ -410,7 +412,7 @@ export const MessageBubble = memo(function MessageBubble({
           // Only the user's own messages are boxed into a bubble, so only
           // they need the 85% cap to look like a bubble; assistant replies
           // have no card to constrain and get the full row width instead.
-          className={`relative flex flex-col min-w-0`}
+          className={`relative flex flex-col min-w-0 ${msg.role === 'assistant' && messageHasView(msg.blocks, msg.toolCalls) ? 'w-full' : ''}`}
           style={{ maxWidth: isMobile ? 'calc(100vw - 5rem)' : (msg.role === 'user' ? '85%' : '100%') }}
         >
           {/* A pinned message carries the mark outside the hover too (CMDUI-10):
@@ -522,6 +524,7 @@ export const MessageBubble = memo(function MessageBubble({
                   always been. `isMachineWork` decides, and the accordion opens
                   onto exactly these same rows. */}
               <FoldWork fold={foldWork} msg={msg}>
+              <MediaSizesContext.Provider value={msg.mediaSizes}>
               <MessageContent
                 content={msg.content}
                 role={msg.role}
@@ -535,6 +538,7 @@ export const MessageBubble = memo(function MessageBubble({
                 messageId={msg.id}
                 runnable
               />
+              </MediaSizesContext.Provider>
               </FoldWork>
             </div>
           </div>

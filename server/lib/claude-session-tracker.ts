@@ -17,6 +17,7 @@ import { homedir } from 'os';
 import {
   applyHook,
   applyStaleHook,
+  settleWatching,
   newSessionFromByteZero,
   applyJsonlEvent,
   reapStaleSession,
@@ -27,11 +28,13 @@ import {
   isActivePhase,
   isTerminalPhase,
   parseJsonlLine,
+  opensTurn,
   splitJsonlChunk,
   isKnownHookEvent,
   deriveTranscriptPath,
   type HookPayload,
   type ClaudeSessionState,
+  type JsonlEvent,
   type ReaperConfig,
   DEFAULT_REAPER_CONFIG,
 } from './claude-session-state';
@@ -40,8 +43,8 @@ import { findForkContinuation } from './transcript-fork';
 import { basename } from 'path';
 import { parseTranscriptDelta } from './claude-transcript-import';
 import type { StoredMessage } from '../types';
-import { applyTaskChanges, countingTasks, processEnded } from '../attention/store';
-import { hookTasks, syncAttention, transcriptTasks } from '../attention/tracker-sync';
+import { applyTaskChanges, countingTasks, observeTasksEmptied, processEnded } from '../attention/store';
+import { createTranscriptEnds, hookTasks, syncAttention, transcriptTurnStarted } from '../attention/tracker-sync';
 import { createHookOrder, hookDedupKey, hookEventTime } from './hook-order';
 
 export type Broadcaster = (msg: OutboundMessage) => void;
@@ -349,6 +352,14 @@ export function createClaudeSessionTracker(opts: ClaudeSessionTrackerOptions): C
   // design: terminal.ts re-registers on reconcile after a restart and the next
   // hook re-establishes phase.
   const terminalStates = new Map<string, ClaudeSessionState>();
+  // The task ends the live tail reads while a reattach's catch-up still reads the history before them, per
+  // subject: they wait for it, so the task map takes the file's order. An end the catch-up reads late then
+  // stays of before the restart even when the CLI's delivery row of it is read live first (ATTN-03).
+  const heldForCatchUp = new Map<string, { lines: string[]; readers: number }>();
+  // The task ends each subject's transcript reports: the notices the CLI queued and has not settled yet, and whether
+  // a parked turn lost its last counting task since it parked (`createTranscriptEnds`).
+  const transcriptEnds = createTranscriptEnds();
+  observeTasksEmptied((subject) => transcriptEnds.emptied(subject, now()));
   // Stato del "seguire il fork", per sessionKey adottata: quando abbiamo
   // guardato l'ultima volta e quali file vicini abbiamo già scartato (con il
   // loro mtime, così un file che cambia torna candidabile). Volatile: al
@@ -515,6 +526,8 @@ export function createClaudeSessionTracker(opts: ClaudeSessionTrackerOptions): C
       if (next.monitorArmed) attesArmate.add(next.sessionKey); else attesArmate.delete(next.sessionKey);
     }
     const res = dbPrev ? commit(dbPrev, next) : commitTerminal(prev, next);
+    // A turn that parks starts over: only the ends read from here on let it rest.
+    if (subject && res.state.phase === 'watching' && prev.phase !== 'watching') transcriptEnds.parked(subject);
     // A late hook opens or closes no turn: the hook that overtook it already did.
     syncAttention(subject, prev, res.state, late ? null : event, !dbPrev, at);
     return late ? { kind: 'stale', claudeSessionId: sid } : { kind: 'ok', state: res.state, changed: res.changed };
@@ -584,10 +597,12 @@ export function createClaudeSessionTracker(opts: ClaudeSessionTrackerOptions): C
     const prev = dbPrev ?? terminalStates.get(claudeSessionId);
     if (!prev) return false;
     const subject = subjectOf(prev);
-    transcriptTasks(subject, line);
+    liveTranscriptTasks(subject, line);
     const ev = parseJsonlLine(line);
-    if (!ev) return false;
-    const next = applyJsonlEvent(prev, ev, t);
+    if (ev && opensTurn(ev) && ev.ts !== undefined) turnOpened(prev, subject, ev.ts);
+    const moved = ev ? applyRow(prev, ev, subject, t) : prev;
+    const next = subject ? settleWatching(moved, countingTasks(subject), transcriptEnds.drained(subject, t), t) : moved;
+    if (!ev && next === prev) return false;
     const res = dbPrev ? commit(dbPrev, next) : commitTerminal(prev, next);
     if (!dbPrev) syncAttention(subject, prev, res.state, null, true, t);
     return res.changed;
@@ -660,6 +675,96 @@ export function createClaudeSessionTracker(opts: ClaudeSessionTrackerOptions): C
     }
     terminalStates.set(claudeSessionId, state);
     scheduleBroadcast(state);
+    // A reattach replays no phase, but the tasks its history reports finished still leave the map.
+    if (jsonlPath && state.jsonlOffset) {
+      void catchUpTasks(state, jsonlPath, state.jsonlOffset).catch((err) => console.warn('[claude-session-tracker] task catch-up failed', err));
+    }
+  }
+
+  /**
+   * The tasks a reattached terminal still holds that its transcript already
+   * reports finished. A notification written while no server read the file, or
+   * one an older parser skipped (the queue records of a notice absorbed
+   * mid-turn, Claude Code 2.1.292), would keep the subject «working» until its
+   * PTY exits. Only the task map
+   * moves (`transcriptEnds`), read in chunks up to where the live tail starts,
+   * and it moves the way a restart recomposes: nothing is announced (ATTN-03).
+   */
+  async function catchUpTasks(state: ClaudeSessionState, jsonlPath: string, end: number): Promise<void> {
+    const subject = subjectOf(state);
+    if (!subject || countingTasks(subject) === 0) return;
+    // Set before the first await: a line the tail reads from here on comes after the history in the file.
+    const held = heldForCatchUp.get(subject) ?? { lines: [], readers: 0 };
+    held.readers += 1;
+    heldForCatchUp.set(subject, held);
+    try {
+      const fh = await fsp.open(jsonlPath, 'r');
+      try {
+        const decoder = new TextDecoder();
+        const buf = Buffer.alloc(1 << 20);
+        let rest = '';
+        for (let at = 0; at < end && countingTasks(subject) > 0;) {
+          const { bytesRead } = await fh.read(buf, 0, Math.min(buf.length, end - at), at);
+          if (bytesRead === 0) break;
+          at += bytesRead;
+          const { lines, remainder } = splitJsonlChunk(rest + decoder.decode(buf.subarray(0, bytesRead), { stream: true }));
+          rest = remainder;
+          // A line the tail already read and holds is live: a second reattach reading over it leaves it to the hold.
+          for (const line of lines) if (line.includes('<task-notification>') && !held.lines.includes(line)) endTasks(subject, line, { late: true });
+        }
+      } finally {
+        await fh.close();
+      }
+    } finally {
+      // The last of the reattach's readers lets the held lines in, live and in the order they were read.
+      if ((held.readers -= 1) === 0) {
+        heldForCatchUp.delete(subject);
+        for (const line of held.lines) endTasks(subject, line);
+        const reattached = terminalStates.get(state.claudeSessionId);
+        if (reattached) transcriptEnds.expire(subject, reattached, now());
+        settleTerminal(state.claudeSessionId);
+      }
+    }
+  }
+
+  /** A terminal whose `Stop` came while the read held its last tasks, or before it took them out: `settleWatching`. */
+  function settleTerminal(claudeSessionId: string): void {
+    const prev = terminalStates.get(claudeSessionId);
+    const subject = prev ? subjectOf(prev) : null;
+    if (!prev || !subject) return;
+    const t = now();
+    const next = settleWatching(prev, countingTasks(subject), transcriptEnds.drained(subject, t), t);
+    if (next === prev) return;
+    const res = commitTerminal(prev, next);
+    syncAttention(subject, prev, res.state, null, true, t);
+  }
+
+  /**
+   * A row that opens a turn, at its own time: it orders the hooks (`hook-order.ts`) and, newest of all, opens a
+   * terminal's turn that its late `Stop` will not (`transcriptTurnStarted`).
+   */
+  function turnOpened(prev: ClaudeSessionState, subject: string | null, at: number): void {
+    const newest = hookOrder.opened(prev.claudeSessionId, at);
+    if (subject && newest && terminalStates.has(prev.claudeSessionId)) transcriptTurnStarted(subject, prev);
+  }
+
+  /** A row on the phase: one that wakes a parked turn outdates an emptying of its map (`transcriptEnds.woke`). */
+  function applyRow(prev: ClaudeSessionState, ev: JsonlEvent, subject: string | null, t: number): ClaudeSessionState {
+    const next = applyJsonlEvent(prev, ev, t);
+    if (subject && prev.phase === 'watching' && next.phase !== 'watching') transcriptEnds.woke(subject);
+    return next;
+  }
+
+  /** The task ends of a line the live tail reads, held while a catch-up of its subject still reads (`heldForCatchUp`). */
+  function liveTranscriptTasks(subject: string | null, line: string): void {
+    const held = subject ? heldForCatchUp.get(subject) : undefined;
+    if (!held) endTasks(subject, line);
+    else if (line.includes('<task-notification>')) held.lines.push(line);
+  }
+
+  /** The task ends of a transcript line (`transcriptEnds`), dated when the CLI wrote it. `late`: a reattach's catch-up. */
+  function endTasks(subject: string | null, line: string, opts?: { late?: boolean }): void {
+    if (subject && line.includes('<task-notification>')) transcriptEnds.read(subject, line, parseJsonlLine(line)?.ts ?? now(), opts?.late);
   }
 
   function dropTerminalSession(claudeSessionId: string): void {
@@ -675,7 +780,9 @@ export function createClaudeSessionTracker(opts: ClaudeSessionTrackerOptions): C
       // was missed — or whose headless task process died — stayed `running`
       // forever, pinning the active-session count.
       const idle = ptyIdleMs?.(prev.claudeSessionId) ?? null;
-      const next = reapStaleSession(prev, t, reaperConfig, idle);
+      const subject = subjectOf(prev);
+      if (subject) transcriptEnds.expire(subject, prev, t);
+      const next = settleParked(reapStaleSession(prev, t, reaperConfig, idle), t);
       if (next !== prev) {
         repo.update(next);
         scheduleBroadcast(next);
@@ -689,7 +796,9 @@ export function createClaudeSessionTracker(opts: ClaudeSessionTrackerOptions): C
     for (const prev of terminalStates.values()) {
       if (prev.phase === 'starting') continue;
       const idle = ptyIdleMs?.(prev.claudeSessionId) ?? null;
-      const next = reapStaleSession(prev, t, reaperConfig, idle);
+      const subject = subjectOf(prev);
+      if (subject) transcriptEnds.expire(subject, prev, t);
+      const next = settleParked(reapStaleSession(prev, t, reaperConfig, idle), t);
       if (next !== prev) {
         commitTerminal(prev, next);
         syncAttention(subjectOf(next), prev, next, null, true, t); // a turn put to rest ends for attention too
@@ -711,6 +820,12 @@ export function createClaudeSessionTracker(opts: ClaudeSessionTrackerOptions): C
       if (t - b.windowStart >= 1000) rateBuckets.delete(k);
     }
     return changed;
+  }
+
+  /** `settleWatching` while nothing is read, once the clock took out the notices it expired (`transcriptEnds`). */
+  function settleParked(s: ClaudeSessionState, t: number): ClaudeSessionState {
+    const subject = s.phase === 'watching' ? subjectOf(s) : null;
+    return subject ? settleWatching(s, countingTasks(subject), transcriptEnds.drained(subject, t), t) : s;
   }
 
   function listSessions(): ClaudeSessionState[] {
@@ -756,11 +871,13 @@ export function createClaudeSessionTracker(opts: ClaudeSessionTrackerOptions): C
         let cur = sess;
         const subject = subjectOf(sess);
         for (const line of lines) {
-          transcriptTasks(subject, line);
+          liveTranscriptTasks(subject, line);
           const ev = parseJsonlLine(line);
+          if (ev && opensTurn(ev) && ev.ts !== undefined) turnOpened(cur, subject, ev.ts);
           if (!ev) continue;
-          cur = applyJsonlEvent(cur, ev, t);
+          cur = applyRow(cur, ev, subject, t);
         }
+        if (subject) cur = settleWatching(cur, countingTasks(subject), transcriptEnds.drained(subject, t), t);
         // Persist offset = bytes consumed up to last newline.
         const consumedBytes = len - Buffer.byteLength(remainder, 'utf-8');
         const nextOffset = sess.jsonlOffset + consumedBytes;

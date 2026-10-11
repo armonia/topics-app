@@ -201,6 +201,18 @@ export interface ThreadLoadOpts {
  */
 export type MessageEndReason = "done" | "stopped" | "error" | "closed-outside" | "cut-by-restart";
 
+/** A message of the active thread seen without its text (`loadThreadSkeleton`). */
+export interface ThreadSkeletonNode {
+  id: string;
+  partial: boolean;
+  siblingCount: number;
+  activeBranchIndex: number;
+  /** Only with `forPrompts`: the role of the row... */
+  role?: "user" | "assistant";
+  /** ...and whether it opens with the gateway's context envelope (a user-role row that is not a prompt). */
+  ctxPrefix?: boolean;
+}
+
 export interface StoredMessage {
   id: string;
   role: "user" | "assistant";
@@ -570,6 +582,12 @@ export interface AppContext {
   /** Upserts only the given rows. */
   saveUnreadEntries: (entries: UnreadData) => void;
   loadLocalMessages: (sessionKey: string, opts?: ThreadLoadOpts) => StoredMessage[];
+  /** The active thread of a session WITHOUT the text: id, role, partial/context-envelope flags and the branch annotations of each message. */
+  loadThreadSkeleton: (sessionKey: string, opts?: { forPrompts?: boolean }) => ThreadSkeletonNode[];
+  /** The lean rows (no `blocks`/`tool_calls`) of the given messages, in the given order, with their branch annotations. */
+  loadThreadRows: (nodes: ReadonlyArray<{ id: string; siblingCount?: number; activeBranchIndex?: number }>) => StoredMessage[];
+  /** The last `limit` messages of the active thread after dropping `offset`, loaded lean (no bodies), plus the thread `total`. */
+  loadThreadWindow: (sessionKey: string, limit: number, offset: number) => { messages: StoredMessage[]; total: number };
   /** Fills `blocks`/`tool_calls` back into messages loaded lean. `withToolOutputs`: see ThreadLoadOpts. */
   hydrateMessageBodies: (msgs: StoredMessage[], opts?: Pick<ThreadLoadOpts, "withToolOutputs">) => StoredMessage[];
   /** One read for all of `msgs`, then decodes one message per call (see utils.ts). */

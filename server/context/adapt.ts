@@ -36,6 +36,7 @@ export type SystemSlotId =
   | "prompt"
   | "user-rules"
   | "skills"
+  | "user-memory"
   | "files"
   | "template"
   | "browser"
@@ -57,6 +58,7 @@ const SLOT_LABELS: Record<SystemSlotId, string> = {
   prompt: "system prompt",
   "user-rules": "user rules",
   skills: "skills",
+  "user-memory": "memory index",
   files: "context files",
   template: "project files",
   browser: "browser instructions",
@@ -197,11 +199,11 @@ export interface AdaptOptions {
 }
 
 /**
- * THE TWO BLOCKS ONLY THE NATIVE RUNTIME MUST RECEIVE.
+ * THE BLOCKS ONLY THE NATIVE RUNTIME MUST RECEIVE.
  *
- * `claude` reads `~/.claude/CLAUDE.md` on its own and knows its own skills:
- * sending them means paying for the same text twice on every turn. The native
- * runtime talks to the API and has them nowhere.
+ * `claude` reads `~/.claude/CLAUDE.md` and its memory index on its own and knows
+ * its own skills: sending them means paying for the same text twice on every
+ * turn. The native runtime talks to the API and has them nowhere.
  *
  * THE FILTER LIVES HERE, NOT IN `assembleTopicContext`, and the reason is a
  * mistake already made: the route assembles the envelope with
@@ -210,7 +212,7 @@ export interface AdaptOptions {
  * preview and not in the message, i.e. the worst way to be wrong, because the
  * inspector claimed they were there.
  */
-const NATIVE_ONLY_BLOCKS = new Set(["user:CLAUDE.md", "synthetic:skills"]);
+const NATIVE_ONLY_BLOCKS = new Set(["user:CLAUDE.md", "synthetic:skills", "user:MEMORY.md"]);
 
 export function adaptEnvelope(envelope: ContextEnvelope, opts?: AdaptOptions): ProviderPayload {
   const blocks = envelope.providerName === "topics"
@@ -414,6 +416,11 @@ export function composeSystemSlots(blocks: SystemBlock[]): SystemSlot[] {
   }
   const skills = enabled.find((b) => b.id === "synthetic:skills");
   if (skills) push("skills", skills.content);
+  const memoryIndex = enabled.find((b) => b.id === "user:MEMORY.md");
+  if (memoryIndex) {
+    push("user-memory",
+      `The user's memory index, from ${memoryIndex.label}. Each line points to a card in that folder: read it with your file tools when the task touches it, before rebuilding from scratch:\n\n${memoryIndex.content}`);
+  }
 
   // ── 2. Context files (aggregated) ──
   const files = enabled.filter((b) => b.category === "file");

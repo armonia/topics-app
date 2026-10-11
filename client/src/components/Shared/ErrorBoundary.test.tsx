@@ -173,7 +173,9 @@ describe('ErrorBoundary: the reason and the copyable detail', () => {
       boundary.componentDidCatch(new Error('a render bug'), { componentStack: '' });
     } finally {
       console.error = realConsoleError;
-      (globalThis as { window?: unknown }).window = saved;
+      // Removed, not set to undefined: a key left behind still answers `in`.
+      if (saved === undefined) delete (globalThis as { window?: unknown }).window;
+      else (globalThis as { window?: unknown }).window = saved;
     }
     expect(reasons).toEqual([CHUNK_FAILURE_REASON]);
   });

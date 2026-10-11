@@ -441,24 +441,24 @@ sia la gamma di un worktree che la sidebar puo' aver aperto a un secondo topic.
 
 #### Scenario: il chip compare dopo un turno che ha scritto
 - **GIVEN** un topic la cui conversazione contiene una tool call `write` su un file
-- **WHEN** l'utente guarda il blocco sopra il composer della chat
-- **THEN** vede un chip con il conteggio dei file toccati, sopra l'input e sulla sua stessa colonna
+- **WHEN** l'utente guarda la fine del trascritto della chat
+- **THEN** vede un chip con il conteggio dei file toccati, dopo l'ultimo messaggio, sopra l'input e sulla sua stessa colonna (CHAT-END-01)
 - **AND** cliccandolo si apre l'elenco con il path relativo e lo stato del file
 
 #### Scenario: una conversazione che non ha scritto niente non mostra il chip
 - **GIVEN** un topic le cui tool call sono solo letture, ricerche e comandi
-- **WHEN** l'utente guarda il blocco sopra il composer della chat
+- **WHEN** l'utente guarda la fine del trascritto della chat
 - **THEN** non c'e' nessun chip dei file modificati
 
 #### Scenario: un topic senza worktree non mostra il branch
 - **GIVEN** un topic non legato a un worktree, la cui conversazione ha scritto dei file
-- **WHEN** l'utente guarda la striscia sopra il composer
+- **WHEN** l'utente guarda la striscia in fondo al trascritto
 - **THEN** vede il chip con il conteggio dei file
 - **AND** non vede nessun nome di branch, nemmeno se il topic lavora dentro un repository
 
 #### Scenario: un topic legato a un worktree mostra il suo branch
 - **GIVEN** un topic con `worktreeId` non nullo, che lavora dentro un repository e ha scritto dei file
-- **WHEN** l'utente guarda la striscia sopra il composer
+- **WHEN** l'utente guarda la striscia in fondo al trascritto
 - **THEN** accanto al chip vede il nome del branch del worktree, con la root del repository come titolo
 
 #### Scenario: i conteggi vengono da git e riguardano solo i file del topic
@@ -584,7 +584,7 @@ contiene.
 
 ### Requirement: CHGSET-03 — La striscia della chat apre il diff con il pannello unico
 
-La tendina della striscia dei file modificati (`ChangedFilesStrip`, sopra il composer) SHALL
+La tendina della striscia dei file modificati (`ChangedFilesStrip`, in fondo al trascritto) SHALL
 disegnare `UnifiedDiff` sul changeset del topic (CHGSET-02) al posto dell'elenco semplice, con
 una sorgente nuova `{ kind: 'topic', topicId }` in `DiffPanelSource`. Ogni riga resta la riga
 condivisa `ChangedFileEntry` e, aperta, mostra quello che mostra in una card: il diff, la
@@ -788,7 +788,8 @@ scroll does: the list does not re-pin to the bottom while the body settles, and
 afterwards the follow comes back only when the reader is at the true bottom again
 (or sends, or asks for the bottom). A second click on the same header while it
 is still closing (a quick close and reopen) is part of the same hold, not a
-scroll. Closing a fold near the end keeps the missing height as empty room below
+scroll, and the body turns back from where it is: it does not first jump shut
+and then reopen. Closing a fold near the end keeps the missing height as empty room below
 the last row instead of pulling every row down; that room is given back as soon
 as it is out of sight or filled by new output, and a scroll down past the end
 (wheel or finger) takes it away by the same amount, so the last row comes back
@@ -796,12 +797,24 @@ onto the composer under the reader's own hand. Motion
 is the shared height animation of the body (`MOTION.base`), and nothing animates
 under `prefers-reduced-motion`.
 
-The strips docked above the composer (the goal, the todo list, the files this
-chat touched, the checkpoints) open their content ABOVE their header, in the
-flow of the docked block: the header keeps its place under the pointer, and a
-transcript that was following the bottom follows the block up, so its newest
-row is never hidden under the opened list (while the agent writes, too). A
-transcript read further up does not move.
+The chat's strips at the end of the transcript (the goal, the todo list, the
+files this chat touched, the checkpoints; CHAT-END-01) open their content ABOVE
+their header, in the flow of the strip: the header keeps its place under the
+pointer and the transcript above it moves up with the opened list, so its
+newest row stays in sight above the strip (while the agent writes, too). The
+reader at the bottom stays at the true bottom, so the follow stays theirs: what
+arrives under them while the strip settles (a new row, a reply) is followed once
+it has settled; the hold delays that pin and does not drop it. A strip is on
+screen only at the end of the chat, so it has no middle case.
+
+A command's row of the live-work strip opens its log UNDER itself instead
+(SUBSTRIP-02). Toggled by a reader at the bottom, the hold keeps the bottom
+rather than the row: the log comes into sight above the composer with its row
+on top of it, and closing it gives the view back where it was. The end comes up
+no further than the row's own top, so the row clicked stays in sight. A reader
+further up keeps the row in place, open and shut. Such a fold never keeps room
+below the last row: a close the row cannot be held through lets the end come
+down, back to the bottom.
 
 #### Scenario: opening a fold at the bottom of the chat
 - **GIVEN** a chat at its true bottom whose last message holds a closed fold
@@ -820,6 +833,7 @@ transcript read further up does not move.
 - **GIVEN** a fold open at the end of the chat, read down to the true bottom
 - **WHEN** the person presses its header twice in a row, the second press while the body is still closing
 - **THEN** the header stays within 1 px of where it was in every frame
+- **AND** the body turns back from the height the close had reached, never lower
 - **AND** the fold ends open
 
 #### Scenario: the room left near the end scrolls away
@@ -837,11 +851,11 @@ transcript read further up does not move.
 - **WHEN** the person opens it
 - **THEN** the body opens onto the whole output in one run, not onto a loading line that the output pushes down later
 
-#### Scenario: a strip docked over the composer
-- **GIVEN** the goal bar, the todo strip or the changed-files strip above the composer
+#### Scenario: a strip at the end of the transcript
+- **GIVEN** the goal bar, the todo strip or the changed-files strip at the end of the transcript, with the chat at its bottom
 - **WHEN** the person opens and closes it
 - **THEN** the strip's header stays where it was
-- **AND** with the chat at its bottom the newest row stays in sight above the opened list; read further up, the rows on screen do not move
+- **AND** the newest row stays in sight above the opened list
 
 #### Scenario: a docked list open while the agent writes
 - **GIVEN** the todo strip open with the chat at its bottom
@@ -853,6 +867,35 @@ transcript read further up does not move.
 - **WHEN** new output arrives
 - **THEN** the view stays on the header the person opened
 - **AND** once the reader scrolls back to the true bottom, or sends, new output is followed again
+
+### Requirement: CHAT-END-01 — The chat's strips are the end of the transcript
+
+The strips that say where the chat stands (the goal or, without one, the agent's
+latest todo list; the live work, SUBSTRIP-01; the checkpoints; the files this
+chat touched) SHALL be drawn at the end of the transcript, inside its scroll,
+after the last message and on the composer's column, not in the block docked
+above the composer. That block SHALL keep only what belongs to the send: the
+plan approval bar, the frozen-command line, the unsent messages and the answer
+of a command typed in the composer. A chat with no messages (empty, its
+composer in the middle of the pane, or its history still on the way) SHALL keep
+the strips in the composer's block, since it has no transcript to hold them.
+
+A reader at the bottom of the chat SHALL stay at the bottom when a strip
+appears, grows or shrinks; a reader further up SHALL see nothing on screen move
+when the strips change below. (chat-strips-in-transcript, 08/10: «il goal e
+tutte le cose sopra l'input in realtà dovrebbero restare a fondo chat».)
+
+#### Scenario: the strips sit after the last message
+- **GIVEN** a chat with messages, read at its bottom
+- **WHEN** one of its commands starts and then its goal is set
+- **THEN** the command's row and the goal bar are in the transcript after the last message, above the composer's block and within its column
+- **AND** the composer's block holds neither
+- **AND** the view is still at the bottom after each of them appears
+
+#### Scenario: a reader further up does not move
+- **GIVEN** a reader who scrolled up the same chat with the wheel
+- **WHEN** a row of the strip arrives and another leaves
+- **THEN** the message they are reading stays where it was on screen
 
 ### Requirement: CHAT-TOOL-04 — Codice formattato nei body dei tool
 
@@ -1111,6 +1154,35 @@ paperclip chip and the image thumbnail.
 - **WHEN** the x of the first one is clicked
 - **THEN** the attachment SHALL be removed
 - **AND** no message SHALL be sent, and no upload or chat request SHALL leave
+
+### Requirement: CHAT-COMPOSER-02 - What is typed as a chat opens is what gets sent
+
+The composer SHALL take its saved draft (`draft:<topicId>` in localStorage) in
+the render that mounts the chat, or that brings another topic to the same pane,
+and never in an effect after that render. An effect runs after the commit, and
+when the render was not a synchronous one it runs a task later:
+a keystroke that lands in between was overwritten by the draft saved before it,
+and the Enter after it found an empty field and sent nothing, with no word on
+screen. Seen on 08/10 in a WebKit run on a loaded Mac: a `fill` and an Enter in a
+chat that had just opened, then no bubble, no POST /api/chat and an empty
+composer.
+
+Measured on the Mac the same day: in both ways of opening below, the composer
+commits in a synchronous render and its effects run in the same task, so no
+keystroke from outside lands first unless the machine is loaded. The bench SHALL
+therefore type in the commit that first shows the composer, before that commit's
+effects, which is the order of the run that lost its message.
+
+#### Scenario: Typed as the page opens the chat
+- **GIVEN** a chat in front of its project window as the page loads
+- **WHEN** text is typed into its composer in the commit that first shows it, and Enter is pressed
+- **THEN** the composer SHALL still hold the text before Enter
+- **AND** the message SHALL appear in the transcript and reach the engine
+
+#### Scenario: Typed as a click on its tab opens the chat
+- **GIVEN** a chat open as a tab of its project window and never shown
+- **WHEN** its tab is clicked, text is typed into its composer in the commit that first shows it, and Enter is pressed
+- **THEN** the message SHALL appear in the transcript and reach the engine
 
 ### Requirement: CHAT-RND-01 — Syntax Highlighting In Code Blocks
 
@@ -1766,7 +1838,7 @@ position, so the rest of the answer keeps landing in its own bubble.
 
 ### Requirement: SUBSTRIP-01 — A chat's sub-agent stays in its strip while it runs, and is marked ended when it ends
 
-A sub-agent spawned by a chat (a terminal session whose `parentSessionKey` is that chat's sessionKey) SHALL keep its row in the chat's sub-agent strip for as long as its session is live, whatever is sent in the parent chat or typed into the sub-agent's terminal pane. When its session leaves the live roster (the process exits, is stopped or crashes) the row SHALL stay, marked ended with the "done" check, until the user dismisses it, closes its terminal tab, or the parent chat is archived; it SHALL survive a reload. The sub-agent's top-level terminal tab SHALL stay open while that row does; inside a project window its tab SHALL close when its session ends (SUBSTRIP-01g). A sub-agent resumed from its pane SHALL be listed live again.
+A sub-agent spawned by a chat (a terminal session whose `parentSessionKey` is that chat's sessionKey) SHALL keep its row in the chat's sub-agent strip for as long as its session is live, whatever is sent in the parent chat or typed into the sub-agent's terminal pane. When its session leaves the live roster (the process exits, is stopped or crashes), or its turn is over, the row SHALL stay, marked ended with the "done" check, for 60 seconds from that end and then leave, or sooner when the user dismisses it or closes its terminal tab; a reload within that minute SHALL show it again for what remains of it (chat-live-work: on 07/10 three sub-agents ended hours before filled the strip of a chat whose real work was a command nobody could see). A CLI sub-agent ends when its turn is reported, not when its idle session is retired 15 minutes later. The strip SHALL list the chat's native sub-agents and its running processes too (`GET /api/topics/:id/live-work`); a process row SHALL carry its own Stop and, when its end will wake the chat, say so (BGVIS-07/08). The sub-agent's top-level terminal tab SHALL stay open while that row does; inside a project window its tab SHALL close when its session ends (SUBSTRIP-01g). A sub-agent resumed from its pane SHALL be listed live again.
 
 #### Scenario: A message in the parent chat does not take the sub-agent away
 - **GIVEN** a chat with a live sub-agent listed in its strip and its terminal pane open
@@ -1777,7 +1849,7 @@ A sub-agent spawned by a chat (a terminal session whose `parentSessionKey` is th
 - **GIVEN** a chat whose only sub-agent is live
 - **WHEN** the sub-agent's process ends
 - **THEN** the strip SHALL still show its row, marked ended
-- **AND** after a reload the ended row SHALL still be there, until the user dismisses it
+- **AND** after a reload within the minute the ended row SHALL still be there, and 60 seconds after the end it SHALL be gone
 
 ### Requirement: SUBSTRIP-01b — Closing an ended sub-agent's tab takes its row away
 
@@ -1857,7 +1929,87 @@ The ended rows and the dismissals SHALL be shared by every window of the same br
 - **WHEN** one window dismisses a row and the other then dismisses another
 - **THEN** the first row SHALL disappear from the other window too, and neither row SHALL come back after a reload
 
-### Requirement: TODO-01 — The session's latest todo list is the plan pinned above the composer
+### Requirement: SUBSTRIP-02 — A command's row opens its live log under itself, as an accordion
+
+A click on a command's row of the strip SHALL open that command's live log in
+the strip, UNDER the row: the same tail the card of the tool call that started
+it shows (`ProcessTail`, `LiveShellTail`, `useLaunchedProcess`, from the process
+registry: running, then its exit and its last lines), with the row's Open and
+Stop. The log SHALL read as the row's own content: indented under the row's
+name, on the open row's surface, with no box of its own. It SHALL scroll back,
+inside a box of at most 18rem, to the first line the registry still has; it
+starts at its end and follows new lines, and a reader who goes up in it stays
+there while lines arrive, until they come back to the end. A wheel over a log
+that scrolls stays in the log: the transcript does not move and keeps its
+follow. A second click on the row SHALL close it, and at most one row SHALL be
+open at a time. The transcript SHALL NOT go to the card that started the
+command, which stays as it was. A reader at the bottom stays there: the
+transcript moves up by the log's room, the row with it (the end comes up no
+further than the row's top); a reader further up keeps the row where it is
+(CHAT-FOLD-01). Closed, the view SHALL be back where it was: a reader at the
+bottom at the same bottom, one further up at the same row within 1 px, and no
+empty room left below the strip. A command that ends with its log open SHALL
+keep its row, in its place and without Open and Stop, until the log is closed;
+its own Stop closes the log, and the row leaves as before. The card of a
+`run_command` / `run_script` in the transcript keeps the same live log under
+its answer. The alarm clock on a row whose end wakes the chat SHALL be a sign,
+not a control: part of the row's label, without a role of a control, a focus or
+a hover of its own, its tooltip saying what it means (`chat.background.wakes`),
+and describing the row's button for a screen reader.
+(chat-strips-in-transcript, 08/10: «si apre un nuovo accordion sopra invece di
+sfruttare quello già dell'agente», then «i server si stanno aprendo dove si sono
+aperti. In realtà si devono aprire direttamente dal pannellino a fondo chat, ad
+accordion»; then, on the accordion: «si sta aprendo sopra e non sotto», «non si
+capisce che è di quella riga, sembra un terminale», «non ha lo scroll per
+andare alle cose precedenti», «forse non è un tasto», «quando apro e poi chiudo,
+resta scrollata».) A sub-agent's row keeps opening its chat or its terminal.
+
+#### Scenario: the row opens its live log under itself
+- **GIVEN** a turn that started a ticking command with `run_command` and then pushed its card out of sight, the reader at the bottom
+- **WHEN** the person clicks the command's row in the strip
+- **THEN** the row is open with its live log under it, moving, in sight above the composer; the reader is still at the bottom, and the transcript and the row moved by the log's room only
+- **AND** the log is indented under the row, has no background of its own and sits on the open row's surface
+- **AND** the card that started the command is still closed and out of sight
+
+#### Scenario: the log scrolls back to its first line
+- **GIVEN** a command's row open, its log longer than its box and following its end
+- **WHEN** the reader wheels up inside the log
+- **THEN** the log shows the command's first line, and new lines leave it there
+- **AND** the transcript has not moved and still follows its end: a new command's row arrives in sight
+- **WHEN** the reader wheels back to the log's end
+- **THEN** the log follows its new lines again
+
+#### Scenario: one log at a time, and a second click closes it
+- **GIVEN** a command's row open
+- **WHEN** the person clicks another command's row
+- **THEN** that row opens with its log under it, and the first one closes
+- **WHEN** the person clicks it again
+- **THEN** its log closes and no row is open
+
+#### Scenario: closed, the view is back where it was
+- **GIVEN** the reader at the bottom
+- **WHEN** the person opens a command's log and closes it
+- **THEN** the transcript is at the same place within 1 px, the row at the same height, the reader at the bottom
+- **GIVEN** the reader went up the transcript while the log was open
+- **WHEN** the person closes it
+- **THEN** the view is back at the bottom it was opened from, with no empty room below the strip
+- **GIVEN** a reader further up
+- **WHEN** the person opens a command's log and closes it
+- **THEN** the row stays where it was while open and once closed, and so does the transcript, within 1 px
+
+#### Scenario: the alarm clock is a sign
+- **GIVEN** the row of a command whose end wakes the chat
+- **THEN** its alarm clock is inside the row's button, not a button itself, cannot take the focus, has no hand cursor and no hover of its own
+- **AND** hovering it shows the tooltip «When this command ends, the chat wakes up and carries on by itself», which also describes the row's button
+
+#### Scenario: a command that ends with its log open
+- **GIVEN** a command's row open
+- **WHEN** the command ends and its wake makes the chat write again
+- **THEN** the row stays open, says how the command ended with its last lines, and has no Stop; a reader at the bottom stays there
+- **WHEN** the person clicks the row
+- **THEN** the log closes and the row leaves
+
+### Requirement: TODO-01 — The session's latest todo list is the plan shown at the end of the transcript
 
 The system SHALL keep the most recent todo list written by the agent
 (`TodoWrite`) available as a snapshot of the current plan: the items, how many
@@ -2283,6 +2435,12 @@ lì il danno è totale, perché la riadozione l'ha già svuotata per riusarla.
 #### Scenario: l'intermediario muore a metà volo
 - **GIVEN** la morte del processo intermedio
 - **THEN** il turno SHALL finire, non restare appeso
+
+#### Scenario: la scansione supera il tetto mentre la ritrasmissione arriva ancora
+- **GIVEN** un riavvio sotto carico, e l'attesa della scansione dello store che scade al tetto assoluto mentre i suoi byte scorrono
+- **THEN** la riadozione SHALL aspettare la conferma in ritardo e proseguire: il turno aperto SHALL arrivare intero nella sua riga
+- **AND** le risposte già concluse NON SHALL ricomparire come un turno risvegliato
+- **AND** finché la scansione aspetta, il guardiano della rotta NON SHALL dichiarare morto il turno né fermarne il figlio: SHALL aspettare l'esito della riadozione
 
 ### Requirement: CCLI-05 — Un esito SENZA testo chiude comunque il turno
 
@@ -4340,7 +4498,7 @@ scenari, ciascuno con la sua rotta mockata a 500 o abortita.
 - **THEN** l'anteprima della valida entra nel composer
 - **AND** un toast di errore nomina il file scartato
 
-### Requirement: CHAT-HIST-01 — La chat si apre sulla CODA, e il resto arriva quando nessuno guarda
+### Requirement: CHAT-HIST-01 — La chat si apre sulla CODA, e il resto arriva da solo
 
 All'apertura di una chat — ricarico, cambio scheda, rientro — il client SHALL
 chiedere al server SOLO gli ultimi `HISTORY_FIRST_PAGE` messaggi
@@ -4356,21 +4514,52 @@ primo fotogramma disegnato dalla cache È la prima pagina, e la risposta del
 server la conferma senza aggiungere né togliere righe.
 
 I messaggi precedenti (`limit: 0` con il cursore `before` = id del più vecchio
-della pagina, WIRE-11) SHALL essere caricati e fusi nello store SOLO quando la
-pane non è a schermo (scheda dietro un'altra, viewport alta zero), oppure su
-richiesta: MAI sotto gli occhi di chi legge. Una lista virtuale indirizza le
-righe per indice, e anteporre ottanta messaggi cambia ciò che «la riga 30»
-mostra; il rimedio che Virtuoso offre (`firstItemIndex`) è stato misurato a CLS
-0,60 su un gesto il cui contratto è 0,01 (PERF-01). Al ritorno della pane la
-viewport SHALL trovarsi dove era: in fondo se lì riposava, sulla riga che aveva
-in cima se la persona aveva scorso. Nessuno scheletro nuovo, nessuno scorrimento
-automatico all'arrivo in cima (`startReached`).
+della pagina, WIRE-11) SHALL arrivare da soli: fusi nello store quando la pane
+non è a schermo (scheda dietro un'altra, viewport alta zero), oppure mentre chi
+legge risale verso di loro. Con un gesto vero (rotella, dito, i tasti che salgono
+come PagSu e Shift+Spazio, una pressione tenuta come la barra trascinata, e lo
+scorrere che continua dopo, come l'inerzia di un colpo di dito) a meno di
+`OLDER_STAGE_SCREENS` schermate dalla cima della finestra caricata il client
+SHALL chiederli e tenerli da parte; a meno di `OLDER_MERGE_SCREENS` schermate
+SHALL fonderli (`shared/history-paging.ts`), ma solo a lista FERMA: nessuno
+scroll da 150 ms, nessuna pressione tenuta, righe arrivate, scheda a schermo
+(`mergeAtRest`). Chi sale ne esprime il desiderio, non l'ora: PagSu,
+Shift+Spazio e Home scorrono animati per una dozzina di fotogrammi, e una
+fusione caduta a metà dell'animazione faceva saltare le righe lette di
+migliaia di px. Chi resta sulla coda senza scorrere NON SHALL far partire
+nessuna richiesta.
+
+La fusione SHALL lasciare ferme le righe sotto gli occhi di chi legge. Una lista
+virtuale indirizza le righe per indice, e anteporre ottanta messaggi cambia ciò
+che «la riga 30» mostra: il rimedio è `firstItemIndex` di Virtuoso, dalla 4.18.13
+in poi, che compensa lo scorrimento nello stesso fotogramma (con la 4.18.1 costava
+un fotogramma vuoto e un CLS di 0,60). Il contratto, misurato fotogramma per
+fotogramma sul TESTO dei messaggi in vista, sia nel fotogramma d'animazione sia
+dopo il layout e i ResizeObserver dell'app, prima del paint: dal fotogramma
+prima della fusione ai venti dopo il testo letto non si sposta più di 1 px;
+nessun fotogramma resta senza righe; CLS al più 0,01 dove il motore lo misura
+(PERF-01), contando gli spostamenti che si vedono a schermo. Ciò che la fusione
+toglie dalla prima riga caricata (la riga «Carica i messaggi precedenti», il
+separatore di data del primo messaggio) sta sopra il testo letto, e la riga si
+tiene per il suo bordo inferiore; le righe anteposte che cadono subito sopra
+chi legge sono misurate nel fotogramma in cui compaiono. Il resto lo chiede lo scroll di chi sale; la rotella lo
+chiede da sé solo in cima, dove la lista non si muove più e nessuno scroll arriva. Al ritorno della
+pane la viewport SHALL trovarsi dove era: in fondo se lì riposava, sulla riga che
+aveva in cima se la persona aveva scorso, anche quando la richiesta era partita
+risalendo e la risposta arriva a scheda nascosta. Nessuno scheletro nuovo.
+
+Il «↓ N» (il pulsante per tornare in fondo) SHALL contare solo i messaggi
+cresciuti in FONDO alla lista: il resto della storia fuso sopra chi legge è
+vecchio, NON SHALL far crescere il numero né far comparire il banner dei
+messaggi nuovi.
 
 Finché il resto non è arrivato la chat è PARZIALE, e in cima alla finestra
 caricata SHALL comparire una riga discreta «Carica i messaggi precedenti (n)» —
-stessa geometria dei divisori di compattazione, icona lucide, italiano e inglese
-— che al click carica il resto e riàncora la lista sul messaggio che era il
-primo: un salto chiesto non è uno spostamento. Le superfici che leggono «tutti i
+stessa geometria dei divisori di compattazione, icona lucide, italiano e inglese.
+Chi ci arriva prima della rete la SHALL trovare in attesa (`aria-busy`, l'icona
+che gira) se il resto è già in viaggio; altrimenti (una richiesta fallita) il
+click lo chiede e riàncora la lista sul messaggio che era il primo: un salto
+chiesto non è uno spostamento. Le superfici che leggono «tutti i
 messaggi» SHALL saperlo (`historyCompleteness`): un divisore di compattazione la
 cui ancora non è ancora caricata NON SHALL essere disegnato in cima; un salto
 dalla palette a un messaggio non ancora presente SHALL chiedere il resto invece
@@ -4392,13 +4581,51 @@ ramo, cancellazione, ricarico dopo una modifica) SHALL marcare la chat completa.
 - **AND** al ritorno la chat è di nuovo in fondo, sull'ultimo messaggio
 - **AND** il primo messaggio della chat è raggiungibile scorrendo in alto, senza la riga «Carica i messaggi precedenti»
 
-#### Scenario: chi scorre in alto prima del completamento trova la riga, e il click lo porta al primo messaggio
-- **GIVEN** la chat parziale appena ricaricata
+#### Scenario: salendo, i messaggi precedenti arrivano da soli e le righe lette restano ferme
+- **GIVEN** una chat di tre pagine aperta sulla coda
+- **WHEN** la persona risale con la rotella fino a oltre la soglia della fusione, fermandosi dopo ogni colpo
+- **THEN** i messaggi precedenti sono chiesti una volta sola, senza click
+- **AND** la fusione cade a lista ferma, e le righe a schermo si spostano di 0 px (± 1 px) nei fotogrammi dopo
+- **AND** nessun fotogramma resta senza righe, e il CLS resta al più 0,01
+- **AND** scorrendo ancora il primo messaggio della chat è visibile, e la riga «Carica i messaggi precedenti» non c'è più
+
+#### Scenario: con PagSu, Shift+Spazio e Home la fusione aspetta la lista ferma
+- **GIVEN** una chat di tre pagine aperta sulla coda
+- **WHEN** la persona risale con PagSu, con Shift+Spazio o con Home, anche con la risposta ai messaggi precedenti in ritardo di 1500 ms, e Home la porta in cima alla finestra caricata
+- **THEN** dal fotogramma prima della fusione ai venti dopo il testo dei messaggi letti non si sposta più di 1 px, campionato in rAF e dopo i ResizeObserver
+- **AND** intorno alla fusione nessun fotogramma resta senza righe, e la richiesta è una sola
+
+#### Scenario: la scheda lasciata col resto in volo
+- **GIVEN** due chat nella stessa finestra, una lunga aperta sulla coda
+- **WHEN** la persona risale nella fascia della fusione con la risposta trattenuta, passa all'altra scheda, la risposta arriva, torna
+- **THEN** in cima c'è lo stesso messaggio, con l'offset entro 2 px
+
+#### Scenario: il «↓» non conta i messaggi vecchi
+- **GIVEN** una chat di tre pagine aperta sulla coda
+- **WHEN** la persona risale con la rotella finché il resto è fuso
+- **THEN** il «↓» non porta un numero e il banner «New messages» non c'è
+
+#### Scenario: chi arriva in cima prima della rete trova la riga in attesa, e il resto entra da solo
+- **GIVEN** la chat parziale appena ricaricata, con la risposta ai messaggi precedenti trattenuta
 - **WHEN** la persona scorre subito in cima alla finestra caricata
-- **THEN** compare la riga «Carica i messaggi precedenti (n)» con n = messaggi mancanti
-- **WHEN** la clicca
-- **THEN** la lista si riàncora sul messaggio che era il primo
+- **THEN** i messaggi precedenti sono stati chiesti una volta, dallo scorrimento
+- **AND** in cima c'è la riga «Carica i messaggi precedenti (n)» in attesa, con n = messaggi mancanti
+- **WHEN** la risposta arriva
+- **THEN** il resto entra senza click, la riga sparisce, e la riga che si stava leggendo resta dov'era, al più spostata dell'altezza della riga sparita
 - **AND** scorrendo ancora in alto il primo messaggio della chat è visibile
+
+#### Scenario: con la tastiera o trascinando la barra il resto arriva lo stesso
+- **GIVEN** una chat di tre pagine aperta sulla coda
+- **WHEN** la persona risale premendo Shift+Spazio un passo per volta, oppure tiene premuta la lista mentre la porta su, come trascinando la barra
+- **THEN** il resto arriva da solo, con una richiesta sola
+
+#### Scenario: scrivere nel composer o scorrere in giù non carica la storia
+- **GIVEN** una chat parziale di righe corte, aperta sulla coda, con la coda già dentro la fascia in cui salire carica
+- **WHEN** la persona scrive nel composer muovendo il cursore con le frecce, lo allunga di quattro righe e poi lo svuota
+- **AND** più in alto nella lista gira la rotella in giù
+- **THEN** i messaggi precedenti non sono stati chiesti e la chat resta parziale
+- **WHEN** la persona gira la rotella in su
+- **THEN** il resto arriva da solo, con una richiesta sola
 
 #### Scenario: una chat più corta di una pagina
 - **GIVEN** una chat con meno di `HISTORY_FIRST_PAGE` messaggi
@@ -4594,9 +4821,10 @@ attesa», prima del Profilo, con il glifo `Hourglass` della sezione «Attende te
   letta dallo stesso store: numero e mete non possono divergere, e una chat
   fissata dentro un progetto conta una volta.
 - Premerla SHALL fare lo stesso passo di ⌘J (evento `topics:next-waiting`).
-- A coda vuota la porta SHALL restare al suo posto, `disabled`, con un titolo
-  che dice che nessuna chat ti aspetta: le altre porte NON SHALL spostarsi quando
-  il numero cambia.
+- A coda vuota la porta SHALL restare al suo posto, ABILITATA, e premerla
+  SHALL aprire la pagina In attesa (il Now dell'Inbox, evento
+  `topics:open-inbox`) invece di restare muta (mobile-chrome-feedback A5): le
+  altre porte NON SHALL spostarsi quando il numero cambia.
 - Il nome accessibile della porta SHALL portare il numero, zero compreso
   («In attesa, 3», «In attesa, 0»): il numero sulla porta è solo disegnato, e il
   titolo resta il suggerimento.
@@ -4610,9 +4838,11 @@ attesa», prima del Profilo, con il glifo `Hourglass` della sezione «Attende te
 - **WHEN** la si preme due volte
 - **THEN** a fuoco va la prima meta e poi la seconda, e mai la chat al lavoro
 
-#### Scenario: a zero è spenta e non sposta niente
+#### Scenario: a zero è viva, apre l'Inbox e non sposta niente
 - **GIVEN** nessuna chat in attesa
-- **THEN** `mobile-chrome-waiting` è `disabled`, e il suo nome accessibile è «In attesa, 0»
+- **THEN** `mobile-chrome-waiting` è abilitata, e il suo nome accessibile è «In attesa, 0»
+- **WHEN** la si preme
+- **THEN** si apre il pannello Inbox sul Now (`inbox-panel-now`)
 - **AND** le cinque porte hanno la stessa larghezza di quando il numero è `2`
 
 ### Requirement: CHAT-FORK-01 — Diramare crea una chat NUOVA con la stessa storia, e l'originale non cambia
@@ -5274,8 +5504,11 @@ come `local_bash`), senza tempo, e compariva solo al poll successivo (15 s).
 ### Requirement: BGVIS-07 — Un comando lanciato con `run_command` è lavoro in background della chat
 
 Un processo che l'agente lancia con il tool Topics `run_command` SHALL comparire
-nella riga `background-work-line` di BGVIS-04/05/06 per tutta la sua vita, come
-un task della CLI, e SHALL sparire quando il processo esce.
+nella striscia sotto la chat (`SubAgentsStrip`, SUBSTRIP-01) come riga
+`live-command-row` per tutta la sua vita, e SHALL sparire quando il processo
+esce. La riga `background-work-line` di BGVIS-04/05/06 NON SHALL nominarlo: fino
+al 07/10 lo nominavano tutte e due, e la chat di Prince of Persia mostrava Muse
+due volte (chat-live-work).
 
 Il caso da cui nasce (30/09, Attilio su una chat viva: «qua anche non sta uscendo
 nessuna ui, non so che sta facendo»): il turno era finito, l'agente aveva
@@ -5304,18 +5537,21 @@ Topics (`server/routes/processes.ts`), non nella CLI: la chat non mostrava nient
   `background:changed {topicId, sessionKey}` come per i task della CLI
   (BGVIS-06), non aspettare il poll dei 15 s.
 - Riavvio: un comando riadottato al boot (vivo, stesso `lstart`) resta nella
-  riga; uno trovato morto si chiude al boot e non compare.
-- Riga: `background-work-task` con `data-type="command"` e `data-process-id`,
-  l'icona lucide `SquareTerminal` (etichetta i18n `chat.background.command`), il
-  tempo di corsa e, se una sveglia è dovuta, «sveglia la chat quando finisce»
-  (`background-work-wakes`). Il nome è un bottone (`background-work-open`) che
-  apre il log del processo come pane della finestra di progetto della chat
-  (evento `open-process-log`, con lo scoping per progetto di `open-file-diff`).
+  striscia; uno trovato morto si chiude al boot e non compare.
+- Riga: `live-command-row` con `data-process-id`, il nome, l'ultima riga che
+  stampa e, se una sveglia è dovuta, l'icona lucide `AlarmClock`
+  (`live-work-wakes`, etichetta i18n `chat.background.wakes`: «Quando questo
+  comando finisce, la chat si sveglia e va avanti da sola»), dal campo `wakes`
+  di `GET /api/topics/:id/live-work`: un segno dentro l'etichetta della riga,
+  non un tasto. Un clic sulla riga apre sotto la riga il log dal vivo del
+  processo, la stessa coda della card che l'ha lanciato (SUBSTRIP-02); un
+  secondo clic lo chiude.
 - Stop: lo Stop del composer ferma il lavoro della CLI, non i comandi (vivono
   fuori dalla CLI apposta). Una chat con soli comandi NON SHALL entrare
   nell'insieme per sessione del composer (`composerStopsWork`,
   `client/src/state/backgroundWork.ts`): lì lo Stop rispondeva «niente da
-  fermare». Lo Stop di un comando è nel pannello Processi che la riga apre.
+  fermare». Lo Stop di un comando è **Ferma** sulla sua riga (`live-work-stop`,
+  `POST /api/scripts/:id/stop`).
 - Sveglia: la risposta alla sveglia SHALL portare in cima un banner `woken` con
   `source: "command"`, il nome del comando, il suo `exitCode` (null = nessuno
   registrato, detto «sconosciuto», mai un successo) e la sua ultima riga di
@@ -5343,12 +5579,12 @@ Topics (`server/routes/processes.ts`), non nella CLI: la chat non mostrava nient
 - **GIVEN** una chat in una finestra di progetto su una CLI finta
   (`helpers/fake-claude-command.ts`) un cui turno resta aperto e chiama
   `run_command` subito dopo un poll di stato
-- **THEN** entro 5 s, con lo Stop del turno visibile, la riga ha un task
-  `data-type="command"` con il nome, l'icona, un tempo e «sveglia la chat»
+- **THEN** entro 5 s, con lo Stop del turno visibile, la striscia ha la riga
+  del comando con «sveglia la chat», e nessuna `background-work-line`
 - **WHEN** il turno finisce
-- **THEN** la riga lo nomina ancora, il tempo avanza e il composer non offre Stop
-- **WHEN** si clicca il nome
-- **THEN** il log del processo si apre come tab della finestra di progetto
+- **THEN** la riga resta, con il suo Ferma, e il composer non offre Stop
+- **WHEN** si clicca la riga
+- **THEN** il log del processo si apre agganciato sopra la striscia
 - **WHEN** il comando esce
 - **THEN** la riga sparisce e la risposta alla sveglia ha un banner `source:
   "command"` con il nome, `exit 0` e l'ultima riga di output
@@ -5381,17 +5617,18 @@ chat rispondeva `[]` mentre la chat nominava il processo.
   progetto, niente riga fra gli agenti attivi, e lo Stop del composer non lo
   riguarda. La risposta SHALL portare a parte `services: [{topicId, sessionKey,
   services}]` (`TopicServices`, `shared/background-work.ts`).
-- In chat, nel `Footer` del trascritto sotto la riga di BGVIS-04, una riga
-  compatta per server `data-testid="running-service-row"` (non un banner):
-  «Server · 127.0.0.1:8777 · nome» con **Apri** (una tab del browser di Topics
-  sull'indirizzo, attraverso `openLink` come ogni link della chat), **Log** (il
-  log del processo nella finestra di progetto, evento `open-process-log`) e
-  **Ferma** (`POST /api/scripts/:id/stop`). Entra con `reveal-in`.
+- In chat un server è una riga della striscia sotto la chat (`live-command-row`,
+  SUBSTRIP-01), non un banner: il nome, l'indirizzo (`live-work-address`),
+  **Apri** (`live-work-open`, una tab del browser di Topics sull'indirizzo,
+  attraverso `openLink` come ogni link della chat) e **Ferma** (`live-work-stop`,
+  `POST /api/scripts/:id/stop`); un clic sulla riga apre il suo log. La riga
+  `running-service-row` nel `Footer` del trascritto non c'è più: dal 07/10
+  ripeteva quella della striscia.
 - Dal vivo: un avvio, una fine e una porta che compare o sparisce SHALL mandare
   `background:changed`, come per BGVIS-06/07.
 - Fine: per `SERVICE_END_SHOWN_MS` (8 s) dopo l'uscita il server resta fra i
-  `services` con `ended: {at, exitCode, stopped}`; la riga dice come è finito
-  («Server fermato», «Server terminato (exit N)») e sparisce da sé dopo 5 s.
+  `services` con `ended: {at, exitCode, stopped}`; la riga della striscia se ne
+  va con il processo, e come è finito lo dice il suo log.
 - Un server che sta finendo (fermato, o col processo morto e la riga non ancora
   chiusa: uno riadottato dopo un riavvio si chiude al controllo del pid ogni
   3 s) SHALL tenere i suoi indirizzi anche se il timer non vede più la porta:
@@ -5421,22 +5658,21 @@ chat rispondeva `[]` mentre la chat nominava il processo.
 - **GIVEN** una chat in una finestra di progetto su una CLI finta
   (`helpers/fake-claude-service.ts`) che lancia con `run_command` senza sveglia
   un vero server HTTP su una porta libera
-- **THEN** la chat ha UNA riga `running-service-row` con `127.0.0.1:<porta>` e
-  il nome, nessuna `background-work-line`, nessun glifo `background` sulla tab
-  e nessuno Stop nel composer
+- **THEN** la striscia ha UNA riga col nome e `127.0.0.1:<porta>`, senza
+  «sveglia la chat», nessuna `background-work-line`, nessun glifo `background`
+  sulla tab e nessuno Stop nel composer
 - **AND** `GET /api/processes?topicId=` lo elenca `running` con la porta
 - **WHEN** si clicca Apri
 - **THEN** parte una `browser:open-tab` su `http://127.0.0.1:<porta>/` per quella chat
-- **WHEN** si clicca Log
-- **THEN** il log del processo si apre come tab della finestra di progetto
+- **WHEN** si clicca la riga
+- **THEN** il log del processo si apre agganciato sopra la striscia
 - **WHEN** si clicca Ferma
-- **THEN** la riga dice «Server fermato» e poi sparisce
+- **THEN** il server non risponde più e la riga sparisce
 
 #### Scenario: con la sveglia resta lavoro atteso
 - **GIVEN** la stessa CLI finta che lancia lo stesso server CON la sveglia
 - **WHEN** il server risponde sulla sua porta
-- **THEN** la riga `background-work-line` lo nomina con «sveglia la chat» e non
-  c'è nessuna `running-service-row`
+- **THEN** la sua riga della striscia ha «sveglia la chat»
 
 ### Requirement: CHAT-NTOOL-04 — Il `bash` nativo manda la coda del suo output mentre gira
 

@@ -135,9 +135,21 @@ for (const viewport of [{ width: 1440, height: 900 }, { width: 1024, height: 768
       await expect(page.getByTestId("providers-level-count")).toHaveText("9 pronti · 1 errore");
       expect(footerTail).toBe("9 pronti · 1 errore");
       expect(await level(page).locator(':scope > li[data-status="ready"]').count()).toBe(9);
-      // AC-21: the list does not scroll.
+      // AC-21 (amended 06/10): in the narrow panel the list scrolls like the
+      // phone's; every card is reachable and none is cut: top card whole at
+      // the top, last card whole at the bottom.
       const scroll = page.getByTestId("providers-level-scroll");
-      expect(await scroll.evaluate((el) => el.scrollHeight <= el.clientHeight + 1)).toBe(true);
+      const cards = level(page).locator(":scope > li");
+      await expect(cards).toHaveCount(10);
+      await scroll.evaluate((el) => { el.scrollTop = 0; });
+      const [first, top] = [await rect(cards.first()), await rect(scroll)];
+      expect(first.y).toBeGreaterThanOrEqual(top.y - 0.5);
+      expect(first.y + first.height).toBeLessThanOrEqual(top.y + top.height + 0.5);
+      await scroll.evaluate((el) => { el.scrollTop = el.scrollHeight; });
+      const [last, bottom] = [await rect(cards.last()), await rect(scroll)];
+      expect(last.y).toBeGreaterThanOrEqual(bottom.y - 0.5);
+      expect(last.y + last.height).toBeLessThanOrEqual(bottom.y + bottom.height + 0.5);
+      await scroll.evaluate((el) => { el.scrollTop = 0; });
       await page.screenshot({ path: test.info().outputPath(`providers-level-${viewport.width}.png`) });
 
       // ‹ goes back to the models as they were.
@@ -192,6 +204,9 @@ for (const viewport of [{ width: 1440, height: 900 }, { width: 1024, height: 768
         // «Topics» is who runs it through the band: the Topics card.
         const cards = level(page).locator(":scope > li").filter({ has: page.locator(`[data-testid="provider-card-open"] >> text="${engine}"`) });
         await expect(cards, `${engine}`).toHaveCount(1);
+        // AC-07 (amended 06/10): the list scrolls, so each card is brought
+        // into view before the check; a card in view is whole, not cut.
+        await cards.scrollIntoViewIfNeeded();
         const box = await rect(cards);
         expect(box.y >= scroll.y - 0.5 && box.y + box.height <= scroll.y + scroll.height + 0.5, `${engine} in view`).toBe(true);
         const makers = cards.getByTestId("provider-card-makers");

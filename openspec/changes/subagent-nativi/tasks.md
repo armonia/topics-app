@@ -10,4 +10,4 @@
 - [x] 8. Schema MCP di `spawn_agent`: `runtime`, descrizione
 - [x] 9. Test: `server/lib/native-subagents.test.ts`, `tests/integration/subagent-native.test.ts`
 - [ ] 10. Prova dal vivo sul server di produzione (dopo il merge)
-- [ ] 11. Client: i figli nativi nella striscia dei sotto-agenti al lavoro
+- [x] 11. Client: i figli nativi nella striscia dei sotto-agenti al lavoro (chat-live-work, 14bc3ac29: la striscia legge `/api/topics/:id/live-work`, il clic apre la chat del figlio)

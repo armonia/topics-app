@@ -62,11 +62,24 @@ import { pathFromImageCaption } from "./image-normalize";
  */
 const COMPACT_AT = 0.75;
 
+/**
+ * Where compaction brings the conversation back to: BELOW the threshold, not
+ * at it.
+ *
+ * Target equal to the threshold means no headroom: the history came out at
+ * 149.6k on a 150k threshold and the next round compacted again. Measured on
+ * topic:64095902 (08/10): 68 compactions in 34 hours, 40 closed at >=145k,
+ * four in seven minutes. Each one cut the oldest turns and changed the request
+ * prefix, so the prompt cache never held. The gap (20% of the window) buys a
+ * few rounds before the next one.
+ */
+const COMPACT_TO = 0.55;
+
 /** Quanti messaggi in coda restano SEMPRE intatti. */
 const KEEP_RECENT = 6;
 
 /** Il testo che prende il posto di un risultato buttato. */
-const DROPPED = "[risultato rimosso per fare spazio: la conversazione era troppo lunga]"; // allow-italian: testo che legge il modello, non UI
+export const DROPPED = "[risultato rimosso per fare spazio: la conversazione era troppo lunga]"; // allow-italian: testo che legge il modello, non UI
 
 function hasImageBlock(blocks: unknown[]): boolean {
   return blocks.some((b) => (b as { type?: string })?.type === "image");
@@ -329,7 +342,10 @@ export function compact(
   const before = estimateTokens(messages, overhead, ratio);
   // The target the history has to get back under, when the caller says so.
   // Without one, the only signal left is "it freed nothing".
-  const target = opts?.windowTokens != null ? opts.windowTokens * COMPACT_AT : null;
+  // Two numbers, not one: the CEILING is the trigger, the TARGET sits below it
+  // so the next round does not compact again (see `COMPACT_TO`).
+  const ceiling = opts?.windowTokens != null ? opts.windowTokens * COMPACT_AT : null;
+  const target = opts?.windowTokens != null ? opts.windowTokens * COMPACT_TO : null;
 
   let next = messages;
   if (messages.length > KEEP_RECENT + 1) {
@@ -351,7 +367,9 @@ export function compact(
   // to re-read the missing piece: the model has not consumed them yet, so it
   // loses nothing it had already used, and it can re-read in slices what it
   // needs.
-  const stillOver = target != null ? after > target : after >= before;
+  // Against the CEILING, not the target: clipping results the model has not
+  // read yet is the emergency measure, not the way to buy headroom.
+  const stillOver = ceiling != null ? after > ceiling : after >= before;
   if (stillOver) {
     next = clipTailResults(next);
     after = estimateTokens(next, overhead, ratio);
@@ -380,6 +398,19 @@ export function compact(
     }
   }
   return { messages: next, before, after, droppedMessages };
+}
+
+/**
+ * Compacts to an explicit budget instead of a window: the budget IS the
+ * target. For a history that is not about to be sent to this loop (the
+ * handoff to a CLI session, `providers/handoff.ts`), there is no window to
+ * leave headroom in.
+ */
+export function compactToBudget(
+  messages: AgentMessage[],
+  budgetTokens: number,
+): ReturnType<typeof compact> {
+  return compact(messages, { windowTokens: budgetTokens / COMPACT_TO });
 }
 
 /** The notice left on the initial request when turns have been cut away. */

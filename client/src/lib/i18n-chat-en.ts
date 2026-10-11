@@ -7,6 +7,7 @@
  * of being pulled back into the eager bundle.
  */
 import type { Dict } from './i18n-types';
+import { VIEWS_EN } from '../../../shared/i18n-views-en';
 
 const CHAT_EN: Dict = {
   'chat.empty.systemPrompt': 'Custom system prompt active',
@@ -72,22 +73,10 @@ const CHAT_EN: Dict = {
   'chat.background.stale': 'no news for {t}',
   'chat.background.free': 'The chat is free, you can write. To stop the work, use the composer Stop with an empty field',
   'chat.background.monitor': 'Monitor',
-  'chat.background.command': 'Command',
-  'chat.background.wakes': 'wakes the chat when it ends',
-  'chat.background.openProcess': 'Open it in the Processes pane, with its log and its Stop',
-  'chat.background.freeCommands': 'The chat is free, you can write. A command stops from its Processes pane: click its name',
-  'chat.service.label': 'Server',
+  'chat.background.wakes': 'When this command ends, the chat wakes up and carries on by itself',
   'chat.service.open': 'Open',
   'chat.service.openTitle': 'Open {url} in a browser tab',
-  'chat.service.logs': 'Logs',
-  'chat.service.logsTitle': 'Open its log in the Processes pane',
   'chat.service.stop': 'Stop',
-  'chat.service.stopTitle': 'Stop the server',
-  'chat.service.stopFailed': 'The server could not be stopped',
-  'chat.service.ended': 'Server ended (exit {code})',
-  'chat.service.endedUnknown': 'Server ended',
-  'chat.service.stopped': 'Server stopped',
-  'chat.service.free': 'A server is not waited on: the chat is free',
   'chat.send.queueTitle': 'Queue message (Enter)',
   'chat.send.sendTitle': 'Send (Enter)',
   'chat.send.queue': 'Queue message',
@@ -210,6 +199,28 @@ const CHAT_EN: Dict = {
   'chat.subagent.noOutput': 'finished with no output',
   'chat.subagent.turn': 'turn {n}',
   'chat.subagent.open': 'Open its terminal',
+  // What works now for the chat, the strip under it (chat-live-work), and the
+  // empty log of a command: what it waits for and since when.
+  'livework.finished': 'finished',
+  'livework.logTitle': '{name} · log (open)',
+  'livework.logClose': 'Close the log',
+  'livework.stopTitle': 'Stop {name}',
+  'livework.stopFailed': '{name} could not be stopped',
+  'processlog.waiting': 'No output yet: the command has been running since {time}',
+  'processlog.waitingFile': 'No output yet in {path}, where the command writes: running since {time}',
+  'processlog.unfollowed': 'The command writes to {target}, which cannot be followed ({reason}): only the rest shows here. Running since {time}',
+  'processlog.reason.variable': 'the path comes from a variable',
+  'processlog.reason.pattern': 'the path is a glob',
+  'processlog.reason.cwd': 'its folder is known only by running it',
+  'processlog.running': 'Running',
+  'processlog.done': 'Done (exit {code})',
+  'processlog.failed': 'Error (exit {code})',
+  'processlog.lines': '{n} lines',
+  'processlog.stop': 'Stop',
+  'processlog.stopTitle': 'Stop process',
+  'processlog.fetchFailed': 'Failed to fetch output',
+  'processlog.readError': 'Error: {error}',
+  ...VIEWS_EN,
 };
 
 export default CHAT_EN;

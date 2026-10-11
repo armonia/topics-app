@@ -35,6 +35,7 @@
  * è cambiato niente» di un file che è cambiato del tutto, quindi si porta il
  * flag e il pannello scrive «bin» invece di due zeri.
  */
+import { SPAWN_TIMEOUT, spawnBounded } from "./bounded-spawn";
 
 export interface Numstat {
   added: number;
@@ -126,7 +127,7 @@ export const NUMSTAT_MAX_FILES = 400;
 export async function readNumstats(cwd: string): Promise<{ staged: Map<string, Numstat>; unstaged: Map<string, Numstat> }> {
   const leggi = async (args: string[]) => {
     try {
-      const proc = Bun.spawn(args, { cwd, stdout: "pipe", stderr: "ignore" });
+      const proc = spawnBounded(args, { cwd, stdout: "pipe", stderr: "ignore", timeoutMs: SPAWN_TIMEOUT.query });
       const text = await new Response(proc.stdout).text();
       await proc.exited;
       return proc.exitCode === 0 ? parseNumstatZ(text) : new Map<string, Numstat>();

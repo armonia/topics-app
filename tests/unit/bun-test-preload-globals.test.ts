@@ -49,6 +49,19 @@ describe("preload: i globali DOM finti non sopravvivono al loro file", () => {
     expect(r.stderr).toContain(`${DOM_LEAK_MARKER}: window`);
   });
 
+  it("a file that puts the key back as undefined instead of removing it turns the run red too", () => {
+    // The key answers `in`, and a later file that checks `in` before removing
+    // its own fake keeps it (focusBrowserContext.live + projectSidebarHeights).
+    const r = runAlone(`
+      import { afterAll, test } from "bun:test";
+      const found = (globalThis as any).localStorage;
+      afterAll(() => { (globalThis as any).localStorage = found; });
+      test("installs and puts back undefined", () => { (globalThis as any).localStorage = {}; });
+    `);
+    expect(r.code).not.toBe(0);
+    expect(r.stderr).toContain(`${DOM_LEAK_MARKER}: localStorage`);
+  });
+
   it("un file che rimette a posto in afterAll passa senza un fiato", () => {
     const r = runAlone(`
       import { afterAll, test } from "bun:test";

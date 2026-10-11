@@ -13,7 +13,9 @@ import {
   getSubagent,
   insertSubagent,
   markTurnReported,
+  moveSubagentToEngine,
   resumeVerdict,
+  rootSessionKeyOf,
   runningSubagents,
   setSubagentState,
 } from "./subagent-store";
@@ -109,5 +111,18 @@ describe("results owed to the parent chat", () => {
     expect(runningSubagents(bare)).toEqual([]);
     expect(getSubagent(bare, "x")).toBeNull();
     expect(() => insertSubagent(bare, { id: "x", parentSessionKey: "p", name: "x", model: null, agentType: null, effort: null, promptSnippet: null, cwd: "/", branch: null, claudeSessionId: null, createdAt: "now" })).not.toThrow();
+  });
+});
+
+describe("the root of a spawn chain", () => {
+  test("a native grandchild climbs to the person's chat; a chat that is no child is its own root", () => {
+    const d = db();
+    child(d, "c1", "topic:p");
+    moveSubagentToEngine(d, "c1", { sessionKey: "topic:c1", tools: null, model: null });
+    child(d, "g1", "topic:c1");
+    moveSubagentToEngine(d, "g1", { sessionKey: "topic:g1", tools: null, model: null });
+    expect(rootSessionKeyOf(d, "topic:g1")).toBe("topic:p");
+    expect(rootSessionKeyOf(d, "topic:c1")).toBe("topic:p");
+    expect(rootSessionKeyOf(d, "topic:p")).toBe("topic:p");
   });
 });

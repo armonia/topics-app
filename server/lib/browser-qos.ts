@@ -95,7 +95,7 @@ export function markedBrowserPid(mark: string, ownPid: number = process.pid): Pr
     if (!existsSync(PGREP_BIN)) return resolve(null);
     try {
       let out = "";
-      const p = spawn(PGREP_BIN, ["-f", mark], { stdio: ["ignore", "pipe", "ignore"] });
+      const p = spawn(PGREP_BIN, ["-f", mark], { stdio: ["ignore", "pipe", "ignore"], timeout: 3000, killSignal: "SIGKILL" });
       p.stdout?.on("data", (chunk) => { out += String(chunk); });
       p.on("error", () => resolve(null));
       p.on("close", () => {

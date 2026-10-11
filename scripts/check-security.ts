@@ -149,7 +149,10 @@ function runDelegatedTest(part: Part, root: string, file: string): Outcome {
   // bun scrive il referto dei test su stderr.
   const out = `${res.stdout ?? ""}${res.stderr ?? ""}`.trim();
   if (res.status === 0) {
-    return { part, status: "ok", summary: `${file}: verde`, details: [] };
+    // Un test saltato non e' un test verde: se il file ne ha saltati, il referto lo dice.
+    const skipped = Number(/(\d+) skip/.exec(out)?.[1] ?? 0);
+    const note = skipped > 0 ? `, ${skipped} saltato/i (vedi il titolo del test: non e' una misura)` : "";
+    return { part, status: "ok", summary: `${file}: verde${note}`, details: [] };
   }
   return {
     part,

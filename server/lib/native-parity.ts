@@ -7,7 +7,8 @@
  * global user rules in context; the native one with Sonnet, ZERO skills and no
  * rules. It is not a shade of quality: it is a different agent.
  *
- * Here sit the two pieces of context that were missing. The model and the
+ * Here sit the pieces of context that were missing: the user's rules, the
+ * skill listing and Claude Code's memory (index and per-prompt recall). The model and the
  * thinking live elsewhere (`providers/index.ts`, `native/agent-loop.ts`) because
  * they are request parameters, not text.
  *
@@ -15,9 +16,11 @@
  * skill listing on its own: injecting them again would double the same text in
  * a prompt we pay for by the token. Callers must pass `native: true`.
  */
+import { spawnSync } from "node:child_process";
 import { readFileSync, existsSync, statSync, readdirSync } from "node:fs";
 import { homedir } from "node:os";
 import { join, resolve, dirname } from "node:path";
+import { runBounded } from "./bounded-spawn";
 import { disabledSkillNames, skillDirs } from "./slash-command-source";
 import { thinkingGenerationOf } from "./thinking-generation";
 
@@ -79,6 +82,194 @@ function readClaudeMd(file: string, home: string): string | null {
     const abs = p.startsWith("~/") ? join(home, p.slice(2)) : resolve(dirname(file), p);
     return readSmall(abs) ?? intero;
   });
+}
+
+/**
+ * Claude Code's switch for its auto-memory. OpenClaw sets it because it keeps a
+ * memory of its own: whoever turned it off does not get it back from here.
+ */
+function autoMemoryDisabled(): boolean {
+  return ["1", "true"].includes((process.env.CLAUDE_CODE_DISABLE_AUTO_MEMORY ?? "").toLowerCase());
+}
+
+/**
+ * The folder a native turn runs in: the topic's, else the runtime's default
+ * workspace (`TOPICS_WORKSPACE`, the home on this machine), else the home.
+ */
+export function nativeWorkingDir(topicCwd: string | null | undefined): string {
+  return topicCwd || process.env.TOPICS_WORKSPACE || homedir();
+}
+
+/** Claude Code's own limits: past these the index it injects is truncated. */
+const MEMORY_INDEX_MAX_LINES = 200;
+const MEMORY_INDEX_MAX_CHARS = 25_000;
+
+/**
+ * The folder where Claude Code keeps the auto-memory for `cwd`, computed the way
+ * it does: the root of the git repo (the COMMON dir, so a worktree shares the
+ * memory of its repo), else the folder itself, with `/` and `.` turned into `-`.
+ */
+export function claudeMemoryDir(cwd: string, home = homedir()): string {
+  return join(home, ".claude", "projects", gitRootOf(cwd).replace(/[/.]/g, "-"), "memory");
+}
+
+/**
+ * THE GIT ROOT OF A TURN'S FOLDER, REMEMBERED (T16).
+ *
+ * `claudeMemoryDir` runs on every assembly of a topic's context (every turn,
+ * every context preview), and `context/assemble.ts` is synchronous: the
+ * `git rev-parse` it ran each time was a `spawnSync`, and the server's one loop
+ * (every other chat, every frame being streamed) waited for git. Making the
+ * assembly async would put an await in the chat route between the stored
+ * message and the stream, and change forty-odd callers, for an answer that
+ * changes only when a folder becomes a repo or a worktree goes away.
+ *
+ * So the answer is remembered per folder and asked again in the background:
+ * a timer asks git, asynchronously, every GIT_ROOT_REFRESH_MS about each folder
+ * read in the last GIT_ROOT_IDLE_MS, and a turn reads the last answer. An answer
+ * older than GIT_ROOT_TTL_MS (a folder never seen, or unread for a while, or a
+ * timer that fell behind) is not used: the turn asks synchronously, as before.
+ * A change on disk shows within GIT_ROOT_TTL_MS, in practice within the refresh.
+ * Keyed by folder: `home` only says where the memory lives, the root is git's
+ * answer about `cwd`.
+ */
+export const GIT_ROOT_TTL_MS = 30_000;
+const GIT_ROOT_REFRESH_MS = 10_000;
+const GIT_ROOT_IDLE_MS = 10 * 60_000;
+
+interface GitRoot { root: string; checkedAt: number; readAt: number; asking: boolean }
+const gitRoots = new Map<string, GitRoot>();
+let gitRootTimer: ReturnType<typeof setInterval> | null = null;
+
+function rootFromCommonDir(cwd: string, status: number | null, stdout: string): string {
+  const common = status === 0 ? stdout.trim() : "";
+  return common.endsWith("/.git") ? dirname(common) : cwd;
+}
+
+function gitRootOf(cwd: string): string {
+  const now = Date.now();
+  let entry = gitRoots.get(cwd);
+  if (!entry || now - entry.checkedAt >= GIT_ROOT_TTL_MS) {
+    let root = cwd;
+    try {
+      const r = spawnSync("git", ["-C", cwd, "rev-parse", "--path-format=absolute", "--git-common-dir"], {
+        encoding: "utf-8",
+        timeout: 1000,
+      });
+      root = rootFromCommonDir(cwd, r.status, r.stdout ?? "");
+    } catch { /* no git: the folder itself */ }
+    if (entry) { entry.root = root; entry.checkedAt = now; }
+    else { entry = { root, checkedAt: now, readAt: now, asking: false }; gitRoots.set(cwd, entry); }
+  }
+  entry.readAt = now;
+  if (!gitRootTimer) {
+    gitRootTimer = setInterval(() => { void refreshGitRoots(); }, GIT_ROOT_REFRESH_MS);
+    gitRootTimer.unref?.();
+  }
+  return entry.root;
+}
+
+/** One pass of the timer: git asked again about the folders still read, the others forgotten. */
+export async function refreshGitRoots(): Promise<void> {
+  const asks: Promise<void>[] = [];
+  for (const [cwd, entry] of gitRoots) {
+    if (Date.now() - entry.readAt > GIT_ROOT_IDLE_MS) { gitRoots.delete(cwd); continue; }
+    if (entry.asking) continue;
+    entry.asking = true;
+    const startedAt = Date.now();
+    asks.push(
+      runBounded(["git", "-C", cwd, "rev-parse", "--path-format=absolute", "--git-common-dir"], {
+        stdout: "pipe",
+        stderr: "ignore",
+        timeoutMs: 1000,
+      })
+        .then((r) => {
+          // No answer (the deadline, or no git to run) is not "not a repo": the
+          // last answer stands until it expires, then a turn asks synchronously.
+          if (r.exitCode === null) return;
+          // A synchronous ask may have answered meanwhile: the newer answer stays.
+          if (startedAt < entry.checkedAt) return;
+          entry.root = rootFromCommonDir(cwd, r.exitCode, r.stdout);
+          entry.checkedAt = startedAt;
+        })
+        .catch(() => { /* the old answer stands until it expires */ })
+        .finally(() => { entry.asking = false; }),
+    );
+  }
+  if (gitRoots.size === 0) stopGitRootTimer();
+  await Promise.all(asks);
+}
+
+function stopGitRootTimer(): void {
+  if (gitRootTimer) { clearInterval(gitRootTimer); gitRootTimer = null; }
+}
+
+/** Everything forgotten and the timer stopped. */
+export function forgetGitRootsForTests(): void {
+  gitRoots.clear();
+  stopGitRootTimer();
+}
+
+/**
+ * The memory index Claude Code injects in a session started in `cwd`.
+ *
+ * The native runtime had none of it: the same chat on `claude` knew the lessons
+ * of the repo, here it started from zero. It is the SAME file, not a copy: the
+ * global memory of Topics was retired (change `contesto-dall-hub`) precisely
+ * because a store that only one harness reads drifts without anyone noticing.
+ */
+export function readClaudeMemoryIndex(cwd: string, home = homedir()): UserRules | null {
+  if (autoMemoryDisabled()) return null;
+  const path = join(claudeMemoryDir(cwd, home), "MEMORY.md");
+  const raw = readSmall(path);
+  if (!raw?.trim()) return null;
+  let content = raw.split("\n").slice(0, MEMORY_INDEX_MAX_LINES).join("\n");
+  if (content.length > MEMORY_INDEX_MAX_CHARS) content = content.slice(0, MEMORY_INDEX_MAX_CHARS);
+  return { path, content };
+}
+
+/**
+ * The cards relevant to `prompt`, from `memrecall`: the hook Claude Code and
+ * Codex run on every prompt (`UserPromptSubmit`), called with the same JSON so
+ * there is one retriever and one quality bar (`memrecall --eval`), not two.
+ *
+ * Absent on a machine without `memrecall`, silent past 3 s or on any failure:
+ * a suggestion must never cost the turn. Asynchronous because the server is one
+ * process and a synchronous spawn would stall every other chat meanwhile.
+ */
+export async function recallMemoryContext(prompt: string, cwd: string, home = homedir()): Promise<string | null> {
+  if (autoMemoryDisabled()) return null;
+  const bin = findOnPath("memrecall", home);
+  if (!bin) return null;
+  try {
+    // Bounded like every external process of the server: the deadline kills the
+    // whole group, and a child that ignores SIGTERM is gone 500 ms later.
+    const r = await runBounded([bin, "--hook"], {
+      stdinData: JSON.stringify({ prompt, cwd }),
+      stdout: "pipe",
+      stderr: "ignore",
+      env: process.env,
+      timeoutMs: 3000,
+      graceMs: 500,
+    });
+    if (r.exitCode !== 0 || !r.stdout.trim()) return null;
+    const ctx = JSON.parse(r.stdout)?.hookSpecificOutput?.additionalContext;
+    return typeof ctx === "string" && ctx.trim() ? ctx : null;
+  } catch { return null; }
+}
+
+/**
+ * The server's PATH comes from launchd and does not have the user's bin folders,
+ * where the hub's commands live: they are looked up there too.
+ */
+function findOnPath(name: string, home: string): string | null {
+  const dirs = [...(process.env.PATH ?? "").split(":"), join(home, "bin"), join(home, ".local", "bin")];
+  for (const d of dirs) {
+    if (!d) continue;
+    const f = join(d, name);
+    try { if (statSync(f).isFile()) return f; } catch { /* next */ }
+  }
+  return null;
 }
 
 export interface SkillEntry { name: string; description: string }

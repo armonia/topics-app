@@ -583,6 +583,12 @@ function groups(vp: Viewport) {
     ] as const) {
       await recorder.step(surface, async () => {
         await openProfileMenu(page);
+        // On the phone the topics rows live on the Topics floor (A1): walk
+        // down from the root before looking at them. Status and devices stay
+        // at the root and need nothing.
+        if (isPhone(vp) && row.startsWith("topics-menu-")) {
+          await page.getByTestId("user-menu-topics-entry").click();
+        }
         const trigger = page.getByTestId(row);
         await expect(trigger).toBeVisible({ timeout: 10_000 });
         await trigger.click();
@@ -711,7 +717,13 @@ function groups(vp: Viewport) {
     await openApp(page, vp);
     await recorder.step("add-pane menu", async () => {
       await page.keyboard.press("Escape");
-      await page.getByTestId("pane-add-menu-trigger").first().click();
+      const trigger = page.getByTestId("pane-add-menu-trigger").first();
+      // On the phone the trigger is the pencil (A6): the tap opens the chat,
+      // the menu opens with the second gesture — here the right button, which
+      // opens the same menu as the long press (the gesture is covered in
+      // mobile-chrome-feedback; here the surface is measured).
+      if (isPhone(vp)) await trigger.click({ button: "right" });
+      else await trigger.click();
       await expect(page.getByTestId("pane-add-menu-browser")).toBeVisible({ timeout: 5_000 });
       await recorder.measure("add-pane menu", await markScope(page, '[data-testid="pane-add-menu-browser"]', "add-pane-menu"));
     });

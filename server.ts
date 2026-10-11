@@ -60,7 +60,7 @@ import { setUploadRootsProvider } from "./server/browser-tool-dispatcher";
 import { setLocalFileServing } from "./server/browser-local-file-url";
 import { uploadAllowedRoots, parseExtraRoots } from "./server/lib/upload-allowlist";
 import { servedFileHeaders } from "./server/lib/served-file-headers";
-import { sweepStaleStreams, type SilenceMark } from "./server/lib/stale-stream-sweep";
+import { sweepStaleStreams, rescueByOwner, type SilenceMark } from "./server/lib/stale-stream-sweep";
 import { buildStreamCatchupFrame } from "./server/lib/stream-catchup-frame";
 import { flushTurnBody } from "./server/lib/turn-body-flush";
 import { endReattachLeg, finalizeStaleRow } from "./server/lib/closed-outside";
@@ -208,6 +208,7 @@ import { computePresenceCounts } from "./server/services/profile-stats";
 import { createClaudeHooksRouter } from "./server/routes/claude-hooks";
 import { createE2eRouter } from "./server/routes/e2e";
 import { createTabsRouter } from "./server/routes/tabs";
+import { createViewsRouter } from "./server/routes/views";
 import { createClaudeSessionTracker } from "./server/lib/claude-session-tracker";
 import { evaluateAuth, isAllowedHost, isLoopbackAddress, isOriginGatedPath, isWebSocketPath, resolveAllowedOrigins } from "./server/lib/auth-gate";
 import { upgradeWebSocket } from "./server/lib/ws-upgrade";
@@ -2882,6 +2883,8 @@ const profileRouter = createProfileRouter(ctx);
 const publicProfileHandler = createPublicProfileHandler(ctx);
 // Risoluzione dei permalink alle tab (`/tab/…`) — SOLA LETTURA.
 const tabsRouter = createTabsRouter(ctx, browserService);
+// Generative views (`show_view`): the store behind the chat block and `/v/<id>`.
+const viewsRouter = createViewsRouter(ctx);
 // Reset della suite E2E. Si auto-disarma (risponde 404) se TOPICS_E2E ≠ "1",
 // che è il caso di ogni server non di test — vedi server/routes/e2e.ts.
 const e2eRouter = createE2eRouter(ctx, { reapClaudeSessions: (t) => claudeSessionTracker.reapOnce(t) });
@@ -3378,6 +3381,7 @@ const apiRouteTable = buildRouteTable({
   appSettingsRouter,
   calendarRouter,
   tabsRouter,
+  viewsRouter,
   claudeHooksRouter,
   e2eRouter,
 });
@@ -4997,12 +5001,9 @@ const staleStreamTimer = setInterval(() => {
     frozenMsSince: (sk, since) => swapFrozenMsSince(sk, since),
     resyncStream: (sk) => {
       // The rescue went to claude-code too: for somebody else's turn it was a
-      // mute no-op, a recovery attempt that attempted nothing.
-      const owner = resolveSessionOwner(sk) as
-        | { resyncStream?: (sk: string) => Promise<boolean> }
-        | null;
-      owner?.resyncStream?.(sk)
-        ?.catch((err) => console.warn(`[StaleStream] resync failed for ${sk}:`, err));
+      // mute no-op, a recovery attempt that attempted nothing. Now it goes to
+      // the owner and its outcome is read (`rescueByOwner`).
+      void rescueByOwner(sk, resolveSessionOwner(sk), (msg) => console.warn(msg));
     },
     cancelAsk,
     updateStreamActivity: (sk) => ctx.updateStreamActivity(sk),

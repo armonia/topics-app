@@ -1,100 +1,238 @@
-import { memo, useMemo } from 'react';
+import { memo, useState, type MouseEvent } from 'react';
+import { AlarmClock, CircleCheck, ExternalLink, Hourglass, Loader2, Server, Square, SquareTerminal, X } from 'lucide-react';
 import { useT } from '../../hooks/useT';
-import { Bot, CircleCheck, Hourglass, Loader2, X } from 'lucide-react';
-import { useTerminalSessions } from '../../contexts/TopicsContext';
-import { dismissSubAgent, subAgentRowsFor, useEndedSubAgents, type SubAgentRow as Row } from '../../state/endedSubAgents';
+import { scriptsApi } from '../../lib/api';
+import { useToast } from '../Shared/Toast';
+import { listenLabel, listenUrl } from '../../../../shared/background-work';
+import type { LiveAgentRow, LiveCommandRow, LiveWorkRow } from '../../../../shared/live-work';
+import { dismissSubAgent, useDismissedSubAgents } from '../../state/endedSubAgents';
+import { useLiveWork, visibleRows } from '../../state/liveWork';
+import { CHAT_STRIP_NEUTRAL } from '../../lib/chatStripStyles';
+import { openLink, isExternalLinkGesture } from '../../lib/openLink';
+import { DisclosureBody } from './DisclosureBody';
+import { ProcessTail } from './LiveShellTail';
+import { useDisclosureToggle } from './transcriptDisclosure';
 
 /**
- * In-chat strip listing the sub-agents this topic spawned (via the MCP
- * `spawn_agent` tool → a claude-code PTY whose `parentSessionKey` is this
- * chat's `sessionKey`). It answers the user's "potrebbe uscire nella ui del
- * topic da cui parte": the sub-agent is now visible from the very chat it was
- * launched from, not only nested in the sidebar tree.
+ * WHAT WORKS NOW FOR THIS CHAT, one row each, at the end of the transcript (chat-live-work):
+ * the sub-agents it spawned that are working or waiting for their prompt
+ * (native and CLI), and the processes it runs (`run_command`, a `run_script`
+ * of its agent), each with the line it is on. The rows come from the server
+ * (`state/liveWork.ts`); no rows, no strip.
  *
- * Clicking a row opens/focuses that sub-agent's terminal pane. Routing goes
- * through the `topics:open-terminal-pane` CustomEvent bus (handled in App.tsx)
- * so this leaf component doesn't need `handleTerminalClick` threaded down three
- * layout layers — the same handler the sidebar rows use, landing on the exact
- * (now non-blank) terminal pane.
+ * On 07/10 the Prince of Persia chat showed three sub-agents ended hours before
+ * and nothing of the 58 minutes Muse was working, which is what the person was
+ * waiting on. So an ended sub-agent stays one minute with its check, then
+ * leaves, and a command is a row like a sub-agent.
  *
- * The row's click stops at the row: see the comment on it for why.
+ * A row opens what it is: a CLI child's terminal, a native child's chat, and a
+ * command its live log, right there, as an accordion: the tail its card in the
+ * transcript shows (`ProcessTail`, from the process registry), with the row's
+ * «Open» (a server's address) and «Stop». On 08/10 the row first docked a
+ * second log over the strip, another widget next to the card the agent already
+ * had; then it opened that card, wherever it was in the history («they open
+ * where they were opened»: a server started the day before is at the top of
+ * it). One log is open at a time, and a second click on its row closes it.
  *
- * A sub-agent that ENDS keeps its row, marked ended with the calm "done" check,
- * until the user dismisses it or the chat is archived: before, the row (and a
- * one-row strip with it) vanished the moment the process left the live roster,
- * which read as "the sub-agent disappeared". See state/endedSubAgents.ts.
+ * The log unrolls UNDER its row, as any accordion, and is drawn as the row's
+ * own content: indented under its name, on the row's surface, a line from the
+ * row's icon down its side. On 08/10 it opened above the row as the other
+ * strips do (`DockedStripPanel`), boxed like a terminal: «it opens above, not
+ * below», «you can't tell it belongs to that row». A reader at the bottom
+ * stays at the bottom (the transcript's hold keeps the bottom, `atEnd`): the
+ * log comes into sight above the composer, and closing it gives the view back
+ * where it was. A reader further up keeps the row under the pointer, open and
+ * shut. The log scrolls back to the first line the registry has, and a reader
+ * gone up in it is left there while new lines arrive (`LiveShellTail`).
+ *
+ * A command that ends with its log open keeps its row, in its place and
+ * without «Open» and «Stop», until the log is closed: its end is what one
+ * opened it to read. Its own «Stop» closes it, and the row leaves as before.
+ *
+ * The alarm clock next to the name says that the command's end wakes the chat.
+ * It is a sign, not a control: part of the row's label, no hover or focus of
+ * its own, its tooltip saying what it means. Alone between «Open» and «Stop» it
+ * looked like a third button («maybe it isn't a button», 08/10).
+ *
+ * NO CAP ON THE ROWS. Docked over the composer they stopped at 7.5rem and
+ * scrolled inside it; in the transcript the strip scrolls with the chat, and
+ * the cap was a scroller inside the scroller. Lifted to open a log, it showed
+ * the rows it hid under the row clicked: on the Prince of Persia chat (08/10,
+ * six commands) the reader at the bottom ended 27 px above it, and the chat
+ * stopped following its new messages.
+ *
+ * A command is also where it stops («Stop», the Processes panel's route) and
+ * where it says that its end will wake the chat. Both used to be two more
+ * rows under the transcript, the background line and a server's row
+ * (BGVIS-07/08), which named the same commands a second time: on 07/10 the
+ * Prince of Persia chat showed Muse and the clip server twice. The background
+ * line keeps the CLI's own work (a background Bash, a Monitor, an Agent),
+ * which no row here lists.
+ *
+ * Every click stops at the row: the chat panel around the strip focuses ITSELF
+ * on click (`ChatPanel` onClick={onFocus}), and left to bubble that focus
+ * landed after the terminal's and took the front back.
  */
-function SubAgentRow({ row }: { row: Row }) {
+
+const ROW = 'flex min-w-0 flex-1 items-center gap-1.5 px-2.5 py-1 text-left text-mini hover:bg-app-hover transition-colors';
+/** An open command's row and its log, one surface. */
+const OPEN_ROW = 'bg-app-hover/70';
+const SIDE_BUTTON = 'flex flex-shrink-0 items-center gap-1 rounded px-1.5 py-0.5 mr-1 text-mini text-app-text-secondary hover:bg-app-hover hover:text-app-text';
+
+function AgentRow({ row }: { row: LiveAgentRow }) {
   const tr = useT();
   const { id, name, state } = row;
-  const title = state === 'busy' ? tr('subagent.busy', { name })
+  const title = state === 'working' ? tr('subagent.busy', { name })
     : state === 'waiting' ? tr('subagent.waiting', { name })
-    : state === 'ended' ? tr('subagent.ended', { name })
-    : tr('subagent.open', { name });
+    : tr('subagent.ended', { name });
+  const open = (e: MouseEvent) => {
+    e.stopPropagation();
+    // A native child has no terminal: its agentId is its chat's topic id.
+    if (row.runtime === 'topics') {
+      window.dispatchEvent(new CustomEvent('topics:open-topic', { detail: { topicId: id, mode: 'permanent', reveal: true } }));
+    } else {
+      window.dispatchEvent(new CustomEvent('topics:open-terminal-pane', { detail: { sessionId: id, name } }));
+    }
+  };
+  const preview = state === 'ended' ? row.preview || tr('livework.finished') : row.preview;
   return (
-    <span
-      data-testid="subagent-row"
-      data-subagent-id={id}
-      data-state={state}
-      className={`flex items-center rounded-full border border-app-border bg-app-surface/60 text-mini max-w-[220px] ${state === 'ended' ? 'text-app-text-muted' : 'text-app-text'}`}
-    >
-      <button
-        type="button"
-        onClick={(e) => {
-          // The chat panel around the strip focuses ITSELF on click
-          // (`ChatPanel` onClick={onFocus}). Left to bubble, that focus landed
-          // after the terminal's and took the front back: the row opened a tab
-          // the user never got to see.
-          e.stopPropagation();
-          window.dispatchEvent(new CustomEvent('topics:open-terminal-pane', { detail: { sessionId: id, name } }));
-        }}
-        title={title}
-        aria-label={title}
-        className={`flex min-w-0 items-center gap-1.5 rounded-full py-1 hover:bg-app-surface transition-colors ${state === 'ended' ? 'pl-2.5 pr-1' : 'px-2.5'}`}
-      >
-        {state === 'busy'
-          ? <Loader2 size={11} className="animate-spin text-blue-500 flex-shrink-0" />
+    <div data-testid="subagent-row" data-subagent-id={id} data-state={state} data-runtime={row.runtime} className="flex min-w-0 items-center">
+      <button type="button" onClick={open} title={title} aria-label={title} className={ROW}>
+        {state === 'working'
+          ? <Loader2 size={11} aria-hidden="true" className="animate-spin text-blue-500 flex-shrink-0" />
           : state === 'waiting'
             ? <Hourglass size={11} aria-hidden="true" className="text-amber-500 flex-shrink-0" />
-          : state === 'ended'
-            ? <CircleCheck size={11} aria-hidden="true" className="text-blue-500 flex-shrink-0" />
-            : <span className="inline-block w-1.5 h-1.5 rounded-full bg-emerald-500/80 flex-shrink-0" />}
-        <span className="truncate">{name}</span>
+            : <CircleCheck size={11} aria-hidden="true" className="text-blue-500 flex-shrink-0" />}
+        <span className={`max-w-[40%] flex-shrink-0 truncate ${state === 'ended' ? 'text-app-text-muted' : 'text-app-text'}`}>{name}</span>
+        {preview && <span data-testid="live-work-preview" className="min-w-0 flex-1 truncate text-app-text-tertiary">{preview}</span>}
       </button>
       {state === 'ended' && (
         <button
           type="button"
           data-testid="subagent-dismiss"
-          onClick={() => dismissSubAgent(id)}
+          onClick={(e) => { e.stopPropagation(); dismissSubAgent(id); }}
           title={tr('subagent.dismiss', { name })}
           aria-label={tr('subagent.dismiss', { name })}
-          className="flex-shrink-0 rounded-full p-1 mr-0.5 hover:bg-app-surface hover:text-app-text transition-colors"
+          className="flex-shrink-0 rounded-full p-1 mr-1 text-app-text-muted hover:bg-app-hover hover:text-app-text transition-colors"
         >
           <X size={11} aria-hidden="true" />
         </button>
       )}
-    </span>
+    </div>
   );
 }
 
-export const SubAgentsStrip = memo(function SubAgentsStrip({ topicSessionKey }: { topicSessionKey: string }) {
+function CommandRow({ row, open, ended, onToggle, onStop }: {
+  row: LiveCommandRow;
+  open: boolean;
+  /** Its command is over: the row is still here only for its open log. */
+  ended: boolean;
+  onToggle: (anchor: HTMLElement) => void;
+  onStop: () => void;
+}) {
   const tr = useT();
-  const terminals = useTerminalSessions();
-  const ended = useEndedSubAgents();
-  const rows = useMemo(() => subAgentRowsFor(topicSessionKey, terminals, ended), [topicSessionKey, terminals, ended]);
+  const toast = useToast();
+  const [stopping, setStopping] = useState(false);
+  // The server puts the page first when the command serves more than one port.
+  const first = row.listen[0];
+  const url = first && !ended ? listenUrl(first) : '';
+  const title = tr('livework.logTitle', { name: row.name });
+  const wakes = tr('chat.background.wakes');
+  // The row leaves once the server sees the process end; until then its Stop stays pressed.
+  const stop = async () => {
+    setStopping(true);
+    onStop();
+    try { await scriptsApi.stop(row.id); } catch { toast.error(tr('livework.stopFailed', { name: row.name })); setStopping(false); }
+  };
+  const logId = `live-command-log-${row.id}`;
+  // Inside the button, the sign's own label is hidden by the button's: it describes the button instead.
+  const wakesId = row.wakes && !ended ? `live-command-wakes-${row.id}` : undefined;
+  return (
+    <div data-testid="live-command-row" data-process-id={row.id} data-open={open ? 'true' : 'false'} className={open ? OPEN_ROW : undefined}>
+      <div className="flex min-w-0 items-center" title={row.command}>
+        <button type="button" aria-expanded={open} aria-controls={open ? logId : undefined} aria-label={title} aria-describedby={wakesId} onClick={(e) => { e.stopPropagation(); onToggle(e.currentTarget); }} className={ROW}>
+          {first
+            ? <Server size={11} aria-hidden="true" className="text-emerald-600 dark:text-emerald-400 flex-shrink-0" />
+            : <SquareTerminal size={11} aria-hidden="true" className="text-app-text-secondary flex-shrink-0" />}
+          <span className="max-w-[40%] flex-shrink-0 truncate text-app-text">{row.name}</span>
+          {wakesId && (
+            <span id={wakesId} data-testid="live-work-wakes" role="img" aria-label={wakes} title={wakes} className="flex flex-shrink-0 cursor-default text-app-text-tertiary">
+              <AlarmClock size={10} aria-hidden="true" />
+            </span>
+          )}
+          {first && !ended && <span data-testid="live-work-address" className="flex-shrink-0 tabular-nums text-app-text-secondary">{row.listen.map(listenLabel).join(', ')}</span>}
+          {!ended && <span data-testid="live-work-preview" className="min-w-0 flex-1 truncate font-mono text-app-text-tertiary">{row.preview}</span>}
+        </button>
+        {url && (
+          <button
+            type="button"
+            data-testid="live-work-open"
+            className={SIDE_BUTTON}
+            title={tr('chat.service.openTitle', { url })}
+            onClick={(e) => { e.stopPropagation(); openLink(url, { external: isExternalLinkGesture(e), origin: e.currentTarget }); }}
+          >
+            <ExternalLink className="h-3 w-3" aria-hidden="true" />{tr('chat.service.open')}
+          </button>
+        )}
+        {!ended && (
+          <button
+            type="button"
+            data-testid="live-work-stop"
+            className={`${SIDE_BUTTON} disabled:opacity-50`}
+            disabled={stopping}
+            title={tr('livework.stopTitle', { name: row.name })}
+            onClick={(e) => { e.stopPropagation(); void stop(); }}
+          >
+            <Square className="h-3 w-3" aria-hidden="true" />{tr('chat.service.stop')}
+          </button>
+        )}
+      </div>
+      {/* Under its row, indented under the name: the line runs down from the row's icon. */}
+      <DisclosureBody open={open} id={logId} testId="live-command-log" className="ml-[15px] mr-2.5 mb-1.5 border-l border-app-border pl-[11px]">
+        <ProcessTail processId={row.id} variant="row" />
+      </DisclosureBody>
+    </div>
+  );
+}
+
+/** The rows with a command that ended back in its place: the server lists the commands by their start. */
+function withEnded(rows: readonly LiveWorkRow[], gone: LiveCommandRow): readonly LiveWorkRow[] {
+  const at = rows.findIndex((r) => r.kind === 'command' && r.startedAt.localeCompare(gone.startedAt) > 0);
+  return at < 0 ? [...rows, gone] : [...rows.slice(0, at), gone, ...rows.slice(at)];
+}
+
+export const SubAgentsStrip = memo(function SubAgentsStrip({ topicId }: { topicId: string }) {
+  const dismissed = useDismissedSubAgents();
+  const live = visibleRows(useLiveWork(topicId), dismissed);
+  const disclose = useDisclosureToggle();
+  // The command whose log is open: ended with its log open, it keeps its row until the log closes.
+  const [open, setOpen] = useState<LiveCommandRow | null>(null);
+  const ended = !!open && !live.some((r) => r.id === open.id);
+  const rows = open && ended ? withEnded(live, open) : live;
   if (rows.length === 0) return null;
 
+  const toggle = (row: LiveCommandRow, anchor: HTMLElement) => {
+    const wasOpen = open?.id === row.id;
+    // The log opens and closes under the row: the transcript keeps a reader at the bottom there,
+    // anyone else's row where it was (CHAT-FOLD-01). An ended row leaves with its log: nothing to hold.
+    if (!(wasOpen && ended)) disclose(anchor, { atEnd: true });
+    setOpen(wasOpen ? null : row);
+  };
+
   return (
-    <div data-testid="subagents-strip" className="flex items-center gap-2 px-3 py-1.5 border-t border-app-border bg-app-bg/40 overflow-x-auto">
-      <span className="flex items-center gap-1 text-mini text-app-text-muted flex-shrink-0">
-        <Bot size={12} />
-        <span>{tr('subagent.strip')}</span>
-      </span>
-      <div className="flex items-center gap-1.5 flex-shrink-0">
-        {rows.map((row) => (
-          <SubAgentRow key={row.id} row={row} />
-        ))}
-      </div>
+    <div data-testid="subagents-strip" className={`${CHAT_STRIP_NEUTRAL} overflow-hidden`}>
+      {rows.map((row) => (row.kind === 'agent'
+        ? <AgentRow key={row.id} row={row} />
+        : (
+          <CommandRow
+            key={row.id}
+            row={row}
+            open={open?.id === row.id}
+            ended={ended && open?.id === row.id}
+            onToggle={(anchor) => toggle(row, anchor)}
+            onStop={() => { if (open?.id === row.id) setOpen(null); }}
+          />
+        )))}
     </div>
   );
 });

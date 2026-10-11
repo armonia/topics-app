@@ -42,6 +42,31 @@ describe("ClaudeProvider.connected", () => {
     p.start();
     expect(p.connected).toBe(true);
   });
+
+  test("stop() makes it disconnected again", () => {
+    const p = new ClaudeProvider({ type: "claude", apiKey: "sk-ant-test" });
+    p.start();
+    p.stop();
+    expect(p.connected).toBe(false);
+  });
+
+  test("the SDK is not loaded at boot, only on the first request", () => {
+    // The `claude` provider is the default fallback and is created on every
+    // boot, even without a key. In a fresh process, because another file of
+    // the same run may already have loaded the SDK here.
+    const script = `
+      const { ClaudeProvider } = await import(${JSON.stringify(`${import.meta.dir}/claude.ts`)});
+      const loaded = () => Object.keys(require.cache).some((k) => k.includes("@anthropic-ai/sdk"));
+      const p = new ClaudeProvider({ type: "claude", apiKey: "sk-ant-test" });
+      p.start();
+      const atStart = loaded();
+      await p.requireClient();
+      console.log(JSON.stringify({ atStart, afterFirstRequest: loaded() }));
+    `;
+    const out = Bun.spawnSync([process.execPath, "-e", script], { cwd: import.meta.dir });
+    expect(out.exitCode).toBe(0);
+    expect(JSON.parse(out.stdout.toString().trim().split("\n").at(-1)!)).toEqual({ atStart: false, afterFirstRequest: true });
+  });
 });
 
 describe("recomputeDefault — subscription-first", () => {

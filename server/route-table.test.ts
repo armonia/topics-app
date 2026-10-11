@@ -61,6 +61,7 @@ const GOLDEN_ORDER = [
   "appSettingsRouter",
   "calendarRouter",
   "tabsRouter",
+  "viewsRouter",
   "claudeHooksRouter",
   "e2eRouter",
 ];

@@ -116,7 +116,7 @@ function RoutingBand({ enabled, route, engineLabel, onToggle }: {
       data-testid="model-selector-routing"
       data-route={!enabled ? 'off' : through ? 'topics' : 'direct'}
       onClick={onToggle}
-      className={`mx-1 mb-1 flex w-[calc(100%-0.5rem)] shrink-0 items-start gap-2 rounded-md px-2.5 py-1 coarse:py-3 text-left transition-colors ${
+      className={`mx-1 mb-1 flex w-[calc(100%-0.5rem)] shrink-0 items-start gap-2 rounded-md px-2.5 py-1 coarse:min-h-[44px] coarse:py-3 text-left transition-colors ${
         through ? 'border-l-2 border-primary bg-primary/10' : 'border-l-2 border-transparent bg-app-inset'
       }`}
     >
@@ -659,18 +659,11 @@ export function ModelList(props: ModelListProps) {
       className={`${POPOVER_ITEM} shrink-0 !items-start disabled:opacity-40 ${automaticSelected ? 'bg-primary/5' : ''}`}
     >
       <Sparkles className="mt-0.5 h-3.5 w-3.5 shrink-0 text-app-text-secondary" aria-hidden="true" />
+      {/* The label only: the long sentence lives outside the button
+          (aria-describedby), so the closed text stays «label · who»
+          (AC-30, AC-31, §3.7). */}
       <span className="min-w-0 flex-1">
         <span className="block">{props.automatic.who ? `${tr('ai.selector.auto')} · ${props.automatic.who}` : tr('ai.selector.auto')}</span>
-        <span
-          id={automaticHintId}
-          // Compact desktop hides the sentence (the button already names who
-          // decides); the roomy full variant and the phone sheet keep it.
-          className={props.variant === 'full'
-            ? 'block text-mini leading-snug text-app-text-secondary'
-            : 'sr-only coarse:not-sr-only coarse:block coarse:text-mini coarse:leading-snug coarse:text-app-text-secondary'}
-        >
-          {props.automatic.hint}
-        </span>
       </span>
       {automaticSelected && <Check className="h-3 w-3 shrink-0 text-emerald-600 dark:text-emerald-400" aria-hidden="true" />}
     </button>
@@ -746,6 +739,16 @@ export function ModelList(props: ModelListProps) {
           className="min-h-0 flex-1 overflow-y-auto overscroll-contain border-t border-app-border"
         >
           {automaticButton}
+          <p
+            id={automaticHintId}
+            // Compact desktop hides the sentence (the button already names who
+            // decides); the roomy full variant and the phone sheet keep it.
+            className={props.variant === 'full'
+              ? 'block text-mini leading-snug text-app-text-secondary mx-3 mb-1'
+              : 'sr-only coarse:not-sr-only coarse:mx-3 coarse:mb-1 coarse:block coarse:text-mini coarse:leading-snug coarse:text-app-text-secondary'}
+          >
+            {props.automatic.hint}
+          </p>
           {columns.flat().map((group) => groupView(group))}
           {groups.length === 0 && (
             <p className="px-3 py-4 text-center text-mini text-app-text-secondary" data-testid="model-selector-empty">

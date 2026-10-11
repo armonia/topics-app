@@ -55,6 +55,13 @@
         "url": "https://github.com/advisories/GHSA-rj75-hqrm-r3gf"
       },
       {
+        "package": "sharp",
+        "id": 1241331,
+        "severity": "high",
+        "title": "sharp : Vulnerability in librsvg dependency CVE-2026-96889",
+        "url": "https://github.com/advisories/GHSA-wq5f-xc86-pv6w"
+      },
+      {
         "package": "smol-toml",
         "id": 1241205,
         "severity": "moderate",

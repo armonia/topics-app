@@ -42,6 +42,13 @@ export type BoardActionDeps = {
   json(body: unknown, status?: number): Response;
   /** Who is pressing: the human identity of the surface. */
   by: string;
+  /**
+   * Tears down the tabs of an ARCHIVED task (`services/task-tab-teardown.ts`),
+   * the same call the DELETE makes. Returns the ids it touched, which go into
+   * `task:deleted` so clients forget the keys. Absent = step skipped (tests,
+   * fixtures): the boot sweep catches up.
+   */
+  teardownTaskBrowserState?: (taskId: string) => { taskIds: string[] };
 };
 
 export type BoardActionTarget = { projectId: string; taskId: string };
@@ -97,6 +104,15 @@ export function interceptBoardAction(
     // on the parent does: without this, whoever is watching sees the parent
     // restart and the subtasks still parked until a reload.
     for (const c of outcome.children) broadcast({ type: "task:updated", projectId, task: c });
+    // "Archive" archives the children with the same cascade as the DELETE, so
+    // their tabs go the same way: without this they stayed in `ui_state`, and
+    // alive behind the card, until the next boot sweep.
+    if (decision === "archive" && deps.teardownTaskBrowserState) {
+      for (const c of outcome.children) {
+        const torn = deps.teardownTaskBrowserState(c.id);
+        broadcast({ type: "task:deleted", projectId, taskId: c.id, taskIds: torn.taskIds });
+      }
+    }
     if (dispatcher && outcome.task.status === "todo") dispatcher.onEnterTodo(projectId, taskId);
     // PROMOTING IS QUEUEING, otherwise it is just removing a parent: a promoted
     // child is a card like the others, and somebody has to give it a turn now,

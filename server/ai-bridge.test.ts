@@ -6,6 +6,7 @@ import net from "node:net";
 import { mkdtempSync, rmSync, existsSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { guiSessionName } from "./pty-bridge-platform.mjs";
 
 // Integration test for server/ai-bridge.mjs — the detached broker daemon.
 // Uses `cat` as a clean-pipe child (echoes stdin→stdout, no PTY) so we can
@@ -157,7 +158,7 @@ describe("ai-bridge daemon", () => {
   // Regression (2026-07-29): a restarted server re-spawns onto the child the
   // daemon kept alive. The idempotent branch acked the pid but left the new
   // socket OUT of `attached`, so the child's answers went nowhere and the chat
-  // hung on "stream lento — il provider è ancora connesso" forever. Whoever
+  // hung on "stream lento — il provider è ancora connesso" forever. Whoever allow-italian: quotes the slow-stream notice verbatim
   // spawns must be attached, exactly like the fresh-spawn branch.
   test("re-spawning onto a live session attaches the caller to the live stream", async () => {
     const owner = await connect();
@@ -293,7 +294,12 @@ describe("ai-bridge daemon", () => {
     expect((await c.next((m) => m.type === "list")).rid).toBe(14);
 
     c.send({ type: "ping", pid: process.pid, rid: 15 });
-    expect((await c.next((m) => m.type === "pong")).rid).toBe(15);
+    const pong = await c.next((m) => m.type === "pong");
+    expect(pong.rid).toBe(15);
+    // Session and live children: the client rebuilds the daemon off these two. The daemon is
+    // shared by this file's tests, so the live ones are at least the `cat` above.
+    expect(pong.session).toBe(guiSessionName());
+    expect(pong.live).toBeGreaterThanOrEqual(1);
 
     // A spawn the daemon cannot start: `spawn()` throws on a non-string file.
     c.send({ type: "spawn", id: "topic:rid-bad", cliPath: 42, args: [], cwd: storeDir, env: {}, rid: 16 });

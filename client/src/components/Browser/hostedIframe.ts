@@ -31,8 +31,16 @@
  * (menus and tooltips at 100, dialogs above) and nothing has to freeze.
  */
 
+import { FRAME_LAYER_ATTR, framesCovered } from './frameCover';
+
 /** The layer's z-index. Overlays in this app start at 60 (`z-[60]`), so anything
- *  that can float over a pane - menu, popover, tooltip, dialog - already wins. */
+ *  that can float over a pane - menu, popover, tooltip, dialog - already wins.
+ *
+ *  That holds for what is PORTALED to `body`, and only for that. The app's own
+ *  root is `position: fixed` (App.tsx), a stacking context of its own at
+ *  z-index auto: whatever is drawn inside it paints under this layer, whatever
+ *  its z-index there. The surface that meets this is the phone's list drawer
+ *  (`z-50` inside the root, over the panes): see `frameCover.ts`. */
 const LAYER_Z = 1;
 
 /** How long a frame outlives its last pane. A cross-group drag unmounts the old
@@ -210,11 +218,12 @@ function armDragPassThrough(): void {
 function hostLayer(): HTMLDivElement {
   if (layer?.isConnected) return layer;
   const el = document.createElement('div');
-  el.setAttribute('data-browser-frame-layer', '');
+  el.setAttribute(FRAME_LAYER_ATTR, '');
   // `pointer-events: none` on the layer, `auto` on each frame: the empty space
   // between frames must not eat clicks meant for the app underneath.
   el.style.cssText =
     `position:fixed;inset:0;pointer-events:none;z-index:${LAYER_Z};`;
+  if (framesCovered()) el.style.visibility = 'hidden';
   document.body.appendChild(el);
   layer = el;
   armDragPassThrough();

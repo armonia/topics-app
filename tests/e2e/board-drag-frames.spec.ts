@@ -108,6 +108,15 @@ interface Pass {
   longtask_ms: number;
   /** Frames slower than the 60 FPS the goal asks for. Reported, not judged. */
   frames_over_16_7ms: number;
+  /**
+   * Main-thread busy time over the whole pass (CDP `TaskDuration`), and the
+   * part of it that ran script (`ScriptDuration`). Reported, not judged: unlike
+   * a frame gap it does not snap to the display's vsync, so it still says how
+   * much work the gesture costs on a machine whose headless Chromium is locked
+   * to 60 Hz, where every frame gap reads 16.7 or 33.3 ms whatever the app does.
+   */
+  main_thread_ms: number;
+  script_ms: number;
   pointer_moves: number;
   drag_span_px: number;
   cards_rendered: number;
@@ -366,6 +375,15 @@ test.describe("@nightly Kanban drag - frame time bench", () => {
      * fields and command buttons (`dndSensors.ts`), and the centre of a card
      * offering choices is a button, from which the drag never starts.
      */
+    // CDP's own clock for the main thread, in seconds, cumulative since enable.
+    const cdp = await page.context().newCDPSession(page);
+    await cdp.send("Performance.enable");
+    const busyTime = async (): Promise<{ task: number; script: number }> => {
+      const { metrics } = await cdp.send("Performance.getMetrics");
+      const read = (name: string) => (metrics.find((m) => m.name === name)?.value ?? 0) * 1000;
+      return { task: read("TaskDuration"), script: read("ScriptDuration") };
+    };
+
     const onePass = async (cardId: string): Promise<Pass> => {
       const card = page.locator(`[data-task-card="${cardId}"]`);
       await card.scrollIntoViewIfNeeded();
@@ -374,6 +392,7 @@ test.describe("@nightly Kanban drag - frame time bench", () => {
       const cards_rendered = await page.locator("[data-task-card]").count();
 
       await page.mouse.move(grab.x, grab.y);
+      const before = await busyTime();
       await startRecorder(page);
       await page.mouse.down();
       // dnd-kit activates after 4 px: this move is what starts the drag, and
@@ -399,6 +418,7 @@ test.describe("@nightly Kanban drag - frame time bench", () => {
       await nextFrame(page);
       await nextFrame(page);
       const raw = await stopRecorder(page);
+      const after = await busyTime();
 
       // Polled by hand rather than with `expect.poll`, because "the drop did not
       // commit" must become a WITNESS in the JSON and not an exception: the
@@ -425,6 +445,8 @@ test.describe("@nightly Kanban drag - frame time bench", () => {
         longtask_count: raw.longtasks.length,
         longtask_ms: round(raw.longtasks.reduce((a, b) => a + b, 0)),
         frames_over_16_7ms: raw.gaps.filter((g) => g > 1000 / 60).length,
+        main_thread_ms: round(after.task - before.task),
+        script_ms: round(after.script - before.script),
         pointer_moves: STEPS,
         drag_span_px: round(span, 0),
         cards_rendered,
@@ -470,6 +492,8 @@ test.describe("@nightly Kanban drag - frame time bench", () => {
         longtask_count: round(median(passes.map((p) => p.longtask_count))),
         longtask_ms: round(median(passes.map((p) => p.longtask_ms))),
         frames_over_16_7ms: round(median(passes.map((p) => p.frames_over_16_7ms))),
+        main_thread_ms: round(median(passes.map((p) => p.main_thread_ms))),
+        script_ms: round(median(passes.map((p) => p.script_ms))),
       },
       // The witnesses, in plain sight in the JSON: whoever reads the number
       // also sees that a card really moved while it was taken.

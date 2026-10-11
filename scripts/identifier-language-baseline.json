@@ -2,8 +2,7 @@
   "$schema": "identifier-language-baseline-v1",
   "files": {
     "client/src/App.tsx": [
-      "BOOT_TAB_PERMALINK",
-      "pinnedSpaceForHandoff"
+      "BOOT_TAB_PERMALINK"
     ],
     "client/src/components/Auth/PairingApproval.tsx": [
       "Richiesta",
@@ -482,9 +481,6 @@
     "client/src/components/Layout/spaceHelpers.test.ts": [
       "morto"
     ],
-    "client/src/components/Layout/spaceHelpers.ts": [
-      "dissolveIfEmptied"
-    ],
     "client/src/components/Layout/usePanelGridPersistence.ts": [
       "hsum",
       "wsum"
@@ -493,7 +489,6 @@
       "RipresoBanner",
       "WokenBanner",
       "approxK",
-      "backticks",
       "cancelled",
       "hasPreContentRows",
       "hljsReady",
@@ -1753,9 +1748,6 @@
       "requeueFront",
       "unshiftTurn"
     ],
-    "client/src/state/composerHandoff.ts": [
-      "HANDOFF_TTL_MS"
-    ],
     "client/src/state/layout/goldenGeometry.test.ts": [
       "EPS"
     ],
@@ -2299,11 +2291,7 @@
     ],
     "scripts/gen-migrations-manifest.ts": [
       "EMBEDDED_MIGRATIONS",
-      "EmbeddedMigration",
-      "gemello",
-      "ident",
-      "identOf",
-      "visti"
+      "EmbeddedMigration"
     ],
     "scripts/handoff-evidence.ts": [
       "esito",
@@ -2591,7 +2579,6 @@
       "dsf",
       "editable",
       "effectiveDsf",
-      "handoff",
       "txt"
     ],
     "server/browser-session-handoff.heavy.test.ts": [
@@ -2606,11 +2593,6 @@
       "vuoto"
     ],
     "server/browser-session-handoff.ts": [
-      "HANDOFF_TIMEOUT_MS",
-      "HandoffDeps",
-      "HandoffOutcome",
-      "ReverseHandoffDeps",
-      "ReverseHandoffOutcome",
       "impronta",
       "posato"
     ],
@@ -2785,7 +2767,6 @@
       "vero"
     ],
     "server/lib/ai-bridge-client.ts": [
-      "isRetryableBridgeError",
       "muto"
     ],
     "server/lib/ask-user-bridge.ts": [
@@ -4791,8 +4772,7 @@
     "server/services/task-intake.ts": [
       "STOPWORDS",
       "idf",
-      "idfMap",
-      "tokenize"
+      "idfMap"
     ],
     "server/services/task-merge.test.ts": [
       "altrove",
@@ -5558,8 +5538,7 @@
       "NEIGHBOUR_THRESHOLD",
       "Neighbour",
       "STOPWORDS",
-      "findNeighbours",
-      "tokenizeTaskText"
+      "findNeighbours"
     ],
     "shared/task-title.test.ts": [
       "DETTATO"
@@ -5615,10 +5594,6 @@
     ],
     "tests/e2e/bench-latency.spec.ts": [
       "fcp"
-    ],
-    "tests/e2e/bench-streaming.spec.ts": [
-      "handoffMs",
-      "handoffStart"
     ],
     "tests/e2e/board-archive-restore.spec.ts": [
       "RESTA",
@@ -7682,9 +7657,6 @@
       "testo",
       "viste",
       "voce"
-    ],
-    "tests/unit/product-metadata.test.ts": [
-      "undeclaredBackticks"
     ],
     "tests/unit/project-veil-tint-must-equal-base.test.ts": [
       "RADICE",
