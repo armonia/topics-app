@@ -1,3 +1,7 @@
+/**
+ * The density rule of the tab bar, as a pure function: which mode, which widths.
+ * @covers LAYOUT-42
+ */
 import { describe, expect, it } from 'bun:test';
 import { tabDensity, type TabDensityTab } from './tabDensity';
 

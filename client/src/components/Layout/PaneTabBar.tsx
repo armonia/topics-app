@@ -150,7 +150,7 @@ function TopicInitial({ color, label }: { color: string | undefined; label: stri
     <span
       data-topic-initial
       aria-hidden="true"
-      className="inline-flex h-5 w-5 flex-shrink-0 items-center justify-center rounded-full text-[11px] font-semibold leading-none ring-1 ring-white/70"
+      className="inline-flex h-5 w-5 flex-shrink-0 items-center justify-center rounded-full text-mini font-semibold leading-none ring-1 ring-white/70"
       style={{ backgroundColor: background, color: topicInitialForeground(background) }}
     >
       {label.trim().slice(0, 1).toUpperCase() || 'N'}
@@ -958,6 +958,40 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
     >
       {/* Scroll viewport. Its wrapper reserves the overlay controls outside the scrollport. */}
       <div
+        // DOVE SI FERMA LA STRIP, ai due capi, con la stessa regola.
+        //
+        // Con un comando: `ROW_INSET + box + ROW_INSET`
+        // (CHROME_ROW_ACTION_RESERVE) — il bottone sta 6 dal bordo e la tab si
+        // ferma altri 6 prima di lui. Senza: `pl-1.5`/`pr-1.5`, cioè gli stessi
+        // 6 con cui ogni riga della colonna sta lontana dal bordo, così le due
+        // liste si allineano ai lati.
+        //
+        // Ci sono voluti tre giri, e ognuno ha sbagliato un pezzo diverso:
+        //  1. `paddingLeft: 30` inline a sinistra contro una riserva derivata a
+        //     destra — 30 contro 34 col mouse, 30 contro 38 col dito: due
+        //     grammatiche per due capi della stessa barra;
+        //  2. specchiate ma ancora `box + incasso VERTICALE`, cioè la strip che
+        //     finiva ESATTAMENTE sul bordo del bottone: zero aria fra la tab e
+        //     il comando;
+        //  3. il comando rimpicciolito a 28 fisso per far tornare il verticale
+        //     — «hai fatto i tasti più piccoli ma non dovevi» (Attilio, 09/08).
+        // Il verticale non era un problema di box ma di predicato, e sta nella
+        // classe della tab qui sotto.
+        // …e il quarto giro: DUE SEI IN FILA, che singolarmente sono giusti.
+        //
+        // «Il + della tabbar progetto è troppo lontano dal trigger sidebar
+        // (quando chiuso)» (Attilio, 10/08). Misurato: trigger a 442, «+» a 454
+        // — DODICI, dove ogni altra coppia della barra ne ha sei. Non è un
+        // numero sbagliato, è una somma: 6 di incasso della strip dal blocco che
+        // la precede, PIÙ i 6 che la riserva lascia fra l'ultima tab e il
+        // comando. Con delle tab in mezzo i due 6 misurano due cose diverse e il
+        // conto è giusto; con la strip VUOTA misurano lo stesso vuoto due volte,
+        // e il bottone si stacca dal trigger del doppio.
+        //
+        // Quindi l'incasso sinistro cade solo in quel caso: c'è un blocco in
+        // testa (la card del progetto) e non c'è nessuna tab a separarlo dal
+        // comando. È la stessa regola della colonna — «il primo non porta la sua
+        // metà perché sopra c'è chi l'ha già messa» — applicata in orizzontale.
         className={`flex-1 min-w-0 ${
           hasMenuItems ? CHROME_ROW_ACTION_RESERVE : 'pr-1.5'
         } ${

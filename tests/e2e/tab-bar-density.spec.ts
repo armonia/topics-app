@@ -1,7 +1,7 @@
 /**
  * Measure the real pane-tab strip as its host cell gets narrower.
  *
- * @covers DENS-01, DENS-02, DENS-03, DENS-04, DENS-05, DENS-06, DENS-07
+ * @covers LAYOUT-42 (scenarios DENS-01..07 of openspec/changes/tab-bar-density)
  */
 import { test, expect, type APIRequestContext, type Locator, type Page } from "@playwright/test";
 import { mkdirSync, writeFileSync } from "node:fs";
@@ -249,7 +249,7 @@ async function expectMode(page: Page, paneId: string, mode: string): Promise<Str
 }
 
 test("DENS-01: a wide group keeps today's tab widths", async ({ page, request }) => {
-  test.info().annotations.push({ type: "spec", description: "DENS-01" });
+  test.info().annotations.push({ type: "spec", description: "LAYOUT-42" });
   const ids = await seedDensityGrid(page, request);
   await setGroupWidth(page, ids[0]!, 1200);
 
@@ -262,7 +262,7 @@ test("DENS-01: a wide group keeps today's tab widths", async ({ page, request })
 });
 
 test("DENS-02: compact tabs fit and keep every label present", async ({ page, request }) => {
-  test.info().annotations.push({ type: "spec", description: "DENS-02" });
+  test.info().annotations.push({ type: "spec", description: "LAYOUT-42" });
   const ids = await seedDensityGrid(page, request);
   await setGroupWidth(page, ids[0]!, 600);
 
@@ -276,7 +276,7 @@ test("DENS-02: compact tabs fit and keep every label present", async ({ page, re
 });
 
 test("DENS-03: square tabs fit while the active name stays readable", async ({ page, request }) => {
-  test.info().annotations.push({ type: "spec", description: "DENS-03" });
+  test.info().annotations.push({ type: "spec", description: "LAYOUT-42" });
   const ids = await seedDensityGrid(page, request);
   await setGroupWidth(page, ids[0]!, 340);
 
@@ -293,7 +293,7 @@ test("DENS-03: square tabs fit while the active name stays readable", async ({ p
 });
 
 test("DENS-04: one tab fits at 160px without horizontal scrolling", async ({ page, request }) => {
-  test.info().annotations.push({ type: "spec", description: "DENS-04" });
+  test.info().annotations.push({ type: "spec", description: "LAYOUT-42" });
   const ids = await seedDensityGrid(page, request, true);
   await setGroupWidth(page, ids[0]!, 160);
 
@@ -305,7 +305,7 @@ test("DENS-04: one tab fits at 160px without horizontal scrolling", async ({ pag
 });
 
 test("DENS-05: hovering across the strip never changes tab widths", async ({ page, request }) => {
-  test.info().annotations.push({ type: "spec", description: "DENS-05" });
+  test.info().annotations.push({ type: "spec", description: "LAYOUT-42" });
   const ids = await seedDensityGrid(page, request);
   await setGroupWidth(page, ids[0]!, 340);
   const strip = await expectMode(page, ids[0]!, "square");
@@ -319,7 +319,7 @@ test("DENS-05: hovering across the strip never changes tab widths", async ({ pag
 });
 
 test("DENS-06: pointer close freezes survivors until the pointer leaves the bar", async ({ page, request }) => {
-  test.info().annotations.push({ type: "spec", description: "DENS-06" });
+  test.info().annotations.push({ type: "spec", description: "LAYOUT-42" });
   const ids = await seedDensityGrid(page, request);
   await setGroupWidth(page, ids[0]!, 600);
   const before = await expectMode(page, ids[0]!, "compact");
@@ -351,7 +351,7 @@ test("DENS-06: pointer close freezes survivors until the pointer leaves the bar"
 });
 
 test("DENS-07: a square tab keeps its full name in the tooltip and accessible label", async ({ page, request }) => {
-  test.info().annotations.push({ type: "spec", description: "DENS-07" });
+  test.info().annotations.push({ type: "spec", description: "LAYOUT-42" });
   const ids = await seedDensityGrid(page, request);
   await setGroupWidth(page, ids[0]!, 340);
   await expectMode(page, ids[0]!, "square");
