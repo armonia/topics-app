@@ -23,8 +23,9 @@
  *
  * A FOURTH SOURCE, 2026-08-28: a chat parked on a question. The three above
  * all answer "who is WORKING", and a chat waiting for a human is not working,
- * so it held nothing and the restart cut it. It is the case that deserves the
- * deferral most, not least - see `askOpenKeys` below.
+ * so it held nothing and the restart cut it. Since 11/10 it holds the chat
+ * minute and no more: the question outlives the restart on its row (see
+ * `quiescenceVerdict`).
  *
  * L'ORDINE NON È ESTETICO. La stringa finisce in un log che qualcuno leggerà
  * mentre si chiede perché il suo salvataggio non è ancora andato in produzione:
@@ -294,25 +295,18 @@ export function quiescenceVerdict(args: {
   startedAt: number;
   /** Tetto per una chat che verrà riadottata: la sua pausa è visibile, non persa. */
   chatCapMs: number;
-  /**
-   * Chat parked on a question nobody has answered yet. No cap applies to them:
-   * see the note above.
-   */
-  parkedAsks?: number;
 }): "procedi" | "aspetta" | "scaduto" | "rinvia" {
   if (!args.busy) return "procedi";
-  // A QUESTION IS DEFERRED AT ONCE, WITHOUT SERVING THE CAP FIRST.
+  // AN OPEN QUESTION WAITS THE CHAT CAP, NOT A PERSON (11/10). It used to defer
+  // with no cap, because on 28/08 a restart cut a panel together with its turn.
+  // Since 29/09 the question lives on its row and outlives the turn that asked
+  // it (`question-outlives-asker.ts`: the answer reaches the model as the next
+  // message), so the deferral protected nothing and held every deploy for as
+  // long as nobody answered: two hours on topic:18b232ac, 11/10. A question now
+  // holds like a chat that comes back: the minute below, in case the answer is
+  // being typed, then the restart goes.
   //
-  // The cap answers "how long can this finish by itself?", and an open question
-  // never can: what ends it is a person, and a person does not arrive faster
-  // because a clock is running. Making it wait its twenty-five minutes would
-  // only mean that for those minutes the deferral is not DECLARED, and the
-  // heartbeat that keeps `start-prod.sh` from firing its own SIGTERM is not
-  // written: the question would be cut by the very script this gate exists to
-  // get ahead of. The loop re-reads the sources twice a second, so the instant
-  // the answer lands this stops holding anything.
-  if ((args.parkedAsks ?? 0) > 0) return "rinvia";
-  // NEITHER CAN A TURN THAT WILL NOT COME BACK. Same question, same answer: a
+  // A TURN THAT WILL NOT COME BACK is deferred at once: a
   // card turn or a native chat turn does not finish sooner because a clock is
   // running on it, and no expiry of ours will ever cut it. Deferring on the
   // first loop is the same decision, declared while it can still be acted on.

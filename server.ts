@@ -6345,7 +6345,7 @@ let askProbeCache: { at: number; parked: string[] } = { at: 0, parked: [] };
  * adottati che vivono solo nel broker. Le prime due sono gratis e si guardano a
  * ogni giro; la terza si paga, e si guarda ogni QUIESCENCE_BROKER_PROBE_MS.
  */
-async function whatIsStillWorking(): Promise<{ busy: string | null; cards: number; unadoptable: number; parkedAsks: number; chats: number; holder: string | null; holderKind: "turn" | "question" }> {
+async function whatIsStillWorking(): Promise<{ busy: string | null; cards: number; unadoptable: number; chats: number; holder: string | null; holderKind: "turn" | "question" }> {
   // A land in flight is a card turn for this purpose: it rewrites main and
   // the card, and a restart in the middle of it forgets the delivery branch.
   //
@@ -6399,8 +6399,8 @@ async function whatIsStillWorking(): Promise<{ busy: string | null; cards: numbe
   const unadoptable = unadoptableKeys.length;
   // THE FOURTH SOURCE: whoever is waiting for a PERSON. The three above answer
   // "who is WORKING", and a chat parked on a question is not working, so it
-  // held nothing and the restart cut it (why it deserves the deferral most:
-  // see `parked-asks.ts`). Same economy as the broker probe: it reads rows, so
+  // held nothing and the restart cut it. It holds the chat minute and no more:
+  // the question outlives the restart (see `quiescenceVerdict`). Same economy as the broker probe: it reads rows, so
   // it is paid at the probe cadence, and not at all when a card is in flight
   // - there the verdict is already a deferral, and a STALE list must not
   // decide, since a question answered meanwhile would defer for nobody.
@@ -6416,7 +6416,6 @@ async function whatIsStillWorking(): Promise<{ busy: string | null; cards: numbe
     busy: describeInFlight({ cards, streamKeys, brokerOpenKeys: brokerOpen, askOpenKeys: parked }),
     cards,
     unadoptable,
-    parkedAsks: parked.length,
     // Every holder that is NOT a card: the streams of this process, the turns
     // the broker keeps, the chats parked on a question. `dispatchDoor` reads
     // this to decide whether refusing card turns buys the restart anything.
@@ -6505,7 +6504,7 @@ async function runDispatcherQuiescentWait(label: string, capMs = QUIESCENCE_CAP_
   // card cannot start in the gap between "nothing holds" and the shutdown.
   let doorClosed = true;
   for (;;) {
-    const { busy, cards, unadoptable, parkedAsks, chats, holder, holderKind } = await whatIsStillWorking();
+    const { busy, cards, unadoptable, chats, holder, holderKind } = await whatIsStillWorking();
     if (!busy) {
       if (!doorClosed) {
         taskDispatcher.drain(label);
@@ -6531,7 +6530,6 @@ async function runDispatcherQuiescentWait(label: string, capMs = QUIESCENCE_CAP_
       busy, unrecoverable: cards + unadoptable,
       now: Date.now(), startedAt: inizio,
       chatCapMs: QUIESCENCE_CHAT_CAP_MS,
-      parkedAsks,
     });
     // DUE ATTESE, PERCHE' SONO DUE DANNI DIVERSI.
     //
