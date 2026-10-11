@@ -586,3 +586,22 @@ describe("compactSessionNow: /compact on the native engine", () => {
     expect(JSON.stringify(history)).toBe(before);
   });
 });
+
+/**
+ * THE 5.5 FAMILY HAS A MILLION AS STANDARD (11/10, CLI 2.1.296 and the real
+ * API without the beta). At 200k the native runtime compacted at a fifth of
+ * the window the same model has on the CLI.
+ */
+describe("windowFor reads the shared table", () => {
+  test("5.5 and Opus 4.8 at a million, bare id", () => {
+    for (const model of ["claude-haiku-5-5", "claude-sonnet-5-5", "claude-opus-5-5", "claude-opus-4-8"]) {
+      expect(windowFor(model), model).toBe(1_000_000);
+    }
+  });
+  test("the 200k ones stay 200k, and an unknown model gets the cautious number", () => {
+    expect(windowFor("claude-haiku-4-5")).toBe(200_000);
+    expect(windowFor("claude-sonnet-4-6")).toBe(200_000);
+    expect(windowFor("claude-opus-5")).toBe(200_000);
+    expect(windowFor("some-model-nobody-knows")).toBe(200_000);
+  });
+});

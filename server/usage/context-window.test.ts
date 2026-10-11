@@ -36,7 +36,12 @@ describe("contextWindowFor", () => {
     // `[1m]` rispondono e basta. Scriverli a 1M metteva l'anello del contesto
     // al 20% su un turno pieno, cioè zero preavviso prima della compattazione.
     expect(contextWindowFor("claude-opus-5")).toEqual({ tokens: 200_000, known: true });
-    expect(contextWindowFor("claude-opus-4-8")).toEqual({ tokens: 200_000, known: true });
+    // Opus 4.8 is no longer one of them: 252k tokens accepted without the beta
+    // on 11/10, and the CLI 2.1.296 reports a million for the bare id.
+    expect(contextWindowFor("claude-opus-4-8")).toEqual({ tokens: 1_000_000, known: true });
+    for (const model of ["claude-opus-5-5", "claude-sonnet-5-5", "claude-haiku-5-5"]) {
+      expect(contextWindowFor(model), model).toEqual({ tokens: 1_000_000, known: true });
+    }
     expect(contextWindowFor("claude-sonnet-5")).toEqual({ tokens: 200_000, known: true });
     expect(contextWindowFor("claude-opus-5[1m]")).toEqual({ tokens: 1_000_000, known: true });
     // Fable è l'eccezione: un milione di serie, nessuna variante da chiedere.
