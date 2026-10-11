@@ -133,8 +133,11 @@ function availableTabWidth(bar: HTMLElement, strip: HTMLElement): number {
     - px(stripStyle.marginRight)
     - px(stripStyle.paddingLeft)
     - px(stripStyle.paddingRight);
-  const scrollViewportWidth = strip.clientWidth - px(stripStyle.paddingLeft) - px(stripStyle.paddingRight);
-  return Math.max(0, Math.min(width, scrollViewportWidth));
+  // The wrapper between the bar and the strip holds the command reserve.
+  const wrapper = strip.parentElement && strip.parentElement !== bar ? getComputedStyle(strip.parentElement) : null;
+  // NEVER clamped to the strip's own width: the strip shrinks to its tabs, so a
+  // bar that went square once could never grow back (11/10: 4 squares on 800px).
+  return Math.max(0, width - (wrapper ? px(wrapper.paddingLeft) + px(wrapper.paddingRight) : 0));
 }
 
 function topicInitialForeground(color: string | undefined): string {
@@ -491,6 +494,8 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
       : TAB_W,
     active: pane.id === activePaneId,
   })), [panes, activePaneId]);
+  const naturalTabsRef = useRef(naturalTabs);
+  naturalTabsRef.current = naturalTabs;
   const [densityMeasure, setDensityMeasure] = useState({ availablePx: 1_000_000, gapPx: 0, tabHeightPx: 28 });
   const [frozenDensity, setFrozenDensity] = useState<{
     mode: TabDensityMode;
@@ -828,13 +833,17 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
         gapPx: px(style.columnGap) || px(style.gap),
         tabHeightPx: firstTab?.getBoundingClientRect().height || 28,
       };
-      setDensityMeasure((current) =>
-        Math.abs(current.availablePx - next.availablePx) < 0.25
-          && Math.abs(current.gapPx - next.gapPx) < 0.25
-          && Math.abs(current.tabHeightPx - next.tabHeightPx) < 0.25
+      // A new measure re-renders the bar only when it changes the PLAN: a
+      // divider drag moves the width every frame, and a commit per pixel broke
+      // the split budget (split-reorg-budget: 41 commits for 40 moves).
+      setDensityMeasure((current) => {
+        const tabs = naturalTabsRef.current;
+        const was = tabDensity(current.availablePx, current.gapPx, current.tabHeightPx, tabs);
+        const now = tabDensity(next.availablePx, next.gapPx, next.tabHeightPx, tabs);
+        return was.mode === now.mode && was.widths.every((w, i) => Math.abs(w - (now.widths[i] ?? -1)) < 0.5)
           ? current
-          : next,
-      );
+          : next;
+      });
     };
 
     measure();

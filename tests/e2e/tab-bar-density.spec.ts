@@ -292,6 +292,20 @@ test("DENS-03: square tabs fit while the active name stays readable", async ({ p
   }
 });
 
+test("DENS-08: a bar that went square grows back when the room comes back", async ({ page, request }) => {
+  // The measure once read the strip, which shrinks to its tabs: a bar that went
+  // square stayed square on 800px (11/10, split-reorg-budget in CI).
+  test.info().annotations.push({ type: "spec", description: "LAYOUT-42" });
+  const ids = await seedDensityGrid(page, request);
+  await setGroupWidth(page, ids[0]!, 340);
+  await expectMode(page, ids[0]!, "square");
+  await setGroupWidth(page, ids[0]!, 1200);
+  const strip = await expectMode(page, ids[0]!, "full");
+  for (const measured of strip.tabs) {
+    expect(measured.width, measured.id).toBe(measured.id === browserPaneId ? 200 : 150);
+  }
+});
+
 test("DENS-04: one tab fits at 160px without horizontal scrolling", async ({ page, request }) => {
   test.info().annotations.push({ type: "spec", description: "LAYOUT-42" });
   const ids = await seedDensityGrid(page, request, true);
