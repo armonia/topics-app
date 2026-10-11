@@ -60,6 +60,8 @@ const TAB_W_BROWSER = 200;
 /** ...and the width of the ACTIVE browser tab, the one that is showing the
  *  address. The extra 100px are the address bar this pane no longer draws. */
 const TAB_W_BROWSER_ACTIVE = 300;
+/** Un bersaglio da 44px lascia 4px liberi al centro della tab da 96px. */
+const DENSE_TAB_MENU_MIN_WIDTH = 96;
 
 // Every pane type closes through the same soft-confirm path: hovering the X
 // reveals an empty "mark as done" circle, clicking it starts the 3 s L→R
@@ -131,7 +133,8 @@ function availableTabWidth(bar: HTMLElement, strip: HTMLElement): number {
     - px(stripStyle.marginRight)
     - px(stripStyle.paddingLeft)
     - px(stripStyle.paddingRight);
-  return Math.max(0, width);
+  const scrollViewportWidth = strip.clientWidth - px(stripStyle.paddingLeft) - px(stripStyle.paddingRight);
+  return Math.max(0, Math.min(width, scrollViewportWidth));
 }
 
 function topicInitialForeground(color: string | undefined): string {
@@ -953,44 +956,9 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
         setFrozenDensity(null);
       }}
     >
-      {/* Scrollable tab area */}
+      {/* Scroll viewport. Its wrapper reserves the overlay controls outside the scrollport. */}
       <div
-        ref={scrollContainerRef}
-        // DOVE SI FERMA LA STRIP, ai due capi, con la stessa regola.
-        //
-        // Con un comando: `ROW_INSET + box + ROW_INSET`
-        // (CHROME_ROW_ACTION_RESERVE) — il bottone sta 6 dal bordo e la tab si
-        // ferma altri 6 prima di lui. Senza: `pl-1.5`/`pr-1.5`, cioè gli stessi
-        // 6 con cui ogni riga della colonna sta lontana dal bordo, così le due
-        // liste si allineano ai lati.
-        //
-        // Ci sono voluti tre giri, e ognuno ha sbagliato un pezzo diverso:
-        //  1. `paddingLeft: 30` inline a sinistra contro una riserva derivata a
-        //     destra — 30 contro 34 col mouse, 30 contro 38 col dito: due
-        //     grammatiche per due capi della stessa barra;
-        //  2. specchiate ma ancora `box + incasso VERTICALE`, cioè la strip che
-        //     finiva ESATTAMENTE sul bordo del bottone: zero aria fra la tab e
-        //     il comando;
-        //  3. il comando rimpicciolito a 28 fisso per far tornare il verticale
-        //     — «hai fatto i tasti più piccoli ma non dovevi» (Attilio, 09/08).
-        // Il verticale non era un problema di box ma di predicato, e sta nella
-        // classe della tab qui sotto.
-        // …e il quarto giro: DUE SEI IN FILA, che singolarmente sono giusti.
-        //
-        // «Il + della tabbar progetto è troppo lontano dal trigger sidebar
-        // (quando chiuso)» (Attilio, 10/08). Misurato: trigger a 442, «+» a 454
-        // — DODICI, dove ogni altra coppia della barra ne ha sei. Non è un
-        // numero sbagliato, è una somma: 6 di incasso della strip dal blocco che
-        // la precede, PIÙ i 6 che la riserva lascia fra l'ultima tab e il
-        // comando. Con delle tab in mezzo i due 6 misurano due cose diverse e il
-        // conto è giusto; con la strip VUOTA misurano lo stesso vuoto due volte,
-        // e il bottone si stacca dal trigger del doppio.
-        //
-        // Quindi l'incasso sinistro cade solo in quel caso: c'è un blocco in
-        // testa (la card del progetto) e non c'è nessuna tab a separarlo dal
-        // comando. È la stessa regola della colonna — «il primo non porta la sua
-        // metà perché sopra c'è chi l'ha già messa» — applicata in orizzontale.
-        className={`flex items-center ${TAB_GAP_CLASS} min-w-0 min-h-7 overflow-x-auto scrollbar-topbar ${
+        className={`flex-1 min-w-0 ${
           hasMenuItems ? CHROME_ROW_ACTION_RESERVE : 'pr-1.5'
         } ${
           hasLeftOverlay
@@ -999,6 +967,12 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
               ? 'pl-0'
               : 'pl-1.5'
         }`}
+      >
+      <div
+        ref={scrollContainerRef}
+        // La riserva sta sul wrapper, così il viewport scrollabile si ferma
+        // prima dei comandi assoluti; qui resta solo lo spazio verticale.
+        className={`flex items-center ${TAB_GAP_CLASS} min-w-0 min-h-7 overflow-x-auto scrollbar-topbar`}
         style={{ WebkitOverflowScrolling: 'touch', touchAction: 'pan-x', paddingTop: 1, paddingBottom: 1 }}
         onDragOver={(e) => {
           if (!e.dataTransfer.types.includes(DND_TYPES.PANE_TAB)) return;
@@ -1259,6 +1233,11 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
           && !isSelected
           && (densityMode === 'square' || densityMode === 'scroll');
         const compactInnerLayout = densityMode !== 'full';
+        const denseBrowserExtras = densityMode !== 'full'
+          && frozenTabWidth >= DENSE_TAB_MENU_MIN_WIDTH;
+        const browserExtrasClass = densityMode === 'full'
+          ? ''
+          : denseBrowserExtras ? 'tab-extras-dense' : 'hidden';
 
         const spacer = frozenDensity?.spacer;
         const spacerWidth = frozenSpacerWidth;
@@ -1546,8 +1525,8 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
                 and the dots, which open the sheet, downloads and console
                 included. */}
             {pane.type === 'browser' && (
-              <span className={`tab-extras ${isSquareInactive ? 'hidden' : ''}`}>
-                <BrowserTabTakeControl paneId={pane.id} />
+              <span className={`tab-extras ${isSquareInactive ? 'hidden' : browserExtrasClass}`}>
+                {!denseBrowserExtras && <BrowserTabTakeControl paneId={pane.id} />}
                 <BrowserTabMenuButton paneId={pane.id} />
               </span>
             )}
@@ -1595,6 +1574,7 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
           </Fragment>
         );
       })}
+        </div>
       </div>
 
       {/* Edge-split preview — a narrow strip at the bar's left or right edge
@@ -1641,12 +1621,11 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
           // A 6 il bottone respira, sta sul ritmo di tutto il resto, e smette di
           // essere letto insieme all'angolo.
           //
-          // `raised-control-overlay`: questo «+» non è in fila con le tab, ci
-          // sta SOPRA — la strip scorre sotto di lui. Sotto la vibrancy il
-          // fondo di un comando è un'alpha (6-10%), e a quell'alpha una tab che
-          // passa sotto si legge attraverso il bottone. La variante non lo
-          // rende opaco: sfoca ciò che gli passa sotto, così resta di vetro
-          // senza diventare un velo. Vedi index.css.
+          // `raised-control-overlay`: questo «+» resta assoluto, fuori dalla
+          // fila delle tab. Il wrapper con CHROME_ROW_ACTION_RESERVE restringe
+          // il viewport prima del bersaglio, quindi nessuna tab ci scorre sotto.
+          // Sotto la vibrancy il fondo del comando resta traslucido: la variante
+          // sfuma lo sfondo senza coprire la geometria delle tab. Vedi index.css.
           // L'incasso a destra è `ROW_INSET` (CHROME_ROW_ACTION_INSET), lo
           // stesso 6 con cui ogni riga e ogni tab stanno lontane dal loro
           // bordo. C'è stato un giro in cui lo ricavava dall'altezza della riga
