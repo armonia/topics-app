@@ -117,6 +117,7 @@ async function readLogs(path: string, since: string): Promise<Map<string, ChatLo
 function readDatabase(dbPath: string, since: string): {
   usage: Map<string, UsageRow>;
   names: Map<string, string>;
+  markers: Array<{ session_key: string; created_at: string; post_tokens: number }>;
 } {
   const uri = `${pathToFileURL(dbPath).href}?mode=ro`;
   const db = new Database(uri, { readonly: true });
@@ -133,9 +134,14 @@ function readDatabase(dbPath: string, since: string): {
       GROUP BY session_key
     `).all(since) as UsageRow[];
     const topics = db.prepare("SELECT session_key, name FROM topics").all() as Array<{ session_key: string; name: string }>;
+    // The compactions the server already stored: the log only names the chat from this change on.
+    const markers = db.prepare(
+      "SELECT session_key, created_at, post_tokens FROM compaction_markers WHERE created_at >= ? AND post_tokens IS NOT NULL",
+    ).all(since) as Array<{ session_key: string; created_at: string; post_tokens: number }>;
     return {
       usage: new Map(rows.map((row) => [row.session_key, row])),
       names: new Map(topics.map((row) => [row.session_key, row.name])),
+      markers,
     };
   } finally {
     db.close();
@@ -209,8 +215,15 @@ function printTable(
 
 async function main(): Promise<void> {
   const args = parseArgs(process.argv.slice(2));
-  const { usage, names } = readDatabase(args.dbPath, args.since);
+  const { usage, names, markers } = readDatabase(args.dbPath, args.since);
   const logs = await readLogs(args.logPath, args.since);
+  // A chat with no compaction in the log falls back to the stored markers.
+  const fromLog = new Set([...logs].filter(([, stats]) => stats.compactions.length > 0).map(([key]) => key));
+  for (const marker of markers) {
+    if (fromLog.has(marker.session_key)) continue;
+    const at = Date.parse(marker.created_at);
+    if (Number.isFinite(at)) chatLog(logs, marker.session_key).compactions.push({ at, postTokens: marker.post_tokens });
+  }
   printTable(logs, usage, names);
 }
 
