@@ -234,10 +234,15 @@ export function useTopicBrowserPresence(topicId: string): TopicBrowserPresence {
  * The body is async because the store is a lazy chunk, and the answer to the
  * caller is not: see `topicWindowDoor` for why that is sound.
  */
-export function useTopicWindowDoor(topicId: string): void {
+export function useTopicWindowDoor(topicId: string, presence?: TopicBrowserPresence): void {
+  const hasWindow = presence ? hasTopicBrowserWindow(presence) : true;
   useEffect(() => {
     if (!topicId) return;
     return registerTopicWindowDoor(topicId, (sheet) => {
+      // A project chat keeps its first clicked link in the project layout, but
+      // the agent's first page belongs in the topic window. Existing windows
+      // keep taking both kinds of sheet.
+      if (!hasWindow && sheet.openedBy !== 'agent') return false;
       void store().then(async (s) => {
         // The row has to be read before it is written: opening onto an
         // un-hydrated window would publish an empty one over the sheets this
@@ -251,7 +256,7 @@ export function useTopicWindowDoor(topicId: string): void {
       });
       return true;
     });
-  }, [topicId]);
+  }, [topicId, hasWindow]);
 }
 
 /**
@@ -266,10 +271,10 @@ export function useTopicWindowDoor(topicId: string): void {
  * project opened a sheet of the topic's window instead, and the project layout
  * never saw the event: `openLink` asks the registry BEFORE it dispatches.
  *
- * So a pane opens the door only onto a window that ALREADY EXISTS - the same
- * condition that mounts it, which is the behaviour the project window had
- * before. A `ChatPanel` is the other case: there the window IS where the first
- * link goes, so its door is unconditional.
+ * A pane always registers its door for agent opens, even before the window has
+ * a sheet. For clicked links the old condition still applies: until a window
+ * exists, the project layout gets the first one. A `ChatPanel` is the other
+ * case: its door unconditionally takes the first link too.
  *
  * A HOOK AND NOT AN INLINE `&&` on the call site: the difference between the
  * two surfaces is a rule, it is tested as one (`paneWindowDoor.test.tsx`), and
@@ -277,7 +282,7 @@ export function useTopicWindowDoor(topicId: string): void {
  * was lost.
  */
 export function usePaneWindowDoor(topicId: string, presence: TopicBrowserPresence): void {
-  useTopicWindowDoor(hasTopicBrowserWindow(presence) ? topicId : '');
+  useTopicWindowDoor(topicId, presence);
 }
 
 /** Bring a parked window back into the topic. The command lives in the

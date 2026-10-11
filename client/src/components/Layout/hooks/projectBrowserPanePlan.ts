@@ -1,4 +1,5 @@
 import type { PaneGroup } from '../../../types';
+import { openInTopicWindow } from '../../../lib/topicWindowDoor';
 
 /**
  * Which group of a project window takes a new browser pane: an explicit target
@@ -20,4 +21,19 @@ export function resolveProjectBrowserTargetGroup(
     ?? spawnerTarget
     ?? groups.find(group => group.id === focusedGroupId)?.id
     ?? groups[0]?.id;
+}
+
+/** Give a new agent page to the topic window before the project layout claims it. */
+export function claimProjectAgentNavigate(args: {
+  topicId: string | undefined;
+  contextId: string | undefined;
+  url: string;
+  hasExistingPane: boolean;
+}): boolean {
+  if (args.hasExistingPane || !args.contextId) return false;
+  return openInTopicWindow(args.topicId, {
+    contextId: args.contextId,
+    url: args.url,
+    openedBy: 'agent',
+  });
 }
