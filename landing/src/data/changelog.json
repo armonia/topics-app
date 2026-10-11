@@ -1,5 +1,27 @@
 [
   {
+    "version": "2.2.471",
+    "date": "2026-10-11",
+    "sections": {
+      "new": [],
+      "fixes": [
+        {
+          "text": "anche lo scatto di un cron e il messaggio di un'altra sessione ordinano gli hook",
+          "scope": "attention"
+        },
+        {
+          "text": "uno Stop che trova il turno già a riposo lo data lo stesso",
+          "scope": "attention"
+        },
+        {
+          "text": "un comando `!` della modalità bash non apre un turno",
+          "scope": "attention"
+        }
+      ],
+      "perf": []
+    }
+  },
+  {
     "version": "2.2.470",
     "date": "2026-10-09",
     "sections": {
@@ -11,8 +33,32 @@
       ],
       "fixes": [
         {
+          "text": "la chat riposa quando il provider le svuota la mappa dei compiti",
+          "scope": "attention"
+        },
+        {
           "text": "il budget del passaggio si misura sul testo scritto",
           "scope": "providers"
+        },
+        {
+          "text": "«emptied» in una riga, il dizionario resta entro le 800",
+          "scope": "gates"
+        },
+        {
+          "text": "lo Stop in ritardo non chiude il turno che il transcript ha già riaperto",
+          "scope": "attention"
+        },
+        {
+          "text": "una riga che apre un turno dopo lo svuotamento tiene la chat sveglia",
+          "scope": "attention"
+        },
+        {
+          "text": "il turno che il transcript apre prima dello Stop in ritardo si apre anche nello store",
+          "scope": "attention"
+        },
+        {
+          "text": "lo svuotamento lo annulla la riga che sveglia il turno, non l'ora",
+          "scope": "attention"
         }
       ],
       "perf": []

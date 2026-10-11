@@ -4,7 +4,14 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 
 ## 2.2.471 — 2026-10-11
 
+### Correzioni
+- **attention** · anche lo scatto di un cron e il messaggio di un'altra sessione ordinano gli hook
+- **attention** · uno Stop che trova il turno già a riposo lo data lo stesso
+- **attention** · un comando `!` della modalità bash non apre un turno
+
 ### Sotto il cofano
+- lo Stop a riposo torna a non ridatare la fase
+- le righe della modalità bash tornano a contare come prompt
 - **e2e** · aggiorna durate shard dal nightly del 2026-10-10 [skip ci]
 - tre residui di cloud-quality-pass (#279)
 
@@ -14,11 +21,18 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 - **providers** · un solo passaggio di consegne per le sessioni CLI nuove
 
 ### Correzioni
+- **attention** · la chat riposa quando il provider le svuota la mappa dei compiti
 - **providers** · il budget del passaggio si misura sul testo scritto
+- **gates** · «emptied» in una riga, il dizionario resta entro le 800
+- **attention** · lo Stop in ritardo non chiude il turno che il transcript ha già riaperto
+- **attention** · una riga che apre un turno dopo lo svuotamento tiene la chat sveglia
+- **attention** · il turno che il transcript apre prima dello Stop in ritardo si apre anche nello store
+- **attention** · lo svuotamento lo annulla la riga che sveglia il turno, non l'ora
 
 ### Sotto il cofano
 - handoff in PROJECT_WORDS, preamble invece di pre (check:identifier-language)
 - baseline identifier-language scesa (handoff ora è una parola nota)
+- **attention** · «queueRead» al posto di «enq», che il cancello dei nomi non conosce
 - handoff in PROJECT_WORDS su una riga (check:bloat, soglia 800)
 - **e2e** · aggiorna durate shard dal nightly del 2026-10-09 [skip ci]
 

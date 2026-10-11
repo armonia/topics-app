@@ -4,9 +4,40 @@
     "date": "2026-10-11",
     "sections": {
       "new": [],
-      "fixes": [],
+      "fixes": [
+        {
+          "it": "anche lo scatto di un cron e il messaggio di un'altra sessione ordinano gli hook",
+          "en": "",
+          "scope": "attention",
+          "breaking": false
+        },
+        {
+          "it": "uno Stop che trova il turno già a riposo lo data lo stesso",
+          "en": "",
+          "scope": "attention",
+          "breaking": false
+        },
+        {
+          "it": "un comando `!` della modalità bash non apre un turno",
+          "en": "",
+          "scope": "attention",
+          "breaking": false
+        }
+      ],
       "perf": [],
       "internal": [
+        {
+          "it": "lo Stop a riposo torna a non ridatare la fase",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "le righe della modalità bash tornano a contare come prompt",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
         {
           "it": "aggiorna durate shard dal nightly del 2026-10-10 [skip ci]",
           "en": "",
@@ -36,9 +67,45 @@
       ],
       "fixes": [
         {
+          "it": "la chat riposa quando il provider le svuota la mappa dei compiti",
+          "en": "",
+          "scope": "attention",
+          "breaking": false
+        },
+        {
           "it": "il budget del passaggio si misura sul testo scritto",
           "en": "",
           "scope": "providers",
+          "breaking": false
+        },
+        {
+          "it": "«emptied» in una riga, il dizionario resta entro le 800",
+          "en": "",
+          "scope": "gates",
+          "breaking": false
+        },
+        {
+          "it": "lo Stop in ritardo non chiude il turno che il transcript ha già riaperto",
+          "en": "",
+          "scope": "attention",
+          "breaking": false
+        },
+        {
+          "it": "una riga che apre un turno dopo lo svuotamento tiene la chat sveglia",
+          "en": "",
+          "scope": "attention",
+          "breaking": false
+        },
+        {
+          "it": "il turno che il transcript apre prima dello Stop in ritardo si apre anche nello store",
+          "en": "",
+          "scope": "attention",
+          "breaking": false
+        },
+        {
+          "it": "lo svuotamento lo annulla la riga che sveglia il turno, non l'ora",
+          "en": "",
+          "scope": "attention",
           "breaking": false
         }
       ],
@@ -54,6 +121,12 @@
           "it": "baseline identifier-language scesa (handoff ora è una parola nota)",
           "en": "",
           "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "«queueRead» al posto di «enq», che il cancello dei nomi non conosce",
+          "en": "",
+          "scope": "attention",
           "breaking": false
         },
         {
