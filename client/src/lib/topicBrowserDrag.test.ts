@@ -8,7 +8,7 @@ import { createAnimationFrameCoalescer, resolveTopicBrowserDragPosition } from '
 function fakeFrames() {
   let nextId = 0;
   const callbacks = new Map<number, () => void>();
-  const cancelled: number[] = [];
+  const canceled: number[] = [];
   return {
     scheduler: {
       request(callback: () => void) {
@@ -17,7 +17,7 @@ function fakeFrames() {
         return id;
       },
       cancel(id: number) {
-        cancelled.push(id);
+        canceled.push(id);
         callbacks.delete(id);
       },
     },
@@ -27,7 +27,7 @@ function fakeFrames() {
       for (const callback of pending) callback();
     },
     pending: () => callbacks.size,
-    cancelled,
+    canceled,
   };
 }
 
@@ -85,6 +85,6 @@ describe('topic browser window dragging', () => {
 
     expect(applied).toEqual([24]);
     expect(frames.pending()).toBe(0);
-    expect(frames.cancelled).toHaveLength(1);
+    expect(frames.canceled).toHaveLength(1);
   });
 });
