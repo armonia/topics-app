@@ -561,7 +561,7 @@ describe("compactSessionNow: /compact on the native engine", () => {
     const { compactSessionNow } = await import("./provider");
     const history = longHistory(20, 4000);
     expect(needsCompaction(history, 1_000_000)).toBe(false);
-    const session = { history, calibration: { charsPerToken: 4 } };
+    const session = { history, calibration: { charsPerToken: 4, calibrated: false } };
     const r = compactSessionNow(session);
     expect(r.compacted).toBe(true);
     if (!r.compacted) return;
@@ -573,7 +573,7 @@ describe("compactSessionNow: /compact on the native engine", () => {
 
   test("a short conversation has nothing to free, and says so", async () => {
     const { compactSessionNow } = await import("./provider");
-    const r = compactSessionNow({ history: longHistory(1, 100), calibration: { charsPerToken: 4 } });
+    const r = compactSessionNow({ history: longHistory(1, 100), calibration: { charsPerToken: 4, calibrated: false } });
     expect(r).toMatchObject({ compacted: false, reason: "nothing" });
   });
 
@@ -581,7 +581,7 @@ describe("compactSessionNow: /compact on the native engine", () => {
     const { compactSessionNow } = await import("./provider");
     const history = longHistory(20, 4000);
     const before = JSON.stringify(history);
-    const r = compactSessionNow({ history, calibration: { charsPerToken: 4 }, abort: new AbortController() });
+    const r = compactSessionNow({ history, calibration: { charsPerToken: 4, calibrated: false }, abort: new AbortController() });
     expect(r).toEqual({ compacted: false, reason: "busy" });
     expect(JSON.stringify(history)).toBe(before);
   });

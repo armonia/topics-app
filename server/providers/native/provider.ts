@@ -511,7 +511,7 @@ export class NativeProvider implements AIProvider {
       history: rehydrateHistory(sessionKey, messageRows),
       workspace,
       lastUsedAt: Date.now(),
-      calibration: { charsPerToken: DEFAULT_CHARS_PER_TOKEN },
+      calibration: { charsPerToken: DEFAULT_CHARS_PER_TOKEN, calibrated: false },
     };
     this.sessions.set(sessionKey, fresh);
     return fresh;
