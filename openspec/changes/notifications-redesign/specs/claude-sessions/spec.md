@@ -18,12 +18,20 @@ it was dropped), or a minute after the turn stopped with neither; while the turn
 that minute SHALL NOT start. `SessionEnd` and process exit SHALL empty the set. The set SHALL
 survive a server reload while the process holding it is alive. A session parked in
 `watching` whose last counting task a transcript line or that minute takes out SHALL go to
-`awaiting-user`, dated at its `Stop`: nothing is left to wake it. A hook that fired before the
+`awaiting-user`, dated at its `Stop`: nothing is left to wake it. A chat whose CLI snapshot
+takes the parked turn's last task out of the map SHALL rest the same way, dated at its `Stop`,
+once five seconds passed with no notice of its transcript still queued; a notice delivered
+meanwhile SHALL wake it with no rest in between, whichever of the snapshot and the row the
+server reads first. A hook that fired before the
 `Stop` and lands after it SHALL move the phase the same way, dated at the `Stop` too: to
 `watching` when it adds a counting task, back to `awaiting-user` when it takes out the last
-one, so a line the CLI wrote after the `Stop` still wakes the turn. A notice queued before the
-restart of the server SHALL end its task as one of before the restart, wherever its fate is
-read.
+one, so a line the CLI wrote after the `Stop` still wakes the turn. A row of the
+transcript that opens a turn (a prompt, a delivered notice, a meta row the CLI marks with
+`turnOrigin`: a cron's fire, a message from another session) SHALL order the hooks the same
+way: a hook that fired before it and lands after it SHALL NOT end or reopen the turn it
+opened. On a terminal whose turn before still reads at work, such a row newer than every hook
+landed SHALL open its turn itself, one-shot crons included. A notice queued before the
+restart of the server SHALL end its task as one of before the restart, wherever its fate is read.
 
 The set SHALL have one holder, the attention store (`subject_attention.background`): the
 phase machine SHALL read from it how many tasks count at `Stop` rather than keep a set of
