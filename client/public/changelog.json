@@ -1,5 +1,26 @@
 [
   {
+    "version": "2.2.478",
+    "date": "2026-10-11",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Apri il browser accanto alla chat che lo richiede",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "browser nel progetto: accanto alla chat che lo chiede, non nel gruppo a fuoco",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
     "version": "2.2.477",
     "date": "2026-10-11",
     "sections": {

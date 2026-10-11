@@ -2,6 +2,12 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.2.478 — 2026-10-11
+
+### Sotto il cofano
+- Apri il browser accanto alla chat che lo richiede
+- browser nel progetto: accanto alla chat che lo chiede, non nel gruppo a fuoco
+
 ## 2.2.477 — 2026-10-11
 
 ### Correzioni
