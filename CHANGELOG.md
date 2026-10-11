@@ -2,6 +2,11 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.2.479 — 2026-10-11
+
+### Sotto il cofano
+- una domanda aperta trattiene il minuto delle chat, non per sempre
+
 ## 2.2.478 — 2026-10-11
 
 ### Sotto il cofano

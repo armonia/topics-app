@@ -1,5 +1,22 @@
 [
   {
+    "version": "2.2.479",
+    "date": "2026-10-11",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "una domanda aperta trattiene il minuto delle chat, non per sempre",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        }
+      ]
+    }
+  },
+  {
     "version": "2.2.478",
     "date": "2026-10-11",
     "sections": {
