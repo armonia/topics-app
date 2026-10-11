@@ -1,5 +1,19 @@
 [
   {
+    "version": "2.2.480",
+    "date": "2026-10-11",
+    "sections": {
+      "new": [],
+      "fixes": [
+        {
+          "text": "rendi fluido il trascinamento del mini browser",
+          "scope": null
+        }
+      ],
+      "perf": []
+    }
+  },
+  {
     "version": "2.2.477",
     "date": "2026-10-11",
     "sections": {

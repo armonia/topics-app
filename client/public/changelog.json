@@ -1,5 +1,46 @@
 [
   {
+    "version": "2.2.480",
+    "date": "2026-10-11",
+    "sections": {
+      "new": [],
+      "fixes": [
+        {
+          "it": "rendi fluido il trascinamento del mini browser",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        }
+      ],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Instrada nel mini browser le aperture agent dalle chat progetto",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "nome in inglese americano",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "il proprietario nominato vale solo se sa riattaccarsi",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "cast di fetch via unknown",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        }
+      ]
+    }
+  },
+  {
     "version": "2.2.479",
     "date": "2026-10-11",
     "sections": {
@@ -9,6 +50,12 @@
       "internal": [
         {
           "it": "una domanda aperta trattiene il minuto delle chat, non per sempre",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "si adotta sul provider che possiede il turno, non su quello dell'instradamento",
           "en": "",
           "scope": null,
           "breaking": false

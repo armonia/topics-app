@@ -2,10 +2,22 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.2.480 — 2026-10-11
+
+### Correzioni
+- rendi fluido il trascinamento del mini browser
+
+### Sotto il cofano
+- Instrada nel mini browser le aperture agent dalle chat progetto
+- nome in inglese americano
+- il proprietario nominato vale solo se sa riattaccarsi
+- cast di fetch via unknown
+
 ## 2.2.479 — 2026-10-11
 
 ### Sotto il cofano
 - una domanda aperta trattiene il minuto delle chat, non per sempre
+- si adotta sul provider che possiede il turno, non su quello dell'instradamento
 
 ## 2.2.478 — 2026-10-11
 
