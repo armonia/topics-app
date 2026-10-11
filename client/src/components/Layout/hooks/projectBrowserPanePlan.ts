@@ -14,9 +14,13 @@ export function resolveProjectBrowserTargetGroup(
   spawnerKey?: string,
 ): string | undefined {
   const explicitTarget = groups.find(group => group.id === targetGroupId)?.id;
-  // A chat pane's id is its topic id, a terminal's is its pane id: the spawner
-  // key is either, so a plain membership test finds both.
-  const spawnerTarget = spawnerKey ? groups.find(group => group.paneIds.includes(spawnerKey))?.id : undefined;
+  // The spawner key is a topic id or a terminal's pane id. Inside a project
+  // window a chat's pane id is `chat:<topicId>`, so both spellings are looked
+  // for: matching the bare id only, the requesting chat was never found there
+  // and focus decided anyway (11/10).
+  const spawnerTarget = spawnerKey
+    ? groups.find(group => group.paneIds.includes(spawnerKey) || group.paneIds.includes(`chat:${spawnerKey}`))?.id
+    : undefined;
   return explicitTarget
     ?? spawnerTarget
     ?? groups.find(group => group.id === focusedGroupId)?.id
