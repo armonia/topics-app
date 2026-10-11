@@ -2,6 +2,18 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.2.477 — 2026-10-11
+
+### Correzioni
+- mantiene cliccabili le schede browser dense
+- **contesto** · dalla 5.5 il milione è di serie, e il nativo non compatta più a un quinto
+
+### Sotto il cofano
+- tab-bar-density: requisito LAYOUT-42, scala tipografica, riserva sull'involucro della strip
+- tab-bar-density: la barra torna larga, e si ridisegna solo quando cambia il piano
+- tab-bar-density: il ref delle tab naturali si aggiorna in un effetto, non nel render (eslint)
+- motore nativo: claude-haiku-5-5 nel catalogo (1M, sondato il 11/10)
+
 ## 2.2.476 — 2026-10-11
 
 ### Correzioni
@@ -9,7 +21,9 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 
 ### Sotto il cofano
 - token-audit: registrato come probe:tokens, così knip non lo dà per morto
+- Adatta le tab allo spazio disponibile
 - native-token-economy: requisito CHAT-COMPACT-05 e il test che lo copre
+- tab-bar-density: torna la riserva del comando sulla strip (ARIA-3), nomi inglesi per il cancello
 
 ## 2.2.475 — 2026-10-11
 

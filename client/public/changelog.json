@@ -1,5 +1,49 @@
 [
   {
+    "version": "2.2.477",
+    "date": "2026-10-11",
+    "sections": {
+      "new": [],
+      "fixes": [
+        {
+          "it": "mantiene cliccabili le schede browser dense",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "dalla 5.5 il milione è di serie, e il nativo non compatta più a un quinto",
+          "en": "",
+          "scope": "contesto",
+          "breaking": false
+        }
+      ],
+      "perf": [],
+      "internal": [
+        {
+          "it": "tab-bar-density: requisito LAYOUT-42, scala tipografica, riserva sull'involucro della strip",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "tab-bar-density: la barra torna larga, e si ridisegna solo quando cambia il piano",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "tab-bar-density: il ref delle tab naturali si aggiorna in un effetto, non nel render (eslint)",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "motore nativo: claude-haiku-5-5 nel catalogo (1M, sondato il 11/10)",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
     "version": "2.2.476",
     "date": "2026-10-11",
     "sections": {
@@ -20,7 +64,17 @@
           "scope": null
         },
         {
+          "it": "Adatta le tab allo spazio disponibile",
+          "en": "",
+          "scope": null
+        },
+        {
           "it": "native-token-economy: requisito CHAT-COMPACT-05 e il test che lo copre",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "tab-bar-density: torna la riserva del comando sulla strip (ARIA-3), nomi inglesi per il cancello",
           "en": "",
           "scope": null
         }

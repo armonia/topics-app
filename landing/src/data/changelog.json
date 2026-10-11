@@ -1,5 +1,23 @@
 [
   {
+    "version": "2.2.477",
+    "date": "2026-10-11",
+    "sections": {
+      "new": [],
+      "fixes": [
+        {
+          "text": "mantiene cliccabili le schede browser dense",
+          "scope": null
+        },
+        {
+          "text": "dalla 5.5 il milione è di serie, e il nativo non compatta più a un quinto",
+          "scope": "context"
+        }
+      ],
+      "perf": []
+    }
+  },
+  {
     "version": "2.2.476",
     "date": "2026-10-11",
     "sections": {
