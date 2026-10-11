@@ -1,5 +1,5 @@
 import { markDraftTouched } from '../../state/draftPane';
-import { useState, useRef, useEffect, useCallback, useMemo, useSyncExternalStore } from 'react';
+import { Fragment, useState, useRef, useEffect, useLayoutEffect, useCallback, useMemo, useSyncExternalStore } from 'react';
 import { MessageSquare, FolderTree, Globe, Terminal, GitBranch, Activity, BookOpen, Cpu, FileCode, BarChart3, Kanban, Clock, UserRound } from 'lucide-react';
 import { usePanePendingStatus } from '../../contexts/PendingActionContext';
 import { PendingActionProgressOverlay } from '../Shared/PendingActionProgressOverlay';
@@ -32,7 +32,7 @@ import { useTabNotifications } from '../../hooks/useTabNotifications';
 import { useT } from '../../hooks/useT';
 import { TabSlot, TabLabel, ProjectTabLead } from './TabSlot';
 import { useSpawnedBrowserMap } from '../../state/browserSpawner';
-import { TAB_SELECTED_SURFACE, TAB_SELECTED_SURFACE_SOFT, TAB_RESTING_SURFACE, ROW_PX, ROW_GAP, CARD_H, ROW_CARD, CHROME_ROW_ACTION_INSET, CHROME_ROW_ACTION_RESERVE, CHROME_ROW_ACTION_RESERVE_LEFT, TAB_GAP_CLASS, attentionSurface, TAB_LABEL } from '../../lib/selectionStyles';
+import { TAB_SELECTED_SURFACE, TAB_SELECTED_SURFACE_SOFT, TAB_RESTING_SURFACE, ROW_PX, ROW_GAP, CARD_H, ROW_CARD, CHROME_ROW_ACTION_INSET, TAB_GAP_CLASS, TIER_DONE_BG, TIER_ERROR_BG, TIER_INPUT_BG, attentionSurface, TAB_LABEL } from '../../lib/selectionStyles';
 import { ensurePaneUsageFresh, formatPaneUsageLine, subscribePaneUsage, getPaneUsageVersion } from '@/lib/paneUsage';
 import { useTopics, useTerminalSessions } from '../../contexts/TopicsContext';
 import {
@@ -48,6 +48,8 @@ import { browserTabLabel, browserTabSubtitle, NEW_TAB_LABEL } from '../../lib/br
 import { releaseNativeFocus } from '../../lib/shell/tauri';
 import { DRAG_REGION, NO_DRAG_REGION } from '../../lib/shell/dragRegion';
 import { useActiveTabInView } from '../../hooks/useActiveTabInView';
+import { contrastRatio, fromHex } from '../../lib/iconTint';
+import { tabDensity, type TabDensityMode } from './tabDensity';
 
 /** The width of a tab, in px. Fixed on purpose: tabs that resize with their
  *  own content make the tab under the pointer move while you are aiming at it. */
@@ -94,6 +96,64 @@ function fromThisTab(e: React.SyntheticEvent): boolean {
 const ICONS: Record<string, React.FC<{ size: number; className?: string; style?: React.CSSProperties }>> = {
   MessageSquare, FolderTree, Globe, Terminal, GitBranch, Activity, BookOpen, Cpu, FileCode, BarChart3, Kanban, Clock, UserRound,
 };
+
+function px(value: string): number {
+  const parsed = Number.parseFloat(value);
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function availableTabWidth(bar: HTMLElement, strip: HTMLElement): number {
+  const parent = bar.parentElement;
+  if (!parent) return strip.clientWidth;
+
+  const parentStyle = getComputedStyle(parent);
+  const inFlowChildren = Array.from(parent.children).filter((child) => {
+    const style = getComputedStyle(child);
+    return child !== bar && style.display !== 'none' && style.position !== 'absolute' && style.position !== 'fixed';
+  });
+  const siblingWidth = inFlowChildren.reduce((total, child) => {
+    const style = getComputedStyle(child);
+    return total + child.getBoundingClientRect().width + px(style.marginLeft) + px(style.marginRight);
+  }, 0);
+  const gap = px(parentStyle.columnGap) || px(parentStyle.gap);
+  const gapCount = Math.max(0, inFlowChildren.length);
+  const barStyle = getComputedStyle(bar);
+  const stripStyle = getComputedStyle(strip);
+  const parentContentWidth = parent.clientWidth - px(parentStyle.paddingLeft) - px(parentStyle.paddingRight);
+  const width = parentContentWidth
+    - siblingWidth
+    - gap * gapCount
+    - px(barStyle.marginLeft)
+    - px(barStyle.marginRight)
+    - px(barStyle.paddingLeft)
+    - px(barStyle.paddingRight)
+    - px(stripStyle.marginLeft)
+    - px(stripStyle.marginRight)
+    - px(stripStyle.paddingLeft)
+    - px(stripStyle.paddingRight);
+  return Math.max(0, width);
+}
+
+function topicInitialForeground(color: string | undefined): string {
+  const background = fromHex(color ?? '#6366f1');
+  const black = fromHex('#000000')!;
+  const white = fromHex('#ffffff')!;
+  return background && contrastRatio(background, black) > contrastRatio(background, white) ? '#000000' : '#ffffff';
+}
+
+function TopicInitial({ color, label }: { color: string | undefined; label: string }) {
+  const background = color ?? '#6366f1';
+  return (
+    <span
+      data-topic-initial
+      aria-hidden="true"
+      className="inline-flex h-5 w-5 flex-shrink-0 items-center justify-center rounded-full text-[11px] font-semibold leading-none ring-1 ring-white/70"
+      style={{ backgroundColor: background, color: topicInitialForeground(background) }}
+    >
+      {label.trim().slice(0, 1).toUpperCase() || 'N'}
+    </span>
+  );
+}
 
 // Tab status lives in ONE slot at the end of the tab (`TabSlot`, TABSLOT-02):
 // the same loader and NotificationBadge the sidebar draws, one at a time, so
@@ -420,7 +480,26 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
     !!onToggleZoom && (isZoomed || !!canZoom) && !isDraftPaneId(paneId);
 
   // The active tab is brought into view when it changes, and when the bar narrows: see `useActiveTabInView`.
+  const tabBarRef = useRef<HTMLDivElement>(null);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
+  const naturalTabs = useMemo(() => panes.map((pane) => ({
+    naturalPx: pane.type === 'browser'
+      ? (pane.id === activePaneId ? TAB_W_BROWSER_ACTIVE : TAB_W_BROWSER)
+      : TAB_W,
+    active: pane.id === activePaneId,
+  })), [panes, activePaneId]);
+  const [densityMeasure, setDensityMeasure] = useState({ availablePx: 1_000_000, gapPx: 0, tabHeightPx: 28 });
+  const [frozenDensity, setFrozenDensity] = useState<{
+    mode: TabDensityMode;
+    widthsByPaneId: Map<string, number>;
+    spacer: { beforePaneId?: string; afterPaneId?: string; width: number } | null;
+  } | null>(null);
+  const pointerClosePaneRef = useRef<string | null>(null);
+  const densityPlan = useMemo(
+    () => tabDensity(densityMeasure.availablePx, densityMeasure.gapPx, densityMeasure.tabHeightPx, naturalTabs),
+    [densityMeasure, naturalTabs],
+  );
+  const densityMode = frozenDensity?.mode ?? densityPlan.mode;
   useActiveTabInView(scrollContainerRef, activePaneId ? `[data-pane-id="${CSS.escape(activePaneId)}"]` : null);
 
   // A RIGHT CLICK, A LONG PRESS AND SHIFT+F10 OPEN THE TAB'S SHEET, from the
@@ -732,6 +811,87 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
   // the indices now reflect the global tab order, not the per-group order.
   const hasMenuItems = onNewChat || availableTypes.length > 0;
 
+  useLayoutEffect(() => {
+    const bar = tabBarRef.current;
+    const strip = scrollContainerRef.current;
+    const parent = bar?.parentElement;
+    if (!bar || !strip || !parent) return;
+
+    const measure = () => {
+      const style = getComputedStyle(strip);
+      const firstTab = strip.querySelector<HTMLElement>('[data-pane-id]');
+      const next = {
+        availablePx: availableTabWidth(bar, strip),
+        gapPx: px(style.columnGap) || px(style.gap),
+        tabHeightPx: firstTab?.getBoundingClientRect().height || 28,
+      };
+      setDensityMeasure((current) =>
+        Math.abs(current.availablePx - next.availablePx) < 0.25
+          && Math.abs(current.gapPx - next.gapPx) < 0.25
+          && Math.abs(current.tabHeightPx - next.tabHeightPx) < 0.25
+          ? current
+          : next,
+      );
+    };
+
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(parent);
+    for (const child of Array.from(parent.children)) {
+      if (child !== bar && getComputedStyle(child).position !== 'absolute') observer.observe(child);
+    }
+    return () => observer.disconnect();
+  }, [className, hasLeftOverlay, hasLeadingBlock, hasMenuItems, panes.length]);
+
+  const handleTabClose = (paneId: string) => {
+    if (pointerClosePaneRef.current === paneId) {
+      const widthsByPaneId = new Map<string, number>();
+      const closedIndex = panes.findIndex((pane) => pane.id === paneId);
+      panes.forEach((pane, index) => {
+        if (pane.id === paneId) return;
+        widthsByPaneId.set(
+          pane.id,
+          frozenDensity?.widthsByPaneId.get(pane.id) ?? densityPlan.widths[index] ?? naturalTabs[index]!.naturalPx,
+        );
+      });
+      const closedWidth = frozenDensity?.widthsByPaneId.get(paneId)
+        ?? densityPlan.widths[closedIndex]
+        ?? naturalTabs[closedIndex]?.naturalPx
+        ?? 0;
+      const nextPane = panes[closedIndex + 1];
+      const previousPane = panes[closedIndex - 1];
+      setFrozenDensity({
+        mode: densityMode,
+        widthsByPaneId,
+        spacer: nextPane
+          ? { beforePaneId: nextPane.id, width: closedWidth }
+          : previousPane
+            ? { afterPaneId: previousPane.id, width: closedWidth }
+            : null,
+      });
+    }
+    pointerClosePaneRef.current = null;
+    onClose(paneId);
+  };
+
+  const frozenActiveIndex = frozenDensity && activePaneId
+    ? panes.findIndex((pane) => pane.id === activePaneId)
+    : -1;
+  const frozenActiveWidth = frozenActiveIndex >= 0
+    ? frozenDensity!.widthsByPaneId.get(activePaneId!) ?? densityPlan.widths[frozenActiveIndex] ?? naturalTabs[frozenActiveIndex]!.naturalPx
+    : 0;
+  const frozenActiveMinimum = frozenDensity?.mode === 'compact'
+    ? 120
+    : frozenDensity?.mode === 'square' || frozenDensity?.mode === 'scroll'
+      ? 96
+      : frozenActiveIndex >= 0
+        ? naturalTabs[frozenActiveIndex]!.naturalPx
+        : 0;
+  const frozenSpacerWidth = Math.max(
+    0,
+    (frozenDensity?.spacer?.width ?? 0) - Math.max(0, frozenActiveMinimum - frozenActiveWidth),
+  );
+
   // La zona di trascinamento si DERIVA dalla classe che finisce nel DOM, non da
   // "il chiamante ha passato una className": la barra standalone ne passa una
   // che contiene `app-drag-region`, e legarsi alla presenza della prop lasciava
@@ -773,15 +933,34 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
     // lets it collapse far enough for the scroll strip to take over. The
     // standalone tab bar already passes its own `flex-1 … min-w-0` and scrolled
     // fine — this brings the project-group default in line.
-    <div className={barClass} {...(barClass.includes('app-drag-region') ? DRAG_REGION : {})} data-testid="panel-tab-bar" data-group-id={groupId ?? ''} style={{ position: 'relative' }}>
+    <div
+      ref={tabBarRef}
+      className={barClass}
+      {...(barClass.includes('app-drag-region') ? DRAG_REGION : {})}
+      data-testid="panel-tab-bar"
+      data-group-id={groupId ?? ''}
+      data-density={densityMode}
+      style={{ position: 'relative' }}
+      onClickCapture={(event) => {
+        const target = event.target as HTMLElement;
+        const close = target.closest('[data-testid="pane-tab-close"]');
+        if (event.detail > 0 && close) {
+          pointerClosePaneRef.current = close.closest<HTMLElement>('[data-pane-id]')?.dataset.paneId ?? null;
+        }
+      }}
+      onPointerLeave={() => {
+        pointerClosePaneRef.current = null;
+        setFrozenDensity(null);
+      }}
+    >
       {/* Scrollable tab area */}
       <div
         ref={scrollContainerRef}
         // DOVE SI FERMA LA STRIP, ai due capi, con la stessa regola.
         //
-        // Con un comando: `ROW_INSET + box + ROW_INSET`
-        // (CHROME_ROW_ACTION_RESERVE) — il bottone sta 6 dal bordo e la tab si
-        // ferma altri 6 prima di lui. Senza: `pl-1.5`/`pr-1.5`, cioè gli stessi
+        // Con un'azione, lo scrollport finisce prima del bottone sovrapposto:
+        // il padding da solo lascerebbe scorrere le tab sotto il comando.
+        // Senza: `pl-1.5`/`pr-1.5`, cioè gli stessi
         // 6 con cui ogni riga della colonna sta lontana dal bordo, così le due
         // liste si allineano ai lati.
         //
@@ -812,10 +991,10 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
         // comando. È la stessa regola della colonna — «il primo non porta la sua
         // metà perché sopra c'è chi l'ha già messa» — applicata in orizzontale.
         className={`flex items-center ${TAB_GAP_CLASS} min-w-0 min-h-7 overflow-x-auto scrollbar-topbar ${
-          hasMenuItems ? CHROME_ROW_ACTION_RESERVE : 'pr-1.5'
+          hasMenuItems ? 'mr-[48px] md:mr-[40px]' : 'pr-1.5'
         } ${
           hasLeftOverlay
-            ? CHROME_ROW_ACTION_RESERVE_LEFT
+            ? 'ml-[48px] md:ml-[40px]'
             : hasLeadingBlock && panes.length === 0
               ? 'pl-0'
               : 'pl-1.5'
@@ -1063,21 +1242,39 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
         // width also leaves room for what will be added next, without stealing
         // a pixel from the tabs you are not in.
         //
-        // The fixed-width rule above ("tabs that resize with their content make
-        // the tab under the pointer move while you are aiming at it") is not
-        // broken by this: nothing here resizes with the CONTENT: the width
-        // changes only when you ACTIVATE the tab, which is a click you meant,
-        // and it is animated, so what moves is visibly a consequence of it.
-        const tabWidth = pane.type === 'browser'
-          ? (isSelected ? TAB_W_BROWSER_ACTIVE : TAB_W_BROWSER)
-          : TAB_W;
+        // Density follows available strip space, never pointer hover. The
+        // transition is disabled by the reduced-motion variant below.
+        const tabWidth = frozenDensity?.widthsByPaneId.get(pane.id)
+          ?? densityPlan.widths[paneIdx]
+          ?? naturalTabs[paneIdx]!.naturalPx;
+        const promotedMinWidth = frozenDensity && isSelected
+          ? frozenDensity.mode === 'compact'
+            ? 120
+            : frozenDensity.mode === 'square' || frozenDensity.mode === 'scroll'
+              ? 96
+              : naturalTabs[paneIdx]!.naturalPx
+          : 0;
+        const frozenTabWidth = Math.max(tabWidth, promotedMinWidth);
+        const isSquareInactive = panes.length > 1
+          && !isSelected
+          && (densityMode === 'square' || densityMode === 'scroll');
+        const compactInnerLayout = densityMode !== 'full';
 
+        const spacer = frozenDensity?.spacer;
+        const spacerWidth = frozenSpacerWidth;
         return (
+          <Fragment key={pane.stableKey ?? pane.id}>
+          {spacer?.beforePaneId === pane.id && spacerWidth > 0 && (
+            <div
+              aria-hidden="true"
+              data-density-close-spacer
+              style={{ width: spacerWidth, minWidth: spacerWidth, maxWidth: spacerWidth, flexShrink: 0 }}
+            />
+          )}
           <div
             // Use stableKey so the tab DOM survives PANE_ID_REMAP (draft → real
             // topic). Otherwise React unmounts/remounts on first message
             // submission and the tab visibly flashes.
-            key={pane.stableKey ?? pane.id}
             data-pane-id={pane.id}
             data-active={isSelected ? 'true' : 'false'}
             // The pane in front of the person: active in a focused group of a
@@ -1092,6 +1289,7 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
             // The PAINTED tier, after the seen gate: what the blue/amber fill
             // shows. `data-attention` is the state; this is the mark.
             data-attention-fill={attentionTier ?? undefined}
+            data-tab-density={densityMode}
             // Il nome accessibile porta lo stato, che prima non era detto da
             // nessuna parte (il colore non parla). `aria-label` e non `title`: un
             // title qui aprirebbe un tooltip sopra una tab il cui nome è già
@@ -1107,10 +1305,11 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
               spawnedBrowser && tr('tab.openedBrowser'),
               cloud && tr('tab.cloudSession'),
             ].filter(Boolean).join(' · ')}
+            title={isSquareInactive ? label : undefined}
             // A browser tab has extra commands that cover the label's tail on
             // hover: the label fades under them (index.css, `.tab-extras`).
             data-tab-extras={pane.type === 'browser' ? '' : undefined}
-            style={{ width: tabWidth, minWidth: tabWidth, maxWidth: tabWidth, flexShrink: 0 }}
+            style={{ width: frozenTabWidth, minWidth: frozenTabWidth, maxWidth: frozenTabWidth, flexShrink: 0 }}
             // overflow-hidden clips the command box, which is larger than the
             // slot it sits on, at the tab's own edge.
             // L'attenzione PRECEDE la selezione, come nella sidebar: `attentionTier`
@@ -1133,7 +1332,7 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
             // riga da 40, 6 di aria contro 2. `useMobile` lo dice già: le
             // affordance del dito seguono `isTouch`, quante-colonne-e-quanto-
             // alto seguono la larghezza.
-            className={`group ${ROW_CARD} edge-lit flex items-center ${ROW_GAP} ${ROW_PX} ${CARD_H} ${TAB_LABEL} transition-all relative cursor-pointer select-none rounded-lg overflow-hidden app-no-drag ${
+            className={`group ${ROW_CARD} edge-lit flex items-center ${isSquareInactive ? 'justify-center p-0' : compactInnerLayout ? 'gap-1 px-1' : `${ROW_GAP} ${ROW_PX}`} ${CARD_H} ${TAB_LABEL} transition-all motion-reduce:transition-none relative cursor-pointer select-none rounded-lg overflow-hidden app-no-drag ${
               attentionTier
                 ? attentionSurface(attentionTier)
                 : isFullyActive
@@ -1290,7 +1489,13 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
               // tab can carry is the colour the person CHOSE for the topic
               // (TOPIC-02), the same dot as its sidebar row; a default colour
               // draws nothing.
-              pane.topicId ? <TopicColorDot color={topics[pane.topicId]?.color} onFill={onFill} /> : null
+              pane.topicId
+                ? isSquareInactive
+                  ? <TopicInitial color={topics[pane.topicId]?.color} label={label} />
+                  : <TopicColorDot color={topics[pane.topicId]?.color} onFill={onFill} />
+                : isSquareInactive && Icon
+                  ? <Icon size={14} />
+                  : null
             ) : pane.type === 'project' && pane.projectPath ? (
               // The real project favicon, or the project-type glyph when it
               // ships none, with the marker / org warning on its corner
@@ -1305,7 +1510,7 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
                 Usage and elapsed time ride in its tooltip (see TabLabel): the
                 container uses `aria-label` and not `title` on purpose. */}
             <TabLabel
-              className={`truncate flex-1 min-w-[56px] ${pane.preview ? 'italic' : ''} ${
+              className={`${isSquareInactive ? 'hidden' : `truncate flex-1 ${compactInnerLayout ? 'min-w-[24px]' : 'min-w-[56px]'}`} ${pane.preview ? 'italic' : ''} ${
                 pane.type === 'browser' && isFullyActive ? 'cursor-text' : ''
               }`}
               sheetDoor={pane.type === 'browser'}
@@ -1341,7 +1546,7 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
                 and the dots, which open the sheet, downloads and console
                 included. */}
             {pane.type === 'browser' && (
-              <span className="tab-extras">
+              <span className={`tab-extras ${isSquareInactive ? 'hidden' : ''}`}>
                 <BrowserTabTakeControl paneId={pane.id} />
                 <BrowserTabMenuButton paneId={pane.id} />
               </span>
@@ -1349,26 +1554,45 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
             {/* ZONE 3, THE SLOT: one signal at rest, one command under the
                 pointer (TABSLOT-02, CHROME-12). Also a PINNED tab closes: the
                 pin is a shortcut that stays in Fissati, not a lock. */}
-            <TabSlot
-              paneId={pane.id}
-              type={pane.type}
-              label={label}
-              topicId={pane.type === 'chat' ? pane.topicId : undefined}
-              terminalSessionId={termSid}
-              projectPath={pane.projectPath}
-              boardProjectPath={pane.type === 'kanban'
-                ? (pane.projectPath ?? (dndScope && dndScope !== STANDALONE_SCOPE ? dndScope : undefined))
-                : undefined}
-              selected={isSelected}
-              freeze={tabFreeze}
-              attention={badgeCount}
-              attentionTitle={pane.type === 'project' && pane.projectPath ? describeProjectBadge(pane.projectPath) || undefined : undefined}
-              onFill={onFill}
-              closable={!nonClosablePaneIds?.has(pane.id)}
-              onClose={onClose}
-              onStop={pane.type === 'chat' && onStopStreaming ? () => onStopStreaming(pane.id) : undefined}
-            />
+            {!isSquareInactive && (
+              <TabSlot
+                paneId={pane.id}
+                type={pane.type}
+                label={label}
+                topicId={pane.type === 'chat' ? pane.topicId : undefined}
+                terminalSessionId={termSid}
+                projectPath={pane.projectPath}
+                boardProjectPath={pane.type === 'kanban'
+                  ? (pane.projectPath ?? (dndScope && dndScope !== STANDALONE_SCOPE ? dndScope : undefined))
+                  : undefined}
+                selected={isSelected}
+                freeze={tabFreeze}
+                attention={badgeCount}
+                attentionTitle={pane.type === 'project' && pane.projectPath ? describeProjectBadge(pane.projectPath) || undefined : undefined}
+                onFill={onFill}
+                closable={!nonClosablePaneIds?.has(pane.id)}
+                onClose={handleTabClose}
+                onStop={pane.type === 'chat' && onStopStreaming ? () => onStopStreaming(pane.id) : undefined}
+              />
+            )}
+            {isSquareInactive && attentionTier && (
+              <span
+                data-testid="tab-attention-corner"
+                aria-hidden="true"
+                className={`absolute top-0.5 right-0.5 z-20 h-2 w-2 rounded-full ring-1 ring-white ${
+                  attentionTier === 'needs-you' ? TIER_INPUT_BG : attentionTier === 'error' ? TIER_ERROR_BG : TIER_DONE_BG
+                }`}
+              />
+            )}
           </div>
+          {spacer?.afterPaneId === pane.id && spacerWidth > 0 && (
+            <div
+              aria-hidden="true"
+              data-density-close-spacer
+              style={{ width: spacerWidth, minWidth: spacerWidth, maxWidth: spacerWidth, flexShrink: 0 }}
+            />
+          )}
+          </Fragment>
         );
       })}
       </div>
@@ -1476,4 +1700,3 @@ function PaneTabPendingOverlay({ paneId }: { paneId: string }) {
  * `panes.map(...)` loop. Translucent fill + gentle pulse, painted over the tab
  * content so it layers atop the neutral selection surface without clobbering it.
  */
-
