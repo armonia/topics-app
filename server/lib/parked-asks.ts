@@ -20,11 +20,11 @@
  *
  * AND IT MUST STOP HOLDING. A deferral without an end is a block with a nicer
  * name: an answered question flips its status (so it stops matching by itself),
- * and past `PARKED_ASK_HOLD_MS` the reload goes ahead. That window is the
- * GATE's patience, not the question's life: a question has none, and it
+ * and since 11/10 the gate gives it the chat minute and then reloads
+ * (`quiescenceVerdict`): a question has no life to protect from the clock, it
  * survives the reload on its row (its answer then reaches the model as the next
- * message, `lib/question-outlives-asker.ts`). The deferral only spares a live turn the
- * detour.
+ * message, `lib/question-outlives-asker.ts`). The minute only spares an answer
+ * being typed the detour. `PARKED_ASK_HOLD_MS` just drops rows too old to count.
  *
  * A question whose asking process is already gone (`askerGone`) holds nothing:
  * no process is blocked on it, so a restart cannot hurt it.
