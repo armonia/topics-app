@@ -1,5 +1,45 @@
 [
   {
+    "version": "2.2.473",
+    "date": "2026-10-11",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "aggiorna durate shard dal nightly del 2026-10-11 [skip ci]",
+          "en": "",
+          "scope": "e2e",
+          "breaking": false
+        },
+        {
+          "it": "i due casi «rossi apposta» sono verdi, il commento dice cosa guardano",
+          "en": "",
+          "scope": "pane-zoom",
+          "breaking": false
+        }
+      ]
+    }
+  },
+  {
+    "version": "2.2.472",
+    "date": "2026-10-11",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "giro 4, #278 e T22",
+          "en": "",
+          "scope": "verifica",
+          "breaking": false
+        }
+      ]
+    }
+  },
+  {
     "version": "2.2.471",
     "date": "2026-10-11",
     "sections": {
@@ -2474,6 +2514,21 @@
         },
         {
           "it": "Un sotto-agente che ha finito il turno si archivia da solo, salvo che la persona l'abbia aperto",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Togli le porte vecchie del visto e i frame unread:* e notification:* (6.2)",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Archivia notifications-redesign: spunta 2.1, 6.1, 6.2, 6.3 e ripara claude-sessions",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Porta dal vivo in Cronologia anche le righe che nessuna transizione scrive",
           "en": "",
           "scope": null
         },

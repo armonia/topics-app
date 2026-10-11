@@ -2,6 +2,17 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.2.473 — 2026-10-11
+
+### Sotto il cofano
+- **e2e** · aggiorna durate shard dal nightly del 2026-10-11 [skip ci]
+- **pane-zoom** · i due casi «rossi apposta» sono verdi, il commento dice cosa guardano
+
+## 2.2.472 — 2026-10-11
+
+### Sotto il cofano
+- **verifica** · giro 4, #278 e T22
+
 ## 2.2.471 — 2026-10-11
 
 ### Correzioni
@@ -508,6 +519,9 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 - L'istantanea del server e il layout iniziale non riaprono le chat dei sotto-agenti
 - Sotto-agenti piegati e muti finché la persona non li apre: accordion chiuso sotto la chat padre, niente notifiche dai figli alla fonte
 - Un sotto-agente che ha finito il turno si archivia da solo, salvo che la persona l'abbia aperto
+- Togli le porte vecchie del visto e i frame unread:* e notification:* (6.2)
+- Archivia notifications-redesign: spunta 2.1, 6.1, 6.2, 6.3 e ripara claude-sessions
+- Porta dal vivo in Cronologia anche le righe che nessuna transizione scrive
 - **e2e** · aggiorna durate shard dal nightly del 2026-10-05 [skip ci]
 - ignora output/ di build, aggiunge openspec/config.yaml
 - **security** · accetta 7 advisory in baseline 2026-10-06
