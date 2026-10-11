@@ -360,6 +360,16 @@ the chat, and SHALL close the pane in live clients on a remote close.
 > the add-pane menu does not expose a Browser entry, so what is pinned is that the pane
 > mounts, not that the menu path is the one taken.
 
+#### Scenario: In a project window the agent's page lands beside the chat that asked for it
+- **GIVEN** a project window with two chats in two groups, focus on the second chat's group
+- **WHEN** the first chat's agent opens a page (`browser:navigate` for its topic) and no pane for that context exists yet
+- **THEN** the new browser pane goes to the group holding the first chat, not the focused group
+- **AND** an explicit target group still wins, and focus decides only when the requester is in no group
+
+> Seen live on 2026-10-11: two chats of one project opened pages seconds apart, the
+> second page landed in the first one's browser group (focus had moved there) and
+> neither chat showed its page.
+
 #### Scenario: /browser <url> opens the pane and labels the tab
 - **GIVEN** a topic chat is open and focused
 - **WHEN** the user sends `/browser https://example.com` in the composer
