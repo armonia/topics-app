@@ -396,3 +396,37 @@ describe("historyFromPersistedThread: an image caption whose path has spaces", (
     });
   });
 });
+
+/**
+ * A NAME RECORDED BY ANOTHER ENGINE IS NOT AN API NAME. An ACP turn stores the
+ * row's title as the name; rebuilt as `tool_use.name` it made every later turn
+ * a 400 (topic:64095902, 11/10).
+ */
+describe("historyFromPersistedThread — nomi e id dei tool come li vuole l'API", () => {
+  const LONG = `"product-hunter": Find best prices and deals for products, transport, and services. ${"x".repeat(200)}`;
+  test("un nome-titolo diventa uno slug valido, e la coppia tool_use/tool_result resta abbinata", () => {
+    const out = historyFromPersistedThread([
+      { role: "user", content: "cerca voli" },
+      { role: "assistant", content: "", toolCalls: [
+        { id: "call 1:web", name: LONG, args: {}, status: "success", result: "ok" } as ToolCall,
+      ] },
+      { role: "user", content: "e quindi?" },
+    ]);
+    const use = (out[1]!.content as Block[]).find((b) => b.type === "tool_use")!;
+    const result = (out[2]!.content as Block[])[0]!;
+    expect(use.name).toMatch(/^[a-zA-Z0-9_-]{1,128}$/);
+    expect(use.name!.startsWith("product-hunter_Find_best_prices")).toBe(true);
+    expect(use.id).toMatch(/^[a-zA-Z0-9_-]+$/);
+    expect(result.tool_use_id).toBe(use.id);
+  });
+  test("un nome gia' valido resta com'e'", () => {
+    const out = historyFromPersistedThread([
+      { role: "user", content: "leggi" },
+      { role: "assistant", content: "", toolCalls: [{ id: "toolu_01", name: "read_file", args: {}, status: "success", result: "x" } as ToolCall] },
+      { role: "user", content: "ok" },
+    ]);
+    const use = (out[1]!.content as Block[]).find((b) => b.type === "tool_use")!;
+    expect(use.name).toBe("read_file");
+    expect(use.id).toBe("toolu_01");
+  });
+});
