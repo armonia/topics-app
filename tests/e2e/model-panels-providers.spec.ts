@@ -79,6 +79,12 @@ const popover = (page: Page) => page.getByTestId("provider-model-popover");
 const models = (page: Page) => page.getByTestId("model-selector-panel");
 const level = (page: Page) => page.getByTestId("providers-level");
 const card = (page: Page, name: string) => level(page).getByTestId(`provider-card-${name}`);
+/** Opens a section of the list: the accordion keeps all but the chosen model's section closed. */
+const openSection = async (page: Page, maker: string) => {
+  const toggle = models(page).getByTestId(`model-section-${maker}`).getByTestId("model-section-toggle");
+  if ((await toggle.getAttribute("aria-expanded")) !== "true") await toggle.click();
+  await expect(toggle).toHaveAttribute("aria-expanded", "true");
+};
 const rect = (el: Locator) => el.evaluate((node) => { const r = node.getBoundingClientRect(); return { x: r.x, y: r.y, width: r.width, height: r.height }; });
 
 async function openProvidersLevel(page: Page, picker: Locator) {
@@ -236,6 +242,7 @@ test.describe("desktop 1440 × 900, the list and the detail", () => {
     await picker.click();
     await expect(models(page)).toBeVisible();
     const search = models(page).getByTestId("model-selector-search");
+    await openSection(page, "openai");
     const openAiGroup = models(page).getByTestId("model-section-openai");
     const older = openAiGroup.getByTestId("model-section-older");
     await older.click();
@@ -427,6 +434,7 @@ test.describe("without keys, 1440 × 900", () => {
     expect(await page.evaluate(() => (window as unknown as { __terminal: unknown[] }).__terminal)).toEqual([{ command: "codex login" }]);
     // «Configura ›» from the connect box opens Gemini CLI's detail.
     await picker.click();
+    await openSection(page, "google");
     await models(page).getByTestId("model-section-google").getByTestId("model-connect-action").click();
     await expect(page.getByTestId("provider-detail-gemini")).toBeVisible();
     await expect(page.getByTestId("provider-detail-gemini").getByTestId("provider-detail-action")).toBeVisible();
