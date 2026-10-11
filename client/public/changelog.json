@@ -1,5 +1,28 @@
 [
   {
+    "version": "2.2.471",
+    "date": "2026-10-11",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "aggiorna durate shard dal nightly del 2026-10-10 [skip ci]",
+          "en": "",
+          "scope": "e2e",
+          "breaking": false
+        },
+        {
+          "it": "tre residui di cloud-quality-pass (#279)",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        }
+      ]
+    }
+  },
+  {
     "version": "2.2.470",
     "date": "2026-10-09",
     "sections": {

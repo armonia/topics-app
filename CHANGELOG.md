@@ -2,6 +2,12 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.2.471 — 2026-10-11
+
+### Sotto il cofano
+- **e2e** · aggiorna durate shard dal nightly del 2026-10-10 [skip ci]
+- tre residui di cloud-quality-pass (#279)
+
 ## 2.2.470 — 2026-10-09
 
 ### Novità
