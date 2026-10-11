@@ -3432,3 +3432,65 @@ puntatore, non l'assenza di un nome.
   senza fasce vuote (MOBILE-GEOM-05)
 - **AND** passare anche sotto la barra di stato richiede `black-translucent`, e SHALL essere deciso
   solo dopo aver misurato `innerHeight` contro `screen.height` in standalone su un iPhone vero
+
+### Requirement: LIST-PAGE-01 — Una lista che cresce in basso carica la pagina dopo da sola
+
+Le liste che mostrano una pagina alla volta — la colonna della board, lo storico
+delle notifiche, lo storico dei commit, le sessioni da riprendere — SHALL caricare
+la pagina successiva da sole quando la loro riga «mostra altri» entra in vista (con
+240 px di anticipo dentro il contenitore che scorre), senza click. Una richiesta
+alla volta; una riga ancora in vista dopo una pagina arrivata SHALL chiedere di
+nuovo solo se quella pagina ha aggiunto righe: una pagina fallita o vuota aspetta
+che chi legge esca e rientri, invece di interrogare il server in un ciclo
+(`client/src/lib/loadOnReach.ts`). Ogni cambio del numero di righe, anche una riga
+arrivata mentre una pagina è in viaggio, SHALL far guardare di nuovo la riga prima di
+chiedere; e il contenitore guardato SHALL essere quello che la scorre in quel momento,
+anche dopo un cambio di disposizione, verificato a ogni risposta e a ogni cambio: il cambio
+sposta lo scorrimento e non la riga, il contenitore di prima può non dire più niente o
+tenerla vicina per sempre, e tornando alla griglia nessun osservatore risponde. In vista
+vuol dire anche a schermo: una colonna
+fuori dalla board che scorre di lato NON SHALL caricare, nemmeno quando la sua riga
+sta dentro la colonna stessa (una finestra alta). Mentre una card della board viene trascinata la
+colonna NON SHALL crescere sotto il puntatore. La riga SHALL restare un bottone,
+per la tastiera e per un browser senza IntersectionObserver.
+
+#### Scenario: la riga entra in vista e la pagina arriva
+- **GIVEN** una lista con più righe di una pagina
+- **WHEN** chi legge scorre fino alla riga «mostra altri»
+- **THEN** la pagina successiva è chiesta una volta, senza click
+
+#### Scenario: una pagina che non aggiunge niente non fa un ciclo
+- **GIVEN** la riga in vista e una richiesta che torna senza righe nuove
+- **WHEN** la riga resta in vista
+- **THEN** nessuna nuova richiesta parte finché la riga non esce e rientra in vista
+
+#### Scenario: durante un trascinamento la colonna non cresce
+- **GIVEN** una card della board in trascinamento
+- **WHEN** la riga «mostra altri» di una colonna entra in vista
+- **THEN** la colonna non carica niente finché il trascinamento non finisce
+
+#### Scenario: cambiare disposizione non carica pagine da sole
+- **GIVEN** la board a griglia, con la colonna Done a una pagina e il suo archivio di centinaia di card
+- **WHEN** la persona passa alla disposizione a lista e non scorre
+- **THEN** la colonna Done resta a una pagina
+- **WHEN** la persona scorre fino alla riga «mostra altri» di Done
+- **THEN** arriva una pagina sola
+
+#### Scenario: a una finestra alta la colonna fuori schermo aspetta
+- **GIVEN** la board in una finestra alta 1800 px, con la riga «mostra altri» di Done dentro la sua colonna e Done oltre il bordo destro
+- **WHEN** nessuno scorre
+- **THEN** la colonna Done resta a una pagina
+- **WHEN** la persona porta Done a schermo
+- **THEN** arriva una pagina sola
+
+#### Scenario: a una finestra alta, da griglia a lista, conta la riga e non la cima della colonna
+- **GIVEN** la board a griglia in una finestra alta 1800 px, con la riga «mostra altri» di Done vicina alla fine della sua colonna e Done oltre il bordo destro
+- **WHEN** la persona passa alla lista e scorre finché solo la cima di Done è a schermo
+- **THEN** la colonna Done resta a una pagina
+- **WHEN** la persona scorre fino alla riga
+- **THEN** arriva una pagina sola
+
+#### Scenario: tornata da lista a griglia, la colonna carica ancora in anticipo
+- **GIVEN** la board passata da griglia a lista e tornata a griglia, con Done a una pagina
+- **WHEN** la persona scorre Done finché la riga «mostra altri» è 120 px sotto ciò che la colonna mostra
+- **THEN** arriva una pagina sola, prima che la riga entri in vista

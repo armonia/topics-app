@@ -31,6 +31,8 @@ function body(name: string): string {
 describe("the land spawns the repo's package manager", () => {
   test("no `bun` literal reaches a spawn", () => {
     expect(SRC).not.toContain('Bun.spawn(["bun"');
+    expect(SRC).not.toContain('spawnBounded(["bun"');
+    expect(SRC).not.toContain('runBounded(["bun"');
     expect(SRC).not.toContain('"bun", "run"');
   });
 
@@ -40,16 +42,16 @@ describe("the land spawns the repo's package manager", () => {
 
   test("the runner resolves the argv from the repo and keeps the kill switch", () => {
     const b = body("runRepoScript");
-    expect(b).toContain("Bun.spawn(runScriptArgv(cwd, args)");
-    expect(b).toContain("BUILD_TIMEOUT_MS");
-    expect(b).toContain("proc.kill()");
+    expect(b).toContain("runBounded(runScriptArgv(cwd, args)");
+    // The deadline is `runBounded`'s (it kills the group and closes the streams), not a `proc.kill()` on the wrapper.
+    expect(b).toContain("timeoutMs: BUILD_TIMEOUT_MS");
   });
 
   test("a missing manager is a failed result whose stderr names it, before any spawn", () => {
     const b = body("runRepoScript");
     const check = b.indexOf("missingPackageManager(cwd)");
     expect(check).toBeGreaterThan(0);
-    expect(check).toBeLessThan(b.indexOf("Bun.spawn("));
+    expect(check).toBeLessThan(b.indexOf("runBounded("));
     expect(b).toContain("return { code: 1, stdout: \"\", stderr: missing }");
   });
 });

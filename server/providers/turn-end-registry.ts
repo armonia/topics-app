@@ -48,6 +48,48 @@ export function recordTurnEnd(sessionKey: string, info: TurnEndInfo): void {
     if (oldest.done) break;
     lastTurnEnd.delete(oldest.value);
   }
+  for (const fn of listeners) {
+    try { fn(sessionKey, info); } catch { /* a failing listener must not break the turn's end */ }
+  }
+}
+
+/**
+ * Who opened the turn. `byPerson`: a message a person typed, not one the
+ * machine produced (a wake, a resume, a goal nudge, a turn the server sends
+ * itself). `key`: the send's own key (`clientMessageId`), when it carried one.
+ */
+export interface TurnStartMeta { byPerson: boolean; key: string | null }
+type TurnStartListener = (sessionKey: string, turnId: string, meta: TurnStartMeta) => void;
+const startListeners = new Set<TurnStartListener>();
+
+/**
+ * A turn opened on this session, named by `turnId`: the user row it answers.
+ * The chat route says it when its stream starts; the same id rides on the
+ * turn's end (`TurnEndInfo.turnId`), so whoever reports turns attributes each
+ * end to its own turn, not to whatever turn is open at that moment.
+ */
+export function recordTurnStart(sessionKey: string, turnId: string, meta: TurnStartMeta = { byPerson: false, key: null }): void {
+  for (const fn of startListeners) {
+    try { fn(sessionKey, turnId, meta); } catch { /* a failing listener must not break the turn */ }
+  }
+}
+
+/** Told of every turn as it opens. Returns the unsubscribe. */
+export function onTurnStart(fn: TurnStartListener): () => void {
+  startListeners.add(fn);
+  return () => { startListeners.delete(fn); };
+}
+
+type TurnEndListener = (sessionKey: string, info: TurnEndInfo) => void;
+const listeners = new Set<TurnEndListener>();
+
+/**
+ * Told of every end as it is recorded: native sub-agents report a wake turn
+ * of a child's chat that no driver of theirs sent. Returns the unsubscribe.
+ */
+export function onTurnEnd(fn: TurnEndListener): () => void {
+  listeners.add(fn);
+  return () => { listeners.delete(fn); };
 }
 
 /** Ritira (e consuma) la fine del turno. `undefined` = nessuna, o già ritirata. */

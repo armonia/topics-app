@@ -25,7 +25,6 @@
  * the path production takes, and the push service's own refusal reason (Apple
  * answers `{"reason":"BadJwtToken"}` and the like) lands in the log line.
  */
-import webpush from "web-push";
 
 /** A row that can be delivered to: flat columns, as SQLite returns them. */
 export interface DeliveryTarget {
@@ -119,6 +118,12 @@ export async function deliverPush(
     log(`[Push] not sent tag=${opts.tag}: no subscribed device (push_subscriptions has no deliverable row)`);
     return summary;
   }
+
+  // Loaded here and not at the top of the module: `push-service` (and this
+  // file with it) is in the boot's static graph, and `web-push` brings asn1.js
+  // and jws along (~33 ms before `listen`, measured in isolation). It is only
+  // needed when there is actually something to send.
+  const { default: webpush } = await import("web-push");
 
   await Promise.all(targets.map(async (target) => {
     const who = `to=${JSON.stringify(target.label ?? "unknown device")} via=${pushHost(target.endpoint)}`;

@@ -34,7 +34,10 @@ test("the ids match the session types the server can actually spawn", () => {
   // The id is what the client posts as `type` to /api/terminal/sessions. An id
   // that does not exist there produces a plain shell instead of the agent, in
   // silence — the server falls back to `shell` for anything unknown.
-  const spawnable = new Set(["claude-code", "codex", "opencode", "kimi-code", "gemini"]);
+  // `muse` joins the set with its `detectAgents()` entry (muse-provider track 2);
+  // the route branch that makes it truly spawnable lands in track 5 — same
+  // order as `gemini`, which is listed here while the route still maps it to shell.
+  const spawnable = new Set(["claude-code", "codex", "opencode", "kimi-code", "gemini", "muse"]);
   for (const a of detectAgents()) expect(spawnable.has(a.id)).toBe(true);
 });
 

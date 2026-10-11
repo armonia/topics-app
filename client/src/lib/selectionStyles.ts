@@ -481,6 +481,12 @@ export const SIDEBAR_SCROLL_BOTTOM_PROPERTY = '--sidebar-scroll-bottom';
 export const BAND_OWN_PROPERTY = '--mobile-band-own-h';
 export const MOBILE_SIDEBAR_HEADER_H = 56;
 /**
+ * The header's height at the top of the run (mobile-chrome-feedback A1): the
+ * row is compact there (44, exactly its buttons) and reveals the full 56 when
+ * the list scrolls, while the rows always start right after `--sat`.
+ */
+export const MOBILE_SIDEBAR_HEADER_H_COMPACT = 44;
+/**
  * Where the word of a bottom-row button starts: under the glyph, which is CENTRED
  * in the button. Half a 22px glyph (11) plus 2 of air. The word is out of flow so
  * it never moves the glyph off the centre of the button (MOBILE-GEOM-02).

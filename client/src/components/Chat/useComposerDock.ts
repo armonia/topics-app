@@ -32,6 +32,14 @@ import { beginDescent, cancelDescent, claimDescent } from '../../state/composerH
 /** The composer block's height, read by the list's bottom gutter (`MessageList` Footer). */
 export const COMPOSER_HEIGHT_PROPERTY = '--chat-composer-h';
 
+/**
+ * The breath between the last answer and the composer, in pixels. A number and
+ * not a class: it is height reserved INSIDE the scrolled content (the list's
+ * Footer), which the position maths has to know. A row scrolled into view lands
+ * above it too (`ToolCallRow`).
+ */
+export const CHAT_BOTTOM_GUTTER_PX = 24;
+
 /** Told by the composer observer, in the frame the block changed height. */
 export type ComposerResizeHandler = (grew: boolean) => void;
 

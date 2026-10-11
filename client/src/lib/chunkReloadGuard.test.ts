@@ -48,8 +48,11 @@ beforeEach(() => {
 });
 
 afterEach(() => {
-  g.window = saved.window;
-  g.document = saved.document;
+  // Removed, not set to undefined: a key left behind still answers `in`.
+  if (saved.window === undefined) delete g.window;
+  else g.window = saved.window;
+  if (saved.document === undefined) delete g.document;
+  else g.document = saved.document;
   console.error = originalConsoleError;
 });
 

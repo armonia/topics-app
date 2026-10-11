@@ -431,6 +431,32 @@ qualcosa che era già finito.
 - **GIVEN** la lingua dichiarata
 - **THEN** la direttiva SHALL chiudere il prompt
 
+### Requirement: PROMPT-02 — Il runtime nativo porta la direttiva di lingua nel system, a ogni turno
+
+La rotta non passa nessun prompt di sistema al runtime nativo: la direttiva
+arrivava soltanto inline, nel turno utente, dove la deduplica la toglie dai
+turni successivi e la storia ricostruita dal DB dopo un riavvio non la
+contiene. Il 04/10 topic:d740f8ae, passata al nativo con MSEL-06, rispondeva
+in inglese a una chat italiana seguendo gli avvisi inglesi di Topics.
+
+Il system del runtime nativo SHALL portare la direttiva di lingua
+(`languageDirective`, l'unica fonte del testo) ULTIMA, dopo la base e dopo la
+nota sul progetto assente; SHALL rileggerla A OGNI TURNO, come effort e
+modello, così che cambiare lingua valga dal messaggio dopo. Senza progetto e
+senza coordinatore, la nota sull'assenza di strumenti SHALL restare; il
+coordinatore globale, senza progetto per costruzione, SHALL portare la sola
+direttiva.
+
+#### Scenario: un avviso inglese a metà conversazione non la perde
+- **GIVEN** una chat italiana sul runtime nativo
+- **WHEN** un turno porta un avviso inglese di Topics
+- **THEN** il system di OGNI turno SHALL contenere la direttiva
+
+#### Scenario: la composizione del system
+- **GIVEN** una base, un progetto assente, una lingua
+- **THEN** il system SHALL essere base, nota, direttiva per ultima
+- **AND** il coordinatore globale SHALL portare la sola direttiva
+
 ### Requirement: SNAPSYNC-01 — L'istantanea dei fornitori arriva a TUTTE le finestre, senza interrogare
 
 L'istantanea SHALL essere leggibile con una forma VALIDA, e la richiesta di

@@ -303,6 +303,8 @@ export function useProjectLayout(args: UseProjectLayoutArgs): UseProjectLayoutRe
       // transient-empty guard (useProjectChatSync) skips the removal pass
       // when topicIds is empty, so nothing ever cleaned it up.
       if (t && (t.projectPath !== projectPath || t.archived)) continue;
+      // Sub-agents live in the sidebar under their parent, never as a restored tab.
+      if (t?.subagentOf) continue;
       const id = createPaneId('chat', topicId);
       if (seenIds.has(id)) continue;
       seenIds.add(id);

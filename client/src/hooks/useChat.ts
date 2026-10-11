@@ -10,10 +10,13 @@ import { mergeCatchupIntoPartial, shouldAdoptIntoPlaceholder, CLIENT_MESSAGE_ID_
 import { clearPartialForReattach, reviveClosedBubble } from './streamReattachReset';
 import { LiveTurnIds, carryLateStart, frameTargetIndex, lateStartContent, liveAssistantIndex, queueLateDelta, shouldFillFromBroadcast, takeLateDeltas, type LateDelta } from './liveTurn';
 import { liveInterruptionBlock } from '../components/Chat/turnError';
+import { mergeMediaSizes, type MediaSizes } from '../components/Chat/mediaBox';
 import { decideCacheWrite } from './messageCacheWrite';
 import { decideCachePrune } from './messageCachePrune';
-import { mergeHistoryPage, mergeOlderHistory, pageOverlapsExisting } from './historyPaging';
+import { mergeHistoryPage, mergeOlderHistory, pageOverlapsExisting, rowsAboveLocalCopy } from './historyPaging';
+import { noteLocalCopyRows, settleLocalCopyRows, showsLocalCopyRows } from '../state/localCopyRows';
 import { HISTORY_FETCH_ALL, HISTORY_FIRST_PAGE } from '../../../shared/history-paging';
+import { SEND_NOW_STOP_CAUSE } from '../../../shared/types';
 import {
   getHistoryCompleteness,
   markHistoryComplete,
@@ -184,6 +187,11 @@ export interface LoadHistoryOptions {
   keepLit?: boolean;
 }
 
+export interface StopSessionOptions {
+  /** «Send now»: stop the turn to send the queue, leave its sub-agents working. */
+  sendNow?: boolean;
+}
+
 export interface SendMessageOptions {
   /**
    * Fast Mode flag for this turn. Forwarded as `chatRequest.fastMode`; the
@@ -212,6 +220,8 @@ export interface SendMessageOptions {
   userMessageId?: string;
   /** This message already left once under `clientMessageId`, and the server may hold it (`QueuedTurn.sent`). */
   mayBeStored?: boolean;
+  /** The sizes of the pictures the person attached, read in the composer: the bubble's pictures have their box before their bytes (`Chat/attachmentSizes.ts`). */
+  mediaSizes?: MediaSizes;
 }
 
 export type { QueuedMessage };
@@ -536,7 +546,9 @@ export function useChat() {
   // l'initializer di `useState`; adesso lo store nasce vuoto e si riempie qui.
   if (!messageStoreHydrated) {
     messageStoreHydrated = true;
-    replaceAllMessages(getInitialMessages());
+    const fromCopy = getInitialMessages();
+    replaceAllMessages(fromCopy);
+    noteLocalCopyRows(Object.keys(fromCopy));
   }
   // Compaction dividers per session (CHAT-COMPACT-01): display-only, merged
   // into the transcript by afterMessageId in MessageList. Populated live via
@@ -1835,6 +1847,7 @@ export function useChat() {
         if (event.media?.length > 0) {
           updateLastMessage(sessionKey, {
             media: event.media,
+            ...(event.mediaSizes ? { mediaSizes: event.mediaSizes } : {}),
           });
         }
         break;
@@ -1974,6 +1987,7 @@ export function useChat() {
       // the outbound queue, same key) takes it instead of a second bubble.
       setMessages(prev => ({ ...prev, [sessionKey]: placeOwnBubble(prev[sessionKey] ?? [], {
         id: options?.userMessageId ?? generateMessageId(), role: 'user', content, timestamp: new Date().toISOString(), clientMessageId: idemKey,
+        ...(options?.mediaSizes ? { mediaSizes: options.mediaSizes } : {}),
       }, options?.userMessageId, options?.mayBeStored) }));
 
       // La coda, non tutto. Il ramo legato a una topic legge solo l'ultimo
@@ -2544,8 +2558,11 @@ export function useChat() {
    * minuti ha svuotato la pagina e chiuso la pane mentre il server rifiutava
    * («il turno aveva già prodotto lavoro») e teneva tutto su disco. Vedi
    * `stopSessionPolicy.ts` e `shared/clear-messages-policy.ts`.
+   *
+   * `sendNow`: «Send now» on a queued message. The turn stops the same way,
+   * but the sub-agents it delegated to keep working (SEND_NOW_STOP_CAUSE).
    */
-  const stopSession = useCallback(async (sessionKey: string): Promise<boolean> => {
+  const stopSession = useCallback(async (sessionKey: string, opts?: StopSessionOptions): Promise<boolean> => {
     // PRIMA di tutto il resto: «ferma» vuol dire fermo. L'abort qui sotto fa
     // finire lo stream, e la fine di uno stream è ciò che fa partire la coda —
     // per questo il freno si alza per primo e in modo DUREVOLE (le altre
@@ -2580,7 +2597,7 @@ export function useChat() {
     // Tell the server to abort — also clear server-side messages if first message
     let clearedByServer = false;
     try {
-      const res = await chatApi.abort(sessionKey, proposeWipe);
+      const res = await chatApi.abort(sessionKey, proposeWipe, opts?.sendNow ? SEND_NOW_STOP_CAUSE : undefined);
       // `cleared` è l'unica parola che conta: il server ricontrolla sul DB e
       // vede anche le righe fuori dal ramo attivo, che qui non si vedono.
       // Assente (server vecchio, richiesta fallita) ⇒ non si butta niente.
@@ -2753,18 +2770,23 @@ export function useChat() {
       // in flight: the name left by a turn whose end never reached this window
       // kept its deleted row as a bubble with a spinner.
       const liveRowId = response.isStreaming || startedMeanwhile ? streamMessageIdRef.current.get(sessionKey) : undefined;
+      // While the store holds the local copy the list may already be showing
+      // it (MessageList does not wait for this answer): rows of the page ABOVE
+      // the copy stay out, as partial history (`rowsAboveLocalCopy`).
+      const above = showsLocalCopyRows(sessionKey) ? rowsAboveLocalCopy(messagesRef.current[sessionKey] || [], response.messages) : 0;
+      const pageRows = above > 0 ? response.messages.slice(above) : response.messages;
       // Fewer rows than the thread has: what came is a page, not the story.
       // Compared BEFORE the context-message filter below, which is client-side
       // and would otherwise make a complete thread look short.
       const total = response.total ?? response.messages.length;
-      const wholeThread = response.messages.length >= total;
-      const boundaryId = wholeThread ? null : (response.messages[0]?.id ?? null);
+      const wholeThread = pageRows.length >= total;
+      const boundaryId = wholeThread ? null : (pageRows[0]?.id ?? null);
 
       const discarded = discardedRowsRef.current.get(sessionKey);
       // An answer read after the deletes no longer has those rows: the list
       // has done its job. One read before them still does, and drops them here.
       if (!endedMeanwhile) discardedRowsRef.current.delete(sessionKey);
-      const chatMessages: ChatMessage[] = response.messages
+      const chatMessages: ChatMessage[] = pageRows
         .filter(msg => !isContextMessage(msg.content) && !(msg.id && discarded?.has(msg.id)))
         .map(msg => ({
           ...msg,
@@ -2801,7 +2823,7 @@ export function useChat() {
         return { ...prev, [sessionKey]: riconciliato };
       });
       if (boundaryId && !alreadyWhole) {
-        markHistoryPartial(sessionKey, { boundaryId, missing: total - response.messages.length });
+        markHistoryPartial(sessionKey, { boundaryId, missing: total - pageRows.length });
       } else {
         markHistoryComplete(sessionKey);
       }
@@ -2818,6 +2840,7 @@ export function useChat() {
       // The server answered: whatever the pane was saying about the local copy
       // stops being true here (see `state/historyFromCache.ts`).
       clearHistoryFromCache(sessionKey);
+      settleLocalCopyRows(sessionKey);
       // Mark this session as freshly loaded — subsequent re-mounts within
       // HISTORY_DEDUP_MS will short-circuit instead of re-fetching. Not an
       // answer older than a turn end: the read again must not be skipped.
@@ -3150,7 +3173,7 @@ export function useChat() {
     }
   }, []);
 
-  const appendMediaToLastAssistant = useCallback((sessionKey: string, mediaPaths: string[]) => {
+  const appendMediaToLastAssistant = useCallback((sessionKey: string, mediaPaths: string[], mediaSizes?: Record<string, [number, number]>) => {
     setMessages(prev => {
       const sessionMessages = prev[sessionKey] || [];
       const lastAssistantIdx = sessionMessages.findLastIndex(m => m.role === 'assistant');
@@ -3160,6 +3183,7 @@ export function useChat() {
       updated[lastAssistantIdx] = {
         ...updated[lastAssistantIdx],
         media: [...(updated[lastAssistantIdx].media || []), ...mediaPaths],
+        mediaSizes: mergeMediaSizes(updated[lastAssistantIdx].mediaSizes, mediaSizes),
       };
       return { ...prev, [sessionKey]: updated };
     });

@@ -265,6 +265,8 @@ test("i comandi sui pannelli non compaiono dove non ci sono pannelli", async ({ 
   // A 390px: assenti. Non grigi — ASSENTI: la condizione che li sbloccherebbe
   // è lo schermo, e non c'è niente da sbloccare.
   await menu.click();
+  // Sul foglio a due piani (A1) la Vista sta al piano Topics: ci si scende.
+  await page.getByTestId("user-menu-topics-entry").click();
   const openMenu = page.getByTestId("topics-menu-view");
   await expect(openMenu).toBeVisible();
   // The whole GROUP is absent, which is the same fact one level up: the two

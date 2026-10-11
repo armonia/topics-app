@@ -1292,6 +1292,7 @@ export function usePanelLifecycle(args: UsePanelLifecycleArgs): UsePanelLifecycl
           // The marks decide how the row is drawn: without them the goal's
           // continuation landed here as the person's own bubble.
           ...(msg.blocks?.length ? { blocks: msg.blocks } : {}),
+          ...(msg.mediaSizes ? { mediaSizes: msg.mediaSizes } : {}),
         });
       }
       // Il banner del messaggio a finestra nascosta NON sta più qui.
@@ -1310,7 +1311,7 @@ export function usePanelLifecycle(args: UsePanelLifecycleArgs): UsePanelLifecycl
       // gate (isOwnStream, corpo vuoto) ora viaggiano espliciti nel notificatore.
       // message:media
       if (msg.type === 'message:media') {
-        chatHandlersRef.current.appendMediaToLastAssistant(msg.sessionKey, msg.media);
+        chatHandlersRef.current.appendMediaToLastAssistant(msg.sessionKey, msg.media, msg.mediaSizes);
       }
       // clear
       if (msg.type === 'clear') {
@@ -2210,7 +2211,7 @@ export function usePanelLifecycle(args: UsePanelLifecycleArgs): UsePanelLifecycl
     // on the frame after the key instead of after the round trip and the
     // promotion's renders (see `state/firstSend.ts`).
     const draftKey = draftSessionKey(draftId);
-    const bubbleId = stageFirstBubble(draftKey, firstMessage);
+    const bubbleId = stageFirstBubble(draftKey, firstMessage, options?.mediaSizes);
     const topic = await createTopic({
       name: 'New Chat',
       icon: DEFAULT_TOPIC_ICON,

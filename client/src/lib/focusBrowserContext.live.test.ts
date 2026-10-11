@@ -35,7 +35,11 @@ afterAll(() => {
   if (found.window === undefined) delete g.window;
   else g.window = found.window;
   g.fetch = found.fetch;
-  g.localStorage = found.localStorage;
+  // Like `window`: a key left behind as `undefined` still answers `in`, and a
+  // later file that checks `'localStorage' in globalThis` before removing its
+  // own fake keeps it (projectSidebarHeights.test.ts, 08/10/2026).
+  if (found.localStorage === undefined) delete g.localStorage;
+  else g.localStorage = found.localStorage;
 });
 
 let events: Array<{ type: string; detail: unknown }>;

@@ -28,7 +28,18 @@ cd "$APP_DIR"
 # reproduces. Resolve bun (+ Homebrew/local) explicitly so a restart is always
 # self-sufficient, regardless of the launchd environment.
 export PATH="$HOME/.bun/bin:/opt/homebrew/bin:/usr/local/bin:$PATH"
-BUN="$(command -v bun || echo "$HOME/.bun/bin/bun")"
+
+# ─── The server runs the Bun of .bun-version (2026-10-08) ──────────────────
+# CI, the release and the tests run the version pinned in .bun-version; this
+# Mac's global `bun` belongs to every other project too and stays where it is.
+# scripts/pinned-bun.sh prints the pinned binary (scripts/install-bun.sh puts it
+# in ~/.topics/bun), or the global one with a line in the log when that version
+# is missing. The loop below asks again at every server launch, so a version
+# change reaches the server with the reload that brings the code, without
+# restarting this script. A checkout from before pinned-bun.sh existed falls
+# back to the global one.
+pinned_bun() { "$APP_DIR/scripts/pinned-bun.sh" || command -v bun || echo "$HOME/.bun/bin/bun"; }
+BUN="$(pinned_bun)"
 
 # ─── Descrittori di file (2026-08-19) ──────────────────────────────────────
 # launchd consegna a questo job il default di sistema: `maxfiles 256`. Una
@@ -255,7 +266,8 @@ if [ "${TOPICS_SERVER_WATCH:-0}" = "1" ]; then
   # The watcher has a separate supervisor because the server can stay healthy
   # after either server-watch.sh or fswatch exits. The wrapper reports every
   # exit and restarts with bounded backoff while this process remains alive.
-  /bin/bash "$APP_DIR/scripts/server-watch-supervisor.sh" "$APP_DIR" "$SERVER_PIDFILE" "$$" &
+  # BUN: the reload gate of server-watch.sh builds the server with its own Bun.
+  BUN="$BUN" /bin/bash "$APP_DIR/scripts/server-watch-supervisor.sh" "$APP_DIR" "$SERVER_PIDFILE" "$$" &
   WATCH_SUPERVISOR_PID=$!
 fi
 
@@ -301,6 +313,9 @@ while [ "$SHUTTING_DOWN" != 1 ]; do
     # shellcheck source=/dev/null
     source "$HOME/.topics-server-env" || echo "[start-prod] ~/.topics-server-env non si legge: tengo l'ambiente di prima"
   fi
+  # The Bun is asked again too, after the file: the checkout this launch runs
+  # may pin another version, and a BUN written in the file does not win over it.
+  BUN="$(pinned_bun)"
   _boot_t="$(date +%s)"
   "$BUN" run "$APP_DIR/server.ts" &
   SERVER_PID=$!

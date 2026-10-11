@@ -85,12 +85,20 @@ beforeEach(() => {
 });
 
 afterEach(() => {
-  globalThis.requestAnimationFrame = real.raf;
-  globalThis.cancelAnimationFrame = real.cancelRaf;
   globalThis.setTimeout = real.setTimeout;
   globalThis.clearTimeout = real.clearTimeout;
-  (globalThis as { document?: unknown }).document = real.document;
-  (globalThis as { window?: unknown }).window = real.window;
+  // Removed, not set to undefined: a key left behind still answers `in`.
+  const g = globalThis as unknown as Record<string, unknown>;
+  const found: Record<string, unknown> = {
+    requestAnimationFrame: real.raf,
+    cancelAnimationFrame: real.cancelRaf,
+    document: real.document,
+    window: real.window,
+  };
+  for (const [k, v] of Object.entries(found)) {
+    if (v === undefined) delete g[k];
+    else g[k] = v;
+  }
 });
 
 /** Fa girare il loop finché non arriva un campione (o si esaurisce la pazienza). */

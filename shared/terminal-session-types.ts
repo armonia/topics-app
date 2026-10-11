@@ -32,6 +32,7 @@ export const TERMINAL_SESSION_TYPES = [
   "codex",
   "opencode",
   "kimi-code",
+  "muse",
 ] as const;
 
 export type TerminalSessionType = (typeof TERMINAL_SESSION_TYPES)[number];
@@ -41,7 +42,7 @@ export type TerminalSessionType = (typeof TERMINAL_SESSION_TYPES)[number];
  * compare nei menu. Diverso da `TERMINAL_SESSION_TYPES` perché lo schema deve
  * accettare più di quanto la UI offra, non meno.
  */
-export const TERMINAL_AGENT_TYPES = ["shell", "claude-code", "codex", "opencode", "kimi-code"] as const;
+export const TERMINAL_AGENT_TYPES = ["shell", "claude-code", "codex", "opencode", "kimi-code", "muse"] as const;
 
 export type TerminalAgentType = (typeof TERMINAL_AGENT_TYPES)[number];
 

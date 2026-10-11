@@ -1,10 +1,16 @@
-import { useState, useEffect, useLayoutEffect, useRef, useCallback, useMemo, forwardRef, type ComponentProps, type MutableRefObject } from 'react';
+import { useState, useEffect, useLayoutEffect, useRef, useCallback, useMemo, forwardRef, createContext, useContext, type ComponentProps, type MutableRefObject, type ReactNode } from 'react';
+import { flushSync } from 'react-dom';
 import { Paperclip } from 'lucide-react';
 import type { Topic, ChatMessage, WSMessage, CompactionMarker } from '../../types';
 import type { PlanDecisionHandler } from './planDetection';
 import { ScrollToBottom, NewMessageBanner } from '../Shared/ScrollToBottom';
 import { CompactionDivider } from './CompactionDivider';
 import { LoadOlderDivider } from './LoadOlderDivider';
+import { countItemsAddedAbove } from './itemsAddedAbove';
+import { readerGesture } from './readerGesture';
+import { mergeAtRest, type MergeAtRest } from './mergeAtRest';
+import { placeRowAt as placeRowAtOffset, rowBody, rowHolder } from './placeRowAt';
+import { OLDER_MERGE_SCREENS, OLDER_STAGE_SCREENS } from '../../../../shared/history-paging';
 import { CompactionHoistContext } from './compactionHoist';
 import { splitCompactionSummary } from '../../lib/compactionSummary';
 import { partitionMarkers } from './partitionMarkers';
@@ -22,6 +28,7 @@ import {
   reduceScroll,
   shouldPin,
   isUserScrollUp,
+  USER_SCROLL_UP_PX,
   initialScrollAuthority,
   AT_BOTTOM_TOLERANCE_PX,
   BOTTOM_RELEASE_PX,
@@ -31,10 +38,11 @@ import {
 import { coalesceToolRuns, itemHolds, type CoalescedMessage } from './coalesceToolRun';
 import { SkeletonChatMessages } from '../Shared/Skeleton';
 import { listPaintedAndWhole } from './listPaintedAndWhole';
+import { showsLocalCopyRows } from '../../state/localCopyRows';
 import { useListStateCache } from './listStateCache';
 import { MessageEntrance } from './messageEntrance';
 import { decideHistoryCompletion } from './historyCompletionDecision';
-import { isHistoryIncomplete, requestHistoryCompletion, useHistoryCompleteness } from '../../state/historyCompleteness';
+import { getHistoryCompleteness, isHistoryIncomplete, requestHistoryCompletion, useHistoryCompleteness } from '../../state/historyCompleteness';
 import { resolvePromptNumbers } from './promptNumber';
 import { usePaneAlive } from '../../state/paneLiveness';
 import type { QueuedTurn } from '../../state/chatQueue';
@@ -42,10 +50,9 @@ import { QueuedTurns } from './QueuedTurns';
 import { isMachineRow, lastConversationMessage } from './machineRow';
 import { ForkOriginDivider } from './ForkOriginDivider';
 import { BackgroundWorkLine } from './BackgroundWorkLine';
-import { RunningServiceRows } from './RunningServiceRows';
 import { ROW_RESIZE_SLACK_MS, TranscriptRowResizeContext } from './transcriptRowResize';
 import { ANCHOR_SLACK_PROPERTY, TranscriptDisclosureContext, useDisclosureAnchor } from './useDisclosureAnchor';
-import { COMPOSER_HEIGHT_PROPERTY, type ComposerResizeHandler } from './useComposerDock';
+import { CHAT_BOTTOM_GUTTER_PX, COMPOSER_HEIGHT_PROPERTY, type ComposerResizeHandler } from './useComposerDock';
 import { conversationViewKey } from '../../state/composerHandoff';
 import { useHiddenTurnReturn } from './useHiddenTurnReturn';
 
@@ -67,15 +74,6 @@ import { useHiddenTurnReturn } from './useHiddenTurnReturn';
  * `data-testid="virtuoso-item-list"`, che l'osservatore della crescita
  * (`ro.observe(lista)`, più sotto) usa per trovare questo elemento.
  */
-/**
- * Il respiro fra l'ultima risposta e il composer, in pixel.
- *
- * Sta qui e non in una classe perché è ALTEZZA RISERVATA dentro il contenuto
- * scrollato (il Footer di Virtuoso), non un margine: dev'essere un numero che
- * il calcolo della posizione conosce.
- */
-const CHAT_BOTTOM_GUTTER_PX = 24;
-
 /**
  * LA FASCIA DIETRO L'INPUT NON È UN POSTO DOVE VA IL TESTO.
  *
@@ -104,8 +102,67 @@ const ChatList = forwardRef<HTMLDivElement, ComponentProps<'div'>>(
   },
 );
 
-/** Identità stabile per la coda assente: un `[]` nuovo a ogni render farebbe
- *  ricostruire la mappa `components` di Virtuoso a ogni token di streaming. */
+/**
+ * What the transcript draws after its last row: `head` (the background work
+ * line, then the turns still queued) and `strips` (the chat's goal or todo
+ * list, its live work, checkpoints and changed files, built by `ChatPane`).
+ * Passed by context so that the Footer is ONE component for the life of the
+ * list: built in a `useMemo` it became a new component type whenever its
+ * inputs changed, a turn starting or ending among them, and React remounted
+ * everything in it, which strips with an open panel or an edit in progress
+ * cannot afford.
+ */
+const ChatFooterContext = createContext<{ head: ReactNode; strips: ReactNode } | null>(null);
+
+/**
+ * Everything here grows attached to the last row, and its growth reaches
+ * `totalListHeightChanged`, the hook that keeps the view at the bottom: the
+ * scroller is as tall as the whole cell, so anything appended AFTER the list
+ * would be born under its bottom edge, in a second scroller nobody scrolls.
+ *
+ * Below the content, the composer's height plus a fixed gap. Measured before
+ * the gap existed: six pixels between the last line and the composer, zero as
+ * soon as the input area shrank. The gap absorbs the last late settle (a
+ * re-measured height, a font, a banner) so it eats into the gap, never into
+ * the text.
+ */
+function ChatFooter() {
+  const footer = useContext(ChatFooterContext);
+  return (
+    <>
+      {footer?.head}
+      {/* The chat's state, at the end of the transcript (chat-strips-in-transcript), on the composer's
+          column. A strip that grows under a reader at the bottom leaves them there: that growth is
+          `totalListHeightChanged`'s, like a row's. */}
+      {footer?.strips && <div data-testid="chat-end-strips" className="chat-measure">{footer.strips}</div>}
+      <div style={{ height: `var(${ANCHOR_SLACK_PROPERTY}, 0px)` }} />{/* Room a fold closed near the end keeps below the last row (useDisclosureAnchor). */}
+      {/* The composer's height as a CSS variable, written by its observer before the paint (panes:F15). */}
+      <div style={{ height: `calc(var(${COMPOSER_HEIGHT_PROPERTY}, 0px) + ${CHAT_BOTTOM_GUTTER_PX}px)` }} />
+    </>
+  );
+}
+
+/**
+ * The Footer's twin at the top: the tab bar is a glass outside the flow
+ * (`.pane-chrome-bar`), so the cell starts under it and the first message
+ * would be born covered. `--chat-gutter` and not `--chrome-bar-h`: with a
+ * banner above the transcript the cell already took the inset, and one CSS
+ * rule (`.chat-under-chrome:first-child`, index.css) turns the negative margin
+ * and this gap on together. 0 by default: a list with no bar above gets no gap.
+ */
+function ChatHeader() {
+  return <div data-testid="chat-top-gutter" style={{ height: 'var(--chat-gutter, 0px)' }} />;
+}
+
+/** Stable for the life of the module: Virtuoso remounts a component whose type changes. */
+const VIRTUOSO_COMPONENTS = { Footer: ChatFooter, Header: ChatHeader, List: ChatList };
+/** Where `firstItemIndex` starts: arbitrary, it only has to stay positive, and a chat prepends at most its own length. */
+const FIRST_ITEM_INDEX_BASE = 1_000_000;
+/** Frames a prepend takes to settle, during which `followOutput` must not read the longer list as new output. */
+const GROW_ABOVE_SETTLE_FRAMES = 4;
+
+/** Stable identity for the missing queue: a new `[]` at every render would
+ *  rebuild the Footer's head at every streaming token. */
 const NO_QUEUED: QueuedTurn[] = [];
 /** The leading compaction dividers of a PARTIAL transcript: none, see `itemContent`. */
 const NO_MARKERS: CompactionMarker[] = [];
@@ -178,6 +235,8 @@ interface MessageListProps {
   onSendQueueNow?: () => void;
   /** Un turno è in volo: solo allora «invia subito» ha qualcosa da anticipare. */
   queueBusy?: boolean;
+  /** The chat's strips, drawn after the last row inside the scroll (`ChatFooter`). */
+  footerStrips?: ReactNode;
 }
 
 export function MessageList({
@@ -218,6 +277,7 @@ export function MessageList({
   onClearQueue,
   onSendQueueNow,
   queueBusy,
+  footerStrips,
 }: MessageListProps) {
   const virtuosoRef = useRef<VirtuosoHandle>(null);
   const scrollerElRef = useRef<HTMLElement | null>(null);
@@ -329,87 +389,27 @@ export function MessageList({
     return { height: '100%', maskImage: mask, WebkitMaskImage: mask };
   }, [inputAreaHeight, composerCentered]);
 
-  // Stable Virtuoso `components` map: a fresh object + Footer fn identity every
-  // render defeats Virtuoso's bailout, so the footer churned per streaming
-  // token. Il Footer dipende da `inputAreaHeight` e dalla coda, e nessuna delle
-  // due cambia per token: la coda arriva da `useChatQueue`, che tiene fermo lo
-  // stesso array finché nessuno la tocca.
+  // What the Footer draws (`ChatFooterContext`). None of it changes per
+  // streaming token: the queue comes from `useChatQueue`, which keeps the same
+  // array until someone touches it. The background work line comes first, right
+  // under the last message: it is the tail of the turn that left the work
+  // running. A chat's commands and servers are rows of the live-work strip
+  // (`SubAgentsStrip`, BGVIS-07/08), among the strips after it.
   const queued = queuedTurns ?? NO_QUEUED;
-  const virtuosoComponents = useMemo(() => ({
-    // Il Footer riserva l'altezza del composer PIÙ un varco fisso.
-    //
-    // Misurato prima di metterlo: fra l'ultima riga di risposta e il bordo del
-    // composer c'erano SEI pixel — cioè il testo ci stava appiccicato — e
-    // bastava che l'area input si RESTRINGESSE (il banner di compattazione che
-    // si chiude, le righe del composer che si riassorbono) perché diventassero
-    // ZERO, con in più sei pixel di scroll residuo che nessuno chiudeva.
-    //
-    // Il varco non è decorazione: è il margine che assorbe l'ULTIMO
-    // assestamento. Ogni cosa che arriva tardi — un'altezza rimisurata, un
-    // font che si assesta, un banner che compare — si mangia lo spazio sotto
-    // l'ultima riga, e senza margine se lo mangia dal TESTO. Ventiquattro
-    // pixel: poco, dentro la banda in cui stanno le superfici di chat serie, e
-    // abbastanza da non far mai toccare le due cose.
-    //
-    // Qui dentro, SOPRA il varco, stanno anche le bolle di quello che è ancora
-    // in coda (`QueuedTurns`). Il posto non è arbitrario: lo scroller di
-    // Virtuoso è alto quanto tutta la cella (`height: 100%` in `scrollerStyle`),
-    // quindi qualunque cosa appesa DOPO la lista nascerebbe sotto il bordo
-    // inferiore, in un secondo scroller che nessuno scorre. Dentro il Footer
-    // invece crescono attaccate all'ultima risposta, e la loro crescita passa
-    // da `totalListHeightChanged`, cioè dall'aggancio che tiene la vista in
-    // fondo.
-    // The background work line (`BackgroundWorkLine`) is the first row here,
-    // right under the last message: it is the tail of the turn that left the
-    // work running, and here its coming and going cannot move the composer.
-    // The chat's servers (`RunningServiceRows`, BGVIS-08) sit right under it.
-    Footer: () => (
-      <>
-        <BackgroundWorkLine topicId={topic.id} projectPath={topic.projectPath} isMobile={isMobile} />
-        <RunningServiceRows topicId={topic.id} projectPath={topic.projectPath} isMobile={isMobile} />
-        <QueuedTurns
-          turns={queued}
-          isMobile={isMobile}
-          onUpdate={onUpdateQueued}
-          onRemove={onRemoveQueued}
-          onClear={onClearQueue}
-          onSendNow={onSendQueueNow}
-          busy={queueBusy}
-        />
-        <div style={{ height: `var(${ANCHOR_SLACK_PROPERTY}, 0px)` }} />{/* Room a fold closed near the end keeps below the last row (useDisclosureAnchor). */}
-        {/* The composer's height as a CSS variable, written by its observer before the paint (panes:F15). */}
-        <div style={{ height: `calc(var(${COMPOSER_HEIGHT_PROPERTY}, 0px) + ${CHAT_BOTTOM_GUTTER_PX}px)` }} />
-      </>
-    ),
-    // IL VARCO IN CIMA È IL GEMELLO DEL FOOTER, e nasce dallo stesso fatto: la
-    // conversazione confina con del CHROME, non con il bordo della finestra.
-    //
-    // Da quando la barra delle tab è un vetro fuori dal flusso
-    // (`.pane-chrome-bar`), la cella della chat comincia SOTTO di lei: senza
-    // questo varco il primo messaggio nascerebbe già coperto. Con, a riposo non
-    // c'è niente di nascosto — e scorrendo i messaggi le passano sotto, che è
-    // tutto il punto dell'overlay.
-    //
-    // Altezza in `var()` e non in pixel, al contrario del Footer, e la
-    // differenza è chi conosce il numero. L'altezza del composer la MISURA
-    // JavaScript (`inputAreaHeight`), quindi tanto vale sommarla lì; quella
-    // della barra è una costante dichiarata dalla card che la possiede
-    // (CHROME_BAR_H_VAR), e leggerla in CSS evita di ricopiarla in un terzo
-    // posto. Virtuoso misura l'Header col suo ResizeObserver, quindi il numero
-    // risolto lo scopre da sé.
-    //
-    // La variabile è `--chat-gutter` e NON `--chrome-bar-h`, e la differenza è
-    // il caso in cui sopra il trascritto c'è un banner: lì il rientro se l'è
-    // già preso la cella, e questo varco deve valere zero o i 40px si contano
-    // due volte. A deciderlo è UNA regola CSS (`.chat-under-chrome:first-child`,
-    // index.css) che accende insieme il margine negativo e il varco: da qui non
-    // si vede la condizione, si legge solo il risultato.
-    //
-    // Il default è 0: una lista montata dove non c'è nessuna barra sopra —
-    // oggi nessuna, domani chissà — non si prende un buco per sbaglio.
-    Header: () => <div data-testid="chat-top-gutter" style={{ height: 'var(--chat-gutter, 0px)' }} />,
-    List: ChatList,
-  }), [queued, isMobile, onUpdateQueued, onRemoveQueued, onClearQueue, onSendQueueNow, queueBusy, topic.id, topic.projectPath]);
+  const footerHead = useMemo(() => (
+    <>
+      <BackgroundWorkLine topicId={topic.id} isMobile={isMobile} />
+      <QueuedTurns
+        turns={queued}
+        isMobile={isMobile}
+        onUpdate={onUpdateQueued}
+        onRemove={onRemoveQueued}
+        onClear={onClearQueue}
+        onSendNow={onSendQueueNow}
+        busy={queueBusy}
+      />
+    </>
+  ), [queued, isMobile, onUpdateQueued, onRemoveQueued, onClearQueue, onSendQueueNow, queueBusy, topic.id]);
 
   /**
    * LA CODA VIVA SI SEPARA DAL RESTO — perché è l'unica cosa che cambia.
@@ -504,6 +504,45 @@ export function MessageList({
   /** The chat's last word, past a background notice after it: where Retry and a plan's buttons go. */
   const lastWord = useMemo(() => lastConversationMessage(filteredMessages), [filteredMessages]);
 
+  /**
+   * PREPENDING WITHOUT MOVING. The rest of the history lands ABOVE the rows on
+   * screen, and to a virtual list that is "item 0 is another message now":
+   * positions, sizes and keys by index all shift. Virtuoso's `firstItemIndex`
+   * keeps the viewport on the same content when it decreases, in the same
+   * render, by the number of items prepended: counted off the two lists
+   * (`countItemsAddedAbove`) at render time, in step with the array Virtuoso
+   * receives. On Virtuoso 4.18.1 it cost a blank frame and a CLS of 0.60 (tag
+   * `archive/experiment-chat-tail-first-virtuoso-prepend`); 4.18.13 lands the
+   * compensating scroll in the same paint (`chat-infinite-scroll.spec.ts`).
+   */
+  const firstItemIndexRef = useRef({ items: filteredMessages, value: FIRST_ITEM_INDEX_BASE });
+  const growingAboveRef = useRef(false);
+  const paneAlive = usePaneAlive();
+  {
+    const track = firstItemIndexRef.current;
+    if (track.items !== filteredMessages) {
+      // Only on screen: a merge made while hidden is re-anchored when the pane returns (`restoreAnchorRef`).
+      const added = paneAlive ? countItemsAddedAbove(track.items, filteredMessages, carrierById) : 0;
+      if (added > 0) {
+        track.value -= added;
+        growingAboveRef.current = true;
+      }
+      track.items = filteredMessages;
+    }
+  }
+  const firstItemIndex = firstItemIndexRef.current.value;
+  useEffect(() => {
+    if (!growingAboveRef.current) return;
+    let left = GROW_ABOVE_SETTLE_FRAMES;
+    let raf = 0;
+    const tick = () => {
+      if (--left > 0) { raf = requestAnimationFrame(tick); return; }
+      growingAboveRef.current = false;
+    };
+    raf = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(raf);
+  });
+
   // ── THE REST OF THE HISTORY, out of sight ─────────────────────────────────
   /**
    * The list holds only the TAIL of the thread: a tail-first open painted the
@@ -525,13 +564,14 @@ export function MessageList({
   );
   const missingAbove = isHistoryIncomplete(completeness) ? completeness.missing : 0;
   /** The pane has a box in the layout: hidden tabs (keep-alive) are `false`. */
-  const paneAlive = usePaneAlive();
   /** Mirrors for the closures that outlive a render (the ResizeObserver, the
    *  completion callback): they read the latest value, not the captured one. */
   const paneAliveRef = useRef(paneAlive);
   paneAliveRef.current = paneAlive;
   const streamingNowRef = useRef(_currentStreaming);
   streamingNowRef.current = _currentStreaming;
+  const sessionKeyRef = useRef(topic.sessionKey);
+  sessionKeyRef.current = topic.sessionKey;
   const itemsRef = useRef(filteredMessages);
   itemsRef.current = filteredMessages;
   const carrierRef = useRef(carrierById);
@@ -555,8 +595,12 @@ export function MessageList({
    * of the "pane returns visible" branch already land that.
    */
   const restoreAnchorRef = useRef<{ id: string; offset?: number } | null>(null);
-  /** The click on the divider has been made and the rest is on its way. */
+  /** The rest of the history merged at rest (`mergeAtRest`), owned by the scroll effect; the rows landing poke it. */
+  const mergerRef = useRef<MergeAtRest | null>(null);
+  /** The rest is on its way, asked by a click on the divider or by the scroll heading up to it. */
   const [olderLoading, setOlderLoading] = useState(false);
+  /** The row that was first before a merge keeps its head (divider, date) until the new range is drawn (`rowHolder`). */
+  const [headKept, setHeadKept] = useState<string | null>(null);
 
   // Position compaction dividers within the visible transcript (CHAT-COMPACT-01).
   // Sui messaggi VISIBILI, non sugli item: un marker ancorato a un messaggio
@@ -701,6 +745,8 @@ export function MessageList({
    *  fondo perché ce l'abbiamo portata noi» da «ci è saltata da sola». */
   const lastPinAtRef = useRef(0);
   const disclosureHoldingRef = useRef<() => boolean>(() => false); // a fold toggled by hand holds the view (useDisclosureAnchor)
+  /** A pin the hold turned away, owed once it settles: see `onDisclosureSettled`. */
+  const pinAfterHoldRef = useRef(false);
   /** Finestra entro cui un arrivo al fondo è ancora attribuibile al nostro pin. */
   const PIN_ATTRIBUTION_MS = 500;
   /** Entro tanto da un nostro pin, un calo di `scrollTop` è il riassestamento
@@ -734,7 +780,8 @@ export function MessageList({
    * dropped a line and came back (UI audit 2026-09-29, core:F03).
    */
   const pinToBottom = useCallback((opts?: { viaVirtuoso?: boolean; frames?: 1 | 2; force?: boolean; settleFrames?: number; now?: boolean; renderNow?: boolean }) => {
-    if (disclosureHoldingRef.current() || (!opts?.force && !shouldPin(authorityRef.current, { jumpPending: jumpPending() }))) return;
+    if (disclosureHoldingRef.current()) { pinAfterHoldRef.current = true; return; }
+    if (!opts?.force && !shouldPin(authorityRef.current, { jumpPending: jumpPending() })) return;
     if (opts?.viaVirtuoso) {
       virtuosoRef.current?.scrollToIndex({ index: 'LAST', align: 'end' });
       // `renderNow`: the offset is written at once, but Virtuoso renders its
@@ -757,7 +804,8 @@ export function MessageList({
       // Ri-controllo dentro il frame: uno scroll dell'utente arrivato fra la
       // programmazione e l'esecuzione non va sovrascritto da un pin ormai vecchio.
       if (!el) return;
-      if (disclosureHoldingRef.current() || (!opts?.force && !shouldPin(authorityRef.current, { jumpPending: jumpPending() }))) return;
+      if (disclosureHoldingRef.current()) { pinAfterHoldRef.current = true; return; }
+      if (!opts?.force && !shouldPin(authorityRef.current, { jumpPending: jumpPending() })) return;
       // DOPO le guardie: qui si registrano i pin ESEGUITI, non quelli tentati.
       // Stava in cima, quindi un pin che poi si tirava indietro rinfrescava
       // comunque la finestra di attribuzione — e per 500ms un auto-riancoraggio
@@ -783,8 +831,20 @@ export function MessageList({
     if (decision.pin) pinToBottom(pinOpts);
   }, [pinToBottom]);
   // A toggle is a hand on the chat, like a wheel: the hold, the opening's forced pins standing down.
-  const onDisclosureHold = useCallback(() => { userTouchedRef.current = true; openingUntilRef.current = 0; dispatchScroll({ type: 'disclosure-toggled' }); }, [dispatchScroll]);
-  const onDisclosureSettled = useCallback((d: number) => { if (d <= BOTTOM_RELEASE_PX) dispatchScroll({ type: 'reached-bottom', distanceFromBottom: d }); }, [dispatchScroll]);
+  const onDisclosureHold = useCallback(() => { userTouchedRef.current = true; openingUntilRef.current = 0; pinAfterHoldRef.current = false; dispatchScroll({ type: 'disclosure-toggled' }); }, [dispatchScroll]);
+  /**
+   * A hold only delays the pins: one it turned away is owed now, and asks the authority as any pin
+   * does. A row that arrived under a reader at the bottom while a strip row opened its log was
+   * left 24 px below the view for good (scenario 2 of chat-strips-in-transcript, 2 runs in 6 on
+   * Chromium): nothing else grew to pin it. A reader who opened a fold below its header still holds
+   * the view (`disclosure-toggled`), and the pin stands down.
+   */
+  const onDisclosureSettled = useCallback((d: number) => {
+    if (d <= BOTTOM_RELEASE_PX) dispatchScroll({ type: 'reached-bottom', distanceFromBottom: d });
+    const owed = pinAfterHoldRef.current;
+    pinAfterHoldRef.current = false;
+    if (owed && d > 1) pinToBottom({ now: true });
+  }, [dispatchScroll, pinToBottom]);
   const disclosure = useDisclosureAnchor({ scrollerElRef, scrollerEl, holdingRef: disclosureHoldingRef, onHold: onDisclosureHold, onSettled: onDisclosureSettled });
 
   /**
@@ -1076,60 +1136,13 @@ export function MessageList({
     }
     void requestHistoryCompletion(topic.sessionKey, 'apply');
   }, [topic.sessionKey]);
-  /**
-   * Puts the row at `index` with its top `offset` px from the viewport's top,
-   * rendered and final before the frame paints.
-   *
-   * Not with `scrollToIndex`. After a merge made while hidden, the sizes
-   * Virtuoso keeps by index belong to other rows, so it lands on an estimate,
-   * and it re-scrolls to the index once the rows are measured, a frame later:
-   * the row being read moved by 72-99 px, sometimes back and forth over three
-   * frames (tab-switch audit, TABSWITCH-03 reader scrolled up), and even from
-   * the exact place, that re-scroll still moved it by 2 px (its offsets and the
-   * DOM disagree by the rounding of the sizes). Here the same estimate is
-   * computed from Virtuoso's sizes and written as a plain scroll offset, which
-   * arms no re-scroll; the rows are rendered at once (the `scroll` event, see
-   * `renderNow` in `pinToBottom`), the row's real place is read and the
-   * difference scrolled, in the same callback.
-   */
-  const placeRowAt = useCallback((el: HTMLElement, index: number, offset: number) => {
-    let estimate = 0;
-    virtuosoRef.current?.getState(({ ranges }) => {
-      for (const range of ranges) {
-        if (range.startIndex >= index) break;
-        estimate += (Math.min(range.endIndex, index - 1) - range.startIndex + 1) * range.size;
-      }
-    });
-    el.scrollTop = estimate - offset;
-    el.dispatchEvent(new Event('scroll'));
-    // Each correction renders a slightly different range above the row, which
-    // can shift it again: measured, three corrections (-123, -36, +0.1 px) and
-    // a fourth read that finds it in place.
-    for (let pass = 0; pass < 4; pass++) {
-      const row = el.querySelector(`[data-testid="virtuoso-item-list"] > [data-index="${index}"]`);
-      if (!row) return;
-      const off = row.getBoundingClientRect().top - el.getBoundingClientRect().top - offset;
-      if (Math.abs(off) < 0.5) break;
-      el.scrollTop += off;
-      el.dispatchEvent(new Event('scroll'));
-    }
-    // The last step goes DOWN, by one pixel and back. Virtuoso compensates for
-    // "rows above resized" only while its last scroll went up (`scrollDirection`,
-    // reset after 50 ms without scrolling), and the next frame it measures the
-    // rows rendered here, at sizes other than the stale ones it had: when the
-    // last correction went up, it scrolled by their whole difference, rows that
-    // were already in place (-471 px, 1 return in 5). Same offset, no direction.
-    if (el.scrollTop >= 1) {
-      el.scrollTop -= 1;
-      el.dispatchEvent(new Event('scroll'));
-      el.scrollTop += 1;
-      el.dispatchEvent(new Event('scroll'));
-    }
-  }, []);
+  /** Puts the row at `index` with its top `offset` px from the viewport's top, final before the frame paints. */
+  const placeRowAt = useCallback((el: HTMLElement, index: number, offset: number) => placeRowAtOffset(el, virtuosoRef.current, index, offset), []);
   const completeOutOfSightRef = useRef(completeOutOfSight);
   completeOutOfSightRef.current = completeOutOfSight;
   useEffect(() => {
     completeOutOfSight();
+    mergerRef.current?.poke();
   }, [completeness, paneAlive, completeOutOfSight]);
 
   /**
@@ -1315,7 +1328,13 @@ export function MessageList({
       // curtain right before the list moved (see LIST_REVEAL_HARD_CAP_MS), so
       // the frame count only starts once there is something painted, whole,
       // and authoritative to hold still.
-      const ready = !currentLoadingRef.current && listPaintedAndWhole(el);
+      // On the device's local copy there is no waiting for the network: the
+      // copy IS the first page (`shared/history-paging.ts`, and
+      // `rowsAboveLocalCopy` keeps a shorter copy from growing at the top), so
+      // the answer confirms it or appends to it. Waiting held the skeleton over
+      // rows already in the store for the whole request: 75 frames against 15
+      // in `topic-visited-first-frame.spec.ts`, up to the hard cap below.
+      const ready = (!currentLoadingRef.current || showsLocalCopyRows(topic.sessionKey)) && listPaintedAndWhole(el);
       const h = el.scrollHeight;
       const top = Math.round(el.scrollTop);
       if (ready && h === ultimaH && top === ultimoTop) fermi += 1; else fermi = 0;
@@ -1330,7 +1349,7 @@ export function MessageList({
     };
     raf = requestAnimationFrame(guarda);
     return () => cancelAnimationFrame(raf);
-  }, [listSettled, scrollerEl, filteredMessages.length, viewKey, grewFromEmpty]);
+  }, [listSettled, scrollerEl, filteredMessages.length, viewKey, grewFromEmpty, topic.sessionKey]);
 
   // Scroll to bottom after messages load for a new topic.
   // Skipped while a palette jump target is pending (peekScrollToMessage): the
@@ -1544,6 +1563,26 @@ export function MessageList({
     // and remounts it collapsed. See `gestureUntilRef`.
     if (_currentStreaming && Date.now() >= gestureUntilRef.current) pinToBottom({ now: true });
   }, [filteredMessages, _currentStreaming, pinToBottom]);
+  // The bottom of a view at rest, kept in the same layout as the change, for
+  // rows that change while NO turn streams: the pictures stapled to the end of
+  // a turn (`message:media`), a reply landed while the reader was away, a row
+  // filled from a broadcast. Left to the append effect (two frames) or to the
+  // ResizeObserver below, the scroll lands after a layout that already pushed
+  // the footer down, and Chrome counts that as a layout shift even when it is
+  // fixed before the paint: measured on a bare scroller growing 300 px, a pin
+  // in the same task or in the next rAF counts 0, the same pin in a
+  // ResizeObserver callback counts 0.0197. Here: CLS 0.034 on a 320 px picture
+  // box, 0.039 on a 383 px reply (CHAT-MEDIA-BOX-01).
+  // A MICROTASK, not this effect: Virtuoso draws the changed row in a second
+  // commit that React runs synchronously after this one (its own layout effect
+  // publishes the new data), so the row is not grown yet here; the microtask
+  // runs after that commit and before the frame's layout.
+  // Only for a view resting at the bottom; `shouldPin` keeps the last word.
+  useLayoutEffect(() => {
+    if (_currentStreaming || lastDistanceFromBottomRef.current > 1) return;
+    if (Date.now() < gestureUntilRef.current) return;
+    queueMicrotask(() => pinToBottom({ now: true }));
+  }, [filteredMessages, _currentStreaming, pinToBottom]);
   /** Until when a tool body animates its height (`transcriptRowResize.ts`):
    *  its growth is pinned frame by frame even inside a gesture window, since a
    *  pinned row growing at the bottom never leaves Virtuoso's overscan. */
@@ -1598,27 +1637,17 @@ export function MessageList({
       distanceFromBottom: Math.max(0, el.scrollHeight - el.scrollTop - el.clientHeight),
     }));
 
-    /**
-     * Fin quando uno scroll è ancora attribuibile a un INPUT dell'utente.
-     *
-     * L'evento `scroll` da solo non dice chi l'ha causato — lo emette anche
-     * Virtuoso quando rimisura — e su quella ambiguità è costruita la finestra
-     * di guardia. Ma gli input dell'utente sono osservabili: rotellina, dito,
-     * tasti, trascinamento della barra. Segnandoli, lo `scroll` che segue smette
-     * di essere ambiguo e può scavalcare la guardia.
-     *
-     * Serve una finestra e non un flag istantaneo perché l'input PRECEDE il
-     * movimento: al `keydown` di Home la vista è ancora in fondo, la distanza
-     * che conta si misura sullo `scroll` che arriva dopo.
-     */
-    const GESTURE_WINDOW_MS = 400;
-    let gestureUntil = 0;
+    // Whether a scroll follows an input of the reader's, and can override the guard window (`readerGesture`).
+    const gesture = readerGesture();
+    /** The row being read, held while a merge settles (`rowHolder`); a gesture lets go. */
+    const holder = rowHolder(el);
+    const releasePress = () => gesture.release(Date.now());
     const markGesture = (e?: Event) => {
-      gestureUntil = Date.now() + GESTURE_WINDOW_MS;
       // Shared with `totalListHeightChanged` and the general ResizeObserver
       // below: both need to suspect a growth that follows this same gesture,
       // not just the local scroll effect.
-      gestureUntilRef.current = gestureUntil;
+      gestureUntilRef.current = e?.type === 'pointerdown' ? gesture.press(Date.now()) : gesture.input(Date.now());
+      holder.release();
       // Il primo input CHIUDE la finestra di apertura, e non è un dettaglio: il
       // ri-pin di apertura è forzato, quindi finché quella finestra è aperta
       // combatterebbe con chi scrolla. `userTouchedRef` da solo non basta —
@@ -1636,31 +1665,82 @@ export function MessageList({
     // vedrebbe mai (gli eventi salgono, non scendono). Con Home o PagSu la
     // lista si muoveva e l'app non se ne accorgeva: restava «ancorata» e il
     // messaggio dopo la ributtava in fondo a chi stava leggendo indietro.
-    const onKeyDown = (e: KeyboardEvent) => { if (SCROLL_KEYS.has(e.key)) markGesture(); };
+    // A key typed into a field (the composer, a search) moves its caret, never the list.
+    const onKeyDown = (e: KeyboardEvent) => {
+      const t = e.target as HTMLElement | null;
+      if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)) return;
+      if (SCROLL_KEYS.has(e.key) || (e.key === ' ' && e.shiftKey)) markGesture(); // Shift+Space pages up too
+    };
+    // INFINITE SCROLL (CHAT-HIST-01): heading up, the reader gets the rest of the thread without asking.
+    // Fetched a few screens before the top and held; merged inside two screens of it, once the list is at
+    // rest (`merger`), never on the network's schedule: an answer landing mid-glide or on a hidden pane moved
+    // the rows under the reader.
+    const headingUp = (st: number) => {
+      if (st >= el.clientHeight * OLDER_STAGE_SCREENS || !isHistoryIncomplete(completenessRef.current)) return;
+      const key = sessionKeyRef.current;
+      const asked = requestHistoryCompletion(key, 'stage');
+      if (st >= el.clientHeight * OLDER_MERGE_SCREENS) return;
+      if (getHistoryCompleteness(key).state === 'partial') {
+        // A reader faster than the network reaches the divider first: it says the rest is on its way,
+        // and turns back into a button if the request fails.
+        setOlderLoading(true);
+        void asked.then(() => { if (getHistoryCompleteness(key).state === 'partial') setOlderLoading(false); });
+      }
+      merger.want();
+    };
     const onWheel = (e: WheelEvent) => {
       markGesture();
       if (e.deltaY < 0) releaseToUser('gesture');
+      // At the top a wheel turned up asks by itself: the list cannot move there, so no scroll says the
+      // reader heads up (a jump that reached it right after one of our pins was taken for ours).
+      // Elsewhere the scroll that follows asks: asking here merged at the start of an animated step.
+      if (e.deltaY < 0 && !e.ctrlKey && el.scrollTop <= USER_SCROLL_UP_PX) headingUp(el.scrollTop);
     };
     // The row at the top of the viewport (`topRowRef`), read in the frame after
     // a scroll, once Virtuoso has rendered that scroll's rows. Only while the
     // rest of the history is still to be merged: nothing reads it otherwise.
     let topRowFrame = 0;
-    const readTopRow = () => {
-      topRowFrame = 0;
-      if (el.clientHeight === 0) return;
+    const topRow = (): { id: string; offset: number; bottom: number } | null | undefined => {
       const viewTop = el.getBoundingClientRect().top;
       const rows = el.querySelector('[data-testid="virtuoso-item-list"]')?.children ?? [];
       for (const row of Array.from(rows)) {
-        const box = row.getBoundingClientRect();
-        if (box.bottom <= viewTop) continue;
+        if (row.getBoundingClientRect().bottom <= viewTop) continue;
         const item = itemsRef.current[Number((row as HTMLElement).dataset.index)];
-        topRowRef.current = item?.id ? { id: item.id, offset: box.top - viewTop } : null;
-        return;
+        const body = rowBody(row).getBoundingClientRect();
+        return item?.id ? { id: item.id, offset: body.top - viewTop, bottom: body.bottom - viewTop } : null;
       }
+      return undefined;
     };
+    const readTopRow = () => {
+      topRowFrame = 0;
+      const row = el.clientHeight === 0 ? undefined : topRow();
+      if (row !== undefined) topRowRef.current = row;
+    };
+    // The merge itself (CHAT-HIST-01), once the list is at rest: committed at once, then the row being read
+    // held to the pixel while Virtuoso renders and measures the new range (`holder`).
+    const merger = mergeAtRest({
+      now: Date.now,
+      later: (fn, ms) => { const t = setTimeout(fn, ms); return () => clearTimeout(t); },
+      state: () => getHistoryCompleteness(sessionKeyRef.current).state,
+      visible: () => paneAliveRef.current && el.clientHeight > 0,
+      inBand: () => el.scrollTop < el.clientHeight * OLDER_MERGE_SCREENS,
+      pressed: () => gesture.held(),
+      merge: () => {
+        const anchor = topRow();
+        flushSync(() => { setHeadKept(itemsRef.current[0]?.id ?? null); void requestHistoryCompletion(sessionKeyRef.current, 'apply'); });
+        setOlderLoading(false);
+        const target = anchor ? carrierRef.current.get(anchor.id) ?? anchor.id : null;
+        const dropHead = () => flushSync(() => setHeadKept(null));
+        if (anchor && target) holder.hold(() => itemsRef.current.findIndex((m) => m.id === target), anchor.bottom, dropHead);
+        else dropHead();
+        syncArrow(el);
+      },
+    });
+    mergerRef.current = merger;
     const onScroll = () => {
       const st = el.scrollTop;
-      const gesto = Date.now() < gestureUntil;
+      const gesto = gesture.scrolled(Date.now());
+      merger.scrolled();
       if (!topRowFrame && isHistoryIncomplete(completenessRef.current)) topRowFrame = requestAnimationFrame(readTopRow);
       // I cali si SOMMANO, ma solo mentre l'utente ha le mani sopra.
       //
@@ -1679,6 +1759,8 @@ export function MessageList({
       // accorge (ed è giusto così: non è l'utente).
       if (!gesto || st > scrollUpAnchorRef.current) scrollUpAnchorRef.current = st;
       const riferimento = gesto ? scrollUpAnchorRef.current : lastScrollTopRef.current;
+      // The reader's own move up: a gesture that lowered the list, and not one of our pins settling.
+      let readerUp = false;
       if (isUserScrollUp(riferimento, st)) {
         // Right after one of OUR pins the drop is ours, even if a finger was just
         // there: `scrollToIndex('LAST')` then Virtuoso's re-measure LOWERS
@@ -1695,6 +1777,7 @@ export function MessageList({
         } else {
           releaseToUser(gesto ? 'gesture' : 'delta');
           scrollUpAnchorRef.current = st;
+          readerUp = gesto;
         }
       }
       lastScrollTopRef.current = st;
@@ -1702,6 +1785,9 @@ export function MessageList({
       // Kept for `completeOutOfSight`: once the pane is hidden its geometry
       // reads zero, and this is the last honest distance from the bottom.
       lastDistanceFromBottomRef.current = Math.max(0, el.scrollHeight - st - el.clientHeight);
+      // Only when the reader goes up (`headingUp`): a wheel turned down, our own pins and the list
+      // settling under the composer never pull the rest in.
+      if (readerUp) headingUp(st);
       // La freccia si ri-sincronizza QUI, dove la geometria è già sotto mano.
       syncArrow(el);
       // Fondo VERO raggiunto a mano: qui si scioglie la presa, e serve un
@@ -1723,6 +1809,8 @@ export function MessageList({
     el.addEventListener('touchmove', markGesture, { passive: true });
     // Trascinamento della barra di scorrimento: nessun wheel, nessun tasto.
     el.addEventListener('pointerdown', markGesture, { passive: true });
+    for (const type of ['pointerup', 'pointercancel']) window.addEventListener(type, releasePress, true);
+    window.addEventListener('blur', releasePress); // the window's own: an element's blur does not bubble
 
     // La pane torna VISIBILE dopo essere stata nascosta.
     //
@@ -1740,6 +1828,7 @@ export function MessageList({
       const hidden = el.clientHeight === 0;
       if (wasHidden && !hidden) {
         wasHidden = hidden;
+        merger.poke();
         // FORZATO se nessuno l'ha toccata, e la differenza si vede solo sulle
         // tab in secondo piano: una pane nascosta ha viewport alta 0, quindi il
         // pin di apertura ci ha scritto sopra a vuoto e si e' consumato. Quando
@@ -1830,9 +1919,9 @@ export function MessageList({
       // A growth inside a gesture window is never "the silent last growth":
       // it's the row that was just opened by hand. Pinning here scrolls it
       // out of Virtuoso's overscan, which unmounts and remounts it collapsed
-      // — the tool-call collapse. Nothing is lost by waiting: once the
-      // window ends, if the list is still at the bottom, this same observer
-      // passes through here again.
+      // — the tool-call collapse. Waiting has a cost: this observer fires only
+      // when a size changes, so a growth that ends inside the window never
+      // comes back here, and nothing pins it once the window is over.
       // ...unless it is a tool body animating its height (`rowResizeUntilRef`).
       if (Date.now() < gestureUntilRef.current && Date.now() >= rowResizeUntilRef.current) return;
       // NOTA sull'anello, per chi passerà di qui a «ottimizzare».
@@ -1870,6 +1959,10 @@ export function MessageList({
 
     return () => {
       ro.disconnect();
+      merger.dispose();
+      mergerRef.current = null;
+      holder.dispose();
+      setHeadKept(null);
       cancelAnimationFrame(topRowFrame);
       el.removeEventListener('wheel', onWheel);
       el.removeEventListener('scroll', onScroll);
@@ -1877,6 +1970,8 @@ export function MessageList({
       el.removeEventListener('touchstart', markGesture);
       el.removeEventListener('touchmove', markGesture);
       el.removeEventListener('pointerdown', markGesture);
+      for (const type of ['pointerup', 'pointercancel']) window.removeEventListener(type, releasePress, true);
+      window.removeEventListener('blur', releasePress);
     };
     // `_currentStreaming` NON sta qui: lo legge `streamingRef`. Vedi il commento
     // sul ref — rimontare i listener a ogni transizione di stream faceva
@@ -1960,18 +2055,21 @@ export function MessageList({
   }, [composerResizeRef, pinToBottom]);
 
   // Detect new messages while scrolled up
+  const countedItemsRef = useRef(filteredMessages);
   useEffect(() => {
     // Sui messaggi RESI, non su quelli grezzi: la lista filtra (turni vuoti,
     // marcatori) e fonde le corse di tool in un item solo, quindi contare
     // `currentMessages` prometteva «+3 nuovi» per righe che a schermo non
     // esistono — e cliccando non si trovava niente di nuovo.
-    if (filteredMessages.length > prevMsgCountRef.current && isScrolledUp) {
-      const newCount = filteredMessages.length - prevMsgCountRef.current;
-      setNewMsgCount(prev => prev + newCount);
+    // And only what grew at the BOTTOM: the rest of the history merged above is old (CHAT-HIST-01).
+    const grown = filteredMessages.length - prevMsgCountRef.current - countItemsAddedAbove(countedItemsRef.current, filteredMessages, carrierById);
+    if (grown > 0 && isScrolledUp) {
+      setNewMsgCount(prev => prev + grown);
       setShowNewBanner(true);
     }
     prevMsgCountRef.current = filteredMessages.length;
-  }, [filteredMessages.length, isScrolledUp]);
+    countedItemsRef.current = filteredMessages;
+  }, [filteredMessages, carrierById, isScrolledUp]);
 
   // PANE-03 scroll-restore (review I1). Apply the undo-captured offset once
   // per topic mount, AFTER Virtuoso's default bottom-anchor settles. We run
@@ -2061,12 +2159,14 @@ export function MessageList({
     setShowNewBanner(false);
   }, [pinToBottom, disclosure]);
 
+  const footer = useMemo(() => ({ head: footerHead, strips: footerStrips }), [footerHead, footerStrips]);
+
   // data-testid on the outer wrapper ensures the selector is always queryable
   // regardless of loading/empty/Virtuoso state (pane-undo.spec.ts relies on
   // [data-testid='chat-scroll-container']). The Virtuoso internal scroller is
   // targeted via scrollerElRef without a separate testid.
   return (
-    <TranscriptRowResizeContext.Provider value={onRowResize}><TranscriptDisclosureContext.Provider value={disclosure}>
+    <TranscriptRowResizeContext.Provider value={onRowResize}><TranscriptDisclosureContext.Provider value={disclosure}><ChatFooterContext.Provider value={footer}>
     <div
       data-testid="chat-scroll-container"
       ref={chatContainerRef}
@@ -2118,6 +2218,8 @@ export function MessageList({
           ref={virtuosoRef}
           scrollerRef={scrollerRef}
           data={filteredMessages}
+          // Decreases by the items prepended when the rest of the history lands: see `firstItemIndexRef`.
+          firstItemIndex={firstItemIndex}
           // CONGELATO al montaggio, e non è un dettaglio: questa prop dice a
           // Virtuoso da quale item partire, e ricalcolarla a ogni messaggio la
           // fa RI-APPLICARE — la lista strappava la vista dalla cima al fondo da
@@ -2148,6 +2250,8 @@ export function MessageList({
           followOutput={(isAtBottom: boolean) => {
             if (peekScrollToMessage(topic.id)) return false;
             if (_currentStreaming) return false;
+            // The list just grew at the TOP: nothing new to follow.
+            if (growingAboveRef.current) return false;
             // Anche questo è un pin, solo che lo esegue Virtuoso e quindi non
             // passa da `shouldPin`. La sua idea di «in fondo» è la stessa
             // fascia dei 150px: senza questa riga, chi era risalito di 149px si
@@ -2265,7 +2369,12 @@ export function MessageList({
             });
           }}
           increaseViewportBy={{ top: 400, bottom: 400 }}
-          itemContent={(idx, msg) => {
+          // Rows measured in the frame they are drawn, not the one after: the rest of the history merged at
+          // the top drew unmeasured rows above the reader, and a frame painted on their estimates (`rowHolder`).
+          skipAnimationFrameInResizeObserver
+          itemContent={(absoluteIdx, msg) => {
+            // Virtuoso hands out the index offset by `firstItemIndex`; the list is addressed by its own.
+            const idx = absoluteIdx - firstItemIndex;
             const prev = idx > 0 ? filteredMessages[idx - 1] : undefined;
             // Only show plan approve/reject on the last assistant message
             const isLastAssistant = msg.role === 'assistant' && msg === lastWord;
@@ -2297,7 +2406,7 @@ export function MessageList({
             // down" of 24/09, measured in `chat-scroll-down-jitter.spec.ts`.
             return (
               <div className="flow-root">
-              {idx === 0 && historyPartial && (
+              {((idx === 0 && historyPartial) || msg.id === headKept) && (
                 <LoadOlderDivider count={missingAbove} loading={olderLoading} onLoad={loadOlder} />
               )}
               {idx === 0 && leading.map((mk, i) => (
@@ -2309,6 +2418,7 @@ export function MessageList({
               ))}
               <CompactionHoistContext.Provider value={hoistOwnSummary}>
               <div
+                data-row-body
                 className={
                   (isMobile ? 'px-2' : 'px-4') +
                   (msg.id === jumpHighlightId ? ' chat-msg-jump-highlight' : '')
@@ -2317,7 +2427,7 @@ export function MessageList({
               >
                 <MessageBubble
                   msg={msg}
-                  prev={prev}
+                  prev={msg.id === headKept ? undefined : prev}
                   idx={idx}
                   isLast={idx === filteredMessages.length - 1}
                   topic={topic}
@@ -2356,7 +2466,7 @@ export function MessageList({
               </div>
             );
           }}
-          components={virtuosoComponents}
+          components={VIRTUOSO_COMPONENTS}
           // `visibility` e non `opacity`: un elemento a opacità zero VIENE
           // DIPINTO (e i suoi spostamenti contano lo stesso nel CLS), uno
           // `hidden` no — ma tiene il layout, quindi Virtuoso continua a
@@ -2375,6 +2485,6 @@ export function MessageList({
       <div ref={messagesEndRef} />
       <ScrollToBottom show={isScrolledUp} newCount={newMsgCount} onClick={scrollToBottom} bottomOffset={inputAreaHeight} />
     </div>
-    </TranscriptDisclosureContext.Provider></TranscriptRowResizeContext.Provider>
+    </ChatFooterContext.Provider></TranscriptDisclosureContext.Provider></TranscriptRowResizeContext.Provider>
   );
 }

@@ -84,6 +84,7 @@ const FIELD_RULES: Record<keyof AppSettings, FieldRule> = {
   openaiMaxTokens: { kind: "int" },
   codexModel: { kind: "string" },
   codexReasoningEffort: { kind: "string", allow: EFFORT_CODEX },
+  museModel: { kind: "string" },
   claudeCodePermissionMode: { kind: "string" },
   codexApprovalMode: { kind: "string", allow: APPROVAL },
   claudeCodeEnabled: { kind: "bool" },

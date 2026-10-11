@@ -21,6 +21,7 @@
  * when the `PostToolUse` names it.
  */
 import type { AttentionTask } from "../../shared/attention";
+import { readMonitorEnd } from "../providers/claude/wake-source";
 
 type TaskInfo = Omit<AttentionTask, "id">;
 
@@ -149,35 +150,82 @@ function lineText(parsed: Record<string, unknown>): string {
 }
 
 /**
- * The tasks a transcript line reports as finished. A Bash, an Agent, a
- * Workflow report once, at their end. A Monitor reports every event: only its
- * END closes it (a `<status>`, or an event that says it expired, ended or
- * stopped). A one-shot cron is closed by its fire, which the transcript does
- * not name: the next turn that opens in a terminal (`remove-one-shot-crons`,
- * `tracker-sync.ts`), `PostToolUse` of `CronDelete`, or the end of the process
- * take it.
+ * Where a line carries its `<task-notification>`, and whether it only queues
+ * it. The CLI writes a queue `enqueue` for every notice when its task ends;
+ * the notice's fate comes after: the `user` row that delivers it to a turn at
+ * rest (and wakes it), or the queue's `remove` that lets it go undelivered,
+ * because a turn absorbed it mid-turn (it never becomes a user line,
+ * `tests/fixtures/claude-cli-2.1.292-absorbed-task-notification.transcript.jsonl`)
+ * or because it was dropped. Measured on 200 transcripts of 2.1.284 to
+ * 2.1.295: every absorbed notice has its `remove` (364), every `remove` names
+ * its notice, and 27 notices queued while a turn still answered were
+ * delivered once it stopped, none of them removed first.
  */
-export function finishedTasksOfTranscriptLine(line: string, kindOf: (id: string) => string | null): string[] {
+function notificationOf(parsed: Record<string, unknown>): { text: string; queued: boolean } {
+  if (parsed.type === "user") return { text: lineText(parsed), queued: false };
+  if (parsed.type === "queue-operation" && typeof parsed.content === "string") {
+    if (parsed.operation === "remove") return { text: parsed.content, queued: false };
+    if (parsed.operation === "enqueue") return { text: parsed.content, queued: true };
+  }
+  return { text: "", queued: false };
+}
+
+/** The CLI's own notices that end a Monitor with no `<status>`: it expired, it timed out, or the CLI stopped it (too much output, a TaskStop). */
+const MONITOR_LAPSED = /^\[Monitor (?:expired|timed out|stopped)\b/;
+
+/**
+ * Whether a notification reports its task's END. Every task reports it with a
+ * `<status>`; a Monitor also reports each event in between (an `<event>`, no
+ * status), and there only the CLI's own words end it: an expiry, a timeout or
+ * a stop (`MONITOR_LAPSED`, always at the start of the event), or its end
+ * (`readMonitorEnd`). The rest of an event is the watched program's text and
+ * may say anything: «stopped» there is not the Monitor's.
+ * Read off the notification, not off the map: the task may still sit there
+ * under its call's id, or not at all yet (hooks arrive late, `lib/hook-order.ts`).
+ */
+function reportsEnd(body: string): boolean {
+  if (tag(body, "status")) return true;
+  const event = tag(body, "event");
+  return event === null || MONITOR_LAPSED.test(event) || readMonitorEnd(tag(body, "summary") ?? "") !== null;
+}
+
+/** A task a transcript line reports finished: the CLI's id, and its call's when the notification names it. */
+export interface FinishedTask { id: string; toolUseId: string | null }
+
+/** The ends (`reportsEnd`) a transcript line reports, if it delivers or lets go its notices (`queued` false) or only queues them (true). */
+function endsOfLine(line: string, queued: boolean): FinishedTask[] {
   let parsed: Record<string, unknown>;
   try { parsed = JSON.parse(line); } catch { return []; }
-  if (!parsed || parsed.type !== "user") return [];
-  const text = lineText(parsed);
-  if (!text.includes("<task-notification>")) return [];
-  const out: string[] = [];
-  for (const m of text.matchAll(TASK_NOTIFICATION)) {
-    const body = m[1];
-    const id = tag(body, "task-id");
-    if (!id) continue;
-    if (kindOf(id) === "monitor") {
-      const event = tag(body, "event") ?? "";
-      const status = tag(body, "status");
-      const summary = tag(body, "summary") ?? "";
-      const ended = !!status || /\[Monitor expired|stream ended|stopped/i.test(event) || /stream ended|stopped/i.test(summary);
-      if (!ended) continue;
-    }
-    out.push(id);
+  if (!parsed) return [];
+  const notice = notificationOf(parsed);
+  if (notice.queued !== queued || !notice.text.includes("<task-notification>")) return [];
+  const out: FinishedTask[] = [];
+  for (const m of notice.text.matchAll(TASK_NOTIFICATION)) {
+    const id = tag(m[1], "task-id");
+    if (id && reportsEnd(m[1])) out.push({ id, toolUseId: tag(m[1], "tool-use-id") });
   }
   return out;
+}
+
+/**
+ * The tasks a transcript line reports as finished: their notice delivered, or
+ * let go (`notificationOf`). A one-shot cron is closed by its fire, which the
+ * transcript does not name: the next turn that opens in a terminal
+ * (`remove-one-shot-crons`, `tracker-sync.ts`), `PostToolUse` of `CronDelete`,
+ * or the end of the process take it.
+ */
+export function finishedTasksOfTranscriptLine(line: string): FinishedTask[] {
+  return endsOfLine(line, false);
+}
+
+/**
+ * The tasks whose end a transcript line only queues (`enqueue`): still in
+ * flight, until the CLI delivers or lets go their notice
+ * (`claude-session-tracker.ts` keeps them, and a minute after their turn
+ * stopped with neither, `NOTICE_WAKE_MS`).
+ */
+export function queuedTasksOfTranscriptLine(line: string): FinishedTask[] {
+  return endsOfLine(line, true);
 }
 
 /** What `commandWakeState` (`routes/processes.ts`) says of a session's Topics commands. */

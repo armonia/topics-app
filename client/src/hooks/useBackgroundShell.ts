@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { scriptsApi } from '../lib/api';
+import { scriptsApi, type ScriptProcessInfo } from '../lib/api';
 import { shellProcessKey, stripBackgroundShellBanner } from '../../../shared/background-shell-registry';
 import { useScripts } from './useScripts';
+import { pickWaitedEntry } from './useWaitedProcess';
 
 /**
  * Lo stato VIVO di una shell lasciata in background dall'agente.
@@ -75,16 +76,32 @@ export function useBackgroundShell(shellId: string | undefined, sessionKey?: str
   // `useScripts` è un singleton condiviso: N card sullo stesso schermo
   // pagano UN poll, non N. Senza `onMessage` non tocca lo stato della WS.
   const { allScripts } = useScripts();
+  const entry = useMemo(
+    () => pickShellEntry(allScripts, shellId, sessionKey),
+    [allScripts, shellId, sessionKey],
+  );
+  return useRegistryTail(shellId ? entry : undefined, shellId);
+}
+
+/**
+ * The live log of the process a `run_command` / `run_script` card started
+ * (`launchedProcessId`): the same registry and the same tail as a background
+ * shell, found by its process id. Unknown to the registry (an old chat, a
+ * restart), the card stays as it was.
+ */
+export function useLaunchedProcess(processId: string | undefined): LiveBackgroundShell {
+  const { allScripts } = useScripts();
+  const entry = useMemo(() => pickWaitedEntry(allScripts, processId), [allScripts, processId]);
+  return useRegistryTail(entry);
+}
+
+/** The tail of a registry entry, read while it runs; `shellId` drops a background shell's banner. */
+function useRegistryTail(entry: ScriptProcessInfo | undefined, shellId?: string): LiveBackgroundShell {
   // `pending` (l'ultima riga non ancora chiusa da `\n`) sta FUORI da `output`:
   // si mostra ma non si accumula, altrimenti si rivedrebbe una seconda volta
   // quando arriva completa.
   const [tail, setTail] = useState<{ output: string; pending: string; truncatedLines: number }>(
     { output: '', pending: '', truncatedLines: 0 },
-  );
-
-  const entry = useMemo(
-    () => pickShellEntry(allScripts, shellId, sessionKey),
-    [allScripts, shellId, sessionKey],
   );
 
   const processId = entry?.processId;
@@ -137,11 +154,11 @@ export function useBackgroundShell(shellId: string | undefined, sessionKey?: str
     return () => { active = false; clearInterval(id); };
   }, [processId, isRunning]);
 
-  if (!entry || !shellId) return IDLE;
+  if (!entry) return IDLE;
   const whole = tail.pending
     ? (tail.output ? `${tail.output}\n${tail.pending}` : tail.pending)
     : tail.output;
-  const clean = stripBackgroundShellBanner(whole, shellId);
+  const clean = shellId ? stripBackgroundShellBanner(whole, shellId) : whole;
   return {
     known: true,
     status: entry.status,

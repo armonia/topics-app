@@ -601,13 +601,22 @@ test('the current question is actionable once; history and centered status stay 
 
   await drawer.getByTestId('task-conversation-toggle').click();
   await page.setViewportSize({ width: 390, height: 844 });
-  await input.fill('Explain which source supplies the chart.\nKeep the SQL details in the expandable session.\nInclude a concrete example.');
+  // The resize to 390px crosses 768px, and the drawer remounts there (see the
+  // poll in the floating-composer test above), 100-300ms after the resize on
+  // WebKit. A fill in that window can resolve the field being replaced and
+  // type into it once it is already detached: no input event reaches the page,
+  // and the successor shows the previous one-line draft (32px in CI, run
+  // 37857303064; 52px here, 4 runs in 20 with no `input` event traced). So
+  // the fill counts only once the field on screen holds the text.
+  const correction = 'Explain which source supplies the chart.\nKeep the SQL details in the expandable session.\nInclude a concrete example.';
+  await expect(async () => {
+    await input.fill(correction);
+    await expect(input).toHaveValue(correction, { timeout: 1_000 });
+  }).toPass({ timeout: 10_000 });
   await expect(input).toHaveAccessibleName(/correzione|correction/);
   await expect(drawer.getByTestId('task-composer').getByTestId('task-composer-submit')).toHaveAccessibleName(/Invia all.agente|Send to agent/);
-  // The resize to 390px crosses 768px, and the drawer remounts there (see the
-  // poll in the floating-composer test above): the fill can land while the new
-  // textarea has not been grown yet. CI read 32px once (run 36030171515). The
-  // assertion is about the settled layout, so it waits for it.
+  // The field also grows a frame after its text: the assertion is about the
+  // settled layout, so it waits for it (CI read 32px once, run 36030171515).
   await expect.poll(async () => (await input.boundingBox())?.height ?? 0).toBeGreaterThan(60);
   const inputBox = await input.boundingBox();
   expect(inputBox!.height).toBeGreaterThan(60);

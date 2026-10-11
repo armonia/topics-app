@@ -2,7 +2,6 @@ import { contextTokens, costTokens, partsFromTask } from '../../../../shared/tok
 import { memo, useState, useEffect, useCallback, useMemo, useRef, useSyncExternalStore } from 'react';
 import { useDroppable } from '@dnd-kit/core';
 import { SortableContext, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable';
-import { CSS } from '@dnd-kit/utilities';
 import { reviewEvidence } from '../../lib/reviewEvidence';
 import { AlertTriangle, ArchiveRestore, ArrowRightLeft, CircleSlash, ClipboardList, Copy, Cpu, GitBranch, Hourglass, Lock, MessageSquare, Plus, RotateCcw, Send, Server, ShieldCheck, Square, Trash2, UserRound, X } from 'lucide-react';
 import { ChatMarkdown } from '../ChatMarkdown';
@@ -13,11 +12,14 @@ import { questionToProse } from '../../../../shared/question-prose';
 import { isSettledParkedQuestion } from '../../../../shared/parked-question';
 import { STATUS_LABEL, blockedByChip, boardApi, commentAuthorLabel, isAgentWorking, isProjectlessId, nothingDeliveredWins, parseQuestionBlock, reopenedChip, showsLandingDebt, subtaskWorkChip, systemDeliveryChip, waitingOnThisChip, whoCloses, type BoardTask, type TaskStatus, priorityAwaitingAgent } from '../../lib/board';
 import { columnSlice, COLUMN_PAGE } from '../../lib/boardOrder';
+import { recallColumnPages, rememberColumnPages } from '../../lib/columnPages';
 import { cardCommentsFromRow, cardDetailNeed, isMachineVoice, selectCardComments, showsCardThread, type CardComments } from './cardComments';
 import { useConfirm } from '../../hooks/useConfirm';
 import { useLongPress, openContextMenuAt, type LongPressTarget } from '../../hooks/useLongPress';
+import { useLoadOnReach } from '../../hooks/useLoadOnReach';
 import { useMobile } from '../../hooks/useMobile';
 import { releaseTouchDrag } from './dndSensors';
+import { reflowTransform } from './sortableReflow';
 import { MorphText } from '../Shared/MorphText';
 import { PreviewMedia } from './PreviewMedia';
 import type { DraftPreview } from './draftPreview';
@@ -45,7 +47,8 @@ import { prefersReducedMotion } from '../../lib/reducedMotion';
 import { PRIORITY_DOT, PRIORITY_LABEL, DISPATCH_CHIP, COMPACT_MD_CLS, COMMENTO_PIEGA_CHARS, RICHIESTA_PIEGA_CHARS, mediaPaneIdFor, type LiveUsage, type OpenTask } from './constants';
 import { copyText } from '../../lib/clipboard';
 import { canOpenTaskSession, shouldExplainMissingSession, type TaskSessionState } from '../../lib/taskSession';
-import { fmtMs, fmtTok, fmtUpdatedAt, fmtAttesa, fmtUsd, taskCopyText } from './format';
+import { fmtMs, fmtTok, fmtAttesa, fmtUsd, taskCopyText } from './format';
+import { UpdatedAgo } from './UpdatedAgo';
 import { StatusIcon, DispatchChip, QueueReasonChip, TaskIdChip, LabelChip } from './atoms';
 import { LiveEffortChip, LiveToolLine, RETRY_NOW_MESSAGE, RetryWaitChip } from './CardLive';
 import { SwapIce } from '../Shared/SwapIce';
@@ -59,7 +62,14 @@ import { getProvidersSnapshotState, subscribeProvidersSnapshot } from '../../lib
 import { cardRunsThroughTopics } from '../../lib/topicsRoutingGate';
 
 // ── Column ────────────────────────────────────────────────────────────────
-export function Column({ status, tasks, onOpen, onCreate, canCreate, showProject, cardError, onCardError, onRefetch, onOpenTopic, resolveSession, tasksById, projectPathById, liveById, awaitingHuman, justMoved, justCreated, archived = false, draft, onOpenSettings, layout = 'grid' }: {
+// The droppable SHELL, for the same reason as `Card` below: during a drag the
+// header re-ran on every over change; `ColumnBody` only sees `isOver` flip.
+export function Column(props: ColumnProps) {
+  const { setNodeRef, isOver, active } = useDroppable({ id: props.status });
+  return <ColumnBody {...props} setNodeRef={setNodeRef} isOver={isOver} dragging={active !== null} />;
+}
+
+type ColumnProps = {
   status: TaskStatus; tasks: BoardTask[]; onOpen: OpenTask; onCreate: (text: string) => void;
   canCreate: boolean; showProject: boolean; onRefetch: () => void;
   /** L'errore dell'ULTIMA azione fallita, con la card a cui appartiene: la
@@ -97,21 +107,38 @@ export function Column({ status, tasks, onOpen, onCreate, canCreate, showProject
    *  "add" affordance mid-list), so it collapses instead of leaving a bare
    *  header floating between two populated ones. */
   layout?: 'grid' | 'list';
+  /** Names the board view this column belongs to (which board, live or archive), so the pages the reader
+   *  reached outlive the unmount a view change causes. Without it the column starts from its first page. */
+  viewKey?: string;
+};
+
+const ColumnBody = memo(function ColumnBody({ status, tasks, onOpen, onCreate, canCreate, showProject, cardError, onCardError, onRefetch, onOpenTopic, resolveSession, tasksById, projectPathById, liveById, awaitingHuman, justMoved, justCreated, archived = false, draft, onOpenSettings, layout = 'grid', viewKey, setNodeRef, isOver, dragging }: ColumnProps & {
+  setNodeRef: (element: HTMLElement | null) => void; isOver: boolean; dragging: boolean;
 }) {
   const tr = useT();
-  const { setNodeRef, isOver } = useDroppable({ id: status });
   const [adding, setAdding] = useState(false);
   const [text, setText] = useState('');
   const submit = () => { const v = text.trim(); if (v) { onCreate(v); } setText(''); setAdding(false); };
   // QUANTE card si disegnano. La regola (e il perché vale solo su Review e Done)
   // sta in `columnSlice`; qui c'è solo la memoria di quante ne hai chieste.
-  const [shown, setShown] = useState(COLUMN_PAGE);
+  const [shown, setShown] = useState(() => (viewKey === undefined ? COLUMN_PAGE : recallColumnPages(viewKey, status)));
+  useEffect(() => {
+    if (viewKey !== undefined) rememberColumnPages(viewKey, status, shown);
+  }, [viewKey, status, shown]);
   const slice = useMemo(() => columnSlice(status, tasks, shown), [status, tasks, shown]);
+  // Infinite scroll: the next page comes as the column's tail comes into view, never while a card is carried.
+  const moreRef = useLoadOnReach(() => setShown((n) => n + COLUMN_PAGE), { more: slice.hidden > 0, loading: false, count: slice.rows.length, enabled: !dragging }, layout);
   // Stable identity across the board's 4s live-usage tick: SortableContext gets a
   // fresh array only when the task set actually changes, not every render. Gli id
   // sono quelli DISEGNATI: un id senza nodo nel registro di dnd-kit è un
   // bersaglio che non esiste.
-  const itemIds = useMemo(() => slice.rows.map((t) => t.id), [slice]);
+  //
+  // Keyed on the ids, not on `slice`: the column array is new on every
+  // `task:updated` (one row changed), and a new `items` array is a new
+  // SortableContext value, which re-renders every `useSortable` card under it
+  // at identical props. Same ids in the same order = the same array.
+  const idsKey = slice.rows.map((t) => t.id).join('\n');
+  const itemIds = useMemo(() => (idsKey ? idsKey.split('\n') : []), [idsKey]);
 
   // Responsive columns. The board is a scroll-snap carousel at EVERY breakpoint:
   // each column `snap-center`s to the middle as its own "slide", so whenever the
@@ -218,16 +245,7 @@ export function Column({ status, tasks, onOpen, onCreate, canCreate, showProject
           so the column FRAME reaches the bottom of the pane, while a full column's
           last card can still scroll clear of the floating "Descrivi un task" box.
           On a short column it is invisible slack below the already-empty area.
-
-          MISURATO, non stimato: il composer è alto 110px e il suo bordo
-          superiore cade 129px sopra il fondo del corpo colonna. Con `pb-16`
-          (64px) la corsa NON bastava — nemmeno scrollando fino in fondo la
-          card ultima riusciva a uscire da sotto quel riquadro, e un task appena
-          creato (che prende `kanban_order = max + 1`, quindi atterra proprio
-          lì) restava dietro alla scatola in cui l'avevi scritto. `pb-36` =
-          144px: 129 di composer + un margine. Il valore qui dà la CORSA; a
-          decidere dove fermarsi è la misura del composer viva, in
-          KanbanBoardPane — perché quell'altezza cresce col testo. */}
+          How much is no longer a constant: see the note on the body below. */}
       {/* scrollbar-standard keeps the app's standard thin hover scrollbar as the
           single indicator and zeroes the legacy ::-webkit-scrollbar, so the
           native bar no longer renders ON TOP of it (the "double bar" on hover). */}
@@ -241,7 +259,13 @@ export function Column({ status, tasks, onOpen, onCreate, canCreate, showProject
           KanbanBoardPane), not one per section — a section here is a slice of
           that page, not its own carousel slide, so it neither scrolls nor
           reserves the composer's clearance on its own. */}
-      <div data-testid={`kanban-column-body-${status}`} className={layout === 'list' ? 'space-y-2 px-2 pt-1.5' : 'flex-1 space-y-2 overflow-y-auto px-2 pt-1.5 pb-36 scrollbar-standard'}>
+      {/* THE BOTTOM PADDING IS MEASURED (KANBAN-MOBILE-04): the board publishes
+          how far the floating composer reaches into the column plus a breath
+          (`columnClearance.ts`), and on a phone the button band under a hidden
+          composer is the floor. The fixed `pb-36` left the last card 3px above
+          the composer on a 390x844 phone. 9rem is the old value, kept only as
+          the fallback for the first frame before the measure lands. */}
+      <div data-testid={`kanban-column-body-${status}`} className={layout === 'list' ? 'space-y-2 px-2 pt-1.5' : 'flex-1 space-y-2 overflow-y-auto px-2 pt-1.5 pb-[max(var(--board-bottom-clear,9rem),calc(var(--mobile-band-own-h,0px)+1rem))] scrollbar-standard'}>
         {/* THE GHOST OF THE CARD BEING WRITTEN, in the column it will land in
             and at the top, where a new card lands. Outside the sortable list:
             it is not a card yet and nothing can drag it. */}
@@ -270,6 +294,7 @@ export function Column({ status, tasks, onOpen, onCreate, canCreate, showProject
             tagliata in silenzio è una colonna che sembra vuota di storia. */}
         {slice.hidden > 0 && (
           <button
+            ref={moreRef}
             onClick={() => setShown((n) => n + COLUMN_PAGE)}
             data-testid={`kanban-column-more-${status}`}
             className="flex w-full items-center justify-center gap-1 rounded-md border border-app-border px-2 py-1.5 text-compact leading-4 text-app-text-secondary hover:bg-white/5"
@@ -297,7 +322,7 @@ export function Column({ status, tasks, onOpen, onCreate, canCreate, showProject
       </div>
     </div>
   );
-}
+});
 
 /**
  * The long press on a card: the SAME menu the right button opens, and the
@@ -330,7 +355,48 @@ function openCardMenuAt(target: LongPressTarget): void {
 // sensors passed to DndContext must be referentially stable across renders
 // (see the module-level sensor options in KanbanBoardPane) or the memo is
 // bypassed by the context, which is exactly what happened until 2026-09-07.
-export const Card = memo(function Card({ task, onOpen, showProject, error, onError, onRefetch, onOpenTopic, sessionState = 'unknown', parentTitle, projectPath, live, awaiting, justMovedTo, justCreated, archived = false }: {
+// TWO LAYERS: dnd-kit's InternalContext changes on every over change during a
+// drag, so `Card` is only the sortable SHELL and hands memoized `CardBody` the
+// few values it draws with, stable unless this card moves (61 -> 32 renders per
+// pointer move, board-drag-renders.spec.ts).
+export const Card = memo(function Card(props: CardProps) {
+  // Sortable: the source card is dimmed (the DragOverlay carries the visual)
+  // but its NEIGHBOURS get the reflow transform — the list opens a gap under
+  // the pointer, so dropping "between two cards" reads as such. The ACTIVE
+  // card must NOT get its transform (that one follows the pointer): applied,
+  // the dim source card flew across the board alongside the overlay and the
+  // drop targeting went with it.
+  const { attributes, listeners, setNodeRef, isDragging, transform, transition } = useSortable({
+    id: props.task.id,
+    // The neighbours' reflow runs on the app's tokens, not dnd-kit's default
+    // `200ms ease`, and not at all when the person asked for less motion.
+    transition: prefersReducedMotion() ? null : SORTABLE_TRANSITION,
+  });
+  return (
+    <CardBody
+      {...props}
+      setNodeRef={setNodeRef}
+      dragAttributes={attributes}
+      dragListeners={listeners}
+      isDragging={isDragging}
+      dragTransform={reflowTransform(transform, isDragging)}
+      dragTransition={transition}
+    />
+  );
+});
+
+/** What the sortable shell hands the body. Every field is stable across pointer moves unless the card itself moves. */
+type CardDragProps = {
+  setNodeRef: (element: HTMLElement | null) => void;
+  dragAttributes: ReturnType<typeof useSortable>['attributes'];
+  dragListeners: ReturnType<typeof useSortable>['listeners'];
+  isDragging: boolean;
+  /** The reflow transform as CSS (`reflowTransform`): a string compares by value, dnd-kit's object is new on every render. */
+  dragTransform: string | undefined;
+  dragTransition: string | undefined;
+};
+
+type CardProps = {
   task: BoardTask; onOpen: OpenTask; showProject: boolean;
   /** Il perché l'ultimo click non ha fatto niente, disegnato SULLA card (in coda,
    *  sotto le sue scelte): la barra in cima al board sta a colonne di distanza,
@@ -361,7 +427,9 @@ export const Card = memo(function Card({ task, onOpen, showProject, error, onErr
   /** La card viene dall'ARCHIVIO (vista `?archived=1`): il gesto in coda al
    *  menu non è più archiviare — è già archiviata — ma riportarla indietro. */
   archived?: boolean;
-}) {
+};
+
+const CardBody = memo(function CardBody({ task, onOpen, showProject, error, onError, onRefetch, onOpenTopic, sessionState = 'unknown', parentTitle, projectPath, live, awaiting, justMovedTo, justCreated, archived = false, setNodeRef, dragAttributes: attributes, dragListeners: listeners, isDragging, dragTransform, dragTransition: transition }: CardProps & CardDragProps) {
   // MSEL-01: subscribed, so a snapshot that lands after the first paint adds
   // «· via Topics»; the boolean re-renders the card only when it flips.
   const runsThroughTopics = useSyncExternalStore(subscribeProvidersSnapshot, () => cardRunsThroughTopics(task, getProvidersSnapshotState().snapshot));
@@ -371,18 +439,6 @@ export const Card = memo(function Card({ task, onOpen, showProject, error, onErr
   const modelLine = useSyncExternalStore(subscribeProvidersSnapshot, () => taskTriggerLine(task.model, {
     snapshot: getProvidersSnapshotState().snapshot, tr: tm, surface: 'task', viaTopics: runsThroughTopics,
   }));
-  // Sortable: the source card is dimmed (the DragOverlay carries the visual)
-  // but its NEIGHBOURS get the reflow transform — the list opens a gap under
-  // the pointer, so dropping "between two cards" reads as such. The ACTIVE
-  // card must NOT get its transform (that one follows the pointer): applied,
-  // the dim source card flew across the board alongside the overlay and the
-  // drop targeting went with it.
-  const { attributes, listeners, setNodeRef, isDragging, transform, transition } = useSortable({
-    id: task.id,
-    // The neighbours' reflow runs on the app's tokens, not dnd-kit's default
-    // `200ms ease`, and not at all when the person asked for less motion.
-    transition: prefersReducedMotion() ? null : SORTABLE_TRANSITION,
-  });
 
   // Review context. The comment PAIR (`selectCardComments`) — the thread's last
   // word as a quick-reply with option buttons when it's a question block and
@@ -896,7 +952,7 @@ export const Card = memo(function Card({ task, onOpen, showProject, error, onErr
     <div
       ref={setNodeRef} {...attributes} {...listeners}
       data-task-card={task.id}
-      style={{ transform: isDragging ? undefined : CSS.Transform.toString(transform), transition }}
+      style={{ transform: dragTransform, transition }}
       onClick={() => onOpen(task.id)}
       {...cardLongPress.handlers}
       // AFTER both spreads, and on purpose: this is the composed one (see
@@ -921,7 +977,11 @@ export const Card = memo(function Card({ task, onOpen, showProject, error, onErr
       // dichiarazione in index.css invece che per quello che è successo alla
       // card. Lo spostamento batte la nascita — nascere è l'evento più debole
       // dei due, e una card che nasce non ha attraversato nessun confine.
-      className={`group cursor-grab rounded-md border border-app-border bg-surface p-2.5 text-body-lg leading-5 text-app-text shadow-sm hover:border-app-border-light ${isDragging ? 'opacity-40' : ''} ${justMovedTo ? `task-flash task-flash-${justMovedTo}` : justCreated ? 'task-flash task-flash-created' : ''}`}
+      // `relative` ALWAYS: the frost below is `absolute inset-0` and
+      // `.swap-ice-host` positions the card only while frozen; idle, each glints
+      // box spanned the whole board outside the column clip, paid on every drag
+      // frame (main thread per pass ~360 -> ~290 ms, board-drag-frames.spec.ts).
+      className={`group relative cursor-grab rounded-md border border-app-border bg-surface p-2.5 text-body-lg leading-5 text-app-text shadow-sm hover:border-app-border-light ${isDragging ? 'opacity-40' : ''} ${justMovedTo ? `task-flash task-flash-${justMovedTo}` : justCreated ? 'task-flash task-flash-created' : ''}`}
     >
       {/* THE FROST, first child and under everything else: `.swap-ice-host`
           lifts every other child one layer, so the text stays above it and
@@ -1062,7 +1122,7 @@ export const Card = memo(function Card({ task, onOpen, showProject, error, onErr
             <span
               title={tr('board.card.priorityTitle', { label: PRIORITY_LABEL[task.priority] ?? task.priority })}
               className={`inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-compact leading-4 md:text-mini ${
-                task.priority >= 3 ? 'bg-rose-500/15 text-rose-300' : 'bg-white/10 text-app-text-secondary'
+                task.priority >= 3 ? 'bg-rose-500/15 text-rose-800 dark:text-rose-300' : 'bg-white/10 text-app-text-secondary'
               }`}
             >
               <span className={`h-1.5 w-1.5 rounded-full ${PRIORITY_DOT[task.priority] ?? PRIORITY_DOT[2]}`} />
@@ -1100,35 +1160,35 @@ export const Card = memo(function Card({ task, onOpen, showProject, error, onErr
             <span
               data-testid="card-system-delivered"
               title={systemDelivered.title}
-              className="flex items-center gap-1 rounded bg-amber-500/20 px-1.5 py-0.5 text-compact leading-4 md:text-mini text-amber-300"
+              className="flex items-center gap-1 rounded bg-amber-500/20 px-1.5 py-0.5 text-compact leading-4 md:text-mini text-amber-800 dark:text-amber-300"
             ><CircleSlash className="h-3 w-3 shrink-0" /> {systemDelivered.label}</span>
           )}
           {blockedChip && (
             <span
               data-testid="card-blocked-by"
               title={blockedChip.title}
-              className="flex max-w-[11rem] items-center gap-1 truncate rounded bg-amber-500/15 px-1.5 py-0.5 text-compact leading-4 md:text-mini text-amber-300"
+              className="flex max-w-[11rem] items-center gap-1 truncate rounded bg-amber-500/15 px-1.5 py-0.5 text-compact leading-4 md:text-mini text-amber-800 dark:text-amber-300"
             ><Lock className="h-3 w-3 shrink-0" /> <span className="truncate">{blockedChip.label}</span></span>
           )}
           {reopened && (
             <span
               data-testid="card-reopened"
               title={reopened.title}
-              className="flex items-center gap-1 rounded bg-amber-500/15 px-1.5 py-0.5 text-compact leading-4 md:text-mini text-amber-300"
+              className="flex items-center gap-1 rounded bg-amber-500/15 px-1.5 py-0.5 text-compact leading-4 md:text-mini text-amber-800 dark:text-amber-300"
             ><RotateCcw className="h-3 w-3 shrink-0" /> {reopened.label}</span>
           )}
           {waitingOnThis && (
             <span
               data-testid="card-waiting-on-this"
               title={waitingOnThis.title}
-              className="flex items-center gap-1 rounded bg-amber-500/15 px-1.5 py-0.5 text-compact leading-4 md:text-mini text-amber-300"
+              className="flex items-center gap-1 rounded bg-amber-500/15 px-1.5 py-0.5 text-compact leading-4 md:text-mini text-amber-800 dark:text-amber-300"
             ><Hourglass className="h-3 w-3 shrink-0" /> {waitingOnThis.label}</span>
           )}
           {task.parentTaskId && (
             <button
               onClick={(e) => { e.stopPropagation(); onOpen(task.parentTaskId!); }}
               title={parentTitle ? tr('board.card.openParentNamedTitle', { title: parentTitle }) : tr('board.task.openParentCardTitle')}
-              className="max-w-[9rem] truncate rounded bg-violet-500/15 px-1.5 py-0.5 text-compact leading-4 md:text-mini text-violet-300 hover:bg-violet-500/25"
+              className="max-w-[9rem] truncate rounded bg-violet-500/15 px-1.5 py-0.5 text-compact leading-4 md:text-mini text-violet-800 dark:text-violet-300 hover:bg-violet-500/25"
             >⤴ {parentTitle ?? tr('board.card.parent')}</button>
           )}
           {task.userCommentCount > 0 && (
@@ -1144,7 +1204,7 @@ export const Card = memo(function Card({ task, onOpen, showProject, error, onErr
                 commit: task.deliveryCommit?.slice(0, 8) ?? '?',
                 branch: task.deliveryBranch ? tr('board.card.notLandedBranch', { branch: task.deliveryBranch }) : '',
               })}
-              className="flex max-w-full items-center gap-1 rounded bg-rose-500/20 px-1.5 py-0.5 text-compact leading-4 md:text-mini text-rose-300"
+              className="flex max-w-full items-center gap-1 rounded bg-rose-500/20 px-1.5 py-0.5 text-compact leading-4 md:text-mini text-rose-800 dark:text-rose-300"
               // Il RAMO sta nel testo, non solo nel `title`: su touch l'hover non
               // esiste, e senza il nome la card dice che c'è un problema ma non
               // dove sta il lavoro. `max-w-full` più il `flex-wrap` della riga:
@@ -1179,7 +1239,7 @@ export const Card = memo(function Card({ task, onOpen, showProject, error, onErr
             <span
               data-testid="card-uncommitted"
               title={tr('board.card.uncommittedTitle')}
-              className="flex items-center gap-1 rounded bg-amber-500/15 px-1.5 py-0.5 text-compact leading-4 md:text-mini text-amber-300"
+              className="flex items-center gap-1 rounded bg-amber-500/15 px-1.5 py-0.5 text-compact leading-4 md:text-mini text-amber-800 dark:text-amber-300"
             ><CircleSlash className="h-3 w-3 shrink-0" /> {uncommittedCount > 0
               ? tr('board.card.uncommittedFiles', { n: uncommittedCount })
               : tr('board.card.uncommitted')}</span>
@@ -1188,7 +1248,7 @@ export const Card = memo(function Card({ task, onOpen, showProject, error, onErr
             <span
               data-testid="card-nothing-delivered"
               title={tr('board.card.nothingDeliveredTitle')}
-              className="flex items-center gap-1 rounded bg-amber-500/15 px-1.5 py-0.5 text-compact leading-4 md:text-mini text-amber-300"
+              className="flex items-center gap-1 rounded bg-amber-500/15 px-1.5 py-0.5 text-compact leading-4 md:text-mini text-amber-800 dark:text-amber-300"
             ><CircleSlash className="h-3 w-3 shrink-0" /> {tr('board.card.nothingDelivered')}</span>
           )}
           {lavoroInPlace && (
@@ -1220,7 +1280,7 @@ export const Card = memo(function Card({ task, onOpen, showProject, error, onErr
             <span
               data-testid="card-checks-green"
               title={tr('board.card.checksGreenTitle')}
-              className="flex items-center gap-1 rounded bg-emerald-500/15 px-1.5 py-0.5 text-compact leading-4 md:text-mini text-emerald-300"
+              className="flex items-center gap-1 rounded bg-emerald-500/15 px-1.5 py-0.5 text-compact leading-4 md:text-mini text-emerald-800 dark:text-emerald-300"
             ><ShieldCheck className="h-3 w-3 shrink-0" /> {tr('board.card.checksGreen')}</span>
           )}
           {checksRunning && (
@@ -1278,19 +1338,19 @@ export const Card = memo(function Card({ task, onOpen, showProject, error, onErr
             <span
               data-testid="card-checks-unknown"
               title={tr('board.card.checksUnknownTitle')}
-              className="flex items-center gap-1 rounded bg-amber-500/20 px-1.5 py-0.5 text-compact leading-4 md:text-mini text-amber-300"
+              className="flex items-center gap-1 rounded bg-amber-500/20 px-1.5 py-0.5 text-compact leading-4 md:text-mini text-amber-800 dark:text-amber-300"
             ><Hourglass className="h-3 w-3 shrink-0" /> {tr('board.card.checksUnknown')}</span>
           )}
           {checksRed && (
             <span
               title={tr('board.card.checksRedTitle', { commands: (task.checks ?? []).filter((c) => !c.ok).map((c) => c.cmd).join(', ') || tr('board.card.checksRedUnknown') })}
-              className="flex items-center gap-1 rounded bg-rose-500/20 px-1.5 py-0.5 text-compact leading-4 md:text-mini text-rose-300"
+              className="flex items-center gap-1 rounded bg-rose-500/20 px-1.5 py-0.5 text-compact leading-4 md:text-mini text-rose-800 dark:text-rose-300"
             ><AlertTriangle className="h-3 w-3 shrink-0" /> {tr('board.card.checksRed')}</span>
           )}
           {task.planFirst && (
             <span
               title={tr('board.card.planTitle')}
-              className="rounded bg-violet-500/15 px-1.5 py-0.5 text-compact leading-4 md:text-mini text-violet-300"
+              className="rounded bg-violet-500/15 px-1.5 py-0.5 text-compact leading-4 md:text-mini text-violet-800 dark:text-violet-300"
             >{tr('board.card.plan')}</span>
           )}
           {task.assignedTo && <span className="rounded bg-white/10 px-1.5 py-0.5 text-compact leading-4 md:text-mini text-app-text-heading">@{task.assignedTo}</span>}
@@ -1302,21 +1362,21 @@ export const Card = memo(function Card({ task, onOpen, showProject, error, onErr
           {task.lastActorPersonName && (
             <span
               title={task.lastActorDeviceName ? `${task.lastActorPersonName} (${task.lastActorDeviceName})` : task.lastActorPersonName}
-              className="flex items-center gap-1 rounded bg-sky-500/15 px-1.5 py-0.5 text-compact leading-4 md:text-mini text-sky-300"
+              className="flex items-center gap-1 rounded bg-sky-500/15 px-1.5 py-0.5 text-compact leading-4 md:text-mini text-sky-800 dark:text-sky-300"
             >{task.lastActorPersonName}</span>
           )}
           {runInitiator && (
             <span
               data-testid="card-run-initiator"
               title={tr('board.card.runInitiatorTitle', { name: runInitiator })}
-              className="flex items-center gap-1 rounded bg-violet-500/15 px-1.5 py-0.5 text-compact leading-4 text-violet-700 dark:text-violet-300 md:text-mini"
+              className="flex items-center gap-1 rounded bg-violet-500/15 px-1.5 py-0.5 text-compact leading-4 text-violet-800 dark:text-violet-300 md:text-mini"
             ><UserRound className="h-3 w-3 shrink-0" /> {tr('board.card.runInitiator', { name: runInitiator })}</span>
           )}
           {task.runComputerName && (
             <span
               data-testid="card-run-computer"
               title={tr('board.card.runComputerTitle', { name: task.runComputerName })}
-              className="flex items-center gap-1 rounded bg-indigo-500/15 px-1.5 py-0.5 text-compact leading-4 text-indigo-700 dark:text-indigo-300 md:text-mini"
+              className="flex items-center gap-1 rounded bg-indigo-500/15 px-1.5 py-0.5 text-compact leading-4 text-indigo-800 dark:text-indigo-300 md:text-mini"
             ><Server className="h-3 w-3 shrink-0" /> {task.runComputerName}</span>
           )}
           {/* Le etichette in coda alla riga: quelle di visibilità dicono CHI
@@ -1329,7 +1389,7 @@ export const Card = memo(function Card({ task, onOpen, showProject, error, onErr
             <span
               data-testid="card-conductor-closes"
               title={tr('board.card.conductorClosesTitle')}
-              className="flex items-center gap-1 rounded bg-emerald-500/15 px-1.5 py-0.5 text-compact leading-4 md:text-mini text-emerald-300"
+              className="flex items-center gap-1 rounded bg-emerald-500/15 px-1.5 py-0.5 text-compact leading-4 md:text-mini text-emerald-800 dark:text-emerald-300"
             ><ShieldCheck className="h-3 w-3 shrink-0" /> {tr('board.card.conductorCloses')}</span>
           )}
           {/* I FILE MODIFICATI NON SONO PIU' UN CHIP QUI.
@@ -1391,7 +1451,7 @@ export const Card = memo(function Card({ task, onOpen, showProject, error, onErr
                   data-testid={`card-subtask-work-${s.id}`}
                   data-kind="unattended"
                   title={work.title}
-                  className="flex shrink-0 items-center gap-1 rounded bg-rose-500/20 px-1 py-0.5 text-mini text-rose-300"
+                  className="flex shrink-0 items-center gap-1 rounded bg-rose-500/20 px-1 py-0.5 text-mini text-rose-800 dark:text-rose-300"
                 ><AlertTriangle className="h-2.5 w-2.5 shrink-0" /> {work.label}</span>
               ) : (
                 <span
@@ -1632,7 +1692,7 @@ export const Card = memo(function Card({ task, onOpen, showProject, error, onErr
           // «al lavoro», e mostrarlo come tale e' la bugia che questo chip
           // esiste per togliere.
           <span
-            className="inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-mini font-medium bg-rose-500/15 text-rose-300"
+            className="inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-mini font-medium bg-rose-500/15 text-rose-800 dark:text-rose-300"
             // Per RISPONDERE serve la sessione, non la scheda: il testo diceva
             // «il tab del task», che è l'altra superficie e non ha un campo
             // dove rispondere a un turno vivo.
@@ -1648,7 +1708,7 @@ export const Card = memo(function Card({ task, onOpen, showProject, error, onErr
           <DispatchChip state={task.dispatchState} error={task.dispatchError} deliveredBy={task.deliveredBy} hasWork={taskHasWork(task)} />
         ) : showsStoppedChip(task) ? (
           // Not on a done card: see `stoppedChip.ts`.
-          <span className="shrink-0 rounded bg-rose-500/15 px-1.5 py-0.5 text-compact leading-4 md:text-mini text-rose-300" title={task.dispatchError ?? undefined}>{tr('board.task.stopped')}</span>
+          <span className="shrink-0 rounded bg-rose-500/15 px-1.5 py-0.5 text-compact leading-4 md:text-mini text-rose-800 dark:text-rose-300" title={task.dispatchError ?? undefined}>{tr('board.task.stopped')}</span>
         ) : null}
         {/* Il primo tratto del turno, quello in cui la card sembra ferma:
             l'agente sta leggendo e inquadrando, e il titolo che si sta per
@@ -1658,7 +1718,7 @@ export const Card = memo(function Card({ task, onOpen, showProject, error, onErr
           <span
             data-testid="card-triage"
             title={tr('board.card.triageTitle')}
-            className="shrink-0 whitespace-nowrap rounded bg-violet-500/15 px-1.5 py-0.5 text-compact leading-4 md:text-mini text-violet-300"
+            className="shrink-0 whitespace-nowrap rounded bg-violet-500/15 px-1.5 py-0.5 text-compact leading-4 md:text-mini text-violet-800 dark:text-violet-300"
           >{tr('board.card.triage')}</span>
         )}
         {/* THE WAIT BEFORE A RETRY takes the live chip's place. The turn is
@@ -1730,7 +1790,7 @@ export const Card = memo(function Card({ task, onOpen, showProject, error, onErr
         <span
           className="ml-auto text-compact leading-4 md:text-mini text-app-text-muted"
           title={tr('board.card.lastUpdate', { when: new Date(task.updatedAt).toLocaleString(locale) })}
-        >{fmtUpdatedAt(task.updatedAt)}</span>
+        ><UpdatedAgo iso={task.updatedAt} /></span>
       </div>
       {/* WHAT IT IS DOING RIGHT NOW: the tool the session is running and for
           how long. A 14-minute stopwatch did not tell a unit suite that has
@@ -1912,7 +1972,7 @@ export const Card = memo(function Card({ task, onOpen, showProject, error, onErr
         <div
           data-testid="card-action-error"
           onClick={(e) => e.stopPropagation()}
-          className="mt-2 flex items-start gap-1.5 rounded-md border border-rose-500/30 bg-rose-500/10 px-2 py-1.5 text-compact leading-snug text-rose-300"
+          className="mt-2 flex items-start gap-1.5 rounded-md border border-rose-500/30 bg-rose-500/10 px-2 py-1.5 text-compact leading-snug text-rose-800 dark:text-rose-300"
         >
           <AlertTriangle className="mt-0.5 h-3 w-3 shrink-0" />
           <span className="min-w-0 flex-1 break-words">{error}</span>
@@ -1972,7 +2032,7 @@ export const Card = memo(function Card({ task, onOpen, showProject, error, onErr
                 onClick={(e) => { e.stopPropagation(); setCtxMenu(null); stop(); }}
                 title={stopWord.title}
                 className={POPOVER_ITEM}
-              ><Square className="h-3.5 w-3.5 fill-current text-rose-400" /> {stopWord.label}</button>
+              ><Square className="h-3.5 w-3.5 fill-current text-rose-600 dark:text-rose-400" /> {stopWord.label}</button>
             </>
           )}
           <div className={POPOVER_DIVIDER} />

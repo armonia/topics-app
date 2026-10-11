@@ -355,7 +355,9 @@ describe("boot · the agent's lines after the last result", () => {
       expect(wakes).toEqual([sessionKey]);
       expect(String(done)).toBe(String(events[wakeEnd]!.result));
     } finally {
-      ProviderCtor.observeWokenTurns(() => {});
+      // Back to "nobody adopts": the observer is static, and a no-op that returns nothing means "adoption pending",
+      // which holds the next file's unattended turn for an adopter that never comes.
+      ProviderCtor.observeWokenTurns(() => false);
       try { getAiBridgeClient().kill(sessionKey); } catch { /* best-effort cleanup */ }
     }
   }, 40_000);
@@ -397,7 +399,9 @@ describe("boot · the agent's lines after the last result", () => {
       await waitFor(() => done !== null, 10_000);
       expect(wakes).toEqual([sessionKey]);
     } finally {
-      ProviderCtor.observeWokenTurns(() => {});
+      // Back to "nobody adopts": the observer is static, and a no-op that returns nothing means "adoption pending",
+      // which holds the next file's unattended turn for an adopter that never comes.
+      ProviderCtor.observeWokenTurns(() => false);
       try { getAiBridgeClient().kill(sessionKey); } catch { /* best-effort cleanup */ }
     }
   }, 40_000);

@@ -28,10 +28,12 @@ export function BoardSkeleton({ layout }: { layout?: BoardLayout }) {
   return (
     <div data-testid="board-skeleton" aria-hidden="true" className="relative flex h-full flex-col overflow-hidden">
       {/* The toolbar row: same padding as `board-toolbar`, and its controls are
-          24 px tall (`TOOLBAR_CONTROL_H`), so the strip is 36 px like the real one. */}
-      <div className="flex shrink-0 items-center gap-1 px-2 py-1.5 sm:px-3">
-        <div className={`h-6 w-60 ${BAR} animate-pulse`} />
-        <div className={`h-6 w-24 ${BAR} animate-pulse`} />
+          as tall as `TOOLBAR_CONTROL_H` (24 px with a mouse, 44 under a finger),
+          so the strip is 36 or 52 px like the real one and the columns do not
+          jump down when the board replaces it on a phone. */}
+      <div className="flex shrink-0 items-center gap-1 px-2 py-1.5 coarse:py-1 sm:px-3">
+        <div className={`h-6 w-60 coarse:h-11 ${BAR} animate-pulse`} />
+        <div className={`h-6 w-24 coarse:h-11 ${BAR} animate-pulse`} />
       </div>
       <div className="flex min-h-0 flex-1">
         <div className="relative flex min-w-0 flex-1 flex-col">

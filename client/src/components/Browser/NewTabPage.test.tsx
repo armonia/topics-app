@@ -38,7 +38,7 @@ afterEach(() => { delete (globalThis as { window?: unknown }).window; });
  * that is still empty - that is, not over what was just typed.
  */
 function typeAndSubmit(h: Harness, text: string): void {
-  const input = h.last().hosts.find((n) => n.type === 'input');
+  const input = h.last().hosts.find((n) => n.type === 'input' || n.type === 'textarea');
   if (!input) throw new Error('the new tab drew no field');
   (input.props.onChange as (e: { target: { value: string } }) => void)({ target: { value: text } });
   const form = h.last().hosts.find((n) => n.type === 'form');

@@ -27,7 +27,7 @@ const IT: Dict = {
   ...ATTENTION_IT,
   'toolgroup.cost': 'Costo sommato delle azioni del gruppo',
   'ai.selector.routing': 'Esegui in Topics',
-  'ai.selector.routingLine': 'Claude gira in Topics col tuo abbonamento, senza un processo per chat. Gli altri vanno diretti.',
+  'ai.selector.routingLine': 'Gli altri vanno diretti.',
   'ai.selector.route.topics': 'via Topics',
   'ai.selector.route.via': 'via {engine}',
   'ai.selector.route.direct.family': 'Questo modello va diretto: {engine} non passa da Topics.',
@@ -75,6 +75,7 @@ const IT: Dict = {
   'ai.providers.fact.default': 'Predefinito',
   'ai.providers.fact.claudePlan': 'Abbonamento Claude',
   'ai.providers.fact.chatgptPlan': 'Piano ChatGPT',
+  'ai.providers.fact.musePlan': 'Abbonamento Muse',
   'ai.providers.fact.key': 'Chiave a consumo',
   'ai.providers.fact.program': 'Programma',
   'ai.providers.fact.agent': 'Agente',
@@ -132,6 +133,10 @@ const IT: Dict = {
   'ai.providers.program.none': 'Percorso non noto',
   'ai.providers.saveError': 'Non è stato possibile salvare.',
 
+  'sidebar.subagents.one': '1 sotto-agente',
+  'sidebar.subagents.many': '{n} sotto-agenti',
+  'sidebar.subagents.needsYou': 'Un sotto-agente ti aspetta',
+  'sidebar.subagents.working': 'Un sotto-agente sta lavorando',
   'app.unsent.title.one': '1 messaggio non inviato',
   'app.unsent.title.many': '{n} messaggi non inviati',
   'app.unsent.chatLine.one': '{name} · 1 messaggio',
@@ -161,6 +166,9 @@ const IT: Dict = {
   'ctx.removeFromContext': 'Rimuovi dal contesto',
   'ctx.removeFile': 'Rimuovi il file',
   'tool.logTruncated': '[… {n} righe scartate: il buffer del log è pieno]',
+  'tool.live.running': 'in corso',
+  'tool.live.exit': 'uscita {code}',
+  'tool.live.ended': 'terminata',
   'tool.runningTail.more': "Sopra c'è altro output",
   'tool.shell.silent': 'In esecuzione da {elapsed} · nessun output visibile',
   'tool.shell.sleepLeft': ' · sleep: mancano {left}',
@@ -197,6 +205,9 @@ const IT: Dict = {
   'subagent.ended': '{name} · terminato (apri)',
   'subagent.dismiss': 'Togli {name} dalla lista',
   'subagent.strip': 'Sotto-agenti',
+  'subagent.stopConfirm.title': 'Fermare {name}?',
+  'subagent.stopConfirm.body': '{name} l\'ha avviato {parent} e sta ancora lavorando. Se lo fermi, il suo lavoro si interrompe e {parent} riceve l\'esito «fermato».',
+  'subagent.stopConfirm.confirm': 'Ferma',
   'toolgroup.elapsed': 'Da quanto va avanti questa corsa di azioni',
   'space.elsewhere': "è aperto in un'altra finestra.",
   'space.elsewhere.blurb': 'Un gruppo lo disegna una finestra sola: le sue tab vivono là, e qui non si duplicano.',
@@ -2074,6 +2085,13 @@ const IT: Dict = {
   'sidebar.waitingDoorTitle': 'Vai alla prossima chat che ti aspetta',
   'sidebar.profileDoorTitle': 'Profilo e statistiche',
   'sidebar.profileDoorTitleNamed': '{nome}. Profilo e statistiche',
+  // The pencil door (mobile-chrome-feedback A6): the tap opens a new chat at
+  // once, the long press opens the whole «+» menu.
+  'sidebar.pencilDoor': 'Nuova',
+  'sidebar.pencilDoorTitle': 'Nuova chat: tieni premuto per le altre voci',
+  // The user sheet on the phone has two floors (A1): the root and the Topics
+  // floor, walked back from with this row.
+  'sidebar.userMenuBack': 'Indietro',
   // A topic's worktree in the sidebar: the chip on the row and the header of
   // the sub-section when a project works on several worktrees at once.
   // "Worktree" stays the same word in both languages: it is git's own name.
@@ -2618,6 +2636,11 @@ const IT: Dict = {
   'browser.newTab.topSites': 'I tuoi siti',
   'browser.newTab.empty': 'I siti che apri più spesso compaiono qui.',
   'browser.newTab.forget': 'Togli {host} dai tuoi siti',
+  'browser.newTab.openTabs': 'Schede aperte',
+  'browser.newTab.recent': 'Recenti',
+  'browser.newTab.commands': 'Comandi',
+  'browser.newTab.createFile': 'Crea nota con questo testo',
+  'browser.newTab.createFailed': 'Non riesco a creare la nota',
   // -- Development bar of the browser pane: zoom, device and the console
   //    dropdown. The per level chip labels live in
   //    `Browser/consoleLogModel.ts` next to the rule they filter by, and that

@@ -72,4 +72,27 @@ describe("createHookOrder", () => {
     expect(order.admit("b", "PreToolUse", "x", T)).toBe("in-order");
     expect(order.admit("a", "PreToolUse", "x", T)).toBe("stale");
   });
+
+  test("an opening read from the transcript stales a hook fired before it", () => {
+    const order = createHookOrder();
+    expect(order.admit("s", "Stop", undefined, T)).toBe("in-order");
+    order.opened("s", T + 1_000);
+    expect(order.admit("s", "Stop", undefined, T + 500)).toBe("stale");
+    expect(order.admit("s", "Stop", undefined, T + 2_000)).toBe("in-order");
+  });
+
+  test("an opening older than the newest hook applied changes nothing", () => {
+    const order = createHookOrder();
+    expect(order.admit("s", "PreToolUse", "toolu_a", T + 2_100)).toBe("in-order");
+    order.opened("s", T + 2_050);
+    // The pairing still holds: the Post closes its own Pre whatever its stamp says.
+    expect(order.admit("s", "PostToolUse", "toolu_a", T + 2_090)).toBe("in-order");
+  });
+
+  test("after an opening, a PostToolUse stamped before it is stale, not paired", () => {
+    const order = createHookOrder();
+    expect(order.admit("s", "PreToolUse", "toolu_a", T + 910)).toBe("in-order");
+    order.opened("s", T + 1_000);
+    expect(order.admit("s", "PostToolUse", "toolu_a", T + 900)).toBe("stale");
+  });
 });

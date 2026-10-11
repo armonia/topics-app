@@ -1,6 +1,13 @@
 /**
  * THE SUB-AGENTS A CHAT SPAWNED, INCLUDING THE ONES THAT ALREADY ENDED.
  *
+ * Since chat-live-work (07/10) the strip reads its rows from the server
+ * (`state/liveWork.ts`), and an ended sub-agent leaves it a minute after its
+ * end. What the strip still takes from here is the DISMISSALS: an ended row
+ * the person closed is not shown. The ended list below is what the project
+ * window prunes a finished sub-agent's tab with. The history that follows is
+ * how both came to be.
+ *
  * The in-chat strip (`components/Chat/SubAgentsStrip.tsx`) used to read only
  * the live terminal roster, filtered by `parentSessionKey`. The roster is the
  * server's in-memory session map, and a sub-agent leaves it the instant its
@@ -277,10 +284,11 @@ export function dismissSubAgent(sessionId: string): void {
   update((m) => dismissInMemory(m, sessionId));
 }
 
-function currentEnded(): readonly EndedSubAgent[] {
-  return subAgentMemorySnapshot().ended;
+function currentDismissed(): readonly string[] {
+  return subAgentMemorySnapshot().dismissed;
 }
 
-export function useEndedSubAgents(): readonly EndedSubAgent[] {
-  return useSyncExternalStore(subscribeSubAgentMemory, currentEnded, currentEnded);
+/** The ids the person dismissed, in every window of this browser: the strip hides their ended rows. */
+export function useDismissedSubAgents(): readonly string[] {
+  return useSyncExternalStore(subscribeSubAgentMemory, currentDismissed, currentDismissed);
 }

@@ -55,13 +55,13 @@ const FAMILY_PREFIXES: Array<[RegExp, string]> = [
 
 /** Runtime prefixes of a stored `provider:model` value. Only these are peeled:
  *  in `gpt-oss:20b` the part before the colon is the model, not a runtime. */
-const RUNTIME_PREFIXES = new Set(['topics', 'claude-code', 'codex', 'jcode', 'claude', 'openai', 'gemini']);
+const RUNTIME_PREFIXES = new Set(['topics', 'claude-code', 'codex', 'jcode', 'claude', 'openai', 'gemini', 'muse']);
 
 /** The company of a provider that lists no model (a subscription not signed
  *  in, a key not set). Agents and endpoints run many companies' models, so
  *  they have none. */
 const ENGINE_MAKERS: Record<string, string> = {
-  'claude-code': 'anthropic', topics: 'anthropic', claude: 'anthropic', codex: 'openai', openai: 'openai', gemini: 'google',
+  'claude-code': 'anthropic', topics: 'anthropic', claude: 'anthropic', codex: 'openai', openai: 'openai', gemini: 'google', muse: 'meta',
 };
 
 /** The id without a runtime prefix, lower-case. */

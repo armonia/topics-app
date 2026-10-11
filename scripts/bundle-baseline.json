@@ -784,20 +784,34 @@
     "languages (i18n is eager by choice), all hung off the eager composer and chat.",
     "Alone, on main b4875e1be, it measured +18.386 / +5.507. Each number was inside 2%",
     "of main's; all three are set to the measured values so the next change starts",
-    "from what is actually shipped."
+    "from what is actually shipped.",
+    "",
+    "2026-10-08, chat-strips-in-transcript (the commit that wrote this note, on",
+    "topics/model-picker-list),",
+    "build:client on this Mac: entry 1.675.264 / 534.377 against a gz ceiling of",
+    "533.741, 636 B over. The same build of the parent c8a2e0d29, made in a clean",
+    "copy (`git archive` + vite build) and measured the same way (Bun gzip, level 9),",
+    "reads 1.672.151 / 533.267: this change buys +3.113 raw / +1.110 gz, the rest is",
+    "the growth since 2026-10-03, each commit inside 2%. What it bought, all in the",
+    "eager chat: a command's row finds the tool call that started it and opens it",
+    "(Chat/liveWorkCard.ts, state/revealToolCall.ts), that card shows the process's",
+    "live log (LiveShellTail.tsx, hooks/useBackgroundShell.ts), the strips drawn in",
+    "the transcript's Footer through a context. No import went from lazy to static.",
+    "Critical path 2.300.033 / 695.443 and total assets 8.766.912 were inside their",
+    "ceilings; all three are set to the measured values, as on 2026-10-03."
   ],
-  "updated": "2026-10-03",
+  "updated": "2026-10-08",
   "tolerance_pct": 2,
   "entry_eager": {
-    "raw": 1647998,
-    "gz": 523275
+    "raw": 1675264,
+    "gz": 534377
   },
   "critical_path": {
-    "raw": 2266809,
-    "gz": 683292,
+    "raw": 2300033,
+    "gz": 695443,
     "files": 5
   },
   "total_assets": {
-    "raw": 8680229
+    "raw": 8766912
   }
 }

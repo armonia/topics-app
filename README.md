@@ -175,7 +175,7 @@ containers. Copy `.env.example` to `.env`.
 `GATEWAY_URL` → `openclaw`, else `claude`. That choice holds as long as it stays
 connected.
 
-The order `claude-code` → `codex` → `claude` → `openai` → `openclaw` only picks
+The order `claude-code` → `codex` → `muse` → `claude` → `openai` → `openclaw` only picks
 the *replacement* once the current default goes offline, so with an API key set
 the CLIs above it never get a turn.
 

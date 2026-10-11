@@ -1,5 +1,2656 @@
 [
   {
+    "version": "2.2.471",
+    "date": "2026-10-11",
+    "sections": {
+      "new": [],
+      "fixes": [
+        {
+          "it": "anche lo scatto di un cron e il messaggio di un'altra sessione ordinano gli hook",
+          "en": "",
+          "scope": "attention",
+          "breaking": false
+        },
+        {
+          "it": "uno Stop che trova il turno già a riposo lo data lo stesso",
+          "en": "",
+          "scope": "attention",
+          "breaking": false
+        },
+        {
+          "it": "un comando `!` della modalità bash non apre un turno",
+          "en": "",
+          "scope": "attention",
+          "breaking": false
+        }
+      ],
+      "perf": [],
+      "internal": [
+        {
+          "it": "lo Stop a riposo torna a non ridatare la fase",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "le righe della modalità bash tornano a contare come prompt",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "aggiorna durate shard dal nightly del 2026-10-10 [skip ci]",
+          "en": "",
+          "scope": "e2e",
+          "breaking": false
+        },
+        {
+          "it": "tre residui di cloud-quality-pass (#279)",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        }
+      ]
+    }
+  },
+  {
+    "version": "2.2.470",
+    "date": "2026-10-09",
+    "sections": {
+      "new": [
+        {
+          "it": "un solo passaggio di consegne per le sessioni CLI nuove",
+          "en": "",
+          "scope": "providers",
+          "breaking": false
+        }
+      ],
+      "fixes": [
+        {
+          "it": "la chat riposa quando il provider le svuota la mappa dei compiti",
+          "en": "",
+          "scope": "attention",
+          "breaking": false
+        },
+        {
+          "it": "il budget del passaggio si misura sul testo scritto",
+          "en": "",
+          "scope": "providers",
+          "breaking": false
+        },
+        {
+          "it": "«emptied» in una riga, il dizionario resta entro le 800",
+          "en": "",
+          "scope": "gates",
+          "breaking": false
+        },
+        {
+          "it": "lo Stop in ritardo non chiude il turno che il transcript ha già riaperto",
+          "en": "",
+          "scope": "attention",
+          "breaking": false
+        },
+        {
+          "it": "una riga che apre un turno dopo lo svuotamento tiene la chat sveglia",
+          "en": "",
+          "scope": "attention",
+          "breaking": false
+        },
+        {
+          "it": "il turno che il transcript apre prima dello Stop in ritardo si apre anche nello store",
+          "en": "",
+          "scope": "attention",
+          "breaking": false
+        },
+        {
+          "it": "lo svuotamento lo annulla la riga che sveglia il turno, non l'ora",
+          "en": "",
+          "scope": "attention",
+          "breaking": false
+        }
+      ],
+      "perf": [],
+      "internal": [
+        {
+          "it": "handoff in PROJECT_WORDS, preamble invece di pre (check:identifier-language)",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "baseline identifier-language scesa (handoff ora è una parola nota)",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "«queueRead» al posto di «enq», che il cancello dei nomi non conosce",
+          "en": "",
+          "scope": "attention",
+          "breaking": false
+        },
+        {
+          "it": "handoff in PROJECT_WORDS su una riga (check:bloat, soglia 800)",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "aggiorna durate shard dal nightly del 2026-10-09 [skip ci]",
+          "en": "",
+          "scope": "e2e",
+          "breaking": false
+        }
+      ]
+    }
+  },
+  {
+    "version": "2.2.469",
+    "date": "2026-10-09",
+    "sections": {
+      "new": [],
+      "fixes": [
+        {
+          "it": "configHome invece di xdgConfigHome (check:identifier-language)",
+          "en": "",
+          "scope": "muse",
+          "breaking": false
+        }
+      ],
+      "perf": [],
+      "internal": [
+        {
+          "it": "giro 3, le PR del 9/10 e l'aggiornamento di prod",
+          "en": "",
+          "scope": "verifica",
+          "breaking": false
+        },
+        {
+          "it": "MUSE-05, la chat Muse ha i tool di Topics; @covers sui test (check:untraced-tests)",
+          "en": "",
+          "scope": "muse",
+          "breaking": false
+        }
+      ]
+    }
+  },
+  {
+    "version": "2.2.468",
+    "date": "2026-10-09",
+    "sections": {
+      "new": [],
+      "fixes": [
+        {
+          "it": "riposo solo quando nessun avviso può svegliare il turno",
+          "en": "",
+          "scope": "attention",
+          "breaking": false
+        },
+        {
+          "it": "l'enqueue mette in coda l'avviso, lo chiude la sua sorte",
+          "en": "",
+          "scope": "attention",
+          "breaking": false
+        },
+        {
+          "it": "l'hook in ritardo corregge il verdetto dello Stop, datato allo Stop",
+          "en": "",
+          "scope": "attention",
+          "breaking": false
+        }
+      ],
+      "perf": [],
+      "internal": []
+    }
+  },
+  {
+    "version": "2.2.467",
+    "date": "2026-10-09",
+    "sections": {
+      "new": [],
+      "fixes": [
+        {
+          "it": "la memoria degli id finiti resta anche a un terminale senza riga, e una fine letta tardi resta tardi",
+          "en": "",
+          "scope": "attenzione",
+          "breaking": false
+        },
+        {
+          "it": "le fini lette dal vivo durante la lettura tardiva la aspettano",
+          "en": "",
+          "scope": "attenzione",
+          "breaking": false
+        },
+        {
+          "it": "il kill rimandato non cancella gli handler del successore",
+          "en": "",
+          "scope": "chat",
+          "breaking": false
+        },
+        {
+          "it": "il turno in watching riposa quando l'ultimo compito esce dal transcript dopo lo Stop",
+          "en": "",
+          "scope": "attenzione",
+          "breaking": false
+        }
+      ],
+      "perf": [],
+      "internal": [
+        {
+          "it": "i frame del fixture sono unknown, non any",
+          "en": "",
+          "scope": "attenzione",
+          "breaking": false
+        }
+      ]
+    }
+  },
+  {
+    "version": "2.2.466",
+    "date": "2026-10-09",
+    "sections": {
+      "new": [],
+      "fixes": [
+        {
+          "it": "il replay di una sonda abbandonata non arriva al processo che ha preso il posto del suo",
+          "en": "",
+          "scope": "chat",
+          "breaking": false
+        },
+        {
+          "it": "la ricomposizione di avvio non dimentica i compiti finiti, e un avviso senza chiamata esce come è stato letto",
+          "en": "",
+          "scope": "attenzione",
+          "breaking": false
+        },
+        {
+          "it": "dopo un kill, i frame di quell'id restano fuori fino allo spawn successivo",
+          "en": "",
+          "scope": "chat",
+          "breaking": false
+        },
+        {
+          "it": "una storia lunga letta dal riattacco non scaccia le fini lette dal vivo",
+          "en": "",
+          "scope": "attenzione",
+          "breaking": false
+        }
+      ],
+      "perf": [],
+      "internal": []
+    }
+  },
+  {
+    "version": "2.2.465",
+    "date": "2026-10-09",
+    "sections": {
+      "new": [],
+      "fixes": [
+        {
+          "it": "il silenzio di un list non ricicla il socket finché qualcun altro ci aspetta, anche sotto il tetto",
+          "en": "",
+          "scope": "chat",
+          "breaking": false
+        },
+        {
+          "it": "rowHolder, `frameRequest` al posto di `raf` (check:identifier-language)",
+          "en": "",
+          "scope": "chat",
+          "breaking": false
+        },
+        {
+          "it": "la fine letta dopo i fatti resta senza epoca, e la grazia attraversa la ricomposizione di avvio",
+          "en": "",
+          "scope": "attenzione",
+          "breaking": false
+        },
+        {
+          "it": "resta sul socket solo un list muto, e mai con un daemon senza rid",
+          "en": "",
+          "scope": "chat",
+          "breaking": false
+        },
+        {
+          "it": "il segno della fine letta dopo i fatti solo quando toglie l'ultimo compito del turno",
+          "en": "",
+          "scope": "attenzione",
+          "breaking": false
+        },
+        {
+          "it": "il segno guarda solo i compiti del turno chiuso, non quelli di un turno dal vivo",
+          "en": "",
+          "scope": "attenzione",
+          "breaking": false
+        },
+        {
+          "it": "un attach o uno spawn abbandonati per silenzio all'ultimo tentativo si portano via il socket",
+          "en": "",
+          "scope": "chat",
+          "breaking": false
+        },
+        {
+          "it": "il segno della fine letta dopo i fatti guarda i compiti di prima del riavvio, non l'ora del turno chiuso",
+          "en": "",
+          "scope": "attenzione",
+          "breaking": false
+        },
+        {
+          "it": "turn-write-cost chiude il database ereditato prima di aprire il suo",
+          "en": "",
+          "scope": "test",
+          "breaking": false
+        },
+        {
+          "it": "la sonda del lag in un tentativo tiene il socket, la coda d'uscita lo porta via",
+          "en": "",
+          "scope": "chat",
+          "breaking": false
+        },
+        {
+          "it": "un compito di prima del riavvio che esce dal vivo rende dal vivo la fine del suo lavoro",
+          "en": "",
+          "scope": "attenzione",
+          "breaking": false
+        },
+        {
+          "it": "il follow della conversazione sopravvive al resize del drawer",
+          "en": "",
+          "scope": "board",
+          "breaking": false
+        },
+        {
+          "it": "un cron ricorrente cancellato dal vivo non rende dal vivo la fine del turno di prima",
+          "en": "",
+          "scope": "attenzione",
+          "breaking": false
+        }
+      ],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Home con il resto in ritardo lo fa arrivare a lista ferma in cima",
+          "en": "",
+          "scope": "chat",
+          "breaking": false
+        },
+        {
+          "it": "REPORT della traccia T21, test instabili secondo giro",
+          "en": "",
+          "scope": "cloud",
+          "breaking": false
+        },
+        {
+          "it": "T21, il ramo che l'ambiente impone nel REPORT",
+          "en": "",
+          "scope": "cloud",
+          "breaking": false
+        },
+        {
+          "it": "REPORT di T20, e via le sonde del verificatore",
+          "en": "",
+          "scope": "cloud",
+          "breaking": false
+        }
+      ]
+    }
+  },
+  {
+    "version": "2.2.464",
+    "date": "2026-10-09",
+    "sections": {
+      "new": [],
+      "fixes": [
+        {
+          "it": "un turno chiuso dal vivo si annuncia anche se è il riattacco a liberarlo",
+          "en": "",
+          "scope": "attenzione",
+          "breaking": false
+        },
+        {
+          "it": "il fuoco entra nella palette ⌘N nello stesso commit che la disegna",
+          "en": "",
+          "scope": "add-menu",
+          "breaking": false
+        },
+        {
+          "it": "un list scaduto non ricicla il socket sotto uno scan in ritardo, e uno Stop durante la coda di una CLI uscita tiene",
+          "en": "",
+          "scope": "chat",
+          "breaking": false
+        },
+        {
+          "it": "la fusione a lista ferma tiene la riga letta al pixel, anche in cima",
+          "en": "",
+          "scope": "chat",
+          "breaking": false
+        },
+        {
+          "it": "il kill del figlio aspetta il resync della riconnessione",
+          "en": "",
+          "scope": "test",
+          "breaking": false
+        }
+      ],
+      "perf": [],
+      "internal": [
+        {
+          "it": "mergeAtRest.test dichiara cosa copre (CHAT-HIST-01)",
+          "en": "",
+          "scope": "chat",
+          "breaking": false
+        },
+        {
+          "it": "CHAT-HIST-01, la fusione a lista ferma e il «↓» che conta solo il fondo",
+          "en": "",
+          "scope": "chat",
+          "breaking": false
+        }
+      ]
+    }
+  },
+  {
+    "version": "2.2.463",
+    "date": "2026-10-09",
+    "sections": {
+      "new": [
+        {
+          "it": "risalendo, i messaggi precedenti arrivano da soli (CHAT-HIST-01)",
+          "en": "",
+          "scope": "chat",
+          "breaking": false
+        },
+        {
+          "it": "la riga «mostra altri» carica da sola entrando in vista (LIST-PAGE-01)",
+          "en": "",
+          "scope": "liste",
+          "breaking": false
+        },
+        {
+          "it": "le liste con «mostra altri» caricano da sole, e la barra delle schede del browser della topic scorre",
+          "en": "",
+          "scope": "liste",
+          "breaking": false
+        },
+        {
+          "it": "la fusione in cima aspetta la lista ferma e rimette la riga letta al pixel (bozza)",
+          "en": "",
+          "scope": "chat",
+          "breaking": false
+        },
+        {
+          "it": "le chat Muse montano il bridge MCP di Topics",
+          "en": "",
+          "scope": "muse",
+          "breaking": false
+        }
+      ],
+      "fixes": [
+        {
+          "it": "mentre lo scan aspetta il suo ack in ritardo, la rotta non uccide il turno",
+          "en": "",
+          "scope": "chat",
+          "breaking": false
+        },
+        {
+          "it": "la barra delle schede della topic scorre invece di schiacciarle (TOPIC-BROWSER-01)",
+          "en": "",
+          "scope": "browser",
+          "breaking": false
+        },
+        {
+          "it": "anche il riavvolgimento dopo lo scan aspetta il suo ack in ritardo",
+          "en": "",
+          "scope": "chat",
+          "breaking": false
+        },
+        {
+          "it": "la storia arriva solo quando chi legge sale",
+          "en": "",
+          "scope": "chat",
+          "breaking": false
+        },
+        {
+          "it": "la riga «mostra altri» guarda il contenitore che scorre adesso",
+          "en": "",
+          "scope": "liste",
+          "breaking": false
+        },
+        {
+          "it": "un compito finito non tiene una sessione «in corso»",
+          "en": "",
+          "scope": "attenzione",
+          "breaking": false
+        },
+        {
+          "it": "una rotella girata in su chiede la storia anche dove la lista non si muove piu'",
+          "en": "",
+          "scope": "chat",
+          "breaking": false
+        },
+        {
+          "it": "anche la coda di un figlio uscito dietro lo scan aspetta il suo ack in ritardo",
+          "en": "",
+          "scope": "chat",
+          "breaking": false
+        },
+        {
+          "it": "la rotella chiede la storia da sé solo in cima, e la fusione si misura fino all'atterraggio del passo",
+          "en": "",
+          "scope": "chat",
+          "breaking": false
+        },
+        {
+          "it": "l'avviso chiude il compito anche prima del PostToolUse, e un Monitor si chiude solo con le parole della CLI",
+          "en": "",
+          "scope": "attenzione",
+          "breaking": false
+        },
+        {
+          "it": "il resto arriva anche con Shift+Spazio, la barra trascinata e l'inerzia, e una fusione a scheda nascosta torna dov'era",
+          "en": "",
+          "scope": "chat",
+          "breaking": false
+        },
+        {
+          "it": "la riga «mostra altri» carica solo se il suo contenitore e' a schermo",
+          "en": "",
+          "scope": "liste",
+          "breaking": false
+        },
+        {
+          "it": "la CLI che ferma un Monitor lo chiude, e un hook in ritardo che toglie l'ultimo compito riporta il turno a riposo",
+          "en": "",
+          "scope": "attenzione",
+          "breaking": false
+        },
+        {
+          "it": "la sonda di boot e la coda di una CLI uscita aspettano anche loro l'ack in ritardo",
+          "en": "",
+          "scope": "chat",
+          "breaking": false
+        },
+        {
+          "it": "la compattazione scende sotto la soglia invece di fermarcisi",
+          "en": "",
+          "scope": "native",
+          "breaking": false
+        },
+        {
+          "it": "commento di COMPACT_TO in inglese (check:comment-language)",
+          "en": "",
+          "scope": "native",
+          "breaking": false
+        },
+        {
+          "it": "la guarigione al riattacco non annuncia un turno finito prima del riavvio",
+          "en": "",
+          "scope": "attenzione",
+          "breaking": false
+        },
+        {
+          "it": "tornata da lista a griglia, la colonna della board carica ancora in anticipo",
+          "en": "",
+          "scope": "liste",
+          "breaking": false
+        },
+        {
+          "it": "la correzione su schermo stretto conta solo quando il campo la mostra",
+          "en": "",
+          "scope": "e2e",
+          "breaking": false
+        },
+        {
+          "it": "una scrittura rimandata dal throttle non sopravvive al database",
+          "en": "",
+          "scope": "persist",
+          "breaking": false
+        }
+      ],
+      "perf": [],
+      "internal": [
+        {
+          "it": "react-virtuoso 4.18.16",
+          "en": "",
+          "scope": "deps",
+          "breaking": false
+        },
+        {
+          "it": "change infinite-scroll",
+          "en": "",
+          "scope": "openspec",
+          "breaking": false
+        },
+        {
+          "it": "late-scan-route-grace rimette DATA_DIR a fine file",
+          "en": "",
+          "scope": "chat",
+          "breaking": false
+        },
+        {
+          "it": "liste e barra delle schede passano alla change list-paging, qui resta la chat",
+          "en": "",
+          "scope": "chat",
+          "breaking": false
+        },
+        {
+          "it": "brief della traccia T20, la chat fonde il resto della storia a lista ferma",
+          "en": "",
+          "scope": "cloud",
+          "breaking": false
+        },
+        {
+          "it": "brief della traccia T21, test instabili secondo giro",
+          "en": "",
+          "scope": "cloud",
+          "breaking": false
+        },
+        {
+          "it": "la fusione a lista ferma, la scheda lasciata col resto in volo, il «↓» dopo la fusione",
+          "en": "",
+          "scope": "chat",
+          "breaking": false
+        }
+      ]
+    }
+  },
+  {
+    "version": "2.2.462",
+    "date": "2026-10-08",
+    "sections": {
+      "new": [],
+      "fixes": [
+        {
+          "it": "lo scan di una riadozione oltre il tetto aspetta il suo ack in ritardo",
+          "en": "",
+          "scope": "chat",
+          "breaking": false
+        }
+      ],
+      "perf": [],
+      "internal": []
+    }
+  },
+  {
+    "version": "2.2.461",
+    "date": "2026-10-08",
+    "sections": {
+      "new": [],
+      "fixes": [
+        {
+          "it": "il segno lo lascia solo uno scan interrotto",
+          "en": "",
+          "scope": "claude-code",
+          "breaking": false
+        },
+        {
+          "it": "un riavvolgimento abbandonato restituisce i frame che aveva scartato",
+          "en": "",
+          "scope": "claude-code",
+          "breaking": false
+        },
+        {
+          "it": "il server gira sulla Bun di .bun-version, con un binario solo per Topics",
+          "en": "",
+          "scope": "prod",
+          "breaking": false
+        }
+      ],
+      "perf": [],
+      "internal": [
+        {
+          "it": "VERIFICA del terzo giro, T18 e T19 in un file a parte",
+          "en": "",
+          "scope": "openspec",
+          "breaking": false
+        }
+      ]
+    }
+  },
+  {
+    "version": "2.2.460",
+    "date": "2026-10-08",
+    "sections": {
+      "new": [],
+      "fixes": [
+        {
+          "it": "check:deadcode-blindspots non cancella più le modifiche fatte mentre gira",
+          "en": "",
+          "scope": "gates",
+          "breaking": false
+        },
+        {
+          "it": "il segno «live» di una riadozione fallita si spende all'inizio del turno dopo",
+          "en": "",
+          "scope": "claude-code",
+          "breaking": false
+        },
+        {
+          "it": "il segno di una riadozione fallita lo spende il primo frame piegato",
+          "en": "",
+          "scope": "claude-code",
+          "breaking": false
+        }
+      ],
+      "perf": [],
+      "internal": []
+    }
+  },
+  {
+    "version": "2.2.459",
+    "date": "2026-10-08",
+    "sections": {
+      "new": [
+        {
+          "it": "show_view, the agent sends data and Topics draws it",
+          "en": "",
+          "scope": "views",
+          "breaking": false
+        },
+        {
+          "it": "table and timeline views, and the views as MCP Apps resources",
+          "en": "",
+          "scope": "views",
+          "breaking": false
+        }
+      ],
+      "fixes": [
+        {
+          "it": "a spawned agent's page opens in its parent chat's window",
+          "en": "",
+          "scope": "browser",
+          "breaking": false
+        },
+        {
+          "it": "CI gates on #259",
+          "en": "",
+          "scope": "views",
+          "breaking": false
+        },
+        {
+          "it": "ciò che si scrive mentre la chat si apre è ciò che parte",
+          "en": "",
+          "scope": "chat",
+          "breaking": false
+        },
+        {
+          "it": "the rest of the CI gates on #259",
+          "en": "",
+          "scope": "views",
+          "breaking": false
+        },
+        {
+          "it": "la sonda non riattacca un figlio adottato prima che il suo aggancio atterri",
+          "en": "",
+          "scope": "claude-code",
+          "breaking": false
+        },
+        {
+          "it": "la coda di un turno il cui figlio esce mentre siamo staccati arriva",
+          "en": "",
+          "scope": "claude-code",
+          "breaking": false
+        },
+        {
+          "it": "la fase 2 della riadozione non ripiega i frame dal vivo arrivati prima del suo replay",
+          "en": "",
+          "scope": "claude-code",
+          "breaking": false
+        },
+        {
+          "it": "una piega non mostra più il corpo aperto per un fotogramma quando parte",
+          "en": "",
+          "scope": "chat",
+          "breaking": false
+        },
+        {
+          "it": "dopo una riadozione fallita il prossimo riattacco parte dalla fine dello store",
+          "en": "",
+          "scope": "claude-code",
+          "breaking": false
+        },
+        {
+          "it": "CI-only reds of #259",
+          "en": "",
+          "scope": "views",
+          "breaking": false
+        },
+        {
+          "it": "un invio che arriva mentre la coda di un figlio uscito è in viaggio la aspetta",
+          "en": "",
+          "scope": "claude-code",
+          "breaking": false
+        },
+        {
+          "it": "una piega ripremuta mentre si muove torna indietro da dov'è",
+          "en": "",
+          "scope": "chat",
+          "breaking": false
+        },
+        {
+          "it": "l'invio aspetta la coda solo quando ce n'è una in viaggio",
+          "en": "",
+          "scope": "claude-code",
+          "breaking": false
+        },
+        {
+          "it": "un motore fermato non apre più un turno",
+          "en": "",
+          "scope": "native",
+          "breaking": false
+        }
+      ],
+      "perf": [],
+      "internal": [
+        {
+          "it": "VERIFICA, T18 e il fix della sonda",
+          "en": "",
+          "scope": "openspec",
+          "breaking": false
+        },
+        {
+          "it": "brief T19, la coda del turno e la riadozione",
+          "en": "",
+          "scope": "openspec",
+          "breaking": false
+        },
+        {
+          "it": "TypedInput al posto di Keystroke, che il controllo dei nomi non conosce",
+          "en": "",
+          "scope": "chat",
+          "breaking": false
+        },
+        {
+          "it": "REPORT T19, la coda del turno e la riadozione sotto scrittura",
+          "en": "",
+          "scope": "openspec",
+          "breaking": false
+        }
+      ]
+    }
+  },
+  {
+    "version": "2.2.458",
+    "date": "2026-10-08",
+    "sections": {
+      "new": [],
+      "fixes": [
+        {
+          "it": "il log di una riga si apre sotto di lei, come suo contenuto",
+          "en": "",
+          "scope": "chat",
+          "breaking": false
+        },
+        {
+          "it": "il riaggancio delle sessioni vive parte con la connessione, chiunque la apra",
+          "en": "",
+          "scope": "ai-bridge",
+          "breaking": false
+        },
+        {
+          "it": "con il fuoco in una tab browser nativa gli spinner non si fermano piu'",
+          "en": "",
+          "scope": "anim",
+          "breaking": false
+        },
+        {
+          "it": "un soccorso che non puo' agire lo dice, con il motivo",
+          "en": "",
+          "scope": "stale-stream",
+          "breaking": false
+        },
+        {
+          "it": "con due proprietari della sessione risponde quello che ha il turno vivo",
+          "en": "",
+          "scope": "providers",
+          "breaking": false
+        },
+        {
+          "it": "i quattro cancelli statici che i commit T18 avevano fatto diventare rossi",
+          "en": "",
+          "scope": "gates",
+          "breaking": false
+        },
+        {
+          "it": "la citazione nello spec B3 in inglese, come vuole check:comment-language",
+          "en": "",
+          "scope": "gates",
+          "breaking": false
+        }
+      ],
+      "perf": [
+        {
+          "it": "lo stato «lista sopra le pagine» in un modulo suo, fuori dal bundle di avvio",
+          "en": "",
+          "scope": "browser",
+          "breaking": false
+        }
+      ],
+      "internal": [
+        {
+          "it": "answerAtCenter, non answerAtCentre: check:identifier-language non conosce la grafia britannica",
+          "en": "",
+          "scope": "browser",
+          "breaking": false
+        },
+        {
+          "it": "REPORT T17, bozza con B1-B3 e le tre risposte; barra del dopo in corso",
+          "en": "",
+          "scope": "openspec",
+          "breaking": false
+        },
+        {
+          "it": "REPORT di T15, le perdite d'ordine della suite",
+          "en": "",
+          "scope": "openspec",
+          "breaking": false
+        },
+        {
+          "it": "REPORT T17, il modulo frameCover e il bundle; barra del dopo in corso",
+          "en": "",
+          "scope": "openspec",
+          "breaking": false
+        },
+        {
+          "it": "VERIFICA, T15 e gli spinner fermi con il fuoco in una tab browser nativa",
+          "en": "",
+          "scope": "openspec",
+          "breaking": false
+        },
+        {
+          "it": "un turno aperto dal figlio da solo arriva anche dopo un distacco",
+          "en": "",
+          "scope": "claude-code",
+          "breaking": false
+        },
+        {
+          "it": "REPORT T17, barra del dopo e il rosso preesistente di system-notices",
+          "en": "",
+          "scope": "openspec",
+          "breaking": false
+        },
+        {
+          "it": "la spec della lista sopra la pagina di una tab browser gira anche in WebKit, il motore che esce",
+          "en": "",
+          "scope": "e2e",
+          "breaking": false
+        },
+        {
+          "it": "VERIFICA, T17",
+          "en": "",
+          "scope": "openspec",
+          "breaking": false
+        },
+        {
+          "it": "un socket del browser che cade a meta' turno torna al turno intero senza ricaricare",
+          "en": "",
+          "scope": "e2e",
+          "breaking": false
+        },
+        {
+          "it": "i .deb dei browser di Playwright da una cache, non dal mirror che si ferma",
+          "en": "",
+          "scope": "e2e",
+          "breaking": false
+        },
+        {
+          "it": "la cache dei .deb segue l'immagine del runner e non accumula versioni vecchie",
+          "en": "",
+          "scope": "e2e",
+          "breaking": false
+        },
+        {
+          "it": "REPORT T18, la chat in corso si riallinea da sola",
+          "en": "",
+          "scope": "openspec",
+          "breaking": false
+        },
+        {
+          "it": "REPORT T18, costo finale del sottoagente della barra",
+          "en": "",
+          "scope": "openspec",
+          "breaking": false
+        }
+      ]
+    }
+  },
+  {
+    "version": "2.2.457",
+    "date": "2026-10-08",
+    "sections": {
+      "new": [
+        {
+          "it": "la riga di un comando apre il suo log lì, ad accordion",
+          "en": "",
+          "scope": "chat",
+          "breaking": false
+        }
+      ],
+      "fixes": [
+        {
+          "it": "i processi esterni arrivati con main dentro le guardie di T5",
+          "en": "",
+          "scope": "server",
+          "breaking": false
+        },
+        {
+          "it": "cleanupTestDataDir rimette DATA_DIR, system-notices non legge il DB di born-seen",
+          "en": "",
+          "scope": "test",
+          "breaking": false
+        },
+        {
+          "it": "tool-result-clamp riparte dal fondo solo a riga aperta",
+          "en": "",
+          "scope": "test",
+          "breaking": false
+        },
+        {
+          "it": "su Windows uno smoke passato usciva 143 in pulizia",
+          "en": "",
+          "scope": "sidecar-smoke",
+          "breaking": false
+        },
+        {
+          "it": "il turno legge il Portachiavi senza fermare il loop",
+          "en": "",
+          "scope": "native-auth",
+          "breaking": false
+        },
+        {
+          "it": "la radice git della memoria non si chiede più a ogni turno",
+          "en": "",
+          "scope": "native-parity",
+          "breaking": false
+        },
+        {
+          "it": "projectSidebarHeights rimette i globali come li ha trovati, non lascia il localStorage finto",
+          "en": "",
+          "scope": "test",
+          "breaking": false
+        },
+        {
+          "it": "una scadenza di git non è «non è un repo»",
+          "en": "",
+          "scope": "native-parity",
+          "breaking": false
+        },
+        {
+          "it": "una chiave DOM rimessa a undefined è una perdita; la guardia del preload la conta",
+          "en": "",
+          "scope": "test",
+          "breaking": false
+        },
+        {
+          "it": "striscia senza tetto, e la presa di un toggle non perde il pin",
+          "en": "",
+          "scope": "chat",
+          "breaking": false
+        },
+        {
+          "it": "sul telefono la lista aperta non sta piu' sotto la pagina di una tab browser",
+          "en": "",
+          "scope": "browser",
+          "breaking": false
+        },
+        {
+          "it": "un riattacco non ripiega mai due volte lo stesso byte",
+          "en": "",
+          "scope": "claude-code",
+          "breaking": false
+        },
+        {
+          "it": "uno stream rimasto indietro si riallinea da solo in pochi secondi",
+          "en": "",
+          "scope": "claude-code",
+          "breaking": false
+        }
+      ],
+      "perf": [],
+      "internal": [
+        {
+          "it": "REPORT di T14, runBounded nei runner di git",
+          "en": "",
+          "scope": "openspec",
+          "breaking": false
+        },
+        {
+          "it": "cloud-quality-pass, traccia T15 per le perdite d'ordine della suite",
+          "en": "",
+          "scope": "openspec",
+          "breaking": false
+        },
+        {
+          "it": "una versione sola, 1.4.2 in .bun-version, per CI, release e produzione",
+          "en": "",
+          "scope": "bun",
+          "breaking": false
+        },
+        {
+          "it": "cloud-quality-pass, traccia T16 per un turno nativo senza spawn sincroni",
+          "en": "",
+          "scope": "openspec",
+          "breaking": false
+        },
+        {
+          "it": "il server compilato parte davvero su macOS, Windows e Linux",
+          "en": "",
+          "scope": "sidecar",
+          "breaking": false
+        },
+        {
+          "it": "VERIFICA, come la sessione madre ha controllato ogni consegna cloud",
+          "en": "",
+          "scope": "openspec",
+          "breaking": false
+        },
+        {
+          "it": "aggiorna durate shard dal nightly del 2026-10-08 [skip ci]",
+          "en": "",
+          "scope": "e2e",
+          "breaking": false
+        },
+        {
+          "it": "_comuni.md, Setup installa anche WebKit (RECAPTURE-01 era la VM)",
+          "en": "",
+          "scope": "openspec",
+          "breaking": false
+        },
+        {
+          "it": "il memo della radice git si prova dalla risposta, anche su Bun 1.3.8",
+          "en": "",
+          "scope": "native-parity",
+          "breaking": false
+        },
+        {
+          "it": "REPORT T16, turno nativo senza spawn sincroni (barra dopo in corso)",
+          "en": "",
+          "scope": "openspec",
+          "breaking": false
+        },
+        {
+          "it": "REPORT T16, barra dopo (gate 0, bundle 0, unit 1 rosso non della traccia)",
+          "en": "",
+          "scope": "openspec",
+          "breaking": false
+        },
+        {
+          "it": "VERIFICA, Bun unica, sidecar in CI e T16",
+          "en": "",
+          "scope": "openspec",
+          "breaking": false
+        },
+        {
+          "it": "REPORT T13, la chat ferma sopra il fondo in tool-result-clamp",
+          "en": "",
+          "scope": "openspec",
+          "breaking": false
+        },
+        {
+          "it": "REPORT T13, il ramo claude/ della sessione",
+          "en": "",
+          "scope": "openspec",
+          "breaking": false
+        },
+        {
+          "it": "il commento del ResizeObserver non promette piu' un secondo passaggio",
+          "en": "",
+          "scope": "chat",
+          "breaking": false
+        },
+        {
+          "it": "VERIFICA, T13",
+          "en": "",
+          "scope": "openspec",
+          "breaking": false
+        },
+        {
+          "it": "brief T17, il banner del bundle sotto l'iframe del browser sul telefono",
+          "en": "",
+          "scope": "openspec",
+          "breaking": false
+        },
+        {
+          "it": "brief T18, una chat in corso non resta indietro",
+          "en": "",
+          "scope": "openspec",
+          "breaking": false
+        },
+        {
+          "it": "la spec della lista sul telefono riapre la lista sopra una pagina gia' davanti",
+          "en": "",
+          "scope": "browser",
+          "breaking": false
+        }
+      ]
+    }
+  },
+  {
+    "version": "2.2.456",
+    "date": "2026-10-08",
+    "sections": {
+      "new": [
+        {
+          "it": "il log di run_command segue il file su cui il comando redirige lo stdout",
+          "en": "",
+          "scope": "processes",
+          "breaking": false
+        },
+        {
+          "it": "GET /api/topics/:id/live-work, ciò che lavora adesso per una chat",
+          "en": "",
+          "scope": "chat",
+          "breaking": false
+        },
+        {
+          "it": "il log vuoto dice cosa aspetta e da quando",
+          "en": "",
+          "scope": "processes",
+          "breaking": false
+        },
+        {
+          "it": "la striscia sotto la chat mostra ciò che lavora adesso",
+          "en": "",
+          "scope": "chat",
+          "breaking": false
+        },
+        {
+          "it": "la riga di un comando sa se la sua fine sveglia la chat",
+          "en": "",
+          "scope": "chat-live-work",
+          "breaking": false
+        },
+        {
+          "it": "un comando è una riga sola, nella striscia, con Ferma e la sveglia",
+          "en": "",
+          "scope": "chat",
+          "breaking": false
+        },
+        {
+          "it": "le strisce sono la fine del trascritto, e la riga di un comando apre la sua card",
+          "en": "",
+          "scope": "chat",
+          "breaking": false
+        }
+      ],
+      "fixes": [
+        {
+          "it": "hint fuori dal bottone Automatico, banda 44px su phone",
+          "en": "",
+          "scope": "model-selector",
+          "breaking": false
+        },
+        {
+          "it": "AC-21/AC-07 rivisti, la lista providers scorre nel pannello stretto",
+          "en": "",
+          "scope": "model-selector",
+          "breaking": false
+        },
+        {
+          "it": "commento in inglese per il gate",
+          "en": "",
+          "scope": "model-selector",
+          "breaking": false
+        },
+        {
+          "it": "rifare i ponti rimasti fuori dalla sessione grafica",
+          "en": "",
+          "scope": "terminal",
+          "breaking": false
+        },
+        {
+          "it": "il riquadro «Drop files here» si spegne quando il trascinamento finisce altrove",
+          "en": "",
+          "scope": "chat",
+          "breaking": false
+        },
+        {
+          "it": "l'avviso di fine comando senza i codici colore del terminale",
+          "en": "",
+          "scope": "processi",
+          "breaking": false
+        },
+        {
+          "it": "una cartella aperta nel pannello risponde 400, non con l'errore di Bun",
+          "en": "",
+          "scope": "media",
+          "breaking": false
+        },
+        {
+          "it": "la card di un comando finito senza i codici colore anche nelle righe gia' salvate",
+          "en": "",
+          "scope": "chat",
+          "breaking": false
+        },
+        {
+          "it": "la lingua scelta torna in fondo al contesto a ogni giro",
+          "en": "",
+          "scope": "native",
+          "breaking": false
+        },
+        {
+          "it": "i cancelli della lingua tornano verdi sui file della change",
+          "en": "",
+          "scope": "chat-live-work",
+          "breaking": false
+        },
+        {
+          "it": "fondere una card ne libera le tab come archiviarla",
+          "en": "",
+          "scope": "board",
+          "breaking": false
+        },
+        {
+          "it": "«archivia» sui sottotask parcheggiati ne libera le tab",
+          "en": "",
+          "scope": "board",
+          "breaking": false
+        },
+        {
+          "it": "la prova della home non si arrende con HOME=/root",
+          "en": "",
+          "scope": "security",
+          "breaking": false
+        },
+        {
+          "it": "reload-gate-migration dice di aver bisogno di sqlite3",
+          "en": "",
+          "scope": "test",
+          "breaking": false
+        },
+        {
+          "it": "tre test dicono quando l'ambiente non li permette (root, niente IPv6)",
+          "en": "",
+          "scope": "test",
+          "breaking": false
+        },
+        {
+          "it": "i server spawnati dai test si legano a 127.0.0.1 dove manca IPv6",
+          "en": "",
+          "scope": "test",
+          "breaking": false
+        },
+        {
+          "it": "il titolo della scheda resta `<MorphText text={task.text} />`",
+          "en": "",
+          "scope": "board",
+          "breaking": false
+        },
+        {
+          "it": "il server di prova si lega a 127.0.0.1 dove manca IPv6",
+          "en": "",
+          "scope": "e2e",
+          "breaking": false
+        },
+        {
+          "it": "la prima pagina non antepone righe sopra la copia locale",
+          "en": "",
+          "scope": "chat",
+          "breaking": false
+        },
+        {
+          "it": "il cancello di ricarica dice quando e' spento; due test non scambiano la VM per un difetto",
+          "en": "",
+          "scope": "gate",
+          "breaking": false
+        },
+        {
+          "it": "ogni processo esterno del percorso di una richiesta ha una scadenza vera",
+          "en": "",
+          "scope": "server",
+          "breaking": false
+        },
+        {
+          "it": "ai-bridge-loop-freeze non vive del DATA_DIR di un altro file",
+          "en": "",
+          "scope": "test",
+          "breaking": false
+        },
+        {
+          "it": "un figlio ucciso e non raccolto non e' vivo (shell-sweep)",
+          "en": "",
+          "scope": "test",
+          "breaking": false
+        },
+        {
+          "it": "la scadenza manda SIGTERM al gruppo, poi SIGKILL dopo una grazia",
+          "en": "",
+          "scope": "spawn",
+          "breaking": false
+        },
+        {
+          "it": "la scadenza limita la RISPOSTA, non il figlio diretto",
+          "en": "",
+          "scope": "spawn",
+          "breaking": false
+        },
+        {
+          "it": "all'arresto il server chiude i gruppi che ha lanciato",
+          "en": "",
+          "scope": "spawn",
+          "breaking": false
+        },
+        {
+          "it": "cp -r e push di publish hanno la scadenza lunga; un cp scaduto non lascia mezza copia",
+          "en": "",
+          "scope": "server",
+          "breaking": false
+        },
+        {
+          "it": "un git scaduto non e' \"verificato fuori\"",
+          "en": "",
+          "scope": "own-commits",
+          "breaking": false
+        },
+        {
+          "it": "il Cancello 2 fallisce chiuso se git non risponde",
+          "en": "",
+          "scope": "worktree-slim",
+          "breaking": false
+        },
+        {
+          "it": "un blob troncato dalla scadenza non finisce come risposta completa",
+          "en": "",
+          "scope": "task-diff-file",
+          "breaking": false
+        },
+        {
+          "it": "un'immagine di un messaggio ha il suo riquadro prima di caricarsi",
+          "en": "",
+          "scope": "chat",
+          "breaking": false
+        },
+        {
+          "it": "una riga che cresce in fondo, fuori dallo streaming, resta in fondo nello stesso layout",
+          "en": "",
+          "scope": "chat",
+          "breaking": false
+        },
+        {
+          "it": "nomi e un commento del riquadro delle immagini in inglese",
+          "en": "",
+          "scope": "chat",
+          "breaking": false
+        },
+        {
+          "it": "nomi inglesi in settledRects (cancello identifier-language)",
+          "en": "",
+          "scope": "board",
+          "breaking": false
+        },
+        {
+          "it": "Card.tsx torna sotto il tetto di check:bloat",
+          "en": "",
+          "scope": "board",
+          "breaking": false
+        },
+        {
+          "it": "i tipi delle dimensioni delle immagini stanno in shared/, una volta sola",
+          "en": "",
+          "scope": "chat",
+          "breaking": false
+        },
+        {
+          "it": "l'età della card avanza da sola, con un orologio al minuto per documento",
+          "en": "",
+          "scope": "board",
+          "breaking": false
+        },
+        {
+          "it": "le righe larghe del feed prendono i nomi da chi scrive la SELECT",
+          "en": "",
+          "scope": "board",
+          "breaking": false
+        },
+        {
+          "it": "il log dal vivo nella card di un comando senza codici colore",
+          "en": "",
+          "scope": "chat",
+          "breaking": false
+        },
+        {
+          "it": "il log dal vivo nella card segue l'ultima riga",
+          "en": "",
+          "scope": "chat",
+          "breaking": false
+        },
+        {
+          "it": "il sipario non aspetta un'immagine che ha gia' il suo riquadro",
+          "en": "",
+          "scope": "chat",
+          "breaking": false
+        },
+        {
+          "it": "la bolla di chi allega un'immagine ha il riquadro prima dei byte",
+          "en": "",
+          "scope": "chat",
+          "breaking": false
+        },
+        {
+          "it": "l'età della card segue l'ultimo `updatedAt` anche quando il testo non cambia",
+          "en": "",
+          "scope": "board",
+          "breaking": false
+        },
+        {
+          "it": "la proiezione della lista rientra nel tetto di check:bloat",
+          "en": "",
+          "scope": "board",
+          "breaking": false
+        },
+        {
+          "it": "niente generici nelle righe del composer, check:ui-language torna verde",
+          "en": "",
+          "scope": "chat",
+          "breaking": false
+        },
+        {
+          "it": "board-card-choices tiene fermo il reconcile del dispatcher per tutta la scena",
+          "en": "",
+          "scope": "e2e",
+          "breaking": false
+        },
+        {
+          "it": "chat-streaming-indicator manda gli stati del lavoro in background nell'ordine in cui li mette",
+          "en": "",
+          "scope": "e2e",
+          "breaking": false
+        },
+        {
+          "it": "via useEndedSubAgents, export morto dopo le strisce in fondo al trascritto",
+          "en": "",
+          "scope": "gates",
+          "breaking": false
+        },
+        {
+          "it": "import statici di pty-bridge-platform.mjs annotati runtime-dep-ok",
+          "en": "",
+          "scope": "gates",
+          "breaking": false
+        },
+        {
+          "it": "il manifest delle migration porta l'SQL come stringhe, giusto anche su Bun 1.3.8",
+          "en": "",
+          "scope": "db",
+          "breaking": false
+        },
+        {
+          "it": "un ospite riceve message:new senza le dimensioni delle immagini",
+          "en": "",
+          "scope": "ws",
+          "breaking": false
+        },
+        {
+          "it": "la fascia di atterraggio sulla riga, non come scroll-padding dello scroller",
+          "en": "",
+          "scope": "chat",
+          "breaking": false
+        },
+        {
+          "it": "lo smoke del sidecar aspetta il log e l'uscita del binario",
+          "en": "",
+          "scope": "scripts",
+          "breaking": false
+        },
+        {
+          "it": "l'SQL del manifest in base64, fuori dagli scanner dei sorgenti",
+          "en": "",
+          "scope": "db",
+          "breaking": false
+        },
+        {
+          "it": "il filtro di D2 sta nel tetto di check:bloat di server/utils.ts",
+          "en": "",
+          "scope": "ws",
+          "breaking": false
+        },
+        {
+          "it": "niente nome utente nel commento di claude-session-tracker.test.ts",
+          "en": "",
+          "scope": "test",
+          "breaking": false
+        },
+        {
+          "it": "runBounded dice perché un processo non è partito e tiene il 137 di un segnale",
+          "en": "",
+          "scope": "spawn",
+          "breaking": false
+        },
+        {
+          "it": "il test dei contratti dei runner crea il repo con l'env isolato",
+          "en": "",
+          "scope": "test",
+          "breaking": false
+        }
+      ],
+      "perf": [
+        {
+          "it": "un frame che non sposta card non ridisegna App",
+          "en": "",
+          "scope": "board",
+          "breaking": false
+        },
+        {
+          "it": "la board di progetto tiene le righe che non cambiano",
+          "en": "",
+          "scope": "board",
+          "breaking": false
+        },
+        {
+          "it": "la scheda mostra il titolo della card al primo frame",
+          "en": "",
+          "scope": "board",
+          "breaking": false
+        },
+        {
+          "it": "l'indice topic → task non ridisegna App a ogni frame",
+          "en": "",
+          "scope": "board",
+          "breaking": false
+        },
+        {
+          "it": "le card non si ridisegnano tutte a ogni `task:updated`",
+          "en": "",
+          "scope": "board",
+          "breaking": false
+        },
+        {
+          "it": "il log della striscia si carica quando lo si apre",
+          "en": "",
+          "scope": "chat",
+          "breaking": false
+        },
+        {
+          "it": "typecheck e lint eseguono i loro pezzi insieme",
+          "en": "",
+          "scope": "gates",
+          "breaking": false
+        },
+        {
+          "it": "tipi, lint e cancelli statici in tre corsie",
+          "en": "",
+          "scope": "qa-gate",
+          "breaking": false
+        },
+        {
+          "it": "una topic gia' visitata si apre dalla copia locale, senza aspettare il server",
+          "en": "",
+          "scope": "chat",
+          "breaking": false
+        },
+        {
+          "it": "messages e history con tetto scelgono la finestra su uno scheletro del filo",
+          "en": "",
+          "scope": "history",
+          "breaking": false
+        },
+        {
+          "it": "le shard di default sono una per core, da due a quattro",
+          "en": "",
+          "scope": "test-unit",
+          "breaking": false
+        },
+        {
+          "it": "web-push si carica alla prima consegna, non al boot",
+          "en": "",
+          "scope": "server",
+          "breaking": false
+        },
+        {
+          "it": "@xterm/headless si carica alla prima lettura dello schermo",
+          "en": "",
+          "scope": "server",
+          "breaking": false
+        },
+        {
+          "it": "il manifest delle migration embedded si carica solo nel sidecar",
+          "en": "",
+          "scope": "server",
+          "breaking": false
+        },
+        {
+          "it": "l'SDK Anthropic si carica alla prima richiesta del provider claude",
+          "en": "",
+          "scope": "server",
+          "breaking": false
+        },
+        {
+          "it": "l'anteprima della card si taglia senza un array per carattere",
+          "en": "",
+          "scope": "board",
+          "breaking": false
+        },
+        {
+          "it": "durante il drag la card ridisegna solo il guscio ordinabile",
+          "en": "",
+          "scope": "board",
+          "breaking": false
+        },
+        {
+          "it": "le righe della lista si leggono come array, non come oggetti larghi",
+          "en": "",
+          "scope": "board",
+          "breaking": false
+        },
+        {
+          "it": "durante il drag la colonna ridisegna solo il guscio droppable",
+          "en": "",
+          "scope": "board",
+          "breaking": false
+        },
+        {
+          "it": "la collisione del drag legge i rettangoli una volta per scroll",
+          "en": "",
+          "scope": "board",
+          "breaking": false
+        },
+        {
+          "it": "la card è il contenitore della sua brina, anche senza freeze",
+          "en": "",
+          "scope": "board",
+          "breaking": false
+        },
+        {
+          "it": "il vicino che il varco non sposta non riceve un transform",
+          "en": "",
+          "scope": "board",
+          "breaking": false
+        },
+        {
+          "it": "il feed globale non porta i campi che nessun client legge",
+          "en": "",
+          "scope": "board",
+          "breaking": false
+        },
+        {
+          "it": "la vivezza dei pid senza ps sincrono, un giro solo per tutti",
+          "en": "",
+          "scope": "processes",
+          "breaking": false
+        },
+        {
+          "it": "/api/git/branches con un solo git, non uno per ramo",
+          "en": "",
+          "scope": "files",
+          "breaking": false
+        },
+        {
+          "it": "getconf una volta per processo, non a ogni tentativo",
+          "en": "",
+          "scope": "discord",
+          "breaking": false
+        }
+      ],
+      "internal": [
+        {
+          "it": "aggiorna durate shard dal nightly del 2026-10-07 [skip ci]",
+          "en": "",
+          "scope": "e2e",
+          "breaking": false
+        },
+        {
+          "it": "The native runtime gets Claude Code's memory: the MEMORY.md index and the per-prompt recall",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "chat-live-work, la striscia della chat mostra cio' che lavora adesso",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "change cloud-quality-pass, sette tracce per le sessioni cloud",
+          "en": "",
+          "scope": "openspec",
+          "breaking": false
+        },
+        {
+          "it": "chat-live-work, i tre scenari filmati su WebKit",
+          "en": "",
+          "scope": "e2e",
+          "breaking": false
+        },
+        {
+          "it": "linea di partenza del pilota T0 e tracce aggiornate",
+          "en": "",
+          "scope": "openspec",
+          "breaking": false
+        },
+        {
+          "it": "banco dei render per frame `task:updated`",
+          "en": "",
+          "scope": "board",
+          "breaking": false
+        },
+        {
+          "it": "bloat: chat.ts registrato a 4301 righe, con le cinque corsie che l'hanno fatto crescere",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "il banco del drag misura anche il tempo di main thread",
+          "en": "",
+          "scope": "board",
+          "breaking": false
+        },
+        {
+          "it": "il flusso Task in una sola ripresa, e il banco dei render a notte",
+          "en": "",
+          "scope": "board",
+          "breaking": false
+        },
+        {
+          "it": "il banco dei render chiude la finestra a condizione",
+          "en": "",
+          "scope": "board",
+          "breaking": false
+        },
+        {
+          "it": "nomi inglesi nella spec del flusso Task",
+          "en": "",
+          "scope": "board",
+          "breaking": false
+        },
+        {
+          "it": "gli id disegnati si leggono da `idsKey`",
+          "en": "",
+          "scope": "board",
+          "breaking": false
+        },
+        {
+          "it": "REPORT della traccia server (percorso caldo)",
+          "en": "",
+          "scope": "T5",
+          "breaking": false
+        },
+        {
+          "it": "cloud-quality-pass, commenti in inglese come vuole il repo",
+          "en": "",
+          "scope": "openspec",
+          "breaking": false
+        },
+        {
+          "it": "REPORT della traccia T1",
+          "en": "",
+          "scope": "cloud-quality-pass",
+          "breaking": false
+        },
+        {
+          "it": "le corsie restano sicure, e un cancello misurato si riferisce sempre",
+          "en": "",
+          "scope": "qa-gate",
+          "breaking": false
+        },
+        {
+          "it": "baseline senza il percorso home del runner CI",
+          "en": "",
+          "scope": "openspec",
+          "breaking": false
+        },
+        {
+          "it": "GIT-DEADLINE-01 con SIGTERM + grazia, risposta completa, arresto e copie",
+          "en": "",
+          "scope": "spec",
+          "breaking": false
+        },
+        {
+          "it": "Revert \"perf(board): la board di progetto tiene le righe che non cambiano\"",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "REPORT con le correzioni del revisore",
+          "en": "",
+          "scope": "T5",
+          "breaking": false
+        },
+        {
+          "it": "la ricerca ha un solo timer, quello di spawnBounded",
+          "en": "",
+          "scope": "files",
+          "breaking": false
+        },
+        {
+          "it": "la finestra dei messaggi riusa restoreToolCallsFromBlocks di utils",
+          "en": "",
+          "scope": "topics",
+          "breaking": false
+        },
+        {
+          "it": "la scansione legge le opzioni della chiamata, non le parole intorno",
+          "en": "",
+          "scope": "spawn-scan",
+          "breaking": false
+        },
+        {
+          "it": "REPORT con il secondo giro di revisione",
+          "en": "",
+          "scope": "T5",
+          "breaking": false
+        },
+        {
+          "it": "REPORT di T3 (avvio e bundle)",
+          "en": "",
+          "scope": "openspec",
+          "breaking": false
+        },
+        {
+          "it": "la card coi tentativi finiti può essere già parcheggiata",
+          "en": "",
+          "scope": "board",
+          "breaking": false
+        },
+        {
+          "it": "REPORT della traccia T2",
+          "en": "",
+          "scope": "cloud-quality-pass",
+          "breaking": false
+        },
+        {
+          "it": "cloud-quality-pass, verifica V2 di T2 e regole comuni",
+          "en": "",
+          "scope": "openspec",
+          "breaking": false
+        },
+        {
+          "it": "cloud-quality-pass, tracce T7-T10 sulla base integrata",
+          "en": "",
+          "scope": "openspec",
+          "breaking": false
+        },
+        {
+          "it": "i git di bounded-spawn.test passano l'ambiente isolato",
+          "en": "",
+          "scope": "server",
+          "breaking": false
+        },
+        {
+          "it": "REPORT T6, i 44 cancelli e i numeri della barra",
+          "en": "",
+          "scope": "cloud-quality-pass",
+          "breaking": false
+        },
+        {
+          "it": "l'età di una card ferma resta indietro dopo T2 (rosso voluto)",
+          "en": "",
+          "scope": "board",
+          "breaking": false
+        },
+        {
+          "it": "i campi propri della card seguono il loro frame, prima e dopo T2",
+          "en": "",
+          "scope": "board",
+          "breaking": false
+        },
+        {
+          "it": "banco dei render per mossa durante il drag",
+          "en": "",
+          "scope": "board",
+          "breaking": false
+        },
+        {
+          "it": "l'indice topic → task segue la vita del topic, prima e dopo T2",
+          "en": "",
+          "scope": "board",
+          "breaking": false
+        },
+        {
+          "it": "REPORT della verifica V2 di T2",
+          "en": "",
+          "scope": "cloud-quality-pass",
+          "breaking": false
+        },
+        {
+          "it": "cloud-quality-pass, traccia T2b per il difetto D1 di V2",
+          "en": "",
+          "scope": "openspec",
+          "breaking": false
+        },
+        {
+          "it": "REPORT di T10, il feed della board",
+          "en": "",
+          "scope": "openspec",
+          "breaking": false
+        },
+        {
+          "it": "l'età della card ferma deve avanzare col tempo, con e senza frame",
+          "en": "",
+          "scope": "board",
+          "breaking": false
+        },
+        {
+          "it": "traccia T10b, il feed giusto anche su Bun 1.3.8",
+          "en": "",
+          "scope": "openspec",
+          "breaking": false
+        },
+        {
+          "it": "gli hash del REPORT di T2 puntano ai commit del ramo",
+          "en": "",
+          "scope": "cloud-quality-pass",
+          "breaking": false
+        },
+        {
+          "it": "le strisce in fondo al trascritto, la riga apre la sua card",
+          "en": "",
+          "scope": "chat-strips-in-transcript",
+          "breaking": false
+        },
+        {
+          "it": "REPORT T7, immagini con il loro riquadro",
+          "en": "",
+          "scope": "openspec",
+          "breaking": false
+        },
+        {
+          "it": "la fixture d'arresto mette l'handler di SIGTERM prima di stampare il pid",
+          "en": "",
+          "scope": "server",
+          "breaking": false
+        },
+        {
+          "it": "il contratto del reflow trascina sopra un vicino che si sposta davvero",
+          "en": "",
+          "scope": "board",
+          "breaking": false
+        },
+        {
+          "it": "REPORT T9, il loop del server senza spawn sincroni",
+          "en": "",
+          "scope": "openspec",
+          "breaking": false
+        },
+        {
+          "it": "traccia T7b, il sipario non aspetta un'immagine che ha gia' il riquadro",
+          "en": "",
+          "scope": "openspec",
+          "breaking": false
+        },
+        {
+          "it": "regole comuni, il codice server si prova anche su Bun 1.3.8",
+          "en": "",
+          "scope": "openspec",
+          "breaking": false
+        },
+        {
+          "it": "REPORT T7, barra finale e il flaky preesistente",
+          "en": "",
+          "scope": "openspec",
+          "breaking": false
+        },
+        {
+          "it": "CHAT-MEDIA-BOX-01, il sipario e la bolla di chi allega",
+          "en": "",
+          "scope": "openspec",
+          "breaking": false
+        },
+        {
+          "it": "REPORT di T2b, l'età della card avanza da sola",
+          "en": "",
+          "scope": "cloud-quality-pass",
+          "breaking": false
+        },
+        {
+          "it": "REPORT di T2b, costo vero del sottoagente Haiku",
+          "en": "",
+          "scope": "cloud-quality-pass",
+          "breaking": false
+        },
+        {
+          "it": "REPORT T7b, bozza (barra finale in corso)",
+          "en": "",
+          "scope": "openspec",
+          "breaking": false
+        },
+        {
+          "it": "due aggiornamenti nello stesso «ora», poi lo scatto: l'età conta dal secondo",
+          "en": "",
+          "scope": "board",
+          "breaking": false
+        },
+        {
+          "it": "REPORT T8, drag della board",
+          "en": "",
+          "scope": "openspec",
+          "breaking": false
+        },
+        {
+          "it": "REPORT di T2b con il difetto D2, il fix e i numeri nuovi",
+          "en": "",
+          "scope": "cloud-quality-pass",
+          "breaking": false
+        },
+        {
+          "it": "REPORT T7b, barra finale e consegna",
+          "en": "",
+          "scope": "openspec",
+          "breaking": false
+        },
+        {
+          "it": "REPORT di T10b, il feed giusto anche su Bun 1.3.8",
+          "en": "",
+          "scope": "openspec",
+          "breaking": false
+        },
+        {
+          "it": "cloud-quality-pass, traccia T11 per i test instabili ricorrenti",
+          "en": "",
+          "scope": "openspec",
+          "breaking": false
+        },
+        {
+          "it": "commenti in inglese, nomi interi e @covers, i tre controlli di nuovo verdi",
+          "en": "",
+          "scope": "gates",
+          "breaking": false
+        },
+        {
+          "it": "REPORT di T11, i test instabili ricorrenti",
+          "en": "",
+          "scope": "openspec",
+          "breaking": false
+        },
+        {
+          "it": "due test rossi che provano i difetti dell'integrazione",
+          "en": "",
+          "scope": "v3",
+          "breaking": false
+        },
+        {
+          "it": "cloud-quality-pass, traccia T12 per i difetti D1 e D2 di V3",
+          "en": "",
+          "scope": "openspec",
+          "breaking": false
+        },
+        {
+          "it": "la base si legge a vista ferma, e il lettore sta a meta' storia",
+          "en": "",
+          "scope": "chat-strips",
+          "breaking": false
+        },
+        {
+          "it": "il lettore sale un colpo alla volta, finche' non e' sopra i 600 px",
+          "en": "",
+          "scope": "chat-strips",
+          "breaking": false
+        },
+        {
+          "it": "REPORT di T12, i difetti D1 e D2 di V3 e il sospetto della chat",
+          "en": "",
+          "scope": "openspec",
+          "breaking": false
+        },
+        {
+          "it": "REPORT di T12, dove sono le prove",
+          "en": "",
+          "scope": "openspec",
+          "breaking": false
+        },
+        {
+          "it": "cloud-quality-pass, traccia T13 per la chat che in CI non si ferma in fondo",
+          "en": "",
+          "scope": "openspec",
+          "breaking": false
+        },
+        {
+          "it": "cloud-quality-pass, traccia T14 per adottare runBounded nei wrapper di git",
+          "en": "",
+          "scope": "openspec",
+          "breaking": false
+        },
+        {
+          "it": "fissa gli esiti dei runner di git prima che passino a runBounded",
+          "en": "",
+          "scope": "server",
+          "breaking": false
+        },
+        {
+          "it": "defaultRunGit lancia git con runBounded",
+          "en": "",
+          "scope": "own-commits",
+          "breaking": false
+        },
+        {
+          "it": "defaultRunGit e runRepoScript lanciano con runBounded",
+          "en": "",
+          "scope": "task-automerge",
+          "breaking": false
+        },
+        {
+          "it": "il runner di default lancia git con runBounded",
+          "en": "",
+          "scope": "branch-inventory",
+          "breaking": false
+        },
+        {
+          "it": "gitExit, gitOut e commitIsAncestor lanciano con runBounded",
+          "en": "",
+          "scope": "branch-status",
+          "breaking": false
+        },
+        {
+          "it": "runGitCap e il deploy confermato lanciano con runBounded",
+          "en": "",
+          "scope": "routes/tasks",
+          "breaking": false
+        }
+      ]
+    }
+  },
+  {
+    "version": "2.2.455",
+    "date": "2026-10-06",
+    "sections": {
+      "new": [
+        {
+          "it": "one vertical list instead of side-by-side columns",
+          "en": "",
+          "scope": "model-selector",
+          "breaking": false
+        }
+      ],
+      "fixes": [
+        {
+          "it": "one-line band and hidden hint on desktop compact",
+          "en": "",
+          "scope": "model-selector",
+          "breaking": false
+        }
+      ],
+      "perf": [],
+      "internal": []
+    }
+  },
+  {
+    "version": "2.2.454",
+    "date": "2026-10-06",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Applica il feedback mobile-chrome: reveal-on-scroll, foglio a due piani, Cerca nel design system, attesa viva, matita",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Aggiungi requisiti MOBILE-CHROME-07..12 e spec e2e del feedback mobile-chrome",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Registra la matita nel rail dei menu right-click",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Traduci commenti e nomi in inglese nel feedback mobile-chrome",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Ripara le 4 mobili rotte dal foglio a due piani e dall'header overlay (A1)",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
+    "version": "2.2.453",
+    "date": "2026-10-06",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Accetta advisory sharp/librsvg CVE-2026-96889 in baseline",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "newtab-arc: aggiungi classifica e modello sezioni puri con unit test",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "newtab-arc: estrai la riga suggerimento condivisa con la tab sheet",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "newtab-arc: campo con focus, suggerimenti e nota nella scheda nuova",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "newtab-arc: requisiti NEWTAB-ARC-01..04 e spec e2e",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Sistema lingua: NEW_TAB_* inglesi, fixture example.it nella spec",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Inoltra Esc dalla new-tab alla sheet, exit ghost, guardia document",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Alza i monogrammi favicon al minimo di leggibilita 11px",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
+    "version": "2.2.452",
+    "date": "2026-10-06",
+    "sections": {
+      "new": [
+        {
+          "it": "Muse di primo livello in Topics (chat, task, settings, PTY)",
+          "en": "",
+          "scope": "providers",
+          "breaking": false
+        }
+      ],
+      "fixes": [
+        {
+          "it": "registra scripts/smoke-muse-provider.ts come entry",
+          "en": "",
+          "scope": "knip",
+          "breaking": false
+        },
+        {
+          "it": "nomi inglesi per il gate + warn quando manca il login",
+          "en": "",
+          "scope": "muse",
+          "breaking": false
+        },
+        {
+          "it": "isola XDG_CONFIG_HOME/XDG_DATA_HOME nel banco di test",
+          "en": "",
+          "scope": "e2e",
+          "breaking": false
+        },
+        {
+          "it": "commento XDG in inglese per il gate",
+          "en": "",
+          "scope": "i18n",
+          "breaking": false
+        }
+      ],
+      "perf": [],
+      "internal": [
+        {
+          "it": "aggiorna durate shard dal nightly del 2026-10-06 [skip ci]",
+          "en": "",
+          "scope": "e2e",
+          "breaking": false
+        },
+        {
+          "it": "archivia change muse-provider, promuove specs/muse",
+          "en": "",
+          "scope": "openspec",
+          "breaking": false
+        }
+      ]
+    }
+  },
+  {
+    "version": "2.2.451",
+    "date": "2026-10-06",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "La board sul telefono: barra che non scorre, ricerca e controlli a 44 col dito, spazio misurato sotto l'ultima card, chip leggibili nel tema chiaro",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Commenti e nomi in inglese, la misura sotto l'ultima card scritta sulla riga senza ridisegnare la board",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Sostituisci sleep fissi con attese a condizione nella spec board-mobile",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
+    "version": "2.2.449",
+    "date": "2026-10-06",
+    "sections": {
+      "new": [],
+      "fixes": [
+        {
+          "it": "main verde dopo push 37bd4f42e",
+          "en": "",
+          "scope": "ci",
+          "breaking": false
+        },
+        {
+          "it": "usa testid tab-sheet dopo rename tab-menu",
+          "en": "",
+          "scope": "e2e",
+          "breaking": false
+        },
+        {
+          "it": "@covers PROMPT-02 (sblocca gates PR)",
+          "en": "",
+          "scope": "ci",
+          "breaking": false
+        }
+      ],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Registra la crescita di claude-session-tracker.ts nella tornata di #234 e #236",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "L'istantanea del server e il layout iniziale non riaprono le chat dei sotto-agenti",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Sotto-agenti piegati e muti finché la persona non li apre: accordion chiuso sotto la chat padre, niente notifiche dai figli alla fonte",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Un sotto-agente che ha finito il turno si archivia da solo, salvo che la persona l'abbia aperto",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "aggiorna durate shard dal nightly del 2026-10-05 [skip ci]",
+          "en": "",
+          "scope": "e2e",
+          "breaking": false
+        },
+        {
+          "it": "ignora output/ di build, aggiunge openspec/config.yaml",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "accetta 7 advisory in baseline 2026-10-06",
+          "en": "",
+          "scope": "security",
+          "breaking": false
+        },
+        {
+          "it": "Fai girare spawn_agent sul motore di Topics come chat figlia, la CLI solo su richiesta",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Traduci in inglese i commenti nuovi dei sotto-agenti nativi",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Togli il re-export inutilizzato di MAX_AGENT_DEPTH dal runtime dei sotto-agenti",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il test dello spawn nativo aspetta il primo turno invece di correre contro la route asincrona",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Registra nella baseline di check:bloat la crescita dei tre file del motore nativo toccati dai sotto-agenti",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Gli e2e SUBSTRIP-01c ed 01e confermano il dialogo SUBAGENT-20 prima di chiudere un sotto-agente vivo",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "I sotto-agenti nativi non perdono più risultati: migrazione, profondità 2 e riavvio",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Un sotto-agente messo davanti in una finestra sveglia conta come aperto, e resta scritto nella sua riga",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "L'intestazione chiusa dei sotto-agenti mostra un punto ambra quando uno di loro aspetta la persona",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "La proposta subagent-nativi non è più una bozza e porta la migrazione dentro lo scope",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Nomi in inglese per check:identifier-language, @covers sui due test nuovi e spec allineata alla review",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Riaprire una chat passa da reopenTopicFully: flag, segni in ui_state e fatto del ritiro insieme",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Un sotto-agente conta come aperto solo se la persona lo tiene davanti per la soglia del seen",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Un figlio nativo in mezzo all'albero si chiude, si ferma e si riprende senza esiti persi o falsi",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Nomi in inglese nel test dell'albero dei sotto-agenti (check:identifier-language)",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Un turno = un esito, un figlio fermato non si risveglia, niente lost falso al boot; lo Stop scende tutto l'albero",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "«Invia subito» ferma solo il turno del padre: i sotto-agenti continuano",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Un sotto-agente conta come aperto solo se la persona l'ha messo davanti: niente più regola del primo frame",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "argomenti di spawn condivisi in native-subagents, terminal.ts più magro, baseline riallineata",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "Sotto-agenti nativi: ogni turno ha un nome, un esito per turno, lo Stop marca l'albero prima di attendere",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "la scelta di un sotto-agente resta armata finché la persona non guarda altro",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "Spec subagent-nativi: nome del turno, un esito dello Stop, ripresa a mano, limite macOS 13.3",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Sotto-agenti nativi: un solo turno aperto per chat, chiuso da qualunque fine",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Modifica e rigenera rifiutate nella chat di un sotto-agente",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Spec subagent-nativi: turno aperto unico, esito dalla causa, spegnimento non è un esito",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Sotto-agenti nativi: solo il padre o una persona muovono la chat del figlio, un turno sospeso ha un solo esito",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Spec subagent-nativi: agenti fuori dalla chat del figlio, turno sospeso con un esito, tetto di giri come due esiti",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Test review 6: import dinamici destrutturati, native-subagents non e' piu' opaco per knip",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Sotto-agenti nativi: un turno esiste solo se la chat l'ha aperto",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Spec subagent-nativi: turno solo se aperto, niente comandi slash nella chat del figlio, rifiuto della ripresa come failed, Stop su turno sospeso",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
     "version": "2.2.448",
     "date": "2026-10-04",
     "sections": {
@@ -9,6 +2660,11 @@
       "internal": [
         {
           "it": "Pannello chiuso prima della sua riga: la riga nasce chiusa, non sul pannello",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Annida i sotto-agenti nativi sotto la chat padre nella sidebar, mai come chat a sé né come scheda",
           "en": "",
           "scope": null
         },
@@ -23,12 +2679,117 @@
           "scope": null
         },
         {
+          "it": "Un sotto-agente non apre una scheda: né quando nasce né al ripristino del layout",
+          "en": "",
+          "scope": null
+        },
+        {
           "it": "Cancella la card che git-rows-one-shape e chat-changed-files-task-range lasciano in review",
           "en": "",
           "scope": null
         },
         {
           "it": "Mostra le regole globali dell'hub nell'ispettore anche senza progetto",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Rendi asincroni tutti gli hook Topics tranne SessionEnd, e rimettili in ordine sul server",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Chiedi conferma prima di fermare un sotto-agente al lavoro avviato da un'altra sessione",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Lascia partire il trascinamento delle tab: il fuoco portato dalla pressione si toglie a fine gesto",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Togli data-pane-id dalle schede della finestrella del browser",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Fai chiudere all'Esc solo il foglio della tab, non il cassetto che c'e' sotto",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Apri l'elenco dei download dal foglio senza sfrattare il foglio",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Copia l'indirizzo del documento, non quello del trasporto",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Porta al foglio della tab le spec rimaste sul menu a tendina",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Cancella la card in review che git-rows-one-shape lasciava sulla board",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Apri il diff della chat dentro la striscia, con il pannello unico della board",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Prova su WebKit la striscia che apre il diff della chat e porta alla card",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Porta CHAT-CHANGES-01 e CHGSET-01..04 nella spec della chat e spunta tasks.md con le prove",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Chiudi il tool quando il PostToolUse arriva dopo il suo PreToolUse ma timbrato prima",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Mostra «in corso» un topic che aspetta il suo lavoro in background, e tieni a parte solo il server acceso",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Rileggi il diff della striscia a ogni apertura e a ogni fine turno",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Misura la striscia aperta nella guardia di usabilita' e porta a soglia i suoi bersagli",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Riconosci il chevron del progetto anche quando axe lo nomina per classi",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Chiudi il turno di un terminale che va a riposo senza Stop",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Passa l'identità git inline nei repo di prova della striscia: in CI non c'è una config globale",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Chiudi al caricamento le schede dei sotto-agenti che il layout salvato riapriva",
           "en": "",
           "scope": null
         }
@@ -44,7 +2805,42 @@
       "perf": [],
       "internal": [
         {
+          "it": "Apri il foglio della tab dal tasto destro, a due livelli",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Misura il foglio della tab nella guardia di usabilita'",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Un figlio nato sulla CLI, richiamato dopo lo stop, riparte sul motore di Topics col suo lavoro come contesto",
+          "en": "",
+          "scope": null
+        },
+        {
           "it": "Domanda arrivata prima della sua riga: il form si apre lo stesso nella finestra mittente",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Correggi il foglio della tab: indirizzo senza chrome, testata con un livello aperto, pressione dentro il foglio, Chiudi le altre sul telefono",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Copia l'indirizzo intero dal foglio della tab: a schermo resta abbreviato",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Chiudi la scheda di un sotto-agente finito nel progetto, e togli i figli ritirati dalla lista dei parcheggiati",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Registra l'approvazione di changeset-chat-strip (ok alle quattro scelte consigliate)",
           "en": "",
           "scope": null
         },
@@ -120,6 +2916,36 @@
           "scope": null
         },
         {
+          "it": "Registra il si' di Attilio alla change tab-menu-unico (04/10 19:05)",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Accendi indietro e avanti della pane in streaming solo se c'è una pagina dove andare",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Proponi i sotto-agenti sul motore di Topics (subagent-nativi, approvata)",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Registra runtime e chat del sotto-agente, profondita' massima 2",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Fai girare spawn_agent sul motore di Topics come chat figlia, la CLI solo su richiesta",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Manda le frecce della pane anche dalla pagina d'errore del server",
+          "en": "",
+          "scope": null
+        },
+        {
           "it": "Porta a text-mini l'etichetta della coda: #225 ha ritirato text-micro mentre #228 la usava",
           "en": "",
           "scope": null
@@ -146,6 +2972,11 @@
       "perf": [],
       "internal": [
         {
+          "it": "Metti la direttiva di lingua nel prompt di sistema del runtime nativo",
+          "en": "",
+          "scope": null
+        },
+        {
           "it": "Porta la coda viva anche nella storia e non dire «nessun output finora»",
           "en": "",
           "scope": null
@@ -157,6 +2988,16 @@
         },
         {
           "it": "Chiudi i tre buchi della guardia di usabilità",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Proponi tab-menu-unico: il tasto destro apre la tab espansa, a due livelli",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Escludi le tab dell'editor dal foglio e tieni il cancello di Chiudi",
           "en": "",
           "scope": null
         }
@@ -283,6 +3124,11 @@
         },
         {
           "it": "Motore nativo: mostra in coda la chiamata non partita, il comando mentre si scrive, rispetta il timeout della shell",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Non spingere il goal mentre un sottoagente lavora per la chat",
           "en": "",
           "scope": null
         }
@@ -462,6 +3308,16 @@
       "perf": [],
       "internal": [
         {
+          "it": "Fai seguire alla lingua auto la persona, non gli avvisi di Topics",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Apri come finestra vera i popup con dimensioni, così il login Google arriva alla pagina",
+          "en": "",
+          "scope": null
+        },
+        {
           "it": "Leggi lo stato di attenzione dal server in ogni superficie del client e apri «Da guardare» (3.1-3.8, 4.1-4.4)",
           "en": "",
           "scope": null
@@ -492,6 +3348,21 @@
           "scope": null
         },
         {
+          "it": "Mostra in chat i retry dell'API che fa la CLI",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Accetta il dialogo di fiducia della cartella prima di seminare un sottoagente",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Segui il transcript vero quando SessionStart dichiara un path che non esiste",
+          "en": "",
+          "scope": null
+        },
+        {
           "it": "Correggi quattro difetti visti dagli e2e delle notifiche: glifo grigio del terminale in attesa, fuoco della inbox, colonna dei tempi, «Attende: other»",
           "en": "",
           "scope": null
@@ -508,6 +3379,11 @@
         },
         {
           "it": "Rivedi il design dei pannelli del modello: un asse solo, l'azienda, a ogni livello",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Fai sopravvivere ai riavvii le chat sul motore interno, invece di rinviare il riavvio",
           "en": "",
           "scope": null
         },
@@ -1420,6 +4296,11 @@
           "scope": null
         },
         {
+          "it": "A test process can no longer write the live state through any module, not only createAppContext",
+          "en": "",
+          "scope": null
+        },
+        {
           "it": "Dichiara le righe di /resume una volta sola in shared e conta il nuovo frame della risposta di comando",
           "en": "",
           "scope": null
@@ -1600,6 +4481,16 @@
       "fixes": [],
       "perf": [],
       "internal": [
+        {
+          "it": "Topics reads the shared rules and skills from the ~/.agents hub, and its global memory is retired",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Archive the contesto-dall-hub change: shipped",
+          "en": "",
+          "scope": null
+        },
         {
           "it": "Fai passare la grazia del passaggio con l'orologio della pagina, non con un sonno",
           "en": "",
@@ -2371,6 +5262,11 @@
         },
         {
           "it": "Dai al cassetto di progetto del telefono l'entrata e l'uscita condivise",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "A project created by name is born next to the user's projects, not in the agent workspace",
           "en": "",
           "scope": null
         }

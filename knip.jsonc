@@ -97,6 +97,10 @@
         // server's roster warming window). Run by hand against its own server
         // instance, imported by nobody.
         "scripts/terminal-attach-latency.ts!",
+        // `bun run scripts/smoke-muse-provider.ts` - the BAR-5 live smoke of
+        // the Muse chat provider (two real meta turns, sid resume). Run by
+        // hand, imported by nobody, never in CI.
+        "scripts/smoke-muse-provider.ts!",
         // `bun run probe:gate-slots` - the control measure of the gate
         // semaphore: how many `bun test` runs are alive against how many slots
         // are declared. Run by hand while the board is busy, imported by

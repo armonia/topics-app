@@ -388,9 +388,12 @@ test.describe("Sidebar motion contract", () => {
       expect(duration.split(",").map((d) => parseFloat(d) * (d.trim().endsWith("ms") ? 1 : 1000)).every((ms) => ms <= 200), `the whole slide lasts no longer than the old 200ms (${duration})`).toBe(true);
     });
 
-    test("Add, then Chat, with the list showing: the drawer gets out of the way", async ({ page }) => {
+    test("Pencil, with the list showing: the drawer gets out of the way", async ({ page }) => {
       await openPhone(page);
-      await page.getByRole("button", { name: /^(Aggiungi|Add)$/ }).first().tap();
+      // The pencil (mobile-chrome-feedback A6): the tap IS the new chat, so
+      // there is no menu step any more — the drawer closes over the draft
+      // straight from the door, which is what this probe samples.
+      await page.getByTestId("pane-add-menu-trigger").tap();
       // Judged on the FIRST frame the drawer is off screen, sampled in the page:
       // that is the moment the user sees the draft and reaches for it. A poll
       // from the test lands on whichever frame it happens to hit, and the scrim
@@ -416,7 +419,8 @@ test.describe("Sidebar motion contract", () => {
         };
         requestAnimationFrame(tick);
       });
-      await page.getByTestId("pane-add-menu-new-chat").first().tap();
+      // No menu step: the pencil tap above already opened the draft (A6), the
+      // drawer is closing over it and the probe is sampling.
       const drawerGone = () => page.evaluate(() => (window as unknown as { __drawerGone: string | null }).__drawerGone);
       await expect.poll(drawerGone, { message: "the drawer closes over the new draft", timeout: 5_000 }).not.toBeNull();
       const underFinger = await drawerGone();

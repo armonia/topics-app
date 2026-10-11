@@ -6,7 +6,7 @@ import { resolveClaudeModel, resolveClaudeMaxTokens } from "../services/app-sett
  * Talks to the Anthropic API for streaming chat, HTTP SSE, and completions.
  */
 
-import Anthropic from "@anthropic-ai/sdk";
+import type Anthropic from "@anthropic-ai/sdk";
 import type { Tool } from "@anthropic-ai/sdk/resources/messages";
 import { applyPromptCache } from "./prompt-cache";
 import { normalizeAlternating } from "./normalize-history";
@@ -53,7 +53,15 @@ export class ClaudeProvider implements AIProvider {
   // `options.history`. See `server/context/adapt.ts`.
   readonly contextStrategy = "history-aware" as const;
 
-  private client: Anthropic | null = null;
+  /**
+   * Started (`start`/`updateConfig`) and not stopped. The real client is born
+   * on the first request (`requireClient`), not here: this provider is the
+   * default fallback and is created on every boot even without a key, and the
+   * static import of the SDK evaluated its 65 modules before `listen` (~10 ms
+   * measured in isolation) for a client that most installs never start.
+   */
+  private started = false;
+  private client: Promise<Anthropic> | null = null;
   private config: ClaudeProviderConfig;
   private activeAbortControllers = new Map<string, AbortController>();
   // runId -> sessionKey, so abort(sessionKey) without a runId can stop ONLY that
@@ -71,7 +79,8 @@ export class ClaudeProvider implements AIProvider {
 
   updateConfig(config: ClaudeProviderConfig): void {
     this.config = { ...config };
-    this.client = new Anthropic({ apiKey: config.apiKey });
+    this.started = true;
+    this.client = null;
   }
 
   get connected(): boolean {
@@ -81,13 +90,14 @@ export class ClaudeProvider implements AIProvider {
     // keep it as the default — every topic then dispatched to it and got a 401
     // ("No response received"). Require an actual key so an unconfigured claude
     // provider is honestly disconnected and the subscription-backed CLI wins.
-    return this.client !== null && Boolean(this.config.apiKey);
+    return this.started && Boolean(this.config.apiKey);
   }
 
   // --- Lifecycle ---
 
   start(): void {
-    this.client = new Anthropic({ apiKey: this.config.apiKey });
+    this.started = true;
+    this.client = null;
   }
 
   stop(): void {
@@ -97,6 +107,7 @@ export class ClaudeProvider implements AIProvider {
     }
     this.activeAbortControllers.clear();
     this.runIdToSessionKey.clear();
+    this.started = false;
     this.client = null;
   }
 
@@ -108,7 +119,7 @@ export class ClaudeProvider implements AIProvider {
     handler: StreamHandler,
     options?: { model?: string; history?: ChatMessage[]; tools?: Tool[] },
   ): Promise<{ runId?: string }> {
-    const client = this.requireClient();
+    const client = await this.requireClient();
     const runId = crypto.randomUUID();
     const abortController = new AbortController();
     this.activeAbortControllers.set(runId, abortController);
@@ -233,7 +244,7 @@ export class ClaudeProvider implements AIProvider {
     messages: ChatMessage[],
     options?: { sessionKey?: string; signal?: AbortSignal }
   ): Promise<Response> {
-    const client = this.requireClient();
+    const client = await this.requireClient();
     const model = this.defaultModel();
     const maxTokens = resolveClaudeMaxTokens() ?? this.config.maxTokens ?? DEFAULT_MAX_TOKENS;
 
@@ -308,7 +319,7 @@ export class ClaudeProvider implements AIProvider {
   // --- Non-streaming Completion ---
 
   async complete(messages: ChatMessage[]): Promise<CompletionResult> {
-    const client = this.requireClient();
+    const client = await this.requireClient();
     const model = this.defaultModel();
     const maxTokens = resolveClaudeMaxTokens() ?? this.config.maxTokens ?? DEFAULT_MAX_TOKENS;
 
@@ -442,9 +453,16 @@ export class ClaudeProvider implements AIProvider {
 
   // --- Internals ---
 
-  private requireClient(): Anthropic {
+  private requireClient(): Promise<Anthropic> {
+    if (!this.started) {
+      return Promise.reject(new Error("ClaudeProvider not started. Call start() first."));
+    }
     if (!this.client) {
-      throw new Error("ClaudeProvider not started. Call start() first.");
+      const { apiKey } = this.config;
+      this.client = (async () => {
+        const { default: Sdk } = await import("@anthropic-ai/sdk");
+        return new Sdk({ apiKey });
+      })();
     }
     return this.client;
   }

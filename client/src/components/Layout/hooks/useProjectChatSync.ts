@@ -225,6 +225,16 @@ export function useProjectChatSync(
       gateRefs.initialChatsSyncedRef.current = true;
       markChatSyncDone();
 
+      // The saved layout seeds its chat panes before this runs, sub-agent chats included
+      // (tabs saved before they lived in the sidebar): close those once, at load.
+      for (const p of curPanes) {
+        if (p.type === 'chat' && p.topicId && topics[p.topicId]?.subagentOf && !removeSet.has(p.id)) {
+          remove.push(p.id);
+          removeSet.add(p.id);
+          survivingChatTopicIds.delete(p.topicId);
+        }
+      }
+
       const persisted = initialRef.current;
       const openSet = new Set([...(persisted?.openChatTopicIds || []), ...deferredOpenRef.current]);
       deferredOpenRef.current = new Set();
@@ -234,7 +244,9 @@ export function useProjectChatSync(
       // useProjectLayout (now guarded) or onServerHydrate below.
       for (const tid of topicIds) {
         if (survivingChatTopicIds.has(tid)) continue;
-        if (openSet.has(tid)) {
+        // A sub-agent's chat lives nested under its parent in the sidebar, never as a tab:
+        // a tab persisted before that rule is not restored.
+        if (openSet.has(tid) && !topics[tid]?.subagentOf) {
           const topic = topics[tid];
           add.push({
             id: createPaneId('chat', tid),
@@ -283,6 +295,8 @@ export function useProjectChatSync(
         if (survivingChatTopicIds.has(tid)) continue;
         if (prevSet.has(tid)) continue; // not new — was here last time
         const topic = topics[tid];
+        // A sub-agent spawned by a chat is a new topic of the project too: it does not open a tab.
+        if (topic?.subagentOf) continue;
         add.push({
           id: createPaneId('chat', tid),
           type: 'chat' as PaneType,
@@ -428,6 +442,8 @@ export function useProjectChatSync(
           // it when the topics arrive. After it, the delta branch does.
           if (!ftopic && firstSyncPathRef.current !== projectPath) deferredOpenRef.current.add(tid);
           if (!ftopic || ftopic.archived || ftopic.projectPath !== projectPath) continue;
+          // A sub-agent lives in the sidebar under its parent: a saved snapshot never reopens it as a tab.
+          if (ftopic.subagentOf) continue;
           stubs.push({
             id: createPaneId('chat', tid),
             type: 'chat' as PaneType,

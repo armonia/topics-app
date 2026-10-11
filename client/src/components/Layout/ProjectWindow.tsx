@@ -12,6 +12,7 @@ import { ChatPane } from '../Chat/ChatPane';
 import {
   createPaneId,
   getTerminalSessionFromPaneId,
+  isTerminalPaneId,
   getBrowserContextFromPaneId,
   isTaskWorkspacePath,
   useClosedTabs,
@@ -25,9 +26,10 @@ import { useProjectPersistenceLoad } from './hooks/useProjectPersistenceLoad';
 import { useProjectLayout } from './hooks/useProjectLayout';
 import { useProjectChatSync } from './hooks/useProjectChatSync';
 import { useProjectPersistenceSave } from './hooks/useProjectPersistenceSave';
-import type { SendMessageOptions } from '@/hooks/useChat';
+import type { SendMessageOptions, StopSessionOptions } from '@/hooks/useChat';
 import { missionPrompt, type Mission } from '../../lib/missions';
 import { pickMissionSession } from '../../lib/missionTarget';
+import { useConfirmTerminalStop } from '../../lib/subagentStopGuard';
 
 // The tiles are `lazyWarm`, not `lazy`: their chunks are asked for at boot from
 // the project's local tab record (`state/pane/panePreload`), and a warm chunk
@@ -63,7 +65,7 @@ export interface ProjectWindowPaneProps {
   isSessionLoading: (sk: string) => boolean;
   isSessionStreaming: (sk: string) => boolean;
   wasSessionStopped: (sk: string) => boolean;
-  stopSession: (sk: string) => Promise<boolean>;
+  stopSession: (sk: string, opts?: StopSessionOptions) => Promise<boolean>;
   sendMessage: (sk: string, content: string, options?: SendMessageOptions) => Promise<boolean>;
   editMessage?: (sk: string, messageId: string, newContent: string) => Promise<boolean>;
   regenerateMessage?: (sk: string, messageId: string) => Promise<boolean>;
@@ -236,8 +238,21 @@ export function ProjectWindowPane({
   const handleAddPaneToGroup = layout.handlers.addToGroup;
   const handleAddPaneWhenEmpty = layout.handlers.addWhenEmpty;
   const handleActivatePane = layout.handlers.activate;
-  const handleClosePane = layout.handlers.close;
-  const handleClosePaneImmediate = layout.handlers.closeNow;
+  // A working sub-agent's terminal is another session's work: closing it kills
+  // the PTY, so it asks first (SUBAGENT-20). Every other tab closes as before.
+  const confirmTerminalStop = useConfirmTerminalStop();
+  const rawClosePane = layout.handlers.close;
+  const rawClosePaneNow = layout.handlers.closeNow;
+  const handleClosePane = useCallback((groupId: string, paneId: string) => {
+    const sessionId = isTerminalPaneId(paneId) ? getTerminalSessionFromPaneId(paneId) : null;
+    if (!sessionId) { rawClosePane(groupId, paneId); return; }
+    void confirmTerminalStop(sessionId).then((ok) => { if (ok) rawClosePane(groupId, paneId); });
+  }, [rawClosePane, confirmTerminalStop]);
+  const handleClosePaneImmediate = useCallback((groupId: string, paneId: string) => {
+    const sessionId = isTerminalPaneId(paneId) ? getTerminalSessionFromPaneId(paneId) : null;
+    if (!sessionId) { rawClosePaneNow(groupId, paneId); return; }
+    void confirmTerminalStop(sessionId).then((ok) => { if (ok) rawClosePaneNow(groupId, paneId); });
+  }, [rawClosePaneNow, confirmTerminalStop]);
 
   /**
    * Tell the topic's browser window which pages this project already has open,
@@ -406,9 +421,9 @@ export function ProjectWindowPane({
       seeded = existing.trim() ? `${existing.trimEnd()}\n\n${text}` : text;
       localStorage.setItem(`draft:${topicId}`, seeded);
     } catch { /* private mode: la bozza vive comunque nell'evento qui sotto */ }
-    // La pane può essere GIÀ montata su quel topic, e in quel caso l'effetto che
-    // rilegge la bozza (dipende da `topic.id`) non riparte: senza questo evento
-    // la missione resterebbe scritta su localStorage e invisibile.
+    // The pane may ALREADY be mounted on that topic, and a mounted pane reads
+    // the draft only when it mounts or changes topic: without this event the
+    // mission would sit in localStorage, unseen.
     window.dispatchEvent(new CustomEvent('topics:seed-composer', { detail: { topicId, text: seeded } }));
     chatSync.reopenTopic(topicId);
     return null;
@@ -519,6 +534,8 @@ export function ProjectWindowPane({
               // Same convention as the chat pane above: focused group AND this
               // project window is the focused panel.
               hasFocus={onScreen && isFocused && focusedPanelId === wrapperPaneId}
+              // A new-tab note lands in this window's own folder (NEWTAB-ARC-04).
+              projectPath={projectPath}
             />
           </LazyPane>
         );

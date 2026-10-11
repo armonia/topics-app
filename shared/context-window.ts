@@ -75,6 +75,10 @@ const CONTEXT_WINDOWS: Record<string, number> = {
   // Gemini.
   "gemini-2-5-pro": 1_048_576,
   "gemini-2.5-pro": 1_048_576,
+  // Muse (Meta). `context_limit` from the cached catalog, measured 06/10. The
+  // key is the family prefix: matching is by substring, so it covers
+  // `muse-spark-1.2` and `1.3` (including `-contributor`).
+  "muse-spark": 1_007_997,
 };
 
 /**

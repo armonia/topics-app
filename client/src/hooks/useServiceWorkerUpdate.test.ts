@@ -57,7 +57,9 @@ beforeEach(() => {
 
 afterEach(() => {
   nav.serviceWorker = savedServiceWorker;
-  (globalThis as unknown as { localStorage?: unknown }).localStorage = savedLocalStorage;
+  // Removed, not set to undefined: a key left behind still answers `in`.
+  if (savedLocalStorage === undefined) delete (globalThis as unknown as { localStorage?: unknown }).localStorage;
+  else (globalThis as unknown as { localStorage?: unknown }).localStorage = savedLocalStorage;
 });
 
 function Consumer() {

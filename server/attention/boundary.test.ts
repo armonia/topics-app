@@ -17,7 +17,9 @@ function trackedLines(pattern: string): string[] {
   const r = Bun.spawnSync(["git", "grep", "--untracked", "-n", "-E", pattern, "--", "server", "server.ts", "shared"], { cwd: ROOT, env: gitEnv() });
   return r.stdout.toString().split("\n").filter(Boolean)
     // Tests read and write the table to set up their cases; migrations create it.
-    .filter((l) => !/\.test\.ts:/.test(l) && !l.startsWith("server/db/migrations/"));
+    // Fixtures are test doubles: `muse/fake-muse.fixture.ts` emits wire JSON
+    // with `kind: "session"` (the stream kind), it writes no history row.
+    .filter((l) => !/\.test\.ts:/.test(l) && !/\.fixture\.ts:/.test(l) && !l.startsWith("server/db/migrations/"));
 }
 
 describe("the attention store is the only writer", () => {

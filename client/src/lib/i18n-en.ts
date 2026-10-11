@@ -27,7 +27,7 @@ const EN = {
   ...ATTENTION_EN,
   'toolgroup.cost': 'Summed cost of the actions in the group',
   'ai.selector.routing': 'Run in Topics',
-  'ai.selector.routingLine': 'Claude runs in Topics on your subscription, without a process per chat. Everything else goes direct.',
+  'ai.selector.routingLine': 'Everything else goes direct.',
   'ai.selector.route.topics': 'via Topics',
   'ai.selector.route.via': 'via {engine}',
   'ai.selector.route.direct.family': 'This model runs direct: {engine} does not go through Topics.',
@@ -75,6 +75,7 @@ const EN = {
   'ai.providers.fact.default': 'Default',
   'ai.providers.fact.claudePlan': 'Claude plan',
   'ai.providers.fact.chatgptPlan': 'ChatGPT plan',
+  'ai.providers.fact.musePlan': 'Muse plan',
   'ai.providers.fact.key': 'Pay-as-you-go key',
   'ai.providers.fact.program': 'Program',
   'ai.providers.fact.agent': 'Agent',
@@ -132,6 +133,10 @@ const EN = {
   'ai.providers.program.none': 'Path not known',
   'ai.providers.saveError': 'Could not save.',
 
+  'sidebar.subagents.one': '1 sub-agent',
+  'sidebar.subagents.many': '{n} sub-agents',
+  'sidebar.subagents.needsYou': 'A sub-agent is waiting for you',
+  'sidebar.subagents.working': 'A sub-agent is working',
   'app.unsent.title.one': '1 message not sent',
   'app.unsent.title.many': '{n} messages not sent',
   'app.unsent.chatLine.one': '{name} · 1 message',
@@ -160,6 +165,9 @@ const EN = {
   'ctx.removeFromContext': 'Remove from the context',
   'ctx.removeFile': 'Remove the file',
   'tool.logTruncated': '[… {n} lines dropped: the log buffer is full]',
+  'tool.live.running': 'running',
+  'tool.live.exit': 'exit {code}',
+  'tool.live.ended': 'ended',
   'tool.runningTail.more': 'More output above',
   'tool.shell.silent': 'Running for {elapsed} · no output shown',
   'tool.shell.sleepLeft': ' · sleep: {left} left',
@@ -196,6 +204,9 @@ const EN = {
   'subagent.ended': '{name} · ended (open)',
   'subagent.dismiss': 'Remove {name} from the list',
   'subagent.strip': 'Sub-agents',
+  'subagent.stopConfirm.title': 'Stop {name}?',
+  'subagent.stopConfirm.body': '{parent} started {name} and it is still working. Stopping it interrupts its work, and {parent} gets the result «stopped».',
+  'subagent.stopConfirm.confirm': 'Stop',
   'toolgroup.elapsed': 'How long this run of actions has been going',
   'space.elsewhere': 'is open in another window.',
   'space.elsewhere.blurb': 'One window draws a group: its tabs live there, and they are not duplicated here.',
@@ -1841,6 +1852,13 @@ const EN = {
   'sidebar.waitingDoorTitle': 'Go to the next chat waiting for you',
   'sidebar.profileDoorTitle': 'Profile and statistics',
   'sidebar.profileDoorTitleNamed': '{nome}. Profile and statistics',
+  // The pencil door (mobile-chrome-feedback A6): tap opens a new chat at once,
+  // a long press opens the whole «+» menu.
+  'sidebar.pencilDoor': 'New',
+  'sidebar.pencilDoorTitle': 'New chat: long-press for more options',
+  // The user sheet on the phone has two floors (A1): the root and the Topics
+  // floor, which this row walks back from.
+  'sidebar.userMenuBack': 'Back',
   'identity.title': 'People',
   'identity.blurb.solo': 'For now it’s just you. Add someone to be able to share with them, even before they connect a device of their own.',
   'identity.blurb.group': 'Sharing with the organization reaches every member, without doing it one by one.',
@@ -2317,6 +2335,11 @@ const EN = {
   'browser.newTab.topSites': 'Your sites',
   'browser.newTab.empty': 'The sites you open most often show up here.',
   'browser.newTab.forget': 'Remove {host} from your sites',
+  'browser.newTab.openTabs': 'Open tabs',
+  'browser.newTab.recent': 'Recent',
+  'browser.newTab.commands': 'Commands',
+  'browser.newTab.createFile': 'Create note with this text',
+  'browser.newTab.createFailed': 'Could not create the note',
   // ── Dev bar of the browser pane: zoom, device, console drop-down. The
   //    per-level chip labels stay in `Browser/consoleLogModel.ts`, next to the
   //    rule they filter by.

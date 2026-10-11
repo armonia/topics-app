@@ -99,8 +99,9 @@ const EXCEPTIONS: Exception[] = [
   { kind: "target-size", selector: /topic-row-archive|span\.row-actions/, viewport: "phone", floor: { w: 36, h: 44 }, why: "the command rail at the end of a row: two 36px commands side by side, a 44px area each would overlap and the last in the DOM would take the other's taps (index.css, `.tap-expand-y`)" },
   { kind: "target-size", selector: /topic-row-archive/, viewport: "desktop", floor: { w: 22, h: 28 }, why: "the sidebar resize handle (App.tsx, `left: sidebarWidth - 8`) covers the last 6px of the row's archive: its band sits INSIDE the sidebar because a native WKWebView pane flush on the content side eats every pixel past the edge, so moving it out would leave nothing to grab next to a browser pane (pre-existing on main, seen once rows were measured hovered)" },
   { kind: "target-size", selector: /mobile-pane-find|sidebar-reopen/, viewport: "phone", floor: { w: 36, h: 36 }, why: "the pane's chrome row is 40 tall (CHROME-METRIC-01): a 44 box does not fit in it, and its overflow clips the projected area" },
-  { kind: "target-size", selector: /filter-token-input/, viewport: "phone", floor: { w: 44, h: 24 }, why: "an <input> cannot carry the ::after that projects 44; it fills its 24px shell (TOOLBAR_CONTROL_H) on the board's one toolbar row" },
-  { kind: "target-size", selector: /board-layout-toggle|filter-project-chip/, viewport: "phone", floor: { w: 36, h: 36 }, why: "the board toolbar is ONE row of 24px controls, 36 tall (TOOLBAR_CONTROL_H, board-topbar-height.spec.ts): the projected 44 is clipped by the row to its 36" },
+  // (The board toolbar's two phone exceptions - the 24px search input and the
+  // 36px glyphs - are gone since 05/10: under a finger the row's controls are
+  // 44 tall themselves, KANBAN-MOBILE-02.)
 ];
 
 interface Violation {
@@ -582,6 +583,12 @@ function groups(vp: Viewport) {
     ] as const) {
       await recorder.step(surface, async () => {
         await openProfileMenu(page);
+        // On the phone the topics rows live on the Topics floor (A1): walk
+        // down from the root before looking at them. Status and devices stay
+        // at the root and need nothing.
+        if (isPhone(vp) && row.startsWith("topics-menu-")) {
+          await page.getByTestId("user-menu-topics-entry").click();
+        }
         const trigger = page.getByTestId(row);
         await expect(trigger).toBeVisible({ timeout: 10_000 });
         await trigger.click();
@@ -710,7 +717,13 @@ function groups(vp: Viewport) {
     await openApp(page, vp);
     await recorder.step("add-pane menu", async () => {
       await page.keyboard.press("Escape");
-      await page.getByTestId("pane-add-menu-trigger").first().click();
+      const trigger = page.getByTestId("pane-add-menu-trigger").first();
+      // On the phone the trigger is the pencil (A6): the tap opens the chat,
+      // the menu opens with the second gesture — here the right button, which
+      // opens the same menu as the long press (the gesture is covered in
+      // mobile-chrome-feedback; here the surface is measured).
+      if (isPhone(vp)) await trigger.click({ button: "right" });
+      else await trigger.click();
       await expect(page.getByTestId("pane-add-menu-browser")).toBeVisible({ timeout: 5_000 });
       await recorder.measure("add-pane menu", await markScope(page, '[data-testid="pane-add-menu-browser"]', "add-pane-menu"));
     });

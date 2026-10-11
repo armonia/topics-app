@@ -217,8 +217,19 @@ export function createSubagentWake(deps: SubagentWakeDeps) {
     workers.set(r.parentSessionKey, job);
   }
 
+  /**
+   * A person's Stop on the chat: the results waiting to wake it are written
+   * as rows now, and wake nothing. Left queued, they woke the chat as soon as
+   * the stopped turn let it go.
+   */
+  function writeQueuedAsRows(sessionKey: string): void {
+    const queued = pending.get(sessionKey)?.splice(0) ?? [];
+    asRows(queued);
+  }
+
   return {
     request,
+    writeQueuedAsRows,
     /** Every wake requested so far has gone. For tests. */
     async idle(): Promise<void> {
       while (workers.size) await Promise.all([...workers.values()]);
@@ -236,6 +247,11 @@ const waiting: SubagentWakeRequest[] = [];
 export function requestSubagentWake(r: SubagentWakeRequest): void {
   if (wake) wake.request(r);
   else waiting.push(r);
+}
+
+/** A person's Stop on this chat: its queued results become rows (`writeQueuedAsRows`). */
+export function writeQueuedWakesAsRows(sessionKey: string): void {
+  wake?.writeQueuedAsRows(sessionKey);
 }
 
 /** Wakes start going out: called once the boot has re-adopted the turns that survived it. */

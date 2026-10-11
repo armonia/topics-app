@@ -911,9 +911,23 @@ reintrodurre per sbaglio, perché niente, nel codice, dice che era voluta.
 
 #### Scenario: ogni controllo della barra è alto uguale
 
-- **GIVEN** la barra aperta a 1440 e a 390 px, con i suoi controlli disegnati
+- **GIVEN** la barra aperta a 1440 e a 390 px con il mouse, con i suoi controlli disegnati
 - **WHEN** si leggono nel DOM le bounding box di ognuno
 - **THEN** sono tutte alte 24 px (±1) e hanno lo stesso bordo superiore
+
+#### Scenario: col dito ogni controllo della barra è alto 44
+
+- **GIVEN** la barra su un telefono (390x844, puntatore grossolano)
+- **WHEN** si leggono nel DOM le bounding box di ognuno
+- **THEN** sono tutte alte almeno 44 px, campo di ricerca compreso
+
+> MODIFICATO il 05/10/2026, su richiesta dell'utente: «la barra di ricerca è
+> troppo piccola nella Kanban». L'altezza resta UNA dichiarazione
+> (`TOOLBAR_CONTROL_H`), ma con due valori: 24 px con il mouse, 44 px sotto un
+> dito. Il bersaglio segue il puntatore, non la larghezza: una finestra desktop
+> stretta tiene la riga compatta. Misurato prima: sul telefono il campo era alto
+> 24 px con dentro testo a 16 px, e i 44 px proiettati da `.tap-expand` non
+> stavano nella riga da 36 (vedi KANBAN-MOBILE-01).
 
 > Quarto vincolo, aggiunto dopo la misura: metà riga stava già a 24 px
 > (`filterFieldClass`), l'altra metà lasciava decidere il padding — 20 px per i
@@ -4985,3 +4999,96 @@ nota. Una vista scelta a mano vince.
 - **WHEN** si chiede alla rotta con `blob=<revs.head>`
 - **THEN** il `Content-Type` e' `image/png` e i byte sono identici a
   `git cat-file blob <revs.head>:<path>`
+
+### Requirement: KANBAN-MOBILE-01 — La barra in alto della board non scorre in verticale
+
+Richiesta dell'utente, 05/10/2026: «mi fa scrollare verticalmente la top bar
+della Kanban». La barra della board è chrome fisso: scorre in orizzontale
+quando i suoi controlli non ci stanno (KANBAN-47), e NON SHALL mai scorrere in
+verticale, su nessuna finestra e con nessun puntatore.
+
+Misurato prima della correzione, sul telefono, in orizzontale e sull'iPad:
+`overflow-y` calcolato `auto` (lo impone `overflow-x: auto`) e `scrollHeight`
+40 contro `clientHeight` 36, cioè 4 px di corsa verticale, prodotti dall'area da
+44 px che `.tap-expand` proietta sotto un dito attorno a un glifo da 24.
+
+#### Scenario: telefono, orizzontale, iPad
+- **GIVEN** la board aperta a 390x844, 844x390 e 820x1180 col dito
+- **WHEN** si leggono `overflow-y`, `scrollHeight` e `clientHeight` della barra
+- **THEN** la barra NON SHALL essere un asse di scorrimento verticale con contenuto che lo eccede
+
+### Requirement: KANBAN-MOBILE-02 — Sul telefono il campo di ricerca della board è un bersaglio da dito ed è la riga
+
+Richiesta dell'utente, 05/10/2026: «la barra di ricerca è troppo piccola nella
+Kanban». Sotto un dito il campo di ricerca (e l'`<input>` che riceve il tocco)
+SHALL essere alto almeno 44 px, come ogni altro controllo della barra
+(KANBAN-12). Sotto la larghezza `sm` la board occupa lo schermo intero e il
+campo SHALL prendere almeno tre quarti della larghezza visibile, lasciando
+spuntare il controllo successivo della striscia.
+
+Misurato prima: campo 231x24 su una finestra da 390, `<input>` 197x24, il
+segnaposto tagliato a «@agente, et».
+
+#### Scenario: telefono
+- **GIVEN** la board a 390x844 col dito
+- **WHEN** si misurano il campo e il suo `<input>`
+- **THEN** entrambi SHALL essere alti almeno 44 px e il campo largo almeno il 75% della finestra
+
+### Requirement: KANBAN-MOBILE-03 — Una colonna riempie l'altezza, e scorre solo quando le card sforano
+
+Richiesta dell'utente, 05/10/2026: «le colonne della Kanban dovrebbero
+[riempire] lo spazio, a meno che non ci siano troppe card». Il riquadro di ogni
+colonna SHALL essere alto quanto lo spazio della riga, qualunque cosa contenga;
+il suo corpo SHALL scorrere solo quando le card eccedono lo spazio visibile.
+
+Misurato prima: vero già sul ramo principale (colonne 744 px su 744 utili a
+390x844, Todo con due card senza scorrimento). Il requisito esiste perché la
+correzione di KANBAN-MOBILE-04 tocca proprio il corpo della colonna, e un
+pavimento di padding sbagliato farebbe scorrere anche una colonna da due card.
+
+#### Scenario: due card contro quattordici
+- **GIVEN** una colonna con due card e una con quattordici, a 390x844
+- **THEN** entrambe SHALL essere alte quanto la riga (±1 px), la prima NON SHALL scorrere e la seconda sì
+
+### Requirement: KANBAN-MOBILE-04 — In fondo a una colonna l'ultima card ha spazio sotto
+
+Richiesta dell'utente, 05/10/2026: «pur poi scrollando, alla fine l'ultima card
+dovrebbe preservare lo spazio sotto». Scorsa una colonna fino in fondo, l'ultima
+card SHALL finire almeno 12 px sopra il composer flottante, e quindi sopra la
+fila dei tasti del telefono e la sua fascia di sicurezza.
+
+Lo spazio SHALL essere DERIVATO da ciò che copre la colonna (il bordo superiore
+del composer misurato, più un respiro fisso), non scritto come costante: il
+composer cresce col testo e con gli allegati, e sale quando sopra i tasti
+compare la banda degli avvisi (`--mobile-transport-h`). Col composer nascosto il
+pavimento SHALL essere la banda dei tasti (`--mobile-band-own-h`).
+
+Misurato prima: col `pb-36` fisso l'ultima card finiva a 687 px e il composer
+cominciava a 690 (3 px) a 390x844; con la banda degli avvisi alta 48 px la card
+sarebbe finita sotto il composer.
+
+#### Scenario: a riposo
+- **GIVEN** una colonna che sfora, a 390x844 con la fascia inferiore a 34 px
+- **WHEN** la si scorre fino in fondo
+- **THEN** fra l'ultima card e il composer SHALL restare almeno 12 px
+
+#### Scenario: la banda sopra i tasti cresce
+- **GIVEN** la stessa colonna e `--mobile-transport-h` a 48 px
+- **WHEN** la si scorre fino in fondo
+- **THEN** il composer SHALL essere salito e fra l'ultima card e il composer SHALL restare almeno 12 px
+
+### Requirement: KANBAN-MOBILE-05 — I chip delle card si leggono nel tema chiaro
+
+Ogni chip colorato di una card (priorità, motivo del fermo, stato del dispatch,
+etichette, segnali dal vivo) SHALL avere un contrasto del testo di almeno 4,5:1
+in ENTRAMBI i temi. Le tinte `-300` nascono sul fondo scuro: nel tema chiaro il
+testo SHALL usare una tinta scura della stessa famiglia.
+
+Misurato prima, nel tema chiaro a 390x844: «Alta» 1,33:1, «ferma · dispatch
+spento» 1,12:1.
+
+#### Scenario: tema chiaro
+- **GIVEN** la board nel tema chiaro con una card ad alta priorità ferma in Todo
+- **WHEN** axe e il calcolo sui fondi composti leggono la colonna
+- **THEN** nessun testo SHALL stare sotto il contrasto minimo
+

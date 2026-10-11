@@ -167,3 +167,36 @@ export function archiveTopicFully(deps: ArchiveTopicDeps, topicId: string): Arch
 
   return { ok: true, alreadyArchived, repaired, topic };
 }
+
+export interface ReopenTopicDeps {
+  getTopicById: (id: string) => Topic | null;
+  saveSingleTopic: (topic: Topic) => void;
+  broadcastToAll: (message: OutboundMessage) => void;
+  /** Retracts the close markers the purge left in `ui_state` (`restoreTopicInUiState`, routes/topics.ts). */
+  restoreInUiState: (topicId: string) => void;
+  /** Drops the retirement fact (`clearRetirement` bound to the db). */
+  clearRetirement: (topicId: string) => void;
+}
+
+/**
+ * The other half of `archiveTopicFully`: reopening undoes every mark the
+ * archive left, in one place. A reopen that only cleared the flag left the
+ * retirement fact behind, and the boot reconcile closed the chat again on the
+ * next restart (a resumed sub-agent was re-archived, and its grandchild's wake
+ * refused). The unarchive route and a sub-agent's resume both come through here.
+ */
+export function reopenTopicFully(deps: ReopenTopicDeps, topicId: string): Topic | null {
+  const topic = deps.getTopicById(topicId);
+  if (!topic) return null;
+  topic.archived = false;
+  topic.updatedAt = new Date().toISOString();
+  deps.saveSingleTopic(topic);
+  deps.broadcastToAll({ type: "topic:archived", topic });
+  // Without it the client's hydrate strip deletes the tab on every load.
+  deps.restoreInUiState(topicId);
+  deps.clearRetirement(topicId);
+  // Reopening relights nothing of before (T18): the turn seen at the
+  // archiving makes no epoch.
+  setClosed(topicSubject(topicId), { archived: false });
+  return topic;
+}

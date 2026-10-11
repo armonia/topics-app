@@ -79,7 +79,11 @@ beforeEach(() => {
 });
 
 afterEach(() => {
-  for (const [k, v] of Object.entries(originals)) globals[k] = v;
+  // Removed, not set to undefined: a key left behind still answers `in`.
+  for (const [k, v] of Object.entries(originals)) {
+    if (v === undefined) delete globals[k];
+    else globals[k] = v;
+  }
 });
 
 /**

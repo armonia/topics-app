@@ -12,6 +12,7 @@ import { getSnapshotManager } from "../providers/snapshot-manager";
 import { projectIdForPath } from "../../shared/board";
 import { availableTaskModels } from "../../shared/task-coding-models";
 import { canonicalProjectIdentity, projectAliasPlaceholders } from "../lib/project-identity";
+import { SPAWN_TIMEOUT, spawnBounded } from "../lib/bounded-spawn";
 
 export interface AgentStartCapabilitiesRouteOpts {
   repositoryKeyOf?: (projectId: string) => Promise<string | null>;
@@ -70,9 +71,10 @@ async function repositoryKeyFor(
     .find((project) => projectIdForPath(project.path) === identity.boardId) ?? null;
   const path = canonical?.path;
   if (!path) return null;
-  const proc = Bun.spawn(["git", "-C", path, "remote", "get-url", "origin"], {
+  const proc = spawnBounded(["git", "-C", path, "remote", "get-url", "origin"], {
     stdout: "pipe",
     stderr: "ignore",
+    timeoutMs: SPAWN_TIMEOUT.query,
   });
   const output = await new Response(proc.stdout).text();
   return (await proc.exited) === 0 ? normalizeRepositoryKey(output) : null;

@@ -1,3 +1,4 @@
+import { restoreToolCallsFromBlocks } from "../utils";
 import { recentActiveRows, rowCarryingAsk, rowCarryingTool, type AskHaystackRow } from "../lib/ask-answer-routing";
 import { patchLiveTool } from "../lib/turn-body-flush";
 import { canonicalProjectPath } from "../lib/canonical-project-path";
@@ -32,11 +33,12 @@ import { createBrowserBridgeRouter } from "./browser-bridge";
 import type { BrowserService } from "../browser-service";
 import { resolveContextIdForTopic } from "../browser-tool-dispatcher";
 import { getTerminalSessionById, setSubAgentExitHandler } from "./terminal";
+import { liveWorkOf } from "./live-work";
 import { getSessionContext } from "../db/session-context";
 import { noteUnreadChanged, setClosed, turnEnded } from "../attention/store";
 import { topicSubject } from "../../shared/attention";
 import { logMachineStop, logStopPressed } from "../db/activity-log";
-import { isMachineStop, machineStopToolError, stopCauseOf } from "../lib/abort-cause";
+import { isMachineStop, machineStopToolError, stopCauseOf, stopReachesSubagents } from "../lib/abort-cause";
 import { leaveMachineStopNotice } from "../lib/machine-stop-notice";
 import { classifyContext, windowForMeasure } from "../usage/context-window";
 import { contextUpdateFromUsage } from "../usage/usage-update";
@@ -57,12 +59,14 @@ import { moveTerminalPaneToProject as relocateTerminalPaneToProject, moveTopicTo
 import { bumpUnreadCount } from "../lib/unread-count";
 import { createSubagentWatcher } from "../lib/subagent-watch";
 import { subagentWakeState } from "../lib/subagent-runtime";
-import { requestSubagentWake } from "../services/subagent-wake";
+import { rootSessionKeyOf } from "../lib/subagent-store";
+import { requestSubagentWake, writeQueuedWakesAsRows } from "../services/subagent-wake";
+import { stopNativeChildrenOf } from "../lib/native-subagents";
 import { computeTopicChanges, resolveTopicChangeTarget, revsOfTarget } from "../lib/topic-changes";
 import { gitDiffBundle, gitDiffStat } from "../lib/git-diff-stat";
 import { gitDiffFilePatch, serveDiffBlob } from "../services/task-diff-file";
 import type { ChangeSet } from "../../shared/change-set";
-import { archiveTopicFully } from "../services/archive-topic";
+import { archiveTopicFully, reopenTopicFully, type ReopenTopicDeps } from "../services/archive-topic";
 import { purgeTopicBrowserState } from "../services/topic-browser-teardown";
 import { dropTurnCheckpoints } from "../services/turn-checkpoints";
 import { clearRetirement, recordRetirement } from "../services/retirement";
@@ -389,6 +393,17 @@ function restoreTopicInUiState(
   mutateAllUiState(db, broadcastToAll, "restoreTopicInUiState", topicId, retractTopicTombstoneFromUiStateValue);
 }
 
+/** What `reopenTopicFully` needs, bound once: the unarchive route and a sub-agent's resume share it. */
+export function reopenDepsFor(ctx: Pick<AppContext, "db" | "getTopicById" | "saveSingleTopic">, broadcastToAll: ReopenTopicDeps["broadcastToAll"]): ReopenTopicDeps {
+  return {
+    getTopicById: ctx.getTopicById,
+    saveSingleTopic: ctx.saveSingleTopic,
+    broadcastToAll,
+    restoreInUiState: (topicId) => restoreTopicInUiState(ctx.db, broadcastToAll, topicId),
+    clearRetirement: (topicId) => { clearRetirement(ctx.db, "topic", topicId); },
+  };
+}
+
 /** Quanti caratteri grezzi leggere per ricavarne {@link PREVIEW_MAX_CHARS} puliti.
  *  Largo abbastanza da sopravvivere a un blocco di codice in testa al messaggio,
  *  stretto abbastanza da non far viaggiare il `content` intero: il messaggio più
@@ -511,7 +526,7 @@ export function createTopicsRouter(
     loadTopics, saveSingleTopic,
     getTopicById, getTopicBySessionKey,
     loadUnread,
-    loadLocalMessages, countMessagesBySession, saveLocalMessages, appendLocalMessage,
+    loadLocalMessages, loadThreadWindow, hydrateMessageBodies, countMessagesBySession, saveLocalMessages, appendLocalMessage,
     updateLastMessage, updateToolCallFields, discardIfEmptyTurn,
     endStream,
     readJSON, json, matchRoute, errorResponse, slugify,
@@ -1030,6 +1045,10 @@ export function createTopicsRouter(
     persistTaskTab: (taskId, contextId, url, title) => { persistAgentTaskTab(ctx.db, broadcastToAll, taskId, contextId, url, title); },
     attachLoginHandle: (contextId, handle) => { attachLoginHandleToTaskTab(ctx.db, broadcastToAll, contextId, handle); },
     paneAttachedTo,
+    browserHostTopicOf: (topic) => {
+      const root = rootSessionKeyOf(ctx.db, topic.sessionKey);
+      return root === topic.sessionKey ? null : getTopicBySessionKey(root)?.id;
+    },
   }, browserService);
 
   /**
@@ -1926,19 +1945,10 @@ export function createTopicsRouter(
         // Unarchive is a REOPEN: retract the close markers the purge left, or
         // the client's hydrate strip would delete the tab on every load and
         // the chat would be permanently un-openable.
-        topic.archived = false;
-        topic.updatedAt = new Date().toISOString();
-        saveSingleTopic(topic);
-        broadcastToAll({ type: "topic:archived", topic });
-        restoreTopicInUiState(ctx.db, broadcastToAll, params.id);
-        // Il fatto va ritrattato con gli altri due registri, o al riavvio
-        // successivo il riconcilio richiuderebbe la chat appena riaperta —
-        // con l'utente dentro.
-        clearRetirement(ctx.db, "topic", params.id);
-        // Reopening relights nothing of before (T18): the turn seen at the
-        // archiving makes no epoch.
-        setClosed(topicSubject(params.id), { archived: false });
-        return json(presentGlobalOrchestratorTopic(db, topic));
+        // The retirement fact goes with the flag and the ui_state markers, or
+        // the next boot's reconcile closes the chat again, person inside.
+        const reopened = reopenTopicFully(reopenDepsFor(ctx, broadcastToAll), params.id) ?? topic;
+        return json(presentGlobalOrchestratorTopic(db, reopened));
       }
     }
 
@@ -2353,17 +2363,18 @@ export function createTopicsRouter(
         const limit = parseInt(urlParams.get("limit") || "200");
         const offset = parseInt(urlParams.get("offset") || "0");
 
-        const localMsgs = loadLocalMessages(topic.sessionKey);
-        const completeMsgs = localMsgs.filter(m => !m.partial || (m.content && m.content.trim()));
-        const total = completeMsgs.length;
-        const sliced = offset > 0 ? completeMsgs.slice(0, Math.max(0, total - offset)) : completeMsgs;
-        // Same slimming as `/api/history/:key`. Without it this route shipped
-        // 12.54 MB where the other shipped 5.42 for the same topic, because here
-        // `toolCalls` still travelled alongside `blocks` AND each one carried a
-        // duplicated `result`. The caller is the agents' `read_chat` over MCP,
-        // which then keeps 4,000 characters per message and throws the rest away
-        // (server/mcp/topics-mcp-server.ts:1219). See shared/lean-tool-call.ts.
-        const result = leanMessagesForWire(sliced.slice(-limit));
+        // The window is chosen on a SKELETON of the thread (four columns) and the
+        // real rows are read only for the messages that go out; the body (blocks,
+        // tool_calls) is put back by `hydrateMessageBodies` for those alone. The
+        // route used to read and decode the WHOLE session to keep `limit` of it.
+        // Same road as `/api/history`.
+        // Gate: tests/integration/topic-messages-window-cost.test.ts.
+        const { messages: windowLean, total } = loadThreadWindow(topic.sessionKey, limit, offset);
+        const window = hydrateMessageBodies(windowLean);
+        // A partial goes out whole and `hydrateMessageBodies` does not rebuild its
+        // toolCalls from the blocks (the fat read did, for every row).
+        for (const m of window) if (m.partial) restoreToolCallsFromBlocks(m);
+        const result = leanMessagesForWire(window);
 
         return json({ messages: result, total, topicName: topic.name });
       }
@@ -2533,7 +2544,7 @@ export function createTopicsRouter(
         }, 409);
       }
 
-      const stream = activeStreams.get(sessionKey);
+      const streamAtStop = activeStreams.get(sessionKey);
 
       // Resolve topic and provider for abort — O(1) UNIQUE-index lookup
       // instead of a full topics scan per /api/chat/abort hit.
@@ -2591,9 +2602,21 @@ export function createTopicsRouter(
         return true;
       };
 
+      // A person's Stop reaches the sub-agents working for this chat too
+      // (subagent-nativi): left running, a child woke the parent just stopped.
+      // «Send now» stops only the turn (`stopReachesSubagents`). The results
+      // already queued to wake this chat land as rows: woken by them, the chat
+      // just stopped started again at once.
+      const fullStop = stopReachesSubagents(req, body?.cause);
+      if (fullStop) writeQueuedWakesAsRows(sessionKey);
+      const stoppedChildren = fullStop ? await stopNativeChildrenOf(sessionKey) : 0;
+      // Read again after the children's stop: the turn this Stop was for may
+      // have ended meanwhile, and a turn opened since (a wake) is not its own.
+      const stream = activeStreams.get(sessionKey) === streamAtStop ? streamAtStop : undefined;
       if (!stream) {
         const background = await stopBackgroundOnly(sessionKey, stopCauseOf(req, body?.cause), () => goalLoop.stopWaiting(sessionKey));
         if (background) return json(background); // only background work was left: the Stop was for it
+        if (stoppedChildren > 0) return json({ ok: true, stoppedSubagents: stoppedChildren, cleared: false });
         // Niente da fermare: turno già finito, oppure una finestra che stava
         // solo guardando quello di un'altra. Nessun effetto — né sul provider
         // (un `abort` alla cieca taglierebbe un turno headless che questo
@@ -2623,7 +2646,8 @@ export function createTopicsRouter(
       // request from outside is the person; the server's own callers (the
       // stall judge, the board, the dispatcher's clocks) name theirs.
       const cause = stopCauseOf(req, body?.cause);
-      recordTurnEnd(sessionKey, cancelled(cause, "POST /api/chat/abort"));
+      // Named after the turn it stops (`recordTurnStart` in chat.ts): the user row it answers.
+      recordTurnEnd(sessionKey, { ...cancelled(cause, "POST /api/chat/abort"), turnId: (stream.messageId ? ctx.getMessageById(stream.messageId)?.parentId : null) ?? undefined });
       // Said BEFORE anything below can close the turn: the close of the ledger
       // (`endStream` here, the provider's own finalize, the CLI's exit) reaches
       // every window before this route's `stream:end`, and must itself say that
@@ -3319,6 +3343,15 @@ export function createTopicsRouter(
         const sessions = result?.result?.sessions || [];
         return json([...commands, ...subagentProcesses(sessions)]);
       } catch { return json(commands); }
+    }
+
+    {
+      // The strip under the chat: what works for it now (chat-live-work).
+      const params = matchRoute(pathname, "/api/topics/:topicId/live-work");
+      if (params && method === "GET") {
+        const topic = getTopicById(params.topicId);
+        return topic ? json(liveWorkOf(ctx, topic)) : json({ error: "Topic not found" }, 404);
+      }
     }
 
     {

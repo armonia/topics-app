@@ -2,6 +2,7 @@ import { readFileSync, existsSync, mkdirSync } from "fs";
 import { join } from "path";
 import type { AppContext, RouteHandler } from "../types";
 import { truncateSessionAfter } from "../db/message-tree";
+import { SPAWN_TIMEOUT, spawnBounded } from "../lib/bounded-spawn";
 
 /**
  * Run a git command via async subprocess. The prior execSync froze Bun's single
@@ -12,13 +13,13 @@ import { truncateSessionAfter } from "../db/message-tree";
  * Returns trimmed stdout; throws on non-zero exit so callers keep their try/catch.
  */
 async function runGit(args: string[], cwd: string): Promise<string> {
-  const proc = Bun.spawn(["git", ...args], { cwd, stdout: "pipe", stderr: "pipe" });
+  const proc = spawnBounded(["git", ...args], { cwd, stdout: "pipe", stderr: "pipe", timeoutMs: SPAWN_TIMEOUT.write });
   const [out, err] = await Promise.all([
     new Response(proc.stdout).text(),
     new Response(proc.stderr).text(),
   ]);
   const code = await proc.exited;
-  if (code !== 0) throw new Error(err.trim() || `git ${args[0]} exited ${code}`);
+  if (code !== 0) throw new Error(err.trim() || (proc.timedOut ? `git ${args[0]} timed out` : `git ${args[0]} exited ${code}`));
   return out.trim();
 }
 

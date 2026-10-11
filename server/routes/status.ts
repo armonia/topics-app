@@ -11,6 +11,7 @@ import { checkGatewayHealth as pingGateway } from "../providers/health";
 import { detectAgents } from "../lib/detect-agents";
 import { computePresenceCounts } from "../services/profile-stats";
 import { countBusyAgentTerminals } from "./terminal";
+import { SPAWN_TIMEOUT, spawnBounded } from "../lib/bounded-spawn";
 
 const SERVER_START_TIME = Date.now();
 
@@ -198,14 +199,15 @@ export function createStatusRouter(ctx: AppContext): RouteHandler {
         // from a button that the guard above already restricts to installations
         // whose provider IS OpenClaw. Nothing in Topics needs it; if the binary
         // is absent this one route answers with the spawn error.
-        const proc = Bun.spawn(["openclaw", "gateway", "restart"], {
+        const proc = spawnBounded(["openclaw", "gateway", "restart"], {
           stdout: "pipe",
           stderr: "pipe",
           env: { ...process.env },
+          timeoutMs: SPAWN_TIMEOUT.write,
         });
         const stdout = await new Response(proc.stdout).text();
         const stderr = await new Response(proc.stderr).text();
-        const exitCode = await proc.exited;
+        const exitCode = (await proc.exited) ?? 124;
         // Reset cached gateway status so next poll picks up fresh state
         lastGatewayCheck = null;
         return json({ ok: exitCode === 0, output: stdout || stderr, exitCode });

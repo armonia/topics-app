@@ -41,7 +41,7 @@
 import { describe, expect, test, beforeAll, afterAll } from "bun:test";
 import { mkdirSync } from "node:fs";
 import { join } from "node:path";
-import { testTmpDir, PROJECT_ROOT } from "./helpers";
+import { testTmpDir, PROJECT_ROOT, spawnedServerHostEnv } from "./helpers";
 
 /** The one line an aggregator parses. Same shape in all three leak measurements. */
 function leakCounterLine(suspect: string, counter: string, before: number, after: number, cycles: number): void {
@@ -165,6 +165,7 @@ beforeAll(async () => {
       // up; this measurement has no turns to broker, so it is simply off.
       TOPICS_AI_BRIDGE: "0",
       TOPICS_AI_BRIDGE_SOCKET: join(ROOT, "ai.sock"),
+      ...spawnedServerHostEnv(),
     },
     stdout: "pipe",
     stderr: "pipe",
