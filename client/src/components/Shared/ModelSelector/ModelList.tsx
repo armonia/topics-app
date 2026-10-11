@@ -620,17 +620,16 @@ export function ModelList(props: ModelListProps) {
     if (!props.focusSearch) return;
     let frames = 0;
     let handle = 0;
-    let taken = false;
     const tick = () => {
       const input = searchRef.current;
       const host = panelRef.current?.closest<HTMLElement>('[data-popover]') ?? null;
       const visible = !!input && (!host || getComputedStyle(host).visibility === 'visible');
       const active = document.activeElement;
-      // Once taken, only the panel itself gives it back: `Menu` focuses its panel once placed, which
-      // can land just after the search took the focus. The page (a close) never does.
-      const free = taken ? active === host : active === host || active === document.body || active === null;
+      const free = active === host || active === document.body || active === null;
+      // Holding it already does not end the watch: `Menu` focuses its panel once placed, and in
+      // WebKit that lands a few frames AFTER the search took it. A close unmounts the input, so
+      // `visible` turns false and the page is never refocused.
       if (visible && free) input!.focus({ preventScroll: true });
-      if (visible && document.activeElement === input) taken = true;
       if (visible && !free && active !== input) return;
       if (frames++ < 12) handle = requestAnimationFrame(tick);
     };
