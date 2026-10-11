@@ -2,11 +2,32 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.2.476 — 2026-10-11
+
+### Correzioni
+- **native** · i nomi dei tool registrati da un altro motore tornano all'API come nomi validi
+
+### Sotto il cofano
+- token-audit: registrato come probe:tokens, così knip non lo dà per morto
+- native-token-economy: requisito CHAT-COMPACT-05 e il test che lo copre
+
+## 2.2.475 — 2026-10-11
+
+### Sotto il cofano
+- Riduci le riscritture ripetute della cache nativa
+- token-audit: le compattazioni già salvate nel DB quando il log non nomina la chat
+
+## 2.2.474 — 2026-10-11
+
+### Correzioni
+- **native** · il pensiero adaptive arriva in streaming, niente falso «stream lento»
+
 ## 2.2.473 — 2026-10-11
 
 ### Sotto il cofano
 - **e2e** · aggiorna durate shard dal nightly del 2026-10-11 [skip ci]
 - **pane-zoom** · i due casi «rossi apposta» sono verdi, il commento dice cosa guardano
+- **processes** · il test del server da Bash rimette DATA_DIR a fine file
 
 ## 2.2.472 — 2026-10-11
 
@@ -519,6 +540,7 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 - L'istantanea del server e il layout iniziale non riaprono le chat dei sotto-agenti
 - Sotto-agenti piegati e muti finché la persona non li apre: accordion chiuso sotto la chat padre, niente notifiche dai figli alla fonte
 - Un sotto-agente che ha finito il turno si archivia da solo, salvo che la persona l'abbia aperto
+- Mostra come server della chat un dev server avviato con Bash in background, non come lavoro in corso
 - Togli le porte vecchie del visto e i frame unread:* e notification:* (6.2)
 - Archivia notifications-redesign: spunta 2.1, 6.1, 6.2, 6.3 e ripara claude-sessions
 - Porta dal vivo in Cronologia anche le righe che nessuna transizione scrive

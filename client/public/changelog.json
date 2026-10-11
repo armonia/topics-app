@@ -1,5 +1,71 @@
 [
   {
+    "version": "2.2.476",
+    "date": "2026-10-11",
+    "sections": {
+      "new": [],
+      "fixes": [
+        {
+          "it": "i nomi dei tool registrati da un altro motore tornano all'API come nomi validi",
+          "en": "",
+          "scope": "native",
+          "breaking": false
+        }
+      ],
+      "perf": [],
+      "internal": [
+        {
+          "it": "token-audit: registrato come probe:tokens, così knip non lo dà per morto",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "native-token-economy: requisito CHAT-COMPACT-05 e il test che lo copre",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
+    "version": "2.2.475",
+    "date": "2026-10-11",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Riduci le riscritture ripetute della cache nativa",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "token-audit: le compattazioni già salvate nel DB quando il log non nomina la chat",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
+    "version": "2.2.474",
+    "date": "2026-10-11",
+    "sections": {
+      "new": [],
+      "fixes": [
+        {
+          "it": "il pensiero adaptive arriva in streaming, niente falso «stream lento»",
+          "en": "",
+          "scope": "native",
+          "breaking": false
+        }
+      ],
+      "perf": [],
+      "internal": []
+    }
+  },
+  {
     "version": "2.2.473",
     "date": "2026-10-11",
     "sections": {
@@ -17,6 +83,12 @@
           "it": "i due casi «rossi apposta» sono verdi, il commento dice cosa guardano",
           "en": "",
           "scope": "pane-zoom",
+          "breaking": false
+        },
+        {
+          "it": "il test del server da Bash rimette DATA_DIR a fine file",
+          "en": "",
+          "scope": "processes",
           "breaking": false
         }
       ]
@@ -2514,6 +2586,11 @@
         },
         {
           "it": "Un sotto-agente che ha finito il turno si archivia da solo, salvo che la persona l'abbia aperto",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Mostra come server della chat un dev server avviato con Bash in background, non come lavoro in corso",
           "en": "",
           "scope": null
         },

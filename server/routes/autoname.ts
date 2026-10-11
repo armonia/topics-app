@@ -63,6 +63,7 @@ export function createAutoNameRouter(ctx: AppContext, deps: AutoNameDeps): Route
         try {
           const aiTopicEarly = getTopicById(topicId);
           const namingProvider = resolveProvider(aiTopicEarly);
+          console.log(`[AutoName] AI call at=${new Date().toISOString()} session_key=${topic.sessionKey}`);
           const result = await namingProvider.complete([
             { role: "user", content: `Suggest a short title (3-5 words) and one emoji icon for this conversation. Reply ONLY with valid JSON, nothing else: {"title": "...", "icon": "..."}\n\nConversation:\n${conversationSummary}` },
           ]);

@@ -102,6 +102,8 @@ export interface AttentionStoreDeps {
   describe: (subject: string) => SubjectDescription | null;
   /** How long a background that just emptied waits for the wake's turn (T7). */
   graceMs: number;
+  /** A chat's server right now (BGVIS-09, `isChatServerTask`): never in its map, whoever writes it. */
+  isServerTask: (subject: string, taskId: string) => boolean;
   /** Is this subject a sub-agent (a row in `subagents`)? Its attention stays quiet until the person opens it. */
   isSubagent: (subject: string) => boolean;
   /** Write down that a person engaged with this sub-agent: it survives a restart. */
@@ -131,6 +133,7 @@ const DEFAULT_DEPS: AttentionStoreDeps = {
   sendPush: (payload) => { sendPushToAll(payload).catch((err) => console.warn("[attention] push failed:", err?.message || err)); },
   describe: () => null,
   graceMs: 5_000,
+  isServerTask: () => false,
   isSubagent: () => false,
   engageSubagent: () => {},
   subagentEngaged: () => false,
@@ -730,12 +733,21 @@ export interface TurnEnd {
   at?: string;
 }
 
+/** The map without the subject's servers (`isServerTask`); a predicate that throws claims nothing. */
+function withoutServers(subject: string, tasks: AttentionTaskMap): AttentionTaskMap {
+  const servers = Object.keys(tasks).filter((id) => { try { return deps.isServerTask(subject, id); } catch { return false; } });
+  if (servers.length === 0) return tasks;
+  const out = { ...tasks };
+  for (const id of servers) delete out[id];
+  return out;
+}
+
 /** T2, T3, T5, T6, T10, T12, T17: a turn closes. */
 export function turnEnded(subject: string, end: TurnEnd): AttentionSnapshot {
   const e = entryOf(subject);
   if (end.background !== undefined) {
     const beforeCount = countingTaskCount(e.row.background);
-    e.row.background = { ...end.background };
+    e.row.background = withoutServers(subject, { ...end.background });
     noteTasksEmptied(subject, beforeCount, countingTaskCount(e.row.background));
   }
   if (end.resumes) {
@@ -761,9 +773,13 @@ export function turnEnded(subject: string, end: TurnEnd): AttentionSnapshot {
 /** The whole task map of a subject, as its source knows it now (the CLI's snapshot). */
 export function setBackgroundTasks(subject: string, tasks: AttentionTaskMap): AttentionSnapshot {
   const e = entryOf(subject);
-  const before = e.row.background;
-  const beforeCount = countingTaskCount(before);
-  e.row.background = { ...tasks };
+  // A task that just became a server did not return: no report and no wake
+  // follow it, so it arms no grace (T7 decides at once, as for a `run_script`).
+  // The count before is the raw map's: a parked turn whose last task became a
+  // server has emptied, and rests like any other.
+  const before = withoutServers(subject, e.row.background);
+  const beforeCount = countingTaskCount(e.row.background);
+  e.row.background = withoutServers(subject, { ...tasks });
   noteTasksEmptied(subject, beforeCount, countingTaskCount(e.row.background));
   armGraceOnLastTask(subject, e, before);
   return recompose(subject, { live: true });
@@ -826,8 +842,8 @@ function markLate(e: Entry): void {
 export function applyTaskChanges(subject: string, changes: readonly TaskChange[]): boolean {
   if (changes.length === 0) return false;
   const e = entryOf(subject);
-  const before = e.row.background;
-  const next: AttentionTaskMap = { ...e.row.background };
+  const before = withoutServers(subject, e.row.background);
+  let next: AttentionTaskMap = { ...e.row.background };
   const replaced = new Set<string>();
   const finished = e.finishedTasks;
   let lateOut = false;
@@ -854,6 +870,8 @@ export function applyTaskChanges(subject: string, changes: readonly TaskChange[]
       next[c.id] = { ...c.task, startedAt: prev?.startedAt ?? next[c.id]?.startedAt ?? c.task.startedAt };
     }
   }
+  // A late `PostToolUse` re-keying a Bash that already listens does not bring it back.
+  next = withoutServers(subject, next);
   if (JSON.stringify(next) === JSON.stringify(e.row.background)) return false;
   // A task of before the restart taken out live, not re-keyed: see `lastTurnLive`. A recurring cron never held the turn.
   if (Object.keys(before).some((id) => !(id in next) && !replaced.has(id) && !before[id].recurring && e.restored?.has(id))) e.lastTurnLive = true;

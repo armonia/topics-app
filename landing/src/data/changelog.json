@@ -1,5 +1,33 @@
 [
   {
+    "version": "2.2.476",
+    "date": "2026-10-11",
+    "sections": {
+      "new": [],
+      "fixes": [
+        {
+          "text": "i nomi dei tool registrati da un altro motore tornano all'API come nomi validi",
+          "scope": "native"
+        }
+      ],
+      "perf": []
+    }
+  },
+  {
+    "version": "2.2.474",
+    "date": "2026-10-11",
+    "sections": {
+      "new": [],
+      "fixes": [
+        {
+          "text": "il pensiero adaptive arriva in streaming, niente falso «stream lento»",
+          "scope": "native"
+        }
+      ],
+      "perf": []
+    }
+  },
+  {
     "version": "2.2.471",
     "date": "2026-10-11",
     "sections": {

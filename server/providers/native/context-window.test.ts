@@ -7,7 +7,7 @@
  * @covers CHAT-COMPACT-04
  */
 import { describe, expect, test } from "bun:test";
-import { calibrateFrom, recoverFromImageFailure } from "./context-window";
+import { calibrateFrom, compactIfNeeded, recoverFromImageFailure } from "./context-window";
 import { charsPerTokenFrom, DEFAULT_CHARS_PER_TOKEN } from "./compaction";
 import { ApiHttpError } from "./retry";
 import type { AgentMessage, Block } from "./agent-loop";
@@ -97,22 +97,74 @@ describe("recoverFromImageFailure", () => {
 
 describe("calibrateFrom", () => {
   test("with no image the ratio is the characters sent over the tokens counted", () => {
-    const calibration = { charsPerToken: DEFAULT_CHARS_PER_TOKEN };
+    const calibration = { charsPerToken: DEFAULT_CHARS_PER_TOKEN, calibrated: false };
     calibrateFrom(calibration, 9_000, { input: 3_000, cacheRead: 1_000, cacheWrite: 500 }, [{ role: "user", content: "x" }]);
     expect(calibration.charsPerToken).toBe(charsPerTokenFrom(9_000, 4_500));
+    expect(calibration.calibrated).toBe(true);
   });
 
   test("the images' own tokens come out of the count before the ratio is taken", () => {
     // 280x280 is 10x10 tiles of 28 px: 100 tokens by the API's formula. The
     // characters sent never included the base64, so the tokens must not either.
-    const calibration = { charsPerToken: DEFAULT_CHARS_PER_TOKEN };
+    const calibration = { charsPerToken: DEFAULT_CHARS_PER_TOKEN, calibrated: false };
     calibrateFrom(calibration, 9_000, { input: 4_600, cacheRead: 0, cacheWrite: 0 }, historyWithImage(280, 280));
     expect(calibration.charsPerToken).toBe(charsPerTokenFrom(9_000, 4_500));
+    expect(calibration.calibrated).toBe(true);
   });
 
   test("no text tokens left after the images: the calibration keeps what it had", () => {
-    const calibration = { charsPerToken: 3.1 };
+    const calibration = { charsPerToken: 3.1, calibrated: false };
     calibrateFrom(calibration, 9_000, { input: 100, cacheRead: 0, cacheWrite: 0 }, historyWithImage(280, 280));
     expect(calibration.charsPerToken).toBe(3.1);
+    expect(calibration.calibrated).toBe(false);
+  });
+});
+
+describe("compactIfNeeded threshold and log", () => {
+  test("uses 0.75 before calibration and includes the session key in the compaction line", () => {
+    const history: AgentMessage[] = [{ role: "user", content: "start" }];
+    for (let i = 0; i < 4; i++) {
+      const id = `tool-${i}`;
+      history.push(
+        { role: "assistant", content: [{ type: "tool_use", id, name: "read_file", input: {} }] },
+        { role: "user", content: [{ type: "tool_result", tool_use_id: id, content: "x".repeat(i === 0 ? 130_000 : 8_000) }] },
+      );
+    }
+    const lines: string[] = [];
+    const log = console.log;
+    console.log = (...args: unknown[]) => { lines.push(args.map(String).join(" ")); };
+    try {
+      expect(compactIfNeeded({
+        history,
+        windowTokens: 200_000,
+        overheadChars: 0,
+        calibration: { charsPerToken: 1, calibrated: false },
+        sessionId: "topic:test-key",
+        handler: { onCompaction: () => {} },
+      })).toBe(true);
+    } finally {
+      console.log = log;
+    }
+    expect(lines).toHaveLength(1);
+    expect(lines[0]).toMatch(/^\[native\] contesto compattato: at=\d{4}-\d\d-\d\dT\S+ session_key=topic:test-key pre_tokens=\d+ post_tokens=\d+ /);
+  });
+
+  test("uses 0.85 once API counts have calibrated the estimate", () => {
+    const history: AgentMessage[] = [{ role: "user", content: "start" }];
+    for (let i = 0; i < 4; i++) {
+      const id = `tool-${i}`;
+      history.push(
+        { role: "assistant", content: [{ type: "tool_use", id, name: "read_file", input: {} }] },
+        { role: "user", content: [{ type: "tool_result", tool_use_id: id, content: "x".repeat(i === 0 ? 130_000 : 8_000) }] },
+      );
+    }
+    expect(compactIfNeeded({
+      history,
+      windowTokens: 200_000,
+      overheadChars: 0,
+      calibration: { charsPerToken: 1, calibrated: true },
+      sessionId: "topic:test-key",
+      handler: { onCompaction: () => {} },
+    })).toBe(false);
   });
 });
