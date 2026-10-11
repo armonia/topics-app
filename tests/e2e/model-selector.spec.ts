@@ -103,6 +103,10 @@ test.describe("desktop, 1280 × 900", () => {
   test("Opus and GPT in one view, the search, the keyboard and the band", async ({ page, request }) => {
     const picker = await openChat(page, request);
     await picker.click();
+    // MSEL-03: the search has the focus on desktop. Checked BEFORE the heading clicks below: a click
+    // focuses the button it lands on in Chromium (not in WebKit), and that move is the person's.
+    const search = page.getByTestId("model-selector-search");
+    await expect(search).toBeFocused();
     // MSEL-02: no intermediate level, every company in one vertical list.
     await expect(panel(page)).toHaveAttribute("data-layout", "list");
     // The accordion opens the choice's section (Anthropic here); OpenAI opens
@@ -114,9 +118,6 @@ test.describe("desktop, 1280 × 900", () => {
     await expect(sectionToggle(page, "anthropic")).toHaveAttribute("aria-expanded", "true");
     await expect(modelRow(page, "claude-opus-5-5")).toBeVisible();
     await expect(modelRow(page, "gpt-6.1-sol")).toBeVisible();
-    // MSEL-03: the search has the focus on desktop.
-    const search = page.getByTestId("model-selector-search");
-    await expect(search).toBeFocused();
     await search.fill("gpt");
     await expect(panel(page).getByTestId("model-section-openai")).toBeVisible();
     await expect(panel(page).getByTestId("model-section-anthropic")).toHaveCount(0);
