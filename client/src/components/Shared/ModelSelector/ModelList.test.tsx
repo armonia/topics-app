@@ -93,7 +93,11 @@ describe('every company in one view (MSEL-02, AICTRL-02)', () => {
   test('the [1m] variant is a toggle inside the row, not a row', () => {
     const markup = draw();
     expect(markup).not.toContain('data-model="claude-opus-5-5[1m]"');
-    expect(rowOf(markup, 'claude-opus-5-5')).toContain('data-testid="model-row-1m"');
+    // From 5.5 the bare id already has a million: no switch between equal windows…
+    expect(rowOf(markup, 'claude-opus-5-5')).not.toContain('data-testid="model-row-1m"');
+    // …but a chat already on the long id keeps it, to turn it off.
+    const onLong = draw({ value: { provider: 'claude-code', model: 'claude-opus-5-5[1m]' } });
+    expect(onLong).toContain('data-testid="model-row-1m"');
   });
 
   test('a provider that is not ready is a connect box with its state and one action, never a shell hint (AC-17)', () => {
@@ -134,7 +138,7 @@ describe('each row helps to choose (MSEL-04)', () => {
     expect(rowOf(markup, 'claude-opus-5-5')).not.toContain('data-testid="model-row-via"');
     expect(rowOf(markup, 'o4-mini')).toContain('via OpenAI API');
     // The accessible name carries the engine and the route.
-    expect(rowOf(markup, 'claude-opus-5-5')).toMatch(/aria-label="Opus 5.5, 200K, Claude Code, via Topics"/);
+    expect(rowOf(markup, 'claude-opus-5-5')).toMatch(/aria-label="Opus 5.5, 1M, Claude Code, via Topics"/);
     const section = (maker: string) => new RegExp(`data-testid="model-section-${maker}".*?data-testid="model-section-heading".*?</div>`, 's').exec(markup)?.[0] ?? '';
     expect(section('anthropic')).toContain('via Topics');
     expect(section('anthropic')).toContain('data-testid="model-group-engine"');

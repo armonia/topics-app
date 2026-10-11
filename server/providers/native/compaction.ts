@@ -50,6 +50,7 @@
  */
 
 import type { Block, AgentMessage } from "./agent-loop";
+import { contextWindowFor } from "../../../shared/context-window";
 import { imageShapeFromBuffer } from "../../services/image-shape";
 import { pathFromImageCaption } from "./image-normalize";
 
@@ -605,9 +606,12 @@ export function windowFor(model: string): number {
   // Il suffisso e' una nostra convenzione (`providers/claude-models.ts`) e
   // vince su qualunque famiglia: dice «questo modello, con la finestra lunga».
   if (/\[1m\]$|-1m$/.test(model)) return 1_000_000;
-  if (/opus-4|sonnet-4-6|sonnet-4-5/.test(model)) return 200_000;
-  if (/haiku-4/.test(model)) return 200_000;
-  return 200_000;
+  // ONE TABLE, the one the context ring reads too (`shared/context-window.ts`):
+  // a second list here said 200k for the whole 5.5 family, which has a million
+  // as standard (11/10), and compacted at a fifth of the window. An unknown
+  // model still gets the cautious number, not the generous one.
+  const known = contextWindowFor(model);
+  return known.known ? known.tokens : 200_000;
 }
 
 /**

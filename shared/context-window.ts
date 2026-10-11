@@ -50,10 +50,21 @@ const CONTEXT_WINDOWS: Record<string, number> = {
   //
   // Fable è l'unico a un milione senza chiedere niente: non ha una variante
   // `[1m]` perché non le serve.
+  //
+  // FROM 5.5 THE MILLION IS STANDARD (11/10/2026, CLI 2.1.296): the CLI reports
+  // `contextWindow: 1000000` for bare `claude-opus-5-5`, `claude-sonnet-5-5`,
+  // `claude-haiku-5-5` and `claude-opus-4-8`, and the real API, without the
+  // beta, took 780k tokens from Haiku 5.5 and Sonnet 5.5 and 252k from Opus 5.5
+  // and Opus 4.8. At 200k here the native runtime compacted at a fifth of the
+  // window, five times earlier than the CLI on the same model. Longer ids win,
+  // so a bare `claude-opus-5` (5.0, not measured again) stays at 200k.
   "claude-fable-5": 1_000_000,
   "claude-mythos-5": 1_000_000,
+  "claude-opus-5-5": 1_000_000,
+  "claude-sonnet-5-5": 1_000_000,
+  "claude-haiku-5-5": 1_000_000,
   "claude-opus-5": 200_000,
-  "claude-opus-4-8": 200_000,
+  "claude-opus-4-8": 1_000_000,
   "claude-opus-4-7": 200_000,
   "claude-opus-4-6": 200_000,
   "claude-opus-4-5": 200_000,

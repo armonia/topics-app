@@ -215,6 +215,11 @@ function ModelRow({ row, value, scope, variant, disabled, onPick, onFix }: RowPr
   const id = row.automatic ? null : long && row.longModel ? row.longModel : row.model;
   const label = row.automatic ? tr('ai.selector.auto') : row.label;
   const win = id ? contextWindowFor(id, row.windows[id]) : null;
+  // The 1M switch only where it widens something: from 5.5 the bare id already
+  // has a million (11/10), and a switch between two equal windows is a no-op.
+  // It stays while the chat is ON the long id, so it can be turned off.
+  const longWidens = !!row.longModel && !!row.model
+    && contextWindowFor(row.longModel, row.windows[row.longModel]).tokens > contextWindowFor(row.model, row.windows[row.model]).tokens;
   // A window is shown only when it is known: never «≈1M» (revision §3.6, AC-12).
   const windowText = scope === 'chat' && win?.known ? formatContextWindow(win.tokens) : null;
   const describedBy = `model-row-desc-${domId(row.key)}`;
@@ -267,7 +272,7 @@ function ModelRow({ row, value, scope, variant, disabled, onPick, onFix }: RowPr
           </span>
         )}
       </button>
-      {row.longModel && (
+      {row.longModel && (longWidens || long) && (
         <button
           type="button"
           data-roving-skip=""
