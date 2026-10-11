@@ -1,5 +1,22 @@
 [
   {
+    "version": "2.2.474",
+    "date": "2026-10-11",
+    "sections": {
+      "new": [],
+      "fixes": [
+        {
+          "it": "il pensiero adaptive arriva in streaming, niente falso «stream lento»",
+          "en": "",
+          "scope": "native",
+          "breaking": false
+        }
+      ],
+      "perf": [],
+      "internal": []
+    }
+  },
+  {
     "version": "2.2.473",
     "date": "2026-10-11",
     "sections": {

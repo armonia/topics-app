@@ -2,6 +2,11 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.2.474 — 2026-10-11
+
+### Correzioni
+- **native** · il pensiero adaptive arriva in streaming, niente falso «stream lento»
+
 ## 2.2.473 — 2026-10-11
 
 ### Sotto il cofano
