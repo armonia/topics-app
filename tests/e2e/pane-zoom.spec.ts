@@ -493,14 +493,12 @@ test.describe("Ingrandire una conversazione", () => {
     }, t1);
 
     await expect(tab(page, `browser:${t1}`).first()).toBeVisible({ timeout: 15_000 });
-    // AS BUILT TODAY THIS IS RED, on a real defect, and it is left red on
-    // purpose. The new browser lands in a cell of its OWN (`solo:browser:<id>`
-    // appears in the grid, measured), and the auto-split that puts it there
-    // goes through `handleSplitPane` — which D8 made call `exitZoom()` before
-    // it applies. So the blanket "any command that REORGANISES leaves the zoom"
-    // fires on the very event LAYOUT-36 says must walk INTO the zoom, and the
-    // two rules cancel each other exactly in the layout this feature exists
-    // for: a chat plus the browser its agent just opened.
+    // Guards a defect this was red on until it was fixed (green in WebKit on 11/10):
+    // the new browser lands in a cell of its OWN (`solo:browser:<id>`), and the
+    // auto-split that puts it there went through `handleSplitPane`, which D8 made
+    // call `exitZoom()` first. The blanket "any command that REORGANISES leaves the
+    // zoom" fired on the very event LAYOUT-36 says must walk INTO the zoom: a chat
+    // plus the browser its agent just opened.
     expect(await zoomed(page), "una tab della conversazione non chiude lo zoom").toBe(true);
     // Wherever it landed, it is on screen: a pane is never born inside a
     // collapsed cell.
@@ -1345,15 +1343,11 @@ test.describe("La cornice e la griglia sotto", () => {
     // handlers, not the node — so the proof is a drag that moves nothing, never
     // a count of dividers.
     //
-    // AS BUILT TODAY THIS IS RED, on a real defect, and it is left red on
-    // purpose. `PanelGrid` stops passing `onResize` while zoomed, which kills
-    // the COMMIT — no weight is ever written to the persisted layout — but
-    // `SplitTree`'s `Divider` moves the cells IMPERATIVELY during the drag
-    // (`prevEl.style.flex = ...`, SplitTree.tsx) and nothing re-renders those
-    // nodes afterwards to put the weights back. Measured: the surviving cells
-    // go 320/320 → 499/140 and STAY there, with the zoom still open. What
-    // LAYOUT-35 asks for is "la geometria NON SHALL cambiare", and today it  allow-italian: quotes LAYOUT-35 verbatim
-    // changes and sticks.
+    // Guards a defect this was red on until it was fixed (green in WebKit on 11/10):
+    // `PanelGrid` stopped passing `onResize` while zoomed, which killed the commit,
+    // but `SplitTree`'s `Divider` moved the cells imperatively during the drag and
+    // nothing put the weights back: the surviving cells went 320/320 -> 499/140 and
+    // stayed there, with the zoom still open, against LAYOUT-35's unchanged geometry.
     const divider = page.locator('[role="main"] [data-resize-axis="col"]').first();
     await expect(divider).toBeVisible({ timeout: 5_000 });
     const zoomedBoxes = await cellBoxes(page);
