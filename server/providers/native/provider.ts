@@ -226,6 +226,9 @@ export function nativeSystemPrompt(args: {
  * (an alias of the dated id, see NATIVE_MODEL_ALIASES). Left out:
  * claude-sonnet-4-6[1m] answered 429 "Usage credits are required for long
  * context requests", claude-haiku-3-55 answered 404 not_found_error.
+ * claude-haiku-5-5 probed on 2026-10-11 on the same OAuth endpoint, no beta:
+ * 200 at max_tokens 1, and 200 on a 780k-token request (a million is its
+ * standard window, see shared/context-window.ts).
  */
 const MODELS = [
   "claude-opus-5-5[1m]",
@@ -241,6 +244,7 @@ const MODELS = [
   "claude-opus-4-8",
   "claude-opus-4-6",
   "claude-sonnet-4-6",
+  "claude-haiku-5-5",
   "claude-haiku-4-5-20251001",
 ];
 
