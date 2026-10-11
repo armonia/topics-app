@@ -432,6 +432,7 @@ export function useProjectLayout(args: UseProjectLayoutArgs): UseProjectLayoutRe
     focusedGroupIdRef,
     setGroups,
     setFocusedGroupId,
+    onFocusPanel,
     onWSMessage,
     onBrowserNavigateUrl,
     handleAddPaneToGroupRef,
