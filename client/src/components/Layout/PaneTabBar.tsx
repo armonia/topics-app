@@ -495,7 +495,7 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
     active: pane.id === activePaneId,
   })), [panes, activePaneId]);
   const naturalTabsRef = useRef(naturalTabs);
-  naturalTabsRef.current = naturalTabs;
+  useLayoutEffect(() => { naturalTabsRef.current = naturalTabs; }, [naturalTabs]);
   const [densityMeasure, setDensityMeasure] = useState({ availablePx: 1_000_000, gapPx: 0, tabHeightPx: 28 });
   const [frozenDensity, setFrozenDensity] = useState<{
     mode: TabDensityMode;
