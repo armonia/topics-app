@@ -21,7 +21,7 @@ describe("initial recovery frame compression", () => {
       },
     };
     sendWsFrame(ws, payload, "ui-state:init");
-    sendWsFrame(ws, "small", "unread:init");
+    sendWsFrame(ws, "small", "attention:init");
     sendWsFrame(ws, payload, "frame");
     ws.data.remote = false;
     sendWsFrame(ws, payload, "ui-state:init");

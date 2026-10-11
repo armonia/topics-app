@@ -31,7 +31,7 @@ beforeAll(() => {
   const realMigDir = join(import.meta.dir, "..", "db", "migrations");
   for (const f of readdirSync(realMigDir)) if (f.endsWith(".sql")) writeFileSync(join(migDir, f), readFileSync(join(realMigDir, f), "utf-8"));
   initDatabase(tmpRoot);
-  configureNotificationRegistry({ announce: () => {}, announceSeen: () => {}, isTopicArchived: () => false });
+  configureNotificationRegistry({ isTopicArchived: () => false });
 });
 afterAll(() => { __resetNotificationRegistry(); try { closeDatabase(); } catch { /* closed */ } try { rmSync(tmpRoot, { recursive: true, force: true }); } catch { /* best effort */ } });
 

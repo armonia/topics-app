@@ -10,9 +10,10 @@
  * with no target: they light no subject and enter no count.
  *
  * One row per CYCLE: the thaw rewrites the row of its freeze instead of adding
- * a second one.
+ * a second one. Having no subject, no `attention:updated` carries the row: it
+ * reaches the open windows on `attention:history` (`recordHistoryRow`).
  */
-import { recordAndAnnounce } from "../notification-registry";
+import { recordHistoryRow } from "./store";
 import { updateNotificationByDedupeKey } from "../db/notification-log";
 import { systemSubject } from "../../shared/attention";
 
@@ -23,7 +24,7 @@ const openCycles = new Map<string, string>();
 export function recordSystemNotice(n: { key: string; cycle: string; title: string; body?: string }): void {
   const dedupeKey = `system:${n.key}:${n.cycle}`;
   if (updateNotificationByDedupeKey(dedupeKey, { title: n.title, body: n.body })) return;
-  recordAndAnnounce({ kind: "system", title: n.title, body: n.body ?? "", targetKind: null, targetId: null, groupKey: systemSubject(n.key), dedupeKey, source: "push" });
+  recordHistoryRow({ kind: "system", title: n.title, body: n.body ?? "", targetKind: null, targetId: null, groupKey: systemSubject(n.key), dedupeKey, source: "push" });
 }
 
 /** A cycle starts (a freeze): its row is written. */
