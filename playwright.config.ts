@@ -609,6 +609,8 @@ export default defineConfig({
         // The bar of a topic's browser window with more pages than fit: what a page keeps of its width is
         // measured where the product ships.
         "**/topic-browser-tab-strip.spec.ts",
+        // Pane tabs adapt to the width of their split cell, measured on the shipped engine.
+        "**/tab-bar-density.spec.ts",
         "**/sender-sees-question.spec.ts",
         // A question waits for its person across a reload and the death of its
         // asker, and the answer reaches the model: read in the engine that ships.
