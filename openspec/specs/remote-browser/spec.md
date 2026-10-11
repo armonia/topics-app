@@ -360,15 +360,18 @@ the chat, and SHALL close the pane in live clients on a remote close.
 > the add-pane menu does not expose a Browser entry, so what is pinned is that the pane
 > mounts, not that the menu path is the one taken.
 
-#### Scenario: In a project window the agent's page lands beside the chat that asked for it
-- **GIVEN** a project window with two chats in two groups, focus on the second chat's group
-- **WHEN** the first chat's agent opens a page (`browser:navigate` for its topic) and no pane for that context exists yet
-- **THEN** the new browser pane goes to the group holding the first chat, not the focused group
-- **AND** an explicit target group still wins, and focus decides only when the requester is in no group
+#### Scenario: In a project window an existing browser pane takes the agent's next page for its context
+- **GIVEN** a project window with two chats in two groups, an existing browser pane for the first chat's context in its group, and focus on the second chat's group
+- **WHEN** the first chat's agent opens another page for that context
+- **THEN** the existing browser pane stays in the first chat's group and shows the page
+- **AND** no duplicate sheet is added to the topic's browser window
 
-> Seen live on 2026-10-11: two chats of one project opened pages seconds apart, the
-> second page landed in the first one's browser group (focus had moved there) and
-> neither chat showed its page.
+#### Scenario: An agent's first page in a project chat opens the topic's mini browser
+- **GIVEN** a project window contains a chat pane for a topic with no browser window or browser pane for this context
+- **WHEN** that chat's agent opens a page with `open_browser_pane`
+- **THEN** the page appears as the active sheet in the topic's browser window, minimized and visible on screen
+- **AND** no browser pane is added to the project layout
+- **AND** the first link clicked in that chat still opens in the project layout as specified by `LINK-TAB-02`
 
 #### Scenario: /browser <url> opens the pane and labels the tab
 - **GIVEN** a topic chat is open and focused
