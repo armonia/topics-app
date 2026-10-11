@@ -35,6 +35,12 @@
           "en": "",
           "scope": "pane-zoom",
           "breaking": false
+        },
+        {
+          "it": "il test del server da Bash rimette DATA_DIR a fine file",
+          "en": "",
+          "scope": "processes",
+          "breaking": false
         }
       ]
     }
@@ -2531,6 +2537,11 @@
         },
         {
           "it": "Un sotto-agente che ha finito il turno si archivia da solo, salvo che la persona l'abbia aperto",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Mostra come server della chat un dev server avviato con Bash in background, non come lavoro in corso",
           "en": "",
           "scope": null
         },
