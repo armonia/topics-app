@@ -15,18 +15,13 @@
  *    put the tab sheet at y = -3 (see `TabSheet`). Measuring the topic
  *    area and drawing on the body is what gives the window the viewport back.
  *
- * 2. Moving a window does NOT move the native page inside it. The WKWebView is
- *    composited by the OS at a rectangle it was told once; the placeholder only
- *    re-measures on a resize, a mutation or its slow poll. So every geometry
- *    change ends with `browser:reflow-request`, which the placeholder listens
- *    for already.
+ * 2. A minimized-window drag moves its chrome with a compositor transform and
+ *    sends the native page's bounds once per animation frame. The placeholder
+ *    handles that targeted reflow without waiting for its slower safety poll.
  *
- * 3. A drag runs with the page FROZEN (`freeze()`/`thaw()` on the drag gate,
- *    through the `topics:pane-resize-*` events the gate already understands).
- *    That is the ruling written in design.md, in the dragging section: the
- *    IPC floor measured by `wkzprobe drag` is inside a frame at the median but
- *    its tail is one to two frames out, and the live-follow that the sidebar
- *    tried made the pane edge stutter.
+ * 3. Resizing an expanded window still freezes native views through the
+ *    `topics:pane-resize-*` gate. Moving the minimized window does not: its page
+ *    stays visible and follows the frame-coalesced bounds updates.
  *
  * Promotion is the layout's own door, not a private one: "open as tab" fires
  * the same `browser:open-tab` event a clicked link fires, with the SAME
@@ -75,6 +70,7 @@ import {
 import { OPEN_TAB_EVENT, type OpenTabDetail } from '../../lib/openLink';
 import { tauriInvoke } from '../../lib/shell/tauri';
 import { suppressTextSelection } from '../../lib/dragSelectionGuard';
+import { createAnimationFrameCoalescer, resolveTopicBrowserDragPosition } from '../../lib/topicBrowserDrag';
 import { DEFAULT_EXPANDED_WIDTH, expandedInsetFor, canExpandInArea } from './topicBrowserWindowLazy';
 import { TabSheet, TAB_SHEET_ANCHOR_ATTR } from '../Shared/TabSheet';
 import { prefetchTabSheet } from '../Shared/tabSheetLazy';
@@ -218,10 +214,11 @@ function raiseNativeView(contextId: string): void {
 
 /** Tell the native views to re-measure: a window that MOVED without changing
  *  size fires no ResizeObserver, so nothing else would. */
-function requestReflow(contextId?: string): void {
+function requestReflow(contextId?: string, atAnimationFrame = false): void {
   // Targeted when we know whose page moved: an untargeted request makes every
   // native view in the app re-send its bounds, and here only one moved.
-  window.dispatchEvent(new CustomEvent('browser:reflow-request', { detail: contextId ? { contextId } : undefined }));
+  const detail = contextId || atAnimationFrame ? { contextId, atAnimationFrame } : undefined;
+  window.dispatchEvent(new CustomEvent('browser:reflow-request', { detail }));
 }
 
 /** Freeze every native view for the length of a gesture, through the events the
@@ -260,12 +257,10 @@ export function TopicBrowserWindow({ topicId, areaRef, projectPath }: TopicBrows
   // The menu closes as before; an inert copy fades out (lib/exitGhost).
   const addMenuRef = useRef<HTMLDivElement | null>(null);
   useExitGhost(addMenuRef, addOpen && menuAnchor !== null);
-  // Geometry while a gesture is in flight: the store only hears the result, so
-  // a drag is one write instead of one per frame.
-  const [dragPos, setDragPos] = useState<{ right: number; bottom: number } | null>(null);
+  // Expanded resizing keeps its live width; minimized movement stays on the DOM.
   const [dragWidth, setDragWidth] = useState<number | null>(null);
-  // The selection guard of the drag in flight, released if the window unmounts
-  // mid-gesture (the guard also lets go by itself when the gesture ends).
+  const windowElement = useRef<HTMLDivElement | null>(null);
+  // The active pointer gesture is fully released if the window unmounts.
   const dragCleanup = useRef<(() => void) | null>(null);
   useEffect(() => () => { dragCleanup.current?.(); }, []);
 
@@ -342,12 +337,12 @@ export function TopicBrowserWindow({ topicId, areaRef, projectPath }: TopicBrows
       return { left: area.left + area.width - width, top: area.top, width, height: area.height };
     }
     const local = resolveMinRect(
-      dragPos ? { ...state, minPos: dragPos } : state,
+      state,
       { width: area.width, height: area.height, composer: band ?? undefined },
       MIN_WINDOW_SIZE,
     );
     return { left: area.left + local.left, top: area.top + local.top, width: local.width, height: local.height };
-  }, [area, state, expandedWidth, dragPos, barOnly, band]);
+  }, [area, state, expandedWidth, barOnly, band]);
 
   // The last geometry the window really had, so a parked window can come back
   // where it was instead of jumping to a corner for one frame.
@@ -366,49 +361,100 @@ export function TopicBrowserWindow({ topicId, areaRef, projectPath }: TopicBrows
 
   const startMove = useCallback((e: React.PointerEvent) => {
     if (state.mode === 'exp' || !area) return;
+    if (e.button !== 0) return;
     // Anything the bar holds that answers a click of its own keeps its click:
     // the drag is what is left of the bar, which is most of it.
     if ((e.target as HTMLElement | null)?.closest('button, a, input, [role="menu"]')) return;
+    e.preventDefault();
+    e.currentTarget.setPointerCapture(e.pointerId);
     // Armed on the press, not at the threshold: by the first real move the
     // engine has already anchored a selection that would follow the pointer
     // across the transcript under the window.
     const unlockSelection = suppressTextSelection();
-    dragCleanup.current = unlockSelection;
-    const start = resolveMinRect(state, { width: area.width, height: area.height, composer: band ?? undefined }, MIN_WINDOW_SIZE);
+    const windowSize = barOnly
+      ? { width: MIN_WINDOW_SIZE.width, height: BAR_ONLY_HEIGHT }
+      : MIN_WINDOW_SIZE;
+    const start = resolveMinRect(state, { width: area.width, height: area.height, composer: band ?? undefined }, windowSize);
     const originX = e.clientX;
     const originY = e.clientY;
-    // Freezing paints a still image over every native view: a bar that is only
-    // being clicked must not pay for it, so it is armed at the first real move.
-    let release: (() => void) | null = null;
+    const windowLeft = area.left + start.left;
+    const windowTop = area.top + start.top;
     const guard = resolveComposerAvoidance(
       { height: area.height, composer: band ?? undefined },
       start.height,
     );
     let latest = { right: area.width - start.left - start.width, bottom: area.height - start.top - start.height };
-    const onMove = (ev: PointerEvent): void => {
-      if (!release && Math.abs(ev.clientX - originX) + Math.abs(ev.clientY - originY) < DRAG_THRESHOLD_PX) return;
-      release ??= freezeNativeViews();
-      latest = {
-        right: Math.max(0, Math.min(area.width - start.width, area.width - start.left - start.width - (ev.clientX - originX))),
-        // Clamped at the source too, not only on the way out: what gets
-        // persisted is a position the window can actually hold.
-        bottom: Math.max(guard.floor, Math.min(area.height - start.height, area.height - start.top - start.height - (ev.clientY - originY))),
-      };
-      setDragPos(latest);
+    let moving = false;
+    const frames = createAnimationFrameCoalescer<{ right: number; bottom: number }>(
+      {
+        request: (callback) => window.requestAnimationFrame(callback),
+        cancel: (frameId) => window.cancelAnimationFrame(frameId),
+      },
+      (position) => {
+        const node = windowElement.current;
+        if (!node) return;
+        const left = area.left + area.width - position.right - start.width;
+        const top = area.top + area.height - position.bottom - start.height;
+        node.style.willChange = 'transform';
+        node.style.transform = `translate3d(${left - windowLeft}px, ${top - windowTop}px, 0)`;
+        if (state.activeContextId) requestReflow(state.activeContextId, true);
+      },
+    );
+    const updatePosition = (ev: PointerEvent): void => {
+      const deltaX = ev.clientX - originX;
+      const deltaY = ev.clientY - originY;
+      if (!moving && Math.abs(deltaX) + Math.abs(deltaY) < DRAG_THRESHOLD_PX) return;
+      moving = true;
+      latest = resolveTopicBrowserDragPosition({
+        areaWidth: area.width,
+        areaHeight: area.height,
+        windowWidth: start.width,
+        windowHeight: start.height,
+        startLeft: start.left,
+        startTop: start.top,
+        deltaX,
+        deltaY,
+        minimumBottom: guard.floor,
+      });
+      frames.schedule(latest);
     };
-    const onUp = (): void => {
+    const finish = (): void => {
       window.removeEventListener('pointermove', onMove);
       window.removeEventListener('pointerup', onUp);
       window.removeEventListener('pointercancel', onUp);
+      frames.cancel();
       unlockSelection();
-      setDragPos(null);
-      topicBrowserWindow.move(topicId, latest);
-      release?.();
+      dragCleanup.current = null;
+    };
+    const onMove = (ev: PointerEvent): void => {
+      if (ev.pointerId === e.pointerId) updatePosition(ev);
+    };
+    const onUp = (ev: PointerEvent): void => {
+      if (ev.pointerId !== e.pointerId) return;
+      updatePosition(ev);
+      frames.flush();
+      finish();
+      if (!moving) return;
+      const committed = { right: Math.max(0, Math.round(latest.right)), bottom: Math.max(0, Math.round(latest.bottom)) };
+      const finalRect = resolveMinRect(
+        { ...state, minPos: committed },
+        { width: area.width, height: area.height, composer: band ?? undefined },
+        windowSize,
+      );
+      const node = windowElement.current;
+      if (node) {
+        node.style.left = `${area.left + finalRect.left}px`;
+        node.style.top = `${area.top + finalRect.top}px`;
+        node.style.transform = '';
+        node.style.willChange = '';
+      }
+      topicBrowserWindow.move(topicId, committed);
     };
     window.addEventListener('pointermove', onMove);
     window.addEventListener('pointerup', onUp);
     window.addEventListener('pointercancel', onUp);
-  }, [state, area, topicId, band]);
+    dragCleanup.current = finish;
+  }, [state, area, topicId, band, barOnly]);
 
   const startResize = useCallback((e: React.PointerEvent) => {
     if (state.mode !== 'exp' || !area) return;
@@ -526,6 +572,7 @@ export function TopicBrowserWindow({ topicId, areaRef, projectPath }: TopicBrows
 
   return createPortal(
     <div
+      ref={windowElement}
       data-testid="topic-browser-window"
       {...focus.captureProps}
       data-mode={barOnly ? 'loaned' : (expanded ? 'exp' : 'min')}
