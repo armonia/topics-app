@@ -551,7 +551,22 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
       }
       const requestedProviderId = overrideProvider ?? matchedTopic?.provider;
       let explicitProvider: AIProvider | null = null;
-      if (!forcedGlobalProvider && requestedProviderId) {
+      // A REATTACH ADOPTS A TURN THAT IS ALREADY RUNNING, so the provider that
+      // owns it is the one the caller names, taken as is: the routing switch
+      // answers "who would run a NEW turn of this topic", and on 11/10 it
+      // answered the native engine for a claude-haiku-5-5 chat whose CLI turn
+      // had been running for four hours. The reattach after the restart was
+      // refused (501 below), the turn kept going unseen, and its next question
+      // never reached the screen.
+      if (!forcedGlobalProvider && body.mode === "reattach" && overrideProvider) {
+        // Only an owner that can actually reattach: otherwise the ordinary
+        // resolver below decides, and the 501 further down still speaks.
+        try {
+          const owner = resolveProviderByName(overrideProvider);
+          if (typeof (owner as unknown as { reattach?: unknown }).reattach === "function") explicitProvider = owner;
+        } catch { explicitProvider = null; }
+      }
+      if (!forcedGlobalProvider && !explicitProvider && requestedProviderId) {
         try {
           // AICTRL-01: anche un override PER MESSAGGIO passa dal resolver. Prima si prendeva il provider dal registry e basta, quindi con lo switch acceso bastava un override nel body per eseguire fuori dal motore nativo, in silenzio. allow-italian: nomina la porta laterale chiusa qui
           // Il topic non viene riscritto: la scelta del turno viaggia come topic SINTETICO e il pin resta quello che era. allow-italian: perche' si costruisce un topic finto
