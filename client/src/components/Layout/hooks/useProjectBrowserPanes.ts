@@ -23,8 +23,8 @@
  *    (`updatePane`): li riceve come ref e li CHIAMA. Sono definiti in
  *    `useProjectLayout` centinaia di righe più in basso, ed è per questo che
  *    arrivano come ref e non come funzioni.
- *  - The browser/page lifecycle: the page and agent own close/focus requests;
- *    this hook owns placement inside the matching project window.
+ *  - Il fuoco fra finestre di progetto: la guardia di appartenenza qui è per
+ *    topic/projectPath/contextId, non per pannello a fuoco.
  */
 import { useEffect, useRef, useState } from 'react';
 import type { Pane, PaneGroup, PaneType, Topic, WSMessage } from '../../../types';
@@ -42,7 +42,7 @@ import { insertPaneAfter, resolveOpenTabTarget } from '../../../lib/openTabTarge
 import { setBrowserSpawner, spawnerOfBrowser } from '../../../state/browserSpawner';
 import { chooseSplitOrientation } from '../gridWidths';
 import { tracePaneAttach } from '../../../lib/paneAttachTrace';
-import { activateBrowserPaneInGroup, resolveProjectBrowserTargetGroup } from './projectBrowserPanePlan';
+import { resolveProjectBrowserTargetGroup } from './projectBrowserPanePlan';
 
 export interface UseProjectBrowserPanesArgs {
   projectPath: string;
@@ -54,7 +54,6 @@ export interface UseProjectBrowserPanesArgs {
   focusedGroupIdRef: React.RefObject<string | null>;
   setGroups: React.Dispatch<React.SetStateAction<PaneGroup[]>>;
   setFocusedGroupId: React.Dispatch<React.SetStateAction<string | null>>;
-  onFocusPanel: (paneId: string) => void;
   onWSMessage: (handler: (msg: WSMessage) => void) => () => void;
   onBrowserNavigateUrl?: (url: string, paneId?: string) => void;
   /** Handler definiti PIÙ IN BASSO in `useProjectLayout`, passati come ref
@@ -80,7 +79,6 @@ export function useProjectBrowserPanes({
   focusedGroupIdRef,
   setGroups,
   setFocusedGroupId,
-  onFocusPanel,
   onWSMessage,
   onBrowserNavigateUrl,
   handleAddPaneToGroupRef,
@@ -93,8 +91,6 @@ export function useProjectBrowserPanes({
   // space-aware group beside the source (consumed by the effect below once the
   // pane is committed). Mirrors the standalone pendingSoloPanelId pattern.
   const [pendingBrowserSplit, setPendingBrowserSplit] = useState<{ paneId: string; sourceGroupId: string } | null>(null);
-  const onFocusPanelRef = useRef(onFocusPanel);
-  onFocusPanelRef.current = onFocusPanel;
   // Set inside the WS/DOM browser-open effect; read by the parked-navigate drain
   // effect so a board "Apri nel workspace" that raced this window's mount still
   // opens its pane once the layout exists.
@@ -126,8 +122,8 @@ export function useProjectBrowserPanes({
   //   1. Match by topicId: only open a pane when the broadcast targets a
   //      topic visible in this ProjectWindow (any open chat pane bound to it,
   //      or the topic itself living under this projectPath).
-  //   2. Keep one pane per browser context beside its spawner when known.
-  //      Reuse moves and activates that context's pane; new panes split beside it.
+  //   2. Keep one pane per browser context. Reuse activates it where it is;
+  //      a new one lands beside the chat/terminal that asked for it.
   //   3. Push the URL through `onBrowserNavigateUrl(url)` so the component-
   //      level `browserNavigateUrl` state can thread it into
   //      `<RemoteBrowserPanel navigateUrl={…} />`.
@@ -166,8 +162,9 @@ export function useProjectBrowserPanes({
         spawnerKey,
       );
 
-      // Reuse this context's browser pane. Different contextIds keep their own
-      // pages, so opening from one chat must never take the other chat's pane.
+      // Reuse ANY existing browser in this project — refresh it in place rather
+      // than spawning a second. A project shares one browser context across its
+      // panes, so a duplicate would fight over the same Electron view.
       // Persist the URL onto the project pane deterministically at open — the
       // standalone path does this (usePaneOrdering persistBrowserPaneUrl) but the
       // project path relied solely on the timing-fragile onUrlChange render, so a
@@ -197,17 +194,11 @@ export function useProjectBrowserPanes({
       // and activates it; left here, the request was claimed and did nothing.
       if (existing && !grp) tracePaneAttach('existing pane in no group, placing it', { projectPath, paneId: existing.id });
       if (existing && grp) {
-        const target = fgid ?? grp.id;
-        tracePaneAttach('reuse existing pane', {
-          projectPath,
-          paneId: existing.id,
-          groupId: target,
-          previousGroupId: grp.id,
-          wasActive: grp.id === target && grp.activePaneId === existing.id,
-        });
-        setGroups(prev => activateBrowserPaneInGroup(prev, existing.id, target));
-        setFocusedGroupId(target);
-        onFocusPanelRef.current(createPaneId('project', projectPath));
+        // Reused where it already is: moving it into the chat's group would
+        // stack it as a tab OVER the chat that asked for it.
+        tracePaneAttach('reuse existing pane', { projectPath, paneId: existing.id, groupId: grp.id, wasActive: grp.activePaneId === existing.id });
+        setGroups(prev => prev.map(g => (g.id === grp.id ? { ...g, activePaneId: existing.id } : g)));
+        setFocusedGroupId(grp.id);
         const ctx = getBrowserContextFromPaneId(existing.id);
         if (ctx && spawnerKey) setBrowserSpawner(ctx, spawnerKey);
         seedPaneUrl(existing.id);
@@ -234,7 +225,6 @@ export function useProjectBrowserPanes({
           // Niente split quando il gruppo è nato adesso: non c'è nessun vicino
           // da cui staccarsi, e la pane è già sola nella sua cella.
           if (fgid) setPendingBrowserSplit({ paneId: newId, sourceGroupId: fgid });
-          onFocusPanelRef.current(createPaneId('project', projectPath));
           // Navigate the pane we just created — and ONLY that one. The old
           // untargeted call here fired before the pane even existed and landed
           // on whatever browser panes happened to be visible.

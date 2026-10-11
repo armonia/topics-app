@@ -1,6 +1,9 @@
+/**
+ * @covers BROWSER-CHAT-04
+ */
 import { describe, expect, test } from 'bun:test';
 import type { PaneGroup } from '../../../types';
-import { activateBrowserPaneInGroup, resolveProjectBrowserTargetGroup } from './projectBrowserPanePlan';
+import { resolveProjectBrowserTargetGroup } from './projectBrowserPanePlan';
 
 const group = (id: string, paneIds: string[], activePaneId = paneIds[0]): PaneGroup => ({
   id,
@@ -11,27 +14,15 @@ const group = (id: string, paneIds: string[], activePaneId = paneIds[0]): PaneGr
 
 describe('project browser placement', () => {
   test('targets the group that hosts the requesting chat before the focused group', () => {
-    const groups = [group('chat-a', ['chat:a']), group('chat-b', ['chat:b'])];
-
-    expect(resolveProjectBrowserTargetGroup(groups, undefined, 'chat-b', 'a')).toBe('chat-a');
+    // Two chats of one project; focus is on the other chat's group, which is
+    // where the page of the first one used to land.
+    const groups = [group('g1', ['t-a']), group('g2', ['t-b', 'browser:t-b'])];
+    expect(resolveProjectBrowserTargetGroup(groups, undefined, 'g2', 't-a')).toBe('g1');
   });
 
-  test('moves and activates only the matching reused browser pane', () => {
-    const groups = [
-      group('chat-a', ['chat:a']),
-      group('chat-b', ['chat:b']),
-      group('browser-a', ['browser:ctx-a']),
-      group('browser-b', ['browser:ctx-b']),
-    ];
-
-    const target = resolveProjectBrowserTargetGroup(groups, undefined, 'chat-b', 'a');
-    const updated = activateBrowserPaneInGroup(groups, 'browser:ctx-a', target!);
-
-    expect(updated.find(g => g.id === 'chat-a')).toMatchObject({
-      paneIds: ['chat:a', 'browser:ctx-a'],
-      activePaneId: 'browser:ctx-a',
-    });
-    expect(updated.find(g => g.id === 'browser-a')).toBeUndefined();
-    expect(updated.find(g => g.id === 'browser-b')?.paneIds).toEqual(['browser:ctx-b']);
+  test('focus is only the fallback, and an explicit target wins', () => {
+    const groups = [group('g1', ['t-a']), group('g2', ['t-b'])];
+    expect(resolveProjectBrowserTargetGroup(groups, undefined, 'g2', 'missing')).toBe('g2');
+    expect(resolveProjectBrowserTargetGroup(groups, 'g1', 'g2', 't-b')).toBe('g1');
   });
 });

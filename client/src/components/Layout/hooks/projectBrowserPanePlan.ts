@@ -1,6 +1,11 @@
 import type { PaneGroup } from '../../../types';
-import { movePaneBetweenGroups } from './groupOps';
 
+/**
+ * Which group of a project window takes a new browser pane: an explicit target
+ * first, then the group holding the chat or terminal that asked for it. Focus
+ * is only the fallback: with two chats of one project opening pages, focus sits
+ * on whichever pane opened last, and one agent's page landed in the other's.
+ */
 export function resolveProjectBrowserTargetGroup(
   groups: PaneGroup[],
   targetGroupId: string | undefined,
@@ -8,27 +13,11 @@ export function resolveProjectBrowserTargetGroup(
   spawnerKey?: string,
 ): string | undefined {
   const explicitTarget = groups.find(group => group.id === targetGroupId)?.id;
-  const spawnerTarget = spawnerKey
-    ? groups.find(group =>
-      group.paneIds.includes(spawnerKey) || group.paneIds.includes(`chat:${spawnerKey}`),
-    )?.id
-    : undefined;
+  // A chat pane's id is its topic id, a terminal's is its pane id: the spawner
+  // key is either, so a plain membership test finds both.
+  const spawnerTarget = spawnerKey ? groups.find(group => group.paneIds.includes(spawnerKey))?.id : undefined;
   return explicitTarget
     ?? spawnerTarget
     ?? groups.find(group => group.id === focusedGroupId)?.id
     ?? groups[0]?.id;
-}
-
-export function activateBrowserPaneInGroup(
-  groups: PaneGroup[],
-  paneId: string,
-  targetGroupId: string,
-): PaneGroup[] {
-  const source = groups.find(group => group.paneIds.includes(paneId));
-  const target = groups.find(group => group.id === targetGroupId);
-  if (!source || !target) return groups;
-  if (source.id === target.id) {
-    return groups.map(group => group.id === target.id ? { ...group, activePaneId: paneId } : group);
-  }
-  return movePaneBetweenGroups(groups, source.id, target.id, paneId, target.paneIds.length);
 }
