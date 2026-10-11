@@ -117,7 +117,7 @@ describe("la forma della richiesta", () => {
   describe("effort", () => {
     test("sulla famiglia 5 va adaptive + output_config.effort, e low resta un pensiero", async () => {
       const { sent } = await turn({ model: "claude-opus-5", effort: "low" }, healthyRound);
-      expect(sent[0]!.thinking).toEqual({ type: "adaptive" });
+      expect(sent[0]!.thinking).toEqual({ type: "adaptive", display: "summarized" });
       expect(sent[0]!.output_config).toEqual({ effort: "low" });
       expect(JSON.stringify(sent[0])).not.toContain("budget_tokens");
     });
@@ -125,7 +125,7 @@ describe("la forma della richiesta", () => {
     test("la finestra lunga non cambia la generazione: l'id nudo va all'API, il thinking e' adaptive", async () => {
       const { sent } = await turn({ model: "claude-sonnet-5[1m]", effort: "xhigh" }, healthyRound);
       expect(sent[0]!.model).toBe("claude-sonnet-5");
-      expect(sent[0]!.thinking).toEqual({ type: "adaptive" });
+      expect(sent[0]!.thinking).toEqual({ type: "adaptive", display: "summarized" });
       expect(sent[0]!.output_config).toEqual({ effort: "xhigh" });
     });
 

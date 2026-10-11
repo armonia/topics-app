@@ -405,7 +405,7 @@ export function thinkingBudgetFor(effort: string | null | undefined): number {
 const EFFORT_TIERS = new Set(["low", "medium", "high", "xhigh", "max"]);
 
 export interface ThinkingConfig {
-  thinking?: { type: "adaptive" } | { type: "enabled"; budget_tokens: number };
+  thinking?: { type: "adaptive"; display: "summarized" } | { type: "enabled"; budget_tokens: number };
   output_config?: { effort: string };
   /** The floor for `max_tokens`: a legacy budget has to fit under the cap. */
   minMaxTokens: number;
@@ -420,7 +420,14 @@ export function thinkingConfigFor(model: string, effort: string | null | undefin
       ? { thinking: { type: "enabled", budget_tokens: budget }, minMaxTokens: budget + 4096 }
       : { minMaxTokens: 0 };
   }
-  const out: ThinkingConfig = { thinking: { type: "adaptive" }, minMaxTokens: 0 };
+  // THE REASONING HAS TO BE STREAMED, not just billed. From the 5 family on,
+  // adaptive thinking defaults to `display: "omitted"`: the model reasons in
+  // silence and sends one empty delta plus the signature at the end. The
+  // route's soft timer reads that silence as a dead stream, so a long think
+  // showed "the stream is slow" and then "recovered" (11/10: Sonnet 5.5, 2-3.4
+  // min of nothing after a compaction, ten banners in one chat). `summarized`
+  // costs the same and streams the reasoning; 4.6 already defaulted to it.
+  const out: ThinkingConfig = { thinking: { type: "adaptive", display: "summarized" }, minMaxTokens: 0 };
   if (EFFORT_TIERS.has(tier)) {
     out.output_config = { effort: gen === "adaptive-4-6" && tier === "xhigh" ? "high" : tier };
   }
