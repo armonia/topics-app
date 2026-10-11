@@ -559,7 +559,12 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
       // refused (501 below), the turn kept going unseen, and its next question
       // never reached the screen.
       if (!forcedGlobalProvider && body.mode === "reattach" && overrideProvider) {
-        try { explicitProvider = resolveProviderByName(overrideProvider); } catch { explicitProvider = null; }
+        // Only an owner that can actually reattach: otherwise the ordinary
+        // resolver below decides, and the 501 further down still speaks.
+        try {
+          const owner = resolveProviderByName(overrideProvider);
+          if (typeof (owner as unknown as { reattach?: unknown }).reattach === "function") explicitProvider = owner;
+        } catch { explicitProvider = null; }
       }
       if (!forcedGlobalProvider && !explicitProvider && requestedProviderId) {
         try {
