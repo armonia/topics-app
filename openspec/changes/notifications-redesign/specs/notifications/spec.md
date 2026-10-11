@@ -181,8 +181,49 @@ La macchina delle fasi SHALL mettere `watching` allo `Stop` quando la sessione h
 un compito in volo, qualunque sia il tool che l'ha lanciato, e `awaiting-user` quando non
 ne ha.
 
+L'avviso di fine SHALL valere anche quando la CLI lo assorbe a metà turno: dalla 2.1.292
+non diventa una riga utente, e lo nominano solo i record di coda `queue-operation`:
+l'`enqueue`, che la CLI scrive per ogni avviso, e il `remove` con cui lo lascia andare senza
+consegnarlo. L'`enqueue` da solo NON SHALL chiudere il compito: la CLI può ancora consegnare
+l'avviso a turno fermo e svegliare la sessione. Lo chiude la sorte dell'avviso: la riga che lo
+consegna, il `remove`, o un minuto dopo lo `Stop` senza né l'una né l'altro.
+
+L'avviso SHALL chiudere il compito sotto qualunque id la mappa lo tenga: anche sotto il
+`tool-use-id` della chiamata che l'avviso nomina, finché il `PostToolUse` non l'ha ri-chiavato.
+Gli hook sono asincroni e arrivano anche secondi dopo: un hook arrivato dopo l'avviso NON
+SHALL rimettere nella mappa il compito che quell'avviso ha chiuso, neanche dopo la
+ricomposizione di avvio, anche per un terminale che non ha ancora una riga nella tabella; se
+quell'hook toglie l'ultimo compito di un turno già parcheggiato in `watching`, la fase SHALL
+scendere a `awaiting-user`, come avrebbe detto lo `Stop`. Una lettura tardiva lunga NON SHALL
+far dimenticare le fini lette dal vivo. Un Monitor SHALL chiudersi solo con le
+parole della CLI: uno `<status>`, la sua scadenza, il suo timeout, il suo arresto da parte
+della CLI (`[Monitor stopped …]`, per troppo output o per un TaskStop). Il resto di un suo
+evento è il testo del programma che guarda: «stopped» lì non è il Monitor.
+
 La mappa dei compiti SHALL sopravvivere a un ricarico del server finché il processo che
-la tiene è vivo. La fine del processo SHALL svuotarla (ATTN-15).
+la tiene è vivo. La fine del processo SHALL svuotarla (ATTN-15). Un terminale riattaccato
+dopo un ricarico SHALL rileggere dal suo transcript gli avvisi dei compiti ancora in
+volo, senza ripercorrere la fase: un avviso scritto mentre nessun server leggeva il file
+chiude il suo compito come gli altri. Ciò che chiude è finito prima del riavvio, quindi si
+ricompone come ogni riavvio: senza riga, senza annuncio, senza push e senza un'epoca nuova.
+Un turno chiuso dal vivo dopo il riavvio, anche mentre il riattacco sta ancora leggendo, SHALL
+essere annunciato come sempre. La fine letta dopo il fatto SHALL restare senza epoca anche se
+un turno dal vivo si apre mentre il riattacco legge e chiude senza esito. Se dopo la lettura
+resta in volo un compito lanciato prima del riavvio, dal turno chiuso o da un turno messo a riposo
+senza esito, il lavoro di prima non è finito: la fine di quel compito, letta dal vivo, SHALL essere
+annunciata come lo sarebbe stata senza il riavvio. Un compito lanciato dopo il riavvio è di un
+turno dal vivo e non trattiene la fine letta dopo il fatto, in qualunque ordine arrivino i suoi
+hook rispetto alla lettura. Un compito di prima del riavvio che teneva il turno (un cron ricorrente no) ed esce dal vivo (la sua fine letta
+dalla coda viva, o un cron una tantum consumato dal prompt dopo) rende dal vivo la fine di quel
+lavoro, che SHALL essere annunciata una volta come sempre, anche quando l'uscita dal vivo arriva
+mentre il riattacco sta ancora leggendo. Le fini che la coda viva legge mentre il riattacco sta
+ancora leggendo SHALL aspettare che finisca: nel file stanno dopo la storia, e la mappa dei
+compiti le prende in quell'ordine. Restano dal vivo anche se un secondo riattacco rilegge il
+file mentre aspettano. Un compito di prima del
+riavvio ancora sotto l'id della chiamata, con un avviso che non la nomina, SHALL uscire col suo
+`PostToolUse` nel modo in cui la sua fine è stata letta: dal vivo o dopo il fatto. Una fine letta
+anche una sola volta dopo il fatto è di prima del riavvio: rileggerla dal vivo, per esempio nella
+riga con cui la CLI consegna l'avviso, NON SHALL renderla dal vivo.
 
 #### Scenario: Bash, Agent e Workflow in un terminale
 - **GIVEN** un terminale claude-code con hook
@@ -207,6 +248,96 @@ la tiene è vivo. La fine del processo SHALL svuotarla (ATTN-15).
 - **GIVEN** un terminale claude-code con hook
 - **WHEN** un turno crea un cron ricorrente e arriva `Stop`
 - **THEN** la fase SHALL essere `awaiting-user` e lo stato `finished(done)`
+
+#### Scenario: l'avviso assorbito a metà turno
+- **GIVEN** un terminale o una chat con un Bash in background in volo
+- **WHEN** il compito finisce mentre un turno gira, la CLI scrive solo i record di coda (`enqueue`, poi `remove` con `absorbed_mid_turn`) e arriva lo `Stop`
+- **THEN** il compito SHALL uscire dalla mappa e la fase SHALL essere `awaiting-user`
+
+#### Scenario: l'avviso letto prima del PostToolUse
+- **GIVEN** un terminale o una chat con un Bash in background appena lanciato, nella mappa dal suo `PreToolUse`
+- **WHEN** il transcript ne porta l'avviso di fine prima del `PostToolUse`, poi arriva il `PostToolUse` e poi lo `Stop`
+- **THEN** il compito SHALL restare fuori dalla mappa e la fase SHALL essere `awaiting-user`
+
+#### Scenario: un evento di Monitor che dice «stopped»
+- **GIVEN** un terminale con un Monitor in volo
+- **WHEN** arriva un suo evento il cui testo dice «stopped»
+- **THEN** il Monitor SHALL restare nella mappa, e il suo timeout lo SHALL chiudere
+
+#### Scenario: un Monitor fermato dalla CLI
+- **GIVEN** un terminale in `watching` per un Monitor
+- **WHEN** la CLI lo ferma e lo dice con un evento `[Monitor stopped …]`, senza `<status>`, e arriva lo `Stop`
+- **THEN** il Monitor SHALL uscire dalla mappa e la fase SHALL essere `awaiting-user`
+
+#### Scenario: l'avviso che non nomina la chiamata, prima dello Stop e del PostToolUse
+- **GIVEN** un terminale o una chat con un Agent in background, nella mappa dal suo `PreToolUse`
+- **WHEN** il transcript ne porta l'avviso di fine senza `<tool-use-id>`, poi arriva lo `Stop` e dopo lo `Stop` il `PostToolUse`, partito prima
+- **THEN** il compito SHALL uscire dalla mappa e la fase SHALL essere `awaiting-user`
+
+#### Scenario: l'avviso scritto mentre il server non leggeva
+- **GIVEN** un terminale in `watching` per un Bash in background
+- **WHEN** il server si ricarica e il transcript contiene già l'avviso di fine di quel compito
+- **THEN** al riattacco il compito SHALL uscire dalla mappa, lo stato non SHALL essere `working` e la fase SHALL restare `dormant`
+- **AND** la fine di quel turno NON SHALL essere annunciata: nessuna riga, nessun push, la stessa epoca
+
+#### Scenario: un turno dal vivo mentre il riattacco legge ancora
+- **GIVEN** un terminale in `watching` per un Bash in background, il server ricaricato e il transcript con già l'avviso di fine
+- **WHEN** un turno dal vivo chiude mentre il riattacco sta ancora leggendo
+- **THEN** al riattacco il compito SHALL uscire dalla mappa e lo stato SHALL essere `finished(done)`
+- **AND** la fine di quel turno SHALL essere annunciata come sempre: una riga, un push, un'epoca nuova
+
+#### Scenario: un turno dal vivo senza esito mentre il riattacco legge ancora
+- **GIVEN** un terminale in `watching` per un Bash in background, il server ricaricato e il transcript con già l'avviso di fine
+- **WHEN** un turno dal vivo si apre mentre il riattacco sta ancora leggendo e chiude senza esito
+- **THEN** al riattacco il compito SHALL uscire dalla mappa e lo stato SHALL essere `finished(done)`
+- **AND** la fine del turno di prima NON SHALL essere annunciata: nessuna riga, nessun push, la stessa epoca
+
+#### Scenario: un turno dal vivo lancia un suo compito mentre il riattacco legge
+- **GIVEN** un terminale in `watching` per un Bash in background, il server ricaricato e il transcript con già l'avviso di fine
+- **WHEN** un turno dal vivo si apre mentre il riattacco legge, lancia un suo Bash in background (gli hook arrivano prima o dopo la lettura), si interrompe senza esito e più tardi il suo Bash finisce
+- **THEN** la fine del turno di prima NON SHALL essere annunciata, in nessuno dei due ordini: nessuna riga, nessun push, la stessa epoca
+
+#### Scenario: un compito ancora in volo dopo la lettura del riattacco
+- **GIVEN** un terminale in `watching` per un Bash e un Agent in background, e il server ricaricato
+- **AND** il transcript con l'avviso di fine del Bash, scritto mentre nessun server leggeva
+- **WHEN** il riattacco toglie il Bash, e più tardi l'Agent finisce e la coda viva ne legge l'avviso
+- **THEN** dopo il riattacco lo stato SHALL restare `working`
+- **AND** la fine dell'Agent SHALL essere annunciata una volta: una riga, un push, un'epoca nuova
+
+#### Scenario: un compito di prima del riavvio finisce dal vivo mentre il riattacco legge
+- **GIVEN** un terminale con un turno chiuso su un Bash e un Agent in background, e il server ricaricato
+- **AND** il transcript con l'avviso di fine del Bash, scritto mentre nessun server leggeva
+- **WHEN** la coda viva legge la fine dell'Agent mentre il riattacco sta ancora leggendo, e poi il riattacco toglie il Bash
+- **THEN** lo stato SHALL essere `finished` e la fine del turno SHALL essere annunciata una volta: una riga, un push, un'epoca nuova
+- **AND** lo stesso SHALL valere per un cron una tantum consumato dal prompt dopo, prima o dopo la lettura
+- **AND** un cron ricorrente di prima del riavvio cancellato dal vivo, che il turno non lo teneva, SHALL lasciare la guarigione muta
+
+#### Scenario: l'avviso senza chiamata di un compito di prima del riavvio
+- **GIVEN** un terminale con un turno chiuso su un Bash e un Agent ancora sotto l'id della chiamata, il cui `PostToolUse` arriva solo al server ricaricato
+- **AND** il transcript con la fine di tutti e due, quella dell'Agent senza `<tool-use-id>`, scritto mentre nessun server leggeva
+- **WHEN** il `PostToolUse` dell'Agent arriva prima o dopo la lettura tardiva
+- **THEN** lo stato SHALL essere `finished` e la guarigione SHALL restare muta, nei due ordini
+- **AND** se la fine dell'Agent la legge la coda viva, il turno SHALL essere annunciato una volta
+- **AND** se la riga che consegna l'avviso dell'Agent si legge dal vivo, prima o dopo la lettura tardiva, la guarigione SHALL restare muta, anche con il `PostToolUse` arrivato prima del riavvio o prima della lettura, il compito già sotto l'id dell'Agent
+
+#### Scenario: un hook dopo la ricomposizione di avvio
+- **GIVEN** un compito la cui fine è già stata letta, dalla coda viva o dalla lettura tardiva, prima del suo `PostToolUse`
+- **WHEN** la ricomposizione di avvio rilegge la tabella e poi arriva il `PostToolUse`
+- **THEN** il compito NON SHALL tornare nella mappa, e il terminale SHALL arrivare a `finished`
+- **AND** lo stesso per un terminale che non ha ancora una riga nella tabella
+
+#### Scenario: una storia lunga letta dal riattacco
+- **GIVEN** un terminale riattaccato con un Agent di prima del riavvio ancora in volo, e 40 avvisi di fine vecchi nel transcript
+- **AND** un turno dal vivo che lancia un Bash, la cui fine la coda viva legge prima del suo `PostToolUse`, mentre la lettura tardiva legge ancora
+- **WHEN** arrivano il `PostToolUse` e lo `Stop`, e più tardi l'Agent finisce
+- **THEN** il Bash NON SHALL tornare nella mappa, e il terminale SHALL arrivare a `finished` con un solo annuncio, come senza riavvio
+
+#### Scenario: un compito di un turno messo a riposo prima del riavvio
+- **GIVEN** un terminale con un turno chiuso sul suo Bash in background, poi un turno che lancia un altro Bash e si interrompe senza esito, e il server ricaricato
+- **AND** il transcript con l'avviso di fine del primo Bash, scritto mentre nessun server leggeva
+- **WHEN** il riattacco toglie il primo Bash, e più tardi il secondo finisce e la coda viva ne legge l'avviso
+- **THEN** dopo il riattacco lo stato SHALL restare `working`
+- **AND** la fine del secondo Bash SHALL essere annunciata una volta, come senza il riavvio: una riga, un push, un'epoca nuova, anche se il suo `PostToolUse` arriva solo al server ricaricato
 
 ### Requirement: ATTN-04 — Una persona in mezzo è «ti serve», da qualunque porta arrivi
 

@@ -78,6 +78,11 @@ async function seedPages(page: Page, visits: Visit[]): Promise<void> {
 
 async function openFullHistory(page: Page): Promise<Locator> {
   await openProfileMenu(page);
+  // On the phone the Topics rows live on the second floor (A1): when the
+  // entry down is there (sheet at the root), take it. On the desktop there
+  // is none and nothing happens — presence, not viewport, decides.
+  const entry = page.getByTestId("user-menu-topics-entry");
+  if ((await entry.count()) > 0) await entry.click();
   await page.getByTestId("topics-menu-history").click();
   await page.getByTestId("topics-menu-history-all").click();
   const palette = page.getByTestId("command-palette");

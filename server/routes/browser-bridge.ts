@@ -116,6 +116,13 @@ export interface BrowserBridgeDeps {
    * warning path never touches the machine's actual listening ports.
    */
   portOwnerDeps?: PortOwnerDeps;
+  /**
+   * The chat whose window should show this topic's browser, when it is not the
+   * topic itself: a spawned child runs in a topic nobody has on screen, so its
+   * open-pane used to fall through to `browser:force-open` and add one layout
+   * tab per child. Absent or equal to the topic, nothing changes.
+   */
+  browserHostTopicOf?: (topic: Topic) => string | null | undefined;
 }
 
 export function createBrowserBridgeRouter(
@@ -438,6 +445,10 @@ export function createBrowserBridgeRouter(
 
         const ctxId = resolveContextIdForTopic(topic);
         browserNavigatedTopics.add(topic.id);
+        // The context stays the child's own (its browser_* tools resolve to it);
+        // only WHERE it is shown moves, to the chat the person is looking at.
+        const host = deps.browserHostTopicOf?.(topic);
+        const hostField = host && host !== topic.id ? { hostTopicId: host } : {};
         // The announcement comes BEFORE the navigation (the shared sequence
         // guarantees it) so the client mounts/seeds the pane under the SAME id
         // the agent's `browser_*` tools resolve to. Inverted, Playwright drove
@@ -447,7 +458,7 @@ export function createBrowserBridgeRouter(
           url,
           projectPath: topic.projectPath ?? null,
           service: browserService,
-          announce: (u) => broadcastToAll({ type: "browser:navigate", topicId: topic.id, contextId: ctxId, url: u }),
+          announce: (u) => broadcastToAll({ type: "browser:navigate", topicId: topic.id, contextId: ctxId, url: u, ...hostField }),
         });
       }
     }

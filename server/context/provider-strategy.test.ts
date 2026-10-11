@@ -13,6 +13,7 @@ import type { AIProvider, ChatMessage, CompletionResult, ProviderCapability, Str
 import { ClaudeProvider } from "../providers/claude";
 import { OpenAIProvider } from "../providers/openai";
 import { CodexProvider } from "../providers/codex";
+import { MuseProvider } from "../providers/muse";
 import { ClaudeCodeProvider } from "../providers/claude-code";
 import { OpenClawProvider } from "../providers/openclaw";
 import { getProviderStrategy } from "./provider-strategy";
@@ -30,6 +31,11 @@ describe("getProviderStrategy", () => {
 
   it("codex is history-aware", () => {
     const p = new CodexProvider({ type: "codex" });
+    expect(getProviderStrategy(p)).toBe("history-aware");
+  });
+
+  it("muse is history-aware", () => {
+    const p = new MuseProvider({ type: "muse" });
     expect(getProviderStrategy(p)).toBe("history-aware");
   });
 

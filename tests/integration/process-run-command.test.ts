@@ -29,7 +29,7 @@ const PROJECT = realpathSync((mkdirSync(join(ROOT, "project"), { recursive: true
 const previousQuotaDir = process.env.TOPICS_JOB_QUOTA_DIR;
 process.env.TOPICS_JOB_QUOTA_DIR = join(ROOT, "job-quota");
 
-const { commandWakeState, createProcessesRouter, logPathOf } = await import("../../server/routes/processes");
+const { commandWakeState, createProcessesRouter, logPathOf, stopCommandWakesOf } = await import("../../server/routes/processes");
 const { startProcessExitWakes, processExitWakesIdle } = await import("../../server/lib/process-exit-wake");
 const { runningTaskOwnsTopic } = await import("../../server/lib/wake-adoption");
 const { createChatRouter } = await import("../../server/routes/chat");
@@ -393,6 +393,24 @@ describe("the end of a command reaches the topic that launched it", () => {
     await until(async () => (await scriptRow(processId))?.status !== "running");
     await processExitWakesIdle();
     expect(exitRows(topic.sessionKey)).toHaveLength(0);
+  });
+
+  // Review 3 of PR 238: a stopped sub-agent was woken by the command it had
+  // left running. Its Stop stops the chat's commands that carry a wake.
+  test("the Stop of a sub-agent stops its chat's commands that would wake it, and they wake nobody", async () => {
+    const topic = newTopic();
+    const other = newTopic();
+    const { processId } = await runCommand(topic, "sleep 30");
+    const { processId: otherId } = await runCommand(other, "sleep 30");
+    expect(stopCommandWakesOf(topic.sessionKey)).toBe(1);
+    await until(async () => (await scriptRow(processId))?.status !== "running");
+    await processExitWakesIdle();
+    expect((await scriptRow(processId))?.status).not.toBe("running");
+    expect(exitRows(topic.sessionKey)).toHaveLength(0);
+    expect(commandWakeState(topic.sessionKey)).toBe("none");
+    // Another chat's command is not its to stop.
+    expect((await scriptRow(otherId))?.status).toBe("running");
+    await call(bench.processes, "POST", `/api/scripts/${otherId}/stop`);
   });
 });
 

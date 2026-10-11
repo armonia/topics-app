@@ -448,7 +448,11 @@ test.describe("composer motion, phone", () => {
     created.push(host.topicId);
     await installProbe(page);
     await openAtRest(page, request, host, "PHONE-NEW-END");
-    await page.getByTestId("pane-add-menu-trigger").filter({ visible: true }).first().tap();
+    // The pencil on the phone (mobile-chrome-feedback A6): the tap IS the new
+    // chat, so the menu this probe starts from opens with the second gesture —
+    // here the right button, which opens the same menu as the long press. The
+    // measured window (from the item down) does not move.
+    await page.getByTestId("pane-add-menu-trigger").filter({ visible: true }).first().click({ button: "right" });
     const item = page.getByTestId("pane-add-menu-new-chat");
     await expect(item).toBeVisible();
     await startProbe(page);

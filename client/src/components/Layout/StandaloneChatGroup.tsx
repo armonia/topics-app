@@ -813,6 +813,9 @@ export function StandaloneChatGroup({
             // The focus of THIS pane: a heavy page stays live only with it. No
             // panel focused yet counts as focused, as for the tab strip above.
             hasFocus={isPaneActive && (!focusedPanelId || focusedPanelId === paneId)}
+            // A chat-driven pane's context IS its topic: a new-tab note lands
+            // in that topic's folder, when it has one (NEWTAB-ARC-04).
+            projectPath={topics[ctx]?.projectPath}
           />
         </LazyPane>
       );

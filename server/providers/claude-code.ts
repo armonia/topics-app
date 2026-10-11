@@ -10,7 +10,7 @@ import { permissionModeForAutonomy, PERMISSION_PROMPT_TOOL } from "../lib/autono
 import { spawn, ChildProcess } from "child_process";
 import { join } from "path";
 import { createInterface, Interface } from "readline";
-import { getAiBridgeClient, type AiBridgeClient } from "../lib/ai-bridge-client";
+import { getAiBridgeClient, type AiBridgeClient, type SessionInfo } from "../lib/ai-bridge-client";
 import { createLineFolder } from "../lib/ndjson-lines";
 import { agentBaseEnv } from "../lib/agent-env";
 import { readdirSync, existsSync, mkdirSync, writeFileSync, unlinkSync, readFileSync, chmodSync } from "fs";
@@ -60,6 +60,7 @@ import {
   readCommandOutcome,
   readSyntheticText,
 } from "./claude/events";
+import { abandonRewind, admitFrame, closeAfterTail } from "./claude/broker-cursor";
 import { isWokenTurnLine, bufferWoken, drainWoken, unattendedLineFate, type WakeObserver, type HeldEvent } from "./claude/woken-turn";
 import { resolveWakeSource } from "./claude/wake-source";
 import { attentionBackgroundOf, type AttentionBackground, backgroundWorkKey, closedWork, type ClosedWork, datedByLastWrite, describeBackgroundWork, hasArmedCron, hasLiveTasks, hasTaskWork, isBackgroundWorkAlive, isWakeQueued, newBackgroundWork, noteBackgroundLine, wakeQueuedUntil, type BackgroundWork, type BackgroundWorkDetail } from "./claude/background-work";
@@ -91,6 +92,8 @@ import { forkStartFor, lastMainAssistant } from "../lib/chat-fork";
 import { consumeFork, readForkOrigin } from "../lib/chat-fork-store";
 import { claudeTranscriptPath, findClaudeTranscript } from "../lib/claude-transcript-path";
 import { PARTIAL_ARGS_EMIT_MS, extractPrimaryToolArg } from "./partial-tool-input";
+import { handoffFromStore } from "./handoff";
+import { hasPriorMessagesInDB, loadActiveBranchForReplay, renderRecapPrologue, renderReplayPrologue } from "./claude/history-replay";
 
 // ============ Config ============
 
@@ -145,6 +148,16 @@ const LIFETIME_REARM_MS = 60 * 1000;
  *  rete per il caso in cui la riadozione non parta MAI — altrimenti resterebbe
  *  un attacco al daemon senza padrone per tutta la vita del processo. */
 const PARKED_SCAN_TTL_MS = 60_000;
+/**
+ * How often the provider checks it has HEARD every byte its broker children
+ * wrote (T18, `probeStreamLag`). A detached stream used to wait for the route's
+ * grace expiry (two minutes, SSE turns only) or the stale-stream sweep (three):
+ * two rounds of this find it in eight seconds. A round is one `list` for every
+ * session together, and it runs only while a child is alive.
+ */
+const LAG_PROBE_EVERY_MS = Number(process.env.TOPICS_STREAM_LAG_PROBE_MS) || 4_000;
+/** A re-attach that did not close its gap is tried again on the same gap only after this. */
+const LAG_RETRY_MS = 30_000;
 const MESSAGE_TIMEOUT_MS = 30 * 60 * 1000;        // 30 min
 const RATE_LIMIT_GRACE_MS = 10_000;               // 10s grace after rate limit detection
 
@@ -595,160 +608,12 @@ function looksLikeFailedStart(meta: PersistentProcess["spawnMeta"], text: string
   return looksLikeMissingSessionError(text) || (!!meta.forkFrom && FORK_REFUSED_PATTERNS.some((p) => p.test(text)));
 }
 
-// ============ DB-driven History Replay (resilience layer) ============
-
-/**
- * Maximum non-system turns to replay when recovering from a lost CLI session.
- * Mirrors codex's CODEX_HISTORY_TURN_CAP — 20 user/assistant turns is enough
- * for the model to pick up context without blowing the context window.
- */
-const REPLAY_TURN_CAP = 20;
-
-const REPLAY_CONTEXT_PREFIX = "[Chat messages since your last reply";
-const REPLAY_BROWSER_MARKER = /\{\{BROWSER:.*?\}\}/g;
-const REPLAY_TOPIC_SWITCH_MARKER = /\{\{TOPIC_SWITCH:[\w-]+\}\}\s*/g;
-const REPLAY_TOPIC_NEW_MARKER = /\{\{TOPIC_NEW:[^}]+\}\}\s*/g;
-
-export interface ReplayTurn {
-  role: "user" | "assistant";
-  content: string;
-}
-
-/**
- * Walk the active branch of the `messages` table for `sessionKey` and return
- * the turns (excluding the very last one, which is the user's brand-new
- * message that the caller is about to send fresh).
- *
- * Why its own query rather than the history `assembleTopicContext` builds: the
- * provider has no access to the AppContext closure where loadActiveThread
- * lives — and adding a constructor-time DI parameter just for this would
- * ripple through provider/index/createProvider. A direct query against the
- * already-imported `getDatabase()` keeps the resilience layer self-contained.
- */
-export function loadActiveBranchForReplay(sessionKey: string): ReplayTurn[] {
-  let db: ReturnType<typeof getDatabase>;
-  try {
-    db = getDatabase();
-  } catch {
-    return [];
-  }
-
-  // Pull every persisted row for this session (skip partial/streaming rows;
-  // they'd teach the model that truncation is OK).
-  type Row = { id: string; role: string; content: string | null; parent_id: string | null; branch_index: number | null };
-  const rows = db
-    .prepare(
-      `SELECT id, role, content, parent_id, branch_index
-       FROM messages
-       WHERE session_key = ? AND COALESCE(partial,0) = 0`,
-    )
-    .all(sessionKey) as Row[];
-  if (rows.length === 0) return [];
-
-  // Build parent → children map and walk the active branch from root.
-  // For each parent we pick the child whose branch_index matches the
-  // active branch row in `active_branches`; absent that, branch 0.
-  const childrenOf = new Map<string | "__root__", Row[]>();
-  for (const r of rows) {
-    const key = r.parent_id ?? "__root__";
-    const list = childrenOf.get(key) ?? [];
-    list.push(r);
-    childrenOf.set(key, list);
-  }
-
-  const activeRows: Row[] = [];
-  let cursor: string | null = null;
-  while (true) {
-    // Both annotated on purpose: `cursor` is reassigned from `chosen.id` at the
-    // bottom of this loop, so under `noImplicitAny` tsc sees key → candidates →
-    // chosen → cursor → key and gives up (TS7022, "referenced in its own
-    // initializer"). Naming the types cuts the cycle; they are what the map
-    // already declares.
-    const key: string = cursor ?? "__root__";
-    const candidates: Row[] = childrenOf.get(key) ?? [];
-    if (candidates.length === 0) break;
-    let chosen: Row | undefined;
-    if (candidates.length === 1) {
-      chosen = candidates[0];
-    } else {
-      try {
-        const lookupKey = cursor ?? "__root__";
-        const active = db
-          .prepare(
-            "SELECT active_branch_index FROM active_branches WHERE parent_id = ? AND session_key = ?",
-          )
-          .get(lookupKey, sessionKey) as { active_branch_index: number } | undefined;
-        const targetIdx = active?.active_branch_index ?? 0;
-        chosen =
-          candidates.find((c) => (c.branch_index ?? 0) === targetIdx) ?? candidates[0];
-      } catch {
-        chosen = candidates[0];
-      }
-    }
-    if (!chosen) break;
-    activeRows.push(chosen);
-    cursor = chosen.id;
-  }
-
-  return activeRows
-    .filter((r) => r.role === "user" || r.role === "assistant")
-    .filter((r) => !(r.content ?? "").startsWith(REPLAY_CONTEXT_PREFIX))
-    .map((r) => ({
-      role: r.role as "user" | "assistant",
-      content: (r.content ?? "")
-        .replace(REPLAY_BROWSER_MARKER, "")
-        .replace(REPLAY_TOPIC_SWITCH_MARKER, "")
-        .replace(REPLAY_TOPIC_NEW_MARKER, "")
-        .trim(),
-    }))
-    .filter((t) => t.content.length > 0)
-    // Exclude the last entry — it's the user's just-appended turn that
-    // sendChatInternal will dispatch fresh as the new prompt.
-    .slice(0, -1);
-}
-
-export function hasPriorMessagesInDB(sessionKey: string): boolean {
-  let db: ReturnType<typeof getDatabase>;
-  try {
-    db = getDatabase();
-  } catch {
-    return false;
-  }
-  const row = db
-    .prepare(
-      `SELECT COUNT(*) AS n FROM messages
-       WHERE session_key = ? AND role IN ('user','assistant') AND COALESCE(partial,0) = 0`,
-    )
-    .get(sessionKey) as { n: number } | undefined;
-  // > 1 because the user's brand-new turn was just appended; we only need
-  // *prior* context, not the message we're about to send.
-  return (row?.n ?? 0) > 1;
-}
-
-export function renderReplayPrologue(turns: ReplayTurn[]): string {
-  const kept = turns.length > REPLAY_TURN_CAP ? turns.slice(-REPLAY_TURN_CAP) : turns;
-  const truncated = kept.length < turns.length;
-  const lines: string[] = [
-    "[The CLI session was reset and lost its memory. Recap of the conversation so far. Read it carefully, then respond to the new message that follows.]",
-    "",
-    "<conversation_recap>",
-  ];
-  if (truncated) {
-    lines.push(
-      `_(Earlier ${turns.length - kept.length} turns omitted; only the most recent ${kept.length} are shown.)_`,
-      "",
-    );
-  }
-  for (const t of kept) {
-    if (t.role === "user") {
-      lines.push("**User:**", t.content, "");
-    } else {
-      lines.push("**Assistant:**", t.content, "");
-    }
-  }
-  lines.push("</conversation_recap>", "");
-  return lines.join("\n");
-}
+// ============ History Replay ============
+// The recap of a reset session lives in `claude/history-replay.ts`; re-exported
+// here because tests and callers have always imported it from this module.
+export {
+  loadActiveBranchForReplay, hasPriorMessagesInDB, renderReplayPrologue, type ReplayTurn,
+} from "./claude/history-replay";
 
 // ============ Persistent Process ============
 
@@ -962,6 +827,18 @@ interface PersistentProcess {
   sessionKey: string;
   /** Byte cursor consumed from the broker store (for reattach). Direct: unused. */
   consumedOffset: number;
+  /** The re-attach in flight (`resyncStream`): a second caller joins it instead of sending its own. */
+  resyncing?: Promise<boolean>;
+  /** A gap the lag probe saw: the daemon held bytes past `from` that we had not folded (`probeStreamLag`). */
+  lag?: { from: number; seenAt: number; triedAt?: number };
+  /** True from a broker spawn until its ack, and for an adopted (`resumed`) child until
+   *  `attachLive` lands: `consumedOffset` (0) is not our place in the store yet, so no
+   *  resync may start from it. One from 0 replays the child's whole history, and folded
+   *  with the live attach's reply it became the new turn's answer (T18, verification). */
+  attachPending?: boolean;
+  rewindFrom?: number; // the one rewind below `consumedOffset` the reattach asked for, until it lands (`admitFrame`)
+  reattachLive?: boolean; // left by a scan cut short: the cursor is inside the history, the next resync is live unless a frame folds first
+  exitTail?: Promise<void>; // the tail of a child that exited while we were detached, until it is folded (`closeAfterTail`)
   /** True while replaying buffered NDJSON on reattach — suppresses live-only
    *  client side effects (onUserInputRequired) while in-memory state rebuilds. */
   replaySilent?: boolean;
@@ -1273,11 +1150,12 @@ export class ClaudeCodeProvider implements AIProvider {
   private config: ClaudeCodeProviderConfig;
   private processes = new Map<string, PersistentProcess>();
   /**
-   * The send that is waiting for a stopped child to exit (`processForTurn`),
-   * per session. It is the session's current turn even though no child has it
-   * yet, so a Stop pressed on it must reach it here: otherwise the SIGINT hit
-   * the child already dying, the wait ended, and the stopped send was written
-   * to a fresh child anyway (and stole the handler of the message after it).
+   * The send that is waiting for a stopped child to exit, or for the tail of one
+   * that exited (`processForTurn`), per session. It is the session's current
+   * turn even though no child has it yet, so a Stop pressed on it must reach it
+   * here: otherwise the SIGINT hit the child already dying, the wait ended, and
+   * the stopped send was written to a fresh child anyway (and stole the handler
+   * of the message after it).
    */
   private waitingSends = new Map<string, WaitingSend>();
   /**
@@ -1307,6 +1185,10 @@ export class ClaudeCodeProvider implements AIProvider {
   private started = false;
   /** Unsubscribe for the broker reconnect hook armed in start(). */
   private unsubscribeReconnect: (() => void) | null = null;
+  /** The stream lag probe armed in start() (`probeStreamLag`), and whether a round is running. */
+  private lagProbe: ReturnType<typeof setInterval> | null = null;
+  private lagProbing = false;
+  private lagProbeWarnedAt = 0;
   /**
    * Il verdetto sulla versione della CLI installata (vedi `claude/cli-compat.ts`).
    * Si calcola nel probe di `diagnose()` e in un probe di `start()`, e serve a
@@ -1639,6 +1521,11 @@ export class ClaudeCodeProvider implements AIProvider {
       } catch (err) {
         console.warn("[claude-code] Could not arm the broker reconnect hook:", err);
       }
+      // The reconnect hook covers ONE way of going deaf, and only when its
+      // reconnect succeeds. The probe covers them all by looking at the fact
+      // itself: bytes the daemon holds that we never folded.
+      this.lagProbe = setInterval(() => { void this.probeStreamLag(); }, LAG_PROBE_EVERY_MS);
+      this.lagProbe.unref?.();
     }
     console.log("[claude-code] Provider started");
   }
@@ -1646,6 +1533,7 @@ export class ClaudeCodeProvider implements AIProvider {
   stop(): void {
     this.started = false;
     if (this.unsubscribeReconnect) { this.unsubscribeReconnect(); this.unsubscribeReconnect = null; }
+    if (this.lagProbe) { clearInterval(this.lagProbe); this.lagProbe = null; }
     // A send still waiting for a stopped child to exit must not spawn a new
     // child on a provider that is going away (in direct mode that child would
     // outlive the server). It ends here, and its chat says why.
@@ -1844,12 +1732,20 @@ export class ClaudeCodeProvider implements AIProvider {
     if (pp.needsHistoryReplay) {
       pp.needsHistoryReplay = false;
       try {
-        const replayTurns = loadActiveBranchForReplay(sessionKey);
-        if (replayTurns.length > 0) {
-          prologue = renderReplayPrologue(replayTurns);
-          console.log(
-            `[claude-code] Injected recap prologue (${replayTurns.length} prior turns) for ${sessionKey}`,
-          );
+        // The shared handoff first (tool calls included, sized by budget);
+        // the prose-only replay only when the store cannot rebuild the thread.
+        const recap = handoffFromStore(sessionKey);
+        if (recap) {
+          prologue = renderRecapPrologue(recap);
+          console.log(`[claude-code] Injected recap prologue (${recap.length} chars, with tool calls) for ${sessionKey}`);
+        } else {
+          const replayTurns = loadActiveBranchForReplay(sessionKey);
+          if (replayTurns.length > 0) {
+            prologue = renderReplayPrologue(replayTurns);
+            console.log(
+              `[claude-code] Injected recap prologue (${replayTurns.length} prior turns) for ${sessionKey}`,
+            );
+          }
         }
       } catch (err: any) {
         // Replay is best-effort — if the DB is unavailable, fall back to the
@@ -2562,28 +2458,26 @@ export class ClaudeCodeProvider implements AIProvider {
     handler?: StreamHandler,
   ): Promise<PersistentProcess | null> {
     const existing = this.processes.get(sessionKey);
-    if (existing?.stoppedExit && existing.alive) {
-      const waiting = handler ? { handler, cancelled: false } : null;
-      if (waiting) this.waitingSends.set(sessionKey, waiting);
-      let timer: ReturnType<typeof setTimeout> | undefined;
-      const capped = new Promise<"timeout">((r) => { timer = setTimeout(() => r("timeout"), waitMs); });
-      let outcome: "exited" | "timeout";
-      try {
-        outcome = await Promise.race([existing.stoppedExit.done.then(() => "exited" as const), capped]);
-      } finally {
-        clearTimeout(timer);
-        if (waiting && this.waitingSends.get(sessionKey) === waiting) this.waitingSends.delete(sessionKey);
+    // Registered before the tail too: a Stop while it lands must find this send.
+    const waiting = handler ? { handler, cancelled: false } : null;
+    if (waiting) this.waitingSends.set(sessionKey, waiting);
+    try {
+      if (existing?.exitTail) await existing.exitTail; // replaced first, the tail's frames would reach the new child's handlers
+      if (existing?.stoppedExit && existing.alive && !waiting?.cancelled) {
+        let timer: ReturnType<typeof setTimeout> | undefined;
+        const capped = new Promise<"timeout">((r) => { timer = setTimeout(() => r("timeout"), waitMs); });
+        const outcome = await Promise.race([existing.stoppedExit.done.then(() => "exited" as const), capped]).finally(() => clearTimeout(timer));
+        if (outcome === "timeout" && existing.alive) {
+          console.warn(`[claude-code] ${sessionKey}: the stopped child did not exit within ${waitMs} ms, killing it before the next turn`);
+          this.killProcess(existing, "stopped-child");
+        }
+        if (this.processes.get(sessionKey) === existing) this.processes.delete(sessionKey);
       }
-      if (outcome === "timeout" && existing.alive) {
-        console.warn(`[claude-code] ${sessionKey}: the stopped child did not exit within ${waitMs} ms, killing it before the next turn`);
-        this.killProcess(existing, "stopped-child");
-      }
-      if (this.processes.get(sessionKey) === existing) this.processes.delete(sessionKey);
-      // Stopped while it waited (a second Stop, or the provider shutting down):
-      // no child is spawned for it.
-      if (waiting?.cancelled) return null;
+      // Stopped while it waited (a second Stop, or the provider shutting down): no child is spawned for it.
+      return waiting?.cancelled ? null : this.getOrCreateProcess(sessionKey);
+    } finally {
+      if (waiting && this.waitingSends.get(sessionKey) === waiting) this.waitingSends.delete(sessionKey);
     }
-    return this.getOrCreateProcess(sessionKey);
   }
 
   /**
@@ -2858,6 +2752,7 @@ export class ClaudeCodeProvider implements AIProvider {
       // Fire the spawn; expose readiness so the first stdin write (sendChat)
       // waits for the child to exist. spawn and write share the socket FIFO,
       // but spawn's send sits behind an ensureConnected microtask.
+      pp.attachPending = true;
       pp.ready = client.spawn(sessionKey, { cliPath: resolveCliPath(), args, cwd: workspace, env })
         // Il pid del figlio è l'ancora delle shell in background: senza, una
         // `bun run dev` lasciata da questa sessione è indistinguibile da una
@@ -2881,9 +2776,13 @@ export class ClaudeCodeProvider implements AIProvider {
           // consumedOffset must land ON the attach point, not stay at 0: it is
           // where resyncStream() re-attaches from, and 0 against an adopted
           // child's store would re-fold that child's whole history.
-          pp.consumedOffset = (await client.attachLive(sessionKey)).fromOffset;
+          // Never backwards: what the attach replayed is folded by the time it
+          // resolves, and a cursor moved back under it would replay it again.
+          const { fromOffset } = await client.attachLive(sessionKey);
+          pp.consumedOffset = Math.max(pp.consumedOffset, fromOffset);
         })
-        .catch((err) => this.onSessionErrored(pp, err instanceof Error ? err : new Error(String(err))));
+        .catch((err) => this.onSessionErrored(pp, err instanceof Error ? err : new Error(String(err))))
+        .finally(() => { pp.attachPending = false; });
     } else {
       const proc = spawn(resolveCliPath(), args, { cwd: workspace, stdio: ["pipe", "pipe", "pipe"], env });
       const rl = createInterface({ input: proc.stdout! });
@@ -2927,16 +2826,18 @@ export class ClaudeCodeProvider implements AIProvider {
       onLine(line);
     });
     client.registerHandlers(sessionKey, {
-      onData: (chunk, offset) => {
+      onData: (raw, at) => {
+        const frame = admitFrame(pp, raw, at); // a byte is folded once: below the cursor only the rewind we asked for
+        if (!frame) return;
         // La consegna riparte da un punto diverso (un `attach` da un offset:
         // la fase 2 della riadozione fa esattamente questo). Il mezzo pezzo di
         // riga tenuto da parte apparteneva a un'altra regione dello store.
-        if (offset !== pp.consumedOffset) fold.reset(offset);
-        fold(chunk);
-        pp.consumedOffset = offset + chunk.byteLength;
+        if (frame.offset !== pp.consumedOffset) fold.reset(frame.offset);
+        fold(frame.chunk);
+        pp.consumedOffset = frame.offset + frame.chunk.byteLength;
       },
       onStderr: (chunk) => this.handleStderrData(pp, sessionKey, chunk),
-      onExit: (code) => this.onSessionClosed(pp, code),
+      onExit: (code, end) => closeAfterTail(pp, end, (from) => client.attachWhole(sessionKey, from, 1), (wasAlive) => this.onSessionClosed(pp, code, wasAlive)),
     });
   }
 
@@ -2980,16 +2881,16 @@ export class ClaudeCodeProvider implements AIProvider {
     return pp;
   }
 
-  /** Watchdog liveness probe (see Provider.isTurnProcessAlive): true while the
-   *  session's child is running — direct or broker mode. A live-but-mute child
-   *  (auto-compact) must not be finalized as a timeout. */
+  /** Watchdog liveness probe (see Provider.isTurnProcessAlive): true while the session's child is running, direct
+   *  or broker mode. A live-but-mute child (auto-compact) must not be finalized as a timeout. */
   isTurnProcessAlive(sessionKey: string): boolean {
     const pp = this.processes.get(sessionKey);
-    // Alive AND mid-turn. A fresh idle child that took the key after a kill is
-    // alive too, and answering yes for it kept a dead stream on the extend path (silent but
-    // its child is ALIVE) for hours (2026-09-03, topic ada7e7db):
-    // the route was asking about the turn, and the turn's child was gone.
-    return !!pp && pp.alive && pp.streamHandler !== null;
+    // Alive AND mid-turn, or about to know: a re-adoption still scanning the store (`replayMute`) has no handler
+    // yet, and a route reading «dead» there would SIGINT the very turn its late ack is about to adopt (CCLI-04).
+    // So is a child that exited while detached, until its tail lands: `exitTail`, waiting behind the backlog.
+    // A fresh idle child that took the key after a kill is alive too, and answering yes for it kept a dead
+    // stream on the extend path for hours (2026-09-03, topic ada7e7db): the turn's child was gone.
+    return !!pp && (pp.exitTail !== undefined || (pp.alive && (pp.streamHandler !== null || pp.replayMute === true)));
   }
 
   /**
@@ -3135,7 +3036,7 @@ export class ClaudeCodeProvider implements AIProvider {
     let park = false;
     let keep = false;
     try {
-      const scan = await this.scanBrokerStore(getAiBridgeClient(), sessionKey, pp);
+      const scan = await this.scanBrokerStore(getAiBridgeClient(), sessionKey, pp, opts?.park === true); // parked, it is the re-adoption's phase 1
       if (scan.missing || !scan.alive) return "idle";
       if (!pp.replayTailOpen) {
         // No turn in flight, but its background work is: the scan becomes the
@@ -3172,6 +3073,7 @@ export class ClaudeCodeProvider implements AIProvider {
     client: AiBridgeClient,
     sessionKey: string,
     pp: PersistentProcess,
+    whole = false, // a re-adoption's scan: past the cap it waits for its late ack, muted, instead of failing (`attachWhole`)
   ): Promise<{ missing: boolean; alive: boolean }> {
     pp.replayMute = true;
     pp.replayTailOpen = false;
@@ -3179,7 +3081,9 @@ export class ClaudeCodeProvider implements AIProvider {
     pp.replayLastResult = undefined;
     pp.replayAfterLastResultOffset = 0;
     pp.replayRowTurns = undefined;
-    const scan = await client.attach(sessionKey, 0);
+    // Cut short, the scan leaves the cursor inside the history: the next re-attach goes live instead of folding it
+    // again as a woken turn (T19, B4b). Not `attachPending`, which refuses the resync the self-heal needs.
+    const scan = await (whole ? client.attachWhole(sessionKey, 0) : client.attach(sessionKey, 0)).catch((err: unknown) => { pp.reattachLive = true; throw err; });
     pp.daemonPid = client.daemonPid;
     dateReplay(pp, scan);
     return { missing: scan.missing === true, alive: scan.alive === true };
@@ -3261,27 +3165,67 @@ export class ClaudeCodeProvider implements AIProvider {
    * replays zero bytes and the daemon just refreshes our delivery cursor. Safe
    * to call speculatively, which is exactly what the route's watchdog does.
    *
-   * Precondition, and why the callers all satisfy it: call this only after a
-   * stretch of SILENCE (grace expiry, the stale sweeper, a socket reconnect).
-   * `consumedOffset` advances when onData folds a chunk, so calling it while
-   * frames are still in flight in the socket buffer would replay bytes that are
-   * about to arrive anyway — duplicated deltas. After a minute of nothing there
-   * is nothing in flight, and after a reconnect the in-flight bytes are gone
-   * for good, which is precisely what makes the replay the right answer.
+   * Frames still in flight when it is called are NOT a hazard any more: the
+   * replay repeats them, and `onData` drops every byte below `consumedOffset`
+   * outside a deliberate rewind (see `wireBrokerHandlers`). It used to need a
+   * stretch of silence first, and overlapping callers broke that rule.
    *
    * Returns true when a live session was re-attached (the caller may recover),
    * false when there was nothing to resync (no broker, dead child, no process).
    */
-  async resyncStream(sessionKey: string): Promise<boolean> {
+  async resyncStream(sessionKey: string, opts: { attempts?: number } = {}): Promise<boolean> {
     if (!USE_AI_BRIDGE) return false;
     const pp = this.processes.get(sessionKey);
-    if (!pp || !pp.alive) return false;
+    if (!pp || !pp.alive) {
+      // It used to return here without a word, and every caller but the
+      // route's watchdog dropped the answer: a rescue that did nothing looked
+      // exactly like one still on its way (T18).
+      console.warn(`[claude-code] Stream resync for ${sessionKey}: nothing to re-attach, ${await this.whyNoResync(sessionKey, pp)}`);
+      return false;
+    }
+    if (pp.attachPending || pp.replayMute) {
+      console.warn(`[claude-code] Stream resync for ${sessionKey}: its first attach (a spawn's, or a re-adoption's scan) has not landed yet, so there is no offset to re-attach from`);
+      return false;
+    }
+    // ONE re-attach at a time per session. The reconnect chain, the route's
+    // grace expiry, the sweep and the lag probe can all ask at once; each
+    // extra `attach` replayed the same bytes for nothing.
+    if (pp.resyncing) return pp.resyncing;
+    const run = this.resyncNow(sessionKey, pp, opts.attempts);
+    pp.resyncing = run;
+    try { return await run; } finally { if (pp.resyncing === run) pp.resyncing = undefined; }
+  }
+
+  /**
+   * The reason a resync found nothing to re-attach, daemon side included: "the
+   * daemon still holds a live child" is the case where a turn is really lost to
+   * us (no handler of ours to deliver it to), and the log has to tell it apart.
+   * `peekSessions`, not `hasLiveSession`: an explanation must never recycle the
+   * socket under everybody else's turns.
+   */
+  private async whyNoResync(sessionKey: string, pp: PersistentProcess | undefined): Promise<string> {
+    if (pp) return "its process has exited";
+    let daemon: string;
+    try {
+      const info = (await getAiBridgeClient().peekSessions()).find((s) => s.id === sessionKey);
+      daemon = info?.alive
+        ? `the daemon holds a live child for it (pid ${info.pid}, ${info.endOffset} byte(s)) that no process of ours drives: no turn handler to deliver it to`
+        : "the daemon holds no live child for it either";
+    } catch (err) {
+      daemon = `the daemon did not answer (${err instanceof Error ? err.message : String(err)})`;
+    }
+    return `no process of ours holds the session; ${daemon}`;
+  }
+
+  private async resyncNow(sessionKey: string, pp: PersistentProcess, attempts?: number): Promise<boolean> {
     // Snapshot BEFORE the await: the replay this attach triggers is folded
     // synchronously by onData, so by the time it resolves pp.consumedOffset has
     // already moved — reading it after would log the destination, not the gap.
     const from = pp.consumedOffset;
     try {
-      const res = await getAiBridgeClient().attach(sessionKey, from);
+      const live = pp.reattachLive ? await getAiBridgeClient().attachLive(sessionKey, attempts) : null; // `scanBrokerStore`
+      const res = live ?? await getAiBridgeClient().attach(sessionKey, from, attempts);
+      if (live) { pp.reattachLive = false; pp.consumedOffset = Math.max(pp.consumedOffset, live.fromOffset); }
       // A LIVE daemon answering "I don't have that session" (or "its child is
       // gone") is proof the child died: the daemon is the authority on that,
       // and if it died WITH the daemon (daemon crash, then the client respawns
@@ -3307,11 +3251,69 @@ export class ClaudeCodeProvider implements AIProvider {
         this.finalizeDeadReattach(pp, cause);
         return false;
       }
-      console.log(`[claude-code] Stream resync for ${sessionKey}: re-attached from offset ${from}, recovered ${Math.max(0, res.endOffset - from)} byte(s)`);
+      console.log(`[claude-code] Stream resync for ${sessionKey}: ${live ? `attached live at offset ${live.fromOffset}, past the history a scan cut short left` : `re-attached from offset ${from}, recovered ${Math.max(0, res.endOffset - from)} byte(s)`}`);
       return true;
     } catch (err: any) {
       console.warn(`[claude-code] Stream resync failed for ${sessionKey}: ${err?.message ?? err}`);
       return false;
+    }
+  }
+
+  /**
+   * Is any live session BEHIND the daemon? One round of the lag probe (T18).
+   *
+   * The question asked of the fact, not of a clock: the daemon's `endOffset`
+   * against the `consumedOffset` we folded. The comparison is exact the moment
+   * the `list` answer is read. The daemon is single-threaded and writes to one
+   * socket in order, so every `data` frame it sent us before that answer has
+   * already been folded (frames are folded synchronously, line by line); a byte
+   * it holds and we have not folded is a byte it never sent us. A child that is
+   * silent and healthy (a long thought, a tool of minutes) has no such byte, so
+   * the probe never re-attaches it, however long the silence.
+   *
+   * Acted on at the SECOND sighting of the same gap (same cursor, no progress
+   * in between): one round more of latency, and a guard against anything this
+   * reasoning does not foresee. One re-attach per gap; a re-attach that did not
+   * close it is retried on that gap after `LAG_RETRY_MS`, saying so. The
+   * re-attaches run one at a time, for the reason the reconnect hook gives.
+   */
+  async probeStreamLag(): Promise<void> {
+    if (!USE_AI_BRIDGE || this.lagProbing) return;
+    const live = [...this.processes].filter(([, pp]) => pp.alive && !pp.attachPending && !pp.stoppedExit && !pp.replayMute && !pp.replaySilent);
+    if (live.length === 0) return;
+    this.lagProbing = true;
+    try {
+      let sessions: SessionInfo[];
+      try {
+        sessions = await getAiBridgeClient().peekSessions();
+      } catch (err) {
+        if (Date.now() - this.lagProbeWarnedAt > 60_000) {
+          this.lagProbeWarnedAt = Date.now();
+          console.warn(`[claude-code] Stream lag probe: the daemon did not answer (${err instanceof Error ? err.message : String(err)}), skipping this round`);
+        }
+        return;
+      }
+      const ends = new Map(sessions.map((info) => [info.id, info.endOffset]));
+      const now = Date.now();
+      for (const [key, pp] of live) {
+        if (this.processes.get(key) !== pp || !pp.alive || pp.resyncing) continue;
+        const end = ends.get(key);
+        if (end === undefined || end <= pp.consumedOffset) { pp.lag = undefined; continue; }
+        const gap = pp.lag;
+        if (!gap || gap.from !== pp.consumedOffset) { pp.lag = { from: pp.consumedOffset, seenAt: now }; continue; }
+        if (gap.triedAt !== undefined && now - gap.triedAt < LAG_RETRY_MS) continue;
+        const retry = gap.triedAt !== undefined;
+        gap.triedAt = now;
+        console.warn(`[claude-code] Stream behind on ${key}: the daemon holds ${end - pp.consumedOffset} byte(s) past offset ${pp.consumedOffset} that never reached us (${now - gap.seenAt} ms) — ${retry ? "re-attaching again" : "re-attaching"}`);
+        // One attempt: a retry after an ack timeout drops the socket every turn shares, and the
+        // stall that cut this stream is the likeliest cause of that timeout. The gap waits instead.
+        const ok = await this.resyncStream(key, { attempts: 1 }).catch(() => false);
+        if (!ok && this.processes.get(key) === pp && pp.alive) {
+          console.warn(`[claude-code] Stream behind on ${key}: the re-attach did not land, next try on this gap in ${LAG_RETRY_MS / 1000} s`);
+        }
+      }
+    } finally {
+      this.lagProbing = false;
     }
   }
 
@@ -3406,7 +3408,7 @@ export class ClaudeCodeProvider implements AIProvider {
     // is current (`onSessionClosed` lowers it), and it cannot be missing: the daemon had it a moment ago.
     const scan = preScanned
       ? { missing: false, alive: pp.alive }
-      : await this.scanBrokerStore(client, sessionKey, pp);
+      : await this.scanBrokerStore(client, sessionKey, pp, true);
     pp.replayMute = false;
     if (scan.missing) {
       pp.streamHandler = handler;
@@ -3428,9 +3430,9 @@ export class ClaudeCodeProvider implements AIProvider {
         const replayed = new Promise<void>((r) => { release = () => r(); });
         if (own) this.queues.set(sessionKey, (this.queues.get(sessionKey) ?? Promise.resolve()).then(() => replayed));
         try {
-          if (own) { pp.replaySilent = true; dateReplay(pp, await client.attach(sessionKey, own.from)); }
+          if (own) { pp.replaySilent = true; pp.rewindFrom = own.from; dateReplay(pp, await client.attachWhole(sessionKey, own.from)); }
           if (pp.streamHandler === handler && pp.replayLastResult) this.handleStreamEvent(pp, pp.replayLastResult); // the replay did not reach it
-        } finally { pp.replaySilent = false; release(); }
+        } finally { pp.replaySilent = false; abandonRewind(pp); release(); }
         return "completed";
       }
       // Empty store (child idle since spawn, or nothing meaningful): nothing
@@ -3462,8 +3464,10 @@ export class ClaudeCodeProvider implements AIProvider {
     // rejection: the whole server went down. The awaits below still see it.
     turnDone.catch(() => {});
 
-    const res = await client.attach(sessionKey, own?.from ?? pp.replayAfterLastResultOffset ?? 0);
-    pp.replaySilent = false;
+    // A rewind below the scan's cursor, named and whole: the scan's live frames meanwhile are the replay's (`admitFrame`), and its ack, behind the same backlog, may come past the cap.
+    pp.rewindFrom = own?.from ?? pp.replayAfterLastResultOffset ?? 0;
+    const res = await client.attachWhole(sessionKey, pp.rewindFrom);
+    pp.replaySilent = false; pp.rewindFrom = undefined;
     dateReplay(pp, res);
 
     // Replay is fully folded now (synchronous onData). Classify from pp state.
@@ -3518,6 +3522,8 @@ export class ClaudeCodeProvider implements AIProvider {
     // torna e ricomincia a consegnare, un turno vivo scorrerebbe muto.
     pp.replayMute = false;
     pp.replaySilent = false;
+    abandonRewind(pp); // a rewind still awaited would drop every frame from here on; what it dropped is owed
+    // No `reattachLive` here: past the scan the cursor is exact, and a live re-attach skipped real bytes (T19).
     if (pp.pendingResolve) {
       const r = pp.pendingResolve;
       pp.pendingResolve = null;
@@ -3613,10 +3619,10 @@ export class ClaudeCodeProvider implements AIProvider {
     }
   }
 
-  // Child exited (direct: proc 'close'; broker: daemon `exit` frame). Rejects a
-  // pending turn and surfaces the error to a live stream, then drops timers.
-  private onSessionClosed(pp: PersistentProcess, code: number | null): void {
-    if (pp.alive) this.sayProcessEnded(pp.sessionKey, "cli-exit", pp.aborting === true || code === 0);
+  // Child exited (direct: proc 'close'; broker: daemon `exit` frame, once its tail is folded, `closeAfterTail`).
+  // Rejects a pending turn and surfaces the error to a live stream, then drops timers.
+  private onSessionClosed(pp: PersistentProcess, code: number | null, wasAlive = pp.alive): void {
+    if (wasAlive) this.sayProcessEnded(pp.sessionKey, "cli-exit", pp.aborting === true || code === 0);
     pp.alive = false;
     this.noteCliTurn(pp, false);
     if (pp.background?.tasks.size) this.sayBackgroundChanged(pp.sessionKey);

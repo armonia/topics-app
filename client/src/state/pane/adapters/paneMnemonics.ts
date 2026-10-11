@@ -30,7 +30,7 @@
  */
 
 /** Gli id di riga del menu "New…". Non sono `PaneType`: `terminal` produce
- *  QUATTRO righe (gli agenti), e `kanban`/`board` sono la stessa riga con due
+ *  CINQUE righe (gli agenti), e `kanban`/`board` sono la stessa riga con due
  *  etichette in due scope diversi. */
 export type AddMenuItemId =
   | 'new-chat'
@@ -39,6 +39,7 @@ export type AddMenuItemId =
   | 'codex'
   | 'opencode'
   | 'kimi-code'
+  | 'muse'
   | 'browser'
   | 'git'
   | 'files'
@@ -67,6 +68,8 @@ export const ADD_MENU_MNEMONICS: Record<AddMenuItemId, string> = {
   opencode: 'O',
   // K is the initial of "Kimi Code" and it is free: case (a).
   'kimi-code': 'K',
+  // M is the initial of "Muse" and it is free in both scopes: case (a).
+  muse: 'M',
   // B a Browser e non a Board: Browser esiste in ENTRAMBI gli scope, Board in
   // uno solo. A parità di iniziale vince la voce che si incontra ovunque.
   browser: 'B',
@@ -105,6 +108,6 @@ export const ADD_MENU_MNEMONICS: Record<AddMenuItemId, string> = {
  *  metà delle installazioni non vede mai. Stessa ragione per cui la mappa non
  *  si calcola sul visibile (invariante 1 in testa al file). */
 export const ADD_MENU_ROWS_BY_SCOPE: Record<'project' | 'standalone', readonly AddMenuItemId[]> = {
-  project: ['new-chat', 'shell', 'claude-code', 'codex', 'opencode', 'kimi-code', 'browser', 'git', 'files', 'kanban'],
-  standalone: ['new-chat', 'shell', 'claude-code', 'codex', 'opencode', 'kimi-code', 'browser', 'board', 'dashboard', 'cron', 'profile', 'open-project'],
+  project: ['new-chat', 'shell', 'claude-code', 'codex', 'opencode', 'kimi-code', 'muse', 'browser', 'git', 'files', 'kanban'],
+  standalone: ['new-chat', 'shell', 'claude-code', 'codex', 'opencode', 'kimi-code', 'muse', 'browser', 'board', 'dashboard', 'cron', 'profile', 'open-project'],
 };

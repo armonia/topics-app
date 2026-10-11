@@ -29,7 +29,9 @@ beforeEach(() => {
 });
 
 afterEach(() => {
-  g.window = savedWindow;
+  // Removed, not set to undefined: a key left behind still answers `in`.
+  if (savedWindow === undefined) delete g.window;
+  else g.window = savedWindow;
   g.fetch = savedFetch;
 });
 

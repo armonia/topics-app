@@ -1,30 +1,30 @@
 /**
- * Le tre porte che scrivono e restituiscono file di provenienza ignota:
- * `/api/upload`, `/api/context-upload` e `/api/media`.
+ * The three doors that write and hand back files of unknown origin:
+ * `/api/upload`, `/api/context-upload` and `/api/media`.
  *
- * COSA MISURA, e perché la versione precedente di questo file non lo misurava.
+ * WHAT IT MEASURES, and why the previous version of this file did not measure it.
  *
- * 1. La politica sul tipo si IMPORTA da `./media`, non si ricopia qui. La copia
- *    locale (un `ALLOWED_UPLOAD_MIMES` scritto a mano in cima al test) diceva sì
- *    a `text/plain` mentre la rotta vera riceveva `text/plain;charset=utf-8` e
- *    rispondeva 400: un allegato `.txt` era rotto in produzione con la suite
- *    tutta verde. Un test che ridichiara la regola che deve sorvegliare non
- *    sorveglia niente.
+ * 1. The type policy is IMPORTED from `./media`, not copied here. The local
+ *    copy (a hand-written `ALLOWED_UPLOAD_MIMES` at the top of the test) said yes
+ *    to `text/plain` while the real route received `text/plain;charset=utf-8` and
+ *    answered 400: a `.txt` attachment was broken in production with the suite
+ *    all green. A test that re-declares the rule it has to watch watches
+ *    nothing.
  *
- * 2. Che cosa arriva davvero nel `type` di una parte multipart lo si MISURA
- *    (primo test), invece di darlo per scontato: sotto Bun `req.formData()`
- *    IGNORA il `Content-Type` dichiarato dal client e lo ri-deriva dal nome del
- *    file. Lo scenario «travestito» che il vecchio test diceva di provare non
- *    esiste in quella forma, e credere il contrario faceva sembrare coperto un
- *    asse che era scoperto.
+ * 2. What really lands in the `type` of a multipart part is MEASURED
+ *    (first test), not taken for granted: under Bun `req.formData()`
+ *    IGNORES the client-declared `Content-Type` and re-derives it from the file
+ *    name. The «disguised» scenario the old test claimed to try does not
+ *    exist in that shape, and believing otherwise made an uncovered
+ *    axis look covered.
  *
- * 3. La difesa si prova anche con `getMimeType` CIECO (tutto
- *    `application/octet-stream`): è la condizione reale per `.xhtml`, `.mjs`,
- *    `.svgz`, che la tabella del server non conosce.
+ * 3. The defense is also tried with a BLIND `getMimeType` (all
+ *    `application/octet-stream`): the real condition for `.xhtml`, `.mjs`,
+ *    `.svgz`, which the server table does not know.
  *
- * Il router è puro rispetto al disco tranne che per le cartelle iniettate,
- * quindi si prova per intero senza avviare il server, e la misura è il
- * CONTENUTO della cartella — non solo lo status.
+ * The router is pure against the disk except for the injected folders,
+ * so it is tried whole without starting the server, and the measure is the
+ * CONTENT of the folder — not just the status.
   * @covers MEDIA-01
  */
 
@@ -537,6 +537,23 @@ describe("/api/media · come torna indietro ciò che è stato caricato", () => {
     const res = await fetchMedia(p);
     expect(res.headers.get("content-security-policy")).toBeNull();
     expect(res.headers.get("x-content-type-options")).toBe("nosniff");
+  });
+
+  test("una CARTELLA non si legge come un file: 400, e la pagina lo dice", async () => {
+    // Prima la rotta rispondeva 200 e il corpo esplodeva in lettura con EISDIR:
+    // nel pannello compariva il riquadro d'errore di Bun (topic:d740f8ae, 07/10).
+    const dir = join(mediaDir, "clips");
+    mkdirSync(dir, { recursive: true });
+    const res = await fetchMedia(`${dir}/`);
+    expect(res.status).toBe(400);
+    expect(((await res.json()) as { error?: string }).error).toBe("path is a directory");
+    const req = new Request(`http://localhost/api/media?path=${encodeURIComponent(dir)}`, {
+      headers: { accept: "text/html,application/xhtml+xml" },
+    });
+    const url = new URL(req.url);
+    const page = await router()(req, url, url.pathname, "GET");
+    expect(page?.status).toBe(400);
+    expect(await page!.text()).toContain("This is a folder, not a file");
   });
 
   test("le stesse guardie sulla risposta PARZIALE (206), o basta un Range per aggirarle", async () => {

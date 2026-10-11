@@ -17,13 +17,21 @@
  * adopting would write a row into a chat the user no longer has.
  */
 
-export type WakeVerdict = "adopt" | "no-topic" | "archived";
+export type WakeVerdict = "adopt" | "no-topic" | "archived" | "stopped";
 
+/**
+ * `stopped`: the chat of a sub-agent its parent or a person stopped. Nothing
+ * that lands afterwards (a grandchild's result, a command's exit) wakes it,
+ * archived or not: only an explicit `send_to_agent` starts it again. Read off
+ * the row's state, because a stopped child's chat stays open to be read.
+ */
 export function wakeVerdict(
   topic: { id: string; archived?: boolean } | null,
   ownedByRunningTask: (topicId: string) => boolean,
+  stoppedChild: (topicId: string) => boolean,
 ): WakeVerdict {
   if (!topic) return "no-topic";
+  if (stoppedChild(topic.id)) return "stopped";
   if (!topic.archived) return "adopt";
   // Asked only for archived topics: an open one needs no query, and the wake
   // runs on the stream hot path.
@@ -33,6 +41,16 @@ export function wakeVerdict(
 /** The smallest slice of `bun:sqlite` this needs, so tests pass an in-memory db. */
 interface QueryDb {
   query(sql: string): { get(...params: string[]): unknown };
+}
+
+/** Is `topicId` the chat of a native sub-agent in state `stopped`? Its topic id is the child's id. */
+export function stoppedSubagentChat(db: QueryDb, topicId: string): boolean {
+  try {
+    return db.query("SELECT 1 FROM subagents WHERE id = ? AND runtime = 'topics' AND state = 'stopped' LIMIT 1").get(topicId) != null;
+  } catch {
+    // No `subagents` table (an older database): no child to have stopped.
+    return false;
+  }
 }
 
 /**

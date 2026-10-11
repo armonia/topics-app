@@ -263,6 +263,17 @@ test("SUBSTRIP-01b: closing the tab of an ENDED sub-agent takes its row away, fo
   await expect(stripRow(page)).toHaveCount(0);
 });
 
+/**
+ * SUBAGENT-20: closing the tab of a sub-agent that is still working, started by
+ * another session, asks first. These tests mean to close it, so they confirm.
+ */
+async function confirmStopOfLiveSubAgent(page: Page): Promise<void> {
+  const dialog = page.getByRole("dialog").filter({ hasText: /Fermare|Stop / });
+  await expect(dialog).toBeVisible({ timeout: 10_000 });
+  await dialog.getByRole("button", { name: /^(Ferma|Stop)$/ }).click();
+  await expect(dialog).toHaveCount(0);
+}
+
 test("SUBSTRIP-01c: closing the tab of a LIVE sub-agent does not leave it behind as ended", async ({ page }) => {
   test.info().annotations.push({ type: "spec", description: "SUBSTRIP-01c" });
   const sentinelId = await spawnSubAgent(page.request, `E2E sentinel ${STAMP}`);
@@ -270,6 +281,7 @@ test("SUBSTRIP-01c: closing the tab of a LIVE sub-agent does not leave it behind
   await openChat(page);
   await openPaneFromStrip(page);
   await closeTabViaCommand(terminalTab(page));
+  await confirmStopOfLiveSubAgent(page);
   await expect(terminalTab(page)).toHaveCount(0, { timeout: 15_000 });
   // Closing the tab retires the session on the server...
   await expect.poll(() => serverLists(page.request, agentId), { timeout: 30_000 }).toBe(false);
@@ -378,6 +390,7 @@ test("SUBSTRIP-01e: inside a project, closing the tab of a LIVE sub-agent does n
   const { projectDir, sentinelId, inProject } = await chatInProjectWithPaneOpen(page, "e2e-substrip-project");
 
   await closeTabViaCommand(inProject.first());
+  await confirmStopOfLiveSubAgent(page);
   await expect(terminalTab(page)).toHaveCount(0, { timeout: 15_000 });
   // The session is retired once the project's undo window is over...
   await expect.poll(() => serverLists(page.request, agentId), { timeout: 100_000, intervals: [2_000] }).toBe(false);
@@ -462,27 +475,20 @@ async function reloadAndAwaitVerdict(page: Page, dormantReads: () => number, sen
   await twoFrames(page);
 }
 
-test("SUBSTRIP-01g: inside a project, the tab of a sub-agent its parent stopped stays open with its ended row", async ({ page }) => {
+test("SUBSTRIP-01g: inside a project, the tab of a sub-agent its parent stopped closes, its ended row stays", async ({ page }) => {
   test.info().annotations.push({ type: "spec", description: "SUBSTRIP-01g" });
   const dormantReads = countDormantReads(page);
   const { projectDir, sentinelId, inProject } = await chatInProjectWithPaneOpen(page, "e2e-substrip-ends-in-project", true);
 
-  // The end. Before the fix the tab closed by itself here: the dormant list
-  // does not hold a stopped sub-agent, so the project's prune took its tab.
+  // The end closes the tab (04/10: eight finished Claude Code tabs in
+  // pop-demo); the row stays in the strip, marked as ended.
   await stopAndSeeItEnded(page);
-  expect(await inProject.count(), "the ended sub-agent's tab, once its row says ended").toBe(1);
-
-  // A reload is not a dismissal: the restored tab is never seen in a roster
-  // again, and an authoritative one does not list it.
-  await reloadAndAwaitVerdict(page, dormantReads, sentinelId);
-  expect(await inProject.count(), "the ended sub-agent's tab, after a reload").toBe(1);
-  await expect(stripRow(page)).toHaveAttribute("data-state", "ended");
-
-  // Dismissing the row is the user done with it: the tab kept for that row
-  // goes with it, at once, not at the next roster that happens to come in.
-  await stripRow(page).getByTestId("subagent-dismiss").click();
-  await expect(stripRow(page)).toHaveCount(0);
   await expect(inProject).toHaveCount(0, { timeout: 5_000 });
+
+  // And a reload does not bring it back.
+  await reloadAndAwaitVerdict(page, dormantReads, sentinelId);
+  expect(await inProject.count(), "the ended sub-agent's tab, after a reload").toBe(0);
+  await expect(stripRow(page)).toHaveAttribute("data-state", "ended");
   await resetProjectPanes(page.request, projectDir).catch(() => {});
   removeTmpDir(projectDir);
 });
@@ -495,7 +501,7 @@ test("SUBSTRIP-01g: inside a project, the tab of a sub-agent its parent stopped 
  * own, so an authoritative roster that does not list it prunes it unless the
  * end is already known.
  */
-test("SUBSTRIP-01i: inside a project, the tab of a sub-agent stopped while the app was closed stays open with its ended row", async ({ page }) => {
+test("SUBSTRIP-01i: inside a project, the tab of a sub-agent stopped while the app was closed is closed at the next launch, its ended row stays", async ({ page }) => {
   test.info().annotations.push({ type: "spec", description: "SUBSTRIP-01i" });
   const dormantReads = countDormantReads(page);
   const { projectDir, sentinelId, inProject } = await chatInProjectWithPaneOpen(page, "e2e-substrip-ends-while-closed", true);
@@ -525,16 +531,16 @@ test("SUBSTRIP-01i: inside a project, the tab of a sub-agent stopped while the a
   await expect.poll(() => clientDropped(page, agentId), { timeout: 15_000 }).toBe(true);
   await twoFrames(page);
   await expect(stripRow(page)).toHaveAttribute("data-state", "ended", { timeout: 15_000 });
-  expect(await inProject.count(), "the tab of the sub-agent stopped while the app was closed").toBe(1);
+  expect(await inProject.count(), "the tab of the sub-agent stopped while the app was closed").toBe(0);
   // A plain `unroute` lets the server continue a roster the handler is still
   // sleeping on, and the handler's own `continue` then throws «Route is already
   // handled!» (red 3/3 on main). `wait` lets the sleeping handlers finish first;
   // this page has no other route.
   await page.unrouteAll({ behavior: "wait" });
 
-  // And the next launch keeps it too, on a roster cache that no longer lists it.
+  // And the next launch does not bring it back.
   await reloadAndAwaitVerdict(page, dormantReads, sentinelId);
-  expect(await inProject.count(), "the ended sub-agent's tab, after a reload").toBe(1);
+  expect(await inProject.count(), "the ended sub-agent's tab, after a reload").toBe(0);
   await resetProjectPanes(page.request, projectDir).catch(() => {});
   removeTmpDir(projectDir);
 });

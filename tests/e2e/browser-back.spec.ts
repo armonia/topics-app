@@ -118,7 +118,7 @@ async function mountPane(page: Page, topicId: string, url: string): Promise<void
 /** The tab's sheet, driven the way a person does: the tab, then the field or a button. */
 function sheetOf(page: Page) {
   const tab = page.locator('[data-pane-id^="browser:"]').first();
-  const sheet = page.getByTestId("browser-tab-sheet");
+  const sheet = page.getByTestId("tab-sheet");
   const address = page.getByTestId("browser-tab-address-input");
   const go = async (url: string) => {
     await tab.getByTestId("pane-tab-label").click();

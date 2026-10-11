@@ -10,7 +10,7 @@
  * @covers BGVIS-09
  */
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
-import { applyTaskChanges, configureAttentionStore, getAttention, resetAttentionStore, setBackgroundTasks, turnEnded, turnStarted } from "./store";
+import { applyTaskChanges, configureAttentionStore, getAttention, observeTasksEmptied, resetAttentionStore, setBackgroundTasks, turnEnded, turnStarted } from "./store";
 import { taskChangesOfHook } from "./background-tasks";
 
 const AT = "2026-10-05T10:00:00.000Z";
@@ -28,7 +28,7 @@ beforeEach(() => {
     isServerTask: (subject, id) => servers.has(`${subject}|${id}`),
   });
 });
-afterEach(() => resetAttentionStore());
+afterEach(() => { observeTasksEmptied(null); resetAttentionStore(); });
 
 const bash = (label: string) => ({ kind: "bash", label, startedAt: AT });
 
@@ -79,5 +79,20 @@ describe("a background Bash that listens on a port", () => {
     setBackgroundTasks(subject, { bsrv4: bash("node server.js") });
     expect(getAttention(subject).background.map((t) => t.id)).toEqual(["bsrv4"]);
     expect(getAttention(subject).state).toBe("working");
+  });
+
+  it("tells the tracker the map emptied when the last task becomes a server, so a parked turn rests", () => {
+    // The tracker parks a chat's turn on its tasks (`watching`) and rests it only when told the map
+    // emptied (`observeTasksEmptied`). A server leaving the map is that emptying too: counted on the
+    // map without servers, the task was never there, and the chat stayed in progress until its next turn.
+    const subject = "topic:parked";
+    const emptied: string[] = [];
+    observeTasksEmptied((s) => emptied.push(s));
+    turnStarted(subject);
+    turnEnded(subject, { turnId: "m1", outcome: "done", background: { bsrv5: bash("bun run dev") } });
+    expect(emptied).toEqual([]);
+    servers.add(`${subject}|bsrv5`);
+    setBackgroundTasks(subject, { bsrv5: bash("bun run dev") });
+    expect(emptied).toEqual([subject]);
   });
 });

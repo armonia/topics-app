@@ -15,14 +15,33 @@ import { isWindowFocused, onWindowAwakeChange } from '../state/windowAwake';
  * sent even when null: a browser pane in front is no chat in front, whatever
  * chat was focused before it.
  */
-function focusFrame(topicId: string | null): { type: 'focus'; topicId: string | null; subject: string | null; awake: boolean } {
-  return { type: 'focus', topicId, subject: subjectInFront(), awake: isWindowFocused() };
+interface FocusFrame { type: 'focus'; topicId: string | null; subject: string | null; awake: boolean; chosen?: true }
+
+/**
+ * `heard`: the subject the live socket last heard. One that comes in front
+ * inside a person's gesture (a click on its row or tab, a key) is `chosen`:
+ * only that starts the dwell that engages a sub-agent (SUBAGENT-21). A layout
+ * the window restores on load comes with no gesture.
+ */
+function focusFrame(topicId: string | null, heard: string | null): FocusFrame {
+  const subject = subjectInFront();
+  const frame: FocusFrame = { type: 'focus', topicId, subject, awake: isWindowFocused() };
+  if (subject !== null && subject !== heard && inPersonGesture()) frame.chosen = true;
+  return frame;
+}
+
+/** Inside a click or a key of the person right now (the page's transient activation). */
+function inPersonGesture(): boolean {
+  const nav = (globalThis as { navigator?: { userActivation?: { isActive?: boolean } } }).navigator;
+  return nav?.userActivation?.isActive === true;
 }
 
 /** What a focus frame tells the server. Nothing in front is one state whatever
  *  the wake: the wake only matters for a subject the person could be reading. */
-function focusKey(frame: ReturnType<typeof focusFrame>): string {
-  return frame.topicId === null && frame.subject === null ? NOTHING_IN_FRONT : JSON.stringify(frame);
+function focusKey(frame: FocusFrame): string {
+  return frame.topicId === null && frame.subject === null
+    ? NOTHING_IN_FRONT
+    : JSON.stringify([frame.topicId, frame.subject, frame.awake]);
 }
 const NOTHING_IN_FRONT = 'none';
 
@@ -146,6 +165,18 @@ export function useWebSocket(): UseWebSocketReturn {
   // starts from "nothing in front", and a wake burst that changes nothing the
   // server reads sends nothing.
   const lastFocusKeyRef = useRef<string>(NOTHING_IN_FRONT);
+  const lastFocusSubjectRef = useRef<string | null>(null);
+  /** Send a focus frame on the live socket, unless it says nothing the socket has not heard. */
+  const sendFocusFrame = useCallback((ws: WebSocket): void => {
+    const frame = focusFrame(lastFocusTopicRef.current, lastFocusSubjectRef.current);
+    const key = focusKey(frame);
+    if (key === lastFocusKeyRef.current) return;
+    try {
+      ws.send(JSON.stringify(frame));
+      lastFocusKeyRef.current = key;
+      lastFocusSubjectRef.current = frame.subject;
+    } catch { /* best-effort: the next change re-sends */ }
+  }, []);
 
   const clearOfflineTimer = useCallback(() => {
     if (offlineTimerRef.current) {
@@ -255,15 +286,8 @@ export function useWebSocket(): UseWebSocketReturn {
       // marked unread. Skipped when nothing is in front: a new socket is that
       // already on the server.
       lastFocusKeyRef.current = NOTHING_IN_FRONT;
-      const frame = focusFrame(lastFocusTopicRef.current);
-      if (focusKey(frame) !== NOTHING_IN_FRONT) {
-        try {
-          ws.send(JSON.stringify(frame));
-          lastFocusKeyRef.current = focusKey(frame);
-        } catch {
-          // Best-effort; the next focus change re-sends on the live socket.
-        }
-      }
+      lastFocusSubjectRef.current = null;
+      sendFocusFrame(ws);
 
       // Start ping interval
       if (pingIntervalRef.current) clearInterval(pingIntervalRef.current);
@@ -429,7 +453,7 @@ export function useWebSocket(): UseWebSocketReturn {
     ws.onerror = () => {
       // onclose will handle reconnection
     };
-  }, [clearOfflineTimer, startOfflineTimer, applyUnread]);
+  }, [clearOfflineTimer, startOfflineTimer, applyUnread, sendFocusFrame]);
 
   useEffect(() => {
     // Keep the self-reference current so scheduled reconnects invoke the
@@ -502,18 +526,19 @@ export function useWebSocket(): UseWebSocketReturn {
     // and, since notifications-redesign, the attention subject in front and
     // whether the window is awake: an epoch born there is born seen (ATTN-06).
     // The seen itself is not here any more: it is the dwell of the pane in
-    // front (`state/paneSeen.ts`) and the server's seen door.
+    // front (`state/paneSeen.ts`) and the server's seen door. Two senders name
+    // the same chat (its pane, and the project window around it): the socket
+    // hears it once (`sendFocusFrame`).
     const m = message as unknown as { type?: string; topicId?: string | null };
     if (m.type === 'focus') {
       lastFocusTopicRef.current = m.topicId ?? null;
-      const frame = focusFrame(lastFocusTopicRef.current);
-      message = frame as unknown as WSMessage;
-      if (wsRef.current?.readyState === WebSocket.OPEN) lastFocusKeyRef.current = focusKey(frame);
+      if (wsRef.current?.readyState === WebSocket.OPEN) sendFocusFrame(wsRef.current);
+      return;
     }
     if (wsRef.current?.readyState === WebSocket.OPEN) {
       wsRef.current.send(JSON.stringify(message));
     }
-  }, []);
+  }, [sendFocusFrame]);
 
   // The subject in front or the wake changed: the server hears it now, so a
   // turn that ends while the window is behind another app is NOT born seen,
@@ -521,16 +546,12 @@ export function useWebSocket(): UseWebSocketReturn {
   useEffect(() => {
     const resend = () => {
       const ws = wsRef.current;
-      if (ws?.readyState !== WebSocket.OPEN) return;
-      const frame = focusFrame(lastFocusTopicRef.current);
-      const key = focusKey(frame);
-      if (key === lastFocusKeyRef.current) return;
-      try { ws.send(JSON.stringify(frame)); lastFocusKeyRef.current = key; } catch { /* the next change re-sends */ }
+      if (ws?.readyState === WebSocket.OPEN) sendFocusFrame(ws);
     };
     const offFront = onSubjectInFrontChange(resend);
     const offAwake = onWindowAwakeChange(resend);
     return () => { offFront(); offAwake(); };
-  }, []);
+  }, [sendFocusFrame]);
 
   const onMessage = useCallback((handler: (msg: WSMessage) => void) => {
     handlersRef.current.add(handler);

@@ -42,7 +42,7 @@ export function isApiProvider(name: string): name is ApiProviderName {
 }
 
 /** I campi di `app_settings` che portano il modello di default di un provider. */
-export type ProviderModelField = 'claudeModel' | 'openaiModel' | 'codexModel';
+export type ProviderModelField = 'claudeModel' | 'openaiModel' | 'codexModel' | 'museModel';
 
 /**
  * Quale campo di `app_settings` è il «modello di default» di ogni provider.
@@ -63,6 +63,7 @@ export const PROVIDER_MODEL_FIELD: Record<string, ProviderModelField> = {
   'claude-code': 'claudeModel',
   openai: 'openaiModel',
   codex: 'codexModel',
+  muse: 'museModel',
 };
 
 /**

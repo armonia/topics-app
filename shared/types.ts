@@ -27,6 +27,7 @@
 // dependency (and no zod on the client through the back door).
 import type { STOP_CAUSES } from './ws-outbound';
 import type { MovedOutputMark } from './lean-tool-call';
+import type { ViewSpec } from './views';
 
 // ─── Language (the interface AND the model's answers) ──────────────────
 
@@ -781,7 +782,11 @@ export type ToolCallDetail =
    *  brings the page back (CHAT-BROWSER-01). `contextId` is absent on rows older
    *  than BROWSER-CHAT-05; `visible: false` = loaded but on no screen. */
   | { type: 'browser'; url: string; contextId?: string; title?: string; name?: string; visible?: boolean; result?: string }
-  | { type: 'unknown'; raw: { args?: Record<string, unknown>; result?: string } };
+  /** `show_view`: the agent sent typed data (a comparison, ...) and Topics
+   *  draws it in the chat and at `/v/<viewId>` (GENUI-01). `viewId` arrives
+   *  with the result; a running call has only the spec. */
+  | { type: 'view'; view: ViewSpec; viewId?: string; result?: string }
+  | { type: 'unknown';raw: { args?: Record<string, unknown>; result?: string } };
 
 export interface ToolCall {
   id: string;
@@ -962,6 +967,14 @@ export type TurnEndCause = (typeof STOP_CAUSES)[number];
  * (`client/src/components/Chat/machineRow.ts`), and both re-export it.
  */
 export type MachineStopCause = 'superseded' | 'wall-clock' | 'stall';
+
+/**
+ * The `cause` the client sends with «Send now» on a queued message: the
+ * person stops the parent's turn to deliver the correction, and the work it
+ * delegated goes on. Only an explicit Stop, or `stop_agent`, stops the tree of
+ * sub-agents (`server/lib/abort-cause.ts`).
+ */
+export const SEND_NOW_STOP_CAUSE = 'send-now';
 
 /** One notification that opened a turn the CLI started by itself: a Monitor's event, a Monitor's
  *  end (`end`: `stream ended`, `stopped`, `script failed (exit 1)`, ...) with its last event, or a task's report. */
@@ -1222,6 +1235,13 @@ export interface Topic {
    * still enforces every invariant independently of this display marker.
    */
   isGlobalOrchestrator?: boolean;
+  /**
+   * Transport-only: the session key of the chat that spawned this topic as a
+   * native sub-agent (`subagents.session_key`, runtime `topics`). Projected by
+   * the server from `subagents`, never stored on the `topics` row. The sidebar
+   * nests the topic under that chat instead of listing it on its own.
+   */
+  subagentOf?: string;
   /**
    * ABSENT IN THE LIST. `GET /api/topics` omits it (255 KB across the topics of
    * this machine, for text no list draws) and `GET /api/topics/:id` carries it:

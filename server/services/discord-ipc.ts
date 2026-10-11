@@ -118,8 +118,20 @@ export function createFrameDecoder(): (chunk: Uint8Array) => IpcFrame[] {
  * it is missing or answers crooked we return `null` and the environment
  * candidates remain, that is, the previous behaviour. An error here must not be
  * able to switch the search off.
+ *
+ * Read once per process: the folder belongs to the user and does not move
+ * while the server runs, and the presence asks for the candidates on every
+ * connect attempt (every 30 s while Discord is closed), each time stopping the
+ * event loop for a synchronous `getconf`. A failed read is not remembered:
+ * the next attempt asks again, as before.
  */
+let darwinTempMemo: string | null = null;
+
 function darwinUserTempDir(): string | null {
+  return (darwinTempMemo ??= readDarwinUserTempDir());
+}
+
+function readDarwinUserTempDir(): string | null {
   try {
     const out = execFileSync("/usr/bin/getconf", ["DARWIN_USER_TEMP_DIR"], {
       encoding: "utf8",

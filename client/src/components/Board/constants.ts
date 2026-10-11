@@ -86,6 +86,11 @@ export const STATUS_ICON_COLOR: Record<TaskStatus, string> = {
    round.) */
 
 // Card chip for the dispatch lifecycle (server: tasks.dispatch_state).
+// TWO TEXT SHADES PER CHIP (KANBAN-MOBILE-05): the `-300` alone was born on the
+// dark card and measured 1.12:1 (amber) and 1.33:1 (rose) on the light one, the
+// tint under it being the same `-500/15` in both themes. Light reads `-800`,
+// dark keeps the `-300` it always had. Same rule on every chip of the card
+// (`Card.tsx`, `CardLive.tsx`, `atoms.tsx`).
 export const DISPATCH_CHIP: Record<string, { textKey: string; cls: string; titleKey?: string; Icon?: LucideIcon }> = {
   // RIPIEGO, non la voce principale: da quando ogni card in `todo` porta la sua
   // ragione (`task.queueReason`, risolta dal server) questi due si disegnano solo
@@ -101,14 +106,14 @@ export const DISPATCH_CHIP: Record<string, { textKey: string; cls: string; title
   // CONTRARIO — «altri aspettano questa» (vedi `waitingOnThisChip`) — e due
   // fatti opposti non possono condividere un'etichetta, qualunque cosa dica il
   // tooltip. Un tooltip, poi, su un telefono non esiste.
-  waiting: { textKey: 'board.dispatch.waiting', cls: 'bg-indigo-500/15 text-indigo-300', titleKey: 'board.dispatch.waiting.title', Icon: Hourglass },
-  starting: { textKey: 'board.dispatch.starting', cls: 'bg-amber-500/15 text-amber-300' },
-  working: { textKey: 'board.dispatch.working', cls: 'bg-sky-500/15 text-sky-300' },
+  waiting: { textKey: 'board.dispatch.waiting', cls: 'bg-indigo-500/15 text-indigo-800 dark:text-indigo-300', titleKey: 'board.dispatch.waiting.title', Icon: Hourglass },
+  starting: { textKey: 'board.dispatch.starting', cls: 'bg-amber-500/15 text-amber-800 dark:text-amber-300' },
+  working: { textKey: 'board.dispatch.working', cls: 'bg-sky-500/15 text-sky-800 dark:text-sky-300' },
   // Both live in Review, but they ask different things of the human:
   // needs_input = the agent ASKED (answer required); delivered = clean
   // hand-off, the agent believes it's done (approve/reject).
-  needs_input: { textKey: 'board.dispatch.needsInput', cls: 'bg-rose-500/15 text-rose-300' },
-  delivered: { textKey: 'board.dispatch.delivered', cls: 'bg-emerald-500/15 text-emerald-300', titleKey: 'board.dispatch.delivered.title', Icon: PackageCheck },
+  needs_input: { textKey: 'board.dispatch.needsInput', cls: 'bg-rose-500/15 text-rose-800 dark:text-rose-300' },
+  delivered: { textKey: 'board.dispatch.delivered', cls: 'bg-emerald-500/15 text-emerald-800 dark:text-emerald-300', titleKey: 'board.dispatch.delivered.title', Icon: PackageCheck },
   // Same state as `delivered`, opposite meaning: the reaper pushed the card into
   // review after every attempt was spent, so nobody handed anything over. Green
   // "consegnato" on that card is a promise the thread does not keep — the human
@@ -116,7 +121,7 @@ export const DISPATCH_CHIP: Record<string, { textKey: string; cls: string; title
   // word says who moved it.
   delivered_by_system: {
     textKey: 'board.dispatch.deliveredBySystem',
-    cls: 'bg-amber-500/15 text-amber-300',
+    cls: 'bg-amber-500/15 text-amber-800 dark:text-amber-300',
     titleKey: 'board.dispatch.deliveredBySystem.title',
     Icon: PackageCheck,
   },
@@ -134,8 +139,8 @@ export const DISPATCH_CHIP: Record<string, { textKey: string; cls: string; title
   // ringed chip so it never reads as a neutral manual "fermato". 'blocked' = a
   // config issue the human must fix first (no worktree / project unresolvable).
   // The specific reason rides in task.dispatchError → shown as the chip tooltip.
-  failed: { textKey: 'board.dispatch.failed', cls: 'bg-rose-500/25 text-rose-200 ring-1 ring-rose-400/40' },
-  blocked: { textKey: 'board.dispatch.blocked', cls: 'bg-amber-500/15 text-amber-300' },
+  failed: { textKey: 'board.dispatch.failed', cls: 'bg-rose-500/25 text-rose-800 dark:text-rose-200 ring-1 ring-rose-400/40' },
+  blocked: { textKey: 'board.dispatch.blocked', cls: 'bg-amber-500/15 text-amber-800 dark:text-amber-300' },
   // 'stopped' = l'ha fermato una PERSONA (menu della card o bottone del
   // drawer). Neutro per costruzione: non è un fallimento e non c'è niente da
   // sistemare — il turno è stato tagliato e il task aspetta che tu lo rimetta
@@ -152,7 +157,7 @@ export const DISPATCH_CHIP: Record<string, { textKey: string; cls: string; title
   // di 'fallito', che è ciò che distingue un park da un chip di passaggio.
   // Il motivo NON è scritto qui: viaggia in `task.dispatchError` (quante attese,
   // per cosa, da quanto) e diventa il tooltip. Un titolo fisso lo coprirebbe.
-  [PARKED_WAITED_OUT]: { textKey: 'board.dispatch.waitedOut', cls: 'bg-indigo-500/25 text-indigo-200 ring-1 ring-indigo-400/40', Icon: TimerOff },
+  [PARKED_WAITED_OUT]: { textKey: 'board.dispatch.waitedOut', cls: 'bg-indigo-500/25 text-indigo-800 dark:text-indigo-200 ring-1 ring-indigo-400/40', Icon: TimerOff },
 };
 
 // Single shared new-task draft → single caret key (board composer is global).
@@ -325,11 +330,24 @@ export const RICHIESTA_PIEGA_CHARS = 190;
  *
  * WEAR IT, DO NOT RESTATE IT. Every control on the row interpolates this
  * constant, so the row has one number to change and a grep for the token finds
- * everything that answers to it. An icon-only button pairs it with `w-6` to
- * stay square. `board-topbar-height.spec.ts` measures the rendered result: the
- * token is the intent, the bounding boxes are the proof.
+ * everything that answers to it. An icon-only button pairs it with
+ * `TOOLBAR_ICON_W` to stay square. `board-topbar-height.spec.ts` measures the
+ * rendered result: the token is the intent, the bounding boxes are the proof.
+ *
+ * UNDER A FINGER THE ROW IS 44 (KANBAN-MOBILE-02, asked on 05/10: the board's
+ * search field was too small). Measured on a 390x844 phone: the
+ * search field 24px tall with 16px text inside (the iOS no-zoom floor in
+ * index.css), the glyph buttons 24x24, and the 44px area `.tap-expand`
+ * projected around them did not fit in the 36px row: it stuck out 4px and made
+ * the bar itself scroll vertically (scrollHeight 40 against clientHeight 36,
+ * KANBAN-MOBILE-01). So on a coarse pointer the control IS 44 tall, no
+ * projection needed, and with a mouse it stays 24: the target size follows the
+ * pointer, not the width (a narrow desktop window keeps the compact row).
  */
-export const TOOLBAR_CONTROL_H = 'h-6';
+export const TOOLBAR_CONTROL_H = 'h-6 coarse:h-11';
+
+/** The width of an icon-only toolbar control: square with `TOOLBAR_CONTROL_H`. */
+export const TOOLBAR_ICON_W = 'w-6 coarse:w-11';
 
 /**
  * THE SHELL OF EVERY FILTER CONTROL in the board toolbar: the search box, the

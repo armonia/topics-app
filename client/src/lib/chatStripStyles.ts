@@ -1,21 +1,21 @@
 /**
- * LE STRISCE SOPRA IL COMPOSER, una geometria sola.
+ * THE CHAT'S STRIPS, one geometry.
  *
- * Sono cinque cose diverse che dicono «ecco cosa sta per succedere» — l'obiettivo
- * dichiarato, la lista di cose da fare, i sotto-agenti, gli avvisi sul contesto,
- * i messaggi da inviare — e si erano allineate in tre modi diversi: `mx-2` fisso
- * (TodoStrip, GoalBar), `mx-2/mx-3` a seconda della larghezza (gli avvisi, e il
- * composer stesso), più due raggi (`rounded-lg` e `rounded-xl`). Su desktop la
- * differenza è di quattro pixel: abbastanza da vedersi come uno scalino, non
- * abbastanza da sembrare voluto.
+ * Five different things that say "this is where the chat stands": the declared
+ * goal, the todo list, the live work, the context warnings, the messages to
+ * send. They had lined up three ways: a fixed `mx-2` (TodoStrip, GoalBar),
+ * `mx-2/mx-3` by width (the warnings, and the composer itself), plus two radii
+ * (`rounded-lg` and `rounded-xl`). Four pixels on a desktop: enough to show as
+ * a step, not enough to look meant.
  *
- * Qui la geometria è una. `md:` e non una prop `isMobile`: la soglia dell'app è
- * `window.innerWidth < 768`, cioè esattamente il breakpoint `md` di Tailwind, e
- * una classe non va passata di componente in componente per sapere quanto è
- * larga la finestra.
+ * One geometry here. `md:` and not an `isMobile` prop: the app's threshold is
+ * `window.innerWidth < 768`, exactly Tailwind's `md` breakpoint, and a class
+ * need not travel from component to component to know the window's width.
  *
- * Il margine segue il COMPOSER (`m-2` / `m-3`), che è il bordo a cui l'occhio si
- * allinea: le strisce stanno sopra di lui, non sopra la pane.
+ * The margin follows the COMPOSER (`m-2` / `m-3`), the edge the eye aligns to:
+ * the goal, todo, live work, checkpoint and changed-files strips sit at the end
+ * of the transcript right above it (chat-strips-in-transcript), the others in
+ * the composer's block.
  */
 
 /** Geometria condivisa: margini, distanza dalla striscia sotto, raggio. */

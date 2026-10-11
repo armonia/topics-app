@@ -126,8 +126,11 @@ describe('the page-exit wiring', () => {
   const REAL_DOCUMENT = (globalThis as { document?: unknown }).document;
 
   afterEach(() => {
-    (globalThis as { window?: unknown }).window = REAL_WINDOW;
-    (globalThis as { document?: unknown }).document = REAL_DOCUMENT;
+    // Removed, not set to undefined: a key left behind still answers `in`.
+    if (REAL_WINDOW === undefined) delete (globalThis as { window?: unknown }).window;
+    else (globalThis as { window?: unknown }).window = REAL_WINDOW;
+    if (REAL_DOCUMENT === undefined) delete (globalThis as { document?: unknown }).document;
+    else (globalThis as { document?: unknown }).document = REAL_DOCUMENT;
   });
 
   // A fresh copy of the module, loaded against a window and a document whose

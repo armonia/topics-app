@@ -61,7 +61,7 @@ function offences(): Offence[] {
     lines.forEach((line, i) => {
       // Solo gli spawn letterali di git: le chiamate che passano da un runner
       // iniettato sono responsabilità di chi quel runner lo costruisce.
-      if (!/spawn\(\s*\[\s*"git"/.test(line)) return;
+      if (!/spawn(Bounded)?\(\s*\[\s*"git"/.test(line)) return;
       const window = lines.slice(i, i + 8).join("\n");
       const writesCommit = NEEDS_AUTHOR.some((verb) =>
         new RegExp(`"${verb}"`).test(window),
@@ -90,7 +90,7 @@ describe("identità git nel codice del server", () => {
     // `services/task-automerge.ts`.
     const esaminate = sourceFiles().filter((f) => {
       const src = readFileSync(f, "utf8");
-      return /spawn\(\s*\[\s*"git"/.test(src) && NEEDS_AUTHOR.some((v) => new RegExp(`"${v}"`).test(src));
+      return /spawn(Bounded)?\(\s*\[\s*"git"/.test(src) && NEEDS_AUTHOR.some((v) => new RegExp(`"${v}"`).test(src));
     });
     expect(esaminate.length, "nessuno spawn di git riconosciuto: il matcher non vede più il codice").toBeGreaterThan(0);
   });

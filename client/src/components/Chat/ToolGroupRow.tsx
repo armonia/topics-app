@@ -5,6 +5,7 @@ import type { ToolCall } from '../../types';
 import type { PlanDecisionHandler } from './planDetection';
 import { ToolCallRow, ElapsedTimer } from './ToolCallRow';
 import { BrowserOpenMarker } from './BrowserOpenMarker';
+import { ViewBlock } from '../Views/ViewBlock';
 import { useSettledMetricClass } from './settledMetrics';
 import { useDisclosureToggle } from './transcriptDisclosure';
 import { DisclosureBody } from './DisclosureBody';
@@ -214,6 +215,8 @@ export const GroupedToolRows = memo(function GroupedToolRows({ tools, sessionKey
       {segments.map((seg) =>
         seg.kind === 'browser' ? (
           <BrowserOpenMarker key={`br-${seg.marker.id}`} marker={seg.marker} />
+        ) : seg.kind === 'view' ? (
+          <ViewBlock key={`view-${seg.tool.id}`} spec={seg.view.spec} viewId={seg.view.viewId} />
         ) : seg.kind === 'solo' ? (
           <ToolCallRow key={seg.tool.id} toolCall={seg.tool} sessionKey={sessionKey} messageId={messageId} onPlanDecision={onPlanDecision} />
         ) : seg.tools.length >= GROUP_MIN ? (

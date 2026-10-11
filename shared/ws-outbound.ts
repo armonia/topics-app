@@ -713,6 +713,9 @@ const browserNavigateSchema = z.looseObject({
   // every browser_* tool fell back to an invisible Playwright phantom. Optional
   // for back-compat with older clients/messages — omit, never send null.
   contextId: z.optional(z.string()),
+  // The chat whose window shows this browser when it is not `topicId`: a
+  // spawned child's page goes into the window of the chat that spawned it.
+  hostTopicId: z.optional(z.string()),
 });
 
 // Fallback open: when open_browser_pane's normal broadcast mounted no visible

@@ -1,5 +1,7 @@
 import { useState, useCallback, useEffect, useRef, useMemo, lazy, Suspense, type HTMLAttributes } from 'react';
 import { useT } from '../../hooks/useT';
+import { chatStopTarget, parentLabel, useConfirmSubagentStop, useConfirmTerminalStop } from '../../lib/subagentStopGuard';
+import { useTerminalSessions, useTopics } from '../../contexts/TopicsContext';
 import { boardIdForPath } from '../../lib/board';
 import { MODAL_OVERLAY, MODAL_PANEL } from '../../lib/modalStyles';
 import { useExitGhost } from '../../lib/exitGhost';
@@ -34,6 +36,7 @@ import { ProjectStreamingSpinner, TerminalStreamingSpinner, BrowserStreamingSpin
 import { RowSplitMap } from './RowSplitMap';
 import { useTerminalAttentionFill, attentionFillFor, useSessionLastActivity } from '@/state/signals';
 import { sendAttentionSeen, useAttentionRows } from '@/state/attention';
+import { isAccordionOpen, readOpenedAccordions, summarizeSubagents, toggledAccordions, writeOpenedAccordions } from '@/lib/subagentAccordion';
 import { projectAttention } from '@/state/attentionRollups';
 import { terminalSubject, topicSubject } from '../../../../shared/attention';
 import { useProjectFocusStore } from '@/state/projectFocus';
@@ -45,7 +48,7 @@ import { loadSettings, saveSettings } from '@/lib/settings';
 import { ContextMenuPortal } from '@/components/Shared/ContextMenuPortal';
 import { tauriInvoke } from '@/lib/shell/tauri';
 import { NotificationBadge } from '@/components/Shared/NotificationBadge';
-import { sidebarRowCard, ROW_PX, ROW_GAP, ROW_H, SECTION_H, ROW_INSET, COLUMN_GAP, ROW_ACTION_BOX, ROW_ACTION_GLYPH, ROW_GLYPH, ROW_GLYPH_SLOT, ROW_CHEVRON, ROW_CHEVRON_SLOT, ROW_CARD, ROW_TRAIL, ROW_ACTIONS, ARCHIVED_ROW, SIDEBAR_INDENT_STEP, SIDEBAR_SCROLL_BOTTOM_PROPERTY, SIDEBAR_SCROLL_TOP_PROPERTY, ON_FILL_TEXT, ON_FILL_TEXT_SOFT, SIDEBAR_HOVER, TAB_LABEL, TAB_LABEL_TYPE } from '@/lib/selectionStyles';
+import { sidebarRowCard, ROW_PX, ROW_GAP, ROW_H, SECTION_H, ROW_INSET, COLUMN_GAP, ROW_ACTION_BOX, ROW_ACTION_GLYPH, ROW_GLYPH, ROW_GLYPH_SLOT, ROW_CHEVRON, ROW_CHEVRON_SLOT, ROW_CARD, ROW_TRAIL, ROW_ACTIONS, ARCHIVED_ROW, SIDEBAR_INDENT_STEP, SIDEBAR_SCROLL_BOTTOM_PROPERTY, SIDEBAR_SCROLL_TOP_PROPERTY, ON_FILL_TEXT, ON_FILL_TEXT_SOFT, SIDEBAR_HOVER, TAB_LABEL, TAB_LABEL_TYPE, TIER_INPUT_BG } from '@/lib/selectionStyles';
 import { startDragPreview } from '@/lib/dragPreview';
 import { useLongPress, openContextMenuAt } from '@/hooks/useLongPress';
 import { SessionActivity, ProjectElapsed } from '@/components/Shared/SessionActivity';
@@ -498,6 +501,15 @@ export function TopicTree({
   // renderProjectItem closure can derive a project's rollup synchronously: the
   // same rows the tab bar and every row read.
   const attention = useAttentionRows();
+  // Sub-agents sit in a per-parent accordion, closed until the person opens it (SUBAGENT-21).
+  const [openedSubagents, setOpenedSubagents] = useState<Set<string>>(readOpenedAccordions);
+  const toggleSubagents = useCallback((parentId: string) => {
+    setOpenedSubagents((prev) => {
+      const next = toggledAccordions(prev, parentId);
+      writeOpenedAccordions(next);
+      return next;
+    });
+  }, []);
 
   const toggleProject = useCallback((projectId: string) => {
     onToggleProject(prev => {
@@ -799,6 +811,21 @@ export function TopicTree({
     await onArchiveTopic(topicId, archive);
   }, [onArchiveTopic]);
 
+  // Closing a working sub-agent's terminal kills it, and its Stop cuts a turn
+  // another session is waiting on: both ask first (SUBAGENT-20). Archiving a
+  // row only hides it (the server does not abort a turn on archive): no question.
+  const confirmSubagentStop = useConfirmSubagentStop();
+  const confirmTerminalStop = useConfirmTerminalStop();
+  const ctxTopics = useTopics();
+  const ctxTerminals = useTerminalSessions();
+  const labelOfParent = useCallback(
+    (key: string) => parentLabel(key, ctxTopics, ctxTerminals),
+    [ctxTopics, ctxTerminals],
+  );
+  const guardedCloseTerminal = useCallback((sessionId: string) => {
+    void confirmTerminalStop(sessionId).then((ok) => { if (ok) onCloseTerminal?.(sessionId); });
+  }, [confirmTerminalStop, onCloseTerminal]);
+
   // ── Render: single sidebar item ──────────────────────────────────────────
 
   /**
@@ -996,7 +1023,10 @@ export function TopicTree({
         // se non è GIÀ fissata: la sua tessera c'è, e il gesto sarebbe un
         // bersaglio che si accende senza rispondere.
         touchDrag={item.pinned ? undefined : ditoVersoIFissati}
-        onStopStreaming={!topic.isGlobalOrchestrator && stopSession ? () => {
+        onStopStreaming={!topic.isGlobalOrchestrator && stopSession ? async () => {
+          // A native sub-agent's turn belongs to the session that spawned it:
+          // the Stop button only shows while it streams, so it asks (SUBAGENT-20).
+          if (!await confirmSubagentStop(chatStopTarget(topic, true, labelOfParent))) return;
           // Si archivia solo se il server ha davvero buttato via la chat: qui
           // lo Stop non ferma soltanto, fa SPARIRE il topic dalla sidebar, ed è
           // la mossa che nell'incidente del 10 agosto il client si prendeva da
@@ -1024,10 +1054,49 @@ export function TopicTree({
     return (
       <div key={item.id}>
         {row}
-        {subAgents.map(child => renderTerminalItem(child, depth + 1))}
+        {renderSubagentNest(item.id, subAgents, depth + 1)}
       </div>
     );
   };
+
+  // The accordion that holds a parent's sub-agents: a header with the count, a
+  // dot while one works and an amber one while one waits on the person, the
+  // rows only once opened (SUBAGENT-21).
+  const subagentSubject = (child: SidebarItem) => child.type === 'chat' ? topicSubject(child.topic!.id) : terminalSubject(child.terminal!.id);
+  const subagentIsWorking = (child: SidebarItem) => attention.get(subagentSubject(child))?.state === 'working';
+  const subagentNeedsYou = (child: SidebarItem) => attention.get(subagentSubject(child))?.state === 'needs-you';
+  const subagentIsFocused = (child: SidebarItem) => {
+    const paneId = child.type === 'chat' ? child.topic!.id : `terminal:${child.terminal!.id}`;
+    return focusedTopicId === paneId
+      || isActiveInnerChild(child.projectPath, child.type === 'chat' ? createPaneId('chat', child.topic!.id) : paneId);
+  };
+  const renderSubagentNest = (parentId: string, subAgents: SidebarItem[], depth: number) => {
+    const summary = summarizeSubagents(subAgents, subagentIsWorking, subagentIsFocused, subagentNeedsYou);
+    const open = isAccordionOpen(parentId, openedSubagents, summary);
+    const label = summary.count === 1 ? tr('sidebar.subagents.one') : tr('sidebar.subagents.many', { n: summary.count });
+    return (
+      <>
+        <button
+          type="button"
+          onClick={() => toggleSubagents(parentId)}
+          aria-expanded={open}
+          className={`flex items-center h-6 text-mini text-app-text-secondary hover:text-app-text transition-colors`}
+          style={{ marginLeft: ROW_INSET + depth * SIDEBAR_INDENT_STEP, gap: COLUMN_GAP }}
+        >
+          <ChevronRight size={ROW_CHEVRON} className={`transition-transform duration-fast ${open ? 'rotate-90' : ''}`} />
+          <span>{label}</span>
+          {summary.needsYou
+            ? <span className={`h-1.5 w-1.5 rounded-full ${TIER_INPUT_BG} animate-pulse`} role="img" aria-label={tr('sidebar.subagents.needsYou')} />
+            : summary.working && <span className="h-1.5 w-1.5 rounded-full bg-primary" aria-label={tr('sidebar.subagents.working')} />}
+        </button>
+        {open && subAgents.map(child => renderSubAgentItem(child, depth))}
+      </>
+    );
+  };
+
+  // A nested sub-agent row: a native child is a chat, a CLI child a terminal.
+  const renderSubAgentItem = (item: SidebarItem, depth: number) =>
+    item.type === 'chat' ? renderChatItem(item, depth) : renderTerminalItem(item, depth);
 
   // ── Terminal item ────────────────────────────────────────────────────────
 
@@ -1055,7 +1124,7 @@ export function TopicTree({
         pinned={!!item.pinned}
         lastActivity={item.lastActivity}
         onTerminalClick={handleTerminalRowClick}
-        onCloseTerminal={onCloseTerminal}
+        onCloseTerminal={onCloseTerminal ? guardedCloseTerminal : undefined}
         onOpenAsProject={onOpenAsProject}
         // La stessa rete del drop e delle tessere: un terminale chiuso vive in
         // sidebar solo finché è fissato, e la voce di menu non lo dice.
@@ -1065,11 +1134,11 @@ export function TopicTree({
       />
     );
     if (subAgents.length === 0) return row;
-    // Sub-agents (orchestrator-spawned) render nested one level deeper.
+    // Sub-agents (orchestrator-spawned) render nested one level deeper, in their accordion.
     return (
       <div key={item.id}>
         {row}
-        {subAgents.map(child => renderTerminalItem(child, depth + 1))}
+        {renderSubagentNest(item.id, subAgents, depth + 1)}
       </div>
     );
   };

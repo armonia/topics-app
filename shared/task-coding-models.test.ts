@@ -42,6 +42,20 @@ describe('task coding models', () => {
     expect(taskProviderForModel('gpt-5.4', snapshot([entry('codex', ['gpt-5.4'])]))).toBe('codex');
     expect(() => taskProviderForModel('gpt-5.4', snapshot([]))).toThrow('Codex is unavailable');
   });
+  test('muse models stay prefixed and resolve to the muse runtime', () => {
+    const muse = entry('muse', ['muse-spark-1.3-contributor']);
+    expect(availableTaskModels(snapshot([muse]))).toEqual(['muse:muse-spark-1.3-contributor']);
+    expect(availableTaskModels(snapshot([entry('muse', [])]))).toEqual(['muse']);
+    expect(taskModelSelection('muse:muse-spark-1.3-contributor')).toEqual({ provider: 'muse', model: 'muse-spark-1.3-contributor' });
+    expect(taskModelSelection('muse')).toEqual({ provider: 'muse' });
+    expect(taskModelSelection('muse:auto')).toEqual({ provider: 'muse' });
+    expect(taskProviderForModel('muse:muse-spark-1.3-contributor', snapshot([muse]))).toBe('muse');
+    expect(taskProviderForModel('muse', snapshot([muse]))).toBe('muse');
+    expect(taskExecutionOptions(snapshot([{ ...muse, capabilities: ['coding-tasks'] }]))[0]?.models)
+      .toEqual(['muse-spark-1.3-contributor']);
+    expect(taskModelMatchesSession('muse:muse-spark-1.3-contributor', { provider: 'muse', model: 'muse-spark-1.3-contributor' })).toBe(true);
+    expect(taskModelMatchesSession('muse:muse-spark-1.3-contributor', { provider: 'codex', model: 'muse-spark-1.3-contributor' })).toBe(false);
+  });
   test('new values bind runtime before model while legacy values remain valid', () => {
     expect(taskModelValue('topics', 'claude-opus-5')).toBe('topics:claude-opus-5');
     expect(taskModelValue('codex', null)).toBe('codex:auto');

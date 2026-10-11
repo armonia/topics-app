@@ -339,7 +339,30 @@ export function buildSidebarItems(opts: BuildSidebarItemsOpts): SidebarItem[] {
   const topicsByProject = new Map<string, Topic[]>();
   const standaloneChats: Topic[] = [];
 
+  // Native sub-agents (`subagentOf`, projected by the server from `subagents`)
+  // nest under the chat or terminal that spawned them, like a CLI child's
+  // terminal does: never a chat row of their own. Attilio, 04/10: «non dovrei
+  // vedere i sub-agent come tab, se proprio come sotto tab nella sidebar».
+  // A child whose parent is not here (archived away, another machine) falls
+  // back to the normal grouping, so it is still reachable.
+  const topicBySessionKey = new Map<string, Topic>();
   for (const t of Object.values(topics)) {
+    if (t.sessionKey) topicBySessionKey.set(t.sessionKey, t);
+  }
+  const terminalIds = new Set(terminalSessions.map((ts) => ts.id));
+  const chatChildrenByParent = new Map<string, Topic[]>();
+  for (const t of Object.values(topics)) {
+    const parent = t.subagentOf;
+    if (!parent || parent === t.sessionKey) continue;
+    if (!topicBySessionKey.has(parent) && !terminalIds.has(parent)) continue;
+    const arr = chatChildrenByParent.get(parent) || [];
+    arr.push(t);
+    chatChildrenByParent.set(parent, arr);
+  }
+  const isNestedChat = (t: Topic) => !!t.subagentOf && chatChildrenByParent.get(t.subagentOf)?.includes(t) === true;
+
+  for (const t of Object.values(topics)) {
+    if (isNestedChat(t)) continue;
     // `standalone` = ungrouped despite having a projectPath (catch-all agent
     // session): render as a top-level chat, same as a project-less topic.
     if (t.projectPath && !t.standalone) {
@@ -366,10 +389,6 @@ export function buildSidebarItems(opts: BuildSidebarItemsOpts): SidebarItem[] {
   // parent is neither (unknown/stale key) fall through to the flat grouping below
   // so they still appear somewhere.
   const terminalById = new Map(terminalSessions.map(t => [t.id, t]));
-  const topicBySessionKey = new Map<string, Topic>();
-  for (const t of Object.values(topics)) {
-    if (t.sessionKey) topicBySessionKey.set(t.sessionKey, t);
-  }
   const subAgentsByParent = new Map<string, TerminalSessionInfo[]>();      // parent is a terminal (keyed by its id)
   const subAgentsByChatParent = new Map<string, TerminalSessionInfo[]>();  // parent is a chat topic (keyed by its sessionKey)
   for (const ts of terminalSessions) {
@@ -390,8 +409,6 @@ export function buildSidebarItems(opts: BuildSidebarItemsOpts): SidebarItem[] {
     !!ts.parentSessionKey &&
     (terminalById.has(ts.parentSessionKey) || topicBySessionKey.has(ts.parentSessionKey));
 
-  const byCreatedAt = (a: TerminalSessionInfo, b: TerminalSessionInfo) =>
-    new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime();
   // Map one child terminal → a nested SidebarItem, recursing into its OWN
   // sub-agents (a sub-agent can spawn its own; those are always terminal→terminal).
   const toSubAgentItem = (ts: TerminalSessionInfo): SidebarItem => {
@@ -408,14 +425,52 @@ export function buildSidebarItems(opts: BuildSidebarItemsOpts): SidebarItem[] {
       ...(nested.length ? { subAgents: nested } : {}),
     };
   };
+  // A native child's chat row, nested: its own children (native or CLI) one
+  // level deeper. Archived children (stop_agent archives them) stay out unless
+  // archived rows are shown, or the child is pinned.
+  function toChatSubAgentItem(t: Topic): SidebarItem {
+    const nested = buildChatSubAgentItems(t.sessionKey);
+    return {
+      id: t.id,
+      type: 'chat' as const,
+      name: t.name,
+      icon: t.icon || '',
+      lastActivity: topicTimestamp(t),
+      ...attentionFields(chatRowAttention(t, attention)),
+      archived: t.archived,
+      ...(t.projectPath ? { projectPath: t.projectPath } : {}),
+      topic: t,
+      ...(pinnedIds.has(t.id) ? { pinned: true } : {}),
+      ...(nested.length ? { subAgents: nested } : {}),
+    };
+  }
+  const nestedChatItems = (parentKey: string): Array<{ at: number; item: SidebarItem }> =>
+    (chatChildrenByParent.get(parentKey) || [])
+      .filter((t) => !t.archived || showArchived || pinnedIds.has(t.id))
+      .map((t) => ({ at: new Date(t.createdAt).getTime(), item: toChatSubAgentItem(t) }));
+  const nestedTerminalItems = (list: TerminalSessionInfo[] | undefined): Array<{ at: number; item: SidebarItem }> =>
+    (list || []).map((ts) => ({ at: new Date(ts.createdAt).getTime(), item: toSubAgentItem(ts) }));
+  const byAt = (a: { at: number }, b: { at: number }) => a.at - b.at;
   // Nested sub-agent items for a parent TERMINAL (recursive). Always visible —
   // orchestrator-managed rows aren't gated on an open tab like user terminals.
   function buildSubAgentItems(parentTerminalId: string): SidebarItem[] {
-    return (subAgentsByParent.get(parentTerminalId) || []).slice().sort(byCreatedAt).map(toSubAgentItem);
+    return [...nestedTerminalItems(subAgentsByParent.get(parentTerminalId)), ...nestedChatItems(parentTerminalId)]
+      .sort(byAt).map((e) => e.item);
   }
   // Nested sub-agent items for a parent CHAT topic (by its sessionKey).
-  const buildChatSubAgentItems = (chatSessionKey: string): SidebarItem[] =>
-    (subAgentsByChatParent.get(chatSessionKey) || []).slice().sort(byCreatedAt).map(toSubAgentItem);
+  function buildChatSubAgentItems(chatSessionKey: string): SidebarItem[] {
+    return [...nestedTerminalItems(subAgentsByChatParent.get(chatSessionKey)), ...nestedChatItems(chatSessionKey)]
+      .sort(byAt).map((e) => e.item);
+  }
+  // Does this nested tree keep its parent row listed with the parent's tab
+  // closed? A CLI child does while its session exists (it is live work). A
+  // native child is a chat that outlives its turn, so it holds the parent only
+  // while it is lit or open, or while one of its own children does.
+  const holdsParentRow = (children: SidebarItem[], isOpen: (id: string) => boolean): boolean =>
+    children.some((c) => c.type === 'terminal'
+      || c.notificationCount > 0
+      || isOpen(c.id)
+      || holdsParentRow(c.subAgents || [], isOpen));
 
   for (const ts of terminalSessions) {
     // Sub-agents nested under a terminal parent are rendered inside that
@@ -473,17 +528,18 @@ export function buildSidebarItems(opts: BuildSidebarItemsOpts): SidebarItem[] {
       // under its row and keep it visible even with the tab closed, so a running
       // sub-agent is never orphaned from where it was launched.
       const chatSubAgents = buildChatSubAgentItems(t.sessionKey);
+      const subAgentsHold = holdsParentRow(chatSubAgents, (id) => openPanelSet.has(id) || internalPaneIds.has(`chat:${id}`) || internalPaneIds.has(id));
       // Pinned escape (fourth explicit exception, after archived/tab/notification):
       // a pinned chat keeps its row with the tab closed. A topic open in another
       // window (detachedTopicIds) is the fifth; a live sub-agent is the sixth —
       // same `||` escape pattern.
-      if (!t.archived && !hasInternalTab && !hasTopLevelTab && notificationCount === 0 && !pinnedIds.has(t.id) && !detachedTopicIds.has(t.id) && chatSubAgents.length === 0) continue;
+      if (!t.archived && !hasInternalTab && !hasTopLevelTab && notificationCount === 0 && !pinnedIds.has(t.id) && !detachedTopicIds.has(t.id) && !subAgentsHold) continue;
       // Sfissandola, resta qualcosa a tenerla su? Per una chat ARCHIVIATA no,
       // qualunque cosa abbia aperta: la taglia il filtro qui sopra (`:413`),
       // dove il pin è l'unica eccezione a «niente archiviate».
       const chatPinOnly = pinnedIds.has(t.id) && (t.archived
         ? !showArchived
-        : !hasInternalTab && !hasTopLevelTab && notificationCount === 0 && !detachedTopicIds.has(t.id) && chatSubAgents.length === 0);
+        : !hasInternalTab && !hasTopLevelTab && notificationCount === 0 && !detachedTopicIds.has(t.id) && !subAgentsHold);
       children.push({
         id: t.id,
         type: 'chat',
@@ -516,7 +572,7 @@ export function buildSidebarItems(opts: BuildSidebarItemsOpts): SidebarItem[] {
       // Tab-driven gate, EXCEPT orchestrator-managed rows: a session that is
       // itself a sub-agent, or that has spawned sub-agents, stays visible so the
       // tree can be monitored regardless of its own open tab.
-      const orchestratorManaged = !!ts.parentSessionKey || projSubAgents.length > 0;
+      const orchestratorManaged = !!ts.parentSessionKey || holdsParentRow(projSubAgents, (id) => openPanelSet.has(id) || internalPaneIds.has(`chat:${id}`) || internalPaneIds.has(id));
       // Pinned escape (same `||` pattern as chats/projects): a pinned terminal
       // keeps its row inside the project even with the tab closed. Pin keys use
       // the pane-id form `terminal:<sessionId>`.
@@ -620,18 +676,19 @@ export function buildSidebarItems(opts: BuildSidebarItemsOpts): SidebarItem[] {
     // Sub-agents this chat spawned as an orchestrator (MCP spawn_agent) — nested
     // under its row, and an escape that keeps the row visible with the tab closed.
     const chatSubAgents = buildChatSubAgentItems(t.sessionKey);
+    const subAgentsHold = holdsParentRow(chatSubAgents, (id) => openPanelSet.has(id));
     // Archived items shown when showArchived is on; active items need an open
     // tab, a pending notification (unread / Claude needs-you), a pin, being open
     // in another window (detachedTopicIds), or a live sub-agent — same `||` escape.
     const hasTab = openPanelSet.has(t.id);
     if (!t.archived) {
-      if (!hasTab && notificationCount === 0 && !pinnedIds.has(t.id) && !detachedTopicIds.has(t.id) && chatSubAgents.length === 0) continue;
+      if (!hasTab && notificationCount === 0 && !pinnedIds.has(t.id) && !detachedTopicIds.has(t.id) && !subAgentsHold) continue;
     }
     // Stessa lettura del ramo dentro-progetto: archiviata, il pin è l'unica
     // deroga a «niente archiviate» (riga sopra), tab aperta o no.
     const chatPinOnly = pinnedIds.has(t.id) && (t.archived
       ? !showArchived
-      : !hasTab && notificationCount === 0 && !detachedTopicIds.has(t.id) && chatSubAgents.length === 0);
+      : !hasTab && notificationCount === 0 && !detachedTopicIds.has(t.id) && !subAgentsHold);
     items.push({
       id: t.id,
       type: 'chat',
@@ -657,7 +714,7 @@ export function buildSidebarItems(opts: BuildSidebarItemsOpts): SidebarItem[] {
     // A normal terminal shows only while its tab is open; but an orchestrator-
     // managed row (one that has spawned sub-agents, or is itself a sub-agent)
     // stays visible so the tree can be monitored even with its pane closed.
-    const orchestratorManaged = !!ts.parentSessionKey || subAgents.length > 0;
+    const orchestratorManaged = !!ts.parentSessionKey || holdsParentRow(subAgents, (id) => openPanelSet.has(id));
     // Pinned escape: a pinned standalone terminal survives its tab closing,
     // same as pinned chats. Pin key is the pane-id form `terminal:<sessionId>`.
     // A lit terminal stays with its tab closed, like a lit chat (ATTN-14).

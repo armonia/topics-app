@@ -403,6 +403,7 @@ import { attemptsInChain, attemptsOnRow, chatHasCounts, recordResend, resendChai
 import { providerHoldKey } from "../../shared/provider-hold";
 import { MACHINE_ROW_SQL } from "../../shared/prompt-number";
 import { waitingAskStartedAt } from "./waiting-ask";
+import { getSubagentBySessionKey } from "./subagent-store";
 
 /**
  * Does one of the chat's last rows carry a question still waiting for its
@@ -659,6 +660,10 @@ export interface CtxRipresa {
   /** The chat's `run_command`s still running (re-adopted at boot): named in the
    *  continuation note. Absent: the note says nothing about them. */
   backgroundCommands?(sessionKey: string): Array<{ description: string; processId: string }>;
+  /** The sweep will never resend this chat's last turn (cap, archive, window,
+   *  a verdict of no): a native sub-agent's cut turn gets its one result, `lost`,
+   *  or `failed` with `failure` when the route refused the resend for good. */
+  abandonCut?(sessionKey: string, failure?: string): void;
 }
 
 /** The blocks of the assistant rows after the user row `lastUserId`: the turn that answered it. */
@@ -826,6 +831,115 @@ async function withDeadline<T>(work: Promise<T>, ms: number): Promise<T | typeof
   }
 }
 
+/** A chat's last row, read the way the sweep reads it, with the sweep's verdict on it. */
+interface AssessedRow {
+  r: LastRow;
+  blocks: ContentBlock[] | null;
+  topic: NonNullable<ReturnType<CtxRipresa["getTopicBySessionKey"]>>;
+  lastUser: { id: string; content: unknown };
+  chain: ResendChain;
+  continuation: boolean;
+  row: RigaDaValutare;
+  verdict: ResumeVerdict;
+}
+
+/**
+ * The sweep's reading of one chat's last row. Null: the chat is out of the
+ * resume for good (no topic, archived, a stopped sub-agent, a native sub-agent
+ * whose cut turn is no longer owed, nothing to resend). No side effect: the
+ * sweep and `cutTurnResumable` ask the same question here.
+ */
+async function assessLastRow(ctx: CtxRipresa, found: LastRow, ora: number): Promise<AssessedRow | null> {
+  let blocks: ContentBlock[] | null = null;
+  try { blocks = JSON.parse(decodeCol(found.blocks) ?? "null") as ContentBlock[] | null; } catch { return null; }
+  // A background notice is a service line, not the chat's last word: the
+  // turn it follows is the one that may have been cut (second review of
+  // 25/09: a stall recycle of a person's message was never resent).
+  const r = isBackgroundNoticeRow(blocks) ? previousConversationRow(ctx.db, found) : found;
+  if (!r) return null;
+  if (r !== found) {
+    try { blocks = JSON.parse(decodeCol(r.blocks) ?? "null") as ContentBlock[] | null; } catch { return null; }
+  }
+  const topic = ctx.getTopicBySessionKey(r.sk);
+  if (!topic || topic.archived) return null;
+  // The message a resend sends, which keys its count (lib/resend-count.ts).
+  const lastUser = ctx.db.query(
+    `SELECT id, content FROM messages WHERE session_key = ? AND role = 'user' ORDER BY rowid DESC LIMIT 1`,
+  ).get(r.sk) as { id: string; content: unknown } | undefined | null;
+  if (!lastUser) return null;
+  // A native sub-agent's turn is resent only while it is `running`: a child
+  // its parent stopped gets no turn from the machine, only a person's message
+  // or `send_to_agent` resumes it (SUBAGENT-19); a retired one has reported its
+  // last turn, and a resend would be a second result.
+  const child = getSubagentBySessionKey(ctx.db as never, r.sk);
+  if (child?.runtime === "topics" && child.state !== "running") return null;
+  let chain = resendChainOf(ctx.db, r.sk, lastUser.id) ?? uncountedChain(ctx.db, r.sk, { id: r.id, blocks }, lastUser.id);
+  // A RESTART THAT CUT A TURN AT WORK SPENDS NO ATTEMPT. The cap is for the
+  // message that crashes its turn every time; a turn that got through some
+  // tools and was then cut by a restart is work in progress. Counted, a long
+  // chat (topic:d740f8ae, hours per turn) would hit the cap after four
+  // planned restarts now that the gate cuts it instead of waiting. A new
+  // chain starts on the last user row, the same shape as a chain whose copy
+  // was answered (`resendChainOf`), and the resend says why it comes.
+  const continuation = r.ruolo === "assistant" && cutByRestart(lastInterruption(blocks))
+    && cutTurnProgressed(turnRowsAfter(ctx.db, r.sk, lastUser.id))
+    && continuationsInARow(ctx.db, r.sk) < MAX_RESTART_CONTINUATIONS;
+  if (continuation) chain = { messageId: lastUser.id, attempts: 0, freeProbes: 0 };
+  const card = topic.id ? cardHold(ctx.db, topic.id) : { bound: false, landed: false, inProgress: false };
+  const row: RigaDaValutare = {
+    sessionKey: r.sk, ruolo: r.ruolo, blocks, timestampMs: Date.parse(r.ts), attempts: chain.attempts,
+    streaming: Boolean(ctx.isStreaming?.(r.sk)),
+    // Settles in microtasks (a queue tail, no I/O), so reading the rows
+    // and writing the traces still happen inside one macrotask, and a
+    // second sweep started by a timer cannot pick the same row.
+    providerBusy: Boolean(await ctx.providerBusy?.(r.sk)),
+    // Newest wins between the registry and, for a person's message, the
+    // durable Stop: after a restart only the second is left.
+    lastTurnEnd: latestEnd(
+      ctx.lastTurnEnd ? ctx.lastTurnEnd(r.sk) : readTurnEnd(r.sk),
+      r.ruolo === "user" ? durableStopSince(ctx.db, r.sk, r.ts) : undefined,
+    ) ?? null,
+    boundToCard: card.bound,
+    cardLanded: card.landed,
+    cardInProgress: card.inProgress,
+    // Read off the database only for an outage's cut, the one verdict
+    // that asks (`outageCutNotResent`).
+    answersMessage: r.ruolo === "assistant" && lastCutIsOutage(blocks) && answersPersonsMessage(ctx.db, r.sk, r.id),
+    // A /compact that ended leaves no answer row, and after a reload no
+    // recorded end either: its marker is what says it was answered.
+    compacted: r.ruolo === "user" && compactionCarriedOut(ctx.db, r.sk, r.id),
+    openQuestion: sessionHasOpenQuestion(ctx.db, r.sk),
+  };
+  return { r, blocks, topic, lastUser, chain, continuation, row, verdict: resumeVerdict(row, ora) };
+}
+
+/** A "no" that a later sweep can turn around: a live turn, or a send still queued on the provider. */
+function stillPending(row: RigaDaValutare, ora: number): boolean {
+  return !!row.streaming || (!!row.providerBusy && resumeVerdict({ ...row, providerBusy: false }, ora) !== "no");
+}
+
+/**
+ * Is this chat's cut turn still one the sweep can resend? Yes while its
+ * verdict is a resend (a provider hold only defers it) or a "no" a later sweep
+ * can turn around; no once it is capped, archived, out of the window, or not
+ * owed. The one answer the native sub-agents' adoption, this sweep and their
+ * `send_to_agent` share: a suspended turn gets one result, never a `lost` and
+ * then its resend.
+ */
+export async function cutTurnResumable(ctx: CtxRipresa, sessionKey: string): Promise<boolean> {
+  const found = ctx.db.query(
+    `SELECT session_key AS sk, id, role AS ruolo, blocks, timestamp AS ts FROM messages
+      WHERE session_key = ? AND timestamp >= strftime('%Y-%m-%dT%H:%M:%fZ', 'now', '-25 hours')
+      ORDER BY rowid DESC LIMIT 1`,
+  ).get(sessionKey) as LastRow | null;
+  if (!found) return false;
+  const ora = Date.now();
+  const assessed = await assessLastRow(ctx, found, ora);
+  if (!assessed) return false;
+  if (assessed.verdict === "no") return stillPending(assessed.row, ora);
+  return assessed.verdict !== "capped";
+}
+
 /**
  * I TURNI CHE ABBIAMO UCCISO NOI, RIPRESI DA NOI.
  *
@@ -869,64 +983,14 @@ export async function riprendiTurniInterrotti(
     const ora = Date.now();
     const bootedAtMs = ctx.bootedAtMs ?? ora - process.uptime() * 1000;
     for (const found of righe) {
-      let blocks: ContentBlock[] | null = null;
-      try { blocks = JSON.parse(decodeCol(found.blocks) ?? "null") as ContentBlock[] | null; } catch { continue; }
-      // A background notice is a service line, not the chat's last word: the
-      // turn it follows is the one that may have been cut (second review of
-      // 25/09: a stall recycle of a person's message was never resent).
-      const r = isBackgroundNoticeRow(blocks) ? previousConversationRow(ctx.db, found) : found;
-      if (!r) continue;
-      if (r !== found) {
-        try { blocks = JSON.parse(decodeCol(r.blocks) ?? "null") as ContentBlock[] | null; } catch { continue; }
-      }
-      const topic = ctx.getTopicBySessionKey(r.sk);
-      if (!topic || topic.archived) continue;
-      // The message a resend sends, which keys its count (lib/resend-count.ts).
-      const lastUser = ctx.db.query(
-        `SELECT id, content FROM messages WHERE session_key = ? AND role = 'user' ORDER BY rowid DESC LIMIT 1`,
-      ).get(r.sk) as { id: string; content: unknown } | undefined | null;
-      if (!lastUser) continue;
-      let chain = resendChainOf(ctx.db, r.sk, lastUser.id) ?? uncountedChain(ctx.db, r.sk, { id: r.id, blocks }, lastUser.id);
-      // A RESTART THAT CUT A TURN AT WORK SPENDS NO ATTEMPT. The cap is for the
-      // message that crashes its turn every time; a turn that got through some
-      // tools and was then cut by a restart is work in progress. Counted, a long
-      // chat (topic:d740f8ae, hours per turn) would hit the cap after four
-      // planned restarts now that the gate cuts it instead of waiting. A new
-      // chain starts on the last user row, the same shape as a chain whose copy
-      // was answered (`resendChainOf`), and the resend says why it comes.
-      const continuation = r.ruolo === "assistant" && cutByRestart(lastInterruption(blocks))
-        && cutTurnProgressed(turnRowsAfter(ctx.db, r.sk, lastUser.id))
-        && continuationsInARow(ctx.db, r.sk) < MAX_RESTART_CONTINUATIONS;
-      if (continuation) chain = { messageId: lastUser.id, attempts: 0, freeProbes: 0 };
+      const assessed = await assessLastRow(ctx, found, ora);
+      if (!assessed) { ctx.abandonCut?.(found.sk); continue; }
+      const { r, blocks, topic, lastUser, chain, continuation, row } = assessed;
       const attempts = chain.attempts;
-      const card = topic.id ? cardHold(ctx.db, topic.id) : { bound: false, landed: false, inProgress: false };
-      const row: RigaDaValutare = {
-        sessionKey: r.sk, ruolo: r.ruolo, blocks, timestampMs: Date.parse(r.ts), attempts,
-        streaming: Boolean(ctx.isStreaming?.(r.sk)),
-        // Settles in microtasks (a queue tail, no I/O), so reading the rows
-        // and writing the traces still happen inside one macrotask, and a
-        // second sweep started by a timer cannot pick the same row.
-        providerBusy: Boolean(await ctx.providerBusy?.(r.sk)),
-        // Newest wins between the registry and, for a person's message, the
-        // durable Stop: after a restart only the second is left.
-        lastTurnEnd: latestEnd(
-          ctx.lastTurnEnd ? ctx.lastTurnEnd(r.sk) : readTurnEnd(r.sk),
-          r.ruolo === "user" ? durableStopSince(ctx.db, r.sk, r.ts) : undefined,
-        ) ?? null,
-        boundToCard: card.bound,
-        cardLanded: card.landed,
-        cardInProgress: card.inProgress,
-        // Read off the database only for an outage's cut, the one verdict
-        // that asks (`outageCutNotResent`).
-        answersMessage: r.ruolo === "assistant" && lastCutIsOutage(blocks) && answersPersonsMessage(ctx.db, r.sk, r.id),
-        // A /compact that ended leaves no answer row, and after a reload no
-        // recorded end either: its marker is what says it was answered.
-        compacted: r.ruolo === "user" && compactionCarriedOut(ctx.db, r.sk, r.id),
-        openQuestion: sessionHasOpenQuestion(ctx.db, r.sk),
-      };
       if (!row.providerBusy) busyLogged.delete(r.sk);
-      let verdict: ResumeVerdict = resumeVerdict(row, ora);
+      let verdict: ResumeVerdict = assessed.verdict;
       if (verdict === "no") {
+        if (!stillPending(row, ora)) ctx.abandonCut?.(r.sk);
         // Said only when that reason alone changed the verdict: a live stream
         // or a card already says "no" without anybody's help.
         if (row.providerBusy && resumeVerdict({ ...row, providerBusy: false }, ora) !== "no") {
@@ -1007,6 +1071,7 @@ export async function riprendiTurniInterrotti(
         } catch (err) {
           console.warn(`[ripresa] ${r.sk}: tetto raggiunto ma non riesco a scriverlo in chat:`, err);
         }
+        ctx.abandonCut?.(r.sk);
         continue;
       }
       // Il messaggio da rimandare è l'ultimo dell'utente: è ciò che farebbe il
@@ -1116,6 +1181,16 @@ export async function riprendiTurniInterrotti(
         console.warn(
           `[ripresa] ${c.sessionKey}: la route ha rifiutato il rimando (HTTP ${resp?.status ?? "nessuna risposta"}), il turno NON è ripreso`,
         );
+        // A refusal the route will give again (no engine, a routing it cannot
+        // do, the chat not the machine's to turn): the resume gives up for good.
+        // Only another turn holding the chat passes. A native sub-agent's cut
+        // turn then gets its one result, `failed` with the route's reason;
+        // without it the child stayed `running` for the 24-hour window.
+        const refusal = resp ? await resp.json().catch(() => null) as { error?: unknown; code?: unknown } | null : null;
+        if (resp && refusal?.code !== "stream_in_flight") {
+          const reason = typeof refusal?.error === "string" ? refusal.error : `HTTP ${resp.status}`;
+          ctx.abandonCut?.(c.sessionKey, `the resume was refused: ${reason}`);
+        }
         return;
       }
       // Lo stream si consuma fino in fondo: la route finalizza la riga quando

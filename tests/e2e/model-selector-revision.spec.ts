@@ -58,14 +58,14 @@ const box = async (page: Page, selector: string) => page.locator(selector).first
   return { top: r.top, bottom: r.bottom, left: r.left, right: r.right, height: r.height };
 });
 
-/** How many of a column's stops (rows, «Precedenti») are inside its visible box. */
-async function visibleStops(page: Page, column: number): Promise<{ visible: number; total: number }> {
-  return panel(page).locator(`[data-model-column="${column}"]`).evaluate((col) => {
-    const c = col.getBoundingClientRect();
-    const stops = [...col.querySelectorAll<HTMLElement>('[data-testid="model-row"], [data-testid="model-section-older"]')];
+/** How many of a section's stops (rows, «Precedenti») are inside the list's visible box. */
+async function visibleStops(page: Page, maker: string): Promise<{ visible: number; total: number }> {
+  return panel(page).evaluate((root, sectionMaker) => {
+    const c = root.querySelector('[data-testid="model-selector-sections"]')!.getBoundingClientRect();
+    const stops = [...root.querySelectorAll<HTMLElement>(`[data-testid="model-section-${sectionMaker}"] [data-testid="model-row"], [data-testid="model-section-${sectionMaker}"] [data-testid="model-section-older"]`)];
     const visible = stops.filter((el) => { const r = el.getBoundingClientRect(); return r.top >= c.top - 0.5 && r.bottom <= c.bottom + 0.5; });
     return { visible: visible.length, total: stops.length };
-  });
+  }, maker);
 }
 
 async function axeViolations(page: Page) {
@@ -99,13 +99,13 @@ async function shot(page: Page, name: string) {
 test.describe("desktop 1440 × 900, with keys", () => {
   test.use({ viewport: { width: 1440, height: 900 } });
 
-  test("columns by company, headings, «via X», the engine in place, room and accessibility", async ({ page, request }) => {
+  test("sections by company, headings, «via X», the engine in place, room and accessibility", async ({ page, request }) => {
     await openSelector(page, request, KEYS);
-    // AC-01, AC-04: no catch-all; Anthropic, OpenAI, Google, then the others stacked.
+    // AC-01, AC-04: no catch-all; one list, Anthropic, OpenAI, Google, then the others below.
     await expect(panel(page).getByTestId("model-section-other")).toHaveCount(0);
-    const columns = await panel(page).getByTestId("model-column").evaluateAll((cols) => cols.map((col) =>
-      [...col.querySelectorAll('[role="group"]')].map((group) => group.getAttribute("data-maker"))));
-    expect(columns).toEqual([["anthropic"], ["openai"], ["google"], ["meta", "deepseek", "mistral", "qwen", "xai"]]);
+    const makers = await panel(page).getByTestId("model-selector-sections").locator('[role="group"]').evaluateAll((groups) =>
+      groups.map((group) => group.getAttribute("data-maker")));
+    expect(makers).toEqual(["anthropic", "openai", "google", "meta", "deepseek", "mistral", "qwen", "xai"]);
     await expect(section(page, "google").locator('[data-model="gemini-3-pro"]')).toHaveCount(1);
     await expect(section(page, "openai").locator('[data-testid="model-row"]').filter({ hasText: "GPT-OSS 20B" })).toHaveCount(1);
 
@@ -123,19 +123,16 @@ test.describe("desktop 1440 × 900, with keys", () => {
     await expect(section(page, "anthropic").locator('[data-model="claude-opus-5-5"]').getByTestId("model-row-via")).toHaveCount(0);
     await expect(section(page, "anthropic").locator('[data-model="claude-opus-5-5"]')).toHaveAccessibleName(/Claude Code, via Topics/);
 
-    // AC-09: Anthropic and Google whole, OpenAI at least 8 of 9, the fourth at least 5 rows.
-    const anthropic = await visibleStops(page, 0);
-    const openAiStops = await visibleStops(page, 1);
-    const google = await visibleStops(page, 2);
-    const fourth = await panel(page).locator('[data-model-column="3"]').evaluate((col) => {
-      const c = col.getBoundingClientRect();
-      return [...col.querySelectorAll('[data-testid="model-row"]')].filter((el) => { const r = el.getBoundingClientRect(); return r.top >= c.top - 0.5 && r.bottom <= c.bottom + 0.5; }).length;
-    });
-    test.info().annotations.push({ type: "measure", description: JSON.stringify({ anthropic, openAiStops, google, fourth }) });
+    // AC-09: the first section whole in view; the list scrolls; at the bottom the last section whole.
+    const sections = panel(page).getByTestId("model-selector-sections");
+    const anthropic = await visibleStops(page, "anthropic");
     expect(anthropic.visible).toBe(anthropic.total);
-    expect(google.visible).toBe(google.total);
-    expect(openAiStops.visible).toBeGreaterThanOrEqual(8);
-    expect(fourth).toBeGreaterThanOrEqual(5);
+    expect(await sections.evaluate((el) => el.scrollHeight > el.clientHeight + 1)).toBe(true);
+    await sections.evaluate((el) => { el.scrollTop = el.scrollHeight; });
+    const last = await visibleStops(page, "xai");
+    test.info().annotations.push({ type: "measure", description: JSON.stringify({ anthropic, last }) });
+    expect(last.visible).toBe(last.total);
+    await sections.evaluate((el) => { el.scrollTop = 0; });
 
     // Open the Anthropic older ones: Opus 4.8 runs on Claude Code directly.
     await section(page, "anthropic").getByTestId("model-section-older").click();
@@ -155,12 +152,16 @@ test.describe("desktop 1440 × 900, with keys", () => {
     await expect(radios).toHaveCount(0);
     await expect(panel(page)).toBeVisible();
 
-    // AC-35: ← → go to the next column; Tab stops once per column.
-    await section(page, "anthropic").locator('[data-model="claude-sonnet-5-5"]').focus();
+    // AC-35: in the single list ← → stay where they are; Tab walks the stops in order.
+    const sonnet = section(page, "anthropic").locator('[data-model="claude-sonnet-5-5"]');
+    await sonnet.focus();
     await page.keyboard.press("ArrowRight");
-    expect(await page.evaluate(() => document.activeElement?.closest("[data-model-column]")?.getAttribute("data-model-column"))).toBe("1");
+    await expect(sonnet).toBeFocused();
+    await page.keyboard.press("ArrowLeft");
+    await expect(sonnet).toBeFocused();
     await page.keyboard.press("Tab");
-    expect(await page.evaluate(() => document.activeElement?.closest("[data-model-column]")?.getAttribute("data-model-column"))).toBe("2");
+    expect(await page.evaluate(() => (document.activeElement as HTMLElement | null)?.closest('[data-testid="model-selector-panel"]') !== null)).toBe(true);
+    expect(await page.evaluate(() => (document.activeElement as HTMLElement | null)?.dataset?.model ?? null)).not.toBe("claude-sonnet-5-5");
 
     // AC-34: axe on the open selector, light and dark.
     expect(await axeViolations(page), "light").toEqual([]);
@@ -175,11 +176,12 @@ test.describe("desktop 1440 × 900, with keys", () => {
 
   test("a saved Google model does not move Google first, and its row is in view (AC-05)", async ({ page, request }) => {
     await openSelector(page, request, KEYS, "gemini-2.5-pro");
-    const makers = await panel(page).getByTestId("model-column").evaluateAll((cols) => cols.map((col) => col.querySelector('[role="group"]')?.getAttribute("data-maker")));
-    expect(makers).toEqual(["anthropic", "openai", "google", "meta"]);
+    const makers = await panel(page).getByTestId("model-selector-sections").locator('[role="group"]').evaluateAll((groups) =>
+      groups.map((group) => group.getAttribute("data-maker")));
+    expect(makers).toEqual(["anthropic", "openai", "google", "meta", "deepseek", "mistral", "qwen", "xai"]);
     const chosen = section(page, "google").locator('[aria-pressed="true"]');
     await expect(chosen).toHaveCount(1);
-    const [r, c] = [await chosen.boundingBox(), await panel(page).locator('[data-model-column="2"]').boundingBox()];
+    const [r, c] = [await chosen.boundingBox(), await panel(page).getByTestId("model-selector-sections").boundingBox()];
     expect(r!.y).toBeGreaterThanOrEqual(c!.y - 0.5);
     expect(r!.y + r!.height).toBeLessThanOrEqual(c!.y + c!.height + 0.5);
   });
@@ -270,7 +272,7 @@ test.describe("desktop 1440 × 900, with keys", () => {
     await expect(picker).toBeVisible();
   });
 
-  test("the panel's text: the band says who goes direct, no «≈», nothing under 10 px, dividers visible (AC-12, AC-32, AC-36, AC-38)", async ({ page, request }) => {
+  test("the panel's text: the band says who goes direct, no «≈», nothing under 10 px (AC-12, AC-32, AC-36)", async ({ page, request }) => {
     await openSelector(page, request, KEYS);
     await expect(page.getByTestId("model-selector-routing-line")).toContainText("Gli altri vanno diretti");
     for (const older of await panel(page).getByTestId("model-section-older").all()) await older.click();
@@ -281,35 +283,7 @@ test.describe("desktop 1440 × 900, with keys", () => {
       .map((el) => ({ text: (el.textContent ?? "").trim().slice(0, 30), size: parseFloat(getComputedStyle(el).fontSize) }))
       .filter((t) => t.size < 10));
     expect(small).toEqual([]);
-    // AC-38: each divider against the popover's own background, ≥ 1.25:1.
-    for (const scheme of ["light", "dark"] as const) {
-      await page.emulateMedia({ colorScheme: scheme });
-      await expect.poll(() => page.evaluate(() => document.documentElement.classList.contains("dark"))).toBe(scheme === "dark");
-      const ratios = await page.evaluate(() => {
-        const pop = document.querySelector<HTMLElement>('[data-testid="provider-model-popover"]')!;
-        const canvas = document.createElement("canvas");
-        canvas.width = canvas.height = 1;
-        const ctx = canvas.getContext("2d", { willReadFrequently: true })!;
-        const paint = (...layers: string[]) => {
-          ctx.clearRect(0, 0, 1, 1);
-          ctx.fillStyle = "#fff";
-          ctx.fillRect(0, 0, 1, 1);
-          for (const layer of layers) { ctx.fillStyle = layer; ctx.fillRect(0, 0, 1, 1); }
-          return [...ctx.getImageData(0, 0, 1, 1).data.slice(0, 3)];
-        };
-        const luminance = (rgb: number[]) => {
-          const [r, g, b] = rgb.map((v) => { const c = v / 255; return c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4; });
-          return 0.2126 * r! + 0.7152 * g! + 0.0722 * b!;
-        };
-        const background = getComputedStyle(pop).backgroundColor;
-        return [...document.querySelectorAll<HTMLElement>('[data-model-column]')].slice(1).map((col) => {
-          const [a, b] = [luminance(paint(background, getComputedStyle(col).borderLeftColor)), luminance(paint(background))];
-          return (Math.max(a, b) + 0.05) / (Math.min(a, b) + 0.05);
-        });
-      });
-      expect(ratios.length, scheme).toBe(3);
-      for (const ratio of ratios) expect(ratio, scheme).toBeGreaterThanOrEqual(1.25);
-    }
+    // AC-38 died with the columns (amendment 2026-10-06): no dividers left to grade.
   });
 
   test("axe at WCAG 2.1 AA: no serious or critical violation on the selector, light and dark", async ({ page, request }) => {
@@ -325,7 +299,7 @@ for (const viewport of [{ width: 1440, height: 900 }, { width: 1024, height: 768
   test.describe(`desktop ${viewport.width} × ${viewport.height}, opening and room`, () => {
     test.use({ viewport });
 
-    test("the panel opens on the roomier side of its chip, whole in the window, every heading and first row in view (AC-08, AC-10)", async ({ page, request }) => {
+    test("the panel opens on the roomier side of its chip, whole in the window, the first section in view (AC-08, AC-10)", async ({ page, request }) => {
       const picker = await openSelector(page, request, KEYS);
       const popover = await box(page, '[data-testid="provider-model-popover"]');
       const sections = await box(page, '[data-testid="model-selector-sections"]');
@@ -338,27 +312,25 @@ for (const viewport of [{ width: 1440, height: 900 }, { width: 1024, height: 768
       const below = viewport.height - (chip.y + chip.height);
       expect(popover.top < chip.y + chip.height && popover.bottom > chip.y, "the panel covers its chip").toBe(false);
       expect(popover.bottom <= chip.y + 0.5 ? above : below).toBeGreaterThanOrEqual(Math.min(above, below));
-      // Every column shows its heading and its first row without scrolling.
-      for (const column of await panel(page).getByTestId("model-column").all()) {
-        const c = (await column.boundingBox())!;
-        for (const part of [column.getByTestId("model-section-heading").first(), column.getByTestId("model-row").first()]) {
-          const r = (await part.boundingBox())!;
-          expect(r.y).toBeGreaterThanOrEqual(c.y - 0.5);
-          expect(r.y + r.height).toBeLessThanOrEqual(c.y + c.height + 0.5);
-        }
+      // The first section shows its heading and its first row without scrolling.
+      const first = section(page, "anthropic");
+      for (const part of [first.getByTestId("model-section-heading"), first.getByTestId("model-row").first()]) {
+        const r = (await part.boundingBox())!;
+        expect(r.y).toBeGreaterThanOrEqual(sections.top - 0.5);
+        expect(r.y + r.height).toBeLessThanOrEqual(sections.bottom + 0.5);
       }
       if (viewport.width === 1024) {
-        // AC-08: the column area takes most of the panel; Anthropic is whole.
+        // AC-08: the list area takes most of the panel; Anthropic is whole.
         // The AC's 280 px is defined on a 400 px panel (revision §4.3), and the
         // panel is as tall as the room above this mid-screen chip, which moves
         // with the empty chat's fonts: 398 px in WebKit on the Mac, 384 in
         // Chromium on Linux (the chip 14 px higher). So the panel must take all
         // that room (§4.2) and its fixed chrome must leave 280 of 400, that is
-        // at most 120 px, so a panel of 400 or more has 280 px of columns.
+        // at most 120 px, so a panel of 400 or more has 280 px of list.
         expect(popover.height).toBeGreaterThanOrEqual(Math.min(456, Math.max(above, below) - 16) - 1);
         expect(popover.height - sections.height).toBeLessThanOrEqual(400 - 280);
         expect(sections.height / popover.height).toBeGreaterThanOrEqual(0.7);
-        const anthropic = await visibleStops(page, 0);
+        const anthropic = await visibleStops(page, "anthropic");
         expect(anthropic.visible).toBe(anthropic.total);
       }
     });

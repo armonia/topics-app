@@ -27,6 +27,7 @@ import type { PorcelainEntry } from "./git-porcelain";
 import { attachNumstats, readNumstats } from "./git-numstat";
 import { roundsInFlight } from "./git-status-cache";
 import type { GitStatus } from "../../shared/git-status";
+import { SPAWN_TIMEOUT, spawnBounded } from "./bounded-spawn";
 export type { GitStatus } from "../../shared/git-status";
 
 /** A porcelain entry with its per-side line counts attached (`lib/git-numstat.ts`). */
@@ -91,7 +92,7 @@ export function splitBranchHeader(text: string): { header: string | null; entrie
 }
 
 async function readText(args: string[], cwd: string): Promise<{ code: number; text: string }> {
-  const proc = Bun.spawn(args, { cwd, stdout: "pipe", stderr: "ignore" });
+  const proc = spawnBounded(args, { cwd, stdout: "pipe", stderr: "ignore", timeoutMs: SPAWN_TIMEOUT.query });
   const text = await new Response(proc.stdout).text();
   await proc.exited;
   return { code: proc.exitCode ?? 1, text };

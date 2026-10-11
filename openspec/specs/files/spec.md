@@ -723,6 +723,76 @@ XY codes.
 - **GIVEN** a plain folder
 - **THEN** the status is null, after one spawn
 
+### Requirement: GIT-DEADLINE-01 — An external process on the path of a request answers, or the deadline does
+
+Every external process the server launches on the path of a request (the
+`/api/git/*` routes, the git/ps/lsof helpers behind the panels, the process
+panel's probes) SHALL have a deadline on its ANSWER, not on the process alone.
+The deadline limits the answer, which is complete only when the child has exited
+AND its pipes have reached their end: a child that exits at once and leaves a
+grandchild holding the pipe is still a timeout. When the deadline fires the whole
+process group SHALL receive SIGTERM first (so git removes its lock files and a
+script's `trap` cleanup runs), SIGKILL after a short grace to whoever remains,
+and the streams SHALL be closed, so that a grandchild holding the pipe open (ssh
+under git, a hook, a credential helper, a script's children) cannot keep the
+request waiting after the child has been killed. The caller SHALL see a failed
+exit (`timedOut` true and a null exit code, never a success) and the text that
+arrived before the deadline SHALL NOT be lost. Work that is legitimately long
+(copying a tree, a push with a pre-push hook) SHALL use the long deadline, and a
+timed-out copy SHALL NOT leave a partial destination behind.
+
+The groups started this way are not in the server's own process group, so the
+server SHALL close the ones still alive when it shuts down (SIGTERM, a short
+grace, SIGKILL): a stop signal forwarded to the server's group by the host must
+not leave them orphaned.
+
+Synchronous calls (`Bun.spawnSync`, `execFileSync`) SHALL carry `timeout` and
+`killSignal: "SIGKILL"`, since they stop the single event loop of the server
+for as long as they last.
+
+The calls that have no deadline by design (agent turns, daemons, scripts and
+commands started from the panel that the user stops, package installs in a
+worktree, calls that already race their own deadline) SHALL be listed, each with
+its reason, in `server/lib/spawn-deadline-scan.test.ts`; any other call without
+a deadline SHALL turn that test red.
+
+> **Why.** On 21/09 a `ps` with no deadline froze the server for minutes
+> (`GET /api/system/status`: 399 seconds). T5 found 89 more calls with no
+> deadline, 48 of them in `routes/files.ts`, and found that the fix everyone
+> reached for does not work: with `sh -c "trap '' TERM; sleep 30"` and Bun's own
+> `timeout: 300` the answer came back after 30005 ms, because the `sleep` held
+> the pipe.
+
+#### Scenario: a git that never answers
+- **GIVEN** a `git` on the PATH that launches a `sleep 30` child and waits
+- **WHEN** `GET /api/git/diff`, `GET /api/git/log`, `POST /api/git/stage-all` or `POST /api/git/pull` is called
+- **THEN** each returns at its deadline, not after 30 seconds
+- **AND** `stage-all` answers 400 and `pull` answers 504
+
+#### Scenario: a grandchild ignores SIGTERM and holds the pipe
+- **GIVEN** a shell that traps TERM and runs `sleep 30`
+- **WHEN** it is run with a 300 ms deadline
+- **THEN** the call returns in under two seconds, timed out, with a null exit code
+
+#### Scenario: the deadline fires on a git holding a lock
+- **GIVEN** a `git add -A` held by a slow clean filter, with a 1.5 s deadline
+- **WHEN** the deadline fires
+- **THEN** git is stopped with SIGTERM and leaves no `.git/index.lock`
+- **AND** a process that ignores SIGTERM is killed after the grace, still within deadline plus grace
+
+#### Scenario: the direct child exits and a grandchild keeps the pipe
+- **GIVEN** `sh -c "sleep 8 & echo started"` with a 1 s deadline
+- **THEN** the call returns near the deadline, timed out, with a null exit code and the text "started"
+
+#### Scenario: the host stops the server
+- **GIVEN** a bounded child alive and the host sends SIGTERM to the server's process group
+- **WHEN** the server exits
+- **THEN** the child is gone, as a child of plain `Bun.spawn` is
+
+#### Scenario: a new call with no deadline
+- **WHEN** a `Bun.spawn(...)` with no `timeout` in its text is added under `server/` and is not in the list
+- **THEN** `server/lib/spawn-deadline-scan.test.ts` is red
+
 ### Requirement: TRASH-01 — Cancellare vuol dire spostare nel cestino, e due file con lo stesso nome non si sovrascrivono
 
 Cancellare dall'interfaccia SHALL significare SPOSTARE NEL CESTINO del sistema,

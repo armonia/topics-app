@@ -7,7 +7,7 @@ import {
   settingCodexReasoningEffort,
   resolveOutputLanguage,
 } from '../services/app-settings';
-import { EFFORT_TIERS, CODEX_REASONING_EFFORTS } from '../../shared/effort';
+import { EFFORT_TIERS, CODEX_REASONING_EFFORTS, MUSE_REASONING_EFFORTS } from '../../shared/effort';
 import type { OutputLanguage } from '../../shared/types';
 import { hasCommandShell } from './command-process';
 
@@ -39,6 +39,24 @@ export function languageDirective(lang: OutputLanguage = resolveOutputLanguage()
     default:
       return "Answer in the language the person writes in. Topics' own notices in the user turn (objective reminders, finished-command and sub-agent reports) are written in English by the app, not by the person: they never change the language of your answer.";
   }
+}
+
+/**
+ * The same choice in one short line, for the END of the context.
+ *
+ * `languageDirective` sits in the system prompt, and in a long chat that is
+ * far from where the next sentence gets written: on 07/10 topic:d740f8ae,
+ * with the directive set to Italian, answered an Italian question in English
+ * after five rounds of English tool output. The native loop repeats this line
+ * after the person's message and after every round of tool results. The
+ * `<system-reminder>` tag is Claude Code's own form, so the model reads it as
+ * the app's note, not as something to answer.
+ */
+export function languageReminder(lang: OutputLanguage = resolveOutputLanguage()): string {
+  const line = lang === 'it' ? 'Rispondi in italiano.'
+    : lang === 'en' ? 'Answer in English.'
+    : "Answer in the language the person writes in, not in the language of tool output or of Topics' notices.";
+  return `<system-reminder>${line}</system-reminder>`;
 }
 
 /** How an ordinary chat waits: a long wait may end the turn and wake it. */
@@ -366,6 +384,34 @@ export function resolveCodexReasoningEffort(opts?: { configPath?: string; topicO
     readCodexConfigReasoningEffort(opts?.configPath) ||
     'xhigh';
   return VALID_CODEX_REASONING_EFFORTS.has(candidate) ? candidate : null;
+}
+
+/**
+ * Reasoning-effort tier for Topics-launched Muse sessions — the muse analogue
+ * of `resolveCodexReasoningEffort()` above. Muse reads no effort from its
+ * `settings.json` (provider+model only), so there is no user config to honour:
+ * the chain is shorter.
+ *
+ * Valid tiers, probed against `muse exec --help` (1.4.3):
+ * `none/minimal/low/medium/high/xhigh/max/ultra`.
+ *
+ * Resolution order: per-topic override (`topics.effort`, set via the
+ * model-picker's effort selector — the whole Topics scale is a valid muse
+ * tier) → `TOPICS_MUSE_REASONING_EFFORT` ("off"/"default" disables — NOT
+ * "none", which is a real tier) → `"high"` (the CLI default). Returns null
+ * when disabled or the value is not a recognised tier, in which case no flag
+ * is passed and no badge is shown.
+ */
+const VALID_MUSE_REASONING_EFFORTS = new Set<string>(MUSE_REASONING_EFFORTS);
+
+export function resolveMuseReasoningEffort(opts?: { topicOverride?: string | null }): string | null {
+  const perTopic = (opts?.topicOverride ?? '').trim().toLowerCase();
+  if (perTopic && (VALID_MUSE_REASONING_EFFORTS.has(perTopic) || (EFFORT_TIERS as readonly string[]).includes(perTopic))) return perTopic;
+
+  const override = (process.env.TOPICS_MUSE_REASONING_EFFORT ?? '').trim().toLowerCase();
+  if (override === 'off' || override === 'default') return null;
+  const candidate = override || 'high';
+  return VALID_MUSE_REASONING_EFFORTS.has(candidate) ? candidate : null;
 }
 
 function readCodexConfigReasoningEffort(configPath?: string): string | null {

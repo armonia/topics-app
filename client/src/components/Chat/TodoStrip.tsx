@@ -1,8 +1,8 @@
 /**
  * Sticky current-todo strip (CHAT-TODO-01).
  *
- * A compact, collapsible mirror of the latest `TodoWrite`, rendered above the
- * composer so the current plan stays visible while typing. Collapsed by
+ * A compact, collapsible mirror of the latest `TodoWrite`, rendered at the end
+ * of the transcript, right above the composer (chat-strips-in-transcript). Collapsed by
  * default to a progress line ("3/7 · <active item>"); opens the full
  * checklist ABOVE that line (`DockedStripPanel`), so the line under the
  * pointer stays where it is and the transcript stays in sight above the list. Purely presentational: the inline
@@ -14,9 +14,11 @@ import { ListChecks, ChevronRight, CircleCheck, CircleDot, Circle } from 'lucide
 import type { TodoSnapshot } from './selectLatestTodo';
 import { CHAT_STRIP_NEUTRAL, CHAT_STRIP_ROW } from '../../lib/chatStripStyles';
 import { DockedStripPanel } from './DockedStripPanel';
+import { useDisclosureToggle } from './transcriptDisclosure';
 
 export function TodoStrip({ snapshot }: { snapshot: TodoSnapshot }) {
   const [expanded, setExpanded] = useState(false);
+  const disclose = useDisclosureToggle();
   const { items, done, total, active } = snapshot;
   const allDone = done === total;
 
@@ -53,7 +55,7 @@ export function TodoStrip({ snapshot }: { snapshot: TodoSnapshot }) {
       </DockedStripPanel>
       <button
         type="button"
-        onClick={() => setExpanded((e) => !e)}
+        onClick={(e) => { disclose(e.currentTarget); setExpanded((v) => !v); }}
         className={CHAT_STRIP_ROW}
         aria-expanded={expanded}
       >

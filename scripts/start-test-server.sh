@@ -62,6 +62,14 @@ export TOPICS_HOME="${TOPICS_HOME:-$DATA_DIR/.topics-home}"
 # HOME here never leaks into those spawns (see server/utils/path-env.ts).
 export OPENCLAW_DIR="${OPENCLAW_DIR:-$DATA_DIR/.openclaw}"
 export HOME="$DATA_DIR/.home"
+# XDG INSIDE THE ISOLATED HOME (same values testServerEnv() sets, for whoever
+# runs this script by hand): in XDG precedence the variable wins over HOME,
+# and CI runners export both pointed at the real home — without these two
+# lines an XDG-respecting provider (muse: auth.json, model-catalog) reads the
+# real machine instead of the isolated stub. Measured on PR241: muse never
+# registered in CI while green on a Mac, where XDG is unset.
+export XDG_CONFIG_HOME="$HOME/.config"
+export XDG_DATA_HOME="$HOME/.local/share"
 # UNO STUB DI `claude` DENTRO LA HOME ISOLATA, e non e' un trucco per far
 # passare un test: e' la conseguenza diretta della riga qui sopra.
 #
@@ -166,6 +174,59 @@ fi
 # `subagent-strip-survives` ha avviato due volte la `claude` vera; l'ha fermata
 # solo la guardia della spec. In CI non si vedeva: li' la CLI non c'e'.
 export CLAUDE_BIN="$HOME/.local/bin/claude"
+# A `muse` STUB IN THE ISOLATED HOME, same pattern as `claude` above: without
+# it the e2e bench never sees the muse provider (the isolated HOME has no
+# launcher, no login, no model cache), and the provider picker spec for muse
+# would measure the machine instead of the product.
+#
+# THREE SEEDS, all under the isolated HOME, all idempotent (`-f` guards, like
+# the claude stub: a real file already there wins):
+#   1. the stub binary: `--version` exits 0 (the diagnose probe), `exec --json`
+#      prints one valid turn — open events, two text deltas, `run.terminal.*`
+#      — and exits 0. Same envelope the unit fixture replays
+#      (`server/providers/muse/fake-muse.fixture.ts`), fixed ids.
+#   2. `auth.json` with `providers.meta.mechanism`: what `museHasStoredSession`
+#      reads, so diagnose reports the session requirement present.
+#   3. one model-catalog file with two VISIBLE models: what `readMuseModels`
+#      reads, so the picker lists muse rows (1.3 current, 1.2 older).
+mkdir -p "$HOME/.local/bin" "$HOME/.config/muse" "$HOME/.local/share/muse/model-catalog"
+if [ ! -f "$HOME/.local/bin/muse" ]; then
+  cat > "$HOME/.local/bin/muse" <<'STUB'
+#!/usr/bin/env bash
+# E2E bench stub for the Muse CLI. See scripts/start-test-server.sh.
+for arg in "$@"; do
+  case "$arg" in
+    --version|-v) printf 'muse 1.4.3-e2e-stub\n'; exit 0 ;;
+  esac
+done
+emit() { printf '{"schema_version":1,"id":"e2e-%s","stream":{"kind":"session","id":"e2e-sid"},"sequence":%s,"record_type":"event","durability":"durable","causation_id":"cmd-e2e","payload_type":"%s","payload_schema_version":1,"payload":%s}\n' "$1" "$1" "$2" "$3"; }
+emit 1 "runtime.command.accepted" '{"kind":"command_accepted","command_id":"cmd-e2e","command_kind":"turn.submit"}'
+emit 2 "session.run.linked" '{"kind":"session_run_linked","command_id":"cmd-e2e","run_stream":{"kind":"run","id":"cmd-e2e"}}'
+emit 3 "run.model.configured" '{"kind":"run_model_configured","command_id":"cmd-e2e","run_stream":{"kind":"run","id":"cmd-e2e"},"model_id":"muse-spark-1.3-contributor"}'
+emit 4 "run.lifecycle.started" '{"kind":"run_started","command_id":"cmd-e2e","run_stream":{"kind":"run","id":"cmd-e2e"}}'
+emit 5 "run.output.delta" '{"kind":"run_output_delta","command_id":"cmd-e2e","run_stream":{"kind":"run","id":"cmd-e2e"},"text":"e2e-muse-"}'
+emit 6 "run.output.delta" '{"kind":"run_output_delta","command_id":"cmd-e2e","run_stream":{"kind":"run","id":"cmd-e2e"},"text":"ok"}'
+emit 7 "run.terminal.completed" '{"kind":"run_terminal","command_id":"cmd-e2e","run_stream":{"kind":"run","id":"cmd-e2e"},"terminal":"completed","text":"e2e-muse-ok","reason":null}'
+exit 0
+STUB
+  chmod +x "$HOME/.local/bin/muse"
+fi
+# Named, not just placed: same lesson as CLAUDE_BIN above — on a Mac with the
+# real CLI on the inherited PATH, the resolver would otherwise pick it, and a
+# chat turn would spend a real meta call (or fail on missing login).
+export MUSE_BIN="$HOME/.local/bin/muse"
+if [ ! -f "$HOME/.config/muse/auth.json" ]; then
+  printf '{"providers":{"meta":{"mechanism":"oauth-e2e-stub"}}}' > "$HOME/.config/muse/auth.json"
+fi
+if [ ! -f "$HOME/.local/share/muse/model-catalog/e2e-stub.json" ]; then
+  cat > "$HOME/.local/share/muse/model-catalog/e2e-stub.json" <<'JSON'
+{"rows": [
+  {"model_id": "muse-spark-1.3-contributor", "display_label": "Muse Spark 1.3", "description": "E2E stub model", "visibility": "visible", "context_limit": 1007997, "is_default": true, "reasoning_effort_variants": [{"tier": "high"}]},
+  {"model_id": "muse-spark-1.2", "display_label": "Muse Spark 1.2", "description": "E2E stub model, older generation", "visibility": "visible", "context_limit": 500000, "is_default": false, "reasoning_effort_variants": [{"tier": "high"}]},
+  {"model_id": "muse-image-1", "display_label": "Muse Image", "description": "Hidden from the picker", "visibility": "hidden", "context_limit": 1000, "is_default": false, "reasoning_effort_variants": []}
+]}
+JSON
+fi
 # Dedicated PTY-bridge socket so EVERY server started via this script — the
 # initial globalSetup server AND any in-test restart (terminal-session-resume)
 # — is bridge-isolated. Without this, a restart that omits TOPICS_PTY_SOCKET

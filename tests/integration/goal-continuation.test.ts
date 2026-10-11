@@ -718,6 +718,34 @@ describe("the tool budget's second cut, with no goal driving", () => {
       content: notice.content, preview: notice.content.slice(0, 100), blocks: [{ kind: "error", text: notice.content }],
     }]);
   });
+
+  test("a native sub-agent its parent stopped is not pushed on: no judge, no nudge (SUBAGENT-19)", async () => {
+    const b = await banco("stopped-subagent", []);
+    const { insertSubagent, setSubagentState } = await import("../../server/lib/subagent-store");
+    // A native child's topic id is the child's id.
+    insertSubagent(b.ctx.db as never, {
+      id: b.topic.id, parentSessionKey: "topic:parent", name: "child", model: null, agentType: null, effort: null,
+      promptSnippet: "", cwd: "/tmp", branch: null, claudeSessionId: null, createdAt: new Date().toISOString(),
+      runtime: "topics", sessionKey: b.sessionKey,
+    } as never);
+    const judged: string[] = [];
+    const sent: string[] = [];
+    const onTurnEnd = createGoalContinuation({
+      db: b.ctx.db, judge: async (prompt) => { judged.push(prompt); return "continue"; },
+      resend: async ({ text }) => { sent.push(text); }, announce: () => {}, broadcast: () => {},
+    });
+    const turn: TurnEndInfo = {
+      sessionKey: b.sessionKey, topicId: b.topic.id, dispatched: false, end: "end_turn",
+      discarded: false, pendingAsk: false, usedTools: true, backgroundWork: false, lastAssistantText: "half done",
+    };
+    setSubagentState(b.ctx.db as never, b.topic.id, "stopped");
+    expect(await onTurnEnd(turn)).toBe("skipped");
+    expect(judged).toEqual([]);
+    // The same child at work: the judge is asked, so the skip above is the stop's.
+    setSubagentState(b.ctx.db as never, b.topic.id, "running");
+    await onTurnEnd(turn);
+    expect(judged).toHaveLength(1);
+  });
 });
 
 describe("the chat route's turn end, as the goal hears it", () => {

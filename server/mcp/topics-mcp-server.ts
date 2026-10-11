@@ -34,6 +34,7 @@ import { commentAuthorLabel } from "../../shared/comment-author";
 import { CHECKS_LEG_MS } from "../services/checks-gate";
 import { OUTBOUND_TOOLS, callGoogleCall, callSendMail } from "./outbound-tools";
 import { COMMAND_TOOLS, RUN_COMMAND_BOARD_DESCRIPTION, callRunCommand, isBoardProfile } from "./command-tools";
+import { SHOW_VIEW_TOOL, answerResourceMethod, callShowView, showViewCallResult } from "./view-tools";
 import { hasCommandShell } from "../lib/command-process";
 import { HttpAnswerError, httpJson, lostRequestError, loopbackInit, REQUEST_TIMEOUT_MS } from "./topics-http";
 import { homedir } from "os";
@@ -576,6 +577,7 @@ const TOOLS = [
     // Topics: la domanda va alla persona che ha la chat aperta.
     annotations: { ...SOLA_LETTURA, title: "Chiedi all'umano (pannello in chat)" },
   },
+  SHOW_VIEW_TOOL,
   {
     // IL CANALE DI PERMESSO. Non lo chiama il modello: lo chiama la CLI, al
     // posto del prompt interattivo, perché lo spawn passa
@@ -627,7 +629,7 @@ const TOOLS = [
   {
     name: "spawn_agent",
     description:
-      "Spawn a NEW interactive Claude Code sub-agent and give it a task, the way the built-in Agent tool does, but visible: it runs in its own terminal pane nested under this session, with a shell of its own, and the user can read it and type into it. It starts in this session's working directory (for a chat, its project or card worktree; your home directory when the chat has no project) unless you pass cwd, or unless you ask for isolation:\"worktree\", which gives it a git checkout and a branch of its own so two children cannot overwrite each other's files (that one answers only once the checkout is ready, and the answer names the branch). " +
+      "Spawn a NEW sub-agent and give it a task, the way the built-in Agent tool does, but visible: by default it runs on the Topics engine as a chat of its own in this project, which the user can open, read and write into (runtime:\"claude-code\" starts an interactive Claude Code CLI in a terminal pane instead; the answer says which runtime started, and why when it fell back). It starts in this session's working directory (for a chat, its project or card worktree; your home directory when the chat has no project) unless you pass cwd, or unless you ask for isolation:\"worktree\", which gives it a git checkout and a branch of its own so two children cannot overwrite each other's files (that one answers only once the checkout is ready, and the answer names the branch). " +
       "It runs on this session's model unless you pass model or an agent_type whose profile names one; the answer says which model, profile and effort really started. Never choose haiku on your own initiative: only when the user asks for it. " +
       "By default it runs in the background: when its turn ends, a chat is woken with its result (you do not need to poll), while a terminal session reads it with read_agent. With run_in_background:false the call waits up to 10 minutes and returns the result itself. It stays alive after its turn for follow-ups with send_to_agent; after 15 idle minutes it is retired, and send_to_agent resumes it from where it was. stop_agent when you no longer need it.",
     inputSchema: {
@@ -655,6 +657,11 @@ const TOOLS = [
           type: "string",
           enum: ["inherit", "worktree"],
           description: "'inherit' (default) runs the child in the same directory as you. 'worktree' gives it its own checkout on its own branch, born from main: use it whenever two children could touch the same files. You read the result through the branch it returns, and nothing is merged for you.",
+        },
+        runtime: {
+          type: "string",
+          enum: ["topics", "claude-code"],
+          description: "'topics' (default): a chat on the Topics engine, no process of its own. 'claude-code': an interactive Claude Code CLI in a terminal pane; ask for it only when the task needs that CLI.",
         },
       },
       required: ["prompt"],
@@ -1349,6 +1356,7 @@ interface SpawnAgentResp {
   agentId?: string; name?: string; cwd?: string; branch?: string | null;
   model?: string | null; modelSource?: string; modelNote?: string; agentType?: string | null; effort?: string | null;
   notify?: "chat" | "read_agent";
+  runtime?: "topics" | "claude-code"; runtimeNote?: string;
 }
 interface AgentRow { agentId?: string; name?: string; cwd?: string; branch?: string | null; busy?: boolean; state?: string; phase?: string | null }
 interface ListAgentsResp { agents?: AgentRow[] }
@@ -1367,7 +1375,7 @@ export const SPAWN_WAIT_LEG_MS = 25_000;
 
 export async function callSpawnAgent(
   args: ParsedArgs,
-  toolArgs: { prompt?: unknown; name?: unknown; cwd?: unknown; isolation?: unknown; model?: unknown; agent_type?: unknown; effort?: unknown; run_in_background?: unknown },
+  toolArgs: { prompt?: unknown; name?: unknown; cwd?: unknown; isolation?: unknown; model?: unknown; agent_type?: unknown; effort?: unknown; run_in_background?: unknown; runtime?: unknown },
   fetchImpl: typeof fetch = fetch,
   opts: { onProgress?: (leg: number) => void; legMs?: number; foregroundMs?: number; now?: () => number } = {},
 ): Promise<string> {
@@ -1375,7 +1383,7 @@ export async function callSpawnAgent(
     throw new Error("spawn_agent: 'prompt' (string) is required");
   }
   const payload: Record<string, unknown> = { prompt: toolArgs.prompt };
-  for (const key of ["name", "cwd", "model", "agent_type", "effort"] as const) {
+  for (const key of ["name", "cwd", "model", "agent_type", "effort", "runtime"] as const) {
     if (typeof toolArgs[key] === "string" && toolArgs[key]) payload[key] = toolArgs[key];
   }
   const foreground = toolArgs.run_in_background === false;
@@ -1396,7 +1404,9 @@ export async function callSpawnAgent(
   const model = body.model ? ` · model=${body.model}` : body.modelNote ? ` · model=${body.modelNote}` : "";
   const profile = body.agentType ? ` · agent_type=${body.agentType}` : "";
   const effort = body.effort ? ` · effort=${body.effort}` : "";
-  const head = `spawned sub-agent "${body.name ?? body.agentId}" · agentId=${body.agentId} · cwd=${body.cwd ?? "?"}${branch}${model}${profile}${effort}`;
+  // The runtime only when the server names it: an older server answers without it.
+  const runtime = body.runtimeNote ? ` · runtime=${body.runtimeNote}` : body.runtime ? ` · runtime=${body.runtime}` : "";
+  const head = `spawned sub-agent "${body.name ?? body.agentId}" · agentId=${body.agentId} · cwd=${body.cwd ?? "?"}${branch}${runtime}${model}${profile}${effort}`;
   const later = body.notify === "chat"
     ? "its result will wake this chat when its turn ends, no need to poll"
     : `read its output with read_agent(agent_id="${body.agentId}")`;
@@ -2907,6 +2917,7 @@ export const TOOL_HANDLERS: Record<
   // Volutamente FUORI da DISPATCH_EXCLUDED_TOOLS: anche un agente di board
   // riceve link incollati dall'umano nel thread del task.
   resolve_tab: (a, t) => callResolveTab(a, t as { ref?: unknown }),
+  show_view: (a, t) => callShowView(a, t as Record<string, unknown>),
 };
 
 // Register the ref-based browser tools (observe/act/extract/get_text/screenshot/
@@ -2938,6 +2949,10 @@ export async function handleMessage(
     return null;
   }
 
+  // `resources/*`: the views as `ui://` documents for MCP Apps hosts (GENUI-08).
+  const viewAnswer = method.startsWith("resources/") ? await answerResourceMethod(args, method, params) : undefined;
+  if (viewAnswer) return { jsonrpc: "2.0", id, ...viewAnswer };
+
   switch (method) {
     case "initialize":
       return {
@@ -2945,7 +2960,8 @@ export async function handleMessage(
         id,
         result: {
           protocolVersion: MCP_PROTOCOL_VERSION,
-          capabilities: { tools: {} },
+          // `resources`: the views as `ui://` documents for MCP Apps hosts (GENUI-08).
+          capabilities: { tools: {}, resources: {} },
           serverInfo: {
             name: "topics-app",
             version: "1.0.0",
@@ -2977,6 +2993,8 @@ export async function handleMessage(
         ? {}
         : { onProgress: (progress, message) => emit(progressNotification(progressToken, progress, message)) };
       try {
+        // Over MCP show_view also carries the drawn view, in `_meta` (GENUI-08).
+        if (name === "show_view") return { jsonrpc: "2.0", id, result: await showViewCallResult(args, toolArgs) };
         const text = await handler(args, toolArgs, ctx);
         return {
           jsonrpc: "2.0",

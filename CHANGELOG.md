@@ -2,19 +2,588 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.2.471 — 2026-10-11
+
+### Correzioni
+- **attention** · anche lo scatto di un cron e il messaggio di un'altra sessione ordinano gli hook
+- **attention** · uno Stop che trova il turno già a riposo lo data lo stesso
+- **attention** · un comando `!` della modalità bash non apre un turno
+
+### Sotto il cofano
+- lo Stop a riposo torna a non ridatare la fase
+- le righe della modalità bash tornano a contare come prompt
+- **e2e** · aggiorna durate shard dal nightly del 2026-10-10 [skip ci]
+- tre residui di cloud-quality-pass (#279)
+
+## 2.2.470 — 2026-10-09
+
+### Novità
+- **providers** · un solo passaggio di consegne per le sessioni CLI nuove
+
+### Correzioni
+- **attention** · la chat riposa quando il provider le svuota la mappa dei compiti
+- **providers** · il budget del passaggio si misura sul testo scritto
+- **gates** · «emptied» in una riga, il dizionario resta entro le 800
+- **attention** · lo Stop in ritardo non chiude il turno che il transcript ha già riaperto
+- **attention** · una riga che apre un turno dopo lo svuotamento tiene la chat sveglia
+- **attention** · il turno che il transcript apre prima dello Stop in ritardo si apre anche nello store
+- **attention** · lo svuotamento lo annulla la riga che sveglia il turno, non l'ora
+
+### Sotto il cofano
+- handoff in PROJECT_WORDS, preamble invece di pre (check:identifier-language)
+- baseline identifier-language scesa (handoff ora è una parola nota)
+- **attention** · «queueRead» al posto di «enq», che il cancello dei nomi non conosce
+- handoff in PROJECT_WORDS su una riga (check:bloat, soglia 800)
+- **e2e** · aggiorna durate shard dal nightly del 2026-10-09 [skip ci]
+
+## 2.2.469 — 2026-10-09
+
+### Correzioni
+- **muse** · configHome invece di xdgConfigHome (check:identifier-language)
+
+### Sotto il cofano
+- **verifica** · giro 3, le PR del 9/10 e l'aggiornamento di prod
+- **muse** · MUSE-05, la chat Muse ha i tool di Topics; @covers sui test (check:untraced-tests)
+
+## 2.2.468 — 2026-10-09
+
+### Correzioni
+- **attention** · riposo solo quando nessun avviso può svegliare il turno
+- **attention** · l'enqueue mette in coda l'avviso, lo chiude la sua sorte
+- **attention** · l'hook in ritardo corregge il verdetto dello Stop, datato allo Stop
+
+## 2.2.467 — 2026-10-09
+
+### Correzioni
+- **attenzione** · la memoria degli id finiti resta anche a un terminale senza riga, e una fine letta tardi resta tardi
+- **attenzione** · le fini lette dal vivo durante la lettura tardiva la aspettano
+- **chat** · il kill rimandato non cancella gli handler del successore
+- **attenzione** · il turno in watching riposa quando l'ultimo compito esce dal transcript dopo lo Stop
+
+### Sotto il cofano
+- **attenzione** · i frame del fixture sono unknown, non any
+
+## 2.2.466 — 2026-10-09
+
+### Correzioni
+- **chat** · il replay di una sonda abbandonata non arriva al processo che ha preso il posto del suo
+- **attenzione** · la ricomposizione di avvio non dimentica i compiti finiti, e un avviso senza chiamata esce come è stato letto
+- **chat** · dopo un kill, i frame di quell'id restano fuori fino allo spawn successivo
+- **attenzione** · una storia lunga letta dal riattacco non scaccia le fini lette dal vivo
+
+## 2.2.465 — 2026-10-09
+
+### Correzioni
+- **chat** · il silenzio di un list non ricicla il socket finché qualcun altro ci aspetta, anche sotto il tetto
+- **chat** · rowHolder, `frameRequest` al posto di `raf` (check:identifier-language)
+- **attenzione** · la fine letta dopo i fatti resta senza epoca, e la grazia attraversa la ricomposizione di avvio
+- **chat** · resta sul socket solo un list muto, e mai con un daemon senza rid
+- **attenzione** · il segno della fine letta dopo i fatti solo quando toglie l'ultimo compito del turno
+- **attenzione** · il segno guarda solo i compiti del turno chiuso, non quelli di un turno dal vivo
+- **chat** · un attach o uno spawn abbandonati per silenzio all'ultimo tentativo si portano via il socket
+- **attenzione** · il segno della fine letta dopo i fatti guarda i compiti di prima del riavvio, non l'ora del turno chiuso
+- **test** · turn-write-cost chiude il database ereditato prima di aprire il suo
+- **chat** · la sonda del lag in un tentativo tiene il socket, la coda d'uscita lo porta via
+- **attenzione** · un compito di prima del riavvio che esce dal vivo rende dal vivo la fine del suo lavoro
+- **board** · il follow della conversazione sopravvive al resize del drawer
+- **attenzione** · un cron ricorrente cancellato dal vivo non rende dal vivo la fine del turno di prima
+
+### Sotto il cofano
+- **chat** · Home con il resto in ritardo lo fa arrivare a lista ferma in cima
+- **cloud** · REPORT della traccia T21, test instabili secondo giro
+- **cloud** · T21, il ramo che l'ambiente impone nel REPORT
+- **cloud** · REPORT di T20, e via le sonde del verificatore
+
+## 2.2.464 — 2026-10-09
+
+### Correzioni
+- **attenzione** · un turno chiuso dal vivo si annuncia anche se è il riattacco a liberarlo
+- **add-menu** · il fuoco entra nella palette ⌘N nello stesso commit che la disegna
+- **chat** · un list scaduto non ricicla il socket sotto uno scan in ritardo, e uno Stop durante la coda di una CLI uscita tiene
+- **chat** · la fusione a lista ferma tiene la riga letta al pixel, anche in cima
+- **test** · il kill del figlio aspetta il resync della riconnessione
+
+### Sotto il cofano
+- **chat** · mergeAtRest.test dichiara cosa copre (CHAT-HIST-01)
+- **chat** · CHAT-HIST-01, la fusione a lista ferma e il «↓» che conta solo il fondo
+
+## 2.2.463 — 2026-10-09
+
+### Novità
+- **chat** · risalendo, i messaggi precedenti arrivano da soli (CHAT-HIST-01)
+- **liste** · la riga «mostra altri» carica da sola entrando in vista (LIST-PAGE-01)
+- **liste** · le liste con «mostra altri» caricano da sole, e la barra delle schede del browser della topic scorre
+- **chat** · la fusione in cima aspetta la lista ferma e rimette la riga letta al pixel (bozza)
+- **muse** · le chat Muse montano il bridge MCP di Topics
+
+### Correzioni
+- **chat** · mentre lo scan aspetta il suo ack in ritardo, la rotta non uccide il turno
+- **browser** · la barra delle schede della topic scorre invece di schiacciarle (TOPIC-BROWSER-01)
+- **chat** · anche il riavvolgimento dopo lo scan aspetta il suo ack in ritardo
+- **chat** · la storia arriva solo quando chi legge sale
+- **liste** · la riga «mostra altri» guarda il contenitore che scorre adesso
+- **attenzione** · un compito finito non tiene una sessione «in corso»
+- **chat** · una rotella girata in su chiede la storia anche dove la lista non si muove piu'
+- **chat** · anche la coda di un figlio uscito dietro lo scan aspetta il suo ack in ritardo
+- **chat** · la rotella chiede la storia da sé solo in cima, e la fusione si misura fino all'atterraggio del passo
+- **attenzione** · l'avviso chiude il compito anche prima del PostToolUse, e un Monitor si chiude solo con le parole della CLI
+- **chat** · il resto arriva anche con Shift+Spazio, la barra trascinata e l'inerzia, e una fusione a scheda nascosta torna dov'era
+- **liste** · la riga «mostra altri» carica solo se il suo contenitore e' a schermo
+- **attenzione** · la CLI che ferma un Monitor lo chiude, e un hook in ritardo che toglie l'ultimo compito riporta il turno a riposo
+- **chat** · la sonda di boot e la coda di una CLI uscita aspettano anche loro l'ack in ritardo
+- **native** · la compattazione scende sotto la soglia invece di fermarcisi
+- **native** · commento di COMPACT_TO in inglese (check:comment-language)
+- **attenzione** · la guarigione al riattacco non annuncia un turno finito prima del riavvio
+- **liste** · tornata da lista a griglia, la colonna della board carica ancora in anticipo
+- **e2e** · la correzione su schermo stretto conta solo quando il campo la mostra
+- **persist** · una scrittura rimandata dal throttle non sopravvive al database
+
+### Sotto il cofano
+- **deps** · react-virtuoso 4.18.16
+- **openspec** · change infinite-scroll
+- **chat** · late-scan-route-grace rimette DATA_DIR a fine file
+- **chat** · liste e barra delle schede passano alla change list-paging, qui resta la chat
+- **cloud** · brief della traccia T20, la chat fonde il resto della storia a lista ferma
+- **cloud** · brief della traccia T21, test instabili secondo giro
+- **chat** · la fusione a lista ferma, la scheda lasciata col resto in volo, il «↓» dopo la fusione
+
+## 2.2.462 — 2026-10-08
+
+### Correzioni
+- **chat** · lo scan di una riadozione oltre il tetto aspetta il suo ack in ritardo
+
+## 2.2.461 — 2026-10-08
+
+### Correzioni
+- **claude-code** · il segno lo lascia solo uno scan interrotto
+- **claude-code** · un riavvolgimento abbandonato restituisce i frame che aveva scartato
+- **prod** · il server gira sulla Bun di .bun-version, con un binario solo per Topics
+
+### Sotto il cofano
+- **openspec** · VERIFICA del terzo giro, T18 e T19 in un file a parte
+
+## 2.2.460 — 2026-10-08
+
+### Correzioni
+- **gates** · check:deadcode-blindspots non cancella più le modifiche fatte mentre gira
+- **claude-code** · il segno «live» di una riadozione fallita si spende all'inizio del turno dopo
+- **claude-code** · il segno di una riadozione fallita lo spende il primo frame piegato
+
+## 2.2.459 — 2026-10-08
+
+### Novità
+- **views** · show_view, the agent sends data and Topics draws it
+- **views** · table and timeline views, and the views as MCP Apps resources
+
+### Correzioni
+- **browser** · a spawned agent's page opens in its parent chat's window
+- **views** · CI gates on #259
+- **chat** · ciò che si scrive mentre la chat si apre è ciò che parte
+- **views** · the rest of the CI gates on #259
+- **claude-code** · la sonda non riattacca un figlio adottato prima che il suo aggancio atterri
+- **claude-code** · la coda di un turno il cui figlio esce mentre siamo staccati arriva
+- **claude-code** · la fase 2 della riadozione non ripiega i frame dal vivo arrivati prima del suo replay
+- **chat** · una piega non mostra più il corpo aperto per un fotogramma quando parte
+- **claude-code** · dopo una riadozione fallita il prossimo riattacco parte dalla fine dello store
+- **views** · CI-only reds of #259
+- **claude-code** · un invio che arriva mentre la coda di un figlio uscito è in viaggio la aspetta
+- **chat** · una piega ripremuta mentre si muove torna indietro da dov'è
+- **claude-code** · l'invio aspetta la coda solo quando ce n'è una in viaggio
+- **native** · un motore fermato non apre più un turno
+
+### Sotto il cofano
+- **openspec** · VERIFICA, T18 e il fix della sonda
+- **openspec** · brief T19, la coda del turno e la riadozione
+- **chat** · TypedInput al posto di Keystroke, che il controllo dei nomi non conosce
+- **openspec** · REPORT T19, la coda del turno e la riadozione sotto scrittura
+
+## 2.2.458 — 2026-10-08
+
+### Correzioni
+- **chat** · il log di una riga si apre sotto di lei, come suo contenuto
+- **ai-bridge** · il riaggancio delle sessioni vive parte con la connessione, chiunque la apra
+- **anim** · con il fuoco in una tab browser nativa gli spinner non si fermano piu'
+- **stale-stream** · un soccorso che non puo' agire lo dice, con il motivo
+- **providers** · con due proprietari della sessione risponde quello che ha il turno vivo
+- **gates** · i quattro cancelli statici che i commit T18 avevano fatto diventare rossi
+- **gates** · la citazione nello spec B3 in inglese, come vuole check:comment-language
+
+### Prestazioni
+- **browser** · lo stato «lista sopra le pagine» in un modulo suo, fuori dal bundle di avvio
+
+### Sotto il cofano
+- **browser** · answerAtCenter, non answerAtCentre: check:identifier-language non conosce la grafia britannica
+- **openspec** · REPORT T17, bozza con B1-B3 e le tre risposte; barra del dopo in corso
+- **openspec** · REPORT di T15, le perdite d'ordine della suite
+- **openspec** · REPORT T17, il modulo frameCover e il bundle; barra del dopo in corso
+- **openspec** · VERIFICA, T15 e gli spinner fermi con il fuoco in una tab browser nativa
+- **claude-code** · un turno aperto dal figlio da solo arriva anche dopo un distacco
+- **openspec** · REPORT T17, barra del dopo e il rosso preesistente di system-notices
+- **e2e** · la spec della lista sopra la pagina di una tab browser gira anche in WebKit, il motore che esce
+- **openspec** · VERIFICA, T17
+- **e2e** · un socket del browser che cade a meta' turno torna al turno intero senza ricaricare
+- **e2e** · i .deb dei browser di Playwright da una cache, non dal mirror che si ferma
+- **e2e** · la cache dei .deb segue l'immagine del runner e non accumula versioni vecchie
+- **openspec** · REPORT T18, la chat in corso si riallinea da sola
+- **openspec** · REPORT T18, costo finale del sottoagente della barra
+
+## 2.2.457 — 2026-10-08
+
+### Novità
+- **chat** · la riga di un comando apre il suo log lì, ad accordion
+
+### Correzioni
+- **server** · i processi esterni arrivati con main dentro le guardie di T5
+- **test** · cleanupTestDataDir rimette DATA_DIR, system-notices non legge il DB di born-seen
+- **test** · tool-result-clamp riparte dal fondo solo a riga aperta
+- **sidecar-smoke** · su Windows uno smoke passato usciva 143 in pulizia
+- **native-auth** · il turno legge il Portachiavi senza fermare il loop
+- **native-parity** · la radice git della memoria non si chiede più a ogni turno
+- **test** · projectSidebarHeights rimette i globali come li ha trovati, non lascia il localStorage finto
+- **native-parity** · una scadenza di git non è «non è un repo»
+- **test** · una chiave DOM rimessa a undefined è una perdita; la guardia del preload la conta
+- **chat** · striscia senza tetto, e la presa di un toggle non perde il pin
+- **browser** · sul telefono la lista aperta non sta piu' sotto la pagina di una tab browser
+- **claude-code** · un riattacco non ripiega mai due volte lo stesso byte
+- **claude-code** · uno stream rimasto indietro si riallinea da solo in pochi secondi
+
+### Sotto il cofano
+- **openspec** · REPORT di T14, runBounded nei runner di git
+- **openspec** · cloud-quality-pass, traccia T15 per le perdite d'ordine della suite
+- **bun** · una versione sola, 1.4.2 in .bun-version, per CI, release e produzione
+- **openspec** · cloud-quality-pass, traccia T16 per un turno nativo senza spawn sincroni
+- **sidecar** · il server compilato parte davvero su macOS, Windows e Linux
+- **openspec** · VERIFICA, come la sessione madre ha controllato ogni consegna cloud
+- **e2e** · aggiorna durate shard dal nightly del 2026-10-08 [skip ci]
+- **openspec** · _comuni.md, Setup installa anche WebKit (RECAPTURE-01 era la VM)
+- **native-parity** · il memo della radice git si prova dalla risposta, anche su Bun 1.3.8
+- **openspec** · REPORT T16, turno nativo senza spawn sincroni (barra dopo in corso)
+- **openspec** · REPORT T16, barra dopo (gate 0, bundle 0, unit 1 rosso non della traccia)
+- **openspec** · VERIFICA, Bun unica, sidecar in CI e T16
+- **openspec** · REPORT T13, la chat ferma sopra il fondo in tool-result-clamp
+- **openspec** · REPORT T13, il ramo claude/ della sessione
+- **chat** · il commento del ResizeObserver non promette piu' un secondo passaggio
+- **openspec** · VERIFICA, T13
+- **openspec** · brief T17, il banner del bundle sotto l'iframe del browser sul telefono
+- **openspec** · brief T18, una chat in corso non resta indietro
+- **browser** · la spec della lista sul telefono riapre la lista sopra una pagina gia' davanti
+
+## 2.2.456 — 2026-10-08
+
+### Novità
+- **processes** · il log di run_command segue il file su cui il comando redirige lo stdout
+- **chat** · GET /api/topics/:id/live-work, ciò che lavora adesso per una chat
+- **processes** · il log vuoto dice cosa aspetta e da quando
+- **chat** · la striscia sotto la chat mostra ciò che lavora adesso
+- **chat-live-work** · la riga di un comando sa se la sua fine sveglia la chat
+- **chat** · un comando è una riga sola, nella striscia, con Ferma e la sveglia
+- **chat** · le strisce sono la fine del trascritto, e la riga di un comando apre la sua card
+
+### Correzioni
+- **model-selector** · hint fuori dal bottone Automatico, banda 44px su phone
+- **model-selector** · AC-21/AC-07 rivisti, la lista providers scorre nel pannello stretto
+- **model-selector** · commento in inglese per il gate
+- **terminal** · rifare i ponti rimasti fuori dalla sessione grafica
+- **chat** · il riquadro «Drop files here» si spegne quando il trascinamento finisce altrove
+- **processi** · l'avviso di fine comando senza i codici colore del terminale
+- **media** · una cartella aperta nel pannello risponde 400, non con l'errore di Bun
+- **chat** · la card di un comando finito senza i codici colore anche nelle righe gia' salvate
+- **native** · la lingua scelta torna in fondo al contesto a ogni giro
+- **chat-live-work** · i cancelli della lingua tornano verdi sui file della change
+- **board** · fondere una card ne libera le tab come archiviarla
+- **board** · «archivia» sui sottotask parcheggiati ne libera le tab
+- **security** · la prova della home non si arrende con HOME=/root
+- **test** · reload-gate-migration dice di aver bisogno di sqlite3
+- **test** · tre test dicono quando l'ambiente non li permette (root, niente IPv6)
+- **test** · i server spawnati dai test si legano a 127.0.0.1 dove manca IPv6
+- **board** · il titolo della scheda resta `<MorphText text={task.text} />`
+- **e2e** · il server di prova si lega a 127.0.0.1 dove manca IPv6
+- **chat** · la prima pagina non antepone righe sopra la copia locale
+- **gate** · il cancello di ricarica dice quando e' spento; due test non scambiano la VM per un difetto
+- **server** · ogni processo esterno del percorso di una richiesta ha una scadenza vera
+- **test** · ai-bridge-loop-freeze non vive del DATA_DIR di un altro file
+- **test** · un figlio ucciso e non raccolto non e' vivo (shell-sweep)
+- **spawn** · la scadenza manda SIGTERM al gruppo, poi SIGKILL dopo una grazia
+- **spawn** · la scadenza limita la RISPOSTA, non il figlio diretto
+- **spawn** · all'arresto il server chiude i gruppi che ha lanciato
+- **server** · cp -r e push di publish hanno la scadenza lunga; un cp scaduto non lascia mezza copia
+- **own-commits** · un git scaduto non e' "verificato fuori"
+- **worktree-slim** · il Cancello 2 fallisce chiuso se git non risponde
+- **task-diff-file** · un blob troncato dalla scadenza non finisce come risposta completa
+- **chat** · un'immagine di un messaggio ha il suo riquadro prima di caricarsi
+- **chat** · una riga che cresce in fondo, fuori dallo streaming, resta in fondo nello stesso layout
+- **chat** · nomi e un commento del riquadro delle immagini in inglese
+- **board** · nomi inglesi in settledRects (cancello identifier-language)
+- **board** · Card.tsx torna sotto il tetto di check:bloat
+- **chat** · i tipi delle dimensioni delle immagini stanno in shared/, una volta sola
+- **board** · l'età della card avanza da sola, con un orologio al minuto per documento
+- **board** · le righe larghe del feed prendono i nomi da chi scrive la SELECT
+- **chat** · il log dal vivo nella card di un comando senza codici colore
+- **chat** · il log dal vivo nella card segue l'ultima riga
+- **chat** · il sipario non aspetta un'immagine che ha gia' il suo riquadro
+- **chat** · la bolla di chi allega un'immagine ha il riquadro prima dei byte
+- **board** · l'età della card segue l'ultimo `updatedAt` anche quando il testo non cambia
+- **board** · la proiezione della lista rientra nel tetto di check:bloat
+- **chat** · niente generici nelle righe del composer, check:ui-language torna verde
+- **e2e** · board-card-choices tiene fermo il reconcile del dispatcher per tutta la scena
+- **e2e** · chat-streaming-indicator manda gli stati del lavoro in background nell'ordine in cui li mette
+- **gates** · via useEndedSubAgents, export morto dopo le strisce in fondo al trascritto
+- **gates** · import statici di pty-bridge-platform.mjs annotati runtime-dep-ok
+- **db** · il manifest delle migration porta l'SQL come stringhe, giusto anche su Bun 1.3.8
+- **ws** · un ospite riceve message:new senza le dimensioni delle immagini
+- **chat** · la fascia di atterraggio sulla riga, non come scroll-padding dello scroller
+- **scripts** · lo smoke del sidecar aspetta il log e l'uscita del binario
+- **db** · l'SQL del manifest in base64, fuori dagli scanner dei sorgenti
+- **ws** · il filtro di D2 sta nel tetto di check:bloat di server/utils.ts
+- **test** · niente nome utente nel commento di claude-session-tracker.test.ts
+- **spawn** · runBounded dice perché un processo non è partito e tiene il 137 di un segnale
+- **test** · il test dei contratti dei runner crea il repo con l'env isolato
+
+### Prestazioni
+- **board** · un frame che non sposta card non ridisegna App
+- **board** · la board di progetto tiene le righe che non cambiano
+- **board** · la scheda mostra il titolo della card al primo frame
+- **board** · l'indice topic → task non ridisegna App a ogni frame
+- **board** · le card non si ridisegnano tutte a ogni `task:updated`
+- **chat** · il log della striscia si carica quando lo si apre
+- **gates** · typecheck e lint eseguono i loro pezzi insieme
+- **qa-gate** · tipi, lint e cancelli statici in tre corsie
+- **chat** · una topic gia' visitata si apre dalla copia locale, senza aspettare il server
+- **history** · messages e history con tetto scelgono la finestra su uno scheletro del filo
+- **test-unit** · le shard di default sono una per core, da due a quattro
+- **server** · web-push si carica alla prima consegna, non al boot
+- **server** · @xterm/headless si carica alla prima lettura dello schermo
+- **server** · il manifest delle migration embedded si carica solo nel sidecar
+- **server** · l'SDK Anthropic si carica alla prima richiesta del provider claude
+- **board** · l'anteprima della card si taglia senza un array per carattere
+- **board** · durante il drag la card ridisegna solo il guscio ordinabile
+- **board** · le righe della lista si leggono come array, non come oggetti larghi
+- **board** · durante il drag la colonna ridisegna solo il guscio droppable
+- **board** · la collisione del drag legge i rettangoli una volta per scroll
+- **board** · la card è il contenitore della sua brina, anche senza freeze
+- **board** · il vicino che il varco non sposta non riceve un transform
+- **board** · il feed globale non porta i campi che nessun client legge
+- **processes** · la vivezza dei pid senza ps sincrono, un giro solo per tutti
+- **files** · /api/git/branches con un solo git, non uno per ramo
+- **discord** · getconf una volta per processo, non a ogni tentativo
+
+### Sotto il cofano
+- **e2e** · aggiorna durate shard dal nightly del 2026-10-07 [skip ci]
+- The native runtime gets Claude Code's memory: the MEMORY.md index and the per-prompt recall
+- chat-live-work, la striscia della chat mostra cio' che lavora adesso
+- **openspec** · change cloud-quality-pass, sette tracce per le sessioni cloud
+- **e2e** · chat-live-work, i tre scenari filmati su WebKit
+- **openspec** · linea di partenza del pilota T0 e tracce aggiornate
+- **board** · banco dei render per frame `task:updated`
+- bloat: chat.ts registrato a 4301 righe, con le cinque corsie che l'hanno fatto crescere
+- **board** · il banco del drag misura anche il tempo di main thread
+- **board** · il flusso Task in una sola ripresa, e il banco dei render a notte
+- **board** · il banco dei render chiude la finestra a condizione
+- **board** · nomi inglesi nella spec del flusso Task
+- **board** · gli id disegnati si leggono da `idsKey`
+- **T5** · REPORT della traccia server (percorso caldo)
+- **openspec** · cloud-quality-pass, commenti in inglese come vuole il repo
+- **cloud-quality-pass** · REPORT della traccia T1
+- **qa-gate** · le corsie restano sicure, e un cancello misurato si riferisce sempre
+- **openspec** · baseline senza il percorso home del runner CI
+- **spec** · GIT-DEADLINE-01 con SIGTERM + grazia, risposta completa, arresto e copie
+- Revert "perf(board): la board di progetto tiene le righe che non cambiano"
+- **T5** · REPORT con le correzioni del revisore
+- **files** · la ricerca ha un solo timer, quello di spawnBounded
+- **topics** · la finestra dei messaggi riusa restoreToolCallsFromBlocks di utils
+- **spawn-scan** · la scansione legge le opzioni della chiamata, non le parole intorno
+- **T5** · REPORT con il secondo giro di revisione
+- **openspec** · REPORT di T3 (avvio e bundle)
+- **board** · la card coi tentativi finiti può essere già parcheggiata
+- **cloud-quality-pass** · REPORT della traccia T2
+- **openspec** · cloud-quality-pass, verifica V2 di T2 e regole comuni
+- **openspec** · cloud-quality-pass, tracce T7-T10 sulla base integrata
+- **server** · i git di bounded-spawn.test passano l'ambiente isolato
+- **cloud-quality-pass** · REPORT T6, i 44 cancelli e i numeri della barra
+- **board** · l'età di una card ferma resta indietro dopo T2 (rosso voluto)
+- **board** · i campi propri della card seguono il loro frame, prima e dopo T2
+- **board** · banco dei render per mossa durante il drag
+- **board** · l'indice topic → task segue la vita del topic, prima e dopo T2
+- **cloud-quality-pass** · REPORT della verifica V2 di T2
+- **openspec** · cloud-quality-pass, traccia T2b per il difetto D1 di V2
+- **openspec** · REPORT di T10, il feed della board
+- **board** · l'età della card ferma deve avanzare col tempo, con e senza frame
+- **openspec** · traccia T10b, il feed giusto anche su Bun 1.3.8
+- **cloud-quality-pass** · gli hash del REPORT di T2 puntano ai commit del ramo
+- **chat-strips-in-transcript** · le strisce in fondo al trascritto, la riga apre la sua card
+- **openspec** · REPORT T7, immagini con il loro riquadro
+- **server** · la fixture d'arresto mette l'handler di SIGTERM prima di stampare il pid
+- **board** · il contratto del reflow trascina sopra un vicino che si sposta davvero
+- **openspec** · REPORT T9, il loop del server senza spawn sincroni
+- **openspec** · traccia T7b, il sipario non aspetta un'immagine che ha gia' il riquadro
+- **openspec** · regole comuni, il codice server si prova anche su Bun 1.3.8
+- **openspec** · REPORT T7, barra finale e il flaky preesistente
+- **openspec** · CHAT-MEDIA-BOX-01, il sipario e la bolla di chi allega
+- **cloud-quality-pass** · REPORT di T2b, l'età della card avanza da sola
+- **cloud-quality-pass** · REPORT di T2b, costo vero del sottoagente Haiku
+- **openspec** · REPORT T7b, bozza (barra finale in corso)
+- **board** · due aggiornamenti nello stesso «ora», poi lo scatto: l'età conta dal secondo
+- **openspec** · REPORT T8, drag della board
+- **cloud-quality-pass** · REPORT di T2b con il difetto D2, il fix e i numeri nuovi
+- **openspec** · REPORT T7b, barra finale e consegna
+- **openspec** · REPORT di T10b, il feed giusto anche su Bun 1.3.8
+- **openspec** · cloud-quality-pass, traccia T11 per i test instabili ricorrenti
+- **gates** · commenti in inglese, nomi interi e @covers, i tre controlli di nuovo verdi
+- **openspec** · REPORT di T11, i test instabili ricorrenti
+- **v3** · due test rossi che provano i difetti dell'integrazione
+- **openspec** · cloud-quality-pass, traccia T12 per i difetti D1 e D2 di V3
+- **chat-strips** · la base si legge a vista ferma, e il lettore sta a meta' storia
+- **chat-strips** · il lettore sale un colpo alla volta, finche' non e' sopra i 600 px
+- **openspec** · REPORT di T12, i difetti D1 e D2 di V3 e il sospetto della chat
+- **openspec** · REPORT di T12, dove sono le prove
+- **openspec** · cloud-quality-pass, traccia T13 per la chat che in CI non si ferma in fondo
+- **openspec** · cloud-quality-pass, traccia T14 per adottare runBounded nei wrapper di git
+- **server** · fissa gli esiti dei runner di git prima che passino a runBounded
+- **own-commits** · defaultRunGit lancia git con runBounded
+- **task-automerge** · defaultRunGit e runRepoScript lanciano con runBounded
+- **branch-inventory** · il runner di default lancia git con runBounded
+- **branch-status** · gitExit, gitOut e commitIsAncestor lanciano con runBounded
+- **routes/tasks** · runGitCap e il deploy confermato lanciano con runBounded
+
+## 2.2.455 — 2026-10-06
+
+### Novità
+- **model-selector** · one vertical list instead of side-by-side columns
+
+### Correzioni
+- **model-selector** · one-line band and hidden hint on desktop compact
+
+## 2.2.454 — 2026-10-06
+
+### Sotto il cofano
+- Applica il feedback mobile-chrome: reveal-on-scroll, foglio a due piani, Cerca nel design system, attesa viva, matita
+- Aggiungi requisiti MOBILE-CHROME-07..12 e spec e2e del feedback mobile-chrome
+- Registra la matita nel rail dei menu right-click
+- Traduci commenti e nomi in inglese nel feedback mobile-chrome
+- Ripara le 4 mobili rotte dal foglio a due piani e dall'header overlay (A1)
+
+## 2.2.453 — 2026-10-06
+
+### Sotto il cofano
+- Accetta advisory sharp/librsvg CVE-2026-96889 in baseline
+- newtab-arc: aggiungi classifica e modello sezioni puri con unit test
+- newtab-arc: estrai la riga suggerimento condivisa con la tab sheet
+- newtab-arc: campo con focus, suggerimenti e nota nella scheda nuova
+- newtab-arc: requisiti NEWTAB-ARC-01..04 e spec e2e
+- Sistema lingua: NEW_TAB_* inglesi, fixture example.it nella spec
+- Inoltra Esc dalla new-tab alla sheet, exit ghost, guardia document
+- Alza i monogrammi favicon al minimo di leggibilita 11px
+
+## 2.2.452 — 2026-10-06
+
+### Novità
+- **providers** · Muse di primo livello in Topics (chat, task, settings, PTY)
+
+### Correzioni
+- **knip** · registra scripts/smoke-muse-provider.ts come entry
+- **muse** · nomi inglesi per il gate + warn quando manca il login
+- **e2e** · isola XDG_CONFIG_HOME/XDG_DATA_HOME nel banco di test
+- **i18n** · commento XDG in inglese per il gate
+
+### Sotto il cofano
+- **e2e** · aggiorna durate shard dal nightly del 2026-10-06 [skip ci]
+- **openspec** · archivia change muse-provider, promuove specs/muse
+
+## 2.2.451 — 2026-10-06
+
+### Sotto il cofano
+- La board sul telefono: barra che non scorre, ricerca e controlli a 44 col dito, spazio misurato sotto l'ultima card, chip leggibili nel tema chiaro
+- Commenti e nomi in inglese, la misura sotto l'ultima card scritta sulla riga senza ridisegnare la board
+- Sostituisci sleep fissi con attese a condizione nella spec board-mobile
+
+## 2.2.449 — 2026-10-06
+
+### Correzioni
+- **ci** · main verde dopo push 37bd4f42e
+- **e2e** · usa testid tab-sheet dopo rename tab-menu
+- **ci** · @covers PROMPT-02 (sblocca gates PR)
+
+### Sotto il cofano
+- Registra la crescita di claude-session-tracker.ts nella tornata di #234 e #236
+- L'istantanea del server e il layout iniziale non riaprono le chat dei sotto-agenti
+- Sotto-agenti piegati e muti finché la persona non li apre: accordion chiuso sotto la chat padre, niente notifiche dai figli alla fonte
+- Un sotto-agente che ha finito il turno si archivia da solo, salvo che la persona l'abbia aperto
+- **e2e** · aggiorna durate shard dal nightly del 2026-10-05 [skip ci]
+- ignora output/ di build, aggiunge openspec/config.yaml
+- **security** · accetta 7 advisory in baseline 2026-10-06
+- Fai girare spawn_agent sul motore di Topics come chat figlia, la CLI solo su richiesta
+- Traduci in inglese i commenti nuovi dei sotto-agenti nativi
+- Togli il re-export inutilizzato di MAX_AGENT_DEPTH dal runtime dei sotto-agenti
+- Il test dello spawn nativo aspetta il primo turno invece di correre contro la route asincrona
+- Registra nella baseline di check:bloat la crescita dei tre file del motore nativo toccati dai sotto-agenti
+- Gli e2e SUBSTRIP-01c ed 01e confermano il dialogo SUBAGENT-20 prima di chiudere un sotto-agente vivo
+- I sotto-agenti nativi non perdono più risultati: migrazione, profondità 2 e riavvio
+- Un sotto-agente messo davanti in una finestra sveglia conta come aperto, e resta scritto nella sua riga
+- L'intestazione chiusa dei sotto-agenti mostra un punto ambra quando uno di loro aspetta la persona
+- La proposta subagent-nativi non è più una bozza e porta la migrazione dentro lo scope
+- Nomi in inglese per check:identifier-language, @covers sui due test nuovi e spec allineata alla review
+- Riaprire una chat passa da reopenTopicFully: flag, segni in ui_state e fatto del ritiro insieme
+- Un sotto-agente conta come aperto solo se la persona lo tiene davanti per la soglia del seen
+- Un figlio nativo in mezzo all'albero si chiude, si ferma e si riprende senza esiti persi o falsi
+- Nomi in inglese nel test dell'albero dei sotto-agenti (check:identifier-language)
+- Un turno = un esito, un figlio fermato non si risveglia, niente lost falso al boot; lo Stop scende tutto l'albero
+- «Invia subito» ferma solo il turno del padre: i sotto-agenti continuano
+- Un sotto-agente conta come aperto solo se la persona l'ha messo davanti: niente più regola del primo frame
+- argomenti di spawn condivisi in native-subagents, terminal.ts più magro, baseline riallineata
+- Sotto-agenti nativi: ogni turno ha un nome, un esito per turno, lo Stop marca l'albero prima di attendere
+- la scelta di un sotto-agente resta armata finché la persona non guarda altro
+- Spec subagent-nativi: nome del turno, un esito dello Stop, ripresa a mano, limite macOS 13.3
+- Sotto-agenti nativi: un solo turno aperto per chat, chiuso da qualunque fine
+- Modifica e rigenera rifiutate nella chat di un sotto-agente
+- Spec subagent-nativi: turno aperto unico, esito dalla causa, spegnimento non è un esito
+- Sotto-agenti nativi: solo il padre o una persona muovono la chat del figlio, un turno sospeso ha un solo esito
+- Spec subagent-nativi: agenti fuori dalla chat del figlio, turno sospeso con un esito, tetto di giri come due esiti
+- Test review 6: import dinamici destrutturati, native-subagents non e' piu' opaco per knip
+- Sotto-agenti nativi: un turno esiste solo se la chat l'ha aperto
+- Spec subagent-nativi: turno solo se aperto, niente comandi slash nella chat del figlio, rifiuto della ripresa come failed, Stop su turno sospeso
+
 ## 2.2.448 — 2026-10-04
 
 ### Sotto il cofano
 - Pannello chiuso prima della sua riga: la riga nasce chiusa, non sul pannello
+- Annida i sotto-agenti nativi sotto la chat padre nella sidebar, mai come chat a sé né come scheda
 - Traduci in inglese i commenti nuovi dei commit locali e traccia il goal che aspetta un sottoagente
 - Isola lo stato di browser-close-keeps-session, ora che resolveStateDir rifiuta il repo sotto test
+- Un sotto-agente non apre una scheda: né quando nasce né al ripristino del layout
 - Cancella la card che git-rows-one-shape e chat-changed-files-task-range lasciano in review
 - Mostra le regole globali dell'hub nell'ispettore anche senza progetto
+- Rendi asincroni tutti gli hook Topics tranne SessionEnd, e rimettili in ordine sul server
+- Chiedi conferma prima di fermare un sotto-agente al lavoro avviato da un'altra sessione
+- Lascia partire il trascinamento delle tab: il fuoco portato dalla pressione si toglie a fine gesto
+- Togli data-pane-id dalle schede della finestrella del browser
+- Fai chiudere all'Esc solo il foglio della tab, non il cassetto che c'e' sotto
+- Apri l'elenco dei download dal foglio senza sfrattare il foglio
+- Copia l'indirizzo del documento, non quello del trasporto
+- Porta al foglio della tab le spec rimaste sul menu a tendina
+- Cancella la card in review che git-rows-one-shape lasciava sulla board
+- Apri il diff della chat dentro la striscia, con il pannello unico della board
+- Prova su WebKit la striscia che apre il diff della chat e porta alla card
+- Porta CHAT-CHANGES-01 e CHGSET-01..04 nella spec della chat e spunta tasks.md con le prove
+- Chiudi il tool quando il PostToolUse arriva dopo il suo PreToolUse ma timbrato prima
+- Mostra «in corso» un topic che aspetta il suo lavoro in background, e tieni a parte solo il server acceso
+- Rileggi il diff della striscia a ogni apertura e a ogni fine turno
+- Misura la striscia aperta nella guardia di usabilita' e porta a soglia i suoi bersagli
+- Riconosci il chevron del progetto anche quando axe lo nomina per classi
+- Chiudi il turno di un terminale che va a riposo senza Stop
+- Passa l'identità git inline nei repo di prova della striscia: in CI non c'è una config globale
+- Chiudi al caricamento le schede dei sotto-agenti che il layout salvato riapriva
 
 ## 2.2.447 — 2026-10-04
 
 ### Sotto il cofano
+- Apri il foglio della tab dal tasto destro, a due livelli
+- Misura il foglio della tab nella guardia di usabilita'
+- Un figlio nato sulla CLI, richiamato dopo lo stop, riparte sul motore di Topics col suo lavoro come contesto
 - Domanda arrivata prima della sua riga: il form si apre lo stesso nella finestra mittente
+- Correggi il foglio della tab: indirizzo senza chrome, testata con un livello aperto, pressione dentro il foglio, Chiudi le altre sul telefono
+- Copia l'indirizzo intero dal foglio della tab: a schermo resta abbreviato
+- Chiudi la scheda di un sotto-agente finito nel progetto, e togli i figli ritirati dalla lista dei parcheggiati
+- Registra l'approvazione di changeset-chat-strip (ok alle quattro scelte consigliate)
 - Registra la scelta del proprietario: il browser remoto delle pane resta su Chromium
 - A project created by name is born next to the user's projects, not in the agent workspace
 - Topics reads the shared rules and skills from the ~/.agents hub, and its global memory is retired
@@ -31,6 +600,12 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 - Registra global-setup.ts nella baseline di check:bloat: +21 righe per WebKit nel server isolato
 - Fai funzionare l'indietro delle tab browser: frame che segue l'indirizzo e frecce native accese
 - Fai tornare l'indietro della tab sulla pagina lasciata da un link nel frame, senza voci nella cronologia dell'app
+- Registra il si' di Attilio alla change tab-menu-unico (04/10 19:05)
+- Accendi indietro e avanti della pane in streaming solo se c'è una pagina dove andare
+- Proponi i sotto-agenti sul motore di Topics (subagent-nativi, approvata)
+- Registra runtime e chat del sotto-agente, profondita' massima 2
+- Fai girare spawn_agent sul motore di Topics come chat figlia, la CLI solo su richiesta
+- Manda le frecce della pane anche dalla pagina d'errore del server
 - Porta a text-mini l'etichetta della coda: #225 ha ritirato text-micro mentre #228 la usava
 - Porta in inglese il commento italiano di tool-live-tail-reopen
 - NOTIF-ONE misura cio' che accendono le sue chat, non il totale del server
@@ -38,9 +613,12 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 ## 2.2.445 — 2026-10-04
 
 ### Sotto il cofano
+- Metti la direttiva di lingua nel prompt di sistema del runtime nativo
 - Porta la coda viva anche nella storia e non dire «nessun output finora»
 - Togli i furti delle aree proiettate e porta i comandi della tab a 24
 - Chiudi i tre buchi della guardia di usabilità
+- Proponi tab-menu-unico: il tasto destro apre la tab espansa, a due livelli
+- Escludi le tab dell'editor dal foglio e tieni il cancello di Chiudi
 
 ## 2.2.444 — 2026-10-04
 
@@ -68,6 +646,7 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 - Allinea shutdown-wiring al contratto nuovo: una chat senza reattach sopravvive al riavvio
 - Banco e2e: API Anthropic finta per il motore nativo, senza Keychain né proxy ereditato
 - Motore nativo: mostra in coda la chiamata non partita, il comando mentre si scrive, rispetta il timeout della shell
+- Non spingere il goal mentre un sottoagente lavora per la chat
 
 ## 2.2.442 — 2026-10-04
 
@@ -110,16 +689,22 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 ## 2.2.439 — 2026-10-04
 
 ### Sotto il cofano
+- Fai seguire alla lingua auto la persona, non gli avvisi di Topics
+- Apri come finestra vera i popup con dimensioni, così il login Google arriva alla pagina
 - Leggi lo stato di attenzione dal server in ogni superficie del client e apri «Da guardare» (3.1-3.8, 4.1-4.4)
 - Togli dal server le esportazioni rimaste senza lettore e il predicato del turno pulito ora a una voce sola
 - Fai scrivere il Dock solo alla finestra principale e aggiungi ⇧⌘I per «Da guardare» (4.5, 4.6)
 - Porta i cancelli statici a verde per la meta' client delle notifiche
 - Spunta i task client di notifications-redesign e scrivi dove il codice si scosta
 - Correggi due righe dello scostamento client in design.md
+- Mostra in chat i retry dell'API che fa la CLI
+- Accetta il dialogo di fiducia della cartella prima di seminare un sottoagente
+- Segui il transcript vero quando SessionStart dichiara un path che non esiste
 - Correggi quattro difetti visti dagli e2e delle notifiche: glifo grigio del terminale in attesa, fuoco della inbox, colonna dei tempi, «Attende: other»
 - Scrivi gli e2e dello stato di attenzione sul server di test vero (5.1-5.4, 5.6)
 - Riscrivi sul contratto nuovo gli e2e che iniettavano i segni delle notifiche (5.5, prima parte)
 - Rivedi il design dei pannelli del modello: un asse solo, l'azienda, a ogni livello
+- Fai sopravvivere ai riavvii le chat sul motore interno, invece di rinviare il riavvio
 - Fai dire «sta per riprendere» al risveglio in coda, sulla riga del background e sul glifo
 - Riscrivi sul contratto nuovo il resto degli e2e delle notifiche (5.5, seconda parte) e aggiungi le schermate alle spec nuove
 - Spunta la sezione 5 di notifications-redesign, scrivi gli scostamenti degli e2e e aggiungi le prove visive
@@ -314,6 +899,7 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 - Fai rispondere al CLI finto con l'ultima riga del messaggio e filtra il menu con un prefisso che nessuna skill ha
 - Rileggi l'elenco dei comandi all'apertura del menu: il gruppo del motore arriva col primo turno
 - Dai al segno dei comandi noti la lettura per il rendering statico
+- A test process can no longer write the live state through any module, not only createAppContext
 - Dichiara le righe di /resume una volta sola in shared e conta il nuovo frame della risposta di comando
 - Appunta il messaggio giusto e riporta il cursore in fondo prima di filtrare /resume
 - Sposta a tab il browser della topic senza ricaricarlo
@@ -352,6 +938,8 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 ## 2.2.430 — 2026-10-03
 
 ### Sotto il cofano
+- Topics reads the shared rules and skills from the ~/.agents hub, and its global memory is retired
+- Archive the contesto-dall-hub change: shipped
 - Fai passare la grazia del passaggio con l'orologio della pagina, non con un sonno
 - Proponi commands-ui: /resume elenca le sessioni Claude del progetto, il menu «/» legge i comandi dal motore
 - Manda su https l'host scritto senza schema con la porta 443 o 8443
@@ -512,6 +1100,7 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 - Aggiungi i controlli del menu: segmento, passo e interruttore sui token del movimento
 - Sposta Aspetto, Notifiche, Vista e Dispositivi nel menu utente
 - Dai al cassetto di progetto del telefono l'entrata e l'uscita condivise
+- A project created by name is born next to the user's projects, not in the agent workspace
 
 ## 2.2.426 — 2026-10-01
 

@@ -34,6 +34,12 @@ const focusSchema = z.object({
    */
   subject: z.string().nullable().optional(),
   awake: z.boolean().optional(),
+  /**
+   * The person put this subject in front now (a click on its row or tab, a
+   * key): not a layout the window restored. Only such a frame starts the
+   * dwell that engages a sub-agent (SUBAGENT-21).
+   */
+  chosen: z.boolean().optional(),
 });
 
 const typingSchema = z.object({

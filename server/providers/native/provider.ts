@@ -48,7 +48,7 @@ import type {
   StreamHandler,
 } from "../types";
 import { recordTurnEnd } from "../turn-end-registry";
-import { resolveClaudeEffort } from "../../lib/topics-agent-prompt";
+import { languageDirective, languageReminder, resolveClaudeEffort } from "../../lib/topics-agent-prompt";
 import { resolveClaudeModel, resolveClaudeMaxTokens } from "../../services/app-settings";
 import {
   isEligibleGlobalOrchestratorSession,
@@ -58,6 +58,7 @@ import { clampMaxTokens } from "../../lib/native-parity";
 import { defaultLifecycleHooks } from "../../services/lifecycle-hooks";
 import { cancelled, stopCauseFromSignal, type StopCause, type TurnEndInfo } from "../stop-reason";
 import { nativeModelId } from "../../../shared/task-coding-models";
+import { nativeSubagentToolPolicy, toolAllowedByPolicy } from "../../lib/subagent-tool-policy";
 
 /**
  * The model we start from when nobody asks for one.
@@ -161,6 +162,33 @@ const NO_WORKSPACE_NOTE =
   "modificare file. Puoi comunque leggere una pagina web e tenere la lista di cose da fare. " +
   "Per il resto rispondi a voce; se serve lavorare su un progetto, di' all'utente di " +
   "collegarne uno alla conversazione.";
+
+/**
+ * A native turn's system prompt, on top of Claude Code's identity.
+ *
+ * THE LANGUAGE LIVES HERE, not only in the message's `<context>`. The route
+ * never passes `systemPrompt` to this runtime: the directive only rode inline
+ * in the user turn, where dedup drops it from later turns (its scope is the
+ * CLI session id, which a native chat never renews) and the history rebuilt
+ * from the DB after a restart does not hold it. On 04/10 topic:d740f8ae, moved
+ * to native by MSEL-06, answered an Italian chat in English even after the
+ * directive fix: the model followed Topics' English notices. In the system
+ * prompt the line is there on every round, and it stays in the cached prefix.
+ *
+ * Re-read on every turn, like effort and model: a language change applies
+ * from the next message.
+ */
+export function nativeSystemPrompt(args: {
+  base?: string;
+  /** The chat has a project: no note about missing tools. */
+  workspace: boolean;
+  /** The coordinator: project-less by design, the note would lie. */
+  globalOrchestrator: boolean;
+  language?: string;
+}): string {
+  const note = args.workspace || args.globalOrchestrator ? undefined : NO_WORKSPACE_NOTE;
+  return [args.base, note, args.language ?? languageDirective()].filter(Boolean).join("\n\n");
+}
 
 /**
  * I modelli che questo runtime sa usare.
@@ -508,14 +536,27 @@ export class NativeProvider implements AIProvider {
        * still starts with the command (see `ProviderPayload.slashContext`).
        */
       slashContext?: string;
+      /** The turn's name: it rides on every end recorded here, so a late end is never taken for the next turn's. */
+      turnId?: string;
     },
-  ): Promise<{ runId?: string }> {
+  ): Promise<{ runId?: string; notSent?: boolean }> {
     if (this.hasGlobalCoordinatorRole(sessionKey)) {
       handler.onError("the global coordinator is Codex-only; reopen it from the Kanban");
       return {};
     }
     const session = this.sessionFor(sessionKey, options?.messageRows);
     await this.supersedeLiveTurn(sessionKey, session);
+    // A STOPPED ENGINE STARTS NO TURN. The chat route holds this instance across
+    // its own awaits (the `memrecall` run) between opening the stream and calling
+    // here, so a `stop()` (engine removed, provider replaced) can land in that
+    // gap: it finds no session to abort, and the turn would then run to its end
+    // on an instance the registry no longer has. It ends here instead, with the
+    // cause `stop()` gives the turns it does reach, as claude-code ends the sends
+    // it had queued. No await below this line: the check and the claim are one step.
+    if (this.stopped) {
+      handler.onAborted?.({ turnEnd: cancelled("server-shutdown" satisfies StopCause) });
+      return { notSent: true };
+    }
 
     // La storia del CHIAMANTE vince su quella in memoria: è lui che sa cosa è
     // successo davvero (riavvii, rami, modifiche). La nostra è una comodità,
@@ -635,7 +676,7 @@ export class NativeProvider implements AIProvider {
     sessionKey: string,
     session: NativeSession,
     handler: StreamHandler,
-    options: { model?: string; history?: ChatMessage[]; systemPrompt?: string } | undefined,
+    options: { model?: string; history?: ChatMessage[]; systemPrompt?: string; turnId?: string } | undefined,
     abort: AbortController,
   ): Promise<{ runId?: string }> {
     try {
@@ -669,6 +710,10 @@ export class NativeProvider implements AIProvider {
       // and a child mounted by this very turn must be callable by the next
       // round. `fleetAllowed` and `workspace` stay captured, read once per turn
       // as before: the per-session policy is not the thing that changes.
+      // A sub-agent's chat (subagent-nativi) sees what its profile allows, and
+      // no delegation tools at the depth cap. Read once per turn: the row does
+      // not change under a running turn. Null for every other chat.
+      const subagentPolicy = globalOrchestrator ? null : nativeSubagentToolPolicy(sessionKey);
       const tools = () => {
         // This is an ordinary unbound Topic with a special, registry-backed
         // capability profile—not an unbound coding/chat session. Do not append
@@ -677,13 +722,14 @@ export class NativeProvider implements AIProvider {
         if (globalOrchestrator) {
           return topicsToolSpecs("global-orchestrator");
         }
-        return [
+        const all = [
           // No workspace does not mean no tools: the two that resolve no path
           // (the turn's plan, and reading a URL) stay. See `WORKSPACE_FREE_TOOLS`.
           ...(workspace ? CODING_TOOLS : WORKSPACE_FREE_TOOLS),
           ...(topics ? topicsToolSpecs(topics.profile, { hasProject, cwd: workspace }) : []),
           ...(fleetAllowed ? mcpToolSpecs() : []),
         ];
+        return subagentPolicy ? all.filter((t) => toolAllowedByPolicy(subagentPolicy, t.name)) : all;
       };
       // `resolveClaudeModel()` si rilegge A OGNI TURNO, non solo alla costruzione:
       // altrimenti cambiare il modello in Impostazioni non ha effetto finche' il
@@ -707,11 +753,8 @@ export class NativeProvider implements AIProvider {
           // registry-backed coordinator is different: it intentionally has no
           // workspace and only its five board tools, so adding that ordinary
           // note would falsely advertise web/file capabilities.
-          system: globalOrchestrator
-            ? options?.systemPrompt
-            : (workspace
-              ? options?.systemPrompt
-              : [options?.systemPrompt, NO_WORKSPACE_NOTE].filter(Boolean).join("\n\n")),
+          system: nativeSystemPrompt({ base: options?.systemPrompt, workspace: !!workspace, globalOrchestrator: !!globalOrchestrator }),
+          reminder: languageReminder(),
           history: session.history,
           // Passed by REFERENCE: every turn restarts from what the previous
           // one measured, instead of from the assumed 4 chars per token.
@@ -726,6 +769,7 @@ export class NativeProvider implements AIProvider {
           // nothing tells it apart from Topics' own processes.
           toolContext: { workspace: workspace ?? "", signal: abort.signal, sessionKey },
           topics: topics ?? undefined,
+          ...(subagentPolicy ? { allowTool: (name: string) => toolAllowedByPolicy(subagentPolicy, name) } : {}),
           // Il livello di autonomia si RILEGGE a ogni turno, non si memorizza
           // sulla sessione: chi lo cambia in chat si aspetta che valga dal
           // messaggio dopo, non dalla prossima chat.
@@ -773,7 +817,7 @@ export class NativeProvider implements AIProvider {
       // Il perché della fine si deposita dove il resto del server lo cerca:
       // è lo stesso registro che usano le CLI, e senza questo un turno
       // dispacciato non saprebbe dire com'è finito.
-      recordTurnEnd(sessionKey, out.turnEnd);
+      recordTurnEnd(sessionKey, { ...out.turnEnd, turnId: options?.turnId });
       // L'uso NON si deposita qui: ci ha già pensato `onRoundUsage`, giro per
       // giro. Sommare anche `out.usage` — che di quei giri è la somma —
       // conterebbe ogni token due volte.
@@ -789,12 +833,12 @@ export class NativeProvider implements AIProvider {
       if (abort.signal.aborted) {
         const causa = stopCauseFromSignal(abort.signal);
         const end: TurnEndInfo = causa ? cancelled(causa) : { end: "cancelled" };
-        recordTurnEnd(sessionKey, end);
+        recordTurnEnd(sessionKey, { ...end, turnId: options?.turnId });
         handler.onAborted?.({ result: "", turnEnd: end });
         return {};
       }
       handler.onError(detail);
-      recordTurnEnd(sessionKey, { end: "error", cause: "provider-error", detail });
+      recordTurnEnd(sessionKey, { end: "error", cause: "provider-error", detail, turnId: options?.turnId });
       return {};
     } finally {
       // ONLY ITS OWN HANDLE. An unconditional clear is how the first turn's

@@ -136,7 +136,7 @@ export function scopeEngines(snapshot: ProvidersSnapshot | null, scope: TopicsRo
   }));
 }
 
-const ENGINE_ACTIONS: Record<string, ConnectAction> = { 'claude-code': 'signIn', codex: 'signIn', claude: 'addKey', openai: 'addKey' };
+const ENGINE_ACTIONS: Record<string, ConnectAction> = { 'claude-code': 'signIn', codex: 'signIn', muse: 'signIn', claude: 'addKey', openai: 'addKey' };
 
 /** Subscriptions sign in, API keys are added, everything else is set up. */
 export function connectAction(name: string): ConnectAction {
@@ -147,6 +147,7 @@ export function connectAction(name: string): ConnectAction {
 export function signInCommand(name: string): string | null {
   if (name === 'codex') return 'codex login';
   if (name === 'claude-code') return 'claude login';
+  if (name === 'muse') return 'muse login';
   return null;
 }
 

@@ -53,6 +53,9 @@ const TERMINAL_AGENT_PRESENTATION: Record<
   // Kimi Code (Moonshot AI). No dedicated glyph like Claude/Codex yet, so a
   // generic icon (Bot) with a blue distinct from the other three agents.
   'kimi-code': { icon: 'bot', color: '#4C6FFF' },
+  // Muse (Meta). Same generic Bot, violet: distinct from Kimi's blue, Claude's
+  // orange and opencode's teal.
+  muse: { icon: 'bot', color: '#7C5CFF' },
 };
 
 /** Tre membri distinti e non `{kind:'claude'|'codex'}`: TypeScript non sa

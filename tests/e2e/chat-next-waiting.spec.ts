@@ -260,7 +260,7 @@ test.describe("the «In attesa» door, on the phone", () => {
     }
   });
 
-  test("at zero the door is off and nothing moves when the number comes", async ({ page, request }) => {
+  test("at zero the door is alive, opens the Inbox, and nothing moves when the number comes", async ({ page, request }) => {
     test.info().annotations.push({ type: "spec", description: "CHAT-WAIT-04" });
     const a = await mk(request, "a");
     const b = await mk(request, "b");
@@ -268,7 +268,10 @@ test.describe("the «In attesa» door, on the phone", () => {
       await resetPaneStore(request, [a.id, b.id]);
       await goToApp(page);
       await expect(door(page)).toBeVisible({ timeout: 15_000 });
-      await expect(door(page)).toBeDisabled();
+      // Alive at zero (mobile-chrome-feedback A5): a door that stays dead is
+      // a gesture that answers nothing, so with an empty queue it opens the
+      // Inbox's Now instead of stepping.
+      await expect(door(page)).toBeEnabled();
       await expect(door(page), "zero is said, not left out").toHaveAccessibleName("In attesa, 0");
 
       const widths = () => page.evaluate(() =>
@@ -279,6 +282,14 @@ test.describe("the «In attesa» door, on the phone", () => {
       );
       const atZero = await widths();
       expect(atZero.length).toBe(5);
+
+      await door(page).tap();
+      await expect(page.locator('[data-testid="inbox-panel-now"]')).toBeVisible();
+      // Escape shuts it back: on the phone this is a sheet behind its own
+      // scrim, so the bell sits under the veil and cannot be tapped to close.
+      // The queue assertions below want the stage as they found it.
+      await page.keyboard.press("Escape");
+      await expect(page.locator('[data-testid="inbox-panel"]')).toHaveCount(0);
 
       await permission(request, a);
       await permission(request, b);

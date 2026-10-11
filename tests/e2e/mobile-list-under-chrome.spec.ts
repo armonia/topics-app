@@ -1,11 +1,13 @@
 /**
  * THE LIST RUNS UNDER THE TOP ROW AND UNDER THE BUTTON ROW AT THE BOTTOM.
  *
- * Asked from a phone: the list scrolls UNDER the header and UNDER the button
- * row at the bottom, and still nothing is hidden at rest — the first row starts
- * below the header, the last row ends above the buttons.
+ * Asked from a phone: the list starts right after the safe area and scrolls
+ * UNDER the header and UNDER the button row at the bottom, the way a native
+ * list does — and at the end of the run the last row is entirely above the
+ * buttons.
  *
- * MOBILE-LIST-01  at rest the first row sits below the header
+ * MOBILE-LIST-01  at rest the first row starts right after `--sat` (under the
+ *                 compact header, which is compact for exactly that reason)
  * MOBILE-LIST-02  the scroller reaches the screen bottom, so rows travel behind
  *                 the button row (the column is not cut where the row begins)
  * MOBILE-LIST-03  scrolled to the end, the last row is entirely above the row
@@ -63,11 +65,12 @@ async function measure(page: Page) {
       lastBottom: rows.length ? r(rows[rows.length - 1]).bottom : null,
       rows: rows.length,
       overflow: scroller.scrollHeight - scroller.clientHeight,
+      sat: parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--sat")) || 0,
     };
   });
 }
 
-test("MOBILE-LIST — la lista sta sotto header e footer, e a riposo non copre niente", async ({ page }) => {
+test("MOBILE-LIST — la lista parte dalla safe area e scorre sotto header e footer", async ({ page }) => {
   await page.goto(E2E_BASE);
   await expect(page.locator(BAR)).toBeVisible();
   await expect.poll(async () => (await measure(page)).rows).toBeGreaterThan(8);
@@ -75,8 +78,10 @@ test("MOBILE-LIST — la lista sta sotto header e footer, e a riposo non copre n
   const atRest = await measure(page);
   console.log("RIPOSO", JSON.stringify(atRest));
   if (SHOTS) await page.screenshot({ path: `${SHOTS}/${process.env.LIST_TAG ?? "x"}-riposo.png` });
-  // 01 — the first row starts below the header.
-  expect(atRest.firstTop!).toBeGreaterThanOrEqual(atRest.headerBottom - 1);
+  // 01 — the first row starts right after the safe area, under the compact
+  // header (mobile-chrome-feedback A1): the compact row at rest exists so the
+  // rows can begin there instead of a full row below.
+  expect(Math.abs(atRest.firstTop! - atRest.sat)).toBeLessThanOrEqual(1);
   // 02 — the scroller itself runs down to the glass, so rows pass behind the buttons.
   expect(atRest.overflow, "the list must overflow, or there is nothing to scroll under").toBeGreaterThan(0);
   expect(atRest.scrollerBottom).toBeGreaterThanOrEqual(atRest.vh - 1);

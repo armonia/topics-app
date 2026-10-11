@@ -15,21 +15,24 @@
 export * from "./types";
 
 import { syncDirectEndpointProviders } from "./direct-endpoint-registry";
-import type { AIProvider, ProviderConfig, OpenClawProviderConfig, ClaudeProviderConfig, ClaudeCodeProviderConfig, CodexProviderConfig, OpenAIProviderConfig, AcpProviderConfig } from "./types";
+import type { AIProvider, ProviderConfig, OpenClawProviderConfig, ClaudeProviderConfig, ClaudeCodeProviderConfig, CodexProviderConfig, MuseProviderConfig, OpenAIProviderConfig, AcpProviderConfig } from "./types";
 import { providerNameForConfig } from "./types";
 import { readApiProviderKey } from "../services/api-provider-credentials";
 import { KNOWN_ACP_AGENTS, mergeAcpAgents, parseAcpAgentsEnv } from "./acp/agents";
 import { existsSync } from "fs";
 import { resolveClaudeBin } from "../lib/claude-bin";
 import { resolveCodexBin } from "../lib/codex-bin";
+import { resolveMuseBin } from "../lib/muse-bin";
 import {
   getAppSettings,
   resolveAiProvider,
   resolveClaudeModel,
   resolveCodexModel,
+  resolveMuseModel,
   resolveClaudeCodeModel,
   resolveClaudeCodePermissionMode,
   resolveCodexApprovalMode,
+  resolveMuseApprovalMode,
   resolveClaudeCodeEnabled,
   resolveAgentRuntime,
 } from "../services/app-settings";
@@ -50,6 +53,7 @@ let _defaultName: string | undefined;
 const PROVIDER_PREFERENCE_ORDER = [
   "claude-code",
   "codex",
+  "muse",
   "claude",
   "openai",
   "openclaw",
@@ -85,6 +89,10 @@ export function createProvider(config: ProviderConfig): AIProvider {
     case "codex": {
       const { CodexProvider } = require("./codex");
       return new CodexProvider(config);
+    }
+    case "muse": {
+      const { MuseProvider } = require("./muse");
+      return new MuseProvider(config);
     }
     case "openai": {
       const { OpenAIProvider } = require("./openai");
@@ -442,6 +450,35 @@ export async function initProviders(): Promise<AIProvider[]> {
     }
   }
 
+  // Muse — auto-detect (CLI installed, `~/.local/bin/muse` launcher) AND logged
+  // in (MUSE-01): unlike codex, an installed-but-logged-out CLI does NOT
+  // register — every turn would fail, a dead picker entry. The login state is
+  // still visible in Settings via `detectAgents()` (bin presence).
+  if (!_providers.has("muse") && await detectMuseCli()) {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports -- the binary exists; the provider module loads here or not at all
+    const { museHasStoredSession, museAuthPath } = require("./muse") as typeof import("./muse");
+    if (!museHasStoredSession()) {
+      // Tells a missing login apart from a missing binary: without this line
+      // both look like "muse never registered" in a bench log.
+      console.warn(`[Providers] muse CLI detected but no stored session at ${museAuthPath()}; skipping registration`);
+    } else {
+      try {
+        const config: MuseProviderConfig = {
+          type: "muse",
+          model: resolveMuseModel(settings),
+          approvalMode: resolveMuseApprovalMode(),
+          defaultWorkspace: process.env.MUSE_WORKSPACE || undefined,
+        };
+        const p = createProvider(config);
+        p.start();
+        _providers.set(p.name, p);
+        started.push(p);
+      } catch (err) {
+        console.warn(`[Providers] Failed to init muse: ${err instanceof Error ? err.message : err}`);
+      }
+    }
+  }
+
   // Il runtime NATIVO. Si registra quando su questa macchina c'è una
   // credenziale Claude, cioè quando può davvero servire un turno: un provider
   // che non può rispondere riempirebbe il picker di una voce morta, come per
@@ -610,6 +647,11 @@ async function detectCodexCli(): Promise<boolean> {
   return resolveCodexBin() !== null;
 }
 
+async function detectMuseCli(): Promise<boolean> {
+  if (process.env.MUSE_BIN) return true;
+  return resolveMuseBin() !== null;
+}
+
 // ---------------------------------------------------------------------------
 // Legacy compat — initProvider / getProvider work as before
 // ---------------------------------------------------------------------------
@@ -680,16 +722,23 @@ export function initProvider(config?: ProviderConfig): AIProvider {
  * somebody else's turn was a silent no-op — a recovery that recovered nothing.
  */
 export function resolveSessionOwner(sessionKey: string): unknown | null {
+  // TWO OWNERS ARE POSSIBLE: a topic switched provider leaves its idle session
+  // in the old one for a while. The one RUNNING the turn wins, or the rescue
+  // and the abort land on the idle one (T18); with no live turn, the first
+  // owner, as before. Same rule as `resolveTurnAlive` just below.
+  let first: unknown | null = null;
   for (const [, p] of _providers) {
-    const probe = p as unknown as { ownsSession?: (sk: string) => boolean };
+    const probe = p as unknown as { ownsSession?: (sk: string) => boolean; isTurnProcessAlive?: (sk: string) => boolean };
     if (typeof probe.ownsSession !== "function") continue;
     try {
-      if (probe.ownsSession(sessionKey)) return p;
+      if (!probe.ownsSession(sessionKey)) continue;
+      if (probe.isTurnProcessAlive?.(sessionKey) === true) return p;
+      first ??= p;
     } catch {
       return null;
     }
   }
-  return null;
+  return first;
 }
 
 /**
@@ -716,6 +765,10 @@ export function childAliveForSweep(sessionKey: string): boolean | undefined {
 }
 
 export function resolveTurnAlive(sessionKey: string): boolean | null {
+  // The FIRST owner's answer, unless another owner is running the turn: an idle
+  // session left behind by a provider switch must not answer "dead" for a turn
+  // the other provider is running (T18, see `resolveSessionOwner`).
+  let answer: boolean | null = null;
   for (const [, p] of _providers) {
     const probe = p as unknown as {
       ownsSession?: (sk: string) => boolean;
@@ -727,12 +780,14 @@ export function resolveTurnAlive(sessionKey: string): boolean | null {
     if (typeof probe.ownsSession !== "function") continue;
     try {
       if (!probe.ownsSession(sessionKey)) continue;
-      return probe.isTurnProcessAlive(sessionKey);
+      const alive = probe.isTurnProcessAlive(sessionKey);
+      if (alive) return true;
+      answer ??= alive;
     } catch {
       return null;
     }
   }
-  return null;
+  return answer;
 }
 
 /**

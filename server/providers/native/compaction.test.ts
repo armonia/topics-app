@@ -281,6 +281,17 @@ describe("il contesto pieno non uccide la chat", () => {
     expect(c.droppedMessages).toBeGreaterThan(0);
   });
 
+  test("dopo una compattazione il giro successivo NON ricompatta", () => {
+    // RED BEFORE: target = trigger, so the history came out a hair under the
+    // threshold and the next round crossed it again. topic:64095902 (08/10):
+    // 68 compactions in 34 hours, 40 closed at >=145k on a 150k threshold.
+    const h = writes(2_000, 500);
+    const c = compact(h, { windowTokens: 40_000, overheadChars: 0 });
+    const next = [...c.messages, ...writes(4, 500).slice(1)];
+    expect(estimateTokens(next)).toBeGreaterThan(estimateTokens(c.messages));
+    expect(needsCompaction(next, 40_000)).toBe(false);
+  });
+
   test("anche tagliando, la richiesta iniziale resta e dice cosa è sparito", () => {
     const h = writes(2_000, 500);
     const c = compact(h, { windowTokens: 10_000, overheadChars: 0 });

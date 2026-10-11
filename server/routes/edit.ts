@@ -8,6 +8,7 @@ import { providerSurvivesRestart } from "../lib/quiescence";
 import { isGlobalOrchestratorSession } from "../services/global-orchestrator-session";
 import { turnEnded, turnStarted } from "../attention/store";
 import { topicSubject } from "../../shared/attention";
+import { getSubagentBySessionKey } from "../lib/subagent-store";
 
 export interface EditDeps {
   resolveProvider: (topic?: Topic | null) => AIProvider;
@@ -255,6 +256,11 @@ export function createEditRouter(ctx: AppContext, deps: EditDeps): RouteHandler 
       // coordinator's constrained Codex session profile. Reject the raw role
       // before creating a sibling message so a corrupt registry row cannot
       // reach a fallback provider or mutate the transcript half-way.
+      // A sub-agent's chat: this one-shot, tool-less pass is no turn of its own
+      // that its parent would hear of, and a rewritten answer it never got.
+      if (getSubagentBySessionKey(ctx.db as never, sessionKey)?.runtime === "topics") {
+        return json({ error: "editing and regeneration are unavailable in a sub-agent's chat: write to it instead", code: "subagent_chat" }, 409);
+      }
       if (isGlobalOrchestratorSession(ctx.db, sessionKey)) {
         return json({
           error: "editing and regeneration are unavailable for the global coordinator",
@@ -324,6 +330,11 @@ export function createEditRouter(ctx: AppContext, deps: EditDeps): RouteHandler 
       if (msg.role !== "assistant") return json({ error: "only assistant messages can be regenerated" }, 400);
       const sessionKey = getMessageSessionKey(regenParams.id);
       if (!sessionKey) return json({ error: "session not found" }, 404);
+      // A sub-agent's chat: this one-shot, tool-less pass is no turn of its own
+      // that its parent would hear of, and a rewritten answer it never got.
+      if (getSubagentBySessionKey(ctx.db as never, sessionKey)?.runtime === "topics") {
+        return json({ error: "editing and regeneration are unavailable in a sub-agent's chat: write to it instead", code: "subagent_chat" }, 409);
+      }
       if (isGlobalOrchestratorSession(ctx.db, sessionKey)) {
         return json({
           error: "editing and regeneration are unavailable for the global coordinator",

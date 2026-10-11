@@ -52,6 +52,7 @@ import { MAX_ITERATIONS } from "../providers/native/agent-loop";
 import { sessionBackgroundState, sessionHasBackgroundWork } from "../providers/background-probes";
 import { rowsBack, type BackRow } from "../lib/background-notice";
 import { hasMachineMark } from "../../shared/prompt-number";
+import { stoppedSubagentChat } from "../lib/wake-adoption";
 
 export interface GoalContinuationDeps {
   db: Database;
@@ -381,6 +382,8 @@ export function createGoalContinuation(deps: GoalContinuationDeps) {
   return Object.assign(onTurnEnd, { stopWaiting });
 
   async function judge(info: TurnEndInfo, backgroundStillRunning: boolean, stillFree?: () => boolean): Promise<string> {
+    // A sub-agent its parent stopped is not pushed on: no nudge, no resume (SUBAGENT-19).
+    if (stoppedSubagentChat(deps.db, info.topicId)) return "skipped";
     let goal;
     try {
       goal = getActiveGoal(deps.db, info.topicId);

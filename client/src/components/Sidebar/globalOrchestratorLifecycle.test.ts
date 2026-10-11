@@ -31,7 +31,7 @@ describe('global Kanban coordinator lifecycle', () => {
     expect(topicItem).toContain("&& !topic.isGlobalOrchestrator && (");
     expect(topicItem).toContain("{(onArchive || (isStreaming && onStopStreaming))");
     expect(contextMenu).toContain('{!topic.isGlobalOrchestrator && <>');
-    expect(topicTree).toContain('onStopStreaming={!topic.isGlobalOrchestrator && stopSession ? () => {');
+    expect(topicTree).toContain('onStopStreaming={!topic.isGlobalOrchestrator && stopSession ? async () => {');
   });
 
   test('does not let stale deferred or unpin callbacks archive a marked coordinator', () => {

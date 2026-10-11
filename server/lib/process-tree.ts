@@ -12,6 +12,7 @@
  * Qui dentro non si importa niente del progetto. Solo `Bun` e `process`, che il
  * runtime ha gia' globali.
  */
+import { SPAWN_TIMEOUT, spawnBounded } from "./bounded-spawn";
 
 // Cached process table (ppid → child pids). ONE `ps` snapshot replaces the old
 // recursive `pgrep -P` storm, which spawned one process per tree node, per
@@ -27,7 +28,7 @@ async function getProcTable(fresh = false): Promise<Map<number, number[]>> {
   if (!fresh && now - _procTableAt < PROC_TABLE_TTL && _childrenByPpid.size) return _childrenByPpid;
   const children = new Map<number, number[]>();
   try {
-    const proc = Bun.spawn(["ps", "-axo", "pid=,ppid="], { stdout: "pipe", stderr: "ignore" });
+    const proc = spawnBounded(["ps", "-axo", "pid=,ppid="], { stdout: "pipe", stderr: "ignore", timeoutMs: SPAWN_TIMEOUT.query });
     const text = await new Response(proc.stdout).text();
     await proc.exited;
     for (const line of text.split("\n")) {
@@ -77,7 +78,7 @@ export async function getPidStartTimes(pids: number[]): Promise<Map<number, stri
   const out = new Map<number, string>();
   if (!pids.length) return out;
   try {
-    const proc = Bun.spawn(["ps", "-o", "pid=,lstart=", "-p", pids.join(",")], { stdout: "pipe", stderr: "ignore" });
+    const proc = spawnBounded(["ps", "-o", "pid=,lstart=", "-p", pids.join(",")], { stdout: "pipe", stderr: "ignore", timeoutMs: SPAWN_TIMEOUT.query });
     const text = await new Response(proc.stdout).text();
     await proc.exited;
     for (const line of text.split("\n")) {

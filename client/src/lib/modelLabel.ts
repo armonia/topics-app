@@ -48,11 +48,12 @@ export function splitModelId(modelId: string): ModelIdParts {
  */
 export function friendlyModelLabel(modelId: string): string {
   if (modelId === 'codex') return 'Codex';
-  const routed = /^(topics|claude-code|jcode|codex):(.*)$/.exec(modelId);
+  const routed = /^(topics|claude-code|jcode|codex|muse):(.*)$/.exec(modelId);
   if (routed) {
     const runtime = routed[1] === 'topics' ? 'Topics'
       : routed[1] === 'claude-code' ? 'Claude Code'
-        : routed[1] === 'codex' ? 'Codex' : 'jcode';
+        : routed[1] === 'codex' ? 'Codex'
+          : routed[1] === 'muse' ? 'Muse' : 'jcode';
     if (!routed[2] || routed[2] === 'auto') return `Automatic · ${runtime}`;
     const model = routed[2];
     const modelLabel = model.startsWith('gpt-') || model.startsWith('claude-')

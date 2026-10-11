@@ -58,7 +58,7 @@
 import type { Database } from "bun:sqlite";
 import type { ContentBlock } from "../types";
 import { decodeCol } from "../../shared/message-blob";
-import { wakeVerdict } from "./wake-adoption";
+import { stoppedSubagentChat, wakeVerdict } from "./wake-adoption";
 import { isProviderHeld } from "./provider-hold";
 import { isChatsLastWord, outageCutUnanswered, outageResendAttempt, outageResendOwed } from "./ripresa-boot";
 import type { ResendChain } from "./resend-count";
@@ -147,6 +147,20 @@ function duration(ms: number): string {
 }
 
 /**
+ * A line as a person reads it, without the terminal's colour and cursor codes.
+ * The output is captured raw and `freeagent` paints its errors red: the card
+ * in the chat showed the escape bytes as boxes, and the agent read the same
+ * bytes (topic:d740f8ae, 07/10).
+ */
+function plainLine(l: string): string {
+  return l
+    // eslint-disable-next-line no-control-regex -- strips terminal escape sequences, so ESC and BEL are the point of the pattern
+    .replace(/\x1b\[[0-9;?]*[ -/]*[@-~]/g, "") // CSI sequences
+    // eslint-disable-next-line no-control-regex -- strips terminal escape sequences, so ESC and BEL are the point of the pattern
+    .replace(/\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)/g, ""); // OSC sequences
+}
+
+/**
  * The fence around the output: longer than any run of backticks in it, the
  * CommonMark rule, so no line the program printed can close the block. A
  * fixed three let a printed "```" end it early, and the lines after it
@@ -165,7 +179,7 @@ function fenceFor(lines: string[]): string {
  */
 export function processExitText(f: ProcessExitFacts): string {
   const outcome = f.exitCode === null ? "exit code unknown (none was recorded)" : `exit ${f.exitCode}`;
-  const tail = f.lines.slice(-WAKE_TAIL_LINES).map((l) => (l.length > WAKE_LINE_MAX_CHARS ? `${l.slice(0, WAKE_LINE_MAX_CHARS)}…` : l));
+  const tail = f.lines.slice(-WAKE_TAIL_LINES).map(plainLine).map((l) => (l.length > WAKE_LINE_MAX_CHARS ? `${l.slice(0, WAKE_LINE_MAX_CHARS)}…` : l));
   const head = `Command \`${f.label}\` finished: ${outcome} after ${duration(f.durationMs)}.`;
   const fence = fenceFor(tail);
   const body = tail.length
@@ -181,7 +195,7 @@ export function processExitText(f: ProcessExitFacts): string {
  */
 export function processExitLastLine(lines: readonly string[]): string | undefined {
   for (let i = lines.length - 1; i >= 0; i--) {
-    const l = lines[i]!.trim();
+    const l = plainLine(lines[i]!).trim();
     if (l) return l.length > WAKE_LINE_MAX_CHARS ? `${l.slice(0, WAKE_LINE_MAX_CHARS)}…` : l;
   }
   return undefined;
@@ -251,7 +265,7 @@ export async function deliverProcessExit(
     // Resolved on every round: the topic can be archived, or its card leave
     // the column, while the wake waits.
     const topic = deps.getTopicById(f.topicId);
-    if (!topic || wakeVerdict({ id: f.topicId, archived: topic.archived }, deps.ownedByRunningTask) !== "adopt") return "no-topic";
+    if (!topic || wakeVerdict({ id: f.topicId, archived: topic.archived }, deps.ownedByRunningTask, (id) => stoppedSubagentChat(deps.db, id)) !== "adopt") return "no-topic";
     // Busy first: the row cannot appear while somebody else's turn holds the
     // session, and the search below scans the session's rows.
     if (deps.isBusy(topic.sessionKey)) { await sleep(pollMs); continue; }

@@ -950,3 +950,76 @@ describe("sidebarItemSpace", () => {
     expect(sidebarItemSpace(orphan, [project], new Map())).toBeUndefined();
   });
 });
+
+// ── Native sub-agents (subagent-nativi, SUBAGENT-18) ─────────────────────────
+//
+// Attilio, 04/10: «non dovrei vedere i sub-agent come tab, se proprio come
+// sotto tab nella sidebar». A native child is a chat (`subagentOf` = its
+// parent's session key): it nests under the parent row, never a row of its own.
+
+describe("buildSidebarItems — native sub-agents nest under their parent", () => {
+  const chat = (id: string, extra: Partial<Topic> = {}): Topic =>
+    ({ id, name: id, slug: id, parentId: null, links: [], sessionKey: `topic:${id}`, color: "#000", icon: "",
+      createdAt: new Date(0).toISOString(), updatedAt: new Date(0).toISOString(), archived: false, projectPath: PP, ...extra }) as Topic;
+
+  test("a native child is nested under its parent chat, not listed in the project", () => {
+    const items = buildSidebarItems({
+      ...base,
+      topics: { orch: chat("orch"), kid: chat("kid", { subagentOf: "topic:orch" }), grand: chat("grand", { subagentOf: "topic:kid" }) },
+      terminalSessions: [],
+      openPanels: [projectPaneId, "orch"],
+      projectOpenPanes: {},
+    });
+    const children = projectChildren(items);
+    expect(children.map((c) => c.id)).toEqual(["orch"]);
+    const kid = children[0].subAgents?.[0];
+    expect(kid).toMatchObject({ id: "kid", type: "chat" });
+    expect(kid?.subAgents?.map((s) => s.id)).toEqual(["grand"]);
+  });
+
+  test("an open native child stays a nested row and holds its parent, never a flat one", () => {
+    const items = buildSidebarItems({
+      ...base,
+      topics: { orch: chat("orch"), kid: chat("kid", { subagentOf: "topic:orch" }) },
+      terminalSessions: [],
+      openPanels: [projectPaneId, "kid"],
+      projectOpenPanes: {},
+    });
+    const children = projectChildren(items);
+    expect(children.map((c) => c.id)).toEqual(["orch"]);
+    expect(children[0].subAgents?.map((s) => s.id)).toEqual(["kid"]);
+  });
+
+  test("a finished native child does not keep its parent listed with the tab closed", () => {
+    const idle = buildSidebarItems({
+      ...base,
+      topics: { orch: chat("orch"), kid: chat("kid", { subagentOf: "topic:orch" }) },
+      terminalSessions: [],
+      openPanels: [projectPaneId],
+      projectOpenPanes: {},
+    });
+    expect(projectChildren(idle)).toEqual([]);
+  });
+
+  test("an archived native child (stop_agent) is dropped from the nest", () => {
+    const items = buildSidebarItems({
+      ...base,
+      topics: { orch: chat("orch"), kid: chat("kid", { subagentOf: "topic:orch", archived: true }) },
+      terminalSessions: [],
+      openPanels: [projectPaneId, "orch"],
+      projectOpenPanes: {},
+    });
+    expect(projectChildren(items)[0].subAgents).toBeUndefined();
+  });
+
+  test("a child whose parent is not loaded falls back to a normal chat row", () => {
+    const items = buildSidebarItems({
+      ...base,
+      topics: { kid: chat("kid", { subagentOf: "topic:gone" }) },
+      terminalSessions: [],
+      openPanels: [projectPaneId, "kid"],
+      projectOpenPanes: {},
+    });
+    expect(projectChildren(items).map((c) => c.id)).toEqual(["kid"]);
+  });
+});
