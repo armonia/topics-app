@@ -16,6 +16,7 @@
  * `getOrCreate`, `listContexts`, `destroyContext`), così le asserzioni cadono
  * sul contextId che il ponte ha SCELTO, non su un mock del ponte stesso.
  * @covers BROWSER-CHAT-03
+ * @covers BROWSER-CHAT-04
  * @covers BROWSER-CHAT-05
  * @covers GENUI-05
  */
@@ -1159,5 +1160,83 @@ describe("read-screen subito dopo open-pane", () => {
     expect(error).toContain("MOONDREAM_API_KEY");
     expect(error).toContain("not a transient one");
     expect(error).toContain("browser_get_text");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// An agent's page op on a topic with no pane opens the mini browser first.
+// Pane-less ops drove a headless phantom while the user saw no panel; the
+// bridge now runs the chat-branch opening BEFORE the tool. @covers BROWSER-CHAT-04
+// ---------------------------------------------------------------------------
+describe("own-topic page op with no pane — the mini browser opens first", () => {
+  let savedHome: string | undefined;
+  let shotHome = "";
+  beforeEach(() => { // screenshots land on disk: keep them out of ~/.topics
+    savedHome = process.env.TOPICS_HOME;
+    shotHome = mkdtempSync(join(tmpdir(), "bridge-shots-"));
+    process.env.TOPICS_HOME = shotHome;
+  });
+  afterEach(() => {
+    if (savedHome === undefined) delete process.env.TOPICS_HOME;
+    else process.env.TOPICS_HOME = savedHome;
+    rmSync(shotHome, { recursive: true, force: true });
+  });
+  const lastUrl = (h: ReturnType<typeof harness>) =>
+    h.addTopic("t1", { browserState: { url: "https://example.com/last", contextId: "t1", lastActiveAt: 1 } });
+
+  test("screenshot with persisted url and no pane announces BEFORE dispatching", async () => {
+    const h = harness({ paneAttached: false });
+    lastUrl(h);
+    const resp = await h.post("/api/topics/t1/browser/screenshot", {});
+    expect(resp!.status).toBe(200);
+    expect(((await resp!.json()) as { bytes: number }).bytes).toBeGreaterThan(0);
+    expect(h.broadcasts[0]).toMatchObject({ type: "browser:navigate", topicId: "t1", contextId: "t1", url: "https://example.com/last" });
+    expect(h.navigations[0]).toEqual({ contextId: "t1", url: "https://example.com/last" });
+    expect(h.navigatedTopics.has("t1")).toBe(true);
+  });
+
+  test("pane already attached → no announce, tool still runs", async () => {
+    const h = harness();
+    lastUrl(h);
+    const resp = await h.post("/api/topics/t1/browser/screenshot", {});
+    expect(resp!.status).toBe(200);
+    expect(h.typed("browser:navigate")).toEqual([]);
+    expect(h.navigations).toEqual([]);
+  });
+
+  test("contextId override → no announce on the caller's topic", async () => {
+    const h = harness({ paneAttached: false });
+    lastUrl(h);
+    h.contexts.push({ id: "altra-scheda", url: "https://altrove", title: "Altrove" });
+    const resp = await h.post("/api/topics/t1/browser/eval", { expression: "1+1", contextId: "altra-scheda" });
+    expect(resp!.status).toBe(200);
+    expect(h.typed("browser:navigate")).toEqual([]);
+    expect(h.evaluations).toEqual([{ contextId: "altra-scheda", expression: "1+1" }]);
+  });
+
+  test("no persisted url → no announce, tool still dispatched", async () => {
+    const h = harness({ paneAttached: false });
+    h.addTopic("t1");
+    const resp = await h.post("/api/topics/t1/browser/screenshot", {});
+    expect(resp!.status).toBe(200);
+    expect(h.typed("browser:navigate")).toEqual([]);
+    expect(h.navigations).toEqual([]);
+  });
+
+  test("browser_status never mounts a pane", async () => {
+    const h = harness({ paneAttached: false });
+    lastUrl(h);
+    await h.post("/api/topics/t1/browser/status", {});
+    expect(h.typed("browser:navigate")).toEqual([]);
+    expect(h.navigations).toEqual([]);
+  });
+
+  test("terminal session driving its own pane → no topic announce", async () => {
+    const h = harness({ paneAttached: false });
+    h.addTerminal("42");
+    const resp = await h.post("/api/sessions/42/browser/eval", { expression: "1+1" });
+    expect(resp!.status).toBe(200);
+    expect(h.typed("browser:navigate")).toEqual([]);
+    expect(h.evaluations).toEqual([{ contextId: "term-42", expression: "1+1" }]);
   });
 });

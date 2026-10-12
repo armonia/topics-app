@@ -44,6 +44,7 @@ import type { AppContext, RouteHandler, Topic } from "../types";
 import type { BrowserService } from "../browser-service";
 import { dispatchBrowserToolCallByContext, resolveContextIdForTopic } from "../browser-tool-dispatcher";
 import { makeOpenPaneFlow } from "./browser-open-pane-flow";
+import { maybeOpenPaneForPageOp } from "./browser-auto-open";
 import { BRIDGED_BROWSER_ENDPOINTS } from "../browser-tool-spec";
 import { resolveAgentNavUrl } from "../browser-tools-handler";
 import { nativeDelegateRegistry } from "../browser-native-delegate";
@@ -591,6 +592,34 @@ export function createBrowserBridgeRouter(
           const target = resolveBrowserContext(byTopic, bySession);
           if (!target) return json({ error: "No browser pane bound to this session (open a browser pane first, or pass contextId from browser_list_tabs)" }, 404);
           contextId = target.contextId;
+          // A page op on the caller's own topic with no pane would drive a
+          // headless phantom while the user sees nothing. Mount the topic's
+          // mini browser first (chat-branch sequence); never fails the op.
+          if (target.topic) {
+            const ownTopic = target.topic;
+            const host = deps.browserHostTopicOf?.(ownTopic);
+            await maybeOpenPaneForPageOp(
+              {
+                paneAttachedTo,
+                openPaneFlow,
+                markNavigated: (id) => browserNavigatedTopics.add(id),
+              },
+              {
+                toolName,
+                topic: ownTopic,
+                contextId,
+                hasOverride: false,
+                service: browserService,
+                announce: (u) => broadcastToAll({
+                  type: "browser:navigate",
+                  topicId: ownTopic.id,
+                  contextId,
+                  url: u,
+                  ...(host && host !== ownTopic.id ? { hostTopicId: host } : {}),
+                }),
+              },
+            );
+          }
         }
         try {
           const result = await dispatchBrowserToolCallByContext(
