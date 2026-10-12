@@ -3878,22 +3878,21 @@ export function createTerminalRouter(ctx: AppContext, tracker?: ClaudeSessionTra
 export function handleTerminalWebSocket(ws: any, sessionId: string) {
   const session = sessions.get(sessionId);
   if (!session) {
-    // A dormant row with a resume id is a distinct verdict: the client can
-    // offer Resume and stop trying to resize a PTY that no longer exists.
+    // A dormant row is a distinct verdict: the revive door brings it back (a
+    // claude with --resume, a shell as a fresh one in the same cwd), so the
+    // client offers Resume and stops resizing a PTY that no longer exists.
     // Everything else stays 1008 so a row the reconcile may reattach, or a
     // missing row, gets the normal connection grace.
     let dormant = false;
     let dormantExitCode: number | null = null;
-    let resumable = false;
     try {
       const row = getDatabase()
-        .query("SELECT status, exit_code, claude_session_id FROM terminal_sessions WHERE id = ?")
-        .get(sessionId) as { status?: string; exit_code?: number | null; claude_session_id?: string | null } | null;
+        .query("SELECT status, exit_code FROM terminal_sessions WHERE id = ?")
+        .get(sessionId) as { status?: string; exit_code?: number | null } | null;
       dormant = row?.status === "dormant";
       dormantExitCode = typeof row?.exit_code === "number" ? row.exit_code : null;
-      resumable = !!row?.claude_session_id;
     } catch { /* no row readable: the not-found answer below is still right */ }
-    if (dormant && resumable) ws.close(TERMINAL_WS_CLOSE_DORMANT, encodeExitReason('dormant', dormantExitCode));
+    if (dormant) ws.close(TERMINAL_WS_CLOSE_DORMANT, encodeExitReason('dormant', dormantExitCode));
     else ws.close(1008, "Session not found");
     return;
   }

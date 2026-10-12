@@ -52,8 +52,8 @@ describe('terminal PTY kill diagnostics', () => {
     expect(BRIDGE.includes('caller=shutdown:${signal}')).toBe(true);
   });
 
-  test('only resumable dormant rows receive the dormant websocket verdict', () => {
-    expect(ROUTES.includes('if (dormant && resumable) ws.close(TERMINAL_WS_CLOSE_DORMANT')).toBe(true);
+  test('every dormant row receives the dormant websocket verdict, a shell included', () => {
+    expect(ROUTES.includes("if (dormant) ws.close(TERMINAL_WS_CLOSE_DORMANT")).toBe(true);
     expect(ROUTES.includes('const restingVerdict = canResume && !reloading')).toBe(true);
   });
 

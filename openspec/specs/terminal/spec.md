@@ -424,8 +424,9 @@ riavvio, e la riporta viva solo una rianimazione. Tutto il resto — una riga ch
 il riconcilio sta per riattaccare, nessuna riga — resta 1008, e per quello il
 client tiene la sua grazia.
 
-Il codice 4001 SHALL essere usato solo per una riga `dormant` che ha un id di
-sessione riprendibile (`claude_session_id`). Il client SHALL trattarlo come un
+Il codice 4001 SHALL essere usato per ogni riga `dormant`: la porta di
+rianimazione la riporta viva (claude con `--resume`, una shell come shell nuova
+nella stessa cartella). Il client SHALL trattarlo come un
 verdetto: nessun nuovo tentativo, nessun `resize` verso una PTY che non c'è. La
 pane GUARDATA SHALL rianimarsi da sola dalla porta di rianimazione esistente
 (stessa riga, stessa cartella); quella in secondo piano SHALL mostrare «A riposo»
@@ -434,8 +435,7 @@ che ha riportato un proprio codice d'uscita NON SHALL rianimarsi da sola. Un
 parcheggio deciso dal server non è una diagnosi: il suo codice (il SIGHUP del
 kill, 129) SHALL essere salvato e mandato come NULL, altrimenti la regola
 precedente lo scambierebbe per una morte vera e la pane guardata resterebbe
-ferma. Una sessione assente o senza id riprendibile SHALL diventare «Sessione
-scaduta» solo dopo la grazia.
+ferma. Una sessione assente SHALL diventare «Sessione scaduta» solo dopo la grazia.
 
 Il contatore dei tentativi NON SHALL azzerarsi all'apertura del socket, ma al
 primo frame che solo una sessione viva manda (`replay-end`): un'apertura seguita
@@ -443,7 +443,7 @@ da un rifiuto è un attacco fallito in più, non un nuovo inizio. Vale anche per
 una riga cancellata del tutto, che prima cadeva nello stesso ciclo.
 
 #### Scenario: permalink a una sessione parcheggiata, pane attiva
-- **GIVEN** una riga `dormant` con `claude_session_id`, pseudo-terminale assente, nessun codice d'uscita
+- **GIVEN** una riga `dormant`, pseudo-terminale assente, nessun codice d'uscita
 - **WHEN** si apre `/tab/terminal/<id>`
 - **THEN** la sessione SHALL tornare viva sotto lo stesso id, il terminale SHALL essere utilizzabile
 - **AND** i `resize` respinti con 404 SHALL essere al massimo una manciata, non un flusso continuo

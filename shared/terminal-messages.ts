@@ -29,9 +29,9 @@ export const STANDALONE_NO_PTY_CODE = "pty-bridge-unavailable";
 export const TERMINAL_INPUT_DROPPED = "input-dropped";
 
 /**
- * WebSocket close code for an attach to a resumable parked session: the row is
- * `status = 'dormant'`, it has a `claude_session_id`, the PTY is gone, and
- * `POST /sessions/:id/revive` is the way back. Application range (4000-4999),
+ * WebSocket close code for an attach to a session the server has PARKED: the
+ * row is `status = 'dormant'`, the PTY is gone, and `POST /sessions/:id/revive`
+ * is the way back. Application range (4000-4999),
  * so no proxy rewrites it.
  *
  * It is a VERDICT, and that is why it is not 1008. The upgrade is accepted for
@@ -39,7 +39,7 @@ export const TERMINAL_INPUT_DROPPED = "input-dropped";
  * successful open first; 1008 ("session not found") is also what the server
  * says during the boot window, while the bridge has the PTY and the reconcile
  * has not reattached it yet, and for that case the client keeps a grace and
- * retries. A resumable dormant row is never a race: only a park, an exit or a
+ * retries. A dormant row is never a race: only a park, an exit or a
  * restart writes it, and only a revive or a reload flips it back. So the pane
  * stops retrying and resizing at once, shows its resting state, and waits for
  * Resume.
