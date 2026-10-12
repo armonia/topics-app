@@ -210,7 +210,7 @@ the old filter omitted it.
 2. `server/utils.ts` — Stream management (add cleanup timer)
 3. `server/gateway-ws.ts` — Session handler registration (runId isolation)
 
-## ADDED Requirements
+## Requirements: readable turn errors
 
 ### Requirement: CHAT-REL-07 - A verdict reads as a sentence, its payload stays behind a fold
 
