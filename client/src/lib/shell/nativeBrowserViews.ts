@@ -225,3 +225,35 @@ export function beginNativeViewMovesToAnotherWindow(): void {
 export function movingNativeViews(): string[] {
   return [...pendingMoves.keys()];
 }
+
+/**
+ * A ⌘R LEFT THE NATIVE PAGES PAINTED OVER A DOCUMENT THAT WAS GONE.
+ *
+ * The views survive a plain reload on purpose: the next mount reuses them
+ * through `browser_open`, page and form state intact. But they are native
+ * layers above the webview, so until the new document's panes placed them
+ * again they stayed on screen, over a blank window and then over a layout that
+ * had not caught up with them. Hidden as the page leaves, each comes back when
+ * its pane mounts, which already sets the visibility it wants on a reused view.
+ *
+ * Hidden, never closed: closing is what would throw the page away. Best effort
+ * and fire-and-forget, because nothing after `pagehide` waits for an answer.
+ */
+export function hideNativeViewsOnPageExit(ids: Iterable<string>, invoke: Invoke): void {
+  for (const id of new Set(ids)) {
+    try {
+      void invoke('browser_set_visible', { id, visible: false }).catch(() => {});
+    } catch { /* the page is leaving: nothing to report to */ }
+  }
+}
+
+/**
+ * Wires {@link hideNativeViewsOnPageExit} to `pagehide`, which every plain
+ * reload fires (⌘R, the sidebar ⟳, a `location.reload()`); a bundle reload
+ * closes its views before that. `heldIds` is the views a pane of THIS document
+ * holds: one in the middle of a move belongs to the window it is going to.
+ */
+export function installHideOnPageExit(heldIds: () => Iterable<string>, invoke: Invoke): void {
+  if (typeof window === 'undefined') return;
+  window.addEventListener('pagehide', () => hideNativeViewsOnPageExit(heldIds(), invoke));
+}

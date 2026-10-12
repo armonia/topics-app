@@ -42,6 +42,7 @@ import {
   movingNativeViews,
   settleNativeViewOpen,
   takeNativeViewMove,
+  installHideOnPageExit,
 } from '../lib/shell/nativeBrowserViews';
 import { currentOverlays, decideFreeze, liveSlotRect, onOcclusionChange, type OverlayRect } from '../lib/shell/browserOcclusion';
 import { serverWsBase } from '../lib/shell/net';
@@ -215,6 +216,7 @@ onBeforeBundleReload(() => {
     void releaseNativeView(id).catch(() => {});
   }
 });
+installHideOnPageExit(() => browserViewRefs.keys(), tauriInvoke); // any other reload keeps (and hides) them
 
 /**
  * The corner radius the shell rounds a native page to, in px.
