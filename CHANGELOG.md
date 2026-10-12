@@ -2,6 +2,13 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.2.484 — 2026-10-12
+
+### Sotto il cofano
+- **e2e** · aggiorna durate shard dal nightly del 2026-10-12 [skip ci]
+- /v/<id>: la pagina di una vista non risponde più 404 col tipo jolly (#295)
+- Un'operazione dell'agente su una chat senza pannello apre il mini browser (#296)
+
 ## 2.2.482 — 2026-10-12
 
 ### Sotto il cofano

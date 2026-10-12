@@ -1,5 +1,32 @@
 [
   {
+    "version": "2.2.484",
+    "date": "2026-10-12",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "aggiorna durate shard dal nightly del 2026-10-12 [skip ci]",
+          "en": "",
+          "scope": "e2e",
+          "breaking": false
+        },
+        {
+          "it": "/v/<id>: la pagina di una vista non risponde più 404 col tipo jolly (#295)",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Un'operazione dell'agente su una chat senza pannello apre il mini browser (#296)",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
     "version": "2.2.482",
     "date": "2026-10-12",
     "sections": {
