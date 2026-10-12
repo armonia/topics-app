@@ -1,16 +1,16 @@
 /**
- * LA MATITA SUL TELEFONO APRE UNA BOZZA SOLA, NON DUE (MOBILE-CHROME-12).
+ * THE PENCIL ON THE PHONE OPENS ONE DRAFT, NOT TWO (MOBILE-CHROME-12).
  *
- * Sul telefono `openPanel` tronca `openPanels` a `[id]`: una superficie sola,
- * quindi un solo composer nel DOM (le altre pane restano montate in
- * `display:none`, e l'assert e2e `toBeVisible` sul composer scatta in strict
- * mode appena ce n'è più di uno). Il FOCUS_PANE sincrono piantato DOPO
- * `openPanel` risveglia Effect A (sottoscritto a `lastSeq`) prima che Effect B
- * abbia specchiato il troncamento nello store: Effect A riapplica
- * `storeOrder` — la lista intera — sopra `[draft]`, e il telefono monta due
- * composer.
+ * On the phone `openPanel` truncates `openPanels` to `[id]`: one surface,
+ * so one composer in the DOM (other panes stay mounted with
+ * `display:none`, and the e2e `toBeVisible` on the composer trips strict
+ * mode as soon as there is more than one). A synchronous FOCUS_PANE planted
+ * AFTER `openPanel` wakes Effect A (subscribed to `lastSeq`) before Effect B
+ * has mirrored the truncation into the store: Effect A re-applies
+ * `storeOrder` (the whole list) over `[draft]`, and the phone mounts two
+ * composers.
  *
- * Montato sull'harness vero, non detached: servono Effect A/B/C accesi.
+ * Mounted on the real harness, not detached: Effects A/B/C must be live.
  *
  * @covers MOBILE-CHROME-12
  */
@@ -108,15 +108,15 @@ describe('la matita sul telefono', () => {
     const draftId = await life.get().handlers.handleQuickCreateTopic();
     await settle();
     if (typeof draftId !== 'string') throw new Error('attesa una bozza nuova, non un topic di progetto');
-    // Il telefono mostra una superficie sola: due id qui sono due composer
-    // nel DOM e MOBILE-CHROME-12 va in strict mode violation.
+    // The phone shows one surface: two ids here are two composers in the
+    // DOM, and MOBILE-CHROME-12 fails with a strict mode violation.
     expect(life.get().state.openPanels).toEqual([draftId]);
     expect(life.get().state.visiblePanels).toEqual([draftId]);
     expect(life.get().state.focusedPanelId).toBe(draftId);
-    // E il fuoco è piantato anche nello store in modo sincrono: un hydrate
-    // concorrente non deve riportare davanti la chat vecchia.
+    // The focus is also planted in the store synchronously: a concurrent
+    // hydrate must not bring the old chat back to the front.
     expect(usePaneStore.getState().focusedPaneId).toBe(draftId);
-    // Il cassetto si è chiuso sulla bozza.
+    // The drawer closed onto the draft.
     expect(life.collapsed).toContain(true);
   });
 
