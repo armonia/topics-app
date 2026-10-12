@@ -1,5 +1,21 @@
 [
   {
+    "version": "2.2.486",
+    "date": "2026-10-12",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Nightly verde: bozza che perdeva il fuoco, server riavviato senza browser, CROSS-04 sull'indice sbagliato (#298)",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
     "version": "2.2.485",
     "date": "2026-10-12",
     "sections": {

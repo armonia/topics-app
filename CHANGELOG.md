@@ -2,6 +2,11 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.2.486 — 2026-10-12
+
+### Sotto il cofano
+- Nightly verde: bozza che perdeva il fuoco, server riavviato senza browser, CROSS-04 sull'indice sbagliato (#298)
+
 ## 2.2.485 — 2026-10-12
 
 ### Sotto il cofano
