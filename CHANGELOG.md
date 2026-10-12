@@ -5,7 +5,10 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 ## 2.2.482 — 2026-10-12
 
 ### Sotto il cofano
+- Traccia i kill PTY e mostra le sessioni a riposo
+- La pane guardata rianima da sola una sessione parcheggiata
 - Un ricarico nasconde le pagine native invece di lasciarle a galla
+- Ogni riga a riposo riceve il verdetto 4001, anche una shell
 
 ## 2.2.481 — 2026-10-12
 

@@ -8,7 +8,22 @@
       "perf": [],
       "internal": [
         {
+          "it": "Traccia i kill PTY e mostra le sessioni a riposo",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "La pane guardata rianima da sola una sessione parcheggiata",
+          "en": "",
+          "scope": null
+        },
+        {
           "it": "Un ricarico nasconde le pagine native invece di lasciarle a galla",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Ogni riga a riposo riceve il verdetto 4001, anche una shell",
           "en": "",
           "scope": null
         }
