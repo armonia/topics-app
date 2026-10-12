@@ -39,7 +39,7 @@ import type { FleetSessionRef } from "../lib/fleet-usage";
 import { resolveSessionProjects } from "../lib/session-project-map";
 import { listSessionCliPids } from "../providers/session-pids";
 import { decidePark, idleParkThresholdMs, summarizeRefusals, thresholdUnderPressure } from "../lib/terminal-idle-park";
-import { formatTerminalKillLog, type TerminalKillReason } from "../lib/terminal-kill";
+import { formatTerminalKillLog, recordedExitCode, type TerminalKillReason } from "../lib/terminal-kill";
 import { isSwapFreezeHold } from "../lib/swap-freeze-hold";
 import type { ParkRefusal } from "../lib/terminal-idle-park";
 import { decideOnRestart } from "../lib/terminal-restart-policy";
@@ -151,6 +151,11 @@ const sessionSockets = new Map<string, Set<any>>();
 // same session (double right-click → "Ricarica", two clients) that would race the
 // kill→recreate sequence.
 const reloadingSessionIds = new Set<string>();
+// Ids the idle park asked the bridge to kill. Their exit code (129, SIGHUP) is
+// the park's own signal, not a diagnosis of the session: it is stored and sent
+// as NULL, so the pane being looked at revives on its own, as it does for any
+// park, instead of waiting behind the code of a death nobody had.
+const parkedByServer = new Set<string>();
 // Same guard for POST /revive, and it is not optional decoration. `/revive` had
 // none, so two clients clicking the dormant tab together (or a client retrying a
 // slow request) both passed the `status = 'dormant'` read and both called
@@ -1191,12 +1196,13 @@ function handleBridgeMessage(msg: any) {
         && !!exitedSession.claudeSessionId
         && !failedQuickly;
       const reloading = reloadingSessionIds.has(msg.id);
+      const exitCode = recordedExitCode(msg.exitCode, parkedByServer.delete(msg.id));
       const sockets = sessionSockets.get(msg.id);
       if (sockets) {
         // A resumable exit is a verdict the client can act on without retrying
         // attach or sending resizes to a PTY that has already gone away.
         const restingVerdict = canResume && !reloading;
-        const reason = encodeExitReason(restingVerdict ? 'dormant' : 'ended', msg.exitCode);
+        const reason = encodeExitReason(restingVerdict ? 'dormant' : 'ended', exitCode);
         for (const ws of sockets) {
           try { ws.close(restingVerdict ? TERMINAL_WS_CLOSE_DORMANT : 1000, reason); } catch {}
         }
@@ -1218,8 +1224,7 @@ function handleBridgeMessage(msg: any) {
             // The code is kept WITH the parked row, so a pane opened after the
             // fact reads it too. NULL when the bridge gave none: an unknown
             // code is not a zero.
-            const code = typeof msg.exitCode === 'number' ? msg.exitCode : null;
-            getDatabase().run("UPDATE terminal_sessions SET status = 'dormant', exit_code = ? WHERE id = ?", [code, msg.id]);
+            getDatabase().run("UPDATE terminal_sessions SET status = 'dormant', exit_code = ? WHERE id = ?", [exitCode, msg.id]);
           } else {
             if (failedQuickly) {
               console.warn(`[Terminal] Session ${msg.id} exited in ${ageMs}ms with code ${msg.exitCode} — deleting (failed launch).`);
@@ -2847,6 +2852,7 @@ function tryParkSession(
       `Torna con --resume alla prossima apertura.`,
   );
   opts.beforeKill?.();
+  parkedByServer.add(id);
   sendTerminalKill(id, 'park', opts.caller ?? 'idle-reaper');
   // Il resto — riga a `dormant`, `noteDormant`, chiusura dei socket, broadcast
   // — lo fa il percorso di uscita quando il bridge conferma la morte della

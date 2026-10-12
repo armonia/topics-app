@@ -425,23 +425,39 @@ il riconcilio sta per riattaccare, nessuna riga — resta 1008, e per quello il
 client tiene la sua grazia.
 
 Il codice 4001 SHALL essere usato solo per una riga `dormant` che ha un id di
-sessione riprendibile (`claude_session_id`). Il client SHALL mostrare il velo
-«A riposo» / «Resting», fermare ogni `resize` e attendere il click su «Riprendi»
-prima di chiamare la porta di rianimazione esistente. Una sessione assente o
-senza id riprendibile SHALL diventare «Sessione scaduta» solo dopo la grazia.
+sessione riprendibile (`claude_session_id`). Il client SHALL trattarlo come un
+verdetto: nessun nuovo tentativo, nessun `resize` verso una PTY che non c'è. La
+pane GUARDATA SHALL rianimarsi da sola dalla porta di rianimazione esistente
+(stessa riga, stessa cartella); quella in secondo piano SHALL mostrare «A riposo»
+/ «Resting» con «Riprendi» / «Resume» e aspettare il click (TERM-05). Una sessione
+che ha riportato un proprio codice d'uscita NON SHALL rianimarsi da sola. Un
+parcheggio deciso dal server non è una diagnosi: il suo codice (il SIGHUP del
+kill, 129) SHALL essere salvato e mandato come NULL, altrimenti la regola
+precedente lo scambierebbe per una morte vera e la pane guardata resterebbe
+ferma. Una sessione assente o senza id riprendibile SHALL diventare «Sessione
+scaduta» solo dopo la grazia.
 
 Il contatore dei tentativi NON SHALL azzerarsi all'apertura del socket, ma al
 primo frame che solo una sessione viva manda (`replay-end`): un'apertura seguita
 da un rifiuto è un attacco fallito in più, non un nuovo inizio. Vale anche per
 una riga cancellata del tutto, che prima cadeva nello stesso ciclo.
 
-#### Scenario: permalink a una sessione riprendibile parcheggiata
-- **GIVEN** una riga `dormant` con `claude_session_id` e pseudo-terminale assente
+#### Scenario: permalink a una sessione parcheggiata, pane attiva
+- **GIVEN** una riga `dormant` con `claude_session_id`, pseudo-terminale assente, nessun codice d'uscita
 - **WHEN** si apre `/tab/terminal/<id>`
-- **THEN** la pane mostra «A riposo» / «Resting» e non si rianima da sola
-- **AND** non invia `resize` mentre la sessione non è viva
-- **WHEN** l'utente sceglie «Riprendi» / «Resume»
-- **THEN** la porta `/api/terminal/sessions/:id/revive` riporta viva la stessa sessione
+- **THEN** la sessione SHALL tornare viva sotto lo stesso id, il terminale SHALL essere utilizzabile
+- **AND** i `resize` respinti con 404 SHALL essere al massimo una manciata, non un flusso continuo
+
+#### Scenario: scheda salvata in secondo piano
+- **GIVEN** la stessa riga, ripristinata come scheda dietro un'altra
+- **THEN** NON SHALL essere rianimata finché nessuno la guarda, e mostra «A riposo» / «Resting» senza inviare `resize`
+- **WHEN** la scheda viene cliccata, o si sceglie «Riprendi» / «Resume»
+- **THEN** SHALL tornare viva
+
+#### Scenario: un parcheggio del server non lascia un codice d'uscita
+- **GIVEN** una sessione claude viva e ferma oltre la soglia di parcheggio
+- **WHEN** il server la parcheggia e il bridge riporta l'uscita col codice del SIGHUP
+- **THEN** la riga `dormant` SHALL avere `exit_code` NULL e il socket SHALL chiudersi con 4001 senza codice
 
 #### Scenario: una sessione realmente scomparsa resta scaduta
 - **GIVEN** un id senza riga riprendibile nel database

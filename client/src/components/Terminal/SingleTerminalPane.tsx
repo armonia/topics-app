@@ -1008,6 +1008,23 @@ export function SingleTerminalPane({ sessionId, onStale, isActive = true }: Sing
       });
   };
 
+  // ── A RESTING SESSION THAT IS BEING LOOKED AT COMES BACK ON ITS OWN ──────
+  //
+  // A park is the server saving RAM behind the human's back, and it must stay
+  // invisible: the pane being looked at revives at once, under the same id and
+  // in the same folder. Only that one - reviving every mounted pane would bring
+  // back in one go the very processes the park put down - so a pane in the
+  // background shows «A riposo» and waits for its Resume (TERM-05).
+  //
+  // A session that reported its OWN exit code is not woken behind anyone's
+  // back: relaunching what just died is a silent loop. A park carries no code
+  // (the server stores NULL for its own kills), so that case is a real death.
+  useEffect(() => {
+    if (!isActive || !resting || exitCode !== null) return;
+    resumeDormantSession();
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- resumeDormantSession is re-created each render and guarded by revivingRef
+  }, [isActive, resting, exitCode]);
+
   // The card behind this session, asked ONCE, and only once the pane has gone
   // quiet: while output flows there is nothing to explain. `by-topic` answers
   // 200 with `{ task: null }` when this topic belongs to no card, and that

@@ -7,7 +7,7 @@
 import { describe, expect, test } from 'bun:test';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { formatTerminalKillLog } from './terminal-kill';
+import { formatTerminalKillLog, recordedExitCode } from './terminal-kill';
 
 const ROUTES = readFileSync(resolve(import.meta.dir, '../routes/terminal.ts'), 'utf8');
 const BRIDGE = readFileSync(resolve(import.meta.dir, '../pty-bridge.mjs'), 'utf8');
@@ -63,5 +63,18 @@ describe('terminal PTY kill diagnostics', () => {
       reason: 'park',
       caller: 'idle-reaper',
     })).toBe('[Terminal] kill 12345678 reason=park caller=idle-reaper');
+  });
+
+  test('a park keeps no exit code, so the pane being looked at revives', () => {
+    expect(recordedExitCode(129, true)).toBeNull();
+    expect(recordedExitCode(129, false)).toBe(129);
+    expect(recordedExitCode(0, false)).toBe(0);
+    expect(recordedExitCode(undefined, false)).toBeNull();
+  });
+
+  test('the exit handler takes the code from the park rule, and the park marks itself', () => {
+    expect(ROUTES).toContain('const exitCode = recordedExitCode(msg.exitCode, parkedByServer.delete(msg.id));');
+    expect(ROUTES).toContain("parkedByServer.add(id);\n  sendTerminalKill(id, 'park',");
+    expect(ROUTES).toContain("exit_code = ? WHERE id = ?\", [exitCode, msg.id]");
   });
 });
