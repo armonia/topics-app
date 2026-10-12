@@ -4080,13 +4080,17 @@ In particolare, e finché le condizioni qui sotto non cambiano:
   flotta MCP nativa monta i server configurati dall'utente, quindi un server di
   ricerca configurato arriva al modello come `mcp__<server>__<tool>` senza che
   questo repository conosca nessuna chiave.
-- **Sub-agente.** Il runtime NON SHALL offrire un `task` finché non ha un turno
-  annidato sicuro, cioè finché non esistono e non sono provati: un limite di
-  PROFONDITÀ (distinto dal tetto dei giri, che vale dentro un turno solo), un
-  BUDGET del figlio che rientra nel registro d'uso del padre, un CANALE verso
-  l'interfaccia che alimenti la card del sub-agente (oggi ce l'ha solo lo stream
-  della CLI), e la PROPAGAZIONE dell'annullamento dal padre al ciclo e ai tool
-  del figlio.
+- **Sub-agente.** Il runtime NON SHALL offrire un `task` che giri DENTRO il turno
+  del padre finché non ha un turno annidato sicuro (limite di PROFONDITÀ, BUDGET
+  nel registro d'uso, CANALE verso la UI, PROPAGAZIONE dell'annullamento). La
+  delega SHALL passare invece da `spawn_agent`, il cui figlio è una chat a sé
+  sul motore (SUBAGENT-18): le quattro condizioni le ha già come ogni chat — la
+  profondità dalle righe `subagents` (SUBAGENT-15), l'uso nel registro della
+  sua chat, la chat stessa come canale, il suo Stop, e lo Stop del padre che
+  arriva ai figli al lavoro (SUBAGENT-19). Al tetto di profondità il runtime
+  NON SHALL dichiarare gli strumenti dei sotto-agenti.
+
+Dove cambiarla: scelta 1 di `subagent-nativi`.
 
 #### Scenario: Nessuna credenziale, nessuno strumento di ricerca dichiarato
 - **GIVEN** un'installazione senza credenziale di ricerca
@@ -4097,10 +4101,22 @@ In particolare, e finché le condizioni qui sotto non cambiano:
 
 #### Scenario: Nessuna ricorsione spedita per sbaglio
 - **GIVEN** un turno nativo
-- **WHEN** il modello cerca uno strumento per delegare a un sub-agente
+- **WHEN** il modello cerca uno strumento per delegare DENTRO il proprio turno
 - **THEN** non lo trova
-- **AND** il turno prosegue con gli strumenti che ci sono, invece di aprire un
-  annidamento senza fondo, senza budget e invisibile in chat
+- **AND** delega con `spawn_agent`, che apre una chat figlia visibile, con la sua
+  profondità e il suo Stop
+
+#### Scenario: La delega del motore è una chat figlia, non un turno annidato
+- **GIVEN** una chat sul motore
+- **WHEN** compone l'elenco degli strumenti
+- **THEN** nessun `task` compare, e `spawn_agent` sì
+- **AND** il figlio che `spawn_agent` apre è una chat legata al motore
+
+#### Scenario: Al tetto di profondità niente delega
+- **GIVEN** la chat di un nipote (profondità 2)
+- **WHEN** compone l'elenco degli strumenti
+- **THEN** nessuno dei cinque strumenti dei sotto-agenti compare
+- **AND** una chiamata costruita a mano a `spawn_agent` è rifiutata all'esecuzione
 
 ### Requirement: CHAT-GOALLOOP-01 — `/goal` tiene la chat sull'obiettivo
 
@@ -6459,3 +6475,20 @@ per il clic. Nessun dato storico SHALL essere riscritto.
 - **GIVEN** una chiamata salvata col risultato `Opened browser pane at https://example.com/ (title: Example Domain)` e senza `contextId`
 - **WHEN** la chat si apre
 - **THEN** il segno mostra «Example Domain» e il dominio `example.com`
+
+### Requirement: CHAT-COMPACT-05 — La compattazione compra margine, non pochi giri
+
+Sul motore nativo una compattazione SHALL riportare la conversazione abbastanza
+sotto la soglia da durare: ogni compattazione cambia il prefisso della richiesta e
+fa riscrivere in cache l'intera storia, quindi compattare spesso costa più di
+compattare di più. La soglia SHALL essere 0,85 della finestra quando la stima è
+calibrata sui conteggi dell'API e 0,75 finché non lo è; l'obiettivo SHALL essere
+0,40. Ogni giro SHALL lasciare una riga di log con la chat, i token in ingresso,
+letti e scritti in cache, in uscita, e se ha compattato.
+
+#### Scenario: una sessione lunga compatta meno e riscrive meno
+
+- **GIVEN** una storia che cresce di 8k token a giro per 120 giri su 200k
+- **WHEN** si confrontano le costanti nuove con 0,75 / 0,55
+- **THEN** le compattazioni sono al massimo la metà e i token riscritti in cache
+  almeno il 40% in meno
