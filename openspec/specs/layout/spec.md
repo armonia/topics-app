@@ -1935,6 +1935,12 @@ ricevere il «non trovato».
 - **GIVEN** un permalink chiesto con il tipo jolly
 - **THEN** SHALL ricevere il guscio, non un «non trovato» di testo
 
+#### Scenario: la pagina autonoma di una vista è un permalink
+- **GIVEN** una vista generativa salvata, il cui indirizzo `show_view` restituisce come `/v/<id>`
+- **WHEN** lo si apre con `Accept: */*` (un agente, un link handler, un'anteprima)
+- **THEN** il server SHALL servire il guscio con 200, come per `/tab/` e `/task/`
+- **AND** chi chiede solo `application/json` SHALL ricevere ancora il suo 404
+
 ### Requirement: STATIC-01 — Gli artefatti si classificano per FORMA, non per un elenco scritto a mano
 
 Il caso che ha rotto l'installazione per un mese: un file di radice non era

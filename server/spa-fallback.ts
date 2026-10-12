@@ -24,8 +24,12 @@ export interface SpaFallbackRequest {
 
 /**
  * I prefissi delle rotte CLIENT che conosciamo per nome — i permalink alle tab
- * (`shared/tab-link.ts`) e i due alias storici che il drawer della board e la
- * push di fine turno riflettono nella history.
+ * (`shared/tab-link.ts`), i due alias storici che il drawer della board e la
+ * push di fine turno riflettono nella history, e la pagina autonoma di una
+ * vista generativa (`/v/<id>`, `viewPath` in `shared/views.ts`). Quest'ultima
+ * è l'indirizzo che `show_view` restituisce per essere aperto o condiviso, e
+ * fino al 12/10 rispondeva 404 a chiunque non mandasse `text/html`: gli agenti
+ * che la verificavano con una GET la davano per rotta.
  *
  * PERCHÉ un'allowlist e non solo la regola generica qui sotto: la chiave di un
  * permalink può contenere un PUNTO. `/tab/project/<path>` e
@@ -43,7 +47,7 @@ export interface SpaFallbackRequest {
  * a ricevere il loro 404 vero — l'allowlist allarga cosa è una NAVIGAZIONE,
  * non cosa è pubblico.
  */
-const CLIENT_ROUTE_PREFIXES = ["/task/", "/topic/", "/tab/"] as const;
+const CLIENT_ROUTE_PREFIXES = ["/task/", "/topic/", "/tab/", "/v/"] as const;
 
 // Does this `Accept` leave room for HTML? True when it names `text/html` and
 // when it accepts ANY type. False when it asks for something else and for
