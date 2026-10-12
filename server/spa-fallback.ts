@@ -27,6 +27,11 @@ export interface SpaFallbackRequest {
  * (`shared/tab-link.ts`) e i due alias storici che il drawer della board e la
  * push di fine turno riflettono nella history.
  *
+ * `/v/<id>` too: the standalone page of a generative view (`viewPath` in
+ * `shared/views.ts`), the address `show_view` hands out to be opened or shared.
+ * Until 2026-10-12 it answered 404 to anything not sending `text/html`, so an
+ * agent checking it with a GET reported it broken.
+ *
  * PERCHÉ un'allowlist e non solo la regola generica qui sotto: la chiave di un
  * permalink può contenere un PUNTO. `/tab/project/<path>` e
  * `/tab/file/<path>/<file>` portano path veri (`/Users/x/my.app`,
@@ -43,7 +48,7 @@ export interface SpaFallbackRequest {
  * a ricevere il loro 404 vero — l'allowlist allarga cosa è una NAVIGAZIONE,
  * non cosa è pubblico.
  */
-const CLIENT_ROUTE_PREFIXES = ["/task/", "/topic/", "/tab/"] as const;
+const CLIENT_ROUTE_PREFIXES = ["/task/", "/topic/", "/tab/", "/v/"] as const;
 
 // Does this `Accept` leave room for HTML? True when it names `text/html` and
 // when it accepts ANY type. False when it asks for something else and for
