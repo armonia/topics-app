@@ -24,12 +24,13 @@ export interface SpaFallbackRequest {
 
 /**
  * I prefissi delle rotte CLIENT che conosciamo per nome — i permalink alle tab
- * (`shared/tab-link.ts`), i due alias storici che il drawer della board e la
- * push di fine turno riflettono nella history, e la pagina autonoma di una
- * vista generativa (`/v/<id>`, `viewPath` in `shared/views.ts`). Quest'ultima
- * è l'indirizzo che `show_view` restituisce per essere aperto o condiviso, e
- * fino al 12/10 rispondeva 404 a chiunque non mandasse `text/html`: gli agenti
- * che la verificavano con una GET la davano per rotta.
+ * (`shared/tab-link.ts`) e i due alias storici che il drawer della board e la
+ * push di fine turno riflettono nella history.
+ *
+ * `/v/<id>` too: the standalone page of a generative view (`viewPath` in
+ * `shared/views.ts`), the address `show_view` hands out to be opened or shared.
+ * Until 2026-10-12 it answered 404 to anything not sending `text/html`, so an
+ * agent checking it with a GET reported it broken.
  *
  * PERCHÉ un'allowlist e non solo la regola generica qui sotto: la chiave di un
  * permalink può contenere un PUNTO. `/tab/project/<path>` e

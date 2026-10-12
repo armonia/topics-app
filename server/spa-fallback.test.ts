@@ -70,8 +70,8 @@ describe("shouldServeSpaFallback", () => {
   });
 
   test("la pagina autonoma di una vista (/v/<id>) è un permalink come le tab", () => {
-    // L'indirizzo che `show_view` restituisce: aperto da un agente, da un link
-    // handler o da un'anteprima arriva col jolly, non con text/html.
+    // The address `show_view` hands out: an agent, a link handler or a preview
+    // opens it with the wildcard, not with text/html.
     expect(shouldServeSpaFallback({ method: "GET", pathname: "/v/57279c0a6cb11866", accept: "*/*" })).toBe(true);
     expect(shouldServeSpaFallback({ method: "HEAD", pathname: "/v/57279c0a6cb11866", accept: "*/*" })).toBe(true);
     expect(shouldServeSpaFallback({ method: "GET", pathname: "/v/57279c0a6cb11866", accept: "application/json" })).toBe(false);
