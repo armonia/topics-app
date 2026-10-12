@@ -2134,11 +2134,20 @@ export function usePanelLifecycle(args: UsePanelLifecycleArgs): UsePanelLifecycl
       // È già in openPanels: openPanel qui non duplica niente, le ridà solo il
       // fuoco (e il composer di una chat vuota se lo prende da sé).
       openPanel(alreadyOpen, 'permanent', true);
+      usePaneStore.getState().dispatch({ type: 'FOCUS_PANE', payload: { id: alreadyOpen } });
       return alreadyOpen;
     }
     const draftId = createDraftPaneId();
     setDraftMeta(prev => ({ ...prev, [draftId]: { createdAt: new Date().toISOString() } }));
     openPanel(draftId, 'permanent', true);
+    // Plant the focus in the pane store SYNCHRONOUSLY, not just in React
+    // state. A draft is device-local: no server round-trip will ever stamp
+    // its focus, so until Effect C mirrors it (post-commit) the store still
+    // points at the previously focused pane — and a hydrate landing in that
+    // gap re-runs Effect A's reconciliation, which prefers the stale store
+    // focus and yanks the visible chat back (the draft "closes immediately").
+    // Same race handleOpenAsPage already closes this way for utility panes.
+    usePaneStore.getState().dispatch({ type: 'FOCUS_PANE', payload: { id: draftId } });
     return draftId;
   }, [createTopic, openPanel, visiblePanelsRef, releaseFocusIntents, isMobile, setSidebarCollapsed]);
 
