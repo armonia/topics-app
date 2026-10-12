@@ -24,6 +24,11 @@ describe('project browser placement', () => {
     expect(resolveProjectBrowserTargetGroup(groups, undefined, 'g2', 't-a')).toBe('g1');
   });
 
+  test('inside a project window the chat pane is `chat:<topicId>`, and it is found', () => {
+    const groups = [group('g1', ['chat:t-a']), group('g2', ['chat:t-b', 'browser:t-b'])];
+    expect(resolveProjectBrowserTargetGroup(groups, undefined, 'g2', 't-a')).toBe('g1');
+  });
+
   test('focus is only the fallback, and an explicit target wins', () => {
     const groups = [group('g1', ['t-a']), group('g2', ['t-b'])];
     expect(resolveProjectBrowserTargetGroup(groups, undefined, 'g2', 'missing')).toBe('g2');
