@@ -146,3 +146,5 @@ per entità.
   Il campo `via` esiste apposta, ma «progetto» oggi vuol dire quattro cose
   diverse (7 righe in `projects`, 19 slug nei task, 385 percorsi nei topic, 38
   aperti davvero): va unificato prima.
+
+Superseded by sharing-orgs (12/10): ruolo all'approvazione→7.2 PairingApproval «È mio/È di un'altra persona» (il nuovo nasce confinato); task_shares→grants 083 già travasate→1.3 grants-query/§3 084/ORG-03; filtro nel gate→§1 porta unica/§5 principali/ORG-03; GuestView→7.5 default invertito + GUEST-01/12; SHARE-01→1.3/§3, SHARE-02→1.1/§5, SHARE-03→1.2/5.2-5.3/GUEST-04, SHARE-04→7.5, SHARE-05→7.1/6.4 /api/auth/shares, SHARE-06→1.1 isGuestAllowedMethod/GUEST-02; relay resta fuori (limiti-accettati), login→§4-6/ORG-01/04, scrittura→GUEST-09, presence/incognite voci di backlog indipendenti.
