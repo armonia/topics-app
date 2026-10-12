@@ -2131,15 +2131,17 @@ export function usePanelLifecycle(args: UsePanelLifecycleArgs): UsePanelLifecycl
     // teleporterebbe la finestra su un altro gruppo per un ⌘N.
     const alreadyOpen = findEmptyDraftPane(visiblePanelsRef.current);
     if (alreadyOpen) {
-      // È già in openPanels: openPanel qui non duplica niente, le ridà solo il
-      // fuoco (e il composer di una chat vuota se lo prende da sé).
+      // Already in openPanels: openPanel duplicates nothing here, it just
+      // restores focus (and an empty chat's composer takes it by itself). No
+      // synchronous FOCUS_PANE on this path: the draft stamped it at birth,
+      // and a dispatch now would wake Effect A with a storeOrder not yet
+      // re-aligned, reverting the phone's single-pane truncation. Focus
+      // reaches the store via Effect C at commit.
       openPanel(alreadyOpen, 'permanent', true);
-      usePaneStore.getState().dispatch({ type: 'FOCUS_PANE', payload: { id: alreadyOpen } });
       return alreadyOpen;
     }
     const draftId = createDraftPaneId();
     setDraftMeta(prev => ({ ...prev, [draftId]: { createdAt: new Date().toISOString() } }));
-    openPanel(draftId, 'permanent', true);
     // Plant the focus in the pane store SYNCHRONOUSLY, not just in React
     // state. A draft is device-local: no server round-trip will ever stamp
     // its focus, so until Effect C mirrors it (post-commit) the store still
@@ -2147,7 +2149,18 @@ export function usePanelLifecycle(args: UsePanelLifecycleArgs): UsePanelLifecycl
     // gap re-runs Effect A's reconciliation, which prefers the stale store
     // focus and yanks the visible chat back (the draft "closes immediately").
     // Same race handleOpenAsPage already closes this way for utility panes.
+    //
+    // BEFORE openPanel, not after: FOCUS_PANE bumps `lastSeq` and Effect A
+    // (subscribed to it) immediately reconciles `openPanels` back to
+    // `storeOrder`. Dispatched after openPanel — whose mobile truncation to
+    // `[draft]` Effect B has not mirrored yet — that reconciliation reverts
+    // the truncation to the full list and the phone mounts two composers
+    // (MOBILE-CHROME-12). Dispatched before, `storeOrder` still matches React
+    // state so Effect A is a no-op, while the stamp still lands ahead of any
+    // concurrent hydrate. FOCUS_PANE does not check that the pane exists, so
+    // it also stamps the id openPanel registers right after.
     usePaneStore.getState().dispatch({ type: 'FOCUS_PANE', payload: { id: draftId } });
+    openPanel(draftId, 'permanent', true);
     return draftId;
   }, [createTopic, openPanel, visiblePanelsRef, releaseFocusIntents, isMobile, setSidebarCollapsed]);
 
