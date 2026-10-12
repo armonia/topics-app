@@ -447,6 +447,15 @@ the chat, and SHALL close the pane in live clients on a remote close.
 - **WHEN** `POST /api/topics/:id/browser/close-pane` is called
 - **THEN** the request succeeds and the pane root disappears from the live client
 
+#### Scenario: An agent's page op on a topic with no pane opens the topic's mini browser first
+- **GIVEN** a chat (non-task) topic with a persisted browser url and no attached pane (no native delegate, no viewer socket)
+- **WHEN** the agent calls a page op (`screenshot`, `eval`, or any bridged op except `browser_status`) on its own topic without a `contextId` override
+- **THEN** the server SHALL run the chat-branch opening sequence first (announce the mini browser, then navigate) and dispatch the op afterwards
+- **AND** the announced url SHALL be the live context's own url when BrowserService already holds one for that contextId (non-empty, not `about:blank`), the persisted url only when no live context exists
+- **AND** when a pane is already attached, a `contextId` override is passed, the topic is a task dispatch, no url is persisted and no live context exists, or the op is `browser_status`, the server SHALL dispatch directly with no announce
+- **AND** when the opening fails or no pane attaches in time, the op SHALL still dispatch (headless fallback) and never fail because the pane did not open
+- **AND** the server SHALL attempt the opening at most once per contextId every 60 s: ops inside the window after a pane-less attempt SHALL dispatch headless directly
+
 ### Requirement: LINK-TAB-01 — A link opens in a TAB of the Topics browser, never in a detached window
 
 The system SHALL route every link a user clicks inside the app (chat markdown, terminal,
