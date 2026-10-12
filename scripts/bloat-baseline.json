@@ -447,7 +447,7 @@
 
     "server/routes/auth.ts": 1707,
 
-    "server/routes/browser-bridge.test.ts": 1127,
+    "server/routes/browser-bridge.test.ts": {"lines": 1283, "why": ["2026-10-12, op-opens-pane r1 (unrecorded, 1127 -> 1242): the six auto-open tests, the bridge opening before a pane-less page op. r2 1242 -> 1283 (+41): the task-topic no-announce case, the live-url-beats-persisted case, the 60 s retry-window case, and the getUrl/liveUrls harness seam. Recorded, not split: every case drives the same bridge harness through the helpers at the top of the file."]},
 
     "server/routes/chat.outage-direct-answer.test.ts": 1030,
 

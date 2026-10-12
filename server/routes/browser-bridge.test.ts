@@ -82,6 +82,12 @@ interface HarnessOpts {
   globalCoordinatorTopicIds?: string[];
   /** Child topic id → the chat whose window shows its browser (spawn chain root). */
   hostOf?: Record<string, string>;
+  /**
+   * Live headless contexts the fake BrowserService reports through `getUrl`:
+   * contextId → current page url. Absent = no live context (null), so the
+   * auto-open falls back to the persisted url exactly as before.
+   */
+  liveUrls?: Record<string, string>;
 }
 
 function harness(opts: HarnessOpts = {}) {
@@ -138,6 +144,10 @@ function harness(opts: HarnessOpts = {}) {
     // A fake capture that is NOT empty: read-screen hands it to the vision
     // model, and the bytes are the only thing that says the pane was ready.
     screenshot: async () => Buffer.from("fake pixels"),
+    getUrl: (id: string) => {
+      const url = opts.liveUrls?.[id];
+      return url ? { url, title: "Viva" } : null;
+    },
     destroyContext: async (id: string) => {
       if (opts.destroyThrows) throw new Error("nessun contesto headless per questa pane");
       destroyed.push(id);
@@ -1238,5 +1248,36 @@ describe("own-topic page op with no pane — the mini browser opens first", () =
     expect(resp!.status).toBe(200);
     expect(h.typed("browser:navigate")).toEqual([]);
     expect(h.evaluations).toEqual([{ contextId: "term-42", expression: "1+1" }]);
+  });
+
+  test("task topic with no pane → NO announce, tool still dispatched", async () => {
+    const h = harness({ paneAttached: false });
+    h.addTopic("t1", { browserState: { url: "https://example.com/last", contextId: "t1", lastActiveAt: 1 } });
+    h.taskOfTopic.set("t1", { id: "12345678-task" });
+    const resp = await h.post("/api/topics/t1/browser/screenshot", {});
+    expect(resp!.status).toBe(200);
+    expect(((await resp!.json()) as { bytes: number }).bytes).toBeGreaterThan(0);
+    expect(h.typed("browser:navigate")).toEqual([]);
+    expect(h.navigations).toEqual([]);
+  });
+
+  test("live context moved elsewhere → the announce carries the LIVE url, not the persisted one", async () => {
+    const h = harness({ paneAttached: false, liveUrls: { t1: "https://example.com/altrove" } });
+    h.addTopic("t1", { browserState: { url: "https://example.com/vecchio", contextId: "t1", lastActiveAt: 1 } });
+    const resp = await h.post("/api/topics/t1/browser/screenshot", {});
+    expect(resp!.status).toBe(200);
+    expect(h.broadcasts[0]).toMatchObject({ type: "browser:navigate", topicId: "t1", contextId: "t1", url: "https://example.com/altrove" });
+    expect(h.navigations[0]).toEqual({ contextId: "t1", url: "https://example.com/altrove" });
+  });
+
+  test("no pane attaching → the second op in the window dispatches headless, no second opening", async () => {
+    const h = harness({ paneAttached: false });
+    lastUrl(h);
+    const first = await h.post("/api/topics/t1/browser/screenshot", {});
+    const second = await h.post("/api/topics/t1/browser/screenshot", {});
+    expect(first!.status).toBe(200);
+    expect(second!.status).toBe(200);
+    expect(h.typed("browser:navigate")).toHaveLength(1);
+    expect(h.navigations).toHaveLength(1);
   });
 });

@@ -225,6 +225,14 @@ export function createBrowserBridgeRouter(
   });
 
   /**
+   * Last auto-open attempt per contextId: with no Topics window connected,
+   * every page op would otherwise pay the pane wait plus a navigation. One
+   * failed attempt buys 60 s of headless-direct dispatch (see
+   * browser-auto-open.ts). Per router, so tests never share a window.
+   */
+  const autoOpenAttempts = new Map<string, number>();
+
+  /**
    * Build the injected deps for the tab inventory (browser-tab-inventory.ts)
    * from the live singletons. `fetchNativeStatus` calls the native registry
    * DIRECTLY (not through dispatchBrowserToolCallByContext) so listing tabs
@@ -603,6 +611,11 @@ export function createBrowserBridgeRouter(
                 paneAttachedTo,
                 openPaneFlow,
                 markNavigated: (id) => browserNavigatedTopics.add(id),
+                // A task dispatch's tab lives in the task drawer (forceOpen:
+                // false): the chat announce would pop a standalone pane in
+                // the main window, so task topics never auto-open.
+                isTaskTopic: (t) => resolveTaskBrowserContext(t) !== null,
+                attempts: autoOpenAttempts,
               },
               {
                 toolName,
