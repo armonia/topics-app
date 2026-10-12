@@ -2,6 +2,11 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.2.482 — 2026-10-12
+
+### Sotto il cofano
+- Un ricarico nasconde le pagine native invece di lasciarle a galla
+
 ## 2.2.481 — 2026-10-12
 
 ### Sotto il cofano

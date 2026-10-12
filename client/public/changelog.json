@@ -1,5 +1,21 @@
 [
   {
+    "version": "2.2.482",
+    "date": "2026-10-12",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Un ricarico nasconde le pagine native invece di lasciarle a galla",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
     "version": "2.2.481",
     "date": "2026-10-12",
     "sections": {
