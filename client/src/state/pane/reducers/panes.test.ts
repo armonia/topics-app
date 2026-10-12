@@ -1077,6 +1077,28 @@ describe("HYDRATE_FROM_SNAPSHOT cross-client UNION (multi-client clobber)", () =
     expect(state.groups["group:default"].paneIds).toContain("draft:abc");
   });
 
+  test("a union hydrate never moves device-local focus: a stamped draft stays focused", () => {
+    // Draft birth stamps FOCUS_PANE in the store synchronously
+    // (handleQuickCreateTopic); the hydrate below must not touch
+    // focusedPaneId, so Effect A's reconciliation keeps the draft in front
+    // instead of snapping back to the previously focused pane.
+    const state = blankState();
+    state.lastServerSeq = 5;
+    state.panes["chat:old"] = mkPane("chat:old", "chat");
+    state.panes["draft:abc"] = mkPane("draft:abc", "chat");
+    state.groups["group:default"] = grp(["chat:old", "draft:abc"]);
+    state.groupOrder = ["group:default"];
+    state.focusedPaneId = "draft:abc";
+    hydrate(state, {
+      panes: {},
+      groups: { "group:default": grp([]) },
+      closedStack: [], groupOrder: ["group:default"], lastSeq: 10, server_seq: 10, seq: 10,
+    });
+    expect(state.focusedPaneId).toBe("draft:abc");
+    expect(state.panes["draft:abc"]).toBeDefined();
+    expect(state.groups["group:default"].paneIds).toContain("draft:abc");
+  });
+
   test("a draft whose group is OMITTED from the remote snapshot is recreated, not lost", () => {
     // The draft lives in a local-only split group the other client never saw.
     // A naive `continue` re-adds the draft to state.panes but to no group, so it

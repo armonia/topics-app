@@ -11,9 +11,8 @@
 
 import { spawn, type ChildProcess } from "child_process";
 import { cpSync, existsSync, mkdirSync, readdirSync, rmSync, statSync } from "fs";
-import { homedir, networkInterfaces } from "os";
-import { dirname, join, resolve } from "path";
-import { webkit } from "@playwright/test";
+import { networkInterfaces } from "os";
+import { join, resolve } from "path";
 import {
   E2E_BASE,
   E2E_PORT,
@@ -51,55 +50,6 @@ function hasIpv6Loopback(): boolean {
 const BASE = E2E_BASE;
 const TEST_SERVER_PORT = E2E_PORT;
 const TEST_DATA_DIR = dataDirForPort(E2E_PORT);
-
-/**
- * Resolve a Chromium executable on disk. Falls back through the most likely
- * Playwright cache locations because the server's `playwright-core` may pin
- * a slightly older manifest version than the binary that `@playwright/test`
- * actually installs (e.g. server resolves chromium-1208 but the cache holds
- * chromium-1217). Returns "" if nothing found — BrowserService will then
- * surface a clear error at first use.
- */
-function resolveChromiumPath(): string {
-  const cacheDir = join(homedir(), "Library/Caches/ms-playwright");
-  if (!existsSync(cacheDir)) return "";
-  try {
-    const entries = readdirSync(cacheDir).filter((d) => d.startsWith("chromium-"));
-    // Prefer the highest revision numerically (newer cache wins).
-    entries.sort((a, b) => {
-      const ax = parseInt(a.split("-")[1] || "0", 10);
-      const bx = parseInt(b.split("-")[1] || "0", 10);
-      return bx - ax;
-    });
-    for (const dir of entries) {
-      const candidate = join(
-        cacheDir,
-        dir,
-        "chrome-mac-arm64/Google Chrome for Testing.app/Contents/MacOS/Google Chrome for Testing",
-      );
-      if (existsSync(candidate)) return candidate;
-    }
-  } catch { /* ignore */ }
-  return "";
-}
-
-/**
- * The Playwright browser cache as THIS process (real HOME) sees it.
- *
- * start-test-server.sh isolates HOME, and Playwright looks for its browsers
- * under the home directory, so the server would look in an empty
- * `<DATA_DIR>/.home/...` cache. The preview photo is taken by the server's own
- * WebKit (KANBAN-95), which has no CHROMIUM_PATH-style pin: handing the real
- * cache down as PLAYWRIGHT_BROWSERS_PATH is what makes it findable. The
- * executable sits at `<cache>/webkit-<rev>/<binary>` on every platform.
- */
-function resolvePlaywrightBrowsersPath(): string {
-  try {
-    return dirname(dirname(webkit.executablePath()));
-  } catch {
-    return "";
-  }
-}
 
 /**
  * Congela il bundle del client sotto la DATA_DIR dello shard e ritorna il
@@ -354,15 +304,9 @@ async function startTestServer(): Promise<void> {
       // fails with EAFNOSUPPORT and the test server never answers on its port.
       // An explicit SERVER_HOST in the environment always wins.
       ...(process.env.SERVER_HOST || hasIpv6Loopback() ? {} : { SERVER_HOST: "127.0.0.1" }),
-      // Phase 30 plan 30-05: server's playwright-core ships an older
-      // chromium-1208 manifest, but @playwright/test installs the current
-      // chromium-1217 binary. Pin the BrowserService Chromium to the
-      // actually-installed binary. Override via CHROMIUM_PATH env if
-      // running on a machine with a different layout.
-      CHROMIUM_PATH: process.env.CHROMIUM_PATH ||
-        resolveChromiumPath(),
-      PLAYWRIGHT_BROWSERS_PATH: process.env.PLAYWRIGHT_BROWSERS_PATH ||
-        resolvePlaywrightBrowsersPath(),
+      // CHROMIUM_PATH and PLAYWRIGHT_BROWSERS_PATH come from testServerEnv()
+      // above (single source shared with restartTestServer): the server's own
+      // browsers must stay findable even when it is rebooted mid-suite.
     },
   });
 
