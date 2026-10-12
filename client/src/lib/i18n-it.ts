@@ -2404,6 +2404,7 @@ const IT: Dict = {
   //    cambia una virgola e `terminal-tab-reload.spec.ts` (che ancora
   //    `/^Riavvia la sessione/`) resta verde; l'inglese è il nuovo.
   'terminal.stale.title': 'Sessione scaduta',
+  'terminal.resting.title': 'A riposo',
   'terminal.dormant.title': 'Sessione terminata',
   'terminal.cause.interrupted': 'Interrotta dal riavvio del server alle {time}',
   'terminal.cause.queued': 'In coda: {head}, {detail}',
@@ -2415,6 +2416,7 @@ const IT: Dict = {
   'terminal.resumeTitle': 'Riprendi la sessione (--resume): riporta viva la conversazione del sotto-agente',
   'terminal.reload': 'Ricarica',
   'terminal.resume': 'Riprendi',
+  'terminal.banner.resting': 'A riposo',
   'terminal.restarting': 'Riavvio…',
   'terminal.restartingSession': 'Riavvio sessione…',
   // ── Terminal: the refusals that used to happen in silence. The server text

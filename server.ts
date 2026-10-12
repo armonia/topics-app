@@ -1604,7 +1604,7 @@ const retirementConsequences: ReconcileDeps = {
     ctx.broadcastToAll({ type: "topic:archived", topic });
     ctx.broadcastToAll({ type: "topic:updated", topic });
   },
-  retireTerminal: (sessionId) => { retireTerminalSession(sessionId); },
+  retireTerminal: (sessionId) => { retireTerminalSession(sessionId, 'closed', 'topic-retirement'); },
 };
 
 /**
@@ -5289,7 +5289,7 @@ const dispatchTimer = setInterval(() => {
   // suo PTY sopravviveva all'archiviazione della chat per sempre.
   // `orphanChildSessions` chiede la stessa domanda alle due forme di padre.
   try {
-    for (const id of orphanChildSessions(ctx.db)) retireTerminalSession(id, "swept");
+    for (const id of orphanChildSessions(ctx.db)) retireTerminalSession(id, "swept", "orphan-child-sweep");
   } catch (err) { console.error("[board] reap delle sessioni figlie fallito", err); }
 }, DISPATCH_POLL_MS);
 

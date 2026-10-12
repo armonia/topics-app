@@ -2124,6 +2124,7 @@ const EN = {
   'devices.revokeTitle': 'Revoke this device’s access',
   // ── Terminal: the three states in which the pane is printing nothing.
   'terminal.stale.title': 'Session expired',
+  'terminal.resting.title': 'Resting',
   'terminal.dormant.title': 'Session ended',
   // ── Terminal: WHY it ended, read off the board card this session worked.
   'terminal.cause.interrupted': 'Cut by the server restart at {time}',
@@ -2136,6 +2137,7 @@ const EN = {
   'terminal.resumeTitle': 'Resume the session (--resume): brings the sub-agent conversation back to life',
   'terminal.reload': 'Reload',
   'terminal.resume': 'Resume',
+  'terminal.banner.resting': 'Resting',
   'terminal.restarting': 'Restarting…',
   'terminal.restartingSession': 'Restarting session…',
   // ── Terminal: the refusals that used to happen in silence. The server text

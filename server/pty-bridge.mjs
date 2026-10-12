@@ -151,7 +151,15 @@ function handleMessage(msg, client) {
         cwd: cwd || mergedEnv.HOME || realHome(),
         env: mergedEnv,
       });
-      sessions.set(id, { pty: p, buffer: { chunks: [], totalSize: 0 }, killing: false, killTimer: null });
+      const tracked = {
+        pty: p,
+        buffer: { chunks: [], totalSize: 0 },
+        killing: false,
+        killTimer: null,
+        killReason: null,
+        killCaller: null,
+      };
+      sessions.set(id, tracked);
       p.onData((data) => {
         // Append to output buffer
         const session = sessions.get(id);
@@ -166,12 +174,17 @@ function handleMessage(msg, client) {
         }
         broadcast({ type: 'data', id, data });
       });
-      p.onExit(({ exitCode }) => {
+      p.onExit(({ exitCode, signal }) => {
+        console.error(
+          `[PTY Bridge] exit ${id.slice(0, 8)} exitCode=${exitCode} signal=${signal ?? 'none'} ` +
+            `bridgeAskedToKill=${tracked.killing} killReason=${tracked.killReason ?? 'none'} ` +
+            `killCaller=${tracked.killCaller ?? 'none'}`,
+        );
         // THE ONLY PLACE A SESSION LEAVES THE MAP, and it removes only its OWN
         // pty: an unconditional delete here would let a late exit evict a newer
         // session that had taken the same id.
         const cur = sessions.get(id);
-        if (cur && cur.pty === p) {
+        if (cur === tracked) {
           if (cur.killTimer) clearTimeout(cur.killTimer);
           sessions.delete(id);
         }
@@ -200,6 +213,8 @@ function handleMessage(msg, client) {
       // timer guarantees the child gets there.
       if (s && !s.killing) {
         s.killing = true;
+        s.killReason = msg.reason || 'unspecified';
+        s.killCaller = msg.caller || 'unknown';
         try { s.pty.kill(); } catch {}
         s.killTimer = setTimeout(() => {
           if (sessions.get(msg.id) !== s) return; // it honoured the signal
@@ -318,7 +333,8 @@ function probeBridge(timeoutMs = 1500) {
             if (msg.id !== probeId) continue;
             if (msg.type === 'created') {
               // Probe succeeded — clean up the throwaway PTY.
-              conn.write(JSON.stringify({ type: 'kill', id: probeId }) + '\n');
+              conn.write(JSON.stringify({ type: 'kill', id: probeId, reason: 'probe-cleanup', caller: 'bridge-probe' }) + '\n');
+              console.error(`[Terminal] kill ${probeId.slice(0, 8)} reason=probe-cleanup caller=bridge-probe`);
               finish({ ok: true });
               return;
             }
@@ -448,9 +464,13 @@ async function start() {
     // Exiting straight after one SIGHUP is how a HUP-ignoring child outlived
     // the daemon that owned it, holding a PTY nobody could reach again.
     const pids = [];
-    for (const [, s] of sessions) {
+    for (const [id, s] of sessions) {
       if (s.killTimer) clearTimeout(s.killTimer);
       if (typeof s.pty.pid === 'number') pids.push(s.pty.pid);
+      s.killing = true;
+      s.killReason = 'bridge-shutdown';
+      s.killCaller = `shutdown:${signal}`;
+      console.error(`[Terminal] kill ${id.slice(0, 8)} reason=bridge-shutdown caller=shutdown:${signal}`);
       try { s.pty.kill(); } catch {}
     }
     sessions.clear();
