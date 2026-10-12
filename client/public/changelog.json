@@ -1,5 +1,21 @@
 [
   {
+    "version": "2.2.485",
+    "date": "2026-10-12",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Archivia 13 change openspec finite, con le spec allineate (#297)",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
     "version": "2.2.484",
     "date": "2026-10-12",
     "sections": {

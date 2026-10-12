@@ -2,6 +2,11 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.2.485 — 2026-10-12
+
+### Sotto il cofano
+- Archivia 13 change openspec finite, con le spec allineate (#297)
+
 ## 2.2.484 — 2026-10-12
 
 ### Sotto il cofano
