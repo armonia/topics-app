@@ -2,6 +2,12 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.2.481 — 2026-10-12
+
+### Sotto il cofano
+- browser nel progetto: la chat si trova anche come chat:<topicId>; e2e del mini browser aperto dall'agente in un progetto
+- e2e 04g: si parte dal layout principale vuoto, come 04d
+
 ## 2.2.480 — 2026-10-11
 
 ### Correzioni

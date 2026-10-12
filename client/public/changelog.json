@@ -1,5 +1,26 @@
 [
   {
+    "version": "2.2.481",
+    "date": "2026-10-12",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "browser nel progetto: la chat si trova anche come chat:<topicId>; e2e del mini browser aperto dall'agente in un progetto",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "e2e 04g: si parte dal layout principale vuoto, come 04d",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
     "version": "2.2.480",
     "date": "2026-10-11",
     "sections": {
