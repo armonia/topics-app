@@ -39,6 +39,7 @@ import type { FleetSessionRef } from "../lib/fleet-usage";
 import { resolveSessionProjects } from "../lib/session-project-map";
 import { listSessionCliPids } from "../providers/session-pids";
 import { decidePark, idleParkThresholdMs, summarizeRefusals, thresholdUnderPressure } from "../lib/terminal-idle-park";
+import { formatTerminalKillLog, recordedExitCode, type TerminalKillReason } from "../lib/terminal-kill";
 import { isSwapFreezeHold } from "../lib/swap-freeze-hold";
 import type { ParkRefusal } from "../lib/terminal-idle-park";
 import { decideOnRestart } from "../lib/terminal-restart-policy";
@@ -150,6 +151,11 @@ const sessionSockets = new Map<string, Set<any>>();
 // same session (double right-click → "Ricarica", two clients) that would race the
 // kill→recreate sequence.
 const reloadingSessionIds = new Set<string>();
+// Ids the idle park asked the bridge to kill. Their exit code (129, SIGHUP) is
+// the park's own signal, not a diagnosis of the session: it is stored and sent
+// as NULL, so the pane being looked at revives on its own, as it does for any
+// park, instead of waiting behind the code of a death nobody had.
+const parkedByServer = new Set<string>();
 // Same guard for POST /revive, and it is not optional decoration. `/revive` had
 // none, so two clients clicking the dormant tab together (or a client retrying a
 // slow request) both passed the `status = 'dormant'` read and both called
@@ -191,7 +197,7 @@ configureSubagentRuntime({
   park: (child, idleMs, beforeKill) => {
     const s = sessions.get(child.id);
     if (!s) return false;
-    const outcome = tryParkSession(s.id, s, idleMs, 'sotto-agente finito e fermo', { allowSubAgent: true, turnEnded: true, beforeKill });
+    const outcome = tryParkSession(s.id, s, idleMs, 'sotto-agente finito e fermo', { allowSubAgent: true, turnEnded: true, beforeKill, caller: 'subagent-park' });
     // A finished child that stays up costs a CLI in RAM: say why, once in a while.
     if (!outcome.parked) warnThrottled(`subagent:retire:${child.id}`, `[Terminal] finished sub-agent ${child.id} not retired: ${outcome.reason}`);
     return outcome.parked;
@@ -1028,6 +1034,11 @@ function sendToBridge(msg: any) {
   bridgeSocket.write(JSON.stringify(msg) + "\n");
 }
 
+function sendTerminalKill(id: string, reason: TerminalKillReason, caller: string): void {
+  sendToBridge({ type: "kill", id, reason, caller });
+  console.log(formatTerminalKillLog({ sessionId: id, reason, caller }));
+}
+
 // --- Create-ack tracking ---
 // Pending POST /sessions calls park here until the bridge replies with
 // {type:'created', id} or {type:'error', error}. Without this gate the
@@ -1061,7 +1072,17 @@ function recycleBridge(reason: string) {
     if (fs.existsSync(pidPath)) {
       const pid = Number(fs.readFileSync(pidPath, 'utf8').trim());
       if (pid && pid !== process.pid) {
-        try { process.kill(pid, 'SIGTERM'); } catch {}
+        try {
+          process.kill(pid, 'SIGTERM');
+          for (const session of sessions.values()) {
+            console.warn(formatTerminalKillLog({
+              sessionId: session.id,
+              reason: 'bridge-recycle',
+              caller: 'recycleBridge',
+              detail: reason,
+            }));
+          }
+        } catch {}
       }
     }
   } catch {}
@@ -1168,13 +1189,22 @@ function handleBridgeMessage(msg: any) {
       if (exitedSession?.type === 'claude-code' || exitedSession?.type === 'claude-code-team') {
         cleanupMcpConfigForSession(msg.id);
       }
+      const ageMs = exitedSession ? Date.now() - new Date(exitedSession.createdAt).getTime() : 0;
+      const failedQuickly = !!exitedSession && ageMs < 3000 && msg.exitCode !== 0;
+      const canResume = !!exitedSession
+        && (exitedSession.type === 'claude-code' || exitedSession.type === 'claude-code-team')
+        && !!exitedSession.claudeSessionId
+        && !failedQuickly;
+      const reloading = reloadingSessionIds.has(msg.id);
+      const exitCode = recordedExitCode(msg.exitCode, parkedByServer.delete(msg.id));
       const sockets = sessionSockets.get(msg.id);
       if (sockets) {
-        // The code rides the close reason: see `encodeExitReason`. Without it
-        // the pane can say the session ended and nothing about how.
-        const reason = encodeExitReason('ended', msg.exitCode);
+        // A resumable exit is a verdict the client can act on without retrying
+        // attach or sending resizes to a PTY that has already gone away.
+        const restingVerdict = canResume && !reloading;
+        const reason = encodeExitReason(restingVerdict ? 'dormant' : 'ended', exitCode);
         for (const ws of sockets) {
-          try { ws.close(1000, reason); } catch {}
+          try { ws.close(restingVerdict ? TERMINAL_WS_CLOSE_DORMANT : 1000, reason); } catch {}
         }
         sessionSockets.delete(msg.id);
       }
@@ -1189,18 +1219,12 @@ function handleBridgeMessage(msg: any) {
         // it on every reload, which immediately exits again, producing the
         // "chat appears then closes" flicker. Treat those as dead: DELETE
         // the row so they stop haunting the UI.
-        const ageMs = Date.now() - new Date(exitedSession.createdAt).getTime();
-        const failedQuickly = ageMs < 3000 && msg.exitCode !== 0;
-        const canResume = (exitedSession.type === 'claude-code' || exitedSession.type === 'claude-code-team')
-          && !!exitedSession.claudeSessionId
-          && !failedQuickly;
         try {
           if (canResume) {
             // The code is kept WITH the parked row, so a pane opened after the
             // fact reads it too. NULL when the bridge gave none: an unknown
             // code is not a zero.
-            const code = typeof msg.exitCode === 'number' ? msg.exitCode : null;
-            getDatabase().run("UPDATE terminal_sessions SET status = 'dormant', exit_code = ? WHERE id = ?", [code, msg.id]);
+            getDatabase().run("UPDATE terminal_sessions SET status = 'dormant', exit_code = ? WHERE id = ?", [exitCode, msg.id]);
           } else {
             if (failedQuickly) {
               console.warn(`[Terminal] Session ${msg.id} exited in ${ageMs}ms with code ${msg.exitCode} — deleting (failed launch).`);
@@ -1220,7 +1244,7 @@ function handleBridgeMessage(msg: any) {
         }
       }
       // A dying orchestrator must not leave drivable orphan sub-agents behind.
-      cascadeKillChildren(msg.id);
+      cascadeKillChildren(msg.id, 'parent-exit');
       broadcastTerminalSessions();
       // Wake the parent CHAT when a sub-agent it spawned exits on its own (or via
       // cascade). The explicit /stop reap path can't reach here — it pre-deletes
@@ -1597,8 +1621,7 @@ async function reconcileSessions(attempt = 0): Promise<void> {
   // Bridge has session, DB doesn't → orphaned, kill it
   for (const bs of bridgeSessions) {
     if (!dbIds.has(bs.id)) {
-      console.log(`[Terminal] Killing orphaned bridge session ${bs.id}`);
-      sendToBridge({ type: "kill", id: bs.id });
+      sendTerminalKill(bs.id, 'orphan-cleanup', 'startup-reconcile');
     }
   }
 
@@ -2440,13 +2463,13 @@ function resolveOwnedChild(parentSessionKey: string, agentId: string): TerminalS
  * stopped by the parent (which wakes nobody). Returns its branch, read before
  * the kill. Also the CLI half of stopping a native child's whole tree.
  */
-function stopLiveCliChild(child: TerminalSession): string | null {
+function stopLiveCliChild(child: TerminalSession, caller: string): string | null {
   const childClaudeId = child.claudeSessionId;
   // Read BEFORE the kill: afterwards the session is gone and the branch
   // would be unrecoverable for whoever just asked for the stop. The
   // directory is NOT deleted here: the sweep decides (WORKTREE-09/10).
   const childBranch = branchOfCwd(child.cwd);
-  sendToBridge({ type: "kill", id: child.id });
+  sendTerminalKill(child.id, 'subagent-stop', caller);
   sessions.delete(child.id);
   const sockets = sessionSockets.get(child.id);
   if (sockets) {
@@ -2468,7 +2491,7 @@ function stopLiveCliChild(child: TerminalSession): string | null {
 // A native child's tree stop reaches its CLI children through here.
 setCliChildStopper((id) => {
   const child = sessions.get(id);
-  if (child) { stopLiveCliChild(child); return; }
+  if (child) { stopLiveCliChild(child, 'native-child-stop'); return; }
   // A parked CLI child has no process: its row only closes.
   const row = getSubagent(getDatabase(), id);
   if (row && (row.state === "running" || row.state === "retired")) setSubagentState(getDatabase(), id, "stopped");
@@ -2494,9 +2517,9 @@ function isCodexBridgeOnlyTopic(ctx: AppContext, sessionKey: string): boolean {
 /** Kill every live child of a parent that just exited/was deleted. Children are
  *  model-spawned ephemerals, so orphaning them (leaving drivable PTYs with a
  *  dead owner) is worse than reaping them. */
-function cascadeKillChildren(parentSessionKey: string) {
+function cascadeKillChildren(parentSessionKey: string, caller: string) {
   for (const child of liveChildrenOf(parentSessionKey)) {
-    try { sendToBridge({ type: "kill", id: child.id }); } catch {}
+    try { sendTerminalKill(child.id, 'subagent-cascade', caller); } catch {}
     // The bridge's `exit` frame will clean up maps/DB/tracker for each child.
   }
 }
@@ -2696,7 +2719,11 @@ function broadcastTerminalSessions() {
  * id sconosciuto e' un no-op, che e' la proprieta' che rende sicuro rigirare il
  * riconcilio.
  */
-export function retireTerminalSession(id: string, ending: 'closed' | 'swept' = 'closed'): boolean {
+export function retireTerminalSession(
+  id: string,
+  ending: 'closed' | 'swept' = 'closed',
+  caller: string = ending === 'swept' ? 'orphan-child-sweep' : 'terminal-delete',
+): boolean {
   const session = sessions.get(id);
   const db = getDatabase();
   const dbRow = db.query("SELECT id, claude_session_id, type FROM terminal_sessions WHERE id = ?").get(id) as any;
@@ -2707,7 +2734,8 @@ export function retireTerminalSession(id: string, ending: 'closed' | 'swept' = '
   const claudeSessionId: string | undefined = session?.claudeSessionId || dbRow?.claude_session_id || undefined;
   const sessionType: string | undefined = session?.type || dbRow?.type;
   if (session) {
-    sendToBridge({ type: "kill", id });
+    const reason: TerminalKillReason = ending === 'swept' ? 'retirement-sweep' : 'user-close';
+    sendTerminalKill(id, reason, caller);
     sessions.delete(id);
     const sockets = sessionSockets.get(id);
     if (sockets) {
@@ -2728,7 +2756,7 @@ export function retireTerminalSession(id: string, ending: 'closed' | 'swept' = '
   clearTerminalActivity(id);
   // I sotto-agenti che questa sessione ha generato: nessuna PTY orfana e
   // pilotabile resta dietro.
-  cascadeKillChildren(id);
+  cascadeKillChildren(id, ending === 'swept' ? 'retirement-sweep' : 'parent-delete');
   // A sub-agent retired here (its tab closed, the orphan sweep) is gone from
   // the map before the bridge's `exit` frame arrives, so that frame cannot
   // report it: the parent chat got nothing at all. Report it from here.
@@ -2780,7 +2808,7 @@ function tryParkSession(
   thresholdMs: number,
   motivo: string,
   /** Retiring a finished sub-agent is the one park a child admits; `turnEnded`: its own transcript says so, and the tracker's phase (which can miss a turn end) does not veto it. `beforeKill`: runs only once every gate said yes. */
-  opts: { allowSubAgent?: boolean; turnEnded?: boolean; beforeKill?: () => void } = {},
+  opts: { allowSubAgent?: boolean; turnEnded?: boolean; beforeKill?: () => void; caller?: string } = {},
 ): { parked: true } | { parked: false; reason: ParkRefusal } {
   const activity = terminalActivity.get(id);
   const state = s.claudeSessionId ? _tracker?.getSession(s.claudeSessionId) : undefined;
@@ -2824,7 +2852,8 @@ function tryParkSession(
       `Torna con --resume alla prossima apertura.`,
   );
   opts.beforeKill?.();
-  sendToBridge({ type: "kill", id });
+  parkedByServer.add(id);
+  sendTerminalKill(id, 'park', opts.caller ?? 'idle-reaper');
   // Il resto — riga a `dormant`, `noteDormant`, chiusura dei socket, broadcast
   // — lo fa il percorso di uscita quando il bridge conferma la morte della
   // PTY. Non lo si anticipa qui: due strade che scrivono lo stesso stato sono
@@ -2839,7 +2868,7 @@ export function parkIdleClaudeSessions(thresholdMs: number): ParkSweepResult {
   // stamperebbe come `undefined` invece di rompere la compilazione.
   const skipped: Array<{ id: string; reason: ParkRefusal }> = [];
   for (const [id, s] of sessions) {
-    const r = tryParkSession(id, s, thresholdMs, "nessuna attività");
+    const r = tryParkSession(id, s, thresholdMs, "nessuna attività", { caller: 'idle-reaper' });
     if (r.parked) parked.push(id);
     else skipped.push({ id, reason: r.reason });
   }
@@ -2875,7 +2904,7 @@ export function parkOrphanSessions(ids: readonly string[], thresholdMs: number):
     const s = sessions.get(id);
     // Sparita fra il censimento e adesso: non c'è più niente da parcheggiare.
     if (!s) continue;
-    const r = tryParkSession(id, s, thresholdMs, "nessuna interfaccia la mostra");
+    const r = tryParkSession(id, s, thresholdMs, "nessuna interfaccia la mostra", { caller: 'orphan-sweep' });
     if (r.parked) parked.push(id);
     else skipped.push({ id, reason: r.reason });
   }
@@ -2916,7 +2945,7 @@ export function orphanTerminalSession(id: string, type: TerminalSessionType = "c
   const s = sessions.get(id);
   if (!s) return false;
   orphanedForTest.add(id);
-  try { sendToBridge({ type: "kill", id }); } catch { /* bridge down: the PTY is already gone */ }
+  try { sendTerminalKill(id, 'test-orphan-fixture', 'e2e-fixture'); } catch { /* bridge down: the PTY is already gone */ }
   s.type = type;
   s.createdAt = new Date(Date.now() - 60_000).toISOString();
   broadcastTerminalSessions();
@@ -2940,11 +2969,20 @@ export function orphanTerminalSession(id: string, type: TerminalSessionType = "c
  * Returns `false` when there was nothing live to park.
  */
 export function parkTerminalSession(id: string, exitCode: number | null = null): boolean {
-  if (!sessions.has(id)) return false;
+  const session = sessions.get(id);
+  if (!session) return false;
+  const resumable = !!session.claudeSessionId;
   sessions.delete(id);
   const sockets = sessionSockets.get(id);
   if (sockets) {
-    for (const ws of sockets) { try { ws.close(1000, "Session parked"); } catch {} }
+    for (const ws of sockets) {
+      try {
+        ws.close(
+          resumable ? TERMINAL_WS_CLOSE_DORMANT : 1000,
+          resumable ? encodeExitReason('dormant', exitCode) : 'Session parked',
+        );
+      } catch {}
+    }
     sessionSockets.delete(id);
   }
   clearTerminalActivity(id);
@@ -2952,7 +2990,7 @@ export function parkTerminalSession(id: string, exitCode: number | null = null):
   // itself: NULL for a park (a restart kills, it does not diagnose).
   try { getDatabase().run("UPDATE terminal_sessions SET status = 'dormant', exit_code = ? WHERE id = ?", [exitCode, id]); }
   catch (e) { warnThrottled("terminal_sessions:park", `[Terminal] terminal_sessions: marking parked ${id} dormant failed:`, e); }
-  try { sendToBridge({ type: "kill", id }); } catch { /* bridge down: the PTY is already gone */ }
+  try { sendTerminalKill(id, 'test-park-fixture', 'e2e-fixture'); } catch { /* bridge down: the PTY is already gone */ }
   broadcastTerminalSessions();
   return true;
 }
@@ -3443,7 +3481,7 @@ export function createTerminalRouter(ctx: AppContext, tracker?: ClaudeSessionTra
         // sockets + delete its row). So: recreate ONLY once the old PTY is gone;
         // if it refuses to die in time, bail with 503 rather than risk that race.
         if (sessions.has(id)) {
-          sendToBridge({ type: "kill", id });
+          sendTerminalKill(id, 'reload', 'POST /sessions/:id/reload');
           for (let i = 0; i < 24 && sessions.has(id); i++) {
             await new Promise((r) => setTimeout(r, 250));
           }
@@ -3829,7 +3867,7 @@ export function createTerminalRouter(ctx: AppContext, tracker?: ClaudeSessionTra
           }
           return errorResponse(404, subAgentNotFound(agentId));
         }
-        return json({ ok: true, branch: stopLiveCliChild(child) });
+        return json({ ok: true, branch: stopLiveCliChild(child, 'stop_agent') });
       }
     }
 
@@ -3840,13 +3878,11 @@ export function createTerminalRouter(ctx: AppContext, tracker?: ClaudeSessionTra
 export function handleTerminalWebSocket(ws: any, sessionId: string) {
   const session = sessions.get(sessionId);
   if (!session) {
-    // Two different answers for two different absences. A PARKED row (the
-    // reaper, a `/exit`, a restart that found no PTY in the bridge) is a
-    // verdict: the PTY will not come back on its own, only a revive brings it.
-    // Everything else stays 1008 - a row the reconcile is about to reattach,
-    // or no row at all - and for that the client keeps its grace. Without the
-    // distinction the pane looped forever on a dormant id: open, resize (404),
-    // close, 500 ms, again (see TERMINAL_WS_CLOSE_DORMANT).
+    // A dormant row is a distinct verdict: the revive door brings it back (a
+    // claude with --resume, a shell as a fresh one in the same cwd), so the
+    // client offers Resume and stops resizing a PTY that no longer exists.
+    // Everything else stays 1008 so a row the reconcile may reattach, or a
+    // missing row, gets the normal connection grace.
     let dormant = false;
     let dormantExitCode: number | null = null;
     try {

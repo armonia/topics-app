@@ -121,6 +121,12 @@ The system SHALL support opening terminal sessions with xterm.js rendering, WebS
 
 > Note: The implementation uses up to 15 retry attempts with exponential backoff. Limited direct test coverage for the full backoff sequence.
 
+#### Scenario: Every server-requested PTY kill records its reason and caller
+- **GIVEN** the server asks the PTY bridge to end a terminal process
+- **WHEN** it sends the kill request
+- **THEN** one `[Terminal] kill` log line names the session id, reason, and caller
+- **AND** the bridge exit log records the exit code, signal, and whether the bridge requested the kill
+
 ### Requirement: TERM-02 — Reload (Restart) a Terminal Session In Place
 
 The system SHALL let a user restart a live terminal session **in place** from the
@@ -418,10 +424,18 @@ riavvio, e la riporta viva solo una rianimazione. Tutto il resto — una riga ch
 il riconcilio sta per riattaccare, nessuna riga — resta 1008, e per quello il
 client tiene la sua grazia.
 
-Il client SHALL trattare il verdetto come tale: velo «Sessione scaduta» subito,
-nessun nuovo tentativo. Da lì valgono le regole già scritte: la pane GUARDATA
-si rianima da sola dalla porta di rianimazione esistente (stessa riga, stessa
-cartella), quella in secondo piano aspetta il click (TERM-05).
+Il codice 4001 SHALL essere usato per ogni riga `dormant`: la porta di
+rianimazione la riporta viva (claude con `--resume`, una shell come shell nuova
+nella stessa cartella). Il client SHALL trattarlo come un
+verdetto: nessun nuovo tentativo, nessun `resize` verso una PTY che non c'è. La
+pane GUARDATA SHALL rianimarsi da sola dalla porta di rianimazione esistente
+(stessa riga, stessa cartella); quella in secondo piano SHALL mostrare «A riposo»
+/ «Resting» con «Riprendi» / «Resume» e aspettare il click (TERM-05). Una sessione
+che ha riportato un proprio codice d'uscita NON SHALL rianimarsi da sola. Un
+parcheggio deciso dal server non è una diagnosi: il suo codice (il SIGHUP del
+kill, 129) SHALL essere salvato e mandato come NULL, altrimenti la regola
+precedente lo scambierebbe per una morte vera e la pane guardata resterebbe
+ferma. Una sessione assente SHALL diventare «Sessione scaduta» solo dopo la grazia.
 
 Il contatore dei tentativi NON SHALL azzerarsi all'apertura del socket, ma al
 primo frame che solo una sessione viva manda (`replay-end`): un'apertura seguita
@@ -429,16 +443,26 @@ da un rifiuto è un attacco fallito in più, non un nuovo inizio. Vale anche per
 una riga cancellata del tutto, che prima cadeva nello stesso ciclo.
 
 #### Scenario: permalink a una sessione parcheggiata, pane attiva
-- **GIVEN** una riga `dormant` la cui pseudo-terminale non esiste più
+- **GIVEN** una riga `dormant`, pseudo-terminale assente, nessun codice d'uscita
 - **WHEN** si apre `/tab/terminal/<id>`
 - **THEN** la sessione SHALL tornare viva sotto lo stesso id, il terminale SHALL essere utilizzabile
 - **AND** i `resize` respinti con 404 SHALL essere al massimo una manciata, non un flusso continuo
 
 #### Scenario: scheda salvata in secondo piano
 - **GIVEN** la stessa riga, ripristinata come scheda dietro un'altra
-- **THEN** NON SHALL essere rianimata finché nessuno la guarda
-- **WHEN** la scheda viene cliccata
+- **THEN** NON SHALL essere rianimata finché nessuno la guarda, e mostra «A riposo» / «Resting» senza inviare `resize`
+- **WHEN** la scheda viene cliccata, o si sceglie «Riprendi» / «Resume»
 - **THEN** SHALL tornare viva
+
+#### Scenario: un parcheggio del server non lascia un codice d'uscita
+- **GIVEN** una sessione claude viva e ferma oltre la soglia di parcheggio
+- **WHEN** il server la parcheggia e il bridge riporta l'uscita col codice del SIGHUP
+- **THEN** la riga `dormant` SHALL avere `exit_code` NULL e il socket SHALL chiudersi con 4001 senza codice
+
+#### Scenario: una sessione realmente scomparsa resta scaduta
+- **GIVEN** un id senza riga riprendibile nel database
+- **WHEN** il roster confermato non lo contiene oltre la grazia di riconciliazione
+- **THEN** la pane mostra «Sessione scaduta» e non offre «Riprendi»
 
 ### Requirement: RESTART-SAY-01 — Un riavvio rifiutato lo DICE, e non si finge un'attesa
 
