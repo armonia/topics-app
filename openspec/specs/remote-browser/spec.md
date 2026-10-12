@@ -2545,6 +2545,13 @@ come tab.
 - **WHEN** l'utente minimizza la finestra, e poi la riapre
 - **THEN** in tutti e due gli stati la scheda attiva è in vista
 
+
+#### Scenario: un ricarico nasconde le pagine native che tiene
+- **GIVEN** una finestra desktop con pane browser native aperte
+- **WHEN** la pagina si ricarica senza un nuovo bundle (⌘R, ⟳ della barra laterale, `location.reload()`)
+- **THEN** ogni vista nativa tenuta da una pane di questo documento SHALL essere nascosta alla `pagehide`, e NON chiusa
+- **AND** al rimontaggio la pane SHALL riusare la stessa vista, con la sua pagina, e riaccenderla
+- **AND** una vista in mezzo a un trasloco verso un'altra finestra NON SHALL essere toccata
 ### Requirement: TOPIC-BROWSER-02 — La tab è l'unica chrome, e si apre in un foglio
 
 Una scheda browser SHALL avere una sola superficie di chrome: la sua tab. NON SHALL
