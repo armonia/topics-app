@@ -1,5 +1,22 @@
 [
   {
+    "version": "2.2.490",
+    "date": "2026-10-13",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "un tocco sul browser condiviso è un clic, non due (#303)",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        }
+      ]
+    }
+  },
+  {
     "version": "2.2.489",
     "date": "2026-10-13",
     "sections": {
