@@ -6,6 +6,7 @@
  * maintaining long-lived processes per session with inactivity/lifetime timeouts.
  */
 
+import { childExited } from "./child-exit";
 import { permissionModeForAutonomy, PERMISSION_PROMPT_TOOL } from "../lib/autonomy-mode";
 import { spawn, ChildProcess } from "child_process";
 import { join } from "path";
@@ -649,6 +650,8 @@ interface SessionIO {
   writeStdin(data: string, mark?: string): void;
   signal(sig: string): void;
   kill(): void;
+  /** Direct mode only: settles when the child has exited after `kill()`. */
+  exited?(capMs: number): Promise<void>;
 }
 
 function directIO(proc: ChildProcess): SessionIO {
@@ -659,6 +662,7 @@ function directIO(proc: ChildProcess): SessionIO {
       try { proc.kill("SIGTERM"); } catch { /* already gone */ }
       setTimeout(() => { try { proc.kill("SIGKILL"); } catch { /* already gone */ } }, KILL_GRACE_MS);
     },
+    exited: (capMs) => childExited(proc, capMs),
   };
 }
 
@@ -1530,8 +1534,10 @@ export class ClaudeCodeProvider implements AIProvider {
     console.log("[claude-code] Provider started");
   }
 
-  stop(): void {
+  stop(): Promise<void> {
     this.started = false;
+    // Direct-mode children killed below: shutdown waits for these exits.
+    const exits: Promise<void>[] = [];
     if (this.unsubscribeReconnect) { this.unsubscribeReconnect(); this.unsubscribeReconnect = null; }
     if (this.lagProbe) { clearInterval(this.lagProbe); this.lagProbe = null; }
     // A send still waiting for a stopped child to exit must not spawn a new
@@ -1589,6 +1595,7 @@ export class ClaudeCodeProvider implements AIProvider {
           reject?.(new Error("ABORTED"));
         }
         this.killProcess(pp, "shutdown");
+        if (pp.io.exited) exits.push(pp.io.exited(KILL_GRACE_MS + 500));
       }
     }
     // Gli scan parcheggiati non sono in `this.processes` — e proprio per questo
@@ -1598,6 +1605,7 @@ export class ClaudeCodeProvider implements AIProvider {
     this.processes.clear();
     this.queues.clear();
     console.log("[claude-code] Provider stopped");
+    return Promise.all(exits).then(() => undefined);
   }
 
   // --- Streaming Chat ---

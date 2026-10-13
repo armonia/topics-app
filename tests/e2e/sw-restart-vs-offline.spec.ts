@@ -75,15 +75,16 @@ async function swCacheName(page: import("@playwright/test").Page): Promise<strin
   return keys[0];
 }
 
-/** `NAV_RETRIES` letto dal sorgente SERVITO — lo stesso file che il browser ha
- *  registrato, non una copia sul disco che potrebbe non essere nel bundle. */
+/** How many network attempts a navigation makes: one plus each wait in
+ *  `RETRY_DELAYS_MS`, read from the SERVED source, the file the browser
+ *  registered, not a copy on disk that might not be in the bundle. */
 async function swNavRetries(page: import("@playwright/test").Page): Promise<number> {
   const src = await page.evaluate(() =>
     fetch("/sw.js", { cache: "no-store" }).then((r) => r.text()),
   );
-  const found = /^const NAV_RETRIES = (\d+);/m.exec(src);
-  if (!found) throw new Error("sw.js non dichiara più `const NAV_RETRIES = <n>;`: il test non sa quanti tentativi aspettarsi");
-  return Number(found[1]);
+  const found = /^const RETRY_DELAYS_MS = \[([\d,\s]+)\];/m.exec(src);
+  if (!found) throw new Error("sw.js no longer declares `const RETRY_DELAYS_MS = [...];`: the test cannot tell how many attempts to expect");
+  return found[1].split(",").filter((n) => n.trim()).length + 1;
 }
 
 /** Carica l'app e assicura che il SW registrato CONTROLLI la pagina.

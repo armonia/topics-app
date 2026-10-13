@@ -42,6 +42,7 @@ import { decidePark, idleParkThresholdMs, summarizeRefusals, thresholdUnderPress
 import { formatTerminalKillLog, recordedExitCode, type TerminalKillReason } from "../lib/terminal-kill";
 import { isSwapFreezeHold } from "../lib/swap-freeze-hold";
 import type { ParkRefusal } from "../lib/terminal-idle-park";
+import { referencedSessionIdsIn } from "../lib/orphan-sessions";
 import { decideOnRestart } from "../lib/terminal-restart-policy";
 import { recordRetirement } from "../services/retirement";
 import { renderScreen, screenToText } from "../lib/terminal-screen";
@@ -2808,7 +2809,7 @@ function tryParkSession(
   thresholdMs: number,
   motivo: string,
   /** Retiring a finished sub-agent is the one park a child admits; `turnEnded`: its own transcript says so, and the tracker's phase (which can miss a turn end) does not veto it. `beforeKill`: runs only once every gate said yes. */
-  opts: { allowSubAgent?: boolean; turnEnded?: boolean; beforeKill?: () => void; caller?: string } = {},
+  opts: { allowSubAgent?: boolean; turnEnded?: boolean; beforeKill?: () => void; caller?: string; hasOpenTab?: boolean } = {},
 ): { parked: true } | { parked: false; reason: ParkRefusal } {
   const activity = terminalActivity.get(id);
   const state = s.claudeSessionId ? _tracker?.getSession(s.claudeSessionId) : undefined;
@@ -2824,6 +2825,7 @@ function tryParkSession(
       // classico di reapare qualcosa di vivo.
       idleMs: activity?.lastAt ? Date.now() - activity.lastAt : null,
       attachedClients: sessionSockets.get(id)?.size ?? 0,
+      hasOpenTab: opts.hasOpenTab,
       hasTranscript:
         !!s.claudeSessionId && fs.existsSync(claudeTranscriptPath(s.cwd, s.claudeSessionId)),
       phase,
@@ -2861,14 +2863,36 @@ function tryParkSession(
   return { parked: true };
 }
 
+/**
+ * Session ids some Topics tab shows, read from `ui_state` with the same
+ * extractor the orphan census uses. `null` when the read fails: the caller
+ * treats that as "every session has a tab", since not knowing is not a
+ * licence to kill.
+ */
+function openTabSessionIds(): ReadonlySet<string> | null {
+  try {
+    const ids = new Set<string>();
+    const rows = getDatabase().query("SELECT value FROM ui_state").all() as Array<{ value?: string }>;
+    for (const row of rows) for (const id of referencedSessionIdsIn(row.value ?? "")) ids.add(id);
+    return ids;
+  } catch (e) {
+    warnThrottled("terminal:open-tabs", "[Terminal] lettura delle tab aperte fallita, niente parcheggio in questa passata:", e);
+    return null;
+  }
+}
+
 export function parkIdleClaudeSessions(thresholdMs: number): ParkSweepResult {
   const parked: string[] = [];
   // `ParkRefusal` e non `string`: il motivo finisce in un log che lo traduce in
   // prosa (`refusalLabel`), e con `string` un motivo nuovo scritto a mano si
   // stamperebbe come `undefined` invece di rompere la compilazione.
   const skipped: Array<{ id: string; reason: ParkRefusal }> = [];
+  const openTabs = openTabSessionIds();
   for (const [id, s] of sessions) {
-    const r = tryParkSession(id, s, thresholdMs, "nessuna attività", { caller: 'idle-reaper' });
+    const r = tryParkSession(id, s, thresholdMs, "nessuna attività", {
+      caller: 'idle-reaper',
+      hasOpenTab: openTabs === null || openTabs.has(id),
+    });
     if (r.parked) parked.push(id);
     else skipped.push({ id, reason: r.reason });
   }

@@ -103,7 +103,11 @@ test.describe("Isolamento dei guasti fra pane", () => {
     // che lo registra — rispondeva 404 sul percorso web (vedi
     // server/static-assets.ts). Stessa ragione già scritta in
     // tool-call-rendering.spec.ts.
-    await context.route("**/assets/DashboardPane-*.js", (route) => route.abort());
+    //
+    // The query string is blocked too: a pane chunk that fails is re-imported
+    // under `?retry=<n>` (`retryingChunk`, chunkReloadGuard.ts), and a glob
+    // ending in `.js` let that URL through, so the pane loaded and never broke.
+    await context.route(/\/assets\/DashboardPane-[^/?]*\.js(\?.*)?$/, (route) => route.abort());
 
     await goToApp(page);
 

@@ -33,6 +33,7 @@
  *    in una funzione sola.
  */
 
+import { childExited } from "./child-exit";
 import { spawn, type ChildProcess } from "child_process";
 import { existsSync } from "fs";
 import type {
@@ -257,19 +258,20 @@ export class AcpProvider implements AIProvider {
     }
   }
 
-  stop(): void {
+  stop(): Promise<void> {
     this.stopped = true;
-    this.teardown("ACP_PROVIDER_STOPPED");
+    return this.teardown("ACP_PROVIDER_STOPPED");
   }
 
-  private teardown(reason: string): void {
+  /** Settles when the agent child has exited (capped), so shutdown can wait for it. */
+  private teardown(reason: string): Promise<void> {
     const child = this.child;
     this.peer?.close(reason);
     this.peer = null;
     this.connecting = null;
     this.child = null;
     this.dropSessions();
-    if (!child) return;
+    if (!child) return Promise.resolve();
     try {
       child.kill("SIGTERM");
     } catch { /* già morto */ }
@@ -277,6 +279,7 @@ export class AcpProvider implements AIProvider {
       try { child.kill("SIGKILL"); } catch { /* già morto */ }
     }, KILL_GRACE_MS);
     timer.unref?.();
+    return childExited(child, KILL_GRACE_MS + 500);
   }
 
   private resolveBinary(): string | null {

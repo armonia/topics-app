@@ -17,6 +17,7 @@
  *     in 35 events), so turns report duration only.
  */
 
+import { childExited } from "./child-exit";
 import { spawn, type ChildProcess } from "child_process";
 import { createInterface } from "readline";
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "fs";
@@ -311,14 +312,17 @@ export class MuseProvider implements AIProvider {
     console.log("[muse] Provider started");
   }
 
-  stop(): void {
+  stop(): Promise<void> {
     this.started = false;
+    const exits: Promise<void>[] = [];
     for (const [, child] of this.activeChildren) {
       try { child.kill("SIGTERM"); } catch {}
       setTimeout(() => { try { child.kill("SIGKILL"); } catch {} }, KILL_GRACE_MS);
+      exits.push(childExited(child, KILL_GRACE_MS + 500));
     }
     this.activeChildren.clear();
     console.log("[muse] Provider stopped");
+    return Promise.all(exits).then(() => undefined);
   }
 
   /**
