@@ -105,6 +105,56 @@ export async function reimportChunk<M>(chunkName: string, cause: unknown): Promi
   return module;
 }
 
+/**
+ * How long a chunk that failed keeps being retried, in waits between tries:
+ * ~15 s in all. Long enough to cover a server reload (shutdown + boot, a few
+ * seconds on a loaded Mac), short enough that a chunk that is really gone
+ * reaches its error boundary while someone is still looking.
+ */
+const CHUNK_RETRY_DELAYS_MS = [250, 500, 1000, 2000, 4000, 8000];
+
+/**
+ * `load`, plus the cure for a refresh that lands while the server restarts.
+ *
+ * Measured 13/10 (`tests/e2e/terminal-refresh-survives.spec.ts`): the page came
+ * back with its Claude Code tabs, but the terminal chunk had failed on the
+ * dead port, and the pane stayed blank under "a part of the app did not load"
+ * until a second manual refresh. The import is now retried under a fresh URL
+ * (`reimportChunk`, because WebKit remembers the failure) with growing waits,
+ * INSIDE the promise `React.lazy` holds: the pane shows its fallback and then
+ * its body, with no refresh. Once the plain import failed, every later call
+ * goes straight to the fresh URL (see `modelListLazy.ts` for why).
+ */
+export function retryingChunk<M>(
+  chunkName: string,
+  load: () => Promise<M>,
+  delays: readonly number[] = CHUNK_RETRY_DELAYS_MS,
+  /** Test seam: Bun cannot produce WebKit's chunk-load failure on demand. */
+  reimport: (chunkName: string, cause: unknown) => Promise<M> = reimportChunk,
+): () => Promise<M> {
+  let firstFailure: unknown = null;
+  return async () => {
+    if (firstFailure === null) {
+      try {
+        return await load();
+      } catch (error) {
+        if (!isChunkLoadError(error)) throw error;
+        firstFailure = error;
+      }
+    }
+    for (let attempt = 0; ; attempt++) {
+      try {
+        return await reimport(chunkName, firstFailure);
+      } catch (error) {
+        // `reimportChunk` rethrows the cause itself when there is no URL to
+        // retry (dev server): waiting would not change that.
+        if (error === firstFailure || !isChunkLoadError(error) || attempt >= delays.length) throw error;
+        await new Promise((r) => setTimeout(r, delays[attempt]));
+      }
+    }
+  };
+}
+
 export function initChunkReloadGuard(): () => void {
   const signalStale = signalChunkFailure;
 

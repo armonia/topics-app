@@ -11,7 +11,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { BUNDLE_STALE_EVENT } from './devBundleReload';
-import { CHUNK_FAILURE_REASON, CHUNK_RECOVERED_EVENT, findChunkHref, initChunkReloadGuard, reimportChunk, reportLoadFailure } from './chunkReloadGuard';
+import { CHUNK_FAILURE_REASON, CHUNK_RECOVERED_EVENT, findChunkHref, initChunkReloadGuard, reimportChunk, reportLoadFailure, retryingChunk } from './chunkReloadGuard';
 import { warm } from './lazyWarm';
 
 // The message WebKit gives a dynamic import that 404s (measured in Playwright
@@ -146,5 +146,52 @@ describe('reimportChunk', () => {
     expect(module.value).toBe(42);
     // The prompt raised for the failure can go: that part of the app is back.
     expect(recovered).toBe(1);
+  });
+});
+
+describe('retryingChunk', () => {
+  const NO_WAIT = [0, 0, 0, 0];
+
+  test('a chunk that failed while the server restarted loads once it is back, inside the same promise', async () => {
+    let tries = 0;
+    const reimport = async () => {
+      tries += 1;
+      // The server is still down: each failed import is a NEW error object.
+      if (tries < 3) throw new TypeError(WEBKIT_404.message);
+      return { value: 7 };
+    };
+    const load = retryingChunk('Menu', () => Promise.reject(WEBKIT_404), NO_WAIT, reimport);
+    await expect(load()).resolves.toEqual({ value: 7 });
+    expect(tries).toBe(3);
+  });
+
+  test('after one failure every later call goes straight to the fresh URL', async () => {
+    let plain = 0;
+    const load = retryingChunk('Menu', () => { plain += 1; return Promise.reject(WEBKIT_404); }, NO_WAIT, async () => ({ value: 1 }));
+    await load();
+    await load();
+    expect(plain).toBe(1);
+  });
+
+  test('a chunk that loaded and threw is not retried', async () => {
+    const bug = new Error('boom inside the chunk');
+    let tries = 0;
+    const load = retryingChunk('Menu', () => Promise.reject(bug), NO_WAIT, async () => { tries += 1; return {}; });
+    await expect(load()).rejects.toBe(bug);
+    expect(tries).toBe(0);
+  });
+
+  test('a chunk that never comes back reaches its error boundary when the waits run out', async () => {
+    let tries = 0;
+    const load = retryingChunk('Menu', () => Promise.reject(WEBKIT_404), [0, 0], async () => { tries += 1; throw CHROMIUM_404; });
+    await expect(load()).rejects.toBe(CHROMIUM_404);
+    expect(tries).toBe(3);
+  });
+
+  test('no URL to retry (dev server): the original failure comes back at once', async () => {
+    let tries = 0;
+    const load = retryingChunk('Menu', () => Promise.reject(WEBKIT_404), [60_000], async (_name, cause) => { tries += 1; throw cause; });
+    await expect(load()).rejects.toBe(WEBKIT_404);
+    expect(tries).toBe(1);
   });
 });
