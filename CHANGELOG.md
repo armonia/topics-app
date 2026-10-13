@@ -2,6 +2,12 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.2.488 — 2026-10-13
+
+### Correzioni
+- **browser** · the idle reaper no longer closes a browser that is starting (#300)
+- **tunnel** · a plaintext tunnel port so the iPad keeps its session (#301)
+
 ## 2.2.487 — 2026-10-13
 
 ### Sotto il cofano

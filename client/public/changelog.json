@@ -1,5 +1,28 @@
 [
   {
+    "version": "2.2.488",
+    "date": "2026-10-13",
+    "sections": {
+      "new": [],
+      "fixes": [
+        {
+          "it": "the idle reaper no longer closes a browser that is starting (#300)",
+          "en": "",
+          "scope": "browser",
+          "breaking": false
+        },
+        {
+          "it": "a plaintext tunnel port so the iPad keeps its session (#301)",
+          "en": "",
+          "scope": "tunnel",
+          "breaking": false
+        }
+      ],
+      "perf": [],
+      "internal": []
+    }
+  },
+  {
     "version": "2.2.487",
     "date": "2026-10-13",
     "sections": {
