@@ -2825,3 +2825,34 @@ closed at once and actions on the shared browser "did not work".
 #### Scenario: a tap on the iPad
 - **WHEN** the user taps the mirror once
 - **THEN** the remote page receives exactly one click at that point
+
+### Requirement: NATIVE-HOST-01 — A live native pane SHALL be the source of its context's mirror
+
+When the Mac's native pane of a context declares itself host, a viewer on another
+device SHALL mirror that pane's own page, rebuilt from its DOM (rrweb), and the
+server SHALL NOT create a Chromium context for it. Before, a second device pulled
+the Mac off its WKWebView onto the server's Chromium, and the Mac was slow while
+the iPad watched (13/10).
+
+#### Scenario: the iPad opens a context the Mac has open
+- **GIVEN** the Mac's native pane hosts the context
+- **WHEN** the iPad opens it
+- **THEN** it shows the Mac's page and address, and no Chromium context exists for it
+
+#### Scenario: the Mac's pane goes away
+- **WHEN** the host's socket closes and no host is back within 8 seconds
+- **THEN** the server's Chromium takes over at the page the host was on
+
+### Requirement: NATIVE-HOST-02 — A viewer's input SHALL reach the host once
+
+#### Scenario: a click on the mirror
+- **WHEN** the viewer clicks or taps the mirror once
+- **THEN** the Mac's pane receives one `host_input` click at the page coordinates
+- **AND** it runs in the page without taking the Mac's key focus
+
+### Requirement: NATIVE-HOST-03 — The Mac SHALL stay native while another device watches
+
+#### Scenario: auto mode with a viewer
+- **GIVEN** a pane in 'auto' on a server that accepted its host declaration
+- **WHEN** another device starts watching the context
+- **THEN** the pane stays on its native WKWebView instead of joining the shared session

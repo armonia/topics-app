@@ -23,6 +23,18 @@ import { findTaskTabOwner } from "../services/task-tab-persist";
 import { collectBrowserContextIds } from "../browser-store-keep-list";
 import { dispatchBrowserToolCallByContext } from "../browser-tool-dispatcher";
 import { routedResourceUrl } from "../lib/dom-resource-rewrite";
+import type { DomHostRegistry } from "../lib/native-dom-host";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+
+let recorderCache: string | null = null;
+/** The vendored rrweb bundle, read once. Its source-map comment goes: the pane
+ *  has no map to fetch, and its inspector would try. */
+function recorderSource(): string {
+  recorderCache ??= readFileSync(join(import.meta.dir, "..", "assets", "rrweb.min.js"), "utf8")
+    .replace(/\n\/\/# sourceMappingURL=.*$/m, "");
+  return recorderCache;
+}
 
 export function createBrowserRouter(
   ctx: AppContext,
@@ -32,6 +44,10 @@ export function createBrowserRouter(
    *  auto-share: a Tauri pane rendering natively holds NO streaming WS, so this
    *  count IS the number of OTHER devices watching the shared session. */
   getViewerCount: (contextId: string) => number = () => 0,
+  /** The Mac's native panes hosting a context's DOM mirror (native-dom-host.ts).
+   *  On a hosted context the REST paths a viewer uses go to the pane: here, as
+   *  on the socket, every browserService call would create a Chromium context. */
+  nativeHosts?: Pick<DomHostRegistry, "isHosting" | "page" | "command">,
 ): RouteHandler {
   const { readJSON, json, errorResponse, matchRoute } = ctx;
 
@@ -47,12 +63,40 @@ export function createBrowserRouter(
       });
     }
 
+    // --- The rrweb recorder a native pane injects to host its DOM mirror (native-dom-host.ts) ---
+    // Served instead of bundled: the same file the server injects into Chromium,
+    // at the version of the Replayer this server hands to the viewers.
+    if (method === "GET" && pathname === "/api/browser/recorder.js") {
+      return new Response(recorderSource(), {
+        headers: { "Content-Type": "text/javascript; charset=utf-8", "Cache-Control": "private, max-age=3600" },
+      });
+    }
+
     // --- A resource of a DOM mirror the viewer cannot reach (dom-resource-rewrite.ts) ---
     if (method === "GET" && pathname === "/api/browser/resource") {
       const id = url.searchParams.get("ctx");
       const target = url.searchParams.get("u");
       if (!id || !target || !routedResourceUrl(id, target)) return errorResponse(400, "ctx and an unreachable http(s) u required");
       try {
+        if (nativeHosts?.isHosting(id)) {
+          // No Chromium context by design: this server runs on the Mac, so it
+          // reaches what the Mac's pane reaches. A loopback dev server on a
+          // self-signed certificate (this one is) was accepted by the pane, so
+          // the relay accepts it too, and only on loopback.
+          const pageUrl = nativeHosts.page(id)?.url ?? "";
+          const upstream = await fetch(target, {
+            headers: pageUrl.startsWith("http") ? { referer: pageUrl } : {},
+            signal: AbortSignal.timeout(15_000),
+            ...(loopbackPortOf(target) !== null ? { tls: { rejectUnauthorized: false } } : {}),
+          });
+          return new Response(upstream.body, {
+            status: upstream.status,
+            headers: {
+              "Content-Type": upstream.headers.get("content-type") ?? "application/octet-stream",
+              "Cache-Control": "private, max-age=300",
+            },
+          });
+        }
         const res = await browserService.fetchResource(id, target);
         if (!res) return errorResponse(404, "browser context not open");
         return new Response(res.body as unknown as BodyInit, {
@@ -185,6 +229,13 @@ export function createBrowserRouter(
     // --- Get context info ---
     const getMatch = matchRoute(pathname, "/api/browsers/:id");
     if (method === "GET" && getMatch && !pathname.includes("/snapshot") && !pathname.includes("/console") && !pathname.includes("/interact")) {
+      if (nativeHosts?.isHosting(getMatch.id)) {
+        // The Mac's page. Not known yet (the pane declared a moment ago) is
+        // answered as busy, never as 404: a viewer reads 404 as "nothing here"
+        // and seeds its own stored url, which would move the Mac's page.
+        const page = nativeHosts.page(getMatch.id);
+        return page ? json(page) : errorResponse(409, "host page not known yet", { log: false });
+      }
       const info = browserService.getUrl(getMatch.id);
       // A probe, not a fault: `contextHasPage` and the fallback poll ask on
       // purpose, so "not there yet" is the answer, not something to log.
@@ -474,6 +525,21 @@ export function createBrowserRouter(
       const body = await readJSON(req);
       if (!body?.action) return errorResponse(400, "action required");
       const id = interactMatch.id;
+      // A hosted context moves with the Mac's pane: the toolbar actions a viewer
+      // sends over REST go to it, like its input does over the socket.
+      if (nativeHosts?.isHosting(id)) {
+        const action = String(body.action);
+        if (action === "navigate" || action === "back" || action === "forward" || action === "reload") {
+          if (action === "navigate" && !body.url) return errorResponse(400, "url required");
+          nativeHosts.command(id, { type: "host_nav", action, ...(action === "navigate" ? { url: String(body.url) } : {}) });
+          return json({ ok: true, host: true });
+        }
+        if (action === "click" || action === "type" || action === "keypress" || action === "scroll") {
+          const { x, y, text, key, deltaX, deltaY, button } = body as Record<string, unknown>;
+          nativeHosts.command(id, { type: "host_input", action, payload: { x, y, text, key, deltaX, deltaY, button } });
+          return json({ ok: true, host: true });
+        }
+      }
       try {
         switch (body.action) {
           case "navigate":

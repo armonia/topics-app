@@ -139,6 +139,8 @@ import { sendBrowserWsMessage, parseBrowserWsMessage, type BrowserWsMessage } fr
 import { applyEngineSwitch } from "./server/browser-engine-switch";
 import { browserEngineRegistry, chromiumExtensionsCount, chromiumSidecar } from "./server/browser-engine-registry";
 import { nativeDelegateRegistry, handleNativeDelegationFrame } from "./server/browser-native-delegate";
+import { createDomHostRegistry, parseHostFrame } from "./server/lib/native-dom-host";
+import { createHostMirror } from "./server/browser-host-mirror";
 import { countSharedViewers, createViewerCountPublisher, hasAttachedPane } from "./server/browser-viewer-count";
 import { createViewportWiring } from "./server/browser-viewport-wiring";
 import { seedNativeFromShared } from "./server/browser-session-handoff";
@@ -483,6 +485,15 @@ function broadcastToBrowserWs(contextId: string, msg: BrowserWsMessage, except?:
     }
   }
 }
+
+// The Mac's native pane as the source of a context's DOM mirror: every viewer
+// mirrors THAT page and the server's Chromium stays off (browser-host-mirror.ts).
+const domHosts = createDomHostRegistry();
+const hostMirror = createHostMirror({
+  hosts: domHosts,
+  sockets: (c) => browserWsClients.get(c) ?? [],
+  browser: { enableDomMode: (c) => browserService.enableDomMode(c), destroyContext: (c) => browserService.destroyContext(c), navigate: (c, u) => browserService.navigate(c, u) },
+});
 
 // The viewer count is PUSHED to the panes of a context when it changes, on the
 // same socket that carries the frames. It used to be polled: every auto-mode
@@ -920,8 +931,8 @@ const branchesRouter = createBranchesRouter(ctx);
 // Chi conta come spettatore sta in browser-viewer-count.ts (puro, con i suoi
 // test): esclude i delegati nativi e chi ha la pane fuori dallo schermo, e NON
 // guarda la pausa dello screencast — vedi lì il perché.
-const browserRouter = createBrowserRouter(ctx, browserService, (c) =>
-  countSharedViewers(browserWsClients.get(c)),
+const browserRouter = createBrowserRouter(
+  ctx, browserService, (c) => countSharedViewers(browserWsClients.get(c)), domHosts,
 );
 const cronRouter = createCronRouter(ctx);
 const contextRouter = createContextRouter(ctx);
@@ -4135,11 +4146,22 @@ const opzioniServer = {
           // executor: it never views frames, so it does not depend on its
           // register frame beating the 250 ms (it often does not, see the
           // 'registered' branch below).
-          if (screencastCancelled || !streamActive || ws.data.expectsExecutor) return;
+          if (screencastCancelled || ws.data.expectsExecutor) return;
+          // A native pane hosts this context: the viewer mirrors its DOM, and a
+          // screencast would launch the very Chromium the host replaces. A
+          // viewer that did not ask for the mirror by now (video mode, a page
+          // it would frame itself, an older client) is put on it here.
+          if (hostMirror.isHosting(ctxId)) {
+            hostMirror.attachIfIdle(ws, ctxId);
+            return;
+          }
+          if (!streamActive) return;
           startScreencastForViewer();
         }, SCREENCAST_START_GRACE_MS);
         ws.data._browserSetStream = (active: boolean) => {
           if (screencastCancelled || active === streamActive) return;
+          // Same rule as the deferred start: no screencast under a host.
+          if (active && hostMirror.isHosting(ctxId)) return;
           streamActive = active;
           if (active) {
             // Resume: re-attach this viewer to the (shared) screencast.
@@ -4423,12 +4445,20 @@ const opzioniServer = {
             return;
           }
           if (delegated === 'result') return;
+          // The native pane hosting this context's mirror: its declaration, its
+          // DOM events, and where its page is. Raw frames, like the delegation ones.
+          const hostFrame = parseHostFrame(raw);
+          if (hostFrame) {
+            hostMirror.onHostFrame(ws, ctxId, hostFrame);
+            return;
+          }
           const result = parseBrowserWsMessage(raw);
           if (!result.ok) {
             console.warn(`[WS][browser] Invalid message from ${ws.data.id}: ${result.error}`);
             return;
           }
           const parsed = result.data;
+          if (hostMirror.routeViewer(ws, ctxId, parsed)) return;
           if (parsed.type === 'input') {
             // Using the page is what makes a client the driver of its viewport.
             viewportWiring.onFrame(ctxId, ws.data, parsed);
@@ -4543,29 +4573,17 @@ const opzioniServer = {
             // mentre guarda eccome.
             ws.data._watching = parsed.active;
             viewerCountPublisher.publish(ctxId);
+            // A mirror leaving the screen may be the last one: the host stops recording.
+            hostMirror.sync(ctxId);
           } else if (parsed.type === 'set_render') {
             // T1 DOM co-browse — switch THIS viewer between the pixel stream
             // ('video', default) and a native rrweb DOM reconstruction ('dom').
             // DOM mode injects rrweb into the SHARED headless page, streams tiny
             // DOM events, and pauses this viewer's wasted screencast; input keeps
             // flowing over the existing `input` messages (same page-CSS coords).
+            // A hosted context never gets here (hostMirror.routeViewer).
             if (parsed.mode === 'dom') {
-              browserService.enableDomMode(ctxId).then((bootstrap) => {
-                if (!bootstrap) {
-                  // Unsupported (no page / injection failed) — force back to video.
-                  sendBrowserWsMessage(ws, { type: 'render_mode', mode: 'video' });
-                  return;
-                }
-                ws.data._domRender = true;
-                sendBrowserWsMessage(ws, { type: 'render_mode', mode: 'dom' });
-                // Bootstrap this viewer so it reconstructs without a reload.
-                for (const event of bootstrap) sendBrowserWsMessage(ws, { type: 'dom_event', event });
-                // Stop paying for JPEG frames this viewer no longer renders.
-                ws.data._browserSetStream?.(false);
-              }).catch((err) => {
-                console.warn(`[WS][browser] enableDomMode failed for ${ctxId}:`, err?.message || err);
-                try { sendBrowserWsMessage(ws, { type: 'render_mode', mode: 'video' }); } catch { /* socket gone */ }
-              });
+              hostMirror.enableChromiumDom(ws, ctxId);
             } else {
               // Back to pixels: resume screencast, ack, and stop DOM emission once
               // NO viewer of this context is in DOM mode anymore.
@@ -4769,6 +4787,9 @@ const opzioniServer = {
           const anyDom = [...(bset ?? [])].some((w) => w.data._domRender);
           if (!anyDom) browserService.setDomEmit(ws.data.browserContextId, false);
         }
+        // The host of the mirror leaving starts the countdown to the server's
+        // Chromium; a mirror leaving may have been the last one on screen.
+        hostMirror.onClose(ws, ws.data.browserContextId);
         // Drop any native-executor registration for this pane + fail its in-flight
         // ops (Tauri delegation) — no-op if this context never registered, and
         // owner-scoped so a late `close` from an OLD socket can't kill a fresh
