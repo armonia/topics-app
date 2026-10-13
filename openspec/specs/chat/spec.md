@@ -2340,6 +2340,11 @@ SHALL innescarlo.
 - **GIVEN** un'uscita non pulita senza annullamento in corso
 - **THEN** SHALL essere un errore
 
+#### Scenario: lo spegnimento aspetta l'uscita vera, non un tempo fisso
+- **GIVEN** il server che si spegne per un riavvio
+- **WHEN** i provider fermano i figli che possiedono
+- **THEN** lo spegnimento SHALL attendere l'uscita reale di quei figli, con un tetto, e NON SHALL dormire un tempo fisso quando non c'è niente da attendere
+
 ### Requirement: CCLI-02 — Gli orologi non uccidono chi è fermo su una domanda a schermo
 
 Nessun orologio SHALL uccidere un processo mentre una DOMANDA all'utente è a

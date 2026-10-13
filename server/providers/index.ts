@@ -338,11 +338,28 @@ export function removeProvider(name: string): void {
  * internally; we wait for that grace period before resolving so the caller
  * can safely process.exit() without truncating the flush.
  */
+/**
+ * Stops every provider and waits for the children they killed to exit, at most
+ * `graceMs`. It used to sleep `graceMs` flat on every shutdown, so each server
+ * reload cost 3.5 s of downtime even with no child to wait for. One macrotask
+ * is always yielded first: an in-process turn aborted by `stop()` writes its
+ * "server shutdown" notice from a promise rejection, before the DB closes.
+ */
 export async function stopAllProviders(graceMs = 3500): Promise<void> {
+  const waits: Promise<void>[] = [];
   for (const [, p] of _providers) {
-    try { p.stop(); } catch (err: any) { console.warn(`[Providers] stop() failed:`, err?.message ?? err); }
+    try {
+      const done = p.stop();
+      if (done) waits.push(done.catch(() => undefined));
+    } catch (err: any) { console.warn(`[Providers] stop() failed:`, err?.message ?? err); }
   }
-  await new Promise((r) => setTimeout(r, graceMs));
+  await new Promise((r) => setTimeout(r, 0));
+  let cap: ReturnType<typeof setTimeout> | undefined;
+  await Promise.race([
+    Promise.all(waits),
+    new Promise((r) => { cap = setTimeout(r, graceMs); }),
+  ]);
+  clearTimeout(cap);
 }
 
 /**

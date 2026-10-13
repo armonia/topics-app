@@ -13,6 +13,7 @@
  *     enhancement; the one-shot path keeps the protocol surface small.
  */
 
+import { childExited } from "./child-exit";
 import { spawn, type ChildProcess } from "child_process";
 import { createInterface } from "readline";
 import { existsSync, mkdirSync, mkdtempSync, rmSync } from "fs";
@@ -398,14 +399,17 @@ export class CodexProvider implements AIProvider {
     console.log("[codex] Provider started");
   }
 
-  stop(): void {
+  stop(): Promise<void> {
     this.started = false;
+    const exits: Promise<void>[] = [];
     for (const [, child] of this.activeChildren) {
       try { child.kill("SIGTERM"); } catch {}
       setTimeout(() => { try { child.kill("SIGKILL"); } catch {} }, KILL_GRACE_MS);
+      exits.push(childExited(child, KILL_GRACE_MS + 500));
     }
     this.activeChildren.clear();
     console.log("[codex] Provider stopped");
+    return Promise.all(exits).then(() => undefined);
   }
 
   /**
