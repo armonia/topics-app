@@ -2856,3 +2856,24 @@ the iPad watched (13/10).
 - **GIVEN** a pane in 'auto' on a server that accepted its host declaration
 - **WHEN** another device starts watching the context
 - **THEN** the pane stays on its native WKWebView instead of joining the shared session
+
+### Requirement: BROWSER-DOM-LIVE-01 — A change SHALL reach the DOM mirror on the frame after it arrives
+
+The live replayer used to schedule every event against the first one it was
+given, so whatever that first event took to arrive was added to every event
+after it. Measured 13/10: a tap on the iPad answered seconds late on Darkroom,
+and a viewer rebuilt from a buffered snapshot would trail by as long as the
+recording had been running.
+
+#### Scenario: a mirror rebuilt from an old snapshot
+- **GIVEN** a viewer whose mirror was rebuilt from a snapshot recorded long ago
+- **WHEN** the source records a change now
+- **THEN** the viewer shows it within a second and a half
+
+### Requirement: BROWSER-DOM-SCROLL-01 — A scroll SHALL move the DOM mirror on the device that makes it
+
+#### Scenario: wheel or swipe on the mirror
+- **WHEN** the user scrolls the mirror with a wheel or a finger
+- **THEN** the mirror scrolls at once on that device, before the source answers
+- **AND** the source is asked to scroll by the same distance in its own CSS pixels
+- **AND** a released swipe carries on and slows down, as a native scroll does
