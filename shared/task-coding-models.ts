@@ -39,12 +39,11 @@ export class TaskProviderPendingError extends Error {
 
 /**
  * MSEL-06: what a "Run in Topics" preference that was NEVER written means, per
- * scope. Here and only here. A chat reads it ON, a card and the board default
- * read it OFF: a turn through the engine does not survive a server restart and
- * cards are the longest turns (proposal, choice 2). No data is rewritten for
- * this: a `null` column stays `null`, only how it is read changes.
+ * scope. Here and only here. Both scopes default ON: cards also benefit from
+ * the shared session pool and the saved process overhead. No data is rewritten
+ * for this: a `null` column stays `null`, only how it is read changes.
  */
-export const TOPICS_ROUTING_DEFAULT = { chat: true, task: false } as const;
+export const TOPICS_ROUTING_DEFAULT = { chat: true, task: true } as const;
 
 export type TopicsRouteScope = keyof typeof TOPICS_ROUTING_DEFAULT;
 
