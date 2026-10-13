@@ -1298,6 +1298,7 @@ function RemoteBrowserPanelStreaming({ contextId, initialUrl, navigateUrl, onUrl
                 sendInput={browser.sendInput}
                 agentActive={browser.agentActive}
                 exposeMirrorDocument={exposeMirrorDocument}
+                ownSize={browser.ownSize}
               />
             </div>
           </Suspense>

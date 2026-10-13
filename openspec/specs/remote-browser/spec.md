@@ -2857,6 +2857,45 @@ the iPad watched (13/10).
 - **WHEN** another device starts watching the context
 - **THEN** the pane stays on its native WKWebView instead of joining the shared session
 
+### Requirement: NATIVE-HOST-04 — A hosted page SHALL take the size of the device using it
+
+TOPIC-BROWSER-05 on a page the Mac hosts: the viewport belongs to whoever uses
+the page. Before, an iPad that used a page hosted by the Mac got the Mac's
+layout scaled down and letterboxed, and its own `resize` was dropped (13/10).
+The Mac's pane lays the page out at the iPad's size in CSS px, scaled into its
+slot with WKWebView's page zoom when it does not fit, and the iPad's mirror shows
+it 1:1.
+
+#### Scenario: the iPad uses a page the Mac hosts
+- **GIVEN** the Mac's pane hosts the context and the iPad watches it
+- **WHEN** the iPad taps the mirror
+- **THEN** the host receives the tap, then `host_viewport` with the iPad pane's size
+- **AND** the size counts even if the iPad sent it before the Mac hosted the page, or while the host was away
+- **AND** once the page is laid out at that size, give or take 2 px or a few px shorter, the iPad's mirror shows it at scale 1 from the top
+
+#### Scenario: a Mac slot smaller than the iPad
+- **WHEN** the Mac's slot for the page is smaller than the iPad's pane, down to a tenth of the window
+- **THEN** the page is laid out exactly as wide as the iPad's pane, and never taller than it
+
+#### Scenario: watching is not using
+- **WHEN** a device only watches, or resizes while only watching
+- **THEN** the host receives no `host_viewport`
+
+#### Scenario: the Mac takes the page back
+- **WHEN** the Mac's user uses the page in its own pane (a trusted pointer, key or wheel event, or the zoom), the device using it leaves, or no pane of that device shows the page any more
+- **THEN** the host receives `host_viewport` without a size and lays the page out at its own slot again
+- **AND** the server hears of every use of the Mac, so a size still on its way does not land after it
+- **AND** a device whose pane comes back on screen has the page at its size again, if nobody used the page meanwhile
+
+#### Scenario: the Mac's socket blips
+- **WHEN** the host comes back after its socket dropped
+- **THEN** it is told the current size of the device that was using the page
+- **AND** not if the Mac's user used the page while the socket was down
+
+#### Scenario: the on-screen keyboard
+- **WHEN** the on-screen keyboard takes height from the pane of the device using the page
+- **THEN** the device does not report the shorter height, and the page is not laid out again
+
 ### Requirement: BROWSER-DOM-LIVE-01 — A change SHALL reach the DOM mirror on the frame after it arrives
 
 The live replayer used to schedule every event against the first one it was

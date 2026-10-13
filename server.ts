@@ -493,6 +493,10 @@ const hostMirror = createHostMirror({
   hosts: domHosts,
   sockets: (c) => browserWsClients.get(c) ?? [],
   browser: { enableDomMode: (c) => browserService.enableDomMode(c), destroyContext: (c) => browserService.destroyContext(c), navigate: (c, u) => browserService.navigate(c, u) },
+  askViewport: (c) => {
+    const driver = viewportWiring.driverDevice(c);
+    if (driver) viewportWiring.askViewportOf(c, driver);
+  },
 });
 
 // The viewer count is PUSHED to the panes of a context when it changes, on the
@@ -4577,8 +4581,9 @@ const opzioniServer = {
             // mentre guarda eccome.
             ws.data._watching = parsed.active;
             viewerCountPublisher.publish(ctxId);
-            // A mirror leaving the screen may be the last one: the host stops recording.
-            hostMirror.sync(ctxId);
+            // A mirror leaving the screen may be the last one: the host stops
+            // recording. And a pane off screen is not using a hosted page.
+            hostMirror.onWatching(ws, ctxId);
           } else if (parsed.type === 'set_render') {
             // T1 DOM co-browse — switch THIS viewer between the pixel stream
             // ('video', default) and a native rrweb DOM reconstruction ('dom').

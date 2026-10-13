@@ -14,11 +14,19 @@
 import type { BrowserService } from "./browser-service";
 import { sendBrowserWsMessage, type BrowserWsMessage } from "../shared/browser-ws-messages";
 import type { DomHostRegistry, HostFrame } from "./lib/native-dom-host";
+import { createHostViewport, type HostViewport } from "./browser-host-viewport";
+import { isDrivingInput } from "./browser-viewport-arbiter";
+import { viewportClaimantOf } from "./browser-viewport-wiring";
 
 /** The little of a browser socket this module uses (a Bun ServerWebSocket fits). */
 export interface MirrorSocket {
   readyState: number;
   data: {
+    /** Who is behind the socket, for the viewport (see `viewportClaimantOf`). */
+    id?: string;
+    deviceId?: string | null;
+    clientId?: string | null;
+    remote?: boolean;
     _domRender?: boolean;
     _nativeDelegate?: boolean;
     _watching?: boolean;
@@ -40,6 +48,14 @@ export interface HostMirrorDeps {
    */
   fallbackGraceMs?: number;
   schedule?: (fn: () => void, ms: number) => () => void;
+  /** Who the host lays the page out for (TOPIC-BROWSER-05). Built here when absent. */
+  viewport?: HostViewport;
+  /**
+   * The server's Chromium took the context over: ask whoever drives it for
+   * their size. Their pane sent it while the Mac hosted, and does not repeat a
+   * size it has sent.
+   */
+  askViewport?: (contextId: string) => void;
 }
 
 const OPEN = 1;
@@ -49,6 +65,9 @@ export function createHostMirror(deps: HostMirrorDeps) {
   const graceMs = deps.fallbackGraceMs ?? 8_000;
   const schedule = deps.schedule ?? ((fn, ms) => { const t = setTimeout(fn, ms); return () => clearTimeout(t); });
   const fallbacks = new Map<string, () => void>();
+  const viewport = deps.viewport ?? createHostViewport({ send: (contextId, cmd) => { hosts.command(contextId, cmd); } });
+  const deviceOf = (ws: MirrorSocket): string =>
+    viewportClaimantOf({ id: ws.data.id ?? "", deviceId: ws.data.deviceId, clientId: ws.data.clientId, remote: ws.data.remote }).device;
 
   const send = (ws: MirrorSocket, msg: BrowserWsMessage): boolean => {
     try { sendBrowserWsMessage(ws, msg); return true; } catch { return false; }
@@ -136,7 +155,9 @@ export function createHostMirror(deps: HostMirrorDeps) {
         ? browser.navigate(contextId, url).catch(() => null)
         : Promise.resolve(null);
       void opened.then(() => {
+        viewport.forget(contextId);
         for (const w of mirrorsOf(contextId)) enableChromiumDom(w, contextId);
+        deps.askViewport?.(contextId);
       });
     }, graceMs));
   };
@@ -164,10 +185,16 @@ export function createHostMirror(deps: HostMirrorDeps) {
         // that was serving them goes. It serves nobody now: an agent's ops on a
         // delegated context already run in the native pane.
         cancelFallback(contextId);
+        viewport.noteHostReady(contextId, frame.used === true);
         for (const w of viewersOf(contextId)) attach(w, contextId);
         void browser.destroyContext(contextId).catch((err: unknown) =>
           console.warn(`[WS][browser] destroyContext(${contextId}) after host handover failed:`, (err as Error)?.message));
         console.log(`[WS][browser] native pane hosts the DOM mirror of ctx ${contextId}`);
+        return;
+      }
+      if (frame.type === "host_local_use") {
+        // The Mac's own pane: the page goes back to its slot (TOPIC-BROWSER-05).
+        if (hosts.isHost(contextId, ws)) viewport.noteHostUse(contextId);
         return;
       }
       if (frame.type === "host_dom_events") {
@@ -196,10 +223,18 @@ export function createHostMirror(deps: HostMirrorDeps) {
      * ordinary path handles without touching Chromium.
      */
     routeViewer(ws: MirrorSocket, contextId: string, parsed: BrowserWsMessage): boolean {
-      if (ws.data._nativeDelegate || !hosts.isHosting(contextId)) return false;
+      if (ws.data._nativeDelegate) return false;
+      // Kept whoever serves the page: a pane does not repeat a size it has sent
+      // (useRemoteBrowser), so one sent while the server's Chromium served it,
+      // or while the host was away, is the one the host needs when it is used.
+      if (parsed.type === "resize") viewport.noteSize(contextId, deviceOf(ws), parsed.width, parsed.height);
+      if (!hosts.isHosting(contextId)) return false;
       switch (parsed.type) {
         case "input":
+          // The input first: it was aimed at the layout the viewer is looking
+          // at, and the host runs the two in the order they arrive.
           hosts.command(contextId, { type: "host_input", action: parsed.action, payload: parsed.payload });
+          if (isDrivingInput(parsed.action)) viewport.noteRemoteUse(contextId, deviceOf(ws));
           return true;
         case "nav":
           if (parsed.phase !== "request") return false;
@@ -210,9 +245,11 @@ export function createHostMirror(deps: HostMirrorDeps) {
         case "set_render":
           attach(ws, contextId);
           return true;
-        // The Mac's pane sets the viewport, the mirror knows what has focus,
-        // and there is no video track to negotiate.
         case "resize":
+          // Kept above, not applied: the size counts once this device uses the page.
+          if (parsed.driving === true) viewport.noteRemoteUse(contextId, deviceOf(ws));
+          return true;
+        // The mirror knows what has focus, and there is no video track to negotiate.
         case "focus_query":
         case "webrtc_offer":
         case "webrtc_ice":
@@ -222,12 +259,34 @@ export function createHostMirror(deps: HostMirrorDeps) {
       }
     },
 
+    /**
+     * A viewer's pane went off screen or came back (`set_watching`). Off screen
+     * is not using the page: it goes back to the Mac, unless the same device
+     * still shows it in another pane. Back on screen, the device that was using
+     * it still is, if nobody used the page meanwhile.
+     */
+    onWatching(ws: MirrorSocket, contextId: string): void {
+      sync(contextId);
+      if (ws.data._nativeDelegate) return;
+      const device = deviceOf(ws);
+      if (ws.data._watching !== false) { viewport.noteViewerShown(contextId, device); return; }
+      const shown = viewersOf(contextId).some((w) => w !== ws && w.data._watching !== false && deviceOf(w) === device);
+      if (!shown) viewport.noteViewerHidden(contextId, device);
+    },
+
     /** A socket of the context closed (already out of its socket set). */
     onClose(ws: MirrorSocket, contextId: string): void {
       // The host leaving starts the countdown to the server's Chromium; a
       // mirror leaving may have been the last one on screen.
-      if (hosts.withdraw(contextId, ws)) scheduleFallback(contextId);
-      else if (ws.data._domRender) sync(contextId);
+      if (hosts.withdraw(contextId, ws)) {
+        scheduleFallback(contextId);
+        return;
+      }
+      if (ws.data._domRender) sync(contextId);
+      // The device's last socket: the page it was using goes back to the Mac.
+      const device = deviceOf(ws);
+      const stays = [...deps.sockets(contextId)].some((w) => w !== ws && w.readyState === OPEN && deviceOf(w) === device);
+      if (!stays) viewport.noteViewerGone(contextId, device);
     },
   };
 }

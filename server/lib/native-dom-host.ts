@@ -16,6 +16,7 @@
  * reason the delegation frames are: that schema is the streaming protocol.
  */
 import { rewriteDomEventResources } from "./dom-resource-rewrite";
+import type { HostViewportCommand } from "../browser-host-viewport";
 
 /** Server -> host pane. */
 export type HostCommand =
@@ -28,7 +29,9 @@ export type HostCommand =
   /** A viewer touched the mirror: the same action and page coordinates it sent. */
   | { type: "host_input"; action: string; payload: unknown }
   /** A viewer moved the page: the pane runs it through its own toolbar path. */
-  | { type: "host_nav"; action: "navigate" | "back" | "forward" | "reload"; url?: string };
+  | { type: "host_nav"; action: "navigate" | "back" | "forward" | "reload"; url?: string }
+  /** Another device is using the page: lay it out at its size, or (no size) at the pane's own. */
+  | HostViewportCommand;
 
 /** Where the host page is: what viewers show in their address bar. */
 export interface HostPage {
@@ -40,15 +43,19 @@ export interface HostPage {
 
 /** Host pane -> server. */
 export type HostFrame =
-  | { type: "native_dom_host" }
+  /** `used`: the person at the Mac used the page while its socket was down. */
+  | { type: "native_dom_host"; used?: boolean }
   | { type: "host_dom_events"; events: unknown[] }
+  /** The person at the Mac used the page in its own pane (a real gesture, not a relayed one). */
+  | { type: "host_local_use" }
   | ({ type: "host_page" } & HostPage);
 
 /** Classify a raw frame from a browser socket; null when it is not a host frame. */
 export function parseHostFrame(raw: unknown): HostFrame | null {
   if (!raw || typeof raw !== "object") return null;
   const m = raw as Record<string, unknown>;
-  if (m.type === "native_dom_host") return { type: "native_dom_host" };
+  if (m.type === "native_dom_host") return m.used === true ? { type: "native_dom_host", used: true } : { type: "native_dom_host" };
+  if (m.type === "host_local_use") return { type: "host_local_use" };
   if (m.type === "host_dom_events") {
     return Array.isArray(m.events) ? { type: "host_dom_events", events: m.events } : null;
   }

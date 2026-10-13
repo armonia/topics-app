@@ -39,6 +39,11 @@ export interface NativeDomHostOptions {
   onRecordingChange?: (recording: boolean) => void;
   /** The server accepted the declaration: it hosts mirrors from native panes. */
   onAccepted?: () => void;
+  /**
+   * Lay the page out at a size, the one of the device using it (TOPIC-BROWSER-05),
+   * or at the pane's own slot again (null).
+   */
+  setViewport?: (size: { width: number; height: number } | null) => void;
   schedule?: (fn: () => void, ms: number) => () => void;
   now?: () => number;
 }
@@ -52,6 +57,8 @@ export interface NativeDomHost {
   notePage(page: HostPageState): void;
   /** The executor socket died: whatever the server asked for no longer holds. */
   reset(): void;
+  /** The Mac's user used the page in its own pane: it takes the layout back. */
+  noteLocalUse(): void;
   /** True once the server accepted the declaration on the current socket. */
   accepted(): boolean;
 }
@@ -160,6 +167,11 @@ export function createNativeDomHost(opts: NativeDomHostOptions): NativeDomHost {
   let page: HostPageState | null = null;
   let recorder: Promise<string> | null = null;
   let inputs: Promise<void> = Promise.resolve();
+  /** Laid out at another device's size, and which request of the server that is. */
+  let driven = false;
+  let viewportSeq = 0;
+  /** The Mac's user used the page while no server could be told. */
+  let usedAway = false;
 
   const sendPage = (): void => {
     if (accepted && page) opts.sendText(JSON.stringify({ type: 'host_page', ...page }));
@@ -209,6 +221,15 @@ export function createNativeDomHost(opts: NativeDomHostOptions): NativeDomHost {
     plan(armed ? 0 : now() - lastBusyAt < BUSY_WINDOW_MS ? DRAIN_FAST_MS : DRAIN_IDLE_MS);
   };
 
+  /** Back to the pane's own slot, superseding any size still in the queue. */
+  const release = (): boolean => {
+    if (!driven) return false;
+    driven = false;
+    viewportSeq++;
+    opts.setViewport?.(null);
+    return true;
+  };
+
   const runInput = (action: string, payload: unknown): void => {
     inputs = inputs.then(async () => {
       try {
@@ -223,7 +244,12 @@ export function createNativeDomHost(opts: NativeDomHostOptions): NativeDomHost {
   return {
     declare() {
       accepted = false;
-      opts.sendText(JSON.stringify({ type: 'native_dom_host' }));
+      // A use while the socket was down: the server must not lay the page out
+      // again for the device that was using it before. Taken before sending,
+      // so the answer finds it said.
+      const used = usedAway;
+      usedAway = false;
+      opts.sendText(JSON.stringify(used ? { type: 'native_dom_host', used: true } : { type: 'native_dom_host' }));
     },
     handle(frame) {
       if (!frame || typeof frame !== 'object') return false;
@@ -233,6 +259,11 @@ export function createNativeDomHost(opts: NativeDomHostOptions): NativeDomHost {
           accepted = true;
           opts.onAccepted?.();
           sendPage();
+          // Used between the declaration and its answer.
+          if (usedAway) {
+            usedAway = false;
+            opts.sendText(JSON.stringify({ type: 'host_local_use' }));
+          }
           return true;
         case 'host_dom_start':
           setRecording(true);
@@ -253,6 +284,18 @@ export function createNativeDomHost(opts: NativeDomHostOptions): NativeDomHost {
         case 'host_input':
           if (typeof m.action === 'string') runInput(m.action, m.payload);
           return true;
+        case 'host_viewport': {
+          const v = frame as { width?: unknown; height?: unknown };
+          const size = typeof v.width === 'number' && typeof v.height === 'number' && v.width > 0 && v.height > 0
+            ? { width: v.width, height: v.height }
+            : null;
+          driven = size !== null;
+          const seq = ++viewportSeq;
+          // After the inputs already queued: they were aimed at the layout the
+          // viewer was looking at when it touched the page, not at its own.
+          inputs = inputs.then(() => { if (seq === viewportSeq) opts.setViewport?.(size); });
+          return true;
+        }
         case 'host_nav':
           if (m.action === 'navigate' && typeof m.url === 'string') opts.navigate('navigate', m.url);
           else if (m.action === 'back' || m.action === 'forward' || m.action === 'reload') opts.navigate(m.action);
@@ -271,6 +314,17 @@ export function createNativeDomHost(opts: NativeDomHostOptions): NativeDomHost {
       accepted = false;
       if (recording) void opts.evalInPage(STOP_JS).catch(() => {});
       setRecording(false);
+      // Nobody can be told the Mac took it back, and the server that comes
+      // back says again who is using the page (browser-host-viewport.ts).
+      release();
+    },
+    noteLocalUse() {
+      release();
+      // Said every time, laid out for another device or not: the server may
+      // already count a device as using the page while its size is on the way,
+      // and a use it never hears of would let that size land after it.
+      if (accepted) opts.sendText(JSON.stringify({ type: 'host_local_use' }));
+      else usedAway = true;
     },
     accepted: () => accepted,
   };

@@ -22,6 +22,7 @@ hermetic(test);
  *
  * @covers NATIVE-HOST-01
  * @covers NATIVE-HOST-02
+ * @covers NATIVE-HOST-04
  * @covers BROWSER-DOM-LIVE-01
  * @covers BROWSER-DOM-SCROLL-01
  * @covers BROWSER-DOM-LAZY-01
@@ -274,6 +275,65 @@ test.describe("Native pane as the mirror host", () => {
       { type: 3, timestamp: Date.now(), data: { source: 0, texts: [{ id: 7, value: "WOKEN" }], attributes: [], removes: [], adds: [] } },
     ] });
     await expect(tall).toContainText("WOKEN", { timeout: 1_500 });
+    await hostPage.close();
+  });
+
+  // Before: the iPad that used a page hosted by the Mac got the Mac's layout,
+  // scaled down and letterboxed; its own size was dropped on the floor.
+  test("the device using a hosted page gets it at its own size, 1:1, until the Mac uses it again", async ({ page, context, request }) => {
+    const ctx = `e2e-host-viewport-${Date.now()}`;
+    const hostPage = await context.newPage();
+    // The Mac lays the page out at its slot, larger than the viewer's pane.
+    const stamp = Date.now() - 60_000;
+    const macPage = [{ type: 4, timestamp: stamp, data: { href: HOST_URL, width: 1600, height: 1000 } }, ...tallPage(stamp).slice(1)];
+    await startFakeHost(hostPage, ctx, macPage);
+    await resetPaneStore(request, [`browser:${ctx}`]);
+    await goToApp(page);
+    const dom = page.locator('[data-testid="browser-dom-cobrowse"]').first();
+    await expect(dom.frameLocator("iframe").locator("#tall")).toContainText("TALL", { timeout: 10_000 });
+
+    const sizes = async () => (await hostFrames(hostPage) as { type?: string; width?: number; height?: number }[])
+      .filter((f) => f.type === "host_viewport");
+    const transform = () => dom.evaluate((el) => (el.querySelector(".replayer-wrapper") as HTMLElement | null)?.style.transform ?? "");
+    const scaleOf = (t: string) => Number(/scale\(([\d.]+)\)/.exec(t)?.[1] ?? NaN);
+    // Watching is not using: the host's layout stays the Mac's, and the mirror fits it.
+    expect(await sizes()).toEqual([]);
+    expect(scaleOf(await transform())).toBeLessThan(0.95);
+
+    // A tap makes this device the one using the page: the host hears the tap,
+    // then the size to lay the page out at, which is this pane's.
+    const box = (await page.locator('[data-testid="browser-dom-input-overlay"]').first().boundingBox())!;
+    await page.mouse.click(box.x + 40, box.y + 30);
+    await expect.poll(async () => (await sizes()).length, { timeout: 5_000 }).toBe(1);
+    const frames = await hostFrames(hostPage) as { type?: string; width?: number; height?: number }[];
+    const own = (await sizes())[0];
+    expect(frames.findIndex((f) => f.type === "host_input")).toBeLessThan(frames.findIndex((f) => f.type === "host_viewport"));
+    const pane = await dom.evaluate((el) => ({ width: el.clientWidth, height: el.clientHeight }));
+    expect(Math.abs(own.width! - pane.width)).toBeLessThanOrEqual(2);
+    expect(Math.abs(own.height! - pane.height)).toBeLessThanOrEqual(2);
+
+    // The Mac lays it out there, a pixel over from its page zoom's rounding:
+    // the mirror shows it 1:1 from the top, not at 0.999 in a letterbox.
+    await hostSend(hostPage, { type: "host_dom_events", events: [
+      { type: 3, timestamp: Date.now(), data: { source: 4, width: own.width, height: own.height! + 1 } },
+    ] });
+    // WebKit writes a translate with no vertical part as `translate(Xpx)`.
+    await expect.poll(transform, { timeout: 2_000 }).toMatch(/^translate\(\d+px(, 0px)?\) scale\(1\)$/);
+
+    // The Mac's user touches its own pane: the page goes back to the Mac's slot.
+    await hostSend(hostPage, { type: "host_local_use" });
+    await expect.poll(async () => (await sizes()).length, { timeout: 5_000 }).toBe(2);
+    expect((await sizes())[1]).toEqual({ type: "host_viewport" });
+    await hostSend(hostPage, { type: "host_dom_events", events: [
+      { type: 3, timestamp: Date.now(), data: { source: 4, width: 1600, height: 1000 } },
+    ] });
+    await expect.poll(async () => scaleOf(await transform()), { timeout: 2_000 }).toBeLessThan(0.95);
+
+    // Used again, then gone: the page goes back to the Mac with it.
+    await page.mouse.click(box.x + 40, box.y + 30);
+    await expect.poll(async () => (await sizes()).length, { timeout: 5_000 }).toBe(3);
+    await page.close();
+    await expect.poll(async () => (await sizes()).at(-1), { timeout: 5_000 }).toEqual({ type: "host_viewport" });
     await hostPage.close();
   });
 });
