@@ -1,5 +1,22 @@
 [
   {
+    "version": "2.2.491",
+    "date": "2026-10-13",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "il Mac resta nativo e l'iPad ne rispecchia il DOM (#304)",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        }
+      ]
+    }
+  },
+  {
     "version": "2.2.490",
     "date": "2026-10-13",
     "sections": {

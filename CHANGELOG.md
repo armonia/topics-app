@@ -2,6 +2,11 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.2.491 — 2026-10-13
+
+### Sotto il cofano
+- il Mac resta nativo e l'iPad ne rispecchia il DOM (#304)
+
 ## 2.2.490 — 2026-10-13
 
 ### Sotto il cofano
