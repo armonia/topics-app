@@ -80,6 +80,9 @@ interface RemoteBrowserState {
    *  (WebRTC/JPEG, default); 'dom' = a native rrweb DOM reconstruction (real
    *  browser, cross-device-sharp) — the server streams DOM events instead of pixels. */
   renderMode: 'video' | 'dom';
+  /** The mirror is the Mac's own pane (the server said `host: 'native'`): the
+   *  page lives there, so this pane never frames the url itself. */
+  nativeHost: boolean;
   /** The server page's console lines, each with the page it was logged on
    *  (`streamConsole.ts`). The sheet lists them; their tallies light the tab's
    *  corner and the dots' badge. */
@@ -286,6 +289,7 @@ export function useRemoteBrowser(contextId: string, isVisible = true): RemoteBro
     // when it can't snapshot the page (canvas/WebGL/injection blocked), and only
     // THEN does the WebRTC pixel transport negotiate.
     renderMode: 'dom',
+    nativeHost: false,
     consoleEntries: [],
   });
   const consoleIdRef = useRef(0);
@@ -899,7 +903,10 @@ export function useRemoteBrowser(contextId: string, isVisible = true): RemoteBro
             // Server confirmed (or forced) the render mode for this pane. On a
             // forced 'video' (DOM unsupported) this reverts an optimistic toggle.
             renderModeRef.current = msg.mode;
-            setState(s => (s.renderMode === msg.mode ? s : { ...s, renderMode: msg.mode }));
+            {
+              const nativeHost = msg.host === 'native';
+              setState(s => (s.renderMode === msg.mode && s.nativeHost === nativeHost ? s : { ...s, renderMode: msg.mode, nativeHost }));
+            }
             break;
           }
           case 'dom_event':

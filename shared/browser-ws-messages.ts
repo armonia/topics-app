@@ -201,6 +201,11 @@ const setRenderMessageSchema = z.object({
 const renderModeMessageSchema = z.object({
   type: z.literal('render_mode'),
   mode: z.enum(['video', 'dom']),
+  // 'native': the Mac's own pane hosts this context and the mirror is ITS page
+  // (server/lib/native-dom-host.ts). The viewer then mirrors it even where it
+  // would frame the url itself: an <iframe> would be a second, separate page.
+  // Absent: the server's Chromium is the source.
+  host: z.optional(z.literal('native')),
 });
 
 /** Server -> client (T1 DOM co-browse): one opaque rrweb event fed straight to
