@@ -1,4 +1,4 @@
-import webpush from "web-push";
+import { createECDH } from "crypto";
 import { existsSync, readFileSync, writeFileSync, mkdirSync } from "fs";
 import { join, dirname } from "path";
 import { getDatabase } from "./db";
@@ -26,8 +26,7 @@ export function initVapid(): VapidKeys {
   if (existsSync(keysPath)) {
     vapidKeys = JSON.parse(readFileSync(keysPath, "utf-8"));
   } else {
-    const generated = webpush.generateVAPIDKeys();
-    vapidKeys = { publicKey: generated.publicKey, privateKey: generated.privateKey };
+    vapidKeys = generateVapidKeys();
     mkdirSync(dirname(keysPath), { recursive: true });
     // Owner-only: the private key signs every push this machine sends.
     writeFileSync(keysPath, JSON.stringify(vapidKeys, null, 2), { mode: 0o600 });
@@ -37,13 +36,45 @@ export function initVapid(): VapidKeys {
   // VAPID "subject" must be a mailto: or https: URL identifying the app
   // operator. Override via VAPID_SUBJECT env var; the default is a neutral
   // placeholder so the public repo ships no private contact/host info.
-  webpush.setVapidDetails(
-    vapidSubject(),
-    vapidKeys!.publicKey,
-    vapidKeys!.privateKey
-  );
+  //
+  // `webpush.setVapidDetails(...)` used to be here, with the static import of
+  // `web-push` it required: asn1.js, jws and the rest of the crypto evaluated
+  // before `listen` on EVERY boot (~33 ms measured in isolation), to set a
+  // global state nobody reads, since `deliverPush` passes explicit credentials
+  // on every request (`vapidDetails()` below). Of its work only one thing
+  // mattered: a broken keys file or a wrong subject stop the boot instead of
+  // silently failing every push. That check stays, without the library.
+  assertVapidDetails(vapidSubject(), vapidKeys!);
 
   return vapidKeys!;
+}
+
+/**
+ * VAPID keys exactly as `webpush.generateVAPIDKeys()` makes them: an ECDH
+ * P-256 pair, uncompressed public key (65 bytes) and private key (32 bytes),
+ * base64url, with the same left padding when a buffer comes out short. Written
+ * here so the first boot does not have to load `web-push` just for this.
+ */
+function generateVapidKeys(): VapidKeys {
+  const curve = createECDH("prime256v1");
+  curve.generateKeys();
+  const pad = (buf: Buffer, len: number) => (buf.length < len ? Buffer.concat([Buffer.alloc(len - buf.length), buf]) : buf);
+  return {
+    publicKey: pad(curve.getPublicKey(), 65).toString("base64url"),
+    privateKey: pad(curve.getPrivateKey(), 32).toString("base64url"),
+  };
+}
+
+/** The same checks as `setVapidDetails`, with the same messages. */
+function assertVapidDetails(subject: string, keys: VapidKeys): void {
+  let url: URL;
+  try { url = new URL(subject); } catch { throw new Error(`Vapid subject is not a valid URL. ${subject}`); }
+  if (url.protocol !== "https:" && url.protocol !== "mailto:") {
+    throw new Error(`Vapid subject is not an https: or mailto: URL. ${subject}`);
+  }
+  const decoded = (key: unknown) => (typeof key === "string" && /^[A-Za-z0-9_-]+$/.test(key) ? Buffer.from(key, "base64url").length : -1);
+  if (decoded(keys.publicKey) !== 65) throw new Error("Vapid public key should be 65 bytes long when decoded.");
+  if (decoded(keys.privateKey) !== 32) throw new Error("Vapid private key should be 32 bytes long when decoded.");
 }
 
 function vapidSubject(): string {

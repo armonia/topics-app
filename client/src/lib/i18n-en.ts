@@ -27,7 +27,7 @@ const EN = {
   ...ATTENTION_EN,
   'toolgroup.cost': 'Summed cost of the actions in the group',
   'ai.selector.routing': 'Run in Topics',
-  'ai.selector.routingLine': 'Claude runs in Topics on your subscription, without a process per chat. Everything else goes direct.',
+  'ai.selector.routingLine': 'Everything else goes direct.',
   'ai.selector.route.topics': 'via Topics',
   'ai.selector.route.via': 'via {engine}',
   'ai.selector.route.direct.family': 'This model runs direct: {engine} does not go through Topics.',
@@ -165,6 +165,9 @@ const EN = {
   'ctx.removeFromContext': 'Remove from the context',
   'ctx.removeFile': 'Remove the file',
   'tool.logTruncated': '[… {n} lines dropped: the log buffer is full]',
+  'tool.live.running': 'running',
+  'tool.live.exit': 'exit {code}',
+  'tool.live.ended': 'ended',
   'tool.runningTail.more': 'More output above',
   'tool.shell.silent': 'Running for {elapsed} · no output shown',
   'tool.shell.sleepLeft': ' · sleep: {left} left',
@@ -2121,6 +2124,7 @@ const EN = {
   'devices.revokeTitle': 'Revoke this device’s access',
   // ── Terminal: the three states in which the pane is printing nothing.
   'terminal.stale.title': 'Session expired',
+  'terminal.resting.title': 'Resting',
   'terminal.dormant.title': 'Session ended',
   // ── Terminal: WHY it ended, read off the board card this session worked.
   'terminal.cause.interrupted': 'Cut by the server restart at {time}',
@@ -2133,6 +2137,7 @@ const EN = {
   'terminal.resumeTitle': 'Resume the session (--resume): brings the sub-agent conversation back to life',
   'terminal.reload': 'Reload',
   'terminal.resume': 'Resume',
+  'terminal.banner.resting': 'Resting',
   'terminal.restarting': 'Restarting…',
   'terminal.restartingSession': 'Restarting session…',
   // ── Terminal: the refusals that used to happen in silence. The server text

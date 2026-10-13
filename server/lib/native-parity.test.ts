@@ -5,7 +5,7 @@
  * arrives halved and nobody notices — the text is there, it is the rules that
  * are missing.
  *
- * @covers NATIVE-CTX-01, NATIVE-SKILL-01, NATIVE-EFFORT-01, NATIVE-MEM-01
+ * @covers NATIVE-CTX-01, NATIVE-SKILL-01, NATIVE-EFFORT-01, NATIVE-MEM-01, NATIVE-MEM-02, NATIVE-MEM-03
  */
 import { describe, it, expect, beforeEach, afterEach } from "bun:test";
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync, symlinkSync, chmodSync, readFileSync, realpathSync } from "node:fs";
@@ -13,7 +13,7 @@ import { execFileSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
-  claudeMemoryDir, readClaudeMemoryIndex, recallMemories, nativeWorkingDir,
+  claudeMemoryDir, readClaudeMemoryIndex, recallMemoryContext, nativeWorkingDir,
   readUserRules, readUserRulesSource, listSkills, skillsBlock, thinkingBudgetFor, thinkingConfigFor, clampMaxTokens, DEFAULT_MAX_TOKENS,
 } from "./native-parity";
 
@@ -139,7 +139,7 @@ describe("thinkingConfigFor", () => {
     for (const model of ["claude-opus-5", "claude-sonnet-5", "claude-fable-5", "claude-opus-4-7", "claude-opus-4-8"]) {
       for (const tier of ["low", "medium", "high", "xhigh", "max"]) {
         const c = thinkingConfigFor(model, tier);
-        expect(c.thinking, `${model}/${tier}`).toEqual({ type: "adaptive" });
+        expect(c.thinking, `${model}/${tier}`).toEqual({ type: "adaptive", display: "summarized" });
         expect(c.output_config, `${model}/${tier}`).toEqual({ effort: tier });
         expect(c.minMaxTokens).toBe(0);
       }
@@ -148,7 +148,7 @@ describe("thinkingConfigFor", () => {
 
   it("low sulla famiglia 5 NON e' «nessun pensiero»: Fable rifiuta disabled, Opus 5 lo rifiuta a xhigh/max", () => {
     const c = thinkingConfigFor("claude-fable-5", "low");
-    expect(c.thinking).toEqual({ type: "adaptive" });
+    expect(c.thinking).toEqual({ type: "adaptive", display: "summarized" });
     expect(c.output_config).toEqual({ effort: "low" });
   });
 
@@ -159,7 +159,7 @@ describe("thinkingConfigFor", () => {
   it("la 4.6 vuole adaptive ESPLICITO e non conosce xhigh: si abbassa a high", () => {
     for (const model of ["claude-opus-4-6", "claude-sonnet-4-6"]) {
       expect(thinkingConfigFor(model, "xhigh")).toEqual({
-        thinking: { type: "adaptive" }, output_config: { effort: "high" }, minMaxTokens: 0,
+        thinking: { type: "adaptive", display: "summarized" }, output_config: { effort: "high" }, minMaxTokens: 0,
       });
       expect(thinkingConfigFor(model, "max").output_config).toEqual({ effort: "max" });
     }
@@ -168,14 +168,14 @@ describe("thinkingConfigFor", () => {
   it("un tier assente o sconosciuto sulla famiglia 5 lascia decidere il modello: adaptive, nessun effort", () => {
     for (const tier of [null, undefined, "turbo", ""]) {
       const c = thinkingConfigFor("claude-opus-5", tier);
-      expect(c.thinking).toEqual({ type: "adaptive" });
+      expect(c.thinking).toEqual({ type: "adaptive", display: "summarized" });
       expect("output_config" in c).toBe(false);
     }
   });
 
   it("an id nobody has listed yet is adaptive unless it is explicitly legacy", () => {
     for (const model of ["claude-opus-5-5", "claude-fable-5-1", "claude-sonnet-4-7", "claude-haiku-5"]) {
-      expect(thinkingConfigFor(model, "high").thinking, model).toEqual({ type: "adaptive" });
+      expect(thinkingConfigFor(model, "high").thinking, model).toEqual({ type: "adaptive", display: "summarized" });
     }
   });
 
@@ -238,7 +238,7 @@ describe("listSkills — i casi che le facevano sparire", () => {
 });
 
 describe("Claude Code's memory on the native runtime", () => {
-  const encodeDir = (p: string) => p.replace(/[/.]/g, "-");
+  const encodePath = (p: string) => p.replace(/[/.]/g, "-");
   const git = (cwd: string, ...args: string[]) =>
     execFileSync("git", ["-C", cwd, "-c", "user.name=t", "-c", "user.email=t@t", ...args], { stdio: "ignore" });
   let savedPath: string | undefined;
@@ -262,7 +262,7 @@ describe("Claude Code's memory on the native runtime", () => {
       mkdirSync(join(repo, "sub"));
       const wt = join(repo, "..", `${repo.split("/").pop()}-wt`);
       git(repo, "worktree", "add", "-q", wt);
-      const want = join(home, ".claude", "projects", encodeDir(repo), "memory");
+      const want = join(home, ".claude", "projects", encodePath(repo), "memory");
       expect(claudeMemoryDir(join(repo, "sub"), home)).toBe(want);
       expect(claudeMemoryDir(wt, home)).toBe(want);
       rmSync(wt, { recursive: true, force: true });
@@ -272,7 +272,7 @@ describe("Claude Code's memory on the native runtime", () => {
   });
 
   it("outside git the memory folder is the folder itself (the home, for a chat with no project)", () => {
-    expect(claudeMemoryDir(home, home)).toBe(join(home, ".claude", "projects", encodeDir(home), "memory"));
+    expect(claudeMemoryDir(home, home)).toBe(join(home, ".claude", "projects", encodePath(home), "memory"));
   });
 
   it("without a project the native turn runs in TOPICS_WORKSPACE", () => {
@@ -301,14 +301,14 @@ describe("Claude Code's memory on the native runtime", () => {
     mkdirSync(dir, { recursive: true });
     writeFileSync(join(dir, "MEMORY.md"), "- qualcosa");
     // a memrecall that always answers: only the switch can make the recall silent
-    fakeMemrecall(`printf '%s' '{"hookSpecificOutput":{"additionalContext":"- scheda.md"}}'`);
+    fakeRecallCommand(`printf '%s' '{"hookSpecificOutput":{"additionalContext":"- scheda.md"}}'`);
     process.env.CLAUDE_CODE_DISABLE_AUTO_MEMORY = "1";
     expect(readClaudeMemoryIndex(home, home)).toBeNull();
-    expect(await recallMemories("una domanda qualunque", home, home)).toBeNull();
+    expect(await recallMemoryContext("una domanda qualunque", home, home)).toBeNull();
   });
 
   /** A fake `memrecall` in the user's bin, the folder launchd's PATH does not have. */
-  function fakeMemrecall(body: string): string {
+  function fakeRecallCommand(body: string): string {
     mkdirSync(join(home, "bin"), { recursive: true });
     const bin = join(home, "bin", "memrecall");
     writeFileSync(bin, `#!/bin/sh\n${body}\n`);
@@ -319,17 +319,17 @@ describe("Claude Code's memory on the native runtime", () => {
 
   it("the recall gets the hook's JSON and returns its additionalContext", async () => {
     const seen = join(home, "stdin.json");
-    fakeMemrecall(`cat > ${seen}; printf '%s' '{"hookSpecificOutput":{"hookEventName":"UserPromptSubmit","additionalContext":"- scheda.md: utile"}}'`);
-    expect(await recallMemories("come faccio il deploy", "/p", home)).toBe("- scheda.md: utile");
+    fakeRecallCommand(`cat > ${seen}; printf '%s' '{"hookSpecificOutput":{"hookEventName":"UserPromptSubmit","additionalContext":"- scheda.md: utile"}}'`);
+    expect(await recallMemoryContext("come faccio il deploy", "/p", home)).toBe("- scheda.md: utile");
     expect(JSON.parse(readFileSync(seen, "utf-8"))).toEqual({ prompt: "come faccio il deploy", cwd: "/p" });
   });
 
   it("no memrecall, a failure or an empty answer: no recall, and the turn goes on", async () => {
     process.env.PATH = "/usr/bin:/bin";
-    expect(await recallMemories("domanda", "/p", home)).toBeNull();
-    fakeMemrecall("exit 2");
-    expect(await recallMemories("domanda", "/p", home)).toBeNull();
-    fakeMemrecall("exit 0");
-    expect(await recallMemories("domanda", "/p", home)).toBeNull();
+    expect(await recallMemoryContext("domanda", "/p", home)).toBeNull();
+    fakeRecallCommand("exit 2");
+    expect(await recallMemoryContext("domanda", "/p", home)).toBeNull();
+    fakeRecallCommand("exit 0");
+    expect(await recallMemoryContext("domanda", "/p", home)).toBeNull();
   });
 });

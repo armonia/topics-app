@@ -13,6 +13,7 @@ import { gitRead } from "./git-porcelain";
 import { parseNumstatZ } from "./git-numstat";
 import { UNQUOTED_PATHS } from "../services/task-diff-file";
 import type { ChangeSet, ChangeSetFile } from "../../shared/change-set";
+import { SPAWN_TIMEOUT, spawnBounded } from "./bounded-spawn";
 
 /** One file of a diff's stat: the shared contract (`shared/change-set.ts`), under the name this module's callers already use. */
 export type DiffStatEntry = ChangeSetFile;
@@ -94,7 +95,7 @@ function scopeArgs(paths: string[] | undefined): [string[], string[]] {
 /** Run a read-only git in `cwd`. Never throws: a missing git or a vanished directory is code 1. */
 export async function runGitRead(cwd: string, args: string[]): Promise<{ code: number; text: string }> {
   try {
-    const proc = Bun.spawn(gitRead(...args), { cwd, stdout: "pipe", stderr: "ignore" });
+    const proc = spawnBounded(gitRead(...args), { cwd, stdout: "pipe", stderr: "ignore", timeoutMs: SPAWN_TIMEOUT.query });
     const text = await new Response(proc.stdout).text();
     await proc.exited;
     return { code: proc.exitCode ?? 1, text };

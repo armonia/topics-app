@@ -498,7 +498,7 @@ const defaultPsReader: PsReader = () => {
   try {
     // eslint-disable-next-line @typescript-eslint/no-require-imports -- see the comment above: child_process stays out of the module level
     const { execFileSync } = require("node:child_process") as typeof import("node:child_process");
-    return execFileSync("ps", ["-axo", "pid=,ppid=,command="], { encoding: "utf8" });
+    return execFileSync("ps", ["-axo", "pid=,ppid=,command="], { encoding: "utf8", timeout: 5000, killSignal: "SIGKILL" });
   } catch {
     return null;
   }
@@ -662,6 +662,8 @@ export function portOwnedBy(
         return execFileSync("lsof", ["-nP", `-iTCP:${port}`, "-sTCP:LISTEN", "-t"], {
           encoding: "utf8",
           stdio: ["ignore", "pipe", "ignore"],
+          timeout: 5000,
+          killSignal: "SIGKILL",
         });
       } catch {
         return null;

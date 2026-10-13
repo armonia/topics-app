@@ -27,7 +27,7 @@ const IT: Dict = {
   ...ATTENTION_IT,
   'toolgroup.cost': 'Costo sommato delle azioni del gruppo',
   'ai.selector.routing': 'Esegui in Topics',
-  'ai.selector.routingLine': 'Claude gira in Topics col tuo abbonamento, senza un processo per chat. Gli altri vanno diretti.',
+  'ai.selector.routingLine': 'Gli altri vanno diretti.',
   'ai.selector.route.topics': 'via Topics',
   'ai.selector.route.via': 'via {engine}',
   'ai.selector.route.direct.family': 'Questo modello va diretto: {engine} non passa da Topics.',
@@ -166,6 +166,9 @@ const IT: Dict = {
   'ctx.removeFromContext': 'Rimuovi dal contesto',
   'ctx.removeFile': 'Rimuovi il file',
   'tool.logTruncated': '[… {n} righe scartate: il buffer del log è pieno]',
+  'tool.live.running': 'in corso',
+  'tool.live.exit': 'uscita {code}',
+  'tool.live.ended': 'terminata',
   'tool.runningTail.more': "Sopra c'è altro output",
   'tool.shell.silent': 'In esecuzione da {elapsed} · nessun output visibile',
   'tool.shell.sleepLeft': ' · sleep: mancano {left}',
@@ -2401,6 +2404,7 @@ const IT: Dict = {
   //    cambia una virgola e `terminal-tab-reload.spec.ts` (che ancora
   //    `/^Riavvia la sessione/`) resta verde; l'inglese è il nuovo.
   'terminal.stale.title': 'Sessione scaduta',
+  'terminal.resting.title': 'A riposo',
   'terminal.dormant.title': 'Sessione terminata',
   'terminal.cause.interrupted': 'Interrotta dal riavvio del server alle {time}',
   'terminal.cause.queued': 'In coda: {head}, {detail}',
@@ -2412,6 +2416,7 @@ const IT: Dict = {
   'terminal.resumeTitle': 'Riprendi la sessione (--resume): riporta viva la conversazione del sotto-agente',
   'terminal.reload': 'Ricarica',
   'terminal.resume': 'Riprendi',
+  'terminal.banner.resting': 'A riposo',
   'terminal.restarting': 'Riavvio…',
   'terminal.restartingSession': 'Riavvio sessione…',
   // ── Terminal: the refusals that used to happen in silence. The server text

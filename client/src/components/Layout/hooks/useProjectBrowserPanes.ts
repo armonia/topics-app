@@ -42,6 +42,7 @@ import { insertPaneAfter, resolveOpenTabTarget } from '../../../lib/openTabTarge
 import { setBrowserSpawner, spawnerOfBrowser } from '../../../state/browserSpawner';
 import { chooseSplitOrientation } from '../gridWidths';
 import { tracePaneAttach } from '../../../lib/paneAttachTrace';
+import { claimProjectAgentNavigate, resolveProjectBrowserTargetGroup } from './projectBrowserPanePlan';
 
 export interface UseProjectBrowserPanesArgs {
   projectPath: string;
@@ -121,8 +122,9 @@ export function useProjectBrowserPanes({
   //   1. Match by topicId: only open a pane when the broadcast targets a
   //      topic visible in this ProjectWindow (any open chat pane bound to it,
   //      or the topic itself living under this projectPath).
-  //   2. Ensure exactly one browser pane exists in the focused group
-  //      (singleton). If it already exists, focus it; otherwise add it.
+  //   2. Keep one pane per browser context. Reuse activates it where it is;
+  //      a new agent page first asks the topic window, then falls back to the
+  //      project layout beside the chat/terminal that asked for it.
   //   3. Push the URL through `onBrowserNavigateUrl(url)` so the component-
   //      level `browserNavigateUrl` state can thread it into
   //      `<RemoteBrowserPanel navigateUrl={…} />`.
@@ -144,9 +146,8 @@ export function useProjectBrowserPanes({
       // can't reach (white pane) — and seedPaneUrl would persist that dead URL.
       // On Tauri/local this is a passthrough, so desktop behaviour is unchanged.
       const url = resolveBrowserNavigateUrl(rawUrl);
-      // Default to the focused group (chat-driven navigation), but allow an
-      // explicit target so a terminal-originated open lands beside the SAME
-      // group as the terminal pane rather than wherever focus happens to be.
+      // Prefer the explicit target, then the group hosting the requesting chat
+      // or terminal. Focus is only a fallback for requests without a spawner.
       // Fall back to the first group when nothing is focused yet: a freshly
       // opened project window can drain a parked "Apri nel workspace" navigate
       // before focus settles, and we still want the pane to land somewhere.
@@ -155,7 +156,12 @@ export function useProjectBrowserPanes({
       // l'apertura: sotto, il ramo di creazione si fa dare la pane e il suo
       // gruppo insieme. Fino al 15/08 qui c'era un `return` muto, e «Apri nel
       // workspace» su un progetto vuoto non apriva niente senza dirlo.
-      const fgid = targetGroupId ?? focusedGroupIdRef.current ?? groupsRef.current[0]?.id;
+      const fgid = resolveProjectBrowserTargetGroup(
+        groupsRef.current,
+        targetGroupId,
+        focusedGroupIdRef.current,
+        spawnerKey,
+      );
 
       // Reuse ANY existing browser in this project — refresh it in place rather
       // than spawning a second. A project shares one browser context across its
@@ -189,6 +195,8 @@ export function useProjectBrowserPanes({
       // and activates it; left here, the request was claimed and did nothing.
       if (existing && !grp) tracePaneAttach('existing pane in no group, placing it', { projectPath, paneId: existing.id });
       if (existing && grp) {
+        // Reused where it already is: moving it into the chat's group would
+        // stack it as a tab OVER the chat that asked for it.
         tracePaneAttach('reuse existing pane', { projectPath, paneId: existing.id, groupId: grp.id, wasActive: grp.activePaneId === existing.id });
         setGroups(prev => prev.map(g => (g.id === grp.id ? { ...g, activePaneId: existing.id } : g)));
         setFocusedGroupId(grp.id);
@@ -246,15 +254,31 @@ export function useProjectBrowserPanes({
     const topicBelongsToThisProject = (topicId: string | undefined): boolean => topicMembership(topicId) !== null;
 
     const unsubWS = onWSMessage((msg: WSMessage) => {
-      const m = msg as unknown as { type?: string; topicId?: string; url?: string; paneId?: string; contextId?: string };
+      const m = msg as unknown as { type?: string; topicId?: string; hostTopicId?: string; url?: string; paneId?: string; contextId?: string };
       if (m.type === 'browser:navigate' && m.url) {
-        const membership = topicMembership(m.topicId);
+        // A spawned child's browser belongs where its parent chat is (see the
+        // same branch in usePaneOrdering).
+        const navTopicId = m.hostTopicId ?? m.topicId;
+        const contextId = m.contextId ?? m.topicId;
+        const membership = topicMembership(navTopicId);
         tracePaneAttach('navigate received', { projectPath, topicId: m.topicId ?? null, contextId: m.contextId ?? null, membership });
         // Bind the pane to the server-resolved contextId (== topic.id) so the
         // native CDP target registers under the id the agent's browser_* tools
         // resolve to (no invisible Playwright phantom). Falls back to topicId
         // (the chat-topic contextId) when the broadcast predates the field.
-        if (membership) ensureBrowserPaneAndNavigate(m.url, undefined, m.topicId, m.contextId ?? m.topicId);
+        if (membership) {
+          const existingPane = !!contextId && panesRef.current.some(
+            p => p.id === createPaneId('browser', contextId),
+          );
+          const navigateUrl = resolveBrowserNavigateUrl(m.url);
+          if (claimProjectAgentNavigate({
+            topicId: navTopicId,
+            contextId,
+            url: navigateUrl,
+            hasExistingPane: existingPane,
+          })) return;
+          ensureBrowserPaneAndNavigate(m.url, undefined, navTopicId, contextId);
+        }
       }
       // Terminal-originated open: only the project window whose layout actually
       // contains the terminal pane reacts; it opens the browser beside that

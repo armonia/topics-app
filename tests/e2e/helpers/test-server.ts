@@ -26,9 +26,10 @@
  * volte in rossi finti).
  */
 
-import { realpathSync } from "fs";
+import { existsSync, realpathSync, readdirSync } from "fs";
 import { homedir, tmpdir } from "os";
-import { join, resolve } from "path";
+import { dirname, join, resolve } from "path";
+import { webkit } from "@playwright/test";
 import { IS_WINDOWS, processRows } from "./platform";
 import { defaultE2EPort, E2E_DEFAULT_PORT } from "./worktree-port";
 import { TEST_RUN_ENV, newTestRunId } from "../../../scripts/stray-ai-bridges";
@@ -183,11 +184,74 @@ export const E2E_HOME = join(E2E_DATA_DIR, ".home");
  * qui isola il server da QUALCOSA che, senza, andrebbe a toccare la macchina
  * vera — i commenti dicono cosa.
  */
+/**
+ * The Playwright browser cache as THIS process (real HOME) sees it.
+ *
+ * start-test-server.sh isolates HOME, and Playwright looks for its browsers
+ * under the home directory, so a server booted without these variables looks
+ * in an empty `<DATA_DIR>/.home/...` cache. The preview photo is taken by the
+ * server's own WebKit (KANBAN-95), which has no CHROMIUM_PATH-style pin:
+ * handing the real cache down as PLAYWRIGHT_BROWSERS_PATH is what makes it
+ * findable. The executable sits at `<cache>/webkit-<rev>/<binary>` on every
+ * platform. Returns "" if nothing found — the server surfaces a clear error
+ * at first use.
+ */
+export function resolvePlaywrightBrowsersPath(): string {
+  try {
+    return dirname(dirname(webkit.executablePath()));
+  } catch {
+    return "";
+  }
+}
+
+/**
+ * Pin the server-side Chromium (BrowserService panes) to the
+ * actually-installed binary: prefer the highest cached revision.
+ * Returns "" if nothing found.
+ */
+export function resolveChromiumPath(): string {
+  const cacheDir = join(homedir(), "Library/Caches/ms-playwright");
+  if (!existsSync(cacheDir)) return "";
+  try {
+    const entries = readdirSync(cacheDir).filter((d) => d.startsWith("chromium-"));
+    // Prefer the highest revision numerically (newer cache wins).
+    entries.sort((a, b) => {
+      const ax = parseInt(a.split("-")[1] || "0", 10);
+      const bx = parseInt(b.split("-")[1] || "0", 10);
+      return bx - ax;
+    });
+    for (const dir of entries) {
+      const candidate = join(
+        cacheDir,
+        dir,
+        "chrome-mac-arm64/Google Chrome for Testing.app/Contents/MacOS/Google Chrome for Testing",
+      );
+      if (existsSync(candidate)) return candidate;
+    }
+  } catch { /* ignore */ }
+  return "";
+}
+
 export function testServerEnv(port: number = E2E_PORT): Record<string, string> {
   const dataDir = dataDirForPort(port);
   return {
     BUN_PORT: String(port),
     DATA_DIR: dataDir,
+    // The browser engines the server itself drives (server-side WebKit for
+    // card previews, Chromium for BrowserService panes). These MUST live in
+    // this single source: every launcher (global-setup at boot,
+    // restartTestServer mid-suite, terminal-session-resume) spreads this
+    // function, and start-test-server.sh isolates HOME — without them a
+    // restarted server looks for browsers in an empty `<DATA_DIR>/.home`
+    // cache and every preview screenshot fails (RECAPTURE-01 red only when
+    // it runs after a restart in the same job).
+    PLAYWRIGHT_BROWSERS_PATH: process.env.PLAYWRIGHT_BROWSERS_PATH ||
+      resolvePlaywrightBrowsersPath(),
+    // Phase 30 plan 30-05: server's playwright-core ships an older
+    // chromium manifest, but @playwright/test installs the current binary.
+    // Pin to the actually-installed binary. Override via CHROMIUM_PATH env.
+    CHROMIUM_PATH: process.env.CHROMIUM_PATH ||
+      resolveChromiumPath(),
     // TOPICS_HOME dedicata: il lock del daemon (`daemon-process.lock`) è per-home,
     // e quello vero ce l'ha il server di sviluppo.
     TOPICS_HOME: join(dataDir, ".topics-home"),

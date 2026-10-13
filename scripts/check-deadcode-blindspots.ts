@@ -46,7 +46,7 @@
  */
 import { execFileSync } from "child_process";
 import { readFileSync, writeFileSync, existsSync, unlinkSync } from "fs";
-import { join } from "path";
+import { join, relative } from "path";
 
 const ROOT = join(import.meta.dir, "..");
 
@@ -313,10 +313,30 @@ function dropHold(): void {
   try { unlinkSync(RELOAD_HOLD); } catch { /* already gone */ }
 }
 
+/**
+ * What goes back into a probed file at the end of a run, or null to leave it.
+ * A file nobody else touched gets its original back, byte for byte. One edited
+ * while the probes were in place (an agent working in the same tree) keeps the
+ * edit and loses only the probe: putting the original back over it threw the
+ * edit away without a word (08/10, a fix written during a qa-gate vanished, and
+ * the tests then ran against the code without it).
+ */
+export function restoredContent(now: string, original: string): string | null {
+  if (now === original) return null;
+  if (now === withProbe(original)) return original;
+  const cleaned = withoutProbe(now);
+  return cleaned === now ? null : cleaned;
+}
+
 function restore(files: Map<string, string>): void {
   for (const [abs, original] of files) {
     try {
-      if (readFileSync(abs, "utf8") !== original) writeFileSync(abs, original);
+      const now = readFileSync(abs, "utf8");
+      const next = restoredContent(now, original);
+      if (now !== original && now !== withProbe(original)) {
+        console.warn(`[check-deadcode-blindspots] ${relative(ROOT, abs)} changed during the run: the edit stays, only the probe comes out`);
+      }
+      if (next !== null) writeFileSync(abs, next);
     } catch { /* il file è sparito sotto: non c'è niente da rimettere */ }
   }
 }

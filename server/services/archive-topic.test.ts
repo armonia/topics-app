@@ -102,16 +102,13 @@ describe("archiveTopicFully", () => {
     expect(h.parked).toEqual([]);
   });
 
-  it("broadcasta sia l'archiviazione sia l'unread azzerato", () => {
+  it("broadcasts the archive and zeroes the unread on disk", () => {
     const h = harness();
     archiveTopicFully(h.deps, "t1");
-    const types = h.broadcasts.map((b) => b.type);
-    expect(types).toContain("topic:archived");
-    // Senza questo, il badge resta acceso nei client già connessi finché non
-    // ricaricano: lo stato sul disco è giusto e quello a schermo no.
-    expect(types).toContain("unread:updated");
-    const u = h.broadcasts.find((b) => b.type === "unread:updated");
-    expect(u).toMatchObject({ topicId: "t1", unreadCount: 0 });
+    // The archive is the only frame of its own: the zero reaches the windows
+    // in the attention frame of step 5b (`archive-topic.attention.test.ts`).
+    expect(h.broadcasts.map((b) => b.type)).toEqual(["topic:archived"]);
+    expect(h.unread.t1?.unreadCount).toBe(0);
   });
 
   it("già archiviato e pulito: non riscrive il flag né ribroadcasta", () => {
@@ -136,9 +133,9 @@ describe("archiveTopicFully", () => {
 
     expect(res.repaired).toBe(true);
     expect(h.unread.t1?.unreadCount).toBe(0);
-    // Il flag non si tocca (era già giusto): niente `topic:archived` di troppo.
+    // The flag is left alone (it was already right): no extra `topic:archived`.
     expect(h.saved).toHaveLength(0);
-    expect(h.broadcasts.map((b) => b.type)).toEqual(["unread:updated"]);
+    expect(h.broadcasts).toHaveLength(0);
     // La purge gira comunque: il ghost-topic è indipendente dall'unread.
     expect(h.purged).toEqual(["t1"]);
   });

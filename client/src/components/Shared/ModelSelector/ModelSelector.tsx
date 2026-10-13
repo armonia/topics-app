@@ -14,11 +14,13 @@
  * scope is a defect. The trigger stays with the caller: its look and its
  * `data-testid` belong to the surface.
  *
- * Layout (MSEL-02, revision 2026-10-04 §3.4): from 720px of window up, up to
- * four columns of companies side by side, each scrolling on its own under
- * sticky headings; below, one list, and under 768px the `Menu` sheet from the
- * bottom. Band, search and Automatic never scroll: only the columns do, inside
- * a height of at most `min(456, room on the roomier side - 16)` (§4.2).
+ * Layout (MSEL-02, amended 2026-10-06): one vertical list of company
+ * sections on every viewport; under 768px the `Menu` sheet from the bottom.
+ * The side-by-side columns (revision 2026-10-04 §3.4) read as a mess once the
+ * companies grew past three, so this selector no longer picks them; `ModelList`
+ * keeps `columns` as a tested layout value, unused from here. Band, search and
+ * Automatic never scroll: only the sections do, inside a height of at most
+ * `min(456, room on the roomier side - 16)` (§4.2).
  *
  * Providers and keys is a LEVEL of this panel (revision §5.1, Ribaltamento 2):
  * the foot, «Sistema ›» and the connect boxes put the providers' levels over
@@ -41,8 +43,6 @@ const ProvidersLevels = lazy(async () => {
   return { default: Levels };
 });
 
-/** Columns from here up (design §4). */
-const COLUMNS_FROM_PX = 720;
 /** Room kept between the panel and the edge of the window, in px. */
 const EDGE_PX = 16;
 /** The tallest the desktop panel gets (revision §4.2). */
@@ -62,22 +62,8 @@ export interface ModelSelectorProps extends Omit<ModelListProps, 'layout' | 'foc
   ariaLabel?: string;
 }
 
-function useViewportWidth(open: boolean): number {
-  const [width, setWidth] = useState(() => (typeof window !== 'undefined' ? window.innerWidth : 1280));
-  useEffect(() => {
-    if (!open) return;
-    const onResize = () => setWidth(window.innerWidth);
-    onResize();
-    window.addEventListener('resize', onResize);
-    return () => window.removeEventListener('resize', onResize);
-  }, [open]);
-  return width;
-}
-
 export function ModelSelector({ open, anchorRef, align, testId, ariaLabel, onClose, initialLevel, ...list }: ModelSelectorProps) {
   const { isMobile } = useMobile();
-  const width = useViewportWidth(open);
-  const columns = width >= COLUMNS_FROM_PX;
   const [ready, setReady] = useState(modelListReady);
   const [maxHeight, setMaxHeight] = useState<number | null>(null);
 
@@ -125,7 +111,7 @@ export function ModelSelector({ open, anchorRef, align, testId, ariaLabel, onClo
     }));
   };
 
-  const panelWidth = isMobile ? undefined : columns ? 'min(44rem, calc(100vw - 2rem))' : 'min(22rem, calc(100vw - 1rem))';
+  const panelWidth = isMobile ? undefined : 'min(22rem, calc(100vw - 1rem))';
   return (
     <Menu
       open={open && ready}
@@ -146,7 +132,6 @@ export function ModelSelector({ open, anchorRef, align, testId, ariaLabel, onClo
         anchorRef={anchorRef}
         onClose={close}
         initialLevel={initialLevel ?? null}
-        columns={columns}
         isMobile={isMobile}
         style={{
           width: panelWidth,
@@ -165,12 +150,11 @@ export function ModelSelector({ open, anchorRef, align, testId, ariaLabel, onClo
  * The inside of the panel, mounted on every opening (the `Menu` drops its
  * children when closed), so a level chosen in one opening does not survive it.
  */
-function SelectorBody({ list, anchorRef, onClose, initialLevel, columns, isMobile, style, levelHeight, ceiling }: {
+function SelectorBody({ list, anchorRef, onClose, initialLevel, isMobile, style, levelHeight, ceiling }: {
   list: Omit<ModelSelectorProps, 'open' | 'anchorRef' | 'align' | 'testId' | 'ariaLabel' | 'onClose' | 'initialLevel'>;
   anchorRef: React.RefObject<HTMLElement | null>;
   onClose: () => void;
   initialLevel: ProvidersTarget | null;
-  columns: boolean;
   isMobile: boolean;
   style: React.CSSProperties;
   /** A level takes the panel's full height when the models are shorter. */
@@ -227,7 +211,7 @@ function SelectorBody({ list, anchorRef, onClose, initialLevel, columns, isMobil
     >
       <div
         ref={modelsRef}
-        // Under a level the models stay laid out (the scroll of each column is
+        // Under a level the models stay laid out (the scroll of the list is
         // kept) but cannot be seen, reached or read.
         inert={level !== null}
         aria-hidden={level !== null || undefined}
@@ -246,7 +230,7 @@ function SelectorBody({ list, anchorRef, onClose, initialLevel, columns, isMobil
             }}
             onClose={onClose}
             onOpenProviders={openLevel}
-            layout={columns ? 'columns' : 'list'}
+            layout="list"
             focusSearch={!isMobile}
           />
         </Suspense>

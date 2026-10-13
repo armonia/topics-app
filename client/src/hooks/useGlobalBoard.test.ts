@@ -21,11 +21,11 @@
  * @covers KANBAN-06
  */
 import { describe, expect, test, afterEach, beforeEach, jest } from 'bun:test';
-import { createElement } from 'react';
+import { createElement, useEffect } from 'react';
 import { mount } from '../test/reactHarness';
 import { boardApi, type BoardTask } from '../lib/board';
 import { dispatchLifecycle } from '../lib/wsFrameBus';
-import { __resetBoardTasks, getBoardTasks, getBoardTasksError, hasLoadedBoardTasks, setBoardTasks } from '../lib/boardTasksStore';
+import { __resetBoardTasks, applyBoardTaskFrame, getBoardTasks, getBoardTasksError, hasLoadedBoardTasks, setBoardTasks } from '../lib/boardTasksStore';
 import { useGlobalBoard } from './useGlobalBoard';
 import type { WSMessage } from '../types';
 
@@ -282,6 +282,32 @@ describe('useGlobalBoard: the frame is the answer', () => {
     await settle();
     expect(reads, 'so is a deletion').toBe(5);
     b.unmount();
+  });
+
+  test('a frame that changes no column hands App the SAME board', async () => {
+    // React bails out of a `useSyncExternalStore` render when the snapshot is
+    // the same object (`Object.is`); this harness re-renders on every notice
+    // instead, so what is asserted is the identity React compares.
+    const box: { board: ReturnType<typeof useGlobalBoard> | null } = { board: null };
+    const Probe = (): null => {
+      const board = useGlobalBoard();
+      useEffect(() => { box.board = board; });
+      return null;
+    };
+    const h = mount(createElement(Probe));
+    setBoardTasks([row('a'), row('b')]);
+    const shown = box.board;
+
+    // A title and a dispatch chip: the store takes them, the summary does not move.
+    applyBoardTaskFrame(row('a', { text: 'agent at work', dispatchState: 'working' } as Partial<BoardTask>));
+    expect(getBoardTasks()[0]!.text).toBe('agent at work');
+    expect(box.board, 'App got a new board object for a title').toBe(shown);
+
+    // A card that changed column is a new shape: a new object, the counts move.
+    setBoardTasks([row('a', { status: 'done' }), row('b')]);
+    expect(box.board).not.toBe(shown);
+    expect(box.board!.activeCount).toBe(1);
+    h.unmount();
   });
 
   test('after a minute of absorbed frames one read leaves anyway', async () => {

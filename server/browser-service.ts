@@ -1,4 +1,6 @@
 import type { Page, BrowserContext, Browser } from "playwright-core";
+import { browserReapable } from "./lib/browser-idle-reap";
+import { rewriteDomEventResources } from "./lib/dom-resource-rewrite";
 import { pushNetworkEntry, completeNetworkEntry, type NetworkEntry } from "./browser-network-log";
 import { existsSync, mkdirSync, writeFileSync, readFileSync, statSync, readdirSync } from "fs";
 import { join } from "path";
@@ -359,6 +361,10 @@ export interface BrowserService {
    *  the page then still reports the PREVIOUS url/title, so callers must
    *  surface the failure instead of treating the stale shape as success. */
   navigate(id: string, url: string): Promise<{ url: string; title: string; error?: string }>;
+  /** A resource of the page fetched through its context (same network, same
+   *  cookies), for a DOM mirror viewer that cannot reach it. `null` when the
+   *  context is not open: a mirror only exists while it is. */
+  fetchResource(id: string, url: string): Promise<{ status: number; contentType: string; body: Buffer } | null>;
   goBack(id: string): Promise<{ url: string; title: string }>;
   goForward(id: string): Promise<{ url: string; title: string }>;
   reload(id: string): Promise<void>;
@@ -770,6 +776,8 @@ export async function createBrowserService(opts: BrowserServiceOptions = {}): Pr
       ],
     });
     console.log(`[BrowserService] Chromium launched (CDP port: ${cdpPort})`);
+    // A launch is a use: the reaper must not read the clock of the previous one.
+    lastActivityAt = Date.now();
     // A fresh process starts in the normal band whatever the previous one was.
     qos.reset();
     refreshBackgroundPriority("launch");
@@ -1041,6 +1049,8 @@ export async function createBrowserService(opts: BrowserServiceOptions = {}): Pr
         if (m.kind !== 'event' || !m.event) return;
         const e = m.event;
         const buf = entry.dom;
+        // Before buffering, so a viewer joining later gets the same URLs.
+        rewriteDomEventResources(id, e);
         if (e.type === 4) buf.meta = e;                        // Meta
         else if (e.type === 2) { buf.full = e; buf.inc = []; } // FullSnapshot → reset prefix
         else { buf.inc.push(e); if (buf.inc.length > MAX_DOM_INCREMENTALS) buf.inc.shift(); }
@@ -1103,8 +1113,14 @@ export async function createBrowserService(opts: BrowserServiceOptions = {}): Pr
       // recompute per tick and spawns nothing unless the verdict moved.
       refreshBackgroundPriority("sweep");
 
-      if (browser && browser.isConnected() && contexts.size === 0 &&
-          now - lastActivityAt > browserIdleTimeoutMs) {
+      if (browser && browserReapable({
+        connected: browser.isConnected(),
+        contexts: contexts.size,
+        creating: pendingCreates.size,
+        launching: browserLaunching !== null,
+        idleMs: now - lastActivityAt,
+        idleTimeoutMs: browserIdleTimeoutMs,
+      })) {
         const idleMin = Math.round((now - lastActivityAt) / 60000);
         console.log(`[BrowserService] Reaping idle Chromium (0 contexts, idle ${idleMin}min) — relaunches on demand`);
         const b = browser;
@@ -1574,6 +1590,23 @@ export async function createBrowserService(opts: BrowserServiceOptions = {}): Pr
       }
       touchActivity(entry);
       return entry;
+    },
+
+    async fetchResource(id, url) {
+      const entry = contexts.get(id);
+      if (!entry || entry.page.isClosed()) return null;
+      let pageUrl = "";
+      try { pageUrl = entry.page.url(); } catch { /* closing */ }
+      const res = await entry.context.request.get(url, {
+        headers: pageUrl.startsWith("http") ? { referer: pageUrl } : {},
+        failOnStatusCode: false,
+        timeout: 15_000,
+      });
+      return {
+        status: res.status(),
+        contentType: res.headers()["content-type"] ?? "application/octet-stream",
+        body: await res.body(),
+      };
     },
 
     async navigate(id, url) {

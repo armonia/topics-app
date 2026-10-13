@@ -22,7 +22,8 @@ import { PLAN_APPROVAL_QUESTION, PLAN_APPROVE_LABEL, PLAN_EDIT_KEY, PLAN_REJECT_
 import { forkModeFor } from '../../../../shared/chat-fork';
 import { providerLabel } from '../../../../shared/provider-labels';
 import { useConfirm } from '../../hooks/useConfirm';
-import { chatAcceptsFileDrag } from './chatFileDrop';
+import { chatAcceptsFileDrag, watchFileDragEnd } from './chatFileDrop';
+import { readPictureSize, sizesByPath, type PendingSize } from './attachmentSizes';
 import { dragLeftHost } from '../../lib/dragLeave';
 import { errMessage } from '../../lib/errMessage';
 import { BAND_OWN_PROPERTY } from '../../lib/selectionStyles';
@@ -143,11 +144,6 @@ export interface ChatPaneProps {
   regenerateMessage?: (sk: string, messageId: string) => Promise<boolean>;
   deleteMessage?: (sk: string, messageId: string) => Promise<boolean>;
   switchBranch?: (sk: string, messageId: string, branchIndex: number) => Promise<boolean>;
-  // Session viewer
-  /** Optional content rendered inside the floating input bar, just above
-   *  CheckpointTimeline + ChatInput. Used by Master Topic panes to mount
-   *  the board strip so it stays visible while typing. */
-  aboveInputSlot?: React.ReactNode;
   /**
    * Mount the topic's browser window on THIS pane instead of leaving it to a
    * parent.
@@ -180,13 +176,18 @@ const EMPTY_MESSAGES: ChatMessage[] = [];
 const QUEUE_KICK_ATTEMPTS = 6;
 const QUEUE_KICK_RETRY_MS = 150;
 
+/** The composer's saved text (`draft:<topicId>`), empty when there is none or localStorage refuses (private mode). */
+function readDraft(key: string): string {
+  try { return localStorage.getItem(key) || ''; } catch { return ''; }
+}
+
 function ChatPaneComponent({
   topic, isFocused,
   getSessionMessages, getCompactionMarkers, isSessionLoading, isSessionStreaming, wasSessionStopped, stopSession, sendMessage, loadHistory,
   chatError, sendWS, onWSMessage, onUpdateTopic,
   onOpenFile: _onOpenFile, onNavigateBrowser: _onNavigateBrowser,
   editMessage, regenerateMessage, deleteMessage, switchBranch,
-  aboveInputSlot, ownsBrowserWindow,
+  ownsBrowserWindow,
 }: ChatPaneProps) {
   const tr = useT();
   /** A command of this chat is stopped: the pane says so above the composer. */
@@ -206,14 +207,20 @@ function ChatPaneComponent({
 
   const draftKey = `draft:${topic.id}`;
 
-  const [message, setMessage] = useState(() => {
-    try { return localStorage.getItem(draftKey) || ''; } catch { return ''; }
-  });
-  // Restore draft + caret on topic switch / mount. The caret restore is deferred
-  // one frame so it runs after the setMessage re-render commits the text into the
-  // textarea — otherwise setSelectionRange would clamp against an empty value.
+  // The draft is read while rendering, never in an effect after the commit. An
+  // effect can run a task later, and a keystroke that lands in between was
+  // overwritten by the draft saved before it: the chat opened, took the typed
+  // text, and its Enter sent nothing (CHAT-COMPOSER-02). When this pane is
+  // handed another topic, that topic's draft is set in the render that brings it.
+  const [message, setMessage] = useState(() => readDraft(draftKey));
+  const [draftTopicId, setDraftTopicId] = useState(topic.id);
+  if (draftTopicId !== topic.id) {
+    setDraftTopicId(topic.id);
+    setMessage(readDraft(draftKey));
+  }
+  // The caret, one frame after the commit that put the draft in the field:
+  // setSelectionRange against an empty value would clamp it.
   useEffect(() => {
-    try { setMessage(localStorage.getItem(`draft:${topic.id}`) || ''); } catch { setMessage(''); }
     const raf = requestAnimationFrame(() => restoreCursor(`chat:${topic.id}`, textareaRef.current));
     return () => cancelAnimationFrame(raf);
   }, [topic.id]);
@@ -223,12 +230,12 @@ function ChatPaneComponent({
   }, [message, draftKey]);
 
   /**
-   * Qualcuno ha messo del testo nella bozza di QUESTA chat mentre era già
-   * montata — oggi: una missione scelta dalla board accanto (`ProjectWindow`).
-   * L'effetto qui sopra che rilegge `draft:<id>` dipende da `topic.id`, quindi
-   * su una pane già aperta non ripartirebbe e la missione resterebbe scritta su
-   * localStorage senza comparire mai. Il fuoco va con essa: il testo è davanti
-   * a chi lo deve mandare, e a mandarlo è lui.
+   * Text put in THIS chat's draft while the chat is already mounted: today, a
+   * mission picked from the board next to it (`ProjectWindow`). The draft is
+   * read when the pane mounts or changes topic, so an open pane would never
+   * read it again, and the mission would sit in localStorage without ever
+   * showing. The focus goes with it: the text is in front of the person who
+   * sends it, and sending is theirs.
    */
   //
   // `mode: 'append'` adds the text at the end of the draft instead of replacing
@@ -421,9 +428,8 @@ function ChatPaneComponent({
   // Two copies of this rule is how one of them ends up wrong.
   const browserWindowTopicId = ownsBrowserWindow && !isMobile && !isDraftTopicId(topic.id) ? topic.id : '';
   const browserWindow = useTopicBrowserPresence(browserWindowTopicId);
-  // The door, on the pane's own terms: a window that already exists. This pane
-  // is also the chat of a PROJECT window, whose layout is where a first link of
-  // that conversation belongs (`LINK-TAB-02`). See `usePaneWindowDoor`.
+  // The pane always offers its door to agent opens. A first clicked link still
+  // belongs to the project layout (`LINK-TAB-02`). See `usePaneWindowDoor`.
   usePaneWindowDoor(browserWindowTopicId, browserWindow);
   const requestedBrowserInset = browserWindow.mode === 'exp'
     ? (browserWindow.expandedWidth ?? DEFAULT_EXPANDED_WIDTH)
@@ -975,10 +981,10 @@ function ChatPaneComponent({
   // testo avanzava una riga vuota.
 
   const uploadFiles = useCallback(async (files: File[]) => {
-    const paths: string[] = []; const failed: string[] = [];
-    for (const f of files) { try { const r = await uploadApi.uploadFile(f); paths.push(r.path); } catch (e) { console.error('[ChatPane] file upload failed:', f.name, e); failed.push(f.name); } }
+    const uploaded: { file: File; path: string }[] = []; const failed: string[] = [];
+    for (const f of files) { try { const r = await uploadApi.uploadFile(f); uploaded.push({ file: f, path: r.path }); } catch (e) { console.error('[ChatPane] file upload failed:', f.name, e); failed.push(f.name); } }
     if (failed.length > 0) toast.error(`Upload failed: ${failed.join(', ')}`);
-    return paths;
+    return uploaded;
   }, [toast]);
 
   // The turn `/goal <text>` starts, with the composer's options of THIS render
@@ -1682,16 +1688,19 @@ function ChatPaneComponent({
     const invocation = invokedName(finalMessage) !== null;
     const curFiles = [...pendingFiles], curImages = [...pendingImages], curReply = invocation ? null : replyingTo, curMentioned = [...mentionedFiles];
     setMessage(''); setPendingFiles([]); setPendingImages([]); setMentionedFiles([]); if (!invocation) setReplyingTo(null);
+    // The sizes of the attached pictures, read while they upload: the bubble draws them in their box (`attachmentSizes.ts`).
+    const sized: PendingSize[] = [];
     if (curFiles.length > 0 || curImages.length > 0) {
       setUploading(true);
       try {
-        if (curFiles.length > 0) { const paths = await uploadFiles(curFiles); finalMessage = paths.map(p => `[Attached file: ${p}]`).join('\n') + (finalMessage ? '\n' + finalMessage : ''); }
+        if (curFiles.length > 0) { const reading = new Map(curFiles.map(f => [f, readPictureSize(f)])); const uploaded = await uploadFiles(curFiles); for (const u of uploaded) sized.push([u.path, reading.get(u.file)!]); finalMessage = uploaded.map(u => `[Attached file: ${u.path}]`).join('\n') + (finalMessage ? '\n' + finalMessage : ''); }
         if (curImages.length > 0) {
           const urls: string[] = []; let imgFailCount = 0;
           for (const img of curImages) {
             try {
+              const reading = readPictureSize(img.dataUrl);
               const res = await apiFetch('/api/upload-image', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ dataUrl: img.dataUrl, mimeType: img.mimeType }) });
-              if (res.ok) urls.push((await res.json()).url); else { imgFailCount++; console.error('[ChatPane] image upload failed:', res.status, res.statusText); }
+              if (res.ok) { const url = (await res.json()).url; urls.push(url); sized.push([url, reading]); } else { imgFailCount++; console.error('[ChatPane] image upload failed:', res.status, res.statusText); }
             } catch (e) { imgFailCount++; console.error('[ChatPane] image upload failed:', e); }
           }
           if (imgFailCount > 0) toast.error(`${imgFailCount} image${imgFailCount > 1 ? 's' : ''} failed to upload`);
@@ -1720,7 +1729,9 @@ function ChatPaneComponent({
 
     if (finalMessage) {
       if (isDraft) startDescent();
-      await sendMessage(topic.sessionKey, finalMessage, currentSendOptions());
+      const mediaSizes = await sizesByPath(sized);
+      const sendOptions = currentSendOptions();
+      await sendMessage(topic.sessionKey, finalMessage, mediaSizes ? { ...sendOptions, mediaSizes } : sendOptions);
       if (isDraft) settleDescent();
     }
   };
@@ -1773,6 +1784,11 @@ function ChatPaneComponent({
     const f = Array.from(e.dataTransfer.files);
     if (f.length > 0) setPendingFiles(prev => [...prev, ...f]);
   }, [isGlobalOrchestrator]);
+  // A drag that ends anywhere else never reaches the two handlers above: see watchFileDragEnd.
+  useEffect(() => {
+    if (!fileDragOver) return;
+    return watchFileDragEnd(window, () => setFileDragOver(false));
+  }, [fileDragOver]);
 
   // Ref-stable so `MessageBubble`'s memo holds during streaming. These are
   // passed to EVERY visible bubble via MessageList → itemContent; when they were
@@ -1885,6 +1901,41 @@ function ChatPaneComponent({
    */
   const servedFromCache = useServedFromCache(topic.sessionKey);
 
+  /**
+   * The chat's state: its goal (or the agent's todo list), the work running
+   * now, the checkpoints, the files it wrote. Drawn at the end of the
+   * transcript, after the last message (chat-strips-in-transcript): what they
+   * say belongs to the conversation, not to the send, and docked over the
+   * composer they stayed hooked to it however far up one read (Attilio, 08/10:
+   * «dovrebbero restare a fondo chat»). A chat with no messages (empty, or its
+   * history still on the way) has no transcript to hold them: there they stay
+   * in the composer's block.
+   */
+  const strips = (
+    <>
+      {!isGlobalOrchestrator && goal ? (
+        <GoalBar
+          goal={goal}
+          fallback={latestTodo ?? undefined}
+          onClose={(status) => { void handleGoalClose(status); }}
+          onEdit={handleGoalEdit}
+          onStopLoop={() => { void handleGoalStopLoop(); }}
+          onPromote={() => { void handleGoalPromote(); }}
+        />
+      ) : (
+        latestTodo && <TodoStrip snapshot={latestTodo} />
+      )}
+      {!isGlobalOrchestrator && <SubAgentsStrip topicId={topic.id} />}
+      {!isGlobalOrchestrator && <CheckpointTimeline topicId={topic.id} onRollback={() => loadHistory(topic.sessionKey)} />}
+      {/* What the agent wrote in this conversation, counted from its own write
+          tool calls: silent in a chat that wrote nothing. Hidden for the
+          coordinator, which by invariant has no project path and no worktree:
+          its rows would have no tree to open a diff against. */}
+      {!isGlobalOrchestrator && <ChangedFilesStrip key={topic.id} topic={topic} onWSMessage={onWSMessage} />}
+    </>
+  );
+  const stripsInTranscript = currentMessages.length > 0;
+
   return (
     <div
       ref={paneRootRef}
@@ -1979,20 +2030,18 @@ function ChatPaneComponent({
       />
       <TaskWorkFoldContext.Provider value={foldTaskWork}>
       <ChatTopicContext.Provider value={topic.id}>
-      <MessageList isMobile={isMobile} topic={topic} currentMessages={currentMessages} compactionMarkers={currentMarkers} currentLoading={currentLoading} currentStreaming={currentStreaming} copiedMsgId={copiedMsgId} fileDragOver={fileDragOver} chatContainerRef={chatContainerRef} messagesEndRef={messagesEndRef} onReply={setReplyingTo} onCopy={handleCopyMessage} onTogglePin={handleTogglePin} onFileDragOver={handleFileDragOver} onFileDragLeave={handleFileDragLeave} onFileDrop={handleFileDrop} onPlanDecision={handlePlanDecision} onRemember={isGlobalOrchestrator ? undefined : handleRememberMessage} onEdit={!isGlobalOrchestrator && editMessage ? handleEditMessage : undefined} onRegenerate={!isGlobalOrchestrator && regenerateMessage && !currentStreaming ? handleRegenerateMessage : undefined} onFork={canFork ? handleFork : undefined} onDeleteMessage={!isGlobalOrchestrator && deleteMessage && !currentStreaming ? handleDeleteMessage : undefined} onSwitchBranch={!isGlobalOrchestrator && switchBranch ? handleSwitchBranch : undefined} onMessage={onWSMessage} onRetry={handleRetry} inputAreaHeight={inputAreaHeight} composerResizeRef={composerResizeRef} composerCentered={composerCentered} bornFromDraft={bornFromDraft} initialScrollOffset={initialScrollOffset} onScrollOffsetChange={handleScrollOffsetChange} queuedTurns={messageQueue} onUpdateQueued={handleUpdateQueueItem} onRemoveQueued={handleRemoveQueueItem} onClearQueue={handleClearQueue} onSendQueueNow={handleSendQueueNow} queueBusy={currentStreaming} />
+      <MessageList isMobile={isMobile} topic={topic} currentMessages={currentMessages} compactionMarkers={currentMarkers} currentLoading={currentLoading} currentStreaming={currentStreaming} copiedMsgId={copiedMsgId} fileDragOver={fileDragOver} chatContainerRef={chatContainerRef} messagesEndRef={messagesEndRef} onReply={setReplyingTo} onCopy={handleCopyMessage} onTogglePin={handleTogglePin} onFileDragOver={handleFileDragOver} onFileDragLeave={handleFileDragLeave} onFileDrop={handleFileDrop} onPlanDecision={handlePlanDecision} onRemember={isGlobalOrchestrator ? undefined : handleRememberMessage} onEdit={!isGlobalOrchestrator && editMessage ? handleEditMessage : undefined} onRegenerate={!isGlobalOrchestrator && regenerateMessage && !currentStreaming ? handleRegenerateMessage : undefined} onFork={canFork ? handleFork : undefined} onDeleteMessage={!isGlobalOrchestrator && deleteMessage && !currentStreaming ? handleDeleteMessage : undefined} onSwitchBranch={!isGlobalOrchestrator && switchBranch ? handleSwitchBranch : undefined} onMessage={onWSMessage} onRetry={handleRetry} inputAreaHeight={inputAreaHeight} composerResizeRef={composerResizeRef} composerCentered={composerCentered} bornFromDraft={bornFromDraft} initialScrollOffset={initialScrollOffset} onScrollOffsetChange={handleScrollOffsetChange} queuedTurns={messageQueue} onUpdateQueued={handleUpdateQueueItem} onRemoveQueued={handleRemoveQueueItem} onClearQueue={handleClearQueue} onSendQueueNow={handleSendQueueNow} queueBusy={currentStreaming} footerStrips={stripsInTranscript ? strips : null} />
       </ChatTopicContext.Provider>
       </TaskWorkFoldContext.Provider>
       {/* The composer docks at the bottom with only its natural margin — no
           home-indicator reservation (the user wants minimal bottom space), so it
           reaches the bottom edge and the OS indicator simply overlays it. */}
-      {/* `chat-measure` qui capa e CENTRA in un colpo solo tutto il blocco di
-          fondo — GoalBar, TodoStrip, SubAgentsStrip, la timeline dei
-          checkpoint, il composer e con lui il box della coda — sulla stessa
-          colonna della lista. Con `left-0 right-0` il posizionamento è
-          sovra-vincolato e lo risolvono i margini auto dell'utility, quindi il
-          blocco si centra invece di allargarsi. `inputAreaHeight` continua a
-          misurare giusto: il ResizeObserver legge `contentRect.height`, che è
-          l'altezza, non la larghezza. */}
+      {/* `chat-measure` caps and CENTRES the whole bottom block (the composer
+          and what belongs to the send above it) on the list's column. With
+          `left-0 right-0` the position is over-constrained and the utility's
+          auto margins resolve it, so the block centres instead of widening.
+          `inputAreaHeight` still measures right: the ResizeObserver reads
+          `contentRect.height`, the height, not the width. */}
       <div
         ref={inputAreaRef}
         data-testid="chat-input-area"
@@ -2033,26 +2082,7 @@ function ChatPaneComponent({
             onReject={() => handlePlanChoiceFromBar(false)}
           />
         )}
-        {!isGlobalOrchestrator && goal ? (
-          <GoalBar
-            goal={goal}
-            fallback={latestTodo ?? undefined}
-            onClose={(status) => { void handleGoalClose(status); }}
-            onEdit={handleGoalEdit}
-            onStopLoop={() => { void handleGoalStopLoop(); }}
-            onPromote={() => { void handleGoalPromote(); }}
-          />
-        ) : (
-          latestTodo && <TodoStrip snapshot={latestTodo} />
-        )}
-        {!isGlobalOrchestrator && <SubAgentsStrip topicSessionKey={topic.sessionKey} />}
-        {aboveInputSlot}
-        {!isGlobalOrchestrator && <CheckpointTimeline topicId={topic.id} onRollback={() => loadHistory(topic.sessionKey)} />}
-        {/* What the agent wrote in this conversation, counted from its own
-            write tool calls: silent in a chat that wrote nothing. Hidden for the
-            coordinator, which by invariant has no project path and no worktree:
-            its rows would have no tree to open a diff against. */}
-        {!isGlobalOrchestrator && <ChangedFilesStrip key={topic.id} topic={topic} onWSMessage={onWSMessage} />}
+        {!stripsInTranscript && strips}
         {/* FROZEN: the line sits IN FLOW above the composer, never over it. An
             overlaid strip would cover the one control a person can still use
             while the command is stopped, and writing in the chat is exactly

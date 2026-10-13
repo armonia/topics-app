@@ -41,6 +41,24 @@ export function languageDirective(lang: OutputLanguage = resolveOutputLanguage()
   }
 }
 
+/**
+ * The same choice in one short line, for the END of the context.
+ *
+ * `languageDirective` sits in the system prompt, and in a long chat that is
+ * far from where the next sentence gets written: on 07/10 topic:d740f8ae,
+ * with the directive set to Italian, answered an Italian question in English
+ * after five rounds of English tool output. The native loop repeats this line
+ * after the person's message and after every round of tool results. The
+ * `<system-reminder>` tag is Claude Code's own form, so the model reads it as
+ * the app's note, not as something to answer.
+ */
+export function languageReminder(lang: OutputLanguage = resolveOutputLanguage()): string {
+  const line = lang === 'it' ? 'Rispondi in italiano.'
+    : lang === 'en' ? 'Answer in English.'
+    : "Answer in the language the person writes in, not in the language of tool output or of Topics' notices.";
+  return `<system-reminder>${line}</system-reminder>`;
+}
+
 /** How an ordinary chat waits: a long wait may end the turn and wake it. */
 const chatWaits = (cmd: boolean): string[] => [
   // ── ASPETTARE SENZA RESTARE FERMI ──

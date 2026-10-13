@@ -31,11 +31,10 @@ export async function goToApp(page: Page) {
   await page.request.put(`${BASE_URL}/api/ui-state/panel-order`, {
     data: { order: [], pinned: [] },
   }).catch(() => {});
-  // NOTE: seed-topic visibility is NOT primed here. Unread is a WS-PUSH-ONLY
-  // signal on the client — useWebSocket seeds unreadData={} and the server
-  // never emits an `unread:init` snapshot on connect, so any system-message
-  // posted BEFORE page.goto() broadcasts to a not-yet-connected client and is
-  // lost. Worse, it leaves server unread>0, which made the old ensureTopicVisible
+  // NOTE: seed-topic visibility is NOT primed here. An unread count alone draws
+  // nothing on the client: a chat's number lives on its attention row, lit only
+  // by a turn or a wait, so a system-message posted BEFORE page.goto() lights
+  // no row. Worse, it leaves server unread>0, which made the old ensureTopicVisible
   // skip its (post-connect, actually-delivered) re-post → the row never showed.
   // Visibility is now driven per-topic by ensureTopicVisible AFTER the WS is up.
   await page.goto("/");
@@ -55,8 +54,8 @@ export async function goToApp(page: Page) {
  *      state — so seeding a tab is not enough. In the real UI, reopening a closed
  *      topic unarchives it (openPanel's self-heal); we replicate that with a PATCH.
  *   2. NO TAB. global-setup creates these via a raw POST that never opens a tab,
- *      and unread is WS-PUSH-ONLY (no `unread:init` snapshot on connect), so a
- *      fresh load shows no row.
+ *      and an unread count alone lights no row (only the attention state does),
+ *      so a fresh load shows no row.
  *
  * Fix: (a) unarchive the topic, then (b) seed its pane into the AUTHORITATIVE
  * pane-store exactly like createTopic does, then reload. The server snapshot wins

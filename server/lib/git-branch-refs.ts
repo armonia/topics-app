@@ -33,10 +33,29 @@ export interface BranchRef {
   shortName?: string;
   /** Upstream configurato, solo per i locali. */
   upstream?: string;
+  /** Commits on this branch and not on its upstream (locals with an upstream only). */
+  ahead?: number;
+  /** Commits on the upstream and not on this branch (locals with an upstream only). */
+  behind?: number;
 }
 
-/** Il formato da passare a `git branch -a --format=…`. */
-export const BRANCH_FORMAT = "%(refname)|%(refname:short)|%(HEAD)|%(upstream:short)";
+/**
+ * Il formato da passare a `git branch -a --format=…`.
+ *
+ * The last field is the distance from the upstream, which git computes for
+ * every branch inside the one listing (`ahead 2, behind 1`, `gone`, or empty
+ * when level). It replaces a `git rev-list --left-right --count` per branch,
+ * run in series: N processes on every `GET /api/git/branches`.
+ */
+export const BRANCH_FORMAT = "%(refname)|%(refname:short)|%(HEAD)|%(upstream:short)|%(upstream:track,nobracket)";
+
+/** `ahead 2, behind 1` / `ahead 2` / `behind 1` / `gone` / `` -> the two counts; a gone upstream counts as level, as the failed `rev-list` did. */
+function parseTrack(track: string | undefined): { ahead: number; behind: number } {
+  return {
+    ahead: Number(track?.match(/\bahead (\d+)/)?.[1] ?? 0),
+    behind: Number(track?.match(/\bbehind (\d+)/)?.[1] ?? 0),
+  };
+}
 
 /**
  * Una riga di `git branch -a --format=BRANCH_FORMAT` → la sua ref, oppure
@@ -44,7 +63,7 @@ export const BRANCH_FORMAT = "%(refname)|%(refname:short)|%(HEAD)|%(upstream:sho
  */
 export function parseBranchLine(line: string): BranchRef | null {
   if (!line.trim()) return null;
-  const [refname, name, head, upstream] = line.split("|");
+  const [refname, name, head, upstream, track] = line.split("|");
   if (!refname || !name) return null;
   // Vale per ogni remote, non solo `origin`.
   if (refname.endsWith("/HEAD")) return null;
@@ -61,6 +80,7 @@ export function parseBranchLine(line: string): BranchRef | null {
     }
   } else if (upstream) {
     ref.upstream = upstream;
+    Object.assign(ref, parseTrack(track));
   }
   return ref;
 }

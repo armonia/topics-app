@@ -50,23 +50,43 @@
  */
 
 import type { Block, AgentMessage } from "./agent-loop";
+import { contextWindowFor } from "../../../shared/context-window";
 import { imageShapeFromBuffer } from "../../services/image-shape";
 import { pathFromImageCaption } from "./image-normalize";
 
 /**
- * Quanto della finestra si può usare prima di intervenire.
+ * How much of the window may be used before compacting.
  *
- * 0.75 e non 0.95: la compattazione deve avvenire PRIMA che il turno sbatta,
- * e il conto dei token è una stima (vedi `estimateTokens`). Il margine copre
- * l'errore della stima più la risposta che deve ancora arrivare.
+ * The uncalibrated estimate stays at 0.75, not 0.95: before the first API
+ * count, the token estimate can be wrong, and the margin covers that error
+ * plus the response still to come. After a real API count calibrates the
+ * estimate, it can safely use 0.85. On 11/10, 182 compactions cut only 15% on
+ * average (168k to 138k), and chat 18b232ac compacted five times in 20 minutes.
  */
-const COMPACT_AT = 0.75;
+export const COMPACT_AT = 0.85;
+export const COMPACT_AT_UNMEASURED = 0.75;
+
+/**
+ * Where compaction brings the conversation back to: BELOW the threshold, not
+ * at it.
+ *
+ * Target equal to the threshold means no headroom: the history came out at
+ * 149.6k on a 150k threshold and the next round compacted again. On
+ * topic:64095902 (08/10), 68 compactions in 34 hours left 40 histories at
+ * >=145k, including four compactions in seven minutes. Each changed the
+ * request prefix, so the prompt cache never held; the 20% gap then bought a
+ * few rounds before the next rewrite. The 11/10 measurement found 182
+ * compactions with a 15% average cut; five rewrote about 115k tokens each on
+ * chat 18b232ac, whose four turns read 6.3M cache tokens and wrote 1.21M.
+ * The new 0.40 target leaves about 90k tokens of headroom in a 200k window.
+ */
+export const COMPACT_TO = 0.40;
 
 /** Quanti messaggi in coda restano SEMPRE intatti. */
 const KEEP_RECENT = 6;
 
 /** Il testo che prende il posto di un risultato buttato. */
-const DROPPED = "[risultato rimosso per fare spazio: la conversazione era troppo lunga]"; // allow-italian: testo che legge il modello, non UI
+export const DROPPED = "[risultato rimosso per fare spazio: la conversazione era troppo lunga]"; // allow-italian: testo che legge il modello, non UI
 
 function hasImageBlock(blocks: unknown[]): boolean {
   return blocks.some((b) => (b as { type?: string })?.type === "image");
@@ -263,8 +283,9 @@ export function needsCompaction(
   windowTokens: number,
   overheadChars = 0,
   charsPerToken: number = DEFAULT_CHARS_PER_TOKEN,
+  compactAt = COMPACT_AT_UNMEASURED,
 ): boolean {
-  return estimateTokens(messages, overheadChars, charsPerToken) > windowTokens * COMPACT_AT;
+  return estimateTokens(messages, overheadChars, charsPerToken) > windowTokens * compactAt;
 }
 
 /**
@@ -322,14 +343,19 @@ export function clipToolResult(text: string, head: number, tail: number): string
  */
 export function compact(
   messages: AgentMessage[],
-  opts?: { windowTokens?: number; overheadChars?: number; charsPerToken?: number },
+  opts?: { windowTokens?: number; overheadChars?: number; charsPerToken?: number; compactAt?: number; compactTo?: number },
 ): { messages: AgentMessage[]; before: number; after: number; droppedMessages: number } {
   const overhead = opts?.overheadChars ?? 0;
   const ratio = opts?.charsPerToken ?? DEFAULT_CHARS_PER_TOKEN;
+  const compactAt = opts?.compactAt ?? COMPACT_AT_UNMEASURED;
+  const compactTo = opts?.compactTo ?? COMPACT_TO;
   const before = estimateTokens(messages, overhead, ratio);
   // The target the history has to get back under, when the caller says so.
   // Without one, the only signal left is "it freed nothing".
-  const target = opts?.windowTokens != null ? opts.windowTokens * COMPACT_AT : null;
+  // Two numbers, not one: the CEILING is the trigger, the TARGET sits below it
+  // so the next round does not compact again (see `COMPACT_TO`).
+  const ceiling = opts?.windowTokens != null ? opts.windowTokens * compactAt : null;
+  const target = opts?.windowTokens != null ? opts.windowTokens * compactTo : null;
 
   let next = messages;
   if (messages.length > KEEP_RECENT + 1) {
@@ -351,7 +377,9 @@ export function compact(
   // to re-read the missing piece: the model has not consumed them yet, so it
   // loses nothing it had already used, and it can re-read in slices what it
   // needs.
-  const stillOver = target != null ? after > target : after >= before;
+  // Against the CEILING, not the target: clipping results the model has not
+  // read yet is the emergency measure, not the way to buy headroom.
+  const stillOver = ceiling != null ? after > ceiling : after >= before;
   if (stillOver) {
     next = clipTailResults(next);
     after = estimateTokens(next, overhead, ratio);
@@ -380,6 +408,19 @@ export function compact(
     }
   }
   return { messages: next, before, after, droppedMessages };
+}
+
+/**
+ * Compacts to an explicit budget instead of a window: the budget IS the
+ * target. For a history that is not about to be sent to this loop (the
+ * handoff to a CLI session, `providers/handoff.ts`), there is no window to
+ * leave headroom in.
+ */
+export function compactToBudget(
+  messages: AgentMessage[],
+  budgetTokens: number,
+): ReturnType<typeof compact> {
+  return compact(messages, { windowTokens: budgetTokens / COMPACT_TO });
 }
 
 /** The notice left on the initial request when turns have been cut away. */
@@ -565,9 +606,12 @@ export function windowFor(model: string): number {
   // Il suffisso e' una nostra convenzione (`providers/claude-models.ts`) e
   // vince su qualunque famiglia: dice «questo modello, con la finestra lunga».
   if (/\[1m\]$|-1m$/.test(model)) return 1_000_000;
-  if (/opus-4|sonnet-4-6|sonnet-4-5/.test(model)) return 200_000;
-  if (/haiku-4/.test(model)) return 200_000;
-  return 200_000;
+  // ONE TABLE, the one the context ring reads too (`shared/context-window.ts`):
+  // a second list here said 200k for the whole 5.5 family, which has a million
+  // as standard (11/10), and compacted at a fifth of the window. An unknown
+  // model still gets the cautious number, not the generous one.
+  const known = contextWindowFor(model);
+  return known.known ? known.tokens : 200_000;
 }
 
 /**

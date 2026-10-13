@@ -62,6 +62,20 @@ export function computeAutoShared(
  */
 export const AUTO_SHARE_CONFIRMATIONS = 2;
 
+/**
+ * How many polls in a row the pane must be ALONE before it leaves the shared
+ * session for its native webview: ~30 s at the 2 s poll.
+ *
+ * Joining stays quick (the other device is looking now); leaving is slow on
+ * purpose. Measured 13/10: an iPad that went to the background for a moment
+ * (Safari switched app, the screen dimmed) stopped counting as a watcher, and
+ * two polls later the Mac dropped to native, then rejoined when the iPad came
+ * back. Each crossing reloads the page in the other engine, and that reload IS
+ * the "very slow on the Mac". Staying shared through a short absence costs
+ * nothing the user can see; flapping costs a full page load every time.
+ */
+export const AUTO_LEAVE_CONFIRMATIONS = 15;
+
 /** Where the auto decision stands: the side the pane is on, and how many polls
  *  in a row have now asked for the other one. */
 export interface AutoShareState {
@@ -74,7 +88,8 @@ export interface AutoShareState {
  *
  * `want` is `computeAutoShared(...)` for THIS reading. Agreeing with where the
  * pane already is clears the streak; asking for the other side builds it, and
- * the flip happens only when the streak reaches `AUTO_SHARE_CONFIRMATIONS`.
+ * the flip happens only when the streak reaches `AUTO_SHARE_CONFIRMATIONS` to
+ * join, `AUTO_LEAVE_CONFIRMATIONS` to leave.
  *
  * Pure, so the sequence that produced the defect can be written down as a test
  * instead of being reproduced with a phone and a stopwatch.
@@ -82,6 +97,7 @@ export interface AutoShareState {
 export function stepAutoShare(state: AutoShareState, want: boolean): AutoShareState {
   if (want === state.shared) return state.agreeing === 0 ? state : { ...state, agreeing: 0 };
   const agreeing = state.agreeing + 1;
-  if (agreeing < AUTO_SHARE_CONFIRMATIONS) return { ...state, agreeing };
+  const needed = want ? AUTO_SHARE_CONFIRMATIONS : AUTO_LEAVE_CONFIRMATIONS;
+  if (agreeing < needed) return { ...state, agreeing };
   return { shared: want, agreeing: 0 };
 }

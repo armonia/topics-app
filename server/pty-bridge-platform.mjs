@@ -10,8 +10,37 @@
 // what a checkout actually runs — including the Windows checkout — and it was
 // the only one of the three still assuming unix.
 
+import { execFileSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
+
+/**
+ * La sessione launchd del processo: 'Aqua' dentro la sessione grafica dell'utente.
+ * Un ponte staccato sopravvive a un logout o a un crash di WindowServer, la sua
+ * sessione no: ogni figlio che fa nascere da lì non legge il Portachiavi (Claude
+ * Code dice «Not logged in»), non vede gli appunti e non apre il browser. Visto il
+ * 07/10/2026: ponte del 22/09, sessione grafica ripartita il 06/10 alle 19:38,
+ * terminali senza login per 17 ore. '' = sessione morta, null = non macOS.
+ */
+export function guiSessionName(
+  platform = process.platform,
+  run = () => execFileSync('/bin/launchctl', ['managername'], { encoding: 'utf8', timeout: 2000, stdio: ['ignore', 'pipe', 'ignore'] }),
+) {
+  if (platform !== 'darwin') return null;
+  try { return String(run()).trim(); } catch { return ''; }
+}
+
+/**
+ * Il ponte si rifà quando lui è fuori dalla sessione grafica e il server dentro:
+ * quello nuovo nasce dal server e la eredita. Se nemmeno il server è in 'Aqua'
+ * (test, ssh) rifarlo non cambia niente; un ponte vecchio che non manda la
+ * sessione (undefined) non si tocca. `serverSession` si chiama solo nel caso
+ * sospetto, così il pong sano non costa un processo.
+ */
+export function bridgeOutsideGuiSession(bridgeSession, serverSession) {
+  if (typeof bridgeSession !== 'string' || bridgeSession === 'Aqua') return false;
+  return serverSession() === 'Aqua';
+}
 
 /**
  * A program that starts and exits immediately, for the self-test and for the

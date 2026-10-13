@@ -164,7 +164,9 @@ describe('a pane reflow under the gate', () => {
       expect(log).toEqual(['occlude', 'release']);
     } finally {
       dispose();
-      (globalThis as { window?: unknown }).window = realWindow;
+      // Removed, not set to undefined: a key left behind still answers `in`.
+      if (realWindow === undefined) delete (globalThis as { window?: unknown }).window;
+      else (globalThis as { window?: unknown }).window = realWindow;
     }
   });
 

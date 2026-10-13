@@ -206,12 +206,12 @@ describe("grants · la stretta di mano, che scavalca il confinamento", () => {
   });
 
   it("NON ci sta niente che porti dati: sono i tre frame del buco vero", () => {
-    // Questi tre erano ciò che la raffica di apertura consegnava a un ospite
-    // prima che passasse dal filtro: il pane-store del proprietario coi titoli
-    // e gli id di ogni chat, i non-letti di tutte, e la configurazione della
-    // macchina. Se un giorno uno di questi finisce nella deroga, questo test
-    // muore — ed è l'unico posto in cui morirebbe.
-    for (const t of ["ui-state:init", "unread:init", "providers:snapshot"]) {
+    // What the open burst handed a guest before it went through the filter:
+    // the owner's pane store with the title and id of every chat, the unread
+    // of every chat (today carried by `attention:init`), and the machine's
+    // configuration. If one of these ever lands in the exemption, this test
+    // dies, and it is the only place where it would.
+    for (const t of ["ui-state:init", "attention:init", "providers:snapshot"]) {
       expect(isGuestHandshakeFrame(t)).toBe(false);
     }
   });

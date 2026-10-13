@@ -310,13 +310,17 @@ export function NativeBrowserPlaceholder({ browser, isVisible = true }: NativeBr
     // settled. We also bust the coalescing cache so updateBounds actually
     // emits — otherwise lastSentJson would short-circuit a no-op.
     const onReflowRequest = (ev: Event) => {
-      const ce = ev as CustomEvent<{ contextId?: string }>;
+      const ce = ev as CustomEvent<{ contextId?: string; atAnimationFrame?: boolean }>;
       // No contextId filter = reflow all; otherwise match this pane's view.
       // `viewId` is this pane's contextId once ready (null before). A targeted
       // request for a DIFFERENT context — or one that arrives before this view
       // exists — is not ours to reflow. (Old code compared detail.contextId to
       // itself, so the filter never excluded anything.)
       if (ce.detail?.contextId && ce.detail.contextId !== browser.viewId) return;
+      if (ce.detail?.atAnimationFrame) {
+        updateBounds();
+        return;
+      }
       lastSentJson = '';
       requestAnimationFrame(() => requestAnimationFrame(updateBounds));
     };

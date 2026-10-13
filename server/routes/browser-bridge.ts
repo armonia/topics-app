@@ -44,6 +44,7 @@ import type { AppContext, RouteHandler, Topic } from "../types";
 import type { BrowserService } from "../browser-service";
 import { dispatchBrowserToolCallByContext, resolveContextIdForTopic } from "../browser-tool-dispatcher";
 import { makeOpenPaneFlow } from "./browser-open-pane-flow";
+import { maybeOpenPaneForPageOp } from "./browser-auto-open";
 import { BRIDGED_BROWSER_ENDPOINTS } from "../browser-tool-spec";
 import { resolveAgentNavUrl } from "../browser-tools-handler";
 import { nativeDelegateRegistry } from "../browser-native-delegate";
@@ -116,6 +117,13 @@ export interface BrowserBridgeDeps {
    * warning path never touches the machine's actual listening ports.
    */
   portOwnerDeps?: PortOwnerDeps;
+  /**
+   * The chat whose window should show this topic's browser, when it is not the
+   * topic itself: a spawned child runs in a topic nobody has on screen, so its
+   * open-pane used to fall through to `browser:force-open` and add one layout
+   * tab per child. Absent or equal to the topic, nothing changes.
+   */
+  browserHostTopicOf?: (topic: Topic) => string | null | undefined;
 }
 
 export function createBrowserBridgeRouter(
@@ -215,6 +223,14 @@ export function createBrowserBridgeRouter(
   const openPaneFlow = makeOpenPaneFlow({
     json, broadcastToAll, waitForAttachedPane, paneWaitMs: PANE_WAIT_MS, portOwnershipWarning,
   });
+
+  /**
+   * Last auto-open attempt per contextId: with no Topics window connected,
+   * every page op would otherwise pay the pane wait plus a navigation. One
+   * failed attempt buys 60 s of headless-direct dispatch (see
+   * browser-auto-open.ts). Per router, so tests never share a window.
+   */
+  const autoOpenAttempts = new Map<string, number>();
 
   /**
    * Build the injected deps for the tab inventory (browser-tab-inventory.ts)
@@ -438,6 +454,10 @@ export function createBrowserBridgeRouter(
 
         const ctxId = resolveContextIdForTopic(topic);
         browserNavigatedTopics.add(topic.id);
+        // The context stays the child's own (its browser_* tools resolve to it);
+        // only WHERE it is shown moves, to the chat the person is looking at.
+        const host = deps.browserHostTopicOf?.(topic);
+        const hostField = host && host !== topic.id ? { hostTopicId: host } : {};
         // The announcement comes BEFORE the navigation (the shared sequence
         // guarantees it) so the client mounts/seeds the pane under the SAME id
         // the agent's `browser_*` tools resolve to. Inverted, Playwright drove
@@ -447,7 +467,7 @@ export function createBrowserBridgeRouter(
           url,
           projectPath: topic.projectPath ?? null,
           service: browserService,
-          announce: (u) => broadcastToAll({ type: "browser:navigate", topicId: topic.id, contextId: ctxId, url: u }),
+          announce: (u) => broadcastToAll({ type: "browser:navigate", topicId: topic.id, contextId: ctxId, url: u, ...hostField }),
         });
       }
     }
@@ -580,6 +600,39 @@ export function createBrowserBridgeRouter(
           const target = resolveBrowserContext(byTopic, bySession);
           if (!target) return json({ error: "No browser pane bound to this session (open a browser pane first, or pass contextId from browser_list_tabs)" }, 404);
           contextId = target.contextId;
+          // A page op on the caller's own topic with no pane would drive a
+          // headless phantom while the user sees nothing. Mount the topic's
+          // mini browser first (chat-branch sequence); never fails the op.
+          if (target.topic) {
+            const ownTopic = target.topic;
+            const host = deps.browserHostTopicOf?.(ownTopic);
+            await maybeOpenPaneForPageOp(
+              {
+                paneAttachedTo,
+                openPaneFlow,
+                markNavigated: (id) => browserNavigatedTopics.add(id),
+                // A task dispatch's tab lives in the task drawer (forceOpen:
+                // false): the chat announce would pop a standalone pane in
+                // the main window, so task topics never auto-open.
+                isTaskTopic: (t) => resolveTaskBrowserContext(t) !== null,
+                attempts: autoOpenAttempts,
+              },
+              {
+                toolName,
+                topic: ownTopic,
+                contextId,
+                hasOverride: false,
+                service: browserService,
+                announce: (u) => broadcastToAll({
+                  type: "browser:navigate",
+                  topicId: ownTopic.id,
+                  contextId,
+                  url: u,
+                  ...(host && host !== ownTopic.id ? { hostTopicId: host } : {}),
+                }),
+              },
+            );
+          }
         }
         try {
           const result = await dispatchBrowserToolCallByContext(

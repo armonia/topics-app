@@ -12,6 +12,7 @@ import { test, expect, type Page } from "@playwright/test";
 import { createTopic, deleteTopic, resetPaneStore } from "./helpers/api-fixtures";
 import { E2E_BASE } from "./helpers/test-server";
 import { hermetic } from "./fixtures/hermetic";
+import { markSeenNow } from "./helpers/attention";
 
 // Confine ermetico: questo file riparte dalla baseline del globalSetup, non
 // dallo stato lasciato dalle spec precedenti. Vedi fixtures/hermetic.ts.
@@ -234,10 +235,10 @@ test.describe("Tab System Reliability", () => {
       const afterCount = after[t.id]?.unreadCount ?? 0;
       expect(afterCount).toBe(beforeCount + 1);
 
-      // Only an explicit read clears it — this is the single read policy. (This is
-      // exactly the POST the client fires after SEEN_DWELL_MS of continuous focus.)
-      const readRes = await request.post(`${BASE}/api/topics/${t.id}/read`);
-      expect(readRes.ok()).toBe(true);
+      // Only an explicit seen clears it: this is the single read policy. (The
+      // seen door is exactly the POST the client fires after SEEN_DWELL_MS of
+      // continuous focus.)
+      await markSeenNow(request, [`topic:${t.id}`]);
       const afterRead = (await request.get(`${BASE}/api/unread`).then(r => r.json())) as Record<string, { unreadCount?: number }>;
       expect(afterRead[t.id]?.unreadCount ?? 0).toBe(0);
     } finally {

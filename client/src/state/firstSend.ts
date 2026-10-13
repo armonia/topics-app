@@ -1,4 +1,5 @@
 import type { ChatMessage } from '../types';
+import type { MediaSizes } from '../../../shared/media-sizes';
 import { CLIENT_MESSAGE_ID_PREFIX } from '../hooks/streamCatchupMerge';
 import { evictSessions, getSessionMessagesFromStore, updateMessages } from './messageStore';
 
@@ -30,8 +31,8 @@ export function draftSessionKey(draftId: string): string {
 const newMessageId = () => `${CLIENT_MESSAGE_ID_PREFIX}${Date.now()}_${Math.random().toString(36).slice(2, 11)}`;
 
 /** Put the first message in the draft's session, as the optimistic bubble `sendMessage` would have added. Returns its id. */
-export function stageFirstBubble(sessionKey: string, content: string): string {
-  const bubble: ChatMessage = { id: newMessageId(), role: 'user', content, timestamp: new Date().toISOString() };
+export function stageFirstBubble(sessionKey: string, content: string, mediaSizes?: MediaSizes): string {
+  const bubble: ChatMessage = { id: newMessageId(), role: 'user', content, timestamp: new Date().toISOString(), ...(mediaSizes ? { mediaSizes } : {}) };
   updateMessages((prev) => ({ ...prev, [sessionKey]: [...(prev[sessionKey] ?? []), bubble] }));
   return bubble.id;
 }

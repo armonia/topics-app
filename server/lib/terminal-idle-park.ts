@@ -36,6 +36,19 @@ export interface ParkCandidate {
   idleMs: number | null;
   /** Quanti client hanno il WebSocket di questa sessione aperto. */
   attachedClients: number;
+  /**
+   * A Topics tab shows this session (`ui_state` references it), even if no
+   * client holds its WebSocket right now.
+   *
+   * `attachedClients` alone is not enough: after a page refresh the client
+   * reattaches only the visible tab, the others stay socketless until looked
+   * at. Measured 13/10 (`tests/e2e/terminal-refresh-survives.spec.ts`): three
+   * Claude Code tabs attached `1,1,1` before the refresh, `0,0,1` after. With
+   * the threshold at 8 minutes under memory pressure, a refresh was enough to
+   * kill every background tab. An open tab stays alive in the background; a
+   * session with no tab (closed conversations, the 03/08 case) parks as before.
+   */
+  hasOpenTab?: boolean;
   /** Il transcript è ancora su disco? Senza, `--resume` fallirebbe per sempre. */
   hasTranscript: boolean;
   /** Fase della macchina a stati Claude, `null` se sconosciuta. */
@@ -70,6 +83,7 @@ export type ParkRefusal =
   | "no-transcript"
   | "busy"
   | "watched"
+  | "open-tab"
   | "phase-active"
   | "idle-unknown"
   | "frozen-tree"
@@ -112,6 +126,7 @@ export function decidePark(c: ParkCandidate, idleThresholdMs: number): ParkDecis
   if (!c.hasTranscript) return { park: false, reason: "no-transcript" };
   if (c.busy) return { park: false, reason: "busy" };
   if (c.attachedClients > 0) return { park: false, reason: "watched" };
+  if (c.hasOpenTab) return { park: false, reason: "open-tab" };
   if (c.phase !== null && ACTIVE_PHASES.has(c.phase)) return { park: false, reason: "phase-active" };
   if (c.awaitingHuman) return { park: false, reason: "awaiting-human" };
   if (c.idleMs === null) return { park: false, reason: "idle-unknown" };
@@ -128,6 +143,7 @@ export function refusalLabel(reason: ParkRefusal): string {
     case "no-transcript": return "transcript assente dal disco";
     case "busy": return "PTY attiva adesso";
     case "watched": return "qualcuno la sta guardando";
+    case "open-tab": return "ha una tab aperta in Topics"; // allow-italian: log label, same language as its neighbours
     case "phase-active": return "turno in corso";
     case "idle-unknown": return "inattivita' non misurata";
     case "frozen-tree": return "ha un comando congelato";

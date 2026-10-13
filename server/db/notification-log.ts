@@ -2,10 +2,10 @@
  * Il REGISTRO delle notifiche — l'unico scrittore della tabella `notification_log`
  * (migration 102), e l'unico lettore che la cronologia usa.
  *
- * Le due porte che ci scrivono stanno una per parte: il banner nativo lo decide
- * il client (`useCompletionNotifier` → `fire` → POST /api/notifications), la
- * push la decide il server (`server/attention/store.ts`, a ogni epoca nuova). Entrambe passano di qui, e di qui
- * passa anche la regola che le tiene distinte da un DOPPIONE — vedi
+ * Who writes here: the attention store at every new epoch
+ * (`server/attention/store.ts`), the system notices, and `POST
+ * /api/notifications`, all through `server/notification-registry.ts`. The rule
+ * that tells a new event from a DUPLICATE lives here too: see
  * `NOTIFICATION_DEDUPE_MS` in shared/notification-log.ts.
  *
  * Regole di casa:
@@ -13,8 +13,8 @@
  *    impedire alla notifica di partire. Ogni errore è un `console.warn`.
  *  - Il tetto e la scadenza si applicano a ogni inserimento (una COUNT indicizzata
  *    e al più due DELETE). Sono SCRITTI, non impliciti: 500 righe, 30 giorni.
- *  - `recordNotification` dice al chiamante se la riga è NUOVA. Serve: solo una
- *    riga nuova alza il contatore e merita il broadcast `notification:new`.
+ *  - `recordNotification` tells the caller whether the row is NEW: only a new
+ *    row travels in the attention store's frame (`attention:updated.history`).
  */
 
 import { getDatabase } from "../db";
@@ -210,12 +210,11 @@ export function countUnseenNotifications(): number {
  * nessun gesto naturale spegneva - si spegneva solo aprendo il pannello della
  * cronologia, che e' un posto in cui non si passa mai apposta.
  *
- * Riusa la chiave di gruppo (`topic:<id>`), che e' gia' l'unita' con cui la
- * cascata di `markNotificationsSeen` ragiona: una sola nozione di «queste
- * notifiche parlano della stessa cosa», non una seconda scritta qui.
+ * It reuses the group key (`topic:<id>`), the same unit `markGroupNotificationsSeen`
+ * works with: one notion of «these notifications talk about the same thing», not
+ * a second one written here.
  *
- * Torna quante righe ha toccato: zero e' il caso normale (niente da segnare) e
- * il chiamante lo usa per non svegliare i client con un broadcast inutile.
+ * Returns how many rows it touched: zero is the normal case (nothing to mark).
  */
 export function markTargetNotificationsSeen(
   targetKind: string,
@@ -279,60 +278,6 @@ export function updateNotificationByDedupeKey(dedupeKey: string, patch: { title:
   } catch (err) {
     console.warn("[notification-log] update failed:", (err as Error)?.message || err);
     return false;
-  }
-}
-
-export function markNotificationsSeen(opts: { ids?: string[]; upTo?: string }, now = Date.now()): number {
-  try {
-    const db = getDatabase();
-    const at = new Date(now).toISOString();
-    let changed = 0;
-    if (opts.upTo) {
-      const r = db.run("UPDATE notification_log SET seen_at = ? WHERE seen_at IS NULL AND created_at <= ?", [
-        at,
-        opts.upTo,
-      ]);
-      changed += Number(r?.changes ?? 0);
-    }
-    const ids = (opts.ids ?? []).filter((s) => typeof s === "string" && s).slice(0, 500);
-    if (ids.length) {
-      const marks = ids.map(() => "?").join(",");
-      const r = db.run(
-        `UPDATE notification_log SET seen_at = ? WHERE seen_at IS NULL AND id IN (${marks})`,
-        [at, ...ids],
-      );
-      changed += Number(r?.changes ?? 0);
-      // La cascata sul gruppo: i compagni di `group_key` delle righe appena
-      // segnate. Ristretta ai gruppi TOCCATI, non a tutta la tabella.
-      const g = db.run(
-        `UPDATE notification_log SET seen_at = ?
-          WHERE seen_at IS NULL
-            AND group_key IS NOT NULL
-            AND group_key IN (SELECT group_key FROM notification_log WHERE id IN (${marks}) AND group_key IS NOT NULL)`,
-        [at, ...ids],
-      );
-      changed += Number(g?.changes ?? 0);
-    }
-    return changed;
-  } catch (err) {
-    console.warn("[notification-log] mark seen failed:", (err as Error)?.message || err);
-    return 0;
-  }
-}
-
-/** The group keys of these rows (the subjects they talk about), no duplicates. */
-export function groupKeysOfNotifications(ids: string[]): string[] {
-  const clean = ids.filter((s) => typeof s === "string" && s).slice(0, 500);
-  if (!clean.length) return [];
-  try {
-    const marks = clean.map(() => "?").join(",");
-    const rows = getDatabase()
-      .query(`SELECT DISTINCT group_key FROM notification_log WHERE id IN (${marks}) AND group_key IS NOT NULL`)
-      .all(...clean) as Array<{ group_key: string }>;
-    return rows.map((r) => r.group_key);
-  } catch (err) {
-    console.warn("[notification-log] group keys failed:", (err as Error)?.message || err);
-    return [];
   }
 }
 

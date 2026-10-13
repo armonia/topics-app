@@ -16,6 +16,8 @@ import path from 'node:path';
 import { spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { userInfo } from 'node:os';
+// runtime-dep-ok: import ESM fratello, non uno spawn (come in pty-bridge.mjs).
+import { guiSessionName } from './pty-bridge-platform.mjs';
 
 // The user's REAL home (getpwuid, not $HOME): the daemon can be respawned by a
 // server whose $HOME was clobbered by a sandbox ancestor. An explicit per-spawn
@@ -375,8 +377,12 @@ function handleMessage(msg, client) {
     }
     case 'ping': {
       if (Number.isInteger(msg.pid) && msg.pid > 0) serverPids.set(client, msg.pid);
-      // Our pid: a client tells a new daemon from this one by it.
-      replyTo(client, msg, { type: 'pong', pid: process.pid });
+      // Our pid: a client tells a new daemon from this one by it. Sessione e figli
+      // vivi: il client rifà il demone quando la sessione grafica è morta e non c'è
+      // un turno da tagliare (vedi guiSessionName).
+      let live = 0;
+      for (const s of sessions.values()) if (s.alive) live++;
+      replyTo(client, msg, { type: 'pong', pid: process.pid, session: guiSessionName(), live });
       break;
     }
     default:

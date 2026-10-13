@@ -16,7 +16,7 @@ type HistoryEntry = { role: string; content: unknown };
 
 function harness(initial: HistoryEntry[]) {
   const provider = new NativeProvider({ type: "native" });
-  const session = { history: initial.map((m) => ({ ...m })), lastUsedAt: 0, calibration: { charsPerToken: 4 } };
+  const session = { history: initial.map((m) => ({ ...m })), lastUsedAt: 0, calibration: { charsPerToken: 4, calibrated: false } };
   let started: HistoryEntry[] | null = null;
   const internals = provider as unknown as {
     hasGlobalCoordinatorRole: () => boolean;

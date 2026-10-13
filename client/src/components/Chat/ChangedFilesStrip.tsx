@@ -39,6 +39,7 @@ import { changedFileOpen } from '../../lib/changesStripOpen';
 import { CHAT_STRIP_NEUTRAL, CHAT_STRIP_ROW } from '../../lib/chatStripStyles';
 import type { DiffPanelSource } from '../../lib/board';
 import { DockedStripPanel } from './DockedStripPanel';
+import { useDisclosureToggle } from './transcriptDisclosure';
 import type { Topic, WSMessage } from '../../types';
 
 // The board's diff panel is fetched when a strip opens, not with the chat: every
@@ -58,6 +59,7 @@ export function ChangedFilesStrip({ topic, onWSMessage }: ChangedFilesStripProps
   const tr = useT();
   const changes = useTopicChanges(topic.id, onWSMessage);
   const [open, setOpen] = useState(false);
+  const disclose = useDisclosureToggle();
 
   const { changeSet, reload } = useTopicChangeSet(topic.id, open, changes);
   // The file last opened in the diff: where the link to the card lands.
@@ -130,7 +132,7 @@ export function ChangedFilesStrip({ topic, onWSMessage }: ChangedFilesStripProps
         type="button"
         data-testid="chat-changes-chip"
         aria-expanded={open}
-        onClick={(e) => { e.stopPropagation(); setOpen((v) => !v); }}
+        onClick={(e) => { disclose(e.currentTarget); setOpen((v) => !v); }}
         title={tr('chat.changes.chipTitle')}
         className={CHAT_STRIP_ROW}
       >

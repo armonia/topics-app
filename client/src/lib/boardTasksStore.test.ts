@@ -167,6 +167,23 @@ describe('absorbing a task:updated instead of re-reading the feed', () => {
     expect(getBoardTasks()[0].dispatchState).toBe('working');
   });
 
+  test('a frame carrying the fields the feed drops leaves the row as the feed would bring it', () => {
+    // The frame is the whole Task; the feed is not (shared/board-feed.ts). If
+    // the store kept the frame's extra keys, the next read of an unchanged
+    // board would differ from the store and republish it.
+    setBoardTasks([task('a'), task('b')]);
+    applyBoardTaskFrame(task('b', { text: 'renamed', dispatchAttempts: 2, waitStreak: 1 } as Partial<BoardTask>));
+    const absorbed = getBoardTasks()[1];
+    expect(absorbed.text).toBe('renamed');
+    expect(Object.hasOwn(absorbed, 'dispatchAttempts')).toBe(false);
+    expect(Object.hasOwn(absorbed, 'waitStreak')).toBe(false);
+    let woken = 0;
+    subscribeBoardTasks(() => { woken++; });
+    setBoardTasks([task('a'), task('b', { text: 'renamed' })]);
+    expect(woken).toBe(0);
+    expect(getBoardTasks()[1]).toBe(absorbed);
+  });
+
   test('an id the store never saw is not absorbed', () => {
     setBoardTasks([task('a')]);
     expect(canAbsorbBoardTaskFrame(task('ghost'))).toBe(false);

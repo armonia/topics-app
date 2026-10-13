@@ -59,8 +59,55 @@ describe('kanban sensors are referentially stable', () => {
     }
   });
 
+  test('a column hands SortableContext the same items while its ids do not change', () => {
+    // The column array is new on every `task:updated` (one row changed), and a
+    // new `items` array is a new SortableContext value, which re-renders every
+    // `useSortable` card under it at identical props. Measured on a 66-card
+    // board (board-update-renders.spec.ts): 588 board renders per frame with
+    // `items` keyed on the column, 94 with it keyed on the ids.
+    const memoCall = /const itemIds = useMemo\(([\s\S]*?)\);/.exec(card);
+    expect(memoCall, 'Column no longer builds `itemIds` with useMemo: this test guards nothing').not.toBeNull();
+    const deps = /\[([^\]]*)\]\s*$/.exec(memoCall![1]!.trim())?.[1]?.split(',').map((d) => d.trim()) ?? [];
+    expect(deps, 'itemIds must not depend on an array that is new on every frame').not.toContain('slice');
+    expect(deps).toEqual(['idsKey']);
+    expect(card).toMatch(/const idsKey = slice\.rows\.map\(\(t\) => t\.id\)\.join\(/);
+  });
+
   test('the card stays memoized: without it a stable context buys nothing', () => {
     expect(card).toContain('memo(');
     expect(card).toMatch(/const Card = memo\(|export const Card = memo\(/);
+  });
+
+  test('during a drag only the sortable shell reads dnd-kit: the card body is memoized apart', () => {
+    // dnd-kit's InternalContext changes whenever the droppable under the
+    // pointer changes, and every `useSortable` re-runs. With the hook inside
+    // the card, each card re-rendered its whole subtree about a dozen times per
+    // drag at identical props: 61 renders per pointer move on a 33-card board
+    // (board-drag-renders.spec.ts), 32 with the shell split.
+    const shellAt = card.indexOf('export const Card = memo(function Card(');
+    const bodyAt = card.indexOf('const CardBody = memo(function CardBody(');
+    expect(shellAt, 'the sortable shell is gone: this test guards nothing').toBeGreaterThan(0);
+    expect(bodyAt, 'the card body is no longer memoized on its own').toBeGreaterThan(0);
+    const shell = card.slice(shellAt, card.indexOf('\n});', shellAt));
+    expect(shell).toContain('useSortable(');
+    expect(shell).toContain('<CardBody');
+    const body = card.slice(bodyAt, card.indexOf('\n});', bodyAt));
+    expect(body, 'the body subscribes to dnd-kit again: the memo is bypassed on every over change').not.toMatch(/useSortable\(|useDraggable\(|useDroppable\(|useDndContext\(/);
+    // dnd-kit's transform is a new object on every render: it must reach the
+    // body already turned into a string, which compares by value
+    // (`reflowTransform`, tested in sortableReflow.test.ts).
+    expect(shell).toContain('dragTransform={reflowTransform(transform, isDragging)}');
+  });
+
+  test('the column reads its droppable in a shell too: the header does not re-render on every over change', () => {
+    const shellAt = card.indexOf('export function Column(');
+    const bodyAt = card.indexOf('const ColumnBody = memo(function ColumnBody(');
+    expect(shellAt, 'the droppable shell is gone: this test guards nothing').toBeGreaterThan(0);
+    expect(bodyAt, 'the column body is no longer memoized on its own').toBeGreaterThan(0);
+    const shell = card.slice(shellAt, card.indexOf('\n}', shellAt));
+    expect(shell).toContain('useDroppable(');
+    expect(shell).toContain('<ColumnBody');
+    const body = card.slice(bodyAt, card.indexOf('\n});', bodyAt));
+    expect(body).not.toMatch(/useDroppable\(|useDndContext\(/);
   });
 });

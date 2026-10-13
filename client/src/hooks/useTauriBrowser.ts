@@ -42,9 +42,12 @@ import {
   movingNativeViews,
   settleNativeViewOpen,
   takeNativeViewMove,
+  installHideOnPageExit,
 } from '../lib/shell/nativeBrowserViews';
 import { currentOverlays, decideFreeze, liveSlotRect, onOcclusionChange, type OverlayRect } from '../lib/shell/browserOcclusion';
 import { serverWsBase } from '../lib/shell/net';
+import type { HostNavAction, NativeDomHost } from '../lib/nativeDomHost';
+import { createPaneDomHost } from '../lib/shell/paneDomHost';
 import { browserClientId } from '../lib/browserClientId';
 import { executeNativeBrowserOp } from '../lib/shell/tauriBrowserOps';
 import { stepZoom, DEFAULT_ZOOM, zoomApplyJs, zoomDrifted } from '../lib/shell/zoomScale';
@@ -215,6 +218,7 @@ onBeforeBundleReload(() => {
     void releaseNativeView(id).catch(() => {});
   }
 });
+installHideOnPageExit(() => browserViewRefs.keys(), tauriInvoke); // any other reload keeps (and hides) them
 
 /**
  * The corner radius the shell rounds a native page to, in px.
@@ -770,6 +774,12 @@ export function useTauriBrowser(contextId: string, initialUrl?: string, isVisibl
   agentActiveRef.current = agentActive;
   // The live executor socket of this pane, reached by `takeControl` below.
   const executorRunRef = useRef<NativeExecutorSocketRun | null>(null);
+  // Another device mirrors this page (lib/nativeDomHost.ts): while it watches,
+  // the page has to stay live like under an agent, or the mirror freezes.
+  const hostRef = useRef<NativeDomHost | null>(null);
+  const [hosting, setHosting] = useState(false);
+  const hostingRef = useRef(false);
+  const hostNavigateRef = useRef<(action: HostNavAction, target?: string) => void>(() => {});
 
   /**
    * TAKING THE WHEEL BACK ON THE NATIVE SHELL.
@@ -797,13 +807,13 @@ export function useTauriBrowser(contextId: string, initialUrl?: string, isVisibl
 
   // ── Heavy pane: live only with the focus ─────────────────────────────────
   const pause = useNativePanePause({
-    id, ready, isVisible, hasFocus, agentActive, url, loading, parked: !!parked,
+    id, ready, isVisible, hasFocus, agentActive: agentActive || hosting, url, loading, parked: !!parked,
     pauseStateRef, openedRef, frozenRef, freezeSeqRef, frozenImage, setFrozenImage,
     lastRealSizeRef, pendingRectRef, agentOpsInFlightRef, agentActiveRef,
     paneInvoke, setNativeVisible, evaluateOcclusionRef,
   });
   // The view is shown while visible and not paused, or while an agent uses it.
-  const nativeWanted = (isVisible && pause.pauseState !== 'paused') || agentActive;
+  const nativeWanted = (isVisible && pause.pauseState !== 'paused') || agentActive || hosting;
   const nativeWantedRef = useRef(nativeWanted);
   nativeWantedRef.current = nativeWanted;
 
@@ -828,7 +838,7 @@ export function useTauriBrowser(contextId: string, initialUrl?: string, isVisibl
   // An agent at the wheel: the native drains keep running in an unfocused window.
   const agentEngaged = useCallback(() => agentActiveRef.current || agentOpsInFlightRef.current > 0, []);
   const syncEngaged = useCallback(() => {
-    engagedEdge.set(isVisibleRef.current || agentActiveRef.current || agentOpsInFlightRef.current > 0);
+    engagedEdge.set(isVisibleRef.current || agentActiveRef.current || agentOpsInFlightRef.current > 0 || hostingRef.current);
   }, [engagedEdge]);
   useEffect(() => { liveEdge.set(pause.pauseState === 'live'); }, [liveEdge, pause.pauseState]);
   useEffect(() => { syncEngaged(); }, [syncEngaged, isVisible, agentActive]);
@@ -1746,7 +1756,17 @@ export function useTauriBrowser(contextId: string, initialUrl?: string, isVisibl
     // The pushed viewer count rides this socket while the pane is native (the
     // streaming socket carries it while shared); see viewerCountBus.
     let detachViewerChannel: (() => void) | null = null;
+    // The pane as the source of the DOM mirror: a device watching this context
+    // sees THIS page, rebuilt from its DOM, and the Mac stays native.
+    let socketRun: NativeExecutorSocketRun | null = null;
+    const host = createPaneDomHost(id, {
+      sendText: (text) => socketRun?.sendText(text),
+      navigate: (action, target) => hostNavigateRef.current(action, target),
+      onRecordingChange: (on) => { hostingRef.current = on; setHosting(on); syncEngaged(); },
+    });
+    hostRef.current = host;
     const run = startNativeExecutorSocket({
+      host: host ?? undefined,
       // Same `?client=` as the streaming socket of this pane: when auto mode
       // flips native to shared, the server has to see one client changing
       // socket and not a newcomer queueing behind whoever is watching.
@@ -1783,16 +1803,33 @@ export function useTauriBrowser(contextId: string, initialUrl?: string, isVisibl
         if (active && action) setAgentAction(action);
       },
     });
+    socketRun = run;
     executorRunRef.current = run;
     tracePaneAttach('pane socket opened', { contextId: id, shell: 'native' });
     return () => {
       tracePaneAttach('pane socket released', { contextId: id, shell: 'native' });
       executorRunRef.current = null;
+      hostRef.current = null;
       run.stop();
     };
     // setNativeVisible is useCallback([id]), so it never re-opens the socket on
     // its own — isVisible/agentActive are read through refs for that reason.
   }, [id, setNativeVisible, syncEngaged]);
+
+  // A viewer's navigation runs through the same doors as this pane's toolbar,
+  // so the Mac's address bar and history follow it.
+  useEffect(() => {
+    hostNavigateRef.current = (action, target) => {
+      if (action === 'navigate') { if (target) void navigate(target); }
+      else if (action === 'back') void goBack();
+      else if (action === 'forward') void goForward();
+      else void reload();
+    };
+  });
+  // Where the page is reaches the viewers' address bars.
+  useEffect(() => {
+    hostRef.current?.notePage({ url: url || 'about:blank', title, canGoBack, canGoForward });
+  }, [url, title, canGoBack, canGoForward]);
 
   // Zoom via injected CSS (WKWebView has no JS zoom API; document zoom is the
   // portable stop-gap). The percentage is snapped to a fixed Chrome-style ladder
