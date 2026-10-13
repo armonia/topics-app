@@ -64,8 +64,13 @@ const navMessageSchema = z.object({
   // 'history' (server -> client): the main frame moved without a load (a
   // same-document navigation) or only the session history changed; carries
   // the url and the two flags below, and nothing about loading.
-  phase: z.enum(['request', 'response', 'error', 'history']),
+  // 'loading' (server -> client): the page is on its way to `url`, for every
+  // viewer and for one that opens in the middle (server/browser-nav-flight.ts),
+  // `elapsedMs` since it set off. Without it a pane whose page never answered
+  // had nothing to say but "starting the shared session".
+  phase: z.enum(['request', 'response', 'error', 'history', 'loading']),
   error: z.optional(z.string()),
+  elapsedMs: z.optional(z.number()),
   // Whether the server page's session history has an entry behind / ahead of
   // the current one (CDP Page.getNavigationHistory). Absent = unknown: an
   // older server, or a read that failed. The pane then keeps what it had,

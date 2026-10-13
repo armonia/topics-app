@@ -2904,3 +2904,26 @@ mirror's park never stopped it, and a closed mirror kept it running. Measured
 - **THEN** the viewer asks for no animation frames for it
 - **WHEN** the source records a change
 - **THEN** the viewer shows it within a second and a half
+
+### Requirement: BROWSER-LOAD-01 — A page that does not come SHALL say where it was going and why
+
+Every viewer of a context hears that its page is on its way, with the
+destination, a viewer that connects in the middle of the wait included, and
+hears the failure in words with a Retry. A second request for the url already
+being loaded joins that load instead of starting it over. A pane whose page is
+still blank never waits on a generic "starting" spinner. Reported 13/10 from
+the iPad: a tab on a dev server of the Mac that took the connection and never
+answered sat on "Avvio sessione condivisa…" for as long as anybody looked.
+
+#### Scenario: a restored tab on a local port that takes the connection and never answers
+- **GIVEN** a browser tab restored on a loopback url whose server accepts connections and never answers
+- **WHEN** a device without the page open natively opens the tab
+- **THEN** the pane names the destination while it waits, and counts the seconds once they pass five
+- **AND** when the server gives up, the pane says that the port takes the connection but does not answer, with a Retry
+- **AND** the pane is no longer on the "starting the shared session" spinner
+
+#### Scenario: the device reloads in the middle of the wait
+- **GIVEN** a pane waiting on such a page
+- **WHEN** the device reloads the app before the server gives up
+- **THEN** the reloaded pane is told the same wait, counted from the first request
+- **AND** the failure comes when the first request runs out of time, not a full timeout after the reload

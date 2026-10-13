@@ -8,10 +8,8 @@ import { BOOT_READ_TTL_MS, coalescedFetch } from '../lib/coalesceFetch';
 import { attachViewerChannel, pushViewerCount } from '../lib/viewerCountBus';
 import { mapCoordinates } from './browserCoords';
 import { tracePaneAttach } from '../lib/paneAttachTrace';
-import {
-  appendStreamConsole, keepConsoleOfPage, tallyConsole, type StreamConsoleEntry,
-} from '../components/Browser/streamConsole';
-import { applyHistoryUpdate, historyFlagsOf } from '../components/Browser/streamNavHistory';
+import { appendStreamConsole, tallyConsole } from '../components/Browser/streamConsole';
+import { applyContextInfo, applyNavMessage, startNavigation, type RemoteNavFields } from './remoteNavState';
 import { apiFetch } from '../lib/shell/net';
 
 export type ConnectionState = 'connecting' | 'connected' | 'disconnected' | 'fallback-http';
@@ -31,15 +29,10 @@ export interface DownloadInfo {
   state: 'started' | 'completed' | 'failed';
 }
 
-interface RemoteBrowserState {
-  url: string;
-  title: string;
-  loading: boolean;
+/** `url`, `loading`, `error`, `pageUrl` and the console rows: see `remoteNavState.ts`. */
+interface RemoteBrowserState extends RemoteNavFields {
   connected: boolean;
   screenshotSrc: string | null;
-  error: string | null;
-  /** URL whose navigation produced `error` — the Retry affordance re-sends it. */
-  errorUrl: string | null;
   connectionState: ConnectionState;
   lastClickPos: { x: number; y: number; t: number } | null;
   // Phase 30 BROWSER-CHAT-04 — agent lock + select-element state.
@@ -83,15 +76,6 @@ interface RemoteBrowserState {
   /** The mirror is the Mac's own pane (the server said `host: 'native'`): the
    *  page lives there, so this pane never frames the url itself. */
   nativeHost: boolean;
-  /** The server page's console lines, each with the page it was logged on
-   *  (`streamConsole.ts`). The sheet lists them; their tallies light the tab's
-   *  corner and the dots' badge. */
-  consoleEntries: StreamConsoleEntry[];
-  /** Whether the server page has a page behind / ahead in its history.
-   *  Undefined until the server says so (an older server never does): the
-   *  panel then keeps the arrow enabled. See `streamNavHistory.ts`. */
-  canGoBack?: boolean;
-  canGoForward?: boolean;
 }
 
 interface InteractionHandlers {
@@ -267,6 +251,8 @@ export function useRemoteBrowser(contextId: string, isVisible = true): RemoteBro
     screenshotSrc: null,
     error: null,
     errorUrl: null,
+    loadingSince: null,
+    pageUrl: '',
     connectionState: 'connecting',
     lastClickPos: null,
     agentActive: false,
@@ -520,16 +506,10 @@ export function useRemoteBrowser(contextId: string, isVisible = true): RemoteBro
       const res = await apiFetch(`/api/browsers/${encodedId}`);
       if (!mountedRef.current) return false;
       if (res.ok) {
+        // A reconnecting pane hears no navigation until the next one: what the
+        // server knows (url, title, the history flags) arrives with the info.
         const data = await res.json();
-        setState(s => ({
-          ...s,
-          url: data.url || s.url,
-          title: data.title || s.title,
-          loading: false,
-          // A reconnecting pane hears no navigation until the next one: the
-          // flags the server already knows arrive with the context info.
-          ...historyFlagsOf(data),
-        }));
+        setState(s => applyContextInfo(s, data));
         return true;
       } else if (res.status === 404) {
         return false;
@@ -800,27 +780,10 @@ export function useRemoteBrowser(contextId: string, isVisible = true): RemoteBro
             break;
           }
           case 'nav':
-            if (msg.phase === 'response') {
-              clearLoadingWatchdog();
-              // A loaded document: the rows of any other page leave the tally
-              // (the new page's own load-time errors carry its url and stay).
-              setState(s => ({
-                ...s, url: msg.url, loading: false, error: null, errorUrl: null,
-                consoleEntries: keepConsoleOfPage(s.consoleEntries, msg.url),
-                ...historyFlagsOf(msg),
-              }));
-            } else if (msg.phase === 'history') {
-              // Same-document navigation, or only the history moved: the url
-              // and the arrows follow, the loading state and the console
-              // rows do not (no new document arrived).
-              setState(s => applyHistoryUpdate(s, msg));
-            } else if (msg.phase === 'error') {
-              // Failed goto/launch: the page is still on the previous URL —
-              // surface the reason instead of silently clearing the spinner
-              // (BRW-REL-02). Cleared by the next successful nav/response.
-              clearLoadingWatchdog();
-              setState(s => ({ ...s, loading: false, error: msg.error || 'Navigation failed', errorUrl: msg.url }));
-            }
+            // A load this socket only heard about is timed like one it asked for.
+            if (msg.phase === 'loading') armLoadingWatchdog();
+            else if (msg.phase !== 'history') clearLoadingWatchdog();
+            setState(s => applyNavMessage(s, msg, Date.now()));
             break;
           case 'console':
             // Forward to devtools console; full UI surface deferred to plan 30-04.
@@ -1172,7 +1135,7 @@ export function useRemoteBrowser(contextId: string, isVisible = true): RemoteBro
     };
     // engineEpoch: a change (engine switch) tears down + reopens the WS so the
     // server recreates the context on the newly-selected engine.
-  }, [contextId, encodedId, updateConnectionState, clearLoadingWatchdog, fetchInfo, sendResize, engineEpoch, settleInputAck]);
+  }, [contextId, encodedId, updateConnectionState, clearLoadingWatchdog, armLoadingWatchdog, fetchInfo, sendResize, engineEpoch, settleInputAck]);
 
   // P3-3b: a hidden pane must also drop the WebRTC pixel track — set_stream only
   // pauses the JPEG screencast, not the H.264 transport. Pause the peer when the
@@ -1296,7 +1259,7 @@ function rememberFramable(url: string, framable: boolean): void {
   // --- Interaction handlers ---
 
   const navigate = useCallback((url: string) => {
-    setState(s => ({ ...s, loading: true, url, error: null, errorUrl: null }));
+    setState(s => startNavigation(s, url, Date.now()));
     armLoadingWatchdog();
     markActive();
     if (connectionStateRef.current === 'connected' && wsRef.current?.readyState === WebSocket.OPEN) {

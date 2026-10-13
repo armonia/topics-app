@@ -253,7 +253,9 @@ describe('WS-04 contract: browserWsMessageSchema (Phase 30)', () => {
     // resolves goto/launch failures as an error-phase frame the pane renders.
     // 'history' joined with BROWSER-STREAM-HISTORY-01: a same-document
     // navigation carries the url and the back/forward flags, nothing else.
-    expect(sig.enums.phase).toEqual(['error', 'history', 'request', 'response']);
+    // 'loading' joined with BROWSER-LOAD-01: every viewer hears that the page
+    // is on its way, a socket that opens in the middle included.
+    expect(sig.enums.phase).toEqual(['error', 'history', 'loading', 'request', 'response']);
   });
 
   test('console.level enum is locked', () => {

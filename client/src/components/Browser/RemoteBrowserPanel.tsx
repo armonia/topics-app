@@ -15,6 +15,8 @@ import { ParkedPane } from './ParkedPane';
 import { NewTabPage } from './NewTabPage';
 import { BrowserNoticeStrip } from './BrowserNoticeStrip';
 import { deadLoopbackNotice } from './navErrorMessage';
+import { BrowserPageWait } from './BrowserPageWait';
+import { isBlankPage } from '../../hooks/remoteNavState';
 import { useSeedPaneUrl } from './useSeedPaneUrl';
 import { ForgetSiteDialog } from './ForgetSiteDialog';
 import { siteHostOf, nativeSiteData, sharedSiteData } from '../../lib/browserForgetSite';
@@ -1299,6 +1301,17 @@ function RemoteBrowserPanelStreaming({ contextId, initialUrl, navigateUrl, onUrl
               />
             </div>
           </Suspense>
+        )}
+
+        {/* The page is not there yet, or will not come: say where it was going
+            and why, over the blank page, instead of the session spinner. */}
+        {isBlankPage(browser.pageUrl) && (browser.error || browser.loadingSince !== null) && (
+          <BrowserPageWait
+            url={browser.errorUrl || browser.url}
+            loadingSince={browser.loadingSince}
+            error={browser.error}
+            onRetry={() => browser.navigate(browser.errorUrl || browser.url)}
+          />
         )}
 
         {/* No JPEG rendering — the visible surface is the WebRTC <video> above (when

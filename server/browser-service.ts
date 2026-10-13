@@ -38,9 +38,11 @@ import {
   startScreencast as cdpStartScreencast,
   stopScreencast as cdpStopScreencast,
   readNavigationHistoryFlags,
+  stopLoading,
   type NavigationHistoryFlags,
   type ScreencastFramePayload,
 } from "./browser-cdp-surface";
+import { createNavFlight, type NavFlightMessage } from "./browser-nav-flight";
 import { createNavHistoryPublisher, isPublishableUrl, type NavHistoryPublisher } from "./browser-nav-history";
 import { setBackgroundTree, type AgentOwnerTest, type BrowserContextOwner } from "./lib/low-priority";
 import { createBrowserQosGovernor, markedBrowserPid } from "./lib/browser-qos";
@@ -218,6 +220,10 @@ const FOCUSED_FIELD_FN = () => {
 /** Cap on buffered incrementals kept for late-join bootstrap (a Meta+FullSnapshot
  *  resets this). ~4000 covers minutes of a busy page; older ones drop off. */
 const MAX_DOM_INCREMENTALS = 4000;
+/** How long arming the recorder may take before a viewer is answered without
+ *  it. An idle page takes milliseconds (16 ms measured); only a page stuck on a
+ *  navigation gets near this. */
+const RECORDER_START_TIMEOUT_MS = 3_000;
 
 // ── T1 DOM co-browse: rrweb record injection (opt-in, default OFF) ────────────
 // The record UMD is vendored (server/assets/rrweb.min.js) at the SAME version as
@@ -361,6 +367,9 @@ export interface BrowserService {
    *  the page then still reports the PREVIOUS url/title, so callers must
    *  surface the failure instead of treating the stale shape as success. */
   navigate(id: string, url: string): Promise<{ url: string; title: string; error?: string }>;
+  /** What a viewer opening now should hear about the context's navigation:
+   *  still loading (and since when), failed, or nothing (browser-nav-flight). */
+  navReplay(id: string): NavFlightMessage | null;
   /** A resource of the page fetched through its context (same network, same
    *  cookies), for a DOM mirror viewer that cannot reach it. `null` when the
    *  context is not open: a mirror only exists while it is. */
@@ -448,7 +457,8 @@ export interface BrowserService {
    *  start broadcasting `dom_event`s to its viewers. Resolves with the bootstrap
    *  burst [meta, full, ...incrementals] for the requesting viewer, or null when
    *  DOM mode can't be enabled (no page / injection failed) — the caller then
-   *  forces the pane back to the video stream. */
+   *  forces the pane back to the video stream. Empty while the page is still
+   *  waiting on a navigation: DOM mode is on, the snapshot follows by broadcast. */
   enableDomMode(id: string): Promise<unknown[] | null>;
   /** T1 DOM co-browse: gate whether captured events are broadcast. The page keeps
    *  recording (cheap) but `dom_event` traffic stops once no viewer is in DOM mode. */
@@ -562,6 +572,7 @@ export async function createBrowserService(opts: BrowserServiceOptions = {}): Pr
   // Set by the tool dispatcher (setAgentAction) right before a handler runs,
   // attached to the next agent_active=true broadcast, cleared on active=false.
   const agentActionHints = new Map<string, string>();
+  const navFlight = createNavFlight({ publish: (id, msg) => opts.broadcastToBrowserWs?.(id, msg) });
   // Phase 30 BROWSER-CHAT-02 — active CDP screencast sessions. Keyed by
   // contextId. Set by startScreencast, deleted by stopScreencast (idempotent).
   // Cleaned up by close() and destroyContext() before the underlying
@@ -826,6 +837,7 @@ export async function createBrowserService(opts: BrowserServiceOptions = {}): Pr
   function forgetContext(id: string): void {
     contexts.delete(id);
     targetIds.delete(id);
+    navFlight.forget(id);
     agentActionHints.delete(id);
     pendingViewportHints.delete(id);
     try { opts.onDestroy?.(id); } catch (err: any) {
@@ -997,6 +1009,7 @@ export async function createBrowserService(opts: BrowserServiceOptions = {}): Pr
       // pane still said "Browser ready". Guarded to real pages so the initial
       // about:blank load can't clobber the pane's url state.
       if (isPublishableUrl(entry.url)) {
+        navFlight.noteLoaded(id);
         const url = entry.url;
         const flags = await entry.navHistory?.flagsForLoad(url);
         opts.broadcastToBrowserWs?.(id, { type: "nav", url, phase: "response", ...(flags ?? {}) });
@@ -1018,8 +1031,28 @@ export async function createBrowserService(opts: BrowserServiceOptions = {}): Pr
       entry.recorderCdp = await openCdpSession(entry.context, entry.page);
     }
     const cdp = entry.recorderCdp;
-    await evaluateInPageGlobalScope(cdp, RRWEB_RECORD_BUNDLE);
-    await evaluateInPageGlobalScope(cdp, RRWEB_RECORD_START);
+    // One chain, and the caller waits on it only so long: a page waiting on a
+    // navigation holds the evaluate as long as it waits (60 s measured on
+    // 13/10, against a server that took the connection and never answered),
+    // and a viewer that attached in the middle waited with it. Past the bound
+    // the chain goes on by itself, so the recorder starts the moment the page
+    // is free again (the stuck load stopped, BROWSER-LOAD-01) and its snapshot
+    // reaches the viewers by broadcast. Unless by then nobody is watching.
+    const arm = (async () => {
+      await evaluateInPageGlobalScope(cdp, RRWEB_RECORD_BUNDLE);
+      if (entry.domEmit) await evaluateInPageGlobalScope(cdp, RRWEB_RECORD_START);
+    })();
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    try {
+      await Promise.race([
+        arm,
+        new Promise<never>((_, reject) => {
+          timer = setTimeout(() => reject(new Error("recorder start timed out")), RECORDER_START_TIMEOUT_MS);
+        }),
+      ]);
+    } finally {
+      clearTimeout(timer);
+    }
   }
 
   // Bind the rrweb host plumbing to a context's page — ONCE. Deliberately does NOT
@@ -1633,31 +1666,48 @@ export async function createBrowserService(opts: BrowserServiceOptions = {}): Pr
           throw new Error(`navigate: scheme "${scheme}" not allowed (http, https, about, data)`);
         }
       }
-      const entry = await service.getOrCreate(id);
-      let navError: string | undefined;
-      try {
-        await entry.page.goto(url, { waitUntil: "domcontentloaded", timeout: 30_000 });
-      } catch (err: any) {
-        // Don't swallow: the page is still on the previous URL, so returning
-        // the plain shape reads as success and the pane shows nothing.
-        navError = err?.message ? String(err.message).split('\n')[0] : 'Navigation failed';
-        console.warn(`[BrowserService] Navigate warning for ${id}:`, err.message);
-      }
-      entry.url = entry.page.url();
-      try { entry.title = await entry.page.title(); } catch { entry.title = ""; }
-      touchActivity(entry);
-      // Persist topic.browserState via callback (best effort).
-      if (opts.onNavigate) {
+      // One navigation per url at a time, and its outcome to every viewer
+      // (browser-nav-flight.ts).
+      return navFlight.run(id, url, async () => {
+        const entry = await service.getOrCreate(id);
+        let navError: string | undefined;
         try {
-          const vp = entry.page.viewportSize() || defaultViewport;
-          opts.onNavigate(id, entry.url, vp);
+          await entry.page.goto(url, { waitUntil: "domcontentloaded", timeout: 30_000 });
         } catch (err: any) {
-          console.warn(`[BrowserService] onNavigate callback failed for ${id}:`, err.message);
+          // Don't swallow: the page is still on the previous URL, so returning
+          // the plain shape reads as success and the pane shows nothing.
+          navError = err?.message ? String(err.message).split('\n')[0] : 'Navigation failed';
+          console.warn(`[BrowserService] Navigate warning for ${id}:`, err.message);
+          // On a timeout Playwright stopped waiting and the page did not: cancel
+          // the load, or the page stays "navigating" and the recorder cannot be
+          // armed on it. Only then: an abort means a newer navigation took over,
+          // and stopping now would stop that one.
+          if (err?.name === "TimeoutError") {
+            await openCdpSession(entry.context, entry.page)
+              .then(async (cdp) => { try { await stopLoading(cdp); } finally { await cdp.detach().catch(() => {}); } })
+              .catch(() => { /* page closing: nothing left to stop */ });
+          }
         }
-      }
-      return navError
-        ? { url: entry.url, title: entry.title, error: navError }
-        : { url: entry.url, title: entry.title };
+        entry.url = entry.page.url();
+        try { entry.title = await entry.page.title(); } catch { entry.title = ""; }
+        touchActivity(entry);
+        // Persist topic.browserState via callback (best effort).
+        if (opts.onNavigate) {
+          try {
+            const vp = entry.page.viewportSize() || defaultViewport;
+            opts.onNavigate(id, entry.url, vp);
+          } catch (err: any) {
+            console.warn(`[BrowserService] onNavigate callback failed for ${id}:`, err.message);
+          }
+        }
+        return navError
+          ? { url: entry.url, title: entry.title, error: navError }
+          : { url: entry.url, title: entry.title };
+      });
+    },
+
+    navReplay(id) {
+      return navFlight.replay(id);
     },
 
     async goBack(id) {
@@ -2182,6 +2232,12 @@ export async function createBrowserService(opts: BrowserServiceOptions = {}): Pr
       try {
         await startRecordingNow(entry);
       } catch (err) {
+        // A page waiting on a navigation: the mirror is the right surface, it
+        // just has nothing to show yet. The viewer stays on DOM and gets the
+        // snapshot by broadcast when the page loads (the 'load' re-arm), or
+        // when the stuck navigation is cancelled. Video would show the same
+        // empty page, through a negotiation.
+        if (navFlight.inFlight(id)) return [];
         console.warn(`[BrowserService] rrweb start failed for ${id}:`, (err as Error)?.message);
         return null;
       }
@@ -2197,6 +2253,7 @@ export async function createBrowserService(opts: BrowserServiceOptions = {}): Pr
       // loading, ride the navigation out and re-inject; if it settled and the
       // snapshot is still missing, re-inject once anyway (our instrumented doc
       // may have been swapped right after injection).
+      if (!entry.dom?.full && navFlight.inFlight(id)) return [];
       if (!entry.dom?.full) {
         try {
           await entry.page.waitForLoadState('load', { timeout: 10000 }).catch(() => {});
