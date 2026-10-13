@@ -2870,15 +2870,27 @@ it 1:1.
 - **GIVEN** the Mac's pane hosts the context and the iPad watches it
 - **WHEN** the iPad taps the mirror
 - **THEN** the host receives the tap, then `host_viewport` with the iPad pane's size
-- **AND** once the page is laid out at that size, give or take 2 px, the iPad's mirror shows it at scale 1 from the top
+- **AND** the size counts even if the iPad sent it before the Mac hosted the page, or while the host was away
+- **AND** once the page is laid out at that size, give or take 2 px or a few px shorter, the iPad's mirror shows it at scale 1 from the top
+
+#### Scenario: a Mac slot smaller than the iPad
+- **WHEN** the Mac's slot for the page is smaller than the iPad's pane, down to a tenth of the window
+- **THEN** the page is laid out exactly as wide as the iPad's pane, and never taller than it
 
 #### Scenario: watching is not using
 - **WHEN** a device only watches, or resizes while only watching
 - **THEN** the host receives no `host_viewport`
 
 #### Scenario: the Mac takes the page back
-- **WHEN** the Mac's user uses the page in its own pane (a trusted pointer, key or wheel event, or the zoom), or the device using it leaves
+- **WHEN** the Mac's user uses the page in its own pane (a trusted pointer, key or wheel event, or the zoom), the device using it leaves, or no pane of that device shows the page any more
 - **THEN** the host receives `host_viewport` without a size and lays the page out at its own slot again
+- **AND** the server hears of every use of the Mac, so a size still on its way does not land after it
+- **AND** a device whose pane comes back on screen has the page at its size again, if nobody used the page meanwhile
+
+#### Scenario: the Mac's socket blips
+- **WHEN** the host comes back after its socket dropped
+- **THEN** it is told the current size of the device that was using the page
+- **AND** not if the Mac's user used the page while the socket was down
 
 #### Scenario: the on-screen keyboard
 - **WHEN** the on-screen keyboard takes height from the pane of the device using the page

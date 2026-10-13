@@ -185,7 +185,7 @@ export function createHostMirror(deps: HostMirrorDeps) {
         // that was serving them goes. It serves nobody now: an agent's ops on a
         // delegated context already run in the native pane.
         cancelFallback(contextId);
-        viewport.noteHostReady(contextId);
+        viewport.noteHostReady(contextId, frame.used === true);
         for (const w of viewersOf(contextId)) attach(w, contextId);
         void browser.destroyContext(contextId).catch((err: unknown) =>
           console.warn(`[WS][browser] destroyContext(${contextId}) after host handover failed:`, (err as Error)?.message));
@@ -223,7 +223,12 @@ export function createHostMirror(deps: HostMirrorDeps) {
      * ordinary path handles without touching Chromium.
      */
     routeViewer(ws: MirrorSocket, contextId: string, parsed: BrowserWsMessage): boolean {
-      if (ws.data._nativeDelegate || !hosts.isHosting(contextId)) return false;
+      if (ws.data._nativeDelegate) return false;
+      // Kept whoever serves the page: a pane does not repeat a size it has sent
+      // (useRemoteBrowser), so one sent while the server's Chromium served it,
+      // or while the host was away, is the one the host needs when it is used.
+      if (parsed.type === "resize") viewport.noteSize(contextId, deviceOf(ws), parsed.width, parsed.height);
+      if (!hosts.isHosting(contextId)) return false;
       switch (parsed.type) {
         case "input":
           // The input first: it was aimed at the layout the viewer is looking
@@ -241,8 +246,7 @@ export function createHostMirror(deps: HostMirrorDeps) {
           attach(ws, contextId);
           return true;
         case "resize":
-          // Kept, not applied: the size counts once this device uses the page.
-          viewport.noteSize(contextId, deviceOf(ws), parsed.width, parsed.height);
+          // Kept above, not applied: the size counts once this device uses the page.
           if (parsed.driving === true) viewport.noteRemoteUse(contextId, deviceOf(ws));
           return true;
         // The mirror knows what has focus, and there is no video track to negotiate.
@@ -253,6 +257,21 @@ export function createHostMirror(deps: HostMirrorDeps) {
         default:
           return false;
       }
+    },
+
+    /**
+     * A viewer's pane went off screen or came back (`set_watching`). Off screen
+     * is not using the page: it goes back to the Mac, unless the same device
+     * still shows it in another pane. Back on screen, the device that was using
+     * it still is, if nobody used the page meanwhile.
+     */
+    onWatching(ws: MirrorSocket, contextId: string): void {
+      sync(contextId);
+      if (ws.data._nativeDelegate) return;
+      const device = deviceOf(ws);
+      if (ws.data._watching !== false) { viewport.noteViewerShown(contextId, device); return; }
+      const shown = viewersOf(contextId).some((w) => w !== ws && w.data._watching !== false && deviceOf(w) === device);
+      if (!shown) viewport.noteViewerHidden(contextId, device);
     },
 
     /** A socket of the context closed (already out of its socket set). */

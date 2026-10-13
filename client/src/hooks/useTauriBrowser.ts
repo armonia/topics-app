@@ -48,7 +48,7 @@ import { currentOverlays, decideFreeze, liveSlotRect, onOcclusionChange, type Ov
 import { serverWsBase } from '../lib/shell/net';
 import type { HostNavAction, NativeDomHost } from '../lib/nativeDomHost';
 import { createPaneDomHost } from '../lib/shell/paneDomHost';
-import { INSTALL_USE_HOOK, LOCAL_USE_COUNT_JS, paneView, usedSince, type Size } from '../lib/shell/paneViewport';
+import { INSTALL_USE_HOOK, LOCAL_USE_COUNT_JS, paneView, parkedView, usedSince, type Size } from '../lib/shell/paneViewport';
 import { browserClientId } from '../lib/browserClientId';
 import { executeNativeBrowserOp } from '../lib/shell/tauriBrowserOps';
 import { stepZoom, DEFAULT_ZOOM, zoomApplyJs, zoomDrifted } from '../lib/shell/zoomScale';
@@ -648,8 +648,9 @@ export function useTauriBrowser(contextId: string, initialUrl?: string, isVisibl
     void tauriInvoke('browser_exec_js', { id, js: zoomApplyJs(size ? DEFAULT_ZOOM : zoomRef.current) }).catch(() => {});
     if (!frozenRef.current && !hiddenRef.current) { applyBounds(); return; }
     if (!openedRef.current) return;
-    const slot = pendingRectRef.current ?? { x: 0, y: 0, ...lastRealSizeRef.current };
-    const view = paneView(slot, { remote: size, device: deviceDimsRef.current, canZoom: !pageZoomMissing });
+    const view = parkedView(pendingRectRef.current, {
+      remote: size, device: deviceDimsRef.current, canZoom: !pageZoomMissing, last: lastRealSizeRef.current,
+    });
     applyPageZoom(view.pageZoom);
     lastRealSizeRef.current = { width: Math.round(view.rect.width), height: Math.round(view.rect.height) };
     void paneInvoke('browser_set_bounds', { id, x: -100000, y: 0, ...lastRealSizeRef.current });

@@ -170,6 +170,8 @@ export function createNativeDomHost(opts: NativeDomHostOptions): NativeDomHost {
   /** Laid out at another device's size, and which request of the server that is. */
   let driven = false;
   let viewportSeq = 0;
+  /** The Mac's user used the page while no server could be told. */
+  let usedAway = false;
 
   const sendPage = (): void => {
     if (accepted && page) opts.sendText(JSON.stringify({ type: 'host_page', ...page }));
@@ -242,7 +244,12 @@ export function createNativeDomHost(opts: NativeDomHostOptions): NativeDomHost {
   return {
     declare() {
       accepted = false;
-      opts.sendText(JSON.stringify({ type: 'native_dom_host' }));
+      // A use while the socket was down: the server must not lay the page out
+      // again for the device that was using it before. Taken before sending,
+      // so the answer finds it said.
+      const used = usedAway;
+      usedAway = false;
+      opts.sendText(JSON.stringify(used ? { type: 'native_dom_host', used: true } : { type: 'native_dom_host' }));
     },
     handle(frame) {
       if (!frame || typeof frame !== 'object') return false;
@@ -252,6 +259,11 @@ export function createNativeDomHost(opts: NativeDomHostOptions): NativeDomHost {
           accepted = true;
           opts.onAccepted?.();
           sendPage();
+          // Used between the declaration and its answer.
+          if (usedAway) {
+            usedAway = false;
+            opts.sendText(JSON.stringify({ type: 'host_local_use' }));
+          }
           return true;
         case 'host_dom_start':
           setRecording(true);
@@ -307,7 +319,12 @@ export function createNativeDomHost(opts: NativeDomHostOptions): NativeDomHost {
       release();
     },
     noteLocalUse() {
-      if (release() && accepted) opts.sendText(JSON.stringify({ type: 'host_local_use' }));
+      release();
+      // Said every time, laid out for another device or not: the server may
+      // already count a device as using the page while its size is on the way,
+      // and a use it never hears of would let that size land after it.
+      if (accepted) opts.sendText(JSON.stringify({ type: 'host_local_use' }));
+      else usedAway = true;
     },
     accepted: () => accepted,
   };

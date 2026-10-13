@@ -69,6 +69,12 @@ test("the page laid out at this pane's own size is shown 1:1 from the top, a hos
   });
 });
 
+test("a small Mac pane lays this pane's page out a few pixels short: still 1:1 from the top", () => {
+  for (const pane of [{ width: 1180, height: 820 }, { width: 1180, height: 480 }]) {
+    expect(fitCentered(pane, { width: 1180, height: 806 }, { width: 1180, height: 820 })).toEqual({ scale: 1, left: 0, top: 0 });
+  }
+});
+
 test("with the keyboard up the pane is shorter than its page, and the page stays 1:1", () => {
   expect(fitCentered({ width: 1180, height: 480 }, { width: 1180, height: 820 }, { width: 1180, height: 820 })).toEqual({
     scale: 1,

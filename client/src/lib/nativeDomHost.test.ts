@@ -181,7 +181,7 @@ describe('native DOM host: the layout of the device using the page', () => {
     expect(log).toEqual(['input', '1180x820']);
   });
 
-  test('the Mac using its pane takes the layout back and tells the server, once', async () => {
+  test('the Mac using its pane takes the layout back, and the server hears of every use', async () => {
     const v = sizes();
     const r = rig({ setViewport: v.setViewport });
     r.host.handle({ type: 'native_dom_host_ack' });
@@ -190,16 +190,31 @@ describe('native DOM host: the layout of the device using the page', () => {
     r.host.noteLocalUse();
     r.host.noteLocalUse();
     expect(v.seen).toEqual(['1180x820', 'own']);
-    expect(frames(r.sent).filter((f) => f.type === 'host_local_use')).toHaveLength(1);
+    expect(frames(r.sent).filter((f) => f.type === 'host_local_use')).toHaveLength(2);
   });
 
-  test('without another device driving, the Mac using its pane costs nothing', () => {
+  test('laid out for nobody, a use still reaches the server: a size on its way must not land after it', () => {
     const v = sizes();
     const r = rig({ setViewport: v.setViewport });
     r.host.handle({ type: 'native_dom_host_ack' });
     r.host.noteLocalUse();
     expect(v.seen).toEqual([]);
-    expect(frames(r.sent).map((f) => f.type)).toEqual([]);
+    expect(frames(r.sent).map((f) => f.type)).toEqual(['host_local_use']);
+  });
+
+  test('a use while the socket is down goes with the next declaration; one before its answer, right after it', () => {
+    const r = rig();
+    r.host.handle({ type: 'native_dom_host_ack' });
+    r.host.reset();
+    r.host.noteLocalUse();
+    expect(frames(r.sent)).toEqual([]);
+    r.host.declare();
+    expect(r.sent).toEqual([JSON.stringify({ type: 'native_dom_host', used: true })]);
+    r.host.noteLocalUse();
+    r.host.handle({ type: 'native_dom_host_ack' });
+    expect(frames(r.sent).map((f) => f.type)).toEqual(['native_dom_host', 'host_local_use']);
+    r.host.declare();
+    expect(r.sent.at(-1)).toBe(JSON.stringify({ type: 'native_dom_host' }));
   });
 
   test('a size still queued behind an input does not land after the Mac took the page back', async () => {

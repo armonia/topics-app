@@ -30,7 +30,11 @@ export interface HostViewportDeps {
 }
 
 export interface HostViewport {
-  /** A viewer's pane size (its `resize` frames, deduplicated by the viewer). */
+  /**
+   * A viewer's pane size (its `resize` frames, deduplicated by the viewer).
+   * Kept whoever serves the page: a pane that sent it while the server's
+   * Chromium did never says it again once the Mac hosts.
+   */
   noteSize(contextId: string, device: string, width: number, height: number): void;
   /** A viewer used the page: a driving input, or a `resize` that says `driving`. */
   noteRemoteUse(contextId: string, device: string): void;
@@ -38,9 +42,19 @@ export interface HostViewport {
   noteHostUse(contextId: string): void;
   /** A viewer's last socket on the context closed. */
   noteViewerGone(contextId: string, device: string): void;
-  /** A host declared itself, or came back: it starts at its own size. */
-  noteHostReady(contextId: string): void;
-  /** The context is no longer hosted, for good. */
+  /** No pane of this device shows the page any more: it is not using it. Its size stays. */
+  noteViewerHidden(contextId: string, device: string): void;
+  /**
+   * A pane of this device shows the page again. If it was the one using the
+   * page when it left, and nobody has used the page since, it still is.
+   */
+  noteViewerShown(contextId: string, device: string): void;
+  /**
+   * A host declared itself, or came back. It shows the device that was using
+   * the page again, unless the Mac's user used the page while it was away.
+   */
+  noteHostReady(contextId: string, usedWhileAway?: boolean): void;
+  /** The server's Chromium took the context over: nobody drives a host. The sizes stay. */
   forget(contextId: string): void;
   /** The device whose size the host is showing, if any. */
   driver(contextId: string): string | undefined;
@@ -51,8 +65,13 @@ interface Size { width: number; height: number }
 interface ContextState {
   sizes: Map<string, Size>;
   driver?: string;
-  /** What the host was last told: a size, null for its own, undefined for nothing yet. */
-  told?: Size | null;
+  /** The driver whose panes all left the screen, while nobody else has used the page. */
+  away?: string;
+  /**
+   * What the host was last told: a size, or null for its own. Null too for a
+   * host that has just declared itself: it starts at its own size.
+   */
+  told: Size | null;
 }
 
 export function createHostViewport(deps: HostViewportDeps): HostViewport {
@@ -60,7 +79,7 @@ export function createHostViewport(deps: HostViewportDeps): HostViewport {
   const ensure = (contextId: string): ContextState => {
     let state = contexts.get(contextId);
     if (!state) {
-      state = { sizes: new Map() };
+      state = { sizes: new Map(), told: null };
       contexts.set(contextId, state);
     }
     return state;
@@ -74,7 +93,7 @@ export function createHostViewport(deps: HostViewportDeps): HostViewport {
     if (state.driver !== undefined && !size) return;
     const next = size ?? null;
     const told = state.told;
-    if (told !== undefined && (told === null ? next === null : next !== null && told.width === next.width && told.height === next.height)) return;
+    if (told === null ? next === null : next !== null && told.width === next.width && told.height === next.height) return;
     state.told = next;
     deps.send(contextId, next ? { type: "host_viewport", width: next.width, height: next.height } : { type: "host_viewport" });
   };
@@ -89,11 +108,14 @@ export function createHostViewport(deps: HostViewportDeps): HostViewport {
     noteRemoteUse(contextId, device) {
       const state = ensure(contextId);
       state.driver = device;
+      state.away = undefined;
       tell(contextId, state);
     },
     noteHostUse(contextId) {
       const state = contexts.get(contextId);
-      if (!state || state.driver === undefined) return;
+      if (!state) return;
+      state.away = undefined;
+      if (state.driver === undefined) return;
       state.driver = undefined;
       tell(contextId, state);
     },
@@ -101,20 +123,43 @@ export function createHostViewport(deps: HostViewportDeps): HostViewport {
       const state = contexts.get(contextId);
       if (!state) return;
       state.sizes.delete(device);
-      if (state.driver !== device) return;
+      if (state.away === device) state.away = undefined;
+      if (state.driver === device) {
+        state.driver = undefined;
+        tell(contextId, state);
+      }
+      if (state.sizes.size === 0 && state.driver === undefined) contexts.delete(contextId);
+    },
+    noteViewerHidden(contextId, device) {
+      const state = contexts.get(contextId);
+      if (!state || state.driver !== device) return;
       state.driver = undefined;
+      state.away = device;
       tell(contextId, state);
     },
-    noteHostReady(contextId) {
+    noteViewerShown(contextId, device) {
+      const state = contexts.get(contextId);
+      if (!state || state.driver !== undefined || state.away !== device) return;
+      state.driver = device;
+      state.away = undefined;
+      tell(contextId, state);
+    },
+    noteHostReady(contextId, usedWhileAway = false) {
       const state = contexts.get(contextId);
       if (!state) return;
-      // A host that comes back has forgotten what it was told: a blip of its
-      // socket must not cost the device that was using the page its layout.
-      state.told = undefined;
+      // A host that comes back has forgotten what it was told, and starts at
+      // its own size: a blip of its socket must not cost the device that was
+      // using the page its layout. Unless the Mac took the page back meanwhile.
+      state.told = null;
+      if (usedWhileAway) { state.driver = undefined; state.away = undefined; }
       if (state.driver !== undefined) tell(contextId, state);
     },
     forget(contextId) {
-      contexts.delete(contextId);
+      const state = contexts.get(contextId);
+      if (!state) return;
+      state.driver = undefined;
+      state.away = undefined;
+      state.told = null;
     },
     driver: (contextId) => contexts.get(contextId)?.driver,
   };

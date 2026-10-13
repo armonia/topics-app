@@ -43,7 +43,8 @@ export interface HostPage {
 
 /** Host pane -> server. */
 export type HostFrame =
-  | { type: "native_dom_host" }
+  /** `used`: the person at the Mac used the page while its socket was down. */
+  | { type: "native_dom_host"; used?: boolean }
   | { type: "host_dom_events"; events: unknown[] }
   /** The person at the Mac used the page in its own pane (a real gesture, not a relayed one). */
   | { type: "host_local_use" }
@@ -53,7 +54,7 @@ export type HostFrame =
 export function parseHostFrame(raw: unknown): HostFrame | null {
   if (!raw || typeof raw !== "object") return null;
   const m = raw as Record<string, unknown>;
-  if (m.type === "native_dom_host") return { type: "native_dom_host" };
+  if (m.type === "native_dom_host") return m.used === true ? { type: "native_dom_host", used: true } : { type: "native_dom_host" };
   if (m.type === "host_local_use") return { type: "host_local_use" };
   if (m.type === "host_dom_events") {
     return Array.isArray(m.events) ? { type: "host_dom_events", events: m.events } : null;

@@ -102,14 +102,56 @@ describe("browser-host-viewport (TOPIC-BROWSER-05 on a hosted page)", () => {
     ]);
   });
 
-  test("a forgotten context starts over", () => {
+  test("a host that comes back after the Mac's user used the page keeps its own layout", () => {
+    const { viewport, sent } = setup();
+    viewport.noteSize("ctx", IPAD, 1180, 820);
+    viewport.noteRemoteUse("ctx", IPAD);
+    viewport.noteHostReady("ctx", true);
+    expect(sent).toEqual([{ type: "host_viewport", width: 1180, height: 820 }]);
+    expect(viewport.driver("ctx")).toBeUndefined();
+  });
+
+  test("a device that takes the page off its screen gives it back, and has it again when it shows it", () => {
+    const { viewport, sent } = setup();
+    viewport.noteSize("ctx", IPAD, 1180, 820);
+    viewport.noteRemoteUse("ctx", IPAD);
+    viewport.noteViewerHidden("ctx", PHONE);
+    expect(sent).toHaveLength(1);
+    viewport.noteViewerHidden("ctx", IPAD);
+    expect(sent.at(-1)).toEqual({ type: "host_viewport" });
+    expect(viewport.driver("ctx")).toBeUndefined();
+    viewport.noteViewerShown("ctx", PHONE);
+    expect(viewport.driver("ctx")).toBeUndefined();
+    viewport.noteViewerShown("ctx", IPAD);
+    expect(sent.at(-1)).toEqual({ type: "host_viewport", width: 1180, height: 820 });
+  });
+
+  test("away, the device loses the page to whoever uses it meanwhile", () => {
+    for (const meanwhile of ["mac", "phone"] as const) {
+      const { viewport, sent } = setup();
+      viewport.noteSize("ctx", IPAD, 1180, 820);
+      viewport.noteSize("ctx", PHONE, 390, 700);
+      viewport.noteRemoteUse("ctx", IPAD);
+      viewport.noteViewerHidden("ctx", IPAD);
+      if (meanwhile === "mac") viewport.noteHostUse("ctx");
+      else viewport.noteRemoteUse("ctx", PHONE);
+      const before = sent.length;
+      viewport.noteViewerShown("ctx", IPAD);
+      expect(sent).toHaveLength(before);
+      expect(viewport.driver("ctx")).toBe(meanwhile === "mac" ? undefined : PHONE);
+    }
+  });
+
+  test("the server's Chromium taking over leaves nobody driving, and the sizes it was sent", () => {
     const { viewport, sent } = setup();
     viewport.noteSize("ctx", IPAD, 1180, 820);
     viewport.noteRemoteUse("ctx", IPAD);
     viewport.forget("ctx");
     viewport.noteHostReady("ctx");
-    viewport.noteHostUse("ctx");
     expect(sent).toHaveLength(1);
     expect(viewport.driver("ctx")).toBeUndefined();
+    // The Mac hosts again, and the iPad, which does not repeat its size, uses the page.
+    viewport.noteRemoteUse("ctx", IPAD);
+    expect(sent.at(-1)).toEqual({ type: "host_viewport", width: 1180, height: 820 });
   });
 });

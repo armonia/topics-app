@@ -21,7 +21,7 @@ export interface Fit {
 }
 
 /** How far a page may be from the size its pane asked for and still be that
- *  pane's page: the host lays it out through a rounded page zoom. */
+ *  pane's page: the host lays it out through a page zoom and whole points. */
 const OWN_SIZE_SLACK_PX = 2;
 
 export function fitCentered(
@@ -41,7 +41,9 @@ export function fitCentered(
   // the on-screen keyboard, which takes height from the pane and not from the
   // page (useRemoteBrowser), shrank the whole page into a letterbox. Not when
   // it is wider than the pane: the pane just turned, and the page will follow.
-  if (own && Math.abs(pw - own.width) <= OWN_SIZE_SLACK_PX && Math.abs(ph - own.height) <= OWN_SIZE_SLACK_PX
+  // Shorter is still this pane's page: the Mac's pane lays it out a few pixels
+  // short when no whole frame gives the exact height (paneViewport.ts).
+  if (own && Math.abs(pw - own.width) <= OWN_SIZE_SLACK_PX && ph <= own.height + OWN_SIZE_SLACK_PX
     && pw <= cw + OWN_SIZE_SLACK_PX) {
     return { scale: 1, left: Math.max(0, Math.round((cw - pw) / 2)), top: 0 };
   }

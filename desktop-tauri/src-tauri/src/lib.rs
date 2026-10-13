@@ -5739,6 +5739,10 @@ fn browser_set_visible(app: tauri::AppHandle, id: String, visible: bool) -> Resu
 ///
 /// Not CSS `zoom` on the document: that one changes neither `innerWidth` nor
 /// the media queries, and the recorder would copy it into every mirror.
+///
+/// Floor 0.05, the client's MIN_PAGE_ZOOM (paneViewport.ts): a pane can be a
+/// tenth of the window, and WKWebView still lays a 1180x820 page out exactly in
+/// a 59x41 frame at 0.05 (measured).
 // ENGINES: wkwebview, webview2, webkitgtk - portable: tauri webview zoom (pageZoom on WKWebView).
 #[tauri::command]
 fn browser_set_page_zoom(app: tauri::AppHandle, id: String, zoom: f64) -> Result<(), String> {
@@ -5750,7 +5754,7 @@ fn browser_set_page_zoom(app: tauri::AppHandle, id: String, zoom: f64) -> Result
         let wv = app
             .get_webview(&browser_label(&id))
             .ok_or("no such browser pane")?;
-        wv.set_zoom(zoom.clamp(0.25, 1.0)).map_err(|e| e.to_string())
+        wv.set_zoom(zoom.clamp(0.05, 1.0)).map_err(|e| e.to_string())
     })
 }
 
