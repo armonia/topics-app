@@ -154,3 +154,83 @@ describe('native DOM host', () => {
     expect(DRAIN_FAST_MS).toBeLessThan(DRAIN_IDLE_MS);
   });
 });
+
+/** @covers NATIVE-HOST-04 */
+describe('native DOM host: the layout of the device using the page', () => {
+  const sizes = () => {
+    const seen: string[] = [];
+    return { seen, setViewport: (v: { width: number; height: number } | null) => { seen.push(v ? `${v.width}x${v.height}` : 'own'); } };
+  };
+
+  test('a size from the server is applied after the inputs already queued', async () => {
+    const log: string[] = [];
+    let releaseInput!: () => void;
+    const r = rig({
+      evalInPage: async (_js, preserveFocus) => {
+        if (preserveFocus) { await new Promise<void>((done) => { releaseInput = done; }); log.push('input'); }
+        return 'ok';
+      },
+      setViewport: (v) => { log.push(v ? `${v.width}x${v.height}` : 'own'); },
+    });
+    r.host.handle({ type: 'host_input', action: 'click', payload: { x: 10, y: 20 } });
+    r.host.handle({ type: 'host_viewport', width: 1180, height: 820 });
+    await r.settle();
+    expect(log).toEqual([]);
+    releaseInput();
+    await r.settle();
+    expect(log).toEqual(['input', '1180x820']);
+  });
+
+  test('the Mac using its pane takes the layout back and tells the server, once', async () => {
+    const v = sizes();
+    const r = rig({ setViewport: v.setViewport });
+    r.host.handle({ type: 'native_dom_host_ack' });
+    r.host.handle({ type: 'host_viewport', width: 1180, height: 820 });
+    await r.settle();
+    r.host.noteLocalUse();
+    r.host.noteLocalUse();
+    expect(v.seen).toEqual(['1180x820', 'own']);
+    expect(frames(r.sent).filter((f) => f.type === 'host_local_use')).toHaveLength(1);
+  });
+
+  test('without another device driving, the Mac using its pane costs nothing', () => {
+    const v = sizes();
+    const r = rig({ setViewport: v.setViewport });
+    r.host.handle({ type: 'native_dom_host_ack' });
+    r.host.noteLocalUse();
+    expect(v.seen).toEqual([]);
+    expect(frames(r.sent).map((f) => f.type)).toEqual([]);
+  });
+
+  test('a size still queued behind an input does not land after the Mac took the page back', async () => {
+    const v = sizes();
+    let releaseInput!: () => void;
+    const r = rig({
+      evalInPage: async (_js, preserveFocus) => {
+        if (preserveFocus) await new Promise<void>((done) => { releaseInput = done; });
+        return 'ok';
+      },
+      setViewport: v.setViewport,
+    });
+    r.host.handle({ type: 'host_input', action: 'click', payload: { x: 1, y: 1 } });
+    r.host.handle({ type: 'host_viewport', width: 1180, height: 820 });
+    await r.settle();
+    r.host.noteLocalUse();
+    releaseInput();
+    await r.settle();
+    expect(v.seen).toEqual(['own']);
+  });
+
+  test('the server giving the page back, or the socket dying, returns it to the pane', async () => {
+    const v = sizes();
+    const r = rig({ setViewport: v.setViewport });
+    r.host.handle({ type: 'host_viewport', width: 1180, height: 820 });
+    await r.settle();
+    r.host.handle({ type: 'host_viewport' });
+    await r.settle();
+    r.host.handle({ type: 'host_viewport', width: 820, height: 1180 });
+    await r.settle();
+    r.host.reset();
+    expect(v.seen).toEqual(['1180x820', 'own', '820x1180', 'own']);
+  });
+});

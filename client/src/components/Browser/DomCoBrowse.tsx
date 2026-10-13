@@ -108,14 +108,18 @@ interface Props {
   /** Hands the pane a reader of the mirror's document: the pane's finder
    *  searches the rebuilt page with it (BROWSER-FIND-04), no server involved. */
   exposeMirrorDocument?: (read: (() => Document | null) | null) => void;
+  /** The size this pane last asked the page for: a page laid out at it is shown 1:1 (browserFit). */
+  ownSize?: () => { width: number; height: number } | null;
 }
 
-export default function DomCoBrowse({ registerDomSink, registerFocusSink, sendInput, agentActive, exposeMirrorDocument }: Props) {
+export default function DomCoBrowse({ registerDomSink, registerFocusSink, sendInput, agentActive, exposeMirrorDocument, ownSize }: Props) {
   const tr = useT();
   const rootRef = useRef<HTMLDivElement | null>(null);
   const overlayRef = useRef<HTMLDivElement | null>(null);
   const kbdRef = useRef<BrowserKeyboardCaptureHandle | null>(null);
   const replayerRef = useRef<Replayer | null>(null);
+  const ownSizeRef = useRef(ownSize);
+  useEffect(() => { ownSizeRef.current = ownSize; }, [ownSize]);
   // The mirror's document, for find (BROWSER-FIND-04). A reader and not the
   // document itself: rrweb swaps the iframe's document on a full snapshot.
   useEffect(() => {
@@ -189,6 +193,7 @@ export default function DomCoBrowse({ registerDomSink, registerFocusSink, sendIn
     const { scale, left, top } = fitCentered(
       { width: root.clientWidth, height: root.clientHeight },
       { width: w, height: h },
+      ownSizeRef.current?.(),
     );
     scaleRef.current = scale;
     const wrapper = replayer.wrapper as HTMLElement | undefined;

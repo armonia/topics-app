@@ -2,7 +2,7 @@
  * @covers TOPIC-BROWSER-05
  */
 import { test, expect } from "bun:test";
-import { fitCentered, viewportFromRrwebEvent } from "./browserFit";
+import { boxUnderKeyboard, fitCentered, viewportFromRrwebEvent } from "./browserFit";
 
 test("a phone watching a desktop page gets it scaled and centred vertically", () => {
   const fit = fitCentered({ width: 390, height: 700 }, { width: 1280, height: 800 });
@@ -59,4 +59,40 @@ test("any other incremental event announces nothing", () => {
   expect(viewportFromRrwebEvent({ type: 2, data: { width: 800, height: 600 } })).toBeNull();
   expect(viewportFromRrwebEvent({ type: 4, data: {} })).toBeNull();
   expect(viewportFromRrwebEvent(null)).toBeNull();
+});
+
+test("the page laid out at this pane's own size is shown 1:1 from the top, a host rounding pixel included", () => {
+  expect(fitCentered({ width: 1180, height: 820 }, { width: 1180, height: 819 }, { width: 1180, height: 820 })).toEqual({
+    scale: 1,
+    left: 0,
+    top: 0,
+  });
+});
+
+test("with the keyboard up the pane is shorter than its page, and the page stays 1:1", () => {
+  expect(fitCentered({ width: 1180, height: 480 }, { width: 1180, height: 820 }, { width: 1180, height: 820 })).toEqual({
+    scale: 1,
+    left: 0,
+    top: 0,
+  });
+});
+
+test("somebody else's page that happens to be as wide is still fitted whole", () => {
+  const fit = fitCentered({ width: 1180, height: 820 }, { width: 1180, height: 1400 }, { width: 1180, height: 820 });
+  expect(fit.scale).toBeCloseTo(820 / 1400, 6);
+});
+
+test("a pane that just turned fits the old page until the new one comes", () => {
+  const fit = fitCentered({ width: 820, height: 1180 }, { width: 1180, height: 820 }, { width: 1180, height: 820 });
+  expect(fit.scale).toBeCloseTo(820 / 1180, 6);
+});
+
+test("the on-screen keyboard does not lay the shared page out again; anything else does", () => {
+  const last = { w: 1180, h: 820 };
+  expect(boxUnderKeyboard(last, { w: 1180, h: 480 }, true)).toEqual({ w: 1180, h: 820 });
+  expect(boxUnderKeyboard(last, { w: 1180, h: 480 }, false)).toEqual({ w: 1180, h: 480 });
+  // turned with the keyboard up: a new width is a new viewport
+  expect(boxUnderKeyboard(last, { w: 820, h: 700 }, true)).toEqual({ w: 820, h: 700 });
+  // and growing is never held back
+  expect(boxUnderKeyboard(last, { w: 1180, h: 900 }, true)).toEqual({ w: 1180, h: 900 });
 });

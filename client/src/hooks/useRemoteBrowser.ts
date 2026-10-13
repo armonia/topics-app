@@ -11,6 +11,7 @@ import { tracePaneAttach } from '../lib/paneAttachTrace';
 import { appendStreamConsole, tallyConsole } from '../components/Browser/streamConsole';
 import { applyContextInfo, applyNavMessage, startNavigation, type RemoteNavFields } from './remoteNavState';
 import { apiFetch } from '../lib/shell/net';
+import { boxUnderKeyboard, onScreenKeyboardUp } from '../lib/browserFit';
 
 export type ConnectionState = 'connecting' | 'connected' | 'disconnected' | 'fallback-http';
 
@@ -121,6 +122,8 @@ interface RemoteBrowser extends RemoteBrowserState, InteractionHandlers {
   /** T1 DOM co-browse: register the live rrweb-event sink (the DomCoBrowse view's
    *  Replayer). Returns an unsubscribe. Only one sink at a time. */
   registerDomSink: (cb: (event: unknown) => void) => () => void;
+  /** The size this pane last asked the page for, null before it asked. */
+  ownSize: () => { width: number; height: number } | null;
   /** Registra chi riceve il campo a fuoco riportato dal server dopo un click
    *  (null = a fuoco non c'è niente di scrivibile). Uno solo alla volta, come il
    *  sink rrweb; restituisce la disiscrizione. */
@@ -189,6 +192,12 @@ const WEBRTC_CONNECT_TIMEOUT_MS = 15000;
 const INPUT_ACK_TIMEOUT_MS = 250;
 /** At most one viewport claim per second while the user keeps interacting. */
 const VIEWPORT_CLAIM_INTERVAL_MS = 1000;
+
+/** The pane's box as it reports it: a height the on-screen keyboard took away stays (browserFit). */
+function paneBox(el: HTMLElement, last: { w: number; h: number }): { w: number; h: number } {
+  const r = el.getBoundingClientRect();
+  return boxUnderKeyboard(last, { w: Math.round(r.width), h: Math.round(r.height) }, onScreenKeyboardUp());
+}
 
 const SPECIAL_KEYS = new Set([
   'Enter', 'Tab', 'Escape', 'Backspace', 'Delete',
@@ -444,9 +453,15 @@ export function useRemoteBrowser(contextId: string, isVisible = true): RemoteBro
     const now = Date.now();
     if (now - lastViewportClaimRef.current < VIEWPORT_CLAIM_INTERVAL_MS) return;
     lastViewportClaimRef.current = now;
-    const r = el.getBoundingClientRect();
-    sendResize(Math.round(r.width), Math.round(r.height), { driving: true });
+    const { w, h } = paneBox(el, lastSentSizeRef.current);
+    sendResize(w, h, { driving: true });
   }, [sendResize]);
+
+  /** What this pane last asked the page to be: a page of that size is shown 1:1 (browserFit). */
+  const ownSize = useCallback(() => {
+    const { w, h } = lastSentSizeRef.current;
+    return w > 0 && h > 0 ? { width: w, height: h } : null;
+  }, []);
 
   // Callback ref for the pane content element: wires a debounced (~150ms)
   // ResizeObserver that reports size changes via sendResize. Re-attaching (or
@@ -457,8 +472,8 @@ export function useRemoteBrowser(contextId: string, isVisible = true): RemoteBro
     containerElRef.current = el;
     if (!el || typeof ResizeObserver === 'undefined') return;
     const measure = () => {
-      const r = el.getBoundingClientRect();
-      sendResize(Math.round(r.width), Math.round(r.height));
+      const { w, h } = paneBox(el, lastSentSizeRef.current);
+      sendResize(w, h);
     };
     const ro = new ResizeObserver(() => {
       if (resizeDebounceRef.current) clearTimeout(resizeDebounceRef.current);
@@ -892,8 +907,8 @@ export function useRemoteBrowser(contextId: string, isVisible = true): RemoteBro
             // guard would swallow it: `force` is what makes the answer leave.
             const el = containerElRef.current;
             if (el) {
-              const r = el.getBoundingClientRect();
-              sendResize(Math.round(r.width), Math.round(r.height), { force: true });
+              const { w, h } = paneBox(el, lastSentSizeRef.current);
+              sendResize(w, h, { force: true });
             }
             break;
           }
@@ -1555,6 +1570,7 @@ function rememberFramable(url: string, framable: boolean): void {
     retryWebrtc,
     setRenderMode,
     registerDomSink,
+    ownSize,
     registerFocusSink,
     sendInput,
     dismissDownload,

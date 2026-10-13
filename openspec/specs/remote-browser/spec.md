@@ -2857,6 +2857,33 @@ the iPad watched (13/10).
 - **WHEN** another device starts watching the context
 - **THEN** the pane stays on its native WKWebView instead of joining the shared session
 
+### Requirement: NATIVE-HOST-04 — A hosted page SHALL take the size of the device using it
+
+TOPIC-BROWSER-05 on a page the Mac hosts: the viewport belongs to whoever uses
+the page. Before, an iPad that used a page hosted by the Mac got the Mac's
+layout scaled down and letterboxed, and its own `resize` was dropped (13/10).
+The Mac's pane lays the page out at the iPad's size in CSS px, scaled into its
+slot with WKWebView's page zoom when it does not fit, and the iPad's mirror shows
+it 1:1.
+
+#### Scenario: the iPad uses a page the Mac hosts
+- **GIVEN** the Mac's pane hosts the context and the iPad watches it
+- **WHEN** the iPad taps the mirror
+- **THEN** the host receives the tap, then `host_viewport` with the iPad pane's size
+- **AND** once the page is laid out at that size, give or take 2 px, the iPad's mirror shows it at scale 1 from the top
+
+#### Scenario: watching is not using
+- **WHEN** a device only watches, or resizes while only watching
+- **THEN** the host receives no `host_viewport`
+
+#### Scenario: the Mac takes the page back
+- **WHEN** the Mac's user uses the page in its own pane (a trusted pointer, key or wheel event, or the zoom), or the device using it leaves
+- **THEN** the host receives `host_viewport` without a size and lays the page out at its own slot again
+
+#### Scenario: the on-screen keyboard
+- **WHEN** the on-screen keyboard takes height from the pane of the device using the page
+- **THEN** the device does not report the shorter height, and the page is not laid out again
+
 ### Requirement: BROWSER-DOM-LIVE-01 — A change SHALL reach the DOM mirror on the frame after it arrives
 
 The live replayer used to schedule every event against the first one it was
