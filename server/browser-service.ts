@@ -1,4 +1,5 @@
 import type { Page, BrowserContext, Browser } from "playwright-core";
+import { browserReapable } from "./lib/browser-idle-reap";
 import { pushNetworkEntry, completeNetworkEntry, type NetworkEntry } from "./browser-network-log";
 import { existsSync, mkdirSync, writeFileSync, readFileSync, statSync, readdirSync } from "fs";
 import { join } from "path";
@@ -770,6 +771,8 @@ export async function createBrowserService(opts: BrowserServiceOptions = {}): Pr
       ],
     });
     console.log(`[BrowserService] Chromium launched (CDP port: ${cdpPort})`);
+    // A launch is a use: the reaper must not read the clock of the previous one.
+    lastActivityAt = Date.now();
     // A fresh process starts in the normal band whatever the previous one was.
     qos.reset();
     refreshBackgroundPriority("launch");
@@ -1103,8 +1106,14 @@ export async function createBrowserService(opts: BrowserServiceOptions = {}): Pr
       // recompute per tick and spawns nothing unless the verdict moved.
       refreshBackgroundPriority("sweep");
 
-      if (browser && browser.isConnected() && contexts.size === 0 &&
-          now - lastActivityAt > browserIdleTimeoutMs) {
+      if (browser && browserReapable({
+        connected: browser.isConnected(),
+        contexts: contexts.size,
+        creating: pendingCreates.size,
+        launching: browserLaunching !== null,
+        idleMs: now - lastActivityAt,
+        idleTimeoutMs: browserIdleTimeoutMs,
+      })) {
         const idleMin = Math.round((now - lastActivityAt) / 60000);
         console.log(`[BrowserService] Reaping idle Chromium (0 contexts, idle ${idleMin}min) — relaunches on demand`);
         const b = browser;

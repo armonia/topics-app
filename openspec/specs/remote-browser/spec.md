@@ -2780,3 +2780,20 @@ ricevuti SHALL lasciare entrambe le frecce abilitate, come prima.
 - **GIVEN** una pane in streaming collegata a un server che non conosce i due valori
 - **WHEN** arriva il caricamento senza `canGoBack` né `canGoForward`
 - **THEN** ‹ e › restano abilitati
+
+### Requirement: BROWSER-REAP-01 — The idle reaper SHALL NOT close a browser that is launching or building a context
+
+The headless browser is reaped once it has no context and has been idle past its
+timeout. A browser that is still launching, or that a context is being created on,
+is in use: reaping it leaves the pane on "Target page, context or browser has been
+closed" at every retry. Measured 13/10 on the live server under memory pressure:
+launched 12:32:17, reaped 12:32:35 as "idle 21min".
+
+#### Scenario: a slow context creation survives the reaper
+- **GIVEN** the browser was last used 21 minutes ago
+- **WHEN** a pane asks for its context and the creation is still running at the reaper's tick
+- **THEN** the browser stays up and the pane gets its page
+
+#### Scenario: an idle browser with nothing on it is still reaped
+- **GIVEN** no context, no creation and no launch in progress, idle past the timeout
+- **THEN** the reaper closes it, and the next use relaunches it
