@@ -1,5 +1,21 @@
 [
   {
+    "version": "2.2.489",
+    "date": "2026-10-13",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Browser condiviso: le immagini delle pagine locali si vedono anche dall'iPad (#302)",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
     "version": "2.2.488",
     "date": "2026-10-13",
     "sections": {

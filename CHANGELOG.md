@@ -2,6 +2,11 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.2.489 — 2026-10-13
+
+### Sotto il cofano
+- Browser condiviso: le immagini delle pagine locali si vedono anche dall'iPad (#302)
+
 ## 2.2.488 — 2026-10-13
 
 ### Correzioni
