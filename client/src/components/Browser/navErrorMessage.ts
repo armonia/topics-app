@@ -72,6 +72,8 @@ const FILE_NOT_FOUND = -1100;
 const ATS_BLOCKED = -1022;
 /** Famiglia TLS: handshake fallito, certificato scaduto / non fidato / non ancora valido. */
 const TLS_CODES = new Set([-1200, -1201, -1202, -1203, -1204, -1205, -1206]);
+/** The member of that family a Chromium certificate failure is filed under. */
+const CERTIFICATE_UNTRUSTED = -1202;
 /**
  * Non è di Cocoa: è il codice con cui il guscio dice «quella navigazione l'ho
  * rifiutata io» (`NAV_ERR_SCHEME_REFUSED` in desktop-tauri/src-tauri/src/lib.rs).
@@ -175,4 +177,43 @@ export function deadLoopbackNotice(url: string, checkedAt: Date, tr: Translate):
     message: base.message,
     hint: `${tr('browser.navError.checkedAt', { clock: hhmm(checkedAt) })} ${base.hint ?? ''}`.trim(),
   };
+}
+
+/**
+ * The same sentences for a failure the SERVER's browser reported.
+ *
+ * A remote pane gets Chromium's words through Playwright ("goto: Timeout
+ * 30000ms exceeded.", "net::ERR_CONNECTION_REFUSED at …"), which is how the
+ * iPad came to show "Timeout 30000ms exceeded" about a dev server of the Mac.
+ * Mapped onto the codes above, so both panes say the same thing; what is not
+ * recognised keeps Chromium's text, as WebKit's does.
+ *
+ * A timeout on THIS machine is its own case: the port took the connection
+ * (a dead one refuses at once) and then said nothing for 30 s. The server
+ * there is running and stuck, and "Retry" will not help until it is restarted.
+ */
+/** `127.0.0.1:4444/dev/mano`: where the page is going, without the query. */
+export function pageTarget(url: string): string {
+  try {
+    const u = new URL(url);
+    return u.pathname === '/' ? u.host : `${u.host}${u.pathname}`;
+  } catch {
+    return url;
+  }
+}
+
+export function serverNavErrorText(url: string, error: string, tr: Translate): NavErrorText {
+  const where = hostLabel(url);
+  const timedOut = /Timeout \d+ms exceeded|ERR_TIMED_OUT|ERR_CONNECTION_TIMED_OUT/.test(error);
+  if (timedOut && where && isLoopbackUrl(url)) {
+    return { message: tr('browser.navError.loopbackStuck', { where }), hint: tr('browser.navError.loopbackStuck.hint') };
+  }
+  const code = timedOut ? TIMED_OUT
+    : /ERR_CONNECTION_REFUSED|ERR_ADDRESS_UNREACHABLE/.test(error) ? CANNOT_CONNECT
+      : /ERR_CONNECTION_(RESET|CLOSED)|ERR_EMPTY_RESPONSE/.test(error) ? CONNECTION_LOST
+        : /ERR_NAME_NOT_RESOLVED/.test(error) ? CANNOT_FIND_HOST
+          : /ERR_INTERNET_DISCONNECTED/.test(error) ? NOT_CONNECTED
+            : /ERR_CERT_|ERR_SSL_/.test(error) ? CERTIFICATE_UNTRUSTED
+              : 0;
+  return navErrorMessage({ url, description: error.replace(/^\w+: /, ''), code }, tr);
 }

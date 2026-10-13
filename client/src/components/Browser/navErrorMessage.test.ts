@@ -4,9 +4,10 @@
  * keeps the engine's own words instead of hiding them.
  *
  * @covers BROWSER-01
+ * @covers BROWSER-LOAD-01
  */
 import { describe, expect, test } from 'bun:test';
-import { deadLoopbackNotice, isLoopbackUrl, navErrorMessage } from './navErrorMessage';
+import { deadLoopbackNotice, isLoopbackUrl, navErrorMessage, pageTarget, serverNavErrorText } from './navErrorMessage';
 import IT from '../../lib/i18n-it';
 import { interpolate } from '../../lib/i18n';
 
@@ -137,5 +138,36 @@ describe('navigazione rifiutata dal guscio (-7001)', () => {
   test('non si confonde con un errore di rete vero', () => {
     const rete = navErrorMessage({ url: 'http://localhost:3210/', description: 'Could not connect to the server.', code: -1004 }, say);
     expect(rete.message).not.toContain('pannello');
+  });
+});
+
+describe('serverNavErrorText: the server browser failed (BROWSER-LOAD-01)', () => {
+  test('a local port that took the connection and kept quiet is a stuck server, not a slow one', () => {
+    const t = serverNavErrorText('http://127.0.0.1:4444/dev/mano?a=1', 'goto: Timeout 30000ms exceeded.', say);
+    expect(t.message).toContain('127.0.0.1:4444');
+    expect(t.message).toContain('non risponde');
+    expect(t.hint).toContain('riavvialo');
+    expect(`${t.message} ${t.hint}`).not.toContain('Timeout 30000ms');
+  });
+
+  test('the same timeout on a real host says it did not answer in time', () => {
+    const t = serverNavErrorText('https://slow.example.com/a', 'goto: Timeout 30000ms exceeded.', say);
+    expect(t.message).toBe(say('browser.navError.timedOut', { where: 'slow.example.com' }));
+  });
+
+  test('Chromium net errors land on the sentences the native pane already has', () => {
+    expect(serverNavErrorText('http://localhost:3000/', 'net::ERR_CONNECTION_REFUSED at http://localhost:3000/', say).message)
+      .toBe(say('browser.navError.loopbackSilent', { where: 'localhost:3000' }));
+    expect(serverNavErrorText('https://nope.invalid/', 'net::ERR_NAME_NOT_RESOLVED at https://nope.invalid/', say).message)
+      .toBe(say('browser.navError.hostNotFound', { where: 'nope.invalid' }));
+  });
+
+  test('what is not recognised keeps the browser words, without the method prefix', () => {
+    expect(serverNavErrorText('https://a.test/', 'goto: net::ERR_BLOCKED_BY_CLIENT', say).message).toBe('net::ERR_BLOCKED_BY_CLIENT');
+  });
+
+  test('the wait names the destination without its query', () => {
+    expect(pageTarget('http://127.0.0.1:4444/dev/mano?anim=applauso')).toBe('127.0.0.1:4444/dev/mano');
+    expect(pageTarget('https://example.com/')).toBe('example.com');
   });
 });

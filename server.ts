@@ -4085,6 +4085,10 @@ const opzioniServer = {
         // (the two-second register/destroy loop of 2026-09-03).
         sendBrowserWsMessage(ws, { type: 'viewers', count: countSharedViewers(bset, ws) });
         viewerCountPublisher.publish(ctxId, ws);
+        // A viewer that opens while the page is still on its way, or after it
+        // failed to get there, hears it now: it was not here when it was said.
+        const navNow = browserService.navReplay(ctxId);
+        if (navNow) sendBrowserWsMessage(ws, navNow);
         // This WS's own frame consumer. Hoisted to a const so we pass the SAME
         // identity to stopScreencast — with fan-out, that removes only THIS
         // viewer and leaves the shared CDP screencast running for the others
@@ -4509,10 +4513,10 @@ const opzioniServer = {
               // goto failures resolve with `error` (page stayed on the old
               // URL); launch failures reject below. Both must reach the pane
               // as phase 'error' — a bare 'response' here made every failed
-              // navigation invisible (BRW-REL-02).
-              if (r.error) {
-                sendBrowserWsMessage(ws, { type: 'nav', url: parsed.url, phase: 'error', error: r.error });
-              } else {
+              // navigation invisible (BRW-REL-02). The goto failure is not sent
+              // from here: the service tells every viewer of the context, this
+              // socket included (browser-nav-flight.ts).
+              if (!r.error) {
                 sendBrowserWsMessage(ws, { type: 'nav', url: parsed.url, phase: 'response' });
               }
             }).catch(err => {
