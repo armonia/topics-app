@@ -238,7 +238,7 @@ describe("listSkills — i casi che le facevano sparire", () => {
 });
 
 describe("Claude Code's memory on the native runtime", () => {
-  const enc = (p: string) => p.replace(/[/.]/g, "-");
+  const encodeDir = (p: string) => p.replace(/[/.]/g, "-");
   const git = (cwd: string, ...args: string[]) =>
     execFileSync("git", ["-C", cwd, "-c", "user.name=t", "-c", "user.email=t@t", ...args], { stdio: "ignore" });
   let savedPath: string | undefined;
@@ -262,7 +262,7 @@ describe("Claude Code's memory on the native runtime", () => {
       mkdirSync(join(repo, "sub"));
       const wt = join(repo, "..", `${repo.split("/").pop()}-wt`);
       git(repo, "worktree", "add", "-q", wt);
-      const want = join(home, ".claude", "projects", enc(repo), "memory");
+      const want = join(home, ".claude", "projects", encodeDir(repo), "memory");
       expect(claudeMemoryDir(join(repo, "sub"), home)).toBe(want);
       expect(claudeMemoryDir(wt, home)).toBe(want);
       rmSync(wt, { recursive: true, force: true });
@@ -272,7 +272,7 @@ describe("Claude Code's memory on the native runtime", () => {
   });
 
   it("outside git the memory folder is the folder itself (the home, for a chat with no project)", () => {
-    expect(claudeMemoryDir(home, home)).toBe(join(home, ".claude", "projects", enc(home), "memory"));
+    expect(claudeMemoryDir(home, home)).toBe(join(home, ".claude", "projects", encodeDir(home), "memory"));
   });
 
   it("without a project the native turn runs in TOPICS_WORKSPACE", () => {
