@@ -22,6 +22,7 @@ import { browserEngineRegistry, chromiumEngineInfo } from "../browser-engine-reg
 import { findTaskTabOwner } from "../services/task-tab-persist";
 import { collectBrowserContextIds } from "../browser-store-keep-list";
 import { dispatchBrowserToolCallByContext } from "../browser-tool-dispatcher";
+import { routedResourceUrl } from "../lib/dom-resource-rewrite";
 
 export function createBrowserRouter(
   ctx: AppContext,
@@ -44,6 +45,23 @@ export function createBrowserRouter(
         contexts: contexts.length,
         details: contexts,
       });
+    }
+
+    // --- A resource of a DOM mirror the viewer cannot reach (dom-resource-rewrite.ts) ---
+    if (method === "GET" && pathname === "/api/browser/resource") {
+      const id = url.searchParams.get("ctx");
+      const target = url.searchParams.get("u");
+      if (!id || !target || !routedResourceUrl(id, target)) return errorResponse(400, "ctx and an unreachable http(s) u required");
+      try {
+        const res = await browserService.fetchResource(id, target);
+        if (!res) return errorResponse(404, "browser context not open");
+        return new Response(res.body as unknown as BodyInit, {
+          status: res.status,
+          headers: { "Content-Type": res.contentType, "Cache-Control": "private, max-age=300" },
+        });
+      } catch (err) {
+        return errorResponse(502, `resource fetch failed: ${(err as Error)?.message ?? err}`);
+      }
     }
 
     // --- List browser contexts ---

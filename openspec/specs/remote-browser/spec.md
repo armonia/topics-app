@@ -2797,3 +2797,20 @@ launched 12:32:17, reaped 12:32:35 as "idle 21min".
 #### Scenario: an idle browser with nothing on it is still reaped
 - **GIVEN** no context, no creation and no launch in progress, idle past the timeout
 - **THEN** the reaper closes it, and the next use relaunches it
+
+### Requirement: BROWSER-DOM-RES-01 — The DOM mirror SHALL show resources the viewer cannot reach
+
+The mirror rebuilds the page in the viewer's browser, so the viewer fetches its
+images. A resource on a host only the Mac resolves (loopback, private ranges,
+`.local`) SHALL be served through `/api/browser/resource`, fetched by the page's
+own context with its cookies. Public resources SHALL load directly. Measured 13/10
+from the iPad on `http://localhost:3535`: no image in the mirror.
+
+#### Scenario: a local page's images on another device
+- **GIVEN** the shared pane shows a page at `http://localhost:3535` with protected images
+- **WHEN** the iPad watches it through the DOM mirror
+- **THEN** every image arrives through the proxy with the page's session, and none is fetched from the iPad's own `localhost`
+
+#### Scenario: a public image is not routed through the Mac
+- **GIVEN** an `<img>` on `https://cdn.example.com`
+- **THEN** the mirror keeps its URL as it is
