@@ -58,6 +58,7 @@ import BrowserKeyboardCapture, {
 import type { RemoteField } from '../../lib/browserKeyboardProfile';
 import { fitCentered, viewportFromRrwebEvent } from '../../lib/browserFit';
 import { prefixRoutedResources } from '../../lib/domResourceBase';
+import { forgetHandedOver, parkClock, stopClock, wakeClock } from '../../lib/mirrorClock';
 import { canObserveDocument, createImageDeferral, DEFERRED_IMAGES, revealImage } from '../../lib/mirrorImages';
 import { flingVelocity, scrollTargetAt } from '../../lib/mirrorScroll';
 import { serverHttpBase } from '../../lib/shell/net';
@@ -517,6 +518,8 @@ export default function DomCoBrowse({ registerDomSink, registerFocusSink, sendIn
       if (wait > 0) { local.release = setTimeout(releaseHeld, wait + 16); return; }
       const held = [...local.held.values()];
       local.held.clear();
+      // The clock may have parked while these waited.
+      if (held.length) noteActivityRef.current?.();
       for (const event of held) {
         stampArrival(event);
         replayerRef.current?.addEvent(event as never);
@@ -618,7 +621,11 @@ export default function DomCoBrowse({ registerDomSink, registerFocusSink, sendIn
         parkWhenHiddenRef.current?.();
         return;
       }
-      replayerRef.current?.addEvent(event as never);
+      const current = replayerRef.current;
+      if (current) {
+        current.addEvent(event as never);
+        forgetHandedOver(current);
+      }
       if (announced) applyScale(); // refit on the new viewport
     };
 
@@ -639,9 +646,10 @@ export default function DomCoBrowse({ registerDomSink, registerFocusSink, sendIn
     // nessun box ⇒ non interseca) e mirror fuori dal viewport — e
     // `visibilitychange` aggiunge la finestra nascosta.
     //
-    // Gli eventi continuano ad ARRIVARE mentre è parcheggiato: `addEvent` li
-    // accoda, e al risveglio `startLive` con una baseline fresca li scarica
-    // tutti insieme. Il mirror si riallinea in un colpo invece di perdere pezzi.
+    // rrweb's own `pause()` never stopped a live clock: the mirror drives it
+    // (lib/mirrorClock, BROWSER-DOM-IDLE-01). Events keep arriving while it is
+    // parked and wait in its queue; waking applies them all on the next frame,
+    // so the mirror catches up in one go instead of losing pieces.
     //
     // Non basta però la visibilità: col mirror IN VISTA il timer tornava a
     // pompare a frame pieno (858 rAF in 15s, misurati) anche davanti a una
@@ -655,12 +663,12 @@ export default function DomCoBrowse({ registerDomSink, registerFocusSink, sendIn
     const park = () => {
       if (parked || !replayerRef.current) return;
       parked = true;
-      try { replayerRef.current.pause(); } catch { parked = false; }
+      try { parkClock(replayerRef.current); } catch { parked = false; }
     };
     const wake = () => {
       if (!parked || !replayerRef.current) return;
       parked = false;
-      try { replayerRef.current.startLive(Date.now() - 100); } catch { /* riparte al prossimo evento */ }
+      try { wakeClock(replayerRef.current); } catch { /* the next event tries again */ }
     };
     const sync = () => {
       if (intersecting && !document.hidden) wake();
@@ -705,6 +713,7 @@ export default function DomCoBrowse({ registerDomSink, registerFocusSink, sendIn
       if (local.fling !== null) cancelAnimationFrame(local.fling);
       local.fling = null;
       stopWatchingImages();
+      if (replayerRef.current) stopClock(replayerRef.current);
       try { replayerRef.current?.destroy(); } catch { /* already gone */ }
       replayerRef.current = null;
       // The replayer took the reconstructed DOM with it — we're a blank box again.
