@@ -419,6 +419,8 @@
 
     "scripts/board-vs-chat.ts": 1959,
 
+    "scripts/check-identifier-language.ts": 805,
+
     "scripts/check-route-latency.ts": 964,
 
     "server.ts": 6875,
