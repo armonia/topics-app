@@ -16,7 +16,7 @@ function fix(s: string, base: string): string {
   return s.includes(MARK) ? s.split(MARK).join(`${base}${MARK}`) : s;
 }
 
-export function baseProxiedResources<T>(event: T, base: string): T {
+export function prefixRoutedResources<T>(event: T, base: string): T {
   if (!base) return event;
   const walk = (v: unknown): unknown => {
     if (typeof v === 'string') return fix(v, base);

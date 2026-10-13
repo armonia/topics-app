@@ -27,7 +27,7 @@ export function isViewerUnreachableHost(host: string): boolean {
   return a === 127 || a === 10 || (a === 192 && b === 168) || (a === 172 && b >= 16 && b <= 31);
 }
 
-export function proxiedResourceUrl(ctxId: string, url: string): string | null {
+export function routedResourceUrl(ctxId: string, url: string): string | null {
   let parsed: URL;
   try { parsed = new URL(url); } catch { return null; }
   if (parsed.protocol !== "http:" && parsed.protocol !== "https:") return null;
@@ -36,10 +36,10 @@ export function proxiedResourceUrl(ctxId: string, url: string): string | null {
 }
 
 function rewriteOne(ctxId: string, url: string): string {
-  return proxiedResourceUrl(ctxId, url.trim()) ?? url;
+  return routedResourceUrl(ctxId, url.trim()) ?? url;
 }
 
-function rewriteSrcset(ctxId: string, value: string): string {
+function rewriteSourceSet(ctxId: string, value: string): string {
   return value.split(",").map((part) => {
     const [u, ...rest] = part.trim().split(/\s+/);
     return u ? [rewriteOne(ctxId, u), ...rest].join(" ") : part;
@@ -48,7 +48,7 @@ function rewriteSrcset(ctxId: string, value: string): string {
 
 function rewriteCssUrls(ctxId: string, css: string): string {
   return css.replace(/url\(\s*(['"]?)([^'")]+)\1\s*\)/g, (whole, q: string, u: string) => {
-    const next = proxiedResourceUrl(ctxId, u);
+    const next = routedResourceUrl(ctxId, u);
     return next ? `url(${q}${next}${q})` : whole;
   });
 }
@@ -60,7 +60,7 @@ function rewriteAttributes(ctxId: string, tag: string | undefined, attrs: Record
     if (URL_ATTRS.has(name) && (name !== "href" || tag === "link" || tag === undefined)) {
       attrs[name] = rewriteOne(ctxId, value);
     } else if (name === "srcset") {
-      attrs[name] = rewriteSrcset(ctxId, value);
+      attrs[name] = rewriteSourceSet(ctxId, value);
     } else if (name === "style" || name === "_cssText") {
       attrs[name] = rewriteCssUrls(ctxId, value);
     }

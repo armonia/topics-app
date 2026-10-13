@@ -22,7 +22,7 @@ import { browserEngineRegistry, chromiumEngineInfo } from "../browser-engine-reg
 import { findTaskTabOwner } from "../services/task-tab-persist";
 import { collectBrowserContextIds } from "../browser-store-keep-list";
 import { dispatchBrowserToolCallByContext } from "../browser-tool-dispatcher";
-import { proxiedResourceUrl } from "../lib/dom-resource-rewrite";
+import { routedResourceUrl } from "../lib/dom-resource-rewrite";
 
 export function createBrowserRouter(
   ctx: AppContext,
@@ -51,7 +51,7 @@ export function createBrowserRouter(
     if (method === "GET" && pathname === "/api/browser/resource") {
       const id = url.searchParams.get("ctx");
       const target = url.searchParams.get("u");
-      if (!id || !target || !proxiedResourceUrl(id, target)) return errorResponse(400, "ctx and an unreachable http(s) u required");
+      if (!id || !target || !routedResourceUrl(id, target)) return errorResponse(400, "ctx and an unreachable http(s) u required");
       try {
         const res = await browserService.fetchResource(id, target);
         if (!res) return errorResponse(404, "browser context not open");

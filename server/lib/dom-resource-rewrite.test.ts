@@ -1,11 +1,11 @@
 import { describe, test, expect } from "bun:test";
-import { isViewerUnreachableHost, proxiedResourceUrl, rewriteDomEventResources } from "./dom-resource-rewrite";
+import { isViewerUnreachableHost, routedResourceUrl, rewriteDomEventResources } from "./dom-resource-rewrite";
 
 /** @covers BROWSER-DOM-RES-01 */
 
 const CTX = "ae217a6b";
 const IMG = "http://localhost:3535/p/profilo/photo/1.jpg";
-const PROXIED = `/api/browser/resource?ctx=${CTX}&u=${encodeURIComponent(IMG)}`;
+const ROUTED = `/api/browser/resource?ctx=${CTX}&u=${encodeURIComponent(IMG)}`;
 
 describe("isViewerUnreachableHost", () => {
   test("loopback, private ranges and mDNS are the Mac's alone", () => {
@@ -33,16 +33,16 @@ describe("rewriteDomEventResources", () => {
     };
     rewriteDomEventResources(CTX, ev);
     const a = ev.data.node.childNodes[0].attributes;
-    expect(a.src).toBe(PROXIED);
-    expect(a.srcset).toBe(`${PROXIED} 1x, https://cdn.example.com/a.jpg 2x`);
-    expect(a.style).toBe(`background:url("${PROXIED}")`);
+    expect(a.src).toBe(ROUTED);
+    expect(a.srcset).toBe(`${ROUTED} 1x, https://cdn.example.com/a.jpg 2x`);
+    expect(a.style).toBe(`background:url("${ROUTED}")`);
   });
 
   test("an image added later by a mutation is rewritten too", () => {
     const ev = { type: 3, data: { source: 0, adds: [{ node: { type: 2, tagName: "img", attributes: { src: IMG }, childNodes: [] } }], attributes: [{ id: 9, attributes: { src: IMG } }] } };
     rewriteDomEventResources(CTX, ev);
-    expect(ev.data.adds[0].node.attributes.src).toBe(PROXIED);
-    expect(ev.data.attributes[0].attributes.src).toBe(PROXIED);
+    expect(ev.data.adds[0].node.attributes.src).toBe(ROUTED);
+    expect(ev.data.attributes[0].attributes.src).toBe(ROUTED);
   });
 
   test("public images and navigation links stay as they are", () => {
@@ -56,7 +56,7 @@ describe("rewriteDomEventResources", () => {
   });
 
   test("only http(s) is proxied", () => {
-    expect(proxiedResourceUrl(CTX, "data:image/png;base64,AAAA")).toBeNull();
-    expect(proxiedResourceUrl(CTX, "file:///etc/passwd")).toBeNull();
+    expect(routedResourceUrl(CTX, "data:image/png;base64,AAAA")).toBeNull();
+    expect(routedResourceUrl(CTX, "file:///etc/passwd")).toBeNull();
   });
 });
