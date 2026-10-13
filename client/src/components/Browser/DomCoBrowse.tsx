@@ -76,6 +76,8 @@ const IDLE_PARK_MS = 400;
 const SCROLL_RELAY_INTERVAL = 60;
 /** Below this touch travel a touch is treated as a tap (→ click), not a scroll. */
 const TAP_SLOP = 8;
+/** How long after a relayed tap a click is that tap's synthesized echo. */
+const ECHO_CLICK_WINDOW_MS = 800;
 
 interface Props {
   /** Register the single live rrweb-event sink; returns an unsubscribe. */
@@ -130,6 +132,8 @@ export default function DomCoBrowse({ registerDomSink, registerFocusSink, sendIn
     { dx: 0, dy: 0, x: 0, y: 0, timer: null },
   );
   const touchRef = useRef<{ x: number; y: number; travel: number } | null>(null);
+  /** When `onTouchEnd` last relayed a tap, so `onClick` can drop its echo. */
+  const lastTapRelayRef = useRef(-Infinity);
   // Option/Alt held → let the user select + copy natively in the mirror iframe.
   const [selecting, setSelecting] = useState(false);
   // Has the replayer painted anything yet? The root is the theme background, so
@@ -266,6 +270,10 @@ export default function DomCoBrowse({ registerDomSink, registerFocusSink, sendIn
 
   const onClick = useCallback((e: React.MouseEvent) => {
     if (selectingRef.current || agentActiveRef.current) return;
+    // The click the engine synthesizes after a tap that `onTouchEnd` already
+    // relayed: the same gesture, so the page must not get it twice
+    // (BROWSER-DOM-TAP-01). Only reached when that touchend was not cancelable.
+    if (performance.now() - lastTapRelayRef.current < ECHO_CLICK_WINDOW_MS) return;
     const c = toSource(e.clientX, e.clientY);
     if (!c) return;
     sendInput('click', { x: c.x, y: c.y, button: 'left' });
@@ -319,7 +327,12 @@ export default function DomCoBrowse({ registerDomSink, registerFocusSink, sendIn
     const t = e.changedTouches[0];
     if (!t) return;
     const c = toSource(t.clientX, t.clientY);
-    if (c) sendInput('click', { x: c.x, y: c.y, button: 'left' });
+    if (!c) return;
+    sendInput('click', { x: c.x, y: c.y, button: 'left' });
+    lastTapRelayRef.current = performance.now();
+    // No synthesized mousedown + click for this tap: the click is relayed, and
+    // the mousedown would take the focus from the keyboard capture.
+    if (e.cancelable) e.preventDefault();
   }, [toSource, sendInput]);
 
   // ── Option/Alt hold → native local selection in the mirror ───────────────────

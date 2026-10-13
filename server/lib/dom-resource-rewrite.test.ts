@@ -55,6 +55,20 @@ describe("rewriteDomEventResources", () => {
     expect(ev.data.node.childNodes[1].attributes.href).toBe("http://localhost:3535/p/2");
   });
 
+  test("scripts and module preloads are not routed: the mirror never runs them", () => {
+    const js = "http://localhost:3535/assets/index-DdLnhU6r.js";
+    const ev = { type: 2, data: { node: { type: 2, tagName: "head", attributes: {}, childNodes: [
+      { type: 2, tagName: "script", attributes: { src: js }, childNodes: [] },
+      { type: 2, tagName: "link", attributes: { rel: "modulepreload", href: js }, childNodes: [] },
+      { type: 2, tagName: "link", attributes: { rel: "icon", href: IMG }, childNodes: [] },
+    ] } } };
+    rewriteDomEventResources(CTX, ev);
+    const [script, preload, icon] = ev.data.node.childNodes;
+    expect(script.attributes.src).toBe(js);
+    expect(preload.attributes.href).toBe(js);
+    expect(icon.attributes.href).toBe(ROUTED);
+  });
+
   test("only http(s) is proxied", () => {
     expect(routedResourceUrl(CTX, "data:image/png;base64,AAAA")).toBeNull();
     expect(routedResourceUrl(CTX, "file:///etc/passwd")).toBeNull();

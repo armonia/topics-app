@@ -2814,3 +2814,14 @@ from the iPad on `http://localhost:3535`: no image in the mirror.
 #### Scenario: a public image is not routed through the Mac
 - **GIVEN** an `<img>` on `https://cdn.example.com`
 - **THEN** the mirror keeps its URL as it is
+
+### Requirement: BROWSER-DOM-TAP-01 — One tap on the DOM mirror SHALL be one click on the page
+
+On a touch screen the engine follows `touchend` with a synthesized mousedown and
+click for the same tap. The mirror SHALL relay that gesture once. Measured 13/10
+from the iPad: every tap reached the shared page twice, so a menu opened and
+closed at once and actions on the shared browser "did not work".
+
+#### Scenario: a tap on the iPad
+- **WHEN** the user taps the mirror once
+- **THEN** the remote page receives exactly one click at that point

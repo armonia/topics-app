@@ -357,6 +357,11 @@ Una pane condivisa che NON sta guardando NON SHALL sottrarsi dal conto.
 - **GIVEN** una pane in condivisione senza canale attivo
 - **THEN** NON SHALL sottrarsi dal conto
 
+#### Scenario: l'altro dispositivo sparisce per qualche secondo
+- **GIVEN** il Mac in condivisione con l'iPad, e l'iPad che smette di guardare per qualche lettura (Safari in background, schermo spento)
+- **THEN** il Mac SHALL restare condiviso: torna nativo solo dopo circa 30 s da solo (`AUTO_LEAVE_CONFIRMATIONS`), mentre per entrare bastano due letture
+- Misurato il 13/10: ogni attraversamento ricarica la pagina nell'altro motore, ed era il «lentissimo dal Mac»
+
 ### Requirement: VIEWCNT-01 — Un delegato NATIVO non è uno spettatore
 
 Un delegato nativo NON SHALL essere contato come spettatore, QUALUNQUE cosa

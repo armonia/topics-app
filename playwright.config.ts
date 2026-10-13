@@ -409,6 +409,7 @@ export default defineConfig({
         "**/sheet-finger-follow.spec.ts",
         "**/hover-reveal-touch-audit.spec.ts",
         "**/browser-mobile-keyboard.spec.ts",
+        "**/browser-dom-tap-once.spec.ts",
         "**/mobile-chrome-bar.spec.ts",
         "**/mobile-list-under-chrome.spec.ts",
         "**/mobile-screens-under-chrome.spec.ts",
@@ -523,6 +524,9 @@ export default defineConfig({
       testMatch: [
         "**/hover-reveal-touch-audit.spec.ts",
         "**/browser-mobile-keyboard.spec.ts",
+        // One tap is one click on the mirror: needs the engine that synthesizes
+        // the click after `touchend`, which desktop WebKit does not.
+        "**/browser-dom-tap-once.spec.ts",
         "**/board-card-stop.spec.ts",
         // La spunta della tab: il contratto e' «col dito», non «sul telefono»,
         // e a 390px la striscia non si disegna piu'. Qui c'e' e il dito e' vero.
