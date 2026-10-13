@@ -1,4 +1,5 @@
 import { BUNDLE_STALE_EVENT } from './devBundleReload';
+import { apiFetch } from './shell/net';
 
 /**
  * Chunk-load error guard — the reactive safety net beside devBundleReload's
@@ -116,11 +117,12 @@ const CHUNK_RETRY_DELAYS_MS = [250, 500, 1000, 2000, 4000, 8000];
 /**
  * True when the server answers HTTP at all, whatever the status. `/api/` is
  * outside the service worker (sw.js lets it through), so a thrown fetch means
- * the server itself is away, not a cached fallback.
+ * the server itself is away, not a cached fallback. `apiFetch`, not `fetch`:
+ * under Tauri a relative URL resolves against `tauri://localhost`.
  */
 async function probeServer(): Promise<boolean> {
   try {
-    await fetch('/api/version', { cache: 'no-store' });
+    await apiFetch('/api/version', { cache: 'no-store' });
     return true;
   } catch {
     return false;
