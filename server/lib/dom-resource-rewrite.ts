@@ -80,8 +80,15 @@ function walk(ctxId: string, node: RrNode | undefined, parentTag?: string): void
 }
 
 /** Rewrite one rrweb event in place. Returns the same object. */
-export function rewriteDomEventResources<E extends { type?: number; data?: any }>(ctxId: string, event: E): E {
-  const d = event.data;
+type RrData = {
+  node?: RrNode;
+  source?: number;
+  adds?: { node?: RrNode }[];
+  attributes?: { attributes?: Record<string, unknown> }[];
+};
+
+export function rewriteDomEventResources<E extends { type?: number; data?: unknown }>(ctxId: string, event: E): E {
+  const d = event.data as RrData | undefined;
   if (!d) return event;
   if (event.type === 2) walk(ctxId, d.node);
   else if (event.type === 3 && d.source === 0) {

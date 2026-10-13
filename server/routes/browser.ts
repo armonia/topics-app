@@ -59,8 +59,8 @@ export function createBrowserRouter(
           status: res.status,
           headers: { "Content-Type": res.contentType, "Cache-Control": "private, max-age=300" },
         });
-      } catch (err: any) {
-        return errorResponse(502, `resource fetch failed: ${err?.message ?? err}`);
+      } catch (err) {
+        return errorResponse(502, `resource fetch failed: ${(err as Error)?.message ?? err}`);
       }
     }
 
