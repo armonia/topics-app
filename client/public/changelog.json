@@ -1,5 +1,22 @@
 [
   {
+    "version": "2.2.494",
+    "date": "2026-10-14",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "una pagina che non arriva dice dove stava andando e perché (#308)",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        }
+      ]
+    }
+  },
+  {
     "version": "2.2.493",
     "date": "2026-10-13",
     "sections": {

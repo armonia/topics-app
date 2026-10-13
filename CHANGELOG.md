@@ -2,6 +2,11 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.2.494 — 2026-10-14
+
+### Sotto il cofano
+- una pagina che non arriva dice dove stava andando e perché (#308)
+
 ## 2.2.493 — 2026-10-13
 
 ### Sotto il cofano
