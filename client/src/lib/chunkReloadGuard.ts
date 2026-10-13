@@ -114,6 +114,20 @@ export async function reimportChunk<M>(chunkName: string, cause: unknown): Promi
 const CHUNK_RETRY_DELAYS_MS = [250, 500, 1000, 2000, 4000, 8000];
 
 /**
+ * True when the server answers HTTP at all, whatever the status. `/api/` is
+ * outside the service worker (sw.js lets it through), so a thrown fetch means
+ * the server itself is away, not a cached fallback.
+ */
+async function probeServer(): Promise<boolean> {
+  try {
+    await fetch('/api/version', { cache: 'no-store' });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
  * `load`, plus the cure for a refresh that lands while the server restarts.
  *
  * Measured 13/10 (`tests/e2e/terminal-refresh-survives.spec.ts`): the page came
@@ -124,6 +138,11 @@ const CHUNK_RETRY_DELAYS_MS = [250, 500, 1000, 2000, 4000, 8000];
  * INSIDE the promise `React.lazy` holds: the pane shows its fallback and then
  * its body, with no refresh. Once the plain import failed, every later call
  * goes straight to the fresh URL (see `modelListLazy.ts` for why).
+ *
+ * Waiting only makes sense while the server is away. When it answers and the
+ * chunk still fails, the chunk is really gone (a rebuild under an open window):
+ * the error goes to the pane's boundary at once instead of after ~15 s of
+ * retries nobody can win.
  */
 export function retryingChunk<M>(
   chunkName: string,
@@ -131,6 +150,7 @@ export function retryingChunk<M>(
   delays: readonly number[] = CHUNK_RETRY_DELAYS_MS,
   /** Test seam: Bun cannot produce WebKit's chunk-load failure on demand. */
   reimport: (chunkName: string, cause: unknown) => Promise<M> = reimportChunk,
+  serverAnswers: () => Promise<boolean> = probeServer,
 ): () => Promise<M> {
   let firstFailure: unknown = null;
   return async () => {
@@ -149,6 +169,7 @@ export function retryingChunk<M>(
         // `reimportChunk` rethrows the cause itself when there is no URL to
         // retry (dev server): waiting would not change that.
         if (error === firstFailure || !isChunkLoadError(error) || attempt >= delays.length) throw error;
+        if (await serverAnswers()) throw error;
         await new Promise((r) => setTimeout(r, delays[attempt]));
       }
     }

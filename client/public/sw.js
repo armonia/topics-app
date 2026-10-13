@@ -133,10 +133,7 @@ self.addEventListener('fetch', (event) => {
     ? new Request(new URL('/', self.location.origin).href)
     : event.request;
 
-  // Le navigazioni prendono il percorso con retry (distingue riavvio-server da
-  // offline). Gli asset restano network-first a colpo singolo: un asset che
-  // manca per un attimo verrà richiesto di nuovo dalla prossima navigazione, non
-  // vale la pena tenerne in sospeso la fetch.
+  // Navigations take the retrying path (tells a server restart from offline).
   // The hashed chunks under `/assets/` are immutable, so waiting for them is
   // always right; and a chunk that fails reaches WebKit's module map as dead
   // for the life of the document. They take the same retry as navigations.

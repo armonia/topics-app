@@ -151,6 +151,7 @@ describe('reimportChunk', () => {
 
 describe('retryingChunk', () => {
   const NO_WAIT = [0, 0, 0, 0];
+  const serverDown = async () => false;
 
   test('a chunk that failed while the server restarted loads once it is back, inside the same promise', async () => {
     let tries = 0;
@@ -160,7 +161,7 @@ describe('retryingChunk', () => {
       if (tries < 3) throw new TypeError(WEBKIT_404.message);
       return { value: 7 };
     };
-    const load = retryingChunk('Menu', () => Promise.reject(WEBKIT_404), NO_WAIT, reimport);
+    const load = retryingChunk('Menu', () => Promise.reject(WEBKIT_404), NO_WAIT, reimport, serverDown);
     await expect(load()).resolves.toEqual({ value: 7 });
     expect(tries).toBe(3);
   });
@@ -183,7 +184,7 @@ describe('retryingChunk', () => {
 
   test('a chunk that never comes back reaches its error boundary when the waits run out', async () => {
     let tries = 0;
-    const load = retryingChunk('Menu', () => Promise.reject(WEBKIT_404), [0, 0], async () => { tries += 1; throw CHROMIUM_404; });
+    const load = retryingChunk('Menu', () => Promise.reject(WEBKIT_404), [0, 0], async () => { tries += 1; throw CHROMIUM_404; }, serverDown);
     await expect(load()).rejects.toBe(CHROMIUM_404);
     expect(tries).toBe(3);
   });
@@ -192,6 +193,13 @@ describe('retryingChunk', () => {
     let tries = 0;
     const load = retryingChunk('Menu', () => Promise.reject(WEBKIT_404), [60_000], async (_name, cause) => { tries += 1; throw cause; });
     await expect(load()).rejects.toBe(WEBKIT_404);
+    expect(tries).toBe(1);
+  });
+
+  test('the server answers and the chunk still fails: it is really gone, no waiting', async () => {
+    let tries = 0;
+    const load = retryingChunk('Menu', () => Promise.reject(WEBKIT_404), [60_000], async () => { tries += 1; throw new TypeError(WEBKIT_404.message); }, async () => true);
+    await expect(load()).rejects.toThrow(WEBKIT_404.message);
     expect(tries).toBe(1);
   });
 });
