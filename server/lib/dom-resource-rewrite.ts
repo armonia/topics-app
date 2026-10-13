@@ -1,0 +1,94 @@
+/**
+ * Resource URLs in the DOM co-browse mirror that the VIEWER cannot reach.
+ *
+ * The mirror rebuilds the page inside the viewer's browser, so every `<img src>`
+ * is fetched by the viewer, not by the Mac. Measured 13/10 from the iPad on a
+ * page at `http://localhost:3535`: the mirror showed no images, because
+ * `localhost` on the iPad is the iPad, and the page's login cookies live in the
+ * headless context anyway. Such URLs are rewritten to
+ * `/api/browser/resource?ctx=<id>&u=<url>`, which the server fetches through the
+ * context itself (same network, same cookies). Public URLs are left alone: the
+ * viewer loads them directly, without routing every image through the Mac.
+ *
+ * Walks rrweb events in place: FullSnapshot (type 2) and the mutation /
+ * attribute payloads of IncrementalSnapshot (type 3, source 0).
+ */
+
+const URL_ATTRS = new Set(["src", "poster", "href"]);
+
+/** True for hosts that only resolve on the Mac: loopback, private ranges, mDNS. */
+export function isViewerUnreachableHost(host: string): boolean {
+  const h = host.replace(/^\[|\]$/g, "").toLowerCase();
+  if (h === "localhost" || h.endsWith(".localhost") || h.endsWith(".local")) return true;
+  if (h === "::1" || h === "0.0.0.0") return true;
+  const m = h.match(/^(\d+)\.(\d+)\.\d+\.\d+$/);
+  if (!m) return false;
+  const a = Number(m[1]), b = Number(m[2]);
+  return a === 127 || a === 10 || (a === 192 && b === 168) || (a === 172 && b >= 16 && b <= 31);
+}
+
+export function proxiedResourceUrl(ctxId: string, url: string): string | null {
+  let parsed: URL;
+  try { parsed = new URL(url); } catch { return null; }
+  if (parsed.protocol !== "http:" && parsed.protocol !== "https:") return null;
+  if (!isViewerUnreachableHost(parsed.hostname)) return null;
+  return `/api/browser/resource?ctx=${encodeURIComponent(ctxId)}&u=${encodeURIComponent(url)}`;
+}
+
+function rewriteOne(ctxId: string, url: string): string {
+  return proxiedResourceUrl(ctxId, url.trim()) ?? url;
+}
+
+function rewriteSrcset(ctxId: string, value: string): string {
+  return value.split(",").map((part) => {
+    const [u, ...rest] = part.trim().split(/\s+/);
+    return u ? [rewriteOne(ctxId, u), ...rest].join(" ") : part;
+  }).join(", ");
+}
+
+function rewriteCssUrls(ctxId: string, css: string): string {
+  return css.replace(/url\(\s*(['"]?)([^'")]+)\1\s*\)/g, (whole, q: string, u: string) => {
+    const next = proxiedResourceUrl(ctxId, u);
+    return next ? `url(${q}${next}${q})` : whole;
+  });
+}
+
+function rewriteAttributes(ctxId: string, tag: string | undefined, attrs: Record<string, unknown>): void {
+  for (const [name, value] of Object.entries(attrs)) {
+    if (typeof value !== "string") continue;
+    // `href` only on <link>: an <a href> is navigation, not a resource.
+    if (URL_ATTRS.has(name) && (name !== "href" || tag === "link" || tag === undefined)) {
+      attrs[name] = rewriteOne(ctxId, value);
+    } else if (name === "srcset") {
+      attrs[name] = rewriteSrcset(ctxId, value);
+    } else if (name === "style" || name === "_cssText") {
+      attrs[name] = rewriteCssUrls(ctxId, value);
+    }
+  }
+}
+
+type RrNode = { type?: number; tagName?: string; attributes?: Record<string, unknown>; childNodes?: RrNode[]; textContent?: string };
+
+function walk(ctxId: string, node: RrNode | undefined, parentTag?: string): void {
+  if (!node || typeof node !== "object") return;
+  if (node.type === 2 && node.attributes) rewriteAttributes(ctxId, node.tagName, node.attributes);
+  // Text inside <style>: rrweb keeps the stylesheet as the text node's content.
+  if (node.type === 3 && parentTag === "style" && typeof node.textContent === "string") {
+    node.textContent = rewriteCssUrls(ctxId, node.textContent);
+  }
+  for (const child of node.childNodes ?? []) walk(ctxId, child, node.tagName);
+}
+
+/** Rewrite one rrweb event in place. Returns the same object. */
+export function rewriteDomEventResources<E extends { type?: number; data?: any }>(ctxId: string, event: E): E {
+  const d = event.data;
+  if (!d) return event;
+  if (event.type === 2) walk(ctxId, d.node);
+  else if (event.type === 3 && d.source === 0) {
+    for (const add of d.adds ?? []) walk(ctxId, add.node);
+    // An attribute mutation does not carry the tag: `href` is rewritten only when
+    // it points at an unreachable host, where following it would fail anyway.
+    for (const a of d.attributes ?? []) if (a.attributes) rewriteAttributes(ctxId, undefined, a.attributes);
+  }
+  return event;
+}
