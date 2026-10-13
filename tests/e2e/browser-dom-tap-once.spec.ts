@@ -14,8 +14,8 @@ hermetic(test);
  * The mirror relayed a click from `touchend`, and then the engine synthesized
  * mousedown + click for the same tap, which `onClick` relayed again: every tap
  * reached the page twice. A menu opened and closed at once, a "next" moved two
- * photos. The video path already knew (RemoteBrowserPanel, "dopo il touchend il
- * motore sintetizza mousedown+click") and relays from `onClick` alone.
+ * photos. The video path already knew (RemoteBrowserPanel says the engine
+ * synthesizes mousedown + click after touchend) and relays from `onClick` alone.
  *
  * Counting without a sleep: a wheel after the tap relays a `scroll`, and the
  * socket is ordered, so once the scroll is in, every click of the tap is too.

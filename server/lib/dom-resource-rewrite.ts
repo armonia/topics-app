@@ -14,7 +14,13 @@
  * attribute payloads of IncrementalSnapshot (type 3, source 0).
  */
 
-const URL_ATTRS = new Set(["src", "poster", "href"]);
+/** Tags whose `src` the mirror really loads. Not `<script>`: the replayer never
+ *  runs scripts, and routing them only made the viewer download ~450 KB of
+ *  modules per page for nothing (measured on darkroom, 13/10). */
+const SOURCE_TAGS = new Set(["img", "source", "video", "audio", "track", "input", "image"]);
+/** `<link rel>` values the mirror loads: icons, and a stylesheet rrweb could not
+ *  inline. `modulepreload` and `preload` of scripts stay out, as above. */
+const LOADED_LINK_TYPES = /(^|\s)(icon|apple-touch-icon|stylesheet)(\s|$)/i;
 
 /** True for hosts that only resolve on the Mac: loopback, private ranges, mDNS. */
 export function isViewerUnreachableHost(host: string): boolean {
@@ -53,11 +59,21 @@ function rewriteCssUrls(ctxId: string, css: string): string {
   });
 }
 
+function loadsUrl(tag: string | undefined, name: string, attrs: Record<string, unknown>): boolean {
+  // An attribute mutation does not carry its tag: route what points at an
+  // unreachable host, where following it from the viewer would fail anyway.
+  if (tag === undefined) return name === "src" || name === "poster" || name === "href";
+  if (name === "src") return SOURCE_TAGS.has(tag);
+  if (name === "poster") return tag === "video";
+  // `href` is navigation on <a>; a resource only on <link> and SVG <image>.
+  if (name === "href") return tag === "image" || (tag === "link" && LOADED_LINK_TYPES.test(String(attrs.rel ?? "")));
+  return false;
+}
+
 function rewriteAttributes(ctxId: string, tag: string | undefined, attrs: Record<string, unknown>): void {
   for (const [name, value] of Object.entries(attrs)) {
     if (typeof value !== "string") continue;
-    // `href` only on <link>: an <a href> is navigation, not a resource.
-    if (URL_ATTRS.has(name) && (name !== "href" || tag === "link" || tag === undefined)) {
+    if (loadsUrl(tag, name, attrs)) {
       attrs[name] = rewriteOne(ctxId, value);
     } else if (name === "srcset") {
       attrs[name] = rewriteSourceSet(ctxId, value);
