@@ -121,6 +121,19 @@ describe("decidePark", () => {
         reason: "watched",
       });
     });
+
+    test("una tab aperta senza socket resta viva: e' lo stato di ogni tab in secondo piano dopo un refresh", () => {
+      // 13/10: dopo il refresh solo la tab visibile riaggancia (1,1,1 -> 0,0,1),
+      // e la passata spegneva le altre. Una tab aperta e' in background, non persa.
+      expect(decidePark(parkable({ attachedClients: 0, hasOpenTab: true }), THRESHOLD)).toEqual({
+        park: false,
+        reason: "open-tab",
+      });
+    });
+
+    test("senza tab (conversazione chiusa) si parcheggia come prima", () => {
+      expect(decidePark(parkable({ hasOpenTab: false }), THRESHOLD)).toEqual({ park: true });
+    });
   });
 
   describe("in mancanza di dati NON si parcheggia", () => {

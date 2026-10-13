@@ -36,6 +36,20 @@ export interface ParkCandidate {
   idleMs: number | null;
   /** Quanti client hanno il WebSocket di questa sessione aperto. */
   attachedClients: number;
+  /**
+   * Una tab di Topics la mostra (`ui_state` la referenzia), anche se nessun
+   * client ha il suo WebSocket aperto adesso.
+   *
+   * `attachedClients` da solo non basta: dopo un refresh il client riaggancia
+   * solo la tab visibile, le altre restano senza socket finché non le guardi.
+   * Misurato il 13/10 (`tests/e2e/terminal-refresh-survives.spec.ts`): tre
+   * Claude Code agganciati `1,1,1` prima del refresh, `0,0,1` dopo. Con la
+   * soglia a 8 minuti sotto pressione, il refresh bastava a far spegnere le tab
+   * in secondo piano: «aggiorno Topics e mi perde dei Claude Code». Una tab
+   * aperta resta viva in background; chi non ne ha (conversazioni chiuse, il
+   * caso del 03/08) si parcheggia come prima.
+   */
+  hasOpenTab?: boolean;
   /** Il transcript è ancora su disco? Senza, `--resume` fallirebbe per sempre. */
   hasTranscript: boolean;
   /** Fase della macchina a stati Claude, `null` se sconosciuta. */
@@ -70,6 +84,7 @@ export type ParkRefusal =
   | "no-transcript"
   | "busy"
   | "watched"
+  | "open-tab"
   | "phase-active"
   | "idle-unknown"
   | "frozen-tree"
@@ -112,6 +127,7 @@ export function decidePark(c: ParkCandidate, idleThresholdMs: number): ParkDecis
   if (!c.hasTranscript) return { park: false, reason: "no-transcript" };
   if (c.busy) return { park: false, reason: "busy" };
   if (c.attachedClients > 0) return { park: false, reason: "watched" };
+  if (c.hasOpenTab) return { park: false, reason: "open-tab" };
   if (c.phase !== null && ACTIVE_PHASES.has(c.phase)) return { park: false, reason: "phase-active" };
   if (c.awaitingHuman) return { park: false, reason: "awaiting-human" };
   if (c.idleMs === null) return { park: false, reason: "idle-unknown" };
@@ -128,6 +144,7 @@ export function refusalLabel(reason: ParkRefusal): string {
     case "no-transcript": return "transcript assente dal disco";
     case "busy": return "PTY attiva adesso";
     case "watched": return "qualcuno la sta guardando";
+    case "open-tab": return "ha una tab aperta in Topics";
     case "phase-active": return "turno in corso";
     case "idle-unknown": return "inattivita' non misurata";
     case "frozen-tree": return "ha un comando congelato";
