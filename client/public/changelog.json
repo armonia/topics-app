@@ -1,5 +1,21 @@
 [
   {
+    "version": "2.2.493",
+    "date": "2026-10-13",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Browser sull'iPad: immagini solo quando servono, e il mirror fermo non consuma (#306)",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
     "version": "2.2.492",
     "date": "2026-10-13",
     "sections": {

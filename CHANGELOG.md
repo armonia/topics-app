@@ -2,6 +2,11 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.2.493 — 2026-10-13
+
+### Sotto il cofano
+- Browser sull'iPad: immagini solo quando servono, e il mirror fermo non consuma (#306)
+
 ## 2.2.492 — 2026-10-13
 
 ### Sotto il cofano
