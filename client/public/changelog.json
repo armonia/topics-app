@@ -1,5 +1,21 @@
 [
   {
+    "version": "2.2.492",
+    "date": "2026-10-13",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Browser sull'iPad: le modifiche arrivano subito e lo scroll è nativo (#305)",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
     "version": "2.2.491",
     "date": "2026-10-13",
     "sections": {
