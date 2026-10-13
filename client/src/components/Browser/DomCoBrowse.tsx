@@ -58,6 +58,8 @@ import BrowserKeyboardCapture, {
 import type { RemoteField } from '../../lib/browserKeyboardProfile';
 import { fitCentered, viewportFromRrwebEvent } from '../../lib/browserFit';
 import { prefixRoutedResources } from '../../lib/domResourceBase';
+import { forgetHandedOver, parkClock, stopClock, wakeClock } from '../../lib/mirrorClock';
+import { canObserveDocument, createImageDeferral, DEFERRED_IMAGES, revealImage } from '../../lib/mirrorImages';
 import { flingVelocity, scrollTargetAt } from '../../lib/mirrorScroll';
 import { serverHttpBase } from '../../lib/shell/net';
 
@@ -89,6 +91,8 @@ const LOCAL_SCROLL_HOLD_MS = 600;
 const FLING_DECAY_PER_MS = 0.998;
 /** ...and has stopped below this speed, in source px per ms. */
 const FLING_STOP_SPEED = 0.02;
+/** How far outside the mirror's view a lazy image starts loading, in source px. */
+const LAZY_IMAGE_MARGIN = '1000px';
 
 interface Props {
   /** Register the single live rrweb-event sink; returns an unsubscribe. */
@@ -514,6 +518,8 @@ export default function DomCoBrowse({ registerDomSink, registerFocusSink, sendIn
       if (wait > 0) { local.release = setTimeout(releaseHeld, wait + 16); return; }
       const held = [...local.held.values()];
       local.held.clear();
+      // The clock may have parked while these waited.
+      if (held.length) noteActivityRef.current?.();
       for (const event of held) {
         stampArrival(event);
         replayerRef.current?.addEvent(event as never);
@@ -528,11 +534,53 @@ export default function DomCoBrowse({ registerDomSink, registerFocusSink, sendIn
       return true;
     };
 
+    // Lazy images wait for the mirror's view (BROWSER-DOM-LAZY-01, lib/mirrorImages).
+    // The mirror's document runs no scripts, so this one watches it. An engine
+    // that cannot observe against a document loads them all, as before.
+    const deferral = canObserveDocument() ? createImageDeferral() : null;
+    let imageWatch: { io: IntersectionObserver; mo: MutationObserver } | null = null;
+    const stopWatchingImages = () => {
+      imageWatch?.io.disconnect();
+      imageWatch?.mo.disconnect();
+      imageWatch = null;
+    };
+    const watchImages = () => {
+      stopWatchingImages();
+      const replayer = replayerRef.current;
+      const doc = (replayer?.iframe as HTMLIFrameElement | undefined)?.contentDocument;
+      if (!deferral || !replayer || !doc) return;
+      const io = new IntersectionObserver((entries) => {
+        for (const entry of entries) {
+          if (!entry.isIntersecting) continue;
+          io.unobserve(entry.target);
+          revealImage(entry.target);
+          deferral.revealed(replayer.getMirror().getId(entry.target));
+        }
+      }, { root: doc, rootMargin: LAZY_IMAGE_MARGIN });
+      const observeWithin = (root: ParentNode) => root.querySelectorAll(DEFERRED_IMAGES).forEach((img) => io.observe(img));
+      observeWithin(doc);
+      // Images the source adds later arrive by mutation.
+      const mo = new MutationObserver((records) => {
+        for (const record of records) {
+          for (const node of record.addedNodes) {
+            // nodeType, not instanceof: the mirror's nodes belong to the iframe's realm.
+            if (node.nodeType !== 1) continue;
+            const el = node as Element;
+            if (el.matches(DEFERRED_IMAGES)) io.observe(el);
+            else observeWithin(el);
+          }
+        }
+      });
+      mo.observe(doc, { childList: true, subtree: true });
+      imageWatch = { io, mo };
+    };
+
     const handle = (raw: unknown) => {
       const event = raw as RrwebEvent;
       if (!event || typeof event.type !== 'number') return;
       stampArrival(event);
       prefixRoutedResources(event, serverHttpBase());
+      deferral?.onEvent(event);
       if (started && holdScrollEcho(event)) return;
       // Traffico: sveglia il timer se era parcheggiato e riarma l'inattività.
       noteActivityRef.current?.();
@@ -561,6 +609,7 @@ export default function DomCoBrowse({ registerDomSink, registerFocusSink, sendIn
           applyScale();
           // doc.open() during rebuild drops in-iframe listeners — re-arm the guard.
           attachNavGuard();
+          watchImages();
         });
         started = true;
         setPainted(true);
@@ -572,7 +621,11 @@ export default function DomCoBrowse({ registerDomSink, registerFocusSink, sendIn
         parkWhenHiddenRef.current?.();
         return;
       }
-      replayerRef.current?.addEvent(event as never);
+      const current = replayerRef.current;
+      if (current) {
+        current.addEvent(event as never);
+        forgetHandedOver(current);
+      }
       if (announced) applyScale(); // refit on the new viewport
     };
 
@@ -593,9 +646,10 @@ export default function DomCoBrowse({ registerDomSink, registerFocusSink, sendIn
     // nessun box ⇒ non interseca) e mirror fuori dal viewport — e
     // `visibilitychange` aggiunge la finestra nascosta.
     //
-    // Gli eventi continuano ad ARRIVARE mentre è parcheggiato: `addEvent` li
-    // accoda, e al risveglio `startLive` con una baseline fresca li scarica
-    // tutti insieme. Il mirror si riallinea in un colpo invece di perdere pezzi.
+    // rrweb's own `pause()` never stopped a live clock: the mirror drives it
+    // (lib/mirrorClock, BROWSER-DOM-IDLE-01). Events keep arriving while it is
+    // parked and wait in its queue; waking applies them all on the next frame,
+    // so the mirror catches up in one go instead of losing pieces.
     //
     // Non basta però la visibilità: col mirror IN VISTA il timer tornava a
     // pompare a frame pieno (858 rAF in 15s, misurati) anche davanti a una
@@ -609,12 +663,12 @@ export default function DomCoBrowse({ registerDomSink, registerFocusSink, sendIn
     const park = () => {
       if (parked || !replayerRef.current) return;
       parked = true;
-      try { replayerRef.current.pause(); } catch { parked = false; }
+      try { parkClock(replayerRef.current); } catch { parked = false; }
     };
     const wake = () => {
       if (!parked || !replayerRef.current) return;
       parked = false;
-      try { replayerRef.current.startLive(Date.now() - 100); } catch { /* riparte al prossimo evento */ }
+      try { wakeClock(replayerRef.current); } catch { /* the next event tries again */ }
     };
     const sync = () => {
       if (intersecting && !document.hidden) wake();
@@ -658,6 +712,8 @@ export default function DomCoBrowse({ registerDomSink, registerFocusSink, sendIn
       local.held.clear();
       if (local.fling !== null) cancelAnimationFrame(local.fling);
       local.fling = null;
+      stopWatchingImages();
+      if (replayerRef.current) stopClock(replayerRef.current);
       try { replayerRef.current?.destroy(); } catch { /* already gone */ }
       replayerRef.current = null;
       // The replayer took the reconstructed DOM with it — we're a blank box again.

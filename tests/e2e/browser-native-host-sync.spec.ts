@@ -24,6 +24,8 @@ hermetic(test);
  * @covers NATIVE-HOST-02
  * @covers BROWSER-DOM-LIVE-01
  * @covers BROWSER-DOM-SCROLL-01
+ * @covers BROWSER-DOM-LAZY-01
+ * @covers BROWSER-DOM-IDLE-01
  */
 const RRWEB_EVENTS = JSON.parse(
   readFileSync(resolvePath(__dirname, "fixtures/rrweb-sample.json"), "utf-8"),
@@ -31,8 +33,8 @@ const RRWEB_EVENTS = JSON.parse(
 
 const HOST_URL = "https://example.com/hosted";
 
-/** A page five viewports tall, recorded a minute ago. */
-function tallPage(stamp: number): unknown[] {
+/** A page five viewports tall, recorded a minute ago, holding `inside`. */
+function tallPage(stamp: number, inside: unknown[] = []): unknown[] {
   return [
     { type: 4, timestamp: stamp, data: { href: "https://example.com/tall", width: 800, height: 600 } },
     { type: 2, timestamp: stamp + 1, data: { initialOffset: { left: 0, top: 0 }, node: { type: 0, id: 1, childNodes: [
@@ -42,6 +44,7 @@ function tallPage(stamp: number): unknown[] {
         { type: 2, tagName: "body", attributes: { style: "margin:0" }, id: 5, childNodes: [
           { type: 2, tagName: "div", attributes: { id: "tall", style: "position:relative;height:5000px" }, id: 6, childNodes: [
             { type: 3, textContent: "TALL", id: 7 },
+            ...inside,
           ] },
         ] },
       ] },
@@ -178,6 +181,99 @@ test.describe("Native pane as the mirror host", () => {
       .filter((f) => f.type === "host_input" && f.action === "scroll")
       .reduce((sum, f) => sum + (f.payload?.deltaY ?? 0), 0);
     await expect.poll(async () => Math.abs((await relayed()) - local), { timeout: 2_000 }).toBeLessThan(1.5);
+    await hostPage.close();
+  });
+
+  // The source's answer to a scroll waits for the gesture to end, then wins: a
+  // tap lands where the source is, so the mirror must show that, even when its
+  // clock parked while the answer waited.
+  test("after a scroll, the mirror settles where the source ended up", async ({ page, context, request }) => {
+    const ctx = `e2e-host-settle-${Date.now()}`;
+    const hostPage = await context.newPage();
+    await startFakeHost(hostPage, ctx, tallPage(Date.now() - 60_000));
+    await resetPaneStore(request, [`browser:${ctx}`]);
+    await goToApp(page);
+    await expect(page.locator('[data-testid="browser-dom-cobrowse"]').first().frameLocator("iframe").locator("#tall")).toContainText("TALL", { timeout: 10_000 });
+
+    const box = await page.locator('[data-testid="browser-dom-input-overlay"]').first().boundingBox();
+    expect(box).not.toBeNull();
+    await page.mouse.move(box!.x + box!.width / 2, box!.y + box!.height / 2);
+    await page.mouse.wheel(0, 300);
+    const frame = await mirrorFrame(page);
+    const scrolled = () => frame.evaluate(() => document.scrollingElement?.scrollTop ?? 0);
+    await expect.poll(scrolled, { timeout: 500 }).toBeGreaterThan(0);
+
+    // The source stopped short of the distance asked (a page can clamp it), and says so at once.
+    await hostSend(hostPage, { type: "host_dom_events", events: [
+      { type: 3, timestamp: Date.now(), data: { source: 3, id: 1, x: 0, y: 120 } },
+    ] });
+    await expect.poll(scrolled, { timeout: 3_000 }).toBe(120);
+    await hostPage.close();
+  });
+
+  // Before: the mirror runs no scripts, which turns lazy loading off, so a
+  // viewer fetched every image of the page as it opened it (568 on Darkroom, 13/10).
+  test("a lazy image loads when the mirror comes near it, not before", async ({ page, context, request }) => {
+    const ctx = `e2e-host-lazy-${Date.now()}`;
+    const lazyImage = (id: number, name: string, top: number) => ({ type: 2, tagName: "img", id, childNodes: [],
+      attributes: { src: `https://lazy.invalid/${name}.png`, loading: "lazy", style: `position:absolute;top:${top}px;width:100px;height:100px` } });
+    const requested: string[] = [];
+    page.on("request", (r) => requested.push(r.url()));
+    const hostPage = await context.newPage();
+    await startFakeHost(hostPage, ctx, tallPage(Date.now() - 60_000, [lazyImage(8, "near", 100), lazyImage(9, "far", 4000)]));
+    await resetPaneStore(request, [`browser:${ctx}`]);
+    await goToApp(page);
+    const tall = page.locator('[data-testid="browser-dom-cobrowse"]').first().frameLocator("iframe").locator("#tall");
+    await expect(tall).toContainText("TALL", { timeout: 10_000 });
+
+    await expect.poll(() => requested.some((u) => u.includes("near.png")), { timeout: 5_000 }).toBe(true);
+    // A change applied after the rebuild: by then an eager image would have been fetched too.
+    await hostSend(hostPage, { type: "host_dom_events", events: [
+      { type: 3, timestamp: Date.now(), data: { source: 0, texts: [{ id: 7, value: "SETTLED" }], attributes: [], removes: [], adds: [] } },
+    ] });
+    await expect(tall).toContainText("SETTLED", { timeout: 1_500 });
+    expect(requested.filter((u) => u.includes("far.png"))).toEqual([]);
+
+    const box = await page.locator('[data-testid="browser-dom-input-overlay"]').first().boundingBox();
+    expect(box).not.toBeNull();
+    await page.mouse.move(box!.x + box!.width / 2, box!.y + box!.height / 2);
+    await page.mouse.wheel(0, 3900 * (box!.width / 800));
+    await expect.poll(() => requested.some((u) => u.includes("far.png")), { timeout: 5_000 }).toBe(true);
+    await hostPage.close();
+  });
+
+  // Before: rrweb's live clock asked for a frame on every frame, idle or not,
+  // and the mirror's park could not stop it (60 a second in WebKit, 13/10).
+  test("an idle mirror asks for no frames, and the next change still lands at once", async ({ page, context, request }) => {
+    await page.addInitScript(() => {
+      const w = window as unknown as { __frames: number };
+      w.__frames = 0;
+      const ask = window.requestAnimationFrame.bind(window);
+      window.requestAnimationFrame = (callback) => { w.__frames++; return ask(callback); };
+    });
+    const ctx = `e2e-host-idle-${Date.now()}`;
+    const hostPage = await context.newPage();
+    await startFakeHost(hostPage, ctx, tallPage(Date.now() - 60_000));
+    await resetPaneStore(request, [`browser:${ctx}`]);
+    await goToApp(page);
+    const tall = page.locator('[data-testid="browser-dom-cobrowse"]').first().frameLocator("iframe").locator("#tall");
+    await expect(tall).toContainText("TALL", { timeout: 10_000 });
+
+    // Frames the page asks for over `ms`, counted in the page.
+    const framesAsked = (ms: number) => page.evaluate((ms) => new Promise<number>((resolve) => {
+      const w = window as unknown as { __frames: number };
+      const from = w.__frames;
+      setTimeout(() => resolve(w.__frames - from), ms);
+    }), ms);
+    // The mirror parks 400ms after its last event, and stays parked.
+    await expect.poll(() => framesAsked(250), { timeout: 3_000 }).toBeLessThan(3);
+    expect(await framesAsked(2_000)).toBeLessThan(10);
+
+    // Seconds after the first event: a clock restarted from zero would hold this back as long.
+    await hostSend(hostPage, { type: "host_dom_events", events: [
+      { type: 3, timestamp: Date.now(), data: { source: 0, texts: [{ id: 7, value: "WOKEN" }], attributes: [], removes: [], adds: [] } },
+    ] });
+    await expect(tall).toContainText("WOKEN", { timeout: 1_500 });
     await hostPage.close();
   });
 });

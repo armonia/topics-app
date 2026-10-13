@@ -2877,3 +2877,30 @@ recording had been running.
 - **THEN** the mirror scrolls at once on that device, before the source answers
 - **AND** the source is asked to scroll by the same distance in its own CSS pixels
 - **AND** a released swipe carries on and slows down, as a native scroll does
+- **AND** once the gesture ends, the mirror settles where the source ended up
+
+### Requirement: BROWSER-DOM-LAZY-01 — A lazy image SHALL load in the DOM mirror only as it nears the view
+
+The mirror is a sandboxed document without scripts, and HTML turns lazy loading
+off where scripting is off, so a viewer fetched every image a page marked lazy
+as soon as it opened it. Measured 13/10 on Darkroom: 1049 of its 1056 images
+lazy, 568 requests from the iPad through the Mac in a minute.
+
+#### Scenario: a long page of lazy images
+- **GIVEN** a source page with a lazy image in view and one far below it
+- **WHEN** a viewer rebuilds the page
+- **THEN** it fetches the image in view and not the one below
+- **AND** it fetches the one below once its own mirror scrolls near it
+
+### Requirement: BROWSER-DOM-IDLE-01 — An idle DOM mirror SHALL ask for no animation frames
+
+rrweb's live replayer asks for a frame on every frame, and every frame asked
+for makes the renderer update. Its own pause does nothing once live, so the
+mirror's park never stopped it, and a closed mirror kept it running. Measured
+13/10 in WebKit: 60 frames a second from a mirror idle for over a second.
+
+#### Scenario: a source page that stopped changing
+- **GIVEN** a viewer whose mirror has received nothing for a while
+- **THEN** the viewer asks for no animation frames for it
+- **WHEN** the source records a change
+- **THEN** the viewer shows it within a second and a half
