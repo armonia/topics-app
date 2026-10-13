@@ -14,7 +14,7 @@
  */
 import { describe, expect, it } from "bun:test";
 import {
-  markViaTunnel, isViaTunnel, isLocalTransport, clientIpOf, tunnelPort,
+  markViaTunnel, isViaTunnel, isLocalTransport, clientIpOf, tunnelPort, httpTunnelPort,
 } from "./tunnel";
 import { isLoopbackAddress } from "./auth-gate";
 
@@ -106,6 +106,22 @@ describe("tunnel · la porta si configura, e non si indovina", () => {
   it("un valore assurdo NON apre una porta a caso", () => {
     for (const v of ["0", "-1", "70000", "abc", "3334.5", " "]) {
       expect(`${v}→${tunnelPort({ TOPICS_TUNNEL_PORT: v })}`).toBe(`${v}→null`);
+    }
+  });
+});
+
+describe("tunnel · the plaintext port follows the same rule", () => {
+  it("without the variable there is no plaintext listener", () => {
+    expect(httpTunnelPort({})).toBeNull();
+    expect(httpTunnelPort({ TOPICS_TUNNEL_HTTP_PORT: "" })).toBeNull();
+    // The TLS port variable does not turn the plaintext one on.
+    expect(httpTunnelPort({ TOPICS_TUNNEL_PORT: "3334" })).toBeNull();
+  });
+
+  it("a valid value opens the port, a nonsense one does not", () => {
+    expect(httpTunnelPort({ TOPICS_TUNNEL_HTTP_PORT: "3435" })).toBe(3435);
+    for (const v of ["0", "-1", "70000", "abc", "3435.5", " "]) {
+      expect(`${v}→${httpTunnelPort({ TOPICS_TUNNEL_HTTP_PORT: v })}`).toBe(`${v}→null`);
     }
   });
 });

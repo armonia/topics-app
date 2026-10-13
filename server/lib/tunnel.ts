@@ -95,12 +95,31 @@ export function clientIpOf(req: Request, peerIp: string | null): string | null {
   return primo || peerIp;
 }
 
-/** La porta dedicata al tunnel, se configurata. `null` = nessun ascoltatore in
- *  più, cioè il comportamento di sempre. */
-export function tunnelPort(env: Record<string, string | undefined>): number | null {
-  const raw = env.TOPICS_TUNNEL_PORT;
+/** A port from an environment variable: an integer in range, or nothing. */
+function parsePort(raw: string | undefined): number | null {
   if (!raw) return null;
   const n = Number(raw);
   if (!Number.isInteger(n) || n < 1 || n > 65535) return null;
   return n;
+}
+
+/** The dedicated tunnel port, if configured. `null` = no extra listener, the
+ *  behaviour as it always was. */
+export function tunnelPort(env: Record<string, string | undefined>): number | null {
+  return parsePort(env.TOPICS_TUNNEL_PORT);
+}
+
+/**
+ * The PLAINTEXT tunnel port, twin of the TLS one.
+ *
+ * For a proxy forwarding from an http origin (a short tailnet name, which has
+ * no certificate): talking to the TLS listener, the server would see `https:`
+ * for pages served over http, and the session cookie would go out `Secure`,
+ * which a browser on an http origin drops. No session, no protected images
+ * (measured 13/10 from the iPad: 401). On this port `req.url` says http by
+ * itself and the cookie rule follows. Same marking, same trust (none): only
+ * the scheme changes. Bound to 127.0.0.1; reachability is `tailscale serve`.
+ */
+export function httpTunnelPort(env: Record<string, string | undefined>): number | null {
+  return parsePort(env.TOPICS_TUNNEL_HTTP_PORT);
 }
