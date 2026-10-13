@@ -2864,10 +2864,10 @@ function tryParkSession(
 }
 
 /**
- * Gli id di sessione che una tab di Topics mostra, letti da `ui_state` con lo
- * stesso estrattore del censimento delle orfane. `null` se la lettura fallisce:
- * chi chiama la tratta come «tutte hanno una tab», perché non sapere non è un
- * permesso di spegnere.
+ * Session ids some Topics tab shows, read from `ui_state` with the same
+ * extractor the orphan census uses. `null` when the read fails: the caller
+ * treats that as "every session has a tab", since not knowing is not a
+ * licence to kill.
  */
 function openTabSessionIds(): ReadonlySet<string> | null {
   try {

@@ -123,8 +123,8 @@ describe("decidePark", () => {
     });
 
     test("una tab aperta senza socket resta viva: e' lo stato di ogni tab in secondo piano dopo un refresh", () => {
-      // 13/10: dopo il refresh solo la tab visibile riaggancia (1,1,1 -> 0,0,1),
-      // e la passata spegneva le altre. Una tab aperta e' in background, non persa.
+      // 13/10: after a refresh only the visible tab reattaches (1,1,1 -> 0,0,1),
+      // and the sweep killed the others. An open tab is in the background, not gone.
       expect(decidePark(parkable({ attachedClients: 0, hasOpenTab: true }), THRESHOLD)).toEqual({
         park: false,
         reason: "open-tab",

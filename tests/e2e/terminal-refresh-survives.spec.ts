@@ -1,13 +1,14 @@
 /**
  * @covers TERM-02
  *
- * Un refresh della finestra non deve perdere nessuna tab Claude Code di un
- * progetto, e deve riagganciarle in fretta.
+ * A window refresh must not lose any Claude Code tab of a project, and must
+ * reattach them fast.
  *
- * Segnalato il 13/10: «aggiorno Topics, resta un sacco in caricamento, mi perde
- * dei Claude Code; se riaggiorno me li recupera». Il conteggio delle tab dopo
- * OGNI refresh è la prova della perdita; il tempo fino a `replay-end` sulla
- * WebSocket del terminale è la misura del caricamento.
+ * Reported 13/10: after a refresh Topics stayed loading and some Claude Code
+ * tabs were gone until refreshed again. The tab count after EVERY refresh is
+ * the proof of loss; the time to `replay-end` on the terminal WebSocket is the
+ * loading measure. The attached-client counts it prints are why the idle park
+ * now spares open tabs (`server/lib/terminal-idle-park.ts`, `open-tab`).
  */
 import { expect, type Page } from "@playwright/test";
 import { test } from "./fixtures/terminal.fixture";
@@ -28,16 +29,16 @@ const SESSIONS = 3;
 const RELOADS = 5;
 
 /**
- * Il prune delle tab terminale aspetta la lista delle sessioni PARCHEGGIATE
- * (`useProjectTerminalSync`, `guard.loaded`): finché non arriva non toglie
- * niente. Quindi «le tab restano» si legge DOPO quella risposta e un frame.
+ * The terminal-tab prune waits for the PARKED-session list
+ * (`useProjectTerminalSync`, `guard.loaded`): until it arrives nothing is
+ * removed. So "the tabs stay" is read AFTER that response and a frame.
  */
 async function afterPrunePass(page: Page, dormantRead: Promise<unknown>): Promise<void> {
   await dormantRead;
   await page.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))));
 }
 
-/** «+» sulla riga del progetto → «Claude Code»: il gesto con cui nascono le tab vere. */
+/** "+" on the project row, then "Claude Code": the gesture real tabs are born from. */
 async function addClaudeCode(page: Page): Promise<void> {
   const row = page.locator(projectRowSelector()).first();
   await row.hover();
@@ -45,7 +46,7 @@ async function addClaudeCode(page: Page): Promise<void> {
   await page.getByTestId("pane-add-menu-claude-code").click();
 }
 
-/** Millisecondi dal via fino al primo `replay-end` di ogni sessione elencata. */
+/** Milliseconds from the start to the first `replay-end` of each listed session. */
 function watchReplayEnd(page: Page, ids: string[], t0: () => number): Map<string, number> {
   const seen = new Map<string, number>();
   page.on("websocket", (ws) => {
@@ -99,10 +100,10 @@ test.describe.serial("Refresh con più Claude Code aperti", () => {
       start = Date.now();
       const dormantRead = page.waitForResponse((r) => r.url().includes("/api/terminal/sessions/dormant"));
       await page.reload();
-      // Tutte le tab tornano: è QUESTA la perdita segnalata.
+      // Every tab comes back: THIS is the reported loss.
       for (const id of ids) await expect(tab(id), `refresh ${r}: tab ${id} persa`).toBeVisible({ timeout: 20_000 });
       const tabsMs = Date.now() - start;
-      // E restano: una potatura arriva dopo la lista delle parcheggiate, non prima.
+      // And they stay: a prune lands after the parked list, never before.
       await afterPrunePass(page, dormantRead);
       const present = await Promise.all(ids.map((id) => tab(id).count()));
       expect(present, `refresh ${r}: tab sparite dopo il primo roster`).toEqual(ids.map(() => 1));
@@ -121,8 +122,8 @@ test.describe.serial("Refresh con più Claude Code aperti", () => {
 
     const report: string[] = [];
     for (let r = 1; r <= 3; r++) {
-      // Il refresh parte mentre il server è giù, come quando il watcher di
-      // produzione lo ricarica perché qualcuno ha toccato `server/`.
+      // The refresh starts while the server is down, as when the production
+      // watcher reloads it because someone touched `server/`.
       const dormantRead = page.waitForResponse((r) => r.url().includes("/api/terminal/sessions/dormant") && r.ok(), { timeout: 60_000 });
       const restarting = restartTestServer();
       const start = Date.now();
