@@ -87,9 +87,8 @@ const ROOTS = ["client/src", "server", "shared", "scripts", "tests"];
  */
 export const PROJECT_WORDS = new Set([
   // `memrecall` is the name of the external recall command the native runtime
-  // mirrors, `memories` its plural noun and `enc` the short form of an encoded
-  // path in the native-parity tests (server/lib/native-parity*).
-  "memrecall", "memories", "enc",
+  // mirrors and `memories` its plural noun (server/lib/native-parity*).
+  "memrecall", "memories",
   // `inbox` is what the design names the «To look at» panel (notifications-
   // redesign, design section 9): one list of the subjects that want a look,
   // with the dictionary meaning of the word. `lucide` is the icon library the
