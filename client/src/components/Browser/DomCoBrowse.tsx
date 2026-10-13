@@ -57,6 +57,8 @@ import BrowserKeyboardCapture, {
 } from './BrowserKeyboardCapture';
 import type { RemoteField } from '../../lib/browserKeyboardProfile';
 import { fitCentered, viewportFromRrwebEvent } from '../../lib/browserFit';
+import { baseProxiedResources } from '../../lib/domResourceBase';
+import { serverHttpBase } from '../../lib/shell/net';
 
 /** Minimal shape of an rrweb event we rely on (Meta carries the recorded size). */
 type RrwebEvent = {
@@ -379,6 +381,7 @@ export default function DomCoBrowse({ registerDomSink, registerFocusSink, sendIn
     const handle = (raw: unknown) => {
       const event = raw as RrwebEvent;
       if (!event || typeof event.type !== 'number') return;
+      baseProxiedResources(event, serverHttpBase());
       // Traffico: sveglia il timer se era parcheggiato e riarma l'inattività.
       noteActivityRef.current?.();
       // The recorded viewport arrives twice: once in Meta when recording starts,
