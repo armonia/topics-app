@@ -213,7 +213,7 @@ import { createClaudeSessionTracker } from "./server/lib/claude-session-tracker"
 import { evaluateAuth, isAllowedHost, isLoopbackAddress, isOriginGatedPath, isWebSocketPath, resolveAllowedOrigins } from "./server/lib/auth-gate";
 import { upgradeWebSocket } from "./server/lib/ws-upgrade";
 import { sendWsFrame } from "./server/lib/ws-send";
-import { markViaTunnel, isLocalTransport, clientIpOf, tunnelPort } from "./server/lib/tunnel";
+import { markViaTunnel, isLocalTransport, clientIpOf, tunnelPort, httpTunnelPort } from "./server/lib/tunnel";
 import { compressJson } from "./server/lib/compress-json";
 import { isSseCommentOnly } from "./server/lib/sse-ping";
 import { currentRouteFault, applyRouteFault } from "./server/lib/route-fault";
@@ -4945,6 +4945,27 @@ if (serverTunnel) {
   console.log(`[Tunnel] porta dedicata su 127.0.0.1:${portaTunnel} — chi entra da qui NON e' locale`);
 }
 
+// The PLAINTEXT twin (see `httpTunnelPort`): a proxy forwarding from an http
+// origin must speak http on the last hop too, or the server believes the
+// scheme is https and signs the session cookie `Secure`, which the browser
+// drops on that origin, so the session is never stored.
+const portaTunnelHttp = httpTunnelPort(process.env);
+const serverTunnelHttp = portaTunnelHttp
+  ? Bun.serve<WSData>({
+      ...opzioniServer,
+      port: portaTunnelHttp,
+      hostname: "127.0.0.1",
+      tls: undefined,
+      fetch(req: Request, srv: typeof server) {
+        markViaTunnel(req);
+        return fetchCompresso.call(srv, req, srv);
+      },
+    })
+  : null;
+if (serverTunnelHttp) {
+  console.log(`[Tunnel] porta in chiaro su 127.0.0.1:${portaTunnelHttp} — chi entra da qui NON e' locale`); // allow-italian: log line, same language as its TLS twin above
+}
+
 // Stale stream cleanup
 const STALE_STREAM_CHECK_INTERVAL_MS = 30_000;
 const STALE_STREAM_TIMEOUT_MS = 3 * 60 * 1000;
@@ -6097,7 +6118,7 @@ interruttoreRelay.riconcilia();
 const relayLicenzaTimer = setInterval(() => interruttoreRelay.riconcilia(), 60_000);
 
 ctx.requestIp = (req: Request) =>
-  clientIpOf(req, (serverTunnel?.requestIP(req) ?? server.requestIP(req))?.address ?? null);
+  clientIpOf(req, (serverTunnel?.requestIP(req) ?? serverTunnelHttp?.requestIP(req) ?? server.requestIP(req))?.address ?? null);
 
 const proto = useTls ? "https" : "http";
 const wsProto = useTls ? "wss" : "ws";
