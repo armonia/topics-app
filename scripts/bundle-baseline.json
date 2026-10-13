@@ -798,20 +798,31 @@
     "live log (LiveShellTail.tsx, hooks/useBackgroundShell.ts), the strips drawn in",
     "the transcript's Footer through a context. No import went from lazy to static.",
     "Critical path 2.300.033 / 695.443 and total assets 8.766.912 were inside their",
-    "ceilings; all three are set to the measured values, as on 2026-10-03."
+    "ceilings; all three are set to the measured values, as on 2026-10-03.",
+    "",
+    "2026-10-13, refresh-keeps-claude-code (topics/refresh-keeps-claude-code), CI",
+    "build: entry 1.705.250 / 545.144 against a gz ceiling of 545.065, 79 B over.",
+    "Two clean vite builds side by side, the parent e579e8458 and this commit,",
+    "measured the same way: this change buys +552 raw / +146 gz, the rest is the",
+    "growth since 2026-10-08, each commit inside 2%. What it bought: a pane chunk",
+    "that fails while the server restarts is retried under a fresh URL instead of",
+    "leaving the Claude Code pane blank until a manual refresh (lib/chunkReloadGuard",
+    "retryingChunk, the 13 pane loaders in state/pane/panePreload.ts, which are eager",
+    "because they warm the open panes at boot). No import went from lazy to static.",
+    "All three are set to the CI's measured values."
   ],
-  "updated": "2026-10-08",
+  "updated": "2026-10-13",
   "tolerance_pct": 2,
   "entry_eager": {
-    "raw": 1675264,
-    "gz": 534377
+    "raw": 1705250,
+    "gz": 545144
   },
   "critical_path": {
-    "raw": 2300033,
-    "gz": 695443,
+    "raw": 2337222,
+    "gz": 708819,
     "files": 5
   },
   "total_assets": {
-    "raw": 8766912
+    "raw": 8831082
   }
 }
