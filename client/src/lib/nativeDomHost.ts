@@ -17,9 +17,6 @@
  * tested without a WKWebView.
  */
 
-/** Evaluate one expression in the pane's page; `preserveFocus` keeps the Mac's key focus where it is. */
-export type EvalInPage = (js: string, preserveFocus?: boolean) => Promise<string>;
-
 export type HostNavAction = 'navigate' | 'back' | 'forward' | 'reload';
 
 export interface HostPageState {
@@ -30,7 +27,8 @@ export interface HostPageState {
 }
 
 export interface NativeDomHostOptions {
-  evalInPage: EvalInPage;
+  /** Evaluate one expression in the pane's page; `preserveFocus` keeps the Mac's key focus where it is. */
+  evalInPage: (js: string, preserveFocus?: boolean) => Promise<string>;
   /** The rrweb record bundle, the same file the server injects into Chromium. */
   loadRecorder: () => Promise<string>;
   /** Raw text on the executor socket (a drained batch is sent without re-parsing it). */

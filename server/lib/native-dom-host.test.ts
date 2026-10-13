@@ -6,7 +6,7 @@ import { createDomHostRegistry, parseHostFrame, type HostCommand } from "./nativ
 const CTX = "ctx-1";
 const meta = { type: 4, data: { href: "https://example.com", width: 800, height: 600 } };
 const full = { type: 2, data: { node: { type: 0, childNodes: [] } } };
-const inc = (n: number) => ({ type: 3, data: { source: 1, n } });
+const increment = (n: number) => ({ type: 3, data: { source: 1, n } });
 
 function hostOn(registry = createDomHostRegistry()) {
   const sent: HostCommand[] = [];
@@ -28,25 +28,25 @@ describe("native DOM host", () => {
     const { registry, owner } = hostOn();
     registry.setWanted(CTX, true);
     expect(registry.bootstrap(CTX)).toEqual([]);
-    expect(registry.ingest(CTX, owner, [meta, full, inc(1), inc(2)])).toHaveLength(4);
-    expect(registry.bootstrap(CTX)).toEqual([meta, full, inc(1), inc(2)]);
+    expect(registry.ingest(CTX, owner, [meta, full, increment(1), increment(2)])).toHaveLength(4);
+    expect(registry.bootstrap(CTX)).toEqual([meta, full, increment(1), increment(2)]);
   });
 
   test("a new snapshot (the host navigated) restarts the buffer", () => {
     const { registry, owner } = hostOn();
     registry.setWanted(CTX, true);
-    registry.ingest(CTX, owner, [meta, full, inc(1)]);
+    registry.ingest(CTX, owner, [meta, full, increment(1)]);
     const meta2 = { type: 4, data: { href: "https://example.com/2" } };
     const full2 = { type: 2, data: { node: { type: 0, childNodes: [], v: 2 } } };
-    registry.ingest(CTX, owner, [meta2, full2, inc(3)]);
-    expect(registry.bootstrap(CTX)).toEqual([meta2, full2, inc(3)]);
+    registry.ingest(CTX, owner, [meta2, full2, increment(3)]);
+    expect(registry.bootstrap(CTX)).toEqual([meta2, full2, increment(3)]);
   });
 
   test("past the cap the buffer cannot rebuild the page: the host is asked for a fresh snapshot, once", () => {
     const registry = createDomHostRegistry(3);
     const { owner, sent } = hostOn(registry);
     registry.setWanted(CTX, true);
-    registry.ingest(CTX, owner, [meta, full, inc(1), inc(2), inc(3), inc(4)]);
+    registry.ingest(CTX, owner, [meta, full, increment(1), increment(2), increment(3), increment(4)]);
     expect(registry.bootstrap(CTX)).toEqual([]);
     expect(registry.bootstrap(CTX)).toEqual([]);
     expect(sent.filter((c) => c.type === "host_dom_snapshot")).toHaveLength(1);
@@ -64,8 +64,8 @@ describe("native DOM host", () => {
   test("increments with no snapshot under them since the start reach nobody", () => {
     const { registry, owner } = hostOn();
     registry.setWanted(CTX, true);
-    expect(registry.ingest(CTX, owner, [inc(1), inc(2)])).toEqual([]);
-    expect(registry.ingest(CTX, owner, [meta, full, inc(3)])).toEqual([meta, full, inc(3)]);
+    expect(registry.ingest(CTX, owner, [increment(1), increment(2)])).toEqual([]);
+    expect(registry.ingest(CTX, owner, [meta, full, increment(3)])).toEqual([meta, full, increment(3)]);
   });
 
   test("resources only the Mac can reach are routed before they are buffered", () => {

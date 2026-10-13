@@ -6,14 +6,14 @@ import { createNativeDomHost, DRAIN_JS, DRAIN_FAST_MS, DRAIN_IDLE_MS, type Nativ
 /** A pane whose page is a queue, and a clock the test turns by hand. */
 function rig(overrides: Partial<NativeDomHostOptions> = {}) {
   const sent: string[] = [];
-  const evals: { js: string; preserveFocus?: boolean }[] = [];
+  const pageScripts: { js: string; preserveFocus?: boolean }[] = [];
   const timers: { fn: () => void; ms: number; live: boolean }[] = [];
   const page = { armed: false, queue: [] as unknown[] };
   let clock = 0;
   const navigations: string[] = [];
   const host = createNativeDomHost({
     evalInPage: async (js, preserveFocus) => {
-      evals.push({ js, preserveFocus });
+      pageScripts.push({ js, preserveFocus });
       if (js === DRAIN_JS) {
         if (!page.armed) return 'unarmed';
         const q = page.queue; page.queue = [];
@@ -53,7 +53,7 @@ function rig(overrides: Partial<NativeDomHostOptions> = {}) {
     }
   };
   const pending = () => timers.filter((t) => t.live).map((t) => t.ms);
-  return { host, sent, evals, page, turn, step, settle, pending, navigations, tick: (ms: number) => { clock += ms; } };
+  return { host, sent, pageScripts, page, turn, step, settle, pending, navigations, tick: (ms: number) => { clock += ms; } };
 }
 
 const frames = (sent: string[]) => sent.map((t) => JSON.parse(t) as { type: string; events?: unknown[] });
@@ -91,10 +91,10 @@ describe('native DOM host', () => {
     r.host.handle({ type: 'host_dom_stop' });
     await r.turn();
     expect(r.page.armed).toBe(false);
-    const drainsAfter = r.evals.length;
+    const drainsAfter = r.pageScripts.length;
     r.page.queue.push({ type: 3 });
     await r.turn();
-    expect(r.evals.length).toBe(drainsAfter);
+    expect(r.pageScripts.length).toBe(drainsAfter);
   });
 
   test('a start always begins from a fresh recorder: one left running would never resend the snapshot', async () => {
@@ -114,10 +114,10 @@ describe('native DOM host', () => {
     r.host.handle({ type: 'host_input', action: 'click', payload: { x: 1, y: 2 } });
     r.host.handle({ type: 'host_input', action: 'type', payload: { text: 'ciao' } });
     await r.turn();
-    const inputs = r.evals.filter((e) => e.preserveFocus);
+    const inputs = r.pageScripts.filter((e) => e.preserveFocus);
     expect(inputs.map((e) => e.js.match(/\("(click|type)"/)?.[1])).toEqual(['click', 'type']);
-    const lastInput = r.evals.lastIndexOf(inputs[1]);
-    expect(r.evals.slice(lastInput + 1).some((e) => e.js === DRAIN_JS)).toBe(true);
+    const lastInput = r.pageScripts.lastIndexOf(inputs[1]);
+    expect(r.pageScripts.slice(lastInput + 1).some((e) => e.js === DRAIN_JS)).toBe(true);
   });
 
   test('the page reaches the server only once the declaration is accepted', () => {
