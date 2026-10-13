@@ -1,5 +1,27 @@
 [
   {
+    "version": "2.2.487",
+    "date": "2026-10-13",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "aggiorna durate shard dal nightly del 2026-10-13 [skip ci]",
+          "en": "",
+          "scope": "e2e",
+          "breaking": false
+        },
+        {
+          "it": "Refresh istantaneo: i Claude Code restano vivi e tornano anche durante un riavvio (#299)",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
     "version": "2.2.486",
     "date": "2026-10-12",
     "sections": {

@@ -2,6 +2,12 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.2.487 — 2026-10-13
+
+### Sotto il cofano
+- **e2e** · aggiorna durate shard dal nightly del 2026-10-13 [skip ci]
+- Refresh istantaneo: i Claude Code restano vivi e tornano anche durante un riavvio (#299)
+
 ## 2.2.486 — 2026-10-12
 
 ### Sotto il cofano
