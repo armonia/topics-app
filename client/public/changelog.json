@@ -1,5 +1,22 @@
 [
   {
+    "version": "2.2.503",
+    "date": "2026-10-14",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "lo scroll dal Mac non trascina la pagina dello specchio (#318)",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        }
+      ]
+    }
+  },
+  {
     "version": "2.2.502",
     "date": "2026-10-14",
     "sections": {

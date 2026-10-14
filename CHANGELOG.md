@@ -2,6 +2,11 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.2.503 — 2026-10-14
+
+### Sotto il cofano
+- lo scroll dal Mac non trascina la pagina dello specchio (#318)
+
 ## 2.2.502 — 2026-10-14
 
 ### Sotto il cofano
