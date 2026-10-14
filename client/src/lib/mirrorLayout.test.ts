@@ -75,7 +75,7 @@ describe('forOwnLayout', () => {
   const anchor = { id: 7, fx: 0.5, fy: 0.25, lx: 0.5, ly: 0.25, rx: 0, ry: 0.5 };
   test('keeps a scroll that names its place from the replayer, and remembers what scrolled', () => {
     const out = forOwnLayout({ type: 3, data: { source: 3, id: 1, anchor } });
-    expect(out.data).toEqual({ source: 3, id: -1, anchored: 1, anchor });
+    expect(out.data as Record<string, unknown>).toEqual({ source: 3, id: -1, anchored: 1, anchor });
   });
 
   test('a snapshot starts at the top, its place applied after it', () => {

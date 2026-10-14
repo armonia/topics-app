@@ -60,7 +60,7 @@ import { fitCentered, viewportFromRrwebEvent } from '../../lib/browserFit';
 import { prefixRoutedResources } from '../../lib/domResourceBase';
 import { forgetHandedOver, parkClock, stopClock, wakeClock } from '../../lib/mirrorClock';
 import { canObserveDocument, createImageDeferral, watchDeferredImages } from '../../lib/mirrorImages';
-import { anchorOf, forOwnLayout, mirrorDocument, ownLayoutPlugin, targetOf, type ScrollAnchor } from '../../lib/mirrorLayout';
+import { anchorOf, forOwnLayout, mirrorDocument, anchorPlacer, targetOf, type ScrollAnchor } from '../../lib/mirrorLayout';
 import { createEchoHold, flingVelocity, scrollKeepingFractions, scrollTargetAt } from '../../lib/mirrorScroll';
 import { serverHttpBase } from '../../lib/shell/net';
 
@@ -598,7 +598,7 @@ export default function DomCoBrowse({ registerDomSink, registerFocusSink, sendIn
           // Remote focus must never yank THIS device's focus — the local user
           // drives via the overlay / hidden textarea, not the mirror's elements.
           triggerFocus: false,
-          plugins: [ownLayoutPlugin() as never],
+          plugins: [anchorPlacer() as never],
         });
         replayer.startLive(event.timestamp);
         replayerRef.current = replayer;

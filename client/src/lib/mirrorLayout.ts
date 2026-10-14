@@ -186,7 +186,7 @@ export function forOwnLayout<E extends LayoutEvent>(event: E): E {
  * a place names is in the mirror already. A snapshot lands at once; a scroll
  * glides there, as the replayer's own scrolls do in live mode.
  */
-export function ownLayoutPlugin(): {
+export function anchorPlacer(): {
   handler: (event: LayoutEvent, isSync: boolean, context: { replayer: { getMirror(): NodeIds } }) => void;
 } {
   return {
