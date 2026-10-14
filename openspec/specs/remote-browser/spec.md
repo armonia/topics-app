@@ -2930,9 +2930,37 @@ recording had been running.
 #### Scenario: wheel or swipe on the mirror
 - **WHEN** the user scrolls the mirror with a wheel or a finger
 - **THEN** the mirror scrolls at once on that device, before the source answers
-- **AND** the source is asked to scroll by the same distance in its own CSS pixels
+- **AND** the source is asked to follow: to the place the mirror reached when the mirror moved (BROWSER-DOM-SCROLL-02), by the same distance in its own CSS pixels when it could not
 - **AND** a released swipe carries on and slows down, as a native scroll does
 - **AND** once the gesture ends, the mirror settles where the source ended up
+
+### Requirement: BROWSER-DOM-SCROLL-02 — A scroll on the mirror SHALL land on the same pixel of the source, and the mirror SHALL NOT jump when it ends
+
+Misurato il 14/10 dopo «durante gli scroll da iPad li faccio e poi si
+riposiziona da solo», con l'host vero del Mac in WebKit. Mirror e Mac
+rifacevano ciascuno la distanza, e WebKit tiene i pixel interi: 2,7 px a
+fotogramma diventavano 2 sul mirror e 10 su 10,8 sul Mac, che somma a lotti di
+60 ms. 600 ms dopo il gesto il mirror saltava dov'era arrivato il Mac: 31 px su
+162. Una pagina con `scroll-behavior: smooth` faceva ripartire l'animazione a
+ogni lotto (50 px di scarto), e un Mac più lento dell'inoltro rigiocava lo swipe
+lotto per lotto: il mirror tornava indietro e lo rifaceva per 1,4 s.
+
+#### Scenario: a swipe in fractions of a pixel
+- **WHEN** the user swipes the mirror by fractions of a pixel a frame
+- **THEN** the mirror moves the whole distance
+- **AND** the source ends on the same pixel as the mirror, for the page and for an element scrolling inside it
+- **AND** the mirror does not move once the gesture and its fling have ended
+
+#### Scenario: a source that scrolls smoothly, or answers late
+- **GIVEN** a source page with `scroll-behavior: smooth`, hosted by a Mac whose every call to the page takes 150 ms
+- **WHEN** the user swipes the mirror with a finger and lets it fling
+- **THEN** the source ends where the mirror ended
+- **AND** the mirror does not go back to follow the source
+
+#### Scenario: a source that keeps the wheel
+- **GIVEN** a source page that takes the wheel for itself and does not scroll
+- **WHEN** the user scrolls the mirror
+- **THEN** the mirror goes back to where the source is
 
 ### Requirement: BROWSER-DOM-LAZY-01 — A lazy image SHALL load in the DOM mirror only as it nears the view
 

@@ -60,12 +60,8 @@ import { fitCentered, viewportFromRrwebEvent } from '../../lib/browserFit';
 import { prefixRoutedResources } from '../../lib/domResourceBase';
 import { forgetHandedOver, parkClock, stopClock, wakeClock } from '../../lib/mirrorClock';
 import { canObserveDocument, createImageDeferral, DEFERRED_IMAGES, revealImage } from '../../lib/mirrorImages';
-import { flingVelocity, scrollTargetAt } from '../../lib/mirrorScroll';
+import { createEchoHold, flingVelocity, scrollKeepingFractions, scrollTargetAt } from '../../lib/mirrorScroll';
 import { serverHttpBase } from '../../lib/shell/net';
-
-/** rrweb's IncrementalSnapshot event type, and the source of its scroll events. */
-const INCREMENTAL_SNAPSHOT = 3;
-const SCROLL_SOURCE = 3;
 
 /** Minimal shape of an rrweb event we rely on (Meta carries the recorded size). */
 type RrwebEvent = {
@@ -85,8 +81,6 @@ const SCROLL_RELAY_INTERVAL = 60;
 const TAP_SLOP = 8;
 /** How long after a relayed tap a click is that tap's synthesized echo. */
 const ECHO_CLICK_WINDOW_MS = 800;
-/** How long this device's own scroll wins over the source's echoes of it. */
-const LOCAL_SCROLL_HOLD_MS = 600;
 /** A fling slows down like one on iOS (UIScrollView's normal rate, per ms)... */
 const FLING_DECAY_PER_MS = 0.998;
 /** ...and has stopped below this speed, in source px per ms. */
@@ -153,17 +147,17 @@ export default function DomCoBrowse({ registerDomSink, registerFocusSink, sendIn
   const touchRef = useRef<{ x: number; y: number; travel: number; moves: { t: number; dx: number; dy: number }[] } | null>(null);
   /**
    * This device scrolling the mirror itself (BROWSER-DOM-SCROLL-01): the element
-   * it scrolls, until when the source's echoes of that scroll are held back, the
-   * latest held echo per node (applied when the hold ends, so a source that
-   * ended up elsewhere still wins), and the fling still running.
+   * it scrolls, where it means it to be (the fractions WebKit drops), whether it
+   * moved since the last relay, and the fling still running.
    */
   const localScrollRef = useRef<{
     target: Element | null;
-    until: number;
-    held: Map<number, RrwebEvent>;
-    release: ReturnType<typeof setTimeout> | null;
+    pos: { top: number; left: number } | null;
+    moved: boolean;
     fling: number | null;
-  }>({ target: null, until: 0, held: new Map(), release: null, fling: null });
+  }>({ target: null, pos: null, moved: false, fling: null });
+  /** The source's echoes of that scroll, held back (lib/mirrorScroll); the replayer's effect applies them. */
+  const [echoHold] = useState(() => createEchoHold<RrwebEvent>());
   /** When `onTouchEnd` last relayed a tap, so `onClick` can drop its echo. */
   const lastTapRelayRef = useRef(-Infinity);
   // Option/Alt held → let the user select + copy natively in the mirror iframe.
@@ -226,7 +220,26 @@ export default function DomCoBrowse({ registerDomSink, registerFocusSink, sendIn
     return { x: Math.round(x), y: Math.round(y) };
   }, []);
 
-  // Coalesced scroll relay — one `scroll` input per interval, summed deltas.
+  /**
+   * Where the mirror's own scroll put its target since the last relay, named
+   * the way the source's recorder names it, or null when it did not move.
+   */
+  const takeLocalPlace = useCallback((): { node: number; scrollTop: number; scrollLeft: number } | null => {
+    const local = localScrollRef.current;
+    const target = local.target;
+    const moved = local.moved;
+    local.moved = false;
+    if (!moved || !target?.isConnected) return null;
+    const doc = target.ownerDocument;
+    // rrweb records the viewport's scroll on the document, not on <html>.
+    const node = replayerRef.current?.getMirror().getId((target === doc.scrollingElement ? doc : target) as never);
+    if (typeof node !== 'number' || node < 0) return null;
+    echoHold.relayed({ node, top: target.scrollTop, left: target.scrollLeft });
+    return { node, scrollTop: target.scrollTop, scrollLeft: target.scrollLeft };
+  }, [echoHold]);
+
+  // Coalesced scroll relay — one `scroll` input per interval, summed deltas,
+  // and where the mirror is by then when it scrolled itself.
   const queueScrollRelay = useCallback((dx: number, dy: number, x: number, y: number) => {
     if (agentActiveRef.current) return;
     const acc = scrollAccRef.current;
@@ -240,9 +253,9 @@ export default function DomCoBrowse({ registerDomSink, registerFocusSink, sendIn
       const { dx: fdx, dy: fdy, x: fx, y: fy } = acc;
       acc.dx = 0;
       acc.dy = 0;
-      if (fdx || fdy) sendInput('scroll', { x: fx, y: fy, deltaX: fdx, deltaY: fdy });
+      if (fdx || fdy) sendInput('scroll', { x: fx, y: fy, deltaX: fdx, deltaY: fdy, ...takeLocalPlace() });
     }, SCROLL_RELAY_INTERVAL);
-  }, [sendInput]);
+  }, [sendInput, takeLocalPlace]);
 
   /**
    * Scroll the mirror here by (dx, dy) source px at (x, y), ahead of the source
@@ -256,18 +269,20 @@ export default function DomCoBrowse({ registerDomSink, registerFocusSink, sendIn
     if (!doc) return false;
     if (!local.target?.isConnected || local.target.ownerDocument !== doc) {
       local.target = scrollTargetAt(doc, x, y, Math.abs(dx) > Math.abs(dy));
+      local.pos = null;
     }
     const target = local.target;
     if (!target) return false;
-    const { scrollTop, scrollLeft } = target;
-    target.scrollTop = scrollTop + dy;
-    target.scrollLeft = scrollLeft + dx;
-    const moved = target.scrollTop !== scrollTop || target.scrollLeft !== scrollLeft;
+    const { pos, moved } = scrollKeepingFractions(target, local.pos, dx, dy);
+    local.pos = pos;
     // Only a scroll that happened here holds the source's back: a page that
     // turns the wheel into something else (a photo's zoom) answers unhindered.
-    if (moved) local.until = performance.now() + LOCAL_SCROLL_HOLD_MS;
+    if (moved) {
+      echoHold.moved();
+      local.moved = true;
+    }
     return moved;
-  }, []);
+  }, [echoHold]);
 
   const stopFling = useCallback(() => {
     const local = localScrollRef.current;
@@ -378,11 +393,11 @@ export default function DomCoBrowse({ registerDomSink, registerFocusSink, sendIn
     const dx = e.deltaX / s;
     const dy = e.deltaY / s;
     // A wheel after a pause is a new gesture, and scrolls what is under it now.
-    if (performance.now() > localScrollRef.current.until) localScrollRef.current.target = null;
+    if (!echoHold.gesturing()) localScrollRef.current.target = null;
     stopFling();
     scrollMirrorBy(dx, dy, c.x, c.y);
     queueScrollRelay(dx, dy, c.x, c.y);
-  }, [toSource, queueScrollRelay, scrollMirrorBy, stopFling]);
+  }, [toSource, queueScrollRelay, scrollMirrorBy, stopFling, echoHold]);
 
   const onTouchStart = useCallback((e: React.TouchEvent) => {
     if (selectingRef.current) return;
@@ -513,31 +528,15 @@ export default function DomCoBrowse({ registerDomSink, registerFocusSink, sendIn
       event.timestamp = lastStamp;
     };
 
-    // While this device scrolls the mirror itself, the source's echo of that
-    // scroll would drag it back to where the source was a round trip ago. The
-    // echoes wait for the gesture to end, and only the latest per node is
-    // applied: where the source really ended up.
-    const releaseHeld = () => {
-      local.release = null;
-      const wait = local.until - performance.now();
-      if (wait > 0) { local.release = setTimeout(releaseHeld, wait + 16); return; }
-      const held = [...local.held.values()];
-      local.held.clear();
+    // The echoes of this device's own scroll come back when their hold is over.
+    echoHold.applyWith((held) => {
       // The clock may have parked while these waited.
-      if (held.length) noteActivityRef.current?.();
+      noteActivityRef.current?.();
       for (const event of held) {
         stampArrival(event);
         replayerRef.current?.addEvent(event as never);
       }
-    };
-    const holdScrollEcho = (event: RrwebEvent): boolean => {
-      const id = event.data?.id;
-      if (event.type !== INCREMENTAL_SNAPSHOT || event.data?.source !== SCROLL_SOURCE || typeof id !== 'number') return false;
-      if (performance.now() >= local.until) return false;
-      local.held.set(id, event);
-      local.release ??= setTimeout(releaseHeld, local.until - performance.now() + 16);
-      return true;
-    };
+    });
 
     // Lazy images wait for the mirror's view (BROWSER-DOM-LAZY-01, lib/mirrorImages).
     // The mirror's document runs no scripts, so this one watches it. An engine
@@ -586,7 +585,7 @@ export default function DomCoBrowse({ registerDomSink, registerFocusSink, sendIn
       stampArrival(event);
       prefixRoutedResources(event, serverHttpBase());
       deferral?.onEvent(event);
-      if (started && holdScrollEcho(event)) return;
+      if (started && echoHold.hold(event)) return;
       // Traffico: sveglia il timer se era parcheggiato e riarma l'inattività.
       noteActivityRef.current?.();
       // The recorded viewport arrives twice: once in Meta when recording starts,
@@ -712,9 +711,8 @@ export default function DomCoBrowse({ registerDomSink, registerFocusSink, sendIn
       navGuardAbortRef.current = null;
       if (acc.timer) clearTimeout(acc.timer);
       acc.timer = null;
-      if (local.release) clearTimeout(local.release);
-      local.release = null;
-      local.held.clear();
+      echoHold.clear();
+      echoHold.applyWith(null);
       if (local.fling !== null) cancelAnimationFrame(local.fling);
       local.fling = null;
       stopWatchingImages();
@@ -724,7 +722,7 @@ export default function DomCoBrowse({ registerDomSink, registerFocusSink, sendIn
       // The replayer took the reconstructed DOM with it — we're a blank box again.
       setPainted(false);
     };
-  }, [registerDomSink, applyScale, attachNavGuard]);
+  }, [registerDomSink, applyScale, attachNavGuard, echoHold]);
 
   return (
     <div ref={rootRef} className="topics-dom-cobrowse relative h-full w-full overflow-hidden bg-app-bg" style={{ isolation: 'isolate' }}>

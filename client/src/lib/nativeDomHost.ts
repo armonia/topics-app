@@ -115,10 +115,22 @@ export function armJs(bundle: string): string {
  * A viewer's input, run in the page at the page coordinates it sent. Synthetic
  * events, so what needs a trusted gesture (a native <select> popup, a drag)
  * is out of reach; clicks, focus, text, the usual keys and scrolling are not.
+ *
+ * A scroll the viewer's mirror already made comes with what it scrolled (the
+ * recorder's id) and where it put it, and the page goes to that same pixel
+ * (BROWSER-DOM-SCROLL-02). Replaying the distance instead lost ground on both
+ * sides: WebKit keeps whole pixels, so 2.7 px a frame moved the mirror 2 and
+ * the page, summing a batch, 10 of 10.8, and the mirror jumped to the page
+ * when the gesture ended. Instant, because a page with `scroll-behavior:
+ * smooth` restarted its animation on every batch and fell short. A page that
+ * stays put (it took the wheel, it is shorter) still answers with a scroll
+ * event, so the mirror learns where it really is.
  */
 const INPUT_FN =
   'function(action,p){var d=document;' +
   'function at(x,y){return d.elementFromPoint(x,y)||d.body}' +
+  "function to(el,t,l){try{el.scrollTo({top:t,left:l,behavior:'instant'})}catch(e){el.scrollTop=t;el.scrollLeft=l}}" +
+  "function by(el,x,y){try{el.scrollBy({left:x,top:y,behavior:'instant'})}catch(e){el.scrollLeft+=x;el.scrollTop+=y}}" +
   'function fire(el,type,x,y,b){var init={bubbles:true,cancelable:true,composed:true,view:window,clientX:x,clientY:y,button:b,' +
   "buttons:/down$/.test(type)?(b===2?2:1):0,detail:1};" +
   "var ev=/^pointer/.test(type)&&window.PointerEvent?new PointerEvent(type,Object.assign({pointerId:1,pointerType:'mouse',isPrimary:true},init)):new MouseEvent(type,init);" +
@@ -138,16 +150,52 @@ const INPUT_FN =
   'else if(a2.form){if(a2.form.requestSubmit)a2.form.requestSubmit();else a2.form.submit()}}' +
   "else if(k==='Backspace')d.execCommand('delete');else if(k==='Delete')d.execCommand('forwardDelete')}" +
   "a2.dispatchEvent(new KeyboardEvent('keyup',{key:k,bubbles:true}));return 'ok'}" +
-  "if(action==='scroll'){var sx=+p.x||0,sy=+p.y||0,dx=+p.deltaX||0,dy=+p.deltaY||0,tg=at(sx,sy);" +
-  "if(!tg.dispatchEvent(new WheelEvent('wheel',{bubbles:true,cancelable:true,clientX:sx,clientY:sy,deltaX:dx,deltaY:dy})))return 'ok';" +
+  "if(action==='scroll'){var sx=+p.x||0,sy=+p.y||0,dx=+p.deltaX||0,dy=+p.deltaY||0,tg=at(sx,sy),go=true," +
+  'ws=p.wheels||[{x:sx,y:sy,deltaX:dx,deltaY:dy}];' +
+  'for(var i=0;i<ws.length;i++){var w=ws[i],wx=+w.x||0,wy=+w.y||0;' +
+  "if(!at(wx,wy).dispatchEvent(new WheelEvent('wheel',{bubbles:true,cancelable:true,clientX:wx,clientY:wy,deltaX:+w.deltaX||0,deltaY:+w.deltaY||0})))go=false}" +
+  'var h=window.__topicsDomHost,ids=h&&h.rrweb&&h.rrweb.record&&h.rrweb.record.mirror,' +
+  "sn=typeof p.node==='number'&&typeof p.scrollTop==='number'&&ids?ids.getNode(p.node):null;" +
+  'if(sn){var doc=sn.nodeType===9?sn:sn===sn.ownerDocument.scrollingElement?sn.ownerDocument:null,' +
+  'el=doc?doc.scrollingElement||doc.documentElement:sn,bt=el.scrollTop,bl=el.scrollLeft;' +
+  'if(go)to(el,p.scrollTop,+p.scrollLeft||0);' +
+  "if(el.scrollTop===bt&&el.scrollLeft===bl)(doc||el).dispatchEvent(new Event('scroll'));return 'ok'}" +
+  "if(!go)return 'ok';" +
   'for(var n=tg;n&&n!==d.documentElement;n=n.parentElement){var cs=getComputedStyle(n);' +
   'if(/(auto|scroll|overlay)/.test(cs.overflowY+cs.overflowX)&&(n.scrollHeight>n.clientHeight||n.scrollWidth>n.clientWidth)){' +
-  "var top=n.scrollTop,left=n.scrollLeft;n.scrollBy(dx,dy);if(n.scrollTop!==top||n.scrollLeft!==left)return 'ok'}}" +
-  "window.scrollBy(dx,dy);return 'ok'}" +
+  "var top=n.scrollTop,left=n.scrollLeft;by(n,dx,dy);if(n.scrollTop!==top||n.scrollLeft!==left)return 'ok'}}" +
+  "by(d.scrollingElement||d.documentElement,dx,dy);return 'ok'}" +
   "return 'unknown'}";
 
 export function inputJs(action: string, payload: unknown): string {
   return `(${INPUT_FN})(${JSON.stringify(action)},${JSON.stringify(payload ?? {})})`;
+}
+
+const num = (v: unknown): number => (typeof v === 'number' && Number.isFinite(v) ? v : 0);
+
+const wheelOf = (p: Record<string, unknown>) => ({ x: num(p.x), y: num(p.y), deltaX: num(p.deltaX), deltaY: num(p.deltaY) });
+
+/**
+ * Fold a newer scroll into one still queued. Two distances add up; two places
+ * for the same node leave the newer one. A place and a distance do not mix:
+ * the distance would be applied from where the page is, not from that place.
+ * Each wheel still reaches the page as its own event, in the one call: a
+ * carousel that steps once per event must not lose steps to a busy Mac.
+ */
+function mergeScroll(into: Record<string, unknown>, next: unknown): boolean {
+  const n = (next ?? {}) as Record<string, unknown>;
+  const placed = typeof n.node === 'number';
+  if (placed !== (typeof into.node === 'number') || (placed && n.node !== into.node)) return false;
+  into.wheels = [...((into.wheels as unknown[] | undefined) ?? [wheelOf(into)]), wheelOf(n)];
+  into.deltaX = num(into.deltaX) + num(n.deltaX);
+  into.deltaY = num(into.deltaY) + num(n.deltaY);
+  into.x = n.x;
+  into.y = n.y;
+  if (placed) {
+    into.scrollTop = n.scrollTop;
+    into.scrollLeft = n.scrollLeft;
+  }
+  return true;
 }
 
 const defaultSchedule = (fn: () => void, ms: number): (() => void) => {
@@ -167,6 +215,8 @@ export function createNativeDomHost(opts: NativeDomHostOptions): NativeDomHost {
   let page: HostPageState | null = null;
   let recorder: Promise<string> | null = null;
   let inputs: Promise<void> = Promise.resolve();
+  /** The last input queued, while it has not run yet. */
+  let waiting: { action: string; payload: Record<string, unknown> } | null = null;
   /** Laid out at another device's size, and which request of the server that is. */
   let driven = false;
   let viewportSeq = 0;
@@ -231,9 +281,17 @@ export function createNativeDomHost(opts: NativeDomHostOptions): NativeDomHost {
   };
 
   const runInput = (action: string, payload: unknown): void => {
+    // A scroll still waiting for its turn takes in the next one: one call to
+    // the page, every wheel event still in it. A page slower than the viewer's
+    // relay (a busy Mac) otherwise replayed a swipe batch by batch long after
+    // it ended, and the mirror went back to follow it.
+    if (action === 'scroll' && waiting?.action === 'scroll' && mergeScroll(waiting.payload, payload)) return;
+    const job = { action, payload: { ...(payload as Record<string, unknown>) } };
+    waiting = job;
     inputs = inputs.then(async () => {
+      if (waiting === job) waiting = null;
       try {
-        await opts.evalInPage(inputJs(action, payload), true);
+        await opts.evalInPage(inputJs(job.action, job.payload), true);
       } catch { /* a page that navigated away under the tap */ }
       lastBusyAt = now();
       // What the input changed is in the queue already, or about to be: drain now.
@@ -291,6 +349,8 @@ export function createNativeDomHost(opts: NativeDomHostOptions): NativeDomHost {
             : null;
           driven = size !== null;
           const seq = ++viewportSeq;
+          // A scroll after this is aimed at the new layout: it must not merge into one before it.
+          waiting = null;
           // After the inputs already queued: they were aimed at the layout the
           // viewer was looking at when it touched the page, not at its own.
           inputs = inputs.then(() => { if (seq === viewportSeq) opts.setViewport?.(size); });

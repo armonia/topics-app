@@ -49,7 +49,7 @@ export const CAPTURE_FONT_SIZE_PX = 16;
 
 export type SendInput = (
   action: 'click' | 'type' | 'scroll' | 'mousemove' | 'keypress',
-  payload: { x?: number; y?: number; text?: string; key?: string; deltaX?: number; deltaY?: number; button?: 'left' | 'right' | 'middle' },
+  payload: { x?: number; y?: number; text?: string; key?: string; deltaX?: number; deltaY?: number; button?: 'left' | 'right' | 'middle'; node?: number; scrollTop?: number; scrollLeft?: number },
 ) => void;
 
 export interface BrowserKeyboardCaptureHandle {

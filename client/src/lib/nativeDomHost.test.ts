@@ -155,6 +155,51 @@ describe('native DOM host', () => {
   });
 });
 
+/** @covers BROWSER-DOM-SCROLL-02 */
+describe('native DOM host: a page slower than the viewer\'s scroll', () => {
+  /** The scroll inputs that reached the page, in order, with what they carried. */
+  const scrollsRun = (r: ReturnType<typeof rig>) => r.pageScripts
+    .filter((e) => e.preserveFocus)
+    .map((e) => {
+      const [, action = '', payload = '{}'] = e.js.match(/\("(\w+)",(\{.*\})\)$/) ?? [];
+      return { action, ...(JSON.parse(payload) as Partial<Record<'x' | 'y' | 'deltaX' | 'deltaY' | 'node' | 'scrollTop' | 'scrollLeft', number>> & { wheels?: unknown[] }) };
+    });
+  const placed = (scrollTop: number, deltaY: number) => ({ type: 'host_input', action: 'scroll', payload: { x: 5, y: scrollTop, deltaY, node: 1, scrollTop, scrollLeft: 0 } });
+
+  test('scrolls waiting for their turn reach the page as one, at the latest place, each wheel still its own event', async () => {
+    const r = rig();
+    r.host.handle(placed(10, 10));
+    r.host.handle(placed(22, 12));
+    r.host.handle(placed(33, 11));
+    await r.turn();
+    expect(scrollsRun(r)).toEqual([{
+      action: 'scroll', x: 5, y: 33, deltaX: 0, deltaY: 33, node: 1, scrollTop: 33, scrollLeft: 0,
+      wheels: [{ x: 5, y: 10, deltaX: 0, deltaY: 10 }, { x: 5, y: 22, deltaX: 0, deltaY: 12 }, { x: 5, y: 33, deltaX: 0, deltaY: 11 }],
+    }]);
+  });
+
+  test('two distances add up, and a distance never takes a place in', async () => {
+    const r = rig();
+    r.host.handle({ type: 'host_input', action: 'scroll', payload: { x: 1, y: 1, deltaY: 10 } });
+    r.host.handle({ type: 'host_input', action: 'scroll', payload: { x: 2, y: 2, deltaY: 5 } });
+    r.host.handle(placed(40, 25));
+    r.host.handle({ type: 'host_input', action: 'scroll', payload: { x: 3, y: 3, deltaY: 7 } });
+    await r.turn();
+    expect(scrollsRun(r).map((s) => [s.deltaY, s.scrollTop])).toEqual([[15, undefined], [25, 40], [7, undefined]]);
+  });
+
+  test('a scroll does not fold past another input, nor past a new size for the page', async () => {
+    const r = rig();
+    r.host.handle(placed(10, 10));
+    r.host.handle({ type: 'host_input', action: 'click', payload: { x: 1, y: 1 } });
+    r.host.handle(placed(20, 10));
+    r.host.handle({ type: 'host_viewport', width: 800, height: 600 });
+    r.host.handle(placed(30, 10));
+    await r.turn();
+    expect(scrollsRun(r).map((s) => `${s.action}${s.scrollTop ?? ''}`)).toEqual(['scroll10', 'click', 'scroll20', 'scroll30']);
+  });
+});
+
 /** @covers NATIVE-HOST-04 */
 describe('native DOM host: the layout of the device using the page', () => {
   const sizes = () => {
