@@ -1,8 +1,9 @@
 /**
  * The global feed is revalidated, not re-downloaded.
  *
- * The desktop app re-read `GET /api/all-boards/tasks` every 5 s for days with
- * no card moving (720 reads an hour of ~155 KB, server log 13-14/10). A network
+ * Every open window re-reads `GET /api/all-boards/tasks` (~155 KB) on task
+ * events, reconnects and returns to view, up to 70 times an hour (server log
+ * 13-14/10). A network
  * read now sends the last ETag back and, on 304, hands out the rows it already
  * holds: the same array, so the store's diff stops at the first identity check.
  *

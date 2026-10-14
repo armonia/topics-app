@@ -18,8 +18,9 @@ passano dal coalescer dell'app, che condivide una richiesta fra più chiamanti, 
 restare un errore, e quella dopo SHALL rivalidare ancora. Le letture filtrate
 (`?status=`) NON SHALL rivalidare.
 
-PERCHÉ: l'app desktop ha riletto questo feed ogni 5 s per giorni senza una card in
-movimento, 720 letture all'ora da ~155 KB (log del server, 13-14/10).
+PERCHÉ: ogni finestra aperta rilegge questo feed a ogni evento, fino a 70 volte
+l'ora da ~155 KB (log del server, 13-14/10), e una rilettura senza cambi lo
+scaricava, parsava e confrontava lo stesso.
 
 #### Scenario: board ferma
 - GIVEN la board globale aperta, nessuna card che cambia
