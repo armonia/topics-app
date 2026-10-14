@@ -64,7 +64,7 @@ function world() {
   const hooks: { emit?: (e: unknown) => void } = {};
   const win: Record<string, unknown> = {
     innerWidth: 1000, innerHeight: 800,
-    getComputedStyle: () => ({ position: 'static', overflowY: 'visible', overflowX: 'visible' }),
+    getComputedStyle: (e: { __style?: Record<string, string> } | null) => ({ position: 'static', overflowY: 'visible', overflowX: 'visible', ...e?.__style }),
   };
   doc.defaultView = win;
   class Ev { constructor(public type: string, public init: Record<string, unknown> = {}) {} }
@@ -110,13 +110,103 @@ describe('a scroll from a mirror laid out on its own', () => {
     const w = world();
     const main = w.el('main', { top: 0, left: 0, width: 1000, height: 4000 }, w.body, 20);
     w.el('row', { top: 1500, left: 0, width: 1000, height: 40 }, main, 21);
-    w.run(inputJs('scroll', { x: 500, y: 400, deltaY: 30, node: 20, anchor: place }));
+    // The viewer's main column scrolled: here the page scrolls that content.
+    w.run(inputJs('scroll', { x: 500, y: 400, deltaY: 30, node: 20, anchor: { ...place, main: true } }));
     // 1500 + 20 into the row, on a line 200 down the 800 px window.
     expect(w.root.scrollTop).toBe(1320);
     expect(w.log).not.toContain('main cannot scroll');
     // The page's own scroll event says back the viewer's place.
     w.hooks.emit!({ type: 3, data: { source: 3, id: 1, x: 0, y: 1320 } });
-    expect(w.host.q.at(-1)!.data.anchor).toEqual(place);
+    expect(w.host.q.at(-1)!.data.anchor).toEqual({ ...place, main: true });
+  });
+
+  test('a side panel the viewer scrolled, which this layout does not scroll, leaves the page where it is', () => {
+    const w = world();
+    const panel = w.el('aside', { top: 0, left: 700, width: 300, height: 4000 }, w.body, 20);
+    w.el('row', { top: 1500, left: 700, width: 300, height: 40 }, panel, 21);
+    w.run(inputJs('scroll', { x: 800, y: 400, deltaY: 30, node: 20, anchor: place }));
+    expect(w.root.scrollTop).toBe(0);
+    expect(w.log).not.toContain('aside cannot scroll');
+  });
+
+  test('the reading axis leads: a page that scrolls only sideways here hands its vertical place to the column that scrolls it', () => {
+    const w = world();
+    // Here the page has no height to scroll, and a drawer it clips gives it width.
+    Object.assign(w.root, { scrollHeight: 800, scrollWidth: 1300 });
+    Object.assign(w.body, { __style: { overflowX: 'hidden' } });
+    const column = w.el('main', { top: 0, left: 0, width: 1000, height: 800 }, w.body, 20, {
+      scrollHeight: 4000, clientLeft: 0, clientTop: 0, __style: { overflowY: 'auto' },
+      scrollTo(o: { top: number }) { column.scrollTop = Math.max(0, Math.min(3200, Math.round(o.top))); },
+    }) as unknown as { scrollTop: number };
+    w.el('row', { top: 1500, left: 0, width: 1000, height: 40 }, column, 21, {
+      getBoundingClientRect: () => ({ top: 1500 - column.scrollTop, left: 0, width: 1000, height: 40 }),
+    });
+    w.run(inputJs('scroll', { x: 500, y: 400, deltaY: 30, node: 1, anchor: { ...place, lx: 0.25 } }));
+    expect(column.scrollTop).toBe(1320);
+    expect(w.root.scrollTop).toBe(0);
+  });
+
+  test('the place goes to the nearest box that scrolls along the reading axis, past a code block that only scrolls sideways', () => {
+    const w = world();
+    const main = w.el('main', { top: 0, left: 0, width: 1000, height: 4000 }, w.body, 20);
+    const code = w.el('pre', { top: 1480, left: 0, width: 1000, height: 80 }, main, 30, { scrollWidth: 3000, __style: { overflowX: 'auto' } });
+    w.el('row', { top: 1500, left: 0, width: 1000, height: 40 }, code, 21);
+    w.run(inputJs('scroll', { x: 500, y: 400, deltaY: 30, node: 20, anchor: { ...place, lx: 0.25, main: true } }));
+    expect(w.root.scrollTop).toBe(1320);
+    expect(w.log).not.toContain('pre cannot scroll');
+  });
+
+  test('an element pinned in place does not move this page: scrolling it would bring that element nowhere', () => {
+    const w = world();
+    const main = w.el('main', { top: 0, left: 0, width: 1000, height: 4000 }, w.body, 20);
+    const panel = w.el('aside', { top: 0, left: 700, width: 300, height: 800 }, main, 30, { __style: { position: 'fixed' } });
+    w.el('row', { top: 400, left: 700, width: 300, height: 40 }, panel, 21);
+    w.run(inputJs('scroll', { x: 500, y: 400, deltaY: 30, node: 20, anchor: { ...place, main: true } }));
+    expect(w.root.scrollTop).toBe(0);
+  });
+
+  test('a page whose overflow is hidden is not scrolled for a viewer: only its own script scrolls it', () => {
+    const w = world();
+    Object.assign(w.root, { __style: { overflowY: 'hidden' } });
+    const main = w.el('main', { top: 0, left: 0, width: 1000, height: 4000 }, w.body, 20);
+    w.el('row', { top: 1500, left: 0, width: 1000, height: 40 }, main, 21);
+    w.run(inputJs('scroll', { x: 500, y: 400, deltaY: 30, node: 20, anchor: { ...place, main: true } }));
+    expect(w.root.scrollTop).toBe(0);
+  });
+
+  test('a narrow column between a navigation and an aside is still the main one: it holds the middle of the window', () => {
+    const w = world();
+    w.el('nav', { top: 0, left: 0, width: 300, height: 800 }, w.body, 40);
+    const column = w.el('main', { top: 0, left: 300, width: 400, height: 800 }, w.body, 20, {
+      scrollHeight: 4000, clientLeft: 0, clientTop: 0, __style: { overflowY: 'auto' },
+    });
+    w.el('row', { top: 380, left: 300, width: 400, height: 40 }, column, 21);
+    w.el('aside', { top: 0, left: 700, width: 300, height: 800 }, w.body, 41);
+    w.hooks.emit!({ type: 3, data: { source: 3, id: 20, x: 0, y: 0 } });
+    expect(w.host.q.at(-1)!.data.anchor).toMatchObject({ main: true });
+  });
+
+  test('at the end of the viewer\'s range the element still wins: this page does not jump to its own end', () => {
+    const w = world();
+    w.el('row', { top: 1500, left: 0, width: 1000, height: 40 }, w.body, 21);
+    w.run(inputJs('scroll', { x: 500, y: 400, deltaY: 30, node: 1, anchor: { ...place, ry: 1 } }));
+    expect(w.root.scrollTop).toBe(1320);
+  });
+
+  test('a strip scrolled sideways goes sideways here, to the same thumbnail, and the page stays', () => {
+    const w = world();
+    const strip = w.el('strip', { top: 700, left: 0, width: 1000, height: 80 }, w.body, 30, {
+      scrollWidth: 6000, clientWidth: 1000, __style: { overflowX: 'auto' }, clientLeft: 0, clientTop: 0,
+      scrollTo(o: { top: number; left: number }) { strip.scrollLeft = Math.max(0, Math.min(5000, Math.round(o.left))); },
+    }) as unknown as { scrollLeft: number };
+    // A thumbnail 3000 px into the strip's content.
+    w.el('thumb', { top: 700, left: 3000, width: 100, height: 80 }, strip, 31, {
+      getBoundingClientRect: () => ({ top: 700 - w.root.scrollTop, left: 3000 - strip.scrollLeft, width: 100, height: 80 }),
+    });
+    w.run(inputJs('scroll', { x: 500, y: 740, deltaX: 30, node: 30, anchor: { id: 31, fx: 0.5, fy: 0.5, lx: 0.25, ly: 0.5, rx: 0.5, ry: 0 } }));
+    // Its middle on a line a quarter across the 1000 px strip: 3000 + 50 - 250.
+    expect(strip.scrollLeft).toBe(2800);
+    expect(w.root.scrollTop).toBe(0);
   });
 
   test('once the page moves away from that place it is forgotten, even back on the same pixel', () => {

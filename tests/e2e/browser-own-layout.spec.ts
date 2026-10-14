@@ -4,6 +4,7 @@ import { resetPaneStore } from "./helpers/api-fixtures";
 import { hostNativePage, type NativeHostPage } from "./helpers/native-host-page";
 import { hermetic } from "./fixtures/hermetic";
 import { closeTabSheet, revealInTabSheet, tabSheet } from "./helpers/tab-sheet";
+import { nextFrames } from "./helpers/frame-probe";
 
 hermetic(test);
 
@@ -22,7 +23,9 @@ hermetic(test);
  * reading line, cards that sit in four columns on the Mac and in one on the
  * iPad, and rows in pairs, side by side on the Mac and one above the other on
  * the iPad: the same pixel is a different element on each side, and what the
- * Mac has at its reading point is often the other row of the pair.
+ * Mac has at its reading point is often the other row of the pair. A second
+ * page has boxes that scroll on their own, a strip of thumbnails and a side
+ * panel only the Mac shows: what the Mac scrolls in them is not the page's place.
  *
  * @covers BROWSER-DOM-LAYOUT-01
  * @covers BROWSER-DOM-LAYOUT-02
@@ -61,6 +64,32 @@ document.addEventListener('click',function(e){var t=e.target.closest&&e.target.c
 <button id="menu" data-k="menu" onclick="document.body.classList.toggle('menu-open')">Menu</button>
 <div class="grid">${CARDS}</div>${ROWS}<div id="bar"></div></body></html>`;
 
+const THUMBS = Array.from({ length: 40 }, (_, i) => `<div class="thumb" data-k="thumb-${i}">${i}</div>`).join("");
+const ITEMS = Array.from({ length: 60 }, (_, i) => `<div class="item" data-k="item-${i}">Item ${i}</div>`).join("");
+const LINES = Array.from({ length: 150 }, (_, i) => `<p class="row" data-k="row-${i}">Row ${i}</p>`).join("");
+
+/**
+ * A page with boxes that scroll on their own: a strip of thumbnails that
+ * scrolls sideways on both sides, and a side panel only the Mac's layout shows.
+ * What the Mac scrolls in them is not the page's place.
+ */
+const PANELS = `<!doctype html><html><head><meta charset="utf-8"><title>Panels host</title><style>
+body{margin:0;font:16px sans-serif}
+#strip{position:sticky;top:0;display:flex;overflow-x:auto;height:80px;background:#fff}
+.thumb{flex:0 0 120px;height:80px;border-right:1px solid #ccc}
+#side{position:fixed;right:0;top:0;width:220px;height:100vh;overflow-y:auto;background:#fafafa}
+.item{height:40px;border-bottom:1px solid #ddd}
+.row{margin:0;height:40px;border-bottom:1px solid #ccc}
+@media (max-width:${NARROW_BELOW}px){#side{display:none}}
+</style></head><body><div id="strip">${THUMBS}</div><main>${LINES}</main><div id="side">${ITEMS}</div></body></html>`;
+
+/** The thumbnail a quarter across the strip, where its reading line is. */
+function readingThumb(): string | null {
+  const strip = document.getElementById("strip")!.getBoundingClientRect();
+  const hit = document.elementsFromPoint(strip.left + strip.width * 0.25, strip.top + strip.height / 2).find((e) => e.classList.contains("thumb"));
+  return hit?.getAttribute("data-k") ?? null;
+}
+
 /** The mirror's iframe and its document, on the viewer. */
 function mirror(page: Page) {
   return page.locator('[data-testid="browser-dom-cobrowse"] iframe').first();
@@ -88,10 +117,10 @@ function lineIntoRow(k: string): number {
   return innerHeight * 0.25 - document.querySelector(`[data-k="${k}"]`)!.getBoundingClientRect().top;
 }
 
-async function openViewer(page: Page, request: Parameters<typeof resetPaneStore>[0], ctx: string): Promise<void> {
+async function openViewer(page: Page, request: Parameters<typeof resetPaneStore>[0], ctx: string, first = "Card 0"): Promise<void> {
   await resetPaneStore(request, [`browser:${ctx}`]);
   await goToApp(page);
-  await expect(page.locator('[data-testid="browser-dom-cobrowse"]').first().frameLocator("iframe").getByText("Card 0", { exact: true })).toBeVisible({ timeout: 15_000 });
+  await expect(page.locator('[data-testid="browser-dom-cobrowse"]').first().frameLocator("iframe").getByText(first, { exact: true })).toBeVisible({ timeout: 15_000 });
 }
 
 /**
@@ -166,10 +195,10 @@ async function tap(page: Page, k: string): Promise<void> {
   }, k);
 }
 
-async function setUp(page: Page, context: import("@playwright/test").BrowserContext, request: Parameters<typeof resetPaneStore>[0], name: string): Promise<NativeHostPage> {
+async function setUp(page: Page, context: import("@playwright/test").BrowserContext, request: Parameters<typeof resetPaneStore>[0], name: string, html = PAGE, first = "Card 0"): Promise<NativeHostPage> {
   const ctx = `e2e-own-layout-${name}-${Date.now()}`;
-  const host = await hostNativePage(await context.newPage(), ctx, PAGE, { size: MAC, title: "Layout host" });
-  await openViewer(page, request, ctx);
+  const host = await hostNativePage(await context.newPage(), ctx, html, { size: MAC, title: "Layout host" });
+  await openViewer(page, request, ctx, first);
   return host;
 }
 
@@ -306,12 +335,65 @@ test.describe("Each device keeps its own layout of a page the Mac hosts", () => 
     await expect.poll(async () => Math.abs((await inMirror(page, readingRow))!.offset - there.offset), { timeout: 3_000 }).toBeLessThanOrEqual(2);
     // The same row, from scroll positions the two layouts put far apart.
     expect(Math.abs((await inMirror(page, () => document.scrollingElement!.scrollTop)) - (await host.scrollOf()))).toBeGreaterThan(300);
-    // At the end of the page the mirror is at its end too.
+    // At the end of the Mac's page the mirror shows the same row, not its own
+    // end: twice as long here, it jumped there as the Mac reached the end of
+    // a short range, and back as it left it.
     await host.page.evaluate(() => window.scrollTo({ top: document.scrollingElement!.scrollHeight, behavior: "instant" as ScrollBehavior }));
-    await expect.poll(() => inMirror(page, () => {
+    const end = (await host.page.evaluate(readingRow))!;
+    await expect.poll(async () => (await inMirror(page, readingRow))?.k, { timeout: 5_000 }).toBe(end.k);
+    expect(await inMirror(page, () => {
       const el = document.scrollingElement!;
       return el.scrollHeight - el.clientHeight - el.scrollTop;
-    }), { timeout: 5_000 }).toBeLessThanOrEqual(1);
+    })).toBeGreaterThan(300);
+    host.close();
+  });
+
+  test("a strip or a side panel the Mac scrolls never moves the mirror's page, and the strip follows sideways", async ({ page, context, request }) => {
+    const host = await setUp(page, context, request, "panels", PANELS, "Row 0");
+    await host.page.evaluate(() => {
+      const row = document.querySelector('[data-k="row-60"]') as HTMLElement;
+      window.scrollTo({ top: row.offsetTop - innerHeight * 0.25 + 13, behavior: "instant" as ScrollBehavior });
+    });
+    await expect.poll(async () => (await inMirror(page, readingRow))?.k, { timeout: 5_000 }).toBe("row-60");
+    // Settled: the glide there is over, ten frames in a row without motion,
+    // counted on the viewer's frames (the mirror's document runs no script).
+    const settled = await page.evaluate(() => new Promise<boolean>((done) => {
+      const doc = (document.querySelector('[data-testid="browser-dom-cobrowse"] iframe') as HTMLIFrameElement).contentDocument!;
+      const el = doc.scrollingElement!;
+      const until = performance.now() + 5_000;
+      let last = el.scrollTop, still = 0;
+      const step = () => {
+        still = el.scrollTop === last ? still + 1 : 0;
+        last = el.scrollTop;
+        if (still >= 10) done(true);
+        else if (performance.now() > until) done(false);
+        else requestAnimationFrame(step);
+      };
+      requestAnimationFrame(step);
+    }));
+    expect(settled).toBe(true);
+    // Every place the mirror's page takes from here on.
+    await page.evaluate(() => {
+      const doc = (document.querySelector('[data-testid="browser-dom-cobrowse"] iframe') as HTMLIFrameElement).contentDocument!;
+      const w = window as unknown as { __tops: number[] };
+      w.__tops = [];
+      const tick = () => { w.__tops.push(doc.scrollingElement!.scrollTop); requestAnimationFrame(tick); };
+      tick();
+    });
+    // The side panel, which the mirror's narrow layout does not show, then the strip.
+    await host.page.evaluate(() => { document.getElementById("side")!.scrollTop = 900; });
+    // Its scroll event fires within the next frames: the strip's then comes
+    // after it, as a scroll of its own, not folded into the same one.
+    await nextFrames(host.page, 2);
+    await host.page.evaluate(() => { document.getElementById("strip")!.scrollLeft = 1530; });
+    const there = await host.page.evaluate(readingThumb);
+    expect(there).toBe("thumb-15");
+    await expect.poll(() => inMirror(page, readingThumb), { timeout: 5_000 }).toBe(there);
+    // The sampler gets the frames after the strip's place, where a page moved
+    // by the same scroll would show up.
+    await nextFrames(page, 30);
+    const tops = await page.evaluate(() => (window as unknown as { __tops: number[] }).__tops);
+    expect(new Set(tops).size).toBe(1);
     host.close();
   });
 });

@@ -2969,9 +2969,18 @@ that point on its own line.
 - **WHEN** the Mac's page scrolls a row to its reading line
 - **THEN** the iPad's mirror brings the same row to its own, give or take 2 px
 
-#### Scenario: the edges of the page
-- **WHEN** one side is at the top or at the end of what scrolls
-- **THEN** the other side is at its top or its end, whatever each has at its reading line
+#### Scenario: the start and the end of the page
+- **WHEN** one side is at the top of what scrolls
+- **THEN** the other side is at its top, whatever each has at its reading line
+- **WHEN** one side reaches the end of what scrolls
+- **THEN** the other side shows the same row at its reading line, not its own end: a page twice as long there would jump to its end and back as this one reached the end of a short range and left it
+
+#### Scenario: a box that scrolls on its own
+- **GIVEN** a strip that scrolls sideways on both sides, and a side panel only one side's layout shows
+- **WHEN** one side scrolls the side panel, then the strip
+- **THEN** the other side's page does not move at all
+- **AND** its strip scrolls sideways to the same thumbnail at its reading line
+- **AND** only the page, or the box under the middle of the window, hands its place to another box when it cannot scroll on the other side: along the reading axis, vertical first, to the nearest box around the element that scrolls that way, or else the page; never across a fixed or sticky box, never to a box or a page whose overflow is hidden; and then by content alone
 
 ### Requirement: BROWSER-DOM-LAYOUT-04 — Each device SHALL be able to go back to the Mac's page at its size
 

@@ -41,27 +41,53 @@ function scrollerOf(node: Node): Scroller | null {
   return node.nodeType === 1 ? { el: node as Element, top: false, doc } : null;
 }
 
-/** Can `s` scroll down here: room to, and a box that scrolls (the page always does). */
-function canScroll(s: Scroller): boolean {
-  if (!(s.el.scrollHeight - s.el.clientHeight > 0)) return false;
-  if (s.top) return true;
-  const o = s.doc.defaultView?.getComputedStyle(s.el).overflowY;
-  return o === 'auto' || o === 'scroll' || o === 'overlay' || o === 'hidden';
+type Axis = 'x' | 'y';
+
+/** The page's overflow along `axis`: the root's, or the body's when the root leaves it visible (CSS hands it to the viewport). */
+function pageOverflow(doc: Document, axis: Axis): string | undefined {
+  const view = doc.defaultView;
+  const of = (el: Element | null) => {
+    const style = el ? view?.getComputedStyle(el) : undefined;
+    return axis === 'y' ? style?.overflowY : style?.overflowX;
+  };
+  const root = of(doc.documentElement);
+  return root && root !== 'visible' ? root : of(doc.body);
 }
 
 /**
- * What scrolls `m` here: what scrolled on the other side, unless it cannot
- * scroll here (a breakpoint gave the scrolling to the page, or took it from
- * it); then the nearest box around `m` that can, else the page.
+ * Can `s` scroll along `axis` here: room to, and a box that scrolls. What is
+ * clipped (`overflow: hidden`, a box or the page) scrolls only by script, so
+ * it counts only as what the other side's page itself scrolled.
  */
-function scrollerFor(s: Scroller, m: Element | null): Scroller {
-  if (canScroll(s) || !m) return s;
-  const root = s.doc.scrollingElement ?? s.doc.documentElement;
-  for (let e = m.parentElement; e && e !== root; e = e.parentElement) {
-    const around = { el: e, top: false, doc: s.doc };
-    if (canScroll(around)) return around;
+function canScroll(s: Scroller, axis: Axis, clipped = true): boolean {
+  const room = axis === 'y' ? s.el.scrollHeight - s.el.clientHeight : s.el.scrollWidth - s.el.clientWidth;
+  if (!(room > 0)) return false;
+  if (s.top) {
+    const o = pageOverflow(s.doc, axis);
+    return o !== 'clip' && (clipped || o !== 'hidden');
   }
-  return { el: root, top: true, doc: s.doc };
+  const style = s.doc.defaultView?.getComputedStyle(s.el);
+  const o = axis === 'y' ? style?.overflowY : style?.overflowX;
+  return o === 'auto' || o === 'scroll' || o === 'overlay' || (clipped && o === 'hidden');
+}
+
+/** The axes the other side's box could scroll along, the vertical first: its reading line is a quarter in there, the middle elsewhere. */
+function rangedAxes(anchor: ScrollAnchor): Axis[] {
+  return (['y', 'x'] as const).filter((a) => (a === 'y' ? anchor.ly : anchor.lx) < 0.5);
+}
+
+/**
+ * Is `s` the page's main column: the box under the middle of the window. Not
+ * its share of the window: a column between a navigation and an aside holds
+ * well under half of it, and a side panel as tall as the window nearly as much.
+ */
+function isMain(s: Scroller): boolean {
+  const root = s.doc.documentElement;
+  const view = s.doc.defaultView;
+  const w = root.clientWidth || view?.innerWidth || 0;
+  const h = root.clientHeight || view?.innerHeight || 0;
+  const hit = w > 0 && h > 0 ? s.doc.elementFromPoint(w / 2, h / 2) : null;
+  return !!hit && s.el.contains(hit);
 }
 
 /** The part of what scrolls that shows, in its document's viewport coordinates. */
@@ -77,9 +103,11 @@ function visibleBox(s: Scroller): { left: number; top: number; width: number; he
 
 /**
  * How far along its range a scroll is, exactly 0 or 1 at an edge (within a
- * pixel: a fractional scroll stops short of the end). An edge is a place of its
- * own: a page at its top is at its top on both sides, whatever the other
- * layout has at the reading line.
+ * pixel: a fractional scroll stops short of the end). The start is a place of
+ * its own: a page at its top is at its top on both sides, whatever the other
+ * layout has at the reading line. The end is not: a page twice as long on the
+ * other side would jump from the content to its own end as this one reached
+ * the end of a short range, and back as it left it.
  */
 function ratio(pos: number, max: number): number {
   if (!(max > 0) || pos <= 0) return 0;
@@ -118,6 +146,7 @@ export function anchorOf(node: Node, ids: NodeIds): ScrollAnchor | null {
     rx: ratio(el.scrollLeft, mx),
     ry: ratio(el.scrollTop, my),
   };
+  if (!s.top && isMain(s)) anchor.main = true;
   const px = box.left + anchor.lx * box.width;
   const py = box.top + anchor.ly * box.height;
   const pinned = pinnedTest(el, doc.defaultView);
@@ -134,37 +163,74 @@ export function anchorOf(node: Node, ids: NodeIds): ScrollAnchor | null {
   return anchor;
 }
 
+/** Where `s` goes, along `axes`, for the named point of `m` to be on the reading line. */
+function byContent(s: Scroller, axes: Axis[], m: Element, anchor: ScrollAnchor): Place | null {
+  const r = m.getBoundingClientRect();
+  if (!(r.width > 0 && r.height > 0) || !(s.top || s.el.contains(m))) return null;
+  const box = visibleBox(s);
+  const place: Place = { el: s.el };
+  if (axes.includes('y')) place.top = s.el.scrollTop + r.top + (anchor.fy ?? 0) * r.height - (box.top + anchor.ly * box.height);
+  if (axes.includes('x')) place.left = s.el.scrollLeft + r.left + (anchor.fx ?? 0) * r.width - (box.left + anchor.lx * box.width);
+  return place;
+}
+
+/** A scroller and where it goes: an axis left out stays where it is. */
+export interface Place {
+  el: Element;
+  top?: number;
+  left?: number;
+}
+
 /**
- * What has to scroll, and where, for `anchor` to be at the reading line here:
- * `node` (what scrolled on the other side) or the box that scrolls its element
- * here; by its range when that element has no box here, and at an edge the
- * anchor is on.
+ * What has to scroll, and where, for `anchor` to be at the reading line here.
+ *
+ * The reading axis leads: the vertical one when the other side's box scrolls
+ * that way, else the horizontal. When what scrolled there scrolls along it
+ * here too, it scrolls here, along every axis it scrolls on both sides: to
+ * its start when the anchor is at the start, else to the named element, else
+ * by its range. When it does not (a breakpoint gave its scrolling to the
+ * page, or took it from the page), only the page or its main column hands the
+ * place on, by content alone, to the nearest box around the element that
+ * scrolls along the reading axis here: a strip or a side panel scrolled there
+ * never moves the page here, nor does an element pinned in place, and an edge
+ * or a range means nothing for a box other than the one it was read on.
  */
-export function placeOf(node: Node, anchor: ScrollAnchor, ids: NodeIds): { top: number; left: number; el: Element } | null {
+export function placeOf(node: Node, anchor: ScrollAnchor, ids: NodeIds): Place | null {
   const named = scrollerOf(node);
   if (!named) return null;
   const found = typeof anchor.id === 'number' ? ids.getNode(anchor.id) : null;
   const m = found && found.nodeType === 1 && found.isConnected && found.ownerDocument === named.doc ? (found as Element) : null;
-  const s = scrollerFor(named, m);
-  const { el } = s;
-  const my = Math.max(0, el.scrollHeight - el.clientHeight);
-  const mx = Math.max(0, el.scrollWidth - el.clientWidth);
-  const place = { top: anchor.ry * my, left: anchor.rx * mx, el };
-  if (m && (s.top || el.contains(m))) {
-    const r = m.getBoundingClientRect();
-    if (r.width > 0 && r.height > 0) {
-      const box = visibleBox(s);
-      if (anchor.ry > 0 && anchor.ry < 1) place.top = el.scrollTop + r.top + (anchor.fy ?? 0) * r.height - (box.top + anchor.ly * box.height);
-      if (anchor.rx > 0 && anchor.rx < 1) place.left = el.scrollLeft + r.left + (anchor.fx ?? 0) * r.width - (box.left + anchor.lx * box.width);
+  const axes = rangedAxes(anchor);
+  const lead = axes[0];
+  if (!lead) return null;
+  if (canScroll(named, lead)) {
+    const here = axes.filter((a) => canScroll(named, a));
+    const { el } = named;
+    const content = m ? byContent(named, here, m, anchor) : null;
+    const place: Place = { el };
+    if (here.includes('y')) {
+      place.top = anchor.ry > 0 && content?.top !== undefined ? content.top : anchor.ry * Math.max(0, el.scrollHeight - el.clientHeight);
     }
+    if (here.includes('x')) {
+      place.left = anchor.rx > 0 && content?.left !== undefined ? content.left : anchor.rx * Math.max(0, el.scrollWidth - el.clientWidth);
+    }
+    return place;
   }
-  return place;
+  if (!m || !(named.top || anchor.main)) return null;
+  const root = named.doc.scrollingElement ?? named.doc.documentElement;
+  let s: Scroller = { el: root, top: true, doc: named.doc };
+  for (let e = m.parentElement; e && e !== root; e = e.parentElement) {
+    const around = { el: e, top: false, doc: named.doc };
+    if (canScroll(around, lead, false)) { s = around; break; }
+  }
+  if (!canScroll(s, lead, false) || pinnedTest(s.el, named.doc.defaultView)(m)) return null;
+  return byContent(s, axes.filter((a) => canScroll(s, a, false)), m, anchor);
 }
 
 /** The same place, as the Mac sends a viewer's own place back. */
 export function sameAnchor(a: ScrollAnchor | null | undefined, b: ScrollAnchor | null | undefined): boolean {
   return !!a && !!b && a.id === b.id && a.fx === b.fx && a.fy === b.fy
-    && a.lx === b.lx && a.ly === b.ly && a.rx === b.rx && a.ry === b.ry;
+    && a.lx === b.lx && a.ly === b.ly && a.rx === b.rx && a.ry === b.ry && !a.main === !b.main;
 }
 
 /** A replayer's mirror document, or null when this shell will not let it be read (WKWebView + custom scheme). */
@@ -240,12 +306,15 @@ export function anchorPlacer(): {
       const node = ids.getNode(d.anchored);
       const place = node && placeOf(node, d.anchor, ids);
       if (!place) return;
+      const { el } = place;
+      const top = place.top ?? el.scrollTop;
+      const left = place.left ?? el.scrollLeft;
       const behavior = isSync || event.type === FULL_SNAPSHOT ? 'instant' : 'smooth';
       try {
-        place.el.scrollTo({ top: place.top, left: place.left, behavior: behavior as ScrollBehavior });
+        el.scrollTo({ top, left, behavior: behavior as ScrollBehavior });
       } catch {
-        place.el.scrollTop = place.top;
-        place.el.scrollLeft = place.left;
+        el.scrollTop = top;
+        el.scrollLeft = left;
       }
     },
   };
