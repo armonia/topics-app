@@ -16,7 +16,7 @@ import type { AppContext } from "./types";
 // Dal modulo della cache, non dalla route che la riempie: importare
 // `./routes/files` da qui chiudeva il ciclo
 // file-watcher → git-watcher → routes/files → file-watcher.
-import { invalidateGitCache, writeGitStatusCache } from "./lib/git-status-cache";
+import { invalidateGitCache, setGitStatusWatcher, writeGitStatusCache } from "./lib/git-status-cache";
 import { computeGitStatus, type ComputedGitStatus, type GitStatus } from "./lib/git-status";
 
 const DEBOUNCE_MS = 500;
@@ -150,6 +150,7 @@ export function watchGitDir(
       }
     }
 
+    const live = Boolean(indexWatcher || headWatcher || refsWatcher);
     watchers.set(projectPath, {
       close() {
         indexWatcher?.close();
@@ -158,6 +159,7 @@ export function watchGitDir(
         if (debounceTimer) clearTimeout(debounceTimer);
       },
     });
+    setGitStatusWatcher(projectPath, live);
   } catch (err) {
     console.warn(`[GitWatcher] Could not watch ${gitDir}:`, err);
   }
@@ -165,6 +167,7 @@ export function watchGitDir(
 
 export function unwatchGitDir(projectPath: string) {
   worktreeIds.delete(projectPath);
+  setGitStatusWatcher(projectPath, false);
   const w = watchers.get(projectPath);
   if (w) {
     w.close();

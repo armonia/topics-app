@@ -256,6 +256,18 @@ The system SHALL display git status indicators on files, provide a diff viewer f
 - **THEN** staged files appear in a separate Staged section
 - **AND** unstaged files appear in a separate section below
 
+#### Scenario: A file saved outside Topics reaches the git panel within one second
+- **GIVEN** a project whose file explorer is open, so its file watcher and its `.git` watcher are live
+- **WHEN** an external editor writes a new file in the working tree
+- **THEN** the git panel lists it within one second, carried by the watcher push and not by the status poll
+
+#### Scenario: The git status is read from memory, with a 60-second cap
+- **GIVEN** both watchers are live on a project path
+- **WHEN** the status is read every 15 seconds for ten minutes and nothing changes
+- **THEN** git is asked at most once per 60 seconds, counted from the last write and never renewed by a read
+- **AND** a change that no watcher reported shows at the first read after those 60 seconds
+- **AND** with only the `.git` watcher live, the five-second TTL applies as before
+
 ### Requirement: FILE-03 — Reveal in Finder
 
 The system SHALL allow users to reveal any file or folder in macOS Finder directly from the file tree context menu.

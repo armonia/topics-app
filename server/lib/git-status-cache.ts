@@ -28,11 +28,14 @@
  */
 
 /**
- * How long an entry stays valid before requesting git again. The route bench
- * can set the TTL to zero so each request pays for a git spawn; this seam only
- * takes effect on the TOPICS_E2E server.
+ * Validity of an entry, counted from its WRITE and never renewed by reads. With
+ * both watchers live on the path (`.git` and the project files) an entry lasts
+ * 60 seconds, a cap for the event a watcher loses; otherwise five seconds. The
+ * route bench can set this to zero so each request pays for a git spawn; this
+ * seam only takes effect on TOPICS_E2E.
  */
 const TTL_MS = process.env.TOPICS_E2E === "1" && process.env.TOPICS_E2E_GIT_STATUS_TTL_MS === "0" ? 0 : 5000;
+const WATCHED_MAX_AGE_MS = 60_000;
 
 /**
  * Il tetto. La chiave è il `?path=` risolto e fornito da chi chiama (nessuna
@@ -60,17 +63,34 @@ export interface GitStatusResult {
 }
 
 const cache = new Map<string, { data: GitStatusResult; timestamp: number }>();
+const gitWatchedPaths = new Set<string>();
+const fileWatchedPaths = new Set<string>();
+
+/** Tracks whether `.git` has an active watcher for this path. */
+export function setGitStatusWatcher(projectPath: string, active: boolean): void {
+  if (active) gitWatchedPaths.add(projectPath);
+  else gitWatchedPaths.delete(projectPath);
+}
+
+/** Tracks whether the project file watcher is active for this path. */
+export function setGitStatusFileWatcher(projectPath: string, active: boolean): void {
+  if (active) fileWatchedPaths.add(projectPath);
+  else fileWatchedPaths.delete(projectPath);
+}
 
 /** La voce se c'è ED è ancora fresca, altrimenti `null`. */
-export function readGitStatusCache(projectPath: string): GitStatusResult | null {
+export function readGitStatusCache(projectPath: string, now: () => number = () => performance.now()): GitStatusResult | null {
   const hit = cache.get(projectPath);
   if (!hit) return null;
-  if (Date.now() - hit.timestamp >= TTL_MS) return null;
+  const hasBothWatchers = gitWatchedPaths.has(projectPath) && fileWatchedPaths.has(projectPath);
+  const maxAge = TTL_MS === 0 ? 0 : hasBothWatchers ? WATCHED_MAX_AGE_MS : TTL_MS;
+  const timestamp = now();
+  if (timestamp - hit.timestamp >= maxAge) return null;
   return hit.data;
 }
 
 /** Scrive la voce, sfrattando la più vecchia se si è al tetto. */
-export function writeGitStatusCache(projectPath: string, data: GitStatusResult): void {
+export function writeGitStatusCache(projectPath: string, data: GitStatusResult, now: () => number = () => performance.now()): void {
   if (cache.size >= MAX_ENTRIES && !cache.has(projectPath)) {
     let oldestKey: string | undefined;
     let oldestTs = Infinity;
@@ -82,7 +102,7 @@ export function writeGitStatusCache(projectPath: string, data: GitStatusResult):
     }
     if (oldestKey !== undefined) cache.delete(oldestKey);
   }
-  cache.set(projectPath, { data, timestamp: Date.now() });
+  cache.set(projectPath, { data, timestamp: now() });
 }
 
 /** Butta la voce di questo progetto: la prossima lettura torna a chiedere a git. */

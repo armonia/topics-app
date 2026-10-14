@@ -18,13 +18,18 @@ Nessuno risponde alle tue domande: decidi, scrivi il perché nel REPORT, vai ava
   checkout `~/Projects/topics-app`: non toccare quel checkout, non avviare né fermare server di
   sviluppo, niente codice o test che puntino a :3333. I test e i cancelli avviano da soli i loro
   server isolati (`scripts/start-test-server.sh`, porte derivate dal percorso).
-- **Bun 1.4.2**, quello della produzione, è il primo `bun` nel PATH. Le dipendenze sono già
-  installate: non rifare `bun install`.
+- **Bun 1.4.2**, quello della produzione e della CI (`.bun-version`). La tua shell di login rimette
+  Homebrew in testa al PATH e trova un `bun` più vecchio: comincia ogni comando con
+  `export PATH="$HOME/.topics/bun/1.4.2:$PATH";` e controlla con `bun --version`. Le dipendenze sono
+  già installate: non rifare `bun install`.
 
 ## Cosa puoi girare sul Mac
 
 - **Sì:** `bun test <file>` mirati; `bun run typecheck`; `bun run lint`; i comandi della barra
-  della tua traccia; un singolo spec e2e con `--project=chromium`, solo se serve davvero.
+  della tua traccia.
+- **Le e2e non girano sul Mac:** `playwright.config.ts` lo vieta, tranne `--project=webkit` per le
+  poche spec del progetto `webkit`. Non aggirare il divieto con una config temporanea. Una spec
+  nuova la scrivi, passa `bun run typecheck:e2e`, e la gira la CI con il workflow «Clip di consegna».
 - **No:** suite e2e intere, `test:unit:shards`, build ripetute (`build:client` al massimo una
   volta, prima della consegna, e solo se la barra la chiede). Le suite intere le fa girare la CI
   dopo il push, che faccio io.

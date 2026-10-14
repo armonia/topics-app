@@ -26,11 +26,11 @@ dell'albero a ogni richiesta.
 ## Cosa cambia
 
 1. **Stato git.**
-   - Per un percorso con un watcher vivo, la cache vale finché il watcher non la invalida. Il tetto
-     di sicurezza è 60 s, per l'evento che FSEvents perde.
+   - Per un percorso con entrambi i watcher vivi, la cache vale finché un watcher non la invalida.
+     Il tetto fisso di sicurezza è 60 s dalla scrittura, per l'evento che FSEvents perde.
    - Senza watcher resta il TTL di 5 s.
-2. **Albero dei file.** Stessa regola, con la cache invalidata dal watcher dei file che c'è già
-   (`server/file-watcher.ts`).
+2. **Albero dei file.** Finestra fissa di 60 s dalla visita con il watcher dei file vivo; senza
+   watcher resta il TTL di 5 s. Il watcher invalida la cache (`server/file-watcher.ts`).
 3. **Frame per abbonamento.**
    - Ogni tipo di frame è classificato: globale, per topic, per progetto o per board.
    - I frame per topic vanno solo a chi ha quel topic aperto.
@@ -46,9 +46,10 @@ bun run check:route-latency                 # git_status p95 ≤ 20 ms; files, s
 bun run measure:ws-idle -- --budget 1024    # esce 0 (in D0 esce 1)
 ```
 
-- **Contatore di spawn.** Un test d'integrazione conta le chiamate a `spawnBounded`: con un progetto
-  aperto e nessun cambio per 10 minuti simulati, 0 spawn di `git status`.
-- **Mutazione.** In una copia si rimette il TTL di 5 s: il test del contatore deve fallire.
+- **Contatore di spawn.** Con entrambi i watcher vivi, il tetto fisso di 60 s limita il calcolo a
+  **11 volte in 10 minuti**, contro **40** col TTL di 5 s precedente; il tetto recupera anche un
+  evento perso.
+- **Mutazione.** In una copia si rinnova la finestra a ogni lettura: il test del tetto deve fallire.
 - **Produzione.** 24 ore dopo il porto, lo script della baseline sul log dà `git/status` con p95
   ≤ 20 ms.
 - **Spec-flow con video.** Si salva un file da fuori dall'app e il pannello git lo mostra entro
