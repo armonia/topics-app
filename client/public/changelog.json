@@ -1,5 +1,28 @@
 [
   {
+    "version": "2.2.496",
+    "date": "2026-10-14",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "aggiorna durate shard dal nightly del 2026-10-14 [skip ci]",
+          "en": "",
+          "scope": "e2e",
+          "breaking": false
+        },
+        {
+          "it": "l'iPad prende la pagina appena lo usi, non al primo tocco sulla pagina (#311)",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        }
+      ]
+    }
+  },
+  {
     "version": "2.2.495",
     "date": "2026-10-14",
     "sections": {
