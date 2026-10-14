@@ -23,19 +23,17 @@ function session(over: Partial<ExternalClaudeSession> = {}): ExternalClaudeSessi
 }
 
 function make(sessions: () => ExternalClaudeSession[], over: Partial<Parameters<typeof createExternalSessionsService>[0]> = {}) {
-  const broadcasts: any[] = [];
   let scans = 0;
   let clock = NOW;
   const svc = createExternalSessionsService({
     knownSessionIds: () => [],
     candidatePaths: () => ["/repo"],
     projectIdFor: (p) => `p:${p}`,
-    broadcast: (m) => broadcasts.push(m),
     now: () => clock,
     scan: (() => { scans++; return sessions(); }) as any,
     ...over,
   });
-  return { svc, broadcasts, scans: () => scans, tick: (ms: number) => { clock += ms; } };
+  return { svc, scans: () => scans, tick: (ms: number) => { clock += ms; } };
 }
 
 describe("external sessions service", () => {
@@ -79,22 +77,27 @@ describe("external sessions service", () => {
     expect(h.svc.activeAt("/repo").map((s) => s.sessionId)).toEqual(["deep"]);
   });
 
-  test("the poll broadcasts only when the census actually changes", async () => {
+  test("reads share the TTL and no background poll scans the census", async () => {
     let current = [session()];
-    const h = make(() => current);
-    const stop = h.svc.start(5);
-    expect(h.broadcasts).toHaveLength(1);
-    expect(h.broadcasts[0]).toMatchObject({ type: "external-sessions" });
-
-    // Same census re-scanned several times → still one broadcast.
-    await Bun.sleep(40);
-    expect(h.broadcasts).toHaveLength(1);
-
-    // A state flip IS a change → exactly one more broadcast.
+    const h = make(() => current, { ttlMs: 10 });
+    expect(h.svc.list()).toHaveLength(1);
     current = [session({ state: "idle" })];
-    await Bun.sleep(40);
-    stop();
-    expect(h.broadcasts).toHaveLength(2);
-    expect(h.broadcasts[1].sessions[0].state).toBe("idle");
+    h.tick(11);
+    await Bun.sleep(20);
+    expect(h.scans()).toBe(1);
+    current = [session({ state: "idle" })];
+    expect(h.svc.activeAt("/repo")).toHaveLength(0);
+    expect(h.svc.byProject()[0]).toMatchObject({ total: 1, active: 0 });
+    expect(h.svc.list()).toHaveLength(1);
+    expect(h.svc.list().filter((item) => item.state === "active")).toHaveLength(0);
+    expect(h.scans()).toBe(2);
+
+    current = [session()];
+    h.tick(5);
+    expect(h.svc.activeAt("/repo")).toHaveLength(0);
+    expect(h.svc.byProject()[0]).toMatchObject({ total: 1, active: 0 });
+    expect(h.svc.list()).toHaveLength(1);
+    expect(h.svc.list().filter((item) => item.state === "active")).toHaveLength(0);
+    expect(h.scans()).toBe(2);
   });
 });

@@ -35,9 +35,9 @@ dell'albero a ogni richiesta.
    - Ogni tipo di frame è classificato: globale, per topic, per progetto o per board.
    - I frame per topic vanno solo a chi ha quel topic aperto.
    - Un test elenca i tipi e fallisce quando ne nasce uno senza classe.
-4. **`external-sessions` come differenza.**
-   - Si mandano solo le aggiunte, le sessioni tolte e i cambi di stato.
-   - Il censimento intero va solo all'iscrizione.
+4. **`external-sessions`: tolto (D1b).** Il piano lo voleva mandare come differenza, ma il frame non
+   aveva ascoltatori dal 13/08 (commit 533df6930c). Il server smette di mandarlo, e il censimento
+   resta per la guardia del dispatcher, la presenza e la rotta HTTP.
 
 ## Barra
 

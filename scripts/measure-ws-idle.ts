@@ -51,6 +51,13 @@ const external = Array.from({ length: EXTERNAL_SESSIONS }, (_, index) => {
   writeFileSync(path, `${facts}\n`);
   return { index, path, facts };
 });
+const activeState = Array.from({ length: external.length }, (_, index) => index < ACTIVE_AT_START);
+const touch = (index: number, now: number) => {
+  const mtime = activeState[index] ? now : now - 16 * 60_000;
+  utimesSync(external[index]!.path, mtime / 1000, mtime / 1000);
+};
+const startedAt = Date.now();
+for (const session of external) touch(session.index, startedAt);
 
 const fakeCli = resolve(ROOT, "tests/e2e/helpers/fake-claude-slow-turn.ts");
 const cliVersions = join(home, ".local", "share", "claude", "versions");
@@ -109,12 +116,13 @@ if (!(await waitForServer())) {
 
 const base = `http://127.0.0.1:${port}`;
 const externalResponse = await fetch(`${base}/api/external-sessions`);
-const externalPayload = await externalResponse.json() as { sessions?: unknown[] };
-if (!externalResponse.ok || externalPayload.sessions?.length !== EXTERNAL_SESSIONS) {
-  console.error(`scanner sessioni: attese ${EXTERNAL_SESSIONS}, trovate ${externalPayload.sessions?.length ?? 0}`);
+const externalPayload = await externalResponse.json() as { sessions?: Array<{ state: string }> };
+const activeSessions = externalPayload.sessions?.filter((session) => session.state === "active").length ?? 0;
+if (!externalResponse.ok || externalPayload.sessions?.length !== EXTERNAL_SESSIONS || activeSessions !== ACTIVE_AT_START) {
+  console.error(`scanner sessioni: attese ${EXTERNAL_SESSIONS} totali e ${ACTIVE_AT_START} attive, trovate ${externalPayload.sessions?.length ?? 0} totali e ${activeSessions} attive`);
   process.exit(2);
 }
-console.log(`scanner reale: ${EXTERNAL_SESSIONS} transcript riconosciuti`);
+console.log(`scanner reale: ${EXTERNAL_SESSIONS} transcript riconosciuti, ${activeSessions} attivi`);
 const projectPath = join(dataDir, "chat-project");
 mkdirSync(projectPath, { recursive: true });
 const topicResponse = await fetch(`${base}/api/topics`, {
@@ -195,13 +203,6 @@ try {
   turn.catch((error) => { streamError ||= error instanceof Error ? error.message : String(error); });
 
   let tick = 0;
-  const activeState = Array.from({ length: external.length }, (_, index) => index < ACTIVE_AT_START);
-  const touch = (index: number, now: number) => {
-    const mtime = activeState[index] ? now : now - 16 * 60_000;
-    utimesSync(external[index]!.path, mtime / 1000, mtime / 1000);
-  };
-  const startedAt = Date.now();
-  for (const session of external) touch(session.index, startedAt);
   // A rotating window of FLIPS_PER_TICK sessions changes state each tick, so the
   // active count stays near ACTIVE_AT_START, like the production census.
   const updateSessions = () => {
@@ -225,16 +226,18 @@ try {
   if (streamError) throw new Error(`chat stream error: ${streamError.slice(0, 800)}`);
   if (!measuredCounts.has("stream:content_chunk")) throw new Error("chat pipeline non ha prodotto stream:content_chunk");
   const externalFrameCount = measuredFrames.get("external-sessions") ?? 0;
-  const minimumExternalFrames = Math.max(1, Math.floor(duration / 20) - 1);
-  if (externalFrameCount < minimumExternalFrames) {
-    throw new Error(`lo sweep reale ha emesso ${externalFrameCount} frame external-sessions, attesi almeno ${minimumExternalFrames}`);
-  }
+  console.log(`external-sessions         ${externalFrameCount} frame`);
   for (const [type, count] of [...measuredCounts].sort((a, b) => b[1] - a[1])) {
     const frames = measuredFrames.get(type) ?? 0;
     console.log(`${type.padEnd(24)} ${count} B · ${frames} frame`);
   }
-  console.log(`\n${rate > budget ? "ROSSO" : "verde"}: ${rate.toFixed(1)} ${rate > budget ? ">" : "≤"} ${budget} B/s`);
-  process.exitCode = rate > budget ? 1 : 0;
+  const overBudget = rate > budget;
+  const unexpectedExternalFrames = externalFrameCount !== 0;
+  const label = overBudget || unexpectedExternalFrames ? "ROSSO" : "verde";
+  const comparison = `${rate.toFixed(1)} ${overBudget ? ">" : "≤"} ${budget} B/s`;
+  const frameFailure = unexpectedExternalFrames ? ` · ${externalFrameCount} frame external-sessions, attesi 0` : "";
+  console.log(`\n${label}: ${comparison}${frameFailure}`);
+  process.exitCode = overBudget || unexpectedExternalFrames ? 1 : 0;
 } catch (error) {
   ws.terminate();
   stop();

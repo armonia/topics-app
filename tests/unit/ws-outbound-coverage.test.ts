@@ -64,15 +64,6 @@ const UNCONSUMED: Record<string, string> = {
   // `OPEN` per sempre e la board mostrava lo stato di prima del guasto finche'
   // non si ricaricava. Adesso `useWebSocket` lo consuma davvero (il cane da
   // guardia sul `lastPongAt`), e il test qui sotto lo pretende.
-  // Il suo unico ascoltatore era il chip delle sessioni in terminale in barra
-  // alla kanban, tolto il 13/08 su richiesta di Attilio. Il CENSIMENTO resta
-  // vivo e ha ancora un lettore vero, ma per via sincrona: il dispatcher chiama
-  // `externalSessions.activeAt(path)` per avvertire quando un repo è già
-  // lavorato a mano da qualcun altro. È il FRAME a non avere più nessuno.
-  // Toglierlo significa toccare il registro del protocollo (e il suo conteggio)
-  // per una modifica di contorno, che è esattamente ciò che la nota in cima allo
-  // schema dice di non fare: si decide quando si versiona.
-  "external-sessions": "censimento senza superficie da quando il chip in barra è stato tolto; il dispatcher lo legge da activeAt(), non dal filo",
 };
 
 /** Sorgenti del CLIENT: quelli che possono ascoltare. Test esclusi. */

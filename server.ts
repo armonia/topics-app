@@ -1525,9 +1525,8 @@ const dispatchUsageReader = createDispatchUsageReader({
 let previewManager: PreviewManager | undefined;
 
 // Census of the Claude sessions Topics did NOT start (bare `claude` in a
-// terminal). Two consumers: the board badge ("questo progetto è vivo anche
-// senza card") and the dispatcher guard below, which refuses to drop an agent
-// into a directory somebody is already working in. The tracker roster is the
+// terminal). The dispatcher guard below refuses to drop an agent into a
+// directory somebody is already working in. The tracker roster is the
 // ownership signal — anything it knows is ours, by definition.
 const externalSessions = createExternalSessionsService({
   knownSessionIds: () => claudeSessionTracker.listSessions().map((s) => s.claudeSessionId),
@@ -1538,7 +1537,6 @@ const externalSessions = createExternalSessionsService({
       extraPaths: dispatchExtraPaths,
     }).map((c) => c.path),
   projectIdFor: projectIdForPath,
-  broadcast: ctx.broadcastToAll,
 });
 
 /**
@@ -3113,7 +3111,6 @@ ctx.externalSessionsCount = () => externalSessions.list().length;
 ctx.externalSessionsWorking = () =>
   externalSessions.list().filter((s) => s.state === "active").length;
 const externalSessionsRouter = createExternalSessionsRouter(ctx, externalSessions);
-externalSessions.start();
 
 
 const WS_HEARTBEAT_INTERVAL_MS = 30000;

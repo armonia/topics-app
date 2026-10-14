@@ -1143,36 +1143,6 @@ const uiBundleRevSchema = z.looseObject({
   rev: z.string(),
 });
 
-// ---- External Claude sessions (il censimento di ciò che Topics NON ha avviato) ----
-
-// Nome fuori convenzione (`external-sessions`, non `sessions:external`): è sul
-// filo da prima della v3 e il client lo ascolta così com'è. Si rinomina quando
-// si versiona il protocollo, non con una modifica di contorno. È anche il
-// motivo per cui lo scan statico dei test non lo vedeva: senza `:` nel nome
-// non passava il filtro — l'ha stanato il compilatore, non la regex.
-const externalClaudeSessionShape = z.looseObject({
-  sessionId: z.string(),
-  cwd: z.string(),
-  projectPath: z.nullable(z.string()),
-  projectId: z.nullable(z.string()),
-  lastActivityMs: z.number(),
-  state: z.enum(['active', 'idle']),
-});
-
-const externalSessionProjectShape = z.looseObject({
-  projectId: z.string(),
-  projectPath: z.string(),
-  total: z.number(),
-  active: z.number(),
-  lastActivityMs: z.number(),
-});
-
-const externalSessionsSchema = z.looseObject({
-  type: z.literal('external-sessions'),
-  sessions: z.array(externalClaudeSessionShape),
-  projects: z.array(externalSessionProjectShape),
-});
-
 // ---- Legacy chat:* events (replaced by topic:* in v3, kept for compat) ----
 
 // I `chat:*` (created/updated/archived/deleted), `provider:current`,
@@ -1550,8 +1520,6 @@ const OUTBOUND_SCHEMAS = {
   // Dev bundle hot-delivery
   'ui:bundle-updated': uiBundleUpdatedSchema,
   'ui:bundle-rev': uiBundleRevSchema,
-  // Census of Claude sessions Topics didn't start
-  'external-sessions': externalSessionsSchema,
   // Legacy chat:* (replaced by topic:* in v3, kept for backward compat)
   // Provider niche
   // Git status — the live event git-watcher actually emits.
