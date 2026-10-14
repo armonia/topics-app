@@ -1,13 +1,14 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { CalendarClock, Pencil, Plus, Trash2 } from 'lucide-react';
 import { useLocale, useT } from '../../hooks/useT';
-import { boardApi, CLOSER_LABELS, KIND_LABELS, STATUS_LABEL, type ScheduledCard, type ScheduledCardInput, type TaskLabel } from '../../lib/board';
+import { CLOSER_LABELS, KIND_LABELS, STATUS_LABEL, type TaskLabel } from '../../lib/board';
+import { scheduledCardsApi, type ScheduledCard, type ScheduledCardInput } from '../../lib/scheduledCards';
 import { Menu } from '../Shared/Menu';
 import { TOOLBAR_CONTROL_H, TOOLBAR_ICON_W } from './constants';
 
 const LABELS: TaskLabel[] = [...CLOSER_LABELS, ...KIND_LABELS];
 const COLUMNS: ScheduledCardInput['status'][] = ['backlog', 'todo', 'in_progress', 'review'];
-// Una ricorrenza nuova parte nel fuso di chi la scrive; Europe/Rome solo se il browser non lo dice.
+// A new recurrence starts in the zone of whoever writes it; Europe/Rome only when the browser does not say.
 const defaultTimeZone = () => Intl.DateTimeFormat().resolvedOptions().timeZone || 'Europe/Rome';
 
 export function ScheduledCardsControl({ projectId }: { projectId: string }) {
@@ -25,7 +26,7 @@ export function ScheduledCardsControl({ projectId }: { projectId: string }) {
   const [form, setForm] = useState<ScheduledCardInput>({ text: '', status: 'backlog', labels: [], cron: '0 9 * * 1', timeZone: defaultTimeZone() });
 
   const refresh = useCallback(async () => {
-    try { setCards(await boardApi.scheduledCards.list(projectId)); }
+    try { setCards(await scheduledCardsApi.list(projectId)); }
     catch (cause) { setError((cause as Error).message); }
   }, [projectId]);
   useEffect(() => { if (open) void refresh(); }, [open, refresh]);
@@ -51,18 +52,18 @@ export function ScheduledCardsControl({ projectId }: { projectId: string }) {
     event.preventDefault(); setBusy(true); setError('');
     try {
       const body = { ...form, labels: labelDraft.split(',').map(label => label.trim()).filter((label): label is TaskLabel => LABELS.includes(label as TaskLabel)) };
-      if (editing) await boardApi.scheduledCards.update(projectId, editing, body);
-      else await boardApi.scheduledCards.create(projectId, body);
+      if (editing) await scheduledCardsApi.update(projectId, editing, body);
+      else await scheduledCardsApi.create(projectId, body);
       reset(); await refresh();
     } catch (cause) { setError((cause as Error).message); }
     finally { setBusy(false); }
   };
   const toggle = async (card: ScheduledCard) => {
-    try { await boardApi.scheduledCards.setEnabled(projectId, card.id, !card.enabled); await refresh(); }
+    try { await scheduledCardsApi.setEnabled(projectId, card.id, !card.enabled); await refresh(); }
     catch (cause) { setError((cause as Error).message); }
   };
   const remove = async (card: ScheduledCard) => {
-    try { await boardApi.scheduledCards.remove(projectId, card.id); if (editing === card.id) reset(); await refresh(); }
+    try { await scheduledCardsApi.remove(projectId, card.id); if (editing === card.id) reset(); await refresh(); }
     catch (cause) { setError((cause as Error).message); }
   };
 

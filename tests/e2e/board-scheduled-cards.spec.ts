@@ -1,3 +1,9 @@
+/**
+ * A recurrence created from the board menu creates its card when the injected clock reaches it,
+ * and the menu shows the next run and the last outcome.
+ *
+ * @covers KANBAN-95
+ */
 import { expect } from "@playwright/test";
 import { test } from "./fixtures/layout.fixture";
 import { hermetic } from "./fixtures/hermetic";
@@ -54,7 +60,8 @@ test.describe("card a calendario", () => {
     await seedProjectPane(page.request, PROJECT_PATH);
   });
 
-  test("CARD-CALENDAR-01: una ricorrenza crea una card e mostra prossima data ed esito", async ({ page, request }) => {
+  test("una ricorrenza crea una card e mostra prossima data ed esito", async ({ page, request }) => {
+    test.info().annotations.push({ type: "spec", description: "KANBAN-95" });
     const clock = await request.post(`${E2E_BASE}/api/test/scheduled-cards/advance`, { data: { now: "2026-10-19T06:00:00.000Z" } });
     expect(clock.ok()).toBe(true);
     await openBoard(page);
@@ -62,7 +69,7 @@ test.describe("card a calendario", () => {
     const menu = page.getByTestId("scheduled-cards-menu");
     await expect(menu).toBeVisible();
     await menu.getByRole("textbox", { name: "Testo della card" }).fill("Controlla il deploy ogni lunedì");
-    // Il default è il fuso del browser, e sul runner della CI è UTC: la prova vuole Roma, quindi lo scrive.
+    // The default is the browser zone, UTC on the CI runner: this proof is about Rome, so it says so.
     await menu.getByRole("textbox", { name: "Fuso orario IANA" }).fill("Europe/Rome");
     await menu.getByRole("button", { name: "Crea ricorrenza" }).click();
     await expect(menu.getByTestId("scheduled-card-row")).toContainText("Controlla il deploy ogni lunedì");

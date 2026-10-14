@@ -72,56 +72,56 @@ function parseCron(expression: string): Set<number>[] {
   });
 }
 
-function zonedDateParts(instant: Date, formatter: Intl.DateTimeFormat) {
-  const parts = formatter.formatToParts(instant);
+function zonedDateParts(instant: Date, clockFormat: Intl.DateTimeFormat) {
+  const parts = clockFormat.formatToParts(instant);
   const get = (type: string) => Number(parts.find(part => part.type === type)?.value ?? "0");
   return { year: get("year"), month: get("month"), day: get("day"), hour: get("hour"), minute: get("minute") };
 }
 
 function nextOccurrence(expression: string, timeZone: string, after: Date): Date {
   let parsed: Set<number>[];
-  let formatter: Intl.DateTimeFormat;
+  let clockFormat: Intl.DateTimeFormat;
   try {
     parsed = parseCron(expression);
-    formatter = new Intl.DateTimeFormat("en-GB", {
+    clockFormat = new Intl.DateTimeFormat("en-GB", {
       timeZone, year: "numeric", month: "numeric", day: "numeric", weekday: "short",
       hour: "numeric", minute: "numeric", hourCycle: "h23",
     });
   }
   catch { throw new ScheduledCardsError("Fuso orario o regola cron non validi."); }
-  const afterLocal = zonedDateParts(after, formatter);
+  const afterLocal = zonedDateParts(after, clockFormat);
   const firstDate = new Date(Date.UTC(afterLocal.year, afterLocal.month - 1, afterLocal.day) - 86_400_000);
   const [minutes, hours, days, months, weekdays] = parsed;
   const fieldsText = expression.trim().split(/\s+/);
-  const dayWildcard = fieldsText[2] === "*";
-  const weekdayWildcard = fieldsText[4] === "*";
+  const anyDay = fieldsText[2] === "*";
+  const anyWeekday = fieldsText[4] === "*";
   for (let offsetDay = 0; offsetDay <= 8 * 366 + 3; offsetDay++) {
     const date = new Date(firstDate.getTime() + offsetDay * 86_400_000);
     const year = date.getUTCFullYear(); const month = date.getUTCMonth() + 1; const day = date.getUTCDate();
     const weekday = date.getUTCDay();
     if (!months.has(month)) continue;
     const dateMatches = days.has(day); const weekdayMatches = weekdays.has(weekday);
-    if (!(dayWildcard ? weekdayMatches : weekdayWildcard ? dateMatches : dateMatches || weekdayMatches)) continue;
+    if (!(anyDay ? weekdayMatches : anyWeekday ? dateMatches : dateMatches || weekdayMatches)) continue;
 
     // Sample nearby offsets to handle DST transitions without scanning every minute.
     const wallNoon = Date.UTC(year, month - 1, day, 12);
     const offsets = new Set<number>();
     for (let delta = -36; delta <= 36; delta += 6) {
       const sample = new Date(wallNoon + delta * 3_600_000);
-      const local = zonedDateParts(sample, formatter);
+      const local = zonedDateParts(sample, clockFormat);
       const sampleMinute = Math.floor(sample.getTime() / 60_000) * 60_000;
       offsets.add(Date.UTC(local.year, local.month - 1, local.day, local.hour, local.minute) - sampleMinute);
     }
 
-    let earliest: number | null = null;
+    let first: number | null = null;
     for (const hour of hours) for (const minute of minutes) for (const zoneOffset of offsets) {
       const timestamp = Date.UTC(year, month - 1, day, hour, minute) - zoneOffset;
-      if (timestamp <= after.getTime() || (earliest !== null && timestamp >= earliest)) continue;
+      if (timestamp <= after.getTime() || (first !== null && timestamp >= first)) continue;
       const candidate = new Date(timestamp);
-      const local = zonedDateParts(candidate, formatter);
-      if (local.year === year && local.month === month && local.day === day && local.hour === hour && local.minute === minute) earliest = timestamp;
+      const local = zonedDateParts(candidate, clockFormat);
+      if (local.year === year && local.month === month && local.day === day && local.hour === hour && local.minute === minute) first = timestamp;
     }
-    if (earliest !== null) return new Date(earliest);
+    if (first !== null) return new Date(first);
   }
   throw new ScheduledCardsError("La regola non ha esecuzioni nei prossimi otto anni.");
 }

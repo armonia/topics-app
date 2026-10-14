@@ -1,3 +1,9 @@
+/**
+ * Board recurrences: the tick at the right time, the skip while the previous card is open, one
+ * catch-up after downtime, one card per local occurrence across DST.
+ *
+ * @covers KANBAN-95
+ */
 import { beforeEach, describe, expect, test } from "bun:test";
 import { Database } from "bun:sqlite";
 import { readFileSync } from "node:fs";

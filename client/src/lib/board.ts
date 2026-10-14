@@ -720,7 +720,7 @@ export { projectIdForPath as boardIdForPath } from '../../../shared/board';
  * from several places (the global feed: useGlobalBoard's mount read and its
  * WebSocket-open re-read, 84 KB each) becomes one request within the window.
  */
-async function req<T>(path: string, init?: RequestInit, read?: { ttlMs: number }): Promise<T> {
+export async function req<T>(path: string, init?: RequestInit, read?: { ttlMs: number }): Promise<T> {
   const fullInit = interfaceInit(init);
   const resp = read
     ? await coalescedFetch(`/api${path}`, fullInit, read)
@@ -816,30 +816,6 @@ export interface CreateTaskBody {
   intakeLink?: boolean;
   /** Il motivo, in chiaro, così com'è stato mostrato prima del click. */
   intakeReason?: string;
-}
-
-export interface ScheduledCard {
-  id: string;
-  projectId: string;
-  text: string;
-  status: Exclude<TaskStatus, 'done'>;
-  labels: TaskLabel[];
-  cron: string;
-  timeZone: string;
-  enabled: boolean;
-  nextRunAt: string;
-  lastRunAt: string | null;
-  lastResult: 'created' | 'skipped' | null;
-  lastReason: string | null;
-}
-
-export interface ScheduledCardInput {
-  text: string;
-  status: ScheduledCard['status'];
-  labels: TaskLabel[];
-  cron: string;
-  timeZone: string;
-  enabled?: boolean;
 }
 
 /**
@@ -1167,13 +1143,6 @@ export const boardApi = {
     req<{ task: BoardTask | null }>(`/all-boards/tasks/${enc(taskId)}`).then(r => r.task ?? null),
   create: (projectId: string, body: CreateTaskBody) =>
     req<BoardTask>(`/boards/${enc(projectId)}/tasks`, { method: 'POST', body: JSON.stringify(body) }),
-  scheduledCards: {
-    list: (projectId: string) => req<{ schedules: ScheduledCard[] }>(`/boards/${enc(projectId)}/scheduled-cards`).then(r => r.schedules),
-    create: (projectId: string, body: ScheduledCardInput) => req<ScheduledCard>(`/boards/${enc(projectId)}/scheduled-cards`, { method: 'POST', body: JSON.stringify(body) }),
-    update: (projectId: string, id: string, body: ScheduledCardInput) => req<ScheduledCard>(`/boards/${enc(projectId)}/scheduled-cards/${enc(id)}`, { method: 'PATCH', body: JSON.stringify(body) }),
-    setEnabled: (projectId: string, id: string, enabled: boolean) => req<ScheduledCard>(`/boards/${enc(projectId)}/scheduled-cards/${enc(id)}`, { method: 'PATCH', body: JSON.stringify({ enabled }) }),
-    remove: (projectId: string, id: string) => req<{ ok: boolean }>(`/boards/${enc(projectId)}/scheduled-cards/${enc(id)}`, { method: 'DELETE' }),
-  },
   /** "Dove va questo testo?" — sola lettura, non tocca un solo task. */
   suggestLink: (projectId: string, text: string, description?: string | null) =>
     req<{ proposal: LinkProposal | null }>(`/boards/${enc(projectId)}/intake/suggest`, {
