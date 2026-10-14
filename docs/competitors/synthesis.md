@@ -19,11 +19,13 @@
    - una release quasi ogni giorno.
 3. **Cosa hanno gli altri e Topics no:**
    - automazioni a calendario, in 17 concorrenti su 31, compresa l'app di Claude Code;
-   - commenti sul diff mandati all'agente;
    - worktree pronte, con script e porte;
-   - CI prima del merge;
    - selettore di elemento per l'agente;
    - budget di performance dichiarati.
+
+   Correzione del 15/10: in questo elenco c'erano anche i commenti sul diff mandati all'agente e la
+   CI prima del merge. Topics li ha già: note di revisione riga per riga sul diff della consegna, e i
+   controlli pre-review con gli esiti della CI della PR. Lo studio li aveva cercati con altri nomi.
 4. **Gli errori da non ripetere sono quasi tutti di performance:**
    - tempeste di processi `git` e watcher su tutto;
    - bundle enormi;
@@ -154,7 +156,6 @@ qui sotto, verificate nel codice il 14/10.
   notifiche push, approvazioni in un tocco.
 
 **Cosa prendere.**
-- Commenti sul diff all'agente (D5).
 - Selettore di elemento e verifica dopo la modifica (D4).
 - Abbinamento del telefono con un QR o un codice (D6, con `relay`).
 
@@ -179,7 +180,6 @@ qui sotto, verificate nel codice il 14/10.
 
 **Cosa prendere.**
 - Worktree pronte, con file copiati, script e porte stabili (D5).
-- La CI come condizione del land (D5).
 - Card a calendario (D5).
 - Una domanda a lato che non sporca il filo (D5).
 
@@ -238,9 +238,9 @@ qui sotto, verificate nel codice il 14/10.
 | Idea | Chi ce l'ha (dossier) | Traccia |
 |---|---|---|
 | Card a calendario, con sovrapposizioni e recuperi decisi | 17 su 31: claude-code-native, codex-app, superset, agor, emdash, maestro, openhands, goose, omnara, companion, cloudcli, claude-code-viewer, craft-agents, codepilot, opencockpit, openwork, aionui | D5 |
-| Commenti sul diff mandati all'agente | vibe-kanban, conductor, codex-app, superset, claude-code-viewer | D5 |
+| Commenti sul diff mandati all'agente | vibe-kanban, conductor, codex-app, superset, claude-code-viewer | c'è già in Topics (note di revisione) |
 | Worktree pronte: file copiati, script di ciclo di vita, porte stabili | claude-code-native, ccmanager, conductor, agor, superset, vibe-kanban | D5 |
-| CI prima del land, e riparazione dei check rossi | conductor, cursor, claude-code-native | D5 |
+| CI prima del land, e riparazione dei check rossi | conductor, cursor, claude-code-native | c'è già in Topics (controlli pre-review con la CI della PR) |
 | Domanda a lato che non entra nel filo | claude-code-native | D5 |
 | Selettore di elemento e verifica dopo la modifica | superset, vibe-kanban, codex-app, claude-code-native, cursor | D4 |
 | Budget di performance come cancelli, streaming a lotti, virtualizzazione | maestro, opcode, aionui | D0, D2 |
