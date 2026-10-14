@@ -1,5 +1,27 @@
 [
   {
+    "version": "2.2.499",
+    "date": "2026-10-14",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "ognuno la sua misura su una pagina ospitata dal Mac (#314)",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "Topics spreca meno della CLI: one-shot senza il contesto dell'utente, feed della board rivalidato (#315)",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
     "version": "2.2.498",
     "date": "2026-10-14",
     "sections": {

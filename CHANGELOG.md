@@ -2,6 +2,12 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.2.499 — 2026-10-14
+
+### Sotto il cofano
+- ognuno la sua misura su una pagina ospitata dal Mac (#314)
+- Topics spreca meno della CLI: one-shot senza il contesto dell'utente, feed della board rivalidato (#315)
+
 ## 2.2.498 — 2026-10-14
 
 ### Sotto il cofano
