@@ -14,6 +14,7 @@ import { installPaneAttachTraceSink } from './lib/paneAttachTrace';
 import { getTabId } from './state/pane/middleware/syncCrossTab';
 import { isInternalDrag } from './lib/dndTypes';
 import { installPaneDragFlag } from './lib/paneDragFlag';
+import { installUserGestureClock } from './lib/userGesture';
 import { browserContextMenuHost, installContextMenuSupport } from './lib/contextMenuOrigin';
 import { SessionRoot } from './components/Share/SessionRoot';
 import { warmGuestView } from './components/Share/guestViewLazy';
@@ -58,6 +59,12 @@ document.addEventListener('drop', (e) => e.preventDefault());
 // ai puntatori: senza, l'iframe si mangia il `dragover` e lasciare un browser
 // sopra un altro browser non raggruppa niente. Vedi `lib/paneDragFlag`.
 installPaneDragFlag();
+
+// The time of the last tap, key or wheel anywhere in Topics: a browser pane
+// opened or shown right after one claims its shared page for this device
+// (TOPIC-BROWSER-05). Started here because the panes load later than the tap
+// that opens the first of them. See `lib/userGesture`.
+installUserGestureClock();
 
 // Right-click: the element a menu came from (its focus goes back there on
 // close) and Shift+F10 / the ContextMenu key opening the same menu. No global

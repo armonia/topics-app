@@ -2671,6 +2671,15 @@ dimensioni del viewport solo dal client che ha mandato l'ultimo input alla pagin
 (puntatore, tastiera o rotella). In assenza di input, SHALL valere il primo client
 connesso. Un client che si connette senza interagire NON SHALL cambiare il viewport.
 
+Usare il dispositivo è usare la pagina che mostra. Su un client web (iPad,
+telefono, un altro browser) un tocco, un tasto o la rotella ovunque in Topics
+SHALL rivendicare il viewport per le pane di quel contesto che sono sullo
+schermo, una sola volta per contesto e per gesto. Una pane aperta o riportata
+sullo schermo entro 5 s da un gesto su quel dispositivo SHALL rivendicarlo appena
+il suo socket è aperto. Una pane che si (ri)connette senza un gesto recente su
+quel dispositivo NON SHALL cambiarlo. Il guscio desktop, che ospita le sue pagine
+nativamente, se le riprende solo con un input alla sua pagina (NATIVE-HOST-04).
+
 Un client il cui contenitore ha dimensioni diverse dal viewport SHALL mostrare la
 pagina in scala, centrata, su un fondo del tema, e NON SHALL lasciarla in alto a
 sinistra su bianco. La resa DOM SHALL applicare anche i cambi di viewport a sessione
@@ -2687,6 +2696,12 @@ avviata (rrweb ViewportResize), non solo quello iniziale.
 - **WHEN** l'utente del telefono fa scorrere la pagina
 - **THEN** il viewport passa alle dimensioni del telefono
 - **AND** il Mac vede la pagina in scala e centrata, e non su bianco in alto a sinistra
+
+#### Scenario: aprire la pagina sull'iPad la impagina sull'iPad
+- **GIVEN** una pagina ospitata dal Mac, impaginata al suo pannello
+- **WHEN** l'utente apre quella pagina sull'iPad con un tocco, o tocca Topics sull'iPad con la pagina sullo schermo, senza toccare la pagina
+- **THEN** il viewport passa alle dimensioni della pane dell'iPad
+- **AND** una pane dell'iPad che si riconnette più di 5 s dopo l'ultimo gesto non lo cambia
 
 ### Requirement: BROWSER-BACK-01 — A framed page SHALL follow the pane's address, so ‹ and › move the page
 

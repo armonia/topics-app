@@ -1221,6 +1221,7 @@ function RemoteBrowserPanelStreaming({ contextId, initialUrl, navigateUrl, onUrl
           (+DPR), so the page reflows to fill it with no fixed-1280 letterbox. */}
       <div
         ref={browser.containerRef}
+        data-browser-page={contextId}
         className="flex-1 min-h-0 overflow-hidden relative bg-surface focus-within:ring-1 focus-within:ring-primary/30"
         tabIndex={0}
         onKeyDown={browser.onKeyDown}
