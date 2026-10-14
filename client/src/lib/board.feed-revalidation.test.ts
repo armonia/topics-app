@@ -5,6 +5,8 @@
  * no card moving (720 reads an hour of ~155 KB, server log 13-14/10). A network
  * read now sends the last ETag back and, on 304, hands out the rows it already
  * holds: the same array, so the store's diff stops at the first identity check.
+ *
+ * @covers KANBAN-98
  */
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
 import { __resetFeedRevalidation, boardApi, type BoardTask } from './board';
@@ -59,7 +61,17 @@ describe('boardApi.listAll revalidation', () => {
     expect(sent[2]!.ifNoneMatch).toBe('"b2"');
   });
 
-  test('boot reads and filtered reads never revalidate', async () => {
+  test('a boot read seeds the ETag, so the first re-read after a boot is a 304', async () => {
+    queue.push(feed('"a1"', ['one']));
+    const boot = await boardApi.listAll(undefined, { ttlMs: 2000 });
+    expect(sent[0]!.ifNoneMatch).toBeNull();
+
+    queue.push(new Response(null, { status: 304, headers: { ETag: '"a1"' } }));
+    expect(await boardApi.listAll()).toBe(boot);
+    expect(sent[1]!.ifNoneMatch).toBe('"a1"');
+  });
+
+  test('filtered reads never revalidate', async () => {
     queue.push(feed('"a1"', ['one']));
     await boardApi.listAll();
     queue.push(feed('"a1"', ['one']));

@@ -5,6 +5,8 @@
  * no card moving (720 reads an hour of ~155 KB, server log 13-14/10). With an
  * ETag an unchanged feed costs an empty 304 instead of a body the webview
  * parses and diffs to arrive at the same rows.
+ *
+ * @covers KANBAN-98
  */
 import { test, expect, describe, beforeEach } from "bun:test";
 import { Database } from "bun:sqlite";

@@ -8,6 +8,7 @@
  *
  *  - BOARD-19: a burst of WS events costs at most TWO reads of the global feed
  *  - BOARD-20: a read parked during a drag must not undo the drop
+ *  - BOARD-21: an idle re-read is a 304, and a change after it still lands
  */
 import { test } from "./fixtures/layout.fixture";
 import { projectRow } from "./helpers/project-row";
@@ -287,5 +288,82 @@ test.describe("Kanban board — letture del feed", () => {
       const r = await page.request.get(`${BASE}/api/boards/${PROJECT_ID}/tasks/${task.id}`);
       return (await r.json()).task.status;
     }, { timeout: 10000 }).toBe("backlog");
+  });
+
+  test("BOARD-21: la board ferma rilegge il feed con un 304, e una card nuova arriva lo stesso", async ({ page }) => {
+    test.info().annotations.push({ type: "spec", description: "KANBAN-98" });
+    // The desktop app re-read this feed every 5 s for days with no card moving
+    // (720 reads an hour of ~155 KB, server log 13-14/10). A re-read now sends
+    // the last ETag back, and an unchanged feed answers 304 with no body. The
+    // risk of that is the opposite case, so the scene has both halves: an idle
+    // re-read is a 304, and after it a real change still reaches the board and
+    // stays there (a 304 handing back stale rows would take the card away).
+    const stamp = Date.now();
+    const first = `Feed fermo ${stamp}`;
+    const later = `Card dopo il 304 ${stamp}`;
+    await apiCreateTask(page.request, { text: first, status: "todo" });
+
+    // The real server answers every read; the test only watches them.
+    const reads: { status: number; sent: string | null; tag: string | null }[] = [];
+    let inFlight = 0;
+    let lastActivity = Date.now();
+    const isFeed = (url: string) => new URL(url).pathname === "/api/all-boards/tasks";
+    page.on("request", (req) => {
+      if (!isFeed(req.url())) return;
+      inFlight++;
+      lastActivity = Date.now();
+    });
+    const settle = async (req: import("@playwright/test").Request) => {
+      if (!isFeed(req.url())) return;
+      const res = await req.response();
+      reads.push({ status: res?.status() ?? 0, sent: req.headers()["if-none-match"] ?? null, tag: res?.headers()["etag"] ?? null });
+      inFlight--;
+      lastActivity = Date.now();
+    };
+    page.on("requestfinished", settle);
+    page.on("requestfailed", settle);
+    // Same condition as BOARD-19: nothing in flight and no new read for longer
+    // than a coalescing window. Not a sleep: it fails red if the feed never stops.
+    const feedQuiet = async () => {
+      await expect
+        .poll(() => inFlight === 0 && Date.now() - lastActivity > 3 * FINESTRA_MS, {
+          timeout: 15_000,
+          intervals: [100],
+          message: "il feed globale non smette di leggere",
+        })
+        .toBe(true);
+    };
+
+    const ws = await interceptWebSocket(page);
+    await resetPaneStore(page.request, []);
+    await page.goto("/");
+    await page.getByTestId("pane-add-menu-trigger").first().click();
+    await page.getByTestId("pane-add-menu-board").click();
+    const board = page.getByTestId("kanban-board");
+    await expect(board.getByText(first)).toBeVisible({ timeout: 10000 });
+    await feedQuiet();
+    const held = reads.filter((r) => r.status === 200).at(-1)?.tag ?? null;
+    expect(held, "the boot read carries an ETag").toBeTruthy();
+
+    // An event the store cannot absorb asks for a read, and nothing changed:
+    // the read must go out with the ETag and come back empty.
+    const beforeIdle = reads.length;
+    ws.send({ type: "task:deleted", projectId: PROJECT_ID, taskId: `missing-${stamp}` });
+    await expect.poll(() => reads.length, { timeout: 10_000 }).toBeGreaterThan(beforeIdle);
+    await feedQuiet();
+    const idle = reads.slice(beforeIdle);
+    expect(idle.every((r) => r.status === 304 && r.sent === held), JSON.stringify(idle)).toBe(true);
+    await expect(board.getByText(first)).toBeVisible();
+
+    // A real change after the 304: the server's own `task:created` asks for the
+    // read, the old ETag no longer matches, and the new card lands and stays.
+    const beforeChange = reads.length;
+    await apiCreateTask(page.request, { text: later, status: "todo" });
+    await expect(board.getByText(later)).toBeVisible({ timeout: 10000 });
+    await feedQuiet();
+    const changed = reads.slice(beforeChange);
+    expect(changed.some((r) => r.status === 200 && r.sent === held && r.tag !== held), JSON.stringify(changed)).toBe(true);
+    await expect(board.getByText(later)).toBeVisible();
+    await expect(board.getByText(first)).toBeVisible();
   });
 });

@@ -755,14 +755,19 @@ async function parseOrThrow<T>(resp: Response): Promise<T> {
  * A network read of the whole feed sends the ETag back, and on 304 hands out
  * these same rows again: nothing to download, parse or diff. The desktop app
  * re-read this feed every 5 s for days with no card moving (720 reads an hour
- * of ~155 KB, server log 13-14/10), so most reads are this case. Boot reads ride
- * the app-wide coalescer and never revalidate: they are one per boot.
+ * of ~155 KB, server log 13-14/10), so most reads are this case. The boot's
+ * reads come through here too, `read` putting them on the app-wide coalescer:
+ * the first one is what seeds the ETag, or the first re-read after a boot
+ * would download the whole feed again to learn it.
  */
 let lastFeed: { tag: string; tasks: BoardTask[] } | null = null;
 
-async function readFeedIfChanged(): Promise<BoardTask[]> {
+async function readFeedIfChanged(read?: { ttlMs: number }): Promise<BoardTask[]> {
   const held = lastFeed;
-  const resp = await apiFetch('/api/all-boards/tasks', interfaceInit(held ? { headers: { 'If-None-Match': held.tag } } : undefined));
+  const init = interfaceInit(held ? { headers: { 'If-None-Match': held.tag } } : undefined);
+  const resp = read
+    ? await coalescedFetch('/api/all-boards/tasks', init, read)
+    : await apiFetch('/api/all-boards/tasks', init);
   if (resp.status === 304 && held) return held.tasks;
   const { tasks } = await parseOrThrow<{ tasks: BoardTask[] }>(resp);
   const tag = resp.headers.get('ETag');
@@ -1115,13 +1120,9 @@ export const boardApi = {
    * board stayed behind with no later event to correct it.
    */
   listAll: (status?: TaskStatus, read?: { ttlMs: number }) =>
-    status || read
-      ? req<{ tasks: BoardTask[] }>(
-        `/all-boards/tasks${status ? `?status=${status}` : ''}`,
-        undefined,
-        read,
-      ).then(r => r.tasks)
-      : readFeedIfChanged(),
+    status
+      ? req<{ tasks: BoardTask[] }>(`/all-boards/tasks?status=${status}`, undefined, read).then(r => r.tasks)
+      : readFeedIfChanged(read),
   /**
    * LA PORTA UNICA «da un id al suo task, a qualunque profondità».
    *
