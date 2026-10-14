@@ -2,6 +2,11 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.2.502 — 2026-10-14
+
+### Sotto il cofano
+- Lo studio di 31 concorrenti e il piano daily-driver (#319)
+
 ## 2.2.501 — 2026-10-14
 
 ### Sotto il cofano

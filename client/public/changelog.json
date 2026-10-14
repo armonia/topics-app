@@ -1,5 +1,21 @@
 [
   {
+    "version": "2.2.502",
+    "date": "2026-10-14",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Lo studio di 31 concorrenti e il piano daily-driver (#319)",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
     "version": "2.2.501",
     "date": "2026-10-14",
     "sections": {
