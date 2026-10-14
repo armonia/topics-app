@@ -30,24 +30,24 @@ describe("GET /api/all-boards/tasks revalidation", () => {
   test("a 200 carries an ETag, and sending it back gets an empty 304", async () => {
     const first = (await call(router, "GET", "/api/all-boards/tasks"))!;
     expect(first.status).toBe(200);
-    const etag = first.headers.get("ETag");
-    expect(etag).toBeTruthy();
+    const tag = first.headers.get("ETag");
+    expect(tag).toBeTruthy();
     expect(((await first.json()) as { tasks: unknown[] }).tasks.length).toBe(1);
 
-    const again = (await call(router, "GET", "/api/all-boards/tasks", undefined, { "If-None-Match": etag! }))!;
+    const again = (await call(router, "GET", "/api/all-boards/tasks", undefined, { "If-None-Match": tag! }))!;
     expect(again.status).toBe(304);
-    expect(again.headers.get("ETag")).toBe(etag);
+    expect(again.headers.get("ETag")).toBe(tag);
     expect(await again.text()).toBe("");
   });
 
   test("a change to the board invalidates the old ETag", async () => {
     const first = (await call(router, "GET", "/api/all-boards/tasks"))!;
-    const etag = first.headers.get("ETag")!;
+    const tag = first.headers.get("ETag")!;
     db.run("UPDATE tasks SET text = 'renamed card', updated_at = ? WHERE id = 't1'", ["2026-10-14T10:05:00.000Z"]);
 
-    const after = (await call(router, "GET", "/api/all-boards/tasks", undefined, { "If-None-Match": etag }))!;
+    const after = (await call(router, "GET", "/api/all-boards/tasks", undefined, { "If-None-Match": tag }))!;
     expect(after.status).toBe(200);
-    expect(after.headers.get("ETag")).not.toBe(etag);
+    expect(after.headers.get("ETag")).not.toBe(tag);
     const body = (await after.json()) as { tasks: { text: string }[] };
     expect(body.tasks[0]!.text).toBe("renamed card");
   });
@@ -55,5 +55,13 @@ describe("GET /api/all-boards/tasks revalidation", () => {
   test("the answer stays out of the HTTP cache", async () => {
     const res = (await call(router, "GET", "/api/all-boards/tasks"))!;
     expect(res.headers.get("Cache-Control")).toBe("no-store");
+  });
+
+  test("the desktop shell can read the ETag: it reads cross-origin, so the header is exposed", async () => {
+    // The shell's page is `tauri://localhost` and the API is 127.0.0.1:13333.
+    // Without the exposure its fetch sees `ETag: null` and never revalidates.
+    const res = (await call(router, "GET", "/api/all-boards/tasks"))!;
+    const exposed = (res.headers.get("Access-Control-Expose-Headers") ?? "").split(",").map((h) => h.trim().toLowerCase());
+    expect(exposed).toContain("etag");
   });
 });

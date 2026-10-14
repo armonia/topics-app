@@ -12,11 +12,23 @@
  * `no-store` stays, as in `json()`: the client sends `If-None-Match` itself, and
  * a conditional request set by the page bypasses the HTTP cache, so the 304
  * reaches the code that asked instead of being answered from a stale copy.
+ *
+ * THE ETAG MUST BE EXPOSED. The desktop shell reads the API cross-origin, from
+ * `tauri://localhost`, and `ETag` is not a CORS-safelisted response header:
+ * without `Access-Control-Expose-Headers` its fetch reads `ETag` as null, never
+ * sends it back, and the shell (the client that re-read every 5 s) keeps paying
+ * full bodies while every web test stays green. Harmless elsewhere: a foreign
+ * origin gets no `Access-Control-Allow-Origin` (server.ts) and reads nothing.
  */
-export function revalidatableJson(req: Request, data: unknown): Response {
+export function conditionalJson(req: Request, data: unknown): Response {
   const body = JSON.stringify(data);
-  const etag = `"${Bun.hash(body).toString(36)}"`;
-  const headers = { "Content-Type": "application/json", "Cache-Control": "no-store", ETag: etag };
-  if (req.headers.get("if-none-match") === etag) return new Response(null, { status: 304, headers });
+  const tag = `"${Bun.hash(body).toString(36)}"`;
+  const headers = {
+    "Content-Type": "application/json",
+    "Cache-Control": "no-store",
+    ETag: tag,
+    "Access-Control-Expose-Headers": "ETag",
+  };
+  if (req.headers.get("if-none-match") === tag) return new Response(null, { status: 304, headers });
   return new Response(body, { headers });
 }
