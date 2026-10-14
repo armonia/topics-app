@@ -10,9 +10,11 @@ ricevere un 304 senza corpo. La risposta SHALL restare `no-store` e SHALL esporr
 l'ETag a CORS: l'app desktop legge da `tauri://localhost`, e per il suo fetch un
 header non esposto vale `null`.
 
-Il client SHALL rimandare l'ETag a ogni lettura del feed intero, quelle d'avvio
-comprese, e su 304 SHALL riusare le righe dell'ultimo 200, lo stesso array, così il
-confronto dello store si ferma alla prima identità. Una lettura fallita SHALL
+Il client SHALL rimandare l'ETag a ogni rilettura del feed intero, e su 304 SHALL
+riusare le righe dell'ultimo 200, lo stesso array, così il confronto dello store si
+ferma alla prima identità. Le letture d'avvio SHALL salvare l'ETag senza mandarlo:
+passano dal coalescer dell'app, che condivide una richiesta fra più chiamanti, e un
+304 non deve rispondere a un ETag che il chiamante non teneva. Una lettura fallita SHALL
 restare un errore, e quella dopo SHALL rivalidare ancora. Le letture filtrate
 (`?status=`) NON SHALL rivalidare.
 

@@ -71,6 +71,15 @@ describe('boardApi.listAll revalidation', () => {
     expect(sent[1]!.ifNoneMatch).toBe('"a1"');
   });
 
+  test('a boot read never sends the ETag: the coalescer shares its request with other callers', async () => {
+    queue.push(feed('"a1"', ['one']));
+    await boardApi.listAll();
+    queue.push(feed('"b2"', ['one', 'two']));
+    const boot = await boardApi.listAll(undefined, { ttlMs: 2000 });
+    expect(sent[1]!.ifNoneMatch).toBeNull();
+    expect(boot.map((t) => t.text)).toEqual(['one', 'two']);
+  });
+
   test('filtered reads never revalidate', async () => {
     queue.push(feed('"a1"', ['one']));
     await boardApi.listAll();

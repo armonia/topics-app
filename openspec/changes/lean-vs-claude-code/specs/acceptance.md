@@ -21,7 +21,8 @@ Barra eseguibile (esce non-zero se rossa):
 - WHEN il client rilegge il feed
 - THEN la richiesta porta `If-None-Match`, il server risponde 304 senza corpo, il
   client riusa le righe dell'ultimo 200 (lo stesso array)
-- AND la lettura d'avvio salva l'ETag, quindi la prima rilettura è già un 304
+- AND la lettura d'avvio salva l'ETag senza mandarlo (passa dal coalescer condiviso),
+  quindi la prima rilettura è già un 304
 - AND l'ETag è leggibile da `tauri://localhost` (`Access-Control-Expose-Headers: ETag`)
 - AND dopo un 304 una card nuova arriva e resta: BOARD-21, con il video
 
@@ -36,3 +37,5 @@ Ognuna fa diventare rosso il banco; il file vero non è mai stato toccato.
 - Tolto `Access-Control-Expose-Headers` → feed-etag: 3 verdi, 1 rosso.
 - Client che su 304 copia le righe invece di riusarle → revalidation: 2 verdi, 3 rossi.
 - Lettura d'avvio rimessa sul ramo che non salva l'ETag → revalidation: 4 verdi, 1 rosso.
+- Lettura d'avvio che manda l'ETag dal coalescer → revalidation: 5 verdi, 1 rosso. Il
+  caso l'ha trovato la verifica avversaria: un 304 condiviso letto contro righe vecchie.

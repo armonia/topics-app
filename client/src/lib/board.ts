@@ -756,14 +756,16 @@ async function parseOrThrow<T>(resp: Response): Promise<T> {
  * these same rows again: nothing to download, parse or diff. The desktop app
  * re-read this feed every 5 s for days with no card moving (720 reads an hour
  * of ~155 KB, server log 13-14/10), so most reads are this case. The boot's
- * reads come through here too, `read` putting them on the app-wide coalescer:
- * the first one is what seeds the ETag, or the first re-read after a boot
- * would download the whole feed again to learn it.
+ * reads come through here too, so the first one seeds the ETag and the first
+ * re-read after a boot is already a 304. They never SEND it: `read` puts them
+ * on the app-wide coalescer, which shares one request among callers by method
+ * and URL, and a 304 answering another caller's tag would be read against this
+ * caller's rows (reproduced by the review of 14/10).
  */
 let lastFeed: { tag: string; tasks: BoardTask[] } | null = null;
 
 async function readFeedIfChanged(read?: { ttlMs: number }): Promise<BoardTask[]> {
-  const held = lastFeed;
+  const held = read ? null : lastFeed;
   const init = interfaceInit(held ? { headers: { 'If-None-Match': held.tag } } : undefined);
   const resp = read
     ? await coalescedFetch('/api/all-boards/tasks', init, read)

@@ -37,7 +37,9 @@ compressi, ripristino verificato byte per byte) e 16 processi orfani chiusi.
 2. **Feed rivalidato** (KANBAN-98). Il feed porta un ETag; il client lo rimanda e
    su 304 riusa le righe che ha. L'ETag è esposto a CORS: l'app desktop legge da
    `tauri://localhost`, e senza esposizione il suo fetch lo vedeva `null`, cioè il
-   rimedio non scattava proprio nel client che leggeva ogni 5 s.
+   rimedio non scattava proprio nel client che leggeva ogni 5 s. L'app desktop di
+   questo Mac serve la UI da `public/` del checkout (`topics-dev.json`): il client
+   nuovo arriva con la build del client, senza ricompilare Tauri.
 
 ## Barra
 
@@ -63,6 +65,8 @@ i transcript vecchi escono dalla finestra di 14 giorni. Ciò che è verde resta 
   rete, parse e confronto.
 - `no-store` resta: un `If-None-Match` messo dalla pagina scavalca la cache HTTP,
   quindi il 304 arriva al codice che l'ha chiesto.
+- Le letture d'avvio salvano l'ETag ma non lo mandano: il coalescer condivide la
+  richiesta fra chiamanti, e un 304 deve rispondere a chi l'ha chiesto.
 - Le letture filtrate (`?status=`) non rivalidano: nessuno le chiama in giro.
 - Parità con la CLI 2.1.299 verificata con un turno vero: 0 eventi `unknown`. Non
   entra nella barra fissa, costa una chiamata vera a ogni giro.
