@@ -110,13 +110,27 @@ export function parkedView(
  * the pane's fast poll on every document, like the focus hook next to it. A
  * modifier on its own, or a key with Cmd, is not using the page: Cmd+Tab out
  * of a focused pane would otherwise take the page from the device using it.
+ *
+ * Frames of the same origin count too: a rich-text editor is often one, and
+ * typing in it is using the page. The hook goes into each frame present at
+ * install and into each one that loads later (a navigation inside a frame
+ * replaces its window). The `load` listener sits on the document, because a
+ * frame's load event never reaches `window`: the DOM leaves the window out of
+ * the path of every load event. A frame of another origin cannot be reached
+ * from the page; input there is the known limit (an NSEvent monitor in the
+ * shell would see it).
  */
 export const INSTALL_USE_HOOK =
-  "if(!window.__tUseHook){window.__tUseHook=1;window.__topicsLocalUse=0;" +
-  "var __tUse=function(e){if(e.isTrusted)window.__topicsLocalUse++};" +
-  "addEventListener('pointerdown',__tUse,true);" +
-  "addEventListener('keydown',function(e){if(!e.metaKey&&!/^(Meta|Control|Alt|Shift|CapsLock|Fn)$/.test(e.key))__tUse(e)},true);" +
-  "addEventListener('wheel',__tUse,{capture:true,passive:true});}";
+  "if(!window.__tUseHook){window.__topicsLocalUse=0;var __tUseTop=window;" +
+  "var __tUseOn=function(w){var d;try{d=w&&w.document}catch(x){return}if(!d)return;" +
+  "if(!w.__tUseHook){w.__tUseHook=1;" +
+  "var u=function(e){if(e.isTrusted)__tUseTop.__topicsLocalUse++};" +
+  "w.addEventListener('pointerdown',u,true);" +
+  "w.addEventListener('keydown',function(e){if(!e.metaKey&&!/^(Meta|Control|Alt|Shift|CapsLock|Fn)$/.test(e.key))u(e)},true);" +
+  "w.addEventListener('wheel',u,{capture:true,passive:true});}" +
+  "d.addEventListener('load',function(e){var t=e.target;if(t&&t.tagName==='IFRAME')__tUseOn(t.contentWindow)},true);" +
+  "var l=d.getElementsByTagName('iframe');for(var i=0;i<l.length;i++)__tUseOn(l[i].contentWindow)};" +
+  "__tUseOn(window);}";
 
 /** The count, read in the same evaluation. */
 export const LOCAL_USE_COUNT_JS = 'window.__topicsLocalUse||0';

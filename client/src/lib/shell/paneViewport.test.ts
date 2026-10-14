@@ -143,10 +143,40 @@ describe('usedSince', () => {
 });
 
 describe('INSTALL_USE_HOOK', () => {
+  type Gesture = { isTrusted: boolean; key?: string; metaKey?: boolean; target?: unknown };
+  type Listener = (e: Gesture) => void;
+  interface FakeWindow {
+    __topicsLocalUse?: number;
+    on: Record<string, Listener>;
+    document: { on: Record<string, Listener>; frames: { tagName: string; contentWindow: unknown }[] };
+  }
+
+  /** A window and its document, recording what the hook registers on each. */
+  function fakeWindow(): FakeWindow {
+    const on: Record<string, Listener> = {};
+    const docOn: Record<string, Listener> = {};
+    const frames: { tagName: string; contentWindow: unknown }[] = [];
+    return {
+      on,
+      addEventListener: (type: string, fn: Listener) => { on[type] = fn; },
+      document: {
+        on: docOn,
+        frames,
+        addEventListener: (type: string, fn: Listener) => { docOn[type] = fn; },
+        getElementsByTagName: (tag: string) => (tag === 'iframe' ? frames : []),
+      },
+    } as FakeWindow;
+  }
+
+  /** A frame of another origin: every property read throws, as the browser does. */
+  const foreignWindow = new Proxy({}, { get() { throw new Error('SecurityError'); } });
+
+  const install = (win: FakeWindow) => new Function('window', INSTALL_USE_HOOK)(win);
+
   test('only gestures of the person at the Mac count: not relayed input, not a modifier, not a Cmd shortcut', () => {
-    const on: Record<string, (e: { isTrusted: boolean; key?: string; metaKey?: boolean }) => void> = {};
-    const win: { __topicsLocalUse?: number } = {};
-    new Function('window', 'addEventListener', INSTALL_USE_HOOK)(win, (type: string, fn: (typeof on)[string]) => { on[type] = fn; });
+    const win = fakeWindow();
+    install(win);
+    const { on } = win;
     for (const key of ['a', 'ArrowDown']) on.keydown({ isTrusted: true, key });
     for (const key of ['Shift', 'Meta', 'Alt']) on.keydown({ isTrusted: true, key });
     on.keydown({ isTrusted: true, key: 'Tab', metaKey: true });
@@ -155,5 +185,41 @@ describe('INSTALL_USE_HOOK', () => {
     on.pointerdown({ isTrusted: false });
     on.wheel({ isTrusted: true });
     expect(win.__topicsLocalUse).toBe(4);
+
+    // The poll runs it again every tick: still one set of listeners.
+    install(win);
+    on.pointerdown({ isTrusted: true });
+    expect(win.__topicsLocalUse).toBe(5);
+  });
+
+  test('typing or clicking in a frame of the same origin is using the page', () => {
+    const top = fakeWindow();
+    const editor = fakeWindow();
+    top.document.frames.push({ tagName: 'IFRAME', contentWindow: editor });
+    install(top);
+    editor.on.keydown({ isTrusted: true, key: 'x' });
+    editor.on.pointerdown({ isTrusted: true });
+    editor.on.keydown({ isTrusted: false, key: 'y' });
+    expect(top.__topicsLocalUse, "l'input in un iframe dello stesso dominio non riprende la pagina").toBe(2);
+  });
+
+  test('a frame that loads after the hook, or navigates, gets it when it loads', () => {
+    const top = fakeWindow();
+    install(top);
+    const late = fakeWindow();
+    top.document.on.load({ isTrusted: true, target: { tagName: 'IFRAME', contentWindow: late } });
+    late.on.pointerdown({ isTrusted: true });
+    expect(top.__topicsLocalUse, "un iframe arrivato dopo l'hook non lo riceve").toBe(1);
+    // An image loading is not a frame.
+    top.document.on.load({ isTrusted: true, target: { tagName: 'IMG' } });
+  });
+
+  test('a frame of another origin is skipped, and the page keeps counting', () => {
+    const top = fakeWindow();
+    top.document.frames.push({ tagName: 'IFRAME', contentWindow: foreignWindow });
+    expect(() => install(top)).not.toThrow();
+    top.document.on.load({ isTrusted: true, target: { tagName: 'IFRAME', contentWindow: foreignWindow } });
+    top.on.pointerdown({ isTrusted: true });
+    expect(top.__topicsLocalUse).toBe(1);
   });
 });
