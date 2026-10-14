@@ -80,6 +80,7 @@ import { bumpPendingDeliveryRound, forgetPendingDelivery, loadPendingDeliveries,
 import { ciNotMeasured, closeCiDraft, type CloseCiDraftInput, type DraftCleanup } from "../services/ci-evidence";
 import { createTaskAttemptStore, type TaskAttempt } from "../services/task-attempts";
 import { recordRetirement } from "../services/retirement";
+import { revalidatableJson } from "../lib/revalidatable-json";
 import { attemptHasWork, formatAttemptStat } from "../../shared/task-attempt";
 import { listOwnCommits, mergeNameStatus } from "../services/own-commits";
 import { createDeliveryCapture } from "../services/task-delivery-capture";
@@ -2905,7 +2906,8 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
       // An explicit `?status=done` is a request for that column and is served
       // capped too - it is the same rows the board would draw.
       // The feed drops the fields no client reads (shared/board-feed.ts).
-      try { return json({ tasks: svc.list({ scope: "all", status: asTaskStatus(status), rootsOnly: true, includeOrphanSubtasks: true, doneLimit: DONE_FEED_LIMIT }).map(toFeedTask) }); }
+      // Revalidatable: an unchanged feed answers 304 with no body (see the helper).
+      try { return revalidatableJson(req, { tasks: svc.list({ scope: "all", status: asTaskStatus(status), rootsOnly: true, includeOrphanSubtasks: true, doneLimit: DONE_FEED_LIMIT }).map(toFeedTask) }); }
       catch (e) { return fail(e); }
     }
 

@@ -721,7 +721,15 @@ export { projectIdForPath as boardIdForPath } from '../../../shared/board';
  * WebSocket-open re-read, 84 KB each) becomes one request within the window.
  */
 async function req<T>(path: string, init?: RequestInit, read?: { ttlMs: number }): Promise<T> {
-  const fullInit: RequestInit = {
+  const fullInit = interfaceInit(init);
+  const resp = read
+    ? await coalescedFetch(`/api${path}`, fullInit, read)
+    : await apiFetch(`/api${path}`, fullInit);
+  return parseOrThrow<T>(resp);
+}
+
+function interfaceInit(init?: RequestInit): RequestInit {
+  return {
     ...init,
     headers: {
       'Content-Type': 'application/json',
@@ -731,14 +739,40 @@ async function req<T>(path: string, init?: RequestInit, read?: { ttlMs: number }
       ...(init?.headers || {}),
     },
   };
-  const resp = read
-    ? await coalescedFetch(`/api${path}`, fullInit, read)
-    : await apiFetch(`/api${path}`, fullInit);
+}
+
+async function parseOrThrow<T>(resp: Response): Promise<T> {
   const text = await resp.text().catch(() => '');
   let parsed: unknown;
   try { parsed = text ? JSON.parse(text) : undefined; } catch { parsed = undefined; }
   if (!resp.ok) throw new Error((parsed as { error?: string } | undefined)?.error || text || resp.statusText);
   return parsed as T;
+}
+
+/**
+ * The global feed as the last 200 delivered it, with its ETag.
+ *
+ * A network read of the whole feed sends the ETag back, and on 304 hands out
+ * these same rows again: nothing to download, parse or diff. The desktop app
+ * re-read this feed every 5 s for days with no card moving (720 reads an hour
+ * of ~155 KB, server log 13-14/10), so most reads are this case. Boot reads ride
+ * the app-wide coalescer and never revalidate: they are one per boot.
+ */
+let lastFeed: { tag: string; tasks: BoardTask[] } | null = null;
+
+async function readFeedIfChanged(): Promise<BoardTask[]> {
+  const held = lastFeed;
+  const resp = await apiFetch('/api/all-boards/tasks', interfaceInit(held ? { headers: { 'If-None-Match': held.tag } } : undefined));
+  if (resp.status === 304 && held) return held.tasks;
+  const { tasks } = await parseOrThrow<{ tasks: BoardTask[] }>(resp);
+  const tag = resp.headers.get('ETag');
+  lastFeed = tag ? { tag, tasks } : null;
+  return tasks;
+}
+
+/** Tests only: forget the held feed. */
+export function __resetFeedRevalidation(): void {
+  lastFeed = null;
 }
 
 export interface CreateTaskBody {
@@ -1081,11 +1115,13 @@ export const boardApi = {
    * board stayed behind with no later event to correct it.
    */
   listAll: (status?: TaskStatus, read?: { ttlMs: number }) =>
-    req<{ tasks: BoardTask[] }>(
-      `/all-boards/tasks${status ? `?status=${status}` : ''}`,
-      undefined,
-      read,
-    ).then(r => r.tasks),
+    status || read
+      ? req<{ tasks: BoardTask[] }>(
+        `/all-boards/tasks${status ? `?status=${status}` : ''}`,
+        undefined,
+        read,
+      ).then(r => r.tasks)
+      : readFeedIfChanged(),
   /**
    * LA PORTA UNICA «da un id al suo task, a qualunque profondità».
    *
