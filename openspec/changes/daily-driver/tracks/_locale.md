@@ -51,3 +51,8 @@ Nessuno risponde alle tue domande: decidi, scrivi il perché nel REPORT, vai ava
 ## Lingua
 
 Identificatori e commenti in inglese. Testi dell'interfaccia in italiano, senza trattino lungo.
+
+I cancelli di lingua (`check:comment-language`, `check:identifier-language` e gli altri `check:*`)
+leggono `git ls-files`: i file nuovi non li vedono finché non sono committati, quindi in locale
+escono verdi anche quando la CI li vedrà rossi. Nei file nuovi, commenti e identificatori in
+inglese li controlli tu, riga per riga.
