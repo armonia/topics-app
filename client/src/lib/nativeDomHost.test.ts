@@ -162,17 +162,20 @@ describe('native DOM host: a page slower than the viewer\'s scroll', () => {
     .filter((e) => e.preserveFocus)
     .map((e) => {
       const [, action = '', payload = '{}'] = e.js.match(/\("(\w+)",(\{.*\})\)$/) ?? [];
-      return { action, ...(JSON.parse(payload) as Partial<Record<'x' | 'y' | 'deltaX' | 'deltaY' | 'node' | 'scrollTop' | 'scrollLeft', number>>) };
+      return { action, ...(JSON.parse(payload) as Partial<Record<'x' | 'y' | 'deltaX' | 'deltaY' | 'node' | 'scrollTop' | 'scrollLeft', number>> & { wheels?: unknown[] }) };
     });
   const placed = (scrollTop: number, deltaY: number) => ({ type: 'host_input', action: 'scroll', payload: { x: 5, y: scrollTop, deltaY, node: 1, scrollTop, scrollLeft: 0 } });
 
-  test('scrolls waiting for their turn reach the page as one, at the latest place', async () => {
+  test('scrolls waiting for their turn reach the page as one, at the latest place, each wheel still its own event', async () => {
     const r = rig();
     r.host.handle(placed(10, 10));
     r.host.handle(placed(22, 12));
     r.host.handle(placed(33, 11));
     await r.turn();
-    expect(scrollsRun(r)).toEqual([{ action: 'scroll', x: 5, y: 33, deltaX: 0, deltaY: 33, node: 1, scrollTop: 33, scrollLeft: 0 }]);
+    expect(scrollsRun(r)).toEqual([{
+      action: 'scroll', x: 5, y: 33, deltaX: 0, deltaY: 33, node: 1, scrollTop: 33, scrollLeft: 0,
+      wheels: [{ x: 5, y: 10, deltaX: 0, deltaY: 10 }, { x: 5, y: 22, deltaX: 0, deltaY: 12 }, { x: 5, y: 33, deltaX: 0, deltaY: 11 }],
+    }]);
   });
 
   test('two distances add up, and a distance never takes a place in', async () => {

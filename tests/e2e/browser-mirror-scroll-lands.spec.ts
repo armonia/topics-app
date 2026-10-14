@@ -41,7 +41,8 @@ function pageHtml(opts: { smooth?: boolean; keepsWheel?: boolean; inner?: boolea
     ? `<div id="inner" style="height:500px;overflow:auto">${ROWS}</div>`
     : ROWS;
   // A map, a carousel: a page that turns the wheel into something of its own.
-  const script = opts.keepsWheel ? "<script>addEventListener('wheel',function(e){e.preventDefault()},{passive:false})</script>" : "";
+  const keeps = opts.keepsWheel ? "addEventListener('wheel',function(e){e.preventDefault()},{passive:false});" : "";
+  const script = `<script>window.__wheels=0;addEventListener('wheel',function(){__wheels++},{passive:true});${keeps}</script>`;
   return `<!doctype html>${html}<head><meta charset="utf-8"><title>Scroll host</title>${script}</head><body style="margin:0;font:16px sans-serif">${body}</body></html>`;
 }
 
@@ -53,6 +54,8 @@ function pageHtml(opts: { smooth?: boolean; keepsWheel?: boolean; inner?: boolea
 interface Host {
   scrollOf: (sel?: string) => Promise<number>;
   width: () => number;
+  /** Scroll inputs the server relayed, the calls that ran them, and the wheel events the page got. */
+  scrolls: () => Promise<{ relayed: number; calls: number; wheels: number }>;
   close: () => void;
 }
 
@@ -60,9 +63,11 @@ async function hostPage(page: Page, ctx: string, html: string, latencyMs = 0): P
   await page.setViewportSize(HOST_SIZE);
   await page.setContent(html);
   const ws = new WebSocket(`${E2E_BASE.replace(/^http/, "ws")}/ws/browser/${encodeURIComponent(ctx)}?executor=1`);
+  const count = { relayed: 0, calls: 0 };
   await new Promise<void>((resolve, reject) => { ws.once("open", () => resolve()); ws.once("error", reject); });
   const host = createNativeDomHost({
     evalInPage: async (js) => {
+      if (js.endsWith("})") && js.includes('("scroll",')) count.calls++;
       if (latencyMs) await new Promise((r) => setTimeout(r, latencyMs));
       return page.evaluate((code) => String((0, eval)(code)), js);
     },
@@ -71,7 +76,11 @@ async function hostPage(page: Page, ctx: string, html: string, latencyMs = 0): P
     navigate: () => {},
     setViewport: (size) => { void page.setViewportSize(size ?? HOST_SIZE); },
   });
-  ws.on("message", (data) => host.handle(JSON.parse(String(data))));
+  ws.on("message", (data) => {
+    const frame = JSON.parse(String(data)) as { type?: string; action?: string };
+    if (frame.type === "host_input" && frame.action === "scroll") count.relayed++;
+    host.handle(frame);
+  });
   ws.send(JSON.stringify({ type: "register_native_executor" }));
   host.declare();
   await expect.poll(() => host.accepted()).toBe(true);
@@ -79,6 +88,7 @@ async function hostPage(page: Page, ctx: string, html: string, latencyMs = 0): P
   return {
     scrollOf: (sel) => page.evaluate((s) => (s ? document.querySelector(s)!.scrollTop : scrollY), sel),
     width: () => page.viewportSize()?.width ?? 0,
+    scrolls: async () => ({ ...count, wheels: await page.evaluate(() => (window as unknown as { __wheels: number }).__wheels) }),
     close: () => { host.reset(); ws.close(); },
   };
 }
@@ -189,6 +199,10 @@ test.describe("A scroll on the mirror lands where the finger left it", () => {
     expect(atEnd).toBeGreaterThan(219);
     expect(after, "the mirror moved after the gesture").toEqual([]);
     await expect.poll(() => host.scrollOf()).toBe(atEnd);
+    // The Mac caught up in fewer calls than inputs, and the page still got every wheel.
+    const { relayed, calls, wheels } = await host.scrolls();
+    expect(calls).toBeLessThan(relayed);
+    expect(wheels).toBe(relayed);
     host.close();
   });
 

@@ -646,6 +646,9 @@ export default defineConfig({
         // the streaming pane is what a phone's Safari shows, so it is read on
         // WebKit.
         "**/browser-stream-back-forward.spec.ts",
+        // A scroll on the DOM mirror lands on the host's pixel: the drift came from
+        // WebKit's whole pixels, which Chromium does not have, so it is read here.
+        "**/browser-mirror-scroll-lands.spec.ts",
         // The card's changed-files chip end to end: count, show-all, filter,
         // row -> the task's diff on that file. Filmed on the shipping engine.
         "**/changed-files-complete.spec.ts",

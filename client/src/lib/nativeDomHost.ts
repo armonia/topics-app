@@ -150,8 +150,10 @@ const INPUT_FN =
   'else if(a2.form){if(a2.form.requestSubmit)a2.form.requestSubmit();else a2.form.submit()}}' +
   "else if(k==='Backspace')d.execCommand('delete');else if(k==='Delete')d.execCommand('forwardDelete')}" +
   "a2.dispatchEvent(new KeyboardEvent('keyup',{key:k,bubbles:true}));return 'ok'}" +
-  "if(action==='scroll'){var sx=+p.x||0,sy=+p.y||0,dx=+p.deltaX||0,dy=+p.deltaY||0,tg=at(sx,sy);" +
-  "var go=tg.dispatchEvent(new WheelEvent('wheel',{bubbles:true,cancelable:true,clientX:sx,clientY:sy,deltaX:dx,deltaY:dy}));" +
+  "if(action==='scroll'){var sx=+p.x||0,sy=+p.y||0,dx=+p.deltaX||0,dy=+p.deltaY||0,tg=at(sx,sy),go=true," +
+  'ws=p.wheels||[{x:sx,y:sy,deltaX:dx,deltaY:dy}];' +
+  'for(var i=0;i<ws.length;i++){var w=ws[i],wx=+w.x||0,wy=+w.y||0;' +
+  "if(!at(wx,wy).dispatchEvent(new WheelEvent('wheel',{bubbles:true,cancelable:true,clientX:wx,clientY:wy,deltaX:+w.deltaX||0,deltaY:+w.deltaY||0})))go=false}" +
   'var h=window.__topicsDomHost,ids=h&&h.rrweb&&h.rrweb.record&&h.rrweb.record.mirror,' +
   "sn=typeof p.node==='number'&&typeof p.scrollTop==='number'&&ids?ids.getNode(p.node):null;" +
   'if(sn){var doc=sn.nodeType===9?sn:sn===sn.ownerDocument.scrollingElement?sn.ownerDocument:null,' +
@@ -171,15 +173,20 @@ export function inputJs(action: string, payload: unknown): string {
 
 const num = (v: unknown): number => (typeof v === 'number' && Number.isFinite(v) ? v : 0);
 
+const wheelOf = (p: Record<string, unknown>) => ({ x: num(p.x), y: num(p.y), deltaX: num(p.deltaX), deltaY: num(p.deltaY) });
+
 /**
  * Fold a newer scroll into one still queued. Two distances add up; two places
  * for the same node leave the newer one. A place and a distance do not mix:
  * the distance would be applied from where the page is, not from that place.
+ * Each wheel still reaches the page as its own event, in the one call: a
+ * carousel that steps once per event must not lose steps to a busy Mac.
  */
 function mergeScroll(into: Record<string, unknown>, next: unknown): boolean {
   const n = (next ?? {}) as Record<string, unknown>;
   const placed = typeof n.node === 'number';
   if (placed !== (typeof into.node === 'number') || (placed && n.node !== into.node)) return false;
+  into.wheels = [...((into.wheels as unknown[] | undefined) ?? [wheelOf(into)]), wheelOf(n)];
   into.deltaX = num(into.deltaX) + num(n.deltaX);
   into.deltaY = num(into.deltaY) + num(n.deltaY);
   into.x = n.x;
@@ -274,9 +281,10 @@ export function createNativeDomHost(opts: NativeDomHostOptions): NativeDomHost {
   };
 
   const runInput = (action: string, payload: unknown): void => {
-    // A scroll still waiting for its turn takes in the next one. A page slower
-    // than the viewer's relay (a busy Mac) otherwise replayed a swipe batch by
-    // batch long after it ended, and the mirror went back to follow it.
+    // A scroll still waiting for its turn takes in the next one: one call to
+    // the page, every wheel event still in it. A page slower than the viewer's
+    // relay (a busy Mac) otherwise replayed a swipe batch by batch long after
+    // it ended, and the mirror went back to follow it.
     if (action === 'scroll' && waiting?.action === 'scroll' && mergeScroll(waiting.payload, payload)) return;
     const job = { action, payload: { ...(payload as Record<string, unknown>) } };
     waiting = job;
