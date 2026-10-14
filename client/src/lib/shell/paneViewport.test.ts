@@ -148,34 +148,41 @@ describe('INSTALL_USE_HOOK', () => {
   interface FakeWindow {
     __topicsLocalUse?: number;
     on: Record<string, Listener>;
-    document: { on: Record<string, Listener>; frames: { tagName: string; contentWindow: unknown }[] };
+    /** How many listeners were registered on the window, then on its document. */
+    added: number;
+    document: { on: Record<string, Listener>; added: number; frames: { tagName: string; contentWindow: unknown }[] };
   }
 
   /** A window and its document, recording what the hook registers on each. */
   function fakeWindow(): FakeWindow {
-    const on: Record<string, Listener> = {};
-    const docOn: Record<string, Listener> = {};
-    const frames: { tagName: string; contentWindow: unknown }[] = [];
-    return {
-      on,
-      addEventListener: (type: string, fn: Listener) => { on[type] = fn; },
+    const win = {
+      on: {} as Record<string, Listener>,
+      added: 0,
+      addEventListener: (type: string, fn: Listener) => { win.on[type] = fn; win.added++; },
       document: {
-        on: docOn,
-        frames,
-        addEventListener: (type: string, fn: Listener) => { docOn[type] = fn; },
-        getElementsByTagName: (tag: string) => (tag === 'iframe' ? frames : []),
+        on: {} as Record<string, Listener>,
+        added: 0,
+        frames: [] as { tagName: string; contentWindow: unknown }[],
+        addEventListener: (type: string, fn: Listener) => { win.document.on[type] = fn; win.document.added++; },
+        getElementsByTagName: (tag: string) => (tag === 'iframe' ? win.document.frames : []),
       },
-    } as FakeWindow;
+    };
+    return win as FakeWindow;
   }
 
-  /** A frame of another origin: every property read throws, as the browser does. */
-  const foreignWindow = new Proxy({}, { get() { throw new Error('SecurityError'); } });
+  /** A frame of another origin: every property read throws, as the browser does. Counts the tries. */
+  function foreignWindow(): { proxy: unknown; tries: () => number } {
+    let tries = 0;
+    const proxy = new Proxy({}, { get() { tries++; throw new Error('SecurityError'); } });
+    return { proxy, tries: () => tries };
+  }
 
-  const install = (win: FakeWindow) => new Function('window', INSTALL_USE_HOOK)(win);
+  /** One tick of the pane's fast poll. */
+  const poll = (win: FakeWindow) => new Function('window', INSTALL_USE_HOOK)(win);
 
   test('only gestures of the person at the Mac count: not relayed input, not a modifier, not a Cmd shortcut', () => {
     const win = fakeWindow();
-    install(win);
+    poll(win);
     const { on } = win;
     for (const key of ['a', 'ArrowDown']) on.keydown({ isTrusted: true, key });
     for (const key of ['Shift', 'Meta', 'Alt']) on.keydown({ isTrusted: true, key });
@@ -185,40 +192,60 @@ describe('INSTALL_USE_HOOK', () => {
     on.pointerdown({ isTrusted: false });
     on.wheel({ isTrusted: true });
     expect(win.__topicsLocalUse).toBe(4);
-
-    // The poll runs it again every tick: still one set of listeners.
-    install(win);
-    on.pointerdown({ isTrusted: true });
-    expect(win.__topicsLocalUse).toBe(5);
   });
 
   test('typing or clicking in a frame of the same origin is using the page', () => {
     const top = fakeWindow();
     const editor = fakeWindow();
     top.document.frames.push({ tagName: 'IFRAME', contentWindow: editor });
-    install(top);
+    poll(top);
     editor.on.keydown({ isTrusted: true, key: 'x' });
     editor.on.pointerdown({ isTrusted: true });
     editor.on.keydown({ isTrusted: false, key: 'y' });
     expect(top.__topicsLocalUse, "l'input in un iframe dello stesso dominio non riprende la pagina").toBe(2);
   });
 
-  test('a frame that loads after the hook, or navigates, gets it when it loads', () => {
+  test('a frame added after the hook is counted from the next poll, before its own load', () => {
     const top = fakeWindow();
-    install(top);
+    poll(top);
+    // Its load waits for every image in it: the next poll must not.
     const late = fakeWindow();
-    top.document.on.load({ isTrusted: true, target: { tagName: 'IFRAME', contentWindow: late } });
+    top.document.frames.push({ tagName: 'IFRAME', contentWindow: late });
+    poll(top);
     late.on.pointerdown({ isTrusted: true });
-    expect(top.__topicsLocalUse, "un iframe arrivato dopo l'hook non lo riceve").toBe(1);
+    expect(top.__topicsLocalUse, "un iframe arrivato dopo l'hook non lo riceve prima del suo load").toBe(1);
+  });
+
+  test('a frame that navigates gets the hook again when its new document loads', () => {
+    const top = fakeWindow();
+    const frame = { tagName: 'IFRAME', contentWindow: fakeWindow() as unknown };
+    top.document.frames.push(frame);
+    poll(top);
+    const next = fakeWindow();
+    frame.contentWindow = next;
+    top.document.on.load({ isTrusted: true, target: frame });
+    next.on.keydown({ isTrusted: true, key: 'z' });
+    expect(top.__topicsLocalUse).toBe(1);
     // An image loading is not a frame.
     top.document.on.load({ isTrusted: true, target: { tagName: 'IMG' } });
   });
 
-  test('a frame of another origin is skipped, and the page keeps counting', () => {
+  test('polling again and again adds no listeners', () => {
     const top = fakeWindow();
-    top.document.frames.push({ tagName: 'IFRAME', contentWindow: foreignWindow });
-    expect(() => install(top)).not.toThrow();
-    top.document.on.load({ isTrusted: true, target: { tagName: 'IFRAME', contentWindow: foreignWindow } });
+    const editor = fakeWindow();
+    top.document.frames.push({ tagName: 'IFRAME', contentWindow: editor });
+    for (let tick = 0; tick < 5; tick++) poll(top);
+    expect([top.added, top.document.added, editor.added, editor.document.added], 'il poll ri-registra i listener a ogni giro').toEqual([3, 1, 3, 1]);
+    top.on.pointerdown({ isTrusted: true });
+    expect(top.__topicsLocalUse).toBe(1);
+  });
+
+  test('a frame of another origin is tried once, and the page keeps counting', () => {
+    const top = fakeWindow();
+    const foreign = foreignWindow();
+    top.document.frames.push({ tagName: 'IFRAME', contentWindow: foreign.proxy });
+    expect(() => { for (let tick = 0; tick < 5; tick++) poll(top); }).not.toThrow();
+    expect(foreign.tries(), 'il poll ritenta a ogni giro un iframe di un altro dominio').toBe(1);
     top.on.pointerdown({ isTrusted: true });
     expect(top.__topicsLocalUse).toBe(1);
   });

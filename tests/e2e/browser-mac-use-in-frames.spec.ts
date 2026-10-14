@@ -39,15 +39,21 @@ test("the Mac's use hook counts real input in same-origin frames, and a foreign 
   await page.keyboard.type("ab");
   expect(await count(), "input in a same-origin frame did not reach the hook").toBe(3);
 
-  // A frame that arrives after the hook, as an editor that mounts late.
-  await page.evaluate(() => {
+  // A frame that arrives after the hook, as an editor that mounts late, still
+  // loading an image: its load event has not fired. The pane's next poll (the
+  // hook runs again every 120 ms) is what hooks it.
+  await page.route("**/never-loads.png", () => { /* never answered: the frame never finishes loading */ });
+  await page.evaluate((src) => {
     const late = document.createElement("iframe");
     late.id = "late";
-    late.srcdoc = "<input id=i>";
+    late.srcdoc = `<input id=i><img src="${src}">`;
     document.body.appendChild(late);
-  });
+  }, `${E2E_BASE}/never-loads.png`);
+  await page.frameLocator("#late").locator("#i").waitFor();
+  expect(await page.evaluate(() => (document.getElementById("late") as HTMLIFrameElement).contentDocument?.readyState)).not.toBe("complete");
+  await page.evaluate((hook) => { new Function(hook)(); }, INSTALL_USE_HOOK);
   await page.frameLocator("#late").locator("#i").click();
-  expect(await count(), "a frame loaded after the hook did not get it").toBe(4);
+  expect(await count(), "a frame still loading did not get the hook from the next poll").toBe(4);
 
   // The page itself still counts, with the foreign frame on it.
   await page.mouse.click(700, 60);
