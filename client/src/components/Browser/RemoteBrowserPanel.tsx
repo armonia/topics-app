@@ -45,6 +45,7 @@ import BrowserKeyboardCapture, { type BrowserKeyboardCaptureHandle } from './Bro
 import { useBrowserChromeBridge } from './useBrowserChromeBridge';
 import { useReturnToTopicWindow } from './returnToTopicWindow';
 import { openExternalOnce } from '../../lib/openExternal';
+import { setBrowserLayout, useBrowserLayout } from '../../lib/browserLayoutPref';
 import type { DeviceMode } from './browserDevTypes';
 import { useBrowserPaneUrl, isRealUrl } from '../../state/pane/browserPaneUrl';
 import { arrowEnabled } from './streamNavHistory';
@@ -764,6 +765,10 @@ function RemoteBrowserPanelStreaming({ contextId, initialUrl, navigateUrl, onUrl
   const tr = useT();
   const toast = useToast();
   const browser = useRemoteBrowser(contextId, isVisible);
+  // A page the Mac hosts: laid out here at this pane's size, or the Mac's page at it (BROWSER-DOM-LAYOUT-01).
+  // The shell's mirror cannot always be read, so it keeps the page's.
+  const layout = useBrowserLayout();
+  const layoutChoice = browser.nativeHost && !isTauri ? layout : undefined;
   const findPaneId = useFindPaneId() ?? `browser:${contextId}`;
   const exposeMirrorDocument = useSharedBrowserFinder(findPaneId, browser.renderMode);
   useReportBrowserActivity(contextId, browser.loading || browser.agentActive);
@@ -895,14 +900,15 @@ function RemoteBrowserPanelStreaming({ contextId, initialUrl, navigateUrl, onUrl
     // The render switch kept the condition its pill had: only on a real page. A
     // blank pane has nothing to render either way, and a switch with no page is
     // the same dead door as a Downloads entry that opens an empty list.
-    setRenderMode: !useIframe && isRealUrl(browser.url)
+    setRenderMode: !useIframe && !browser.nativeHost && isRealUrl(browser.url)
       ? (m: 'dom' | 'video') => browser.setRenderMode(m)
       : undefined,
+    setLayout: layoutChoice ? setBrowserLayout : undefined,
     forgetSite: sharedCanForget ? () => setForgetOpen(true) : undefined,
     // Offered only while one is driving: a command that ends a state nobody is
     // in is a dead door, and the tab hides the glyph that would open it anyway.
     takeControl: browser.agentActive ? takeControlFromAgent : undefined,
-  }), [browser, contextId, sharedCanForget, onToggleShare, backToSpawner, returnToTopicWindow, useIframe, takeControlFromAgent]);
+  }), [browser, contextId, sharedCanForget, onToggleShare, backToSpawner, returnToTopicWindow, useIframe, takeControlFromAgent, layoutChoice]);
   const chromeBridge = useBrowserChromeBridge(contextId, {
     url: browser.url,
     // The store's url, which on a restored pane is already right while
@@ -937,6 +943,7 @@ function RemoteBrowserPanelStreaming({ contextId, initialUrl, navigateUrl, onUrl
     engineExtensions: !useIframe && browser.engineToggleAvailable ? browser.engineExtensions : undefined,
     // Nothing to switch under a native host: there are no pixels without the server's Chromium.
     renderMode: useIframe || browser.nativeHost ? undefined : browser.renderMode,
+    layout: layoutChoice,
     agentActive: browser.agentActive,
     agentAction: browser.agentAction,
     history,
@@ -1300,6 +1307,7 @@ function RemoteBrowserPanelStreaming({ contextId, initialUrl, navigateUrl, onUrl
                 agentActive={browser.agentActive}
                 exposeMirrorDocument={exposeMirrorDocument}
                 ownSize={browser.ownSize}
+                ownLayout={layoutChoice === 'own'}
               />
             </div>
           </Suspense>

@@ -47,7 +47,7 @@ export interface SheetAction {
 /** A row the body draws itself, because it is a control and not a command. */
 export interface SheetControl {
   kind: 'control';
-  id: 'zoom' | 'device' | 'console' | 'downloads' | 'share' | 'engine' | 'render' | 'rename';
+  id: 'zoom' | 'device' | 'console' | 'downloads' | 'share' | 'engine' | 'render' | 'mirror-layout' | 'rename';
 }
 
 export interface SheetLevel {
@@ -108,6 +108,7 @@ export interface TabSheetModel {
     share: boolean;
     engine: boolean;
     render: boolean;
+    layout: boolean;
     tail?: string;
   };
   tab?: {
@@ -256,6 +257,7 @@ export function buildTabSheetEntries(m: TabSheetModel): SheetEntry[] {
         ...(m.session.share ? [control('share')] : []),
         ...(m.session.engine ? [control('engine')] : []),
         ...(m.session.render ? [control('render')] : []),
+        ...(m.session.layout ? [control('mirror-layout')] : []),
       ],
     });
   }

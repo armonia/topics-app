@@ -38,6 +38,12 @@ export interface HostViewport {
   noteSize(contextId: string, device: string, width: number, height: number): void;
   /** A viewer used the page: a driving input, or a `resize` that says `driving`. */
   noteRemoteUse(contextId: string, device: string): void;
+  /**
+   * How a viewer shows the page: laid out on its own (BROWSER-DOM-LAYOUT-01)
+   * or at the page's size. One that lays it out on its own never drives the
+   * host's size, and using the page gives it back to the Mac's slot.
+   */
+  noteLayout(contextId: string, device: string, own: boolean): void;
   /** The Mac used the page in its own pane. */
   noteHostUse(contextId: string): void;
   /** A viewer's last socket on the context closed. */
@@ -64,6 +70,8 @@ interface Size { width: number; height: number }
 
 interface ContextState {
   sizes: Map<string, Size>;
+  /** Devices that lay the page out at their own size and never drive the host's. */
+  own: Set<string>;
   driver?: string;
   /** The driver whose panes all left the screen, while nobody else has used the page. */
   away?: string;
@@ -79,10 +87,18 @@ export function createHostViewport(deps: HostViewportDeps): HostViewport {
   const ensure = (contextId: string): ContextState => {
     let state = contexts.get(contextId);
     if (!state) {
-      state = { sizes: new Map(), told: null };
+      state = { sizes: new Map(), own: new Set(), told: null };
       contexts.set(contextId, state);
     }
     return state;
+  };
+
+  /** Nobody else's size: the page goes back to the Mac's slot. */
+  const giveBack = (contextId: string, state: ContextState): void => {
+    state.away = undefined;
+    if (state.driver === undefined) return;
+    state.driver = undefined;
+    tell(contextId, state);
   };
 
   /** Tell the host what it should show now, unless it is showing it already. */
@@ -107,28 +123,36 @@ export function createHostViewport(deps: HostViewportDeps): HostViewport {
     },
     noteRemoteUse(contextId, device) {
       const state = ensure(contextId);
+      if (state.own.has(device)) { giveBack(contextId, state); return; }
       state.driver = device;
       state.away = undefined;
       tell(contextId, state);
     },
+    noteLayout(contextId, device, own) {
+      if (!own) {
+        contexts.get(contextId)?.own.delete(device);
+        return;
+      }
+      const state = ensure(contextId);
+      state.own.add(device);
+      if (state.away === device) state.away = undefined;
+      if (state.driver === device) giveBack(contextId, state);
+    },
     noteHostUse(contextId) {
       const state = contexts.get(contextId);
-      if (!state) return;
-      state.away = undefined;
-      if (state.driver === undefined) return;
-      state.driver = undefined;
-      tell(contextId, state);
+      if (state) giveBack(contextId, state);
     },
     noteViewerGone(contextId, device) {
       const state = contexts.get(contextId);
       if (!state) return;
       state.sizes.delete(device);
+      state.own.delete(device);
       if (state.away === device) state.away = undefined;
       if (state.driver === device) {
         state.driver = undefined;
         tell(contextId, state);
       }
-      if (state.sizes.size === 0 && state.driver === undefined) contexts.delete(contextId);
+      if (state.sizes.size === 0 && state.own.size === 0 && state.driver === undefined) contexts.delete(contextId);
     },
     noteViewerHidden(contextId, device) {
       const state = contexts.get(contextId);

@@ -81,6 +81,20 @@ describe("host mirror wiring", () => {
     expect(r.host.types().filter((t) => t === "dom_event")).toEqual([]);
   });
 
+  /** @covers BROWSER-DOM-LAYOUT-01 */
+  test("a pane that lays the page out on its own uses it without resizing the Mac", () => {
+    for (const layout of ["own", "page"] as const) {
+      const r = rig();
+      r.declare();
+      const v = r.viewer();
+      r.mirror.routeViewer(v, CTX, { type: "resize", width: 820, height: 1180, layout });
+      r.mirror.routeViewer(v, CTX, { type: "input", action: "click", payload: { x: 5, y: 6 } });
+      const told = r.host.sent.filter((m) => m.type === "host_viewport");
+      expect(r.host.sent.some((m) => m.type === "host_input")).toBe(true);
+      expect(told).toEqual(layout === "own" ? [] : [{ type: "host_viewport", width: 820, height: 1180 }]);
+    }
+  });
+
   test("a viewer's input and navigation go to the host; nothing reaches the browser service", () => {
     const r = rig();
     r.declare();

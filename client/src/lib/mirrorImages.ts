@@ -108,6 +108,45 @@ export function revealImage(img: Element): void {
   }
 }
 
+/**
+ * Watch the mirror's document and reveal each waiting image as it comes within
+ * `margin` of the view, the ones the source adds later included. The mirror's
+ * document runs no scripts, so this one watches it. Returns the stop.
+ */
+export function watchDeferredImages(
+  doc: Document,
+  ids: { getId(node: Node): number },
+  deferral: ReturnType<typeof createImageDeferral>,
+  margin: string,
+): () => void {
+  const io = new IntersectionObserver((entries) => {
+    for (const entry of entries) {
+      if (!entry.isIntersecting) continue;
+      io.unobserve(entry.target);
+      revealImage(entry.target);
+      deferral.revealed(ids.getId(entry.target));
+    }
+  }, { root: doc, rootMargin: margin });
+  const observeWithin = (root: ParentNode) => root.querySelectorAll(DEFERRED_IMAGES).forEach((img) => io.observe(img));
+  observeWithin(doc);
+  const mo = new MutationObserver((records) => {
+    for (const record of records) {
+      for (const node of record.addedNodes) {
+        // nodeType, not instanceof: the mirror's nodes belong to the iframe's realm.
+        if (node.nodeType !== 1) continue;
+        const el = node as Element;
+        if (el.matches(DEFERRED_IMAGES)) io.observe(el);
+        else observeWithin(el);
+      }
+    }
+  });
+  mo.observe(doc, { childList: true, subtree: true });
+  return () => {
+    io.disconnect();
+    mo.disconnect();
+  };
+}
+
 /** Whether this engine observes intersections against a document, which the deferral needs. */
 export function canObserveDocument(): boolean {
   try {

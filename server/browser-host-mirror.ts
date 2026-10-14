@@ -227,7 +227,10 @@ export function createHostMirror(deps: HostMirrorDeps) {
       // Kept whoever serves the page: a pane does not repeat a size it has sent
       // (useRemoteBrowser), so one sent while the server's Chromium served it,
       // or while the host was away, is the one the host needs when it is used.
-      if (parsed.type === "resize") viewport.noteSize(contextId, deviceOf(ws), parsed.width, parsed.height);
+      if (parsed.type === "resize") {
+        viewport.noteSize(contextId, deviceOf(ws), parsed.width, parsed.height);
+        viewport.noteLayout(contextId, deviceOf(ws), parsed.layout === "own");
+      }
       if (!hosts.isHosting(contextId)) return false;
       switch (parsed.type) {
         case "input":

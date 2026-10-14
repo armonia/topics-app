@@ -155,3 +155,50 @@ describe("browser-host-viewport (TOPIC-BROWSER-05 on a hosted page)", () => {
     expect(sent.at(-1)).toEqual({ type: "host_viewport", width: 1180, height: 820 });
   });
 });
+
+/** @covers BROWSER-DOM-LAYOUT-01 */
+describe("browser-host-viewport: a device that lays the page out on its own", () => {
+  test("using the page never resizes the Mac", () => {
+    const { viewport, sent } = setup();
+    viewport.noteSize("ctx", IPAD, 820, 1180);
+    viewport.noteLayout("ctx", IPAD, true);
+    viewport.noteRemoteUse("ctx", IPAD);
+    viewport.noteViewerHidden("ctx", IPAD);
+    viewport.noteViewerShown("ctx", IPAD);
+    viewport.noteRemoteUse("ctx", IPAD);
+    expect(sent).toEqual([]);
+    expect(viewport.driver("ctx")).toBeUndefined();
+  });
+
+  test("using it gives the page back to the Mac from another device's size", () => {
+    const { viewport, sent } = setup();
+    viewport.noteSize("ctx", PHONE, 390, 700);
+    viewport.noteRemoteUse("ctx", PHONE);
+    viewport.noteLayout("ctx", IPAD, true);
+    viewport.noteRemoteUse("ctx", IPAD);
+    expect(sent).toEqual([{ type: "host_viewport", width: 390, height: 700 }, { type: "host_viewport" }]);
+    expect(viewport.driver("ctx")).toBeUndefined();
+  });
+
+  test("a device that switches to its own layout while driving gives the page back at once", () => {
+    const { viewport, sent } = setup();
+    viewport.noteSize("ctx", IPAD, 820, 1180);
+    viewport.noteRemoteUse("ctx", IPAD);
+    viewport.noteLayout("ctx", IPAD, true);
+    expect(sent).toEqual([{ type: "host_viewport", width: 820, height: 1180 }, { type: "host_viewport" }]);
+    // Away with its own layout: coming back on screen does not take the page again.
+    viewport.noteViewerShown("ctx", IPAD);
+    expect(sent).toHaveLength(2);
+  });
+
+  test("switching back to the page's size, its next use lays the Mac out at it again", () => {
+    const { viewport, sent } = setup();
+    viewport.noteSize("ctx", IPAD, 820, 1180);
+    viewport.noteLayout("ctx", IPAD, true);
+    viewport.noteRemoteUse("ctx", IPAD);
+    viewport.noteLayout("ctx", IPAD, false);
+    expect(sent).toEqual([]);
+    viewport.noteRemoteUse("ctx", IPAD);
+    expect(sent).toEqual([{ type: "host_viewport", width: 820, height: 1180 }]);
+  });
+});

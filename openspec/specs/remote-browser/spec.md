@@ -2680,6 +2680,11 @@ il suo socket è aperto. Una pane che si (ri)connette senza un gesto recente su
 quel dispositivo NON SHALL cambiarlo. Il guscio desktop, che ospita le sue pagine
 nativamente, se le riprende solo con un input alla sua pagina (NATIVE-HOST-04).
 
+Una pagina che il Mac ospita fa eccezione dal 14/10: ogni dispositivo la impagina
+alla sua misura e il Mac tiene la sua (BROWSER-DOM-LAYOUT-01). Questo requisito
+vale lì solo per il dispositivo che sceglie «Misura: del Mac» (BROWSER-DOM-LAYOUT-04),
+e resta com'è per la sessione del Chromium del server.
+
 Un client il cui contenitore ha dimensioni diverse dal viewport SHALL mostrare la
 pagina in scala, centrata, su un fondo del tema, e NON SHALL lasciarla in alto a
 sinistra su bianco. La resa DOM SHALL applicare anche i cambi di viewport a sessione
@@ -2881,8 +2886,13 @@ The Mac's pane lays the page out at the iPad's size in CSS px, scaled into its
 slot with WKWebView's page zoom when it does not fit, and the iPad's mirror shows
 it 1:1.
 
+Since 14/10 this holds for a device that chose «Size: the Mac» in its tab's
+sheet (BROWSER-DOM-LAYOUT-04), and for the desktop shell's own mirror. Every
+other device lays the page out on its own and never resizes the Mac
+(BROWSER-DOM-LAYOUT-01).
+
 #### Scenario: the iPad uses a page the Mac hosts
-- **GIVEN** the Mac's pane hosts the context and the iPad watches it
+- **GIVEN** the Mac's pane hosts the context and the iPad watches it, with «Size: the Mac»
 - **WHEN** the iPad taps the mirror
 - **THEN** the host receives the tap, then `host_viewport` with the iPad pane's size
 - **AND** the size counts even if the iPad sent it before the Mac hosted the page, or while the host was away
@@ -2911,6 +2921,70 @@ it 1:1.
 #### Scenario: the on-screen keyboard
 - **WHEN** the on-screen keyboard takes height from the pane of the device using the page
 - **THEN** the device does not report the shorter height, and the page is not laid out again
+
+### Requirement: BROWSER-DOM-LAYOUT-01 — Each device SHALL lay a page the Mac hosts out at its own size, and the Mac SHALL keep its own
+
+Il 14/10, dopo #313: «l'ultimo browser che attivo fa ridimensionare alla sua
+dimensione l'altro». Usare la pagina dall'iPad la reimpaginava sul Mac alla
+misura dell'iPad (NATIVE-HOST-04), e il Mac la vedeva rimpicciolita. Attilio ha
+scelto «ognuno la sua misura»: la pagina vera resta del Mac, e l'iPad ne
+impagina la copia DOM alla sua misura, media query comprese. Tra i due passa il
+contenuto, non i pixel.
+
+#### Scenario: the iPad uses a page the Mac hosts
+- **GIVEN** the Mac's pane hosts the page at 1200 px, with a breakpoint at 1100 px, and the iPad's pane is narrower
+- **WHEN** the iPad taps and swipes its mirror
+- **THEN** the host receives no `host_viewport` with a size, and the Mac's page stays 1200 px wide
+- **AND** the mirror is laid out as wide as the iPad's pane, at scale 1, and shows the narrow variant of the page's CSS while the Mac shows the wide one
+
+#### Scenario: the desktop shell
+- **WHEN** the desktop shell shows a page another device hosts
+- **THEN** it shows that page's own layout (TOPIC-BROWSER-05): its mirror cannot always be read, and a mirror with its own layout has to be
+
+### Requirement: BROWSER-DOM-LAYOUT-02 — A tap on a mirror with its own layout SHALL reach the element it landed on
+
+#### Scenario: an element the two layouts put in different places
+- **WHEN** the iPad taps a card that sits in another column on the Mac
+- **THEN** the Mac's card gets the click, at the same point of its box
+- **AND** what the Mac has at the tap's coordinates does not
+
+#### Scenario: a control only the narrow layout shows
+- **GIVEN** a menu button the Mac's layout hides
+- **WHEN** the iPad taps it
+- **THEN** its handler runs on the Mac, and what it changed comes back to the iPad's mirror
+
+### Requirement: BROWSER-DOM-LAYOUT-03 — A scroll SHALL keep the same content at the reading line on both sides
+
+The reading line is a quarter down what scrolled (half when that axis does not
+scroll), past fixed and sticky boxes. A scroll names the element there, by the
+recorder's id, and the point of it on the line; the other side scrolls to put
+that point on its own line.
+
+#### Scenario: a swipe on the iPad
+- **WHEN** the iPad swipes its mirror past content the two layouts lay out at different heights
+- **THEN** the same row is at the reading line of the Mac, give or take 2 px, though the two scroll positions are hundreds of pixels apart
+- **AND** the mirror does not move once the gesture and its fling have ended
+
+#### Scenario: a scroll on the Mac
+- **WHEN** the Mac's page scrolls a row to its reading line
+- **THEN** the iPad's mirror brings the same row to its own, give or take 2 px
+
+#### Scenario: the edges of the page
+- **WHEN** one side is at the top or at the end of what scrolls
+- **THEN** the other side is at its top or its end, whatever each has at its reading line
+
+### Requirement: BROWSER-DOM-LAYOUT-04 — Each device SHALL be able to go back to the Mac's page at its size
+
+Some pages lay themselves out with scripts, for one width, and a copy laid out
+at another can look wrong: for those the old behaviour is a switch away.
+
+#### Scenario: the switch
+- **GIVEN** a pane showing a page the Mac hosts
+- **WHEN** the user picks «Size: the Mac» in the Session level of the tab's sheet
+- **THEN** the mirror shows the Mac's page scaled, and using it lays the Mac's page out at this pane's size (NATIVE-HOST-04)
+- **WHEN** the user picks «Size: this screen» again
+- **THEN** the Mac's page goes back to its own size at once, and the mirror to its own layout
+- **AND** the choice belongs to the device and survives a reload
 
 ### Requirement: BROWSER-DOM-LIVE-01 — A change SHALL reach the DOM mirror on the frame after it arrives
 

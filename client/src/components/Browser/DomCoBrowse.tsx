@@ -59,7 +59,8 @@ import type { RemoteField } from '../../lib/browserKeyboardProfile';
 import { fitCentered, viewportFromRrwebEvent } from '../../lib/browserFit';
 import { prefixRoutedResources } from '../../lib/domResourceBase';
 import { forgetHandedOver, parkClock, stopClock, wakeClock } from '../../lib/mirrorClock';
-import { canObserveDocument, createImageDeferral, DEFERRED_IMAGES, revealImage } from '../../lib/mirrorImages';
+import { canObserveDocument, createImageDeferral, watchDeferredImages } from '../../lib/mirrorImages';
+import { anchorOf, forOwnLayout, mirrorDocument, ownLayoutPlugin, targetOf, type ScrollAnchor } from '../../lib/mirrorLayout';
 import { createEchoHold, flingVelocity, scrollKeepingFractions, scrollTargetAt } from '../../lib/mirrorScroll';
 import { serverHttpBase } from '../../lib/shell/net';
 
@@ -104,9 +105,11 @@ interface Props {
   exposeMirrorDocument?: (read: (() => Document | null) | null) => void;
   /** The size this pane last asked the page for: a page laid out at it is shown 1:1 (browserFit). */
   ownSize?: () => { width: number; height: number } | null;
+  /** Lay the mirror out at that size while the source keeps its own (BROWSER-DOM-LAYOUT-01, lib/mirrorLayout). */
+  ownLayout?: boolean;
 }
 
-export default function DomCoBrowse({ registerDomSink, registerFocusSink, sendInput, agentActive, exposeMirrorDocument, ownSize }: Props) {
+export default function DomCoBrowse({ registerDomSink, registerFocusSink, sendInput, agentActive, exposeMirrorDocument, ownSize, ownLayout = false }: Props) {
   const tr = useT();
   const rootRef = useRef<HTMLDivElement | null>(null);
   const overlayRef = useRef<HTMLDivElement | null>(null);
@@ -114,11 +117,12 @@ export default function DomCoBrowse({ registerDomSink, registerFocusSink, sendIn
   const replayerRef = useRef<Replayer | null>(null);
   const ownSizeRef = useRef(ownSize);
   useEffect(() => { ownSizeRef.current = ownSize; }, [ownSize]);
+  const ownLayoutRef = useRef(ownLayout);
   // The mirror's document, for find (BROWSER-FIND-04). A reader and not the
   // document itself: rrweb swaps the iframe's document on a full snapshot.
   useEffect(() => {
     if (!exposeMirrorDocument) return;
-    exposeMirrorDocument(() => (replayerRef.current?.iframe as HTMLIFrameElement | undefined)?.contentDocument ?? null);
+    exposeMirrorDocument(() => mirrorDocument(replayerRef.current));
     return () => exposeMirrorDocument(null);
   }, [exposeMirrorDocument]);
   /** Riallinea il parcheggio del timer live (definita nell'effetto sotto). Sta
@@ -126,7 +130,9 @@ export default function DomCoBrowse({ registerDomSink, registerFocusSink, sendIn
   const parkWhenHiddenRef = useRef<(() => void) | null>(null);
   /** Segnala traffico in arrivo al parcheggio del timer live (idem, via ref). */
   const noteActivityRef = useRef<(() => void) | null>(null);
-  // Recorded source dimensions (from the Meta event) + the current fit scale.
+  // Recorded source dimensions (from the Meta event), the mirror's own (the
+  // source's, or the pane's when laid out on its own) + the current fit scale.
+  const sourceDimsRef = useRef<{ w: number; h: number }>({ w: 0, h: 0 });
   const dimsRef = useRef<{ w: number; h: number }>({ w: 0, h: 0 });
   const scaleRef = useRef(1);
   const agentActiveRef = useRef(agentActive);
@@ -179,12 +185,18 @@ export default function DomCoBrowse({ registerDomSink, registerFocusSink, sendIn
   // not driving the viewport (TOPIC-BROWSER-05) sees most of the time: the page
   // in a corner with a white L around it, looking broken rather than scaled. The
   // leftover space is split in two and the surround is the theme background.
+  // Laid out on its own (ownLayout), the mirror is the pane's size, shown 1:1.
   const applyScale = useCallback(() => {
     const root = rootRef.current;
     const replayer = replayerRef.current;
-    const { w, h } = dimsRef.current;
-    if (!root || !replayer || !w || !h) return;
-    const { scale, left, top } = fitCentered(
+    if (!root || !replayer) return;
+    const own = ownLayoutRef.current ? ownSizeRef.current?.() ?? { width: root.clientWidth, height: root.clientHeight } : null;
+    const { w, h } = own ? { w: own.width, h: own.height } : sourceDimsRef.current;
+    if (!w || !h) return;
+    dimsRef.current = { w, h };
+    replayer.iframe.setAttribute('width', String(w));
+    replayer.iframe.setAttribute('height', String(h));
+    const { scale, left, top } = own ? { scale: 1, left: 0, top: 0 } : fitCentered(
       { width: root.clientWidth, height: root.clientHeight },
       { width: w, height: h },
       ownSizeRef.current?.(),
@@ -205,6 +217,7 @@ export default function DomCoBrowse({ registerDomSink, registerFocusSink, sendIn
       overlay.style.height = `${h * scale}px`;
     }
   }, []);
+  useEffect(() => { ownLayoutRef.current = ownLayout; applyScale(); }, [ownLayout, applyScale]);
 
   // Map an overlay-local pointer to source-page CSS px. The overlay is the scaled
   // mirror pinned top-left, so the source coordinate is simply local ÷ scale.
@@ -222,9 +235,10 @@ export default function DomCoBrowse({ registerDomSink, registerFocusSink, sendIn
 
   /**
    * Where the mirror's own scroll put its target since the last relay, named
-   * the way the source's recorder names it, or null when it did not move.
+   * the way the source's recorder names it, or null when it did not move. A
+   * mirror laid out on its own names the place by its content.
    */
-  const takeLocalPlace = useCallback((): { node: number; scrollTop: number; scrollLeft: number } | null => {
+  const takeLocalPlace = useCallback((): { node: number; scrollTop?: number; scrollLeft?: number; anchor?: ScrollAnchor } | null => {
     const local = localScrollRef.current;
     const target = local.target;
     const moved = local.moved;
@@ -232,11 +246,21 @@ export default function DomCoBrowse({ registerDomSink, registerFocusSink, sendIn
     if (!moved || !target?.isConnected) return null;
     const doc = target.ownerDocument;
     // rrweb records the viewport's scroll on the document, not on <html>.
-    const node = replayerRef.current?.getMirror().getId((target === doc.scrollingElement ? doc : target) as never);
-    if (typeof node !== 'number' || node < 0) return null;
-    echoHold.relayed({ node, top: target.scrollTop, left: target.scrollLeft });
-    return { node, scrollTop: target.scrollTop, scrollLeft: target.scrollLeft };
+    const scrolled = target === doc.scrollingElement ? doc : target;
+    const ids = replayerRef.current?.getMirror();
+    const node = ids?.getId(scrolled as never);
+    if (!ids || typeof node !== 'number' || node < 0) return null;
+    const anchor = ownLayoutRef.current ? anchorOf(scrolled, ids) ?? undefined : undefined;
+    echoHold.relayed({ node, top: target.scrollTop, left: target.scrollLeft, anchor });
+    return anchor ? { node, anchor } : { node, scrollTop: target.scrollTop, scrollLeft: target.scrollLeft };
   }, [echoHold]);
+
+  /** A point of the mirror with what it is over: the element and where inside it (lib/mirrorLayout). */
+  const aimAt = useCallback((c: { x: number; y: number }) => {
+    const doc = mirrorDocument(replayerRef.current);
+    const ids = replayerRef.current?.getMirror();
+    return { ...c, ...(doc && ids ? targetOf(doc, c.x, c.y, ids) : null) };
+  }, []);
 
   // Coalesced scroll relay — one `scroll` input per interval, summed deltas,
   // and where the mirror is by then when it scrolled itself.
@@ -253,9 +277,11 @@ export default function DomCoBrowse({ registerDomSink, registerFocusSink, sendIn
       const { dx: fdx, dy: fdy, x: fx, y: fy } = acc;
       acc.dx = 0;
       acc.dy = 0;
-      if (fdx || fdy) sendInput('scroll', { x: fx, y: fy, deltaX: fdx, deltaY: fdy, ...takeLocalPlace() });
+      // Laid out on its own, what was under the wheel is named too: the source has it elsewhere.
+      const target = ownLayoutRef.current ? aimAt({ x: fx, y: fy }).node : undefined;
+      if (fdx || fdy) sendInput('scroll', { x: fx, y: fy, deltaX: fdx, deltaY: fdy, target, ...takeLocalPlace() });
     }, SCROLL_RELAY_INTERVAL);
-  }, [sendInput, takeLocalPlace]);
+  }, [sendInput, takeLocalPlace, aimAt]);
 
   /**
    * Scroll the mirror here by (dx, dy) source px at (x, y), ahead of the source
@@ -264,8 +290,7 @@ export default function DomCoBrowse({ registerDomSink, registerFocusSink, sendIn
    */
   const scrollMirrorBy = useCallback((dx: number, dy: number, x: number, y: number): boolean => {
     const local = localScrollRef.current;
-    let doc: Document | null | undefined;
-    try { doc = (replayerRef.current?.iframe as HTMLIFrameElement | undefined)?.contentDocument; } catch { doc = null; }
+    const doc = mirrorDocument(replayerRef.current);
     if (!doc) return false;
     if (!local.target?.isConnected || local.target.ownerDocument !== doc) {
       local.target = scrollTargetAt(doc, x, y, Math.abs(dx) > Math.abs(dy));
@@ -329,13 +354,8 @@ export default function DomCoBrowse({ registerDomSink, registerFocusSink, sendIn
   // questione (nessuna tastiera), la seconda no: apre quella generica e aspetta
   // il descrittore del campo a fuoco che il server manda dopo il click.
   const mirrorElementAt = useCallback((sx: number, sy: number): { readable: boolean; el: Element | null } => {
-    try {
-      const doc = (replayerRef.current?.iframe as HTMLIFrameElement | undefined)?.contentDocument;
-      if (!doc) return { readable: false, el: null };
-      return { readable: true, el: doc.elementFromPoint(sx, sy) };
-    } catch {
-      return { readable: false, el: null };
-    }
+    const doc = mirrorDocument(replayerRef.current);
+    return doc ? { readable: true, el: doc.elementFromPoint(sx, sy) } : { readable: false, el: null };
   }, []);
 
   /**
@@ -375,15 +395,15 @@ export default function DomCoBrowse({ registerDomSink, registerFocusSink, sendIn
     if (performance.now() - lastTapRelayRef.current < ECHO_CLICK_WINDOW_MS) return;
     const c = toSource(e.clientX, e.clientY);
     if (!c) return;
-    sendInput('click', { x: c.x, y: c.y, button: 'left' });
-  }, [toSource, sendInput]);
+    sendInput('click', { ...aimAt(c), button: 'left' });
+  }, [toSource, sendInput, aimAt]);
 
   const onContextMenu = useCallback((e: React.MouseEvent) => {
     e.preventDefault();
     if (selectingRef.current || agentActiveRef.current) return;
     const c = toSource(e.clientX, e.clientY);
-    if (c) sendInput('click', { x: c.x, y: c.y, button: 'right' });
-  }, [toSource, sendInput]);
+    if (c) sendInput('click', { ...aimAt(c), button: 'right' });
+  }, [toSource, sendInput, aimAt]);
 
   const onWheel = useCallback((e: React.WheelEvent) => {
     if (selectingRef.current || agentActiveRef.current) return;
@@ -450,12 +470,12 @@ export default function DomCoBrowse({ registerDomSink, registerFocusSink, sendIn
     if (!t) return;
     const c = toSource(t.clientX, t.clientY);
     if (!c) return;
-    sendInput('click', { x: c.x, y: c.y, button: 'left' });
+    sendInput('click', { ...aimAt(c), button: 'left' });
     lastTapRelayRef.current = performance.now();
     // No synthesized mousedown + click for this tap: the click is relayed, and
     // the mousedown would take the focus from the keyboard capture.
     if (e.cancelable) e.preventDefault();
-  }, [toSource, sendInput, startFling]);
+  }, [toSource, sendInput, startFling, aimAt]);
 
   // ── Option/Alt hold → native local selection in the mirror ───────────────────
   // The mirror iframe is made interactive ONCE (enableInteract) but sits UNDER the
@@ -534,7 +554,7 @@ export default function DomCoBrowse({ registerDomSink, registerFocusSink, sendIn
       noteActivityRef.current?.();
       for (const event of held) {
         stampArrival(event);
-        replayerRef.current?.addEvent(event as never);
+        replayerRef.current?.addEvent((ownLayoutRef.current ? forOwnLayout(event) : event) as never);
       }
     });
 
@@ -542,41 +562,16 @@ export default function DomCoBrowse({ registerDomSink, registerFocusSink, sendIn
     // The mirror's document runs no scripts, so this one watches it. An engine
     // that cannot observe against a document loads them all, as before.
     const deferral = canObserveDocument() ? createImageDeferral() : null;
-    let imageWatch: { io: IntersectionObserver; mo: MutationObserver } | null = null;
+    let stopImages: (() => void) | null = null;
     const stopWatchingImages = () => {
-      imageWatch?.io.disconnect();
-      imageWatch?.mo.disconnect();
-      imageWatch = null;
+      stopImages?.();
+      stopImages = null;
     };
     const watchImages = () => {
       stopWatchingImages();
       const replayer = replayerRef.current;
       const doc = (replayer?.iframe as HTMLIFrameElement | undefined)?.contentDocument;
-      if (!deferral || !replayer || !doc) return;
-      const io = new IntersectionObserver((entries) => {
-        for (const entry of entries) {
-          if (!entry.isIntersecting) continue;
-          io.unobserve(entry.target);
-          revealImage(entry.target);
-          deferral.revealed(replayer.getMirror().getId(entry.target));
-        }
-      }, { root: doc, rootMargin: LAZY_IMAGE_MARGIN });
-      const observeWithin = (root: ParentNode) => root.querySelectorAll(DEFERRED_IMAGES).forEach((img) => io.observe(img));
-      observeWithin(doc);
-      // Images the source adds later arrive by mutation.
-      const mo = new MutationObserver((records) => {
-        for (const record of records) {
-          for (const node of record.addedNodes) {
-            // nodeType, not instanceof: the mirror's nodes belong to the iframe's realm.
-            if (node.nodeType !== 1) continue;
-            const el = node as Element;
-            if (el.matches(DEFERRED_IMAGES)) io.observe(el);
-            else observeWithin(el);
-          }
-        }
-      });
-      mo.observe(doc, { childList: true, subtree: true });
-      imageWatch = { io, mo };
+      if (deferral && replayer && doc) stopImages = watchDeferredImages(doc, replayer.getMirror(), deferral, LAZY_IMAGE_MARGIN);
     };
 
     const handle = (raw: unknown) => {
@@ -591,7 +586,7 @@ export default function DomCoBrowse({ registerDomSink, registerFocusSink, sendIn
       // The recorded viewport arrives twice: once in Meta when recording starts,
       // and again as a ViewportResize every time the driver's page changes size.
       const announced = viewportFromRrwebEvent(event);
-      if (announced) dimsRef.current = { w: announced.width, h: announced.height };
+      if (announced) sourceDimsRef.current = { w: announced.width, h: announced.height };
       if (!started) {
         // First event bootstraps the live replayer; subsequent ones stream in.
         const replayer = new Replayer([event as never], {
@@ -603,9 +598,12 @@ export default function DomCoBrowse({ registerDomSink, registerFocusSink, sendIn
           // Remote focus must never yank THIS device's focus — the local user
           // drives via the overlay / hidden textarea, not the mirror's elements.
           triggerFocus: false,
+          plugins: [ownLayoutPlugin() as never],
         });
         replayer.startLive(event.timestamp);
         replayerRef.current = replayer;
+        // After the replayer sizes the iframe to the source: laid out on its own, it is the pane's.
+        replayer.on('resize', () => applyScale());
         // Make the iframe interactive once; it stays UNDER the capture overlay, so
         // it only receives events when the user holds Option (the overlay yields).
         replayer.enableInteract();
@@ -627,7 +625,7 @@ export default function DomCoBrowse({ registerDomSink, registerFocusSink, sendIn
       }
       const current = replayerRef.current;
       if (current) {
-        current.addEvent(event as never);
+        current.addEvent((ownLayoutRef.current ? forOwnLayout(event) : event) as never);
         forgetHandedOver(current);
       }
       if (announced) applyScale(); // refit on the new viewport

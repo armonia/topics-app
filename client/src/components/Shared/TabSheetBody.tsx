@@ -550,7 +550,7 @@ function useTabSheetModel({ target, chrome, working, splitLayoutAvailable, space
         errors: chrome.consoleErrors,
         downloadCount: chrome.downloads,
       } : undefined,
-      session: isBrowser && c ? { share: !!c.toggleShare, engine: !!c.setEngine, render: !!c.setRenderMode, tail: shareTail } : undefined,
+      session: isBrowser && c ? { share: !!c.toggleShare, engine: !!c.setEngine, render: !!c.setRenderMode, layout: !!c.setLayout, tail: shareTail } : undefined,
       tab: inWindow ? undefined : {
         rename: canRename,
         pins,

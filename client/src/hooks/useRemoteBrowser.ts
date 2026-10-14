@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
-import { parseBrowserWsMessage, type BrowserWsMessage } from '../../../shared/browser-ws-messages';
+import { parseBrowserWsMessage, type BrowserInputPayload, type BrowserWsMessage } from '../../../shared/browser-ws-messages';
 import type { ElementDescription } from '../../../shared/element-describe';
 import type { RemoteField } from '../../../shared/browser-keyboard-field';
 import { serverWsBase } from '@/lib/shell/net';
@@ -13,6 +13,7 @@ import { applyContextInfo, applyNavMessage, startNavigation, type RemoteNavField
 import { apiFetch } from '../lib/shell/net';
 import { boxUnderKeyboard, onScreenKeyboardUp } from '../lib/browserFit';
 import { isTauri } from '../lib/shell';
+import { readBrowserLayout, subscribeBrowserLayout } from '../lib/browserLayoutPref';
 import { lastUserGestureAt, onUserGesture } from '../lib/userGesture';
 
 export type ConnectionState = 'connecting' | 'connected' | 'disconnected' | 'fallback-http';
@@ -135,7 +136,7 @@ interface RemoteBrowser extends RemoteBrowserState, InteractionHandlers {
    *  from the reconstructed iframe. */
   sendInput: (
     action: 'click' | 'type' | 'scroll' | 'mousemove' | 'keypress',
-    payload: { x?: number; y?: number; text?: string; key?: string; deltaX?: number; deltaY?: number; button?: 'left' | 'right' | 'middle'; node?: number; scrollTop?: number; scrollLeft?: number },
+    payload: BrowserInputPayload,
   ) => void;
   /** Menu Download della toolbar: togli UNA voce (per href) / svuota l'elenco. */
   dismissDownload: (href: string) => void;
@@ -462,7 +463,8 @@ export function useRemoteBrowser(contextId: string, isVisible = true): RemoteBro
     lastSentSizeRef.current = { w: width, h: height, dsf };
     if (connectionStateRef.current === 'connected' && wsRef.current?.readyState === WebSocket.OPEN) {
       try {
-        const msg: BrowserWsMessage = { type: 'resize', width, height, deviceScaleFactor: dsf, ...(driving ? { driving: true } : {}) };
+        // 'page' in the shell: its mirror cannot always be read, and one laid out on its own must be (lib/mirrorLayout).
+        const msg: BrowserWsMessage = { type: 'resize', width, height, deviceScaleFactor: dsf, layout: isTauri ? 'page' : readBrowserLayout(), ...(driving ? { driving: true } : {}) };
         wsRef.current.send(JSON.stringify(msg));
       } catch { /* dropped — re-sent on next reconnect/resize */ }
     }
@@ -493,6 +495,12 @@ export function useRemoteBrowser(contextId: string, isVisible = true): RemoteBro
     const { w, h } = lastSentSizeRef.current;
     return w > 0 && h > 0 ? { width: w, height: h } : null;
   }, []);
+
+  // This device changed how it shows the page: the server hears it with the size it has.
+  useEffect(() => subscribeBrowserLayout(() => {
+    const { w, h } = lastSentSizeRef.current;
+    if (w > 0 && h > 0) sendResize(w, h, { force: true });
+  }), [sendResize]);
 
   // Callback ref for the pane content element: wires a debounced (~150ms)
   // ResizeObserver that reports size changes via sendResize. Re-attaching (or
@@ -603,7 +611,7 @@ export function useRemoteBrowser(contextId: string, isVisible = true): RemoteBro
 
   const sendInput = useCallback((
     action: 'click' | 'type' | 'scroll' | 'mousemove' | 'keypress',
-    payload: { x?: number; y?: number; text?: string; key?: string; deltaX?: number; deltaY?: number; button?: 'left' | 'right' | 'middle'; node?: number; scrollTop?: number; scrollLeft?: number },
+    payload: BrowserInputPayload,
   ) => {
     // USING THE PAGE CLAIMS ITS VIEWPORT, AND THE CLAIM LEAVES AFTER THE INPUT.
     // The order is the whole point: the coordinates in `payload` were measured
