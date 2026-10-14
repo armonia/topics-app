@@ -69,6 +69,7 @@ import {
   newBrowserContextId,
 } from '../../state/pane/adapters/paneConfig';
 import { OPEN_TAB_EVENT, type OpenTabDetail } from '../../lib/openLink';
+import { toFixed } from '../../lib/fixedFrame';
 import { tauriInvoke } from '../../lib/shell/tauri';
 import { suppressTextSelection } from '../../lib/dragSelectionGuard';
 import { createAnimationFrameCoalescer, resolveTopicBrowserDragPosition } from '../../lib/topicBrowserDrag';
@@ -509,7 +510,7 @@ export function TopicBrowserWindow({ topicId, areaRef, projectPath }: TopicBrows
     const room = window.innerHeight - anchor.bottom - 12;
     const height = Math.min(window.innerHeight * 0.5, 44 * (layoutBrowsers.length + 1) + 8);
     const top = room >= height ? anchor.bottom + 4 : Math.max(8, anchor.top - 4 - height);
-    setMenuAnchor({ left, top, maxHeight: Math.min(height, window.innerHeight - 16) });
+    setMenuAnchor(toFixed({ left, top, maxHeight: Math.min(height, window.innerHeight - 16) }));
     const onKey = (ev: KeyboardEvent): void => { if (ev.key === 'Escape') setAddOpen(false); };
     window.addEventListener('keydown', onKey);
     return () => { window.removeEventListener('keydown', onKey); };

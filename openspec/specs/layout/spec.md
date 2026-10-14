@@ -1627,6 +1627,41 @@ svuotare il registro e chiudere tutto, sotto-superfici comprese.
 - **GIVEN** un popover sostituito e poi deregistrato
 - **THEN** il conto di chi lo ha sostituito NON SHALL essere scalato
 
+### Requirement: POPOVER-02 — Un popover resta sul suo bottone anche con la tastiera dell'iPad su
+
+Menu, picker, fogli delle tab, tooltip, menu contestuali, l'iframe di una pagina
+web e le anteprime di trascinamento SHALL stare dove stanno senza tastiera,
+rispetto al bottone, allo slot o al dito che li posiziona, anche quando la
+tastiera dell'iPad è aperta. Con la tastiera su, Safari accorcia il viewport e
+scorre tutta la pagina per mostrare il campo, box `fixed` compresi (422 px in
+orizzontale e 337 in verticale su un 11" con il composer in fondo, misurati il
+14/10). Il rettangolo client segue quello scroll, quindi un box `fixed` messo lì
+lo conta due volte e finisce fuori posto, spesso fuori dallo schermo.
+
+La posizione SHALL quindi essere calcolata in coordinate client, come prima, e
+SHALL essere spostata nel riferimento dei box `fixed` (`lib/fixedFrame`) solo
+quando diventa `top`/`left`/`bottom` o una traslazione. Dove quel riferimento
+coincide con la finestra (desktop, Mac, iPad senza tastiera) NON SHALL cambiare
+nulla.
+
+Fuori da questo requisito: i fogli dal basso del layout mobile, anche quello di
+un iPad in verticale, che non si posizionano da un rettangolo.
+
+#### Scenario: un comando digitato apre il suo pannello con la tastiera su
+- **GIVEN** un iPad in orizzontale con la tastiera della chat aperta
+- **WHEN** si apre il menu «+» del composer, il pannello dell'autonomia o
+  l'ispettore del contesto
+- **THEN** il pannello SHALL stare rispetto al suo bottone dove sta senza tastiera
+
+#### Scenario: la finestra del browser del topic con la tastiera su
+- **GIVEN** la stessa tastiera aperta
+- **WHEN** è aperto il foglio di una tab della finestra, o si apre il suo menu «+»
+- **THEN** il foglio SHALL restare appeso alla tab e il menu accanto al «+»
+
+#### Scenario: la pagina di un pannello browser nell'iframe
+- **GIVEN** la stessa tastiera aperta e una pagina che il Mac non ospita
+- **THEN** l'iframe SHALL continuare a coprire esattamente lo slot del suo pannello
+
 ### Requirement: SCROLLDELTA-01 — Si scorre di quel tanto che basta, e non si scorre se è già dentro
 
 Il calcolo dello scorrimento verso un bersaglio SHALL restituire ZERO quando il

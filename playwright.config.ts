@@ -422,6 +422,8 @@ export default defineConfig({
         // An iPad lying down with a finger (its own `hasTouch` and viewport): the
         // keyboard that took the topic's browser away is Safari's, so `webkit` only.
         "**/topic-browser-window-keyboard.spec.ts",
+        // Same iPad, same keyboard: the menus and sheets opened while typing.
+        "**/ipad-keyboard-popovers.spec.ts",
         // Le due che mancavano. `sidebar-pin-drag-touch` è nel `testMatch` di
         // `chromium-touch` e `tab-close-ring-touch` in quello di
         // `chromium-touch-wide`, ma un `testMatch` altrove non ESCLUDE nulla
@@ -619,6 +621,8 @@ export default defineConfig({
         // An iPad's keyboard for the chat leaves the topic's browser window beside
         // the chat: the page Safari scrolls under the fixed window, where it ships.
         "**/topic-browser-window-keyboard.spec.ts",
+        // The menus, pickers and sheets opened with that keyboard up stay on their buttons.
+        "**/ipad-keyboard-popovers.spec.ts",
         // Pane tabs adapt to the width of their split cell, measured on the shipped engine.
         "**/tab-bar-density.spec.ts",
         "**/sender-sees-question.spec.ts",

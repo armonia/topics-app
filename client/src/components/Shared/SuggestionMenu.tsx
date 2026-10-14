@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom';
 import { Search } from 'lucide-react';
 import { POPOVER_PANEL, Z_POPOVER } from '@/lib/popoverStyles';
 import { computeMenuPosition } from '@/lib/popoverPosition';
+import { toFixed } from '@/lib/fixedFrame';
 import { useDismissable } from '@/hooks/useDismissable';
 import { useExitGhost } from '@/lib/exitGhost';
 import { Spinner } from './Spinner';
@@ -132,7 +133,7 @@ export function SuggestionMenu<T>({
         { width: panel.offsetWidth, height: panel.offsetHeight },
         { align: 'left' },
       );
-      setPos({ top: next.top, left: next.left });
+      setPos(toFixed({ top: next.top, left: next.left }));
     };
     place();
     window.addEventListener('resize', place);

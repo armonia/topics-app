@@ -22,6 +22,7 @@ import { SlidersHorizontal, RotateCcw } from 'lucide-react';
 import { useDismissable } from '@/hooks/useDismissable';
 import { POPOVER_PANEL, POPOVER_MARGIN, Z_POPOVER } from '@/lib/popoverStyles';
 import { useExitGhost } from '@/lib/exitGhost';
+import { toFixed } from '@/lib/fixedFrame';
 import { useProvidersSnapshot } from '@/hooks/useProvidersSnapshot';
 import {
   EFFORT_TIERS,
@@ -60,7 +61,7 @@ export function SessionConfigPopover({
 }: SessionConfigPopoverProps) {
   const tr = useT();
   const [open, setOpen] = useState(false);
-  const [pos, setPos] = useState<{ top: number; left: number } | null>(null);
+  const [pos, setPos] = useState<{ top: number; left: number; maxHeight: number } | null>(null);
   const btnRef = useRef<HTMLButtonElement>(null);
   const panelRef = useRef<HTMLDivElement>(null);
 
@@ -99,13 +100,17 @@ export function SessionConfigPopover({
   const placePanel = () => {
     const r = btnRef.current?.getBoundingClientRect();
     if (!r) return;
-    setPos({
-      top: Math.max(POPOVER_MARGIN, r.top - 8),
+    const top = Math.max(POPOVER_MARGIN, r.top - 8);
+    setPos(toFixed({
+      top,
       left: Math.max(
         POPOVER_MARGIN,
         Math.min(r.left, window.innerWidth - PANEL_W - POPOVER_MARGIN),
       ),
-    });
+      // The room above the button is what the eye sees: measured in client
+      // coordinates, so it does not move into the fixed frame with `top`.
+      maxHeight: top - POPOVER_MARGIN,
+    }));
   };
   // A typed `/effort` opens this panel, the one place the effort is set.
   // Opened by the command, the focus goes inside, on the slider (CMDUI-02).
@@ -193,7 +198,7 @@ export function SessionConfigPopover({
             left: pos.left,
             width: PANEL_W,
             transform: 'translateY(-100%)',
-            maxHeight: `calc(${pos.top}px - ${POPOVER_MARGIN}px)`,
+            maxHeight: pos.maxHeight,
             zIndex: Z_POPOVER,
           }}
           data-testid="chat-session-config-panel"
