@@ -1,7 +1,24 @@
 [
   {
-    "version": "2.2.494",
+    "version": "2.2.495",
     "date": "2026-10-14",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "l'iPad che usa una pagina del Mac la riceve alla sua misura, 1:1 (#309)",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        }
+      ]
+    }
+  },
+  {
+    "version": "2.2.494",
+    "date": "2026-10-13",
     "sections": {
       "new": [],
       "fixes": [],

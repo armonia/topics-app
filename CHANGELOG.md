@@ -2,7 +2,12 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
-## 2.2.494 — 2026-10-14
+## 2.2.495 — 2026-10-14
+
+### Sotto il cofano
+- l'iPad che usa una pagina del Mac la riceve alla sua misura, 1:1 (#309)
+
+## 2.2.494 — 2026-10-13
 
 ### Sotto il cofano
 - una pagina che non arriva dice dove stava andando e perché (#308)
