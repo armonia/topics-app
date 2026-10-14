@@ -12,6 +12,8 @@ import { appendStreamConsole, tallyConsole } from '../components/Browser/streamC
 import { applyContextInfo, applyNavMessage, startNavigation, type RemoteNavFields } from './remoteNavState';
 import { apiFetch } from '../lib/shell/net';
 import { boxUnderKeyboard, onScreenKeyboardUp } from '../lib/browserFit';
+import { isTauri } from '../lib/shell';
+import { lastUserGestureAt, onUserGesture } from '../lib/userGesture';
 
 export type ConnectionState = 'connecting' | 'connected' | 'disconnected' | 'fallback-http';
 
@@ -192,6 +194,33 @@ const WEBRTC_CONNECT_TIMEOUT_MS = 15000;
 const INPUT_ACK_TIMEOUT_MS = 250;
 /** At most one viewport claim per second while the user keeps interacting. */
 const VIEWPORT_CLAIM_INTERVAL_MS = 1000;
+/**
+ * How long after a gesture this device still counts as the one in use when a
+ * pane comes on screen or its socket opens. Long enough for the socket a tap
+ * opened to connect through the tunnel; short enough that a reconnect long
+ * after the person moved to the Mac does not take the page back.
+ */
+const RECENT_GESTURE_MS = 5000;
+/**
+ * Whether using this device, and not only the page, claims a shared page.
+ * Not in the desktop shell: it hosts the pages it shows natively and takes
+ * them back with input to its own page (`host_local_use`), so its remote panes
+ * keep claiming on input to the page alone.
+ */
+const CLAIMS_ON_DEVICE_USE = !isTauri;
+
+function usedJustNow(): boolean {
+  return Date.now() - lastUserGestureAt() < RECENT_GESTURE_MS;
+}
+
+/** Marks a pane's page area with the context it shows (RemoteBrowserPanel). */
+const BROWSER_PAGE_ATTR = 'data-browser-page';
+
+/** The context whose page area `target` is in, if any. */
+function pageUnder(target: EventTarget | null): string | null {
+  const area = (target as Element | null)?.closest?.(`[${BROWSER_PAGE_ATTR}]`);
+  return area?.getAttribute(BROWSER_PAGE_ATTR) ?? null;
+}
 
 /** The pane's box as it reports it: a height the on-screen keyboard took away stays (browserFit). */
 function paneBox(el: HTMLElement, last: { w: number; h: number }): { w: number; h: number } {
@@ -717,6 +746,14 @@ export function useRemoteBrowser(contextId: string, isVisible = true): RemoteBro
       if (!watchingRef.current) {
         try { ws.send(JSON.stringify({ type: 'set_watching', active: false } satisfies BrowserWsMessage)); } catch { /* dropped */ }
       }
+      // A socket that a tap just opened, or that came back while the person was
+      // using this device, claims the page at once. Waiting for a touch on the
+      // page showed the other device's layout until then. A fresh socket has
+      // claimed nothing yet, so the throttle starts over.
+      if (CLAIMS_ON_DEVICE_USE && watchingRef.current && usedJustNow()) {
+        lastViewportClaimRef.current = 0;
+        claimViewport();
+      }
       // Option A: DOM is the default surface, so RE-ASSERT it on every (re)connect —
       // the server defaults a fresh connection to the pixel stream. This makes the
       // server enable DOM mode, pause this viewer's screencast, and re-send the
@@ -1150,7 +1187,7 @@ export function useRemoteBrowser(contextId: string, isVisible = true): RemoteBro
     };
     // engineEpoch: a change (engine switch) tears down + reopens the WS so the
     // server recreates the context on the newly-selected engine.
-  }, [contextId, encodedId, updateConnectionState, clearLoadingWatchdog, armLoadingWatchdog, fetchInfo, sendResize, engineEpoch, settleInputAck]);
+  }, [contextId, encodedId, updateConnectionState, clearLoadingWatchdog, armLoadingWatchdog, fetchInfo, sendResize, engineEpoch, settleInputAck, claimViewport]);
 
   // P3-3b: a hidden pane must also drop the WebRTC pixel track — set_stream only
   // pauses the JPEG screencast, not the H.264 transport. Pause the peer when the
@@ -1455,7 +1492,28 @@ function rememberFramable(url: string, framable: boolean): void {
         wsRef.current.send(JSON.stringify(msg));
       } catch { /* socket gone — re-asserted on next onopen */ }
     }
-  }, []);
+    // A pane a tap brought on screen (its tab, picked) claims the page the way a
+    // touch on it would: the person is on this device now.
+    if (active && CLAIMS_ON_DEVICE_USE && usedJustNow()) claimViewport();
+  }, [claimViewport]);
+
+  // Any gesture on this device claims the page this pane shows on screen: the
+  // page is laid out for the device in use. One claim per page per gesture, so
+  // two panes on the same page do not trade it on every tap.
+  //
+  // Except a gesture ON this page, in any of its panes: that is input to the
+  // page, and the pane claims it after delivering the input (claimAfterInput).
+  // Claiming here, on pointerdown, reflowed the page under the tap before the
+  // click arrived, and the click landed on whatever moved there.
+  useEffect(() => {
+    if (!CLAIMS_ON_DEVICE_USE) return undefined;
+    return onUserGesture((gesture) => {
+      if (!watchingRef.current || !containerElRef.current || gesture.claimed.has(contextId)) return;
+      if (pageUnder(gesture.target) === contextId) return;
+      gesture.claimed.add(contextId);
+      claimViewport();
+    });
+  }, [contextId, claimViewport]);
 
   // WebRTC error → Riprova: reset the retry budget, clear the error, renegotiate.
   const retryWebrtc = useCallback(() => {

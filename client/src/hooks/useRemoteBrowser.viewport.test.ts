@@ -45,6 +45,7 @@ mock.module('@/lib/shell/net', () => ({
 afterAll(() => { mock.module('@/lib/shell/net', () => realNet); });
 
 const { useRemoteBrowser } = await import('./useRemoteBrowser');
+const { __noteUserGestureForTests, __resetUserGestureForTests } = await import('../lib/userGesture');
 
 const g = globalThis as unknown as Record<string, unknown>;
 
@@ -97,6 +98,7 @@ beforeEach(() => {
   sockets = [];
   pane = null;
   mounted = [];
+  __resetUserGestureForTests();
   for (const k of ['WebSocket', 'window', 'document', 'fetch', 'ResizeObserver', 'RTCPeerConnection', 'devicePixelRatio', 'sessionStorage']) {
     saved[k] = g[k];
   }
@@ -153,7 +155,7 @@ function paneName(socket: FakeSocket): string {
  * Returns the socket, already carrying the first `resize` the pane streams on
  * attach: the state this test is about starts AFTER that one.
  */
-function openPane(): FakeSocket {
+function openPane(beforeOpen?: () => void): FakeSocket {
   // The container is attached from an EFFECT, the way a rendered pane attaches
   // it: reaching the hook's handle out of the render to poke it from here is a
   // mutation during render, and the compiler refuses it.
@@ -169,6 +171,7 @@ function openPane(): FakeSocket {
   mounted.push(mount(React.createElement(Probe)));
   const socket = sockets[sockets.length - 1];
   if (!socket) throw new Error('useRemoteBrowser did not open a socket');
+  beforeOpen?.();
   // The size goes out on open: while the socket was still connecting there was
   // nowhere to put it.
   socket.open();
@@ -241,4 +244,118 @@ test('using the page claims its viewport: the resize after an input says driving
   const quiet = resizeFrames(socket).length;
   pane?.sendInput('mousemove', { x: 13, y: 35 });
   expect(resizeFrames(socket).length, 'il mouse che passa rivendica la pagina').toBe(quiet);
+});
+
+// THE DEVICE IN USE, NOT ONLY THE PAGE IN USE.
+//
+// Opening a shared page on the iPad showed the Mac's layout until the first
+// touch on the page itself: the tap that opened the tab landed on the tab
+// strip, and nothing counted it. These tests drive the device's gesture clock
+// (lib/userGesture) the way a trusted tap does and read the frames the pane
+// sends.
+
+/** The `resize` frames that claim the page. */
+function claims(socket: FakeSocket): { width: number; height: number; driving?: boolean }[] {
+  return resizeFrames(socket).filter((frame) => frame.driving === true);
+}
+
+test('a pane a tap just opened claims the page as soon as its socket opens', () => {
+  __noteUserGestureForTests();
+  const socket = openPane();
+  const claimed = claims(socket);
+  expect(claimed.length, "la pane aperta da un tocco non ha preso la pagina: l'iPad vede l'impaginazione del Mac").toBe(1);
+  expect(claimed[0]).toMatchObject({ width: PANE_WIDTH, height: PANE_HEIGHT });
+});
+
+test('a pane nobody opened by hand (boot, reload) only says its size', () => {
+  const socket = openPane();
+  expect(resizeFrames(socket).length, 'la pane non ha detto la sua misura').toBeGreaterThan(0);
+  expect(claims(socket), 'una pane aperta senza nessun tocco ha preso la pagina al Mac').toEqual([]);
+});
+
+test('a socket that reopens long after the last touch does not take the page back', () => {
+  // The person used this device ten seconds ago, then moved to the Mac.
+  __noteUserGestureForTests(Date.now() - 10_000);
+  const socket = openPane();
+  expect(claims(socket), "un riconnettersi tardivo ha strappato la pagina a chi la sta usando").toEqual([]);
+});
+
+test('a tap anywhere on this device claims the page this pane shows', () => {
+  const socket = openPane();
+  expect(claims(socket)).toEqual([]);
+  __noteUserGestureForTests();
+  const claimed = claims(socket);
+  expect(claimed.length, 'un tocco su questo dispositivo non ha preso la pagina').toBe(1);
+  expect(claimed[0]).toMatchObject({ width: PANE_WIDTH, height: PANE_HEIGHT });
+});
+
+test('a pane off screen does not claim on a tap', () => {
+  const socket = openPane();
+  pane?.setWatching(false);
+  __noteUserGestureForTests();
+  expect(claims(socket), 'una pane fuori dallo schermo ha preso la pagina').toEqual([]);
+});
+
+test('a pane a tap brings on screen claims the page', () => {
+  const socket = openPane();
+  pane?.setWatching(false);
+  // Back on screen with nobody touching anything: a layout change, not a person.
+  pane?.setWatching(true);
+  expect(claims(socket), 'una pane tornata sullo schermo da sola ha preso la pagina').toEqual([]);
+
+  pane?.setWatching(false);
+  __noteUserGestureForTests();
+  pane?.setWatching(true);
+  expect(claims(socket).length, 'la pane portata sullo schermo da un tocco non ha preso la pagina').toBe(1);
+});
+
+test('two panes on the same page: one tap, one claim', () => {
+  const first = openPane();
+  const second = openPane();
+  __noteUserGestureForTests();
+  expect(
+    claims(first).length + claims(second).length,
+    'due pane della stessa pagina se la contendono a ogni tocco',
+  ).toBe(1);
+});
+
+test('a pane off screen whose socket opens right after a tap does not claim', () => {
+  const socket = openPane(() => {
+    pane?.setWatching(false);
+    __noteUserGestureForTests();
+  });
+  expect(claims(socket), 'una pane fuori dallo schermo ha preso la pagina riconnettendosi').toEqual([]);
+});
+
+test('a tap while the socket is down claims the page when it comes back', async () => {
+  // The iPad waking up: the socket died while it slept, and the tap that woke
+  // it lands while the pane is still reconnecting.
+  const dead = openPane();
+  dead.readyState = FakeSocket.CLOSED;
+  dead.onclose?.();
+  const deadline = Date.now() + 3000;
+  while (sockets.length < 2 && Date.now() < deadline) await new Promise((resolve) => setTimeout(resolve, 20));
+  const back = sockets[sockets.length - 1];
+  expect(back, 'la pane non si e\' riconnessa').not.toBe(dead);
+  __noteUserGestureForTests();
+  back?.open();
+  expect(back ? claims(back).length : 0, "il tocco che ha svegliato l'iPad non ha preso la pagina").toBe(1);
+});
+
+/** An element inside the page area of `contextId`, as RemoteBrowserPanel marks it. */
+function onPageOf(contextId: string): EventTarget {
+  const area = { getAttribute: (name: string) => (name === 'data-browser-page' ? contextId : null) };
+  return { closest: (selector: string) => (selector === '[data-browser-page]' ? area : null) } as unknown as EventTarget;
+}
+
+test("a tap on this page is the page's input: its pane claims it after the input, not on the tap", () => {
+  const socket = openPane();
+  // The pointerdown of a tap ON the page. Claiming here reflowed the page
+  // before the click reached it, and the click landed on whatever moved there.
+  __noteUserGestureForTests(Date.now(), onPageOf('ctx-shared'));
+  expect(claims(socket), 'il tocco sulla pagina ha reimpaginato prima che il click arrivasse').toEqual([]);
+
+  // A tap on ANOTHER page is still this device in use.
+  __noteUserGestureForTests(Date.now(), onPageOf('ctx-other'));
+  expect(claims(socket).length, "un tocco su un'altra pagina non conta come uso del dispositivo").toBe(1);
 });

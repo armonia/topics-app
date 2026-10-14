@@ -336,4 +336,41 @@ test.describe("Native pane as the mirror host", () => {
     await expect.poll(async () => (await sizes()).at(-1), { timeout: 5_000 }).toEqual({ type: "host_viewport" });
     await hostPage.close();
   });
+
+  // Before: opening the page on the iPad showed the Mac's layout until the first
+  // touch ON the page (reported 14/10: the iPad got the Mac's resolution, not
+  // its own). Using the device is using the page it shows.
+  test("a tap anywhere on the device lays the page out at this pane's size, with no input to the page", async ({ page, context, request }) => {
+    const ctx = `e2e-host-device-use-${Date.now()}`;
+    const hostPage = await context.newPage();
+    const stamp = Date.now() - 60_000;
+    const macPage = [{ type: 4, timestamp: stamp, data: { href: HOST_URL, width: 1600, height: 1000 } }, ...tallPage(stamp).slice(1)];
+    await startFakeHost(hostPage, ctx, macPage);
+    await resetPaneStore(request, [`browser:${ctx}`]);
+    await goToApp(page);
+    const dom = page.locator('[data-testid="browser-dom-cobrowse"]').first();
+    await expect(dom.frameLocator("iframe").locator("#tall")).toContainText("TALL", { timeout: 10_000 });
+
+    const sizes = async () => (await hostFrames(hostPage) as { type?: string; width?: number; height?: number }[])
+      .filter((f) => f.type === "host_viewport");
+    const transform = () => dom.evaluate((el) => (el.querySelector(".replayer-wrapper") as HTMLElement | null)?.style.transform ?? "");
+    // Loaded with nobody touching anything: the page stays the Mac's.
+    expect(await sizes()).toEqual([]);
+
+    // A tap on the page's title in Topics, not on the page.
+    await page.getByText("Hosted", { exact: true }).first().click();
+    await expect.poll(async () => (await sizes()).length, { timeout: 5_000 }).toBe(1);
+    const own = (await sizes())[0];
+    const pane = await dom.evaluate((el) => ({ width: el.clientWidth, height: el.clientHeight }));
+    expect(Math.abs(own.width! - pane.width)).toBeLessThanOrEqual(2);
+    expect(Math.abs(own.height! - pane.height)).toBeLessThanOrEqual(2);
+    expect((await hostFrames(hostPage)).filter((f) => f.type === "host_input"), "the tap reached the page").toEqual([]);
+
+    // The Mac lays it out there, and this device sees it 1:1.
+    await hostSend(hostPage, { type: "host_dom_events", events: [
+      { type: 3, timestamp: Date.now(), data: { source: 4, width: own.width, height: own.height } },
+    ] });
+    await expect.poll(transform, { timeout: 2_000 }).toMatch(/^translate\(\d+px(, 0px)?\) scale\(1\)$/);
+    await hostPage.close();
+  });
 });
