@@ -33,8 +33,10 @@ hermetic(test);
 const MAC = { width: 1200, height: 800 };
 /** Narrower than this, the page lays itself out for a narrow screen. */
 const NARROW_BELOW = 1100;
-/** The mirror holds the page's echoes this long after its last move (DomCoBrowse). */
+/** The mirror holds the page's echoes this long after its last move (lib/mirrorScroll). */
 const HOLD_MS = 600;
+/** And an echo that is not the place it relayed until this long after the relay, then applies it. */
+const CONFIRM_MS = 2000;
 /** Where the reading line of a scroll is, down the visible height (lib/mirrorLayout). */
 const READING_LINE = 0.25;
 
@@ -98,7 +100,7 @@ async function openViewer(page: Page, request: Parameters<typeof resetPaneStore>
  * stops exactly `step * steps` further down.
  */
 async function swipe(page: Page, step: number, steps: number, restMs = 0): Promise<{ atEnd: number; after: number[] }> {
-  return page.evaluate(async ({ step, steps, restMs, holdMs }) => {
+  return page.evaluate(async ({ step, steps, restMs, watchMs }) => {
     const overlay = document.querySelector('[data-testid="browser-dom-input-overlay"]') as HTMLElement;
     const doc = (document.querySelector('[data-testid="browser-dom-cobrowse"] iframe') as HTMLIFrameElement).contentDocument!;
     const read = () => doc.scrollingElement!.scrollTop;
@@ -131,14 +133,14 @@ async function swipe(page: Page, step: number, steps: number, restMs = 0): Promi
     }
     const atEnd = read();
     const after: number[] = [];
-    const until = performance.now() + holdMs * 2 + 400;
+    const until = performance.now() + watchMs;
     while (performance.now() < until) {
       await frame();
       const now = read();
       if (now !== (after.at(-1) ?? atEnd)) after.push(now);
     }
     return { atEnd, after };
-  }, { step, steps, restMs, holdMs: HOLD_MS });
+  }, { step, steps, restMs, watchMs: CONFIRM_MS + HOLD_MS });
 }
 
 /** Tap the mirror on the element `k`, at the middle of its box, the way a finger does. */

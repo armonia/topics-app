@@ -31,6 +31,8 @@ hermetic(test);
 const HOST_SIZE = { width: 1000, height: 700 };
 /** The mirror holds the page's echoes this long after its last move (DomCoBrowse). */
 const HOLD_MS = 600;
+/** And an echo that is not the place it relayed until this long after the relay, then applies it (lib/mirrorScroll). */
+const CONFIRM_MS = 2000;
 
 const ROWS = Array.from({ length: 300 }, (_, i) => `<p style="margin:0;height:40px;border-bottom:1px solid #ccc">Row ${i}</p>`).join("");
 
@@ -82,7 +84,7 @@ interface Swipe {
  * desktop does not construct real ones.
  */
 async function swipe(page: Page, opts: { finger?: boolean; step: number; steps: number; inner?: boolean }): Promise<Swipe> {
-  return page.evaluate(async ({ finger, step, steps, inner, holdMs }) => {
+  return page.evaluate(async ({ finger, step, steps, inner, holdMs, confirmMs }) => {
     const overlay = document.querySelector('[data-testid="browser-dom-input-overlay"]') as HTMLElement;
     const doc = (document.querySelector('[data-testid="browser-dom-cobrowse"] iframe') as HTMLIFrameElement).contentDocument!;
     const read = () => (inner ? doc.getElementById("inner")!.scrollTop : doc.scrollingElement!.scrollTop);
@@ -121,14 +123,14 @@ async function swipe(page: Page, opts: { finger?: boolean; step: number; steps: 
     // What the hold releases cannot be waited for, only watched: through it and
     // as long again, every position the mirror takes is recorded.
     const after: number[] = [];
-    const until = performance.now() + holdMs * 2 + 400;
+    const until = performance.now() + holdMs + confirmMs;
     while (performance.now() < until) {
       await frame();
       const now = read();
       if (now !== (after.at(-1) ?? atEnd)) after.push(now);
     }
     return { atEnd, after };
-  }, { finger: opts.finger ?? false, step: opts.step, steps: opts.steps, inner: opts.inner ?? false, holdMs: HOLD_MS });
+  }, { finger: opts.finger ?? false, step: opts.step, steps: opts.steps, inner: opts.inner ?? false, holdMs: HOLD_MS, confirmMs: CONFIRM_MS });
 }
 
 test.describe("A scroll on the mirror lands where the finger left it", () => {
