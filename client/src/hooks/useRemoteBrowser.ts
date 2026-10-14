@@ -402,6 +402,8 @@ export function useRemoteBrowser(contextId: string, isVisible = true): RemoteBro
   // very much being watched. Re-asserted on every (re)connect (server default:
   // watching).
   const watchingRef = useRef(true);
+  /** When this pane's last open socket dropped. A gesture before that was already answered. */
+  const socketDroppedAtRef = useRef(0);
   // See NAV_LOADING_TIMEOUT_MS — force-clears a stuck `loading` if the nav
   // completion signal never arrives.
   const loadingWatchdogRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -695,8 +697,10 @@ export function useRemoteBrowser(contextId: string, isVisible = true): RemoteBro
     // viewerCountBus): announced on open, withdrawn on close, per socket so a
     // superseded one withdraws only itself.
     let detachViewerChannel: (() => void) | null = null;
+    let opened = false;
     ws.onopen = () => {
       if (!mountedRef.current || wsRef.current !== ws) return;
+      opened = true;
       if (reconnectTimer) { clearTimeout(reconnectTimer); reconnectTimer = null; }
       updateConnectionState('connected');
       detachViewerChannel = attachViewerChannel(contextId);
@@ -748,9 +752,12 @@ export function useRemoteBrowser(contextId: string, isVisible = true): RemoteBro
       }
       // A socket that a tap just opened, or that came back while the person was
       // using this device, claims the page at once. Waiting for a touch on the
-      // page showed the other device's layout until then. A fresh socket has
-      // claimed nothing yet, so the throttle starts over.
-      if (CLAIMS_ON_DEVICE_USE && watchingRef.current && usedJustNow()) {
+      // page showed the other device's layout until then. Only a gesture made
+      // after the drop counts: one made before it was answered then, and since
+      // then the Mac may have taken the page back (a server restart reconnects
+      // every socket at once). A fresh socket has claimed nothing yet, so the
+      // throttle starts over.
+      if (CLAIMS_ON_DEVICE_USE && watchingRef.current && usedJustNow() && lastUserGestureAt() > socketDroppedAtRef.current) {
         lastViewportClaimRef.current = 0;
         claimViewport();
       }
@@ -973,6 +980,7 @@ export function useRemoteBrowser(contextId: string, isVisible = true): RemoteBro
       detachViewerChannel?.();
       detachViewerChannel = null;
       if (!mountedRef.current || wsRef.current !== ws) return;
+      if (opened) socketDroppedAtRef.current = Date.now();
       updateConnectionState('disconnected');
       // A SOCKET THAT DIED IS NOT REPORTING AN AGENT ANY MORE.
       //

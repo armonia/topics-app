@@ -359,3 +359,20 @@ test("a tap on this page is the page's input: its pane claims it after the input
   __noteUserGestureForTests(Date.now(), onPageOf('ctx-other'));
   expect(claims(socket).length, "un tocco su un'altra pagina non conta come uso del dispositivo").toBe(1);
 });
+
+test('a socket that drops right after a touch does not take the page back when it reopens', async () => {
+  // A touch on the iPad, answered at once: this pane claimed the page.
+  const first = openPane();
+  __noteUserGestureForTests();
+  expect(claims(first).length).toBe(1);
+  // Then the person used the Mac, which took the page back, and the server
+  // restarted: every socket reconnects within the 5 s of that old touch.
+  first.readyState = FakeSocket.CLOSED;
+  first.onclose?.();
+  const deadline = Date.now() + 3000;
+  while (sockets.length < 2 && Date.now() < deadline) await new Promise((resolve) => setTimeout(resolve, 20));
+  const back = sockets[sockets.length - 1];
+  expect(back, 'la pane non si e\' riconnessa').not.toBe(first);
+  back?.open();
+  expect(back ? claims(back) : [], 'un tocco gia\' servito prima della caduta ha ripreso la pagina al Mac').toEqual([]);
+});
