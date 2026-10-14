@@ -135,7 +135,7 @@ interface RemoteBrowser extends RemoteBrowserState, InteractionHandlers {
    *  from the reconstructed iframe. */
   sendInput: (
     action: 'click' | 'type' | 'scroll' | 'mousemove' | 'keypress',
-    payload: { x?: number; y?: number; text?: string; key?: string; deltaX?: number; deltaY?: number; button?: 'left' | 'right' | 'middle' },
+    payload: { x?: number; y?: number; text?: string; key?: string; deltaX?: number; deltaY?: number; button?: 'left' | 'right' | 'middle'; node?: number; scrollTop?: number; scrollLeft?: number },
   ) => void;
   /** Menu Download della toolbar: togli UNA voce (per href) / svuota l'elenco. */
   dismissDownload: (href: string) => void;
@@ -603,7 +603,7 @@ export function useRemoteBrowser(contextId: string, isVisible = true): RemoteBro
 
   const sendInput = useCallback((
     action: 'click' | 'type' | 'scroll' | 'mousemove' | 'keypress',
-    payload: { x?: number; y?: number; text?: string; key?: string; deltaX?: number; deltaY?: number; button?: 'left' | 'right' | 'middle' },
+    payload: { x?: number; y?: number; text?: string; key?: string; deltaX?: number; deltaY?: number; button?: 'left' | 'right' | 'middle'; node?: number; scrollTop?: number; scrollLeft?: number },
   ) => {
     // USING THE PAGE CLAIMS ITS VIEWPORT, AND THE CLAIM LEAVES AFTER THE INPUT.
     // The order is the whole point: the coordinates in `payload` were measured

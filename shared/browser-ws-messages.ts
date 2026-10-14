@@ -35,6 +35,11 @@ const inputPayloadSchema = z.object({
   deltaX: z.optional(z.number()),
   deltaY: z.optional(z.number()),
   button: z.optional(inputButtonSchema),
+  // A scroll the viewer's mirror already made: the rrweb id of what it
+  // scrolled and where it put it, so the page lands on the same pixel.
+  node: z.optional(z.number()),
+  scrollTop: z.optional(z.number()),
+  scrollLeft: z.optional(z.number()),
 });
 
 const frameMetadataSchema = z.object({
