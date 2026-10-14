@@ -2,6 +2,11 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.2.501 — 2026-10-14
+
+### Sotto il cofano
+- L'autofetch di git si spegne davvero dopo due fallimenti (#317)
+
 ## 2.2.500 — 2026-10-14
 
 ### Sotto il cofano
