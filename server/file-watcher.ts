@@ -27,6 +27,8 @@ import { existsSync, watch } from "fs";
 import type { AppContext } from "./types";
 import { refreshGitStatus } from "./git-watcher";
 import { reachesProtectedAppData } from "./lib/protected-app-data";
+import { invalidateFileTreeCache, setFileTreeWatcher } from "./lib/file-tree-cache";
+import { setGitStatusFileWatcher } from "./lib/git-status-cache";
 
 const DEBOUNCE_MS = 300;
 /**
@@ -107,6 +109,7 @@ export function watchProjectFiles(projectPath: string, ctx: AppContext): void {
     if (closed) return;
     const rel = filename == null ? null : filename.toString();
     if (isNoisy(rel)) return;
+    invalidateFileTreeCache(projectPath);
     if (timer) clearTimeout(timer);
     timer = setTimeout(() => {
       timer = null;
@@ -133,6 +136,8 @@ export function watchProjectFiles(projectPath: string, ctx: AppContext): void {
         try { w.close(); } catch {}
       },
     });
+    setFileTreeWatcher(projectPath, true);
+    setGitStatusFileWatcher(projectPath, true);
   } catch {
     // Nessun watcher: nessun `files:changed`. Il bottone Aggiorna resta.
   }
@@ -149,6 +154,8 @@ export function watchedProjectPaths(): string[] {
 }
 
 export function unwatchProjectFiles(projectPath: string): void {
+  setFileTreeWatcher(projectPath, false);
+  setGitStatusFileWatcher(projectPath, false);
   const w = watchers.get(projectPath);
   if (w) {
     w.close();

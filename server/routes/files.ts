@@ -15,7 +15,8 @@ import { NAME_STATUS_ARGS, SHOW_NUMSTAT_ARGS, COMMIT_META_ARGS, mergeCommitFiles
 import { parseUnifiedDiff, buildPatch, summarizeHunks } from "../lib/git-hunks";
 import { stagedEntries, buildSystemPrompt, buildUserPrompt, rulesFallback, usableMessage } from "../lib/commit-message";
 import { getProvider } from "../providers";
-import { HEAVY_DIRS, walkFileTree } from "../lib/file-tree";
+import { HEAVY_DIRS } from "../lib/file-tree";
+import { getFileTree } from "../lib/file-tree-cache";
 import { isProtectedFromWalk, protectedDirExcludes } from "../lib/protected-app-data";
 // La cache dello stato git vive in `lib/` e non qui: la riempie questa route,
 // ma a invalidarla è `git-watcher`, e finché la funzione stava in questo file
@@ -202,7 +203,7 @@ export function createFilesRouter(ctx: AppContext): RouteHandler {
       // Idempotente, come `watchGitDir` da `/api/git/status`: chiedere l'albero
       // è anche il momento in cui si comincia a osservarlo.
       watchProjectFiles(resolvedPath, ctx);
-      return json(await walkFileTree(resolvedPath, depth));
+      return json(await getFileTree(resolvedPath, depth));
     }
 
     // --- File search (grep) ---
