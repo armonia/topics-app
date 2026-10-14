@@ -389,6 +389,9 @@ const WARMUP = 5;
  */
 const MAX_LOAD_PER_CORE = 0.5;
 
+/** How long a recording waits for the machine to settle after seeding. */
+const CALM_WAIT_MS = 180_000;
+
 /**
  * Is the machine too loaded to RECORD a baseline? Pure, so the case can be
  * exercised without actually loading a Mac down: it is the only way to see this
@@ -804,6 +807,23 @@ async function main(): Promise<void> {
       { key: "system_status", path: "/api/system/status", ok: (b) => typeof b?.server?.uptimeMs === "number" },
     ];
 
+    // THE LOAD THAT DISQUALIFIES A RECORDING IS THE OTHERS', read BEFORE the
+    // passes. It used to be read after them, so it included the bench itself:
+    // since `files` walks 5,000 entries (about 250 ms a call, 80 calls) a 4-core
+    // CI runner ended every recording at 0.64 per core and the baseline was
+    // never written (run 38638600956). Seeding loads the machine too, so the
+    // recording waits for the 1-minute average to settle, up to a bound.
+    const cores = Math.max(1, cpus().length);
+    let loadBefore = loadavg()[0] ?? 0;
+    if (update && machineTooLoaded(loadBefore, cores)) {
+      log(`\n▸ load ${round2(loadBefore / cores)} per core: aspetto che scenda sotto ${MAX_LOAD_PER_CORE} (al massimo ${CALM_WAIT_MS / 1000} s).`);
+      const until = Date.now() + CALM_WAIT_MS;
+      while (machineTooLoaded(loadBefore, cores) && Date.now() < until) {
+        await new Promise((r) => setTimeout(r, 5_000));
+        loadBefore = loadavg()[0] ?? 0;
+      }
+    }
+
     const passA = await runPass(base, probes, samples);
     const passB = await runPass(base, probes, samples);
     // Between the two passes the WORST one is kept: if a route is slow in even
@@ -843,8 +863,7 @@ async function main(): Promise<void> {
       // `unstableRoutes` stayed quiet: the A-against-B comparison sees the
       // jitter, not the UNIFORM load. A number like that does not widen the
       // threshold a little, it disarms it for good.
-      const cores = Math.max(1, cpus().length);
-      const load1 = loadavg()[0] ?? 0;
+      const load1 = loadBefore;
       if (machineTooLoaded(load1, cores)) {
         log(`\n✗ Non registro una baseline con la macchina sotto carico:`);
         log(`  load average ${round2(load1)} su ${cores} core = ${round2(load1 / cores)} per core (tetto ${MAX_LOAD_PER_CORE}).`);
