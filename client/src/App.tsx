@@ -89,6 +89,7 @@ import { seedBrowserPaneInitialUrl } from './state/pane/browserPaneUrl';
 import { isUtilityPanelType, utilityPanelId } from './state/pane/adapters/utilityPanelId';
 
 import { TopicTree } from './components/Sidebar/TopicTree';
+import { AppInteractiveMark } from './lib/appInteractiveMark';
 import { groupChromeActive, isDetachedWindow, firstOtherLiveSpace, tabsPerSpace } from './components/Layout/spaceHelpers';
 import { focusSpaceWindow, isSpaceClaimedLocally } from './lib/popOutSpace';
 import { useGoToSpace } from './components/Sidebar/useSpaceCards';
@@ -1458,6 +1459,9 @@ function App() {
         RIMESSO all'uscita, quindi i lettori di schermo continuano a trovarlo
         dove lo cercano. Vedi `Shared/TooltipDelegate.tsx`. */}
     <TooltipDelegate />
+    {/* Mark the end of the first topic load, when the sidebar shows real data.
+        Not gated on a topic count: a first-run profile has none and must still be measured. */}
+    <AppInteractiveMark ready={!topicsLoading} />
     {/* Il deep-link del boot (`/tab/…`, `/task/…`, `/topic/…`). Sta QUI dentro,
         e non in un effetto di App, perché il rifiuto di un permalink morto deve
         arrivare all'utente come toast — e `useToast()` sopra `<ToastProvider>`

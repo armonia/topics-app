@@ -62,7 +62,7 @@ Gli endpoint da 25 s (`PATCH …/tasks/:id`, `ask-user`) sono attese volute (lon
 | client a riposo | ≤ 1 KB/s di socket, CPU ≤ 2% | 6,9 KB/s, 28% |
 | memoria della webview | stabile ≤ 600 MB | 0,6-1,7 GB |
 | avvio a freddo fino all'interattivo | ≤ 1,5 s | da misurare (serve un riavvio dell'app) |
-| input → risposta visibile | p95 ≤ 100 ms | da misurare (traccia di performance nel client) |
+| input → risposta visibile | p95 ≤ 100 ms | `check:ink`: card 23,5 ms, tab 14,6 ms, send 12,4 ms; tetto per campione 250 ms |
 | lavoro appeso | 0 processi `git` o fetch oltre 10 s | 235 al giorno da 60 s, prima di #317 |
 
 ## Dove Rust ha senso (da confermare con la misura, una traccia alla volta)
@@ -84,3 +84,10 @@ Gli endpoint da 25 s (`PATCH …/tasks/:id`, `ask-user`) sono attese volute (lon
     linguaggio;
   - la logica del server in Bun, dove una riscrittura costerebbe mesi per guadagni che la misura
     non mostra.
+
+## Misure D0 (14/10/2026)
+
+- `measure:ws-idle -- --budget 1024`, con 100 sessioni esterne tarate sul censimento di produzione (114 sessioni, 46 KB a frame): **2.147,5 B/s, exit 1**, il rosso che D1 deve spegnere. In 60 s: `external-sessions` 100.097 B in 3 frame; `stream:usage` 14.836 B e `stream:content_chunk` 7.860 B, 60 frame ciascuno, di un turno su un topic che il client non ha aperto. Con le prime 20 sessioni il banco dava 815,9, 815,6 e 809,3 B/s su tre giri (escursione 0,81%): ripetibile, ma verde mentre la produzione non lo era.
+- `check:route-latency`: exit 2, baseline locale priva di `git_status`, `files`, `scripts`, `system_status`. `--update-baseline --samples=3`: exit 2 per load 195,43 su 12 core (16,29 per core, tetto 0,5). Valori indicativi: topics 0,75 ms; topic_messages 3,16; all_boards_tasks 2,93; dispatch_capacity 0,85; git_status 45,70; files 96,03; scripts 0,52; system_status 1,26. Il confronto supera il controllo cache con 44,85 ms di margine su dispatch.
+- Webview e avvio a freddo: nessuna misura valida. Il sistema ha negato la lettura dei processi e del footprint nel sandbox. `app:interactive` è disponibile in `performance` e in `document.documentElement.dataset.appInteractive` dopo che la sidebar ha caricato e mostrato topic reali.
+- Input: resta il cancello `check:ink`, budget mediana ≤100 ms e massimo ≤250 ms; baseline 23,5 ms card, 14,6 ms tab, 12,4 ms send (`tests/e2e/ink-budget.json`).

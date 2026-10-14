@@ -13,6 +13,14 @@ Eseguire il piano costa: sessioni cloud, quota degli agenti e revisioni. Il cred
    - Le tracce di codice usano il credito cloud prima che scada.
 2. **Solo B1 e R1 adesso**, il resto quando il credito si rinnova.
 
+**Risposta del proprietario (14/10, vedi `.openspec.yaml`): D4 e D8 aspettano che l'altra sessione
+chiuda il suo lavoro sul browser (#318); il resto parte subito.**
+
+**Correzione allo stesso giorno: il credito cloud non c'è.** I 51,81 $ stanno sotto la riserva di 50 $
+per account fissata dal proprietario l'08/10, e il secondo account è a zero. Le tracce le scrive Codex
+in una worktree sul Mac (`tracks/_locale.md`), una alla volta perché il Mac è carico; le suite le
+gira la CI, la revisione la fa chi non ha scritto.
+
 ## Perché
 
 Il proprietario vuole usare Topics come software principale per tutti, al posto dell'app nativa di
