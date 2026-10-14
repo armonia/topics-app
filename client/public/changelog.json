@@ -1,5 +1,21 @@
 [
   {
+    "version": "2.2.500",
+    "date": "2026-10-14",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Il feed ogni 5 s era il contatore di SwiftBar, non l'app desktop (#316)",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
     "version": "2.2.499",
     "date": "2026-10-14",
     "sections": {

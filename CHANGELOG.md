@@ -2,6 +2,11 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.2.500 — 2026-10-14
+
+### Sotto il cofano
+- Il feed ogni 5 s era il contatore di SwiftBar, non l'app desktop (#316)
+
 ## 2.2.499 — 2026-10-14
 
 ### Sotto il cofano
