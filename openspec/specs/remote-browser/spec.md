@@ -2901,6 +2901,7 @@ it 1:1.
 - **THEN** the host receives `host_viewport` without a size and lays the page out at its own slot again
 - **AND** the server hears of every use of the Mac, so a size still on its way does not land after it
 - **AND** a device whose pane comes back on screen has the page at its size again, if nobody used the page meanwhile
+- **AND** input in a frame of the same origin is a use of the page too (an editor in an iframe), a frame added or navigated after the page loaded included; input in a frame of another origin is not seen by the page, which is the known limit
 
 #### Scenario: the Mac's socket blips
 - **WHEN** the host comes back after its socket dropped

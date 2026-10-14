@@ -110,13 +110,32 @@ export function parkedView(
  * the pane's fast poll on every document, like the focus hook next to it. A
  * modifier on its own, or a key with Cmd, is not using the page: Cmd+Tab out
  * of a focused pane would otherwise take the page from the device using it.
+ *
+ * Frames of the same origin count too: a rich-text editor is often one, and
+ * typing in it is using the page. Every poll walks the frames and hooks the
+ * ones it has not hooked yet, so a frame added later is counted within a poll,
+ * before its own `load` (which waits for every image in it). A navigation
+ * inside a frame is caught by a `load` listener on the document, because a
+ * frame's load event never reaches `window`: the DOM leaves the window out of
+ * the path of every load event. A frame of another origin cannot be reached
+ * from the page: it is tried once and remembered, so the poll does not throw
+ * for it every 120 ms. Input there is the known limit (an NSEvent monitor in
+ * the shell would see it).
  */
 export const INSTALL_USE_HOOK =
-  "if(!window.__tUseHook){window.__tUseHook=1;window.__topicsLocalUse=0;" +
-  "var __tUse=function(e){if(e.isTrusted)window.__topicsLocalUse++};" +
-  "addEventListener('pointerdown',__tUse,true);" +
-  "addEventListener('keydown',function(e){if(!e.metaKey&&!/^(Meta|Control|Alt|Shift|CapsLock|Fn)$/.test(e.key))__tUse(e)},true);" +
-  "addEventListener('wheel',__tUse,{capture:true,passive:true});}";
+  "if(!window.__tUseOn){window.__topicsLocalUse=0;var __tUseTop=window,__tUseForeign=new WeakSet();" +
+  "window.__tUseOn=function(w){var d;try{d=w&&w.document}catch(x){return false}if(!d)return true;" +
+  "if(!w.__tUseHook){w.__tUseHook=1;" +
+  "var u=function(e){if(e.isTrusted)__tUseTop.__topicsLocalUse++};" +
+  "w.addEventListener('pointerdown',u,true);" +
+  "w.addEventListener('keydown',function(e){if(!e.metaKey&&!/^(Meta|Control|Alt|Shift|CapsLock|Fn)$/.test(e.key))u(e)},true);" +
+  "w.addEventListener('wheel',u,{capture:true,passive:true});}" +
+  "if(!d.__tUseDoc){d.__tUseDoc=1;" +
+  "d.addEventListener('load',function(e){var t=e.target;if(t&&t.tagName==='IFRAME'&&__tUseTop.__tUseOn(t.contentWindow)===false)__tUseForeign.add(t)},true);}" +
+  "var l=d.getElementsByTagName('iframe');" +
+  "for(var i=0;i<l.length;i++){var f=l[i];if(!__tUseForeign.has(f)&&__tUseTop.__tUseOn(f.contentWindow)===false)__tUseForeign.add(f)}" +
+  "return true};}" +
+  "window.__tUseOn(window);";
 
 /** The count, read in the same evaluation. */
 export const LOCAL_USE_COUNT_JS = 'window.__topicsLocalUse||0';
