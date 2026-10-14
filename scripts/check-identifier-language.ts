@@ -603,6 +603,16 @@ export const PROJECT_WORDS = new Set([
   // and its last report. A name for that pair has no other honest word
   // (2026-10-06, `server/lib/subagent-migration.ts`).
   "handover",
+  // `memrecall` is the name of the CLI binary this project shells out to for
+  // per-prompt memory retrieval (`memrecall --eval`): the path finder and the
+  // test stub for it have no other honest name
+  // (2026-10-14, `server/lib/native-parity.ts`).
+  "memrecall",
+  // Another regular plural the 1934 list stops short of: `memory` is there,
+  // `memories` is not. It names the retrieved memory snippets that `memrecall`
+  // returns, and `recallMemories` is the function that calls it
+  // (2026-10-14, `server/lib/native-parity.ts`).
+  "memories",
   "emptied", // a past participle the 1934 list lacks, like `held` (`observeTasksEmptied`, 2026-10-09)
 ]);
 

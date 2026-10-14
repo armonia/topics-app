@@ -5,7 +5,7 @@
  * every reader: the menu, the send gate, the chat resolver, the identity of a
  * dispatched topic, the dispatcher's reuse gate and the automatic picker. Each
  * row below runs the real reader, not a copy of its rule. The scope decides
- * the default (chat ON, card OFF), so the table is run once per scope.
+ * the default (both ON), so the table is run once per scope.
  *
  * A second test runs the `git grep` of design §2.1 and fails when a file that
  * mentions the preference is neither a reader below nor a passage that copies
@@ -87,9 +87,9 @@ describe("one reading, the same route in every reader", () => {
     }
   });
 
-  test("task scope: a null preference reads OFF, and every card reader runs Opus direct on Claude Code", async () => {
+  test("task scope: a null preference reads ON, and every card reader routes Opus through Topics", async () => {
     const expected = topicsRoute(null, target, SNAPSHOT, "task").via;
-    expect(expected).toBe("direct");
+    expect(expected).toBe("topics");
     const effective = effectiveTopicsRouting(null, VALUE, "task");
     // The classifier votes Opus on Claude Code; the route of the pick is what the topic identity makes of it.
     const plan = await pickAutomaticTaskModel({ text: "t" }, undefined, {

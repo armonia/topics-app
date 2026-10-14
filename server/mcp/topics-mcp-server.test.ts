@@ -743,11 +743,14 @@ describe("handleMessage", () => {
     // Excluded: cross-topic chat, topic/tab nav, projects, chrome import.
     for (const gone of [
       "list_agents",
-      "send_chat_message", "read_chat_messages", "new_topic", "switch_topic",
+      "send_chat_message", "new_topic", "switch_topic",
       "import_chrome", "move_session_to_project", "create_project", "open_project",
     ]) {
       expect(names).not.toContain(gone);
     }
+    // resolve_tab sends a pasted /tab/chat/<id> to read_chat_messages: the
+    // dispatched agent must own the tool it is pointed at.
+    expect(names).toContain("read_chat_messages");
     // Il FAN-OUT resta, ed e' il modello del coordinatore: la sessione del task
     // decide e delega, il lavoro gira nelle figlie. Non e' fuori governo — il
     // tetto le conta (agent-census.ts), il costo si contabilizza sul task
