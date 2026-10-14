@@ -9,7 +9,7 @@
  * Quando un cambio è voluto si aggiorna la fotografia, e il diff del commit
  * mostra esattamente cosa si è deciso di cambiare. Quando non lo è, il rosso è
  * la domanda giusta al momento giusto.
-  * @covers CCLI-07, CHAT-FORK-02
+  * @covers CCLI-07, CCLI-13, CHAT-FORK-02
  */
 import { describe, expect, test } from "bun:test";
 import { buildClaudeArgs, buildClaudeOneshotArgs, resolveToolTrim, TRIMMED_TOOLS_CHAT, TRIMMED_TOOLS_DISPATCHED, HEADLESS_DISALLOWED_TOOLS, NATIVE_DELEGATION_TOOLS } from "./args";
@@ -437,7 +437,8 @@ describe("buildClaudeOneshotArgs — la fotografia", () => {
       "--permission-mode", "bypassPermissions",
       "--model", "claude-sonnet-5",
       "--setting-sources", "user,project,local",
-      "--settings", '{"env":{"CLAUDE_CODE_DISABLE_AUTO_MEMORY":"1"}}',
+      "--settings",
+      '{"env":{"CLAUDE_CODE_DISABLE_AUTO_MEMORY":"1","CLAUDE_CODE_DISABLE_CLAUDE_MDS":"1"},"outputStyle":"default","disableAllHooks":true}',
       "--mcp-config", "/tmp/topics-mcp/oneshot-x.json",
       "--strict-mcp-config",
       "--tools", "",
@@ -453,7 +454,24 @@ describe("buildClaudeOneshotArgs — la fotografia", () => {
     const args = buildClaudeOneshotArgs({ permissionMode: "bypassPermissions", model: "m" });
     const i = args.indexOf("--settings");
     expect(i).toBeGreaterThan(-1);
-    expect(JSON.parse(args[i + 1]!)).toEqual({ env: { CLAUDE_CODE_DISABLE_AUTO_MEMORY: "1" } });
+    expect(JSON.parse(args[i + 1]!).env.CLAUDE_CODE_DISABLE_AUTO_MEMORY).toBe("1");
+  });
+
+  // Measured 14/10 on CLI 2.1.299: 14,879 -> 1,722 prefix tokens per title,
+  // written to the 1h cache on every call and never read back.
+  test("an internal job drops the user's CLAUDE.md, output style and hooks", () => {
+    const args = buildClaudeOneshotArgs({ permissionMode: "bypassPermissions", model: "m" });
+    const settings = JSON.parse(args[args.indexOf("--settings") + 1]!);
+    expect(settings.env.CLAUDE_CODE_DISABLE_CLAUDE_MDS).toBe("1");
+    expect(settings.outputStyle).toBe("default");
+    expect(settings.disableAllHooks).toBe(true);
+    // The user settings stay loaded: their `env` block may route the CLI.
+    expect(args[args.indexOf("--setting-sources") + 1]).toBe("user,project,local");
+  });
+
+  test("a reply the user reads keeps the user's context", () => {
+    const args = buildClaudeOneshotArgs({ permissionMode: "bypassPermissions", model: "m", userFacing: true });
+    expect(JSON.parse(args[args.indexOf("--settings") + 1]!)).toEqual({ env: { CLAUDE_CODE_DISABLE_AUTO_MEMORY: "1" } });
   });
 
   test("chat keeps its memory: the switch belongs to the one-shot only", () => {

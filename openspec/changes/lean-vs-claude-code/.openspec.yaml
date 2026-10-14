@@ -1,0 +1,4 @@
+name: lean-vs-claude-code
+status: approved
+approvato: 2026-10-14 18:32
+risposta: "Push, PR e merge (pubblicare il ramo di un repo pubblico: push, clip di BOARD-21, PR, merge su main a CI verde; il porting nel checkout di produzione per file, come sempre)"
