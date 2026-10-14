@@ -1,0 +1,32 @@
+slug	name	url	tier	note
+vibe-kanban	Vibe Kanban	https://github.com/BloopAI/vibe-kanban	profondo	kanban di agenti, il più vicino alla board di Topics
+emdash	Emdash	https://github.com/generalaction/emdash	profondo	diff con commenti, PR e CI nello stesso pannello
+jean	Jean	https://github.com/coollabsio/jean	profondo	Tauri: guarda cosa fa in Rust
+conductor	Conductor	https://docs.conductor.build	documentazione	closed source: solo docs, changelog e pagine pubbliche
+claude-code-native	Claude Code (app desktop e CLI)	https://code.claude.com/docs	documentazione	closed source: docs ufficiali; la CLI 2.1.299 è installata in locale (claude --help)
+opcode	opcode	https://github.com/winfunc/opcode	profondo	Tauri: guarda cosa fa in Rust
+happy	Happy	https://github.com/slopus/happy	profondo	telefono e relay cifrato
+maestro	Maestro	https://github.com/RunMaestro/Maestro	profondo	
+superset	Superset	https://github.com/superset-sh/superset	medio	licenza Elastic: solo lettura, nessun riuso di codice
+agor	Agor	https://github.com/preset-io/agor	medio	licenza BSL: solo lettura, nessun riuso di codice
+opencode	OpenCode	https://github.com/anomalyco/opencode	profondo	agente open source più usato: guarda client desktop, server, TUI
+zed	Zed (pannello agenti)	https://github.com/zed-industries/zed	profondo	repo enorme: clone sparso dei soli crate dell'agente e di ACP (elenca crates/ e scegli)
+codex-app	App di Codex (OpenAI)	https://developers.openai.com/codex	documentazione	closed source: docs e changelog pubblici
+cursor	Cursor (agenti)	https://docs.cursor.com	documentazione	closed source: docs su agenti, background agents, browser
+craft-agents	Craft Agents	https://github.com/craft-ai-agents/craft-agents-oss	profondo	
+aionui	AionUi	https://github.com/iOfficeAI/AionUi	profondo	
+cloudcli	CloudCLI	https://github.com/siteboon/claudecodeui	profondo	
+hapi	HAPI	https://github.com/tiann/hapi	profondo	
+omnara	Omnara	https://github.com/omnara-ai/omnara	profondo	
+claude-squad	Claude Squad	https://github.com/smtg-ai/claude-squad	medio	Go e tmux
+companion	Companion	https://github.com/The-Vibe-Company/companion	medio	
+holyclaude	HolyClaude	https://github.com/CoderLuii/HolyClaude	medio	
+ccmanager	CCManager	https://github.com/kbwo/ccmanager	medio	
+agent-deck	Agent Deck	https://github.com/asheshgoplani/agent-deck	medio	
+claude-code-viewer	Claude Code Viewer	https://github.com/d-kimuson/claude-code-viewer	medio	
+swttch	Swttch	https://github.com/Swttch/swttch	medio	
+opencockpit	OpenCockpit	https://github.com/Surething-io/cockpit	medio	
+openhands	OpenHands	https://github.com/OpenHands/OpenHands	medio	
+goose	Goose	https://github.com/aaif-goose/goose	medio	Rust: guarda cosa fa in Rust e perché
+openwork	OpenWork	https://github.com/different-ai/openwork	medio	parti con licenza EE: solo lettura
+codepilot	CodePilot	https://github.com/op7418/CodePilot	medio	licenza BSL: solo lettura
