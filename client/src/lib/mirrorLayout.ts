@@ -41,6 +41,29 @@ function scrollerOf(node: Node): Scroller | null {
   return node.nodeType === 1 ? { el: node as Element, top: false, doc } : null;
 }
 
+/** Can `s` scroll down here: room to, and a box that scrolls (the page always does). */
+function canScroll(s: Scroller): boolean {
+  if (!(s.el.scrollHeight - s.el.clientHeight > 0)) return false;
+  if (s.top) return true;
+  const o = s.doc.defaultView?.getComputedStyle(s.el).overflowY;
+  return o === 'auto' || o === 'scroll' || o === 'overlay' || o === 'hidden';
+}
+
+/**
+ * What scrolls `m` here: what scrolled on the other side, unless it cannot
+ * scroll here (a breakpoint gave the scrolling to the page, or took it from
+ * it); then the nearest box around `m` that can, else the page.
+ */
+function scrollerFor(s: Scroller, m: Element | null): Scroller {
+  if (canScroll(s) || !m) return s;
+  const root = s.doc.scrollingElement ?? s.doc.documentElement;
+  for (let e = m.parentElement; e && e !== root; e = e.parentElement) {
+    const around = { el: e, top: false, doc: s.doc };
+    if (canScroll(around)) return around;
+  }
+  return { el: root, top: true, doc: s.doc };
+}
+
 /** The part of what scrolls that shows, in its document's viewport coordinates. */
 function visibleBox(s: Scroller): { left: number; top: number; width: number; height: number } {
   if (s.top) {
@@ -112,19 +135,23 @@ export function anchorOf(node: Node, ids: NodeIds): ScrollAnchor | null {
 }
 
 /**
- * Where `node` has to scroll for `anchor` to be at its reading line here; by
- * its range when that element has no box here, and at an edge the anchor is on.
+ * What has to scroll, and where, for `anchor` to be at the reading line here:
+ * `node` (what scrolled on the other side) or the box that scrolls its element
+ * here; by its range when that element has no box here, and at an edge the
+ * anchor is on.
  */
-export function placeOf(node: Node, anchor: ScrollAnchor, ids: NodeIds): { top: number; left: number } | null {
-  const s = scrollerOf(node);
-  if (!s) return null;
+export function placeOf(node: Node, anchor: ScrollAnchor, ids: NodeIds): { top: number; left: number; el: Element } | null {
+  const named = scrollerOf(node);
+  if (!named) return null;
+  const found = typeof anchor.id === 'number' ? ids.getNode(anchor.id) : null;
+  const m = found && found.nodeType === 1 && found.isConnected && found.ownerDocument === named.doc ? (found as Element) : null;
+  const s = scrollerFor(named, m);
   const { el } = s;
   const my = Math.max(0, el.scrollHeight - el.clientHeight);
   const mx = Math.max(0, el.scrollWidth - el.clientWidth);
-  const place = { top: anchor.ry * my, left: anchor.rx * mx };
-  const m = typeof anchor.id === 'number' ? ids.getNode(anchor.id) : null;
-  if (m && m.nodeType === 1 && m.isConnected && m.ownerDocument === s.doc && (s.top || el.contains(m))) {
-    const r = (m as Element).getBoundingClientRect();
+  const place = { top: anchor.ry * my, left: anchor.rx * mx, el };
+  if (m && (s.top || el.contains(m))) {
+    const r = m.getBoundingClientRect();
     if (r.width > 0 && r.height > 0) {
       const box = visibleBox(s);
       if (anchor.ry > 0 && anchor.ry < 1) place.top = el.scrollTop + r.top + (anchor.fy ?? 0) * r.height - (box.top + anchor.ly * box.height);
@@ -147,6 +174,22 @@ export function mirrorDocument(replayer: { iframe?: HTMLIFrameElement } | null |
   } catch {
     return null;
   }
+}
+
+/**
+ * A tap's payload at a point of the mirror. Laid out on its own, it names what
+ * the point is over and where inside it, and a point it cannot name is not
+ * sent at all: its pixels are not the Mac's.
+ */
+export function aimTap<P extends { x: number; y: number }>(
+  p: P,
+  own: boolean,
+  replayer: { iframe?: HTMLIFrameElement; getMirror(): NodeIds } | null | undefined,
+): (P & { node?: number; fx?: number; fy?: number }) | null {
+  if (!own) return p;
+  const doc = mirrorDocument(replayer);
+  const target = doc && replayer ? targetOf(doc, p.x, p.y, replayer.getMirror()) : null;
+  return target ? { ...p, ...target } : null;
 }
 
 /** What a tap at (x, y) of the mirror landed on, by the recorder's id, and where inside its box. */
@@ -195,15 +238,14 @@ export function anchorPlacer(): {
       if (!d?.anchor || typeof d.anchored !== 'number') return;
       const ids = replayer.getMirror();
       const node = ids.getNode(d.anchored);
-      const s = node && scrollerOf(node);
       const place = node && placeOf(node, d.anchor, ids);
-      if (!s || !place) return;
+      if (!place) return;
       const behavior = isSync || event.type === FULL_SNAPSHOT ? 'instant' : 'smooth';
       try {
-        s.el.scrollTo({ top: place.top, left: place.left, behavior: behavior as ScrollBehavior });
+        place.el.scrollTo({ top: place.top, left: place.left, behavior: behavior as ScrollBehavior });
       } catch {
-        s.el.scrollTop = place.top;
-        s.el.scrollLeft = place.left;
+        place.el.scrollTop = place.top;
+        place.el.scrollLeft = place.left;
       }
     },
   };

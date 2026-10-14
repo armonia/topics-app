@@ -95,6 +95,18 @@ describe("host mirror wiring", () => {
     }
   });
 
+  test("a device driving the page that switches to its own layout gives it back without resizing the Mac again", () => {
+    const r = rig();
+    r.declare();
+    const v = r.viewer();
+    r.mirror.routeViewer(v, CTX, { type: "resize", width: 820, height: 1180, layout: "page" });
+    r.mirror.routeViewer(v, CTX, { type: "input", action: "click", payload: { x: 5, y: 6 } });
+    const before = r.host.sent.length;
+    // A new size and the switch in the same frame: the switch counts first.
+    r.mirror.routeViewer(v, CTX, { type: "resize", width: 700, height: 1000, layout: "own" });
+    expect(r.host.sent.slice(before).filter((m) => m.type === "host_viewport")).toEqual([{ type: "host_viewport" }]);
+  });
+
   test("a viewer's input and navigation go to the host; nothing reaches the browser service", () => {
     const r = rig();
     r.declare();

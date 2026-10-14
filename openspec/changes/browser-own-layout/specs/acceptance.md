@@ -8,7 +8,11 @@
 2. Gli stessi scenari escono ROSSI col codice di main al posto di quello nuovo (la prova morde).
 3. `bun test` sui file toccati verde; mutanti su copie: ancora non rimandata identica, host che
    torna a ridimensionarsi, tocco per coordinate invece che per elemento, bordo che non vince sulla
-   linea di lettura → ciascuno rosso.
+   linea di lettura, fixed non saltati → ciascuno rosso. Il codice di pagina del Mac gira sulle sue
+   stringhe vere in `nativeDomHost.page.test.ts`: il tocco va all'elemento nominato e non al link
+   che il Mac disegna dentro, un elemento sparito non si scambia col pixel, lo scroller che lì non
+   scorre passa la mano, l'ancora si dimentica appena la pagina se ne va; la via REST porta tutto
+   (`browser-host-input-rest.test.ts`). Ognuno rosso sul codice di prima.
 4. `scripts/qa-gate.sh --veloce` verde; su WebKit verdi anche `browser-mirror-scroll-lands`,
    `browser-native-host-sync`, `browser-dom-cobrowse`, `browser-dom-tap-once`, `browser-viewport-*`.
 5. Il video `.webm` dello scenario «swipe» è la prova di comportamento.

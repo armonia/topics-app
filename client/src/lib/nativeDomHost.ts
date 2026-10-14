@@ -95,14 +95,21 @@ const SNAPSHOT_JS =
  * at the reading line of what scrolled, a quarter down past fixed and sticky
  * headers, and the point of it there; at an edge, the edge. Installed on `h` with the recorder:
  * `anchor` names this page's place, `place` finds where a viewer's place lands
- * here, and `echo` gives a viewer its own place back while the page is still
- * where that place put it, so the mirror recognises its own scroll in the echo
- * instead of a neighbour's element measured in another layout.
+ * here (by the box around its element that scrolls here, when what scrolled
+ * there does not), and `echo` gives a viewer its own place back while the page
+ * is still where that place put it, so the mirror recognises its own scroll in
+ * the echo instead of a neighbour's element measured in another layout. Once
+ * the page moves away from it, that place is forgotten.
  */
 const LAYOUT_JS =
   'function rt(p,m){return!(m>0)||p<=0?0:p>=m-1?1:p/m}' +
   'function sc(n){var d=n.nodeType===9?n:n.ownerDocument,se=d.scrollingElement||d.documentElement;' +
   'return{el:n.nodeType===9?se:n,top:n.nodeType===9||n===se,d:d}}' +
+  'function can(s){var el=s.el;if(!(el.scrollHeight-el.clientHeight>0))return false;if(s.top)return true;' +
+  "var o=s.d.defaultView.getComputedStyle(el).overflowY;return o==='auto'||o==='scroll'||o==='overlay'||o==='hidden'}" +
+  'function scr(m,s){if(can(s)||!m)return s;var se=s.d.scrollingElement||s.d.documentElement;' +
+  'for(var e=m.parentElement;e&&e!==se;e=e.parentElement){var c={el:e,top:false,d:s.d};if(can(c))return c}' +
+  'return{el:se,top:true,d:s.d}}' +
   'function box(s){var el=s.el;if(s.top){var de=s.d.documentElement,w=s.d.defaultView;' +
   'return{l:0,t:0,w:de.clientWidth||w.innerWidth,h:de.clientHeight||w.innerHeight}}' +
   'var r=el.getBoundingClientRect();return{l:r.left+el.clientLeft,t:r.top+el.clientTop,w:el.clientWidth,h:el.clientHeight}}' +
@@ -118,14 +125,15 @@ const LAYOUT_JS =
   'var m=e;while(m&&m!==el&&ids.getId(m)<0)m=m.parentElement;' +
   'if(!m||m===el||m===d.body)continue;var r=m.getBoundingClientRect();if(!(r.width>0&&r.height>0))continue;' +
   'a.id=ids.getId(m);a.fx=(px-r.left)/r.width;a.fy=(py-r.top)/r.height;return a}return a};' +
-  'h.place=function(n,a){var s=sc(n),el=s.el,b=box(s),ry=+a.ry||0,rx=+a.rx||0,' +
-  'q={t:ry*Math.max(0,el.scrollHeight-el.clientHeight),l:rx*Math.max(0,el.scrollWidth-el.clientWidth)},' +
-  "m=typeof a.id==='number'?h.rrweb.record.mirror.getNode(a.id):null," +
-  'r=m&&m.nodeType===1&&m.isConnected&&m.ownerDocument===s.d&&(s.top||el.contains(m))?m.getBoundingClientRect():null;' +
+  "h.place=function(n,a){var s0=sc(n),m=typeof a.id==='number'?h.rrweb.record.mirror.getNode(a.id):null;" +
+  'm=m&&m.nodeType===1&&m.isConnected&&m.ownerDocument===s0.d?m:null;' +
+  'var s=scr(m,s0),el=s.el,b=box(s),ry=+a.ry||0,rx=+a.rx||0,' +
+  'q={t:ry*Math.max(0,el.scrollHeight-el.clientHeight),l:rx*Math.max(0,el.scrollWidth-el.clientWidth),el:el},' +
+  'r=m&&(s.top||el.contains(m))?m.getBoundingClientRect():null;' +
   'if(r&&r.width>0&&r.height>0){if(ry>0&&ry<1)q.t=el.scrollTop+r.top+(+a.fy||0)*r.height-(b.t+a.ly*b.h);' +
   'if(rx>0&&rx<1)q.l=el.scrollLeft+r.left+(+a.fx||0)*r.width-(b.l+a.lx*b.w)}return q};' +
   'h.echo=function(id){var n=h.rrweb.record.mirror.getNode(id);if(!n)return undefined;var el=sc(n).el,p=h.placed;' +
-  'if(p&&p.node===id&&el.scrollTop===p.t&&el.scrollLeft===p.l)return p.a;return h.anchor(n)};';
+  'if(p&&p.node===id){if(el.scrollTop===p.t&&el.scrollLeft===p.l)return p.a;h.placed=null}return h.anchor(n)};';
 
 /**
  * Arm the recorder on the current document. Same options as the server's
@@ -171,9 +179,11 @@ export function armJs(bundle: string): string {
  *
  * A mirror laid out at its own size (BROWSER-DOM-LAYOUT-01) has the page's
  * elements elsewhere, so its input names them. A tap comes with the element it
- * landed on and the point inside its box, and lands on that point of it here,
- * on the element itself when something else is drawn there or it has no box
- * here at all (a menu only the narrow layout shows: its handler still runs). A
+ * landed on and the point inside its box, and lands on that element, at that
+ * point of it: never on what this layout draws there instead (a link inside
+ * the paragraph that was tapped), and also when it has no box here at all (a
+ * menu only the narrow layout shows: its handler still runs). An element the
+ * page no longer has is not traded for whatever sits at the mirror's pixel. A
  * wheel goes to what was under it. A scroll comes with the mirror's place
  * (LAYOUT_JS) and the page goes there; what the page was told is remembered,
  * so its echo can say the same.
@@ -182,9 +192,9 @@ const INPUT_FN =
   'function(action,p){var d=document,h=window.__topicsDomHost,ids=h&&h.rrweb&&h.rrweb.record&&h.rrweb.record.mirror;' +
   'function at(x,y){return d.elementFromPoint(x,y)||d.body}' +
   "function node(id){var n=typeof id==='number'&&ids?ids.getNode(id):null;return n&&n.nodeType===1&&n.isConnected?n:null}" +
-  'function aim(p){var n=node(p.node),x=+p.x||0,y=+p.y||0;if(!n)return{el:at(x,y),x:x,y:y};' +
+  "function aim(p){var n=node(p.node),x=+p.x||0,y=+p.y||0;if(!n)return typeof p.fx==='number'?null:{el:at(x,y),x:x,y:y};" +
   'var r=n.getBoundingClientRect();if(r.width>0||r.height>0){x=r.left+(+p.fx||0)*r.width;y=r.top+(+p.fy||0)*r.height}' +
-  'var hit=d.elementFromPoint(x,y);return{el:hit&&(hit===n||n.contains(hit))?hit:n,x:x,y:y}}' +
+  'return{el:n,x:x,y:y}}' +
   "function to(el,t,l){try{el.scrollTo({top:t,left:l,behavior:'instant'})}catch(e){el.scrollTop=t;el.scrollLeft=l}}" +
   "function by(el,x,y){try{el.scrollBy({left:x,top:y,behavior:'instant'})}catch(e){el.scrollLeft+=x;el.scrollTop+=y}}" +
   'function fire(el,type,x,y,b){var init={bubbles:true,cancelable:true,composed:true,view:window,clientX:x,clientY:y,button:b,' +
@@ -193,7 +203,7 @@ const INPUT_FN =
   'return el.dispatchEvent(ev)}' +
   'function focusable(el){for(var n=el;n&&n!==d.body;n=n.parentElement){' +
   "if(n.isContentEditable||/^(INPUT|TEXTAREA|SELECT|BUTTON|A)$/.test(n.tagName)||n.tabIndex>=0)return n}return null}" +
-  "if(action==='click'){var b=p.button==='right'?2:p.button==='middle'?1:0,g=aim(p),el=g.el,x=g.x,y=g.y;" +
+  "if(action==='click'){var b=p.button==='right'?2:p.button==='middle'?1:0,g=aim(p);if(!g)return 'gone';var el=g.el,x=g.x,y=g.y;" +
   "fire(el,'pointerdown',x,y,b);var go=fire(el,'mousedown',x,y,b);" +
   'if(go){var f=focusable(el);if(f&&f.focus)f.focus({preventScroll:true});' +
   'else if(d.activeElement&&d.activeElement!==d.body&&d.activeElement.blur)d.activeElement.blur()}' +
@@ -214,7 +224,8 @@ const INPUT_FN =
   "var sn=typeof p.node==='number'&&(p.anchor||typeof p.scrollTop==='number')&&ids?ids.getNode(p.node):null;" +
   'if(sn){var doc=sn.nodeType===9?sn:sn===sn.ownerDocument.scrollingElement?sn.ownerDocument:null,' +
   'el=doc?doc.scrollingElement||doc.documentElement:sn,bt=el.scrollTop,bl=el.scrollLeft;' +
-  'if(go&&p.anchor&&h.place){var q=h.place(sn,p.anchor);to(el,q.t,q.l);h.placed={node:p.node,a:p.anchor,t:el.scrollTop,l:el.scrollLeft}}' +
+  'if(go&&p.anchor&&h.place){var q=h.place(sn,p.anchor);if(q.el!==el){el=q.el;doc=el===d.scrollingElement?d:null;bt=el.scrollTop;bl=el.scrollLeft}' +
+  'to(el,q.t,q.l);h.placed={node:ids.getId(doc||el),a:p.anchor,t:el.scrollTop,l:el.scrollLeft}}' +
   'else if(go&&!p.anchor)to(el,p.scrollTop,+p.scrollLeft||0);' +
   "if(el.scrollTop===bt&&el.scrollLeft===bl)(doc||el).dispatchEvent(new Event('scroll'));return 'ok'}" +
   "if(!go)return 'ok';" +

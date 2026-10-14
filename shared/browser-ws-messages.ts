@@ -44,7 +44,7 @@ const scrollAnchorSchema = z.object({
   ry: z.number(),
 });
 
-const inputPayloadSchema = z.object({
+export const inputPayloadSchema = z.object({
   x: z.optional(z.number()),
   y: z.optional(z.number()),
   text: z.optional(z.string()),

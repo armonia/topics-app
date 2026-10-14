@@ -34,6 +34,14 @@ export function setBrowserLayout(layout: BrowserLayout): void {
   for (const fn of [...listeners]) fn();
 }
 
+/** Another window of this device chose: the choice is this device's, so this window follows. */
+export function onBrowserLayoutStorage(e: { key: string | null }): void {
+  if (e.key !== KEY) return;
+  current = null;
+  for (const fn of [...listeners]) fn();
+}
+if (typeof window !== 'undefined') window.addEventListener('storage', onBrowserLayoutStorage);
+
 export function subscribeBrowserLayout(fn: () => void): () => void {
   listeners.add(fn);
   return () => { listeners.delete(fn); };

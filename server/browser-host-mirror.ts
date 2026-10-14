@@ -228,8 +228,10 @@ export function createHostMirror(deps: HostMirrorDeps) {
       // (useRemoteBrowser), so one sent while the server's Chromium served it,
       // or while the host was away, is the one the host needs when it is used.
       if (parsed.type === "resize") {
-        viewport.noteSize(contextId, deviceOf(ws), parsed.width, parsed.height);
+        // The layout first: a device driving the page that now lays it out on its
+        // own gives it back, rather than resizing the Mac once more on the way.
         viewport.noteLayout(contextId, deviceOf(ws), parsed.layout === "own");
+        viewport.noteSize(contextId, deviceOf(ws), parsed.width, parsed.height);
       }
       if (!hosts.isHosting(contextId)) return false;
       switch (parsed.type) {

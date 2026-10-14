@@ -44,4 +44,9 @@ punto critico; `qa-gate.sh --veloce` verde; e2e vicine verdi; ciò che è verde 
   visore in cima, anche se alla sua linea di lettura c'è una card che sull'iPad sta 600 px più giù.
 - L'interruttore sta nel livello Sessione del foglio della scheda: «Misura: questo schermo» /
   «Misura: del Mac». Nel guscio desktop resta la misura del Mac.
+- Un tocco arriva all'elemento toccato, mai a un suo discendente che il Mac disegna lì (un link
+  dentro il paragrafo); un elemento che il Mac non ha più non si scambia col pixel del mirror.
+- Se ciò che scorre da una parte non scorre dall'altra (un breakpoint sposta lo scroll dalla pagina
+  a un contenitore), l'ancora si piazza col contenitore che scorre lì.
+- La riga «Resa» del foglio sparisce sotto un host nativo: lì non c'è niente da commutare.
 - Un dispositivo che si impagina da sé, usando la pagina, la restituisce al Mac alla sua misura.

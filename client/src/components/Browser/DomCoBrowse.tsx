@@ -60,7 +60,7 @@ import { fitCentered, viewportFromRrwebEvent } from '../../lib/browserFit';
 import { prefixRoutedResources } from '../../lib/domResourceBase';
 import { forgetHandedOver, parkClock, stopClock, wakeClock } from '../../lib/mirrorClock';
 import { canObserveDocument, createImageDeferral, watchDeferredImages } from '../../lib/mirrorImages';
-import { anchorOf, forOwnLayout, mirrorDocument, anchorPlacer, targetOf, type ScrollAnchor } from '../../lib/mirrorLayout';
+import { aimTap, anchorOf, forOwnLayout, mirrorDocument, anchorPlacer, type ScrollAnchor } from '../../lib/mirrorLayout';
 import { createEchoHold, flingVelocity, scrollKeepingFractions, scrollTargetAt } from '../../lib/mirrorScroll';
 import { serverHttpBase } from '../../lib/shell/net';
 
@@ -255,12 +255,8 @@ export default function DomCoBrowse({ registerDomSink, registerFocusSink, sendIn
     return anchor ? { node, anchor } : { node, scrollTop: target.scrollTop, scrollLeft: target.scrollLeft };
   }, [echoHold]);
 
-  /** A point of the mirror with what it is over: the element and where inside it (lib/mirrorLayout). */
-  const aimAt = useCallback((c: { x: number; y: number }) => {
-    const doc = mirrorDocument(replayerRef.current);
-    const ids = replayerRef.current?.getMirror();
-    return { ...c, ...(doc && ids ? targetOf(doc, c.x, c.y, ids) : null) };
-  }, []);
+  /** A tap's payload: laid out on its own, with what the point is over, or null when it cannot say (lib/mirrorLayout). */
+  const aimAt = useCallback((c: { x: number; y: number }) => aimTap(c, ownLayoutRef.current, replayerRef.current), []);
 
   // Coalesced scroll relay — one `scroll` input per interval, summed deltas,
   // and where the mirror is by then when it scrolled itself.
@@ -278,7 +274,7 @@ export default function DomCoBrowse({ registerDomSink, registerFocusSink, sendIn
       acc.dx = 0;
       acc.dy = 0;
       // Laid out on its own, what was under the wheel is named too: the source has it elsewhere.
-      const target = ownLayoutRef.current ? aimAt({ x: fx, y: fy }).node : undefined;
+      const target = aimAt({ x: fx, y: fy })?.node;
       if (fdx || fdy) sendInput('scroll', { x: fx, y: fy, deltaX: fdx, deltaY: fdy, target, ...takeLocalPlace() });
     }, SCROLL_RELAY_INTERVAL);
   }, [sendInput, takeLocalPlace, aimAt]);
@@ -394,15 +390,16 @@ export default function DomCoBrowse({ registerDomSink, registerFocusSink, sendIn
     // (BROWSER-DOM-TAP-01). Only reached when that touchend was not cancelable.
     if (performance.now() - lastTapRelayRef.current < ECHO_CLICK_WINDOW_MS) return;
     const c = toSource(e.clientX, e.clientY);
-    if (!c) return;
-    sendInput('click', { ...aimAt(c), button: 'left' });
+    const aimed = c && aimAt(c);
+    if (aimed) sendInput('click', { ...aimed, button: 'left' });
   }, [toSource, sendInput, aimAt]);
 
   const onContextMenu = useCallback((e: React.MouseEvent) => {
     e.preventDefault();
     if (selectingRef.current || agentActiveRef.current) return;
     const c = toSource(e.clientX, e.clientY);
-    if (c) sendInput('click', { ...aimAt(c), button: 'right' });
+    const aimed = c && aimAt(c);
+    if (aimed) sendInput('click', { ...aimed, button: 'right' });
   }, [toSource, sendInput, aimAt]);
 
   const onWheel = useCallback((e: React.WheelEvent) => {
@@ -469,8 +466,9 @@ export default function DomCoBrowse({ registerDomSink, registerFocusSink, sendIn
     const t = e.changedTouches[0];
     if (!t) return;
     const c = toSource(t.clientX, t.clientY);
-    if (!c) return;
-    sendInput('click', { ...aimAt(c), button: 'left' });
+    const aimed = c && aimAt(c);
+    if (!aimed) return;
+    sendInput('click', { ...aimed, button: 'left' });
     lastTapRelayRef.current = performance.now();
     // No synthesized mousedown + click for this tap: the click is relayed, and
     // the mousedown would take the focus from the keyboard capture.

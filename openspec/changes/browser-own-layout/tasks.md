@@ -9,7 +9,8 @@ Lo stato di una traccia lo dà il suo test, non una casella.
   propria: iframe grande come la pane, scala 1. Barra: e2e «Il Mac resta suo», «Il mirror è
   dell'iPad».
 - **T3 tocchi per elemento.** Id rrweb + frazione nel rettangolo; l'host lo ritrova nel suo layout.
-  Barra: e2e «Il tocco trova l'elemento», «Solo sull'iPad»; unitari `nativeDomHost.test.ts`.
+  Barra: e2e «Il tocco trova l'elemento», «Solo sull'iPad»; unitari `nativeDomHost.page.test.ts`,
+  `browser-host-input-rest.test.ts`.
 - **T4 scroll per ancora.** L'host allega l'ancora agli eventi di scroll e allo snapshot; il mirror
   la applica (plugin del replayer); l'inoltro porta l'ancora; l'eco si riconosce per ancora.
   Barra: e2e «Swipe», «Il Mac scorre», «Bordi»; unitari `mirrorLayout.test.ts`, `mirrorScroll.test.ts`.

@@ -30,7 +30,16 @@ describe('placeOf', () => {
   test('puts the named point of the element on the reading line, a quarter down', () => {
     const { doc, ids } = page(100);
     // A quarter into the row, on a line 50 px down the 200 px window: 500 + 10 - 50.
-    expect(placeOf(doc, { id: 7, fx: 0.5, fy: 0.25, lx: 0.5, ly: 0.25, rx: 0, ry: 0.5 }, ids)).toEqual({ top: 460, left: 0 });
+    expect(placeOf(doc, { id: 7, fx: 0.5, fy: 0.25, lx: 0.5, ly: 0.25, rx: 0, ry: 0.5 }, ids)).toMatchObject({ top: 460, left: 0 });
+  });
+
+  test('what scrolled there and cannot scroll here hands the place to what scrolls the element here', () => {
+    const { doc, root, ids } = page(100);
+    // A box that scrolled on the other side, and here is as tall as its content.
+    const box = { nodeType: 1, isConnected: true, ownerDocument: doc, parentElement: null, scrollHeight: 300, clientHeight: 300, scrollWidth: 400, clientWidth: 400 };
+    const place = placeOf(box as unknown as Node, { id: 7, fx: 0.5, fy: 0.25, lx: 0.5, ly: 0.25, rx: 0, ry: 0.5 }, ids)!;
+    expect(place.el).toBe(root as unknown as Element);
+    expect(place.top).toBe(460);
   });
 
   test('at an edge the edge wins over the element: the top is the top on both sides', () => {
