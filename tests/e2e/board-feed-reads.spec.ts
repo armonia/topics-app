@@ -292,12 +292,13 @@ test.describe("Kanban board — letture del feed", () => {
 
   test("BOARD-21: la board ferma rilegge il feed con un 304, e una card nuova arriva lo stesso", async ({ page }) => {
     test.info().annotations.push({ type: "spec", description: "KANBAN-98" });
-    // The desktop app re-read this feed every 5 s for days with no card moving
-    // (720 reads an hour of ~155 KB, server log 13-14/10). A re-read now sends
-    // the last ETag back, and an unchanged feed answers 304 with no body. The
-    // risk of that is the opposite case, so the scene has both halves: an idle
-    // re-read is a 304, and after it a real change still reaches the board and
-    // stays there (a 304 handing back stale rows would take the card away).
+    // A window re-reads this feed on task events, reconnects and returns to
+    // view, up to 70 times an hour of ~155 KB (server log 13-14/10). A re-read
+    // now sends the last ETag back, and an unchanged feed answers 304 with no
+    // body. The risk of that is the opposite case, so the scene has both
+    // halves: an idle re-read is a 304, and after it a real change still
+    // reaches the board and stays there (a 304 handing back stale rows would
+    // take the card away).
     const stamp = Date.now();
     const first = `Feed fermo ${stamp}`;
     const later = `Card dopo il 304 ${stamp}`;
