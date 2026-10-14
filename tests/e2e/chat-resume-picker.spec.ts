@@ -121,10 +121,10 @@ test.describe("/resume", () => {
     await expect(rows(page).first().getByTestId("resume-row-active")).toHaveText("attiva adesso");
     await expect(rows(page).first()).toContainText("feat/menu");
 
-    // «Load older» brings the other five, once even on a double click.
+    // «Load older» brings the other five by itself once its row comes into view (LIST-PAGE-01), with one request.
     const older: string[] = [];
     page.on("request", (r) => { if (r.url().includes("/resumable-sessions?before=")) older.push(r.url()); });
-    await picker(page).getByTestId("resume-load-more").dblclick();
+    await picker(page).getByTestId("resume-load-more").scrollIntoViewIfNeeded();
     await expect(rows(page)).toHaveCount(25, { timeout: 15_000 });
     await expect(picker(page).getByTestId("resume-load-more")).toHaveCount(0);
     expect(older).toHaveLength(1);

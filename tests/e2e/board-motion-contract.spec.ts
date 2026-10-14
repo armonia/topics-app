@@ -95,6 +95,19 @@ test.describe("board motion contract", () => {
     }
   });
 
+  /** Straight legs between waypoints, `moves` pointer moves in all, one per frame. */
+  async function pacedPath(page: Page, points: Array<{ x: number; y: number }>, moves: number) {
+    const perLeg = Math.max(1, Math.floor(moves / (points.length - 1)));
+    for (let leg = 0; leg < points.length - 1; leg++) {
+      const a = points[leg]!;
+      const z = points[leg + 1]!;
+      for (let i = 1; i <= perLeg; i++) {
+        await page.mouse.move(a.x + ((z.x - a.x) * i) / perLeg, a.y + ((z.y - a.y) * i) / perLeg);
+        await nextFrames(page, 1);
+      }
+    }
+  }
+
   async function openBoard(page: Page, reducedMotion: "reduce" | "no-preference" = "no-preference") {
     // The suite's context asks for reduced motion (playwright.config); these
     // contracts are about the motion itself, so each test says which it wants.
@@ -237,19 +250,20 @@ test.describe("board motion contract", () => {
     test.info().annotations.push({ type: "spec", description: "PANELOAD-03" });
     await openBoard(page);
 
-    // Drag a Todo card onto In progress, paced one move per frame.
+    // Drag a Todo card over its neighbour, then onto In progress, paced one
+    // move per frame. The dip is what makes a neighbour move: on a straight
+    // line to In progress the pointer never leaves the card in hand, and the
+    // only transitions were the identity transform flipping on and off.
     await markFrame(page, "drag");
-    const card = page.locator(`[data-testid="kanban-column-body-todo"] [data-task-card]`).first();
-    const b = (await card.boundingBox())!;
+    const todoCards = page.locator(`[data-testid="kanban-column-body-todo"] [data-task-card]`);
+    const b = (await todoCards.nth(0).boundingBox())!;
+    const next = (await todoCards.nth(1).boundingBox())!;
     const target = (await page.getByTestId("kanban-column-body-in_progress").boundingBox())!;
     const from = { x: b.x + b.width / 2, y: b.y + 12 };
     const to = { x: target.x + target.width / 2, y: target.y + 60 };
     await page.mouse.move(from.x, from.y);
     await page.mouse.down();
-    for (let i = 1; i <= 40; i++) {
-      await page.mouse.move(from.x + ((to.x - from.x) * i) / 40, from.y + ((to.y - from.y) * i) / 40);
-      await nextFrames(page, 1);
-    }
+    await pacedPath(page, [from, { x: next.x + next.width / 2, y: next.y + next.height / 2 }, to], 40);
     await markFrame(page, "drop");
     await page.mouse.up();
     await expect(page.locator(W.notice)).toBeVisible();
@@ -331,15 +345,19 @@ test.describe("board motion contract", () => {
     test.info().annotations.push({ type: "spec", description: "PANELOAD-03" });
     await openBoard(page, "reduce");
     await markFrame(page, "drag");
-    const card = page.locator(`[data-testid="kanban-column-body-todo"] [data-task-card]`).first();
-    const b = (await card.boundingBox())!;
+    const todoCards = page.locator(`[data-testid="kanban-column-body-todo"] [data-task-card]`);
+    const b = (await todoCards.nth(0).boundingBox())!;
+    const next = (await todoCards.nth(1).boundingBox())!;
     const target = (await page.getByTestId("kanban-column-body-in_progress").boundingBox())!;
-    await page.mouse.move(b.x + b.width / 2, b.y + 12);
+    const from = { x: b.x + b.width / 2, y: b.y + 12 };
+    const dip = { x: next.x + next.width / 2, y: next.y + next.height / 2 };
+    await page.mouse.move(from.x, from.y);
     await page.mouse.down();
-    for (let i = 1; i <= 30; i++) {
-      await page.mouse.move(b.x + b.width / 2 + ((target.x + target.width / 2 - b.x - b.width / 2) * i) / 30, b.y + 12 + ((target.y + 60 - b.y - 12) * i) / 30);
-      await nextFrames(page, 1);
-    }
+    await pacedPath(page, [from, dip], 15);
+    // Over the neighbour, the neighbour has moved: without this the test
+    // would pass on a drag that displaces nobody.
+    expect(await todoCards.nth(1).evaluate((el) => (el as HTMLElement).style.transform), "the neighbour was not displaced: the gesture tests nothing").toMatch(/translate3d\(0px, -\d/);
+    await pacedPath(page, [dip, { x: target.x + target.width / 2, y: target.y + 60 }], 15);
     await markFrame(page, "drop");
     await page.mouse.up();
     await nextFrames(page, 10);

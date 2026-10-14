@@ -48,7 +48,7 @@ import type {
   StreamHandler,
 } from "../types";
 import { recordTurnEnd } from "../turn-end-registry";
-import { languageDirective, resolveClaudeEffort } from "../../lib/topics-agent-prompt";
+import { languageDirective, languageReminder, resolveClaudeEffort } from "../../lib/topics-agent-prompt";
 import { resolveClaudeModel, resolveClaudeMaxTokens } from "../../services/app-settings";
 import {
   isEligibleGlobalOrchestratorSession,
@@ -226,6 +226,9 @@ export function nativeSystemPrompt(args: {
  * (an alias of the dated id, see NATIVE_MODEL_ALIASES). Left out:
  * claude-sonnet-4-6[1m] answered 429 "Usage credits are required for long
  * context requests", claude-haiku-3-55 answered 404 not_found_error.
+ * claude-haiku-5-5 probed on 2026-10-11 on the same OAuth endpoint, no beta:
+ * 200 at max_tokens 1, and 200 on a 780k-token request (a million is its
+ * standard window, see shared/context-window.ts).
  */
 const MODELS = [
   "claude-opus-5-5[1m]",
@@ -241,6 +244,7 @@ const MODELS = [
   "claude-opus-4-8",
   "claude-opus-4-6",
   "claude-sonnet-4-6",
+  "claude-haiku-5-5",
   "claude-haiku-4-5-20251001",
 ];
 
@@ -511,7 +515,7 @@ export class NativeProvider implements AIProvider {
       history: rehydrateHistory(sessionKey, messageRows),
       workspace,
       lastUsedAt: Date.now(),
-      calibration: { charsPerToken: DEFAULT_CHARS_PER_TOKEN },
+      calibration: { charsPerToken: DEFAULT_CHARS_PER_TOKEN, calibrated: false },
     };
     this.sessions.set(sessionKey, fresh);
     return fresh;
@@ -539,13 +543,24 @@ export class NativeProvider implements AIProvider {
       /** The turn's name: it rides on every end recorded here, so a late end is never taken for the next turn's. */
       turnId?: string;
     },
-  ): Promise<{ runId?: string }> {
+  ): Promise<{ runId?: string; notSent?: boolean }> {
     if (this.hasGlobalCoordinatorRole(sessionKey)) {
       handler.onError("the global coordinator is Codex-only; reopen it from the Kanban");
       return {};
     }
     const session = this.sessionFor(sessionKey, options?.messageRows);
     await this.supersedeLiveTurn(sessionKey, session);
+    // A STOPPED ENGINE STARTS NO TURN. The chat route holds this instance across
+    // its own awaits (the `memrecall` run) between opening the stream and calling
+    // here, so a `stop()` (engine removed, provider replaced) can land in that
+    // gap: it finds no session to abort, and the turn would then run to its end
+    // on an instance the registry no longer has. It ends here instead, with the
+    // cause `stop()` gives the turns it does reach, as claude-code ends the sends
+    // it had queued. No await below this line: the check and the claim are one step.
+    if (this.stopped) {
+      handler.onAborted?.({ turnEnd: cancelled("server-shutdown" satisfies StopCause) });
+      return { notSent: true };
+    }
 
     // La storia del CHIAMANTE vince su quella in memoria: è lui che sa cosa è
     // successo davvero (riavvii, rami, modifiche). La nostra è una comodità,
@@ -743,6 +758,7 @@ export class NativeProvider implements AIProvider {
           // workspace and only its five board tools, so adding that ordinary
           // note would falsely advertise web/file capabilities.
           system: nativeSystemPrompt({ base: options?.systemPrompt, workspace: !!workspace, globalOrchestrator: !!globalOrchestrator }),
+          reminder: languageReminder(),
           history: session.history,
           // Passed by REFERENCE: every turn restarts from what the previous
           // one measured, instead of from the assumed 4 chars per token.

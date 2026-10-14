@@ -1,3 +1,4 @@
+import { restoreToolCallsFromBlocks } from "../utils";
 import { recentActiveRows, rowCarryingAsk, rowCarryingTool, type AskHaystackRow } from "../lib/ask-answer-routing";
 import { patchLiveTool } from "../lib/turn-body-flush";
 import { canonicalProjectPath } from "../lib/canonical-project-path";
@@ -32,9 +33,9 @@ import { createBrowserBridgeRouter } from "./browser-bridge";
 import type { BrowserService } from "../browser-service";
 import { resolveContextIdForTopic } from "../browser-tool-dispatcher";
 import { getTerminalSessionById, setSubAgentExitHandler } from "./terminal";
+import { liveWorkOf } from "./live-work";
 import { getSessionContext } from "../db/session-context";
-import { markTopicSeen } from "../subject-seen";
-import { markAttentionSeen, seenItemNow, setClosed, turnEnded } from "../attention/store";
+import { noteUnreadChanged, setClosed, turnEnded } from "../attention/store";
 import { topicSubject } from "../../shared/attention";
 import { logMachineStop, logStopPressed } from "../db/activity-log";
 import { isMachineStop, machineStopToolError, stopCauseOf, stopReachesSubagents } from "../lib/abort-cause";
@@ -58,6 +59,7 @@ import { moveTerminalPaneToProject as relocateTerminalPaneToProject, moveTopicTo
 import { bumpUnreadCount } from "../lib/unread-count";
 import { createSubagentWatcher } from "../lib/subagent-watch";
 import { subagentWakeState } from "../lib/subagent-runtime";
+import { rootSessionKeyOf } from "../lib/subagent-store";
 import { requestSubagentWake, writeQueuedWakesAsRows } from "../services/subagent-wake";
 import { stopNativeChildrenOf } from "../lib/native-subagents";
 import { computeTopicChanges, resolveTopicChangeTarget, revsOfTarget } from "../lib/topic-changes";
@@ -524,7 +526,7 @@ export function createTopicsRouter(
     loadTopics, saveSingleTopic,
     getTopicById, getTopicBySessionKey,
     loadUnread,
-    loadLocalMessages, countMessagesBySession, saveLocalMessages, appendLocalMessage,
+    loadLocalMessages, loadThreadWindow, hydrateMessageBodies, countMessagesBySession, saveLocalMessages, appendLocalMessage,
     updateLastMessage, updateToolCallFields, discardIfEmptyTurn,
     endStream,
     readJSON, json, matchRoute, errorResponse, slugify,
@@ -652,7 +654,7 @@ export function createTopicsRouter(
   /** Politica di lettura e incremento: `server/lib/unread-count.ts`. */
   function updateUnreadCount(topicId: string) {
     bumpUnreadCount(
-      { bumpUnread: ctx.bumpUnread, broadcastToAll, isArchived: (id) => getTopicById(id)?.archived === true },
+      { bumpUnread: ctx.bumpUnread, announce: noteUnreadChanged, isArchived: (id) => getTopicById(id)?.archived === true },
       topicId,
     );
   }
@@ -1043,6 +1045,10 @@ export function createTopicsRouter(
     persistTaskTab: (taskId, contextId, url, title) => { persistAgentTaskTab(ctx.db, broadcastToAll, taskId, contextId, url, title); },
     attachLoginHandle: (contextId, handle) => { attachLoginHandleToTaskTab(ctx.db, broadcastToAll, contextId, handle); },
     paneAttachedTo,
+    browserHostTopicOf: (topic) => {
+      const root = rootSessionKeyOf(ctx.db, topic.sessionKey);
+      return root === topic.sessionKey ? null : getTopicBySessionKey(root)?.id;
+    },
   }, browserService);
 
   /**
@@ -1985,7 +1991,6 @@ export function createTopicsRouter(
       for (const topic of updatedTopics) {
         broadcastToAll({ type: "topic:archived", topic });
         if (archived) {
-          broadcastToAll({ type: "unread:updated", topicId: topic.id, unreadCount: 0 });
           // Stesso passo 4 del percorso singolo (services/archive-topic.ts).
           // È QUESTA la strada che ha prodotto la perdita misurata: le 28
           // sessioni rimaste vive su chat chiuse portavano tutte la data di
@@ -2090,35 +2095,6 @@ export function createTopicsRouter(
     // GET /api/unread
     if (method === "GET" && pathname === "/api/unread") {
       return json(loadUnread());
-    }
-
-    // POST /api/topics/:id/read
-    //
-    // Idempotente e SILENZIOSA quando non c'è niente da azzerare. Il client la
-    // chiamava a ogni cambio di tab, e a contatore già a zero il no-op costava
-    // caro su entrambi i lati: `saveUnread` riscrive TUTTE le righe (legge la
-    // tabella, cancella le sparite, fa l'upsert di ognuna, in transazione) e il
-    // `broadcastToAll` sveglia OGNI client connesso con un `unread:updated{0}`
-    // che non cambia nulla ma gli fa comunque validare il frame e ri-renderizzare.
-    // Con una dozzina di tab aperte era il costo principale dello switch.
-    //
-    // `lastReadAt` non avanza in questo ramo, di proposito: è informativo. È
-    // questa POST — e SOLO questa — a decidere che una topic è letta: il server
-    // non deduce più "letto" dal focus (vedi updateUnreadCount).
-    {
-      const params = matchRoute(pathname, "/api/topics/:id/read");
-      if (params && method === "POST") {
-        // ONE door for "I have seen this chat" (`server/subject-seen.ts`): the
-        // unread counter AND the notification rows, each announced only when
-        // it changed. The panel's seen goes through the same function, so the
-        // bell and the badges cannot tell two different stories.
-        const body = (await readJSON(req)) as { doneMark?: unknown } | null;
-        markTopicSeen({ loadUnread, saveUnreadEntries: ctx.saveUnreadEntries, broadcastToAll }, params.id, { doneMark: body?.doneMark === true });
-        // An alias of the seen door (`POST /api/attention/seen`) while the old
-        // client exists (design section 6, tasks.md 6.2): everything seen now.
-        markAttentionSeen([seenItemNow(topicSubject(params.id))]);
-        return json({ ok: true });
-      }
     }
 
     // Il ponte MCP del browser: sei rotte (`open-pane`, `close-pane`,
@@ -2387,17 +2363,18 @@ export function createTopicsRouter(
         const limit = parseInt(urlParams.get("limit") || "200");
         const offset = parseInt(urlParams.get("offset") || "0");
 
-        const localMsgs = loadLocalMessages(topic.sessionKey);
-        const completeMsgs = localMsgs.filter(m => !m.partial || (m.content && m.content.trim()));
-        const total = completeMsgs.length;
-        const sliced = offset > 0 ? completeMsgs.slice(0, Math.max(0, total - offset)) : completeMsgs;
-        // Same slimming as `/api/history/:key`. Without it this route shipped
-        // 12.54 MB where the other shipped 5.42 for the same topic, because here
-        // `toolCalls` still travelled alongside `blocks` AND each one carried a
-        // duplicated `result`. The caller is the agents' `read_chat` over MCP,
-        // which then keeps 4,000 characters per message and throws the rest away
-        // (server/mcp/topics-mcp-server.ts:1219). See shared/lean-tool-call.ts.
-        const result = leanMessagesForWire(sliced.slice(-limit));
+        // The window is chosen on a SKELETON of the thread (four columns) and the
+        // real rows are read only for the messages that go out; the body (blocks,
+        // tool_calls) is put back by `hydrateMessageBodies` for those alone. The
+        // route used to read and decode the WHOLE session to keep `limit` of it.
+        // Same road as `/api/history`.
+        // Gate: tests/integration/topic-messages-window-cost.test.ts.
+        const { messages: windowLean, total } = loadThreadWindow(topic.sessionKey, limit, offset);
+        const window = hydrateMessageBodies(windowLean);
+        // A partial goes out whole and `hydrateMessageBodies` does not rebuild its
+        // toolCalls from the blocks (the fat read did, for every row).
+        for (const m of window) if (m.partial) restoreToolCallsFromBlocks(m);
+        const result = leanMessagesForWire(window);
 
         return json({ messages: result, total, topicName: topic.name });
       }
@@ -3366,6 +3343,15 @@ export function createTopicsRouter(
         const sessions = result?.result?.sessions || [];
         return json([...commands, ...subagentProcesses(sessions)]);
       } catch { return json(commands); }
+    }
+
+    {
+      // The strip under the chat: what works for it now (chat-live-work).
+      const params = matchRoute(pathname, "/api/topics/:topicId/live-work");
+      if (params && method === "GET") {
+        const topic = getTopicById(params.topicId);
+        return topic ? json(liveWorkOf(ctx, topic)) : json({ error: "Topic not found" }, 404);
+      }
     }
 
     {

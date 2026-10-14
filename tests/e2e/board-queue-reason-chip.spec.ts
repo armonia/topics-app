@@ -208,13 +208,30 @@ test.describe("Il chip della coda porta la sua ragione", () => {
     await expect(chipOf(page, inCoda.id)).toHaveText("in coda · 2 davanti");
     await expect(chipOf(page, bloccata.id)).toHaveAttribute("data-kind", "blocked");
     await expect(chipOf(page, rinviata.id)).toHaveAttribute("data-kind", "deferred");
-    await expect(chipOf(page, esaurita.id)).toHaveAttribute("data-kind", "attempts");
+    // The exhausted card is the one whose fate DOES depend on the switch: with
+    // dispatch on, the dispatcher's next pass parks it in Backlog as failed
+    // (server side, push `task-park-<id>`), and that pass can land inside this
+    // window. Measured in the cloud VM: about 1 iteration in 15, with the
+    // starting client too; the test used to pass only when its reads came
+    // first. So here it either still says "attempts" in Todo, with the stalled
+    // tone, or it has been parked: both are the product telling the truth. Its
+    // "attempts" chip with dispatch OFF is asserted above, without a race.
+    const exhaustedState = async (): Promise<string> => {
+      // The server is the judge of "parked": the board drawing it is covered
+      // elsewhere, and a card in flight between columns has no stable box.
+      const res = await request.get(`${BASE}/api/boards/${PROJECT_ID}/tasks/${esaurita.id}`);
+      const row = ((await res.json()) as { task?: { status?: string; dispatchState?: string | null } }).task;
+      if (row?.status === "backlog" && row.dispatchState === "failed") return "parked";
+      const chip = chipOf(page, esaurita.id);
+      if (!(await chip.count())) return "none";
+      return `${await chip.getAttribute("data-kind")}/${await chip.getAttribute("data-tone")}`;
+    };
+    await expect.poll(exhaustedState, { timeout: 10_000 }).toMatch(/^(attempts\/stalled|parked)$/);
 
     // Barra n.3: «aspetta uno slot» e «non partirà finché non decidi tu» non
     // sono più la stessa parola, e la differenza si vede senza leggere.
     await expect(chipOf(page, inCoda.id)).toHaveAttribute("data-tone", "queued");
     await expect(chipOf(page, bloccata.id)).toHaveAttribute("data-tone", "waiting");
-    await expect(chipOf(page, esaurita.id)).toHaveAttribute("data-tone", "stalled");
     await didascalia(page, "Acceso il dispatch: «in coda · 2 davanti» ≠ «tentativi finiti»");
     await beat(page, 2600);
 

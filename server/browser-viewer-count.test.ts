@@ -187,7 +187,7 @@ test("server.ts polls this predicate for open-pane, and never starts the screenc
   const wired = [
     "const paneAttachedTo = (contextId: string): boolean => hasAttachedPane(browserWsClients.get(contextId));",
     "createTopicsRouter(ctx, browserService, paneAttachedTo,",
-    "if (screencastCancelled || !streamActive || ws.data.expectsExecutor) return;",
+    "if (screencastCancelled || ws.data.expectsExecutor) return;",
   ];
   for (const line of wired) expect(code.includes(line), `not wired any more: \`${line}\``).toBe(true);
 });

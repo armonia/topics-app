@@ -2071,6 +2071,7 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, loadHi
                   canCreate={mode === 'project' && !showArchived}
                   showProject={mode === 'all'}
                   layout={boardLayout}
+                  viewKey={`${mode === 'all' ? 'all' : projectId}:${showArchived ? 'archive' : 'live'}`}
                   cardError={cardError}
                   onCardError={onCardError}
                   onRefetch={refetch}
@@ -2179,6 +2180,7 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, loadHi
             projectId={drawerTask.projectId}
             taskId={drawerTask.id}
             initialStatus={drawerTask.status}
+            initialTitle={drawerTask.text}
             bump={taskDetailBump(drawerTask)}
             onClose={() => setSelectedId(null)}
             onChanged={refetch}

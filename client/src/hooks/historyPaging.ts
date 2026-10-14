@@ -113,3 +113,26 @@ export function mergeOlderHistory(existing: ChatMessage[], older: ChatMessage[],
   if (prefix.length === 0 && pivot === 0) return existing;
   return prefix.length > 0 ? [...prefix, ...kept] : kept;
 }
+
+/**
+ * How many rows of the first page sit ABOVE the local copy that painted the
+ * first frame.
+ *
+ * The copy should be the page (`shared/history-paging.ts`), but the end of a
+ * turn writes it too, halving the whole list until it fits the byte cap: on
+ * heavy rows that leaves a tail shorter than the one the server sends. Merging
+ * the page would then PREPEND rows to a list already on screen, and Virtuoso,
+ * which keeps its measurements by index, paints the wrong rows for one frame
+ * (measured in `topic-visited-first-frame.spec.ts`). The caller keeps these
+ * rows out as partial history: they come with the rest, while the pane is
+ * hidden or when somebody asks for them from the top of the list.
+ *
+ * Zero when the copy's first row is not durable or not in the page (a copy
+ * longer than the page, or disjoint from it): nothing goes above it then.
+ */
+export function rowsAboveLocalCopy(copy: ChatMessage[], page: ReadonlyArray<{ id?: string | null }>): number {
+  const first = copy[0];
+  if (!first || !durable(first)) return 0;
+  const k = page.findIndex((m) => m.id === first.id);
+  return k > 0 ? k : 0;
+}

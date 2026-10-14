@@ -19,6 +19,7 @@
  */
 import { z } from 'zod/mini';
 import type { ToolCallDetail } from './types';
+import { viewSpecSchema } from './views';
 
 const shellSchema = z.object({
   type: z.literal('shell'),
@@ -223,6 +224,13 @@ const browserSchema = z.object({
   result: z.optional(z.string()),
 });
 
+const viewSchema = z.object({
+  type: z.literal('view'),
+  view: viewSpecSchema,
+  viewId: z.optional(z.string()),
+  result: z.optional(z.string()),
+});
+
 const unknownSchema = z.object({
   type: z.literal('unknown'),
   raw: z.object({
@@ -255,6 +263,7 @@ export const toolCallDetailSchema = z.discriminatedUnion('type', [
   artifactSchema,
   askUserSchema,
   browserSchema,
+  viewSchema,
   unknownSchema,
 ]);
 

@@ -28,7 +28,12 @@
 // Il bump è quello che fa arrivare questo file ai client — un SW vecchio
 // ignorerebbe `actions` E mostrerebbe la notifica comunque, cioè raddoppierebbe
 // la voce proprio nel caso che questa versione esiste per risolvere.
-const CACHE_VERSION = 12;
+// v13 (2026-10-13): navigations AND immutable `/assets/*` chunks retry the
+// network for ~7 s with growing waits. 600 ms was shorter than a server reload,
+// so a refresh during one failed outright, and a chunk that failed once stayed
+// failed for the life of the document (WebKit remembers failed modules): the
+// Claude Code pane stayed blank until a second manual refresh.
+const CACHE_VERSION = 13;
 const CACHE_NAME = `topics-v${CACHE_VERSION}`;
 
 // Un fallimento di rete su una navigazione ha DUE cause che il vecchio
@@ -43,19 +48,21 @@ const CACHE_NAME = `topics-v${CACHE_VERSION}`;
 // un riavvio-watch risponde entro ~1s, un offline vero no. Quindi per le
 // navigazioni ritentiamo la rete un paio di volte con un backoff corto prima di
 // arrenderci alla cache. Gli asset mantengono il fallback a colpo singolo.
-const NAV_RETRIES = 3;
-const NAV_BACKOFF_MS = 300;
+// Waits between network attempts: ~6.75 s in all, longer than a server reload
+// (shutdown + boot) on a loaded Mac, short enough that a real offline still
+// reaches the cached shell while someone is looking.
+const RETRY_DELAYS_MS = [250, 500, 1000, 2000, 3000];
 
 function delay(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-// Network-first per le navigazioni, ma con retry: solo dopo NAV_RETRIES fetch
-// fallite (rete irraggiungibile) cadiamo sulla shell cachata. Una risposta HTTP
-// che arriva — anche non-ok — chiude il giro senza ritentare: il server c'è, la
-// sua risposta è autorevole, non è il caso "server assente" che vogliamo coprire.
-async function navigationFetch(request, cacheKey) {
-  for (let attempt = 0; attempt < NAV_RETRIES; attempt++) {
+// Network-first with retry: only after every wait in RETRY_DELAYS_MS has failed
+// (network unreachable) do we fall back to the cached copy. An HTTP response
+// that arrives, even a non-ok one, ends the loop: the server is there and its
+// answer is authoritative, which is not the "server absent" case covered here.
+async function fetchWithRetry(request, cacheKey) {
+  for (let attempt = 0; ; attempt++) {
     try {
       const response = await fetch(request);
       if (response.ok) {
@@ -65,12 +72,12 @@ async function navigationFetch(request, cacheKey) {
       return response;
     } catch (err) {
       // Rete irraggiungibile. Se restano tentativi, aspetta e riprova: un
-      // rimbalzo di `bun --watch` risponde prima di esaurirli.
-      if (attempt < NAV_RETRIES - 1) {
-        await delay(NAV_BACKOFF_MS);
+      // riavvio del server risponde prima di esaurirli.
+      if (attempt < RETRY_DELAYS_MS.length) {
+        await delay(RETRY_DELAYS_MS[attempt]);
         continue;
       }
-      // Tentativi finiti → davvero offline. Shell cachata se c'è, altrimenti
+      // Tentativi finiti → davvero offline. Copia cachata se c'è, altrimenti
       // rilancia l'errore di rete (nessun fallback possibile).
       const cached = await caches.match(cacheKey);
       if (cached) return cached;
@@ -126,12 +133,12 @@ self.addEventListener('fetch', (event) => {
     ? new Request(new URL('/', self.location.origin).href)
     : event.request;
 
-  // Le navigazioni prendono il percorso con retry (distingue riavvio-server da
-  // offline). Gli asset restano network-first a colpo singolo: un asset che
-  // manca per un attimo verrà richiesto di nuovo dalla prossima navigazione, non
-  // vale la pena tenerne in sospeso la fetch.
-  if (isNavigation) {
-    event.respondWith(navigationFetch(event.request, cacheKey));
+  // Navigations take the retrying path (tells a server restart from offline).
+  // The hashed chunks under `/assets/` are immutable, so waiting for them is
+  // always right; and a chunk that fails reaches WebKit's module map as dead
+  // for the life of the document. They take the same retry as navigations.
+  if (isNavigation || url.pathname.startsWith('/assets/')) {
+    event.respondWith(fetchWithRetry(event.request, cacheKey));
     return;
   }
 

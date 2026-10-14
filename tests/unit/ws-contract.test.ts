@@ -253,7 +253,9 @@ describe('WS-04 contract: browserWsMessageSchema (Phase 30)', () => {
     // resolves goto/launch failures as an error-phase frame the pane renders.
     // 'history' joined with BROWSER-STREAM-HISTORY-01: a same-document
     // navigation carries the url and the back/forward flags, nothing else.
-    expect(sig.enums.phase).toEqual(['error', 'history', 'request', 'response']);
+    // 'loading' joined with BROWSER-LOAD-01: every viewer hears that the page
+    // is on its way, a socket that opens in the middle included.
+    expect(sig.enums.phase).toEqual(['error', 'history', 'loading', 'request', 'response']);
   });
 
   test('console.level enum is locked', () => {
@@ -337,8 +339,8 @@ describe('WS-04 contract: chatWsInboundSchema (main /ws)', () => {
 // ----- Contract: tool-call-detail (NORM-01) ---------------------------------
 
 describe('WS-04 contract: toolCallDetailSchema (NORM-01)', () => {
-  test('exactly 24 variants', () => {
-    expect(variantsOf(toolCallDetailSchema).length).toBe(24);
+  test('exactly 25 variants', () => {
+    expect(variantsOf(toolCallDetailSchema).length).toBe(25);
   });
 
   test('discriminator literals are frozen', () => {
@@ -364,6 +366,8 @@ describe('WS-04 contract: toolCallDetailSchema (NORM-01)', () => {
     //   ask_user      — AskUserQuestion (the question put to the human)
     // One on 2026-10-01 (CHAT-BROWSER-03):
     //   browser       — open_browser_pane / browser_open that worked
+    // One on 2026-10-08 (GENUI-01):
+    //   view          — show_view, a generative view drawn in the transcript
     expect([...types].sort()).toEqual([
       'agent_control',
       'agent_message',
@@ -387,6 +391,7 @@ describe('WS-04 contract: toolCallDetailSchema (NORM-01)', () => {
       'sub_agent',
       'todo',
       'unknown',
+      'view',
       'wait',
       'write',
     ]);

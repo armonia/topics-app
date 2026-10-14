@@ -1,13 +1,13 @@
 import { describe, expect, test } from 'bun:test';
 import type { TerminalSessionInfo } from '../types';
-import { decideRosterTrust, shouldDeclareExpired } from './rosterTrust';
+import { decideRosterTrust, decideTerminalPaneStatus, shouldDeclareExpired } from './rosterTrust';
 
 /**
  * La regola esiste per un bug preciso: "Sessione scaduta" su un terminale VIVO.
  * Questi test guardano la sola cosa che conta — quando un roster vuoto ha il
  * diritto di far dichiarare morta una pane, e quando no.
  *
- * @covers TERM-01
+ * @covers TERM-01, TERM-09
  */
 
 function s(id: string): TerminalSessionInfo {
@@ -112,5 +112,27 @@ describe('quando la pane dichiara scaduta', () => {
     expect(shouldDeclareExpired({
       sessionListed: false, rosterAuthoritative: true, retryCount: GRAZIA + 1, graceRetries: GRAZIA,
     })).toBe(true);
+  });
+});
+
+describe('a parked resumable session is resting, not expired', () => {
+  test('a dormant row with a resume id is not declared expired', () => {
+    expect(decideTerminalPaneStatus({
+      sessionListed: false,
+      rosterAuthoritative: true,
+      retryCount: 6,
+      graceRetries: 5,
+      dormantResumable: true,
+    })).toBe('resting');
+  });
+
+  test('a confirmed missing row beyond grace is expired', () => {
+    expect(decideTerminalPaneStatus({
+      sessionListed: false,
+      rosterAuthoritative: true,
+      retryCount: 6,
+      graceRetries: 5,
+      dormantResumable: false,
+    })).toBe('expired');
   });
 });

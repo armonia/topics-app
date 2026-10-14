@@ -1517,6 +1517,48 @@ test.describe("TOPIC-BROWSER-04 le aperture che nessuno ha chiesto a mano", () =
     }
   });
 
+  test("TOPIC-BROWSER-04g: in una finestra di progetto la pagina dell'agente apre il mini browser della topic, non una pane del progetto", async ({ page, request }) => {
+    // THE CASE SEEN LIVE ON 11/10 (topic ae217a6b in a project window): the
+    // agent's page became a pane of the project layout, and the topic's mini
+    // browser never appeared. The falsifiable half is the second assertion: a
+    // project pane also shows a page, and it is the wrong place.
+    const projectPath = mkdtempSync(join(tmpdir(), "e2e-tbw-agent-proj-"));
+    const topic = await createTopic(request, `E2E-TBW-AgentProj-${Date.now()}`, { projectPath });
+    const url = AGENT_URL("dall-agente-nel-progetto");
+    try {
+      // The main layout first, as in 04d: panes left by earlier specs keep the
+      // new project window out of the active slot, and its chat tab never shows.
+      await resetPaneStore(request, []);
+      await resetProjectPanes(request, projectPath);
+      await seedProjectPane(request, projectPath);
+      await seedProjectLayout(request, projectPath, topic.id, null);
+      await goToApp(page);
+      const chatTab = page.locator(`[data-pane-id="chat:${topic.id}"]`).first();
+      await expect(chatTab).toBeVisible({ timeout: 20000 });
+      await chatTab.click();
+      await expect(page.locator('[data-testid="topic-browser-window"]')).toHaveCount(0);
+
+      const res = await request.post(
+        `${BASE}/api/topics/${encodeURIComponent(topic.id)}/browser/open-pane`,
+        { data: { url }, ignoreHTTPSErrors: true, timeout: 45_000 },
+      );
+      expect(res.ok()).toBeTruthy();
+      expect((await res.json()).visible).toBe(true);
+
+      const windowEl = page.locator('[data-testid="topic-browser-window"]');
+      await expect(windowEl).toBeVisible({ timeout: 20000 });
+      await expect(
+        page.locator(`[data-testid="topic-browser-tab"][data-context-id="${topic.id}"]`),
+      ).toHaveCount(1, { timeout: 15000 });
+      await expect(page.locator(`[data-testid="project-window"] [data-pane-id="browser:${topic.id}"]`)).toHaveCount(0);
+    } finally {
+      await resetProjectPanes(request, projectPath).catch(() => {});
+      await closeAllBrowserContexts(request).catch(() => {});
+      await deleteTopic(request, topic.id).catch(() => {});
+      removeTmpDir(projectPath);
+    }
+  });
+
   test("TOPIC-BROWSER-04f: la pane in una cella sua e' gia' quella pagina, e la finestra non ne fa una seconda", async ({ page, request }) => {
     // THE VARIANT THAT ACTUALLY DISCRIMINATES THE GUARD. 04b also seeds
     // `promoted: [topic.id]`, and with that `open` refuses the sheet on its own

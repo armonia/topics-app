@@ -165,6 +165,9 @@ const EN = {
   'ctx.removeFromContext': 'Remove from the context',
   'ctx.removeFile': 'Remove the file',
   'tool.logTruncated': '[… {n} lines dropped: the log buffer is full]',
+  'tool.live.running': 'running',
+  'tool.live.exit': 'exit {code}',
+  'tool.live.ended': 'ended',
   'tool.runningTail.more': 'More output above',
   'tool.shell.silent': 'Running for {elapsed} · no output shown',
   'tool.shell.sleepLeft': ' · sleep: {left} left',
@@ -2121,6 +2124,7 @@ const EN = {
   'devices.revokeTitle': 'Revoke this device’s access',
   // ── Terminal: the three states in which the pane is printing nothing.
   'terminal.stale.title': 'Session expired',
+  'terminal.resting.title': 'Resting',
   'terminal.dormant.title': 'Session ended',
   // ── Terminal: WHY it ended, read off the board card this session worked.
   'terminal.cause.interrupted': 'Cut by the server restart at {time}',
@@ -2133,6 +2137,7 @@ const EN = {
   'terminal.resumeTitle': 'Resume the session (--resume): brings the sub-agent conversation back to life',
   'terminal.reload': 'Reload',
   'terminal.resume': 'Resume',
+  'terminal.banner.resting': 'Resting',
   'terminal.restarting': 'Restarting…',
   'terminal.restartingSession': 'Restarting session…',
   // ── Terminal: the refusals that used to happen in silence. The server text
@@ -2802,6 +2807,10 @@ const EN = {
   'browser.navError.refused': '{where} refuses the connection.',
   'browser.navError.hostNotFound': 'Address not found: {where}.',
   'browser.navError.timedOut': '{where} did not answer in time.',
+  'browser.navError.loopbackStuck': '{where} takes the connection but does not answer.',
+  'browser.navError.loopbackStuck.hint': 'The server on that port is running but stuck: restart it, then press Retry.',
+  'browser.load.opening': 'Opening {target}…',
+  'browser.load.silent': 'No answer for {seconds}s',
   'browser.navError.offline': 'No internet connection.',
   'browser.navError.tls': 'Insecure connection to {where}: invalid certificate.',
   'browser.navError.ats': '{where} is on http and the system blocks unencrypted traffic.',

@@ -37,6 +37,7 @@ import type { Pane, PaneState, PaneType } from './types';
 import { projectPanesKey } from '../../../../shared/project-keys';
 import { resolvePaneSpace } from './reducers/spaces';
 import { warm } from '../../lib/lazyWarm';
+import { retryingChunk } from '../../lib/chunkReloadGuard';
 
 type Loader = () => Promise<unknown>;
 
@@ -44,13 +45,15 @@ type Loader = () => Promise<unknown>;
  * THE loaders, one object each, shared with the `lazyWarm` wrappers in the
  * layout components: `warm` remembers a module by the identity of the function
  * that loaded it, so the wrapper and the preload have to hold the same one.
+ * Each is `retryingChunk`, named after its chunk file: a refresh that lands
+ * while the server restarts retries the chunk instead of leaving a blank pane.
  */
-export const loadBoard = () => import('../../components/Board/KanbanBoardPane');
-export const loadTerminal = () => import('../../components/Terminal/SingleTerminalPane');
-export const loadBrowser = () => import('../../components/Browser/RemoteBrowserPanel');
-export const loadFilePane = () => import('../../components/Editor/FilePane');
-export const loadFileExplorer = () => import('../../components/Project/FileExplorer');
-export const loadGitChanges = () => import('../../components/Project/GitChanges');
+export const loadBoard = retryingChunk('KanbanBoardPane', () => import('../../components/Board/KanbanBoardPane'));
+export const loadTerminal = retryingChunk('SingleTerminalPane', () => import('../../components/Terminal/SingleTerminalPane'));
+export const loadBrowser = retryingChunk('RemoteBrowserPanel', () => import('../../components/Browser/RemoteBrowserPanel'));
+export const loadFilePane = retryingChunk('FilePane', () => import('../../components/Editor/FilePane'));
+export const loadFileExplorer = retryingChunk('FileExplorer', () => import('../../components/Project/FileExplorer'));
+export const loadGitChanges = retryingChunk('GitChanges', () => import('../../components/Project/GitChanges'));
 // A WARM CHUNK CAN STILL HIDE A COLD ONE. `FilePane` and `FileExplorer` are
 // only the shells: the body of a file pane is `CodeEditor`, and the file tree
 // always mounts `EditorTabs` next to itself - both behind a `lazy()` of their
@@ -58,8 +61,8 @@ export const loadGitChanges = () => import('../../components/Project/GitChanges'
 // request went out. Measured on the real state (2026-09-10): the second-hop
 // chunks left at 181 ms and landed at 309-315 ms, which is the whole window in
 // which the first frame is decided.
-export const loadCodeEditor = () => import('../../components/Editor/CodeEditor');
-export const loadEditorTabs = () => import('../../components/Editor/EditorTabs');
+export const loadCodeEditor = retryingChunk('CodeEditor', () => import('../../components/Editor/CodeEditor'));
+export const loadEditorTabs = retryingChunk('EditorTabs', () => import('../../components/Editor/EditorTabs'));
 /**
  * The project window's own column. It used to be a STATIC import inside
  * `ProjectWindow`, which put it - and `FileExplorer`, which it imports the same
@@ -74,25 +77,25 @@ export const loadEditorTabs = () => import('../../components/Editor/EditorTabs')
  * loader was written in the bare shape and `check:deadcode-blindspots` called
  * it a REGRESSION on the next CI run - the file had never been blind before.
  */
-export const loadProjectSidebar = async () => {
+export const loadProjectSidebar = retryingChunk('ProjectSidebar', async () => {
   const { ProjectSidebar } = await import('../../components/Project/ProjectSidebar');
   return { ProjectSidebar };
-};
-export const loadDashboard = () => import('../../components/Dashboard/DashboardPane');
-export const loadProcessLog = () => import('../../components/Project/ProcessLogPane');
+});
+export const loadDashboard = retryingChunk('DashboardPane', () => import('../../components/Dashboard/DashboardPane'));
+export const loadProcessLog = retryingChunk('ProcessLogPane', () => import('../../components/Project/ProcessLogPane'));
 // The destructured `await` and not `import().then(m => ...)`: with the `.then`
 // shape knip cannot see through the module, every export inside it counts as
 // used, and a dead export in there stops being reported (`check:deadcode-
 // blindspots`). The shape was already chosen for ProfilePane at its old `lazy`
 // site — moving the loader here must not lose it.
-export const loadCronJobs = async () => {
+export const loadCronJobs = retryingChunk('CronJobsPanel', async () => {
   const { CronJobsPanel } = await import('../../components/Sidebar/CronJobsPanel');
   return { CronJobsPanel };
-};
-export const loadProfile = async () => {
+});
+export const loadProfile = retryingChunk('ProfilePane', async () => {
   const { ProfilePane } = await import('../../components/Profile/ProfilePane');
   return { ProfilePane };
-};
+});
 
 /**
  * The chunks each pane type lives in. Only the types with a heavy lazy body:

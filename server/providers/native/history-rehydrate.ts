@@ -251,7 +251,7 @@ function expandToolCalls(content: string, calls: readonly ToolCall[], partial: b
     const before = content.slice(cursor, at);
     cursor = at;
     const uses: Block[] = round.calls.map((tc) => ({
-      type: "tool_use", id: tc.id, name: tc.name, input: tc.args ?? {},
+      type: "tool_use", id: apiToolId(tc.id), name: apiToolName(tc.name), input: tc.args ?? {},
     }));
     out.push({ role: "assistant", content: [...toBlocks(before), ...uses] });
     out.push({ role: "user", content: round.calls.map(resultBlock) });
@@ -278,17 +278,40 @@ function rewriteStaleImageCaption(text: string): string {
     : text;
 }
 
+/**
+ * A stored call's name and id as the API accepts them.
+ *
+ * The thread keeps what every engine recorded, and not every engine records an
+ * API name: an ACP turn stores the row's TITLE (`"product-hunter": Find best
+ * prices…`, `Searching the web for: …`). Sent back as `tool_use.name` it is a
+ * 400 on the whole request, and since the history is rebuilt the same way on
+ * every turn, the chat was dead for good, `/compact` included (11/10,
+ * topic:64095902: «messages.331.content.0.tool_use.name: String should have at
+ * most 200 characters»). The name only labels a past call here, so a slug of
+ * it loses nothing the model needs; the id is mapped the same way on both the
+ * call and its result, so the pair still matches.
+ */
+const API_TOOL_NAME = /^[a-zA-Z0-9_-]{1,128}$/;
+export function apiToolName(name: string | undefined): string {
+  if (name && API_TOOL_NAME.test(name)) return name;
+  const slug = (name ?? "").replace(/[^a-zA-Z0-9_-]+/g, "_").replace(/^_+|_+$/g, "").slice(0, 64);
+  return slug || "tool";
+}
+export function apiToolId(id: string): string {
+  return /^[a-zA-Z0-9_-]+$/.test(id) ? id : id.replace(/[^a-zA-Z0-9_-]/g, "_") || "tool_call";
+}
+
 function resultBlock(tc: ToolCall): Block {
   const text = toolCallResultText(tc);
   const error = typeof tc.error === "string" && tc.error.length > 0 ? tc.error : undefined;
   if (text === undefined && error === undefined) {
-    return { type: "tool_result", tool_use_id: tc.id, content: NO_RESULT_RECORDED, is_error: true };
+    return { type: "tool_result", tool_use_id: apiToolId(tc.id), content: NO_RESULT_RECORDED, is_error: true };
   }
   const isError = tc.status === "error" || text === undefined;
   const body = text !== undefined ? rewriteStaleImageCaption(text) : error!;
   return {
     type: "tool_result",
-    tool_use_id: tc.id,
+    tool_use_id: apiToolId(tc.id),
     // Capped like a live result: a 400k read stored on disk would rebuild the
     // very oversized tail the compaction has to defend against.
     content: clipToolResult(body, RESULT_HEAD_CHARS, RESULT_TAIL_CHARS),

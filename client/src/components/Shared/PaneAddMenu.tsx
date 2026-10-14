@@ -41,7 +41,7 @@
  * della palette era falso pure lì — a palette aperta ⌘N la CHIUDE. Ogni riga
  * porta invece la sua lettera nuda, che è vera in tutte e due le presentazioni.
  */
-import { Fragment, useCallback, useEffect, useRef, useState } from 'react';
+import { Fragment, useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { Check, Pencil, Plus } from 'lucide-react';
 import { useClaudeSkipPermissions } from '../../hooks/useClaudePrefs';
@@ -332,7 +332,13 @@ export function PaneAddMenu({
   // Frecce + lettera nuda anche nella palette: senza, l'unica superficie che
   // ⌘N apre sarebbe l'unica senza tastiera.
   const onPaletteKeyDown = useMenuKeyboard({ panelRef: paletteRef });
-  useEffect(() => {
+  // The focus enters in the SAME commit that draws the palette: a layout
+  // effect, not a passive one. ⌘N opens it through a window event, which React
+  // schedules at normal priority, and the passive effect then ran after the
+  // paint: up to 90ms with the palette on screen and the focus still on the
+  // body, where the B of the chord ⌘N-then-B landed and did nothing (ADD-05,
+  // 5 runs in 80 under load, `focusin` traced 54ms after the B).
+  useLayoutEffect(() => {
     if (!paletteIsOpen) return;
     paletteRef.current?.focus({ preventScroll: true });
   }, [paletteIsOpen]);

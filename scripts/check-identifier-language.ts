@@ -91,13 +91,17 @@ export const PROJECT_WORDS = new Set([
   // with the dictionary meaning of the word. `lucide` is the icon library the
   // UI draws every glyph with; its type `LucideIcon` has no other name
   // (2026-10-04, `components/Sidebar/Inbox.tsx`).
-  "inbox", "lucide",
+  "inbox", "lucide", "handoff", // handoff: the English word, `providers/handoff.ts` (MP-HANDOFF-01)
   // `tailwind` is the name of the framework this client's classes come from,
   // and the constant that lists ITS font-size steps (the ones the type scale
   // switches off) has to name it to be understood. `scanned` is a regular past
   // participle the dictionary does not carry, next to `emitted`, `supplied` and
   // `verified`; the other gates in this folder already count files with it.
   "tailwind", "scanned",
+  // The shell's own vocabulary, which `server/lib/command-redirect.ts` has to
+  // name to read a command line the way zsh does (chat-live-work, 07/10): a
+  // heredoc, a backtick, a subshell, and the tokens the line is cut into.
+  "heredoc", "heredocs", "backtick", "subshells", "tokenize",
   // The terminal's own vocabulary: ANSI escape sequences, and SGR (Select
   // Graphic Rendition, ECMA-48), the one that sets colours and styles. The
   // output of a command run from the chat is parsed by those names and has no
@@ -584,8 +588,8 @@ export const PROJECT_WORDS = new Set([
   // `routable`: the regular adjective from `route`, same case as `scanned`
   // above. AICTRL-01's routing switch asks exactly this question of a
   // provider/model pair, and no other word says it (2026-09-22,
-  // `shared/task-coding-models.ts`).
-  "routable",
+  // `shared/task-coding-models.ts`); `retryable`, of a bridge error (2026-10-08).
+  "routable", "retryable",
   // `ihdr`, `idat`, `crc`: PNG's own chunk names and checksum, spelled exactly
   // as the PNG spec (ISO/IEC 15948) does, lowercased. The test fixture that
   // builds a real, `sips`-decodable PNG byte-for-byte has no other honest name
@@ -609,6 +613,7 @@ export const PROJECT_WORDS = new Set([
   // returns, and `recallMemories` is the function that calls it
   // (2026-10-14, `server/lib/native-parity.ts`).
   "memories",
+  "emptied", // a past participle the 1934 list lacks, like `held` (`observeTasksEmptied`, 2026-10-09)
 ]);
 
 function trackedFiles(): string[] {

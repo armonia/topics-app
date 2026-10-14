@@ -342,6 +342,14 @@ function claimOwnOutfile(): void {
  * whatever bun defines (`navigator`, `CustomEvent`, `fetch`) is not a leak,
  * and if a future bun adds `localStorage` the guard does not start shouting.
  * The guard of this guard is `tests/unit/bun-test-preload-globals.test.ts`.
+ *
+ * A KEY LEFT AS `undefined` IS A LEAK TOO. It reads as nothing, but it answers
+ * `'localStorage' in globalThis`, and a file that removes its fake only when
+ * `in` said it was not there keeps it. Measured on 08/10/2026:
+ * `focusBrowserContext.live.test.ts` restored `localStorage = undefined`,
+ * `projectSidebarHeights.test.ts` then kept its fake storage, and the shard
+ * went red with neither file leaking on its own. So the guard asks `in`, the
+ * question those files ask, not `!== undefined`.
  */
 const DOM_GLOBAL_KEYS = [
   "window", "document", "localStorage", "sessionStorage", "location", "history", "screen",
@@ -355,9 +363,9 @@ export const DOM_LEAK_MARKER = "leaked DOM globals";
 
 function guardDomGlobals(): void {
   const g = globalThis as Record<string, unknown>;
-  const before = new Set<string>(DOM_GLOBAL_KEYS.filter((k) => g[k] !== undefined));
+  const before = new Set<string>(DOM_GLOBAL_KEYS.filter((k) => k in g));
   afterAll(() => {
-    const leaked = DOM_GLOBAL_KEYS.filter((k) => !before.has(k) && g[k] !== undefined);
+    const leaked = DOM_GLOBAL_KEYS.filter((k) => !before.has(k) && k in g);
     if (leaked.length === 0) return;
     throw new Error(
       `[preload] ${DOM_LEAK_MARKER}: ${leaked.join(",")}\n` +

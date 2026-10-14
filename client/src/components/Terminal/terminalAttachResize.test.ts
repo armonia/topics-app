@@ -12,10 +12,9 @@
  * long at a flat 84-90 per minute for 21 minutes - four orphaned terminal panes
  * persisted in the layout, none of them with a row in `terminal_sessions`.
  *
- * The fix is where the resize is sent, not a swallowed error: it rides
- * `replay-end`, the first frame only a LIVE session sends. The resize posts in
- * this file swallowed their answer, so the 404 left no trace on the client at
- * all - only the server log knew.
+ * The attach resize rides `replay-end`, the first frame only a LIVE session
+ * sends. Later gesture resizes also require that proven attach; otherwise a
+ * focus or layout change could still post against the dead id.
  *
  * The five hand-written `fetch(...)/resize` calls have since become one call to
  * `postTerminalResize` (`lib/terminalRosterRetry.ts`), which waits out the
@@ -27,7 +26,7 @@
  * pane would take a renderer, an xterm and a WebSocket server to prove where
  * one call sits.
  *
- * @covers TERM-01
+ * @covers TERM-01, TERM-09
  */
 import { describe, expect, test } from 'bun:test';
 import { readFileSync } from 'node:fs';
@@ -53,6 +52,15 @@ function replayEndBranch(): string {
   return SOURCE.slice(start, end);
 }
 
+/** The dormant close branch must discard input from the session that stopped. */
+function dormantCloseBranch(): string {
+  const start = SOURCE.indexOf('if (event.code === TERMINAL_WS_CLOSE_DORMANT)');
+  expect(start, 'the dormant close branch was renamed: update this test').toBeGreaterThan(0);
+  const end = SOURCE.indexOf('\n        // 1008 ("session not found")', start);
+  expect(end, 'the end of the dormant close branch cannot be found').toBeGreaterThan(start);
+  return SOURCE.slice(start, end);
+}
+
 /** Every way this file can tell the shared PTY its size, in one spelling. */
 const RESIZE_CALL = 'postTerminalResize(sessionId,';
 
@@ -74,12 +82,48 @@ describe('the attach resize waits for proof that the session is alive', () => {
     expect(replayEndBranch()).toContain(RESIZE_CALL);
   });
 
-  test('the other resize call sites are untouched (they are user gestures)', () => {
-    // The pane has more resize posts (fit on layout change, on font change,
-    // on visibility). They fire from a pane already attached and were never
-    // part of the storm; this pins that the move did not take them along.
+  test('every later resize gesture is gated on a proven live attach', () => {
+    const resizeHandler = SOURCE.slice(
+      SOURCE.indexOf('term.onResize('),
+      SOURCE.indexOf('termRef.current = { term, fit: fitAddon, ws: initialWs }'),
+    );
+    const focusHandler = SOURCE.slice(
+      SOURCE.indexOf('const handleFocus = () => {'),
+      SOURCE.indexOf("window.addEventListener('focus', handleFocus)"),
+    );
+    const activeTabHandler = SOURCE.slice(
+      SOURCE.indexOf('// When this pane becomes the ACTIVE/visible tab'),
+      SOURCE.indexOf('// Touch devices: when the PWA returns to the foreground'),
+    );
+    const touchHandler = SOURCE.slice(
+      SOURCE.indexOf('// Touch devices: when the PWA returns to the foreground'),
+      SOURCE.indexOf('const flashCopied ='),
+    );
+    for (const handler of [resizeHandler, focusHandler, activeTabHandler, touchHandler]) {
+      expect(handler.includes('attachedRef.current')).toBe(true);
+    }
+  });
+
+  test('a dormant verdict exposes Resting and its action calls revive', () => {
+    expect(SOURCE.includes('data-testid="terminal-resting-overlay"')).toBe(true);
+    expect(SOURCE.includes("t('terminal.resting.title')")).toBe(true);
+    expect(SOURCE.includes("`/api/terminal/sessions/${encodeURIComponent(sessionId)}/revive`")).toBe(true);
+  });
+
+  test('a dormant verdict clears held input and input is ignored until Resume', () => {
+    expect(dormantCloseBranch()).toContain('inputQueue.clear()');
+    expect(dormantCloseBranch()).toContain('inputHeldRef.current = false');
+    expect(dormantCloseBranch()).toContain('setInputHeld(false)');
+    const physicalInput = SOURCE.slice(SOURCE.indexOf('term.onData((data) => {'), SOURCE.indexOf('\n    });', SOURCE.indexOf('term.onData((data) => {')));
+    expect(physicalInput).toContain('if (restingRef.current) return;');
+    const virtualInput = SOURCE.slice(SOURCE.indexOf('const sendToTerminal = (data: string) => {'), SOURCE.indexOf('\n  };', SOURCE.indexOf('const sendToTerminal = (data: string) => {')));
+    expect(virtualInput).toContain('if (restingRef.current) return;');
+    expect(SOURCE).toContain('inputHeld && !inputDropped && !inputLost && !stale && !resting');
+  });
+
+  test('only the attach post and four guarded gesture posts remain', () => {
     const total = [...SOURCE.matchAll(/postTerminalResize\(/g)].length;
-    expect(total).toBeGreaterThanOrEqual(5);
+    expect(total).toBe(5);
   });
 
   test('no hand-written resize fetch is left: the boot window is waited out in ONE place', () => {

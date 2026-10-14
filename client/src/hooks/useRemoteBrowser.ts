@@ -8,11 +8,10 @@ import { BOOT_READ_TTL_MS, coalescedFetch } from '../lib/coalesceFetch';
 import { attachViewerChannel, pushViewerCount } from '../lib/viewerCountBus';
 import { mapCoordinates } from './browserCoords';
 import { tracePaneAttach } from '../lib/paneAttachTrace';
-import {
-  appendStreamConsole, keepConsoleOfPage, tallyConsole, type StreamConsoleEntry,
-} from '../components/Browser/streamConsole';
-import { applyHistoryUpdate, historyFlagsOf } from '../components/Browser/streamNavHistory';
+import { appendStreamConsole, tallyConsole } from '../components/Browser/streamConsole';
+import { applyContextInfo, applyNavMessage, startNavigation, type RemoteNavFields } from './remoteNavState';
 import { apiFetch } from '../lib/shell/net';
+import { boxUnderKeyboard, onScreenKeyboardUp } from '../lib/browserFit';
 
 export type ConnectionState = 'connecting' | 'connected' | 'disconnected' | 'fallback-http';
 
@@ -31,15 +30,10 @@ export interface DownloadInfo {
   state: 'started' | 'completed' | 'failed';
 }
 
-interface RemoteBrowserState {
-  url: string;
-  title: string;
-  loading: boolean;
+/** `url`, `loading`, `error`, `pageUrl` and the console rows: see `remoteNavState.ts`. */
+interface RemoteBrowserState extends RemoteNavFields {
   connected: boolean;
   screenshotSrc: string | null;
-  error: string | null;
-  /** URL whose navigation produced `error` — the Retry affordance re-sends it. */
-  errorUrl: string | null;
   connectionState: ConnectionState;
   lastClickPos: { x: number; y: number; t: number } | null;
   // Phase 30 BROWSER-CHAT-04 — agent lock + select-element state.
@@ -80,15 +74,9 @@ interface RemoteBrowserState {
    *  (WebRTC/JPEG, default); 'dom' = a native rrweb DOM reconstruction (real
    *  browser, cross-device-sharp) — the server streams DOM events instead of pixels. */
   renderMode: 'video' | 'dom';
-  /** The server page's console lines, each with the page it was logged on
-   *  (`streamConsole.ts`). The sheet lists them; their tallies light the tab's
-   *  corner and the dots' badge. */
-  consoleEntries: StreamConsoleEntry[];
-  /** Whether the server page has a page behind / ahead in its history.
-   *  Undefined until the server says so (an older server never does): the
-   *  panel then keeps the arrow enabled. See `streamNavHistory.ts`. */
-  canGoBack?: boolean;
-  canGoForward?: boolean;
+  /** The mirror is the Mac's own pane (the server said `host: 'native'`): the
+   *  page lives there, so this pane never frames the url itself. */
+  nativeHost: boolean;
 }
 
 interface InteractionHandlers {
@@ -134,6 +122,8 @@ interface RemoteBrowser extends RemoteBrowserState, InteractionHandlers {
   /** T1 DOM co-browse: register the live rrweb-event sink (the DomCoBrowse view's
    *  Replayer). Returns an unsubscribe. Only one sink at a time. */
   registerDomSink: (cb: (event: unknown) => void) => () => void;
+  /** The size this pane last asked the page for, null before it asked. */
+  ownSize: () => { width: number; height: number } | null;
   /** Registra chi riceve il campo a fuoco riportato dal server dopo un click
    *  (null = a fuoco non c'è niente di scrivibile). Uno solo alla volta, come il
    *  sink rrweb; restituisce la disiscrizione. */
@@ -203,6 +193,12 @@ const INPUT_ACK_TIMEOUT_MS = 250;
 /** At most one viewport claim per second while the user keeps interacting. */
 const VIEWPORT_CLAIM_INTERVAL_MS = 1000;
 
+/** The pane's box as it reports it: a height the on-screen keyboard took away stays (browserFit). */
+function paneBox(el: HTMLElement, last: { w: number; h: number }): { w: number; h: number } {
+  const r = el.getBoundingClientRect();
+  return boxUnderKeyboard(last, { w: Math.round(r.width), h: Math.round(r.height) }, onScreenKeyboardUp());
+}
+
 const SPECIAL_KEYS = new Set([
   'Enter', 'Tab', 'Escape', 'Backspace', 'Delete',
   'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight',
@@ -264,6 +260,8 @@ export function useRemoteBrowser(contextId: string, isVisible = true): RemoteBro
     screenshotSrc: null,
     error: null,
     errorUrl: null,
+    loadingSince: null,
+    pageUrl: '',
     connectionState: 'connecting',
     lastClickPos: null,
     agentActive: false,
@@ -286,6 +284,7 @@ export function useRemoteBrowser(contextId: string, isVisible = true): RemoteBro
     // when it can't snapshot the page (canvas/WebGL/injection blocked), and only
     // THEN does the WebRTC pixel transport negotiate.
     renderMode: 'dom',
+    nativeHost: false,
     consoleEntries: [],
   });
   const consoleIdRef = useRef(0);
@@ -454,9 +453,15 @@ export function useRemoteBrowser(contextId: string, isVisible = true): RemoteBro
     const now = Date.now();
     if (now - lastViewportClaimRef.current < VIEWPORT_CLAIM_INTERVAL_MS) return;
     lastViewportClaimRef.current = now;
-    const r = el.getBoundingClientRect();
-    sendResize(Math.round(r.width), Math.round(r.height), { driving: true });
+    const { w, h } = paneBox(el, lastSentSizeRef.current);
+    sendResize(w, h, { driving: true });
   }, [sendResize]);
+
+  /** What this pane last asked the page to be: a page of that size is shown 1:1 (browserFit). */
+  const ownSize = useCallback(() => {
+    const { w, h } = lastSentSizeRef.current;
+    return w > 0 && h > 0 ? { width: w, height: h } : null;
+  }, []);
 
   // Callback ref for the pane content element: wires a debounced (~150ms)
   // ResizeObserver that reports size changes via sendResize. Re-attaching (or
@@ -467,8 +472,8 @@ export function useRemoteBrowser(contextId: string, isVisible = true): RemoteBro
     containerElRef.current = el;
     if (!el || typeof ResizeObserver === 'undefined') return;
     const measure = () => {
-      const r = el.getBoundingClientRect();
-      sendResize(Math.round(r.width), Math.round(r.height));
+      const { w, h } = paneBox(el, lastSentSizeRef.current);
+      sendResize(w, h);
     };
     const ro = new ResizeObserver(() => {
       if (resizeDebounceRef.current) clearTimeout(resizeDebounceRef.current);
@@ -516,16 +521,10 @@ export function useRemoteBrowser(contextId: string, isVisible = true): RemoteBro
       const res = await apiFetch(`/api/browsers/${encodedId}`);
       if (!mountedRef.current) return false;
       if (res.ok) {
+        // A reconnecting pane hears no navigation until the next one: what the
+        // server knows (url, title, the history flags) arrives with the info.
         const data = await res.json();
-        setState(s => ({
-          ...s,
-          url: data.url || s.url,
-          title: data.title || s.title,
-          loading: false,
-          // A reconnecting pane hears no navigation until the next one: the
-          // flags the server already knows arrive with the context info.
-          ...historyFlagsOf(data),
-        }));
+        setState(s => applyContextInfo(s, data));
         return true;
       } else if (res.status === 404) {
         return false;
@@ -796,27 +795,10 @@ export function useRemoteBrowser(contextId: string, isVisible = true): RemoteBro
             break;
           }
           case 'nav':
-            if (msg.phase === 'response') {
-              clearLoadingWatchdog();
-              // A loaded document: the rows of any other page leave the tally
-              // (the new page's own load-time errors carry its url and stay).
-              setState(s => ({
-                ...s, url: msg.url, loading: false, error: null, errorUrl: null,
-                consoleEntries: keepConsoleOfPage(s.consoleEntries, msg.url),
-                ...historyFlagsOf(msg),
-              }));
-            } else if (msg.phase === 'history') {
-              // Same-document navigation, or only the history moved: the url
-              // and the arrows follow, the loading state and the console
-              // rows do not (no new document arrived).
-              setState(s => applyHistoryUpdate(s, msg));
-            } else if (msg.phase === 'error') {
-              // Failed goto/launch: the page is still on the previous URL —
-              // surface the reason instead of silently clearing the spinner
-              // (BRW-REL-02). Cleared by the next successful nav/response.
-              clearLoadingWatchdog();
-              setState(s => ({ ...s, loading: false, error: msg.error || 'Navigation failed', errorUrl: msg.url }));
-            }
+            // A load this socket only heard about is timed like one it asked for.
+            if (msg.phase === 'loading') armLoadingWatchdog();
+            else if (msg.phase !== 'history') clearLoadingWatchdog();
+            setState(s => applyNavMessage(s, msg, Date.now()));
             break;
           case 'console':
             // Forward to devtools console; full UI surface deferred to plan 30-04.
@@ -899,7 +881,10 @@ export function useRemoteBrowser(contextId: string, isVisible = true): RemoteBro
             // Server confirmed (or forced) the render mode for this pane. On a
             // forced 'video' (DOM unsupported) this reverts an optimistic toggle.
             renderModeRef.current = msg.mode;
-            setState(s => (s.renderMode === msg.mode ? s : { ...s, renderMode: msg.mode }));
+            {
+              const nativeHost = msg.host === 'native';
+              setState(s => (s.renderMode === msg.mode && s.nativeHost === nativeHost ? s : { ...s, renderMode: msg.mode, nativeHost }));
+            }
             break;
           }
           case 'dom_event':
@@ -922,8 +907,8 @@ export function useRemoteBrowser(contextId: string, isVisible = true): RemoteBro
             // guard would swallow it: `force` is what makes the answer leave.
             const el = containerElRef.current;
             if (el) {
-              const r = el.getBoundingClientRect();
-              sendResize(Math.round(r.width), Math.round(r.height), { force: true });
+              const { w, h } = paneBox(el, lastSentSizeRef.current);
+              sendResize(w, h, { force: true });
             }
             break;
           }
@@ -1165,7 +1150,7 @@ export function useRemoteBrowser(contextId: string, isVisible = true): RemoteBro
     };
     // engineEpoch: a change (engine switch) tears down + reopens the WS so the
     // server recreates the context on the newly-selected engine.
-  }, [contextId, encodedId, updateConnectionState, clearLoadingWatchdog, fetchInfo, sendResize, engineEpoch, settleInputAck]);
+  }, [contextId, encodedId, updateConnectionState, clearLoadingWatchdog, armLoadingWatchdog, fetchInfo, sendResize, engineEpoch, settleInputAck]);
 
   // P3-3b: a hidden pane must also drop the WebRTC pixel track — set_stream only
   // pauses the JPEG screencast, not the H.264 transport. Pause the peer when the
@@ -1289,7 +1274,7 @@ function rememberFramable(url: string, framable: boolean): void {
   // --- Interaction handlers ---
 
   const navigate = useCallback((url: string) => {
-    setState(s => ({ ...s, loading: true, url, error: null, errorUrl: null }));
+    setState(s => startNavigation(s, url, Date.now()));
     armLoadingWatchdog();
     markActive();
     if (connectionStateRef.current === 'connected' && wsRef.current?.readyState === WebSocket.OPEN) {
@@ -1585,6 +1570,7 @@ function rememberFramable(url: string, framable: boolean): void {
     retryWebrtc,
     setRenderMode,
     registerDomSink,
+    ownSize,
     registerFocusSink,
     sendInput,
     dismissDownload,

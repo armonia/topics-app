@@ -20,7 +20,7 @@ import { scaffoldNewProject } from "../services/project-path-resolver";
 import type { AppContext, ContentBlock, RouteHandler, ToolCall, Topic } from "../types";
 import { repeatedRowMarks, userRowMarks } from "../lib/user-row-marks";
 import { startSsePing } from "../lib/sse-ping";
-import { nativeWorkingDir, recallMemories } from "../lib/native-parity";
+import { nativeWorkingDir, recallMemoryContext } from "../lib/native-parity";
 import { getProvider, type AIProvider, type ChatMessage, type ProviderDoneMessage, type ProviderUsage, type StreamHandler } from "../providers";
 import { hasPendingAsk } from "../lib/ask-user-bridge";
 import { recentActiveRows } from "../lib/ask-answer-routing";
@@ -551,7 +551,22 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
       }
       const requestedProviderId = overrideProvider ?? matchedTopic?.provider;
       let explicitProvider: AIProvider | null = null;
-      if (!forcedGlobalProvider && requestedProviderId) {
+      // A REATTACH ADOPTS A TURN THAT IS ALREADY RUNNING, so the provider that
+      // owns it is the one the caller names, taken as is: the routing switch
+      // answers "who would run a NEW turn of this topic", and on 11/10 it
+      // answered the native engine for a claude-haiku-5-5 chat whose CLI turn
+      // had been running for four hours. The reattach after the restart was
+      // refused (501 below), the turn kept going unseen, and its next question
+      // never reached the screen.
+      if (!forcedGlobalProvider && body.mode === "reattach" && overrideProvider) {
+        // Only an owner that can actually reattach: otherwise the ordinary
+        // resolver below decides, and the 501 further down still speaks.
+        try {
+          const owner = resolveProviderByName(overrideProvider);
+          if (typeof (owner as unknown as { reattach?: unknown }).reattach === "function") explicitProvider = owner;
+        } catch { explicitProvider = null; }
+      }
+      if (!forcedGlobalProvider && !explicitProvider && requestedProviderId) {
         try {
           // AICTRL-01: anche un override PER MESSAGGIO passa dal resolver. Prima si prendeva il provider dal registry e basta, quindi con lo switch acceso bastava un override nel body per eseguire fuori dal motore nativo, in silenzio. allow-italian: nomina la porta laterale chiusa qui
           // Il topic non viene riscritto: la scelta del turno viaggia come topic SINTETICO e il pin resta quello che era. allow-italian: perche' si costruisce un topic finto
@@ -3848,7 +3863,7 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
             // suggestion is not a document, and as a deduplicated slot a turn
             // with no hits would tell the model the memory is "no longer in effect".
             if (topicProvider.name === "topics") {
-              const recall = await recallMemories(
+              const recall = await recallMemoryContext(
                 envelope.userMessage.content,
                 nativeWorkingDir(envelope.sessionMeta?.workingDir),
               );

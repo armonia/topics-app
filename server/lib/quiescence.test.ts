@@ -329,33 +329,26 @@ describe("quiescenceVerdict — il tetto dell'attesa e' un tetto vero", () => {
   });
 
   /**
-   * A QUESTION IS NEVER CUT BY THE CLOCK, and it does not wait out the cap
-   * first either.
+   * AN OPEN QUESTION HOLDS THE CHAT MINUTE, AND NO MORE (11/10).
    *
-   * The cap asks "how long can this finish by itself?" and an open question
-   * never can: what ends it is a person. Serving the cap would only mean that
-   * for those minutes the deferral is not declared and the heartbeat that
-   * holds off `start-prod.sh` is not written - so the script's own SIGTERM
-   * would cut the panel anyway, which is exactly what happened on 2026-08-28.
+   * It used to defer with no cap; on 11/10 one unanswered panel on
+   * topic:18b232ac held every deploy for two hours. The question outlives the
+   * restart on its row (`question-waits-for-human.test.ts`, "restart with the
+   * asker gone"), so the gate only waits the minute an answer being typed needs.
    */
-  test("una domanda aperta, e nient'altro in volo, si RINVIA", () => {
-    for (const now of [0, CHAT, CHAT + 1, CAP, CAP * 100]) {
-      expect(quiescenceVerdict({
-        ...base, busy: "1 chat ferma su una domanda", unrecoverable: 0, parkedAsks: 1, now,
-      })).toBe("rinvia");
+  test("una domanda aperta aspetta il minuto delle chat, poi il riavvio parte", () => {
+    const parked = { ...base, busy: "1 chat ferma su una domanda", unrecoverable: 0 };
+    expect(quiescenceVerdict({ ...parked, now: 0 })).toBe("aspetta");
+    expect(quiescenceVerdict({ ...parked, now: CHAT - 1 })).toBe("aspetta");
+    for (const now of [CHAT, CAP, CAP * 100]) {
+      expect(quiescenceVerdict({ ...parked, now })).toBe("scaduto");
     }
   });
 
-  /**
-   * THE OTHER HALF, or it is a block instead of a deferral: once answered, the
-   * question stops holding anything and the ordinary caps take over again.
-   */
+  /** Answered, it holds nothing at all. */
   test("una domanda RISPOSTA non trattiene piu' il riavvio", () => {
     expect(quiescenceVerdict({
-      ...base, busy: "1 chat", unrecoverable: 0, parkedAsks: 0, now: CHAT + 1,
-    })).toBe("scaduto");
-    expect(quiescenceVerdict({
-      ...base, busy: null, unrecoverable: 0, parkedAsks: 0, now: CHAT + 1,
+      ...base, busy: null, unrecoverable: 0, now: CHAT - 1,
     })).toBe("procedi");
   });
 

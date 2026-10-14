@@ -35,6 +35,7 @@ import { claudeCliUserAgent } from "./cli-user-agent";
 import { homedir, tmpdir, userInfo } from "os";
 import { join, dirname } from "path";
 import { spawnSync } from "child_process";
+import { runBounded } from "../../lib/bounded-spawn";
 
 /**
  * Il client id di Claude Code. Non è un segreto (sta in chiaro in ogni
@@ -138,22 +139,41 @@ function credentialPaths(): string[] {
 // with a temporary HOME and fake credential files, and a candidate that
 // ignores HOME would hand them the real token. `TOPICS_CREDENTIALS_KEYCHAIN=0`
 // turns it off on a machine; `=1` forces it on (tests that fake `security`).
-// Reading it costs one `security` spawn (~30ms) per turn, not per round.
+// Reading it costs one `security` spawn (~30ms) per turn, not per round, and
+// the turn's path asks it ASYNCHRONOUSLY (T16): through `spawnSync` those 30ms
+// stopped the server's only loop, every other chat and every frame being
+// streamed, on every turn. The synchronous runner is left to the callers that
+// are synchronous by contract (`hasCredentials`, the plan in the snapshot) and
+// to the write of a renewal.
 const KEYCHAIN_SERVICE = "Claude Code-credentials";
 /** The pseudo-path that marks a Keychain-sourced credential for lock and write. */
 export const KEYCHAIN_SOURCE = `keychain:${KEYCHAIN_SERVICE}`;
 
 export interface KeychainRunResult { status: number | null; stdout: string; stderr: string }
 export type KeychainRunner = (cmd: string, args: string[]) => KeychainRunResult;
+/** The same question, answered without stopping the loop: the one a turn asks. */
+export type KeychainRunnerAsync = (cmd: string, args: string[]) => Promise<KeychainRunResult>;
 
 const defaultRunner: KeychainRunner = (cmd, args) => {
   const r = spawnSync(cmd, args, { encoding: "utf-8", timeout: 5_000 });
   return { status: r.status, stdout: r.stdout ?? "", stderr: r.stderr ?? "" };
 };
+// Same command, same 5s deadline. A deadline or a missing binary reads as
+// `status: null`, as it did from `spawnSync`.
+const defaultAsyncRunner: KeychainRunnerAsync = async (cmd, args) => {
+  const r = await runBounded([cmd, ...args], { stdout: "pipe", stderr: "pipe", timeoutMs: 5_000 });
+  return { status: r.exitCode, stdout: r.stdout, stderr: r.stderr };
+};
 let _runner: KeychainRunner = defaultRunner;
-/** Tests inject a fake `security`; `null` restores the real one. */
-export function setKeychainRunnerForTests(run: KeychainRunner | null): void {
+let _runnerAsync: KeychainRunnerAsync = defaultAsyncRunner;
+/**
+ * Tests inject a fake `security`; `null` restores the real one. Without
+ * `runAsync` the asynchronous path answers through the same fake, so a fake
+ * written once serves both; a test that tells the two paths apart passes both.
+ */
+export function setKeychainRunnerForTests(run: KeychainRunner | null, runAsync?: KeychainRunnerAsync): void {
   _runner = run ?? defaultRunner;
+  _runnerAsync = runAsync ?? (run ? async (cmd, args) => run(cmd, args) : defaultAsyncRunner);
 }
 
 function keychainEnabled(): boolean {
@@ -193,21 +213,43 @@ function keychainAccountsToTry(): Array<string | null> {
   return user ? [user, null] : [null];
 }
 
-function findKeychainItem(account: string | null, withSecret: boolean): KeychainRunResult {
+function keychainLookup(account: string | null, withSecret: boolean): string[] {
   const args = ["find-generic-password", "-s", KEYCHAIN_SERVICE];
   if (account) args.push("-a", account);
   if (withSecret) args.push("-w");
-  return _runner("security", args);
+  return args;
+}
+
+function findKeychainItem(account: string | null, withSecret: boolean): KeychainRunResult {
+  return _runner("security", keychainLookup(account, withSecret));
+}
+
+function findKeychainItemAsync(account: string | null, withSecret: boolean): Promise<KeychainRunResult> {
+  return _runnerAsync("security", keychainLookup(account, withSecret));
+}
+
+/** The usable pair in one lookup's answer; `null` for no item, a blank one, or an unreadable one. */
+function keychainItemCredentials(r: KeychainRunResult): (OAuthCredentials & { sourcePath: string }) | null {
+  if (r.status !== 0 || !r.stdout.trim()) return null;
+  try {
+    const parsed = parseAnyFormat(JSON.parse(r.stdout.trim()));
+    return parsed ? { ...parsed, sourcePath: KEYCHAIN_SOURCE } : null;
+  } catch { return null; }
 }
 
 export function readKeychainCredentials(): (OAuthCredentials & { sourcePath: string }) | null {
   for (const account of keychainAccountsToTry()) {
-    const r = findKeychainItem(account, true);
-    if (r.status !== 0 || !r.stdout.trim()) continue;
-    try {
-      const parsed = parseAnyFormat(JSON.parse(r.stdout.trim()));
-      if (parsed) return { ...parsed, sourcePath: KEYCHAIN_SOURCE };
-    } catch { /* unreadable item: try the next account */ }
+    const found = keychainItemCredentials(findKeychainItem(account, true));
+    if (found) return found;
+  }
+  return null;
+}
+
+/** `readKeychainCredentials` without stopping the loop: the accounts in the same order. */
+async function readKeychainCredentialsAsync(): Promise<(OAuthCredentials & { sourcePath: string }) | null> {
+  for (const account of keychainAccountsToTry()) {
+    const found = keychainItemCredentials(await findKeychainItemAsync(account, true));
+    if (found) return found;
   }
   return null;
 }
@@ -274,11 +316,22 @@ export function writeKeychainCredentials(next: OAuthCredentials): void {
  * ancora buona.
  */
 export function readCredentials(): OAuthCredentials | null {
+  const kc = keychainEnabled() ? readKeychainCredentials() : null;
+  return pickCredentials(kc ? [kc, ...fileCredentials()] : fileCredentials());
+}
+
+/**
+ * `readCredentials` for the turn's path: the same candidates in the same order,
+ * the Keychain asked without stopping the loop. Read on every call, as before:
+ * an account switched with the CLI counts from the next turn.
+ */
+async function readCredentialsAsync(): Promise<OAuthCredentials | null> {
+  const kc = keychainEnabled() ? await readKeychainCredentialsAsync() : null;
+  return pickCredentials(kc ? [kc, ...fileCredentials()] : fileCredentials());
+}
+
+function fileCredentials(): Array<OAuthCredentials & { sourcePath: string }> {
   const candidates: Array<OAuthCredentials & { sourcePath: string }> = [];
-  if (keychainEnabled()) {
-    const kc = readKeychainCredentials();
-    if (kc) candidates.push(kc);
-  }
   for (const path of credentialPaths()) {
     try {
       const raw = JSON.parse(readFileSync(path, "utf-8"));
@@ -289,6 +342,10 @@ export function readCredentials(): OAuthCredentials | null {
       // è la macchina di chi non ha mai fatto login.
     }
   }
+  return candidates;
+}
+
+function pickCredentials(candidates: Array<OAuthCredentials & { sourcePath: string }>): OAuthCredentials | null {
   if (candidates.length === 0) return null;
   const now = Date.now();
   // Un access token ancora valido vince su tutto: è l'unica prova certa.
@@ -524,8 +581,8 @@ export function unsavedCredentialsError(): string | null {
 }
 
 /** The credentials stored at ONE source, whatever the other sources hold. */
-function readSource(sourcePath: string): OAuthCredentials | null {
-  if (sourcePath === KEYCHAIN_SOURCE) return readKeychainCredentials();
+async function readSource(sourcePath: string): Promise<OAuthCredentials | null> {
+  if (sourcePath === KEYCHAIN_SOURCE) return readKeychainCredentialsAsync();
   try { return parseAnyFormat(JSON.parse(readFileSync(sourcePath, "utf-8"))); }
   catch { return null; }
 }
@@ -536,8 +593,8 @@ function readSource(sourcePath: string): OAuthCredentials | null {
  * answers 44, errSecItemNotFound; a locked Keychain answers otherwise and is
  * only "unreadable for now").
  */
-function sourceVanished(sourcePath: string): boolean {
-  if (sourcePath === KEYCHAIN_SOURCE) return findKeychainItem(null, false).status === 44;
+async function sourceVanished(sourcePath: string): Promise<boolean> {
+  if (sourcePath === KEYCHAIN_SOURCE) return (await findKeychainItemAsync(null, false)).status === 44;
   return !existsSync(sourcePath);
 }
 
@@ -566,15 +623,22 @@ function rememberUnsaved(sourcePath: string, next: OAuthCredentials, err: unknow
  * The credentials to use: the unsaved pair if there is one (after one more
  * attempt at saving it), else whatever `readCredentials` picks.
  */
-function currentCredentials(): (OAuthCredentials & { sourcePath?: string }) | null {
-  const pending = _unsaved;
-  if (pending) {
-    const onSource = readSource(pending.sourcePath);
+async function currentCredentials(): Promise<(OAuthCredentials & { sourcePath?: string }) | null> {
+  for (let attempt = 0; attempt < 3; attempt++) {
+    const pending = _unsaved;
+    if (!pending) break;
+    const onSource = await readSource(pending.sourcePath);
+    // A source that VANISHED was changed elsewhere too: a logout deleted
+    // it, and writing our pair back would undo the logout.
+    const vanished = onSource ? false : await sourceVanished(pending.sourcePath);
+    // The reads above wait on `security`, and a renewal may have replaced or
+    // saved the pending pair meanwhile. Deciding on the pair we started from
+    // would write a spent pair back over the renewed one, or drop the renewed
+    // one: read again for the state that is there now.
+    if (_unsaved !== pending) continue;
     const changedElsewhere = onSource
       ? onSource.refreshToken !== pending.replacedRefresh && onSource.refreshToken !== pending.creds.refreshToken
-      // A source that VANISHED was changed elsewhere too: a logout deleted
-      // it, and writing our pair back would undo the logout.
-      : sourceVanished(pending.sourcePath);
+      : vanished;
     if (changedElsewhere) {
       // A new chain was written there by somebody else: ours is moot.
       _unsaved = null;
@@ -590,8 +654,9 @@ function currentCredentials(): (OAuthCredentials & { sourcePath?: string }) | nu
       }
       return { ...pending.creds, sourcePath: pending.sourcePath };
     }
+    break;
   }
-  return readCredentials() as (OAuthCredentials & { sourcePath?: string }) | null;
+  return await readCredentialsAsync() as (OAuthCredentials & { sourcePath?: string }) | null;
 }
 
 /** Un rinnovo alla volta DENTRO il processo: dieci sessioni che partono insieme non ne fanno dieci. */
@@ -613,7 +678,7 @@ let _inFlight: Promise<OAuthCredentials> | null = null;
  * senza fare una seconda richiesta (double-check).
  */
 export async function getAccessToken(): Promise<string | null> {
-  const creds = currentCredentials();
+  const creds = await currentCredentials();
   if (!creds) return null;
   if (creds.sourcePath) _sourcePath = creds.sourcePath;
 
@@ -655,7 +720,7 @@ function renewSerialized(
     try {
       // DOUBLE-CHECK: re-read the file after taking the lock. If another
       // process already renewed, what is on disk is already good.
-      const reread = currentCredentials();
+      const reread = await currentCredentials();
       if (reread && !stillStale(reread)) {
         return reread;
       }
@@ -705,7 +770,7 @@ function renewSerialized(
  * fixes it. The caller says so in the chat instead of retrying forever.
  */
 export async function recoverAfter401(staleToken: string): Promise<string | null> {
-  const onDisk = currentCredentials();
+  const onDisk = await currentCredentials();
   if (!onDisk) return null;
   if (onDisk.sourcePath) _sourcePath = onDisk.sourcePath;
   if (onDisk.accessToken !== staleToken) return onDisk.accessToken;
@@ -718,7 +783,17 @@ export async function recoverAfter401(staleToken: string): Promise<string | null
   }
 }
 
-/** C'è una credenziale utilizzabile su questa macchina? (senza rinnovarla) */
+/**
+ * C'è una credenziale utilizzabile su questa macchina? (senza rinnovarla)
+ *
+ * Synchronous by contract: it is the `connected` getter of the native provider,
+ * asked at least twice per turn (the topic's provider, the stream's transport)
+ * and on every recompute of the default provider. The answer is the one of
+ * `readCredentials() !== null`, "is there any candidate", so the files are asked
+ * first: they cost no process, and the Keychain (a `spawnSync`) is asked only
+ * when no file holds a pair.
+ */
 export function hasCredentials(): boolean {
-  return readCredentials() !== null;
+  if (fileCredentials().length > 0) return true;
+  return keychainEnabled() && readKeychainCredentials() !== null;
 }

@@ -46,7 +46,12 @@ test("folders first, then names in order; rules, nested rules and depth hold", a
   expect(typeof file.modified).toBe("string");
 });
 
-test("a file that cannot be stat-ed still comes out, without a size, next to its siblings", async () => {
+// root ignores the permission bits, so `chmod 0444` cannot make the stat fail
+// there (the cloud VM and most containers run as root). Skipped, and said so in
+// the title; as a normal user the test stays able to go red.
+const RUNS_AS_ROOT = process.getuid?.() === 0;
+
+test.skipIf(RUNS_AS_ROOT)("a file that cannot be stat-ed still comes out, without a size, next to its siblings (skipped as root)", async () => {
   // A folder that can be listed but not searched: readdir works, stat fails.
   put("locked/one.txt"); put("locked/two.txt");
   chmodSync(join(root, "locked"), 0o444);

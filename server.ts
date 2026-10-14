@@ -60,7 +60,7 @@ import { setUploadRootsProvider } from "./server/browser-tool-dispatcher";
 import { setLocalFileServing } from "./server/browser-local-file-url";
 import { uploadAllowedRoots, parseExtraRoots } from "./server/lib/upload-allowlist";
 import { servedFileHeaders } from "./server/lib/served-file-headers";
-import { sweepStaleStreams, type SilenceMark } from "./server/lib/stale-stream-sweep";
+import { sweepStaleStreams, rescueByOwner, type SilenceMark } from "./server/lib/stale-stream-sweep";
 import { buildStreamCatchupFrame } from "./server/lib/stream-catchup-frame";
 import { flushTurnBody } from "./server/lib/turn-body-flush";
 import { endReattachLeg, finalizeStaleRow } from "./server/lib/closed-outside";
@@ -139,6 +139,8 @@ import { sendBrowserWsMessage, parseBrowserWsMessage, type BrowserWsMessage } fr
 import { applyEngineSwitch } from "./server/browser-engine-switch";
 import { browserEngineRegistry, chromiumExtensionsCount, chromiumSidecar } from "./server/browser-engine-registry";
 import { nativeDelegateRegistry, handleNativeDelegationFrame } from "./server/browser-native-delegate";
+import { createDomHostRegistry, parseHostFrame } from "./server/lib/native-dom-host";
+import { createHostMirror } from "./server/browser-host-mirror";
 import { countSharedViewers, createViewerCountPublisher, hasAttachedPane } from "./server/browser-viewer-count";
 import { createViewportWiring } from "./server/browser-viewport-wiring";
 import { seedNativeFromShared } from "./server/browser-session-handoff";
@@ -171,7 +173,7 @@ import { readNativeUsage } from "./server/providers/native-usage-registry";
 import { getAiBridgeClient } from "./server/lib/ai-bridge-client";
 import { automaticDispatchHooks } from "./server/services/task-auto-model";
 import { dispatchTopicBinding, resolveDispatchTopicIdentity } from "./server/services/dispatch-topic-identity";
-import { commandBackgroundWork, commandWakeState, createProcessesRouter, loadProcessRegistry, sessionsAwaitingCommandWake, startProcessDetection, stopCommandWakesOf } from "./server/routes/processes";
+import { commandBackgroundWork, commandWakeState, createProcessesRouter, isChatServerTask, loadProcessRegistry, sessionsAwaitingCommandWake, settleEndedShells, startProcessDetection, stopCommandWakesOf } from "./server/routes/processes";
 import { startProcessExitWakes } from "./server/lib/process-exit-wake";
 import { startSubagentWakes } from "./server/services/subagent-wake";
 import { abandonCutTurn, adoptNativeChildrenAtBoot, configureNativeSubagents } from "./server/lib/native-subagents";
@@ -182,7 +184,7 @@ import { createDeliveryCapture, type DeliveryCapture } from "./server/services/t
 import { createPushRouter } from "./server/routes/push";
 import { createClientTraceRouter } from "./server/routes/client-trace";
 import { createNotificationsRouter } from "./server/routes/notifications";
-import { attentionInitFrame, forgetSocket, getAttention, processEnded, recomposeAttentionOnBoot, setClosed, setSocketFocus } from "./server/attention/store";
+import { attentionInitFrame, configureAttentionStore, forgetSocket, getAttention, processEnded, recomposeAttentionOnBoot, setClosed, setSocketFocus } from "./server/attention/store";
 import { withCommandTask } from "./server/attention/background-tasks";
 import { observeCommandChanged } from "./server/lib/command-background";
 import { attentionBootReader } from "./server/attention/boot-reader";
@@ -208,11 +210,12 @@ import { computePresenceCounts } from "./server/services/profile-stats";
 import { createClaudeHooksRouter } from "./server/routes/claude-hooks";
 import { createE2eRouter } from "./server/routes/e2e";
 import { createTabsRouter } from "./server/routes/tabs";
+import { createViewsRouter } from "./server/routes/views";
 import { createClaudeSessionTracker } from "./server/lib/claude-session-tracker";
 import { evaluateAuth, isAllowedHost, isLoopbackAddress, isOriginGatedPath, isWebSocketPath, resolveAllowedOrigins } from "./server/lib/auth-gate";
 import { upgradeWebSocket } from "./server/lib/ws-upgrade";
 import { sendWsFrame } from "./server/lib/ws-send";
-import { markViaTunnel, isLocalTransport, clientIpOf, tunnelPort } from "./server/lib/tunnel";
+import { markViaTunnel, isLocalTransport, clientIpOf, tunnelPort, httpTunnelPort } from "./server/lib/tunnel";
 import { compressJson } from "./server/lib/compress-json";
 import { isSseCommentOnly } from "./server/lib/sse-ping";
 import { currentRouteFault, applyRouteFault } from "./server/lib/route-fault";
@@ -482,6 +485,19 @@ function broadcastToBrowserWs(contextId: string, msg: BrowserWsMessage, except?:
     }
   }
 }
+
+// The Mac's native pane as the source of a context's DOM mirror: every viewer
+// mirrors THAT page and the server's Chromium stays off (browser-host-mirror.ts).
+const domHosts = createDomHostRegistry();
+const hostMirror = createHostMirror({
+  hosts: domHosts,
+  sockets: (c) => browserWsClients.get(c) ?? [],
+  browser: { enableDomMode: (c) => browserService.enableDomMode(c), destroyContext: (c) => browserService.destroyContext(c), navigate: (c, u) => browserService.navigate(c, u) },
+  askViewport: (c) => {
+    const driver = viewportWiring.driverDevice(c);
+    if (driver) viewportWiring.askViewportOf(c, driver);
+  },
+});
 
 // The viewer count is PUSHED to the panes of a context when it changes, on the
 // same socket that carries the frames. It used to be polled: every auto-mode
@@ -851,11 +867,16 @@ function syncChatBackgroundTasks(sessionKey: string): void {
 ClaudeCodeProvider.observeBackgroundChanged((sessionKey) => {
   const topic = ctx.getTopicBySessionKey(sessionKey);
   if (topic) ctx.broadcastToAll({ type: "background:changed", topicId: topic.id, sessionKey });
+  // A shell the CLI no longer lists may have exited: its row closes now, and a server's sign with it.
+  void settleEndedShells(sessionKey);
   // The same change, for the attention state: the chat's task map is the CLI's snapshot.
   syncChatBackgroundTasks(sessionKey);
 });
 // A Topics command of a chat started or ended: the same map, with the command folded in.
+// A chat's server (a port seen or gone) goes through here too, and leaves or rejoins the map.
 observeCommandChanged(syncChatBackgroundTasks);
+// A background Bash of a chat that listens on a port is its server, never a task it waits for (BGVIS-09).
+configureAttentionStore({ isServerTask: isChatServerTask });
 // The CLI is gone: what the chat waited on will never answer (ATTN-15). The
 // open turn is the route's to close, with the error it caught.
 ClaudeCodeProvider.observeProcessEnded((sessionKey, cause, byPerson) => {
@@ -914,8 +935,8 @@ const branchesRouter = createBranchesRouter(ctx);
 // Chi conta come spettatore sta in browser-viewer-count.ts (puro, con i suoi
 // test): esclude i delegati nativi e chi ha la pane fuori dallo schermo, e NON
 // guarda la pausa dello screencast — vedi lì il perché.
-const browserRouter = createBrowserRouter(ctx, browserService, (c) =>
-  countSharedViewers(browserWsClients.get(c)),
+const browserRouter = createBrowserRouter(
+  ctx, browserService, (c) => countSharedViewers(browserWsClients.get(c)), domHosts,
 );
 const cronRouter = createCronRouter(ctx);
 const contextRouter = createContextRouter(ctx);
@@ -1598,7 +1619,7 @@ const retirementConsequences: ReconcileDeps = {
     ctx.broadcastToAll({ type: "topic:archived", topic });
     ctx.broadcastToAll({ type: "topic:updated", topic });
   },
-  retireTerminal: (sessionId) => { retireTerminalSession(sessionId); },
+  retireTerminal: (sessionId) => { retireTerminalSession(sessionId, 'closed', 'topic-retirement'); },
 };
 
 /**
@@ -2882,6 +2903,8 @@ const profileRouter = createProfileRouter(ctx);
 const publicProfileHandler = createPublicProfileHandler(ctx);
 // Risoluzione dei permalink alle tab (`/tab/…`) — SOLA LETTURA.
 const tabsRouter = createTabsRouter(ctx, browserService);
+// Generative views (`show_view`): the store behind the chat block and `/v/<id>`.
+const viewsRouter = createViewsRouter(ctx);
 // Reset della suite E2E. Si auto-disarma (risponde 404) se TOPICS_E2E ≠ "1",
 // che è il caso di ogni server non di test — vedi server/routes/e2e.ts.
 const e2eRouter = createE2eRouter(ctx, { reapClaudeSessions: (t) => claudeSessionTracker.reapOnce(t) });
@@ -3378,6 +3401,7 @@ const apiRouteTable = buildRouteTable({
   appSettingsRouter,
   calendarRouter,
   tabsRouter,
+  viewsRouter,
   claudeHooksRouter,
   e2eRouter,
 });
@@ -4065,6 +4089,10 @@ const opzioniServer = {
         // (the two-second register/destroy loop of 2026-09-03).
         sendBrowserWsMessage(ws, { type: 'viewers', count: countSharedViewers(bset, ws) });
         viewerCountPublisher.publish(ctxId, ws);
+        // A viewer that opens while the page is still on its way, or after it
+        // failed to get there, hears it now: it was not here when it was said.
+        const navNow = browserService.navReplay(ctxId);
+        if (navNow) sendBrowserWsMessage(ws, navNow);
         // This WS's own frame consumer. Hoisted to a const so we pass the SAME
         // identity to stopScreencast — with fan-out, that removes only THIS
         // viewer and leaves the shared CDP screencast running for the others
@@ -4126,11 +4154,22 @@ const opzioniServer = {
           // executor: it never views frames, so it does not depend on its
           // register frame beating the 250 ms (it often does not, see the
           // 'registered' branch below).
-          if (screencastCancelled || !streamActive || ws.data.expectsExecutor) return;
+          if (screencastCancelled || ws.data.expectsExecutor) return;
+          // A native pane hosts this context: the viewer mirrors its DOM, and a
+          // screencast would launch the very Chromium the host replaces. A
+          // viewer that did not ask for the mirror by now (video mode, a page
+          // it would frame itself, an older client) is put on it here.
+          if (hostMirror.isHosting(ctxId)) {
+            hostMirror.attachIfIdle(ws, ctxId);
+            return;
+          }
+          if (!streamActive) return;
           startScreencastForViewer();
         }, SCREENCAST_START_GRACE_MS);
         ws.data._browserSetStream = (active: boolean) => {
           if (screencastCancelled || active === streamActive) return;
+          // Same rule as the deferred start: no screencast under a host.
+          if (active && hostMirror.isHosting(ctxId)) return;
           streamActive = active;
           if (active) {
             // Resume: re-attach this viewer to the (shared) screencast.
@@ -4221,21 +4260,11 @@ const opzioniServer = {
       // broadcast reloads itself on reconnect (null when the flag is off —
       // standalone installs never see this frame).
       { const __rev = devBundleReload.getRev(); if (__rev) inviaIniziale({ type: "ui:bundle-rev", rev: __rev }); }
-      // I non-letti si RESTRINGONO invece di sparire: il pallino sulla chat che
-      // gli hai condiviso è suo, quelli delle altre no. Scartare tutto sarebbe
-      // sicuro e sbagliato — un ospite senza pallini non sa mai che è arrivato
-      // qualcosa.
-      {
-        const tutti = ctx.loadUnreadForInit() as Record<string, unknown>;
-        const suoi = ospiteWS
-          ? Object.fromEntries(Object.entries(tutti).filter(([topicId]) =>
-              hasGrant(ctx.db, principaliDi(ws.data.deviceId!), "topic", topicId)))
-          : tutti;
-        inviaIniziale({ type: "unread:init", data: suoi });
-      }
       // The attention state, whole, at every open of a socket of the person
       // (ATTN-07): the client replaces its store with it, so a seen lost while
-      // a phone slept is not lost for good. Never to a guest.
+      // a phone slept is not lost for good. It carries each chat's unread too:
+      // the old `unread:init` snapshot went with the client that read it
+      // (notifications-redesign, tasks.md 6.2). Never to a guest.
       if (!ospiteWS) inviaIniziale(attentionInitFrame());
       // `ui-state:init` e `providers:snapshot` NON hanno una versione ristretta,
       // e non devono averla: il primo è l'area di lavoro del proprietario — le
@@ -4424,12 +4453,20 @@ const opzioniServer = {
             return;
           }
           if (delegated === 'result') return;
+          // The native pane hosting this context's mirror: its declaration, its
+          // DOM events, and where its page is. Raw frames, like the delegation ones.
+          const hostFrame = parseHostFrame(raw);
+          if (hostFrame) {
+            hostMirror.onHostFrame(ws, ctxId, hostFrame);
+            return;
+          }
           const result = parseBrowserWsMessage(raw);
           if (!result.ok) {
             console.warn(`[WS][browser] Invalid message from ${ws.data.id}: ${result.error}`);
             return;
           }
           const parsed = result.data;
+          if (hostMirror.routeViewer(ws, ctxId, parsed)) return;
           if (parsed.type === 'input') {
             // Using the page is what makes a client the driver of its viewport.
             viewportWiring.onFrame(ctxId, ws.data, parsed);
@@ -4480,10 +4517,10 @@ const opzioniServer = {
               // goto failures resolve with `error` (page stayed on the old
               // URL); launch failures reject below. Both must reach the pane
               // as phase 'error' — a bare 'response' here made every failed
-              // navigation invisible (BRW-REL-02).
-              if (r.error) {
-                sendBrowserWsMessage(ws, { type: 'nav', url: parsed.url, phase: 'error', error: r.error });
-              } else {
+              // navigation invisible (BRW-REL-02). The goto failure is not sent
+              // from here: the service tells every viewer of the context, this
+              // socket included (browser-nav-flight.ts).
+              if (!r.error) {
                 sendBrowserWsMessage(ws, { type: 'nav', url: parsed.url, phase: 'response' });
               }
             }).catch(err => {
@@ -4544,29 +4581,18 @@ const opzioniServer = {
             // mentre guarda eccome.
             ws.data._watching = parsed.active;
             viewerCountPublisher.publish(ctxId);
+            // A mirror leaving the screen may be the last one: the host stops
+            // recording. And a pane off screen is not using a hosted page.
+            hostMirror.onWatching(ws, ctxId);
           } else if (parsed.type === 'set_render') {
             // T1 DOM co-browse — switch THIS viewer between the pixel stream
             // ('video', default) and a native rrweb DOM reconstruction ('dom').
             // DOM mode injects rrweb into the SHARED headless page, streams tiny
             // DOM events, and pauses this viewer's wasted screencast; input keeps
             // flowing over the existing `input` messages (same page-CSS coords).
+            // A hosted context never gets here (hostMirror.routeViewer).
             if (parsed.mode === 'dom') {
-              browserService.enableDomMode(ctxId).then((bootstrap) => {
-                if (!bootstrap) {
-                  // Unsupported (no page / injection failed) — force back to video.
-                  sendBrowserWsMessage(ws, { type: 'render_mode', mode: 'video' });
-                  return;
-                }
-                ws.data._domRender = true;
-                sendBrowserWsMessage(ws, { type: 'render_mode', mode: 'dom' });
-                // Bootstrap this viewer so it reconstructs without a reload.
-                for (const event of bootstrap) sendBrowserWsMessage(ws, { type: 'dom_event', event });
-                // Stop paying for JPEG frames this viewer no longer renders.
-                ws.data._browserSetStream?.(false);
-              }).catch((err) => {
-                console.warn(`[WS][browser] enableDomMode failed for ${ctxId}:`, err?.message || err);
-                try { sendBrowserWsMessage(ws, { type: 'render_mode', mode: 'video' }); } catch { /* socket gone */ }
-              });
+              hostMirror.enableChromiumDom(ws, ctxId);
             } else {
               // Back to pixels: resume screencast, ack, and stop DOM emission once
               // NO viewer of this context is in DOM mode anymore.
@@ -4770,6 +4796,9 @@ const opzioniServer = {
           const anyDom = [...(bset ?? [])].some((w) => w.data._domRender);
           if (!anyDom) browserService.setDomEmit(ws.data.browserContextId, false);
         }
+        // The host of the mirror leaving starts the countdown to the server's
+        // Chromium; a mirror leaving may have been the last one on screen.
+        hostMirror.onClose(ws, ws.data.browserContextId);
         // Drop any native-executor registration for this pane + fail its in-flight
         // ops (Tauri delegation) — no-op if this context never registered, and
         // owner-scoped so a late `close` from an OLD socket can't kill a fresh
@@ -4946,6 +4975,27 @@ if (serverTunnel) {
   console.log(`[Tunnel] porta dedicata su 127.0.0.1:${portaTunnel} — chi entra da qui NON e' locale`);
 }
 
+// The PLAINTEXT twin (see `httpTunnelPort`): a proxy forwarding from an http
+// origin must speak http on the last hop too, or the server believes the
+// scheme is https and signs the session cookie `Secure`, which the browser
+// drops on that origin, so the session is never stored.
+const portaTunnelHttp = httpTunnelPort(process.env);
+const serverTunnelHttp = portaTunnelHttp
+  ? Bun.serve<WSData>({
+      ...opzioniServer,
+      port: portaTunnelHttp,
+      hostname: "127.0.0.1",
+      tls: undefined,
+      fetch(req: Request, srv: typeof server) {
+        markViaTunnel(req);
+        return fetchCompresso.call(srv, req, srv);
+      },
+    })
+  : null;
+if (serverTunnelHttp) {
+  console.log(`[Tunnel] porta in chiaro su 127.0.0.1:${portaTunnelHttp} — chi entra da qui NON e' locale`); // allow-italian: log line, same language as its TLS twin above
+}
+
 // Stale stream cleanup
 const STALE_STREAM_CHECK_INTERVAL_MS = 30_000;
 const STALE_STREAM_TIMEOUT_MS = 3 * 60 * 1000;
@@ -4997,12 +5047,9 @@ const staleStreamTimer = setInterval(() => {
     frozenMsSince: (sk, since) => swapFrozenMsSince(sk, since),
     resyncStream: (sk) => {
       // The rescue went to claude-code too: for somebody else's turn it was a
-      // mute no-op, a recovery attempt that attempted nothing.
-      const owner = resolveSessionOwner(sk) as
-        | { resyncStream?: (sk: string) => Promise<boolean> }
-        | null;
-      owner?.resyncStream?.(sk)
-        ?.catch((err) => console.warn(`[StaleStream] resync failed for ${sk}:`, err));
+      // mute no-op, a recovery attempt that attempted nothing. Now it goes to
+      // the owner and its outcome is read (`rescueByOwner`).
+      void rescueByOwner(sk, resolveSessionOwner(sk), (msg) => console.warn(msg));
     },
     cancelAsk,
     updateStreamActivity: (sk) => ctx.updateStreamActivity(sk),
@@ -5293,7 +5340,7 @@ const dispatchTimer = setInterval(() => {
   // suo PTY sopravviveva all'archiviazione della chat per sempre.
   // `orphanChildSessions` chiede la stessa domanda alle due forme di padre.
   try {
-    for (const id of orphanChildSessions(ctx.db)) retireTerminalSession(id, "swept");
+    for (const id of orphanChildSessions(ctx.db)) retireTerminalSession(id, "swept", "orphan-child-sweep");
   } catch (err) { console.error("[board] reap delle sessioni figlie fallito", err); }
 }, DISPATCH_POLL_MS);
 
@@ -6101,7 +6148,7 @@ interruttoreRelay.riconcilia();
 const relayLicenzaTimer = setInterval(() => interruttoreRelay.riconcilia(), 60_000);
 
 ctx.requestIp = (req: Request) =>
-  clientIpOf(req, (serverTunnel?.requestIP(req) ?? server.requestIP(req))?.address ?? null);
+  clientIpOf(req, (serverTunnel?.requestIP(req) ?? serverTunnelHttp?.requestIP(req) ?? server.requestIP(req))?.address ?? null);
 
 const proto = useTls ? "https" : "http";
 const wsProto = useTls ? "wss" : "ws";
@@ -6349,7 +6396,7 @@ let askProbeCache: { at: number; parked: string[] } = { at: 0, parked: [] };
  * adottati che vivono solo nel broker. Le prime due sono gratis e si guardano a
  * ogni giro; la terza si paga, e si guarda ogni QUIESCENCE_BROKER_PROBE_MS.
  */
-async function whatIsStillWorking(): Promise<{ busy: string | null; cards: number; unadoptable: number; parkedAsks: number; chats: number; holder: string | null; holderKind: "turn" | "question" }> {
+async function whatIsStillWorking(): Promise<{ busy: string | null; cards: number; unadoptable: number; chats: number; holder: string | null; holderKind: "turn" | "question" }> {
   // A land in flight is a card turn for this purpose: it rewrites main and
   // the card, and a restart in the middle of it forgets the delivery branch.
   //
@@ -6403,8 +6450,8 @@ async function whatIsStillWorking(): Promise<{ busy: string | null; cards: numbe
   const unadoptable = unadoptableKeys.length;
   // THE FOURTH SOURCE: whoever is waiting for a PERSON. The three above answer
   // "who is WORKING", and a chat parked on a question is not working, so it
-  // held nothing and the restart cut it (why it deserves the deferral most:
-  // see `parked-asks.ts`). Same economy as the broker probe: it reads rows, so
+  // held nothing and the restart cut it. It holds the chat minute and no more:
+  // the question outlives the restart (see `quiescenceVerdict`). Same economy as the broker probe: it reads rows, so
   // it is paid at the probe cadence, and not at all when a card is in flight
   // - there the verdict is already a deferral, and a STALE list must not
   // decide, since a question answered meanwhile would defer for nobody.
@@ -6420,7 +6467,6 @@ async function whatIsStillWorking(): Promise<{ busy: string | null; cards: numbe
     busy: describeInFlight({ cards, streamKeys, brokerOpenKeys: brokerOpen, askOpenKeys: parked }),
     cards,
     unadoptable,
-    parkedAsks: parked.length,
     // Every holder that is NOT a card: the streams of this process, the turns
     // the broker keeps, the chats parked on a question. `dispatchDoor` reads
     // this to decide whether refusing card turns buys the restart anything.
@@ -6509,7 +6555,7 @@ async function runDispatcherQuiescentWait(label: string, capMs = QUIESCENCE_CAP_
   // card cannot start in the gap between "nothing holds" and the shutdown.
   let doorClosed = true;
   for (;;) {
-    const { busy, cards, unadoptable, parkedAsks, chats, holder, holderKind } = await whatIsStillWorking();
+    const { busy, cards, unadoptable, chats, holder, holderKind } = await whatIsStillWorking();
     if (!busy) {
       if (!doorClosed) {
         taskDispatcher.drain(label);
@@ -6535,7 +6581,6 @@ async function runDispatcherQuiescentWait(label: string, capMs = QUIESCENCE_CAP_
       busy, unrecoverable: cards + unadoptable,
       now: Date.now(), startedAt: inizio,
       chatCapMs: QUIESCENCE_CHAT_CAP_MS,
-      parkedAsks,
     });
     // DUE ATTESE, PERCHE' SONO DUE DANNI DIVERSI.
     //

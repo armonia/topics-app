@@ -37,7 +37,6 @@ export type {
   Machine,
   Worktree,
   TopicsData,
-  UnreadData,
 } from '../../../shared/types';
 // `export type { … } from` ri-esporta ma NON porta i nomi in scope locale, e
 // più sotto i payload WS li usano. Import separato, non è una ridondanza.
@@ -86,6 +85,8 @@ export interface ChatMessage extends Message {
    */
   promptNumber?: number;
   media?: string[];               // Media file paths
+  /** `[width, height]` of each picture the row draws, by path, sent by the server so the picture has its box before its bytes (`components/Chat/mediaBox.ts`). */
+  mediaSizes?: Record<string, [number, number]>;
   partial?: boolean;              // True if message is still streaming
   queued?: boolean;               // True if message is queued to send (offline)
   /**
@@ -861,6 +862,8 @@ export interface WSMessageNewMessage {
   /** On the person's row: the key the send carried, so the window that sent it
    *  renames its bubble to this row (`hooks/ownBubble.ts`). */
   clientMessageId?: string;
+  /** The size of each picture the row draws, as on a history row. */
+  mediaSizes?: Record<string, [number, number]>;
   message?: { id: string; role: string; content: string; timestamp?: string };
 }
 
@@ -869,6 +872,8 @@ export interface WSMessageMediaMessage {
   type: 'message:media';
   sessionKey: string;
   media: string[];
+  /** The size of each of those pictures, when the server could read it. */
+  mediaSizes?: Record<string, [number, number]>;
 }
 
 /** Server requests the client to drop a session's local message buffer. */
@@ -900,18 +905,6 @@ export interface WSTerminalActivityMessage {
   busy: boolean;
   finished?: boolean;
   kind?: TerminalSessionType;
-}
-
-// --- Notifications -----------------------------------------------------------
-/** Initial unread snapshot sent on WS connect. Keyed by topicId. */
-export interface WSUnreadInitMessage {
-  type: 'unread:init';
-  data?: Record<string, { lastReadAt: string; unreadCount: number }>;
-}
-export interface WSUnreadUpdatedMessage {
-  type: 'unread:updated';
-  topicId: string;
-  unreadCount: number;
 }
 
 /**
@@ -1003,6 +996,12 @@ export interface WSBrowserNavigateMessage {
    * instead of an invisible Playwright phantom. Absent → legacy random id.
    */
   contextId?: string;
+  /**
+   * The chat whose window shows this browser when it is not `topicId`: a
+   * spawned child runs in a topic nobody has on screen, so its page goes into
+   * the window of the chat that spawned it instead of a layout tab of its own.
+   */
+  hostTopicId?: string;
 }
 /**
  * Open a browser pane in the same layout group as a specific pane, then
@@ -1228,29 +1227,6 @@ export interface WSTaskDeletedMessage {
   taskIds?: string[];
 }
 
-/** Una notifica è appena stata REGISTRATA (migration 102). Porta la riga intera
- *  e il conteggio: il tastino accanto a Topics si aggiorna dal vivo senza
- *  rileggere l'elenco. */
-export interface WSNotificationNewMessage {
-  type: 'notification:new';
-  row: NotificationRow;
-  unseen: number;
-  /** The unseen subjects (group key, or row id when ungrouped). */
-  unseenKeys?: string[];
-}
-
-/** Il «visto» è stato applicato — il contatore vale ORA questo. Il «visto» è
- *  globale, quindi guardare la cronologia da una finestra spegne il pallino su
- *  tutte le altre. */
-export interface WSNotificationSeenMessage {
-  type: 'notification:seen';
-  unseen: number;
-  /** The unseen subjects left (group key, or row id when ungrouped). */
-  unseenKeys?: string[];
-  /** Group keys of the subjects this seen cleared (`topic:<id>`, `terminal:<id>`, ...). */
-  subjects?: string[];
-}
-
 /** Every subject that is not idle, at every open of the socket: the client
  *  REPLACES its attention store with it (notifications-redesign, ATTN-07). */
 export interface WSAttentionInitMessage {
@@ -1259,20 +1235,28 @@ export interface WSAttentionInitMessage {
 }
 
 /** One subject's attention changed. `announce` comes with a new live epoch:
- *  the banner's words, decided once on the server (ATTN-11). */
+ *  the banner's words, decided once on the server (ATTN-11). `history` is the
+ *  log row that epoch wrote: the inbox's «History» tab grows from it. */
 export interface WSAttentionUpdatedMessage {
   type: 'attention:updated';
   row: AttentionSnapshot;
   live: boolean;
   announce?: AttentionAnnounce;
   bornSeen?: boolean;
+  history?: NotificationRow;
+}
+
+/** A history row no transition wrote (a system notice, the log's POST): the
+ *  inbox's «History» tab grows from it as from `attention:updated.history`. */
+export interface WSAttentionHistoryMessage {
+  type: 'attention:history';
+  row: NotificationRow;
 }
 
 export type WSMessage =
   | WSAttentionInitMessage
   | WSAttentionUpdatedMessage
-  | WSNotificationNewMessage
-  | WSNotificationSeenMessage
+  | WSAttentionHistoryMessage
   | WSTaskDeletedMessage
   | WSProvidersSnapshotMessage
   | WSGoalUpdatedMessage
@@ -1319,8 +1303,6 @@ export type WSMessage =
   | WSClearMessage
   | WSTerminalSessionsMessage
   | WSTerminalActivityMessage
-  | WSUnreadInitMessage
-  | WSUnreadUpdatedMessage
   | WSPaneFocusSuggestMessage
   | WSAgentActiveMessage
   | WSDashboardUpdatedMessage

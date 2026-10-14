@@ -166,6 +166,9 @@ const IT: Dict = {
   'ctx.removeFromContext': 'Rimuovi dal contesto',
   'ctx.removeFile': 'Rimuovi il file',
   'tool.logTruncated': '[… {n} righe scartate: il buffer del log è pieno]',
+  'tool.live.running': 'in corso',
+  'tool.live.exit': 'uscita {code}',
+  'tool.live.ended': 'terminata',
   'tool.runningTail.more': "Sopra c'è altro output",
   'tool.shell.silent': 'In esecuzione da {elapsed} · nessun output visibile',
   'tool.shell.sleepLeft': ' · sleep: mancano {left}',
@@ -2401,6 +2404,7 @@ const IT: Dict = {
   //    cambia una virgola e `terminal-tab-reload.spec.ts` (che ancora
   //    `/^Riavvia la sessione/`) resta verde; l'inglese è il nuovo.
   'terminal.stale.title': 'Sessione scaduta',
+  'terminal.resting.title': 'A riposo',
   'terminal.dormant.title': 'Sessione terminata',
   'terminal.cause.interrupted': 'Interrotta dal riavvio del server alle {time}',
   'terminal.cause.queued': 'In coda: {head}, {detail}',
@@ -2412,6 +2416,7 @@ const IT: Dict = {
   'terminal.resumeTitle': 'Riprendi la sessione (--resume): riporta viva la conversazione del sotto-agente',
   'terminal.reload': 'Ricarica',
   'terminal.resume': 'Riprendi',
+  'terminal.banner.resting': 'A riposo',
   'terminal.restarting': 'Riavvio…',
   'terminal.restartingSession': 'Riavvio sessione…',
   // ── Terminal: the refusals that used to happen in silence. The server text
@@ -3151,6 +3156,10 @@ const IT: Dict = {
   'browser.navError.refused': '{where} non accetta la connessione.',
   'browser.navError.hostNotFound': 'Indirizzo non trovato: {where}.',
   'browser.navError.timedOut': '{where} non ha risposto in tempo.',
+  'browser.navError.loopbackStuck': '{where} accetta la connessione ma non risponde.',
+  'browser.navError.loopbackStuck.hint': 'Il server su quella porta è acceso ma bloccato: riavvialo, poi premi Riprova.',
+  'browser.load.opening': 'Apro {target}…',
+  'browser.load.silent': 'Nessuna risposta da {seconds} s',
   'browser.navError.offline': 'Nessuna connessione a internet.',
   'browser.navError.tls': 'Connessione non sicura verso {where}: certificato non valido.',
   'browser.navError.ats': '{where} è in http e il sistema blocca il traffico non cifrato.',

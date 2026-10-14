@@ -12,6 +12,8 @@
 import { describe, test, expect } from "bun:test";
 import {
   augmentedPath,
+  bridgeOutsideGuiSession,
+  guiSessionName,
   pidPathFor,
   socketIsFile,
   trivialSpawn,
@@ -112,5 +114,33 @@ describe("PATH augmentation", () => {
       "C:\\Users\\agent\\.bun\\bin",
     );
     expect(augmentedPath({}, "/home/agent", "linux").value).toContain("/home/agent/.bun/bin");
+  });
+});
+
+describe("GUI session", () => {
+  test("off macOS nobody knows, and nothing gets recycled", () => {
+    expect(guiSessionName("linux", () => "Aqua")).toBeNull();
+    expect(bridgeOutsideGuiSession(null, () => "Aqua")).toBe(false);
+  });
+
+  test("launchctl that cannot find the manager means a dead session", () => {
+    expect(guiSessionName("darwin", () => "Aqua\n")).toBe("Aqua");
+    expect(guiSessionName("darwin", () => { throw new Error("Could not get manager name."); })).toBe("");
+  });
+
+  // The case of 07/10/2026: bridge born 22/09, GUI session restarted 06/10.
+  test("a bridge in a dead session is recycled when the server is in Aqua", () => {
+    expect(bridgeOutsideGuiSession("", () => "Aqua")).toBe(true);
+    expect(bridgeOutsideGuiSession("Background", () => "Aqua")).toBe(true);
+  });
+
+  test("a healthy bridge, an old one that says nothing, or a server outside Aqua: untouched", () => {
+    let asked = 0;
+    const server = () => { asked++; return "Aqua"; };
+    expect(bridgeOutsideGuiSession("Aqua", server)).toBe(false);
+    expect(bridgeOutsideGuiSession(undefined, server)).toBe(false);
+    // A healthy pong must not cost the server a launchctl.
+    expect(asked).toBe(0);
+    expect(bridgeOutsideGuiSession("", () => "Background")).toBe(false);
   });
 });

@@ -360,6 +360,19 @@ the chat, and SHALL close the pane in live clients on a remote close.
 > the add-pane menu does not expose a Browser entry, so what is pinned is that the pane
 > mounts, not that the menu path is the one taken.
 
+#### Scenario: In a project window an existing browser pane takes the agent's next page for its context
+- **GIVEN** a project window with two chats in two groups, an existing browser pane for the first chat's context in its group, and focus on the second chat's group
+- **WHEN** the first chat's agent opens another page for that context
+- **THEN** the existing browser pane stays in the first chat's group and shows the page
+- **AND** no duplicate sheet is added to the topic's browser window
+
+#### Scenario: An agent's first page in a project chat opens the topic's mini browser
+- **GIVEN** a project window contains a chat pane for a topic with no browser window or browser pane for this context
+- **WHEN** that chat's agent opens a page with `open_browser_pane`
+- **THEN** the page appears as the active sheet in the topic's browser window, minimized and visible on screen
+- **AND** no browser pane is added to the project layout
+- **AND** the first link clicked in that chat still opens in the project layout as specified by `LINK-TAB-02`
+
 #### Scenario: /browser <url> opens the pane and labels the tab
 - **GIVEN** a topic chat is open and focused
 - **WHEN** the user sends `/browser https://example.com` in the composer
@@ -433,6 +446,15 @@ the chat, and SHALL close the pane in live clients on a remote close.
 - **GIVEN** a mounted browser pane whose context id is the topic id
 - **WHEN** `POST /api/topics/:id/browser/close-pane` is called
 - **THEN** the request succeeds and the pane root disappears from the live client
+
+#### Scenario: An agent's page op on a topic with no pane opens the topic's mini browser first
+- **GIVEN** a chat (non-task) topic with a persisted browser url and no attached pane (no native delegate, no viewer socket)
+- **WHEN** the agent calls a page op (`screenshot`, `eval`, or any bridged op except `browser_status`) on its own topic without a `contextId` override
+- **THEN** the server SHALL run the chat-branch opening sequence first (announce the mini browser, then navigate) and dispatch the op afterwards
+- **AND** the announced url SHALL be the live context's own url when BrowserService already holds one for that contextId (non-empty, not `about:blank`), the persisted url only when no live context exists
+- **AND** when a pane is already attached, a `contextId` override is passed, the topic is a task dispatch, no url is persisted and no live context exists, or the op is `browser_status`, the server SHALL dispatch directly with no announce
+- **AND** when the opening fails or no pane attaches in time, the op SHALL still dispatch (headless fallback) and never fail because the pane did not open
+- **AND** the server SHALL attempt the opening at most once per contextId every 60 s: ops inside the window after a pane-less attempt SHALL dispatch headless directly
 
 ### Requirement: LINK-TAB-01 — A link opens in a TAB of the Topics browser, never in a detached window
 
@@ -2471,7 +2493,11 @@ topic. La finestra SHALL stare in uno di questi stati:
 
 La barra della finestra SHALL elencare le schede della topic, con la scheda attiva
 che mostra la pagina viva; le schede aperte da altre superfici del progetto SHALL
-essere raggiungibili dal «+», non elencate.
+essere raggiungibili dal «+», non elencate. Con più schede di quante ne stanno, la
+barra SHALL scorrere di lato invece di stringerle: ogni scheda SHALL restare larga
+almeno 88 px, il titolo leggibile accanto alla sua X; la scheda attiva SHALL essere
+in vista, anche quando la barra si stringe sotto di lei (la finestra minimizzata); il
+«+» SHALL restare intero (24 px) e visibile fuori dalla parte che scorre.
 
 Una scheda SHALL poter diventare **tab**: una pane browser nel layout, con lo stesso
 `contextId`, quindi la stessa pagina, cronologia e agente che la guida. Da tab SHALL
@@ -2515,6 +2541,26 @@ come tab.
 - **WHEN** un link della chat apre un sito
 - **THEN** non c'è nessuna finestra flottante e il sito si apre come tab
 
+#### Scenario: quindici pagine, la barra scorre
+- **GIVEN** una finestra minimizzata con quindici schede, attiva l'ultima
+- **WHEN** si misura la barra
+- **THEN** ogni scheda è larga almeno 88 px e la barra scorre, aperta sulla scheda attiva
+- **AND** il «+» è largo 24 px, dentro la finestra, e raggiungibile
+- **WHEN** l'utente scorre la barra fino alla prima scheda e la clicca
+- **THEN** la prima scheda è attiva e in vista
+
+#### Scenario: minimizzata, la scheda attiva resta in vista
+- **GIVEN** una finestra espansa con quindici schede, attiva l'ultima e in vista
+- **WHEN** l'utente minimizza la finestra, e poi la riapre
+- **THEN** in tutti e due gli stati la scheda attiva è in vista
+
+
+#### Scenario: un ricarico nasconde le pagine native che tiene
+- **GIVEN** una finestra desktop con pane browser native aperte
+- **WHEN** la pagina si ricarica senza un nuovo bundle (⌘R, ⟳ della barra laterale, `location.reload()`)
+- **THEN** ogni vista nativa tenuta da una pane di questo documento SHALL essere nascosta alla `pagehide`, e NON chiusa
+- **AND** al rimontaggio la pane SHALL riusare la stessa vista, con la sua pagina, e riaccenderla
+- **AND** una vista in mezzo a un trasloco verso un'altra finestra NON SHALL essere toccata
 ### Requirement: TOPIC-BROWSER-02 — La tab è l'unica chrome, e si apre in un foglio
 
 Una scheda browser SHALL avere una sola superficie di chrome: la sua tab. NON SHALL
@@ -2734,3 +2780,189 @@ ricevuti SHALL lasciare entrambe le frecce abilitate, come prima.
 - **GIVEN** una pane in streaming collegata a un server che non conosce i due valori
 - **WHEN** arriva il caricamento senza `canGoBack` né `canGoForward`
 - **THEN** ‹ e › restano abilitati
+
+### Requirement: BROWSER-REAP-01 — The idle reaper SHALL NOT close a browser that is launching or building a context
+
+The headless browser is reaped once it has no context and has been idle past its
+timeout. A browser that is still launching, or that a context is being created on,
+is in use: reaping it leaves the pane on "Target page, context or browser has been
+closed" at every retry. Measured 13/10 on the live server under memory pressure:
+launched 12:32:17, reaped 12:32:35 as "idle 21min".
+
+#### Scenario: a slow context creation survives the reaper
+- **GIVEN** the browser was last used 21 minutes ago
+- **WHEN** a pane asks for its context and the creation is still running at the reaper's tick
+- **THEN** the browser stays up and the pane gets its page
+
+#### Scenario: an idle browser with nothing on it is still reaped
+- **GIVEN** no context, no creation and no launch in progress, idle past the timeout
+- **THEN** the reaper closes it, and the next use relaunches it
+
+### Requirement: BROWSER-DOM-RES-01 — The DOM mirror SHALL show resources the viewer cannot reach
+
+The mirror rebuilds the page in the viewer's browser, so the viewer fetches its
+images. A resource on a host only the Mac resolves (loopback, private ranges,
+`.local`) SHALL be served through `/api/browser/resource`, fetched by the page's
+own context with its cookies. Public resources SHALL load directly. Measured 13/10
+from the iPad on `http://localhost:3535`: no image in the mirror.
+
+#### Scenario: a local page's images on another device
+- **GIVEN** the shared pane shows a page at `http://localhost:3535` with protected images
+- **WHEN** the iPad watches it through the DOM mirror
+- **THEN** every image arrives through the proxy with the page's session, and none is fetched from the iPad's own `localhost`
+
+#### Scenario: a public image is not routed through the Mac
+- **GIVEN** an `<img>` on `https://cdn.example.com`
+- **THEN** the mirror keeps its URL as it is
+
+### Requirement: BROWSER-DOM-TAP-01 — One tap on the DOM mirror SHALL be one click on the page
+
+On a touch screen the engine follows `touchend` with a synthesized mousedown and
+click for the same tap. The mirror SHALL relay that gesture once. Measured 13/10
+from the iPad: every tap reached the shared page twice, so a menu opened and
+closed at once and actions on the shared browser "did not work".
+
+#### Scenario: a tap on the iPad
+- **WHEN** the user taps the mirror once
+- **THEN** the remote page receives exactly one click at that point
+
+### Requirement: NATIVE-HOST-01 — A live native pane SHALL be the source of its context's mirror
+
+When the Mac's native pane of a context declares itself host, a viewer on another
+device SHALL mirror that pane's own page, rebuilt from its DOM (rrweb), and the
+server SHALL NOT create a Chromium context for it. Before, a second device pulled
+the Mac off its WKWebView onto the server's Chromium, and the Mac was slow while
+the iPad watched (13/10).
+
+#### Scenario: the iPad opens a context the Mac has open
+- **GIVEN** the Mac's native pane hosts the context
+- **WHEN** the iPad opens it
+- **THEN** it shows the Mac's page and address, and no Chromium context exists for it
+
+#### Scenario: the Mac's pane goes away
+- **WHEN** the host's socket closes and no host is back within 8 seconds
+- **THEN** the server's Chromium takes over at the page the host was on
+
+### Requirement: NATIVE-HOST-02 — A viewer's input SHALL reach the host once
+
+#### Scenario: a click on the mirror
+- **WHEN** the viewer clicks or taps the mirror once
+- **THEN** the Mac's pane receives one `host_input` click at the page coordinates
+- **AND** it runs in the page without taking the Mac's key focus
+
+### Requirement: NATIVE-HOST-03 — The Mac SHALL stay native while another device watches
+
+#### Scenario: auto mode with a viewer
+- **GIVEN** a pane in 'auto' on a server that accepted its host declaration
+- **WHEN** another device starts watching the context
+- **THEN** the pane stays on its native WKWebView instead of joining the shared session
+
+### Requirement: NATIVE-HOST-04 — A hosted page SHALL take the size of the device using it
+
+TOPIC-BROWSER-05 on a page the Mac hosts: the viewport belongs to whoever uses
+the page. Before, an iPad that used a page hosted by the Mac got the Mac's
+layout scaled down and letterboxed, and its own `resize` was dropped (13/10).
+The Mac's pane lays the page out at the iPad's size in CSS px, scaled into its
+slot with WKWebView's page zoom when it does not fit, and the iPad's mirror shows
+it 1:1.
+
+#### Scenario: the iPad uses a page the Mac hosts
+- **GIVEN** the Mac's pane hosts the context and the iPad watches it
+- **WHEN** the iPad taps the mirror
+- **THEN** the host receives the tap, then `host_viewport` with the iPad pane's size
+- **AND** the size counts even if the iPad sent it before the Mac hosted the page, or while the host was away
+- **AND** once the page is laid out at that size, give or take 2 px or a few px shorter, the iPad's mirror shows it at scale 1 from the top
+
+#### Scenario: a Mac slot smaller than the iPad
+- **WHEN** the Mac's slot for the page is smaller than the iPad's pane, down to a tenth of the window
+- **THEN** the page is laid out exactly as wide as the iPad's pane, and never taller than it
+
+#### Scenario: watching is not using
+- **WHEN** a device only watches, or resizes while only watching
+- **THEN** the host receives no `host_viewport`
+
+#### Scenario: the Mac takes the page back
+- **WHEN** the Mac's user uses the page in its own pane (a trusted pointer, key or wheel event, or the zoom), the device using it leaves, or no pane of that device shows the page any more
+- **THEN** the host receives `host_viewport` without a size and lays the page out at its own slot again
+- **AND** the server hears of every use of the Mac, so a size still on its way does not land after it
+- **AND** a device whose pane comes back on screen has the page at its size again, if nobody used the page meanwhile
+
+#### Scenario: the Mac's socket blips
+- **WHEN** the host comes back after its socket dropped
+- **THEN** it is told the current size of the device that was using the page
+- **AND** not if the Mac's user used the page while the socket was down
+
+#### Scenario: the on-screen keyboard
+- **WHEN** the on-screen keyboard takes height from the pane of the device using the page
+- **THEN** the device does not report the shorter height, and the page is not laid out again
+
+### Requirement: BROWSER-DOM-LIVE-01 — A change SHALL reach the DOM mirror on the frame after it arrives
+
+The live replayer used to schedule every event against the first one it was
+given, so whatever that first event took to arrive was added to every event
+after it. Measured 13/10: a tap on the iPad answered seconds late on Darkroom,
+and a viewer rebuilt from a buffered snapshot would trail by as long as the
+recording had been running.
+
+#### Scenario: a mirror rebuilt from an old snapshot
+- **GIVEN** a viewer whose mirror was rebuilt from a snapshot recorded long ago
+- **WHEN** the source records a change now
+- **THEN** the viewer shows it within a second and a half
+
+### Requirement: BROWSER-DOM-SCROLL-01 — A scroll SHALL move the DOM mirror on the device that makes it
+
+#### Scenario: wheel or swipe on the mirror
+- **WHEN** the user scrolls the mirror with a wheel or a finger
+- **THEN** the mirror scrolls at once on that device, before the source answers
+- **AND** the source is asked to scroll by the same distance in its own CSS pixels
+- **AND** a released swipe carries on and slows down, as a native scroll does
+- **AND** once the gesture ends, the mirror settles where the source ended up
+
+### Requirement: BROWSER-DOM-LAZY-01 — A lazy image SHALL load in the DOM mirror only as it nears the view
+
+The mirror is a sandboxed document without scripts, and HTML turns lazy loading
+off where scripting is off, so a viewer fetched every image a page marked lazy
+as soon as it opened it. Measured 13/10 on Darkroom: 1049 of its 1056 images
+lazy, 568 requests from the iPad through the Mac in a minute.
+
+#### Scenario: a long page of lazy images
+- **GIVEN** a source page with a lazy image in view and one far below it
+- **WHEN** a viewer rebuilds the page
+- **THEN** it fetches the image in view and not the one below
+- **AND** it fetches the one below once its own mirror scrolls near it
+
+### Requirement: BROWSER-DOM-IDLE-01 — An idle DOM mirror SHALL ask for no animation frames
+
+rrweb's live replayer asks for a frame on every frame, and every frame asked
+for makes the renderer update. Its own pause does nothing once live, so the
+mirror's park never stopped it, and a closed mirror kept it running. Measured
+13/10 in WebKit: 60 frames a second from a mirror idle for over a second.
+
+#### Scenario: a source page that stopped changing
+- **GIVEN** a viewer whose mirror has received nothing for a while
+- **THEN** the viewer asks for no animation frames for it
+- **WHEN** the source records a change
+- **THEN** the viewer shows it within a second and a half
+
+### Requirement: BROWSER-LOAD-01 — A page that does not come SHALL say where it was going and why
+
+Every viewer of a context hears that its page is on its way, with the
+destination, a viewer that connects in the middle of the wait included, and
+hears the failure in words with a Retry. A second request for the url already
+being loaded joins that load instead of starting it over. A pane whose page is
+still blank never waits on a generic "starting" spinner. Reported 13/10 from
+the iPad: a tab on a dev server of the Mac that took the connection and never
+answered sat on "Avvio sessione condivisa…" for as long as anybody looked.
+
+#### Scenario: a restored tab on a local port that takes the connection and never answers
+- **GIVEN** a browser tab restored on a loopback url whose server accepts connections and never answers
+- **WHEN** a device without the page open natively opens the tab
+- **THEN** the pane names the destination while it waits, and counts the seconds once they pass five
+- **AND** when the server gives up, the pane says that the port takes the connection but does not answer, with a Retry
+- **AND** the pane is no longer on the "starting the shared session" spinner
+
+#### Scenario: the device reloads in the middle of the wait
+- **GIVEN** a pane waiting on such a page
+- **WHEN** the device reloads the app before the server gives up
+- **THEN** the reloaded pane is told the same wait, counted from the first request
+- **AND** the failure comes when the first request runs out of time, not a full timeout after the reload

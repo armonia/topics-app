@@ -200,10 +200,10 @@ export function isGuestAllowedMethod(pathname: string, method: string): boolean 
  * dice «di questo tipo di frame ci si può fidare SE l'entità è concessa», non
  * «questo frame si può mandare».
  */
-// `attention:init` and `attention:updated` are NOT here, on purpose: the
-// attention state is the person's (what she has to look at, what she has seen),
-// and a guest's socket neither receives it nor writes its seen
-// (notifications-redesign, ATTN-06).
+// `attention:init`, `attention:updated` and `attention:history` are NOT here,
+// on purpose: the attention state and its history are the person's (what she
+// has to look at, what she has seen), and a guest's socket neither receives
+// them nor writes its seen (notifications-redesign, ATTN-06).
 const GUEST_SAFE_FRAMES = new Set<string>([
   // Le schede. Tutti e cinque portano `taskId`, verificato contro il registro —
   // e non è un dettaglio: due nomi che avevo scritto a memoria (`task:comment`,

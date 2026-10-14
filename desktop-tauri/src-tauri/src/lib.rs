@@ -5729,6 +5729,35 @@ fn browser_set_visible(app: tauri::AppHandle, id: String, visible: bool) -> Resu
     })
 }
 
+/// Page zoom of a browser pane: the page lays out at its frame divided by this.
+///
+/// It is how the Mac shows a page at the size of another device that is using
+/// it (TOPIC-BROWSER-05): an iPad pane of 1180x820 does not fit a 900px slot,
+/// so the frame is scaled to fit and the zoom makes the page lay out at
+/// 1180x820 inside it. `innerWidth` and the media queries see the iPad, and the
+/// iPad's mirror of the page needs no scaling at all.
+///
+/// Not CSS `zoom` on the document: that one changes neither `innerWidth` nor
+/// the media queries, and the recorder would copy it into every mirror.
+///
+/// Floor 0.05, the client's MIN_PAGE_ZOOM (paneViewport.ts): a pane can be a
+/// tenth of the window, and WKWebView still lays a 1180x820 page out exactly in
+/// a 59x41 frame at 0.05 (measured).
+// ENGINES: wkwebview, webview2, webkitgtk - portable: tauri webview zoom (pageZoom on WKWebView).
+#[tauri::command]
+fn browser_set_page_zoom(app: tauri::AppHandle, id: String, zoom: f64) -> Result<(), String> {
+    no_abort("browser_set_page_zoom", move || {
+        use tauri::Manager;
+        if !zoom.is_finite() || zoom <= 0.0 {
+            return Err(format!("invalid page zoom {zoom}"));
+        }
+        let wv = app
+            .get_webview(&browser_label(&id))
+            .ok_or("no such browser pane")?;
+        wv.set_zoom(zoom.clamp(0.05, 1.0)).map_err(|e| e.to_string())
+    })
+}
+
 /// Sidebar-slide handoff: land a browser pane's FIXED-duration move on the Core
 /// Animation clock in ONE IPC, instead of the ~12 rAF-driven `browser_set_bounds`
 /// hops whose IPC jitter made the native view visibly stutter against the
@@ -11938,6 +11967,7 @@ pub fn run() {
             browser_navigate,
             browser_set_bounds,
             browser_set_visible,
+            browser_set_page_zoom,
             browser_animate_bounds,
             browser_raise,
             browser_close,

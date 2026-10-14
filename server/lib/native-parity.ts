@@ -20,6 +20,7 @@ import { spawnSync } from "node:child_process";
 import { readFileSync, existsSync, statSync, readdirSync } from "node:fs";
 import { homedir } from "node:os";
 import { join, resolve, dirname } from "node:path";
+import { runBounded } from "./bounded-spawn";
 import { disabledSkillNames, skillDirs } from "./slash-command-source";
 import { thinkingGenerationOf } from "./thinking-generation";
 
@@ -109,16 +110,104 @@ const MEMORY_INDEX_MAX_CHARS = 25_000;
  * memory of its repo), else the folder itself, with `/` and `.` turned into `-`.
  */
 export function claudeMemoryDir(cwd: string, home = homedir()): string {
-  let root = cwd;
-  try {
-    const r = spawnSync("git", ["-C", cwd, "rev-parse", "--path-format=absolute", "--git-common-dir"], {
-      encoding: "utf-8",
-      timeout: 1000,
-    });
-    const common = r.status === 0 ? r.stdout.trim() : "";
-    if (common.endsWith("/.git")) root = dirname(common);
-  } catch { /* no git: the folder itself */ }
-  return join(home, ".claude", "projects", root.replace(/[/.]/g, "-"), "memory");
+  return join(home, ".claude", "projects", gitRootOf(cwd).replace(/[/.]/g, "-"), "memory");
+}
+
+/**
+ * THE GIT ROOT OF A TURN'S FOLDER, REMEMBERED (T16).
+ *
+ * `claudeMemoryDir` runs on every assembly of a topic's context (every turn,
+ * every context preview), and `context/assemble.ts` is synchronous: the
+ * `git rev-parse` it ran each time was a `spawnSync`, and the server's one loop
+ * (every other chat, every frame being streamed) waited for git. Making the
+ * assembly async would put an await in the chat route between the stored
+ * message and the stream, and change forty-odd callers, for an answer that
+ * changes only when a folder becomes a repo or a worktree goes away.
+ *
+ * So the answer is remembered per folder and asked again in the background:
+ * a timer asks git, asynchronously, every GIT_ROOT_REFRESH_MS about each folder
+ * read in the last GIT_ROOT_IDLE_MS, and a turn reads the last answer. An answer
+ * older than GIT_ROOT_TTL_MS (a folder never seen, or unread for a while, or a
+ * timer that fell behind) is not used: the turn asks synchronously, as before.
+ * A change on disk shows within GIT_ROOT_TTL_MS, in practice within the refresh.
+ * Keyed by folder: `home` only says where the memory lives, the root is git's
+ * answer about `cwd`.
+ */
+export const GIT_ROOT_TTL_MS = 30_000;
+const GIT_ROOT_REFRESH_MS = 10_000;
+const GIT_ROOT_IDLE_MS = 10 * 60_000;
+
+interface GitRoot { root: string; checkedAt: number; readAt: number; asking: boolean }
+const gitRoots = new Map<string, GitRoot>();
+let gitRootTimer: ReturnType<typeof setInterval> | null = null;
+
+function rootFromCommonDir(cwd: string, status: number | null, stdout: string): string {
+  const common = status === 0 ? stdout.trim() : "";
+  return common.endsWith("/.git") ? dirname(common) : cwd;
+}
+
+function gitRootOf(cwd: string): string {
+  const now = Date.now();
+  let entry = gitRoots.get(cwd);
+  if (!entry || now - entry.checkedAt >= GIT_ROOT_TTL_MS) {
+    let root = cwd;
+    try {
+      const r = spawnSync("git", ["-C", cwd, "rev-parse", "--path-format=absolute", "--git-common-dir"], {
+        encoding: "utf-8",
+        timeout: 1000,
+      });
+      root = rootFromCommonDir(cwd, r.status, r.stdout ?? "");
+    } catch { /* no git: the folder itself */ }
+    if (entry) { entry.root = root; entry.checkedAt = now; }
+    else { entry = { root, checkedAt: now, readAt: now, asking: false }; gitRoots.set(cwd, entry); }
+  }
+  entry.readAt = now;
+  if (!gitRootTimer) {
+    gitRootTimer = setInterval(() => { void refreshGitRoots(); }, GIT_ROOT_REFRESH_MS);
+    gitRootTimer.unref?.();
+  }
+  return entry.root;
+}
+
+/** One pass of the timer: git asked again about the folders still read, the others forgotten. */
+export async function refreshGitRoots(): Promise<void> {
+  const asks: Promise<void>[] = [];
+  for (const [cwd, entry] of gitRoots) {
+    if (Date.now() - entry.readAt > GIT_ROOT_IDLE_MS) { gitRoots.delete(cwd); continue; }
+    if (entry.asking) continue;
+    entry.asking = true;
+    const startedAt = Date.now();
+    asks.push(
+      runBounded(["git", "-C", cwd, "rev-parse", "--path-format=absolute", "--git-common-dir"], {
+        stdout: "pipe",
+        stderr: "ignore",
+        timeoutMs: 1000,
+      })
+        .then((r) => {
+          // No answer (the deadline, or no git to run) is not "not a repo": the
+          // last answer stands until it expires, then a turn asks synchronously.
+          if (r.exitCode === null) return;
+          // A synchronous ask may have answered meanwhile: the newer answer stays.
+          if (startedAt < entry.checkedAt) return;
+          entry.root = rootFromCommonDir(cwd, r.exitCode, r.stdout);
+          entry.checkedAt = startedAt;
+        })
+        .catch(() => { /* the old answer stands until it expires */ })
+        .finally(() => { entry.asking = false; }),
+    );
+  }
+  if (gitRoots.size === 0) stopGitRootTimer();
+  await Promise.all(asks);
+}
+
+function stopGitRootTimer(): void {
+  if (gitRootTimer) { clearInterval(gitRootTimer); gitRootTimer = null; }
+}
+
+/** Everything forgotten and the timer stopped. */
+export function forgetGitRootsForTests(): void {
+  gitRoots.clear();
+  stopGitRootTimer();
 }
 
 /**
@@ -148,22 +237,23 @@ export function readClaudeMemoryIndex(cwd: string, home = homedir()): UserRules 
  * a suggestion must never cost the turn. Asynchronous because the server is one
  * process and a synchronous spawn would stall every other chat meanwhile.
  */
-export async function recallMemories(prompt: string, cwd: string, home = homedir()): Promise<string | null> {
+export async function recallMemoryContext(prompt: string, cwd: string, home = homedir()): Promise<string | null> {
   if (autoMemoryDisabled()) return null;
   const bin = findOnPath("memrecall", home);
   if (!bin) return null;
   try {
-    const proc = Bun.spawn([bin, "--hook"], {
-      stdin: new Blob([JSON.stringify({ prompt, cwd })]),
+    // Bounded like every external process of the server: the deadline kills the
+    // whole group, and a child that ignores SIGTERM is gone 500 ms later.
+    const r = await runBounded([bin, "--hook"], {
+      stdinData: JSON.stringify({ prompt, cwd }),
       stdout: "pipe",
       stderr: "ignore",
       env: process.env,
+      timeoutMs: 3000,
+      graceMs: 500,
     });
-    const timer = setTimeout(() => proc.kill(), 3000);
-    const out = await new Response(proc.stdout).text();
-    clearTimeout(timer);
-    if ((await proc.exited) !== 0 || !out.trim()) return null;
-    const ctx = JSON.parse(out)?.hookSpecificOutput?.additionalContext;
+    if (r.exitCode !== 0 || !r.stdout.trim()) return null;
+    const ctx = JSON.parse(r.stdout)?.hookSpecificOutput?.additionalContext;
     return typeof ctx === "string" && ctx.trim() ? ctx : null;
   } catch { return null; }
 }
@@ -315,7 +405,7 @@ export function thinkingBudgetFor(effort: string | null | undefined): number {
 const EFFORT_TIERS = new Set(["low", "medium", "high", "xhigh", "max"]);
 
 export interface ThinkingConfig {
-  thinking?: { type: "adaptive" } | { type: "enabled"; budget_tokens: number };
+  thinking?: { type: "adaptive"; display: "summarized" } | { type: "enabled"; budget_tokens: number };
   output_config?: { effort: string };
   /** The floor for `max_tokens`: a legacy budget has to fit under the cap. */
   minMaxTokens: number;
@@ -330,7 +420,14 @@ export function thinkingConfigFor(model: string, effort: string | null | undefin
       ? { thinking: { type: "enabled", budget_tokens: budget }, minMaxTokens: budget + 4096 }
       : { minMaxTokens: 0 };
   }
-  const out: ThinkingConfig = { thinking: { type: "adaptive" }, minMaxTokens: 0 };
+  // THE REASONING HAS TO BE STREAMED, not just billed. From the 5 family on,
+  // adaptive thinking defaults to `display: "omitted"`: the model reasons in
+  // silence and sends one empty delta plus the signature at the end. The
+  // route's soft timer reads that silence as a dead stream, so a long think
+  // showed "the stream is slow" and then "recovered" (11/10: Sonnet 5.5, 2-3.4
+  // min of nothing after a compaction, ten banners in one chat). `summarized`
+  // costs the same and streams the reasoning; 4.6 already defaulted to it.
+  const out: ThinkingConfig = { thinking: { type: "adaptive", display: "summarized" }, minMaxTokens: 0 };
   if (EFFORT_TIERS.has(tier)) {
     out.output_config = { effort: gen === "adaptive-4-6" && tier === "xhigh" ? "high" : tier };
   }

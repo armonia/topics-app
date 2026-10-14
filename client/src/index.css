@@ -2294,6 +2294,23 @@ input[type="range"]::-webkit-slider-thumb {
   pointer-events: none;
   transition: opacity 100ms ease;
 }
+/* Nelle tab dense resta solo l'accesso alla sheet: Take Control c'è anche lì.
+ * Un bersaglio da 44px a sinistra lascia libero il centro e la X a destra. */
+.tab-extras-dense {
+  inset: 0;
+  top: 0;
+  bottom: 0;
+  display: block;
+  transform: none;
+  pointer-events: none;
+}
+.tab-extras-dense [data-testid='browser-tab-menu'] {
+  position: absolute;
+  top: 50%;
+  left: 14px;
+  transform: translateY(-50%);
+  pointer-events: auto;
+}
 .tab-slot-command[data-pending='true'],
 .tab-extras:has([aria-expanded='true']) {
   opacity: 1;
@@ -2336,6 +2353,14 @@ input[type="range"]::-webkit-slider-thumb {
     -webkit-mask-image: linear-gradient(to left, transparent 44px, #000 56px);
     mask-image: linear-gradient(to left, transparent 44px, #000 56px);
   }
+}
+
+/* The dense wrapper covers the tab only as a positioning surface. Let only its
+ * menu button receive input; the rest selects the tab, including its center. */
+[role='tab']:hover > .tab-extras-dense,
+[role='tab']:has(:focus-visible) > .tab-extras-dense,
+[role='tab'][data-active='true'] > .tab-extras-dense {
+  pointer-events: none;
 }
 
 /* IL BORDO RIFLESSO — la luce che cade sul bordo alto di una card.

@@ -36,13 +36,12 @@ export async function fetchNotificationHistory(opts: { limit?: number; before?: 
 // ── Decisioni pure ──────────────────────────────────────────────────────────
 
 /**
- * Inserisci in testa la riga arrivata dal fronte `notification:new`, senza
- * duplicarla.
+ * Put the row a live epoch wrote (`attention:updated.history`) at the top,
+ * without duplicating it.
  *
- * Il controllo sull'id NON è teorico: la finestra che ha appena fatto il POST
- * riceve la riga DUE volte — una come risposta HTTP, una come broadcast — e
- * senza questo la stessa notifica comparirebbe due volte in cima alla lista di
- * chi l'ha generata e una sola volta a tutti gli altri.
+ * The id check is NOT theoretical: a read of the newest page that lands just
+ * before the frame already holds the row, and without it the same
+ * notification would show twice at the top of the list.
  */
 export function mergeNotificationRow(rows: NotificationRow[], row: NotificationRow, cap = 200): NotificationRow[] {
   const without = rows.filter((r) => r.id !== row.id);

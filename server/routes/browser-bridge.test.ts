@@ -16,7 +16,9 @@
  * `getOrCreate`, `listContexts`, `destroyContext`), così le asserzioni cadono
  * sul contextId che il ponte ha SCELTO, non su un mock del ponte stesso.
  * @covers BROWSER-CHAT-03
+ * @covers BROWSER-CHAT-04
  * @covers BROWSER-CHAT-05
+ * @covers GENUI-05
  */
 import { describe, test, expect, beforeEach, afterEach } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
@@ -78,6 +80,14 @@ interface HarnessOpts {
   portOwnerDeps?: PortOwnerDeps;
   /** Raw registry role used to prove direct browser routes fail closed. */
   globalCoordinatorTopicIds?: string[];
+  /** Child topic id → the chat whose window shows its browser (spawn chain root). */
+  hostOf?: Record<string, string>;
+  /**
+   * Live headless contexts the fake BrowserService reports through `getUrl`:
+   * contextId → current page url. Absent = no live context (null), so the
+   * auto-open falls back to the persisted url exactly as before.
+   */
+  liveUrls?: Record<string, string>;
 }
 
 function harness(opts: HarnessOpts = {}) {
@@ -134,6 +144,10 @@ function harness(opts: HarnessOpts = {}) {
     // A fake capture that is NOT empty: read-screen hands it to the vision
     // model, and the bytes are the only thing that says the pane was ready.
     screenshot: async () => Buffer.from("fake pixels"),
+    getUrl: (id: string) => {
+      const url = opts.liveUrls?.[id];
+      return url ? { url, title: "Viva" } : null;
+    },
     destroyContext: async (id: string) => {
       if (opts.destroyThrows) throw new Error("nessun contesto headless per questa pane");
       destroyed.push(id);
@@ -201,6 +215,7 @@ function harness(opts: HarnessOpts = {}) {
     // test del ramo «nessuna pane» pagherebbe due finestre piene.
     paneWaitMs: 20,
     portOwnerDeps: opts.portOwnerDeps ?? { findListener: async () => null, cwdForPid: async () => null },
+    browserHostTopicOf: (topic) => opts.hostOf?.[topic.id],
   }, opts.noService ? undefined : service);
 
   const post = async (path: string, body?: unknown, headers: Record<string, string> = { "x-gateway-token": TOKEN }) => {
@@ -304,6 +319,35 @@ describe("risoluzione del contesto — le tre provenienze di un contextId", () =
 // ---------------------------------------------------------------------------
 // open-pane: il ramo scelto decide CHI apre il pannello.
 // ---------------------------------------------------------------------------
+describe("open-pane — one browser per chat, whatever the agent calls its tabs", () => {
+  test("two opens with different names on the same chat land on ONE context, with no extra tab", async () => {
+    const h = harness();
+    h.addTopic("t1");
+
+    const a = await h.post("/api/topics/t1/browser/open-pane", { url: "https://a.test/", name: "Nautilus" });
+    const b = await h.post("/api/topics/t1/browser/open-pane", { url: "https://b.test/", name: "El Cid" });
+
+    expect(((await a!.json()) as { contextId: string }).contextId).toBe("t1");
+    expect(((await b!.json()) as { contextId: string }).contextId).toBe("t1");
+    expect(new Set(h.typed("browser:navigate").map((m) => m.contextId))).toEqual(new Set(["t1"]));
+    expect(h.typed("browser:force-open")).toEqual([]);
+    expect(h.typed("browser:navigate").every((m) => !("hostTopicId" in m))).toBe(true);
+  });
+
+  test("a spawned child keeps its own context but is shown in the window of the chat that spawned it", async () => {
+    const h = harness({ hostOf: { child: "parent" } });
+    h.addTopic("parent");
+    h.addTopic("child");
+
+    const resp = await h.post("/api/topics/child/browser/open-pane", { url: "https://booking.test/", name: "Terza opzione" });
+
+    expect(((await resp!.json()) as { contextId: string }).contextId).toBe("child");
+    expect(h.typed("browser:navigate")).toEqual([
+      { type: "browser:navigate", topicId: "child", contextId: "child", url: "https://booking.test/", hostTopicId: "parent" },
+    ]);
+  });
+});
+
 describe("open-pane — tre rami, tre pannelli diversi", () => {
   test("chat: broadcast PRIMA del dispatch, poi la navigazione sullo stesso contextId", async () => {
     const h = harness();
@@ -1126,5 +1170,114 @@ describe("read-screen subito dopo open-pane", () => {
     expect(error).toContain("MOONDREAM_API_KEY");
     expect(error).toContain("not a transient one");
     expect(error).toContain("browser_get_text");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// An agent's page op on a topic with no pane opens the mini browser first.
+// Pane-less ops drove a headless phantom while the user saw no panel; the
+// bridge now runs the chat-branch opening BEFORE the tool. @covers BROWSER-CHAT-04
+// ---------------------------------------------------------------------------
+describe("own-topic page op with no pane — the mini browser opens first", () => {
+  let savedHome: string | undefined;
+  let shotHome = "";
+  beforeEach(() => { // screenshots land on disk: keep them out of ~/.topics
+    savedHome = process.env.TOPICS_HOME;
+    shotHome = mkdtempSync(join(tmpdir(), "bridge-shots-"));
+    process.env.TOPICS_HOME = shotHome;
+  });
+  afterEach(() => {
+    if (savedHome === undefined) delete process.env.TOPICS_HOME;
+    else process.env.TOPICS_HOME = savedHome;
+    rmSync(shotHome, { recursive: true, force: true });
+  });
+  const lastUrl = (h: ReturnType<typeof harness>) =>
+    h.addTopic("t1", { browserState: { url: "https://example.com/last", contextId: "t1", lastActiveAt: 1 } });
+
+  test("screenshot with persisted url and no pane announces BEFORE dispatching", async () => {
+    const h = harness({ paneAttached: false });
+    lastUrl(h);
+    const resp = await h.post("/api/topics/t1/browser/screenshot", {});
+    expect(resp!.status).toBe(200);
+    expect(((await resp!.json()) as { bytes: number }).bytes).toBeGreaterThan(0);
+    expect(h.broadcasts[0]).toMatchObject({ type: "browser:navigate", topicId: "t1", contextId: "t1", url: "https://example.com/last" });
+    expect(h.navigations[0]).toEqual({ contextId: "t1", url: "https://example.com/last" });
+    expect(h.navigatedTopics.has("t1")).toBe(true);
+  });
+
+  test("pane already attached → no announce, tool still runs", async () => {
+    const h = harness();
+    lastUrl(h);
+    const resp = await h.post("/api/topics/t1/browser/screenshot", {});
+    expect(resp!.status).toBe(200);
+    expect(h.typed("browser:navigate")).toEqual([]);
+    expect(h.navigations).toEqual([]);
+  });
+
+  test("contextId override → no announce on the caller's topic", async () => {
+    const h = harness({ paneAttached: false });
+    lastUrl(h);
+    h.contexts.push({ id: "altra-scheda", url: "https://altrove", title: "Altrove" });
+    const resp = await h.post("/api/topics/t1/browser/eval", { expression: "1+1", contextId: "altra-scheda" });
+    expect(resp!.status).toBe(200);
+    expect(h.typed("browser:navigate")).toEqual([]);
+    expect(h.evaluations).toEqual([{ contextId: "altra-scheda", expression: "1+1" }]);
+  });
+
+  test("no persisted url → no announce, tool still dispatched", async () => {
+    const h = harness({ paneAttached: false });
+    h.addTopic("t1");
+    const resp = await h.post("/api/topics/t1/browser/screenshot", {});
+    expect(resp!.status).toBe(200);
+    expect(h.typed("browser:navigate")).toEqual([]);
+    expect(h.navigations).toEqual([]);
+  });
+
+  test("browser_status never mounts a pane", async () => {
+    const h = harness({ paneAttached: false });
+    lastUrl(h);
+    await h.post("/api/topics/t1/browser/status", {});
+    expect(h.typed("browser:navigate")).toEqual([]);
+    expect(h.navigations).toEqual([]);
+  });
+
+  test("terminal session driving its own pane → no topic announce", async () => {
+    const h = harness({ paneAttached: false });
+    h.addTerminal("42");
+    const resp = await h.post("/api/sessions/42/browser/eval", { expression: "1+1" });
+    expect(resp!.status).toBe(200);
+    expect(h.typed("browser:navigate")).toEqual([]);
+    expect(h.evaluations).toEqual([{ contextId: "term-42", expression: "1+1" }]);
+  });
+
+  test("task topic with no pane → NO announce, tool still dispatched", async () => {
+    const h = harness({ paneAttached: false });
+    h.addTopic("t1", { browserState: { url: "https://example.com/last", contextId: "t1", lastActiveAt: 1 } });
+    h.taskOfTopic.set("t1", { id: "12345678-task" });
+    const resp = await h.post("/api/topics/t1/browser/screenshot", {});
+    expect(resp!.status).toBe(200);
+    expect(((await resp!.json()) as { bytes: number }).bytes).toBeGreaterThan(0);
+    expect(h.typed("browser:navigate")).toEqual([]);
+    expect(h.navigations).toEqual([]);
+  });
+
+  test("live context moved elsewhere → the announce carries the LIVE url, not the persisted one", async () => {
+    const h = harness({ paneAttached: false, liveUrls: { t1: "https://example.com/altrove" } });
+    h.addTopic("t1", { browserState: { url: "https://example.com/vecchio", contextId: "t1", lastActiveAt: 1 } });
+    const resp = await h.post("/api/topics/t1/browser/screenshot", {});
+    expect(resp!.status).toBe(200);
+    expect(h.broadcasts[0]).toMatchObject({ type: "browser:navigate", topicId: "t1", contextId: "t1", url: "https://example.com/altrove" });
+    expect(h.navigations[0]).toEqual({ contextId: "t1", url: "https://example.com/altrove" });
+  });
+
+  test("no pane attaching → the second op in the window dispatches headless, no second opening", async () => {
+    const h = harness({ paneAttached: false });
+    lastUrl(h);
+    const first = await h.post("/api/topics/t1/browser/screenshot", {});
+    const second = await h.post("/api/topics/t1/browser/screenshot", {});
+    expect(first!.status).toBe(200);
+    expect(second!.status).toBe(200);
+    expect(h.typed("browser:navigate")).toHaveLength(1);
+    expect(h.navigations).toHaveLength(1);
   });
 });

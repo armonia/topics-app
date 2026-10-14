@@ -7,13 +7,16 @@ import { useHostedFrame } from './useHostedFrame';
 import { stepHostedFrame } from './hostedIframe';
 import { isUrlFramable } from '../../hooks/useRemoteBrowser';
 import { useBrowserHistory } from '../../hooks/useBrowserHistory';
-import { useEffect, useRef, useState, useCallback, useMemo } from 'react';
+import { useEffect, useRef, useState, useCallback, useMemo, useSyncExternalStore } from 'react';
+import { autoFollowsViewers, domHostAccepted, subscribeDomHostAccepted } from '../../lib/domHostSupport';
 import { SelectElementOverlay } from './SelectElementOverlay';
 import { NativeBrowserPlaceholder } from './NativeBrowserPlaceholder';
 import { ParkedPane } from './ParkedPane';
 import { NewTabPage } from './NewTabPage';
 import { BrowserNoticeStrip } from './BrowserNoticeStrip';
 import { deadLoopbackNotice } from './navErrorMessage';
+import { BrowserPageWait } from './BrowserPageWait';
+import { isBlankPage } from '../../hooks/remoteNavState';
 import { useSeedPaneUrl } from './useSeedPaneUrl';
 import { ForgetSiteDialog } from './ForgetSiteDialog';
 import { siteHostOf, nativeSiteData, sharedSiteData } from '../../lib/browserForgetSite';
@@ -224,7 +227,13 @@ export function RemoteBrowserPanel({ contextId, initialUrl, navigateUrl, onUrlCh
   // up, and the `Nativo`/`DOM` chips out of nowhere. Reported 30/08 as "the
   // browsers change and go from the start screen to an error, showing native/dom
   // chips at random".
-  const autoEnabled = isTauri && mode === 'auto';
+  //
+  // AND ONCE THE SERVER RELAYS NATIVE MIRRORS, AUTO STAYS NATIVE. The other
+  // device then mirrors this pane's own page (NATIVE-HOST-03): leaving the
+  // WKWebView for the server's Chromium was the round trip that made the Mac
+  // slow while a phone watched ("lentissimo", 13/10).
+  const hostsMirror = useSyncExternalStore(subscribeDomHostAccepted, domHostAccepted);
+  const autoEnabled = autoFollowsViewers(isTauri, mode, hostsMirror);
   const autoShared = useSharedViewerCount(contextId, autoEnabled, isVisible);
 
   // Effective render: pinned mode wins; in auto it follows the live decision.
@@ -840,7 +849,9 @@ function RemoteBrowserPanelStreaming({ contextId, initialUrl, navigateUrl, onUrl
   // with a spinner, and its frame was already hidden.
   const paneUrl = isRealUrl(browser.url) ? browser.url : (knownPaneUrl ?? '');
   const paneFramable = isRealUrl(browser.url) ? browser.framable : isUrlFramable(paneUrl);
-  const useIframe = !isTauri && !!paneUrl && !browser.agentActive && paneFramable;
+  // Never under a native host: the page lives in the Mac's pane, and a frame
+  // of the url here would be a second page, not that one.
+  const useIframe = !isTauri && !!paneUrl && !browser.agentActive && !browser.nativeHost && paneFramable;
   // Same tab-is-the-chrome bridge as the Tauri branch. The shared pane has no
   // DevTools, no zoom and no device emulation, so it simply does not publish
   // those commands: the tab menu offers what exists. Its console is the server
@@ -924,7 +935,8 @@ function RemoteBrowserPanelStreaming({ contextId, initialUrl, navigateUrl, onUrl
     connection: useIframe ? undefined : browser.connectionState,
     engine: !useIframe && browser.engineToggleAvailable ? browser.engine : undefined,
     engineExtensions: !useIframe && browser.engineToggleAvailable ? browser.engineExtensions : undefined,
-    renderMode: useIframe ? undefined : browser.renderMode,
+    // Nothing to switch under a native host: there are no pixels without the server's Chromium.
+    renderMode: useIframe || browser.nativeHost ? undefined : browser.renderMode,
     agentActive: browser.agentActive,
     agentAction: browser.agentAction,
     history,
@@ -1286,9 +1298,21 @@ function RemoteBrowserPanelStreaming({ contextId, initialUrl, navigateUrl, onUrl
                 sendInput={browser.sendInput}
                 agentActive={browser.agentActive}
                 exposeMirrorDocument={exposeMirrorDocument}
+                ownSize={browser.ownSize}
               />
             </div>
           </Suspense>
+        )}
+
+        {/* The page is not there yet, or will not come: say where it was going
+            and why, over the blank page, instead of the session spinner. */}
+        {isBlankPage(browser.pageUrl) && (browser.error || browser.loadingSince !== null) && (
+          <BrowserPageWait
+            url={browser.errorUrl || browser.url}
+            loadingSince={browser.loadingSince}
+            error={browser.error}
+            onRetry={() => browser.navigate(browser.errorUrl || browser.url)}
+          />
         )}
 
         {/* No JPEG rendering — the visible surface is the WebRTC <video> above (when

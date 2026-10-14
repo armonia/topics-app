@@ -57,6 +57,15 @@ import BrowserKeyboardCapture, {
 } from './BrowserKeyboardCapture';
 import type { RemoteField } from '../../lib/browserKeyboardProfile';
 import { fitCentered, viewportFromRrwebEvent } from '../../lib/browserFit';
+import { prefixRoutedResources } from '../../lib/domResourceBase';
+import { forgetHandedOver, parkClock, stopClock, wakeClock } from '../../lib/mirrorClock';
+import { canObserveDocument, createImageDeferral, DEFERRED_IMAGES, revealImage } from '../../lib/mirrorImages';
+import { flingVelocity, scrollTargetAt } from '../../lib/mirrorScroll';
+import { serverHttpBase } from '../../lib/shell/net';
+
+/** rrweb's IncrementalSnapshot event type, and the source of its scroll events. */
+const INCREMENTAL_SNAPSHOT = 3;
+const SCROLL_SOURCE = 3;
 
 /** Minimal shape of an rrweb event we rely on (Meta carries the recorded size). */
 type RrwebEvent = {
@@ -74,6 +83,16 @@ const IDLE_PARK_MS = 400;
 const SCROLL_RELAY_INTERVAL = 60;
 /** Below this touch travel a touch is treated as a tap (→ click), not a scroll. */
 const TAP_SLOP = 8;
+/** How long after a relayed tap a click is that tap's synthesized echo. */
+const ECHO_CLICK_WINDOW_MS = 800;
+/** How long this device's own scroll wins over the source's echoes of it. */
+const LOCAL_SCROLL_HOLD_MS = 600;
+/** A fling slows down like one on iOS (UIScrollView's normal rate, per ms)... */
+const FLING_DECAY_PER_MS = 0.998;
+/** ...and has stopped below this speed, in source px per ms. */
+const FLING_STOP_SPEED = 0.02;
+/** How far outside the mirror's view a lazy image starts loading, in source px. */
+const LAZY_IMAGE_MARGIN = '1000px';
 
 interface Props {
   /** Register the single live rrweb-event sink; returns an unsubscribe. */
@@ -89,14 +108,18 @@ interface Props {
   /** Hands the pane a reader of the mirror's document: the pane's finder
    *  searches the rebuilt page with it (BROWSER-FIND-04), no server involved. */
   exposeMirrorDocument?: (read: (() => Document | null) | null) => void;
+  /** The size this pane last asked the page for: a page laid out at it is shown 1:1 (browserFit). */
+  ownSize?: () => { width: number; height: number } | null;
 }
 
-export default function DomCoBrowse({ registerDomSink, registerFocusSink, sendInput, agentActive, exposeMirrorDocument }: Props) {
+export default function DomCoBrowse({ registerDomSink, registerFocusSink, sendInput, agentActive, exposeMirrorDocument, ownSize }: Props) {
   const tr = useT();
   const rootRef = useRef<HTMLDivElement | null>(null);
   const overlayRef = useRef<HTMLDivElement | null>(null);
   const kbdRef = useRef<BrowserKeyboardCaptureHandle | null>(null);
   const replayerRef = useRef<Replayer | null>(null);
+  const ownSizeRef = useRef(ownSize);
+  useEffect(() => { ownSizeRef.current = ownSize; }, [ownSize]);
   // The mirror's document, for find (BROWSER-FIND-04). A reader and not the
   // document itself: rrweb swaps the iframe's document on a full snapshot.
   useEffect(() => {
@@ -127,7 +150,22 @@ export default function DomCoBrowse({ registerDomSink, registerFocusSink, sendIn
   const scrollAccRef = useRef<{ dx: number; dy: number; x: number; y: number; timer: ReturnType<typeof setTimeout> | null }>(
     { dx: 0, dy: 0, x: 0, y: 0, timer: null },
   );
-  const touchRef = useRef<{ x: number; y: number; travel: number } | null>(null);
+  const touchRef = useRef<{ x: number; y: number; travel: number; moves: { t: number; dx: number; dy: number }[] } | null>(null);
+  /**
+   * This device scrolling the mirror itself (BROWSER-DOM-SCROLL-01): the element
+   * it scrolls, until when the source's echoes of that scroll are held back, the
+   * latest held echo per node (applied when the hold ends, so a source that
+   * ended up elsewhere still wins), and the fling still running.
+   */
+  const localScrollRef = useRef<{
+    target: Element | null;
+    until: number;
+    held: Map<number, RrwebEvent>;
+    release: ReturnType<typeof setTimeout> | null;
+    fling: number | null;
+  }>({ target: null, until: 0, held: new Map(), release: null, fling: null });
+  /** When `onTouchEnd` last relayed a tap, so `onClick` can drop its echo. */
+  const lastTapRelayRef = useRef(-Infinity);
   // Option/Alt held → let the user select + copy natively in the mirror iframe.
   const [selecting, setSelecting] = useState(false);
   // Has the replayer painted anything yet? The root is the theme background, so
@@ -155,6 +193,7 @@ export default function DomCoBrowse({ registerDomSink, registerFocusSink, sendIn
     const { scale, left, top } = fitCentered(
       { width: root.clientWidth, height: root.clientHeight },
       { width: w, height: h },
+      ownSizeRef.current?.(),
     );
     scaleRef.current = scale;
     const wrapper = replayer.wrapper as HTMLElement | undefined;
@@ -204,6 +243,57 @@ export default function DomCoBrowse({ registerDomSink, registerFocusSink, sendIn
       if (fdx || fdy) sendInput('scroll', { x: fx, y: fy, deltaX: fdx, deltaY: fdy });
     }, SCROLL_RELAY_INTERVAL);
   }, [sendInput]);
+
+  /**
+   * Scroll the mirror here by (dx, dy) source px at (x, y), ahead of the source
+   * (BROWSER-DOM-SCROLL-01). False when nothing moved: a mirror this shell
+   * cannot read (WKWebView with a custom scheme), or an element at its edge.
+   */
+  const scrollMirrorBy = useCallback((dx: number, dy: number, x: number, y: number): boolean => {
+    const local = localScrollRef.current;
+    let doc: Document | null | undefined;
+    try { doc = (replayerRef.current?.iframe as HTMLIFrameElement | undefined)?.contentDocument; } catch { doc = null; }
+    if (!doc) return false;
+    if (!local.target?.isConnected || local.target.ownerDocument !== doc) {
+      local.target = scrollTargetAt(doc, x, y, Math.abs(dx) > Math.abs(dy));
+    }
+    const target = local.target;
+    if (!target) return false;
+    const { scrollTop, scrollLeft } = target;
+    target.scrollTop = scrollTop + dy;
+    target.scrollLeft = scrollLeft + dx;
+    const moved = target.scrollTop !== scrollTop || target.scrollLeft !== scrollLeft;
+    // Only a scroll that happened here holds the source's back: a page that
+    // turns the wheel into something else (a photo's zoom) answers unhindered.
+    if (moved) local.until = performance.now() + LOCAL_SCROLL_HOLD_MS;
+    return moved;
+  }, []);
+
+  const stopFling = useCallback(() => {
+    const local = localScrollRef.current;
+    if (local.fling !== null) cancelAnimationFrame(local.fling);
+    local.fling = null;
+  }, []);
+
+  /** A released swipe carries on and slows down, here and at the source alike. */
+  const startFling = useCallback((vx0: number, vy0: number, x: number, y: number) => {
+    stopFling();
+    const local = localScrollRef.current;
+    let vx = vx0;
+    let vy = vy0;
+    let last = performance.now();
+    const step = (now: number) => {
+      const dt = Math.min(now - last, 64);
+      last = now;
+      const decay = Math.pow(FLING_DECAY_PER_MS, dt);
+      vx *= decay;
+      vy *= decay;
+      const moved = scrollMirrorBy(vx * dt, vy * dt, x, y);
+      queueScrollRelay(vx * dt, vy * dt, x, y);
+      local.fling = moved && Math.hypot(vx, vy) > FLING_STOP_SPEED ? requestAnimationFrame(step) : null;
+    };
+    local.fling = requestAnimationFrame(step);
+  }, [scrollMirrorBy, queueScrollRelay, stopFling]);
 
   // Che cosa c'è, nella pagina remota, sotto questo punto.
   //
@@ -264,6 +354,10 @@ export default function DomCoBrowse({ registerDomSink, registerFocusSink, sendIn
 
   const onClick = useCallback((e: React.MouseEvent) => {
     if (selectingRef.current || agentActiveRef.current) return;
+    // The click the engine synthesizes after a tap that `onTouchEnd` already
+    // relayed: the same gesture, so the page must not get it twice
+    // (BROWSER-DOM-TAP-01). Only reached when that touchend was not cancelable.
+    if (performance.now() - lastTapRelayRef.current < ECHO_CLICK_WINDOW_MS) return;
     const c = toSource(e.clientX, e.clientY);
     if (!c) return;
     sendInput('click', { x: c.x, y: c.y, button: 'left' });
@@ -277,48 +371,76 @@ export default function DomCoBrowse({ registerDomSink, registerFocusSink, sendIn
   }, [toSource, sendInput]);
 
   const onWheel = useCallback((e: React.WheelEvent) => {
-    if (selectingRef.current) return;
+    if (selectingRef.current || agentActiveRef.current) return;
     const c = toSource(e.clientX, e.clientY) || { x: dimsRef.current.w / 2, y: dimsRef.current.h / 2 };
-    queueScrollRelay(e.deltaX, e.deltaY, c.x, c.y);
-  }, [toSource, queueScrollRelay]);
+    // Source px: the mirror here and the page there move by the same distance.
+    const s = scaleRef.current || 1;
+    const dx = e.deltaX / s;
+    const dy = e.deltaY / s;
+    // A wheel after a pause is a new gesture, and scrolls what is under it now.
+    if (performance.now() > localScrollRef.current.until) localScrollRef.current.target = null;
+    stopFling();
+    scrollMirrorBy(dx, dy, c.x, c.y);
+    queueScrollRelay(dx, dy, c.x, c.y);
+  }, [toSource, queueScrollRelay, scrollMirrorBy, stopFling]);
 
   const onTouchStart = useCallback((e: React.TouchEvent) => {
     if (selectingRef.current) return;
     const t = e.touches[0];
+    // A finger down stops a fling, and its own gesture scrolls what is under it.
+    stopFling();
+    localScrollRef.current.target = null;
     // Il fuoco va preso DENTRO il gesto, o iOS non apre la tastiera: quindi qui,
     // non al touchend. Ed è vestito sul campo toccato — è tutto il punto.
     if (t) {
       focusKbdAt(t.clientX, t.clientY, true);
-      touchRef.current = { x: t.clientX, y: t.clientY, travel: 0 };
+      touchRef.current = { x: t.clientX, y: t.clientY, travel: 0, moves: [] };
     }
     rootRef.current?.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
-  }, [focusKbdAt]);
+  }, [focusKbdAt, stopFling]);
 
   const onTouchMove = useCallback((e: React.TouchEvent) => {
     if (selectingRef.current) return;
     const prev = touchRef.current;
     const t = e.touches[0];
     if (!prev || !t) return;
-    // Natural scroll: dragging content DOWN scrolls the page UP → invert.
-    const dx = prev.x - t.clientX;
-    const dy = prev.y - t.clientY;
-    prev.travel += Math.abs(dx) + Math.abs(dy);
+    // Natural scroll: dragging content DOWN scrolls the page UP → invert. In
+    // source px, so the content stays under the finger here and there.
+    const s = scaleRef.current || 1;
+    const dx = (prev.x - t.clientX) / s;
+    const dy = (prev.y - t.clientY) / s;
+    prev.travel += Math.abs(prev.x - t.clientX) + Math.abs(prev.y - t.clientY);
     prev.x = t.clientX;
     prev.y = t.clientY;
+    prev.moves.push({ t: performance.now(), dx, dy });
+    if (prev.moves.length > 16) prev.moves.shift();
     const c = toSource(t.clientX, t.clientY) || { x: dimsRef.current.w / 2, y: dimsRef.current.h / 2 };
+    if (!agentActiveRef.current) scrollMirrorBy(dx, dy, c.x, c.y);
     queueScrollRelay(dx, dy, c.x, c.y);
-  }, [toSource, queueScrollRelay]);
+  }, [toSource, queueScrollRelay, scrollMirrorBy]);
 
   const onTouchEnd = useCallback((e: React.TouchEvent) => {
     if (selectingRef.current || agentActiveRef.current) { touchRef.current = null; return; }
     const prev = touchRef.current;
     touchRef.current = null;
-    if (!prev || prev.travel > TAP_SLOP) return; // a scroll, not a tap
+    if (!prev) return;
+    if (prev.travel > TAP_SLOP) {
+      // A swipe, not a tap: what the finger was doing carries on.
+      const { vx, vy } = flingVelocity(prev.moves, performance.now());
+      const c = toSource(prev.x, prev.y) || { x: dimsRef.current.w / 2, y: dimsRef.current.h / 2 };
+      if (Math.hypot(vx, vy) > FLING_STOP_SPEED) startFling(vx, vy, c.x, c.y);
+      return;
+    }
     const t = e.changedTouches[0];
     if (!t) return;
     const c = toSource(t.clientX, t.clientY);
-    if (c) sendInput('click', { x: c.x, y: c.y, button: 'left' });
-  }, [toSource, sendInput]);
+    if (!c) return;
+    sendInput('click', { x: c.x, y: c.y, button: 'left' });
+    lastTapRelayRef.current = performance.now();
+    // No synthesized mousedown + click for this tap: the click is relayed, and
+    // the mousedown would take the focus from the keyboard capture.
+    if (e.cancelable) e.preventDefault();
+  }, [toSource, sendInput, startFling]);
 
   // ── Option/Alt hold → native local selection in the mirror ───────────────────
   // The mirror iframe is made interactive ONCE (enableInteract) but sits UNDER the
@@ -375,10 +497,96 @@ export default function DomCoBrowse({ registerDomSink, registerFocusSink, sendIn
     let started = false;
     // Captured for cleanup (stable object; avoids reading a ref at teardown time).
     const acc = scrollAccRef.current;
+    const local = localScrollRef.current;
+
+    // Every event is stamped with the moment it reached THIS device
+    // (BROWSER-DOM-LIVE-01). rrweb's live replayer applies an event at
+    // `start + (its timestamp - baseline)` and fixes the baseline once:
+    // `startLive` is ignored once live. With the source's clock, whatever the
+    // first event took to arrive (a 1 MB snapshot drained from the Mac, a
+    // buffered one minutes old) was added to every event after it, and a tap on
+    // the iPad answered seconds late (13/10). Stamped on arrival, an event is
+    // applied on the next frame. Never decreasing, so a burst keeps its order.
+    let lastStamp = 0;
+    const stampArrival = (event: RrwebEvent) => {
+      lastStamp = Math.max(Date.now(), lastStamp);
+      event.timestamp = lastStamp;
+    };
+
+    // While this device scrolls the mirror itself, the source's echo of that
+    // scroll would drag it back to where the source was a round trip ago. The
+    // echoes wait for the gesture to end, and only the latest per node is
+    // applied: where the source really ended up.
+    const releaseHeld = () => {
+      local.release = null;
+      const wait = local.until - performance.now();
+      if (wait > 0) { local.release = setTimeout(releaseHeld, wait + 16); return; }
+      const held = [...local.held.values()];
+      local.held.clear();
+      // The clock may have parked while these waited.
+      if (held.length) noteActivityRef.current?.();
+      for (const event of held) {
+        stampArrival(event);
+        replayerRef.current?.addEvent(event as never);
+      }
+    };
+    const holdScrollEcho = (event: RrwebEvent): boolean => {
+      const id = event.data?.id;
+      if (event.type !== INCREMENTAL_SNAPSHOT || event.data?.source !== SCROLL_SOURCE || typeof id !== 'number') return false;
+      if (performance.now() >= local.until) return false;
+      local.held.set(id, event);
+      local.release ??= setTimeout(releaseHeld, local.until - performance.now() + 16);
+      return true;
+    };
+
+    // Lazy images wait for the mirror's view (BROWSER-DOM-LAZY-01, lib/mirrorImages).
+    // The mirror's document runs no scripts, so this one watches it. An engine
+    // that cannot observe against a document loads them all, as before.
+    const deferral = canObserveDocument() ? createImageDeferral() : null;
+    let imageWatch: { io: IntersectionObserver; mo: MutationObserver } | null = null;
+    const stopWatchingImages = () => {
+      imageWatch?.io.disconnect();
+      imageWatch?.mo.disconnect();
+      imageWatch = null;
+    };
+    const watchImages = () => {
+      stopWatchingImages();
+      const replayer = replayerRef.current;
+      const doc = (replayer?.iframe as HTMLIFrameElement | undefined)?.contentDocument;
+      if (!deferral || !replayer || !doc) return;
+      const io = new IntersectionObserver((entries) => {
+        for (const entry of entries) {
+          if (!entry.isIntersecting) continue;
+          io.unobserve(entry.target);
+          revealImage(entry.target);
+          deferral.revealed(replayer.getMirror().getId(entry.target));
+        }
+      }, { root: doc, rootMargin: LAZY_IMAGE_MARGIN });
+      const observeWithin = (root: ParentNode) => root.querySelectorAll(DEFERRED_IMAGES).forEach((img) => io.observe(img));
+      observeWithin(doc);
+      // Images the source adds later arrive by mutation.
+      const mo = new MutationObserver((records) => {
+        for (const record of records) {
+          for (const node of record.addedNodes) {
+            // nodeType, not instanceof: the mirror's nodes belong to the iframe's realm.
+            if (node.nodeType !== 1) continue;
+            const el = node as Element;
+            if (el.matches(DEFERRED_IMAGES)) io.observe(el);
+            else observeWithin(el);
+          }
+        }
+      });
+      mo.observe(doc, { childList: true, subtree: true });
+      imageWatch = { io, mo };
+    };
 
     const handle = (raw: unknown) => {
       const event = raw as RrwebEvent;
       if (!event || typeof event.type !== 'number') return;
+      stampArrival(event);
+      prefixRoutedResources(event, serverHttpBase());
+      deferral?.onEvent(event);
+      if (started && holdScrollEcho(event)) return;
       // Traffico: sveglia il timer se era parcheggiato e riarma l'inattività.
       noteActivityRef.current?.();
       // The recorded viewport arrives twice: once in Meta when recording starts,
@@ -397,7 +605,7 @@ export default function DomCoBrowse({ registerDomSink, registerFocusSink, sendIn
           // drives via the overlay / hidden textarea, not the mirror's elements.
           triggerFocus: false,
         });
-        replayer.startLive(event.timestamp - 100);
+        replayer.startLive(event.timestamp);
         replayerRef.current = replayer;
         // Make the iframe interactive once; it stays UNDER the capture overlay, so
         // it only receives events when the user holds Option (the overlay yields).
@@ -406,6 +614,7 @@ export default function DomCoBrowse({ registerDomSink, registerFocusSink, sendIn
           applyScale();
           // doc.open() during rebuild drops in-iframe listeners — re-arm the guard.
           attachNavGuard();
+          watchImages();
         });
         started = true;
         setPainted(true);
@@ -417,7 +626,11 @@ export default function DomCoBrowse({ registerDomSink, registerFocusSink, sendIn
         parkWhenHiddenRef.current?.();
         return;
       }
-      replayerRef.current?.addEvent(event as never);
+      const current = replayerRef.current;
+      if (current) {
+        current.addEvent(event as never);
+        forgetHandedOver(current);
+      }
       if (announced) applyScale(); // refit on the new viewport
     };
 
@@ -438,9 +651,10 @@ export default function DomCoBrowse({ registerDomSink, registerFocusSink, sendIn
     // nessun box ⇒ non interseca) e mirror fuori dal viewport — e
     // `visibilitychange` aggiunge la finestra nascosta.
     //
-    // Gli eventi continuano ad ARRIVARE mentre è parcheggiato: `addEvent` li
-    // accoda, e al risveglio `startLive` con una baseline fresca li scarica
-    // tutti insieme. Il mirror si riallinea in un colpo invece di perdere pezzi.
+    // rrweb's own `pause()` never stopped a live clock: the mirror drives it
+    // (lib/mirrorClock, BROWSER-DOM-IDLE-01). Events keep arriving while it is
+    // parked and wait in its queue; waking applies them all on the next frame,
+    // so the mirror catches up in one go instead of losing pieces.
     //
     // Non basta però la visibilità: col mirror IN VISTA il timer tornava a
     // pompare a frame pieno (858 rAF in 15s, misurati) anche davanti a una
@@ -454,12 +668,12 @@ export default function DomCoBrowse({ registerDomSink, registerFocusSink, sendIn
     const park = () => {
       if (parked || !replayerRef.current) return;
       parked = true;
-      try { replayerRef.current.pause(); } catch { parked = false; }
+      try { parkClock(replayerRef.current); } catch { parked = false; }
     };
     const wake = () => {
       if (!parked || !replayerRef.current) return;
       parked = false;
-      try { replayerRef.current.startLive(Date.now() - 100); } catch { /* riparte al prossimo evento */ }
+      try { wakeClock(replayerRef.current); } catch { /* the next event tries again */ }
     };
     const sync = () => {
       if (intersecting && !document.hidden) wake();
@@ -498,6 +712,13 @@ export default function DomCoBrowse({ registerDomSink, registerFocusSink, sendIn
       navGuardAbortRef.current = null;
       if (acc.timer) clearTimeout(acc.timer);
       acc.timer = null;
+      if (local.release) clearTimeout(local.release);
+      local.release = null;
+      local.held.clear();
+      if (local.fling !== null) cancelAnimationFrame(local.fling);
+      local.fling = null;
+      stopWatchingImages();
+      if (replayerRef.current) stopClock(replayerRef.current);
       try { replayerRef.current?.destroy(); } catch { /* already gone */ }
       replayerRef.current = null;
       // The replayer took the reconstructed DOM with it — we're a blank box again.
