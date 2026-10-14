@@ -2,6 +2,11 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.2.498 — 2026-10-14
+
+### Sotto il cofano
+- lo scroll fatto sull'iPad finisce sullo stesso pixel del Mac, senza salto (#313)
+
 ## 2.2.497 — 2026-10-14
 
 ### Sotto il cofano

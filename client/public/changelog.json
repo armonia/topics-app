@@ -1,5 +1,22 @@
 [
   {
+    "version": "2.2.498",
+    "date": "2026-10-14",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "lo scroll fatto sull'iPad finisce sullo stesso pixel del Mac, senza salto (#313)",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        }
+      ]
+    }
+  },
+  {
     "version": "2.2.497",
     "date": "2026-10-14",
     "sections": {
