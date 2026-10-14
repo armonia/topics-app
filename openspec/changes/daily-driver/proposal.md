@@ -44,11 +44,11 @@ Claude Code. Deve consumare meno, essere istantanea e non degradare. Tre fonti d
 - L'app di Claude Code resta il metro di paragone.
 - Altri hanno cose che a noi mancano:
   - automazioni a calendario, in 17 concorrenti su 31, compresa l'app di Claude Code;
-  - commenti sul diff mandati all'agente;
   - worktree pronte con script e porte;
-  - controlli della CI prima del merge;
   - un selettore di elemento per l'agente;
   - budget di performance dichiarati.
+- I commenti sul diff e la CI prima della review stavano in questo elenco fino al 15/10: c'erano
+  già (note di revisione e controlli pre-review, `tracks/D5-sessioni-e-board.md`).
 
 ## Cosa cambia
 
@@ -59,7 +59,7 @@ Claude Code. Deve consumare meno, essere istantanea e non degradare. Tre fonti d
 | D2 webview | in background si dorme, liste virtualizzate, niente che cresce col tempo |
 | D3 Rust | git e visita dei file senza processi (gix, ignore), solo se la misura lo chiede |
 | D4 browser | mirror a pezzi e compresso, stato sul Mac, riavvii e sleep innocui, selettore di elemento |
-| D5 sessioni e board | card a calendario, commenti sul diff, worktree pronte, controlli prima del land, domanda a lato |
+| D5 sessioni e board | card a calendario, worktree pronte, domanda a lato, sbirciata dalla board |
 | D6 per tutti | primo avvio, relay col QR, pagina di stato, installazione provata su 3 sistemi |
 | D7 affidabilità | card e client sopravvivono al SIGTERM, test instabili a zero |
 | D8 sicurezza | le correzioni dell'audit, con i dettagli privati finché non sono chiuse |
