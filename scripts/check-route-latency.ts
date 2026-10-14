@@ -4,13 +4,13 @@
  *
  * The same trade as `scripts/check-bundle-size.ts`, on a different quantity:
  * that one puts a floor under the bundle's bytes, this one under the
- * milliseconds of the four routes the app calls non-stop. Until now there was no
+ * milliseconds of the eight routes the app calls non-stop. Until now there was no
  * gate at all on latency: a query that turns N+1, a `readFileSync` inside a
  * loop, a table that grows without an index - nobody says a word about any of
  * them until a user does.
  *
- * THE FOUR ROUTES. They are the ones paid on every load and on every chat
- * opening, not the ones that look important:
+ * THE EIGHT ROUTES. They cover the original hot paths and the slow production
+ * reads the earlier gate could not see:
  *
  *   topics             GET /api/topics, the complete topic tree. The first call
  *                      of every startup, and the one that grows with use.
@@ -25,8 +25,13 @@
  *                      (reads cores, RAM and load). That is exactly what it is
  *                      for: it measures the PIPE, meaning what a request costs
  *                      before it reaches the handler. If this one gets worse,
- *                      something upstream got worse that the other three all pay
- *                      for.
+ *                      something upstream got worse that every route pays for.
+ *   git_status        GET /api/git/status against 200 fixture files, 20 changed.
+ *                      TOPICS_E2E_GIT_STATUS_TTL_MS=0 makes every request miss
+ *                      the 5 s cache, only on the isolated test server.
+ *   files             GET /api/files against a 5,000-entry fixture tree.
+ *   scripts           GET /api/scripts in the isolated server.
+ *   system_status     GET /api/system/status in the isolated server.
  *
  * HOW IT MEASURES, and why this way.
  *
@@ -53,7 +58,7 @@
  *   A gate that shouts at random gets turned off.
  *
  * · Calls go round robin, not 30 in a row on the same route: that way a passing
- *   slowdown of the machine spreads over all four instead of pinning one alone.
+ *   slowdown of the machine spreads over all routes instead of pinning one alone.
  *
  * · Double threshold: percentage AND absolute floor. A half-millisecond route
  *   that goes to eight tenths grew by 60% and nothing happened. `floor_ms`
@@ -84,8 +89,8 @@
  *
  * Exits:  0 = within budget · 1 = regression · 2 = not measurable
  */
-import { spawn, spawnSync } from "node:child_process";
-import { existsSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { execFileSync, spawn, spawnSync } from "node:child_process";
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { basename, resolve } from "node:path";
 import { resolveBaselinePaths } from "./route-latency-baseline-pick";
 import { connect } from "node:net";
@@ -102,6 +107,10 @@ export const ROUTE_KEYS = [
   "topic_messages",
   "all_boards_tasks",
   "dispatch_capacity",
+  "git_status",
+  "files",
+  "scripts",
+  "system_status",
 ] as const;
 export type RouteKey = (typeof ROUTE_KEYS)[number];
 
@@ -175,6 +184,9 @@ export interface Corpus {
    * (800), and the constant moved between them without the bench noticing.
    */
   description_chars: number;
+  git_files: number;
+  git_changes: number;
+  file_entries: number;
 }
 
 export interface Baseline {
@@ -271,7 +283,7 @@ export function unstableRoutes(
  * database.
  */
 export function corpusMismatch(measured: Corpus, base: Corpus): string | null {
-  const diffs = (Object.keys(base) as Array<keyof Corpus>)
+  const diffs = (Object.keys(measured) as Array<keyof Corpus>)
     .filter((k) => measured[k] !== base[k])
     .map((k) => `${k}: misurato ${measured[k]}, baseline ${base[k]}`);
   return diffs.length ? diffs.join("; ") : null;
@@ -348,14 +360,17 @@ const { envKey: ENV_KEY, read: BASELINE_PATH, write: BASELINE_WRITE_PATH } =
  * together with the number, in the same commit.
  *
  * The numbers are big ON PURPOSE. The first calibration used 24 topics, 300
- * messages and 40 tasks: all four routes answered between 0.18 and 0.64 ms,
+ * messages and 40 tasks: the original four routes answered between 0.18 and 0.64 ms,
  * meaning inside the machine's noise. With a baseline down there, the absolute
  * floor (`floor_ms`) on its own grants nearly ten times the measured value, and
  * a route can get badly worse while staying green. A gate calibrated on a toy
  * database is not a gate: it is a measurement of what `fetch` costs. It takes
  * real-user quantities, where the HANDLER's cost outweighs the pipe's.
  */
-const CORPUS: Corpus = { topics: 150, messages: 3000, tasks: 150, description_chars: 1200 };
+const CORPUS: Corpus = {
+  topics: 150, messages: 3000, tasks: 150, description_chars: 1200,
+  git_files: 200, git_changes: 20, file_entries: 5000,
+};
 
 /** Timed calls per route and per pass. */
 const DEFAULT_SAMPLES = 25;
@@ -498,7 +513,7 @@ async function inBatches<T>(items: T[], size: number, fn: (item: T, i: number) =
   }
 }
 
-async function seed(base: string): Promise<{ topicId: string }> {
+async function seed(base: string, dataDir: string): Promise<{ topicId: string; gitPath: string; filesPath: string }> {
   // BEFORE creating any task: the auto-dispatch switch is GLOBAL (the '*' row of
   // board_settings, reachable from any board). Without this the bench would
   // create 40 tasks that the server tries to dispatch as real agents: the "load"
@@ -565,14 +580,37 @@ async function seed(base: string): Promise<{ topicId: string }> {
       })),
   );
 
-  return { topicId: target.id };
+  const fixtures = `${dataDir}/fixtures`;
+  const gitPath = `${fixtures}/git-project`;
+  const filesPath = `${fixtures}/files-project`;
+  mkdirSync(gitPath, { recursive: true });
+  mkdirSync(filesPath, { recursive: true });
+  for (let i = 0; i < CORPUS.git_files; i++) {
+    writeFileSync(`${gitPath}/file-${String(i).padStart(3, "0")}.txt`, `contenuto ${i}\n`);
+  }
+  execFileSync("git", ["init", "-q"], { cwd: gitPath });
+  execFileSync("git", ["add", "."], { cwd: gitPath });
+  execFileSync("git", ["-c", "user.name=Route bench", "-c", "user.email=route-bench@example.invalid", "commit", "-qm", "fixture"], { cwd: gitPath });
+  for (let i = 0; i < CORPUS.git_changes; i++) {
+    writeFileSync(`${gitPath}/file-${String(i).padStart(3, "0")}.txt`, `modificato ${i}\n`);
+  }
+  for (let i = 0; i < CORPUS.file_entries; i++) {
+    writeFileSync(`${filesPath}/entry-${String(i).padStart(4, "0")}.txt`, `voce ${i}\n`);
+  }
+  for (const [name, path] of [["Route latency git fixture", gitPath], ["Route latency files fixture", filesPath]] as const) {
+    await api(base, "/api/projects", { method: "POST", body: JSON.stringify({ name, path }) });
+  }
+
+  return { topicId: target.id, gitPath, filesPath };
 }
 
 /** Counts what is actually there, so a measurement on an empty DB is never certified. */
-async function measuredCorpus(base: string, topicId: string): Promise<Corpus> {
+async function measuredCorpus(base: string, topicId: string, gitPath: string, filesPath: string): Promise<Corpus> {
   const topics = await api(base, "/api/topics");
   const msgs = await api(base, `/api/topics/${topicId}/messages?limit=200`);
   const tasks = await api(base, "/api/all-boards/tasks");
+  const git = await api(base, `/api/git/status?path=${encodeURIComponent(gitPath)}`);
+  const files = await api(base, `/api/files?path=${encodeURIComponent(filesPath)}&depth=1`);
   return {
     topics: Object.keys(topics.topics ?? {}).length,
     messages: Number(msgs.total ?? 0),
@@ -581,6 +619,9 @@ async function measuredCorpus(base: string, topicId: string): Promise<Corpus> {
     // sliced, so the real length is not visible from here. This is what the
     // seeder wrote, and the seeder is the only thing that knows it.
     description_chars: CORPUS.description_chars,
+    git_files: CORPUS.git_files,
+    git_changes: Array.isArray(git.files) ? git.files.length : -1,
+    file_entries: Array.isArray(files) ? files.length : -1,
   };
 }
 
@@ -658,6 +699,15 @@ async function main(): Promise<void> {
   if (!existsSync(BASELINE_PATH) && !update) {
     die(`✗ Manca ${BASELINE_PATH}. Registralo con: bun run check:route-latency -- --update-baseline`, 2);
   }
+  if (!update) {
+    const baseline = JSON.parse(readFileSync(BASELINE_PATH, "utf8")) as Partial<Baseline>;
+    const missingRoutes = ROUTE_KEYS.filter((key) =>
+      typeof baseline.routes?.[key]?.median_ms !== "number" || !Number.isFinite(baseline.routes[key]!.median_ms),
+    );
+    if (missingRoutes.length > 0) {
+      die(`✗ La baseline ${basename(BASELINE_PATH)} non copre: ${missingRoutes.join(", ")}. Registrala con --update-baseline.`, 2);
+    }
+  }
 
   const dataDir = `/tmp/topics-route-latency-bench-${port}`;
   rmSync(dataDir, { recursive: true, force: true }); // fresh DB: the corpus has to be ours alone
@@ -685,6 +735,7 @@ async function main(): Promise<void> {
       TOPICS_AI_BRIDGE_SOCKET: `/tmp/topics-ai-bridge-route-latency-${port}.sock`,
       NO_TLS: "1",
       TOPICS_E2E: "1",
+      TOPICS_E2E_GIT_STATUS_TTL_MS: "0",
     },
   });
   let serverLog = "";
@@ -731,10 +782,10 @@ async function main(): Promise<void> {
     }
 
     const base = `http://127.0.0.1:${port}`;
-    const { topicId } = await seed(base);
+    const { topicId, gitPath, filesPath } = await seed(base, dataDir);
 
-    const corpus = await measuredCorpus(base, topicId);
-    log(`corpus         ${corpus.topics} topic · ${corpus.messages} messaggi · ${corpus.tasks} task`);
+    const corpus = await measuredCorpus(base, topicId, gitPath, filesPath);
+    log(`corpus         ${corpus.topics} topic · ${corpus.messages} messaggi · ${corpus.tasks} task · git ${corpus.git_files}/${corpus.git_changes} · files ${corpus.file_entries}`);
     const seedGap = corpusMismatch(corpus, CORPUS);
     if (seedGap) die(`✗ La semina non e' andata a buon fine (${seedGap}). Misura non valida.`, 2);
 
@@ -747,6 +798,10 @@ async function main(): Promise<void> {
       },
       { key: "all_boards_tasks", path: "/api/all-boards/tasks", ok: (b) => (b?.tasks ?? []).length === CORPUS.tasks },
       { key: "dispatch_capacity", path: "/api/system/dispatch-capacity", ok: (b) => typeof b?.recommended === "number" },
+      { key: "git_status", path: `/api/git/status?path=${encodeURIComponent(gitPath)}`, ok: (b) => Array.isArray(b?.files) && b.files.length === CORPUS.git_changes },
+      { key: "files", path: `/api/files?path=${encodeURIComponent(filesPath)}&depth=1`, ok: (b) => Array.isArray(b) && b.length === CORPUS.file_entries },
+      { key: "scripts", path: "/api/scripts", ok: (b) => Array.isArray(b?.scripts) },
+      { key: "system_status", path: "/api/system/status", ok: (b) => typeof b?.server?.uptimeMs === "number" },
     ];
 
     const passA = await runPass(base, probes, samples);
@@ -756,6 +811,16 @@ async function main(): Promise<void> {
     // itself until the answer suits it.
     const measured = {} as Record<RouteKey, number>;
     for (const key of ROUTE_KEYS) measured[key] = Math.max(passA[key]!, passB[key]!);
+
+    const gitMissMarginMs = 3;
+    if (measured.git_status <= measured.dispatch_capacity + gitMissMarginMs) {
+      die(
+        `✗ Misura git_status non valida: ${round2(measured.git_status)} ms non supera ` +
+          `dispatch_capacity ${round2(measured.dispatch_capacity)} ms di oltre ${gitMissMarginMs} ms. ` +
+          `La route potrebbe aver colpito la cache invece di pagare gli spawn git.`,
+        2,
+      );
+    }
 
     if (update) {
       const prev = existsSync(BASELINE_WRITE_PATH) ? JSON.parse(readFileSync(BASELINE_WRITE_PATH, "utf8")) : {};
@@ -783,6 +848,8 @@ async function main(): Promise<void> {
       if (machineTooLoaded(load1, cores)) {
         log(`\n✗ Non registro una baseline con la macchina sotto carico:`);
         log(`  load average ${round2(load1)} su ${cores} core = ${round2(load1 / cores)} per core (tetto ${MAX_LOAD_PER_CORE}).`);
+        log(`  misure indicative, non confrontabili:`);
+        for (const key of ROUTE_KEYS) log(`  ${key.padEnd(18)} ${round2(measured[key]!)} ms`);
         log(`\n  A macchina carica i numeri escono gonfiati e concordi, quindi nessuna`);
         log(`  guardia se ne accorge. Aspetta che si calmi e rilancia.`);
         process.exitCode = 2;
@@ -855,7 +922,7 @@ async function main(): Promise<void> {
     // (reads cores, RAM and load), so its number is the cost of a REQUEST before
     // it reaches the handler. The comment at the top of this file already says
     // it: "if this one gets worse, something upstream got worse that the other
-    // three all pay for". Up to now, though, that number was merely printed.
+    // every route pays for". Up to now, though, that number was merely printed.
     //
     // It is needed because the two-pass check does not see a UNIFORMLY slow
     // machine: if the load is there for the whole run, the two passes resemble
@@ -882,7 +949,7 @@ async function main(): Promise<void> {
           `del gestore. Se e' fuori scala, ogni altra cifra di questa corsa la porta dentro, e\n` +
           `«macchina lenta» e «regressione a monte» diventano la stessa curva. Non si sceglie a\n` +
           `caso fra le due: si rimisura a macchina ferma. Se il tubo resta fuori scala anche li',\n` +
-          `QUELLA e' la scoperta, e riguarda tutte e quattro le rotte insieme.`,
+          `QUELLA e' la scoperta, e riguarda tutte le rotte insieme.`,
       );
       exitCode = 2;
       return;

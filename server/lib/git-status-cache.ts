@@ -27,8 +27,12 @@
  * avere due posti che possono dissentire sul TTL.
  */
 
-/** Quanto vale una voce prima di essere richiesta di nuovo a git. */
-const TTL_MS = 5000;
+/**
+ * How long an entry stays valid before requesting git again. The route bench
+ * can set the TTL to zero so each request pays for a git spawn; this seam only
+ * takes effect on the TOPICS_E2E server.
+ */
+const TTL_MS = process.env.TOPICS_E2E === "1" && process.env.TOPICS_E2E_GIT_STATUS_TTL_MS === "0" ? 0 : 5000;
 
 /**
  * Il tetto. La chiave è il `?path=` risolto e fornito da chi chiama (nessuna

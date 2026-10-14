@@ -16,6 +16,7 @@ import {
   calibrationOutOfScale,
   CALIBRATION_KEY,
   type Baseline,
+  type Corpus,
   type RouteKey,
 } from "./check-route-latency";
 import { readRouteFault, applyRouteFault, currentRouteFault, setRouteFault } from "../server/lib/route-fault";
@@ -38,12 +39,16 @@ const baseline: Baseline = {
   floor_ms: 1.5,
   noise_guard_pct: 60,
   samples: 15,
-  corpus: { topics: 24, messages: 300, tasks: 40, description_chars: 1200 },
+  corpus: { topics: 24, messages: 300, tasks: 40, description_chars: 1200, git_files: 200, git_changes: 20, file_entries: 5000 },
   routes: {
     topics: { median_ms: 3 },
     topic_messages: { median_ms: 12 },
     all_boards_tasks: { median_ms: 4 },
     dispatch_capacity: { median_ms: 1 },
+    git_status: { median_ms: 2 },
+    files: { median_ms: 20 },
+    scripts: { median_ms: 2 },
+    system_status: { median_ms: 20 },
   },
 };
 
@@ -224,14 +229,21 @@ describe("unstableRoutes", () => {
 
 describe("corpusMismatch", () => {
   test("stesso corpus, nessuna obiezione", () => {
-    expect(corpusMismatch({ topics: 24, messages: 300, tasks: 40, description_chars: 1200 }, baseline.corpus)).toBeNull();
+    expect(corpusMismatch({ topics: 24, messages: 300, tasks: 40, description_chars: 1200, git_files: 200, git_changes: 20, file_entries: 5000 }, baseline.corpus)).toBeNull();
   });
 
   test("un database quasi vuoto non si confronta con una baseline piena", () => {
     // The easiest way of certifying a green that was never measured: seeding
     // fails halfway through and the routes answer over nothing.
-    const gap = corpusMismatch({ topics: 24, messages: 0, tasks: 40, description_chars: 1200 }, baseline.corpus);
+    const gap = corpusMismatch({ topics: 24, messages: 0, tasks: 40, description_chars: 1200, git_files: 200, git_changes: 20, file_entries: 5000 }, baseline.corpus);
     expect(gap).toContain("messages");
+  });
+
+  test("una baseline vecchia non puo' saltare i nuovi corpus delle rotte", () => {
+    const legacy = { topics: 24, messages: 300, tasks: 40, description_chars: 1200 } as Corpus;
+    const gap = corpusMismatch(baseline.corpus, legacy);
+    expect(gap).toContain("git_files");
+    expect(gap).toContain("file_entries");
   });
 });
 
@@ -393,6 +405,10 @@ describe("un costo costante aggiunto a monte non passa piu' inosservato", () => 
       topic_messages: { median_ms: 3.38, noise_ms: 0.1 },
       all_boards_tasks: { median_ms: 0.75, noise_ms: 0.02 },
       dispatch_capacity: { median_ms: 0.18, noise_ms: 0.01 },
+      git_status: { median_ms: 2, noise_ms: 0.01 },
+      files: { median_ms: 20, noise_ms: 0.1 },
+      scripts: { median_ms: 2, noise_ms: 0.01 },
+      system_status: { median_ms: 20, noise_ms: 0.1 },
     },
   } as Baseline;
 
