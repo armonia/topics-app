@@ -2,11 +2,8 @@
  * external-sessions.ts — the live census of Claude sessions Topics didn't start.
  *
  * Thin stateful wrapper around `lib/external-claude-sessions` (the pure scan):
- *  - a TTL cache, so the board polling and the dispatcher guard share one scan
- *    instead of re-walking ~/.claude/projects on every question;
- *  - a poll loop that broadcasts `external-sessions` whenever the census
- *    CHANGES (ids/states/attribution), so a session started in iTerm shows up
- *    on the board within one poll — no client polling, no chatty rebroadcasts;
+ *  - a TTL cache, so the census route and dispatcher guard share one scan
+ *    instead of re-walking ~/.claude/projects on every read;
  *  - `activeAt(path)`, the predicate the dispatcher guard asks before sending
  *    an agent into a directory.
  *
@@ -22,9 +19,8 @@ import {
   DEFAULT_WINDOW_MS,
   type ExternalClaudeSession,
 } from "../lib/external-claude-sessions";
-import type { OutboundMessage } from "../../shared/ws-outbound";
 
-/** Per-project rollup — what the board badge renders. */
+/** Per-project rollup returned by the census route. */
 export interface ExternalSessionProjectSummary {
   projectId: string;
   projectPath: string;
@@ -48,9 +44,6 @@ export interface ExternalSessionsService {
    * the board forever after any bare session the human forgot to close.
    */
   activeAt(path: string): ExternalClaudeSession[];
-  /** Start the change-detecting poll loop; returns a stop function. */
-  start(intervalMs?: number): () => void;
-  stop(): void;
 }
 
 export interface ExternalSessionsDeps {
@@ -60,7 +53,6 @@ export interface ExternalSessionsDeps {
   candidatePaths: () => string[];
   /** Board id for a project path. */
   projectIdFor: (path: string) => string;
-  broadcast: (message: OutboundMessage) => void;
   /** Cache TTL. Default 10s — cheap enough for the guard, calm for the board. */
   ttlMs?: number;
   /** Overrides forwarded to the scan (tests). */
@@ -72,11 +64,6 @@ export interface ExternalSessionsDeps {
   /** Test seam: replace the disk scan entirely. */
   scan?: typeof scanExternalClaudeSessions;
   log?: (msg: string, err?: unknown) => void;
-}
-
-/** Identity of a census for change detection — ids + state + attribution. */
-function fingerprint(sessions: ExternalClaudeSession[]): string {
-  return sessions.map((s) => `${s.sessionId}:${s.state}:${s.projectId ?? "-"}`).join("|");
 }
 
 function isUnder(cwd: string, path: string): boolean {
@@ -94,8 +81,6 @@ export function createExternalSessionsService(deps: ExternalSessionsDeps): Exter
 
   let cache: ExternalClaudeSession[] = [];
   let cachedAt = 0;
-  let lastPrint = "";
-  let timer: ReturnType<typeof setInterval> | null = null;
 
   function list(opts?: { force?: boolean }): ExternalClaudeSession[] {
     const t = now();
@@ -147,29 +132,9 @@ export function createExternalSessionsService(deps: ExternalSessionsDeps): Exter
     return list().filter((s) => s.state === "active" && isUnder(s.cwd, path));
   }
 
-  function sweep(): void {
-    const sessions = list({ force: true });
-    const print = fingerprint(sessions);
-    if (print === lastPrint) return;
-    lastPrint = print;
-    deps.broadcast({ type: "external-sessions", sessions, projects: byProject(), payload_version: 1 });
-  }
-
-  function stop(): void {
-    if (timer) { clearInterval(timer); timer = null; }
-  }
-
   return {
     list,
     byProject,
     activeAt,
-    start(intervalMs = 20_000) {
-      if (!timer) {
-        sweep();
-        timer = setInterval(sweep, intervalMs);
-      }
-      return stop;
-    },
-    stop,
   };
 }

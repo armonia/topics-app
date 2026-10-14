@@ -8,8 +8,7 @@
  *   GET /api/external-sessions            → { sessions, projects, generatedAt }
  *   GET /api/external-sessions?project_id=…  → only that board's sessions
  *
- * Live updates arrive over WS as `external-sessions` envelopes; this endpoint
- * is the initial fetch (and the CLI/debug view).
+ * This endpoint is the census read path (and the CLI/debug view).
  */
 import type { AppContext, RouteHandler } from "../types";
 import type { ExternalSessionsService } from "../services/external-sessions";
