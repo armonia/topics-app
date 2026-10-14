@@ -247,13 +247,13 @@ test.describe("Each device keeps its own layout of a page the Mac hosts", () => 
     });
     const { atEnd, after } = await swipe(page, step, steps, 200);
     expect(atEnd).toBe(step * steps);
+    // The Mac said back the place this mirror sent, not its own: no jump of a row once it answered.
+    expect(after, "the mirror moved after the gesture").toEqual([]);
     const here = (await inMirror(page, readingRow))!;
     expect(here.k).toBe("row-20");
     await expect.poll(async () => Math.abs((await host.page.evaluate(lineIntoRow, "row-20")) - here.offset)).toBeLessThanOrEqual(2);
     // Side by side on the Mac: its reading point is on row-21, which here is a row further down.
     expect((await host.page.evaluate(readingRow))?.k).toBe("row-21");
-    // The Mac said back the place this mirror sent, not its own: no jump of a row once it answered.
-    expect(after, "the mirror moved after the gesture").toEqual([]);
     host.close();
   });
 
