@@ -78,6 +78,11 @@ test.describe("card a calendario", () => {
     const tick = await request.post(`${E2E_BASE}/api/test/scheduled-cards/advance`, { data: { now: "2026-10-19T07:00:00.000Z" } });
     expect((await tick.json()).created).toHaveLength(1);
     await expect(menu.getByTestId("scheduled-card-row")).toContainText("card creata");
+    // On the board too, not only in the API: the menu covers the columns, so it closes first.
+    await page.getByTestId("scheduled-cards-open").click();
+    await expect(menu).toBeHidden();
+    await expect(page.getByTestId("kanban-column-backlog").locator("[data-task-card]", { hasText: "Controlla il deploy ogni lunedì" }))
+      .toBeVisible({ timeout: 10000 });
     const response = await request.get(`${E2E_BASE}/api/boards/${encodeURIComponent(PROJECT_ID)}/tasks`);
     expect(response.ok()).toBe(true);
     expect(JSON.stringify(await response.json())).toContain("Controlla il deploy ogni lunedì");
