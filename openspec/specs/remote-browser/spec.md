@@ -2511,6 +2511,18 @@ le sue schede NON SHALL entrare in `pane-store-v2` finché restano nella finestr
 Sotto i 768 px di larghezza la finestra NON SHALL esistere: le schede SHALL aprirsi
 come tab.
 
+La finestra SHALL stare dov'è l'area della topic anche quando l'origine dei box
+`fixed` non coincide con quella dei rettangoli della pagina. Su un iPad con la
+tastiera aperta Safari accorcia il viewport e scorre tutta la pagina per mostrare il
+campo: i rettangoli seguono lo scroll, l'origine dei `fixed` no (337 px in
+verticale, 422 in orizzontale su un 11 pollici). Posizionata col rettangolo dell'area,
+la finestra saliva di altrettanto oltre la chat, e in orizzontale usciva dallo schermo.
+
+#### Scenario: iPad, la tastiera della chat lascia la finestra accanto alla chat
+- **GIVEN** un iPad in orizzontale, 1180 × 734 e touch, con la finestra espansa accanto alla chat
+- **WHEN** sale la tastiera e Safari scorre la pagina di 422 px per mostrare il composer
+- **THEN** la finestra si sposta con la chat: stesso bordo in alto e in basso, al pixel
+
 #### Scenario: minimizzata, la chat non cambia larghezza
 - **GIVEN** una topic con la finestra browser minimizzata su una scheda
 - **WHEN** si misura la larghezza della lista dei messaggi

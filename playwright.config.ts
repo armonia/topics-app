@@ -419,6 +419,9 @@ export default defineConfig({
         // The phone chrome feedback loop (05/10): its own viewport
         // (390x844 with a finger), the engine that ships, runs only in `webkit`.
         "**/mobile-chrome-feedback.spec.ts",
+        // An iPad lying down with a finger (its own `hasTouch` and viewport): the
+        // keyboard that took the topic's browser away is Safari's, so `webkit` only.
+        "**/topic-browser-window-keyboard.spec.ts",
         // Le due che mancavano. `sidebar-pin-drag-touch` è nel `testMatch` di
         // `chromium-touch` e `tab-close-ring-touch` in quello di
         // `chromium-touch-wide`, ma un `testMatch` altrove non ESCLUDE nulla
@@ -613,6 +616,9 @@ export default defineConfig({
         // The bar of a topic's browser window with more pages than fit: what a page keeps of its width is
         // measured where the product ships.
         "**/topic-browser-tab-strip.spec.ts",
+        // An iPad's keyboard for the chat leaves the topic's browser window beside
+        // the chat: the page Safari scrolls under the fixed window, where it ships.
+        "**/topic-browser-window-keyboard.spec.ts",
         // Pane tabs adapt to the width of their split cell, measured on the shipped engine.
         "**/tab-bar-density.spec.ts",
         "**/sender-sees-question.spec.ts",

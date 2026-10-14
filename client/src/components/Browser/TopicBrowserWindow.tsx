@@ -32,7 +32,7 @@
  * because a remount inside the close grace cancels the teardown
  * (`useTauriBrowser`, BROWSER_CLOSE_GRACE_MS).
  */
-import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, type RefObject } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import { useActiveTabInView } from '../../hooks/useActiveTabInView';
 import { createPortal } from 'react-dom';
 import { POPOVER_SURFACE, Z_CONTEXT_MENU, Z_POPOVER_SCRIM } from '@/lib/popoverStyles';
@@ -41,6 +41,7 @@ import { Plus, X, Maximize2, Minimize2, ExternalLink } from 'lucide-react';
 import { useT } from '../../hooks/useT';
 import { RemoteBrowserPanel } from './RemoteBrowserPanel';
 import { useSurfaceFocus } from './useSurfaceFocus';
+import { useAreaRect, type AreaRef, type Rect } from './useAreaRect';
 import {
   EMPTY_TOPIC_BROWSER_WINDOW,
   MIN_WINDOW_SIZE,
@@ -93,33 +94,6 @@ export interface TopicBrowserWindowProps {
   areaRef: AreaRef;
   /** Where a promoted tab belongs, so the right layout claims the open. */
   projectPath?: string;
-}
-
-interface Rect { left: number; top: number; width: number; height: number }
-
-/** The topic area in viewport coordinates, kept fresh across resizes, scrolls
- *  and layout changes of the cell itself. */
-type AreaRef = RefObject<HTMLElement | null>;
-
-function useAreaRect(areaRef: AreaRef): Rect | null {
-  const [rect, setRect] = useState<Rect | null>(null);
-  useEffect(() => {
-    const el = areaRef.current;
-    if (!el) return;
-    const read = (): void => {
-      const r = el.getBoundingClientRect();
-      setRect((prev) => (prev && prev.left === r.left && prev.top === r.top && prev.width === r.width && prev.height === r.height
-        ? prev
-        : { left: r.left, top: r.top, width: r.width, height: r.height }));
-    };
-    read();
-    const observer = new ResizeObserver(read);
-    observer.observe(el);
-    window.addEventListener('resize', read);
-    window.addEventListener('scroll', read, true);
-    return () => { observer.disconnect(); window.removeEventListener('resize', read); window.removeEventListener('scroll', read, true); };
-  }, [areaRef]);
-  return rect;
 }
 
 /** Where the composer lies inside the area, in px from the area's top.
