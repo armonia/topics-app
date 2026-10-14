@@ -27,7 +27,24 @@ import { remoteFieldSchema } from './browser-keyboard-field';
 const inputActionSchema = z.enum(['click', 'type', 'scroll', 'mousemove', 'keypress']);
 const inputButtonSchema = z.enum(['left', 'right', 'middle']);
 
-const inputPayloadSchema = z.object({
+/**
+ * Where a mirror laid out at its own size keeps its place (BROWSER-DOM-LAYOUT-03):
+ * the element at the reading line of what scrolled (`id`, by rrweb id) and the
+ * point of it there (`fx`, `fy`, 0 to 1 across its box), where that line is in
+ * the visible box (`lx`, `ly`), and how far through its scroll range it was
+ * (`rx`, `ry`), for a side where that element has no box.
+ */
+const scrollAnchorSchema = z.object({
+  id: z.optional(z.number()),
+  fx: z.optional(z.number()),
+  fy: z.optional(z.number()),
+  lx: z.number(),
+  ly: z.number(),
+  rx: z.number(),
+  ry: z.number(),
+});
+
+export const inputPayloadSchema = z.object({
   x: z.optional(z.number()),
   y: z.optional(z.number()),
   text: z.optional(z.string()),
@@ -35,12 +52,24 @@ const inputPayloadSchema = z.object({
   deltaX: z.optional(z.number()),
   deltaY: z.optional(z.number()),
   button: z.optional(inputButtonSchema),
-  // A scroll the viewer's mirror already made: the rrweb id of what it
-  // scrolled and where it put it, so the page lands on the same pixel.
+  // The rrweb id of what the viewer's mirror acted on: what a scroll scrolled,
+  // what a tap landed on.
   node: z.optional(z.number()),
+  // Where the mirror put what it scrolled, so the page lands on the same pixel.
   scrollTop: z.optional(z.number()),
   scrollLeft: z.optional(z.number()),
+  // Where inside the tapped element's box, 0 to 1: a page laid out at another
+  // size has that element somewhere else (BROWSER-DOM-LAYOUT-02).
+  fx: z.optional(z.number()),
+  fy: z.optional(z.number()),
+  // What a wheel or a finger was over in the mirror, for the same reason.
+  target: z.optional(z.number()),
+  // Where a mirror laid out at its own size put what it scrolled.
+  anchor: z.optional(scrollAnchorSchema),
 });
+
+export type BrowserInputPayload = z.infer<typeof inputPayloadSchema>;
+export type ScrollAnchor = z.infer<typeof scrollAnchorSchema>;
 
 const frameMetadataSchema = z.object({
   timestamp: z.number(),
@@ -120,6 +149,11 @@ const resizeMessageSchema = z.object({
   // input also travels on the WebRTC DataChannel, which the server never sees:
   // without it a phone that scrolls would stay a spectator forever.
   driving: z.optional(z.boolean()),
+  // How this pane shows a page the Mac hosts. 'own': its mirror is laid out at
+  // this size and the Mac keeps its own (BROWSER-DOM-LAYOUT-01). 'page': the
+  // Mac's page takes this size while this pane uses it (TOPIC-BROWSER-05), as
+  // for a client that predates the field.
+  layout: z.optional(z.enum(['own', 'page'])),
 });
 
 /** Server -> client: a headless-page download saved under our origin. */

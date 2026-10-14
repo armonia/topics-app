@@ -1,9 +1,7 @@
 import { test, expect, type Page } from "@playwright/test";
-import WebSocket from "ws";
-import { createNativeDomHost } from "../../client/src/lib/nativeDomHost";
 import { goToApp } from "./helpers";
 import { resetPaneStore } from "./helpers/api-fixtures";
-import { E2E_BASE } from "./helpers/test-server";
+import { hostNativePage, pageLayout, type NativeHostPage } from "./helpers/native-host-page";
 import { hermetic } from "./fixtures/hermetic";
 
 hermetic(test);
@@ -21,9 +19,10 @@ hermetic(test);
  * than the relay replayed the swipe batch by batch: the mirror went back and
  * scrolled it again.
  *
- * The host is the real one: lib/nativeDomHost.ts drives a WebKit page through
- * `evaluate` with the server's own rrweb recorder, as the native pane does
- * through `browser_eval_js`. Only that transport is the test's.
+ * The host is the real one (helpers/native-host-page.ts). The viewer shows the
+ * page at the Mac's pixel, the choice a device can make since each keeps its
+ * own layout by default (BROWSER-DOM-LAYOUT-01): there a scroll travels as its
+ * content instead, in browser-own-layout.spec.ts.
  *
  * @covers BROWSER-DOM-SCROLL-01
  * @covers BROWSER-DOM-SCROLL-02
@@ -32,6 +31,8 @@ hermetic(test);
 const HOST_SIZE = { width: 1000, height: 700 };
 /** The mirror holds the page's echoes this long after its last move (DomCoBrowse). */
 const HOLD_MS = 600;
+/** And an echo that is not the place it relayed until this long after the relay, then applies it (lib/mirrorScroll). */
+const CONFIRM_MS = 2000;
 
 const ROWS = Array.from({ length: 300 }, (_, i) => `<p style="margin:0;height:40px;border-bottom:1px solid #ccc">Row ${i}</p>`).join("");
 
@@ -46,51 +47,8 @@ function pageHtml(opts: { smooth?: boolean; keepsWheel?: boolean; inner?: boolea
   return `<!doctype html>${html}<head><meta charset="utf-8"><title>Scroll host</title>${script}</head><body style="margin:0;font:16px sans-serif">${body}</body></html>`;
 }
 
-/**
- * The native pane's half on `ctx`: the real host module over a socket of its
- * own, the page reached through `evaluate`, `latencyMs` added to every call
- * the way a busy Mac adds it to `browser_eval_js`.
- */
-interface Host {
-  scrollOf: (sel?: string) => Promise<number>;
-  width: () => number;
-  /** Scroll inputs the server relayed, the calls that ran them, and the wheel events the page got. */
-  scrolls: () => Promise<{ relayed: number; calls: number; wheels: number }>;
-  close: () => void;
-}
-
-async function hostPage(page: Page, ctx: string, html: string, latencyMs = 0): Promise<Host> {
-  await page.setViewportSize(HOST_SIZE);
-  await page.setContent(html);
-  const ws = new WebSocket(`${E2E_BASE.replace(/^http/, "ws")}/ws/browser/${encodeURIComponent(ctx)}?executor=1`);
-  const count = { relayed: 0, calls: 0 };
-  await new Promise<void>((resolve, reject) => { ws.once("open", () => resolve()); ws.once("error", reject); });
-  const host = createNativeDomHost({
-    evalInPage: async (js) => {
-      if (js.endsWith("})") && js.includes('("scroll",')) count.calls++;
-      if (latencyMs) await new Promise((r) => setTimeout(r, latencyMs));
-      return page.evaluate((code) => String((0, eval)(code)), js);
-    },
-    loadRecorder: async () => (await fetch(`${E2E_BASE}/api/browser/recorder.js`)).text(),
-    sendText: (text) => ws.send(text),
-    navigate: () => {},
-    setViewport: (size) => { void page.setViewportSize(size ?? HOST_SIZE); },
-  });
-  ws.on("message", (data) => {
-    const frame = JSON.parse(String(data)) as { type?: string; action?: string };
-    if (frame.type === "host_input" && frame.action === "scroll") count.relayed++;
-    host.handle(frame);
-  });
-  ws.send(JSON.stringify({ type: "register_native_executor" }));
-  host.declare();
-  await expect.poll(() => host.accepted()).toBe(true);
-  host.notePage({ url: "https://example.com/rows", title: "Scroll host" });
-  return {
-    scrollOf: (sel) => page.evaluate((s) => (s ? document.querySelector(s)!.scrollTop : scrollY), sel),
-    width: () => page.viewportSize()?.width ?? 0,
-    scrolls: async () => ({ ...count, wheels: await page.evaluate(() => (window as unknown as { __wheels: number }).__wheels) }),
-    close: () => { host.reset(); ws.close(); },
-  };
+function hostPage(page: Page, ctx: string, html: string, latencyMs = 0): Promise<NativeHostPage> {
+  return hostNativePage(page, ctx, html, { size: HOST_SIZE, title: "Scroll host", latencyMs });
 }
 
 /**
@@ -100,6 +58,7 @@ async function hostPage(page: Page, ctx: string, html: string, latencyMs = 0): P
  * would claim it anyway, halfway through the swipe.
  */
 async function openMirror(page: Page, request: Parameters<typeof resetPaneStore>[0], ctx: string, host: { width: () => number }): Promise<void> {
+  await pageLayout(page);
   await resetPaneStore(request, [`browser:${ctx}`]);
   await goToApp(page);
   await expect(page.locator('[data-testid="browser-dom-cobrowse"]').first().frameLocator("iframe").getByText("Row 0", { exact: true })).toBeVisible({ timeout: 15_000 });
@@ -125,7 +84,7 @@ interface Swipe {
  * desktop does not construct real ones.
  */
 async function swipe(page: Page, opts: { finger?: boolean; step: number; steps: number; inner?: boolean }): Promise<Swipe> {
-  return page.evaluate(async ({ finger, step, steps, inner, holdMs }) => {
+  return page.evaluate(async ({ finger, step, steps, inner, holdMs, confirmMs }) => {
     const overlay = document.querySelector('[data-testid="browser-dom-input-overlay"]') as HTMLElement;
     const doc = (document.querySelector('[data-testid="browser-dom-cobrowse"] iframe') as HTMLIFrameElement).contentDocument!;
     const read = () => (inner ? doc.getElementById("inner")!.scrollTop : doc.scrollingElement!.scrollTop);
@@ -164,14 +123,14 @@ async function swipe(page: Page, opts: { finger?: boolean; step: number; steps: 
     // What the hold releases cannot be waited for, only watched: through it and
     // as long again, every position the mirror takes is recorded.
     const after: number[] = [];
-    const until = performance.now() + holdMs * 2 + 400;
+    const until = performance.now() + holdMs + confirmMs;
     while (performance.now() < until) {
       await frame();
       const now = read();
       if (now !== (after.at(-1) ?? atEnd)) after.push(now);
     }
     return { atEnd, after };
-  }, { finger: opts.finger ?? false, step: opts.step, steps: opts.steps, inner: opts.inner ?? false, holdMs: HOLD_MS });
+  }, { finger: opts.finger ?? false, step: opts.step, steps: opts.steps, inner: opts.inner ?? false, holdMs: HOLD_MS, confirmMs: CONFIRM_MS });
 }
 
 test.describe("A scroll on the mirror lands where the finger left it", () => {

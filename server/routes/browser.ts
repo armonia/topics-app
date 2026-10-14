@@ -24,6 +24,7 @@ import { collectBrowserContextIds } from "../browser-store-keep-list";
 import { dispatchBrowserToolCallByContext } from "../browser-tool-dispatcher";
 import { routedResourceUrl } from "../lib/dom-resource-rewrite";
 import type { DomHostRegistry } from "../lib/native-dom-host";
+import { inputPayloadSchema } from "../../shared/browser-ws-messages";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
@@ -535,8 +536,12 @@ export function createBrowserRouter(
           return json({ ok: true, host: true });
         }
         if (action === "click" || action === "type" || action === "keypress" || action === "scroll") {
-          const { x, y, text, key, deltaX, deltaY, button } = body as Record<string, unknown>;
-          nativeHosts.command(id, { type: "host_input", action, payload: { x, y, text, key, deltaX, deltaY, button } });
+          // All of it, as the socket carries it: a mirror's tap or scroll names its
+          // element and place (BROWSER-DOM-LAYOUT-02/03), and its pixels alone
+          // would land on something else in the Mac's layout.
+          const payload = inputPayloadSchema.safeParse(body);
+          if (!payload.success) return errorResponse(400, "invalid input");
+          nativeHosts.command(id, { type: "host_input", action, payload: payload.data });
           return json({ ok: true, host: true });
         }
       }

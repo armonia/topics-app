@@ -2,6 +2,7 @@ import { test, expect, type Frame, type Page } from "@playwright/test";
 import { readFileSync } from "fs";
 import { resolve as resolvePath } from "path";
 import { goToApp } from "./helpers";
+import { pageLayout } from "./helpers/native-host-page";
 import { resetPaneStore } from "./helpers/api-fixtures";
 import { E2E_BASE } from "./helpers/test-server";
 import { hermetic } from "./fixtures/hermetic";
@@ -156,7 +157,9 @@ test.describe("Native pane as the mirror host", () => {
 
   // Before: the mirror moved only when the Mac's own scroll came back, sampled
   // every 100ms and animated: a gesture on the iPad trailed by a third of a second.
+  // At the Mac's pixel, scaled: a distance here is the same distance there.
   test("a scroll moves the mirror at once, and the source follows by the same distance", async ({ page, context, request }) => {
+    await pageLayout(page);
     const ctx = `e2e-host-scroll-${Date.now()}`;
     const hostPage = await context.newPage();
     await startFakeHost(hostPage, ctx, tallPage(Date.now() - 60_000));
@@ -280,7 +283,9 @@ test.describe("Native pane as the mirror host", () => {
 
   // Before: the iPad that used a page hosted by the Mac got the Mac's layout,
   // scaled down and letterboxed; its own size was dropped on the floor.
+  // The choice a device can still make (BROWSER-DOM-LAYOUT-01): the Mac's page at its size while it uses it.
   test("the device using a hosted page gets it at its own size, 1:1, until the Mac uses it again", async ({ page, context, request }) => {
+    await pageLayout(page);
     const ctx = `e2e-host-viewport-${Date.now()}`;
     const hostPage = await context.newPage();
     // The Mac lays the page out at its slot, larger than the viewer's pane.
@@ -341,6 +346,7 @@ test.describe("Native pane as the mirror host", () => {
   // touch ON the page (reported 14/10: the iPad got the Mac's resolution, not
   // its own). Using the device is using the page it shows.
   test("a tap anywhere on the device lays the page out at this pane's size, with no input to the page", async ({ page, context, request }) => {
+    await pageLayout(page);
     const ctx = `e2e-host-device-use-${Date.now()}`;
     const hostPage = await context.newPage();
     const stamp = Date.now() - 60_000;

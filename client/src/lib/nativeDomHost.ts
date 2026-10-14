@@ -89,19 +89,70 @@ const SNAPSHOT_JS =
   "try{h.rrweb.record.takeFullSnapshot(true)}catch(e){return 'failed'}return 'ok'})()";
 
 /**
+ * Where a viewer laid out at its own size keeps its place, read on this side
+ * (BROWSER-DOM-LAYOUT-03; the viewer's half is lib/mirrorLayout.ts, the same
+ * reading). Pixels mean nothing across two layouts, content does: the element
+ * at the reading line of what scrolled, a quarter down past fixed and sticky
+ * headers, and the point of it there; at an edge, the edge. Installed on `h` with the recorder:
+ * `anchor` names this page's place, `place` finds where a viewer's place lands
+ * here (by the box around its element that scrolls here, when what scrolled
+ * there does not), and `echo` gives a viewer its own place back while the page
+ * is still where that place put it, so the mirror recognises its own scroll in
+ * the echo instead of a neighbour's element measured in another layout. Once
+ * the page moves away from it, that place is forgotten.
+ */
+const LAYOUT_JS =
+  'function rt(p,m){return!(m>0)||p<=0?0:p>=m-1?1:p/m}' +
+  'function sc(n){var d=n.nodeType===9?n:n.ownerDocument,se=d.scrollingElement||d.documentElement;' +
+  'return{el:n.nodeType===9?se:n,top:n.nodeType===9||n===se,d:d}}' +
+  'function can(s){var el=s.el;if(!(el.scrollHeight-el.clientHeight>0))return false;if(s.top)return true;' +
+  "var o=s.d.defaultView.getComputedStyle(el).overflowY;return o==='auto'||o==='scroll'||o==='overlay'||o==='hidden'}" +
+  'function scr(m,s){if(can(s)||!m)return s;var se=s.d.scrollingElement||s.d.documentElement;' +
+  'for(var e=m.parentElement;e&&e!==se;e=e.parentElement){var c={el:e,top:false,d:s.d};if(can(c))return c}' +
+  'return{el:se,top:true,d:s.d}}' +
+  'function box(s){var el=s.el;if(s.top){var de=s.d.documentElement,w=s.d.defaultView;' +
+  'return{l:0,t:0,w:de.clientWidth||w.innerWidth,h:de.clientHeight||w.innerHeight}}' +
+  'var r=el.getBoundingClientRect();return{l:r.left+el.clientLeft,t:r.top+el.clientTop,w:el.clientWidth,h:el.clientHeight}}' +
+  'h.anchor=function(n){var s=sc(n),el=s.el,d=s.d,b=box(s),mx=el.scrollWidth-el.clientWidth,my=el.scrollHeight-el.clientHeight,' +
+  'a={lx:mx>0?.25:.5,ly:my>0?.25:.5,rx:rt(el.scrollLeft,mx),ry:rt(el.scrollTop,my)},' +
+  'px=b.l+a.lx*b.w,py=b.t+a.ly*b.h,ids=h.rrweb.record.mirror,win=d.defaultView,seen=new Map(),' +
+  'list=d.elementsFromPoint?d.elementsFromPoint(px,py):[];' +
+  'function pinned(e){var path=[],res=false;for(var m=e;m&&m!==el&&m.nodeType===1;m=m.parentElement){' +
+  "if(seen.has(m)){res=seen.get(m);break}path.push(m);var p=win.getComputedStyle(m).position;if(p==='fixed'||p==='sticky'){res=true;break}}" +
+  'for(var j=0;j<path.length;j++)seen.set(path[j],res);return res}' +
+  'for(var i=0;i<list.length;i++){var e=list[i];' +
+  'if(e===el||e===d.body||e===d.documentElement||(!s.top&&!el.contains(e))||pinned(e))continue;' +
+  'var m=e;while(m&&m!==el&&ids.getId(m)<0)m=m.parentElement;' +
+  'if(!m||m===el||m===d.body)continue;var r=m.getBoundingClientRect();if(!(r.width>0&&r.height>0))continue;' +
+  'a.id=ids.getId(m);a.fx=(px-r.left)/r.width;a.fy=(py-r.top)/r.height;return a}return a};' +
+  "h.place=function(n,a){var s0=sc(n),m=typeof a.id==='number'?h.rrweb.record.mirror.getNode(a.id):null;" +
+  'm=m&&m.nodeType===1&&m.isConnected&&m.ownerDocument===s0.d?m:null;' +
+  'var s=scr(m,s0),el=s.el,b=box(s),ry=+a.ry||0,rx=+a.rx||0,' +
+  'q={t:ry*Math.max(0,el.scrollHeight-el.clientHeight),l:rx*Math.max(0,el.scrollWidth-el.clientWidth),el:el},' +
+  'r=m&&(s.top||el.contains(m))?m.getBoundingClientRect():null;' +
+  'if(r&&r.width>0&&r.height>0){if(ry>0&&ry<1)q.t=el.scrollTop+r.top+(+a.fy||0)*r.height-(b.t+a.ly*b.h);' +
+  'if(rx>0&&rx<1)q.l=el.scrollLeft+r.left+(+a.fx||0)*r.width-(b.l+a.lx*b.w)}return q};' +
+  'h.echo=function(id){var n=h.rrweb.record.mirror.getNode(id);if(!n)return undefined;var el=sc(n).el,p=h.placed;' +
+  'if(p&&p.node===id){if(el.scrollTop===p.t&&el.scrollLeft===p.l)return p.a;h.placed=null}return h.anchor(n)};';
+
+/**
  * Arm the recorder on the current document. Same options as the server's
  * Chromium recorder (browser-service.ts RRWEB_RECORD_START), so a mirror looks
  * the same whichever side records it: passwords masked, every keystroke echoed.
  * The bundle runs inside this function, so its `var rrweb` stays out of the
- * page's globals.
+ * page's globals. Scroll events and snapshots leave with the place they show
+ * (LAYOUT_JS); a new snapshot renumbers the nodes, so the place a viewer sent
+ * before it is forgotten.
  */
 export function armJs(bundle: string): string {
   return (
     "(function(){if(window.__topicsDomHost)return 'armed';" +
-    'var h=window.__topicsDomHost={q:[],stop:null,rrweb:null};' +
+    'var h=window.__topicsDomHost={q:[],stop:null,rrweb:null,placed:null};' +
     'try{\n' + bundle + '\n;h.rrweb=rrweb;}catch(e){h.error=String(e&&e.message||e);return \'failed\'}' +
+    LAYOUT_JS +
     'function start(){if(h.stop||!h.rrweb)return;try{h.stop=h.rrweb.record({' +
-    'emit:function(e){h.q.push(e)},' +
+    'emit:function(e){try{var v=e.data;if(e.type===3&&v&&v.source===3)v.anchor=h.echo(v.id);' +
+    'else if(e.type===2&&v&&v.node){h.placed=null;v.anchor=h.anchor(h.rrweb.record.mirror.getNode(v.node.id))}}catch(x){}h.q.push(e)},' +
     'inlineStylesheet:true,inlineImages:false,collectFonts:false,recordCanvas:false,' +
     'maskInputOptions:{password:true},' +
     "sampling:{mousemove:50,scroll:100,media:400,input:'all'}" +
@@ -125,10 +176,25 @@ export function armJs(bundle: string): string {
  * smooth` restarted its animation on every batch and fell short. A page that
  * stays put (it took the wheel, it is shorter) still answers with a scroll
  * event, so the mirror learns where it really is.
+ *
+ * A mirror laid out at its own size (BROWSER-DOM-LAYOUT-01) has the page's
+ * elements elsewhere, so its input names them. A tap comes with the element it
+ * landed on and the point inside its box, and lands on that element, at that
+ * point of it: never on what this layout draws there instead (a link inside
+ * the paragraph that was tapped), and also when it has no box here at all (a
+ * menu only the narrow layout shows: its handler still runs). An element the
+ * page no longer has is not traded for whatever sits at the mirror's pixel. A
+ * wheel goes to what was under it. A scroll comes with the mirror's place
+ * (LAYOUT_JS) and the page goes there; what the page was told is remembered,
+ * so its echo can say the same.
  */
 const INPUT_FN =
-  'function(action,p){var d=document;' +
+  'function(action,p){var d=document,h=window.__topicsDomHost,ids=h&&h.rrweb&&h.rrweb.record&&h.rrweb.record.mirror;' +
   'function at(x,y){return d.elementFromPoint(x,y)||d.body}' +
+  "function node(id){var n=typeof id==='number'&&ids?ids.getNode(id):null;return n&&n.nodeType===1&&n.isConnected?n:null}" +
+  "function aim(p){var n=node(p.node),x=+p.x||0,y=+p.y||0;if(!n)return typeof p.fx==='number'?null:{el:at(x,y),x:x,y:y};" +
+  'var r=n.getBoundingClientRect();if(r.width>0||r.height>0){x=r.left+(+p.fx||0)*r.width;y=r.top+(+p.fy||0)*r.height}' +
+  'return{el:n,x:x,y:y}}' +
   "function to(el,t,l){try{el.scrollTo({top:t,left:l,behavior:'instant'})}catch(e){el.scrollTop=t;el.scrollLeft=l}}" +
   "function by(el,x,y){try{el.scrollBy({left:x,top:y,behavior:'instant'})}catch(e){el.scrollLeft+=x;el.scrollTop+=y}}" +
   'function fire(el,type,x,y,b){var init={bubbles:true,cancelable:true,composed:true,view:window,clientX:x,clientY:y,button:b,' +
@@ -137,7 +203,7 @@ const INPUT_FN =
   'return el.dispatchEvent(ev)}' +
   'function focusable(el){for(var n=el;n&&n!==d.body;n=n.parentElement){' +
   "if(n.isContentEditable||/^(INPUT|TEXTAREA|SELECT|BUTTON|A)$/.test(n.tagName)||n.tabIndex>=0)return n}return null}" +
-  "if(action==='click'){var x=+p.x||0,y=+p.y||0,b=p.button==='right'?2:p.button==='middle'?1:0,el=at(x,y);" +
+  "if(action==='click'){var b=p.button==='right'?2:p.button==='middle'?1:0,g=aim(p);if(!g)return 'gone';var el=g.el,x=g.x,y=g.y;" +
   "fire(el,'pointerdown',x,y,b);var go=fire(el,'mousedown',x,y,b);" +
   'if(go){var f=focusable(el);if(f&&f.focus)f.focus({preventScroll:true});' +
   'else if(d.activeElement&&d.activeElement!==d.body&&d.activeElement.blur)d.activeElement.blur()}' +
@@ -150,15 +216,17 @@ const INPUT_FN =
   'else if(a2.form){if(a2.form.requestSubmit)a2.form.requestSubmit();else a2.form.submit()}}' +
   "else if(k==='Backspace')d.execCommand('delete');else if(k==='Delete')d.execCommand('forwardDelete')}" +
   "a2.dispatchEvent(new KeyboardEvent('keyup',{key:k,bubbles:true}));return 'ok'}" +
-  "if(action==='scroll'){var sx=+p.x||0,sy=+p.y||0,dx=+p.deltaX||0,dy=+p.deltaY||0,tg=at(sx,sy),go=true," +
-  'ws=p.wheels||[{x:sx,y:sy,deltaX:dx,deltaY:dy}];' +
-  'for(var i=0;i<ws.length;i++){var w=ws[i],wx=+w.x||0,wy=+w.y||0;' +
-  "if(!at(wx,wy).dispatchEvent(new WheelEvent('wheel',{bubbles:true,cancelable:true,clientX:wx,clientY:wy,deltaX:+w.deltaX||0,deltaY:+w.deltaY||0})))go=false}" +
-  'var h=window.__topicsDomHost,ids=h&&h.rrweb&&h.rrweb.record&&h.rrweb.record.mirror,' +
-  "sn=typeof p.node==='number'&&typeof p.scrollTop==='number'&&ids?ids.getNode(p.node):null;" +
+  "if(action==='scroll'){var dx=+p.deltaX||0,dy=+p.deltaY||0,tg=null,go=true," +
+  'ws=p.wheels||[{x:p.x,y:p.y,deltaX:dx,deltaY:dy,target:p.target}];' +
+  'for(var i=0;i<ws.length;i++){var w=ws[i],wx=+w.x||0,wy=+w.y||0,we=node(w.target);' +
+  'if(we){var wr=we.getBoundingClientRect();wx=wr.left+wr.width/2;wy=wr.top+wr.height/2}else we=at(wx,wy);tg=we;' +
+  "if(!we.dispatchEvent(new WheelEvent('wheel',{bubbles:true,cancelable:true,clientX:wx,clientY:wy,deltaX:+w.deltaX||0,deltaY:+w.deltaY||0})))go=false}" +
+  "var sn=typeof p.node==='number'&&(p.anchor||typeof p.scrollTop==='number')&&ids?ids.getNode(p.node):null;" +
   'if(sn){var doc=sn.nodeType===9?sn:sn===sn.ownerDocument.scrollingElement?sn.ownerDocument:null,' +
   'el=doc?doc.scrollingElement||doc.documentElement:sn,bt=el.scrollTop,bl=el.scrollLeft;' +
-  'if(go)to(el,p.scrollTop,+p.scrollLeft||0);' +
+  'if(go&&p.anchor&&h.place){var q=h.place(sn,p.anchor);if(q.el!==el){el=q.el;doc=el===d.scrollingElement?d:null;bt=el.scrollTop;bl=el.scrollLeft}' +
+  'to(el,q.t,q.l);h.placed={node:ids.getId(doc||el),a:p.anchor,t:el.scrollTop,l:el.scrollLeft}}' +
+  'else if(go&&!p.anchor)to(el,p.scrollTop,+p.scrollLeft||0);' +
   "if(el.scrollTop===bt&&el.scrollLeft===bl)(doc||el).dispatchEvent(new Event('scroll'));return 'ok'}" +
   "if(!go)return 'ok';" +
   'for(var n=tg;n&&n!==d.documentElement;n=n.parentElement){var cs=getComputedStyle(n);' +
@@ -173,14 +241,21 @@ export function inputJs(action: string, payload: unknown): string {
 
 const num = (v: unknown): number => (typeof v === 'number' && Number.isFinite(v) ? v : 0);
 
-const wheelOf = (p: Record<string, unknown>) => ({ x: num(p.x), y: num(p.y), deltaX: num(p.deltaX), deltaY: num(p.deltaY) });
+const wheelOf = (p: Record<string, unknown>) => ({
+  x: num(p.x),
+  y: num(p.y),
+  deltaX: num(p.deltaX),
+  deltaY: num(p.deltaY),
+  ...(typeof p.target === 'number' ? { target: p.target } : {}),
+});
 
 /**
  * Fold a newer scroll into one still queued. Two distances add up; two places
- * for the same node leave the newer one. A place and a distance do not mix:
- * the distance would be applied from where the page is, not from that place.
- * Each wheel still reaches the page as its own event, in the one call: a
- * carousel that steps once per event must not lose steps to a busy Mac.
+ * for the same node leave the newer one, a pixel or an anchor. A place and a
+ * distance do not mix: the distance would be applied from where the page is,
+ * not from that place. Each wheel still reaches the page as its own event, in
+ * the one call: a carousel that steps once per event must not lose steps to a
+ * busy Mac.
  */
 function mergeScroll(into: Record<string, unknown>, next: unknown): boolean {
   const n = (next ?? {}) as Record<string, unknown>;
@@ -191,9 +266,11 @@ function mergeScroll(into: Record<string, unknown>, next: unknown): boolean {
   into.deltaY = num(into.deltaY) + num(n.deltaY);
   into.x = n.x;
   into.y = n.y;
+  into.target = n.target;
   if (placed) {
     into.scrollTop = n.scrollTop;
     into.scrollLeft = n.scrollLeft;
+    into.anchor = n.anchor;
   }
   return true;
 }

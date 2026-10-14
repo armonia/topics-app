@@ -2,13 +2,13 @@
  * THE ROWS OF THE TAB SHEET THAT ARE CONTROLS, not commands: the page zoom and
  * the device (pressed twice in a row, so they never close their level), the
  * console and downloads lists (popovers of their own, marked as the sheet's),
- * the three session switches and the rename field. `buildTabSheetEntries`
+ * the session switches and the rename field. `buildTabSheetEntries`
  * places them, `TabSheetBody` draws the rest; loaded with the body.
  */
 import { useEffect, useRef, useState } from 'react';
 import {
   Check, Minus, Plus, MonitorSmartphone, Monitor, Smartphone, Tablet, Maximize, SlidersHorizontal,
-  Puzzle, Boxes, MonitorPlay, Edit3,
+  Puzzle, Boxes, MonitorPlay, Edit3, Proportions,
 } from 'lucide-react';
 import { ConsoleBadge } from '../Browser/BrowserDevControls';
 import { DownloadsMenu } from '../Browser/DownloadsMenu';
@@ -241,6 +241,18 @@ export function ControlRow({ id, controls }: { id: string; controls: ControlRend
         title={chrome.renderMode === 'dom' ? t('browser.mode.dom') : t('browser.mode.video')}>
         {chrome.renderMode === 'dom' ? <Boxes size={13} className="shrink-0 text-primary" /> : <MonitorPlay size={13} className="shrink-0 text-app-text-tertiary" />}
         <span className="flex-1 text-left">{chrome.renderMode === 'dom' ? t('browser.tab.render.dom') : t('browser.tab.render.video')}</span>
+      </button>
+    );
+  }
+
+  if (id === 'mirror-layout' && c.setLayout) {
+    const own = chrome.layout !== 'page';
+    return (
+      <button type="button" role="menuitem" className={POPOVER_ITEM} onClick={() => c.setLayout?.(own ? 'page' : 'own')}
+        data-testid="browser-tab-layout" data-layout={own ? 'own' : 'page'} aria-pressed={own}
+        title={t(own ? 'browser.tab.layout.own.hint' : 'browser.tab.layout.page.hint')}>
+        <Proportions size={13} className={`shrink-0 ${own ? 'text-primary' : 'text-app-text-tertiary'}`} />
+        <span className="flex-1 text-left">{t(own ? 'browser.tab.layout.own' : 'browser.tab.layout.page')}</span>
       </button>
     );
   }

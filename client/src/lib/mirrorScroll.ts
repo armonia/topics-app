@@ -7,6 +7,7 @@
  * a second behind the finger. The mirror is a real document, so it can scroll
  * itself by the same distance the source is asked to, and the source follows.
  */
+import { sameAnchor, type ScrollAnchor } from './mirrorLayout';
 
 /** The moves a fling's speed is read from, and how old the last one may be. */
 const FLING_WINDOW_MS = 100;
@@ -55,14 +56,25 @@ export function scrollKeepingFractions(
   return { pos: next, moved: el.scrollTop !== scrollTop || el.scrollLeft !== scrollLeft };
 }
 
-/** What this device scrolled, by the id the source's recorder gave it, and where it put it. */
+/**
+ * What this device scrolled, by the id the source's recorder gave it, and where
+ * it put it: a pixel, or for a mirror laid out at its own size the place its
+ * content names (lib/mirrorLayout), which the source sends back as it got it.
+ */
 export interface ScrollPlace {
   node: number;
   top: number;
   left: number;
+  anchor?: ScrollAnchor;
 }
 
-type Echo = { type: number; data?: { source?: number; id?: number; x?: number; y?: number } };
+type Echo = { type: number; data?: { source?: number; id?: number; x?: number; y?: number; anchor?: ScrollAnchor } };
+
+/** Is this echo the source standing where the mirror put it? */
+function confirms(event: Echo, place: ScrollPlace): boolean {
+  if (place.anchor) return sameAnchor(event.data?.anchor, place.anchor);
+  return Math.abs((event.data?.y ?? 0) - place.top) < 1 && Math.abs((event.data?.x ?? 0) - place.left) < 1;
+}
 
 export interface EchoHold<E extends Echo> {
   /** The mirror just moved itself: the gesture goes on. */
@@ -139,7 +151,7 @@ export function createEchoHold<E extends Echo>(opts: {
     hold(event) {
       const id = event.data?.id;
       if (event.type !== INCREMENTAL_SNAPSHOT || event.data?.source !== SCROLL_SOURCE || typeof id !== 'number') return false;
-      if (relayed?.node === id && Math.abs((event.data?.y ?? 0) - relayed.top) < 1 && Math.abs((event.data?.x ?? 0) - relayed.left) < 1) {
+      if (relayed?.node === id && confirms(event, relayed)) {
         // The source is where the mirror put it: nothing left to wait for.
         relayed = null;
       }

@@ -23,6 +23,7 @@
  * l'altra semplicemente non faceva salire nessuna tastiera.
  */
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useRef } from 'react';
+import type { BrowserInputPayload } from '../../../../shared/browser-ws-messages';
 import {
   DEFAULT_KEYBOARD_PROFILE,
   applyKeyboardProfile,
@@ -49,7 +50,7 @@ export const CAPTURE_FONT_SIZE_PX = 16;
 
 export type SendInput = (
   action: 'click' | 'type' | 'scroll' | 'mousemove' | 'keypress',
-  payload: { x?: number; y?: number; text?: string; key?: string; deltaX?: number; deltaY?: number; button?: 'left' | 'right' | 'middle'; node?: number; scrollTop?: number; scrollLeft?: number },
+  payload: BrowserInputPayload,
 ) => void;
 
 export interface BrowserKeyboardCaptureHandle {
