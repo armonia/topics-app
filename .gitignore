@@ -406,6 +406,11 @@ CONSEGNA-*.md
 # vedere quanto e' invecchiata, e le card di backlog che ne escono la citano per
 # id. Su un disco solo sarebbe l'opinione di una sera.
 !docs/coverage-vs-competitors.md
+# competitors/ e' lo studio di 31 concorrenti del 14/10/2026: un dossier per
+# prodotto con le fonti, la sintesi e il metodo per rifarlo. Il piano
+# daily-driver ne cita le pagine; su un disco solo, il prossimo studio
+# ripartirebbe da zero invece che dal confronto con questo.
+!docs/competitors/
 
 # `out/` above swallows the Windows desktop report too, and that one is the
 # deliverable: the run on the real machine is only worth something if the
