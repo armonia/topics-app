@@ -1,5 +1,22 @@
 [
   {
+    "version": "2.2.497",
+    "date": "2026-10-14",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "scrivere in un iframe del Mac riprende la pagina dall'iPad (#312)",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        }
+      ]
+    }
+  },
+  {
     "version": "2.2.496",
     "date": "2026-10-14",
     "sections": {

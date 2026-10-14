@@ -2,6 +2,11 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.2.497 — 2026-10-14
+
+### Sotto il cofano
+- scrivere in un iframe del Mac riprende la pagina dall'iPad (#312)
+
 ## 2.2.496 — 2026-10-14
 
 ### Sotto il cofano
