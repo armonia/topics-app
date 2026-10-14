@@ -2008,7 +2008,9 @@ export class ClaudeCodeProvider implements AIProvider {
     } catch { /* fall back to no scoping */ }
 
     // Le flag (e il perché di ognuna) stanno in `claude/args.ts`, sotto snapshot.
-    const args = buildClaudeOneshotArgs({ permissionMode, model, emptyMcpConfigPath, effort: options?.reasoningEffort });
+    const args = buildClaudeOneshotArgs({
+      permissionMode, model, emptyMcpConfigPath, effort: options?.reasoningEffort, userFacing: options?.userFacing,
+    });
 
     const env = buildSafeEnv();
 

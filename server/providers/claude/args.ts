@@ -351,6 +351,12 @@ export interface ClaudeOneshotArgsOptions {
    * (si ripiega sul comportamento storico: nessuno scoping).
    */
   emptyMcpConfigPath?: string | null;
+  /**
+   * The answer is a chat reply the user reads (message edit / regenerate, the
+   * SSE fallback), so it keeps the user's CLAUDE.md, output style and hooks.
+   * Every other one-shot is an internal job and runs without them.
+   */
+  userFacing?: boolean;
 }
 
 /**
@@ -487,8 +493,24 @@ export function buildClaudeArgs(opts: ClaudeSpawnArgsOptions): string[] {
  * job. Measured 29/09 on CLI 2.1.284, sonnet-5-5, this argv, cwd $HOME:
  * 22,488 -> 11,821 prefix tokens, same answer. Chat keeps it: a chat runs in
  * its project folder, and that memory is useful there.
+ *
+ * An internal one-shot also drops the user's CLAUDE.md files, output style and
+ * hooks. The CLI caches only up to the end of the prompt, which changes on
+ * every call, so those blocks were written to the 1h cache (2x input price) on
+ * every title and never read back. Measured 14/10 on CLI 2.1.299, sonnet-5-5,
+ * cwd $HOME: 14,879 -> 1,722 prefix tokens, $0.0596 -> $0.0069 per call, same
+ * answer; CLAUDE.md alone was ~10.6k of them. The user settings stay loaded on
+ * purpose: their `env` block can route the CLI (ANTHROPIC_BASE_URL), and a
+ * one-shot must go where a chat goes.
  */
 export function buildClaudeOneshotArgs(opts: ClaudeOneshotArgsOptions): string[] {
+  const settings = opts.userFacing
+    ? { env: { CLAUDE_CODE_DISABLE_AUTO_MEMORY: "1" } }
+    : {
+        env: { CLAUDE_CODE_DISABLE_AUTO_MEMORY: "1", CLAUDE_CODE_DISABLE_CLAUDE_MDS: "1" },
+        outputStyle: "default",
+        disableAllHooks: true,
+      };
   return [
     "--print",
     "--permission-mode", opts.permissionMode,
@@ -498,7 +520,7 @@ export function buildClaudeOneshotArgs(opts: ClaudeOneshotArgsOptions): string[]
     // In the `--settings` env block, not the process env, for the same reason
     // as `ENABLE_TOOL_SEARCH` above: `--setting-sources user` lets the `env`
     // block of `~/.claude/settings.json` win over what the spawn passes.
-    "--settings", JSON.stringify({ env: { CLAUDE_CODE_DISABLE_AUTO_MEMORY: "1" } }),
+    "--settings", JSON.stringify(settings),
     ...(opts.emptyMcpConfigPath ? ["--mcp-config", opts.emptyMcpConfigPath, "--strict-mcp-config"] : []),
     "--tools", "",
     "--output-format", "json",

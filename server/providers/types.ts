@@ -109,6 +109,8 @@ export interface CompletionOptions {
   reasoningEffort?: string;
   timeoutMs?: number;
   isolated?: boolean;
+  /** The result is a chat reply the user reads, not an internal job (title, judge, pick). */
+  userFacing?: boolean;
 }
 
 export interface CompletionResult {
