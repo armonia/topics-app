@@ -2511,6 +2511,11 @@ le sue schede NON SHALL entrare in `pane-store-v2` finché restano nella finestr
 Sotto i 768 px di larghezza la finestra NON SHALL esistere: le schede SHALL aprirsi
 come tab.
 
+Su uno schermo touch, a qualunque larghezza, ogni campo di testo SHALL avere un font
+di almeno 16 px. Sotto quella soglia Safari ingrandisce la pagina sul campo che prende
+il fuoco, e su iOS `innerWidth` segue lo zoom: su un iPad in verticale scende sotto i
+768 px, e la tastiera della chat porta via la finestra.
+
 #### Scenario: minimizzata, la chat non cambia larghezza
 - **GIVEN** una topic con la finestra browser minimizzata su una scheda
 - **WHEN** si misura la larghezza della lista dei messaggi
@@ -2540,6 +2545,12 @@ come tab.
 - **GIVEN** un viewport largo 390 px
 - **WHEN** un link della chat apre un sito
 - **THEN** non c'è nessuna finestra flottante e il sito si apre come tab
+
+#### Scenario: iPad, la tastiera della chat lascia la finestra dov'è
+- **GIVEN** un iPad touch di 820 × 1180 e una topic con la finestra espansa accanto alla chat
+- **WHEN** l'utente tocca il composer e sale la tastiera
+- **THEN** ogni campo di testo visibile ha un font di almeno 16 px
+- **AND** con lo zoom che Safari applicherebbe al campo, la finestra resta accanto alla chat
 
 #### Scenario: quindici pagine, la barra scorre
 - **GIVEN** una finestra minimizzata con quindici schede, attiva l'ultima
@@ -2969,9 +2980,18 @@ that point on its own line.
 - **WHEN** the Mac's page scrolls a row to its reading line
 - **THEN** the iPad's mirror brings the same row to its own, give or take 2 px
 
-#### Scenario: the edges of the page
-- **WHEN** one side is at the top or at the end of what scrolls
-- **THEN** the other side is at its top or its end, whatever each has at its reading line
+#### Scenario: the start and the end of the page
+- **WHEN** one side is at the top of what scrolls
+- **THEN** the other side is at its top, whatever each has at its reading line
+- **WHEN** one side reaches the end of what scrolls
+- **THEN** the other side shows the same row at its reading line, not its own end: a page twice as long there would jump to its end and back as this one reached the end of a short range and left it
+
+#### Scenario: a box that scrolls on its own
+- **GIVEN** a strip that scrolls sideways on both sides, and a side panel only one side's layout shows
+- **WHEN** one side scrolls the side panel, then the strip
+- **THEN** the other side's page does not move at all
+- **AND** its strip scrolls sideways to the same thumbnail at its reading line
+- **AND** only the page, or a box that takes at least half of what the page shows, hands its place to another box when it cannot scroll on the other side, and then by content alone
 
 ### Requirement: BROWSER-DOM-LAYOUT-04 — Each device SHALL be able to go back to the Mac's page at its size
 

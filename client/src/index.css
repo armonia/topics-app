@@ -2799,8 +2799,12 @@ html.native-frost.dark :is(.raised-control-overlay .raised-control:hover, .raise
   }
 }
 
-/* Prevent zoom on input focus (iOS) */
-@media screen and (max-width: 768px) {
+/* Prevent zoom on input focus (iOS). Safari zooms the page onto any field under
+   16px at EVERY width, not only on a phone: on an iPad the zoom shrinks
+   window.innerWidth (it follows the zoomed viewport there), the layout reads a
+   phone, and the topic's browser window beside the chat is gone. So any touch
+   screen, whatever its width. */
+@media screen and (max-width: 768px), (any-pointer: coarse) {
   input, textarea, select {
     font-size: 16px !important;
   }
