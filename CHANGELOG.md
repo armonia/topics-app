@@ -2,6 +2,13 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.2.504 — 2026-10-15
+
+### Sotto il cofano
+- la tastiera della chat non porta più via la finestra del browser (#321)
+- Una card a metà turno sopravvive al SIGTERM del server (e2e) (#322)
+- Misure di partenza del piano daily-driver: rotte, socket a riposo, avvio (#320)
+
 ## 2.2.503 — 2026-10-14
 
 ### Sotto il cofano

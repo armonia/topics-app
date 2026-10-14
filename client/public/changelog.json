@@ -1,5 +1,32 @@
 [
   {
+    "version": "2.2.504",
+    "date": "2026-10-15",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "la tastiera della chat non porta più via la finestra del browser (#321)",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "Una card a metà turno sopravvive al SIGTERM del server (e2e) (#322)",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Misure di partenza del piano daily-driver: rotte, socket a riposo, avvio (#320)",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
     "version": "2.2.503",
     "date": "2026-10-14",
     "sections": {
