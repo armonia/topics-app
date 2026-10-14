@@ -42,6 +42,8 @@ const scrollAnchorSchema = z.object({
   ly: z.number(),
   rx: z.number(),
   ry: z.number(),
+  /** What scrolled is the page's main column, not a strip or a side panel (lib/mirrorLayout). */
+  main: z.optional(z.boolean()),
 });
 
 export const inputPayloadSchema = z.object({

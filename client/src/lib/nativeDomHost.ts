@@ -93,10 +93,14 @@ const SNAPSHOT_JS =
  * (BROWSER-DOM-LAYOUT-03; the viewer's half is lib/mirrorLayout.ts, the same
  * reading). Pixels mean nothing across two layouts, content does: the element
  * at the reading line of what scrolled, a quarter down past fixed and sticky
- * headers, and the point of it there; at an edge, the edge. Installed on `h` with the recorder:
- * `anchor` names this page's place, `place` finds where a viewer's place lands
- * here (by the box around its element that scrolls here, when what scrolled
- * there does not), and `echo` gives a viewer its own place back while the page
+ * headers, and the point of it there; at the start, the start. Installed on `h` with the recorder:
+ * `anchor` names this page's place (and whether what scrolled is the page's
+ * main column, the box under the middle of the window), `place` finds where a
+ * viewer's place lands here: in what scrolled there, when it scrolls along the
+ * reading axis here too; else, for the page or its main column only and by
+ * content alone, in the nearest box that scrolls that content along the
+ * reading axis here; else nowhere, so a strip or a side panel the viewer
+ * scrolled, or an element pinned in place, never moves this page. `echo` gives a viewer its own place back while the page
  * is still where that place put it, so the mirror recognises its own scroll in
  * the echo instead of a neighbour's element measured in another layout. Once
  * the page moves away from it, that place is forgotten.
@@ -105,18 +109,24 @@ const LAYOUT_JS =
   'function rt(p,m){return!(m>0)||p<=0?0:p>=m-1?1:p/m}' +
   'function sc(n){var d=n.nodeType===9?n:n.ownerDocument,se=d.scrollingElement||d.documentElement;' +
   'return{el:n.nodeType===9?se:n,top:n.nodeType===9||n===se,d:d}}' +
-  'function can(s){var el=s.el;if(!(el.scrollHeight-el.clientHeight>0))return false;if(s.top)return true;' +
-  "var o=s.d.defaultView.getComputedStyle(el).overflowY;return o==='auto'||o==='scroll'||o==='overlay'||o==='hidden'}" +
-  'function scr(m,s){if(can(s)||!m)return s;var se=s.d.scrollingElement||s.d.documentElement;' +
-  'for(var e=m.parentElement;e&&e!==se;e=e.parentElement){var c={el:e,top:false,d:s.d};if(can(c))return c}' +
-  'return{el:se,top:true,d:s.d}}' +
+  "function po(d,y){var w=d.defaultView,f=function(e){if(!e)return undefined;var st=w.getComputedStyle(e);return y?st.overflowY:st.overflowX}," +
+  "r=f(d.documentElement);return r&&r!=='visible'?r:f(d.body)}" +
+  "function can(s,ax,clip){var el=s.el,y=ax==='y',room=y?el.scrollHeight-el.clientHeight:el.scrollWidth-el.clientWidth,o;" +
+  "if(!(room>0))return false;if(s.top){o=po(s.d,y);return o!=='clip'&&(clip||o!=='hidden')}" +
+  "var st=s.d.defaultView.getComputedStyle(el);o=y?st.overflowY:st.overflowX;return o==='auto'||o==='scroll'||o==='overlay'||(clip&&o==='hidden')}" +
+  "function pin(m,stop,w){for(var e=m;e&&e!==stop&&e.nodeType===1;e=e.parentElement){var p=w.getComputedStyle(e).position;if(p==='fixed'||p==='sticky')return true}return false}" +
   'function box(s){var el=s.el;if(s.top){var de=s.d.documentElement,w=s.d.defaultView;' +
   'return{l:0,t:0,w:de.clientWidth||w.innerWidth,h:de.clientHeight||w.innerHeight}}' +
   'var r=el.getBoundingClientRect();return{l:r.left+el.clientLeft,t:r.top+el.clientTop,w:el.clientWidth,h:el.clientHeight}}' +
+  'function main(s){var de=s.d.documentElement,w=de.clientWidth||s.d.defaultView.innerWidth,' +
+  'v=de.clientHeight||s.d.defaultView.innerHeight,hit=w>0&&v>0?s.d.elementFromPoint(w/2,v/2):null;return!!hit&&s.el.contains(hit)}' +
+  'function cont(s,ax,m,a){var r=m.getBoundingClientRect();if(!(r.width>0&&r.height>0)||!(s.top||s.el.contains(m)))return null;' +
+  "var b=box(s),el=s.el,q={el:el};if(ax.indexOf('y')>=0)q.t=el.scrollTop+r.top+(+a.fy||0)*r.height-(b.t+a.ly*b.h);" +
+  "if(ax.indexOf('x')>=0)q.l=el.scrollLeft+r.left+(+a.fx||0)*r.width-(b.l+a.lx*b.w);return q}" +
   'h.anchor=function(n){var s=sc(n),el=s.el,d=s.d,b=box(s),mx=el.scrollWidth-el.clientWidth,my=el.scrollHeight-el.clientHeight,' +
   'a={lx:mx>0?.25:.5,ly:my>0?.25:.5,rx:rt(el.scrollLeft,mx),ry:rt(el.scrollTop,my)},' +
   'px=b.l+a.lx*b.w,py=b.t+a.ly*b.h,ids=h.rrweb.record.mirror,win=d.defaultView,seen=new Map(),' +
-  'list=d.elementsFromPoint?d.elementsFromPoint(px,py):[];' +
+  'list=d.elementsFromPoint?d.elementsFromPoint(px,py):[];if(!s.top&&main(s))a.main=true;' +
   'function pinned(e){var path=[],res=false;for(var m=e;m&&m!==el&&m.nodeType===1;m=m.parentElement){' +
   "if(seen.has(m)){res=seen.get(m);break}path.push(m);var p=win.getComputedStyle(m).position;if(p==='fixed'||p==='sticky'){res=true;break}}" +
   'for(var j=0;j<path.length;j++)seen.set(path[j],res);return res}' +
@@ -127,11 +137,15 @@ const LAYOUT_JS =
   'a.id=ids.getId(m);a.fx=(px-r.left)/r.width;a.fy=(py-r.top)/r.height;return a}return a};' +
   "h.place=function(n,a){var s0=sc(n),m=typeof a.id==='number'?h.rrweb.record.mirror.getNode(a.id):null;" +
   'm=m&&m.nodeType===1&&m.isConnected&&m.ownerDocument===s0.d?m:null;' +
-  'var s=scr(m,s0),el=s.el,b=box(s),ry=+a.ry||0,rx=+a.rx||0,' +
-  'q={t:ry*Math.max(0,el.scrollHeight-el.clientHeight),l:rx*Math.max(0,el.scrollWidth-el.clientWidth),el:el},' +
-  'r=m&&(s.top||el.contains(m))?m.getBoundingClientRect():null;' +
-  'if(r&&r.width>0&&r.height>0){if(ry>0&&ry<1)q.t=el.scrollTop+r.top+(+a.fy||0)*r.height-(b.t+a.ly*b.h);' +
-  'if(rx>0&&rx<1)q.l=el.scrollLeft+r.left+(+a.fx||0)*r.width-(b.l+a.lx*b.w)}return q};' +
+  "var axes=[];if(a.ly<.5)axes.push('y');if(a.lx<.5)axes.push('x');var ld=axes[0];if(!ld)return null;" +
+  'if(can(s0,ld,true)){var here=axes.filter(function(x){return can(s0,x,true)}),el=s0.el,c=m?cont(s0,here,m,a):null,' +
+  'q={el:el},ry=+a.ry||0,rx=+a.rx||0;' +
+  "if(here.indexOf('y')>=0)q.t=ry>0&&c&&c.t!==undefined?c.t:ry*Math.max(0,el.scrollHeight-el.clientHeight);" +
+  "if(here.indexOf('x')>=0)q.l=rx>0&&c&&c.l!==undefined?c.l:rx*Math.max(0,el.scrollWidth-el.clientWidth);return q}" +
+  'if(!m||!(s0.top||a.main))return null;var se=s0.d.scrollingElement||s0.d.documentElement,s={el:se,top:true,d:s0.d};' +
+  'for(var e=m.parentElement;e&&e!==se;e=e.parentElement){var o={el:e,top:false,d:s0.d};if(can(o,ld,false)){s=o;break}}' +
+  'if(!can(s,ld,false)||pin(m,s.el,s0.d.defaultView))return null;' +
+  'return cont(s,axes.filter(function(x){return can(s,x,false)}),m,a)};' +
   'h.echo=function(id){var n=h.rrweb.record.mirror.getNode(id);if(!n)return undefined;var el=sc(n).el,p=h.placed;' +
   'if(p&&p.node===id){if(el.scrollTop===p.t&&el.scrollLeft===p.l)return p.a;h.placed=null}return h.anchor(n)};';
 
@@ -224,8 +238,8 @@ const INPUT_FN =
   "var sn=typeof p.node==='number'&&(p.anchor||typeof p.scrollTop==='number')&&ids?ids.getNode(p.node):null;" +
   'if(sn){var doc=sn.nodeType===9?sn:sn===sn.ownerDocument.scrollingElement?sn.ownerDocument:null,' +
   'el=doc?doc.scrollingElement||doc.documentElement:sn,bt=el.scrollTop,bl=el.scrollLeft;' +
-  'if(go&&p.anchor&&h.place){var q=h.place(sn,p.anchor);if(q.el!==el){el=q.el;doc=el===d.scrollingElement?d:null;bt=el.scrollTop;bl=el.scrollLeft}' +
-  'to(el,q.t,q.l);h.placed={node:ids.getId(doc||el),a:p.anchor,t:el.scrollTop,l:el.scrollLeft}}' +
+  'if(go&&p.anchor&&h.place){var q=h.place(sn,p.anchor);if(q){if(q.el!==el){el=q.el;doc=el===d.scrollingElement?d:null;bt=el.scrollTop;bl=el.scrollLeft}' +
+  'to(el,q.t===undefined?el.scrollTop:q.t,q.l===undefined?el.scrollLeft:q.l);h.placed={node:ids.getId(doc||el),a:p.anchor,t:el.scrollTop,l:el.scrollLeft}}}' +
   'else if(go&&!p.anchor)to(el,p.scrollTop,+p.scrollLeft||0);' +
   "if(el.scrollTop===bt&&el.scrollLeft===bl)(doc||el).dispatchEvent(new Event('scroll'));return 'ok'}" +
   "if(!go)return 'ok';" +
