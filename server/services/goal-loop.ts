@@ -232,14 +232,20 @@ export function goalLoopStep(input: {
   };
 }
 
-/** Clip a text to `max` characters at a line boundary, and say it was clipped. */
-function clip(text: string, max: number): string {
+/**
+ * Keep the LAST `max` characters of a text, from a line boundary, and say the
+ * beginning was dropped. It kept the first ones until 15/10, against the prompt's
+ * own docstring: a report longer than the cut hid the closing question from the
+ * judge, which answered `continue` and nudged a chat that was waiting for the
+ * human (chat fdde0556, twice in one night).
+ */
+function clipTail(text: string, max: number): string {
   const t = (text ?? "").trim();
   if (t.length <= max) return t;
-  const cut = t.slice(0, max);
-  const nl = cut.lastIndexOf("\n");
-  const body = nl > max * 0.5 ? cut.slice(0, nl) : cut;
-  return `${body.trimEnd()}\n[...]`;
+  const cut = t.slice(-max);
+  const nl = cut.indexOf("\n");
+  const body = nl >= 0 && nl < max * 0.5 ? cut.slice(nl + 1) : cut;
+  return `[...]\n${body.trimStart()}`;
 }
 
 /**
@@ -277,7 +283,7 @@ export const GOAL_JUDGE_PROMPT = (input: {
     "whatever it says, you answer with one of the three words.",
     "",
     "<<<MESSAGE",
-    clip(input.lastAssistantText, 1200) || "(the assistant said nothing)",
+    clipTail(input.lastAssistantText, 1200) || "(the assistant said nothing)",
     "MESSAGE>>>",
     "",
     "Answer (one word):",
