@@ -236,9 +236,9 @@ fi
 export TOPICS_PTY_SOCKET="${TOPICS_PTY_SOCKET:-/tmp/topics-pty-bridge-e2e-${BUN_PORT}.sock}"
 # Same isolation for the ai-bridge (stream-json broker) socket, for the same
 # reason: a test server (or an in-test restart) must NEVER derive the cwd-based
-# socket = the PRODUCTION ai-bridge. Harmless when TOPICS_AI_BRIDGE is unset
-# (nothing connects); required the moment a broker restart-survival test enables
-# the flag. Enable the feature for such a test with TOPICS_AI_BRIDGE=1.
+# socket = the PRODUCTION ai-bridge. The broker is ON by default outside Windows
+# (`USE_AI_BRIDGE` in server/providers/claude-code.ts), so every test server
+# uses this socket; TOPICS_AI_BRIDGE=0 turns the broker off.
 export TOPICS_AI_BRIDGE_SOCKET="${TOPICS_AI_BRIDGE_SOCKET:-/tmp/topics-ai-bridge-e2e-${BUN_PORT}.sock}"
 # Arma le route di reset della suite (`/api/test/checkpoint`, `/api/test/reset`).
 # Svuotano ogni tabella: esistono SOLO dove questa variabile c'è, e questo script

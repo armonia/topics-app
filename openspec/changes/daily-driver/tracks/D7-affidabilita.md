@@ -9,8 +9,10 @@ perdono una pane. Un test rosso vuol dire un difetto, non sfortuna.
 
 - **Riavvii.** Il server si riavvia spesso, con SIGTERM: almeno 12 riavvii dall'8 al 14/10 nel log di
   produzione.
-- **Turni persi.** Il dispatcher scrive «spegnimento (SIGTERM): 1 card tagliata a meta' turno» due
-  volte nello stesso periodo.
+- **Turni tagliati, non persi.** Il dispatcher scrive «spegnimento (SIGTERM): 1 card tagliata a
+  meta' turno» due volte il 13/10. Rimisurato in D7a (`reports/D7a.md`): la card sul broker è stata
+  riattaccata in diretta; quella sul runtime nativo, il cui turno vive nel processo del server, è
+  ripresa nella stessa sessione senza consumare tentativi.
 - **Già fatto, si protegge.** I turni della chat sopravvivono grazie al daemon staccato (ai-bridge).
   `chat-claude-code-parity` lo chiede come requisito protetto (punto 5, «Broker survival»).
 - **Test instabili.** Le tracce T11 e T21 di `cloud-quality-pass` ne hanno censiti e curati due giri.
