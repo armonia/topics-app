@@ -21,3 +21,14 @@
 
 - `check:emdash` sull'intero `server.ts` segnala una riga preesistente (`server.ts:3858`, testo sul bundle non ancora creato); il controllo esplicito sui 10 file applicativi toccati è verde.
 - Commit e push non eseguiti, come richiesto dal brief.
+
+## Verifica (Claude, 15/10)
+
+- Mutazione rifatta in una copia: senza il controllo «precedente ancora aperta», 6 pass e 1 fail
+  (il test del salto), exit 1. Senza mutazione 7 pass, exit 0.
+- Dopo il commit 5 cancelli statici erano rossi (`any-budget`, `bloat` su `client/src/lib/board.ts`,
+  lingua di commenti e nomi, test senza requisito): prima del commit non leggevano i file nuovi.
+  Corretti: API del client in `client/src/lib/scheduledCards.ts`, corpo tipizzato nelle rotte,
+  requisito KANBAN-95 nella spec della board. Ora 20 su 20 verdi.
+- Il fuso di default di una ricorrenza nuova è quello del browser. La e2e scrive Europe/Rome perché
+  il runner della CI è in UTC.
