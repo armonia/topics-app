@@ -14,7 +14,7 @@ la barra eseguita.
 | D5 sessioni e board | `tracks/D5-sessioni-e-board.md` | niente | cinque scenari con video; la mutazione sul land fa fallire lo scenario dei controlli |
 | D6 per tutti | `tracks/D6-per-tutti.md` | niente | primo avvio e relay con video; `install-smoke` verde su 3 OS; barre di `primo-avvio`, `relay`, `device-auth`, `sharing-orgs` |
 | D7 affidabilità | `tracks/D7-affidabilita.md` | niente | card e client sopravvivono al SIGTERM (video); spec instabili 20/20; barre di `pane-store-server-authoritative` |
-| D8 sicurezza | `tracks/D8-sicurezza.md` | come D4·B1 | le barre private R1, R2 e R3, viste rosse su main; `check:security` esce 0 |
+| D8 sicurezza | `tracks/D8-sicurezza.md` | R2 niente; R1 e R3 il merge del ramo dell'altra sessione | le barre private R1, R2 e R3, viste rosse su main; `check:security` esce 0 |
 
 ## Ordine
 
@@ -22,8 +22,8 @@ la barra eseguita.
 2. **Poi, in parallelo, perché non toccano gli stessi file:**
    - D1;
    - D5, D6 e D7.
-3. **D2, D4 e D8 dopo D0.** D4·B1 e D8·R1 aspettano il merge di `topics/browser-mac-scroll-mirror`,
-   che tocca gli stessi file.
+3. **D2 e D4 dopo D0.** D4·B1 aspetta il merge di `topics/browser-mac-scroll-mirror`, che tocca
+   gli stessi file; così D8·R1 e D8·R3. D8·R2 può partire subito.
    - D2 tocca il client in molti punti: si fonde dopo D5, che ne tocca di meno.
 4. **D3 solo se il cancello d'ingresso si apre dopo D1.**
 
