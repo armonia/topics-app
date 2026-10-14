@@ -28,8 +28,10 @@ stato stabile era 2,7 KB in cinque minuti (intestazione di `server/lib/ws-compre
    Il ratchet resta quello che c'è.
 2. **Socket a riposo.** `measure:ws-idle`, nuovo, nello stile di `measure:ui-state-init`.
    - Un client si collega a `/ws` come fa l'app e non apre niente.
-   - Ascolta 60 s su un server seminato con 20 sessioni esterne che cambiano stato ogni 10 s e una
-     chat che scrive in streaming.
+   - Ascolta 60 s su un server seminato con 100 sessioni esterne, di cui poche cambiano stato ogni
+     10 s, e una chat che scrive in streaming.
+   - Le 100 sessioni vengono dal censimento di produzione del 14/10: 114 sessioni, 12 attive,
+     46 KB a frame. Con 20 il frame pesava un quarto e il banco usciva verde.
    - Stampa i byte per tipo di frame e i byte al secondo, ed esce 1 sopra `--budget`.
 3. **Webview.** `scripts/measure-webview.sh`, solo Mac e fuori dalla CI.
    - Campiona `footprint` e la CPU del processo WebContent di Topics ogni 30 s per 10 minuti, con

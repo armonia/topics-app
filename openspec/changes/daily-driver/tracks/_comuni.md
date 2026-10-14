@@ -11,7 +11,9 @@ partire. Se non riesci a leggerli per intero, fermati e dillo.
 - **Dipendenze nuove solo con il perché nel commit**, con il nome e la licenza. D3 introduce
   `napi-rs`, `gix` e `ignore` (MIT o Apache-2.0).
 - **Dove gira:**
-  - in cloud o in CI tutto ciò che è codice e test;
+  - il codice lo scrive Codex in una worktree sul Mac, con le regole di `_locale.md`: il credito
+    cloud è alla riserva fissata dal proprietario;
+  - le suite intere girano in CI;
   - sul Mac solo le misure che chiedono l'app vera (`scripts/measure-webview.sh`, le misure della
     baseline sul log di produzione) e il porto in produzione;
   - sul Mac, mai suite e2e intere né build ripetute.
