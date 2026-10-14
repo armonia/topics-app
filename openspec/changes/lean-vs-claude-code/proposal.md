@@ -10,6 +10,8 @@ non ha il suo video (il Mac non è il posto dove girarlo).
    Mac, e `push-guard` controlla i commit prima che escano.
 2. Il ramo resta locale finché il proprietario non lo guarda.
 
+**Risposta (14/10, vedi `.openspec.yaml`): push, PR e merge su main a CI verde.**
+
 ## Perché
 
 Il 14/10 Topics è stato messo a confronto con 24 alternative open source alla CLI
