@@ -79,6 +79,7 @@ import { forgetDelivery, reviewChecksStopping, swapInterruptedDelivery, throwIfS
 import { bumpPendingDeliveryRound, forgetPendingDelivery, loadPendingDeliveries, savePendingDelivery, type PendingDelivery } from "../services/pending-delivery-store";
 import { ciNotMeasured, closeCiDraft, type CloseCiDraftInput, type DraftCleanup } from "../services/ci-evidence";
 import { createTaskAttemptStore, type TaskAttempt } from "../services/task-attempts";
+import type { ScheduledCardsService } from "../services/scheduled-cards";
 import { recordRetirement } from "../services/retirement";
 import { conditionalJson } from "../lib/conditional-json";
 import { attemptHasWork, formatAttemptStat } from "../../shared/task-attempt";
@@ -217,6 +218,7 @@ export { pendingQuestion, type PendingQuestionComment };
 const AGENT_COMMENT_MAX_CHARS = 600;
 
 export interface TasksRouterOpts {
+  scheduledCards?: ScheduledCardsService;
   /**
    * The repository a delivery report is verified against, and how a root
    * becomes a probe (tests pass a fake). Handed to the router's OWN task
@@ -2758,7 +2760,7 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
 
   // The human board routes live in tasks-board.ts; same closure values, passed by name.
   const boardRoutes = createBoardRoutes({
-    ctx, dispatcher, opts, matchRoute, json, readJSON, broadcastToAll, svc, askRouting, landings,
+    ctx, dispatcher, opts, matchRoute, json, readJSON, broadcastToAll, svc, scheduledCards: opts?.scheduledCards, askRouting, landings,
     emitReviewReadyEdge, titoloInSottofondo, resolveBoardId, sweepRemoteDelivery, captureDelivery,
     triggerUrlProbe, cutLiveTurn, enqueueLand, enqueueLandOnDone, proposeDeployIfConfigured, runDeploy,
     publishProject, filterMedia, acceptPreview, rejectDeliveryPatch, asTaskStatus, fail, checksRedGate,

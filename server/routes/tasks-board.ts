@@ -22,6 +22,7 @@ import { MAX_CHECKS, STATIC_RAILS_CHECK, parseReviewChecks } from "../services/r
 import { linkNotes, proposeLink, type LinkKind } from "../services/task-intake";
 import { isTaskLabel } from "../../shared/task-labels";
 import { stopCauseOf, STOP_CAUSE_HEADER, type StopCause } from "../lib/abort-cause";
+import { ScheduledCardsError, type ScheduledCardsService } from "../services/scheduled-cards";
 import { invalidateProbeCache } from "../services/url-probe-cache";
 import type { TasksRouterOpts, emitReviewReadyEdge } from "./tasks";
 
@@ -73,6 +74,7 @@ export interface BoardRouteDeps {
   readJSON: AppContext["readJSON"];
   broadcastToAll: AppContext["broadcastToAll"];
   svc: TaskService;
+  scheduledCards?: ScheduledCardsService;
   askRouting: AskRoutingDeps;
   landings: LandingQueue;
   emitReviewReadyEdge: typeof emitReviewReadyEdge;
@@ -108,6 +110,7 @@ export function createBoardRoutes(deps: BoardRouteDeps) {
     readJSON,
     broadcastToAll,
     svc,
+    scheduledCards,
     askRouting,
     landings,
     emitReviewReadyEdge,
@@ -131,6 +134,33 @@ export function createBoardRoutes(deps: BoardRouteDeps) {
   } = deps;
 
   return async function boardRoutes(req: Request, pathname: string, method: string): Promise<Response | null> {
+    const scheduledPath = matchRoute(pathname, "/api/boards/:projectId/scheduled-cards");
+    if (scheduledPath && scheduledCards) {
+      const projectId = scheduledPath.projectId;
+      if (method === "GET") return json({ schedules: scheduledCards.list(projectId) });
+      if (method === "POST") {
+        try {
+          const body = await readJSON(req) as any;
+          return json(scheduledCards.create({ projectId, text: body?.text, status: body?.status, labels: body?.labels, cron: body?.cron, timeZone: body?.timeZone }), 201);
+        } catch (error) { return error instanceof ScheduledCardsError ? json({ error: error.message }, error.status) : fail(error); }
+      }
+    }
+    const scheduledItem = matchRoute(pathname, "/api/boards/:projectId/scheduled-cards/:scheduleId");
+    if (scheduledItem && scheduledCards) {
+      const { projectId, scheduleId } = scheduledItem;
+      try {
+        if (method === "PATCH") {
+          const body = await readJSON(req) as any;
+          if (typeof body?.enabled === "boolean" && Object.keys(body).length === 1) {
+            return json(scheduledCards.setEnabled(scheduleId, projectId, body.enabled));
+          }
+          return json(scheduledCards.update(scheduleId, projectId, {
+            text: body?.text, status: body?.status, labels: body?.labels, cron: body?.cron, timeZone: body?.timeZone, enabled: body?.enabled,
+          }));
+        }
+        if (method === "DELETE") { scheduledCards.remove(scheduleId, projectId); return json({ ok: true }); }
+      } catch (error) { return error instanceof ScheduledCardsError ? json({ error: error.message }, error.status) : fail(error); }
+    }
     const HUMAN = "user";
     // Presentation metadata only. A caller cannot claim MCP/system through
     // this header, and it never participates in the human permission gates.

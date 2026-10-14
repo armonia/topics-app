@@ -818,6 +818,30 @@ export interface CreateTaskBody {
   intakeReason?: string;
 }
 
+export interface ScheduledCard {
+  id: string;
+  projectId: string;
+  text: string;
+  status: Exclude<TaskStatus, 'done'>;
+  labels: TaskLabel[];
+  cron: string;
+  timeZone: string;
+  enabled: boolean;
+  nextRunAt: string;
+  lastRunAt: string | null;
+  lastResult: 'created' | 'skipped' | null;
+  lastReason: string | null;
+}
+
+export interface ScheduledCardInput {
+  text: string;
+  status: ScheduledCard['status'];
+  labels: TaskLabel[];
+  cron: string;
+  timeZone: string;
+  enabled?: boolean;
+}
+
 /**
  * La proposta dell'intake: dove andrebbe il testo che stai scrivendo. È una
  * PROPOSTA — finché non la si accetta non esiste nessun collegamento, e il
@@ -1143,6 +1167,13 @@ export const boardApi = {
     req<{ task: BoardTask | null }>(`/all-boards/tasks/${enc(taskId)}`).then(r => r.task ?? null),
   create: (projectId: string, body: CreateTaskBody) =>
     req<BoardTask>(`/boards/${enc(projectId)}/tasks`, { method: 'POST', body: JSON.stringify(body) }),
+  scheduledCards: {
+    list: (projectId: string) => req<{ schedules: ScheduledCard[] }>(`/boards/${enc(projectId)}/scheduled-cards`).then(r => r.schedules),
+    create: (projectId: string, body: ScheduledCardInput) => req<ScheduledCard>(`/boards/${enc(projectId)}/scheduled-cards`, { method: 'POST', body: JSON.stringify(body) }),
+    update: (projectId: string, id: string, body: ScheduledCardInput) => req<ScheduledCard>(`/boards/${enc(projectId)}/scheduled-cards/${enc(id)}`, { method: 'PATCH', body: JSON.stringify(body) }),
+    setEnabled: (projectId: string, id: string, enabled: boolean) => req<ScheduledCard>(`/boards/${enc(projectId)}/scheduled-cards/${enc(id)}`, { method: 'PATCH', body: JSON.stringify({ enabled }) }),
+    remove: (projectId: string, id: string) => req<{ ok: boolean }>(`/boards/${enc(projectId)}/scheduled-cards/${enc(id)}`, { method: 'DELETE' }),
+  },
   /** "Dove va questo testo?" — sola lettura, non tocca un solo task. */
   suggestLink: (projectId: string, text: string, description?: string | null) =>
     req<{ proposal: LinkProposal | null }>(`/boards/${enc(projectId)}/intake/suggest`, {
