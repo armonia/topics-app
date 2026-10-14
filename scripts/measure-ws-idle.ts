@@ -84,7 +84,7 @@ let stopped = false;
 function stop(): void {
   if (stopped) return;
   stopped = true;
-  try { if (child.pid) process.kill(-child.pid, "SIGTERM"); } catch { /* processo gia' terminato */ }
+  try { if (child.pid) process.kill(-child.pid, "SIGTERM"); } catch { /* process already gone */ }
   child.stdout?.destroy();
   child.stderr?.destroy();
   child.unref();
@@ -96,7 +96,7 @@ process.on("SIGINT", () => { stop(); process.exit(130); });
 async function waitForServer(): Promise<boolean> {
   const until = Date.now() + 40_000;
   while (Date.now() < until) {
-    try { await fetch(`http://127.0.0.1:${port}/api/health`); return true; } catch { /* avvio in corso */ }
+    try { await fetch(`http://127.0.0.1:${port}/api/health`); return true; } catch { /* server still starting */ }
     await new Promise((r) => setTimeout(r, 200));
   }
   return false;
@@ -148,7 +148,7 @@ const opened = new Promise<void>((resolveOpen, reject) => {
   ws.on("message", (data) => {
     const raw = Buffer.isBuffer(data) ? data : Buffer.from(data as ArrayBuffer);
     let type = "binary";
-    try { type = JSON.parse(raw.toString("utf8"))?.type ?? "json"; } catch { /* frame non JSON */ }
+    try { type = JSON.parse(raw.toString("utf8"))?.type ?? "json"; } catch { /* non-JSON frame */ }
     if (type === "stream:error") streamError = raw.toString("utf8");
     const counts = inRegime ? measuredCounts : initialCounts;
     counts.set(type, (counts.get(type) ?? 0) + raw.byteLength);
