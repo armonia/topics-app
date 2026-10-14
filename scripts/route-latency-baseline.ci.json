@@ -1,0 +1,55 @@
+{
+  "taken_under": {
+    "load1": 1.93,
+    "cores": 4
+  },
+  "$schema": "route-latency-baseline-v1",
+  "updated": "2026-10-14",
+  "samples": 40,
+  "tolerance_pct": 60,
+  "floor_ms": 1.5,
+  "noise_guard_pct": 60,
+  "corpus": {
+    "topics": 150,
+    "messages": 3000,
+    "tasks": 150,
+    "description_chars": 1200,
+    "git_files": 200,
+    "git_changes": 20,
+    "file_entries": 5000
+  },
+  "routes": {
+    "topics": {
+      "median_ms": 1.05,
+      "noise_ms": 0.01
+    },
+    "topic_messages": {
+      "median_ms": 4.49,
+      "noise_ms": 0.12
+    },
+    "all_boards_tasks": {
+      "median_ms": 3.47,
+      "noise_ms": 0.14
+    },
+    "dispatch_capacity": {
+      "median_ms": 0.87,
+      "noise_ms": 0.1
+    },
+    "git_status": {
+      "median_ms": 8.12,
+      "noise_ms": 0.19
+    },
+    "files": {
+      "median_ms": 200.07,
+      "noise_ms": 1.96
+    },
+    "scripts": {
+      "median_ms": 0.86,
+      "noise_ms": 0.21
+    },
+    "system_status": {
+      "median_ms": 3.47,
+      "noise_ms": 0.05
+    }
+  }
+}
