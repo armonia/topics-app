@@ -1,3 +1,6 @@
+/**
+ * @covers PERF-02
+ */
 import { describe, expect, test } from 'bun:test';
 import { readFileSync } from 'node:fs';
 import { Suspense } from 'react';

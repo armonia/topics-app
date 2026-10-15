@@ -129,6 +129,13 @@ fanno il loro mestiere. Senza snapshot locale non c'è niente da aspettare.
 - **THEN** il corpo è nel primo passaggio di render, senza fallback
 - **AND** un chunk freddo passa ancora da `React.lazy` e il confine mostra il suo fallback
 
+#### Scenario: la sidebar, la griglia e la chat stanno fuori dal chunk iniziale ma arrivano calde
+- **GIVEN** `TopicTree`, `PanelGrid` e `ChatPane` sono chunk a parte, caricati con `retryingChunk`
+- **WHEN** l'app si avvia
+- **THEN** il primo frame aspetta i loro chunk insieme a quelli delle pane, dentro lo stesso tetto
+- **AND** `ChatPane` si chiede solo se una chat è fra le pane a schermo
+- **AND** `check:bundle` tiene il chunk iniziale sotto 400 KB compressi
+
 ### Requirement: LEAK-01 — Una sessione lunga non accumula, e c'è un cancello che se ne accorge
 
 Topics è una sessione lunga per costruzione: resta aperta per giorni, le pane si
