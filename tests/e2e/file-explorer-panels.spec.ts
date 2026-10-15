@@ -259,7 +259,8 @@ test.describe("File Explorer — breadcrumb e processi", () => {
     // Mock the scripts list API (useScripts calls GET /api/scripts) BEFORE navigation
     // so the running process appears immediately when ScriptRunner mounts
     let stopCalled = false;
-    await page.route("**/api/scripts", async (route) => {
+    // On the path: the panel asks with `?ports=1`, which a glob would not match.
+    await page.route((url) => url.pathname === "/api/scripts", async (route) => {
       // Only intercept GET requests for the scripts list endpoint (not sub-paths)
       const url = new URL(route.request().url());
       if (route.request().method() !== "GET" || url.pathname !== "/api/scripts") {

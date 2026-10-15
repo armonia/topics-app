@@ -92,8 +92,10 @@ export class BrowserProcessPage {
       });
     });
 
-    // Mock /scripts endpoint (GET only — list running scripts)
-    await this.page.route("**/scripts", async (route) => {
+    // Mock /scripts endpoint (GET only — list running scripts). On the path,
+    // not a glob: the Processes panel asks `/api/scripts?ports=1`, and a glob
+    // without the query let that request through to the real server.
+    await this.page.route((url) => url.pathname.endsWith("/scripts"), async (route) => {
       if (route.request().method() === "GET") {
         await route.fulfill({
           status: 200,
