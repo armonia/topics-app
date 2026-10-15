@@ -206,6 +206,10 @@ export function startNativeExecutorSocket(opts: NativeExecutorSocketOptions): Na
     let raw: unknown;
     try { raw = JSON.parse(typeof data === 'string' ? data : ''); } catch { return; }
     const m = raw as { type?: string; opId?: string; tool?: string; args?: unknown };
+    if (m?.type === 'host_ping') {
+      sendOn(self, { type: 'host_pong' });
+      return;
+    }
     if (m && m.type === 'register_native_executor_rejected') {
       standDown();
       return;

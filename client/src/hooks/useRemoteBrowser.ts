@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
-import { parseBrowserWsMessage, type BrowserInputPayload, type BrowserWsMessage } from '../../../shared/browser-ws-messages';
+import { NATIVE_HOST_PARAM, parseBrowserWsMessage, type BrowserInputPayload, type BrowserWsMessage } from '../../../shared/browser-ws-messages';
 import type { ElementDescription } from '../../../shared/element-describe';
 import type { RemoteField } from '../../../shared/browser-keyboard-field';
 import { serverWsBase } from '@/lib/shell/net';
@@ -82,6 +82,7 @@ interface RemoteBrowserState extends RemoteNavFields {
    *  page lives there, so this pane never frames the url itself. */
   nativeHost: boolean;
   hostSharePaused: boolean;
+  hostAway: boolean;
 }
 
 interface InteractionHandlers {
@@ -318,6 +319,7 @@ export function useRemoteBrowser(contextId: string, isVisible = true): RemoteBro
     renderMode: 'dom',
     nativeHost: false,
     hostSharePaused: false,
+    hostAway: false,
     consoleEntries: [],
   });
   const consoleIdRef = useRef(0);
@@ -354,6 +356,7 @@ export function useRemoteBrowser(contextId: string, isVisible = true): RemoteBro
   // T1 DOM co-browse: mirror of renderMode for the long-lived onmessage closure,
   // and the live rrweb-event sink (registered by the DomCoBrowse view's Replayer).
   const renderModeRef = useRef<'video' | 'dom'>('dom');
+  const nativeHostRef = useRef(false);
   const domSinkRef = useRef<((event: unknown) => void) | null>(null);
   // Chi ha preso il fuoco nella pagina remota dopo il nostro ultimo click. Lo
   // consuma la superficie visibile (video o mirror) per vestire il campo di
@@ -690,7 +693,8 @@ export function useRemoteBrowser(contextId: string, isVisible = true): RemoteBro
       // `?client=` is this pane's stable name: it is what lets the server
       // recognise the same client across the native/streaming flip and across a
       // reconnection, and so keep its viewport. See lib/browserClientId.ts.
-      const wsUrl = `${serverWsBase()}/ws/browser/${encodedId}?client=${encodeURIComponent(browserClientId())}`;
+      const hostHint = nativeHostRef.current ? `&${NATIVE_HOST_PARAM}=native` : '';
+      const wsUrl = `${serverWsBase()}/ws/browser/${encodedId}?client=${encodeURIComponent(browserClientId())}${hostHint}`;
       let ws: WebSocket;
       try {
         ws = new WebSocket(wsUrl);
@@ -939,10 +943,14 @@ export function useRemoteBrowser(contextId: string, isVisible = true): RemoteBro
             renderModeRef.current = msg.mode;
             {
               const nativeHost = msg.host === 'native';
-              setState(s => (s.renderMode === msg.mode && s.nativeHost === nativeHost ? s : { ...s, renderMode: msg.mode, nativeHost }));
+              nativeHostRef.current = nativeHost;
+              setState(s => (s.renderMode === msg.mode && s.nativeHost === nativeHost && !s.hostAway ? s : { ...s, renderMode: msg.mode, nativeHost, hostAway: false }));
             }
             break;
           }
+          case 'host_away':
+            setState(s => s.hostAway ? s : { ...s, hostAway: true });
+            break;
           case 'host_share_state':
             setState(s => s.hostSharePaused === !msg.sharing ? s : { ...s, hostSharePaused: !msg.sharing });
             break;

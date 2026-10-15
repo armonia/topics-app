@@ -41,7 +41,7 @@ export interface HostMirrorDeps {
   hosts: DomHostRegistry;
   /** The open sockets of a context. */
   sockets: (contextId: string) => Iterable<MirrorSocket>;
-  browser: Pick<BrowserService, "enableDomMode" | "destroyContext" | "navigate">;
+  browser: Pick<BrowserService, "enableDomMode" | "destroyContext" | "navigate"> & Partial<Pick<BrowserService, "getUrl">>;
   /**
    * How long viewers keep the last mirror after the host drops, before the
    * server's Chromium takes over. The executor socket comes back in 1-2 s after
@@ -59,6 +59,8 @@ export interface HostMirrorDeps {
    */
   askViewport?: (contextId: string) => void;
   now?: () => number;
+  /** Called after the viewers have been attached to a newly declared native host. */
+  onHostReady?: (contextId: string) => void;
 }
 
 const OPEN = 1;
@@ -68,6 +70,10 @@ export function createHostMirror(deps: HostMirrorDeps) {
   const graceMs = deps.fallbackGraceMs ?? 8_000;
   const schedule = deps.schedule ?? ((fn, ms) => { const t = setTimeout(fn, ms); return () => clearTimeout(t); });
   const fallbacks = new Map<string, () => void>();
+  const fallbackContexts = new Set<string>();
+  const returningHostUrls = new Map<string, string>();
+  const seenHosts = new Set<string>();
+  const closed = new WeakSet<MirrorSocket>();
   const hostChunks = new Map<string, BrowserWsChunkAssembler>();
   const now = deps.now ?? Date.now;
   const statusTimers = new Map<string, () => void>();
@@ -173,6 +179,7 @@ export function createHostMirror(deps: HostMirrorDeps) {
       if (hosts.isHosting(contextId)) return;
       if (!bootstrap) {
         // Unsupported (no page / injection failed): force back to video.
+        ws.data._browserSetStream?.(true);
         send(ws, { type: "render_mode", mode: "video" });
         return;
       }
@@ -184,6 +191,7 @@ export function createHostMirror(deps: HostMirrorDeps) {
       ws.data._browserSetStream?.(false);
     }).catch((err: unknown) => {
       console.warn(`[WS][browser] enableDomMode failed for ${contextId}:`, (err as Error)?.message || err);
+      ws.data._browserSetStream?.(true);
       send(ws, { type: "render_mode", mode: "video" });
     });
   };
@@ -202,6 +210,7 @@ export function createHostMirror(deps: HostMirrorDeps) {
     fallbacks.set(contextId, schedule(() => {
       fallbacks.delete(contextId);
       if (hosts.isHosting(contextId) || !hosts.isSharing(contextId) || mirrorsOf(contextId).length === 0) return;
+      fallbackContexts.add(contextId);
       const url = hosts.page(contextId)?.url;
       const opened = url && /^https?:/i.test(url)
         ? browser.navigate(contextId, url).catch(() => null)
@@ -216,6 +225,7 @@ export function createHostMirror(deps: HostMirrorDeps) {
 
   return {
     isHosting: (contextId: string): boolean => hosts.isHosting(contextId),
+    hasSeenHost: (contextId: string): boolean => seenHosts.has(contextId),
     sync,
     enableChromiumDom,
     setSharing(contextId: string, owner: MirrorSocket, active: boolean): boolean {
@@ -256,6 +266,11 @@ export function createHostMirror(deps: HostMirrorDeps) {
         // registry has already turned a second one away.
         if (!ws.data._nativeDelegate) return;
         hostChunks.delete(contextId);
+        seenHosts.add(contextId);
+        if (fallbackContexts.delete(contextId)) {
+          const url = browser.getUrl?.(contextId)?.url;
+          if (url && /^https?:/i.test(url)) returningHostUrls.set(contextId, url);
+        }
         hosts.declare(contextId, ws, (cmd) => { ws.send(JSON.stringify(cmd)); });
         if (!hosts.isSharing(contextId)) ws.send(JSON.stringify({ type: "host_dom_stop" }));
         try { ws.send(JSON.stringify({ type: "native_dom_host_ack" })); } catch { /* socket gone */ }
@@ -265,6 +280,7 @@ export function createHostMirror(deps: HostMirrorDeps) {
         cancelFallback(contextId);
         viewport.noteHostReady(contextId, frame.used === true);
         for (const w of viewersOf(contextId)) attach(w, contextId);
+        deps.onHostReady?.(contextId);
         queueStatus(contextId);
         void browser.destroyContext(contextId).catch((err: unknown) =>
           console.warn(`[WS][browser] destroyContext(${contextId}) after host handover failed:`, (err as Error)?.message));
@@ -296,6 +312,12 @@ export function createHostMirror(deps: HostMirrorDeps) {
         return;
       }
       const { url, title, canGoBack, canGoForward } = frame;
+      const returningUrl = hosts.isHost(contextId, ws) ? returningHostUrls.get(contextId) : undefined;
+      if (hosts.isHost(contextId, ws)) returningHostUrls.delete(contextId);
+      if (returningUrl && /^https?:/i.test(returningUrl) && returningUrl !== url) {
+        hosts.command(contextId, { type: "host_nav", action: "navigate", url: returningUrl });
+        for (const viewer of viewersOf(contextId)) send(viewer, { type: "nav", url: returningUrl, phase: "request" });
+      }
       if (hosts.notePage(contextId, ws, { url, title, canGoBack, canGoForward })) {
         for (const w of viewersOf(contextId)) sendPage(w, contextId);
       }
@@ -367,9 +389,18 @@ export function createHostMirror(deps: HostMirrorDeps) {
 
     /** A socket of the context closed (already out of its socket set). */
     onClose(ws: MirrorSocket, contextId: string): void {
+      // A host lost to the liveness check or to the reaper comes here first,
+      // and again with its socket's own close event: that second call is not a
+      // viewer leaving, and would take the Mac's device off the viewport.
+      if (closed.has(ws)) return;
+      closed.add(ws);
       // The host leaving starts the countdown to the server's Chromium; a
       // mirror leaving may have been the last one on screen.
       if (hosts.withdraw(contextId, ws)) {
+        // With sharing off the viewers already say so, and no fallback follows.
+        if (hosts.isSharing(contextId)) {
+          for (const viewer of viewersOf(contextId)) send(viewer, { type: "host_away" });
+        }
         hostChunks.delete(contextId);
         statusTimers.get(contextId)?.(); statusTimers.delete(contextId);
         scheduleFallback(contextId);

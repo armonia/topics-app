@@ -794,6 +794,7 @@ const EN = {
   'browser.tab.hostWatchingOne': 'Viewed by 1 device',
   'browser.tab.hostWatchingMany': 'Viewed by {n} devices',
   'browser.tab.hostStopped': 'Sharing paused',
+  'browser.tab.hostAway': 'The Mac is not responding. If it does not return, the page will continue on the server.',
   'browser.tab.hostStop': 'Stop sharing',
   'browser.tab.hostResume': 'Share again',
   'browser.tab.hostLastFrame': 'last frame {age} ago',

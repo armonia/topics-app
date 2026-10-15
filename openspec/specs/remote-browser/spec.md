@@ -3021,6 +3021,66 @@ a readable line in the log.
 - **THEN** after 2 seconds both sockets are still open
 - **AND** the viewer rebuilds the same full snapshot, from frames each under 512 KiB and compressed
 
+### Requirement: NATIVE-HOST-06 — A viewer reconnecting after server restart SHALL wait for its native host
+
+A viewer whose last `render_mode` named a native host SHALL identify that fact
+when it reconnects. On a fresh server process, the server SHALL wait at most 10
+seconds for the host before allowing that viewer to start Chromium. During the
+wait it SHALL retain the last `set_render`, `resize`, and navigation request,
+and SHALL drop input and focus queries aimed at the stale page. Stream and
+watching state still apply, but resuming the stream SHALL not start Chromium.
+After a host declaration, the retained frames SHALL use the host mirror route.
+If no host returns, they SHALL be applied once on the ordinary server path.
+Clients without the host hint and contexts hosted earlier in the same process
+keep their existing behavior.
+
+#### Scenario: the host returns during the boot wait
+- **GIVEN** a viewer reconnects with the native host hint to a context unseen by the new server process
+- **WHEN** it sends render mode, size, and navigation frames, then the host declares within 10 seconds
+- **THEN** no screencast, DOM injection, viewport resize, or Chromium navigation starts during the wait
+- **AND** the viewer is attached to the mirror and the retained size and navigation reach the host
+
+#### Scenario: the host does not return
+- **GIVEN** a viewer reconnects with the native host hint and no host declares within 10 seconds
+- **THEN** its stream starts once when active and its latest render mode, size, and navigation request are applied once
+- **AND** input and focus queries sent during the wait are not replayed
+
+### Requirement: NATIVE-HOST-07 — A registered native host SHALL prove its JavaScript is alive
+
+While at least one native executor is registered, the server SHALL send an
+application `host_ping` every 5 seconds. The native pane SHALL answer
+`host_pong`. After a socket has answered at least once, 15 seconds without a
+further answer SHALL withdraw the host, notify its viewers, and close the socket
+with code 1001 so the pane reconnects. Executors that never answered remain on
+the existing 90-second WebSocket protocol timeout for compatibility. The
+90-second browser-socket reaper SHALL also withdraw a registered host.
+
+#### Scenario: the native pane's JavaScript stops responding
+- **GIVEN** a registered executor has answered a `host_ping`
+- **WHEN** it sends no `host_pong` for 15 seconds
+- **THEN** viewers receive `host_away` and see that the Mac is not responding
+- **AND** the host is withdrawn and its socket closes with code 1001
+- **AND** the server fallback takes over after the existing grace period
+
+#### Scenario: a pane running older client code
+- **GIVEN** a registered executor that never answers application pings
+- **WHEN** 15 seconds pass
+- **THEN** it remains registered until the existing 90-second protocol timeout
+
+### Requirement: NATIVE-HOST-08 — A returning host SHALL keep a navigation made during fallback
+
+When the server's Chromium has taken over after the host fallback grace period,
+the server SHALL capture its current URL before destroying that context when the
+host returns. If the URL is HTTP or HTTPS and differs from the returning host's
+reported page, the server SHALL send `host_nav` to the host and a navigation
+message to viewers. Other schemes and equal URLs SHALL not be forwarded.
+
+#### Scenario: a viewer navigates while the host is away
+- **GIVEN** Chromium has taken over the context and a viewer navigates to a new HTTP or HTTPS URL
+- **WHEN** the native host returns on a different URL
+- **THEN** the host receives `host_nav` for the URL Chromium was on, read before Chromium is destroyed
+- **AND** viewers receive that navigation
+
 ### Requirement: BROWSER-DOM-LAYOUT-01 — Each device SHALL lay a page the Mac hosts out at its own size, and the Mac SHALL keep its own
 
 Il 14/10, dopo #313: «l'ultimo browser che attivo fa ridimensionare alla sua

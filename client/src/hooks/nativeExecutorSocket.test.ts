@@ -125,6 +125,14 @@ describe('native pane executor socket', () => {
     expect(h.sockets[0].types()).toEqual(['register_native_executor']);
   });
 
+  /** @covers NATIVE-HOST-07 */
+  test('the native pane answers application liveness pings', () => {
+    const h = harness();
+    h.sockets[0].open();
+    h.sockets[0].frame({ type: 'host_ping' });
+    expect(h.sockets[0].frames().at(-1)).toEqual({ type: 'host_pong' });
+  });
+
   test('every socket, the reconnections too, says at open that it is an executor', () => {
     // The server does not count it as an attached pane until it registered: a
     // navigation sent in between would drive a headless context instead.

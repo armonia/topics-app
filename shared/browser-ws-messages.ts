@@ -280,6 +280,10 @@ const renderModeMessageSchema = z.object({
   host: z.optional(z.literal('native')),
 });
 
+const hostAwayMessageSchema = z.object({ type: z.literal('host_away') });
+const hostPingMessageSchema = z.object({ type: z.literal('host_ping') });
+const hostPongMessageSchema = z.object({ type: z.literal('host_pong') });
+
 /** Server -> client (T1 DOM co-browse): one opaque rrweb event fed straight to
  *  the pane's Replayer (NOT deep-validated — rrweb owns its event shape). */
 const domEventMessageSchema = z.object({
@@ -377,6 +381,9 @@ export const browserWsMessageSchema = z.discriminatedUnion('type', [
   viewportRequestMessageSchema,
   setRenderMessageSchema,
   renderModeMessageSchema,
+  hostAwayMessageSchema,
+  hostPingMessageSchema,
+  hostPongMessageSchema,
   domEventMessageSchema,
   domEventChunkMessageSchema,
   focusFieldMessageSchema,
@@ -428,3 +435,6 @@ export function sendBrowserWsMessage<T extends { send: (data: string) => void }>
  * a navigation sent in between would drive a headless context, not the pane.
  */
 export const NATIVE_EXECUTOR_PARAM = 'executor';
+
+/** Viewer remembers that this context was hosted before the server restarted. */
+export const NATIVE_HOST_PARAM = 'host';
