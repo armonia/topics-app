@@ -720,7 +720,7 @@ export { projectIdForPath as boardIdForPath } from '../../../shared/board';
  * from several places (the global feed: useGlobalBoard's mount read and its
  * WebSocket-open re-read, 84 KB each) becomes one request within the window.
  */
-async function req<T>(path: string, init?: RequestInit, read?: { ttlMs: number }): Promise<T> {
+export async function req<T>(path: string, init?: RequestInit, read?: { ttlMs: number }): Promise<T> {
   const fullInit = interfaceInit(init);
   const resp = read
     ? await coalescedFetch(`/api${path}`, fullInit, read)

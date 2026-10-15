@@ -22,6 +22,7 @@ import { MAX_CHECKS, STATIC_RAILS_CHECK, parseReviewChecks } from "../services/r
 import { linkNotes, proposeLink, type LinkKind } from "../services/task-intake";
 import { isTaskLabel } from "../../shared/task-labels";
 import { stopCauseOf, STOP_CAUSE_HEADER, type StopCause } from "../lib/abort-cause";
+import { ScheduledCardsError, type ScheduledCardsService } from "../services/scheduled-cards";
 import { invalidateProbeCache } from "../services/url-probe-cache";
 import type { TasksRouterOpts, emitReviewReadyEdge } from "./tasks";
 
@@ -73,6 +74,7 @@ export interface BoardRouteDeps {
   readJSON: AppContext["readJSON"];
   broadcastToAll: AppContext["broadcastToAll"];
   svc: TaskService;
+  scheduledCards?: ScheduledCardsService;
   askRouting: AskRoutingDeps;
   landings: LandingQueue;
   emitReviewReadyEdge: typeof emitReviewReadyEdge;
@@ -108,6 +110,7 @@ export function createBoardRoutes(deps: BoardRouteDeps) {
     readJSON,
     broadcastToAll,
     svc,
+    scheduledCards,
     askRouting,
     landings,
     emitReviewReadyEdge,
@@ -131,6 +134,40 @@ export function createBoardRoutes(deps: BoardRouteDeps) {
   } = deps;
 
   return async function boardRoutes(req: Request, pathname: string, method: string): Promise<Response | null> {
+    // A recurrence body as sent: wrong types become empty values and the service refuses them.
+    const scheduledBody = async () => {
+      const body = (await readJSON(req)) as Record<string, unknown> | null;
+      const text = (k: string) => (typeof body?.[k] === "string" ? (body[k] as string) : "");
+      return {
+        text: text("text"), status: text("status"), labels: body?.labels, cron: text("cron"),
+        timeZone: typeof body?.timeZone === "string" ? body.timeZone : undefined,
+        enabled: typeof body?.enabled === "boolean" ? body.enabled : undefined,
+        onlyEnabled: !!body && Object.keys(body).length === 1 && typeof body.enabled === "boolean",
+      };
+    };
+    const scheduledPath = matchRoute(pathname, "/api/boards/:projectId/scheduled-cards");
+    if (scheduledPath && scheduledCards) {
+      const projectId = scheduledPath.projectId;
+      if (method === "GET") return json({ schedules: scheduledCards.list(projectId) });
+      if (method === "POST") {
+        try {
+          const { text, status, labels, cron, timeZone } = await scheduledBody();
+          return json(scheduledCards.create({ projectId, text, status, labels, cron, timeZone }), 201);
+        } catch (error) { return error instanceof ScheduledCardsError ? json({ error: error.message }, error.status) : fail(error); }
+      }
+    }
+    const scheduledItem = matchRoute(pathname, "/api/boards/:projectId/scheduled-cards/:scheduleId");
+    if (scheduledItem && scheduledCards) {
+      const { projectId, scheduleId } = scheduledItem;
+      try {
+        if (method === "PATCH") {
+          const { onlyEnabled, enabled, text, status, labels, cron, timeZone } = await scheduledBody();
+          if (onlyEnabled) return json(scheduledCards.setEnabled(scheduleId, projectId, enabled === true));
+          return json(scheduledCards.update(scheduleId, projectId, { text, status, labels, cron, timeZone, enabled }));
+        }
+        if (method === "DELETE") { scheduledCards.remove(scheduleId, projectId); return json({ ok: true }); }
+      } catch (error) { return error instanceof ScheduledCardsError ? json({ error: error.message }, error.status) : fail(error); }
+    }
     const HUMAN = "user";
     // Presentation metadata only. A caller cannot claim MCP/system through
     // this header, and it never participates in the human permission gates.

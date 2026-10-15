@@ -145,6 +145,8 @@ export function baselinePath(env: NodeJS.ProcessEnv = process.env): string {
 export interface E2eRouterHooks {
   /** One pass of the Claude session reaper at the given clock (`reapOnce`). */
   reapClaudeSessions?: (now: number) => number;
+  /** Advance the recurrence clock and run the real scheduler tick. */
+  advanceScheduledCards?: (now: Date | null) => { created: string[]; skipped: string[] };
 }
 
 export function createE2eRouter(ctx: AppContext, hooks: E2eRouterHooks = {}): RouteHandler {
@@ -166,6 +168,16 @@ export function createE2eRouter(ctx: AppContext, hooks: E2eRouterHooks = {}): Ro
 
   return async function e2eRouter(req: Request, _url: URL, pathname: string, method: string): Promise<Response | null> {
     if (!e2eRoutesEnabled()) return null;
+
+    if (method === "POST" && pathname === "/api/test/scheduled-cards/advance" && hooks.advanceScheduledCards) {
+      const body = await req.json().catch(() => null) as { now?: unknown } | null;
+      if (body?.now === null) {
+        hooks.advanceScheduledCards(null);
+        return json({ ok: true, reset: true });
+      }
+      if (typeof body?.now !== "string" || !Number.isFinite(Date.parse(body.now))) return json({ error: "now must be an ISO date or null" }, 400);
+      return json({ ok: true, ...hooks.advanceScheduledCards(new Date(body.now)) });
+    }
 
     // POST /api/test/route-fault — arms or disarms the latency fault, hot.
     //

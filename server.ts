@@ -94,6 +94,7 @@ import { createGoalsRouter } from "./server/routes/goals";
 import { createOpenClawContextRouter } from "./server/routes/openclaw-context";
 import { createContextPreviewRouter } from "./server/routes/context-preview";
 import { createTaskService, projectIdForPath } from "./server/services/tasks";
+import { createScheduledCards } from "./server/services/scheduled-cards";
 import { createExternalSessionsService } from "./server/services/external-sessions";
 import { createAgentWorktree, worktreeReadyMs, type AgentWorktreeDeps } from "./server/services/worktree-for-agent";
 import { createExternalSessionsRouter } from "./server/routes/external-sessions";
@@ -1179,6 +1180,21 @@ const dispatcherSvc = createTaskService(ctx.db, {
     if (noted) ctx.broadcastToAll({ type: "task:updated", projectId, task: noted });
   },
 });
+let scheduledCardTestNow: Date | null = null;
+const scheduledCards = createScheduledCards(ctx.db, dispatcherSvc, () => scheduledCardTestNow ?? new Date());
+function tickScheduledCards(): { created: string[]; skipped: string[] } {
+  try {
+    const result = scheduledCards.tick();
+    for (const taskId of result.created) {
+      const task = dispatcherSvc.get(taskId)?.task;
+      if (!task) continue;
+      ctx.broadcastToAll({ type: "task:created", projectId: task.projectId, task });
+      if (task.status === "todo") taskDispatcher.onEnterTodo(task.projectId, task.id);
+    }
+    return result;
+  } catch (error) { console.warn("[scheduled-cards] tick failed:", error); }
+  return { created: [], skipped: [] };
+}
 // A delivery note that was waiting on git when the previous process stopped
 // died with it: the deliveries of the last ten minutes that have none are
 // checked again, off the loop like the first time.
@@ -2216,6 +2232,8 @@ const taskDispatcher = createTaskDispatcher({
   slimWorktree: (taskId) => worktreeGc.slimWorktreeOfTask(taskId),
   broadcast: ctx.broadcastToAll,
 });
+const scheduledCardsTimer = setInterval(tickScheduledCards, 15_000);
+scheduledCardsTimer.unref?.();
 
 // Opt-in auto-merge on approve (board setting `dispatchAutoMerge`). Resolves a
 // task → its dispatch topic → worktree → project's main checkout, then merges the
@@ -2645,6 +2663,7 @@ sondaLavoroNonCommittato = async (taskId: string) => {
 // Owned here so the quiescence wait can see lands still queued or running.
 const landingQueue = createLandingQueue({ log: (m) => console.warn(m) });
 const tasksRouter = createTasksRouter(ctx, taskDispatcher, {
+  scheduledCards,
   landings: landingQueue,
   repoRootFor: repoRootForCard,
   workspaceDir: DISPATCH_WORKSPACE_DIR,
@@ -2905,7 +2924,13 @@ const tabsRouter = createTabsRouter(ctx, browserService);
 const viewsRouter = createViewsRouter(ctx);
 // Reset della suite E2E. Si auto-disarma (risponde 404) se TOPICS_E2E ≠ "1",
 // che è il caso di ogni server non di test — vedi server/routes/e2e.ts.
-const e2eRouter = createE2eRouter(ctx, { reapClaudeSessions: (t) => claudeSessionTracker.reapOnce(t) });
+const e2eRouter = createE2eRouter(ctx, {
+  reapClaudeSessions: (t) => claudeSessionTracker.reapOnce(t),
+  advanceScheduledCards: (value) => {
+    scheduledCardTestNow = value;
+    return value ? tickScheduledCards() : { created: [], skipped: [] };
+  },
+});
 
 const claudeHooksRouter = createClaudeHooksRouter(ctx, claudeSessionTracker);
 // Replay JSONL tails for any session whose state was lost on the previous

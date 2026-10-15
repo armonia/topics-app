@@ -5092,3 +5092,36 @@ spento» 1,12:1.
 - **WHEN** axe e il calcolo sui fondi composti leggono la colonna
 - **THEN** nessun testo SHALL stare sotto il contrasto minimo
 
+### Requirement: KANBAN-95 — Card a calendario
+
+**Una ricorrenza della board SHALL creare una card normale all'ora giusta**, secondo una regola cron
+a cinque campi nel fuso IANA scritto nella ricorrenza (di default quello del browser di chi la
+crea). La card nasce nella colonna e con le etichette della ricorrenza, e da lì vale l'auto-dispatch
+della board come per ogni altra card.
+
+**Se la card nata dall'occorrenza precedente è ancora aperta** (non `done` né archiviata), **la
+nuova SHALL essere saltata**, con il motivo scritto nell'ultimo esito della ricorrenza.
+
+**Dopo uno spegnimento SHALL nascere al massimo UNA card** per le occorrenze perse, non una per
+ciascuna. Un riavvio non perde né duplica un'occorrenza: lo stato vive nel database, non in memoria.
+
+**Ogni occorrenza del calendario locale SHALL dare al massimo una card**, anche col cambio d'ora:
+l'orario ripetuto d'autunno ne dà una, quello inesistente di primavera nessuna.
+
+**Dalla board si SHALL vedere e gestire ogni ricorrenza:** interruttore acceso/spento, prossima
+esecuzione nel suo fuso, ultimo esito (creata, saltata e perché), modifica ed eliminazione.
+
+#### Scenario: la card nasce al tick giusto
+- **GIVEN** una ricorrenza «ogni lunedì alle 9» a Roma
+- **WHEN** l'orologio arriva a lunedì 9:00
+- **THEN** SHALL nascere una card, e non prima di quell'ora
+
+#### Scenario: la precedente aperta fa saltare la successiva
+- **GIVEN** la card del lunedì precedente è ancora aperta
+- **WHEN** arriva il lunedì successivo
+- **THEN** nessuna card SHALL nascere, e l'ultimo esito SHALL dire «saltata» col motivo
+
+#### Scenario: tre settimane spento, una card sola
+- **GIVEN** il server è rimasto spento per tre lunedì
+- **WHEN** riparte
+- **THEN** SHALL nascere una sola card

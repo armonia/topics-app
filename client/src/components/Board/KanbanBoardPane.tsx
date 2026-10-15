@@ -62,6 +62,7 @@ import { taskActionWord } from './taskActionWords';
 import { TaskDetail } from './TaskDetail';
 import { OrchestratorDrawer } from './OrchestratorDrawer';
 import { BoardSettingsPanel } from './BoardSettingsPanel';
+import { ScheduledCardsControl } from './ScheduledCardsControl';
 import { GlobalOnlySettingsPanel } from './BoardSettingsSections';
 import { POPOVER_ITEM } from '@/lib/popoverStyles';
 import { MISSIONS, type Mission } from '../../lib/missions';
@@ -1889,6 +1890,7 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, loadHi
           title={boardLayout === 'list' ? tr('board.toolbar.viewMode.list') : tr('board.toolbar.viewMode.kanban')}
         >{boardLayout === 'list' ? <Kanban className="h-3.5 w-3.5" /> : <List className="h-3.5 w-3.5" />}</button>
         <div className="ml-auto flex items-center gap-2">
+          {hasProject && mode === 'project' && <ScheduledCardsControl projectId={projectId} />}
           {/* THE COUNT IS GONE (asked on 29/08): in "all" mode the toggle two
               controls to the left already says which scope you are in, and the
               readout restated it in words next to a number nobody acts on. A
