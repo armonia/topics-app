@@ -7,21 +7,23 @@ landabile per conto suo**: se il 2 si ferma, il guasto resta chiuso.
 
 ## Stadio 0 — identità deterministica (PANE-AUTH-04)
 
-- [ ] 0.1 `adapters/paneConfig.ts:102`: le pane-vista singleton di progetto (git,
+- [x] 0.1 `adapters/paneConfig.ts:102`: le pane-vista singleton di progetto (git,
   files, dashboard, activity, browser…) smettono di nascere con
   `${type}:${generateUUID()}` e derivano l'id da `(projectPath, type)`.
   **Verifica:** unit — lo stesso progetto e lo stesso tipo danno lo stesso id su due
   «dispositivi» simulati.
-- [ ] 0.2 `hooks/useProjectChatSync.ts:326-336`: il dedup per TIPO
+- [x] 0.2 `hooks/useProjectChatSync.ts:326-336`: il dedup per TIPO
   (`localSingletonTypes`) diventa superfluo e va rimosso, non lasciato come doppia
   difesa. **Verifica:** aprire la stessa vista su due client non produce duplicati,
   e il test che oggi copre il dedup per tipo viene riscritto sull'id.
-- [ ] 0.3 **Migrazione degli id vivi**: le pane-vista già aperte hanno id casuali.
+- [x] 0.3 **Migrazione degli id vivi**: le pane-vista già aperte hanno id casuali.
   Rimapparle al boot con `PANE_ID_REMAP`, preservando `stableKey`
   (`reducers/panes.ts:729-730`). **Verifica:** una WKWebView aperta **non rimonta**
   durante la rimappatura — misurato col conteggio dei processi WebContent, non a
-  occhio (`residency/policy.ts` indicizza per `stableKey ?? id`).
-- [ ] 0.4 Presidio: un test che fallisce se una pane-vista di progetto torna a
+  occhio (`residency/policy.ts` indicizza per `stableKey ?? id`). La misura WebContent
+  non si applica alle singleton di progetto: nessuna ospita WKWebView; il browser usa un
+  id dal contesto.
+- [x] 0.4 Presidio: un test che fallisce se una pane-vista di progetto torna a
   nascere con un uuid casuale. **Verifica:** rosso se si ripristina `generateUUID()`.
 
 ## Stadio 1 — la causalità sostituisce gli orologi (PANE-AUTH-02) — **FATTO 2026-08-06**

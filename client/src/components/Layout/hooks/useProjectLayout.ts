@@ -99,6 +99,8 @@ import { useToast } from '../../Shared/Toast';
 import { useT } from '../../../hooks/useT';
 import { tracePaneAttach } from '../../../lib/paneAttachTrace';
 import { apiFetch } from '../../../lib/shell/net';
+import { createProjectSingletonPaneId, isProjectSingletonPaneType } from '../../../state/pane/adapters/paneConfig';
+import { migrateProjectPaneIdentity } from './projectPaneIdentity';
 
 // --- Module-local helpers (mirrors of ProjectWindow.tsx helpers) ---
 
@@ -316,10 +318,11 @@ export function useProjectLayout(args: UseProjectLayoutArgs): UseProjectLayoutRe
         preview: false,
       });
     }
-    return seed;
+    return migrateProjectPaneIdentity(projectPath, seed, initial?.groups || []).panes;
   });
   const [groups, setGroups] = useState<PaneGroup[]>(() => {
-    return (initial?.groups || [])
+    const migrated = migrateProjectPaneIdentity(projectPath, initial?.nonChatPanes || [], initial?.groups || []);
+    return migrated.groups
       .map(g => ({ ...g, paneIds: g.paneIds.filter(id => id !== wrapperPaneId) }))
       .filter(g => g.paneIds.length > 0);
   });
@@ -1090,6 +1093,21 @@ export function useProjectLayout(args: UseProjectLayoutArgs): UseProjectLayoutRe
     return () => window.removeEventListener('close-focused-pane', handler);
   }, [wrapperPaneId, focusedGroupIdRef, groupsRef]);
 
+  // A project singleton view has one id per project (PANE-AUTH-04): opening it
+  // again focuses the open one instead of minting a second pane with that id.
+  // One that sits in no group yet is placed by orphan-sync.
+  const focusOpenSingleton = useCallback((type: PaneType): string | null => {
+    if (!isProjectSingletonPaneType(type)) return null;
+    const open = panes.find(p => p.type === type);
+    if (!open) return null;
+    const holder = groups.find(g => g.paneIds.includes(open.id));
+    if (holder) {
+      setFocusedGroupId(holder.id);
+      setGroups(prev => prev.map(g => (g.id === holder.id ? { ...g, activePaneId: open.id } : g)));
+    }
+    return open.id;
+  }, [panes, groups]);
+
   const handleAddPaneToGroup = useCallback(
     async (groupId: string, type: PaneType, subType?: string, paneKey?: string) => {
       const config = getPaneConfig(type);
@@ -1099,6 +1117,8 @@ export function useProjectLayout(args: UseProjectLayoutArgs): UseProjectLayoutRe
       if (type !== 'chat' && type !== 'terminal' && type !== 'browser') {
         clearViewTombstone(projectPath, type);
       }
+      const openSingleton = focusOpenSingleton(type);
+      if (openSingleton) return openSingleton;
       if (config.singleton) {
         const targetGroup = groups.find(g => g.id === groupId);
         const groupPaneIds = new Set(targetGroup?.paneIds || []);
@@ -1127,7 +1147,9 @@ export function useProjectLayout(args: UseProjectLayoutArgs): UseProjectLayoutRe
         // paneKey makes the id deterministic (browser panes use it so a
         // terminal-originated open registers its CDP target under the same
         // `term-<id>` the server's observe/act routes resolve to).
-        paneId = createPaneId(type, paneKey);
+        paneId = isProjectSingletonPaneType(type)
+          ? createProjectSingletonPaneId(projectPath, type)
+          : createPaneId(type, paneKey);
         paneTitle = config.label;
         // Re-opening a browser retracts any close tombstone for its context, so
         // the seed filter above won't suppress it on the next reload. Symmetric
@@ -1203,7 +1225,7 @@ export function useProjectLayout(args: UseProjectLayoutArgs): UseProjectLayoutRe
       setFocusedGroupId(groupId);
       return paneId;
     },
-    [panes, groups, projectPath, claudeSkipPermissions, toast, tr],
+    [panes, groups, projectPath, claudeSkipPermissions, toast, tr, focusOpenSingleton],
   );
 
   // Pin the latest handleAddPaneToGroup into the forward-declared ref so the
@@ -1224,6 +1246,8 @@ export function useProjectLayout(args: UseProjectLayoutArgs): UseProjectLayoutRe
       if (type !== 'chat' && type !== 'terminal' && type !== 'browser') {
         clearViewTombstone(projectPath, type);
       }
+      const openSingleton = focusOpenSingleton(type);
+      if (openSingleton) return openSingleton;
 
       let paneId: string;
       let paneTitle: string;
@@ -1237,7 +1261,9 @@ export function useProjectLayout(args: UseProjectLayoutArgs): UseProjectLayoutRe
         paneId = createPaneId('terminal', data.id);
         paneTitle = data.name || paneTitle;
       } else {
-        paneId = createPaneId(type, paneKey);
+        paneId = isProjectSingletonPaneType(type)
+          ? createProjectSingletonPaneId(projectPath, type)
+          : createPaneId(type, paneKey);
         paneTitle = config.label;
       }
 
@@ -1274,7 +1300,7 @@ export function useProjectLayout(args: UseProjectLayoutArgs): UseProjectLayoutRe
       setFocusedGroupId(newGroupId);
       return paneId;
     },
-    [projectPath, claudeSkipPermissions, toast, tr],
+    [projectPath, claudeSkipPermissions, toast, tr, focusOpenSingleton],
   );
 
   // Pinned each render, come `handleAddPaneToGroupRef`: l'effetto browser è
