@@ -14,10 +14,19 @@
 - Unit mirati per layout e finestra, più i contratti della colonna e la stabilità degli ID: 26 pass, 0 fail. `typecheck:e2e` comprende la compilazione della nuova e2e.
 - Nessuna dipendenza aggiunta. `check:bloat` exit 0 dopo aver spostato la finestra in `VirtualizedCards.tsx`; `git diff --check` exit 0.
 
+## Revisione (15/10)
+
+- Nel ramo non virtualizzato (Review, Done) le card avevano perso la `key`: React le avrebbe riconciliate per indice. Tornata in `renderCard`.
+- `COLVOL-03` (`board-column-volume.spec.ts`) asseriva ancora 30 card disegnate in todo: con la finestra sarebbe stato rosso. Ora conta i bersagli (card più segnaposto = 30), scorre in fondo alla colonna e trascina l'ultima card, che la finestra lì disegna.
+- La e2e nuova teneva il puntatore sul bordo e aspettava che la card n. 70 fosse in vista mentre l'autoscroll correva: con i poll fra 100 e 1.000 ms poteva sorpassarla. Ora scorre oltre 3.000 px, torna al centro (l'autoscroll si ferma) e lascia lì; la card deve finire oltre quelle disegnate all'inizio. La lista del server si ordina col comparatore del prodotto (`compareTasks`), perché la rotta non promette un ordine.
+- Ripristinati, in inglese come vuole il cricchetto, i commenti che spiegavano la misura del 15/08 e perché Review e Done si sfogliano, e quello sull'attesa di una risposta.
+
 ## Trovato e non fatto
 
 - Esecuzione browser/video non fatta sul Mac come impone `BRIEF-locale.md`. La CI deve eseguire lo scenario DOM sotto 5.000 nodi, la nuova `board-virtualized-drag.spec.ts` e le spec richieste: `board-drag-frames`, `board-drag-renders`, `board-column-volume`, `board-motion-contract`, `board-task-flow`, `board.spec`, `drag-preview`, `drag-no-text-selection`, `refresh-durability-board`, `split-dnd-matrix`. Revisione indipendente e prova video restano alla verifica CI.
 - Mutazione non eseguita in locale. Punto preciso: `client/src/components/Board/VirtualizedCards.tsx`, selezione `visibleIds`; mutarla affinché contenga ogni ID e monti ogni `Card` completa. L'e2e combinata deve allora superare 5.000 nodi e diventare rossa.
+
+- Le altezze si misurano solo per le card disegnate (stima 184 px per le altre): risalendo dopo un salto con la barra di scorrimento, le card misurate sopra la finestra spostano quelle sotto, e il contenuto sotto gli occhi salta. Serve compensare `scrollTop` della differenza.
 
 ## Rifiutato
 
