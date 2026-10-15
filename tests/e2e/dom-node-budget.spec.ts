@@ -72,7 +72,12 @@ async function recordBudget(page: import("@playwright/test").Page, testInfo: imp
       const element = order[i];
       sizes.set(element, 1 + [...element.children, ...(element.shadowRoot ? Array.from(element.shadowRoot.children) : [])].reduce((sum, child) => sum + (sizes.get(child) ?? 0), 0));
     }
+    // The ten biggest subtrees are the chain of ancestors, each a node smaller
+    // than its parent: they say nothing. Where the weight splits, no child
+    // holds 90% of it, and that element is who weighs.
+    const heaviestChild = (element: Element) => Math.max(0, ...[...element.children, ...(element.shadowRoot ? Array.from(element.shadowRoot.children) : [])].map((child) => sizes.get(child) ?? 0));
     const topTen = order
+      .filter((element) => heaviestChild(element) < 0.9 * (sizes.get(element) ?? 1))
       .map((element) => ({ element: `${element.tagName.toLowerCase()}${element.id ? `#${element.id}` : ""}${element.getAttribute("data-testid") ? `[${element.getAttribute("data-testid")}]` : ""}${typeof element.className === "string" && element.className ? `.${element.className.trim().split(/\s+/).slice(0, 2).join(".")}` : ""}`, nodes: sizes.get(element) ?? 1 }))
       .sort((a, b) => b.nodes - a.nodes)
       .slice(0, 10);
