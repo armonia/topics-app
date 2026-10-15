@@ -1,5 +1,25 @@
 # D5d — Domanda a lato
 
+## Giro 3
+
+**Barra prima:** e2e CI run `38672203747` rossa: `POST /side-question` 201, fork avviato, poi DELETE dopo 34 ms; il client leggeva prima della chiusura del turno. Mutazione in `/private/tmp/d5d-giro3-mutation` con l’implementazione del giro 2: `bun test /private/tmp/d5d-giro3-mutation/sideQuestion.test.ts` exit 1 atteso, 0 pass e 1 fail (`no-answer` prima che arrivasse la risposta).
+
+**Barra dopo:** `bun test client/src/components/Chat/sideQuestion.test.ts` exit 0, 4 pass e 15 asserzioni; `bun run typecheck` exit 0, 5/5; `bun run lint` exit 0, 4 warning preesistenti; `bun run check:bloat` exit 0; `git diff --check` exit 0. `ChatPane.tsx`: 2179 righe, tetto 2212.
+
+### Fatto
+
+- `/btw` si sottoscrive al registro turni e allo store della sessione; dopo l’invio accettato aspetta la chiusura del turno e mostra l’ultimo messaggio assistente non parziale aggiunto in quel turno. Turno chiuso senza testo produce `no-answer`.
+- La chiusura del pannello abortisce l’attesa e rimuove entrambi gli ascoltatori. `runSideQuestionFork` garantisce una sola cancellazione del fork; test: 0 ascoltatori rimasti, 1 chiamata di chiusura.
+- Tetto scelto: 120 secondi sull’intera richiesta, cronologia e invio compresi. Una richiesta oltre il limite si traduce in `no-answer`, così il cleanup esistente può cancellare il fork.
+
+### Trovato e non fatto
+
+- E2E browser/video non rilanciata localmente, come stabilito dal brief; la rilancia la CI. La run 38672203747 è la prova del difetto iniziale.
+
+### Rifiutato
+
+- Nessun altro difetto nello scope; ChatPane non è stato modificato e resta sotto il tetto.
+
 ## Giro 2
 
 **Barra prima:** 0/4 requisiti del giro 2 dimostrati; il working tree conteneva il giro 1. I comandi non erano stati eseguiti prima di iniziare questo giro.
