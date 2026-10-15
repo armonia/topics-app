@@ -3128,3 +3128,18 @@ answered sat on "Avvio sessione condivisa…" for as long as anybody looked.
 - **WHEN** the device reloads the app before the server gives up
 - **THEN** the reloaded pane is told the same wait, counted from the first request
 - **AND** the failure comes when the first request runs out of time, not a full timeout after the reload
+
+### Requirement: BROWSER-DOM-MASK-01 — Il mirror SHALL mascherare i campi di pagamento e i codici monouso
+
+La copia DOM inviata ai dispositivi SHALL sostituire il valore dei campi con
+`autocomplete` uguale a `cc-number`, `cc-csc`, `cc-exp`, `cc-exp-month`,
+`cc-exp-year` o `one-time-code`: nello snapshot iniziale, nei campi aggiunti
+alla pagina dopo lo snapshot, nei valori impostati come attributo e in ogni
+digitazione. Gli altri campi di testo SHALL conservare il proprio valore.
+
+#### Scenario: il mirror non mostra numeri di carta né codici monouso
+- **GIVEN** una pane Mac con campi di testo per il numero carta, il codice CVV e un codice monouso
+- **WHEN** il mirror riceve lo snapshot e poi le modifiche a quei campi
+- **THEN** i valori di tutti e tre i campi sono mascherati nello snapshot e dopo la digitazione
+- **AND** un campo carta montato dopo lo snapshot arriva mascherato anche lui
+- **AND** il valore di un campo testo normale resta leggibile nel mirror

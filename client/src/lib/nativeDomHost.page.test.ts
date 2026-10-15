@@ -42,6 +42,7 @@ function world() {
       contains: (o: { parentElement?: unknown }) => { for (let m: unknown = o; m; m = (m as { parentElement?: unknown }).parentElement) if (m === e) return true; return false; },
       scrollTo: () => { log.push(`${name} cannot scroll`); },
       dispatchEvent: (ev: { type: string }) => { log.push(`${name} <- ${ev.type}`); return true; },
+      getAttribute: (attribute: string) => ((extra.attributes as Record<string, string> | undefined)?.[attribute] ?? null),
       ...extra,
     };
     els.push(e);
@@ -61,7 +62,7 @@ function world() {
   nodes.set(1, doc); ids.set(doc, 1);
   nodes.set(2, root); ids.set(root, 2);
   const mirror = { getNode: (id: number) => nodes.get(id) ?? null, getId: (n: object) => ids.get(n) ?? -1 };
-  const hooks: { emit?: (e: unknown) => void } = {};
+  const hooks: { emit?: (e: unknown) => void; options?: Record<string, unknown> } = {};
   const win: Record<string, unknown> = {
     innerWidth: 1000, innerHeight: 800,
     getComputedStyle: (e: { __style?: Record<string, string> } | null) => ({ position: 'static', overflowY: 'visible', overflowX: 'visible', ...e?.__style }),
@@ -72,7 +73,7 @@ function world() {
     'document', 'window', 'MouseEvent', 'WheelEvent', 'Event', 'KeyboardEvent', 'getComputedStyle', '__mirror', '__hooks',
     `return ${js}`,
   )(doc, win, Ev, Ev, Ev, Ev, win.getComputedStyle, mirror, hooks);
-  run(armJs('var rrweb={record:function(o){__hooks.emit=o.emit;return function(){}}};rrweb.record.mirror=__mirror;'));
+  run(armJs('var rrweb={record:function(o){__hooks.emit=o.emit;__hooks.options=o;return function(){}}};rrweb.record.mirror=__mirror;'));
   const host = win.__topicsDomHost as { q: Array<{ data: { anchor?: unknown } }> };
   return { log, root, body, el, run, hooks, host, win };
 }
@@ -100,6 +101,97 @@ describe('a tap from a mirror laid out on its own', () => {
     w.el('button', { top: 380, left: 0, width: 200, height: 40 }, w.body, 13);
     w.run(inputJs('click', { x: 40, y: 400 }));
     expect(w.log).toContain('button <- click');
+  });
+});
+
+/**
+ * Values marked for private entry stay out of the device mirror, while ordinary text remains visible.
+ *
+ * @covers BROWSER-DOM-MASK-01
+ */
+describe('private entry fields in a device mirror', () => {
+  for (const purpose of ['cc-number', 'one-time-code', 'cc-csc']) {
+    test(`${purpose} is masked in the initial snapshot and after typing`, () => {
+      const w = world();
+      const input = w.el('input', { top: 0, left: 0, width: 100, height: 20 }, w.body, 50, {
+        attributes: { autocomplete: purpose },
+      });
+      const value = 'private-value';
+      const snapshot = {
+        type: 2,
+        data: {
+          node: {
+            type: 2,
+            tagName: 'input',
+            id: 50,
+            attributes: { autocomplete: purpose, value },
+            childNodes: [],
+          },
+        },
+      };
+
+      w.hooks.emit!(snapshot);
+      const change = { type: 3, data: { source: 5, id: 50, text: value } };
+      w.hooks.emit!(change);
+      expect([
+        (snapshot.data.node as { attributes: { value: string } }).attributes.value,
+        change.data.text,
+      ]).toEqual(['*'.repeat(value.length), '*'.repeat(value.length)]);
+      expect(input.getAttribute('autocomplete')).toBe(purpose);
+    });
+  }
+
+  test('a card field mounted after the snapshot, or given its value as an attribute, is masked', () => {
+    const w = world();
+    w.el('input', { top: 0, left: 0, width: 100, height: 20 }, w.body, 52, {
+      attributes: { autocomplete: 'cc-number' },
+    });
+    const value = '4111111111111111';
+    const added = {
+      type: 3,
+      data: {
+        source: 0, texts: [], removes: [], attributes: [] as unknown[],
+        adds: [{ parentId: 2, nextId: null, node: { type: 2, tagName: 'input', id: 53, attributes: { autocomplete: 'cc-number', value }, childNodes: [] } }],
+      },
+    };
+    const changed = {
+      type: 3,
+      data: { source: 0, texts: [], removes: [], adds: [] as unknown[], attributes: [{ id: 52, attributes: { value } }] },
+    };
+    w.hooks.emit!(added);
+    w.hooks.emit!(changed);
+    expect([
+      added.data.adds[0].node.attributes.value,
+      changed.data.attributes[0].attributes.value,
+    ]).toEqual(['*'.repeat(value.length), '*'.repeat(value.length)]);
+  });
+
+  test('ordinary text remains visible in the initial snapshot and after typing', () => {
+    const w = world();
+    w.el('input', { top: 0, left: 0, width: 100, height: 20 }, w.body, 51, {
+      attributes: { autocomplete: 'name' },
+    });
+    const value = 'Ada Lovelace';
+    const snapshot = {
+      type: 2,
+      data: {
+        node: {
+          type: 2,
+          tagName: 'input',
+          id: 51,
+          attributes: { autocomplete: 'name', value },
+          childNodes: [],
+        },
+      },
+    };
+
+    w.hooks.emit!(snapshot);
+    const change = { type: 3, data: { source: 5, id: 51, text: value } };
+    w.hooks.emit!(change);
+    expect([
+      (snapshot.data.node as { attributes: { value: string } }).attributes.value,
+      change.data.text,
+    ]).toEqual([value, value]);
   });
 });
 
