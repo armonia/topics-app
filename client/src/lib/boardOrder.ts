@@ -91,29 +91,29 @@ const compareDone = (a: OrderableTask, b: OrderableTask): number => {
 };
 
 /**
- * Quante card di una colonna si DISEGNANO, e quante restano dietro un «mostra
- * altri».
+ * How many cards of a column are DRAWN, and how many wait behind a "show more".
  *
- * Misurato sulla macchina viva il 15/08/2026: 449 dei 467 task radice sono
- * `done`. Ogni card è un sottoalbero React vivo — memo, chip, anteprima, il
- * nodo sortable che dnd-kit registra — quindi la colonna che nessuno guarda
- * costava quanto tutte le altre messe insieme, a ogni render della board.
+ * Measured on the live machine on 15/08/2026: 449 of the 467 root tasks were
+ * `done`. Every card is a live React subtree (memo, chips, preview, the sortable
+ * node dnd-kit registers), so the column nobody looks at cost as much as all the
+ * others together, on every board render.
  *
- * Il tetto vale SOLO su Review e Done, e la ragione è la stessa che le fa
- * ordinare per data (`compareReview` / `compareDone`): lì non si riordina a
- * mano, si entra e basta. Nelle tre colonne di lavoro il tetto toglierebbe una
- * card dal registro di dnd-kit — cioè un bersaglio di drop — e quello è un
- * gesto che si rompe in silenzio: backlog, todo e in_progress si disegnano
- * INTERE, sempre.
+ * The cap holds ONLY on Review and Done, for the reason that orders them by date
+ * (`compareReview` / `compareDone`): nobody reorders them by hand, one only goes
+ * in. In the three working columns a card taken out of dnd-kit's registry is a
+ * drop target that no longer exists, a gesture that breaks in silence: there the
+ * cards are virtualized (`VirtualizedCards.tsx`), and each one outside the window
+ * leaves a sortable placeholder with its rect. Measured on 15/10/2026 with 1,155
+ * backlog cards: 20,309 DOM nodes drawing them all (`dom-node-budget.spec.ts`).
  */
 export const COLUMN_PAGE = 25;
 
-/** Le colonne a data, che si sfogliano. Le altre si disegnano intere (vedi `COLUMN_PAGE`). */
+/** The dated columns, which page. The others are virtualized (see `COLUMN_PAGE`). */
 export function isPagedColumn(status: TaskStatus): boolean {
   return status === 'review' || status === 'done';
 }
 
-/** La fetta disegnata di una colonna e quante card restano fuori (0 = tutte dentro). */
+/** The drawn slice of a column and how many cards stay out (0 = all in). */
 export function columnSlice<T>(
   status: TaskStatus,
   tasks: readonly T[],

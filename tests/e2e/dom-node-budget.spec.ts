@@ -16,9 +16,6 @@ hermetic(test);
 
 const MESSAGE_COUNT = 2_000;
 const DOM_BUDGET = 5_000;
-// The board's hand-ordered columns draw every card: 20,309 nodes in CI on 15/10/2026, with
-// 1,155 backlog cards. A ratchet until those columns are virtualized (D2 step 3), then DOM_BUDGET.
-const BOARD_CEILING = 21_000;
 const PROJECT_PATH = canonicalTmpDir("e2e-dom-node-budget");
 const PROJECT_ID = projectIdForPath(PROJECT_PATH);
 const topicIds: string[] = [];
@@ -110,7 +107,6 @@ test.describe.serial("DOM node budget @nightly", () => {
     await seedTranscript(request, sessionKey, MESSAGE_COUNT, `DOM${Date.now()}`);
 
     // The 15/10/2026 live distribution: 1,155 backlog, 21 todo, 1 review, 4,156 done.
-    // Backlog and todo render in full; review and done page at COLUMN_PAGE.
     for (let i = 0; i < 1_155; i++) await createTask(request, "backlog", i);
     for (let i = 0; i < 21; i++) await createTask(request, "todo", i);
     await createTask(request, "review", 0);
@@ -136,7 +132,7 @@ test.describe.serial("DOM node budget @nightly", () => {
     await recordBudget(page, testInfo, "transcript");
   });
 
-  test("transcript e board con carico vivo entro il tetto della board", async ({ page, request }, testInfo) => {
+  test("transcript e board con carico vivo entro 5.000 nodi", async ({ page, request }, testInfo) => {
     testInfo.annotations.push({ type: "spec", description: "IDLE-01 (D2e transcript plus board DOM budget)" });
     await resetPaneStore(request, ["__board__", topic.id]);
     await goToApp(page);
@@ -147,10 +143,10 @@ test.describe.serial("DOM node budget @nightly", () => {
     await expect(page.locator(`[data-pane-shell="${topic.id}"]`)).toBeVisible();
     await expect(page.getByTestId("kanban-board")).toBeVisible();
     await readWholeThreadThenRest(page, topic.id);
-    await expect(page.getByTestId("kanban-column-body-backlog").locator("[data-task-card]")).toHaveCount(1_155, { timeout: 120_000 });
-    await expect(page.getByTestId("kanban-column-body-todo").locator("[data-task-card]")).toHaveCount(21, { timeout: 30_000 });
-    await expect(page.getByTestId("kanban-column-body-review").locator("[data-task-card]")).toHaveCount(1, { timeout: 30_000 });
-    await expect(page.getByTestId("kanban-column-body-done").locator("[data-task-card]")).toHaveCount(COLUMN_PAGE, { timeout: 30_000 });
-    await recordBudget(page, testInfo, "transcript-board", BOARD_CEILING);
+    await expect(page.getByTestId("kanban-column-count-backlog")).toHaveText("1155", { timeout: 120_000 });
+    await expect(page.getByTestId("kanban-column-count-todo")).toHaveText("21", { timeout: 30_000 });
+    await expect(page.getByTestId("kanban-column-count-review")).toHaveText("1", { timeout: 30_000 });
+    await expect(page.getByTestId("kanban-column-count-done")).toHaveText("26", { timeout: 30_000 });
+    await recordBudget(page, testInfo, "transcript-board");
   });
 });

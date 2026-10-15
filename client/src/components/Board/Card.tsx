@@ -61,17 +61,20 @@ import { POPOVER_DIVIDER, POPOVER_ITEM, POPOVER_ITEM_DANGER } from '@/lib/popove
 import { BoardCommandHint } from './BoardCommandHint';
 import { getProvidersSnapshotState, subscribeProvidersSnapshot } from '../../lib/providersSnapshotStore';
 import { cardRunsThroughTopics } from '../../lib/topicsRoutingGate';
+import { readVirtualViewport, scrollParentOf } from '../../lib/boardVirtualViewport';
+import { VirtualizedCards } from './VirtualizedCards';
 
 // ── Column ────────────────────────────────────────────────────────────────
 // The droppable SHELL, for the same reason as `Card` below: during a drag the
 // header re-ran on every over change; `ColumnBody` only sees `isOver` flip.
 export function Column(props: ColumnProps) {
   const { setNodeRef, isOver, active } = useDroppable({ id: props.status });
-  return <ColumnBody {...props} setNodeRef={setNodeRef} isOver={isOver} dragging={active !== null} />;
+  return <ColumnBody {...props} setNodeRef={setNodeRef} isOver={isOver} dragging={active !== null} activeId={active ? String(active.id) : null} />;
 }
 
 type ColumnProps = {
   status: TaskStatus; tasks: BoardTask[]; onOpen: OpenTask; onCreate: (text: string) => void;
+  activeId?: string | null;
   canCreate: boolean; showProject: boolean; onRefetch: () => void;
   /** L'errore dell'ULTIMA azione fallita, con la card a cui appartiene: la
    *  colonna lo consegna solo a quella, il resto riceve `null`. */
@@ -113,7 +116,7 @@ type ColumnProps = {
   viewKey?: string;
 };
 
-const ColumnBody = memo(function ColumnBody({ status, tasks, onOpen, onCreate, canCreate, showProject, cardError, onCardError, onRefetch, onOpenTopic, resolveSession, tasksById, projectPathById, liveById, awaitingHuman, justMoved, justCreated, archived = false, draft, onOpenSettings, layout = 'grid', viewKey, setNodeRef, isOver, dragging }: ColumnProps & {
+const ColumnBody = memo(function ColumnBody({ status, tasks, onOpen, onCreate, canCreate, showProject, cardError, onCardError, onRefetch, onOpenTopic, resolveSession, tasksById, projectPathById, liveById, awaitingHuman, justMoved, justCreated, archived = false, draft, onOpenSettings, layout = 'grid', viewKey, setNodeRef, isOver, dragging, activeId }: ColumnProps & {
   setNodeRef: (element: HTMLElement | null) => void; isOver: boolean; dragging: boolean;
 }) {
   const tr = useT();
@@ -123,6 +126,8 @@ const ColumnBody = memo(function ColumnBody({ status, tasks, onOpen, onCreate, c
   // QUANTE card si disegnano. La regola (e il perché vale solo su Review e Done)
   // sta in `columnSlice`; qui c'è solo la memoria di quante ne hai chieste.
   const [shown, setShown] = useState(() => (viewKey === undefined ? COLUMN_PAGE : recallColumnPages(viewKey, status)));
+  const [virtualViewport, setVirtualViewport] = useState({ top: 0, height: 0 });
+  const virtualBodyRef = useRef<HTMLDivElement | null>(null);
   useEffect(() => {
     if (viewKey !== undefined) rememberColumnPages(viewKey, status, shown);
   }, [viewKey, status, shown]);
@@ -130,16 +135,53 @@ const ColumnBody = memo(function ColumnBody({ status, tasks, onOpen, onCreate, c
   // Infinite scroll: the next page comes as the column's tail comes into view, never while a card is carried.
   const moreRef = useLoadOnReach(() => setShown((n) => n + COLUMN_PAGE), { more: slice.hidden > 0, loading: false, count: slice.rows.length, enabled: !dragging }, layout);
   // Stable identity across the board's 4s live-usage tick: SortableContext gets a
-  // fresh array only when the task set actually changes, not every render. Gli id
-  // sono quelli DISEGNATI: un id senza nodo nel registro di dnd-kit è un
-  // bersaglio che non esiste.
+  // fresh array only when the task set actually changes, not every render. The
+  // ids are the ones REGISTERED in dnd-kit: an id without a node is a target that
+  // does not exist. In the working columns that is all of them, because
+  // `VirtualizedCards` leaves a sortable placeholder for every card out of the
+  // window; in Review and Done, the page.
   //
   // Keyed on the ids, not on `slice`: the column array is new on every
   // `task:updated` (one row changed), and a new `items` array is a new
   // SortableContext value, which re-renders every `useSortable` card under it
   // at identical props. Same ids in the same order = the same array.
-  const idsKey = slice.rows.map((t) => t.id).join('\n');
+  const virtualized = status === 'backlog' || status === 'todo' || status === 'in_progress';
+  const sortableRows = virtualized ? tasks : slice.rows;
+  const idsKey = sortableRows.map((t) => t.id).join('\n');
   const itemIds = useMemo(() => (idsKey ? idsKey.split('\n') : []), [idsKey]);
+  const onVirtualScroll = useCallback((element: HTMLDivElement | null) => {
+    virtualBodyRef.current = element;
+    if (element) setVirtualViewport(readVirtualViewport(element));
+  }, []);
+  useEffect(() => {
+    const body = virtualBodyRef.current;
+    if (!virtualized || !body) return;
+    const scroller = scrollParentOf(body) ?? body;
+    const update = () => setVirtualViewport(readVirtualViewport(body));
+    update();
+    const resizeObserver = new ResizeObserver(update);
+    resizeObserver.observe(body);
+    if (scroller !== body) resizeObserver.observe(scroller);
+    scroller.addEventListener('scroll', update, { passive: true });
+    return () => { resizeObserver.disconnect(); scroller.removeEventListener('scroll', update); };
+  }, [virtualized, layout]);
+  const renderCard = useCallback((t: BoardTask) => (
+    <Card
+      key={t.id} task={t} onOpen={onOpen} showProject={showProject} onRefetch={onRefetch} onOpenTopic={onOpenTopic}
+      error={cardError?.taskId === t.id ? cardError.message : null}
+      onError={onCardError}
+      sessionState={resolveSession?.(t.assignedTopicId) ?? 'unknown'}
+      parentTitle={t.parentTaskId ? tasksById.get(t.parentTaskId)?.text : undefined}
+      projectPath={projectPathById.get(t.projectId)}
+      live={liveById.get(t.id)}
+      // The live event OR the thread: the first dies with the process, the
+      // second does not, and an unanswered question survives a restart.
+      awaiting={awaitingHuman.has(t.id) || !!t.awaitingAnswer}
+      justMovedTo={justMoved.get(t.id)}
+      justCreated={justCreated.has(t.id)}
+      archived={archived}
+    />
+  ), [onOpen, showProject, onRefetch, onOpenTopic, cardError, onCardError, resolveSession, tasksById, projectPathById, liveById, awaitingHuman, justMoved, justCreated, archived]);
 
   // Responsive columns. The board is a scroll-snap carousel at EVERY breakpoint:
   // each column `snap-center`s to the middle as its own "slide", so whenever the
@@ -266,29 +308,24 @@ const ColumnBody = memo(function ColumnBody({ status, tasks, onOpen, onCreate, c
           composer is the floor. The fixed `pb-36` left the last card 3px above
           the composer on a 390x844 phone. 9rem is the old value, kept only as
           the fallback for the first frame before the measure lands. */}
-      <div data-testid={`kanban-column-body-${status}`} className={layout === 'list' ? 'space-y-2 px-2 pt-1.5' : 'flex-1 space-y-2 overflow-y-auto px-2 pt-1.5 pb-[max(var(--board-bottom-clear,9rem),calc(var(--mobile-band-own-h,0px)+1rem))] scrollbar-standard'}>
+      <div
+        ref={virtualized ? onVirtualScroll : undefined}
+        data-testid={`kanban-column-body-${status}`}
+        className={layout === 'list' ? 'space-y-2 px-2 pt-1.5' : 'flex-1 space-y-2 overflow-y-auto px-2 pt-1.5 pb-[max(var(--board-bottom-clear,9rem),calc(var(--mobile-band-own-h,0px)+1rem))] scrollbar-standard'}
+      >
         {/* THE GHOST OF THE CARD BEING WRITTEN, in the column it will land in
             and at the top, where a new card lands. Outside the sortable list:
             it is not a card yet and nothing can drag it. */}
         {draft && <DraftCard draft={draft} />}
         <SortableContext items={itemIds} strategy={verticalListSortingStrategy}>
-          {slice.rows.map((t) => (
-            <Card
-              key={t.id} task={t} onOpen={onOpen} showProject={showProject} onRefetch={onRefetch} onOpenTopic={onOpenTopic}
-              error={cardError?.taskId === t.id ? cardError.message : null}
-              onError={onCardError}
-              sessionState={resolveSession?.(t.assignedTopicId) ?? 'unknown'}
-              parentTitle={t.parentTaskId ? tasksById.get(t.parentTaskId)?.text : undefined}
-              projectPath={projectPathById.get(t.projectId)}
-              live={liveById.get(t.id)}
-              // The live event OR the thread: the first dies with the process, the
-              // second does not, and an unanswered question survives a restart.
-              awaiting={awaitingHuman.has(t.id) || !!t.awaitingAnswer}
-              justMovedTo={justMoved.get(t.id)}
-              justCreated={justCreated.has(t.id)}
-              archived={archived}
+          {virtualized ? (
+            <VirtualizedCards
+              tasks={tasks}
+              activeId={activeId}
+              viewport={virtualViewport}
+              renderCard={renderCard}
             />
-          ))}
+          ) : slice.rows.map((t) => renderCard(t))}
         </SortableContext>
         {/* La coda della colonna: quante card ci sono ancora e il gesto per
             tirarne su un'altra pagina. Si dice il numero perché una colonna

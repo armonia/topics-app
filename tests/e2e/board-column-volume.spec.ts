@@ -17,10 +17,9 @@
  *  2. **The tail comes up.** The show-more row is there, says how many are
  *     left, and reaching it by scrolling adds ONE page by itself (LIST-PAGE-01):
  *     nothing is hidden for good, and nothing arrives in bulk.
- *  3. **Le colonne di LAVORO non si toccano.** Backlog, Todo e In Progress si
- *     disegnano intere anche a trenta card, perché lì si trascina: una card non
- *     disegnata è un bersaglio di drop che non esiste, e un gesto che muore in
- *     silenzio è il difetto peggiore di tutti.
+ *  3. **Le colonne di LAVORO si virtualizzano senza perdere bersagli.** Le
+ *     card fuori finestra conservano un nodo sortable leggero, e la card
+ *     trascinata resta montata anche quando esce dalla viewport.
  *
  * La regola pura (quale colonna, quante card) è in `client/src/lib/boardOrder.ts`
  * e provata in `boardOrder.test.ts`; questa spec prova che la board la applichi
@@ -218,18 +217,24 @@ test.describe("Kanban — il volume di una colonna", () => {
     expect(await cardsIn(page, "done").count(), "one page per reach, not a chain").toBe(COLUMN_PAGE * 2);
   });
 
-  test("COLVOL-03: le colonne di LAVORO restano intere, e la card in fondo si trascina", async ({ page }) => {
+  test("COLVOL-03: le colonne di LAVORO tengono un bersaglio per ogni card, e la card in fondo si trascina", async ({ page }) => {
     await page.goto("/");
     await openProjectBoard(page);
     await expect(cardsIn(page, "todo").first()).toBeVisible({ timeout: 20000 });
 
     // Nessun tetto dove si trascina: TODO_SEEDED è sopra la pagina di Done
-    // apposta, così il test distingue «intera» da «una pagina».
-    await expect.poll(() => cardsIn(page, "todo").count(), { timeout: 10000 }).toBe(TODO_SEEDED);
+    // apposta, così il test distingue «tutte» da «una pagina». Una card fuori
+    // dalla finestra non si disegna, ma resta un bersaglio: il suo segnaposto.
+    const body = page.getByTestId("kanban-column-body-todo");
+    const targets = async () => (await cardsIn(page, "todo").count()) + (await body.locator("[data-sortable-placeholder]").count());
+    await expect.poll(targets, { timeout: 10000 }).toBe(TODO_SEEDED);
     await expect(page.getByTestId("kanban-column-more-todo")).toHaveCount(0);
 
-    // E la prova che «intera» significa ANCHE trascinabile: l'ultima card della
-    // colonna, quella che un tetto avrebbe tolto per prima, cambia colonna.
+    // E la prova che «bersaglio» significa ANCHE trascinabile: l'ultima card
+    // della colonna, quella che un tetto avrebbe tolto per prima, cambia
+    // colonna. In fondo alla colonna la finestra la disegna.
+    await body.evaluate((el) => { el.scrollTop = el.scrollHeight; });
+    await expect(body.locator("[data-board-virtual-list] > *").last().locator("[data-task-card]")).toHaveCount(1);
     const ultima = cardsIn(page, "todo").last();
     const id = await ultima.getAttribute("data-task-card");
     await ultima.scrollIntoViewIfNeeded();

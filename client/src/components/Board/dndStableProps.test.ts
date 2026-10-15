@@ -70,7 +70,7 @@ describe('kanban sensors are referentially stable', () => {
     const deps = /\[([^\]]*)\]\s*$/.exec(memoCall![1]!.trim())?.[1]?.split(',').map((d) => d.trim()) ?? [];
     expect(deps, 'itemIds must not depend on an array that is new on every frame').not.toContain('slice');
     expect(deps).toEqual(['idsKey']);
-    expect(card).toMatch(/const idsKey = slice\.rows\.map\(\(t\) => t\.id\)\.join\(/);
+    expect(card).toMatch(/const idsKey = sortableRows\.map\(\(t\) => t\.id\)\.join\(/);
   });
 
   test('the card stays memoized: without it a stable context buys nothing', () => {
