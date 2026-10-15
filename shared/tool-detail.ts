@@ -50,7 +50,7 @@ export const TOPICS_BRIDGE_TOOLS: ReadonlySet<string> = new Set([
 /** The in-app browser tools (`server/browser-tool-spec.ts`), also bare. */
 export const TOPICS_BROWSER_TOOLS: ReadonlySet<string> = new Set([
   "browser_open", "browser_observe", "browser_act", "browser_extract", "browser_get_text",
-  "browser_screenshot", "browser_read_screen", "browser_console", "browser_network", "browser_eval",
+  "browser_screenshot", "browser_verify", "browser_read_screen", "browser_console", "browser_network", "browser_eval",
   "browser_save_state", "browser_load_state", "browser_point", "browser_import_chrome",
   "browser_status", "browser_upload",
 ]);

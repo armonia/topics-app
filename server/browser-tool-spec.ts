@@ -197,6 +197,34 @@ export const BROWSER_TOOL_SPECS: BrowserToolSpec[] = [
     readOnly: true,
   },
   {
+    name: "browser_verify",
+    description:
+      "After changing code for a page open in this pane, reload it and verify the result. Pass checks for the changed text, visibility, or computed CSS. Returns a screenshot plus console errors and failed requests from this reload; each check reports pass/fail and the value found.",
+    schema: {
+      type: "object",
+      properties: {
+        url: { type: "string", description: "Optional absolute URL to open instead of reloading the current page." },
+        checks: {
+          type: "array",
+          description: "Up to 30 checks. Text uses substring matching; style values must match exactly.",
+          items: {
+            type: "object",
+            properties: {
+              selector: { type: "string" },
+              text: { type: "string" },
+              visible: { type: "boolean" },
+              style: { type: "object", additionalProperties: { type: "string" } },
+            },
+            required: ["selector"],
+          },
+        },
+      },
+      required: [],
+    },
+    surfaces: { passthrough: true, mcp: true },
+    readOnly: false,
+  },
+  {
     name: "browser_read_screen",
     description:
       "The DEFAULT way to visually check a page: SEE the current pane via a vision model and get a TEXT description/answer back — WITHOUT loading any image into your context and WITHOUT any file to decode. Pass `question` for a specific query (e.g. \"is the layout correct?\", \"is there a captcha?\", \"what's the error?\"), else you get a caption. Prefer this over browser_screenshot for any \"does it look right / what's on screen\" check; reach for browser_screenshot only when you genuinely need the raw image file.",

@@ -582,6 +582,7 @@ describe("handleMessage", () => {
       "browser_extract",
       "browser_get_text",
       "browser_screenshot",
+      "browser_verify",
       "browser_read_screen",
       "browser_console",
       "browser_network",
@@ -692,6 +693,8 @@ describe("handleMessage", () => {
       "open_browser_pane", "close_browser_pane", "browser_focus_tab", "import_chrome",
       "browser_act", "browser_eval", "browser_save_state", "browser_load_state",
       "browser_upload",
+      // It reloads or navigates the page before it reads it.
+      "browser_verify",
       "run_script", "run_command", "stop_process",
       "create_task", "update_task", "close_goal", "set_goal", "update_goal_steps",
       "comment_task", "label_task", "wait_for_condition",

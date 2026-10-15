@@ -368,6 +368,31 @@ fails, and SHALL let a session that owns no pane list and drive another topic's 
 - **WHEN** `server/routes/topics.ts` is read
 - **THEN** it contains no occurrence of `browserTargetIdCache`, `BROWSER ISOLATION`, `isolationInstruction` or `BrowserIsolation`
 
+### Requirement: BROWSER-CHAT-06 — The browser identifies a selected component and verifies a page after a change
+
+The browser selector SHALL include framework component metadata when a development build
+exposes it. The metadata SHALL identify React, Vue 3, or Svelte, include the source location of the
+selected element when available (where its markup is written, not where its component is used), and never invent a component name when the framework metadata is absent. React owner
+inspection SHALL stop after 200 fibers and list no more than five owners. `browser_verify` SHALL
+reload the current pane or navigate to the supplied URL, wait for the load event (external
+stylesheets included) for at most 15 seconds, save a screenshot to a file and return its path, never
+the image data, return console errors and failed requests from that load, and evaluate optional CSS
+selector checks for text, visibility, or exact computed-style values. It SHALL be available to
+the browser agent through REST and MCP and on native panes.
+
+#### Scenario: A selected React element names its component and source
+- **GIVEN** a React development page with source metadata on the selected element
+- **WHEN** the human selects an element in the browser pane
+- **THEN** the chat context includes DOM, computed styles, the selected-area screenshot, and the component name, file, line, and owners
+
+#### Scenario: Verify reports the CSS value after a page reload
+- **GIVEN** a local fixture page open in a browser pane and a CSS edit that changes its background color
+- **WHEN** the agent calls `browser_verify` with a check for the new color
+- **THEN** the response includes a screenshot and the check passes with the new computed value
+- **WHEN** the agent checks for the old color
+- **THEN** the check fails and reports the new value found
+- **AND** console errors and failed requests are limited to the reload performed by this call
+
 ### Requirement: BROWSER-CHAT-04 — Opening, driving and closing a browser pane from a topic
 
 The system SHALL mount a remote browser pane inside a topic from the chat surface, SHALL

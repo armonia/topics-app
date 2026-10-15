@@ -410,7 +410,8 @@ test.describe("BROWSER-CHAT-04 browser tab open + agent integration (@plan-30-05
     }
   });
 
-  test("BROWSER-CHAT-04f: Cmd+Shift+E enters select-element mode and click populates chat input [@plan-30-05]", async ({ page, browserProcessPageV2, request }) => {
+  test("BROWSER-CHAT-04f: Cmd+Shift+E enters select-element mode and click populates chat input [@plan-30-05]", async ({ page, browserProcessPageV2, request }, testInfo) => {
+    testInfo.annotations.push({ type: "spec", description: "BROWSER-CHAT-06" });
     await browserProcessPageV2.mockBrowserWs({ framesPerSecond: 15 });
     await browserProcessPageV2.mockWebrtcPeer(); // select-element maps against the <video> surface
     await browserProcessPageV2.mockBrowserContexts([]);
@@ -439,6 +440,7 @@ test.describe("BROWSER-CHAT-04 browser tab open + agent integration (@plan-30-05
       htmlTruncated: false,
       ancestors: ["body", "div.wrap"],
       styles: { display: "block", "font-size": "32px" },
+      component: { framework: "React", name: "PriceCard", file: "src/cards/PriceCard.tsx", line: 42, owners: ["Pricing", "App"] },
       viewport: { w: 1280, h: 720 },
       url: "https://example.com",
       // 1×1 PNG trasparente: al test serve che l'evento parta, non cosa mostra.
@@ -528,6 +530,7 @@ test.describe("BROWSER-CHAT-04 browser tab open + agent integration (@plan-30-05
       expect(text).toContain('<h1 class="title">Example Domain</h1>');
       expect(text).toContain("```css");
       expect(text).toContain("font-size: 32px;");
+      expect(text).toContain("- componente: PriceCard (src/cards/PriceCard.tsx:42), dentro Pricing › App");
 
       // Il ritaglio arriva come allegato, non come testo.
       const images = await page.evaluate(

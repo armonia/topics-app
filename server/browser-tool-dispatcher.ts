@@ -32,6 +32,7 @@ import {
   writeAgentScreenshot,
   resolveAgentNavUrl,
 } from "./browser-tools-handler";
+import { handleBrowserVerify, type BrowserVerifyCheck } from "./browser-verify";
 import type { BrowserActAction } from "./browser-tools";
 import { isPassthroughProvider } from "./browser-tools-adapters";
 import { describeImage, pointObject } from "./integrations/moondream-client";
@@ -267,6 +268,7 @@ export function describeBrowserAction(toolName: string, args: ToolCallArgs): str
     case "browser_save_state": return "Salva la sessione";
     case "browser_load_state": return "Ripristina la sessione";
     case "browser_screenshot": return "Cattura uno screenshot";
+    case "browser_verify": return "Verifica la pagina dopo la modifica";
     case "browser_point": return "Individua un elemento";
     case "browser_import_chrome": return "Importa i login da Chrome";
     default: return "Al lavoro";
@@ -352,6 +354,10 @@ export async function dispatchBrowserToolCallByContext(
     const form = nativeDelegateRegistry.isDelegated(contextId) ? "relative" : "absolute";
     args = { ...args, url: resolveAgentNavUrl(args.url, "browser_open", form) };
   }
+  if (toolName === "browser_verify" && typeof args.url === "string") {
+    const form = nativeDelegateRegistry.isDelegated(contextId) ? "relative" : "absolute";
+    args = { ...args, url: resolveAgentNavUrl(args.url, "browser_verify", form) };
+  }
   // browser_upload: read the file bytes ONCE here (neither the WKWebView nor the
   // Playwright page can read local disk), then hand the base64 to whichever
   // surface renders the pane — the native executor evals UPLOAD_FN on Tauri, the
@@ -378,6 +384,18 @@ export async function dispatchBrowserToolCallByContext(
     // the web pane) so the agent never gets a base64 blob it can't view.
     if (toolName === "browser_screenshot") {
       return nativeScreenshotOp(contextId);
+    }
+    if (toolName === "browser_verify") {
+      // delegateOp resolves to the executor's `result` itself, as for observe.
+      const verified = await nativeDelegateRegistry.delegateOp(contextId, toolName, args);
+      if (!verified || typeof verified !== "object" || "error" in verified) return verified;
+      const payload = { ...(verified as Record<string, unknown>) };
+      delete payload.screenshot;
+      const screenshot = await nativeScreenshotOp(contextId).catch(() => null);
+      const shot = screenshot && typeof screenshot === "object" && !("error" in screenshot)
+        ? screenshot as { format: string; path: string; bytes: number }
+        : undefined;
+      return { ...payload, ...(shot ? { screenshot: shot } : {}) };
     }
     // Observe with `screenshot: true`: the native executor has no annotator, so
     // asking it alone answered a snapshot and NO image, quietly - the caller had
@@ -433,6 +451,8 @@ export async function dispatchBrowserToolCallByContext(
     case "browser_screenshot":
       // Args validated by handler
       return handleBrowserScreenshot(browserService, contextId, args as { full_page?: boolean });
+    case "browser_verify":
+      return handleBrowserVerify(browserService, contextId, args as { url?: string; checks?: BrowserVerifyCheck[] });
     case "browser_point":
       // Args validated by handler
       return handleBrowserPoint(browserService, contextId, args as { description: string });

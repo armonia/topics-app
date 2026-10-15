@@ -80,7 +80,7 @@ export function clearBrowserCaches(contextId: string): void {
  * try/finally lock helper. Broadcasts agent_active=true on entry and
  * agent_active=false on exit -- guaranteed even if fn throws.
  */
-async function withLock<T>(
+export async function withLock<T>(
   service: BrowserService,
   contextId: string,
   fn: () => Promise<T>
