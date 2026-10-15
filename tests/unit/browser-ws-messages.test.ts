@@ -194,7 +194,7 @@ function variantsOf(schema: any): any[] {
 }
 
 describe('schema completeness', () => {
-  test('all 23 protocol variants are present', () => {
+  test('all 26 protocol variants are present', () => {
     // Snapshot test: if a new variant is added to the schema, this count
     // must be updated — forcing the test author to also document it.
     // Grew from 6 → 17 with the server↔pane co-browse control channel
@@ -215,8 +215,12 @@ describe('schema completeness', () => {
     // size), so the server has to ask, and only the heir is asked.
     // 23 is `dom_event_chunk`: a DOM event too large for one frame (a full
     // snapshot of a heavy page) travels in pieces the viewer puts back together.
+    // 24-26 are the pause switch of a page shared from the Mac (D4c):
+    // `set_native_host_sharing` (the host turns sharing off or on),
+    // `native_host_status` (server to host: sharing, devices watching, rate,
+    // delay) and `host_share_state` (server to viewers: paused or resumed).
     const variantCount = variantsOf(browserWsMessageSchema).length;
-    expect(variantCount).toBe(23);
+    expect(variantCount).toBe(26);
   });
 
   test('every variant uses a unique `type` literal', () => {
@@ -235,6 +239,7 @@ describe('schema completeness', () => {
         'set_watching', 'set_render', 'render_mode', 'dom_event',
         'webrtc_offer', 'webrtc_answer', 'webrtc_ice', 'focus_field',
         'focus_query', 'viewers', 'viewport_request', 'dom_event_chunk',
+        'set_native_host_sharing', 'native_host_status', 'host_share_state',
       ]),
     );
   });
