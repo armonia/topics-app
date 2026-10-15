@@ -60,6 +60,10 @@ export interface PartialSweepDb {
 /** Il risultato di un singolo giro del partial sweep. */
 export interface SweepResult { cleared: number; kept: number }
 
+/** The chats with a half-written message: read through `idx_messages_partial`,
+ *  which holds only those rows (db-sweep-plans.test.ts checks the plan). */
+export const PARTIAL_SESSIONS_SQL = "SELECT DISTINCT session_key AS sk FROM messages WHERE partial = 1";
+
 /**
  * Esegue il partial sweep su un database gia' aperto.
  *
@@ -87,9 +91,7 @@ export function runBootPartialSweep(
   const { listConfirmed, liveSessions, generateId, now } = opts;
   let cleared = 0, kept = 0;
 
-  const skRows = db
-    .query("SELECT DISTINCT session_key AS sk FROM messages WHERE partial = 1")
-    .all() as Array<{ sk: string }>;
+  const skRows = db.query(PARTIAL_SESSIONS_SQL).all() as Array<{ sk: string }>;
 
   for (const row of skRows) {
     // Teniamo il segnale mid-turn quando:
