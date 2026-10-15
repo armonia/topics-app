@@ -995,8 +995,11 @@ const CardBody = memo(function CardBody({ task, onOpen, showProject, error, onEr
       onBlurCapture={(event) => {
         if (!event.currentTarget.contains(event.relatedTarget as Node | null)) closeSessionPeek();
       }}
+      // Composed, like `onTouchStart` below: a bare `onKeyDown` after the spread replaces
+      // dnd-kit's keyboard activator, and Space stops lifting the card.
       onKeyDown={(event) => {
-        if (event.key === 'Escape' && sessionPeekOpen) { event.preventDefault(); closeSessionPeek(); }
+        if (event.key === 'Escape' && sessionPeekOpen) { event.preventDefault(); closeSessionPeek(); return; }
+        listeners?.onKeyDown?.(event);
       }}
       {...cardLongPress.handlers}
       // AFTER both spreads, and on purpose: this is the composed one (see
