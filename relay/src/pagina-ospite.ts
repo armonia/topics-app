@@ -121,12 +121,25 @@ if (!chiave || !m) {
   const finito = () => mostra('Questo link non è più valido',
     ['Può essere scaduto, oppure chi lo ha creato lo ha revocato.']);
 
-  const ws = new WebSocket(location.origin.replace(/^http/,'ws') + '/s/' + inst);
+  const ws = new WebSocket(location.origin.replace(/^http/,'ws') + '/s/' + inst + '?shareRef=' + encodeURIComponent(ref));
   ws.onerror = spenta;
   ws.onclose = (e) => { if (e.code !== 1000) spenta(); };
 
   ws.onmessage = async (ev) => {
-    let msg; try { msg = JSON.parse(ev.data); } catch { return; }
+    let msg;
+    try { msg = JSON.parse(ev.data); } catch {
+      ws.close(4002, 'invalid relay message');
+      return;
+    }
+    const valido = msg && typeof msg === 'object' && (
+      (msg.t === 'ready' && msg.v === 1 && typeof msg.sessionId === 'string' && msg.sessionId.length > 0)
+      || (msg.t === 'denied' && ['bad-version','bad-token','unknown-installation','expired','revoked','host-offline'].includes(msg.motivo))
+      || (msg.t === 'to-guest' && typeof msg.to === 'string' && msg.to.length > 0 && typeof msg.payload === 'string')
+    );
+    if (!valido) {
+      ws.close(4002, 'invalid relay message');
+      return;
+    }
     if (msg.t === 'denied') return spenta();
     if (msg.t === 'ready') {
       ws.send(JSON.stringify({ t:'to-host',

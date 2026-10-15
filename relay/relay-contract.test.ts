@@ -12,7 +12,7 @@ import { describe, expect, it } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
-const SORGENTE = ["src/worker.ts", "src/relay-do.ts"]
+const SORGENTE = ["src/worker.ts", "src/relay-do.ts", "src/pagina-ospite.ts"]
   .map((f) => readFileSync(join(import.meta.dir, f), "utf8"))
   .join("\n");
 
@@ -39,6 +39,14 @@ describe("relay · il guardiano guarda davvero", () => {
     expect(/\.accept\(\s*\)/.test(finto)).toBe(true);
     expect(finto.includes("addEventListener")).toBe(true);
     expect(/cookie/i.test(finto)).toBe(true);
+  });
+});
+
+describe("relay · un involucro invalido chiude entrambi i capi", () => {
+  it("il Durable Object, la macchina e la pagina ospite usano il codice 4002", () => {
+    expect(CODICE).toContain("RELAY_BAD_MESSAGE_CLOSE");
+    expect(CODICE).toContain("s.close(RELAY_BAD_MESSAGE_CLOSE");
+    expect(CODICE).toContain("ws.close(4002");
   });
 });
 
@@ -200,7 +208,7 @@ describe("relay · non decide chi sei (RELAY-04)", () => {
     expect(CODICE).toContain("topics_inst");
   });
 
-  it("l'unica cosa che il Worker VERIFICA è che un nome sia il digest di un segreto", () => {
+  it("il Worker verifica la sua prova di trasporto, senza credenziali Topics", () => {
     // Questo caso esiste perché il controllo sulla porta della macchina è un
     // allargamento di RELAY-04, e un allargamento va guardato invece che
     // subìto.
@@ -217,10 +225,12 @@ describe("relay · non decide chi sei (RELAY-04)", () => {
     // ovunque — il relay avrebbe cominciato a tenere un registro di chi è
     // autorizzato, cioè la seconda autorità sull'identità che RELAY-04 esiste
     // per non avere.
-    expect(CODICE).toContain("segretoCorrisponde");
+    expect(CODICE).toContain("verificaProvaHost");
+    expect(CODICE).toContain("INTESTAZIONE_PROVA_HOST");
     expect(CODICE).toContain("relay-identita");
     // Nessuna chiave che arrivi dalla configurazione del Worker: un segreto
     // condiviso fra tutte le installazioni sarebbe uno solo da rubare.
+    expect(CODICE).not.toMatch(/topics_device|topics_session|headers\.get\(["']authorization["']\)/i);
     expect(CODICE).not.toMatch(/env\.[A-Z_]*(KEY|SECRET|SEGRETO|TOKEN)/);
   });
 

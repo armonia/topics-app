@@ -29,7 +29,7 @@ import { describe, expect, it } from "bun:test";
 import { SessioneRelay } from "./src/relay-do";
 import worker from "./src/worker";
 import { creaRelayFinto } from "../shared/relay-fake";
-import { derivaRelayId, INTESTAZIONE_SEGRETO } from "../shared/relay-identita";
+import { creaIdentitaRelay, creaProvaHost, INTESTAZIONE_PROVA_HOST } from "../shared/relay-identita";
 import { leggiMessaggio, type MessaggioRelay } from "../shared/relay-protocol";
 
 // ───────────────────────────────────────────────────────────────────────────
@@ -97,6 +97,11 @@ function CoppiaFinta(this: unknown) {
  */
 class StatoFinto {
   private tag = new Map<CapoFinto, string[]>();
+  private valori = new Map<string, unknown>();
+  storage = {
+    get: async <T>(key: string) => this.valori.get(key) as T | undefined,
+    put: async (key: string, value: unknown) => { this.valori.set(key, value); },
+  };
 
   acceptWebSocket(ws: CapoFinto, tags: string[] = []): void {
     this.tag.set(ws, tags);
@@ -131,10 +136,11 @@ function scena() {
   const stato = new StatoFinto();
   const oggetto = new SessioneRelay(stato as unknown as StatoDelDO);
 
-  async function collega(ruolo: string, upgrade = true): Promise<Aggancio> {
+  async function collega(ruolo: string, upgrade = true, shareRef: string | null = "r1"): Promise<Aggancio> {
     ultimaCoppia = null;
+    const riferimento = ruolo === "guest" && shareRef !== null ? `&shareRef=${encodeURIComponent(shareRef)}` : "";
     const res = await oggetto.fetch(new Request(
-      `https://relay.test/x?ruolo=${encodeURIComponent(ruolo)}`,
+      `https://relay.test/x?ruolo=${encodeURIComponent(ruolo)}${riferimento}`,
       upgrade ? { headers: { upgrade: "websocket" } } : {},
     ));
     const coppia = ultimaCoppia;
@@ -142,12 +148,17 @@ function scena() {
     // chi chiama guarda `res`.
     const suo = coppia ? coppia[1] : new CapoFinto();
     const mio = coppia ? coppia[0] : new CapoFinto();
+    if (ruolo === "host" && coppia) {
+      await oggetto.webSocketMessage(suo as unknown as WebSocket, JSON.stringify({ t: "share-refs", refs: ["r1"] }));
+    }
     return { suo, mio, res };
   }
 
   /** Un messaggio ricevuto dal relay su quella socket, come fa il runtime. */
   const parla = (a: Aggancio, m: unknown) =>
-    oggetto.webSocketMessage(a.suo as unknown as WebSocket, JSON.stringify(m));
+    a.suo.readyState === WebSocket.OPEN
+      ? oggetto.webSocketMessage(a.suo as unknown as WebSocket, JSON.stringify(m))
+      : Promise.resolve();
 
   /** Il filo cade. Il runtime chiama il metodo e poi la socket sparisce
    *  dall'elenco: qui si riproduce lo stesso ordine. */
@@ -207,7 +218,10 @@ function scenaWorker() {
 
   return {
     /** Un aggancio WebSocket su un percorso, con le intestazioni che servono. */
-    collega: (percorso: string, extra: Record<string, string> = {}) => chiedi(percorso, true, extra),
+    collega: (percorso: string, extra: Record<string, string> = {}) => {
+      const conRef = percorso.startsWith("/s/") && !percorso.includes("?") ? `${percorso}?shareRef=r1` : percorso;
+      return chiedi(conRef, true, extra);
+    },
     /**
      * L'aggancio della MACCHINA, con la preimmagine del nome.
      *
@@ -215,7 +229,15 @@ function scenaWorker() {
      * un test finisce per provare il rifiuto invece della cosa che voleva
      * provare — e quel rifiuto assomiglia molto a «funziona».
      */
-    macchina: (p: PuntoDIncontro) => chiedi(`/agent/${p.id}`, true, { [INTESTAZIONE_SEGRETO]: p.segreto }),
+    macchina: async (p: PuntoDIncontro) => {
+      const host = await chiedi(`/agent/${p.id}`, true, {
+        [INTESTAZIONE_PROVA_HOST]: await creaProvaHost(p.segreto, p.id),
+      });
+      if (host.res.status === 101) {
+        await nodo(p.id).webSocketMessage(host.suo as unknown as WebSocket, JSON.stringify({ t: "share-refs", refs: ["r1"] }));
+      }
+      return host;
+    },
     /** Una richiesta normale, senza upgrade. */
     semplice: (percorso: string) => chiedi(percorso, false),
     nodi,
@@ -233,8 +255,9 @@ interface PuntoDIncontro { segreto: string; id: string }
  * l'inoltro.
  */
 async function puntoDIncontro(seme: string): Promise<PuntoDIncontro> {
-  const segreto = `segreto-di-prova-${seme}-0123456789abcdef`;
-  return { segreto, id: await derivaRelayId(segreto) };
+  void seme;
+  const identita = await creaIdentitaRelay();
+  return { segreto: identita.segreto, id: identita.relayId };
 }
 
 // ───────────────────────────────────────────────────────────────────────────
@@ -366,11 +389,14 @@ describe("worker eseguito · le tre porte", () => {
 
     // Chi ha SOLO il nome — cioè chiunque abbia ricevuto un link.
     const senza = await w.collega(`/agent/${p.id}`);
-    const sbagliato = await w.collega(`/agent/${p.id}`, { [INTESTAZIONE_SEGRETO]: "un-altro-segreto-lungo-abbastanza" });
-    // Vuoto e quasi-giusto contano come sbagliati: un digest di stringa vuota è
-    // comunque un digest, e senza il rifiuto anticipato verrebbe confrontato.
-    const vuoto = await w.collega(`/agent/${p.id}`, { [INTESTAZIONE_SEGRETO]: "" });
-    const troncato = await w.collega(`/agent/${p.id}`, { [INTESTAZIONE_SEGRETO]: p.segreto.slice(0, -1) });
+    const altra = await creaIdentitaRelay();
+    const sbagliato = await w.collega(`/agent/${p.id}`, {
+      [INTESTAZIONE_PROVA_HOST]: await creaProvaHost(altra.segreto, altra.relayId),
+    });
+    const vuoto = await w.collega(`/agent/${p.id}`, { [INTESTAZIONE_PROVA_HOST]: "" });
+    const troncato = await w.collega(`/agent/${p.id}`, {
+      [INTESTAZIONE_PROVA_HOST]: await creaProvaHost(p.segreto, p.id, Date.now() - 60_001),
+    });
 
     for (const [nome, a] of [["senza", senza], ["sbagliato", sbagliato], ["vuoto", vuoto], ["troncato", troncato]] as const) {
       // Lo stesso corpo di un nome che non esiste: a chi bussa senza la
@@ -412,6 +438,29 @@ describe("worker eseguito · le tre porte", () => {
 // ───────────────────────────────────────────────────────────────────────────
 
 describe("relay-do eseguito · un canale di SESSIONE, non un link", () => {
+  it("rifiuta all'aggancio un ospite senza riferimento dichiarato dall'host", async () => {
+    const s = scena();
+    const host = await s.collega("host");
+    const prima = host.mio.arrivati.length;
+    const senza = await s.collega("guest", true, null);
+    const sconosciuto = await s.collega("guest", true, "non-dichiarato");
+    expect(senza.res.status).toBe(404);
+    expect(sconosciuto.res.status).toBe(404);
+    expect(sessioneDi(senza)).toBe("");
+    expect(sessioneDi(sconosciuto)).toBe("");
+    expect(host.mio.arrivati).toHaveLength(prima);
+  });
+
+  it("limita a cinque le socket ospite contemporanee", async () => {
+    const s = scena();
+    await s.collega("host");
+    const ospiti = await Promise.all(Array.from({ length: 5 }, () => s.collega("guest")));
+    expect(ospiti.every((ospite) => ospite.res.status === 101)).toBe(true);
+    const sesto = await s.collega("guest");
+    expect(sesto.res.status).toBe(404);
+    expect(sessioneDi(sesto)).toBe("");
+  });
+
   it("un dispositivo apre una sessione, e la macchina sa che è un dispositivo", async () => {
     // È la differenza che permette alla macchina di scegliere la postura: un
     // ospite di un link può vedere UNA risorsa, un dispositivo appaiato passa
@@ -609,24 +658,19 @@ describe("relay-do eseguito · inoltra nei due versi e non capisce", () => {
     const prima = host.mio.arrivati.length;
     await s.oggetto.webSocketMessage(disp.suo as unknown as WebSocket, new ArrayBuffer(8));
     expect(host.mio.arrivati.length).toBe(prima);
-
-    // Controllo positivo: sullo stesso canale una stringa passa. Senza, il
-    // «non è arrivato niente» qui sopra proverebbe solo che il canale è morto.
-    await s.parla(disp, { t: "to-host", payload: "x" });
-    expect(host.mio.arrivati.length).toBe(prima + 1);
+    expect(disp.suo.chiusa?.code).toBe(4002);
   });
 
-  it("un messaggio che non si capisce si nega, e il canale resta vivo", async () => {
+  it("un messaggio che non si capisce chiude il canale senza inoltrarlo", async () => {
     const s = scena();
     const host = await s.collega("host");
     const disp = await s.collega("device");
-    const sid = sessioneDi(disp);
-
     await s.parla(disp, { t: "esegui", comando: "rm -rf /" });
-    expect(disp.mio.letti().at(-1)).toEqual({ t: "denied", motivo: "bad-version" });
+    expect(disp.suo.chiusa?.code).toBe(4002);
 
+    const inoltriPrima = host.mio.arrivati.length;
     await s.parla(disp, { t: "to-host", payload: "dopo" });
-    expect(host.mio.letti().at(-1)).toEqual({ t: "to-guest", to: sid, payload: "dopo" });
+    expect(host.mio.arrivati).toHaveLength(inoltriPrima);
   });
 
   it("un dispositivo non può mandare una busta a un altro dispositivo", async () => {

@@ -1,106 +1,94 @@
-/**
- * Il nome del punto d'incontro, e la prova di averlo creato.
- *
- * ── IL DIFETTO CHE QUESTO MODULO CHIUDE ─────────────────────────────────────
- * Prima, il nome con cui la macchina si agganciava al relay era lo stesso che
- * finiva nei link condivisi. `relay-config.ts` lo diceva a chiare lettere —
- * «l'identificativo non è un segreto» — e per gli OSPITI il ragionamento
- * reggeva: senza un `ref` e senza la chiave nel frammento, chi conosce il nome
- * non apre niente.
- *
- * Quel ragionamento dimenticava una porta: `/agent/:id`. Lì lo stesso nome non
- * apriva una risorsa, era la credenziale INTERA per dichiararsi la macchina. E
- * il Durable Object, per non tenere due host insieme, SFRATTA quello vecchio
- * quando ne arriva uno nuovo. Sommate le due cose: chiunque avesse ricevuto un
- * link poteva cacciare la macchina dal proprio relay e mettersi al suo posto —
- * tutto il traffico degli ospiti verso di sé, e la macchina vera in un ciclo di
- * riconnessioni che la rimetteva in gara ogni volta.
- *
- * ── LA FORMA DELLA CORREZIONE ───────────────────────────────────────────────
- * Il nome pubblico diventa il DIGEST di un segreto che non esce mai dalla
- * macchina:
- *
- *     relayId = base64url(SHA-256("topics-relay-id-v1\n" + segreto))[0..24]
- *
- * Gli ospiti continuano a usare il solo nome, esattamente come prima. La
- * macchina, sull'unica porta che conta, presenta il segreto: il relay lo passa
- * di qui e confronta il risultato col nome nel percorso. Chi ha il link ha il
- * digest, e da un digest non si torna indietro.
- *
- * Niente registro, niente primo-che-arriva-vince, niente stato da tenere
- * d'accordo fra due parti: è una funzione pura, e il relay resta ciò che
- * dichiara di essere (RELAY-04) — non impara CHI sei, verifica che il nome che
- * usi sia un nome che potevi costruire solo tu.
- *
- * ── PERCHÉ STA IN `shared/` ─────────────────────────────────────────────────
- * La derivazione la calcolano in due: la macchina, per sapere come chiamarsi, e
- * il Worker, per verificare. Due copie della stessa formula sono due cose che
- * un giorno dicono nomi diversi — ed è il giorno in cui la macchina non si
- * aggancia più a niente. Stessa ragione per cui `PERCORSO_PONTE` vive in un
- * posto solo.
- *
- * ── PERCHÉ NON SERVE UN CONFRONTO A TEMPO COSTANTE ──────────────────────────
- * Si confronta il digest DERIVATO col nome che sta nel percorso, e quel nome è
- * pubblico per costruzione: sta nei link. Un confronto che perde tempo non
- * rivela niente che chi bussa non abbia già scritto lui stesso nella richiesta.
- * Il segreto non viene mai confrontato, solo trasformato.
- */
+/** Public installation identity and host transport proof. */
 
-/** Separa questo uso da qualunque altro digest dello stesso segreto. */
-const DOMINIO = "topics-relay-id-v1\n";
-
-/**
- * Quanti caratteri del digest diventano il nome.
- *
- * 24 caratteri base64url sono 144 bit: molto oltre ciò che serve perché due
- * installazioni non si incontrino per sbaglio, e molto oltre ciò che serve
- * perché nessuno costruisca un secondo segreto con lo stesso digest. È anche la
- * stessa lunghezza dell'identificativo di prima, così tutto ciò che validava
- * quella forma continua a valere.
- */
+export const INTESTAZIONE_PROVA_HOST = "x-topics-agent-proof";
+export const PROVA_HOST_VALIDITA_MS = 60_000;
+/** A host clock ahead of the Worker's: NTP keeps a Mac within a second, a laptop waking up within a few. */
+export const PROVA_HOST_ANTICIPO_MS = 30_000;
 export const LUNGHEZZA_RELAY_ID = 24;
-
-/** La forma di un nome: la stessa che il percorso del relay già impone. */
 export const FORMA_RELAY_ID = /^[A-Za-z0-9_-]{8,64}$/;
 
-function base64url(b: ArrayBuffer): string {
-  const bytes = new Uint8Array(b);
+function base64url(bytes: Uint8Array): string {
   let s = "";
-  for (const x of bytes) s += String.fromCharCode(x);
+  for (const byte of bytes) s += String.fromCharCode(byte);
   return btoa(s).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
 }
 
-/**
- * Il nome pubblico che corrisponde a questo segreto.
- *
- * `crypto.subtle` e non `node:crypto`: è l'unica interfaccia che esiste da
- * entrambe le parti — dentro un Worker non c'è nulla di Node — ed è ciò che
- * permette a questa funzione di essere una sola.
- */
-export async function derivaRelayId(segreto: string): Promise<string> {
-  const dati = new TextEncoder().encode(DOMINIO + segreto);
-  const digest = await crypto.subtle.digest("SHA-256", dati);
-  return base64url(digest).slice(0, LUNGHEZZA_RELAY_ID);
+function daBase64url(value: string): Uint8Array {
+  const normalizzato = value.replace(/-/g, "+").replace(/_/g, "/")
+    + "=".repeat((4 - value.length % 4) % 4);
+  return Uint8Array.from(atob(normalizzato), (char) => char.charCodeAt(0));
 }
 
-/**
- * Questo segreto è quello del punto d'incontro che dice di essere?
- *
- * Rifiuta prima di calcolare quando il segreto è assente o assurdo: un digest
- * di stringa vuota è comunque un digest, e senza questo controllo una macchina
- * che non manda niente verrebbe confrontata invece che respinta subito.
- */
-export async function segretoCorrisponde(segreto: string | null | undefined, relayId: string): Promise<boolean> {
-  if (typeof segreto !== "string" || segreto.length < 16 || segreto.length > 512) return false;
-  if (!FORMA_RELAY_ID.test(relayId)) return false;
-  return (await derivaRelayId(segreto)) === relayId;
+function sorgente(bytes: Uint8Array): ArrayBuffer {
+  return Uint8Array.from(bytes).buffer;
 }
 
-/**
- * L'intestazione con cui la macchina presenta il segreto.
- *
- * In un'INTESTAZIONE e non nel percorso o in un parametro: quelli finiscono nei
- * registri di chi sta in mezzo, e un segreto che compare in un log è un segreto
- * che vive più a lungo della connessione che lo usava.
- */
-export const INTESTAZIONE_SEGRETO = "x-topics-agent-key";
+function datiProva(relayId: string, timestamp: number): Uint8Array {
+  return new TextEncoder().encode(`topics-agent-proof-v1\n${relayId}\n${timestamp}`);
+}
+
+/** Generates a local private key and a relay ID derived from its public key. */
+export async function creaIdentitaRelay(): Promise<{ relayId: string; segreto: string }> {
+  const pair = await crypto.subtle.generateKey(
+    { name: "ECDSA", namedCurve: "P-256" }, true, ["sign", "verify"],
+  );
+  const privata = await crypto.subtle.exportKey("pkcs8", pair.privateKey);
+  const pubblica = await crypto.subtle.exportKey("spki", pair.publicKey);
+  const digest = await crypto.subtle.digest("SHA-256", sorgente(new Uint8Array(pubblica)));
+  return {
+    relayId: base64url(new Uint8Array(digest)).slice(0, LUNGHEZZA_RELAY_ID),
+    segreto: base64url(new Uint8Array(privata)),
+  };
+}
+
+/** Signs the request without sending the private key to the Worker. */
+export async function creaProvaHost(segreto: string, relayId: string, timestamp = Date.now()): Promise<string> {
+  const privata = await crypto.subtle.importKey(
+    "pkcs8", sorgente(daBase64url(segreto)), { name: "ECDSA", namedCurve: "P-256" }, false, ["sign"],
+  );
+  const publicKey = await estraePubblica(segreto);
+  const firma = await crypto.subtle.sign(
+    { name: "ECDSA", hash: "SHA-256" }, privata, sorgente(datiProva(relayId, timestamp)),
+  );
+  return `${timestamp}.${base64url(publicKey)}.${base64url(new Uint8Array(firma))}`;
+}
+
+async function estraePubblica(segreto: string): Promise<Uint8Array> {
+  const privata = await crypto.subtle.importKey(
+    "pkcs8", sorgente(daBase64url(segreto)), { name: "ECDSA", namedCurve: "P-256" }, true, ["sign"],
+  );
+  const jwk = await crypto.subtle.exportKey("jwk", privata);
+  if (!jwk.x || !jwk.y) throw new Error("Host key has no public component");
+  const pubblica = await crypto.subtle.importKey(
+    "jwk", { kty: "EC", crv: "P-256", x: jwk.x, y: jwk.y, ext: true },
+    { name: "ECDSA", namedCurve: "P-256" }, true, ["verify"],
+  );
+  return new Uint8Array(await crypto.subtle.exportKey("spki", pubblica));
+}
+
+/** Verifies identity, signature, and expiry before routing the host to its Durable Object. */
+export async function verificaProvaHost(
+  prova: string | null | undefined,
+  relayId: string,
+  now = Date.now(),
+): Promise<boolean> {
+  if (typeof prova !== "string") return false;
+  const parti = /^(0|[1-9][0-9]{0,15})\.([A-Za-z0-9_-]{100,200})\.([A-Za-z0-9_-]{80,100})$/.exec(prova);
+  if (!parti || !FORMA_RELAY_ID.test(relayId)) return false;
+  const timestamp = Number(parti[1]);
+  if (!Number.isSafeInteger(timestamp) || timestamp > now + PROVA_HOST_ANTICIPO_MS || now - timestamp > PROVA_HOST_VALIDITA_MS) return false;
+
+  try {
+    const pubblica = daBase64url(parti[2]!);
+    const digest = await crypto.subtle.digest("SHA-256", sorgente(pubblica));
+    if (base64url(new Uint8Array(digest)).slice(0, LUNGHEZZA_RELAY_ID) !== relayId) return false;
+    const key = await crypto.subtle.importKey(
+      "spki", sorgente(pubblica), { name: "ECDSA", namedCurve: "P-256" }, false, ["verify"],
+    );
+    return await crypto.subtle.verify(
+    { name: "ECDSA", hash: "SHA-256" }, key, sorgente(daBase64url(parti[3]!)), sorgente(datiProva(relayId, timestamp)),
+    );
+  } catch {
+    return false;
+  }
+}

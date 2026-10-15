@@ -21,8 +21,9 @@
  * loopback» significava «è il padrone di casa».
  */
 import { apri, sigilla } from "../../shared/relay-crypto";
+import { createHash, createPrivateKey, createPublicKey, sign } from "node:crypto";
 import {
-  leggiMessaggio, leggiFramePayload, scriviFrame,
+  leggiMessaggio, leggiFramePayload, scriviFrame, RELAY_BAD_MESSAGE_CLOSE,
   componiStream, creaContatoreStream, creaRiassemblatore, creaCapoCanale, dividiBinario, ricaricaPer,
   PING_FRAME, RELAY_PROTOCOL_VERSION, TUBO_BYTE_PER_FRAME,
   type FrameTubo, type MessaggioRelay, type MotivoStream, type RuoloSessione,
@@ -31,7 +32,7 @@ import {
   GENERE_RICHIESTA, GENERE_RISPOSTA, intestazioniRichiesta, intestazioniRisposta,
   leggiTestaRichiesta, risolviUrlLocale, scriviTesta, type Intestazioni,
 } from "../../shared/relay-http";
-import { INTESTAZIONE_SEGRETO } from "../../shared/relay-identita";
+import { INTESTAZIONE_PROVA_HOST } from "../../shared/relay-identita";
 import {
   GENERE_WS, GENERE_WS_APERTO, GENERE_WS_CHIUSO, WS_APERTO,
   WS_CHIUSURA_ANOMALA, WS_CHIUSURA_NORMALE,
@@ -80,13 +81,9 @@ export interface RelayDeps {
    */
   relayId: string;
   /**
-   * La preimmagine di `relayId`, che non esce da questo processo se non
-   * nell'intestazione dell'aggancio.
-   *
-   * È l'unica cosa che distingue questa macchina da chiunque abbia ricevuto un
-   * suo link: il Worker la trasforma e confronta il risultato col nome nel
-   * percorso, PRIMA di svegliare il punto d'incontro. Vuota = l'aggancio verrà
-   * rifiutato, che è il verso giusto in cui sbagliare.
+   * Local ECDSA private key encoded as base64url. It signs a relay-ID-bound
+   * proof that expires after one minute; the Worker sees only the public key
+   * and signature.
    */
   segreto: string;
   /** Il link, se esiste ed è ancora buono. `null` fa rispondere «non trovato»
@@ -98,6 +95,8 @@ export interface RelayDeps {
   /** Segna un'apertura. Non è statistica: è l'unico modo per accorgersi che un
    *  link è finito dove non doveva. */
   segnaApertura(ref: string): void;
+  /** Active sharing references declared to the relay without sending link keys. */
+  elencaLinkValidi?(): string[];
   /**
    * La porta dell'ascoltatore dedicato — `TOPICS_TUNNEL_PORT`, letta da
    * `tunnelPort()`. `null` = raggiungibilità da fuori non configurata, e allora
@@ -134,6 +133,21 @@ export interface RelayDeps {
    *  spezzato in venti frame si scrive in una riga invece che in mezzo MiB. */
   maxFrame?: number;
   log?: (m: string) => void;
+}
+
+export function creaProvaHostSync(segreto: string, relayId: string): string {
+  const privateKey = createPrivateKey({
+    key: Buffer.from(segreto.replace(/-/g, "+").replace(/_/g, "/") + "=".repeat((4 - segreto.length % 4) % 4), "base64"),
+    format: "der", type: "pkcs8",
+  });
+  const publicBytes = createPublicKey(privateKey).export({ format: "der", type: "spki" });
+  const publicKey = Buffer.from(publicBytes);
+  const digest = createHash("sha256").update(publicKey).digest("base64url").slice(0, 24);
+  if (digest !== relayId) throw new Error("L'identità del relay non corrisponde alla chiave privata");
+  const timestamp = Date.now();
+  const frame = Buffer.from(`topics-agent-proof-v1\n${relayId}\n${timestamp}`);
+  const signature = sign("sha256", frame, { key: privateKey, dsaEncoding: "ieee-p1363" });
+  return `${timestamp}.${publicKey.toString("base64url")}.${signature.toString("base64url")}`;
 }
 
 // ───────────────────────────────────────────────────────────────────────────
@@ -1004,6 +1018,7 @@ export function creaRelayClient(deps: RelayDeps) {
   let beats = 0;
   /** A question is out and nothing has come back on this thread since. */
   let asking = false;
+  let riferimentiInviati: string | null = null;
 
   /**
    * Serve una richiesta di un ospite.
@@ -1050,6 +1065,13 @@ export function creaRelayClient(deps: RelayDeps) {
     asking = false;
   }
 
+  function aggiornaRiferimenti(source: WebSocket): void {
+    const messaggio = JSON.stringify({ t: "share-refs", refs: deps.elencaLinkValidi?.().slice(0, 500) ?? [] });
+    if (messaggio === riferimentiInviati) return;
+    source.send(messaggio);
+    riferimentiInviati = messaggio;
+  }
+
   /** Start beating on a thread the relay has just confirmed. Before the
    *  confirmation there is nothing to watch: that first instant already has
    *  its own wait. */
@@ -1078,6 +1100,7 @@ export function creaRelayClient(deps: RelayDeps) {
         beats = 0;
         asking = true;
         try {
+          aggiornaRiferimenti(s);
           s.send(PING_FRAME);
         } catch {
           try { s.close(); } catch { /* already closed */ }
@@ -1100,6 +1123,10 @@ export function creaRelayClient(deps: RelayDeps) {
       if (!confermato) {
         confermato = true;
         log(`[relay] collegato a ${deps.baseUrl}`);
+      }
+      if (ws === source) {
+        riferimentiInviati = null;
+        aggiornaRiferimenti(source);
       }
       if (ws === source) startHeartbeat(source);
       return;
@@ -1150,13 +1177,12 @@ export function creaRelayClient(deps: RelayDeps) {
   function collega(): void {
     if (fermato || !deps.baseUrl) return;
     const url = `${deps.baseUrl.replace(/^http/, "ws")}/agent/${encodeURIComponent(deps.relayId)}`;
-    // Il segreto viaggia in un'INTESTAZIONE della stretta di mano, e non nel
-    // percorso né in un parametro: quelli finiscono nei registri di chi sta in
-    // mezzo, e un segreto scritto in un log vive più a lungo della connessione
-    // che lo usava. Il Worker lo verifica prima di svegliare qualsiasi cosa.
+    const prova = deps.apriSocket ? "test-proof" : creaProvaHostSync(deps.segreto, deps.relayId);
+    // La chiave privata resta nel processo; la prova firmata scade dopo un
+    // minuto e il Worker la verifica prima di svegliare il Durable Object.
     const openThread = deps.apriSocket
       ?? ((u: string, o: { headers: Record<string, string> }) => new WebSocket(u, o as never));
-    const s = openThread(url, { headers: { [INTESTAZIONE_SEGRETO]: deps.segreto } });
+    const s = openThread(url, { headers: { [INTESTAZIONE_PROVA_HOST]: prova } });
     ws = s;
 
     s.onopen = () => {
@@ -1166,6 +1192,7 @@ export function creaRelayClient(deps: RelayDeps) {
       // leaves silent, and resetting on them pins the wait at one second
       // forever. Only an answer to a beat resets it (`s.onmessage`).
       confermato = false;
+      riferimentiInviati = null;
       // The thread is open, but we do not yet know whether anyone is on the
       // far side. If `ready` never comes, this closes it: `onclose` restarts
       // the loop and the reconnection re-attaches to the live meeting point.
@@ -1210,7 +1237,11 @@ export function creaRelayClient(deps: RelayDeps) {
       // question worked, so the next failure starts from the shortest wait.
       if (asking) { asking = false; beats = 0; tentativo = 0; }
       const m = leggiMessaggio((() => { try { return JSON.parse(String(e.data)); } catch { return null; } })());
-      if (m) void gestisci(m, s);
+      if (!m) {
+        try { s.close(RELAY_BAD_MESSAGE_CLOSE, "invalid relay message"); } catch { /* già chiusa */ }
+        return;
+      }
+      void gestisci(m, s);
     };
 
     const riprova = () => {
@@ -1261,6 +1292,8 @@ export function creaRelayClient(deps: RelayDeps) {
     collegato: () => ws?.readyState === 1 && confermato,
     /** Test-only: serve una richiesta senza passare dal filo. */
     __servi: servi,
+    /** Test-only: attraversa l'instradamento completo in ingresso. */
+    __gestisci(m: MessaggioRelay, source: WebSocket) { ws = source; return gestisci(m, source); },
     /** Test-only: le sessioni ospiti vive su questo filo. */
     __sessioni: () => proxy.sessioniAperte(),
     /** Test-only: i socket vivi di una sessione. */

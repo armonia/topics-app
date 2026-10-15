@@ -8,9 +8,10 @@
  * @covers GUEST-08
  */
 import { describe, expect, it } from "bun:test";
-import { creaRelayClient, type LinkCondivisione } from "./relay-client";
+import { creaProvaHostSync, creaRelayClient, type LinkCondivisione } from "./relay-client";
 import { nuovaChiave, sigilla, apri } from "../../shared/relay-crypto";
 import { SEGRETO_FINTO } from "../../shared/relay-fake";
+import { creaIdentitaRelay, verificaProvaHost } from "../../shared/relay-identita";
 
 const ORA = 1_000_000;
 
@@ -35,6 +36,14 @@ function client(l: LinkCondivisione | null, opts: { serve?: unknown } = {}) {
 
 const chiedi = (k: string) => sigilla(k, JSON.stringify({ t: "fetch" }));
 
+describe("relay host proof · firma del client Bun", () => {
+  it("produce una firma che il Worker può verificare", async () => {
+    const identity = await creaIdentitaRelay();
+    const proof = creaProvaHostSync(identity.segreto, identity.relayId);
+    expect(await verificaProvaHost(proof, identity.relayId)).toBe(true);
+  });
+});
+
 describe("relay client · un link buono serve la sua cosa", () => {
   it("apre, serve, e segna l'apertura", async () => {
     const l = link();
@@ -52,6 +61,29 @@ describe("relay client · un link buono serve la sua cosa", () => {
     const e = await c.__servi("r1", await chiedi(l.key));
     const busta = await sigilla(e!.chiave, JSON.stringify(e!.risposta));
     expect(JSON.parse((await apri(l.key, busta))!)).toEqual({ status: 200, body: { id: "t1", testo: "la scheda" } });
+  });
+
+  it("gestisci serve il ramo valido e rende uguali i rifiuti", async () => {
+    const l = link();
+    const { c } = client(l);
+    const inviati: string[] = [];
+    const source = { send: (raw: string) => { inviati.push(raw); } } as unknown as WebSocket;
+    const busta = JSON.stringify({ ref: l.ref, b: await chiedi(l.key) });
+    await c.__gestisci({ t: "to-guest", to: "sid-1", payload: busta }, source);
+    const servita = JSON.parse(inviati.pop()!) as { payload: string };
+    const chiaro = await apri(l.key, servita.payload);
+    expect(JSON.parse(chiaro!)).toMatchObject({ status: 200 });
+
+    const rifiuti: string[] = [];
+    for (const ref of ["inesistente", "scaduto", "revocato"]) {
+      const esito = client(ref === "scaduto" ? link({ expiresAt: ORA - 1 })
+        : ref === "revocato" ? link({ revokedAt: ORA - 1 }) : l);
+      const frame = JSON.stringify({ ref, b: await chiedi(l.key) });
+      await esito.c.__gestisci({ t: "to-guest", to: "sid-1", payload: frame }, source);
+      rifiuti.push(inviati.pop()!);
+    }
+    expect(new Set(rifiuti).size).toBe(1);
+    expect(JSON.parse(rifiuti[0]!).payload).toEqual(JSON.stringify({ status: 404, body: { error: "non disponibile" } }));
   });
 });
 
@@ -155,22 +187,24 @@ class FakeSocketRelay {
   readyState = 1;
   inviati: string[] = [];
   chiusa = false;
+  codiceChiusura: number | null = null;
   onopen: (() => void) | null = null;
   onmessage: ((e: { data: string }) => void) | null = null;
   onclose: (() => void) | null = null;
   onerror: (() => void) | null = null;
   constructor() { FakeSocketRelay.aperte.push(this); }
   send(d: string): void { this.inviati.push(d); }
-  close(): void { this.chiusa = true; this.readyState = 3; this.onclose?.(); }
+  close(code = 1000): void { this.chiusa = true; this.codiceChiusura = code; this.readyState = 3; this.onclose?.(); }
   /** The meeting point takes us in. */
   confermaReady(): void { this.onmessage?.({ data: JSON.stringify({ t: "ready", v: 1 }) }); }
 }
 
-function connectedClient() {
+async function connectedClient() {
   FakeSocketRelay.aperte = [];
   const righe: string[] = [];
+  const identita = await creaIdentitaRelay();
   const c = creaRelayClient({
-    baseUrl: "https://relay.esempio.test", relayId: "i1", segreto: SEGRETO_FINTO,
+    baseUrl: "https://relay.esempio.test", relayId: identita.relayId, segreto: identita.segreto,
     trovaLink: () => null,
     serviRisorsa: async () => ({ status: 200, body: {} }),
     segnaApertura: () => {},
@@ -182,9 +216,9 @@ function connectedClient() {
 }
 
 describe("relay client · «collegato» vuol dire che il relay ci ha PRESI IN CARICO", () => {
-  it("un filo aperto ma non confermato NON conta come collegato", () => {
-    const { c, righe } = connectedClient();
-    c.avvia();
+  it("un filo aperto ma non confermato NON conta come collegato", async () => {
+    const { c, righe } = await connectedClient();
+    await c.avvia();
     const s = FakeSocketRelay.aperte[0]!;
     s.onopen?.();
     // The thread is open, and that is not enough: it is exactly the state in
@@ -194,14 +228,24 @@ describe("relay client · «collegato» vuol dire che il relay ci ha PRESI IN CA
     c.ferma();
   });
 
-  it("…e con la conferma sì, e solo allora lo si annuncia", () => {
-    const { c, righe } = connectedClient();
-    c.avvia();
+  it("…e con la conferma sì, e solo allora lo si annuncia", async () => {
+    const { c, righe } = await connectedClient();
+    await c.avvia();
     const s = FakeSocketRelay.aperte[0]!;
     s.onopen?.();
     s.confermaReady();
     expect(c.collegato()).toBe(true);
     expect(righe.filter((r) => r.includes("collegato"))).toHaveLength(1);
+    c.ferma();
+  });
+
+  it("chiude con 4002 un involucro che non riconosce", async () => {
+    const { c } = await connectedClient();
+    await c.avvia();
+    const s = FakeSocketRelay.aperte[0]!;
+    s.onmessage?.({ data: JSON.stringify({ t: "future-message", v: 99 }) });
+    expect(s.chiusa).toBe(true);
+    expect(s.codiceChiusura).toBe(4002);
     c.ferma();
   });
 
@@ -223,8 +267,8 @@ describe("relay client · «collegato» vuol dire che il relay ci ha PRESI IN CA
     }) as typeof setTimeout;
 
     try {
-      const { c } = connectedClient();
-      c.avvia();
+      const { c } = await connectedClient();
+      await c.avvia();
       const s = FakeSocketRelay.aperte[0]!;
       s.onopen?.();
       expect(s.chiusa).toBe(false);
@@ -251,8 +295,8 @@ describe("relay client · «collegato» vuol dire che il relay ci ha PRESI IN CA
     }) as typeof setTimeout;
 
     try {
-      const { c } = connectedClient();
-      c.avvia();
+      const { c } = await connectedClient();
+      await c.avvia();
       const s = FakeSocketRelay.aperte[0]!;
       s.onopen?.();
       s.confermaReady();
@@ -265,14 +309,14 @@ describe("relay client · «collegato» vuol dire che il relay ci ha PRESI IN CA
     }
   });
 
-  it("la chiusura tardiva di un filo sostituito non spegne quello corrente", () => {
-    const { c } = connectedClient();
-    c.avvia();
+  it("la chiusura tardiva di un filo sostituito non spegne quello corrente", async () => {
+    const { c } = await connectedClient();
+    await c.avvia();
     const oldSocket = FakeSocketRelay.aperte[0]!;
     oldSocket.onopen?.();
     oldSocket.confermaReady();
 
-    c.avvia();
+    await c.avvia();
     const currentSocket = FakeSocketRelay.aperte[1]!;
     currentSocket.onopen?.();
     oldSocket.confermaReady();

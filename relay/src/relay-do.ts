@@ -41,7 +41,7 @@
  * quindi non passa nemmeno di qui.
  */
 import {
-  leggiMessaggio, RELAY_PROTOCOL_VERSION,
+  leggiMessaggio, RELAY_BAD_MESSAGE_CLOSE, RELAY_PROTOCOL_VERSION,
   type MessaggioRelay, type Rifiutato, type RuoloSessione,
 } from "../../shared/relay-protocol";
 import {
@@ -52,6 +52,8 @@ import {
 /** I tag identificano una socket DOPO l'ibernazione: sono l'unico stato che
  *  sopravvive allo sfratto dalla memoria. */
 const TAG_MACCHINA = "host";
+const CHIAVE_SHARE_REFS = "share-refs";
+const LIMITE_SOCKET_OSPITE = 5;
 // The literal, not `WebSocket.OPEN`: the tests run on Bun's WebSocket and the
 // relay on workerd's, and a constant missing from the runtime would make every
 // open host look closed, turning remote access off entirely. `relay-client.ts`
@@ -126,6 +128,10 @@ const tagRuolo = (r: RuoloSessione) => `r:${r}`;
 interface Stato {
   acceptWebSocket(ws: WebSocket, tags?: string[]): void;
   getWebSockets(tag?: string): WebSocket[];
+  storage: {
+    get<T = unknown>(key: string): Promise<T | undefined>;
+    put(key: string, value: unknown): Promise<void>;
+  };
 }
 
 export class SessioneRelay {
@@ -404,6 +410,7 @@ export class SessioneRelay {
       // La macchina di prima non risponderà più: chi stava aspettando lo deve
       // sapere adesso, e la sessione del ponte va rifatta con quella nuova.
       this.scollegaPonte();
+      await this.state.storage.put(CHIAVE_SHARE_REFS, []);
       this.state.acceptWebSocket(mio, [TAG_MACCHINA]);
       SessioneRelay.dilloA(mio, { t: "ready", v: RELAY_PROTOCOL_VERSION });
     } else {
@@ -420,6 +427,14 @@ export class SessioneRelay {
       // niente che il capo abbia scritto. Tutto ciò che non è la porta dei
       // dispositivi è un ospite — un valore inventato non promuove nessuno.
       const sessione: RuoloSessione = ruolo === "device" ? "device" : "guest";
+      if (sessione === "guest") {
+        const shareRef = url.searchParams.get("shareRef");
+        const dichiarati = await this.state.storage.get<string[]>(CHIAVE_SHARE_REFS);
+        if (!shareRef || !dichiarati?.includes(shareRef)) return new Response("not found", { status: 404 });
+        const ospiti = this.state.getWebSockets(tagRuolo("guest"))
+          .filter((socket) => socket.readyState === SOCKET_OPEN);
+        if (ospiti.length >= LIMITE_SOCKET_OSPITE) return new Response("not found", { status: 404 });
+      }
       const sid = crypto.randomUUID();
       this.state.acceptWebSocket(mio, [tagSessione(sid), tagRuolo(sessione)]);
       SessioneRelay.dilloA(mio, { t: "ready", v: RELAY_PROTOCOL_VERSION, sessionId: sid });
@@ -478,13 +493,16 @@ export class SessioneRelay {
       return;
     }
 
-    if (typeof raw !== "string") return; // i binari non fanno parte del protocollo
+    if (typeof raw !== "string") {
+      try { ws.close(RELAY_BAD_MESSAGE_CLOSE, "invalid relay message"); } catch { /* già chiusa */ }
+      return;
+    }
     let m: MessaggioRelay | null = null;
     try { m = leggiMessaggio(JSON.parse(raw)); } catch { m = null; }
     if (!m) {
       // Un capo che accetta ciò che quasi capisce è un capo che un giorno
       // accetta ciò che non capisce affatto.
-      SessioneRelay.dilloA(ws, { t: "denied", motivo: "bad-version" });
+      try { ws.close(RELAY_BAD_MESSAGE_CLOSE, "invalid relay message"); } catch { /* già chiusa */ }
       return;
     }
 
@@ -495,6 +513,11 @@ export class SessioneRelay {
     // It is no longer the current host, so none of its late messages may enter
     // the bridge or the replacement host's sessions.
     if ("host" in chi && this.macchina() !== ws) return;
+
+    if ("host" in chi && m.t === "share-refs") {
+      await this.state.storage.put(CHIAVE_SHARE_REFS, m.refs);
+      return;
+    }
 
     // ── "ARE YOU STILL THERE?", and the silence that answers it.
     //

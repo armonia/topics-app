@@ -9,11 +9,9 @@
  * …e una per chi non parla niente:
  *   `*   /i/:relayId/…`    ← il BROWSER, che ha solo aperto un indirizzo
  *
- * `relayId` è il nome del punto d'incontro, ed è il DIGEST di un segreto che
- * non esce dalla macchina (`shared/relay-identita.ts`). Tre porte su quattro
- * non chiedono altro — chi arriva con un link ha solo il nome, ed è giusto
- * così. La prima chiede la preimmagine, perché non domanda una risorsa:
- * dichiara di ESSERE la macchina.
+ * `relayId` is derived from a public key (`shared/relay-identita.ts`). Guests
+ * need only the public name. The host signs a short-lived proof with its
+ * private key before the Worker routes it to a Durable Object.
  *
  * Le prime tre sono agganci: chiedono un upgrade WebSocket e da lì in poi il
  * tubo. La quarta è una traduzione — una richiesta HTTPS qualunque entra, esce
@@ -53,7 +51,7 @@ export { SessioneRelay } from "./relay-do";
 import { PAGINA_OSPITE } from "./pagina-ospite";
 import { PAGINA_SENZA_CASA } from "./pagina-senza-casa";
 import { PERCORSO_PONTE } from "./ponte";
-import { INTESTAZIONE_SEGRETO, segretoCorrisponde } from "../../shared/relay-identita";
+import { INTESTAZIONE_PROVA_HOST, verificaProvaHost } from "../../shared/relay-identita";
 
 /** Quale installazione sta guardando questo browser. */
 export const BISCOTTO_INSTALLAZIONE = "topics_inst";
@@ -240,13 +238,10 @@ export default {
     // sta scritto) poteva cacciare la macchina e prendersi tutto il traffico
     // dei suoi ospiti.
     //
-    // Il controllo è una funzione pura e basta a se stessa: il nome è il digest
-    // di un segreto, quindi chi presenta il segreto dimostra di aver creato il
-    // nome. Nessun registro, nessuno stato, nessun primo-che-arriva-vince — e
-    // il relay continua a non sapere CHI sei (RELAY-04), sa solo che quel nome
-    // potevi costruirlo tu.
+    // La firma usa una chiave pubblica il cui digest è il nome nel percorso.
+    // Il Worker non conserva credenziali e una prova catturata scade presto.
     if (ruolo === "agent") {
-      const ok = await segretoCorrisponde(req.headers.get(INTESTAZIONE_SEGRETO), installationId ?? "");
+      const ok = await verificaProvaHost(req.headers.get(INTESTAZIONE_PROVA_HOST), installationId ?? "");
       // Lo stesso corpo che darebbe un nome inesistente: a chi bussa senza
       // segreto non si conferma che quel punto d'incontro esiste.
       if (!ok) return new Response("not found", { status: 404 });
