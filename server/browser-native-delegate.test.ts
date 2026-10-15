@@ -117,7 +117,7 @@ test('an op result counts only from the socket registered for its context', asyn
 });
 
 test('native executor socket accepts only delegate frame types', () => {
-  for (const type of ['register_native_executor', 'browser_op_result', 'take_control', 'native_dom_host', 'host_dom_events', 'host_dom_events_chunk', 'host_page', 'host_local_use']) {
+  for (const type of ['register_native_executor', 'browser_op_result', 'take_control', 'native_dom_host', 'host_dom_events', 'host_dom_events_chunk', 'host_page', 'host_local_use', 'set_native_host_sharing']) {
     expect(isNativeDelegateFrameAllowed({ type })).toBe(true);
   }
   for (const type of ['nav', 'input', 'set_engine', 'resize']) {
