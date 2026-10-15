@@ -55,6 +55,9 @@ const NIGHTLY_ONLY_SPECS = [
   "cross-feature",
   "layout-edge-cases",
   "cross-window-topic-sync",
+  // Due dispositivi con reload dello stesso contesto e riavvio del server: i
+  // restart contaminerebbero le spec vicine sul gate PR; la copertura resta nel nightly.
+  "pane-store-two-devices",
   "split-screen-sync",
   "pane-server-migration",
   // La famiglia file-explorer condivide un progetto/DB fra i test; su CI Linux
