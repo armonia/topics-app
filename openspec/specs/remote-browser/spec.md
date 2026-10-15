@@ -2888,6 +2888,34 @@ SHALL read the arrows from them.
 - **GIVEN** a native pane on Windows with history behind the page
 - **THEN** the shell SHALL report `canGoBack: true` and ‹ SHALL be enabled
 
+### Requirement: BROWSER-DOM-NAV-EDGE-01 — An edge swipe SHALL move the hosted page's history
+
+In the DOM mirror, a touch that starts within 20 px of the viewer's left or
+right edge and moves horizontally by more than 8 px and at least twice its vertical distance SHALL
+be treated as a history gesture. Once a vertical-dominant movement exceeds 8 px,
+the gesture SHALL remain a scroll even if later movement becomes horizontal-dominant.
+The left edge goes back and the right edge
+goes forward. The threshold is the smaller of 30% of the viewer width and
+120 px. Before release, the mirror SHALL not scroll and the host SHALL receive
+no scroll input; the arrow follows the finger and fills at the threshold. On
+release at or above the threshold, the matching history action SHALL reach the
+host once. Below the threshold, no action is sent. A gesture from the center,
+a vertical gesture, element selection, or an active agent SHALL not navigate.
+
+#### Scenario: swipe back and forward from the viewer edges
+- **WHEN** a horizontal swipe from the left edge passes the threshold and is released
+- **THEN** the host receives one `back` action
+- **WHEN** the same gesture starts at the right edge
+- **THEN** the host receives one `forward` action
+
+#### Scenario: a center swipe still scrolls the page
+- **WHEN** the viewer swipes horizontally from the center
+- **THEN** the page scrolls as before, and the host receives no history action
+
+#### Scenario: vertical movement commits an edge gesture to scrolling
+- **WHEN** an edge touch moves vertically by more than 8 px before moving horizontally
+- **THEN** the host receives scroll input, and no history action is sent
+
 ### Requirement: BROWSER-STREAM-HISTORY-01 — In streaming ‹ e › si accendono solo se c'è dove andare
 
 La pane browser in streaming (pagina nel Chromium del server) SHALL abilitare la freccia

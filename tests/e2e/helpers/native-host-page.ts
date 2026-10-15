@@ -19,6 +19,8 @@ export interface NativeHostPage {
   /** Scroll inputs the server relayed, the calls that ran them, and the wheel events the page got. */
   scrolls: () => Promise<{ relayed: number; calls: number; wheels: number }>;
   inputs: () => { clicks: number };
+  /** History actions the native host received from viewers. */
+  navigations: () => { back: number; forward: number };
   status: () => { sharing: boolean; devices: number; kbps: number; delayMs: number; error?: string } | null;
   setSharing: (active: boolean) => void;
   /** Application pings answered so far: the server holds a pane to the 15 s rule only after one. */
@@ -40,6 +42,7 @@ export async function hostNativePage(
   await page.setContent(html);
   const ws = new WebSocket(`${E2E_BASE.replace(/^http/, "ws")}/ws/browser/${encodeURIComponent(ctx)}?executor=1`);
   const count = { relayed: 0, calls: 0, clicks: 0 };
+  const navigations = { back: 0, forward: 0 };
   let status: { sharing: boolean; devices: number; kbps: number; delayMs: number; error?: string } | null = null;
   const views: NativeHostPage["views"] = [];
   let pongs = 0;
@@ -72,6 +75,7 @@ export async function hostNativePage(
     if (frame.type === "native_host_status") status = frame as typeof status;
     if (frame.type === "host_input" && frame.action === "scroll") count.relayed++;
     if (frame.type === "host_input" && frame.action === "click") count.clicks++;
+    if (frame.type === "host_input" && (frame.action === "back" || frame.action === "forward")) navigations[frame.action]++;
     host.handle(frame);
   });
   ws.send(JSON.stringify({ type: "register_native_executor" }));
@@ -83,6 +87,7 @@ export async function hostNativePage(
     scrollOf: (sel) => page.evaluate((s) => (s ? document.querySelector(s)!.scrollTop : scrollY), sel),
     width: () => page.viewportSize()?.width ?? 0,
     views,
+    navigations: () => ({ ...navigations }),
     status: () => status,
     setSharing: (active) => ws.send(JSON.stringify({ type: "set_native_host_sharing", active })),
     pongs: () => pongs,

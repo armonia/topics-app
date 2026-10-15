@@ -1326,6 +1326,8 @@ function RemoteBrowserPanelStreaming({ contextId, initialUrl, navigateUrl, onUrl
                 registerDomSink={browser.registerDomSink}
                 registerFocusSink={browser.registerFocusSink}
                 sendInput={browser.sendInput}
+                goBack={() => { void browser.goBack(); }}
+                goForward={() => { void browser.goForward(); }}
                 agentActive={browser.agentActive}
                 exposeMirrorDocument={exposeMirrorDocument}
                 ownSize={browser.ownSize}
