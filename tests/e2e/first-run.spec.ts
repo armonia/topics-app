@@ -71,7 +71,7 @@ test.describe('first-run @covers FIRST-RUN-01', () => {
     test.info().annotations.push({ type: 'spec', description: 'FIRST-RUN-01' });
     await page.goto('/');
     await resetFirstRun(page, 'Ada Topics');
-    await expect.poll(async () => (await (await page.request.get('/api/app-settings')).json()).firstRunDoneAt, {
+    await expect.poll(async () => (await (await page.request.get('/api/app-settings')).json()).settings?.firstRunDoneAt, {
       message: 'the first run is recorded as done',
     }).toBeTruthy();
     await expect(page.getByTestId('first-run')).toHaveCount(0);
