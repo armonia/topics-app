@@ -14,6 +14,7 @@ import { resolveStateDir } from "./server/lib/data-dir";
 import { createSwapFreezer } from "./server/services/swap-freeze";
 import { createSwapFreezeLedger, fileLedgerIo, thawLedgerAtBoot } from "./server/services/swap-freeze-ledger";
 import { setActiveSwapFreezer, setSwapFreezeBroadcast, announceSwapFreeze, swapFreezeViews, isSwapFreezeHold, swapFrozenMsSince } from "./server/lib/swap-freeze-hold";
+import { createMemoryPressureSignal } from "./server/services/memory-pressure";
 import { readProcessStates, readProcessTable, readStartTimes } from "./server/lib/process-snapshot";
 import { createXpcAttribution, printPidDomain } from "./server/lib/xpc-attribution";
 import { establishedPeers, outsidePeersOf } from "./server/lib/tree-network-peers";
@@ -1828,6 +1829,12 @@ const memSignal = createMemSignal({
   measurable: process.platform === "darwin",
   store: fileMemSampleStore(join(resolveStateDir(process.cwd()), "mem-samples.json")),
 });
+// Created here, before the listener opens: the socket open handler sends its
+// frame, and the port starts accepting during the boot's first await.
+const memoryPressureSignal = createMemoryPressureSignal(
+  (frame) => broadcastToAll(frame),
+  memSignal.swap().sustained,
+);
 void memSignal.sample();
 // The capacity reading takes its memory from this sample instead of a
 // synchronous `vm_stat` per request; the sync probe stays only as the fallback
@@ -4314,6 +4321,7 @@ const opzioniServer = {
       // minutes away.
       const frozenNow = swapFreezeViews();
       if (frozenNow.length > 0) inviaIniziale({ type: "swap-freeze:state", views: frozenNow });
+      inviaIniziale(memoryPressureSignal.frame());
       // Same for the reading behind it: a reload must land on the same row,
       // and the next event may be minutes away.
       const usageNow = planUsage();
@@ -5355,6 +5363,7 @@ const MEMSIG_EVERY_MS = 60_000;
 let memsigAt = 0;
 const dispatchTimer = setInterval(() => {
   void memSignal.sample().then(() => {
+    memoryPressureSignal.update(memSignal.swap().sustained);
     // THE BRAKE FIRST, THE FREEZER AFTER, ON ONE WINDOW. The brake kills a check
     // round (memory back, no verdict lost); the freezer only stops an agent's
     // heaviest background command, which gives nothing back. Whichever acts,

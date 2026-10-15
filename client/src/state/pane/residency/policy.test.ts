@@ -11,6 +11,7 @@ import {
   residencyClassOf,
   RESIDENCY_BUDGET,
   MIN_DWELL_MS,
+  NATIVE_IDLE_EVICT_MS,
   type ResidencyCandidate,
   type ResidencyInput,
 } from './policy';
@@ -26,6 +27,8 @@ function input(over: Partial<ResidencyInput> = {}): ResidencyInput {
     now: NOW,
     budget: { native: Infinity, heavy: 2, light: 3 },
     minDwellMs: 1000,
+    memoryPressure: false,
+    evictIdleNative: true,
     ...over,
   };
 }
@@ -142,6 +145,29 @@ describe('computeResident — pavimenti', () => {
     );
     expect(sorted(d.resident)).toEqual(['a', 'b']); // i due più recenti
     expect(sorted(d.evicted)).toEqual(['c']);
+  });
+});
+
+describe('computeResident — pressione memoria sulle pane native', () => {
+  const candidates = [{ key: 'browser-1', cls: 'native' as const }];
+  const evaluate = (age: number, over: Partial<ResidencyInput> = {}) => computeResident(input({
+    candidates,
+    lastTouchedAt: touched({ 'browser-1': age }),
+    memoryPressure: true,
+    ...over,
+  }));
+
+  test('sfratta una pane nativa nascosta da dieci minuti, ma non da nove', () => {
+    expect(evaluate(NATIVE_IDLE_EVICT_MS).evicted.has('browser-1')).toBe(true);
+    expect(evaluate(NATIVE_IDLE_EVICT_MS).memoryEvicted.has('browser-1')).toBe(true);
+    expect(evaluate(NATIVE_IDLE_EVICT_MS - 60_000).resident.has('browser-1')).toBe(true);
+  });
+
+  test('senza pressione, visibile, trattenuta o impostazione spenta resta residente', () => {
+    expect(evaluate(NATIVE_IDLE_EVICT_MS, { memoryPressure: false }).resident.has('browser-1')).toBe(true);
+    expect(evaluate(NATIVE_IDLE_EVICT_MS, { visible: new Set(['browser-1']) }).resident.has('browser-1')).toBe(true);
+    expect(evaluate(NATIVE_IDLE_EVICT_MS, { held: new Set(['browser-1']) }).resident.has('browser-1')).toBe(true);
+    expect(evaluate(NATIVE_IDLE_EVICT_MS, { evictIdleNative: false }).resident.has('browser-1')).toBe(true);
   });
 });
 
