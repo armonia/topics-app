@@ -1,5 +1,21 @@
 # D7d-a · Test instabili, primo giro
 
+## Prova in CI (dopo il push)
+
+Clip `repeat=20`, `load=true` (un `yes` per core), conteggio dei «passed» letto nel log:
+
+| Spec | Run | Esito |
+|---|---|---|
+| follow, `task-conversation-follow` | 38674333637 | 40 passed (20 per motore) |
+| compact, `chat-compact-drain` | 38674665419 | 40 passed |
+| NH-02 | 38670620752 | 20 passed |
+| POP-03 | 38670623420 | 20 passed |
+| PLANTAB-01 | 38670626365 | 20 passed |
+
+POP-03, PLANTAB-01 e compact non hanno correzione e sotto carico non si riproducono in 20 giri: la
+causa resta quella scritta sotto, da provare quando tornano. Le prime clip di follow e compact non
+avevano trovato test: il filtro `grep` è un'espressione regolare e il titolo aveva parentesi.
+
 ## Barra · prima → dopo
 
 - Censimento CI del 15/10, 33 run di main in 3 giorni: follow **10** primi tentativi rossi, POP-03 **7**, NH-02 **6**, PLANTAB-01 **6**, compact **6**. Gate locali prima: non misurati.
