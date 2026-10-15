@@ -2,11 +2,11 @@
  * @covers KANBAN-05
  */
 import { describe, expect, test } from "bun:test";
-import { shouldReevaluateTaskConversationFollow } from "./taskConversationFollow";
+import { followChoiceMayChange } from "./taskConversationFollow";
 
 describe("task conversation follow scroll intent", () => {
   test("a viewport resize does not turn following off", () => {
-    expect(shouldReevaluateTaskConversationFollow({
+    expect(followChoiceMayChange({
       wasFollowing: true,
       viewportResized: true,
       contentGrew: false,
@@ -15,7 +15,7 @@ describe("task conversation follow scroll intent", () => {
   });
 
   test("a resize does not force a reader who had scrolled up back to the bottom", () => {
-    expect(shouldReevaluateTaskConversationFollow({
+    expect(followChoiceMayChange({
       wasFollowing: false,
       viewportResized: true,
       contentGrew: false,
@@ -24,7 +24,7 @@ describe("task conversation follow scroll intent", () => {
   });
 
   test("content growth without a reader scroll keeps the existing follow", () => {
-    expect(shouldReevaluateTaskConversationFollow({
+    expect(followChoiceMayChange({
       wasFollowing: true,
       viewportResized: false,
       contentGrew: true,

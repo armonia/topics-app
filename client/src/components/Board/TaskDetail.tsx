@@ -74,7 +74,7 @@ import { mergeTaskTimeline, type TimelineItem } from './taskTimeline';
 import { commentChip, commentChipTestId } from './chipKey';
 import { deliveryNotesToFold } from './taskDeliveryNotes';
 import { stripMarkdown } from '../../lib/stripMarkdown';
-import { shouldReevaluateTaskConversationFollow } from '../../lib/taskConversationFollow';
+import { followChoiceMayChange } from '../../lib/taskConversationFollow';
 import { DispatchEnvelopeRow } from '../Chat/DispatchEnvelopeRow';
 import { usePaneAlive } from '../../state/paneLiveness';
 import { ProjectPickerBody } from './ProjectPicker';
@@ -1971,13 +1971,8 @@ export function TaskDetail({ projectId, taskId, initialStatus, initialTitle, bum
           // scroll away from is not intent: it must not unstick the follow.
           const grew = el.scrollHeight > lastHeightRef.current;
           const movedUp = el.scrollTop < lastTopRef.current;
-          const resized = el.clientHeight !== lastClientHeightRef.current;
-          if (shouldReevaluateTaskConversationFollow({
-            wasFollowing: stickRef.current,
-            viewportResized: resized,
-            contentGrew: grew,
-            movedUp,
-          })) stickRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
+          const viewportResized = el.clientHeight !== lastClientHeightRef.current;
+          if (followChoiceMayChange({ wasFollowing: stickRef.current, viewportResized, contentGrew: grew, movedUp })) stickRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
           lastTopRef.current = el.scrollTop;
           lastHeightRef.current = el.scrollHeight;
           lastClientHeightRef.current = el.clientHeight;
