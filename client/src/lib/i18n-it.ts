@@ -788,6 +788,7 @@ const IT: Dict = {
   'browser.tab.hostStopped': 'Condivisione sospesa',
   'browser.tab.hostStop': 'Smetti di condividere',
   'browser.tab.hostResume': 'Condividi di nuovo',
+  'browser.tab.hostLastFrame': 'ultimo frame {age} fa',
   'browser.tab.sheet.address': 'Indirizzo',
   'browser.tab.sheet.recent': 'In questa scheda',
   'browser.tab.engine.playwright': 'Motore: Playwright',

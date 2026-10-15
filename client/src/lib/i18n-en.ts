@@ -784,6 +784,7 @@ const EN = {
   'browser.tab.hostStopped': 'Sharing paused',
   'browser.tab.hostStop': 'Stop sharing',
   'browser.tab.hostResume': 'Share again',
+  'browser.tab.hostLastFrame': 'last frame {age} ago',
   'browser.tab.sheet.address': 'Address',
   'browser.tab.sheet.recent': 'In this tab',
   'browser.tab.engine.playwright': 'Engine: Playwright',

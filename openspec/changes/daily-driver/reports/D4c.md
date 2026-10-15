@@ -15,6 +15,12 @@
 - E2E non eseguita sul Mac come prescritto; `typecheck:e2e` è verde. La spec con video resta alla CI «Clip di consegna».
 - Nessun commit o push. `git add -N` sul `.git` protetto è fallito; i cancelli sono stati eseguiti con un indice temporaneo in `/private/tmp`, senza alterare l’indice condiviso.
 
+## Revisione (15/10)
+
+- Lo stato andava al primo socket nativo del contesto, non all'host registrato: con due finestre sullo stesso contesto la pillola poteva comparire su quella sbagliata. Ora `hosts.isHost`.
+- Il foglio mostrava «0.0 KB/s · 45000 ms» su una pagina ferma: quel numero è l'età dell'ultimo frame, non un ritardo. Ora dice «ultimo frame 45 s fa» (`browser.tab.hostLastFrame`).
+- La e2e non provava il punto 3 del brief: la pagina contava i tocchi ma nessuno toccava. Ora un secondo viewer su WebSocket grezzo, che ignora la schermata di pausa, manda lo stesso clic: arriva mentre il Mac condivide (controllo), non arriva in pausa. Il punto di sincronia è la sua chiusura: il server tratta i frame di un socket in ordine e la chiusura dopo, quindi quando l'host vede scendere i dispositivi il clic in pausa è già stato scartato.
+
 ## Trovato e non fatto
 
 - Il video e la prova browser reale del comando sul Mac richiedono la CI «Clip di consegna»; questo checkout non ha una Tauri UI avviabile per quel test e il brief vieta di lanciare e2e sul Mac.

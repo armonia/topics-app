@@ -405,7 +405,7 @@ function EntryList({ entries, controls, depth }: { entries: SheetEntry[]; contro
       {depth === 0 && host && (host.devices > 0 || !host.sharing) && controls.chrome?.commands.setHostSharing && (
         <div className="px-3 py-2 text-mini text-app-text-secondary" data-testid="browser-host-status">
           <div>{host.sharing && host.devices > 0 ? devicesLabel : controls.t('browser.tab.hostStopped')}</div>
-          <div className="text-app-text-faint">{host.kbps.toFixed(1)} KB/s · {Math.round(host.delayMs)} ms{host.error ? ` · ${host.error}` : ''}</div>
+          <div className="text-app-text-faint">{host.kbps.toFixed(1)} KB/s · {controls.t('browser.tab.hostLastFrame', { age: host.delayMs < 1000 ? `${Math.round(host.delayMs)} ms` : `${Math.round(host.delayMs / 1000)} s` })}{host.error ? ` · ${host.error}` : ''}</div>
           <button type="button" role="menuitem" className="mt-1 text-left text-primary"
             data-testid="browser-host-sharing-toggle"
             onClick={() => controls.chrome?.commands.setHostSharing?.(!host.sharing)}>

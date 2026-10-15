@@ -94,7 +94,8 @@ export function createHostMirror(deps: HostMirrorDeps) {
     if (statusTimers.has(contextId)) return;
     statusTimers.set(contextId, schedule(() => {
       statusTimers.delete(contextId);
-      const host = [...deps.sockets(contextId)].find((w) => w.readyState === OPEN && w.data._nativeDelegate);
+      // The registered host, not any native pane: a second window on the same context is not it.
+      const host = [...deps.sockets(contextId)].find((w) => w.readyState === OPEN && hosts.isHost(contextId, w));
       if (!host) return;
       const at = now();
       const sample = statusSamples.get(contextId) ?? { at, bytes: 0, lastFrameAt: at };
