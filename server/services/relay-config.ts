@@ -28,7 +28,7 @@
  */
 import { existsSync, readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import { dirname, join } from "node:path";
-import { creaIdentitaRelay } from "../../shared/relay-identita";
+import { createRelayIdentity } from "../../shared/relay-identita";
 
 export interface RelayConfig {
   /** `null` = relay spento. */
@@ -85,32 +85,32 @@ export function leggiRelayUrl(env: Record<string, string | undefined>): string |
  * rewrites it. Replacing it at boot, the relay off included, threw away the only key to the links
  * made with it, with no way back.
  */
-async function leggiIdentitaRelay(stateDir: string): Promise<{ relayId: string; segreto: string }> {
+async function readRelayIdentity(stateDir: string): Promise<{ relayId: string; segreto: string }> {
   const f = join(stateDir, "relay-identity.json");
   try {
     const v = JSON.parse(readFileSync(f, "utf8")) as { relayId?: unknown; segreto?: unknown };
     if (typeof v.relayId === "string" && typeof v.segreto === "string") return { relayId: v.relayId, segreto: v.segreto };
   } catch { /* missing or unreadable: create a verifiable key */ }
-  const nuova = await creaIdentitaRelay();
+  const created = await createRelayIdentity();
   try {
     mkdirSync(dirname(f), { recursive: true });
-    writeFileSync(f, JSON.stringify(nuova) + "\n", { mode: 0o600 });
+    writeFileSync(f, JSON.stringify(created) + "\n", { mode: 0o600 });
   } catch { /* keep the generated identity in memory for this process */ }
-  return nuova;
+  return created;
 }
 
 export async function leggiRelaySegreto(stateDir: string): Promise<string> {
-  return (await leggiIdentitaRelay(stateDir)).segreto;
+  return (await readRelayIdentity(stateDir)).segreto;
 }
 
 export async function leggiRelayConfig(
   env: Record<string, string | undefined>,
   stateDir: string,
 ): Promise<RelayConfig> {
-  const identita = await leggiIdentitaRelay(stateDir);
+  const identity = await readRelayIdentity(stateDir);
   return {
     baseUrl: leggiRelayUrl(env),
     installationId: leggiInstallationId(stateDir),
-    relayId: identita.relayId,
+    relayId: identity.relayId,
   };
 }

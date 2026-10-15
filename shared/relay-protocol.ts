@@ -259,7 +259,7 @@ export function leggiMessaggio(raw: unknown): MessaggioRelay | null {
   }
 }
 
-const MOTIVI = new Set([
+export const MOTIVI = new Set([
   "bad-version", "bad-token", "unknown-installation", "expired", "revoked", "host-offline",
 ]);
 

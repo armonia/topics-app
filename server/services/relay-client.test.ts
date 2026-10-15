@@ -8,10 +8,10 @@
  * @covers GUEST-08
  */
 import { describe, expect, it } from "bun:test";
-import { creaProvaHostSync, creaRelayClient, type LinkCondivisione } from "./relay-client";
+import { createHostProofSync, creaRelayClient, type LinkCondivisione } from "./relay-client";
 import { nuovaChiave, sigilla, apri } from "../../shared/relay-crypto";
 import { SEGRETO_FINTO } from "../../shared/relay-fake";
-import { creaIdentitaRelay, verificaProvaHost } from "../../shared/relay-identita";
+import { createRelayIdentity, HOST_PROOF_HEADER, verifyHostProof } from "../../shared/relay-identita";
 
 const ORA = 1_000_000;
 
@@ -38,9 +38,9 @@ const chiedi = (k: string) => sigilla(k, JSON.stringify({ t: "fetch" }));
 
 describe("relay host proof · firma del client Bun", () => {
   it("produce una firma che il Worker può verificare", async () => {
-    const identity = await creaIdentitaRelay();
-    const proof = creaProvaHostSync(identity.segreto, identity.relayId);
-    expect(await verificaProvaHost(proof, identity.relayId)).toBe(true);
+    const identity = await createRelayIdentity();
+    const proof = createHostProofSync(identity.segreto, identity.relayId);
+    expect(await verifyHostProof(proof, identity.relayId)).toBe(true);
   });
 });
 
@@ -66,24 +66,26 @@ describe("relay client · un link buono serve la sua cosa", () => {
   it("gestisci serve il ramo valido e rende uguali i rifiuti", async () => {
     const l = link();
     const { c } = client(l);
-    const inviati: string[] = [];
-    const source = { send: (raw: string) => { inviati.push(raw); } } as unknown as WebSocket;
+    const sent: string[] = [];
+    const source = { send: (raw: string) => { sent.push(raw); } } as unknown as WebSocket;
     const busta = JSON.stringify({ ref: l.ref, b: await chiedi(l.key) });
     await c.__gestisci({ t: "to-guest", to: "sid-1", payload: busta }, source);
-    const servita = JSON.parse(inviati.pop()!) as { payload: string };
-    const chiaro = await apri(l.key, servita.payload);
-    expect(JSON.parse(chiaro!)).toMatchObject({ status: 200 });
+    const servita = JSON.parse(sent.pop()!) as { payload: string };
+    const plain = await apri(l.key, servita.payload);
+    expect(JSON.parse(plain!)).toMatchObject({ status: 200 });
 
-    const rifiuti: string[] = [];
-    for (const ref of ["inesistente", "scaduto", "revocato"]) {
-      const esito = client(ref === "scaduto" ? link({ expiresAt: ORA - 1 })
-        : ref === "revocato" ? link({ revokedAt: ORA - 1 }) : l);
-      const frame = JSON.stringify({ ref, b: await chiedi(l.key) });
-      await esito.c.__gestisci({ t: "to-guest", to: "sid-1", payload: frame }, source);
-      rifiuti.push(inviati.pop()!);
+    // Each refusal reaches its own branch: the expired and the revoked link are asked for by their
+    // real ref and with their own key, so only the date can turn them away.
+    const refusals: string[] = [];
+    const cases = [["unknown-ref", l], ["r1", link({ expiresAt: ORA - 1 })], ["r1", link({ revokedAt: ORA - 1 })]] as const;
+    for (const [ref, asked] of cases) {
+      const outcome = client(asked);
+      const frame = JSON.stringify({ ref, b: await chiedi(asked.key) });
+      await outcome.c.__gestisci({ t: "to-guest", to: "sid-1", payload: frame }, source);
+      refusals.push(sent.pop()!);
     }
-    expect(new Set(rifiuti).size).toBe(1);
-    expect(JSON.parse(rifiuti[0]!).payload).toEqual(JSON.stringify({ status: 404, body: { error: "non disponibile" } }));
+    expect(new Set(refusals).size).toBe(1);
+    expect(JSON.parse(refusals[0]!).payload).toEqual(JSON.stringify({ status: 404, body: { error: "non disponibile" } }));
   });
 });
 
@@ -202,9 +204,9 @@ class FakeSocketRelay {
 async function connectedClient() {
   FakeSocketRelay.aperte = [];
   const righe: string[] = [];
-  const identita = await creaIdentitaRelay();
+  const identity = await createRelayIdentity();
   const c = creaRelayClient({
-    baseUrl: "https://relay.esempio.test", relayId: identita.relayId, segreto: identita.segreto,
+    baseUrl: "https://relay.esempio.test", relayId: identity.relayId, segreto: identity.segreto,
     trovaLink: () => null,
     serviRisorsa: async () => ({ status: 200, body: {} }),
     segnaApertura: () => {},
@@ -214,6 +216,29 @@ async function connectedClient() {
   });
   return { c, righe };
 }
+
+describe("relay client · the handshake carries a proof the Worker accepts", () => {
+  it("signs with the machine's key even when a test opens the socket", async () => {
+    // An injected socket used to switch the proof to a placeholder: every test here then
+    // attached with a header no relay would accept, and none of them could tell.
+    const identity = await createRelayIdentity();
+    let headers: Record<string, string> = {};
+    const c = creaRelayClient({
+      baseUrl: "https://relay.esempio.test", relayId: identity.relayId, segreto: identity.segreto,
+      trovaLink: () => null,
+      serviRisorsa: async () => ({ status: 200, body: {} }),
+      segnaApertura: () => {},
+      now: () => ORA,
+      apriSocket: ((_url: string, o: { headers: Record<string, string> }) => {
+        headers = o.headers;
+        return new FakeSocketRelay();
+      }) as never,
+    });
+    c.avvia();
+    expect(await verifyHostProof(headers[HOST_PROOF_HEADER], identity.relayId)).toBe(true);
+    c.ferma();
+  });
+});
 
 describe("relay client · «collegato» vuol dire che il relay ci ha PRESI IN CARICO", () => {
   it("un filo aperto ma non confermato NON conta come collegato", async () => {

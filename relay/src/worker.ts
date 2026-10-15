@@ -51,7 +51,7 @@ export { SessioneRelay } from "./relay-do";
 import { PAGINA_OSPITE } from "./pagina-ospite";
 import { PAGINA_SENZA_CASA } from "./pagina-senza-casa";
 import { PERCORSO_PONTE } from "./ponte";
-import { INTESTAZIONE_PROVA_HOST, verificaProvaHost } from "../../shared/relay-identita";
+import { HOST_PROOF_HEADER, verifyHostProof } from "../../shared/relay-identita";
 
 /** Quale installazione sta guardando questo browser. */
 export const BISCOTTO_INSTALLAZIONE = "topics_inst";
@@ -241,7 +241,7 @@ export default {
     // La firma usa una chiave pubblica il cui digest è il nome nel percorso.
     // Il Worker non conserva credenziali e una prova catturata scade presto.
     if (ruolo === "agent") {
-      const ok = await verificaProvaHost(req.headers.get(INTESTAZIONE_PROVA_HOST), installationId ?? "");
+      const ok = await verifyHostProof(req.headers.get(HOST_PROOF_HEADER), installationId ?? "");
       // Lo stesso corpo che darebbe un nome inesistente: a chi bussa senza
       // segreto non si conferma che quel punto d'incontro esiste.
       if (!ok) return new Response("not found", { status: 404 });

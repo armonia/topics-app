@@ -6101,7 +6101,7 @@ const relay = creaRelayClient({
   // valore e non potevano restarlo.
   relayId: relayCfg.relayId,
   segreto: await leggiRelaySegreto(ctx.STATE_DIR),
-  elencaLinkValidi: () => (ctx.db.query(
+  listActiveShareRefs: () => (ctx.db.query(
     "SELECT ref FROM share_links WHERE revoked_at IS NULL AND expires_at > ? ORDER BY created_at DESC LIMIT 500",
   ).all(Date.now()) as Array<{ ref: string }>).map((r) => r.ref),
   // Dove si rigioca ciò che arriva dal relay. `null` — cioè

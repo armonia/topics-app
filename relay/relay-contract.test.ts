@@ -225,8 +225,8 @@ describe("relay · non decide chi sei (RELAY-04)", () => {
     // ovunque — il relay avrebbe cominciato a tenere un registro di chi è
     // autorizzato, cioè la seconda autorità sull'identità che RELAY-04 esiste
     // per non avere.
-    expect(CODICE).toContain("verificaProvaHost");
-    expect(CODICE).toContain("INTESTAZIONE_PROVA_HOST");
+    expect(CODICE).toContain("verifyHostProof");
+    expect(CODICE).toContain("HOST_PROOF_HEADER");
     expect(CODICE).toContain("relay-identita");
     // Nessuna chiave che arrivi dalla configurazione del Worker: un segreto
     // condiviso fra tutte le installazioni sarebbe uno solo da rubare.

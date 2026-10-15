@@ -1,3 +1,9 @@
+/**
+ * The machine's relay key on disk: a restart keeps the name, and the previous scheme's file is left
+ * as it was.
+ *
+ * @covers RELAY-E2E-12
+ */
 import { describe, expect, test } from "bun:test";
 import { existsSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";

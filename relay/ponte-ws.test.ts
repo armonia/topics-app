@@ -31,7 +31,7 @@ import {
 } from "./src/ponte";
 import { creaProxyTubo } from "../server/services/relay-client";
 import { leggiFramePayload, scriviFrame, type FrameTubo } from "../shared/relay-protocol";
-import { creaIdentitaRelay, creaProvaHost, INTESTAZIONE_PROVA_HOST } from "../shared/relay-identita";
+import { createRelayIdentity, createHostProof, HOST_PROOF_HEADER } from "../shared/relay-identita";
 import {
   GENERE_WS_APERTO, GENERE_WS_CHIUSO, leggiChiusuraWs, leggiTestaWsChiuso,
   scriviTestaWs, WS_APERTO,
@@ -798,9 +798,9 @@ describe("ponte-ws · la visita finisce, e la fine arriva fino in fondo", () => 
     // il nome derivato dal segreto, e il segreto nell'intestazione. In questa
     // scena `get()` ignora il nome e torna sempre lo stesso oggetto, quindi
     // resta il punto d'incontro di prima — cambia solo come ci si entra.
-    const identita = await creaIdentitaRelay();
+    const identita = await createRelayIdentity();
     const nuova = await s.apri(`/agent/${identita.relayId}`, {
-      [INTESTAZIONE_PROVA_HOST]: await creaProvaHost(identita.segreto, identita.relayId),
+      [HOST_PROOF_HEADER]: await createHostProof(identita.segreto, identita.relayId),
     });
     expect(nuova.res.status).toBe(101);
 

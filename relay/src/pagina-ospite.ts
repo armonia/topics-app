@@ -27,6 +27,8 @@
  * dall'origine. Se qualcosa qui andasse storto, la chiave nel frammento non
  * avrebbe comunque dove andare.
  */
+import { MOTIVI, RELAY_PROTOCOL_VERSION } from "../../shared/relay-protocol";
+
 export const PAGINA_OSPITE = `<!doctype html>
 <html lang="it">
 <meta charset="utf-8">
@@ -131,12 +133,14 @@ if (!chiave || !m) {
       ws.close(4002, 'invalid relay message');
       return;
     }
-    const valido = msg && typeof msg === 'object' && (
-      (msg.t === 'ready' && msg.v === 1 && typeof msg.sessionId === 'string' && msg.sessionId.length > 0)
-      || (msg.t === 'denied' && ['bad-version','bad-token','unknown-installation','expired','revoked','host-offline'].includes(msg.motivo))
+    // Version and reasons come from the protocol: a list copied here would one day close the
+    // socket on a reason the relay had just learned to send.
+    const valid = msg && typeof msg === 'object' && (
+      (msg.t === 'ready' && msg.v === ${RELAY_PROTOCOL_VERSION} && typeof msg.sessionId === 'string' && msg.sessionId.length > 0)
+      || (msg.t === 'denied' && ${JSON.stringify([...MOTIVI])}.includes(msg.motivo))
       || (msg.t === 'to-guest' && typeof msg.to === 'string' && msg.to.length > 0 && typeof msg.payload === 'string')
     );
-    if (!valido) {
+    if (!valid) {
       ws.close(4002, 'invalid relay message');
       return;
     }

@@ -52,8 +52,8 @@ import {
 /** I tag identificano una socket DOPO l'ibernazione: sono l'unico stato che
  *  sopravvive allo sfratto dalla memoria. */
 const TAG_MACCHINA = "host";
-const CHIAVE_SHARE_REFS = "share-refs";
-const LIMITE_SOCKET_OSPITE = 5;
+const SHARE_REFS_KEY = "share-refs";
+const MAX_GUEST_SOCKETS = 5;
 // The literal, not `WebSocket.OPEN`: the tests run on Bun's WebSocket and the
 // relay on workerd's, and a constant missing from the runtime would make every
 // open host look closed, turning remote access off entirely. `relay-client.ts`
@@ -410,7 +410,7 @@ export class SessioneRelay {
       // La macchina di prima non risponderà più: chi stava aspettando lo deve
       // sapere adesso, e la sessione del ponte va rifatta con quella nuova.
       this.scollegaPonte();
-      await this.state.storage.put(CHIAVE_SHARE_REFS, []);
+      await this.state.storage.put(SHARE_REFS_KEY, []);
       this.state.acceptWebSocket(mio, [TAG_MACCHINA]);
       SessioneRelay.dilloA(mio, { t: "ready", v: RELAY_PROTOCOL_VERSION });
     } else {
@@ -429,11 +429,11 @@ export class SessioneRelay {
       const sessione: RuoloSessione = ruolo === "device" ? "device" : "guest";
       if (sessione === "guest") {
         const shareRef = url.searchParams.get("shareRef");
-        const dichiarati = await this.state.storage.get<string[]>(CHIAVE_SHARE_REFS);
-        if (!shareRef || !dichiarati?.includes(shareRef)) return new Response("not found", { status: 404 });
-        const ospiti = this.state.getWebSockets(tagRuolo("guest"))
+        const declared = await this.state.storage.get<string[]>(SHARE_REFS_KEY);
+        if (!shareRef || !declared?.includes(shareRef)) return new Response("not found", { status: 404 });
+        const guests = this.state.getWebSockets(tagRuolo("guest"))
           .filter((socket) => socket.readyState === SOCKET_OPEN);
-        if (ospiti.length >= LIMITE_SOCKET_OSPITE) return new Response("not found", { status: 404 });
+        if (guests.length >= MAX_GUEST_SOCKETS) return new Response("not found", { status: 404 });
       }
       const sid = crypto.randomUUID();
       this.state.acceptWebSocket(mio, [tagSessione(sid), tagRuolo(sessione)]);
@@ -515,7 +515,7 @@ export class SessioneRelay {
     if ("host" in chi && this.macchina() !== ws) return;
 
     if ("host" in chi && m.t === "share-refs") {
-      await this.state.storage.put(CHIAVE_SHARE_REFS, m.refs);
+      await this.state.storage.put(SHARE_REFS_KEY, m.refs);
       return;
     }
 

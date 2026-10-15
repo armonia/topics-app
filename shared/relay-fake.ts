@@ -20,20 +20,18 @@
  */
 
 /**
- * Il segreto d'aggancio nei test che non fanno una stretta di mano vera.
+ * The host key in tests that do not make a real handshake.
  *
- * Questi test iniettano `apriSocket`, quindi il filo non esce dal processo e
- * nessuno verifica niente: il valore serve solo a soddisfare la forma di
- * `RelayDeps`. Sta QUI e non ripetuto in cinque file perché un segreto finto
- * copiato cinque volte è un segreto finto che un giorno qualcuno cerca di
- * cambiare in un posto solo.
+ * A real P-256 key: the client signs its proof on every connection, as in production, and a string
+ * that is not a key cannot be signed with. It opens nothing. These tests inject `apriSocket`, nobody
+ * on the far side verifies, and no installation answers to the relay ID it digests to. It lives HERE
+ * and not in five files because a fake copied five times is a fake someone one day changes in one.
  *
- * Chi invece prova il controllo vero — che il nome sia il digest della
- * preimmagine — non usa questo: deriva il nome dal segreto con
- * `derivaRelayId`, perché una coppia inventata a mano non corrisponderebbe e il
- * test proverebbe solo il rifiuto.
+ * Tests of the real check (the name is the digest of the public key) do not use it: they call
+ * `createRelayIdentity`, because a pair made up by hand would only prove the refusal.
  */
-export const SEGRETO_FINTO = "segreto-finto-per-i-test-0123456789";
+export const SEGRETO_FINTO =
+  "MIGHAgEAMBMGByqGSM49AgEGCCqGSM49AwEHBG0wawIBAQQgPN0xJEJQHryNVNIAcHLcIKtPEIHlbfBEqJJKEp5oS1qhRANCAAS13rXmQrJrKewNAprhokBvpa7GIjO3fUKZUsAXjYgg3mRoE8UQ-M_OuwI8-FITEeuWNJIHOQF-LEVSLFUFdHWH";
 import {
   RELAY_PROTOCOL_VERSION, leggiMessaggio, haContenutoOpaco,
   componiStream, creaCapoCanale, creaContatoreStream, creaRiassemblatore, leggiFramePayload,

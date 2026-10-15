@@ -425,10 +425,10 @@ describe("proxy · il link di condivisione continua a rispondere", () => {
       t: "to-guest", to: SID, payload: JSON.stringify({ ref: "r1", b: busta }),
     }) });
 
-    expect(await finoA(() => s.sock.inviati.length > 1)).toBe(true);
-    const ultima = leggiMessaggio(JSON.parse(s.sock.inviati[s.sock.inviati.length - 1]!));
-    expect(ultima?.t).toBe("to-guest");
-    const chiaro = await apri(s.link.key, (ultima as { payload: string }).payload);
+    // By type, not by position: after `ready` the machine also declares its share refs.
+    const reply = () => s.sock.inviati.map((d) => leggiMessaggio(JSON.parse(d))).find((m) => m?.t === "to-guest");
+    expect(await finoA(() => reply() !== undefined)).toBe(true);
+    const chiaro = await apri(s.link.key, (reply() as { payload: string }).payload);
     expect(JSON.parse(chiaro!)).toEqual({ status: 200, body: { id: "t1" } });
   });
 });

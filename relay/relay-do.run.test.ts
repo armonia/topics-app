@@ -29,7 +29,7 @@ import { describe, expect, it } from "bun:test";
 import { SessioneRelay } from "./src/relay-do";
 import worker from "./src/worker";
 import { creaRelayFinto } from "../shared/relay-fake";
-import { creaIdentitaRelay, creaProvaHost, INTESTAZIONE_PROVA_HOST } from "../shared/relay-identita";
+import { createRelayIdentity, createHostProof, HOST_PROOF_HEADER } from "../shared/relay-identita";
 import { leggiMessaggio, type MessaggioRelay } from "../shared/relay-protocol";
 
 // ───────────────────────────────────────────────────────────────────────────
@@ -231,7 +231,7 @@ function scenaWorker() {
      */
     macchina: async (p: PuntoDIncontro) => {
       const host = await chiedi(`/agent/${p.id}`, true, {
-        [INTESTAZIONE_PROVA_HOST]: await creaProvaHost(p.segreto, p.id),
+        [HOST_PROOF_HEADER]: await createHostProof(p.segreto, p.id),
       });
       if (host.res.status === 101) {
         await nodo(p.id).webSocketMessage(host.suo as unknown as WebSocket, JSON.stringify({ t: "share-refs", refs: ["r1"] }));
@@ -256,7 +256,7 @@ interface PuntoDIncontro { segreto: string; id: string }
  */
 async function puntoDIncontro(seme: string): Promise<PuntoDIncontro> {
   void seme;
-  const identita = await creaIdentitaRelay();
+  const identita = await createRelayIdentity();
   return { segreto: identita.segreto, id: identita.relayId };
 }
 
@@ -389,13 +389,13 @@ describe("worker eseguito · le tre porte", () => {
 
     // Chi ha SOLO il nome — cioè chiunque abbia ricevuto un link.
     const senza = await w.collega(`/agent/${p.id}`);
-    const altra = await creaIdentitaRelay();
+    const altra = await createRelayIdentity();
     const sbagliato = await w.collega(`/agent/${p.id}`, {
-      [INTESTAZIONE_PROVA_HOST]: await creaProvaHost(altra.segreto, altra.relayId),
+      [HOST_PROOF_HEADER]: await createHostProof(altra.segreto, altra.relayId),
     });
-    const vuoto = await w.collega(`/agent/${p.id}`, { [INTESTAZIONE_PROVA_HOST]: "" });
+    const vuoto = await w.collega(`/agent/${p.id}`, { [HOST_PROOF_HEADER]: "" });
     const troncato = await w.collega(`/agent/${p.id}`, {
-      [INTESTAZIONE_PROVA_HOST]: await creaProvaHost(p.segreto, p.id, Date.now() - 60_001),
+      [HOST_PROOF_HEADER]: await createHostProof(p.segreto, p.id, Date.now() - 60_001),
     });
 
     for (const [nome, a] of [["senza", senza], ["sbagliato", sbagliato], ["vuoto", vuoto], ["troncato", troncato]] as const) {
