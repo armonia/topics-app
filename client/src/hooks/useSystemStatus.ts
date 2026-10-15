@@ -50,6 +50,13 @@ export interface SystemStatus {
     fallbacks: number;
     lastError: string | null;
   };
+  nativeFileTree?: {
+    loaded: boolean;
+    enabled: boolean;
+    calls: number;
+    fallbacks: number;
+    lastError: string | null;
+  };
   processSpawns?: {
     windowMinutes: number;
     sampledAt: string;

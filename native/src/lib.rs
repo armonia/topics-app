@@ -5,6 +5,10 @@ use napi::Task;
 use napi_derive::napi;
 use gix::bstr::ByteSlice;
 
+mod file_tree;
+
+pub use file_tree::{walk_file_tree, FileNode, FileTreeTask};
+
 #[napi]
 pub fn native_version() -> String {
     env!("CARGO_PKG_VERSION").to_owned()

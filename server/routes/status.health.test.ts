@@ -1,9 +1,11 @@
 /** @covers SYSTEM-03 */
+/** @covers D3F-02 */
 import { afterEach, describe, expect, test } from "bun:test";
 import { createStatusRouter, _setPtyBridgeHealthSocketForTest } from "./status";
 import { HEALTH_SUBSYSTEMS } from "../../shared/system-health";
 import type { AppContext } from "../types";
 import { setKeychainRunnerForTests, type KeychainRunResult } from "../providers/native/auth";
+import { nativeFileTreeSnapshot, setNativeFileTreeTestOverrides } from "../lib/native-file-tree";
 
 function makeRouter() {
   const ctx = {
@@ -16,7 +18,10 @@ function makeRouter() {
   return createStatusRouter(ctx);
 }
 
-afterEach(() => _setPtyBridgeHealthSocketForTest(null));
+afterEach(() => {
+  _setPtyBridgeHealthSocketForTest(null);
+  setNativeFileTreeTestOverrides(null);
+});
 
 describe("GET /api/system/health", () => {
   test("returns every subsystem and reports an actionable PTY failure", async () => {
@@ -53,5 +58,15 @@ describe("GET /api/system/health", () => {
       if (oldFlag === undefined) delete process.env.TOPICS_CREDENTIALS_KEYCHAIN;
       else process.env.TOPICS_CREDENTIALS_KEYCHAIN = oldFlag;
     }
+  });
+});
+
+describe("GET /api/system/status", () => {
+  test("includes native file-tree state and counters", async () => {
+    setNativeFileTreeTestOverrides({ enabled: false, module: null });
+    const router = makeRouter();
+    const response = await router(new Request("http://topics/api/system/status"), new URL("http://topics/api/system/status"), "/api/system/status", "GET");
+    const body = await response!.json() as { nativeFileTree: ReturnType<typeof nativeFileTreeSnapshot> };
+    expect(body.nativeFileTree).toMatchObject({ loaded: false, enabled: false, calls: 0, fallbacks: 0, lastError: null });
   });
 });

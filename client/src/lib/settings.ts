@@ -25,6 +25,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   // other AppSettings field (sanitizeSettingsPayload keeps keys present here).
   mutedProjects: [],
   nativeGitStatusEnabled: true,
+  nativeFileTreeEnabled: true,
   // Heavy tabs never paused, by origin: filled by the «keep always» button.
   keepLiveSites: [],
   // Lingua dell'interfaccia: `auto` segue il browser (e ricade sull'italiano).

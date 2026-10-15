@@ -14,6 +14,7 @@ import { useTopics } from '@/contexts/TopicsContext';
 import { formatMemoryMB } from '@/lib/formatMemory';
 import { setNativePaneMemoryEvictionEnabled, useNativePaneMemoryEvictionEnabled, useNativePaneMemoryPressure } from '@/state/nativePaneMemory';
 import { setNativeGitStatusEnabled, useNativeGitStatusEnabled } from '@/state/nativeGitStatus';
+import { setNativeFileTreeEnabled, useNativeFileTreeEnabled } from '@/state/nativeFileTree';
 import { SwitchRow } from './PreferenceRow';
 import { loadSettings, saveSettings, SETTINGS_CHANGED_EVENT } from '@/lib/settings';
 
@@ -252,6 +253,8 @@ export function PerfSection() {
   const memoryEvictionEnabled = useNativePaneMemoryEvictionEnabled();
   const nativeGitEnabled = useNativeGitStatusEnabled();
   const nativeGit = status?.nativeGit;
+  const nativeFileTreeEnabled = useNativeFileTreeEnabled();
+  const nativeFileTree = status?.nativeFileTree;
   const memoryPressure = useNativePaneMemoryPressure();
   const vociTrattenuteVisibili = vociPerNatura(vociPeso, 'trattenuto');
 
@@ -478,6 +481,19 @@ export function PerfSection() {
         checked={nativeGitEnabled}
         onChange={setNativeGitStatusEnabled}
         testId="perf-native-git-status"
+      />
+      <SwitchRow
+        label={tr('perf.nativeFileTree.setting')}
+        hint={tr(!nativeFileTree
+          ? 'perf.nativeFileTree.checking'
+          : !nativeFileTree.enabled
+            ? 'perf.nativeFileTree.disabled'
+            : !nativeFileTree.loaded
+              ? 'perf.nativeFileTree.unavailable'
+              : 'perf.nativeFileTree.active', { n: nativeFileTree?.calls ?? 0 })}
+        checked={nativeFileTreeEnabled}
+        onChange={setNativeFileTreeEnabled}
+        testId="perf-native-file-tree"
       />
       {(() => {
         const bridge = status?.server.ptyBridge;

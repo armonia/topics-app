@@ -1,7 +1,8 @@
 /** @covers D3C-01 */
 /** @covers D3D-01 */
+/** @covers D3F-02 */
 import { expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync, chmodSync, symlinkSync, renameSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync, chmodSync, symlinkSync, renameSync, statSync, utimesSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { gitEnv } from "../tests/setup/bun-test-preload";
@@ -9,11 +10,19 @@ import { parseBranchHeader, splitBranchHeader } from "../server/lib/git-status";
 import { parsePorcelainZ, repoPrefixOf, scopeToPrefix } from "../server/lib/git-porcelain";
 import { parseNumstatZ } from "../server/lib/git-numstat";
 import { loadNativeModuleAt } from "../server/lib/native-addon";
+import { walkFileTreeJs } from "../server/lib/file-tree";
+import { percentile } from "../scripts/measure-file-tree";
 
-const addonPath = resolve(import.meta.dir, "topics_native.node");
+const addonPath = resolve(process.env.TOPICS_NATIVE_ADDON_PATH ?? resolve(import.meta.dir, "topics_native.node"));
 const native = Bun.file(addonPath).size ? loadNativeModuleAt(addonPath) : null;
 const gitStatus = native?.gitStatus;
 const gitNumstat = native?.gitNumstat;
+const nativeWalkFileTree = native?.walkFileTree;
+
+test("file-tree measurement uses the median pair and nearest-rank p95", () => {
+  expect(percentile([1, 2, 3, 4], 0.5)).toBe(2.5);
+  expect(percentile(Array.from({ length: 20 }, (_, i) => i + 1), 0.95)).toBe(19);
+});
 
 if (!gitStatus) console.log("SKIP native git status parity: build-native-addon.sh has not run");
 
@@ -147,3 +156,117 @@ for (const [name, setup, windowsSkip] of scenarios) {
     }
   });
 }
+
+function putTreeFile(root: string, path: string, body = "fixture\n"): void {
+  const file = join(root, path);
+  mkdirSync(resolve(file, ".."), { recursive: true });
+  writeFileSync(file, body);
+}
+
+const treeScenarios: Array<[string, (root: string) => void]> = [
+  ["root ignore globs and negations", (root) => {
+    putTreeFile(root, ".gitignore", "*.log\n!keep.log\n");
+    putTreeFile(root, "drop.log"); putTreeFile(root, "keep.log");
+  }],
+  ["nested ignore rules", (root) => {
+    putTreeFile(root, "src/.gitignore", "generated/\n!generated/keep.txt\n");
+    putTreeFile(root, "src/generated/drop.txt"); putTreeFile(root, "src/generated/keep.txt");
+  }],
+  ["heavy directories", (root) => {
+    putTreeFile(root, "node_modules/pkg/index.js"); putTreeFile(root, "target/debug/file"); putTreeFile(root, "src/main.ts");
+  }],
+  ["symbolic links", (root) => {
+    putTreeFile(root, "target.txt");
+    if (process.platform !== "win32") symlinkSync("target.txt", join(root, "link.txt"));
+  }],
+  ["spaces and accented names", (root) => {
+    putTreeFile(root, "spazio nome.txt"); putTreeFile(root, "caffè.txt"); putTreeFile(root, "cafe\u0301.txt");
+  }],
+  ["default exclusions", (root) => {
+    mkdirSync(join(root, ".git")); putTreeFile(root, ".git/config"); putTreeFile(root, ".DS_Store"); putTreeFile(root, "visible.txt");
+  }],
+  ["reserved secret directory", (root) => {
+    putTreeFile(root, ".topics-secrets/key"); putTreeFile(root, "visible.txt");
+  }],
+  ["directory-only ignore", (root) => {
+    putTreeFile(root, ".gitignore", "cache/\n"); putTreeFile(root, "cache/file.txt"); putTreeFile(root, "cache.txt");
+  }],
+  ["requested depth", (root) => {
+    putTreeFile(root, "one/two/three/four.txt"); putTreeFile(root, "one/near.txt");
+  }],
+  ["protected media package", (root) => {
+    putTreeFile(root, "Photos.photoslibrary/private/photo.jpg"); putTreeFile(root, "visible.txt");
+  }],
+  ["hidden files remain visible", (root) => {
+    putTreeFile(root, ".env.local"); putTreeFile(root, ".well-known/config");
+  }],
+  ["modified times a few nanoseconds before the next millisecond", (root) => {
+    // Bun builds mtimeMs as seconds * 1000 + nanoseconds / 1e6 in a double, and at today's dates
+    // that double rounds these files up to the next millisecond: the native side must agree.
+    if (process.platform === "win32") {
+      console.log("SKIP millisecond-boundary parity: Bun on Windows sets this fixture's times to whole milliseconds");
+      return;
+    }
+    for (const name of ["a.txt", "b.txt", "c.txt"]) {
+      putTreeFile(root, name);
+      const seconds = 1760558771 + (743 + 0.99995) / 1000;
+      utimesSync(join(root, name), seconds, seconds);
+      const nanos = statSync(join(root, name), { bigint: true }).mtimeNs % 1_000_000n;
+      if (nanos < 999_878n) throw new Error(`fixture mtime landed ${nanos} ns into the millisecond, too far from the next one`);
+    }
+  }],
+];
+
+test.skipIf(!nativeWalkFileTree)("native file tree matches JavaScript on the fixture trees and this checkout", async () => {
+  for (const [name, setup] of treeScenarios) {
+    const base = scratch();
+    const root = join(base, "tree");
+    try {
+      mkdirSync(root, { recursive: true });
+      setup(root);
+      const expected = await walkFileTreeJs(root, 4);
+      const actual = await nativeWalkFileTree!(root, 4);
+      expect(actual, name).toEqual(expected);
+    } finally {
+      rmSync(base, { recursive: true, force: true });
+    }
+  }
+
+  const root = resolve(import.meta.dir, "..");
+  expect(await nativeWalkFileTree!(root, 3)).toEqual(await walkFileTreeJs(root, 3));
+
+  if (process.platform === "win32") {
+    console.log("SKIP unreadable-folder parity: chmod 000 does not enforce access on Windows");
+    return;
+  }
+  if (process.getuid?.() === 0) {
+    console.log("SKIP unreadable-folder parity: tests run as root, chmod 000 is ineffective");
+    return;
+  }
+
+  const base = scratch();
+  const unreadableRoot = join(base, "tree");
+  const locked = join(unreadableRoot, "locked");
+  try {
+    mkdirSync(locked, { recursive: true });
+    writeFileSync(join(locked, "hidden.txt"), "x");
+    writeFileSync(join(unreadableRoot, "visible.txt"), "x");
+    chmodSync(locked, 0o000);
+    const expected = await walkFileTreeJs(unreadableRoot, 3);
+    const actual = await nativeWalkFileTree!(unreadableRoot, 3);
+    expect(actual).toEqual(expected);
+    expect(actual.find(({ name }) => name === "locked")?.children).toEqual([]);
+  } finally {
+    try { chmodSync(locked, 0o755); } catch {}
+    rmSync(base, { recursive: true, force: true });
+  }
+});
+
+test.skipIf(!nativeWalkFileTree)("native file tree keeps a missing root as an error", async () => {
+  const base = scratch();
+  try {
+    await expect(nativeWalkFileTree!(join(base, "missing"), 3)).rejects.toThrow();
+  } finally {
+    rmSync(base, { recursive: true, force: true });
+  }
+});

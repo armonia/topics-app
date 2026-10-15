@@ -7,6 +7,7 @@ import { getFleetUsage } from "../lib/fleet-usage";
 import { machineSharesNow } from "../services/dispatch-capacity";
 import { serverSpawnCounts } from "../lib/spawn-metrics";
 import { nativeGitStatusSnapshot } from "../lib/native-git-status";
+import { nativeFileTreeSnapshot } from "../lib/native-file-tree";
 import { unknownPricedModels } from "../usage/pricing";
 import { getProvider } from "../providers";
 import { checkGatewayHealth as pingGateway } from "../providers/health";
@@ -469,6 +470,7 @@ export function createStatusRouter(ctx: AppContext): RouteHandler {
         sessions: lastSessionsStatus || { total: 0, byType: {} },
         processSpawns: serverSpawnCounts(),
         nativeGit: nativeGitStatusSnapshot(),
+        nativeFileTree: nativeFileTreeSnapshot(),
       });
     }
 

@@ -1,12 +1,14 @@
 import { existsSync } from "node:fs";
 import { createRequire } from "node:module";
 import { resolve } from "node:path";
+import type { FileNode } from "../../shared/file-tree";
 
 export interface NativeModule {
   nativeVersion(): string;
   gitHeadCommitId(repoPath: string): string | null;
   gitStatus?(repoPath: string): Promise<NativeGitStatus | null>;
   gitNumstat?(repoPath: string, entries: NativeGitStatusEntry[]): Promise<NativeGitNumstat>;
+  walkFileTree?(root: string, depth: number, home?: string): Promise<FileNode[]>;
 }
 
 export interface NativeGitStatusEntry {
@@ -49,6 +51,34 @@ interface NativeExports {
     lastCommit?: { short: string; hash: string; subject: string; author: string; time: number } | null;
   } | null>;
   gitNumstat?: (repoPath: string, entries: NativeGitStatusEntry[]) => Promise<NativeGitNumstat>;
+  walkFileTree?: (root: string, depth: number, home?: string) => Promise<Array<{
+    name: string;
+    type?: string | null;
+    kind?: string | null;
+    path: string;
+    size?: number | null;
+    modified?: string | null;
+    children?: Array<unknown> | null;
+  }>>;
+}
+
+function normalizeNativeFileTree(nodes: Awaited<ReturnType<NonNullable<NativeExports["walkFileTree"]>>>): FileNode[] {
+  const normalized = nodes.map((node) => {
+    const normalized: FileNode = {
+      name: node.name,
+      type: (node.type ?? node.kind) as FileNode["type"],
+      path: node.path,
+    };
+    if (node.size != null) normalized.size = node.size;
+    if (node.modified != null) normalized.modified = node.modified;
+    if (node.children != null) normalized.children = normalizeNativeFileTree(node.children as Parameters<typeof normalizeNativeFileTree>[0]);
+    return normalized;
+  });
+  normalized.sort((a, b) => {
+    if (a.type !== b.type) return a.type === "dir" ? -1 : 1;
+    return a.name.localeCompare(b.name);
+  });
+  return normalized;
 }
 
 let loaded = false;
@@ -79,7 +109,6 @@ export function loadNativeModule(): NativeModule | null {
 export function loadNativeModuleAt(candidate: string): NativeModule | null {
   if (!existsSync(candidate)) {
     loadError = `native module not found at ${candidate}`;
-    console.warn(`[native-module] ${loadError}`);
     return null;
   }
 
@@ -128,6 +157,9 @@ export function loadNativeModuleAt(candidate: string): NativeModule | null {
                 return result;
               },
             }
+          : {}),
+        ...(typeof exports.walkFileTree === "function"
+          ? { walkFileTree: async (root: string, depth: number, home?: string) => normalizeNativeFileTree(await exports.walkFileTree!.call(exports, root, depth, home)) }
           : {}),
       };
     }

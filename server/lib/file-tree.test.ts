@@ -7,7 +7,7 @@ import { afterAll, describe, expect, test } from "bun:test";
 import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { walkFileTree, type FileNode } from "./file-tree";
+import { createFileTreeSlowLogger, walkFileTree, type FileNode } from "./file-tree";
 import { makeFakeHome } from "./protected-app-data.fixture";
 
 const root = mkdtempSync(join(tmpdir(), "file-tree-"));
@@ -44,6 +44,20 @@ test("folders first, then names in order; rules, nested rules and depth hold", a
   const file = tree.find(n => n.name === "a.txt")!;
   expect(file.size).toBe(1);
   expect(typeof file.modified).toBe("string");
+});
+
+test("slow file-tree lines start above 200 ms and repeat at most once a minute", () => {
+  let now = 10_000;
+  const lines: string[] = [];
+  const report = createFileTreeSlowLogger({ now: () => now, log: (line) => lines.push(line) });
+  report(200);
+  report(201);
+  report(900);
+  now += 59_999;
+  report(250);
+  now++;
+  report(250);
+  expect(lines).toEqual(["[FILE-TREE] 201ms", "[FILE-TREE] 250ms"]);
 });
 
 // root ignores the permission bits, so `chmod 0444` cannot make the stat fail

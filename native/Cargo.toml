@@ -13,6 +13,9 @@ crate-type = ["cdylib"]
 napi = { version = "3.14.2", default-features = false, features = ["napi8"] }
 napi-derive = "3.6.9"
 gix = { version = "0.89.0", default-features = false, features = ["blob-diff", "revision", "sha1", "sha256", "status"] }
+ignore = "0.4.24"
+time = { version = "0.3.44", features = ["formatting", "parsing"] }
+unicode-normalization = "0.1.25"
 
 [build-dependencies]
 napi-build = "2.6.0"
