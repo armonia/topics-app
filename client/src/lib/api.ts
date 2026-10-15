@@ -1940,9 +1940,9 @@ export const peopleApi = {
       { method: 'PATCH', body: JSON.stringify({ githubLogin }) },
     );
   },
-  async rename(id: string, displayName: string): Promise<{ id: string; displayName: string }> {
-    return request<{ id: string; displayName: string }>(`/people/${id}`, {
-      method: 'PATCH', body: JSON.stringify({ displayName }),
+  async rename(id: string, name: string): Promise<{ ok: boolean }> {
+    return request<{ ok: boolean }>(`/auth/people/${encodeURIComponent(id)}`, {
+      method: 'PATCH', body: JSON.stringify({ name }),
     });
   },
   async follow(id: string): Promise<{ following: boolean; counts: FollowCounts }> {

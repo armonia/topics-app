@@ -13,7 +13,7 @@ async function resetFirstRun(page: Page, ownerName: string) {
   const people = await (await page.request.get('/api/people?stats=0')).json() as { people: Array<{ id: string; isMe?: boolean }> };
   const owner = people.people.find((person) => person.isMe);
   expect(owner, 'the owner is in the address book').toBeTruthy();
-  expect((await page.request.patch(`/api/people/${owner!.id}`, { data: { displayName: ownerName } })).ok()).toBe(true);
+  expect((await page.request.patch(`/api/auth/people/${owner!.id}`, { data: { name: ownerName } })).ok()).toBe(true);
   const response = await page.request.put('/api/app-settings', { data: { firstRunDoneAt: null } });
   expect(response.ok()).toBe(true);
   await page.reload();
@@ -32,11 +32,13 @@ test.describe('first-run @covers FIRST-RUN-01', () => {
     await page.getByTestId('first-run-name').fill('Ada Topics');
     await page.getByTestId('first-run-save-name').click();
     await expect(page.getByTestId('first-run-name')).toHaveValue('Ada Topics');
+    const peopleAfterSave = await (await page.request.get('/api/people?stats=0')).json() as { people: Array<{ displayName: string; isMe?: boolean }> };
+    expect(peopleAfterSave.people.find((person) => person.isMe)?.displayName).toBe('Ada Topics');
     await page.getByTestId('first-run-done').click();
     await expect(page.getByTestId('first-run')).toHaveCount(0);
     await expect(page.getByTestId('identity-name')).toContainText('Ada');
-    const owner = await page.request.get('/api/profile/owner');
-    expect((await owner.json()).name).toBe('Ada Topics');
+    const peopleAfterDone = await (await page.request.get('/api/people?stats=0')).json() as { people: Array<{ displayName: string; isMe?: boolean }> };
+    expect(peopleAfterDone.people.find((person) => person.isMe)?.displayName).toBe('Ada Topics');
   });
 
   test('skip persists across reload', async ({ page }) => {

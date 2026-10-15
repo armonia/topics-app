@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { ExternalLink, Monitor, UserRound, WandSparkles } from 'lucide-react';
 import { useT } from '@/hooks/useT';
 import { appSettingsApi, peopleApi, providersApi, systemApi, type AppBehaviorSettings, type CliAgentPresence } from '@/lib/api';
@@ -6,7 +6,10 @@ import { openUserMenu } from '@/lib/openUserMenu';
 import { OPEN_FIRST_RUN_EVENT } from '@/lib/openFirstRun';
 import type { ApiProviderName } from '@/components/Settings/providerFormat';
 import { ApiKeyForm } from '@/components/Settings/ApiProviderSetup';
+import { MODAL_OVERLAY, MODAL_PANEL } from '@/lib/modalStyles';
+import { useExitGhost } from '@/lib/exitGhost';
 import { agentSetupRows } from './agentSetupRows';
+import { firstRunProviderView, OWNER_PLACEHOLDER_NAME, shouldShowFirstRun } from './firstRunModel';
 
 interface FirstRunData {
   settings: AppBehaviorSettings;
@@ -15,11 +18,11 @@ interface FirstRunData {
   providers: Awaited<ReturnType<typeof providersApi.snapshot>>['providers'];
 }
 
-// The owner is born with this name (migration 084): while it stands, the installation is on its first opening.
-const OWNER_PLACEHOLDER_NAME = 'Proprietario';
-
 export function FirstRunHost() {
   const t = useT();
+  const translateRef = useRef(t);
+  translateRef.current = t;
+  const overlayRef = useRef<HTMLDivElement>(null);
   const [visible, setVisible] = useState(false);
   const [data, setData] = useState<FirstRunData | null>(null);
   const [name, setName] = useState('');
@@ -49,32 +52,37 @@ export function FirstRunHost() {
     };
     setData(next);
     setName(owner?.displayName ?? '');
-    if (!settings.firstRunDoneAt) setVisible(true);
+    if (force || shouldShowFirstRun(settings.firstRunDoneAt, owner?.displayName ?? null)) setVisible(true);
   }, []);
 
   useEffect(() => {
     let live = true;
-    void load().catch(() => { if (live) setError(t('firstRun.loadError')); });
+    void load().catch(() => { if (live) setError(translateRef.current('firstRun.loadError')); });
     const reopen = () => {
       setVisible(true);
       setError(null);
-      void load(true).catch(() => { if (live) setError(t('firstRun.loadError')); });
+      void load(true).catch(() => { if (live) setError(translateRef.current('firstRun.loadError')); });
     };
     window.addEventListener(OPEN_FIRST_RUN_EVENT, reopen);
     return () => { live = false; window.removeEventListener(OPEN_FIRST_RUN_EVENT, reopen); };
-  }, [load, t]);
+  }, [load]);
 
   useEffect(() => {
     if (!visible) return;
     void appSettingsApi.update({ firstRunDoneAt: new Date().toISOString() }).then((settings) => {
       setData((current) => current ? { ...current, settings } : current);
-    }).catch(() => setError(t('firstRun.loadError')));
-  }, [visible, t]);
+    }).catch(() => setError(translateRef.current('firstRun.loadError')));
+  }, [visible]);
 
   const close = async () => {
     setBusy(true);
     setError(null);
     try {
+      if (data?.owner && name.trim() !== data.owner.name.trim()) {
+        await peopleApi.rename(data.owner.id, name.trim());
+        setData((current) => current?.owner ? { ...current, owner: { ...current.owner, name: name.trim() } } : current);
+        window.dispatchEvent(new Event('topics:identity-changed'));
+      }
       const settings = await appSettingsApi.update({ firstRunDoneAt: new Date().toISOString() });
       setData((current) => current ? { ...current, settings } : current);
       setVisible(false);
@@ -100,17 +108,17 @@ export function FirstRunHost() {
     }
   };
 
+  useExitGhost(overlayRef, visible, 'modal');
   if (!visible) return null;
   const agentRows = agentSetupRows(data?.agents ?? []);
-  const defaultProvider = data?.providers.find((provider) => provider.isDefault) ?? data?.providers.find((provider) => provider.name === data.settings.aiProvider);
-  const apiKeyRequirement = defaultProvider?.requirements.find((requirement) => requirement.key === 'ANTHROPIC_API_KEY' || requirement.key === 'OPENAI_API_KEY');
-  const missingKey = apiKeyRequirement && !apiKeyRequirement.present ? apiKeyRequirement : null;
-  const keyProvider: ApiProviderName | null = missingKey?.key === 'ANTHROPIC_API_KEY' ? 'claude' : missingKey?.key === 'OPENAI_API_KEY' ? 'openai' : null;
+  const providerView = firstRunProviderView(data?.providers ?? [], data?.settings.aiProvider ?? null);
+  const defaultProvider = providerView.provider;
+  const keyProvider: ApiProviderName = 'claude';
   const declaredModel = defaultProvider?.defaultModel ?? defaultProvider?.models[0] ?? null;
 
   return (
-    <div className="fixed inset-0 z-[100] flex items-start justify-center overflow-auto bg-black/50 p-4 sm:p-8" data-testid="first-run-backdrop">
-      <section role="dialog" aria-modal="true" aria-labelledby="first-run-title" data-testid="first-run" className="my-auto w-full max-w-4xl rounded-2xl border border-app-border bg-surface p-5 text-app-text shadow-2xl sm:p-8">
+    <div ref={overlayRef} className={`${MODAL_OVERLAY} items-start overflow-auto p-4 sm:p-8`} data-testid="first-run-backdrop">
+      <section role="dialog" aria-modal="true" aria-labelledby="first-run-title" data-testid="first-run" className={`${MODAL_PANEL} my-auto w-full max-w-4xl p-5 text-app-text sm:p-8`}>
         <header className="mb-6">
           <h1 id="first-run-title" className="text-display-sm font-semibold">{t('firstRun.title')}</h1>
           <p className="mt-2 text-prose text-app-text-muted">{t('firstRun.subtitle')}</p>
@@ -120,7 +128,7 @@ export function FirstRunHost() {
             <h2 className="mb-3 flex items-center gap-2 font-semibold"><UserRound size={18} />{t('firstRun.identity')}</h2>
             <label className="mb-1 block text-mini text-app-text-muted" htmlFor="first-run-name">{t('firstRun.name')}</label>
             <div className="flex gap-2">
-              <input id="first-run-name" data-testid="first-run-name" value={name} onChange={(event) => setName(event.target.value)} className="min-w-0 flex-1 rounded-md border border-app-border bg-app-bg px-3 py-2 text-compact" maxLength={64} />
+              <input id="first-run-name" data-testid="first-run-name" value={name} onChange={(event) => setName(event.target.value)} className="min-w-0 flex-1 rounded-md border border-app-border bg-app-bg px-3 py-2 text-compact" maxLength={80} />
               <button type="button" data-testid="first-run-save-name" onClick={() => void saveName()} disabled={busy || !name.trim()} className="rounded-md bg-primary px-3 py-2 text-compact text-white disabled:opacity-50">{t('firstRun.saveName')}</button>
             </div>
           </article>
@@ -136,12 +144,16 @@ export function FirstRunHost() {
           </article>
           <article className="rounded-xl border border-app-border p-4">
             <h2 className="mb-3 flex items-center gap-2 font-semibold"><WandSparkles size={18} />{t('firstRun.responds')}</h2>
-            {defaultProvider && <p className="mb-2 text-mini text-app-text-muted">{t('firstRun.provider', { provider: defaultProvider.label ?? defaultProvider.name })}</p>}
+            {providerView.providerName && <p className="mb-2 text-mini text-app-text-muted">{t('firstRun.provider', { provider: defaultProvider?.label ?? providerView.providerName })}</p>}
             {declaredModel && <p data-testid="first-run-model" className="mb-3 text-mini text-app-text-muted">{t('firstRun.model', { model: declaredModel })}</p>}
-            {missingKey && keyProvider ? <><p className="mb-3 text-mini text-app-text-muted">{t('firstRun.keyMissing')}</p><ApiKeyForm provider={keyProvider} replacing={false} onSaved={async () => {
+            {!providerView.ready && <div className="mb-3 space-y-1 text-mini text-app-text-muted">
+              <p>{t('firstRun.providerNotReady', { provider: providerView.providerName ?? t('firstRun.noProvider'), status: t(`firstRun.status.${providerView.status}`) })}</p>
+              {providerView.requirements.length > 0 ? providerView.requirements.map((requirement) => <p key={requirement.key}>{t('firstRun.requirementMissing', { requirement: requirement.label })}{requirement.hint ? `: ${requirement.hint}` : ''}</p>) : <p>{t('firstRun.providerNextStep')}</p>}
+            </div>}
+            {providerView.showAnthropicKey ? <><p className="mb-3 text-mini text-app-text-muted">{t('firstRun.keyMissing')}</p><ApiKeyForm provider={keyProvider} replacing={false} onSaved={async () => {
               const snapshot = await providersApi.snapshot();
               setData((current) => current ? { ...current, providers: snapshot.providers } : current);
-            }} /></> : <p className="text-mini text-app-text-muted">{t(apiKeyRequirement?.present ? 'firstRun.keyPresent' : 'firstRun.noKeyNeeded')}</p>}
+            }} /></> : providerView.ready ? <p className="text-mini text-app-text-muted">{t('firstRun.keyPresent')}</p> : null}
           </article>
           <details className="rounded-xl border border-app-border p-4">
             <summary className="flex cursor-pointer list-none items-center gap-2 font-semibold"><ExternalLink size={18} />{t('firstRun.remote')}</summary>
