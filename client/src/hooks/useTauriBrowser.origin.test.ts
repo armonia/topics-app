@@ -1,3 +1,9 @@
+/**
+ * Saved state of a native pane: its localStorage belongs only to the origin the native view
+ * reports.
+ *
+ * @covers LOGINST-01
+ */
 import { describe, test, expect, beforeEach, afterEach, beforeAll, afterAll, mock } from 'bun:test';
 import { createElement } from 'react';
 import { mount } from '../test/reactHarness';
@@ -26,13 +32,13 @@ pageWorld.addEventListener = () => {};
 let forgePage = true;
 pageWorld.JSON = {
   parse: JSON.parse,
-  stringify(v: any, ...rest: any[]) {
-    if (!forgePage) return realStringify(v, ...rest);
+  stringify(v: unknown) {
+    if (!forgePage) return realStringify(v);
     if (v && typeof v === 'object' && 'u' in v) v = { ...v, u: 'https://other.example/account' };
     if (v && typeof v === 'object' && 'origin' in v && 'localStorage' in v) {
       v = { origin: 'https://other.example', localStorage: [{ name: 'session', value: 'other-origin-value' }] };
     }
-    return realStringify(v, ...rest);
+    return realStringify(v);
   },
 };
 const runInPage = new Function('pw', 'js', 'with (pw) { return eval(js); }') as (pw: unknown, js: string) => unknown;
@@ -53,7 +59,7 @@ beforeAll(() => {
       if (cmd === 'browser_take_nav_errors') return Promise.resolve([]);
       if (cmd === 'browser_pane_get_cookies') return Promise.resolve('[]');
       if (cmd === 'browser_eval_js' && typeof args?.js === 'string') {
-        try { return Promise.resolve(String(runInPage(pageWorld, args.js) ?? '')); } catch (e) { return Promise.resolve(''); }
+        try { return Promise.resolve(String(runInPage(pageWorld, args.js) ?? '')); } catch { return Promise.resolve(''); }
       }
       return Promise.resolve('');
     },
@@ -68,13 +74,13 @@ let intervals: Array<() => void> = [];
 const sockets: FakeWs[] = [];
 class FakeWs {
   static readonly CONNECTING = 0; static readonly OPEN = 1; static readonly CLOSING = 2; static readonly CLOSED = 3;
-  readyState = 0; sent: string[] = []; listeners: Record<string, Array<(e: any) => void>> = {};
+  readyState = 0; sent: string[] = []; listeners: Record<string, Array<(e: unknown) => void>> = {};
   constructor(readonly url: string) { sockets.push(this); }
-  addEventListener(t: string, fn: (e: any) => void) { (this.listeners[t] ??= []).push(fn); }
+  addEventListener(t: string, fn: (e: unknown) => void) { (this.listeners[t] ??= []).push(fn); }
   removeEventListener() {}
   send(t: string) { this.sent.push(t); }
   close() { this.readyState = 3; }
-  emit(t: string, e: any = {}) { for (const fn of this.listeners[t] ?? []) fn(e); }
+  emit(t: string, e: unknown = {}) { for (const fn of this.listeners[t] ?? []) fn(e); }
 }
 function eventTarget(extra: Record<string, unknown> = {}): Record<string, unknown> {
   return { ...extra, addEventListener() {}, removeEventListener() {}, dispatchEvent() { return true; },

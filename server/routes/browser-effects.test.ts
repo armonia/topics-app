@@ -1,3 +1,9 @@
+/**
+ * Browser routes with server effects: a mirror resource needs the token of its own context, and
+ * the framing probe runs only for a same-origin JSON POST.
+ *
+ * @covers BROWSER-DOM-RES-01, BROWSER-CHAT-04
+ */
 import { describe, test, expect } from "bun:test";
 import { createBrowserRouter } from "./browser";
 import { evaluateAuth } from "../lib/auth-gate";

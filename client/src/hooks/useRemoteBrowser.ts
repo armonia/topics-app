@@ -1276,11 +1276,7 @@ function rememberFramable(url: string, framable: boolean): void {
     setState(s => (s.framable ? { ...s, framable: false } : s));
     if (!url || !/^https?:\/\//i.test(url)) return;
     let cancelled = false;
-    apiFetch('/api/browsers/framable', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ url }),
-    })
+    apiFetch('/api/browsers/framable', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ url }) })
       .then(r => (r.ok ? r.json() : { framable: false }))
       .then((d: { framable?: boolean }) => {
         if (!cancelled && mountedRef.current) {
