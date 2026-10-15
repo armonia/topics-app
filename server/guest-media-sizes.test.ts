@@ -77,13 +77,13 @@ test("a guest holding the chat does not learn the size of a picture it cannot fe
   putGrant(ctx.db, guest, "topic", topicId, { grantedAt: 1 });
   // The production rule (`guestMayReceiveFrame` in server.ts): type allowlist, then grant on the entity.
   ctx.setGuestBroadcastFilter({
-    mayReceiveFrame(deviceId, message) {
+    mayReceiveFrame(data, message) {
       const type = (message as { type?: unknown }).type;
       if (typeof type !== "string" || !isGuestSafeFrameType(type)) return false;
       const resource = frameResource(message);
-      return !!resource && hasGrant(ctx.db, deviceP(deviceId), resource.type, resource.id);
+      return !!resource && hasGrant(ctx.db, deviceP(data.deviceId!), resource.type, resource.id);
     },
-    mayReadTopic: (deviceId, id) => hasGrant(ctx.db, deviceP(deviceId), "topic", id),
+    mayReadTopic: (data, id) => hasGrant(ctx.db, deviceP(data.deviceId!), "topic", id),
   });
   const received = new Map<string, string[]>();
   const socket = (id: string, data: Partial<WSData>) => {
@@ -96,8 +96,8 @@ test("a guest holding the chat does not learn the size of a picture it cannot fe
     ctx.wsClients.add(ws as unknown as ServerWebSocket<WSData>);
     return ws;
   };
-  const owner = socket("owner", { deviceId: null, deviceRole: null });
-  const guestWs = socket("guest", { deviceId: guest.id, deviceRole: "guest" });
+  const owner = socket("owner", { deviceId: null, principal: null });
+  const guestWs = socket("guest", { deviceId: guest.id, principal: { principals: [guest], confined: true, rev: 0 } });
   try {
     ctx.broadcastToAll({
       type: "message:new", topicId, sessionKey: "guest-media", role: "assistant", messageId: "m1",
@@ -126,13 +126,13 @@ test("a frame routed to a topic's subscribers keeps the guest rules of the globa
   const guest = { kind: "device" as const, id: "guest-topic-device" };
   putGrant(ctx.db, guest, "topic", topicId, { grantedAt: 1 });
   ctx.setGuestBroadcastFilter({
-    mayReceiveFrame(deviceId, message) {
+    mayReceiveFrame(data, message) {
       const type = (message as { type?: unknown }).type;
       if (typeof type !== "string" || !isGuestSafeFrameType(type)) return false;
       const resource = frameResource(message);
-      return !!resource && hasGrant(ctx.db, deviceP(deviceId), resource.type, resource.id);
+      return !!resource && hasGrant(ctx.db, deviceP(data.deviceId!), resource.type, resource.id);
     },
-    mayReadTopic: (deviceId, id) => hasGrant(ctx.db, deviceP(deviceId), "topic", id),
+    mayReadTopic: (data, id) => hasGrant(ctx.db, deviceP(data.deviceId!), "topic", id),
   });
   const received = new Map<string, string[]>();
   const socket = (id: string, data: Partial<WSData>) => {
@@ -145,8 +145,8 @@ test("a frame routed to a topic's subscribers keeps the guest rules of the globa
     ctx.wsClients.add(ws as unknown as ServerWebSocket<WSData>);
     return ws;
   };
-  const owner = socket("owner", { deviceId: null, deviceRole: null });
-  const guestWs = socket("guest", { deviceId: guest.id, deviceRole: "guest" });
+  const owner = socket("owner", { deviceId: null, principal: null });
+  const guestWs = socket("guest", { deviceId: guest.id, principal: { principals: [guest], confined: true, rev: 0 } });
   try {
     ctx.broadcastToAll({ type: "stream:content_chunk", sessionKey, topicId, content: "x" });
     ctx.broadcastToAll({ type: "stream:usage", sessionKey, topicId, calls: 1, promptTokens: 1, completionTokens: 1, cacheReadTokens: 0, cacheCreationTokens: 0, cacheCreation1hTokens: 0 });

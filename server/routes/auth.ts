@@ -342,7 +342,7 @@ export function createAuthRouter(ctx: AppContext, opts: AuthRouterOpts = {}): Ro
     lastSeenAt: r.last_seen_at === null ? null : Number(r.last_seen_at),
     firstIp: r.first_ip === null ? null : String(r.first_ip),
     revokedAt: r.revoked_at === null ? null : Number(r.revoked_at),
-    role: r.role === 'guest' ? 'guest' : 'owner',
+    role: resolvePrincipals(db as never, String(r.id)).confined ? 'guest' : 'owner',
   });
 
   /** Le persone note, per raggruppare l'elenco e per offrire lo spostamento. */
@@ -371,7 +371,8 @@ export function createAuthRouter(ctx: AppContext, opts: AuthRouterOpts = {}): Ro
   };
 
   const listDevices = (): DeviceRecord[] =>
-    (db.query("SELECT * FROM devices ORDER BY revoked_at IS NOT NULL, last_seen_at DESC, created_at DESC").all() as Record<string, unknown>[])
+    (db.query(`SELECT id, name, token_hash, created_at, last_seen_at, first_ip, revoked_at
+        FROM devices ORDER BY revoked_at IS NOT NULL, last_seen_at DESC, created_at DESC`).all() as Record<string, unknown>[])
       .map(rowToDevice);
 
   return async function authRouter(req: Request, url: URL, pathname: string, method: string): Promise<Response | null> {
@@ -642,12 +643,8 @@ export function createAuthRouter(ctx: AppContext, opts: AuthRouterOpts = {}): Ro
             if (!p) return json({ error: "unknown_person" }, 404);
             if (p.revoked_at !== null) return json({ error: "person_revoked" }, 400);
           }
-          // The stored `role` is rewritten in the SAME statement as the owner.
-          // Two separate writes would be two rows in time, and the three gates
-          // (identity, device-auth, WS upgrade) read `role`, not ownership: a
-          // device moved to somebody who does not own this installation kept
-          // `owner` and stayed unconfined. NULL owner means guest, exactly the
-          // rule principals.ts derives.
+          // Keep the legacy column consistent in the same write for rollback
+          // compatibility. Authorization derives confinement from ownership.
           db.query(`
             UPDATE devices SET person_id = ?, role = CASE
               WHEN EXISTS(SELECT 1 FROM installation_owners WHERE person_id = ?) THEN 'owner'
@@ -1696,7 +1693,11 @@ export function createAuthRouter(ctx: AppContext, opts: AuthRouterOpts = {}): Ro
         // Uscire è una revoca come le altre, e finora era l'unica che lasciava
         // in piedi la push: il telefono «uscito» continuava a ricevere.
         const io = ctx.requestIdentity?.(req)?.deviceId ?? null;
-        if (io) dimenticaPush(db, io);
+        if (io) {
+          dimenticaPush(db, io);
+          // Browser and terminal sockets are authorized once, at upgrade.
+          ctx.closeDeviceSockets?.(io);
+        }
       }
       return new Response(JSON.stringify({ ok: true }), {
         status: 200,

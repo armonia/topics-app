@@ -36,6 +36,7 @@
 import type { Database } from "bun:sqlite";
 import type { CodiceAuth } from "../../shared/auth-codes";
 import type { SubjectKind } from "./grants-query";
+import { resolvePrincipals } from "./principals";
 
 /** Forma minima del database: così i test passano uno SQLite in memoria. */
 type Db = Pick<Database, "query">;
@@ -98,12 +99,12 @@ export function livePersonMemberships(db: Db, personId: string): number {
  */
 export function subjectRejection(db: Db, kind: SubjectKind, id: string): RecipientRejection | null {
   if (kind === "device") {
-    const d = db.query("SELECT role FROM devices WHERE id = ? AND revoked_at IS NULL")
-      .get(id) as { role?: string } | undefined;
+    const d = db.query("SELECT id FROM devices WHERE id = ? AND revoked_at IS NULL")
+      .get(id) as { id?: string } | undefined;
     if (!d) return { codice: "unknown_device", status: 404 };
     // Condividere con chi vede GIÀ tutto non vuol dire niente, e lasciarlo fare
     // darebbe l'idea che quella riga stia limitando qualcosa.
-    if (d.role !== "guest") return { codice: "device_not_guest", status: 400 };
+    if (!resolvePrincipals(db, id).confined) return { codice: "device_not_guest", status: 400 };
     return null;
   }
 

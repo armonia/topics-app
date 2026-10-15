@@ -31,11 +31,13 @@ export interface Principals {
   personId: string | null;
   /** Vede solo ciò che gli è stato concesso. */
   confined: boolean;
+  /** The database revision used to resolve this identity. */
+  rev: number;
 }
 
 /** Un dispositivo che non conosciamo: sé stesso, e niente poteri. */
 function soloIlFerro(deviceId: string): Principals {
-  return { list: [{ kind: "device", id: deviceId }], personId: null, confined: true };
+  return { list: [{ kind: "device", id: deviceId }], personId: null, confined: true, rev: 0 };
 }
 
 /**
@@ -67,11 +69,13 @@ export function principalsRev(db: Db): number {
  * chiudere fuori il proprietario dalla propria macchina.
  */
 export function resolvePrincipals(db: Db, deviceId: string): Principals {
-  let riga: { person_id: string | null; person_revoked: number | null; is_owner: number } | undefined;
+  const rev = principalsRev(db);
+  let riga: { person_id: string | null; person_revoked: number | null; is_owner: number; device_revoked: number | null } | undefined;
   try {
     riga = db.query(`
       SELECT d.person_id            AS person_id,
              p.revoked_at           AS person_revoked,
+             d.revoked_at           AS device_revoked,
              (io.person_id IS NOT NULL) AS is_owner
         FROM devices d
         LEFT JOIN people p               ON p.id = d.person_id
@@ -83,7 +87,9 @@ export function resolvePrincipals(db: Db, deviceId: string): Principals {
     return soloIlFerro(deviceId);
   }
 
-  if (!riga || !riga.person_id || riga.person_revoked !== null) return soloIlFerro(deviceId);
+  if (!riga || riga.device_revoked !== null || !riga.person_id || riga.person_revoked !== null) {
+    return { ...soloIlFerro(deviceId), rev };
+  }
 
   const personId = riga.person_id;
   const list: Principal[] = [{ kind: "device", id: deviceId }, { kind: "person", id: personId }];
@@ -101,5 +107,11 @@ export function resolvePrincipals(db: Db, deviceId: string): Principals {
        AND o.revoked_at IS NULL`).all(personId) as Array<{ id: string }>;
   for (const o of orgs) list.push({ kind: "org", id: o.id });
 
-  return { list, personId, confined: !riga.is_owner };
+  // Only the chat socket rereads `confined` on every frame. Browser and
+  // terminal sockets are authorized once, at upgrade, and an attention focus
+  // set while owner stays valid until its socket closes. So every write that
+  // can turn an owner into a guest must call `closeDeviceSockets`, as revoke,
+  // reassign and logout do. No runtime code writes `installation_owners`
+  // today; the first one that does inherits this rule.
+  return { list, personId, confined: !riga.is_owner, rev };
 }

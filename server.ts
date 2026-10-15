@@ -156,9 +156,9 @@ import { createActivityRouter } from "./server/routes/activity";
 import { createDashboardRouter } from "./server/routes/dashboard";
 import { createAuthRouter, noteDeviceConnected, noteDeviceDisconnected } from "./server/routes/auth";
 import { evaluateIdentity, isIdentityExemptPath, readSessionCookie } from "./server/lib/device-auth";
-import { isDelegatedNodeAllowedRequest, isGuestAllowedPath, isGuestAllowedMethod, isGuestSafeFrameType, isGuestHandshakeFrame, isGuestSocketData, isGuestInboundFrameAllowed, frameResource } from "./server/lib/grants";
+import { isDelegatedNodeAllowedRequest, isGuestAllowedPath, isGuestAllowedMethod, isGuestHandshakeFrame, isGuestSocketData, isGuestInboundFrameAllowed } from "./server/lib/grants";
 import { hasGrant, holdsGrantOnTaskPreview, deviceP } from "./server/lib/grants-query";
-import { resolvePrincipals, principalsRev } from "./server/lib/principals";
+import { refreshSocketPrincipal, socketMayReceiveFrame, socketMayReadTopic } from "./server/lib/socket-principals";
 import { resolveDelegatedCredential, resolveIdentity } from "./server/lib/identity";
 import { creaRelayClient } from "./server/services/relay-client";
 import { leggiRelayConfig, leggiInstallationId, leggiRelaySegreto } from "./server/services/relay-config";
@@ -1041,6 +1041,7 @@ const billingRouter = createBillingRouter(ctx);
 const identityByRequest = new WeakMap<Request, {
   role: 'owner' | 'guest';
   deviceId: string | null;
+  principal: NonNullable<WSData["principal"]> | null;
   delegatedAuthorizationId?: string;
   delegatedCapabilityId?: string;
 }>();
@@ -1070,16 +1071,6 @@ ctx.requestIdentity = (req: Request) => identityByRequest.get(req) ?? null;
  * Una cache a scadenza qui vorrebbe dire una finestra in cui una revoca non ha
  * ancora effetto, ed è esattamente la cosa da non avere.
  */
-const memoPrincipali = new Map<string, { rev: number; list: ReturnType<typeof deviceP> }>();
-function principaliDi(deviceId: string) {
-  const rev = principalsRev(ctx.db);
-  const cache = memoPrincipali.get(deviceId);
-  if (cache && cache.rev === rev) return cache.list;
-  const list = resolvePrincipals(ctx.db, deviceId).list;
-  memoPrincipali.set(deviceId, { rev, list });
-  return list;
-}
-
 /**
  * The `stream:catchup` frames of the turns in flight whose topic `wants`.
  *
@@ -1124,22 +1115,13 @@ function streamCatchupFrames(wants: (topicId: string | undefined) => boolean): R
  * May a guest device receive this frame? The rule of every fan-out, named so a
  * frame sent to ONE socket outside the fan-outs goes through the same door.
  */
-function guestMayReceiveFrame(deviceId: string, message: unknown): boolean {
-  const tipo = (message as { type?: unknown }).type;
-  if (typeof tipo !== "string" || !isGuestSafeFrameType(tipo)) return false;
-  const risorsa = frameResource(message);
-  if (!risorsa) return false;
-  return hasGrant(ctx.db, principaliDi(deviceId), risorsa.type, risorsa.id);
-}
-
 ctx.setGuestBroadcastFilter({
-  mayReceiveFrame: guestMayReceiveFrame,
+  refreshSocketPrincipal(data) { refreshSocketPrincipal(ctx.db, data); },
+  mayReceiveFrame(data, message) { return socketMayReceiveFrame(ctx.db, data, message); },
   // Le fan-out per topic non portano l'entità NEL frame: ce l'hanno come
   // argomento. Qui quindi si guarda il topic che si sta per consegnare, non
   // quello che il frame dichiara — molti di quei frame non lo nominano affatto.
-  mayReadTopic(deviceId, topicId) {
-    return hasGrant(ctx.db, principaliDi(deviceId), "topic", topicId);
-  },
+  mayReadTopic(data, topicId) { return socketMayReadTopic(ctx.db, data, topicId); },
 });
 const processesRouter = createProcessesRouter(ctx);
 // PUNTO 1 (task e3240a22): inietta le closure nel manager DOPO che processes.ts
@@ -3673,18 +3655,14 @@ const opzioniServer = {
               // persona o a un team ha effetto senza che nessuna riga venga
               // riscritta a ogni pairing.
               const princ = r.deviceId ? io : null;
-              // Il confinamento resta deciso da `devices.role`, e la nuova
-              // regola gli sta accanto SENZA decidere: se divergono lo si
-              // scopre da un log, non da un accesso sbagliato. È il passo che
-              // separa «il modello nuovo esiste» da «il modello nuovo comanda».
-              if (princ && princ.confined !== (r.role === "guest")) {
-                console.warn(
-                  `[principals] divergenza su ${r.deviceId}: ruolo=${r.role} confinato=${princ.confined}`,
-                );
-              }
               identityByRequest.set(req, {
                 role: r.role,
                 deviceId: r.deviceId,
+                principal: princ ? {
+                  principals: princ.principals,
+                  confined: princ.confined,
+                  rev: princ.rev,
+                } : null,
                 ...(delegated ? {
                   delegatedAuthorizationId: delegated.authorizationId,
                   delegatedCapabilityId: delegated.capabilityId,
@@ -4257,13 +4235,15 @@ const opzioniServer = {
        * concessa, altrimenti si tace. Un frame nuovo aggiunto qui domani cade
        * dalla parte giusta senza che nessuno se ne ricordi.
        */
-      const ospiteWS = isGuestSocketData(ws.data);
+      const ospiteWS = (): boolean => {
+        refreshSocketPrincipal(ctx.db, ws.data);
+        return isGuestSocketData(ws.data);
+      };
       const inviaIniziale = (frame: Record<string, unknown>): void => {
         const tipo = String(frame.type ?? "");
-        if (!isGuestHandshakeFrame(tipo) && ospiteWS) {
-          if (!isGuestSafeFrameType(tipo)) return;
-          const risorsa = frameResource(frame);
-          if (!risorsa || !hasGrant(ctx.db, principaliDi(ws.data.deviceId!), risorsa.type, risorsa.id)) return;
+        if (!isGuestHandshakeFrame(tipo) && ospiteWS()
+          && !socketMayReceiveFrame(ctx.db, ws.data, frame)) {
+          return;
         }
         try { sendWsFrame(ws, JSON.stringify(frame), tipo); } catch { /* socket già chiusa */ }
       };
@@ -4302,7 +4282,7 @@ const opzioniServer = {
       // a phone slept is not lost for good. It carries each chat's unread too:
       // the old `unread:init` snapshot went with the client that read it
       // (notifications-redesign, tasks.md 6.2). Never to a guest.
-      if (!ospiteWS) inviaIniziale(attentionInitFrame());
+      if (!ospiteWS()) inviaIniziale(attentionInitFrame());
       // `ui-state:init` e `providers:snapshot` NON hanno una versione ristretta,
       // e non devono averla: il primo è l'area di lavoro del proprietario — le
       // sue finestre, il suo layout — e il secondo la configurazione della
@@ -4337,8 +4317,8 @@ const opzioniServer = {
       // che non è sua.
       // A guest is asked about the topic BEFORE its row is flushed: a turn it
       // cannot see is not written for it.
-      const catchupWanted = ospiteWS
-        ? (topicId: string | undefined) => !!topicId && hasGrant(ctx.db, principaliDi(ws.data.deviceId!), "topic", topicId)
+      const catchupWanted = ospiteWS()
+        ? (topicId: string | undefined) => !!topicId && socketMayReadTopic(ctx.db, ws.data, topicId)
         : () => true;
       for (const frame of streamCatchupFrames(catchupWanted)) inviaIniziale(frame);
       // Which sessions have a turn open right now: a window that reconnects
@@ -4348,6 +4328,7 @@ const opzioniServer = {
     },
     message(ws, message) {
       ws.data.lastPong = Date.now();
+      refreshSocketPrincipal(ctx.db, ws.data);
 
       // Phase 30 BROWSER-CHAT-02 — browser WS branch.
       if (ws.data.browserContextId) {
@@ -4746,9 +4727,9 @@ const opzioniServer = {
             if (joinedIds.length > 0) {
               const joined = (topicId: string | undefined) =>
                 !!topicId && joinedIds.includes(topicId) &&
-                (!guestSocket || hasGrant(ctx.db, principaliDi(ws.data.deviceId!), "topic", topicId));
+                (!guestSocket || socketMayReadTopic(ctx.db, ws.data, topicId));
               for (const frame of streamCatchupFrames(joined)) {
-                if (guestSocket && !guestMayReceiveFrame(ws.data.deviceId!, frame)) continue;
+                if (guestSocket && !socketMayReceiveFrame(ctx.db, ws.data, frame)) continue;
                 try { sendWsFrame(ws, JSON.stringify(frame), "stream:catchup"); } catch { /* socket closed */ }
               }
             }
