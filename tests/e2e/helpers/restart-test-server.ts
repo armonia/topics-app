@@ -32,10 +32,11 @@ export async function portOpen(): Promise<boolean> {
  * there. Elsewhere the server comes back with the environment it had, so the
  * specs that run after this one still find the Chromium global-setup gave it.
  */
-export async function restartTestServer(): Promise<string[]> {
+export async function restartTestServer(options: { downtimeMs?: number } = {}): Promise<string[]> {
   killTestListeners(E2E_PORT); // only the test server (helpers/port-guard.ts)
   const down = Date.now();
   while (Date.now() - down < 15_000 && (await portOpen())) await new Promise((r) => setTimeout(r, 200));
+  if (options.downtimeMs) await new Promise((r) => setTimeout(r, options.downtimeMs));
   const out: string[] = [];
   const proc = spawn("bash", [resolve(__dirname, "../../../scripts/start-test-server.sh")], {
     stdio: ["ignore", "pipe", "pipe"],

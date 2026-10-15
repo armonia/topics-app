@@ -2425,6 +2425,10 @@ posto di 83. La sonda che ispeziona SHALL poter PARCHEGGIARE l'aggancio per chi
 riadotterà, e SHALL parcheggiare SOLO quando la riadozione è promessa. Due sonde
 consecutive NON SHALL pestarsi.
 
+Il CLIENT SHALL seguire il turno attraverso il riavvio senza ricaricare la
+pagina: la chat aperta riceve anche il testo prodotto mentre il server era giù,
+ogni pezzo una volta sola, e le pane restano le stesse.
+
 La ripresa mirata SHALL ripartire subito DOPO l'ultimo esito, o una domanda
 aperta non torna a schermo.
 
@@ -2446,6 +2450,11 @@ lì il danno è totale, perché la riadozione l'ha già svuotata per riusarla.
 - **THEN** la riadozione SHALL aspettare la conferma in ritardo e proseguire: il turno aperto SHALL arrivare intero nella sua riga
 - **AND** le risposte già concluse NON SHALL ricomparire come un turno risvegliato
 - **AND** finché la scansione aspetta, il guardiano della rotta NON SHALL dichiarare morto il turno né fermarne il figlio: SHALL aspettare l'esito della riadozione
+
+#### Scenario: la chat aperta attraverso un riavvio
+- **GIVEN** una chat aperta con un turno lento in streaming
+- **WHEN** il server resta giù 2,5 s e poi riparte
+- **THEN** la pagina non si ricarica, le pane restano le stesse e ogni pezzo del turno compare una volta sola, fino all'ultimo
 
 ### Requirement: CCLI-05 — Un esito SENZA testo chiude comunque il turno
 
