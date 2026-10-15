@@ -26,11 +26,11 @@
 import { existsSync, watch } from "fs";
 import type { AppContext } from "./types";
 import { refreshGitStatus } from "./git-watcher";
+import { fileChangeDebouncer } from "./file-change-debouncer";
 import { reachesProtectedAppData } from "./lib/protected-app-data";
 import { invalidateFileTreeCache, setFileTreeWatcher } from "./lib/file-tree-cache";
 import { invalidateGitCache, setGitStatusFileWatcher } from "./lib/git-status-cache";
 
-const DEBOUNCE_MS = 300;
 /**
  * Cap on the projects watched at once: every recursive watcher has a cost.
  *
@@ -112,26 +112,29 @@ export function watchProjectFiles(projectPath: string, ctx: AppContext): void {
   if (reachesProtectedAppData(projectPath)) return;
   makeRoom();
 
-  let timer: ReturnType<typeof setTimeout> | null = null;
   let closed = false;
-
-  const onChange = (_event: string, filename: string | Buffer | null) => {
-    if (closed) return;
-    const rel = filename == null ? null : filename.toString();
-    if (isNoisy(rel)) return;
-    const gitGeneration = invalidateGitCache(projectPath);
-    invalidateFileTreeCache(projectPath);
-    if (timer) clearTimeout(timer);
-    timer = setTimeout(() => {
-      timer = null;
+  const debouncer = fileChangeDebouncer(
+    (generation) => {
       ctx.broadcastToAll({ type: "files:changed", projectPath });
       // E anche lo stato git: il watcher di `.git` guarda `index`, `HEAD` e
       // `refs`, cioè le operazioni git. Salvare un file non tocca niente di
       // quello, quindi una modifica fatta da un editor esterno, da un agente o
       // da un terminale non faceva scattare nessun push — e con il canale WS
       // attivo il poll del client è a 60 secondi.
-      void refreshGitStatus(projectPath, ctx, gitGeneration);
-    }, DEBOUNCE_MS);
+      void refreshGitStatus(projectPath, ctx, generation);
+    },
+    () => {
+      const gitGeneration = invalidateGitCache(projectPath);
+      invalidateFileTreeCache(projectPath);
+      return gitGeneration;
+    },
+  );
+
+  const onChange = (_event: string, filename: string | Buffer | null) => {
+    if (closed) return;
+    const rel = filename == null ? null : filename.toString();
+    if (isNoisy(rel)) return;
+    debouncer.onChange();
   };
 
   try {
@@ -146,7 +149,7 @@ export function watchProjectFiles(projectPath: string, ctx: AppContext): void {
     watchers.set(projectPath, {
       close() {
         closed = true;
-        if (timer) clearTimeout(timer);
+        debouncer.cancel();
         try { w.close(); } catch {}
       },
     });

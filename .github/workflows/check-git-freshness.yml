@@ -1,0 +1,66 @@
+name: Git freshness under CPU load
+
+# The freshness bar of D3: a saved file reaches the git status on the WebSocket
+# within 150 ms (p95) while eight processes saturate the CPU. It runs on the PRs
+# that touch that path, so green stays green, and by hand on any ref.
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - server/file-watcher.ts
+      - server/file-change-debouncer.ts
+      - server/git-watcher.ts
+      - server/lib/git-status.ts
+      - server/lib/git-numstat.ts
+      - server/lib/native-git-status.ts
+      - native/**
+      - scripts/check-git-freshness.ts
+      - scripts/git-freshness-metrics.ts
+      - .github/workflows/check-git-freshness.yml
+
+concurrency:
+  group: git-freshness-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  measure:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: .bun-version
+
+      - name: Setup Node
+        uses: actions/setup-node@v5
+        with:
+          node-version: 20
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install server dependencies
+        run: bun install --frozen-lockfile --ignore-scripts
+
+      - name: Rebuild node-pty
+        run: npm rebuild node-pty
+
+      - name: Restore node-pty executable bits
+        run: bun run scripts/fix-node-pty-exec-bit.ts
+
+      - name: Build native addon
+        run: scripts/build-native-addon.sh
+
+      - name: Measure freshness with eight CPU burners
+        run: |
+          set +e
+          bun run check:git-freshness -- --burners 8 --samples 20 | tee /tmp/git-freshness.txt
+          result=${PIPESTATUS[0]}
+          set -e
+          cat /tmp/git-freshness.txt >> "$GITHUB_STEP_SUMMARY"
+          exit "$result"
