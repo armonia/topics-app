@@ -22,6 +22,7 @@ export {
   checksMemFloorGB, checksMemFloorIsOff,
 } from '../../../shared/checks-memory-floor';
 export type { GlobalDispatchCap } from '../../../shared/board';
+export type { TaskSessionPeek } from '../../../shared/task-session-peek';
 // The OTHER way to say "enough" (KANBAN-75): the brake that measures what
 // Topics is taking of this computer instead of counting agents. The mode, the
 // budget and the colour of the live reading come from the same shared file the
@@ -1125,6 +1126,8 @@ export const boardApi = {
     status
       ? req<{ tasks: BoardTask[] }>(`/all-boards/tasks?status=${status}`, undefined, read).then(r => r.tasks)
       : readFeedIfChanged(read),
+  sessionPeek: (taskId: string) =>
+    req<{ peek: import('../../../shared/task-session-peek').TaskSessionPeek | null }>(`/all-boards/tasks/${enc(taskId)}/peek`).then(r => r.peek),
   /**
    * LA PORTA UNICA «da un id al suo task, a qualunque profondità».
    *

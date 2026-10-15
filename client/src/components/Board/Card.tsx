@@ -51,6 +51,7 @@ import { fmtMs, fmtTok, fmtAttesa, fmtUsd, taskCopyText } from './format';
 import { UpdatedAgo } from './UpdatedAgo';
 import { StatusIcon, DispatchChip, QueueReasonChip, TaskIdChip, LabelChip } from './atoms';
 import { LiveEffortChip, LiveToolLine, RETRY_NOW_MESSAGE, RetryWaitChip } from './CardLive';
+import { SessionPeek } from './SessionPeek';
 import { SwapIce } from '../Shared/SwapIce';
 import { SwapFreezeLabel } from '../Shared/SwapFreezeLabel';
 import { useSwapFreeze } from '../../state/swapFreeze';
@@ -462,14 +463,43 @@ const CardBody = memo(function CardBody({ task, onOpen, showProject, error, onEr
   const freeTextRef = useRef<HTMLInputElement>(null);
   // Right-click menu (archive/select live here now — NOT as a trash icon that
   // crowds the card header). Cursor-positioned, portaled, viewport-clamped.
-  const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number } | null>(null);
+  const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number; includePeek?: boolean } | null>(null);
+  const [sessionPeekOpen, setSessionPeekOpen] = useState(false);
+  const sessionPeekTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const cardElementRef = useRef<HTMLDivElement | null>(null);
+  const touchMenuPeekRef = useRef(false);
   // Il menu della tessera si apriva SOLO col tasto destro: sulla board da
   // telefono era irraggiungibile. `openContextMenuAt` apre lo stesso menu, non
   // un secondo. NB: la board monta un `DndContext` con `TouchSensor` a 200ms
   // (KanbanBoardPane), quindi qui i due gesti convivono: vedi
   // `onCardTouchStart`, che e' il punto in cui si spartiscono il dito.
   const { isTouch } = useMobile();
-  const cardLongPress = useLongPress(openCardMenuAt, { enabled: isTouch });
+  const cardLongPress = useLongPress((target) => {
+    if (task.assignedTopicId) {
+      releaseTouchDrag(target.touched);
+      setSessionPeekOpen(false);
+      touchMenuPeekRef.current = true;
+      openContextMenuAt(target);
+    } else openCardMenuAt(target);
+  }, { enabled: isTouch });
+  const scheduleSessionPeek = useCallback(() => {
+    if (!task.assignedTopicId) return;
+    if (sessionPeekTimer.current) clearTimeout(sessionPeekTimer.current);
+    sessionPeekTimer.current = setTimeout(() => {
+      sessionPeekTimer.current = null;
+      setSessionPeekOpen(true);
+    }, 400);
+  }, [task.assignedTopicId]);
+  const closeSessionPeek = useCallback(() => {
+    if (sessionPeekTimer.current) clearTimeout(sessionPeekTimer.current);
+    sessionPeekTimer.current = null;
+    setSessionPeekOpen(false);
+  }, []);
+  useEffect(() => () => {
+    if (sessionPeekTimer.current) clearTimeout(sessionPeekTimer.current);
+  }, []);
+  // Stable, so dnd-kit does not see the node unregistered and registered again on every render.
+  const setCardRef = useCallback((node: HTMLDivElement | null) => { cardElementRef.current = node; setNodeRef(node); }, [setNodeRef]);
   /**
    * THE ONE TOUCH, SHARED BY HAND between the two gestures that want it.
    *
@@ -950,10 +980,24 @@ const CardBody = memo(function CardBody({ task, onOpen, showProject, error, onEr
 
   return (
     <div
-      ref={setNodeRef} {...attributes} {...listeners}
+      {...attributes} {...listeners}
       data-task-card={task.id}
       style={{ transform: dragTransform, transition }}
-      onClick={() => onOpen(task.id)}
+      onClick={(event) => {
+        if (cardLongPress.consumeClick()) { event.preventDefault(); event.stopPropagation(); return; }
+        onOpen(task.id);
+      }}
+      ref={setCardRef}
+      onMouseEnter={scheduleSessionPeek}
+      onMouseLeave={closeSessionPeek}
+      // Keyboard focus only: a mouse press focuses too, and the click that follows opens the session.
+      onFocusCapture={(event) => { if (task.assignedTopicId && (event.target as HTMLElement).matches(':focus-visible')) setSessionPeekOpen(true); }}
+      onBlurCapture={(event) => {
+        if (!event.currentTarget.contains(event.relatedTarget as Node | null)) closeSessionPeek();
+      }}
+      onKeyDown={(event) => {
+        if (event.key === 'Escape' && sessionPeekOpen) { event.preventDefault(); closeSessionPeek(); }
+      }}
       {...cardLongPress.handlers}
       // AFTER both spreads, and on purpose: this is the composed one (see
       // `onCardTouchStart`). Whoever moves it above them loses the board's
@@ -964,7 +1008,13 @@ const CardBody = memo(function CardBody({ task, onOpen, showProject, error, onEr
       // standard dell'app: `openContextMenuAt` sintetizza un `contextmenu`
       // nativo che bolla fino all'`onContextMenu` qui accanto, quindi non
       // esiste un secondo menu da tenere allineato — e' lo stesso.
-      onContextMenu={(e) => { e.preventDefault(); e.stopPropagation(); setCtxMenu({ x: e.clientX, y: e.clientY }); }}
+      onContextMenu={(e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        closeSessionPeek();
+        setCtxMenu({ x: e.clientX, y: e.clientY, includePeek: touchMenuPeekRef.current });
+        touchMenuPeekRef.current = false;
+      }}
       // Gli attributi sono il gancio dei test (e del debug a occhio): dicono
       // COSA è successo, la classe dice come si dipinge. `data-just-done` resta
       // il caso che le spec guardano da sempre, ed è ora un caso particolare di
@@ -987,6 +1037,7 @@ const CardBody = memo(function CardBody({ task, onOpen, showProject, error, onEr
           lifts every other child one layer, so the text stays above it and
           readable (and the texture grows no crystals over its boxes: SwapIce). */}
       <SwapIce freeze={swapFreeze} size="card" />
+      {task.assignedTopicId && <SessionPeek taskId={task.id} open={sessionPeekOpen} live={live} anchor={cardElementRef.current} />}
 
       {/* Eyebrow: WHICH project this card belongs to, and the door to its
           session. Nothing else.
@@ -1988,6 +2039,7 @@ const CardBody = memo(function CardBody({ task, onOpen, showProject, error, onEr
       )}
       {ctxMenu && (
         <ContextMenuPortal open x={ctxMenu.x} y={ctxMenu.y} onClose={() => setCtxMenu(null)}>
+          {ctxMenu.includePeek && task.assignedTopicId && <SessionPeek taskId={task.id} open live={live} layout="menu" />}
           <button
             role="menuitem"
             onClick={(e) => { e.stopPropagation(); setCtxMenu(null); onOpen(task.id); }}

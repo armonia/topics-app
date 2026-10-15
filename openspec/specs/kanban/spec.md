@@ -5125,3 +5125,21 @@ esecuzione nel suo fuso, ultimo esito (creata, saltata e perché), modifica ed e
 - **GIVEN** il server è rimasto spento per tre lunedì
 - **WHEN** riparte
 - **THEN** SHALL nascere una sola card
+
+### Requirement: KANBAN-96 — Sbirciata della sessione dalla card
+
+Una card legata a una sessione SHALL mostrare al passaggio del mouse, al tocco prolungato o al
+fuoco da tastiera un riquadro con lo stato, la durata, lo strumento corrente se noto, le ultime
+massimo tre righe dell'ultimo messaggio dell'agent e token o costo già disponibili. Il riquadro
+SHALL aggiornarsi mentre resta aperto e SHALL leggere i dati esistenti senza chiedere un riassunto
+a un modello. A riquadro chiuso non SHALL partire alcun polling.
+
+#### Scenario: la sbirciata segue il turno senza aprire la sessione
+- **GIVEN** una card con un agent che sta producendo messaggi
+- **WHEN** si passa sulla card senza aprire la sessione
+- **THEN** il riquadro SHALL mostrare lo stato e le ultime righe, e SHALL aggiornarle mentre il turno avanza
+
+#### Scenario: una card senza sessione non mostra la sbirciata
+- **GIVEN** una card senza sessione assegnata
+- **WHEN** si passa sulla card
+- **THEN** non SHALL apparire alcun riquadro di sessione
