@@ -223,9 +223,18 @@ export function armJs(bundle: string): string {
     'var h=window.__topicsDomHost={q:[],stop:null,rrweb:null,placed:null};' +
     'try{\n' + bundle + '\n;h.rrweb=rrweb;}catch(e){h.error=String(e&&e.message||e);return \'failed\'}' +
     LAYOUT_JS +
+    "function privateInput(n){if(!n)return false;var v;try{v=n.getAttribute?n.getAttribute('autocomplete'):n.attributes&&n.attributes.autocomplete}catch(e){}return typeof v==='string'&&['cc-number','cc-csc','cc-exp','cc-exp-month','cc-exp-year','one-time-code'].indexOf(v.toLowerCase())>=0}" +
+    "function maskInput(v){return typeof v==='string'?'*'.repeat(v.length):v}" +
+    'function maskSnapshot(n){if(!n||typeof n!==\'object\')return;if(n.type===2&&String(n.tagName).toLowerCase()===\'input\'&&privateInput(n))n.attributes.value=maskInput(n.attributes.value);' +
+    'if(Array.isArray(n.childNodes))for(var i=0;i<n.childNodes.length;i++)maskSnapshot(n.childNodes[i])}' +
     'function start(){if(h.stop||!h.rrweb)return;try{h.stop=h.rrweb.record({' +
     'emit:function(e){try{var v=e.data;if(e.type===3&&v&&v.source===3)v.anchor=h.echo(v.id);' +
-    'else if(e.type===2&&v&&v.node){h.placed=null;v.anchor=h.anchor(h.rrweb.record.mirror.getNode(v.node.id))}}catch(x){}h.q.push(e)},' +
+    'else if(e.type===2&&v&&v.node){maskSnapshot(v.node);h.placed=null;v.anchor=h.anchor(h.rrweb.record.mirror.getNode(v.node.id))}' +
+    'else if(e.type===3&&v&&v.source===5&&privateInput(h.rrweb.record.mirror.getNode(v.id)))v.text=maskInput(v.text);' +
+    // A field mounted after the snapshot, or a value set as an attribute, travels as a mutation.
+    'else if(e.type===3&&v&&v.source===0){var a=v.adds||[],t=v.attributes||[],k;for(k=0;k<a.length;k++)maskSnapshot(a[k]&&a[k].node);' +
+    "for(k=0;k<t.length;k++)if(t[k]&&t[k].attributes&&typeof t[k].attributes.value==='string'&&privateInput(h.rrweb.record.mirror.getNode(t[k].id)))t[k].attributes.value=maskInput(t[k].attributes.value)}" +
+    '}catch(x){}h.q.push(e)},' +
     'inlineStylesheet:true,inlineImages:false,collectFonts:false,recordCanvas:false,' +
     'maskInputOptions:{password:true},' +
     "sampling:{mousemove:50,scroll:100,media:400,input:'all'}" +
