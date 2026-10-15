@@ -7,7 +7,6 @@ import { useWorktrees } from './hooks/useWorktrees';
 import { useTaskTopicIndex } from './hooks/useTaskTopicIndex';
 import { openTaskInApp } from './lib/openTaskLink';
 import { HomePanelHost } from './components/Settings/HomePanelHost';
-import { FirstRunHost } from './components/FirstRun/FirstRunHost';
 import { useMenuPreferences, useUserMenuRequest } from './hooks/useUserMenuHost';
 import { ConfirmInsidePopoverContext } from './hooks/confirmInsidePopover';
 import { runNotificationAction } from './lib/notify/notificationAction';
@@ -131,6 +130,12 @@ import { useSidebarHandleInsets } from './hooks/useSidebarBottomInset';
 
 // Lazy-load components that are only shown on demand
 const NewTopicModal = lazy(() => import('./components/Modals/NewTopicModal').then(m => ({ default: m.NewTopicModal })));
+// Shown once, to whoever opens Topics for the first time: its forms (the API key one comes from
+// Settings) stay out of the entry every start downloads.
+const FirstRunHost = lazy(async () => {
+  const { FirstRunHost: F } = await import('./components/FirstRun/FirstRunHost');
+  return { default: F };
+});
 const ChangelogModal = lazy(async () => {
   const { ChangelogModal: C } = await import('./components/ChangelogModal');
   return { default: C };
@@ -2623,7 +2628,7 @@ function App() {
       {/* The one host of the forms that live where they are used: providers,
           tools, calendar (SETHOME-01). */}
       <HomePanelHost />
-      <FirstRunHost />
+      <Suspense fallback={null}><FirstRunHost /></Suspense>
 
       {import.meta.env.DEV && DevOverlay && <DevOverlay />}
 
