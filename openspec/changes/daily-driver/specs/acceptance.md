@@ -66,3 +66,12 @@ Sempre in una copia, mai nel file vero. Ognuna deve far diventare rosso il test 
 Il server compilato carica il modulo N-API incorporato e stampa versione e commit di HEAD con
 `--native-selftest`. `server/lib/native-addon.test.ts` copre anche il modulo assente, un repository
 normale, una worktree collegata e una cartella non Git.
+
+## 6. D3c, parità dello status Git
+
+### Requirement: D3C-01 — lo status nativo coincide con git
+
+`gitStatus(path)` gira su un thread asincrono e riproduce `git status --porcelain -z --branch`
+(v1), `rev-parse --git-dir --show-toplevel` e `log -1 --format=%h|%H|%s|%an` su 30 repository
+fixture. `native/parity.test.ts` confronta parser e addon con campi e ordine identici; salta solo
+l'addon non costruito e i casi Windows non applicabili.
