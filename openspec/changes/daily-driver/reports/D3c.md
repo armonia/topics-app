@@ -22,7 +22,11 @@ di topics-app (9 voci) e un checkout con 378 voci e 10.587 commit.
     visitava due volte l'intera storia;
   - lo scenario «da una sottocartella» ora interroga davvero la sottocartella, con un file cambiato
     fuori da essa;
-  - tolta dal test la mutazione simulata, sostituita da quella vera qui sopra.
+  - tolta dal test la mutazione simulata, sostituita da quella vera qui sopra;
+  - su Linux, filesystem che distingue le maiuscole, gix dava un file in conflitto `DU` anche come
+    non tracciato `??` (CI rossa sullo scenario DU/UD): l'adattatore scarta un `??` per un percorso
+    già tracciato, perché git non elenca mai un percorso due volte;
+  - lo scenario del submodule committa con un'identità sua: in CI non ce n'è una globale.
 
 ## Misura (build release arm64, Mac con load average fra 57 e 83)
 

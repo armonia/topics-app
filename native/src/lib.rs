@@ -169,6 +169,11 @@ fn compute_git_status(repo_path: &str) -> Result<Option<GitStatus>, Box<dyn std:
         });
         entry.status.replace_range(1..2, &y.to_string());
     }
+    // A conflicted path sits in the index only at stages 1-3, and on a
+    // case-sensitive file system gix's walk also reports its worktree file
+    // as untracked (Linux CI, 15/10: "DU ud.txt" and "?? ud.txt"). Git never
+    // lists a path twice.
+    untracked.retain(|path| !paths.contains_key(path));
     let mut entries: Vec<_> = paths.into_values().collect();
     untracked.sort();
     entries.extend(untracked.into_iter().map(|path| GitStatusEntry {
