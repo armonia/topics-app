@@ -25,8 +25,11 @@ use std::collections::{HashMap, VecDeque};
 use std::io::{BufRead, BufReader, Read, Write};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, MutexGuard};
+use std::sync::OnceLock;
 use std::thread;
 use std::time::{Duration, Instant};
+#[cfg(target_os = "macos")]
+use std::process::Command;
 
 use base64::Engine as _;
 use portable_pty::{native_pty_system, ChildKiller, CommandBuilder, MasterPty, PtySize};
@@ -53,6 +56,23 @@ const DEFAULT_REAL_CLIENT: Duration = Duration::from_secs(5);
 // TUI needs to save and exit, and far under the 5 s ack window the server gives
 // a create.
 const DEFAULT_KILL_GRACE: Duration = Duration::from_secs(2);
+
+fn gui_session_name() -> Option<&'static str> {
+    static GUI_SESSION: OnceLock<Option<String>> = OnceLock::new();
+    #[cfg(target_os = "macos")]
+    let value = GUI_SESSION.get_or_init(|| {
+        Command::new("/bin/launchctl")
+            .arg("managername")
+            .output()
+            .ok()
+            .filter(|output| output.status.success())
+            .map(|output| String::from_utf8_lossy(&output.stdout).trim().to_owned())
+            .or_else(|| Some(String::new()))
+    });
+    #[cfg(not(target_os = "macos"))]
+    let value = GUI_SESSION.get_or_init(|| None);
+    value.as_deref()
+}
 
 // A trivially-exiting program used by the self-test and single-instance spawn-probe.
 // `/bin/sh -c :` is the most portable choice on unix — /bin/sh is guaranteed on
@@ -406,7 +426,7 @@ fn handle_message(shared: &Arc<Shared>, cid: u64, msg: &Value) -> Result<(), Str
             Ok(())
         }
         "ping" => {
-            send_to(shared, cid, &json!({ "type": "pong" }));
+            send_to(shared, cid, &json!({ "type": "pong", "implementation": "rust", "session": gui_session_name() }));
             Ok(())
         }
         _ => Ok(()),
@@ -890,6 +910,9 @@ fn self_test() {
 }
 
 fn shutdown(shared: &Shared) -> ! {
+    // Unlink the Unix socket before waiting on child PTYs. A hard kill during
+    // that grace window must not leave a path that looks live but has no owner.
+    transport::cleanup(&shared.socket_path);
     // Same escalation as `kill`, inline: SIGHUP, a grace, then the process
     // GROUP. Exiting straight after one SIGHUP is how a HUP-ignoring child
     // outlived the daemon that owned it, holding a PTY nobody could reach

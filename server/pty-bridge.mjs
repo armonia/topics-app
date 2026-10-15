@@ -269,7 +269,7 @@ function handleMessage(msg, client) {
     }
     case 'ping': {
       // La sessione viaggia col pong: il server rifà il ponte quando è morta (vedi guiSessionName).
-      sendTo(client, { type: 'pong', session: guiSessionName() });
+      sendTo(client, { type: 'pong', session: guiSessionName(), implementation: 'node' });
       break;
     }
   }

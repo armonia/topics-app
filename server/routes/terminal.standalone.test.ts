@@ -10,17 +10,27 @@
 // This test proves exactly that — with the flag set, ensureBridge opens no socket.
 
 import { test, expect, spyOn, afterEach } from "bun:test";
+import fs from "node:fs";
 import net from "net";
-import { ensureBridge, isPtyBridgeDisabled } from "./terminal";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { choosePtyBridgeCommand, newestFileMtime, resolvePtyBridgeCommand } from "../lib/pty-bridge-selection";
+import { ensureBridge, getPtyBridgeRuntimeStatus, isPtyBridgeDisabled, _setPtyBridgeSocketPath, _suppressPtyBridgeReconnectForTest } from "./terminal";
 
 const FLAGS = ["TOPICS_DISABLE_PTY_BRIDGE", "TOPICS_EMBEDDED"] as const;
 // TOPICS_NODE_BIN / TOPICS_PTY_BRIDGE_PATH (the removed legacy Node bridge) are kept
 // here only so the cleanup hook wipes them and the regression test below is honest.
 const BUNDLE_ENV = ["TOPICS_PTY_BRIDGE_BIN", "TOPICS_NODE_BIN", "TOPICS_PTY_BRIDGE_PATH"] as const;
+let bridgeSocketPath: string | null = null;
 
 afterEach(() => {
   for (const f of FLAGS) delete process.env[f];
   for (const f of BUNDLE_ENV) delete process.env[f];
+  if (bridgeSocketPath) {
+    process.env.TOPICS_DISABLE_PTY_BRIDGE = "1";
+    _setPtyBridgeSocketPath(null);
+    bridgeSocketPath = null;
+  }
 });
 
 test("isPtyBridgeDisabled reads both flag spellings, live", () => {
@@ -57,6 +67,36 @@ test("the removed legacy Node bridge envs no longer re-enable terminals", () => 
   expect(isPtyBridgeDisabled()).toBe(true); // legacy envs are inert — still disabled
 });
 
+test("TOPICS_PTY_BRIDGE_BIN ha precedenza e seleziona il bridge esplicito", () => {
+  expect(resolvePtyBridgeCommand("/tmp/selected-rust-bridge")).toMatchObject({
+    cmd: "/tmp/selected-rust-bridge",
+    implementation: "rust",
+    reason: "override",
+  });
+});
+
+test("la scelta del bridge Rust richiede opt-in e binario aggiornato", () => {
+  const dir = fs.mkdtempSync(join(tmpdir(), "pty-bridge-selection-"));
+  const binary = join(dir, "bridge");
+  const source = join(dir, "src.rs");
+  fs.writeFileSync(binary, "binary");
+  fs.writeFileSync(source, "source");
+  try {
+    fs.utimesSync(binary, 1_700_000_000, 1_700_000_000);
+    fs.utimesSync(source, 1_700_000_001, 1_700_000_001);
+    const base = { override: null, checkoutBinary: binary, binaryMtimeMs: fs.statSync(binary).mtimeMs, newestSourceMtimeMs: newestFileMtime([source]), nodePath: "/repo/server/pty-bridge.mjs" };
+    expect(choosePtyBridgeCommand({ ...base, enabled: false })).toMatchObject({ implementation: "node", reason: "disabled" });
+    expect(choosePtyBridgeCommand({ ...base, enabled: true, checkoutBinary: null, binaryMtimeMs: null })).toMatchObject({ implementation: "node", reason: "notBuilt" });
+    expect(choosePtyBridgeCommand({ ...base, enabled: true })).toMatchObject({ implementation: "node", reason: "stale" });
+    fs.utimesSync(binary, 1_700_000_002, 1_700_000_002);
+    const fresh = { ...base, binaryMtimeMs: fs.statSync(binary).mtimeMs };
+    expect(choosePtyBridgeCommand({ ...fresh, enabled: true })).toMatchObject({ cmd: binary, implementation: "rust" });
+    expect(choosePtyBridgeCommand({ ...fresh, enabled: false, override: "/explicit/bridge" })).toMatchObject({ cmd: "/explicit/bridge", implementation: "rust", reason: "override" });
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 for (const flag of FLAGS) {
   test(`ensureBridge() opens NO socket when ${flag}=1 (standalone)`, async () => {
     // Spy on the ONLY call that opens the bridge socket (tryConnect → net.connect).
@@ -73,3 +113,35 @@ for (const flag of FLAGS) {
     connectSpy.mockRestore();
   });
 }
+
+test("ensureBridge riusa un socket vivo anche quando è selezionato il bridge Rust", async () => {
+  const socketPath = `/tmp/topics-pty-reuse-${process.pid}.sock`;
+  bridgeSocketPath = socketPath;
+  process.env.TOPICS_PTY_BRIDGE_BIN = "/missing/rust-bridge-must-not-start";
+  _setPtyBridgeSocketPath(socketPath);
+  const peerSockets: net.Socket[] = [];
+  const liveBridge = net.createServer((socket) => peerSockets.push(socket));
+  await new Promise<void>((resolve, reject) => {
+    liveBridge.once("error", reject);
+    liveBridge.listen(socketPath, resolve);
+  });
+
+  try {
+    await ensureBridge();
+    expect(getPtyBridgeRuntimeStatus()).toMatchObject({
+      implementation: "unknown",
+      reason: "reused",
+      connected: true,
+    });
+  } finally {
+    _suppressPtyBridgeReconnectForTest(true);
+    for (const socket of peerSockets) socket.destroy();
+    await new Promise<void>((resolve) => liveBridge.close(() => resolve()));
+    const deadline = Date.now() + 2000;
+    while (getPtyBridgeRuntimeStatus().connected && Date.now() < deadline) await Bun.sleep(10);
+    expect(getPtyBridgeRuntimeStatus().connected).toBe(false);
+    _setPtyBridgeSocketPath(null);
+    _suppressPtyBridgeReconnectForTest(false);
+    bridgeSocketPath = null;
+  }
+});

@@ -12,7 +12,7 @@ import { getProvider } from "../providers";
 import { checkGatewayHealth as pingGateway } from "../providers/health";
 import { detectAgents } from "../lib/detect-agents";
 import { computePresenceCounts } from "../services/profile-stats";
-import { countBusyAgentTerminals } from "./terminal";
+import { countBusyAgentTerminals, getPtyBridgeRuntimeStatus } from "./terminal";
 import { SPAWN_TIMEOUT, spawnBounded } from "../lib/bounded-spawn";
 import { inspectHealth, ProbeTimeoutError, type HealthProbe, type HealthReading, type HealthSubsystemId } from "../../shared/system-health";
 import { registeredFleetSocketPath } from "../lib/fleet-usage";
@@ -442,6 +442,7 @@ export function createStatusRouter(ctx: AppContext): RouteHandler {
           // modo perche' si veda e' che qualcosa lo DICA. Vuoto = tutto
           // tariffato.
           unpricedModels: unknownPricedModels(),
+          ptyBridge: getPtyBridgeRuntimeStatus(),
         },
         cpu: {
           cores,
