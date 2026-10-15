@@ -44,3 +44,25 @@
 ### Rifiutato
 
 - Il warning Vite sul chunk `index` oltre 500 KB misura il JavaScript minificato non compresso; l'entry gzip resta 281.544 KB e il gate compresso è verde.
+
+## Giro 3: PUSH-05, un difetto del prodotto
+
+**Barra prima:** e2e(1) rossa su PUSH-05 (`push-phone-enroll.spec.ts:156`), Chromium e WebKit. Una clip
+diagnostica ha registrato ogni `Notification.requestPermission` con lo stack e
+`navigator.userActivation.isActive`:
+
+- su questo ramo, Chromium: una richiesta a t=335 ms, **dentro un gesto**;
+- su main, Chromium: a t=395 ms, fuori dal gesto (verde); WebKit: a t=330 e 345 ms, **dentro un gesto**
+  (rosso anche su main);
+- lo stack è lo stesso: `primeWebNotificationPermission` chiamata dall'effetto di `usePanelLifecycle`.
+
+**Causa:** la richiesta d'avvio parte quando quell'effetto si monta, e l'effetto può montarsi dopo il
+primo tocco della persona: su WebKit già oggi, su Chromium da quando le pane sono lazy. Dentro quel
+gesto il prompt si aggancia a un tocco che parlava d'altro (sull'iPhone è l'unico momento in cui un
+prompt può comparire). Un Playwright locale conferma che la navigazione da sola non dà attivazione:
+WebKit 26.4 e Chromium 153 dicono `isActive: false` fino a 3 s dopo il `goto`.
+
+**Correzione:** la porta unica (`primeWebNotificationPermission`) salta la richiesta d'avvio quando un
+gesto è in corso, e non la ricorda come risposta; il pulsante che attiva le notifiche chiede dentro il
+proprio tocco come prima. Test bun nuovo in `notificationPermission.test.ts`: 7 pass; con la guardia
+tolta, in una copia nello scratchpad, 1 rosso.
