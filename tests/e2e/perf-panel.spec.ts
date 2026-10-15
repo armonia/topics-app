@@ -1,6 +1,7 @@
 /**
  * @covers PERFPANEL-01
  */
+/** @covers D3D-01 */
 import { test, expect, type Page } from '@playwright/test';
 import { hermetic } from './fixtures/hermetic';
 import { fakeTauriShell } from "./helpers/fake-tauri-shell";
@@ -206,6 +207,44 @@ test.describe('pannello prestazioni', () => {
     const verdetto = page.locator('[data-testid="perf-verdict"]');
     if (await verdetto.count()) {
       expect(await verdetto.innerText()).not.toContain('71');
+    }
+  });
+
+  test('lo stato Git senza processi si spegne, si salva sul server e resta spento al reload', async ({ page, request }) => {
+    test.info().annotations.push({ type: "spec", description: "D3D-01" });
+    const response = await request.get('/api/ui-state/settings');
+    const envelope = await response.json() as unknown;
+    const stored = envelope && typeof envelope === 'object' && 'value' in envelope
+      ? (envelope as { value: Record<string, unknown> }).value
+      : envelope as Record<string, unknown>;
+    const original = stored && typeof stored === 'object' && !Array.isArray(stored) ? stored : {};
+    const readEnabled = async () => {
+      const current = await (await request.get('/api/ui-state/settings')).json() as unknown;
+      const value = current && typeof current === 'object' && 'value' in current
+        ? (current as { value: Record<string, unknown> }).value
+        : current as Record<string, unknown>;
+      return value?.nativeGitStatusEnabled;
+    };
+    await request.put('/api/ui-state/settings', { data: { ...original, nativeGitStatusEnabled: true } });
+    try {
+      await page.goto('/');
+      await expect(page.locator('[aria-label="Topics sidebar"]').first()).toBeVisible({ timeout: 20_000 });
+      await openPerfPanel(page);
+
+      const toggle = page.getByTestId('perf-native-git-status');
+      await expect(toggle).toHaveAttribute('aria-checked', 'true');
+      await toggle.click();
+      await expect(toggle).toHaveAttribute('aria-checked', 'false');
+      await expect.poll(readEnabled, { timeout: 10_000 }).toBe(false);
+      const stateHint = page.getByTestId('perf-native-git-status').locator('xpath=..');
+      await expect.poll(() => stateHint.innerText(), { timeout: 20_000 })
+        .toMatch(/Spento: si usa git|Off: using git/);
+
+      await page.reload();
+      await openPerfPanel(page);
+      await expect(page.getByTestId('perf-native-git-status')).toHaveAttribute('aria-checked', 'false');
+    } finally {
+      await request.put('/api/ui-state/settings', { data: original });
     }
   });
 });

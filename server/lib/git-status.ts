@@ -27,6 +27,8 @@ import type { PorcelainEntry } from "./git-porcelain";
 import { attachNumstats, readNumstats } from "./git-numstat";
 import { gitStatusGeneration, invalidateGitCache, roundsInFlight } from "./git-status-cache";
 import { recordServerSpawn } from "./spawn-metrics";
+import { readNativeGitStatus } from "./native-git-status";
+import { gitRelativeDate } from "./git-relative-date";
 import type { GitStatus } from "../../shared/git-status";
 import { SPAWN_TIMEOUT, spawnBounded } from "./bounded-spawn";
 export type { GitStatus } from "../../shared/git-status";
@@ -133,6 +135,35 @@ export function computeGitStatus(resolvedDir: string, opts: { fresh?: boolean; g
 }
 
 async function computeGitStatusOnce(resolvedDir: string, cause: string): Promise<ComputedGitStatus | null> {
+  const native = await readNativeGitStatus(resolvedDir);
+  if (native === null) return null;
+  if (native) {
+    const scope = repoPrefixOf(resolvedDir, native.root);
+    const parsed = native.entries.map(({ path, status, origPath }) => ({
+      path,
+      status,
+      ...(origPath === undefined ? {} : { origPath }),
+    }));
+    const files = attachNumstats(scopeToPrefix(parsed, scope.prefix), await readNumstats(resolvedDir, () => recordServerSpawn("gitStatus", cause)), scope.prefix);
+    const lastCommit = native.lastCommit
+      ? {
+          hash: native.lastCommit.hash,
+          message: native.lastCommit.subject,
+          author: native.lastCommit.author,
+          ago: gitRelativeDate(native.lastCommit.time),
+        }
+      : { hash: "", message: "", author: "", ago: "" };
+    return {
+      branch: native.branch ?? native.lastCommit?.short ?? "HEAD",
+      lastCommit,
+      files,
+      ahead: native.ahead,
+      behind: native.behind,
+      folderUntracked: statusOfPrefix(parsed, scope.prefix) === "??",
+      repoName: scope.repoName,
+    };
+  }
+
   const probe = await readText(["git", "rev-parse", "--git-dir", "--show-toplevel"], resolvedDir, cause);
   if (probe.code !== 0) return null;
   const gitRoot = probe.text.split("\n")[1]?.trim() ?? "";

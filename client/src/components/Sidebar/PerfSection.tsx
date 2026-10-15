@@ -13,6 +13,7 @@ import { useT } from '@/hooks/useT';
 import { useTopics } from '@/contexts/TopicsContext';
 import { formatMemoryMB } from '@/lib/formatMemory';
 import { setNativePaneMemoryEvictionEnabled, useNativePaneMemoryEvictionEnabled, useNativePaneMemoryPressure } from '@/state/nativePaneMemory';
+import { setNativeGitStatusEnabled, useNativeGitStatusEnabled } from '@/state/nativeGitStatus';
 import { SwitchRow } from './PreferenceRow';
 
 /**
@@ -242,6 +243,8 @@ export function PerfSection() {
   }, status?.timestamp);
   const measuredVisibleEntries = vociPerNatura(vociPeso, 'misurato');
   const memoryEvictionEnabled = useNativePaneMemoryEvictionEnabled();
+  const nativeGitEnabled = useNativeGitStatusEnabled();
+  const nativeGit = status?.nativeGit;
   const memoryPressure = useNativePaneMemoryPressure();
   const vociTrattenuteVisibili = vociPerNatura(vociPeso, 'trattenuto');
 
@@ -446,6 +449,19 @@ export function PerfSection() {
         checked={memoryEvictionEnabled}
         onChange={setNativePaneMemoryEvictionEnabled}
         testId="perf-native-pane-memory"
+      />
+      <SwitchRow
+        label={tr('perf.nativeGit.setting')}
+        hint={tr(!nativeGit
+          ? 'perf.nativeGit.checking'
+          : !nativeGit.enabled
+            ? 'perf.nativeGit.disabled'
+            : !nativeGit.loaded
+              ? 'perf.nativeGit.unavailable'
+              : 'perf.nativeGit.active', { n: nativeGit?.calls ?? 0 })}
+        checked={nativeGitEnabled}
+        onChange={setNativeGitStatusEnabled}
+        testId="perf-native-git-status"
       />
     </div>
   );

@@ -20,7 +20,7 @@ export interface NativeGitStatus {
   ahead: number;
   behind: number;
   entries: NativeGitStatusEntry[];
-  lastCommit: { short: string; hash: string; subject: string; author: string } | null;
+  lastCommit: { short: string; hash: string; subject: string; author: string; time: number } | null;
 }
 
 interface NativeExports {
@@ -32,7 +32,7 @@ interface NativeExports {
     ahead: number;
     behind: number;
     entries: Array<{ path: string; status: string; origPath?: string | null }>;
-    lastCommit?: { short: string; hash: string; subject: string; author: string } | null;
+    lastCommit?: { short: string; hash: string; subject: string; author: string; time: number } | null;
   } | null>;
 }
 
@@ -84,6 +84,9 @@ export function loadNativeModuleAt(candidate: string): NativeModule | null {
               gitStatus: async (repoPath: string) => {
                 const result = await exports.gitStatus!.call(exports, repoPath);
                 if (!result) return null;
+                if (result.lastCommit && !Number.isFinite(result.lastCommit.time)) {
+                  throw new Error("native gitStatus did not return the author timestamp");
+                }
                 return {
                   root: result.root,
                   branch: result.branch ?? null,

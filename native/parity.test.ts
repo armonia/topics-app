@@ -1,4 +1,5 @@
 /** @covers D3C-01 */
+/** @covers D3D-01 */
 import { expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync, chmodSync, symlinkSync, renameSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -51,16 +52,16 @@ async function parity(root: string, cwd = root): Promise<void> {
   const statusText = git(cwd, "--no-optional-locks", "status", "--porcelain", "-z", "--branch");
   const { header, entries: rawEntries } = splitBranchHeader(statusText);
   const branchInfo = header ? parseBranchHeader(header) : { branch: null, ahead: 0, behind: 0 };
-  const logResult = Bun.spawnSync(["git", "-C", cwd, "log", "-1", "--format=%h|%H|%s|%an"], { env: gitEnv() });
+  const logResult = Bun.spawnSync(["git", "-C", cwd, "log", "-1", "--format=%h|%H|%s|%an|%at"], { env: gitEnv() });
   const logText = logResult.exitCode === 0 ? logResult.stdout.toString().trim() : "";
-  const [short = "", hash = "", subject = "", author = ""] = logText ? logText.split("|") : [];
+  const [short = "", hash = "", subject = "", author = "", time = "0"] = logText ? logText.split("|") : [];
   const expected = {
     root: rootPath,
     branch: branchInfo.branch,
     ahead: branchInfo.ahead,
     behind: branchInfo.behind,
     entries: parsePorcelainZ(rawEntries),
-    lastCommit: logText ? { short, hash, subject, author } : null,
+    lastCommit: logText ? { short, hash, subject, author, time: Number(time) } : null,
   };
   const actual = await gitStatus(cwd);
   expect(actual).toEqual(expected);

@@ -698,14 +698,17 @@ l'originale.
 - **GIVEN** una regola che esclude e una successiva che riapre
 - **THEN** SHALL valere la seconda
 
-### Requirement: GIT-STATUS-SPAWNS-01 — The git status is computed once, in five spawns, by the route and the watcher alike
+### Requirement: GIT-STATUS-SPAWNS-01 — The git status is computed once, by the route and the watcher alike
 
 The git status of a working tree SHALL be computed by ONE function, used by
-`GET /api/git/status` and by the git watcher, and on a normal branch that
-function SHALL spawn FIVE git processes: `rev-parse` for "is it a repo, and
-where is its root", `status --porcelain -z --branch` for the files AND the
-branch header, `log -1` for the last commit, and the two numstats. A folder
-that is not a repo SHALL cost ONE spawn and answer null.
+`GET /api/git/status` and by the git watcher. When the native addon is loaded
+and enabled, it SHALL provide the repository root, status, branch and last
+commit, and the function SHALL spawn only the two numstat processes. When the
+addon is unavailable, disabled or rejects a call, the Git fallback SHALL spawn
+FIVE processes on a normal branch: `rev-parse` for "is it a repo, and where is
+its root", `status --porcelain -z --branch` for the files AND the branch
+header, `log -1` for the last commit, and the two numstats. A folder that is
+not a repo SHALL answer null; the fallback SHALL cost one spawn.
 
 The collapse SHALL NOT change an answer: the branch name, the ahead and
 behind counts, the dirty files, the label of a detached HEAD (its short
@@ -726,14 +729,26 @@ XY codes.
 > machine at loadavg 33, and the two copies had already drifted once.
 
 #### Scenario: a normal branch, one commit ahead, one untracked file
-- **GIVEN** a clone of an origin, one commit ahead, with an untracked file
+- **GIVEN** a clone of an origin, one commit ahead, with an untracked file, and Git fallback in use
 - **WHEN** the status is computed
 - **THEN** exactly five processes are spawned
 - **AND** the branch, ahead 1, behind 0, the last commit and the untracked file read as before
 
 #### Scenario: not a repo
-- **GIVEN** a plain folder
+- **GIVEN** a plain folder and Git fallback in use
 - **THEN** the status is null, after one spawn
+
+#### Scenario: native status is enabled
+- **GIVEN** a repository and a loaded native addon
+- **WHEN** the status is computed with the setting enabled
+- **THEN** the native result supplies the repository state and last commit
+- **AND** exactly two Git processes are spawned for numstat
+
+#### Scenario: native status falls back to Git
+- **GIVEN** the addon is missing, disabled or rejects its call
+- **WHEN** the status is computed
+- **THEN** the Git fallback preserves the answer and spawns five processes on a normal branch
+- **AND** `/api/system/status` reports native availability, setting, calls, fallbacks and last error
 
 ### Requirement: GIT-DEADLINE-01 — An external process on the path of a request answers, or the deadline does
 
