@@ -21,10 +21,14 @@
 - La e2e nuova teneva il puntatore sul bordo e aspettava che la card n. 70 fosse in vista mentre l'autoscroll correva: con i poll fra 100 e 1.000 ms poteva sorpassarla. Ora scorre oltre 3.000 px, torna al centro (l'autoscroll si ferma) e lascia lì; la card deve finire oltre quelle disegnate all'inizio. La lista del server si ordina col comparatore del prodotto (`compareTasks`), perché la rotta non promette un ordine.
 - Ripristinati, in inglese come vuole il cricchetto, i commenti che spiegavano la misura del 15/08 e perché Review e Done si sfogliano, e quello sull'attesa di una risposta.
 
+## Misura in CI (15/10)
+
+- Clip `dom-node-budget.spec.ts`, run 38705596569, verde: transcript 796 nodi, transcript e board **3.200 nodi** (con D2e erano 20.309), sotto `DOM_BUDGET` di 5.000.
+- Mutante in `VirtualizedCards.tsx`, `visibleIds` che contiene ogni id (`tasks.length <= VIRTUAL_FULL_RENDER_LIMIT || tasks.length > 0`), run 38705669867: **21.488 nodi**, rosso alla riga 89 e al retry.
+
 ## Trovato e non fatto
 
 - Esecuzione browser/video non fatta sul Mac come impone `BRIEF-locale.md`. La CI deve eseguire lo scenario DOM sotto 5.000 nodi, la nuova `board-virtualized-drag.spec.ts` e le spec richieste: `board-drag-frames`, `board-drag-renders`, `board-column-volume`, `board-motion-contract`, `board-task-flow`, `board.spec`, `drag-preview`, `drag-no-text-selection`, `refresh-durability-board`, `split-dnd-matrix`. Revisione indipendente e prova video restano alla verifica CI.
-- Mutazione non eseguita in locale. Punto preciso: `client/src/components/Board/VirtualizedCards.tsx`, selezione `visibleIds`; mutarla affinché contenga ogni ID e monti ogni `Card` completa. L'e2e combinata deve allora superare 5.000 nodi e diventare rossa.
 
 - Le altezze si misurano solo per le card disegnate (stima 184 px per le altre): risalendo dopo un salto con la barra di scorrimento, le card misurate sopra la finestra spostano quelle sotto, e il contenuto sotto gli occhi salta. Serve compensare `scrollTop` della differenza.
 
