@@ -31,7 +31,7 @@ import {
   createAuthRouter, __resetLiveSocketsForTests, __resetPendingForTests,
   __invecchiaPendingPerTests, __scadenzeArmatePerTests,
 } from "../../server/routes/auth";
-import { PAIRING_CODE_TTL_MS } from "../../server/lib/device-auth";
+import { PAIRING_CODE_TTL_MS, SESSION_COOKIE } from "../../server/lib/device-auth";
 import { hashToken, readSessionCookie } from "../../server/lib/device-auth";
 import { alterMigrationsAfter, TASKS_DDL } from "../../server/db/test-schema";
 import { resolveIdentity } from "../../server/lib/identity";
@@ -51,6 +51,18 @@ function dbFresco(): Database {
     id TEXT PRIMARY KEY, name TEXT, updated_at INTEGER
   )`);
   for (const m of MIGRAZIONI) {
+    db.run(readFileSync(join(RADICE, "server", "db", "migrations", m), "utf8"));
+  }
+  return db;
+}
+
+/**
+ * `dbFresco` plus 084. An owner is a person in `installation_owners`, which
+ * exists from 084 on: below it every device is confined, whatever its `role`.
+ */
+function freshDbWithPeople(): Database {
+  const db = dbFresco();
+  for (const m of ["084-people-orgs.sql", ...alterazioniSuccessive("084-people-orgs.sql")]) {
     db.run(readFileSync(join(RADICE, "server", "db", "migrations", m), "utf8"));
   }
   return db;
@@ -297,6 +309,25 @@ describe("rotte auth · dispositivi", () => {
     expect(r).toBeTruthy();
     expect(r.revoked_at).toBeGreaterThan(0);
   });
+
+  test("logging out closes the device's sockets, as revoking does", async () => {
+    const db = dbFresco();
+    db.run("INSERT INTO devices (id, name, token_hash, created_at, role) VALUES ('d-out', 'Laptop', ?, 1, 'owner')", [hashToken("tok-out")]);
+    const { ctx } = creaCtx(db, { deviceId: "d-out" });
+    const closed: string[] = [];
+    (ctx as { closeDeviceSockets?: (id: string) => void }).closeDeviceSockets = (id) => { closed.push(id); };
+    const router = createAuthRouter(ctx);
+
+    const url = new URL("http://127.0.0.1:3333/api/auth/logout");
+    const req = new Request(url, { method: "POST", headers: { cookie: `${SESSION_COOKIE}=tok-out` } });
+    const r = await router(req, url, url.pathname, "POST") as Response;
+
+    expect(r.status).toBe(200);
+    expect((db.query("SELECT revoked_at FROM devices WHERE id = 'd-out'").get() as { revoked_at: number | null }).revoked_at).not.toBeNull();
+    // Browser and terminal sockets are authorized once, at upgrade: one left
+    // open in another tab would keep working after the logout.
+    expect(closed).toEqual(["d-out"]);
+  });
 });
 
 describe("rotte auth · la scadenza si annuncia da sola", () => {
@@ -419,13 +450,21 @@ describe("rotte auth · condivisione", () => {
   });
 
   test("condividere con un PROPRIETARIO è rifiutato: vede già tutto", async () => {
-    const { db, router, idProprietario } = await scena();
+    const db = freshDbWithPeople();
+    const router = createAuthRouter(creaCtx(db).ctx);
+    db.run("INSERT INTO tasks (id, text, status, project_id, created_at, updated_at) VALUES ('t1','La scheda condivisa','todo', 'p-test', '2026-01-01', '2026-01-01')");
+    const pairing = await (await chiama(router, "/api/auth/pair/request", "POST"))!.json() as { requestId: string };
+    // No person named: the device goes to the default owner.
+    await chiama(router, "/api/auth/pair/approve", "POST", { body: { requestId: pairing.requestId } });
+    const ownerDevice = (db.query("SELECT id FROM devices").get() as { id: string }).id;
+
     const r = await chiama(router, "/api/auth/shares", "POST", {
-      body: { resourceType: "task", resourceId: "t1", deviceId: idProprietario },
+      body: { resourceType: "task", resourceId: "t1", deviceId: ownerDevice },
     });
     // Non è pignoleria: quella riga suggerirebbe di star limitando qualcosa
     // mentre non limita niente.
     expect(r?.status).toBe(400);
+    expect((await r!.json() as { error: string }).error).toBe("device_not_guest");
     expect(db.query("SELECT COUNT(*) c FROM grants").get()).toEqual({ c: 0 });
   });
 
@@ -532,11 +571,12 @@ describe("rotte auth · condivisione", () => {
 
 describe("rotte auth · la rubrica dei destinatari", () => {
   test("un ospite compare fra i soggetti; un proprietario no", async () => {
-    const db = dbFresco();
+    const db = freshDbWithPeople();
     const router = createAuthRouter(creaCtx(db).ctx);
-    for (const role of ["owner", "guest"] as const) {
+    // No person named = the default owner; a new name = a guest.
+    for (const choice of [{}, { personName: "Marta" }]) {
       const r = await (await chiama(router, "/api/auth/pair/request", "POST"))!.json() as { requestId: string; claim: string };
-      await chiama(router, "/api/auth/pair/approve", "POST", { body: { requestId: r.requestId, role } });
+      await chiama(router, "/api/auth/pair/approve", "POST", { body: { requestId: r.requestId, ...choice } });
     }
     const b = await (await chiama(router, "/api/auth/subjects"))!.json() as {
       subjects: Array<{ subjectType: string; name: string }>;
@@ -544,7 +584,7 @@ describe("rotte auth · la rubrica dei destinatari", () => {
     // Condividere con chi vede già tutto non vuol dire niente, quindi il
     // proprietario non è un destinatario possibile.
     expect(b.subjects).toHaveLength(1);
-    expect(b.subjects[0].subjectType).toBe("device");
+    expect(b.subjects[0]).toMatchObject({ subjectType: "person", name: "Marta" });
   });
 
   test("su uno schema senza la 084 la rubrica non esplode: resta ai dispositivi", async () => {
@@ -1532,7 +1572,9 @@ describe("rotte auth · la rubrica e il cancello non possono divergere", () => {
     // frase italiana qui compariva sotto un titolo inglese.
     const db = db084();
     const router = createAuthRouter(creaCtx(db).ctx);
-    db.run("INSERT INTO devices (id, name, token_hash, created_at, role) VALUES ('mio','Mio','h',1,'owner')");
+    // An owner is a person in `installation_owners`, not a `role` value.
+    const owner = (db.query("SELECT person_id FROM installation_owners").get() as { person_id: string }).person_id;
+    db.run("INSERT INTO devices (id, name, token_hash, created_at, role, person_id) VALUES ('mio','Mio','h',1,'owner',?)", [owner]);
 
     const r = await chiama(router, "/api/auth/shares", "POST", {
       body: { resourceType: "task", resourceId: "t1", subjectType: "device", subjectId: "mio" },

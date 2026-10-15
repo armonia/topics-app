@@ -107,5 +107,11 @@ export function resolvePrincipals(db: Db, deviceId: string): Principals {
        AND o.revoked_at IS NULL`).all(personId) as Array<{ id: string }>;
   for (const o of orgs) list.push({ kind: "org", id: o.id });
 
+  // Only the chat socket rereads `confined` on every frame. Browser and
+  // terminal sockets are authorized once, at upgrade, and an attention focus
+  // set while owner stays valid until its socket closes. So every write that
+  // can turn an owner into a guest must call `closeDeviceSockets`, as revoke,
+  // reassign and logout do. No runtime code writes `installation_owners`
+  // today; the first one that does inherits this rule.
   return { list, personId, confined: !riga.is_owner, rev };
 }

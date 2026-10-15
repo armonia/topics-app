@@ -68,8 +68,11 @@ sotto, non prima.
   cambia forma.
 - [x] 5.2 `isGuestSocketData` diventa una lettura del principale; i casi esistenti
   si riscrivono. Prova: `bun test server/lib/grants.test.ts` → 0.
-- [x] 5.3 Il filtro WS ri-risolve il socket quando il contatore diverge.
-  Prova: `bun test server/lib/socket-principals.test.ts` → 0.
+- [x] 5.3 Il filtro WS della chat ri-risolve il socket quando il contatore diverge.
+  Prova: `bun test server/lib/socket-principals.test.ts` → 0. Le socket del browser
+  e del terminale no: si autorizzano una volta, all'upgrade. Regge perché ogni
+  scrittura che toglie poteri a un dispositivo ne chiude le socket (vedi
+  `limiti-accettati.md`).
 - [x] 5.4 `devices.role` smette di essere letta da qualunque riga di codice.
   Prova: `bun test tests/unit/no-device-role-read.test.ts` → 0.
   Nota (card 2c1fe1cf): la PATCH `/api/auth/devices/:id {personId}` ora riscrive

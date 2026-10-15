@@ -1693,7 +1693,11 @@ export function createAuthRouter(ctx: AppContext, opts: AuthRouterOpts = {}): Ro
         // Uscire è una revoca come le altre, e finora era l'unica che lasciava
         // in piedi la push: il telefono «uscito» continuava a ricevere.
         const io = ctx.requestIdentity?.(req)?.deviceId ?? null;
-        if (io) dimenticaPush(db, io);
+        if (io) {
+          dimenticaPush(db, io);
+          // Browser and terminal sockets are authorized once, at upgrade.
+          ctx.closeDeviceSockets?.(io);
+        }
       }
       return new Response(JSON.stringify({ ok: true }), {
         status: 200,
