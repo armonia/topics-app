@@ -4,7 +4,7 @@
  * @covers BROWSER-CHAT-02, BROWSER-STREAM-HISTORY-01
  */
 import { describe, it, expect } from 'bun:test';
-import { parseBrowserWsMessage } from '../shared/browser-ws-messages';
+import { NATIVE_HOST_PARAM, parseBrowserWsMessage } from '../shared/browser-ws-messages';
 
 // Protocol contract for the two variants added for native-grade streaming:
 // `resize` (client -> server) and `download` (server -> client). The Zod union
@@ -175,6 +175,16 @@ describe('browser-ws-messages: union still discriminates', () => {
   it('parses a frame and rejects an unknown type', () => {
     expect(parseBrowserWsMessage({ type: 'frame', data: 'abc', metadata: { timestamp: 1 } }).ok).toBe(true);
     expect(parseBrowserWsMessage({ type: 'bogus' }).ok).toBe(false);
+  });
+});
+
+/** @covers NATIVE-HOST-06, NATIVE-HOST-07 */
+describe('browser-ws-messages: native host recovery', () => {
+  it('shares the reconnect hint name and accepts application liveness and host-away frames', () => {
+    expect(NATIVE_HOST_PARAM).toBe('host');
+    expect(parseBrowserWsMessage({ type: 'host_ping' }).ok).toBe(true);
+    expect(parseBrowserWsMessage({ type: 'host_pong' }).ok).toBe(true);
+    expect(parseBrowserWsMessage({ type: 'host_away' }).ok).toBe(true);
   });
 });
 

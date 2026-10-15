@@ -113,6 +113,8 @@ export interface WSData {
    *  pane's executor, which counts as an attached pane only once
    *  `_nativeDelegate` is set, and never needs the screencast. */
   expectsExecutor?: boolean;
+  /** The viewer's last render_mode said a native pane hosted this context. */
+  expectsNativeHost?: boolean;
   /** WebRTC shared-session transport — the set of webrtc-bridge peer ids this WS
    *  opened (one per RTCPeerConnection). Used on close to tell the sidecar to tear
    *  each peer down. Absent until the pane sends its first `webrtc_offer`. */

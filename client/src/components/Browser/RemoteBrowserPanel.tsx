@@ -1298,6 +1298,11 @@ function RemoteBrowserPanelStreaming({ contextId, initialUrl, navigateUrl, onUrl
             {tr('browser.tab.hostStopped')}
           </div>
         )}
+        {browser.hostAway && (
+          <div className="absolute inset-x-3 top-3 z-[7] rounded-md bg-app-bg/95 px-3 py-2 text-compact text-app-text shadow" data-testid="browser-host-away">
+            {tr('browser.tab.hostAway')}
+          </div>
+        )}
         {browser.renderMode === 'dom' && !browser.hostSharePaused && !!browser.url && browser.url !== 'about:blank' && (
           <Suspense
             fallback={

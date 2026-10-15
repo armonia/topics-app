@@ -144,7 +144,10 @@ import { applyEngineSwitch } from "./server/browser-engine-switch";
 import { browserEngineRegistry, chromiumExtensionsCount, chromiumSidecar } from "./server/browser-engine-registry";
 import { nativeDelegateRegistry, handleNativeDelegationFrame, isNativeDelegateFrameAllowed } from "./server/browser-native-delegate";
 import { createDomHostRegistry, parseHostFrame } from "./server/lib/native-dom-host";
-import { createHostMirror } from "./server/browser-host-mirror";
+import { createHostMirror, type MirrorSocket } from "./server/browser-host-mirror";
+import { createBrowserHostBootRace } from "./server/browser-host-boot-race";
+import { createNativeHostLiveness } from "./server/browser-native-host-liveness";
+import { reapBrowserSocket } from "./server/browser-socket-reaper";
 import { WS_TRANSPORT_OPTIONS } from "./server/lib/websocket-options";
 import { countSharedViewers, createViewerCountPublisher, hasAttachedPane } from "./server/browser-viewer-count";
 import { createViewportWiring } from "./server/browser-viewport-wiring";
@@ -494,14 +497,16 @@ function broadcastToBrowserWs(contextId: string, msg: BrowserWsMessage, except?:
 // The Mac's native pane as the source of a context's DOM mirror: every viewer
 // mirrors THAT page and the server's Chromium stays off (browser-host-mirror.ts).
 const domHosts = createDomHostRegistry();
+let notifyHostReady = (_contextId: string): void => {};
 const hostMirror = createHostMirror({
   hosts: domHosts,
   sockets: (c) => browserWsClients.get(c) ?? [],
-  browser: { enableDomMode: (c) => browserService.enableDomMode(c), destroyContext: (c) => browserService.destroyContext(c), navigate: (c, u) => browserService.navigate(c, u) },
+  browser: { enableDomMode: (c) => browserService.enableDomMode(c), destroyContext: (c) => browserService.destroyContext(c), navigate: (c, u) => browserService.navigate(c, u), getUrl: (c) => browserService.getUrl(c) },
   askViewport: (c) => {
     const driver = viewportWiring.driverDevice(c);
     if (driver) viewportWiring.askViewportOf(c, driver);
   },
+  onHostReady: (c) => notifyHostReady(c),
 });
 
 // The viewer count is PUSHED to the panes of a context when it changes, on the
@@ -534,6 +539,34 @@ const viewportWiring = createViewportWiring({
     browserService.resize(contextId, width, height, deviceScaleFactor).catch((err) =>
       console.warn(`[WS][browser] resize failed for ${contextId}:`, err.message),
     );
+  },
+});
+
+const hostBootRace = createBrowserHostBootRace<MirrorSocket>({
+  hasSeenHost: (contextId) => hostMirror.hasSeenHost(contextId),
+  isHosting: (contextId) => hostMirror.isHosting(contextId),
+  apply: (socket, contextId, frame) => {
+    if (hostMirror.routeViewer(socket, contextId, frame)) return;
+    if (frame.type === "set_render" && frame.mode === "dom") hostMirror.enableChromiumDom(socket, contextId);
+    else if (frame.type === "set_render") {
+      socket.data._domRender = false;
+      socket.data._browserSetStream?.(true);
+      sendBrowserWsMessage(socket, { type: "render_mode", mode: "video" });
+      const anyDom = [...(browserWsClients.get(contextId) ?? [])].some((viewer) => viewer.data._domRender);
+      if (!anyDom) browserService.setDomEmit(contextId, false);
+    }
+    else if (frame.type === "resize") viewportWiring.onFrame(contextId, { ...socket.data, id: socket.data.id ?? "" }, frame);
+    else if (frame.type === "nav" && frame.phase === "request") void browserService.navigate(contextId, frame.url);
+  },
+});
+notifyHostReady = (contextId) => hostBootRace.hostReady(contextId);
+const nativeHostLiveness = createNativeHostLiveness<MirrorSocket>({
+  onLost: (contextId, socket) => {
+    console.warn(`[WS][browser] native host for ${contextId} stopped answering application pings`);
+    nativeDelegateRegistry.unregister(contextId, socket);
+    browserWsClients.get(contextId)?.delete(socket as never);
+    hostMirror.onClose(socket, contextId);
+    try { (socket as unknown as ServerWebSocket<WSData>).close(1001, "Native host unresponsive"); } catch {}
   },
 });
 
@@ -3167,10 +3200,13 @@ const wsHeartbeatTimer = setInterval(() => {
         // Owner-scoped: if the pane already re-registered on a NEWER socket
         // (reconnect after sleep), reaping this stale one must not drop the
         // fresh registration.
-        nativeDelegateRegistry.unregister(ctxId, ws);
-        void ws.data._browserCleanup?.();
-        set.delete(ws);
-        try { ws.close(1001, "Connection timeout"); } catch {}
+        reapBrowserSocket(ctxId, ws, set, {
+          unregisterExecutor: (contextId, socket) => nativeDelegateRegistry.unregister(contextId, socket),
+          unregisterLiveness: (socket) => nativeHostLiveness.unregister(socket),
+          cleanup: ws.data._browserCleanup,
+          hostClosed: (socket, contextId) => hostMirror.onClose(socket, contextId),
+          close: (code, reason) => ws.close(code, reason),
+        });
         continue;
       }
       if (ws.readyState === 1) { try { ws.ping(); } catch {} }
@@ -4162,6 +4198,10 @@ const opzioniServer = {
             } catch {}
           });
         };
+        hostBootRace.begin(ws, ctxId, ws.data.expectsNativeHost === true, (frames) => {
+          const requestedRender = frames.find((frame) => frame.type === "set_render");
+          if (!screencastCancelled && streamActive && !requestedRender && !screencastStart) startScreencastForViewer();
+        });
         const screencastTimer = setTimeout(() => {
           // Skip the deferred start if a native executor cancelled it OR the pane
           // already paused the stream (iframe-mode) during the grace window.
@@ -4170,6 +4210,7 @@ const opzioniServer = {
           // register frame beating the 250 ms (it often does not, see the
           // 'registered' branch below).
           if (screencastCancelled || ws.data.expectsExecutor) return;
+          if (hostBootRace.isWaiting(ws)) return;
           // A native pane hosts this context: the viewer mirrors its DOM, and a
           // screencast would launch the very Chromium the host replaces. A
           // viewer that did not ask for the mirror by now (video mode, a page
@@ -4182,7 +4223,12 @@ const opzioniServer = {
           startScreencastForViewer();
         }, SCREENCAST_START_GRACE_MS);
         ws.data._browserSetStream = (active: boolean) => {
-          if (screencastCancelled || active === streamActive) return;
+          if (screencastCancelled) return;
+          if (active === streamActive) {
+            if (active && !hostBootRace.isWaiting(ws) && !screencastStart) startScreencastForViewer();
+            return;
+          }
+          if (active && hostBootRace.isWaiting(ws)) { streamActive = true; return; }
           // Same rule as the deferred start: no screencast under a host.
           if (active && hostMirror.isHosting(ctxId)) return;
           streamActive = active;
@@ -4200,6 +4246,7 @@ const opzioniServer = {
         };
         ws.data._browserCleanup = async () => {
           screencastCancelled = true;
+          hostBootRace.cancel(ws);
           clearTimeout(screencastTimer);
           if (screencastStart) await screencastStart;
           await browserService.stopScreencast(ctxId, onFrame).catch(err =>
@@ -4335,6 +4382,10 @@ const opzioniServer = {
         const ctxId = ws.data.browserContextId;
         try {
           const raw = JSON.parse(typeof message === "string" ? message : new TextDecoder().decode(message));
+          if ((raw as { type?: unknown })?.type === "host_pong") {
+            nativeHostLiveness.pong(ws);
+            return;
+          }
           if (ws.data._nativeDelegate && !isNativeDelegateFrameAllowed(raw)) {
             console.warn("[WS][browser] ignored non-delegate frame from native executor");
             return;
@@ -4371,6 +4422,7 @@ const opzioniServer = {
             return;
           }
           if (delegated === 'registered') {
+            nativeHostLiveness.register(ctxId, ws);
             // This socket executes, it does not watch: it leaves the audience of
             // the viewport arbiter, exactly as it leaves the viewer count. A
             // native pane has no viewport of its own to impose, and counting it
@@ -4488,6 +4540,7 @@ const opzioniServer = {
             return;
           }
           const parsed = result.data;
+          if (hostBootRace.hold(ws, ctxId, parsed)) return;
           if (hostMirror.routeViewer(ws, ctxId, parsed)) return;
           if (parsed.type === 'input') {
             // Using the page is what makes a client the driver of its viewport.
@@ -4824,6 +4877,7 @@ const opzioniServer = {
         // The host of the mirror leaving starts the countdown to the server's
         // Chromium; a mirror leaving may have been the last one on screen.
         hostMirror.onClose(ws, ws.data.browserContextId);
+        nativeHostLiveness.unregister(ws);
         // Drop any native-executor registration for this pane + fail its in-flight
         // ops (Tauri delegation) — no-op if this context never registered, and
         // owner-scoped so a late `close` from an OLD socket can't kill a fresh

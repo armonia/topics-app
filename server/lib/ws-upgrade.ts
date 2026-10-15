@@ -1,6 +1,6 @@
 import type { Server } from "bun";
 import type { WSData } from "../types";
-import { NATIVE_EXECUTOR_PARAM } from "../../shared/browser-ws-messages";
+import { NATIVE_EXECUTOR_PARAM, NATIVE_HOST_PARAM } from "../../shared/browser-ws-messages";
 
 /** How much of a `?client=` we keep: enough for a uuid, not enough to be a payload. */
 const CLIENT_ID_MAX = 64;
@@ -40,6 +40,7 @@ export function upgradeWebSocket(
       browserContextId,
       clientId: paneClientId(params),
       expectsExecutor: params.get(NATIVE_EXECUTOR_PARAM) === "1",
+      expectsNativeHost: params.get(NATIVE_HOST_PARAM) === "native",
     };
   } else if (pathname === "/ws") {
     target = {};

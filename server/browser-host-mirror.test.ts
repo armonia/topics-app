@@ -21,18 +21,20 @@ class FakeSocket implements MirrorSocket {
   types() { return this.sent.map((m) => String(m.type)); }
 }
 
-function rig() {
+function rig(domBootstrap: unknown[] | null = [meta, full]) {
   const sockets = new Set<FakeSocket>();
   const calls: string[] = [];
+  let currentUrl: string | null = null;
   const timers: { fn: () => void; live: boolean }[] = [];
   const hosts = createDomHostRegistry();
   const mirror = createHostMirror({
     hosts,
     sockets: () => sockets,
     browser: {
-      enableDomMode: async (c) => { calls.push(`enableDomMode ${c}`); return [meta, full]; },
+      enableDomMode: async (c) => { calls.push(`enableDomMode ${c}`); return domBootstrap; },
       destroyContext: async (c) => { calls.push(`destroyContext ${c}`); },
-      navigate: async (c, u) => { calls.push(`navigate ${c} ${u}`); return { url: u, title: "" }; },
+      navigate: async (c, u) => { calls.push(`navigate ${c} ${u}`); currentUrl = u; return { url: u, title: "" }; },
+      getUrl: () => currentUrl ? { url: currentUrl, title: "" } : null,
     },
     schedule: (fn) => { const t = { fn, live: true }; timers.push(t); return () => { t.live = false; }; },
   });
@@ -44,7 +46,7 @@ function rig() {
   };
   const viewer = () => { const v = new FakeSocket(); sockets.add(v); return v; };
   const fire = () => { for (const t of timers.filter((x) => x.live)) { t.live = false; t.fn(); } };
-  return { sockets, calls, hosts, mirror, host, declare, viewer, fire };
+  return { sockets, calls, hosts, mirror, host, declare, viewer, fire, setCurrentUrl: (url: string) => { currentUrl = url; } };
 }
 
 const flush = () => new Promise((r) => setTimeout(r, 0));
@@ -144,6 +146,8 @@ describe("host mirror wiring", () => {
     r.mirror.routeViewer(v, CTX, { type: "set_render", mode: "dom" });
     r.sockets.delete(r.host);
     r.mirror.onClose(r.host, CTX);
+    expect(v.sent).toContainEqual({ type: "host_away" });
+    r.mirror.onClose(r.host, CTX);
     expect(r.calls).toEqual([`destroyContext ${CTX}`]);
     r.fire();
     await flush(); await flush();
@@ -162,9 +166,37 @@ describe("host mirror wiring", () => {
     expect(r.calls.filter((c) => c.startsWith("enableDomMode"))).toEqual([]);
   });
 
+  /** @covers NATIVE-HOST-08 */
+  test("a returning host receives a fallback navigation before the viewers move back", async () => {
+    const r = rig();
+    r.declare();
+    const viewer = r.viewer();
+    r.mirror.routeViewer(viewer, CTX, { type: "set_render", mode: "dom" });
+    r.sockets.delete(r.host);
+    r.mirror.onClose(r.host, CTX);
+    r.fire();
+    await flush(); await flush();
+    r.setCurrentUrl("https://b.example/new");
+    const returning = new FakeSocket(true);
+    r.sockets.add(returning);
+    r.mirror.onHostFrame(returning, CTX, { type: "native_dom_host" });
+    r.mirror.onHostFrame(returning, CTX, { type: "host_page", url: "https://a.example" });
+    expect(returning.sent).toContainEqual({ type: "host_nav", action: "navigate", url: "https://b.example/new" });
+    expect(viewer.sent).toContainEqual({ type: "nav", url: "https://b.example/new", phase: "request" });
+  });
+
   test("a context nobody hosts keeps its old path", () => {
     const r = rig();
     expect(r.mirror.routeViewer(r.viewer(), CTX, { type: "input", action: "click", payload: {} })).toBe(false);
+  });
+
+  test("a failed DOM bootstrap resumes the viewer stream", async () => {
+    const r = rig(null);
+    const viewer = r.viewer();
+    r.mirror.enableChromiumDom(viewer, CTX);
+    await flush();
+    expect(viewer.sent).toContainEqual({ type: "render_mode", mode: "video" });
+    expect(viewer.streams).toEqual([true]);
   });
 
   /** @covers BROWSER-NATIVE-HOST-STATUS-01 */

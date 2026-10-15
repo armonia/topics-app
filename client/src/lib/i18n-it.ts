@@ -798,6 +798,7 @@ const IT: Dict = {
   'browser.tab.hostWatchingOne': 'Guardata da 1 dispositivo',
   'browser.tab.hostWatchingMany': 'Guardata da {n} dispositivi',
   'browser.tab.hostStopped': 'Condivisione sospesa',
+  'browser.tab.hostAway': 'Il Mac non risponde. Se non torna, la pagina continua sul server.',
   'browser.tab.hostStop': 'Smetti di condividere',
   'browser.tab.hostResume': 'Condividi di nuovo',
   'browser.tab.hostLastFrame': 'ultimo frame {age} fa',
