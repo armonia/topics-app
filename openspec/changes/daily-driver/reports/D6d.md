@@ -4,10 +4,14 @@
 
 - Locale: parse YAML (Bun) exit 0; `bash -n` sui 7 step Bash exit 0. `actionlint` e `pwsh` non sono
   installati qui: i due step PowerShell li prova il runner Windows.
-- CI: `gh workflow run install-smoke.yml --repo armonia/topics-app -f tag=latest`, verde su macOS,
-  Windows e Ubuntu.
-- Mutante: la rotta di salute `/api/topics` diventa `/api/health` (non esiste); i tre sistemi devono
-  fallire al passo «Salute».
+- CI: `gh workflow run install-smoke.yml --repo armonia/topics-app -f tag=latest` parte solo da main.
+  Prima del merge l'ho provato su un ramo usa e getta con in più il solo trigger `push`
+  (`295d5ef856`): run `38678396342`, **verde su macOS, Windows e Ubuntu**, aggiornamento da
+  `tauri-v2.2.504` a `tauri-v2.2.505`.
+- Mutante (`4f48c86ab0`): la rotta di salute `/api/topics` diventa `/api/health`, che non esiste. Run
+  `38678411867`, **rosso su tutti e tre** al passo «Salute», con `HTTP 404` nel messaggio. Prima
+  della correzione su Windows il messaggio diceva `HTTP 0`: il codice vero si legge ora
+  dall'eccezione di `Invoke-WebRequest`.
 
 ## Fatto
 
