@@ -103,7 +103,7 @@ export function useDomCoBrowseTouch(options: Options) {
       return;
     }
     if (previous.edgeAxis === 'navigate') {
-      setArrow(edge.arrow ?? (arrow && { ...arrow, x: touch.clientX - bounds.left, y: touch.clientY - bounds.top }));
+      setArrow((current) => edge.arrow ?? (current && { ...current, x: touch.clientX - bounds.left, y: touch.clientY - bounds.top }));
       if (event.cancelable) event.preventDefault();
       previous.travel += Math.abs(previous.x - touch.clientX) + Math.abs(previous.y - touch.clientY);
       previous.x = touch.clientX;
@@ -125,7 +125,7 @@ export function useDomCoBrowseTouch(options: Options) {
     };
     if (!options.isAgentActive()) options.scrollMirrorBy(dx, dy, point.x, point.y);
     options.queueScrollRelay(dx, dy, point.x, point.y);
-  }, [arrow, options]);
+  }, [options]);
 
   const onTouchEnd = useCallback((event: TouchEvent) => {
     if (options.isSelecting() || options.isAgentActive()) {

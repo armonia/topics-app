@@ -17,7 +17,7 @@ async function swipe(
   direction: "left" | "right",
   verticalFirst = false,
 ): Promise<{ ready: string | null; arrowX: number | null; rootWidth: number; scrollTop: number; scrollLeft: number }> {
-  return page.locator('[data-testid="browser-dom-input-overlay"]').first().evaluate((overlay, opts) => {
+  return page.locator('[data-testid="browser-dom-input-overlay"]').first().evaluate(async (overlay, opts) => {
     const root = overlay.closest("[data-testid='browser-dom-cobrowse']") as HTMLElement;
     const box = root.getBoundingClientRect();
     const x = opts.point === "left" ? box.left + 10
@@ -39,22 +39,28 @@ async function swipe(
         changedTouches: [current],
       }));
     };
+    // A real finger moves once per frame: React renders a touchmove later than
+    // a tap, so six moves fired in one go would never show the arrow.
+    const frame = () => new Promise<void>((done) => requestAnimationFrame(() => done()));
     fire("touchstart", x);
+    await frame();
     if (opts.point !== "center") {
       if (opts.verticalFirst) fire("touchmove", x, gestureY);
       else fire("touchmove", x + 5, y - 5);
+      await frame();
     }
     for (let step = 1; step <= 6; step++) {
       fire("touchmove", x + (endX - x) * step / 6, gestureY);
+      await frame();
     }
     const arrow = root.querySelector('[data-testid="browser-edge-swipe-arrow"]') as HTMLElement | null;
-    const frame = root.querySelector("iframe") as HTMLIFrameElement;
+    const mirror = root.querySelector("iframe") as HTMLIFrameElement;
     const state = {
       ready: arrow?.dataset.ready ?? null,
       arrowX: arrow ? Number.parseFloat(arrow.style.left) : null,
       rootWidth: box.width,
-      scrollTop: frame.contentDocument?.scrollingElement?.scrollTop ?? 0,
-      scrollLeft: frame.contentDocument?.scrollingElement?.scrollLeft ?? 0,
+      scrollTop: mirror.contentDocument?.scrollingElement?.scrollTop ?? 0,
+      scrollLeft: mirror.contentDocument?.scrollingElement?.scrollLeft ?? 0,
     };
     fire("touchend", endX);
     return state;

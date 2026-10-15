@@ -30,6 +30,15 @@
   gesto del cassetto è spento, resta pieno. Il riconoscimento della striscia è
   `startsOnScreenEdge`, con il suo unit.
 
+## In revisione, dopo il primo clip
+
+- Il primo clip in CI era rosso: `backArrow.ready` null. Il test lanciava tutti i `touchmove` nello
+  stesso istante; React 18 rende più tardi gli eventi continui come `touchmove` (a differenza di un
+  tocco), quindi la freccia non era ancora nel DOM quando il test la leggeva. Un dito vero muove una
+  volta per frame: ora il test aspetta un frame dopo ogni movimento.
+- Nell'hook, la freccia che segue il dito si aggiorna dallo stato corrente (`setArrow` con la
+  funzione) e non da quello catturato all'ultimo rendering.
+
 ## Trovato e non fatto
 
 - `tests/e2e/browser-edge-swipe.spec.ts` non è stata eseguita sul Mac: il BRIEF vieta le e2e locali per questa spec. `typecheck:e2e` è verde; runtime, video e mutazione del caso centrale attendono il workflow CI «Clip di consegna».
