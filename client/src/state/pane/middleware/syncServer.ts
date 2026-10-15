@@ -30,9 +30,15 @@ let timer: ReturnType<typeof setTimeout> | null = null;
 let started = false;
 
 /**
- * True when a WS close cancelled work that had not reached the server yet — a
- * pending debounce timer, an in-flight PUT, or both. Read once on the next
- * 'open' to re-arm the push. See the lifecycle handler in `initServerSync`.
+ * True when work has not reached the server: a WS close cancelled a pending
+ * debounce timer or an in-flight PUT, or a PUT gave up after its retries. Read
+ * once on the next 'open' to re-arm the push. See the lifecycle handler in
+ * `initServerSync`.
+ *
+ * The second case is the one a restart produces: the socket drops first, with
+ * nothing owed, and an edit made while the server is away retries for about
+ * 1.5 s and stops. Without it the edit waited for the next local change, and a
+ * tab closed during the restart came back on every other device.
  */
 let pendingAfterClose = false;
 
@@ -159,6 +165,8 @@ async function putWithRetry(
       signal,
     });
     if (res.ok) {
+      // Every PUT carries the whole snapshot: once one lands, nothing is owed.
+      pendingAfterClose = false;
       try {
         const body = (await res.json()) as { server_seq?: number } | null;
         if (body && typeof body.server_seq === 'number') {
@@ -180,6 +188,7 @@ async function putWithRetry(
       if (signal.aborted) return;
       return putWithRetry(key, snapshot, signal, attempt + 1, baseSeq);
     }
+    pendingAfterClose = true;
   } catch (err) {
     // AbortError is the coalesce path — a newer PUT took over. Silent.
     if (isAbortError(err) || signal.aborted) return;
@@ -192,6 +201,7 @@ async function putWithRetry(
       if (signal.aborted) return;
       return putWithRetry(key, snapshot, signal, attempt + 1, baseSeq);
     }
+    pendingAfterClose = true;
   }
 }
 
@@ -474,7 +484,8 @@ export function initServerSync(): void {
         if (event !== 'close') return;
         // Record BEFORE cancelling: after the two lines below there is no
         // trace left that anything was owed to the server.
-        pendingAfterClose = timer !== null || inflight.size > 0;
+        // OR, not assignment: a PUT that already gave up is still owed.
+        pendingAfterClose = pendingAfterClose || timer !== null || inflight.size > 0;
         for (const entry of inflight.values()) entry.controller.abort();
         inflight.clear();
         if (timer) {

@@ -427,6 +427,36 @@ describe("syncServer — re-arm the push after a WS drop", () => {
     expect(putCount).toBe(0);
   });
 
+  test("an edit whose PUT gave up while the server was away is pushed on the next open", async () => {
+    // The order a server restart produces: the socket drops with nothing owed,
+    // then an edit made while the server is gone retries and stops.
+    restoreFetch();
+    let serverUp = false;
+    let refused = 0;
+    let landed = 0;
+    originalFetch = (globalThis as unknown as { fetch?: typeof fetch }).fetch;
+    (globalThis as unknown as { fetch: unknown }).fetch = (url: string): Promise<Response> => {
+      if (!String(url).includes(PANE_STORE_REMOTE_KEY)) return Promise.resolve(new Response("{}", { status: 200 }));
+      if (!serverUp) {
+        refused += 1;
+        return Promise.reject(new TypeError("Failed to fetch"));
+      }
+      landed += 1;
+      return Promise.resolve(new Response(JSON.stringify({ server_seq: 2000 + landed }), { status: 200 }));
+    };
+    dispatchLifecycle("close");
+    editLocally();
+    // The first try and its three retries, all refused: the chain is over.
+    await waitFor(() => refused >= 4);
+    await sleep(100);
+    expect(refused).toBe(4);
+    serverUp = true;
+    dispatchLifecycle("open");
+    await waitFor(() => landed >= 1);
+    await sleep(200);
+    expect(landed).toBe(1);
+  }, TEST_CEILING_MS);
+
   test("a PUT aborted mid-flight by the drop is re-sent on the next open", async () => {
     restoreFetch();
     installHangingFetch();
