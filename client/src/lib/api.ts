@@ -29,6 +29,7 @@ import type { CommandRun as CommandRunInfo } from '../../../shared/command-runs'
 import { HISTORY_FIRST_PAGE } from '../../../shared/history-paging';
 import type { ChatFindResult } from '../../../shared/chat-find';
 import { adoptWarmRead, warmRead } from './warmReads';
+import type { HealthSubsystem } from '../../../shared/system-health';
 
 // Relative on web/PWA/Electron (same-origin). Under the Tauri desktop shell the
 // UI is served locally (tauri://localhost), so a global fetch shim rewrites these
@@ -43,6 +44,20 @@ export class ApiError extends Error {
     this.name = 'ApiError';
     if (extra) Object.assign(this, extra);
   }
+}
+
+export interface SystemHealthResponse {
+  checkedAt: string;
+  subsystems: HealthSubsystem[];
+}
+
+/** The single client door for the system health endpoint, shared by the panel and /health. */
+export async function getSystemHealth(
+  fetcher: (path: string) => Promise<Response> = apiFetch,
+): Promise<SystemHealthResponse> {
+  const response = await fetcher(`${API_BASE}/system/health`);
+  if (!response.ok) throw new ApiError(response.status, `HTTP ${response.status}`);
+  return await response.json() as SystemHealthResponse;
 }
 
 /**

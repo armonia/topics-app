@@ -7,6 +7,7 @@ import { openclawControlApi } from '../../lib/api';
 import { runGatewayRestart } from '../../lib/openclawRestart';
 import { usePaneStore } from '../../state/pane/store';
 import { startVisibleInterval } from '../../state/documentVisibility';
+import { useLocale, useT } from '../../hooks/useT';
 
 function formatUptime(ms: number): string {
   const seconds = Math.floor(ms / 1000);
@@ -31,6 +32,8 @@ interface SystemStatusPanelProps {
 }
 
 export function SystemStatusPanel({ enabled = true }: SystemStatusPanelProps) {
+  const tr = useT();
+  const locale = useLocale();
   const { status, loading, error, refresh } = useSystemStatus(enabled, 30000);
   const { health, error: healthError, refresh: refreshHealth } = useSystemHealth(enabled, 30000);
   const openclawAvailable = useOpenClawAvailable();
@@ -127,7 +130,7 @@ export function SystemStatusPanel({ enabled = true }: SystemStatusPanelProps) {
           {openclawAvailable && (
             <StatusRow
               icon={<Clock size={12} />}
-              label="Cron Jobs"
+              label={tr('systemHealth.cronJobs')}
               value={`${status.cronJobs.enabled}/${status.cronJobs.total}`}
               detail="attivi"
               color={status.cronJobs.total === 0 ? 'yellow' : 'green'}
@@ -143,7 +146,7 @@ export function SystemStatusPanel({ enabled = true }: SystemStatusPanelProps) {
               the honest count (the old chat-only "Tab aperti" under-reported). */}
           <StatusRow
             icon={<Layers size={12} />}
-            label="Tab aperti"
+            label={tr('systemHealth.openTabs')}
             value={`${openTabs}`}
             color={openTabs > 0 ? 'green' : 'yellow'}
           />
@@ -159,22 +162,22 @@ export function SystemStatusPanel({ enabled = true }: SystemStatusPanelProps) {
         </div>
       )}
 
-      <section aria-label="Stato dei sottosistemi" data-testid="system-health-list" className="mt-2 border-t border-app-border pt-2">
-        <div className="px-1 pb-1 text-mini font-medium text-app-text-muted">Sottosistemi</div>
+      <section aria-label={tr('systemHealth.section')} data-testid="system-health-list" className="mt-2 border-t border-app-border pt-2">
+        <div className="px-1 pb-1 text-mini font-medium text-app-text-muted">{tr('systemHealth.section')}</div>
         {healthError && !health && <div className="px-1 py-1 text-mini text-red-500">{healthError}</div>}
         {health?.subsystems.map((item) => {
           const dot = item.state === 'ok' ? 'bg-emerald-500' : item.state === 'warn' ? 'bg-amber-400' : item.state === 'error' ? 'bg-red-500' : 'bg-slate-400';
-          const state = item.state === 'ok' ? 'OK' : item.state === 'warn' ? 'Avviso' : item.state === 'error' ? 'Errore' : 'Spento';
+          const state = tr(`systemHealth.state.${item.state}`);
           return (
             <div key={item.id} data-testid={`system-health-${item.id}`} data-state={item.state} className="px-1 py-1 text-mini">
               <div className="flex items-center gap-1.5">
                 <span aria-label={state} className={`h-1.5 w-1.5 shrink-0 rounded-full ${dot}`} />
-                <span className="text-app-text-secondary">{item.name}</span>
+                <span className="text-app-text-secondary">{tr(`systemHealth.name.${item.id}`)}</span>
                 <span className="ml-auto text-app-text-muted">{state}</span>
               </div>
-              <div className="pl-3 text-app-text-muted">{item.observed}</div>
-              {item.state !== 'ok' && <div className="pl-3 text-app-text-secondary">{item.action}</div>}
-              {item.lastError && <div className="pl-3 text-app-text-muted">Ultimo errore: {item.lastError.message} ({new Date(item.lastError.at).toLocaleString()})</div>}
+              <div className="pl-3 text-app-text-muted">{tr(`systemHealth.reason.${item.reason}`, item.params)}</div>
+              {item.state !== 'ok' && <div className="pl-3 text-app-text-secondary">{tr(`systemHealth.action.${item.reason}`, item.params)}</div>}
+              {item.lastError && <div className="pl-3 text-app-text-muted">{tr('systemHealth.lastError', { message: item.lastError.message, at: new Date(item.lastError.at).toLocaleString(locale) })}</div>}
             </div>
           );
         })}
@@ -229,7 +232,7 @@ export function SystemStatusPanel({ enabled = true }: SystemStatusPanelProps) {
             }`}
           >
             <RotateCcw size={12} className={restarting ? 'animate-spin' : ''} />
-            {restarting ? 'Riavvio…' : confirmingRestart ? 'Sei sicuro?' : 'Riavvia'}
+            {restarting ? tr('systemHealth.restarting') : confirmingRestart ? tr('systemHealth.confirmRestart') : tr('systemHealth.restart')}
           </button>
         )}
       </div>

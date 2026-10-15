@@ -1,7 +1,8 @@
+/** @covers SYSTEM-03 */
 import { describe, expect, test } from "bun:test";
-import { HEALTH_SUBSYSTEMS, inspectHealth, type HealthProbe, type HealthSubsystemId } from "../shared/system-health";
+import { HEALTH_SUBSYSTEMS, inspectHealth, ProbeTimeoutError, type HealthProbe, type HealthSubsystemId } from "../shared/system-health";
 
-const healthy = (): { state: "ok"; observed: string; action: string } => ({ state: "ok", observed: "visto", action: "nessuna" });
+const healthy = (): { state: "ok"; reason: "ready" } => ({ state: "ok", reason: "ready" });
 
 function probesFor(probe: HealthProbe): Record<HealthSubsystemId, HealthProbe> {
   return Object.fromEntries(HEALTH_SUBSYSTEMS.map(({ id }) => [id, probe])) as Record<HealthSubsystemId, HealthProbe>;
@@ -14,8 +15,8 @@ describe("system health probes", () => {
     const rows = await inspectHealth(probes, 20, () => 0);
     expect(rows.find(({ id }) => id === "pty-bridge")).toMatchObject({
       state: "error",
-      observed: "Sonda fallita: socket assente",
-      action: expect.any(String),
+      reason: "probe-failed",
+      params: { message: "socket assente" },
       lastError: { message: "socket assente", at: "1970-01-01T00:00:00.000Z" },
     });
   });
@@ -25,7 +26,7 @@ describe("system health probes", () => {
       const probes = probesFor(healthy);
       probes[id] = () => { throw new Error(`${id} guasto`); };
       const row = (await inspectHealth(probes, 20)).find((item) => item.id === id);
-      expect(row, id).toMatchObject({ state: "error", observed: `Sonda fallita: ${id} guasto`, action: expect.any(String) });
+      expect(row, id).toMatchObject({ state: "error", reason: "probe-failed", params: { message: `${id} guasto` } });
     }
   });
 
@@ -35,8 +36,20 @@ describe("system health probes", () => {
     const started = Date.now();
     const rows = await inspectHealth(probes, 25);
     expect(Date.now() - started).toBeLessThan(250);
-    expect(rows.find(({ id }) => id === "pty-bridge")).toMatchObject({ state: "warn", observed: "La sonda non risponde entro 25 ms." });
+    expect(rows.find(({ id }) => id === "pty-bridge")).toMatchObject({ state: "warn", reason: "timeout", params: { timeoutMs: 25 }, lastError: { message: "Probe exceeded 25 ms" } });
     expect(rows.find(({ id }) => id === "server")?.state).toBe("ok");
+  });
+
+  test("does not infer a timeout from an error message", async () => {
+    const probes = probesFor(healthy);
+    probes["pty-bridge"] = () => { throw new Error("non risponde"); };
+    const row = (await inspectHealth(probes, 25)).find(({ id }) => id === "pty-bridge");
+    expect(row).toMatchObject({ state: "error", reason: "probe-failed", params: { message: "non risponde" } });
+  });
+
+  test("the timeout is identified by its error type", () => {
+    expect(new ProbeTimeoutError(200)).toBeInstanceOf(ProbeTimeoutError);
+    expect(new Error("non risponde")).not.toBeInstanceOf(ProbeTimeoutError);
   });
 
   test("always returns the full subsystem roster", async () => {

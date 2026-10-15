@@ -203,36 +203,59 @@ accanto a un Gateway tornato verde.
 - **WHEN** un nuovo tentativo riesce
 - **THEN** la banda d'errore SHALL essere spenta
 
-### Requirement: SYSTEM-02 — Stato di ogni sottosistema
+### Requirement: SYSTEM-03 — Le sonde restituiscono codici, la vista segue la lingua scelta
 
-Il sistema SHALL esporre `GET /api/system/health` con server, bridge PTY, ai-bridge,
-motori browser, relay, watcher, CLI Claude e database. Ogni voce SHALL avere stato,
-osservazione, azione e ultimo errore con ora quando presente. Le sonde SHALL essere
-economiche, isolate entro un tetto di tempo e senza avviare modelli o processi. Un
-sottosistema non configurato SHALL risultare `off`.
+`GET /api/system/health` SHALL restituire stato, codice del motivo e parametri. Il server e
+`shared/` NON SHALL comporre frasi visibili alla persona. Il pannello e `/health` SHALL
+comporre nome, motivo e azione dal catalogo della lingua scelta; il messaggio grezzo
+dell'errore SHALL restare intatto come dato. La rotta SHALL esporre server, bridge PTY,
+ai-bridge, motori browser, relay, watcher, CLI Claude e database. Le sonde SHALL essere
+economiche, isolate entro un tetto di tempo e senza avviare modelli o processi.
 
-#### Scenario: stato ok
-- **GIVEN** la sonda osserva il sottosistema funzionante
-- **WHEN** la rotta di health risponde
-- **THEN** la voce ha `state: ok` e descrive ciò che è stato osservato
+Il controllo del login Claude SHALL cercare prima gli attributi della voce `Claude
+Code-credentials` nel Portachiavi senza richiederne il segreto, poi il file credenziali.
+Il risultato SHALL essere memorizzato per 10 minuti e aggiornato fuori dalla richiesta.
+Una CLI assente SHALL risultare `off`; un login assente SHALL risultare `error`.
 
-#### Scenario: stato warn
-- **GIVEN** una sonda non risponde entro il proprio tetto
+La sonda dei motori browser SHALL riportare l'ultimo avvio fallito con messaggio e ora.
+Se nessun motore è stato avviato, SHALL risultare `off`. I timeout SHALL essere distinti
+per tipo d'errore, senza confrontare il testo del messaggio. Gli errori del watcher SHALL
+restare associati al progetto che li ha causati.
+
+#### Scenario: le viste mostrano lo stesso roster
+- **GIVEN** `/api/system/health` restituisce tutti i sottosistemi
+- **WHEN** il pannello laterale o `/health` mostra la lista
+- **THEN** entrambi mostrano lo stesso roster con stato, motivo e azione
+
+#### Scenario: una sonda scade mentre le altre terminano
+- **GIVEN** una sonda supera il proprio limite
 - **WHEN** le altre sonde completano
-- **THEN** la voce ha `state: warn` e indica che non risponde
+- **THEN** la voce ha `state: warn` e `reason: timeout`
 - **AND** le altre voci vengono comunque restituite
 
-#### Scenario: stato error
-- **GIVEN** la sonda rileva un errore del sottosistema
+#### Scenario: sottosistema non configurato
+- **GIVEN** un sottosistema non è configurato
 - **WHEN** la rotta di health risponde
-- **THEN** la voce ha `state: error`, il motivo, l'ora dell'ultimo errore e cosa fare
+- **THEN** la voce ha `state: off` con motivo traducibile
 
-#### Scenario: stato off
-- **GIVEN** il sottosistema non è configurato in questa installazione
-- **WHEN** la rotta di health risponde
-- **THEN** la voce ha `state: off` e spiega il motivo
+#### Scenario: l'inglese è selezionato
+- **GIVEN** la health contiene un errore con un codice e un messaggio grezzo
+- **WHEN** il pannello o `/health` lo mostra in inglese
+- **THEN** nomi, osservazioni e azioni sono in inglese
+- **AND** il messaggio grezzo conserva il testo originale
 
-#### Scenario: pannello e comando mostrano le stesse voci
-- **GIVEN** `/api/system/health` restituisce un sottosistema in stato diverso da `ok`
-- **WHEN** il pannello laterale o `/health` mostra la lista
-- **THEN** entrambi mostrano pallino colorato, osservazione e azione senza aprire altre viste
+#### Scenario: il login Claude è nel Portachiavi
+- **GIVEN** la voce `Claude Code-credentials` esiste
+- **WHEN** la health viene letta due volte entro 10 minuti
+- **THEN** entrambe le letture riportano `ok` con fonte Portachiavi
+- **AND** `security` viene chiamato una volta senza chiedere il segreto
+
+#### Scenario: un motore browser fallisce all'avvio
+- **GIVEN** l'avvio del motore fallisce con un errore grezzo
+- **WHEN** la health viene letta
+- **THEN** la voce riporta `error`, il messaggio e l'ora dell'avvio
+
+#### Scenario: un progetto watcher fallisce e un altro riparte
+- **GIVEN** il watcher del progetto A è in errore
+- **WHEN** il watcher del progetto B parte correttamente
+- **THEN** la health conserva l'errore di A e nomina il suo percorso

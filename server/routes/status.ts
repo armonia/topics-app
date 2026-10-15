@@ -1,7 +1,6 @@
 import os from "os";
 import { existsSync, statSync, readFileSync } from "fs";
 import { join } from "path";
-import { homedir } from "os";
 import net from "net";
 import type { AppContext, RouteHandler } from "../types";
 import { getFleetUsage } from "../lib/fleet-usage";
@@ -14,11 +13,12 @@ import { detectAgents } from "../lib/detect-agents";
 import { computePresenceCounts } from "../services/profile-stats";
 import { countBusyAgentTerminals } from "./terminal";
 import { SPAWN_TIMEOUT, spawnBounded } from "../lib/bounded-spawn";
-import { inspectHealth, type HealthProbe, type HealthSubsystemId } from "../../shared/system-health";
+import { inspectHealth, ProbeTimeoutError, type HealthProbe, type HealthReading, type HealthSubsystemId } from "../../shared/system-health";
 import { registeredFleetSocketPath } from "../lib/fleet-usage";
 import { fileWatcherLastError, watchedProjectPaths } from "../file-watcher";
-import { browserEngineRegistry } from "../browser-engine-registry";
+import { browserEngineIsRunning, browserEngineLastLaunchFailure } from "../browser-engine-registry";
 import { resolveDataDir } from "../lib/data-dir";
+import { claudeLoginSource } from "../providers/native/login-source";
 
 const SERVER_START_TIME = Date.now();
 
@@ -31,30 +31,30 @@ const SERVER_START_TIME = Date.now();
 const PKG_PATH = join(import.meta.dir, "..", "..", "package.json");
 let _pkgCache: { mtimeMs: number; version: string } | null = null;
 
-function probeBridgeSocket(socketPath: string, label: string): Promise<{ state: "ok"; observed: string; action: string }> {
+function probeBridgeSocket(socketPath: string): Promise<{ state: "ok"; reason: "socket-ready" }> {
   return new Promise((resolve, reject) => {
     const socket = net.connect(socketPath);
     const timeout = setTimeout(() => {
       socket.destroy();
-      reject(new Error("non risponde"));
+      reject(new ProbeTimeoutError(200));
     }, 200);
     socket.once("connect", () => {
       clearTimeout(timeout);
       socket.destroy();
-      resolve({ state: "ok", observed: `Socket ${label} accetta connessioni.`, action: "Nessuna azione." });
+      resolve({ state: "ok", reason: "socket-ready" });
     });
     socket.once("error", (error) => {
       clearTimeout(timeout);
       socket.destroy();
-      reject(new Error(`${label}: ${error.message}`));
+      reject(new Error(error.message));
     });
   });
 }
 
-let ptyBridgeHealthTestState: boolean | null = null;
+let ptyBridgeHealthSocketOverride: string | null = null;
 
-export function _setPtyBridgeHealthForTest(enabled: boolean | null): void {
-  ptyBridgeHealthTestState = enabled;
+export function _setPtyBridgeHealthSocketForTest(socketPath: string | null): void {
+  ptyBridgeHealthSocketOverride = socketPath;
 }
 
 /**
@@ -123,45 +123,55 @@ export function createStatusRouter(ctx: AppContext): RouteHandler {
   let lastGatewayCheck: (GatewayHealthResult & { checkedAt: string }) | null = null;
   let lastCronStatus: CronJobsStatus | null = null;
   let lastSessionsStatus: SessionsStatus | null = null;
+  // Read when someone asks and at most every 10 minutes: one `security` call
+  // (attributes only, ~30 ms) per reader, never a timer with nobody reading it.
+  let claudeLogin: { source: "keychain" | "file" | null; expiresAt: number } = { source: null, expiresAt: 0 };
+  const currentClaudeLogin = () => {
+    if (claudeLogin.expiresAt <= Date.now()) claudeLogin = { source: claudeLoginSource(), expiresAt: Date.now() + 10 * 60_000 };
+    return claudeLogin.source;
+  };
 
   const healthProbes: Record<HealthSubsystemId, HealthProbe> = {
-    server: () => ({ state: "ok", observed: `Processo attivo da ${Math.floor((Date.now() - SERVER_START_TIME) / 1000)} s.`, action: "Nessuna azione." }),
+    server: () => ({ state: "ok", reason: "ready", params: { seconds: Math.floor((Date.now() - SERVER_START_TIME) / 1000) } }),
     "pty-bridge": () => {
-      if (ptyBridgeHealthTestState === false) throw new Error("Socket del bridge PTY assente");
-      if (ptyBridgeHealthTestState === true) return { state: "ok", observed: "Socket del bridge PTY accetta connessioni.", action: "Nessuna azione." };
-      const socket = registeredFleetSocketPath("pty-bridge");
-      if (!socket || !existsSync(socket)) throw new Error("Socket del bridge PTY assente");
-      return probeBridgeSocket(socket, "del bridge PTY");
+      const socket = ptyBridgeHealthSocketOverride ?? registeredFleetSocketPath("pty-bridge");
+      if (!socket || !existsSync(socket)) throw new Error("pty-bridge socket missing");
+      return probeBridgeSocket(socket);
     },
     "ai-bridge": () => {
       const socket = registeredFleetSocketPath("ai-bridge");
-      if (!socket) return { state: "off", observed: "AI bridge non configurato in questa installazione.", action: "Attivalo solo se usi il provider Claude Code." };
-      if (!existsSync(socket)) throw new Error("Socket dell'ai-bridge assente");
-      return probeBridgeSocket(socket, "dell'ai-bridge");
+      if (!socket) return { state: "off", reason: "not-configured" };
+      if (!existsSync(socket)) throw new Error("ai-bridge socket missing");
+      return probeBridgeSocket(socket);
     },
-    "browser-engines": () => ({ state: "ok", observed: `Motore nativo disponibile; ${browserEngineRegistry.size()} contesti browser registrati.`, action: "Nessuna azione." }),
+    "browser-engines": () => {
+      const failure = browserEngineLastLaunchFailure();
+      if (failure) return { state: "error", reason: "browser-launch-failed", params: failure, lastError: failure };
+      if (!browserEngineIsRunning()) return { state: "off", reason: "browser-never-started" };
+      return { state: "ok", reason: "browser-running" };
+    },
     relay: () => {
       const config = ctx.relayConfig?.();
-      if (!config?.baseUrl) return { state: "off", observed: "Relay non configurato.", action: "Configura il relay solo se ti serve l'accesso remoto." };
-      if (!ctx.relayConnected?.()) return { state: "warn", observed: "Relay configurato ma non connesso.", action: "Controlla la rete e la configurazione del relay." };
-      return { state: "ok", observed: "Relay connesso.", action: "Nessuna azione." };
+      if (!config?.baseUrl) return { state: "off", reason: "not-configured" };
+      if (!ctx.relayConnected?.()) return { state: "warn", reason: "not-connected" };
+      return { state: "ok", reason: "connected" };
     },
-    watcher: () => {
+    watcher: (): HealthReading => {
       const lastError = fileWatcherLastError();
-      if (lastError) return { state: "error", observed: `Watcher fermato: ${lastError.message}`, action: "Riapri il progetto o riavvia Topics.", lastError };
-      return { state: "ok", observed: `Watcher pronto; ${watchedProjectPaths().length} progetti osservati.`, action: "Apri o aggiorna un progetto per attivare il watcher." };
+      if (lastError) return { state: "error", reason: "watcher-failed", params: { project: lastError.projectPath, message: lastError.message }, lastError };
+      return { state: "ok", reason: "watching", params: { projects: watchedProjectPaths().length } };
     },
     "claude-cli": () => {
       const claude = detectAgents().find((agent) => agent.id === "claude-code");
-      if (!claude?.installed) return { state: "off", observed: "CLI Claude non installata.", action: "Installa Claude Code se vuoi usarlo da Topics." };
-      const credentials = existsSync(join(homedir(), ".claude", ".credentials.json"));
-      if (!credentials) return { state: "warn", observed: "CLI Claude presente, credenziali di login assenti.", action: "Esegui claude e poi /login nel terminale." };
-      return { state: "warn", observed: "File credenziali presente; validità del login non verificata senza avviare la CLI.", action: "Prova una richiesta Claude; se viene rifiutata, esegui /login nel terminale." };
+      if (!claude?.installed) return { state: "off", reason: "not-installed" };
+      const source = currentClaudeLogin();
+      if (!source) return { state: "error", reason: "login-missing" };
+      return { state: "ok", reason: source === "keychain" ? "login-found-keychain" : "login-found-file" };
     },
     database: () => {
       const path = join(resolveDataDir(ctx.STATE_DIR), "topics.db");
       const size = statSync(path).size;
-      return { state: "ok", observed: `Database leggibile, ${Math.ceil(size / 1024)} KB.`, action: "Nessuna azione." };
+      return { state: "ok", reason: "database-readable", params: { sizeKb: Math.ceil(size / 1024) } };
     },
   };
 

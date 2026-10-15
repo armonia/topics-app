@@ -176,7 +176,7 @@ export function setKeychainRunnerForTests(run: KeychainRunner | null, runAsync?:
   _runnerAsync = runAsync ?? (run ? async (cmd, args) => run(cmd, args) : defaultAsyncRunner);
 }
 
-function keychainEnabled(): boolean {
+export function keychainEnabled(): boolean {
   if (process.platform !== "darwin") return false;
   const flag = process.env.TOPICS_CREDENTIALS_KEYCHAIN;
   if (flag === "1") return true;
@@ -208,7 +208,7 @@ function loginUser(): string {
 }
 
 /** `-a` values to try, most specific first; `null` means "any account". */
-function keychainAccountsToTry(): Array<string | null> {
+export function keychainAccountsToTry(): Array<string | null> {
   const user = loginUser();
   return user ? [user, null] : [null];
 }
@@ -220,7 +220,7 @@ function keychainLookup(account: string | null, withSecret: boolean): string[] {
   return args;
 }
 
-function findKeychainItem(account: string | null, withSecret: boolean): KeychainRunResult {
+export function findKeychainItem(account: string | null, withSecret: boolean): KeychainRunResult {
   return _runner("security", keychainLookup(account, withSecret));
 }
 

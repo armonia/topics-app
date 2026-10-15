@@ -43,10 +43,15 @@ const DEBOUNCE_MS = 300;
  * change brings the git section back" waited for a push that never left.
  */
 export const MAX_WATCHERS = 24;
-let lastWatcherError: { message: string; at: string } | null = null;
+const watcherErrors = new Map<string, { message: string; at: string }>();
 
-export function fileWatcherLastError(): { message: string; at: string } | null {
-  return lastWatcherError;
+export function fileWatcherLastError(): ({ projectPath: string; message: string; at: string }) | null {
+  const latest = [...watcherErrors.entries()].sort((a, b) => b[1].at.localeCompare(a[1].at))[0];
+  return latest ? { projectPath: latest[0], ...latest[1] } : null;
+}
+
+export function _setWatcherErrorForTests(projectPath: string, message: string, at = new Date().toISOString()): void {
+  watcherErrors.set(projectPath, { message, at });
 }
 
 /**
@@ -135,8 +140,8 @@ export function watchProjectFiles(projectPath: string, ctx: AppContext): void {
     // l'albero torna a essere una fotografia, che è com'era prima.
     const w = watch(projectPath, { recursive: true }, onChange);
     w.on("error", (error) => {
-      lastWatcherError = { message: error.message, at: new Date().toISOString() };
       unwatchProjectFiles(projectPath);
+      watcherErrors.set(projectPath, { message: error.message, at: new Date().toISOString() });
     });
     watchers.set(projectPath, {
       close() {
@@ -145,11 +150,11 @@ export function watchProjectFiles(projectPath: string, ctx: AppContext): void {
         try { w.close(); } catch {}
       },
     });
-    lastWatcherError = null;
+    watcherErrors.delete(projectPath);
     setFileTreeWatcher(projectPath, true);
     setGitStatusFileWatcher(projectPath, true);
   } catch (error) {
-    lastWatcherError = { message: error instanceof Error ? error.message : String(error), at: new Date().toISOString() };
+    watcherErrors.set(projectPath, { message: error instanceof Error ? error.message : String(error), at: new Date().toISOString() });
     // Nessun watcher: nessun `files:changed`. Il bottone Aggiorna resta.
   }
 }
@@ -165,6 +170,7 @@ export function watchedProjectPaths(): string[] {
 }
 
 export function unwatchProjectFiles(projectPath: string): void {
+  watcherErrors.delete(projectPath);
   setFileTreeWatcher(projectPath, false);
   setGitStatusFileWatcher(projectPath, false);
   const w = watchers.get(projectPath);

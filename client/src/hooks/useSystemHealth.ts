@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useState } from 'react';
 import { coalescedFetch } from '../lib/coalesceFetch';
 import type { HealthSubsystem } from '../../../shared/system-health';
+import { getSystemHealth } from '../lib/api';
+import { useT } from './useT';
 
 interface SystemHealth {
   checkedAt: string;
@@ -8,22 +10,21 @@ interface SystemHealth {
 }
 
 export function useSystemHealth(enabled = true, intervalMs = 30000) {
+  const tr = useT();
   const [health, setHealth] = useState<SystemHealth | null>(null);
   const [error, setError] = useState<string | null>(null);
   const refresh = useCallback(async () => {
     try {
-      const response = await coalescedFetch('/api/system/health', { priority: 'low' });
-      if (!response.ok) throw new Error(`HTTP ${response.status}`);
-      setHealth(await response.json() as SystemHealth);
+      setHealth(await getSystemHealth((path) => coalescedFetch(path, { priority: 'low' })));
       setError(null);
     } catch {
-      setError('Stato sottosistemi non disponibile.');
+      setError(tr('systemHealth.unavailable'));
     }
-  }, []);
+  }, [tr]);
 
   useEffect(() => {
     if (!enabled) return;
-    void refresh();
+    void Promise.resolve().then(refresh);
     const id = setInterval(() => { if (!document.hidden) void refresh(); }, intervalMs);
     return () => clearInterval(id);
   }, [enabled, intervalMs, refresh]);

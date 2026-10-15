@@ -19,7 +19,7 @@
  * `await import` the app uses, so this test also proves the lazy chunk still
  * resolves.
  *
- * @covers I18N-05
+ * @covers I18N-05, SYSTEM-03
  */
 import { describe, expect, it } from 'bun:test';
 import IT from './i18n-it';
@@ -55,6 +55,27 @@ describe('permission panel: every decision has both languages', () => {
     expect(both(key).it).toContain('autonomia'); // allow-italian: the Italian copy IS what is asserted
     expect(both(key).en).toContain('without asking');
     expect(both(key).en).toContain('autonomy');
+  });
+});
+
+describe('system health copy follows the selected language', () => {
+  it('has both catalogues for every probe label, reason and action', () => {
+    const ids = ['server', 'pty-bridge', 'ai-bridge', 'browser-engines', 'relay', 'watcher', 'claude-cli', 'database'];
+    const reasons = ['ready', 'socket-ready', 'socket-missing', 'not-configured', 'not-connected', 'connected', 'watching', 'watcher-failed', 'not-installed', 'login-found-keychain', 'login-found-file', 'login-missing', 'browser-never-started', 'browser-running', 'browser-launch-failed', 'database-readable', 'timeout', 'probe-failed'];
+    const actions = ['socket-missing', 'not-configured', 'not-connected', 'watcher-failed', 'not-installed', 'login-missing', 'browser-never-started', 'browser-launch-failed', 'timeout', 'probe-failed'];
+    const keys = [
+      ...ids.map((id) => `systemHealth.name.${id}`),
+      ...['ok', 'warn', 'error', 'off'].map((state) => `systemHealth.state.${state}`),
+      ...reasons.map((reason) => `systemHealth.reason.${reason}`),
+      ...actions.map((reason) => `systemHealth.action.${reason}`),
+      'systemHealth.unavailable', 'systemHealth.section', 'systemHealth.actionLabel',
+      'systemHealth.lastErrorLabel', 'systemHealth.lastError', 'systemHealth.cronJobs',
+      'systemHealth.openTabs', 'systemHealth.confirmRestart', 'systemHealth.restart', 'systemHealth.restarting',
+    ];
+    for (const key of keys) {
+      expect(IT[key], `${key} missing from Italian`).toBeTruthy();
+      expect((EN as Record<string, string>)[key], `${key} missing from English`).toBeTruthy();
+    }
   });
 });
 

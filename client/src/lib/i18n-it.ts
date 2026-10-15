@@ -19,12 +19,14 @@ import SPEND_IT from './i18n-spend-it';
 import CHAT_IT from './i18n-chat-it';
 import FIND_IT from './i18n-find-it';
 import ATTENTION_IT from './i18n-attention-it';
+import SYSTEM_HEALTH_IT from './i18n-system-health-it';
 
 const IT: Dict = {
   ...SPEND_IT,
   ...CHAT_IT,
   ...FIND_IT,
   ...ATTENTION_IT,
+  ...SYSTEM_HEALTH_IT,
   'toolgroup.cost': 'Costo sommato delle azioni del gruppo',
   'ai.selector.routing': 'Esegui in Topics',
   'ai.selector.routingLine': 'Gli altri vanno diretti.',

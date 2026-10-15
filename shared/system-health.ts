@@ -10,6 +10,26 @@ export type HealthSubsystemId =
   | "claude-cli"
   | "database";
 
+export type HealthReason =
+  | "ready"
+  | "socket-ready"
+  | "socket-missing"
+  | "not-configured"
+  | "not-connected"
+  | "connected"
+  | "watching"
+  | "watcher-failed"
+  | "not-installed"
+  | "login-found-keychain"
+  | "login-found-file"
+  | "login-missing"
+  | "browser-never-started"
+  | "browser-running"
+  | "browser-launch-failed"
+  | "database-readable"
+  | "timeout"
+  | "probe-failed";
+
 export interface HealthError {
   message: string;
   at: string;
@@ -17,51 +37,56 @@ export interface HealthError {
 
 export interface HealthSubsystem {
   id: HealthSubsystemId;
-  name: string;
   state: HealthState;
-  observed: string;
-  action: string;
+  reason: HealthReason;
+  params?: Record<string, string | number>;
   lastError?: HealthError;
 }
 
-export type HealthReading = Omit<HealthSubsystem, "id" | "name">;
+export type HealthReading = Omit<HealthSubsystem, "id">;
 export type HealthProbe = () => HealthReading | Promise<HealthReading>;
 
-export const HEALTH_SUBSYSTEMS: ReadonlyArray<{ id: HealthSubsystemId; name: string }> = [
-  { id: "server", name: "Server" },
-  { id: "pty-bridge", name: "Bridge PTY" },
-  { id: "ai-bridge", name: "AI bridge" },
-  { id: "browser-engines", name: "Motori browser" },
-  { id: "relay", name: "Relay" },
-  { id: "watcher", name: "Watcher" },
-  { id: "claude-cli", name: "CLI Claude e login" },
-  { id: "database", name: "Database" },
+export const HEALTH_SUBSYSTEMS: ReadonlyArray<{ id: HealthSubsystemId }> = [
+  { id: "server" },
+  { id: "pty-bridge" },
+  { id: "ai-bridge" },
+  { id: "browser-engines" },
+  { id: "relay" },
+  { id: "watcher" },
+  { id: "claude-cli" },
+  { id: "database" },
 ];
+
+export class ProbeTimeoutError extends Error {
+  constructor(readonly timeoutMs: number) {
+    super(`Probe exceeded ${timeoutMs} ms`);
+    this.name = "ProbeTimeoutError";
+  }
+}
 
 export async function inspectHealth(
   probes: Record<HealthSubsystemId, HealthProbe>,
   timeoutMs = 250,
   now: () => number = Date.now,
 ): Promise<HealthSubsystem[]> {
-  return Promise.all(HEALTH_SUBSYSTEMS.map(async ({ id, name }) => {
+  return Promise.all(HEALTH_SUBSYSTEMS.map(async ({ id }) => {
     let timer: ReturnType<typeof setTimeout> | undefined;
     try {
       const reading = await Promise.race([
         Promise.resolve().then(probes[id]),
         new Promise<never>((_, reject) => {
-          timer = setTimeout(() => reject(new Error("non risponde")), timeoutMs);
+          timer = setTimeout(() => reject(new ProbeTimeoutError(timeoutMs)), timeoutMs);
         }),
       ]);
-      return { id, name, ...reading };
+      return { id, ...reading };
     } catch (error) {
+      const timedOut = error instanceof ProbeTimeoutError;
       const message = error instanceof Error ? error.message : String(error);
-      const timedOut = message === "non risponde";
       return {
         id,
-        name,
         state: timedOut ? "warn" as const : "error" as const,
-        observed: timedOut ? `La sonda non risponde entro ${timeoutMs} ms.` : `Sonda fallita: ${message}`,
-        action: timedOut ? "Riprova tra poco; se persiste, riavvia il sottosistema." : "Controlla il log del server e riavvia il sottosistema.",
+        reason: timedOut ? "timeout" as const : "probe-failed" as const,
+        params: timedOut ? { timeoutMs } : { message },
         lastError: { message, at: new Date(now()).toISOString() },
       };
     } finally {
