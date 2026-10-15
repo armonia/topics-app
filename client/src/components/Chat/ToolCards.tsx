@@ -14,6 +14,7 @@
  * text fallback when unknown/oversize/not-yet-loaded.
  */
 import { openLink, isExternalLinkGesture } from '../../lib/openLink';
+import { startVisibleInterval } from '../../state/documentVisibility';
 
 import { useEffect, useMemo, useState, useSyncExternalStore } from 'react';
 import { CircleCheck, CircleDot, Circle, Check, X } from 'lucide-react';
@@ -557,8 +558,7 @@ export function WaitCard({ processId, until, timeoutMs, result, sessionKey }: {
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
     if (!running) return;
-    const id = setInterval(() => setNow(Date.now()), 1000);
-    return () => clearInterval(id);
+    return startVisibleInterval(() => setNow(Date.now()), 1000);
   }, [running]);
   // Il cronometro si ferma su `completedAt`, non su «adesso»: riaprendo la
   // chat domani, «adesso» direbbe che quel build e' durato quindici ore.

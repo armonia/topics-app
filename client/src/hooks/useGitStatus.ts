@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useSyncExternalStore } from 'react';
 import { gitApi } from '../lib/api';
 import type { GitStatus, WSMessage } from '../types';
+import { startVisibleInterval } from '../state/documentVisibility';
 
 const POLL_VISIBLE = 15000;
 const POLL_BACKGROUND = 60000;
@@ -68,7 +69,7 @@ type Snapshot = {
 type Store = {
   snapshot: Snapshot;
   listeners: Set<() => void>;
-  timer: ReturnType<typeof setInterval> | null;
+  timer: (() => void) | null;
   subscribers: number;
   fetching: boolean;
   /** Una richiesta arrivata mentre un'altra era in volo, da rieseguire dopo. */
@@ -174,14 +175,14 @@ export function desiredInterval(store: Pick<Store, 'wsChannels' | 'errorStreak'>
 function retime(path: string, store: Store) {
   // `notGit` è definitivo: la cartella non è un repo, non lo diventerà da sola.
   if (store.subscribers === 0 || store.snapshot.notGit) {
-    if (store.timer) { clearInterval(store.timer); store.timer = null; }
+    if (store.timer) { store.timer(); store.timer = null; }
     return;
   }
   const want = desiredInterval(store);
   if (store.timer && want === store.currentInterval) return;
   store.currentInterval = want;
-  if (store.timer) clearInterval(store.timer);
-  store.timer = setInterval(() => { void load(path); }, want);
+  if (store.timer) store.timer();
+  store.timer = startVisibleInterval(() => { void load(path); }, want);
 }
 
 /**

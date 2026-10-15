@@ -26,6 +26,7 @@ function on(name: string, fn: () => void): void {
 function off(name: string, fn: () => void): void { listeners.get(name)?.delete(fn); }
 function visibility(hidden: boolean): void {
   (g.document as { hidden: boolean }).hidden = hidden;
+  (g.document as { visibilityState: string }).visibilityState = hidden ? 'hidden' : 'visible';
   for (const fn of listeners.get('visibilitychange') ?? []) fn();
 }
 
@@ -36,8 +37,9 @@ beforeEach(() => {
   listeners.clear();
   for (const key of ['fetch', 'document', 'setInterval', 'clearInterval']) saved[key] = g[key];
   const doc = (g.document as Record<string, unknown> | undefined) ?? {};
-  for (const key of ['hidden', 'addEventListener', 'removeEventListener']) savedDoc[key] = doc[key];
+  for (const key of ['hidden', 'visibilityState', 'addEventListener', 'removeEventListener']) savedDoc[key] = doc[key];
   doc.hidden = false;
+  doc.visibilityState = 'visible';
   doc.addEventListener = on;
   doc.removeEventListener = off;
   g.document = doc;

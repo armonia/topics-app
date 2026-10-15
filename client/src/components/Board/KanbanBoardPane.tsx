@@ -22,6 +22,7 @@ import { useTaskDeepLink } from './useTaskDeepLink';
 import { DEAD_TAB_MESSAGE } from '../../lib/tabLink';
 import { useToast } from '../Shared/Toast';
 import { usePaneStore } from '../../state/pane/store';
+import { startVisibleInterval } from '../../state/documentVisibility';
 import { parseUtilityPanelType } from '../Layout/UtilityPanel';
 import { useTaskSessionResolver } from '../../hooks/useTaskSession';
 import { useBoardFeed } from '../../hooks/useBoardFeed';
@@ -1104,8 +1105,8 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, loadHi
     load();
     // Il GC gira ogni 30 minuti e i dispatch creano worktree in continuazione:
     // un conteggio letto una volta sola al mount invecchia sotto gli occhi.
-    const t = setInterval(load, 60_000);
-    return () => { alive = false; clearInterval(t); };
+    const stopPolling = startVisibleInterval(load, 60_000);
+    return () => { alive = false; stopPolling(); };
   }, [projectPath, global]);
 
   // I RAMI non su main, col task che li reclama.

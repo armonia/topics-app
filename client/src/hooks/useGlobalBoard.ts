@@ -40,6 +40,7 @@ import {
 import { createCoalescedReader, type Coalescer } from '../lib/burstCoalescer';
 import { BOOT_READ_TTL_MS } from '../lib/coalesceFetch';
 import { subscribeLifecycle, subscribeReconnect } from '../lib/wsFrameBus';
+import { isDocumentVisible, subscribeDocumentVisibility } from '../state/documentVisibility';
 
 /**
  * How long the window is in which events fold into one. 400 ms: above the read
@@ -133,7 +134,7 @@ function getGlobalBoardSummary(): GlobalBoard {
  *  `isWindowAwake`: an app merely BEHIND another still shows its board on
  *  screen, and a board that stopped updating while you can read it is a lie. */
 function windowHidden(): boolean {
-  return typeof document !== 'undefined' && document.hidden === true;
+  return !isDocumentVisible();
 }
 
 export function useGlobalBoard(
@@ -248,8 +249,7 @@ export function useGlobalBoard(
       missedWhileHidden.current = false;
       ensure().trigger();
     };
-    document.addEventListener('visibilitychange', onVisibility);
-    return () => document.removeEventListener('visibilitychange', onVisibility);
+    return subscribeDocumentVisibility(onVisibility);
   }, [ensure]);
 
   // A RECONNECT IS A HOLE, NOT A PAUSE. Every `task:*` broadcast sent while the

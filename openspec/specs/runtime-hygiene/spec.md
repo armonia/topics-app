@@ -1169,3 +1169,28 @@ rimasto qualcosa» ha senso.
 #### Scenario: il rimedio non perde lavoro
 - **WHEN** viene segnalato un ramo oltre main
 - **THEN** il rimedio SHALL nominare `git tag archive/...` prima della cancellazione
+
+### Requirement: RUNTIME-23 — Con la finestra nascosta l'app dorme
+
+Con `document.hidden` i poll HTTP, i ticker della UI e i timer periodici che servono solo a chi
+guarda SHALL fermarsi. Restano il battito del WebSocket e quello che serve a non perdere dati: la
+coda dei messaggi in uscita e i salvataggi in sospeso.
+
+Un solo punto SHALL sapere se la pagina è nascosta (`client/src/state/documentVisibility.ts`), con
+un solo listener di `visibilitychange` condiviso da tutti: un listener per hook moltiplica i risvegli
+proprio quando l'app dovrebbe dormire.
+
+Al ritorno in primo piano ogni poll fermo SHALL ripartire subito, con un aggiornamento immediato:
+il dato cambiato mentre la finestra era nascosta compare entro 1 s.
+
+> Misurato il 14/10: con l'app in background la webview stava al 28% di CPU media (15 campioni).
+
+#### Scenario: in background partono pochi callback
+- **GIVEN** l'app aperta con una chat, la board e l'inventario delle sessioni
+- **WHEN** la finestra resta nascosta per 10 s
+- **THEN** partono al massimo i callback di timer del tetto scritto in `tests/e2e/background-callback-budget.spec.ts`
+
+#### Scenario: al ritorno il dato è fresco
+- **GIVEN** un dato che il server cambia mentre la finestra è nascosta
+- **WHEN** la finestra torna in primo piano
+- **THEN** il dato nuovo compare entro 1 s

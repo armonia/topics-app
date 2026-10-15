@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { BOOT_READ_TTL_MS, coalescedFetch } from '../lib/coalesceFetch';
+import { isDocumentVisible, startVisibleInterval } from '../state/documentVisibility';
 
 export type GatewayStatus = "online" | "offline" | "timeout" | "connection_refused" | "server_error" | "auth_error";
 
@@ -168,22 +169,16 @@ export function useSystemStatus(enabled = true, intervalMs = 30000) {
     let active = true;
 
     const poll = async () => {
-      if (!active || document.hidden) return;
+      if (!active || !isDocumentVisible()) return;
       await fetchStatus();
     };
 
     poll();
-    const id = setInterval(poll, intervalMs);
-
-    const onVisibility = () => {
-      if (!document.hidden && active) poll();
-    };
-    document.addEventListener('visibilitychange', onVisibility);
+    const stopPolling = startVisibleInterval(poll, intervalMs);
 
     return () => {
       active = false;
-      clearInterval(id);
-      document.removeEventListener('visibilitychange', onVisibility);
+      stopPolling();
     };
   }, [enabled, intervalMs, fetchStatus]);
 

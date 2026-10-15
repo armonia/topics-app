@@ -18,6 +18,7 @@ const real = {
 function stubDocument(over: { hidden?: boolean; hasFocus: () => boolean }): void {
   (globalThis as { document?: unknown }).document = {
     hidden: over.hidden ?? false,
+    visibilityState: over.hidden ? 'hidden' : 'visible',
     hasFocus: over.hasFocus,
     addEventListener: () => {},
     removeEventListener: () => {},

@@ -5,6 +5,7 @@ import { useOpenClawAvailable } from '../../hooks/useOpenClawAvailable';
 import { openclawControlApi } from '../../lib/api';
 import { runGatewayRestart } from '../../lib/openclawRestart';
 import { usePaneStore } from '../../state/pane/store';
+import { startVisibleInterval } from '../../state/documentVisibility';
 
 function formatUptime(ms: number): string {
   const seconds = Math.floor(ms / 1000);
@@ -57,8 +58,7 @@ export function SystemStatusPanel({ enabled = true }: SystemStatusPanelProps) {
   useEffect(() => { if (status) setLastRefreshedAt(Date.now()); }, [status]);
   const [, setTick] = useState(0);
   useEffect(() => {
-    const id = setInterval(() => setTick(t => t + 1), 1000);
-    return () => clearInterval(id);
+    return startVisibleInterval(() => setTick(t => t + 1), 1000);
   }, []);
 
   const gatewayOnline = status?.gateway.online ?? false;

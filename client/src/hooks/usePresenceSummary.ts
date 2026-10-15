@@ -27,6 +27,7 @@
 import { useEffect, useState } from 'react';
 import type { PresenceCounts } from '../../../shared/presence-phrase';
 import { apiFetch } from '../lib/shell/net';
+import { isDocumentVisible, startVisibleInterval } from '../state/documentVisibility';
 
 const INTERVALLO_MS = 8000;
 
@@ -63,7 +64,7 @@ export function usePresenceSummary(enabled = true, intervalMs = INTERVALLO_MS): 
     let vivo = true;
 
     const leggi = async () => {
-      if (!vivo || document.hidden) return;
+      if (!vivo || !isDocumentVisible()) return;
       try {
         const res = await apiFetch('/api/system/presence');
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
@@ -78,13 +79,10 @@ export function usePresenceSummary(enabled = true, intervalMs = INTERVALLO_MS): 
     };
 
     void leggi();
-    const id = setInterval(() => { void leggi(); }, intervalMs);
-    const onVisibility = () => { if (!document.hidden) void leggi(); };
-    document.addEventListener('visibilitychange', onVisibility);
+    const stopPolling = startVisibleInterval(() => { void leggi(); }, intervalMs);
     return () => {
       vivo = false;
-      clearInterval(id);
-      document.removeEventListener('visibilitychange', onVisibility);
+      stopPolling();
     };
   }, [enabled, intervalMs]);
 
