@@ -1,5 +1,13 @@
 # D5d — Domanda a lato
 
+## Giro 4 (la e2e, il finto CLI)
+
+**Barra prima:** clip CI `38673960214` rossa, ma col prodotto del giro 3 che fa la cosa giusta: nel trace del secondo tentativo il pannello mostra una risposta, `MAIN-ANSWER-PROBE` invece di `SIDE-ANSWER-PROBE`, e il fork si cancella dopo la risposta (DELETE 200). Il primo tentativo cade prima, a «main-hold» (`streamingIndicator` mai visto).
+
+**Causa:** `tests/e2e/helpers/fake-claude-btw.ts` leggeva la domanda solo dai blocchi (`content` array). Un messaggio normale arriva al CLI come stringa (`buildUserTurnContent`, i blocchi solo con uno slash context), quindi il finto vedeva sempre una domanda vuota: rispondeva `MAIN-ANSWER-PROBE` anche al fork, e «main-hold» non tratteneva mai il turno (l'indicatore era un lampo che la e2e prendeva o no). Gli altri finti (`fake-claude-queue-turns.ts` e i fratelli) leggono già tutte e due le forme.
+
+**Correzione:** il finto legge la stringa e i blocchi. `bun run typecheck:e2e` exit 0. La clip rifatta è la barra.
+
 ## Giro 3
 
 **Barra prima:** e2e CI run `38672203747` rossa: `POST /side-question` 201, fork avviato, poi DELETE dopo 34 ms; il client leggeva prima della chiusura del turno. Mutazione in `/private/tmp/d5d-giro3-mutation` con l’implementazione del giro 2: `bun test /private/tmp/d5d-giro3-mutation/sideQuestion.test.ts` exit 1 atteso, 0 pass e 1 fail (`no-answer` prima che arrivasse la risposta).

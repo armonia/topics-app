@@ -31,8 +31,12 @@ if (value("--output-format") === "json") {
       pending = pending.slice(lineEnd + 1);
       if (!raw) continue;
       const input = JSON.parse(raw) as { message?: { content?: unknown } };
-      const blocks = Array.isArray(input.message?.content) ? input.message!.content as Array<{ type?: string; text?: string }> : [];
-      const question = blocks.filter((block) => block.type === "text").map((block) => block.text ?? "").join("\n").split("\n").at(-1) ?? "";
+      // A plain message reaches the CLI as a string; blocks only when Topics adds a slash context.
+      const content = input.message?.content;
+      const text = typeof content === "string"
+        ? content
+        : Array.isArray(content) ? (content as Array<{ type?: string; text?: string }>).filter((block) => block.type === "text").map((block) => block.text ?? "").join("\n") : "";
+      const question = text.split("\n").at(-1) ?? "";
       if (question.includes("main-hold")) {
         const deadline = Date.now() + 45_000;
         while (process.env.BTW_RELEASE && !existsSync(process.env.BTW_RELEASE) && Date.now() < deadline) {
