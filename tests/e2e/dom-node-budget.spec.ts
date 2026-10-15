@@ -4,6 +4,7 @@ import { goToApp } from "./helpers";
 import { E2E_BASE, testServerEnv } from "./helpers/test-server";
 import { seedTranscript } from "./helpers/seed-transcript";
 import { wheelUpUntilVisible } from "./helpers/wheel-scroll";
+import { splitViaContextMenu } from "./helpers/layout";
 import { canonicalTmpDir, removeTmpDir } from "./helpers/file-project";
 import { projectIdForPath } from "../../shared/board";
 import { COLUMN_PAGE } from "../../client/src/lib/boardOrder";
@@ -77,6 +78,8 @@ async function recordBudget(page: import("@playwright/test").Page, testInfo: imp
       .slice(0, 10);
     return { nodes: all.length + shadowElements, topTen };
   });
+  // In the log too: the run's page is where a nightly's numbers get read.
+  console.log(`[dom-budget] ${label}: ${measurement.nodes} nodes, ${measurement.topTen.map((t) => `${t.element} ${t.nodes}`).join("; ")}`);
   await testInfo.attach(`${label}-dom-subtrees`, { body: JSON.stringify(measurement, null, 2), contentType: "application/json" });
   expect(measurement.nodes, `${label}: top ten DOM subtrees attached`).toBeLessThanOrEqual(DOM_BUDGET);
 }
@@ -127,7 +130,11 @@ test.describe.serial("DOM node budget @nightly", () => {
     await resetPaneStore(request, ["__board__", topic.id]);
     await goToApp(page);
     await expect(page.getByTestId("kanban-board")).toBeVisible({ timeout: 30_000 });
+    // Side by side, the way a person sets it: the chat's tab split to the right.
+    // Two tabs of one group would show one pane at a time.
+    await splitViaContextMenu(page, "Dividi a destra", 1);
     await expect(page.locator(`[data-pane-shell="${topic.id}"]`)).toBeVisible();
+    await expect(page.getByTestId("kanban-board")).toBeVisible();
     await readWholeThreadThenRest(page, topic.id);
     await expect(page.getByTestId("kanban-column-body-backlog").locator("[data-task-card]")).toHaveCount(1_155, { timeout: 120_000 });
     await expect(page.getByTestId("kanban-column-body-todo").locator("[data-task-card]")).toHaveCount(21, { timeout: 30_000 });
