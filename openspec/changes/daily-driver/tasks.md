@@ -14,7 +14,7 @@ la barra eseguita.
 | D5 sessioni e board | `tracks/D5-sessioni-e-board.md` | niente | cinque scenari con video; la mutazione sul land fa fallire lo scenario dei controlli |
 | D6 per tutti | `tracks/D6-per-tutti.md` | niente | primo avvio e relay con video; `install-smoke` verde su 3 OS; barre di `primo-avvio`, `relay`, `device-auth`, `sharing-orgs` |
 | D7 affidabilità | `tracks/D7-affidabilita.md` | niente | card e client sopravvivono al SIGTERM (video); spec instabili 20/20; barre di `pane-store-server-authoritative` |
-| D8 sicurezza | `tracks/D8-sicurezza.md` | R2 niente; R1 e R3 il merge del ramo dell'altra sessione | le barre private R1, R2 e R3, viste rosse su main; `check:security` esce 0 |
+| D8 sicurezza | `tracks/D8-sicurezza.md` | R2 niente; R1 e R3 il merge del ramo dell'altra sessione | i test dei cinque problemi in `tracks/D8-sicurezza.md`, visti rossi su main prima della correzione; `check:security` esce 0 |
 
 ## Ordine
 
