@@ -151,6 +151,18 @@ describe("session-scoped process isolation", () => {
     } as any;
   }
 
+  // The stop only signals. The exit handler then saves the registry under the
+  // state folder, and run late it landed in the next test file, with no
+  // DATA_DIR: the guard against the live folder threw and failed the run.
+  // Waiting for the exit keeps that write here, while DATA_DIR is still ROOT.
+  async function waitForExit(router: any, processId: string): Promise<void> {
+    for (const deadline = Date.now() + 10_000; Date.now() < deadline; await Bun.sleep(20)) {
+      const { scripts } = await (await call(router, "GET", "/api/sessions/sa/scripts"))!.json();
+      if (scripts.find((s: any) => s.processId === processId)?.status !== "running") return;
+    }
+    throw new Error(`${processId} still running 10 s after its stop`);
+  }
+
   function call(router: any, method: string, fullPath: string, body?: unknown) {
     const u = new URL(`http://x${fullPath}`);
     const req = new Request(u.toString(), {
@@ -194,6 +206,7 @@ describe("session-scoped process isolation", () => {
       // A can
       const stopA = (await call(router, "POST", `/api/sessions/sa/scripts/${processId}/stop`))!;
       expect(stopA.status).toBe(200);
+      await waitForExit(router, processId);
     } finally {
       rmSync(dirA, { recursive: true, force: true });
       rmSync(dirB, { recursive: true, force: true });
