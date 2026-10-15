@@ -14,9 +14,9 @@ on:
       - server/lib/git-numstat.ts
       - server/lib/native-git-status.ts
       - native/**
-      - scripts/measure-git-freshness.ts
+      - scripts/check-git-freshness.ts
       - scripts/git-freshness-metrics.ts
-      - .github/workflows/measure-git-freshness.yml
+      - .github/workflows/check-git-freshness.yml
 
 concurrency:
   group: git-freshness-${{ github.ref }}
@@ -59,7 +59,7 @@ jobs:
       - name: Measure freshness with eight CPU burners
         run: |
           set +e
-          bun run measure:git-freshness -- --burners 8 --samples 20 | tee /tmp/git-freshness.txt
+          bun run check:git-freshness -- --burners 8 --samples 20 | tee /tmp/git-freshness.txt
           result=${PIPESTATUS[0]}
           set -e
           cat /tmp/git-freshness.txt >> "$GITHUB_STEP_SUMMARY"

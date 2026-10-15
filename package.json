@@ -81,7 +81,7 @@
     "check:deadcode-blindspots": "bun run scripts/check-deadcode-blindspots.ts",
     "check:previews": "bun run scripts/check-preview-evidence.ts",
     "check:route-latency": "bun run scripts/check-route-latency.ts",
-    "measure:git-freshness": "bun run scripts/measure-git-freshness.ts",
+    "check:git-freshness": "bun run scripts/check-git-freshness.ts",
     "probe:stalls": "bun run scripts/stalled-parents.ts",
     "probe:gate-slots": "bun run scripts/probe-gate-concurrency.ts",
     "probe:budget": "bun run scripts/probe-dispatch-budget.ts",
