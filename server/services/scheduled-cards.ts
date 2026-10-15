@@ -1,26 +1,12 @@
 import type { Database } from "bun:sqlite";
 import { isTaskLabel, normalizeLabels, type TaskLabel } from "../../shared/task-labels";
 import type { TaskService } from "./tasks";
+import type { ScheduledCard, ScheduledStatus } from "../../shared/scheduled-cards";
 
-export type ScheduledStatus = "backlog" | "todo" | "in_progress" | "review";
+export type { ScheduledCard, ScheduledStatus } from "../../shared/scheduled-cards";
 
 export class ScheduledCardsError extends Error {
   constructor(message: string, readonly status = 400) { super(message); }
-}
-
-export interface ScheduledCard {
-  id: string;
-  projectId: string;
-  text: string;
-  status: ScheduledStatus;
-  labels: TaskLabel[];
-  cron: string;
-  timeZone: string;
-  enabled: boolean;
-  nextRunAt: string;
-  lastRunAt: string | null;
-  lastResult: "created" | "skipped" | null;
-  lastReason: string | null;
 }
 
 export interface ScheduledCardsService {

@@ -3,33 +3,10 @@
  * zone written on it. The scheduler lives on the server
  * (`server/services/scheduled-cards.ts`); this is its client.
  */
-import type { TaskStatus } from '../../../shared/board';
-import type { TaskLabel } from '../../../shared/task-labels';
+import type { ScheduledCard, ScheduledCardInput } from '../../../shared/scheduled-cards';
 import { req } from './board';
 
-export interface ScheduledCard {
-  id: string;
-  projectId: string;
-  text: string;
-  status: Exclude<TaskStatus, 'done'>;
-  labels: TaskLabel[];
-  cron: string;
-  timeZone: string;
-  enabled: boolean;
-  nextRunAt: string;
-  lastRunAt: string | null;
-  lastResult: 'created' | 'skipped' | null;
-  lastReason: string | null;
-}
-
-export interface ScheduledCardInput {
-  text: string;
-  status: ScheduledCard['status'];
-  labels: TaskLabel[];
-  cron: string;
-  timeZone: string;
-  enabled?: boolean;
-}
+export type { ScheduledCard, ScheduledCardInput } from '../../../shared/scheduled-cards';
 
 const encode = encodeURIComponent;
 const base = (projectId: string) => `/boards/${encode(projectId)}/scheduled-cards`;

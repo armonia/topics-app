@@ -4,10 +4,13 @@ import { useLocale, useT } from '../../hooks/useT';
 import { CLOSER_LABELS, KIND_LABELS, STATUS_LABEL, type TaskLabel } from '../../lib/board';
 import { scheduledCardsApi, type ScheduledCard, type ScheduledCardInput } from '../../lib/scheduledCards';
 import { Menu } from '../Shared/Menu';
+import { Segmented } from '../Shared/Segmented';
 import { TOOLBAR_CONTROL_H, TOOLBAR_ICON_W } from './constants';
 
 const LABELS: TaskLabel[] = [...CLOSER_LABELS, ...KIND_LABELS];
 const COLUMNS: ScheduledCardInput['status'][] = ['backlog', 'todo', 'in_progress', 'review'];
+type Preset = 'daily' | 'weekly' | 'hourly' | 'custom';
+const PRESETS: Preset[] = ['daily', 'weekly', 'hourly', 'custom'];
 // A new recurrence starts in the zone of whoever writes it; Europe/Rome only when the browser does not say.
 const defaultTimeZone = () => Intl.DateTimeFormat().resolvedOptions().timeZone || 'Europe/Rome';
 
@@ -20,7 +23,7 @@ export function ScheduledCardsControl({ projectId }: { projectId: string }) {
   const [editing, setEditing] = useState<string | null>(null);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
-  const [preset, setPreset] = useState('weekly');
+  const [preset, setPreset] = useState<Preset>('weekly');
   const [presetTime, setPresetTime] = useState('09:00');
   const [labelDraft, setLabelDraft] = useState('');
   const [form, setForm] = useState<ScheduledCardInput>({ text: '', status: 'backlog', labels: [], cron: '0 9 * * 1', timeZone: defaultTimeZone() });
@@ -57,6 +60,13 @@ export function ScheduledCardsControl({ projectId }: { projectId: string }) {
       reset(); await refresh();
     } catch (cause) { setError((cause as Error).message); }
     finally { setBusy(false); }
+  };
+  const choosePreset = (value: Preset) => {
+    setPreset(value);
+    const [hour, minute] = presetTime.split(':');
+    if (value === 'daily') setForm({ ...form, cron: `${Number(minute)} ${Number(hour)} * * *` });
+    if (value === 'weekly') setForm({ ...form, cron: `${Number(minute)} ${Number(hour)} * * 1` });
+    if (value === 'hourly') setForm({ ...form, cron: '0 * * * *' });
   };
   const toggle = async (card: ScheduledCard) => {
     try { await scheduledCardsApi.setEnabled(projectId, card.id, !card.enabled); await refresh(); }
@@ -108,21 +118,20 @@ export function ScheduledCardsControl({ projectId }: { projectId: string }) {
           <form onSubmit={submit} className="space-y-2 border-t border-white/10 pt-3">
             <h3 className="font-medium text-app-text">{tr(editing ? 'board.scheduled.editTitle' : 'board.scheduled.newTitle')}</h3>
             <input required maxLength={240} value={form.text} onChange={event => setForm({ ...form, text: event.target.value })} placeholder={tr('board.scheduled.text')} aria-label={tr('board.scheduled.text')} className="w-full rounded border border-white/15 bg-black/20 px-2 py-1.5 text-app-text" />
-            <div className="flex gap-2">
-              <select value={form.status} onChange={event => setForm({ ...form, status: event.target.value as ScheduledCardInput['status'] })} aria-label={tr('board.scheduled.column')} className="min-w-0 flex-1 rounded border border-white/15 bg-app-bg px-2 py-1.5 text-app-text">
-                {COLUMNS.map(status => <option key={status} value={status}>{STATUS_LABEL[status]}</option>)}
-              </select>
-              <select value={preset} onChange={event => {
-                const value = event.target.value; setPreset(value);
-                const [hour, minute] = presetTime.split(':');
-                if (value === 'daily') setForm({ ...form, cron: `${Number(minute)} ${Number(hour)} * * *` });
-                if (value === 'weekly') setForm({ ...form, cron: `${Number(minute)} ${Number(hour)} * * 1` });
-                if (value === 'hourly') setForm({ ...form, cron: '0 * * * *' });
-              }} aria-label={tr('board.scheduled.preset')} className="min-w-0 flex-1 rounded border border-white/15 bg-app-bg px-2 py-1.5 text-app-text">
-                <option value="daily">{tr('board.scheduled.daily')}</option><option value="weekly">{tr('board.scheduled.weekly')}</option>
-                <option value="hourly">{tr('board.scheduled.hourly')}</option><option value="custom">{tr('board.scheduled.custom')}</option>
-              </select>
-            </div>
+            <Segmented
+              value={form.status}
+              options={COLUMNS.map(status => ({ value: status, label: STATUS_LABEL[status] }))}
+              onChange={status => setForm({ ...form, status })}
+              ariaLabel={tr('board.scheduled.column')}
+              testId="scheduled-card-column"
+            />
+            <Segmented
+              value={preset}
+              options={PRESETS.map(value => ({ value, label: tr(`board.scheduled.${value}`) }))}
+              onChange={choosePreset}
+              ariaLabel={tr('board.scheduled.preset')}
+              testId="scheduled-card-preset"
+            />
             {(preset === 'daily' || preset === 'weekly') && <input type="time" value={presetTime} aria-label={tr('board.scheduled.time')} onChange={event => {
               const value = event.target.value; setPresetTime(value);
               const [hour, minute] = value.split(':');
