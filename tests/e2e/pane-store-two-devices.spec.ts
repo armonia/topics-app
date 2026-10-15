@@ -160,6 +160,16 @@ test.describe("@nightly D7f pane-store tra dispositivi", () => {
       await closeTabViaX(devices.pageA, topic.id);
       await expect(tabFor(devices.pageB, topic.id)).toHaveCount(0, { timeout: 10_000 });
       await expect(tabFor(devices.pageA, topic.id)).toHaveCount(0, { timeout: 10_000 });
+      // The reopen comes AFTER the close, as the title says: the close is on the
+      // server and B holds its tombstone. Reopened while A's close still waits
+      // out its debounce, the two are concurrent, and the server's cascade
+      // archives the chat again when that close lands (reports/D7f.md).
+      await expectServerClosed(request, topic.id);
+      await expect.poll(async () => devices.pageB.evaluate(({ key, id }) => {
+        const raw = localStorage.getItem(key);
+        const value = raw ? JSON.parse(raw) as { tombstones?: Record<string, unknown> } : null;
+        return value?.tombstones?.[id] !== undefined;
+      }, { key: PANE_STORE_KEY, id: topic.id }), { timeout: 10_000, message: "B deve avere la chiusura di A" }).toBe(true);
 
       // The gesture a person makes on the other device: open the chat again from
       // the sidebar, which also unarchives it. Not ⇧⌘T, whose stack stage 3
