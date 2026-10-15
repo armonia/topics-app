@@ -6,6 +6,7 @@ export interface NativeModule {
   nativeVersion(): string;
   gitHeadCommitId(repoPath: string): string | null;
   gitStatus?(repoPath: string): Promise<NativeGitStatus | null>;
+  gitNumstat?(repoPath: string): Promise<NativeGitNumstat>;
 }
 
 export interface NativeGitStatusEntry {
@@ -23,6 +24,19 @@ export interface NativeGitStatus {
   lastCommit: { short: string; hash: string; subject: string; author: string; time: number } | null;
 }
 
+export interface NativeGitNumstatEntry {
+  path: string;
+  added: number;
+  removed: number;
+  binary: boolean;
+}
+
+export interface NativeGitNumstat {
+  staged: NativeGitNumstatEntry[];
+  unstaged: NativeGitNumstatEntry[];
+  unsupported: string[];
+}
+
 interface NativeExports {
   nativeVersion?: () => string;
   gitHeadCommitId?: (repoPath: string) => string | null;
@@ -34,6 +48,7 @@ interface NativeExports {
     entries: Array<{ path: string; status: string; origPath?: string | null }>;
     lastCommit?: { short: string; hash: string; subject: string; author: string; time: number } | null;
   } | null>;
+  gitNumstat?: (repoPath: string) => Promise<NativeGitNumstat>;
 }
 
 let loaded = false;
@@ -97,6 +112,20 @@ export function loadNativeModuleAt(candidate: string): NativeModule | null {
                     origPath == null ? entry : { ...entry, origPath },
                   ),
                 };
+              },
+            }
+          : {}),
+        ...(typeof exports.gitNumstat === "function"
+          ? {
+              gitNumstat: async (repoPath: string) => {
+                const result = await exports.gitNumstat!.call(exports, repoPath);
+                const valid = (entry: NativeGitNumstatEntry) =>
+                  typeof entry.path === "string" && Number.isInteger(entry.added) && entry.added >= 0 &&
+                  Number.isInteger(entry.removed) && entry.removed >= 0 && typeof entry.binary === "boolean";
+                if (!result.staged.every(valid) || !result.unstaged.every(valid) || !Array.isArray(result.unsupported)) {
+                  throw new Error("native gitNumstat returned an invalid result");
+                }
+                return result;
               },
             }
           : {}),

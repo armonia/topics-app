@@ -1,17 +1,19 @@
 import { getDatabase } from "../db";
 import type { Database } from "bun:sqlite";
 import { loadNativeModule, nativeModuleLoadError } from "./native-addon";
-import type { NativeGitStatus, NativeModule } from "./native-addon";
+import type { NativeGitNumstat, NativeGitStatus, NativeModule } from "./native-addon";
 
 export interface NativeGitStatusMetrics {
   loaded: boolean;
   enabled: boolean;
   calls: number;
   fallbacks: number;
+  numstatCalls: number;
+  numstatFallbacks: number;
   lastError: string | null;
 }
 
-const metrics = { calls: 0, fallbacks: 0, lastError: null as string | null };
+const metrics = { calls: 0, fallbacks: 0, numstatCalls: 0, numstatFallbacks: 0, lastError: null as string | null };
 let enabledOverride: boolean | undefined;
 let moduleOverride: NativeModule | null | undefined;
 let lastFallbackLogAt = 0;
@@ -71,6 +73,30 @@ export async function readNativeGitStatus(repoPath: string): Promise<NativeGitSt
   }
 }
 
+export async function readNativeGitNumstat(repoPath: string): Promise<NativeGitNumstat | undefined> {
+  if (!nativeGitStatusEnabled()) return undefined;
+  const module = getGitStatusModule();
+  if (!module?.gitNumstat) {
+    metrics.numstatFallbacks++;
+    metrics.lastError = module ? "native module does not export gitNumstat" : nativeModuleLoadError();
+    return undefined;
+  }
+  metrics.numstatCalls++;
+  try {
+    const result = await module.gitNumstat(repoPath);
+    metrics.lastError = null;
+    return result;
+  } catch (error) {
+    metrics.numstatFallbacks++;
+    metrics.lastError = error instanceof Error ? error.message : String(error);
+    return undefined;
+  }
+}
+
+export function recordNativeGitNumstatFallbacks(count: number): void {
+  metrics.numstatFallbacks += count;
+}
+
 /** Test seam for exercising native, disabled, and rejection paths. */
 export function setNativeGitStatusTestOverrides(overrides: {
   enabled?: boolean | undefined;
@@ -80,5 +106,7 @@ export function setNativeGitStatusTestOverrides(overrides: {
   moduleOverride = overrides?.module;
   metrics.calls = 0;
   metrics.fallbacks = 0;
+  metrics.numstatCalls = 0;
+  metrics.numstatFallbacks = 0;
   metrics.lastError = null;
 }

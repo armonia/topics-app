@@ -6,6 +6,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { gitEnv } from "../../tests/setup/bun-test-preload";
 import { loadNativeModule, type NativeGitStatus, type NativeModule } from "./native-addon";
+import { parseNumstatZ } from "./git-numstat";
 import { serverSpawnCounts } from "./spawn-metrics";
 import { computeGitStatus, parseBranchHeader, splitBranchHeader } from "./git-status";
 import { parsePorcelainZ } from "./git-porcelain";
@@ -55,6 +56,17 @@ function nativeFixture(): NativeModule {
         lastCommit: { short: log[0], hash: log[1], subject: log[2], author: log[3], time: Number(log[4]) },
       };
     },
+    async gitNumstat(repoPath) {
+      const staged = parseNumstatZ(git(repoPath, "diff", "--cached", "--numstat", "-z"));
+      const unstaged = parseNumstatZ(git(repoPath, "diff", "--numstat", "-z"));
+      const entries = (stats: typeof staged) => [...stats].map(([path, stat]) => ({
+        path,
+        added: stat.added,
+        removed: stat.removed,
+        binary: stat.binary === true,
+      }));
+      return { staged: entries(staged), unstaged: entries(unstaged), unsupported: [] };
+    },
   };
 }
 
@@ -76,7 +88,7 @@ test("computeGitStatus uses native status for three repository shapes and retain
       before = gitSpawnTotal();
       const actual = await computeGitStatus(resolvedDir, { cause: "cacheMiss" });
       expect(actual).toEqual(expected);
-      expect(gitSpawnTotal() - before).toBe(2);
+      expect(gitSpawnTotal() - before).toBe(0);
       expect(nativeGitStatusSnapshot()).toMatchObject({ loaded: true, enabled: true, calls: 1, fallbacks: 0 });
     }
 
@@ -113,6 +125,33 @@ test("computeGitStatus uses native status for three repository shapes and retain
   }
 });
 
+test("native numstat falls back only for unsupported paths and records the fallback", async () => {
+  const scratch = mkdtempSync(join(tmpdir(), "git-numstat-fallback-"));
+  try {
+    const resolvedDir = makeRepo(join(scratch, "subfolder"), "subfolder");
+    setNativeGitStatusTestOverrides({ enabled: false });
+    const expected = await computeGitStatus(resolvedDir, { cause: "cacheMiss" });
+
+    const fixture = nativeFixture();
+    const unsupported: NativeModule = {
+      ...fixture,
+      async gitNumstat(repoPath) {
+        const result = await fixture.gitNumstat!(repoPath);
+        return { ...result, unstaged: [], unsupported: ["packages/app/tracked.txt"] };
+      },
+    };
+    setNativeGitStatusTestOverrides({ enabled: true, module: unsupported });
+    const before = gitSpawnTotal();
+    const actual = await computeGitStatus(resolvedDir, { cause: "cacheMiss" });
+    expect(actual).toEqual(expected);
+    expect(gitSpawnTotal() - before).toBe(2);
+    expect(nativeGitStatusSnapshot()).toMatchObject({ numstatCalls: 1, numstatFallbacks: 1 });
+  } finally {
+    setNativeGitStatusTestOverrides(null);
+    rmSync(scratch, { recursive: true, force: true });
+  }
+});
+
 // Skipped, and said so, where the addon is not built: the CI job that builds it
 // (`tauri` in ci.yml) runs this file next to native/parity.test.ts.
 const nativeModuleBuilt = Bun.file(join(import.meta.dir, "../../native/topics_native.node")).size > 0;
@@ -121,12 +160,15 @@ test.skipIf(!nativeModuleBuilt)("the built addon returns the same status as git 
   try {
     const native = loadNativeModule();
     expect(native?.gitStatus).toBeFunction();
+    expect(native?.gitNumstat).toBeFunction();
     for (const shape of ["clean", "subfolder", "detached"] as const) {
       const path = makeRepo(join(scratch, shape), shape);
       setNativeGitStatusTestOverrides({ enabled: false });
       const expected = await computeGitStatus(path, { cause: "cacheMiss" });
       setNativeGitStatusTestOverrides({ enabled: true, module: native });
+      const before = gitSpawnTotal();
       expect(await computeGitStatus(path, { cause: "cacheMiss" })).toEqual(expected);
+      expect(gitSpawnTotal() - before).toBe(0);
     }
   } finally {
     setNativeGitStatusTestOverrides(null);
