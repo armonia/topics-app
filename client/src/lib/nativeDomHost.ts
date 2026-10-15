@@ -229,7 +229,8 @@ export function armJs(bundle: string): string {
     'var h=window.__topicsDomHost={q:[],stop:null,rrweb:null,placed:null};' +
     'try{\n' + bundle + '\n;h.rrweb=rrweb;}catch(e){h.error=String(e&&e.message||e);return \'failed\'}' +
     LAYOUT_JS +
-    "function privateInput(n){if(!n)return false;var v;try{v=n.getAttribute?n.getAttribute('autocomplete'):n.attributes&&n.attributes.autocomplete}catch(e){}return typeof v==='string'&&['cc-number','cc-csc','cc-exp','cc-exp-month','cc-exp-year','one-time-code'].indexOf(v.toLowerCase())>=0}" +
+    // autocomplete is a token list: "billing cc-number" and "section-pay cc-csc" are card fields too.
+    "function privateInput(n){if(!n)return false;var v;try{v=n.getAttribute?n.getAttribute('autocomplete'):n.attributes&&n.attributes.autocomplete}catch(e){}if(typeof v!=='string')return false;var t=v.toLowerCase().split(/\\s+/);for(var i=0;i<t.length;i++)if(['cc-number','cc-csc','cc-exp','cc-exp-month','cc-exp-year','one-time-code'].indexOf(t[i])>=0)return true;return false}" +
     "function maskInput(v){return typeof v==='string'?'*'.repeat(v.length):v}" +
     'function maskSnapshot(n){if(!n||typeof n!==\'object\')return;if(n.type===2&&String(n.tagName).toLowerCase()===\'input\'&&privateInput(n))n.attributes.value=maskInput(n.attributes.value);' +
     'if(Array.isArray(n.childNodes))for(var i=0;i<n.childNodes.length;i++)maskSnapshot(n.childNodes[i])}' +

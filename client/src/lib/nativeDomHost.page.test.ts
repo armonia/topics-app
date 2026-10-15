@@ -111,7 +111,8 @@ describe('a tap from a mirror laid out on its own', () => {
  * @covers BROWSER-DOM-MASK-01
  */
 describe('private entry fields in a device mirror', () => {
-  for (const purpose of ['cc-number', 'one-time-code', 'cc-csc']) {
+  // An autocomplete value is a token list: a section or billing prefix still names a card field.
+  for (const purpose of ['cc-number', 'one-time-code', 'cc-csc', 'billing cc-number', 'section-pay cc-csc']) {
     test(`${purpose} is masked in the initial snapshot and after typing`, () => {
       const w = world();
       const input = w.el('input', { top: 0, left: 0, width: 100, height: 20 }, w.body, 50, {
