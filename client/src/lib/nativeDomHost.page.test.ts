@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'bun:test';
 import { armJs, createNativeDomHost, DRAIN_JS, inputJs } from './nativeDomHost';
+import { BrowserWsChunkAssembler } from '../../../shared/browser-ws-chunks';
 
 /**
  * The host's page side (INPUT_FN, LAYOUT_JS) run against a small page with
@@ -192,6 +193,27 @@ describe('private entry fields in a device mirror', () => {
       (snapshot.data.node as { attributes: { value: string } }).attributes.value,
       change.data.text,
     ]).toEqual([value, value]);
+  });
+});
+
+describe('native DOM host byte-bounded drain', () => {
+  test('splits a 4.8 MB snapshot into UTF-8 chunks no larger than 192 KiB', () => {
+    const w = world();
+    const snapshot = { type: 2, timestamp: 1, data: { node: { type: 3, id: 1, textContent: 'x'.repeat(4_800_000) } } };
+    w.win.__topicsDomHost = { q: [snapshot] };
+    const assembler = new BrowserWsChunkAssembler();
+    let rebuilt: string | null = null;
+    let count = 0;
+    while (rebuilt === null) {
+      const chunk = JSON.parse(w.run(DRAIN_JS) as string) as { id: string; index: number; total: number; data: string };
+      const size = atob(chunk.data).length;
+      expect(size).toBeLessThanOrEqual(192 * 1024);
+      expect(new TextEncoder().encode(JSON.stringify({ type: 'host_dom_events_chunk', ...chunk })).byteLength).toBeLessThan(512 * 1024);
+      rebuilt = assembler.add(chunk);
+      count++;
+    }
+    expect(count).toBeGreaterThan(20);
+    expect(rebuilt).toBe(JSON.stringify([snapshot]));
   });
 });
 

@@ -46,6 +46,7 @@ export type HostFrame =
   /** `used`: the person at the Mac used the page while its socket was down. */
   | { type: "native_dom_host"; used?: boolean }
   | { type: "host_dom_events"; events: unknown[] }
+  | ({ type: "host_dom_events_chunk" } & import("../../shared/browser-ws-chunks").BrowserWsChunk)
   /** The person at the Mac used the page in its own pane (a real gesture, not a relayed one). */
   | { type: "host_local_use" }
   | ({ type: "host_page" } & HostPage);
@@ -58,6 +59,9 @@ export function parseHostFrame(raw: unknown): HostFrame | null {
   if (m.type === "host_local_use") return { type: "host_local_use" };
   if (m.type === "host_dom_events") {
     return Array.isArray(m.events) ? { type: "host_dom_events", events: m.events } : null;
+  }
+  if (m.type === "host_dom_events_chunk" && typeof m.id === "string" && typeof m.index === "number" && typeof m.total === "number" && typeof m.data === "string") {
+    return { type: "host_dom_events_chunk", id: m.id, index: m.index, total: m.total, data: m.data };
   }
   if (m.type === "host_page" && typeof m.url === "string") {
     return {

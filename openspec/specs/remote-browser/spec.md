@@ -2978,6 +2978,24 @@ other device lays the page out on its own and never resizes the Mac
 - **WHEN** the on-screen keyboard takes height from the pane of the device using the page
 - **THEN** the device does not report the shorter height, and the page is not laid out again
 
+### Requirement: NATIVE-HOST-05 — A page of any size SHALL reach the viewer in pieces, and the socket SHALL stay open
+
+A hosted page's first snapshot often weighs 2 to 5 MB, and the socket that
+carries it also carries the agent's operations: a single frame over the server's
+ceiling closed it with 1006, and the viewer never saw the page. The host SHALL
+drain its queue in pieces of at most 192 KiB of UTF-8 text, the server SHALL put
+them back together and relay the full snapshot to each viewer in frames under
+512 KiB, and every mirror frame over 1 KiB SHALL leave compressed. The ceiling
+on what the server accepts SHALL be explicit, 1 MiB, in one module that the
+server and its tests both import; a socket closed for going past it SHALL leave
+a readable line in the log.
+
+#### Scenario: a 4.8 MB first snapshot
+- **GIVEN** a host whose first drain is 4.8 MB
+- **WHEN** it reaches the server and a viewer is attached
+- **THEN** after 2 seconds both sockets are still open
+- **AND** the viewer rebuilds the same full snapshot, from frames each under 512 KiB and compressed
+
 ### Requirement: BROWSER-DOM-LAYOUT-01 — Each device SHALL lay a page the Mac hosts out at its own size, and the Mac SHALL keep its own
 
 Il 14/10, dopo #313: «l'ultimo browser che attivo fa ridimensionare alla sua

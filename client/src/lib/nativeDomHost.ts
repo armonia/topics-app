@@ -1,3 +1,4 @@
+import { BROWSER_WS_CHUNK_BYTES, BrowserWsChunkAssembler, chunkText } from '../../../shared/browser-ws-chunks';
 /**
  * The native pane as the source of the DOM mirror (client half of
  * server/lib/native-dom-host.ts, NATIVE-HOST-01..03).
@@ -77,8 +78,11 @@ const UNARMED = 'unarmed';
 
 /** Hand the queued events over, or say the document has no recorder yet. */
 export const DRAIN_JS =
-  "(function(){var h=window.__topicsDomHost;if(!h)return 'unarmed';if(!h.q.length)return '[]';" +
-  'var q=h.q;h.q=[];return JSON.stringify(q);})()';
+  "(function(){var h=window.__topicsDomHost;if(!h)return 'unarmed';" +
+  // A big batch leaves the page in pieces of 192 KiB, so no single evaluation result grows with the page.
+  "if(!h.pendingBytes){if(!h.q.length)return '[]';var text=JSON.stringify(h.q.splice(0)),bytes=new TextEncoder().encode(text);if(bytes.length<=196608)return text;h.pendingBytes=bytes;h.pendingIndex=0;h.pendingId=Date.now().toString(36)+'-'+((h.chunkSeq=(h.chunkSeq||0)+1).toString(36));h.pendingTotal=Math.ceil(bytes.length/196608)}" +
+  "var i=h.pendingIndex++,b=h.pendingBytes.subarray(i*196608,(i+1)*196608),s='';for(var j=0;j<b.length;j++)s+=String.fromCharCode(b[j]);" +
+  "var out=JSON.stringify({id:h.pendingId,index:i,total:h.pendingTotal,data:btoa(s)});if(h.pendingIndex>=h.pendingTotal){h.pendingBytes=null;h.pendingIndex=0}return out})()";
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === 'object' && !Array.isArray(value);
@@ -399,6 +403,21 @@ export function createNativeDomHost(opts: NativeDomHostOptions): NativeDomHost {
     await opts.evalInPage(armJs(await recorder));
   };
 
+  const pagePieces = new BrowserWsChunkAssembler();
+  let pieceSeq = 0;
+  /** Validated events to the server, in pieces under the socket's ceiling when they are many. */
+  const sendEvents = (events: Record<string, unknown>[]): void => {
+    const text = JSON.stringify(events);
+    if (new TextEncoder().encode(text).byteLength <= BROWSER_WS_CHUNK_BYTES) {
+      opts.sendText(JSON.stringify({ type: 'host_dom_events', events }));
+      return;
+    }
+    pieceSeq += 1;
+    for (const piece of chunkText(text, `${Date.now().toString(36)}-${pieceSeq}`)) {
+      opts.sendText(JSON.stringify({ type: 'host_dom_events_chunk', id: piece.id, index: piece.index, total: piece.total, data: piece.data }));
+    }
+  };
+
   const plan = (ms: number): void => {
     if (!recording) return;
     if (cancelTick) cancelTick();
@@ -415,10 +434,20 @@ export function createNativeDomHost(opts: NativeDomHostOptions): NativeDomHost {
         if (raw === UNARMED) {
           if (recording) { await arm(); armed = true; }
         } else if (recording && raw && raw !== '[]') {
-          const events = parseHostEvents(raw);
+          let parsed: unknown;
+          try { parsed = JSON.parse(raw); } catch { parsed = null; }
+          // Everything the page hands over is the page's word: a piece is put back together HERE
+          // and its events go through the same reading as a whole batch, so nothing the page
+          // wrote travels to the server but rrweb events this side rebuilt.
+          let text: string | null = null;
+          if (Array.isArray(parsed)) text = raw;
+          else if (isRecord(parsed) && typeof parsed.id === 'string' && typeof parsed.index === 'number' && typeof parsed.total === 'number' && typeof parsed.data === 'string') {
+            text = pagePieces.add({ id: parsed.id, index: parsed.index, total: parsed.total, data: parsed.data });
+          }
+          const events = text === null ? [] : parseHostEvents(text);
           if (events.length) {
             lastBusyAt = now();
-            opts.sendText(JSON.stringify({ type: 'host_dom_events', events }));
+            sendEvents(events);
           }
         }
       } catch {

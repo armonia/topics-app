@@ -142,6 +142,7 @@ import { browserEngineRegistry, chromiumExtensionsCount, chromiumSidecar } from 
 import { nativeDelegateRegistry, handleNativeDelegationFrame, isNativeDelegateFrameAllowed } from "./server/browser-native-delegate";
 import { createDomHostRegistry, parseHostFrame } from "./server/lib/native-dom-host";
 import { createHostMirror } from "./server/browser-host-mirror";
+import { WEBSOCKET_TRANSPORT_OPTIONS } from "./server/lib/websocket-options";
 import { countSharedViewers, createViewerCountPublisher, hasAttachedPane } from "./server/browser-viewer-count";
 import { createViewportWiring } from "./server/browser-viewport-wiring";
 import { seedNativeFromShared } from "./server/browser-session-handoff";
@@ -4065,7 +4066,7 @@ const opzioniServer = {
   },
 
   websocket: {
-    maxPayloadLength: 1024 * 1024,
+    ...WEBSOCKET_TRANSPORT_OPTIONS,
     /**
      * Negotiates permessage-deflate. It does NOT compress anything on its own:
      * measured on Bun 1.3.8 with a byte counting proxy, `ws.send(x)` still went
@@ -4078,7 +4079,6 @@ const opzioniServer = {
      * `ui-state:init` is 86,222 B and gzips to 20,872 (4.13x), `unread:init` is
      * 81,713 and gzips to 24,936 (3.28x), for about 1.5 ms of CPU in total.
      */
-    perMessageDeflate: true,
     open(ws) {
       ws.data.lastPong = Date.now();
       ctx.deviceSockets.add(ws);
@@ -4791,7 +4791,8 @@ const opzioniServer = {
       } catch (err) { console.warn(`[WS] Failed to parse message from ${ws.data.id}:`, err); }
     },
     pong(ws) { ws.data.lastPong = Date.now(); },
-    close(ws) {
+    close(ws, code, reason) {
+      if (code === 1009) console.warn(`[WS] payload socket oltre il limite ${WEBSOCKET_TRANSPORT_OPTIONS.maxPayloadLength} B (${ws.data.id}): ${reason || "Payload Too Large"}`);
       ctx.deviceSockets.delete(ws);
       if (ws.data.deviceId) noteDeviceDisconnected(ws.data.deviceId);
       // Phase 30 BROWSER-CHAT-02 — browser WS branch.

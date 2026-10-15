@@ -261,6 +261,14 @@ const domEventMessageSchema = z.object({
   event: z.unknown(),
 });
 
+const domEventChunkMessageSchema = z.object({
+  type: z.literal('dom_event_chunk'),
+  id: z.string(),
+  index: z.number(),
+  total: z.number(),
+  data: z.string(),
+});
+
 /**
  * Server -> client: che campo ha preso il fuoco nella pagina remota dopo
  * l'ultimo click di QUESTO spettatore.
@@ -341,6 +349,7 @@ export const browserWsMessageSchema = z.discriminatedUnion('type', [
   setRenderMessageSchema,
   renderModeMessageSchema,
   domEventMessageSchema,
+  domEventChunkMessageSchema,
   focusFieldMessageSchema,
   focusQueryMessageSchema,
   webrtcOfferMessageSchema,
