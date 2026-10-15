@@ -81,6 +81,7 @@ interface RemoteBrowserState extends RemoteNavFields {
   /** The mirror is the Mac's own pane (the server said `host: 'native'`): the
    *  page lives there, so this pane never frames the url itself. */
   nativeHost: boolean;
+  hostSharePaused: boolean;
 }
 
 interface InteractionHandlers {
@@ -316,6 +317,7 @@ export function useRemoteBrowser(contextId: string, isVisible = true): RemoteBro
     // THEN does the WebRTC pixel transport negotiate.
     renderMode: 'dom',
     nativeHost: false,
+    hostSharePaused: false,
     consoleEntries: [],
   });
   const consoleIdRef = useRef(0);
@@ -941,6 +943,9 @@ export function useRemoteBrowser(contextId: string, isVisible = true): RemoteBro
             }
             break;
           }
+          case 'host_share_state':
+            setState(s => s.hostSharePaused === !msg.sharing ? s : { ...s, hostSharePaused: !msg.sharing });
+            break;
           case 'dom_event':
           case 'dom_event_chunk': {
             // One rrweb event (Meta/FullSnapshot/Incremental) → the DomCoBrowse

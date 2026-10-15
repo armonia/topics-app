@@ -5,6 +5,31 @@ TBD - created by archiving change complete-spec-coverage. Update Purpose after a
 
 ## Requirements
 
+### Requirement: BROWSER-NATIVE-HOST-STATUS-01 — Native mirror visibility and control
+
+The native browser host SHALL report mirror viewers and relay health only to its own pane, and the host SHALL be able to pause sharing for its context. A paused mirror SHALL show a clear notice to viewers and SHALL reject all viewer input and stop frame delivery until the host resumes sharing and emits a fresh FullSnapshot.
+
+#### Scenario: The host sees current mirror use and relay health
+- **GIVEN** a native pane hosts a browser context with connected mirror viewers
+- **WHEN** viewer membership or relay traffic changes
+- **THEN** the host pane SHALL receive a status update at most once per second
+- **AND** the update SHALL count distinct devices and include KB/s, latest-frame delay, and the latest relay error
+- **AND** viewer sockets SHALL NOT receive the host status update
+
+#### Scenario: The host stops and resumes sharing
+- **GIVEN** a native pane hosts a browser context with a mirror viewer
+- **WHEN** the host stops sharing
+- **THEN** viewers SHALL see a notice instead of the mirror and receive no later frame
+- **AND** all viewer input SHALL be rejected before it reaches the host
+- **AND** a viewer that connects while sharing is paused SHALL receive no snapshot
+- **WHEN** the host shares again
+- **THEN** viewers SHALL receive a new FullSnapshot before mirror updates resume
+
+#### Scenario: The native session label describes its actual location
+- **GIVEN** the browser session runs in the native pane on the Mac
+- **WHEN** the tab identifies the session
+- **THEN** the label SHALL say it is native on the Mac and SHALL NOT describe it as private
+
 ### Requirement: BROWSER-01 — Navigation & Page Control
 
 The system SHALL provide a remote browser panel with URL navigation, back/forward/reload controls, a URL address bar, and visual screenshot-based page rendering within a topic pane.

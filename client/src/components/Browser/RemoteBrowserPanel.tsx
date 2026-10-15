@@ -460,6 +460,7 @@ function TauriBrowserPanelInner({ contextId, initialUrl, navigateUrl, onUrlChang
     setZoom: (d: number | 'reset') => { void browser.setZoom(d); },
     setDevice: (m: DeviceMode, custom?: { width: number; height: number }) => browser.setDevice(m, custom),
     toggleShare: onToggleShare,
+    setHostSharing: browser.setHostSharing,
     forgetSite: canForget ? () => setForgetOpen(true) : undefined,
     // The sheet covers the page: it says so itself instead of waiting for the
     // occlusion watcher to measure it (see `TabSheet`).
@@ -496,6 +497,7 @@ function TauriBrowserPanelInner({ contextId, initialUrl, navigateUrl, onUrlChang
     deviceMode: browser.deviceMode,
     shared: !!shared,
     shareMode,
+    nativeHostStatus: browser.hostStatus,
     // The agent at the wheel is a fact of the TAB now, on this path too: the
     // native webview composites above the DOM, so this branch never had an
     // overlay to remove, and the icon is the only cue it can carry.
@@ -1291,7 +1293,12 @@ function RemoteBrowserPanelStreaming({ contextId, initialUrl, navigateUrl, onUrl
             paused) pixel surface. Real browser, cross-device-sharp, not a video.
             Gated on a real page: a blank pane shows the "enter a URL" prompt below,
             not an opaque white overlay. This is the DEFAULT surface now (Option A). */}
-        {browser.renderMode === 'dom' && !!browser.url && browser.url !== 'about:blank' && (
+        {browser.nativeHost && browser.hostSharePaused && (
+          <div className="absolute inset-0 z-[6] flex items-center justify-center bg-app-bg text-app-text-muted" data-testid="browser-host-share-paused">
+            {tr('browser.tab.hostStopped')}
+          </div>
+        )}
+        {browser.renderMode === 'dom' && !browser.hostSharePaused && !!browser.url && browser.url !== 'about:blank' && (
           <Suspense
             fallback={
               <div className="absolute inset-0 z-[5] flex items-center justify-center bg-app-bg">

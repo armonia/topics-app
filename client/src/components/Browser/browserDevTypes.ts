@@ -133,6 +133,8 @@ export interface NativeBrowserHandle {
    * is the only handle and it must pull something.
    */
   takeControl: () => void;
+  hostStatus?: { sharing: boolean; devices: number; kbps: number; delayMs: number; error?: string };
+  setHostSharing?(active: boolean): void;
   /** Optional - Tauri only. The page keeps burning CPU (`lib/shell/heavyPanes`):
    *  `cpu` is % of one core, `memMb` its footprint; the copy turns both into
    *  shares of the machine. A heavy pane is live only while it has the focus. */

@@ -240,6 +240,8 @@ const NATIVE_DELEGATE_FRAME_TYPES = new Set([
   'host_dom_events_chunk',
   'host_page',
   'host_local_use',
+  // The Mac's own switch: stop sharing its page, or share it again.
+  'set_native_host_sharing',
 ]);
 
 /** Native executor sockets accept only their protocol frames. */

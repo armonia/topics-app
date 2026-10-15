@@ -170,7 +170,7 @@ describe('WS-04 contract: browserWsMessageSchema (Phase 30)', () => {
     const types = variantsOf(browserWsMessageSchema).map((opt) =>
       objectSignature(opt).literalKeys.type,
     );
-    // Twelve variants joined the browser WS protocol since the 6-variant
+    // Twenty variants joined the browser WS protocol since the 6-variant
     // freeze, all additive (server↔pane co-browse control channel):
     //   resize                              — pane viewport resize
     //   download                            — a file download the pane offers
@@ -201,6 +201,12 @@ describe('WS-04 contract: browserWsMessageSchema (Phase 30)', () => {
     //                                         for one frame (a full snapshot of a
     //                                         heavy page); the viewer puts the
     //                                         pieces back together (D4a)
+    //   set_native_host_sharing             — the Mac host pauses or resumes
+    //                                         its shared page (D4c)
+    //   native_host_status                  — server to that host: sharing,
+    //                                         devices watching, rate, delay
+    //   host_share_state                    — server to viewers: the host
+    //                                         paused or resumed the mirror
     expect([...types].sort()).toEqual([
       'agent_active',
       'console',
@@ -211,11 +217,14 @@ describe('WS-04 contract: browserWsMessageSchema (Phase 30)', () => {
       'focus_field',
       'focus_query',
       'frame',
+      'host_share_state',
       'input',
+      'native_host_status',
       'nav',
       'render_mode',
       'resize',
       'set_engine',
+      'set_native_host_sharing',
       'set_render',
       'set_stream',
       'set_watching',

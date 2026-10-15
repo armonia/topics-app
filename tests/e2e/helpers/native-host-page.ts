@@ -18,6 +18,8 @@ export interface NativeHostPage {
   views: ({ width: number; height: number } | null)[];
   /** Scroll inputs the server relayed, the calls that ran them, and the wheel events the page got. */
   scrolls: () => Promise<{ relayed: number; calls: number; wheels: number }>;
+  status: () => { sharing: boolean; devices: number; kbps: number; delayMs: number; error?: string } | null;
+  setSharing: (active: boolean) => void;
   close: () => void;
 }
 
@@ -32,6 +34,7 @@ export async function hostNativePage(
   await page.setContent(html);
   const ws = new WebSocket(`${E2E_BASE.replace(/^http/, "ws")}/ws/browser/${encodeURIComponent(ctx)}?executor=1`);
   const count = { relayed: 0, calls: 0 };
+  let status: { sharing: boolean; devices: number; kbps: number; delayMs: number; error?: string } | null = null;
   const views: NativeHostPage["views"] = [];
   await new Promise<void>((resolve, reject) => { ws.once("open", () => resolve()); ws.once("error", reject); });
   const host = createNativeDomHost({
@@ -47,9 +50,11 @@ export async function hostNativePage(
       views.push(size);
       void page.setViewportSize(size ?? opts.size);
     },
+    onStatus: (next) => { status = next; },
   });
   ws.on("message", (data) => {
     const frame = JSON.parse(String(data)) as { type?: string; action?: string };
+    if (frame.type === "native_host_status") status = frame as typeof status;
     if (frame.type === "host_input" && frame.action === "scroll") count.relayed++;
     host.handle(frame);
   });
@@ -62,6 +67,8 @@ export async function hostNativePage(
     scrollOf: (sel) => page.evaluate((s) => (s ? document.querySelector(s)!.scrollTop : scrollY), sel),
     width: () => page.viewportSize()?.width ?? 0,
     views,
+    status: () => status,
+    setSharing: (active) => ws.send(JSON.stringify({ type: "set_native_host_sharing", active })),
     scrolls: async () => ({ ...count, wheels: await page.evaluate(() => (window as unknown as { __wheels?: number }).__wheels ?? 0) }),
     close: () => { host.reset(); ws.close(); },
   };

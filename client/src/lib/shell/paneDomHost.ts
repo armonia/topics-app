@@ -18,7 +18,7 @@ const canHostDomMirror =
 
 export function createPaneDomHost(
   id: string,
-  wiring: Pick<NativeDomHostOptions, 'sendText' | 'navigate' | 'onRecordingChange' | 'setViewport'>,
+  wiring: Pick<NativeDomHostOptions, 'sendText' | 'navigate' | 'onRecordingChange' | 'setViewport' | 'onStatus'>,
 ): NativeDomHost | null {
   if (!canHostDomMirror) return null;
   return createNativeDomHost({

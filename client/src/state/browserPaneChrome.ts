@@ -69,6 +69,7 @@ export interface BrowserPaneCommands {
   /** DOM reconstruction (rrweb, this device's own engine) ↔ the pixel stream.
    *  Streaming pane only: the native and iframe panes ARE the page. */
   setRenderMode?: (mode: 'dom' | 'video') => void;
+  setHostSharing?: (active: boolean) => void;
   /** This device lays a page the Mac hosts out at its own size, or uses the
    *  Mac's page at this device's size. DOM mirror of a native host only. */
   setLayout?: (layout: BrowserLayout) => void;
@@ -130,6 +131,7 @@ export interface BrowserPaneChrome {
   engine?: 'native' | 'chromium';
   engineExtensions?: number;
   renderMode?: 'dom' | 'video';
+  nativeHostStatus?: { sharing: boolean; devices: number; kbps: number; delayMs: number; error?: string };
   /** Absent wherever there is nothing to switch, like `renderMode`. */
   layout?: BrowserLayout;
   /**

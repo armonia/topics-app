@@ -58,6 +58,7 @@ export interface HostMirrorDeps {
    * size it has sent.
    */
   askViewport?: (contextId: string) => void;
+  now?: () => number;
 }
 
 const OPEN = 1;
@@ -68,15 +69,43 @@ export function createHostMirror(deps: HostMirrorDeps) {
   const schedule = deps.schedule ?? ((fn, ms) => { const t = setTimeout(fn, ms); return () => clearTimeout(t); });
   const fallbacks = new Map<string, () => void>();
   const hostChunks = new Map<string, BrowserWsChunkAssembler>();
+  const now = deps.now ?? Date.now;
+  const statusTimers = new Map<string, () => void>();
+  const statusSamples = new Map<string, { at: number; bytes: number; lastFrameAt: number; error?: string }>();
   const viewport = deps.viewport ?? createHostViewport({ send: (contextId, cmd) => { hosts.command(contextId, cmd); } });
   const deviceOf = (ws: MirrorSocket): string =>
     viewportClaimantOf({ id: ws.data.id ?? "", deviceId: ws.data.deviceId, clientId: ws.data.clientId, remote: ws.data.remote }).device;
 
-  const sendText = (ws: MirrorSocket, text: string, type: string): boolean => {
+  const sendText = (ws: MirrorSocket, text: string, type: string, contextId?: string): boolean => {
     try {
       ws.send(text, shouldCompressFrame({ type, bytes: Buffer.byteLength(text), remote: ws.data.remote === true }));
       return true;
-    } catch { return false; }
+    } catch (err) {
+      if (contextId) noteError(contextId, err);
+      return false;
+    }
+  };
+  const noteError = (contextId: string, err: unknown): void => {
+    const sample = statusSamples.get(contextId);
+    if (sample) sample.error = err instanceof Error ? err.message : String(err);
+    queueStatus(contextId);
+  };
+  const queueStatus = (contextId: string): void => {
+    if (statusTimers.has(contextId)) return;
+    statusTimers.set(contextId, schedule(() => {
+      statusTimers.delete(contextId);
+      // The registered host, not any native pane: a second window on the same context is not it.
+      const host = [...deps.sockets(contextId)].find((w) => w.readyState === OPEN && hosts.isHost(contextId, w));
+      if (!host) return;
+      const at = now();
+      const sample = statusSamples.get(contextId) ?? { at, bytes: 0, lastFrameAt: at };
+      const elapsed = Math.max(1, at - sample.at);
+      const devices = new Set(mirrorsOf(contextId).filter((w) => w.data._watching !== false).map(deviceOf)).size;
+      const rate = sample.bytes * 1000 / elapsed / 1024;
+      send(host, { type: "native_host_status", sharing: hosts.isSharing(contextId), devices,
+        kbps: Math.round(rate * 10) / 10, delayMs: Math.max(0, at - sample.lastFrameAt), ...(sample.error ? { error: sample.error } : {}) });
+      statusSamples.set(contextId, { at, bytes: 0, lastFrameAt: sample.lastFrameAt, ...(sample.error ? { error: sample.error } : {}) });
+    }, 1000));
   };
   /** A mirror event as it goes on the wire: one frame, or pieces under the socket's ceiling (NATIVE-HOST-05). */
   const domEventFrames = (text: string): string[] => {
@@ -84,11 +113,11 @@ export function createHostMirror(deps: HostMirrorDeps) {
     const id = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
     return chunkText(text, id).map((chunk) => JSON.stringify({ type: "dom_event_chunk", ...chunk }));
   };
-  const sendFrames = (ws: MirrorSocket, frames: string[]): boolean =>
-    frames.every((frame) => sendText(ws, frame, frames.length > 1 ? "dom_event_chunk" : "dom_event"));
-  const send = (ws: MirrorSocket, msg: BrowserWsMessage): boolean => {
+  const sendFrames = (ws: MirrorSocket, frames: string[], contextId?: string): boolean =>
+    frames.every((frame) => sendText(ws, frame, frames.length > 1 ? "dom_event_chunk" : "dom_event", contextId));
+  const send = (ws: MirrorSocket, msg: BrowserWsMessage, contextId?: string): boolean => {
     const text = JSON.stringify(msg);
-    return msg.type === "dom_event" ? sendFrames(ws, domEventFrames(text)) : sendText(ws, text, msg.type);
+    return msg.type === "dom_event" ? sendFrames(ws, domEventFrames(text), contextId) : sendText(ws, text, msg.type, contextId);
   };
   const viewersOf = (contextId: string): MirrorSocket[] =>
     [...deps.sockets(contextId)].filter((w) => w.readyState === OPEN && !w.data._nativeDelegate);
@@ -108,7 +137,8 @@ export function createHostMirror(deps: HostMirrorDeps) {
   /** The recorder runs on the host while a mirror is on screen somewhere, and only then. */
   const sync = (contextId: string): void => {
     if (!hosts.isHosting(contextId)) return;
-    hosts.setWanted(contextId, mirrorsOf(contextId).some((w) => w.data._watching !== false));
+    hosts.setWanted(contextId, hosts.isSharing(contextId) && mirrorsOf(contextId).some((w) => w.data._watching !== false));
+    queueStatus(contextId);
   };
 
   /**
@@ -122,9 +152,13 @@ export function createHostMirror(deps: HostMirrorDeps) {
     ws.data._browserSetStream?.(false);
     if (!send(ws, { type: "render_mode", mode: "dom", host: "native" })) return;
     sendPage(ws, contextId);
+    if (!hosts.isSharing(contextId)) {
+      send(ws, { type: "host_share_state", sharing: false });
+      return;
+    }
     sync(contextId);
     for (const event of hosts.bootstrap(contextId)) {
-      if (!send(ws, { type: "dom_event", event })) return;
+      if (!send(ws, { type: "dom_event", event }, contextId)) return;
     }
   };
 
@@ -167,7 +201,7 @@ export function createHostMirror(deps: HostMirrorDeps) {
     cancelFallback(contextId);
     fallbacks.set(contextId, schedule(() => {
       fallbacks.delete(contextId);
-      if (hosts.isHosting(contextId) || mirrorsOf(contextId).length === 0) return;
+      if (hosts.isHosting(contextId) || !hosts.isSharing(contextId) || mirrorsOf(contextId).length === 0) return;
       const url = hosts.page(contextId)?.url;
       const opened = url && /^https?:/i.test(url)
         ? browser.navigate(contextId, url).catch(() => null)
@@ -184,6 +218,14 @@ export function createHostMirror(deps: HostMirrorDeps) {
     isHosting: (contextId: string): boolean => hosts.isHosting(contextId),
     sync,
     enableChromiumDom,
+    setSharing(contextId: string, owner: MirrorSocket, active: boolean): boolean {
+      if (!hosts.isHost(contextId, owner)) return false;
+      hosts.setSharing(contextId, active);
+      for (const viewer of viewersOf(contextId)) send(viewer, { type: "host_share_state", sharing: active }, contextId);
+      sync(contextId);
+      queueStatus(contextId);
+      return true;
+    },
 
     /** A viewer that opened on a hosted context and did not ask for the mirror
      *  by now (video mode, a page it would frame itself, an older client). */
@@ -215,6 +257,7 @@ export function createHostMirror(deps: HostMirrorDeps) {
         if (!ws.data._nativeDelegate) return;
         hostChunks.delete(contextId);
         hosts.declare(contextId, ws, (cmd) => { ws.send(JSON.stringify(cmd)); });
+        if (!hosts.isSharing(contextId)) ws.send(JSON.stringify({ type: "host_dom_stop" }));
         try { ws.send(JSON.stringify({ type: "native_dom_host_ack" })); } catch { /* socket gone */ }
         // Every viewer moves onto the host's mirror, and the Chromium context
         // that was serving them goes. It serves nobody now: an agent's ops on a
@@ -222,6 +265,7 @@ export function createHostMirror(deps: HostMirrorDeps) {
         cancelFallback(contextId);
         viewport.noteHostReady(contextId, frame.used === true);
         for (const w of viewersOf(contextId)) attach(w, contextId);
+        queueStatus(contextId);
         void browser.destroyContext(contextId).catch((err: unknown) =>
           console.warn(`[WS][browser] destroyContext(${contextId}) after host handover failed:`, (err as Error)?.message));
         console.log(`[WS][browser] native pane hosts the DOM mirror of ctx ${contextId}`);
@@ -239,8 +283,16 @@ export function createHostMirror(deps: HostMirrorDeps) {
         // Serialized and cut once for every viewer: a FullSnapshot of a real page is hundreds of KB.
         const payloads = events.map((event) => domEventFrames(JSON.stringify({ type: "dom_event", event } satisfies BrowserWsMessage)));
         for (const w of mirrors) {
-          for (const frames of payloads) sendFrames(w, frames);
+          for (const frames of payloads) {
+            const bytes = frames.reduce((n, value) => n + Buffer.byteLength(value), 0);
+            const sample = statusSamples.get(contextId) ?? { at: now(), bytes: 0, lastFrameAt: now() };
+            sample.bytes += bytes;
+            sample.lastFrameAt = now();
+            statusSamples.set(contextId, sample);
+            sendFrames(w, frames, contextId);
+          }
         }
+        queueStatus(contextId);
         return;
       }
       const { url, title, canGoBack, canGoForward } = frame;
@@ -257,6 +309,7 @@ export function createHostMirror(deps: HostMirrorDeps) {
      */
     routeViewer(ws: MirrorSocket, contextId: string, parsed: BrowserWsMessage): boolean {
       if (ws.data._nativeDelegate) return false;
+      if (!hosts.isSharing(contextId)) return true;
       // Kept whoever serves the page: a pane does not repeat a size it has sent
       // (useRemoteBrowser), so one sent while the server's Chromium served it,
       // or while the host was away, is the one the host needs when it is used.
@@ -318,9 +371,11 @@ export function createHostMirror(deps: HostMirrorDeps) {
       // mirror leaving may have been the last one on screen.
       if (hosts.withdraw(contextId, ws)) {
         hostChunks.delete(contextId);
+        statusTimers.get(contextId)?.(); statusTimers.delete(contextId);
         scheduleFallback(contextId);
         return;
       }
+      queueStatus(contextId);
       if (ws.data._domRender) sync(contextId);
       // The device's last socket: the page it was using goes back to the Mac.
       const device = deviceOf(ws);
