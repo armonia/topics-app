@@ -67,6 +67,7 @@ import type { Task, CreateTaskInput, UpdateTaskPatch, ListTasksInput } from "./t
 
 import { markTargetNotificationsSeen } from "../db/notification-log";
 import { withCardAttention } from "../attention/card-sync";
+import { PARKED_IN_SERIES_SQL, QUEUED_ROOT_BOARDS_SQL } from "../lib/task-timer-reads";
 
 export type Actor = "human" | "agent";
 
@@ -5576,16 +5577,7 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       const cutoff = new Date(Date.parse(ts) - WAIT_SERIES_MAX_MS).toISOString();
       let candidati: Array<{ id: string; project_id: string }> = [];
       try {
-        candidati = db.prepare(
-          `SELECT id, project_id FROM tasks
-            WHERE archived = 0
-              AND status IN ('todo', 'in_progress')
-              AND wait_since IS NOT NULL
-              AND wait_since <= ?
-              AND dispatch_deferred_until IS NOT NULL
-              AND dispatch_deferred_until <= ?
-            ORDER BY wait_since`,
-        ).all(cutoff, ts) as Array<{ id: string; project_id: string }>;
+        candidati = db.prepare(PARKED_IN_SERIES_SQL).all(cutoff, ts) as Array<{ id: string; project_id: string }>;
       } catch { return []; }
       const parkedCards: Task[] = [];
       const ammessa = new Map<string, boolean>();
@@ -6364,10 +6356,7 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       // Una `SELECT DISTINCT` sul taglio del tick — vive, in coda, radici — e
       // nient'altro. `rootsOnly` letterale come nel dispatcher: lì è una regola
       // di sicurezza (uno step non si dispaccia mai da solo), non di lettura.
-      return (db.query(
-        `SELECT DISTINCT project_id FROM tasks
-          WHERE archived = 0 AND status = 'todo' AND parent_task_id IS NULL`,
-      ).all() as Array<{ project_id: string }>).map((r) => r.project_id);
+      return (db.query(QUEUED_ROOT_BOARDS_SQL).all() as Array<{ project_id: string }>).map((r) => r.project_id);
     },
 
     taskIdOfTopic(topicId: string): string | null {

@@ -52,6 +52,7 @@ import type { Database } from "bun:sqlite";
 // re-exported, so every historical import of this module stays valid.
 import type { ProfileStats } from "../../shared/types";
 import { projectIdForPath } from "../../shared/board";
+import { OLDEST_WORKING_BOARD_SQL, WORKING_TASKS_COUNT_SQL } from "../lib/task-timer-reads";
 export type { ProfileStats };
 
 const EMPTY: ProfileStats = {
@@ -277,7 +278,7 @@ export function computePresenceCounts(
   externalWorking: number;
 } {
   const openSessions = scalar(db, "SELECT COUNT(*) AS v FROM topics WHERE archived = 0");
-  const activeTasks = scalar(db, "SELECT COUNT(*) AS v FROM tasks WHERE dispatch_state = 'working'");
+  const activeTasks = scalar(db, WORKING_TASKS_COUNT_SQL);
 
   // The project in the foreground: the one of the task the board has been
   // running for the longest. If the board is idle, the one of the most recently
@@ -294,12 +295,7 @@ export function computePresenceCounts(
   // project rows rather than in SQL.
   let focusProject: string | null = null;
   try {
-    const r = db.query(
-      `SELECT t.project_id AS v
-         FROM tasks t
-        WHERE t.dispatch_state = 'working' AND t.project_id IS NOT NULL
-        ORDER BY t.in_progress_at ASC LIMIT 1`,
-    ).get() as { v?: string } | null;
+    const r = db.query(OLDEST_WORKING_BOARD_SQL).get() as { v?: string } | null;
     const boardId = r?.v ?? null;
     if (boardId) {
       const projects = db.query(
