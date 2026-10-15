@@ -2,6 +2,12 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.2.517 — 2026-10-16
+
+### Sotto il cofano
+- le descrizioni dei cinque problemi del browser, ora che sono chiusi (#380)
+- Il mirror maschera i campi carta anche quando autocomplete ha un prefisso (#381)
+
 ## 2.2.516 — 2026-10-15
 
 ### Sotto il cofano

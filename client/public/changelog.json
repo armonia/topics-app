@@ -1,5 +1,27 @@
 [
   {
+    "version": "2.2.517",
+    "date": "2026-10-16",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "le descrizioni dei cinque problemi del browser, ora che sono chiusi (#380)",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "Il mirror maschera i campi carta anche quando autocomplete ha un prefisso (#381)",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
     "version": "2.2.516",
     "date": "2026-10-15",
     "sections": {
