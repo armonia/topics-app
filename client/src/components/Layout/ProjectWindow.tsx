@@ -4,11 +4,10 @@ import type { TerminalAgentType } from '../../../../shared/terminal-session-type
 import type { Topic, ChatMessage, WSMessage, UpdateTopicRequest, Pane, PaneType, CompactionMarker } from '../../types';
 import { LazyPane } from './LazyPane';
 import { lazyWarm } from '../../lib/lazyWarm';
-import { loadBoard, loadBrowser, loadDashboard, loadFileExplorer, loadFilePane, loadGitChanges, loadProcessLog, loadProjectSidebar, loadTerminal } from '../../state/pane/panePreload';
+import { loadBoard, loadBrowser, loadChatPane, loadDashboard, loadFileExplorer, loadFilePane, loadGitChanges, loadProcessLog, loadProjectSidebar, loadTerminal } from '../../state/pane/panePreload';
 import { useTopics, useTopicsPending } from '../../contexts/TopicsContext';
 import { readProjectSidebarWidth } from '../Project/projectSidebarHeights';
 import { GroupLayout } from './GroupLayout';
-import { ChatPane } from '../Chat/ChatPane';
 import {
   createPaneId,
   getTerminalSessionFromPaneId,
@@ -51,6 +50,7 @@ const ProcessLogPane = lazyWarm(loadProcessLog, (m) => m.ProcessLogPane);
 // its chunk is warmed with the rest of the window (`panePreload`, type
 // `project`), so the column appears in the same pass as the content.
 const ProjectSidebar = lazyWarm(loadProjectSidebar, (m) => m.ProjectSidebar);
+const ChatPane = lazyWarm(loadChatPane, (m) => m.ChatPane);
 
 
 // --- ProjectWindowPane: self-contained project content (no header/chrome) ---
@@ -457,31 +457,33 @@ export function ProjectWindowPane({
             }
           : sendMessage;
         return (
-          <ChatPane
-            topic={topic}
-            // No `ChatPanel` above this one: the topic's browser window is
-            // mounted by the pane itself, or a topic inside a project would
-            // be the only chat without one.
-            ownsBrowserWindow
-            isFocused={isFocused && focusedPanelId === wrapperPaneId}
-            getSessionMessages={getSessionMessages}
-            getCompactionMarkers={getCompactionMarkers}
-            isSessionLoading={isSessionLoading}
-            isSessionStreaming={isSessionStreaming}
-            wasSessionStopped={wasSessionStopped}
-            stopSession={stopSession}
-            sendMessage={wrappedSendMessage}
-            editMessage={editMessage}
-            regenerateMessage={regenerateMessage}
-            deleteMessage={deleteMessage}
-            switchBranch={switchBranch}
-            loadHistory={loadHistory}
-            chatError={chatError}
-            sendWS={sendWS}
-            onWSMessage={onWSMessage}
-            onUpdateTopic={onUpdateTopic}
-            onOpenFile={handleOpenFile}
-          />
+          <Suspense fallback={<div className="flex-1 min-h-0" aria-busy="true" />}>
+            <ChatPane
+              topic={topic}
+              // No `ChatPanel` above this one: the topic's browser window is
+              // mounted by the pane itself, or a topic inside a project would
+              // be the only chat without one.
+              ownsBrowserWindow
+              isFocused={isFocused && focusedPanelId === wrapperPaneId}
+              getSessionMessages={getSessionMessages}
+              getCompactionMarkers={getCompactionMarkers}
+              isSessionLoading={isSessionLoading}
+              isSessionStreaming={isSessionStreaming}
+              wasSessionStopped={wasSessionStopped}
+              stopSession={stopSession}
+              sendMessage={wrappedSendMessage}
+              editMessage={editMessage}
+              regenerateMessage={regenerateMessage}
+              deleteMessage={deleteMessage}
+              switchBranch={switchBranch}
+              loadHistory={loadHistory}
+              chatError={chatError}
+              sendWS={sendWS}
+              onWSMessage={onWSMessage}
+              onUpdateTopic={onUpdateTopic}
+              onOpenFile={handleOpenFile}
+            />
+          </Suspense>
         );
       }
       case 'browser':

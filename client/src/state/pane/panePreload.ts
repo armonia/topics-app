@@ -96,6 +96,30 @@ export const loadProfile = retryingChunk('ProfilePane', async () => {
   const { ProfilePane } = await import('../../components/Profile/ProfilePane');
   return { ProfilePane };
 });
+export const loadTopicTree = retryingChunk('TopicTree', async () => {
+  const { TopicTree } = await import('../../components/Sidebar/TopicTree');
+  return { TopicTree };
+});
+export const loadPanelGrid = retryingChunk('PanelGrid', async () => {
+  const { PanelGrid } = await import('../../components/Layout/PanelGrid');
+  return { PanelGrid };
+});
+export const loadChatPane = retryingChunk('ChatPane', async () => {
+  const { ChatPane } = await import('../../components/Chat/ChatPane');
+  return { ChatPane };
+});
+
+/** The app chrome is always visible; chat code is needed only for a visible chat pane. */
+export function firstFrameLoaders(panes: Iterable<Pick<Pane, 'type'>>): Loader[] {
+  const loaders: Loader[] = [loadTopicTree, loadPanelGrid];
+  if ([...panes].some((pane) => pane.type === 'chat')) loaders.push(loadChatPane);
+  return loaders;
+}
+
+/** Warm app chrome and visible chat code through the same retryable loaders as their wrappers. */
+export function preloadFirstFrameChunks(panes: Iterable<Pick<Pane, 'type'>>): Promise<void> {
+  return Promise.all(firstFrameLoaders(panes).map((loader) => warm(loader).catch(() => {}))).then(() => {});
+}
 
 /**
  * The chunks each pane type lives in. Only the types with a heavy lazy body:

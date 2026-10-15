@@ -809,13 +809,15 @@
     "leaving the Claude Code pane blank until a manual refresh (lib/chunkReloadGuard",
     "retryingChunk, the 13 pane loaders in state/pane/panePreload.ts, which are eager",
     "because they warm the open panes at boot). No import went from lazy to static.",
-    "All three are set to the CI's measured values."
+    "All three are set to the CI's measured values.",
+    "2026-10-15 D2d: ChatPane, TopicTree, PanelGrid and event-only overlays moved behind dynamic imports.",
+    "Measured entry_eager 872,422 raw / 281,160 gz; gz ratchet value 392,156 with the existing 2% tolerance caps the emitted chunk at 399,999 bytes."
   ],
   "updated": "2026-10-13",
   "tolerance_pct": 2,
   "entry_eager": {
-    "raw": 1705250,
-    "gz": 545144
+    "raw": 872422,
+    "gz": 392156
   },
   "critical_path": {
     "raw": 2337222,
