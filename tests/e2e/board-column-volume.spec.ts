@@ -17,10 +17,9 @@
  *  2. **The tail comes up.** The show-more row is there, says how many are
  *     left, and reaching it by scrolling adds ONE page by itself (LIST-PAGE-01):
  *     nothing is hidden for good, and nothing arrives in bulk.
- *  3. **Le colonne di LAVORO non si toccano.** Backlog, Todo e In Progress si
- *     disegnano intere anche a trenta card, perché lì si trascina: una card non
- *     disegnata è un bersaglio di drop che non esiste, e un gesto che muore in
- *     silenzio è il difetto peggiore di tutti.
+ *  3. **Le colonne di LAVORO si virtualizzano senza perdere bersagli.** Le
+ *     card fuori finestra conservano un nodo sortable leggero, e la card
+ *     trascinata resta montata anche quando esce dalla viewport.
  *
  * La regola pura (quale colonna, quante card) è in `client/src/lib/boardOrder.ts`
  * e provata in `boardOrder.test.ts`; questa spec prova che la board la applichi

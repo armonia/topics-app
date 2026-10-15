@@ -77,6 +77,12 @@ The system SHALL render a kanban board with five status columns, support creatin
 - **WHEN** the user drags a task above another task in the same column
 - **THEN** the task order within the column changes to reflect the new position
 
+#### Scenario: Reorder tasks beyond the drawn window
+- **GIVEN** a hand-ordered column has more tasks than fit in its visible window
+- **WHEN** the user drags a task to a later position with mouse auto-scroll, or moves it there with the keyboard
+- **THEN** the task order SHALL change on the server
+- **AND** the active task SHALL remain registered during the drag
+
 #### Scenario: Loading state while board fetches data
 - **GIVEN** the user navigates to a project board
 - **WHEN** the board data is being fetched

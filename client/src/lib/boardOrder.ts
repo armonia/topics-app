@@ -91,29 +91,20 @@ const compareDone = (a: OrderableTask, b: OrderableTask): number => {
 };
 
 /**
- * Quante card di una colonna si DISEGNANO, e quante restano dietro un «mostra
- * altri».
+ * The page size for Review and Done, where cards are browsed by date.
  *
- * Misurato sulla macchina viva il 15/08/2026: 449 dei 467 task radice sono
- * `done`. Ogni card è un sottoalbero React vivo — memo, chip, anteprima, il
- * nodo sortable che dnd-kit registra — quindi la colonna che nessuno guarda
- * costava quanto tutte le altre messe insieme, a ogni render della board.
- *
- * Il tetto vale SOLO su Review e Done, e la ragione è la stessa che le fa
- * ordinare per data (`compareReview` / `compareDone`): lì non si riordina a
- * mano, si entra e basta. Nelle tre colonne di lavoro il tetto toglierebbe una
- * card dal registro di dnd-kit — cioè un bersaglio di drop — e quello è un
- * gesto che si rompe in silenzio: backlog, todo e in_progress si disegnano
- * INTERE, sempre.
+ * Working columns use a virtual window (`Card.tsx`): nearby cards render their
+ * full content, while offscreen ids keep a lightweight sortable target so
+ * mouse and keyboard drops can still reach every position.
  */
 export const COLUMN_PAGE = 25;
 
-/** Le colonne a data, che si sfogliano. Le altre si disegnano intere (vedi `COLUMN_PAGE`). */
+/** Review and Done use date paging; working columns use the virtual window. */
 export function isPagedColumn(status: TaskStatus): boolean {
   return status === 'review' || status === 'done';
 }
 
-/** La fetta disegnata di una colonna e quante card restano fuori (0 = tutte dentro). */
+/** The date-paged rows and how many remain behind the show-more control. */
 export function columnSlice<T>(
   status: TaskStatus,
   tasks: readonly T[],
