@@ -113,4 +113,44 @@ test.describe("Board: drag across the virtual window", () => {
       return rows.findIndex((row) => row.id === keyboardSource.id) > rows.findIndex((row) => row.id === keyboardTarget.id);
     }, { timeout: 15_000 }).toBe(true);
   });
+
+  test("scrolling up after a jump leaves the cards on screen where the scroll puts them", async ({ page }) => {
+    test.info().annotations.push({ type: "spec", description: "KANBAN-01" });
+    await openProjectBoard(page);
+    const backlog = page.getByTestId("kanban-column-body-backlog");
+    await expect(backlog.locator("[data-task-card]").first()).toBeVisible({ timeout: 30_000 });
+
+    // Distance of a card from the column's top edge; the first card on screen when no id is given.
+    const offsetOf = (id?: string) => backlog.evaluate((body, cardId) => {
+      const edge = body.getBoundingClientRect().top + body.clientTop;
+      for (const card of body.querySelectorAll<HTMLElement>(":scope [data-task-card]")) {
+        const top = card.getBoundingClientRect().top;
+        if (cardId ? card.dataset.taskCard === cardId : top >= edge) {
+          return { id: card.dataset.taskCard ?? "", offset: Math.round(top - edge), height: Math.round(card.getBoundingClientRect().height) };
+        }
+      }
+      return null;
+    }, id);
+    // Measuring, re-rendering and compensating take a few frames: the same answer twice in a row is rest.
+    const atRest = async (id?: string) => {
+      let previous = "";
+      await expect.poll(async () => {
+        const now = JSON.stringify(await offsetOf(id));
+        const same = now === previous && now !== "null";
+        previous = now;
+        return same;
+      }, { timeout: 15_000, intervals: [250] }).toBe(true);
+      return (await offsetOf(id))!;
+    };
+
+    // A jump with the scrollbar lands among cards never measured, laid out at the estimate.
+    await backlog.evaluate((body) => { body.scrollTop = Math.round(body.scrollHeight / 2); });
+    const anchor = await atRest();
+    test.info().annotations.push({ type: "card height", description: `${anchor.height} px, estimate 184` });
+    // Going back up draws and measures the cards above: they must not push the anchor.
+    await backlog.evaluate((body) => { body.scrollTop -= 400; });
+    const after = await atRest(anchor.id);
+    // Within 2 px: measured heights are fractional, scroll offsets are not.
+    expect(Math.abs(after.offset - (anchor.offset + 400)), "the card on screen moves by the scroll, and by nothing else").toBeLessThanOrEqual(2);
+  });
 });

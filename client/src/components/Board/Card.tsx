@@ -61,7 +61,7 @@ import { POPOVER_DIVIDER, POPOVER_ITEM, POPOVER_ITEM_DANGER } from '@/lib/popove
 import { BoardCommandHint } from './BoardCommandHint';
 import { getProvidersSnapshotState, subscribeProvidersSnapshot } from '../../lib/providersSnapshotStore';
 import { cardRunsThroughTopics } from '../../lib/topicsRoutingGate';
-import { readVirtualViewport } from '../../lib/boardVirtualViewport';
+import { readVirtualViewport, scrollParentOf } from '../../lib/boardVirtualViewport';
 import { VirtualizedCards } from './VirtualizedCards';
 
 // ── Column ────────────────────────────────────────────────────────────────
@@ -156,13 +156,7 @@ const ColumnBody = memo(function ColumnBody({ status, tasks, onOpen, onCreate, c
   useEffect(() => {
     const body = virtualBodyRef.current;
     if (!virtualized || !body) return;
-    let scroller: HTMLElement = body;
-    if (getComputedStyle(body).overflowY !== 'auto' && getComputedStyle(body).overflowY !== 'scroll') {
-      for (let ancestor = body.parentElement; ancestor; ancestor = ancestor.parentElement) {
-        const overflow = getComputedStyle(ancestor).overflowY;
-        if (overflow === 'auto' || overflow === 'scroll') { scroller = ancestor; break; }
-      }
-    }
+    const scroller = scrollParentOf(body) ?? body;
     const update = () => setVirtualViewport(readVirtualViewport(body));
     update();
     const resizeObserver = new ResizeObserver(update);

@@ -1,7 +1,8 @@
-import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import { useSortable } from '@dnd-kit/sortable';
 import type { BoardTask } from '../../lib/board';
 import { layoutVirtualRows, visibleVirtualIds, type VirtualRow } from '../../lib/boardVirtualWindow';
+import { scrollParentOf } from '../../lib/boardVirtualViewport';
 
 const VIRTUAL_ROW_ESTIMATE = 184;
 const VIRTUAL_ROW_GAP = 8;
@@ -17,14 +18,31 @@ export function VirtualizedCards({ tasks, activeId, viewport, renderCard }: {
   renderCard: (task: BoardTask) => ReactNode;
 }) {
   const [heights, setHeights] = useState<Map<string, number>>(() => new Map());
-  const measure = useCallback((id: string, height: number) => {
-    setHeights((current) => {
-      if (Math.abs((current.get(id) ?? VIRTUAL_ROW_ESTIMATE) - height) < 1) return current;
-      const next = new Map(current);
-      next.set(id, height);
-      return next;
-    });
+  const list = useRef<HTMLDivElement>(null);
+  // Every measurement, ahead of the committed `heights`: a card measured twice
+  // before React renders is counted once.
+  const measured = useRef(new Map<string, number>());
+  const pendingShift = useRef(0);
+  const measure = useCallback((id: string, height: number, top: number) => {
+    const known = measured.current.get(id) ?? VIRTUAL_ROW_ESTIMATE;
+    if (Math.abs(known - height) < 1) return;
+    measured.current.set(id, height);
+    // A card wholly above the screen that changes height moves every card on
+    // the screen by as much, so the scroll moves with it and what is being read
+    // stays put. WebKit has no `overflow-anchor` to do it for us.
+    const scroller = list.current && scrollParentOf(list.current);
+    if (scroller && top + known <= scroller.getBoundingClientRect().top + scroller.clientTop) {
+      pendingShift.current += height - known;
+    }
+    setHeights((current) => new Map(current).set(id, height));
   }, []);
+  useLayoutEffect(() => {
+    const shift = pendingShift.current;
+    const scroller = list.current && scrollParentOf(list.current);
+    if (!shift || !scroller) return;
+    pendingShift.current = 0;
+    scroller.scrollBy({ top: shift, behavior: 'instant' });
+  }, [heights]);
 
   const { rows, totalHeight } = layoutVirtualRows(tasks, heights, VIRTUAL_ROW_ESTIMATE, VIRTUAL_ROW_GAP);
   const visibleIds = tasks.length <= VIRTUAL_FULL_RENDER_LIMIT
@@ -32,7 +50,7 @@ export function VirtualizedCards({ tasks, activeId, viewport, renderCard }: {
     : visibleVirtualIds(rows, viewport.top, Math.max(viewport.height, VIRTUAL_ROW_ESTIMATE), VIRTUAL_BUFFER, activeId);
 
   return (
-    <div data-board-virtual-list style={{ position: 'relative', height: totalHeight }}>
+    <div ref={list} data-board-virtual-list style={{ position: 'relative', height: totalHeight }}>
       {rows.map((row) => visibleIds.has(row.item.id) ? (
         <VirtualCardRow key={row.item.id} row={row} measure={measure}>
           {renderCard(row.item)}
@@ -44,14 +62,18 @@ export function VirtualizedCards({ tasks, activeId, viewport, renderCard }: {
   );
 }
 
-function VirtualCardRow({ row, measure, children }: { row: RenderRow; measure: (id: string, height: number) => void; children: ReactNode }) {
+function VirtualCardRow({ row, measure, children }: { row: RenderRow; measure: (id: string, height: number, top: number) => void; children: ReactNode }) {
   const element = useRef<HTMLDivElement>(null);
   useEffect(() => {
     const node = element.current;
     if (!node) return;
-    const observer = new ResizeObserver(() => measure(row.item.id, node.getBoundingClientRect().height));
+    const report = () => {
+      const rect = node.getBoundingClientRect();
+      measure(row.item.id, rect.height, rect.top);
+    };
+    const observer = new ResizeObserver(report);
     observer.observe(node);
-    measure(row.item.id, node.getBoundingClientRect().height);
+    report();
     return () => observer.disconnect();
   }, [measure, row.item.id]);
   return <div ref={element} style={{ position: 'absolute', top: row.top, left: 0, right: 0 }}>{children}</div>;
