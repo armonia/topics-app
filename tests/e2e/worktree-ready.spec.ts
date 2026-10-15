@@ -10,12 +10,14 @@ import { restartTestServer } from "./helpers/restart-test-server";
 import { beat, didascalia } from "./helpers/evidence";
 import { projectRow } from "./helpers/project-row";
 import { canonicalTmpRoot, removeTmpDir } from "./helpers/file-project";
+import { createTopic, deleteTopic, resetPaneStore, resetProjectPanes, seedProjectPane } from "./helpers/api-fixtures";
 
 hermetic(test);
 test.use({ video: "on" });
 test.describe.configure({ timeout: 180_000 });
 
-const PROJECT_PATH = join(canonicalTmpRoot(), `e2e-worktree-ready-${Date.now()}`);
+const PROJECT_DIR = `e2e-worktree-ready-${Date.now()}`;
+const PROJECT_PATH = join(canonicalTmpRoot(), PROJECT_DIR);
 const BOARD_ID = projectIdForPath(PROJECT_PATH);
 
 type BoardSettings = { autoDispatch: boolean; dispatchUseWorktree: boolean };
@@ -28,12 +30,13 @@ async function readTask(request: import("@playwright/test").APIRequestContext, i
   return response.json() as Promise<TaskSnapshot>;
 }
 
-async function openBoard(page: Page, name: string): Promise<void> {
+async function openBoard(page: Page): Promise<void> {
   await page.goto("/");
   await expect(page.locator('[aria-label="Topics sidebar"]')).toBeVisible({ timeout: 20_000 });
   const projects = page.getByRole("button", { name: /sezione Progetti/ });
   if ((await projects.count()) && (await projects.getAttribute("aria-expanded")) === "false") await projects.click();
-  await projectRow(page, new RegExp(name)).click();
+  // The sidebar lists a project through its topics and names it after its folder.
+  await projectRow(page, new RegExp(PROJECT_DIR)).click();
   await expect(page.getByTestId("project-window")).toBeVisible({ timeout: 15_000 });
   if (!(await page.getByTestId("kanban-board").isVisible().catch(() => false))) {
     const triggers = page.getByTestId("pane-add-menu-trigger");
@@ -58,6 +61,7 @@ test("a card gets its .env and its setup, and two worktrees keep distinct ports 
   const taskIds: string[] = [];
   const worktreeIds: string[] = [];
   let projectStoreId: string | null = null;
+  let topicId: string | null = null;
   let removeCli: (() => void) | null = null;
   let originalSettings: BoardSettings | null = null;
 
@@ -97,7 +101,11 @@ test("a card gets its .env and its setup, and two worktrees keep distinct ports 
       taskIds.push(((await created.json()) as { id: string }).id);
     }
 
-    await openBoard(page, projectName);
+    topicId = (await createTopic(request, `E2E-Worktree-pronte-${stamp}`, { projectPath: PROJECT_PATH })).id;
+    await resetPaneStore(page.request, []);
+    await resetProjectPanes(page.request, PROJECT_PATH);
+    await seedProjectPane(page.request, PROJECT_PATH);
+    await openBoard(page);
     for (const id of taskIds) {
       await expect.poll(async () => (await readTask(request, id)).comments.some((comment) => comment.content.includes("Setup riuscito") && comment.content.includes("setup-ok")), {
         timeout: 60_000,
@@ -141,6 +149,7 @@ test("a card gets its .env and its setup, and two worktrees keep distinct ports 
     removeCli?.();
     for (const id of worktreeIds) await request.delete(`${E2E_BASE}/api/worktrees/${id}`).catch(() => {});
     for (const id of taskIds) await request.delete(`${E2E_BASE}/api/boards/${BOARD_ID}/tasks/${id}`).catch(() => {});
+    if (topicId) await deleteTopic(request, topicId).catch(() => {});
     if (projectStoreId) await request.delete(`${E2E_BASE}/api/projects/${projectStoreId}`).catch(() => {});
     removeTmpDir(PROJECT_PATH);
   }
