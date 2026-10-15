@@ -1,5 +1,26 @@
 [
   {
+    "version": "2.2.509",
+    "date": "2026-10-15",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Il Mac che va e torna: niente Chromium al riavvio, perso in 15 s, la pagina resta (D4d) (#361)",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "L'audit di atterraggio non richiede ogni 30 minuti quello che è già deciso (D3a, giro 4) (#362)",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
     "version": "2.2.508",
     "date": "2026-10-15",
     "sections": {

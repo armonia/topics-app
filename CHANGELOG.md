@@ -2,6 +2,12 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.2.509 — 2026-10-15
+
+### Sotto il cofano
+- Il Mac che va e torna: niente Chromium al riavvio, perso in 15 s, la pagina resta (D4d) (#361)
+- L'audit di atterraggio non richiede ogni 30 minuti quello che è già deciso (D3a, giro 4) (#362)
+
 ## 2.2.508 — 2026-10-15
 
 ### Sotto il cofano
