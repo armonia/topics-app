@@ -280,6 +280,33 @@ lower-case, no slash, no whitespace.
 - **WHEN** the matcher compares the first token of a message against the list
 - **THEN** that entry can never match, and the check fails instead of leaving it there reading as coverage
 
+### Requirement: CMD-10 — `/btw` asks beside a Claude Code session
+
+`/btw <question>` SHALL run an ephemeral Claude Code fork with the current
+session's context. Its answer SHALL appear in a dismissible side panel, and
+neither the question nor answer SHALL be written into the main session's
+transcript or message history. The ephemeral fork SHALL be removed from Topics
+and its Claude transcript deleted when the side turn ends.
+
+#### Scenario: ask beside a finished chat
+- **GIVEN** a Claude Code chat with messages
+- **WHEN** the user sends `/btw <question>`
+- **THEN** the fork starts with `--fork-session` from the main session's last finished answer
+- **AND** the answer appears in a side panel
+- **AND** the main transcript message count is unchanged in the DOM and API
+- **AND** the temporary chat and transcript are removed when the turn ends
+
+#### Scenario: ask while the main turn is running
+- **GIVEN** a Claude Code chat whose main turn is in progress after a finished answer
+- **WHEN** the user sends `/btw <question>`
+- **THEN** the side fork starts from that last finished answer
+- **AND** the main turn continues without interruption
+- **AND** the side question is not queued on the main session
+
+#### Scenario: provider cannot fork
+- **GIVEN** a chat whose declared provider cannot fork a Claude Code session
+- **THEN** `/btw` is absent from its slash-command menu
+
 ### Requirement: CMD-07 — `/status` answers the question that made someone type it
 
 `/status` SHALL report the facts that decide how the next turn behaves — the

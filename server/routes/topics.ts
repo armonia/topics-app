@@ -23,6 +23,7 @@ import { goalContinuationForChatRoute, type ChatGoalLoop } from "../services/goa
 import { createEditRouter } from "./edit";
 import { createForkRouter } from "./fork";
 import { consumeFork } from "../lib/chat-fork-store";
+import { isSideQuestionTopicId } from "../../shared/chat-fork";
 import { createChatRouter } from "./chat";
 import { commandBackgroundWork, commandServices, commandWakeState, topicCommandProcesses } from "./processes";
 import type { LifecycleHookRunner } from "../services/lifecycle-hooks";
@@ -653,6 +654,7 @@ export function createTopicsRouter(
 
   /** Politica di lettura e incremento: `server/lib/unread-count.ts`. */
   function updateUnreadCount(topicId: string) {
+    if (isSideQuestionTopicId(topicId)) return;
     bumpUnreadCount(
       { bumpUnread: ctx.bumpUnread, announce: noteUnreadChanged, isArchived: (id) => getTopicById(id)?.archived === true },
       topicId,
@@ -1201,6 +1203,7 @@ export function createTopicsRouter(
   function listShape(topics: Record<string, Topic>): Record<string, Topic> {
     const out: Record<string, Topic> = {};
     for (const [id, topic] of Object.entries(topics)) {
+      if (isSideQuestionTopicId(id)) continue;
       const { systemPrompt, browserState: _browser, ...rest } = topic;
       // The one thing a list DOES ask about the prompt: whether there is one.
       // The empty state of a chat draws a badge from it, and a boolean answers

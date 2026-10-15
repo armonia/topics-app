@@ -6,7 +6,7 @@ import { TopicBrowserReopen } from '../Browser/TopicBrowserReopen';
 import { TopicBrowserWindow, useTopicBrowserPresence, usePaneWindowDoor, hasTopicBrowserWindow, DEFAULT_EXPANDED_WIDTH, useTopicBrowserInset } from '../Browser/topicBrowserWindowLazy';
 import { isOwnFrame } from '@/state/wsIdentity';
 import { adoptLegacyQueue, clearQueue, getQueue, releaseHold, removeTurn, updateTurn, useChatQueue } from '@/state/chatQueue';
-import { Pin } from 'lucide-react';
+import { Pin, X } from 'lucide-react';
 import { requestScrollToMessage } from '../../state/scrollToMessage';
 import { requestHistoryCompletion } from '../../state/historyCompleteness';
 import type { Topic, ChatMessage, WSMessage, UpdateTopicRequest, CompactionMarker } from '../../types';
@@ -79,6 +79,9 @@ import {
 } from '../../lib/composerMemory';
 import { usePaneHold } from '../../state/pane/residency/holds';
 import { useSessionMessages } from '../../state/useSessionMessages';
+import { updateMessages } from '../../state/messageStore';
+import { askSideQuestion } from './sideQuestion';
+import { DANGER_TEXT } from '../../lib/popoverStyles';
 import { useSessionFlagValue } from '../../state/sessionFlags';
 import { loadDraftAttachments, saveDraftAttachments } from '../../state/draftAttachments';
 import { useServedFromCache } from '../../state/historyFromCache';
@@ -329,6 +332,8 @@ function ChatPaneComponent({
    * closed after five seconds, fourteen lines of `/help` included.
    */
   const [commandAnswer, setCommandAnswer] = useState<CommandAnswer | null>(null);
+  const [sideQuestion, setSideQuestion] = useState<{ token: number; question: string; answer?: string; error?: string; busy: boolean } | null>(null);
+  const sideQuestionTokenRef = useRef(0);
   /** The title of the card the running command fills: `/name`, set as the command is read. */
   const commandTitleRef = useRef('');
   /** The command's words in the card: a sentence, or a refusal. */
@@ -1017,6 +1022,41 @@ function ChatPaneComponent({
   // Openclaw and the ACP agents keep their conversation outside Topics; no pinned provider = the server decides.
   const canFork = !isGlobalOrchestrator && (!topic.provider || forkModeFor(topic.provider) !== null);
 
+  const handleSideQuestion = useCallback(async (question: string) => {
+    const token = ++sideQuestionTokenRef.current;
+    setSideQuestion({ token, question, busy: true });
+    let branch: Topic | null = null;
+    try {
+      branch = await topicsApi.sideQuestion(topic.id);
+      const answer = await askSideQuestion({
+        mainSessionKey: topic.sessionKey,
+        sideSessionKey: branch.sessionKey,
+        question,
+        loadHistory,
+        sendMessage,
+        getSessionMessages,
+      });
+      setSideQuestion((current) => current?.token === token ? { ...current, answer, busy: false } : current);
+    } catch (err) {
+      const error = errMessage(err);
+      setSideQuestion((current) => current?.token === token ? { ...current, error, busy: false } : current);
+    } finally {
+      if (branch) {
+        try { await topicsApi.closeSideQuestion(branch.id); }
+        catch (err) {
+          const error = tr('chat.btw.error', { reason: errMessage(err) });
+          setSideQuestion((current) => current?.token === token ? { ...current, error, busy: false } : current);
+        }
+        updateMessages((previous) => {
+          if (!(branch!.sessionKey in previous)) return previous;
+          const next = { ...previous };
+          delete next[branch!.sessionKey];
+          return next;
+        });
+      }
+    }
+  }, [topic.id, topic.sessionKey, loadHistory, sendMessage, getSessionMessages, tr]);
+
   // Export the ACTIVE thread as a Markdown download. Client-side on purpose:
   // currentMessages already IS the active branch view the user is looking at.
   const handleExportConversation = useCallback(() => {
@@ -1062,6 +1102,14 @@ function ChatPaneComponent({
     // `/help` IS the menu, whole (CMDUI-07): a second list would drift from it.
     // After the send has emptied the field: the menu puts its own `/` there.
     if (cmd === '/help' || cmd.startsWith('/help ')) { setCommandAnswer(null); setTimeout(() => composerControlsRef.current?.openCommands(), 0); return true; }
+    if (cmd === '/btw' || cmd.startsWith('/btw ')) {
+      const question = text.trim().slice('/btw'.length).trim();
+      if (!question) { setCommandResult({ type: 'error', message: tr('chat.btw.usage') }); return true; }
+      if (!topicsEntryFor('btw', declared)) return false;
+      setCommandAnswer(null);
+      void handleSideQuestion(question);
+      return true;
+    }
     // `/resume` (CMDUI-03): the sessions of this project born outside Topics.
     // Its list opens over the composer; without a project there is none.
     if (cmd === '/resume' || cmd.startsWith('/resume ')) {
@@ -1338,7 +1386,7 @@ function ChatPaneComponent({
     }
 
     return false;
-  }, [topic.sessionKey, topic.id, topic.provider, topic.projectPath, isGlobalOrchestrator, loadHistory, goal, declareGoal, closeGoal, confirm, sendMessage, getCompactionMarkers, tr, forkHere, currentMessages, currentStreaming, handleExportConversation, setCommandResult, fastMode, onUpdateTopic]);
+  }, [topic.sessionKey, topic.id, topic.provider, topic.projectPath, isGlobalOrchestrator, loadHistory, goal, declareGoal, closeGoal, confirm, sendMessage, getCompactionMarkers, tr, forkHere, handleSideQuestion, currentMessages, currentStreaming, handleExportConversation, setCommandResult, fastMode, onUpdateTopic]);
 
   // Toggle Fast Mode. Updates: (1) local state for immediate UI feedback,
   // (2) localStorage for cold-boot hydration, (3) server via PUT so other
@@ -2092,6 +2140,16 @@ function ChatPaneComponent({
             above the composer that would send it again, never over it. */}
         <UnsentStrip sessionKey={topic.sessionKey} />
         {commandAnswer && <CommandAnswerCard answer={commandAnswer} isMobile={isMobile} onDismiss={() => { if (commandAnswer.kind === 'running') compactWatchRef.current = null; setCommandAnswer(null); }} />}
+        {sideQuestion && <aside aria-live="polite" aria-label={tr('chat.btw.title')} className="mx-3 mb-2 rounded-lg border border-app-border bg-app-surface p-3 text-sm">
+          <div className="mb-2 flex items-center justify-between gap-3">
+            <strong>{tr('chat.btw.title')}</strong>
+            <button type="button" aria-label={tr('chat.btw.close')} className="rounded p-1 text-app-text-secondary hover:bg-app-hover" onClick={() => { sideQuestionTokenRef.current++; setSideQuestion(null); }}><X size={16} /></button>
+          </div>
+          <div className="mb-2 text-app-text-secondary">{sideQuestion.question}</div>
+          {sideQuestion.busy && <div role="status" className="text-app-text-secondary">{tr('chat.btw.loading')}</div>}
+          {sideQuestion.answer && <div className="whitespace-pre-wrap text-app-text">{sideQuestion.answer}</div>}
+          {sideQuestion.error && <div role="alert" className={DANGER_TEXT}>{tr('chat.btw.error', { reason: sideQuestion.error })}</div>}
+        </aside>}
         <ChatInput onRunCommand={(text) => { void handleSendMessage(undefined, text); }} autonomy={autonomy} onAutonomyChange={handleAutonomyChange} isMobile={isMobile} isFocused={isFocused} topic={topic} currentMessages={currentMessages} currentStreaming={currentStreaming} stoppedByUser={currentStoppedByUser} message={message} setMessage={setMessage} pendingFiles={pendingFiles} pendingImages={pendingImages} setPendingImages={setPendingImages} uploading={isUploading} replyingTo={replyingTo} setReplyingTo={setReplyingTo} isRecording={isRecording} recordingTime={recordingTime} fileInputRef={fileInputRef} textareaRef={textareaRef} onSubmit={handleSendMessage} onStop={() => { void stopSession(topic.sessionKey); }} onKeyDown={handleKeyDown} onFileSelect={handleFileSelect} removePendingFile={removePendingFile} onPaste={handlePaste} startRecording={startRecording} stopRecording={stopRecording} formatRecordingTime={formatRecordingTime} isImageFile={isImageFile} chatError={chatError[topic.sessionKey] ?? null} sendMessageDirect={async (c: string) => {
           // Passa dall'imbuto degli slash: il bottone «Compact now» e
           // l'azione dell'anello mandavano `/compact` come messaggio nudo,

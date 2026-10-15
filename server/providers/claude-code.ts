@@ -89,7 +89,7 @@ import { warnThrottled } from "../lib/warn-throttled";
 import { clearSessionCliPid, setSessionCliPid } from "./session-pids";
 import { claudeModelGenerations, defaultChatModel, discoverClaudeModels } from "./claude-models";
 import { isGlobalOrchestratorSession } from "../services/global-orchestrator-session";
-import { forkStartFor, lastMainAssistant } from "../lib/chat-fork";
+import { forkStartFor, lastMainAssistant, mainAssistantForText } from "../lib/chat-fork";
 import { consumeFork, readForkOrigin } from "../lib/chat-fork-store";
 import { claudeTranscriptPath, findClaudeTranscript } from "../lib/claude-transcript-path";
 import { PARTIAL_ARGS_EMIT_MS, extractPrimaryToolArg } from "./partial-tool-input";
@@ -2166,15 +2166,27 @@ export class ClaudeCodeProvider implements AIProvider {
    * no session, no transcript or no answer: the branch then starts fresh with
    * the recap of the copied history.
    */
-  forkPoint(sessionKey: string): { ref: string; at: string; text: string } | null {
+  forkPoint(sessionKey: string, atText?: string): { ref: string; at: string; text: string } | null {
     const sessionId = peekClaudeSessionId(sessionKey);
     if (!sessionId) return null;
     const file = findClaudeTranscript(this.workspaceFor(sessionKey), sessionId);
     if (!file) return null;
     let jsonl: string;
     try { jsonl = readFileSync(file, "utf-8"); } catch { return null; }
-    const last = lastMainAssistant(jsonl);
+    const last = atText ? mainAssistantForText(jsonl, atText) : lastMainAssistant(jsonl);
     return last ? { ref: sessionId, at: last.uuid, text: last.text } : null;
+  }
+
+  /** Drops the private session and its transcript after a `/btw` answer. */
+  async discardEphemeralSession(sessionKey: string): Promise<void> {
+    const sessionId = peekClaudeSessionId(sessionKey);
+    const transcript = sessionId ? findClaudeTranscript(this.workspaceFor(sessionKey), sessionId) : null;
+    await this.resetSession(sessionKey);
+    if (transcript) {
+      try { unlinkSync(transcript); } catch (err) {
+        if ((err as NodeJS.ErrnoException).code !== "ENOENT") throw err;
+      }
+    }
   }
 
   // --- Abort ---

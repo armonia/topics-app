@@ -27,6 +27,11 @@ import { isDirectProviderName } from "./direct-endpoints";
 
 export type ForkMode = "claude-cli" | "codex-cli" | "db-history";
 
+/** Topics created only to answer `/btw` are never part of the visible board. */
+export function isSideQuestionTopicId(id: string): boolean {
+  return id.startsWith("side-question-");
+}
+
 export function forkModeFor(providerName: string | null | undefined): ForkMode | null {
   if (!providerName) return null;
   if (providerName === "claude-code" || providerName === "claude-code-team") return "claude-cli";

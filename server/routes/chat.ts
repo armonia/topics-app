@@ -122,6 +122,7 @@ import { classifyTurnEnd } from "../push-triggers";
 import { runningTaskOwnsTopic } from "../lib/wake-adoption";
 import { sessionAttentionBackground } from "../providers/background-probes";
 import { topicSubject, type AttentionTaskMap } from "../../shared/attention";
+import { isSideQuestionTopicId } from "../../shared/chat-fork";
 import { createIdempotencyCache } from "../lib/idempotency-cache";
 import { keyTakenBy, rowStoredUnderKey } from "../lib/client-message-key";
 import { avvisoPerTurno, abortLogTitle, outageCutNotResent, resumesByItself } from "../lib/cancelled-notice";
@@ -320,6 +321,7 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
   // parte (card 76b0058b). Il broadcast porta la riga RILETTA, così i client
   // vedono lo stato vero e non la copia vecchia.
   const bumpTopicActivity = (topic: Topic): void => {
+    if (isSideQuestionTopicId(topic.id)) return;
     const updatedAt = new Date().toISOString();
     topic.updatedAt = updatedAt;
     const fresh = touchTopicActivity(topic.id, updatedAt);
@@ -335,6 +337,7 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
   // (notifications-redesign, T17, defect D7): an empty woken turn is thrown
   // away, and a badge with nothing behind it is a lie.
   const finalizeTurnActivity = (topic: Topic, opts: { visible?: boolean } = {}): void => {
+    if (isSideQuestionTopicId(topic.id)) return;
     bumpTopicActivity(topic);
     if (opts.visible !== false) updateUnreadCount(topic.id);
   };
@@ -348,7 +351,7 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
    * the frame.
    */
   const startTurnAttention = (topic: Topic | null | undefined, boardAgent: boolean): void => {
-    if (!topic) return;
+    if (!topic || isSideQuestionTopicId(topic.id)) return;
     // Both read from the topic at every turn: a board agent's topic is born
     // archived and no archive path ever runs for it, and its woken turns carry
     // no `dispatched` (review 2 of notifications-redesign, B2).
@@ -359,7 +362,7 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
     frame: { messageId?: string; completed?: boolean; reason?: string; error?: string; stopCause?: string; stopReason?: string; dispatched?: boolean; discardedMessageId?: string },
     extra: { background?: AttentionTaskMap; preview?: string } = {},
   ): void => {
-    if (!topic) return;
+    if (!topic || isSideQuestionTopicId(topic.id)) return;
     try {
       const verdict = classifyTurnEnd({ completed: frame.completed, reason: frame.reason, error: frame.error, stopCause: frame.stopCause, stopReason: frame.stopReason, dispatched: frame.dispatched, discarded: !!frame.discardedMessageId });
       turnEnded(topicSubject(topic.id), {

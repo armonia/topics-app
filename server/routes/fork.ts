@@ -3,6 +3,8 @@ import type { AIProvider } from "../providers";
 import { forkModeFor } from "../../shared/chat-fork";
 import { cliForkBlocker, copyThreadForFork, forkPointIndex } from "../lib/chat-fork";
 import { insertChatFork } from "../lib/chat-fork-store";
+import { cleanupStaleSideQuestions, deleteSideQuestion } from "../lib/side-question";
+import { isSideQuestionTopicId } from "../../shared/chat-fork";
 import { isGlobalOrchestratorSession } from "../services/global-orchestrator-session";
 
 export interface ForkDeps {
@@ -15,7 +17,7 @@ export interface ForkDeps {
  * (`at`: the transcript uuid of the last answer, the rollout's byte size), and
  * for Claude Code the last answer's text. Null = nothing to fork from.
  */
-type ForkPointSource = { forkPoint?(sessionKey: string): { ref: string; at: string; text?: string } | null };
+type ForkPointSource = { forkPoint?(sessionKey: string, atText?: string): { ref: string; at: string; text?: string } | null };
 
 /**
  * `POST /api/topics/:id/fork`: «Fork into a new chat» and `/fork` (CHAT-FORK-01).
@@ -39,17 +41,57 @@ export function createForkRouter(ctx: AppContext, deps: ForkDeps): RouteHandler 
     db, json, readJSON, matchRoute, getTopicById, isStreaming, loadActiveThread,
     saveSingleTopic, saveLocalMessages, slugify, broadcastToAll,
   } = ctx;
+  const cleanupDeps = {
+    db,
+    getTopics: () => ctx.loadTopics().topics,
+    isStreaming,
+    resolveProvider: deps.resolveProvider,
+  };
+  const startupCleanup = cleanupStaleSideQuestions(cleanupDeps).then((removed) => {
+    if (removed) console.log(`[fork] removed ${removed} stale side question(s)`);
+  }).catch((err) => {
+    console.warn("[fork] startup side-question cleanup failed:", (err as Error).message);
+  });
 
   return async function forkRouter(req: Request, _url: URL, pathname: string, method: string): Promise<Response | null> {
     const params = matchRoute(pathname, "/api/topics/:id/fork");
-    if (!params || method !== "POST") return null;
+    const sideParams = matchRoute(pathname, "/api/topics/:id/side-question");
+    if (sideParams && method === "DELETE") {
+      await startupCleanup;
+      if (!isSideQuestionTopicId(sideParams.id)) return json({ error: "not an ephemeral side question" }, 400);
+      const topic = getTopicById(sideParams.id);
+      if (!topic) return json({ ok: true });
+      try {
+        await deleteSideQuestion(cleanupDeps, topic);
+      } catch (err) {
+        const message = (err as Error).message;
+        if (message === "side question is still running") return json({ error: message }, 409);
+        if (message === "not a Claude side question") return json({ error: message }, 404);
+        console.warn(`[fork] side-question cleanup for ${topic.sessionKey} failed:`, message);
+        return json({ error: "could not clean up the side question" }, 500);
+      }
+      return json({ ok: true });
+    }
+    const sideQuestion = !!sideParams;
+    const routeParams = params ?? sideParams;
+    if (!routeParams || method !== "POST") return null;
+    if (sideQuestion) {
+      await startupCleanup;
+      try {
+        const removed = await cleanupStaleSideQuestions(cleanupDeps);
+        if (removed) console.log(`[fork] removed ${removed} stale side question(s)`);
+      } catch (err) {
+        console.warn("[fork] side-question cleanup before create failed:", (err as Error).message);
+        return json({ error: "could not clean up stale side questions" }, 500);
+      }
+    }
 
-    const parent = getTopicById(params.id);
+    const parent = getTopicById(routeParams.id);
     if (!parent) return json({ error: "topic not found" }, 404);
     if (isGlobalOrchestratorSession(db, parent.sessionKey)) {
       return json({ error: "the global coordinator cannot be forked", code: "orchestrator_topic_invariant" }, 403);
     }
-    if (isStreaming(parent.sessionKey)) {
+    if (!sideQuestion && isStreaming(parent.sessionKey)) {
       return json({ error: "wait for the turn to end before forking", code: "turn_in_progress" }, 409);
     }
     // The RESOLVED provider, not the column: a topic with no provider runs on the installation's.
@@ -59,6 +101,9 @@ export function createForkRouter(ctx: AppContext, deps: ForkDeps): RouteHandler 
       return json({ error: (err as Error).message, code: "fork_unsupported" }, 409);
     }
     const runtime = forkModeFor(provider.name);
+    if (sideQuestion && runtime !== "claude-cli") {
+      return json({ error: "side questions require Claude Code session forking", code: "fork_unsupported" }, 409);
+    }
     if (!runtime) {
       return json({ error: `${provider.name} keeps its conversation outside Topics: this chat cannot be forked`, code: "fork_unsupported" }, 409);
     }
@@ -76,10 +121,19 @@ export function createForkRouter(ctx: AppContext, deps: ForkDeps): RouteHandler 
     let parentAt: string | null = null;
     let branchRef: string | null = null;
     if (runtime !== "db-history") {
-      const from = (provider as AIProvider & ForkPointSource).forkPoint?.(parent.sessionKey) ?? null;
+      const from = (provider as AIProvider & ForkPointSource).forkPoint?.(
+        parent.sessionKey,
+        sideQuestion ? thread[point].content : undefined,
+      ) ?? null;
+      const forkThread = sideQuestion ? thread.slice(0, point + 1) : thread;
       const blocker = !from
         ? "no-parent-session"
-        : cliForkBlocker(thread, point, runtime === "claude-cli" ? { last: { uuid: from.at, text: from.text ?? "" } } : undefined);
+        : cliForkBlocker(forkThread, sideQuestion ? forkThread.length - 1 : point,
+            runtime === "claude-cli" ? { last: { uuid: from.at, text: from.text ?? "" } } : undefined);
+      if (sideQuestion && (!from || blocker)) {
+        const reason = blocker ?? "no-parent-session";
+        return json({ error: `cannot fork the current answer into a side question (${reason})`, code: "side_question_fork_unavailable", reason }, 409);
+      }
       if (from && !blocker) {
         parentRef = from.ref;
         parentAt = from.at;
@@ -89,10 +143,11 @@ export function createForkRouter(ctx: AppContext, deps: ForkDeps): RouteHandler 
       }
     }
 
-    const id = crypto.randomUUID();
-    const sessionKey = "topic:" + id.slice(0, 8);
+    const uuid = crypto.randomUUID();
+    const id = sideQuestion ? `side-question-${uuid}` : uuid;
+    const sessionKey = "topic:" + uuid.slice(0, 8);
     const now = new Date().toISOString();
-    const copy = copyThreadForFork(thread.slice(0, point + 1));
+    const copy = sideQuestion ? [] : copyThreadForFork(thread.slice(0, point + 1));
     db.transaction(() => {
       // Inherited: how the chat works. Not inherited: what the page remembers
       // (pinned messages, the goal, the browser, a queued first message) and
@@ -103,14 +158,14 @@ export function createForkRouter(ctx: AppContext, deps: ForkDeps): RouteHandler 
         systemPrompt: parent.systemPrompt ?? "", contextFiles: parent.contextFiles ?? [], pinnedMessages: [],
         disabledContextSources: parent.disabledContextSources,
         sortOrder: (db.prepare("SELECT COUNT(*) AS n FROM topics").get() as { n: number }).n,
-        provider: parent.provider ?? null, model: parent.model ?? null, effort: parent.effort ?? null,
+        provider: sideQuestion ? provider.name : parent.provider ?? null, model: parent.model ?? null, effort: parent.effort ?? null,
         autonomyLevel: parent.autonomyLevel, fastMode: parent.fastMode, topicsRouting: parent.topicsRouting ?? null,
         projectPath: parent.projectPath, standalone: parent.standalone, worktreeId: parent.worktreeId ?? null,
       };
       saveSingleTopic(topic);
-      saveLocalMessages(sessionKey, copy);
+      if (copy.length) saveLocalMessages(sessionKey, copy);
       insertChatFork(db, {
-        sessionKey, parentTopicId: parent.id, parentName: parent.name, forkPointMessageId: copy[copy.length - 1].id,
+        sessionKey, parentTopicId: parent.id, parentName: parent.name, forkPointMessageId: sideQuestion ? thread[point].id : copy[copy.length - 1].id,
         runtime, parentRef, parentAt, branchRef, createdAt: now,
       });
       // The branch's session, minted here so the fork is bound to it (lib/chat-fork.ts,
@@ -122,7 +177,7 @@ export function createForkRouter(ctx: AppContext, deps: ForkDeps): RouteHandler 
     })();
 
     const branch = getTopicById(id)!;
-    broadcastToAll({ type: "topic:created", topic: branch });
+    if (!sideQuestion) broadcastToAll({ type: "topic:created", topic: branch });
     return json(branch, 201);
   };
 }
