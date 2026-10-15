@@ -1,0 +1,47 @@
+name: Git freshness under CPU load
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  measure:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: .bun-version
+
+      - name: Setup Node
+        uses: actions/setup-node@v5
+        with:
+          node-version: 20
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install server dependencies
+        run: bun install --frozen-lockfile --ignore-scripts
+
+      - name: Rebuild node-pty
+        run: npm rebuild node-pty
+
+      - name: Restore node-pty executable bits
+        run: bun run scripts/fix-node-pty-exec-bit.ts
+
+      - name: Build native addon
+        run: scripts/build-native-addon.sh
+
+      - name: Measure freshness with eight CPU burners
+        run: |
+          set +e
+          bun run measure:git-freshness -- --burners 8 --samples 20 | tee /tmp/git-freshness.txt
+          result=${PIPESTATUS[0]}
+          set -e
+          cat /tmp/git-freshness.txt >> "$GITHUB_STEP_SUMMARY"
+          exit "$result"
