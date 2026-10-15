@@ -147,8 +147,15 @@ test.describe("@nightly D7f pane-store tra dispositivi", () => {
     }
   });
 
-  test("P.3 una riapertura esplicita vince sulla chiusura precedente @nightly", async ({ browser }) => {
+  test("P.3 una riapertura esplicita vince sulla chiusura precedente @nightly", async ({ browser, request }) => {
     test.info().annotations.push({ type: "spec", description: "CMD-03" }, { type: "spec", description: "TAB-SYNC-01" });
+    // Closing an ordinary chat archives it, so its row leaves the sidebar. B
+    // finds it the way a person would, with archived chats shown. The fixture
+    // resets per file, not per test, so the toggle goes back off at the end.
+    const showArchived = (on: boolean) => request.put(`${BASE}/api/ui-state/sidebar-state`, {
+      data: { viewMode: "timeline", showArchived: on, expandedNodes: [], pinnedItems: [], pinnedLayout: [] },
+    });
+    expect((await showArchived(true)).ok()).toBe(true);
     const devices = await openTwoDevices(browser);
     try {
       await closeTabViaX(devices.pageA, topic.id);
@@ -156,10 +163,11 @@ test.describe("@nightly D7f pane-store tra dispositivi", () => {
       await expect(tabFor(devices.pageA, topic.id)).toHaveCount(0, { timeout: 10_000 });
 
       // The gesture a person makes on the other device: open the chat again from
-      // the sidebar. Not ⇧⌘T, whose stack stage 3 makes per device.
+      // the sidebar, which also unarchives it. Not ⇧⌘T, whose stack stage 3
+      // makes per device.
       const row = devices.pageB.getByRole("treeitem", { name: topic.name }).first();
       await expect(row).toBeVisible({ timeout: 10_000 });
-      await row.dblclick();
+      await row.click();
       await expect(tabFor(devices.pageB, topic.id)).toHaveCount(1, { timeout: 10_000 });
 
       // A reload checks the shared state even if the reopen does not reach A live.
@@ -168,6 +176,7 @@ test.describe("@nightly D7f pane-store tra dispositivi", () => {
       await expect(tabFor(devices.pageA, topic.id)).toHaveCount(1, { timeout: 10_000 });
     } finally {
       await devices.dispose();
+      await showArchived(false);
     }
   });
 
