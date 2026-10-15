@@ -46,6 +46,7 @@ import { createNavFlight, type NavFlightMessage } from "./browser-nav-flight";
 import { createNavHistoryPublisher, isPublishableUrl, type NavHistoryPublisher } from "./browser-nav-history";
 import { setBackgroundTree, type AgentOwnerTest, type BrowserContextOwner } from "./lib/low-priority";
 import { createBrowserQosGovernor, markedBrowserPid } from "./lib/browser-qos";
+import { getRrwebRecorderSource } from "./lib/rrweb-recorder";
 
 interface BrowserContextEntry {
   context: BrowserContext;
@@ -242,7 +243,7 @@ try {
   // doesn't have the recorder yet; `var` hoisting keeps the block harmless.
   RRWEB_RECORD_BUNDLE =
     'if(!(window.rrweb&&window.rrweb.record)){\n' +
-    readFileSync(join(import.meta.dir, 'assets', 'rrweb.min.js'), 'utf8') +
+    getRrwebRecorderSource() +
     '\n;window.rrweb=window.rrweb||rrweb;\n}';
 } catch (err) {
   console.warn('[BrowserService] rrweb record bundle missing — DOM co-browse disabled:', (err as Error)?.message);

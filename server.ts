@@ -4679,6 +4679,10 @@ const opzioniServer = {
             // sidecar, which attaches to THIS pane's CDP target and streams it as an
             // H.264 track. If the sidecar is unavailable the client gets no answer and
             // transparently keeps its JPEG stream (no regression).
+            // One line per offer, sidecar or not: the server log is where "does
+            // anybody use the video mode?" gets its answer (the client's own
+            // lines stay in the viewer's console).
+            console.log(`[WS][browser] webrtc offer for ${ctxId} (bridge ${webrtcBridge.available() ? 'available' : 'missing, the viewer keeps JPEG'})`);
             if (webrtcBridge.available()) {
               const streamId = parsed.stream ?? 'default';
               const peerId = `${ws.data.id}:${streamId}`;
