@@ -1,3 +1,6 @@
+/**
+ * @covers LIVETERM-01
+ */
 import { describe, it, expect } from 'bun:test';
 import { groupLiveTerminals, liveTerminalDetail, liveTerminalLabel, type LiveTerminal } from './liveTerminals';
 

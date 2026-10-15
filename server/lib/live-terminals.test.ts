@@ -1,3 +1,6 @@
+/**
+ * @covers LIVETERM-03
+ */
 import { describe, it, expect } from "bun:test";
 import {
   createLiveTerminals,
