@@ -2,7 +2,16 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
-## 2.2.504 — 2026-10-15
+## 2.2.505 — 2026-10-15
+
+### Sotto il cofano
+- **competitors** · diff review notes and CI-before-review already existed (#324)
+- Git status and file tree served from memory while the watchers are alive (D1a) (#323)
+- The external sessions census is no longer sent to clients that do not read it (D1b) (#325)
+- Il giudice dell'obiettivo legge la fine dell'ultimo messaggio, dove sta la domanda (#327)
+- con la tastiera su, menu, fogli e iframe restano al loro posto (#326)
+
+## 2.2.504 — 2026-10-14
 
 ### Sotto il cofano
 - la tastiera della chat non porta più via la finestra del browser (#321)

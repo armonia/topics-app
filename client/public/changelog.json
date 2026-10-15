@@ -1,7 +1,45 @@
 [
   {
-    "version": "2.2.504",
+    "version": "2.2.505",
     "date": "2026-10-15",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "diff review notes and CI-before-review already existed (#324)",
+          "en": "",
+          "scope": "competitors",
+          "breaking": false
+        },
+        {
+          "it": "Git status and file tree served from memory while the watchers are alive (D1a) (#323)",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "The external sessions census is no longer sent to clients that do not read it (D1b) (#325)",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il giudice dell'obiettivo legge la fine dell'ultimo messaggio, dove sta la domanda (#327)",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "con la tastiera su, menu, fogli e iframe restano al loro posto (#326)",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        }
+      ]
+    }
+  },
+  {
+    "version": "2.2.504",
+    "date": "2026-10-14",
     "sections": {
       "new": [],
       "fixes": [],
