@@ -370,6 +370,10 @@ export function initServerSync(): void {
   const armaSpinta = (): void => {
     if (timer) clearTimeout(timer);
     timer = setTimeout(() => {
+        // The timer has fired: nothing is waiting on it any more. Left set, a
+        // WS close after the first edit of the session always read as "a push
+        // was pending", and every reconnect re-sent a snapshot nobody owed.
+        timer = null;
         // ── Hydrate guard (post-mortem fix) ──────────────────────────────
         // Don't push our snapshot until the server has hydrated us. Without
         // this guard, an `OPEN_PANE` / `FOCUS_PANE` dispatched in the first
