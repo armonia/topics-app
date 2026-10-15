@@ -358,7 +358,7 @@
 
     "client/src/lib/buildSidebarItems.ts": 950,
 
-    "client/src/lib/i18n-en.ts": {"lines": 2863, "why": ["2026-10-03, commands-ui: +56 on main (2790), the English twin of the same keys.", "2026-10-03, merged with main 5125e396b (tornata 3b): 2863 measured. Main 2790 -> 2806 bought +16 (the model selector, find-in-page and command-run strings); this branch +57 on top (the same commands-ui keys)."]},
+    "client/src/lib/i18n-en.ts": {"lines": 3024, "why": ["2026-10-15, first-run (D6a): 3024 measured. Main 2863 -> 2992 since the last record (scheduled cards and the merges before them); this branch +32 on top, the strings of the first-run screen and its provider box.", "2026-10-03, commands-ui: +56 on main (2790), the English twin of the same keys.", "2026-10-03, merged with main 5125e396b (tornata 3b): 2863 measured. Main 2790 -> 2806 bought +16 (the model selector, find-in-page and command-run strings); this branch +57 on top (the same commands-ui keys)."]},
 
     "client/src/lib/i18n-it.ts": {"lines": 3220, "why": ["2026-10-03, commands-ui: +56 on main (3147), the strings of the three menu groups, /resume, the command card, /fast /rename /export, the week bar, the pinned line and the board hint.", "2026-10-03, merged with main 5125e396b (tornata 3b): 3220 measured. Main 3147 -> 3163 bought +16 (the model selector, find-in-page and command-run strings); this branch +57 on top (the same commands-ui keys)."]},
 
