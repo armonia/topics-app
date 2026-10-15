@@ -6,6 +6,11 @@
 
 **Dopo, addon release, 20 giri:** profondità 3 mediana **37,88 ms**, p95 **57,75 ms**; profondità 6 mediana **82,43 ms**, p95 **115,37 ms**. Il confronto JS/Rust usa lo stesso script e lo stesso checkout. `uptime` ha letto load average **95,83 / 72,55 / 67,98**: il carico era alto durante la misura.
 
+**Rifatta in revisione** con `bun run scripts/measure-file-tree.ts`, dopo il giro 2, load average
+45-50, 20 giri: profondità 3 JS **62,79 ms** → nativo **19,21 ms** (p95 72,64 → 21,47); profondità
+6 JS **161,47 ms** → nativo **51,75 ms** (p95 197,42 → 53,63). Circa tre volte, con meno carico i
+numeri assoluti scendono per entrambi.
+
 ## Fatto
 
 - `CARGO_BUILD_JOBS=2 scripts/build-native-addon.sh` → **exit 0**, addon universale arm64/x86_64.
