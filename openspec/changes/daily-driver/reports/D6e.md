@@ -28,3 +28,17 @@
 ## Rifiutato
 
 - Rimuovere `devices.role` o `task_shares` non è 5.4: è il passo 8.1, fuori scope, e `role` serve ancora al rollback. Nessuna migration modificata.
+
+## Verifica sul Mac, dopo la consegna
+
+- **I rossi della sandbox non erano rossi.** Sul Mac `bun test server/lib/` esce 0: 3.013 pass, 2
+  skip, 0 fail. `project-broadcast-visibility`, `no-device-role-read`, `guest-media-sizes`,
+  `security-boundaries`, `browser-viewport-wiring`: 34 pass, 0 fail. Nella sandbox di Codex cestino,
+  watcher e scritture sotto la home non funzionano.
+- **Chi cambia diritti passando il comando alla regola nuova: nessuno.** Lettura in sola lettura del
+  database vivo: 2 dispositivi attivi, entrambi proprietari sia per `devices.role` sia per la regola
+  nuova (persona in `installation_owners`, non revocata); 10 revocati, senza poteri in tutte e due.
+  Nei log del server dall'8/10 (66 MB) zero avvisi `[principals] divergenza`.
+- **Un solo punto crea le socket** (`upgradeWebSocket`), e riceve il principale dall'identità della
+  richiesta: le socket locali non hanno `deviceId` e restano del proprietario per scelta.
+- Cancelli dopo il commit: typecheck, lint, 0 file non aggiunti, 0 cancelli statici rossi.
