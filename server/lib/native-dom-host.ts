@@ -109,6 +109,9 @@ export interface DomHostRegistry {
   withdraw(contextId: string, owner: unknown): boolean;
   isHosting(contextId: string): boolean;
   isHost(contextId: string, owner: unknown): boolean;
+  /** Whether the Mac has allowed viewers to see and control this mirror. */
+  isSharing(contextId: string): boolean;
+  setSharing(contextId: string, sharing: boolean): void;
   /** Start or stop the recorder on the host: wanted while a viewer has the mirror on screen. */
   setWanted(contextId: string, wanted: boolean): void;
   /** What a viewer that just joined the mirror replays now. Empty when it has
@@ -128,6 +131,7 @@ export interface DomHostRegistry {
 export function createDomHostRegistry(maxIncrements = MAX_HOST_INCREMENTALS): DomHostRegistry {
   const hosts = new Map<string, HostEntry>();
   const pages = new Map<string, HostPage>();
+  const sharing = new Map<string, boolean>();
 
   const clearBuffer = (h: HostEntry): void => {
     h.meta = null;
@@ -168,8 +172,23 @@ export function createDomHostRegistry(maxIncrements = MAX_HOST_INCREMENTALS): Do
     isHost(contextId, owner) {
       return ownEntry(contextId, owner) !== null;
     },
+    isSharing(contextId) {
+      return sharing.get(contextId) !== false;
+    },
+    setSharing(contextId, enabled) {
+      sharing.set(contextId, enabled);
+      if (!enabled) {
+        const h = hosts.get(contextId);
+        if (h) {
+          h.recording = false;
+          clearBuffer(h);
+          sendTo(h, { type: "host_dom_stop" });
+        }
+      }
+    },
     setWanted(contextId, wanted) {
       const h = hosts.get(contextId);
+      if (sharing.get(contextId) === false && wanted) return;
       if (!h || h.recording === wanted) return;
       h.recording = wanted;
       // Either way the buffer starts over: a stopped recorder leaves a hole,
@@ -179,7 +198,7 @@ export function createDomHostRegistry(maxIncrements = MAX_HOST_INCREMENTALS): Do
     },
     bootstrap(contextId) {
       const h = hosts.get(contextId);
-      if (!h || !h.recording) return [];
+      if (!h || !h.recording || sharing.get(contextId) === false) return [];
       if (h.overflowed) {
         if (!h.snapshotPending) {
           h.snapshotPending = true;
@@ -194,7 +213,7 @@ export function createDomHostRegistry(maxIncrements = MAX_HOST_INCREMENTALS): Do
       const h = ownEntry(contextId, owner);
       // Events of a recorder nobody asked for (a late drain after a stop) are
       // not forwarded: they would land on mirrors that were told to rebuild.
-      if (!h || !h.recording) return [];
+      if (!h || !h.recording || sharing.get(contextId) === false) return [];
       const out: unknown[] = [];
       for (const event of events) {
         if (!event || typeof event !== "object") continue;

@@ -206,6 +206,12 @@ const setWatchingMessageSchema = z.object({
   active: z.boolean(),
 });
 
+/** The native host controls whether its page is visible and interactive remotely. */
+const setNativeHostSharingMessageSchema = z.object({
+  type: z.literal('set_native_host_sharing'),
+  active: z.boolean(),
+});
+
 /**
  * Server -> client: how many shared-session viewers this context has NOW.
  *
@@ -220,6 +226,22 @@ const setWatchingMessageSchema = z.object({
 const viewersMessageSchema = z.object({
   type: z.literal('viewers'),
   count: z.int().check(z.nonnegative()),
+});
+
+/** Server -> the native pane hosting the mirror: delivery and relay health. */
+const nativeHostStatusMessageSchema = z.object({
+  type: z.literal('native_host_status'),
+  sharing: z.boolean(),
+  devices: z.int().check(z.nonnegative()),
+  kbps: z.number().check(z.nonnegative()),
+  delayMs: z.number().check(z.nonnegative()),
+  error: z.optional(z.string()),
+});
+
+/** Server -> viewers: the host has paused or resumed the page mirror. */
+const hostShareStateMessageSchema = z.object({
+  type: z.literal('host_share_state'),
+  sharing: z.boolean(),
 });
 
 /**
@@ -344,7 +366,10 @@ export const browserWsMessageSchema = z.discriminatedUnion('type', [
   engineMessageSchema,
   setStreamMessageSchema,
   setWatchingMessageSchema,
+  setNativeHostSharingMessageSchema,
   viewersMessageSchema,
+  nativeHostStatusMessageSchema,
+  hostShareStateMessageSchema,
   viewportRequestMessageSchema,
   setRenderMessageSchema,
   renderModeMessageSchema,

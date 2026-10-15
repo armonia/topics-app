@@ -166,4 +166,50 @@ describe("host mirror wiring", () => {
     const r = rig();
     expect(r.mirror.routeViewer(r.viewer(), CTX, { type: "input", action: "click", payload: {} })).toBe(false);
   });
+
+  /** @covers BROWSER-NATIVE-HOST-STATUS-01 */
+  test("host status counts devices and stop sharing blocks frames and viewer input until a fresh snapshot", () => {
+    const r = rig();
+    r.declare();
+    const first = r.viewer();
+    first.data.deviceId = "ipad";
+    r.mirror.routeViewer(first, CTX, { type: "set_render", mode: "dom" });
+    const second = r.viewer();
+    second.data.deviceId = "ipad";
+    r.mirror.routeViewer(second, CTX, { type: "set_render", mode: "dom" });
+    r.fire();
+    expect(r.host.sent.find((m) => m.type === "native_host_status")).toMatchObject({ devices: 1, sharing: true });
+    expect(first.types()).not.toContain("native_host_status");
+
+    r.mirror.setSharing(CTX, r.host, false);
+    expect(first.sent.at(-1)).toEqual({ type: "host_share_state", sharing: false });
+    const framesBefore = first.types().filter((t) => t === "dom_event").length;
+    r.mirror.onHostFrame(r.host, CTX, { type: "host_dom_events", events: [full] });
+    expect(first.types().filter((t) => t === "dom_event").length).toBe(framesBefore);
+    const inputsBefore = r.host.types().filter((t) => t === "host_input").length;
+    expect(r.mirror.routeViewer(first, CTX, { type: "input", action: "click", payload: {} })).toBe(true);
+    expect(r.host.types().filter((t) => t === "host_input").length).toBe(inputsBefore);
+
+    const late = r.viewer();
+    r.mirror.attachIfIdle(late, CTX);
+    expect(late.types()).not.toContain("dom_event");
+    expect(late.types()).toContain("host_share_state");
+    r.mirror.setSharing(CTX, r.host, true);
+    r.mirror.onHostFrame(r.host, CTX, { type: "host_dom_events", events: [meta, full] });
+    expect(late.sent.filter((m) => m.type === "dom_event")).toEqual([{ type: "dom_event", event: meta }, { type: "dom_event", event: full }]);
+  });
+
+  test("a disconnected host does not resume a paused mirror through Chromium fallback", async () => {
+    const r = rig();
+    r.declare();
+    const viewer = r.viewer();
+    r.mirror.routeViewer(viewer, CTX, { type: "set_render", mode: "dom" });
+    r.mirror.setSharing(CTX, r.host, false);
+    r.sockets.delete(r.host);
+    r.mirror.onClose(r.host, CTX);
+    expect(r.mirror.routeViewer(viewer, CTX, { type: "input", action: "click", payload: {} })).toBe(true);
+    r.fire();
+    await flush();
+    expect(r.calls).toEqual([`destroyContext ${CTX}`]);
+  });
 });

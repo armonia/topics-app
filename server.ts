@@ -4611,6 +4611,8 @@ const opzioniServer = {
             // A mirror leaving the screen may be the last one: the host stops
             // recording. And a pane off screen is not using a hosted page.
             hostMirror.onWatching(ws, ctxId);
+          } else if (parsed.type === 'set_native_host_sharing') {
+            if (ws.data._nativeDelegate) hostMirror.setSharing(ctxId, ws, parsed.active);
           } else if (parsed.type === 'set_render') {
             // T1 DOM co-browse — switch THIS viewer between the pixel stream
             // ('video', default) and a native rrweb DOM reconstruction ('dom').

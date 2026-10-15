@@ -47,6 +47,7 @@ export interface NativeDomHostOptions {
   setViewport?: (size: { width: number; height: number } | null) => void;
   schedule?: (fn: () => void, ms: number) => () => void;
   now?: () => number;
+  onStatus?: (status: { sharing: boolean; devices: number; kbps: number; delayMs: number; error?: string }) => void;
 }
 
 export interface NativeDomHost {
@@ -62,6 +63,7 @@ export interface NativeDomHost {
   noteLocalUse(): void;
   /** True once the server accepted the declaration on the current socket. */
   accepted(): boolean;
+  setSharing(active: boolean): void;
 }
 
 /** Drain cadence while the page is changing, and while it is still. */
@@ -496,6 +498,13 @@ export function createNativeDomHost(opts: NativeDomHostOptions): NativeDomHost {
     handle(frame) {
       if (!frame || typeof frame !== 'object') return false;
       const m = frame as { type?: string; action?: string; payload?: unknown; url?: string };
+      if (m.type === 'native_host_status') {
+        const s = frame as { sharing?: unknown; devices?: unknown; kbps?: unknown; delayMs?: unknown; error?: unknown };
+        if (typeof s.sharing === 'boolean' && typeof s.devices === 'number' && typeof s.kbps === 'number' && typeof s.delayMs === 'number') {
+          opts.onStatus?.({ sharing: s.sharing, devices: s.devices, kbps: s.kbps, delayMs: s.delayMs, ...(typeof s.error === 'string' ? { error: s.error } : {}) });
+        }
+        return true;
+      }
       switch (m.type) {
         case 'native_dom_host_ack':
           accepted = true;
@@ -571,5 +580,8 @@ export function createNativeDomHost(opts: NativeDomHostOptions): NativeDomHost {
       else usedAway = true;
     },
     accepted: () => accepted,
+    setSharing(active) {
+      opts.sendText(JSON.stringify({ type: 'set_native_host_sharing', active }));
+    },
   };
 }

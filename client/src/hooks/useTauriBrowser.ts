@@ -818,6 +818,7 @@ export function useTauriBrowser(contextId: string, initialUrl?: string, isVisibl
   // the page has to stay live like under an agent, or the mirror freezes.
   const hostRef = useRef<NativeDomHost | null>(null);
   const [hosting, setHosting] = useState(false);
+  const [hostStatus, setHostStatus] = useState<NativeBrowserHandle['hostStatus']>();
   const hostingRef = useRef(false);
   const hostNavigateRef = useRef<(action: HostNavAction, target?: string) => void>(() => {});
 
@@ -1815,6 +1816,7 @@ export function useTauriBrowser(contextId: string, initialUrl?: string, isVisibl
       sendText: (text) => socketRun?.sendText(text),
       navigate: (action, target) => hostNavigateRef.current(action, target),
       onRecordingChange: (on) => { hostingRef.current = on; setHosting(on); syncEngaged(); },
+      onStatus: setHostStatus,
       setViewport: (size) => setRemoteViewportRef.current(size),
     });
     hostRef.current = host;
@@ -1826,6 +1828,7 @@ export function useTauriBrowser(contextId: string, initialUrl?: string, isVisibl
       url: `${serverWsBase()}/ws/browser/${encodeURIComponent(id)}?client=${encodeURIComponent(browserClientId())}`,
       onViewers: (count) => pushViewerCount(id, count),
       onChannel: (up) => {
+        if (!up) setHostStatus(undefined);
         detachViewerChannel?.();
         detachViewerChannel = up ? attachViewerChannel(id) : null;
       },
@@ -2127,6 +2130,8 @@ export function useTauriBrowser(contextId: string, initialUrl?: string, isVisibl
     agentActive,
     agentAction,
     takeControl,
+    hostStatus,
+    setHostSharing: (active: boolean) => hostRef.current?.setSharing(active),
     heavy: pause.heavy,
     paused: pause.pauseState === 'paused',
     pausedImage: pause.pausedImage,
@@ -2180,7 +2185,7 @@ export function useTauriBrowser(contextId: string, initialUrl?: string, isVisibl
     freeze,
     thaw,
   }), [
-    url, title, loading, agentActive, agentAction, takeControl, pause.heavy, pause.pauseState, pause.pausedImage, resume, keepLiveOnce, keepLiveAlways,
+    url, title, loading, agentActive, agentAction, takeControl, hostStatus, pause.heavy, pause.pauseState, pause.pausedImage, resume, keepLiveOnce, keepLiveAlways,
     ready, viewId, faviconUrl, frozenImage,
     navError, clearNavError, retryNav, parked, parkedChecking, retryParked,
     navigate, goBack, goForward, reload, goHome, setBounds, animateBounds, toggleDevTools, findInPage, stopFind,
