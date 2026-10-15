@@ -58,7 +58,9 @@ compile() {
   if [ "$1" = "bun-darwin-x64" ] && [ -n "${BUN_DARWIN_X64_EXECUTABLE:-}" ]; then
     runtime+=(--compile-executable-path="$BUN_DARWIN_X64_EXECUTABLE")
   fi
-  bun build --compile --target="$1" "${EXTERNALS[@]}" "${assets[@]}" "${runtime[@]}" "$ENTRY" --outfile "$2"
+  # `${a[@]+"${a[@]}"}`: an empty array under `set -u` is an error in the
+  # bash 3.2 that macOS ships (and the CI runner uses).
+  bun build --compile --target="$1" "${EXTERNALS[@]}" ${assets[@]+"${assets[@]}"} ${runtime[@]+"${runtime[@]}"} "$ENTRY" --outfile "$2"
 }
 
 # ── smoke: build a HOST binary and run it in FULL isolation, then verify + clean up.
@@ -86,7 +88,7 @@ if [ "$OS" = "smoke" ]; then
   echo "[smoke] compiling host binary ($HOST_TARGET) -> $BIN"
   ASSETS=()
   if [ -f native/topics_native.node ]; then ASSETS+=(--asset ./native/topics_native.node); fi
-  bun build --compile --target="$HOST_TARGET" "${EXTERNALS[@]}" "${ASSETS[@]}" "$ENTRY" --outfile "$BIN"
+  bun build --compile --target="$HOST_TARGET" "${EXTERNALS[@]}" ${ASSETS[@]+"${ASSETS[@]}"} "$ENTRY" --outfile "$BIN"
   echo "[smoke] launching ISOLATED: port=$PORT socket=$SOCK data=$WORK/data home=$WORK/home (bridge DISABLED)"
   NO_TLS=1 BUN_PORT="$PORT" SERVER_HOST=127.0.0.1 \
     TOPICS_DATA_DIR="$WORK/data" DATA_DIR="$WORK/data/data" TOPICS_HOME="$WORK/home" \

@@ -2,6 +2,7 @@ import { expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { resolve } from "node:path";
+import { gitEnv } from "../../tests/setup/bun-test-preload";
 import { loadNativeModuleAt } from "./native-addon";
 
 /** @covers D3B-01 */
@@ -26,16 +27,16 @@ test("native addon resolves HEAD when a build is present", () => {
     const linkedRepo = resolve(scratch, "repo");
     const linkedWorktree = resolve(scratch, "linked-worktree");
     mkdirSync(linkedRepo);
-    expect(Bun.spawnSync(["git", "init", "-q", linkedRepo]).exitCode).toBe(0);
+    expect(Bun.spawnSync(["git", "init", "-q", linkedRepo], { env: gitEnv() }).exitCode).toBe(0);
     writeFileSync(resolve(linkedRepo, "README.md"), "fixture\n");
-    expect(Bun.spawnSync(["git", "-C", linkedRepo, "add", "README.md"]).exitCode).toBe(0);
+    expect(Bun.spawnSync(["git", "-C", linkedRepo, "add", "README.md"], { env: gitEnv() }).exitCode).toBe(0);
     expect(Bun.spawnSync([
       "git", "-C", linkedRepo, "-c", "user.name=Fixture", "-c", "user.email=fixture@example.invalid",
       "commit", "-qm", "fixture",
-    ]).exitCode).toBe(0);
-    const expected = Bun.spawnSync(["git", "-C", linkedRepo, "rev-parse", "HEAD"]).stdout.toString().trim();
+    ], { env: gitEnv() }).exitCode).toBe(0);
+    const expected = Bun.spawnSync(["git", "-C", linkedRepo, "rev-parse", "HEAD"], { env: gitEnv() }).stdout.toString().trim();
     expect(nativeModule?.gitHeadCommitId(linkedRepo)).toBe(expected);
-    const worktree = Bun.spawnSync(["git", "-C", linkedRepo, "worktree", "add", "--detach", linkedWorktree, "HEAD"]);
+    const worktree = Bun.spawnSync(["git", "-C", linkedRepo, "worktree", "add", "--detach", linkedWorktree, "HEAD"], { env: gitEnv() });
     expect(worktree.exitCode).toBe(0);
     expect(nativeModule?.gitHeadCommitId(linkedWorktree)).toBe(expected);
     mkdirSync(notRepo);
