@@ -3,7 +3,7 @@
  *
  *   GET    /api/people                    the address book, with a face where there is one
  *   GET    /api/people/:id                one person, fresh GitHub profile and stats
- *   PATCH  /api/people/:id                attach or detach a GitHub login
+ *   PATCH  /api/people/:id                rename yourself or attach/detach a GitHub login
  *   POST   /api/people/:id/follow         start following
  *   DELETE /api/people/:id/follow         stop following
  *   GET    /api/people/:id/followers      who follows this person
@@ -584,31 +584,52 @@ export function createPeopleRouter(ctx: AppContext, deps: DepsPeople = {}): Rout
     if (method === "PATCH") {
       const body = await readJSON(req);
       if (!body) return errorResponse(400, "body required");
-      if (body.githubLogin === undefined) return errorResponse(400, "githubLogin required");
+      if (body.githubLogin === undefined && body.displayName === undefined) {
+        return errorResponse(400, "displayName or githubLogin required");
+      }
+
+      let displayName: string | undefined;
+      if (body.displayName !== undefined) {
+        if (io === null || io !== chi.id) return errorResponse(403, "only the owner can change this name");
+        if (typeof body.displayName !== "string") return errorResponse(400, "invalid displayName");
+        displayName = body.displayName.trim();
+        if (!displayName || displayName.length > 64) return errorResponse(400, "invalid displayName");
+      }
 
       // CHI PUÒ. Il proprio login lo mette la persona stessa; quello di un altro
       // solo chi amministra l'organizzazione. Nel mezzo non c'è niente:
       // «chiunque nella stessa org» significherebbe che un collega può
       // intestarti l'identità pubblica che vuole.
-      const org = installationOrgId(db as never);
-      const puo = (io !== null && io === chi.id) || (org !== null && canAdministerOrg(db as never, org, io));
-      if (!puo) return errorResponse(403, "not allowed to set this person's GitHub login");
+      let login: string | null | undefined;
+      if (body.githubLogin !== undefined) {
+        const org = installationOrgId(db as never);
+        const puo = (io !== null && io === chi.id) || (org !== null && canAdministerOrg(db as never, org, io));
+        if (!puo) return errorResponse(403, "not allowed to set this person's GitHub login");
 
-      let login: string | null;
-      if (body.githubLogin === null) login = null;
-      else {
-        if (!loginValido(body.githubLogin)) return errorResponse(400, "invalid GitHub login");
-        login = body.githubLogin as string;
+        if (body.githubLogin === null) login = null;
+        else {
+          if (!loginValido(body.githubLogin)) return errorResponse(400, "invalid GitHub login");
+          login = body.githubLogin as string;
+        }
       }
       try {
-        db.query("UPDATE people SET github_login = ?, rev = rev + 1, updated_at = ? WHERE id = ?")
-          .run(login, Date.now(), chi.id);
+        if (displayName !== undefined && login !== undefined) {
+          db.query("UPDATE people SET display_name = ?, github_login = ?, rev = rev + 1, updated_at = ? WHERE id = ?")
+            .run(displayName, login, Date.now(), chi.id);
+        } else if (displayName !== undefined) {
+          db.query("UPDATE people SET display_name = ?, rev = rev + 1, updated_at = ? WHERE id = ?")
+            .run(displayName, Date.now(), chi.id);
+        } else {
+          db.query("UPDATE people SET github_login = ?, rev = rev + 1, updated_at = ? WHERE id = ?")
+            .run(login, Date.now(), chi.id);
+        }
       } catch {
         // L'indice UNIQUE: quel login è già di un'altra persona qui dentro.
         return errorResponse(409, "that GitHub login already belongs to another person");
       }
-      const github = login ? await profiloGitHub(db as never, login, deps.github ?? {}) : null;
-      return json({ id: chi.id, githubLogin: login, github });
+      const nextLogin = login === undefined ? chi.github_login : login;
+      const github = nextLogin ? await profiloGitHub(db as never, nextLogin, deps.github ?? {}) : null;
+      return json({ id: chi.id, ...(displayName !== undefined ? { displayName } : {}), ...(login !== undefined ? { githubLogin: login } : {}), github });
     }
 
     return errorResponse(405, "method not allowed");

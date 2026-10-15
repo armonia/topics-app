@@ -35,6 +35,7 @@ import type { IdentityMenuData } from '@/hooks/useIdentityMenuData';
 import type { UserMenuLevel } from '@/lib/openUserMenu';
 import { apriProfilo } from '@/state/profileTarget';
 import { useT } from '@/hooks/useT';
+import { openFirstRun } from '@/lib/openFirstRun';
 
 export function IdentityMenuItems({ data, width, onClose, openLevel = null }: {
   data: IdentityMenuData;
@@ -44,6 +45,7 @@ export function IdentityMenuItems({ data, width, onClose, openLevel = null }: {
   /** A level asked for by `openUserMenu`, open from the first render. */
   openLevel?: UserMenuLevel | null;
 }) {
+  const tr = useT();
   return (
     <>
       <Suspense fallback={null}>
@@ -52,6 +54,9 @@ export function IdentityMenuItems({ data, width, onClose, openLevel = null }: {
           onOpenProfile={() => { onClose(); apriProfilo('profile'); }}
         />
       </Suspense>
+      <button type="button" data-testid="open-first-run-settings" onClick={() => { onClose(); openFirstRun(); }} className="flex min-h-10 w-full items-center rounded-md px-3 text-left text-mini text-app-text-secondary hover:bg-app-hover">
+        {tr('firstRun.reopen')}
+      </button>
       <PlanLevel defaultOpen={openLevel === 'plan'} />
 
       <div className="border-t border-app-border" />

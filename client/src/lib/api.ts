@@ -1526,6 +1526,12 @@ export const providersApi = {
   },
 };
 
+export const systemApi = {
+  async agents(): Promise<{ agents: CliAgentPresence[] }> {
+    return request<{ agents: CliAgentPresence[] }>('/system/agents');
+  },
+};
+
 /** Mirror of `AgentPresence` in `server/lib/detect-agents.ts`. */
 export interface CliAgentPresence {
   id: string;
@@ -1589,6 +1595,7 @@ export interface AppBehaviorSettings {
   calendarRefreshMinutes: number | null;
   /** How far ahead the agenda looks, in days. `null` = the server's default. */
   calendarHorizonDays: number | null;
+  firstRunDoneAt: string | null;
 }
 
 /**
@@ -1932,6 +1939,11 @@ export const peopleApi = {
       `/people/${id}`,
       { method: 'PATCH', body: JSON.stringify({ githubLogin }) },
     );
+  },
+  async rename(id: string, displayName: string): Promise<{ id: string; displayName: string }> {
+    return request<{ id: string; displayName: string }>(`/people/${id}`, {
+      method: 'PATCH', body: JSON.stringify({ displayName }),
+    });
   },
   async follow(id: string): Promise<{ following: boolean; counts: FollowCounts }> {
     return request<{ following: boolean; counts: FollowCounts }>(`/people/${id}/follow`, { method: 'POST' });
