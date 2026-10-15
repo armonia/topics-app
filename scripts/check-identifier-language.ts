@@ -86,11 +86,6 @@ const ROOTS = ["client/src", "server", "shared", "scripts", "tests"];
  * itself.
  */
 export const PROJECT_WORDS = new Set([
-  // Terminal vocabulary with no other name (2026-10-15, `server/lib/live-terminals.ts`):
-  // `tmux` is the multiplexer whose panes Topics reads and writes, `tty`/`ttys` the
-  // terminal devices (`/dev/ttys004`) a Terminal.app tab is keyed by, `pre` the HTML
-  // element the screen of a live terminal is drawn into.
-  "tmux", "tty", "ttys", "pre",
   // `inbox` is what the design names the «To look at» panel (notifications-
   // redesign, design section 9): one list of the subjects that want a look,
   // with the dictionary meaning of the word. `lucide` is the icon library the
@@ -111,7 +106,7 @@ export const PROJECT_WORDS = new Set([
   // Graphic Rendition, ECMA-48), the one that sets colours and styles. The
   // output of a command run from the chat is parsed by those names and has no
   // other honest ones (2026-10-01, `components/Chat/ansiSpans.ts`).
-  "ansi", "sgr",
+  "ansi", "sgr", "tmux", "tty", "ttys", "pre",
   // `reparent` is the tree operation of moving a node's children under its own
   // parent: the dedupe script does exactly that before deleting a copy.
   "reparent",
