@@ -46,7 +46,7 @@ import { referencedSessionIdsIn } from "../lib/orphan-sessions";
 import { decideOnRestart } from "../lib/terminal-restart-policy";
 import { recordRetirement } from "../services/retirement";
 import { renderScreen, screenToText } from "../lib/terminal-screen";
-import type { LiveTerminal } from "../lib/live-terminals";
+import type { LiveTerminal } from "../../shared/live-terminals";
 import type { ClaudeSessionTracker } from "../lib/claude-session-tracker";
 import { writeMcpConfigForSession, cleanupMcpConfigForSession } from "../providers/claude-code";
 import { claudeTranscriptPath } from "../lib/claude-transcript-path";

@@ -29,7 +29,6 @@
 import { execFile } from "node:child_process";
 import { basename } from "node:path";
 
-export type { LiveTerminal, LiveTerminalSource } from "../../shared/live-terminals";
 import type { LiveTerminal, LiveTerminalSource } from "../../shared/live-terminals";
 
 export interface LiveScreen {
