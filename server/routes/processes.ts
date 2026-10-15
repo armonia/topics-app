@@ -2035,6 +2035,7 @@ export function createProcessesRouter(ctx: AppContext): RouteHandler {
         HOST: "0.0.0.0",
         NODE_ENV: "development",
         npm_config_yes: "true",
+        TOPICS_PORT: String(ctx.worktreeManager.portForPath(projectPath)),
       }),
     });
 

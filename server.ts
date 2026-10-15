@@ -2045,6 +2045,7 @@ const taskDispatcher = createTaskDispatcher({
   // ripiego su HEAD in `worktree-base-ref.ts`.
   createWorktree: (projectStoreId) =>
     createAgentWorktree(agentWorktreeDeps("dispatch"), projectStoreId, worktreeReadyMs()),
+  worktreeSetupResult: (worktreeId) => ctx.worktreeManager.setupResult(worktreeId),
   deleteWorktree: async (worktreeId) => { await ctx.worktreeManager.delete(worktreeId); },
   // C'e' qualcosa da perdere in questo worktree? Serve al dispatcher per NON
   // cancellare il branch di un tentativo rimesso in coda che pero' aveva gia'

@@ -548,3 +548,53 @@ had a directory of its own.
   its branch
 - **AND** a sub-agent without a worktree SHALL leave all three exactly as they
   are today
+
+### Requirement: WORKTREE-15 — A new worktree is ready to use
+
+A new worktree SHALL receive the untracked files its project selects in
+`.worktreeinclude` at the project root, written with gitignore syntax: a card on
+a project that needs `.env` cannot start without it, and git never copies it.
+Only untracked files SHALL be copied. A pattern containing `..` SHALL make the
+whole file refused, and a symlink, or a file that resolves outside the project
+root, SHALL be skipped and logged. A failure while copying SHALL NOT cost the
+card its worktree.
+
+A project MAY declare three commands in `.topics/worktree.json`, all optional:
+`setup`, `run` and `archive`, each as `{ "command": "...", "args": [...] }`.
+`setup` SHALL run when the worktree is created, after the included files and the
+dependencies, with a timeout of 120 s by default and 300 s at most, so that it
+fits inside the agent's readiness wait. Its outcome (succeeded, failed or timed
+out, the exit code, and the last 20 lines of output) SHALL appear in the card's
+thread, and a failure SHALL NOT stop the turn. `run` SHALL join the project's
+script runner. `archive` SHALL run before the worktree is removed.
+
+Each worktree SHALL have a port, handed to every command above and to the
+script runner as `TOPICS_PORT`. The port SHALL be the same after a server
+restart, and two worktrees SHALL have different ports. Ports SHALL be claimed
+oldest first, by creation time: a newcomer whose hash lands on a taken port
+takes the next free one and never moves the port of a worktree whose server may
+already be running.
+
+#### Scenario: a card finds its `.env` and its setup done
+- **GIVEN** a project whose `.worktreeinclude` lists `.env` and whose
+  `.topics/worktree.json` declares a `setup`
+- **WHEN** a card launches in a new worktree
+- **THEN** the worktree SHALL contain the project's `.env`, and no tracked file
+  SHALL have been copied by the include step
+- **AND** the card's thread SHALL say the setup succeeded, with its last lines
+
+#### Scenario: nothing leaves the project root
+- **GIVEN** a `.worktreeinclude` with a pattern containing `..`, or a selected
+  path that is a symlink to a file outside the project
+- **THEN** no file outside the project root SHALL be copied
+
+#### Scenario: a failed or slow setup leaves a readable outcome
+- **GIVEN** a setup that exits with a non-zero code, or runs past its timeout
+- **THEN** the outcome SHALL say failed or timed out, with the last lines of
+  output, and the turn SHALL start anyway
+
+#### Scenario: ports are distinct and stable
+- **GIVEN** two worktrees of the same project
+- **THEN** they SHALL have different ports, and each SHALL keep its port after
+  the server restarts
+- **AND** a newer worktree whose port collides SHALL NOT move the older one

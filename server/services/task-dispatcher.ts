@@ -476,6 +476,8 @@ export interface DispatcherDeps {
   attemptStats?: (worktreeId: string) => Promise<{ commit: string | null; filesChanged: number; insertions: number; deletions: number } | null>;
   /** Il branch di un worktree (l'etichetta che l'umano riconosce nel confronto). */
   worktreeBranch?: (worktreeId: string) => string | null;
+  /** Setup script outcome retained by WorktreeManager until the next restart. */
+  worktreeSetupResult?: (worktreeId: string) => { status: "not-configured" | "succeeded" | "failed" | "timed-out"; exitCode: number | null; output: string[] } | null;
   /** Archivia il topic di un tentativo scartato (la sua chat esce dalle tab). */
   archiveTopic?: (topicId: string) => void;
   /** Broadcast a WS message so live boards reflect chip/state changes. */
@@ -3176,6 +3178,12 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
         try {
           const newBranch = deps.worktreeBranch?.(worktreeId) ?? worktreeId;
           let note = `Nuovo worktree: \`${newBranch}\``;
+          const setup = deps.worktreeSetupResult?.(worktreeId);
+          if (setup && setup.status !== "not-configured") {
+            const label = setup.status === "succeeded" ? "riuscito" : setup.status === "timed-out" ? "scaduto" : "fallito";
+            note += `\nSetup ${label}${setup.exitCode === null ? "" : ` (exit ${setup.exitCode})`}.`;
+            if (setup.output.length) note += `\n\`${setup.output.join("\n").replaceAll("`", "'")}\``;
+          }
           if (attemptStore) {
             try {
               const prev = attemptStore.list(taskId);
