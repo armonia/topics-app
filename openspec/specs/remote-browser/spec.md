@@ -1534,6 +1534,29 @@ Registrazioni su contesti DIVERSI NON SHALL disturbarsi.
 - **GIVEN** impossibile stabilire se il proprietario è vivo
 - **THEN** SHALL essere consentito, dichiarandolo
 
+### Requirement: NATDEL-04 — Il socket dell'esecutore accetta solo i suoi tipi
+
+Un socket registrato come esecutore nativo di un contesto SHALL vedere accettati
+solo i tipi del delegato: la registrazione, i risultati delle operazioni,
+`take_control` e i frame dell'host del mirror. Ogni altro tipo SHALL essere
+scartato con una riga di log, senza sollevare.
+
+Un risultato di operazione SHALL valere solo se arriva dal socket registrato per
+il contesto di quell'operazione. Gli id delle operazioni SHALL essere casuali.
+
+La coda di eventi che l'host consegna SHALL essere riletta e ricostruita evento
+per evento prima di partire, e NON SHALL MAI essere inoltrata come testo.
+
+#### Scenario: un tipo da viewer sul socket dell'esecutore
+- **GIVEN** un socket registrato come esecutore nativo
+- **WHEN** manda `nav`, `input` o `set_engine`
+- **THEN** il server SHALL scartarli senza eseguirli
+
+#### Scenario: un risultato da un altro socket
+- **GIVEN** un'operazione aperta sul contesto A
+- **WHEN** un socket diverso da quello registrato per A ne manda il risultato
+- **THEN** l'operazione SHALL restare aperta
+
 ### Requirement: NATSTATE-01 — Il segreto resta sul SERVER: al nativo va solo la gamba che serve
 
 Le operazioni di stato di accesso SHALL essere esattamente quelle dichiarate, e

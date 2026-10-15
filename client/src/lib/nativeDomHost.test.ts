@@ -21,7 +21,7 @@ function rig(overrides: Partial<NativeDomHostOptions> = {}) {
       }
       if (js.includes('__topicsDomHost={q:[]')) {
         page.armed = true;
-        page.queue.push({ type: 4 }, { type: 2 });
+        page.queue.push(...initialEvents);
         return 'armed';
       }
       if (js.includes('window.__topicsDomHost=undefined')) { page.armed = false; page.queue = []; return 'ok'; }
@@ -57,6 +57,10 @@ function rig(overrides: Partial<NativeDomHostOptions> = {}) {
 }
 
 const frames = (sent: string[]) => sent.map((t) => JSON.parse(t) as { type: string; events?: unknown[] });
+const initialEvents = [
+  { type: 4, timestamp: 1, data: { href: 'https://example.com', width: 800, height: 600 } },
+  { type: 2, timestamp: 2, data: { node: { type: 0, id: 1, childNodes: [] } } },
+];
 
 describe('native DOM host', () => {
   test('a start arms the recorder and the first drain sends meta + snapshot', async () => {
@@ -64,7 +68,7 @@ describe('native DOM host', () => {
     r.host.handle({ type: 'host_dom_start' });
     await r.turn();
     const batch = frames(r.sent).find((f) => f.type === 'host_dom_events');
-    expect(batch?.events).toEqual([{ type: 4 }, { type: 2 }]);
+    expect(batch?.events).toEqual(initialEvents);
   });
 
   test('the drain stays fast while the page moves and slows down when it is still', async () => {
@@ -104,7 +108,7 @@ describe('native DOM host', () => {
     r.host.handle({ type: 'host_dom_start' });
     await r.turn();
     const batch = frames(r.sent).find((f) => f.type === 'host_dom_events');
-    expect(batch?.events).toEqual([{ type: 4 }, { type: 2 }]);
+    expect(batch?.events).toEqual(initialEvents);
   });
 
   test('inputs run in order, keep the Mac\'s key focus, and are followed by a drain', async () => {

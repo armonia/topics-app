@@ -31,7 +31,7 @@ export interface NativeDomHostOptions {
   evalInPage: (js: string, preserveFocus?: boolean) => Promise<string>;
   /** The rrweb record bundle, the same file the server injects into Chromium. */
   loadRecorder: () => Promise<string>;
-  /** Raw text on the executor socket (a drained batch is sent without re-parsing it). */
+  /** Text frames on the executor socket. */
   sendText: (text: string) => void;
   /** The pane's own toolbar path, so a viewer's navigation moves the Mac's address bar too. */
   navigate: (action: HostNavAction, url?: string) => void;
@@ -79,6 +79,65 @@ const UNARMED = 'unarmed';
 export const DRAIN_JS =
   "(function(){var h=window.__topicsDomHost;if(!h)return 'unarmed';if(!h.q.length)return '[]';" +
   'var q=h.q;h.q=[];return JSON.stringify(q);})()';
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === 'object' && !Array.isArray(value);
+}
+
+const INVALID_JSON = Symbol('invalid-json');
+
+function copyJsonValue(value: unknown): unknown | typeof INVALID_JSON {
+  if (value === null || typeof value === 'string' || typeof value === 'boolean') return value;
+  if (typeof value === 'number') return Number.isFinite(value) ? value : INVALID_JSON;
+  if (!Array.isArray(value) && !isRecord(value)) return INVALID_JSON;
+
+  const root: unknown[] | Record<string, unknown> = Array.isArray(value) ? [] : {};
+  const pending: Array<{ source: unknown[] | Record<string, unknown>; target: unknown[] | Record<string, unknown> }> = [
+    { source: value, target: root },
+  ];
+  while (pending.length) {
+    const current = pending.pop()!;
+    const entries = Array.isArray(current.source)
+      ? current.source.map((item, index) => [String(index), item] as const)
+      : Object.entries(current.source);
+    for (const [key, item] of entries) {
+      if (!Array.isArray(current.source) && (key === '__proto__' || key === 'constructor' || key === 'prototype')) return INVALID_JSON;
+      let copied: unknown;
+      if (item === null || typeof item === 'string' || typeof item === 'boolean') copied = item;
+      else if (typeof item === 'number') {
+        if (!Number.isFinite(item)) return INVALID_JSON;
+        copied = item;
+      } else if (Array.isArray(item) || isRecord(item)) {
+        copied = Array.isArray(item) ? [] : {};
+        pending.push({ source: item, target: copied as unknown[] | Record<string, unknown> });
+      } else return INVALID_JSON;
+
+      if (Array.isArray(current.target)) current.target[Number(key)] = copied;
+      else current.target[key] = copied;
+    }
+  }
+  return root;
+}
+
+function sanitizeRrwebEvent(value: unknown): Record<string, unknown> | null {
+  if (!isRecord(value) || typeof value.timestamp !== 'number' || !Number.isFinite(value.timestamp) || !isRecord(value.data)) return null;
+  if (Object.keys(value).some((key) => !['type', 'timestamp', 'data'].includes(key))) return null;
+  const type = value.type;
+  if (typeof type !== 'number' || !Number.isInteger(type) || ![0, 1, 2, 3, 4].includes(type)) return null;
+  if (type === 2 && !isRecord(value.data.node)) return null;
+  if (type === 3 && (typeof value.data.source !== 'number' || !Number.isInteger(value.data.source) || value.data.source < 0 || value.data.source > 16)) return null;
+  if (type === 4 && (typeof value.data.href !== 'string' || typeof value.data.width !== 'number' || !Number.isFinite(value.data.width) || typeof value.data.height !== 'number' || !Number.isFinite(value.data.height))) return null;
+  const data = copyJsonValue(value.data);
+  if (data === INVALID_JSON || !isRecord(data)) return null;
+  return { type, timestamp: value.timestamp, data };
+}
+
+function parseHostEvents(raw: string): Record<string, unknown>[] {
+  let parsed: unknown;
+  try { parsed = JSON.parse(raw); } catch { return []; }
+  if (!Array.isArray(parsed)) return [];
+  return parsed.map(sanitizeRrwebEvent).filter((event): event is Record<string, unknown> => event !== null);
+}
 
 const STOP_JS =
   '(function(){var h=window.__topicsDomHost;if(h&&h.stop){try{h.stop()}catch(e){}}' +
@@ -160,7 +219,7 @@ const LAYOUT_JS =
  */
 export function armJs(bundle: string): string {
   return (
-    "(function(){if(window.__topicsDomHost)return 'armed';" +
+    "(function(){var previous=window.__topicsDomHost;try{if(previous){previous.rrweb=null;if(previous.stop)previous.stop()}}catch(e){}" +
     'var h=window.__topicsDomHost={q:[],stop:null,rrweb:null,placed:null};' +
     'try{\n' + bundle + '\n;h.rrweb=rrweb;}catch(e){h.error=String(e&&e.message||e);return \'failed\'}' +
     LAYOUT_JS +
@@ -347,8 +406,11 @@ export function createNativeDomHost(opts: NativeDomHostOptions): NativeDomHost {
         if (raw === UNARMED) {
           if (recording) { await arm(); armed = true; }
         } else if (recording && raw && raw !== '[]') {
-          lastBusyAt = now();
-          opts.sendText(`{"type":"host_dom_events","events":${raw}}`);
+          const events = parseHostEvents(raw);
+          if (events.length) {
+            lastBusyAt = now();
+            opts.sendText(JSON.stringify({ type: 'host_dom_events', events }));
+          }
         }
       } catch {
         // The page is between documents, or the recorder failed to download:
