@@ -103,11 +103,11 @@ test.describe("@nightly D7f pane-store tra dispositivi", () => {
     const devices = await openTwoDevices(browser);
     try {
       await expect(tabFor(devices.pageB, topic.id)).toHaveCount(1, { timeout: 10_000 });
-      await expect.poll(async () => devices.pageB.evaluate((key) => {
+      await expect.poll(async () => devices.pageB.evaluate(({ key, id }) => {
         const raw = localStorage.getItem(key);
         const value = raw ? JSON.parse(raw) as { panes?: Record<string, unknown> } : null;
-        return value?.panes?.[topic.id] !== undefined;
-      }, PANE_STORE_KEY), {
+        return value?.panes?.[id] !== undefined;
+      }, { key: PANE_STORE_KEY, id: topic.id }), {
         timeout: 10_000,
         message: "il localStorage di B deve aver salvato X prima dello sleep",
       }).toBe(true);
@@ -156,7 +156,11 @@ test.describe("@nightly D7f pane-store tra dispositivi", () => {
       await expect(tabFor(devices.pageB, topic.id)).toHaveCount(0, { timeout: 10_000 });
       await expect(tabFor(devices.pageA, topic.id)).toHaveCount(0, { timeout: 10_000 });
 
-      await devices.pageB.keyboard.press("Meta+Shift+T");
+      // The gesture a person makes on the other device: open the chat again from
+      // the sidebar. Not ⇧⌘T, whose stack stage 3 makes per device.
+      const row = devices.pageB.getByRole("treeitem", { name: topic.name }).first();
+      await expect(row).toBeVisible({ timeout: 10_000 });
+      await row.dblclick();
       await expect(tabFor(devices.pageB, topic.id)).toHaveCount(1, { timeout: 10_000 });
 
       // A reload checks the shared state even if the reopen does not reach A live.
