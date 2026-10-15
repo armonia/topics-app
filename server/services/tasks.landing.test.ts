@@ -13,7 +13,7 @@
  */
 import { test, expect, describe, beforeEach } from "bun:test";
 import { Database } from "bun:sqlite";
-import { createTaskService, type TaskService } from "./tasks";
+import { createTaskService, SETTLED_LANDING_RECHECK_MS, type TaskService } from "./tasks";
 import { freshDb, svc, PID } from "./tasks-test-db";
 
 /**
@@ -156,6 +156,46 @@ describe("settleLanded / verdetto testimoniato", () => {
     // La testimonianza resta, ed è giusto: dice ancora CHI ha risposto. A
     // cadere è solo l'esenzione dal ricontrollo.
     expect(atterraggio(id).w).toBe(1);
+  });
+
+  /**
+   * A SETTLED VERDICT IS ASKED ONCE A DAY, NOT EVERY PASS.
+   *
+   * Every 30-min pass, and every boot, re-asked every landed and unverifiable
+   * card: on 15/10 one pass took 303 cards and about 900 git processes, the
+   * bulk of the server's 1,048 git in 15 minutes. 'landed' changes only if main
+   * reverts the work, 'unverifiable' only if the vanished evidence comes back:
+   * a day is soon enough for both. 'unlanded' is what a person acts on, and
+   * keeps the pace, as does a card nobody has asked yet.
+   */
+  test("un verdetto chiuso si richiede una volta al giorno, non a ogni passata", () => {
+    const ago = (ms: number) => new Date(Date.now() - ms).toISOString();
+    const hour = 60 * 60_000;
+    const delivered = () => {
+      const id = nuovo();
+      svc.recordDelivery({ taskId: id, branch: "topics/x", commit: "e".repeat(40) });
+      db.prepare("UPDATE tasks SET status = 'done' WHERE id = ?").run(id);
+      return id;
+    };
+    const card = (state: "landed" | "unverifiable" | "unlanded", checkedAt: string) => {
+      const id = delivered();
+      svc.recordLandingState({ taskId: id, state, checkedAt });
+      return id;
+    };
+    const landedLately = card("landed", ago(hour));
+    const landedLongAgo = card("landed", ago(SETTLED_LANDING_RECHECK_MS + hour));
+    const unverifiableLately = card("unverifiable", ago(hour));
+    const unverifiableLongAgo = card("unverifiable", ago(SETTLED_LANDING_RECHECK_MS + hour));
+    const unlandedLately = card("unlanded", ago(60_000));
+    const neverAsked = delivered();
+
+    const candidates = svc.listLandingAuditCandidates().map((c) => c.id);
+    expect(candidates).not.toContain(landedLately);
+    expect(candidates).not.toContain(unverifiableLately);
+    expect(candidates).toContain(landedLongAgo);
+    expect(candidates).toContain(unverifiableLongAgo);
+    expect(candidates).toContain(unlandedLately);
+    expect(candidates).toContain(neverAsked);
   });
 
   /**

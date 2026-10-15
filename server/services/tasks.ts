@@ -312,6 +312,9 @@ const INTERRUPT_CLAIM_MS = 3 * 60_000;
  */
 const REOPEN_COMMENT_SLACK_MS = 5_000;
 
+/** How long a settled landing verdict (landed, unverifiable) stays out of the audit pass. */
+export const SETTLED_LANDING_RECHECK_MS = 24 * 60 * 60_000;
+
 interface ServiceOpts {
   now?: () => string;
   uuid?: () => string;
@@ -6328,8 +6331,21 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
             -- e va bene cosi'». L'audit chiede al repo, e il repo risponderebbe
             -- di nuovo unlanded cancellando la scelta a ogni passata.
             AND COALESCE(landing_state, '') <> 'superseded'
-            AND NOT (COALESCE(landing_witnessed, 0) = 1 AND landing_state = 'landed')`,
-      ).all().map((r: any) => ({
+            AND NOT (COALESCE(landing_witnessed, 0) = 1 AND landing_state = 'landed')
+            -- A SETTLED verdict is asked again once a day, not every pass.
+            -- 'landed' only changes if main reverts the work, 'unverifiable'
+            -- only if the vanished evidence comes back; meanwhile every 30-min
+            -- pass, and every boot, re-asked them all: on 15/10 one pass took
+            -- 303 cards (144 landed, 145 unverifiable, 14 unlanded) and about
+            -- 900 git processes, the bulk of the server's 1,048 git in 15
+            -- minutes. 'unlanded' and never-asked cards keep the 30-min pace:
+            -- those are the ones a person acts on.
+            AND NOT (
+              landing_state IN ('landed', 'unverifiable')
+              AND landing_checked_at IS NOT NULL
+              AND landing_checked_at > ?
+            )`,
+      ).all(new Date(Date.parse(now()) - SETTLED_LANDING_RECHECK_MS).toISOString()).map((r: any) => ({
         id: r.id,
         projectId: r.project_id,
         deliveryBranch: r.delivery_branch ?? null,
