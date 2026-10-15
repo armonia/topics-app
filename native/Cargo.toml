@@ -1,0 +1,18 @@
+[package]
+name = "topics-native"
+version = "0.1.0"
+edition = "2021"
+publish = false
+license = "MIT"
+build = "build.rs"
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+napi = { version = "3.14.2", default-features = false, features = ["napi8"] }
+napi-derive = "3.6.9"
+gix = { version = "0.89.0", default-features = false, features = ["revision", "sha1", "sha256"] }
+
+[build-dependencies]
+napi-build = "2.6.0"

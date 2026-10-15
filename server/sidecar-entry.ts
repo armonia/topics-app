@@ -17,7 +17,19 @@
  */
 import { AI_BRIDGE_DAEMON_FLAG } from "./lib/ai-bridge-daemon-argv";
 
-if (process.argv.includes(AI_BRIDGE_DAEMON_FLAG)) {
+if (process.argv.includes("--native-selftest")) {
+  const { loadNativeModule, nativeModuleLoadError } = await import("./lib/native-addon");
+  const nativeModule = loadNativeModule();
+  const commitId = nativeModule?.gitHeadCommitId(process.cwd());
+  if (nativeModule && commitId) {
+    console.log(`native ok ${nativeModule.nativeVersion()} ${commitId}`);
+    process.exit(0);
+  }
+
+  const reason = nativeModule ? `HEAD not found in ${process.cwd()}` : nativeModuleLoadError();
+  console.error(`native selftest failed: ${reason}`);
+  process.exit(1);
+} else if (process.argv.includes(AI_BRIDGE_DAEMON_FLAG)) {
   // runtime-dep-ok: a STATIC specifier, so the compiler embeds the daemon in
   // this same binary. Nothing is read from disk and no runtime is looked up.
   // The daemon reads its own flags (`--socket`, `--store-dir`, `--parent-pid`)
