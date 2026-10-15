@@ -2,6 +2,11 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.2.513 — 2026-10-15
+
+### Sotto il cofano
+- Lo status git nativo con gix coincide con git su 30 repo di prova (D3c, passo 2 di D3) (#368)
+
 ## 2.2.512 — 2026-10-15
 
 ### Sotto il cofano

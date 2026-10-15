@@ -1,5 +1,21 @@
 [
   {
+    "version": "2.2.513",
+    "date": "2026-10-15",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Lo status git nativo con gix coincide con git su 30 repo di prova (D3c, passo 2 di D3) (#368)",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
     "version": "2.2.512",
     "date": "2026-10-15",
     "sections": {
