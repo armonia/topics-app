@@ -1165,7 +1165,7 @@ jobs:
         run: scripts/build-native-addon.sh
 
       - name: Native git status parity
-        run: bun test native/parity.test.ts
+        run: bun test native/parity.test.ts server/lib/git-status.native.test.ts
 
       - name: Install Bun x64 compile runtime
         if: runner.os == 'macOS'

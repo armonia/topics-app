@@ -75,3 +75,14 @@ normale, una worktree collegata e una cartella non Git.
 (v1), `rev-parse --git-dir --show-toplevel` e `log -1 --format=%h|%H|%s|%an` su 30 repository
 fixture. `native/parity.test.ts` confronta parser e addon con campi e ordine identici; salta solo
 l'addon non costruito e i casi Windows non applicabili.
+
+## 7. D3d, collegamento nativo dello status Git
+
+### Requirement: D3D-01 — `computeGitStatus` usa l'addon e mantiene il ripiego Git
+
+Con l'addon caricato e l'impostazione attiva, `computeGitStatus` usa `gitStatus` nativo per radice,
+branch, file e ultimo commit, poi avvia solo i due comandi numstat. Se l'addon è assente,
+l'impostazione è spenta o la chiamata nativa fallisce, usa il percorso Git esistente. Il tempo
+dell'autore nel modulo nativo alimenta una data relativa uguale a `%ar`. `GET /api/system/status`
+espone `nativeGit` con `loaded`, `enabled`, `calls`, `fallbacks` e `lastError`; l'impostazione è
+salvata nella chiave server-sincronizzata `settings` e mostrata nel pannello Performance.

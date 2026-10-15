@@ -29,6 +29,7 @@ pub struct LastCommit {
     pub hash: String,
     pub subject: String,
     pub author: String,
+    pub time: i64,
 }
 
 #[napi(object)]
@@ -204,6 +205,7 @@ fn compute_git_status(repo_path: &str) -> Result<Option<GitStatus>, Box<dyn std:
                 hash: commit.id().to_string(),
                 subject,
                 author,
+                time: decoded.author()?.seconds(),
             })
         }
         None => None,

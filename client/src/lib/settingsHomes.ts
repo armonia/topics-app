@@ -26,6 +26,7 @@ export const SETTINGS_HOMES: Record<keyof AppSettings, readonly SettingSurface[]
   notificationsSound: ['user-menu/notifications'],
   notifyEvenWhenFocused: ['user-menu/notifications'],
   mutedProjects: ['user-menu/notifications'],
+  nativeGitStatusEnabled: ['user-menu/system/performance'],
   showBoardRow: ['user-menu/view'],
   showLiveTerminals: ['user-menu/view'],
   keepLiveSites: ['user-menu/system/performance'],

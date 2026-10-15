@@ -42,6 +42,13 @@ export interface FleetSessionRow {
 
 export interface SystemStatus {
   timestamp: string;
+  nativeGit?: {
+    loaded: boolean;
+    enabled: boolean;
+    calls: number;
+    fallbacks: number;
+    lastError: string | null;
+  };
   processSpawns?: {
     windowMinutes: number;
     sampledAt: string;

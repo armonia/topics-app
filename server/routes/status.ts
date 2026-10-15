@@ -6,6 +6,7 @@ import type { AppContext, RouteHandler } from "../types";
 import { getFleetUsage } from "../lib/fleet-usage";
 import { machineSharesNow } from "../services/dispatch-capacity";
 import { serverSpawnCounts } from "../lib/spawn-metrics";
+import { nativeGitStatusSnapshot } from "../lib/native-git-status";
 import { unknownPricedModels } from "../usage/pricing";
 import { getProvider } from "../providers";
 import { checkGatewayHealth as pingGateway } from "../providers/health";
@@ -466,6 +467,7 @@ export function createStatusRouter(ctx: AppContext): RouteHandler {
         cronJobs: lastCronStatus || { enabled: 0, disabled: 0, total: 0 },
         sessions: lastSessionsStatus || { total: 0, byType: {} },
         processSpawns: serverSpawnCounts(),
+        nativeGit: nativeGitStatusSnapshot(),
       });
     }
 

@@ -1579,6 +1579,8 @@ export interface AppSettings {
   // (Topic.muted, migration 073); this is the project-wide counterpart, keyed
   // by projectPath because a project has no guaranteed per-entity settings row.
   mutedProjects: string[];
+  /** Use the native addon for Git status when the server has it available. */
+  nativeGitStatusEnabled: boolean;
   /**
    * Sites (origin, e.g. `http://localhost:4600`) whose heavy tab is never paused:
    * the «keep always» button of the pause card. Per origin, not per page, because
