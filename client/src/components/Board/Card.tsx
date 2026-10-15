@@ -135,7 +135,10 @@ const ColumnBody = memo(function ColumnBody({ status, tasks, onOpen, onCreate, c
   // Infinite scroll: the next page comes as the column's tail comes into view, never while a card is carried.
   const moreRef = useLoadOnReach(() => setShown((n) => n + COLUMN_PAGE), { more: slice.hidden > 0, loading: false, count: slice.rows.length, enabled: !dragging }, layout);
   // Stable identity across the board's 4s live-usage tick: SortableContext gets a
-  // fresh array only when the task set actually changes, not every render.
+  // fresh array only when the task set actually changes, not every render. Gli id
+  // sono quelli REGISTRATI in dnd-kit: un id senza nodo è un bersaglio che non
+  // esiste. Nelle colonne a mano sono tutti, perché `VirtualizedCards` lascia un
+  // segnaposto sortable a ogni card fuori finestra; in Review e Done la pagina.
   //
   // Keyed on the ids, not on `slice`: the column array is new on every
   // `task:updated` (one row changed), and a new `items` array is a new
@@ -169,13 +172,15 @@ const ColumnBody = memo(function ColumnBody({ status, tasks, onOpen, onCreate, c
   }, [virtualized, layout]);
   const renderCard = useCallback((t: BoardTask) => (
     <Card
-      task={t} onOpen={onOpen} showProject={showProject} onRefetch={onRefetch} onOpenTopic={onOpenTopic}
+      key={t.id} task={t} onOpen={onOpen} showProject={showProject} onRefetch={onRefetch} onOpenTopic={onOpenTopic}
       error={cardError?.taskId === t.id ? cardError.message : null}
       onError={onCardError}
       sessionState={resolveSession?.(t.assignedTopicId) ?? 'unknown'}
       parentTitle={t.parentTaskId ? tasksById.get(t.parentTaskId)?.text : undefined}
       projectPath={projectPathById.get(t.projectId)}
       live={liveById.get(t.id)}
+      // The live event OR the thread: the first dies with the process, the
+      // second does not, and an unanswered question survives a restart.
       awaiting={awaitingHuman.has(t.id) || !!t.awaitingAnswer}
       justMovedTo={justMoved.get(t.id)}
       justCreated={justCreated.has(t.id)}

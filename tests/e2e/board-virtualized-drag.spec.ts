@@ -7,6 +7,7 @@ import { projectRow } from "./helpers/project-row";
 import { canonicalTmpDir, removeTmpDir } from "./helpers/file-project";
 import { E2E_BASE } from "./helpers/test-server";
 import { projectIdForPath } from "../../shared/board";
+import { compareTasks } from "../../client/src/lib/boardOrder";
 
 hermetic(test);
 
@@ -14,7 +15,7 @@ const TASK_COUNT = 320;
 const PROJECT_PATH = canonicalTmpDir("e2e-board-virtual-drag");
 const PROJECT_ID = projectIdForPath(PROJECT_PATH);
 
-type TaskRow = { id: string; status: string; kanbanOrder: number };
+type TaskRow = { id: string; status: string; kanbanOrder: number; createdAt: string; updatedAt: string; completedAt?: string };
 
 test.describe("Board: drag across the virtual window", () => {
   test.describe.configure({ timeout: 240_000 });
@@ -73,15 +74,17 @@ test.describe("Board: drag across the virtual window", () => {
     const listTasks = async (): Promise<TaskRow[]> => {
       const response = await request.get(`${E2E_BASE}/api/boards/${PROJECT_ID}/tasks?status=backlog`);
       expect(response.ok()).toBe(true);
-      return ((await response.json()) as { tasks: TaskRow[] }).tasks;
+      // In the column's order, the product's own comparator: the list route does not promise one.
+      return ((await response.json()) as { tasks: TaskRow[] }).tasks.sort(compareTasks("board"));
     };
     const backlog = page.getByTestId("kanban-column-body-backlog");
     await expect.poll(async () => (await listTasks()).length, { timeout: 30_000 }).toBe(TASK_COUNT);
     const beforeMouse = await listTasks();
     const mouseSource = beforeMouse[0]!;
-    const mouseTarget = beforeMouse[70]!;
     const source = page.locator(`[data-task-card="${mouseSource.id}"]`);
     await expect(source).toBeVisible();
+    // The cards drawn when the drag starts: the drop must land past all of them.
+    const drawnAtStart = await backlog.locator("[data-task-card]").count();
     const sourceBox = (await source.boundingBox())!;
     const bodyBox = (await backlog.boundingBox())!;
     const grab = { x: sourceBox.x + 30, y: sourceBox.y + 12 };
@@ -89,19 +92,11 @@ test.describe("Board: drag across the virtual window", () => {
     await page.mouse.down();
     await page.mouse.move(grab.x + 10, grab.y + 8);
     await page.mouse.move(bodyBox.x + bodyBox.width / 2, bodyBox.y + bodyBox.height - 8);
-    await expect.poll(() => backlog.evaluate((el) => el.scrollTop), { timeout: 30_000 }).toBeGreaterThan(400);
-    const target = page.locator(`[data-task-card="${mouseTarget.id}"]`);
-    await expect.poll(async () => {
-      const box = await target.boundingBox();
-      return !!box && box.y >= bodyBox.y && box.y + box.height <= bodyBox.y + bodyBox.height;
-    }, { timeout: 30_000 }).toBe(true);
-    const targetBox = (await target.boundingBox())!;
-    await page.mouse.move(targetBox.x + 30, targetBox.y + 8);
+    await expect.poll(() => backlog.evaluate((el) => el.scrollTop), { timeout: 30_000 }).toBeGreaterThan(3_000);
+    // Back to the middle, where the autoscroll stops, and the card is let go there.
+    await page.mouse.move(bodyBox.x + bodyBox.width / 2, bodyBox.y + bodyBox.height / 2, { steps: 4 });
     await page.mouse.up();
-    await expect.poll(async () => {
-      const rows = await listTasks();
-      return rows.findIndex((row) => row.id === mouseSource.id) > rows.findIndex((row) => row.id === mouseTarget.id);
-    }, { timeout: 15_000 }).toBe(true);
+    await expect.poll(async () => (await listTasks()).findIndex((row) => row.id === mouseSource.id), { timeout: 15_000 }).toBeGreaterThanOrEqual(drawnAtStart);
 
     const beforeKeyboard = await listTasks();
     const keyboardSource = beforeKeyboard[5]!;
