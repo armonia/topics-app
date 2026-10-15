@@ -1,7 +1,7 @@
 /**
  * @covers RUNTIME-23
  */
-import { expect } from '@playwright/test';
+import { expect, type Page } from '@playwright/test';
 import { test } from './fixtures/chat.fixture';
 import { goToApp, openTestChat } from './helpers';
 import { openPerfPanel } from './helpers/open-perf-panel';
@@ -20,11 +20,25 @@ interface CallbackProbe {
   sleep: (ms: number) => Promise<void>;
 }
 
+async function setHidden(page: Page, value: boolean): Promise<void> {
+  await page.evaluate((next) => {
+    (window as unknown as { __topicsHidden: boolean }).__topicsHidden = next;
+    document.dispatchEvent(new Event('visibilitychange'));
+  }, value);
+}
+
 test('timer callbacks sleep while the app is hidden, and the data is fresh on return', async ({ page, context }) => {
   test.info().annotations.push({ type: 'spec', description: 'RUNTIME-23' });
   let openSessions = 1;
   let presenceRequests = 0;
   await page.addInitScript(() => {
+    // Under Playwright a foreground page stays `visible` (a second tab brought to the front does
+    // not hide it in headless Chromium), so the test drives the property the app reads, the way
+    // idle-frame-budget does. Chrome then throttles nothing: the count is the app's own discipline.
+    const hidden = window as unknown as { __topicsHidden: boolean };
+    hidden.__topicsHidden = false;
+    Object.defineProperty(document, 'visibilityState', { configurable: true, get: () => (hidden.__topicsHidden ? 'hidden' : 'visible') });
+    Object.defineProperty(document, 'hidden', { configurable: true, get: () => hidden.__topicsHidden });
     const unwrappedTimeout = window.setTimeout.bind(window);
     const probe: CallbackProbe = { count: 0, sources: {}, enabled: false, sleep: (ms) => new Promise((resolve) => { unwrappedTimeout(resolve, ms); }) };
     (window as unknown as { __callbackProbe: CallbackProbe }).__callbackProbe = probe;
@@ -90,13 +104,10 @@ test('timer callbacks sleep while the app is hidden, and the data is fresh on re
   await openPerfPanel(page);
   await expect(page.getByTestId('perf-inventory')).toBeVisible({ timeout: 10_000 });
 
-  const backgroundPage = await context.newPage();
-  await backgroundPage.goto('about:blank');
-  const cdp = await context.newCDPSession(backgroundPage);
-  await cdp.send('Page.bringToFront');
+  await setHidden(page, true);
   await expect.poll(() => page.evaluate(() => document.visibilityState)).toBe('hidden');
 
-  const mode = 'second tab foregrounded with CDP Page.bringToFront';
+  const mode = 'visibilityState driven by the test, visibilitychange dispatched';
   await page.evaluate(() => {
     const state = (window as unknown as { __callbackProbe: CallbackProbe }).__callbackProbe;
     state.count = 0;
@@ -116,7 +127,7 @@ test('timer callbacks sleep while the app is hidden, and the data is fresh on re
   expect(probe.count, 'timer callbacks while document.hidden').toBeLessThanOrEqual(MAX_HIDDEN_CALLBACKS);
 
   openSessions = 9;
-  await backgroundPage.close();
+  await setHidden(page, false);
   await expect.poll(() => page.evaluate(() => document.visibilityState)).toBe('visible');
   await expect.poll(() => profile.getAttribute('title'), { timeout: 1000 }).not.toBe(beforeTitle);
   await expect(page.getByTestId('kanban-board')).toBeVisible();
