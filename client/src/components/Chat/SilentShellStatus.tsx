@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { useT } from '../../hooks/useT';
 import { formatDurationMs } from './toolGrouping';
 import { formatTimeLeft, sleepLeftMs } from './silentShell';
+import { startVisibleInterval } from '../../state/documentVisibility';
 
 /**
  * A running command with no output on screen says so, with how long it has
@@ -20,8 +21,7 @@ export function SilentShellStatus({ since, command }: { since: number; command: 
   useEffect(() => {
     const update = () => setMs(Date.now() - since);
     update();
-    const t = setInterval(update, 1000);
-    return () => clearInterval(t);
+    return startVisibleInterval(update, 1000);
   }, [since]);
   if (ms < 900) return null;
   const left = sleepLeftMs(command, ms);

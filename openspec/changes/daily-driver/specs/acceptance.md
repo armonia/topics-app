@@ -49,3 +49,12 @@ Sempre in una copia, mai nel file vero. Ognuna deve far diventare rosso il test 
 | Condizione della CI tolta dal land | lo scenario dei controlli di D5 |
 | Cifratura tolta dal client del relay | il test del payload di D6 e DD-02 |
 | Riattaccatura del turno tolta dal dispatcher | l'e2e del SIGTERM di D7 e DD-04 |
+
+## 4. D2a, riposo in background
+
+- Con topic, board e lista sessioni aperti, Chromium cambia davvero `document.visibilityState`
+  a `hidden`; in 10 secondi il numero di callback di timer resta entro il tetto fissato dalla
+  misura post-fix, con i timer WebSocket e i salvataggi pendenti inclusi.
+- Al ritorno visibile un dato aggiornato mentre la pagina era nascosta compare entro 1 secondo.
+- L'e2e stampa il metodo di background, il conteggio e le prime sorgenti client; la misura iniziale
+  sul codice pre-fix deve superare il tetto.

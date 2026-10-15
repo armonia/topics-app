@@ -27,6 +27,7 @@ import { useDisclosureToggle } from './transcriptDisclosure';
 import { DisclosureBody } from './DisclosureBody';
 import { FindToolIdContext, useFindFocusTool } from '../../state/chatFindFocus';
 import { CHAT_BOTTOM_GUTTER_PX, COMPOSER_HEIGHT_PROPERTY } from './useComposerDock';
+import { startVisibleInterval } from '../../state/documentVisibility';
 
 /**
  * Where a `scrollIntoView` of the row lands (the row a failure badge opened):
@@ -70,8 +71,7 @@ export function ElapsedTimer({ since, tone, title }: { since: number; tone?: str
   useEffect(() => {
     const update = () => setMs(Date.now() - since);
     update();
-    const t = setInterval(update, 1000);
-    return () => clearInterval(t);
+    return startVisibleInterval(update, 1000);
   }, [since]);
   if (ms < 900) return null;
   return (

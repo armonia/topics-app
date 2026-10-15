@@ -2,6 +2,7 @@ import { useEffect } from 'react';
 import { isTauri } from '../lib/shell';
 import { tauriInvoke } from '../lib/shell/tauri';
 import { isWindowAwake } from '../state/windowAwake';
+import { isDocumentVisible, startVisibleInterval, subscribeDocumentVisibility } from '../state/documentVisibility';
 
 /**
  * Drives native per-region vibrancy on macOS — Electron AND Tauri.
@@ -349,9 +350,9 @@ export function useFloatingVibrancy(floatingSplits: boolean) {
     // the native fix in vibrancy_resize_cover (which stops the cover being raised here
     // at all).
     const forceReconcile = () => { lastKey = ''; schedule(); };
-    const onVisible = () => { if (!document.hidden) forceReconcile(); };
+    const onVisible = () => { if (isDocumentVisible()) forceReconcile(); };
     window.addEventListener('resize', forceReconcile);
-    document.addEventListener('visibilitychange', onVisible);
+    const stopVisibilityListener = subscribeDocumentVisibility(onVisible);
     window.addEventListener('topics:pane-resize-start', startLive);
     window.addEventListener('topics:pane-resize-end', stopLive);
     document.addEventListener('dragstart', freeze, true);
@@ -394,7 +395,7 @@ export function useFloatingVibrancy(floatingSplits: boolean) {
     // vibrancy è ciò che si vede attraverso il vetro di una finestra che nessuno
     // sta guardando. Al ritorno del fuoco si riconcilia comunque (`onFocus` qui
     // sotto), quindi saltare i giri non lascia il vetro stantìo.
-    const poll = window.setInterval(() => { if (isWindowAwake()) schedule(); }, 700);
+    const stopPoll = startVisibleInterval(() => { if (isWindowAwake()) schedule(); }, 700);
     // Il ritorno a fuoco riallinea subito, senza aspettare il prossimo giro.
     const onFocus = () => forceReconcile();
     window.addEventListener('focus', onFocus);
@@ -409,7 +410,7 @@ export function useFloatingVibrancy(floatingSplits: boolean) {
     return () => {
       ro.disconnect();
       window.removeEventListener('resize', forceReconcile);
-      document.removeEventListener('visibilitychange', onVisible);
+      stopVisibilityListener();
       window.removeEventListener('topics:pane-resize-start', startLive);
       window.removeEventListener('topics:pane-resize-end', stopLive);
       document.removeEventListener('dragstart', freeze, true);
@@ -419,7 +420,7 @@ export function useFloatingVibrancy(floatingSplits: boolean) {
       document.removeEventListener('transitionend', onSidebarTransitionEnd, true);
       document.removeEventListener('transitioncancel', onSidebarTransitionEnd, true);
       window.removeEventListener('focus', onFocus);
-      window.clearInterval(poll);
+      stopPoll();
       if (settle) clearTimeout(settle);
       cancelAnimationFrame(liveRaf);
       api.clear();

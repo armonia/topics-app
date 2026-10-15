@@ -16,13 +16,13 @@
 import { useEffect, useState } from 'react';
 import { Spinner } from '../Shared/Spinner';
 import { fmtLive } from './format';
+import { startVisibleInterval } from '../../state/documentVisibility';
 
 /** Live "how long has this been running" ticker (anchored server-side). */
 export function Ticker({ since }: { since: string }) {
   const [, force] = useState(0);
   useEffect(() => {
-    const t = setInterval(() => force((n) => n + 1), 1000);
-    return () => clearInterval(t);
+    return startVisibleInterval(() => force((n) => n + 1), 1000);
   }, []);
   // eslint-disable-next-line react-hooks/purity -- live ticker: force-re-renders every 1s (interval above) and reads the clock each render on purpose
   const ms = Date.now() - Date.parse(since);

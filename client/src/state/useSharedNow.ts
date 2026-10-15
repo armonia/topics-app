@@ -1,4 +1,5 @@
 import { useSyncExternalStore } from 'react';
+import { isDocumentVisible, startVisibleInterval } from './documentVisibility';
 
 /**
  * One shared wall-clock for every "elapsed" readout in the app. A single module
@@ -14,11 +15,11 @@ const TICK_MS = 10_000;
 
 let now = Date.now();
 const subscribers = new Set<() => void>();
-let timer: ReturnType<typeof setInterval> | null = null;
+let stopTimer: (() => void) | null = null;
 
 function start() {
-  if (timer) return;
-  timer = setInterval(() => {
+  if (stopTimer) return;
+  stopTimer = startVisibleInterval(() => {
     now = Date.now();
     for (const notify of subscribers) notify();
   }, TICK_MS);
@@ -29,12 +30,12 @@ function subscribe(notify: () => void): () => void {
   start();
   // Fresh subscriber: re-baseline `now` so a component mounting mid-interval reads
   // a current-enough value on its first paint rather than one up to TICK_MS stale.
-  now = Date.now();
+  if (isDocumentVisible()) now = Date.now();
   return () => {
     subscribers.delete(notify);
-    if (subscribers.size === 0 && timer) {
-      clearInterval(timer);
-      timer = null;
+    if (subscribers.size === 0 && stopTimer) {
+      stopTimer();
+      stopTimer = null;
     }
   };
 }

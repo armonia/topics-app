@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { useT, useLocale } from '../../hooks/useT';
 import { fmtLive, fmtModel, fmtTok, liveToolLabel } from './format';
 import type { LiveTool, LiveUsage, RetryWait } from './constants';
+import { startVisibleInterval } from '../../state/documentVisibility';
 
 // ── The live chips of a working card ──────────────────────────────────────
 // What the foot of a card says WHILE the turn runs: the ticking effort chip,
@@ -28,8 +29,7 @@ export function RetryWaitChip({ retry, disabled, onRetryNow }: { retry: RetryWai
   const tr = useT();
   const [, force] = useState(0);
   useEffect(() => {
-    const t = setInterval(() => force((n) => n + 1), 1000);
-    return () => clearInterval(t);
+    return startVisibleInterval(() => force((n) => n + 1), 1000);
   }, []);
   // eslint-disable-next-line react-hooks/purity -- countdown: re-renders every 1s (interval above) and reads the clock each render on purpose
   const left = Math.max(0, retry.at - Date.now());
@@ -69,8 +69,7 @@ export function LiveToolLine({ tool, frozen = false }: { tool: LiveTool; frozen?
   const [, force] = useState(0);
   useEffect(() => {
     if (frozen) return;
-    const t = setInterval(() => force((n) => n + 1), 1000);
-    return () => clearInterval(t);
+    return startVisibleInterval(() => force((n) => n + 1), 1000);
   }, [frozen]);
   // eslint-disable-next-line react-hooks/purity -- live tool line: re-renders every 1s (interval above) and reads the clock each render on purpose
   const since = fmtLive(Math.max(0, Date.now() - tool.since));
@@ -98,8 +97,7 @@ export function LiveEffortChip({ usage }: { usage: LiveUsage }) {
   const locale = useLocale();
   const [, force] = useState(0);
   useEffect(() => {
-    const t = setInterval(() => force((n) => n + 1), 1000);
-    return () => clearInterval(t);
+    return startVisibleInterval(() => force((n) => n + 1), 1000);
   }, []);
   // eslint-disable-next-line react-hooks/purity -- live effort chip: force-re-renders every 1s (interval above) and reads the clock each render on purpose
   const ms = usage.baseMs + Math.max(0, Date.now() - usage.turnStartedAt);

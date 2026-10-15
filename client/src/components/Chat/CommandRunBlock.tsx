@@ -17,6 +17,7 @@ import { useToast } from '../Shared/Toast';
 import { Spinner } from '../Shared/Spinner';
 import { ansiLines, plainLines, type AnsiSpan } from './ansiSpans';
 import { refreshMessageRuns, subscribeRunOutput } from './commandRunStore';
+import { startVisibleInterval } from '../../state/documentVisibility';
 import { formatRunDuration, runDraftText, runDurationMs, shortenHome } from './commandRunText';
 import { useDisclosureToggle } from './transcriptDisclosure';
 import { DisclosureBody } from './DisclosureBody';
@@ -95,9 +96,9 @@ export const CommandRunBlock = memo(function CommandRunBlock({ run, sessionKey, 
       }
     };
     void poll();
-    const timer = setInterval(() => { void poll(); setNow(Date.now()); }, LIVE_POLL_MS);
+    const stopPolling = startVisibleInterval(() => { void poll(); setNow(Date.now()); }, LIVE_POLL_MS);
     const stopListening = subscribeRunOutput(run.runId, () => { void poll(); });
-    return () => { active = false; clearInterval(timer); stopListening(); };
+    return () => { active = false; stopPolling(); stopListening(); };
   }, [running, run.runId, sessionKey, messageId]);
 
   const text = running ? (pending ? (live ? `${live}\n${pending}` : pending) : live) : (run.output ?? live);
