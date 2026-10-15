@@ -6095,12 +6095,15 @@ const landingAuditTimer = setInterval(runLandingAudit, LANDING_AUDIT_INTERVAL_MS
 const relayCfg = await leggiRelayConfig(process.env, ctx.STATE_DIR);
 const relay = creaRelayClient({
   baseUrl: relayCfg.baseUrl,
-  // Il NOME del punto d'incontro, che è il digest del segreto qui sotto. Non è
-  // `installationId`: quello resta legato alla licenza e non compare in nessun
-  // link. Vedi `shared/relay-identita.ts` per il motivo per cui erano lo stesso
-  // valore e non potevano restarlo.
+  // The meeting point's name, a digest of the machine's public key. It is not
+  // `installationId`, which stays tied to the licence and appears in no link:
+  // `shared/relay-identita.ts` says why they were once the same value and
+  // could not stay so.
   relayId: relayCfg.relayId,
-  segreto: leggiRelaySegreto(ctx.STATE_DIR),
+  segreto: await leggiRelaySegreto(ctx.STATE_DIR),
+  listActiveShareRefs: () => (ctx.db.query(
+    "SELECT ref FROM share_links WHERE revoked_at IS NULL AND expires_at > ? ORDER BY created_at DESC LIMIT 500",
+  ).all(Date.now()) as Array<{ ref: string }>).map((r) => r.ref),
   // Dove si rigioca ciò che arriva dal relay. `null` — cioè
   // `TOPICS_TUNNEL_PORT` non impostata, che è il caso di default — fa rifiutare
   // in modo dichiarato: senza l'ascoltatore dedicato l'unica porta a cui

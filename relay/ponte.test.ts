@@ -57,6 +57,11 @@ class SocketFinta {
  *  l'unica memoria, com'è sotto ibernazione. */
 class StatoFinto {
   private tag = new Map<SocketFinta, string[]>();
+  private valori = new Map<string, unknown>();
+  storage = {
+    get: async <T>(key: string) => this.valori.get(key) as T | undefined,
+    put: async (key: string, value: unknown) => { this.valori.set(key, value); },
+  };
   acceptWebSocket(ws: SocketFinta, tags: string[] = []): void { this.tag.set(ws, tags); }
   getWebSockets(tag?: string): SocketFinta[] {
     return [...this.tag.keys()].filter((w) => tag === undefined || (this.tag.get(w) ?? []).includes(tag));

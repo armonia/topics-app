@@ -5379,20 +5379,9 @@
       "risolviUrlLocale",
       "scriviTesta"
     ],
-    "shared/relay-identita.test.ts": [
-      "SEGRETO",
-      "altrui",
-      "passate",
-      "storto"
-    ],
     "shared/relay-identita.ts": [
-      "DOMINIO",
       "FORMA_RELAY_ID",
-      "INTESTAZIONE_SEGRETO",
-      "LUNGHEZZA_RELAY_ID",
-      "dati",
-      "derivaRelayId",
-      "segretoCorrisponde"
+      "LUNGHEZZA_RELAY_ID"
     ],
     "shared/relay-protocol.test.ts": [
       "EsitoTubo",

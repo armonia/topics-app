@@ -31,6 +31,8 @@
  *  indovinare: due versioni che si arrangiano è il modo in cui un formato
  *  smette di avere una definizione. */
 export const RELAY_PROTOCOL_VERSION = 1;
+/** Shared close code for a message envelope the receiver cannot parse. */
+export const RELAY_BAD_MESSAGE_CLOSE = 4002;
 
 // ── Dalla MACCHINA al relay ────────────────────────────────────────────────
 
@@ -58,6 +60,12 @@ export interface RecordInstall {
  */
 export interface Ping {
   t: "ping";
+}
+
+/** Active sharing references declared by the host installation. */
+export interface ShareRefsHost {
+  t: "share-refs";
+  refs: string[];
 }
 
 /** The answer to a `ping`. Any frame on the thread proves somebody holds it
@@ -153,7 +161,7 @@ export interface Rifiutato {
   motivo: "bad-version" | "bad-token" | "unknown-installation" | "expired" | "revoked" | "host-offline";
 }
 
-export type FromMachine = RecordInstall | BustaVersoOspite | Ping;
+export type FromMachine = RecordInstall | BustaVersoOspite | Ping | ShareRefsHost;
 export type FromGuest = OpenSessionGuest | BustaVersoMacchina;
 export type DaRelay = Accolto | ChangedGuest | Rifiutato | Pong | BustaVersoOspite | BustaVersoMacchina;
 export type MessaggioRelay = FromMachine | FromGuest | DaRelay;
@@ -177,6 +185,7 @@ export function involucro(m: MessaggioRelay): Record<string, unknown> {
   if ("ruolo" in m && m.ruolo !== undefined) base.ruolo = m.ruolo;
   if ("shareRef" in m) base.shareRef = m.shareRef;
   if ("motivo" in m) base.motivo = m.motivo;
+  if ("refs" in m) base.refs = m.refs;
   return base;
 }
 
@@ -236,6 +245,11 @@ export function leggiMessaggio(raw: unknown): MessaggioRelay | null {
     case "ping":
     case "pong":
       return { t };
+    case "share-refs":
+      return Array.isArray(m.refs) && m.refs.length <= 500
+        && m.refs.every((ref) => typeof ref === "string" && ref.length > 0 && ref.length <= 128)
+        ? { t, refs: [...new Set(m.refs as string[])] }
+        : null;
     case "denied":
       return typeof m.motivo === "string" && MOTIVI.has(m.motivo)
         ? { t, motivo: m.motivo as Rifiutato["motivo"] }
@@ -245,7 +259,7 @@ export function leggiMessaggio(raw: unknown): MessaggioRelay | null {
   }
 }
 
-const MOTIVI = new Set([
+export const MOTIVI = new Set([
   "bad-version", "bad-token", "unknown-installation", "expired", "revoked", "host-offline",
 ]);
 

@@ -373,44 +373,50 @@ The plaintext SHALL NOT appear anywhere in the envelope, not even encoded.
 - **GIVEN** a share link stripped of its fragment
 - **THEN** it SHALL be unusable
 
-### Requirement: RELAY-E2E-12 — The rendezvous name is a digest, and it is not the installation's identity
+### Requirement: RELAY-E2E-12 — The rendezvous name is a digest of the machine's public key, and it is not the installation's identity
 
-The name a machine is reachable by through the relay SHALL be derived from a
-secret by a one-way digest with a domain-separating prefix, and SHALL be a pure
-function: no registry, no first-come-first-served, no shared state to keep in
-sync between the two sides that compute it.
+The name a machine is reachable by through the relay SHALL be a one-way digest of the public half of
+an ECDSA P-256 key that the machine generates and keeps. The private half SHALL NOT leave the
+machine. The name SHALL be a pure function of the key: no registry, no first-come-first-served, no
+shared state to keep in sync between the two sides.
 
-That name SHALL NOT be the installation's own identifier. They used to be the
-same value, and that meant whoever received a share link could impersonate the
-machine — the far side evicts the previous host when a new claim arrives.
+That name SHALL NOT be the installation's own identifier. They used to be the same value, and that
+meant whoever received a share link could impersonate the machine: the far side evicts the previous
+host when a new claim arrives.
 
-The formula SHALL live where BOTH sides that compute it can import it. Two
-copies of the same derivation are two things that one day produce different
-names.
+To attach as host, the machine SHALL send a proof in a request HEADER, never in a path or a query
+string, which end up in the logs of whoever sits in between: a timestamp, the public key, and a
+signature over the name and the timestamp. The far side SHALL accept it only when the key digests to
+the name in the path, the signature verifies, and the timestamp is at most 60 s old and at most 30 s
+ahead of its own clock. A captured proof SHALL stop working within a minute. The relay SHALL NOT
+receive the private key, nor any Topics credential of the person.
 
-The secret SHALL be rejected before the digest is computed when it is not a
-string, is shorter than the declared minimum, or is longer than the declared
-maximum — the last one so an oversized input cannot buy work. A malformed name
-SHALL be rejected even when the secret is right.
+The payload, the encoding and the name's derivation SHALL live where BOTH sides can import them. Two
+copies are two things that one day disagree, and that day the machine stops attaching.
 
-The secret SHALL travel in a request HEADER and never in a path or a query
-string, which end up in the logs of whoever sits in between.
+The key SHALL live in a file of its own with mode 0600 and SHALL survive a restart: a new key is a new
+name, and every link made with the old one stops resolving. The file holding the previous scheme's
+secret SHALL be left as it was.
 
-A constant-time comparison is NOT required and SHALL NOT be implied: the secret
-is never compared, only transformed, and the name is public by construction —
-it is in the links.
+#### Scenario: a proof from the machine
+- **GIVEN** a proof signed with the key whose digest is the name
+- **THEN** the far side SHALL accept it, and SHALL refuse the same proof for any other name
 
-#### Scenario: the same secret, both sides
-- **GIVEN** the same secret derived on the machine and on the far side
-- **THEN** the name SHALL be identical, and SHALL match the value fixed by contract
+#### Scenario: a captured proof
+- **GIVEN** a proof older than 60 s
+- **THEN** it SHALL be refused
 
-#### Scenario: a secret that is nearly right
-- **GIVEN** a secret that is truncated, or carries an extra space, or differs in case
-- **THEN** it SHALL NOT match
+#### Scenario: a host clock a little ahead
+- **GIVEN** a proof dated up to 30 s ahead of the far side's clock
+- **THEN** it SHALL be accepted, and one dated further ahead SHALL be refused
 
-#### Scenario: an enormous secret
-- **GIVEN** a secret longer than the declared maximum
-- **THEN** it SHALL be refused BEFORE any digest is computed
+#### Scenario: a malformed proof
+- **GIVEN** a header that is missing or does not have the three parts
+- **THEN** it SHALL be refused before any signature is checked
+
+#### Scenario: a restart
+- **GIVEN** the machine restarts
+- **THEN** it SHALL attach under the same name, and the previous scheme's secret file SHALL be unchanged
 
 ### Requirement: RELAY-E2E-13 — Le sessioni del tunnel hanno un tetto, e una riserva per il proprietario
 
