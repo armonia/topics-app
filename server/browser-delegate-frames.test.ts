@@ -1,3 +1,9 @@
+/**
+ * The native executor socket of a context: only delegate frames get through, and an op result
+ * counts only when it comes from the socket registered for that context.
+ *
+ * @covers NATDEL-04
+ */
 import { describe, expect, test, mock } from 'bun:test';
 import { readFileSync } from 'node:fs';
 import * as delegate from './browser-native-delegate';
