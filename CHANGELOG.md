@@ -2,6 +2,19 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.2.515 — 2026-10-15
+
+### Sotto il cofano
+- Il modo video del browser lascia una riga per ogni offerta e il registratore rrweb si legge in un punto solo (D4j, B12) (#371)
+- Lo status git del server passa dall'addon nativo quando c'e', con interruttore e contatori (D3d, passo 3 di D3) (#372)
+- Le letture di tasks a ogni giro passano da indici parziali invece di scorrere la tabella (D4m, B7) (#374)
+- Il clic su un elemento dice il componente e il file, e browser_verify conferma una modifica dopo la ricarica (D4h, B9) (#370)
+- Sul viewer gli iframe di un'altra origine hanno un segnaposto che dice di chi sono e che si usano sul Mac (D4k, B10 prima meta') (#373)
+- Il numstat dello status git si calcola nell'addon nativo, zero processi git per ricalcolo (D3e, passo 3 di D3) (#376)
+- Il server dal checkout puo' usare il bridge dei terminali in Rust, spento di default (D3g, passo 5 di D3) (#377)
+- Un file salvato arriva allo stato git in circa 100 ms invece di 350, con la misura che lo tiene (D3h, barra di D3) (#379)
+- Sul viewer uno swipe dal bordo torna indietro e va avanti (D4l, B13 prima parte) (#375)
+
 ## 2.2.514 — 2026-10-15
 
 ### Sotto il cofano

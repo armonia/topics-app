@@ -1,5 +1,61 @@
 [
   {
+    "version": "2.2.515",
+    "date": "2026-10-15",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Il modo video del browser lascia una riga per ogni offerta e il registratore rrweb si legge in un punto solo (D4j, B12) (#371)",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Lo status git del server passa dall'addon nativo quando c'e', con interruttore e contatori (D3d, passo 3 di D3) (#372)",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Le letture di tasks a ogni giro passano da indici parziali invece di scorrere la tabella (D4m, B7) (#374)",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il clic su un elemento dice il componente e il file, e browser_verify conferma una modifica dopo la ricarica (D4h, B9) (#370)",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Sul viewer gli iframe di un'altra origine hanno un segnaposto che dice di chi sono e che si usano sul Mac (D4k, B10 prima meta') (#373)",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il numstat dello status git si calcola nell'addon nativo, zero processi git per ricalcolo (D3e, passo 3 di D3) (#376)",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il server dal checkout puo' usare il bridge dei terminali in Rust, spento di default (D3g, passo 5 di D3) (#377)",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Un file salvato arriva allo stato git in circa 100 ms invece di 350, con la misura che lo tiene (D3h, barra di D3) (#379)",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Sul viewer uno swipe dal bordo torna indietro e va avanti (D4l, B13 prima parte) (#375)",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
     "version": "2.2.514",
     "date": "2026-10-15",
     "sections": {
