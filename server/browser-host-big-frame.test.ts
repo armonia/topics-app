@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it } from "bun:test";
-import { BrowserWsChunkAssembler, chunkText } from "../shared/browser-ws-chunks";
+import { BrowserWsChunkAssembler, hostEventFrames } from "../shared/browser-ws-chunks";
 import { createHostMirror, type MirrorSocket } from "./browser-host-mirror";
-import { createDomHostRegistry } from "./lib/native-dom-host";
+import { createDomHostRegistry, parseHostFrame } from "./lib/native-dom-host";
 import { WS_TRANSPORT_OPTIONS } from "./lib/websocket-options";
 
 /** @covers NATIVE-HOST-05 */
@@ -55,8 +55,9 @@ describe("native DOM mirror large snapshots", () => {
         message(ws, raw) {
           const socket = (ws.data as typeof ws.data & { mirrorSocket: MirrorSocket }).mirrorSocket;
           if (ws.data.role === "host") {
-            const frame = JSON.parse(String(raw)) as { id: string; index: number; total: number; data: string };
-            mirror.onHostFrame(socket, "ctx", { type: "host_dom_events_chunk", ...frame });
+            // Read the way server.ts reads a native pane's frame.
+            const frame = parseHostFrame(JSON.parse(String(raw)));
+            if (frame) mirror.onHostFrame(socket, "ctx", frame);
           }
         },
         close(ws) {
@@ -79,8 +80,8 @@ describe("native DOM mirror large snapshots", () => {
     let viewer = await connect("viewer");
 
     const snapshot = { type: 2, timestamp: 1, data: { node: { type: 3, id: 1, textContent: "x".repeat(4_800_000) } } };
-    const original = JSON.stringify([snapshot]);
-    const hostChunks = chunkText(original, "large-snapshot");
+    // Cut by the same helper the native pane uses, so the two cannot drift apart.
+    const hostFrames = hostEventFrames([snapshot], "large-snapshot");
     const received = new BrowserWsChunkAssembler();
     let replayed: unknown;
     let completeSnapshot!: () => void;
@@ -103,7 +104,7 @@ describe("native DOM mirror large snapshots", () => {
     viewer.addEventListener("message", onViewerMessage);
     const timeout = setTimeout(() => failSnapshot(new Error("viewer did not receive the full snapshot")), 15_000);
     const startedAt = Date.now();
-    for (let index = 0; index < hostChunks.length; index++) {
+    for (let index = 0; index < hostFrames.length; index++) {
       if (index === 3) {
         const previousViewer = viewer;
         const closed = new Promise<void>((resolve) => previousViewer.addEventListener("close", () => resolve(), { once: true }));
@@ -112,8 +113,7 @@ describe("native DOM mirror large snapshots", () => {
         viewer = await connect("viewer");
         viewer.addEventListener("message", onViewerMessage);
       }
-      const chunk = hostChunks[index]!;
-      host.send(JSON.stringify({ type: "host_dom_events_chunk", ...chunk }));
+      host.send(hostFrames[index]!);
       await new Promise((resolve) => setTimeout(resolve, 50));
     }
     await allFrames;
@@ -124,7 +124,8 @@ describe("native DOM mirror large snapshots", () => {
     expect(viewer.readyState).toBe(WebSocket.OPEN);
     expect((replayed as { type: string; event: unknown }).type).toBe("dom_event");
     expect((replayed as { event: unknown }).event).toEqual(snapshot);
-    expect(hostChunks.every((chunk) => new TextEncoder().encode(JSON.stringify({ type: "host_dom_events_chunk", ...chunk })).byteLength < 512 * 1024)).toBe(true);
+    expect(hostFrames.length).toBeGreaterThan(3);
+    expect(hostFrames.every((frame) => Buffer.byteLength(frame) < 512 * 1024)).toBe(true);
     expect(compressedFrames).toBeGreaterThan(0);
     expect(mirrorChunkFrames).toBeGreaterThan(0);
     expect(uncompressedMirrorChunkFrames).toBe(0);

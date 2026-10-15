@@ -1,4 +1,4 @@
-import { BROWSER_WS_CHUNK_BYTES, BrowserWsChunkAssembler, chunkText } from '../../../shared/browser-ws-chunks';
+import { BrowserWsChunkAssembler, hostEventFrames } from '../../../shared/browser-ws-chunks';
 /**
  * The native pane as the source of the DOM mirror (client half of
  * server/lib/native-dom-host.ts, NATIVE-HOST-01..03).
@@ -407,15 +407,8 @@ export function createNativeDomHost(opts: NativeDomHostOptions): NativeDomHost {
   let pieceSeq = 0;
   /** Validated events to the server, in pieces under the socket's ceiling when they are many. */
   const sendEvents = (events: Record<string, unknown>[]): void => {
-    const text = JSON.stringify(events);
-    if (new TextEncoder().encode(text).byteLength <= BROWSER_WS_CHUNK_BYTES) {
-      opts.sendText(JSON.stringify({ type: 'host_dom_events', events }));
-      return;
-    }
     pieceSeq += 1;
-    for (const piece of chunkText(text, `${Date.now().toString(36)}-${pieceSeq}`)) {
-      opts.sendText(JSON.stringify({ type: 'host_dom_events_chunk', id: piece.id, index: piece.index, total: piece.total, data: piece.data }));
-    }
+    for (const frame of hostEventFrames(events, `${Date.now().toString(36)}-${pieceSeq}`)) opts.sendText(frame);
   };
 
   const plan = (ms: number): void => {

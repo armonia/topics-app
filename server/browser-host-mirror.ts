@@ -74,22 +74,21 @@ export function createHostMirror(deps: HostMirrorDeps) {
 
   const sendText = (ws: MirrorSocket, text: string, type: string): boolean => {
     try {
-      const bytes = new TextEncoder().encode(text).byteLength;
-      ws.send(text, shouldCompressFrame({ type, bytes, remote: ws.data.remote === true }));
+      ws.send(text, shouldCompressFrame({ type, bytes: Buffer.byteLength(text), remote: ws.data.remote === true }));
       return true;
     } catch { return false; }
   };
+  /** A mirror event as it goes on the wire: one frame, or pieces under the socket's ceiling (NATIVE-HOST-05). */
+  const domEventFrames = (text: string): string[] => {
+    if (Buffer.byteLength(text) <= 256 * 1024) return [text];
+    const id = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
+    return chunkText(text, id).map((chunk) => JSON.stringify({ type: "dom_event_chunk", ...chunk }));
+  };
+  const sendFrames = (ws: MirrorSocket, frames: string[]): boolean =>
+    frames.every((frame) => sendText(ws, frame, frames.length > 1 ? "dom_event_chunk" : "dom_event"));
   const send = (ws: MirrorSocket, msg: BrowserWsMessage): boolean => {
     const text = JSON.stringify(msg);
-    if (msg.type === "dom_event" && new TextEncoder().encode(text).byteLength > 256 * 1024) {
-      const id = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
-      for (const chunk of chunkText(text, id)) {
-        const frame = JSON.stringify({ type: "dom_event_chunk", ...chunk });
-        if (new TextEncoder().encode(frame).byteLength >= 512 * 1024 || !sendText(ws, frame, "dom_event_chunk")) return false;
-      }
-      return true;
-    }
-    return sendText(ws, text, msg.type);
+    return msg.type === "dom_event" ? sendFrames(ws, domEventFrames(text)) : sendText(ws, text, msg.type);
   };
   const viewersOf = (contextId: string): MirrorSocket[] =>
     [...deps.sockets(contextId)].filter((w) => w.readyState === OPEN && !w.data._nativeDelegate);
@@ -201,12 +200,13 @@ export function createHostMirror(deps: HostMirrorDeps) {
         const text = assembler.add(frame);
         if (text === null) return;
         hostChunks.delete(contextId);
-        try {
-          const events: unknown = JSON.parse(text);
-          if (Array.isArray(events)) this.onHostFrame(ws, contextId, { type: "host_dom_events", events });
-        } catch (error) {
-          console.warn(`[WS][browser] native DOM chunk decode failed for ${contextId}: ${(error as Error).message}`);
+        let events: unknown = null;
+        try { events = JSON.parse(text); } catch { /* reported below, like any other shape */ }
+        if (!Array.isArray(events)) {
+          console.warn(`[WS][browser] native DOM pieces for ${contextId} are not an event list: dropped`);
+          return;
         }
+        this.onHostFrame(ws, contextId, { type: "host_dom_events", events });
         return;
       }
       if (frame.type === "native_dom_host") {
@@ -236,12 +236,10 @@ export function createHostMirror(deps: HostMirrorDeps) {
         const events = hosts.ingest(contextId, ws, frame.events);
         if (events.length === 0) return;
         const mirrors = mirrorsOf(contextId);
-        // Serialized once for every viewer: a FullSnapshot of a real page is hundreds of KB.
-        const payloads = events.map((event) => JSON.stringify({ type: "dom_event", event } satisfies BrowserWsMessage));
+        // Serialized and cut once for every viewer: a FullSnapshot of a real page is hundreds of KB.
+        const payloads = events.map((event) => domEventFrames(JSON.stringify({ type: "dom_event", event } satisfies BrowserWsMessage)));
         for (const w of mirrors) {
-          for (const p of payloads) {
-            send(w, JSON.parse(p) as BrowserWsMessage);
-          }
+          for (const frames of payloads) sendFrames(w, frames);
         }
         return;
       }

@@ -6,7 +6,7 @@ import { pageLayout } from "./helpers/native-host-page";
 import { resetPaneStore } from "./helpers/api-fixtures";
 import { E2E_BASE } from "./helpers/test-server";
 import { hermetic } from "./fixtures/hermetic";
-import { chunkText } from "../../shared/browser-ws-chunks";
+import { hostEventFrames } from "../../shared/browser-ws-chunks";
 
 hermetic(test);
 
@@ -58,10 +58,8 @@ function tallPage(stamp: number, inside: unknown[] = []): unknown[] {
 
 /** Open the fake host on `ctx` in `hostPage` and wait for the server's ack. */
 async function startFakeHost(hostPage: Page, ctx: string, events: unknown[] = RRWEB_EVENTS): Promise<void> {
-  const initialFrame = JSON.stringify({ type: "host_dom_events", events });
-  const initialFrames = new TextEncoder().encode(initialFrame).byteLength > 192 * 1024
-    ? chunkText(initialFrame, `initial-${Date.now()}`).map((chunk) => JSON.stringify({ type: "host_dom_events_chunk", ...chunk }))
-    : [initialFrame];
+  // Cut the way the native pane cuts them, so a large page takes the same road as on the Mac.
+  const initialFrames = hostEventFrames(events, `initial-${Date.now()}`);
   await hostPage.goto(`${E2E_BASE}/api/version`);
   await hostPage.evaluate(
     async ({ ctx, initialFrames, url }) => {
@@ -93,10 +91,10 @@ async function startFakeHost(hostPage: Page, ctx: string, events: unknown[] = RR
 
 /** A frame from the fake host, as the native pane would drain it. */
 async function hostSend(hostPage: Page, frame: unknown): Promise<void> {
-  const serialized = JSON.stringify(frame);
-  const frames = new TextEncoder().encode(serialized).byteLength > 192 * 1024
-    ? chunkText(serialized, `host-${Date.now()}`).map((chunk) => JSON.stringify({ type: "host_dom_events_chunk", ...chunk }))
-    : [serialized];
+  const batch = frame as { type?: string; events?: unknown[] };
+  const frames = batch.type === "host_dom_events" && Array.isArray(batch.events)
+    ? hostEventFrames(batch.events, `host-${Date.now()}`)
+    : [JSON.stringify(frame)];
   await hostPage.evaluate((items) => { const ws = (window as unknown as { __host: { ws: WebSocket } }).__host.ws; for (const item of items) ws.send(item); }, frames);
 }
 
