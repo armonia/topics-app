@@ -135,10 +135,11 @@ const ColumnBody = memo(function ColumnBody({ status, tasks, onOpen, onCreate, c
   // Infinite scroll: the next page comes as the column's tail comes into view, never while a card is carried.
   const moreRef = useLoadOnReach(() => setShown((n) => n + COLUMN_PAGE), { more: slice.hidden > 0, loading: false, count: slice.rows.length, enabled: !dragging }, layout);
   // Stable identity across the board's 4s live-usage tick: SortableContext gets a
-  // fresh array only when the task set actually changes, not every render. Gli id
-  // sono quelli REGISTRATI in dnd-kit: un id senza nodo è un bersaglio che non
-  // esiste. Nelle colonne a mano sono tutti, perché `VirtualizedCards` lascia un
-  // segnaposto sortable a ogni card fuori finestra; in Review e Done la pagina.
+  // fresh array only when the task set actually changes, not every render. The
+  // ids are the ones REGISTERED in dnd-kit: an id without a node is a target that
+  // does not exist. In the working columns that is all of them, because
+  // `VirtualizedCards` leaves a sortable placeholder for every card out of the
+  // window; in Review and Done, the page.
   //
   // Keyed on the ids, not on `slice`: the column array is new on every
   // `task:updated` (one row changed), and a new `items` array is a new
