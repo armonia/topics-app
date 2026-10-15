@@ -17,6 +17,14 @@
   dimensione minima 84×52 sopra la pagina: sui siti veri ne capitano diversi. Ora un frame sotto i
   16 px per lato non ha segnaposto, e la e2e ne mette uno nascosto e uno da 1 px accanto a quello
   vero, aspettandosi ancora un solo segnaposto.
+- La prima e2e in CI era rossa: 0 segnaposti invece di 1. rrweb 2.0.0-alpha.4, quando ricostruisce
+  lo snapshot completo, mette gli attributi `rr_*` da parte e non scrive `rr_src` nel DOM; la query
+  `iframe[rr_src]` non trovava mai niente. Ora il valore si legge dal mirror del replayer
+  (`getMirror().getMeta(frame)`), e dal DOM solo quando arriva da una mutazione successiva.
+- Ogni ricostruzione passa da `doc.open()`, che toglie gli ascoltatori dentro il mirror: dopo la
+  prima navigazione il segnaposto non seguiva più lo scroll. L'ascolto dello scroll si riarma a ogni
+  `fullsnapshot-rebuilded`; la e2e ora chiede un nuovo snapshot completo all'host, scorre la pagina
+  sul Mac e controlla che il frame del mirror e il segnaposto salgano entrambi.
 
 ## Trovato e non fatto
 

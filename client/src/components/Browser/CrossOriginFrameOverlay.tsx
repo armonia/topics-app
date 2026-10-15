@@ -1,4 +1,5 @@
 import { useEffect, useState, type RefObject } from 'react';
+import type { Replayer } from 'rrweb';
 import { useT } from '../../hooks/useT';
 import { crossOriginFrameHost } from '../../lib/crossOriginFrame';
 
@@ -13,18 +14,31 @@ interface FramePlaceholder {
 
 interface Props {
   rootRef: RefObject<HTMLElement | null>;
+  replayerRef: RefObject<Replayer | null>;
   pageUrl: string;
   active: boolean;
 }
 
+/** The src the host recorded for a frame it could not see into. rrweb keeps it
+ *  as rr_src, but the full-snapshot rebuild leaves rr_* attributes out of the
+ *  DOM: only a later mutation writes it there, otherwise it lives in the mirror. */
+function recordedFrameSrc(frame: HTMLIFrameElement, player: Replayer | null): string | null {
+  const own = frame.getAttribute('rr_src');
+  if (own) return own;
+  const meta = player?.getMirror().getMeta(frame);
+  const value = meta && 'attributes' in meta ? meta.attributes.rr_src : null;
+  return typeof value === 'string' ? value : null;
+}
+
 /** Places safe labels over rrweb frames that the host could not record. */
-export function CrossOriginFrameOverlay({ rootRef, pageUrl, active }: Props) {
+export function CrossOriginFrameOverlay({ rootRef, replayerRef, pageUrl, active }: Props) {
   const tr = useT();
   const [frames, setFrames] = useState<FramePlaceholder[]>([]);
   const [notice, setNotice] = useState<string | null>(null);
 
   useEffect(() => {
     const root = rootRef.current;
+    const player = replayerRef.current;
     if (!root || !active || !pageUrl) return;
     const replay = root.querySelector<HTMLIFrameElement>('.replayer-wrapper iframe');
     const doc = replay?.contentDocument;
@@ -36,8 +50,8 @@ export function CrossOriginFrameOverlay({ rootRef, pageUrl, active }: Props) {
       const replayRect = replay.getBoundingClientRect();
       const sx = replayRect.width / Math.max(1, doc.documentElement.clientWidth);
       const sy = replayRect.height / Math.max(1, doc.documentElement.clientHeight);
-      setFrames(Array.from(doc.querySelectorAll<HTMLIFrameElement>('iframe[rr_src]')).flatMap((frame, index) => {
-        const host = crossOriginFrameHost(frame.getAttribute('rr_src'), pageUrl);
+      setFrames(Array.from(doc.querySelectorAll<HTMLIFrameElement>('iframe')).flatMap((frame, index) => {
+        const host = crossOriginFrameHost(recordedFrameSrc(frame, player), pageUrl);
         if (!host) return [];
         const rect = frame.getBoundingClientRect();
         // Hidden and pixel-sized frames (analytics, invisible captchas) are not
@@ -52,20 +66,27 @@ export function CrossOriginFrameOverlay({ rootRef, pageUrl, active }: Props) {
     const schedule = () => {
       if (!pending) pending = requestAnimationFrame(refresh);
     };
+    // Every full-snapshot rebuild runs doc.open(), which drops the listeners
+    // inside the mirror: the scroll one is armed again after each rebuild.
+    const armScroll = () => {
+      doc.addEventListener('scroll', schedule, true);
+      schedule();
+    };
     const mutation = new MutationObserver(schedule);
     mutation.observe(doc, { subtree: true, childList: true, attributes: true, attributeFilter: ['rr_src', 'src', 'style', 'width', 'height'] });
-    doc.addEventListener('scroll', schedule, true);
+    player?.on('fullsnapshot-rebuilded', armScroll);
     const resize = new ResizeObserver(schedule);
     resize.observe(root);
     resize.observe(replay);
-    schedule();
+    armScroll();
     return () => {
       mutation.disconnect();
+      player?.off('fullsnapshot-rebuilded', armScroll);
       doc.removeEventListener('scroll', schedule, true);
       resize.disconnect();
       if (pending) cancelAnimationFrame(pending);
     };
-  }, [rootRef, pageUrl, active]);
+  }, [rootRef, replayerRef, pageUrl, active]);
 
   return active ? <>
     {frames.map((frame) => {

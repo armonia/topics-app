@@ -754,7 +754,7 @@ export default function DomCoBrowse({ registerDomSink, registerFocusSink, sendIn
         onTouchMove={onTouchMove}
         onTouchEnd={onTouchEnd}
       />
-      <CrossOriginFrameOverlay rootRef={rootRef} pageUrl={sourceUrl} active={painted} />
+      <CrossOriginFrameOverlay rootRef={rootRef} replayerRef={replayerRef} pageUrl={sourceUrl} active={painted} />
 
       {/* Local text-selection mode indicator (Option toggles it). While active the
           overlay yields to the interactive mirror so text is natively selectable. */}

@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test';
+import { test, expect, type Locator } from '@playwright/test';
 import { goToApp } from './helpers';
 import { resetPaneStore } from './helpers/api-fixtures';
 import { E2E_BASE } from './helpers/test-server';
@@ -20,6 +20,7 @@ test('cross-origin rrweb frames are labeled and do not relay input', async ({ pa
     <iframe id="cross-origin" title="payment" src="http://${otherOrigin}/api/version?token=private" style="width:300px;height:160px"></iframe>
     <iframe title="hidden tracker" src="http://${otherOrigin}/api/version?hidden" style="display:none"></iframe>
     <iframe title="pixel" src="http://${otherOrigin}/api/version?pixel" style="width:1px;height:1px;border:0"></iframe>
+    <div style="height:1600px"></div>
   </body></html>`;
   const host = await hostNativePage(hostPage, contextId, html, {
     size: { width: 800, height: 600 }, title: 'Cross-origin frames', url: pageUrl,
@@ -43,6 +44,20 @@ test('cross-origin rrweb frames are labeled and do not relay input', async ({ pa
     const overlay = dom.getByTestId('browser-dom-input-overlay');
     await overlay.click({ position: { x: 700, y: 500 } });
     await expect.poll(() => host.inputs().clicks, { timeout: 5_000 }).toBe(1);
+
+    // A new full snapshot rebuilds the mirror with doc.open(), which drops the
+    // listeners inside it: after that the label still follows the Mac's scroll.
+    await hostPage.evaluate(() => {
+      (window as unknown as { __topicsDomHost: { rrweb: { record: { takeFullSnapshot: (isCheckout: boolean) => void } } } })
+        .__topicsDomHost.rrweb.record.takeFullSnapshot(true);
+    });
+    await expect(placeholder).toHaveCount(1);
+    const top = async (target: Locator) => (await target.boundingBox())?.y ?? Number.NaN;
+    const frameBefore = await top(sameFrame);
+    const labelBefore = await top(placeholder);
+    await hostPage.evaluate(() => window.scrollTo({ top: 120, behavior: 'instant' as ScrollBehavior }));
+    await expect.poll(() => top(sameFrame), { timeout: 5_000 }).toBeLessThan(frameBefore - 20);
+    await expect.poll(() => top(placeholder), { timeout: 5_000 }).toBeLessThan(labelBefore - 20);
   } finally {
     host.close();
     await hostPage.close();
