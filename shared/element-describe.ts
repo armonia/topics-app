@@ -65,6 +65,14 @@ export interface ElementDescription {
   viewport: { w: number; h: number };
   /** URL della pagina al momento del click. */
   url: string;
+  /** Framework component attached to the selected DOM node, when available. */
+  component?: {
+    framework: "React" | "Vue" | "Svelte";
+    name: string;
+    file?: string;
+    line?: number;
+    owners: string[];
+  };
   /** Ritaglio dell'elemento. Non lo produce la sonda: lo aggiunge l'host
    *  (Playwright con `clip`, la pane nativa con un canvas). */
   screenshot?: { dataUrl: string; w: number; h: number };
@@ -90,6 +98,123 @@ export const DESCRIBE_ELEMENT_FN = (p: DescribeElementOptions): ElementDescripti
 
   const maxHtml = p.maxHtml && p.maxHtml > 0 ? p.maxHtml : 4000;
   const maxDepth = p.maxDepth && p.maxDepth > 0 ? p.maxDepth : 3;
+
+  const componentMetadata = (el: Element): ElementDescription["component"] => {
+    try {
+      const node = el as Element & Record<string, unknown>;
+      const keys = Object.keys(el);
+      const reactKey = keys.find((key) => key.startsWith("__reactFiber$"));
+      if (reactKey) {
+        let fiber = node[reactKey] as {
+          type?: unknown;
+          return?: unknown;
+          _debugSource?: { fileName?: unknown; lineNumber?: unknown };
+          _debugStack?: { stack?: unknown };
+        } | null;
+        const hostFiber = fiber;
+        let componentFiber: typeof fiber = null;
+        const owners: string[] = [];
+        let file: string | undefined;
+        let line: number | undefined;
+        const hostSource = hostFiber?._debugSource;
+        if (typeof hostSource?.fileName === "string") file = hostSource.fileName;
+        if (typeof hostSource?.lineNumber === "number") line = hostSource.lineNumber;
+        if (!file) {
+          const stackText = typeof hostFiber?._debugStack?.stack === "string" ? hostFiber._debugStack.stack : "";
+          const frames = Array.from(stackText.matchAll(/(?:\(|@|\s)((?:https?:\/\/[^/\s)]+\/)?[^\s()@]+?\.[cm]?[jt]sx?(?:\?[^\s():]*)?):(\d+):\d+\)?/g));
+          const match = frames.find((frame) => {
+            const path = (frame[1] ?? "").replace(/^https?:\/\/[^/]+\//, "");
+            // A frame of React itself, not of a project file whose name says React.
+            return !/(?:^|\/)node_modules(?:\/|$)|\.vite\/deps/i.test(path) &&
+              !/^react(?:-dom|-jsx[\w-]*)?[._]/.test(path.split("/").pop() ?? "");
+          });
+          if (match) {
+            file = (match[1] ?? "").replace(/^https?:\/\/[^/]+\//, "").replace(/\?[^/]*$/, "");
+            line = Number(match[2]);
+          }
+        }
+        let visited = 0;
+        while (fiber && visited < 200) {
+          visited++;
+          const type = fiber.type;
+          if (typeof type === "function") {
+            const fn = type as { displayName?: unknown; name?: unknown; prototype?: { isReactComponent?: unknown } };
+            const name = typeof fn.displayName === "string" && fn.displayName
+              ? fn.displayName
+              : typeof fn.name === "string" && /^[A-Z][A-Za-z0-9_$]{1,}$/.test(fn.name)
+                ? fn.name
+                : "";
+            if (name) {
+              if (!componentFiber) {
+                componentFiber = fiber;
+              } else if (owners.length < 5) {
+                owners.push(name);
+              }
+            }
+          }
+          fiber = fiber.return as typeof fiber;
+        }
+        if (componentFiber) {
+          const type = componentFiber.type as { displayName?: unknown; name?: unknown };
+          const name = typeof type.displayName === "string" && type.displayName
+            ? type.displayName
+            : typeof type.name === "string" ? type.name : "";
+          return {
+            framework: "React",
+            name,
+            ...(file ? { file } : {}),
+            ...(line ? { line } : {}),
+            owners,
+          };
+        }
+      }
+
+      const instance = node.__vueParentComponent as {
+        type?: { __name?: unknown; name?: unknown; __file?: unknown };
+        parent?: unknown;
+      } | undefined;
+      if (instance?.type) {
+        const nameOf = (component: typeof instance): string => {
+          const type = component?.type;
+          if (typeof type?.__name === "string" && type.__name) return type.__name;
+          return typeof type?.name === "string" ? type.name : "";
+        };
+        const name = nameOf(instance);
+        if (name) {
+          const owners: string[] = [];
+          let parent = instance.parent as typeof instance | null | undefined;
+          while (parent && owners.length < 5) {
+            const owner = nameOf(parent);
+            if (owner) owners.push(owner);
+            parent = parent.parent as typeof instance | null | undefined;
+          }
+          const file = typeof instance.type.__file === "string" ? instance.type.__file : undefined;
+          return { framework: "Vue", name, ...(file ? { file } : {}), owners };
+        }
+      }
+
+      const svelte = node.__svelte_meta as {
+        name?: unknown;
+        componentName?: unknown;
+        loc?: { file?: unknown; line?: unknown };
+      } | undefined;
+      if (svelte) {
+        const sourceFile = typeof svelte.loc?.file === "string" ? svelte.loc.file : undefined;
+        const sourceName = sourceFile?.split(/[\\/]/).pop()?.replace(/\.svelte$/i, "") ?? "";
+        const name = typeof svelte.componentName === "string" && svelte.componentName
+          ? svelte.componentName
+          : typeof svelte.name === "string" && svelte.name ? svelte.name : sourceName;
+        if (name) {
+          const file = sourceFile;
+          const line = typeof svelte.loc?.line === "number" ? svelte.loc.line : undefined;
+          return { framework: "Svelte", name, ...(file ? { file } : {}), ...(line ? { line } : {}), owners: [] };
+        }
+      }
+    } catch {
+      // Framework devtools metadata is optional and page-controlled.
+    }
+    return undefined;
+  };
 
   const label = (el: Element): string => {
     let out = el.tagName.toLowerCase();
@@ -249,6 +374,7 @@ export const DESCRIBE_ELEMENT_FN = (p: DescribeElementOptions): ElementDescripti
 
   const r = target.getBoundingClientRect();
   const txt = (target.textContent || '').replace(/\s+/g, ' ').trim();
+  const component = componentMetadata(target);
 
   return {
     path,
@@ -267,6 +393,7 @@ export const DESCRIBE_ELEMENT_FN = (p: DescribeElementOptions): ElementDescripti
     styles,
     viewport: { w: window.innerWidth, h: window.innerHeight },
     url: location.href,
+    ...(component ? { component } : {}),
   };
 };
 
@@ -288,6 +415,13 @@ export function formatElementContext(
   lines.push(`- percorso: \`${d.path}\``);
   lines.push(`- riquadro: ${d.bbox.x},${d.bbox.y} · ${d.bbox.w}×${d.bbox.h} px`);
   if (d.url) lines.push(`- pagina: ${d.url}`);
+  if (d.component) {
+    const source = d.component.file
+      ? ` (${d.component.file}${d.component.line ? `:${d.component.line}` : ""})`
+      : "";
+    const owners = d.component.owners.length ? `, dentro ${d.component.owners.join(" › ")}` : ""; // allow-italian: component owner context is data from the inspected page
+    lines.push(`- componente: ${d.component.name}${source}${owners}`);
+  }
   if (d.ancestors.length) lines.push(`- antenati: ${d.ancestors.join(' › ')}`);
   if (d.text) lines.push(`- testo: "${d.text}"`);
   if (opts?.screenshotAttached) lines.push("- ritaglio dell'elemento allegato come immagine");

@@ -20,6 +20,10 @@ import {
   resolveContextIdForTopic,
 } from "./browser-tool-dispatcher";
 import { setLocalFileServing } from "./browser-local-file-url";
+import { nativeDelegateRegistry } from "./browser-native-delegate";
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
 // ---------------------------------------------------------------------------
 // Fixtures
@@ -110,6 +114,39 @@ describe("resolveContextIdForTopic", () => {
 // ---------------------------------------------------------------------------
 
 describe("dispatchBrowserToolCall", () => {
+  test("native browser_verify persists its screenshot and never returns base64", async () => {
+    const previousHome = process.env.TOPICS_HOME;
+    const tempHome = mkdtempSync(join(tmpdir(), "topics-native-verify-"));
+    process.env.TOPICS_HOME = tempHome;
+    const topic = makeTopic({ id: `verify-${Date.now()}` });
+    const owner = {};
+    nativeDelegateRegistry.register(topic.id, (message) => {
+      if (message.tool === "browser_verify") {
+        nativeDelegateRegistry.resolveOp({ opId: message.opId, result: { url: "https://fixture.test/", checks: [{ status: "pass" }], screenshot: { data: "SHOULD_NOT_ESCAPE", encoding: "base64" } } }, owner);
+      } else if (message.tool === "browser_screenshot") {
+        nativeDelegateRegistry.resolveOp({ opId: message.opId, result: { data: Buffer.from("native png").toString("base64") } }, owner);
+      }
+    }, owner, () => true);
+
+    try {
+      const { service } = makeMockService();
+      const result = await dispatchBrowserToolCall("browser_verify", {}, topic, service) as {
+        url: string; screenshot: { format: string; path: string; bytes: number };
+      };
+      expect(JSON.stringify(result)).not.toContain("base64");
+      expect(JSON.stringify(result)).not.toContain("SHOULD_NOT_ESCAPE");
+      expect(result.url).toBe("https://fixture.test/");
+      expect(result.screenshot.format).toBe("png");
+      expect(result.screenshot.bytes).toBe(Buffer.byteLength("native png"));
+      expect(readFileSync(result.screenshot.path).toString()).toBe("native png");
+    } finally {
+      nativeDelegateRegistry.unregister(topic.id, owner);
+      if (previousHome === undefined) delete process.env.TOPICS_HOME;
+      else process.env.TOPICS_HOME = previousHome;
+      rmSync(tempHome, { recursive: true, force: true });
+    }
+  });
+
   test("browser_open delegates to service.navigate with resolved contextId", async () => {
     const { service, calls } = makeMockService({
       navigateResult: { url: "https://example.com/final", title: "Example Domain" },

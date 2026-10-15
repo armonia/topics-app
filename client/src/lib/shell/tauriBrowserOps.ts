@@ -134,16 +134,20 @@ async function waitForPaneLoad(
   invoke: Invoke,
   origin: string | null,
   timeoutMs: number,
+  marker?: string,
 ): Promise<PaneLoadOutcome> {
-  const probeJs = 'JSON.stringify({origin:location.origin,href:location.href,ready:document.readyState})';
+  const probeJs = 'JSON.stringify({origin:location.origin,href:location.href,ready:document.readyState,marker:window.__topicsVerifyMark})';
   const deadline = Date.now() + timeoutMs;
   let href = '';
   for (;;) {
     try {
       const raw = await invoke<string>('browser_eval_js', { id, js: probeJs });
-      const s = JSON.parse(raw || '{}') as { origin?: string; href?: string; ready?: string };
+      const s = JSON.parse(raw || '{}') as { origin?: string; href?: string; ready?: string; marker?: string };
       if (typeof s.href === 'string' && s.href) href = s.href;
-      if ((!origin || s.origin === origin) && s.ready && s.ready !== 'loading') return { ready: true, href };
+      const settled = marker === undefined
+        ? Boolean(s.ready && s.ready !== 'loading')
+        : s.marker !== marker && s.ready === 'complete';
+      if ((!origin || s.origin === origin) && settled) return { ready: true, href };
     } catch {
       /* execution context mid-swap — retry */
     }
@@ -568,6 +572,65 @@ export async function executeNativeBrowserOp(
         const data = await invoke<string>('browser_screenshot', { id });
         return { result: { data, mime: 'image/png', encoding: 'base64' } };
       }
+      case 'browser_verify': {
+        if (a.url !== undefined && (typeof a.url !== 'string' || !a.url.trim())) {
+          return { error: "browser_verify: 'url' must be a non-empty absolute URL" };
+        }
+        const url = typeof a.url === 'string' && a.url ? absolutizeMediaRef(a.url) : undefined;
+        const checks = Array.isArray(a.checks) ? a.checks : [];
+        if (checks.length > 30) return { error: "browser_verify: 'checks' must contain at most 30 entries" };
+        for (const check of checks) {
+          if (!check || typeof check !== 'object' || typeof check.selector !== 'string' || !check.selector.trim()) {
+            return { error: 'browser_verify: every check requires a non-empty selector' };
+          }
+          if (check.text === undefined && check.visible === undefined && check.style === undefined) {
+            return { error: `browser_verify: check '${check.selector}' needs text, visible, or style` };
+          }
+          if (check.text !== undefined && typeof check.text !== 'string') {
+            return { error: `browser_verify: text for '${check.selector}' must be a string` };
+          }
+          if (check.visible !== undefined && typeof check.visible !== 'boolean') {
+            return { error: `browser_verify: visible for '${check.selector}' must be a boolean` };
+          }
+          if (check.style !== undefined && (!check.style || typeof check.style !== 'object' || Array.isArray(check.style) ||
+            Object.keys(check.style).length === 0 || Object.values(check.style).some((value) => typeof value !== 'string'))) {
+            return { error: `browser_verify: style values for '${check.selector}' must be strings` };
+          }
+        }
+        clearNativeSnapshotCache(id);
+        const marker = `verify-${Date.now()}-${Math.random()}`;
+        await invoke('browser_eval_js', { id, js: `window.__topicsVerifyMark = ${JSON.stringify(marker)}` });
+        if (url) await invoke('browser_navigate', { id, url });
+        else await invoke('browser_reload', { id });
+        const loaded = await waitForPaneLoad(id, invoke, url ? originOf(url) : null, 15_000, marker);
+        if (!loaded.ready) return { error: 'browser_verify: page did not finish loading within 15 s' };
+
+        const checksJs = `JSON.stringify((function(items){return items.map(function(check){var el;try{el=document.querySelector(check.selector)}catch(e){return {selector:check.selector,status:'fail',value:null,error:String(e)}}if(!el)return {selector:check.selector,status:'fail',value:null,error:'element not found'};var value={},errors=[];if(typeof check.text==='string'){value.text=(el.textContent||'').replace(/\\s+/g,' ').trim();if(value.text.indexOf(check.text)<0)errors.push('text did not contain '+JSON.stringify(check.text))}if(typeof check.visible==='boolean'){var cs=getComputedStyle(el);value.visible=el.getClientRects().length>0&&cs.display!=='none'&&cs.visibility!=='hidden';if(value.visible!==check.visible)errors.push('visible was '+value.visible)}if(check.style){var styles={};Object.keys(check.style).forEach(function(prop){styles[prop]=getComputedStyle(el).getPropertyValue(prop).trim();if(styles[prop]!==check.style[prop])errors.push(prop+' was '+JSON.stringify(styles[prop]))});value.style=styles}return {selector:check.selector,status:errors.length?'fail':'pass',value:value,error:errors.join('; ')||undefined}})}))(${JSON.stringify(checks)})`;
+        let results: unknown[] = [];
+        try {
+          const raw = await invoke<string>('browser_eval_js', { id, js: checksJs });
+          results = JSON.parse(raw || '[]') as unknown[];
+        } catch (error) {
+          return { error: `browser_verify: checks failed: ${error instanceof Error ? error.message : String(error)}` };
+        }
+        let consoleErrors: unknown[] = [];
+        try {
+          const raw = await invoke<string>('browser_eval_js', {
+            id,
+            js: "JSON.stringify((window.__topicsConsole||[]).filter(function(e){return e.level==='error'}).map(function(e){return {level:e.level,text:e.text}}))",
+          });
+          consoleErrors = JSON.parse(raw || '[]') as unknown[];
+        } catch { /* console collection is best-effort on a page-controlled surface */ }
+        return {
+          result: {
+            url: loaded.href,
+            consoleErrors,
+            failedRequests: [],
+            requestCapture: 'Native WKWebView does not expose failed-request events on this path.',
+            checks: results,
+          },
+        };
+      }
       default:
         return {
           error: `browser tool '${tool}' is not supported on the native Tauri pane yet. ${STREAMING_HINT}.`,
@@ -606,6 +669,7 @@ export const NATIVE_SUPPORTED_OPS: ReadonlySet<string> = new Set([
   'browser_get_text',
   'browser_console',
   'browser_screenshot',
+  'browser_verify',
   'browser_upload',
   'browser_status',
   // Login-state legs (the server-side halves live in server/browser-native-state.ts).

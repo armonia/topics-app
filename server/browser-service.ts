@@ -366,7 +366,7 @@ export interface BrowserService {
   /** `error` present when goto failed (refused connection, DNS, timeout…):
    *  the page then still reports the PREVIOUS url/title, so callers must
    *  surface the failure instead of treating the stale shape as success. */
-  navigate(id: string, url: string): Promise<{ url: string; title: string; error?: string }>;
+  navigate(id: string, url: string, options?: { timeoutMs?: number }): Promise<{ url: string; title: string; error?: string }>;
   /** What a viewer opening now should hear about the context's navigation:
    *  still loading (and since when), failed, or nothing (browser-nav-flight). */
   navReplay(id: string): NavFlightMessage | null;
@@ -1642,7 +1642,7 @@ export async function createBrowserService(opts: BrowserServiceOptions = {}): Pr
       };
     },
 
-    async navigate(id, url) {
+    async navigate(id, url, options) {
       // Scheme guard (LFI/SSRF defense-in-depth): a browser pane must never be
       // driven to file:// / chrome:// from ANY caller. Only the agent-tool path
       // was guarded (assertAgentNavAllowed); REST `/navigate` and co-browse WS
@@ -1672,7 +1672,7 @@ export async function createBrowserService(opts: BrowserServiceOptions = {}): Pr
         const entry = await service.getOrCreate(id);
         let navError: string | undefined;
         try {
-          await entry.page.goto(url, { waitUntil: "domcontentloaded", timeout: 30_000 });
+          await entry.page.goto(url, { waitUntil: "domcontentloaded", timeout: options?.timeoutMs ?? 30_000 });
         } catch (err: any) {
           // Don't swallow: the page is still on the previous URL, so returning
           // the plain shape reads as success and the pane shows nothing.

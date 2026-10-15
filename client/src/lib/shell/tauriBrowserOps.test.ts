@@ -275,6 +275,63 @@ test('browser_screenshot returns the native PNG as base64 in the streaming-compa
   expect(NATIVE_SUPPORTED_OPS.has('browser_screenshot')).toBe(true);
 });
 
+/** @covers BROWSER-CHAT-06 */
+test('browser_verify reloads and returns native screenshot, console errors, and checks', async () => {
+  const calls: Array<[string, unknown]> = [];
+  const invoke: Invoke = async (cmd, args) => {
+    calls.push([cmd, args]);
+    if (cmd === 'browser_eval_js') {
+      const js = (args as { js: string }).js;
+      if (js.includes('document.readyState')) return JSON.stringify({ origin: 'null', href: 'about:blank', ready: 'complete' }) as never;
+      if (js.includes('items.map')) return JSON.stringify([{ selector: '#price', status: 'pass', value: { style: { color: 'rgb(0, 128, 0)' } } }]) as never;
+      if (js.includes('__topicsConsole')) return JSON.stringify([{ level: 'error', text: 'after reload' }]) as never;
+    }
+    if (cmd === 'browser_screenshot') return 'iVBORw0KGgo=' as never;
+    return '' as never;
+  };
+  const out = await executeNativeBrowserOp('verify-native', 'browser_verify', {
+    checks: [{ selector: '#price', style: { color: 'rgb(0, 128, 0)' } }],
+  }, invoke);
+  expect((calls[0][1] as { js: string }).js).toContain('__topicsVerifyMark');
+  expect(calls[1]).toEqual(['browser_reload', { id: 'verify-native' }]);
+  const probe = calls.find(([cmd, callArgs]) => cmd === 'browser_eval_js' && (callArgs as { js: string }).js.includes('document.readyState'));
+  expect((probe?.[1] as { js: string }).js).toContain('__topicsVerifyMark');
+  expect(calls.some(([cmd]) => cmd === 'browser_screenshot')).toBe(false);
+  expect(out).toMatchObject({ result: {
+    url: 'about:blank',
+    consoleErrors: [{ text: 'after reload' }],
+    failedRequests: [],
+    checks: [{ selector: '#price', status: 'pass' }],
+  } });
+  expect(JSON.stringify(out)).not.toContain('base64');
+  expect(NATIVE_SUPPORTED_OPS.has('browser_verify')).toBe(true);
+});
+
+test('browser_verify marks the old document before navigating to a requested URL', async () => {
+  const calls: Array<[string, unknown]> = [];
+  const invoke: Invoke = async (cmd, args) => {
+    calls.push([cmd, args]);
+    if (cmd === 'browser_eval_js') {
+      const js = (args as { js: string }).js;
+      if (js.includes('document.readyState')) return JSON.stringify({ origin: 'https://example.com', href: 'https://example.com/next', ready: 'complete' }) as never;
+      if (js.includes('items.map')) return '[]' as never;
+      if (js.includes('__topicsConsole')) return '[]' as never;
+    }
+    if (cmd === 'browser_screenshot') return 'SHOULD_NOT_CAPTURE_HERE' as never;
+    return '' as never;
+  };
+  const out = await executeNativeBrowserOp('verify-url', 'browser_verify', { url: 'https://example.com/next' }, invoke);
+
+  const markIndex = calls.findIndex(([cmd, args]) => cmd === 'browser_eval_js' && (args as { js: string }).js.includes('__topicsVerifyMark ='));
+  const navigateIndex = calls.findIndex(([cmd]) => cmd === 'browser_navigate');
+  const probeIndex = calls.findIndex(([cmd, args]) => cmd === 'browser_eval_js' && (args as { js: string }).js.includes('document.readyState'));
+  expect(markIndex).toBeGreaterThanOrEqual(0);
+  expect(navigateIndex).toBeGreaterThan(markIndex);
+  expect(probeIndex).toBeGreaterThan(navigateIndex);
+  expect((calls[probeIndex]?.[1] as { js: string }).js).toContain('__topicsVerifyMark');
+  expect(JSON.stringify(out)).not.toContain('SHOULD_NOT_CAPTURE_HERE');
+});
+
 test('observe/act/extract are now supported native ops', () => {
   expect(NATIVE_SUPPORTED_OPS.has('browser_observe')).toBe(true);
   expect(NATIVE_SUPPORTED_OPS.has('browser_act')).toBe(true);
