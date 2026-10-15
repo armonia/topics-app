@@ -235,7 +235,8 @@ export const TERMINAL_SESSIONS_DDL = `CREATE TABLE IF NOT EXISTS terminal_sessio
 export const APP_SETTINGS_DDL = `CREATE TABLE IF NOT EXISTS app_settings (
   id INTEGER PRIMARY KEY CHECK (id = 1),
   auto_dispatch INTEGER,
-  profile_publish_cost INTEGER NOT NULL DEFAULT 0
+  profile_publish_cost INTEGER NOT NULL DEFAULT 0,
+  first_run_done_at TEXT
 );
 INSERT OR IGNORE INTO app_settings (id, auto_dispatch) VALUES (1, 0);`;
 

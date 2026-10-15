@@ -57,7 +57,12 @@ export function useProfileIdentity(): ProfileIdentity {
   // davvero, non la nasconde.
   useEffect(() => {
     const primo = setTimeout(() => { void caricaIo(); }, 0);
-    return () => clearTimeout(primo);
+    const refresh = () => { void caricaIo(); };
+    window.addEventListener('topics:identity-changed', refresh);
+    return () => {
+      clearTimeout(primo);
+      window.removeEventListener('topics:identity-changed', refresh);
+    };
   }, [caricaIo]);
 
   const nome = io?.displayName

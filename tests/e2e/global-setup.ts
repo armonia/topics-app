@@ -622,6 +622,15 @@ async function globalSetup() {
   // Seed baseline data that legacy tests (Phase 1-2) expect
   await seedBaselineData();
 
+  // Ordinary specs start after the first-run screen has been seen. The
+  // first-run specs clear this flag explicitly before exercising the flow.
+  const firstRunSeed = await fetch(`${BASE}/api/app-settings`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ firstRunDoneAt: new Date().toISOString() }),
+  });
+  if (!firstRunSeed.ok) throw new Error(`[global-setup] first-run seed failed: ${firstRunSeed.status}`);
+
   // Fotografa QUESTO stato: è la baseline a cui ogni file di spec torna prima
   // di partire (tests/e2e/fixtures/hermetic.ts). Va per forza qui, dopo il
   // seed e prima del primo test — è l'unico istante in cui il DB contiene

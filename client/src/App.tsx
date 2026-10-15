@@ -7,6 +7,7 @@ import { useWorktrees } from './hooks/useWorktrees';
 import { useTaskTopicIndex } from './hooks/useTaskTopicIndex';
 import { openTaskInApp } from './lib/openTaskLink';
 import { HomePanelHost } from './components/Settings/HomePanelHost';
+import { FirstRunHost } from './components/FirstRun/FirstRunHost';
 import { useMenuPreferences, useUserMenuRequest } from './hooks/useUserMenuHost';
 import { ConfirmInsidePopoverContext } from './hooks/confirmInsidePopover';
 import { runNotificationAction } from './lib/notify/notificationAction';
@@ -2622,6 +2623,7 @@ function App() {
       {/* The one host of the forms that live where they are used: providers,
           tools, calendar (SETHOME-01). */}
       <HomePanelHost />
+      <FirstRunHost />
 
       {import.meta.env.DEV && DevOverlay && <DevOverlay />}
 

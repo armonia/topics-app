@@ -91,6 +91,8 @@ export interface AppSettings {
    *  the normal case. Written by `POST /api/providers/cli/configure`, which
    *  validates the path before it lands here. */
   agentBinPaths: string | null;
+  /** When the first-run screen was seen on this installation. */
+  firstRunDoneAt: string | null;
 }
 
 const EMPTY: AppSettings = {
@@ -118,6 +120,7 @@ const EMPTY: AppSettings = {
   calendarRefreshMinutes: null,
   calendarHorizonDays: null,
   agentBinPaths: null,
+  firstRunDoneAt: null,
 };
 
 interface Row {
@@ -145,6 +148,7 @@ interface Row {
   calendar_refresh_minutes: number | null;
   calendar_horizon_days: number | null;
   agent_bin_paths: string | null;
+  first_run_done_at: string | null;
 }
 
 function rowToSettings(r: Row): AppSettings {
@@ -177,6 +181,7 @@ function rowToSettings(r: Row): AppSettings {
     calendarRefreshMinutes: r.calendar_refresh_minutes ?? null,
     calendarHorizonDays: r.calendar_horizon_days ?? null,
     agentBinPaths: r.agent_bin_paths ?? null,
+    firstRunDoneAt: r.first_run_done_at ?? null,
   };
 }
 
@@ -199,7 +204,7 @@ export function getAppSettings(): AppSettings {
                 agent_runtime, profile_publish_cost, profile_share_token,
                 turn_checkpoints_enabled, agent_bin_paths,
                 calendar_enabled, calendar_feed_url,
-                calendar_refresh_minutes, calendar_horizon_days
+                calendar_refresh_minutes, calendar_horizon_days, first_run_done_at
            FROM app_settings WHERE id = 1`,
       )
       .get() as Row | null;
@@ -236,6 +241,7 @@ const COLUMNS: Record<keyof AppSettings, string> = {
   calendarRefreshMinutes: "calendar_refresh_minutes",
   calendarHorizonDays: "calendar_horizon_days",
   agentBinPaths: "agent_bin_paths",
+  firstRunDoneAt: "first_run_done_at",
 };
 
 /**

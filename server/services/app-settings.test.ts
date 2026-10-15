@@ -61,11 +61,12 @@ afterAll(() => {
 beforeEach(() => {
   for (const k of ENV_KEYS) delete process.env[k];
   // Reset every override so each test starts from a clean singleton row.
-  updateAppSettings({
+    updateAppSettings({
     aiProvider: null, claudeModel: null, claudeMaxTokens: null, claudeEffort: null,
     openaiModel: null, openaiMaxTokens: null, codexModel: null, codexReasoningEffort: null,
     claudeCodePermissionMode: null, codexApprovalMode: null, claudeCodeEnabled: null,
     agentRuntime: null,
+    firstRunDoneAt: null,
   });
 });
 
@@ -83,6 +84,13 @@ describe("singleton row", () => {
     expect(getAppSettings().claudeModel).toBe("claude-opus-4-8");
     updateAppSettings({ claudeCodeEnabled: false });
     expect(getAppSettings().claudeCodeEnabled).toBe(false);
+  });
+
+  test("first-run seen timestamp reads and writes", () => {
+    expect(getAppSettings().firstRunDoneAt).toBeNull();
+    const at = "2026-10-15T09:00:00.000Z";
+    expect(updateAppSettings({ firstRunDoneAt: at }).firstRunDoneAt).toBe(at);
+    expect(getAppSettings().firstRunDoneAt).toBe(at);
   });
 });
 

@@ -143,12 +143,15 @@ export function useIdentityPresence(enabled = true, intervalMs = INTERVAL_MS): P
     // somebody is looking to check that the pairing went through.
     window.addEventListener('topics:auth-pair-resolved', giro);
     window.addEventListener('topics:auth-device-revoked', giro);
+    // A rename (the first-run screen) changes the name on this card the same way.
+    window.addEventListener('topics:identity-changed', giro);
     return () => {
       alive = false;
       clearTimeout(first);
       stopPolling();
       window.removeEventListener('topics:auth-pair-resolved', giro);
       window.removeEventListener('topics:auth-device-revoked', giro);
+      window.removeEventListener('topics:identity-changed', giro);
     };
   }, [enabled, intervalMs, read]);
 
