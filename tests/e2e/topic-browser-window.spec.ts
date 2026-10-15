@@ -749,6 +749,9 @@ test.describe("TOPIC-BROWSER-01 la finestra browser della topic", () => {
       const watchWire = (req: Request) => {
         const method = req.method();
         if (method !== "DELETE" && method !== "POST") return;
+        // The framing probe is a POST since #332 (same-origin JSON only), and it
+        // reads a page, it does not open or close a context.
+        if (/\/api\/browsers\/framable(\?|$)/.test(req.url())) return;
         if (/\/api\/browsers?\//.test(req.url())) lifecycle.push(`${method} ${req.url()}`);
       };
       page.on("request", watchWire);
