@@ -806,6 +806,8 @@ const IT: Dict = {
   'browser.tab.hostStop': 'Smetti di condividere',
   'browser.tab.hostResume': 'Condividi di nuovo',
   'browser.tab.hostLastFrame': 'ultimo frame {age} fa',
+  'cobrowse.frameUnavailable': 'Contenuto di {host}',
+  'cobrowse.frameUseMac': 'Si usa sul Mac',
   'browser.tab.sheet.address': 'Indirizzo',
   'browser.tab.sheet.recent': 'In questa scheda',
   'browser.tab.engine.playwright': 'Motore: Playwright',
