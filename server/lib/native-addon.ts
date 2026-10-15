@@ -5,11 +5,35 @@ import { resolve } from "node:path";
 export interface NativeModule {
   nativeVersion(): string;
   gitHeadCommitId(repoPath: string): string | null;
+  gitStatus?(repoPath: string): Promise<NativeGitStatus | null>;
+}
+
+export interface NativeGitStatusEntry {
+  path: string;
+  status: string;
+  origPath?: string;
+}
+
+export interface NativeGitStatus {
+  root: string;
+  branch: string | null;
+  ahead: number;
+  behind: number;
+  entries: NativeGitStatusEntry[];
+  lastCommit: { short: string; hash: string; subject: string; author: string } | null;
 }
 
 interface NativeExports {
   nativeVersion?: () => string;
   gitHeadCommitId?: (repoPath: string) => string | null;
+  gitStatus?: (repoPath: string) => Promise<{
+    root: string;
+    branch?: string | null;
+    ahead: number;
+    behind: number;
+    entries: Array<{ path: string; status: string; origPath?: string | null }>;
+    lastCommit?: { short: string; hash: string; subject: string; author: string } | null;
+  } | null>;
 }
 
 let loaded = false;
@@ -55,6 +79,24 @@ export function loadNativeModuleAt(candidate: string): NativeModule | null {
       nativeModule = {
         nativeVersion: nativeVersion.bind(exports),
         gitHeadCommitId: gitHeadCommitId.bind(exports),
+        ...(typeof exports.gitStatus === "function"
+          ? {
+              gitStatus: async (repoPath: string) => {
+                const result = await exports.gitStatus!.call(exports, repoPath);
+                if (!result) return null;
+                return {
+                  root: result.root,
+                  branch: result.branch ?? null,
+                  ahead: result.ahead,
+                  behind: result.behind,
+                  lastCommit: result.lastCommit ?? null,
+                  entries: result.entries.map(({ origPath, ...entry }) =>
+                    origPath == null ? entry : { ...entry, origPath },
+                  ),
+                };
+              },
+            }
+          : {}),
       };
     }
   } catch (error) {
