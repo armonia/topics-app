@@ -381,6 +381,7 @@ test.describe("desktop 1440 × 900, the list and the detail", () => {
     await expect(level(page)).toBeVisible();
     await expect(page.getByTestId("home-panel-providers")).toHaveCount(0);
     await page.keyboard.press("Escape");
+    await expect(models(page)).toBeVisible();
     await page.keyboard.press("Escape");
     await expect(popover(page)).toHaveCount(0);
     await expect(picker).toBeFocused();
