@@ -17,7 +17,7 @@
  * connections to come up.
  */
 import type { Browser, BrowserContext, BrowserContextOptions, Page, APIRequestContext, Locator } from "@playwright/test";
-import { expect } from "@playwright/test";
+import { expect, test } from "@playwright/test";
 import { goToApp } from "../helpers";
 import { E2E_BASE } from "./test-server";
 
@@ -70,8 +70,13 @@ export async function openTwoDevices(
 ): Promise<TwoDevices> {
   const { stubBrowserStream = true, waitConnected = true, seed, contextOptions } = opts;
 
-  const ctxA = await browser.newContext({ ...contextOptions, baseURL: BASE_URL });
-  const ctxB = await browser.newContext({ ...contextOptions, baseURL: BASE_URL });
+  // A clip run films every page, but a context opened by hand does not inherit
+  // `use.video`: the two devices ask for it, unless the caller already did.
+  const film = (device: string): BrowserContextOptions => process.env.E2E_VIDEO === "1"
+    ? { recordVideo: { dir: test.info().outputPath(`device-${device}`), size: { width: 1280, height: 800 } } }
+    : {};
+  const ctxA = await browser.newContext({ ...film("a"), ...contextOptions, baseURL: BASE_URL });
+  const ctxB = await browser.newContext({ ...film("b"), ...contextOptions, baseURL: BASE_URL });
   const pageA = await ctxA.newPage();
   const pageB = await ctxB.newPage();
 

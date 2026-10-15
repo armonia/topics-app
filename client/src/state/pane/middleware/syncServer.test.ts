@@ -418,6 +418,18 @@ describe("syncServer — re-arm the push after a WS drop", () => {
     expect(putCount).toBe(1);
   }, TEST_CEILING_MS);
 
+  test("a reconnect after a push that landed does not push again", async () => {
+    // Every server restart is a reconnect. Once the edit is on the server, the
+    // drop owes nothing and the reopen must not re-send the same snapshot.
+    editLocally();
+    await waitFor(() => putCount >= 1);
+    await sleep(100);
+    dispatchLifecycle("close");
+    dispatchLifecycle("open");
+    await sleep(700);
+    expect(putCount).toBe(1);
+  }, TEST_CEILING_MS);
+
   test("an open with nothing owed does not push", async () => {
     // No edit at all: a plain reconnect must stay silent, or every WS blip
     // would write the same snapshot back to the server.
@@ -426,6 +438,56 @@ describe("syncServer — re-arm the push after a WS drop", () => {
     await sleep(700);
     expect(putCount).toBe(0);
   });
+
+  /** PUTs to the pane store are refused until `up()`; then they land. */
+  function installServerThatComesBack(): { refused: () => number; landed: () => number; up: () => void } {
+    restoreFetch();
+    let serverUp = false;
+    let refused = 0;
+    let landed = 0;
+    originalFetch = (globalThis as unknown as { fetch?: typeof fetch }).fetch;
+    (globalThis as unknown as { fetch: unknown }).fetch = (url: string): Promise<Response> => {
+      if (!String(url).includes(PANE_STORE_REMOTE_KEY)) return Promise.resolve(new Response("{}", { status: 200 }));
+      if (!serverUp) {
+        refused += 1;
+        return Promise.reject(new TypeError("Failed to fetch"));
+      }
+      landed += 1;
+      return Promise.resolve(new Response(JSON.stringify({ server_seq: 2000 + landed }), { status: 200 }));
+    };
+    return { refused: () => refused, landed: () => landed, up: () => { serverUp = true; } };
+  }
+
+  test("an edit whose PUT gave up while the server was away is pushed on the next open", async () => {
+    // The order a server restart produces: the socket drops with nothing owed,
+    // then an edit made while the server is gone retries and stops.
+    const server = installServerThatComesBack();
+    dispatchLifecycle("close");
+    editLocally();
+    // The first try and its three retries, all refused: the chain is over.
+    await waitFor(() => server.refused() >= 4);
+    await sleep(100);
+    expect(server.refused()).toBe(4);
+    server.up();
+    dispatchLifecycle("open");
+    await waitFor(() => server.landed() >= 1);
+    await sleep(200);
+    expect(server.landed()).toBe(1);
+  }, TEST_CEILING_MS);
+
+  test("a PUT that gave up before the socket noticed is still owed after the drop", async () => {
+    // A network that vanishes without closing the socket: the PUTs fail first,
+    // and the drop is seen later. The drop must not forget what is owed.
+    const server = installServerThatComesBack();
+    editLocally();
+    await waitFor(() => server.refused() >= 4);
+    await sleep(100);
+    dispatchLifecycle("close");
+    server.up();
+    dispatchLifecycle("open");
+    await waitFor(() => server.landed() >= 1);
+    expect(server.landed()).toBe(1);
+  }, TEST_CEILING_MS);
 
   test("a PUT aborted mid-flight by the drop is re-sent on the next open", async () => {
     restoreFetch();
