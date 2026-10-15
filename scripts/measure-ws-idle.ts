@@ -4,6 +4,7 @@ import { chmodSync, mkdirSync, rmSync, utimesSync, writeFileSync, appendFileSync
 import { resolve, join } from "node:path";
 import { WebSocket } from "ws";
 import { CLIENT_CAPABILITIES, CLIENT_PROTOCOL_VERSION, CLIENT_VERSION } from "../client/src/schemas/ws-handshake";
+import { OUTBOUND_FRAME_CLASSES } from "../shared/ws-outbound";
 
 const ROOT = resolve(import.meta.dir, "..");
 const PORT_BASE = 15300;
@@ -180,6 +181,8 @@ try {
     protocolVersion: CLIENT_PROTOCOL_VERSION,
     capabilities: Array.from(CLIENT_CAPABILITIES),
   }));
+  ws.send(JSON.stringify({ type: "presence:announce", windowId: "ws-idle-window", topicIds: [] }));
+  ws.send(JSON.stringify({ type: "subscribe", topicIds: [] }));
   // The app's first three seconds include welcome and initial socket snapshots;
   // they are reported separately because they are connection setup, not idle load.
   await new Promise((resolveWait) => setTimeout(resolveWait, 3_000));
@@ -224,20 +227,26 @@ try {
   const rate = measuredBytes / duration;
   console.log(`regime ${duration}s · ${measuredBytes} B · ${rate.toFixed(1)} B/s · tetto ${budget} B/s`);
   if (streamError) throw new Error(`chat stream error: ${streamError.slice(0, 800)}`);
-  if (!measuredCounts.has("stream:content_chunk")) throw new Error("chat pipeline non ha prodotto stream:content_chunk");
+  if (!measuredCounts.has("stream:start")) throw new Error("chat pipeline non ha prodotto stream:start");
   const externalFrameCount = measuredFrames.get("external-sessions") ?? 0;
+  const topicFrameCount = [...measuredFrames.keys()]
+    .filter((type) => OUTBOUND_FRAME_CLASSES[type as keyof typeof OUTBOUND_FRAME_CLASSES] === "topic")
+    .reduce((count, type) => count + (measuredFrames.get(type) ?? 0), 0);
   console.log(`external-sessions         ${externalFrameCount} frame`);
+  console.log(`frame topic               ${topicFrameCount} frame, attesi 0`);
   for (const [type, count] of [...measuredCounts].sort((a, b) => b[1] - a[1])) {
     const frames = measuredFrames.get(type) ?? 0;
     console.log(`${type.padEnd(24)} ${count} B · ${frames} frame`);
   }
   const overBudget = rate > budget;
   const unexpectedExternalFrames = externalFrameCount !== 0;
-  const label = overBudget || unexpectedExternalFrames ? "ROSSO" : "verde";
+  const unexpectedTopicFrames = topicFrameCount !== 0;
+  const label = overBudget || unexpectedExternalFrames || unexpectedTopicFrames ? "ROSSO" : "verde";
   const comparison = `${rate.toFixed(1)} ${overBudget ? ">" : "≤"} ${budget} B/s`;
   const frameFailure = unexpectedExternalFrames ? ` · ${externalFrameCount} frame external-sessions, attesi 0` : "";
-  console.log(`\n${label}: ${comparison}${frameFailure}`);
-  process.exitCode = overBudget || unexpectedExternalFrames ? 1 : 0;
+  const topicFailure = unexpectedTopicFrames ? ` · ${topicFrameCount} frame topic, attesi 0` : "";
+  console.log(`\n${label}: ${comparison}${frameFailure}${topicFailure}`);
+  process.exitCode = overBudget || unexpectedExternalFrames || unexpectedTopicFrames ? 1 : 0;
 } catch (error) {
   ws.terminate();
   stop();

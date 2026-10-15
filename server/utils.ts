@@ -5,6 +5,7 @@ import { timingSafeEqual } from "crypto";
 import { join, resolve, extname } from "path";
 import type { ServerWebSocket } from "bun";
 import { clientReceivesTopicDelta } from "./lib/ws-topic-routing";
+import { OUTBOUND_FRAME_CLASSES } from "../shared/ws-outbound";
 import { warnThrottled } from "./lib/warn-throttled";
 import { isReusableHeadstone } from "./lib/empty-turn-headstone";
 import type {
@@ -1049,6 +1050,16 @@ export function createAppContext(baseDir: string): AppContext {
   function broadcastToAll(message: OutboundMessage) {
     const presentedMessage = presentTopicInOutboundMessage(withFrameMediaSizes(message));
     devValidateOutbound(presentedMessage);
+    const frame = presentedMessage as OutboundMessage & { topicId?: unknown; sessionKey?: unknown };
+    if (OUTBOUND_FRAME_CLASSES[frame.type as keyof typeof OUTBOUND_FRAME_CLASSES] === "topic") {
+      const topicId = typeof frame.topicId === "string"
+        ? frame.topicId
+        : typeof frame.sessionKey === "string" ? getTopicBySessionKey(frame.sessionKey)?.id : undefined;
+      if (topicId) {
+        broadcastToTopicSubscribers(topicId, presentedMessage);
+        return;
+      }
+    }
     const payload = JSON.stringify(presentedMessage);
     // Un OSPITE non riceve tutto. Il gate controlla le RICHIESTE, e un broadcast
     // non è una richiesta: senza questo filtro un ospite col socket aperto
