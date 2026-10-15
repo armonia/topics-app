@@ -1,6 +1,6 @@
 /**
- * A server or ai-bridge that stops answering for a minute must not cost the
- * client a streaming turn or change the panes in its window.
+ * A server or ai-bridge pause must not cost the client a streaming turn or
+ * change the panes in its window.
  */
 import { expect, test, type APIRequestContext, type Page } from "@playwright/test";
 import { processRows } from "./helpers/platform";
@@ -13,10 +13,11 @@ import { installSlowTurnCli } from "./helpers/fake-claude-cli";
 
 hermetic(test);
 test.use({ video: "on" });
-test.describe.configure({ timeout: 180_000 });
+test.describe.configure({ timeout: 300_000 });
 
 const TOKEN = process.env.GATEWAY_TOKEN ?? "test-token";
 const STOP_MS = 60_000;
+const SERVER_STOP_MS = 100_000;
 const CHUNKS = 90;
 
 function startTurn(sessionKey: string, content: string): { said: () => string; done: Promise<void> } {
@@ -54,15 +55,15 @@ async function visiblePaneIds(page: Page): Promise<string[]> {
   );
 }
 
-async function pauseProcess(pid: number): Promise<void> {
+async function pauseProcess(pid: number, durationMs = STOP_MS): Promise<void> {
   const startedAt = Date.now();
   process.kill(pid, "SIGSTOP");
   try {
-    await new Promise((resolve) => setTimeout(resolve, STOP_MS));
+    await new Promise((resolve) => setTimeout(resolve, durationMs));
   } finally {
     process.kill(pid, "SIGCONT");
   }
-  if (Date.now() - startedAt < STOP_MS) throw new Error(`process pause lasted less than ${STOP_MS}ms`);
+  if (Date.now() - startedAt < durationMs) throw new Error(`process pause lasted less than ${durationMs}ms`);
 }
 
 async function findBridgePid(timeoutMs = 15_000): Promise<number> {
@@ -147,12 +148,30 @@ test.describe("D7c sleep and wake recovery", () => {
     await expect(page.locator(`[data-testid="chat-panel"][data-chat-topic-id="${topicIds[0]}"]`)).toBeVisible();
   });
 
-  test("server stopped for 60 seconds: the streaming turn and panes survive @nightly", async ({ page, request }) => {
+  test("server stopped for 100 seconds: reconnect catch-up restores the streaming turn @nightly", async ({ page, request }) => {
     test.info().annotations.push({ type: "spec", description: "RUNTIME-20" });
     // Read from the port, not from globalSetup: a spec that restarts the server changes its pid.
     const holders = portHolders(E2E_PORT);
     if (holders.length !== 1) throw new Error(`expected one test server on port ${E2E_PORT}, found ${holders.length}`);
-    await assertTurnSurvived(page, request, topicIds[0]!, "sleepserver", () => pauseProcess(holders[0]!.pid));
+    let connectedFrames = 0;
+    page.on("websocket", (socket) => {
+      if (new URL(socket.url()).pathname.endsWith("/ws")) {
+        socket.on("framereceived", ({ payload }) => {
+          const raw = typeof payload === "string" ? payload : payload.toString("utf8");
+          try {
+            if ((JSON.parse(raw) as { type?: string }).type === "connected") connectedFrames += 1;
+          } catch { /* Other frame formats do not prove the handshake. */ }
+        });
+      }
+    });
+    await assertTurnSurvived(page, request, topicIds[0]!, "sleepserver", async () => {
+      const beforePause = connectedFrames;
+      await pauseProcess(holders[0]!.pid, SERVER_STOP_MS);
+      await expect.poll(() => connectedFrames, {
+        timeout: 30_000,
+        message: "the app WebSocket completed a new handshake after the server resumed",
+      }).toBeGreaterThan(beforePause);
+    });
   });
 
   test("ai-bridge stopped for 60 seconds: the streaming turn and panes survive @nightly", async ({ page, request }) => {
