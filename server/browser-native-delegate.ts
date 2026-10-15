@@ -236,6 +236,8 @@ const NATIVE_DELEGATE_FRAME_TYPES = new Set([
   'take_control',
   'native_dom_host',
   'host_dom_events',
+  // A large batch of the same events, in pieces the mirror puts back together (NATIVE-HOST-05).
+  'host_dom_events_chunk',
   'host_page',
   'host_local_use',
 ]);
