@@ -78,10 +78,14 @@ export function parseTmuxPanes(stdout: string): LiveTerminal[] {
  * The tmux args pointing at the right server. `TOPICS_TMUX_SOCKET`
  * exists for the test server, which must neither see nor touch the user's real
  * sessions: same boundary as the isolated HOME.
+ *
+ * `-u` because the production server runs under launchd with no UTF-8 locale:
+ * there tmux prints the tabs of TMUX_FORMAT as `_`, every row looked malformed
+ * and the list came back without a single pane (10/15).
  */
-function tmuxBase(): string[] {
+export function tmuxBase(): string[] {
   const sock = process.env.TOPICS_TMUX_SOCKET;
-  return sock ? ["-S", sock] : [];
+  return sock ? ["-u", "-S", sock] : ["-u"];
 }
 
 // ── Terminal.app ─────────────────────────────────────────────────────────────
@@ -206,6 +210,9 @@ export interface LiveTerminalsService {
   send(id: string, text: string, opts?: { enter?: boolean }): Promise<boolean>;
 }
 
+const TERMINAL_LIST_TIMEOUT_MS = 1500;
+const TERMINAL_PAUSE_MS = 60_000;
+
 export function createLiveTerminals(deps: LiveTerminalsDeps): LiveTerminalsService {
   const run = deps.run ?? defaultRunner;
   const ttlMs = deps.ttlMs ?? 2000;
@@ -217,23 +224,28 @@ export function createLiveTerminals(deps: LiveTerminalsDeps): LiveTerminalsServi
   let cache: LiveTerminal[] = [];
   let cachedAt = 0;
   let inflight: Promise<LiveTerminal[]> | null = null;
+  // Without the Automation permission osascript hangs until killed: after a
+  // failure Terminal.app is skipped for a while, or every list waits for it.
+  let terminalPausedUntil = 0;
 
   async function scanTmux(): Promise<LiveTerminal[]> {
     if (!tmuxOn) return [];
     try {
       return parseTmuxPanes(await run("tmux", [...tmuxBase(), "list-panes", "-a", "-F", TMUX_FORMAT]));
-    } catch {
+    } catch (err) {
       // No tmux server running is the normal case, not an error worth logging.
+      if (!/no server running|error connecting/i.test(String(err))) log("tmux non risponde", err);
       return [];
     }
   }
 
   async function scanTerminal(): Promise<LiveTerminal[]> {
-    if (!terminalOn) return [];
+    if (!terminalOn || now() < terminalPausedUntil) return [];
     let tabs: Array<{ tty: string; title: string }>;
     try {
-      tabs = parseTerminalTabs(await run("osascript", ["-e", TERMINAL_LIST_SCRIPT]));
+      tabs = parseTerminalTabs(await run("osascript", ["-e", TERMINAL_LIST_SCRIPT], { timeoutMs: TERMINAL_LIST_TIMEOUT_MS }));
     } catch (err) {
+      terminalPausedUntil = now() + TERMINAL_PAUSE_MS;
       log("Terminal.app non risponde (permesso di Automazione negato?)", err);
       return [];
     }
