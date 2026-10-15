@@ -216,7 +216,7 @@ describe("computeGitStatus on a real repo", () => {
     expect((await after)!.files.map((f) => f.path)).toContain("staged.txt");
   });
 
-  test("both live watchers cap idle reads at one calculation per minute", async () => {
+  test("both live watchers cap idle reads at one calculation per five minutes", async () => {
     let monotonic = 0;
     const now = () => monotonic;
     setGitStatusWatcher(repo, true);
@@ -233,10 +233,10 @@ describe("computeGitStatus on a real repo", () => {
         writeGitStatusCache(repo, status, now);
       }
     }
-    expect(calculations, "initial calculation plus one per 60-second cap over ten minutes").toBe(11);
+    expect(calculations, "initial calculation plus one per five-minute cap over ten minutes").toBe(3);
   });
 
-  test("the 60-second cap reveals a file change when no watcher event arrives", async () => {
+  test("the five-minute cap reveals a file change when no watcher event arrives", async () => {
     let monotonic = 0;
     const now = () => monotonic;
     setGitStatusWatcher(repo, true);
@@ -246,7 +246,7 @@ describe("computeGitStatus on a real repo", () => {
     writeFileSync(join(repo, "unreported.txt"), "watcher event lost\n");
 
     let result = readGitStatusCache(repo, now);
-    for (let poll = 0; poll < 4; poll++) {
+    for (let poll = 0; poll < 20; poll++) {
       monotonic += 15_000;
       result = readGitStatusCache(repo, now);
       if (!result) {
@@ -254,7 +254,7 @@ describe("computeGitStatus on a real repo", () => {
         writeGitStatusCache(repo, result, now);
       }
     }
-    expect(monotonic).toBe(60_000);
+    expect(monotonic).toBe(300_000);
     expect(result!.files.map((file) => file.path)).toContain("unreported.txt");
   });
 

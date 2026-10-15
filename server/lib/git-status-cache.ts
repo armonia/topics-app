@@ -29,13 +29,17 @@
 
 /**
  * Validity of an entry, counted from its WRITE and never renewed by reads. With
- * both watchers live on the path (`.git` and the project files) an entry lasts
- * 60 seconds, a cap for the event a watcher loses; otherwise five seconds. The
- * route bench can set this to zero so each request pays for a git spawn; this
- * seam only takes effect on TOPICS_E2E.
+ * both watchers live on the path (`.git` and the project files) a change
+ * invalidates the entry on its own, and the entry lasts five minutes, a cap
+ * for the event a watcher loses; otherwise five seconds. The cap was 60 s, the
+ * same as each project window's poll: every poll found the entry expired and
+ * paid five git spawns, once a minute per open project with nothing changed
+ * (155 recalculations in 15 minutes on the live server, 15/10). The route bench
+ * can set this to zero so each request pays for a git spawn; this seam only
+ * takes effect on TOPICS_E2E.
  */
 const TTL_MS = process.env.TOPICS_E2E === "1" && process.env.TOPICS_E2E_GIT_STATUS_TTL_MS === "0" ? 0 : 5000;
-const WATCHED_MAX_AGE_MS = 60_000;
+const WATCHED_MAX_AGE_MS = 5 * 60_000;
 
 /**
  * Il tetto. La chiave è il `?path=` risolto e fornito da chi chiama (nessuna
