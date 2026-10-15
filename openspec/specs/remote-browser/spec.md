@@ -3338,9 +3338,10 @@ answered sat on "Avvio sessione condivisa…" for as long as anybody looked.
 
 ### Requirement: BROWSER-DOM-MASK-01 — Il mirror SHALL mascherare i campi di pagamento e i codici monouso
 
-La copia DOM inviata ai dispositivi SHALL sostituire il valore dei campi con
-`autocomplete` uguale a `cc-number`, `cc-csc`, `cc-exp`, `cc-exp-month`,
-`cc-exp-year` o `one-time-code`: nello snapshot iniziale, nei campi aggiunti
+La copia DOM inviata ai dispositivi SHALL sostituire il valore dei campi il cui
+`autocomplete` contiene fra le sue parole `cc-number`, `cc-csc`, `cc-exp`,
+`cc-exp-month`, `cc-exp-year` o `one-time-code`, anche dopo un prefisso come
+`section-*` o `billing`: nello snapshot iniziale, nei campi aggiunti
 alla pagina dopo lo snapshot, nei valori impostati come attributo e in ogni
 digitazione. Gli altri campi di testo SHALL conservare il proprio valore.
 
@@ -3349,6 +3350,7 @@ digitazione. Gli altri campi di testo SHALL conservare il proprio valore.
 - **WHEN** il mirror riceve lo snapshot e poi le modifiche a quei campi
 - **THEN** i valori di tutti e tre i campi sono mascherati nello snapshot e dopo la digitazione
 - **AND** un campo carta montato dopo lo snapshot arriva mascherato anche lui
+- **AND** un campo con `autocomplete="billing cc-number"` arriva mascherato come `cc-number`
 - **AND** il valore di un campo testo normale resta leggibile nel mirror
 
 ### Requirement: NATIVE-HOST-09 — A viewer SHALL identify an unrecorded cross-origin frame
