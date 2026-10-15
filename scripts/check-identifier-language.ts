@@ -106,7 +106,7 @@ export const PROJECT_WORDS = new Set([
   // Graphic Rendition, ECMA-48), the one that sets colours and styles. The
   // output of a command run from the chat is parsed by those names and has no
   // other honest ones (2026-10-01, `components/Chat/ansiSpans.ts`).
-  "ansi", "sgr",
+  "ansi", "sgr", "tmux", "tty", "ttys", "pre",
   // `reparent` is the tree operation of moving a node's children under its own
   // parent: the dedupe script does exactly that before deleting a copy.
   "reparent",

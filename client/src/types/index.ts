@@ -1643,6 +1643,13 @@ export interface AppSettings {
    * vero: lì il vuoto è informazione.
    */
   showBoardRow: boolean;
+  /**
+   * The live-terminals branch in the «+» and «Topics» menus (`LiveTerminalsLevel`): every
+   * terminal running on the Mac, Topics or not, to read and to write into.
+   * On by default: the door for remotely driving hand-opened sessions.
+   * Costs nothing while closed, polls only while open.
+   */
+  showLiveTerminals: boolean;
 }
 
 // Qui c'erano due descrizioni senza lettori. `ScriptProcess`: la UI degli

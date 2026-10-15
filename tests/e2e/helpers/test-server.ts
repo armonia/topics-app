@@ -269,6 +269,12 @@ export function testServerEnv(port: number = E2E_PORT): Record<string, string> {
     // test CONDIVIDE con quello di sviluppo — e il reconcile del test vedrebbe
     // le PTY Claude vive dello sviluppo come orfane, ammazzandole.
     TOPICS_PTY_SOCKET: bridgeSocket("pty-bridge", port),
+    // Live terminals OUTSIDE Topics (lib/live-terminals): the test server
+    // must neither see nor write into the user's real Terminal.app tabs and
+    // tmux sessions. tmux gets a socket of its own, populated by the specs;
+    // Terminal.app stays off, since its tabs offer no way to isolate them.
+    TOPICS_TMUX_SOCKET: join(dataDir, "tmux.sock"),
+    TOPICS_LIVE_TERMINAL_APP: "0",
     // Stessa storia per il broker stream-json.
     TOPICS_AI_BRIDGE_SOCKET: bridgeSocket("ai-bridge", port),
     // A bank daemon whose server died gives up after 60s, not the 90s meant for

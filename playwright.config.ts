@@ -594,6 +594,9 @@ export default defineConfig({
       // `testIgnore`), because the point is the SAME tree asserted on the two
       // engines.
       testMatch: [
+        // The live-terminals menu: used mostly from remote, i.e. from phone
+        // Safari and the WKWebView shell. WebKit is where it lives.
+        "**/live-terminals.spec.ts",
         // The phone list under the header and the button row: WebKit is what ships.
         "**/mobile-list-under-chrome.spec.ts",
         "**/mobile-screens-under-chrome.spec.ts",

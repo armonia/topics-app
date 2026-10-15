@@ -83,7 +83,9 @@ import { createCronRouter } from "./server/routes/cron";
 import { createContextRouter } from "./server/routes/context";
 import { createUsageRouter } from "./server/routes/usage";
 import { createOrphanCensusRunner } from "./server/services/orphan-census";
-import { createTerminalRouter, setTerminalMemPressure, handleTerminalWebSocket, disconnectBridge, getAgentPtyCliPids, getClaudeSessionsForDetection, getClaudeSessionPtyIdleMs, setTerminalBrowserCloser, countAttachedTerminalSessions, countBusyAgentTerminals, listTerminalSessionSnapshot, parkOrphanSessions, retireTerminalSession, liveTerminalCwds } from "./server/routes/terminal";
+import { createTerminalRouter, setTerminalMemPressure, handleTerminalWebSocket, disconnectBridge, getAgentPtyCliPids, getClaudeSessionsForDetection, getClaudeSessionPtyIdleMs, setTerminalBrowserCloser, countAttachedTerminalSessions, countBusyAgentTerminals, listTerminalSessionSnapshot, parkOrphanSessions, retireTerminalSession, liveTerminalCwds, listTopicsLiveTerminals, readTopicsTerminalScreen, writeTopicsTerminal } from "./server/routes/terminal";
+import { createLiveTerminals } from "./server/lib/live-terminals";
+import { createLiveTerminalsRouter } from "./server/routes/live-terminals";
 import { createStatusRouter } from "./server/routes/status";
 import { createMemoryRouter } from "./server/routes/memory";
 import { createMcpRouter } from "./server/routes/mcp";
@@ -3138,6 +3140,15 @@ ctx.externalSessionsCount = () => externalSessions.list().length;
 ctx.externalSessionsWorking = () =>
   externalSessions.list().filter((s) => s.state === "active").length;
 const externalSessionsRouter = createExternalSessionsRouter(ctx, externalSessions);
+// Every live terminal on the Mac, inside and outside Topics: the menu at the end
+// of the tabs and the agents (MCP `session_*`) read and write through here.
+const liveTerminals = createLiveTerminals({
+  topics: listTopicsLiveTerminals,
+  topicsScreen: readTopicsTerminalScreen,
+  topicsSend: writeTopicsTerminal,
+  sources: { terminal: process.env.TOPICS_LIVE_TERMINAL_APP !== "0" && process.platform === "darwin" },
+});
+const liveTerminalsRouter = createLiveTerminalsRouter(ctx, liveTerminals);
 
 
 const WS_HEARTBEAT_INTERVAL_MS = 30000;
@@ -3402,6 +3413,7 @@ const apiRouteTable = buildRouteTable({
   sessionEnvironmentRouter,
   activityRouter,
   externalSessionsRouter,
+  liveTerminalsRouter,
   checkpointsRouter,
   goalsRouter,
   openRouter,
