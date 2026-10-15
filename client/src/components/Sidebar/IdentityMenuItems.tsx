@@ -36,6 +36,7 @@ import type { UserMenuLevel } from '@/lib/openUserMenu';
 import { apriProfilo } from '@/state/profileTarget';
 import { useT } from '@/hooks/useT';
 import { openFirstRun } from '@/lib/openFirstRun';
+import { POPOVER_ITEM } from '@/lib/popoverStyles';
 
 export function IdentityMenuItems({ data, width, onClose, openLevel = null }: {
   data: IdentityMenuData;
@@ -54,7 +55,8 @@ export function IdentityMenuItems({ data, width, onClose, openLevel = null }: {
           onOpenProfile={() => { onClose(); apriProfilo('profile'); }}
         />
       </Suspense>
-      <button type="button" data-testid="open-first-run-settings" onClick={() => { onClose(); openFirstRun(); }} className="flex min-h-10 w-full items-center rounded-md px-3 text-left text-mini text-app-text-secondary hover:bg-app-hover">
+      {/* The menu's own row: a hand-sized row under a finger, 40px was below the 44px target. */}
+      <button type="button" data-testid="open-first-run-settings" onClick={() => { onClose(); openFirstRun(); }} className={POPOVER_ITEM}>
         {tr('firstRun.reopen')}
       </button>
       <PlanLevel defaultOpen={openLevel === 'plan'} />
