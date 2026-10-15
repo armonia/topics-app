@@ -1,3 +1,6 @@
+/**
+ * @covers KANBAN-96
+ */
 import { expect, test } from "bun:test";
 import { createTasksRouter } from "./tasks";
 import { freshDb, makeCtx, call } from "./tasks-test-support";

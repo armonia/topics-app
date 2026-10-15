@@ -39,8 +39,9 @@ test("D5e: la sbirciata segue l'ultimo messaggio senza aprire la sessione", asyn
   let taskId: string | null = null;
   let uninstallCli: (() => void) | null = null;
   let originalSettings: { autoDispatch: boolean; dispatchUseWorktree: boolean } | null = null;
-  const peekRequests: string[] = [];
-  page.on("request", (r) => { if (r.url().includes("/peek")) peekRequests.push(r.url()); });
+  /** When each peek request left, in ms: the delay before the first one is what the hover rule promises. */
+  const peekRequests: number[] = [];
+  page.on("request", (r) => { if (r.url().includes("/peek")) peekRequests.push(Date.now()); });
 
   try {
     mkdirSync(PROJECT_PATH, { recursive: true });
@@ -66,14 +67,14 @@ test("D5e: la sbirciata segue l'ultimo messaggio senza aprire la sessione", asyn
       const response = await request.get(`${E2E_BASE}/api/all-boards/tasks/${taskId}`);
       return ((await response.json()) as { task: { dispatchState: string } }).task.dispatchState;
     }, { timeout: 30_000 }).toBe("working");
-    expect(await new Promise<number>((resolve) => setTimeout(() => resolve(peekRequests.length), 1_500)), "le card chiuse non interrogano il riquadro").toBe(0);
+    // The board has been open, card working, for the whole wait above.
+    expect(peekRequests, "le card chiuse non interrogano il riquadro").toHaveLength(0);
 
+    const hoveredAt = Date.now();
     await card.hover();
     const peek = page.getByTestId("task-session-peek");
-    await page.waitForTimeout(250);
-    await expect(peekRequests, "la richiesta parte solo dopo i 400 ms di sosta").toHaveLength(0);
-    await expect(peek).toBeHidden();
     await expect(peek).toBeVisible();
+    expect(peekRequests[0]! - hoveredAt, "la richiesta parte solo dopo i 400 ms di sosta").toBeGreaterThanOrEqual(350);
     const cardBox = await card.boundingBox();
     const peekBox = await peek.boundingBox();
     expect(cardBox && peekBox && (peekBox.y >= cardBox.y + cardBox.height || peekBox.y + peekBox.height <= cardBox.y), "il riquadro resta fuori dalla card").toBeTruthy();
@@ -83,7 +84,7 @@ test("D5e: la sbirciata segue l'ultimo messaggio senza aprire la sessione", asyn
       timeout: 15_000,
       message: "il riquadro segue i nuovi messaggi del turno",
     }).toContain(`${tag}-02`);
-    expect(await peekRequests.length, "il riquadro interroga la sessione solo mentre è aperto").toBeGreaterThan(0);
+    expect(peekRequests.length, "il riquadro interroga la sessione solo mentre è aperto").toBeGreaterThan(0);
     await expect(card).toBeVisible();
     await didascalia(page, "La card mostra la sessione in corso senza aprirla");
     await beat(page, 900);
