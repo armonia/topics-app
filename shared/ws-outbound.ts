@@ -1094,6 +1094,11 @@ const swapFreezeStateSchema = z.looseObject({
   })),
 });
 
+const memoryPressureSchema = z.object({
+  type: z.literal('memory:pressure'),
+  pressure: z.boolean(),
+});
+
 // Il cap macchina-wide vive sulla riga riservata '*'. `maxAgentsAuto` è un
 // BOOLEANO ("scegli tu in base alla capacità"), non un numero.
 const boardGlobalCapSchema = z.looseObject({
@@ -1517,6 +1522,7 @@ const OUTBOUND_SCHEMAS = {
   'board:settings': boardSettingsSchema,
   // The swap freeze: which trees are stopped right now, as a whole list.
   'swap-freeze:state': swapFreezeStateSchema,
+  'memory:pressure': memoryPressureSchema,
   // Dev bundle hot-delivery
   'ui:bundle-updated': uiBundleUpdatedSchema,
   'ui:bundle-rev': uiBundleRevSchema,
@@ -1635,6 +1641,7 @@ export const OUTBOUND_FRAME_CLASSES: Record<OutboundType, OutboundFrameClass> = 
   'stream:tool_user_input_required': 'topic',
   'stream:usage': 'topic',
   'swap-freeze:state': 'board',
+  'memory:pressure': 'board',
   'task:awaiting-human': 'board',
   'task:created': 'board',
   'task:deleted': 'board',

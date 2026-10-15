@@ -25,10 +25,18 @@
 import {
   computeResident,
   MIN_DWELL_MS,
+  NATIVE_IDLE_EVICT_MS,
   RESIDENCY_BUDGET,
   type ResidencyCandidate,
 } from './policy';
 import { tracePaneAttach } from '../../../lib/paneAttachTrace';
+import {
+  clearNativePaneMemoryNotice,
+  getNativePaneMemoryPressure,
+  isNativePaneMemoryEvictionEnabled,
+  markNativePaneMemoryEvicted,
+  subscribeNativePaneMemory,
+} from '../../nativePaneMemory';
 
 /**
  * Ritardo fra la decisione di sfrattare e lo smontaggio. Maggiore di
@@ -73,6 +81,16 @@ const listeners = new Set<() => void>();
 let dwellTimer: unknown = undefined;
 
 /**
+ * A browser pane's key is `browser:<contextId>` in the pane store and the bare
+ * `contextId` in a task's browser layout (`taskBrowserLayout.ts`); the notice is
+ * keyed by the context, which is what the panel knows.
+ */
+function browserContextIdOfKey(key: string): string {
+  return key.startsWith('browser:') ? key.slice('browser:'.length) : key;
+}
+let disposeMemorySubscription: (() => void) | undefined;
+
+/**
  * L'insieme applicato. Il riferimento cambia SOLO quando cambia l'appartenenza,
  * così `useSyncExternalStore` non ri-renderizza per niente.
  */
@@ -102,6 +120,10 @@ function decide() {
     if (t === undefined) continue;
     const expiry = t + MIN_DWELL_MS;
     if (expiry > now && expiry < nextDwellExpiry) nextDwellExpiry = expiry;
+    if (c.cls === 'native' && getNativePaneMemoryPressure() && isNativePaneMemoryEvictionEnabled()) {
+      const idleExpiry = t + NATIVE_IDLE_EVICT_MS;
+      if (idleExpiry > now && idleExpiry < nextDwellExpiry) nextDwellExpiry = idleExpiry;
+    }
   }
   return {
     decision: computeResident({
@@ -112,6 +134,8 @@ function decide() {
       now,
       budget: RESIDENCY_BUDGET,
       minDwellMs: MIN_DWELL_MS,
+      memoryPressure: getNativePaneMemoryPressure(),
+      evictIdleNative: isNativePaneMemoryEvictionEnabled(),
     }),
     liveKeys: new Set(candidates.map((c) => c.key)),
     nextDwellExpiry,
@@ -146,6 +170,7 @@ function applyRemoval(key: string): void {
   if (!resident.has(key)) return;
   const { decision, liveKeys } = decide();
   if (decision.resident.has(key)) return; // è tornata dentro: niente da fare
+  if (decision.memoryEvicted.has(key)) markNativePaneMemoryEvicted(browserContextIdOfKey(key));
   const next = new Set(resident);
   next.delete(key);
   resident = next;
@@ -157,6 +182,7 @@ function applyRemoval(key: string): void {
   // La recency serve solo a ordinare i candidati. Se la pane non è più in
   // nessuna superficie è stata chiusa: tenerne la data è una perdita lenta.
   if (!liveKeys.has(key)) lastTouchedAt.delete(key);
+  if (!liveKeys.has(key)) clearNativePaneMemoryNotice(browserContextIdOfKey(key));
   notify();
 }
 
@@ -208,6 +234,7 @@ export function reportSurface(
   candidates: readonly ResidencyCandidate[],
   visible: readonly string[],
 ): void {
+  if (!disposeMemorySubscription) disposeMemorySubscription = subscribeNativePaneMemory(recompute);
   const now = clock.now();
   for (const k of visible) lastTouchedAt.set(k, now);
 
@@ -314,6 +341,8 @@ export function isResident(key: string): boolean {
 
 /** Solo per i test: rimette il registro allo stato di boot. */
 export function __resetResidency(injected?: ResidencyClock): void {
+  disposeMemorySubscription?.();
+  disposeMemorySubscription = undefined;
   for (const t of pendingRemoval.values()) clock.clearTimeout(t);
   if (dwellTimer !== undefined) clock.clearTimeout(dwellTimer);
   dwellTimer = undefined;

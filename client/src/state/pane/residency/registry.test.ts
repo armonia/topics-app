@@ -1,5 +1,7 @@
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
-import { MIN_DWELL_MS, RESIDENCY_BUDGET, type ResidencyCandidate } from './policy';
+import { dispatchFrame } from '../../../lib/wsFrameBus';
+import { clearNativePaneMemoryNotice, hasNativePaneMemoryNotice, setNativePaneMemoryEvictionEnabled } from '../../nativePaneMemory';
+import { MIN_DWELL_MS, NATIVE_IDLE_EVICT_MS, RESIDENCY_BUDGET, type ResidencyCandidate } from './policy';
 import {
   EVICT_DELAY_MS,
   __resetResidency,
@@ -74,6 +76,9 @@ afterEach(() => {
 function browser(...keys: string[]): ResidencyCandidate[] {
   return keys.map((key) => ({ key, cls: 'heavy' as const }));
 }
+function nativeBrowser(...keys: string[]): ResidencyCandidate[] {
+  return keys.map((key) => ({ key, cls: 'native' as const }));
+}
 function chat(...keys: string[]): ResidencyCandidate[] {
   return keys.map((key) => ({ key, cls: 'light' as const }));
 }
@@ -109,6 +114,43 @@ describe('ammissione', () => {
 });
 
 describe('sfratto', () => {
+  test('la pressione libera una pane nativa al decimo minuto, non al nono', () => {
+    reportSurface('s1', nativeBrowser('browser:b1'), ['browser:b1']);
+    reportSurface('s1', nativeBrowser('browser:b1'), []);
+    ck.advance(NATIVE_IDLE_EVICT_MS - 60_000);
+    dispatchFrame({ type: 'memory:pressure', pressure: true });
+    expect(isResident('browser:b1')).toBe(true);
+    ck.advance(60_000 + EVICT_DELAY_MS);
+    expect(isResident('browser:b1')).toBe(false);
+    dispatchFrame({ type: 'memory:pressure', pressure: false });
+  });
+
+  test('a pane freed for memory says so on return, under both key shapes', () => {
+    // `browser:<id>` in the pane store, the bare context id in a task's layout.
+    const keys = ['browser:b1', 'ctx-task'];
+    dispatchFrame({ type: 'memory:pressure', pressure: true });
+    reportSurface('s1', nativeBrowser(...keys), keys);
+    reportSurface('s1', nativeBrowser(...keys), []);
+    ck.advance(NATIVE_IDLE_EVICT_MS + EVICT_DELAY_MS + 1);
+    expect(isResident('browser:b1')).toBe(false);
+    expect(hasNativePaneMemoryNotice('b1')).toBe(true);
+    expect(hasNativePaneMemoryNotice('ctx-task')).toBe(true);
+    dispatchFrame({ type: 'memory:pressure', pressure: false });
+    clearNativePaneMemoryNotice('b1');
+    clearNativePaneMemoryNotice('ctx-task');
+  });
+
+  test('l’impostazione spenta mantiene la pane nativa sotto pressione', () => {
+    setNativePaneMemoryEvictionEnabled(false);
+    dispatchFrame({ type: 'memory:pressure', pressure: true });
+    reportSurface('s1', nativeBrowser('browser:b1'), ['browser:b1']);
+    reportSurface('s1', nativeBrowser('browser:b1'), []);
+    ck.advance(NATIVE_IDLE_EVICT_MS + EVICT_DELAY_MS + 1);
+    expect(isResident('browser:b1')).toBe(true);
+    dispatchFrame({ type: 'memory:pressure', pressure: false });
+    setNativePaneMemoryEvictionEnabled(true);
+  });
+
   test('oltre il tetto la meno recente cade — ma solo dopo il ritardo', () => {
     const keys = Array.from({ length: 8 }, (_, i) => `b${i}`);
     // Visita una pane cara alla volta, lasciando scadere il dwell fra una e

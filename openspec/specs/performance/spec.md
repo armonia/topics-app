@@ -212,6 +212,13 @@ banco.
 - **WHEN** il cancello la giudica
 - **THEN** esce zero
 
+#### Scenario: una pagina nativa inattiva si libera solo sotto pressione
+
+- **GIVEN** una pane browser nascosta e non trattenuta da almeno 10 minuti
+- **WHEN** il verdetto di memoria sostenuta è attivo e l'impostazione è accesa
+- **THEN** la pane viene smontata e al ritorno ricarica l'URL persistito con un avviso
+- **AND** una pane visibile, trattenuta, più recente di 10 minuti o con l'impostazione spenta resta montata
+
 ### Requirement: LEAK-04 — Una callback che pulisce DEVE scattare una volta per ogni contesto che se ne va
 
 `BrowserService` riceve un `onDestroy(contextId)`, e il server ci appende lo

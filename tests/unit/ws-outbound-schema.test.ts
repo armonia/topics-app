@@ -19,6 +19,7 @@ describe('validateOutbound — valid registered messages', () => {
     { type: 'connected', clientId: 'ws-abc' },
     { type: 'pong' },
     { type: 'dashboard:updated' },
+    { type: 'memory:pressure', pressure: true },
     { type: 'stream:end', sessionKey: 'sk-1', messageId: 'm-1' },
     { type: 'typing', topicId: 'topic-1', clientId: 'ws-1', text: 'hello' },
     { type: 'typing', topicId: 'topic-1', clientId: 'ws-1', text: '' },
@@ -219,6 +220,7 @@ describe('outbound registry contract', () => {
       'machine:deleted',
       'machine:updated',
       'machine:upserted',
+      'memory:pressure',
       'memory:updated',
       'message',
       'message:media',
@@ -426,7 +428,7 @@ describe('outbound registry contract', () => {
   // them live. Owner-only. Sender `server/attention/store.ts`
   // (`recordHistoryRow`), listener `useNotificationHistory`.
   test('all 104 v3 outbound types are present', () => {
-    expect(REGISTERED_OUTBOUND_TYPES.length).toBe(104);
+    expect(REGISTERED_OUTBOUND_TYPES.length).toBe(105);
   });
 });
 

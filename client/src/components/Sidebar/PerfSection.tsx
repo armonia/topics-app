@@ -12,6 +12,8 @@ import { webviewSnapshot, ensurePaneUsageFresh } from '@/lib/paneUsage';
 import { useT } from '@/hooks/useT';
 import { useTopics } from '@/contexts/TopicsContext';
 import { formatMemoryMB } from '@/lib/formatMemory';
+import { setNativePaneMemoryEvictionEnabled, useNativePaneMemoryEvictionEnabled, useNativePaneMemoryPressure } from '@/state/nativePaneMemory';
+import { SwitchRow } from './PreferenceRow';
 
 /**
  * HOW EACH MEASURED ROW STANDS AGAINST THE TOTAL WRITTEN ABOVE IT.
@@ -239,6 +241,8 @@ export function PerfSection() {
     knownProjects,
   }, status?.timestamp);
   const measuredVisibleEntries = vociPerNatura(vociPeso, 'misurato');
+  const memoryEvictionEnabled = useNativePaneMemoryEvictionEnabled();
+  const memoryPressure = useNativePaneMemoryPressure();
   const vociTrattenuteVisibili = vociPerNatura(vociPeso, 'trattenuto');
 
   return (
@@ -434,6 +438,15 @@ export function PerfSection() {
         )}
       </div>
 
+      {/* B11: the switch sits by the megabytes it acts on, and says whether
+          memory is short right now, so the rule is never a silent one. */}
+      <SwitchRow
+        label={tr('browser.memoryEviction.setting')}
+        hint={tr(memoryPressure ? 'browser.memoryEviction.stateShort' : 'browser.memoryEviction.stateNormal')}
+        checked={memoryEvictionEnabled}
+        onChange={setNativePaneMemoryEvictionEnabled}
+        testId="perf-native-pane-memory"
+      />
     </div>
   );
 }

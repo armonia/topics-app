@@ -49,6 +49,7 @@ import { setBrowserLayout, useBrowserLayout } from '../../lib/browserLayoutPref'
 import type { DeviceMode } from './browserDevTypes';
 import { useBrowserPaneUrl, isRealUrl } from '../../state/pane/browserPaneUrl';
 import { arrowEnabled } from './streamNavHistory';
+import { clearNativePaneMemoryNotice, useNativePaneMemoryNotice } from '../../state/nativePaneMemory';
 
 // T1 DOM co-browse — the native rrweb reconstruction view. Lazy so rrweb + its CSS
 // only load when a pane actually switches to DOM mode (default video path is free).
@@ -390,6 +391,8 @@ function TauriBrowserPanelInner({ contextId, initialUrl, navigateUrl, onUrlChang
   const tr = useT();
   const toast = useToast();
   const browser = useTauriBrowser(contextId, initialUrl, isVisible, onSelfFocus, hasFocus ?? isVisible);
+  const memoryReloadNotice = useNativePaneMemoryNotice(contextId);
+  const noticeOriginUrl = useRef(browser.url || initialUrl || '');
   const dl = useBrowserDownloads(contextId, isVisible || browser.agentActive, browser.agentActive);
   // Le voci native portano un path su QUESTO computer: si aprono e si mostrano
   // nel Finder. `detail` è il path stesso — «dov'è finito» è la domanda che la
@@ -449,7 +452,7 @@ function TauriBrowserPanelInner({ contextId, initialUrl, navigateUrl, onUrlChang
   }, [nativeTakeControl, toast, tr]);
   const chromeCommands = useMemo(() => ({
     reload: () => { void browser.reload(); },
-    navigate: (u: string) => { void browser.navigate(u); },
+    navigate: (u: string) => { clearNativePaneMemoryNotice(contextId); void browser.navigate(u); },
     back: () => { void browser.goBack(); },
     forward: () => { void browser.goForward(); },
     openExternal: () => { if (browser.url) openExternalOnce(browser.url); },
@@ -469,7 +472,7 @@ function TauriBrowserPanelInner({ contextId, initialUrl, navigateUrl, onUrlChang
     // Offered only while one is driving: a command that ends a state nobody is
     // in is a dead door, and the tab hides the glyph that would open it anyway.
     takeControl: browser.agentActive ? takeControlFromAgent : undefined,
-  }), [browser, canForget, onToggleShare, backToSpawner, returnToTopicWindow, takeControlFromAgent]);
+  }), [browser, canForget, contextId, onToggleShare, backToSpawner, returnToTopicWindow, takeControlFromAgent]);
   // Subscribed, not sampled: on a restored pane this lands AFTER the mount.
   // A browser pane INSIDE A PROJECT WINDOW is not in the pane store: it lives
   // in the project's own layout, and its persisted url reaches this panel as
@@ -515,6 +518,8 @@ function TauriBrowserPanelInner({ contextId, initialUrl, navigateUrl, onUrlChang
   // in per-topic history. browser.url now tracks in-page nav via the poll.
   useEffect(() => {
     if (browser.url) {
+      if (noticeOriginUrl.current && browser.url !== noticeOriginUrl.current) clearNativePaneMemoryNotice(contextId);
+      if (!noticeOriginUrl.current) noticeOriginUrl.current = browser.url;
       onUrlChange?.(browser.url);
       pushHistory(browser.url);
       // E nello storico GLOBALE dei siti, che è un'altra cosa: quello sopra è
@@ -522,7 +527,7 @@ function TauriBrowserPanelInner({ contextId, initialUrl, navigateUrl, onUrlChang
       recordSiteVisit(browser.url);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps -- fire on url change only
-  }, [browser.url]);
+  }, [browser.url, contextId]);
 
   // Surface the live page <title> so the host can label the tab with it (the
   // title analogue of the url effect above). Empty titles are dropped by the
@@ -633,6 +638,11 @@ function TauriBrowserPanelInner({ contextId, initialUrl, navigateUrl, onUrlChang
   return (
     <div className="flex flex-col h-full min-h-0" data-testid="browser-native-panel" data-browser-pane={contextId} data-find-pane={findPaneId}>
       <FindBar paneId={findPaneId} />
+      {memoryReloadNotice && browser.url && browser.url !== 'about:blank' && (
+        <div role="status" className="shrink-0 border-b border-app-border px-3 py-2 text-mini text-app-text-muted" data-testid="browser-memory-reloaded">
+          {tr('browser.memoryEviction.reloaded')}
+        </div>
+      )}
       {/* La scheda non risponde più. Sta SOPRA l'errore di navigazione perché lo
           scavalca: se la vista nativa non accetta comandi, «Riprova» non può
           riprovare niente. Non si può nemmeno chiudere — un pane morto non
