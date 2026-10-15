@@ -25,17 +25,7 @@ import { dispatchBrowserToolCallByContext } from "../browser-tool-dispatcher";
 import { hasDomResourceToken, routedResourceUrl } from "../lib/dom-resource-rewrite";
 import type { DomHostRegistry } from "../lib/native-dom-host";
 import { inputPayloadSchema } from "../../shared/browser-ws-messages";
-import { readFileSync } from "node:fs";
-import { join } from "node:path";
-
-let recorderCache: string | null = null;
-/** The vendored rrweb bundle, read once. Its source-map comment goes: the pane
- *  has no map to fetch, and its inspector would try. */
-function recorderSource(): string {
-  recorderCache ??= readFileSync(join(import.meta.dir, "..", "assets", "rrweb.min.js"), "utf8")
-    .replace(/\n\/\/# sourceMappingURL=.*$/m, "");
-  return recorderCache;
-}
+import { getRrwebRecorderSource } from "../lib/rrweb-recorder";
 
 export function createBrowserRouter(
   ctx: AppContext,
@@ -69,7 +59,7 @@ export function createBrowserRouter(
     // Served instead of bundled: the same file the server injects into Chromium,
     // at the version of the Replayer this server hands to the viewers.
     if (method === "GET" && pathname === "/api/browser/recorder.js") {
-      return new Response(recorderSource(), {
+      return new Response(getRrwebRecorderSource(), {
         headers: { "Content-Type": "text/javascript; charset=utf-8", "Cache-Control": "private, max-age=3600" },
       });
     }

@@ -1853,6 +1853,36 @@ Un compagno della NOSTRA build SHALL essere lasciato in vita.
 - **GIVEN** un processo in ascolto della stessa build
 - **THEN** SHALL essere adottato
 
+### Requirement: WEBRTC-02 — The video transport leaves a trace of its steps
+
+The server SHALL log one line for every WebRTC offer it receives, with the context
+and whether the bridge is available. The viewer SHALL log one line at the offer,
+one when the connection is up and one when its retries end in the fallback to the
+JPEG stream.
+
+#### Scenario: an offer reaches the server
+- **WHEN** a viewer in video mode sends an offer
+- **THEN** the server log SHALL have a `webrtc offer` line with the context and the bridge state
+
+#### Scenario: the viewer gives up
+- **GIVEN** the WebRTC retries exhausted
+- **THEN** the viewer console SHALL have the `webrtc fallback` line
+
+### Requirement: BROWSER-DOM-RECORDER-01 — Recorder and Replayer use the same rrweb build
+
+The Chromium pages and the route that serves the recorder to native panes SHALL
+use one vendored bundle, read once by the server. The bundle SHALL be byte for
+byte the build of the rrweb version installed for the client's Replayer, and
+that version SHALL be the one the client lockfile pins.
+
+#### Scenario: aligned build
+- **GIVEN** the rrweb dependency pinned in the client manifest
+- **THEN** the shared bundle SHALL equal the installed build byte for byte
+
+#### Scenario: a different client version
+- **GIVEN** a client manifest whose rrweb version differs from the lockfile
+- **THEN** the recorder test SHALL fail
+
 ### Requirement: ENGSW-02 — L'interruttore del motore si vede solo se il motore c'è
 
 L'interruttore fra il motore nativo e quello esterno SHALL essere NASCOSTO quando

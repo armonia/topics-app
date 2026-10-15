@@ -16,6 +16,7 @@ import { boxUnderKeyboard, onScreenKeyboardUp } from '../lib/browserFit';
 import { isTauri } from '../lib/shell';
 import { readBrowserLayout, subscribeBrowserLayout } from '../lib/browserLayoutPref';
 import { lastUserGestureAt, onUserGesture } from '../lib/userGesture';
+import { logBrowserTransport } from '../lib/browserWebrtcLog';
 
 export type ConnectionState = 'connecting' | 'connected' | 'disconnected' | 'fallback-http';
 
@@ -1092,6 +1093,7 @@ export function useRemoteBrowser(contextId: string, isVisible = true): RemoteBro
         if (webrtcRetryTimerRef.current) clearTimeout(webrtcRetryTimerRef.current);
         webrtcRetryTimerRef.current = setTimeout(() => { webrtcRetryTimerRef.current = null; startWebrtc(); }, WEBRTC_RETRY_DELAY_MS);
       } else {
+        logBrowserTransport('fallback', contextId);
         setState(s => ({ ...s, webrtcMounted: false, webrtcError: true }));
       }
     };
@@ -1148,6 +1150,7 @@ export function useRemoteBrowser(contextId: string, isVisible = true): RemoteBro
           if (webrtcWatchdogRef.current) { clearTimeout(webrtcWatchdogRef.current); webrtcWatchdogRef.current = null; }
           webrtcAttemptRef.current = 0; // stable connection — reset the retry budget
           if (!webrtcActiveRef.current) {
+            logBrowserTransport('connected', contextId);
             webrtcActiveRef.current = true;
             setState(s => (s.webrtcActive ? s : { ...s, webrtcActive: true, webrtcError: false }));
             // WebRTC carries the video now → stop the (unrendered) JPEG screencast.
@@ -1168,6 +1171,7 @@ export function useRemoteBrowser(contextId: string, isVisible = true): RemoteBro
         .then((offer) => pc.setLocalDescription(offer).then(() => offer))
         .then((offer) => {
           if (pcRef.current !== pc || ws.readyState !== WebSocket.OPEN) return;
+          logBrowserTransport('offer', contextId);
           ws.send(JSON.stringify({ type: 'webrtc_offer', sdp: offer.sdp || '' } satisfies BrowserWsMessage));
         })
         .catch(() => failWebrtc());
