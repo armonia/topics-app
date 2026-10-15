@@ -1,5 +1,26 @@
 [
   {
+    "version": "2.2.510",
+    "date": "2026-10-15",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "«Mostra archiviate» disegna 25 archiviate per gruppo, non tutto l'archivio (D2g) (#363)",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Misure del 15/10: D3a dopo il giro 4, B8 delle azioni dell'agente (#364)",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
     "version": "2.2.509",
     "date": "2026-10-15",
     "sections": {

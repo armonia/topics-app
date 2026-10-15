@@ -2,6 +2,12 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.2.510 — 2026-10-15
+
+### Sotto il cofano
+- «Mostra archiviate» disegna 25 archiviate per gruppo, non tutto l'archivio (D2g) (#363)
+- Misure del 15/10: D3a dopo il giro 4, B8 delle azioni dell'agente (#364)
+
 ## 2.2.509 — 2026-10-15
 
 ### Sotto il cofano
