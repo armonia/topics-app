@@ -75,7 +75,8 @@ export async function hostNativePage(
     if (frame.type === "native_host_status") status = frame as typeof status;
     if (frame.type === "host_input" && frame.action === "scroll") count.relayed++;
     if (frame.type === "host_input" && frame.action === "click") count.clicks++;
-    if (frame.type === "host_input" && (frame.action === "back" || frame.action === "forward")) navigations[frame.action]++;
+    // Back and forward reach the host as navigation commands (routes/browser.ts), not as input.
+    if (frame.type === "host_nav" && (frame.action === "back" || frame.action === "forward")) navigations[frame.action]++;
     host.handle(frame);
   });
   ws.send(JSON.stringify({ type: "register_native_executor" }));

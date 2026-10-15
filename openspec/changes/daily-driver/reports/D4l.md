@@ -36,6 +36,9 @@
   stesso istante; React 18 rende più tardi gli eventi continui come `touchmove` (a differenza di un
   tocco), quindi la freccia non era ancora nel DOM quando il test la leggeva. Un dito vero muove una
   volta per frame: ora il test aspetta un frame dopo ogni movimento.
+- Il secondo clip: freccia piena, ma l'host del test contava 0 `back`. Il server manda indietro e
+  avanti all'host come `host_nav` (`server/routes/browser.ts`), il contatore guardava `host_input`:
+  ora conta `host_nav`.
 - Nell'hook, la freccia che segue il dito si aggiorna dallo stato corrente (`setArrow` con la
   funzione) e non da quello catturato all'ultimo rendering.
 
