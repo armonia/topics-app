@@ -55,3 +55,26 @@
   numera senza registrare) rosso solo su quel test, gli altri 15 verdi.
 - Cancelli completi dopo il commit: typecheck (client compreso), lint, 0 file non aggiunti, 0
   cancelli statici rossi.
+
+## Il fling sotto carico
+
+La clip di `browser-mirror-scroll-lands.spec.ts` ripetuta 30 volte su macchina carica (`repeat=30`,
+`load=true`, Chromium e WebKit: 60 giri) era rossa sul dito che finisce con un fling: il mirror si
+fermava prima del Mac.
+
+- **L'ora dei gestori** (0ce567ad1c): la velocità del fling si calcolava con `performance.now()`
+  nei gestori, che su un main thread occupato girano tardi e a grappolo. Ora legge `e.timeStamp`,
+  l'ora del digitalizzatore. La spec simula il dito a 60 Hz e un rilascio servito 120 ms dopo
+  l'ultimo movimento, come sotto un fotogramma pesante su iPad. Restavano 15-20 rossi su 60 (run
+  diagnostica 38697717299: 20).
+- **Il primo fotogramma prima del rilascio** (b097ac8a9d): il timestamp di rAF può essere minore o
+  uguale al `performance.now()` di `startFling`. Con dt di 1 ms o meno il passo resta sotto il
+  pixel, lo scroll non si muove, e `moved=false` si legge come bordo della pagina: il fling si
+  ferma. Ora il primo fotogramma usa l'orologio. Run 38700570691: 5 rossi su 60.
+- **Due fotogrammi a 1 ms** (30307756a1): sotto carico capitano anche a metà corsa (run diagnostica
+  38702535103, 3 rossi su 60), con lo stesso passo sotto il pixel. Il fling salta i fotogrammi a
+  meno di 4 ms dall'ultimo passo.
+- **Barra:** run 38704808844, 60 verdi su 60 in 13,5 minuti. I mutanti sono il codice di ogni passo
+  precedente, rosso nelle run sopra.
+- `DomCoBrowse.tsx` è a 800 righe esatte, e il tetto di `check:bloat` scatta oltre 800: la prossima
+  riga che entra deve uscire da un'altra parte.
