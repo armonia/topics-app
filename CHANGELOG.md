@@ -2,6 +2,18 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.2.506 — 2026-10-15
+
+### Sotto il cofano
+- Il socket dell'esecutore accetta solo i suoi tipi (#330)
+- Card a calendario: una ricorrenza della board crea la sua card all'ora giusta (D5f) (#328)
+- I frame di un topic vanno solo a chi lo guarda (D1c) (#329)
+- Stato salvato, risorse del mirror e sonda framable con i loro vincoli (#332)
+- Una chat aperta attraversa un riavvio del server senza ricaricare (D7b) (#333)
+- Il mirror maschera i campi di pagamento e i codici monouso (#334)
+- Una chat aperta attraversa lo sleep del Mac senza ricaricare (D7c) (#338)
+- TOPIC-BROWSER-01n: la sonda framable non conta come ciclo di vita del browser (#348)
+
 ## 2.2.505 — 2026-10-15
 
 ### Sotto il cofano

@@ -1,5 +1,56 @@
 [
   {
+    "version": "2.2.506",
+    "date": "2026-10-15",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Il socket dell'esecutore accetta solo i suoi tipi (#330)",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Card a calendario: una ricorrenza della board crea la sua card all'ora giusta (D5f) (#328)",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "I frame di un topic vanno solo a chi lo guarda (D1c) (#329)",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Stato salvato, risorse del mirror e sonda framable con i loro vincoli (#332)",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Una chat aperta attraversa un riavvio del server senza ricaricare (D7b) (#333)",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il mirror maschera i campi di pagamento e i codici monouso (#334)",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Una chat aperta attraversa lo sleep del Mac senza ricaricare (D7c) (#338)",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "TOPIC-BROWSER-01n: la sonda framable non conta come ciclo di vita del browser (#348)",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
     "version": "2.2.505",
     "date": "2026-10-15",
     "sections": {
