@@ -6,6 +6,7 @@ import { pageLayout } from "./helpers/native-host-page";
 import { resetPaneStore } from "./helpers/api-fixtures";
 import { E2E_BASE } from "./helpers/test-server";
 import { hermetic } from "./fixtures/hermetic";
+import { hostEventFrames } from "../../shared/browser-ws-chunks";
 
 hermetic(test);
 
@@ -24,6 +25,7 @@ hermetic(test);
  * @covers NATIVE-HOST-01
  * @covers NATIVE-HOST-02
  * @covers NATIVE-HOST-04
+ * @covers NATIVE-HOST-05
  * @covers BROWSER-DOM-LIVE-01
  * @covers BROWSER-DOM-SCROLL-01
  * @covers BROWSER-DOM-LAZY-01
@@ -56,9 +58,11 @@ function tallPage(stamp: number, inside: unknown[] = []): unknown[] {
 
 /** Open the fake host on `ctx` in `hostPage` and wait for the server's ack. */
 async function startFakeHost(hostPage: Page, ctx: string, events: unknown[] = RRWEB_EVENTS): Promise<void> {
+  // Cut the way the native pane cuts them, so a large page takes the same road as on the Mac.
+  const initialFrames = hostEventFrames(events, `initial-${Date.now()}`);
   await hostPage.goto(`${E2E_BASE}/api/version`);
   await hostPage.evaluate(
-    async ({ ctx, events, url }) => {
+    async ({ ctx, initialFrames, url }) => {
       const w = window as unknown as { __host: { frames: { type?: string; action?: string; url?: string }[]; ws?: WebSocket } };
       w.__host = { frames: [] };
       const ws = new WebSocket(`${location.origin.replace(/^http/, "ws")}/ws/browser/${encodeURIComponent(ctx)}?executor=1`);
@@ -71,7 +75,7 @@ async function startFakeHost(hostPage: Page, ctx: string, events: unknown[] = RR
             res();
           }
           // What the native pane does on a start: arm rrweb, drain Meta + FullSnapshot.
-          if (m.type === "host_dom_start") ws.send(JSON.stringify({ type: "host_dom_events", events }));
+          if (m.type === "host_dom_start") for (const frame of initialFrames) ws.send(frame);
         });
         ws.addEventListener("error", () => rej(new Error("host socket error")));
       });
@@ -81,13 +85,17 @@ async function startFakeHost(hostPage: Page, ctx: string, events: unknown[] = RR
       await acked;
       w.__host.ws = ws;
     },
-    { ctx, events, url: HOST_URL },
+    { ctx, initialFrames, url: HOST_URL },
   );
 }
 
 /** A frame from the fake host, as the native pane would drain it. */
 async function hostSend(hostPage: Page, frame: unknown): Promise<void> {
-  await hostPage.evaluate((f) => (window as unknown as { __host: { ws: WebSocket } }).__host.ws.send(JSON.stringify(f)), frame);
+  const batch = frame as { type?: string; events?: unknown[] };
+  const frames = batch.type === "host_dom_events" && Array.isArray(batch.events)
+    ? hostEventFrames(batch.events, `host-${Date.now()}`)
+    : [JSON.stringify(frame)];
+  await hostPage.evaluate((items) => { const ws = (window as unknown as { __host: { ws: WebSocket } }).__host.ws; for (const item of items) ws.send(item); }, frames);
 }
 
 /** The document the viewer rebuilt: rrweb's iframe inside the mirror. */
@@ -103,6 +111,32 @@ async function hostFrames(hostPage: Page): Promise<{ type?: string; action?: str
 }
 
 test.describe("Native pane as the mirror host", () => {
+  test("a 3 MB FullSnapshot reaches the viewer without closing either socket", async ({ page, context, request }) => {
+    const ctx = `e2e-host-large-${Date.now()}`;
+    const hostPage = await context.newPage();
+    const largeText = "x".repeat(3_000_000) + "END";
+    const events = [
+      { type: 4, timestamp: 1, data: { href: HOST_URL, width: 800, height: 600 } },
+      { type: 2, timestamp: 2, data: { node: { type: 0, id: 1, childNodes: [
+        { type: 1, name: "html", publicId: "", systemId: "", id: 2 },
+        { type: 2, tagName: "html", attributes: {}, id: 3, childNodes: [
+          { type: 2, tagName: "head", attributes: {}, id: 4, childNodes: [] },
+          { type: 2, tagName: "body", attributes: {}, id: 5, childNodes: [
+            { type: 2, tagName: "div", attributes: { id: "large-snapshot" }, id: 6, childNodes: [{ type: 3, textContent: largeText, id: 7 }] },
+          ] },
+        ] },
+      ] } } },
+    ];
+    await startFakeHost(hostPage, ctx, events);
+    await resetPaneStore(request, [`browser:${ctx}`]);
+    await goToApp(page);
+    const largeMirror = page.locator('[data-testid="browser-dom-cobrowse"] iframe').first().contentFrame().locator("#large-snapshot");
+    await expect.poll(async () => (await largeMirror.textContent())?.length, { timeout: 15_000 }).toBe(3_000_003);
+    await expect(largeMirror).toContainText("END");
+    expect(await hostPage.evaluate(() => (window as unknown as { __host: { ws: WebSocket } }).__host.ws.readyState)).toBe(1);
+    await hostPage.close();
+  });
+
   test("the web viewer rebuilds the Mac's page, and its click reaches the Mac once", async ({ page, context, request }) => {
     const ctx = `e2e-host-${Date.now()}`;
     const hostPage = await context.newPage();

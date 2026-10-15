@@ -197,10 +197,15 @@ describe('WS-04 contract: browserWsMessageSchema (Phase 30)', () => {
     //                                         va sul DataChannel, il click non
     //                                         passa più dal server e il campo a
     //                                         fuoco nessuno lo leggeva più
+    //   dom_event_chunk                     — one piece of a DOM event too large
+    //                                         for one frame (a full snapshot of a
+    //                                         heavy page); the viewer puts the
+    //                                         pieces back together (D4a)
     expect([...types].sort()).toEqual([
       'agent_active',
       'console',
       'dom_event',
+      'dom_event_chunk',
       'download',
       'engine',
       'focus_field',

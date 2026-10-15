@@ -346,7 +346,7 @@
 
     "client/src/hooks/usePanelLifecycle.ts": 2691,
 
-    "client/src/hooks/useRemoteBrowser.ts": 1535,
+    "client/src/hooks/useRemoteBrowser.ts": {"lines": 1661, "why": ["2026-10-15, D4a mirror in pieces: 1661 measured. Main grew 1535 -> 1655 since the record; this branch +6, a large mirror event joined from its pieces (NATIVE-HOST-05). The joining itself lives in lib/domEventJoiner.ts, not here."]},
 
     "client/src/hooks/useTauriBrowser.ts": 2138,
 

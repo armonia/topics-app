@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'bun:test';
 import { createNativeDomHost, DRAIN_JS, DRAIN_FAST_MS, DRAIN_IDLE_MS, type NativeDomHostOptions } from './nativeDomHost';
+import { BrowserWsChunkAssembler, chunkText } from '../../../shared/browser-ws-chunks';
 
 /** @covers NATIVE-HOST-02 */
 
@@ -69,6 +70,34 @@ describe('native DOM host', () => {
     await r.turn();
     const batch = frames(r.sent).find((f) => f.type === 'host_dom_events');
     expect(batch?.events).toEqual(initialEvents);
+  });
+
+  /** @covers NATIVE-HOST-05 @covers NATDEL-04 */
+  test('pieces from the page are put back together here: only rebuilt rrweb events leave, never the page\'s keys', async () => {
+    const small = { type: 3, timestamp: 4, data: { source: 2 } };
+    const large = { type: 2, timestamp: 5, data: { node: { type: 3, id: 10, textContent: 'z'.repeat(300_000) } } };
+    const withExtraKey = { ...small, timestamp: 6, extra: 'not an rrweb key' };
+    const pieces = chunkText(JSON.stringify([small, large, withExtraKey]), 'page-made')
+      .map((piece) => JSON.stringify({ ...piece, type: 'host_page', url: 'https://elsewhere.example' }));
+    let armed = false;
+    const r = rig({
+      evalInPage: async (js) => {
+        if (js === DRAIN_JS) return armed ? (pieces.shift() ?? '[]') : 'unarmed';
+        if (js.includes('__topicsDomHost={q:[]')) { armed = true; return 'armed'; }
+        return 'ok';
+      },
+    });
+    r.host.handle({ type: 'host_dom_start' });
+    for (let i = 0; i < 8 && pieces.length; i++) { r.tick(DRAIN_IDLE_MS); await r.step(); }
+    const sent = r.sent.map((t) => JSON.parse(t) as Record<string, unknown>);
+    expect(sent.some((f) => f.type === 'host_page' || 'url' in f)).toBe(false);
+    const chunks = sent.filter((f) => f.type === 'host_dom_events_chunk');
+    expect(chunks.length).toBeGreaterThan(1);
+    for (const f of chunks) expect(Object.keys(f).sort()).toEqual(['data', 'id', 'index', 'total', 'type']);
+    const assembler = new BrowserWsChunkAssembler();
+    let rebuilt: string | null = null;
+    for (const f of chunks) rebuilt = assembler.add(f as never) ?? rebuilt;
+    expect(JSON.parse(rebuilt!)).toEqual([small, large]);
   });
 
   test('the drain stays fast while the page moves and slows down when it is still', async () => {

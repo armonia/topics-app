@@ -3,6 +3,7 @@ import { parseBrowserWsMessage, type BrowserInputPayload, type BrowserWsMessage 
 import type { ElementDescription } from '../../../shared/element-describe';
 import type { RemoteField } from '../../../shared/browser-keyboard-field';
 import { serverWsBase } from '@/lib/shell/net';
+import { createDomEventJoiner } from '../lib/domEventJoiner';
 import { browserClientId } from '../lib/browserClientId';
 import { BOOT_READ_TTL_MS, coalescedFetch } from '../lib/coalesceFetch';
 import { attachViewerChannel, pushViewerCount } from '../lib/viewerCountBus';
@@ -360,6 +361,7 @@ export function useRemoteBrowser(contextId: string, isVisible = true): RemoteBro
   // Buffer events that arrive before the DomCoBrowse view registers its sink (the
   // bootstrap burst can land in the same tick the pane mounts). Flushed on register.
   const domEventBufferRef = useRef<unknown[]>([]);
+  const joinDomEventRef = useRef(createDomEventJoiner());
   // Newest frame delivered so far. Frames after the first are direct
   // `img.src` writes (no setState), so state.screenshotSrc goes stale by
   // design — this ref lets a remounted <img> re-assert the newest frame
@@ -940,12 +942,16 @@ export function useRemoteBrowser(contextId: string, isVisible = true): RemoteBro
             break;
           }
           case 'dom_event':
+          case 'dom_event_chunk': {
             // One rrweb event (Meta/FullSnapshot/Incremental) → the DomCoBrowse
-            // Replayer. Buffered if the view hasn't registered its sink yet (the
-            // bootstrap burst can beat the mount); flushed on registerDomSink.
-            if (domSinkRef.current) domSinkRef.current(msg.event);
-            else domEventBufferRef.current.push(msg.event);
+            // Replayer, a large one joined from its pieces first. Buffered if the view hasn't
+            // registered its sink yet (the bootstrap burst can beat the mount); flushed on registerDomSink.
+            const event = msg.type === 'dom_event' ? msg.event : joinDomEventRef.current(msg);
+            if (event === undefined) break;
+            if (domSinkRef.current) domSinkRef.current(event);
+            else domEventBufferRef.current.push(event);
             break;
+          }
           case 'focus_field':
             // Il campo che ha preso il fuoco di là dopo il nostro click (assente
             // = niente di scrivibile). Serve a far uscire la tastiera GIUSTA sul

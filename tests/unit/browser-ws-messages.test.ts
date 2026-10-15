@@ -194,7 +194,7 @@ function variantsOf(schema: any): any[] {
 }
 
 describe('schema completeness', () => {
-  test('all 22 protocol variants are present', () => {
+  test('all 23 protocol variants are present', () => {
     // Snapshot test: if a new variant is added to the schema, this count
     // must be updated — forcing the test author to also document it.
     // Grew from 6 → 17 with the server↔pane co-browse control channel
@@ -213,8 +213,10 @@ describe('schema completeness', () => {
     // shared context disconnects, the one that inherits it has already sent
     // its size and will not send it again on its own (the client dedups by
     // size), so the server has to ask, and only the heir is asked.
+    // 23 is `dom_event_chunk`: a DOM event too large for one frame (a full
+    // snapshot of a heavy page) travels in pieces the viewer puts back together.
     const variantCount = variantsOf(browserWsMessageSchema).length;
-    expect(variantCount).toBe(22);
+    expect(variantCount).toBe(23);
   });
 
   test('every variant uses a unique `type` literal', () => {
@@ -232,7 +234,7 @@ describe('schema completeness', () => {
         'resize', 'download', 'set_engine', 'engine', 'set_stream',
         'set_watching', 'set_render', 'render_mode', 'dom_event',
         'webrtc_offer', 'webrtc_answer', 'webrtc_ice', 'focus_field',
-        'focus_query', 'viewers', 'viewport_request',
+        'focus_query', 'viewers', 'viewport_request', 'dom_event_chunk',
       ]),
     );
   });
