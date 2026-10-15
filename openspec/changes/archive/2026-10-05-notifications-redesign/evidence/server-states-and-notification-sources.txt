@@ -1,5 +1,5 @@
 SERVER-SIDE MAP: chat/topic states and which ones notify
-Repo /Users/zorahrel/Projects/topics-app @ d4e2feb80 (local main); tests ran on origin/main f93eeb187 (no drift in these files except unrelated chat.ts project-scaffold lines).
+Repo ~/Projects/topics-app @ d4e2feb80 (local main); tests ran on origin/main f93eeb187 (no drift in these files except unrelated chat.ts project-scaffold lines).
 
 =====================================================================
 A. STATE AXES THE SERVER HOLDS FOR ONE CHAT (they are independent; nothing composes them)

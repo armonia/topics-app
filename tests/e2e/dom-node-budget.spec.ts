@@ -8,6 +8,9 @@ import { splitViaContextMenu } from "./helpers/layout";
 import { canonicalTmpDir, removeTmpDir } from "./helpers/file-project";
 import { projectIdForPath } from "../../shared/board";
 import { COLUMN_PAGE } from "../../client/src/lib/boardOrder";
+import { hermetic } from "./fixtures/hermetic";
+
+hermetic(test);
 
 /** @covers IDLE-01 */
 

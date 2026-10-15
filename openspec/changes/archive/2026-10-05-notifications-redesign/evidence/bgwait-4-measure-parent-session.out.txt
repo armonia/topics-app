@@ -1,4 +1,4 @@
-# command: python3 bgwait-4-measure-parent-session.py ~/.claude/projects/-Users-zorahrel-Projects-topics-app/73f11438-0d8f-4434-b4a4-dc2862c80ec1.jsonl
+# command: python3 bgwait-4-measure-parent-session.py ~/.claude/projects/-Users-<utente>-Projects-topics-app/73f11438-0d8f-4434-b4a4-dc2862c80ec1.jsonl
 launches mapped to a task id: 289 unmapped: 1
 {
  "turn_ends": 353,
