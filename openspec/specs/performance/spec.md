@@ -1172,3 +1172,36 @@ same order with the same values.
 - **THEN** none of the fields listed in `shared/board-feed.ts` SHALL be on a card, and every other field SHALL equal `svc.list`
 - **AND** a field in that list SHALL have no reader in `client/src`, its `BoardTask` declaration aside
 - **AND** a `task:updated` frame the store absorbs SHALL leave the row with the keys the feed brings, so re-reading an unchanged board publishes nothing
+
+### Requirement: DBSLOW-01 — A statement that holds the loop names itself in the log
+
+Every statement the server runs through `query`, `prepare` or `run` SHALL be
+timed, and one that takes 250 ms or more SHALL print a `[DB-SLOW]` line with its
+duration, the method, the rows of a list result and the first 200 characters of
+its SQL. The same SQL SHALL print at most once a minute, and the next line SHALL
+carry how many slow calls it skipped. A cached statement SHALL be timed once per
+call, however many times `query` handed it out.
+
+On 15/10/2026 a stall of the live server was sampled while it happened: the main
+thread was in `sqlite3_step`, walking a b-tree and waiting on `pread`, with 50 ms
+of CPU in an 844 ms stop. The system SQLite of macOS keeps its page cache in
+purgeable memory, which the kernel drops under memory pressure. A native sample
+cannot name the statement, because JavaScript frames are anonymous in it; this
+line can.
+
+#### Scenario: a slow statement prints its SQL
+- **GIVEN** a statement that takes 300 ms
+- **WHEN** it runs through `all`, `get`, `values` or `run`, or through `run` on the database
+- **THEN** the log SHALL have one `[DB-SLOW] 300ms` line with the method and the SQL on one line
+
+#### Scenario: a fast statement prints nothing
+- **WHEN** statements under 250 ms run
+- **THEN** the log SHALL have no `[DB-SLOW]` line
+
+#### Scenario: once a minute per statement
+- **WHEN** the same slow SQL runs twice within a minute and once more after it
+- **THEN** the log SHALL have two lines, the second with `(+1 slow in the last minute)`
+
+#### Scenario: a cached statement is timed once per call
+- **WHEN** `query` hands out the same statement three times and each is run once
+- **THEN** the clock SHALL be read twice per run, six times in all
