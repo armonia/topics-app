@@ -58,10 +58,10 @@ test('timer callbacks sleep while the app is hidden, and the data is fresh on re
       }, delay);
     }) as typeof window.setTimeout;
 
-    const originalRaf = window.requestAnimationFrame.bind(window);
+    const originalFrameRequest = window.requestAnimationFrame.bind(window);
     window.requestAnimationFrame = ((callback: FrameRequestCallback) => {
       const origin = source();
-      return originalRaf((time) => {
+      return originalFrameRequest((time) => {
         if (probe.enabled) {
           probe.count += 1;
           probe.sources[origin] = (probe.sources[origin] ?? 0) + 1;

@@ -63,7 +63,7 @@ export function startVisibleInterval(
     if (refresh) callback();
     timer = env.setInterval(callback, intervalMs);
   };
-  const unsubscribe = env.subscribe(() => {
+  const stopListening = env.subscribe(() => {
     if (env.isVisible()) start(true);
     else stop();
   });
@@ -72,6 +72,6 @@ export function startVisibleInterval(
   return () => {
     disposed = true;
     stop();
-    unsubscribe();
+    stopListening();
   };
 }
