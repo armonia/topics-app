@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it } from "bun:test";
 import { BrowserWsChunkAssembler, chunkText } from "../shared/browser-ws-chunks";
 import { createHostMirror, type MirrorSocket } from "./browser-host-mirror";
 import { createDomHostRegistry } from "./lib/native-dom-host";
-import { WEBSOCKET_TRANSPORT_OPTIONS } from "./lib/websocket-options";
+import { WS_TRANSPORT_OPTIONS } from "./lib/websocket-options";
 
 /** @covers NATIVE-HOST-05 */
 describe("native DOM mirror large snapshots", () => {
@@ -31,7 +31,7 @@ describe("native DOM mirror large snapshots", () => {
         return new Response("upgrade required", { status: 426 });
       },
       websocket: {
-        ...WEBSOCKET_TRANSPORT_OPTIONS,
+        ...WS_TRANSPORT_OPTIONS,
         open(ws) {
           const socket: MirrorSocket = {
             readyState: 1,

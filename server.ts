@@ -142,7 +142,7 @@ import { browserEngineRegistry, chromiumExtensionsCount, chromiumSidecar } from 
 import { nativeDelegateRegistry, handleNativeDelegationFrame, isNativeDelegateFrameAllowed } from "./server/browser-native-delegate";
 import { createDomHostRegistry, parseHostFrame } from "./server/lib/native-dom-host";
 import { createHostMirror } from "./server/browser-host-mirror";
-import { WEBSOCKET_TRANSPORT_OPTIONS } from "./server/lib/websocket-options";
+import { WS_TRANSPORT_OPTIONS } from "./server/lib/websocket-options";
 import { countSharedViewers, createViewerCountPublisher, hasAttachedPane } from "./server/browser-viewer-count";
 import { createViewportWiring } from "./server/browser-viewport-wiring";
 import { seedNativeFromShared } from "./server/browser-session-handoff";
@@ -4066,7 +4066,7 @@ const opzioniServer = {
   },
 
   websocket: {
-    ...WEBSOCKET_TRANSPORT_OPTIONS,
+    ...WS_TRANSPORT_OPTIONS,
     /**
      * Negotiates permessage-deflate. It does NOT compress anything on its own:
      * measured on Bun 1.3.8 with a byte counting proxy, `ws.send(x)` still went
@@ -4792,7 +4792,7 @@ const opzioniServer = {
     },
     pong(ws) { ws.data.lastPong = Date.now(); },
     close(ws, code, reason) {
-      if (code === 1009) console.warn(`[WS] payload socket oltre il limite ${WEBSOCKET_TRANSPORT_OPTIONS.maxPayloadLength} B (${ws.data.id}): ${reason || "Payload Too Large"}`);
+      if (code === 1009) console.warn(`[WS] payload socket oltre il limite ${WS_TRANSPORT_OPTIONS.maxPayloadLength} B (${ws.data.id}): ${reason || "Payload Too Large"}`);
       ctx.deviceSockets.delete(ws);
       if (ws.data.deviceId) noteDeviceDisconnected(ws.data.deviceId);
       // Phase 30 BROWSER-CHAT-02 — browser WS branch.

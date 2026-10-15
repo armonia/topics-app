@@ -5,7 +5,7 @@
  * now travels in pieces of at most 192 KiB, so it no longer needs a larger frame, and lowering
  * the ceiling would close the socket on any other message that grew past it.
  */
-export const WEBSOCKET_TRANSPORT_OPTIONS = {
+export const WS_TRANSPORT_OPTIONS = {
   maxPayloadLength: 1024 * 1024,
   perMessageDeflate: true,
 } as const;
