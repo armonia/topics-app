@@ -55,3 +55,10 @@
 - `listLandingAuditCandidates` tiene fuori un verdetto `landed` o `unverifiable` controllato da meno di 24 ore (`SETTLED_LANDING_RECHECK_MS`). `landed` cambia solo se main toglie il lavoro, `unverifiable` solo se la prova sparita ricompare: un giorno basta per entrambi. `unlanded` e le card mai chieste restano a 30 minuti, perché sono quelle su cui una persona agisce. Con i numeri di oggi una passata scende da 303 card a 14 più quelle mai chieste, e le 289 decise si richiedono una volta al giorno.
 - Test in `server/services/tasks.landing.test.ts`: `landed` e `unverifiable` di un'ora fa fuori, di più di un giorno fa dentro, `unlanded` di un minuto fa e mai chieste dentro. Mutante in copia, condizione nuova spenta: rosso, solo quel test.
 - Dopo il porto si rifà la misura di 15 minuti dal riavvio: è quella che dice se il cancello di D3 (oltre 1.000 `git` l'ora) resta aperto.
+
+## Misura dopo il giro 4 (produzione, 15/10)
+
+- **15 minuti dal riavvio delle 15:20, sul server vero** (`scripts/measure-server-spawns.py`): 777 processi figli, 3.108 l'ora (erano 1.564). `git` **729** (erano 1.048; obiettivo sotto 250), `vm_stat` 78, `lsof` 39 (pannello Processi aperto), `sysctl` 30.
+- **L'audit di atterraggio non pesa più:** nel campione con la riga di comando `git rev-parse --verify` scende da 175 a 26, `git log --merges` sparisce, `merge-base` e `read-tree` restano a 4.
+- **Il resto è il ricalcolo dello stato git.** I contatori del server, nella stessa finestra: 130 ricalcoli chiesti dal watcher e 100 per cache scaduta, ognuno con più comandi (`status`, `diff --numstat` e `diff --cached --numstat`, `for-each-ref`, `rev-parse`, `log -1`). Intanto due sessioni scrivevano file nel checkout: è l'uso normale.
+- **Il cancello d'ingresso di D3 è aperto:** circa 2.900 `git` l'ora contro la soglia di 1.000, e sono proprio i ricalcoli che la traccia sposta dentro il processo.
