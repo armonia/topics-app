@@ -25,7 +25,8 @@
 import { gitRead, parsePorcelainZ, repoPrefixOf, scopeToPrefix, statusOfPrefix } from "./git-porcelain";
 import type { PorcelainEntry } from "./git-porcelain";
 import { attachNumstats, readNumstats } from "./git-numstat";
-import { roundsInFlight } from "./git-status-cache";
+import { gitStatusGeneration, invalidateGitCache, roundsInFlight } from "./git-status-cache";
+import { recordServerSpawn } from "./spawn-metrics";
 import type { GitStatus } from "../../shared/git-status";
 import { SPAWN_TIMEOUT, spawnBounded } from "./bounded-spawn";
 export type { GitStatus } from "../../shared/git-status";
@@ -91,7 +92,8 @@ export function splitBranchHeader(text: string): { header: string | null; entrie
   return { header: text.slice(0, nul), entries: text.slice(nul + 1) };
 }
 
-async function readText(args: string[], cwd: string): Promise<{ code: number; text: string }> {
+async function readText(args: string[], cwd: string, cause: string): Promise<{ code: number; text: string }> {
+  recordServerSpawn("gitStatus", cause);
   const proc = spawnBounded(args, { cwd, stdout: "pipe", stderr: "ignore", timeoutMs: SPAWN_TIMEOUT.query });
   const text = await new Response(proc.stdout).text();
   await proc.exited;
@@ -108,26 +110,30 @@ async function readText(args: string[], cwd: string): Promise<{ code: number; te
  * watcher, asking in the same instant each paid five git processes, and on a
  * loaded Mac each waited behind the other's (134 and 138 s for two identical
  * requests at 13:41:21 on 23/09). The entry is dropped when the round settles,
- * so a call after it always reads git again, and `invalidateGitCache` drops it
- * too: after a write (stage, commit, checkout) nobody joins a round that may
- * have read the tree before it.
+ * so a call after it always reads git again. Cache invalidation advances the
+ * tree generation: readers after the change cannot join a round from before it.
  *
- * `fresh: true` is for whoever KNOWS the tree just changed (the watcher): a
- * round that started before the change may miss it, so that caller starts its
- * own and the readers that arrive after it join the new one.
+ * A caller with `fresh: true` marks a change boundary. A watcher that marked
+ * that boundary when the event arrived passes its generation, allowing an
+ * intervening route read and the watcher refresh to share the same round.
  */
-export function computeGitStatus(resolvedDir: string, opts: { fresh?: boolean } = {}): Promise<ComputedGitStatus | null> {
-  const running = opts.fresh ? undefined : (roundsInFlight.get(resolvedDir) as Promise<ComputedGitStatus | null> | undefined);
-  if (running) return running;
-  const round: Promise<ComputedGitStatus | null> = computeGitStatusOnce(resolvedDir).finally(() => {
-    if (roundsInFlight.get(resolvedDir) === round) roundsInFlight.delete(resolvedDir);
+export function computeGitStatus(resolvedDir: string, opts: { fresh?: boolean; generation?: number; cause?: string } = {}): Promise<ComputedGitStatus | null> {
+  // `fresh` without a token marks a new change boundary. Watchers invalidate at
+  // event time and pass that generation later, so a read started in between is
+  // already fresh and both callers can share it.
+  const generation = opts.generation ?? (opts.fresh ? invalidateGitCache(resolvedDir) : gitStatusGeneration(resolvedDir));
+  const running = roundsInFlight.get(resolvedDir);
+  if (running?.generation === generation) return running.promise as Promise<ComputedGitStatus | null>;
+  const cause = opts.cause ?? "cacheMiss";
+  const round: Promise<ComputedGitStatus | null> = computeGitStatusOnce(resolvedDir, cause).finally(() => {
+    if (roundsInFlight.get(resolvedDir)?.promise === round) roundsInFlight.delete(resolvedDir);
   });
-  roundsInFlight.set(resolvedDir, round);
+  roundsInFlight.set(resolvedDir, { generation, promise: round });
   return round;
 }
 
-async function computeGitStatusOnce(resolvedDir: string): Promise<ComputedGitStatus | null> {
-  const probe = await readText(["git", "rev-parse", "--git-dir", "--show-toplevel"], resolvedDir);
+async function computeGitStatusOnce(resolvedDir: string, cause: string): Promise<ComputedGitStatus | null> {
+  const probe = await readText(["git", "rev-parse", "--git-dir", "--show-toplevel"], resolvedDir, cause);
   if (probe.code !== 0) return null;
   const gitRoot = probe.text.split("\n")[1]?.trim() ?? "";
   // Same prefix rule as always (`repoPrefixOf` compares REAL paths: a folder
@@ -135,9 +141,9 @@ async function computeGitStatusOnce(resolvedDir: string): Promise<ComputedGitSta
   const scope = gitRoot ? repoPrefixOf(resolvedDir, gitRoot) : { prefix: "", repoName: "" };
 
   const [status, log, numstats] = await Promise.all([
-    readText(STATUS_BRANCH_ARGS, resolvedDir),
-    readText(["git", "log", "-1", "--format=%h|%H|%s|%an|%ar"], resolvedDir),
-    readNumstats(resolvedDir),
+    readText(STATUS_BRANCH_ARGS, resolvedDir, cause),
+    readText(["git", "log", "-1", "--format=%h|%H|%s|%an|%ar"], resolvedDir, cause),
+    readNumstats(resolvedDir, () => recordServerSpawn("gitStatus", cause)),
   ]);
 
   const { header, entries } = splitBranchHeader(status.text);

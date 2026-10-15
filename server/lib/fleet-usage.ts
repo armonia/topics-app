@@ -43,6 +43,7 @@ import {
   parsePsRows,
   summarizeFleet,
 } from "./fleet-summary";
+import { recordServerSpawn } from "./spawn-metrics";
 
 export type { FleetSessionRef } from "./fleet-summary";
 
@@ -260,8 +261,10 @@ export type PsSpawner = () => {
   kill: (exitCode?: number | NodeJS.Signals) => void;
 };
 
-const defaultPsSpawner: PsSpawner = () =>
-  Bun.spawn(["ps", "-axo", "pid=,ppid=,rss=,pcpu=,time=,command="], { stdout: "pipe", stderr: "ignore" });
+const defaultPsSpawner: PsSpawner = () => {
+  recordServerSpawn("other", "fleetUsage");
+  return Bun.spawn(["ps", "-axo", "pid=,ppid=,rss=,pcpu=,time=,command="], { stdout: "pipe", stderr: "ignore" });
+};
 
 export async function snapshot(spawn: PsSpawner = defaultPsSpawner, timeoutMs = PS_TIMEOUT_MS): Promise<PsRow[]> {
   const proc = spawn();

@@ -250,6 +250,20 @@ export function PerfSection() {
       <div className="px-0.5" data-testid="perf-machine-busy">
         <MachineBusyLine shares={status?.machine} />
       </div>
+      {status?.processSpawns && (() => {
+        const { counts, windowMinutes } = status.processSpawns;
+        const sum = (group: Record<string, number>) => Object.values(group).reduce((total, n) => total + n, 0);
+        const rows = [
+          ["stato Git", sum(counts.gitStatus)], ["fetch", sum(counts.gitFetch)],
+          ["lsof", sum(counts.lsof)], ["vm_stat", sum(counts.vmStat)], ["altri", sum(counts.other)],
+        ] as const;
+        const detail = Object.entries(counts).flatMap(([kind, causes]) =>
+          Object.entries(causes).map(([cause, count]) => `${kind}/${cause}: ${count}`),
+        ).join("\n");
+        return <div data-testid="perf-process-spawns" title={detail || "Nessun processo avviato"} className="px-0.5 text-mini text-app-text-muted">
+          Processi avviati negli ultimi {windowMinutes} min: {rows.map(([label, n]) => `${label} ${n}`).join(" · ")}
+        </div>;
+      })()}
 
       {/* TRE DOMANDE, IN QUEST'ORDINE. Prima erano nove blocchi di numeri con
           etichette diverse per la stessa cosa ("CPU shell", "CPU Topics",

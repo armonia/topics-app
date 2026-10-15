@@ -189,6 +189,18 @@ describe("computeGitStatus on a real repo", () => {
     return fresh;
   });
 
+  test("the route and watcher share the round started after the same change", async () => {
+    const generation = invalidateGitCache(repo);
+    const { result, spawns } = await countSpawns(async () => {
+      const routeRead = computeGitStatus(repo);
+      const watcherRead = computeGitStatus(repo, { generation, cause: "watcher" });
+      expect(watcherRead).toBe(routeRead);
+      return Promise.all([routeRead, watcherRead]);
+    });
+    expect(spawns).toBe(5);
+    expect(result[0]).toEqual(result[1]);
+  });
+
   /**
    * The verifier's case: pane A's poll is in flight, pane B stages a file
    * (the route calls `invalidateGitCache`) and reloads. B must not be handed

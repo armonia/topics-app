@@ -28,7 +28,7 @@ import type { AppContext } from "./types";
 import { refreshGitStatus } from "./git-watcher";
 import { reachesProtectedAppData } from "./lib/protected-app-data";
 import { invalidateFileTreeCache, setFileTreeWatcher } from "./lib/file-tree-cache";
-import { setGitStatusFileWatcher } from "./lib/git-status-cache";
+import { invalidateGitCache, setGitStatusFileWatcher } from "./lib/git-status-cache";
 
 const DEBOUNCE_MS = 300;
 /**
@@ -109,6 +109,7 @@ export function watchProjectFiles(projectPath: string, ctx: AppContext): void {
     if (closed) return;
     const rel = filename == null ? null : filename.toString();
     if (isNoisy(rel)) return;
+    const gitGeneration = invalidateGitCache(projectPath);
     invalidateFileTreeCache(projectPath);
     if (timer) clearTimeout(timer);
     timer = setTimeout(() => {
@@ -119,7 +120,7 @@ export function watchProjectFiles(projectPath: string, ctx: AppContext): void {
       // quello, quindi una modifica fatta da un editor esterno, da un agente o
       // da un terminale non faceva scattare nessun push — e con il canale WS
       // attivo il poll del client è a 60 secondi.
-      void refreshGitStatus(projectPath, ctx);
+      void refreshGitStatus(projectPath, ctx, gitGeneration);
     }, DEBOUNCE_MS);
   };
 

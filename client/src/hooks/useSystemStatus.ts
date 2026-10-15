@@ -42,6 +42,17 @@ export interface FleetSessionRow {
 
 export interface SystemStatus {
   timestamp: string;
+  processSpawns?: {
+    windowMinutes: number;
+    sampledAt: string;
+    counts: {
+      gitStatus: Record<string, number>;
+      gitFetch: Record<string, number>;
+      lsof: Record<string, number>;
+      vmStat: Record<string, number>;
+      other: Record<string, number>;
+    };
+  };
   /** The whole Mac in percent (0-100), `null` = not measured. Absent on an
    *  older server. The one number the status dot says is the larger. */
   machine?: { machineCpuPct: number | null; machineMemPct: number | null };
@@ -137,9 +148,6 @@ export interface SystemStatus {
     total: number;
     byType: Record<string, number>;
   };
-  ports?: { port: number; pid: number; command: string }[];
-  /** System-wide top CPU consumers (sorted desc) — explains a high PC load. */
-  topProcesses?: { pid: number; cpu: number; command: string }[];
 }
 
 export function useSystemStatus(enabled = true, intervalMs = 30000) {

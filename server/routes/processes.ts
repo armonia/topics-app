@@ -36,7 +36,8 @@ import { agentBaseEnv } from "../lib/agent-env";
 import { applyJobQuota } from "../services/agent-job-quota";
 import { commandLabel, commandWorkOver, pushBackgroundChanged } from "../lib/command-background";
 import { commandProcessesOf, serviceWatch, servicesOver, SERVICE_END_SHOWN_MS, SERVICE_WATCH_MIN_MS, type ServiceRowLike } from "../lib/command-services";
-import { getListeningPorts, listenersOf, readProcessProbe, servesHtml } from "../lib/listening-ports";
+import { getListeningPorts, listenersOf, servesHtml } from "../lib/listening-ports";
+import { recordServerSpawn } from "../lib/spawn-metrics";
 import { SPAWN_TIMEOUT, spawnBounded } from "../lib/bounded-spawn";
 import { isPidAlive, livePids, watchPidExits } from "../lib/pid-liveness";
 import { topicIdOfSubject } from "../../shared/attention";
@@ -476,43 +477,6 @@ const pollPidExit = watchPidExits<ScriptProcess>({
 
 // The listening ports, one cached `lsof` shared by every reader: `lib/listening-ports.ts`.
 export { getListeningPorts };
-
-// Top CPU consumers, system-wide — so the status dropdown can answer "why is my
-// PC load high?" with the actual culprits instead of a vague verdict. One cached
-// `ps … -r` (sort by CPU) snapshot; refreshed at most every TOP_PROCS_TTL so a
-// dropdown polling every few seconds stays cheap.
-let cachedTopProcs: { pid: number; cpu: number; command: string }[] = [];
-let cachedTopProcsAt = 0;
-let pendingTopProcs: Promise<typeof cachedTopProcs> | null = null;
-const TOP_PROCS_TTL = 3000;
-
-export async function getTopCpuProcesses(limit = 6): Promise<{ pid: number; cpu: number; command: string }[]> {
-  const now = Date.now();
-  if (now - cachedTopProcsAt < TOP_PROCS_TTL && cachedTopProcs.length) return cachedTopProcs.slice(0, limit);
-  pendingTopProcs ??= readTopCpuProcesses(now).finally(() => { pendingTopProcs = null; });
-  return (await pendingTopProcs).slice(0, limit);
-}
-
-async function readTopCpuProcesses(now: number): Promise<typeof cachedTopProcs> {
-  try {
-    // -A all procs, -c accounting (short) command name, -o columns, -r sort by CPU desc.
-    const text = await readProcessProbe(["ps", "-Aco", "pid,pcpu,comm", "-r"]);
-    const rows: { pid: number; cpu: number; command: string }[] = [];
-    for (const line of text.split("\n").slice(1)) {
-      const m = line.trim().match(/^(\d+)\s+([\d.]+)\s+(.+)$/);
-      if (!m) continue;
-      const cpu = parseFloat(m[2]);
-      if (!(cpu > 0)) continue;
-      rows.push({ pid: +m[1], cpu: Math.round(cpu), command: m[3].trim() });
-      if (rows.length >= 12) break;
-    }
-    cachedTopProcs = rows;
-    cachedTopProcsAt = now;
-    return rows;
-  } catch {
-    return cachedTopProcs;
-  }
-}
 
 async function getPortsForProcess(pid: number): Promise<number[]> {
   const allPorts = await getListeningPorts();
@@ -1582,6 +1546,7 @@ async function getCommandsForPids(pids: number[]): Promise<Map<number, string>> 
   const out = new Map<number, string>();
   if (!pids.length) return out;
   try {
+    recordServerSpawn("other", "shellReconcile");
     const proc = spawnBounded(["ps", "-o", "pid=,command=", "-p", pids.join(",")], { stdout: "pipe", stderr: "ignore", timeoutMs: SPAWN_TIMEOUT.query });
     const text = await new Response(proc.stdout).text();
     await proc.exited;
@@ -1663,6 +1628,9 @@ type DetectionSource = () => DetectionSession[];
 let _detectionSource: DetectionSource | null = null;
 let _detectionTimer: ReturnType<typeof setTimeout> | null = null;
 let _detectionStarted = false;
+let _detectionRunning = false;
+let _detectionInterestedUntil = 0;
+let _wakeProcessDetection: (() => void) | null = null;
 /** Which loop is the live one: a cycle in flight when the loop was stopped does not re-arm it. */
 let _detectionLoop = 0;
 
@@ -1686,6 +1654,16 @@ let _detectionLoop = 0;
 export const DETECTION_INTERVAL_MS = 4000;
 export const DETECTION_INTERVAL_MAX_MS = 32000;
 let _detectionDelayMs = DETECTION_INTERVAL_MS;
+export const GHOST_CWD_PROBE_MIN_INTERVAL_MS = 120_000;
+let lastGhostCwdProbeAt = 0;
+
+export function processDetectionViewIsOpen(now = Date.now()): boolean {
+  return now < _detectionInterestedUntil;
+}
+
+export function ghostCwdProbeDue(now: number, previousAt: number): boolean {
+  return now - previousAt >= GHOST_CWD_PROBE_MIN_INTERVAL_MS;
+}
 
 /**
  * La prossima attesa, dato lo stato attuale e se la passata ha cambiato
@@ -1715,16 +1693,25 @@ export function startProcessDetection(ctx: AppContext, getSessions: DetectionSou
     if (typeof _detectionTimer.unref === "function") _detectionTimer.unref();
   };
   const tick = async () => {
+    if (_detectionRunning) return;
+    _detectionRunning = true;
     let changed = false;
     try {
       changed = await runDetectionCycle(ctx);
     } catch (e: any) {
       console.error('[detect] cycle error:', e?.message || e);
+    } finally {
+      _detectionRunning = false;
     }
     // Un errore NON accelera: se `lsof` fallisce, ritentare ogni 4s non lo fa
     // funzionare, moltiplica solo gli spawn.
     _detectionDelayMs = nextDetectionDelay(_detectionDelayMs, changed);
     arm();
+  };
+  _wakeProcessDetection = () => {
+    if (_detectionTimer) clearTimeout(_detectionTimer);
+    _detectionTimer = null;
+    void tick();
   };
 
   // The completed cycle alone arms its successor. Arming here as well creates
@@ -1743,6 +1730,10 @@ export function stopProcessDetectionForTests(): void {
   if (_detectionTimer) clearTimeout(_detectionTimer);
   _detectionTimer = null;
   _detectionStarted = false;
+  _detectionRunning = false;
+  _detectionInterestedUntil = 0;
+  lastGhostCwdProbeAt = 0;
+  _wakeProcessDetection = null;
   _detectionDelayMs = DETECTION_INTERVAL_MS;
 }
 
@@ -1754,7 +1745,9 @@ export function stopProcessDetectionForTests(): void {
  * comparsa di un server appena avviato.
  */
 export function bumpProcessDetection(): void {
+  _detectionInterestedUntil = Date.now() + 15_000;
   _detectionDelayMs = DETECTION_INTERVAL_MS;
+  _wakeProcessDetection?.();
 }
 
 function detectedKey(pid: number): string { return `detected:${pid}`; }
@@ -1801,6 +1794,7 @@ async function getProcessCwds(pids: number[]): Promise<Map<number, string>> {
   const out = new Map<number, string>();
   if (pids.length === 0) return out;
   try {
+    recordServerSpawn("lsof", "detectionCwd");
     const proc = spawnBounded(["/usr/sbin/lsof", "-a", "-d", "cwd", "-Fpn", "-p", pids.join(",")], { stdout: "pipe", stderr: "ignore", timeoutMs: SPAWN_TIMEOUT.query });
     const text = await new Response(proc.stdout).text();
     await proc.exited;
@@ -1822,23 +1816,26 @@ async function runDetectionCycle(ctx: AppContext): Promise<boolean> {
   // nessuna sessione Claude idonea al detector delle porte: una shell non deve
   // per forza ascoltare su una porta per essere viva (è l'intero motivo per cui
   // il pannello finora non la vedeva).
-  if (await reconcileBackgroundShells()) broadcastScriptsUpdate(ctx);
+  let changed = await reconcileBackgroundShells();
+  if (changed) broadcastScriptsUpdate(ctx);
 
-  if (!_detectionSource) return false;
+  if (!_detectionSource) return changed;
   // Active Claude sessions in REAL project dirs (skip the infra/config tree).
   const sessions = _detectionSource().filter(s => s.ptyPid > 0 && !isInfraCwd(s.cwd));
 
   // No eligible Claude sessions → reap any leftover detected entries and stop.
   if (sessions.length === 0) {
-    let changed = false;
+    let detectedChanged = false;
     for (const sp of [...runningScripts.values()]) {
-      if (sp.source === "detected") { runningScripts.delete(sp.processId); changed = true; }
+      if (sp.source === "detected") { runningScripts.delete(sp.processId); detectedChanged = true; }
     }
-    if (changed) broadcastScriptsUpdate(ctx);
-    return changed;
+    if (detectedChanged) broadcastScriptsUpdate(ctx);
+    return changed || detectedChanged;
   }
+  const ghostChanged = await reapGhostScripts(ctx);
+  if (!processDetectionViewIsOpen()) return changed || ghostChanged;
 
-  const allPorts = await getListeningPorts();
+  const allPorts = await getListeningPorts(undefined, "detectionPorts");
 
   // Ports already owned by a Topics-launched (script) process — don't double-list.
   const managedPorts = new Set<number>();
@@ -1880,12 +1877,12 @@ async function runDetectionCycle(ctx: AppContext): Promise<boolean> {
     else desired.set(key, { pid: lp.pid, cwd: owner.cwd, lsofCmd: lp.command, ports: [lp.port] });
   }
 
-  let changed = false;
+  let detectedChanged = false;
 
   // Reap detected entries whose server no longer holds a port (it stopped).
   for (const sp of [...runningScripts.values()]) {
     if (sp.source !== "detected") continue;
-    if (!desired.has(sp.processId)) { runningScripts.delete(sp.processId); changed = true; }
+    if (!desired.has(sp.processId)) { runningScripts.delete(sp.processId); detectedChanged = true; }
   }
 
   // Register newly-seen detected servers (existing ones keep their entry; ports
@@ -1906,14 +1903,10 @@ async function runDetectionCycle(ctx: AppContext): Promise<boolean> {
       proc: null,
       source: "detected",
     });
-    changed = true;
+    detectedChanged = true;
   }
 
-  // PUNTO 2 (task e3240a22): ghost sweep.
-  // Cerca i processi source:"script" il cui projectPath sta sotto la base dei
-  // worktree di Topics, ma la root della worktree non esiste piu' su disco.
-  // Il ciclo ha gia' backoff e tabella in cache — questo sweep non aggiunge I/O.
-  changed = changed || (await reapGhostScripts(ctx));
+  changed = changed || detectedChanged || ghostChanged;
 
   if (changed) broadcastScriptsUpdate(ctx);
   return changed;
@@ -1941,6 +1934,9 @@ async function reapGhostScripts(ctx: AppContext): Promise<boolean> {
     return isInsideDir(sp.projectPath, wtBase);
   });
   if (candidates.length === 0) return false;
+  const now = Date.now();
+  if (!ghostCwdProbeDue(now, lastGhostCwdProbeAt)) return false;
+  lastGhostCwdProbeAt = now;
 
   // Per ogni candidato: verifica il cwd reale via lsof (un solo batch)
   const pids = candidates.map(s => s.pid as number);

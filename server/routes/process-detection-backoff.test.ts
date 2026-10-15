@@ -14,6 +14,11 @@ import {
   DETECTION_INTERVAL_MS,
   DETECTION_INTERVAL_MAX_MS,
   nextDetectionDelay,
+  processDetectionViewIsOpen,
+  bumpProcessDetection,
+  stopProcessDetectionForTests,
+  ghostCwdProbeDue,
+  GHOST_CWD_PROBE_MIN_INTERVAL_MS,
 } from "./processes";
 
 describe("nextDetectionDelay", () => {
@@ -40,5 +45,26 @@ describe("nextDetectionDelay", () => {
     expect(before).toBe(15);
     expect(after).toBeCloseTo(1.875, 3);
     expect(1 - after / before).toBeCloseTo(0.875, 3);
+  });
+});
+
+describe("process detection demand", () => {
+  test("the periodic port scan stays off until the process view is requested", () => {
+    stopProcessDetectionForTests();
+    expect(processDetectionViewIsOpen(Date.now())).toBe(false);
+    bumpProcessDetection();
+    expect(processDetectionViewIsOpen(Date.now())).toBe(true);
+    expect(processDetectionViewIsOpen(Date.now() + 15_001)).toBe(false);
+    stopProcessDetectionForTests();
+  });
+
+});
+
+describe("ghost cwd probe cadence", () => {
+  test("limits lsof checks to at most 30 per hour when ghost candidates persist", () => {
+    expect(GHOST_CWD_PROBE_MIN_INTERVAL_MS).toBe(120_000);
+    expect(ghostCwdProbeDue(119_999, 0)).toBe(false);
+    expect(ghostCwdProbeDue(120_000, 0)).toBe(true);
+    expect(60 * 60_000 / GHOST_CWD_PROBE_MIN_INTERVAL_MS).toBe(30);
   });
 });

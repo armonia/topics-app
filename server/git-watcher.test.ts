@@ -36,7 +36,7 @@ import { describe, test, expect, beforeEach, afterEach } from "bun:test";
 import { mkdtempSync, rmSync, writeFileSync, existsSync, statSync, readFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
-import { refreshGitStatus, watchGitDir, unwatchGitDir } from "./git-watcher";
+import { gitPathAffectsStatus, refreshGitStatus, watchGitDir, unwatchGitDir } from "./git-watcher";
 import type { AppContext } from "./types";
 import { gitEnv } from "../tests/setup/bun-test-preload";
 import { invalidateGitCache, readGitStatusCache } from "./lib/git-status-cache";
@@ -112,6 +112,23 @@ describe("WORKTREE-05 — the watcher speaks for the worktree, not for its paren
     const target = readFileSync(dotGit, "utf-8").trim().replace(/^gitdir:\s*/, "");
     expect(target).toContain(join(".git", "worktrees"));
     expect(existsSync(join(target, "HEAD")), "the worktree's own HEAD lives in that directory").toBe(true);
+  });
+
+  test("fetching without ref changes does not publish a git status", async () => {
+    git(repo, "fetch", "--all", "--prune");
+    watch(repo);
+    sent.length = 0;
+    const refsBefore = git(repo, "show-ref").out;
+    expect(git(repo, "fetch", "--all", "--prune").out).toBe("");
+    expect(git(repo, "show-ref").out).toBe(refsBefore);
+    expect(await until(() => sent.length > 0, 900)).toBe(false);
+  });
+
+  test("only Git paths read by the status trigger a refresh", () => {
+    expect(gitPathAffectsStatus("FETCH_HEAD")).toBe(false);
+    expect(gitPathAffectsStatus("HEAD")).toBe(true);
+    expect(gitPathAffectsStatus("index")).toBe(true);
+    expect(gitPathAffectsStatus("packed-refs")).toBe(true);
   });
 
   test("a worktree broadcast carries its id, its branch and its own dirty files", async () => {

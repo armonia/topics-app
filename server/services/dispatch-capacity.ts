@@ -58,6 +58,7 @@ import { recentCardMemPeaksGB } from "../lib/card-memory-peaks";
 import { machineCores } from "../lib/machine-cores";
 import { MEM_WINDOW_MS, parseSwapTotalMB, parseSwapUsedMB, type HeldMemory, type MemSample } from "./mem-signal";
 import { formatMemoryOwners, type MemoryFamily } from "./memory-owners";
+import { recordServerSpawn } from "../lib/spawn-metrics";
 
 // La forma sta in `shared/board.ts` (la legge la UI delle impostazioni board).
 export type { DispatchCapacity } from "../../shared/board";
@@ -472,6 +473,7 @@ export function availableMemGB(
 function readVmStatSync(): string | null {
   try {
     if (process.platform !== "darwin") return null;
+    recordServerSpawn("vmStat", "capacityFallback");
     return spawnSync(VM_STAT_BIN, { encoding: "utf8", timeout: 2000 }).stdout ?? null;
   } catch {
     return null;
@@ -543,6 +545,8 @@ export function parseVmStat(out: string): VmStat {
 /** Reads a command's stdout asynchronously, killed after 2 s: `null` on any failure. */
 async function readCommand(argv: string[]): Promise<string | null> {
   try {
+    if (argv[0] === VM_STAT_BIN) recordServerSpawn("vmStat", "memorySample");
+    else recordServerSpawn("other", "memorySample");
     const proc = Bun.spawn(argv, { stdout: "pipe", stderr: "ignore" });
     const timer = setTimeout(() => { try { proc.kill("SIGKILL"); } catch { /* gone */ } }, 2_000);
     try {
