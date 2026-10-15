@@ -325,8 +325,11 @@ export default function DomCoBrowse({ registerDomSink, registerFocusSink, sendIn
       vx *= decay;
       vy *= decay;
       const moved = scrollMirrorBy(vx * dt, vy * dt, x, y);
+      const going = moved && Math.hypot(vx, vy) > FLING_STOP_SPEED;
+      // The last step: a sub-pixel delta with no place, rounded by the Mac its own way, put it 1 px off.
+      if (!going) local.moved = true;
       queueScrollRelay(vx * dt, vy * dt, x, y);
-      local.fling = moved && Math.hypot(vx, vy) > FLING_STOP_SPEED ? requestAnimationFrame(step) : null;
+      local.fling = going ? requestAnimationFrame(step) : null;
     };
     local.fling = requestAnimationFrame(step);
   }, [scrollMirrorBy, queueScrollRelay, stopFling]);
@@ -444,7 +447,8 @@ export default function DomCoBrowse({ registerDomSink, registerFocusSink, sendIn
     prev.travel += Math.abs(prev.x - t.clientX) + Math.abs(prev.y - t.clientY);
     prev.x = t.clientX;
     prev.y = t.clientY;
-    prev.moves.push({ t: performance.now(), dx, dy });
+    // The digitizer's time: a busy main thread runs handlers late and bunched.
+    prev.moves.push({ t: e.timeStamp, dx, dy });
     if (prev.moves.length > 16) prev.moves.shift();
     const c = toSource(t.clientX, t.clientY) || { x: dimsRef.current.w / 2, y: dimsRef.current.h / 2 };
     if (!agentActiveRef.current) scrollMirrorBy(dx, dy, c.x, c.y);
@@ -458,7 +462,7 @@ export default function DomCoBrowse({ registerDomSink, registerFocusSink, sendIn
     if (!prev) return;
     if (prev.travel > TAP_SLOP) {
       // A swipe, not a tap: what the finger was doing carries on.
-      const { vx, vy } = flingVelocity(prev.moves, performance.now());
+      const { vx, vy } = flingVelocity(prev.moves, e.timeStamp);
       const c = toSource(prev.x, prev.y) || { x: dimsRef.current.w / 2, y: dimsRef.current.h / 2 };
       if (Math.hypot(vx, vy) > FLING_STOP_SPEED) startFling(vx, vy, c.x, c.y);
       return;
