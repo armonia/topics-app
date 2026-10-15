@@ -104,7 +104,7 @@ regresso.
   nella coda **prima** che i listener del server girino, o l'ordine di registrazione
   va invertito (`syncServer.ts:357-370` vs `App.tsx:242-245`). **Verifica:** chiudere
   una tab e chiudere subito la pagina — al boot successivo la tab è chiusa.
-- [ ] 2a.5 `syncServer.ts:331-341`: alla chiusura del WS l'inflight viene abortito e
+- [x] 2a.5 `syncServer.ts:331-341`: alla chiusura del WS l'inflight viene abortito e
   il debounce azzerato **senza riarmarlo**. Con la coda questo smette di perdere
   dati, ma il riarmo va comunque messo. **Verifica:** una modifica fatta durante un
   reload del server (2 s) arriva alla riconnessione.
@@ -193,12 +193,15 @@ Il guasto vive **fra due dispositivi**; i test attuali coprono i reducer in
 isolamento e non lo toccano. Il presidio è un test a due dispositivi
 (`openTwoDevices` esiste già):
 
-- [ ] P.1 A apre, B vede. A chiude, B **a freddo dopo riavvio** non vede.
-- [ ] P.2 B con snapshot **antecedente** alla chiusura non resuscita — è il caso
+- [x] P.1 A apre, B vede. A chiude, B **a freddo dopo riavvio** non vede.
+- [x] P.2 B con snapshot **antecedente** alla chiusura non resuscita — è il caso
   Japan, riprodotto come test.
-- [ ] P.3 B riapre esplicitamente: A rivede. La riapertura legittima è viva.
-- [ ] P.4 Chiusura durante una disconnessione del WS: applicata alla riconnessione.
-- [ ] P.5 Video del rifiuto e della riconciliazione — è comportamento, non stato.
+- [x] P.3 B riapre esplicitamente: A rivede. La riapertura legittima è viva.
+- [x] P.4 Chiusura durante una disconnessione del WS: applicata alla riconnessione.
+  P.1-P.4 e 2a.5: D7f, `tests/e2e/pane-store-two-devices.spec.ts`, clip 38708887333; report
+  `daily-driver/reports/D7f.md`.
+- [x] P.5 Video del rifiuto e della riconciliazione — è comportamento, non stato.
+  Clip 38708887333: un video per dispositivo in ciascuno di P.1-P.4.
 
 ## Fuori scope → backlog
 
@@ -219,3 +222,10 @@ isolamento e non lo toccano. Il presidio è un test a due dispositivi
 3. Un dispositivo nuovo atterra sullo Spazio di default e nessun pixel glielo dice —
    sul telefono la sidebar parte forzatamente collassata
    (`useSidebarAndLayout.ts:168-169`).
+4. **Riapertura concorrente con una chiusura in ritardo** (trovata da P.3, 15/10). La
+   chiamata di archivio di A rende la chiusura visibile subito a B, ma lo snapshot di A
+   parte dopo il debounce di 500 ms. Se B toglie la chat dall'archivio in quella finestra,
+   o con A offline, lo snapshot di A arriva dopo e la cascata del server la archivia di nuovo
+   (`services/pane-retirement-cascade.ts`): la pane di B resta, la chat no. La riapertura
+   lato server ritira la tombstone ma non lascia un segno che si ordini contro quella di A.
+   Dettagli e log in `daily-driver/reports/D7f.md`.
