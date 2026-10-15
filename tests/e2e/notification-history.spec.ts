@@ -37,6 +37,7 @@ import { E2E_BASE } from "./helpers/test-server";
 import { hermetic } from "./fixtures/hermetic";
 import { projectIdForPath as boardIdForPath } from "../../shared/board";
 import { canonicalTmpRoot, removeTmpDir } from "./helpers/file-project";
+import { recordAttentionFrames } from "./helpers/attention";
 
 hermetic(test);
 
@@ -131,8 +132,12 @@ test.describe("Cronologia notifiche", () => {
 
   test("NH-02: opening the history marks nothing, not even after a reload, and a row raises no number", async ({ page }) => {
     test.info().annotations.push({ type: "spec", description: "ATTN-09" });
+    const attentionFrames = recordAttentionFrames(page);
     await page.goto("/");
     await expect(button(page)).toBeVisible({ timeout: 15_000 });
+    // The badge starts empty until the socket replaces it with the server snapshot.
+    // Reading before that frame mistakes the initial empty store for the baseline.
+    await expect.poll(() => attentionFrames.inits(), { timeout: 15_000, message: "attention:init deve fissare il contatore prima della misura" }).toBeGreaterThan(0);
     // The badge counts what is lit on the whole test server, and a spec that ran
     // earlier in the shard can leave something lit (a question, a review): the
     // contract is that THIS row does not raise it, not that the server is empty.
