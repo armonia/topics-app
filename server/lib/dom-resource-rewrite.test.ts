@@ -5,7 +5,7 @@ import { isViewerUnreachableHost, routedResourceUrl, rewriteDomEventResources } 
 
 const CTX = "ae217a6b";
 const IMG = "http://localhost:3535/p/profilo/photo/1.jpg";
-const ROUTED = `/api/browser/resource?ctx=${CTX}&u=${encodeURIComponent(IMG)}`;
+const ROUTED = routedResourceUrl(CTX, IMG)!;
 
 describe("isViewerUnreachableHost", () => {
   test("loopback, private ranges and mDNS are the Mac's alone", () => {
@@ -72,5 +72,13 @@ describe("rewriteDomEventResources", () => {
   test("only http(s) is proxied", () => {
     expect(routedResourceUrl(CTX, "data:image/png;base64,AAAA")).toBeNull();
     expect(routedResourceUrl(CTX, "file:///etc/passwd")).toBeNull();
+  });
+
+  test("rewritten resource URLs carry context-bound tokens", () => {
+    const urlA = new URL(ROUTED, "http://localhost");
+    const urlB = new URL(routedResourceUrl(`${CTX}-other`, IMG)!, "http://localhost");
+    const tokenA = urlA.searchParams.get("token");
+    expect(tokenA).toBeTruthy();
+    expect(urlB.searchParams.get("token")).not.toBe(tokenA);
   });
 });

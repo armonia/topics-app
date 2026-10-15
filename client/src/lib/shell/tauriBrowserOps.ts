@@ -227,6 +227,7 @@ export async function executeNativeBrowserOp(
   tool: string,
   args: unknown,
   invoke: Invoke,
+  trustedPaneUrl?: string,
 ): Promise<NativeOpOutcome> {
   const a = (args ?? {}) as Record<string, unknown>;
   try {
@@ -463,8 +464,14 @@ export async function executeNativeBrowserOp(
         try {
           const lsRaw = await invoke<string>('browser_eval_js', { id, js: CAPTURE_LOCAL_STORAGE_JS });
           const parsed = JSON.parse(lsRaw || 'null') as StorageOrigin | null;
-          if (parsed?.origin && Array.isArray(parsed.localStorage) && parsed.localStorage.length) {
-            origins.push(parsed);
+          const expectedOrigin = trustedPaneUrl ? originOf(trustedPaneUrl) : null;
+          if (expectedOrigin && parsed?.origin === expectedOrigin && Array.isArray(parsed.localStorage)) {
+            const localStorage = parsed.localStorage.flatMap((item) =>
+              item && typeof item.name === 'string' && typeof item.value === 'string'
+                ? [{ name: item.name, value: item.value }]
+                : [],
+            );
+            if (localStorage.length) origins.push({ origin: expectedOrigin, localStorage });
           }
         } catch {
           /* localStorage best-effort — cookies still exported */
@@ -500,14 +507,14 @@ export async function executeNativeBrowserOp(
         let originCount = 0;
         for (const o of Array.isArray(state.origins) ? state.origins : []) {
           if (!o?.origin || !Array.isArray(o.localStorage) || !o.localStorage.length) continue;
-          // A state file is agent/peer-supplied data: never auto-navigate to a
-          // non-web origin (e.g. a planted file:///) just to seed localStorage.
+          // Do not navigate to non-web origins while seeding localStorage.
           if (!isHttpUrl(o.origin)) continue;
           try {
             await invoke('browser_navigate', { id, url: o.origin });
             await waitForPaneLoad(id, invoke, new URL(o.origin).origin, 8_000);
-            await invoke<string>('browser_eval_js', { id, js: setLocalStorageJs(o.localStorage) });
-            originCount++;
+            const expectedOrigin = new URL(o.origin).origin;
+            const applied = await invoke<string>('browser_eval_js', { id, js: setLocalStorageJs(o.localStorage, expectedOrigin) });
+            if (Number(applied) > 0) originCount++;
           } catch {
             /* origin unreachable — cookies still applied */
           }

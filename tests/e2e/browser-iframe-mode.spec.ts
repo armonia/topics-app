@@ -18,8 +18,8 @@ hermetic(test);
  *
  * The web pane renders a real sandboxed <iframe> when the target is framable
  * AND no agent is driving it; otherwise it falls back to the server-side
- * screenshot stream. The framability decision comes from GET
- * /api/browsers/framable?url=… (mocked here).
+ * screenshot stream. The framability decision comes from POST
+ * /api/browsers/framable (mocked here).
  *
  * @covers BROWSER-01
  */
@@ -39,7 +39,7 @@ async function mountBrowserPane(
 }
 
 /**
- * Mock GET /api/browsers/framable. MUST be registered AFTER mockBrowserContexts
+ * Mock POST /api/browsers/framable. MUST be registered AFTER mockBrowserContexts
  * / mockRemoteBrowserPane — their broader "api/browsers" glob patterns also match
  * this path, and Playwright gives precedence to the LAST-registered route.
  */

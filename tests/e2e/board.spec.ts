@@ -779,14 +779,14 @@ test.describe("Kanban board", () => {
     // `POST /api/browsers/<contextId>/interact` (the project window pushes the
     // URL through `onBrowserNavigateUrl`, which LAUNCHES a headless Chromium in
     // the test server and fetches example.org for real), and the framing probe
-    // `GET /api/browsers/framable?url=…`, another server-side fetch of that
+    // `POST /api/browsers/framable`, another server-side request for that
     // host. The pane's transport is not what this test measures; each door is
     // answered here, so the server never owns a context (they outlive
     // `resetPaneStore`, see `closeAllBrowserContexts`) and nothing goes out to
     // the network.
     await page.routeWebSocket(/\/ws\/browser\//, () => { /* accepted, never answered */ });
     await page.route("**/api/browsers/*/interact", (route) => route.fulfill({ json: { ok: true } }));
-    await page.route(/\/api\/browsers\/framable\?/, (route) => route.fulfill({ json: { framable: false } }));
+    await page.route(/\/api\/browsers\/framable$/, (route) => route.fulfill({ json: { framable: false } }));
 
     await page.goto("/");
     await openProjectBoard(page);
