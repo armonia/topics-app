@@ -44,3 +44,18 @@ Dopo: `bun test shared/task-session-peek.test.ts server/routes/tasks.session-pee
 ### Rifiutato
 
 - I quattro warning ESLint già presenti in file non toccati restano warning; `bun run lint` esce 0.
+
+## Giro 3: la tessera non si sollevava più da tastiera
+
+**Barra prima:** PR #339, run `38674216311`: `board-motion-contract.spec.ts:433` rosso 3 volte su 3,
+`[data-drag-preview]` atteso 1, ricevuto 0, dopo `Space` sulla tessera col fuoco.
+
+**Causa:** l'`onKeyDown` aggiunto per chiudere la sbirciata con Esc stava dopo `{...listeners}` di
+dnd-kit e sostituiva il suo attivatore da tastiera: Spazio non sollevava più la tessera. Solo la CI lo
+vedeva, perché le e2e non girano sul Mac.
+
+**Correzione:** l'handler compone quello di dnd-kit, come già fa `onTouchStart` (`927f3b6cb1`).
+
+**Barra dopo:** clip `board-motion-contract.spec.ts:433` su `927f3b6cb1`, run `38680143075`: exit 0,
+**1 passed**. L'altro rosso di quella run, TOPIC-BROWSER-01n, è di main (clip `38680176242` rossa su
+main) e si corregge a parte.
