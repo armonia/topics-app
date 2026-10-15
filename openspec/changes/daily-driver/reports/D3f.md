@@ -74,3 +74,6 @@ numeri assoluti scendono per entrambi.
   troncava i nanosecondi esatti: ora fa la stessa aritmetica del JS.
 - Albero nuovo nella parità, tre file a 999 958 ns dentro il millisecondo: rosso con l'addon di prima
   (3 date diverse), verde dopo. 3000 mtime casuali, circa 860 vicini al bordo: 0 differenze.
+- Su Windows Bun imposta i tempi del fixture a millisecondi interi (letti a 0 ns): il bordo lì non si
+  costruisce, e il caso si salta dicendolo. La guardia del fixture l'ha mostrato in CI invece di
+  lasciar passare un caso che non provava niente. Linux e macOS lo eseguono.
