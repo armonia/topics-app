@@ -1,5 +1,26 @@
 [
   {
+    "version": "2.2.511",
+    "date": "2026-10-15",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Una pane browser nativa ferma da 10 minuti si libera quando la memoria scarseggia (D4f, B11) (#366)",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "L'addon Rust con gix si carica dentro il server compilato (D3b, passo 1 di D3) (#365)",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
     "version": "2.2.510",
     "date": "2026-10-15",
     "sections": {

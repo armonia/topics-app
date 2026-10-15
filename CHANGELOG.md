@@ -2,6 +2,12 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.2.511 — 2026-10-15
+
+### Sotto il cofano
+- Una pane browser nativa ferma da 10 minuti si libera quando la memoria scarseggia (D4f, B11) (#366)
+- L'addon Rust con gix si carica dentro il server compilato (D3b, passo 1 di D3) (#365)
+
 ## 2.2.510 — 2026-10-15
 
 ### Sotto il cofano
