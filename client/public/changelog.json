@@ -1,5 +1,21 @@
 [
   {
+    "version": "2.2.514",
+    "date": "2026-10-15",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Le due query lente dell'avvio e della ripresa leggono solo le righe che servono (D4i, B7) (#369)",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
     "version": "2.2.513",
     "date": "2026-10-15",
     "sections": {

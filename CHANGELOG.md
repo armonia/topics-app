@@ -2,6 +2,11 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.2.514 — 2026-10-15
+
+### Sotto il cofano
+- Le due query lente dell'avvio e della ripresa leggono solo le righe che servono (D4i, B7) (#369)
+
 ## 2.2.513 — 2026-10-15
 
 ### Sotto il cofano
