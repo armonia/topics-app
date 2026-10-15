@@ -4,7 +4,11 @@
  * half-written messages, the resume sweep through the timestamp index. Checked
  * on the real schema (all migrations) and on the SQL the code runs.
  *
+ * The reads of `tasks` on a timer (dispatcher tick, wait sweep, status bar) go
+ * through their partial indexes instead of the whole table.
+ *
  * @covers DBSLOW-02
+ * @covers DBSLOW-03
  */
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import type { Database } from "bun:sqlite";
@@ -14,6 +18,12 @@ import { join } from "path";
 import { closeDatabase, initDatabase } from "./db";
 import { PARTIAL_SESSIONS_SQL } from "./lib/boot-partial-sweep";
 import { LAST_RECENT_MESSAGES_SQL } from "./lib/ripresa-boot";
+import {
+  OLDEST_WORKING_BOARD_SQL,
+  PARKED_IN_SERIES_SQL,
+  QUEUED_ROOT_BOARDS_SQL,
+  WORKING_TASKS_COUNT_SQL,
+} from "./lib/task-timer-reads";
 
 /** The resume query before 15/10/2026, verbatim: the reference for the rows. */
 const LAST_MESSAGE_OF_EVERY_CHAT_SQL = `SELECT m.session_key AS sk, m.id AS id, m.role AS ruolo, m.blocks AS blocks, m.timestamp AS ts
@@ -84,3 +94,17 @@ describe("resume sweep", () => {
     expect(now).toEqual(["recent-a:a-new", "recent-b:b-new"]);
   });
 });
+
+describe("tasks reads on a timer", () => {
+  test.each([
+    ["dispatcher tick", QUEUED_ROOT_BOARDS_SQL, "idx_tasks_queued_roots"],
+    ["working count", WORKING_TASKS_COUNT_SQL, "idx_tasks_working"],
+    ["oldest working board", OLDEST_WORKING_BOARD_SQL, "idx_tasks_working"],
+    ["wait sweep", PARKED_IN_SERIES_SQL, "idx_tasks_waiting"],
+  ])("%s reads its partial index, not the table", (_name, sql, index) => {
+    const steps = plan(sql);
+    expect(steps.join(" / ")).toContain(index);
+    expect(steps.filter((s) => /^SCAN (tasks|t)$/.test(s))).toEqual([]);
+  });
+});
+

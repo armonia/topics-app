@@ -1234,3 +1234,20 @@ sweep from 2,464 to 74 on the live file.
 - **GIVEN** chats whose last row is old, chats whose last row is recent, and a chat with a recent row followed by an older one
 - **WHEN** the old and the new resume query run
 - **THEN** they SHALL return the same rows, and the last chat SHALL be out
+
+### Requirement: DBSLOW-03 — The reads of tasks on a timer use their own index
+
+The reads of `tasks` that run on a timer SHALL each go through a partial index
+that holds only the rows they want, and none SHALL scan the table: the boards
+with queued root cards (the dispatcher tick), the count of working cards and the
+board of the oldest one (the status bar), and the cards parked in a wait series
+(the wait sweep). The plans SHALL hold with and without the planner's statistics.
+
+On 15/10/2026 `[DB-SLOW]` named them at 321 to 946 ms on the live server: each
+walked the whole table, about 1,400 pages. With the indexes, 23 pages each on a
+copy of the database.
+
+#### Scenario: no read on a timer scans tasks
+- **GIVEN** the schema of all migrations, without statistics
+- **WHEN** the planner explains each of the four reads
+- **THEN** each plan SHALL name its partial index and none SHALL scan `tasks`
