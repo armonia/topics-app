@@ -13,7 +13,8 @@
  */
 import { test, expect, describe, beforeEach } from "bun:test";
 import { Database } from "bun:sqlite";
-import { createTaskService, SETTLED_LANDING_RECHECK_MS, type TaskService } from "./tasks";
+import { createTaskService, type TaskService } from "./tasks";
+import { SETTLED_LANDING_RECHECK_MS } from "./landing-candidates";
 import { freshDb, svc, PID } from "./tasks-test-db";
 
 /**
