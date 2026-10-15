@@ -21,3 +21,9 @@
 
 - `Emulation.setFocusEmulationEnabled` non prova `document.hidden`. La spec porta una seconda tab davanti con CDP e controlla lo stato reale, poi misura la callback window.
 - I warning lint sono in file non modificati e restano invariati; il comando esce 0.
+
+## Giro 2 (CI)
+
+- La prima e2e non poteva nascondere la pagina: in Chromium senza finestra una seconda tab portata davanti con CDP lascia la prima `visible` (clip rossa, run 38670958942, `visibilityState` mai `hidden`). Ora la spec pilota `document.visibilityState` e `document.hidden` come `idle-frame-budget` e lancia `visibilitychange`. Chrome così non rallenta niente: il conto è solo la disciplina dell'app.
+- Misura a finestra nascosta: **12 callback in 10 s** (clip verde, run 38671941978). Mutante con `isDocumentVisible()` sempre vero: **620** (run 38671981581, rossa sulla soglia). `MAX_HIDDEN_CALLBACKS = 16`: un solo poller nuovo a 1 Hz lasciato sveglio ne aggiunge 10 e la sfora.
+- 20 cancelli statici: 0 rossi.
