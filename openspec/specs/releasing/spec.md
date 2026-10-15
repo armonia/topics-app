@@ -389,3 +389,21 @@ come `chiaveErroreAuth` per i rifiuti del server.
 - **WHEN** si preme il gesto di scaricamento
 - **THEN** lo stato NON SHALL diventare «pronto»
 - **AND** il titolo mostrato SHALL essere una chiave del dizionario, non l'errore del trasporto
+
+## Percorsi del server
+
+Il posto unico per le differenze fra il server del checkout e quello installato. La prova del percorso
+installato è `.github/workflows/install-smoke.yml`: installa i pacchetti pubblicati (la release
+precedente, poi la nuova sopra) e avvia il server come lo avvia l'app
+(`desktop-tauri/src-tauri/src/lib.rs`).
+
+| | Checkout | App installata | Perché |
+|---|---|---|---|
+| Server | `server.ts` eseguito da Bun | `topics-server`, Bun compilato da `server/sidecar-entry.ts` | chi installa non ha Bun |
+| Bridge PTY | Node, `server/pty-bridge.mjs` | Rust, `pty-bridge` accanto al server (`TOPICS_PTY_BRIDGE_BIN`); se manca, terminali spenti (`TOPICS_DISABLE_PTY_BRIDGE`) | chi installa non ha Node |
+| Pagina | `client/dist`, da `bun run build:client` | `public/` del pacchetto (`TOPICS_PUBLIC_DIR`); senza, `/` risponde 503 e la finestra resta grigia | il client viaggia nel pacchetto |
+| Trasporto | HTTPS | HTTP su 127.0.0.1 (`NO_TLS=1`, `SERVER_HOST=127.0.0.1`) | l'unico client è la finestra dell'app, sulla stessa macchina |
+| Stato | `data/` del checkout | cartella dati dell'app: `TOPICS_DATA_DIR`, `DATA_DIR` e `TOPICS_HOME` insieme | il socket PTY deriva da `DATA_DIR`: una variabile sola non isola (incidente del 2026-07-02) |
+| Integrazioni | gateway e journal, se ci sono | spente (`TOPICS_EMBEDDED=1`) | il pacchetto basta a se stesso |
+| Versione | `package.json` | `TOPICS_APP_VERSION`, passata dalla shell | nel binario compilato `package.json` non c'è |
+| Avvio e aggiornamento | launchd; porta del commit e build a mano | la shell Tauri avvia e ferma il server; l'updater firmato (`latest.json`) aggiorna | il checkout è la macchina di chi sviluppa, l'app quella di tutti |
