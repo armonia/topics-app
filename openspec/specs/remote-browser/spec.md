@@ -432,6 +432,10 @@ the chat, and SHALL close the pane in live clients on a remote close.
 - **THEN** no iframe is rendered — the retired localhost force-frame does not return
 - **AND** the pane falls back to the streaming WebRTC surface rather than a dead pane
 
+#### Scenario: The framable probe runs only for a same-origin JSON POST
+- **WHEN** `/api/browsers/framable` is called with GET, without a JSON body, or from another origin
+- **THEN** it SHALL answer with an error and probe nothing
+
 #### Scenario: The seed never reloads a context that is already showing a page
 - **GIVEN** a pane whose stored url is `X` and whose server-side context is already loaded on `X`, as happens after a web-client reload or when a second device opens the same pane
 - **WHEN** the pane mounts and the seed decides whether to navigate
@@ -1463,6 +1467,9 @@ accesso senza di essa somiglia a uno completo e non lo è.
 
 Un nome sconosciuto SHALL valere NIENTE.
 
+La memoria locale salvata da una pane nativa SHALL appartenere solo all'origine
+che la vista nativa riporta. Senza quel dato lo stato SHALL partire coi soli cookie.
+
 La regola di pulizia dello store esterno SHALL rispecchiare quella del programma
 compagno, e un nome che contiene punti SHALL fare il giro completo conservandoli
 qui e togliendoli là.
@@ -1474,6 +1481,11 @@ qui e togliendoli là.
 #### Scenario: memoria locale assente
 - **GIVEN** uno stato salvato senza memoria locale
 - **THEN** SHALL essere segnalato
+
+#### Scenario: lo stato salvato da una pane nativa
+- **GIVEN** una pane nativa la cui vista riporta `https://pane.example`
+- **WHEN** si salva lo stato di accesso
+- **THEN** la memoria locale salvata SHALL essere solo quella di `https://pane.example`
 
 ### Requirement: NATDEL-01 — Il giro completo di un'operazione delegata torna SEMPRE, anche quando fallisce
 
@@ -2861,6 +2873,10 @@ images. A resource on a host only the Mac resolves (loopback, private ranges,
 own context with its cookies. Public resources SHALL load directly. Measured 13/10
 from the iPad on `http://localhost:3535`: no image in the mirror.
 
+A routed resource URL SHALL carry a token bound to its context, and the route
+SHALL answer 404, fetching nothing, to a missing token or one minted for another
+context.
+
 #### Scenario: a local page's images on another device
 - **GIVEN** the shared pane shows a page at `http://localhost:3535` with protected images
 - **WHEN** the iPad watches it through the DOM mirror
@@ -2869,6 +2885,11 @@ from the iPad on `http://localhost:3535`: no image in the mirror.
 #### Scenario: a public image is not routed through the Mac
 - **GIVEN** an `<img>` on `https://cdn.example.com`
 - **THEN** the mirror keeps its URL as it is
+
+#### Scenario: a resource URL works only for its own context
+- **GIVEN** a resource URL minted for context A
+- **WHEN** it is requested for context B, or without its token
+- **THEN** the route SHALL answer 404 and fetch nothing
 
 ### Requirement: BROWSER-DOM-TAP-01 — One tap on the DOM mirror SHALL be one click on the page
 

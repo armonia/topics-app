@@ -73,7 +73,10 @@ describe("native DOM host", () => {
     registry.setWanted(CTX, true);
     const img = { type: 2, tagName: "img", attributes: { src: "http://localhost:5173/a.png" }, childNodes: [] };
     registry.ingest(CTX, owner, [meta, { type: 2, data: { node: { type: 0, childNodes: [img] } } }]);
-    expect(img.attributes.src).toStartWith(`/api/browser/resource?ctx=${CTX}&u=`);
+    const url = new URL(img.attributes.src, "http://localhost");
+    expect(url.pathname).toBe("/api/browser/resource");
+    expect(url.searchParams.get("ctx")).toBe(CTX);
+    expect(url.searchParams.get("token")).toBeTruthy();
   });
 
   test("a stale socket cannot withdraw the host that replaced it", () => {

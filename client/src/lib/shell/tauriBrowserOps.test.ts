@@ -325,6 +325,7 @@ function stateAwareInvoke(opts: {
       if (js.includes('localStorage.key')) return (opts.localStorageJson ?? 'null') as never;
       if (js.includes('readyState')) return JSON.stringify({ origin, ready: 'complete' }) as never;
       if (js === 'location.href') return (opts.href ?? `${origin}/page`) as never;
+      if (js.includes('localStorage.setItem')) return '1' as never;
       return '' as never;
     }
     return '' as never;
@@ -343,7 +344,7 @@ test('browser_save_state parses the pane cookie jar (already storageState-shaped
     paneCookies: jarCookies,
     localStorageJson: JSON.stringify({ origin: 'https://example.com', localStorage: [{ name: 'token', value: 'abc' }] }),
   });
-  const out = await executeNativeBrowserOp('ctx', 'browser_save_state', { handle: 'example' }, invoke);
+  const out = await executeNativeBrowserOp('ctx', 'browser_save_state', { handle: 'example' }, invoke, 'https://example.com/page');
   expect(out.result).toEqual({
     cookies: jarCookies,
     origins: [{ origin: 'https://example.com', localStorage: [{ name: 'token', value: 'abc' }] }],
@@ -361,11 +362,40 @@ test('browser_save_state tolerates a malformed jar dump — no cookies, localSto
     }
     return '' as never;
   };
-  const out = await executeNativeBrowserOp('ctx', 'browser_save_state', { handle: 'example' }, invoke);
+  const out = await executeNativeBrowserOp('ctx', 'browser_save_state', { handle: 'example' }, invoke, 'https://example.com/page');
   expect(out.result).toEqual({
     cookies: [],
     origins: [{ origin: 'https://example.com', localStorage: [{ name: 'token', value: 'abc' }] }],
   });
+});
+
+test('browser_save_state keeps only string entries from the pane origin', async () => {
+  const { invoke } = stateAwareInvoke({
+    localStorageJson: JSON.stringify({
+      origin: 'https://elsewhere.example',
+      localStorage: [{ name: 'other', value: 'x' }],
+    }),
+  });
+  const out = await executeNativeBrowserOp('ctx', 'browser_save_state', { handle: 'example' }, invoke, 'https://example.com/page');
+  expect((out.result as { origins: unknown[] }).origins).toEqual([]);
+});
+
+test('browser_save_state rebuilds entries and drops non-string values', async () => {
+  const { invoke } = stateAwareInvoke({
+    localStorageJson: JSON.stringify({
+      origin: 'https://example.com',
+      localStorage: [
+        { name: 'token', value: 'abc', extra: true },
+        { name: 3, value: 'bad' },
+        { name: 'missing-value' },
+      ],
+      extra: 'discard',
+    }),
+  });
+  const out = await executeNativeBrowserOp('ctx', 'browser_save_state', { handle: 'example' }, invoke, 'https://example.com/page');
+  expect((out.result as { origins: unknown[] }).origins).toEqual([
+    { origin: 'https://example.com', localStorage: [{ name: 'token', value: 'abc' }] },
+  ]);
 });
 
 test('browser_load_state applies cookies + per-origin localStorage and returns to the original page', async () => {
@@ -377,7 +407,7 @@ test('browser_load_state applies cookies + per-origin localStorage and returns t
     ],
     origins: [
       { origin: 'https://example.com', localStorage: [{ name: 'token', value: 'abc' }] },
-      { origin: 'file:///etc', localStorage: [{ name: 'evil', value: 'x' }] }, // non-web origin → never navigated
+      { origin: 'file:///etc', localStorage: [{ name: 'other', value: 'x' }] }, // non-web origin → never navigated
     ],
   };
   const out = await executeNativeBrowserOp('ctx', 'browser_load_state', { state }, invoke);
@@ -393,6 +423,31 @@ test('browser_load_state applies cookies + per-origin localStorage and returns t
   });
   const navs = calls.filter(([c]) => c === 'browser_navigate').map(([, a]) => (a as { url: string }).url);
   expect(navs).toEqual(['https://example.com', 'https://example.com/inbox']);
+  const setLocalStorage = calls.find(([cmd, args]) => cmd === 'browser_eval_js' &&
+    typeof (args as { js?: unknown }).js === 'string' &&
+    ((args as { js: string }).js.includes('localStorage.setItem')));
+  const js = (setLocalStorage?.[1] as { js: string }).js;
+  const writes: Array<[string, string]> = [];
+  const run = new Function('location', 'localStorage', `return ${js};`);
+  expect(run({ origin: 'https://different.example' }, { setItem: (...args: [string, string]) => writes.push(args) })).toBe('0');
+  expect(writes).toEqual([]);
+  expect(run({ origin: 'https://example.com' }, { setItem: (...args: [string, string]) => writes.push(args) })).toBe('1');
+  expect(writes).toEqual([['token', 'abc']]);
+});
+
+test('browser_load_state counts only origins where localStorage was applied', async () => {
+  const { invoke: baseInvoke } = stateAwareInvoke({
+    localStorageJson: JSON.stringify({ origin: 'https://example.com', localStorage: [{ name: 'token', value: 'abc' }] }),
+  });
+  const invoke: Invoke = async (cmd, args) => {
+    const js = (args as { js?: unknown } | undefined)?.js;
+    if (cmd === 'browser_eval_js' && typeof js === 'string' && js.includes('localStorage.setItem')) return '0' as never;
+    return baseInvoke(cmd, args);
+  };
+  const out = await executeNativeBrowserOp('ctx', 'browser_load_state', {
+    state: { cookies: [], origins: [{ origin: 'https://example.com', localStorage: [{ name: 'token', value: 'abc' }] }] },
+  }, invoke);
+  expect(out).toEqual({ result: { ok: true, cookies: 0, origins: 0 } });
 });
 
 test('browser_load_state falls back to per-cookie set when the batch is rejected', async () => {
