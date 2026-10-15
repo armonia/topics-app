@@ -5,6 +5,7 @@ import { useMenuKeyboard } from '../../hooks/useMenuKeyboard';
 import { POPOVER_SURFACE, Z_CONTEXT_MENU } from '@/lib/popoverStyles';
 import { useExitGhost } from '@/lib/exitGhost';
 import { computeMenuPosition, placeAtPoint, type AnchorRect } from '@/lib/popoverPosition';
+import { toFixed } from '@/lib/fixedFrame';
 import { keepSystemMenuOffPanel } from '@/lib/contextMenuOrigin';
 
 /**
@@ -101,9 +102,9 @@ export function ContextMenuPortal({ open, x, y, onClose, children, minWidth = 16
     const rect = el.getBoundingClientRect();
     el.style.left = standing;
     const size = { width: Math.ceil(rect.width) || minWidth, height: Math.ceil(rect.height) };
-    const next = aTop !== undefined && aRight !== undefined && aBottom !== undefined && aLeft !== undefined
+    const next = toFixed(aTop !== undefined && aRight !== undefined && aBottom !== undefined && aLeft !== undefined
       ? computeMenuPosition({ top: aTop, right: aRight, bottom: aBottom, left: aLeft }, size, { margin: MARGIN })
-      : placeAtPoint({ x, y }, size, { margin: MARGIN });
+      : placeAtPoint({ x, y }, size, { margin: MARGIN }));
     setPos((prev) => (prev && prev.left === next.left && prev.top === next.top ? prev : { left: next.left, top: next.top }));
   }, [x, y, minWidth, aTop, aRight, aBottom, aLeft]);
 

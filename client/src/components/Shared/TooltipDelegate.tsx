@@ -51,6 +51,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useExitGhost } from '../../lib/exitGhost';
+import { toFixed } from '../../lib/fixedFrame';
 
 /** Uguale a `Tooltip.tsx`: due superfici che compaiono con tempi diversi si
  *  leggono come due componenti diversi. */
@@ -243,7 +244,7 @@ export function TooltipDelegate() {
     if (sotto + t.height > window.innerHeight - MARGINE_FINESTRA && sopra >= MARGINE_FINESTRA) top = sopra;
     const centro = a.left + a.width / 2 - t.width / 2;
     const left = Math.max(MARGINE_FINESTRA, Math.min(centro, window.innerWidth - t.width - MARGINE_FINESTRA));
-    setPos({ top: Math.max(MARGINE_FINESTRA, top), left });
+    setPos(toFixed({ top: Math.max(MARGINE_FINESTRA, top), left }));
   }, [stato]);
 
   if (!stato) return null;

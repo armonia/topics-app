@@ -40,6 +40,8 @@
  * vederlo. Un nodo nel DOM sì.
  */
 
+import { fixedFrame } from './fixedFrame';
+
 /** Cosa mostra l'anteprima. Il titolo è obbligatorio: chi trascina deve
  *  riconoscere la cosa che ha in mano, e il nome è il minimo per riconoscerla. */
 export interface DragPreviewSpec {
@@ -144,7 +146,9 @@ function costruisci(spec: DragPreviewSpec): HTMLElement {
 
 function posiziona(x: number, y: number): void {
   if (!nodo) return;
-  nodo.style.transform = `translate3d(${Math.round(x - GRAB_X)}px, ${Math.round(y - GRAB_Y)}px, 0)`;
+  // The pointer is in client coordinates, the card is fixed (`lib/fixedFrame`).
+  const frame = fixedFrame();
+  nodo.style.transform = `translate3d(${Math.round(x - GRAB_X - frame.left)}px, ${Math.round(y - GRAB_Y - frame.top)}px, 0)`;
 }
 
 /**

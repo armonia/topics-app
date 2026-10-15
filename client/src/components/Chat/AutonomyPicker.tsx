@@ -4,6 +4,7 @@ import { ShieldCheck, ShieldOff, ClipboardList, Check } from 'lucide-react';
 import { useDismissable } from '@/hooks/useDismissable';
 import { POPOVER_PANEL, POPOVER_MARGIN, Z_POPOVER } from '@/lib/popoverStyles';
 import { useExitGhost } from '@/lib/exitGhost';
+import { toFixed } from '@/lib/fixedFrame';
 import type { AutonomyLevel } from '../../types';
 
 /**
@@ -84,10 +85,10 @@ export function AutonomyPicker({ value, onChange, openRef }: {
   const place = () => {
     const r = triggerRef.current?.getBoundingClientRect();
     if (r) {
-      setPos({
+      setPos(toFixed({
         top: Math.max(POPOVER_MARGIN, r.top - 8),
         left: Math.max(POPOVER_MARGIN, Math.min(r.left, window.innerWidth - PANEL_W - POPOVER_MARGIN)),
-      });
+      }));
     }
   };
   useEffect(() => {

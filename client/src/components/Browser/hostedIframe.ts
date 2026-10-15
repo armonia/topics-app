@@ -32,6 +32,7 @@
  */
 
 import { FRAME_LAYER_ATTR, framesCovered } from './frameCover';
+import { fixedFrame } from '../../lib/fixedFrame';
 
 /** The layer's z-index. Overlays in this app start at 60 (`z-[60]`), so anything
  *  that can float over a pane - menu, popover, tooltip, dialog - already wins.
@@ -350,14 +351,19 @@ export function placeHostedFrame(contextId: string, rect: DOMRect | null): void 
     if (wrapper.style.display !== 'none') wrapper.style.display = 'none';
     return;
   }
-  const next = `${Math.round(rect.left)},${Math.round(rect.top)},${Math.round(rect.width)},${Math.round(rect.height)}`;
+  // The layer is fixed, so the slot's client rect moves into its frame: with an
+  // iPad's keyboard up the two differ by Safari's scroll (`lib/fixedFrame`).
+  const frame = fixedFrame();
+  const left = Math.round(rect.left - frame.left);
+  const top = Math.round(rect.top - frame.top);
+  const next = `${left},${top},${Math.round(rect.width)},${Math.round(rect.height)}`;
   // Write only on a real change: this runs on every scroll and on a poll, and an
   // unconditional style write on an iframe's ancestor is a layout invalidation
   // the frame pays for.
   if (wrapper.dataset.at !== next) {
     wrapper.dataset.at = next;
-    wrapper.style.left = `${Math.round(rect.left)}px`;
-    wrapper.style.top = `${Math.round(rect.top)}px`;
+    wrapper.style.left = `${left}px`;
+    wrapper.style.top = `${top}px`;
     wrapper.style.width = `${Math.round(rect.width)}px`;
     wrapper.style.height = `${Math.round(rect.height)}px`;
   }

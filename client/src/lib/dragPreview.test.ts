@@ -43,6 +43,8 @@ interface FakeNode {
   getAttribute(chiave: string): string | null;
   appendChild(figlio: FakeNode): FakeNode;
   remove(): void;
+  readonly isConnected: boolean;
+  getBoundingClientRect(): { left: number; top: number; bottom: number };
 }
 
 function createNode(tag: string): FakeNode {
@@ -53,6 +55,9 @@ function createNode(tag: string): FakeNode {
     textContent: '',
     figli: [],
     genitore: null,
+    get isConnected() { return this.genitore !== null; },
+    // What the fixed frame's probe reads (`lib/fixedFrame`): the window's own, no keyboard up.
+    getBoundingClientRect() { return { left: 0, top: 0, bottom: 0 }; },
     setAttribute(chiave, valore) { this.attributi[chiave] = valore; },
     getAttribute(chiave) { return chiave in this.attributi ? this.attributi[chiave]! : null; },
     appendChild(figlio) {
