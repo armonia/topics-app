@@ -317,8 +317,10 @@ export default function DomCoBrowse({ registerDomSink, registerFocusSink, sendIn
     const local = localScrollRef.current;
     let vx = vx0;
     let vy = vy0;
-    let last = performance.now();
+    let last = -1;
     const step = (now: number) => {
+      // A frame's time is when it began, maybe before a swipe let go late in a busy one: a 0 ms step moves nothing and stopped the fling. The first frame sets the clock.
+      if (last < 0) { last = now; local.fling = requestAnimationFrame(step); return; }
       const dt = Math.min(now - last, 64);
       last = now;
       const decay = Math.pow(FLING_DECAY_PER_MS, dt);
