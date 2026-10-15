@@ -1,5 +1,16 @@
 # D6c: Stato e diagnosi dei sottosistemi
 
+## Prova in CI (giro 3)
+
+- Clip STATUS-04 sul ramo: verde, run `38675850834`, con video.
+- Mutante (la sonda del bridge PTY dice sempre ok): rosso, run `38675853674`, dove deve:
+  `toHaveAttribute("data-state", "error")`, ricevuto `"ok"`.
+- Le prime due clip erano rosse per il test: `openSystemStatusPanel` aspettava la riga «Gateway», che
+  compare solo con OpenClaw, e STATUS-04 tiene lo stato vero. Il fixture ora aspetta il testid del
+  pannello (`system-status-panel`).
+- `server/file-watcher.test.ts`, dato rosso più sotto: sul Mac `bun test` exit 0, 4 pass in 0,5 s. Il
+  rosso veniva dalla sandbox di Codex, dove `fs.watch` non consegna eventi.
+
 **Barra prima:** `bun run typecheck` exit 0, errori server 0; `bun run lint` exit 0, 4 warning client.
 
 **Barra dopo:** test D6c `bun test server/system-health.test.ts server/routes/status.health.test.ts server/routes/e2e.test.ts client/src/components/Chat/slashCommandRouting.test.ts client/src/components/Chat/slashCommands.i18n.test.ts` exit 0, 53 pass/0 fail; `bun run typecheck` exit 0, errori server 0 (include `typecheck:e2e`); `bun run lint` exit 0, 4 warning client già presenti; `git diff --check` exit 0. E2E con video e mutazione non eseguite sul Mac.
