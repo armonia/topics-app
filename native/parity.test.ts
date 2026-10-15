@@ -6,12 +6,14 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { gitEnv } from "../tests/setup/bun-test-preload";
 import { parseBranchHeader, splitBranchHeader } from "../server/lib/git-status";
-import { parsePorcelainZ } from "../server/lib/git-porcelain";
+import { parsePorcelainZ, repoPrefixOf, scopeToPrefix } from "../server/lib/git-porcelain";
+import { parseNumstatZ } from "../server/lib/git-numstat";
 import { loadNativeModuleAt } from "../server/lib/native-addon";
 
 const addonPath = resolve(import.meta.dir, "topics_native.node");
 const native = Bun.file(addonPath).size ? loadNativeModuleAt(addonPath) : null;
 const gitStatus = native?.gitStatus;
+const gitNumstat = native?.gitNumstat;
 
 if (!gitStatus) console.log("SKIP native git status parity: build-native-addon.sh has not run");
 
@@ -65,6 +67,28 @@ async function parity(root: string, cwd = root): Promise<void> {
   };
   const actual = await gitStatus(cwd);
   expect(actual).toEqual(expected);
+  if (!gitNumstat) return;
+  const scope = repoPrefixOf(cwd, rootPath);
+  const scopedEntries = scopeToPrefix(actual.entries, scope.prefix);
+  const scopedPaths = new Set(scopedEntries.map(({ path }) => scope.prefix + path));
+  const actualNumstat = await gitNumstat(cwd, actual.entries.filter(({ path }) => scopedPaths.has(path)));
+  const parseNative = (entries: typeof actualNumstat.staged) => new Map(entries.map(({ path, added, removed, binary }) => [path, binary ? { added: 0, removed: 0, binary: true } : { added, removed }]));
+  const fallbackPaths = actualNumstat.unsupported;
+  const fallback = (cached: boolean) => fallbackPaths.length
+    ? parseNumstatZ(git(cwd, "--literal-pathspecs", "diff", ...(cached ? ["--cached"] : []), "--numstat", "-z", "--", ...fallbackPaths))
+    : new Map();
+  const merge = (left: Map<string, { added: number; removed: number; binary?: boolean }>, right: Map<string, { added: number; removed: number; binary?: boolean }>) => {
+    for (const [path, stat] of right) left.set(path, stat);
+    return left;
+  };
+  const staged = merge(parseNative(actualNumstat.staged), fallback(true));
+  const unstaged = merge(parseNative(actualNumstat.unstaged), fallback(false));
+  const expectedNumstat = (cached: boolean) => new Map(
+    [...parseNumstatZ(git(cwd, "diff", ...(cached ? ["--cached"] : []), "--numstat", "-z"))]
+      .filter(([path]) => !scope.prefix || path.startsWith(scope.prefix)),
+  );
+  expect(staged).toEqual(expectedNumstat(true));
+  expect(unstaged).toEqual(expectedNumstat(false));
 }
 
 const scenarios: Array<[string, (root: string) => Promise<void> | void, string?]> = [
@@ -98,6 +122,12 @@ const scenarios: Array<[string, (root: string) => Promise<void> | void, string?]
   ["status queried from a subdirectory", async (root) => { init(root, { "sub/file.txt": "before\n", "other.txt": "before\n" }); write(root, "sub/file.txt", "after\n"); write(root, "other.txt", "after\n"); await parity(root, join(root, "sub")); }],
   ["assume-unchanged and skip-worktree", (root) => { init(root, { "assume.txt": "a\n", "skip.txt": "b\n" }); git(root, "update-index", "--assume-unchanged", "assume.txt"); git(root, "update-index", "--skip-worktree", "skip.txt"); write(root, "assume.txt", "changed\n"); write(root, "skip.txt", "changed\n"); }],
   ["CRLF normalization via text=auto and autocrlf", (root) => { init(root, { ".gitattributes": "*.txt text=auto\n", "line.txt": "one\ntwo\n" }); git(root, "config", "core.autocrlf", "true"); write(root, "line.txt", "one\r\ntwo\r\n"); }],
+  ["binary file", (root) => { init(root, { "image.bin": "before\0bytes\n" }); write(root, "image.bin", "after\0bytes\n"); }],
+  ["rename with staged content changes", (root) => { init(root, { "old.txt": "first\nsecond\nthird\n" }); renameSync(join(root, "old.txt"), join(root, "new.txt")); write(root, "new.txt", "first\nchanged\nthird\nextra\n"); git(root, "add", "-A"); }],
+  ["file without final newline", (root) => { init(root, { "plain.txt": "before" }); write(root, "plain.txt", "before\nafter"); }],
+  ["executable mode only", (root) => { init(root, { "run.sh": "#!/bin/sh\necho hi\n" }); if (process.platform !== "win32") chmodSync(join(root, "run.sh"), 0o755); }],
+  ["staged deletion", (root) => { init(root, { "deleted.txt": "one\ntwo\nthree\n" }); rmSync(join(root, "deleted.txt")); git(root, "add", "deleted.txt"); }],
+  ["staged addition then worktree edit", (root) => { init(root); write(root, "added.txt", "staged\n"); git(root, "add", "added.txt"); write(root, "added.txt", "worktree\nextra\n"); }],
 ];
 
 for (const [name, setup, windowsSkip] of scenarios) {

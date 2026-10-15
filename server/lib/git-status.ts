@@ -24,10 +24,10 @@
  */
 import { gitRead, parsePorcelainZ, repoPrefixOf, scopeToPrefix, statusOfPrefix } from "./git-porcelain";
 import type { PorcelainEntry } from "./git-porcelain";
-import { attachNumstats, readNumstats } from "./git-numstat";
+import { attachNumstats, NUMSTAT_MAX_FILES, readNumstats } from "./git-numstat";
 import { gitStatusGeneration, invalidateGitCache, roundsInFlight } from "./git-status-cache";
 import { recordServerSpawn } from "./spawn-metrics";
-import { readNativeGitStatus } from "./native-git-status";
+import { readNativeGitNumstat, readNativeGitStatus, recordNativeGitNumstatFallbacks } from "./native-git-status";
 import { gitRelativeDate } from "./git-relative-date";
 import type { GitStatus } from "../../shared/git-status";
 import { SPAWN_TIMEOUT, spawnBounded } from "./bounded-spawn";
@@ -144,7 +144,39 @@ async function computeGitStatusOnce(resolvedDir: string, cause: string): Promise
       status,
       ...(origPath === undefined ? {} : { origPath }),
     }));
-    const files = attachNumstats(scopeToPrefix(parsed, scope.prefix), await readNumstats(resolvedDir, () => recordServerSpawn("gitStatus", cause)), scope.prefix);
+    const scopedEntries = scopeToPrefix(parsed, scope.prefix);
+    const entriesByPath = new Map(parsed.map((entry) => [entry.path, entry]));
+    const numstatEntries = scopedEntries.map((entry) => {
+      const fullPath = scope.prefix + entry.path;
+      const original = entriesByPath.get(fullPath);
+      return {
+        ...entry,
+        path: fullPath,
+        ...(original?.origPath === undefined ? {} : { origPath: original.origPath }),
+      };
+    });
+    const nativeNumstat = scopedEntries.length > NUMSTAT_MAX_FILES
+      ? { staged: [], unstaged: [], unsupported: [] }
+      : await readNativeGitNumstat(native.root, numstatEntries);
+    const unsupported = nativeNumstat
+      ? nativeNumstat.unsupported
+          .filter((path) => !scope.prefix || path.startsWith(scope.prefix))
+      : undefined;
+    if (unsupported) recordNativeGitNumstatFallbacks(unsupported.length);
+    const fallback = await readNumstats(
+      native.root,
+      () => recordServerSpawn("gitStatus", cause),
+      unsupported,
+    );
+    const stats = nativeNumstat
+      ? {
+          staged: new Map(nativeNumstat.staged.map(({ path, added, removed, binary }) => [path, { added, removed, ...(binary ? { binary: true } : {}) }])),
+          unstaged: new Map(nativeNumstat.unstaged.map(({ path, added, removed, binary }) => [path, { added, removed, ...(binary ? { binary: true } : {}) }])),
+        }
+      : { staged: new Map(), unstaged: new Map() };
+    for (const [path, stat] of fallback.staged) stats.staged.set(path, stat);
+    for (const [path, stat] of fallback.unstaged) stats.unstaged.set(path, stat);
+    const files = attachNumstats(scopedEntries, stats, scope.prefix);
     const lastCommit = native.lastCommit
       ? {
           hash: native.lastCommit.hash,

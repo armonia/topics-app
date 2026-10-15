@@ -124,11 +124,15 @@ export const NUMSTAT_MAX_FILES = 400;
  * inizializzato non ha HEAD e `--cached` esce non-zero, il che non è un guasto
  * ma «non c'è ancora niente da confrontare».
  */
-export async function readNumstats(cwd: string, onSpawn: () => void = () => {}): Promise<{ staged: Map<string, Numstat>; unstaged: Map<string, Numstat> }> {
+export async function readNumstats(cwd: string, onSpawn: () => void = () => {}, paths?: string[]): Promise<{ staged: Map<string, Numstat>; unstaged: Map<string, Numstat> }> {
+  if (paths && paths.length === 0) return { staged: new Map(), unstaged: new Map() };
+  const scopedArgs = (args: string[]) => paths
+    ? ["git", "--literal-pathspecs", ...args.slice(1), ...paths]
+    : args;
   const leggi = async (args: string[]) => {
     try {
       onSpawn();
-      const proc = spawnBounded(args, { cwd, stdout: "pipe", stderr: "ignore", timeoutMs: SPAWN_TIMEOUT.query });
+      const proc = spawnBounded(scopedArgs(args), { cwd, stdout: "pipe", stderr: "ignore", timeoutMs: SPAWN_TIMEOUT.query });
       const text = await new Response(proc.stdout).text();
       await proc.exited;
       return proc.exitCode === 0 ? parseNumstatZ(text) : new Map<string, Numstat>();

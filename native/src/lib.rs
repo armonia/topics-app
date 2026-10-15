@@ -1,8 +1,9 @@
-use std::collections::BTreeMap;
+use std::{collections::BTreeMap, path::Path};
 
 use napi::bindgen_prelude::AsyncTask;
 use napi::Task;
 use napi_derive::napi;
+use gix::bstr::ByteSlice;
 
 #[napi]
 pub fn native_version() -> String {
@@ -62,6 +63,169 @@ impl Task for GitStatusTask {
 #[napi]
 pub fn git_status(repo_path: String) -> AsyncTask<GitStatusTask> {
     AsyncTask::new(GitStatusTask { repo_path })
+}
+
+#[napi(object)]
+pub struct GitNumstatEntry {
+    pub path: String,
+    pub added: u32,
+    pub removed: u32,
+    pub binary: bool,
+}
+
+#[napi(object)]
+pub struct GitNumstat {
+    pub staged: Vec<GitNumstatEntry>,
+    pub unstaged: Vec<GitNumstatEntry>,
+    pub unsupported: Vec<String>,
+}
+
+pub struct GitNumstatTask {
+    repo_path: String,
+    entries: Vec<GitStatusEntry>,
+}
+
+impl Task for GitNumstatTask {
+    type Output = GitNumstat;
+    type JsValue = GitNumstat;
+
+    fn compute(&mut self) -> napi::Result<Self::Output> {
+        compute_git_numstat(&self.repo_path, &self.entries).map_err(|err| napi::Error::from_reason(err.to_string()))
+    }
+
+    fn resolve(&mut self, _env: napi::Env, output: Self::Output) -> napi::Result<Self::JsValue> {
+        Ok(output)
+    }
+}
+
+#[napi]
+pub fn git_numstat(repo_path: String, entries: Vec<GitStatusEntry>) -> AsyncTask<GitNumstatTask> {
+    AsyncTask::new(GitNumstatTask { repo_path, entries })
+}
+
+#[derive(Clone, Copy)]
+struct BlobEntry {
+    id: gix::ObjectId,
+    mode: gix::object::tree::EntryKind,
+}
+
+fn compute_git_numstat(repo_path: &str, entries: &[GitStatusEntry]) -> Result<GitNumstat, Box<dyn std::error::Error + Send + Sync>> {
+    let repo = gix::discover(repo_path)?;
+    let worktree = repo.workdir().ok_or("repository has no working tree")?.to_path_buf();
+    let index = repo.index_or_empty()?;
+    let head_tree = if repo.head()?.is_unborn() { repo.empty_tree() } else { repo.head_tree()? };
+
+    let mut staged = BTreeMap::new();
+    let mut unstaged = BTreeMap::new();
+    let mut unsupported = Vec::new();
+    let mut staged_cache = repo.diff_resource_cache(
+        gix::diff::blob::pipeline::Mode::ToGit,
+        Default::default(),
+    )?;
+    let mut unstaged_cache = repo.diff_resource_cache(
+        gix::diff::blob::pipeline::Mode::ToGit,
+        gix::diff::blob::pipeline::WorktreeRoots { old_root: None, new_root: Some(worktree.clone()) },
+    )?;
+    let null_id = repo.object_hash().null();
+
+    for entry in entries {
+        let path = entry.path.clone();
+        let staged_change = entry.status.as_bytes().first().is_some_and(|code| *code != b' ' && *code != b'?');
+        let unstaged_change = entry.status.as_bytes().get(1).is_some_and(|code| *code != b' ' && *code != b'?');
+        if entry.status.contains('U') {
+            unsupported.push(path);
+            continue;
+        }
+        if staged_change {
+            let old_path = entry.orig_path.as_deref().unwrap_or(&path);
+            let old = head_tree.lookup_entry_by_path(old_path)?.and_then(blob_entry_from_tree);
+            let new = index.entry_by_path(path.as_bytes().as_bstr()).and_then(blob_entry_from_index);
+            match diff_numstat(&repo, &mut staged_cache, old, new, old_path, &path, &null_id, None) {
+                Some(stat) => { staged.insert(path.clone(), stat); }
+                None => unsupported.push(path.clone()),
+            }
+        }
+        if unstaged_change {
+            let old = index.entry_by_path(path.as_bytes().as_bstr()).and_then(blob_entry_from_index);
+            match diff_numstat(&repo, &mut unstaged_cache, old, old, &path, &path, &null_id, Some(&worktree)) {
+                Some(stat) => { unstaged.insert(path.clone(), stat); }
+                None => unsupported.push(path),
+            }
+        }
+    }
+
+    Ok(GitNumstat {
+        staged: staged.into_iter().map(|(path, (added, removed, binary))| GitNumstatEntry { path, added, removed, binary }).collect(),
+        unstaged: unstaged.into_iter().map(|(path, (added, removed, binary))| GitNumstatEntry { path, added, removed, binary }).collect(),
+        unsupported,
+    })
+}
+
+fn blob_entry_from_index(entry: &gix::index::Entry) -> Option<BlobEntry> {
+    Some(BlobEntry { id: entry.id, mode: entry.mode.to_tree_entry_mode()?.kind() })
+}
+
+fn blob_entry_from_tree(entry: gix::object::tree::Entry<'_>) -> Option<BlobEntry> {
+    Some(BlobEntry { id: entry.id().detach(), mode: entry.mode().kind() })
+}
+
+fn diff_numstat(
+    repo: &gix::Repository,
+    cache: &mut gix::diff::blob::Platform,
+    old: Option<BlobEntry>,
+    new: Option<BlobEntry>,
+    old_path: &str,
+    new_path: &str,
+    null_id: &gix::ObjectId,
+    worktree_root: Option<&Path>,
+) -> Option<(u32, u32, bool)> {
+    let (old_entry, new_entry) = match (old, new) {
+        (None, None) => return Some((0, 0, false)),
+        (Some(old), Some(new)) if old.mode == gix::object::tree::EntryKind::Commit || new.mode == gix::object::tree::EntryKind::Commit => {
+            let new_id = if let Some(root) = worktree_root {
+                let submodule = gix::discover(root.join(new_path)).ok()?;
+                let id = submodule.head_commit().ok()?.id().detach();
+                id
+            } else {
+                new.id
+            };
+            return Some(if old.id == new_id { (0, 0, false) } else { (1, 1, false) });
+        }
+        (Some(old), Some(new)) if worktree_root.is_none() && old.id == new.id && old.mode == new.mode => return Some((0, 0, false)),
+        pair => pair,
+    };
+    if matches!(old_entry, Some(entry) if entry.mode == gix::object::tree::EntryKind::Tree)
+        || matches!(new_entry, Some(entry) if entry.mode == gix::object::tree::EntryKind::Tree)
+    {
+        return None;
+    }
+    let mode = old_entry.or(new_entry)?.mode;
+    let old_id = old_entry.map_or(*null_id, |entry| entry.id);
+    let new_id = new_entry.map_or(*null_id, |entry| entry.id);
+    let old_path = old_path.as_bytes().as_bstr();
+    let new_path = new_path.as_bytes().as_bstr();
+    cache.clear_resource_cache_keep_allocation();
+    cache.set_resource(old_id, mode, old_path, gix::diff::blob::ResourceKind::OldOrSource, &repo.objects).ok()?;
+    cache.set_resource(new_id, mode, new_path, gix::diff::blob::ResourceKind::NewOrDestination, &repo.objects).ok()?;
+    let outcome = cache.prepare_diff().ok()?;
+    match outcome.operation {
+        gix::diff::blob::platform::prepare_diff::Operation::SourceOrDestinationIsBinary => Some((0, 0, true)),
+        gix::diff::blob::platform::prepare_diff::Operation::InternalDiff { .. } => {
+            let input = gix::diff::blob::InternedInput::new(
+                outcome.old.intern_source(),
+                outcome.new.intern_source(),
+            );
+            let diff = gix::diff::blob::Diff::compute(gix::diff::blob::Algorithm::MyersMinimal, &input);
+            let added = diff.count_additions();
+            let removed = diff.count_removals();
+            if worktree_root.is_some() && old_entry.is_some_and(|old| Some(old.mode) == new_entry.map(|new| new.mode)) && added == 0 && removed == 0 {
+                None
+            } else {
+                Some((added, removed, false))
+            }
+        }
+        gix::diff::blob::platform::prepare_diff::Operation::ExternalCommand { .. } => None,
+    }
 }
 
 fn compute_git_status(repo_path: &str) -> Result<Option<GitStatus>, Box<dyn std::error::Error + Send + Sync>> {
