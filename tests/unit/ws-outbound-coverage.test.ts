@@ -18,7 +18,7 @@
 import { describe, expect, test } from "bun:test";
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
-import { REGISTERED_OUTBOUND_TYPES } from "../../shared/ws-outbound";
+import { OUTBOUND_FRAME_CLASSES, REGISTERED_OUTBOUND_TYPES } from "../../shared/ws-outbound";
 
 const ROOT = join(import.meta.dir, "..", "..");
 
@@ -131,6 +131,23 @@ const listened = (() => {
 })();
 
 describe("copertura del registro ws-outbound", () => {
+  test("ogni tipo registrato ha una classe di instradamento", () => {
+    expect(Object.keys(OUTBOUND_FRAME_CLASSES).sort()).toEqual(REGISTERED_OUTBOUND_TYPES);
+    expect(Object.values(OUTBOUND_FRAME_CLASSES).every((frameClass) =>
+      frameClass === "global" || frameClass === "topic" || frameClass === "project" || frameClass === "board",
+    )).toBe(true);
+    expect(OUTBOUND_FRAME_CLASSES).toMatchObject({
+      "stream:usage": "topic",
+      "stream:context": "topic",
+      "stream:slow": "topic",
+      "stream:retry": "topic",
+      "stream:start": "global",
+      "stream:end": "global",
+      "message:new": "global",
+      "attention:updated": "global",
+    });
+  });
+
   test("ogni tipo EMESSO dal server ha uno schema", () => {
     const missing = [...emitted.entries()]
       .filter(([type]) => !REGISTERED_OUTBOUND_TYPES.includes(type))

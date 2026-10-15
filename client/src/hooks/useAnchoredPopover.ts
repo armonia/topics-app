@@ -1,5 +1,6 @@
 import { useLayoutEffect, useState, type RefObject } from 'react';
 import { computeMenuPosition, type MenuPosition } from '../lib/popoverPosition';
+import { toFixed } from '../lib/fixedFrame';
 
 /**
  * Colloca un popover sotto il suo bottone, misurandolo davvero.
@@ -40,11 +41,11 @@ export function useAnchoredPopover(
     if (!trigger) return;
     const panel = panelRef.current;
     const rect = trigger.getBoundingClientRect();
-    setPos(computeMenuPosition(
+    setPos(toFixed(computeMenuPosition(
       rect,
       { width: panel?.offsetWidth ?? 0, height: panel?.offsetHeight ?? 0 },
       { align, minHeight },
-    ));
+    )));
   }, [open, triggerRef, panelRef, align, minHeight]);
 
   return pos;

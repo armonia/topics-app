@@ -34,6 +34,7 @@ import { useCallback, useLayoutEffect, useRef, type RefObject } from 'react';
 import { animateEl, EASE, MOTION } from '../../lib/motion';
 import { planBoardMoves, type BoardMove, type CardSpot, type ColumnBox } from '../../lib/boardFlight';
 import { prefersReducedMotion } from '../../lib/reducedMotion';
+import { fixedFrame } from '../../lib/fixedFrame';
 
 const PREFIX_COLUMN = 'kanban-column-body-';
 
@@ -104,8 +105,9 @@ function vola(el: HTMLElement, m: BoardMove): void {
   ghost.setAttribute('aria-hidden', 'true');
   ghost.setAttribute('data-card-ghost', '');
   ghost.classList.add('card-ghost');
-  ghost.style.left = `${rect.left}px`;
-  ghost.style.top = `${rect.top}px`;
+  const frame = fixedFrame();
+  ghost.style.left = `${rect.left - frame.left}px`;
+  ghost.style.top = `${rect.top - frame.top}px`;
   ghost.style.width = `${rect.width}px`;
   ghost.style.height = `${rect.height}px`;
   // L'origine e' l'angolo in alto a sinistra e non il centro: la traslazione

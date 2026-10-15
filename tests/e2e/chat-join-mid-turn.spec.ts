@@ -125,15 +125,30 @@ test.describe("a chat joined mid-turn shows the turn from its start", () => {
    * Nightly only: the restart would be paid by whichever spec runs next on the
    * PR gate, like the other specs that restart the server.
    */
-  test("a server restart mid-turn: after the reconnect, no hole in the bubble @nightly", async ({ page, request }) => {
+  test("a server restart mid-turn: the open chat catches up without a reload @nightly", async ({ page, request }) => {
     test.info().annotations.push({ type: "spec", description: "CCLI-04" });
     await resetPaneStore(request, [a.id]);
+    let pageLoads = 0;
+    page.on("load", () => { pageLoads += 1; });
     await goToApp(page);
     await expect(page.locator(`[data-testid="chat-panel"][data-chat-topic-id="${a.id}"]`)).toBeVisible({ timeout: 20_000 });
+    const initialPageLoads = pageLoads;
+    const paneIdsBefore = await page.locator('[data-testid="panel-tab-bar"] [data-pane-id]').evaluateAll((tabs) => tabs.map((tab) => (tab as HTMLElement).dataset.paneId));
+    expect(paneIdsBefore).toContain(a.id);
+    expect(new Set(paneIdsBefore).size).toBe(paneIdsBefore.length);
+
     const turn = startTurn(a.sk, "SLOW:25:joinc");
     await expect.poll(() => turn.said().includes("joinc-06"), { timeout: 30_000, message: "the turn is under way" }).toBe(true);
-    await restartTestServer();
+    await restartTestServer({ downtimeMs: 2_500 });
+
     const holes = await holesUntilWhole(page, a.id, "joinc", 25);
     expect(holes, "every sample is a contiguous prefix of the turn").toEqual([]);
+    const lastAssistant = page.locator(`[data-testid="chat-panel"][data-chat-topic-id="${a.id}"] [data-testid="chat-message"][data-role="assistant"]`).last();
+    await expect(lastAssistant.locator('[data-testid="stream-token-rate"]')).toHaveAttribute("data-streaming", "false", { timeout: 15_000 });
+    const expectedChunks = Array.from({ length: 25 }, (_, index) => index + 1);
+    expect(await chunksShown(page, a.id, "joinc"), "each chunk appears once and in order").toEqual(expectedChunks);
+    expect(pageLoads, "the app stays open through the server restart").toBe(initialPageLoads);
+    const paneIdsAfter = await page.locator('[data-testid="panel-tab-bar"] [data-pane-id]').evaluateAll((tabs) => tabs.map((tab) => (tab as HTMLElement).dataset.paneId));
+    expect(paneIdsAfter).toEqual(paneIdsBefore);
   });
 });

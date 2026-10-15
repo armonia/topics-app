@@ -1645,9 +1645,9 @@ export async function createBrowserService(opts: BrowserServiceOptions = {}): Pr
     async navigate(id, url) {
       // Scheme guard (LFI/SSRF defense-in-depth): a browser pane must never be
       // driven to file:// / chrome:// from ANY caller. Only the agent-tool path
-      // was guarded (assertAgentNavAllowed); the direct REST `/navigate`, the
-      // `/screenshot?url=` route, and the co-browse WS `{type:'nav'}` all reach
-      // here with untrusted input. Choke-point here covers them all. http/https/
+      // was guarded (assertAgentNavAllowed); REST `/navigate` and co-browse WS
+      // `{type:'nav'}` also reach here with untrusted input. Choke-point here
+      // covers them all. http/https/
       // about/data only; escape hatch BROWSER_ALLOW_ALL_SCHEMES=1 (mirrors the
       // agent guard's override). about:/data: stay allowed (blank pane, data URLs).
       // Un file locale non passa di qui come `file://` — diventa l'URL http che

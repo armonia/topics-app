@@ -22,7 +22,7 @@ import { browserEngineRegistry, chromiumEngineInfo } from "../browser-engine-reg
 import { findTaskTabOwner } from "../services/task-tab-persist";
 import { collectBrowserContextIds } from "../browser-store-keep-list";
 import { dispatchBrowserToolCallByContext } from "../browser-tool-dispatcher";
-import { routedResourceUrl } from "../lib/dom-resource-rewrite";
+import { hasDomResourceToken, routedResourceUrl } from "../lib/dom-resource-rewrite";
 import type { DomHostRegistry } from "../lib/native-dom-host";
 import { inputPayloadSchema } from "../../shared/browser-ws-messages";
 import { readFileSync } from "node:fs";
@@ -49,6 +49,7 @@ export function createBrowserRouter(
    *  On a hosted context the REST paths a viewer uses go to the pane: here, as
    *  on the socket, every browserService call would create a Chromium context. */
   nativeHosts?: Pick<DomHostRegistry, "isHosting" | "page" | "command">,
+  framingProbe: typeof probeFraming = probeFraming,
 ): RouteHandler {
   const { readJSON, json, errorResponse, matchRoute } = ctx;
 
@@ -78,6 +79,7 @@ export function createBrowserRouter(
       const id = url.searchParams.get("ctx");
       const target = url.searchParams.get("u");
       if (!id || !target || !routedResourceUrl(id, target)) return errorResponse(400, "ctx and an unreachable http(s) u required");
+      if (!hasDomResourceToken(id, url.searchParams.get("token"))) return errorResponse(404, "resource not found");
       try {
         if (nativeHosts?.isHosting(id)) {
           // No Chromium context by design: this server runs on the Mac, so it
@@ -127,10 +129,15 @@ export function createBrowserRouter(
     // The web pane uses this to pick iframe (framable) vs the headless stream.
     // Reads the target's X-Frame-Options / CSP frame-ancestors server-side
     // (no CORS), cached per-URL. Errors/timeouts → framable:false (stream).
-    if (method === "GET" && pathname === "/api/browsers/framable") {
-      const target = url.searchParams.get("url");
-      if (!target) return errorResponse(400, "url required");
-      const framable = await probeFraming(target);
+    if (pathname === "/api/browsers/framable") {
+      if (method !== "POST") return errorResponse(405, "POST required");
+      const contentType = req.headers.get("content-type")?.split(";", 1)[0].trim().toLowerCase();
+      if (contentType !== "application/json") {
+        return errorResponse(415, "application/json required");
+      }
+      const body = await readJSON(req);
+      if (typeof body?.url !== "string" || !body.url) return errorResponse(400, "url required");
+      const framable = await framingProbe(body.url);
       return json({ framable });
     }
 
@@ -697,22 +704,6 @@ export function createBrowserRouter(
       // `browser-deleted` non lo ascoltava nessuno — un frame nel vuoto, per di
       // più con un nome fuori dalla convenzione `namespace:evento`.
       return json({ ok: true });
-    }
-
-    // --- Legacy screenshot by URL (creates temp context) ---
-    if (method === "GET" && pathname === "/api/browser/screenshot") {
-      const targetUrl = url.searchParams.get("url");
-      if (!targetUrl) return errorResponse(400, "url parameter required");
-      const tempId = `_temp_${Date.now()}`;
-      try {
-        await browserService.navigate(tempId, targetUrl);
-        const buf = await browserService.screenshot(tempId);
-        await browserService.destroyContext(tempId);
-        return new Response(buf as unknown as BodyInit, { headers: { "Content-Type": "image/jpeg", "Cache-Control": "no-cache" } });
-      } catch (err: any) {
-        await browserService.destroyContext(tempId).catch(() => {});
-        return errorResponse(500, `Screenshot failed: ${err.message}`);
-      }
     }
 
     return null;

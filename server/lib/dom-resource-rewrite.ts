@@ -1,3 +1,5 @@
+import { createHmac, randomBytes, timingSafeEqual } from "node:crypto";
+
 /**
  * Resource URLs in the DOM co-browse mirror that the VIEWER cannot reach.
  *
@@ -21,6 +23,18 @@ const SOURCE_TAGS = new Set(["img", "source", "video", "audio", "track", "input"
 /** `<link rel>` values the mirror loads: icons, and a stylesheet rrweb could not
  *  inline. `modulepreload` and `preload` of scripts stay out, as above. */
 const LOADED_LINK_TYPES = /(^|\s)(icon|apple-touch-icon|stylesheet)(\s|$)/i;
+const RESOURCE_TOKEN_KEY = randomBytes(32);
+
+export function domResourceToken(ctxId: string): string {
+  return createHmac("sha256", RESOURCE_TOKEN_KEY).update(ctxId).digest("base64url");
+}
+
+export function hasDomResourceToken(ctxId: string, token: string | null): boolean {
+  if (!token) return false;
+  const expected = Buffer.from(domResourceToken(ctxId));
+  const actual = Buffer.from(token);
+  return actual.length === expected.length && timingSafeEqual(actual, expected);
+}
 
 /** True for hosts that only resolve on the Mac: loopback, private ranges, mDNS. */
 export function isViewerUnreachableHost(host: string): boolean {
@@ -38,7 +52,7 @@ export function routedResourceUrl(ctxId: string, url: string): string | null {
   try { parsed = new URL(url); } catch { return null; }
   if (parsed.protocol !== "http:" && parsed.protocol !== "https:") return null;
   if (!isViewerUnreachableHost(parsed.hostname)) return null;
-  return `/api/browser/resource?ctx=${encodeURIComponent(ctxId)}&u=${encodeURIComponent(url)}`;
+  return `/api/browser/resource?ctx=${encodeURIComponent(ctxId)}&u=${encodeURIComponent(url)}&token=${encodeURIComponent(domResourceToken(ctxId))}`;
 }
 
 function rewriteOne(ctxId: string, url: string): string {

@@ -28,6 +28,7 @@ import { setFramesInteractive } from '../Browser/hostedIframe';
 import type { BrowserPaneChrome } from '../../state/browserPaneChrome';
 import { rankSites, sitesSnapshot, subscribeSites } from '../../state/browserSiteHistory';
 import { displayUrl, prettyUrl, toNavigableUrl } from '../../lib/browserNavUrl';
+import { fixedFrame } from '../../lib/fixedFrame';
 import {
   POPOVER_SURFACE, POPOVER_SHEET, POPOVER_MARGIN, Z_POPOVER, Z_POPOVER_SCRIM, POPOVER_DIVIDER,
   DANGER_TEXT,
@@ -136,17 +137,19 @@ export function TabSheetBody({
       const tab = anchor();
       if (tab) {
         const r = tab.getBoundingClientRect();
+        const frame = fixedFrame();
         const vw = window.innerWidth;
         const vh = window.innerHeight;
         const width = Math.min(MAX_WIDTH, Math.max(r.width, MIN_WIDTH), vw - 2 * POPOVER_MARGIN);
         const side: 'left' | 'right' = r.left + width <= vw - POPOVER_MARGIN ? 'left' : 'right';
-        const left = side === 'left' ? r.left : Math.max(POPOVER_MARGIN, r.right - width);
-        const top = r.bottom;
-        const maxHeight = Math.max(160, vh - top - POPOVER_MARGIN);
+        const left = (side === 'left' ? r.left : Math.max(POPOVER_MARGIN, r.right - width)) - frame.left;
+        const top = r.bottom - frame.top;
+        const maxHeight = Math.max(160, vh - r.bottom - POPOVER_MARGIN);
+        const tabLeft = r.left - frame.left;
         setPos((prev) => (prev && prev.top === top && prev.left === left && prev.width === width
-          && prev.maxHeight === maxHeight && prev.tabLeft === r.left && prev.tabWidth === r.width
+          && prev.maxHeight === maxHeight && prev.tabLeft === tabLeft && prev.tabWidth === r.width
           ? prev
-          : { top, left, width, maxHeight, tabLeft: r.left, tabWidth: r.width, side }));
+          : { top, left, width, maxHeight, tabLeft, tabWidth: r.width, side }));
       }
       frame = requestAnimationFrame(place);
     };

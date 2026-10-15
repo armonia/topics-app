@@ -196,6 +196,16 @@ describe("the texts", () => {
     expect(p).toContain("[...]");
   });
 
+  it("shows the judge the end of a long message, where a question to the human sits", () => {
+    // Shape of chat fdde0556 (15/10): 2.6k characters of report, then the choice.
+    const report = "Ho estratto i fotogrammi della salita e misurato appoggi e angoli.\n".repeat(40);
+    const ask = "**Da decidere**\n1. Procedo con questo piano (consigliata).\n2. Prima la risalita.\n\nOk / ok ma 2 no?";
+    const p = GOAL_JUDGE_PROMPT({ goal: "g", steps: [], lastAssistantText: `${report}\n${ask}` });
+    expect(p).toContain("Ok / ok ma 2 no?");
+    expect(p).toContain("[...]");
+    expect(p.length).toBeLessThan(3000);
+  });
+
   it("names both exits in the nudge: close it, or ask and stop", () => {
     const t = goalNudgeText("portare la barra a verde");
     expect(t).toContain("portare la barra a verde");

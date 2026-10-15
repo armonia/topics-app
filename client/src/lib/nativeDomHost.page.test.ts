@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import { armJs, inputJs } from './nativeDomHost';
+import { armJs, createNativeDomHost, DRAIN_JS, inputJs } from './nativeDomHost';
 
 /**
  * The host's page side (INPUT_FN, LAYOUT_JS) run against a small page with
@@ -42,6 +42,7 @@ function world() {
       contains: (o: { parentElement?: unknown }) => { for (let m: unknown = o; m; m = (m as { parentElement?: unknown }).parentElement) if (m === e) return true; return false; },
       scrollTo: () => { log.push(`${name} cannot scroll`); },
       dispatchEvent: (ev: { type: string }) => { log.push(`${name} <- ${ev.type}`); return true; },
+      getAttribute: (attribute: string) => ((extra.attributes as Record<string, string> | undefined)?.[attribute] ?? null),
       ...extra,
     };
     els.push(e);
@@ -61,7 +62,7 @@ function world() {
   nodes.set(1, doc); ids.set(doc, 1);
   nodes.set(2, root); ids.set(root, 2);
   const mirror = { getNode: (id: number) => nodes.get(id) ?? null, getId: (n: object) => ids.get(n) ?? -1 };
-  const hooks: { emit?: (e: unknown) => void } = {};
+  const hooks: { emit?: (e: unknown) => void; options?: Record<string, unknown> } = {};
   const win: Record<string, unknown> = {
     innerWidth: 1000, innerHeight: 800,
     getComputedStyle: (e: { __style?: Record<string, string> } | null) => ({ position: 'static', overflowY: 'visible', overflowX: 'visible', ...e?.__style }),
@@ -72,9 +73,9 @@ function world() {
     'document', 'window', 'MouseEvent', 'WheelEvent', 'Event', 'KeyboardEvent', 'getComputedStyle', '__mirror', '__hooks',
     `return ${js}`,
   )(doc, win, Ev, Ev, Ev, Ev, win.getComputedStyle, mirror, hooks);
-  run(armJs('var rrweb={record:function(o){__hooks.emit=o.emit;return function(){}}};rrweb.record.mirror=__mirror;'));
+  run(armJs('var rrweb={record:function(o){__hooks.emit=o.emit;__hooks.options=o;return function(){}}};rrweb.record.mirror=__mirror;'));
   const host = win.__topicsDomHost as { q: Array<{ data: { anchor?: unknown } }> };
-  return { log, root, body, el, run, hooks, host };
+  return { log, root, body, el, run, hooks, host, win };
 }
 
 describe('a tap from a mirror laid out on its own', () => {
@@ -100,6 +101,97 @@ describe('a tap from a mirror laid out on its own', () => {
     w.el('button', { top: 380, left: 0, width: 200, height: 40 }, w.body, 13);
     w.run(inputJs('click', { x: 40, y: 400 }));
     expect(w.log).toContain('button <- click');
+  });
+});
+
+/**
+ * Values marked for private entry stay out of the device mirror, while ordinary text remains visible.
+ *
+ * @covers BROWSER-DOM-MASK-01
+ */
+describe('private entry fields in a device mirror', () => {
+  for (const purpose of ['cc-number', 'one-time-code', 'cc-csc']) {
+    test(`${purpose} is masked in the initial snapshot and after typing`, () => {
+      const w = world();
+      const input = w.el('input', { top: 0, left: 0, width: 100, height: 20 }, w.body, 50, {
+        attributes: { autocomplete: purpose },
+      });
+      const value = 'private-value';
+      const snapshot = {
+        type: 2,
+        data: {
+          node: {
+            type: 2,
+            tagName: 'input',
+            id: 50,
+            attributes: { autocomplete: purpose, value },
+            childNodes: [],
+          },
+        },
+      };
+
+      w.hooks.emit!(snapshot);
+      const change = { type: 3, data: { source: 5, id: 50, text: value } };
+      w.hooks.emit!(change);
+      expect([
+        (snapshot.data.node as { attributes: { value: string } }).attributes.value,
+        change.data.text,
+      ]).toEqual(['*'.repeat(value.length), '*'.repeat(value.length)]);
+      expect(input.getAttribute('autocomplete')).toBe(purpose);
+    });
+  }
+
+  test('a card field mounted after the snapshot, or given its value as an attribute, is masked', () => {
+    const w = world();
+    w.el('input', { top: 0, left: 0, width: 100, height: 20 }, w.body, 52, {
+      attributes: { autocomplete: 'cc-number' },
+    });
+    const value = '4111111111111111';
+    const added = {
+      type: 3,
+      data: {
+        source: 0, texts: [], removes: [], attributes: [] as unknown[],
+        adds: [{ parentId: 2, nextId: null, node: { type: 2, tagName: 'input', id: 53, attributes: { autocomplete: 'cc-number', value }, childNodes: [] } }],
+      },
+    };
+    const changed = {
+      type: 3,
+      data: { source: 0, texts: [], removes: [], adds: [] as unknown[], attributes: [{ id: 52, attributes: { value } }] },
+    };
+    w.hooks.emit!(added);
+    w.hooks.emit!(changed);
+    expect([
+      added.data.adds[0].node.attributes.value,
+      changed.data.attributes[0].attributes.value,
+    ]).toEqual(['*'.repeat(value.length), '*'.repeat(value.length)]);
+  });
+
+  test('ordinary text remains visible in the initial snapshot and after typing', () => {
+    const w = world();
+    w.el('input', { top: 0, left: 0, width: 100, height: 20 }, w.body, 51, {
+      attributes: { autocomplete: 'name' },
+    });
+    const value = 'Ada Lovelace';
+    const snapshot = {
+      type: 2,
+      data: {
+        node: {
+          type: 2,
+          tagName: 'input',
+          id: 51,
+          attributes: { autocomplete: 'name', value },
+          childNodes: [],
+        },
+      },
+    };
+
+    w.hooks.emit!(snapshot);
+    const change = { type: 3, data: { source: 5, id: 51, text: value } };
+    w.hooks.emit!(change);
+    expect([
+      (snapshot.data.node as { attributes: { value: string } }).attributes.value,
+      change.data.text,
+    ]).toEqual([value, value]);
   });
 });
 
@@ -218,5 +310,98 @@ describe('a scroll from a mirror laid out on its own', () => {
     w.root.scrollTop = 1320;
     w.hooks.emit!({ type: 3, data: { source: 3, id: 1, x: 0, y: 1320 } });
     expect(w.host.q.at(-1)!.data.anchor).not.toEqual(place);
+  });
+});
+
+describe('the delegate socket accepts only delegate frame types', () => {
+  test('the drained queue is parsed and rebuilt, never forwarded as text', async () => {
+    const validEvent = { type: 4, timestamp: 10, data: { href: 'https://example.test', width: 800, height: 600 } };
+    let node: Record<string, unknown> = { type: 3, textContent: 'leaf', id: 100 };
+    for (let depth = 0; depth < 66; depth++) {
+      node = { type: 2, tagName: 'div', attributes: {}, childNodes: [node], id: depth + 101 };
+    }
+    const snapshot = {
+      type: 2,
+      timestamp: 11,
+      data: { node: { type: 0, childNodes: [{ type: 1, name: 'html', id: 1 }, node], id: 0 }, initialOffset: { left: 0, top: 0 } },
+    };
+    const hostText = JSON.stringify([
+      validEvent,
+      snapshot,
+      { type: 4, timestamp: 12, data: { href: 'https://example.test', width: 800, height: 600 }, extra: 'discard' },
+    ]);
+    const pageWindow = { __topicsDomHost: { q: [validEvent] as unknown[] } };
+    const jsonGlobal = { stringify: () => hostText };
+    let scheduled: (() => void) | undefined;
+    const sent: string[] = [];
+    const host = createNativeDomHost({
+      evalInPage: async (js) => {
+        if (js.includes('window.__topicsDomHost=undefined')) {
+          pageWindow.__topicsDomHost = undefined as never;
+          return 'ok';
+        }
+        if (js.includes('window.__topicsDomHost={q:[]')) {
+          pageWindow.__topicsDomHost = { q: [validEvent] };
+          return 'armed';
+        }
+        if (js === DRAIN_JS) return new Function('window', 'JSON', `return ${js}`)(pageWindow, jsonGlobal) as string;
+        return 'ok';
+      },
+      loadRecorder: async () => 'var rrweb={record:function(){}};',
+      sendText: (text) => sent.push(text),
+      navigate: () => {},
+      schedule: (fn) => { scheduled = fn; return () => { scheduled = undefined; }; },
+    });
+
+    host.handle({ type: 'host_dom_start' });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    scheduled?.();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    scheduled?.();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    const frames = sent.map((text) => JSON.parse(text) as { type: string; events?: unknown[] });
+    expect(frames).toHaveLength(1);
+    const forwarded = frames.find((frame) => frame.type === 'host_dom_events')?.events;
+    expect(forwarded).toHaveLength(2);
+    expect(forwarded?.[1]).toEqual({ type: 2, timestamp: 11, data: snapshot.data });
+  });
+
+  test('arming replaces an existing host and leaves one recorder active', () => {
+    const w = world();
+    const counters = { activeRecorders: 1 };
+    (w.hooks as unknown as { counters: typeof counters }).counters = counters;
+    const existingHost = {
+      q: [{ type: 4, timestamp: 1, data: { href: 'https://example.test', width: 1, height: 1 } }],
+      stop: () => { counters.activeRecorders--; },
+    };
+    w.win.__topicsDomHost = existingHost;
+    const bundle = 'var rrweb={record:function(o){__hooks.emit=o.emit;__hooks.counters.activeRecorders++;return function(){__hooks.counters.activeRecorders--;}}};rrweb.record.mirror=__mirror;';
+
+    w.run(armJs(bundle));
+    w.run(armJs(bundle));
+
+    expect(w.win.__topicsDomHost).not.toBe(existingHost);
+    expect((w.win.__topicsDomHost as { q: unknown[] }).q).toEqual([]);
+    expect(counters.activeRecorders).toBe(1);
+  });
+
+  test('two arms while the document is still loading leave one recorder active', () => {
+    const w = world();
+    const doc = (w.body as unknown as {
+      ownerDocument: { readyState: string; addEventListener: (type: string, fn: () => void) => void };
+    }).ownerDocument;
+    const ready: Array<() => void> = [];
+    doc.readyState = 'loading';
+    doc.addEventListener = (type, fn) => { if (type === 'DOMContentLoaded') ready.push(fn); };
+    const counters = { activeRecorders: 0 };
+    (w.hooks as unknown as { counters: typeof counters }).counters = counters;
+    const bundle = 'var rrweb={record:function(o){__hooks.emit=o.emit;__hooks.counters.activeRecorders++;return function(){__hooks.counters.activeRecorders--;}}};rrweb.record.mirror=__mirror;';
+
+    w.run(armJs(bundle));
+    w.run(armJs(bundle));
+    for (const start of ready) start();
+
+    expect(counters.activeRecorders).toBe(1);
   });
 });

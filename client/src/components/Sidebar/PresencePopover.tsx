@@ -21,6 +21,7 @@ import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useDismissable } from '@/hooks/useDismissable';
 import { computeMenuPosition } from '@/lib/popoverPosition';
+import { toFixed } from '@/lib/fixedFrame';
 import { POPOVER_PANEL, Z_POPOVER } from '@/lib/popoverStyles';
 import { useExitGhost } from '@/lib/exitGhost';
 import { useMenuKeyboard } from '@/hooks/useMenuKeyboard';
@@ -111,11 +112,11 @@ export function PresencePopover({
     const measure = () => {
       const a = anchorEl.getBoundingClientRect();
       const p = panel.getBoundingClientRect();
-      setPos(computeMenuPosition(
+      setPos(toFixed(computeMenuPosition(
         { top: a.top, right: a.right, bottom: a.bottom, left: a.left },
         { width, height: p.height },
         { align: 'left', gap: 6 },
-      ));
+      )));
     };
     measure();
     const observer = new ResizeObserver(measure);

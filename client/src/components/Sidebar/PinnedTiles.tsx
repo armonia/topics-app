@@ -23,6 +23,7 @@ import {
   type PinnedRow,
 } from './pinnedLayout';
 import { liveTranslate, useCellFlip } from './useCellFlip';
+import { fixedFrame } from '@/lib/fixedFrame';
 
 /**
  * L'UNICO passo del blocco: fra due tessere della stessa riga, fra due righe, e
@@ -478,11 +479,14 @@ export function PinnedTiles({
     setDragKey(key);
     const cella = radice.current?.querySelector<HTMLElement>(`[data-pinned-cell="${CSS.escape(key)}"]`);
     const r = cella?.getBoundingClientRect();
-    if (r) setGhost({ key, w: r.width, h: r.height, x: r.x + r.width / 2, y: r.y + r.height / 2 });
+    // The ghost is fixed: client points move into its frame (`lib/fixedFrame`).
+    const f = fixedFrame();
+    if (r) setGhost({ key, w: r.width, h: r.height, x: r.x + r.width / 2 - f.left, y: r.y + r.height / 2 - f.top });
   };
 
   const onTouchDragMove = (key: string) => (x: number, y: number) => {
-    setGhost(g => (g && g.key === key ? { ...g, x, y } : g));
+    const f = fixedFrame();
+    setGhost(g => (g && g.key === key ? { ...g, x: x - f.left, y: y - f.top } : g));
     // Il punto esce SEMPRE, dentro o fuori dalla griglia: è l'equivalente del
     // `dragover` che col mouse arriva alla lista, ed è l'unico evento che sa
     // dove sei davvero. Spegnere l'anteprima altrove è la ricetta del tremolio.

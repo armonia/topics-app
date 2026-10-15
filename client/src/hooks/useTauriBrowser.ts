@@ -1840,7 +1840,7 @@ export function useTauriBrowser(contextId: string, initialUrl?: string, isVisibl
         try {
           const woke = await setNativeVisible(true);
           if (woke) await new Promise((r) => setTimeout(r, 150));
-          return await executeNativeBrowserOp(id, tool, args, tauriInvoke);
+          return await executeNativeBrowserOp(id, tool, args, tauriInvoke, nativeViewUrlRef.current);
         } finally {
           agentOpsInFlightRef.current -= 1;
           // Last op out re-hides, unless the pane became genuinely visible or

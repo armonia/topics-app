@@ -192,7 +192,11 @@ export class BrowserProcessPage {
 
     // GET /api/browsers/:id — info endpoint (match paths with exactly one segment after /browsers/)
     await this.page.route(/\/api\/browsers\/[^/]+$/, async (route) => {
-      if (route.request().method() === "GET") {
+      // The framing probe is a POST: these panes stay on the stream, as they did when the
+      // probe was a GET answered by the info stub below with no `framable` field.
+      if (route.request().method() === "POST" && new URL(route.request().url()).pathname === "/api/browsers/framable") {
+        await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ framable: false }) });
+      } else if (route.request().method() === "GET") {
         if (connected) {
           await route.fulfill({
             status: 200,

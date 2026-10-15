@@ -1,6 +1,7 @@
 import { useEffect, useId, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { useExitGhost } from '../../lib/exitGhost';
+import { toFixed } from '../../lib/fixedFrame';
 
 /**
  * IL TOOLTIP DELL'APP. Nessun `title=` nativo dove l'informazione conta.
@@ -109,7 +110,7 @@ export function Tooltip({ content, children, side = 'bottom', disabled = false }
     // destra avrebbe metà tooltip fuori.
     const centro = a.left + a.width / 2 - t.width / 2;
     const left = Math.max(MARGINE_FINESTRA, Math.min(centro, window.innerWidth - t.width - MARGINE_FINESTRA));
-    setPos({ top: Math.max(MARGINE_FINESTRA, top), left });
+    setPos(toFixed({ top: Math.max(MARGINE_FINESTRA, top), left }));
   }, [aperto, side, content]);
 
   if (disabled || !content) return <>{children}</>;
