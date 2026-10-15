@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import { armJs, inputJs } from './nativeDomHost';
+import { armJs, createNativeDomHost, DRAIN_JS, inputJs } from './nativeDomHost';
 
 /**
  * The host's page side (INPUT_FN, LAYOUT_JS) run against a small page with
@@ -74,7 +74,7 @@ function world() {
   )(doc, win, Ev, Ev, Ev, Ev, win.getComputedStyle, mirror, hooks);
   run(armJs('var rrweb={record:function(o){__hooks.emit=o.emit;return function(){}}};rrweb.record.mirror=__mirror;'));
   const host = win.__topicsDomHost as { q: Array<{ data: { anchor?: unknown } }> };
-  return { log, root, body, el, run, hooks, host };
+  return { log, root, body, el, run, hooks, host, win };
 }
 
 describe('a tap from a mirror laid out on its own', () => {
@@ -218,5 +218,98 @@ describe('a scroll from a mirror laid out on its own', () => {
     w.root.scrollTop = 1320;
     w.hooks.emit!({ type: 3, data: { source: 3, id: 1, x: 0, y: 1320 } });
     expect(w.host.q.at(-1)!.data.anchor).not.toEqual(place);
+  });
+});
+
+describe('the delegate socket accepts only delegate frame types', () => {
+  test('the drained queue is parsed and rebuilt, never forwarded as text', async () => {
+    const validEvent = { type: 4, timestamp: 10, data: { href: 'https://example.test', width: 800, height: 600 } };
+    let node: Record<string, unknown> = { type: 3, textContent: 'leaf', id: 100 };
+    for (let depth = 0; depth < 66; depth++) {
+      node = { type: 2, tagName: 'div', attributes: {}, childNodes: [node], id: depth + 101 };
+    }
+    const snapshot = {
+      type: 2,
+      timestamp: 11,
+      data: { node: { type: 0, childNodes: [{ type: 1, name: 'html', id: 1 }, node], id: 0 }, initialOffset: { left: 0, top: 0 } },
+    };
+    const hostText = JSON.stringify([
+      validEvent,
+      snapshot,
+      { type: 4, timestamp: 12, data: { href: 'https://example.test', width: 800, height: 600 }, extra: 'discard' },
+    ]);
+    const pageWindow = { __topicsDomHost: { q: [validEvent] as unknown[] } };
+    const jsonGlobal = { stringify: () => hostText };
+    let scheduled: (() => void) | undefined;
+    const sent: string[] = [];
+    const host = createNativeDomHost({
+      evalInPage: async (js) => {
+        if (js.includes('window.__topicsDomHost=undefined')) {
+          pageWindow.__topicsDomHost = undefined as never;
+          return 'ok';
+        }
+        if (js.includes('window.__topicsDomHost={q:[]')) {
+          pageWindow.__topicsDomHost = { q: [validEvent] };
+          return 'armed';
+        }
+        if (js === DRAIN_JS) return new Function('window', 'JSON', `return ${js}`)(pageWindow, jsonGlobal) as string;
+        return 'ok';
+      },
+      loadRecorder: async () => 'var rrweb={record:function(){}};',
+      sendText: (text) => sent.push(text),
+      navigate: () => {},
+      schedule: (fn) => { scheduled = fn; return () => { scheduled = undefined; }; },
+    });
+
+    host.handle({ type: 'host_dom_start' });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    scheduled?.();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    scheduled?.();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    const frames = sent.map((text) => JSON.parse(text) as { type: string; events?: unknown[] });
+    expect(frames).toHaveLength(1);
+    const forwarded = frames.find((frame) => frame.type === 'host_dom_events')?.events;
+    expect(forwarded).toHaveLength(2);
+    expect(forwarded?.[1]).toEqual({ type: 2, timestamp: 11, data: snapshot.data });
+  });
+
+  test('arming replaces an existing host and leaves one recorder active', () => {
+    const w = world();
+    const counters = { activeRecorders: 1 };
+    (w.hooks as unknown as { counters: typeof counters }).counters = counters;
+    const existingHost = {
+      q: [{ type: 4, timestamp: 1, data: { href: 'https://example.test', width: 1, height: 1 } }],
+      stop: () => { counters.activeRecorders--; },
+    };
+    w.win.__topicsDomHost = existingHost;
+    const bundle = 'var rrweb={record:function(o){__hooks.emit=o.emit;__hooks.counters.activeRecorders++;return function(){__hooks.counters.activeRecorders--;}}};rrweb.record.mirror=__mirror;';
+
+    w.run(armJs(bundle));
+    w.run(armJs(bundle));
+
+    expect(w.win.__topicsDomHost).not.toBe(existingHost);
+    expect((w.win.__topicsDomHost as { q: unknown[] }).q).toEqual([]);
+    expect(counters.activeRecorders).toBe(1);
+  });
+
+  test('two arms while the document is still loading leave one recorder active', () => {
+    const w = world();
+    const doc = (w.body as unknown as {
+      ownerDocument: { readyState: string; addEventListener: (type: string, fn: () => void) => void };
+    }).ownerDocument;
+    const ready: Array<() => void> = [];
+    doc.readyState = 'loading';
+    doc.addEventListener = (type, fn) => { if (type === 'DOMContentLoaded') ready.push(fn); };
+    const counters = { activeRecorders: 0 };
+    (w.hooks as unknown as { counters: typeof counters }).counters = counters;
+    const bundle = 'var rrweb={record:function(o){__hooks.emit=o.emit;__hooks.counters.activeRecorders++;return function(){__hooks.counters.activeRecorders--;}}};rrweb.record.mirror=__mirror;';
+
+    w.run(armJs(bundle));
+    w.run(armJs(bundle));
+    for (const start of ready) start();
+
+    expect(counters.activeRecorders).toBe(1);
   });
 });

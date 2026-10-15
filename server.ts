@@ -138,7 +138,7 @@ import { resetMoondreamCounter } from "./server/integrations/moondream-client";
 import { sendBrowserWsMessage, parseBrowserWsMessage, type BrowserWsMessage } from "./shared/browser-ws-messages";
 import { applyEngineSwitch } from "./server/browser-engine-switch";
 import { browserEngineRegistry, chromiumExtensionsCount, chromiumSidecar } from "./server/browser-engine-registry";
-import { nativeDelegateRegistry, handleNativeDelegationFrame } from "./server/browser-native-delegate";
+import { nativeDelegateRegistry, handleNativeDelegationFrame, isNativeDelegateFrameAllowed } from "./server/browser-native-delegate";
 import { createDomHostRegistry, parseHostFrame } from "./server/lib/native-dom-host";
 import { createHostMirror } from "./server/browser-host-mirror";
 import { countSharedViewers, createViewerCountPublisher, hasAttachedPane } from "./server/browser-viewer-count";
@@ -4317,6 +4317,10 @@ const opzioniServer = {
         const ctxId = ws.data.browserContextId;
         try {
           const raw = JSON.parse(typeof message === "string" ? message : new TextDecoder().decode(message));
+          if (ws.data._nativeDelegate && !isNativeDelegateFrameAllowed(raw)) {
+            console.warn("[WS][browser] ignored non-delegate frame from native executor");
+            return;
+          }
           // Tauri native-pane delegation — raw types OUTSIDE the strict browser-ws
           // Zod envelope (kept out of it on purpose so the schema stays the
           // streaming protocol). Classified by the shared helper (unit-tested);
