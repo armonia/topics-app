@@ -168,15 +168,22 @@ test.describe("@nightly D7f pane-store tra dispositivi", () => {
       // archives the chat again when A's snapshot lands (reports/D7f.md). Only
       // A's snapshot brings the undo record into `closedStack`.
       await expectServerClosed(request, topic.id);
+      let seqWithClose = 0;
       await expect.poll(async () => {
-        const stack = (await serverSnapshot(request)).value?.closedStack ?? [];
+        const snapshot = await serverSnapshot(request);
+        seqWithClose = snapshot.server_seq ?? 0;
+        const stack = snapshot.value?.closedStack ?? [];
         return stack.some((record) => record.id === topic.id || record.pane?.id === topic.id);
       }, { timeout: 10_000, message: "il server deve avere lo snapshot di A con la sua chiusura" }).toBe(true);
-      await expect.poll(async () => devices.pageB.evaluate(({ key, id }) => {
+      // B has applied that snapshot, so its reopen counts after A's close.
+      await expect.poll(async () => devices.pageB.evaluate(({ key, id, seq }) => {
         const raw = localStorage.getItem(key);
-        const value = raw ? JSON.parse(raw) as { tombstones?: Record<string, unknown> } : null;
-        return value?.tombstones?.[id] !== undefined;
-      }, { key: PANE_STORE_KEY, id: topic.id }), { timeout: 10_000, message: "B deve avere la chiusura di A" }).toBe(true);
+        const value = raw ? JSON.parse(raw) as { tombstones?: Record<string, unknown>; server_seq?: number } : null;
+        return value?.tombstones?.[id] !== undefined && (value.server_seq ?? 0) >= seq;
+      }, { key: PANE_STORE_KEY, id: topic.id, seq: seqWithClose }), {
+        timeout: 10_000,
+        message: "B deve avere applicato lo snapshot di A",
+      }).toBe(true);
 
       // The gesture a person makes on the other device: open the chat again from
       // the sidebar, which also unarchives it. Not ⇧⌘T, whose stack stage 3
