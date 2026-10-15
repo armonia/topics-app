@@ -493,6 +493,8 @@ const EN = {
   'chat.btw.close': 'Close side question',
   'chat.btw.error': 'The side question failed: {reason}',
   'chat.btw.usage': 'Write the question after the command: /btw <question>',
+  'chat.btw.notStarted': 'the question did not start',
+  'chat.btw.noAnswer': 'no answer came back',
   'chat.slash.help.description': 'Show available commands',
   'chat.compact.done': 'Context compacted: {before} → {after} tokens.',
   'chat.compact.doneNoCount': 'Context compacted.',

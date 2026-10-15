@@ -47,7 +47,7 @@ export function createForkRouter(ctx: AppContext, deps: ForkDeps): RouteHandler 
     isStreaming,
     resolveProvider: deps.resolveProvider,
   };
-  const startupCleanup = cleanupStaleSideQuestions(cleanupDeps).then((removed) => {
+  const bootSweep = cleanupStaleSideQuestions(cleanupDeps).then((removed) => {
     if (removed) console.log(`[fork] removed ${removed} stale side question(s)`);
   }).catch((err) => {
     console.warn("[fork] startup side-question cleanup failed:", (err as Error).message);
@@ -57,7 +57,7 @@ export function createForkRouter(ctx: AppContext, deps: ForkDeps): RouteHandler 
     const params = matchRoute(pathname, "/api/topics/:id/fork");
     const sideParams = matchRoute(pathname, "/api/topics/:id/side-question");
     if (sideParams && method === "DELETE") {
-      await startupCleanup;
+      await bootSweep;
       if (!isSideQuestionTopicId(sideParams.id)) return json({ error: "not an ephemeral side question" }, 400);
       const topic = getTopicById(sideParams.id);
       if (!topic) return json({ ok: true });
@@ -76,7 +76,7 @@ export function createForkRouter(ctx: AppContext, deps: ForkDeps): RouteHandler 
     const routeParams = params ?? sideParams;
     if (!routeParams || method !== "POST") return null;
     if (sideQuestion) {
-      await startupCleanup;
+      await bootSweep;
       try {
         const removed = await cleanupStaleSideQuestions(cleanupDeps);
         if (removed) console.log(`[fork] removed ${removed} stale side question(s)`);

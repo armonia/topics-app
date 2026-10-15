@@ -497,6 +497,8 @@ const IT: Dict = {
   'chat.btw.close': 'Chiudi domanda laterale',
   'chat.btw.error': 'La domanda laterale non è riuscita: {reason}',
   'chat.btw.usage': 'Scrivi la domanda dopo il comando: /btw <domanda>',
+  'chat.btw.notStarted': 'la domanda non è partita',
+  'chat.btw.noAnswer': 'non è arrivata nessuna risposta',
   'chat.slash.help.description': 'Mostra i comandi disponibili',
   'chat.compact.done': 'Contesto compattato: {before} → {after} token.',
   'chat.compact.doneNoCount': 'Contesto compattato.',

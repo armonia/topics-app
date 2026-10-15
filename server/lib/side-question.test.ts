@@ -1,3 +1,6 @@
+/**
+ * @covers CMD-10
+ */
 import { Database } from "bun:sqlite";
 import { describe, expect, test } from "bun:test";
 import type { Topic } from "../types";

@@ -25,10 +25,10 @@ if (value("--output-format") === "json") {
   let sequence = 0;
   process.stdin.on("data", async (chunk: Buffer) => {
     pending += chunk.toString();
-    let newline = -1;
-    while ((newline = pending.indexOf("\n")) >= 0) {
-      const raw = pending.slice(0, newline).trim();
-      pending = pending.slice(newline + 1);
+    let lineEnd = -1;
+    while ((lineEnd = pending.indexOf("\n")) >= 0) {
+      const raw = pending.slice(0, lineEnd).trim();
+      pending = pending.slice(lineEnd + 1);
       if (!raw) continue;
       const input = JSON.parse(raw) as { message?: { content?: unknown } };
       const blocks = Array.isArray(input.message?.content) ? input.message!.content as Array<{ type?: string; text?: string }> : [];
