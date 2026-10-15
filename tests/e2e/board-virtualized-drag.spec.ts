@@ -87,11 +87,14 @@ test.describe("Board: drag across the virtual window", () => {
     const drawnAtStart = await backlog.locator("[data-task-card]").count();
     const sourceBox = (await source.boundingBox())!;
     const bodyBox = (await backlog.boundingBox())!;
-    const grab = { x: sourceBox.x + 30, y: sourceBox.y + 12 };
+    // The middle of the card's top row, as the other board drags: the corners hold
+    // controls, and the board's mouse sensor does not start a drag on a control.
+    const grab = { x: sourceBox.x + sourceBox.width / 2, y: sourceBox.y + 12 };
     await page.mouse.move(grab.x, grab.y);
     await page.mouse.down();
-    await page.mouse.move(grab.x + 10, grab.y + 8);
-    await page.mouse.move(bodyBox.x + bodyBox.width / 2, bodyBox.y + bodyBox.height - 8);
+    await page.mouse.move(grab.x + 8, grab.y + 8, { steps: 4 });
+    await expect(page.locator("[data-drag-preview]"), "the drag must have started").toHaveCount(1);
+    await page.mouse.move(bodyBox.x + bodyBox.width / 2, bodyBox.y + bodyBox.height - 8, { steps: 12 });
     await expect.poll(() => backlog.evaluate((el) => el.scrollTop), { timeout: 30_000 }).toBeGreaterThan(3_000);
     // Back to the middle, where the autoscroll stops, and the card is let go there.
     await page.mouse.move(bodyBox.x + bodyBox.width / 2, bodyBox.y + bodyBox.height / 2, { steps: 4 });
