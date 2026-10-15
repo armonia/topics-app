@@ -1,4 +1,4 @@
-import { test, expect, type APIRequestContext, type Page } from "@playwright/test";
+import { test, expect, type APIRequestContext, type ConsoleMessage, type Page } from "@playwright/test";
 import { createTopic, deleteTopic, resetPaneStore, seedPaneStore } from "./helpers/api-fixtures";
 import { closeTabViaX, openTwoDevices, tabFor } from "./helpers/multi-client";
 import { goToApp } from "./helpers";
@@ -189,6 +189,8 @@ test.describe("@nightly D7f pane-store tra dispositivi", () => {
   });
 
   test("P.4 una chiusura fatta col server irraggiungibile arriva quando torna @nightly", async ({ browser, request }) => {
+    // Three reconnect attempts after the socket is found dead (about 12 s), then the 8 s gap.
+    test.setTimeout(90_000);
     test.info().annotations.push({ type: "spec", description: "TAB-SYNC-01" }, { type: "spec", description: "TAB-SYNC-02" });
     const devices = await openTwoDevices(browser);
     // The closing snapshot's PUTs that fail while A is offline. A PUT gives up
@@ -201,21 +203,30 @@ test.describe("@nightly D7f pane-store tra dispositivi", () => {
       if (!body.panes?.[topic.id] && body.tombstones?.[topic.id] !== undefined) failedClosePuts++;
     };
     devices.pageA.on("requestfailed", onRequestFailed);
+    // Each reconnect attempt is a new socket that fails at once while A is
+    // offline, and Chromium says so on the console. Its 'close' to the sync
+    // cancels a PUT still retrying and marks it owed: the other path, not this one.
+    let failedSockets = 0;
+    const onConsole = (m: ConsoleMessage) => {
+      if (m.type() === "error" && /WebSocket connection to '[^']*\/ws' failed/.test(m.text())) failedSockets++;
+    };
+    devices.pageA.on("console", onConsole);
     try {
       await expect(tabFor(devices.pageA, topic.id)).toHaveCount(1, { timeout: 10_000 });
       await expect(tabFor(devices.pageB, topic.id)).toHaveCount(1, { timeout: 10_000 });
 
-      // Only A loses the network. The order is the point: the socket is seen
-      // down FIRST («Reconnecting…» and the 'close' to the sync are the same
-      // call), with nothing owed; then the close is made, and its PUT gives up
-      // before the network is back. Killing the server instead let the socket
-      // notice late, with the PUT still in flight, and that path re-sends on
-      // its own: the test passed without the fix it is here for.
+      // Only A loses the network, and the close is made when its PUT can give
+      // up on its own: after the third failed attempt the next one waits 8 s
+      // (useWebSocket: 1, 2, 4, 8 s), and four tries take about 1.5 s. Killing
+      // the server instead let the socket notice late, with the PUT still in
+      // flight, and that path re-sends on its own: the test passed without the
+      // fix it is here for.
       await devices.ctxA.setOffline(true);
-      await expect(devices.pageA.getByTestId("ws-connection-status")).toContainText(/Reconnecting|Offline/, { timeout: 15_000 });
+      await expect.poll(() => failedSockets, { timeout: 30_000, message: "A deve vedere fallire tre riconnessioni" }).toBe(3);
       await closeTabViaX(devices.pageA, topic.id);
       await expect(tabFor(devices.pageA, topic.id)).toHaveCount(0, { timeout: 10_000 });
       await expect.poll(() => failedClosePuts, { timeout: 10_000, message: "la PUT della chiusura deve arrendersi a rete giù" }).toBe(4);
+      expect(failedSockets, "nessun socket si è chiuso mentre la PUT riprovava").toBe(3);
 
       await devices.ctxA.setOffline(false);
       await expectServerClosed(request, topic.id);
@@ -223,6 +234,7 @@ test.describe("@nightly D7f pane-store tra dispositivi", () => {
       await waitForApp(devices.pageB);
       await expect(tabFor(devices.pageB, topic.id)).toHaveCount(0, { timeout: 10_000 });
     } finally {
+      devices.pageA.off("console", onConsole);
       devices.pageA.off("requestfailed", onRequestFailed);
       await devices.dispose();
     }
