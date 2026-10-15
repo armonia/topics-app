@@ -35,6 +35,7 @@ export const API_ROUTER_ORDER = [
   "sessionEnvironmentRouter",
   "activityRouter",
   "externalSessionsRouter",
+  "liveTerminalsRouter",
   "checkpointsRouter",
   "goalsRouter",
   "openRouter",

@@ -27,6 +27,7 @@ export const SETTINGS_HOMES: Record<keyof AppSettings, readonly SettingSurface[]
   notifyEvenWhenFocused: ['user-menu/notifications'],
   mutedProjects: ['user-menu/notifications'],
   showBoardRow: ['user-menu/view'],
+  showLiveTerminals: ['user-menu/view'],
   keepLiveSites: ['user-menu/system/performance'],
   sidebarWidth: ['sidebar-column'],
   sidebarCollapsed: ['sidebar-column'],

@@ -234,6 +234,10 @@ fi
 # Claude PTYs the test reconcile then kills (knocking dev sessions dormant).
 # Defaulted (`:-`) so an explicit value from globalSetup still wins.
 export TOPICS_PTY_SOCKET="${TOPICS_PTY_SOCKET:-/tmp/topics-pty-bridge-e2e-${BUN_PORT}.sock}"
+# I terminali fuori da Topics (lib/live-terminals): tmux su un socket del test,
+# Terminal.app spento. Le tab e le sessioni tmux vere non sono del test.
+export TOPICS_TMUX_SOCKET="${TOPICS_TMUX_SOCKET:-$DATA_DIR/tmux.sock}"
+export TOPICS_LIVE_TERMINAL_APP="${TOPICS_LIVE_TERMINAL_APP:-0}"
 # Same isolation for the ai-bridge (stream-json broker) socket, for the same
 # reason: a test server (or an in-test restart) must NEVER derive the cwd-based
 # socket = the PRODUCTION ai-bridge. The broker is ON by default outside Windows

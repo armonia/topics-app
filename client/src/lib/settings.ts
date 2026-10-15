@@ -39,6 +39,8 @@ export const DEFAULT_SETTINGS: AppSettings = {
   // La riga «Board generale» in cima alla sidebar: c'è perché la superficie
   // esiste, non perché oggi ci sia lavoro aperto. Vedi AppSettings.
   showBoardRow: true,
+  // La tendina dei terminali vivi in fondo alle tab. Vedi AppSettings.
+  showLiveTerminals: true,
 };
 
 const STORAGE_KEY = 'app-settings';

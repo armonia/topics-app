@@ -128,6 +128,7 @@ import { SkeletonTopicList } from './components/Shared/Skeleton';
 import { SidebarStatusBar, MobileTransportBand } from './components/Sidebar/SidebarStatusBar';
 import { UnsentContext, useUnsentController } from './state/unsentMessages';
 import { Inbox } from './components/Sidebar/Inbox';
+import { LiveTerminalsMenu } from './components/Shared/LiveTerminalsMenu';
 import { MobileChromeBar } from './components/Sidebar/MobileChromeBar';
 import { shortcut, usesCtrl } from './lib/shortcutLabel';
 import { useSidebarHandleInsets } from './hooks/useSidebarBottomInset';
@@ -1914,7 +1915,11 @@ function App() {
           </div>
 
           {isMobile && (
-            <div className="app-no-drag flex-shrink-0" {...NO_DRAG_REGION}>
+            <div className="app-no-drag flex flex-shrink-0 items-center gap-1.5" {...NO_DRAG_REGION}>
+              {/* La tendina dei terminali vivi: sul desktop sta in fondo alle
+                  tab, ma sul telefono le tab sono la lista e una barra non c'è.
+                  Qui, accanto alla campanella, è a un pollice da remoto. */}
+              {appSettings.showLiveTerminals !== false && <LiveTerminalsMenu variant="header" />}
               <Inbox
                 onWSMessage={onWSMessage}
                 isMobile

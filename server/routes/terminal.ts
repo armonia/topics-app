@@ -46,6 +46,7 @@ import { referencedSessionIdsIn } from "../lib/orphan-sessions";
 import { decideOnRestart } from "../lib/terminal-restart-policy";
 import { recordRetirement } from "../services/retirement";
 import { renderScreen, screenToText } from "../lib/terminal-screen";
+import type { LiveTerminal } from "../lib/live-terminals";
 import type { ClaudeSessionTracker } from "../lib/claude-session-tracker";
 import { writeMcpConfigForSession, cleanupMcpConfigForSession } from "../providers/claude-code";
 import { claudeTranscriptPath } from "../lib/claude-transcript-path";
@@ -1752,6 +1753,45 @@ export function listTerminalSessionSnapshot(): Array<{ id: string; attached: boo
     });
   }
   return out;
+}
+
+/**
+ * Le PTY di Topics nella forma di `lib/live-terminals`, per la lista unica dei
+ * terminali vivi. I sotto-agenti restano fuori: hanno un padre che li guida, e
+ * nella tendina sarebbero righe che nessuno deve pilotare a mano.
+ */
+export function listTopicsLiveTerminals(): LiveTerminal[] {
+  const out: LiveTerminal[] = [];
+  for (const [id, s] of sessions) {
+    if (s.parentSessionKey) continue;
+    out.push({
+      id: `topics:${id}`,
+      source: "topics",
+      title: s.name,
+      command: s.type === "shell" ? "shell" : s.type,
+      cwd: s.cwd || null,
+      tty: null,
+      busy: terminalActivity.get(id)?.busy ?? false,
+      sessionId: id,
+    });
+  }
+  return out;
+}
+
+/** Lo schermo (non lo scrollback) di una PTY di Topics: la stessa resa di `/screen`. */
+export async function readTopicsTerminalScreen(id: string): Promise<string | null> {
+  const sess = sessions.get(id);
+  if (!sess) return null;
+  const screen = await renderScreen(await getTerminalBuffer(id), { cols: sess.cols, rows: sess.rows, trimTrailingBlank: true });
+  return screenToText(screen);
+}
+
+/** Scrive nella PTY come la rotta `/send`. false = la sessione non c'è. */
+export function writeTopicsTerminal(id: string, data: string): boolean {
+  if (!sessions.has(id)) return false;
+  noteTerminalInput(id);
+  sendToBridge({ type: "write", id, data });
+  return true;
 }
 
 export function countAttachedTerminalSessions(): number {

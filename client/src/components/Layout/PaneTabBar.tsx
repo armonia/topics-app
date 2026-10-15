@@ -4,6 +4,8 @@ import { MessageSquare, FolderTree, Globe, Terminal, GitBranch, Activity, BookOp
 import { usePanePendingStatus } from '../../contexts/PendingActionContext';
 import { PendingActionProgressOverlay } from '../Shared/PendingActionProgressOverlay';
 import { PaneAddMenu } from '../Shared/PaneAddMenu';
+import { LiveTerminalsMenu } from '../Shared/LiveTerminalsMenu';
+import { useShowLiveTerminals } from '../../hooks/useShowLiveTerminals';
 import type { Pane, PaneType, PaneGroupType, AttentionTier } from '../../types';
 import { getPaneConfig, getTerminalSessionFromPaneId, isDraftPaneId, pinKeyForPane, sessionKeyForPaneId, type PaneScope } from '../../state/pane/adapters';
 import { isUtilityPanelId } from '../../state/pane/adapters/utilityPanelId';
@@ -32,7 +34,7 @@ import { useTabNotifications } from '../../hooks/useTabNotifications';
 import { useT } from '../../hooks/useT';
 import { TabSlot, TabLabel, ProjectTabLead } from './TabSlot';
 import { useSpawnedBrowserMap } from '../../state/browserSpawner';
-import { TAB_SELECTED_SURFACE, TAB_SELECTED_SURFACE_SOFT, TAB_RESTING_SURFACE, ROW_PX, ROW_GAP, CARD_H, ROW_CARD, CHROME_ROW_ACTION_INSET, CHROME_ROW_ACTION_RESERVE, CHROME_ROW_ACTION_RESERVE_LEFT, TAB_GAP_CLASS, TIER_DONE_BG, TIER_ERROR_BG, TIER_INPUT_BG, attentionSurface, TAB_LABEL } from '../../lib/selectionStyles';
+import { TAB_SELECTED_SURFACE, TAB_SELECTED_SURFACE_SOFT, TAB_RESTING_SURFACE, ROW_PX, ROW_GAP, CARD_H, ROW_CARD, CHROME_ROW_ACTION_INSET, CHROME_ROW_ACTION_RESERVE, CHROME_ROW_ACTION_RESERVE_TWO, CHROME_ROW_ACTION_RESERVE_LEFT, TAB_GAP_CLASS, TIER_DONE_BG, TIER_ERROR_BG, TIER_INPUT_BG, attentionSurface, TAB_LABEL } from '../../lib/selectionStyles';
 import { ensurePaneUsageFresh, formatPaneUsageLine, subscribePaneUsage, getPaneUsageVersion } from '@/lib/paneUsage';
 import { useTopics, useTerminalSessions } from '../../contexts/TopicsContext';
 import {
@@ -818,6 +820,8 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
   // removed; we keep the badges wired up so users still see ⌘N hints, but
   // the indices now reflect the global tab order, not the per-group order.
   const hasMenuItems = onNewChat || availableTypes.length > 0;
+  // La tendina dei terminali vivi sta accanto al «+», dove il «+» c'è.
+  const showLiveTerminals = useShowLiveTerminals() && !!hasMenuItems;
 
   useLayoutEffect(() => {
     const bar = tabBarRef.current;
@@ -853,7 +857,7 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
       if (child !== bar && getComputedStyle(child).position !== 'absolute') observer.observe(child);
     }
     return () => observer.disconnect();
-  }, [className, hasLeftOverlay, hasLeadingBlock, hasMenuItems, panes.length]);
+  }, [className, hasLeftOverlay, hasLeadingBlock, hasMenuItems, showLiveTerminals, panes.length]);
 
   const handleTabClose = (paneId: string) => {
     if (pointerClosePaneRef.current === paneId) {
@@ -1002,7 +1006,7 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
         // comando. È la stessa regola della colonna — «il primo non porta la sua
         // metà perché sopra c'è chi l'ha già messa» — applicata in orizzontale.
         className={`flex-1 min-w-0 ${
-          hasMenuItems ? CHROME_ROW_ACTION_RESERVE : 'pr-1.5'
+          showLiveTerminals ? CHROME_ROW_ACTION_RESERVE_TWO : hasMenuItems ? CHROME_ROW_ACTION_RESERVE : 'pr-1.5'
         } ${
           hasLeftOverlay
             ? CHROME_ROW_ACTION_RESERVE_LEFT
@@ -1678,9 +1682,10 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
           // `bar-action-reveal`: col mouse esce al passaggio sulla barra, col
           // dito resta acceso. Vedi index.css — lo spazio resta riservato in
           // ogni caso, quindi l'ultima tab non balla quando compare.
-          className={`bar-action-reveal raised-control-overlay absolute ${CHROME_ROW_ACTION_INSET} top-1/2 -translate-y-1/2 flex items-center app-no-drag z-10`}
+          className={`bar-action-reveal raised-control-overlay absolute ${CHROME_ROW_ACTION_INSET} top-1/2 -translate-y-1/2 flex items-center gap-1 app-no-drag z-10`}
           {...NO_DRAG_REGION}
         >
+          {showLiveTerminals && <LiveTerminalsMenu />}
           <PaneAddMenu
             scope={addMenuScope}
             onNewChat={onNewChat}

@@ -1643,6 +1643,13 @@ export interface AppSettings {
    * vero: lì il vuoto è informazione.
    */
   showBoardRow: boolean;
+  /**
+   * La tendina dei terminali vivi in fondo alle tab (`LiveTerminalsMenu`): ogni
+   * terminale acceso sul Mac, anche fuori da Topics, da leggere e a cui
+   * scrivere. Accesa di serie: è la porta per pilotare da remoto le sessioni
+   * aperte a mano. Non costa niente da chiusa, interroga solo quando è aperta.
+   */
+  showLiveTerminals: boolean;
 }
 
 // Qui c'erano due descrizioni senza lettori. `ScriptProcess`: la UI degli

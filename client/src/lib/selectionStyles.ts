@@ -905,6 +905,12 @@ export const CHROME_ROW_ACTION_INSET_LEFT = 'left-[6px]';
  */
 export const CHROME_ROW_ACTION_RESERVE = 'pr-[48px] md:pr-[40px]';
 /**
+ * La riserva quando in coda stanno DUE comandi: la tendina dei terminali vivi
+ * e il «+». Un box in più e il passo di 4 fra i due: `48 + 36 + 4` sotto i
+ * 768px, `40 + 28 + 4` sopra.
+ */
+export const CHROME_ROW_ACTION_RESERVE_TWO = 'pr-[88px] md:pr-[72px]';
+/**
  * LO STESSO SPAZIO, SPECCHIATO — e prima non lo era.
  *
  * In testa alla strip sta il comando che riapre la colonna, in coda il «+»:
