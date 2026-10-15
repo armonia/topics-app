@@ -97,6 +97,37 @@ describe("createLiveTerminals", () => {
     expect(rows[1].command).toBe("zsh");
   });
 
+  it("tmux sempre con -u: sotto launchd, senza locale UTF-8, i tab del formato diventano _", async () => {
+    const { run, calls } = fakeRunner({ "tmux list-panes": "%1\ts\t0\t0\t/dev/ttys001\tzsh\t/r\ts\n" });
+    const svc = createLiveTerminals({
+      topics: () => [], topicsScreen: async () => null, topicsSend: () => true,
+      run, sources: { tmux: true, terminal: false }, log: () => {},
+    });
+    await svc.list();
+    await svc.screen("tmux:%1");
+    const tmuxCalls = calls.filter(([f]) => f === "tmux");
+    expect(tmuxCalls.length).toBe(2);
+    for (const [, args] of tmuxCalls) expect(args[0]).toBe("-u");
+  });
+
+  it("Terminal.app che non risponde si salta per un minuto, così la lista non lo aspetta ogni volta", async () => {
+    const { run, calls } = fakeRunner({ osascript: new Error("timed out") });
+    let t = 1_000;
+    const svc = createLiveTerminals({
+      topics: () => [], topicsScreen: async () => null, topicsSend: () => true,
+      run, now: () => t, ttlMs: 0, sources: { tmux: false, terminal: true }, log: () => {},
+    });
+    const asked = () => calls.filter(([f]) => f === "osascript").length;
+    await svc.list({ force: true });
+    expect(asked()).toBe(1);
+    t += 30_000;
+    await svc.list({ force: true });
+    expect(asked()).toBe(1);
+    t += 31_000;
+    await svc.list({ force: true });
+    expect(asked()).toBe(2);
+  });
+
   it("tmux: testo letterale e Invio in due chiamate, così «Enter» scritto resta testo", async () => {
     const { run, calls } = fakeRunner({});
     const svc = createLiveTerminals({

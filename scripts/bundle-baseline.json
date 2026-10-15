@@ -811,12 +811,15 @@
     "because they warm the open panes at boot). No import went from lazy to static.",
     "All three are set to the CI's measured values.",
     "2026-10-15 D2d: ChatPane, TopicTree, PanelGrid and event-only overlays moved behind dynamic imports.",
-    "Measured entry_eager 872,422 raw / 281,160 gz; gz ratchet value 392,156 with the existing 2% tolerance caps the emitted chunk at 399,999 bytes."
+    "Measured entry_eager 872,422 raw / 281,160 gz; gz ratchet value 392,156 with the existing 2% tolerance caps the emitted chunk at 399,999 bytes.",
+    "2026-10-15 live-terminals-launchd: entry_eager raw 872,422 -> 891,324 (CI measure on main 703294a85, +2,2%).",
+    "Over the 2% because of #331: the «Live terminals» branch sits inside the «+» menu and the Topics menu, both eager,",
+    "plus the D5f and D6a growth that fit under the line alone. gz unchanged. No import went from lazy to static."
   ],
   "updated": "2026-10-13",
   "tolerance_pct": 2,
   "entry_eager": {
-    "raw": 872422,
+    "raw": 891324,
     "gz": 392156
   },
   "critical_path": {
