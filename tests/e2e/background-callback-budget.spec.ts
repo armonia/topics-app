@@ -10,7 +10,12 @@ import { hermetic } from './fixtures/hermetic';
 hermetic(test);
 
 const WINDOW_MS = 10_000;
-const MAX_HIDDEN_CALLBACKS = 12;
+/**
+ * Measured 12 in 10 s with the app hidden (clip run 38671941978); the build with the visibility
+ * gate removed measured 620 (run 38671981581). 16 is the measure plus room for one timer's jitter:
+ * a single new 1 Hz poller left awake adds 10 and goes over.
+ */
+const MAX_HIDDEN_CALLBACKS = 16;
 
 interface CallbackProbe {
   count: number;
