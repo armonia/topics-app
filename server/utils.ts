@@ -1011,7 +1011,7 @@ export function createAppContext(baseDir: string): AppContext {
     const guests = guestSocketFilter();
     for (const ws of wsClients) {
       if (ws !== exclude && ws.readyState === 1) {
-        if (guests && isGuestSocket(ws) && !guests.mayReceiveFrame(ws.data.deviceId!, presentedMessage)) continue;
+        if (guests && isGuestSocket(ws) && !guests.mayReceiveFrame(ws.data, presentedMessage)) continue;
         sendFrame(ws, payload, presentedMessage.type);
       }
     }
@@ -1028,7 +1028,7 @@ export function createAppContext(baseDir: string): AppContext {
 
   /** La regola sta in `lib/grants.ts` con le altre del confinamento, e ha un
    *  test: scritta a mano dentro tre cicli sarebbe tre regole che divergono. */
-  const isGuestSocket = (ws: ServerWebSocket<WSData>) => isGuestSocketData(ws.data);
+  const isGuestSocket = (ws: ServerWebSocket<WSData>) => { guestSocketFilter()?.refreshSocketPrincipal?.(ws.data); return isGuestSocketData(ws.data); };
 
   // A row that reaches the windows live carries the size of each picture it
   // draws, like a history page does (`lib/media-size.ts`): the box is there
@@ -1074,7 +1074,7 @@ export function createAppContext(baseDir: string): AppContext {
       if (ws.readyState !== 1) continue;
       if (topicId && !clientReceivesTopicDelta(ws.data, topicId)) continue;
       const guest = guests && isGuestSocket(ws);
-      if (guest && !guests.mayReceiveFrame(ws.data.deviceId!, presentedMessage)) continue;
+      if (guest && !guests.mayReceiveFrame(ws.data, presentedMessage)) continue;
       // Built once per fan-out, and only when a guest is reached.
       sendFrame(ws, guest ? (guestPayload ??= guestPayloadOf(presentedMessage, payload)) : payload, presentedMessage.type);
     }
@@ -1130,7 +1130,7 @@ export function createAppContext(baseDir: string): AppContext {
         osservatori.set(chiave, chi);
       }
       const message = envelopeProgettoPer(chi, type, project);
-      if (guests && isGuestSocket(ws) && !guests.mayReceiveFrame(ws.data.deviceId!, message)) continue;
+      if (guests && isGuestSocket(ws) && !guests.mayReceiveFrame(ws.data, message)) continue;
       let payload = serializzati.get(message.type);
       if (payload === undefined) {
         devValidateOutbound(message);
@@ -1159,7 +1159,7 @@ export function createAppContext(baseDir: string): AppContext {
     let payload: string | null = null;
     for (const ws of wsClients) {
       if (ws.readyState !== 1) continue;
-      if (guests && isGuestSocket(ws) && !guests.mayReceiveFrame(ws.data.deviceId!, message)) continue;
+      if (guests && isGuestSocket(ws) && !guests.mayReceiveFrame(ws.data, message)) continue;
       const deviceId = ws.data.deviceId ?? null;
       // The empty string is not a device id: here it is loopback, the machine.
       const key = deviceId ?? "";
@@ -1223,7 +1223,7 @@ export function createAppContext(baseDir: string): AppContext {
         // Il confinamento vale su OGNI fan-out, non solo su `broadcastToAll`.
         // Qui l'entità è l'argomento, non un campo del frame: si chiede il
         // permesso sul TOPIC, che è la cosa che si sta per consegnare.
-        if (guests && isGuestSocket(ws) && !guests.mayReadTopic(ws.data.deviceId!, topicId)) continue;
+        if (guests && isGuestSocket(ws) && !guests.mayReadTopic(ws.data, topicId)) continue;
         sendFrame(ws, payload, message.type);
       }
     }
@@ -1246,7 +1246,7 @@ export function createAppContext(baseDir: string): AppContext {
       // Interest never grants access: legacy clients (no declared open-set)
       // and focused-topic fallbacks still pass the guest check before send.
       if (!clientReceivesTopicDelta(ws.data, topicId)) continue;
-      if (guests && isGuestSocket(ws) && !guests.mayReadTopic(ws.data.deviceId!, topicId)) continue;
+      if (guests && isGuestSocket(ws) && !guests.mayReadTopic(ws.data, topicId)) continue;
       sendFrame(ws, payload, message.type);
     }
   }

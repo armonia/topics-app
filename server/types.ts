@@ -1,6 +1,7 @@
 import type { ServerWebSocket } from "bun";
 import type { Database } from "bun:sqlite";
 import type { OutboundMessage } from "../shared/ws-outbound";
+import type { Principal } from "./lib/grants-query";
 
 // Re-export so existing imports `from "./types"` keep resolving.
 export type { AskUserQuestionItem, UserInputSchema } from "../shared/types";
@@ -19,8 +20,15 @@ export type { AskUserQuestionItem, UserInputSchema } from "../shared/types";
  * knows the real one.
  */
 export interface GuestBroadcastFilter {
-  mayReceiveFrame: (deviceId: string, message: OutboundMessage) => boolean;
-  mayReadTopic: (deviceId: string, topicId: string) => boolean;
+  refreshSocketPrincipal?: (data: WSData) => void;
+  mayReceiveFrame: (data: WSData, message: OutboundMessage) => boolean;
+  mayReadTopic: (data: WSData, topicId: string) => boolean;
+}
+
+export interface SocketPrincipal {
+  principals: Principal[];
+  confined: boolean;
+  rev: number;
 }
 
 export interface WSData {
@@ -41,18 +49,8 @@ export interface WSData {
    * comes back. See client/src/lib/browserClientId.ts.
    */
   clientId?: string | null;
-  /**
-   * The ROLE of that device, stamped together with the id and for the same
-   * reason: after the upgrade the cookie is no longer readable.
-   *
-   * It exists because without it "has a deviceId" ended up meaning "is a
-   * guest", and that is not true: the upgrade stamps the id of ANY paired
-   * device, owners included. The guest filter therefore applied to the owner's
-   * phone too - which has no grants, because it does not need any - and made
-   * every frame drop for it. Only loopback escaped, for the wrong reason: a
-   * null `deviceId`, not a role.
-   */
-  deviceRole?: 'owner' | 'guest' | null;
+  /** Principal set stamped at upgrade and refreshed when its DB revision changes. */
+  principal?: SocketPrincipal | null;
   /**
    * Is there a network between this socket and its peer? Stamped at upgrade,
    * the only moment the peer address is still available: after that a WebSocket

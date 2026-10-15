@@ -87,9 +87,11 @@ describe("principali · ogni ramo cade verso MENO poteri", () => {
   beforeEach(() => { db = db084(); });
 
   it("un dispositivo sconosciuto è confinato", () => {
-    expect(resolvePrincipals(db, "fantasma")).toEqual({
+    const resolved = resolvePrincipals(db, "fantasma");
+    expect(resolved).toMatchObject({
       list: [{ kind: "device", id: "fantasma" }], personId: null, confined: true,
     });
+    expect(resolved.rev).toBe(principalsRev(db));
   });
 
   it("un dispositivo SENZA persona è confinato", () => {
@@ -181,6 +183,6 @@ describe("principali · schema più vecchio della 084", () => {
     const db = new Database(":memory:");
     db.run(readFileSync(join(RADICE, "server/db/migrations/080-devices.sql"), "utf8"));
     const r = resolvePrincipals(db, "d1");
-    expect(r).toEqual({ list: [{ kind: "device", id: "d1" }], personId: null, confined: true });
+    expect(r).toMatchObject({ list: [{ kind: "device", id: "d1" }], personId: null, confined: true });
   });
 });

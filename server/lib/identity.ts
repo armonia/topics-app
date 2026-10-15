@@ -4,10 +4,10 @@
  * ── PERCHÉ, e non è una pulizia di gusto ────────────────────────────────────
  * La stessa domanda era scritta in TRE punti, e i tre non concordavano:
  *
- *   1. il cancello HTTP — `SELECT * FROM devices WHERE token_hash = ?`, e la
+ *   1. il cancello HTTP — legge le sole colonne del dispositivo, e la
  *      revoca controllata DOPO, nella logica pura;
- *   2. l'upgrade del WebSocket — `SELECT id, role … AND revoked_at IS NULL`, la
- *      revoca filtrata in SQL, e nessun calcolo di persona o organizzazione;
+ *   2. l'upgrade del WebSocket — now it keeps the resolved principal snapshot
+ *      so broadcasts can refresh it when the revision changes;
  *   3. `/api/auth/session` — una terza query ancora, con una forma di risposta
  *      diversa dalle altre due.
  *
@@ -47,6 +47,8 @@ export interface ResolvedIdentity {
   /** Vede solo ciò che gli è stato condiviso. Prudente per costruzione. */
   confined: boolean;
   personId: string | null;
+  /** Revision that produced the principal set. */
+  rev: number;
 }
 
 export interface DelegatedCredentialIdentity {
@@ -83,10 +85,10 @@ export function resolveDelegatedCredential(
 }
 
 const LOCALE: ResolvedIdentity = {
-  locale: true, device: null, principals: [], confined: false, personId: null,
+  locale: true, device: null, principals: [], confined: false, personId: null, rev: 0,
 };
 
-function rowADevice(r: Record<string, unknown>): DeviceRecord {
+function rowADevice(r: Record<string, unknown>, confined: boolean): DeviceRecord {
   return {
     id: String(r.id),
     name: String(r.name),
@@ -95,7 +97,7 @@ function rowADevice(r: Record<string, unknown>): DeviceRecord {
     lastSeenAt: r.last_seen_at === null || r.last_seen_at === undefined ? null : Number(r.last_seen_at),
     firstIp: r.first_ip === null || r.first_ip === undefined ? null : String(r.first_ip),
     revokedAt: r.revoked_at === null || r.revoked_at === undefined ? null : Number(r.revoked_at),
-    role: r.role === "guest" ? "guest" : "owner",
+    role: confined ? "guest" : "owner",
   };
 }
 
@@ -114,36 +116,34 @@ export function resolveIdentity(db: Db, cookieHeader: string | null, locale: boo
   if (locale) return LOCALE;
 
   const token = readSessionCookie(cookieHeader);
-  if (!token) return { locale: false, device: null, principals: [], confined: true, personId: null };
+  if (!token) return { locale: false, device: null, principals: [], confined: true, personId: null, rev: 0 };
 
-  const riga = db.query("SELECT * FROM devices WHERE token_hash = ?")
+  const riga = db.query(`SELECT id, name, token_hash, created_at, last_seen_at, first_ip, revoked_at
+      FROM devices WHERE token_hash = ?`)
     .get(hashToken(token)) as Record<string, unknown> | undefined;
-  if (!riga) return { locale: false, device: null, principals: [], confined: true, personId: null };
-
-  const device = rowADevice(riga);
+  if (!riga) return { locale: false, device: null, principals: [], confined: true, personId: null, rev: 0 };
 
   // Un dispositivo revocato non ha principali: la riga si restituisce perché a
   // valle si possa dire «ti è stato tolto l'accesso» invece di «non ti conosco»,
   // ma non porta con sé nessun potere.
-  if (device.revokedAt !== null) {
-    return { locale: false, device, principals: [], confined: true, personId: null };
+  if (riga.revoked_at !== null) {
+    const device = rowADevice(riga, true);
+    return { locale: false, device, principals: [], confined: true, personId: null, rev: 0 };
   }
 
-  const p: Principals = resolvePrincipals(db, device.id);
+  const p: Principals = resolvePrincipals(db, String(riga.id));
+  const device = rowADevice(riga, p.confined);
   return {
     locale: false,
     device,
     principals: p.list,
-    // Finché `devices.role` è la colonna che comanda, il confinamento resta il
-    // suo. `p.confined` — la regola derivata da persona e proprietà — gli sta
-    // accanto e viene confrontata: divergono in un log, non in un accesso.
-    confined: device.role === "guest",
+    confined: p.confined,
     personId: p.personId,
+    rev: p.rev,
   };
 }
 
-/** Il confinamento come lo calcola il modello NUOVO. Serve al confronto: quando
- *  i due coincideranno stabilmente, `devices.role` potrà sparire (passo 5.4). */
+/** Il confinamento derivato dalla persona e dalla proprietà locale. */
 export function confinamentoDerivato(db: Db, deviceId: string): boolean {
   return resolvePrincipals(db, deviceId).confined;
 }

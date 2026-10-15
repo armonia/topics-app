@@ -49,8 +49,9 @@ function metti(db: Database, orgId: string, personId: string, ruolo = "member"):
 }
 
 function dispositivo(db: Database, id: string, ruolo: string, revocato: number | null = null): void {
-  db.run("INSERT INTO devices (id, name, token_hash, created_at, role, revoked_at) VALUES (?,?,?,1,?,?)",
-    [id, id, `h-${id}`, ruolo, revocato]);
+  const personId = ruolo === "owner" ? proprietario(db) : null;
+  db.run("INSERT INTO devices (id, name, token_hash, created_at, role, revoked_at, person_id) VALUES (?,?,?,1,?,?,?)",
+    [id, id, `h-${id}`, ruolo, revocato, personId]);
 }
 
 describe("recipients · la persona TOLTA da ogni gruppo", () => {

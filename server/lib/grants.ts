@@ -307,10 +307,10 @@ export function isGuestHandshakeFrame(type: string): boolean {
  */
 export function isGuestSocketData(data: {
   deviceId?: string | null;
-  deviceRole?: 'owner' | 'guest' | null;
+  principal?: { confined: boolean } | null;
 }): boolean {
   if (!data.deviceId) return false;
-  return data.deviceRole !== 'owner';
+  return data.principal?.confined !== false;
 }
 
 /**

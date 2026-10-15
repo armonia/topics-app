@@ -66,10 +66,12 @@ sotto, non prima.
 
 - [x] 5.1 `hasGrant(db, principals, …)` al posto di `deviceId`; `ctx.requestIdentity`
   cambia forma.
-- [ ] 5.2 `isGuestSocketData` diventa una lettura del principale; i casi esistenti
-  si riscrivono.
-- [ ] 5.3 Il filtro WS ri-risolve il socket quando il contatore diverge.
-- [ ] 5.4 `devices.role` smette di essere letta da qualunque riga di codice.
+- [x] 5.2 `isGuestSocketData` diventa una lettura del principale; i casi esistenti
+  si riscrivono. Prova: `bun test server/lib/grants.test.ts` → 0.
+- [x] 5.3 Il filtro WS ri-risolve il socket quando il contatore diverge.
+  Prova: `bun test server/lib/socket-principals.test.ts` → 0.
+- [x] 5.4 `devices.role` smette di essere letta da qualunque riga di codice.
+  Prova: `bun test tests/unit/no-device-role-read.test.ts` → 0.
   Nota (card 2c1fe1cf): la PATCH `/api/auth/devices/:id {personId}` ora riscrive
   anche `role` derivandolo da `installation_owners` nella stessa UPDATE, quindi
   l'unico punto runtime che faceva divergere ruolo e proprietà è chiuso. Il passo
