@@ -977,6 +977,16 @@ esattamente quella che deve ricaricarsi.
 - **GIVEN** una chat aperta mentre la connessione era giu'
 - **THEN** alla ri-apertura SHALL essere la sua storia a essere ricaricata
 
+#### Scenario: il server fermo oltre le soglie del battito
+- **GIVEN** una chat aperta con un turno lento in streaming
+- **WHEN** il server resta fermo 100 s, oltre i 75 s del battito client e i 90 s del server, come in uno sleep del Mac, e poi riparte
+- **THEN** la pagina non si ricarica, le pane restano le stesse e il turno arriva fino all'ultimo pezzo, ogni pezzo una volta sola
+
+#### Scenario: il bridge fermo per un minuto
+- **GIVEN** una chat aperta con un turno lento in streaming
+- **WHEN** l'ai-bridge resta fermo 60 s, come quando bridge e server dormono insieme, e poi riparte
+- **THEN** la pagina non si ricarica, le pane restano le stesse e il turno arriva fino all'ultimo pezzo, ogni pezzo una volta sola
+
 ### Requirement: RUNTIME-21: Il watcher del server resta sorvegliato
 
 Quando `TOPICS_SERVER_WATCH=1`, il supervisore di produzione SHALL mantenere
