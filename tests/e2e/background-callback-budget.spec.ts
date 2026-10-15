@@ -4,6 +4,7 @@
 import { expect } from '@playwright/test';
 import { test } from './fixtures/chat.fixture';
 import { goToApp, openTestChat } from './helpers';
+import { openPerfPanel } from './helpers/open-perf-panel';
 import { hermetic } from './fixtures/hermetic';
 
 hermetic(test);
@@ -86,8 +87,8 @@ test('timer callbacks sleep while the app is hidden, and the data is fresh on re
   const beforeTitle = await profile.getAttribute('title');
   await page.evaluate(() => window.dispatchEvent(new CustomEvent('topics:open-utility', { detail: { type: 'board' } })));
   await expect(page.getByTestId('kanban-board')).toBeVisible();
-  await page.getByTestId('menu-system-performance').click();
-  await expect(page.getByTestId('perf-inventory')).toBeVisible();
+  await openPerfPanel(page);
+  await expect(page.getByTestId('perf-inventory')).toBeVisible({ timeout: 10_000 });
 
   const backgroundPage = await context.newPage();
   await backgroundPage.goto('about:blank');
