@@ -20,9 +20,25 @@
 
 ## Trovato e non fatto
 
-- Il file legacy `relay-secret` contiene la vecchia identità condivisa. Al prossimo avvio con questo codice verrà sostituito dalla coppia ECDSA e cambierà il relay ID: i link generati con il vecchio ID richiedono un percorso di rollover. Non ho eseguito la migrazione né riacceso il relay.
+- Il relay ID nuovo viene dalla chiave ECDSA, non dal segreto di prima: i link già generati con il vecchio ID non risolvono più. Prima di riaccendere serve un percorso di rollover. Non ho eseguito la migrazione né riacceso il relay.
 - L'elenco dei riferimenti si sincronizza all'aggancio host e ai ping successivi. Una revoca non aggiorna il DO nello stesso istante; il server host continua a rifiutare la risorsa, ma l'aggancio guest può restare ammesso fino al successivo aggiornamento. Serve un evento immediato dal flusso di revoca.
 
 ## Rifiutato
 
 - `topics_inst` è solo un cookie di instradamento, non una credenziale: non concede accesso. Il contract continua a vietare cookie di sessione, chiavi link e credenziali Topics.
+
+## Correzioni dopo la consegna
+
+- **L'identità vive in `relay-identity.json`.** Il giro 1 riscriveva `relay-secret` a ogni avvio, anche a relay spento, e cancellava il segreto dello schema di prima. Ora quel file resta com'era. Test `server/services/relay-config.test.ts`: il segreto vecchio resta identico e la nuova identità sopravvive a un riavvio.
+- **Orologio in anticipo.** La prova era rifiutata se il suo istante superava `now`: un Mac avanti di un secondo rispetto al Worker veniva respinto. Tolleranza `HOST_PROOF_MAX_SKEW_MS = 30_000`; la validità resta 60 s all'indietro.
+- **Mutazioni, copia scratch:** nome del file riportato a `relay-secret` → `relay-config.test.ts` exit 1, 0 pass 1 fail; controllo `timestamp > now` senza tolleranza → `relay-identita.test.ts` exit 1, 3 pass 1 fail.
+
+## Giro 2 di correzioni: i cancelli e ciò che i test non vedevano
+
+- **Il client firmava un segnaposto nei test.** Con `apriSocket` iniettata mandava `"test-proof"`: ogni test del client si agganciava con un'intestazione che nessun relay accetta, e nessuno se ne accorgeva. Ora firma sempre. `SEGRETO_FINTO` è una chiave P-256 vera, senza autorità su niente: il relay finto non verifica e nessuna installazione risponde al suo nome. Test nuovo: l'intestazione dell'aggancio passa `verifyHostProof`. Mutante col segnaposto rimesso: 1 rosso.
+- **Una formula sola.** Payload, codifica della prova e derivazione del nome stanno in `shared/relay-identita.ts`; il firmatario sincrono del client (`node:crypto`, perché `collega()` è sincrona) li usa invece di riscriverli.
+- **I rifiuti di `gestisci` non arrivavano ai loro rami.** Il test mandava un `ref` diverso da quello del link: scaduto e revocato finivano tutti in «non trovato». Ora ognuno è chiesto col suo `ref` e la sua chiave. Mutanti: controllo della scadenza tolto → 1 rosso; controllo della revoca tolto → 1 rosso.
+- **`relay-proxy.test.ts` era rosso sul commit di Codex**, fuori dalla barra del giro 1: cercava la risposta per posizione, e dopo `ready` la macchina dichiara anche i riferimenti. Ora la cerca per tipo.
+- **La pagina ospite** prende versione e motivi di rifiuto dal protocollo: una lista copiata avrebbe chiuso la socket su un motivo nuovo.
+- **Cancelli.** `check:identifier-language`: i nomi nuovi sono in inglese, la baseline scende di 9 nomi. `check:spec-coverage` e `check:untraced-tests`: RELAY-E2E-12 descriveva ancora il segreto mandato in chiaro; riscritto sulla firma che scade, con `@covers` su `relay-identita.test.ts` e `relay-config.test.ts`.
+- **Barra:** `bun test relay/ server/services/relay-client.test.ts server/services/relay-config.test.ts shared/relay-identita.test.ts server/services/relay-proxy.test.ts server/services/relay-proxy-ws.test.ts server/services/relay-sessioni.test.ts` exit 0, 205 pass; `bun run typecheck` exit 0; `bun run lint` exit 0.
