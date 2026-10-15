@@ -460,3 +460,8 @@ mem-samples.json.tmp
 swap-freeze.json
 swap-freeze.json.tmp
 output/
+
+# Native addon build outputs and its isolated Cargo home.
+/native/.cargo-home/
+/native/target/
+/native/topics_native.node

@@ -58,3 +58,11 @@ Sempre in una copia, mai nel file vero. Ognuna deve far diventare rosso il test 
 - Al ritorno visibile un dato aggiornato mentre la pagina era nascosta compare entro 1 secondo.
 - L'e2e stampa il metodo di background, il conteggio e le prime sorgenti client; la misura iniziale
   sul codice pre-fix deve superare il tetto.
+
+## 5. D3b, addon dentro il binario
+
+### Requirement: D3B-01 — il modulo N-API si carica nel server compilato
+
+Il server compilato carica il modulo N-API incorporato e stampa versione e commit di HEAD con
+`--native-selftest`. `server/lib/native-addon.test.ts` copre anche il modulo assente, un repository
+normale, una worktree collegata e una cartella non Git.

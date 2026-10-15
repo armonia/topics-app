@@ -1119,8 +1119,27 @@ jobs:
     steps:
       - uses: actions/checkout@v5
 
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: .bun-version
+
+      - name: Setup Node
+        uses: actions/setup-node@v5
+        with:
+          node-version: 20
+
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
+
+      - name: Install server dependencies
+        run: bun install --frozen-lockfile --ignore-scripts
+
+      - name: Rebuild node-pty
+        run: npm rebuild node-pty
+
+      - name: Restore node-pty executable bits
+        run: bun run scripts/fix-node-pty-exec-bit.ts
 
       # webkit2gtk-sys e i suoi vicini si configurano con pkg-config: senza
       # queste, il crate Linux non arriva nemmeno a compilare.
@@ -1138,7 +1157,31 @@ jobs:
           workspaces: |
             desktop-tauri/src-tauri
             desktop-tauri/pty-bridge
+            native
           key: ${{ matrix.os }}
+
+      - name: Build native addon
+        shell: bash
+        run: scripts/build-native-addon.sh
+
+      - name: Install Bun x64 compile runtime
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          npm install --prefix "$RUNNER_TEMP/bun-x64" --no-save --force "@oven/bun-darwin-x64@$(cat .bun-version)"
+          echo "BUN_DARWIN_X64_EXECUTABLE=$RUNNER_TEMP/bun-x64/node_modules/@oven/bun-darwin-x64/bin/bun" >> "$GITHUB_ENV"
+
+      - name: Build server sidecar
+        shell: bash
+        run: |
+          case "${{ runner.os }}" in
+            macOS) scripts/build-server-sidecar.sh macos; BIN=desktop-tauri/src-tauri/binaries/topics-server-universal-apple-darwin ;;
+            Windows) scripts/build-server-sidecar.sh windows; BIN=desktop-tauri/src-tauri/binaries/topics-server-x86_64-pc-windows-msvc.exe ;;
+            Linux) scripts/build-server-sidecar.sh linux; BIN=desktop-tauri/src-tauri/binaries/topics-server-x86_64-unknown-linux-gnu ;;
+          esac
+          mv native/topics_native.node native/topics_native.node.embedded-test
+          trap 'mv native/topics_native.node.embedded-test native/topics_native.node' EXIT
+          "$BIN" --native-selftest
 
       # tauri-build validates that every externalBin resource EXISTS for the
       # host triple even under `cargo check` (it only reads their bytes in
