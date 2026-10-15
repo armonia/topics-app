@@ -2598,6 +2598,10 @@ const IT: Dict = {
   //    chiave: i titoli si compongono per concatenazione e mescolare pezzi
   //    tradotti con pezzi in chiaro darebbe una frase mezza e mezza.
   'perf.na': 'n/d',
+  'perf.spawns.line': 'Processi avviati negli ultimi {min} min: {rows}',
+  'perf.spawns.gitStatus': 'stato Git',
+  'perf.spawns.other': 'altri',
+  'perf.spawns.none': 'Nessun processo avviato',
   'perf.serverTitleFleet': 'Somma RSS dei {n} processi lato server: server Bun',
   'perf.serverTitleRoot': ' + {kind} ({procs} proc., {mb} MB)',
   'perf.serverTitleHeap': ' · heap del server {mb} MB',

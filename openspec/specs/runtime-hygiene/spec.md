@@ -1195,7 +1195,7 @@ il dato cambiato mentre la finestra era nascosta compare entro 1 s.
 - **WHEN** la finestra torna in primo piano
 - **THEN** il dato nuovo compare entro 1 s
 
-### Requirement: RUNTIME-23 — I processi periodici hanno un lettore e un contatore
+### Requirement: RUNTIME-24 — I processi periodici hanno un lettore e un contatore
 
 Il server SHALL contare gli spawn periodici degli ultimi 15 minuti per causa:
 ricalcolo Git e innesco, fetch, `lsof`, `vm_stat` e gli altri sondaggi periodici.

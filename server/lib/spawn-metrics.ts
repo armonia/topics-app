@@ -1,4 +1,4 @@
-/** Conteggi dei processi periodici lanciati dal server, ultimi 15 minuti. */
+/** Counts of the periodic processes the server starts, over the last 15 minutes. */
 export type SpawnMetricKind = "gitStatus" | "gitFetch" | "lsof" | "vmStat" | "other";
 export type SpawnMetricCause = string;
 

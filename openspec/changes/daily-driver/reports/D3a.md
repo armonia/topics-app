@@ -10,7 +10,7 @@
 - Il watcher ignora `FETCH_HEAD` e segue `HEAD`, indice, `packed-refs` e ref. `bun test server/git-watcher.test.ts -t "fetching without ref changes|only Git paths"`: exit 0, 2 pass, 13 assert; fetch ripetuto senza ref cambiati: exit 0.
 - Il detector delle porte si sveglia alla richiesta del pannello Processi e non lancia `lsof` quando la vista è inattiva: `bun test server/routes/process-runtime-cost.test.ts`, exit 0, 4 pass, 25 assert, `lsofSpawns: 0`. Le verifiche cwd dei ghost script persistenti sono limitate a 30/ora. I contatori recenti per Git e innesco, fetch, `lsof`, `vm_stat` e altri spawn sono esposti da `/api/system/status` e mostrati nel pannello Prestazioni in italiano.
 - Rimossa la scansione `ps` dei processi CPU top da `/api/system/status`: il client non leggeva quel campo. Anche gli indirizzi in ascolto sono tolti da questa rotta; i lettori restano nei percorsi Processi che li usano.
-- `scripts/measure-server-spawns.py` aggiunto con uso e vincolo macOS. Parsing Python: exit 0. Requisito RUNTIME-23 aggiunto.
+- `scripts/measure-server-spawns.py` aggiunto con uso e vincolo macOS. Parsing Python: exit 0. Requisito RUNTIME-24 aggiunto (RUNTIME-23 è di D2a).
 - `bun run typecheck`: exit 0, 5 sottocheck verdi. `bun run lint`: exit 0, 0 errori e 4 warning preesistenti in file non toccati.
 
 ## Trovato e non fatto

@@ -1,3 +1,6 @@
+/**
+ * @covers RUNTIME-24
+ */
 import { describe, expect, test } from "bun:test";
 import { recordServerSpawn, serverSpawnCounts } from "./spawn-metrics";
 

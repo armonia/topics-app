@@ -36,19 +36,19 @@ import { describe, test, expect, beforeEach, afterEach } from "bun:test";
 import { mkdtempSync, rmSync, writeFileSync, existsSync, statSync, readFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
-import { gitPathAffectsStatus, refreshGitStatus, watchGitDir, unwatchGitDir } from "./git-watcher";
+import { gitChangeDebouncer, gitPathAffectsStatus, refPathAffectsStatus, refreshGitStatus, watchGitDir, unwatchGitDir } from "./git-watcher";
 import type { AppContext } from "./types";
 import { gitEnv } from "../tests/setup/bun-test-preload";
-import { invalidateGitCache, readGitStatusCache } from "./lib/git-status-cache";
+import { gitStatusGeneration, invalidateGitCache, readGitStatusCache } from "./lib/git-status-cache";
 
 /** `git` with the machine's own config (hooks, signing) kept out — see the preload. */
-function git(cwd: string, ...args: string[]): { code: number; out: string } {
+function git(cwd: string, ...args: string[]): { code: number; out: string; err: string } {
   const r = Bun.spawnSync(["git", "-C", cwd, ...args], {
     stdout: "pipe",
     stderr: "pipe",
     env: gitEnv({ GIT_AUTHOR_NAME: "T", GIT_AUTHOR_EMAIL: "t@t", GIT_COMMITTER_NAME: "T", GIT_COMMITTER_EMAIL: "t@t" }),
   });
-  return { code: r.exitCode, out: new TextDecoder().decode(r.stdout).trim() };
+  return { code: r.exitCode, out: new TextDecoder().decode(r.stdout).trim(), err: new TextDecoder().decode(r.stderr).trim() };
 }
 
 type Envelope = { type: string; projectPath: string; status: { branch: string; ahead: number; behind: number; files: { path: string; status: string }[] }; worktreeId?: string };
@@ -122,6 +122,41 @@ describe("WORKTREE-05 — the watcher speaks for the worktree, not for its paren
     expect(git(repo, "fetch", "--all", "--prune").out).toBe("");
     expect(git(repo, "show-ref").out).toBe(refsBefore);
     expect(await until(() => sent.length > 0, 900)).toBe(false);
+  });
+
+  test("a fetch that moves a remote ref publishes the new status, and says so on stderr", async () => {
+    const other = join(root, "other");
+    expect(git(root, "clone", origin, other).code).toBe(0);
+    writeFileSync(join(other, "NEWS.md"), "news\n");
+    git(other, "add", "-A");
+    git(other, "commit", "-m", "from elsewhere");
+    expect(git(other, "push", "origin", "main").code).toBe(0);
+    watch(repo);
+    sent.length = 0;
+    // The fetch route invalidates only when this is non-empty, and an empty fetch prints nothing.
+    expect(git(repo, "fetch", "--all", "--prune").err).toContain("origin/main");
+    expect(git(repo, "fetch", "--all", "--prune").err).toBe("");
+    expect(await until(() => sent.some((env) => env.status.behind === 1))).toBe(true);
+  });
+
+  test("a lock file under refs is not a change, the ref it becomes is", () => {
+    expect(refPathAffectsStatus("remotes/origin/HEAD.lock")).toBe(false);
+    expect(refPathAffectsStatus("remotes/origin/main")).toBe(true);
+    expect(refPathAffectsStatus(null)).toBe(true);
+  });
+
+  test("a burst of events refreshes once, for the generation of the last event", async () => {
+    const generations: number[] = [];
+    let done!: () => void;
+    const refreshed = new Promise<void>((resolve) => { done = resolve; });
+    const debouncer = gitChangeDebouncer(repo, (generation) => { generations.push(generation); done(); }, 20);
+    debouncer.onChange();
+    // What a reader arriving between the two events holds: the refresh must not join its round.
+    const betweenEvents = gitStatusGeneration(repo);
+    debouncer.onChange();
+    await refreshed;
+    expect(generations).toEqual([gitStatusGeneration(repo)]);
+    expect(generations[0]).toBeGreaterThan(betweenEvents);
   });
 
   test("only Git paths read by the status trigger a refresh", () => {

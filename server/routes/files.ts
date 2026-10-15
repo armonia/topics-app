@@ -905,7 +905,9 @@ export function createFilesRouter(ctx: AppContext): RouteHandler {
         // Il fetch muove le ref remote-tracking: lo stato in cache è vecchio di
         // un istante. Senza questa riga i nuovi `behind` si vedrebbero solo al
         // prossimo giro di cache (5s) o al prossimo colpo del watcher.
-        invalidateGitCache(resolvedDir);
+        // Only when a ref moved: git prints each update on stderr and nothing
+        // for a fetch that brought nothing, which was a full round per autofetch.
+        if (r.stderr.trim()) invalidateGitCache(resolvedDir);
         return json({ ok: true, output: r.stdout || r.stderr });
       } catch (err: any) { return json({ error: "Fetch error: " + err.message }, 500); }
     }

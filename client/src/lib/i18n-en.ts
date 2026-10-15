@@ -2312,6 +2312,10 @@ const EN = {
   // ── Performance panel.
   'perf.na': 'n/a',
   'perf.cpuTotal': '{pct}% CPU',
+  'perf.spawns.line': 'Processes started in the last {min} min: {rows}',
+  'perf.spawns.gitStatus': 'Git status',
+  'perf.spawns.other': 'other',
+  'perf.spawns.none': 'No process started',
   'perf.serverTitleFleet': 'Summed RSS of the {n} server-side processes: Bun server',
   'perf.serverTitleRoot': ' + {kind} ({procs} proc., {mb} MB)',
   'perf.serverTitleHeap': ' · server heap {mb} MB',
