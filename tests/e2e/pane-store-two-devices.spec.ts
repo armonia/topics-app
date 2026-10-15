@@ -122,9 +122,10 @@ test.describe("@nightly D7f pane-store tra dispositivi", () => {
         await route.continue();
       });
       await goToApp(returningPage);
-      await expect(tabFor(returningPage, topic.id)).toHaveCount(0, { timeout: 10_000 });
 
-      // localStorage changes only after hydration applies the tombstone to the stale snapshot.
+      // localStorage changes only after hydration applies the tombstone to the
+      // stale snapshot. Checked FIRST: before hydration no tab is drawn yet,
+      // and a "no tab" check passes there whatever the rule does.
       await expect.poll(async () => returningPage.evaluate(({ key, id }) => {
         const raw = localStorage.getItem(key);
         if (!raw) return true;
@@ -134,6 +135,7 @@ test.describe("@nightly D7f pane-store tra dispositivi", () => {
         timeout: 10_000,
         message: "l'idratazione deve sostituire lo snapshot locale stantio",
       }).toBe(true);
+      await expect(tabFor(returningPage, topic.id)).toHaveCount(0, { timeout: 10_000 });
       expect(resurrectingPuts, "B non deve rimandare al server la chat chiusa").toEqual([]);
 
       await devices.pageA.reload();
