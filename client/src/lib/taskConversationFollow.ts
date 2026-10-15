@@ -1,5 +1,5 @@
 /** Whether a scroll event may change the reader's explicit follow choice. */
-export function shouldReevaluateTaskConversationFollow(input: {
+export function followChoiceMayChange(input: {
   wasFollowing: boolean;
   viewportResized: boolean;
   contentGrew: boolean;
