@@ -26,9 +26,13 @@
   `fullsnapshot-rebuilded`; la e2e ora chiede un nuovo snapshot completo all'host, scorre la pagina
   sul Mac e controlla che il frame del mirror e il segnaposto salgano entrambi.
 
-## Trovato e non fatto
+## Prove in CI
 
-- Esecuzione della nuova E2E e video: la policy locale vieta le E2E sul Mac; resta al job CI «Clip di consegna». 
+- Clip di consegna sul ramo con le due correzioni: verde (run 38780155217).
+- Mutante senza il riarmo dello scroll (ramo usa e getta, poi cancellato): rosso proprio sul
+  segnaposto che segue lo scroll, `Expected: < 70, Received: 90`, mentre il frame del mirror era
+  salito (run 38780172896).
+- La prima e2e, prima delle correzioni: rossa, 0 segnaposti invece di 1 (run 38775122629).
 
 ## Rifiutato
 
