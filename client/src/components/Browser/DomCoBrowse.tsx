@@ -47,7 +47,8 @@
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useT } from '../../hooks/useT';
-import { Loader2 } from 'lucide-react';
+import { useDomCoBrowseTouch } from '../../hooks/useDomCoBrowseTouch';
+import { ArrowLeft, ArrowRight, Loader2 } from 'lucide-react';
 import { Replayer } from 'rrweb';
 import 'rrweb/dist/rrweb.min.css';
 import { BrowserPaneChip } from './BrowserPaneChip';
@@ -61,7 +62,7 @@ import { prefixRoutedResources } from '../../lib/domResourceBase';
 import { forgetHandedOver, parkClock, stopClock, wakeClock } from '../../lib/mirrorClock';
 import { canObserveDocument, createImageDeferral, watchDeferredImages } from '../../lib/mirrorImages';
 import { aimTap, anchorOf, forOwnLayout, mirrorDocument, anchorPlacer, type ScrollAnchor } from '../../lib/mirrorLayout';
-import { createEchoHold, flingVelocity, scrollKeepingFractions, scrollTargetAt } from '../../lib/mirrorScroll';
+import { createEchoHold, scrollKeepingFractions, scrollTargetAt } from '../../lib/mirrorScroll';
 import { serverHttpBase } from '../../lib/shell/net';
 import { CrossOriginFrameOverlay } from './CrossOriginFrameOverlay';
 
@@ -75,8 +76,6 @@ const IDLE_PARK_MS = 400;
 
 /** Coalesce relayed scroll deltas at this cadence (ms) so we don't flood the WS. */
 const SCROLL_RELAY_INTERVAL = 60;
-/** Below this touch travel a touch is treated as a tap (→ click), not a scroll. */
-const TAP_SLOP = 8;
 /** How long after a relayed tap a click is that tap's synthesized echo. */
 const ECHO_CLICK_WINDOW_MS = 800;
 /** A fling slows down like one on iOS (UIScrollView's normal rate, per ms)... */
@@ -95,6 +94,8 @@ interface Props {
   registerFocusSink: (cb: (field: RemoteField | null) => void) => () => void;
   /** Relay input to the source page (page-CSS px). */
   sendInput: SendInput;
+  goBack: () => void;
+  goForward: () => void;
   /** Agent lock — while true, this viewer's input is suppressed (take-control parity). */
   agentActive: boolean;
   /** Hands the pane a reader of the mirror's document: the pane's finder
@@ -106,7 +107,7 @@ interface Props {
   ownLayout?: boolean;
 }
 
-export default function DomCoBrowse({ registerDomSink, registerFocusSink, sendInput, agentActive, exposeMirrorDocument, ownSize, ownLayout = false }: Props) {
+export default function DomCoBrowse({ registerDomSink, registerFocusSink, sendInput, goBack, goForward, agentActive, exposeMirrorDocument, ownSize, ownLayout = false }: Props) {
   const tr = useT();
   const rootRef = useRef<HTMLDivElement | null>(null);
   const overlayRef = useRef<HTMLDivElement | null>(null);
@@ -147,7 +148,6 @@ export default function DomCoBrowse({ registerDomSink, registerFocusSink, sendIn
   const scrollAccRef = useRef<{ dx: number; dy: number; x: number; y: number; timer: ReturnType<typeof setTimeout> | null }>(
     { dx: 0, dy: 0, x: 0, y: 0, timer: null },
   );
-  const touchRef = useRef<{ x: number; y: number; travel: number; moves: { t: number; dx: number; dy: number }[] } | null>(null);
   /**
    * This device scrolling the mirror itself (BROWSER-DOM-SCROLL-01): the element
    * it scrolls, where it means it to be (the fractions WebKit drops), whether it
@@ -374,7 +374,7 @@ export default function DomCoBrowse({ registerDomSink, registerFocusSink, sendIn
     kbdRef.current?.focusForField(el, { requireField: requireField && readable });
   }, [toSource, mirrorElementAt]);
 
-  // ── Pointer / wheel / touch on the overlay ───────────────────────────────────
+  // ── Pointer and wheel on the overlay, touch across the viewer ────────────────
   const onPointerDown = useCallback((e: React.PointerEvent) => {
     if (selectingRef.current) return;
     // Col dito decide onTouchStart: lì sappiamo che è un tocco, e col tocco la
@@ -419,65 +419,34 @@ export default function DomCoBrowse({ registerDomSink, registerFocusSink, sendIn
     queueScrollRelay(dx, dy, c.x, c.y);
   }, [toSource, queueScrollRelay, scrollMirrorBy, stopFling, echoHold]);
 
-  const onTouchStart = useCallback((e: React.TouchEvent) => {
-    if (selectingRef.current) return;
-    const t = e.touches[0];
-    // A finger down stops a fling, and its own gesture scrolls what is under it.
+  const prepareTouch = useCallback(() => {
     stopFling();
     localScrollRef.current.target = null;
-    // Il fuoco va preso DENTRO il gesto, o iOS non apre la tastiera: quindi qui,
-    // non al touchend. Ed è vestito sul campo toccato — è tutto il punto.
-    if (t) {
-      focusKbdAt(t.clientX, t.clientY, true);
-      touchRef.current = { x: t.clientX, y: t.clientY, travel: 0, moves: [] };
-    }
-    rootRef.current?.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
-  }, [focusKbdAt, stopFling]);
-
-  const onTouchMove = useCallback((e: React.TouchEvent) => {
-    if (selectingRef.current) return;
-    const prev = touchRef.current;
-    const t = e.touches[0];
-    if (!prev || !t) return;
-    // Natural scroll: dragging content DOWN scrolls the page UP → invert. In
-    // source px, so the content stays under the finger here and there.
-    const s = scaleRef.current || 1;
-    const dx = (prev.x - t.clientX) / s;
-    const dy = (prev.y - t.clientY) / s;
-    prev.travel += Math.abs(prev.x - t.clientX) + Math.abs(prev.y - t.clientY);
-    prev.x = t.clientX;
-    prev.y = t.clientY;
-    // The digitizer's time: a busy main thread runs handlers late and bunched.
-    prev.moves.push({ t: e.timeStamp, dx, dy });
-    if (prev.moves.length > 16) prev.moves.shift();
-    const c = toSource(t.clientX, t.clientY) || { x: dimsRef.current.w / 2, y: dimsRef.current.h / 2 };
-    if (!agentActiveRef.current) scrollMirrorBy(dx, dy, c.x, c.y);
-    queueScrollRelay(dx, dy, c.x, c.y);
-  }, [toSource, queueScrollRelay, scrollMirrorBy]);
-
-  const onTouchEnd = useCallback((e: React.TouchEvent) => {
-    if (selectingRef.current || agentActiveRef.current) { touchRef.current = null; return; }
-    const prev = touchRef.current;
-    touchRef.current = null;
-    if (!prev) return;
-    if (prev.travel > TAP_SLOP) {
-      // A swipe, not a tap: what the finger was doing carries on.
-      const { vx, vy } = flingVelocity(prev.moves, e.timeStamp);
-      const c = toSource(prev.x, prev.y) || { x: dimsRef.current.w / 2, y: dimsRef.current.h / 2 };
-      if (Math.hypot(vx, vy) > FLING_STOP_SPEED) startFling(vx, vy, c.x, c.y);
-      return;
-    }
-    const t = e.changedTouches[0];
-    if (!t) return;
-    const c = toSource(t.clientX, t.clientY);
-    const aimed = c && aimAt(c);
+  }, [stopFling]);
+  const relayTouchTap = useCallback((x: number, y: number) => {
+    const point = toSource(x, y);
+    const aimed = point && aimAt(point);
     if (!aimed) return;
     sendInput('click', { ...aimed, button: 'left' });
     lastTapRelayRef.current = performance.now();
-    // No synthesized mousedown + click for this tap: the click is relayed, and
-    // the mousedown would take the focus from the keyboard capture.
-    if (e.cancelable) e.preventDefault();
-  }, [toSource, sendInput, startFling, aimAt]);
+  }, [toSource, aimAt, sendInput]);
+  const touchHandlers = useDomCoBrowseTouch({
+    getRoot: () => rootRef.current,
+    getOverlay: () => overlayRef.current,
+    isSelecting: () => selectingRef.current,
+    isAgentActive: () => agentActiveRef.current,
+    focusKbdAt,
+    prepareTouch,
+    getScale: () => scaleRef.current,
+    getDims: () => dimsRef.current,
+    toSource,
+    scrollMirrorBy,
+    queueScrollRelay,
+    startFling,
+    relayTap: relayTouchTap,
+    goBack,
+    goForward,
+  });
 
   // ── Option/Alt hold → native local selection in the mirror ───────────────────
   // The mirror iframe is made interactive ONCE (enableInteract) but sits UNDER the
@@ -726,7 +695,15 @@ export default function DomCoBrowse({ registerDomSink, registerFocusSink, sendIn
   }, [registerDomSink, applyScale, attachNavGuard, echoHold]);
 
   return (
-    <div ref={rootRef} className="topics-dom-cobrowse relative h-full w-full overflow-hidden bg-app-bg" style={{ isolation: 'isolate' }}>
+    <div
+      ref={rootRef}
+      className="topics-dom-cobrowse relative h-full w-full overflow-hidden bg-app-bg"
+      style={{ isolation: 'isolate' }}
+      onTouchStart={touchHandlers.onTouchStart}
+      onTouchMove={touchHandlers.onTouchMove}
+      onTouchEnd={touchHandlers.onTouchEnd}
+      onTouchCancel={touchHandlers.onTouchCancel}
+    >
       {/* Hide rrweb's REPLAYED cursor: liveMode paints a `.replayer-mouse` dot that
           chases the source page's CDP mouse — in co-browse the local user drives
           with their OWN native cursor, so the replayed one is only round-trip lag. */}
@@ -750,11 +727,20 @@ export default function DomCoBrowse({ registerDomSink, registerFocusSink, sendIn
         onClick={onClick}
         onContextMenu={onContextMenu}
         onWheel={onWheel}
-        onTouchStart={onTouchStart}
-        onTouchMove={onTouchMove}
-        onTouchEnd={onTouchEnd}
       />
       <CrossOriginFrameOverlay rootRef={rootRef} replayerRef={replayerRef} pageUrl={sourceUrl} active={painted} />
+
+      {touchHandlers.arrow && !selecting && !agentActive && (
+        <div
+          aria-hidden="true"
+          data-testid="browser-edge-swipe-arrow"
+          data-ready={touchHandlers.arrow.ready}
+          className={`pointer-events-none absolute z-[8] -translate-x-1/2 -translate-y-1/2 rounded-full border p-2 shadow ${touchHandlers.arrow.ready ? 'border-app-accent bg-app-accent text-white' : 'border-app-border bg-app-bg/95 text-app-text'}`}
+          style={{ left: touchHandlers.arrow.x, top: touchHandlers.arrow.y }}
+        >
+          {touchHandlers.arrow.direction === 'back' ? <ArrowLeft size={24} /> : <ArrowRight size={24} />}
+        </div>
+      )}
 
       {/* Local text-selection mode indicator (Option toggles it). While active the
           overlay yields to the interactive mirror so text is natively selectable. */}
