@@ -3,6 +3,7 @@ import { createTopic, deleteTask, deleteTopic, resetPaneStore } from "./helpers/
 import { goToApp } from "./helpers";
 import { E2E_BASE, testServerEnv } from "./helpers/test-server";
 import { seedTranscript } from "./helpers/seed-transcript";
+import { wheelUpUntilVisible } from "./helpers/wheel-scroll";
 import { canonicalTmpDir, removeTmpDir } from "./helpers/file-project";
 import { projectIdForPath } from "../../shared/board";
 import { COLUMN_PAGE } from "../../client/src/lib/boardOrder";
@@ -30,14 +31,25 @@ async function createTask(request: Parameters<typeof createTopic>[0], status: "b
   }
 }
 
-async function waitForRest(page: import("@playwright/test").Page, topicId: string) {
-  const list = page.locator(`[data-pane-shell="${topicId}"] [data-testid="chat-message-list"]`);
-  await expect(list).toHaveAttribute("data-history", "complete", { timeout: 120_000 });
-  await expect.poll(() => list.evaluate((el) => {
-    const node = el as HTMLElement;
-    return node.scrollHeight - node.clientHeight - node.scrollTop < 8;
-  }), { timeout: 30_000 }).toBe(true);
-  await expect.poll(() => page.evaluate(() => document.documentElement.getAnimations({ subtree: true }).every((animation) => animation.playState !== "running")), { timeout: 30_000 }).toBe(true);
+async function readWholeThreadThenRest(page: import("@playwright/test").Page, topicId: string) {
+  const scroller = `[data-pane-shell="${topicId}"] [data-testid="chat-message-list"]`;
+  const list = page.locator(scroller);
+  // Since the tail-first open (shared/history-paging.ts) a pane holds the last
+  // page and merges the rest as the reader heads up, as bench-streaming says:
+  // without the climb the 2,000 messages are forty rows, and a list that drew
+  // every row would pass too.
+  await wheelUpUntilVisible(page, page.locator(`${scroller}[data-history="complete"]`), 120, scroller);
+  await expect(page.locator(`[data-pane-shell="${topicId}"]`).getByTestId("chat-load-older")).toHaveCount(0, { timeout: 120_000 });
+  // Back down with the wheel, the way the reader comes back to the end.
+  const atBottom = () => list.evaluate((el) => el.scrollHeight - el.clientHeight - el.scrollTop < 8);
+  for (let i = 0; i < 120 && !(await atBottom()); i++) {
+    await page.mouse.wheel(0, 8000);
+    await page.evaluate(() => new Promise((r) => requestAnimationFrame(() => r(null))));
+  }
+  await expect.poll(atBottom, { timeout: 30_000 }).toBe(true);
+  // A spinner that never ends adds no nodes: only finite animations must be over.
+  await expect.poll(() => page.evaluate(() => document.documentElement.getAnimations({ subtree: true })
+    .every((animation) => animation.playState !== "running" || animation.effect?.getComputedTiming().iterations === Infinity)), { timeout: 30_000 }).toBe(true);
 }
 
 async function recordBudget(page: import("@playwright/test").Page, testInfo: import("@playwright/test").TestInfo, label: string) {
@@ -106,7 +118,7 @@ test.describe.serial("DOM node budget @nightly", () => {
     await resetPaneStore(request, [topic.id]);
     await goToApp(page);
     await expect(page.locator(`[data-pane-shell="${topic.id}"]`)).toBeVisible();
-    await waitForRest(page, topic.id);
+    await readWholeThreadThenRest(page, topic.id);
     await recordBudget(page, testInfo, "transcript");
   });
 
@@ -116,7 +128,7 @@ test.describe.serial("DOM node budget @nightly", () => {
     await goToApp(page);
     await expect(page.getByTestId("kanban-board")).toBeVisible({ timeout: 30_000 });
     await expect(page.locator(`[data-pane-shell="${topic.id}"]`)).toBeVisible();
-    await waitForRest(page, topic.id);
+    await readWholeThreadThenRest(page, topic.id);
     await expect(page.getByTestId("kanban-column-body-backlog").locator("[data-task-card]")).toHaveCount(1_155, { timeout: 120_000 });
     await expect(page.getByTestId("kanban-column-body-todo").locator("[data-task-card]")).toHaveCount(21, { timeout: 30_000 });
     await expect(page.getByTestId("kanban-column-body-review").locator("[data-task-card]")).toHaveCount(1, { timeout: 30_000 });
