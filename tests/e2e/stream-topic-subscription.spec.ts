@@ -1,16 +1,16 @@
 /**
- * Two windows, the topic open in only one: the other gets none of its stream deltas, and its
- * sidebar still shows the turn running and then done.
+ * One window, two topics running a turn at the same time. Panes sync across devices, so a
+ * topic open in one window is open in all of them: "not subscribed" means not open in any
+ * pane. The open topic streams its deltas to the window; the closed one sends none, and its
+ * sidebar row still shows the turn running and then done.
  *
  * @covers WIRE-12
  */
-import { copyFileSync } from "node:fs";
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type APIRequestContext, type Page } from "@playwright/test";
 import { createTopic, deleteTopic, resetPaneStore } from "./helpers/api-fixtures";
-import { openTopic } from "./helpers";
+import { goToApp, openTopic } from "./helpers";
 import { hermetic } from "./fixtures/hermetic";
 import { installSlowTurnCli } from "./helpers/fake-claude-cli";
-import { openTwoDevices } from "./helpers/multi-client";
 import { E2E_BASE } from "./helpers/test-server";
 
 hermetic(test);
@@ -30,6 +30,13 @@ function captureFrames(page: Page) {
   return frames;
 }
 
+async function sessionKeyOf(request: APIRequestContext, topicId: string): Promise<string> {
+  const topics = await (await request.get(`${E2E_BASE}/api/topics`)).json() as { topics: Record<string, { sessionKey: string }> };
+  const sessionKey = topics.topics[topicId]?.sessionKey;
+  if (!sessionKey) throw new Error("la topic non ha sessionKey");
+  return sessionKey;
+}
+
 function startTurn(sessionKey: string, content: string): Promise<void> {
   const done = (async () => {
     const response = await fetch(`${E2E_BASE}/api/chat`, {
@@ -45,55 +52,46 @@ function startTurn(sessionKey: string, content: string): Promise<void> {
   return done;
 }
 
-test("un topic aperto riceve i delta, quello chiuso conserva solo lo stato sidebar", async ({ browser, request }, testInfo) => {
+test("un topic aperto riceve i delta, quello chiuso conserva solo lo stato sidebar", async ({ page, request }) => {
   test.info().annotations.push({ type: "spec", description: "WIRE-12" });
-  const topic = await createTopic(request, `D1c-${Date.now()}`, { provider: "claude-code" });
-  const topicState = (page: Page) => page.getByRole("treeitem", { name: new RegExp(topic.name) });
+  const stamp = Date.now();
+  const opened = await createTopic(request, `D1c-open-${stamp}`, { provider: "claude-code" });
+  const closed = await createTopic(request, `D1c-closed-${stamp}`, { provider: "claude-code" });
+  const frames = captureFrames(page);
+  const count = (topicId: string, type: string) => frames.filter((frame) => frame.topicId === topicId && frame.type === type).length;
+  const row = (name: string) => page.getByRole("treeitem", { name: new RegExp(name) });
+  const panel = (topicId: string) => page.locator(`[data-testid="chat-panel"][data-chat-topic-id="${topicId}"]`);
   let removeCli: (() => void) | null = null;
-  const devices = await openTwoDevices(browser, {
-    contextOptions: { recordVideo: { dir: testInfo.outputPath("windows"), size: { width: 1280, height: 800 } } },
-    seed: async (req) => { await resetPaneStore(req, []); },
-  });
-  const observerFrames = captureFrames(devices.pageA);
-  const viewerFrames = captureFrames(devices.pageB);
   try {
+    await resetPaneStore(request, [opened.id]);
+    await goToApp(page);
+    await openTopic(page, new RegExp(opened.name));
+    await expect(panel(opened.id)).toBeVisible();
+    await expect(panel(closed.id)).toHaveCount(0);
+
     removeCli = installSlowTurnCli();
-    await openTopic(devices.pageB, new RegExp(topic.name));
-    await expect(devices.pageB.locator(`[data-testid="chat-panel"][data-chat-topic-id="${topic.id}"]`)).toBeVisible();
-    await expect(devices.pageA.locator(`[data-testid="chat-panel"][data-chat-topic-id="${topic.id}"]`)).toHaveCount(0);
-
-    const topics = await (await request.get(`${E2E_BASE}/api/topics`)).json() as { topics: Record<string, { id: string; sessionKey: string }> };
-    const sessionKey = topics.topics[topic.id]?.sessionKey;
-    if (!sessionKey) throw new Error("la topic non ha sessionKey");
-
-    const turn = startTurn(sessionKey, "SLOW:12:D1CSTREAM");
-    await expect(topicState(devices.pageA).locator('[data-loader-state="working"]')).toBeVisible({ timeout: 15_000 });
-    await expect(topicState(devices.pageB).locator('[data-loader-state="working"]')).toBeVisible({ timeout: 15_000 });
-    await expect.poll(() => viewerFrames.filter((frame) => frame.topicId === topic.id && frame.type === "stream:content_chunk").length, {
+    const turns = [
+      startTurn(await sessionKeyOf(request, closed.id), "SLOW:12:D1CCLOSED"),
+      startTurn(await sessionKeyOf(request, opened.id), "SLOW:12:D1COPEN"),
+    ];
+    await expect(row(closed.name).locator('[data-loader-state="working"]')).toBeVisible({ timeout: 15_000 });
+    await expect.poll(() => count(opened.id, "stream:content_chunk"), {
       timeout: 15_000,
-      message: "la finestra iscritta riceve il testo in streaming",
+      message: "il topic aperto riceve il testo in streaming",
     }).toBeGreaterThan(0);
-    await expect.poll(() => viewerFrames.filter((frame) => frame.topicId === topic.id && frame.type === "stream:usage").length, {
+    await expect.poll(() => count(opened.id, "stream:usage"), {
       timeout: 15_000,
-      message: "la finestra iscritta riceve usage live",
+      message: "il topic aperto riceve usage live",
     }).toBeGreaterThan(0);
 
-    await turn;
-    expect(observerFrames.filter((frame) => frame.topicId === topic.id && frame.type === "stream:content_chunk")).toHaveLength(0);
-    expect(observerFrames.filter((frame) => frame.topicId === topic.id && frame.type === "stream:usage")).toHaveLength(0);
-    await expect(topicState(devices.pageA).locator('[data-loader-state]')).toHaveCount(0, { timeout: 15_000 });
-    await expect(topicState(devices.pageB).locator('[data-loader-state]')).toHaveCount(0, { timeout: 15_000 });
-    await expect(topicState(devices.pageA)).toHaveAttribute("data-attention", "done", { timeout: 15_000 });
-    await expect(topicState(devices.pageB)).toHaveAttribute("data-attention", "done", { timeout: 15_000 });
+    await Promise.all(turns);
+    expect(count(closed.id, "stream:content_chunk"), "il topic chiuso non manda testo in streaming").toBe(0);
+    expect(count(closed.id, "stream:usage"), "il topic chiuso non manda usage live").toBe(0);
+    await expect(row(closed.name).locator("[data-loader-state]")).toHaveCount(0, { timeout: 15_000 });
+    await expect(row(closed.name)).toHaveAttribute("data-attention", "done", { timeout: 15_000 });
   } finally {
     removeCli?.();
-    const videoA = devices.pageA.video();
-    const videoB = devices.pageB.video();
-    await devices.dispose();
-    for (const [video, name] of [[videoA, "observer.webm"], [videoB, "subscriber.webm"]] as const) {
-      const path = await video?.path().catch(() => null);
-      if (path) copyFileSync(path, testInfo.outputPath(name));
-    }
-    await deleteTopic(request, topic.id).catch(() => {});
+    await deleteTopic(request, opened.id).catch(() => {});
+    await deleteTopic(request, closed.id).catch(() => {});
   }
 });
