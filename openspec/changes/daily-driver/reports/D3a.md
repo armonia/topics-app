@@ -42,3 +42,16 @@
 ## Trovato e non fatto (giro 3)
 
 - `ps -axo pid=,ppid=` circa 1.000/ora (50 in 3 minuti): la tabella dei processi con cache di 2 s, letta da picchi di memoria delle card, governatore del budget e rilevazione. Non è negli obiettivi di D3a; con la rilevazione spenta a pannello chiuso ne resta una parte, da misurare.
+
+## Misura dopo il giro 3 (produzione, 15/10)
+
+- **15 minuti dal riavvio, sul server vero** (`scripts/measure-server-spawns.py`): 1.564 processi figli, 6.256 l'ora. `git` **1.048** (obiettivo sotto 250), `lsof` **30** (era 238; obiettivo sotto 15), `vm_stat` 80, `sysctl` 20.
+- **`lsof`:** i 30 sono tutti `processList`, cioè `?ports=1`: un pannello Processi aperto da qualche parte, che li chiede per disegnare le porte. È il comportamento voluto; a pannello chiuso non ne parte nessuno.
+- **`git`:** lo stato git fa la sua parte (contatori della finestra fra il minuto 7 e il 22: 80 per cache scaduta, 85 dal watcher), ma il grosso è altrove. Il campione di 3 minuti con la riga di comando ha visto 921 figli: `git rev-parse --verify` 175, `git log --merges` 168, `git merge-base --is-ancestor` 29, `git log --grep` 21, `git read-tree` 15, `git apply --cached --reverse --check` 14, `git show` 13. È l'**audit di atterraggio** (`landing-audit-pass.ts`), che parte 180 s dopo l'avvio e poi ogni 30 minuti: quella passata ha richiesto 303 card (144 `landed`, 145 `unverifiable`, 14 `unlanded`, lette da `landing_checked_at` nel database con `-readonly`).
+- `ps -o pid=,stat=` (`pidLiveness`): 299 nella finestra, circa 1.200 l'ora, una lista ogni 3 s mentre il registro segue processi vivi. Resta fuori dagli obiettivi, come il `ps -axo` del giro 3.
+
+## Giro 4 (15/10): l'audit non richiede ogni 30 minuti quello che è già deciso
+
+- `listLandingAuditCandidates` tiene fuori un verdetto `landed` o `unverifiable` controllato da meno di 24 ore (`SETTLED_LANDING_RECHECK_MS`). `landed` cambia solo se main toglie il lavoro, `unverifiable` solo se la prova sparita ricompare: un giorno basta per entrambi. `unlanded` e le card mai chieste restano a 30 minuti, perché sono quelle su cui una persona agisce. Con i numeri di oggi una passata scende da 303 card a 14 più quelle mai chieste, e le 289 decise si richiedono una volta al giorno.
+- Test in `server/services/tasks.landing.test.ts`: `landed` e `unverifiable` di un'ora fa fuori, di più di un giorno fa dentro, `unlanded` di un minuto fa e mai chieste dentro. Mutante in copia, condizione nuova spenta: rosso, solo quel test.
+- Dopo il porto si rifà la misura di 15 minuti dal riavvio: è quella che dice se il cancello di D3 (oltre 1.000 `git` l'ora) resta aperto.
