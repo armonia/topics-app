@@ -9,6 +9,7 @@ import { projectPanesKey } from "../../shared/project-keys";
 import { addPaneInProject, openProjectFromSidebar, projectWindow } from "./helpers/project-window";
 import { randomUUID } from "crypto";
 import { findInTabSheet, findRowInTabSheet } from "./helpers/tab-sheet";
+import { createProjectSingletonPaneId } from "../../client/src/state/pane/adapters/paneConfig";
 
 // Confine ermetico: questo file riparte dalla baseline del globalSetup, non
 // dallo stato lasciato dalle spec precedenti. Vedi fixtures/hermetic.ts.
@@ -676,11 +677,12 @@ test.describe("Project Tabs", () => {
       description: "PROJECT-TABS-MOBILE-01",
     });
     const panesKey = projectPanesKey(PROJECT_PATH);
-    const gitPaneId = `git:${randomUUID()}`;
+    const gitPaneId = createProjectSingletonPaneId(PROJECT_PATH, "git");
+    const legacyGitPaneId = `git:${randomUUID()}`;
     // The synced snapshot another session left behind: one preview Git tab.
     const seeded = await page.request.put(`/api/ui-state/${panesKey}`, {
       data: {
-        nonChatPanes: [{ id: gitPaneId, type: "git", title: "Git", preview: true }],
+        nonChatPanes: [{ id: legacyGitPaneId, type: "git", title: "Git", preview: true }],
         openChatTopicIds: [],
       },
     });
