@@ -85,6 +85,9 @@ function checkoutRustBridgeIsBuilt(path: string): boolean {
 /** The explicit override wins; otherwise Rust requires the user toggle and a fresh binary. */
 export function resolvePtyBridgeCommand(override: string | null = null): PtyBridgeSelection {
   const checkoutBinary = checkoutRustBridgePath();
+  // runtime-dep-ok: only a checkout gets here. An installed app either runs the Rust
+  // bridge it ships (the override, routes/terminal.ts bundledBridge) or has no
+  // terminals at all, so it never asks for the Node bridge or its runtime.
   const nodePath = resolve(import.meta.dir, "../pty-bridge.mjs");
   const built = checkoutBinary && checkoutRustBridgeIsBuilt(checkoutBinary) ? checkoutBinary : null;
   return choosePtyBridgeCommand({
