@@ -4,6 +4,8 @@ import { DISPATCH_CHIP, type LiveUsage } from './constants';
 import { fmtLive, fmtTok, fmtUsd, liveToolLabel } from './format';
 import { boardApi, type TaskSessionPeek } from '../../lib/board';
 import { useLocale, useT } from '../../hooks/useT';
+import { POPOVER_PANEL } from '../../lib/popoverStyles';
+import { useExitGhost } from '../../lib/exitGhost';
 
 interface SessionPeekProps {
   taskId: string;
@@ -83,6 +85,8 @@ export function SessionPeek({ taskId, open, live, layout = 'floating', anchor }:
     };
   }, [open, layout, anchor, taskId, peek, live]);
 
+  // The floating card enters and leaves like every popover (MOTION-04); inside the menu it is a row.
+  useExitGhost(panelRef, open && layout === 'floating');
   if (!open) return null;
   const age = peek?.since && now !== null ? fmtLive(now - Date.parse(peek.since)) : null;
   const cost = fmtUsd(peek?.costCents, locale);
@@ -92,7 +96,9 @@ export function SessionPeek({ taskId, open, live, layout = 'floating', anchor }:
       ref={panelRef}
       data-testid="task-session-peek"
       data-session-peek-anchor={layout === 'floating' ? taskId : undefined}
-      className={`rounded-md border border-app-border bg-surface p-2.5 text-compact leading-4 shadow-xl ${layout === 'menu' ? 'mb-2' : 'fixed z-50'}`}
+      className={layout === 'menu'
+        ? 'mb-2 rounded-md border border-app-border bg-surface p-2.5 text-compact leading-4 shadow-xl'
+        : `${POPOVER_PANEL} fixed z-50 p-2.5 text-compact leading-4`}
       style={layout === 'floating' ? {
         left: position?.left ?? 8,
         top: position?.top ?? 8,
