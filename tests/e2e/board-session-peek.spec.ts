@@ -3,6 +3,8 @@ import { mkdirSync, realpathSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { hermetic } from "./fixtures/hermetic";
 import { installSlowTurnCli } from "./helpers/fake-claude-cli";
+import { createTopic, deleteTask, deleteTopic, resetPaneStore, resetProjectPanes, seedProjectPane } from "./helpers/api-fixtures";
+import { projectIdForPath } from "../../shared/board";
 import { projectRow } from "./helpers/project-row";
 import { canonicalTmpRoot, removeTmpDir } from "./helpers/file-project";
 import { E2E_BASE } from "./helpers/test-server";
@@ -13,6 +15,8 @@ test.use({ video: "on" });
 test.describe.configure({ timeout: 150_000 });
 
 const PROJECT_PATH = join(realpathSync(canonicalTmpRoot()), `e2e-board-peek-${Date.now()}`);
+/** The board is keyed by the hash of the canonical path, not by the id of the registered project. */
+const PROJECT_ID = projectIdForPath(PROJECT_PATH);
 
 async function openBoard(page: Page): Promise<void> {
   await page.goto("/");
@@ -22,9 +26,18 @@ async function openBoard(page: Page): Promise<void> {
   await projectRow(page, /e2e-board-peek/).click();
   await expect(page.getByTestId("project-window")).toBeVisible({ timeout: 15_000 });
   if (!(await page.getByTestId("kanban-board").isVisible().catch(() => false))) {
-    const trigger = page.getByTestId("pane-add-menu-trigger").last();
-    await trigger.click();
-    await page.getByTestId("pane-add-menu-kanban").click();
+    const triggers = page.getByTestId("pane-add-menu-trigger");
+    const item = page.getByTestId("pane-add-menu-kanban");
+    let opened = false;
+    for (let index = (await triggers.count()) - 1; index >= 0; index--) {
+      const trigger = triggers.nth(index);
+      if (!(await trigger.isVisible().catch(() => false))) continue;
+      await trigger.click();
+      if (await item.isVisible().catch(() => false)) { opened = true; break; }
+      await page.keyboard.press("Escape");
+    }
+    if (!opened) throw new Error("no + menu with a Board entry");
+    await item.click();
   }
   await expect(page.getByTestId("kanban-board")).toBeVisible({ timeout: 15_000 });
 }
@@ -36,6 +49,7 @@ test("D5e: la sbirciata segue l'ultimo messaggio senza aprire la sessione", asyn
   const tag = `peekd5e${stamp}`;
   const taskText = `SLOW:12:${tag}`;
   let projectId: string | null = null;
+  let topicId: string | null = null;
   let taskId: string | null = null;
   let uninstallCli: (() => void) | null = null;
   let originalSettings: { autoDispatch: boolean; dispatchUseWorktree: boolean } | null = null;
@@ -49,14 +63,19 @@ test("D5e: la sbirciata segue l'ultimo messaggio senza aprire la sessione", asyn
     const registered = await request.post(`${E2E_BASE}/api/projects`, { data: { name: projectName, path: PROJECT_PATH } });
     expect(registered.ok(), await registered.text()).toBeTruthy();
     projectId = ((await registered.json()) as { id: string }).id;
+    // A chat with the project path is what puts the project row in the sidebar, as in board-task-sigterm-resume.
+    topicId = (await createTopic(request, `D5e peek ${stamp}`, { projectPath: PROJECT_PATH, provider: "claude-code" })).id;
     uninstallCli = installSlowTurnCli();
 
-    const settingsResponse = await request.get(`${E2E_BASE}/api/boards/${projectId}/settings`);
+    const settingsResponse = await request.get(`${E2E_BASE}/api/boards/${PROJECT_ID}/settings`);
     expect(settingsResponse.ok(), await settingsResponse.text()).toBeTruthy();
     originalSettings = await settingsResponse.json() as { autoDispatch: boolean; dispatchUseWorktree: boolean };
-    const enabled = await request.patch(`${E2E_BASE}/api/boards/${projectId}/settings`, { data: { autoDispatch: true, dispatchUseWorktree: false } });
+    const enabled = await request.patch(`${E2E_BASE}/api/boards/${PROJECT_ID}/settings`, { data: { autoDispatch: true, dispatchUseWorktree: false } });
     expect(enabled.ok(), await enabled.text()).toBeTruthy();
-    const created = await request.post(`${E2E_BASE}/api/boards/${projectId}/tasks`, { data: { text: taskText, status: "todo" } });
+    await resetPaneStore(request, []);
+    await resetProjectPanes(request, PROJECT_PATH);
+    await seedProjectPane(request, PROJECT_PATH);
+    const created = await request.post(`${E2E_BASE}/api/boards/${PROJECT_ID}/tasks`, { data: { text: taskText, status: "todo" } });
     expect(created.ok(), await created.text()).toBeTruthy();
     taskId = ((await created.json()) as { id: string }).id;
 
@@ -99,10 +118,11 @@ test("D5e: la sbirciata segue l'ultimo messaggio senza aprire la sessione", asyn
     await expect(peek).toBeHidden();
   } finally {
     uninstallCli?.();
-    if (originalSettings && projectId) {
-      await request.patch(`${E2E_BASE}/api/boards/${projectId}/settings`, { data: originalSettings }).catch(() => {});
+    if (originalSettings) {
+      await request.patch(`${E2E_BASE}/api/boards/${PROJECT_ID}/settings`, { data: originalSettings }).catch(() => {});
     }
-    if (taskId && projectId) await request.delete(`${E2E_BASE}/api/boards/${projectId}/tasks/${taskId}`).catch(() => {});
+    if (taskId) await deleteTask(request, PROJECT_ID, taskId).catch(() => {});
+    if (topicId) await deleteTopic(request, topicId).catch(() => {});
     if (projectId) await request.delete(`${E2E_BASE}/api/projects/${projectId}`).catch(() => {});
     removeTmpDir(PROJECT_PATH);
   }
