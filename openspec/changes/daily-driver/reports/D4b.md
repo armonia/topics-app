@@ -21,3 +21,25 @@
 ## Rifiutato
 
 - I 4 warning ESLint provengono da `App.tsx`, `useProjectBrowserPanes.ts`, `useRemoteBrowser.ts` e `useSpeech.ts`; lint esce 0 e nessuno dei file è stato toccato.
+
+## Correzioni dopo la consegna
+
+- **L'eco della sequenza corrente aspettava zero.** Il giro di Codex la applicava subito, anche a
+  gesto in corso. Gli inoltri partono a lotti ogni 60 ms e il mirror è sempre avanti dell'ultimo: su
+  una connessione veloce (la risposta torna prima del lotto dopo) lo tirava indietro a ogni lotto. La
+  CI non lo vede perché il suo Mac risponde dopo 150 ms, quando quell'eco è già superata. Ora aspetta
+  la fine del gesto, come ogni eco; dopo il gesto passa subito, senza la finestra di conferma.
+- **Un'eco trattenuta e poi superata arrivava lo stesso.** Al rilascio si ricontrolla: se nel
+  frattempo è partito un inoltro più nuovo, si scarta.
+- **Due dispositivi sulla stessa pagina.** Il Mac ricorda l'ultimo inoltro di chiunque: le eco degli
+  scroll di B portavano i numeri di B, A le confrontava coi propri, le scartava e smetteva di seguire
+  la pagina. Ogni inoltro porta anche chi lo manda (`scrollFrom`), e si ordinano solo le eco dei
+  propri.
+- Il test «la risposta all'ultimo inoltro passa anche se diversa» di Codex passava anche sul codice
+  di prima (aspettava 2.500 ms, oltre ogni finestra): ora la prova a 700 ms, dove il codice di prima
+  la tratteneva fino a 2.000.
+- **Mutazioni, copia scratch, ognuna rossa sul suo test e solo su quello (14 pass, 1 fail):** attesa
+  del gesto saltata per le eco numerate; mittente ignorato; eco superate tenute al rilascio; eco
+  superate tenute all'arrivo.
+- **Barra:** `bun test client/src/lib/mirrorScroll.test.ts client/src/lib/nativeDomHost.page.test.ts client/src/lib/nativeDomHost.test.ts`
+  exit 0, 57 pass.
