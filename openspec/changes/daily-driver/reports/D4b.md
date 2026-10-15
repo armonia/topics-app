@@ -43,3 +43,15 @@
   superate tenute all'arrivo.
 - **Barra:** `bun test client/src/lib/mirrorScroll.test.ts client/src/lib/nativeDomHost.page.test.ts client/src/lib/nativeDomHost.test.ts`
   exit 0, 57 pass.
+
+## Dopo il primo push
+
+- **`build:client` rosso**, in CI e in locale: `scrollFrom: z.string().max(64)` è la sintassi della
+  zod classica, in `zod/mini` il limite si scrive `.check(z.maxLength(64))`. Era entrato con la mia
+  correzione del mittente, dopo la quale avevo girato i test e non i cancelli completi.
+- **`check:bloat` rosso**: `DomCoBrowse.tsx` a 802 righe (tetto 800). Sequenza e mittente
+  dell'inoltro ora li tiene `createEchoHold` (`stamp()`), il componente torna a 794 righe e a una
+  riga sola per l'inoltro. Test nuovo su `stamp`; mutante in una worktree usa e getta (`stamp` che
+  numera senza registrare) rosso solo su quel test, gli altri 15 verdi.
+- Cancelli completi dopo il commit: typecheck (client compreso), lint, 0 file non aggiunti, 0
+  cancelli statici rossi.
