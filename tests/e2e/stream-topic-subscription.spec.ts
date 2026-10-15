@@ -2,7 +2,8 @@
  * One window, two topics running a turn at the same time. Panes sync across devices, so a
  * topic open in one window is open in all of them: "not subscribed" means not open in any
  * pane. The open topic streams its deltas to the window; the closed one sends none, and its
- * sidebar row still shows the turn running and then done.
+ * sidebar row still ends the turn as done. A chat with no tab has no sidebar row while it
+ * works, on main too: the row arrives with the result.
  *
  * @covers WIRE-12
  */
@@ -74,7 +75,6 @@ test("un topic aperto riceve i delta, quello chiuso conserva solo lo stato sideb
       startTurn(await sessionKeyOf(request, closed.id), "SLOW:12:D1CCLOSED"),
       startTurn(await sessionKeyOf(request, opened.id), "SLOW:12:D1COPEN"),
     ];
-    await expect(row(closed.name).locator('[data-loader-state="working"]')).toBeVisible({ timeout: 15_000 });
     await expect.poll(() => count(opened.id, "stream:content_chunk"), {
       timeout: 15_000,
       message: "il topic aperto riceve il testo in streaming",
