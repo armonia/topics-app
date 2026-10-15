@@ -109,7 +109,6 @@ export function loadNativeModule(): NativeModule | null {
 export function loadNativeModuleAt(candidate: string): NativeModule | null {
   if (!existsSync(candidate)) {
     loadError = `native module not found at ${candidate}`;
-    console.warn(`[native-module] ${loadError}`);
     return null;
   }
 

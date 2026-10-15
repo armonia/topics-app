@@ -86,3 +86,13 @@ l'impostazione è spenta o la chiamata nativa fallisce, usa il percorso Git esis
 dell'autore nel modulo nativo alimenta una data relativa uguale a `%ar`. `GET /api/system/status`
 espone `nativeGit` con `loaded`, `enabled`, `calls`, `fallbacks` e `lastError`; l'impostazione è
 salvata nella chiave server-sincronizzata `settings` e mostrata nel pannello Performance.
+
+## 8. D3f2, interruttore e stato della visita nativa
+
+### Requirement: D3F-02 — la visita nativa è controllabile e ignora gli errori delle voci
+
+`nativeFileTreeEnabled` è server-sincronizzata e attiva di default. `GET /api/system/status` espone
+`nativeFileTree` con `loaded`, `enabled`, `calls`, `fallbacks` e `lastError`, e il pannello
+Performance permette di cambiare il percorso nativo o JavaScript. L'assenza dell'addon aggiorna lo
+stato senza log di avviso; un errore nativo vero aggiorna `lastError` e ripiega sul walker JavaScript.
+Un errore su una voce salta quella voce e la visita prosegue; un errore sulla radice resta un errore.

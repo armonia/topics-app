@@ -53,6 +53,8 @@ pub fn walk_file_tree(root: String, depth: u32, home: Option<String>) -> AsyncTa
 
 fn compute_file_tree(root: &str, depth: u32, home: Option<&str>) -> Result<Vec<FileNode>, Box<dyn std::error::Error + Send + Sync>> {
     let root = PathBuf::from(root);
+    // Entry errors can be skipped, but an unreadable root must trigger the JavaScript fallback.
+    std::fs::read_dir(&root)?;
     let home = home.map(PathBuf::from).or_else(home_dir);
     let mut builder = WalkBuilder::new(&root);
     builder
@@ -74,11 +76,14 @@ fn compute_file_tree(root: &str, depth: u32, home: Option<&str>) -> Result<Vec<F
 
     let mut entries = Vec::new();
     for result in builder.build() {
-        let entry = result?;
+        let entry = match result {
+            Ok(entry) => entry,
+            Err(_) => continue,
+        };
         if entry.depth() == 0 { continue; }
         let path = entry.path();
         let metadata = std::fs::symlink_metadata(path).ok();
-        let file_type = metadata.as_ref().map(|metadata| metadata.file_type()).or_else(|| entry.file_type()).ok_or("entry type unavailable")?;
+        let Some(file_type) = metadata.as_ref().map(|metadata| metadata.file_type()).or_else(|| entry.file_type()) else { continue; };
         let is_dir = file_type.is_dir();
         if !is_dir && !file_type.is_file() { continue; }
         let name = match path.file_name().and_then(|name| name.to_str()) {

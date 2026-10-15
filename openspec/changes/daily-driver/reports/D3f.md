@@ -26,3 +26,11 @@
 ## Rifiutato
 
 - `lint` segnala **4 warning, 0 errori**, in `App.tsx`, `useProjectBrowserPanes.ts`, `useRemoteBrowser.ts` e `useSpeech.ts`; nessuno di questi file è stato modificato da D3f.
+
+## Giro 2
+
+- `nativeFileTreeEnabled` è server-sincronizzato e acceso di default; `/api/system/status` espone `nativeFileTree` con caricamento, interruttore, chiamate, fallback e ultimo errore. Performance mostra l'interruttore con cataloghi italiano e inglese.
+- L'addon assente non genera avvisi. Gli errori nativi reali aggiornano `lastError`, aumentano i fallback e loggano al massimo una volta al minuto.
+- Il walker Rust salta gli errori sulle voci e prosegue; la radice illeggibile resta un errore. La parità con JavaScript è verificata anche su una cartella `chmod 000`.
+- Il solo caso `chmod 000` è saltato su Windows, dove non limita l'accesso; le altre fixture restano attive.
+- Prove complete e limiti della CI: `reports/D3f2.md`.

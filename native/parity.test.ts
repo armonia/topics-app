@@ -1,5 +1,6 @@
 /** @covers D3C-01 */
 /** @covers D3D-01 */
+/** @covers D3F-02 */
 import { expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync, chmodSync, symlinkSync, renameSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -218,4 +219,39 @@ test.skipIf(!nativeWalkFileTree)("native file tree matches JavaScript on ten fix
 
   const root = resolve(import.meta.dir, "..");
   expect(await nativeWalkFileTree!(root, 3)).toEqual(await walkFileTreeJs(root, 3));
+
+  if (process.platform === "win32") {
+    console.log("SKIP unreadable-folder parity: chmod 000 does not enforce access on Windows");
+    return;
+  }
+  if (process.getuid?.() === 0) {
+    console.log("SKIP unreadable-folder parity: tests run as root, chmod 000 is ineffective");
+    return;
+  }
+
+  const base = scratch();
+  const unreadableRoot = join(base, "tree");
+  const locked = join(unreadableRoot, "locked");
+  try {
+    mkdirSync(locked, { recursive: true });
+    writeFileSync(join(locked, "hidden.txt"), "x");
+    writeFileSync(join(unreadableRoot, "visible.txt"), "x");
+    chmodSync(locked, 0o000);
+    const expected = await walkFileTreeJs(unreadableRoot, 3);
+    const actual = await nativeWalkFileTree!(unreadableRoot, 3);
+    expect(actual).toEqual(expected);
+    expect(actual.find(({ name }) => name === "locked")?.children).toEqual([]);
+  } finally {
+    try { chmodSync(locked, 0o755); } catch {}
+    rmSync(base, { recursive: true, force: true });
+  }
+});
+
+test.skipIf(!nativeWalkFileTree)("native file tree keeps a missing root as an error", async () => {
+  const base = scratch();
+  try {
+    await expect(nativeWalkFileTree!(join(base, "missing"), 3)).rejects.toThrow();
+  } finally {
+    rmSync(base, { recursive: true, force: true });
+  }
 });

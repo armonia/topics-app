@@ -1583,6 +1583,8 @@ export interface AppSettings {
   mutedProjects: string[];
   /** Use the native addon for Git status when the server has it available. */
   nativeGitStatusEnabled: boolean;
+  /** Use the native addon for the file tree when the server has it available. */
+  nativeFileTreeEnabled: boolean;
   /**
    * Sites (origin, e.g. `http://localhost:4600`) whose heavy tab is never paused:
    * the «keep always» button of the pause card. Per origin, not per page, because

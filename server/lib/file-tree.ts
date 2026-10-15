@@ -5,7 +5,7 @@ import { IgnoreSet } from "./gitignore";
 import { isTopicsSecretPath } from "./topics-secret-path";
 import { isProtectedFromWalk } from "./protected-app-data";
 import type { FileNode } from "../../shared/file-tree";
-import { loadNativeModule } from "./native-addon";
+import { readNativeFileTree } from "./native-file-tree";
 import { homeDir } from "./broad-cwd";
 
 /**
@@ -47,8 +47,6 @@ export function createFileTreeSlowLogger(opts: {
 }
 
 const logSlowWalk = createFileTreeSlowLogger();
-let nativeFallbackCount = 0;
-let lastFallbackLogAt = Number.NEGATIVE_INFINITY;
 
 // A folder's .gitignore added to the ones above it; the matching rules live in
 // `lib/gitignore.ts`.
@@ -125,26 +123,8 @@ export async function walkFileTreeJs(root: string, depth: number): Promise<FileN
 export async function walkFileTree(root: string, depth: number): Promise<FileNode[]> {
   const started = performance.now();
   try {
-    const nativeWalk = loadNativeModule()?.walkFileTree;
-    if (nativeWalk) {
-      try {
-        return await nativeWalk(root, depth, homeDir());
-      } catch (error) {
-        nativeFallbackCount++;
-        const now = performance.now();
-        if (now - lastFallbackLogAt >= FILE_TREE_REPEAT_MS) {
-          console.warn(`[FILE-TREE] native fallback #${nativeFallbackCount}: ${error instanceof Error ? error.message : String(error)}`);
-          lastFallbackLogAt = now;
-        }
-      }
-    } else {
-      nativeFallbackCount++;
-      const now = performance.now();
-      if (now - lastFallbackLogAt >= FILE_TREE_REPEAT_MS) {
-        console.warn(`[FILE-TREE] native fallback #${nativeFallbackCount}: addon unavailable`);
-        lastFallbackLogAt = now;
-      }
-    }
+    const nativeTree = await readNativeFileTree(root, depth, homeDir());
+    if (nativeTree) return nativeTree;
     return await walkFileTreeJs(root, depth);
   } finally {
     logSlowWalk(performance.now() - started);
