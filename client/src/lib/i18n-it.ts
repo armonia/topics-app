@@ -817,7 +817,7 @@ const IT: Dict = {
   'palette.hint.open': 'apri',
   'palette.hint.close': 'chiudi',
   'settings.board.showRow': 'Mostra la Board nella sidebar',
-  'liveTerminals.setting': 'Mostra i terminali vivi in fondo alle tab',
+  'liveTerminals.setting': 'Mostra i terminali vivi nei menu «+» e Topics',
   'liveTerminals.trigger': 'Terminali vivi',
   'liveTerminals.loading': 'Carico…',
   'liveTerminals.failed': 'Non riesco a leggere i terminali',

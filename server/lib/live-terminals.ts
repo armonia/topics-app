@@ -29,24 +29,8 @@
 import { execFile } from "node:child_process";
 import { basename } from "node:path";
 
-export type LiveTerminalSource = "topics" | "tmux" | "terminal";
-
-export interface LiveTerminal {
-  /** `topics:<id>`, `tmux:%8`, `terminal:ttys004`. */
-  id: string;
-  source: LiveTerminalSource;
-  /** Display name: Topics session title, tmux `session:window.pane`, tab title. */
-  title: string;
-  /** Foreground program (`claude`, `zsh`, `node`…), when known. */
-  command: string | null;
-  cwd: string | null;
-  /** `/dev/ttys004`, when present. */
-  tty: string | null;
-  /** Only Topics knows whether an agent is working; for the rest `null` = unknown. */
-  busy: boolean | null;
-  /** For `topics`: the PTY session id, which the client uses to foreground its tab. */
-  sessionId?: string;
-}
+export type { LiveTerminal, LiveTerminalSource } from "../../shared/live-terminals";
+import type { LiveTerminal, LiveTerminalSource } from "../../shared/live-terminals";
 
 export interface LiveScreen {
   id: string;

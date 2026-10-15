@@ -813,7 +813,7 @@ const EN = {
   'palette.hint.open': 'open',
   'palette.hint.close': 'close',
   'settings.board.showRow': 'Show the Board in the sidebar',
-  'liveTerminals.setting': 'Show live terminals at the end of the tabs',
+  'liveTerminals.setting': 'Show live terminals in the «+» and Topics menus',
   'liveTerminals.trigger': 'Live terminals',
   'liveTerminals.loading': 'Loading…',
   'liveTerminals.failed': 'Could not read the terminals',

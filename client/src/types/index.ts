@@ -1644,7 +1644,7 @@ export interface AppSettings {
    */
   showBoardRow: boolean;
   /**
-   * The live-terminals menu at the end of the tabs (`LiveTerminalsMenu`): every
+   * The live-terminals branch in the «+» and «Topics» menus (`LiveTerminalsLevel`): every
    * terminal running on the Mac, Topics or not, to read and to write into.
    * On by default: the door for remotely driving hand-opened sessions.
    * Costs nothing while closed, polls only while open.

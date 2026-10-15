@@ -1,28 +1,21 @@
 /**
- * THE LIVE-TERMINALS MENU, at the end of the tabs next to "+".
- * On the phone there are no tab bars (tabs are the list): there it sits at
- * the top, next to the bell (`variant="header"`).
+ * THE LIVE-TERMINALS MENU: every terminal running on the Mac, not only Topics'
+ * own, i.e. Terminal.app tabs and tmux panes where a `claude` was started by hand.
+ * One branch per source. A Topics session opens in its tab; an outside terminal
+ * opens a level beside it with its current SCREEN and a field to type into, which
+ * is what the phone needs to answer an agent parked on a question.
  *
- * Lists every terminal running on the Mac, not just Topics' own: Terminal.app
- * tabs and tmux panes where a hand-opened `claude` runs. One branch per
- * origin. A Topics session opens in its tab; an outside terminal
- * opens a side level with the CURRENT screen plus a field for writing into it,
- * which is what answers an agent stuck on a question from the phone.
+ * NOTHING IS POLLED WHILE CLOSED. The list is fetched when its level opens and
+ * refreshed only while it stays open; a screen only while its level is open. An
+ * idle client must not receive bytes for something it is not looking at (the
+ * daily-driver plan, D1).
  *
- * POLLS NOTHING WHILE CLOSED. The list is fetched on open and refreshes
- * only while the menu stays open; the screen only while its level stays
- * open. An idle client must not receive bytes for something out of sight
- * (daily-driver plan bar, D1).
- *
- * Toggled from the View menu -> "Show live terminals at the end of tabs" (`showLiveTerminals`).
+ * Switched off from the View menu, «show live terminals» (`showLiveTerminals`).
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { CornerDownLeft, SquareTerminal } from 'lucide-react';
 import { useT } from '../../hooks/useT';
-import { useMobile } from '../../hooks/useMobile';
-import { NO_DRAG_REGION } from '../../lib/shell/dragRegion';
 import { POPOVER_ITEM } from '../../lib/popoverStyles';
-import { RAISED_CONTROL, ROW_ACTION_BOX } from '../../lib/selectionStyles';
 import {
   fetchLiveTerminals,
   fetchLiveTerminalScreen,
@@ -32,29 +25,41 @@ import {
   sendToLiveTerminal,
   type LiveTerminal,
 } from '../../lib/liveTerminals';
-import { Menu } from './Menu';
 import { SubmenuItem } from './SubmenuItem';
 
 const LIST_REFRESH_MS = 3000;
 const SCREEN_REFRESH_MS = 1500;
 
-/** The button frame: the tab-bar one (`bar`, twin of "+") or
- *  the phone top-row one (`header`, twin of the bell). */
-const triggerClass = (variant: 'bar' | 'header', isMobile: boolean) =>
-  `${variant === 'header' ? (isMobile ? 'h-11 w-11' : 'h-7 w-7') : ROW_ACTION_BOX} edge-lit flex flex-shrink-0 items-center justify-center rounded-lg ${RAISED_CONTROL} text-app-text transition-colors`;
-
 const SECTION_CLASS = 'px-3 pt-2 pb-1 text-mini font-semibold text-app-text-muted uppercase tracking-wider';
 
-export function LiveTerminalsMenu({ variant = 'bar' }: { variant?: 'bar' | 'header' }) {
+/**
+ * The live-terminals branch: one row that opens a level beside it. Mounted at the
+ * end of the «+» menu (the end of every tab bar) and in the «Topics» menu, which is
+ * one tap away on the phone. It costs the tab bar no width: a button of its own in
+ * every bar squeezed the tabs into squares at 600px (tab-bar-density DENS-02).
+ */
+export function LiveTerminalsLevel({ onClose }: { onClose: () => void }) {
   const tr = useT();
-  const { isMobile } = useMobile();
-  const buttonRef = useRef<HTMLButtonElement>(null);
-  const [open, setOpen] = useState(false);
+  return (
+    <SubmenuItem
+      icon={SquareTerminal}
+      label={tr('liveTerminals.trigger')}
+      testId="live-terminals"
+      minWidth={260}
+      maxWidth={360}
+    >
+      <LiveTerminalsList onClose={onClose} />
+    </SubmenuItem>
+  );
+}
+
+/** The list itself. Asked for when the level opens, refreshed only while it stays open. */
+function LiveTerminalsList({ onClose }: { onClose: () => void }) {
+  const tr = useT();
   const [rows, setRows] = useState<LiveTerminal[] | null>(null);
   const [failed, setFailed] = useState(false);
 
   useEffect(() => {
-    if (!open) return;
     let live = true;
     const load = () => {
       fetchLiveTerminals()
@@ -64,86 +69,54 @@ export function LiveTerminalsMenu({ variant = 'bar' }: { variant?: 'bar' | 'head
     load();
     const timer = setInterval(load, LIST_REFRESH_MS);
     return () => { live = false; clearInterval(timer); };
-  }, [open]);
-
-  const close = useCallback(() => setOpen(false), []);
+  }, []);
 
   const openTopics = (t: LiveTerminal) => {
-    close();
+    onClose();
     window.dispatchEvent(new CustomEvent('topics:open-terminal-pane', { detail: { sessionId: t.sessionId, name: t.title } }));
   };
 
   const groups = rows ? groupLiveTerminals(rows) : [];
-  const title = tr('liveTerminals.trigger');
 
   return (
-    <>
-      <button
-        ref={buttonRef}
-        type="button"
-        onClick={() => setOpen((v) => !v)}
-        className={`${triggerClass(variant, isMobile)} app-no-drag`}
-        {...NO_DRAG_REGION}
-        // The phone top row lets touches fall through to the scrolling list
-        // underneath (`pointer-events: none`): the bell reclaims its own
-        // the same way. Without it, taps landed on the Board row.
-        style={{ pointerEvents: 'auto' }}
-        title={title}
-        aria-label={title}
-        aria-haspopup="menu"
-        aria-expanded={open}
-        data-testid="live-terminals-trigger"
-      >
-        <SquareTerminal size={isMobile ? 18 : 15} aria-hidden="true" />
-      </button>
-      <Menu
-        open={open}
-        anchorRef={buttonRef}
-        onClose={close}
-        align="right"
-        minWidth={260}
-        maxWidth={360}
-        testId="live-terminals-menu"
-        ariaLabel={title}
-        className="max-h-[70vh] overflow-y-auto"
-      >
-        {rows === null && !failed && <div className="px-3 py-2 text-compact text-app-text-muted">{tr('liveTerminals.loading')}</div>}
-        {failed && <div className="px-3 py-2 text-compact text-app-text-muted">{tr('liveTerminals.failed')}</div>}
-        {rows !== null && groups.length === 0 && (
-          <div className="px-3 py-2 text-compact text-app-text-muted" data-testid="live-terminals-empty">{tr('liveTerminals.empty')}</div>
-        )}
-        {groups.map((g) => (
-          <div key={g.source} role="group" aria-label={tr(`liveTerminals.source.${g.source}`)} data-testid={`live-terminals-group-${g.source}`}>
-            <div className={SECTION_CLASS} aria-hidden="true">{tr(`liveTerminals.source.${g.source}`)}</div>
-            {g.rows.map((t) => g.source === 'topics' ? (
-              <button
-                key={t.id}
-                type="button"
-                role="menuitem"
-                className={POPOVER_ITEM}
-                onClick={() => openTopics(t)}
-                data-testid="live-terminals-row"
-                data-terminal-id={t.id}
-              >
-                <RowText t={t} />
-              </button>
-            ) : (
-              <SubmenuItem
-                key={t.id}
-                label={liveTerminalLabel(t)}
-                tail={<span className="truncate text-mini text-app-text-muted">{liveTerminalDetail(t)}</span>}
-                testId={`live-terminals-row-${t.id}`}
-                levelRole="dialog"
-                minWidth={420}
-                maxWidth={560}
-              >
-                <TerminalPeek terminal={t} />
-              </SubmenuItem>
-            ))}
-          </div>
-        ))}
-      </Menu>
-    </>
+    <div className="max-h-[70vh] overflow-y-auto" data-testid="live-terminals-list">
+      {rows === null && !failed && <div className="px-3 py-2 text-compact text-app-text-muted">{tr('liveTerminals.loading')}</div>}
+      {failed && <div className="px-3 py-2 text-compact text-app-text-muted">{tr('liveTerminals.failed')}</div>}
+      {rows !== null && groups.length === 0 && (
+        <div className="px-3 py-2 text-compact text-app-text-muted" data-testid="live-terminals-empty">{tr('liveTerminals.empty')}</div>
+      )}
+      {groups.map((g) => (
+        <div key={g.source} role="group" aria-label={tr(`liveTerminals.source.${g.source}`)} data-testid={`live-terminals-group-${g.source}`}>
+          <div className={SECTION_CLASS} aria-hidden="true">{tr(`liveTerminals.source.${g.source}`)}</div>
+          {g.rows.map((t) => g.source === 'topics' ? (
+            <button
+              key={t.id}
+              type="button"
+              role="menuitem"
+              className={POPOVER_ITEM}
+              onClick={() => openTopics(t)}
+              aria-label={liveTerminalLabel(t)}
+              data-testid="live-terminals-row"
+              data-terminal-id={t.id}
+            >
+              <RowText t={t} />
+            </button>
+          ) : (
+            <SubmenuItem
+              key={t.id}
+              label={liveTerminalLabel(t)}
+              tail={<span className="truncate text-mini text-app-text-muted">{liveTerminalDetail(t)}</span>}
+              testId={`live-terminals-row-${t.id}`}
+              levelRole="dialog"
+              minWidth={420}
+              maxWidth={560}
+            >
+              <TerminalPeek terminal={t} />
+            </SubmenuItem>
+          ))}
+        </div>
+      ))}
+    </div>
   );
 }
 
@@ -210,7 +183,7 @@ function TerminalPeek({ terminal }: { terminal: LiveTerminal }) {
     <div className="flex flex-col gap-2 p-2" data-testid="live-terminals-peek">
       <pre
         ref={preRef}
-        className="max-h-[50vh] min-h-[120px] overflow-auto whitespace-pre-wrap break-words rounded-md bg-black/80 p-2 font-mono text-[11px] leading-snug text-zinc-100"
+        className="max-h-[50vh] min-h-[120px] overflow-auto whitespace-pre-wrap break-words rounded-md bg-black/80 p-2 font-mono text-mini leading-snug text-zinc-100"
         data-testid="live-terminals-screen"
       >
         {gone ? tr('liveTerminals.gone') : screen ?? tr('liveTerminals.loading')}

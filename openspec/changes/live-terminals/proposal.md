@@ -17,10 +17,10 @@ spegnibile dalle opzioni.
 - **Agenti.** Gli strumenti `session_list`, `session_read`, `session_send` del server MCP
   `topics-board` (figlio del gateway condiviso) leggono da quelle rotte: vedono e scrivono anche nei
   terminali di fuori, con la stessa guardia sul menu a scelte.
-- **UI.** Un bottone accanto al «+» di ogni barra di tab apre la tendina: un ramo per origine, una
-  sessione di Topics si apre nella sua tab, un terminale di fuori apre a lato lo schermo e un campo
-  per scriverci. Opzione «Mostra i terminali vivi in fondo alle tab» nel menu Vista, accesa di serie.
-  Da chiusa non interroga niente.
+- **UI.** Un ramo «Terminali vivi ›» in fondo al menu «+» di ogni barra di tab e nel menu «Topics»
+  (un tocco dal telefono): un livello per origine, una sessione di Topics si apre nella sua tab, un
+  terminale di fuori apre a lato lo schermo e un campo per scriverci. Opzione nel menu Vista, accesa
+  di serie. Da chiuso non interroga niente.
 
 ## Barra
 
@@ -35,6 +35,10 @@ spegnibile dalle opzioni.
 - Tasti di controllo (Ctrl-C, frecce) verso Terminal.app: `do script` sa solo scrivere e premere Invio.
 
 ## Deciso da me
+
+- Ramo nel «+» e non un bottone suo in ogni barra: il primo giro della CI l'ha misurato, un bottone
+  in più per barra stringeva le tab in quadratini a 600 px e metteva un terzo comando nella riga in
+  alto del telefono, dove per scelta stanno solo titolo e campanella.
 
 - Tre sorgenti e non di più, perché sono quelle in uso sul Mac del proprietario.
 - Nessuna interrogazione a tendina chiusa (barra D1 del piano daily-driver).

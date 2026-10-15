@@ -43,14 +43,15 @@ test.describe.serial("Terminali vivi", () => {
     if (chatId) await deleteTopic(request, chatId);
   });
 
-  test("LIVETERM-01: la tendina mostra il terminale tmux, il suo schermo, e ci si scrive", async ({ page, request }) => {
+  test("LIVETERM-01: «+» → Terminali vivi mostra il pane tmux, il suo schermo, e ci si scrive", async ({ page, request }) => {
     test.info().annotations.push({ type: "spec", description: "LIVETERM-01" });
     await resetPaneStore(request, [chatId!]);
     await goToApp(page);
 
-    const trigger = page.getByTestId("live-terminals-trigger").first();
-    await trigger.click();
-    const menu = page.getByTestId("live-terminals-menu");
+    // The «+» at the end of the tab bar, then its «live terminals» branch.
+    await page.locator('[data-testid="pane-add-menu-trigger"][title="Add pane"]').first().click();
+    await page.getByTestId("pane-add-menu").getByTestId("live-terminals").click();
+    const menu = page.getByTestId("live-terminals-list");
     await expect(menu).toBeVisible();
     const group = menu.getByTestId("live-terminals-group-tmux");
     const row = group.getByTestId(`live-terminals-row-tmux:${paneId}`);
@@ -73,38 +74,47 @@ test.describe.serial("Terminali vivi", () => {
     await expect(peek.getByTestId("live-terminals-input")).toHaveValue("");
   });
 
-  test("LIVETERM-02: l'opzione in Vista toglie e rimette la tendina", async ({ page, request }) => {
+  test("LIVETERM-02: the View option removes and restores the branch", async ({ page, request }) => {
     test.info().annotations.push({ type: "spec", description: "LIVETERM-02" });
     await resetPaneStore(request, [chatId!]);
     await goToApp(page);
-    await expect(page.getByTestId("live-terminals-trigger").first()).toBeAttached();
+    const plus = page.locator('[data-testid="pane-add-menu-trigger"][title="Add pane"]').first();
+    const branch = page.getByTestId("pane-add-menu").getByTestId("live-terminals");
 
     const level = await openUserMenuLevel(page, "view");
     const toggle = level.getByTestId("topics-menu-live-terminals");
     await expect(toggle).toHaveAttribute("aria-checked", "true");
     await toggle.click();
     await expect(toggle).toHaveAttribute("aria-checked", "false");
-    await expect(page.getByTestId("live-terminals-trigger")).toHaveCount(0);
-    await toggle.click();
-    await expect(toggle).toHaveAttribute("aria-checked", "true");
-    await expect(page.getByTestId("live-terminals-trigger").first()).toBeAttached();
+    await page.keyboard.press("Escape");
+    await page.keyboard.press("Escape");
+    await plus.click();
+    await expect(page.getByTestId("pane-add-menu")).toBeVisible();
+    await expect(branch).toHaveCount(0);
+    await page.keyboard.press("Escape");
+
+    const again = await openUserMenuLevel(page, "view");
+    await again.getByTestId("topics-menu-live-terminals").click();
+    await expect(again.getByTestId("topics-menu-live-terminals")).toHaveAttribute("aria-checked", "true");
+    await page.keyboard.press("Escape");
+    await page.keyboard.press("Escape");
+    await plus.click();
+    await expect(branch).toBeVisible();
   });
 
-  test("LIVETERM-04: sul telefono, dove le barre di tab non ci sono, la tendina sta accanto alla campanella", async ({ browser, request }) => {
+  test("LIVETERM-04: on the phone the branch is in the Topics menu, one tap away", async ({ browser, request }) => {
     test.info().annotations.push({ type: "spec", description: "LIVETERM-01" });
     const ctx = await browser.newContext({ viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true });
     const page = await ctx.newPage();
     try {
       await resetPaneStore(request, [chatId!]);
       await goToApp(page);
-      const trigger = page.getByTestId("live-terminals-trigger");
-      await expect(trigger).toHaveCount(1);
-      await expect(trigger).toBeVisible();
-      // Twin of the bell: 44 for fingers.
-      const box = await trigger.boundingBox();
-      expect(Math.round(box!.height)).toBe(44);
-      await trigger.tap();
-      await expect(page.getByTestId("live-terminals-menu").getByTestId(`live-terminals-row-tmux:${paneId}`)).toBeVisible({ timeout: 10_000 });
+      await page.getByTestId("sidebar-topics-menu").tap();
+      // On the phone the Topics items sit one floor down the sheet (A1).
+      const floor = page.getByTestId("user-menu-topics-entry");
+      if ((await floor.count()) > 0) await floor.tap();
+      await page.getByTestId("live-terminals").tap();
+      await expect(page.getByTestId("live-terminals-list").getByTestId(`live-terminals-row-tmux:${paneId}`)).toBeVisible({ timeout: 10_000 });
     } finally {
       await ctx.close();
     }

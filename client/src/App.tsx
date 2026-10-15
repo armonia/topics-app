@@ -128,7 +128,6 @@ import { SkeletonTopicList } from './components/Shared/Skeleton';
 import { SidebarStatusBar, MobileTransportBand } from './components/Sidebar/SidebarStatusBar';
 import { UnsentContext, useUnsentController } from './state/unsentMessages';
 import { Inbox } from './components/Sidebar/Inbox';
-import { LiveTerminalsMenu } from './components/Shared/LiveTerminalsMenu';
 import { MobileChromeBar } from './components/Sidebar/MobileChromeBar';
 import { shortcut, usesCtrl } from './lib/shortcutLabel';
 import { useSidebarHandleInsets } from './hooks/useSidebarBottomInset';
@@ -1915,11 +1914,7 @@ function App() {
           </div>
 
           {isMobile && (
-            <div className="app-no-drag flex flex-shrink-0 items-center gap-1.5" {...NO_DRAG_REGION}>
-              {/* The live-terminals menu: on desktop it sits at the end of the
-                  tabs, but on the phone tabs are the list and there is no bar.
-                  Here, next to the bell, it stays within remote thumb reach. */}
-              {appSettings.showLiveTerminals !== false && <LiveTerminalsMenu variant="header" />}
+            <div className="app-no-drag flex-shrink-0" {...NO_DRAG_REGION}>
               <Inbox
                 onWSMessage={onWSMessage}
                 isMobile

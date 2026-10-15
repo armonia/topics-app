@@ -905,12 +905,6 @@ export const CHROME_ROW_ACTION_INSET_LEFT = 'left-[6px]';
  */
 export const CHROME_ROW_ACTION_RESERVE = 'pr-[48px] md:pr-[40px]';
 /**
- * The reserve when TWO controls sit at the tail: the live-terminals menu
- * and the "+". One extra box plus the 4-step gap between them: `48 + 36 + 4`
- * under 768px, `40 + 28 + 4` above.
- */
-export const CHROME_ROW_ACTION_RESERVE_TWO = 'pr-[88px] md:pr-[72px]';
-/**
  * LO STESSO SPAZIO, SPECCHIATO — e prima non lo era.
  *
  * In testa alla strip sta il comando che riapre la colonna, in coda il «+»:

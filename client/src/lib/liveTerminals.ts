@@ -5,18 +5,8 @@
  */
 import { apiFetch } from './shell/net';
 
-export type LiveTerminalSource = 'topics' | 'tmux' | 'terminal';
-
-export interface LiveTerminal {
-  id: string;
-  source: LiveTerminalSource;
-  title: string;
-  command: string | null;
-  cwd: string | null;
-  tty: string | null;
-  busy: boolean | null;
-  sessionId?: string;
-}
+import type { LiveTerminal, LiveTerminalSource } from '../../../shared/live-terminals';
+export type { LiveTerminal, LiveTerminalSource };
 
 export interface LiveTerminalGroup {
   source: LiveTerminalSource;

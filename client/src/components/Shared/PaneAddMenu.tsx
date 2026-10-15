@@ -56,6 +56,8 @@ import { MODAL_BACKDROP, MODAL_PANEL, MODAL_LAYER } from '../../lib/modalStyles'
 import { POPOVER_ITEM, POPOVER_DIVIDER } from '../../lib/popoverStyles';
 import { BAR_LABEL_TOP, GLYPH_KBD_PADDING, RAISED_CONTROL, ROW_ACTION_BOX } from '../../lib/selectionStyles';
 import { Menu } from './Menu';
+import { LiveTerminalsLevel } from './LiveTerminalsLevel';
+import { loadSettings } from '../../lib/settings';
 import { useExitGhost } from '../../lib/exitGhost';
 import { buildAddMenuItems, type AddMenuItem } from './addMenuItems';
 import { AddMenuIcon } from './AddMenuIcon';
@@ -109,6 +111,9 @@ export interface PaneAddMenuItemsProps {
   availableTypes?: readonly PaneType[];
   /** Called after any item is invoked, so the parent can close the menu. */
   onClose: () => void;
+  /** Append the «live terminals» branch. Only the dropdown and the phone sheet
+   *  host it: the centred palette is not a `Menu`, and a level needs one. */
+  withLiveTerminals?: boolean;
 }
 
 export function PaneAddMenuItems({
@@ -117,6 +122,7 @@ export function PaneAddMenuItems({
   onAddPane,
   availableTypes,
   onClose,
+  withLiveTerminals = false,
 }: PaneAddMenuItemsProps) {
   const t = useT();
   const [claudeSkipPermissions, setClaudeSkipPermissions] = useClaudeSkipPermissions();
@@ -196,6 +202,13 @@ export function PaneAddMenuItems({
           </button>
         </Fragment>
       ))}
+      {/* Read at render, i.e. when the menu opens: no subscription needed. */}
+      {withLiveTerminals && loadSettings().showLiveTerminals !== false && (
+        <>
+          <div className={POPOVER_DIVIDER} />
+          <LiveTerminalsLevel onClose={onClose} />
+        </>
+      )}
     </>
   );
 }
@@ -472,7 +485,14 @@ export function PaneAddMenu({
         testId="pane-add-menu"
         ariaLabel="New"
       >
-        {menuItems}
+        <PaneAddMenuItems
+          scope={scope}
+          onNewChat={onNewChat}
+          onAddPane={onAddPane}
+          availableTypes={availableTypes}
+          onClose={close}
+          withLiveTerminals
+        />
       </Menu>
 
       {paletteIsOpen && createPortal(
