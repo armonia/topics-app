@@ -46,7 +46,7 @@
 - Login Claude: la ricerca legge gli attributi Keychain senza `-w`, poi controlla il file. Il router aggiorna la cache di 10 minuti all'avvio e in background; la richiesta legge la cache. Esiti `off` senza CLI, `error/login-missing` senza fonte, `ok` con fonte presente. Test Mac-Keychain: incluso nei 40 pass.
 - Motori browser: l'ultimo avvio fallito conserva messaggio e ora; nessun avvio è `off`. Timeout classificati da `ProbeTimeoutError`. Errori watcher associati al percorso; l'e2e sposta il socket PTY registrato su un percorso inesistente e lo ripristina via `null`, dietro `TOPICS_E2E=1`.
 - Spec health consolidata in `SYSTEM-03` (il precedente `SYSTEM-02` era duplicato); `CMDUI-11` dichiarato dal test routing. `check:spec-coverage` e `check:untraced-tests`: verdi.
-- Mutazioni in `/private/tmp/claude-501/-Users-zorahrel/0f8787b5-fda3-44c7-8dc4-ab6726d3df35/scratchpad/daily/D6c-giro2-mutants`: keychain saltato → test login rosso; errore browser non registrato → sidecar rosso; timeout riconosciuto dal testo → due test rossi; watch di B che cancella tutti gli errori → test watcher rosso. Le fonti di prova restano inalterate.
+- Mutazioni in una copia usa e getta della worktree: keychain saltato → test login rosso; errore browser non registrato → sidecar rosso; timeout riconosciuto dal testo → due test rossi; watch di B che cancella tutti gli errori → test watcher rosso. Le fonti di prova restano inalterate.
 
 ### Trovato e non fatto
 
