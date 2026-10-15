@@ -60,6 +60,13 @@ beforeAll(async () => {
 afterAll(async () => {
   setSystemTime();
   await call("POST", `/api/scripts/${processId}/stop`);
+  // The exit of the command saves the registry: DATA_DIR stays this file's
+  // until it has, or the save lands on the live state of the next file.
+  for (let i = 0; i < 50; i++) {
+    const { scripts } = await (await call("GET", "/api/scripts")).json() as { scripts: Row[] };
+    if (scripts.find((s) => s.processId === processId)?.status !== "running") break;
+    await Bun.sleep(100);
+  }
   stopProcessDetectionForTests();
   if (previousDataDir === undefined) delete process.env.DATA_DIR;
   else process.env.DATA_DIR = previousDataDir;
