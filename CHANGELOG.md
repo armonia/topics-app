@@ -2,6 +2,11 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.2.512 — 2026-10-15
+
+### Sotto il cofano
+- Le query SQLite che fermano il loop si scrivono nel log (D4g, B7) (#367)
+
 ## 2.2.511 — 2026-10-15
 
 ### Sotto il cofano

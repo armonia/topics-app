@@ -1,5 +1,21 @@
 [
   {
+    "version": "2.2.512",
+    "date": "2026-10-15",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Le query SQLite che fermano il loop si scrivono nel log (D4g, B7) (#367)",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
     "version": "2.2.511",
     "date": "2026-10-15",
     "sections": {
