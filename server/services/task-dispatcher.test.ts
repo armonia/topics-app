@@ -183,7 +183,7 @@ describe("task-dispatcher", () => {
   });
 
   it("claims + launches a todo: worktree → topic → working chip → turn", async () => {
-    const h = harness();
+    const h = harness({ worktreeSetupResult: () => ({ status: "failed", exitCode: 7, output: ["config non valido"] }) });
     h.svc.updateBoardSettings(PID, { autoDispatch: true });
     h.svc.setGlobalCap({ auto: false, max: 2 });
     seedTask(h.db, { id: "t1", status: "todo" });
@@ -202,6 +202,8 @@ describe("task-dispatcher", () => {
     expect(h.turns[0].sessionKey).toBe("topic:sk1");
     expect(h.turns[0].content).toContain("exclusive owner of task");
     expect(h.dispatcher.isInFlight("t1")).toBe(true);
+    const comments = h.svc.get("t1")!.comments;
+    expect(comments.some((comment) => comment.content.includes("Setup fallito (exit 7)") && comment.content.includes("config non valido"))).toBe(true);
   });
 
   it("una domanda a META' TURNO porta il chip a needs_input, e il rilascio lo riporta a working", async () => {

@@ -249,3 +249,17 @@ describe("worktree-manager.create(): the worktree-create hook", () => {
     for (let i = 0; i < 100 && m.isMaterialising("w9"); i++) await new Promise((r) => setTimeout(r, 20));
   }, 10_000);
 });
+
+describe("worktree-manager.knownWorktreePort(): only a worktree gets a port", () => {
+  test("a managed worktree gets its stable port, a main checkout gets none", () => {
+    const now = new Date().toISOString();
+    const row = { id: "w1", projectId: "proj-1", absPath: "/srv/wt/proj/sage-well", branchName: "topics/sage-well", createdAt: now } as unknown as Worktree;
+    const m = createWorktreeManager(fakeCtx(), {
+      projectStore: fakeProjectStore(),
+      worktreeStore: { list: () => [row] } as unknown as WorktreeStore,
+    });
+    expect(m.knownWorktreePort("/srv/wt/proj/sage-well")).toBe(m.portForPath("/srv/wt/proj/sage-well"));
+    // The main checkout used to get portForPath too: the port the NEXT worktree claims.
+    expect(m.knownWorktreePort("/srv/code/proj")).toBeNull();
+  });
+});

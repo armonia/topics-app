@@ -2002,6 +2002,12 @@ export function createProcessesRouter(ctx: AppContext): RouteHandler {
     try { return await req.json(); } catch { return null; }
   }
 
+  /** TOPICS_PORT for a worktree Topics manages; a main checkout runs with its own defaults. */
+  function worktreePortEnv(projectPath: string): { TOPICS_PORT?: string } {
+    const port = ctx.worktreeManager.knownWorktreePort(projectPath);
+    return port === null ? {} : { TOPICS_PORT: String(port) };
+  }
+
   /**
    * Spawn `npm run <scriptName>` in projectPath, register it in the running
    * map, wire stdout/stderr streaming + exit handling, and return the public
@@ -2035,6 +2041,7 @@ export function createProcessesRouter(ctx: AppContext): RouteHandler {
         HOST: "0.0.0.0",
         NODE_ENV: "development",
         npm_config_yes: "true",
+        ...worktreePortEnv(projectPath),
       }),
     });
 

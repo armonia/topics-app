@@ -48,6 +48,7 @@ import { join, resolve } from "node:path";
 import { isTopicsSpawned, type OwnedScript } from "../lib/ghost-script";
 import type { NotificationRecordInput } from "../../shared/notification-log";
 import { SPAWN_TIMEOUT, spawnBounded } from "../lib/bounded-spawn";
+import { copyWorktreeIncludes, readWorktreeProjectConfig, runWorktreeCommand, worktreePort, type WorktreeSetupResult } from "./worktree-ready";
 
 export class WorktreeRefusalError extends Error {
   constructor(reason: string) {
@@ -112,6 +113,15 @@ export interface WorktreeManager {
   isMaterialising(id: string): boolean;
   /** The currently-configured worktrees-base directory. */
   worktreesDir(): string;
+  /** Setup result for the card comment, retained until the server restarts. */
+  setupResult(id: string): WorktreeSetupResult | null;
+  /** Stable port for a known worktree path. */
+  portForPath(path: string): number;
+  /**
+   * The port of a worktree Topics manages, null for any other path. A main checkout gets no
+   * TOPICS_PORT: `portForPath` on it would hand out the port the next worktree is going to claim.
+   */
+  knownWorktreePort(path: string): number | null;
 }
 
 /** Dipendenze opzionali iniettate: INIETTARE, non importare. */
@@ -237,6 +247,7 @@ export function createWorktreeManager(
 
   /** Ids whose materialise closure is queued or running in this process. */
   const buildInFlight = new Set<string>();
+  const setupResults = new Map<string, WorktreeSetupResult>();
 
   // Per-project async serialization (task e33820da: shared safe helper).
   const projectQueue = makeSerialQueue();
@@ -374,7 +385,8 @@ export function createWorktreeManager(
     buildInFlight.add(row.id);
     chainOnProjectQueue(input.projectId, async () => {
       try {
-        await materialiseOnDisk(project.path, absPath, branchName, input);
+        const result = await materialiseOnDisk(project.path, absPath, branchName, input, row.id);
+        setupResults.set(row.id, result);
         // Wrap the DB write: when this async runs AFTER `closeDatabase()`
         // (e.g. a peer test in the same process has torn down the
         // singleton between scheduling and execution), the prepared
@@ -417,7 +429,8 @@ export function createWorktreeManager(
     absPath: string,
     branchName: string | null,
     input: CreateWorktreeInput,
-  ): Promise<void> {
+    worktreeId: string,
+  ): Promise<WorktreeSetupResult> {
     const start = Date.now();
     if (input.mode === "branch") {
       // git worktree add -b topics/<name> <abs_path> <base_ref>
@@ -440,8 +453,33 @@ export function createWorktreeManager(
     console.log(
       `[WorktreeManager] created { project: ${projectPath}, worktree: ${absPath}, mode: ${input.mode}, base_ref: ${input.baseRef}, ms: ${ms} }`,
     );
+    // Best-effort: a broken .worktreeinclude must not cost the card its worktree.
+    try {
+      const includeResult = await copyWorktreeIncludes(projectPath, absPath);
+      if (includeResult.skipped.length) console.warn(`[WorktreeManager] worktreeinclude skipped { worktree: ${absPath}, paths: ${includeResult.skipped.join("; ")} }`);
+    } catch (err) {
+      console.warn(`[WorktreeManager] worktreeinclude failed { worktree: ${absPath}, error: ${(err as Error).message} }`);
+    }
     await installDeps(absPath);
     await provisionSidecars(projectPath, absPath);
+    const config = readWorktreeProjectConfig(projectPath);
+    const setupResult = await runWorktreeCommand(absPath, config.setup, portForPath(absPath));
+    console.log(`[WorktreeManager] setup { worktree: ${worktreeId}, status: ${setupResult.status}, exit: ${setupResult.exitCode ?? "-"} }`);
+    return setupResult;
+  }
+
+  function knownWorktreePort(path: string): number | null {
+    const target = resolve(path);
+    return deps.worktreeStore.list().some((worktree) => resolve(worktree.absPath) === target) ? portForPath(target) : null;
+  }
+
+  function portForPath(path: string): number {
+    // Oldest first, from the persisted creation time: the same order after a restart, and a
+    // newcomer never takes the port of a worktree whose server may already be running.
+    const known = deps.worktreeStore.list()
+      .sort((a, b) => (a.createdAt < b.createdAt ? -1 : a.createdAt > b.createdAt ? 1 : a.absPath < b.absPath ? -1 : 1))
+      .map((worktree) => worktree.absPath);
+    return worktreePort(path, [...known, path]);
   }
 
   /**
@@ -595,6 +633,11 @@ export function createWorktreeManager(
     return chainOnProjectQueue(wt.projectId, async () => {
       // Best-effort: remove from disk, then the branch if we own it.
       if (project && existsSync(wt.absPath)) {
+        const archive = readWorktreeProjectConfig(project.path).archive;
+        const archiveResult = await runWorktreeCommand(wt.absPath, archive, portForPath(wt.absPath));
+        if (archiveResult.status === "failed" || archiveResult.status === "timed-out") {
+          console.warn(`[WorktreeManager] archive script { worktree: ${id}, status: ${archiveResult.status}, output: ${archiveResult.output.join(" | ")} }`);
+        }
         // PUNTO 1: spegni i processi Topics dentro la worktree PRIMA di rimuoverla.
         await evictOwnedScripts(wt.absPath);
         try {
@@ -643,6 +686,7 @@ export function createWorktreeManager(
         }
       }
       const removed = deps.worktreeStore.delete(id);
+      setupResults.delete(id);
       // Caller is responsible for the WS broadcast.
       return removed;
     });
@@ -668,5 +712,8 @@ export function createWorktreeManager(
     awaitMaterialisation,
     isMaterialising: (id) => buildInFlight.has(id),
     worktreesDir: () => resolve(worktreesDir),
+    setupResult: (id) => setupResults.get(id) ?? null,
+    portForPath,
+    knownWorktreePort,
   };
 }
