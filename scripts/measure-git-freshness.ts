@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { connect } from "node:net";
 import { freshnessExitCode, isMatchingGitStatus, median, percentile95 } from "./git-freshness-metrics";
+import { FILE_CHANGE_DEBOUNCE_MS } from "../server/file-change-debouncer";
 
 const REPO_ROOT = resolve(import.meta.dir, "..");
 const PORT_BASE = 15300;
@@ -180,6 +181,9 @@ async function measureMode(
       rmSync(absolutePath);
       await removal;
     }
+    // Each sample is a save on its own: a write within the watcher's quiet window
+    // of the previous one belongs to that burst and waits for its final refresh.
+    await new Promise((resolveIdle) => setTimeout(resolveIdle, FILE_CHANGE_DEBOUNCE_MS + 100));
   }
   return { mode, samples: values };
 }

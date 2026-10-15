@@ -1,7 +1,26 @@
 name: Git freshness under CPU load
 
+# The freshness bar of D3: a saved file reaches the git status on the WebSocket
+# within 150 ms (p95) while eight processes saturate the CPU. It runs on the PRs
+# that touch that path, so green stays green, and by hand on any ref.
 on:
   workflow_dispatch:
+  pull_request:
+    paths:
+      - server/file-watcher.ts
+      - server/file-change-debouncer.ts
+      - server/git-watcher.ts
+      - server/lib/git-status.ts
+      - server/lib/git-numstat.ts
+      - server/lib/native-git-status.ts
+      - native/**
+      - scripts/measure-git-freshness.ts
+      - scripts/git-freshness-metrics.ts
+      - .github/workflows/measure-git-freshness.yml
+
+concurrency:
+  group: git-freshness-${{ github.ref }}
+  cancel-in-progress: true
 
 permissions:
   contents: read

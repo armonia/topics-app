@@ -38,3 +38,43 @@ riguarda add, commit e checkout, non il salvataggio di un file.
 
 - L'addon assente sul Mac è il fallback previsto da D3d; non è un guasto del prodotto. Il suo effetto qui è che il ramo nativo non si può misurare.
 - Il timeout di 10 s non è un p95 sopra budget: manca il frame necessario a calcolarlo, quindi la misura resta non valida.
+
+## D3i · Correzione della freschezza
+
+**Prima:** mediana **352 ms**, p95 **367 ms** sul Mac senza carico (valori D3i); obiettivo D3 ≤150 ms con 8 processi non raggiunto. **Dopo:** test deterministici, primo refresh a **50 ms**, refresh finale a **300 ms** dall'ultimo evento; percentile reale non misurato.
+
+### Fatto
+
+- `bun test server/file-change-debouncer.test.ts`: **4 pass, exit 0**; senza il ramo del primo refresh, la mutazione in copia fa fallire il test singolo (**exit 1**).
+- `bun run typecheck`, `bun run typecheck:e2e`, `bun run lint`: **exit 0**. `./scripts/qa-gate.sh --veloce`: **25 verdi, 0 rossi, exit 0**. `git diff --check`: **exit 0**.
+
+### Trovato e non fatto
+
+- `bun test server/file-watcher*.test.ts`: **3 pass, 1 fail, exit 1**, timeout a 120,09 s perché `fs.watch` non consegna eventi in questo sandbox. La misura end-to-end sotto carico resta da eseguire su un host che riceve gli eventi.
+
+### Rifiutato
+
+- Il watcher `.git` da 500 ms riguarda add, commit e checkout, quindi non è coinvolto nella freschezza dei salvataggi; è rimasto invariato.
+
+### In revisione (D3i)
+
+- Il ricalcolo finale partiva anche per un salvataggio atomico (scrittura e rinomina a pochi ms):
+  la regola era «più di un evento nella raffica». Ora parte solo se è arrivato un evento **dopo**
+  il ricalcolo iniziale; unit nuova «salvataggio atomico, un solo ricalcolo», e la mutazione che fa
+  partire sempre il ricalcolo finale rende rosse 3 unit su 5.
+- Il banco scriveva i campioni uno dopo l'altro: ogni salvataggio cadeva nella finestra di 300 ms
+  del precedente e misurava la strada della raffica. Ora fra un campione e l'altro aspetta più della
+  finestra, così misura un salvataggio vero. Una scrittura entro 300 ms da un'altra resta una
+  raffica e arriva col ricalcolo finale, per scelta: limita i ricalcoli di un `git checkout` o di
+  un agente che scrive molti file.
+- Misura sul Mac, addon release, 0 burner, load average 6-15, 10 campioni:
+  `bun run measure:git-freshness -- --samples 10` → **exit 0**, nativo acceso mediana **105,2 ms**,
+  p95 **126,0 ms**; spento mediana 119,3, p95 125,2.
+- La stessa misura in una copia col vecchio debounce (solo il ricalcolo finale), con le stesse
+  pause: **exit 1**, mediana 344,9 ms, p95 352,5. Il verde viene dalla correzione, non dal banco.
+- Il workflow della misura con 8 burner gira anche sulle PR che toccano questo percorso.
+- Trovato e non fatto: `WORKTREE-05 … fetching without ref changes does not publish a git status`
+  (`server/git-watcher.test.ts`) fallisce 2 volte su 3 quando gira insieme ai test del file
+  watcher, **anche su `origin/main`** senza questo ramo; da solo passa. È un'instabilità di tempi
+  che c'era già, non viene dal debounce nuovo.
+
