@@ -2,6 +2,34 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.2.507 — 2026-10-15
+
+### Sotto il cofano
+- Con la finestra nascosta l'app dorme (D2a) (#342)
+- Il chunk iniziale si dimezza: da 546 a 282 KB compressi (D2d) (#341)
+- la macchina si prova con una firma che scade, gli ospiti entrano solo con un riferimento dichiarato (D6b) (#347)
+- Worktree pronte all'uso: .worktreeinclude, setup/run/archive e una porta stabile (D5b) (#335)
+- Il mirror viaggia a pezzi compressi: una pagina grande arriva al viewer (D4a) (#337)
+- Primo avvio: una schermata sola per chi apre Topics la prima volta (D6a) (#336)
+- L'installato si prova su tre sistemi, avviato come lo avvia l'app (D6d) (#346)
+- Ogni terminale acceso sul Mac si vede e si pilota da Topics e dagli agenti (#331)
+- processes.session-run: il test aspetta l'uscita dello script che ferma (#350)
+- Terminali vivi: tmux visibile sotto launchd, Terminal.app non blocca la lista (#352)
+- **e2e** · aggiorna durate shard dal nightly del 2026-10-15 [skip ci]
+- Main torna verde: il primo avvio si carica solo quando serve, e la misura di i18n-it entra nel baseline (#354)
+- La board mostra cosa fa l'agente di una card senza aprirla (D5e) (#339)
+- /btw: una domanda a lato che non tocca la chat (D5d) (#340)
+- Il server non lancia processi che nessuno legge, e li conta (D3a) (#343)
+- Stato dei sottosistemi: un elenco solo, nel pannello e in /health (D6c) (#344)
+- Test instabili, due giri: la clip ripete sotto carico, il follow regge un ridimensionamento (D7d) (#345)
+- La porta decide sui principali: ospite o proprietario non lo dice più devices.role (D6e) (#349)
+- Il costo in nodi DOM di Topics a riposo, misurato nel notturno (D2e) (#355)
+- Le viste singleton di progetto hanno lo stesso id su ogni dispositivo (D7e, PANE-AUTH-04) (#351)
+- Sul Mac si vede chi guarda la pagina nativa, e la si può smettere di condividere (D4c) (#353)
+- Lo scroll del mirror finisce dove finisce sul Mac, anche con un fling sotto carico (D4b) (#357)
+- Il pane-store provato fra due dispositivi, e la chiusura che si perdeva quando la PUT si arrendeva (D7f) (#358)
+- the DOM budget spec declares its hermetic boundary, and three tracked files lose a home path (#360)
+
 ## 2.2.506 — 2026-10-15
 
 ### Sotto il cofano
