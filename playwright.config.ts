@@ -90,6 +90,9 @@ const NIGHTLY_ONLY_SPECS = [
   // again without it in its afterAll: on the PR gate the two restarts would be
   // paid by the specs around it, and the tag alone would still run the hooks.
   "chat-sse-own-row",
+  // Seeds 2,000 messages and 1,203 cards one request at a time in its
+  // beforeAll: the tag alone would still pay that seeding on the PR gate.
+  "dom-node-budget",
 ].map((name) => `**/${name}.spec.ts`);
 
 // ── Velocità vs. evidenza ────────────────────────────────────────────────────
