@@ -133,7 +133,7 @@ jobs:
         run: |
           $package = Get-ChildItem "$env:RUNNER_TEMP/install-smoke/previous" -File | Select-Object -First 1
           $install = Start-Process msiexec.exe -ArgumentList @('/i', $package.FullName, '/qn', '/norestart') -Wait -PassThru
-          if ($install.ExitCode -notin @(0, 3010)) { Write-Error "Installazione MSI $env:PREVIOUS_TAG fallita (msiexec $($install.ExitCode))"; exit 1 }
+          if ($install.ExitCode -notin @(0, 3010)) { Write-Error "Installazione MSI ${env:PREVIOUS_TAG} fallita (msiexec $($install.ExitCode))"; exit 1 }
 
       - name: Start and stop previous installed server
         if: runner.os != 'Windows'
@@ -198,11 +198,11 @@ jobs:
         run: |
           $binary = Get-ChildItem "$env:ProgramFiles\Topics" -Filter topics-server.exe -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1
           if (-not $binary) { $binary = Get-ChildItem "$env:ProgramFiles" -Filter topics-server.exe -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1 }
-          if (-not $binary) { Write-Host "::error title=Avvio::topics-server.exe non trovato dopo l'installazione di $env:PREVIOUS_TAG"; exit 1 }
+          if (-not $binary) { Write-Host "::error title=Avvio::topics-server.exe non trovato dopo l'installazione di ${env:PREVIOUS_TAG}"; exit 1 }
           # Started the way the app starts it (desktop-tauri/src-tauri/src/lib.rs): with the page the
           # package carries and the Rust PTY bridge beside it when there is one.
           $index = Get-ChildItem $binary.DirectoryName -Filter index.html -Recurse -ErrorAction SilentlyContinue | Where-Object { $_.Directory.Name -eq 'public' } | Select-Object -First 1
-          if (-not $index) { Write-Host "::error title=Installazione::public/index.html assente nell'installazione di $env:PREVIOUS_TAG"; exit 1 }
+          if (-not $index) { Write-Host "::error title=Installazione::public/index.html assente nell'installazione di ${env:PREVIOUS_TAG}"; exit 1 }
           $bridge = Join-Path $binary.DirectoryName 'pty-bridge.exe'
           $work = Join-Path $env:RUNNER_TEMP 'install-smoke/run-previous'
           New-Item -ItemType Directory -Force "$work/home", "$work/data", "$env:RUNNER_TEMP/install-smoke/logs" | Out-Null
@@ -216,7 +216,7 @@ jobs:
           $code = 0
           $deadline = [DateTime]::UtcNow.AddSeconds(19)
           while ([DateTime]::UtcNow -lt $deadline) {
-            try { $code = (Invoke-WebRequest 'http://127.0.0.1:18341/api/topics' -UseBasicParsing -TimeoutSec 1).StatusCode; if ($code -eq 200) { break } } catch {}
+            try { $code = (Invoke-WebRequest 'http://127.0.0.1:18341/api/topics' -UseBasicParsing -TimeoutSec 1).StatusCode; if ($code -eq 200) { break } } catch { if ($_.Exception.Response) { $code = [int]$_.Exception.Response.StatusCode } }
             if ($process.HasExited) { break }
             Start-Sleep -Milliseconds 250
           }
@@ -224,11 +224,11 @@ jobs:
           if ($code -eq 200) { try { $page = (Invoke-WebRequest 'http://127.0.0.1:18341/' -UseBasicParsing -TimeoutSec 2).StatusCode } catch { $page = [int]$_.Exception.Response.StatusCode } }
           Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue
           if ($code -ne 200 -or $page -ne 200) {
-            Write-Host "::error title=Salute::Server installato $env:PREVIOUS_TAG: GET /api/topics HTTP $code, GET / HTTP $page (attesi 200 entro 20 s)"
+            Write-Host "::error title=Salute::Server installato ${env:PREVIOUS_TAG}: GET /api/topics HTTP $code, GET / HTTP $page (attesi 200 entro 20 s)"
             Get-Content $stdout, $stderr -ErrorAction SilentlyContinue
             exit 1
           }
-          Write-Host "Salute $env:PREVIOUS_TAG: GET /api/topics HTTP 200, GET / HTTP 200, bridge: $bridgeEnv"
+          Write-Host "Salute ${env:PREVIOUS_TAG}: GET /api/topics HTTP 200, GET / HTTP 200, bridge: $bridgeEnv"
 
       - name: Install current release over previous
         if: runner.os != 'Windows'
@@ -259,7 +259,7 @@ jobs:
         run: |
           $package = Get-ChildItem "$env:RUNNER_TEMP/install-smoke/current" -File | Select-Object -First 1
           $install = Start-Process msiexec.exe -ArgumentList @('/i', $package.FullName, '/qn', '/norestart') -Wait -PassThru
-          if ($install.ExitCode -notin @(0, 3010)) { Write-Error "Aggiornamento MSI $env:CURRENT_TAG fallito (msiexec $($install.ExitCode))"; exit 1 }
+          if ($install.ExitCode -notin @(0, 3010)) { Write-Error "Aggiornamento MSI ${env:CURRENT_TAG} fallito (msiexec $($install.ExitCode))"; exit 1 }
 
       - name: Start and stop current installed server
         if: runner.os != 'Windows'
@@ -324,11 +324,11 @@ jobs:
         run: |
           $binary = Get-ChildItem "$env:ProgramFiles\Topics" -Filter topics-server.exe -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1
           if (-not $binary) { $binary = Get-ChildItem "$env:ProgramFiles" -Filter topics-server.exe -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1 }
-          if (-not $binary) { Write-Host "::error title=Avvio::topics-server.exe non trovato dopo l'aggiornamento a $env:CURRENT_TAG"; exit 1 }
+          if (-not $binary) { Write-Host "::error title=Avvio::topics-server.exe non trovato dopo l'aggiornamento a ${env:CURRENT_TAG}"; exit 1 }
           # Started the way the app starts it (desktop-tauri/src-tauri/src/lib.rs): with the page the
           # package carries and the Rust PTY bridge beside it when there is one.
           $index = Get-ChildItem $binary.DirectoryName -Filter index.html -Recurse -ErrorAction SilentlyContinue | Where-Object { $_.Directory.Name -eq 'public' } | Select-Object -First 1
-          if (-not $index) { Write-Host "::error title=Installazione::public/index.html assente nell'installazione di $env:CURRENT_TAG"; exit 1 }
+          if (-not $index) { Write-Host "::error title=Installazione::public/index.html assente nell'installazione di ${env:CURRENT_TAG}"; exit 1 }
           $bridge = Join-Path $binary.DirectoryName 'pty-bridge.exe'
           $work = Join-Path $env:RUNNER_TEMP 'install-smoke/run-current'
           New-Item -ItemType Directory -Force "$work/home", "$work/data", "$env:RUNNER_TEMP/install-smoke/logs" | Out-Null
@@ -342,7 +342,7 @@ jobs:
           $code = 0
           $deadline = [DateTime]::UtcNow.AddSeconds(19)
           while ([DateTime]::UtcNow -lt $deadline) {
-            try { $code = (Invoke-WebRequest 'http://127.0.0.1:18342/api/topics' -UseBasicParsing -TimeoutSec 1).StatusCode; if ($code -eq 200) { break } } catch {}
+            try { $code = (Invoke-WebRequest 'http://127.0.0.1:18342/api/topics' -UseBasicParsing -TimeoutSec 1).StatusCode; if ($code -eq 200) { break } } catch { if ($_.Exception.Response) { $code = [int]$_.Exception.Response.StatusCode } }
             if ($process.HasExited) { break }
             Start-Sleep -Milliseconds 250
           }
@@ -350,11 +350,11 @@ jobs:
           if ($code -eq 200) { try { $page = (Invoke-WebRequest 'http://127.0.0.1:18342/' -UseBasicParsing -TimeoutSec 2).StatusCode } catch { $page = [int]$_.Exception.Response.StatusCode } }
           Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue
           if ($code -ne 200 -or $page -ne 200) {
-            Write-Host "::error title=Salute::Server installato $env:CURRENT_TAG: GET /api/topics HTTP $code, GET / HTTP $page (attesi 200 entro 20 s)"
+            Write-Host "::error title=Salute::Server installato ${env:CURRENT_TAG}: GET /api/topics HTTP $code, GET / HTTP $page (attesi 200 entro 20 s)"
             Get-Content $stdout, $stderr -ErrorAction SilentlyContinue
             exit 1
           }
-          Write-Host "Salute $env:CURRENT_TAG: GET /api/topics HTTP 200, GET / HTTP 200, bridge: $bridgeEnv"
+          Write-Host "Salute ${env:CURRENT_TAG}: GET /api/topics HTTP 200, GET / HTTP 200, bridge: $bridgeEnv"
 
       - name: Attach installed server logs
         if: always()
