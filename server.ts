@@ -543,6 +543,11 @@ const viewportWiring = createViewportWiring({
   },
 });
 
+/** A viewer's size reaches the shared page through the wiring only: from its
+ *  socket, or replayed when its wait for the host ends (NATIVE-HOST-06). */
+const resizeFromViewer = (contextId: string, data: MirrorSocket["data"], frame: Extract<BrowserWsMessage, { type: "resize" }>): void => {
+  viewportWiring.onFrame(contextId, { ...data, id: data.id ?? "" }, frame);
+};
 const viewerActions = createViewerActions({
   browser: { navigate: (c, u) => browserService.navigate(c, u), setDomEmit: (c, on) => browserService.setDomEmit(c, on) },
   socketsOf: (c) => browserWsClients.get(c),
@@ -554,7 +559,7 @@ const hostBootRace = createBrowserHostBootRace<MirrorSocket>({
     if (hostMirror.routeViewer(socket, contextId, frame)) return;
     if (frame.type === "set_render" && frame.mode === "dom") hostMirror.enableChromiumDom(socket, contextId);
     else if (frame.type === "set_render") viewerActions.toVideo(socket, contextId);
-    else if (frame.type === "resize") viewportWiring.onFrame(contextId, { ...socket.data, id: socket.data.id ?? "" }, frame);
+    else if (frame.type === "resize") resizeFromViewer(contextId, socket.data, frame);
     else if (frame.type === "nav" && frame.phase === "request") viewerActions.navigate(socket, contextId, frame.url);
   },
 });
@@ -4616,7 +4621,7 @@ const opzioniServer = {
             // the Mac's page into a phone page under the hands of whoever was
             // typing. Dropped silently: the spectator is not asking for
             // anything, it is just measuring itself.
-            viewportWiring.onFrame(ctxId, ws.data, parsed);
+            resizeFromViewer(ctxId, ws.data, parsed);
           } else if (parsed.type === 'set_engine') {
             // Engine switch (task 54601eeb). Non più dietro un flag: la
             // capacità la decide la presenza di un Chromium sulla macchina, e il

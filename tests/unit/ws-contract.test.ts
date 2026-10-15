@@ -207,6 +207,11 @@ describe('WS-04 contract: browserWsMessageSchema (Phase 30)', () => {
     //                                         devices watching, rate, delay
     //   host_share_state                    — server to viewers: the host
     //                                         paused or resumed the mirror
+    //   host_ping / host_pong               — the server asks the Mac's pane
+    //                                         every 5 s whether its JavaScript
+    //                                         answers (NATIVE-HOST-07, D4d)
+    //   host_away                           — server to viewers: the host
+    //                                         stopped answering or left
     expect([...types].sort()).toEqual([
       'agent_active',
       'console',
@@ -217,6 +222,9 @@ describe('WS-04 contract: browserWsMessageSchema (Phase 30)', () => {
       'focus_field',
       'focus_query',
       'frame',
+      'host_away',
+      'host_ping',
+      'host_pong',
       'host_share_state',
       'input',
       'native_host_status',
