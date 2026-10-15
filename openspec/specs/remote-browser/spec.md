@@ -3078,7 +3078,7 @@ message to viewers. Other schemes and equal URLs SHALL not be forwarded.
 #### Scenario: a viewer navigates while the host is away
 - **GIVEN** Chromium has taken over the context and a viewer navigates to a new HTTP or HTTPS URL
 - **WHEN** the native host returns on a different URL
-- **THEN** the host receives `host_nav` for the Chromium URL before Chromium is destroyed
+- **THEN** the host receives `host_nav` for the URL Chromium was on, read before Chromium is destroyed
 - **AND** viewers receive that navigation
 
 ### Requirement: BROWSER-DOM-LAYOUT-01 — Each device SHALL lay a page the Mac hosts out at its own size, and the Mac SHALL keep its own

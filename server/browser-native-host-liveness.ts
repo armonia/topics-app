@@ -1,3 +1,16 @@
+/**
+ * Is the native pane's JavaScript alive (NATIVE-HOST-07)?
+ *
+ * The protocol ping of the socket heartbeat is answered by the network stack
+ * even when the pane's page is frozen, so a Mac that sleeps or stalls was found
+ * only by the 90 s timeout. Here the server pings the registered executors
+ * every 5 s at the application level, and 15 s without an answer loses the host.
+ *
+ * Only an executor that has answered once is held to it: a pane still running
+ * the client code from before this change never answers, and losing it every
+ * 15 s would hand every open page to the server's Chromium after a deploy.
+ * The timer exists only while an executor is registered.
+ */
 export const HOST_PING_INTERVAL_MS = 5_000;
 export const HOST_PONG_TIMEOUT_MS = 15_000;
 

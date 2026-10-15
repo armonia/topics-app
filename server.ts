@@ -556,9 +556,29 @@ const hostBootRace = createBrowserHostBootRace<MirrorSocket>({
       if (!anyDom) browserService.setDomEmit(contextId, false);
     }
     else if (frame.type === "resize") viewportWiring.onFrame(contextId, { ...socket.data, id: socket.data.id ?? "" }, frame);
-    else if (frame.type === "nav" && frame.phase === "request") void browserService.navigate(contextId, frame.url);
+    else if (frame.type === "nav" && frame.phase === "request") navigateForViewer(socket, contextId, frame.url);
   },
 });
+
+/**
+ * A viewer's navigation on the server's Chromium. goto failures resolve with
+ * `error` (page stayed on the old URL); launch failures reject below. Both must
+ * reach the pane as phase 'error': a bare 'response' made every failed
+ * navigation invisible (BRW-REL-02). The goto failure is not sent from here:
+ * the service tells every viewer of the context, this socket included
+ * (browser-nav-flight.ts).
+ */
+function navigateForViewer(ws: { send: (data: string) => void }, ctxId: string, url: string): void {
+  browserService.navigate(ctxId, url).then((r) => {
+    if (!r.error) sendBrowserWsMessage(ws, { type: 'nav', url, phase: 'response' });
+  }).catch(err => {
+    const msg = err instanceof Error ? (err.message.split('\n')[0] || 'Browser failed to start') : String(err);
+    console.warn(`[WS][browser] navigate failed for ${ctxId}:`, msg);
+    try {
+      sendBrowserWsMessage(ws, { type: 'nav', url, phase: 'error', error: msg });
+    } catch { /* socket gone — nothing to surface to */ }
+  });
+}
 notifyHostReady = (contextId) => hostBootRace.hostReady(contextId);
 const nativeHostLiveness = createNativeHostLiveness<MirrorSocket>({
   onLost: (contextId, socket) => {
@@ -4220,6 +4240,10 @@ const opzioniServer = {
             return;
           }
           if (!streamActive) return;
+          // A `set_stream: true` inside the grace window already started it
+          // (see `_browserSetStream`): a second start would open a second CDP
+          // session on the same page before the first one is registered.
+          if (screencastStart) return;
           startScreencastForViewer();
         }, SCREENCAST_START_GRACE_MS);
         ws.data._browserSetStream = (active: boolean) => {
@@ -4588,23 +4612,7 @@ const opzioniServer = {
               } catch { /* socket gone — the keyboard question died with it */ }
             })();
           } else if (parsed.type === 'nav' && parsed.phase === 'request') {
-            browserService.navigate(ctxId, parsed.url).then((r) => {
-              // goto failures resolve with `error` (page stayed on the old
-              // URL); launch failures reject below. Both must reach the pane
-              // as phase 'error' — a bare 'response' here made every failed
-              // navigation invisible (BRW-REL-02). The goto failure is not sent
-              // from here: the service tells every viewer of the context, this
-              // socket included (browser-nav-flight.ts).
-              if (!r.error) {
-                sendBrowserWsMessage(ws, { type: 'nav', url: parsed.url, phase: 'response' });
-              }
-            }).catch(err => {
-              const msg = err instanceof Error ? (err.message.split('\n')[0] || 'Browser failed to start') : String(err);
-              console.warn(`[WS][browser] navigate failed for ${ctxId}:`, msg);
-              try {
-                sendBrowserWsMessage(ws, { type: 'nav', url: parsed.url, phase: 'error', error: msg });
-              } catch { /* socket gone — nothing to surface to */ }
-            });
+            navigateForViewer(ws, ctxId, parsed.url);
           } else if (parsed.type === 'take_control') {
             // Phase 30 BROWSER-CHAT-04 — user reclaimed control. Force-release the
             // lock with an eager agent_active=false broadcast. The agent's in-flight

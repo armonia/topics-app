@@ -73,6 +73,7 @@ export function createHostMirror(deps: HostMirrorDeps) {
   const fallbackContexts = new Set<string>();
   const returningHostUrls = new Map<string, string>();
   const seenHosts = new Set<string>();
+  const closed = new WeakSet<MirrorSocket>();
   const hostChunks = new Map<string, BrowserWsChunkAssembler>();
   const now = deps.now ?? Date.now;
   const statusTimers = new Map<string, () => void>();
@@ -388,10 +389,18 @@ export function createHostMirror(deps: HostMirrorDeps) {
 
     /** A socket of the context closed (already out of its socket set). */
     onClose(ws: MirrorSocket, contextId: string): void {
+      // A host lost to the liveness check or to the reaper comes here first,
+      // and again with its socket's own close event: that second call is not a
+      // viewer leaving, and would take the Mac's device off the viewport.
+      if (closed.has(ws)) return;
+      closed.add(ws);
       // The host leaving starts the countdown to the server's Chromium; a
       // mirror leaving may have been the last one on screen.
       if (hosts.withdraw(contextId, ws)) {
-        for (const viewer of viewersOf(contextId)) send(viewer, { type: "host_away" });
+        // With sharing off the viewers already say so, and no fallback follows.
+        if (hosts.isSharing(contextId)) {
+          for (const viewer of viewersOf(contextId)) send(viewer, { type: "host_away" });
+        }
         hostChunks.delete(contextId);
         statusTimers.get(contextId)?.(); statusTimers.delete(contextId);
         scheduleFallback(contextId);

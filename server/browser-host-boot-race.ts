@@ -1,3 +1,18 @@
+/**
+ * After a server restart, the viewer of a context the Mac's native pane hosted
+ * waits for that host instead of starting Chromium (NATIVE-HOST-06).
+ *
+ * The iPad's socket comes back before the Mac's executor, which retries on a
+ * 1-2-4-8-10 s ladder (nativeExecutorSocket.ts). Its first frames (`set_render`,
+ * `resize`) and the 250 ms screencast start each launched a Chromium the host
+ * then destroyed a few seconds later: 48 SIGTERMs in the production log of 14/10.
+ *
+ * Who knows the context was hosted is the viewer (its last `render_mode` said
+ * so, `?host=native`), and only a process that never saw a host for it waits:
+ * a host leaving a running server stays the fallback's business
+ * (browser-host-mirror.ts). The wait holds the last frame of each kind and
+ * replays it once, on the mirror if the host came back, on Chromium if not.
+ */
 import type { BrowserWsMessage } from "../shared/browser-ws-messages";
 
 export const BOOT_HOST_WAIT_MS = 10_000;

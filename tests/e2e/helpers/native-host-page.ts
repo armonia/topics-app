@@ -20,6 +20,10 @@ export interface NativeHostPage {
   scrolls: () => Promise<{ relayed: number; calls: number; wheels: number }>;
   status: () => { sharing: boolean; devices: number; kbps: number; delayMs: number; error?: string } | null;
   setSharing: (active: boolean) => void;
+  /** Application pings answered so far: the server holds a pane to the 15 s rule only after one. */
+  pongs: () => number;
+  /** The page's JavaScript stops, the socket stays open: pings go unanswered (NATIVE-HOST-07). */
+  freeze: () => void;
   close: () => void;
 }
 
@@ -36,6 +40,8 @@ export async function hostNativePage(
   const count = { relayed: 0, calls: 0 };
   let status: { sharing: boolean; devices: number; kbps: number; delayMs: number; error?: string } | null = null;
   const views: NativeHostPage["views"] = [];
+  let pongs = 0;
+  let frozen = false;
   await new Promise<void>((resolve, reject) => { ws.once("open", () => resolve()); ws.once("error", reject); });
   const host = createNativeDomHost({
     evalInPage: async (js) => {
@@ -54,6 +60,13 @@ export async function hostNativePage(
   });
   ws.on("message", (data) => {
     const frame = JSON.parse(String(data)) as { type?: string; action?: string };
+    // The native pane answers from its page's JavaScript (nativeExecutorSocket.ts);
+    // the protocol ping is answered by the socket library, frozen or not.
+    if (frame.type === "host_ping") {
+      if (!frozen) { pongs++; ws.send(JSON.stringify({ type: "host_pong" })); }
+      return;
+    }
+    if (frozen) return;
     if (frame.type === "native_host_status") status = frame as typeof status;
     if (frame.type === "host_input" && frame.action === "scroll") count.relayed++;
     host.handle(frame);
@@ -69,6 +82,8 @@ export async function hostNativePage(
     views,
     status: () => status,
     setSharing: (active) => ws.send(JSON.stringify({ type: "set_native_host_sharing", active })),
+    pongs: () => pongs,
+    freeze: () => { frozen = true; },
     scrolls: async () => ({ ...count, wheels: await page.evaluate(() => (window as unknown as { __wheels?: number }).__wheels ?? 0) }),
     close: () => { host.reset(); ws.close(); },
   };
