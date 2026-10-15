@@ -20,6 +20,11 @@ const PROJECT_DIR = `e2e-worktree-ready-${Date.now()}`;
 const PROJECT_PATH = join(canonicalTmpRoot(), PROJECT_DIR);
 const BOARD_ID = projectIdForPath(PROJECT_PATH);
 
+// The identity travels with each call: a CI runner has no global git config.
+const git = (...args: string[]): void => {
+  execFileSync("git", ["-c", "user.email=e2e@test", "-c", "user.name=e2e", "-c", "commit.gpgsign=false", ...args], { cwd: PROJECT_PATH, stdio: "pipe" });
+};
+
 type BoardSettings = { autoDispatch: boolean; dispatchUseWorktree: boolean };
 type TaskSnapshot = { task: { status: string; dispatchState: string | null }; comments: Array<{ content: string }> };
 type WorktreeRow = { id: string; absPath: string; status: string; port: number };
@@ -68,9 +73,7 @@ test("a card gets its .env and its setup, and two worktrees keep distinct ports 
   try {
     mkdirSync(PROJECT_PATH, { recursive: true });
     mkdirSync(join(PROJECT_PATH, ".topics"), { recursive: true });
-    execFileSync("git", ["init", "-q", "-b", "main"], { cwd: PROJECT_PATH });
-    execFileSync("git", ["config", "user.email", "test@example.invalid"], { cwd: PROJECT_PATH });
-    execFileSync("git", ["config", "user.name", "Topics E2E"], { cwd: PROJECT_PATH });
+    git("init", "-q", "-b", "main");
     writeFileSync(join(PROJECT_PATH, "README.md"), "# e2e\n");
     writeFileSync(join(PROJECT_PATH, ".gitignore"), ".env\nsetup.port\n");
     writeFileSync(join(PROJECT_PATH, ".worktreeinclude"), ".env\n");
@@ -80,8 +83,8 @@ test("a card gets its .env and its setup, and two worktrees keep distinct ports 
       run: { command: "/bin/sh", args: ["-c", "printf '%s' \"$TOPICS_PORT\" > run.port" ] },
       archive: { command: "/bin/sh", args: ["-c", "echo archived" ] },
     }, null, 2));
-    execFileSync("git", ["add", "README.md", ".gitignore", ".worktreeinclude", ".topics/worktree.json"], { cwd: PROJECT_PATH });
-    execFileSync("git", ["commit", "-q", "-m", "fixture"], { cwd: PROJECT_PATH });
+    git("add", "README.md", ".gitignore", ".worktreeinclude", ".topics/worktree.json");
+    git("commit", "-q", "-m", "fixture");
 
     const projectResponse = await request.post(`${E2E_BASE}/api/projects`, { data: { name: projectName, path: PROJECT_PATH } });
     expect(projectResponse.ok(), await projectResponse.text()).toBeTruthy();

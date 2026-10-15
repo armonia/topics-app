@@ -3,6 +3,7 @@ import { existsSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync 
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { assignWorktreePorts, copyWorktreeIncludes, runWorktreeCommand } from "./worktree-ready";
+import { gitEnv } from "../../tests/setup/bun-test-preload";
 
 /**
  * Included files, setup outcome and ports of a new worktree.
@@ -22,7 +23,7 @@ afterEach(() => {
 });
 
 function git(cwd: string, ...args: string[]): void {
-  const result = Bun.spawnSync(["git", ...args], { cwd, stdout: "pipe", stderr: "pipe" });
+  const result = Bun.spawnSync(["git", ...args], { cwd, stdout: "pipe", stderr: "pipe", env: gitEnv() });
   if (result.exitCode !== 0) throw new Error(new TextDecoder().decode(result.stderr));
 }
 
