@@ -16,7 +16,7 @@ import type { AppContext } from "./types";
 // Dal modulo della cache, non dalla route che la riempie: importare
 // `./routes/files` da qui chiudeva il ciclo
 // file-watcher → git-watcher → routes/files → file-watcher.
-import { invalidateGitCache, setGitStatusWatcher, writeGitStatusCache } from "./lib/git-status-cache";
+import { gitStatusGeneration, invalidateGitCache, setGitStatusWatcher, writeGitStatusCache } from "./lib/git-status-cache";
 import { computeGitStatus, type ComputedGitStatus, type GitStatus } from "./lib/git-status";
 
 const DEBOUNCE_MS = 500;
@@ -50,17 +50,62 @@ function resolveGitDir(projectPath: string): string | null {
   return null;
 }
 
+export function gitPathAffectsStatus(filename: string | Buffer | null): boolean {
+  const name = filename?.toString();
+  return name === "HEAD" || name === "index" || name === "packed-refs";
+}
+
+/**
+ * Under `refs/`, a lock file is not a change. A fetch that moves nothing still
+ * rewrites `refs/remotes/<remote>/HEAD` through `HEAD.lock` (git 2.50, measured
+ * 15/10), and that event alone was a full status round per autofetch. A ref
+ * that really moves also reports its final name (`refs/remotes/origin/main`).
+ * A missing name stays a change: better a round too many than a missed one.
+ */
+export function refPathAffectsStatus(filename: string | Buffer | null): boolean {
+  return !filename?.toString().endsWith(".lock");
+}
+
+/**
+ * One burst of `.git` events, one refresh, for the generation of the LAST
+ * event. Every event advances the generation: a reader that started between
+ * two events of a burst may have read the tree before the second one, and the
+ * refresh must not join its round.
+ */
+export function gitChangeDebouncer(
+  projectPath: string,
+  refresh: (generation: number) => void,
+  delayMs = DEBOUNCE_MS,
+): { onChange: () => void; cancel: () => void } {
+  let timer: ReturnType<typeof setTimeout> | null = null;
+  let generation = gitStatusGeneration(projectPath);
+  return {
+    onChange() {
+      if (timer) clearTimeout(timer);
+      // Invalidate server-side cache immediately. The cache is keyed by
+      // `projectPath`, so each worktree gets its own slot.
+      generation = invalidateGitCache(projectPath);
+      timer = setTimeout(() => {
+        timer = null;
+        refresh(generation);
+      }, delayMs);
+    },
+    cancel() {
+      if (timer) clearTimeout(timer);
+      timer = null;
+    },
+  };
+}
+
 // The status itself (shape and the five spawns that produce it) lives in
 // `lib/git-status.ts`, shared with `GET /api/git/status`. This file used to
 // carry its own copy of the eight-spawn procedure, and the two had already
 // drifted once (the symlink prefix). `computeGitStatus` returns `null` for a
 // path that is not a repo and throws on a git failure; here both mean "no
 // push", as before.
-async function computeGitStatusQuietly(resolvedDir: string): Promise<ComputedGitStatus | null> {
+async function computeGitStatusQuietly(resolvedDir: string, generation = gitStatusGeneration(resolvedDir)): Promise<ComputedGitStatus | null> {
   try {
-    // Fresh: this runs BECAUSE the tree changed, so a round already in flight
-    // (started before the change) must not be the answer that gets pushed.
-    return await computeGitStatus(resolvedDir, { fresh: true });
+    return await computeGitStatus(resolvedDir, { generation, cause: "watcher" });
   } catch {
     return null;
   }
@@ -80,10 +125,11 @@ async function computeGitStatusQuietly(resolvedDir: string): Promise<ComputedGit
  * Il chiamante è il watcher dei FILE (`file-watcher.ts`), che ha già il suo
  * debounce e il suo filtro sui path rumorosi.
  */
-export async function refreshGitStatus(projectPath: string, ctx: AppContext): Promise<void> {
-  invalidateGitCache(projectPath);
-  const status = await computeGitStatusQuietly(projectPath);
-  if (!status) return;
+export async function refreshGitStatus(projectPath: string, ctx: AppContext, generation?: number): Promise<void> {
+  const requestedGeneration = generation ?? invalidateGitCache(projectPath);
+  const targetGeneration = Math.max(requestedGeneration, gitStatusGeneration(projectPath));
+  const status = await computeGitStatusQuietly(projectPath, targetGeneration);
+  if (!status || targetGeneration !== gitStatusGeneration(projectPath)) return;
   // The route's cache is filled here, not only emptied: the client polls
   // `/api/git/status` right after a push, and that poll used to be a miss
   // (eight spawns) for the very state this push already computed.
@@ -123,40 +169,33 @@ export function watchGitDir(
   if (!gitDir) return;
   if (worktreeId !== undefined) worktreeIds.set(projectPath, worktreeId);
 
-  let debounceTimer: ReturnType<typeof setTimeout> | null = null;
-
-  const onChange = () => {
-    if (debounceTimer) clearTimeout(debounceTimer);
-    // Invalidate server-side cache immediately. The cache is keyed by
-    // `projectPath`, so each worktree gets its own slot.
-    invalidateGitCache(projectPath);
-    debounceTimer = setTimeout(() => { void refreshGitStatus(projectPath, ctx); }, DEBOUNCE_MS);
-  };
+  let gitDirWatcher: ReturnType<typeof watch> | null = null;
+  const debouncer = gitChangeDebouncer(projectPath, (generation) => { void refreshGitStatus(projectPath, ctx, generation); });
+  const onChange = debouncer.onChange;
 
   try {
-    const indexWatcher = existsSync(join(gitDir, "index"))
-      ? watch(join(gitDir, "index"), onChange)
-      : null;
-    const headPath = join(gitDir, "HEAD");
-    const headWatcher = existsSync(headPath) ? watch(headPath, onChange) : null;
+    gitDirWatcher = watch(gitDir, (_event, filename) => {
+      if (gitPathAffectsStatus(filename)) onChange();
+    });
 
     let refsWatcher: ReturnType<typeof watch> | null = null;
     const refsDir = join(gitDir, "refs");
     if (existsSync(refsDir)) {
       try {
-        refsWatcher = watch(refsDir, { recursive: true }, onChange);
+        refsWatcher = watch(refsDir, { recursive: true }, (_event, filename) => {
+          if (refPathAffectsStatus(filename)) onChange();
+        });
       } catch {
         // recursive watch not supported on all platforms
       }
     }
 
-    const live = Boolean(indexWatcher || headWatcher || refsWatcher);
+    const live = Boolean(gitDirWatcher || refsWatcher);
     watchers.set(projectPath, {
       close() {
-        indexWatcher?.close();
-        headWatcher?.close();
+        gitDirWatcher?.close();
         refsWatcher?.close();
-        if (debounceTimer) clearTimeout(debounceTimer);
+        debouncer.cancel();
       },
     });
     setGitStatusWatcher(projectPath, live);

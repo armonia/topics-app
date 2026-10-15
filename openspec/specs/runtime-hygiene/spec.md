@@ -1194,3 +1194,39 @@ il dato cambiato mentre la finestra era nascosta compare entro 1 s.
 - **GIVEN** un dato che il server cambia mentre la finestra è nascosta
 - **WHEN** la finestra torna in primo piano
 - **THEN** il dato nuovo compare entro 1 s
+
+### Requirement: RUNTIME-24 — I processi periodici hanno un lettore e un contatore
+
+Il server SHALL contare gli spawn periodici degli ultimi 15 minuti per causa:
+ricalcolo Git e innesco, fetch, `lsof`, `vm_stat` e gli altri sondaggi periodici.
+`/api/system/status` SHALL esporre questi conteggi e il pannello Prestazioni
+SHALL mostrarli in italiano con la finestra temporale.
+
+Un processo lanciato per servire una vista SHALL essere richiesto solo mentre la
+vista è aperta. `lsof` usato per trovare processi e porte SHALL essere limitato
+alla richiesta del pannello Processi; un controllo che deve solo sapere se una
+porta risponde SHALL usare una connessione TCP.
+
+Due richieste simultanee dello stato Git per lo stesso repo e la stessa
+generazione SHALL condividere un solo ricalcolo. Una richiesta arrivata dopo il
+cambiamento SHALL leggere la nuova generazione; le richieste che conoscono quel
+cambiamento SHALL poter condividere il suo giro. Un aggiornamento di solo
+`FETCH_HEAD`, senza cambiamenti a `HEAD`, ref, indice o file del worktree, NON
+SHALL innescare un ricalcolo.
+
+Uno spawn periodico SHALL avere almeno un consumatore identificabile del suo
+risultato. I sondaggi di memoria restano utili alla capacità e al freno swap;
+una lettura che serve solo una vista resta spenta quando la vista è chiusa.
+
+#### Scenario: la route Git e il watcher si incontrano
+- **GIVEN** una modifica del repo e una lettura iniziata dopo il cambiamento
+- **WHEN** route e watcher chiedono lo stato insieme
+- **THEN** SHALL avvenire un solo giro di spawn e SHALL contenere il cambiamento
+
+#### Scenario: fetch senza ref aggiornati
+- **GIVEN** un fetch che riscrive solo `FETCH_HEAD`
+- **THEN** il watcher NON SHALL ricalcolare lo stato Git
+
+#### Scenario: il pannello Processi è chiuso
+- **GIVEN** nessuna richiesta recente del pannello Processi
+- **THEN** il detector NON SHALL lanciare i sondaggi periodici `lsof`

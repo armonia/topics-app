@@ -65,6 +65,12 @@ export interface GitStatusResult {
 const cache = new Map<string, { data: GitStatusResult; timestamp: number }>();
 const gitWatchedPaths = new Set<string>();
 const fileWatchedPaths = new Set<string>();
+const generations = new Map<string, number>();
+
+/** Version of the tree the next status round must read. */
+export function gitStatusGeneration(projectPath: string): number {
+  return generations.get(projectPath) ?? 0;
+}
 
 /** Tracks whether `.git` has an active watcher for this path. */
 export function setGitStatusWatcher(projectPath: string, active: boolean): void {
@@ -106,18 +112,18 @@ export function writeGitStatusCache(projectPath: string, data: GitStatusResult, 
 }
 
 /** Butta la voce di questo progetto: la prossima lettura torna a chiedere a git. */
-export function invalidateGitCache(projectPath: string): void {
+export function invalidateGitCache(projectPath: string): number {
   cache.delete(projectPath);
-  // A round already in flight may have read the tree BEFORE the change that
-  // caused this invalidation: whoever asks next must start a new one, not join
-  // it (see `computeGitStatus`).
-  roundsInFlight.delete(projectPath);
+  const generation = gitStatusGeneration(projectPath) + 1;
+  generations.set(projectPath, generation);
+  // An earlier round may still finish for its original callers, but new
+  // readers cannot mistake it for the changed tree.
+  return generation;
 }
 
 /**
  * The rounds of `computeGitStatus` currently running, per folder. Kept here,
- * next to the cache, so that the one door every writer already goes through
- * (`invalidateGitCache`, 23 call sites) also retires a round that can no
- * longer be trusted.
+ * next to the cache, so readers can compare their requested tree generation
+ * with the round before joining it.
  */
-export const roundsInFlight = new Map<string, Promise<unknown>>();
+export const roundsInFlight = new Map<string, { generation: number; promise: Promise<unknown> }>();

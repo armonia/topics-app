@@ -19,6 +19,7 @@
  */
 import { readFileSync } from "node:fs";
 import { spawnBounded } from "./bounded-spawn";
+import { recordServerSpawn } from "./spawn-metrics";
 
 export interface PidLivenessDeps {
   /** `kill(pid, 0)`: throws when the pid does not exist (or is not ours to signal). */
@@ -88,6 +89,7 @@ function readProcState(pid: number): string | null {
 
 async function psStates(pids: number[]): Promise<Map<number, string> | null> {
   try {
+    recordServerSpawn("other", "pidLiveness");
     const proc = spawnBounded(["ps", "-o", "pid=,stat=", "-p", pids.join(",")], { stdout: "pipe", stderr: "ignore", timeoutMs: 3_000 });
     const text = await new Response(proc.stdout).text();
     await proc.exited;

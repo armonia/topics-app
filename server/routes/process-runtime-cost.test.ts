@@ -20,14 +20,13 @@ function measure(mode: string): Record<string, number | number[]> {
 describe("process runtime costs", () => {
   test("hung shared probes are killed within a bound and the next wave recovers", () => {
     const measured = measure("hang");
-    expect(measured.timeouts).toBe(2);
-    expect(measured.delays).toEqual([5000, 5000]);
-    expect(measured.kills).toBe(2);
-    expect(measured.calls).toBe(4);
+    expect(measured.timeouts).toBe(1);
+    expect(measured.delays).toEqual([5000]);
+    expect(measured.kills).toBe(1);
+    expect(measured.calls).toBe(2);
     expect(measured.pendingTimers).toBe(0);
     expect(measured.firstPorts).toBe(0);
     expect(measured.recoveredPorts).toBe(1);
-    expect(measured.recoveredTop).toBe(2);
     expect(measured.warmPorts).toBe(1);
   });
   test("the immediate initial cycle leaves exactly one timer chain, including a concurrent start", () => {
@@ -35,23 +34,21 @@ describe("process runtime costs", () => {
     expect(measured.initial).toEqual([8_000]);
     expect(measured.pending).toBe(1);
     expect(measured.cycles).toBe(6);
+    expect(measured.lsofSpawns).toBe(0);
   });
-  test("eight simultaneous status callers share cold and expired probes; warm calls do not spawn", () => {
+  test("eight simultaneous process-list callers share cold and expired probes; warm calls do not spawn", () => {
     const measured = measure("probes");
-    expect(measured.coldSpawns).toBe(2);
+    expect(measured.coldSpawns).toBe(1);
     expect(measured.secondSpawns).toBe(0);
-    expect(measured.expiredSpawns).toBe(2);
+    expect(measured.expiredSpawns).toBe(1);
     expect(measured.finalPorts).toBe(1);
-    expect(measured.secondTopLengths).toEqual([1, 3]);
-    expect(measured.expiredTopLengths).toEqual([1, 3]);
   });
   test("a failed wave does not poison the in-flight promise or prevent the next wave from recovering", () => {
     const measured = measure("recovery");
-    expect(measured.coldSpawns).toBe(2);
+    expect(measured.coldSpawns).toBe(1);
     expect(measured.firstPorts).toBe(0);
-    expect(measured.secondSpawns).toBe(2);
+    expect(measured.secondSpawns).toBe(1);
     expect(measured.secondPorts).toBe(1);
-    expect(measured.expiredSpawns).toBe(2);
-    expect(measured.secondTopLengths).toEqual([1, 3]);
+    expect(measured.expiredSpawns).toBe(1);
   });
 });

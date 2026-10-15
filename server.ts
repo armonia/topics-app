@@ -118,6 +118,7 @@ import { createTaskAutoMerge, worktreeDirtProbe, worktreeRealDirt } from "./serv
 import { imageShape, isBlankLikeImage } from "./server/services/image-shape";
 import { createPreviewManager, type PreviewManager, type PreviewProcess } from "./server/services/preview-manager";
 import { createPreviewBrowser } from "./server/services/preview-browser";
+import { recordServerSpawn } from "./server/lib/spawn-metrics";
 import { makeSheetWriter } from "./server/services/delivery-sheet";
 import { registerPreviewProcess, unregisterPreviewProcess, trackedScriptPidTrees, listOwnedScripts } from "./server/routes/processes";
 import { killProcessTree } from "./server/lib/process-tree";
@@ -2289,6 +2290,7 @@ function lsofBin(): string { return Bun.which("lsof") ?? "/usr/sbin/lsof"; }
 /** stdout di un comando breve, "" se fallisce o sfora `ms`. Best-effort by design. */
 async function previewCmdOutput(cmd: string[], ms = 2000): Promise<string> {
   try {
+    if (cmd[0]?.endsWith("lsof")) recordServerSpawn("lsof", "previewIdentity");
     const proc = Bun.spawn(cmd, { stdout: "pipe", stderr: "ignore", stdin: "ignore" });
     const t = setTimeout(() => { try { proc.kill(); } catch { /* già uscito */ } }, ms);
     try { return await new Response(proc.stdout).text(); } finally { clearTimeout(t); }

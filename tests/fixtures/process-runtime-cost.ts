@@ -14,16 +14,24 @@ const originalTimer = globalThis.setTimeout;
 const originalClearTimer = globalThis.clearTimeout;
 const originalNow = Date.now;
 try {
-  const { startProcessDetection, getListeningPorts, getTopCpuProcesses } = await import("../../server/routes/processes");
+  const { startProcessDetection, getListeningPorts } = await import("../../server/routes/processes");
   if (process.argv[2] === "timers") {
     let now = 0, nextId = 0, cycles = 0;
+    const probes: string[] = [];
     const timers = new Map<number, { at: number; fn: () => Promise<void> }>();
     globalThis.setTimeout = ((fn: () => Promise<void>, delay: number) => {
       const timerId = ++nextId;
       timers.set(timerId, { at: now + delay, fn });
       return { unref() {}, timerId };
     }) as unknown as typeof setTimeout;
-    const source = () => { cycles++; return []; };
+    Bun.spawn = ((argv: string[]) => {
+      probes.push(argv[0]!);
+      return { stdout: "", exited: Promise.resolve(0), kill() {} };
+    }) as unknown as typeof Bun.spawn;
+    const source = () => {
+      cycles++;
+      return [{ ptyPid: process.pid, cwd: root, sessionId: "test", name: "test" }];
+    };
     startProcessDetection({} as AppContext, source);
     startProcessDetection({} as AppContext, source); // Initial cycle is still in flight.
     for (let i = 0; i < 5; i++) await Promise.resolve();
@@ -32,7 +40,7 @@ try {
       const [id, timer] = [...timers.entries()].sort((a, b) => a[1].at - b[1].at)[0]!;
       timers.delete(id); now = timer.at; await timer.fn();
     }
-    console.log(JSON.stringify({ initial, pending: timers.size, cycles }));
+    console.log(JSON.stringify({ initial, pending: timers.size, cycles, lsofSpawns: probes.filter((p) => p.endsWith("lsof")).length }));
   } else if (process.argv[2] === "hang") {
     let nextId = 0, calls = 0, kills = 0, stalled = true;
     const timers = new Map<number, { fn: () => void; delay: number }>();
@@ -62,7 +70,7 @@ try {
         ? "COMMAND PID USER FD TYPE DEVICE SIZE/OFF NODE NAME\nfixture 42 user 10u IPv4 0x1 0t0 TCP *:45678\n"
         : "PID %CPU COMMAND\n42 3.0 fixture-a\n43 2.0 fixture-b\n", exited: Promise.resolve(0) };
     }) as unknown as typeof Bun.spawn;
-    const wave = () => Promise.all(Array.from({ length: 8 }, () => Promise.all([getListeningPorts(), getTopCpuProcesses()])));
+    const wave = () => Promise.all(Array.from({ length: 8 }, () => getListeningPorts()));
     const firstWave = wave();
     const deadlines = [...timers.values()];
     if (deadlines.length === 0) {
@@ -74,9 +82,8 @@ try {
       const recovered = await wave();
       const warm = await wave();
       console.log(JSON.stringify({ timeouts: deadlines.length, delays: deadlines.map(timer => timer.delay),
-        kills, calls, pendingTimers: timers.size, firstPorts: first[0]![0].length,
-        recoveredPorts: recovered[0]![0].length, recoveredTop: recovered[0]![1].length,
-        warmPorts: warm[0]![0].length }));
+        kills, calls, pendingTimers: timers.size, firstPorts: first[0]!.length,
+        recoveredPorts: recovered[0]!.length, warmPorts: warm[0]!.length }));
     }
   } else {
     let now = 1_000_000;
@@ -91,8 +98,7 @@ try {
         : "PID %CPU COMMAND\n42 3.0 fixture-a\n43 2.0 fixture-b\n44 1.0 fixture-c\n";
       return { stdout, exited: Promise.resolve(0) };
     }) as unknown as typeof Bun.spawn;
-    const wave = () => Promise.all(Array.from({ length: 8 }, (_, i) =>
-      Promise.all([getListeningPorts(), getTopCpuProcesses(i === 0 ? 1 : 6)])));
+    const wave = () => Promise.all(Array.from({ length: 8 }, () => getListeningPorts()));
     const first = await wave();
     const coldSpawns = calls.length;
     fail = false;
@@ -101,9 +107,7 @@ try {
     now += 6_000;
     const third = await wave();
     console.log(JSON.stringify({ coldSpawns, secondSpawns, expiredSpawns: calls.length - coldSpawns - secondSpawns,
-      firstPorts: first[0]![0].length, secondPorts: second[0]![0].length, finalPorts: third[0]![0].length,
-      secondTopLengths: [second[0]![1].length, second[1]![1].length],
-      expiredTopLengths: [third[0]![1].length, third[1]![1].length] }));
+      firstPorts: first[0]!.length, secondPorts: second[0]!.length, finalPorts: third[0]!.length }));
   }
 } finally {
   Bun.spawn = originalSpawn;

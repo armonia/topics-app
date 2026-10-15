@@ -2,9 +2,9 @@ import os from "os";
 import { existsSync, statSync, readFileSync } from "fs";
 import { join } from "path";
 import type { AppContext, RouteHandler } from "../types";
-import { getListeningPorts, getTopCpuProcesses } from "./processes";
 import { getFleetUsage } from "../lib/fleet-usage";
 import { machineSharesNow } from "../services/dispatch-capacity";
+import { serverSpawnCounts } from "../lib/spawn-metrics";
 import { unknownPricedModels } from "../usage/pricing";
 import { getProvider } from "../providers";
 import { checkGatewayHealth as pingGateway } from "../providers/health";
@@ -292,9 +292,6 @@ export function createStatusRouter(ctx: AppContext): RouteHandler {
       const streamKeys = Array.from(activeStreams.keys());
       const browserWs = ctx.browserWsCounts?.() ?? { contexts: 0, sockets: 0 };
 
-      // Gather active ports + top CPU consumers (both reuse cached snapshots).
-      let ports: { port: number; pid: number; command: string }[] = [];
-      let topProcesses: { pid: number; cpu: number; command: string }[] = [];
       // Everything the SERVER side really costs: this process plus the detached
       // sidecars and their trees (the `claude` CLIs, MCP servers and headless
       // Chromes under the pty-bridge). `memoryMB` above is this process alone,
@@ -306,11 +303,7 @@ export function createStatusRouter(ctx: AppContext): RouteHandler {
       // exactly the reading that kept a memory question from being asked.
       let fleet: Awaited<ReturnType<typeof getFleetUsage>> | null = null;
       try {
-        [ports, topProcesses, fleet] = await Promise.all([
-          getListeningPorts(),
-          getTopCpuProcesses(6),
-          getFleetUsage(),
-        ]);
+        fleet = await getFleetUsage();
       } catch {}
 
       // How busy the whole Mac is, as the two percentages the one number on
@@ -383,8 +376,7 @@ export function createStatusRouter(ctx: AppContext): RouteHandler {
         },
         cronJobs: lastCronStatus || { enabled: 0, disabled: 0, total: 0 },
         sessions: lastSessionsStatus || { total: 0, byType: {} },
-        ports,
-        topProcesses,
+        processSpawns: serverSpawnCounts(),
       });
     }
 

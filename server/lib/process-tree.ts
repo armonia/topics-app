@@ -13,6 +13,7 @@
  * runtime ha gia' globali.
  */
 import { SPAWN_TIMEOUT, spawnBounded } from "./bounded-spawn";
+import { recordServerSpawn } from "./spawn-metrics";
 
 // Cached process table (ppid → child pids). ONE `ps` snapshot replaces the old
 // recursive `pgrep -P` storm, which spawned one process per tree node, per
@@ -28,6 +29,7 @@ async function getProcTable(fresh = false): Promise<Map<number, number[]>> {
   if (!fresh && now - _procTableAt < PROC_TABLE_TTL && _childrenByPpid.size) return _childrenByPpid;
   const children = new Map<number, number[]>();
   try {
+    recordServerSpawn("other", "processTreeSnapshot");
     const proc = spawnBounded(["ps", "-axo", "pid=,ppid="], { stdout: "pipe", stderr: "ignore", timeoutMs: SPAWN_TIMEOUT.query });
     const text = await new Response(proc.stdout).text();
     await proc.exited;

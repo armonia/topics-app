@@ -22,8 +22,9 @@ import { isProtectedFromWalk, protectedDirExcludes } from "../lib/protected-app-
 // ma a invalidarla è `git-watcher`, e finché la funzione stava in questo file
 // il watcher doveva importare una ROUTE — chiudendo il ciclo
 // file-watcher → git-watcher → routes/files → file-watcher.
-import { readGitStatusCache, writeGitStatusCache, invalidateGitCache } from "../lib/git-status-cache";
+import { gitStatusGeneration, readGitStatusCache, writeGitStatusCache, invalidateGitCache } from "../lib/git-status-cache";
 import { computeGitStatus } from "../lib/git-status";
+import { recordServerSpawn } from "../lib/spawn-metrics";
 import { gitEnvFor } from "../lib/git-identity";
 import { SPAWN_TIMEOUT, spawnBounded } from "../lib/bounded-spawn";
 
@@ -403,7 +404,12 @@ export function createFilesRouter(ctx: AppContext): RouteHandler {
         // The computation is `lib/git-status.ts`, shared with the watcher: it
         // used to be two copies of eight spawns each, and they had already
         // drifted once (the symlink prefix). `null` = not a repo.
-        const result = await computeGitStatus(resolvedDir);
+        let generation: number;
+        let result: Awaited<ReturnType<typeof computeGitStatus>>;
+        do {
+          generation = gitStatusGeneration(resolvedDir);
+          result = await computeGitStatus(resolvedDir, { generation });
+        } while (generation !== gitStatusGeneration(resolvedDir));
         if (!result) {
           return json({ notGit: true, branch: "", files: [], ahead: 0, behind: 0, lastCommit: null });
         }
@@ -892,13 +898,16 @@ export function createFilesRouter(ctx: AppContext): RouteHandler {
       try {
         // `--prune`: senza, i rami cancellati sul remote restano nella lista per
         // sempre e si può fare checkout di qualcosa che non esiste più.
+        recordServerSpawn("gitFetch", "userRequest");
         const r = await runNetworkGit(["git", "fetch", "--all", "--prune"], resolvedDir, 60_000);
         if (r.timedOut) return json({ error: "Fetch: the remote is not answering (timeout)" }, 504);
         if (!r.ok) return json({ error: r.stderr || "Fetch failed" }, 400);
         // Il fetch muove le ref remote-tracking: lo stato in cache è vecchio di
         // un istante. Senza questa riga i nuovi `behind` si vedrebbero solo al
         // prossimo giro di cache (5s) o al prossimo colpo del watcher.
-        invalidateGitCache(resolvedDir);
+        // Only when a ref moved: git prints each update on stderr and nothing
+        // for a fetch that brought nothing, which was a full round per autofetch.
+        if (r.stderr.trim()) invalidateGitCache(resolvedDir);
         return json({ ok: true, output: r.stdout || r.stderr });
       } catch (err: any) { return json({ error: "Fetch error: " + err.message }, 500); }
     }
