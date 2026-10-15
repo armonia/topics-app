@@ -42,9 +42,15 @@
 - Nell'hook, la freccia che segue il dito si aggiorna dallo stato corrente (`setArrow` con la
   funzione) e non da quello catturato all'ultimo rendering.
 
+## Prove in CI
+
+- Clip di consegna, terzo giro: verde (run 38783416502).
+- Mutante (ogni swipe orizzontale naviga, su un ramo usa e getta poi cancellato): rosso proprio sul
+  caso dal centro, `expect(centerSwipe.ready).toBeNull()` riceve `"true"`, mentre i due casi dal
+  bordo passano (run 38783429585).
+
 ## Trovato e non fatto
 
-- `tests/e2e/browser-edge-swipe.spec.ts` non è stata eseguita sul Mac: il BRIEF vieta le e2e locali per questa spec. `typecheck:e2e` è verde; runtime, video e mutazione del caso centrale attendono il workflow CI «Clip di consegna».
 - Nessuna prova su iPad vero, fuori ambito dichiarato.
 
 ## Rifiutato
