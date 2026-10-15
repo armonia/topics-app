@@ -202,3 +202,37 @@ accanto a un Gateway tornato verde.
 - **GIVEN** un fallimento già mostrato
 - **WHEN** un nuovo tentativo riesce
 - **THEN** la banda d'errore SHALL essere spenta
+
+### Requirement: SYSTEM-02 — Stato di ogni sottosistema
+
+Il sistema SHALL esporre `GET /api/system/health` con server, bridge PTY, ai-bridge,
+motori browser, relay, watcher, CLI Claude e database. Ogni voce SHALL avere stato,
+osservazione, azione e ultimo errore con ora quando presente. Le sonde SHALL essere
+economiche, isolate entro un tetto di tempo e senza avviare modelli o processi. Un
+sottosistema non configurato SHALL risultare `off`.
+
+#### Scenario: stato ok
+- **GIVEN** la sonda osserva il sottosistema funzionante
+- **WHEN** la rotta di health risponde
+- **THEN** la voce ha `state: ok` e descrive ciò che è stato osservato
+
+#### Scenario: stato warn
+- **GIVEN** una sonda non risponde entro il proprio tetto
+- **WHEN** le altre sonde completano
+- **THEN** la voce ha `state: warn` e indica che non risponde
+- **AND** le altre voci vengono comunque restituite
+
+#### Scenario: stato error
+- **GIVEN** la sonda rileva un errore del sottosistema
+- **WHEN** la rotta di health risponde
+- **THEN** la voce ha `state: error`, il motivo, l'ora dell'ultimo errore e cosa fare
+
+#### Scenario: stato off
+- **GIVEN** il sottosistema non è configurato in questa installazione
+- **WHEN** la rotta di health risponde
+- **THEN** la voce ha `state: off` e spiega il motivo
+
+#### Scenario: pannello e comando mostrano le stesse voci
+- **GIVEN** `/api/system/health` restituisce un sottosistema in stato diverso da `ok`
+- **WHEN** il pannello laterale o `/health` mostra la lista
+- **THEN** entrambi mostrano pallino colorato, osservazione e azione senza aprire altre viste

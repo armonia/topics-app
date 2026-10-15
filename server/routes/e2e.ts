@@ -113,6 +113,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "fs";
 import { dirname, join } from "path";
 import type { AppContext, RouteHandler } from "../types";
 import { restoreDb, snapshotDb, type DbSnapshot } from "../services/db-snapshot";
+import { _setPtyBridgeHealthForTest } from "./status";
 import { createTaskService } from "../services/tasks";
 import { createTaskAttemptStore } from "../services/task-attempts";
 import { orphanTerminalSession, parkIdleClaudeSessions, parkTerminalSession } from "./terminal";
@@ -168,6 +169,19 @@ export function createE2eRouter(ctx: AppContext, hooks: E2eRouterHooks = {}): Ro
 
   return async function e2eRouter(req: Request, _url: URL, pathname: string, method: string): Promise<Response | null> {
     if (!e2eRoutesEnabled()) return null;
+
+    if (method === "POST" && pathname === "/api/test/system/pty-bridge") {
+      const body = await req.json().catch(() => null) as { enabled?: unknown } | null;
+      if (body?.enabled === false || body?.enabled === true) {
+        _setPtyBridgeHealthForTest(body.enabled);
+        return json({ ok: true, enabled: body.enabled });
+      }
+      if (body?.enabled === null) {
+        _setPtyBridgeHealthForTest(null);
+        return json({ ok: true, enabled: null });
+      }
+      return json({ error: "enabled must be a boolean" }, 400);
+    }
 
     if (method === "POST" && pathname === "/api/test/scheduled-cards/advance" && hooks.advanceScheduledCards) {
       const body = await req.json().catch(() => null) as { now?: unknown } | null;

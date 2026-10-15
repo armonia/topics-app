@@ -56,6 +56,7 @@ const OPENCLAW = ['openclaw'];
 export const SLASH_COMMANDS: readonly SlashCommandEntry[] = [
   // `Info` and not a bolt: a state is being read. In this app the bolt means
   // ONE thing only — speed — and it belongs to Fast Mode.
+  { cmd: '/health', descriptionKey: 'chat.slash.health.description', icon: Info, kind: 'topics' },
   { cmd: '/status', descriptionKey: 'chat.slash.status.description', icon: Info, kind: 'topics' },
   // The sessions of this project born outside Topics, adopted as a chat (CMDUI-03).
   { cmd: '/resume', descriptionKey: 'chat.slash.resume.description', icon: History, kind: 'topics', takesArgs: true },

@@ -481,6 +481,7 @@ const IT: Dict = {
   // prints). Only the DESCRIPTION is translated, never the command itself:
   // `/status` is what one types.
   'chat.slash.status.description': 'Mostra lo stato della sessione',
+  'chat.slash.health.description': 'Mostra lo stato dei sottosistemi',
   'chat.slash.context.description': 'Apri l\'ispettore del contesto',
   'chat.slash.compact.description': 'Compatta il contesto ora (riassume la storia e libera spazio)',
   'chat.slash.clear.description': 'Svuota la conversazione',
@@ -546,6 +547,7 @@ const IT: Dict = {
   'chat.slash.kind.command': 'Comando',
   'chat.composer.commands': 'Comandi',
   'chat.command.title.status': 'Stato della sessione',
+  'chat.command.title.health': 'Stato dei sottosistemi',
   'chat.resume.noProject': '/resume elenca le sessioni Claude Code di un progetto, e questa chat non ne ha uno. Collegalo con /project open <nome> e riprova.',
   'chat.resume.header': 'Sessioni da riprendere',
   'chat.resume.loading': 'Leggo le sessioni del progetto…',

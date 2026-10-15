@@ -11,6 +11,7 @@ import { mkdtempSync, rmSync, existsSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 import { baselinePath, createE2eRouter, e2eRoutesEnabled } from "./e2e";
+import { _setPtyBridgeHealthForTest } from "./status";
 import type { AppContext } from "../types";
 
 function ctxWith(db: Database): AppContext {
@@ -43,6 +44,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  _setPtyBridgeHealthForTest(null);
   if (prevFlag === undefined) delete process.env.TOPICS_E2E; else process.env.TOPICS_E2E = prevFlag;
   if (prevData === undefined) delete process.env.DATA_DIR; else process.env.DATA_DIR = prevData;
   rmSync(dataDir, { recursive: true, force: true });
@@ -61,6 +63,18 @@ describe("gate", () => {
     const router = createE2eRouter(ctxWith(testDb()));
     expect(await call(router, "/api/test/checkpoint")).toBeNull();
     expect(await call(router, "/api/test/reset")).toBeNull();
+    expect(await call(router, "/api/test/system/pty-bridge")).toBeNull();
+  });
+
+  it("il guasto PTY di test è reversibile e resta dietro TOPICS_E2E", async () => {
+    process.env.TOPICS_E2E = "1";
+    const router = createE2eRouter(ctxWith(testDb()));
+    const set = (enabled: boolean) => router(
+      new Request("http://x/api/test/system/pty-bridge", { method: "POST", body: JSON.stringify({ enabled }) }),
+      new URL("http://x/api/test/system/pty-bridge"), "/api/test/system/pty-bridge", "POST",
+    );
+    expect((await set(false))?.status).toBe(200);
+    expect((await set(true))?.status).toBe(200);
   });
 
   it("la baseline vive sotto DATA_DIR, cioè per-shard", () => {

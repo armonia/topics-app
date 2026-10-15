@@ -1062,6 +1062,25 @@ function ChatPaneComponent({
       setCommandResult({ type: 'error', message: tr('chat.orchestrator.slashBlocked') });
       return true;
     }
+    // `/health` reads the server's subsystem snapshot directly, without a model turn.
+    if (cmd === '/health' || cmd.startsWith('/health ')) {
+      setCommandLoading(true);
+      try {
+        const response = await fetch('/api/system/health');
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        const health = await response.json() as { subsystems: Array<{ name: string; state: string; observed: string; action: string; lastError?: { message: string; at: string } }> };
+        const stateLabel: Record<string, string> = { ok: 'OK', warn: 'Avviso', error: 'Errore', off: 'Spento' };
+        const rows = health.subsystems.flatMap((item) => [
+          { label: item.name, value: `${stateLabel[item.state] ?? item.state}: ${item.observed}` },
+          ...(item.state !== 'ok' ? [{ label: 'Azione', value: item.action }] : []),
+          ...(item.lastError ? [{ label: 'Ultimo errore', value: `${item.lastError.message} (${new Date(item.lastError.at).toLocaleString()})` }] : []),
+        ]);
+        setCommandAnswer({ kind: 'facts', title: tr('chat.command.title.health'), rows });
+      } catch (e) {
+        setCommandResult({ type: 'error', message: errMessage(e) });
+      } finally { setCommandLoading(false); }
+      return true;
+    }
     // `/status` is the facts that decide the next turn (CMD-07), as rows.
     if (cmd === '/status' || cmd.startsWith('/status ')) { setCommandLoading(true); try { const r = await commandApi.status(topic.sessionKey); setCommandAnswer({ kind: 'facts', title: tr('chat.command.title.status'), rows: statusRows(r.output || '') }); } catch (e) { setCommandResult({ type: 'error', message: errMessage(e) }); } finally { setCommandLoading(false); } return true; }
     // `/help` IS the menu, whole (CMDUI-07): a second list would drift from it.

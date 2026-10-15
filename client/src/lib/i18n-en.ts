@@ -477,6 +477,7 @@ const EN = {
   'chat.pinned.title': 'Pinned',
 
   'chat.slash.status.description': 'Show session status',
+  'chat.slash.health.description': 'Show subsystem health',
   'chat.slash.context.description': 'Open the context inspector',
   'chat.slash.compact.description': 'Compact the context now (summarises the history and frees room)',
   'chat.slash.clear.description': 'Clear conversation',
@@ -542,6 +543,7 @@ const EN = {
   'chat.slash.kind.command': 'Command',
   'chat.composer.commands': 'Commands',
   'chat.command.title.status': 'Session status',
+  'chat.command.title.health': 'Subsystem health',
   'chat.resume.noProject': '/resume lists the Claude Code sessions of a project, and this chat has none. Link one with /project open <name> and try again.',
   'chat.resume.header': 'Sessions to resume',
   'chat.resume.loading': 'Reading the project\'s sessions…',

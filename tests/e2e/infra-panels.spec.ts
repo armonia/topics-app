@@ -194,6 +194,31 @@ test.describe("Cron Jobs Panel", () => {
 // sulla rete locale e si autorizza il dispositivo una volta.
 
 test.describe("System Status Panel", () => {
+  test("STATUS-04: PTY bridge failure is visible and recovers", async ({ page, infraPage, request }) => {
+    test.info().annotations.push({ type: "spec", description: "SYSTEM-02" });
+    const setBridge = async (enabled: boolean | null) => {
+      const response = await request.post("/api/test/system/pty-bridge", { data: { enabled } });
+      expect(response.ok()).toBeTruthy();
+    };
+
+    await setBridge(false);
+    try {
+      await page.goto("/");
+      await infraPage.openSystemStatusPanel();
+      const row = page.getByTestId("system-health-pty-bridge");
+      await expect(row).toHaveAttribute("data-state", "error");
+      await expect(row.getByText("Sonda fallita: Socket del bridge PTY assente")).toBeVisible();
+      await expect(row.getByText("Controlla il log del server e riavvia il sottosistema.")).toBeVisible();
+
+      await setBridge(true);
+      await page.getByTestId("system-status-refresh").click();
+      await expect(row).toHaveAttribute("data-state", "ok", { timeout: 10_000 });
+      await expect(row.getByText("Socket del bridge PTY accetta connessioni.")).toBeVisible();
+    } finally {
+      await setBridge(null);
+    }
+  });
+
   test("STATUS-01: Panel renders all status rows", async ({
     page,
     infraPage,

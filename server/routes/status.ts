@@ -1,6 +1,8 @@
 import os from "os";
 import { existsSync, statSync, readFileSync } from "fs";
 import { join } from "path";
+import { homedir } from "os";
+import net from "net";
 import type { AppContext, RouteHandler } from "../types";
 import { getFleetUsage } from "../lib/fleet-usage";
 import { machineSharesNow } from "../services/dispatch-capacity";
@@ -12,6 +14,11 @@ import { detectAgents } from "../lib/detect-agents";
 import { computePresenceCounts } from "../services/profile-stats";
 import { countBusyAgentTerminals } from "./terminal";
 import { SPAWN_TIMEOUT, spawnBounded } from "../lib/bounded-spawn";
+import { inspectHealth, type HealthProbe, type HealthSubsystemId } from "../../shared/system-health";
+import { registeredFleetSocketPath } from "../lib/fleet-usage";
+import { fileWatcherLastError, watchedProjectPaths } from "../file-watcher";
+import { browserEngineRegistry } from "../browser-engine-registry";
+import { resolveDataDir } from "../lib/data-dir";
 
 const SERVER_START_TIME = Date.now();
 
@@ -23,6 +30,32 @@ const SERVER_START_TIME = Date.now();
 // chip reflects the current package.json the moment it's bumped.
 const PKG_PATH = join(import.meta.dir, "..", "..", "package.json");
 let _pkgCache: { mtimeMs: number; version: string } | null = null;
+
+function probeBridgeSocket(socketPath: string, label: string): Promise<{ state: "ok"; observed: string; action: string }> {
+  return new Promise((resolve, reject) => {
+    const socket = net.connect(socketPath);
+    const timeout = setTimeout(() => {
+      socket.destroy();
+      reject(new Error("non risponde"));
+    }, 200);
+    socket.once("connect", () => {
+      clearTimeout(timeout);
+      socket.destroy();
+      resolve({ state: "ok", observed: `Socket ${label} accetta connessioni.`, action: "Nessuna azione." });
+    });
+    socket.once("error", (error) => {
+      clearTimeout(timeout);
+      socket.destroy();
+      reject(new Error(`${label}: ${error.message}`));
+    });
+  });
+}
+
+let ptyBridgeHealthTestState: boolean | null = null;
+
+export function _setPtyBridgeHealthForTest(enabled: boolean | null): void {
+  ptyBridgeHealthTestState = enabled;
+}
 
 /**
  * The version BAKED at compile time, for the packaged build.
@@ -90,6 +123,47 @@ export function createStatusRouter(ctx: AppContext): RouteHandler {
   let lastGatewayCheck: (GatewayHealthResult & { checkedAt: string }) | null = null;
   let lastCronStatus: CronJobsStatus | null = null;
   let lastSessionsStatus: SessionsStatus | null = null;
+
+  const healthProbes: Record<HealthSubsystemId, HealthProbe> = {
+    server: () => ({ state: "ok", observed: `Processo attivo da ${Math.floor((Date.now() - SERVER_START_TIME) / 1000)} s.`, action: "Nessuna azione." }),
+    "pty-bridge": () => {
+      if (ptyBridgeHealthTestState === false) throw new Error("Socket del bridge PTY assente");
+      if (ptyBridgeHealthTestState === true) return { state: "ok", observed: "Socket del bridge PTY accetta connessioni.", action: "Nessuna azione." };
+      const socket = registeredFleetSocketPath("pty-bridge");
+      if (!socket || !existsSync(socket)) throw new Error("Socket del bridge PTY assente");
+      return probeBridgeSocket(socket, "del bridge PTY");
+    },
+    "ai-bridge": () => {
+      const socket = registeredFleetSocketPath("ai-bridge");
+      if (!socket) return { state: "off", observed: "AI bridge non configurato in questa installazione.", action: "Attivalo solo se usi il provider Claude Code." };
+      if (!existsSync(socket)) throw new Error("Socket dell'ai-bridge assente");
+      return probeBridgeSocket(socket, "dell'ai-bridge");
+    },
+    "browser-engines": () => ({ state: "ok", observed: `Motore nativo disponibile; ${browserEngineRegistry.size()} contesti browser registrati.`, action: "Nessuna azione." }),
+    relay: () => {
+      const config = ctx.relayConfig?.();
+      if (!config?.baseUrl) return { state: "off", observed: "Relay non configurato.", action: "Configura il relay solo se ti serve l'accesso remoto." };
+      if (!ctx.relayConnected?.()) return { state: "warn", observed: "Relay configurato ma non connesso.", action: "Controlla la rete e la configurazione del relay." };
+      return { state: "ok", observed: "Relay connesso.", action: "Nessuna azione." };
+    },
+    watcher: () => {
+      const lastError = fileWatcherLastError();
+      if (lastError) return { state: "error", observed: `Watcher fermato: ${lastError.message}`, action: "Riapri il progetto o riavvia Topics.", lastError };
+      return { state: "ok", observed: `Watcher pronto; ${watchedProjectPaths().length} progetti osservati.`, action: "Apri o aggiorna un progetto per attivare il watcher." };
+    },
+    "claude-cli": () => {
+      const claude = detectAgents().find((agent) => agent.id === "claude-code");
+      if (!claude?.installed) return { state: "off", observed: "CLI Claude non installata.", action: "Installa Claude Code se vuoi usarlo da Topics." };
+      const credentials = existsSync(join(homedir(), ".claude", ".credentials.json"));
+      if (!credentials) return { state: "warn", observed: "CLI Claude presente, credenziali di login assenti.", action: "Esegui claude e poi /login nel terminale." };
+      return { state: "warn", observed: "File credenziali presente; validità del login non verificata senza avviare la CLI.", action: "Prova una richiesta Claude; se viene rifiutata, esegui /login nel terminale." };
+    },
+    database: () => {
+      const path = join(resolveDataDir(ctx.STATE_DIR), "topics.db");
+      const size = statSync(path).size;
+      return { state: "ok", observed: `Database leggibile, ${Math.ceil(size / 1024)} KB.`, action: "Nessuna azione." };
+    },
+  };
 
   async function checkGatewayHealth(): Promise<GatewayHealthResult> {
     const provider = getProvider();
@@ -187,6 +261,10 @@ export function createStatusRouter(ctx: AppContext): RouteHandler {
   runBackgroundChecks();
 
   return async function statusRouter(_req: Request, _url: URL, pathname: string, method: string): Promise<Response | null> {
+
+    if (method === "GET" && pathname === "/api/system/health") {
+      return json({ checkedAt: new Date().toISOString(), subsystems: await inspectHealth(healthProbes) });
+    }
 
     // Restart OpenClaw gateway (only supported for openclaw provider)
     if (method === "POST" && pathname === "/api/openclaw/restart") {

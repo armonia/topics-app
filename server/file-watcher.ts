@@ -43,6 +43,11 @@ const DEBOUNCE_MS = 300;
  * change brings the git section back" waited for a push that never left.
  */
 export const MAX_WATCHERS = 24;
+let lastWatcherError: { message: string; at: string } | null = null;
+
+export function fileWatcherLastError(): { message: string; at: string } | null {
+  return lastWatcherError;
+}
 
 /**
  * Segmenti di path che non meritano un evento. Sono le stesse cartelle che
@@ -129,7 +134,10 @@ export function watchProjectFiles(projectPath: string, ctx: AppContext): void {
     // se non c'è, si rinuncia in silenzio invece di far cadere la richiesta —
     // l'albero torna a essere una fotografia, che è com'era prima.
     const w = watch(projectPath, { recursive: true }, onChange);
-    w.on("error", () => unwatchProjectFiles(projectPath));
+    w.on("error", (error) => {
+      lastWatcherError = { message: error.message, at: new Date().toISOString() };
+      unwatchProjectFiles(projectPath);
+    });
     watchers.set(projectPath, {
       close() {
         closed = true;
@@ -137,9 +145,11 @@ export function watchProjectFiles(projectPath: string, ctx: AppContext): void {
         try { w.close(); } catch {}
       },
     });
+    lastWatcherError = null;
     setFileTreeWatcher(projectPath, true);
     setGitStatusFileWatcher(projectPath, true);
-  } catch {
+  } catch (error) {
+    lastWatcherError = { message: error instanceof Error ? error.message : String(error), at: new Date().toISOString() };
     // Nessun watcher: nessun `files:changed`. Il bottone Aggiorna resta.
   }
 }
