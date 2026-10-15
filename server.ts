@@ -3113,8 +3113,8 @@ ctx.externalSessionsCount = () => externalSessions.list().length;
 ctx.externalSessionsWorking = () =>
   externalSessions.list().filter((s) => s.state === "active").length;
 const externalSessionsRouter = createExternalSessionsRouter(ctx, externalSessions);
-// Ogni terminale vivo sul Mac, dentro e fuori Topics: la tendina in fondo alle
-// tab e gli agenti (MCP `session_*`) leggono e scrivono da qui.
+// Every live terminal on the Mac, inside and outside Topics: the menu at the end
+// of the tabs and the agents (MCP `session_*`) read and write through here.
 const liveTerminals = createLiveTerminals({
   topics: listTopicsLiveTerminals,
   topicsScreen: readTopicsTerminalScreen,

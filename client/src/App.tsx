@@ -1916,9 +1916,9 @@ function App() {
 
           {isMobile && (
             <div className="app-no-drag flex flex-shrink-0 items-center gap-1.5" {...NO_DRAG_REGION}>
-              {/* La tendina dei terminali vivi: sul desktop sta in fondo alle
-                  tab, ma sul telefono le tab sono la lista e una barra non c'è.
-                  Qui, accanto alla campanella, è a un pollice da remoto. */}
+              {/* The live-terminals menu: on desktop it sits at the end of the
+                  tabs, but on the phone tabs are the list and there is no bar.
+                  Here, next to the bell, it stays within remote thumb reach. */}
               {appSettings.showLiveTerminals !== false && <LiveTerminalsMenu variant="header" />}
               <Inbox
                 onWSMessage={onWSMessage}

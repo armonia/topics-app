@@ -1,7 +1,7 @@
 /**
- * I terminali vivi sul Mac, dentro e fuori Topics: il client di
- * `/api/live-terminals` (server/lib/live-terminals.ts) e la forma in cui la
- * tendina in fondo alle tab li mostra.
+ * Live terminals on the Mac, inside and outside Topics: the client for
+ * `/api/live-terminals` (server/lib/live-terminals.ts) and the shape the
+ * menu at the end of the tabs renders.
  */
 import { apiFetch } from './shell/net';
 
@@ -23,22 +23,22 @@ export interface LiveTerminalGroup {
   rows: LiveTerminal[];
 }
 
-/** Topics prima (si apre nella sua tab), poi i terminali fuori, a cui si scrive da qui. */
+/** Topics first (opens in its tab), then outside terminals, written from here. */
 const SOURCE_ORDER: LiveTerminalSource[] = ['topics', 'terminal', 'tmux'];
 
-/** Un ramo per origine, nell'ordine fisso; un'origine senza terminali non ha ramo. */
+/** One branch per origin, in fixed order; an origin holding zero terminals gets no branch. */
 export function groupLiveTerminals(rows: LiveTerminal[]): LiveTerminalGroup[] {
   return SOURCE_ORDER
     .map((source) => ({ source, rows: rows.filter((r) => r.source === source) }))
     .filter((g) => g.rows.length > 0);
 }
 
-/** Il nome di una riga: il titolo se c'è, poi il programma, poi l'id. */
+/** A row title: title when set, then program, then id. */
 export function liveTerminalLabel(t: LiveTerminal): string {
   return t.title.trim() || t.command || t.id;
 }
 
-/** La riga sotto il nome: programma · cartella. */
+/** The line under the title: program · folder. */
 export function liveTerminalDetail(t: LiveTerminal): string {
   const dir = t.cwd ? t.cwd.split('/').filter(Boolean).pop() ?? '/' : '';
   return [t.command, dir].filter(Boolean).join(' · ');
@@ -51,7 +51,7 @@ export async function fetchLiveTerminals(): Promise<LiveTerminal[]> {
   return Array.isArray(body.terminals) ? body.terminals : [];
 }
 
-/** `null` = il terminale non c'è più. */
+/** `null` = the terminal went away. */
 export async function fetchLiveTerminalScreen(id: string): Promise<string | null> {
   const res = await apiFetch(`/api/live-terminals/${encodeURIComponent(id)}/screen`);
   if (res.status === 404) return null;

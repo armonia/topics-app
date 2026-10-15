@@ -820,7 +820,7 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
   // removed; we keep the badges wired up so users still see ⌘N hints, but
   // the indices now reflect the global tab order, not the per-group order.
   const hasMenuItems = onNewChat || availableTypes.length > 0;
-  // La tendina dei terminali vivi sta accanto al «+», dove il «+» c'è.
+  // The live-terminals menu sits next to "+", wherever "+" is.
   const showLiveTerminals = useShowLiveTerminals() && !!hasMenuItems;
 
   useLayoutEffect(() => {

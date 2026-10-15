@@ -1644,10 +1644,10 @@ export interface AppSettings {
    */
   showBoardRow: boolean;
   /**
-   * La tendina dei terminali vivi in fondo alle tab (`LiveTerminalsMenu`): ogni
-   * terminale acceso sul Mac, anche fuori da Topics, da leggere e a cui
-   * scrivere. Accesa di serie: è la porta per pilotare da remoto le sessioni
-   * aperte a mano. Non costa niente da chiusa, interroga solo quando è aperta.
+   * The live-terminals menu at the end of the tabs (`LiveTerminalsMenu`): every
+   * terminal running on the Mac, Topics or not, to read and to write into.
+   * On by default: the door for remotely driving hand-opened sessions.
+   * Costs nothing while closed, polls only while open.
    */
   showLiveTerminals: boolean;
 }

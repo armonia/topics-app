@@ -3,7 +3,7 @@ import { loadSettings, SETTINGS_CHANGED_EVENT } from '../lib/settings';
 
 function subscribe(onChange: () => void): () => void {
   window.addEventListener(SETTINGS_CHANGED_EVENT, onChange);
-  // Un'altra finestra dell'app che cambia l'opzione.
+  // Another app window flipping the option.
   window.addEventListener('storage', onChange);
   return () => {
     window.removeEventListener(SETTINGS_CHANGED_EVENT, onChange);
@@ -11,7 +11,7 @@ function subscribe(onChange: () => void): () => void {
   };
 }
 
-/** L'opzione `showLiveTerminals`, viva: cambiarla da Vista mostra o toglie la tendina subito. */
+/** The `showLiveTerminals` option, live: flipping it from View shows or hides the menu at once. */
 export function useShowLiveTerminals(): boolean {
   return useSyncExternalStore(subscribe, () => loadSettings().showLiveTerminals !== false);
 }

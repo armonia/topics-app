@@ -60,7 +60,7 @@ describe("parseLsofCwd", () => {
   });
 });
 
-/** Un runner finto che registra le chiamate e risponde per comando. */
+/** A fake runner that records calls and answers per command. */
 function fakeRunner(answers: Record<string, string | Error>) {
   const calls: Array<[string, string[]]> = [];
   const run: Runner = async (file, args) => {

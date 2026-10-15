@@ -1,30 +1,30 @@
 /**
- * live-terminals — TUTTI i terminali vivi sul Mac, non solo quelli di Topics.
+ * live-terminals — ALL live terminals on the Mac, not just Topics' own.
  *
- * PERCHÉ ESISTE. Topics sa leggere e scrivere le sue PTY (`/api/terminal/
- * sessions/:id/screen|send`, gli strumenti MCP `session_*`), ma un `claude`
- * aperto a mano in Terminal.app o dentro tmux per Topics non esisteva: non lo
- * vedeva la UI, non lo raggiungeva un agente, non lo pilotava il telefono. Il
- * 15/10 erano quattro sessioni in Terminal.app e due in tmux, contro zero
- * visibili.
+ * WHY IT EXISTS. Topics can read and write its own PTYs (`/api/terminal/
+ * sessions/:id/screen|send`, the MCP `session_*` tools), but a `claude`
+ * opened by hand in Terminal.app or inside tmux did not exist for Topics: the
+ * UI could not see it, no agent could reach it, the phone could not drive it.
+ * On 10/15 there were four sessions in Terminal.app and two in tmux, against
+ * zero visible.
  *
- * TRE SORGENTI, una forma sola (`LiveTerminal`):
- *  - `topics`   — le PTY di Topics (le fornisce chi chiama, il server le ha già);
- *  - `tmux`     — ogni pane del server tmux (`list-panes -a`): si legge con
- *                 `capture-pane`, si scrive con `send-keys`;
- *  - `terminal` — ogni tab di Terminal.app, via AppleScript: `contents` per lo
- *                 schermo, `do script … in tab` per scrivere.
+ * THREE SOURCES, one shape (`LiveTerminal`):
+ *  - `topics`   — Topics' PTYs (provided by the caller, the server already has them);
+ *  - `tmux`     — every pane of the tmux server (`list-panes -a`): read with
+ *                 `capture-pane`, written with `send-keys`;
+ *  - `terminal` — every Terminal.app tab, via AppleScript: `contents` for the
+ *                 screen, `do script … in tab` for writing.
  *
- * Warp, iTerm e gli altri restano fuori di proposito: Warp non ha un'interfaccia
- * per leggere o scrivere una tab, gli altri su questo Mac non girano.
+ * Warp, iTerm and the rest stay out on purpose: Warp has no interface
+ * for reading or writing a tab, the others do not run on this Mac.
  *
- * L'IDENTITÀ è stabile fra una lettura e l'altra: il pane id di tmux (`%8`) e il
- * tty della tab di Terminal (`ttys004`). L'indice di una tab cambia quando se ne
- * chiude un'altra; il tty no.
+ * IDENTITY is stable across reads: the tmux pane id (`%8`) and the
+ * Terminal tab tty (`ttys004`). A tab index changes when another one
+ * closes; the tty does not.
  *
- * TUTTO È ASINCRONO e ha un timeout: il server ha un solo loop, e un osascript
- * appeso non deve fermare le chat. Una sorgente che fallisce sparisce dalla
- * lista, non si porta via le altre.
+ * EVERYTHING IS ASYNC and has a timeout: the server has a single loop, and a hung
+ * osascript must not stall chats. A failing source drops out of the
+ * list without taking the others with it.
  */
 import { execFile } from "node:child_process";
 import { basename } from "node:path";
@@ -35,16 +35,16 @@ export interface LiveTerminal {
   /** `topics:<id>`, `tmux:%8`, `terminal:ttys004`. */
   id: string;
   source: LiveTerminalSource;
-  /** Il nome da mostrare: titolo della sessione Topics, `sessione:finestra.pane` di tmux, titolo della tab. */
+  /** Display name: Topics session title, tmux `session:window.pane`, tab title. */
   title: string;
-  /** Il programma in primo piano (`claude`, `zsh`, `node`…), se si sa. */
+  /** Foreground program (`claude`, `zsh`, `node`…), when known. */
   command: string | null;
   cwd: string | null;
-  /** `/dev/ttys004`, quando c'è. */
+  /** `/dev/ttys004`, when present. */
   tty: string | null;
-  /** Solo Topics sa se un agente sta lavorando; per gli altri `null` = non si sa. */
+  /** Only Topics knows whether an agent is working; for the rest `null` = unknown. */
   busy: boolean | null;
-  /** Per `topics`: l'id della sessione PTY, che il client usa per portare in primo piano la sua tab. */
+  /** For `topics`: the PTY session id, which the client uses to foreground its tab. */
   sessionId?: string;
 }
 
@@ -53,7 +53,7 @@ export interface LiveScreen {
   text: string;
 }
 
-/** Chi esegue i comandi esterni: sostituibile nei test. */
+/** Runs external commands: replaceable in tests. */
 export type Runner = (file: string, args: string[], opts?: { timeoutMs?: number }) => Promise<string>;
 
 export const defaultRunner: Runner = (file, args, opts) =>
@@ -71,7 +71,7 @@ const TMUX_FORMAT = [
   "#{pane_tty}", "#{pane_current_command}", "#{pane_current_path}", "#{window_name}",
 ].join("\t");
 
-/** Una riga per pane di `tmux list-panes -a -F TMUX_FORMAT`. Le righe storte si saltano. */
+/** One row per pane of `tmux list-panes -a -F TMUX_FORMAT`. Malformed rows are skipped. */
 export function parseTmuxPanes(stdout: string): LiveTerminal[] {
   const out: LiveTerminal[] = [];
   for (const line of stdout.split("\n")) {
@@ -92,9 +92,9 @@ export function parseTmuxPanes(stdout: string): LiveTerminal[] {
 }
 
 /**
- * Gli argomenti di tmux che puntano al server giusto. `TOPICS_TMUX_SOCKET`
- * esiste per il server di test, che non deve vedere né toccare le sessioni vere
- * dell'utente: è lo stesso confine dell'HOME isolata.
+ * The tmux args pointing at the right server. `TOPICS_TMUX_SOCKET`
+ * exists for the test server, which must neither see nor touch the user's real
+ * sessions: same boundary as the isolated HOME.
  */
 function tmuxBase(): string[] {
   const sock = process.env.TOPICS_TMUX_SOCKET;
@@ -103,9 +103,9 @@ function tmuxBase(): string[] {
 
 // ── Terminal.app ─────────────────────────────────────────────────────────────
 
-// `is running` PRIMA di ogni `tell`: un `tell application "Terminal"` a
-// Terminal chiuso lo APRE, e una lista che accende finestre sul Mac sarebbe
-// peggio di nessuna lista.
+// `is running` BEFORE every `tell`: a `tell application "Terminal"` to a
+// closed Terminal OPENS it, and a listing that lights up windows on the Mac
+// would be worse than no listing.
 const TERMINAL_LIST_SCRIPT = `
 if application "Terminal" is not running then return ""
 set out to ""
@@ -131,12 +131,12 @@ on run argv
   return "__missing__"
 end run`;
 
-// Le tab si indicizzano (`tab i of w`) e non si iterano (`repeat with t in tabs`):
-// con la variabile di ciclo, `contents of t` è il CONTENUTO DEL RIFERIMENTO
-// (cioè «tab 1 of window id …»), non il testo della tab.
-// `do script` in una tab esistente scrive il testo nel suo input e preme Invio.
-// Non esiste la variante senza Invio: per questo la scrittura su Terminal
-// accetta solo testo da inviare, e i tasti di controllo restano a tmux e Topics.
+// Tabs are indexed (`tab i of w`), not iterated (`repeat with t in tabs`):
+// with the loop variable, `contents of t` is the REFERENCE'S CONTENT
+// (i.e. "tab 1 of window id …"), not the tab text.
+// `do script` in an existing tab types the text into its input and presses Enter.
+// There is no no-Enter variant: that is why writing to Terminal
+// only accepts text to send, and control keys stay with tmux and Topics.
 const TERMINAL_SEND_SCRIPT = `
 on run argv
   if application "Terminal" is not running then return "missing"
@@ -153,7 +153,7 @@ on run argv
   return "missing"
 end run`;
 
-/** `tty<TAB>titolo` per riga, l'output di TERMINAL_LIST_SCRIPT. */
+/** `tty<TAB>title` per line, the TERMINAL_LIST_SCRIPT output. */
 export function parseTerminalTabs(stdout: string): Array<{ tty: string; title: string }> {
   const out: Array<{ tty: string; title: string }> = [];
   for (const line of stdout.split("\n")) {
@@ -164,17 +164,17 @@ export function parseTerminalTabs(stdout: string): Array<{ tty: string; title: s
   return out;
 }
 
-// ── Processo in primo piano per tty ──────────────────────────────────────────
+// ── Foreground process per tty ──────────────────────────────────────────
 
 export interface ForegroundProc { pid: number; command: string }
 
 /**
- * Il processo in primo piano di ogni tty, da UNA chiamata a `ps`.
+ * The foreground process of each tty, from ONE `ps` call.
  *
- * Il primo piano è il process group che il terminale dichiara (`tpgid`), e il
- * suo capo è il processo con `pid == tpgid`: è `claude` anche quando sotto ha
- * dieci `node` figli nello stesso gruppo. Prendere «un processo con il `+`»
- * restituiva a caso uno dei figli.
+ * Foreground is the process group the terminal declares (`tpgid`), and its
+ * leader is the process with `pid == tpgid`: it is `claude` even when it has
+ * ten `node` children in the same group underneath. Taking "a process with `+`"
+ * returned a random child.
  */
 export function parseForeground(psOut: string): Map<string, ForegroundProc> {
   const byTty = new Map<string, ForegroundProc>();
@@ -199,19 +199,19 @@ export function parseLsofCwd(out: string): Map<number, string> {
   return res;
 }
 
-// ── Il servizio ──────────────────────────────────────────────────────────────
+// ── The service ──────────────────────────────────────────────────────────────
 
 export interface LiveTerminalsDeps {
-  /** Le PTY di Topics, già nella forma giusta. */
+  /** Topics' PTYs, already in the right shape. */
   topics: () => LiveTerminal[];
-  /** Schermo e scrittura delle PTY di Topics: li possiede la route dei terminali. */
+  /** Screen and writing for Topics' PTYs: owned by the terminals route. */
   topicsScreen: (sessionId: string) => Promise<string | null>;
   topicsSend: (sessionId: string, data: string) => boolean;
   run?: Runner;
-  /** Cache della lista. Corta: è una lista di cose vive, letta solo da chi la guarda. */
+  /** List cache. Short: a list of live things, read only by whoever watches it. */
   ttlMs?: number;
   now?: () => number;
-  /** Sorgenti esterne accese. Il server di test spegne Terminal.app: le tab vere non sono sue. */
+  /** External sources enabled. The test server turns Terminal.app off: the real tabs are not its own. */
   sources?: { tmux?: boolean; terminal?: boolean };
   log?: (msg: string, err?: unknown) => void;
 }
@@ -219,7 +219,7 @@ export interface LiveTerminalsDeps {
 export interface LiveTerminalsService {
   list(opts?: { force?: boolean }): Promise<LiveTerminal[]>;
   screen(id: string): Promise<LiveScreen | null>;
-  /** `enter` = premi Invio dopo il testo. Restituisce false se il terminale non c'è più. */
+  /** `enter` = press Enter after the text. Returns false when the terminal is gone. */
   send(id: string, text: string, opts?: { enter?: boolean }): Promise<boolean>;
 }
 
@@ -240,7 +240,7 @@ export function createLiveTerminals(deps: LiveTerminalsDeps): LiveTerminalsServi
     try {
       return parseTmuxPanes(await run("tmux", [...tmuxBase(), "list-panes", "-a", "-F", TMUX_FORMAT]));
     } catch {
-      // Nessun server tmux acceso è il caso normale, non un errore da loggare.
+      // No tmux server running is the normal case, not an error worth logging.
       return [];
     }
   }
@@ -265,7 +265,7 @@ export function createLiveTerminals(deps: LiveTerminalsDeps): LiveTerminalsServi
     }));
   }
 
-  /** Programma in primo piano e cartella, per le sorgenti che non li danno da sé. */
+  /** Foreground program and folder, for sources that do not report them. */
   async function enrich(rows: LiveTerminal[]): Promise<void> {
     const ttys = rows.filter((r) => r.tty);
     if (!ttys.length) return;
@@ -277,8 +277,8 @@ export function createLiveTerminals(deps: LiveTerminalsDeps): LiveTerminalsServi
     for (const r of ttys) {
       const p = fg.get(r.tty!);
       if (!p) continue;
-      // tmux dà già il comando, ma come titolo del processo: claude si chiama
-      // «2.1.296». `ps -o comm` dice il nome vero.
+      // tmux already gives the command, but as the process title: claude calls
+      // itself "2.1.296". `ps -o comm` reports the real name.
       r.command = p.command;
       if (!r.cwd) pids.push(p.pid);
     }
@@ -289,15 +289,15 @@ export function createLiveTerminals(deps: LiveTerminalsDeps): LiveTerminalsServi
         const p = fg.get(r.tty!);
         if (p && !r.cwd) r.cwd = cwds.get(p.pid) ?? null;
       }
-    } catch { /* senza cartella la riga resta utile */ }
+    } catch { /* without a folder the row is still useful */ }
   }
 
   async function scan(): Promise<LiveTerminal[]> {
     const [tmux, terminal] = await Promise.all([scanTmux(), scanTerminal()]);
     const external = [...tmux, ...terminal];
-    // Una PTY di Topics ha anche lei un tty: se dentro gira tmux, il pane tmux
-    // e la sessione Topics sono due porte sulla stessa cosa, ed è giusto che
-    // compaiano entrambe. Le tab di Terminal invece non possono essere Topics.
+    // A Topics PTY has a tty too: when tmux runs inside, the tmux pane
+    // and the Topics session are two doors onto the same thing, and both
+    // should show. Terminal tabs can never be Topics ones.
     await enrich(external);
     let topics: LiveTerminal[] = [];
     try { topics = deps.topics(); } catch (err) { log("roster Topics illeggibile", err); }
@@ -307,7 +307,7 @@ export function createLiveTerminals(deps: LiveTerminalsDeps): LiveTerminalsServi
   async function list(opts?: { force?: boolean }): Promise<LiveTerminal[]> {
     const t = now();
     if (!opts?.force && cachedAt !== 0 && t - cachedAt < ttlMs) return cache;
-    // Due letture insieme (due client aperti sulla tendina) condividono la stessa scansione.
+    // Two concurrent reads (two clients open on the menu) share one scan.
     if (!inflight) {
       inflight = scan()
         .then((rows) => { cache = rows; cachedAt = now(); return rows; })
@@ -320,8 +320,8 @@ export function createLiveTerminals(deps: LiveTerminalsDeps): LiveTerminalsServi
     const m = id.match(/^(topics|tmux|terminal):(.+)$/);
     if (!m) return null;
     const key = m[2];
-    // La chiave finisce negli argomenti di tmux e di osascript: si accetta solo
-    // la forma che quella sorgente produce, così un id non diventa un'opzione.
+    // The key ends up in tmux and osascript arguments: only accept
+    // the shape that source produces, so an id cannot become an option.
     if (m[1] === "tmux" && !/^%\d+$/.test(key)) return null;
     if (m[1] === "terminal" && !/^ttys\d+$/.test(key)) return null;
     return { source: m[1] as LiveTerminalSource, key };
@@ -336,7 +336,7 @@ export function createLiveTerminals(deps: LiveTerminalsDeps): LiveTerminalsServi
         return text == null ? null : { id, text };
       }
       if (p.source === "tmux") {
-        // `-J` riunisce le righe spezzate dal margine: un percorso lungo resta una riga.
+        // `-J` rejoins margin-wrapped lines: a long path stays one line.
         const text = await run("tmux", [...tmuxBase(), "capture-pane", "-p", "-J", "-t", p.key]);
         return { id, text: trimTrailingBlank(text) };
       }
@@ -356,9 +356,9 @@ export function createLiveTerminals(deps: LiveTerminalsDeps): LiveTerminalsServi
       if (p.source === "topics") return deps.topicsSend(p.key, enter ? text + "\r" : text);
       if (p.source === "tmux") {
         const base = [...tmuxBase(), "send-keys", "-t", p.key];
-        // `-l`: il testo arriva LETTERALE. Senza, «Enter» o «C-c» scritti in un
-        // messaggio diventerebbero tasti. L'Invio va in una chiamata a parte
-        // per la stessa ragione.
+        // `-l`: the text arrives LITERAL. Without it, "Enter" or "C-c" typed in a
+        // message would become keys. Enter goes in a separate call
+        // for the same reason.
         if (text) await run("tmux", [...base, "-l", "--", text]);
         if (enter) await run("tmux", [...base, "Enter"]);
         return true;
@@ -367,10 +367,10 @@ export function createLiveTerminals(deps: LiveTerminalsDeps): LiveTerminalsServi
       const res = await run("osascript", ["-e", TERMINAL_SEND_SCRIPT, `/dev/${p.key}`, text]);
       return res.trim() === "ok";
     } catch {
-      // Pane chiuso nel frattempo, tab sparita: per chi scrive è «non c'è più».
+      // Pane closed meanwhile, tab gone: for the writer that means "gone".
       return false;
     } finally {
-      // Lo schermo è cambiato: la prossima lista non deve servire la vecchia.
+      // The screen changed: the next list must not reuse the stale one.
       cachedAt = 0;
     }
   }
@@ -379,6 +379,6 @@ export function createLiveTerminals(deps: LiveTerminalsDeps): LiveTerminalsServi
 }
 
 function trimTrailingBlank(text: string): string {
-  // AppleScript restituisce le righe con il CR del Mac classico.
+  // AppleScript returns lines with classic-Mac CR.
   return text.replace(/\r\n?/g, "\n").replace(/\s+$/, "");
 }

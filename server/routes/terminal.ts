@@ -1756,9 +1756,9 @@ export function listTerminalSessionSnapshot(): Array<{ id: string; attached: boo
 }
 
 /**
- * Le PTY di Topics nella forma di `lib/live-terminals`, per la lista unica dei
- * terminali vivi. I sotto-agenti restano fuori: hanno un padre che li guida, e
- * nella tendina sarebbero righe che nessuno deve pilotare a mano.
+ * Topics' PTYs in `lib/live-terminals` shape, for the single live-terminals
+ * list. Sub-agents stay out: they have a parent driving them, and in the menu
+ * they would be rows nobody should drive by hand.
  */
 export function listTopicsLiveTerminals(): LiveTerminal[] {
   const out: LiveTerminal[] = [];
@@ -1778,7 +1778,7 @@ export function listTopicsLiveTerminals(): LiveTerminal[] {
   return out;
 }
 
-/** Lo schermo (non lo scrollback) di una PTY di Topics: la stessa resa di `/screen`. */
+/** A Topics PTY screen (not the scrollback): same rendering as `/screen`. */
 export async function readTopicsTerminalScreen(id: string): Promise<string | null> {
   const sess = sessions.get(id);
   if (!sess) return null;
@@ -1786,7 +1786,7 @@ export async function readTopicsTerminalScreen(id: string): Promise<string | nul
   return screenToText(screen);
 }
 
-/** Scrive nella PTY come la rotta `/send`. false = la sessione non c'è. */
+/** Writes into the PTY like the `/send` route. false = session gone. */
 export function writeTopicsTerminal(id: string, data: string): boolean {
   if (!sessions.has(id)) return false;
   noteTerminalInput(id);

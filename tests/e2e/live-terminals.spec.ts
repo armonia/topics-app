@@ -10,13 +10,13 @@ import { hermetic } from "./fixtures/hermetic";
 hermetic(test);
 
 /**
- * LIVE TERMINALS — ogni terminale acceso sul Mac, anche fuori da Topics, in una
- * tendina in fondo alle tab: si vede, se ne legge lo schermo, ci si scrive.
+ * LIVE TERMINALS — every terminal running on the Mac, Topics or not, in one
+ * menu at the end of the tabs: listed, screen-readable, writable.
  *
- * Il terminale «di fuori» qui è una sessione tmux VERA, sul socket che il
- * server di test usa al posto di quello dell'utente (`TOPICS_TMUX_SOCKET`,
- * testServerEnv). Niente finti: la prova che la scrittura è arrivata la dà
- * tmux stesso, letto da qui e non dalla UI.
+ * The "outside" terminal here is a REAL tmux session, on the socket the
+ * test server uses instead of the user's (`TOPICS_TMUX_SOCKET`,
+ * testServerEnv). No fakes: proof that writing landed comes from
+ * tmux itself, read here rather than from the UI.
  *
  * @covers LIVETERM-01, LIVETERM-02, LIVETERM-03
  */
@@ -30,8 +30,8 @@ test.describe.serial("Terminali vivi", () => {
   let paneId = "";
 
   test.beforeAll(async ({ request }) => {
-    try { tmux("kill-server"); } catch { /* nessun server: è lo stato voluto */ }
-    // `sh` nudo: un prompt prevedibile, nessun rc dell'utente.
+    try { tmux("kill-server"); } catch { /* no server: the wanted state */ }
+    // Bare `sh`: a predictable prompt, none of the user's rc files.
     tmux("new-session", "-d", "-s", SESSION, "-x", "100", "-y", "20", "env", "PS1=$ ", "sh");
     paneId = tmux("list-panes", "-t", SESSION, "-F", "#{pane_id}").trim();
     const chat = await createTopic(request, `E2E-LiveTerminals ${Date.now()}`);
@@ -39,7 +39,7 @@ test.describe.serial("Terminali vivi", () => {
   });
 
   test.afterAll(async ({ request }) => {
-    try { tmux("kill-server"); } catch { /* già spento */ }
+    try { tmux("kill-server"); } catch { /* already off */ }
     if (chatId) await deleteTopic(request, chatId);
   });
 
@@ -66,9 +66,9 @@ test.describe.serial("Terminali vivi", () => {
     await peek.getByTestId("live-terminals-input").fill(`echo ${marker}`);
     await peek.getByTestId("live-terminals-input").press("Enter");
 
-    // Arrivato davvero: tmux ha eseguito il comando (riga del comando + riga dell'output).
+    // Really arrived: tmux ran the command (command line + output line).
     await expect.poll(() => tmux("capture-pane", "-p", "-t", paneId).split(marker).length - 1, { timeout: 10_000 }).toBe(2);
-    // E la UI lo mostra, senza riaprire niente.
+    // And the UI reflects it, with nothing reopened.
     await expect(peek.getByTestId("live-terminals-screen")).toContainText(`\n${marker}`, { timeout: 10_000 });
     await expect(peek.getByTestId("live-terminals-input")).toHaveValue("");
   });
@@ -100,7 +100,7 @@ test.describe.serial("Terminali vivi", () => {
       const trigger = page.getByTestId("live-terminals-trigger");
       await expect(trigger).toHaveCount(1);
       await expect(trigger).toBeVisible();
-      // Gemello della campanella: 44 col dito.
+      // Twin of the bell: 44 for fingers.
       const box = await trigger.boundingBox();
       expect(Math.round(box!.height)).toBe(44);
       await trigger.tap();

@@ -1,20 +1,20 @@
 /**
- * LA TENDINA DEI TERMINALI VIVI, in fondo alle tab accanto al «+».
- * Sul telefono le barre di tab non ci sono (le tab sono la lista): lì sta in
- * alto, accanto alla campanella (`variant="header"`).
+ * THE LIVE-TERMINALS MENU, at the end of the tabs next to "+".
+ * On the phone there are no tab bars (tabs are the list): there it sits at
+ * the top, next to the bell (`variant="header"`).
  *
- * Elenca ogni terminale acceso sul Mac, non solo quelli di Topics: le tab di
- * Terminal.app e i pane tmux in cui gira un `claude` aperto a mano. Un ramo per
- * origine. Una sessione di Topics si apre nella sua tab; un terminale di fuori
- * apre un livello a lato con lo SCHERMO attuale e un campo per scriverci, che è
- * ciò che serve dal telefono per rispondere a un agente fermo su una domanda.
+ * Lists every terminal running on the Mac, not just Topics' own: Terminal.app
+ * tabs and tmux panes where a hand-opened `claude` runs. One branch per
+ * origin. A Topics session opens in its tab; an outside terminal
+ * opens a side level with the CURRENT screen plus a field for writing into it,
+ * which is what answers an agent stuck on a question from the phone.
  *
- * NON INTERROGA NIENTE DA CHIUSA. La lista si chiede all'apertura e si rinfresca
- * solo finché la tendina è aperta; lo schermo solo finché il suo livello è
- * aperto. Un client fermo non deve ricevere byte per una cosa che non guarda
- * (è la barra del piano daily-driver, D1).
+ * POLLS NOTHING WHILE CLOSED. The list is fetched on open and refreshes
+ * only while the menu stays open; the screen only while its level stays
+ * open. An idle client must not receive bytes for something out of sight
+ * (daily-driver plan bar, D1).
  *
- * Si spegne dal menu Vista → «Mostra i terminali vivi in fondo alle tab» (`showLiveTerminals`).
+ * Toggled from the View menu -> "Show live terminals at the end of tabs" (`showLiveTerminals`).
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { CornerDownLeft, SquareTerminal } from 'lucide-react';
@@ -38,8 +38,8 @@ import { SubmenuItem } from './SubmenuItem';
 const LIST_REFRESH_MS = 3000;
 const SCREEN_REFRESH_MS = 1500;
 
-/** Il box del bottone: quello delle barre di tab (`bar`, gemello del «+») o
- *  quello della riga in alto del telefono (`header`, gemello della campanella). */
+/** The button frame: the tab-bar one (`bar`, twin of "+") or
+ *  the phone top-row one (`header`, twin of the bell). */
 const triggerClass = (variant: 'bar' | 'header', isMobile: boolean) =>
   `${variant === 'header' ? (isMobile ? 'h-11 w-11' : 'h-7 w-7') : ROW_ACTION_BOX} edge-lit flex flex-shrink-0 items-center justify-center rounded-lg ${RAISED_CONTROL} text-app-text transition-colors`;
 
@@ -84,9 +84,9 @@ export function LiveTerminalsMenu({ variant = 'bar' }: { variant?: 'bar' | 'head
         onClick={() => setOpen((v) => !v)}
         className={`${triggerClass(variant, isMobile)} app-no-drag`}
         {...NO_DRAG_REGION}
-        // La riga in alto del telefono lascia passare i tocchi alla lista che ci
-        // scorre sotto (`pointer-events: none`): la campanella si riprende i suoi
-        // allo stesso modo. Senza, il tocco finiva sulla riga della Board.
+        // The phone top row lets touches fall through to the scrolling list
+        // underneath (`pointer-events: none`): the bell reclaims its own
+        // the same way. Without it, taps landed on the Board row.
         style={{ pointerEvents: 'auto' }}
         title={title}
         aria-label={title}
@@ -161,9 +161,9 @@ function RowText({ t }: { t: LiveTerminal }) {
 }
 
 /**
- * Lo schermo di un terminale di fuori e un campo per scriverci. Invio manda il
- * testo e preme Invio; il tasto ⏎ da solo preme Invio a vuoto (conferma un
- * prompt, sveglia una shell).
+ * An outside terminal screen plus a field for writing into it. Enter sends the
+ * text plus Enter; the ⏎ key alone sends a bare Enter (confirms a
+ * prompt, wakes a shell).
  */
 function TerminalPeek({ terminal }: { terminal: LiveTerminal }) {
   const tr = useT();
@@ -177,7 +177,7 @@ function TerminalPeek({ terminal }: { terminal: LiveTerminal }) {
   const load = useCallback(() => {
     fetchLiveTerminalScreen(terminal.id)
       .then((s) => { if (s === null) setGone(true); else { setGone(false); setScreen(s); } })
-      .catch(() => { /* il prossimo giro riprova */ });
+      .catch(() => { /* next round retries */ });
   }, [terminal.id]);
 
   useEffect(() => {
@@ -186,7 +186,7 @@ function TerminalPeek({ terminal }: { terminal: LiveTerminal }) {
     return () => clearInterval(timer);
   }, [load]);
 
-  // Lo schermo si legge dal fondo, dove sta il prompt.
+  // The screen reads from the bottom, where the prompt lives.
   useEffect(() => {
     const el = preRef.current;
     if (el) el.scrollTop = el.scrollHeight;

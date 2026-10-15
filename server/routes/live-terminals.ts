@@ -1,23 +1,23 @@
 /**
- * Routes — `/api/live-terminals`: ogni terminale vivo sul Mac, dentro e fuori Topics.
+ * Routes — `/api/live-terminals`: every live terminal on the Mac, inside and outside Topics.
  *
  *   GET  /api/live-terminals                 → { terminals, generatedAt }
  *   GET  /api/live-terminals/:id/screen      → { id, text }
  *   POST /api/live-terminals/:id/send        { text, enter? = true } → { ok }
  *
- * `:id` è quello della lista, URL-encoded (`tmux:%258`, `terminal:ttys004`,
- * `topics:<uuid>`). Vedi `lib/live-terminals.ts`.
+ * `:id` is the listed one, URL-encoded (`tmux:%258`, `terminal:ttys004`,
+ * `topics:<uuid>`). See `lib/live-terminals.ts`.
  *
- * AUTORIZZAZIONE. Scrivere qui è scrivere in un terminale, cioè eseguire codice.
- * Le rotte passano dal cancello globale (`auth-gate`: host, origine, dispositivo
- * appaiato), lo stesso che già protegge `POST /api/terminal/sessions`, che lancia
- * un comando qualunque. La tendina della UI e il telefono passano da lì; un
- * agente sul Mac entra da loopback come per il resto delle API.
+ * AUTHORIZATION. Writing here is writing into a terminal, i.e. running code.
+ * The routes go through the global gate (`auth-gate`: host, origin, paired
+ * device), the same one already guarding `POST /api/terminal/sessions`, which
+ * launches any command. The UI menu and the phone go through it; an
+ * agent on the Mac enters via loopback like for the rest of the APIs.
  */
 import type { AppContext, RouteHandler } from "../types";
 import type { LiveTerminalsService } from "../lib/live-terminals";
 
-/** Un messaggio più lungo di così non è una cosa da scrivere in un prompt. */
+/** Anything longer than this is not something to type into a prompt. */
 const MAX_SEND_CHARS = 16_000;
 
 export function createLiveTerminalsRouter(ctx: AppContext, service: LiveTerminalsService): RouteHandler {
