@@ -239,7 +239,6 @@
       "TYPING_THROTTLE_MS",
       "annullato",
       "lastTypingSentRef",
-      "pre",
       "raf",
       "sendTyping",
       "tentativo",
@@ -281,11 +280,7 @@
       "parti"
     ],
     "client/src/components/Chat/ToolCards.tsx": [
-      "ArgsPre",
-      "ClampedPre",
-      "HighlightedPre",
       "LspCard",
-      "ResultPre",
       "armato"
     ],
     "client/src/components/Chat/ToolInputForm.tsx": [
@@ -490,7 +485,6 @@
       "WokenBanner",
       "approxK",
       "cancelled",
-      "hasPreContentRows",
       "hljsReady",
       "resto",
       "ripreso",
@@ -541,7 +535,6 @@
       "voce"
     ],
     "client/src/components/Project/ProcessLogPane.tsx": [
-      "preRef",
       "rec"
     ],
     "client/src/components/Project/ProjectSidebar.tsx": [
@@ -753,9 +746,6 @@
       "sospeso",
       "sotto",
       "testo"
-    ],
-    "client/src/components/Shared/addMenuItems.ts": [
-      "pres"
     ],
     "client/src/components/Shared/projectIconStore.ts": [
       "presenti"
@@ -2486,9 +2476,6 @@
     "scripts/thread-vs-work.ts": [
       "coord"
     ],
-    "scripts/token-live.ts": [
-      "preCell"
-    ],
     "scripts/ui-language-words.ts": [
       "STOPWORDS"
     ],
@@ -3614,9 +3601,6 @@
       "compareSemver",
       "parseSemver"
     ],
-    "server/providers/claude/compaction.ts": [
-      "preTokens"
-    ],
     "server/providers/claude/events.fixture.ts": [
       "PARTIAL_SIDECHAIN",
       "SIDECHAIN_ASSISTANT"
@@ -4050,8 +4034,7 @@
       "pcwd",
       "rilevati",
       "rilevato",
-      "unregisterPreviewProcess",
-      "useTty"
+      "unregisterPreviewProcess"
     ],
     "server/routes/profile.ts": [
       "servizio"
@@ -5893,8 +5876,7 @@
     ],
     "tests/e2e/browser-login-state.spec.ts": [
       "evalA",
-      "evalABody",
-      "preB"
+      "evalABody"
     ],
     "tests/e2e/browser-mobile-keyboard.spec.ts": [
       "email",
@@ -6180,8 +6162,7 @@
       "rimasti"
     ],
     "tests/e2e/grid-split.spec.ts": [
-      "draggableTabs",
-      "preDividers"
+      "draggableTabs"
     ],
     "tests/e2e/group-drop-sources.spec.ts": [
       "battuta",
