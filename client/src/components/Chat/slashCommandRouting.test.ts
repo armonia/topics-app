@@ -1,3 +1,6 @@
+/** @covers CMDUI-11 */
+import { topicsEntryFor } from './commandMap';
+
 /**
  * Every slash command the composer OFFERS has somewhere to go.
  *
@@ -150,6 +153,15 @@ describe("`/fork` is Topics' own", () => {
   test("answered in the composer, never passed naked to the CLI", () => {
     expect(handled("fork")).toBe(true);
     expect(naked.has("fork")).toBe(false);
+  });
+});
+
+describe("`/health` is a local command on every provider", () => {
+  test("it reads the health endpoint into the command card without a model turn", () => {
+    expect(handled("health")).toBe(true);
+    expect(CHAT_PANE).toMatch(/cmd === '\/health'[\s\S]*?getSystemHealth\(\)/);
+    expect(topicsEntryFor("health", "openclaw")).not.toBeNull();
+    expect(topicsEntryFor("health", "claude-code")).not.toBeNull();
   });
 });
 

@@ -102,6 +102,10 @@ export function registeredFleetSocketPaths(): string[] {
   return [...sockets.values()];
 }
 
+export function registeredFleetSocketPath(kind: string): string | undefined {
+  return sockets.get(kind as FleetKind);
+}
+
 /** Resolve the registered sockets to live pids using one `ps` snapshot. */
 export function resolveFleetRoots(rows: PsRow[], selfPid: number): { kind: FleetKind | "server"; pid: number }[] {
   const roots: { kind: FleetKind | "server"; pid: number }[] = [{ kind: "server", pid: selfPid }];

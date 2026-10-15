@@ -25,6 +25,7 @@ import { t, missingKeys } from '../../lib/i18n';
 /** One key per command the composer offers. Kept in the menu's own order. */
 const DESCRIPTIONS: string[] = [
   'chat.slash.status.description',
+  'chat.slash.health.description',
   'chat.slash.context.description',
   'chat.slash.compact.description',
   'chat.slash.clear.description',

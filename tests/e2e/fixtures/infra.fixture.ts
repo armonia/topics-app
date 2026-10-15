@@ -106,10 +106,9 @@ export class InfraPage {
     // that door (the user card on the desktop, the title on the phone) is the
     // helper's business: this fixture only knows the row it wants.
     await openMachinePanel(this.page);
-    await this.page
-      .locator("text=Gateway")
-      .first()
-      .waitFor({ state: "visible", timeout: 10_000 });
+    // The panel's own handle: «Gateway» is a row only OpenClaw shows, and a test that keeps the
+    // real status (STATUS-04) has no OpenClaw.
+    await this.page.getByTestId("system-status-panel").waitFor({ state: "visible", timeout: 10_000 });
   }
 
   // --- Mock methods (call BEFORE page.goto) ---

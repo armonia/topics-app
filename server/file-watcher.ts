@@ -43,6 +43,16 @@ const DEBOUNCE_MS = 300;
  * change brings the git section back" waited for a push that never left.
  */
 export const MAX_WATCHERS = 24;
+const watcherErrors = new Map<string, { message: string; at: string }>();
+
+export function fileWatcherLastError(): ({ projectPath: string; message: string; at: string }) | null {
+  const latest = [...watcherErrors.entries()].sort((a, b) => b[1].at.localeCompare(a[1].at))[0];
+  return latest ? { projectPath: latest[0], ...latest[1] } : null;
+}
+
+export function _setWatcherErrorForTests(projectPath: string, message: string, at = new Date().toISOString()): void {
+  watcherErrors.set(projectPath, { message, at });
+}
 
 /**
  * Segmenti di path che non meritano un evento. Sono le stesse cartelle che
@@ -129,7 +139,10 @@ export function watchProjectFiles(projectPath: string, ctx: AppContext): void {
     // se non c'è, si rinuncia in silenzio invece di far cadere la richiesta —
     // l'albero torna a essere una fotografia, che è com'era prima.
     const w = watch(projectPath, { recursive: true }, onChange);
-    w.on("error", () => unwatchProjectFiles(projectPath));
+    w.on("error", (error) => {
+      unwatchProjectFiles(projectPath);
+      watcherErrors.set(projectPath, { message: error.message, at: new Date().toISOString() });
+    });
     watchers.set(projectPath, {
       close() {
         closed = true;
@@ -137,9 +150,11 @@ export function watchProjectFiles(projectPath: string, ctx: AppContext): void {
         try { w.close(); } catch {}
       },
     });
+    watcherErrors.delete(projectPath);
     setFileTreeWatcher(projectPath, true);
     setGitStatusFileWatcher(projectPath, true);
-  } catch {
+  } catch (error) {
+    watcherErrors.set(projectPath, { message: error instanceof Error ? error.message : String(error), at: new Date().toISOString() });
     // Nessun watcher: nessun `files:changed`. Il bottone Aggiorna resta.
   }
 }
@@ -155,6 +170,7 @@ export function watchedProjectPaths(): string[] {
 }
 
 export function unwatchProjectFiles(projectPath: string): void {
+  watcherErrors.delete(projectPath);
   setFileTreeWatcher(projectPath, false);
   setGitStatusFileWatcher(projectPath, false);
   const w = watchers.get(projectPath);

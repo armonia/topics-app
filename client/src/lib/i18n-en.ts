@@ -19,12 +19,14 @@ import SPEND_EN from './i18n-spend-en';
 import CHAT_EN from './i18n-chat-en';
 import FIND_EN from './i18n-find-en';
 import ATTENTION_EN from './i18n-attention-en';
+import SYSTEM_HEALTH_EN from './i18n-system-health-en';
 
 const EN = {
   ...SPEND_EN,
   ...CHAT_EN,
   ...FIND_EN,
   ...ATTENTION_EN,
+  ...SYSTEM_HEALTH_EN,
   'toolgroup.cost': 'Summed cost of the actions in the group',
   'ai.selector.routing': 'Run in Topics',
   'ai.selector.routingLine': 'Everything else goes direct.',
@@ -477,6 +479,7 @@ const EN = {
   'chat.pinned.title': 'Pinned',
 
   'chat.slash.status.description': 'Show session status',
+  'chat.slash.health.description': 'Show subsystem health',
   'chat.slash.context.description': 'Open the context inspector',
   'chat.slash.compact.description': 'Compact the context now (summarises the history and frees room)',
   'chat.slash.clear.description': 'Clear conversation',
@@ -542,6 +545,7 @@ const EN = {
   'chat.slash.kind.command': 'Command',
   'chat.composer.commands': 'Commands',
   'chat.command.title.status': 'Session status',
+  'chat.command.title.health': 'Subsystem health',
   'chat.resume.noProject': '/resume lists the Claude Code sessions of a project, and this chat has none. Link one with /project open <name> and try again.',
   'chat.resume.header': 'Sessions to resume',
   'chat.resume.loading': 'Reading the project\'s sessions…',

@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback, useMemo, memo, Suspense } from 'react';
-import { useT } from '../../hooks/useT';
+import { useLocale, useT } from '../../hooks/useT';
 import { SwapFreezeLabel } from '../Shared/SwapFreezeLabel';
 import { useSwapFreeze } from '../../state/swapFreeze';
 import { TopicBrowserReopen } from '../Browser/TopicBrowserReopen';
@@ -11,7 +11,7 @@ import { requestScrollToMessage } from '../../state/scrollToMessage';
 import { requestHistoryCompletion } from '../../state/historyCompleteness';
 import type { Topic, ChatMessage, WSMessage, UpdateTopicRequest, CompactionMarker } from '../../types';
 import type { SendMessageOptions, StopSessionOptions } from '../../hooks/useChat';
-import { uploadApi, filesApi, autoNameApi, commandApi, memoryApi, topicsApi, chatApi, apiErrorCode, type CommandResult } from '../../lib/api';
+import { uploadApi, filesApi, autoNameApi, commandApi, memoryApi, topicsApi, chatApi, getSystemHealth, apiErrorCode, type CommandResult } from '../../lib/api';
 import { useComposerDock } from './useComposerDock';
 import { composerMayTakeFocus } from './composerFocus';
 import { markDraftTouched, setDraftDirty } from '../../state/draftPane';
@@ -192,6 +192,7 @@ function ChatPaneComponent({
   ownsBrowserWindow,
 }: ChatPaneProps) {
   const tr = useT();
+  const locale = useLocale();
   /** A command of this chat is stopped: the pane says so above the composer. */
   const swapFreeze = useSwapFreeze({ topicId: topic.id });
   const toast = useToast();
@@ -1062,6 +1063,23 @@ function ChatPaneComponent({
       setCommandResult({ type: 'error', message: tr('chat.orchestrator.slashBlocked') });
       return true;
     }
+    // `/health` reads the server's subsystem snapshot directly, without a model turn.
+    if (cmd === '/health' || cmd.startsWith('/health ')) {
+      setCommandLoading(true);
+      try {
+        const health = await getSystemHealth();
+        const stateLabel: Record<string, string> = { ok: tr('systemHealth.state.ok'), warn: tr('systemHealth.state.warn'), error: tr('systemHealth.state.error'), off: tr('systemHealth.state.off') };
+        const rows = health.subsystems.flatMap((item) => [
+          { label: tr(`systemHealth.name.${item.id}`), value: `${stateLabel[item.state]}: ${tr(`systemHealth.reason.${item.reason}`, item.params)}` },
+          ...(item.state !== 'ok' ? [{ label: tr('systemHealth.actionLabel'), value: tr(`systemHealth.action.${item.reason}`, item.params) }] : []),
+          ...(item.lastError ? [{ label: tr('systemHealth.lastErrorLabel'), value: tr('systemHealth.lastError', { message: item.lastError.message, at: new Date(item.lastError.at).toLocaleString(locale) }) }] : []),
+        ]);
+        setCommandAnswer({ kind: 'facts', title: tr('chat.command.title.health'), rows });
+      } catch (e) {
+        setCommandResult({ type: 'error', message: errMessage(e) });
+      } finally { setCommandLoading(false); }
+      return true;
+    }
     // `/status` is the facts that decide the next turn (CMD-07), as rows.
     if (cmd === '/status' || cmd.startsWith('/status ')) { setCommandLoading(true); try { const r = await commandApi.status(topic.sessionKey); setCommandAnswer({ kind: 'facts', title: tr('chat.command.title.status'), rows: statusRows(r.output || '') }); } catch (e) { setCommandResult({ type: 'error', message: errMessage(e) }); } finally { setCommandLoading(false); } return true; }
     // `/help` IS the menu, whole (CMDUI-07): a second list would drift from it.
@@ -1351,7 +1369,7 @@ function ChatPaneComponent({
     }
 
     return false;
-  }, [topic.sessionKey, topic.id, topic.provider, topic.projectPath, isGlobalOrchestrator, loadHistory, goal, declareGoal, closeGoal, confirm, sendMessage, getCompactionMarkers, tr, forkHere, askSideQuestion, currentMessages, currentStreaming, handleExportConversation, setCommandResult, fastMode, onUpdateTopic]);
+  }, [topic.sessionKey, topic.id, topic.provider, topic.projectPath, isGlobalOrchestrator, loadHistory, goal, declareGoal, closeGoal, confirm, sendMessage, getCompactionMarkers, tr, locale, forkHere, askSideQuestion, currentMessages, currentStreaming, handleExportConversation, setCommandResult, fastMode, onUpdateTopic]);
 
   // Toggle Fast Mode. Updates: (1) local state for immediate UI feedback,
   // (2) localStorage for cold-boot hydration, (3) server via PUT so other

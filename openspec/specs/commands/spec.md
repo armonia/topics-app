@@ -1472,3 +1472,16 @@ Senza appunti la riga NON SHALL esserci.
 - **AND** sopra i messaggi c'è «1 appuntato · resta nel contesto dell'agente»
 - **WHEN** apro la riga e stacco l'appunto
 - **THEN** la riga non c'è più e il messaggio non porta il segno
+
+### Requirement: CMDUI-11 — `/health` mostra i sottosistemi senza un turno
+
+Il comando `/health` SHALL essere offerto su ogni provider e SHALL mostrare nella
+scheda comandi (CMDUI-04) lo stesso elenco di `GET /api/system/health`, con stati,
+osservazioni, azioni ed eventuali errori. Il comando SHALL essere gestito da Topics
+senza avviare un turno del modello.
+
+#### Scenario: `/health` in qualsiasi chat
+- **GIVEN** una chat con un provider qualsiasi
+- **WHEN** mando `/health`
+- **THEN** la scheda comandi mostra tutti i sottosistemi restituiti dalla rotta
+- **AND** nessun turno del modello viene avviato

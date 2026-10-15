@@ -236,6 +236,7 @@ export function createChromiumSidecar(opts: ChromiumSidecarOptions = {}) {
   let kill: (() => void) | null = null;
   let launching: Promise<SidecarHandle> | null = null;
   let idleTimer: TimerHandle | null = null;
+  let lastLaunchFailure: { message: string; at: string } | null = null;
 
   function cancelIdleReap() {
     if (idleTimer) {
@@ -260,6 +261,7 @@ export function createChromiumSidecar(opts: ChromiumSidecarOptions = {}) {
       const started = await launcher.launch({ engine, port, userDataDir, loadExtensions: resolveLoadExtensions() });
       handle = { cdpEndpoint: started.cdpEndpoint, engine };
       kill = started.kill;
+      lastLaunchFailure = null;
       return handle;
     })();
     try {
@@ -287,6 +289,7 @@ export function createChromiumSidecar(opts: ChromiumSidecarOptions = {}) {
       try {
         return await ensureLaunched();
       } catch (err) {
+        lastLaunchFailure = { message: err instanceof Error ? err.message : String(err), at: new Date().toISOString() };
         // A failed cold start must not leave a phantom reservation.
         refCount = Math.max(0, refCount - 1);
         throw err;
@@ -316,6 +319,7 @@ export function createChromiumSidecar(opts: ChromiumSidecarOptions = {}) {
         refCount,
         cdpEndpoint: handle?.cdpEndpoint ?? null,
         engine: handle?.engine ?? null,
+        lastLaunchFailure,
       };
     },
   };

@@ -179,6 +179,14 @@ export const chromiumSidecar = createChromiumSidecar({
 });
 export const browserEngineRegistry = createBrowserEngineRegistry({ sidecar: chromiumSidecar });
 
+export function browserEngineLastLaunchFailure(): { message: string; at: string } | null {
+  return chromiumSidecar.status().lastLaunchFailure;
+}
+
+export function browserEngineIsRunning(): boolean {
+  return chromiumSidecar.status().running;
+}
+
 /** Capability descriptor for GET /api/browsers/engines — tells the client
  *  whether to show the engine toggle, which real Chromium backs it, and how many
  *  of the user's extensions will load (the toolbar badge). Both disk walks
