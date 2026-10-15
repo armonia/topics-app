@@ -16,3 +16,8 @@
 ## Rifiutato
 
 - Nessuna modifica al codice di reconnect: `useReconnectCatchUp` è già collegato alla riapertura effettiva del socket e ricarica le chat aperte. Il punto mancante era la copertura delle condizioni D7b, non un difetto dimostrato nel recupero.
+
+## Mutazione · esito in CI
+
+- **Punto critico vero:** il recupero che il server manda al socket appena aperto, `for (const frame of streamCatchupFrames(catchupWanted)) inviaIniziale(frame);` nell'`open` del WebSocket in `server.ts`. Mutante (`void catchupWanted;`, ramo usa e getta) → clip **rossa**, run 38663539352: «every sample is a contiguous prefix of the turn», 18 campioni con buchi.
+- **Il primo mutante era sul punto sbagliato.** Togliere `loadHistory` da `useReconnectCatchUp` lascia la clip verde (run 38662455901): il turno è ancora vivo dopo il riavvio, e lo stato vivo lo porta il server. `loadHistory` serve ai turni finiti mentre il socket era giù, che questa e2e non attraversa.
