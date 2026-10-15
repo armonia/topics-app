@@ -3,6 +3,9 @@
 **Barra prima:** mutazione UUID nella copia scratchpad, 4/4 test identità rossi, exit 1.
 **Barra dopo:** `bun test ...projectPaneIdentity.test.ts ...useProjectLayout.closeIndex.test.tsx ...useProjectChatSync.test.tsx`, 16 pass / 0 fail, exit 0; `./scripts/qa-gate.sh --veloce`, typecheck, lint e tutti i `check:*` verdi, 0 rossi.
 
+**Barra prima, giro 2:** CI run 38688830677, 3 e2e rossi anche ai retry (una spec archive e due split); `preview-guard-headers` ha fallito una volta ma è passata al retry.
+**Barra dopo, giro 2:** `bun run typecheck`, `bun run typecheck:e2e`, `bun run lint`: exit 0 ciascuno; lint 0 errori e 4 warning già esistenti. E2E non eseguite sul Mac, come richiesto.
+
 ## Fatto
 
 - **0.1:** `createProjectSingletonPaneId(projectPath, type)` dà lo stesso id al medesimo progetto e tipo, e id distinti a progetti diversi. Test mirati: exit 0.
@@ -49,3 +52,21 @@
 - Finché una pane `browser`, `file`, `plan` o `process-log` è aperta qui, una seconda dello stesso
   tipo aperta su un altro dispositivo non compare. È il comportamento di prima, ora scritto; lo
   toglie lo stadio 2, quando le pane le possiede il server.
+
+## Giro 2: gli e2e della PR
+
+### Fatto
+
+- In `project-archive-layout.spec.ts:53` e `project-tabs.spec.ts:680`, i test seminano ancora un id Git legacy, ma locator, snapshot e asserzioni usano `createProjectSingletonPaneId(PROJECT_PATH, "git")`. Le verifiche di anteprima e riapertura restano intatte.
+- In `split-reorg-budget.spec.ts:289` e `:529`, i seed Git/Files restano legacy e tutti i lookup usano gli id canonici ottenuti dalla funzione di prodotto. I controlli che ogni pane resti montata durante i gesti non sono stati indeboliti.
+- La migrazione sostituisce `id` ma preserva `stableKey ?? id`; `GroupLayout` usa quella chiave React. In `split-reorg-budget`, il probe comincia dopo `goToApp`, dunque non misura il caricamento iniziale. Revisione indipendente read-only: nessun finding.
+- Barra locale: `bun run typecheck` exit 0; `bun run typecheck:e2e` exit 0; `bun run lint` exit 0, 0 errori e 4 warning in file non toccati.
+
+### Trovato e non fatto
+
+- `right-click-menus.spec.ts:333` semina `files:rclick` e `task-model-labels.spec.ts:90` semina `kanban:leftover-from-a-previous-run`; nessuna delle due cerca la pane per quell'id, quindi non spiega i rossi indicati e resta invariata.
+- Le tre spec e2e non sono state eseguite in locale per il divieto esplicito. Serve il job e2e della CI per provarle; nessun test unitario è stato modificato.
+
+### Rifiutato
+
+- `preview-guard-headers.spec.ts:30`: rosso singolo che passa al retry, escluso da questo giro come indicato nel brief.

@@ -51,6 +51,7 @@ import { canonicalTmpDir } from "./helpers/file-project";
 import { nextFrames } from "./helpers/frame-probe";
 import { projectPanesKey } from "../../shared/project-keys";
 import { closeTabViaCommand } from "./helpers/layout";
+import { createProjectSingletonPaneId } from "../../client/src/state/pane/adapters/paneConfig";
 import {
   beginGesture,
   endGesture,
@@ -285,8 +286,10 @@ test.describe("split reorganisation budget", () => {
     const chatPane = `chat:${chatId}`;
     const terminalPane = `terminal:${terminalId}`;
     const browserPane = "browser:split-reorg";
-    const filesPane = "files:split-reorg";
-    const gitPane = "git:split-reorg";
+    const filesPane = createProjectSingletonPaneId(dir, "files");
+    const gitPane = createProjectSingletonPaneId(dir, "git");
+    const legacyFilesPane = "files:split-reorg";
+    const legacyGitPane = "git:split-reorg";
 
     // The browser pane's stream has no server here: swallow it.
     await page.routeWebSocket(/\/ws\/browser\//, () => {});
@@ -300,8 +303,8 @@ test.describe("split reorganisation budget", () => {
         nonChatPanes: [
           { id: terminalPane, type: "terminal", title: "Terminal", terminalSessionId: terminalId },
           { id: browserPane, type: "browser", title: "Page", url: "https://example.com/" },
-          { id: filesPane, type: "files", title: "Files" },
-          { id: gitPane, type: "git", title: "Git" },
+          { id: legacyFilesPane, type: "files", title: "Files" },
+          { id: legacyGitPane, type: "git", title: "Git" },
         ],
         openChatTopicIds: [chatId],
         activeChatTopicId: chatId,
@@ -523,8 +526,10 @@ test.describe("split reorganisation budget", () => {
     // rows sync appended it again as a column on the right, and the focus
     // fell back to the chat.
     const chatPane = `chat:${chatId}`;
-    const filesPane = "files:split-reorg-countdown";
-    const gitPane = "git:split-reorg-countdown";
+    const filesPane = createProjectSingletonPaneId(dir, "files");
+    const gitPane = createProjectSingletonPaneId(dir, "git");
+    const legacyFilesPane = "files:split-reorg-countdown";
+    const legacyGitPane = "git:split-reorg-countdown";
     await resetPaneStore(request, []);
     await request
       .put(`${E2E_BASE}/api/ui-state/grid-layout`, { data: { gridRows: [], gridRowHeights: [], soloTopicIds: [] } })
@@ -534,8 +539,8 @@ test.describe("split reorganisation budget", () => {
     await request.put(`${E2E_BASE}/api/ui-state/${projectPanesKey(dir)}`, {
       data: {
         nonChatPanes: [
-          { id: filesPane, type: "files", title: "Files" },
-          { id: gitPane, type: "git", title: "Git" },
+          { id: legacyFilesPane, type: "files", title: "Files" },
+          { id: legacyGitPane, type: "git", title: "Git" },
         ],
         openChatTopicIds: [chatId],
         activeChatTopicId: chatId,
