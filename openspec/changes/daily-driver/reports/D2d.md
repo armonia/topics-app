@@ -66,3 +66,6 @@ WebKit 26.4 e Chromium 153 dicono `isActive: false` fino a 3 s dopo il `goto`.
 gesto è in corso, e non la ricorda come risposta; il pulsante che attiva le notifiche chiede dentro il
 proprio tocco come prima. Test bun nuovo in `notificationPermission.test.ts`: 7 pass; con la guardia
 tolta, in una copia nello scratchpad, 1 rosso.
+
+**Barra dopo:** clip PUSH-05 su `383adb0c44`, run `38677346804`: exit 0, **2 passed** (Chromium e
+WebKit), con video. Cancelli statici: 0 rossi, 0 file non aggiunti.
