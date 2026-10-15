@@ -43,6 +43,12 @@ Release, `scripts/build-native-addon.sh` con `CARGO_BUILD_JOBS=2` e linker clang
 
 Build release, fixture isolata con 400 file tracciati e 244 voci modificate, 10 campioni alternati per funzione; tempo misurato solo nella chiamata della funzione. Mediane: `gitStatus` **8,25 → 5,47 ms**; `gitNumstat` **48,67 → 28,57 ms**.
 
+Ricontrollata in revisione su un checkout vero con 397 voci di status e 245 numstat, addon
+release, mediane di 10 giri alternati: `gitNumstat` **140,1 ms** nel giro 1 → **71,9 ms** nel giro 2
+(load average 50 la prima volta, 77 la seconda); `gitStatus` 72-86 ms. Sullo stesso checkout la
+strada con git costa **399 ms** (status 120, i due `git diff --numstat` 278): il ricalcolo nativo
+intero sta intorno ai 158 ms.
+
 ### Trovato e non fatto
 
 - p95 con 8 processi CPU e matrice CI macOS/Linux/Windows restano da verificare fuori dal giro locale. `cargo clippy` non è presente nel workflow CI.
