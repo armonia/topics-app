@@ -132,7 +132,10 @@ import { useSidebarHandleInsets } from './hooks/useSidebarBottomInset';
 const NewTopicModal = lazy(() => import('./components/Modals/NewTopicModal').then(m => ({ default: m.NewTopicModal })));
 // Shown once, to whoever opens Topics for the first time: its forms (the API key one comes from
 // Settings) stay out of the entry every start downloads.
-const FirstRunHost = lazy(() => import('./components/FirstRun/FirstRunHost').then(m => ({ default: m.FirstRunHost })));
+const FirstRunHost = lazy(async () => {
+  const { FirstRunHost: F } = await import('./components/FirstRun/FirstRunHost');
+  return { default: F };
+});
 const ChangelogModal = lazy(async () => {
   const { ChangelogModal: C } = await import('./components/ChangelogModal');
   return { default: C };
