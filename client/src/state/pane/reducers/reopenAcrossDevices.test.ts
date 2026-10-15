@@ -1,3 +1,8 @@
+/**
+ * A close on one device, a reopen on the other: the reopen survives the merge.
+ *
+ * @covers TAB-SYNC-01
+ */
 import { describe, expect, test } from "bun:test";
 import { paneReducer } from "./panes";
 import { selectSyncableSnapshot } from "../selectors";
