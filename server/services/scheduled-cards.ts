@@ -3,7 +3,7 @@ import { isTaskLabel, normalizeLabels, type TaskLabel } from "../../shared/task-
 import type { TaskService } from "./tasks";
 import type { ScheduledCard, ScheduledStatus } from "../../shared/scheduled-cards";
 
-export type { ScheduledCard, ScheduledStatus } from "../../shared/scheduled-cards";
+export type { ScheduledCard } from "../../shared/scheduled-cards";
 
 export class ScheduledCardsError extends Error {
   constructor(message: string, readonly status = 400) { super(message); }
