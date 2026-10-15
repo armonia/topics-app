@@ -160,6 +160,10 @@ test.describe("Board: drag across the virtual window", () => {
     await backlog.evaluate((body) => { body.scrollTop = Math.round(body.scrollHeight / 2); });
     const anchor = await atRest();
     test.info().annotations.push({ type: "card height", description: `${anchor.height} px, estimate 184` });
+    // Measuring the cards it landed on moves the scroll by a few cards, not to
+    // the top: rows leaving the window measured at zero ran the column up to 0.
+    const landed = await backlog.evaluate((body) => body.scrollTop / body.scrollHeight);
+    expect(landed, "the jump stays where the scrollbar put it").toBeGreaterThan(0.4);
     // Going back up draws and measures the cards above: they must not push the anchor.
     await backlog.evaluate((body) => { body.scrollTop -= 400; });
     const after = await atRest(anchor.id);

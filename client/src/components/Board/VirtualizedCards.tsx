@@ -74,6 +74,13 @@ function VirtualCardRow({ row, measure, children }: { row: RenderRow; measure: (
     if (!node) return;
     const report = () => {
       const rect = node.getBoundingClientRect();
+      // Zero is a row not on the page: one leaving the window is observed once
+      // more after React has removed it, and a hidden board measures all of
+      // them at zero. Recorded, that zero collapsed the row and the
+      // compensation scrolled the column by the card's height, row after row,
+      // up to the top (the virtual-drag e2e: 8 runs in 8 ended at scrollTop 0
+      // or hundreds of px off).
+      if (rect.height === 0) return;
       measure(row.item.id, rect.height, rect.top);
     };
     const observer = new ResizeObserver(report);
