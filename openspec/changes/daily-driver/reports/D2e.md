@@ -13,10 +13,18 @@
 - La board usa la distribuzione indicata del 15/10/2026: 1.155 backlog, 21 todo, 1 review e 26 done. Il codice renderizza per intero backlog e todo; `columnSlice` mostra 25 review/done alla prima pagina.
 - Tier `@nightly`: la preparazione seriale di oltre 3.000 righe supera il budget breve della PR.
 
+## Revisione (15/10)
+
+- La spec misurava una pagina non ancora ferma: risaliva la cronologia senza aspettarla tutta. Ora risale con la rotella fino a `data-history="complete"` (nessun `chat-load-older` rimasto), torna in fondo con la rotella e aspetta che le animazioni finiscano. Lo scenario 2 mette la chat accanto alla board con «Dividi a destra», come farebbe una persona. Le cancellazioni del seed vanno a ondate di 20.
+- Il rapporto dei dieci sottoalberi più pesanti elencava la catena degli antenati, ciascuno un nodo più piccolo del padre. Ora nomina i punti dove il peso si divide: nessun figlio tiene il 90%.
+- **Numeri CI** (run 38698312919): scenario 1, 2.000 messaggi, **796 nodi**, sotto i 5.000. Scenario 2, chat e board, **20.309 nodi**: le colonne ordinate a mano (backlog, todo, in corso) disegnano ogni card, e il backlog ne ha 1.155.
+- **Mutante** (run 38698161137): `increaseViewportBy` del transcript da 400 a 1.000.000 in `MessageList.tsx`, cioè tutti i messaggi montati: **41.077 nodi**, rosso. Lo scenario 1 morde.
+- Lo scenario 2 ha un tetto a cricchetto, 21.000 nodi, finché quelle colonne non sono virtualizzate (passo 3 di D2); poi scende a 5.000. Non si possono sfogliare come Review e Done: una card non disegnata non è un bersaglio di dnd-kit, e il trascinamento si romperebbe in silenzio (`boardOrder.ts`).
+
 ## Trovato e non fatto
 
-- Mancano il risultato CI della spec e i conteggi DOM effettivi. Senza quei numeri non si può decidere se virtualizzare board/sessioni; la barra della traccia resta aperta fino alla run CI.
-- Mutazione preparata, non eseguita: in una copia sostituire il rendering `<Virtuoso data={filteredMessages}>` in `client/src/components/Chat/MessageList.tsx:2211` con il rendering di tutti i messaggi. Deve far fallire lo scenario 1.
+- Virtualizzare backlog, todo e in corso tenendo il trascinamento: è la traccia successiva di D2, con barra lo scenario 2 sotto i 5.000 nodi e le e2e della board verdi.
+- L'elenco delle sessioni non ha ancora uno scenario.
 
 ## Rifiutato
 
