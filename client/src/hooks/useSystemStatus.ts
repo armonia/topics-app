@@ -79,6 +79,12 @@ export interface SystemStatus {
     /** Dev bundle hot-delivery active (topics-dev.json present): windows
      *  self-reload on each rebuild. Drives the quiet "auto-update" badge. */
     devReload?: boolean;
+    ptyBridge?: {
+      implementation: 'rust' | 'node' | 'unknown';
+      reason: string;
+      path: string | null;
+      connected: boolean;
+    };
     /**
      * I modelli visti girare e NON presenti nella tabella prezzi del server.
      *

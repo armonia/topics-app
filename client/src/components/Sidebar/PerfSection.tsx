@@ -271,6 +271,21 @@ export function PerfSection() {
           {tr('perf.spawns.line', { min: windowMinutes, rows: rows.map(([label, n]) => `${label} ${n}`).join(" · ") })}
         </div>;
       })()}
+      {status?.server.ptyBridge && (() => {
+        const bridge = status.server.ptyBridge;
+        const name = tr(`perf.ptyBridge.${bridge.implementation}`);
+        const reasonKey = bridge.reason === 'existing socket bridge reused' ? 'reused'
+          : bridge.reason === 'explicit bridge override' ? 'override'
+          : bridge.reason === 'checkout Rust bridge is built' ? 'checkout'
+          : bridge.reason === 'bridge not connected' ? 'notConnected'
+          : bridge.reason === 'bridge disconnected' ? 'disconnected'
+          : 'fallback';
+        return <div
+          data-testid="perf-pty-bridge"
+          title={[bridge.connected ? tr('perf.ptyBridge.connected') : tr('perf.ptyBridge.disconnected'), bridge.path].filter(Boolean).join('\n')}
+          className="px-0.5 text-mini text-app-text-muted"
+        >{tr('perf.ptyBridge.line', { name, reason: tr(`perf.ptyBridge.reason.${reasonKey}`) })}</div>;
+      })()}
 
       {/* TRE DOMANDE, IN QUEST'ORDINE. Prima erano nove blocchi di numeri con
           etichette diverse per la stessa cosa ("CPU shell", "CPU Topics",

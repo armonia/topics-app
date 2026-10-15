@@ -406,7 +406,7 @@ fn handle_message(shared: &Arc<Shared>, cid: u64, msg: &Value) -> Result<(), Str
             Ok(())
         }
         "ping" => {
-            send_to(shared, cid, &json!({ "type": "pong" }));
+            send_to(shared, cid, &json!({ "type": "pong", "implementation": "rust" }));
             Ok(())
         }
         _ => Ok(()),
@@ -890,6 +890,9 @@ fn self_test() {
 }
 
 fn shutdown(shared: &Shared) -> ! {
+    // Unlink the Unix socket before waiting on child PTYs. A hard kill during
+    // that grace window must not leave a path that looks live but has no owner.
+    transport::cleanup(&shared.socket_path);
     // Same escalation as `kill`, inline: SIGHUP, a grace, then the process
     // GROUP. Exiting straight after one SIGHUP is how a HUP-ignoring child
     // outlived the daemon that owned it, holding a PTY nobody could reach

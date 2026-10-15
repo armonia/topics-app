@@ -1237,3 +1237,13 @@ jobs:
       - name: Cargo test (PTY bridge sidecar)
         run: cargo test
         working-directory: desktop-tauri/pty-bridge
+
+      - name: Build PTY bridge for the server protocol suite
+        if: runner.os != 'Windows'
+        run: cargo build --release
+        working-directory: desktop-tauri/pty-bridge
+
+      - name: Run server protocol suite against the Rust PTY bridge
+        if: runner.os != 'Windows'
+        shell: bash
+        run: TOPICS_PTY_BRIDGE_TEST_BIN="$PWD/desktop-tauri/pty-bridge/target/release/pty-bridge" bun test tests/integration/pty-bridge-mjs.test.ts

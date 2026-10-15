@@ -557,6 +557,60 @@ let bridgeSocket: net.Socket | null = null;
 let bridgeReady = false;
 let bridgeConnecting = false;
 let bridgeReadyResolvers: (() => void)[] = [];
+let suppressBridgeReconnectForTest = false;
+let activeBridge: { implementation: "rust" | "node" | "unknown"; reason: string; path: string | null } = {
+  implementation: "unknown",
+  reason: "bridge not connected",
+  path: null,
+};
+
+export interface PtyBridgeRuntimeStatus {
+  implementation: "rust" | "node" | "unknown";
+  reason: string;
+  path: string | null;
+  connected: boolean;
+}
+
+function checkoutRustBridgePath(): string | null {
+  const root = resolve(import.meta.dir, "../../desktop-tauri/src-tauri/binaries");
+  if (process.platform === "darwin") return join(root, "pty-bridge-universal-apple-darwin");
+  if (process.platform === "linux" && process.arch === "x64") return join(root, "pty-bridge-x86_64-unknown-linux-gnu");
+  if (process.platform === "win32" && process.arch === "x64") return join(root, "pty-bridge-x86_64-pc-windows-msvc.exe");
+  return null;
+}
+
+function checkoutRustBridgeIsBuilt(path: string): boolean {
+  try {
+    const info = fs.statSync(path);
+    if (!info.isFile() || info.size === 0) return false;
+    if (process.platform !== "win32") fs.accessSync(path, fs.constants.X_OK);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** Precedence is intentional: shell override, checkout artifact, then legacy Node. */
+export function resolvePtyBridgeCommand(): { cmd: string; args: string[]; implementation: "rust" | "node"; reason: string; path: string | null } {
+  const override = process.env.TOPICS_PTY_BRIDGE_BIN;
+  if (override) return { cmd: override, args: [], implementation: "rust", reason: "explicit bridge override", path: override };
+
+  const checkoutBinary = checkoutRustBridgePath();
+  if (checkoutBinary && checkoutRustBridgeIsBuilt(checkoutBinary)) {
+    return { cmd: checkoutBinary, args: [], implementation: "rust", reason: "checkout Rust bridge is built", path: checkoutBinary };
+  }
+
+  const nodePath = resolve(import.meta.dir, "../pty-bridge.mjs");
+  return { cmd: "node", args: [nodePath], implementation: "node", reason: "Rust bridge is not built", path: nodePath };
+}
+
+export function getPtyBridgeRuntimeStatus(): PtyBridgeRuntimeStatus {
+  return { ...activeBridge, connected: bridgeReady && !!bridgeSocket && !bridgeSocket.destroyed };
+}
+
+export function _suppressPtyBridgeReconnectForTest(suppress: boolean): void {
+  suppressBridgeReconnectForTest = suppress;
+}
 
 // Pending buffer requests: sessionId -> callback
 const pendingBufferRequests = new Map<string, ((data: Uint8Array) => void)[]>();
@@ -824,17 +878,16 @@ export async function ensureBridge(): Promise<void> {
     // Try connecting to existing bridge
     const connected = await tryConnect();
     if (connected) {
+      activeBridge = { implementation: "unknown", reason: "existing socket bridge reused", path: null };
       bridgeConnecting = false;
       bridgeReadyResolvers.forEach(r => r());
       bridgeReadyResolvers = [];
       return;
     }
 
-    // No bridge running — spawn one. In a bundled sidecar the shell hands us the
-    // bridge command to run (bundledBridge → the Rust sidecar binary, or a legacy
-    // bundled Node + pty-bridge.mjs); a normal server uses `node` off PATH and the
-    // sibling pty-bridge.mjs. augmentPath() gives the child the same PATH-hardening
-    // every PTY spawn gets, so a launchd/sidecar minimal PATH still resolves deps.
+    // No bridge running — use the explicit shell bridge, a built checkout Rust
+    // binary, or the Node fallback. augmentPath() gives the child the same
+    // PATH-hardening every PTY spawn gets, so launchd's minimal PATH still resolves deps.
     const bb = bundledBridge();
     // runtime-dep-ok: the `node` branch is UNREACHABLE in an installed app, and
     // structurally so, not by luck. The Tauri shell sets TOPICS_EMBEDDED=1, and
@@ -843,8 +896,11 @@ export async function ensureBridge(): Promise<void> {
     // no terminals at all (503, with a code the client explains). This line only
     // ever runs from a checkout, where the sibling script and its runtime are
     // both by definition present.
-    const cmd = bb?.cmd ?? "node";
-    const baseArgs = bb?.args ?? [resolve(import.meta.dir, "../pty-bridge.mjs")]; // runtime-dep-ok: same branch, see above
+    const selection = bb
+      ? { ...bb, implementation: "rust" as const, reason: "explicit bridge override", path: bb.cmd }
+      : resolvePtyBridgeCommand();
+    const { cmd, args: baseArgs } = selection;
+    activeBridge = { implementation: selection.implementation, reason: selection.reason, path: selection.path };
     // Bridge stderr goes to a LOG FILE, never 'inherit'. Inheriting makes
     // `detached` a lie: the bridge outlives us still holding OUR stderr open,
     // so anything reading this process through a pipe (`| tee`, a test runner)
@@ -927,6 +983,7 @@ function tryConnect(): Promise<boolean> {
       bridgeReady = true;
       lastPongAt = Date.now();
       setupSocketReader(socket);
+      socket.write(JSON.stringify({ type: 'ping' }) + '\n');
       startBridgeWatchdog();
       console.log("[Terminal] Connected to PTY bridge daemon");
       resolve(true);
@@ -974,7 +1031,11 @@ function setupSocketReader(socket: net.Socket) {
   socket.on('close', () => {
     bridgeReady = false;
     bridgeSocket = null;
-    console.log("[Terminal] Bridge socket closed, will reconnect on next use");
+    activeBridge = { implementation: "unknown", reason: "bridge disconnected", path: null };
+    console.log(suppressBridgeReconnectForTest
+      ? "[Terminal] Bridge socket closed"
+      : "[Terminal] Bridge socket closed, will reconnect on next use");
+    if (suppressBridgeReconnectForTest) return;
     // Auto-reconnect after a short delay, then RECONCILE. If the bridge process
     // itself died (not just a socket blip), `ensureBridge` spawns a FRESH, empty
     // bridge — its PTYs are gone. Without reconciling, the surviving claude-code
@@ -1278,6 +1339,9 @@ function handleBridgeMessage(msg: any) {
     }
     case "pong": {
       lastPongAt = Date.now();
+      if (msg.implementation === "rust" || msg.implementation === "node") {
+        activeBridge = { ...activeBridge, implementation: msg.implementation };
+      }
       // A real pong is the only thing that disarms the escalation: a reconnect
       // must not, or a daemon that accepts connections and answers nothing
       // would loop through soft resets forever and never be SIGTERMed.
