@@ -82,6 +82,7 @@ pub struct GitNumstat {
 
 pub struct GitNumstatTask {
     repo_path: String,
+    entries: Vec<GitStatusEntry>,
 }
 
 impl Task for GitNumstatTask {
@@ -89,7 +90,7 @@ impl Task for GitNumstatTask {
     type JsValue = GitNumstat;
 
     fn compute(&mut self) -> napi::Result<Self::Output> {
-        compute_git_numstat(&self.repo_path).map_err(|err| napi::Error::from_reason(err.to_string()))
+        compute_git_numstat(&self.repo_path, &self.entries).map_err(|err| napi::Error::from_reason(err.to_string()))
     }
 
     fn resolve(&mut self, _env: napi::Env, output: Self::Output) -> napi::Result<Self::JsValue> {
@@ -98,8 +99,8 @@ impl Task for GitNumstatTask {
 }
 
 #[napi]
-pub fn git_numstat(repo_path: String) -> AsyncTask<GitNumstatTask> {
-    AsyncTask::new(GitNumstatTask { repo_path })
+pub fn git_numstat(repo_path: String, entries: Vec<GitStatusEntry>) -> AsyncTask<GitNumstatTask> {
+    AsyncTask::new(GitNumstatTask { repo_path, entries })
 }
 
 #[derive(Clone, Copy)]
@@ -108,23 +109,11 @@ struct BlobEntry {
     mode: gix::object::tree::EntryKind,
 }
 
-fn compute_git_numstat(repo_path: &str) -> Result<GitNumstat, Box<dyn std::error::Error + Send + Sync>> {
-    let Some(status) = compute_git_status(repo_path)? else {
-        return Ok(GitNumstat { staged: Vec::new(), unstaged: Vec::new(), unsupported: Vec::new() });
-    };
+fn compute_git_numstat(repo_path: &str, entries: &[GitStatusEntry]) -> Result<GitNumstat, Box<dyn std::error::Error + Send + Sync>> {
     let repo = gix::discover(repo_path)?;
     let worktree = repo.workdir().ok_or("repository has no working tree")?.to_path_buf();
     let index = repo.index_or_empty()?;
-    let head_tree = repo.head_tree_id_or_empty()?;
-    let head_index = repo.index_from_tree(&head_tree)?;
-    let head = head_index.entries_with_paths_by_filter_map(|_path, entry| {
-        if entry.stage_raw() != 0 { return None; }
-        Some(BlobEntry { id: entry.id, mode: entry.mode.to_tree_entry_mode()?.kind() })
-    }).map(|(path, entry)| (path.to_string(), entry)).collect::<BTreeMap<_, _>>();
-    let current = index.entries_with_paths_by_filter_map(|_path, entry| {
-        if entry.stage_raw() != 0 { return None; }
-        Some(BlobEntry { id: entry.id, mode: entry.mode.to_tree_entry_mode()?.kind() })
-    }).map(|(path, entry)| (path.to_string(), entry)).collect::<BTreeMap<_, _>>();
+    let head_tree = if repo.head()?.is_unborn() { repo.empty_tree() } else { repo.head_tree()? };
 
     let mut staged = BTreeMap::new();
     let mut unstaged = BTreeMap::new();
@@ -139,8 +128,8 @@ fn compute_git_numstat(repo_path: &str) -> Result<GitNumstat, Box<dyn std::error
     )?;
     let null_id = repo.object_hash().null();
 
-    for entry in status.entries {
-        let path = entry.path;
+    for entry in entries {
+        let path = entry.path.clone();
         let staged_change = entry.status.as_bytes().first().is_some_and(|code| *code != b' ' && *code != b'?');
         let unstaged_change = entry.status.as_bytes().get(1).is_some_and(|code| *code != b' ' && *code != b'?');
         if entry.status.contains('U') {
@@ -149,15 +138,15 @@ fn compute_git_numstat(repo_path: &str) -> Result<GitNumstat, Box<dyn std::error
         }
         if staged_change {
             let old_path = entry.orig_path.as_deref().unwrap_or(&path);
-            let old = head.get(old_path).copied();
-            let new = current.get(&path).copied();
+            let old = head_tree.lookup_entry_by_path(old_path)?.and_then(blob_entry_from_tree);
+            let new = index.entry_by_path(path.as_bytes().as_bstr()).and_then(blob_entry_from_index);
             match diff_numstat(&repo, &mut staged_cache, old, new, old_path, &path, &null_id, None) {
                 Some(stat) => { staged.insert(path.clone(), stat); }
                 None => unsupported.push(path.clone()),
             }
         }
         if unstaged_change {
-            let old = current.get(&path).copied();
+            let old = index.entry_by_path(path.as_bytes().as_bstr()).and_then(blob_entry_from_index);
             match diff_numstat(&repo, &mut unstaged_cache, old, old, &path, &path, &null_id, Some(&worktree)) {
                 Some(stat) => { unstaged.insert(path.clone(), stat); }
                 None => unsupported.push(path),
@@ -170,6 +159,14 @@ fn compute_git_numstat(repo_path: &str) -> Result<GitNumstat, Box<dyn std::error
         unstaged: unstaged.into_iter().map(|(path, (added, removed, binary))| GitNumstatEntry { path, added, removed, binary }).collect(),
         unsupported,
     })
+}
+
+fn blob_entry_from_index(entry: &gix::index::Entry) -> Option<BlobEntry> {
+    Some(BlobEntry { id: entry.id, mode: entry.mode.to_tree_entry_mode()?.kind() })
+}
+
+fn blob_entry_from_tree(entry: gix::object::tree::Entry<'_>) -> Option<BlobEntry> {
+    Some(BlobEntry { id: entry.id().detach(), mode: entry.mode().kind() })
 }
 
 fn diff_numstat(

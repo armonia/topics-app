@@ -1,7 +1,7 @@
 import { getDatabase } from "../db";
 import type { Database } from "bun:sqlite";
 import { loadNativeModule, nativeModuleLoadError } from "./native-addon";
-import type { NativeGitNumstat, NativeGitStatus, NativeModule } from "./native-addon";
+import type { NativeGitNumstat, NativeGitStatus, NativeGitStatusEntry, NativeModule } from "./native-addon";
 
 export interface NativeGitStatusMetrics {
   loaded: boolean;
@@ -73,7 +73,7 @@ export async function readNativeGitStatus(repoPath: string): Promise<NativeGitSt
   }
 }
 
-export async function readNativeGitNumstat(repoPath: string): Promise<NativeGitNumstat | undefined> {
+export async function readNativeGitNumstat(repoPath: string, entries: NativeGitStatusEntry[]): Promise<NativeGitNumstat | undefined> {
   if (!nativeGitStatusEnabled()) return undefined;
   const module = getGitStatusModule();
   if (!module?.gitNumstat) {
@@ -83,7 +83,7 @@ export async function readNativeGitNumstat(repoPath: string): Promise<NativeGitN
   }
   metrics.numstatCalls++;
   try {
-    const result = await module.gitNumstat(repoPath);
+    const result = await module.gitNumstat(repoPath, entries);
     metrics.lastError = null;
     return result;
   } catch (error) {

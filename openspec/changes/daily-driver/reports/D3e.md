@@ -30,3 +30,19 @@ Release, `scripts/build-native-addon.sh` con `CARGO_BUILD_JOBS=2` e linker clang
 ## Rifiutato
 
 - I quattro warning lint già presenti in `App.tsx`, `useProjectBrowserPanes.ts`, `useRemoteBrowser.ts` e `useSpeech.ts` non sono errori e nessuno dei file è stato toccato.
+
+## Giro 2
+
+### Fatto
+
+- `gitNumstat(repoPath, entries)` riusa lo status del server. HEAD e indice sono interrogati per percorso; non vengono più ricostruiti l’indice da HEAD né mappe complete.
+- `CARGO_BUILD_JOBS=2 ./scripts/build-native-addon.sh` → exit 0; `bun test native/parity.test.ts server/lib/git-status.native.test.ts` → exit 0, 40 pass, 149 asserzioni.
+- Mutazione in copia: cercare HEAD col percorso nuovo rende rossa la rinomina modificata; 35 scenari verdi su 36, test mutato exit 1 atteso.
+
+### Misura
+
+Build release, fixture isolata con 400 file tracciati e 244 voci modificate, 10 campioni alternati per funzione; tempo misurato solo nella chiamata della funzione. Mediane: `gitStatus` **8,25 → 5,47 ms**; `gitNumstat` **48,67 → 28,57 ms**.
+
+### Trovato e non fatto
+
+- p95 con 8 processi CPU e matrice CI macOS/Linux/Windows restano da verificare fuori dal giro locale. `cargo clippy` non è presente nel workflow CI.

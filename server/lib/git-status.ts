@@ -145,9 +145,19 @@ async function computeGitStatusOnce(resolvedDir: string, cause: string): Promise
       ...(origPath === undefined ? {} : { origPath }),
     }));
     const scopedEntries = scopeToPrefix(parsed, scope.prefix);
+    const entriesByPath = new Map(parsed.map((entry) => [entry.path, entry]));
+    const numstatEntries = scopedEntries.map((entry) => {
+      const fullPath = scope.prefix + entry.path;
+      const original = entriesByPath.get(fullPath);
+      return {
+        ...entry,
+        path: fullPath,
+        ...(original?.origPath === undefined ? {} : { origPath: original.origPath }),
+      };
+    });
     const nativeNumstat = scopedEntries.length > NUMSTAT_MAX_FILES
       ? { staged: [], unstaged: [], unsupported: [] }
-      : await readNativeGitNumstat(resolvedDir);
+      : await readNativeGitNumstat(native.root, numstatEntries);
     const unsupported = nativeNumstat
       ? nativeNumstat.unsupported
           .filter((path) => !scope.prefix || path.startsWith(scope.prefix))

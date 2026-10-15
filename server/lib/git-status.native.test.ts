@@ -135,8 +135,8 @@ test("native numstat falls back only for unsupported paths and records the fallb
     const fixture = nativeFixture();
     const unsupported: NativeModule = {
       ...fixture,
-      async gitNumstat(repoPath) {
-        const result = await fixture.gitNumstat!(repoPath);
+      async gitNumstat(repoPath, entries) {
+        const result = await fixture.gitNumstat!(repoPath, entries);
         return { ...result, unstaged: [], unsupported: ["packages/app/tracked.txt"] };
       },
     };

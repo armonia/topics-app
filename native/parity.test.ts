@@ -6,7 +6,7 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { gitEnv } from "../tests/setup/bun-test-preload";
 import { parseBranchHeader, splitBranchHeader } from "../server/lib/git-status";
-import { parsePorcelainZ } from "../server/lib/git-porcelain";
+import { parsePorcelainZ, repoPrefixOf, scopeToPrefix } from "../server/lib/git-porcelain";
 import { parseNumstatZ } from "../server/lib/git-numstat";
 import { loadNativeModuleAt } from "../server/lib/native-addon";
 
@@ -68,7 +68,10 @@ async function parity(root: string, cwd = root): Promise<void> {
   const actual = await gitStatus(cwd);
   expect(actual).toEqual(expected);
   if (!gitNumstat) return;
-  const actualNumstat = await gitNumstat(cwd);
+  const scope = repoPrefixOf(cwd, rootPath);
+  const scopedEntries = scopeToPrefix(actual.entries, scope.prefix);
+  const scopedPaths = new Set(scopedEntries.map(({ path }) => scope.prefix + path));
+  const actualNumstat = await gitNumstat(cwd, actual.entries.filter(({ path }) => scopedPaths.has(path)));
   const parseNative = (entries: typeof actualNumstat.staged) => new Map(entries.map(({ path, added, removed, binary }) => [path, binary ? { added: 0, removed: 0, binary: true } : { added, removed }]));
   const fallbackPaths = actualNumstat.unsupported;
   const fallback = (cached: boolean) => fallbackPaths.length
@@ -80,8 +83,12 @@ async function parity(root: string, cwd = root): Promise<void> {
   };
   const staged = merge(parseNative(actualNumstat.staged), fallback(true));
   const unstaged = merge(parseNative(actualNumstat.unstaged), fallback(false));
-  expect(staged).toEqual(parseNumstatZ(git(cwd, "diff", "--cached", "--numstat", "-z")));
-  expect(unstaged).toEqual(parseNumstatZ(git(cwd, "diff", "--numstat", "-z")));
+  const expectedNumstat = (cached: boolean) => new Map(
+    [...parseNumstatZ(git(cwd, "diff", ...(cached ? ["--cached"] : []), "--numstat", "-z"))]
+      .filter(([path]) => !scope.prefix || path.startsWith(scope.prefix)),
+  );
+  expect(staged).toEqual(expectedNumstat(true));
+  expect(unstaged).toEqual(expectedNumstat(false));
 }
 
 const scenarios: Array<[string, (root: string) => Promise<void> | void, string?]> = [

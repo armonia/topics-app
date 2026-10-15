@@ -6,7 +6,7 @@ export interface NativeModule {
   nativeVersion(): string;
   gitHeadCommitId(repoPath: string): string | null;
   gitStatus?(repoPath: string): Promise<NativeGitStatus | null>;
-  gitNumstat?(repoPath: string): Promise<NativeGitNumstat>;
+  gitNumstat?(repoPath: string, entries: NativeGitStatusEntry[]): Promise<NativeGitNumstat>;
 }
 
 export interface NativeGitStatusEntry {
@@ -48,7 +48,7 @@ interface NativeExports {
     entries: Array<{ path: string; status: string; origPath?: string | null }>;
     lastCommit?: { short: string; hash: string; subject: string; author: string; time: number } | null;
   } | null>;
-  gitNumstat?: (repoPath: string) => Promise<NativeGitNumstat>;
+  gitNumstat?: (repoPath: string, entries: NativeGitStatusEntry[]) => Promise<NativeGitNumstat>;
 }
 
 let loaded = false;
@@ -117,8 +117,8 @@ export function loadNativeModuleAt(candidate: string): NativeModule | null {
           : {}),
         ...(typeof exports.gitNumstat === "function"
           ? {
-              gitNumstat: async (repoPath: string) => {
-                const result = await exports.gitNumstat!.call(exports, repoPath);
+              gitNumstat: async (repoPath: string, entries: NativeGitStatusEntry[]) => {
+                const result = await exports.gitNumstat!.call(exports, repoPath, entries);
                 const valid = (entry: NativeGitNumstatEntry) =>
                   typeof entry.path === "string" && Number.isInteger(entry.added) && entry.added >= 0 &&
                   Number.isInteger(entry.removed) && entry.removed >= 0 && typeof entry.binary === "boolean";
