@@ -3267,3 +3267,21 @@ digitazione. Gli altri campi di testo SHALL conservare il proprio valore.
 - **THEN** i valori di tutti e tre i campi sono mascherati nello snapshot e dopo la digitazione
 - **AND** un campo carta montato dopo lo snapshot arriva mascherato anche lui
 - **AND** il valore di un campo testo normale resta leggibile nel mirror
+
+### Requirement: NATIVE-HOST-09 — A viewer SHALL identify an unrecorded cross-origin frame
+
+When rrweb cannot read a frame from a different HTTP origin, the viewer SHALL
+show a placeholder containing only that frame's host and explain that its
+content is used on the Mac. Same-origin frames and frames with absent, invalid,
+`about:blank`, or `data:` sources SHALL not receive a placeholder. Activating a
+placeholder SHALL show a brief notice and SHALL NOT relay input to the host;
+input elsewhere on the page SHALL continue to reach the host.
+
+#### Scenario: the viewer identifies a cross-origin frame without exposing its URL
+- **GIVEN** a native host page with a same-origin frame and an unrecorded frame from another origin
+- **WHEN** a viewer reconstructs the page
+- **THEN** only the unrecorded frame has a placeholder naming its host and saying to use it on the Mac
+- **AND** the placeholder does not expose query parameters or tokens
+- **WHEN** the viewer activates the placeholder
+- **THEN** the viewer shows a brief notice and the host receives no input for that activation
+- **AND** a click outside the placeholder still reaches the host

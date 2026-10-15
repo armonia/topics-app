@@ -63,13 +63,10 @@ import { canObserveDocument, createImageDeferral, watchDeferredImages } from '..
 import { aimTap, anchorOf, forOwnLayout, mirrorDocument, anchorPlacer, type ScrollAnchor } from '../../lib/mirrorLayout';
 import { createEchoHold, flingVelocity, scrollKeepingFractions, scrollTargetAt } from '../../lib/mirrorScroll';
 import { serverHttpBase } from '../../lib/shell/net';
+import { CrossOriginFrameOverlay } from './CrossOriginFrameOverlay';
 
 /** Minimal shape of an rrweb event we rely on (Meta carries the recorded size). */
-type RrwebEvent = {
-  type: number;
-  timestamp: number;
-  data?: { width?: number; height?: number; source?: number; id?: number; x?: number; y?: number };
-};
+type RrwebEvent = { type: number; timestamp: number; data?: { width?: number; height?: number; source?: number; id?: number; x?: number; y?: number; href?: string } };
 
 /** Senza eventi per questo tempo il timer live si parcheggia: una pagina remota
  *  ferma non deve tenere sveglio il renderer. Abbastanza largo da non tagliare la
@@ -174,6 +171,7 @@ export default function DomCoBrowse({ registerDomSink, registerFocusSink, sendIn
   // toolbar's connection chip). Nobody upstream can answer this: the panel only
   // knows the socket state, not whether pixels landed. So we own it here.
   const [painted, setPainted] = useState(false);
+  const [sourceUrl, setSourceUrl] = useState('');
   const selectingRef = useRef(false);
   useEffect(() => { selectingRef.current = selecting; }, [selecting]);
   const navGuardAbortRef = useRef<AbortController | null>(null);
@@ -581,6 +579,7 @@ export default function DomCoBrowse({ registerDomSink, registerFocusSink, sendIn
     const handle = (raw: unknown) => {
       const event = raw as RrwebEvent;
       if (!event || typeof event.type !== 'number') return;
+      if (typeof event.data?.href === 'string') setSourceUrl(event.data.href);
       stampArrival(event);
       prefixRoutedResources(event, serverHttpBase());
       deferral?.onEvent(event);
@@ -755,6 +754,7 @@ export default function DomCoBrowse({ registerDomSink, registerFocusSink, sendIn
         onTouchMove={onTouchMove}
         onTouchEnd={onTouchEnd}
       />
+      <CrossOriginFrameOverlay rootRef={rootRef} pageUrl={sourceUrl} active={painted} />
 
       {/* Local text-selection mode indicator (Option toggles it). While active the
           overlay yields to the interactive mirror so text is natively selectable. */}

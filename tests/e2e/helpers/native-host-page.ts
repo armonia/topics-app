@@ -18,6 +18,7 @@ export interface NativeHostPage {
   views: ({ width: number; height: number } | null)[];
   /** Scroll inputs the server relayed, the calls that ran them, and the wheel events the page got. */
   scrolls: () => Promise<{ relayed: number; calls: number; wheels: number }>;
+  inputs: () => { clicks: number };
   status: () => { sharing: boolean; devices: number; kbps: number; delayMs: number; error?: string } | null;
   setSharing: (active: boolean) => void;
   /** Application pings answered so far: the server holds a pane to the 15 s rule only after one. */
@@ -32,12 +33,13 @@ export async function hostNativePage(
   page: Page,
   ctx: string,
   html: string,
-  opts: { size: { width: number; height: number }; title: string; latencyMs?: number },
+  opts: { size: { width: number; height: number }; title: string; latencyMs?: number; url?: string },
 ): Promise<NativeHostPage> {
   await page.setViewportSize(opts.size);
+  if (opts.url) await page.goto(opts.url);
   await page.setContent(html);
   const ws = new WebSocket(`${E2E_BASE.replace(/^http/, "ws")}/ws/browser/${encodeURIComponent(ctx)}?executor=1`);
-  const count = { relayed: 0, calls: 0 };
+  const count = { relayed: 0, calls: 0, clicks: 0 };
   let status: { sharing: boolean; devices: number; kbps: number; delayMs: number; error?: string } | null = null;
   const views: NativeHostPage["views"] = [];
   let pongs = 0;
@@ -69,12 +71,13 @@ export async function hostNativePage(
     if (frozen) return;
     if (frame.type === "native_host_status") status = frame as typeof status;
     if (frame.type === "host_input" && frame.action === "scroll") count.relayed++;
+    if (frame.type === "host_input" && frame.action === "click") count.clicks++;
     host.handle(frame);
   });
   ws.send(JSON.stringify({ type: "register_native_executor" }));
   host.declare();
   await expect.poll(() => host.accepted()).toBe(true);
-  host.notePage({ url: "https://example.com/hosted", title: opts.title });
+  host.notePage({ url: opts.url ?? "https://example.com/hosted", title: opts.title });
   return {
     page,
     scrollOf: (sel) => page.evaluate((s) => (s ? document.querySelector(s)!.scrollTop : scrollY), sel),
@@ -85,6 +88,7 @@ export async function hostNativePage(
     pongs: () => pongs,
     freeze: () => { frozen = true; },
     scrolls: async () => ({ ...count, wheels: await page.evaluate(() => (window as unknown as { __wheels?: number }).__wheels ?? 0) }),
+    inputs: () => ({ clicks: count.clicks }),
     close: () => { host.reset(); ws.close(); },
   };
 }
