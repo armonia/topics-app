@@ -1,5 +1,26 @@
 [
   {
+    "version": "2.2.508",
+    "date": "2026-10-15",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Le colonne a mano della board si virtualizzano, e il trascinamento resta (D2f) (#356)",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "lsof solo col pannello Processi, niente timer sulla radice git: la misura di D3a in produzione (D3a, giro 3) (#359)",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
     "version": "2.2.507",
     "date": "2026-10-15",
     "sections": {

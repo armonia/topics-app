@@ -2,6 +2,12 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.2.508 — 2026-10-15
+
+### Sotto il cofano
+- Le colonne a mano della board si virtualizzano, e il trascinamento resta (D2f) (#356)
+- lsof solo col pannello Processi, niente timer sulla radice git: la misura di D3a in produzione (D3a, giro 3) (#359)
+
 ## 2.2.507 — 2026-10-15
 
 ### Sotto il cofano
