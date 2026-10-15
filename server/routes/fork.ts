@@ -4,7 +4,7 @@ import { forkModeFor } from "../../shared/chat-fork";
 import { cliForkBlocker, copyThreadForFork, forkPointIndex } from "../lib/chat-fork";
 import { insertChatFork } from "../lib/chat-fork-store";
 import { cleanupStaleSideQuestions, deleteSideQuestion } from "../lib/side-question";
-import { isSideQuestionTopicId } from "../../shared/chat-fork";
+import { isSideQuestionTopicId, SIDE_QUESTION_TOPIC_PREFIX } from "../../shared/chat-fork";
 import { isGlobalOrchestratorSession } from "../services/global-orchestrator-session";
 
 export interface ForkDeps {
@@ -43,7 +43,7 @@ export function createForkRouter(ctx: AppContext, deps: ForkDeps): RouteHandler 
   } = ctx;
   const cleanupDeps = {
     db,
-    getTopics: () => ctx.loadTopics().topics,
+    getTopic: (id: string) => getTopicById(id) ?? null,
     isStreaming,
     resolveProvider: deps.resolveProvider,
   };
@@ -144,7 +144,7 @@ export function createForkRouter(ctx: AppContext, deps: ForkDeps): RouteHandler 
     }
 
     const uuid = crypto.randomUUID();
-    const id = sideQuestion ? `side-question-${uuid}` : uuid;
+    const id = sideQuestion ? `${SIDE_QUESTION_TOPIC_PREFIX}${uuid}` : uuid;
     const sessionKey = "topic:" + uuid.slice(0, 8);
     const now = new Date().toISOString();
     const copy = sideQuestion ? [] : copyThreadForFork(thread.slice(0, point + 1));

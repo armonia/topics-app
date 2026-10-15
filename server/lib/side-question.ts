@@ -1,11 +1,11 @@
 import type { Database } from "bun:sqlite";
 import type { AIProvider } from "../providers";
 import type { Topic } from "../types";
-import { isSideQuestionTopicId } from "../../shared/chat-fork";
+import { isSideQuestionTopicId, SIDE_QUESTION_TOPIC_PREFIX } from "../../shared/chat-fork";
 
 export interface SideQuestionCleanupDeps {
   db: Database;
-  getTopics: () => Record<string, Topic>;
+  getTopic: (id: string) => Topic | null;
   isStreaming: (sessionKey: string) => unknown;
   resolveProvider: (topic: Topic) => AIProvider;
   now?: () => number;
@@ -68,8 +68,8 @@ export async function cleanupStaleSideQuestions(deps: SideQuestionCleanupDeps): 
   const now = (deps.now ?? Date.now)();
   const cutoff = now - SIDE_QUESTION_TTL_MS;
   let removed = 0;
-  for (const topic of Object.values(deps.getTopics())) {
-    if (!isSideQuestionTopicId(topic.id) || deps.isStreaming(topic.sessionKey)) continue;
+  for (const topic of sideQuestionTopics(deps)) {
+    if (deps.isStreaming(topic.sessionKey)) continue;
     const createdAt = Date.parse(topic.createdAt);
     if (!Number.isFinite(createdAt) || createdAt >= cutoff) continue;
     // One that cannot go must not keep the others: each is tried, and the failure is said.
@@ -81,6 +81,17 @@ export async function cleanupStaleSideQuestions(deps: SideQuestionCleanupDeps): 
     }
   }
   return removed;
+}
+
+/**
+ * Only the side questions' rows, by a range on the primary key. Hydrating every
+ * topic to find them read the whole table at boot and before every question.
+ */
+function sideQuestionTopics(deps: SideQuestionCleanupDeps): Topic[] {
+  const from = SIDE_QUESTION_TOPIC_PREFIX;
+  const to = from.slice(0, -1) + String.fromCharCode(from.charCodeAt(from.length - 1) + 1);
+  const rows = deps.db.query("SELECT id FROM topics WHERE id >= ? AND id < ?").all(from, to) as Array<{ id: string }>;
+  return rows.map((row) => deps.getTopic(row.id)).filter((topic): topic is Topic => topic !== null);
 }
 
 function quoteIdentifier(value: string): string {

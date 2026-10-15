@@ -33,7 +33,7 @@ function fixture() {
   db.prepare("INSERT INTO subject_attention VALUES (?, 'finished')").run(`topic:${side.id}`);
   const deps = {
     db,
-    getTopics: () => topics,
+    getTopic: (id: string) => topics[id] ?? null,
     isStreaming: (key: string) => key === "topic:streaming",
     resolveProvider: () => ({ discardEphemeralSession: async (key: string) => { deleted.push(key); } }) as never,
     now: () => Date.now(),
@@ -96,6 +96,19 @@ describe("side-question cleanup", () => {
     expect(h.db.query("SELECT id FROM topics WHERE id IN (?, ?, ?) ORDER BY id").all(old.id, recent.id, active.id)).toEqual([
       { id: active.id }, { id: recent.id },
     ]);
+    h.db.close();
+  });
+
+  test("reads only the side questions' rows, never the other topics", async () => {
+    const h = fixture();
+    // Ids that sort right around the prefix: the range must leave them out.
+    for (const id of ["side-question", "side-questions", "side-question.x", "a-main", "zeta"]) {
+      h.db.prepare("INSERT INTO topics VALUES (?, ?, ?)").run(id, `topic:${id}`, new Date(0).toISOString());
+    }
+    const asked: string[] = [];
+    const getTopic = h.deps.getTopic;
+    await cleanupStaleSideQuestions({ ...h.deps, getTopic: (id: string) => { asked.push(id); return getTopic(id); } });
+    expect(asked).toEqual([h.side.id]);
     h.db.close();
   });
 });
