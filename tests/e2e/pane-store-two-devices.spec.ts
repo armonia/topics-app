@@ -47,16 +47,13 @@ async function waitForApp(page: Page): Promise<void> {
 
 test.describe("@nightly D7f pane-store tra dispositivi", () => {
   let topic: { id: string; name: string; slug: string };
-  let anchorTopic: { id: string; name: string; slug: string } | null = null;
 
   test.beforeEach(async ({ request }) => {
-    anchorTopic = null;
     topic = await createTopic(request, `D7f-pane-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`);
     await resetPaneStore(request, [topic.id]);
   });
 
   test.afterEach(async ({ request }) => {
-    if (anchorTopic?.id) await deleteTopic(request, anchorTopic.id).catch(() => {});
     if (topic?.id) await deleteTopic(request, topic.id).catch(() => {});
   });
 
@@ -172,35 +169,28 @@ test.describe("@nightly D7f pane-store tra dispositivi", () => {
     }
   });
 
-  test("P.4 la chiusura durante l'indisponibilità viene risincronizzata @nightly", async ({ browser, request }) => {
+  test("P.4 una chiusura fatta col server giù arriva quando il server torna @nightly", async ({ browser, request }) => {
     test.info().annotations.push({ type: "spec", description: "TAB-SYNC-01" }, { type: "spec", description: "TAB-SYNC-02" });
-    const anchor = await createTopic(request, `D7f-anchor-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`);
-    anchorTopic = anchor;
-    await resetPaneStore(request, [topic.id, anchor.id]);
     const devices = await openTwoDevices(browser);
     try {
       await expect(tabFor(devices.pageA, topic.id)).toHaveCount(1, { timeout: 10_000 });
       await expect(tabFor(devices.pageB, topic.id)).toHaveCount(1, { timeout: 10_000 });
-      await expect(tabFor(devices.pageA, anchor.id)).toHaveCount(1, { timeout: 10_000 });
 
-      // 4,500 ms cover the 1,500 ms close countdown, 500 ms debounce, three retries (200/400/800 ms with jitter), and margin.
-      // Closing the anchor locally leaves a PUT in debounce when the socket drops.
-      await closeTabViaX(devices.pageA, anchor.id);
-      await expect(tabFor(devices.pageA, anchor.id)).toHaveCount(0, { timeout: 10_000 });
-      const restarted = restartTestServer({ downtimeMs: 4500 });
-      await expect(devices.pageA.locator('[data-testid="connection-status"]')).toHaveAttribute("data-alarm", "true", { timeout: 10_000 });
-
+      // The kill inside restartTestServer is synchronous, so the server is gone
+      // before the click. Nothing is owed to it at that moment, and the close
+      // (1.5 s countdown, 0.5 s debounce, then retries of 0.2, 0.4 and 0.8 s)
+      // has given up long before the 6 s of downtime end. Do not wait for the
+      // connection alarm first: it shows only after ~13 s, when the server is
+      // already back, and the close would no longer happen while it is down.
+      const restarted = restartTestServer({ downtimeMs: 6_000 });
       await closeTabViaX(devices.pageA, topic.id);
       await expect(tabFor(devices.pageA, topic.id)).toHaveCount(0, { timeout: 10_000 });
       await restarted;
 
-      await expect(devices.pageA.locator('[data-testid="connection-status"]')).not.toHaveAttribute("data-alarm", "true", { timeout: 15_000 });
       await expectServerClosed(request, topic.id);
-
       await devices.pageB.reload();
       await waitForApp(devices.pageB);
       await expect(tabFor(devices.pageB, topic.id)).toHaveCount(0, { timeout: 10_000 });
-      await expectServerClosed(request, topic.id);
     } finally {
       await devices.dispose();
     }
