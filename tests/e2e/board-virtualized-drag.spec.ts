@@ -111,7 +111,15 @@ test.describe("Board: drag across the virtual window", () => {
     await keyboardCard.focus();
     await page.keyboard.press("Space");
     await expect(page.locator("[data-drag-preview]")).toHaveCount(1);
-    for (let i = 0; i < 50; i++) await page.keyboard.press("ArrowDown");
+    // dnd-kit announces where the card is after every step, and the next step
+    // waits for it: a burst outran the measuring of the cards drawn as the
+    // column scrolls, and 50 presses moved the card 12 places (run 38713168134).
+    const said = async () => (await page.locator('[id^="DndLiveRegion"]').allTextContents()).join("|");
+    for (let i = 0; i < 50; i++) {
+      const before = await said();
+      await page.keyboard.press("ArrowDown");
+      await expect.poll(said, { message: `step ${i + 1} did not move the card` }).not.toBe(before);
+    }
     await page.keyboard.press("Space");
     await expect.poll(async () => {
       const rows = await listTasks();
