@@ -3,10 +3,9 @@ import type { Topic } from '../../types';
 import { topicsApi } from '../../lib/api';
 import { errMessage } from '../../lib/errMessage';
 import { updateMessages } from '../../state/messageStore';
-import type { useT } from '../../hooks/useT';
+import type { Translate } from '../../../../shared/queue-reason-text';
 import { askSideQuestion, runSideQuestionFork, SideQuestionError } from './sideQuestion';
 
-export type Translate = ReturnType<typeof useT>;
 export interface SideQuestionState { token: number; question: string; answer?: string; error?: string; busy: boolean }
 
 /**

@@ -1,6 +1,7 @@
 import { X } from 'lucide-react';
 import { DANGER_TEXT } from '../../lib/popoverStyles';
-import type { SideQuestionState, Translate } from './useSideQuestion';
+import type { Translate } from '../../../../shared/queue-reason-text';
+import type { SideQuestionState } from './useSideQuestion';
 
 export function SideQuestionPanel({ state, onClose, tr }: { state: SideQuestionState; onClose: () => void; tr: Translate }) {
   return (
