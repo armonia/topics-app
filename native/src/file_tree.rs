@@ -211,8 +211,12 @@ fn is_protected_area_root(path: &Path, home: Option<&Path>) -> bool {
 }
 
 fn to_iso(time: std::time::SystemTime) -> Option<String> {
-    let nanos = time.duration_since(UNIX_EPOCH).ok()?.as_nanos() as i128;
-    let date = OffsetDateTime::from_unix_timestamp_nanos(nanos).ok()?;
+    let since_epoch = time.duration_since(UNIX_EPOCH).ok()?;
+    // The JS walk prints Bun's `stats.mtime`: a Date over seconds * 1000 + nanoseconds / 1e6 in a
+    // double, which rounds a time a few ns before the next millisecond up to it. The same
+    // arithmetic here keeps the two walks equal on those files.
+    let millis = (since_epoch.as_secs() as f64 * 1000.0 + since_epoch.subsec_nanos() as f64 / 1_000_000.0).trunc();
+    let date = OffsetDateTime::from_unix_timestamp_nanos(millis as i128 * 1_000_000).ok()?;
     static FORMAT: OnceLock<time::format_description::FormatDescriptionV3<'static>> = OnceLock::new();
     let format = FORMAT.get_or_init(|| {
         time::format_description::parse_borrowed::<3>("[year]-[month]-[day]T[hour]:[minute]:[second].[subsecond digits:3]Z")

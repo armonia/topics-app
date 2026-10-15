@@ -2,7 +2,7 @@
 /** @covers D3D-01 */
 /** @covers D3F-02 */
 import { expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync, chmodSync, symlinkSync, renameSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync, chmodSync, symlinkSync, renameSync, statSync, utimesSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { gitEnv } from "../tests/setup/bun-test-preload";
@@ -200,9 +200,20 @@ const treeScenarios: Array<[string, (root: string) => void]> = [
   ["hidden files remain visible", (root) => {
     putTreeFile(root, ".env.local"); putTreeFile(root, ".well-known/config");
   }],
+  ["modified times a few nanoseconds before the next millisecond", (root) => {
+    // Bun builds mtimeMs as seconds * 1000 + nanoseconds / 1e6 in a double, and at today's dates
+    // that double rounds these files up to the next millisecond: the native side must agree.
+    for (const name of ["a.txt", "b.txt", "c.txt"]) {
+      putTreeFile(root, name);
+      const seconds = 1760558771 + (743 + 0.99995) / 1000;
+      utimesSync(join(root, name), seconds, seconds);
+      const nanos = statSync(join(root, name), { bigint: true }).mtimeNs % 1_000_000n;
+      if (nanos < 999_878n) throw new Error(`fixture mtime landed ${nanos} ns into the millisecond, too far from the next one`);
+    }
+  }],
 ];
 
-test.skipIf(!nativeWalkFileTree)("native file tree matches JavaScript on ten fixture trees and this checkout", async () => {
+test.skipIf(!nativeWalkFileTree)("native file tree matches JavaScript on the fixture trees and this checkout", async () => {
   for (const [name, setup] of treeScenarios) {
     const base = scratch();
     const root = join(base, "tree");

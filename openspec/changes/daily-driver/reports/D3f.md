@@ -39,3 +39,13 @@ numeri assoluti scendono per entrambi.
 - Il walker Rust salta gli errori sulle voci e prosegue; la radice illeggibile resta un errore. La parità con JavaScript è verificata anche su una cartella `chmod 000`.
 - Il solo caso `chmod 000` è saltato su Windows, dove non limita l'accesso; le altre fixture restano attive.
 - Prove complete e limiti della CI: `reports/D3f2.md`.
+
+## In revisione, dopo la CI
+
+- La parità sul checkout era rossa in CI su macOS per **1 ms** su un file: `.744` dal JS, `.743` dal
+  nativo. Bun costruisce `mtimeMs` come `secondi * 1000 + nanosecondi / 1e6` in un double (verificato
+  su 3000 file, 3000 su 3000) e `Date` lo tronca. Alle date di oggi quel double ha un passo di circa
+  244 ns, quindi un mtime a meno di ~122 ns dal millisecondo successivo sale a quello. Il nativo
+  troncava i nanosecondi esatti: ora fa la stessa aritmetica del JS.
+- Albero nuovo nella parità, tre file a 999 958 ns dentro il millisecondo: rosso con l'addon di prima
+  (3 date diverse), verde dopo. 3000 mtime casuali, circa 860 vicini al bordo: 0 differenze.
