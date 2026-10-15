@@ -1557,7 +1557,7 @@ export type OutboundType = keyof typeof OUTBOUND_SCHEMAS;
 export type OutboundFrameClass = 'global' | 'topic' | 'project' | 'board';
 
 /** Every registered frame has an explicit routing class. */
-export const OUTBOUND_FRAME_CLASSES = {
+export const OUTBOUND_FRAME_CLASSES: Record<OutboundType, OutboundFrameClass> = {
   'attention:history': 'global',
   'attention:init': 'global',
   'attention:updated': 'global',
@@ -1662,7 +1662,7 @@ export const OUTBOUND_FRAME_CLASSES = {
   'worktree:deleted': 'project',
   'worktree:new': 'project',
   'worktree:updated': 'project',
-} as const satisfies Record<OutboundType, OutboundFrameClass>;
+};
 
 /**
  * La forma minima di un messaggio in uscita: il `type` deve stare nel registro,

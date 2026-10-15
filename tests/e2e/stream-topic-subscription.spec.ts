@@ -1,3 +1,9 @@
+/**
+ * Two windows, the topic open in only one: the other gets none of its stream deltas, and its
+ * sidebar still shows the turn running and then done.
+ *
+ * @covers WIRE-12
+ */
 import { copyFileSync } from "node:fs";
 import { expect, test, type Page } from "@playwright/test";
 import { createTopic, deleteTopic, resetPaneStore } from "./helpers/api-fixtures";
@@ -40,6 +46,7 @@ function startTurn(sessionKey: string, content: string): Promise<void> {
 }
 
 test("un topic aperto riceve i delta, quello chiuso conserva solo lo stato sidebar", async ({ browser, request }, testInfo) => {
+  test.info().annotations.push({ type: "spec", description: "WIRE-12" });
   const topic = await createTopic(request, `D1c-${Date.now()}`, { provider: "claude-code" });
   const topicState = (page: Page) => page.getByRole("treeitem", { name: new RegExp(topic.name) });
   let removeCli: (() => void) | null = null;
