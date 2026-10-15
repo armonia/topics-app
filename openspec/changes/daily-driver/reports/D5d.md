@@ -70,3 +70,13 @@
 ## Rifiutato
 
 - Nessun provider oltre Claude Code, cronologia delle domande a lato, commit o push: fuori ambito o vietati dal brief.
+
+## Dopo la CI
+
+- **Rosso in CI su `GET /api/topics/streaming`** (2 test). La pulizia delle domande a lato chiamava
+  `ctx.loadTopics()` all'avvio e prima di ogni `/btw`: tutta la tabella dei topic (1.452 righe in
+  produzione) per trovarne qualcuna, e il test che conta quella chiamata la vedeva. Ora un
+  intervallo sulla chiave primaria (`id >= 'side-question-' AND id < 'side-question.'`) trova solo
+  quelle righe, e solo quelle si caricano. Test nuovo con id che stanno ai due bordi
+  dell'intervallo; due mutanti (query su tutte le righe, limite superiore sbagliato) rossi.
+  Cancelli completi verdi.
