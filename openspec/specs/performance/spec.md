@@ -1205,3 +1205,32 @@ line can.
 #### Scenario: a cached statement is timed once per call
 - **WHEN** `query` hands out the same statement three times and each is run once
 - **THEN** the clock SHALL be read twice per run, six times in all
+
+### Requirement: DBSLOW-02 — The two sweeps read only the rows they need
+
+The boot sweep of half-written messages SHALL find their chats through a partial
+index of the messages with `partial = 1`, so its cost follows the half-written
+rows and not the whole table. The resume sweep SHALL start from the messages of
+the last 25 hours, through the timestamp index, and keep a message only when it
+is the last row of its chat; it SHALL return the same rows as the query it
+replaced, which took the last message of every chat first. Neither names an
+index in its SQL, so a database without the index still answers, only slower.
+
+On 15/10/2026 `[DB-SLOW]` named both on the live server: the boot sweep at
+1,045 ms, the resume sweep at 374 and 259 ms, every 5 minutes. On a copy of the
+321 MB database the boot sweep went from 13,664 page reads to 25, and the resume
+sweep from 2,464 to 74 on the live file.
+
+#### Scenario: the boot sweep uses the partial index
+- **GIVEN** the schema of all migrations
+- **WHEN** the planner explains the boot sweep
+- **THEN** the plan SHALL name `idx_messages_partial` and the sweep SHALL return only the chats with a half-written message
+
+#### Scenario: the resume sweep starts from the recent messages
+- **WHEN** the planner explains the resume sweep
+- **THEN** the plan SHALL name `idx_messages_timestamp` and SHALL NOT scan `messages`
+
+#### Scenario: same rows as the query it replaced
+- **GIVEN** chats whose last row is old, chats whose last row is recent, and a chat with a recent row followed by an older one
+- **WHEN** the old and the new resume query run
+- **THEN** they SHALL return the same rows, and the last chat SHALL be out
