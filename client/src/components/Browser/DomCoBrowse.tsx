@@ -317,10 +317,10 @@ export default function DomCoBrowse({ registerDomSink, registerFocusSink, sendIn
     const local = localScrollRef.current;
     let vx = vx0;
     let vy = vy0;
-    let last = -1;
+    let last = performance.now();
     const step = (now: number) => {
-      // A frame's time is when it began, maybe before a swipe let go late in a busy one: a 0 ms step moves nothing and stopped the fling. The first frame sets the clock.
-      if (last < 0) { last = now; local.fling = requestAnimationFrame(step); return; }
+      // Under load a frame can begin before a late release, or 1 ms after the last: a sub-pixel step, read as the edge, stopped the fling. Wait for time to pass.
+      if (now - last < 4) { local.fling = requestAnimationFrame(step); return; }
       const dt = Math.min(now - last, 64);
       last = now;
       const decay = Math.pow(FLING_DECAY_PER_MS, dt);
