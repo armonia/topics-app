@@ -10,7 +10,7 @@ import { hermetic } from "./fixtures/hermetic";
 hermetic(test);
 
 /** @covers BROWSER-CHAT-06 */
-test("browser_verify reloads a file fixture and reports the new CSS value", async ({ request }) => {
+test("browser_verify reloads a file fixture and reports the new CSS value", async ({ page, request }) => {
   const source = readFileSync(resolve(__dirname, "fixtures/browser-verify-page.html"), "utf8");
   let background = "rgb(180, 20, 20)";
   const fixtureServer = createServer((req, res) => {
@@ -46,6 +46,9 @@ test("browser_verify reloads a file fixture and reports the new CSS value", asyn
     });
     expect(open.ok()).toBe(true);
     expect((await open.json()).url).toBe(fixtureUrl);
+    // The video shows the page as the agent found it, then what the agent got back.
+    await page.goto(fixtureUrl);
+    await expect(page.locator("#price")).toHaveCSS("background-color", "rgb(180, 20, 20)");
 
     await fetch(`http://127.0.0.1:${port}/change-css`, { method: "POST" });
     const verifyNew = await request.post(`${E2E_BASE}/api/topics/${topic.id}/browser/verify`, {
@@ -59,14 +62,21 @@ test("browser_verify reloads a file fixture and reports the new CSS value", asyn
     expect(passed.screenshot.bytes).toBeGreaterThan(100);
     expect(passed.consoleErrors).toEqual(expect.arrayContaining([expect.objectContaining({ text: "errore fixture dopo il reload" })]));
     expect(passed.failedRequests).toEqual(expect.arrayContaining([expect.objectContaining({ url: `${fixtureUrl.replace("fixture.html", "missing-after-reload.png")}`, status: 404 })]));
+    const shot = readFileSync(passed.screenshot.path).toString("base64");
+    await page.setContent(`<h1>browser_verify</h1><img alt="agent screenshot" src="data:image/jpeg;base64,${shot}" style="max-width:100%"><pre id="result"></pre>`);
+    await page.locator("#result").evaluate((el, text) => { el.textContent = text; }, JSON.stringify(passed.checks, null, 2));
+    await expect(page.locator("#result")).toContainText('"status": "pass"');
 
     const verifyOld = await request.post(`${E2E_BASE}/api/topics/${topic.id}/browser/verify`, {
       data: { checks: [{ selector: "#price", style: { "background-color": "rgb(180, 20, 20)" } }] },
       headers: gateway,
     });
-    expect((await verifyOld.json()).checks).toEqual([
+    const failed = await verifyOld.json();
+    expect(failed.checks).toEqual([
       expect.objectContaining({ selector: "#price", status: "fail", value: { style: { "background-color": "rgb(0, 128, 0)" } } }),
     ]);
+    await page.locator("#result").evaluate((el, text) => { el.textContent += "\n" + text; }, JSON.stringify(failed.checks, null, 2));
+    await expect(page.locator("#result")).toContainText('"status": "fail"');
   } finally {
     await request.delete(`${E2E_BASE}/api/browsers/${topic.id}`).catch(() => {});
     await deleteTopic(request, topic.id).catch(() => {});
