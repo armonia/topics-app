@@ -146,6 +146,8 @@ describe("session-scoped process isolation", () => {
       broadcastToAll: () => {},
       getTopicBySessionKey: (k: string) => (map[k] ? { id: k, sessionKey: k, projectPath: map[k] } : null),
       resolveTopicCwd: (t: any) => (t ? map[t.sessionKey] ?? null : null),
+      // Neither directory is a managed worktree: no TOPICS_PORT for them.
+      worktreeManager: { knownWorktreePort: () => null },
     } as any;
   }
 

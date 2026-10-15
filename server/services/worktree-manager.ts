@@ -117,6 +117,11 @@ export interface WorktreeManager {
   setupResult(id: string): WorktreeSetupResult | null;
   /** Stable port for a known worktree path. */
   portForPath(path: string): number;
+  /**
+   * The port of a worktree Topics manages, null for any other path. A main checkout gets no
+   * TOPICS_PORT: `portForPath` on it would hand out the port the next worktree is going to claim.
+   */
+  knownWorktreePort(path: string): number | null;
 }
 
 /** Dipendenze opzionali iniettate: INIETTARE, non importare. */
@@ -463,6 +468,11 @@ export function createWorktreeManager(
     return setupResult;
   }
 
+  function knownWorktreePort(path: string): number | null {
+    const target = resolve(path);
+    return deps.worktreeStore.list().some((worktree) => resolve(worktree.absPath) === target) ? portForPath(target) : null;
+  }
+
   function portForPath(path: string): number {
     // Oldest first, from the persisted creation time: the same order after a restart, and a
     // newcomer never takes the port of a worktree whose server may already be running.
@@ -704,5 +714,6 @@ export function createWorktreeManager(
     worktreesDir: () => resolve(worktreesDir),
     setupResult: (id) => setupResults.get(id) ?? null,
     portForPath,
+    knownWorktreePort,
   };
 }
