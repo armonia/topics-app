@@ -88,6 +88,8 @@ export interface EchoHold<E extends Echo> {
   relayed(place: ScrollPlace): void;
   /** The newest scroll relay this device sent, even when the mirror itself did not move. */
   forwarded(sequence: number, from: string): void;
+  /** Numbers the next scroll relay and records it as forwarded: spread it into the relay. */
+  stamp(): { scrollSeq: number; scrollFrom: string };
   /** An event from the source: true when it is not for now, held for the applier or dropped as stale. */
   hold(event: E): boolean;
   /** Who applies the held echoes once their wait is over (the replayer, while it lives). */
@@ -107,6 +109,8 @@ export interface EchoHold<E extends Echo> {
 export function createEchoHold<E extends Echo>(opts: {
   now?: () => number;
   schedule?: (fn: () => void, ms: number) => () => void;
+  /** Whose relays these are; one per mount, since the source answers whichever device sent last. */
+  self?: string;
 } = {}): EchoHold<E> {
   const now = opts.now ?? (() => performance.now());
   const schedule = opts.schedule ?? ((fn, ms) => {
@@ -118,6 +122,8 @@ export function createEchoHold<E extends Echo>(opts: {
   let confirmBy = 0;
   let latestForwarded = 0;
   let origin: string | null = null;
+  const self = opts.self ?? Math.random().toString(36).slice(2, 10);
+  let sent = 0;
   const held = new Map<number, E>();
   let cancel: (() => void) | null = null;
   let releaseAt = 0;
@@ -150,6 +156,10 @@ export function createEchoHold<E extends Echo>(opts: {
     releaseAt = at;
     cancel = schedule(release, at - t + 16);
   };
+  const forwarded = (sequence: number, from: string): void => {
+    origin = from;
+    latestForwarded = Math.max(latestForwarded, sequence);
+  };
   function release(): void {
     cancel = null;
     const t = now();
@@ -176,9 +186,10 @@ export function createEchoHold<E extends Echo>(opts: {
       relayed = place;
       confirmBy = now() + SCROLL_CONFIRM_MS;
     },
-    forwarded(sequence, from) {
-      origin = from;
-      latestForwarded = Math.max(latestForwarded, sequence);
+    forwarded,
+    stamp() {
+      forwarded(++sent, self);
+      return { scrollSeq: sent, scrollFrom: self };
     },
     hold(event) {
       const id = event.data?.id;

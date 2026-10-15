@@ -192,4 +192,17 @@ describe('createEchoHold', () => {
     // The source echoes the last relay it got, which was another device's third.
     expect(r.hold.hold(r.echo(1, 500, 3, 'them'))).toBe(false);
   });
+
+  test('stamp numbers each relay from this mount and records it, so an answer to an earlier one is stale', () => {
+    const r = holdRig();
+    const first = r.hold.stamp();
+    const second = r.hold.stamp();
+    expect(second.scrollSeq).toBe(first.scrollSeq + 1);
+    expect(second.scrollFrom).toBe(first.scrollFrom);
+    r.advance(2_500);
+    expect(r.hold.hold(r.echo(1, 120, first.scrollSeq, first.scrollFrom))).toBe(true);
+    expect(r.hold.hold(r.echo(1, 160, second.scrollSeq, second.scrollFrom))).toBe(false);
+    r.advance(5_000);
+    expect(r.applied).toEqual([]);
+  });
 });
