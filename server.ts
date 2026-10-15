@@ -148,6 +148,7 @@ import { createHostMirror, type MirrorSocket } from "./server/browser-host-mirro
 import { createBrowserHostBootRace } from "./server/browser-host-boot-race";
 import { createNativeHostLiveness } from "./server/browser-native-host-liveness";
 import { reapBrowserSocket } from "./server/browser-socket-reaper";
+import { createViewerActions } from "./server/browser-viewer-actions";
 import { WS_TRANSPORT_OPTIONS } from "./server/lib/websocket-options";
 import { countSharedViewers, createViewerCountPublisher, hasAttachedPane } from "./server/browser-viewer-count";
 import { createViewportWiring } from "./server/browser-viewport-wiring";
@@ -542,43 +543,22 @@ const viewportWiring = createViewportWiring({
   },
 });
 
+const viewerActions = createViewerActions({
+  browser: { navigate: (c, u) => browserService.navigate(c, u), setDomEmit: (c, on) => browserService.setDomEmit(c, on) },
+  socketsOf: (c) => browserWsClients.get(c),
+});
 const hostBootRace = createBrowserHostBootRace<MirrorSocket>({
   hasSeenHost: (contextId) => hostMirror.hasSeenHost(contextId),
   isHosting: (contextId) => hostMirror.isHosting(contextId),
   apply: (socket, contextId, frame) => {
     if (hostMirror.routeViewer(socket, contextId, frame)) return;
     if (frame.type === "set_render" && frame.mode === "dom") hostMirror.enableChromiumDom(socket, contextId);
-    else if (frame.type === "set_render") {
-      socket.data._domRender = false;
-      socket.data._browserSetStream?.(true);
-      sendBrowserWsMessage(socket, { type: "render_mode", mode: "video" });
-      const anyDom = [...(browserWsClients.get(contextId) ?? [])].some((viewer) => viewer.data._domRender);
-      if (!anyDom) browserService.setDomEmit(contextId, false);
-    }
+    else if (frame.type === "set_render") viewerActions.toVideo(socket, contextId);
     else if (frame.type === "resize") viewportWiring.onFrame(contextId, { ...socket.data, id: socket.data.id ?? "" }, frame);
-    else if (frame.type === "nav" && frame.phase === "request") navigateForViewer(socket, contextId, frame.url);
+    else if (frame.type === "nav" && frame.phase === "request") viewerActions.navigate(socket, contextId, frame.url);
   },
 });
 
-/**
- * A viewer's navigation on the server's Chromium. goto failures resolve with
- * `error` (page stayed on the old URL); launch failures reject below. Both must
- * reach the pane as phase 'error': a bare 'response' made every failed
- * navigation invisible (BRW-REL-02). The goto failure is not sent from here:
- * the service tells every viewer of the context, this socket included
- * (browser-nav-flight.ts).
- */
-function navigateForViewer(ws: { send: (data: string) => void }, ctxId: string, url: string): void {
-  browserService.navigate(ctxId, url).then((r) => {
-    if (!r.error) sendBrowserWsMessage(ws, { type: 'nav', url, phase: 'response' });
-  }).catch(err => {
-    const msg = err instanceof Error ? (err.message.split('\n')[0] || 'Browser failed to start') : String(err);
-    console.warn(`[WS][browser] navigate failed for ${ctxId}:`, msg);
-    try {
-      sendBrowserWsMessage(ws, { type: 'nav', url, phase: 'error', error: msg });
-    } catch { /* socket gone — nothing to surface to */ }
-  });
-}
 notifyHostReady = (contextId) => hostBootRace.hostReady(contextId);
 const nativeHostLiveness = createNativeHostLiveness<MirrorSocket>({
   onLost: (contextId, socket) => {
@@ -4612,7 +4592,7 @@ const opzioniServer = {
               } catch { /* socket gone — the keyboard question died with it */ }
             })();
           } else if (parsed.type === 'nav' && parsed.phase === 'request') {
-            navigateForViewer(ws, ctxId, parsed.url);
+            viewerActions.navigate(ws, ctxId, parsed.url);
           } else if (parsed.type === 'take_control') {
             // Phase 30 BROWSER-CHAT-04 — user reclaimed control. Force-release the
             // lock with an eager agent_active=false broadcast. The agent's in-flight
@@ -4679,13 +4659,7 @@ const opzioniServer = {
             if (parsed.mode === 'dom') {
               hostMirror.enableChromiumDom(ws, ctxId);
             } else {
-              // Back to pixels: resume screencast, ack, and stop DOM emission once
-              // NO viewer of this context is in DOM mode anymore.
-              ws.data._domRender = false;
-              ws.data._browserSetStream?.(true);
-              sendBrowserWsMessage(ws, { type: 'render_mode', mode: 'video' });
-              const anyDom = [...(browserWsClients.get(ctxId) ?? [])].some((w) => w.data._domRender);
-              if (!anyDom) browserService.setDomEmit(ctxId, false);
+              viewerActions.toVideo(ws, ctxId);
             }
           } else if (parsed.type === 'webrtc_offer') {
             // Shared-session WebRTC transport — relay the viewer's offer to the Rust
