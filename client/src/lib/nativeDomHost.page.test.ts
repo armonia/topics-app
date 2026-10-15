@@ -75,7 +75,7 @@ function world() {
     `return ${js}`,
   )(doc, win, Ev, Ev, Ev, Ev, win.getComputedStyle, mirror, hooks);
   run(armJs('var rrweb={record:function(o){__hooks.emit=o.emit;__hooks.options=o;return function(){}}};rrweb.record.mirror=__mirror;'));
-  const host = win.__topicsDomHost as { q: Array<{ data: { anchor?: unknown } }> };
+  const host = win.__topicsDomHost as { q: Array<{ data: { anchor?: unknown; scrollSeq?: number; scrollFrom?: string } }> };
   return { log, root, body, el, run, hooks, host, win };
 }
 
@@ -219,6 +219,13 @@ describe('native DOM host byte-bounded drain', () => {
 
 describe('a scroll from a mirror laid out on its own', () => {
   const place = { id: 21, fx: 0.5, fy: 0.5, lx: 0.5, ly: 0.25, rx: 0, ry: 0.4 };
+
+  test('the recorder returns the sequence applied with the scroll, and whose it was', () => {
+    const w = world();
+    w.run(inputJs('scroll', { x: 500, y: 400, deltaY: 30, node: 1, scrollTop: 30, scrollSeq: 7, scrollFrom: 'ipad' }));
+    w.hooks.emit!({ type: 3, data: { source: 3, id: 1, x: 0, y: 30 } });
+    expect(w.host.q.at(-1)!.data).toMatchObject({ scrollSeq: 7, scrollFrom: 'ipad' });
+  });
 
   test('what scrolled there does not scroll here: the page scrolls its element to the reading line', () => {
     const w = world();

@@ -68,7 +68,10 @@ export interface ScrollPlace {
   anchor?: ScrollAnchor;
 }
 
-type Echo = { type: number; data?: { source?: number; id?: number; x?: number; y?: number; anchor?: ScrollAnchor } };
+type Echo = {
+  type: number;
+  data?: { source?: number; id?: number; x?: number; y?: number; anchor?: ScrollAnchor; scrollSeq?: number; scrollFrom?: string };
+};
 
 /** Is this echo the source standing where the mirror put it? */
 function confirms(event: Echo, place: ScrollPlace): boolean {
@@ -83,7 +86,11 @@ export interface EchoHold<E extends Echo> {
   gesturing(): boolean;
   /** The place just relayed to the source. */
   relayed(place: ScrollPlace): void;
-  /** An event from the source: true when it is held, for the applier to receive later. */
+  /** The newest scroll relay this device sent, even when the mirror itself did not move. */
+  forwarded(sequence: number, from: string): void;
+  /** Numbers the next scroll relay and records it as forwarded: spread it into the relay. */
+  stamp(): { scrollSeq: number; scrollFrom: string };
+  /** An event from the source: true when it is not for now, held for the applier or dropped as stale. */
   hold(event: E): boolean;
   /** Who applies the held echoes once their wait is over (the replayer, while it lives). */
   applyWith(apply: ((events: E[]) => void) | null): void;
@@ -102,6 +109,8 @@ export interface EchoHold<E extends Echo> {
 export function createEchoHold<E extends Echo>(opts: {
   now?: () => number;
   schedule?: (fn: () => void, ms: number) => () => void;
+  /** Whose relays these are; one per mount, since the source answers whichever device sent last. */
+  self?: string;
 } = {}): EchoHold<E> {
   const now = opts.now ?? (() => performance.now());
   const schedule = opts.schedule ?? ((fn, ms) => {
@@ -111,13 +120,34 @@ export function createEchoHold<E extends Echo>(opts: {
   let until = 0;
   let relayed: ScrollPlace | null = null;
   let confirmBy = 0;
+  let latestForwarded = 0;
+  let origin: string | null = null;
+  const self = opts.self ?? Math.random().toString(36).slice(2, 10);
+  let sent = 0;
   const held = new Map<number, E>();
   let cancel: (() => void) | null = null;
   let releaseAt = 0;
   let apply: ((events: E[]) => void) | null = null;
 
-  const heldUntil = (id: number, t: number): number => {
+  /**
+   * Which of this device's relays an echo answers (B2). An echo of another viewer's relay, or of
+   * an earlier mount's, is not ordered against ours: the source moved for someone else.
+   */
+  const sequenceOf = (event: E): number | null =>
+    typeof event.data?.scrollSeq === 'number' && origin !== null && event.data.scrollFrom === origin
+      ? event.data.scrollSeq
+      : null;
+  /** An answer to a relay the source has been sent past since: not where it is going, however late. */
+  const stale = (event: E): boolean => {
+    const sequence = sequenceOf(event);
+    return sequence !== null && sequence < latestForwarded;
+  };
+  const heldUntil = (event: E, id: number, t: number): number => {
+    // Mid-gesture the mirror is ahead of every relay, which go out in batches: even the answer to the
+    // latest one would pull it back, on a fast connection at every batch.
     if (t < until) return until;
+    // A numbered echo says which relay it answers: there is no confirmation to wait out.
+    if (sequenceOf(event) !== null) return 0;
     return relayed?.node === id && t < confirmBy ? confirmBy : 0;
   };
   const scheduleRelease = (at: number, t: number): void => {
@@ -126,12 +156,20 @@ export function createEchoHold<E extends Echo>(opts: {
     releaseAt = at;
     cancel = schedule(release, at - t + 16);
   };
+  const forwarded = (sequence: number, from: string): void => {
+    origin = from;
+    latestForwarded = Math.max(latestForwarded, sequence);
+  };
   function release(): void {
     cancel = null;
     const t = now();
     const due: E[] = [];
     for (const [id, event] of held) {
-      const at = heldUntil(id, t);
+      if (stale(event)) {
+        held.delete(id);
+        continue;
+      }
+      const at = heldUntil(event, id, t);
       if (at > t) scheduleRelease(at, t);
       else {
         held.delete(id);
@@ -148,15 +186,21 @@ export function createEchoHold<E extends Echo>(opts: {
       relayed = place;
       confirmBy = now() + SCROLL_CONFIRM_MS;
     },
+    forwarded,
+    stamp() {
+      forwarded(++sent, self);
+      return { scrollSeq: sent, scrollFrom: self };
+    },
     hold(event) {
       const id = event.data?.id;
       if (event.type !== INCREMENTAL_SNAPSHOT || event.data?.source !== SCROLL_SOURCE || typeof id !== 'number') return false;
+      if (stale(event)) return true;
       if (relayed?.node === id && confirms(event, relayed)) {
         // The source is where the mirror put it: nothing left to wait for.
         relayed = null;
       }
       const t = now();
-      const at = heldUntil(id, t);
+      const at = heldUntil(event, id, t);
       if (at <= t) {
         // Newer than what is held for this node, which must not land after it.
         held.delete(id);

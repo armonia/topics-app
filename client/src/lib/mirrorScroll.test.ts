@@ -59,7 +59,7 @@ describe('scrollKeepingFractions', () => {
   });
 });
 
-type Echo = { type: number; data: { source: number; id: number; x: number; y: number } };
+type Echo = { type: number; data: { source: number; id: number; x: number; y: number; scrollSeq?: number; scrollFrom?: string } };
 
 /** A hold on a clock the test turns, and the positions it applied, batch by batch. */
 function holdRig() {
@@ -86,7 +86,8 @@ function holdRig() {
     t = end;
   };
   hold.applyWith((events) => applied.push(events.map((e) => e.data.y)));
-  const echo = (id: number, y: number): Echo => ({ type: 3, data: { source: 3, id, x: 0, y } });
+  const echo = (id: number, y: number, scrollSeq?: number, scrollFrom = 'me'): Echo =>
+    ({ type: 3, data: { source: 3, id, x: 0, y, ...(scrollSeq === undefined ? {} : { scrollSeq, scrollFrom }) } });
   return { hold, applied, advance, echo };
 }
 
@@ -141,5 +142,67 @@ describe('createEchoHold', () => {
     r.hold.moved();
     expect(r.hold.hold({ type: 3, data: { source: 0, id: 1, x: 0, y: 0 } })).toBe(false);
     expect(r.hold.hold({ type: 2, data: { source: 3, id: 1, x: 0, y: 0 } })).toBe(false);
+  });
+
+  test('a numbered echo older than the latest relay is dropped, however late it comes', () => {
+    const r = holdRig();
+    r.hold.forwarded(2, 'me');
+    r.advance(2_500);
+    expect(r.hold.hold(r.echo(1, 120, 1))).toBe(true);
+    r.advance(5_000);
+    expect(r.applied).toEqual([]);
+  });
+
+  test('the answer to the latest relay lands once the gesture is over, with no confirmation to wait out', () => {
+    const r = holdRig();
+    r.hold.moved();
+    r.hold.relayed({ node: 1, top: 300, left: 0 });
+    r.hold.forwarded(2, 'me');
+    r.advance(700);
+    // Not the relayed place (the page kept part of the wheel), and still where the source is.
+    expect(r.hold.hold(r.echo(1, 320, 2))).toBe(false);
+  });
+
+  test('mid-gesture even the answer to the latest relay waits: the mirror is already past it', () => {
+    const r = holdRig();
+    r.hold.moved();
+    r.hold.forwarded(1, 'me');
+    // A fast connection: the answer is back before the next batch goes out.
+    expect(r.hold.hold(r.echo(1, 100, 1))).toBe(true);
+    expect(r.applied).toEqual([]);
+    r.advance(700);
+    expect(r.applied).toEqual([[100]]);
+  });
+
+  test('a held answer that a newer relay overtakes is dropped, not applied late', () => {
+    const r = holdRig();
+    r.hold.moved();
+    r.hold.forwarded(1, 'me');
+    r.hold.hold(r.echo(1, 100, 1));
+    r.hold.forwarded(2, 'me');
+    r.advance(700);
+    expect(r.applied).toEqual([]);
+    expect(r.hold.hold(r.echo(1, 180, 2))).toBe(false);
+  });
+
+  test("another viewer's relay is not ordered against this one's: the page moved for them", () => {
+    const r = holdRig();
+    r.hold.forwarded(40, 'me');
+    r.advance(700);
+    // The source echoes the last relay it got, which was another device's third.
+    expect(r.hold.hold(r.echo(1, 500, 3, 'them'))).toBe(false);
+  });
+
+  test('stamp numbers each relay from this mount and records it, so an answer to an earlier one is stale', () => {
+    const r = holdRig();
+    const first = r.hold.stamp();
+    const second = r.hold.stamp();
+    expect(second.scrollSeq).toBe(first.scrollSeq + 1);
+    expect(second.scrollFrom).toBe(first.scrollFrom);
+    r.advance(2_500);
+    expect(r.hold.hold(r.echo(1, 120, first.scrollSeq, first.scrollFrom))).toBe(true);
+    expect(r.hold.hold(r.echo(1, 160, second.scrollSeq, second.scrollFrom))).toBe(false);
+    r.advance(5_000);
+    expect(r.applied).toEqual([]);
   });
 });

@@ -93,11 +93,18 @@ async function swipe(page: Page, opts: { finger?: boolean; step: number; steps: 
     const x = box.left + box.width / 2;
     // A finger starts low and goes up; a wheel turns over the top of the page.
     let y = box.top + box.height * (finger ? 0.8 : 0.3);
+    // A digitizer samples at 60 Hz whatever the main thread is doing, and each
+    // event carries that time. The runner's frames do not: on a loaded one a
+    // frame takes 50-100 ms, and a lift stamped by the frame clock reads as a
+    // finger that stopped before lifting.
+    const t0 = performance.now();
+    let sample = 0;
     const touch = (type: string) => {
       const event = new Event(type, { bubbles: true, cancelable: true });
       const list = [{ identifier: 1, clientX: x, clientY: y }];
       Object.defineProperty(event, "touches", { value: type === "touchend" ? [] : list });
       Object.defineProperty(event, "changedTouches", { value: list });
+      Object.defineProperty(event, "timeStamp", { value: t0 + sample++ * (1000 / 60) });
       overlay.dispatchEvent(event);
     };
     if (finger) touch("touchstart");
@@ -110,7 +117,14 @@ async function swipe(page: Page, opts: { finger?: boolean; step: number; steps: 
       }
       await frame();
     }
-    if (finger) touch("touchend");
+    if (finger) {
+      // The page was busy when the finger lifted: its handler runs 120 ms after
+      // the last move's, as under a heavy frame on the iPad. The fling is the
+      // finger's, not the handler's.
+      const busyUntil = performance.now() + 120;
+      while (performance.now() < busyUntil) { /* the main thread is taken */ }
+      touch("touchend");
+    }
     // A fling goes on after the finger: the gesture is over when the mirror is still.
     let last = read();
     for (let still = 0; still < 10; ) {

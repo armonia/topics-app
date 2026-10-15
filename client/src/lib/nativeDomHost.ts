@@ -234,7 +234,7 @@ export function armJs(bundle: string): string {
     'function maskSnapshot(n){if(!n||typeof n!==\'object\')return;if(n.type===2&&String(n.tagName).toLowerCase()===\'input\'&&privateInput(n))n.attributes.value=maskInput(n.attributes.value);' +
     'if(Array.isArray(n.childNodes))for(var i=0;i<n.childNodes.length;i++)maskSnapshot(n.childNodes[i])}' +
     'function start(){if(h.stop||!h.rrweb)return;try{h.stop=h.rrweb.record({' +
-    'emit:function(e){try{var v=e.data;if(e.type===3&&v&&v.source===3)v.anchor=h.echo(v.id);' +
+    'emit:function(e){try{var v=e.data;if(e.type===3&&v&&v.source===3){v.anchor=h.echo(v.id);if(typeof h.scrollSeq===\'number\'){v.scrollSeq=h.scrollSeq;v.scrollFrom=h.scrollFrom}}' +
     'else if(e.type===2&&v&&v.node){maskSnapshot(v.node);h.placed=null;v.anchor=h.anchor(h.rrweb.record.mirror.getNode(v.node.id))}' +
     'else if(e.type===3&&v&&v.source===5&&privateInput(h.rrweb.record.mirror.getNode(v.id)))v.text=maskInput(v.text);' +
     // A field mounted after the snapshot, or a value set as an attribute, travels as a mutation.
@@ -304,7 +304,7 @@ const INPUT_FN =
   'else if(a2.form){if(a2.form.requestSubmit)a2.form.requestSubmit();else a2.form.submit()}}' +
   "else if(k==='Backspace')d.execCommand('delete');else if(k==='Delete')d.execCommand('forwardDelete')}" +
   "a2.dispatchEvent(new KeyboardEvent('keyup',{key:k,bubbles:true}));return 'ok'}" +
-  "if(action==='scroll'){var dx=+p.deltaX||0,dy=+p.deltaY||0,tg=null,go=true," +
+  "if(action==='scroll'){if(typeof p.scrollSeq==='number'){h.scrollSeq=p.scrollSeq;h.scrollFrom=String(p.scrollFrom||'')}var dx=+p.deltaX||0,dy=+p.deltaY||0,tg=null,go=true," +
   'ws=p.wheels||[{x:p.x,y:p.y,deltaX:dx,deltaY:dy,target:p.target}];' +
   'for(var i=0;i<ws.length;i++){var w=ws[i],wx=+w.x||0,wy=+w.y||0,we=node(w.target);' +
   'if(we){var wr=we.getBoundingClientRect();wx=wr.left+wr.width/2;wy=wr.top+wr.height/2}else we=at(wx,wy);tg=we;' +
