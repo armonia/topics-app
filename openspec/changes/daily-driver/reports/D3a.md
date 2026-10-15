@@ -22,3 +22,11 @@
 
 - `lsof` del controllo identità anteprima e del sidecar Chromium resta: è invocato su avvio/controllo concreto e il risultato identifica chi possiede la porta. È contato, non periodizzato.
 - `vm_stat` ogni 10 s resta perché alimenta il campione di memoria usato da capacità e freno swap; sono conteggiati anche il ripiego sincrono e `sysctl`.
+
+## Giro 2 (rilettura)
+
+- **Il ricalcolo dopo un fetch vuoto c'era ancora, e non per `FETCH_HEAD`.** Misurato con `fs.watch` sulla `.git` di una clone (git 2.50.1): un `git fetch --all --prune` che non porta niente tocca `FETCH_HEAD`, `refs/remotes/origin/HEAD.lock` e `objects/maintenance.lock`. Il watcher ricorsivo di `refs/` prendeva il `.lock` per un cambiamento. Un ref che si muove davvero arriva anche col suo nome finale (`refs/remotes/origin/main`). Ora sotto `refs/` un `.lock` non conta (`refPathAffectsStatus`). Il test «fetching without ref changes» era rosso sul giro 1 anche sul Mac (fuori dalla sandbox gli eventi arrivano), ora è verde; mutante con i `.lock` che contano: rosso.
+- **La rotta del fetch invalidava sempre.** Ora solo se git ha stampato ref aggiornati su stderr (un fetch vuoto non stampa niente: lo fissa un test con una clone vera che spinge un commit).
+- **Una raffica di eventi poteva rispondere con un giro di prima.** Il giro 1 avanzava la generazione solo al primo evento della raffica: un lettore partito fra due eventi teneva la stessa generazione e il refresh del watcher si univa al suo giro, che poteva aver letto l'albero prima del secondo. Ora ogni evento avanza la generazione (`gitChangeDebouncer`). Test: due eventi, un refresh, con la generazione dell'ultimo; mutante «solo il primo avanza»: rosso.
+- Requisito rinumerato **RUNTIME-24**: RUNTIME-23 è di D2a (PR #342). Stringhe del pannello in i18n, commento in inglese, `@covers` sul test dei contatori.
+- `bun test server/git-watcher.test.ts server/lib/git-status.test.ts server/lib/spawn-metrics.test.ts`: 32 pass. `typecheck`, `lint` exit 0; 20 cancelli statici, 0 rossi.
