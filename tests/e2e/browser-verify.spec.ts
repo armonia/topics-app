@@ -40,8 +40,9 @@ test("browser_verify reloads a file fixture and reports the new CSS value", asyn
   };
   const topic = await createTopic(request, `E2E-BrowserVerify-${Date.now()}`);
   try {
-    const open = await request.post(`${E2E_BASE}/api/topics/${topic.id}/browser/open`, {
-      data: { url: fixtureUrl }, headers: gateway,
+    // `open` is not a bridged endpoint: the agent opens a page via the browsers route.
+    const open = await request.post(`${E2E_BASE}/api/browsers/${topic.id}/agent/open`, {
+      data: { url: fixtureUrl }, headers: { "Content-Type": "application/json" },
     });
     expect(open.ok()).toBe(true);
     expect((await open.json()).url).toBe(fixtureUrl);
