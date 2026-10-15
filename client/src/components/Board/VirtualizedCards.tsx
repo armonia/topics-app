@@ -23,15 +23,20 @@ export function VirtualizedCards({ tasks, activeId, viewport, renderCard }: {
   // before React renders is counted once.
   const measured = useRef(new Map<string, number>());
   const pendingShift = useRef(0);
+  // During a drag dnd-kit's autoscroll owns the scroll: a compensation under it
+  // stalled the autoscroll and carried the column back up (measured in the
+  // virtual-drag e2e, green without it).
+  const dragging = useRef(false);
+  useLayoutEffect(() => { dragging.current = activeId != null; }, [activeId]);
   const measure = useCallback((id: string, height: number, top: number) => {
     const known = measured.current.get(id) ?? VIRTUAL_ROW_ESTIMATE;
     if (Math.abs(known - height) < 1) return;
     measured.current.set(id, height);
-    // A card wholly above the screen that changes height moves every card on
-    // the screen by as much, so the scroll moves with it and what is being read
-    // stays put. WebKit has no `overflow-anchor` to do it for us.
+    // A card that starts above the screen and changes height moves every card
+    // fully on the screen by as much, so the scroll moves with it and what is
+    // being read stays put. WebKit has no `overflow-anchor` to do it for us.
     const scroller = list.current && scrollParentOf(list.current);
-    if (scroller && top + known <= scroller.getBoundingClientRect().top + scroller.clientTop) {
+    if (!dragging.current && scroller && top < scroller.getBoundingClientRect().top + scroller.clientTop) {
       pendingShift.current += height - known;
     }
     setHeights((current) => new Map(current).set(id, height));

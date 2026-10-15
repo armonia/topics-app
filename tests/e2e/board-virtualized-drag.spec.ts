@@ -105,7 +105,9 @@ test.describe("Board: drag across the virtual window", () => {
     const keyboardSource = beforeKeyboard[5]!;
     const keyboardTarget = beforeKeyboard[55]!;
     const keyboardCard = page.locator(`[data-task-card="${keyboardSource.id}"]`);
-    await keyboardCard.scrollIntoViewIfNeeded();
+    // The mouse drop left the column far down, where card 5 is not drawn: back to the top.
+    await backlog.evaluate((el) => { el.scrollTop = 0; });
+    await expect(keyboardCard).toBeVisible();
     await keyboardCard.focus();
     await page.keyboard.press("Space");
     await expect(page.locator("[data-drag-preview]")).toHaveCount(1);
