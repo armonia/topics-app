@@ -29,6 +29,7 @@ import { liveAgentStartCapability, queueDelegatedRun } from "../lib/delegated-ag
 import type { OutboundMessage } from "../../shared/ws-outbound";
 import { budgetShare, capMode, isAgentWorking, isCiEvidenceCheck, type CheckRun, isThreadSpeech, PARKED_WAITED_OUT, pendingQuestion, TASK_STATUSES, type DispatchAdmission, type GlobalDispatchCap, type PendingQuestionComment, type TaskStatus } from "../../shared/board";
 import { toFeedTask } from "../../shared/board-feed";
+import { selectTaskSessionPeek } from "../../shared/task-session-peek";
 import { AGENT_AUTHOR, AGENT_AUTHOR_PREFIX } from "../../shared/comment-author";
 import { isPreviewablePath } from "../../shared/media-kind";
 import { isBlankLikeImage } from "../services/image-shape";
@@ -2953,6 +2954,24 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
       try {
         const taskId = svc.taskIdOfTopic(byTopic.topicId);
         return json({ task: taskId ? (svc.get(taskId)?.task ?? null) : null });
+      } catch (e) { return fail(e); }
+    }
+
+    const sessionPeek = matchRoute(pathname, "/api/all-boards/tasks/:taskId/peek");
+    if (sessionPeek && method === "GET") {
+      try {
+        const task = svc.get(sessionPeek.taskId)?.task;
+        if (!task?.assignedTopicId) return json({ peek: null });
+        const topic = ctx.getTopicById(task.assignedTopicId);
+        if (!topic) return json({ peek: null });
+        const message = ctx.db.query(
+          `SELECT content, timestamp FROM messages
+           WHERE session_key = ? AND role = 'assistant' AND TRIM(content) <> ''
+           ORDER BY sort_order DESC, rowid DESC LIMIT 1`,
+        ).all(topic.sessionKey) as Array<{ content: string; timestamp: string | null }>;
+        const stream = ctx.activeStreams.get(topic.sessionKey);
+        const runningTool = stream ? ctx.getMessageById(stream.messageId)?.toolCalls?.find((call) => call.status === "running") : null;
+        return json({ peek: selectTaskSessionPeek(task, message, runningTool?.name ?? null, stream ?? null) });
       } catch (e) { return fail(e); }
     }
 

@@ -224,6 +224,9 @@ test.describe("Fermare un task senza archiviarlo", () => {
     // hold has already let go. This test went red exactly that way on 26/08.
     await stopFlow(page, request, async (sel) => {
       await longPress(page, sel, { until: page.getByRole("menuitem", { name: "Ferma" }) });
+      const menu = page.getByRole("menu");
+      await expect(menu.getByTestId("task-session-peek")).toBeVisible();
+      await expect(menu.locator(":scope > [data-testid='task-session-peek']").first()).toBeVisible();
     });
   });
 });
