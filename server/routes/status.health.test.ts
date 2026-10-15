@@ -27,7 +27,8 @@ describe("GET /api/system/health", () => {
     expect(body.subsystems.map(({ id }) => id)).toEqual(HEALTH_SUBSYSTEMS.map(({ id }) => id));
     expect(body.subsystems.find(({ id }) => id === "pty-bridge")).toMatchObject({
       state: "error",
-      reason: "probe-failed",
+      reason: "socket-missing",
+      params: { path: "/tmp/topics-health-missing-pty.sock" },
     });
   });
 

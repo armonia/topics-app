@@ -208,13 +208,14 @@ test.describe("System Status Panel", () => {
       await infraPage.openSystemStatusPanel();
       const row = page.getByTestId("system-health-pty-bridge");
       await expect(row).toHaveAttribute("data-state", "error");
-      await expect(row.getByText("Sonda fallita: Socket del bridge PTY assente")).toBeVisible();
-      await expect(row.getByText("Controlla il log del server e riavvia il sottosistema.")).toBeVisible();
+      // The catalogue's words for `socket-missing` (it-IT, the e2e locale): the reason and the remedy.
+      await expect(row.getByText("Socket del bridge assente.")).toBeVisible();
+      await expect(row.getByText("Riavvia il bridge.")).toBeVisible();
 
       await setBridge(true);
       await page.getByTestId("system-status-refresh").click();
       await expect(row).toHaveAttribute("data-state", "ok", { timeout: 10_000 });
-      await expect(row.getByText("Socket del bridge PTY accetta connessioni.")).toBeVisible();
+      await expect(row.getByText("Il socket accetta connessioni.")).toBeVisible();
     } finally {
       await setBridge(null);
     }

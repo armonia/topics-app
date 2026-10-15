@@ -135,13 +135,14 @@ export function createStatusRouter(ctx: AppContext): RouteHandler {
     server: () => ({ state: "ok", reason: "ready", params: { seconds: Math.floor((Date.now() - SERVER_START_TIME) / 1000) } }),
     "pty-bridge": () => {
       const socket = ptyBridgeHealthSocketOverride ?? registeredFleetSocketPath("pty-bridge");
-      if (!socket || !existsSync(socket)) throw new Error("pty-bridge socket missing");
+      // A missing socket is a known state with its own words and remedy, not a probe that broke.
+      if (!socket || !existsSync(socket)) return { state: "error", reason: "socket-missing", params: { path: socket ?? "" } };
       return probeBridgeSocket(socket);
     },
     "ai-bridge": () => {
       const socket = registeredFleetSocketPath("ai-bridge");
       if (!socket) return { state: "off", reason: "not-configured" };
-      if (!existsSync(socket)) throw new Error("ai-bridge socket missing");
+      if (!existsSync(socket)) return { state: "error", reason: "socket-missing", params: { path: socket } };
       return probeBridgeSocket(socket);
     },
     "browser-engines": () => {
