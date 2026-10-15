@@ -20,10 +20,12 @@
 - Lo stato andava al primo socket nativo del contesto, non all'host registrato: con due finestre sullo stesso contesto la pillola poteva comparire su quella sbagliata. Ora `hosts.isHost`.
 - Il foglio mostrava «0.0 KB/s · 45000 ms» su una pagina ferma: quel numero è l'età dell'ultimo frame, non un ritardo. Ora dice «ultimo frame 45 s fa» (`browser.tab.hostLastFrame`).
 - La e2e non provava il punto 3 del brief: la pagina contava i tocchi ma nessuno toccava. Ora un secondo viewer su WebSocket grezzo, che ignora la schermata di pausa, manda lo stesso clic: arriva mentre il Mac condivide (controllo), non arriva in pausa. Il punto di sincronia è la sua chiusura: il server tratta i frame di un socket in ordine e la chiusura dopo, quindi quando l'host vede scendere i dispositivi il clic in pausa è già stato scartato.
+- **L'interruttore non funzionava.** La prima clip (run 38697963916) era rossa: l'avviso di pausa non compariva mai. Il Mac manda `set_native_host_sharing` dal socket dell'esecutore, e `server.ts` scarta ogni frame di quel socket che non è in `NATIVE_DELEGATE_FRAME_TYPES` (`server/browser-native-delegate.ts`) prima di arrivare al ramo che lo gestisce. I test unitari chiamavano `hostMirror.setSharing` direttamente e non lo vedevano. Ora il tipo è nell'elenco, e il test dell'elenco lo nomina.
+- Clip dopo la correzione: run 38700373273 verde (1 passed, 9,6 s). Mutante che toglie il rifiuto dei viewer in pausa da `routeViewer` (run 38700377104): rosso alla riga 46, «a tap sent while the Mac does not share must not reach the page», 2 tocchi invece di 1.
 
 ## Trovato e non fatto
 
-- Il video e la prova browser reale del comando sul Mac richiedono la CI «Clip di consegna»; questo checkout non ha una Tauri UI avviabile per quel test e il brief vieta di lanciare e2e sul Mac.
+- Il bottone vero nella UI Tauri non lo preme nessun test: la e2e manda lo stesso frame che manda `createNativeDomHost().setSharing`, dal socket dell'esecutore.
 
 ## Rifiutato
 
