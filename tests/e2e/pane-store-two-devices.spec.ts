@@ -16,6 +16,7 @@ interface PaneStoreEnvelope {
   value?: {
     panes?: Record<string, unknown>;
     groups?: Record<string, { paneIds?: string[] }>;
+    closedStack?: Array<{ id?: string; pane?: { id?: string } }>;
     lastSeq?: number;
   };
   server_seq?: number;
@@ -160,11 +161,17 @@ test.describe("@nightly D7f pane-store tra dispositivi", () => {
       await closeTabViaX(devices.pageA, topic.id);
       await expect(tabFor(devices.pageB, topic.id)).toHaveCount(0, { timeout: 10_000 });
       await expect(tabFor(devices.pageA, topic.id)).toHaveCount(0, { timeout: 10_000 });
-      // The reopen comes AFTER the close, as the title says: the close is on the
-      // server and B holds its tombstone. Reopened while A's close still waits
-      // out its debounce, the two are concurrent, and the server's cascade
-      // archives the chat again when that close lands (reports/D7f.md).
+      // The reopen comes AFTER the close, as the title says: A's own snapshot is
+      // on the server and B holds its tombstone. The archive call purges the
+      // server's copy at once, while A's snapshot still waits out its 500 ms
+      // debounce: reopened in that gap, the two are concurrent, and the cascade
+      // archives the chat again when A's snapshot lands (reports/D7f.md). Only
+      // A's snapshot brings the undo record into `closedStack`.
       await expectServerClosed(request, topic.id);
+      await expect.poll(async () => {
+        const stack = (await serverSnapshot(request)).value?.closedStack ?? [];
+        return stack.some((record) => record.id === topic.id || record.pane?.id === topic.id);
+      }, { timeout: 10_000, message: "il server deve avere lo snapshot di A con la sua chiusura" }).toBe(true);
       await expect.poll(async () => devices.pageB.evaluate(({ key, id }) => {
         const raw = localStorage.getItem(key);
         const value = raw ? JSON.parse(raw) as { tombstones?: Record<string, unknown> } : null;
