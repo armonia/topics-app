@@ -1,3 +1,8 @@
+/**
+ * The agent rows of the first-run screen: a found agent keeps its path, a missing one its install command.
+ *
+ * @covers FIRST-RUN-02
+ */
 import { describe, expect, test } from 'bun:test';
 import { agentSetupRows } from './agentSetupRows';
 
