@@ -28,6 +28,7 @@ import type { Database } from "bun:sqlite";
 import { existsSync, readFileSync, statSync } from "node:fs";
 import { createHash } from "node:crypto";
 import { parseReviewChecks, serializeReviewChecks, type CheckRun } from "./review-checks";
+import { listLandingAuditCandidates } from "./landing-candidates";
 import { imageShape } from "./image-shape";
 import { renderDeliverySheet } from "./delivery-sheet";
 import { isAutoCapturedPreview, isDeliverySheetPath } from "../../shared/media-kind";
@@ -6279,62 +6280,7 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
     },
 
     listLandingAuditCandidates() {
-      // La TESTIMONIANZA vale per «è atterrato», e solo per quello: il contenuto
-      // che è su main ci resta, quindi ricontrollarlo sarebbe rimettere una
-      // deduzione sopra un fatto. «NON è atterrato» invece è un fatto su un
-      // ISTANTE — il land che non è riuscito — e nulla dice del giorno dopo, in
-      // cui una persona può aver cherry-piccato quel lavoro a mano. Escluderlo
-      // per sempre dall'audit congela l'accusa: misurate il 13/08 due card che
-      // dicevano «non su main» col commit ANTENATO di main, e in Done da giorni.
-      //
-      // E POI C'È IL SECONDO INSIEME, che è l'opposto del primo: le card senza
-      // consegna registrata che portano GIÀ un'accusa. Senza commit non c'è
-      // niente da verificare, ed era il motivo del filtro; ma `markLandPending`
-      // timbra `unlanded` appena il land viene CHIESTO, e conta su questa
-      // passata per correggersi. Finché il filtro le teneva fuori, quel timbro
-      // era definitivo: misurate il 18/08 su topics-app 13 card ferme su «non è
-      // su main» senza consegna, la più vecchia da sei giorni, due delle quali
-      // avevano il merge del land su main. Un'accusa che nessuno può più
-      // sostenere si RITIRA, ed è lavoro dell'audit tanto quanto scriverla.
-      return db.prepare(
-        `SELECT id, project_id, delivery_branch, delivery_commit
-           FROM tasks
-          WHERE archived = 0
-            -- A BRANCH IS A DELIVERY, no less than a commit is. debtVerdict
-            -- asks the branch first (classifyBranchLanding) and only falls back
-            -- to the commit once the branch is gone: the verdict logic already
-            -- knew how to answer for a card carrying only a branch, and it was
-            -- this line that never asked it.
-            --
-            -- What that cost, measured on this board on 2026-08-21: 27 done
-            -- cards with a branch and no commit, invisible to the audit for
-            -- their whole life. Looked at afterwards, of the first twelve
-            -- branches none was still alive and exactly one merge could be
-            -- found on main: the evidence had already evaporated. The value is
-            -- not in recovering those. It is that from now on such a card gets
-            -- asked WHILE its branch exists, the only moment the question has
-            -- an answer.
-            --
-            -- NULL and unverifiable are not the same state: the first says
-            -- nobody ever asked, the second says we asked and the evidence is
-            -- gone. The second is a measurement; the first is a hole.
-            AND (
-              delivery_commit IS NOT NULL
-              OR (delivery_branch IS NOT NULL AND delivery_branch <> '')
-              OR landing_state = 'unlanded'
-            )
-            AND status IN ('review', 'done')
-            -- Una DECISIONE non si rimisura: superseded dice «non e' su main,
-            -- e va bene cosi'». L'audit chiede al repo, e il repo risponderebbe
-            -- di nuovo unlanded cancellando la scelta a ogni passata.
-            AND COALESCE(landing_state, '') <> 'superseded'
-            AND NOT (COALESCE(landing_witnessed, 0) = 1 AND landing_state = 'landed')`,
-      ).all().map((r: any) => ({
-        id: r.id,
-        projectId: r.project_id,
-        deliveryBranch: r.delivery_branch ?? null,
-        deliveryCommit: r.delivery_commit ?? null,
-      }));
+      return listLandingAuditCandidates(db, now());
     },
 
     recordLandingState({ taskId, state, checkedAt, witnessed }): void {
