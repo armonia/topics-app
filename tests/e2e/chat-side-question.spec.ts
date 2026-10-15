@@ -4,8 +4,8 @@ import { join, resolve } from "node:path";
 import { expect } from "@playwright/test";
 import { test } from "./fixtures/chat.fixture";
 import { hermetic } from "./fixtures/hermetic";
-import { goToApp, openTopic } from "./helpers";
-import { createTopic, deleteTopic, resetPaneStore } from "./helpers/api-fixtures";
+import { goToApp } from "./helpers";
+import { createTopic, deleteTopic, resetPaneStore, seedProjectInnerChats, seedProjectPane, waitForPaneStoreQuiet } from "./helpers/api-fixtures";
 import { E2E_BASE } from "./helpers/test-server";
 import { installFakeCli } from "./helpers/fake-claude-cli";
 
@@ -35,10 +35,14 @@ test.describe("/btw side question", () => {
     removeCli = installFakeCli(resolve(__dirname, "helpers/fake-claude-btw.ts"), { BTW_LOG: log, BTW_RELEASE: release });
     const topic = await createTopic(request, `Side question ${Date.now()}`, { projectPath: project, provider: "claude-code" });
     try {
-      await resetPaneStore(request, [topic.id]);
+      // A project chat lives in its project's window, not among the sidebar's loose chats: open it
+      // there, as chat-composer-draft-race does.
+      await resetPaneStore(request, []);
+      await seedProjectPane(request, project);
+      await seedProjectInnerChats(request, project, [topic.id]);
+      await waitForPaneStoreQuiet(request);
       await goToApp(page);
-      await page.keyboard.press("Escape");
-      await openTopic(page, new RegExp(topic.name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
+      await chatPage.messageInput.waitFor({ state: "visible", timeout: 20_000 });
       await chatPage.sendMessage("main-probe");
       await expect(page.getByText("MAIN-ANSWER-PROBE").first()).toBeVisible({ timeout: 30_000 });
 
