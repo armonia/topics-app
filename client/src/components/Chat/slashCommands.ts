@@ -59,6 +59,7 @@ export const SLASH_COMMANDS: readonly SlashCommandEntry[] = [
   { cmd: '/status', descriptionKey: 'chat.slash.status.description', icon: Info, kind: 'topics' },
   // The sessions of this project born outside Topics, adopted as a chat (CMDUI-03).
   { cmd: '/resume', descriptionKey: 'chat.slash.resume.description', icon: History, kind: 'topics', takesArgs: true },
+  { cmd: '/btw', descriptionKey: 'chat.slash.btw.description', icon: HelpCircle, kind: 'topics', takesArgs: true, onlyOn: ['claude-code', 'claude-code-team'] },
   { cmd: '/model', descriptionKey: 'chat.slash.model.description', icon: Cpu, kind: 'control', opensKey: 'chat.slash.opens.model' },
   { cmd: '/effort', descriptionKey: 'chat.slash.effort.description', icon: Brain, kind: 'control', opensKey: 'chat.slash.opens.effort', notOn: OPENCLAW },
   { cmd: '/context', descriptionKey: 'chat.slash.context.description', icon: Gauge, kind: 'control', opensKey: 'chat.slash.opens.context' },

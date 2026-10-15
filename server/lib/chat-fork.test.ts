@@ -9,7 +9,7 @@
  * @covers CHAT-FORK-01, CHAT-FORK-02, CHAT-FORK-03
  */
 import { describe, expect, test } from "bun:test";
-import { cliForkBlocker, copyThreadForFork, forkPointIndex, forkStartFor, lastMainAssistant, type ForkRow } from "./chat-fork";
+import { cliForkBlocker, copyThreadForFork, forkPointIndex, forkStartFor, lastMainAssistant, mainAssistantForText, type ForkRow } from "./chat-fork";
 import { forkModeFor } from "../../shared/chat-fork";
 import type { ContentBlock } from "../../shared/types";
 
@@ -91,6 +91,15 @@ describe("lastMainAssistant: the uuid --resume-session-at takes", () => {
     expect(lastMainAssistant(line({ type: "user", uuid: "u" }))).toBeNull();
     expect(lastMainAssistant("")).toBeNull();
     expect(lastMainAssistant(line({ type: "assistant", uuid: "t", message: { content: [{ type: "tool_use", name: "Bash" }] } }))).toEqual({ uuid: "t", text: "" });
+  });
+
+  test("finds the last completed row while a later main turn is still writing", () => {
+    const jsonl = [
+      line({ type: "assistant", uuid: "done", message: { content: [{ type: "text", text: "answer already finished" }], stop_reason: "end_turn" } }),
+      line({ type: "assistant", uuid: "live", message: { content: [{ type: "text", text: "new answer in progress" }], stop_reason: null } }),
+      line({ type: "assistant", uuid: "side", isSidechain: true, message: { content: [{ type: "text", text: "sidechain" }] } }),
+    ].join("\n");
+    expect(mainAssistantForText(jsonl, "answer already finished")).toEqual({ uuid: "done", text: "answer already finished" });
   });
 });
 

@@ -37,6 +37,7 @@ import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { CLI_REFUSED, cliRefusedCommand, isClearCommand, topicsHomeCommand } from "./cliRefused";
+import { offeredSlashCommands } from "./slashCommands";
 
 const ROOT = join(import.meta.dir, "..", "..", "..", "..");
 const read = (p: string) => readFileSync(join(ROOT, p), "utf8");
@@ -241,6 +242,15 @@ describe("every menu entry does something when picked", () => {
   test("each offered command works in its bare form", () => {
     const dead = offered.filter((c) => !handledBare(c) && !(naked.has(c) && cliRuns.has(c)));
     expect(dead, "picked from the menu, these reach the model as prose or a CLI refusal").toEqual([]);
+  });
+
+  test("`/btw` is handled locally and only offered on Claude Code", () => {
+    expect(handledBare('btw')).toBe(true);
+    expect(handledWithArg('btw')).toBe(true);
+    expect(offeredSlashCommands('claude-code').map((entry) => entry.cmd)).toContain('/btw');
+    for (const provider of ['codex', 'openclaw', 'gemini']) {
+      expect(offeredSlashCommands(provider).map((entry) => entry.cmd), provider).not.toContain('/btw');
+    }
   });
 
   test("the menu offers nothing the CLI refuses or has retired", () => {

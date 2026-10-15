@@ -38,6 +38,31 @@ export interface TurnRef {
 }
 
 const turns = new Map<string, ServerTurn>();
+const turnSubscribers = new Map<string, Set<() => void>>();
+
+/** Notify consumers that the server's word for this session may have changed. */
+function notifyTurn(sessionKey: string): void {
+  for (const listener of turnSubscribers.get(sessionKey) ?? []) listener();
+}
+
+/** Subscribe to turn state for one session. */
+export function subscribeServerTurn(sessionKey: string, listener: () => void): () => void {
+  let listeners = turnSubscribers.get(sessionKey);
+  if (!listeners) {
+    listeners = new Set();
+    turnSubscribers.set(sessionKey, listeners);
+  }
+  listeners.add(listener);
+  return () => {
+    listeners?.delete(listener);
+    if (listeners?.size === 0) turnSubscribers.delete(sessionKey);
+  };
+}
+
+/** Only for tests: how many turn listeners remain. */
+export function __serverTurnSubscriberCount(sessionKey: string): number {
+  return turnSubscribers.get(sessionKey)?.size ?? 0;
+}
 /**
  * The latest Stop heard per session, whatever carried it: the close that says
  * `stopped`, any later state's `lastStop`, a snapshot, a `user_abort`. Kept
@@ -120,6 +145,7 @@ export function noteServerTurn(sessionKey: string, next: unknown): boolean {
     ...(!next.open && next.stopped === true ? { stopped: true as const } : {}),
     ...(!next.open && next.awaitsHuman === true ? { awaitsHuman: true as const } : {}),
   });
+  notifyTurn(sessionKey);
   return true;
 }
 
@@ -149,6 +175,7 @@ export function noteTurnSnapshot(snapshot: unknown): string[] {
     if (listed.has(sessionKey)) continue;
     if (held.boot === s.boot && held.asOf > s.asOf) continue;
     turns.set(sessionKey, { boot: s.boot, asOf: s.asOf, turnId: held.boot === s.boot ? held.turnId : 0, open: false });
+    notifyTurn(sessionKey);
     closed.push(sessionKey);
   }
   for (const [sessionKey, t] of listed) noteServerTurn(sessionKey, t);
@@ -179,6 +206,7 @@ export function noteStopHeard(sessionKey: string): void {
 /** Only for tests: forget everything. */
 export function __resetServerTurns(): void {
   turns.clear();
+  turnSubscribers.clear();
   stops.clear();
   currentBoot = null;
   baseline = null;

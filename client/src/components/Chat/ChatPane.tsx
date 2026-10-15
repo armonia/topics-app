@@ -79,6 +79,8 @@ import {
 } from '../../lib/composerMemory';
 import { usePaneHold } from '../../state/pane/residency/holds';
 import { useSessionMessages } from '../../state/useSessionMessages';
+import { SideQuestionPanel } from './SideQuestionPanel';
+import { useSideQuestion } from './useSideQuestion';
 import { useSessionFlagValue } from '../../state/sessionFlags';
 import { loadDraftAttachments, saveDraftAttachments } from '../../state/draftAttachments';
 import { useServedFromCache } from '../../state/historyFromCache';
@@ -1017,6 +1019,9 @@ function ChatPaneComponent({
   // Openclaw and the ACP agents keep their conversation outside Topics; no pinned provider = the server decides.
   const canFork = !isGlobalOrchestrator && (!topic.provider || forkModeFor(topic.provider) !== null);
 
+  const sideQuestion = useSideQuestion({ topic, loadHistory, sendMessage, getSessionMessages, tr });
+  const askSideQuestion = sideQuestion.ask;
+
   // Export the ACTIVE thread as a Markdown download. Client-side on purpose:
   // currentMessages already IS the active branch view the user is looking at.
   const handleExportConversation = useCallback(() => {
@@ -1062,6 +1067,14 @@ function ChatPaneComponent({
     // `/help` IS the menu, whole (CMDUI-07): a second list would drift from it.
     // After the send has emptied the field: the menu puts its own `/` there.
     if (cmd === '/help' || cmd.startsWith('/help ')) { setCommandAnswer(null); setTimeout(() => composerControlsRef.current?.openCommands(), 0); return true; }
+    if (cmd === '/btw' || cmd.startsWith('/btw ')) {
+      const question = text.trim().slice('/btw'.length).trim();
+      if (!question) { setCommandResult({ type: 'error', message: tr('chat.btw.usage') }); return true; }
+      if (!topicsEntryFor('btw', declared)) return false;
+      setCommandAnswer(null);
+      void askSideQuestion(question);
+      return true;
+    }
     // `/resume` (CMDUI-03): the sessions of this project born outside Topics.
     // Its list opens over the composer; without a project there is none.
     if (cmd === '/resume' || cmd.startsWith('/resume ')) {
@@ -1338,7 +1351,7 @@ function ChatPaneComponent({
     }
 
     return false;
-  }, [topic.sessionKey, topic.id, topic.provider, topic.projectPath, isGlobalOrchestrator, loadHistory, goal, declareGoal, closeGoal, confirm, sendMessage, getCompactionMarkers, tr, forkHere, currentMessages, currentStreaming, handleExportConversation, setCommandResult, fastMode, onUpdateTopic]);
+  }, [topic.sessionKey, topic.id, topic.provider, topic.projectPath, isGlobalOrchestrator, loadHistory, goal, declareGoal, closeGoal, confirm, sendMessage, getCompactionMarkers, tr, forkHere, askSideQuestion, currentMessages, currentStreaming, handleExportConversation, setCommandResult, fastMode, onUpdateTopic]);
 
   // Toggle Fast Mode. Updates: (1) local state for immediate UI feedback,
   // (2) localStorage for cold-boot hydration, (3) server via PUT so other
@@ -2092,6 +2105,7 @@ function ChatPaneComponent({
             above the composer that would send it again, never over it. */}
         <UnsentStrip sessionKey={topic.sessionKey} />
         {commandAnswer && <CommandAnswerCard answer={commandAnswer} isMobile={isMobile} onDismiss={() => { if (commandAnswer.kind === 'running') compactWatchRef.current = null; setCommandAnswer(null); }} />}
+        {sideQuestion.state && <SideQuestionPanel state={sideQuestion.state} onClose={sideQuestion.close} tr={tr} />}
         <ChatInput onRunCommand={(text) => { void handleSendMessage(undefined, text); }} autonomy={autonomy} onAutonomyChange={handleAutonomyChange} isMobile={isMobile} isFocused={isFocused} topic={topic} currentMessages={currentMessages} currentStreaming={currentStreaming} stoppedByUser={currentStoppedByUser} message={message} setMessage={setMessage} pendingFiles={pendingFiles} pendingImages={pendingImages} setPendingImages={setPendingImages} uploading={isUploading} replyingTo={replyingTo} setReplyingTo={setReplyingTo} isRecording={isRecording} recordingTime={recordingTime} fileInputRef={fileInputRef} textareaRef={textareaRef} onSubmit={handleSendMessage} onStop={() => { void stopSession(topic.sessionKey); }} onKeyDown={handleKeyDown} onFileSelect={handleFileSelect} removePendingFile={removePendingFile} onPaste={handlePaste} startRecording={startRecording} stopRecording={stopRecording} formatRecordingTime={formatRecordingTime} isImageFile={isImageFile} chatError={chatError[topic.sessionKey] ?? null} sendMessageDirect={async (c: string) => {
           // Passa dall'imbuto degli slash: il bottone «Compact now» e
           // l'azione dell'anello mandavano `/compact` come messaggio nudo,

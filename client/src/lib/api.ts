@@ -201,6 +201,14 @@ export const topicsApi = {
     return request<Topic>(`/topics/${encodeURIComponent(id)}/fork`, { method: 'POST', body: JSON.stringify(data) });
   },
 
+  async sideQuestion(id: string): Promise<Topic> {
+    return request<Topic>(`/topics/${encodeURIComponent(id)}/side-question`, { method: 'POST', body: '{}' });
+  },
+
+  async closeSideQuestion(id: string): Promise<void> {
+    await request<{ ok: boolean }>(`/topics/${encodeURIComponent(id)}/side-question`, { method: 'DELETE' });
+  },
+
   async update(id: string, data: UpdateTopicRequest): Promise<Topic> {
     return request<Topic>(`/topics/${id}`, {
       method: 'PATCH',
