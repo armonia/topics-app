@@ -66,6 +66,7 @@ import { NEXT_WAITING_EVENT, useWaitingQueueStore, waitingQueueActions } from '@
 import { SpaceGroupCard } from './SpaceGroups';
 import { useGoToSpace, useSpaceCards } from './useSpaceCards';
 import { useSidebarRowFlip } from './useSidebarRowFlip';
+import { useArchivedSidebarPages } from './useArchivedSidebarPages';
 
 /**
  * Le sezioni della vista per STATO, nell'ordine in cui si leggono: il tier
@@ -604,6 +605,20 @@ export function TopicTree({
     }
     return s;
   }, [openPanels, projectOpenPanes]);
+
+  const activeTopicIds = useMemo(() => {
+    const ids = new Set<string>();
+    const focusedProjectPath = focusedTopicId ? getProjectPathFromPaneId(focusedTopicId) : null;
+    for (const paneId of [focusedTopicId, focusedProjectPath ? activePaneByProject[focusedProjectPath] : null]) {
+      if (paneId && topics[paneId]) ids.add(paneId);
+      if (paneId?.startsWith('chat:')) ids.add(paneId.slice('chat:'.length));
+    }
+    const activeTopicId = focusedProjectPath ? projectActiveTopics?.[focusedProjectPath] : null;
+    if (activeTopicId) ids.add(activeTopicId);
+    return ids;
+  }, [topics, focusedTopicId, activePaneByProject, projectActiveTopics]);
+
+  const { page: archivePage, showMore: showMoreArchived, pagedRows } = useArchivedSidebarPages(showArchived, !!searchQuery.trim(), activeTopicIds);
 
   const filteredItems = useMemo(
     () => filterSidebarItems(allItems, searchQuery),
@@ -1187,9 +1202,10 @@ export function TopicTree({
       if (child.type === 'browser') return renderBrowserItem(child, d);
       return null;
     };
+    const baseGroupId = `project:${pp}:base`;
     return (
       <>
-        {base.map(child => row(child, depth, false))}
+        {pagedRows(baseGroupId, base, items => items.map(child => row(child, depth, false)))}
         {sections.map(section => (
           <WorktreeSection
             key={`worktree:${section.worktreeId}`}
@@ -1199,7 +1215,7 @@ export function TopicTree({
             depth={depth}
             onNewTopic={onNewTopicInWorktree ? () => onNewTopicInWorktree(pp, section.worktreeId) : undefined}
           >
-            {section.items.map(child => row(child, depth + 1, true))}
+            {pagedRows(`project:${pp}:worktree:${section.worktreeId}`, section.items, items => items.map(child => row(child, depth + 1, true)))}
           </WorktreeSection>
         ))}
       </>
@@ -1527,6 +1543,7 @@ export function TopicTree({
   const renderSection = (sectionKey: string, Icon: LucideIcon, label: string, items: SidebarItem[]) => {
     const isCollapsed = collapsedSections.has(sectionKey);
     const totalUnread = items.reduce((sum, item) => sum + item.notificationCount, 0);
+    const page = archivePage(sectionKey, items);
 
     // Niente `border-t`: la card grammar dichiara di TOGLIERE le linee
     // divisorie, e questa era l'ultima rimasta — a separare proprio la cosa
@@ -1582,7 +1599,8 @@ export function TopicTree({
             separate fra loro sotto i 768px come quelle di ogni altra vista. */}
         {!isCollapsed && (
           <SidebarRowList>
-            {items.map(item => renderItem(item))}
+            {page.items.map(item => renderItem(item))}
+            {showMoreArchived(sectionKey, page.remaining)}
           </SidebarRowList>
         )}
       </div>
@@ -2116,7 +2134,7 @@ export function TopicTree({
                   onToggle={() => toggleGroup(card.id)}
                 >
                   {rows.length > 0
-                    ? <SidebarRowList>{rows.map(item => renderItem(item))}</SidebarRowList>
+                    ? <SidebarRowList>{pagedRows(`space:${card.id}`, rows, items => items.map(renderItem))}</SidebarRowList>
                     : <div data-sidebar-flip className="px-3 py-1 text-mini text-app-text-muted">{tr('sidebar.noTabs')}</div>}
                 </SpaceGroupCard>
               );
@@ -2136,7 +2154,7 @@ export function TopicTree({
                 {unpinnedItems.length > 0 && <div data-testid="pinned-divider" className="h-px bg-app-border mx-1.5 mt-1.5 mb-[3px]" />}
               </>
             )}
-            <SidebarRowList data-testid="sidebar-timeline">{withUnpinPreview(unpinnedItems)}</SidebarRowList>
+            <SidebarRowList data-testid="sidebar-timeline">{pagedRows('timeline', unpinnedItems, withUnpinPreview)}</SidebarRowList>
           </>
         ) : null}
         {/* Vista per STATO: le stesse sezioni collassabili, ma i bucket sono
@@ -2166,7 +2184,7 @@ export function TopicTree({
               if (soloIlResto) {
                 return (
                   <SidebarRowList data-testid="sidebar-state-section-rest">
-                    {withUnpinPreview(stateGroups.rest)}
+                    {pagedRows('state:rest', stateGroups.rest, withUnpinPreview)}
                   </SidebarRowList>
                 );
               }
@@ -2193,7 +2211,7 @@ export function TopicTree({
             una la fa entrare nel gruppo attivo, e da lì in poi vive lì. */}
         {spaceScoped && loose.length > 0 && (
           <div data-testid="sidebar-loose" className="mt-1">
-            {withUnpinPreview(loose)}
+            {pagedRows('space:loose', loose, withUnpinPreview)}
           </div>
         )}
 

@@ -9,16 +9,19 @@ import { canonicalTmpDir, removeTmpDir } from "./helpers/file-project";
 import { projectIdForPath } from "../../shared/board";
 import { COLUMN_PAGE } from "../../client/src/lib/boardOrder";
 import { hermetic } from "./fixtures/hermetic";
+import { closeProfileMenu, openColumnViewMenu } from "./helpers/open-perf-panel";
+import { mkdirSync } from "fs";
 
 hermetic(test);
 
-/** @covers IDLE-01 */
+/** @covers IDLE-01 IDLE-03 */
 
 const MESSAGE_COUNT = 2_000;
 const DOM_BUDGET = 5_000;
 const PROJECT_PATH = canonicalTmpDir("e2e-dom-node-budget");
 const PROJECT_ID = projectIdForPath(PROJECT_PATH);
 const topicIds: string[] = [];
+const archiveProjectPaths: string[] = [];
 const taskIds: string[] = [];
 let topic = { id: "", name: "", sessionKey: "" };
 
@@ -120,6 +123,7 @@ test.describe.serial("DOM node budget @nightly", () => {
       await Promise.all(taskIds.slice(i, i + 20).map((id) => deleteTask(request, PROJECT_ID, id)));
     }
     for (const id of topicIds) await deleteTopic(request, id);
+    for (const path of archiveProjectPaths) removeTmpDir(path);
     removeTmpDir(PROJECT_PATH);
   });
 
@@ -148,5 +152,72 @@ test.describe.serial("DOM node budget @nightly", () => {
     await expect(page.getByTestId("kanban-column-count-review")).toHaveText("1", { timeout: 30_000 });
     await expect(page.getByTestId("kanban-column-count-done")).toHaveText("26", { timeout: 30_000 });
     await recordBudget(page, testInfo, "transcript-board");
+  });
+
+  test("sidebar con 2.000 chat archiviate e Mostra archiviate acceso entro 5.000 nodi", async ({ page, request }, testInfo) => {
+    testInfo.annotations.push({ type: "spec", description: "IDLE-03 (D2g archived sidebar pages)" });
+    // The 15/10/2026 live database: 1,888 archived chats, 1,244 of them in one
+    // project. Here: two projects and the chats without one.
+    const paths = ["alpha", "beta"].map((name) => canonicalTmpDir(`e2e-d2g-archive-${name}`));
+    archiveProjectPaths.push(...paths);
+    for (const path of paths) mkdirSync(path, { recursive: true });
+    const seeds = Array.from({ length: 2_000 }, (_, index) => {
+      const group = index < 800 ? "Alpha" : index < 1_600 ? "Beta" : "Loose";
+      return { name: `D2g-${group}-${index}`, projectPath: group === "Alpha" ? paths[0] : group === "Beta" ? paths[1] : undefined };
+    });
+    // Raw POSTs, not `createTopic`: that one opens a tab per chat, 2,000 tabs
+    // the archive would then purge. DELETE is the archive.
+    for (let i = 0; i < seeds.length; i += 20) {
+      await Promise.all(seeds.slice(i, i + 20).map(async (seed) => {
+        const created = await request.post(`${E2E_BASE}/api/topics`, { data: seed });
+        if (!created.ok()) throw new Error(`archived topic seed failed: ${created.status()} ${await created.text()}`);
+        const { id } = (await created.json()) as { id: string };
+        const archived = await request.delete(`${E2E_BASE}/api/topics/${id}`, { data: { archived: true } });
+        if (!archived.ok()) throw new Error(`archive seed failed: ${archived.status()} ${await archived.text()}`);
+      }));
+    }
+
+    await request.put(`${E2E_BASE}/api/ui-state/sidebar-state`, {
+      data: { viewMode: "timeline", showArchived: false, expandedNodes: [] },
+    });
+    await goToApp(page);
+    await openColumnViewMenu(page);
+    const archivedToggle = page.getByTestId("topics-menu-archived");
+    await expect(archivedToggle).toHaveAttribute("aria-checked", "false");
+    await archivedToggle.click();
+    await expect(archivedToggle).toHaveAttribute("aria-checked", "true");
+    await closeProfileMenu(page);
+
+    const rows = (group: string) => page.getByRole("treeitem", { name: new RegExp(`^D2g-${group}-`) });
+    const allRows = page.getByRole("treeitem", { name: /^D2g-/ });
+    const expandProjects = async () => {
+      for (const label of paths.map((path) => path.split("/").pop()!)) {
+        const chevron = page.getByRole("button", { name: new RegExp(`^(Expand|Collapse) ${label}$`) });
+        await expect(chevron).toBeVisible({ timeout: 30_000 });
+        if ((await chevron.getAttribute("aria-label")) === `Expand ${label}`) await chevron.click();
+        await expect(page.getByRole("button", { name: `Collapse ${label}` })).toBeVisible();
+      }
+    };
+    await expandProjects();
+    // The budget first: without the page, this is where 2,000 rows go red.
+    for (const group of ["Alpha", "Beta", "Loose"]) await expect(rows(group).first()).toBeVisible({ timeout: 30_000 });
+    await recordBudget(page, testInfo, "archived-sidebar");
+    for (const group of ["Alpha", "Beta", "Loose"]) await expect(rows(group)).toHaveCount(25);
+    const showMore = page.getByTestId("sidebar-show-more-archived");
+    await expect(showMore).toHaveCount(3);
+
+    // A real button inside the tree: the keyboard reaches it and presses it.
+    await showMore.first().focus();
+    await page.keyboard.press("Enter");
+    await expect(allRows).toHaveCount(100);
+
+    // Off and on again: every group starts over at 25.
+    await openColumnViewMenu(page);
+    await archivedToggle.click();
+    await expect(allRows).toHaveCount(0);
+    await archivedToggle.click();
+    await closeProfileMenu(page);
+    await expandProjects();
+    for (const group of ["Alpha", "Beta", "Loose"]) await expect(rows(group)).toHaveCount(25);
   });
 });

@@ -806,6 +806,36 @@ proprio perché rispondono a due domande diverse: «qualcosa è cambiato qui» e
 - **GIVEN** un cambio di scheda
 - **THEN** il contatore locale SHALL salire e il fuoco SHALL essere persistito
 
+### Requirement: IDLE-03 — «Mostra archiviate» draws a page of the archive, not all of it
+
+With «Mostra archiviate» on, every sidebar group (the timeline, a project, a
+worktree section, a state section, a space) SHALL draw at most 25 archived
+chats, the most recent ones, and under them a row that draws 25 more. Every
+other row stays, in the order it had: the page only drops rows. An archived chat
+that is pinned or active SHALL stay visible outside the page. Turning «Mostra
+archiviate» off or on SHALL start every group over at 25, and a search SHALL
+show every match, unpaged.
+
+The live database of 15/10/2026 held 1,888 archived chats, 1,244 of them in one
+project: drawn whole, more than 30,000 DOM nodes against the 5,000 that the page
+at rest is allowed (the budget of IDLE-01, D2 track).
+
+#### Scenario: 2,000 archived chats stay within the DOM budget
+- **GIVEN** 2,000 archived chats across two projects and the chats without one
+- **WHEN** «Mostra archiviate» is on and both projects are open
+- **THEN** the page SHALL hold at most 5,000 DOM nodes
+- **AND** each group SHALL draw 25 archived chats
+
+#### Scenario: the row draws 25 more, and the switch starts over
+- **WHEN** the reader presses the row under a group, with the keyboard
+- **THEN** that group SHALL draw 25 more archived chats
+- **WHEN** «Mostra archiviate» goes off and on again
+- **THEN** every group SHALL draw 25 archived chats again
+
+#### Scenario: a page never reorders the list
+- **GIVEN** a group where archived and live chats interleave
+- **THEN** the rows the page keeps SHALL be in the order they had
+
 ### Requirement: PERFPANEL-01 — Il pannello dice NUMERI, e dice anche quando il numero non c'è
 
 Il pannello SHALL aprirsi dal menu «Topics» e mostrare NUMERI, non chiavi.

@@ -1892,6 +1892,8 @@ const EN = {
   'processes.outcome.unknown': 'unknown outcome',
   'sidebar.expand': 'Reopen the sidebar',
   'sidebar.tree': 'Sidebar',
+  'sidebar.archivedMore.one': 'Show the last archived chat',
+  'sidebar.archivedMore.many': 'Show {count} more archived, {remaining} left',
   'sidebar.pinned': 'Pinned',
   'sidebar.incognito.show': 'Show to the group',
   'sidebar.incognito.hide': 'Make incognito',

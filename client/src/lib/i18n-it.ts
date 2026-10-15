@@ -2117,6 +2117,8 @@ const IT: Dict = {
   // top-left one (design D6).
   'sidebar.expand': 'Riapri la colonna',
   'sidebar.tree': 'Barra laterale',
+  'sidebar.archivedMore.one': "Mostra l'ultima archiviata",
+  'sidebar.archivedMore.many': 'Mostra altre {count} archiviate, ne restano {remaining}',
   'sidebar.pinned': 'Fissato',
   'sidebar.incognito.show': 'Mostra al gruppo',
   'sidebar.incognito.hide': 'Rendi incognito',
