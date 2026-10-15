@@ -203,6 +203,10 @@ const treeScenarios: Array<[string, (root: string) => void]> = [
   ["modified times a few nanoseconds before the next millisecond", (root) => {
     // Bun builds mtimeMs as seconds * 1000 + nanoseconds / 1e6 in a double, and at today's dates
     // that double rounds these files up to the next millisecond: the native side must agree.
+    if (process.platform === "win32") {
+      console.log("SKIP millisecond-boundary parity: Bun on Windows sets this fixture's times to whole milliseconds");
+      return;
+    }
     for (const name of ["a.txt", "b.txt", "c.txt"]) {
       putTreeFile(root, name);
       const seconds = 1760558771 + (743 + 0.99995) / 1000;
