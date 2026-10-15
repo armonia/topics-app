@@ -9,11 +9,19 @@ import { parseBranchHeader, splitBranchHeader } from "../server/lib/git-status";
 import { parsePorcelainZ, repoPrefixOf, scopeToPrefix } from "../server/lib/git-porcelain";
 import { parseNumstatZ } from "../server/lib/git-numstat";
 import { loadNativeModuleAt } from "../server/lib/native-addon";
+import { walkFileTreeJs } from "../server/lib/file-tree";
+import { percentile } from "../scripts/measure-file-tree";
 
-const addonPath = resolve(import.meta.dir, "topics_native.node");
+const addonPath = resolve(process.env.TOPICS_NATIVE_ADDON_PATH ?? resolve(import.meta.dir, "topics_native.node"));
 const native = Bun.file(addonPath).size ? loadNativeModuleAt(addonPath) : null;
 const gitStatus = native?.gitStatus;
 const gitNumstat = native?.gitNumstat;
+const nativeWalkFileTree = native?.walkFileTree;
+
+test("file-tree measurement uses the median pair and nearest-rank p95", () => {
+  expect(percentile([1, 2, 3, 4], 0.5)).toBe(2.5);
+  expect(percentile(Array.from({ length: 20 }, (_, i) => i + 1), 0.95)).toBe(19);
+});
 
 if (!gitStatus) console.log("SKIP native git status parity: build-native-addon.sh has not run");
 
@@ -147,3 +155,67 @@ for (const [name, setup, windowsSkip] of scenarios) {
     }
   });
 }
+
+function putTreeFile(root: string, path: string, body = "fixture\n"): void {
+  const file = join(root, path);
+  mkdirSync(resolve(file, ".."), { recursive: true });
+  writeFileSync(file, body);
+}
+
+const treeScenarios: Array<[string, (root: string) => void]> = [
+  ["root ignore globs and negations", (root) => {
+    putTreeFile(root, ".gitignore", "*.log\n!keep.log\n");
+    putTreeFile(root, "drop.log"); putTreeFile(root, "keep.log");
+  }],
+  ["nested ignore rules", (root) => {
+    putTreeFile(root, "src/.gitignore", "generated/\n!generated/keep.txt\n");
+    putTreeFile(root, "src/generated/drop.txt"); putTreeFile(root, "src/generated/keep.txt");
+  }],
+  ["heavy directories", (root) => {
+    putTreeFile(root, "node_modules/pkg/index.js"); putTreeFile(root, "target/debug/file"); putTreeFile(root, "src/main.ts");
+  }],
+  ["symbolic links", (root) => {
+    putTreeFile(root, "target.txt");
+    if (process.platform !== "win32") symlinkSync("target.txt", join(root, "link.txt"));
+  }],
+  ["spaces and accented names", (root) => {
+    putTreeFile(root, "spazio nome.txt"); putTreeFile(root, "caffè.txt"); putTreeFile(root, "cafe\u0301.txt");
+  }],
+  ["default exclusions", (root) => {
+    mkdirSync(join(root, ".git")); putTreeFile(root, ".git/config"); putTreeFile(root, ".DS_Store"); putTreeFile(root, "visible.txt");
+  }],
+  ["reserved secret directory", (root) => {
+    putTreeFile(root, ".topics-secrets/key"); putTreeFile(root, "visible.txt");
+  }],
+  ["directory-only ignore", (root) => {
+    putTreeFile(root, ".gitignore", "cache/\n"); putTreeFile(root, "cache/file.txt"); putTreeFile(root, "cache.txt");
+  }],
+  ["requested depth", (root) => {
+    putTreeFile(root, "one/two/three/four.txt"); putTreeFile(root, "one/near.txt");
+  }],
+  ["protected media package", (root) => {
+    putTreeFile(root, "Photos.photoslibrary/private/photo.jpg"); putTreeFile(root, "visible.txt");
+  }],
+  ["hidden files remain visible", (root) => {
+    putTreeFile(root, ".env.local"); putTreeFile(root, ".well-known/config");
+  }],
+];
+
+test.skipIf(!nativeWalkFileTree)("native file tree matches JavaScript on ten fixture trees and this checkout", async () => {
+  for (const [name, setup] of treeScenarios) {
+    const base = scratch();
+    const root = join(base, "tree");
+    try {
+      mkdirSync(root, { recursive: true });
+      setup(root);
+      const expected = await walkFileTreeJs(root, 4);
+      const actual = await nativeWalkFileTree!(root, 4);
+      expect(actual, name).toEqual(expected);
+    } finally {
+      rmSync(base, { recursive: true, force: true });
+    }
+  }
+
+  const root = resolve(import.meta.dir, "..");
+  expect(await nativeWalkFileTree!(root, 3)).toEqual(await walkFileTreeJs(root, 3));
+});

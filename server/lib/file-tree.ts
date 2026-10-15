@@ -5,6 +5,8 @@ import { IgnoreSet } from "./gitignore";
 import { isTopicsSecretPath } from "./topics-secret-path";
 import { isProtectedFromWalk } from "./protected-app-data";
 import type { FileNode } from "../../shared/file-tree";
+import { loadNativeModule } from "./native-addon";
+import { homeDir } from "./broad-cwd";
 
 /**
  * The folders no walk or search should enter: build output and caches, all
@@ -25,6 +27,28 @@ export const HEAVY_DIRS = new Set([
 const DEFAULT_EXCLUDES = new Set([".git", ".DS_Store"]);
 
 export type { FileNode };
+
+const FILE_TREE_SLOW_MS = 200;
+const FILE_TREE_REPEAT_MS = 60_000;
+
+export function createFileTreeSlowLogger(opts: {
+  now?: () => number;
+  log?: (line: string) => void;
+} = {}): (durationMs: number) => void {
+  const now = opts.now ?? (() => performance.now());
+  const log = opts.log ?? ((line) => console.warn(line));
+  let lastLoggedAt = Number.NEGATIVE_INFINITY;
+  return (durationMs) => {
+    const at = now();
+    if (durationMs <= FILE_TREE_SLOW_MS || at - lastLoggedAt < FILE_TREE_REPEAT_MS) return;
+    log(`[FILE-TREE] ${Math.round(durationMs)}ms`);
+    lastLoggedAt = at;
+  };
+}
+
+const logSlowWalk = createFileTreeSlowLogger();
+let nativeFallbackCount = 0;
+let lastFallbackLogAt = Number.NEGATIVE_INFINITY;
 
 // A folder's .gitignore added to the ones above it; the matching rules live in
 // `lib/gitignore.ts`.
@@ -48,7 +72,7 @@ function readIgnore(dir: string, base: string, parent?: IgnoreSet): IgnoreSet {
 }
 
 /** The tree behind `GET /api/files`: `root` down to `depth` levels. */
-export async function walkFileTree(root: string, depth: number): Promise<FileNode[]> {
+export async function walkFileTreeJs(root: string, depth: number): Promise<FileNode[]> {
   // Async walk (fs.promises): the old readdirSync + per-entry statSync ran
   // inside the request handler and stalled Bun's single event loop for the
   // whole scan — a large directory (monorepo folder) queued every other
@@ -95,4 +119,34 @@ export async function walkFileTree(root: string, depth: number): Promise<FileNod
     }
   }
   return readDirRecursive(root, 1, "", readIgnore(root, ""));
+}
+
+/** The native walker runs off the event loop; JS remains the portable fallback. */
+export async function walkFileTree(root: string, depth: number): Promise<FileNode[]> {
+  const started = performance.now();
+  try {
+    const nativeWalk = loadNativeModule()?.walkFileTree;
+    if (nativeWalk) {
+      try {
+        return await nativeWalk(root, depth, homeDir());
+      } catch (error) {
+        nativeFallbackCount++;
+        const now = performance.now();
+        if (now - lastFallbackLogAt >= FILE_TREE_REPEAT_MS) {
+          console.warn(`[FILE-TREE] native fallback #${nativeFallbackCount}: ${error instanceof Error ? error.message : String(error)}`);
+          lastFallbackLogAt = now;
+        }
+      }
+    } else {
+      nativeFallbackCount++;
+      const now = performance.now();
+      if (now - lastFallbackLogAt >= FILE_TREE_REPEAT_MS) {
+        console.warn(`[FILE-TREE] native fallback #${nativeFallbackCount}: addon unavailable`);
+        lastFallbackLogAt = now;
+      }
+    }
+    return await walkFileTreeJs(root, depth);
+  } finally {
+    logSlowWalk(performance.now() - started);
+  }
 }
