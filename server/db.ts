@@ -3,6 +3,7 @@ import { readFileSync, readdirSync, existsSync, mkdirSync } from "fs";
 import { join } from "path";
 import type { EmbeddedMigration } from "./db/migrations-embedded";
 import { resolveDataDir } from "./lib/data-dir";
+import { instrumentSlowStatements } from "./lib/db-slow-log";
 
 let _db: Database | null = null;
 
@@ -49,6 +50,10 @@ export function initDatabase(baseDir: string, dataRoot: string = baseDir): Datab
     db.close();
     throw error;
   }
+
+  // After the migrations: a long migration at boot is expected, a slow
+  // statement while serving is what the log has to name.
+  instrumentSlowStatements(db);
 
   // Expose the singleton only after initialization succeeds: a retry after
   // an error must run the pending migrations instead of bypassing them.
