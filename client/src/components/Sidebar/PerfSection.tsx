@@ -1,4 +1,4 @@
-import { useEffect, useMemo } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Activity, HardDrive } from 'lucide-react';
 import { useFps, useFpsHistory, type FpsSample } from '@/lib/fpsMonitor';
 import { formatCpuPercent, usePerfMetrics } from '@/hooks/usePerfMetrics';
@@ -15,6 +15,7 @@ import { formatMemoryMB } from '@/lib/formatMemory';
 import { setNativePaneMemoryEvictionEnabled, useNativePaneMemoryEvictionEnabled, useNativePaneMemoryPressure } from '@/state/nativePaneMemory';
 import { setNativeGitStatusEnabled, useNativeGitStatusEnabled } from '@/state/nativeGitStatus';
 import { SwitchRow } from './PreferenceRow';
+import { loadSettings, saveSettings, SETTINGS_CHANGED_EVENT } from '@/lib/settings';
 
 /**
  * HOW EACH MEASURED ROW STANDS AGAINST THE TOTAL WRITTEN ABOVE IT.
@@ -125,6 +126,12 @@ function PerfStat({ label, value, sub, color, title, className }: { label: strin
  */
 export function PerfSection() {
   const tr = useT();
+  const [rustBridgeEnabled, setRustBridgeEnabled] = useState(() => loadSettings().rustPtyBridgeEnabled);
+  useEffect(() => {
+    const update = () => setRustBridgeEnabled(loadSettings().rustPtyBridgeEnabled);
+    window.addEventListener(SETTINGS_CHANGED_EVENT, update);
+    return () => window.removeEventListener(SETTINGS_CHANGED_EVENT, update);
+  }, []);
   // WHICH FOLDERS ARE PROJECTS, from the topics that name one. The server can
   // attribute a session to a working directory, and a working directory is not
   // a project just because something runs in it: measured on the live machine,
@@ -274,17 +281,11 @@ export function PerfSection() {
       {status?.server.ptyBridge && (() => {
         const bridge = status.server.ptyBridge;
         const name = tr(`perf.ptyBridge.${bridge.implementation}`);
-        const reasonKey = bridge.reason === 'existing socket bridge reused' ? 'reused'
-          : bridge.reason === 'explicit bridge override' ? 'override'
-          : bridge.reason === 'checkout Rust bridge is built' ? 'checkout'
-          : bridge.reason === 'bridge not connected' ? 'notConnected'
-          : bridge.reason === 'bridge disconnected' ? 'disconnected'
-          : 'fallback';
         return <div
           data-testid="perf-pty-bridge"
           title={[bridge.connected ? tr('perf.ptyBridge.connected') : tr('perf.ptyBridge.disconnected'), bridge.path].filter(Boolean).join('\n')}
           className="px-0.5 text-mini text-app-text-muted"
-        >{tr('perf.ptyBridge.line', { name, reason: tr(`perf.ptyBridge.reason.${reasonKey}`) })}</div>;
+        >{tr('perf.ptyBridge.line', { name, reason: tr(`perf.ptyBridge.reason.${bridge.reason}`) })}</div>;
       })()}
 
       {/* TRE DOMANDE, IN QUEST'ORDINE. Prima erano nove blocchi di numeri con
@@ -478,6 +479,17 @@ export function PerfSection() {
         onChange={setNativeGitStatusEnabled}
         testId="perf-native-git-status"
       />
+      {(() => {
+        const bridge = status?.server.ptyBridge;
+        const name = tr(`perf.ptyBridge.${bridge?.implementation ?? 'unknown'}`);
+        return <SwitchRow
+          label={tr('perf.ptyBridge.setting')}
+          hint={tr('perf.ptyBridge.state', { name, reason: tr(`perf.ptyBridge.reason.${bridge?.reason ?? 'notConnected'}`), next: tr('perf.ptyBridge.nextStart') })}
+          checked={rustBridgeEnabled}
+          onChange={(checked) => saveSettings({ ...loadSettings(), rustPtyBridgeEnabled: checked })}
+          testId="perf-rust-pty-bridge"
+        />;
+      })()}
     </div>
   );
 }

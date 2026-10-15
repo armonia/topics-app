@@ -152,6 +152,8 @@ test("ping identifica l'implementazione che risponde", async () => {
   c.send({ type: "ping" });
   const pong = await c.waitFor((f) => f.type === "pong");
   expect(pong?.implementation).toBe(RUST_BRIDGE ? "rust" : "node");
+  expect(pong).toHaveProperty("session");
+  expect(pong?.session === null || typeof pong?.session === "string").toBe(true);
 });
 
 /** `kill -0`: vero anche per uno zombie, e va bene — l'`exit` arriva dopo la reap. */

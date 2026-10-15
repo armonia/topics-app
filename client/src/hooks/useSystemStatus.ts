@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { BOOT_READ_TTL_MS, coalescedFetch } from '../lib/coalesceFetch';
 import { isDocumentVisible, startVisibleInterval } from '../state/documentVisibility';
+import type { PtyBridgeReason } from '../../../shared/pty-bridge';
 
 export type GatewayStatus = "online" | "offline" | "timeout" | "connection_refused" | "server_error" | "auth_error";
 
@@ -81,7 +82,7 @@ export interface SystemStatus {
     devReload?: boolean;
     ptyBridge?: {
       implementation: 'rust' | 'node' | 'unknown';
-      reason: string;
+      reason: PtyBridgeReason;
       path: string | null;
       connected: boolean;
     };

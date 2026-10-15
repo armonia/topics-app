@@ -31,3 +31,21 @@
 ## Rifiutato
 
 - Nessuna sessione viene terminata o migrata a caldo. Il Rust entra al primo avvio senza bridge vivo.
+
+## Giro 2
+
+- Rust spento di default: serve `settings.rustPtyBridgeEnabled`, e vale dal prossimo avvio del
+  bridge (un socket vivo resta riusato). L'override esplicito resta prioritario. Un binario assente
+  o più vecchio di `src/**`, `Cargo.toml` o `Cargo.lock` lascia Node, e il motivo lo dice. Il
+  checkout di produzione ha un binario del 7 luglio: con il giro 1 sarebbe partito quello.
+- Il pong del Rust porta `session` (`launchctl managername` su macOS, `null` altrove) come quello
+  Node: senza, il server perdeva il controllo del bridge fuori dalla sessione grafica. Il test
+  comune lo controlla sui due bridge; la mutazione senza il campo lo rende rosso (1 fail).
+- Prove: `bun test server/routes/terminal.standalone.test.ts tests/integration/pty-bridge-mjs.test.ts`
+  14 pass sul Node; lo stesso test contro il binario Rust 6 pass; `cargo test` del bridge 7 pass;
+  typecheck, typecheck:e2e, lint e i cancelli statici verdi. La scelta del bridge sta in
+  `server/lib/pty-bridge-selection.ts`, con le unit su file finti e mtime impostate.
+- In revisione: il pannello traduceva il motivo confrontando le frasi inglesi del server, in due
+  punti diversi, e la riga di stato non conosceva «spento»: col default avrebbe scritto «Rust non
+  compilato». Ora il motivo è un codice tipato (`shared/pty-bridge.ts`) e il pannello lo usa come
+  chiave dei cataloghi.

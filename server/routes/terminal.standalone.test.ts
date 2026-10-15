@@ -10,8 +10,12 @@
 // This test proves exactly that — with the flag set, ensureBridge opens no socket.
 
 import { test, expect, spyOn, afterEach } from "bun:test";
+import fs from "node:fs";
 import net from "net";
-import { ensureBridge, getPtyBridgeRuntimeStatus, isPtyBridgeDisabled, resolvePtyBridgeCommand, _setPtyBridgeSocketPath, _suppressPtyBridgeReconnectForTest } from "./terminal";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { choosePtyBridgeCommand, newestFileMtime, resolvePtyBridgeCommand } from "../lib/pty-bridge-selection";
+import { ensureBridge, getPtyBridgeRuntimeStatus, isPtyBridgeDisabled, _setPtyBridgeSocketPath, _suppressPtyBridgeReconnectForTest } from "./terminal";
 
 const FLAGS = ["TOPICS_DISABLE_PTY_BRIDGE", "TOPICS_EMBEDDED"] as const;
 // TOPICS_NODE_BIN / TOPICS_PTY_BRIDGE_PATH (the removed legacy Node bridge) are kept
@@ -64,12 +68,33 @@ test("the removed legacy Node bridge envs no longer re-enable terminals", () => 
 });
 
 test("TOPICS_PTY_BRIDGE_BIN ha precedenza e seleziona il bridge esplicito", () => {
-  process.env.TOPICS_PTY_BRIDGE_BIN = "/tmp/selected-rust-bridge";
-  expect(resolvePtyBridgeCommand()).toMatchObject({
+  expect(resolvePtyBridgeCommand("/tmp/selected-rust-bridge")).toMatchObject({
     cmd: "/tmp/selected-rust-bridge",
     implementation: "rust",
-    reason: "explicit bridge override",
+    reason: "override",
   });
+});
+
+test("la scelta del bridge Rust richiede opt-in e binario aggiornato", () => {
+  const dir = fs.mkdtempSync(join(tmpdir(), "pty-bridge-selection-"));
+  const binary = join(dir, "bridge");
+  const source = join(dir, "src.rs");
+  fs.writeFileSync(binary, "binary");
+  fs.writeFileSync(source, "source");
+  try {
+    fs.utimesSync(binary, 1_700_000_000, 1_700_000_000);
+    fs.utimesSync(source, 1_700_000_001, 1_700_000_001);
+    const base = { override: null, checkoutBinary: binary, binaryMtimeMs: fs.statSync(binary).mtimeMs, newestSourceMtimeMs: newestFileMtime([source]), nodePath: "/repo/server/pty-bridge.mjs" };
+    expect(choosePtyBridgeCommand({ ...base, enabled: false })).toMatchObject({ implementation: "node", reason: "disabled" });
+    expect(choosePtyBridgeCommand({ ...base, enabled: true, checkoutBinary: null, binaryMtimeMs: null })).toMatchObject({ implementation: "node", reason: "notBuilt" });
+    expect(choosePtyBridgeCommand({ ...base, enabled: true })).toMatchObject({ implementation: "node", reason: "stale" });
+    fs.utimesSync(binary, 1_700_000_002, 1_700_000_002);
+    const fresh = { ...base, binaryMtimeMs: fs.statSync(binary).mtimeMs };
+    expect(choosePtyBridgeCommand({ ...fresh, enabled: true })).toMatchObject({ cmd: binary, implementation: "rust" });
+    expect(choosePtyBridgeCommand({ ...fresh, enabled: false, override: "/explicit/bridge" })).toMatchObject({ cmd: "/explicit/bridge", implementation: "rust", reason: "override" });
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
 });
 
 for (const flag of FLAGS) {
@@ -105,7 +130,7 @@ test("ensureBridge riusa un socket vivo anche quando è selezionato il bridge Ru
     await ensureBridge();
     expect(getPtyBridgeRuntimeStatus()).toMatchObject({
       implementation: "unknown",
-      reason: "existing socket bridge reused",
+      reason: "reused",
       connected: true,
     });
   } finally {

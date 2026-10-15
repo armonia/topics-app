@@ -2,9 +2,10 @@ import type { AppContext, RouteHandler } from "../types";
 import type { TerminalSessionType } from "../../shared/terminal-session-types";
 import { encodeExitReason, ROSTER_RECONCILED_HEADER, STANDALONE_NO_PTY_CODE, TERMINAL_INPUT_DROPPED, TERMINAL_ROSTER_WARMING_CODE, TERMINAL_ROSTER_WARMING_RETRY_AFTER_S, TERMINAL_WS_CLOSE_DORMANT } from "../../shared/terminal-messages";
 import { spawn } from "child_process";
-import { resolve, basename, dirname, join } from "path";
+import { basename, dirname, join } from "path";
 import { createInterface } from "readline";
 import { getDatabase } from "../db";
+import { ptyBridgeOverride, resolvePtyBridgeCommand } from "../lib/pty-bridge-selection";
 import { warnThrottled } from "../lib/warn-throttled";
 import { shouldCompressFrame } from "../lib/ws-compression";
 import { createHash } from "crypto";
@@ -16,6 +17,7 @@ import { augmentPath, realHome } from "../utils/path-env";
 // runtime-dep-ok: a static import, not a spawn. The compiled server bundles this
 // module like any other, so there is no loose .mjs to miss and no runtime to run it.
 import { bridgeOutsideGuiSession, guiSessionName } from "../pty-bridge-platform.mjs";
+import type { PtyBridgeReason } from "../../shared/pty-bridge";
 import { resolveCodexBin } from "../lib/codex-bin";
 import { envDataDir } from "../lib/data-dir";
 import { resolveClaudeBin } from "../lib/claude-bin";
@@ -558,50 +560,17 @@ let bridgeReady = false;
 let bridgeConnecting = false;
 let bridgeReadyResolvers: (() => void)[] = [];
 let suppressBridgeReconnectForTest = false;
-let activeBridge: { implementation: "rust" | "node" | "unknown"; reason: string; path: string | null } = {
+let activeBridge: { implementation: "rust" | "node" | "unknown"; reason: PtyBridgeReason; path: string | null } = {
   implementation: "unknown",
-  reason: "bridge not connected",
+  reason: "notConnected",
   path: null,
 };
 
 export interface PtyBridgeRuntimeStatus {
   implementation: "rust" | "node" | "unknown";
-  reason: string;
+  reason: PtyBridgeReason;
   path: string | null;
   connected: boolean;
-}
-
-function checkoutRustBridgePath(): string | null {
-  const root = resolve(import.meta.dir, "../../desktop-tauri/src-tauri/binaries");
-  if (process.platform === "darwin") return join(root, "pty-bridge-universal-apple-darwin");
-  if (process.platform === "linux" && process.arch === "x64") return join(root, "pty-bridge-x86_64-unknown-linux-gnu");
-  if (process.platform === "win32" && process.arch === "x64") return join(root, "pty-bridge-x86_64-pc-windows-msvc.exe");
-  return null;
-}
-
-function checkoutRustBridgeIsBuilt(path: string): boolean {
-  try {
-    const info = fs.statSync(path);
-    if (!info.isFile() || info.size === 0) return false;
-    if (process.platform !== "win32") fs.accessSync(path, fs.constants.X_OK);
-    return true;
-  } catch {
-    return false;
-  }
-}
-
-/** Precedence is intentional: shell override, checkout artifact, then legacy Node. */
-export function resolvePtyBridgeCommand(): { cmd: string; args: string[]; implementation: "rust" | "node"; reason: string; path: string | null } {
-  const override = process.env.TOPICS_PTY_BRIDGE_BIN;
-  if (override) return { cmd: override, args: [], implementation: "rust", reason: "explicit bridge override", path: override };
-
-  const checkoutBinary = checkoutRustBridgePath();
-  if (checkoutBinary && checkoutRustBridgeIsBuilt(checkoutBinary)) {
-    return { cmd: checkoutBinary, args: [], implementation: "rust", reason: "checkout Rust bridge is built", path: checkoutBinary };
-  }
-
-  const nodePath = resolve(import.meta.dir, "../pty-bridge.mjs");
-  return { cmd: "node", args: [nodePath], implementation: "node", reason: "Rust bridge is not built", path: nodePath };
 }
 
 export function getPtyBridgeRuntimeStatus(): PtyBridgeRuntimeStatus {
@@ -816,7 +785,7 @@ export function bridgeFailureDetail(i: {
  * so the plain standalone kill-switch path is unchanged.
  */
 function bundledBridge(): { cmd: string; args: string[] } | null {
-  const rustBin = process.env.TOPICS_PTY_BRIDGE_BIN;
+  const rustBin = ptyBridgeOverride();
   if (rustBin) return { cmd: rustBin, args: [] };
   return null;
 }
@@ -838,8 +807,8 @@ function bundledBridge(): { cmd: string; args: string[] } | null {
  * spellings: TOPICS_DISABLE_PTY_BRIDGE (precise) and TOPICS_EMBEDDED (the broader
  * "self-contained bundle" flag) — either enables standalone mode.
  */
-export function isPtyBridgeDisabled(): boolean {
-  if (bundledBridge()) return false;
+export function isPtyBridgeDisabled(bridge = bundledBridge()): boolean {
+  if (bridge) return false;
   return process.env.TOPICS_DISABLE_PTY_BRIDGE === "1" || process.env.TOPICS_EMBEDDED === "1";
 }
 
@@ -862,10 +831,11 @@ function ptyBridgeUnavailable(): Response {
 // Exported ONLY for the standalone-gate unit test (assert no connect/spawn when the
 // flag is set). Not part of the router's public surface otherwise.
 export async function ensureBridge(): Promise<void> {
+  const bundled = bundledBridge();
   // Standalone bundle: no external bridge, ever. Returning here makes every call
   // site inert (startup reconcile, reconnect handlers, per-request ensures), so no
   // socket is ever opened and reconcileSessions can never send a `kill`.
-  if (isPtyBridgeDisabled()) return;
+  if (isPtyBridgeDisabled(bundled)) return;
   if (bridgeReady && bridgeSocket && !bridgeSocket.destroyed) return;
   if (bridgeConnecting) {
     // Wait for the in-flight connection attempt
@@ -878,7 +848,7 @@ export async function ensureBridge(): Promise<void> {
     // Try connecting to existing bridge
     const connected = await tryConnect();
     if (connected) {
-      activeBridge = { implementation: "unknown", reason: "existing socket bridge reused", path: null };
+      activeBridge = { implementation: "unknown", reason: "reused", path: null };
       bridgeConnecting = false;
       bridgeReadyResolvers.forEach(r => r());
       bridgeReadyResolvers = [];
@@ -888,7 +858,6 @@ export async function ensureBridge(): Promise<void> {
     // No bridge running — use the explicit shell bridge, a built checkout Rust
     // binary, or the Node fallback. augmentPath() gives the child the same
     // PATH-hardening every PTY spawn gets, so launchd's minimal PATH still resolves deps.
-    const bb = bundledBridge();
     // runtime-dep-ok: the `node` branch is UNREACHABLE in an installed app, and
     // structurally so, not by luck. The Tauri shell sets TOPICS_EMBEDDED=1, and
     // isPtyBridgeDisabled() returns early for every embedded run that has no
@@ -896,11 +865,11 @@ export async function ensureBridge(): Promise<void> {
     // no terminals at all (503, with a code the client explains). This line only
     // ever runs from a checkout, where the sibling script and its runtime are
     // both by definition present.
-    const selection = bb
-      ? { ...bb, implementation: "rust" as const, reason: "explicit bridge override", path: bb.cmd }
+    const selection = bundled
+      ? { ...bundled, implementation: "rust" as const, reason: "override" as const, path: bundled.cmd }
       : resolvePtyBridgeCommand();
     const { cmd, args: baseArgs } = selection;
-    activeBridge = { implementation: selection.implementation, reason: selection.reason, path: selection.path };
+    activeBridge = { implementation: "unknown", reason: selection.reason, path: selection.path };
     // Bridge stderr goes to a LOG FILE, never 'inherit'. Inheriting makes
     // `detached` a lie: the bridge outlives us still holding OUR stderr open,
     // so anything reading this process through a pipe (`| tee`, a test runner)
@@ -1031,7 +1000,7 @@ function setupSocketReader(socket: net.Socket) {
   socket.on('close', () => {
     bridgeReady = false;
     bridgeSocket = null;
-    activeBridge = { implementation: "unknown", reason: "bridge disconnected", path: null };
+    activeBridge = { implementation: "unknown", reason: "disconnected", path: null };
     console.log(suppressBridgeReconnectForTest
       ? "[Terminal] Bridge socket closed"
       : "[Terminal] Bridge socket closed, will reconnect on next use");

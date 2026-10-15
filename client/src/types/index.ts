@@ -1542,6 +1542,8 @@ export interface PanelGridRow {
  *  `server/services/app-settings.ts`, che è la config dei provider AI
  *  (modello, max tokens, effort) e non ha un campo in comune con questo. */
 export interface AppSettings {
+  /** Rust PTY bridge opt-in. Disabled by default until its checkout binary is reviewed. */
+  rustPtyBridgeEnabled: boolean;
   fontSize: number;       // 12-18
   messageDensity: 'compact' | 'comfortable';
   sidebarWidth: number;   // 180-400

@@ -30,6 +30,7 @@ export const SETTINGS_HOMES: Record<keyof AppSettings, readonly SettingSurface[]
   showBoardRow: ['user-menu/view'],
   showLiveTerminals: ['user-menu/view'],
   keepLiveSites: ['user-menu/system/performance'],
+  rustPtyBridgeEnabled: ['user-menu/system/performance'],
   sidebarWidth: ['sidebar-column'],
   sidebarCollapsed: ['sidebar-column'],
   sidebarWidthExpanded: ['sidebar-column'],

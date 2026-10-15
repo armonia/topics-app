@@ -2,6 +2,7 @@ import type { AppSettings } from '../types';
 import { apiFetch } from './shell/net';
 
 export const DEFAULT_SETTINGS: AppSettings = {
+  rustPtyBridgeEnabled: false,
   fontSize: 13,
   messageDensity: 'comfortable',
   sidebarWidth: 256,
