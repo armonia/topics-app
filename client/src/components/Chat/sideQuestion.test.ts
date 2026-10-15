@@ -1,3 +1,6 @@
+/**
+ * @covers CMD-10
+ */
 import { describe, expect, test } from "bun:test";
 import { askSideQuestion } from "./sideQuestion";
 
