@@ -117,3 +117,47 @@ test("a guest holding the chat does not learn the size of a picture it cannot fe
     ctx.setGuestBroadcastFilter(null);
   }
 });
+
+test("a frame routed to a topic's subscribers keeps the guest rules of the global fan-out", () => {
+  mkdirSync(ctx.UPLOADS_DIR, { recursive: true });
+  writeFileSync(join(ctx.UPLOADS_DIR, "owner-private.png"), pngHeader(1234, 567));
+  const topicId = "guest-topic-frames";
+  const sessionKey = "guest-topic-frames";
+  const guest = { kind: "device" as const, id: "guest-topic-device" };
+  putGrant(ctx.db, guest, "topic", topicId, { grantedAt: 1 });
+  ctx.setGuestBroadcastFilter({
+    mayReceiveFrame(deviceId, message) {
+      const type = (message as { type?: unknown }).type;
+      if (typeof type !== "string" || !isGuestSafeFrameType(type)) return false;
+      const resource = frameResource(message);
+      return !!resource && hasGrant(ctx.db, deviceP(deviceId), resource.type, resource.id);
+    },
+    mayReadTopic: (deviceId, id) => hasGrant(ctx.db, deviceP(deviceId), "topic", id),
+  });
+  const received = new Map<string, string[]>();
+  const socket = (id: string, data: Partial<WSData>) => {
+    received.set(id, []);
+    const ws = {
+      data: { id, focusedTopicId: null, lastPong: 0, openTopicIds: new Set<string>([topicId]), ...data } as WSData,
+      readyState: 1,
+      send(payload: string) { received.get(id)!.push(String(payload)); return 1; },
+    };
+    ctx.wsClients.add(ws as unknown as ServerWebSocket<WSData>);
+    return ws;
+  };
+  const owner = socket("owner", { deviceId: null, deviceRole: null });
+  const guestWs = socket("guest", { deviceId: guest.id, deviceRole: "guest" });
+  try {
+    ctx.broadcastToAll({ type: "stream:content_chunk", sessionKey, topicId, content: "x" });
+    ctx.broadcastToAll({ type: "stream:usage", sessionKey, topicId, calls: 1, promptTokens: 1, completionTokens: 1, cacheReadTokens: 0, cacheCreationTokens: 0, cacheCreation1hTokens: 0 });
+    ctx.broadcastToAll({ type: "stream:tool_permission_required", sessionKey, topicId, toolCallId: "tc1", request: { toolName: "Bash", requestedAt: 1, input: { command: "ls" } } });
+    ctx.broadcastToAll({ type: "message:media", sessionKey, topicId, media: ["/uploads/owner-private.png"] });
+    const types = (id: string) => (received.get(id) ?? []).map((p) => (JSON.parse(p) as { type: string }).type);
+    expect(types("owner"), "control: the subscribed owner receives every frame").toEqual(["stream:content_chunk", "stream:usage", "stream:tool_permission_required", "message:media"]);
+    expect(types("guest"), "a guest receives only the frame types shared with guests").toEqual(["stream:content_chunk"]);
+  } finally {
+    ctx.wsClients.delete(owner as unknown as ServerWebSocket<WSData>);
+    ctx.wsClients.delete(guestWs as unknown as ServerWebSocket<WSData>);
+    ctx.setGuestBroadcastFilter(null);
+  }
+});

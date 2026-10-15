@@ -1051,15 +1051,13 @@ export function createAppContext(baseDir: string): AppContext {
     const presentedMessage = presentTopicInOutboundMessage(withFrameMediaSizes(message));
     devValidateOutbound(presentedMessage);
     const frame = presentedMessage as OutboundMessage & { topicId?: unknown; sessionKey?: unknown };
-    if (OUTBOUND_FRAME_CLASSES[frame.type as keyof typeof OUTBOUND_FRAME_CLASSES] === "topic") {
-      const topicId = typeof frame.topicId === "string"
+    // A topic frame reaches only the windows holding that topic. It goes through the same loop as
+    // every other frame, so the guest rules below still decide what a guest receives.
+    const topicId = OUTBOUND_FRAME_CLASSES[frame.type as keyof typeof OUTBOUND_FRAME_CLASSES] !== "topic"
+      ? undefined
+      : typeof frame.topicId === "string"
         ? frame.topicId
         : typeof frame.sessionKey === "string" ? getTopicBySessionKey(frame.sessionKey)?.id : undefined;
-      if (topicId) {
-        broadcastToTopicSubscribers(topicId, presentedMessage);
-        return;
-      }
-    }
     const payload = JSON.stringify(presentedMessage);
     // Un OSPITE non riceve tutto. Il gate controlla le RICHIESTE, e un broadcast
     // non è una richiesta: senza questo filtro un ospite col socket aperto
@@ -1074,6 +1072,7 @@ export function createAppContext(baseDir: string): AppContext {
     let guestPayload: string | undefined;
     for (const ws of wsClients) {
       if (ws.readyState !== 1) continue;
+      if (topicId && !clientReceivesTopicDelta(ws.data, topicId)) continue;
       const guest = guests && isGuestSocket(ws);
       if (guest && !guests.mayReceiveFrame(ws.data.deviceId!, presentedMessage)) continue;
       // Built once per fan-out, and only when a guest is reached.
