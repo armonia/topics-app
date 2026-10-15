@@ -70,3 +70,8 @@
 ### Rifiutato
 
 - `preview-guard-headers.spec.ts:30`: rosso singolo che passa al retry, escluso da questo giro come indicato nel brief.
+
+## Revisione del giro 2
+
+- Nel job e2e della PR (run 38699520476) `split-reorg-budget.spec.ts:279` e `:516` erano ancora rossi, ai retry: cercavano il guscio della pane (`data-pane-shell`) col nuovo id. Il guscio porta `stableKey ?? id`, e la migrazione tiene il vecchio id in `stableKey`: è proprio questo che tiene montata la pane dopo la rinomina. Ora la tab si cerca col nuovo id e il guscio col vecchio (`shell()` nei due test), con un commento che dice perché. Se un giorno la migrazione perdesse `stableKey`, il guscio cambierebbe chiave e questi due test lo direbbero.
+- Clip `split-reorg-budget.spec.ts`, run 38706666257: verde.
