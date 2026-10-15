@@ -150,6 +150,9 @@ export default function DomCoBrowse({ registerDomSink, registerFocusSink, sendIn
   const scrollAccRef = useRef<{ dx: number; dy: number; x: number; y: number; timer: ReturnType<typeof setTimeout> | null }>(
     { dx: 0, dy: 0, x: 0, y: 0, timer: null },
   );
+  const scrollSeqRef = useRef(0);
+  // Whose relays these are: the source answers the last one it got, from whichever device.
+  const scrollFromRef = useRef(Math.random().toString(36).slice(2, 10));
   const touchRef = useRef<{ x: number; y: number; travel: number; moves: { t: number; dx: number; dy: number }[] } | null>(null);
   /**
    * This device scrolling the mirror itself (BROWSER-DOM-SCROLL-01): the element
@@ -275,9 +278,14 @@ export default function DomCoBrowse({ registerDomSink, registerFocusSink, sendIn
       acc.dy = 0;
       // Laid out on its own, what was under the wheel is named too: the source has it elsewhere.
       const target = aimAt({ x: fx, y: fy })?.node;
-      if (fdx || fdy) sendInput('scroll', { x: fx, y: fy, deltaX: fdx, deltaY: fdy, target, ...takeLocalPlace() });
+      if (fdx || fdy) {
+        const scrollSeq = ++scrollSeqRef.current;
+        const scrollFrom = scrollFromRef.current;
+        echoHold.forwarded(scrollSeq, scrollFrom);
+        sendInput('scroll', { x: fx, y: fy, deltaX: fdx, deltaY: fdy, target, scrollSeq, scrollFrom, ...takeLocalPlace() });
+      }
     }, SCROLL_RELAY_INTERVAL);
-  }, [sendInput, takeLocalPlace, aimAt]);
+  }, [sendInput, takeLocalPlace, aimAt, echoHold]);
 
   /**
    * Scroll the mirror here by (dx, dy) source px at (x, y), ahead of the source
