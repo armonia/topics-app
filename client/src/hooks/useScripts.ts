@@ -2,6 +2,7 @@ import { useEffect, useRef, useSyncExternalStore } from 'react';
 import { scriptsApi } from '../lib/api';
 import type { ScriptProcessInfo } from '../lib/api';
 import type { WSMessage } from '../types';
+import { DEFAULT_VISIBLE_INTERVAL_ENV, startVisibleInterval, type VisibleIntervalEnv } from '../state/documentVisibility';
 
 const POLL_VISIBLE = 3000;
 const POLL_BACKGROUND = 15000;
@@ -11,8 +12,16 @@ const POLL_BACKGROUND = 15000;
 
 let scripts: ScriptProcessInfo[] = [];
 const listeners = new Set<() => void>();
-let pollTimer: ReturnType<typeof setInterval> | null = null;
+/** Stops the poll; null when none runs. The poll sleeps while the page is hidden. */
+let stopPoll: (() => void) | null = null;
+let visibility: VisibleIntervalEnv = DEFAULT_VISIBLE_INTERVAL_ENV;
 let subscriberCount = 0;
+/**
+ * How many mounted consumers draw ports (the Processes panel). Ports cost the
+ * server an lsof and wake its process detection: asked for only while one is
+ * mounted, not by the sidebars that only count the running rows.
+ */
+let portsConsumers = 0;
 let fetchingNow = false;
 let currentInterval = POLL_VISIBLE;
 let visibleCount = 0; // number of visible subscribers
@@ -53,7 +62,7 @@ async function fetchScripts() {
   if (fetchingNow) return;
   fetchingNow = true;
   try {
-    const data = await scriptsApi.list();
+    const data = await scriptsApi.list({ ports: portsConsumers > 0 });
     publish(data.scripts);
   } catch {
     // ignore errors
@@ -63,45 +72,47 @@ async function fetchScripts() {
 }
 
 function updateInterval() {
-  // Senza iscritti NON si poller. Sembra ovvio, e invece qui nasceva una
-  // fuga: `markVisible(false)` gira nella pulizia dello smontaggio e chiama
-  // questa funzione, che con `pollTimer` gia' azzerato dall'ultimo
-  // disiscritto cadeva dritta nel `setInterval` qui sotto e RESUSCITAVA il
-  // timer. Nessuno lo avrebbe piu' fermato: il prossimo `subscribe`
-  // sovrascriveva `pollTimer` senza pulire quello vecchio, quindi ogni ciclo
-  // apri/chiudi del pannello lasciava indietro un poll immortale — e i poll
-  // orfani si sommano, ognuno con la sua fetch a `/api/scripts`.
+  // No subscribers, no poll. `markVisible(false)` runs in the unmount cleanup
+  // and calls this after the last unsubscribe has stopped the poll: falling
+  // through to the restart below brought back a poll nobody stopped, one more
+  // per open/close of the panel, each with its own fetch of `/api/scripts`.
   if (subscriberCount === 0) {
-    if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
+    endPoll();
     return;
   }
   const desired = visibleCount > 0
     ? (wsSubscribers > 0 ? POLL_BACKGROUND : POLL_VISIBLE)
     : POLL_BACKGROUND;
-  if (desired === currentInterval && pollTimer) return;
+  if (desired === currentInterval && stopPoll) return;
   currentInterval = desired;
-  if (pollTimer) clearInterval(pollTimer);
-  pollTimer = setInterval(fetchScripts, currentInterval);
+  startPoll();
+}
+
+/** (Re)start the poll at `currentInterval`, replacing the one running. */
+function startPoll() {
+  stopPoll?.();
+  stopPoll = startVisibleInterval(fetchScripts, currentInterval, visibility);
+}
+
+function endPoll() {
+  stopPoll?.();
+  stopPoll = null;
 }
 
 function subscribe(listener: () => void) {
   listeners.add(listener);
   subscriberCount++;
   if (subscriberCount === 1) {
-    // First subscriber — start polling. La clearInterval NON e' ridondante:
-    // raccoglie un eventuale timer gia' in volo invece di perderne il handle
-    // riassegnando (era la seconda meta' della fuga descritta sopra).
+    // First subscriber — start polling. `startPoll` stops any poll still
+    // running before replacing it: overwriting its handle was the other half
+    // of the leak above.
     fetchScripts();
-    if (pollTimer) clearInterval(pollTimer);
-    pollTimer = setInterval(fetchScripts, currentInterval);
+    startPoll();
   }
   return () => {
     listeners.delete(listener);
     subscriberCount--;
-    if (subscriberCount === 0 && pollTimer) {
-      clearInterval(pollTimer);
-      pollTimer = null;
-    }
+    if (subscriberCount === 0) endPoll();
   };
 }
 
@@ -114,9 +125,17 @@ function handleWSUpdate(incoming: ScriptProcessInfo[]) {
   // (15s while WS-connected). Backfill the port-enriched list once. The 2s
   // server-side response cache + the `fetchingNow` guard prevent a fetch storm,
   // and scripts:updated only fires on discrete start/stop events (no loop).
-  if (incoming.some(s => s.status === 'running' && (!s.ports || s.ports.length === 0))) {
+  if (portsConsumers > 0 && incoming.some(s => s.status === 'running' && (!s.ports || s.ports.length === 0))) {
     fetchScripts();
   }
+}
+
+// Called when a consumer that draws ports mounts (true) or unmounts (false).
+function markPorts(drawn: boolean) {
+  const before = portsConsumers;
+  portsConsumers = drawn ? portsConsumers + 1 : Math.max(0, portsConsumers - 1);
+  // The panel that opens gets its ports now, not at the next poll.
+  if (before === 0 && portsConsumers > 0) fetchScripts();
 }
 
 // Called when a consumer attaches (true) or detaches (false) the WS channel.
@@ -143,7 +162,10 @@ export const __scriptsStoreForTests = {
   handleWSUpdate,
   setWSConnected,
   markVisible,
-  pollIntervalMs: () => (pollTimer ? currentInterval : null),
+  markPorts,
+  pollIntervalMs: () => (stopPoll ? currentInterval : null),
+  /** A scripted page visibility in place of the document's; null restores it. */
+  setVisibility: (env: VisibleIntervalEnv | null) => { visibility = env ?? DEFAULT_VISIBLE_INTERVAL_ENV; },
 };
 
 // ── Public hook ─────────────────────────────────────────────────────────────
@@ -151,9 +173,11 @@ export const __scriptsStoreForTests = {
 interface UseScriptsOptions {
   projectPath?: string;
   onMessage?: (handler: (msg: WSMessage) => void) => () => void;
+  /** This consumer draws the rows' ports (the Processes panel). */
+  ports?: boolean;
 }
 
-export function useScripts({ projectPath, onMessage }: UseScriptsOptions = {}) {
+export function useScripts({ projectPath, onMessage, ports = false }: UseScriptsOptions = {}) {
   const allScripts = useSyncExternalStore(subscribe, getSnapshot, getSnapshot);
   const visibleRef = useRef(false);
 
@@ -166,6 +190,12 @@ export function useScripts({ projectPath, onMessage }: UseScriptsOptions = {}) {
       markVisible(false);
     };
   }, []);
+
+  useEffect(() => {
+    if (!ports) return;
+    markPorts(true);
+    return () => markPorts(false);
+  }, [ports]);
 
   // Listen to WS messages
   useEffect(() => {

@@ -124,22 +124,20 @@ export function claudeMemoryDir(cwd: string, home = homedir()): string {
  * message and the stream, and change forty-odd callers, for an answer that
  * changes only when a folder becomes a repo or a worktree goes away.
  *
- * So the answer is remembered per folder and asked again in the background:
- * a timer asks git, asynchronously, every GIT_ROOT_REFRESH_MS about each folder
- * read in the last GIT_ROOT_IDLE_MS, and a turn reads the last answer. An answer
- * older than GIT_ROOT_TTL_MS (a folder never seen, or unread for a while, or a
- * timer that fell behind) is not used: the turn asks synchronously, as before.
- * A change on disk shows within GIT_ROOT_TTL_MS, in practice within the refresh.
- * Keyed by folder: `home` only says where the memory lives, the root is git's
- * answer about `cwd`.
+ * So the answer is remembered per folder. Only a folder never seen asks git
+ * synchronously. A read past GIT_ROOT_TTL_MS answers with the last answer at
+ * once and asks git behind it, asynchronously: the next read has the new one.
+ * Nobody reading, nobody asking. A timer used to ask every 10 s about every
+ * folder read in the last 10 minutes: 27 `git rev-parse` in 3 minutes on the
+ * live server (15/10), for an answer that had not changed. Keyed by folder:
+ * `home` only says where the memory lives, the root is git's answer about `cwd`.
  */
-export const GIT_ROOT_TTL_MS = 30_000;
-const GIT_ROOT_REFRESH_MS = 10_000;
-const GIT_ROOT_IDLE_MS = 10 * 60_000;
+export const GIT_ROOT_TTL_MS = 5 * 60_000;
+/** Folders remembered at most; past it the oldest is forgotten (a worktree per task adds up). */
+const GIT_ROOTS_MAX = 500;
 
-interface GitRoot { root: string; checkedAt: number; readAt: number; asking: boolean }
+interface GitRoot { root: string; checkedAt: number; asking: Promise<void> | null }
 const gitRoots = new Map<string, GitRoot>();
-let gitRootTimer: ReturnType<typeof setInterval> | null = null;
 
 function rootFromCommonDir(cwd: string, status: number | null, stdout: string): string {
   const common = status === 0 ? stdout.trim() : "";
@@ -148,8 +146,8 @@ function rootFromCommonDir(cwd: string, status: number | null, stdout: string): 
 
 function gitRootOf(cwd: string): string {
   const now = Date.now();
-  let entry = gitRoots.get(cwd);
-  if (!entry || now - entry.checkedAt >= GIT_ROOT_TTL_MS) {
+  const entry = gitRoots.get(cwd);
+  if (!entry) {
     let root = cwd;
     try {
       const r = spawnSync("git", ["-C", cwd, "rev-parse", "--path-format=absolute", "--git-common-dir"], {
@@ -158,56 +156,40 @@ function gitRootOf(cwd: string): string {
       });
       root = rootFromCommonDir(cwd, r.status, r.stdout ?? "");
     } catch { /* no git: the folder itself */ }
-    if (entry) { entry.root = root; entry.checkedAt = now; }
-    else { entry = { root, checkedAt: now, readAt: now, asking: false }; gitRoots.set(cwd, entry); }
+    if (gitRoots.size >= GIT_ROOTS_MAX) gitRoots.delete(gitRoots.keys().next().value!);
+    gitRoots.set(cwd, { root, checkedAt: now, asking: null });
+    return root;
   }
-  entry.readAt = now;
-  if (!gitRootTimer) {
-    gitRootTimer = setInterval(() => { void refreshGitRoots(); }, GIT_ROOT_REFRESH_MS);
-    gitRootTimer.unref?.();
-  }
+  if (now - entry.checkedAt >= GIT_ROOT_TTL_MS && !entry.asking) entry.asking = askGitRoot(cwd, entry);
   return entry.root;
 }
 
-/** One pass of the timer: git asked again about the folders still read, the others forgotten. */
-export async function refreshGitRoots(): Promise<void> {
-  const asks: Promise<void>[] = [];
-  for (const [cwd, entry] of gitRoots) {
-    if (Date.now() - entry.readAt > GIT_ROOT_IDLE_MS) { gitRoots.delete(cwd); continue; }
-    if (entry.asking) continue;
-    entry.asking = true;
-    const startedAt = Date.now();
-    asks.push(
-      runBounded(["git", "-C", cwd, "rev-parse", "--path-format=absolute", "--git-common-dir"], {
-        stdout: "pipe",
-        stderr: "ignore",
-        timeoutMs: 1000,
-      })
-        .then((r) => {
-          // No answer (the deadline, or no git to run) is not "not a repo": the
-          // last answer stands until it expires, then a turn asks synchronously.
-          if (r.exitCode === null) return;
-          // A synchronous ask may have answered meanwhile: the newer answer stays.
-          if (startedAt < entry.checkedAt) return;
-          entry.root = rootFromCommonDir(cwd, r.exitCode, r.stdout);
-          entry.checkedAt = startedAt;
-        })
-        .catch(() => { /* the old answer stands until it expires */ })
-        .finally(() => { entry.asking = false; }),
-    );
-  }
-  if (gitRoots.size === 0) stopGitRootTimer();
-  await Promise.all(asks);
+function askGitRoot(cwd: string, entry: GitRoot): Promise<void> {
+  const startedAt = Date.now();
+  return runBounded(["git", "-C", cwd, "rev-parse", "--path-format=absolute", "--git-common-dir"], {
+    stdout: "pipe",
+    stderr: "ignore",
+    timeoutMs: 1000,
+  })
+    .then((r) => {
+      // No answer (the deadline, or no git to run) is not "not a repo": the
+      // last answer stands, and the next read past the expiry asks again.
+      if (r.exitCode === null) return;
+      entry.root = rootFromCommonDir(cwd, r.exitCode, r.stdout);
+      entry.checkedAt = startedAt;
+    })
+    .catch(() => { /* the last answer stands */ })
+    .finally(() => { entry.asking = null; });
 }
 
-function stopGitRootTimer(): void {
-  if (gitRootTimer) { clearInterval(gitRootTimer); gitRootTimer = null; }
+/** Every ask about a remembered folder still running, answered. */
+export async function settleGitRootAsksForTests(): Promise<void> {
+  await Promise.all([...gitRoots.values()].map((entry) => entry.asking));
 }
 
-/** Everything forgotten and the timer stopped. */
+/** Everything forgotten. */
 export function forgetGitRootsForTests(): void {
   gitRoots.clear();
-  stopGitRootTimer();
 }
 
 /**

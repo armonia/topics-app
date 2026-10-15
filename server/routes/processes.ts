@@ -189,7 +189,7 @@ const runningScripts = new Map<string, ScriptProcess>();
 const recentScripts: ScriptProcess[] = [];
 /** The one timer that follows every file-backed log (`followLog`). */
 let tailTimer: ReturnType<typeof setInterval> | null = null;
-let scriptsResponseCache: { data: any; timestamp: number } | null = null;
+let scriptsResponseCache: { data: any; timestamp: number; ports: boolean } | null = null;
 
 // Third axis of the memory calculator: processes an agent launched.
 // Excluded from the server total (fleet-usage.ts) and shown separately.
@@ -2148,15 +2148,16 @@ export function createProcessesRouter(ctx: AppContext): RouteHandler {
     runningScripts.get(id) || recentScripts.find(r => r.processId === id);
 
   /** Build the `{ scripts }` payload, optionally filtered to one project path. */
-  async function serializeScripts(filterCwd?: string): Promise<{ scripts: any[] }> {
+  async function serializeScripts(filterCwd?: string, withPorts = true): Promise<{ scripts: any[] }> {
     // Scoped to a session = the agent asking (`list_processes`): a person's run is not its to see.
     const match = (sp: ScriptProcess) => !filterCwd || (sp.projectPath === filterCwd && !isPersonRun(sp));
     const running = Array.from(runningScripts.values()).filter(match);
     // One batched port lookup for all running pids (shared lsof + ps snapshot,
-    // single pass over the cached port list) instead of per-process.
-    const portsByPid = await getPortsForProcesses(
-      running.map(sp => sp.pid).filter((p): p is number => !!p),
-    );
+    // single pass over the cached port list) instead of per-process. Without
+    // `withPorts` none at all: the rows go out with no ports.
+    const portsByPid = withPorts
+      ? await getPortsForProcesses(running.map(sp => sp.pid).filter((p): p is number => !!p))
+      : new Map<number, number[]>();
     // La spia dell'attesa viaggia con la riga che gia' si legge: un campo in
     // piu' qui costa niente e toglie il dubbio «l'agente e' fermo, o sta
     // aspettando proprio questo?». Assente quando nessuno aspetta, per non
@@ -2392,19 +2393,25 @@ export function createProcessesRouter(ctx: AppContext): RouteHandler {
     const runs = await commandRunsRoute(req, url, pathname, method);
     if (runs) return runs;
 
-    // GET /api/scripts — list running + recent, with per-process ports
+    // GET /api/scripts — list running + recent; per-process ports with `?ports=1`
     if (method === "GET" && pathname === "/api/scripts") {
-      // Qualcuno sta guardando: la rilevazione torna alla cadenza piena, cosi'
-      // il backoff non fa aspettare mezzo minuto la comparsa di un server
-      // appena avviato. Sta PRIMA della cache: la richiesta e' il segnale di
-      // interesse, indipendentemente da chi risponde.
-      bumpProcessDetection();
-      // Server-side cache check (2s TTL)
-      if (scriptsResponseCache && Date.now() - scriptsResponseCache.timestamp < SCRIPTS_CACHE_TTL) {
-        return json(scriptsResponseCache.data);
+      // `?ports=1` is the Processes panel, the one reader that draws ports, and
+      // someone looking at it: the detection goes back to full cadence, so the
+      // backoff does not keep a server just started waiting half a minute.
+      // Before the cache, because the request is the sign of interest. Every
+      // project sidebar polls this route too, every 15 s, for its running
+      // dots: when that poll read the ports and woke the detection, lsof ran
+      // every 4 s for as long as a window was open (238 in 15 minutes,
+      // measured in production on 15/10).
+      const withPorts = url.searchParams.get("ports") === "1";
+      if (withPorts) bumpProcessDetection();
+      // Server-side cache check (2s TTL): an answer with ports also serves a poll without.
+      const cached = scriptsResponseCache;
+      if (cached && Date.now() - cached.timestamp < SCRIPTS_CACHE_TTL && (cached.ports || !withPorts)) {
+        return json(cached.data);
       }
-      const scriptsResult = await serializeScripts();
-      scriptsResponseCache = { data: scriptsResult, timestamp: Date.now() };
+      const scriptsResult = await serializeScripts(undefined, withPorts);
+      scriptsResponseCache = { data: scriptsResult, timestamp: Date.now(), ports: withPorts };
       return json(scriptsResult);
     }
 

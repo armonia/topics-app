@@ -999,8 +999,13 @@ export const scriptsApi = {
     });
   },
 
-  async list(): Promise<{ scripts: ScriptProcessInfo[] }> {
-    return request<{ scripts: ScriptProcessInfo[] }>('/scripts');
+  /**
+   * `ports`: each running row's listening ports, which cost the server an
+   * lsof, and the process detection at full cadence. Only the Processes panel
+   * draws them; without it the rows come with no ports.
+   */
+  async list(opts: { ports?: boolean } = {}): Promise<{ scripts: ScriptProcessInfo[] }> {
+    return request<{ scripts: ScriptProcessInfo[] }>(opts.ports ? '/scripts?ports=1' : '/scripts');
   },
 
   /**

@@ -4,8 +4,9 @@
  * `claudeMemoryDir` runs on every assembly of a topic's context, and asked
  * `git rev-parse` through `spawnSync` each time: the server's one loop stopped
  * for as long as git lived, on every turn (T16). The answer is now remembered
- * per folder and asked again in the background; a folder that becomes a repo,
- * or a worktree that is removed, shows within the expiry.
+ * per folder; a read past the expiry answers at once and asks git behind it,
+ * so a folder that becomes a repo, or a worktree that is removed, shows on the
+ * read after that. Nobody reading, nobody asking: no timer.
  *
  * Whether git was asked is read from the answer: the folder changes on disk
  * between two reads, and only a read that asked git sees the change. (A wrapper
@@ -18,7 +19,7 @@ import { mkdirSync, mkdtempSync, realpathSync, renameSync, rmSync } from "node:f
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { spawnSync } from "node:child_process";
-import { claudeMemoryDir, forgetGitRootsForTests, GIT_ROOT_TTL_MS, refreshGitRoots } from "./native-parity";
+import { claudeMemoryDir, forgetGitRootsForTests, GIT_ROOT_TTL_MS, settleGitRootAsksForTests } from "./native-parity";
 
 let scratch: string;
 let home: string;
@@ -64,51 +65,7 @@ describe("claudeMemoryDir, remembered per folder", () => {
     expect(claudeMemoryDir(cwd, home)).toBe(memoryOf(cwd));
   });
 
-  test("a folder that becomes a repo shows after the background pass", async () => {
-    const { dir, cwd } = plainFolder();
-    expect(claudeMemoryDir(cwd, home)).toBe(memoryOf(cwd));
-    git("init", "-q", dir);
-    await refreshGitRoots();
-    expect(claudeMemoryDir(cwd, home)).toBe(memoryOf(dir));
-  });
-
-  test("a removed worktree shows after the background pass", async () => {
-    const repo = mkdtempSync(join(scratch, "repo-"));
-    git("init", "-q", repo);
-    git("-C", repo, "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-q", "--allow-empty", "-m", "x");
-    const wt = join(scratch, `wt-${Date.now()}`);
-    git("-C", repo, "worktree", "add", "-q", wt);
-    expect(claudeMemoryDir(wt, home)).toBe(memoryOf(repo));
-    git("-C", repo, "worktree", "remove", wt);
-    await refreshGitRoots();
-    expect(claudeMemoryDir(wt, home)).toBe(memoryOf(wt));
-  });
-
-  test("a background ask that gets no answer keeps the last one", async () => {
-    const repo = mkdtempSync(join(scratch, "repo-"));
-    git("init", "-q", repo);
-    const cwd = join(repo, "sub");
-    mkdirSync(cwd);
-    expect(claudeMemoryDir(cwd, home)).toBe(memoryOf(repo));
-    // A HEAD that is a FIFO nobody writes blocks git while it finds the repo, so
-    // the background ask runs into its deadline: the load that slows git down on
-    // a busy machine, without the load.
-    const head = join(repo, ".git", "HEAD");
-    renameSync(head, `${head}.real`);
-    expect(spawnSync("mkfifo", [head]).status).toBe(0);
-    const startedAt = performance.now();
-    try {
-      await refreshGitRoots();
-    } finally {
-      rmSync(head);
-      renameSync(`${head}.real`, head);
-    }
-    // The scene happened: the ask waited for its deadline.
-    expect(performance.now() - startedAt).toBeGreaterThanOrEqual(900);
-    expect(claudeMemoryDir(cwd, home)).toBe(memoryOf(repo));
-  });
-
-  test("past the expiry, with no background pass, the turn asks git again", () => {
+  test("past the expiry a read answers at once with the last answer, and the next has git's", async () => {
     const { dir, cwd } = plainFolder();
     const now = Date.now();
     setSystemTime(new Date(now));
@@ -117,6 +74,55 @@ describe("claudeMemoryDir, remembered per folder", () => {
     setSystemTime(new Date(now + GIT_ROOT_TTL_MS - 1));
     expect(claudeMemoryDir(cwd, home)).toBe(memoryOf(cwd));
     setSystemTime(new Date(now + GIT_ROOT_TTL_MS));
+    // The turn does not wait for git: it gets the last answer...
+    expect(claudeMemoryDir(cwd, home)).toBe(memoryOf(cwd));
+    await settleGitRootAsksForTests();
+    // ...and the ask it started behind it answers the next one.
     expect(claudeMemoryDir(cwd, home)).toBe(memoryOf(dir));
+  });
+
+  test("a removed worktree shows the same way", async () => {
+    const repo = mkdtempSync(join(scratch, "repo-"));
+    git("init", "-q", repo);
+    git("-C", repo, "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-q", "--allow-empty", "-m", "x");
+    const wt = join(scratch, `wt-${Date.now()}`);
+    git("-C", repo, "worktree", "add", "-q", wt);
+    const now = Date.now();
+    setSystemTime(new Date(now));
+    expect(claudeMemoryDir(wt, home)).toBe(memoryOf(repo));
+    git("-C", repo, "worktree", "remove", wt);
+    setSystemTime(new Date(now + GIT_ROOT_TTL_MS));
+    expect(claudeMemoryDir(wt, home)).toBe(memoryOf(repo));
+    await settleGitRootAsksForTests();
+    expect(claudeMemoryDir(wt, home)).toBe(memoryOf(wt));
+  });
+
+  test("an ask that gets no answer keeps the last one", async () => {
+    const repo = mkdtempSync(join(scratch, "repo-"));
+    git("init", "-q", repo);
+    const cwd = join(repo, "sub");
+    mkdirSync(cwd);
+    const now = Date.now();
+    setSystemTime(new Date(now));
+    expect(claudeMemoryDir(cwd, home)).toBe(memoryOf(repo));
+    setSystemTime(new Date(now + GIT_ROOT_TTL_MS));
+    // A HEAD that is a FIFO nobody writes blocks git while it finds the repo, so
+    // the background ask runs into its deadline: the load that slows git down on
+    // a busy machine, without the load.
+    const head = join(repo, ".git", "HEAD");
+    renameSync(head, `${head}.real`);
+    expect(spawnSync("mkfifo", [head]).status).toBe(0);
+    const startedAt = performance.now();
+    try {
+      // Past the expiry: this read starts the ask that runs into its deadline.
+      expect(claudeMemoryDir(cwd, home)).toBe(memoryOf(repo));
+      await settleGitRootAsksForTests();
+    } finally {
+      rmSync(head);
+      renameSync(`${head}.real`, head);
+    }
+    // The scene happened: the ask waited for its deadline.
+    expect(performance.now() - startedAt).toBeGreaterThanOrEqual(900);
+    expect(claudeMemoryDir(cwd, home)).toBe(memoryOf(repo));
   });
 });
