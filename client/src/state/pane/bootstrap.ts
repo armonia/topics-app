@@ -31,7 +31,7 @@ import {
 } from './middleware/serverHydrated';
 import { usePaneStore } from './store';
 import type { PaneState } from './types';
-import { paneTypesToWarm, paneTypesToWarmWhenIdle, panesOnFirstFrame, preloadPaneChunks } from './panePreload';
+import { paneTypesToWarm, paneTypesToWarmWhenIdle, panesOnFirstFrame, preloadFirstFrameChunks, preloadPaneChunks } from './panePreload';
 import { subscribeFrames } from '../../lib/wsFrameBus';
 import { initTombstoneSync } from './adapters/tombstoneSync';
 import { apiFetch } from '../../lib/shell/net';
@@ -328,12 +328,16 @@ export function bootstrapPaneStore(): void {
   const hostedPaneIds = detachedList
     ? detachedList.split(',').map((id) => id.trim()).filter(Boolean)
     : null;
-  chunksWarm = preloadPaneChunks(paneTypesToWarm(
-    panesOnFirstFrame(usePaneStore.getState(), hostedPaneIds),
-    (key) => {
-      try { return localStorage.getItem(key); } catch { return null; }
-    },
-  ));
+  const firstFramePanes = panesOnFirstFrame(usePaneStore.getState(), hostedPaneIds);
+  chunksWarm = Promise.all([
+    preloadPaneChunks(paneTypesToWarm(
+      firstFramePanes,
+      (key) => {
+        try { return localStorage.getItem(key); } catch { return null; }
+      },
+    )),
+    preloadFirstFrameChunks(firstFramePanes),
+  ]).then(() => {});
 
   // Wire the persistence subscribers (write paths gated on detached above).
   if (!isDetached) {
@@ -384,4 +388,3 @@ export function __stopInitialLoadFallbackForTests(): void {
     fallbackTimer = null;
   }
 }
-

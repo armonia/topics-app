@@ -107,6 +107,15 @@ export function webNotificationPermission(): NotificationPermission | 'unsupport
   }
 }
 
+/** Whether the page is inside a person's gesture right now (transient activation). */
+function userGestureActive(): boolean {
+  try {
+    return (navigator as Navigator & { userActivation?: { isActive?: boolean } }).userActivation?.isActive === true;
+  } catch {
+    return false;
+  }
+}
+
 /** La richiesta in corso (o già risolta): si chiede UNA volta per finestra. */
 let webPermissionPrimed: Promise<NotificationPermission | 'unsupported'> | null = null;
 
@@ -134,6 +143,10 @@ export function primeWebNotificationPermission(): Promise<NotificationPermission
   // 'granted' / 'denied' / 'unsupported': la risposta c'è già, e ri-chiedere un
   // 'denied' non riapre nessun prompt — lo fa solo sembrare possibile.
   if (current !== 'default') return Promise.resolve(current);
+  // A gesture under way belongs to what the person touched: asked now, the prompt would hang on
+  // that tap, about something else. The boot request is skipped and not cached; the enable button
+  // asks inside its own tap (`requestWebNotificationPermissionFromTap`).
+  if (userGestureActive()) return Promise.resolve(current);
   if (!webPermissionPrimed) {
     try {
       // La promessa resta in cache anche quando l'utente chiude il prompt senza
