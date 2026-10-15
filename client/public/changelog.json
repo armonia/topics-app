@@ -1,5 +1,21 @@
 [
   {
+    "version": "2.2.516",
+    "date": "2026-10-15",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "La visita dei file passa dall'addon nativo, circa tre volte piu' veloce (D3f, passo 4 di D3) (#378)",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
     "version": "2.2.515",
     "date": "2026-10-15",
     "sections": {

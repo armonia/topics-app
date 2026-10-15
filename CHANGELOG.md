@@ -2,6 +2,11 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.2.516 — 2026-10-15
+
+### Sotto il cofano
+- La visita dei file passa dall'addon nativo, circa tre volte piu' veloce (D3f, passo 4 di D3) (#378)
+
 ## 2.2.515 — 2026-10-15
 
 ### Sotto il cofano
