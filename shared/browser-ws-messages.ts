@@ -63,7 +63,7 @@ export const inputPayloadSchema = z.object({
   // Orders scroll relays so a late echo cannot overwrite a newer mirror place.
   scrollSeq: z.optional(z.number()),
   // Which device sent it: an echo of another viewer's relay is not ordered against this one's.
-  scrollFrom: z.optional(z.string().max(64)),
+  scrollFrom: z.optional(z.string().check(z.maxLength(64))),
   // Where inside the tapped element's box, 0 to 1: a page laid out at another
   // size has that element somewhere else (BROWSER-DOM-LAYOUT-02).
   fx: z.optional(z.number()),
