@@ -52,9 +52,9 @@ export const TERMINAL_WS_CLOSE_DORMANT = 4001;
  *
  * It is NOT a verdict, and that is the point. The client takes a claude pane
  * whose replay carried zero bytes as a PTY that is gone and offers Resume, so
- * an empty replay sent in place of a missing one turned a live session into a
- * «Sessione terminata» (2026-10-15, load1 above 150, `[LAG]` stops of 1.3-1.7 s
- * on the server). Closing instead lands in the client's ordinary reconnect
+ * an empty replay sent in place of a missing one put a live session under the
+ * `terminal.dormant.title` veil (2026-10-15, load1 above 150, `[LAG]` stops of
+ * 1.3-1.7 s on the server). Closing instead lands in the client's ordinary reconnect
  * path, which retries for as long as the session is listed.
  */
 export const TERMINAL_WS_CLOSE_REPLAY_UNANSWERED = 4002;

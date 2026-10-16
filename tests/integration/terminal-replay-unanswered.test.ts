@@ -5,8 +5,8 @@
  *
  * On attach the server asks the PTY bridge for the session's scrollback and
  * forwards it, then `replay-end`. The client reads a claude pane whose replay
- * carried zero bytes as a PTY that is gone, and covers it with «Sessione
- * terminata» and a Resume button. That inference holds only when the bridge
+ * carried zero bytes as a PTY that is gone, and covers it with the
+ * `terminal.dormant.title` veil and a Resume button. That inference holds only when the bridge
  * really answered "nothing": a live claude TUI always has a drawn screen to
  * replay.
  *

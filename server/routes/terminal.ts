@@ -1746,8 +1746,8 @@ async function reconcileSessions(attempt = 0): Promise<void> {
  * answer means the bridge has nothing for this id, which is how a gone PTY
  * looks; no answer means nothing at all. Both used to come back as zero bytes,
  * and under load (2026-10-15, `[LAG]` stops of 1.3-1.7 s) the attach of a live
- * claude idle on a question replayed nothing and its pane showed «Sessione
- * terminata».
+ * claude idle on a question replayed nothing and its pane went under the
+ * `terminal.dormant.title` veil.
  */
 function requestBuffer(sessionId: string): Promise<Uint8Array | null> {
   return new Promise((resolve) => {
