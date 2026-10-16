@@ -773,6 +773,9 @@ export function SingleTerminalPane({ sessionId, onStale, isActive = true }: Sing
               // if no live output arrives, show the resume overlay instead of a
               // silent blank pane. A shell has no full-screen frame and can be
               // legitimately empty, so it's excluded — it also can't be resumed.
+              // The zero is the bridge's own answer: a scrollback it did not
+              // hand over ends the attach with REPLAY_UNANSWERED instead, and
+              // that close retries below (TERM-WARM-02).
               const info = lastInfoRef.current;
               const t = info?.type;
               // Elencare i tipi a mano qui aveva gia' lasciato fuori 'opencode':
