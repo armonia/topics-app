@@ -29,7 +29,7 @@ const ALLOWED: Array<{ file: string; snippet: string; why: string }> = [
   { file: "server/services/discord-ipc.ts", snippet: "execFileSync(\"/usr/bin/getconf\"", why: "the per-user temp dir, macOS only, remembered after the first good read (the presence asks on every connect attempt, every 30 s while Discord is closed)" },
   { file: "server/services/browser-orphan-reap.ts", snippet: "Bun.spawnSync([\"ps\"", why: "the orphan browser sweep, at boot only (reapOrphanBrowsersAtBoot)" },
   { file: "server/browser-chromium-sidecar.ts", snippet: "execFileSync(\"ps\"", why: "the profile's stale browsers, once per sidecar launch" },
-  { file: "server/browser-chromium-sidecar.ts", snippet: "execFileSync(\"lsof\"", why: "who owns the CDP port, once per sidecar launch" },
+  { file: "server/browser-chromium-sidecar.ts", snippet: "execFileSync(LSOF", why: "who owns the CDP port, once per sidecar launch" },
   { file: "server/lib/port-squatter.ts", snippet: "spawnSync(\"/usr/sbin/lsof\"", why: "who holds the server's own port, at boot when it is taken" },
   { file: "server/webrtc-bridge.ts", snippet: "spawnSync(\"pkill\"", why: "the orphan bridge reaped before its replacement is spawned, once per bridge start (must finish first, see the comment there)" },
   { file: "server/services/dispatch-capacity.ts", snippet: "spawnSync(VM_STAT_BIN", why: "macOS only, and only when the async 10 s sample of mem-signal.ts is missing (first beat, a failed probe)" },
