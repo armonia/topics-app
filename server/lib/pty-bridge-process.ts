@@ -14,7 +14,8 @@
 import { basename } from "node:path";
 
 import type { PtyBridgeReason } from "../../shared/pty-bridge";
-import { defaultRunner, LSOF, type Runner } from "./live-terminals";
+import { defaultRunner, type Runner } from "./live-terminals";
+import { LSOF } from "./system-bins";
 
 export type BridgeImplementation = "rust" | "node" | "unknown";
 

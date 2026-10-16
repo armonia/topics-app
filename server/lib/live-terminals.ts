@@ -27,10 +27,10 @@
  * list without taking the others with it.
  */
 import { execFile } from "node:child_process";
-import { existsSync } from "node:fs";
 import { basename } from "node:path";
 
 import type { LiveTerminal, LiveTerminalSource } from "../../shared/live-terminals";
+import { LSOF } from "./system-bins";
 
 export interface LiveScreen {
   id: string;
@@ -47,14 +47,6 @@ export const defaultRunner: Runner = (file, args, opts) =>
       else resolve(String(stdout));
     });
   });
-
-/**
- * `lsof` by its full path. macOS keeps it in /usr/sbin, and launchd and the app
- * start the server with no /usr/sbin in its PATH: a bare "lsof" works from a
- * terminal and fails in production, silently (16/10: the bridge panel, and the
- * folder of every Terminal tab).
- */
-export const LSOF = Bun.which("lsof") ?? (existsSync("/usr/sbin/lsof") ? "/usr/sbin/lsof" : "lsof");
 
 // ── tmux ─────────────────────────────────────────────────────────────────────
 

@@ -22,6 +22,7 @@ import { cpus, homedir, loadavg } from "node:os";
 import { join } from "node:path";
 import { resolveAppDataDir } from "./lib/data-dir";
 import { recordServerSpawn } from "./lib/spawn-metrics";
+import { LSOF } from "./lib/system-bins";
 
 /** Opaque timer handle — normalises the DOM/Node `setTimeout` return-type union. */
 type TimerHandle = ReturnType<typeof setTimeout>;
@@ -665,7 +666,7 @@ export function portOwnedBy(
         // eslint-disable-next-line @typescript-eslint/no-require-imports -- child_process stays out of the module level, as for `defaultPsReader`
         const { execFileSync } = require("node:child_process") as typeof import("node:child_process");
         recordServerSpawn("lsof", "chromiumIdentity");
-        return execFileSync("lsof", ["-nP", `-iTCP:${port}`, "-sTCP:LISTEN", "-t"], {
+        return execFileSync(LSOF, ["-nP", `-iTCP:${port}`, "-sTCP:LISTEN", "-t"], {
           encoding: "utf8",
           stdio: ["ignore", "pipe", "ignore"],
           timeout: 5000,
