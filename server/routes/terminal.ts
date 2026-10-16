@@ -17,8 +17,7 @@ import { augmentPath, realHome } from "../utils/path-env";
 // runtime-dep-ok: a static import, not a spawn. The compiled server bundles this
 // module like any other, so there is no loose .mjs to miss and no runtime to run it.
 import { bridgeOutsideGuiSession, guiSessionName } from "../pty-bridge-platform.mjs";
-import type { PtyBridgeReason } from "../../shared/pty-bridge";
-import { identifyBridgeProcess } from "../lib/pty-bridge-process";
+import { identifyBridgeProcess, withBridgeProcess, type ActiveBridge, type PtyBridgeRuntimeStatus } from "../lib/pty-bridge-process";
 import { resolveCodexBin } from "../lib/codex-bin";
 import { envDataDir } from "../lib/data-dir";
 import { resolveClaudeBin } from "../lib/claude-bin";
@@ -561,19 +560,7 @@ let bridgeReady = false;
 let bridgeConnecting = false;
 let bridgeReadyResolvers: (() => void)[] = [];
 let suppressBridgeReconnectForTest = false;
-type ActiveBridge = {
-  implementation: "rust" | "node" | "unknown";
-  reason: PtyBridgeReason;
-  path: string | null;
-  /** The process holding the socket, and since when: see `noteBridgeProcess`. */
-  pid: number | null;
-  startedAt: string | null;
-};
 let activeBridge: ActiveBridge = { implementation: "unknown", reason: "notConnected", path: null, pid: null, startedAt: null };
-
-export interface PtyBridgeRuntimeStatus extends ActiveBridge {
-  connected: boolean;
-}
 
 export function getPtyBridgeRuntimeStatus(): PtyBridgeRuntimeStatus {
   return { ...activeBridge, connected: bridgeReady && !!bridgeSocket && !bridgeSocket.destroyed };
@@ -947,24 +934,11 @@ export async function ensureBridge(): Promise<void> {
   }
 }
 
-/**
- * Fills in, from the operating system, what the bridge's `pong` may not say:
- * which bridge holds the socket and since when. A bridge outlives every server
- * restart, so the one in use can predate both the `implementation` field and
- * the code on disk (16/10: a Node bridge from 7/10, shown as "not identified").
- * The `pong` stays the authority when it speaks; this only fills an "unknown".
- * Off the request path, once per connection.
- */
+/** Which bridge holds the socket and since when, read from the OS once per connection (TERM-13). */
 function noteBridgeProcess(): void {
   const socket = bridgeSocket;
   void identifyBridgeProcess(SOCKET_PATH).then((info) => {
-    if (!info || bridgeSocket !== socket) return;
-    activeBridge = {
-      ...activeBridge,
-      implementation: activeBridge.implementation === "unknown" ? info.implementation : activeBridge.implementation,
-      pid: info.pid,
-      startedAt: info.startedAt,
-    };
+    if (info && bridgeSocket === socket) activeBridge = withBridgeProcess(activeBridge, info);
   });
 }
 

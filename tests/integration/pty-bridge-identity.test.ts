@@ -28,13 +28,13 @@ const SOCKET_PATH = join(ROOT, "b.sock");
 const OLD_BRIDGE = `
 import net from "node:net";
 const server = net.createServer((c) => {
-  let buf = "";
+  let pending = "";
   c.on("error", () => {});
   c.on("data", (d) => {
-    buf += d;
+    pending += d;
     let i;
-    while ((i = buf.indexOf("\\n")) >= 0) {
-      const line = buf.slice(0, i); buf = buf.slice(i + 1);
+    while ((i = pending.indexOf("\\n")) >= 0) {
+      const line = pending.slice(0, i); pending = pending.slice(i + 1);
       let msg; try { msg = JSON.parse(line); } catch { continue; }
       if (msg.type === "ping") c.write(JSON.stringify({ type: "pong" }) + "\\n");
       else if (msg.type === "list") c.write(JSON.stringify({ type: "list", sessions: [] }) + "\\n");

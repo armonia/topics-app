@@ -7,7 +7,7 @@
  * `tests/integration/pty-bridge-identity.test.ts`.
  */
 import { describe, expect, test } from "bun:test";
-import { bridgeImplementationFromProcess, identifyBridgeProcess, parseElapsed } from "./pty-bridge-process";
+import { bridgeImplementationFromProcess, identifyBridgeProcess, parseElapsed, withBridgeProcess, type ActiveBridge } from "./pty-bridge-process";
 import type { Runner } from "./live-terminals";
 
 describe("parseElapsed: what `ps -o etime=` prints", () => {
@@ -71,5 +71,21 @@ describe("identifyBridgeProcess, with the tools answering as they do", () => {
   test("on Windows the bridge is a named pipe: nothing is asked", async () => {
     const run: Runner = async () => { throw new Error("must not run"); };
     expect(await identifyBridgeProcess("\\\\.\\pipe\\topics", { run, platform: "win32" })).toBeNull();
+  });
+});
+
+describe("withBridgeProcess: the pong speaks first", () => {
+  const INFO = { pid: 98046, implementation: "node" as const, startedAt: "2026-10-07T13:12:12.000Z" };
+  const active = (implementation: ActiveBridge["implementation"]): ActiveBridge =>
+    ({ implementation, reason: "reused", path: "/s.sock", pid: null, startedAt: null });
+
+  test("a pong that said nothing takes what the process is, and its date", () => {
+    expect(withBridgeProcess(active("unknown"), INFO)).toEqual({
+      implementation: "node", reason: "reused", path: "/s.sock", pid: 98046, startedAt: "2026-10-07T13:12:12.000Z",
+    });
+  });
+
+  test("a pong that named itself is not overruled by what ps could not tell", () => {
+    expect(withBridgeProcess(active("rust"), { ...INFO, implementation: "unknown" }).implementation).toBe("rust");
   });
 });

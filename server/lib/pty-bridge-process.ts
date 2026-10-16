@@ -13,9 +13,24 @@
  */
 import { basename } from "node:path";
 
+import type { PtyBridgeReason } from "../../shared/pty-bridge";
 import { defaultRunner, type Runner } from "./live-terminals";
 
 export type BridgeImplementation = "rust" | "node" | "unknown";
+
+/** The bridge in use, as the server knows it: what it is, why, and since when. */
+export interface ActiveBridge {
+  implementation: BridgeImplementation;
+  reason: PtyBridgeReason;
+  path: string | null;
+  /** The process holding the socket, and since when: see `identifyBridgeProcess`. */
+  pid: number | null;
+  startedAt: string | null;
+}
+
+export interface PtyBridgeRuntimeStatus extends ActiveBridge {
+  connected: boolean;
+}
 
 export interface BridgeProcessInfo {
   pid: number;
@@ -25,8 +40,8 @@ export interface BridgeProcessInfo {
 }
 
 /** `ps -o etime=` is `[[dd-]hh:]mm:ss`. Milliseconds, or null for anything else. */
-export function parseElapsed(etime: string): number | null {
-  const m = /^(?:(?:(\d+)-)?(\d+):)?(\d+):(\d+)$/.exec(etime.trim());
+export function parseElapsed(elapsedText: string): number | null {
+  const m = /^(?:(?:(\d+)-)?(\d+):)?(\d+):(\d+)$/.exec(elapsedText.trim());
   if (!m) return null;
   const [, days, hours, minutes, seconds] = m;
   return ((Number(days ?? 0) * 24 + Number(hours ?? 0)) * 60 + Number(minutes)) * 60_000 + Number(seconds) * 1000;
@@ -63,10 +78,10 @@ export async function identifyBridgeProcess(
     const pid = pids[0];
     if (!pid) return null;
     const opt = { timeoutMs: 3000 };
-    const etime = (await run("ps", ["-p", String(pid), "-o", "etime="], opt)).trim();
+    const elapsedText = (await run("ps", ["-p", String(pid), "-o", "etime="], opt)).trim();
     const executable = (await run("ps", ["-p", String(pid), "-o", "comm="], opt)).trim();
     const command = (await run("ps", ["-p", String(pid), "-o", "command="], opt)).trim();
-    const elapsed = parseElapsed(etime);
+    const elapsed = parseElapsed(elapsedText);
     if (elapsed === null) return null;
     const now = opts.now ?? Date.now;
     return {
@@ -77,4 +92,17 @@ export async function identifyBridgeProcess(
   } catch {
     return null;
   }
+}
+
+/**
+ * What the OS said, laid over what the bridge said. The `pong` stays the
+ * authority when it speaks: the process only fills an "unknown".
+ */
+export function withBridgeProcess(active: ActiveBridge, info: BridgeProcessInfo): ActiveBridge {
+  return {
+    ...active,
+    implementation: active.implementation === "unknown" ? info.implementation : active.implementation,
+    pid: info.pid,
+    startedAt: info.startedAt,
+  };
 }
