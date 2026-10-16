@@ -2,6 +2,11 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.3.0 — 2026-10-16
+
+### Sotto il cofano
+- La versione dice che cosa è cambiato: minor e major quando un commit lo chiede (#384)
+
 ## 2.2.518 — 2026-10-16
 
 ### Sotto il cofano

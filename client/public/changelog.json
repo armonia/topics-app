@@ -1,5 +1,21 @@
 [
   {
+    "version": "2.3.0",
+    "date": "2026-10-16",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "La versione dice che cosa è cambiato: minor e major quando un commit lo chiede (#384)",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
     "version": "2.2.518",
     "date": "2026-10-16",
     "sections": {
