@@ -26,7 +26,7 @@ import { describe, expect, test, beforeAll, afterAll } from "bun:test";
 import * as fs from "node:fs";
 import * as net from "node:net";
 import { createInterface } from "node:readline";
-import { setupTestDataDir, createTestAppContext, testTmpDir } from "./helpers";
+import { cleanupTestDataDir, setupTestDataDir, createTestAppContext, testTmpDir } from "./helpers";
 import { TERMINAL_WS_CLOSE_REPLAY_UNANSWERED } from "../../shared/terminal-messages";
 import type { AppContext } from "../../server/types";
 
@@ -139,8 +139,7 @@ afterAll(async () => {
   disconnectBridge();
   _setPtyBridgeSocketPath(null);
   await bridge?.close();
-  const { closeDatabase } = await import("../../server/db");
-  closeDatabase();
+  await cleanupTestDataDir(TEST_ROOT);
 });
 
 describe("the scrollback the bridge did not hand over", () => {
