@@ -9,7 +9,7 @@ import { scegliVerdetto } from './verdict';
 import { useFeatureWeights } from '@/hooks/useFeatureWeights';
 import { vociPerNatura, quantitaBreve, rigaVoce } from '@/lib/featureWeightText';
 import { webviewSnapshot, ensurePaneUsageFresh } from '@/lib/paneUsage';
-import { useT } from '@/hooks/useT';
+import { useLocale, useT } from '@/hooks/useT';
 import { useTopics } from '@/contexts/TopicsContext';
 import { formatMemoryMB } from '@/lib/formatMemory';
 import { setNativePaneMemoryEvictionEnabled, useNativePaneMemoryEvictionEnabled, useNativePaneMemoryPressure } from '@/state/nativePaneMemory';
@@ -127,6 +127,13 @@ function PerfStat({ label, value, sub, color, title, className }: { label: strin
  */
 export function PerfSection() {
   const tr = useT();
+  const locale = useLocale();
+  // When the bridge in use started. It outlives every server restart, so the
+  // one answering can be days older than the code on disk and than the switch
+  // below: the date is what says why a change has not arrived yet.
+  const bridgeSince = (startedAt?: string | null) => startedAt
+    ? tr('perf.ptyBridge.since', { date: new Date(startedAt).toLocaleDateString(locale, { day: 'numeric', month: 'numeric' }) })
+    : null;
   const [rustBridgeEnabled, setRustBridgeEnabled] = useState(() => loadSettings().rustPtyBridgeEnabled);
   useEffect(() => {
     const update = () => setRustBridgeEnabled(loadSettings().rustPtyBridgeEnabled);
@@ -288,7 +295,7 @@ export function PerfSection() {
           data-testid="perf-pty-bridge"
           title={[bridge.connected ? tr('perf.ptyBridge.connected') : tr('perf.ptyBridge.disconnected'), bridge.path].filter(Boolean).join('\n')}
           className="px-0.5 text-mini text-app-text-muted"
-        >{tr('perf.ptyBridge.line', { name, reason: tr(`perf.ptyBridge.reason.${bridge.reason}`) })}</div>;
+        >{[tr('perf.ptyBridge.line', { name, reason: tr(`perf.ptyBridge.reason.${bridge.reason}`) }), bridgeSince(bridge.startedAt)].filter(Boolean).join(' · ')}</div>;
       })()}
 
       {/* TRE DOMANDE, IN QUEST'ORDINE. Prima erano nove blocchi di numeri con
@@ -500,7 +507,7 @@ export function PerfSection() {
         const name = tr(`perf.ptyBridge.${bridge?.implementation ?? 'unknown'}`);
         return <SwitchRow
           label={tr('perf.ptyBridge.setting')}
-          hint={tr('perf.ptyBridge.state', { name, reason: tr(`perf.ptyBridge.reason.${bridge?.reason ?? 'notConnected'}`), next: tr('perf.ptyBridge.nextStart') })}
+          hint={tr('perf.ptyBridge.state', { name, reason: [tr(`perf.ptyBridge.reason.${bridge?.reason ?? 'notConnected'}`), bridgeSince(bridge?.startedAt)].filter(Boolean).join(', '), next: tr('perf.ptyBridge.nextStart') })}
           checked={rustBridgeEnabled}
           onChange={(checked) => saveSettings({ ...loadSettings(), rustPtyBridgeEnabled: checked })}
           testId="perf-rust-pty-bridge"

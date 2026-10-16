@@ -2670,6 +2670,7 @@ const IT: Dict = {
   'perf.ptyBridge.reason.disconnected': 'connessione chiusa',
   'perf.ptyBridge.setting': 'Bridge terminali Rust',
   'perf.ptyBridge.state': 'Risponde {name}: {reason}. {next}',
+  'perf.ptyBridge.since': 'avviato il {date}',
   'perf.ptyBridge.nextStart': 'La modifica vale dal prossimo avvio del bridge.',
   'perf.ptyBridge.reason.disabled': 'Rust spento, uso Node',
   'perf.ptyBridge.reason.stale': 'binario più vecchio dei sorgenti, ricostruisci con scripts/build-pty-bridge.sh',

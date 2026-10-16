@@ -17,7 +17,7 @@ import { augmentPath, realHome } from "../utils/path-env";
 // runtime-dep-ok: a static import, not a spawn. The compiled server bundles this
 // module like any other, so there is no loose .mjs to miss and no runtime to run it.
 import { bridgeOutsideGuiSession, guiSessionName } from "../pty-bridge-platform.mjs";
-import type { PtyBridgeReason } from "../../shared/pty-bridge";
+import { identifyBridgeProcess, withBridgeProcess, type ActiveBridge, type PtyBridgeRuntimeStatus } from "../lib/pty-bridge-process";
 import { resolveCodexBin } from "../lib/codex-bin";
 import { envDataDir } from "../lib/data-dir";
 import { resolveClaudeBin } from "../lib/claude-bin";
@@ -560,18 +560,7 @@ let bridgeReady = false;
 let bridgeConnecting = false;
 let bridgeReadyResolvers: (() => void)[] = [];
 let suppressBridgeReconnectForTest = false;
-let activeBridge: { implementation: "rust" | "node" | "unknown"; reason: PtyBridgeReason; path: string | null } = {
-  implementation: "unknown",
-  reason: "notConnected",
-  path: null,
-};
-
-export interface PtyBridgeRuntimeStatus {
-  implementation: "rust" | "node" | "unknown";
-  reason: PtyBridgeReason;
-  path: string | null;
-  connected: boolean;
-}
+let activeBridge: ActiveBridge = { implementation: "unknown", reason: "notConnected", path: null, pid: null, startedAt: null };
 
 export function getPtyBridgeRuntimeStatus(): PtyBridgeRuntimeStatus {
   return { ...activeBridge, connected: bridgeReady && !!bridgeSocket && !bridgeSocket.destroyed };
@@ -848,7 +837,8 @@ export async function ensureBridge(): Promise<void> {
     // Try connecting to existing bridge
     const connected = await tryConnect();
     if (connected) {
-      activeBridge = { implementation: "unknown", reason: "reused", path: null };
+      activeBridge = { implementation: "unknown", reason: "reused", path: null, pid: null, startedAt: null };
+      noteBridgeProcess();
       bridgeConnecting = false;
       bridgeReadyResolvers.forEach(r => r());
       bridgeReadyResolvers = [];
@@ -869,7 +859,7 @@ export async function ensureBridge(): Promise<void> {
       ? { ...bundled, implementation: "rust" as const, reason: "override" as const, path: bundled.cmd }
       : resolvePtyBridgeCommand();
     const { cmd, args: baseArgs } = selection;
-    activeBridge = { implementation: "unknown", reason: selection.reason, path: selection.path };
+    activeBridge = { implementation: "unknown", reason: selection.reason, path: selection.path, pid: null, startedAt: null };
     // Bridge stderr goes to a LOG FILE, never 'inherit'. Inheriting makes
     // `detached` a lie: the bridge outlives us still holding OUR stderr open,
     // so anything reading this process through a pipe (`| tee`, a test runner)
@@ -936,11 +926,20 @@ export async function ensureBridge(): Promise<void> {
         `Failed to connect to PTY bridge after spawning (${cmd} --socket ${SOCKET_PATH})` + detail,
       );
     }
+    noteBridgeProcess();
   } finally {
     bridgeConnecting = false;
     bridgeReadyResolvers.forEach(r => r());
     bridgeReadyResolvers = [];
   }
+}
+
+/** Which bridge holds the socket and since when, read from the OS once per connection (TERM-13). */
+function noteBridgeProcess(): void {
+  const socket = bridgeSocket;
+  void identifyBridgeProcess(SOCKET_PATH).then((info) => {
+    if (info && bridgeSocket === socket) activeBridge = withBridgeProcess(activeBridge, info);
+  });
 }
 
 function tryConnect(): Promise<boolean> {
@@ -1000,7 +999,7 @@ function setupSocketReader(socket: net.Socket) {
   socket.on('close', () => {
     bridgeReady = false;
     bridgeSocket = null;
-    activeBridge = { implementation: "unknown", reason: "disconnected", path: null };
+    activeBridge = { implementation: "unknown", reason: "disconnected", path: null, pid: null, startedAt: null };
     console.log(suppressBridgeReconnectForTest
       ? "[Terminal] Bridge socket closed"
       : "[Terminal] Bridge socket closed, will reconnect on next use");

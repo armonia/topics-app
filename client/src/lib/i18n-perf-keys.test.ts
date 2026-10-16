@@ -32,6 +32,7 @@ const ROWS_OF_PANEL: Array<[string, Record<string, string | number>]> = [
   ['perf.verdict.compressed', { gb: '2.5' }],
   ['perf.verdict.mostlySwapped', { pct: 78, mb: 234 }],
   ['perf.verdict.loaded', {}],
+  ['perf.ptyBridge.since', { date: '7/10' }],
 ];
 
 describe('le stringhe del pannello prestazioni', () => {
