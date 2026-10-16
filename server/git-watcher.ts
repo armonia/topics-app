@@ -58,12 +58,21 @@ export function gitPathAffectsStatus(filename: string | Buffer | null): boolean 
 /**
  * Under `refs/`, a lock file is not a change. A fetch that moves nothing still
  * rewrites `refs/remotes/<remote>/HEAD` through `HEAD.lock` (git 2.50, measured
- * 15/10), and that event alone was a full status round per autofetch. A ref
- * that really moves also reports its final name (`refs/remotes/origin/main`).
- * A missing name stays a change: better a round too many than a missed one.
+ * 15/10), and the rename to the final name sometimes arrives as its own event
+ * — same bytes, no ref moved — which used to fire a full status round per
+ * autofetch (caught red-handed in the WORKTREE-05 no-op-fetch test: the refs
+ * tree byte-identical, yet a `remotes/origin/HEAD` event with no `.lock`
+ * suffix). So the remote HEAD symref itself is never a change either: a ref
+ * that really moves always reports its own final name too
+ * (`refs/remotes/origin/main` alongside the HEAD rewrite), and nothing the
+ * status computes reads the symref. A missing name stays a change: better a
+ * round too many than a missed one.
  */
 export function refPathAffectsStatus(filename: string | Buffer | null): boolean {
-  return !filename?.toString().endsWith(".lock");
+  const name = filename?.toString();
+  if (name === undefined) return true;
+  if (name.endsWith(".lock")) return false;
+  return name.split(/[\\/]/).pop() !== "HEAD";
 }
 
 /**
