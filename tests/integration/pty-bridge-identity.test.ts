@@ -13,6 +13,10 @@
  * The bar is a real process holding a real socket, shaped like that bridge: a
  * runtime running `pty-bridge.mjs` whose pong says nothing about itself. The
  * server reuses it, and its status has to name it and date it.
+ *
+ * In the server's own PATH, too. launchd and the app start it with no /usr/sbin,
+ * where macOS keeps `lsof`: the first version of this test ran with the
+ * terminal's PATH, was green, and production kept saying "not identified".
  */
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { spawn, type ChildProcess } from "node:child_process";
@@ -23,6 +27,7 @@ import { cleanupTestDataDir, setupTestDataDir, testTmpDir } from "./helpers";
 const ROOT = testTmpDir("pty-bridge-identity");
 // Short on purpose: a unix socket path cannot exceed 104 characters.
 const SOCKET_PATH = join(ROOT, "b.sock");
+const SHELL_PATH = process.env.PATH;
 
 // A bridge from before 15/10: it answers, and never says what it is.
 const OLD_BRIDGE = `
@@ -52,6 +57,7 @@ beforeAll(async () => {
   bridge = spawn(process.execPath, [join(ROOT, "pty-bridge.mjs"), SOCKET_PATH], { stdio: "ignore" });
   const deadline = Date.now() + 10_000;
   while (Date.now() < deadline && !fs.existsSync(SOCKET_PATH)) await new Promise((r) => setTimeout(r, 50));
+  process.env.PATH = (SHELL_PATH ?? "").split(":").filter((dir) => !dir.endsWith("/sbin")).join(":");
   delete process.env.TOPICS_DISABLE_PTY_BRIDGE;
   delete process.env.TOPICS_EMBEDDED;
 }, 30_000);
@@ -61,6 +67,7 @@ afterAll(async () => {
   disconnectBridge();
   _setPtyBridgeSocketPath(null);
   bridge?.kill("SIGKILL");
+  process.env.PATH = SHELL_PATH;
   await cleanupTestDataDir(ROOT);
 });
 

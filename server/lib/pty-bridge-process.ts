@@ -14,7 +14,7 @@
 import { basename } from "node:path";
 
 import type { PtyBridgeReason } from "../../shared/pty-bridge";
-import { defaultRunner, type Runner } from "./live-terminals";
+import { defaultRunner, LSOF, type Runner } from "./live-terminals";
 
 export type BridgeImplementation = "rust" | "node" | "unknown";
 
@@ -73,7 +73,7 @@ export async function identifyBridgeProcess(
   const selfPid = opts.selfPid ?? process.pid;
   if ((opts.platform ?? process.platform) === "win32") return null;
   try {
-    const pids = (await run("lsof", ["-t", socketPath], { timeoutMs: 3000 }))
+    const pids = (await run(LSOF, ["-t", socketPath], { timeoutMs: 3000 }))
       .split("\n").map((l) => Number(l.trim())).filter((n) => Number.isInteger(n) && n > 0 && n !== selfPid);
     const pid = pids[0];
     if (!pid) return null;

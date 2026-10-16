@@ -7,6 +7,7 @@
  * `tests/integration/pty-bridge-identity.test.ts`.
  */
 import { describe, expect, test } from "bun:test";
+import { basename } from "node:path";
 import { bridgeImplementationFromProcess, identifyBridgeProcess, parseElapsed, withBridgeProcess, type ActiveBridge } from "./pty-bridge-process";
 import type { Runner } from "./live-terminals";
 
@@ -42,7 +43,7 @@ describe("bridgeImplementationFromProcess", () => {
 describe("identifyBridgeProcess, with the tools answering as they do", () => {
   const NOW = Date.parse("2026-10-16T03:00:00.000Z");
   const fake = (answers: Record<string, string>): Runner => async (file, args) => {
-    const key = `${file} ${args.join(" ")}`;
+    const key = `${basename(file)} ${args.join(" ")}`;
     if (!(key in answers)) throw new Error(`unexpected ${key}`);
     return answers[key];
   };

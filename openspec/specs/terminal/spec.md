@@ -698,6 +698,11 @@ stato SHALL restare quello di prima, senza indovinare.
 - **WHEN** il server lo riusa
 - **THEN** lo stato SHALL dire Node, il pid di quel processo e l'ora in cui è partito
 
+#### Scenario: il server partito senza /usr/sbin nel PATH
+- **GIVEN** il server avviato da launchd o dall'app, con un PATH senza `/usr/sbin`, dove macOS tiene `lsof`
+- **WHEN** riusa quel ponte
+- **THEN** lo stato SHALL dire Node, il pid e l'ora di partenza, come quando parte da un terminale
+
 #### Scenario: il pannello
 - **GIVEN** uno stato del ponte con l'ora di partenza
 - **THEN** la riga del ponte e la spiegazione dell'interruttore SHALL mostrare la data di avvio

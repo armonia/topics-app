@@ -27,6 +27,7 @@
  * list without taking the others with it.
  */
 import { execFile } from "node:child_process";
+import { existsSync } from "node:fs";
 import { basename } from "node:path";
 
 import type { LiveTerminal, LiveTerminalSource } from "../../shared/live-terminals";
@@ -46,6 +47,14 @@ export const defaultRunner: Runner = (file, args, opts) =>
       else resolve(String(stdout));
     });
   });
+
+/**
+ * `lsof` by its full path. macOS keeps it in /usr/sbin, and launchd and the app
+ * start the server with no /usr/sbin in its PATH: a bare "lsof" works from a
+ * terminal and fails in production, silently (16/10: the bridge panel, and the
+ * folder of every Terminal tab).
+ */
+export const LSOF = Bun.which("lsof") ?? (existsSync("/usr/sbin/lsof") ? "/usr/sbin/lsof" : "lsof");
 
 // ── tmux ─────────────────────────────────────────────────────────────────────
 
@@ -279,7 +288,7 @@ export function createLiveTerminals(deps: LiveTerminalsDeps): LiveTerminalsServi
     }
     if (!pids.length) return;
     try {
-      const cwds = parseLsofCwd(await run("lsof", ["-a", "-d", "cwd", "-Fpn", "-p", pids.join(",")]));
+      const cwds = parseLsofCwd(await run(LSOF, ["-a", "-d", "cwd", "-Fpn", "-p", pids.join(",")]));
       for (const r of ttys) {
         const p = fg.get(r.tty!);
         if (p && !r.cwd) r.cwd = cwds.get(p.pid) ?? null;
