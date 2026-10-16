@@ -30,6 +30,7 @@ import { execFile } from "node:child_process";
 import { basename } from "node:path";
 
 import type { LiveTerminal, LiveTerminalSource } from "../../shared/live-terminals";
+import { LSOF } from "./system-bins";
 
 export interface LiveScreen {
   id: string;
@@ -279,7 +280,7 @@ export function createLiveTerminals(deps: LiveTerminalsDeps): LiveTerminalsServi
     }
     if (!pids.length) return;
     try {
-      const cwds = parseLsofCwd(await run("lsof", ["-a", "-d", "cwd", "-Fpn", "-p", pids.join(",")]));
+      const cwds = parseLsofCwd(await run(LSOF, ["-a", "-d", "cwd", "-Fpn", "-p", pids.join(",")]));
       for (const r of ttys) {
         const p = fg.get(r.tty!);
         if (p && !r.cwd) r.cwd = cwds.get(p.pid) ?? null;

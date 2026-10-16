@@ -20,6 +20,8 @@
  * sidecar was the one door still unguarded.
  */
 import { describe, expect, test } from "bun:test";
+import { once } from "node:events";
+import { createServer, type AddressInfo } from "node:net";
 import { portOwnedBy } from "./browser-chromium-sidecar";
 
 const row = (pid: number, ppid: number, command: string) => `${pid} ${ppid} ${command}`;
@@ -69,6 +71,22 @@ describe("who owns the debugging port", () => {
     // Called while the browser is still coming up. "Not yet" is not "foreign",
     // and answering `false` here would turn every slow boot into a hijack.
     expect(portOwnedBy(19333, 5000, { lsof: () => "\n" })).toBeNull();
+  });
+
+  test.skipIf(process.platform === "win32")("with the PATH the server really has, the real lsof still answers", async () => {
+    // launchd and the app start the server with no /usr/sbin, where macOS keeps
+    // lsof. The guard has to answer there, not only from a terminal: a probe
+    // that cannot run returns `null`, and `null` is accept.
+    const server = createServer().listen(0, "127.0.0.1");
+    await once(server, "listening");
+    const shellPath = process.env.PATH;
+    process.env.PATH = (shellPath ?? "").split(":").filter((dir) => !dir.endsWith("/sbin")).join(":");
+    try {
+      expect(portOwnedBy((server.address() as AddressInfo).port, process.pid)).toBe(true);
+    } finally {
+      process.env.PATH = shellPath;
+      server.close();
+    }
   });
 
   test("a parent chain that loops does not hang the probe", () => {
