@@ -2384,6 +2384,7 @@ const EN = {
   'perf.ptyBridge.reason.disconnected': 'connection closed',
   'perf.ptyBridge.setting': 'Rust terminal bridge',
   'perf.ptyBridge.state': 'Responding: {name}. Reason: {reason}. {next}',
+  'perf.ptyBridge.since': 'started {date}',
   'perf.ptyBridge.nextStart': 'Changes apply the next time the bridge starts.',
   'perf.ptyBridge.reason.disabled': 'Rust disabled, using Node',
   'perf.ptyBridge.reason.stale': 'binary is older than sources, rebuild with scripts/build-pty-bridge.sh',

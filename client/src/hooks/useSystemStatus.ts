@@ -91,6 +91,9 @@ export interface SystemStatus {
       implementation: 'rust' | 'node' | 'unknown';
       reason: PtyBridgeReason;
       path: string | null;
+      /** The process holding the bridge socket, and since when (ISO). */
+      pid?: number | null;
+      startedAt?: string | null;
       connected: boolean;
     };
     /**

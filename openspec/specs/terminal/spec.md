@@ -674,6 +674,34 @@ Nessun testo inventato.
 - **GIVEN** una sessione dormiente il cui topic non è di nessuna card e senza codice
 - **THEN** il velo SHALL restare quello di oggi
 
+### Requirement: TERM-13 — Il pannello dice QUALE ponte risponde e DA QUANDO
+
+Il ponte dei terminali sopravvive a ogni riavvio del server, perché tiene i
+terminali vivi: quello che risponde può essere molto più vecchio del codice su
+disco e dell'interruttore che sceglie fra Node e Rust. Il 16/10/2026 quello del
+Mac era partito il 7/10, prima che il suo `pong` dicesse che cosa è: il pannello
+Prestazioni scriveva «non identificato» sotto un interruttore Rust acceso, e da
+nessuna parte diceva che l'interruttore, e due modifiche al ponte, aspettavano
+che quel processo si fermasse.
+
+Lo stato del ponte SHALL dire quale ponte risponde e quando è partito. Quando il
+`pong` non lo dice, il server SHALL leggerlo dal sistema operativo: il processo
+che tiene il socket, il suo eseguibile, il tempo da cui gira. Il `pong` SHALL
+restare la fonte che vince quando parla. Il nome del socket da solo NON SHALL
+bastare: è lo stesso per i due ponti.
+
+Dove il sistema non risponde (Windows, dove il ponte è una pipe con nome) lo
+stato SHALL restare quello di prima, senza indovinare.
+
+#### Scenario: un ponte di prima del 15/10 riusato
+- **GIVEN** un processo che esegue `pty-bridge.mjs` e risponde al `ping` senza dire che cosa è
+- **WHEN** il server lo riusa
+- **THEN** lo stato SHALL dire Node, il pid di quel processo e l'ora in cui è partito
+
+#### Scenario: il pannello
+- **GIVEN** uno stato del ponte con l'ora di partenza
+- **THEN** la riga del ponte e la spiegazione dell'interruttore SHALL mostrare la data di avvio
+
 ### Requirement: TERM-WARM-01 — "Not Yet" And "Gone" SHALL NOT Look The Same To The Client
 
 Between accepting connections and finishing its reconcile against the pty
