@@ -143,6 +143,12 @@ describe("WORKTREE-05 — the watcher speaks for the worktree, not for its paren
     expect(refPathAffectsStatus("remotes/origin/HEAD.lock")).toBe(false);
     expect(refPathAffectsStatus("remotes/origin/main")).toBe(true);
     expect(refPathAffectsStatus(null)).toBe(true);
+    // A no-op fetch rewrites the remote HEAD symref with identical bytes and
+    // the rename sometimes arrives as its own `remotes/origin/HEAD` event:
+    // that alone used to publish a status. A ref that really moves always
+    // reports its own name too, so ignoring the symref loses no real change.
+    expect(refPathAffectsStatus("remotes/origin/HEAD")).toBe(false);
+    expect(refPathAffectsStatus("remotes\\origin\\HEAD")).toBe(false);
   });
 
   test("a burst of events refreshes once, for the generation of the last event", async () => {
