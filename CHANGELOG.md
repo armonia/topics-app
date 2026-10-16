@@ -2,7 +2,13 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
-## 2.2.517 — 2026-10-16
+## 2.2.518 — 2026-10-16
+
+### Sotto il cofano
+- WORKTREE-05 non è più instabile: la riscrittura di origin/HEAD non conta come cambiamento (#383)
+- Una sessione viva non appare più «terminata» quando il bridge tarda a dare lo storico (#382)
+
+## 2.2.517 — 2026-10-15
 
 ### Sotto il cofano
 - le descrizioni dei cinque problemi del browser, ora che sono chiusi (#380)

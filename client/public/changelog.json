@@ -1,7 +1,28 @@
 [
   {
-    "version": "2.2.517",
+    "version": "2.2.518",
     "date": "2026-10-16",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "WORKTREE-05 non è più instabile: la riscrittura di origin/HEAD non conta come cambiamento (#383)",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Una sessione viva non appare più «terminata» quando il bridge tarda a dare lo storico (#382)",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
+    "version": "2.2.517",
+    "date": "2026-10-15",
     "sections": {
       "new": [],
       "fixes": [],
