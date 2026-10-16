@@ -2,6 +2,12 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.3.1 — 2026-10-16
+
+### Sotto il cofano
+- **e2e** · aggiorna durate shard dal nightly del 2026-10-16 [skip ci]
+- Il pannello dice quale bridge dei terminali risponde e da quando (#386)
+
 ## 2.3.0 — 2026-10-16
 
 ### Sotto il cofano

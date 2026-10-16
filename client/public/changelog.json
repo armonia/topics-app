@@ -1,5 +1,27 @@
 [
   {
+    "version": "2.3.1",
+    "date": "2026-10-16",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "aggiorna durate shard dal nightly del 2026-10-16 [skip ci]",
+          "en": "",
+          "scope": "e2e",
+          "breaking": false
+        },
+        {
+          "it": "Il pannello dice quale bridge dei terminali risponde e da quando (#386)",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
     "version": "2.3.0",
     "date": "2026-10-16",
     "sections": {
