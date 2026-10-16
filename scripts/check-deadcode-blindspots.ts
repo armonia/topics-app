@@ -196,6 +196,11 @@ export const KNOWN_BLIND: Array<{ file: string; reason: string }> = [
   // and twenty tests cover it. Not repairable: dropping the entry point would
   // mean no longer being able to run it.
   { file: "scripts/release-gate.ts", reason: "entry point: il workflow lo esegue, knip da' per usati gli export di un entry" },
+  // Same shape, same workflow: the bump step runs `bun run
+  // scripts/release-level.ts` to pick patch, minor or major, and
+  // `tests/unit/release-level.test.ts` imports its three functions. Its surface
+  // is those three plus one type, all covered there.
+  { file: "scripts/release-level.ts", reason: "entry point: il workflow lo esegue, knip da' per usati gli export di un entry" },
 ];
 
 // ─── i candidati ─────────────────────────────────────────────────────────────
