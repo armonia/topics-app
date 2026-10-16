@@ -1,9 +1,14 @@
-name: Auto-bump patch
+name: Auto-bump
 
-# Increments the PATCH (the z in x.y.z) in lockstep across package.json /
-# tauri.conf.json / Cargo.toml / Cargo.lock, commits it back to main, and then
-# builds and publishes the Tauri installers for that version, so a merge on main
-# reaches everybody's auto-updater with no manual step.
+# Raises the version in lockstep across package.json / tauri.conf.json /
+# Cargo.toml / Cargo.lock, commits it back to main, and then builds and
+# publishes the Tauri installers for that version, so a merge on main reaches
+# everybody's auto-updater with no manual step.
+#
+# WHICH NUMBER, since 2026-10-16 (RELEASE-07): the patch by default; the minor
+# or the major when a commit since the last release carries the trailer
+# `Release: minor` or `Release: major` (`scripts/release-level.ts`). Before, it
+# was always the patch: 517 of them between 2.2.0 and 2.2.517.
 #
 # THE GATE, and why this file changed on 2026-08-16. The policy "main always
 # ships" (approved 2026-07-10) built installers on every merge, and the build
@@ -116,10 +121,13 @@ jobs:
             '{tipSha: $sha, tipMessage: $msg, branch: "main", run: $run}' \
             | bun run scripts/release-gate.ts
 
-      - name: Bump patch across lockstep files
+      - name: Bump across lockstep files
         id: bump
         if: ${{ steps.gate.outputs.publish == 'true' }}
-        run: echo "version=$(bash scripts/bump-version.sh patch)" >> "$GITHUB_OUTPUT"
+        run: |
+          set -euo pipefail
+          LEVEL="$(bun run scripts/release-level.ts)"
+          echo "version=$(bash scripts/bump-version.sh "$LEVEL")" >> "$GITHUB_OUTPUT"
 
       # The changelog is GENERATED from git history (scripts/gen-changelog.mjs),
       # so the version just bumped can only get one AFTER the bump and before

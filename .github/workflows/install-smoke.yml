@@ -8,10 +8,10 @@ on:
         required: true
         default: latest
         type: string
-  # The release is published with the GITHUB_TOKEN inside "Auto-bump patch" (workflow_call), and
+  # The release is published with the GITHUB_TOKEN inside "Auto-bump" (workflow_call), and
   # an event raised by that token starts no workflow: `release: published` would never fire here.
   workflow_run:
-    workflows: [Auto-bump patch]
+    workflows: [Auto-bump]
     types: [completed]
 
 permissions:

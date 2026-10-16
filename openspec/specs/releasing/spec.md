@@ -215,6 +215,42 @@ NEGA l'istruzione vecchia: citarla per dire che non vale più non è darla.
 - **GIVEN** un paragrafo che dichiara che non vale più
 - **THEN** NON SHALL essere un fallimento
 
+### Requirement: RELEASE-07 — Il numero che sale dice che cosa è cambiato
+
+CINQUECENTODICIASSETTE PATCH DI FILA. Dal 23/07 al 16/10 il rilascio automatico
+ha alzato solo l'ultima cifra, da 2.2.0 a 2.2.517: un rilascio che cambiava
+quello che si vede si leggeva come una correzione di una riga.
+
+Il criterio:
+- la **patch** SHALL salire a ogni rilascio, come prima, se nessun commit chiede
+  di più;
+- la **minor** SHALL salire quando un commit porta un cambiamento che chi usa
+  Topics vede: una funzione nuova o un comportamento diverso;
+- la **major** SHALL salire SOLO per una rottura: dati che la versione
+  precedente non sa più leggere, un protocollo che obbliga client, server e
+  telefono ad aggiornarsi insieme, un sistema operativo non più supportato.
+
+A chiederlo SHALL essere il commit, con una riga a sé nel messaggio:
+`Release: minor` o `Release: major`. Main si fonde con lo squash, quindi la riga
+va nel corpo del commit di fusione. La stessa frase dentro una riga di testo NON
+SHALL contare.
+
+I rilasci escono a lotti: un lotto SHALL prendere il livello più alto fra i
+commit dall'ULTIMO commit di versione in poi. Un commit già rilasciato NON SHALL
+contare di nuovo, o ogni rilascio successivo ripeterebbe il suo salto.
+
+#### Scenario: un lotto di sole correzioni
+- **GIVEN** nessun commit con la riga dall'ultimo rilascio
+- **THEN** SHALL salire la patch
+
+#### Scenario: una funzione nuova fra tre correzioni
+- **GIVEN** un commit con `Release: minor` e tre senza
+- **THEN** SHALL salire la minor, e la patch SHALL tornare a zero
+
+#### Scenario: la riga di un commit già rilasciato
+- **GIVEN** un `Release: major` PRIMA dell'ultimo commit di versione
+- **THEN** NON SHALL contare
+
 ### Requirement: UPDATER-01 — L'aggiornamento si annuncia, ma un controllo SILENZIOSO resta silenzioso
 
 Il riquadro dell'aggiornamento SHALL comparire per gli stati che chiedono qualcosa
