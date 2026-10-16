@@ -47,6 +47,19 @@ export const TERMINAL_INPUT_DROPPED = "input-dropped";
 export const TERMINAL_WS_CLOSE_DORMANT = 4001;
 
 /**
+ * WebSocket close code for an attach whose scrollback the PTY bridge did not
+ * hand over: not connected, or no answer within the wait.
+ *
+ * It is NOT a verdict, and that is the point. The client takes a claude pane
+ * whose replay carried zero bytes as a PTY that is gone and offers Resume, so
+ * an empty replay sent in place of a missing one turned a live session into a
+ * «Sessione terminata» (2026-10-15, load1 above 150, `[LAG]` stops of 1.3-1.7 s
+ * on the server). Closing instead lands in the client's ordinary reconnect
+ * path, which retries for as long as the session is listed.
+ */
+export const TERMINAL_WS_CLOSE_REPLAY_UNANSWERED = 4002;
+
+/**
  * Response header of `GET /api/terminal/sessions`: `"1"` when the roster has
  * been compared with the PTY bridge, so an EMPTY list means "no session" and
  * not "you asked before the reconcile finished".

@@ -1,6 +1,6 @@
 import type { AppContext, RouteHandler } from "../types";
 import type { TerminalSessionType } from "../../shared/terminal-session-types";
-import { encodeExitReason, ROSTER_RECONCILED_HEADER, STANDALONE_NO_PTY_CODE, TERMINAL_INPUT_DROPPED, TERMINAL_ROSTER_WARMING_CODE, TERMINAL_ROSTER_WARMING_RETRY_AFTER_S, TERMINAL_WS_CLOSE_DORMANT } from "../../shared/terminal-messages";
+import { encodeExitReason, ROSTER_RECONCILED_HEADER, STANDALONE_NO_PTY_CODE, TERMINAL_INPUT_DROPPED, TERMINAL_ROSTER_WARMING_CODE, TERMINAL_ROSTER_WARMING_RETRY_AFTER_S, TERMINAL_WS_CLOSE_DORMANT, TERMINAL_WS_CLOSE_REPLAY_UNANSWERED } from "../../shared/terminal-messages";
 import { spawn } from "child_process";
 import { basename, dirname, join } from "path";
 import { createInterface } from "readline";
@@ -581,8 +581,8 @@ export function _suppressPtyBridgeReconnectForTest(suppress: boolean): void {
   suppressBridgeReconnectForTest = suppress;
 }
 
-// Pending buffer requests: sessionId -> callback
-const pendingBufferRequests = new Map<string, ((data: Uint8Array) => void)[]>();
+// Pending buffer requests: sessionId -> callback. `null` = the bridge did not answer.
+const pendingBufferRequests = new Map<string, ((data: Uint8Array | null) => void)[]>();
 
 function getSocketPath(): string {
   // Explicit override — set ONLY by the E2E harness (global-setup.ts) so a
@@ -1737,21 +1737,41 @@ async function reconcileSessions(attempt = 0): Promise<void> {
 }
 
 // --- Buffer request from bridge ---
-function requestBuffer(sessionId: string): Promise<Uint8Array> {
+/**
+ * The session's scrollback as the bridge holds it, or `null` when the bridge
+ * did not hand it over: not connected, the write failed, or no answer within
+ * a second.
+ *
+ * `null` and an empty buffer are different facts and must stay apart. An empty
+ * answer means the bridge has nothing for this id, which is how a gone PTY
+ * looks; no answer means nothing at all. Both used to come back as zero bytes,
+ * and under load (2026-10-15, `[LAG]` stops of 1.3-1.7 s) the attach of a live
+ * claude idle on a question replayed nothing and its pane showed «Sessione
+ * terminata».
+ */
+function requestBuffer(sessionId: string): Promise<Uint8Array | null> {
   return new Promise((resolve) => {
-    if (!bridgeReady) { resolve(new Uint8Array(0)); return; }
+    if (!bridgeReady) { resolve(null); return; }
     const existing = pendingBufferRequests.get(sessionId) || [];
     existing.push(resolve);
     pendingBufferRequests.set(sessionId, existing);
-    sendToBridge({ type: "buffer", id: sessionId });
-    // Timeout after 1 second
-    setTimeout(() => {
+    // Each request expires on its own: a second attach to the same id must not
+    // be failed by the first one's deadline.
+    const expire = () => {
       const cbs = pendingBufferRequests.get(sessionId);
-      if (cbs) {
-        for (const cb of cbs) cb(new Uint8Array(0));
-        pendingBufferRequests.delete(sessionId);
-      }
-    }, 1000);
+      const i = cbs ? cbs.indexOf(resolve) : -1;
+      if (!cbs || i < 0) return;
+      cbs.splice(i, 1);
+      if (cbs.length === 0) pendingBufferRequests.delete(sessionId);
+      resolve(null);
+    };
+    try {
+      sendToBridge({ type: "buffer", id: sessionId });
+    } catch {
+      expire();
+      return;
+    }
+    setTimeout(expire, 1000);
   });
 }
 
@@ -1861,7 +1881,7 @@ export function countBusyAgentTerminals(): number {
 
 export async function getTerminalBuffer(sessionId: string): Promise<string> {
   const bytes = await requestBuffer(sessionId);
-  return new TextDecoder().decode(bytes);
+  return bytes ? new TextDecoder().decode(bytes) : "";
 }
 
 // --- Session management ---
@@ -4010,6 +4030,14 @@ export function handleTerminalWebSocket(ws: any, sessionId: string) {
   // Claude Code session, just from the backlog being flushed.
   requestBuffer(sessionId).then((buffered) => {
     try {
+      // No answer from the bridge is not an empty scrollback. A `replay-end`
+      // after zero bytes tells the client a claude PTY is gone (the resume
+      // veil), so it goes out only after a real answer; otherwise the attach
+      // ends with a code the client retries like any other dropped socket.
+      if (buffered === null) {
+        ws.close(TERMINAL_WS_CLOSE_REPLAY_UNANSWERED, "Replay unanswered");
+        return;
+      }
       // The scrollback is the single most compressible frame this server sends:
       // it is a screen of repeated escape sequences, and it goes out once per
       // focus of a terminal tab.

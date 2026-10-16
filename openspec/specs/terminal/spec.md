@@ -730,6 +730,43 @@ sentence it shows.
 - **WHEN** the final answer is handed to the caller
 - **THEN** that response body SHALL still be unread
 
+### Requirement: TERM-WARM-02 — A Scrollback The Bridge Did Not Hand Over SHALL NOT Reach The Client As An Empty One
+
+The same distinction, on the WebSocket. On attach the server asks the PTY
+bridge for the session's scrollback, forwards it and then sends `replay-end`.
+The client takes a claude or codex pane older than ten seconds whose replay
+carried zero bytes as a PTY that is gone, and covers it with «Sessione
+terminata» and Resume. That inference is sound only when the bridge really
+answered "nothing": a live TUI always has a drawn screen to replay.
+
+The measured incident, 2026-10-15: with load1 at 150-177 the server's event
+loop stopped for 1.3-1.7 s several times, the one-second wait for the bridge
+expired, and the server sent an empty replay in its place. A claude session
+idle on a question emits nothing on its own, so its pane stayed under the veil
+while the process was alive, and Resume would have started a second claude on
+the same conversation.
+
+So the server SHALL send `replay-end` only after the bridge answered. When the
+bridge is not connected, or does not answer within the wait, the attach SHALL
+end with the close code `TERMINAL_WS_CLOSE_REPLAY_UNANSWERED`, which the client
+retries like any other dropped socket. Each request SHALL expire on its own: a
+second attach to the same session SHALL NOT be failed by the first one's
+deadline.
+
+#### Scenario: the bridge does not answer
+- **GIVEN** an attach to a live session whose scrollback request gets no answer within the wait
+- **THEN** the server SHALL NOT send `replay-end`
+- **AND** it SHALL close the socket with `TERMINAL_WS_CLOSE_REPLAY_UNANSWERED`
+
+#### Scenario: the bridge is not connected
+- **GIVEN** an attach to a live session while the bridge is disconnected
+- **THEN** the server SHALL close the socket with `TERMINAL_WS_CLOSE_REPLAY_UNANSWERED` at once
+- **AND** it SHALL NOT send `replay-end`
+
+#### Scenario: the bridge answers empty
+- **GIVEN** an attach whose scrollback request the bridge answers with no bytes
+- **THEN** the server SHALL send `replay-end`, which is the gone-PTY signal the resume veil is built on
+
 ### Requirement: TERM-11 — I tasti battuti prima dell'aggancio si mettono in coda, non si perdono
 
 Ricaricare la pagina rimonta la pane: xterm ridisegna, il ponte rimanda lo
