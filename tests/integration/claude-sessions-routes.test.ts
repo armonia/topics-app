@@ -33,7 +33,7 @@
 import { describe, test, expect, beforeAll, afterAll, beforeEach } from "bun:test";
 import { Database } from "bun:sqlite";
 import { readdirSync, readFileSync } from "node:fs";
-import { hookTokenPath } from "../../server/routes/claude-hooks";
+import { getOrCreateHookToken } from "../../server/routes/claude-hooks";
 import { join } from "node:path";
 import { cleanupTestDataDir, createTestAppContext, setupTestDataDir, testTmpDir } from "./helpers";
 import { createClaudeSessionTracker, type ClaudeSessionTracker } from "../../server/lib/claude-session-tracker";
@@ -206,7 +206,9 @@ describe("the hook route dates an event by its firing stamp", () => {
     const tracker = createClaudeSessionTracker({ db, broadcast: () => {}, coalesceWindowMs: 20, dedupWindowMs: 100, rateLimitPerSec: 50 });
     const { createClaudeHooksRouter } = await import("../../server/routes/claude-hooks");
     const router = createClaudeHooksRouter(await createTestAppContext(), tracker);
-    const token = readFileSync(hookTokenPath(), "utf-8").trim();
+    // The token the router checks, not the file: it is cached for the process, and a file
+    // that built a router before this one leaves nothing written under this TOPICS_HOME.
+    const token = getOrCreateHookToken();
     seed(db, "topic:ordine", "cli-ordine");
 
     const post = async (event: string, firedAt: number, body: Record<string, unknown> = {}) => {

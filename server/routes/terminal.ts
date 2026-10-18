@@ -50,6 +50,7 @@ import { recordRetirement } from "../services/retirement";
 import { renderScreen, screenToText } from "../lib/terminal-screen";
 import type { LiveTerminal } from "../../shared/live-terminals";
 import type { ClaudeSessionTracker } from "../lib/claude-session-tracker";
+import { liveClaudeSessionId, panesToFollow } from "../lib/claude-live-session";
 import { writeMcpConfigForSession, cleanupMcpConfigForSession } from "../providers/claude-code";
 import { claudeTranscriptPath } from "../lib/claude-transcript-path";
 import { discoverClaudeSubAgentSessionId, normalizePromptSnippet, transcriptHasPrompt } from "../lib/claude-subagent-transcript";
@@ -78,7 +79,7 @@ import { agentWorkspaceForSession } from "../lib/agent-workspace";
 import { terminalActivity as attentionOfActivity, terminalClosed, terminalExited } from "../attention/terminal-turns";
 export type { SubAgentExitInfo } from "./subagent-exit";
 
-interface TerminalSession {
+export interface TerminalSession {
   id: string;
   name: string;
   /** How `name` was set: 'default' (the generated "Terminal N"), 'auto'
@@ -2744,6 +2745,30 @@ import type { OutboundMessage } from "../../shared/ws-outbound";
 let _tracker: ClaudeSessionTracker | null = null;
 /** Test seam: the tracker the park guards read (null = none), whatever an earlier file in the process installed. */
 export function _setTerminalTrackerForTests(tracker: ClaudeSessionTracker | null): void { _tracker = tracker; }
+/** Test seam: the live panes, to put one in front of a hook without a bridge. */
+export function _terminalSessionsForTests(): Map<string, TerminalSession> { return sessions; }
+
+/**
+ * Moves each Claude pane's resume id to the conversation its CLI is on now
+ * (`lib/claude-live-session.ts`): after a `/clear` the spawn id points at the
+ * conversation from before it. `only` checks one pane, before it is parked.
+ */
+export function followClaudeSessionIds(only?: TerminalSession): void {
+  const moves = panesToFollow(only ? [only] : sessions.values(), liveClaudeSessionId);
+  for (const { pane, sessionId } of moves) {
+    pane.claudeSessionId = sessionId;
+    try { getDatabase().run("UPDATE terminal_sessions SET claude_session_id = ? WHERE id = ?", [sessionId, pane.id]); }
+    catch (e) { warnThrottled("terminal_sessions:follow", `[Terminal] terminal_sessions: moving ${pane.id} to session ${sessionId} failed:`, e); }
+    _tracker?.registerTerminalSession(sessionId, { cwd: pane.cwd });
+  }
+  if (moves.length > 0) broadcastTerminalSessions();
+}
+
+/** A hook from a session id no pane knows is what a `/clear` sends first. */
+export function noteClaudeHookSession(claudeSessionId: string): void {
+  for (const s of sessions.values()) if (s.claudeSessionId === claudeSessionId) return;
+  followClaudeSessionIds();
+}
 /** The branch an isolated sub-agent stands on (WORKTREE-14) is read from its
  *  directory, and the directory is the only binding there is: no new column. A
  *  module-level reference like `_tracker` because the wake of a child after a
@@ -2903,6 +2928,8 @@ function tryParkSession(
   /** Retiring a finished sub-agent is the one park a child admits; `turnEnded`: its own transcript says so, and the tracker's phase (which can miss a turn end) does not veto it. `beforeKill`: runs only once every gate said yes. */
   opts: { allowSubAgent?: boolean; turnEnded?: boolean; beforeKill?: () => void; caller?: string; hasOpenTab?: boolean } = {},
 ): { parked: true } | { parked: false; reason: ParkRefusal } {
+  // The park resumes from this id: it must be the conversation the CLI is on.
+  followClaudeSessionIds(s);
   const activity = terminalActivity.get(id);
   const state = s.claudeSessionId ? _tracker?.getSession(s.claudeSessionId) : undefined;
   const phase = opts.turnEnded ? null : state?.phase ?? null;
