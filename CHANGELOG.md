@@ -2,6 +2,11 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.3.6 — 2026-10-18
+
+### Sotto il cofano
+- pty-bridge-mjs: il ponte è pronto quando il socket accetta, non quando il file esiste (#393)
+
 ## 2.3.5 — 2026-10-18
 
 ### Sotto il cofano
