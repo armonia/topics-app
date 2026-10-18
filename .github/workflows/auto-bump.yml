@@ -117,7 +117,8 @@ jobs:
               *) break ;;
             esac
           done
-          CHANGED="$(git diff --name-only "$MEASURED" "$TIP" | jq -R . | jq -s -c .)"
+          # --no-renames: a file renamed INTO the allowed one shows both names.
+          CHANGED="$(git diff --no-renames --name-only "$MEASURED" "$TIP" | jq -R . | jq -s -c .)"
           # The CI run for THAT sha on main, or `null` when the CI has not been
           # asked yet (or its run was evicted from the concurrency queue). The
           # API answers newest first; a COMPLETED one wins over a fresher re-run

@@ -163,6 +163,9 @@ describe("auto-bump.yml: the workflow asks the script, and asks it again", () =>
   it("it asks about the commit the CI measured, below the [skip ci] ones, and says what lies in between", () => {
     expect(WF).toContain(`*"[skip ci]"*) MEASURED="$(git rev-parse "$MEASURED^")" ;;`);
     expect(WF).toContain("runs?head_sha=${MEASURED}");
+    // Without it a rename lists only the new name, and a server file renamed
+    // into the durations would pass as "only the durations".
+    expect(WF).toContain(`git diff --no-renames --name-only "$MEASURED" "$TIP"`);
     expect(WF).toContain("measuredSha: $measured, changedSinceMeasured: $changed");
   });
 
