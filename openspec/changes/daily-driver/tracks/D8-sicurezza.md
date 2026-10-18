@@ -2,10 +2,11 @@
 
 Regole comuni: `tracks/_comuni.md`.
 
-**GOAL.** I problemi di sicurezza trovati dall'audit del browser del 14/10 sono chiusi in
-produzione, ognuno con un test che era rosso su main prima della correzione.
+**GOAL.** I problemi di sicurezza del browser trovati dall'audit del 14/10, e quello trovato
+dopo, sono chiusi in produzione, ognuno con un test che era rosso su main prima della correzione.
 
-**Stato: chiusi tutti e cinque il 15/10**, in produzione e nell'app dalla versione 2.2.507.
+**Stato: chiusi tutti e cinque il 15/10**, in produzione e nell'app dalla versione 2.2.507. Un
+sesto, trovato il 16/10 dopo l'audit, è chiuso dalla versione 2.3.2.
 
 ## Perché le descrizioni arrivano solo adesso
 
@@ -14,7 +15,7 @@ prima che sia corretto: finché erano aperti, i dettagli sono rimasti in una not
 proprietario. Ora che sono chiusi, la descrizione sta qui, al livello di un avviso di sicurezza:
 cosa poteva succedere, a quali condizioni, come è stato chiuso e quale test lo tiene chiuso.
 
-## I cinque problemi
+## I problemi
 
 ### S1 · Una pagina in una pane nativa poteva parlare a nome dell'esecutore (alta)
 
@@ -67,12 +68,24 @@ salvare, e poi ripristinare, valori a nome di altri siti.
 Chiusa da #332: un valore catturato vale solo per l'origine che l'app conosce della pane, non per
 quella dichiarata dalla pagina, e si ripristina solo su quell'origine.
 
+### S6 · La guardia sulla porta di debug del browser integrato non rispondeva nel server vero (media)
+
+Il browser integrato del server ha una porta di debug fissa. Prima di pilotarlo, il server
+controlla che quella porta sia tenuta dal browser che ha appena lanciato, e non da un altro
+Chromium della macchina con il debug remoto acceso. Per saperlo chiedeva a `lsof`, chiamandolo per
+nome. Il server avviato da launchd o dall'app non ha `/usr/sbin` nel PATH, dove macOS tiene
+`lsof`: la domanda restava senza risposta e, per non bloccare l'avvio, la guardia lasciava passare.
+Da un terminale e nei test funzionava, ed è per questo che non se n'era accorto nessuno, audit
+compreso.
+
+Chiusa da #387, dalla versione 2.3.2: `lsof` si chiama per percorso intero, e il test sulla porta
+gira con il PATH che ha il server.
+
 ## Cosa era già a posto
 
 Restano coperte dai loro test:
 - il controllo dell'origine sui WebSocket;
 - gli ospiti esclusi dal browser;
-- la guardia sulla porta CDP del sidecar;
 - gli schemi permessi alla navigazione;
 - i file di stato con permessi 0600;
 - il replayer senza script;
@@ -85,7 +98,8 @@ bun run check:security
 bun test server/browser-delegate-frames.test.ts server/browser-native-delegate.test.ts \
   client/src/lib/nativeDomHost.page.test.ts server/routes/browser-effects.test.ts \
   server/lib/dom-resource-rewrite.test.ts client/src/lib/shell/tauriBrowserOps.test.ts \
-  client/src/hooks/useTauriBrowser.origin.test.ts
+  client/src/hooks/useTauriBrowser.origin.test.ts \
+  server/browser-chromium-sidecar-port-owner.test.ts
 ```
 
-Escono 0: il 16/10, `check:security` verde e 100 test verdi in 7 file.
+Escono 0: il 18/10, `check:security` verde e 110 test verdi in 8 file.
