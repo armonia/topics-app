@@ -1,5 +1,38 @@
 [
   {
+    "version": "2.3.2",
+    "date": "2026-10-18",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Il server chiama lsof per percorso intero: in produzione /usr/sbin non è nel PATH (#387)",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "aggiorna durate shard dal nightly del 2026-10-17 [skip ci]",
+          "en": "",
+          "scope": "e2e",
+          "breaking": false
+        },
+        {
+          "it": "aggiorna durate shard dal nightly del 2026-10-18 [skip ci]",
+          "en": "",
+          "scope": "e2e",
+          "breaking": false
+        },
+        {
+          "it": "Il commit notturno dei tempi e2e non ferma più i rilasci (#388)",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
     "version": "2.3.1",
     "date": "2026-10-16",
     "sections": {

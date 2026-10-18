@@ -2,6 +2,14 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.3.2 — 2026-10-18
+
+### Sotto il cofano
+- Il server chiama lsof per percorso intero: in produzione /usr/sbin non è nel PATH (#387)
+- **e2e** · aggiorna durate shard dal nightly del 2026-10-17 [skip ci]
+- **e2e** · aggiorna durate shard dal nightly del 2026-10-18 [skip ci]
+- Il commit notturno dei tempi e2e non ferma più i rilasci (#388)
+
 ## 2.3.1 — 2026-10-16
 
 ### Sotto il cofano
