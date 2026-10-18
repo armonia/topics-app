@@ -27,7 +27,10 @@ beforeEach(() => {
 });
 
 afterEach(() => {
-  g.window = savedWindow;
+  // Deleted, not set back to undefined: a `window` key left on globalThis
+  // makes `"window" in globalThis` true for every file that runs after.
+  if (savedWindow === undefined) delete g.window;
+  else g.window = savedWindow;
   __resetUserGestureForTests();
 });
 
