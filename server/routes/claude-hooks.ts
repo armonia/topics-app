@@ -6,7 +6,7 @@ import { randomBytes } from "crypto";
 import type { ClaudeSessionTracker } from "../lib/claude-session-tracker";
 import { type HookPayload } from "../lib/claude-session-state";
 import { topicsHome } from "../services/daemon-state";
-import { autoNameClaudeSession, noteSubAgentStopHook } from "./terminal";
+import { autoNameClaudeSession, noteClaudeHookSession, noteSubAgentStopHook } from "./terminal";
 import { endBashToolCall, forgetBashRecords, noteBashToolCall } from "../lib/background-bash-record";
 import { hookScriptPath, writeHookScript } from "../lib/topics-hook-script";
 import { hookEventTime } from "../lib/hook-order";
@@ -167,6 +167,10 @@ export function createClaudeHooksRouter(
         } else if (payload.hook_event_name === "SessionEnd") {
           forgetBashRecords(payload.session_id);
         }
+
+        // A `/clear` moves the CLI to a new session id, and this hook may be the
+        // pane's first news of it: its resume id follows before the hook lands.
+        try { noteClaudeHookSession(payload.session_id); } catch { /* best-effort */ }
 
         const result = tracker.ingestHook(payload, arrivedAt);
 

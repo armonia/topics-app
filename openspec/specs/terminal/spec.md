@@ -306,6 +306,13 @@ non usa quel trascritto.
 Una sessione il cui pane autonomo non ha una rianimazione SHALL essere
 rilanciata: lì il parcheggio non ha chi lo risvegli.
 
+La ripresa SHALL riaprire la conversazione su cui la CLI si trova ADESSO, non
+quella con cui Topics l'ha avviata. Un `/clear` porta Claude Code su un id nuovo,
+e la riga lo SHALL seguire leggendolo dal file che la CLI tiene per il suo
+processo (`~/.claude/sessions/<pid>.json`): al primo hook con un id che nessuna
+pane conosce, e prima di parcheggiarla. Il 18/10/2026 una pane con un `/clear`
+del 13/10 avrebbe ripreso la conversazione di cinque giorni prima.
+
 #### Scenario: conversazione chiusa da settimane
 - **GIVEN** una riga di una conversazione che nessuna scheda mostra
 - **THEN** NON SHALL essere rilanciata al riavvio
@@ -313,6 +320,11 @@ rilanciata: lì il parcheggio non ha chi lo risvegli.
 #### Scenario: trascritto mancante su un tipo che non lo usa
 - **GIVEN** una riga non basata su trascritto, senza trascritto
 - **THEN** NON SHALL essere cancellata
+
+#### Scenario: un `/clear` nella pane
+- **GIVEN** una pane Claude avviata con un id, e un `/clear` che porta la CLI su un id nuovo
+- **WHEN** arriva un hook con l'id nuovo, o la pane sta per essere parcheggiata
+- **THEN** la riga SHALL puntare all'id nuovo, e la ripresa SHALL riaprire quella conversazione
 
 ### Requirement: TERM-06 — Un agente legge lo SCHERMO, non lo scrollback
 
