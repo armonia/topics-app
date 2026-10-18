@@ -280,7 +280,11 @@
     "09/10, absorbed task notices (PR #270). server/attention/store.ts 1093 on main -> 1193: +100 a reattached",
     "terminal's catch-up of the task ends written while the server was down (finishBackgroundTasks late, markLate),",
     "the tasks in flight across the restart and the finished ids kept through the start's reread, and an end that",
-    "leaves the way it was read, live or late. Recorded by hand, this row only."
+    "leaves the way it was read, live or late. Recorded by hand, this row only.",
+    "18/10, the outage file's waits and its cascade. server/routes/chat.outage-direct-answer.test.ts 1030 -> 1159:",
+    "its waits read the wake's own log instead of a fixed tick (on CI a 304 ms INSERT made one lose its race), and",
+    "afterEach stops a test's wakes before the next one: bun does not stop a timed-out test, and its wake ran on",
+    "into the next test's turns, behind the hold it had left. Recorded by hand, this row only."
   ],
   "tolerance_pct": 5,
   "max_lines": 800,
@@ -449,7 +453,7 @@
 
     "server/routes/browser-bridge.test.ts": {"lines": 1283, "why": ["2026-10-12, op-opens-pane r1 (unrecorded, 1127 -> 1242): the six auto-open tests, the bridge opening before a pane-less page op. r2 1242 -> 1283 (+41): the task-topic no-announce case, the live-url-beats-persisted case, the 60 s retry-window case, and the getUrl/liveUrls harness seam. Recorded, not split: every case drives the same bridge harness through the helpers at the top of the file."]},
 
-    "server/routes/chat.outage-direct-answer.test.ts": 1030,
+    "server/routes/chat.outage-direct-answer.test.ts": 1159,
 
     "server/routes/chat.ts": {"lines": 4301, "why": ["2026-10-03, commands-ui: +20 on main (4057), the onCommandAnswer handler that broadcasts stream:command-answer and discards the empty assistant row the way a compaction does.", "2026-10-07, net +224 from five lanes, none of them able to take its own lines back alone: the attention store wired into chat (78e0720b2, +80), one SSE writer for the tool announcement from origin/main (4f9702851, +53), the native engine's queued call and live command (39bfbfdbe, +47), the same tool call on SSE and WS (06355d0ed, +40), the native memory recall (1e14064c7, +21, the one that crossed the ceiling), native sub-agents (1feba6d5f, a55c09c85, fb6421597, +18). Recorded by hand, this row only. First lines to give back: the memory-recall block belongs in server/lib/native-parity.ts."]},
 
