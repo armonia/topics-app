@@ -36,6 +36,15 @@ const GRACE_MS = 400;
 
 interface Frame { type: string; id?: string; [k: string]: unknown }
 
+/** Whether a connect to the socket goes through. The probe is closed at once. */
+function accepts(socketPath: string): Promise<boolean> {
+  return new Promise((resolve) => {
+    const s = net.connect(socketPath);
+    s.once("connect", () => { s.destroy(); resolve(true); });
+    s.once("error", () => resolve(false));
+  });
+}
+
 class Bridge {
   private constructor(
     readonly proc: ReturnType<typeof Bun.spawn>,
@@ -64,12 +73,13 @@ class Bridge {
       if (RUST_BRIDGE) throw new Error(`binario Rust del ponte PTY non avviabile (${RUST_BRIDGE}): ${String(e)}`);
       throw new Error(nodeMancanteMessage(NODE, e));
     }
+    // Ready means a connect goes through, the rule `ensureBridge` already uses: the
+    // socket file appears at bind(), a beat before listen(), and a connect in that
+    // window is refused (ECONNREFUSED on a macOS runner, 18/10).
     const deadline = Date.now() + 20_000;
-    while (Date.now() < deadline) {
-      if (fs.existsSync(socketPath)) break;
-      await Bun.sleep(50);
-    }
-    if (!fs.existsSync(socketPath)) throw new Error("il ponte non ha mai messo in ascolto");
+    let ready = false;
+    while (!(ready = await accepts(socketPath)) && Date.now() < deadline) await Bun.sleep(50);
+    if (!ready) throw new Error("il ponte non ha mai messo in ascolto");
     return new Bridge(proc, socketPath, socketPath.replace(/\.sock$/, ".pid"));
   }
 
