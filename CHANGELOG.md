@@ -2,6 +2,11 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.3.4 — 2026-10-18
+
+### Sotto il cofano
+- chat.outage-direct-answer non è più instabile: i test aspettano il wake, non l'orologio (#390)
+
 ## 2.3.3 — 2026-10-18
 
 ### Sotto il cofano

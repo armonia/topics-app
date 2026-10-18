@@ -1,5 +1,21 @@
 [
   {
+    "version": "2.3.4",
+    "date": "2026-10-18",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "chat.outage-direct-answer non è più instabile: i test aspettano il wake, non l'orologio (#390)",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
     "version": "2.3.3",
     "date": "2026-10-18",
     "sections": {
