@@ -201,9 +201,14 @@ const promises = (rowId: string) => outageNoticeResumes(`⚠️ ${lastError(ctx.
 
 /** The resends a sweep's route got for `sk`. With `through`, each goes on through the real chat route, and its turn stays live in `opened`. */
 const live: Response[] = [];
-// A turn a test leaves open (a hard kill, a failed assertion) is not the next test's to drain.
+// A turn a test leaves open (a hard kill, a failed assertion) is not the next test's to drain,
+// nor its wake the next test's to run: bun does not stop a test that timed out, and its wake
+// went on into the next test's turns, behind the hold it had left.
 afterEach(async () => {
   for (const resp of live.splice(0)) await resp.body?.cancel().catch(() => {});
+  wakeOwner++;
+  await until(() => wakesRunning.size === 0);
+  clearProviderHold();
 });
 /**
  * With `refused`, each goes on through the real chat route, which writes its
@@ -281,13 +286,21 @@ let wakes = 0;
 /** What the wakes said through the module's log: where a wake is, read instead of timed. */
 const wakeLog: string[] = [];
 const wakeSaid = (processId: string, words: string) => wakeLog.some((line) => line.startsWith(`${processId}: `) && line.includes(words));
+/** The test a wake belongs to: once it is over, the wake finds no topic and no busy chat, and stops. */
+let wakeOwner = 0;
+const wakesRunning = new Set<Promise<unknown>>();
 function commandEnds(sk: string, processId = `p-${++wakes}`) {
+  const owner = wakeOwner;
+  const ours = () => owner === wakeOwner;
   const outcome = deliverProcessExit({
     db: ctx.db,
-    getTopicById: (id) => { const t = ctx.getTopicById(id); return t ? { sessionKey: t.sessionKey, archived: !!t.archived, provider: t.provider } : null; },
-    ownedByRunningTask: () => false, isBusy: (k) => ctx.activeStreams.has(k), route: chatRoute(), pollMs: 10, endGraceMs: 200,
+    getTopicById: (id) => { const t = ours() ? ctx.getTopicById(id) : null; return t ? { sessionKey: t.sessionKey, archived: !!t.archived, provider: t.provider } : null; },
+    ownedByRunningTask: () => false, isBusy: (k) => ours() && ctx.activeStreams.has(k), route: chatRoute(), pollMs: 10, endGraceMs: 200,
     log: (msg) => wakeLog.push(msg),
   }, { processId, topicId: sk.slice("topic:".length), label: "bun run build", exitCode: 1, durationMs: 90_000, lines: ["error: 3 tests failed"] });
+  wakesRunning.add(outcome);
+  const settled = () => { wakesRunning.delete(outcome); };
+  void outcome.then(settled, settled);
   return { processId, outcome };
 }
 
@@ -635,7 +648,7 @@ describe("a run_command wake whose turn meets the outage goes again", () => {
     setProviderHold({ untilMs: Date.now() + 150, window: "api-down", reason: "l'API di Claude non risponde" });
     send = turns((h) => { h.onRetry!(retry(1)); holdForApiDown(); outageEnd("api-unavailable")(h); }, answers("Build rosso: 3 test."));
     const wake = commandEnds(sk);
-    await tick(80);
+    await until(() => wakeSaid(wake.processId, "provider is held"));
     expect(wakeRows(sk, wake.processId)).toHaveLength(0);
     await until(() => wakeSaid(wake.processId, "an outage cut"));
     const [probe] = wakeRows(sk, wake.processId);
