@@ -107,18 +107,30 @@ jobs:
           set -euo pipefail
           TIP="$(git rev-parse HEAD)"
           MSG="$(git log -1 --format=%s "$TIP")"
+          # The commit the CI measured: below the commits pushed with
+          # [skip ci] (the nightly's shard durations), which have no run of
+          # their own. Twenty at most; the gate checks what lies in between.
+          MEASURED="$TIP"
+          for _ in $(seq 20); do
+            case "$(git log -1 --format=%B "$MEASURED")" in
+              *"[skip ci]"*) MEASURED="$(git rev-parse "$MEASURED^")" ;;
+              *) break ;;
+            esac
+          done
+          CHANGED="$(git diff --name-only "$MEASURED" "$TIP" | jq -R . | jq -s -c .)"
           # The CI run for THAT sha on main, or `null` when the CI has not been
           # asked yet (or its run was evicted from the concurrency queue). The
           # API answers newest first; a COMPLETED one wins over a fresher re-run
           # still in flight, because a verdict beats a maybe.
           RUN="$(gh api \
-            "repos/${GITHUB_REPOSITORY}/actions/workflows/ci.yml/runs?head_sha=${TIP}&per_page=100" \
+            "repos/${GITHUB_REPOSITORY}/actions/workflows/ci.yml/runs?head_sha=${MEASURED}&per_page=100" \
             --jq '[.workflow_runs[] | select(.head_branch == "main")
                    | {status, conclusion, head_sha, head_branch}] as $runs
                   | (($runs | map(select(.status == "completed")) | first)
                      // ($runs | first) // null)')"
-          jq -n --arg sha "$TIP" --arg msg "$MSG" --argjson run "${RUN:-null}" \
-            '{tipSha: $sha, tipMessage: $msg, branch: "main", run: $run}' \
+          jq -n --arg sha "$TIP" --arg msg "$MSG" --arg measured "$MEASURED" \
+            --argjson changed "$CHANGED" --argjson run "${RUN:-null}" \
+            '{tipSha: $sha, tipMessage: $msg, measuredSha: $measured, changedSinceMeasured: $changed, branch: "main", run: $run}' \
             | bun run scripts/release-gate.ts
 
       - name: Bump across lockstep files

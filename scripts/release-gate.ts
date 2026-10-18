@@ -3,8 +3,9 @@
  * scripts/release-gate.ts - decide whether the tip of main may be released.
  *
  * WHAT IT ANSWERS, in one line: is the current tip of `main` a commit the CI
- * has already judged GREEN? If yes, the auto-bump job may write the version
- * commit on top of it and push. If no, it stops, and stopping is not a failure.
+ * has already judged GREEN, or one that differs from such a commit only in a
+ * file no build reads? If yes, the auto-bump job may write the version commit
+ * on top of it and push. If no, it stops, and stopping is not a failure.
  *
  * WHY THE TIP AND NOT "the SHA the CI just approved". Measured on 27/08/2026 at
  * 08:30: 18 commits landed on origin/main in one hour while a CI run took ~13
@@ -49,7 +50,15 @@ export type GateInput = {
   tipMessage: string;
   /** The branch being released. Anything but `main` is refused. */
   branch: string;
-  /** The most recent CI run for `tipSha`, or null when there is none yet. */
+  /**
+   * The commit the CI measured: the tip, or the nearest ancestor below the
+   * commits pushed with `[skip ci]`, which have no run of their own. Absent
+   * means the tip.
+   */
+  measuredSha?: string;
+  /** The files that differ between `measuredSha` and the tip. */
+  changedSinceMeasured?: string[];
+  /** The most recent CI run for the measured commit, or null when there is none yet. */
   run: CiRun | null;
 };
 
@@ -62,6 +71,14 @@ const RELEASE_BRANCH = "main";
 
 /** Prefix of the version commit this very job writes. */
 const BUMP_PREFIX = "chore(release):";
+
+/**
+ * The only file that may lie between the measured commit and the published
+ * one: the e2e shard durations the nightly writes. Only the test tooling reads
+ * it (`e2e-plan-shards.ts`, `e2e-shards.sh`, `test-unit-shards.ts`), so the app
+ * built from the tip is the app the CI measured.
+ */
+const TEST_ONLY_FILES = new Set(["scripts/e2e-durations.json"]);
 
 /**
  * The whole gate. Pure on purpose: the workflow gathers the facts, this decides.
@@ -79,18 +96,35 @@ export function decide(input: GateInput): GateDecision {
     return { publish: false, reason: "the tip is already a version commit" };
   }
 
+  // THE NIGHTLY'S COMMIT IS NOT A CANDIDATE OF ITS OWN. Every night the e2e job
+  // writes the shard durations on main with `[skip ci]`, so it never has a run,
+  // and as the tip it refused every release until somebody merged again: on
+  // 16-18/10/2026 two days without one, after a flaky red on the last code
+  // commit that a re-run had already turned green. The tip goes out on the
+  // verdict of the commit the CI measured, as long as only that file differs.
+  const measured = input.measuredSha ?? input.tipSha;
+  if (measured !== input.tipSha) {
+    if (!input.changedSinceMeasured) {
+      return { publish: false, reason: `the files between ${short(measured)} and the tip are unknown` };
+    }
+    const built = input.changedSinceMeasured.filter((file) => !TEST_ONLY_FILES.has(file));
+    if (built.length > 0) {
+      return { publish: false, reason: `the tip changes ${built[0]} after ${short(measured)}, the commit the CI measured` };
+    }
+  }
+
   const run = input.run;
   if (!run) {
-    return { publish: false, reason: `no CI run for ${short(input.tipSha)} yet` };
+    return { publish: false, reason: `no CI run for ${short(measured)} yet` };
   }
 
   // A run on another SHA says nothing about this one. This is the check the
   // whole redesign exists for, so it is explicit rather than implied by the
   // query that fetched the run.
-  if (run.head_sha !== input.tipSha) {
+  if (run.head_sha !== measured) {
     return {
       publish: false,
-      reason: `the run measured ${short(run.head_sha)}, the tip is ${short(input.tipSha)}`,
+      reason: `the run measured ${short(run.head_sha)}, the commit to measure is ${short(measured)}`,
     };
   }
 
@@ -101,14 +135,14 @@ export function decide(input: GateInput): GateDecision {
   // `queued` and `in_progress` are "not yet", not "no": the next tick asks
   // again. Only a completed run has a verdict to read.
   if (run.status !== "completed") {
-    return { publish: false, reason: `CI is ${run.status} on ${short(input.tipSha)}` };
+    return { publish: false, reason: `CI is ${run.status} on ${short(measured)}` };
   }
 
   // `cancelled`, `failure`, `timed_out`, `skipped`, `action_required` are all
   // "we do not know, or we know it is no", and none of the five deserves being
   // pushed to everybody's auto-updater.
   if (run.conclusion !== "success") {
-    return { publish: false, reason: `CI concluded ${run.conclusion} on ${short(input.tipSha)}` };
+    return { publish: false, reason: `CI concluded ${run.conclusion} on ${short(measured)}` };
   }
 
   return { publish: true, sha: input.tipSha };
@@ -141,7 +175,7 @@ async function main(): Promise<void> {
 
   console.error(
     decision.publish
-      ? `[release-gate] release ${short(decision.sha)}: the tip of main is green.`
+      ? `[release-gate] release ${short(decision.sha)}: green on the commit the CI measured.`
       : `[release-gate] no release: ${decision.reason}.`,
   );
 }
