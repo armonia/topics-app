@@ -1,5 +1,22 @@
 [
   {
+    "version": "2.3.3",
+    "date": "2026-10-18",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "il sesto problema del browser, chiuso dalla 2.3.2 (#389)",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        }
+      ]
+    }
+  },
+  {
     "version": "2.3.2",
     "date": "2026-10-18",
     "sections": {

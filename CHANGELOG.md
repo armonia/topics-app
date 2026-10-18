@@ -2,6 +2,11 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.3.3 — 2026-10-18
+
+### Sotto il cofano
+- il sesto problema del browser, chiuso dalla 2.3.2 (#389)
+
 ## 2.3.2 — 2026-10-18
 
 ### Sotto il cofano
