@@ -287,8 +287,6 @@ desktop-tauri/src-tauri/target/
 desktop-tauri/src-tauri/target-linux/
 desktop-tauri/src-tauri/gen/
 
-# CEF spike (heavy build artifacts)
-desktop-tauri/cef-spike/target/
 
 # wv2probe: cross-built by hand when someone re-runs the measurement
 tools/wv2probe/target/

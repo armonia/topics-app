@@ -172,7 +172,7 @@ const downloadMessageSchema = z.object({
 });
 
 /** Client -> server: request this pane run on a different engine (native ↔
- *  chromium). Ignored by servers without the TOPICS_CHROMIUM_ENGINE flag. */
+ *  chromium). A server without a Chromium on the machine answers `engine: native`. */
 const setEngineMessageSchema = z.object({
   type: z.literal('set_engine'),
   engine: z.enum(['native', 'chromium']),

@@ -6,7 +6,7 @@ edition = "2021"
 # Standalone PTY-bridge daemon — a Rust port of server/pty-bridge.mjs. Shipped as a
 # Tauri externalBin sidecar (`binaries/pty-bridge-<triple>`) so the compiled Bun
 # server, which CANNOT run node-pty under Bun, can still spawn shell/claude-code PTYs
-# on a virgin install. Zero Node dependency, ~1–2 MB. Separate crate (like cef-spike)
+# on a virgin install. Zero Node dependency, ~1–2 MB. Separate crate (like webrtc-bridge)
 # so its deps never touch the validated Tier-1 app in src-tauri/.
 #
 # Wire protocol (line-delimited JSON over a Unix socket) is byte-compatible with the
