@@ -25,11 +25,6 @@ import { discoverInstalledExtensions, pickSidecarExtensions } from "./browser-ch
 
 export type BrowserEngine = "native" | "chromium";
 
-/** Master flag for the whole chromium-engine feature (task 54601eeb). OFF by
- *  default: the WS set_engine branch is a no-op, the DELETE route skips
- *  release(), and the /api/browsers/engines capability reports disabled — so
- *  the sidecar never launches and the client never shows the toggle. Flip with
- *  un Chromium installato sulla macchina (headful + Tauri). */
 /**
  * Il motore Chromium NON è più dietro un flag.
  *
