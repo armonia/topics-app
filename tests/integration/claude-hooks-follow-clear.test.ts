@@ -5,7 +5,7 @@
  * @covers TERM-05
  */
 import { afterAll, beforeAll, expect, test } from "bun:test";
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { cleanupTestDataDir, createTestAppContext, setupTestDataDir, testTmpDir } from "./helpers";
 import { createClaudeSessionTracker } from "../../server/lib/claude-session-tracker";
@@ -52,9 +52,10 @@ test("the first hook after a /clear moves the pane's resume id to the new conver
   writeFileSync(join(CLI_SESSIONS, "4242.json"), JSON.stringify({ pid: 4242, sessionId: "after-clear", status: "idle" }));
 
   const tracker = createClaudeSessionTracker({ db, broadcast: () => {}, coalesceWindowMs: 20, dedupWindowMs: 100, rateLimitPerSec: 50 });
-  const { createClaudeHooksRouter, hookTokenPath } = await import("../../server/routes/claude-hooks");
+  const { createClaudeHooksRouter, getOrCreateHookToken } = await import("../../server/routes/claude-hooks");
   const router = createClaudeHooksRouter(ctx, tracker);
-  const token = readFileSync(hookTokenPath(), "utf8").trim();
+  // The token the router checks: cached for the process, so not always on disk under this TOPICS_HOME.
+  const token = getOrCreateHookToken();
   const url = new URL("http://127.0.0.1:3333/api/claude-hooks/SessionStart");
   const res = await router(
     new Request(url, {
