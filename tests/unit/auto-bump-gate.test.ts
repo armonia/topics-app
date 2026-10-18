@@ -119,10 +119,54 @@ describe("release-gate: only a green tip of main gets published", () => {
   });
 });
 
+describe("release-gate: the nightly's commit on top of a measured one", () => {
+  // Every night the e2e job writes the shard durations on main with [skip ci]:
+  // that commit has no run, and as the tip it parked every release until the
+  // next merge (16-18/10/2026, two days). The workflow walks below it to the
+  // commit the CI measured; these are the conditions on what lies in between.
+  const MEASURED = "5eed5eed5eed5eed5eed5eed5eed5eed5eed5eed";
+  const nightly = (over: Partial<GateInput> = {}): GateInput => input({
+    tipMessage: "chore(e2e): aggiorna durate shard dal nightly del 2026-10-18 [skip ci]",
+    measuredSha: MEASURED,
+    changedSinceMeasured: ["scripts/e2e-durations.json"],
+    run: run({ head_sha: MEASURED }),
+    ...over,
+  });
+
+  it("only the durations in between and the measured commit green: the TIP goes out", () => {
+    expect(decide(nightly())).toEqual({ publish: true, sha: TIP });
+  });
+
+  it("any other file in between does not go out on another commit's verdict", () => {
+    const d = decide(nightly({ changedSinceMeasured: ["scripts/e2e-durations.json", "server/index.ts"] }));
+    expect(d.publish).toBe(false);
+    if (!d.publish) expect(d.reason).toContain("server/index.ts");
+  });
+
+  it("not knowing what lies in between is a no", () => {
+    expect(decide(nightly({ changedSinceMeasured: undefined })).publish).toBe(false);
+  });
+
+  it("the verdict that counts is the measured commit's: red, missing, or on the tip is a no", () => {
+    expect(decide(nightly({ run: run({ head_sha: MEASURED, conclusion: "failure" }) })).publish).toBe(false);
+    expect(decide(nightly({ run: null })).publish).toBe(false);
+    expect(decide(nightly({ run: run({ head_sha: TIP }) })).publish).toBe(false);
+  });
+});
+
 describe("auto-bump.yml: the workflow asks the script, and asks it again", () => {
   it("the gate step feeds the tip to release-gate.ts", () => {
     expect(WF).toContain("bun run scripts/release-gate.ts");
     expect(WF).toMatch(/id: gate/);
+  });
+
+  it("it asks about the commit the CI measured, below the [skip ci] ones, and says what lies in between", () => {
+    expect(WF).toContain(`*"[skip ci]"*) MEASURED="$(git rev-parse "$MEASURED^")" ;;`);
+    expect(WF).toContain("runs?head_sha=${MEASURED}");
+    // Without it a rename lists only the new name, and a server file renamed
+    // into the durations would pass as "only the durations".
+    expect(WF).toContain(`git diff --no-renames --name-only "$MEASURED" "$TIP"`);
+    expect(WF).toContain("measuredSha: $measured, changedSinceMeasured: $changed");
   });
 
   it("the bump, the changelog and the push are all guarded on its answer", () => {

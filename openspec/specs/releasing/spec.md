@@ -35,6 +35,11 @@ Un ramo che non è quello principale NON SHALL pubblicare.
 SHALL essere preso lo SHA che la verifica ha GIUDICATO, non lo stato corrente del
 ramo: un prelievo senza riferimento esplicito pubblica qualcos'altro.
 
+Fra lo SHA giudicato e quello pubblicato SHALL poter esserci soltanto il file dei
+tempi degli shard e2e, che nessuna build legge. Lo scrive ogni notte un commit che
+salta la verifica, e come cima del ramo fermava ogni rilascio fino al merge
+successivo: dal 16 al 18/10/2026, due giorni.
+
 Il lavoro di rilascio SHALL dipendere da quello di versione, così il cancello
 vale per entrambi.
 
@@ -49,6 +54,11 @@ sappia.
 #### Scenario: il commit che alza la versione
 - **GIVEN** il commit prodotto dal rilascio precedente
 - **THEN** NON SHALL innescare un nuovo rilascio
+
+#### Scenario: il commit notturno in cima
+- **GIVEN** in cima al ramo i commit notturni dei tempi degli shard, sopra un commit con la verifica verde
+- **THEN** SHALL essere pubblicata la cima
+- **AND** se fra i due cambia qualunque altro file NON SHALL essere pubblicato niente
 
 ### Requirement: RELEASE-02 — I quattro numeri di versione coincidono, e un gesto solo li riallinea
 
