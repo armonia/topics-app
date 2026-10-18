@@ -2,6 +2,12 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.3.5 — 2026-10-18
+
+### Sotto il cofano
+- Via gli spike superati, i file orfani e le note del flag del motore tolto il 04/08 (#391)
+- chat.outage-direct-answer: le attese leggono il wake e un test scaduto non trascina più il successivo (#392)
+
 ## 2.3.4 — 2026-10-18
 
 ### Sotto il cofano

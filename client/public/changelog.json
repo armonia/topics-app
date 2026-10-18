@@ -1,5 +1,26 @@
 [
   {
+    "version": "2.3.5",
+    "date": "2026-10-18",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Via gli spike superati, i file orfani e le note del flag del motore tolto il 04/08 (#391)",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "chat.outage-direct-answer: le attese leggono il wake e un test scaduto non trascina più il successivo (#392)",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
     "version": "2.3.4",
     "date": "2026-10-18",
     "sections": {
