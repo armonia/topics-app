@@ -1,5 +1,21 @@
 [
   {
+    "version": "2.3.7",
+    "date": "2026-10-18",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Un /clear in una pane Claude sposta l'id da riprendere sulla conversazione nuova (#394)",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
     "version": "2.3.6",
     "date": "2026-10-18",
     "sections": {

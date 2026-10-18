@@ -2,6 +2,11 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.3.7 — 2026-10-18
+
+### Sotto il cofano
+- Un /clear in una pane Claude sposta l'id da riprendere sulla conversazione nuova (#394)
+
 ## 2.3.6 — 2026-10-18
 
 ### Sotto il cofano
