@@ -102,6 +102,13 @@ const OUT_PATH = resolve(process.env.BENCH_LATENCY_OUT?.trim() || "test-results/
 const SIDEBAR_ROW = '[aria-label="Topics sidebar"] [role="treeitem"]';
 /** Task cards in the column that is never paged. */
 const TODO_CARD = '[data-testid="kanban-column-body-todo"] [data-task-card]';
+/**
+ * Every drop target of the column: the cards drawn plus the light placeholders
+ * of the ones outside the window (D2f virtualizes the working columns).
+ */
+const TODO_TARGET = '[data-testid="kanban-column-body-todo"] :is([data-task-card], [data-sortable-placeholder])';
+/** Cards that must be painted at once: the first window, never fewer than a screenful. */
+const MIN_PAINTED_CARDS = 8;
 
 /** Ceiling for one probe before it reports "never painted" instead of hanging. */
 const PROBE_TIMEOUT_MS = 40_000;
@@ -120,6 +127,8 @@ interface ProbeHandle {
 interface ProbeTarget {
   selector: string;
   minCount: number;
+  /** Optional second condition, counted by presence (no ink test). */
+  total?: { selector: string; minCount: number };
 }
 
 declare global {
@@ -293,14 +302,21 @@ test.describe("@nightly Latency bench — boot, cold topic open, board paint", (
         const p = await context.newPage();
         await clearPersistedState(p);
         await installStall(p, STALL_MS);
-        await armBootProbe(p, { selector: TODO_CARD, minCount: volume });
+        // The column virtualizes: the n-th card is a placeholder until scrolled to,
+        // so "n painted" cannot happen. Ready = a full first window is painted AND
+        // all n cards exist as targets.
+        await armBootProbe(p, {
+          selector: TODO_CARD,
+          minCount: Math.min(volume, MIN_PAINTED_CARDS),
+          total: { selector: TODO_TARGET, minCount: volume },
+        });
         await p.goto("/");
         const result = await readBootProbe(p);
         if (result.error || result.ms === null) {
           throw new Error(`board paint ${volume} sample ${i}: ${result.error ?? "no measurement"}`);
         }
         samples.push(result.ms);
-        rendered = await p.locator("[data-task-card]").count();
+        rendered = await p.locator(TODO_TARGET).count();
         await p.close();
       }
       gestures[`board_paint_${volume}`] = describe(
@@ -310,7 +326,7 @@ test.describe("@nightly Latency bench — boot, cold topic open, board paint", (
       );
       witness[`board_cards_rendered_${volume}`] = rendered;
       // A board that drew fewer cards than were seeded measured a shorter board.
-      expect(rendered, `only ${rendered} cards reached the DOM for a volume of ${volume}`)
+      expect(rendered, `only ${rendered} cards (drawn or placeholder) reached the DOM for a volume of ${volume}`)
         .toBeGreaterThanOrEqual(volume);
     }
 
@@ -337,7 +353,7 @@ test.describe("@nightly Latency bench — boot, cold topic open, board paint", (
       protocol: {
         warmup_loads_discarded: 1,
         cold_open_definition: "a chat pane never revealed in this document, with the board active at load",
-        board_column: "todo — the working columns are never paged (boardOrder.ts, COLUMN_PAGE applies to review/done only)",
+        board_column: "todo — never paged (COLUMN_PAGE applies to review/done only), but virtualized since D2f: ready = first window painted and all n cards present as cards or placeholders",
       },
       gestures,
       witness,
@@ -422,6 +438,7 @@ async function armBootProbe(page: Page, target: ProbeTarget): Promise<void> {
         }
         return n;
       };
+      const totalCount = (): number => (want.total ? document.querySelectorAll(want.total.selector).length : 0);
       const promise = new Promise<ProbeResult>((resolve) => {
         const deadline = performance.now() + timeoutMs;
         let frames = 0;
@@ -432,7 +449,7 @@ async function armBootProbe(page: Page, target: ProbeTarget): Promise<void> {
             resolve({ ms: ts, frames, error: null });
             return;
           }
-          if (paintedCount() >= want.minCount) {
+          if (paintedCount() >= want.minCount && totalCount() >= (want.total?.minCount ?? 0)) {
             domReady = true;
           } else if (performance.now() > deadline) {
             resolve({
@@ -440,7 +457,7 @@ async function armBootProbe(page: Page, target: ProbeTarget): Promise<void> {
               frames,
               error:
                 `${want.selector} never reached ${want.minCount} painted matches in ${timeoutMs}ms ` +
-                `(saw ${paintedCount()})`,
+                `(saw ${paintedCount()}, ${totalCount()} targets)`,
             });
             return;
           }
