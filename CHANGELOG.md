@@ -2,6 +2,12 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.3.8 — 2026-10-19
+
+### Sotto il cofano
+- **e2e** · aggiorna durate shard dal nightly del 2026-10-19 [skip ci]
+- Il bench del paint della board conta le card come bersagli, ora che la colonna todo si virtualizza (D2f) (#395)
+
 ## 2.3.7 — 2026-10-18
 
 ### Sotto il cofano

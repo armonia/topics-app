@@ -1,5 +1,27 @@
 [
   {
+    "version": "2.3.8",
+    "date": "2026-10-19",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "aggiorna durate shard dal nightly del 2026-10-19 [skip ci]",
+          "en": "",
+          "scope": "e2e",
+          "breaking": false
+        },
+        {
+          "it": "Il bench del paint della board conta le card come bersagli, ora che la colonna todo si virtualizza (D2f) (#395)",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
     "version": "2.3.7",
     "date": "2026-10-18",
     "sections": {
