@@ -52,8 +52,8 @@ test('cross-origin rrweb frames are labeled and do not relay input', async ({ pa
         .__topicsDomHost.rrweb.record.takeFullSnapshot(true);
     });
     await expect(placeholder).toHaveCount(1);
-    // Il rebuild del mirror riattacca gli iframe: finché non sono di nuovo visibili
-    // boundingBox() è null e la misura «prima» diventa NaN.
+    // The mirror rebuild reattaches the iframes: until they are visible again
+    // boundingBox() is null and the "before" measurement becomes NaN.
     await expect(sameFrame).toBeVisible();
     await expect(placeholder).toBeVisible();
     const top = async (target: Locator) => (await target.boundingBox())?.y ?? Number.NaN;
