@@ -7,6 +7,7 @@ import { createInterface } from "readline";
 import { getDatabase } from "../db";
 import { ptyBridgeOverride, resolvePtyBridgeCommand } from "../lib/pty-bridge-selection";
 import { warnThrottled } from "../lib/warn-throttled";
+import { withoutSuspendKey } from "../lib/terminal-suspend-key";
 import { shouldCompressFrame } from "../lib/ws-compression";
 import { createHash } from "crypto";
 import net from "net";
@@ -1062,6 +1063,16 @@ function noteDroppedInput(sessionId: string, err: unknown): void {
 function sendToBridge(msg: any) {
   if (!bridgeSocket || bridgeSocket.destroyed) {
     throw new Error("Bridge not connected");
+  }
+  // Every byte bound for a PTY passes here (keyboard, /send, live-terminals,
+  // sub-agent prompts): the one place the ctrl+z that freezes Claude Code
+  // cannot slip past the filter. The why is in terminal-suspend-key.
+  if (msg.type === "write") {
+    const data = withoutSuspendKey(sessions.get(msg.id)?.type, msg.data);
+    if (data !== msg.data) {
+      if (!data) return;
+      msg = { ...msg, data };
+    }
   }
   bridgeSocket.write(JSON.stringify(msg) + "\n");
 }
@@ -3437,7 +3448,9 @@ export function createTerminalRouter(ctx: AppContext, tracker?: ClaudeSessionTra
       if (!session) return errorResponse(404, "Terminal session not found");
       const body = await readJSON(req).catch(() => ({}));
       const input = body.input || body.text || body.data || "";
-      if (!input) return errorResponse(400, "No input provided");
+      // Text only: an array of bytes reached the node bridge intact (node-pty
+      // does `Buffer.from`) and slipped past any content filter, ctrl+z included.
+      if (typeof input !== "string" || !input) return errorResponse(400, "No input provided");
       noteTerminalInput(sendMatch.id);
       sendToBridge({ type: "write", id: sendMatch.id, data: input });
       return json({ ok: true, sent: input.length });

@@ -719,6 +719,38 @@ stato SHALL restare quello di prima, senza indovinare.
 - **GIVEN** uno stato del ponte con l'ora di partenza
 - **THEN** la riga del ponte e la spiegazione dell'interruttore SHALL mostrare la data di avvio
 
+### Requirement: TERM-14 — Un ctrl+z non SHALL congelare un Claude Code
+
+Su ctrl+z Claude Code smonta la sua interfaccia e si manda SIGTSTP, aspettando un
+SIGCONT per rimontarla. Sotto Topics è il figlio diretto della PTY e leader di
+sessione: il suo gruppo è orfano, il kernel scarta il segnale e nessuna shell farà
+mai `fg`. Il processo resta vivo e non ridisegna più, nemmeno al resize. Il
+21/10/2026 la pane «Home page» di armonia-site era ferma a 25 colonne su una PTY
+di 83, finché un SIGCONT a mano non l'ha ridisegnata.
+
+Il server SHALL togliere `0x1A` ed `ESC 0x1A` da ogni scrittura verso una PTY di
+tipo `claude-code` o `claude-code-team`, qualunque sia la strada (tastiera,
+`/send`, live-terminals, prompt dei sottoagenti). Una scrittura che resta vuota
+NON SHALL raggiungere il ponte. Le altre sessioni SHALL ricevere ctrl+z intatto:
+la shell ha il job control, e codex, opencode, muse e kimi, misurati, non si
+congelano. `/send` SHALL accettare solo testo: un array di byte scavalcava il
+filtro.
+
+#### Scenario: ctrl+z battuto in una pane Claude Code
+- **GIVEN** una sessione `claude-code` agganciata
+- **WHEN** arrivano `0x1A`, `ESC 0x1A` e `a 0x1A b` dalla tastiera
+- **THEN** al ponte SHALL arrivare solo `ab`
+
+#### Scenario: ctrl+z mandato da un agente
+- **GIVEN** una sessione `claude-code`
+- **WHEN** un agente scrive `0x1A` da live-terminals o da `/send`
+- **THEN** al ponte NON SHALL arrivare niente, e `/send` con un array di byte SHALL rispondere 400
+
+#### Scenario: ctrl+z in una shell
+- **GIVEN** una sessione `shell`
+- **WHEN** arriva `0x1A`
+- **THEN** il ponte SHALL riceverlo intatto
+
 ### Requirement: TERM-WARM-01 — "Not Yet" And "Gone" SHALL NOT Look The Same To The Client
 
 Between accepting connections and finishing its reconcile against the pty
