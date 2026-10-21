@@ -1064,9 +1064,9 @@ function sendToBridge(msg: any) {
   if (!bridgeSocket || bridgeSocket.destroyed) {
     throw new Error("Bridge not connected");
   }
-  // Ogni byte verso una PTY passa da qui (tastiera, /send, live-terminals,
-  // prompt dei sottoagenti): è l'unico punto in cui il ctrl+z che congela
-  // Claude Code non può scavalcare il filtro. Il perché in terminal-suspend-key.
+  // Every byte bound for a PTY passes here (keyboard, /send, live-terminals,
+  // sub-agent prompts): the one place the ctrl+z that freezes Claude Code
+  // cannot slip past the filter. The why is in terminal-suspend-key.
   if (msg.type === "write") {
     const data = withoutSuspendKey(sessions.get(msg.id)?.type, msg.data);
     if (data !== msg.data) {
@@ -3448,8 +3448,8 @@ export function createTerminalRouter(ctx: AppContext, tracker?: ClaudeSessionTra
       if (!session) return errorResponse(404, "Terminal session not found");
       const body = await readJSON(req).catch(() => ({}));
       const input = body.input || body.text || body.data || "";
-      // Solo testo: un array di byte arrivava intatto al bridge Node (node-pty fa
-      // `Buffer.from`) e scavalcava ogni filtro sul contenuto, ctrl+z compreso.
+      // Text only: an array of bytes reached the node bridge intact (node-pty
+      // does `Buffer.from`) and slipped past any content filter, ctrl+z included.
       if (typeof input !== "string" || !input) return errorResponse(400, "No input provided");
       noteTerminalInput(sendMatch.id);
       sendToBridge({ type: "write", id: sendMatch.id, data: input });

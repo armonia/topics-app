@@ -22,7 +22,7 @@ import * as fs from "node:fs";
 import * as net from "node:net";
 import { join } from "node:path";
 import { createInterface } from "node:readline";
-import { createTestAppContext, setupTestDataDir, testTmpDir } from "./helpers";
+import { cleanupTestDataDir, createTestAppContext, setupTestDataDir, testTmpDir } from "./helpers";
 
 const TEST_ROOT = testTmpDir("terminal-ctrl-z");
 // Short on purpose: a unix socket path cannot exceed 104 characters.
@@ -129,13 +129,11 @@ afterAll(async () => {
   _resetClaudeBinCache();
   const { cleanupMcpConfigForSession } = await import("../../server/providers/claude-code");
   for (const id of creates) cleanupMcpConfigForSession(id);
-  const { closeDatabase } = await import("../../server/db");
-  closeDatabase();
   delete process.env.TOPICS_DISABLE_PTY_BRIDGE;
   for (const [k, v] of Object.entries(savedEnv)) {
     if (v === undefined) delete process.env[k]; else process.env[k] = v;
   }
-  fs.rmSync(TEST_ROOT, { recursive: true, force: true });
+  await cleanupTestDataDir(TEST_ROOT);
 });
 
 test("typed into a Claude Code pane, ctrl+z never reaches the PTY and the rest of the keystroke does", async () => {
