@@ -1,3 +1,6 @@
+/**
+ * @covers TERM-14
+ */
 import { describe, expect, test } from "bun:test";
 import { withoutSuspendKey } from "./terminal-suspend-key";
 

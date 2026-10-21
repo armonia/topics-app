@@ -1,4 +1,6 @@
 /**
+ * @covers TERM-14
+ *
  * Ctrl+Z never reaches a Claude Code pane; a shell still gets it.
  *
  * On ctrl+z Claude Code tears its UI down and sends itself SIGTSTP. Under Topics
