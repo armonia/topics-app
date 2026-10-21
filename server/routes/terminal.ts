@@ -558,7 +558,8 @@ const idempotencyCache = createIdempotencyCache();
 // --- Bridge connection (Unix domain socket) ---
 let bridgeSocket: net.Socket | null = null;
 let bridgeReady = false;
-let bridgeConnecting = false;
+/** The socket path of the connection attempt in flight, or null when there is none. */
+let bridgeConnecting: string | null = null;
 let bridgeReadyResolvers: (() => void)[] = [];
 let suppressBridgeReconnectForTest = false;
 let activeBridge: ActiveBridge = { implementation: "unknown", reason: "notConnected", path: null, pid: null, startedAt: null };
@@ -828,11 +829,17 @@ export async function ensureBridge(): Promise<void> {
   if (isPtyBridgeDisabled(bundled)) return;
   if (bridgeReady && bridgeSocket && !bridgeSocket.destroyed) return;
   if (bridgeConnecting) {
-    // Wait for the in-flight connection attempt
-    return new Promise<void>((resolve) => { bridgeReadyResolvers.push(resolve); });
+    // Wait for the in-flight connection attempt. One started for another path
+    // (`_setPtyBridgeSocketPath` moved it since) connected nothing this caller
+    // can use, so it tries again on the path in force now.
+    const attemptPath = bridgeConnecting;
+    await new Promise<void>((resolve) => { bridgeReadyResolvers.push(resolve); });
+    if (attemptPath !== SOCKET_PATH) return ensureBridge();
+    return;
   }
 
-  bridgeConnecting = true;
+  const path = SOCKET_PATH;
+  bridgeConnecting = path;
 
   try {
     // Try connecting to existing bridge
@@ -840,11 +847,14 @@ export async function ensureBridge(): Promise<void> {
     if (connected) {
       activeBridge = { implementation: "unknown", reason: "reused", path: null, pid: null, startedAt: null };
       noteBridgeProcess();
-      bridgeConnecting = false;
+      bridgeConnecting = null;
       bridgeReadyResolvers.forEach(r => r());
       bridgeReadyResolvers = [];
       return;
     }
+    // The path moved while that connect was in flight. This attempt was for the
+    // old one: spawning a bridge on the new one is up to whoever asks for it there.
+    if (path !== SOCKET_PATH) return;
 
     // No bridge running — use the explicit shell bridge, a built checkout Rust
     // binary, or the Node fallback. augmentPath() gives the child the same
@@ -929,7 +939,7 @@ export async function ensureBridge(): Promise<void> {
     }
     noteBridgeProcess();
   } finally {
-    bridgeConnecting = false;
+    bridgeConnecting = null;
     bridgeReadyResolvers.forEach(r => r());
     bridgeReadyResolvers = [];
   }
@@ -947,7 +957,12 @@ function tryConnect(): Promise<boolean> {
   return new Promise((resolve) => {
     if (!socketMightExist()) { resolve(false); return; }
 
-    const socket = net.connect(SOCKET_PATH, () => {
+    const path = SOCKET_PATH;
+    const socket = net.connect(path, () => {
+      // `_setPtyBridgeSocketPath` moved the bridge while this connect was in
+      // flight. Adopting the socket would send every frame, `create` included,
+      // to a bridge on the old path, which is not the one anybody asks for now.
+      if (path !== SOCKET_PATH) { socket.destroy(); resolve(false); return; }
       bridgeSocket = socket;
       bridgeReady = true;
       lastPongAt = Date.now();
