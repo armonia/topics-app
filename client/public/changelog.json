@@ -1,5 +1,28 @@
 [
   {
+    "version": "2.3.9",
+    "date": "2026-10-20",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "aggiorna durate shard dal nightly del 2026-10-20 [skip ci]",
+          "en": "",
+          "scope": "e2e",
+          "breaking": false
+        },
+        {
+          "it": "browser-cross-origin-frame aspetta il mirror ricostruito prima di misurare (#397)",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        }
+      ]
+    }
+  },
+  {
     "version": "2.3.8",
     "date": "2026-10-19",
     "sections": {
