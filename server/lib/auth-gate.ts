@@ -38,6 +38,7 @@
  * (splice L4: `Origin: tauri://localhost` con `Host: 127.0.0.1:13333`) e quello di
  * Vite in dev (`changeOrigin: true` riscrive Host e lascia Origin). Così il
  * telefono passa su qualunque indirizzo senza allowlist di IP che marcisce.
+ * (Inside that class the port decides too: see `isSameSite`.)
  *
  * PERCHE' LE LETTURE NON PASSANO DAL CHECK D'ORIGINE: un `<img>`/`<script>`
  * cross-origin non manda `Origin`, quindi estenderlo non li fermerebbe; e una
@@ -62,6 +63,9 @@ export interface AuthInput {
   authOff: boolean;
   /** Origini extra ammesse oltre alla same-site, es. l'host di un tunnel. */
   allowedOrigins?: string[];
+  /** The request came in through the tunnel listener (`isViaTunnel`). Only there
+   *  does `allowedOrigins` count for the origin axis. */
+  viaTunnel?: boolean;
   /**
    * L'esito dell'asse IDENTITA', già risolto dal chiamante (richiede il DB, e
    * questo modulo resta puro). Assente ⇒ nessuna identità richiesta, cioè il
@@ -209,13 +213,46 @@ export function originHost(origin: string): string | null {
   }
 }
 
-/** True se l'origine e l'host della richiesta sono lo stesso sito. */
+/**
+ * Desktop shell origins: macOS WKWebView and Windows WebView2. They carry no
+ * port, so they are recognised by scheme and name, never by a missing port.
+ */
+const DESKTOP_SHELL_ORIGINS = new Set(["tauri://localhost", "http://tauri.localhost", "https://tauri.localhost"]);
+
+export function isDesktopShellOrigin(origin: string): boolean {
+  return DESKTOP_SHELL_ORIGINS.has(origin);
+}
+
+/** The Vite dev server port (`client/vite.config.ts`): its proxy rewrites `Host`
+ *  towards the server and leaves the page's `Origin` alone. */
+const VITE_DEV_PORT = "3332";
+
+/** Port of a URL: `""` when it is the default one, `null` when unreadable. */
+function portOf(url: string): string | null {
+  try {
+    return new URL(url).port;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * True when the request's origin and host are the same site.
+ *
+ * The name is enough, except for the names of THIS machine: there every port is
+ * a different program, so the origin's port must be the one the listener
+ * answered on (`Host`) or the Vite dev one. The desktop shell has no port and is
+ * exempt by scheme.
+ */
 export function isSameSite(origin: string | null, host: string | null): boolean {
   if (!origin) return false;
   const o = originHost(origin);
   if (o === null) return false;
   const h = canonHost(host);
-  return h !== null && o === h;
+  if (h === null || o !== h) return false;
+  if (o !== LOCAL_CLASS || isDesktopShellOrigin(origin)) return true;
+  const port = portOf(origin);
+  return port === VITE_DEV_PORT || port === portOf(`http://${host}`);
 }
 
 /** Un IPv4 in forma decimale puntata, ottetti compresi. */
@@ -368,7 +405,7 @@ export function evaluateAuth(i: AuthInput): AuthResult {
   if (MUTATING.has(i.method) || isWebSocketPath(i.pathname)) {
     // Nessun `Origin` ⇒ non è un browser (CLI, tool MCP, hook HTTP, sendBeacon
     // di teardown). Il CSRF è un attacco da browser.
-    if (i.origin && !isSameSite(i.origin, i.host) && !(i.allowedOrigins?.includes(i.origin) ?? false)) {
+    if (i.origin && !isSameSite(i.origin, i.host) && !(i.viaTunnel && i.allowedOrigins?.includes(i.origin))) {
       return { allow: false, status: 403, reason: "cross-site origin blocked" };
     }
   }
