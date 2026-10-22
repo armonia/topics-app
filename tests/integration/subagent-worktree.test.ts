@@ -17,6 +17,7 @@ import { describe, expect, test, beforeAll, afterAll } from "bun:test";
 import * as fs from "node:fs";
 import { execFileSync } from "node:child_process";
 import { PROJECT_ROOT, testTmpDir } from "./helpers";
+import { gitEnv } from "../setup/bun-test-preload";
 
 /* DATA_DIR is shared environment and this file writes it: restored at the end,
  * see the same note in `project-worktree-domain.test.ts`. */
@@ -29,6 +30,7 @@ const TEST_WT = testTmpDir("subagent-wt-trees");
 
 function git(dir: string, args: string[]): string {
   return execFileSync("git", ["-c", "user.email=t@t", "-c", "user.name=t", ...args], {
+    env: gitEnv(),
     cwd: dir,
     encoding: "utf-8",
   }).trim();

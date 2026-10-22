@@ -7,6 +7,7 @@ import { userInfo } from "os";
 import { resolve, join } from "path";
 import { personalTerms as elencoTerzi, personalTermsPath } from "../../scripts/personal-terms.ts";
 import { execFileSync } from "child_process";
+import { gitEnv } from "../setup/bun-test-preload";
 
 /**
  * No tracked file carries a THIRD PARTY's personal data.
@@ -135,6 +136,7 @@ export function personalTerms(): string[] {
 
 function tracciati(): string[] {
   const out = execFileSync("git", ["ls-files", "-z"], {
+    env: gitEnv(),
     cwd: ROOT,
     encoding: "utf8",
     maxBuffer: 64 * 1024 * 1024,
@@ -206,7 +208,7 @@ describe("nessun dato personale in un file tracciato", () => {
     // il termine si legge da git al volo e non finisce mai in un file.
     const repoAuthor = (() => {
       try {
-        return execFileSync("git", ["config", "user.name"], { cwd: ROOT, encoding: "utf8" }).trim().toLowerCase();
+        return execFileSync("git", ["config", "user.name"], { env: gitEnv(), cwd: ROOT, encoding: "utf8" }).trim().toLowerCase();
       } catch {
         return "";
       }

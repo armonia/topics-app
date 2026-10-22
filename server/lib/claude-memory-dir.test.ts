@@ -20,6 +20,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { spawnSync } from "node:child_process";
 import { claudeMemoryDir, forgetGitRootsForTests, GIT_ROOT_TTL_MS, settleGitRootAsksForTests } from "./native-parity";
+import { gitEnv } from "../../tests/setup/bun-test-preload";
 
 let scratch: string;
 let home: string;
@@ -27,7 +28,7 @@ let home: string;
 const encode = (p: string) => p.replace(/[/.]/g, "-");
 const memoryOf = (root: string) => join(home, ".claude", "projects", encode(root), "memory");
 const git = (...args: string[]) => {
-  const r = spawnSync("git", args, { encoding: "utf8" });
+  const r = spawnSync("git", args, { env: gitEnv(), encoding: "utf8" });
   if (r.status !== 0) throw new Error(`git ${args.join(" ")}: ${r.stderr}`);
 };
 /** A `proj/sub` folder in no repo: `proj` becomes one later. */

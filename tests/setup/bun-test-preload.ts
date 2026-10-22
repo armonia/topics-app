@@ -56,6 +56,7 @@ import { isAbsolute, resolve } from "node:path";
 import { acquireSlot, claimOutfile, slotCount, alreadyHeld, GATE_HELD_ENV } from "../../scripts/gate-slot.ts";
 import { stopOwnAiBridges } from "../../scripts/stray-ai-bridges.ts";
 import { removeFinishedTestTmpDirs } from "./test-tmp-dirs.ts";
+import { gitIsolationEnv } from "./git-isolation";
 
 /**
  * 30s: sei volte il default di bun. Il numero e' una misura, non un gusto. Col
@@ -149,27 +150,12 @@ setDefaultTimeout(applicato);
  * to be able to prove its absence.
  */
 function isolateGitFromEnvironment(): void {
-  // `GIT_CONFIG_COUNT` + the key/value pairs: the official way to impose
-  // config on git without writing to any file.
-  const pairs: Array<[string, string]> = [
-    // NOT the empty string: git resolves it as a path RELATIVE to the repo and
-    // ends up using `<repo>/.git/hooks`, i.e. exactly the hooks we wanted to
-    // avoid. Verified with `git config --get core.hooksPath` in a child
-    // process: it answered `/Users/.../topics-app/.git/hooks`. What is needed
-    // is an absolute path that does not exist: git finds nothing and runs
-    // nothing.
-    ["core.hooksPath", "/nonexistent/topics-test-hooks"],
-    ["commit.gpgsign", "false"],
-  ];
-  // A count already set by whoever launched us is not overwritten: we append,
-  // otherwise their keys get thrown away.
-  const already = Number(process.env.GIT_CONFIG_COUNT ?? "0");
-  const base = Number.isFinite(already) && already > 0 ? already : 0;
-  pairs.forEach(([k, v], i) => {
-    process.env[`GIT_CONFIG_KEY_${base + i}`] = k;
-    process.env[`GIT_CONFIG_VALUE_${base + i}`] = v;
-  });
-  process.env.GIT_CONFIG_COUNT = String(base + pairs.length);
+  // The pairs and the appending live in `git-isolation.ts`, because
+  // `scripts/slot.ts` applies the same ones BEFORE `bun test` starts: there
+  // they are inherited by every git child for free, here they are the fallback
+  // for whoever runs `bun test <file>` by hand, and two copies of the rule
+  // would drift.
+  Object.assign(process.env, gitIsolationEnv(process.env));
 }
 
 isolateGitFromEnvironment();

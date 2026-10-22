@@ -17,6 +17,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { createWorktreeManager, type WorktreeManagerGcDeps } from "../../server/services/worktree-manager";
+import { gitEnv } from "../setup/bun-test-preload";
 
 // Raccogli i pid dei processi che spawn-iamo per pulizia
 const spawned: Array<{ pid: number; kill: () => void }> = [];
@@ -29,7 +30,7 @@ afterEach(() => {
 /** Crea un repo git di prova e restituisce il path. */
 async function makeGitRepo(dir: string): Promise<void> {
   const run = (args: string[]) =>
-    Bun.spawn(["git", ...args], { cwd: dir, stdout: "ignore", stderr: "ignore" }).exited;
+    Bun.spawn(["git", ...args], { env: gitEnv(), cwd: dir, stdout: "ignore", stderr: "ignore" }).exited;
   await run(["init", "-b", "main"]);
   await run(["config", "user.email", "test@test.test"]);
   await run(["config", "user.name", "Test"]);
@@ -69,7 +70,7 @@ describe("evictOwnedScripts — Punto 1", () => {
     fs.mkdirSync(path.dirname(wtPath), { recursive: true });
     const addProc = Bun.spawn(
       ["git", "worktree", "add", "-b", `topics/${wtName}`, wtPath, "main"],
-      { cwd: repoDir, stdout: "ignore", stderr: "ignore" },
+      { env: gitEnv(), cwd: repoDir, stdout: "ignore", stderr: "ignore" },
     );
     await addProc.exited;
 
@@ -186,7 +187,7 @@ describe("evictOwnedScripts — Punto 1", () => {
     fs.mkdirSync(path.dirname(wtPath), { recursive: true });
     const addProc = Bun.spawn(
       ["git", "worktree", "add", "-b", `topics/${wtName}`, wtPath, "main"],
-      { cwd: repoDir, stdout: "ignore", stderr: "ignore" },
+      { env: gitEnv(), cwd: repoDir, stdout: "ignore", stderr: "ignore" },
     );
     await addProc.exited;
 

@@ -30,6 +30,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { cleanupTestDataDir, createTestAppContext, setupTestDataDir, testTmpDir } from "./helpers";
 import { captureTurnCheckpoint } from "../../server/services/turn-checkpoints";
+import { gitEnv } from "../setup/bun-test-preload";
 
 const ROOT = testTmpDir("turn-checkpoint-rewind");
 const REPO = join(ROOT, "repo");
@@ -37,7 +38,7 @@ const REPO = join(ROOT, "repo");
 beforeAll(() => setupTestDataDir(join(ROOT, "data")));
 afterAll(() => cleanupTestDataDir(ROOT));
 
-const git = (...a: string[]) => execFileSync("git", a, { cwd: REPO, encoding: "utf8" }).trim();
+const git = (...a: string[]) => execFileSync("git", a, { env: gitEnv(), cwd: REPO, encoding: "utf8" }).trim();
 
 function seedRepo() {
   // Idempotent: the file has more than one test that needs the repository, and

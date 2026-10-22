@@ -23,13 +23,14 @@ import type { TopicChanges } from "../../shared/topic-changes";
 import type { ChangeSet } from "../../shared/change-set";
 import { projectIdForPath } from "../../shared/board";
 import { cleanupTestDataDir, createTestAppContext, setupTestDataDir, testTmpDir } from "./helpers";
+import { gitEnv } from "../setup/bun-test-preload";
 
 const ROOT = testTmpDir("topic-changes");
 beforeAll(() => setupTestDataDir(join(ROOT, "data")));
 afterAll(() => cleanupTestDataDir(ROOT));
 
 function git(cwd: string, ...args: string[]): void {
-  execFileSync("git", args, { cwd, stdio: "ignore" });
+  execFileSync("git", args, { env: gitEnv(), cwd, stdio: "ignore" });
 }
 
 /** A repo with one committed file, and nothing else. */
@@ -195,7 +196,7 @@ describe("GET /api/topics/:id/changes on a task topic", () => {
 
   /** The land: `merge --no-ff` with the card's id in the subject, then worktree and branch pruned. */
   function landAndPrune(repo: string, wt: string, branch: string, taskId: string): string {
-    const delivered = execFileSync("git", ["rev-parse", branch], { cwd: repo, encoding: "utf8" }).trim();
+    const delivered = execFileSync("git", ["rev-parse", branch], { env: gitEnv(), cwd: repo, encoding: "utf8" }).trim();
     git(repo, "merge", "--no-ff", "-q", "-m", `merge task ${taskId}: landed`, branch);
     git(repo, "worktree", "remove", "--force", wt);
     git(repo, "branch", "-D", branch);
@@ -304,7 +305,7 @@ describe("GET /api/topics/:id/changes on a task topic", () => {
     writeFileSync(join(wt, "shell.txt"), "x\ny\nz\n");
     git(wt, "add", "-A");
     git(wt, "commit", "-qm", "task work");
-    const commit = execFileSync("git", ["rev-parse", branch], { cwd: repo, encoding: "utf8" }).trim();
+    const commit = execFileSync("git", ["rev-parse", branch], { env: gitEnv(), cwd: repo, encoding: "utf8" }).trim();
     git(repo, "checkout", "-q", "-b", "integra/tornata");
     git(repo, "merge", "--no-ff", "-q", "-m", `Merge branch '${branch}' into integra/tornata`, branch);
     git(repo, "checkout", "-q", "main");
@@ -373,7 +374,7 @@ describe("GET /api/topics/:id/changes on a task topic", () => {
     writeFileSync(join(wt, "src/a.ts"), "alpha\nbeta\n");
     git(wt, "add", "-A");
     git(wt, "commit", "-qm", "task work");
-    const commit = execFileSync("git", ["rev-parse", branch], { cwd: repo, encoding: "utf8" }).trim();
+    const commit = execFileSync("git", ["rev-parse", branch], { env: gitEnv(), cwd: repo, encoding: "utf8" }).trim();
     git(repo, "worktree", "remove", "--force", wt);
     git(repo, "branch", "-D", branch, "other-session");
 
@@ -616,7 +617,7 @@ describe("GET /api/topics/:id/changes/diff", () => {
     writeFileSync(join(repo, "c.ts"), "c\n");
     git(repo, "add", "-A");
     git(repo, "commit", "-qm", "c");
-    const head = execFileSync("git", ["rev-parse", "HEAD"], { cwd: repo, encoding: "utf8" }).trim();
+    const head = execFileSync("git", ["rev-parse", "HEAD"], { env: gitEnv(), cwd: repo, encoding: "utf8" }).trim();
     const { get } = await chatTopic(repo, "a.ts", "b.ts");
     writeFileSync(join(repo, "a.ts"), "alpha\n");
     writeFileSync(join(repo, "b.ts"), "beta\ngamma\n");

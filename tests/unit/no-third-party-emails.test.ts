@@ -36,6 +36,7 @@ import { describe, expect, test } from "bun:test";
 import { execFileSync } from "node:child_process";
 import { readFileSync, statSync } from "node:fs";
 import { join, resolve } from "node:path";
+import { gitEnv } from "../setup/bun-test-preload";
 
 const RADICE = resolve(import.meta.dir, "..", "..");
 
@@ -55,7 +56,7 @@ const PERSONAL_MAIL = [
 ];
 
 function trackedFile(): string[] {
-  const out = execFileSync("git", ["ls-files", "-z"], { cwd: RADICE, encoding: "utf8", maxBuffer: 64 * 1024 * 1024 });
+  const out = execFileSync("git", ["ls-files", "-z"], { env: gitEnv(), cwd: RADICE, encoding: "utf8", maxBuffer: 64 * 1024 * 1024 });
   return out.split("\0").filter((p) => p && TESTABILE.test(p));
 }
 

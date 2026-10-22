@@ -15,6 +15,7 @@ import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "no
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { declaredNames, isKnown, serializeBaseline, words, PROJECT_WORDS } from "./check-identifier-language";
+import { gitEnv } from "../tests/setup/bun-test-preload";
 
 const DICT = "/usr/share/dict/words";
 const dict = new Set<string>(
@@ -131,7 +132,7 @@ describe("the baseline merges when two branches change the names of different fi
       writeFileSync(join(dir, "base"), base);
       writeFileSync(join(dir, "ours"), ours);
       writeFileSync(join(dir, "theirs"), theirs);
-      return spawnSync("git", ["merge-file", "-p", join(dir, "ours"), join(dir, "base"), join(dir, "theirs")]).status ?? -1;
+      return spawnSync("git", ["merge-file", "-p", join(dir, "ours"), join(dir, "base"), join(dir, "theirs")], { env: gitEnv() }).status ?? -1;
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }

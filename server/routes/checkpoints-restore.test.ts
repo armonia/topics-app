@@ -25,9 +25,10 @@ import { execFileSync } from "node:child_process";
 import { mkdtempSync, rmSync, writeFileSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { gitEnv } from "../../tests/setup/bun-test-preload";
 
 let repo: string;
-const git = (...a: string[]) => execFileSync("git", a, { cwd: repo, encoding: "utf8" }).trim();
+const git = (...a: string[]) => execFileSync("git", a, { env: gitEnv(), cwd: repo, encoding: "utf8" }).trim();
 
 beforeEach(() => {
   repo = mkdtempSync(join(tmpdir(), "topics-ckpt-"));

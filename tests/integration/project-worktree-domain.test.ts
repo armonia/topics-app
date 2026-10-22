@@ -24,6 +24,7 @@ import { describe, expect, test, beforeAll, afterAll } from "bun:test";
 import * as fs from "node:fs";
 import { execFileSync } from "node:child_process";
 import { PROJECT_ROOT, testTmpDir } from "./helpers";
+import { gitEnv } from "../setup/bun-test-preload";
 
 /* DATA_DIR E' AMBIENTE CONDIVISO, e questo file lo scrive.
  *
@@ -51,13 +52,13 @@ function rmAll() {
 
 function gitInit(dir: string) {
   fs.mkdirSync(dir, { recursive: true });
-  execFileSync("git", ["init", "-q", "-b", "main"], { cwd: dir });
+  execFileSync("git", ["init", "-q", "-b", "main"], { env: gitEnv(), cwd: dir });
   fs.writeFileSync(`${dir}/README.md`, "# test\n");
-  execFileSync("git", ["add", "-A"], { cwd: dir });
+  execFileSync("git", ["add", "-A"], { env: gitEnv(), cwd: dir });
   execFileSync(
     "git",
     ["-c", "user.email=t@t", "-c", "user.name=t", "commit", "-q", "-m", "init"],
-    { cwd: dir },
+    { env: gitEnv(), cwd: dir },
   );
 }
 
@@ -177,6 +178,7 @@ describe("Phase A · Project + Worktree domain", () => {
       expect(fs.existsSync(ready.absPath)).toBe(true);
 
       const branch = execFileSync("git", ["branch", "--show-current"], {
+        env: gitEnv(),
         cwd: ready.absPath, encoding: "utf-8",
       }).trim();
       expect(branch).toBe(ready.branchName!);

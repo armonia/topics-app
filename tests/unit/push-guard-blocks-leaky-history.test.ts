@@ -17,13 +17,14 @@ import { execFileSync, spawnSync } from "node:child_process";
 import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { gitEnv } from "../setup/bun-test-preload";
 
 const GUARD = join(import.meta.dir, "../../scripts/check-push-clean.ts");
 const NAME = "Zzyzx Quiverleaf"; // invented: must not exist anywhere in this repo
 
 function repoWith(commits: Array<{ file: string; body: string; message: string }>): string {
   const dir = mkdtempSync(join(tmpdir(), "push-guard-"));
-  const run = (...args: string[]) => execFileSync("git", args, { cwd: dir, encoding: "utf8" });
+  const run = (...args: string[]) => execFileSync("git", args, { env: gitEnv(), cwd: dir, encoding: "utf8" });
   run("init", "-q", "-b", "main");
   run("config", "user.email", "t@example.com");
   run("config", "user.name", "T");
@@ -117,21 +118,21 @@ describe("gate della storia pubblicata", () => {
   test("lo stesso nome su un remoto configurato e' rosso", () => {
     const dir = repoWith([{ file: "a.txt", body: `client: ${NAME}\n`, message: "pubblicato" }]);
     const bare = mkdtempSync(join(tmpdir(), "push-guard-remote-"));
-    execFileSync("git", ["init", "-q", "--bare", bare]);
-    execFileSync("git", ["remote", "add", "origin", bare], { cwd: dir });
-    execFileSync("git", ["push", "-q", "--no-verify", "origin", "main"], { cwd: dir });
+    execFileSync("git", ["init", "-q", "--bare", bare], { env: gitEnv() });
+    execFileSync("git", ["remote", "add", "origin", bare], { env: gitEnv(), cwd: dir });
+    execFileSync("git", ["push", "-q", "--no-verify", "origin", "main"], { env: gitEnv(), cwd: dir });
     expect(scrub(dir).status).toBe(1);
   });
 
   test("un ref di un remoto che non esiste piu' non pubblica niente", () => {
     const dir = repoWith([{ file: "a.txt", body: `client: ${NAME}\n`, message: "vecchio" }]);
-    const head = execFileSync("git", ["rev-parse", "HEAD"], { cwd: dir, encoding: "utf8" }).trim();
+    const head = execFileSync("git", ["rev-parse", "HEAD"], { env: gitEnv(), cwd: dir, encoding: "utf8" }).trim();
     // Exactly the state found on this machine: a refs/remotes/<name>/ ref whose
     // remote is not in `git remote`. `git remote remove` would have swept the
     // refs too, which is why the real one survived: nothing removed the remote,
     // it was simply never configured in this clone.
-    execFileSync("git", ["update-ref", "refs/remotes/selfcheck/main", head], { cwd: dir });
-    expect(execFileSync("git", ["remote"], { cwd: dir, encoding: "utf8" }).trim()).toBe("");
+    execFileSync("git", ["update-ref", "refs/remotes/selfcheck/main", head], { env: gitEnv(), cwd: dir });
+    expect(execFileSync("git", ["remote"], { env: gitEnv(), cwd: dir, encoding: "utf8" }).trim()).toBe("");
     expect(scrub(dir).status).toBe(0);
   });
 });

@@ -17,6 +17,7 @@ import { tmpdir } from "node:os";
 import { join, win32 } from "node:path";
 import { aggregateTouchedFiles, computeTopicChanges, pathInTree, rangeFiles, refineKind, resolveTopicChangeTarget, type TopicRangeAnchors } from "./topic-changes";
 import type { ToolCall } from "../../shared/types";
+import { gitEnv } from "../../tests/setup/bun-test-preload";
 
 function call(name: string, detail: ToolCall["detail"], extra: Partial<ToolCall> = {}): ToolCall {
   return { id: `${name}-${Math.random()}`, name, args: {}, detail, ...extra };
@@ -251,7 +252,7 @@ describe("computeTopicChanges behind a symlink", () => {
     const base = mkdtempSync(join(realpathSync(tmpdir()), "topic-changes-"));
     const repo = join(base, "repo");
     mkdirSync(repo);
-    const git = (...args: string[]) => execFileSync("git", args, { cwd: repo, stdio: "ignore" });
+    const git = (...args: string[]) => execFileSync("git", args, { env: gitEnv(), cwd: repo, stdio: "ignore" });
     git("init", "-q", "-b", "main");
     git("config", "user.email", "test@example.invalid");
     git("config", "user.name", "Test");
@@ -289,7 +290,7 @@ describe("resolveTopicChangeTarget", () => {
     const base = mkdtempSync(join(realpathSync(tmpdir()), "topic-target-"));
     const dir = join(base, "repo");
     mkdirSync(dir);
-    const git = (...args: string[]) => execFileSync("git", args, { cwd: dir, encoding: "utf8" }).trim();
+    const git = (...args: string[]) => execFileSync("git", args, { env: gitEnv(), cwd: dir, encoding: "utf8" }).trim();
     git("init", "-q", "-b", "main");
     git("config", "user.email", "test@example.invalid");
     git("config", "user.name", "Test");
