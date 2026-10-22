@@ -167,6 +167,28 @@ function remoteReal(): string[] {
  *  `--check` says so instead of passing the guess off as a measurement. */
 let tagsAreLocalGuess = false;
 
+/**
+ * Published tags this clone has never fetched, and why they are fatal rather
+ * than ignorable.
+ *
+ * `git log` refuses an unresolvable ref with `fatal: ambiguous argument` and
+ * prints NOTHING else — and `git()` here swallows every error into "". So one
+ * tag named by the remote but missing from the object store does not lose one
+ * tag's worth of coverage: it makes EVERY count come back 0, and the gate says
+ * "niente di pubblicato contiene i nomi". A clone that has not fetched since  allow-italian: quotes the line the gate prints
+ * someone else pushed a tag is the normal state, so this is not a corner.
+ *
+ * Measured while writing this: `git log -S x HEAD refs/tags/does-not-exist`
+ * prints one fatal line and no commits.
+ *
+ * The cure is not to skip them quietly, which would be the same lie with a
+ * footnote: the question asked is "is any of this published", and it cannot be
+ * answered about refs that are not here. So they are counted, named, and the
+ * gate exits 2 — "non misurabile", one `git fetch --tags` away from an answer —  allow-italian: quotes the line the gate prints
+ * instead of green.
+ */
+let tagsNotFetched = 0;
+
 function publishedTagRefs(remotes: string[]): string[] {
   const refs = new Set<string>();
   // "No tags" and "no answer" are different facts and the fallback must not
@@ -195,7 +217,14 @@ function publishedTagRefs(remotes: string[]): string[] {
       if (ref?.startsWith("refs/tags/") && !ref.endsWith("^{}")) refs.add(ref);
     }
   }
-  if (refs.size > 0) return [...refs];
+  if (refs.size > 0) {
+    const local = new Set(
+      git("for-each-ref", "--format=%(refname)", "refs/tags").split("\n").filter(Boolean),
+    );
+    const present = [...refs].filter((ref) => local.has(ref));
+    tagsNotFetched = refs.size - present.length;
+    return present;
+  }
   if (someoneAnswered) return [];
   const local = git("for-each-ref", "--format=%(refname)", "refs/tags").split("\n").filter(Boolean);
   if (local.length === 0) return [];
@@ -232,6 +261,14 @@ console.log(
 for (const r of righe) {
   const count = r.commit === 0 ? "pulito".padEnd(10) : `${r.commit} commit`.padEnd(10);
   console.log(`  ${count}  ${r.termine}${r.forwardOnly ? "   [solo in avanti]" : ""}`);
+}
+if (soloMisura && tagsNotFetched > 0) {
+  console.log(
+    `\n[scrub] ${tagsNotFetched} tag che il remoto pubblica non sono in questo clone, e un ref` +
+      "\n        che non si risolve fa uscire `git log` con un fatal invece di una riga:" +
+      "\n        i conteggi qui sopra non li comprendono. La domanda non e' rispondibile," +
+      "\n        non e' «pulito».  Cura:  git fetch --tags  e rilancia.",
+  );
 }
 if (soloMisura && tagsAreLocalGuess) {
   console.log(
@@ -271,9 +308,17 @@ if (soloMisura) {
       );
     }
   }
+  // A leak already found is certain; a ref nobody fetched is only unknown. The
+  // certain bad news wins the exit code, because it is the one with a cure.
   if (sporchi.length > 0) {
     console.log(`\n[scrub] ${sporchi.length} termini sono PUBBLICI: vanno tolti dalla storia remota.`);
     process.exit(1);
+  }
+  if (tagsNotFetched > 0) {
+    console.log(
+      `\n[scrub] non misurabile: ${tagsNotFetched} tag pubblicati non sono in questo clone.`,
+    );
+    process.exit(2);
   }
   console.log("\n[scrub] niente di pubblicato contiene i nomi (oltre a cio' che e' gia' noto).");
   process.exit(0);

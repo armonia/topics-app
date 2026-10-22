@@ -889,6 +889,16 @@ giorni dopo un force-push), quindi non si poteva aggiungere affatto: è per
 questo che il percorso della home dell'autore è rimasto fuori dalla lista fino
 a finire in un plist launchd nella PR #405 senza che niente lo cercasse.
 
+Un tag che il remoto pubblica ma che questo clone non ha fetchato SHALL far
+uscire il cancello **2** («non misurabile»), non 0: `git log` risponde a un ref
+irrisolvibile con un `fatal` e niente altro, e l'helper che inghiotte gli errori
+trasforma UN ref mancante in ZERO commit per ogni termine — cioè in un
+«niente di pubblicato contiene i nomi». Un clone che non fetcha da quando
+qualcuno ha spinto un tag è lo stato normale, quindi non è un caso di bordo. La
+cura è una riga (`git fetch --tags`) e SHALL essere stampata. Un termine già
+trovato pubblico fra i ref visibili SHALL comunque dare 1: una fuga certa batte
+un ref sconosciuto.
+
 Un marcatore su un termine che la storia pubblicata NON contiene SHALL essere
 segnalato come inutile, non essere rosso: non copre nulla e il pre-push lo
 blocca comunque.
@@ -901,6 +911,11 @@ blocca comunque.
 #### Scenario: un tag che vive solo in locale
 - **GIVEN** lo stesso commit, con il tag MAI spinto e il remoto che risponde
 - **THEN** SHALL uscire 0 e SHALL riportarlo come sporcizia solo locale
+
+#### Scenario: un tag pubblicato che il clone non ha
+- **GIVEN** il tag sul remoto e il suo ref assente in locale
+- **THEN** SHALL uscire 2 e NON SHALL dire che niente di pubblicato contiene i nomi
+- **AND** se un altro ref visibile porta già il termine, SHALL uscire 1
 
 #### Scenario: termine solo in avanti già nella storia pubblicata
 - **GIVEN** `> <termine>` e il termine in un commit sul ramo remoto

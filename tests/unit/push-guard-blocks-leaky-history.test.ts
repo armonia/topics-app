@@ -220,6 +220,31 @@ describe("storia pubblicata: i tag", () => {
     expect(r.stdout).toContain("1 commit");
   });
 
+  test("un tag pubblicato che il clone non ha fetchato non diventa un verde", () => {
+    // `git log` answers an unresolvable ref with a fatal and NOTHING else, and
+    // `git()` swallows errors: one tag named by the remote and missing from the
+    // clone does not cost that tag's coverage, it zeroes EVERY count. The case
+    // below: the tag is on the remote, not here.
+    const dir = repoWithTagOnlyLeak();
+    execFileSync("git", ["tag", "-d", "v1.0"], { cwd: dir });
+    const r = scrub(dir);
+    expect(r.status).toBe(2);
+    expect(r.stdout).toContain("non misurabile");
+    expect(r.stdout).not.toContain("niente di pubblicato contiene i nomi");
+  });
+
+  test("un leak certo batte un tag non fetchato: esce 1, non 2", () => {
+    // Two published tags, one missing locally, and the leak sits under the one
+    // that is here. Red wins: it is the certain news, and it has a cure.
+    const dir = repoWithTagOnlyLeak();
+    const run = (...args: string[]) => execFileSync("git", args, { cwd: dir, encoding: "utf8" });
+    run("tag", "v2.0", "v1.0");
+    run("push", "-q", "--no-verify", "origin", "v2.0");
+    run("tag", "-d", "v2.0");
+    const r = scrub(dir);
+    expect(r.status).toBe(1);
+  });
+
   test("un tag LOCALE non pubblica niente", () => {
     // Same leak, but the tag stays here: the remote has only `main`. A local
     // `archive/*` backup tag is the common case (316 of them on the real clone)
