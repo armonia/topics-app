@@ -4990,10 +4990,6 @@
     "server/services/ui-state-orphan-cleanup.ts": [
       "txn"
     ],
-    "server/services/worktree-base-ref.test.ts": [
-      "chiamate",
-      "senzaMain"
-    ],
     "server/services/worktree-gc-free-checkout.test.ts": [
       "attivo",
       "chiuso",

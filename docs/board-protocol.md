@@ -351,14 +351,21 @@ queste regole.
    fa più merge/build/reap "da sotto": il landing è un passo ESPLICITO e separato
    (scorporato 2026-07-19). Le azioni sono tre, ognuna un click umano deliberato:
    - **Approva** → accetta il task, nient'altro.
-   - **Landa su main** → accetta + merge LOCALE del branch (mai push): l'agente lo
+   - **Landa su main** → accetta + merge LOCALE del branch (mai push). La base e'
+     `origin/main`, non il `main` locale: il ramo della card nasce da li' (fetch
+     limitato prima, `server/services/worktree-base-ref.ts`), e il land rifa lo
+     stesso fetch, confronta il ramo con `origin/main` e lo fonde nel checkout di
+     land prima del ramo (conflitto: `base-diverged`, la card non ne paga il
+     prezzo). Il `main` locale resta solo dove il risultato atterra, e cio' che
+     Pubblica spinge. Fetch fallito: si va avanti con la copia locale di
+     `origin/main` (senza nemmeno quella, il worktree nasce da `HEAD`). L'agente lo
      offre come opzione a fine consegna (`comment_task(options=["Landa su main"])`,
      costante `LAND_ACTION_LABEL`) e il server la instrada a `landTask`
      (`server/routes/tasks.ts`), oppure il bottone/endpoint `POST …/tasks/:id/land`.
      Poi: tocca `client/` → rebuild bundle; `server/`/`server.ts` → live al reload;
      `desktop-tauri/` → serve rebuild+relaunch; a merge fatto → reap del worktree;
      **conflitto** → torna all'agente, che rifà la BASE del suo ramo sul main
-     aggiornato (`git rebase main`) — NON un merge di main dentro il ramo — e
+     aggiornato (`git rebase main`, sul main LOCALE: è lì che il land fonde) — NON un merge di main dentro il ramo — e
      rimette in review. Il divieto «non toccare main» resta (niente push, niente
      merge VERSO main): rifare la base del PROPRIO ramo non lo viola.
    - **Pubblica** (andare online) → push del branch → deploy CI. SEMPRE separato,

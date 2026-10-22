@@ -181,7 +181,7 @@ describe("task-automerge", () => {
     // Il suo commit e' stato raccolto e COMMITTATO; il branch NON e' stato mergiato.
     expect(calls.some((c) => c[0] === "cherry-pick" && c.includes("aaa111"))).toBe(true);
     expect(calls.some((c) => c[0] === "commit" && c.includes("-C") && c.includes("aaa111"))).toBe(true);
-    expect(calls.some((c) => c[0] === "merge")).toBe(false);
+    expect(calls.some((c) => c[0] === "merge" && !c.includes("origin/main"))).toBe(false);
   });
 
   test("foreign commits already on main by content: the branch is not mixed, it is MERGED, not picked", async () => {
@@ -260,7 +260,7 @@ describe("task-automerge", () => {
     expect(calls.filter((c) => c[0] === "cherry-pick" && c[1] === "-n").map((c) => c[c.length - 1])).toEqual(["fff111", "aaa111"]);
     // ...and the own commit was picked and committed, the branch never merged.
     expect(calls.some((c) => c[0] === "commit" && c.includes("-C") && c.includes("aaa111"))).toBe(true);
-    expect(calls.some((c) => c[0] === "merge")).toBe(false);
+    expect(calls.some((c) => c[0] === "merge" && !c.includes("origin/main"))).toBe(false);
   });
 
   test("normalizePatch: blob ids and hunk line numbers do not count, the change does", () => {

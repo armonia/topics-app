@@ -9,98 +9,147 @@ import { tmpdir } from "os";
 import { join } from "path";
 import { gitEnv } from "../../tests/setup/bun-test-preload";
 
-function git(cwd: string, ...args: string[]): void {
-  Bun.spawnSync(["git", "-C", cwd, ...args], { stdout: "pipe", stderr: "pipe", env: gitEnv() });
+function git(cwd: string, ...args: string[]): string {
+  const r = Bun.spawnSync(["git", "-C", cwd, ...args], { stdout: "pipe", stderr: "pipe", env: gitEnv() });
+  return r.stdout.toString().trim();
+}
+
+function initRepo(path: string, branch: string): void {
+  Bun.spawnSync(["git", "init", "-q", "-b", branch, path], { stdout: "pipe", stderr: "pipe", env: gitEnv() });
+  git(path, "config", "user.email", "t@t");
+  git(path, "config", "user.name", "t");
+}
+
+function commit(path: string, file: string, msg: string): void {
+  writeFileSync(join(path, file), msg);
+  git(path, "add", "-A");
+  git(path, "commit", "-q", "-m", msg);
 }
 
 /**
- * Due repo VERI, perché la domanda che si vuole provare è proprio quella che
- * fa git: `rev-parse --verify refs/heads/main`. Un finto runner proverebbe solo
- * che il codice legge un `code`, non che chiede la cosa giusta.
+ * REAL repos, because the question under test is the one git answers: the remote
+ * ref exists and the fetch moves it forward. A fake runner would only prove the
+ * code reads a `code`, not that it asks the right thing.
  *
- *   conMain     main + un altro ramo checkato out (il caso del checkout condiviso)
- *   senzaMain   ramo unico `sviluppo`, nessun `main`
+ *   clone      checkout with a real `origin`, a STALE local `main` and another
+ *              branch checked out (the shared checkout), while `origin/main` has
+ *              moved ahead through a second clone: the 21/10 defect
+ *   noOrigin   a single `sviluppo` branch, no remote
  */
-describe("worktree-base-ref — su git vero", () => {
+describe("worktree-base-ref: su git vero", () => {
   let root: string;
-  let conMain: string;
-  let senzaMain: string;
+  let clone: string;
+  let originTip: string;
+  let noOrigin: string;
 
-  // Timeout largo: qui girano una decina di `git` sincroni, e i 5s di default
-  // di bun li coprono solo a macchina scarica (stessa ragione di own-commits).
+  // Wide timeout: about twenty synchronous `git` calls run here, and bun's 5s
+  // default covers them only on an idle machine (same reason as own-commits).
   beforeAll(() => {
     root = mkdtempSync(join(tmpdir(), "wt-base-ref-"));
+    const bare = join(root, "origin.git");
+    const seed = join(root, "seed");
+    clone = join(root, "clone");
+    const other = join(root, "other");
 
-    conMain = join(root, "con-main");
-    Bun.spawnSync(["git", "init", "-q", "-b", "main", conMain], { stdout: "pipe", stderr: "pipe", env: gitEnv() });
-    git(conMain, "config", "user.email", "t@t");
-    git(conMain, "config", "user.name", "t");
-    writeFileSync(join(conMain, "a.txt"), "base");
-    git(conMain, "add", "-A");
-    git(conMain, "commit", "-q", "-m", "base");
-    // Il difetto in scena: il checkout condiviso NON è su main, è sul ramo di
-    // un'altra sessione. È esattamente lo stato in cui `HEAD` mentiva.
-    git(conMain, "checkout", "-q", "-b", "altra-sessione");
-    writeFileSync(join(conMain, "b.txt"), "lavoro altrui");
-    git(conMain, "add", "-A");
-    git(conMain, "commit", "-q", "-m", "commit di un'altra card");
+    initRepo(seed, "main");
+    commit(seed, "a.txt", "base");
+    Bun.spawnSync(["git", "clone", "-q", "--bare", seed, bare], { stdout: "pipe", stderr: "pipe", env: gitEnv() });
+    Bun.spawnSync(["git", "clone", "-q", bare, clone], { stdout: "pipe", stderr: "pipe", env: gitEnv() });
+    git(clone, "config", "user.email", "t@t");
+    git(clone, "config", "user.name", "t");
+    // The shared checkout is NOT on main, it is on another session's branch.
+    git(clone, "checkout", "-q", "-b", "altra-sessione");
+    commit(clone, "b.txt", "lavoro altrui");
 
-    senzaMain = join(root, "senza-main");
-    Bun.spawnSync(["git", "init", "-q", "-b", "sviluppo", senzaMain], { stdout: "pipe", stderr: "pipe", env: gitEnv() });
-    git(senzaMain, "config", "user.email", "t@t");
-    git(senzaMain, "config", "user.name", "t");
-    writeFileSync(join(senzaMain, "a.txt"), "base");
-    git(senzaMain, "add", "-A");
-    git(senzaMain, "commit", "-q", "-m", "base");
+    // A second clone publishes to origin/main: the clone above does not know.
+    Bun.spawnSync(["git", "clone", "-q", bare, other], { stdout: "pipe", stderr: "pipe", env: gitEnv() });
+    git(other, "config", "user.email", "t@t");
+    git(other, "config", "user.name", "t");
+    commit(other, "c.txt", "pubblicato altrove");
+    git(other, "push", "-q", "origin", "main");
+    originTip = git(other, "rev-parse", "HEAD");
+
+    noOrigin = join(root, "senza-origin");
+    initRepo(noOrigin, "sviluppo");
+    commit(noOrigin, "a.txt", "base");
   }, 30_000);
 
   afterAll(() => rmSync(root, { recursive: true, force: true }));
 
-  test("repo con main → main, anche se il checkout è su un altro ramo", async () => {
-    const r = await resolveWorktreeBaseRef(conMain);
-    expect(r.baseRef).toBe("main");
+  test("la base è origin/main, aggiornato dal fetch, non il main locale fermo", async () => {
+    expect(git(clone, "rev-parse", "main")).not.toBe(originTip);
+    const r = await resolveWorktreeBaseRef(clone);
+    expect(r.baseRef).toBe("origin/main");
+    expect(r.fallback).toBe(false);
+    expect(r.reason).toBe("");
+    // The fetch really moved the ref forward, an old copy was not read.
+    expect(git(clone, "rev-parse", r.baseRef)).toBe(originTip);
+  });
+
+  test("repo senza origin → HEAD, e il ripiego è dichiarato", async () => {
+    const r = await resolveWorktreeBaseRef(noOrigin);
+    expect(r.baseRef).toBe("HEAD");
+    expect(r.fallback).toBe(true);
+    expect(r.reason).toContain("origin/main");
+  });
+
+  test("un main LOCALE non basta più: la base è la ref remota, non refs/heads/main", async () => {
+    // A local `main` exists, `origin/main` does not: it used to be the right base, now it is the defect.
+    git(noOrigin, "branch", "main");
+    const r = await resolveWorktreeBaseRef(noOrigin);
+    expect(r.baseRef).toBe("HEAD");
+    expect(r.fallback).toBe(true);
+  });
+
+  test("il ramo d'integrazione è un parametro: mainRef diverso → il suo remoto", async () => {
+    git(clone, "push", "-q", "origin", "main:trunk");
+    const r = await resolveWorktreeBaseRef(clone, { mainRef: "trunk" });
+    expect(r.baseRef).toBe("origin/trunk");
     expect(r.fallback).toBe(false);
   });
+});
 
-  test("repo senza main → HEAD, e il ripiego è dichiarato", async () => {
-    const r = await resolveWorktreeBaseRef(senzaMain);
-    expect(r.baseRef).toBe("HEAD");
-    expect(r.fallback).toBe(true);
-    expect(r.reason).toContain("main");
+/** The fetch, seen from a fake runner: what is asked and what happens when it fails. */
+describe("worktree-base-ref: il fetch", () => {
+  function runner(fetchCode: number, haveRemoteRef: boolean) {
+    const calls: string[][] = [];
+    const runGit = async (_cwd: string, args: string[]): Promise<GitRunResult> => {
+      calls.push(args);
+      if (args[0] === "fetch") return { code: fetchCode, stdout: "", stderr: fetchCode ? "fatal: unable to access\n" : "" };
+      return { code: haveRemoteRef ? 0 : 1, stdout: "", stderr: "" };
+    };
+    return { runGit, calls };
+  }
+
+  test("un fetch limitato (--no-tags, solo quel ref) PRIMA di risolvere", async () => {
+    const { runGit, calls } = runner(0, true);
+    const r = await resolveWorktreeBaseRef("/repo", { runGit });
+    expect(calls[0]).toEqual(["fetch", "--no-tags", "origin", "main"]);
+    expect(calls[1]![0]).toBe("rev-parse");
+    expect(r).toEqual({ baseRef: "origin/main", fallback: false, reason: "" });
   });
 
-  test("un ramo che si chiama main solo sul REMOTE non basta: non è checkout-abile", async () => {
-    // `origin/main` esiste, `refs/heads/main` no: un worktree non può nascere da
-    // un ref remoto, quindi la risposta giusta resta il ripiego.
-    git(senzaMain, "update-ref", "refs/remotes/origin/main", "HEAD");
-    const r = await resolveWorktreeBaseRef(senzaMain);
+  test("fetch fallito con la copia locale di origin/main → si parte da quella, e lo dice", async () => {
+    const { runGit } = runner(1, true);
+    const r = await resolveWorktreeBaseRef("/repo", { runGit });
+    expect(r.baseRef).toBe("origin/main");
+    expect(r.fallback).toBe(false);
+    expect(r.reason).toContain("fetch");
+  });
+
+  test("fetch fallito e nessuna copia di origin/main → HEAD, dichiarato", async () => {
+    const { runGit } = runner(1, false);
+    const r = await resolveWorktreeBaseRef("/repo", { runGit });
     expect(r.baseRef).toBe("HEAD");
     expect(r.fallback).toBe(true);
+    expect(r.reason).toContain("fetch");
   });
 
   test("progetto senza path di repo → HEAD, senza chiamare git", async () => {
-    let chiamate = 0;
-    const runGit = async (): Promise<GitRunResult> => {
-      chiamate++;
-      return { code: 0, stdout: "" };
-    };
+    const { runGit, calls } = runner(0, true);
     const r = await resolveWorktreeBaseRef(undefined, { runGit });
     expect(r.baseRef).toBe("HEAD");
     expect(r.fallback).toBe(true);
-    expect(chiamate).toBe(0);
-  });
-
-  test("git che non risponde → HEAD, mai un'eccezione in faccia al dispatch", async () => {
-    const runGit = async (): Promise<GitRunResult> => ({ code: 128, stdout: "", stderr: "not a git repository" });
-    const r = await resolveWorktreeBaseRef("/non/esiste", { runGit });
-    expect(r.baseRef).toBe("HEAD");
-    expect(r.fallback).toBe(true);
-  });
-
-  test("il ramo d'integrazione è un parametro: mainRef diverso → quello", async () => {
-    git(conMain, "branch", "trunk", "main");
-    const r = await resolveWorktreeBaseRef(conMain, { mainRef: "trunk" });
-    expect(r.baseRef).toBe("trunk");
-    expect(r.fallback).toBe(false);
+    expect(calls).toEqual([]);
   });
 });
