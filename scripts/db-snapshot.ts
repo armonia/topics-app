@@ -1,23 +1,23 @@
 #!/usr/bin/env bun
 /**
- * Snapshot giornaliero del database: `VACUUM INTO` su un file temporaneo,
- * compressione zstd, rename atomico in `<cartella dati>/backups/`.
+ * The database's daily snapshot: `VACUUM INTO` to a temporary file, zstd
+ * compression, atomic rename into `<data dir>/backups/`.
  *
- * PERCHE'. Fino a questo script l'unico backup completo era una copia a mano
- * sullo stesso disco, e l'unico periodico salvava la sola tabella `ui_state`
- * (server/services/ui-state-backup.ts). Con `TOPICS_SERVER_WATCH=1` creare una
- * migration applica subito il suo SQL al DB vivo: senza uno snapshot di ieri
- * una migration di dati sbagliata non ha ritorno.
+ * WHY. Before this script the only full backup was a copy made by hand on the
+ * same disk, and the only periodic one saved the `ui_state` table alone
+ * (server/services/ui-state-backup.ts). With `TOPICS_SERVER_WATCH=1`, creating
+ * a migration runs its SQL against the live DB within seconds: without
+ * yesterday's snapshot a wrong data migration has no way back.
  *
- * `VACUUM INTO` e' consistente a server acceso (WAL incluso, nessuna pagina
- * libera) e non blocca chi scrive: vedi docs/backup-pre-migration-policy.md.
- * Un snapshot e' provato solo da `scripts/backup-restore-check.ts`.
+ * `VACUUM INTO` is consistent with the server up (WAL included, no free pages)
+ * and does not block writers: see docs/backup-pre-migration-policy.md. A
+ * snapshot is only proven by `scripts/backup-restore-check.ts`.
  *
- * Retention: gli ultimi 14 giorni, piu' 8 lunedi' piu' vecchi di quella
- * finestra. La potatura usa `trash`, mai `rm`, e tocca soltanto i file con il
- * nome di uno snapshot (`topics-AAAA-MM-GG.db.zst`).
+ * Retention: the last 14 days, plus 8 Mondays older than that window. Pruning
+ * uses `trash`, never `rm`, and touches only files named like a snapshot
+ * (`topics-YYYY-MM-DD.db.zst`).
  *
- *   bun run scripts/db-snapshot.ts   (DATA_DIR / TOPICS_DATA_DIR come li legge il server)
+ *   bun run scripts/db-snapshot.ts   (DATA_DIR / TOPICS_DATA_DIR as the server reads them)
  */
 import { Database } from "bun:sqlite";
 import { mkdirSync, readFileSync, readdirSync, renameSync, rmSync, writeFileSync } from "fs";
@@ -29,7 +29,7 @@ const KEEP_DAILY = 14;
 const KEEP_WEEKLY = 8;
 const SNAPSHOT_NAME = /^topics-(\d{4}-\d{2}-\d{2})\.db\.zst$/;
 
-/** Lo stesso percorso di `initDatabase` (server/utils.ts). */
+/** The same path `initDatabase` uses (server/utils.ts). */
 export function liveDbPath(): string {
   const root = resolve(import.meta.dir, "..");
   return join(resolveDataDir(stateDirTarget(root)), "topics.db");
@@ -37,7 +37,7 @@ export function liveDbPath(): string {
 
 export const backupsDirOf = (dbPath: string): string => join(dirname(dbPath), "backups");
 
-/** Nomi degli snapshot, dal piu' recente. */
+/** Snapshot names, newest first. */
 export function listSnapshots(backupsDir: string): string[] {
   try {
     return readdirSync(backupsDir).filter((f) => SNAPSHOT_NAME.test(f)).sort().reverse();
@@ -50,10 +50,10 @@ export function snapshotDb(dbPath: string, backupsDir: string, now: Date = new D
   mkdirSync(backupsDir, { recursive: true });
   const day = now.toLocaleDateString("sv-SE");
   const rawTmp = join(backupsDir, `.topics-${day}.db.tmp`);
-  const zstTmp = join(backupsDir, `.topics-${day}.db.zst.tmp`);
+  const packedTmp = join(backupsDir, `.topics-${day}.db.zst.tmp`);
   const target = join(backupsDir, `topics-${day}.db.zst`);
   rmSync(rawTmp, { force: true });
-  // Senza `create` un percorso sbagliato fallisce invece di snapshottare un DB vuoto.
+  // Without `create` a wrong path fails instead of snapshotting an empty DB.
   const db = new Database(dbPath, { readwrite: true, create: false });
   try {
     db.run("PRAGMA busy_timeout = 10000");
@@ -61,16 +61,16 @@ export function snapshotDb(dbPath: string, backupsDir: string, now: Date = new D
   } finally {
     db.close();
   }
-  writeFileSync(zstTmp, Bun.zstdCompressSync(readFileSync(rawTmp)));
+  writeFileSync(packedTmp, Bun.zstdCompressSync(readFileSync(rawTmp)));
   rmSync(rawTmp);
-  renameSync(zstTmp, target);
+  renameSync(packedTmp, target);
   return target;
 }
 
 const isMonday = (name: string): boolean =>
   new Date(`${name.match(SNAPSHOT_NAME)![1]}T00:00:00Z`).getUTCDay() === 1;
 
-/** Cosa tenere: la finestra giornaliera piu' i lunedi' che stanno oltre. */
+/** What to keep: the daily window plus the Mondays that lie beyond it. */
 export function pruneCandidates(names: string[]): string[] {
   const older = names.slice(KEEP_DAILY);
   const weekly = new Set(older.filter(isMonday).slice(0, KEEP_WEEKLY));
@@ -93,5 +93,5 @@ if (import.meta.main) {
   const dir = backupsDirOf(dbPath);
   const target = snapshotDb(dbPath, dir);
   const pruned = pruneSnapshots(dir);
-  console.log(`[db-snapshot] ${target}${pruned.length ? `, potati ${pruned.length}` : ""}`);
+  console.log(`[db-snapshot] ${target}${pruned.length ? `, pruned ${pruned.length}` : ""}`);
 }

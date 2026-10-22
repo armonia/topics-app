@@ -1,17 +1,23 @@
 #!/usr/bin/env bun
 /**
- * La barra del backup: esce 0 solo se la copia piu' recente SI RIPRISTINA.
+ * The backup's bar: it exits 0 only if the most recent copy RESTORES.
  *
- * Uno snapshot non provato non e' un backup. Qui la copia piu' recente viene
- * decompressa in una cartella scratch, passa `PRAGMA integrity_check`, poi
- * `initDatabase` ci gira sopra e le migration registrate devono arrivare al
- * numero dei file in `server/db/migrations/` (188 il 22/10/2026).
+ * A snapshot nobody restored is not a backup. Here the most recent copy is
+ * decompressed into a scratch directory, passes `PRAGMA integrity_check`, then
+ * `initDatabase` runs on it and the registered migrations must reach the number
+ * of files in `server/db/migrations/` (188 on 22/10/2026).
  *
- * Esce non-zero anche se la copia piu' recente e' vecchia di piu' di
- * MAX_AGE_DAYS: il caso reale era un ultimo backup di 8 giorni prima, e un
- * lavoro che non gira piu' non deve restare verde per colpa di una copia vecchia.
+ * And it must contain WORK. The migration count alone proves nothing about the
+ * contents: `initDatabase` creates the schema and registers every migration on
+ * ANY file, so a backup of an empty DB, or of a DB that is not this one, passed
+ * the bar exactly like a good one. A backup with no topic and no message is not
+ * this machine's backup.
  *
- *   bun run scripts/backup-restore-check.ts   (stessa cartella dati dello snapshot)
+ * It also exits non-zero when the most recent copy is older than MAX_AGE_DAYS:
+ * the real case was a last backup from 8 days before, and a job that has
+ * stopped running must not stay green on the strength of an old copy.
+ *
+ *   bun run scripts/backup-restore-check.ts   (the snapshot's own data dir)
  */
 import { Database } from "bun:sqlite";
 import { mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "fs";
@@ -23,12 +29,19 @@ import { backupsDirOf, liveDbPath, listSnapshots } from "./db-snapshot";
 const MAX_AGE_DAYS = 2;
 const REPO_ROOT = resolve(import.meta.dir, "..");
 
-/** Lancia se la copia non si ripristina. Ritorna il numero di migration registrate. */
-export function restoreCheck(backupsDir: string, now: Date = new Date()): number {
+export interface RestoreVerdict {
+  /** Migrations registered in the copy. */
+  migrations: number;
+  topics: number;
+  messages: number;
+}
+
+/** Throws if the copy does not restore, or carries no work. */
+export function restoreCheck(backupsDir: string, now: Date = new Date()): RestoreVerdict {
   const latest = listSnapshots(backupsDir)[0];
-  if (!latest) throw new Error(`nessuno snapshot in ${backupsDir}`);
+  if (!latest) throw new Error(`no snapshot in ${backupsDir}`);
   const ageDays = (now.getTime() - Date.parse(latest.slice(7, 17))) / 86_400_000;
-  if (ageDays > MAX_AGE_DAYS) throw new Error(`${latest} e' vecchio di ${Math.floor(ageDays)} giorni`);
+  if (ageDays > MAX_AGE_DAYS) throw new Error(`${latest} is ${Math.floor(ageDays)} days old`);
 
   const scratch = mkdtempSync(join(tmpdir(), "topics-restore-check-"));
   const prevDataDir = process.env.DATA_DIR;
@@ -46,13 +59,21 @@ export function restoreCheck(backupsDir: string, now: Date = new Date()): number
       probe.close();
     }
 
-    // DATA_DIR vince su ogni altra radice: il DB aperto e' la copia, mai quello vivo.
+    // DATA_DIR wins over every other root: the DB opened is the copy, never the live one.
     process.env.DATA_DIR = scratch;
     const db = initDatabase(REPO_ROOT);
     const applied = (db.query("SELECT count(*) AS n FROM schema_migrations").get() as { n: number }).n;
     const expected = readdirSync(join(REPO_ROOT, "server", "db", "migrations")).filter((f) => /^\d+-.+\.sql$/.test(f)).length;
-    if (applied !== expected) throw new Error(`migration registrate ${applied}, attese ${expected}`);
-    return applied;
+    if (applied !== expected) throw new Error(`migrations registered ${applied}, expected ${expected}`);
+
+    // The schema is there by construction: `initDatabase` creates it on any
+    // file. What is being proven here is that the work is inside.
+    const topics = (db.query("SELECT count(*) AS n FROM topics").get() as { n: number }).n;
+    const messages = (db.query("SELECT count(*) AS n FROM messages").get() as { n: number }).n;
+    if (topics === 0 || messages === 0) {
+      throw new Error(`copy with no work in it: ${topics} topics, ${messages} messages`);
+    }
+    return { migrations: applied, topics, messages };
   } finally {
     closeDatabase();
     if (prevDataDir === undefined) delete process.env.DATA_DIR;
@@ -63,10 +84,10 @@ export function restoreCheck(backupsDir: string, now: Date = new Date()): number
 
 if (import.meta.main) {
   try {
-    const n = restoreCheck(backupsDirOf(liveDbPath()));
-    console.log(`[backup-restore-check] ok: integrity_check ok, ${n} migration`);
+    const v = restoreCheck(backupsDirOf(liveDbPath()));
+    console.log(`[backup-restore-check] ok: integrity_check ok, ${v.migrations} migrations, ${v.topics} topics, ${v.messages} messages`);
   } catch (err) {
-    console.error(`[backup-restore-check] ROSSO: ${(err as Error).message}`);
+    console.error(`[backup-restore-check] RED: ${(err as Error).message}`);
     process.exit(1);
   }
 }
