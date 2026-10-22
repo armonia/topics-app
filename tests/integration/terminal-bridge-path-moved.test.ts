@@ -62,31 +62,34 @@ function fakeBridge(path: string) {
   return bridge;
 }
 
-let terminal: typeof import("../../server/routes/terminal");
-
 beforeAll(async () => {
   setEnv("TOPICS_DISABLE_PTY_BRIDGE", undefined);
   setEnv("TOPICS_EMBEDDED", undefined);
   // A spawn, if one happens, runs this and leaves its argv here: never a real bridge.
   fs.writeFileSync(BRIDGE_BIN, `#!/bin/sh\necho "$@" >> ${SPAWN_LOG}\nexec sleep 5\n`, { mode: 0o755 });
   setEnv("TOPICS_PTY_BRIDGE_BIN", BRIDGE_BIN);
-  terminal = await import("../../server/routes/terminal");
+  const { _suppressPtyBridgeReconnectForTest } = await import("../../server/routes/terminal");
   // The sockets closed here must not schedule a reconnect into the next file.
-  terminal._suppressPtyBridgeReconnectForTest(true);
+  _suppressPtyBridgeReconnectForTest(true);
 });
 
 // Each case starts with no socket: one left connected by the other would make
 // `ensureBridge` return before it reaches the step under test.
-beforeEach(() => terminal.disconnectBridge());
+beforeEach(async () => {
+  const { disconnectBridge } = await import("../../server/routes/terminal");
+  disconnectBridge();
+});
 afterEach(async () => {
-  terminal.disconnectBridge();
+  const { disconnectBridge } = await import("../../server/routes/terminal");
+  disconnectBridge();
   await Promise.all(openBridges.splice(0).map((b) => b.close()));
 });
 
-afterAll(() => {
-  terminal.disconnectBridge();
-  terminal._setPtyBridgeSocketPath(null);
-  terminal._suppressPtyBridgeReconnectForTest(false);
+afterAll(async () => {
+  const { disconnectBridge, _setPtyBridgeSocketPath, _suppressPtyBridgeReconnectForTest } = await import("../../server/routes/terminal");
+  disconnectBridge();
+  _setPtyBridgeSocketPath(null);
+  _suppressPtyBridgeReconnectForTest(false);
   for (const [k, v] of Object.entries(savedEnv)) {
     if (v === undefined) delete process.env[k]; else process.env[k] = v;
   }
@@ -96,11 +99,12 @@ test("a connect still in flight when the path moves is dropped, and the caller w
   const oldBridge = fakeBridge(OLD_PATH);
   const newBridge = fakeBridge(NEW_PATH);
   await Promise.all([oldBridge.listening, newBridge.listening]);
+  const { ensureBridge, _setPtyBridgeSocketPath } = await import("../../server/routes/terminal");
 
-  terminal._setPtyBridgeSocketPath(OLD_PATH);
-  const stale = terminal.ensureBridge();
-  terminal._setPtyBridgeSocketPath(NEW_PATH);
-  await Promise.all([stale, terminal.ensureBridge()]);
+  _setPtyBridgeSocketPath(OLD_PATH);
+  const stale = ensureBridge();
+  _setPtyBridgeSocketPath(NEW_PATH);
+  await Promise.all([stale, ensureBridge()]);
 
   // The connected socket says hello with a `ping`: it tells which bridge it is.
   const deadline = Date.now() + 5_000;
@@ -111,9 +115,10 @@ test("a connect still in flight when the path moves is dropped, and the caller w
 
 test("a connect that fails after the path moved spawns no bridge on the new path", async () => {
   fs.writeFileSync(NOT_A_SOCKET, "");
-  terminal._setPtyBridgeSocketPath(NOT_A_SOCKET);
-  const stale = terminal.ensureBridge();
-  terminal._setPtyBridgeSocketPath(`${ROOT}/nobody.sock`);
+  const { ensureBridge, _setPtyBridgeSocketPath } = await import("../../server/routes/terminal");
+  _setPtyBridgeSocketPath(NOT_A_SOCKET);
+  const stale = ensureBridge();
+  _setPtyBridgeSocketPath(`${ROOT}/nobody.sock`);
   await stale;
   // A spawn would have been for a path nobody asked this attempt for.
   expect(fs.existsSync(SPAWN_LOG) ? fs.readFileSync(SPAWN_LOG, "utf8") : "").toBe("");
