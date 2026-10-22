@@ -28,7 +28,7 @@ let work: string;
 /**
  * Real git, with an identity of its own AND the preload's isolated environment:
  * without `gitEnv()` the machine's `core.hooksPath` fires on every commit this
- * test makes (`tests/unit/git-env-nei-test.test.ts` tells the story).
+ * test makes (`tests/unit/git-env-nei-test.test.ts` tells the story).  allow-italian: the gate's own file name is Italian
  */
 function git(cwd: string, ...args: string[]): string {
   const r = spawnSync("git", ["-c", "user.name=Test", "-c", "user.email=test@example.com",
