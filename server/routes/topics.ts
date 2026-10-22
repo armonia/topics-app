@@ -522,7 +522,7 @@ export function createTopicsRouter(
   } = {},
 ): RouteHandler {
   const {
-    GATEWAY_URL, GATEWAY_TOKEN, OPENCLAW_DIR,
+    GATEWAY_URL, OPENCLAW_DIR,
     broadcastToAll,
     loadTopics, saveSingleTopic,
     getTopicById, getTopicBySessionKey,
@@ -634,7 +634,8 @@ export function createTopicsRouter(
   // gli serviva per nove valori, che ora sono dipendenze scritte.
   const subagents = createSubagentWatcher({
     gatewayUrl: GATEWAY_URL,
-    gatewayToken: GATEWAY_TOKEN,
+    // A getter: the watcher reads it at each call, after an OpenClaw rotation too.
+    get gatewayToken() { return ctx.GATEWAY_TOKEN; },
     getTopicById,
     getTopicBySessionKey,
     saveSingleTopic,
@@ -3181,7 +3182,7 @@ export function createTopicsRouter(
             if (!modelName) return json({ error: "model name required" }, 400);
             // Il provider DICHIARATO, non quello risolto: vedi declaredProviderName.
             if (!isGlobalCoordinatorCommand && commandRoutesThroughGateway(sessionKey)) {
-              const resp = await fetch(`${GATEWAY_URL}/api/inference/chat`, { method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${GATEWAY_TOKEN}`, "x-openclaw-scopes": "operator.read,operator.write" }, body: JSON.stringify({ sessionKey, messages: [{ role: "user", content: `/model ${modelName}` }] }) });
+              const resp = await fetch(`${GATEWAY_URL}/api/inference/chat`, { method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${ctx.GATEWAY_TOKEN}`, "x-openclaw-scopes": "operator.read,operator.write" }, body: JSON.stringify({ sessionKey, messages: [{ role: "user", content: `/model ${modelName}` }] }) });
               if (!resp.ok) return json({ error: "Failed to set model" }, 500);
               return json({ ok: true, command: "model", model: modelName, message: `Model set to: ${modelName}` });
             }
@@ -3259,7 +3260,7 @@ export function createTopicsRouter(
             // command goes to the gateway bare, which toggles it itself.
             const level = typeof args?.level === "string" && args.level.trim() ? args.level.trim().toLowerCase() : null;
             if (!isGlobalCoordinatorCommand && commandRoutesThroughGateway(sessionKey)) {
-              const resp = await fetch(`${GATEWAY_URL}/api/inference/chat`, { method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${GATEWAY_TOKEN}`, "x-openclaw-scopes": "operator.read,operator.write" }, body: JSON.stringify({ sessionKey, messages: [{ role: "user", content: reasoningCommandText(level) }] }) });
+              const resp = await fetch(`${GATEWAY_URL}/api/inference/chat`, { method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${ctx.GATEWAY_TOKEN}`, "x-openclaw-scopes": "operator.read,operator.write" }, body: JSON.stringify({ sessionKey, messages: [{ role: "user", content: reasoningCommandText(level) }] }) });
               if (!resp.ok) return json({ error: "Failed to toggle reasoning" }, 500);
               const text = await resp.text();
               return json({ ok: true, command: "reasoning", level, message: level ? `Ragionamento: ${level}` : "Ragionamento commutato", output: text });

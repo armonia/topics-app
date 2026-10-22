@@ -32,7 +32,7 @@ interface ContextAnalysisResult {
 const contextAnalysisCache = new Map<string, { data: ContextAnalysisResult; timestamp: number }>();
 
 export function createContextRouter(ctx: AppContext): RouteHandler {
-  const { GATEWAY_URL, GATEWAY_TOKEN, json, loadTopics, loadLocalMessages } = ctx;
+  const { GATEWAY_URL, json, loadTopics, loadLocalMessages } = ctx;
 
   return async function contextRouter(_req: Request, url: URL, pathname: string, method: string): Promise<Response | null> {
 
@@ -116,7 +116,7 @@ export function createContextRouter(ctx: AppContext): RouteHandler {
       }
 
       try {
-        const resp = await fetch(`${GATEWAY_URL}/tools/invoke`, { method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${GATEWAY_TOKEN}` }, body: JSON.stringify({ tool: "session_status", args: { sessionKey } }) });
+        const resp = await fetch(`${GATEWAY_URL}/tools/invoke`, { method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${ctx.GATEWAY_TOKEN}` }, body: JSON.stringify({ tool: "session_status", args: { sessionKey } }) });
 
         if (!resp.ok) {
           const localMsgs = loadLocalMessages(sessionKey);

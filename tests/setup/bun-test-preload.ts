@@ -52,11 +52,23 @@
  */
 import { afterAll, beforeEach, setDefaultTimeout } from "bun:test";
 import { readFileSync } from "node:fs";
-import { isAbsolute, resolve } from "node:path";
+import { isAbsolute, join, resolve } from "node:path";
+import { tmpdir } from "node:os";
 import { acquireSlot, claimOutfile, slotCount, alreadyHeld, GATE_HELD_ENV } from "../../scripts/gate-slot.ts";
 import { stopOwnAiBridges } from "../../scripts/stray-ai-bridges.ts";
 import { removeFinishedTestTmpDirs } from "./test-tmp-dirs.ts";
 import { GIT_ISOLATION_MARKER, gitIsolationEnv } from "./git-isolation";
+
+/**
+ * THE USER'S OWN SECRETS STAY OUT OF THE SUITE. Unset, any test that builds an
+ * app context or checks agent auth reads the real `~/.openclaw/openclaw.json`
+ * (whose gateway token is a Keychain reference: the real resolver would run)
+ * and the real `~/.topics/daemon-state.json`. A path that does not exist is
+ * enough: nothing is read, nothing resolved. Only when the runner chose none;
+ * a test that needs a home of its own still sets one.
+ */
+process.env.OPENCLAW_CONFIG_PATH ||= join(tmpdir(), `topics-test-no-openclaw-${process.pid}`, "openclaw.json");
+process.env.TOPICS_HOME ||= join(tmpdir(), `topics-test-no-home-${process.pid}`);
 
 /**
  * 30s: sei volte il default di bun. Il numero e' una misura, non un gusto. Col

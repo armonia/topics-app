@@ -16,6 +16,7 @@ import { createLineFolder } from "../lib/ndjson-lines";
 import { agentBaseEnv } from "../lib/agent-env";
 import { readdirSync, existsSync, mkdirSync, writeFileSync, unlinkSync, readFileSync, chmodSync } from "fs";
 import { tmpdir } from "os";
+import { topicsHome } from "../services/daemon-state";
 import type {
   AIProvider,
   ChatMessage,
@@ -349,7 +350,12 @@ function resolveInheritedMcpServers(): Record<string, unknown> | null {
  * The stdio spawn spec for the topics-app MCP bridge, keyed by sessionKey.
  * Shared so every MCP-capable host (claude-code CLI via --mcp-config, codex via
  * `-c mcp_servers.topics.*`) wires the SAME bridge — the subprocess gets the
- * sessionKey + base URL + gateway token as argv to call back into topics-app.
+ * sessionKey + base URL as argv to call back into topics-app.
+ *
+ * No secret travels with it. The bridge authenticates with the server's own
+ * daemon token, which it reads from `--topics-home` on every request (a path,
+ * not a secret: argv is fine). The OpenClaw gateway token used to ride in argv,
+ * where every `ps` printed it, and that is how it reached dozens of transcripts.
  */
 export function topicsMcpBridgeSpec(sessionKey: string, profile?: string): { command: string; args: string[] } {
   return {
@@ -363,7 +369,7 @@ export function topicsMcpBridgeSpec(sessionKey: string, profile?: string): { com
       // (task tools + browser verification + processes) — fewer tool schemas
       // in the agent's per-call context. Absent = full toolset (interactive).
       ...(profile ? [`--profile=${profile}`] : []),
-      ...(process.env.GATEWAY_TOKEN ? [`--gateway-token=${process.env.GATEWAY_TOKEN}`] : []),
+      `--topics-home=${topicsHome()}`,
     ],
   };
 }
@@ -415,8 +421,8 @@ export function writeMcpConfigForSession(
     },
   };
   const path = mcpConfigPathForSession(sessionKey);
-  // 0600: this file now carries inherited server `env` blocks (API tokens) and
-  // the topics bridge's --gateway-token — must not be world-readable in /tmp.
+  // 0600: this file carries inherited server `env` blocks (API tokens) — must
+  // not be world-readable in /tmp.
   // `mode` only applies on CREATE, and re-spawns overwrite the same path, so
   // chmod afterwards to force 0600 even if the file pre-existed at 0644.
   writeFileSync(path, JSON.stringify(config, null, 2), { encoding: "utf-8", mode: 0o600 });

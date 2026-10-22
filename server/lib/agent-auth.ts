@@ -1,5 +1,6 @@
 import { timingSafeEqualStr } from "../utils";
 import { readState } from "../services/daemon-state";
+import { freshGatewayToken } from "./openclaw-gateway-token";
 
 /** Hard-gate the /agents/* routes and the raw terminal send/buffer routes.
  *  spawn_agent launches `claude --dangerously-skip-permissions` with a
@@ -41,9 +42,12 @@ export function agentAuthOk(req: Request): boolean {
     }
   } catch {}
   // Legacy gateway token (retro-compat; unset ⇒ this path simply doesn't match).
-  const expected = process.env.GATEWAY_TOKEN;
-  if (expected && timingSafeEqualStr(req.headers.get("x-gateway-token") || "", expected)) {
-    return true;
+  // Compared with the CURRENT value: after an OpenClaw rotation the old one,
+  // the one that leaked, stops opening these routes within 30 s, restart or not.
+  const header = req.headers.get("x-gateway-token");
+  if (header) {
+    const expected = freshGatewayToken();
+    if (expected && timingSafeEqualStr(header, expected)) return true;
   }
   return false;
 }

@@ -745,7 +745,7 @@ export interface OpenClawProviderConfig {
   type: "openclaw";
   gatewayUrl: string;
   token: string;
-  refreshToken?: () => string;
+  refreshToken?: (force?: boolean) => string;
 }
 
 export interface ClaudeProviderConfig {

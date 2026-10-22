@@ -1,0 +1,245 @@
+/**
+ * THE OPENCLAW GATEWAY TOKEN, read from `~/.openclaw/openclaw.json`.
+ *
+ * `gateway.auth.token` comes in two shapes:
+ *  - a plain string (the historical one);
+ *  - a SecretRef `{ source: "exec", provider, id }`, which OpenClaw resolves by
+ *    running the command of `secrets.providers[provider]` over the exec
+ *    protocol: JSON on stdin `{ protocolVersion: 1, provider, ids: [id] }`,
+ *    JSON on stdout `{ values: { [id]: value }, errors: {...} }`.
+ *
+ * Before this module Topics read the field as a string: with a SecretRef,
+ * "[object Object]" landed in `GATEWAY_TOKEN`, and the API (which accepts
+ * `x-gateway-token`) would have accepted exactly that string, the same on
+ * every machine.
+ *
+ * The value is never printed: callers use it and nothing else.
+ */
+import { readFileSync } from "fs";
+import { spawnSync } from "child_process";
+import { homedir } from "os";
+import { dirname, join } from "path";
+import { runBounded } from "./bounded-spawn";
+
+/** How long the resolver may take: it reads a local Keychain, not a network. */
+const RESOLVER_TIMEOUT_MS = 5000;
+
+/** OpenClaw's own override first (`OPENCLAW_CONFIG_PATH`), as OpenClaw reads it. */
+function defaultConfigPath(): string {
+  return process.env.OPENCLAW_CONFIG_PATH || join(process.env.HOME || homedir(), ".openclaw", "openclaw.json");
+}
+
+function expandHome(p: string): string {
+  return p === "~" || p.startsWith("~/") ? join(process.env.HOME || homedir(), p.slice(1)) : p;
+}
+
+function isRecord(v: unknown): v is Record<string, unknown> {
+  return !!v && typeof v === "object" && !Array.isArray(v);
+}
+
+/**
+ * The resolver runs as OpenClaw runs it: an EMPTY base environment plus the
+ * `passEnv` names and the literal `env` map, the command's own directory as
+ * cwd, `~` expanded. Anything else and a provider that works for OpenClaw
+ * would fail here, or receive the server's whole environment.
+ */
+function resolverEnv(provider: Record<string, unknown>): NodeJS.ProcessEnv {
+  const env: NodeJS.ProcessEnv = {};
+  for (const key of Array.isArray(provider.passEnv) ? provider.passEnv : []) {
+    if (typeof key === "string" && process.env[key] !== undefined) env[key] = process.env[key];
+  }
+  if (isRecord(provider.env)) {
+    for (const [key, value] of Object.entries(provider.env)) if (typeof value === "string") env[key] = value;
+  }
+  return env;
+}
+
+/**
+ * The value for `id` in the resolver's stdout: the exec protocol's JSON
+ * `{ protocolVersion: 1, values }`, or, when the provider sets
+ * `jsonOnly: false`, the bare output itself.
+ */
+function parseResolverOutput(stdout: string, id: string, jsonOnly: boolean): unknown {
+  const trimmed = stdout.trim();
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(trimmed);
+  } catch {
+    return jsonOnly ? undefined : trimmed;
+  }
+  if (!isRecord(parsed)) return !jsonOnly && typeof parsed === "string" ? parsed : undefined;
+  if (parsed.protocolVersion !== 1 || !isRecord(parsed.values)) return undefined;
+  return parsed.values[id];
+}
+
+/** What running an exec SecretRef takes, read from the config. Null when the reference is unusable. */
+interface ResolverRun {
+  argv: string[];
+  input: string;
+  cwd: string;
+  env: NodeJS.ProcessEnv;
+  id: string;
+  jsonOnly: boolean;
+}
+
+function resolverRun(config: Record<string, unknown>, ref: Record<string, unknown>): ResolverRun | null {
+  const { provider, id } = ref;
+  if (typeof provider !== "string" || !provider || typeof id !== "string" || !id) return null;
+  const providers = isRecord(config.secrets) ? config.secrets.providers : undefined;
+  const p = isRecord(providers) ? providers[provider] : undefined;
+  if (!isRecord(p) || p.source !== "exec" || typeof p.command !== "string" || !p.command) return null;
+  const command = expandHome(p.command);
+  const args = Array.isArray(p.args) && p.args.every((a) => typeof a === "string") ? (p.args as string[]) : [];
+  return {
+    argv: [command, ...args],
+    input: JSON.stringify({ protocolVersion: 1, provider, ids: [id] }),
+    cwd: dirname(command),
+    env: resolverEnv(p),
+    id,
+    jsonOnly: p.jsonOnly !== false,
+  };
+}
+
+function resolvedValue(run: ResolverRun, stdout: string): string | null {
+  const value = parseResolverOutput(stdout, run.id, run.jsonOnly);
+  return typeof value === "string" && value.trim() ? value.trim() : null;
+}
+
+/** The token's slot in `openclaw.json`: a plain string, an exec reference to run, or nothing. */
+function readTokenEntry(configPath: string): { plain: string | null } | { run: ResolverRun | null } | null {
+  try {
+    const config: unknown = JSON.parse(readFileSync(configPath, "utf-8"));
+    if (!isRecord(config)) return null;
+    const gateway = config.gateway;
+    const auth = isRecord(gateway) ? gateway.auth : undefined;
+    const token = isRecord(auth) ? auth.token : undefined;
+    if (typeof token === "string") return { plain: token.trim() || null };
+    if (isRecord(token) && token.source === "exec") return { run: resolverRun(config, token) };
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * The gateway token from `openclaw.json`: a string, or an exec SecretRef
+ * resolved. Null when the file is missing or broken, the reference does not
+ * resolve, or the value is not a non-empty string. Never throws.
+ *
+ * SYNCHRONOUS, for startup only (server.ts, before the first request): the
+ * re-reads while serving go through `readOpenClawGatewayTokenAsync`.
+ */
+export function readOpenClawGatewayToken(configPath: string = defaultConfigPath()): string | null {
+  const entry = readTokenEntry(configPath);
+  if (!entry) return null;
+  if ("plain" in entry) return entry.plain;
+  const run = entry.run;
+  if (!run) return null;
+  const r = spawnSync(run.argv[0]!, run.argv.slice(1), {
+    input: run.input,
+    encoding: "utf-8",
+    timeout: RESOLVER_TIMEOUT_MS,
+    cwd: run.cwd,
+    env: run.env,
+    // The resolver's stderr is dropped: it may carry Keychain details.
+    stdio: ["pipe", "pipe", "ignore"],
+  });
+  if (r.error || r.status !== 0 || typeof r.stdout !== "string") return null;
+  return resolvedValue(run, r.stdout);
+}
+
+/** The same read without blocking the event loop: for the re-reads while serving. */
+export async function readOpenClawGatewayTokenAsync(configPath: string = defaultConfigPath()): Promise<string | null> {
+  const entry = readTokenEntry(configPath);
+  if (!entry) return null;
+  if ("plain" in entry) return entry.plain;
+  const run = entry.run;
+  if (!run) return null;
+  // stderr is read and dropped: it may carry Keychain details.
+  const r = await runBounded(run.argv, {
+    cwd: run.cwd,
+    env: run.env,
+    stdinData: run.input,
+    timeoutMs: RESOLVER_TIMEOUT_MS,
+  });
+  if (r.spawnFailed || r.timedOut || r.exitCode !== 0) return null;
+  return resolvedValue(run, r.stdout);
+}
+
+/** How long a token read from `openclaw.json` is trusted before it is read again. */
+export const GATEWAY_TOKEN_REREAD_MS = 30_000;
+
+let held: string | undefined;
+let heldFromEnv = false;
+let readAt = 0;
+/** Bumped by `holdGatewayToken`: a re-read started before it must not overwrite what it set. */
+let generation = 0;
+let rereading: Promise<void> | null = null;
+
+/**
+ * The gateway token the server uses, kept OUT of `process.env`.
+ *
+ * Children spawned with `...process.env` (check scripts, previews, worktree
+ * setup) inherited it, and the bottom of a red check's output goes back to the
+ * agent that wrote the check. Startup moves the token here with
+ * `holdGatewayToken`. Before that (and in tests that set it) the environment is
+ * still read.
+ *
+ * NOT a promise about the OS environment: Bun hands a child spawned with NO
+ * `env` option the environment the server was launched with, `delete` or not.
+ * A token that came from the launch environment or `.env` is still there for
+ * such a child; agents' commands get `agentBaseEnv()` for that reason.
+ */
+export function gatewayToken(): string | undefined {
+  return held ?? (process.env.GATEWAY_TOKEN || undefined);
+}
+
+/** Keeps `value` as the gateway token and takes it out of `process.env`. */
+export function holdGatewayToken(value: string | null | undefined, opts: { fromEnv?: boolean } = {}): void {
+  held = value || undefined;
+  heldFromEnv = !!opts.fromEnv;
+  readAt = 0;
+  generation++;
+  delete process.env.GATEWAY_TOKEN;
+}
+
+/**
+ * The token as it is NOW, or very nearly. OpenClaw rotates it inside the
+ * Keychain without touching `openclaw.json`, so a token read from the config
+ * is read again: at most every GATEWAY_TOKEN_REREAD_MS, at once with `force`
+ * (an auth failure). The re-read runs in the background (a SecretRef is a
+ * resolver process, and this sits on request paths): this call answers with
+ * the value held so far, the next one gets the new value. After a rotation the
+ * old token stops opening anything within that window, with no restart. A
+ * token from the environment is never re-read: `.env` takes priority.
+ */
+export function freshGatewayToken(opts: { force?: boolean; now?: number } = {}): string | undefined {
+  const now = opts.now ?? Date.now();
+  if (!heldFromEnv && !rereading && (opts.force || now - readAt >= GATEWAY_TOKEN_REREAD_MS)) {
+    readAt = now;
+    const started = generation;
+    rereading = readOpenClawGatewayTokenAsync()
+      .then((fresh) => { if (fresh && started === generation) held = fresh; })
+      .catch(() => { /* a failed re-read keeps the value held */ })
+      .finally(() => { rereading = null; });
+  }
+  return gatewayToken();
+}
+
+/** Settles when the background re-read in flight, if any, has landed. */
+export function gatewayTokenSettled(): Promise<void> {
+  return rereading ?? Promise.resolve();
+}
+
+/**
+ * A child process environment without the gateway token.
+ *
+ * Belt and braces next to `holdGatewayToken`: the daemons that start
+ * terminals and `claude` sessions (pty-bridge, ai-bridge) hand their whole
+ * environment to every child, so they must never get it, even from a server
+ * started with GATEWAY_TOKEN in its environment that has not moved it yet.
+ */
+export function withoutGatewayToken(env: NodeJS.ProcessEnv = process.env): NodeJS.ProcessEnv {
+  const { GATEWAY_TOKEN: _token, ...rest } = env;
+  return rest;
+}

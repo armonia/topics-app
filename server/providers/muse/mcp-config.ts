@@ -63,7 +63,7 @@ export function stageMuseConfig(
   try {
     const staged = join(configHome, "muse");
     mkdirSync(staged);
-    // 0600: the bridge args carry the gateway token.
+    // 0600: the settings carry the user's own servers, with their secrets.
     writeFileSync(join(staged, "settings.json"), JSON.stringify(mergeMuseSettings(real, bridge)), { mode: 0o600 });
     for (const name of ["auth.json", "trust.json", "skills"]) {
       if (existsSync(join(realDir, name))) symlinkSync(join(realDir, name), join(staged, name));

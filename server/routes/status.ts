@@ -21,6 +21,7 @@ import { fileWatcherLastError, watchedProjectPaths } from "../file-watcher";
 import { browserEngineIsRunning, browserEngineLastLaunchFailure } from "../browser-engine-registry";
 import { resolveDataDir } from "../lib/data-dir";
 import { claudeLoginSource } from "../providers/native/login-source";
+import { gatewayToken } from "../lib/openclaw-gateway-token";
 
 const SERVER_START_TIME = Date.now();
 
@@ -195,7 +196,7 @@ export function createStatusRouter(ctx: AppContext): RouteHandler {
     if (!gatewayUrl) {
       return { status: provider.connected ? "online" : "offline", online: provider.connected, latencyMs: 0 };
     }
-    const result = await pingGateway(gatewayUrl, process.env.GATEWAY_TOKEN);
+    const result = await pingGateway(gatewayUrl, gatewayToken());
     return {
       status: result.status,
       online: result.online,

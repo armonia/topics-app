@@ -17,7 +17,10 @@
  *   --session-key=<key>                  (required) sessionKey of the spawning
  *                                        claude-code process; topics-app resolves
  *                                        it to the target topic
- *   --gateway-token=<token>              (optional) sent as X-Gateway-Token header
+ *   --topics-home=<dir>                  (optional) Topics home of the server; its
+ *                                        daemon-state.json token goes out as
+ *                                        X-Daemon-Token. Default: TOPICS_HOME or ~/.topics
+ *   --gateway-token=<token>              (optional, legacy) sent as X-Gateway-Token header
  *
  * No external deps — keeps the spawn cold-start under 50ms.
  */
@@ -36,7 +39,8 @@ import { OUTBOUND_TOOLS, callGoogleCall, callSendMail } from "./outbound-tools";
 import { COMMAND_TOOLS, RUN_COMMAND_BOARD_DESCRIPTION, callRunCommand, isBoardProfile } from "./command-tools";
 import { SHOW_VIEW_TOOL, answerResourceMethod, callShowView, showViewCallResult } from "./view-tools";
 import { hasCommandShell } from "../lib/command-process";
-import { HttpAnswerError, httpJson, lostRequestError, loopbackInit, REQUEST_TIMEOUT_MS } from "./topics-http";
+import { bridgeAuthHeaders, HttpAnswerError, httpJson, lostRequestError, loopbackInit, REQUEST_TIMEOUT_MS } from "./topics-http";
+import { topicsHome } from "../services/daemon-state";
 import { homedir } from "os";
 import { agentTypeDescription, readAgentProfiles } from "../lib/agent-profiles";
 import { subagentWakeText } from "../services/subagent-wake";
@@ -962,6 +966,7 @@ export function parseArgs(argv: string[]): ParsedArgs {
     baseUrl: baseUrl.replace(/\/$/, ""),
     sessionKey,
     gatewayToken: map["gateway-token"],
+    topicsHome: map["topics-home"],
     profile: map["profile"],
   };
 }
@@ -1019,8 +1024,7 @@ export async function callOpenBrowserPane(
     throw new Error("open_browser_pane: 'url' (string) is required");
   }
   const endpoint = `${args.baseUrl}/api/sessions/${encodeURIComponent(args.sessionKey)}/browser/open-pane`;
-  const headers: Record<string, string> = { "Content-Type": "application/json" };
-  if (args.gatewayToken) headers["X-Gateway-Token"] = args.gatewayToken;
+  const headers: Record<string, string> = { "Content-Type": "application/json", ...bridgeAuthHeaders(args) };
 
   // `name` viaggia solo se c'è: il body storico è `{url}`, e mandare `name:""`
   // cambierebbe i byte di ogni chiamata esistente per niente.
@@ -1596,8 +1600,7 @@ async function postChatReadSSE(
   fetchImpl: typeof fetch,
   topicId: string,
 ): Promise<{ text: string; complete: boolean; messageId?: string; end?: TurnEndFrame }> {
-  const headers: Record<string, string> = { "Content-Type": "application/json" };
-  if (args.gatewayToken) headers["X-Gateway-Token"] = args.gatewayToken;
+  const headers: Record<string, string> = { "Content-Type": "application/json", ...bridgeAuthHeaders(args) };
   let resp: Response;
   try {
     resp = await fetchImpl(`${args.baseUrl}/api/chat`, {
@@ -3022,7 +3025,8 @@ export async function handleMessage(
 }
 
 async function main(): Promise<void> {
-  const args = parseArgs(process.argv.slice(2));
+  const parsed = parseArgs(process.argv.slice(2));
+  const args: ParsedArgs = { ...parsed, topicsHome: parsed.topicsHome ?? topicsHome() };
   const rl = createInterface({ input: process.stdin });
 
   rl.on("line", async (line: string) => {

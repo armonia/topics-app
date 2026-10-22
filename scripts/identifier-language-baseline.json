@@ -3900,9 +3900,6 @@
       "orfana",
       "sensibili"
     ],
-    "server/routes/browser-bridge.ts": [
-      "tok"
-    ],
     "server/routes/browser-close-keeps-session.test.ts": [
       "ALTRO"
     ],

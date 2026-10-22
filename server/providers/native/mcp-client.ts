@@ -27,6 +27,7 @@
 
 import { spawn, type ChildProcess } from "child_process";
 import type { McpServerDef } from "../mcp-inheritance";
+import { withoutGatewayToken } from "../../lib/openclaw-gateway-token";
 
 /** The protocol revision we speak. Same one the Topics bridge answers with. */
 const MCP_PROTOCOL_VERSION = "2024-11-05";
@@ -383,7 +384,8 @@ class StdioMcpConnection implements McpConnection {
   async connect(): Promise<void> {
     const child = spawn(this.command, this.args, {
       stdio: ["pipe", "pipe", "pipe"],
-      env: { ...process.env, ...this.env },
+      // A user's MCP server has no use for Topics' gateway token.
+      env: { ...withoutGatewayToken(), ...this.env },
     });
     this.child = child;
     child.stdout?.setEncoding("utf-8");

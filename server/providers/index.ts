@@ -23,6 +23,7 @@ import { existsSync } from "fs";
 import { resolveClaudeBin } from "../lib/claude-bin";
 import { resolveCodexBin } from "../lib/codex-bin";
 import { resolveMuseBin } from "../lib/muse-bin";
+import { gatewayToken } from "../lib/openclaw-gateway-token";
 import {
   getAppSettings,
   resolveAiProvider,
@@ -388,12 +389,13 @@ export async function initProviders(): Promise<AIProvider[]> {
   const settings = getAppSettings();
 
   // OpenClaw — init if GATEWAY_URL is set
-  if (process.env.GATEWAY_URL && process.env.GATEWAY_TOKEN) {
+  const token = gatewayToken();
+  if (process.env.GATEWAY_URL && token) {
     try {
       const config: OpenClawProviderConfig = {
         type: "openclaw",
         gatewayUrl: process.env.GATEWAY_URL,
-        token: process.env.GATEWAY_TOKEN,
+        token,
       };
       const p = createProvider(config);
       p.start();

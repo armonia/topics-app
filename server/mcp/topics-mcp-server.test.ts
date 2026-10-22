@@ -60,6 +60,10 @@ import { callRunCommand } from "./command-tools";
 import { CHECKS_LEG_MS } from "../services/checks-gate";
 import { ASK_TRANSPORT_CEILING_MS, ASK_BUFFER_TTL_MS } from "../lib/ask-user-bridge";
 import { mcpBrowserTools } from "../browser-tool-spec";
+import { bridgeAuthHeaders, readDaemonToken } from "./topics-http";
+import { mkdtempSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
 // ---------------------------------------------------------------------------
 // parseArgs
@@ -110,6 +114,42 @@ describe("parseArgs", () => {
     ]);
     expect(args.baseUrl).toBe("http://x");
     expect(args.sessionKey).toBe("s");
+  });
+});
+
+describe("bridge auth: the daemon token, re-read on every request", () => {
+  const TOKEN_A = "a".repeat(64);
+  const TOKEN_B = "b".repeat(64);
+  const home = mkdtempSync(join(tmpdir(), "bridge-auth-"));
+  const writeToken = (token: string) =>
+    writeFileSync(join(home, "daemon-state.json"), JSON.stringify({ pid: 1, port: 1, token, startedAt: "x" }));
+
+  test("--topics-home is parsed; the gateway token stays a legacy argv flag", () => {
+    const a = parseArgs(["--base-url=http://x", "--session-key=k", `--topics-home=${home}`]);
+    expect(a.topicsHome).toBe(home);
+    expect(a.gatewayToken).toBeUndefined();
+  });
+
+  test("sends X-Daemon-Token, and picks up a new one after a Topics restart", () => {
+    writeToken(TOKEN_A);
+    expect(bridgeAuthHeaders({ topicsHome: home })).toEqual({ "X-Daemon-Token": TOKEN_A });
+    writeToken(TOKEN_B);
+    expect(bridgeAuthHeaders({ topicsHome: home })).toEqual({ "X-Daemon-Token": TOKEN_B });
+  });
+
+  test("no topicsHome or no readable state: nothing is sent", () => {
+    expect(bridgeAuthHeaders({})).toEqual({});
+    expect(bridgeAuthHeaders({ topicsHome: join(home, "missing") })).toEqual({});
+    writeFileSync(join(home, "daemon-state.json"), "{not json");
+    expect(readDaemonToken(home)).toBeUndefined();
+  });
+
+  test("an old config's --gateway-token still goes out, next to the daemon token", () => {
+    writeToken(TOKEN_A);
+    expect(bridgeAuthHeaders({ topicsHome: home, gatewayToken: "legacy" })).toEqual({
+      "X-Daemon-Token": TOKEN_A,
+      "X-Gateway-Token": "legacy",
+    });
   });
 });
 

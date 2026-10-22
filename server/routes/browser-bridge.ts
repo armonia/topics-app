@@ -49,7 +49,7 @@ import { BRIDGED_BROWSER_ENDPOINTS } from "../browser-tool-spec";
 import { resolveAgentNavUrl } from "../browser-tools-handler";
 import { nativeDelegateRegistry } from "../browser-native-delegate";
 import { collectLiveContextIds, listBrowserTabs, type TabInventoryDeps } from "../browser-tab-inventory";
-import { timingSafeEqualStr } from "../utils";
+import { agentAuthOk } from "../lib/agent-auth";
 import { taskTabContextId, slugTabName } from "../../shared/task-tab-context";
 import { checkPortOwnership, formatPortWarning, realPortOwnerDeps, type PortOwnerDeps } from "../lib/port-project-owner";
 import { isGlobalOrchestratorSession, isGlobalOrchestratorTopic } from "../services/global-orchestrator-session";
@@ -274,16 +274,15 @@ export function createBrowserBridgeRouter(
   }
 
   /**
-   * Il cancello delle rotte sensibili: il server ascolta su 0.0.0.0, quindi
-   * import-chrome, i tool generici, list-tabs e focus-pane vogliono il token del
-   * gateway (il bridge MCP lo manda sempre; il percorso SDK non passa di qui,
-   * dispatcia in-process). `open-pane` e `close-pane` restano scoperte com'erano
-   * — aprire o chiudere un pannello non legge cookie né espone gli URL altrui.
+   * The gate of the sensitive routes: the server listens on 0.0.0.0, so
+   * import-chrome, the generic tools, list-tabs and focus-pane want one of our
+   * credentials, the same as the /agents/* routes: the daemon token (what the
+   * MCP bridge sends, re-read on every request) or, for old configs, the
+   * gateway token. The SDK path does not come through here, it dispatches
+   * in-process. `open-pane` and `close-pane` stay open as they were: opening
+   * or closing a pane reads no cookies and exposes no one else's URLs.
    */
-  const tokenOk = (req: Request): boolean => {
-    const tok = req.headers.get("x-gateway-token") || "";
-    return !!process.env.GATEWAY_TOKEN && timingSafeEqualStr(tok, process.env.GATEWAY_TOKEN);
-  };
+  const tokenOk = agentAuthOk;
 
   return async function browserBridgeRouter(req: Request, _url: URL, pathname: string, method: string): Promise<Response | null> {
     // A coordinator has a deliberately narrow global-board tool surface, never
@@ -525,7 +524,7 @@ export function createBrowserBridgeRouter(
       if ((byTopic || bySession) && method === "POST") {
         // import-chrome decrypts the user's REAL Chrome session cookies — far more
         // sensitive than open-pane's navigate. The server binds 0.0.0.0, so require
-        // the gateway token (the MCP bridge always sends X-Gateway-Token; the SDK
+        // our credential (the MCP bridge sends X-Daemon-Token; the SDK
         // chat path never hits this route — it dispatches in-process). Stops a LAN
         // peer / local process from triggering a confused-deputy cookie import.
         if (!tokenOk(req)) {

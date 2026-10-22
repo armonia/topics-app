@@ -40,7 +40,7 @@ function finish(text: string): void {
 }
 
 /** The bridge's arguments, as `topicsMcpBridgeSpec` writes them into the session's MCP config. */
-function bridgeArgs(): { baseUrl: string; sessionKey: string; gatewayToken?: string } | null {
+function bridgeArgs(): { baseUrl: string; sessionKey: string; topicsHome?: string } | null {
   const i = process.argv.indexOf("--mcp-config");
   if (i < 0 || !process.argv[i + 1]) return null;
   try {
@@ -49,7 +49,8 @@ function bridgeArgs(): { baseUrl: string; sessionKey: string; gatewayToken?: str
     const flag = (name: string) => args.find((a) => a.startsWith(`--${name}=`))?.slice(name.length + 3);
     const baseUrl = flag("base-url");
     const sessionKey = flag("session-key");
-    return baseUrl && sessionKey ? { baseUrl, sessionKey, gatewayToken: flag("gateway-token") } : null;
+    // No token in the config: the bridge code reads the daemon token from this home.
+    return baseUrl && sessionKey ? { baseUrl, sessionKey, topicsHome: flag("topics-home") } : null;
   } catch {
     return null;
   }

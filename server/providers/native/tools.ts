@@ -28,6 +28,7 @@ import { homedir } from "os";
 import { killProcessTree } from "../../lib/process-tree";
 import { registerNativeCommand } from "../../lib/native-command-registry";
 import { lowPriorityArgv } from "../../lib/low-priority";
+import { agentBaseEnv } from "../../lib/agent-env";
 import { readSlashCommandSource } from "../../lib/slash-command-source";
 import { htmlToMarkdown } from "../../lib/html-to-markdown";
 import { protectedDirExcludes } from "../../lib/protected-app-data";
@@ -350,11 +351,11 @@ async function runCommand(
   // fretta. Si risponde subito, e con la ragione.
   if (signal?.aborted) return { out: MOTIVO_ANNULLATO, code: null, annullato: true };
   return new Promise((res) => {
-    // An agent's command runs at agent priority (nice 15, `utility` QoS on
-    // macOS): its bun/vite/git yield to whatever the owner is doing. See
-    // server/lib/low-priority.ts.
+    // An agent's command runs at agent priority (nice 15, `utility` QoS, see
+    // server/lib/low-priority.ts) and in the agent's environment (lib/agent-env.ts):
+    // with no `env`, Bun hands it the server's launch environment, secrets included.
     const argv = lowPriorityArgv([cmd, ...args]);
-    const child = spawn(argv[0]!, argv.slice(1), { cwd, stdio: ["ignore", "pipe", "pipe"] });
+    const child = spawn(argv[0]!, argv.slice(1), { cwd, stdio: ["ignore", "pipe", "pipe"], env: agentBaseEnv() });
     let out = "";
     let annullato = false;
     let closed = false;

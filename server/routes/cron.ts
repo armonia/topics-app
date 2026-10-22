@@ -1,7 +1,8 @@
 import type { AppContext, RouteHandler } from "../types";
 
 export function createCronRouter(ctx: AppContext): RouteHandler {
-  const { GATEWAY_URL, GATEWAY_TOKEN, readJSON, json, matchRoute, broadcastToAll } = ctx;
+  // GATEWAY_TOKEN is read per call (ctx.GATEWAY_TOKEN): OpenClaw rotates it.
+  const { GATEWAY_URL, readJSON, json, matchRoute, broadcastToAll } = ctx;
 
   // Pull the jobs array out of the gateway's response, tolerating shape variants.
   const extractJobs = (data: any): any[] => data.result?.details?.jobs || data.result?.jobs || data.jobs || [];
@@ -11,7 +12,7 @@ export function createCronRouter(ctx: AppContext): RouteHandler {
     try {
       const listResp = await fetch(`${GATEWAY_URL}/tools/invoke`, {
         method: "POST",
-        headers: { "Content-Type": "application/json", Authorization: `Bearer ${GATEWAY_TOKEN}` },
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${ctx.GATEWAY_TOKEN}` },
         body: JSON.stringify({ tool: "cron", args: { action: "list", includeDisabled: true } }),
       });
       if (listResp.ok) {
@@ -25,7 +26,7 @@ export function createCronRouter(ctx: AppContext): RouteHandler {
 
     if (method === "GET" && pathname === "/api/cron/jobs") {
       try {
-        const resp = await fetch(`${GATEWAY_URL}/tools/invoke`, { method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${GATEWAY_TOKEN}` }, body: JSON.stringify({ tool: "cron", args: { action: "list", includeDisabled: true } }) });
+        const resp = await fetch(`${GATEWAY_URL}/tools/invoke`, { method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${ctx.GATEWAY_TOKEN}` }, body: JSON.stringify({ tool: "cron", args: { action: "list", includeDisabled: true } }) });
         // 502, not 200 with an empty list: the panel reads `res.ok`, and a
         // gateway that is down must not look like every job was deleted.
         if (!resp.ok) { const errText = await resp.text(); return json({ jobs: [], warning: `Gateway error: ${resp.status} - ${errText}` }, 502); }
@@ -38,7 +39,7 @@ export function createCronRouter(ctx: AppContext): RouteHandler {
     if (cronJobMatch && method === "PATCH") {
       try {
         const body = await readJSON(req);
-        const resp = await fetch(`${GATEWAY_URL}/tools/invoke`, { method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${GATEWAY_TOKEN}` }, body: JSON.stringify({ tool: "cron", args: { action: "update", jobId: cronJobMatch.jobId, patch: body } }) });
+        const resp = await fetch(`${GATEWAY_URL}/tools/invoke`, { method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${ctx.GATEWAY_TOKEN}` }, body: JSON.stringify({ tool: "cron", args: { action: "update", jobId: cronJobMatch.jobId, patch: body } }) });
         if (!resp.ok) { const errText = await resp.text(); return json({ error: `Gateway error: ${resp.status} - ${errText}` }, resp.status); }
         await broadcastCronList();
         return json({ ok: true });
@@ -48,7 +49,7 @@ export function createCronRouter(ctx: AppContext): RouteHandler {
     const cronRunMatch = matchRoute(pathname, "/api/cron/jobs/:jobId/run");
     if (cronRunMatch && method === "POST") {
       try {
-        const resp = await fetch(`${GATEWAY_URL}/tools/invoke`, { method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${GATEWAY_TOKEN}` }, body: JSON.stringify({ tool: "cron", args: { action: "run", jobId: cronRunMatch.jobId } }) });
+        const resp = await fetch(`${GATEWAY_URL}/tools/invoke`, { method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${ctx.GATEWAY_TOKEN}` }, body: JSON.stringify({ tool: "cron", args: { action: "run", jobId: cronRunMatch.jobId } }) });
         if (!resp.ok) return json({ error: `Gateway error: ${resp.status}` }, resp.status);
         await broadcastCronList();
         return json({ ok: true });
@@ -57,7 +58,7 @@ export function createCronRouter(ctx: AppContext): RouteHandler {
 
     if (cronJobMatch && method === "DELETE") {
       try {
-        const resp = await fetch(`${GATEWAY_URL}/tools/invoke`, { method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${GATEWAY_TOKEN}` }, body: JSON.stringify({ tool: "cron", args: { action: "remove", jobId: cronJobMatch.jobId } }) });
+        const resp = await fetch(`${GATEWAY_URL}/tools/invoke`, { method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${ctx.GATEWAY_TOKEN}` }, body: JSON.stringify({ tool: "cron", args: { action: "remove", jobId: cronJobMatch.jobId } }) });
         if (!resp.ok) return json({ error: `Gateway error: ${resp.status}` }, resp.status);
         await broadcastCronList();
         return json({ ok: true });

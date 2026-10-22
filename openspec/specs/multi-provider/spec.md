@@ -214,3 +214,26 @@ for the session, the provider SHALL fall back to the history the route passed.
 - **GIVEN** a chat whose rebuilt history is larger than the budget
 - **WHEN** the handoff is built
 - **THEN** it stays within the budget, keeps the opening request and the recent turns, and names how many messages it left out and how to read them
+
+### Requirement: MP-GWTOKEN-01 — The OpenClaw gateway token stays inside the server, and a rotation lands without a restart
+
+Topics SHALL read OpenClaw's `gateway.auth.token` either as a plain string or as an exec SecretRef, resolved the way OpenClaw resolves it (an empty base environment plus `passEnv` and `env`, the command's own directory as cwd, `protocolVersion` 1). An object SHALL never become a token. The server SHALL keep the token outside `process.env`, so no child it spawns inherits it, and the MCP bridge SHALL carry no gateway token at all: it authenticates with the daemon token, re-read on every request. A token read from the config SHALL be re-read at most every 30 s, at once after an authentication failure, without blocking the event loop; a token from the environment SHALL never be replaced by the config. No test SHALL read the real OpenClaw config, the Keychain or the real Topics home.
+
+#### Scenario: OpenClaw rotates the token in the Keychain
+- **GIVEN** a running server holding the token it read at startup
+- **WHEN** the Keychain value changes and 30 s pass
+- **THEN** a request carrying the old token is refused and one carrying the new token is accepted, with no restart of Topics.
+
+#### Scenario: A server without OpenClaw
+- **GIVEN** no gateway token configured
+- **WHEN** an agent's bridge calls a gated route with the daemon token
+- **THEN** the route answers, and a wrong daemon token gets 401.
+
+### Requirement: MP-NATENV-01 — A native agent's command runs in the agent's environment, not the server's
+
+The native provider's `bash` tool SHALL spawn its command with the agent environment (`agentBaseEnv`), the same one Claude's Bash and `run_command` get. A secret present in the environment the server was launched with (launchd, `.env`) SHALL NOT reach the command, even though Bun hands a child spawned with no `env` the launch environment.
+
+#### Scenario: The server was launched with a secret in its environment
+- **GIVEN** a server launched with `GATEWAY_TOKEN` and `TOPICS_LICENSE_TOKEN` set
+- **WHEN** a native agent runs a command that prints them
+- **THEN** the command sees neither, and still sees `HOME`.

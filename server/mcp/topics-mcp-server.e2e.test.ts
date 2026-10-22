@@ -13,6 +13,7 @@ import { describe, expect, test, beforeAll, afterAll } from "bun:test";
 import { join } from "path";
 
 const SERVER_SCRIPT = join(import.meta.dir, "topics-mcp-server.ts");
+const NO_TOPICS_HOME = join(import.meta.dir, "no-such-topics-home");
 
 // ── Mock topics-app HTTP server ────────────────────────────────────────────
 let httpServer: ReturnType<typeof Bun.serve>;
@@ -55,7 +56,8 @@ afterAll(() => { try { httpServer.stop(true); } catch {} });
 
 // ── JSON-RPC-over-stdio driver ─────────────────────────────────────────────
 function makeClient() {
-  const proc = Bun.spawn(["bun", "run", SERVER_SCRIPT, `--base-url=${baseUrl}`, "--session-key=s"], {
+  // A home with no daemon-state.json: the bridge must not send the real ~/.topics token.
+  const proc = Bun.spawn(["bun", "run", SERVER_SCRIPT, `--base-url=${baseUrl}`, "--session-key=s", `--topics-home=${NO_TOPICS_HOME}`], {
     stdin: "pipe",
     stdout: "pipe",
     stderr: "pipe",

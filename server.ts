@@ -2,6 +2,7 @@ import { configureApiCredentialRoot, readApiProviderKey } from "./server/service
 import { createLandingQueue } from "./server/services/landing-queue";
 import { basename, join, resolve, sep } from "path";
 import { finalizeOrphanedRunningTools } from "./server/lib/boot-orphan-tools";
+import { holdGatewayToken, readOpenClawGatewayToken } from "./server/lib/openclaw-gateway-token";
 import { loadOwedAnswers } from "./server/lib/owed-answers";
 import { announceTurnEnded } from "./server/lib/turn-ended";
 import type { AnswerRelay } from "./server/lib/answer-relay";
@@ -381,15 +382,15 @@ try {
 }
 
 // Gateway token: .env takes priority, falls back to reading from ~/.openclaw/openclaw.json
-if (!process.env.GATEWAY_TOKEN) {
-  try {
-    const config = JSON.parse(readFileSync(join(process.env.HOME || "", ".openclaw", "openclaw.json"), "utf-8"));
-    if (config?.gateway?.auth?.token) {
-      process.env.GATEWAY_TOKEN = config.gateway.auth.token;
-      console.log("[Startup] GATEWAY_TOKEN loaded from ~/.openclaw/openclaw.json");
-    }
-  } catch {}
-  if (!process.env.GATEWAY_TOKEN) {
+// (a plain string, or an exec SecretRef resolved through OpenClaw's provider).
+// Either way it leaves process.env: every child spawned with `...process.env`
+// would inherit it (see `holdGatewayToken`).
+{
+  const fromEnv = process.env.GATEWAY_TOKEN;
+  const fromOpenClaw = fromEnv ? null : readOpenClawGatewayToken();
+  if (fromOpenClaw) console.log("[Startup] GATEWAY_TOKEN loaded from ~/.openclaw/openclaw.json");
+  holdGatewayToken(fromEnv || fromOpenClaw, { fromEnv: !!fromEnv });
+  if (!fromEnv && !fromOpenClaw) {
     // The OpenClaw gateway is an OPTIONAL integration (the "openclaw" relay
     // provider). A standalone download has no OpenClaw config,
     // so a missing token must NOT be fatal: the app defaults to the Claude
@@ -684,7 +685,7 @@ const aiProvider = initProvider({
   ...(providerType === 'openclaw' ? {
     gatewayUrl: ctx.GATEWAY_URL,
     token: ctx.GATEWAY_TOKEN,
-    refreshToken: () => ctx.refreshGatewayToken(),
+    refreshToken: (force?: boolean) => ctx.refreshGatewayToken(force),
   } : providerType === 'openai' ? {
     apiKey: savedOpenaiApiKey || '',
   } : {

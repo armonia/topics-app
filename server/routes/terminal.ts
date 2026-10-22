@@ -53,6 +53,7 @@ import type { LiveTerminal } from "../../shared/live-terminals";
 import type { ClaudeSessionTracker } from "../lib/claude-session-tracker";
 import { liveClaudeSessionId, panesToFollow } from "../lib/claude-live-session";
 import { writeMcpConfigForSession, cleanupMcpConfigForSession } from "../providers/claude-code";
+import { withoutGatewayToken } from "../lib/openclaw-gateway-token";
 import { claudeTranscriptPath } from "../lib/claude-transcript-path";
 import { discoverClaudeSubAgentSessionId, normalizePromptSnippet, transcriptHasPrompt } from "../lib/claude-subagent-transcript";
 import { readAgentProfiles } from "../lib/agent-profiles";
@@ -886,7 +887,8 @@ export async function ensureBridge(): Promise<void> {
     const child = spawn(cmd, [...baseArgs, "--socket", SOCKET_PATH, "--parent-pid", String(process.pid)], {
       detached: true,
       stdio: ['ignore', 'ignore', logFd ?? 'ignore'],
-      env: { ...process.env, PATH: augmentPath() },
+      // No gateway token: the bridge merges its own env into every terminal it opens.
+      env: { ...withoutGatewayToken(), PATH: augmentPath() },
     });
     /**
      * THE SPAWN ERROR HAS TO BE COLLECTED, or it is lost by construction.
