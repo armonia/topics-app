@@ -20,14 +20,20 @@ import { spawnSync } from "child_process";
 import { tmpdir } from "os";
 import { join } from "path";
 import { resolveWorktreeBaseRef } from "./worktree-base-ref";
+import { gitEnv } from "../../tests/setup/bun-test-preload";
 
 let root: string;
 let work: string;
 
-/** Real git, with an identity of its own: the suite must not read the user's. */
+/**
+ * Real git, with an identity of its own AND the preload's isolated environment:
+ * without `gitEnv()` the machine's `core.hooksPath` fires on every commit this
+ * test makes (`tests/unit/git-env-nei-test.test.ts` tells the story).
+ */
 function git(cwd: string, ...args: string[]): string {
   const r = spawnSync("git", ["-c", "user.name=Test", "-c", "user.email=test@example.com",
-    "-c", "commit.gpgsign=false", "-c", "protocol.file.allow=always", ...args], { cwd, encoding: "utf8" });
+    "-c", "commit.gpgsign=false", "-c", "protocol.file.allow=always", ...args],
+    { cwd, encoding: "utf8", env: gitEnv() });
   if (r.status !== 0) throw new Error(`git ${args.join(" ")} → ${r.status}: ${r.stderr}`);
   return r.stdout.trim();
 }
@@ -90,9 +96,9 @@ describe("la base di una card nasce dove il land fonde", () => {
     const wtC = join(root, "wt-c");
     commit(wtC, "contested.txt", "C\n", "card C da origin/main");
     const land = spawnSync("git", ["-c", "user.name=Test", "-c", "user.email=test@example.com",
-      "merge", "--no-ff", "--no-edit", "topics/card-c"], { cwd: work, encoding: "utf8" });
+      "merge", "--no-ff", "--no-edit", "topics/card-c"], { cwd: work, encoding: "utf8", env: gitEnv() });
     expect(land.status).not.toBe(0);
     expect(`${land.stdout}${land.stderr}`).toContain("CONFLICT");
-    spawnSync("git", ["merge", "--abort"], { cwd: work });
+    spawnSync("git", ["merge", "--abort"], { cwd: work, env: gitEnv() });
   });
 });

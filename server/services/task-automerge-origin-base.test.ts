@@ -165,7 +165,7 @@ describe("land su git vero: main locale stantio", () => {
       expect(git(clone, "diff", "--name-only", "main^1", "main")).toBe("card.txt");
       expect(res.touchedClient || res.touchedServer || res.touchedNative).toBe(false);
     }
-    expect(Bun.spawnSync(["git", "-C", clone, "merge-base", "--is-ancestor", originTip, "main"]).exitCode).toBe(0);
+    expect(Bun.spawnSync(["git", "-C", clone, "merge-base", "--is-ancestor", originTip, "main"], { env: gitEnv() }).exitCode).toBe(0);
     // The land does not publish: origin is exactly as it was.
     expect(git(bare, "rev-parse", "main")).toBe(originTip);
   });
