@@ -21,6 +21,7 @@ import { tmpdir } from "os";
 import { join } from "path";
 import { createTaskAutoMerge, type AutoMergeDeps, type TaskMergeTarget } from "./task-automerge";
 import { slackMs } from "../../tests/helpers/time-slack";
+import { gitEnv } from "../../tests/setup/bun-test-preload";
 
 const BRANCH = "topics/ramo-vecchio";
 
@@ -44,7 +45,7 @@ afterEach(() => {
 });
 
 function git(cwd: string, ...args: string[]): string {
-  return execFileSync("git", args, { cwd, stdio: ["ignore", "pipe", "pipe"] }).toString("utf8");
+  return execFileSync("git", args, { env: gitEnv(), cwd, stdio: ["ignore", "pipe", "pipe"] }).toString("utf8");
 }
 
 /** Scrive un file (creando le cartelle) e lo committa. */

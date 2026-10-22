@@ -20,6 +20,7 @@ import type { ChangeSet } from "../../shared/change-set";
 import { projectIdForPath } from "../../shared/board";
 import { buildFileRows } from "../../client/src/components/Board/diffFileRows";
 import { cleanupTestDataDir, createTestAppContext, setupTestDataDir, testTmpDir } from "./helpers";
+import { gitEnv } from "../setup/bun-test-preload";
 
 const ROOT = testTmpDir("change-set-contract");
 beforeAll(() => setupTestDataDir(join(ROOT, "data")));
@@ -30,7 +31,7 @@ const BEFORE = "one\n";
 const AFTER = "one\ntwo\nthree\n";
 
 function git(cwd: string, ...args: string[]): string {
-  return execFileSync("git", args, { cwd, encoding: "utf8" }).trim();
+  return execFileSync("git", args, { env: gitEnv(), cwd, encoding: "utf8" }).trim();
 }
 
 async function call(router: RouteHandler, method: string, path: string, body?: unknown): Promise<Response> {

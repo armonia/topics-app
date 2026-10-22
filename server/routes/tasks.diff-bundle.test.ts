@@ -7,6 +7,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { gitDiffBundle, gitDiffStat } from "../lib/git-diff-stat";
 import { splitPatch } from "../../client/src/components/Board/diffFileRows";
+import { gitEnv } from "../../tests/setup/bun-test-preload";
 
 // gitDiffBundle drives a real `git` — these tests build a throwaway repo per case
 // and assert the untracked-inclusion contract that keeps new-file-only deliveries
@@ -36,7 +37,7 @@ describe("gitDiffBundle untracked inclusion", () => {
     await git(dir, ["add", "tracked.txt"]);
     await git(dir, ["commit", "-qm", "base"]);
     base = (await (async () => {
-      const p = Bun.spawn(["git", "rev-parse", "HEAD"], { cwd: dir, stdout: "pipe" });
+      const p = Bun.spawn(["git", "rev-parse", "HEAD"], { env: gitEnv(), cwd: dir, stdout: "pipe" });
       return (await new Response(p.stdout).text()).trim();
     })());
   });
@@ -81,7 +82,7 @@ describe("gitDiffBundle untracked inclusion", () => {
     await git(dir, ["add", ".gitignore"]);
     await git(dir, ["commit", "-qm", "ignore"]);
     const base2 = (await (async () => {
-      const p = Bun.spawn(["git", "rev-parse", "HEAD"], { cwd: dir, stdout: "pipe" });
+      const p = Bun.spawn(["git", "rev-parse", "HEAD"], { env: gitEnv(), cwd: dir, stdout: "pipe" });
       return (await new Response(p.stdout).text()).trim();
     })());
     writeFileSync(join(dir, "ignored.txt"), "secret\n");
@@ -102,7 +103,7 @@ describe("gitDiffBundle untracked inclusion", () => {
     symlinkSync("text.txt", join(dir, "link"));
     const names = ["blob.bin", "crlf.txt", "empty.txt", "link", "no-newline.txt", "text.txt"];
     const byGit = async (f: string): Promise<[number, number]> => {
-      const p = Bun.spawn(["git", "diff", "--no-index", "--numstat", "--", "/dev/null", f], { cwd: dir, stdout: "pipe" });
+      const p = Bun.spawn(["git", "diff", "--no-index", "--numstat", "--", "/dev/null", f], { env: gitEnv(), cwd: dir, stdout: "pipe" });
       const [a, d] = (await new Response(p.stdout).text()).split("\t");
       return [a === "-" ? -1 : Number(a), d === "-" ? -1 : Number(d)];
     };
@@ -125,7 +126,7 @@ describe("gitDiffBundle untracked inclusion", () => {
     writeFileSync(join(dir, "w.md"), "q\n");
     const names = ["w.md", "x.lock", "y.dat", "z.txt"];
     const byGit = async (f: string): Promise<[number, number]> => {
-      const p = Bun.spawn(["git", "diff", "--no-index", "--numstat", "--", "/dev/null", f], { cwd: dir, stdout: "pipe" });
+      const p = Bun.spawn(["git", "diff", "--no-index", "--numstat", "--", "/dev/null", f], { env: gitEnv(), cwd: dir, stdout: "pipe" });
       const [a, d] = (await new Response(p.stdout).text()).split("\t");
       return [a === "-" ? -1 : Number(a), d === "-" ? -1 : Number(d)];
     };
@@ -179,7 +180,7 @@ describe("gitDiffBundle untracked inclusion", () => {
     await git(dir, ["add", "-A"]);
     await git(dir, ["commit", "-qm", "modulo"]);
     const from = (await (async () => {
-      const p = Bun.spawn(["git", "rev-parse", "HEAD"], { cwd: dir, stdout: "pipe" });
+      const p = Bun.spawn(["git", "rev-parse", "HEAD"], { env: gitEnv(), cwd: dir, stdout: "pipe" });
       return (await new Response(p.stdout).text()).trim();
     })());
     mkdirSync(join(dir, "nuova"));

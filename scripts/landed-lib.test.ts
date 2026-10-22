@@ -20,9 +20,10 @@ import {
   isSafeToDelete,
   isDisposableBranchName,
 } from "./landed-lib";
+import { gitEnv } from "../tests/setup/bun-test-preload";
 
 function git(repo: string, ...args: string[]): string {
-  return execFileSync("git", args, { cwd: repo, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }).trim();
+  return execFileSync("git", args, { env: gitEnv(), cwd: repo, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }).trim();
 }
 
 /** Un repo con main e un commit iniziale. Il chiamante lo cancella. */

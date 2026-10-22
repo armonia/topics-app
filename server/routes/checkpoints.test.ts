@@ -24,6 +24,7 @@ import { join } from "node:path";
 import { createCheckpointsRouter } from "./checkpoints";
 import { captureTurnCheckpoint } from "../services/turn-checkpoints";
 import type { Checkpoint } from "../../shared/types";
+import { gitEnv } from "../../tests/setup/bun-test-preload";
 
 const SESSION = "topic:aaaaaaaa";
 const TOPIC = "t1";
@@ -35,7 +36,7 @@ let db: Database;
 let activeStreams: Map<string, unknown>;
 let router: ReturnType<typeof createCheckpointsRouter>;
 
-const git = (...a: string[]) => execFileSync("git", a, { cwd: repo, encoding: "utf8" }).trim();
+const git = (...a: string[]) => execFileSync("git", a, { env: gitEnv(), cwd: repo, encoding: "utf8" }).trim();
 const read = (name: string) => readFileSync(join(repo, name), "utf8");
 const write = (name: string, content: string) => writeFileSync(join(repo, name), content);
 

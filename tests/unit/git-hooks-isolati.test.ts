@@ -20,7 +20,7 @@ import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { gitEnv } from "../setup/bun-test-preload";
+import { GIT_ISOLATION_INHERITED, gitEnv } from "../setup/bun-test-preload";
 
 function gitOut(args: string[], opts: { env?: Record<string, string>; cwd?: string } = {}): string {
   const r = Bun.spawnSync(["git", ...args], {
@@ -92,11 +92,32 @@ describe("i test non ereditano gli hook git della macchina", () => {
     expect(gitOut(["config", "--get", "core.hooksPath"], { env })).toBe("/nonexistent/topics-test-hooks");
   });
 
-  test("il preload da solo NON basta: senza env esplicito l'isolamento si perde", () => {
-    // This is the lesson that costs: `Bun.spawnSync` does not inherit what the
-    // preload added to `process.env` at runtime. If one day bun changed its
-    // mind, this test would go red and rightly so: it would mean that
-    // `env: gitEnv()` is no longer needed, and this guard is to be rewritten.
-    expect(gitOut(["config", "--get", "core.hooksPath"])).not.toBe("/nonexistent/topics-test-hooks");
+  test("senza env esplicito l'isolamento c'e' solo se il processo e' NATO con esso", () => {
+    // Rewritten on 22/10/2026, on this test's own instructions. It used to
+    // assert the bare case flatly: «the preload alone is NOT enough». That was
+    // true while the only source was the preload, which writes at RUNTIME and
+    // Bun does not pass that to a child.
+    //
+    // Now `scripts/test-unit-serial.ts` and `scripts/test-unit-shards.ts` put
+    // the isolation in the environment `bun test` is BORN with, where every git
+    // child inherits it for free. So the bare call has two correct answers, and
+    // which one is right is decided by how this process was launched. Asserting
+    // either one unconditionally is a false red: the previous version went red
+    // in CI the moment the runners started doing it.
+    const bare = gitOut(["config", "--get", "core.hooksPath"]);
+    if (GIT_ISOLATION_INHERITED) {
+      // `bun run test:unit`, and CI. Red here means somebody took
+      // `gitIsolationEnv` out of a runner and the whole suite is uncovered
+      // again on every call that forgets `env`.
+      expect(bare).toBe("/nonexistent/topics-test-hooks");
+    } else {
+      // `bun test <file>` typed by hand: the only path with no wrapper in
+      // front of it, and the reason `env: gitEnv()` is still required. If this
+      // ever goes red, Bun has started passing runtime variables down and the
+      // whole second layer can go: see
+      // `tests/unit/git-isolation-inherited.test.ts`, which measures exactly
+      // that on a child of its own.
+      expect(bare).not.toBe("/nonexistent/topics-test-hooks");
+    }
   });
 });

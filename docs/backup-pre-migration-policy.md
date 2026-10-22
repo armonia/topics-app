@@ -132,8 +132,12 @@ quella migration al DB vivo in pochi secondi**. Senza uno snapshot di ieri, una
 migration di dati sbagliata non ha ritorno.
 
 - **Chi li fa**: `scripts/db-snapshot.ts` (`VACUUM INTO` su un temporaneo,
-  compressione zstd, rename atomico), lanciato da launchd alle 04:10 con
-  `scripts/launchd/com.armonia.topics-db-snapshot.plist`. Legge il percorso del
+  compressione zstd, rename atomico), lanciato da launchd alle 04:10. Il plist
+  e' un MODELLO (`scripts/launchd/com.armonia.topics-db-snapshot.plist.in`) e
+  si installa con `bun scripts/install-db-snapshot.ts`, che riempie i
+  segnaposto con i percorsi della macchina: il repo e' pubblico e un plist
+  concreto ci scriverebbe dentro home e nome utente (ci e' finito davvero il
+  22/10/2026, e la CI non lo vede perche' cerca la home del runner). Legge il percorso del
   DB come lo legge il server (`DATA_DIR` / `TOPICS_DATA_DIR`, altrimenti la
   cartella del repo) e scrive in `<cartella dati>/backups/`.
 - **Retention**: gli ultimi 14 snapshot, piu' gli 8 lunedi' piu' vecchi di quella

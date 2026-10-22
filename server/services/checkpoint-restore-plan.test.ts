@@ -23,9 +23,10 @@ import {
   listRestorePoints,
   sessionRefSlug,
 } from "./turn-checkpoints";
+import { gitEnv } from "../../tests/setup/bun-test-preload";
 
 let repo: string;
-const git = (...a: string[]) => execFileSync("git", a, { cwd: repo, encoding: "utf8" }).trim();
+const git = (...a: string[]) => execFileSync("git", a, { env: gitEnv(), cwd: repo, encoding: "utf8" }).trim();
 const SESSION = "topic-7/session";
 const read = (name: string) => readFileSync(join(repo, name), "utf8");
 const write = (name: string, content: string) => writeFileSync(join(repo, name), content);

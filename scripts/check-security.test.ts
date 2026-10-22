@@ -7,6 +7,7 @@ import { mkdtempSync, mkdirSync, writeFileSync, appendFileSync, readFileSync, co
 import { tmpdir, userInfo } from "os";
 import { join, resolve } from "path";
 import { filtraTermini } from "../tests/unit/no-personal-data-tracked.test";
+import { gitEnv } from "../tests/setup/bun-test-preload";
 
 /**
  * Il banco che falsifica `check:security`, un pezzo alla volta.
@@ -57,7 +58,7 @@ function runWithEnv(root: string, env: Record<string, string>, ...args: string[]
 }
 
 function git(cwd: string, ...args: string[]): void {
-  const res = spawnSync("git", args, { cwd, encoding: "utf8" });
+  const res = spawnSync("git", args, { env: gitEnv(), cwd, encoding: "utf8" });
   if (res.status !== 0) throw new Error(`git ${args.join(" ")} in ${cwd}: ${res.stderr}`);
 }
 
@@ -194,7 +195,7 @@ describe("check:security - il pezzo dei segreti", () => {
  * indice, che e' cio' che `git ls-files` legge dentro la copia.
  */
 function copiaAlbero(da: string, a: string): void {
-  const elenco = spawnSync("git", ["-C", da, "ls-files", "-z"], { encoding: "utf8", maxBuffer: 64 * 1024 * 1024 });
+  const elenco = spawnSync("git", ["-C", da, "ls-files", "-z"], { env: gitEnv(), encoding: "utf8", maxBuffer: 64 * 1024 * 1024 });
   if (elenco.status !== 0) throw new Error(`git ls-files in ${da}: ${elenco.stderr}`);
   const rel = elenco.stdout.split("\0").filter(Boolean);
   // Il banco gira anche prima di `git add`. La baseline e' parte del contratto
@@ -332,7 +333,7 @@ describe("check:security - i pezzi che vogliono l'albero vero", () => {
     // in every commit signature protects nothing; it only teaches people to
     // switch gates off.
     prepareCopy();
-    const repoAuthor = (spawnSync("git", ["config", "user.name"], { encoding: "utf8" }).stdout ?? "").trim();
+    const repoAuthor = (spawnSync("git", ["config", "user.name"], { env: gitEnv(), encoding: "utf8" }).stdout ?? "").trim();
     const termine = repoAuthor.split(/\s+/).find((t) => filtraTermini([t]).length > 0) ?? "";
     if (!termine) return; // no git identity on this machine: nothing to prove
     appendFileSync(join(copia, "README.md"), `\n<!-- deciso da ${repoAuthor} -->\n`);

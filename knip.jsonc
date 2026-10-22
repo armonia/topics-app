@@ -121,7 +121,8 @@
         // caricare.
         "scripts/merge-shard-reports.ts!",
         "scripts/gen-migrations-manifest.ts!", // run by hand to regenerate migrations-embedded.ts
-        "scripts/new-migration.ts!",           // `bun run migration:new <slug>` — crea la migration col prefisso timestamp
+        "scripts/install-db-snapshot.ts!",
+    "scripts/new-migration.ts!",           // `bun run migration:new <slug>` — crea la migration col prefisso timestamp
         // Congela la coda di review dell'11/08 come fixture della derivazione
         // delle etichette (`bun run scripts/build-review-queue-fixture.ts`).
         // Si rilancia solo per rigenerare il file: legge il DB vero e git, quindi

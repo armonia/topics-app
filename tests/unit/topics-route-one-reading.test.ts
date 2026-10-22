@@ -26,6 +26,7 @@ import { dispatchTopicBinding, resolveDispatchTopicIdentity } from "../../server
 import { pickAutomaticTaskModel } from "../../server/services/task-auto-model";
 import type { AIProvider } from "../../server/providers/types";
 import { boardTopicsRoutingEnabled, chatRouteTarget, chatTopicsRoute, surfaceTopicsRoutingEnabled, topicsRoutingBlocked } from "../../client/src/lib/topicsRoutingGate";
+import { gitEnv } from "../setup/bun-test-preload";
 
 const at = "2026-10-03T00:00:00Z";
 const entry = (name: string, models: string[]) => ({ name, label: name, status: "ready" as const, isDefault: false, models, capabilities: ["coding-tasks"], requirements: [], fetchedAt: at });
@@ -145,7 +146,7 @@ const ALLOWED_COERCIONS = [
 describe("the closed list of design §2.1", () => {
   const root = join(import.meta.dir, "../..");
   const search = (args: string[]) => {
-    try { return execFileSync("git", ["grep", ...args, "--", "server", "shared", "client/src", "server.ts", ":!*.test.*", ":!**/fixtures.ts"], { cwd: root, encoding: "utf8" }); }
+    try { return execFileSync("git", ["grep", ...args, "--", "server", "shared", "client/src", "server.ts", ":!*.test.*", ":!**/fixtures.ts"], { env: gitEnv(), cwd: root, encoding: "utf8" }); }
     catch (error) { return (error as { stdout?: string }).stdout ?? ""; }
   };
 

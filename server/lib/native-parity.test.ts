@@ -16,6 +16,7 @@ import {
   claudeMemoryDir, readClaudeMemoryIndex, recallMemoryContext, nativeWorkingDir,
   readUserRules, readUserRulesSource, listSkills, skillsBlock, thinkingBudgetFor, thinkingConfigFor, clampMaxTokens, DEFAULT_MAX_TOKENS,
 } from "./native-parity";
+import { gitEnv } from "../../tests/setup/bun-test-preload";
 
 let home: string;
 
@@ -240,7 +241,7 @@ describe("listSkills — i casi che le facevano sparire", () => {
 describe("Claude Code's memory on the native runtime", () => {
   const encodePath = (p: string) => p.replace(/[/.]/g, "-");
   const git = (cwd: string, ...args: string[]) =>
-    execFileSync("git", ["-C", cwd, "-c", "user.name=t", "-c", "user.email=t@t", ...args], { stdio: "ignore" });
+    execFileSync("git", ["-C", cwd, "-c", "user.name=t", "-c", "user.email=t@t", ...args], { env: gitEnv(), stdio: "ignore" });
   let savedPath: string | undefined;
   let savedOff: string | undefined;
   beforeEach(() => {

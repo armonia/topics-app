@@ -25,6 +25,7 @@ import {
   filesWhereProbeWasSeen,
   KNOWN_BLIND,
 } from "../../scripts/check-deadcode-blindspots";
+import { gitEnv } from "../setup/bun-test-preload";
 
 const REPO_ROOT = join(import.meta.dir, "../..");
 
@@ -121,6 +122,7 @@ describe("check-deadcode-blindspots — le reti", () => {
     let hits = "";
     try {
       hits = execFileSync("git", ["grep", "-l", "--", PROBE_MARKER], {
+        env: gitEnv(),
         cwd: REPO_ROOT,
         encoding: "utf8",
       });

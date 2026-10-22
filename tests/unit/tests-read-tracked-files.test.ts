@@ -33,6 +33,7 @@ import { describe, test, expect } from "bun:test";
 import { execFileSync } from "node:child_process";
 import { existsSync, readFileSync, statSync } from "node:fs";
 import { join, resolve } from "node:path";
+import { gitEnv } from "../setup/bun-test-preload";
 
 const ROOT = resolve(import.meta.dir, "..", "..");
 
@@ -89,6 +90,7 @@ export function readsLiterals(sorgente: string): string[] {
 
 function tracciati(): Set<string> {
   const out = execFileSync("git", ["ls-files", "-z"], {
+    env: gitEnv(),
     cwd: ROOT, encoding: "utf8", maxBuffer: 64 * 1024 * 1024,
   });
   return new Set(out.split("\0").filter((p) => p.length > 0));
@@ -96,6 +98,7 @@ function tracciati(): Set<string> {
 
 function fileDiTest(): string[] {
   const out = execFileSync("git", ["ls-files", "-z", "*.test.ts", "*.test.tsx", "*.spec.ts"], {
+    env: gitEnv(),
     cwd: ROOT, encoding: "utf8", maxBuffer: 64 * 1024 * 1024,
   });
   return out.split("\0").filter((p) => p.length > 0);

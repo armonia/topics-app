@@ -80,6 +80,7 @@ import { GATE_HELD_ENV } from "./gate-slot.ts";
 import { clampSlowdown, gateSlowdownLine } from "../shared/gate-slowdown.ts";
 import { TIME_SLACK_ENV, timeSlack, timeSlackNote } from "../shared/test-time-slack.ts";
 import { TEST_RUN_ENV, newTestRunId, reportAndEndStrays, strayAiBridges } from "./stray-ai-bridges.ts";
+import { gitIsolationEnv } from "../tests/setup/git-isolation";
 
 /**
  * How many shards to run on THIS machine, with the serial suite's timeout.
@@ -373,12 +374,16 @@ async function runBunTest(
     ["bun", "test", "--timeout", String(timeoutMs), "--reporter=junit", `--reporter-outfile=${xmlPath}`, ...files],
     {
       cwd: REPO_ROOT,
-      env: {
+      // `gitIsolationEnv` so that the git config of the run is already in the
+      // environment `bun test` is born with: Bun does not pass a child the
+      // variables added to `process.env` at runtime, so a forgotten `env` on a
+      // call would otherwise let the machine's hooks into the test's repo.
+      env: gitIsolationEnv({
         ...process.env,
         // Covers the children with the slot this process already holds: bun's
         // preload sees the marker and does NOT queue for a second slot.
         [GATE_HELD_ENV]: process.env[GATE_HELD_ENV] ?? "test-unit-shards",
-      },
+      }),
       stdout: Bun.file(outPath),
       stderr: Bun.file(errPath),
     },

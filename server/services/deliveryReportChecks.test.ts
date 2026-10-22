@@ -49,11 +49,12 @@ import { join } from "node:path";
 import { execFileSync } from "node:child_process";
 import { extractClaims, checkReport, declaredSymbols, type RepoProbe } from "./deliveryReportChecks";
 import { repoProbe, probeForRoot } from "./deliveryReportProbe";
+import { gitEnv } from "../../tests/setup/bun-test-preload";
 
 const ROOT = join(import.meta.dir, "..", "..");
 
 /** Every tracked file, once: a citation is resolved by suffix. */
-const tracked: string[] = execFileSync("git", ["ls-files"], { cwd: ROOT, encoding: "utf8", maxBuffer: 64 << 20 })
+const tracked: string[] = execFileSync("git", ["ls-files"], { env: gitEnv(), cwd: ROOT, encoding: "utf8", maxBuffer: 64 << 20 })
   .split("\n")
   .filter(Boolean);
 
@@ -78,7 +79,7 @@ const memo = (k: string, f: () => boolean) => {
 const realProbe: RepoProbe = {
   shaExists: (sha) => memo(`sha:${sha}`, () => {
     try {
-      execFileSync("git", ["cat-file", "-e", `${sha}^{commit}`], { cwd: ROOT, stdio: "ignore" });
+      execFileSync("git", ["cat-file", "-e", `${sha}^{commit}`], { env: gitEnv(), cwd: ROOT, stdio: "ignore" });
       return true;
     } catch { return false; }
   }),
@@ -164,7 +165,7 @@ describe("e non boccia il lavoro vero", () => {
   // The expensive half. These describe work that IS in this repository, in the
   // same voice as the fixture, and must come through clean.
   test("un report con un commit vero e un simbolo committato passa", () => {
-    const sha = execFileSync("git", ["rev-parse", "--short", "HEAD"], { cwd: ROOT, encoding: "utf8" }).trim();
+    const sha = execFileSync("git", ["rev-parse", "--short", "HEAD"], { env: gitEnv(), cwd: ROOT, encoding: "utf8" }).trim();
     // `bridgeFailureDetail` lives in `server/routes/terminal.ts` and IS
     // committed: that is what makes this invented report an honest one.
     const r = `Fatto (commit ${sha}). Il predicato sta in \`server/routes/terminal.ts\`, e \`bridgeFailureDetail\` e' la funzione che decide. Typecheck 0.`;
@@ -275,7 +276,7 @@ describe("la sonda vera distingue «no» da «non lo so»", () => {
   });
 
   test("uno sha vero esiste", async () => {
-    const head = execFileSync("git", ["rev-parse", "--short", "HEAD"], { cwd: ROOT, encoding: "utf8" }).trim();
+    const head = execFileSync("git", ["rev-parse", "--short", "HEAD"], { env: gitEnv(), cwd: ROOT, encoding: "utf8" }).trim();
     const p = await prepared(repoProbe, `Fatto (commit ${head}).`);
     expect(p.shaExists(head)).toBe(true);
   });
@@ -311,7 +312,7 @@ describe("la sonda vera distingue «no» da «non lo so»", () => {
 
     beforeAll(() => {
       repo = mkdtempSync(join(tmpdir(), "topics-probe-history-"));
-      const git = (...a: string[]) => execFileSync("git", a, { cwd: repo, encoding: "utf8" }).trim();
+      const git = (...a: string[]) => execFileSync("git", a, { env: gitEnv(), cwd: repo, encoding: "utf8" }).trim();
       git("init", "-b", "main");
       git("config", "user.email", "t@t.t");
       git("config", "user.name", "t");
@@ -351,7 +352,7 @@ describe("la sonda vera distingue «no» da «non lo so»", () => {
       // which is exactly the defect `review_needs_commit` exists to stop, seen
       // from another side. This test found it on its own: the first run cited a
       // symbol from the test file, not yet committed, and the check rejected it.
-      const sha = execFileSync("git", ["rev-parse", "--short", "HEAD"], { cwd: repo, encoding: "utf8" }).trim();
+      const sha = execFileSync("git", ["rev-parse", "--short", "HEAD"], { env: gitEnv(), cwd: repo, encoding: "utf8" }).trim();
       const r = `Fatto (commit ${sha}). Vedi \`worktreeOnlySymbol\`.`;
       expect(checkReport(r, await prepared(probe, r)).map((x) => x.code)).toContain("symbol-never-written");
     });

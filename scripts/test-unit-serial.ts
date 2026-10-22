@@ -33,6 +33,7 @@ import { cpus, loadavg } from "node:os";
 import { TIME_SLACK_ENV, timeSlack, timeSlackNote } from "../shared/test-time-slack.ts";
 import { SUITE_ROOTS } from "./test-unit-shards.ts";
 import { TEST_RUN_ENV, newTestRunId, reportAndEndStrays, strayAiBridges } from "./stray-ai-bridges.ts";
+import { gitIsolationEnv } from "../tests/setup/git-isolation";
 
 /**
  * ONE list of roots, shared with the sharded runner. A second copy here would
@@ -70,7 +71,12 @@ const run = spawnSync(
   ["test", "--timeout", timeout, ...targets, ...flags],
   {
     stdio: "inherit",
-    env: { ...process.env, [TIME_SLACK_ENV]: String(slack), [TEST_RUN_ENV]: runId },
+    // `gitIsolationEnv` HERE and not only in the preload: Bun does not pass a
+    // child the variables added to `process.env` at runtime, so the isolation
+    // the preload writes reaches git only on the calls that spell out `env`.
+    // Put in the environment `bun test` is born with, it is inherited by every
+    // git child for free, and a forgotten `env` cannot let the hooks back in.
+    env: gitIsolationEnv({ ...process.env, [TIME_SLACK_ENV]: String(slack), [TEST_RUN_ENV]: runId }),
   },
 );
 

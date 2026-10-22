@@ -13,6 +13,7 @@ import { execFileSync } from "child_process";
 import { mkdtempSync, writeFileSync, readFileSync, rmSync } from "fs";
 import { join } from "path";
 import { tmpdir } from "os";
+import { gitEnv } from "../../tests/setup/bun-test-preload";
 
 // Il diff LETTERALE di git per il repo che `preparaRepo` costruisce.
 const DIFF = `diff --git a/f.txt b/f.txt
@@ -107,7 +108,7 @@ describe("buildPatch", () => {
 let repo = "";
 
 function git(args: string[], cwd = repo): string {
-  return execFileSync("git", args, { cwd, encoding: "utf8", stdio: ["pipe", "pipe", "pipe"] });
+  return execFileSync("git", args, { env: gitEnv(), cwd, encoding: "utf8", stdio: ["pipe", "pipe", "pipe"] });
 }
 
 function initialRows(): string[] {
@@ -134,7 +135,7 @@ beforeEach(() => {
 afterEach(() => rmSync(repo, { recursive: true, force: true }));
 
 function applica(patch: string, args: string[]) {
-  execFileSync("git", args, { cwd: repo, input: patch, stdio: ["pipe", "pipe", "pipe"] });
+  execFileSync("git", args, { env: gitEnv(), cwd: repo, input: patch, stdio: ["pipe", "pipe", "pipe"] });
 }
 
 describe("git apply accetta davvero la patch ricostruita", () => {

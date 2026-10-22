@@ -12,6 +12,7 @@ import { join } from "node:path";
 import { projectIdForPath } from "../../shared/board";
 import type { AppContext, RouteHandler } from "../types";
 import { createAuthRouter } from "./auth";
+import { gitEnv } from "../../tests/setup/bun-test-preload";
 
 function database(): Database {
   const db = new Database(":memory:");
@@ -140,8 +141,9 @@ describe("agent start capability routes", () => {
     const db = database();
     const directory = mkdtempSync(join(tmpdir(), "topics-agent-start-"));
     try {
-      execFileSync("git", ["init", "-q", "-b", "main"], { cwd: directory });
+      execFileSync("git", ["init", "-q", "-b", "main"], { env: gitEnv(), cwd: directory });
       execFileSync("git", ["remote", "add", "origin", "https://example.test/team/repository.git"], {
+        env: gitEnv(),
         cwd: directory,
       });
       const project = { id: "catalogue-row", name: "Project", slug: "project", path: directory };

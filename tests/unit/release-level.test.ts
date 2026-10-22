@@ -19,6 +19,7 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { spawnSync } from "node:child_process";
 import { decideLevel, levelOf, messagesSinceLastRelease } from "../../scripts/release-level";
+import { gitEnv } from "../setup/bun-test-preload";
 
 const ROOT = resolve(import.meta.dir, "../..");
 
@@ -71,7 +72,7 @@ describe("messagesSinceLastRelease: only what the last release did not ship", ()
     const dir = mkdtempSync(join(tmpdir(), "release-level-"));
     dirs.push(dir);
     const git = (...args: string[]) => {
-      const r = spawnSync("git", ["-c", "user.name=t", "-c", "user.email=t@example.invalid", ...args], { cwd: dir, encoding: "utf8" });
+      const r = spawnSync("git", ["-c", "user.name=t", "-c", "user.email=t@example.invalid", ...args], { env: gitEnv(), cwd: dir, encoding: "utf8" });
       if (r.status !== 0) throw new Error(r.stderr);
     };
     git("init", "-q");

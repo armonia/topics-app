@@ -7,6 +7,7 @@ import { readFileSync, statSync } from "fs";
 import { homedir } from "os";
 import { resolve, join } from "path";
 import { filtraTermini } from "./no-personal-data-tracked.test";
+import { gitEnv } from "../setup/bun-test-preload";
 
 /**
  * Nessun file tracciato contiene il percorso della home di chi lo committa.
@@ -56,7 +57,7 @@ const ESENTI = new Set<string>([
 ]);
 
 function tracciati(): string[] {
-  const out = execFileSync("git", ["ls-files", "-z"], { cwd: ROOT, encoding: "utf8", maxBuffer: 64 * 1024 * 1024 });
+  const out = execFileSync("git", ["ls-files", "-z"], { env: gitEnv(), cwd: ROOT, encoding: "utf8", maxBuffer: 64 * 1024 * 1024 });
   return out.split("\0").filter((p) => p.length > 0 && TESTABILE.test(p) && !ESENTI.has(p));
 }
 

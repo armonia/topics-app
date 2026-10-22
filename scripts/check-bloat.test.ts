@@ -16,6 +16,7 @@ import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "fs"
 import { spawnSync } from "child_process";
 import { tmpdir } from "os";
 import { join, resolve, dirname } from "path";
+import { gitEnv } from "../tests/setup/bun-test-preload";
 
 const SCRIPT = resolve(import.meta.dir, "check-bloat.ts");
 const dirs: string[] = [];
@@ -33,9 +34,9 @@ function repo(files: Record<string, string>): string {
     mkdirSync(dirname(abs), { recursive: true });
     writeFileSync(abs, body, "utf-8");
   }
-  const init = spawnSync("git", ["-C", dir, "init", "-q"], { encoding: "utf-8" });
+  const init = spawnSync("git", ["-C", dir, "init", "-q"], { env: gitEnv(), encoding: "utf-8" });
   expect(init.status).toBe(0);
-  const add = spawnSync("git", ["-C", dir, "add", "-A"], { encoding: "utf-8" });
+  const add = spawnSync("git", ["-C", dir, "add", "-A"], { env: gitEnv(), encoding: "utf-8" });
   expect(add.status).toBe(0);
   return dir;
 }
@@ -202,7 +203,7 @@ function mergeFile(base: string, ours: string, theirs: string): { conflicts: num
   writeFileSync(join(dir, "base"), base);
   writeFileSync(join(dir, "ours"), ours);
   writeFileSync(join(dir, "theirs"), theirs);
-  const res = spawnSync("git", ["merge-file", "-p", join(dir, "ours"), join(dir, "base"), join(dir, "theirs")], { encoding: "utf-8" });
+  const res = spawnSync("git", ["merge-file", "-p", join(dir, "ours"), join(dir, "base"), join(dir, "theirs")], { env: gitEnv(), encoding: "utf-8" });
   return { conflicts: res.status ?? -1, merged: res.stdout };
 }
 

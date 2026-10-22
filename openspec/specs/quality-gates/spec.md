@@ -824,3 +824,33 @@ vedrebbe un export in più.
 #### Scenario: i pezzi girano davvero insieme
 - **GIVEN** due comandi che dormono 1 s ciascuno
 - **THEN** il totale SHALL essere ben sotto i 2 s
+
+### Requirement: GATE-20 — Un lavoro launchd si committa come modello, mai come plist pronto
+
+Un file sotto `scripts/launchd/` SHALL essere un modello con segnaposto
+(`.plist.in`, con `__HOME__`, `__REPO__`, `__BUN__`, `__LOG__`) e NON SHALL
+contenere un letterale `/Users/<nome>/` o `/home/<nome>/`. Il plist vero lo
+scrive `scripts/install-db-snapshot.ts` sulla macchina che lo installa, e non
+e' tracciato.
+
+Il motivo e' che il repo e' pubblico e un plist concreto deve per forza
+scrivere percorsi assoluti — `WorkingDirectory`, `HOME`, l'interprete, i log —
+cioe' la home e il nome utente di chi l'ha installato. Il 22/10/2026 uno ci e'
+finito per davvero (PR #405, sei occorrenze) e la CI e' rimasta verde: i due
+cancelli che cercano un percorso di home cercano la home **di chi esegue**, e
+su un runner di CI non e' di nessuno. Il controllo SHALL quindi essere indipendente da
+chi lo lancia.
+
+#### Scenario: un plist concreto con la home di una persona
+- **GIVEN** un file tracciato in `scripts/launchd/` con `/Users/qualcuno/Projects/...`
+- **WHEN** gira il cancello
+- **THEN** SHALL essere rosso su qualunque macchina, runner compreso
+
+#### Scenario: il modello con i segnaposto
+- **GIVEN** `com.armonia.topics-db-snapshot.plist.in` con `__REPO__` e `__HOME__`
+- **THEN** SHALL essere verde
+- **AND** `bun scripts/install-db-snapshot.ts --print` SHALL riempirli tutti
+
+#### Scenario: un percorso di sistema non e' quello di una persona
+- **GIVEN** `<string>/usr/bin:/bin:/opt/homebrew/bin</string>`
+- **THEN** SHALL essere verde
