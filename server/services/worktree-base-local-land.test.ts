@@ -58,13 +58,13 @@ describe("la base di una card nasce dove il land fonde", () => {
   });
 
   test("dopo un land non pubblicato si nasce dal main LOCALE, e la card seguente vede il land", async () => {
-    // Card A: lavora su un ramo suo e atterra sul main locale. Nessun push.
+    // Card A: works on a branch of its own and lands on the local main. No push.
     git(work, "checkout", "-b", "topics/card-a");
     const shaA = commit(work, "contested.txt", "A\n", "card A");
     git(work, "checkout", "main");
     git(work, "merge", "--no-ff", "--no-edit", "topics/card-a");
 
-    // origin/main non si è mosso: il main locale è avanti.
+    // `origin/main` has not moved: the local main is ahead.
     expect(git(work, "rev-list", "--count", "origin/main..main")).not.toBe("0");
 
     const base = await resolveWorktreeBaseRef(work);
@@ -72,20 +72,20 @@ describe("la base di una card nasce dove il land fonde", () => {
     expect(base.fallback).toBe(false);
     expect(base.reason).toContain("land non pubblicati");
 
-    // E' questo che spezza il giro: la card B nasce CON dentro il lavoro di A.
+    // This is what breaks the loop: card B is born WITH A's work inside it.
     git(work, "worktree", "add", "-b", "topics/card-b", join(root, "wt-b"), base.baseRef);
     const wtB = join(root, "wt-b");
     expect(git(wtB, "merge-base", "--is-ancestor", shaA, "HEAD") === "").toBe(true);
 
-    // B tocca lo stesso file di A e il suo land NON fa conflitto.
+    // B touches the same file as A and its land does NOT conflict.
     commit(wtB, "contested.txt", "A\nB\n", "card B");
     git(work, "merge", "--no-ff", "--no-edit", "topics/card-b");
     expect(git(work, "rev-list", "--count", "main..topics/card-b")).toBe("0");
   });
 
   test("nata da origin/main, la stessa card B avrebbe fatto conflitto", () => {
-    // Il controfattuale, sullo stesso repo: e' il motivo per cui la base non
-    // puo' essere `origin/main` quando il main locale e' avanti.
+    // The counterfactual, on the same repo: this is why the base cannot be
+    // `origin/main` while the local main is ahead.
     git(work, "worktree", "add", "-b", "topics/card-c", join(root, "wt-c"), "origin/main");
     const wtC = join(root, "wt-c");
     commit(wtC, "contested.txt", "C\n", "card C da origin/main");
