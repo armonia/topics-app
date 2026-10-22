@@ -51,12 +51,37 @@ function git(...args: string[]): string {
   }
 }
 
+/** A guard that cannot measure must not let the push through: for this script
+ *  `""` from a failed `git` would mean "no dirty commits", i.e. it would fail
+ *  OPEN, which is the one direction a guard may never fail. */
+const cannotMeasure: string[] = [];
+
+function gitMeasure(...args: string[]): string {
+  try {
+    return execFileSync("git", args, { cwd: ROOT, encoding: "utf8", maxBuffer: 64 * 1024 * 1024 });
+  } catch (error) {
+    const raw = (error as { stderr?: string | Buffer }).stderr?.toString() ?? String(error);
+    let first = raw.split("\n")[0] ?? "";
+    // The names are the one thing a guard must never print.
+    for (const term of terms) first = first.split(term).join("«termine»");
+    cannotMeasure.push(`git ${args[0]} ${args[1]}: ${first}`);
+    return "";
+  }
+}
+
 /** Commits carrying `term`, in content or in the message. Both questions matter:
  *  a name written in a commit message touches no blob, so `-S` alone never sees
- *  it (measured during the real rewrite: 15 messages survived a `-S`-clean run). */
+ *  it (measured during the real rewrite: 15 messages survived a `-S`-clean run).
+ *
+ *  `-F` is not decoration: `--grep` is a REGEX, so a term carrying `[`, `(` or
+ *  `.` matched NOTHING in the messages and the guard exited 0 on a commit whose
+ *  message held the name. Measured 22/10/2026 with `Acme [Milano] srl`: 0 hits
+ *  without `-F`, 1 with it. `-S` is a fixed string already. The trailing `--`
+ *  closes the rev list, so a path spelled like a ref cannot turn the whole
+ *  question into a fatal that `git()` would have swallowed into zero. */
 function hits(term: string, range: string[]): string[] {
-  const content = git("log", "--format=%H", "-S", term, ...range);
-  const message = git("log", "--format=%H", "--grep", term, ...range);
+  const content = gitMeasure("log", "--format=%H", "-S", term, ...range, "--");
+  const message = gitMeasure("log", "--format=%H", "-F", "--grep", term, ...range, "--");
   return [...new Set([...content.split("\n"), ...message.split("\n")].filter(Boolean))];
 }
 
@@ -113,18 +138,36 @@ for (const { label, range } of work) {
 }
 
 if (dirty > 0) {
+  // Two different causes, and the old text asserted only one of them: a branch
+  // that descends from the pre-21/08 history, and a commit written TODAY that
+  // simply contains the term (which is the normal case for a forward-only
+  // term). Telling someone to rebase onto main when they just typed the name
+  // five minutes ago sends them to fix the wrong thing, and leaves
+  // `--no-verify` — which disables the guard for every term in that push — as
+  // the only remedy that seems to apply.
   console.error(`
-Il push e' fermo. Questo ramo discende dalla storia PRIMA della riscrittura del
-21/08: pubblicarlo rimette i nomi su un repo pubblico, indipendentemente da
-com'e' l'albero di oggi.
+Il push e' fermo: pubblicherebbe dei commit che contengono un nome dell'elenco,
+indipendentemente da com'e' l'albero di oggi.
 
-Come uscirne, in ordine di preferenza:
-  1. rifai il lavoro sopra la storia nuova:
+Se il nome l'hai scritto TU in questi commit (contenuto o messaggio):
+  1. toglilo e riscrivi i commit:  git rebase -i origin/main   (reword/edit)
+
+Se il ramo discende dalla storia PRIMA della riscrittura del 21/08:
+  2. rifai il lavoro sopra la storia nuova:
        git rebase --onto origin/main $(git merge-base HEAD origin/main) HEAD
-  2. se il ramo e' gia' landato, cancellalo invece di pubblicarlo
-  3. se sai cosa stai facendo:  git push --no-verify
+  3. se il ramo e' gia' landato, cancellalo invece di pubblicarlo
+
+  4. ultima spiaggia, e vale per TUTTI i termini di questo push:
+       git push --no-verify
 
 L'elenco dei nomi sta in ${personalTermsPath(ROOT)} (non tracciato).`);
+  process.exit(1);
+}
+if (cannotMeasure.length > 0) {
+  // Fail closed: nothing was found, but nothing was looked at either.
+  console.error("\n✗ il controllo non ha potuto misurare, quindi il push e' fermo:");
+  for (const why of [...new Set(cannotMeasure)]) console.error(`    ${why}`);
+  console.error("  se sai cosa stai facendo:  git push --no-verify");
   process.exit(1);
 }
 process.exit(0);

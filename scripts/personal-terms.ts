@@ -38,6 +38,12 @@
  * PR #405 with nothing looking for it. One tier meant the choice was "red
  * forever" or "unguarded", and unguarded always won.
  *
+ * The marker is a prefix and not a section header because the file grows at the
+ * end, and a positional header breaks on the first term appended after it. Two
+ * limits come with that choice and are deliberate: a term that itself begins
+ * with `>` cannot be written (no name or path does), and `>` alone is dropped
+ * like any empty line.
+ *
  * The two gates read the same list and ask different questions of it, so the
  * marker lands in only one of them: `scrub-history.ts --check` reports a
  * forward-only term as a known exposure with its count instead of failing,
