@@ -1060,9 +1060,12 @@ type BlockGroup =
  * risposta qualunque — osservato il 20/08: «Risveglio arrivato: …» apparso da
  * solo, con l'utente che ha dovuto domandare cosa fosse.
  *
- * Gemello di `TurnErrorBanner`: stessa forma, stesso posto (in cima alla bolla,
- * non nella cronologia), colore diverso. Blu e non ambra perché non è un
- * problema: è una consegna, ed è la cosa che si stava aspettando.
+ * Stessa forma di `TurnErrorBanner`, colore diverso: blu e non ambra perché
+ * non è un problema, è una consegna, ed è la cosa che si stava aspettando. Il
+ * POSTO però è l'opposto. Questo sta in cima, perché dice da dove viene una
+ * risposta che nessuno ha chiesto e va letto prima di leggerla; il verdetto
+ * d'errore sta in fondo, perché dice com'è finito un turno che prima va
+ * letto.
  */
 type WakeBlock = { kind: 'woken'; label?: string; source?: 'monitor' | 'task' | 'command'; text?: string; end?: string; exitCode?: number | null };
 
@@ -1438,7 +1441,6 @@ export const MessageContent = memo(function MessageContent({ content, role, thin
       <div data-testid="message-content-assistant">
         {ripreso && <RipresoBanner />}
         {woken.map((w, i) => <WokenBanner key={i} woken={w} />)}
-        {turnError && <TurnErrorBanner text={turnError} />}
         {turnFold ? (
           <>
             {turnFold.head.map(renderGroup)}
@@ -1455,6 +1457,16 @@ export const MessageContent = memo(function MessageContent({ content, role, thin
             <MediaRenderer path={path} isVoice={voicePaths.has(path)} isUserMessage={false} />
           </div>
         ))}
+
+        {/* COME E' FINITO IL TURNO, e quindi in fondo: si legge dopo quello che
+            l'agente ha prodotto, non prima. Sopra, un turno riuscito che
+            inciampa all'ultimo istante si apriva con la sua lapide, e chi
+            leggeva dava per perso un lavoro che era lì, intero, due righe più
+            giù (osservato il 22/10 su «Muse turn timed out after 30 minutes»).
+            I cartelli di arrivo (`RipresoBanner`, `WokenBanner`) restano in
+            cima: quelli dicono da dove viene una risposta che nessuno ha
+            chiesto, e vanno letti PRIMA di leggerla. */}
+        {turnError && <TurnErrorBanner text={turnError} />}
 
         {/* La striscia di chiusura non sta più qui. A messaggio finito vive
             nella riga che <MessageBubble> apre sotto la bolla, insieme all'ora
@@ -1475,7 +1487,6 @@ export const MessageContent = memo(function MessageContent({ content, role, thin
   return (
     <CommandRunContext.Provider value={runTarget}>
     <div data-testid="message-content-assistant">
-      {turnError && <TurnErrorBanner text={turnError} />}
       {(() => {
         // When there's no prose, the inline-tools-with-contentOffset path
         // would render NOTHING (it only fires inside `cleanText && ...`),
@@ -1533,6 +1544,9 @@ export const MessageContent = memo(function MessageContent({ content, role, thin
 
       {/* Media — rendered after content so images appear inline */}
       {allMediaPaths.map((path, i) => <div key={i} className="mb-2"><MediaRenderer path={path} isVoice={voicePaths.has(path)} isUserMessage={false} /></div>)}
+
+      {/* Il verdetto in fondo: vedi il ramo moderno sopra. */}
+      {turnError && <TurnErrorBanner text={turnError} />}
 
       {/* Vedi sopra: la striscia di chiusura è salita in <MessageBubble>, sulla
           riga dell'ora. */}

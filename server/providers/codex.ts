@@ -34,7 +34,7 @@ import type {
 import { probeBinaryPath } from "../utils/executable";
 import { detectUserInputRequest } from "./ask-user-detector";
 import { isHumanHold } from "../lib/human-hold";
-import { armTurnDeadline, type TurnDeadline } from "../lib/turn-deadline";
+import { armProviderTurnTimeout, PROVIDER_TURN_TIMEOUT_MS } from "../lib/turn-deadline";
 import { resolveCodexBin } from "../lib/codex-bin";
 import { resolveAppDataDir } from "../lib/data-dir";
 import { resolveCodexReasoningEffort } from "../lib/topics-agent-prompt";
@@ -76,36 +76,7 @@ export function codexTopicsMcpProfile(
 
 // ============ Constants ============
 
-const MESSAGE_TIMEOUT_MS = 30 * 60 * 1000; // 30 min
 export const KILL_GRACE_MS = 3_000;
-
-/**
- * The turn's 30-minute cap, with the person's time taken out: while a question
- * or a permission is open (`isHumanHold`) it rearms instead of killing, and the
- * turn gets a whole window again once it is answered. Same rule as every other
- * clock that can end a turn (HOLD-01).
- */
-export function armCodexTurnTimeout(opts: {
-  sessionKey: string;
-  onExpired: () => void;
-  ms?: number;
-  isHumanHold?: (sessionKey: string) => boolean;
-  setTimer?: (fn: () => void, ms: number) => unknown;
-  clearTimer?: (handle: unknown) => void;
-  now?: () => number;
-}): { clear: () => void } {
-  const held = opts.isHumanHold ?? isHumanHold;
-  const deadline: TurnDeadline = armTurnDeadline({
-    ms: opts.ms ?? MESSAGE_TIMEOUT_MS,
-    isWaitingForHuman: () => held(opts.sessionKey),
-    onRearm: () => deadline.noteActivity(),
-    onExpired: opts.onExpired,
-    ...(opts.setTimer ? { setTimer: opts.setTimer } : {}),
-    ...(opts.clearTimer ? { clearTimer: opts.clearTimer } : {}),
-    ...(opts.now ? { now: opts.now } : {}),
-  });
-  return { clear: () => deadline.clear() };
-}
 
 const ENV_ALLOWLIST = new Set([
   "PATH", "HOME", "TERM", "LANG", "LC_ALL", "LC_CTYPE",
@@ -695,10 +666,27 @@ export class CodexProvider implements AIProvider {
     this.activeChildren.set(sessionKey, child);
     this.sessionState.set(sessionKey, turnState);
 
+    const timeout = armProviderTurnTimeout({
+      sessionKey,
+      isHumanHold,
+      onExpired: () => {
+        try { child.kill("SIGTERM"); } catch {}
+        handler.onError("Codex turn timed out after 30 minutes");
+        // SIGKILL fallback if it ignores SIGTERM, so the close handler runs and
+        // we don't leak an orphan child. Mirrors abort()'s grace-window guard.
+        setTimeout(() => {
+          if (this.activeChildren.get(sessionKey) === child) {
+            try { child.kill("SIGKILL"); } catch {}
+          }
+        }, KILL_GRACE_MS);
+      },
+    });
+
     let fullText = "";
     const rl = createInterface({ input: child.stdout! });
 
     rl.on("line", (line: string) => {
+      timeout.noteActivity();
       const trimmed = line.trim();
       if (!trimmed) return;
 
@@ -715,23 +703,9 @@ export class CodexProvider implements AIProvider {
 
     let stderrBuf = "";
     child.stderr!.on("data", (d: Buffer) => {
+      timeout.noteActivity();
       stderrBuf += d.toString();
       if (stderrBuf.length > 4096) stderrBuf = stderrBuf.slice(-4096);
-    });
-
-    const timeout = armCodexTurnTimeout({
-      sessionKey,
-      onExpired: () => {
-        try { child.kill("SIGTERM"); } catch {}
-        handler.onError("Codex turn timed out after 30 minutes");
-        // SIGKILL fallback if it ignores SIGTERM, so the close handler runs and
-        // we don't leak an orphan child. Mirrors abort()'s grace-window guard.
-        setTimeout(() => {
-          if (this.activeChildren.get(sessionKey) === child) {
-            try { child.kill("SIGKILL"); } catch {}
-          }
-        }, KILL_GRACE_MS);
-      },
     });
 
     child.on("close", (code) => {
@@ -1181,7 +1155,7 @@ export class CodexProvider implements AIProvider {
             if (ownedGroup && child.pid) process.kill(-child.pid, "SIGKILL");
             else child.kill("SIGKILL");
           } catch { /* The process may already have closed. */ }
-        }, Math.min(MESSAGE_TIMEOUT_MS, Math.max(1, options?.timeoutMs ?? MESSAGE_TIMEOUT_MS)));
+        }, Math.min(PROVIDER_TURN_TIMEOUT_MS, Math.max(1, options?.timeoutMs ?? PROVIDER_TURN_TIMEOUT_MS)));
 
         child.on("close", (code) => {
           clearTimeout(timer);

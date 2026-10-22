@@ -101,3 +101,47 @@ export function armTurnDeadline(opts: TurnDeadlineOptions): TurnDeadline {
     noteActivity: () => { lastActivityAt = now(); },
   };
 }
+
+/**
+ * A command-line provider's turn cap: thirty minutes of SILENCE, not thirty
+ * minutes on the clock.
+ *
+ * Muse and Codex kept one copy each, identical byte for byte but the name, and
+ * neither returned `noteActivity`: the stream had no way to say "I am working",
+ * so the cap went back to measuring duration. A turn that spoke every minute
+ * for half an hour was killed anyway, which is exactly the defect this file's
+ * header recounts for August 2026, back in through the window of a wrapper that
+ * hid the signal. One copy cannot lose it again.
+ *
+ * Callers call `noteActivity()` on every line that arrives from the process,
+ * stderr included: it is an assignment, not a new timer.
+ *
+ * `isHumanHold` is passed in, not imported, so this module stays pure: its test
+ * runs in milliseconds without touching the DB.
+ */
+export const PROVIDER_TURN_TIMEOUT_MS = 30 * 60 * 1000;
+
+export interface ProviderTurnTimeoutOptions {
+  /** Whose turn it is: needed to know whether a question is on screen. */
+  sessionKey: string;
+  onExpired: () => void;
+  /** How much silence is tolerated. Defaults to `PROVIDER_TURN_TIMEOUT_MS`. */
+  ms?: number;
+  isHumanHold: (sessionKey: string) => boolean;
+  setTimer?: (fn: () => void, ms: number) => unknown;
+  clearTimer?: (handle: unknown) => void;
+  now?: () => number;
+}
+
+export function armProviderTurnTimeout(opts: ProviderTurnTimeoutOptions): TurnDeadline {
+  const deadline: TurnDeadline = armTurnDeadline({
+    ms: opts.ms ?? PROVIDER_TURN_TIMEOUT_MS,
+    isWaitingForHuman: () => opts.isHumanHold(opts.sessionKey),
+    onRearm: () => deadline.noteActivity(),
+    onExpired: opts.onExpired,
+    ...(opts.setTimer ? { setTimer: opts.setTimer } : {}),
+    ...(opts.clearTimer ? { clearTimer: opts.clearTimer } : {}),
+    ...(opts.now ? { now: opts.now } : {}),
+  });
+  return deadline;
+}

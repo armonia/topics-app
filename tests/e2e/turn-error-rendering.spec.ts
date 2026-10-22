@@ -210,4 +210,41 @@ test.describe.serial("Il verdetto di un turno finito male", () => {
     // vera la promessa «il tuo messaggio è ancora qui».
     await expect(page.locator('[data-testid="message-retry"]').last()).toBeVisible();
   });
+
+  /**
+   * WHERE the verdict is read, which is not a matter of taste.
+   *
+   * On 22/10 a Muse session stopped and the banner appeared ABOVE a complete
+   * answer: the first thing you read was the tombstone, and the work, whole,
+   * two lines below, looked like the wrong thing. First what the agent
+   * produced, then how it ended.
+   */
+  test("the verdict reads BELOW the turn, not above", async ({ page, request }) => {
+    await seedMessage(request, { sessionKey, role: "user", content: "e l'ordine?" });
+    await seedMessage(request, {
+      sessionKey,
+      role: "assistant",
+      content: PROSA,
+      blocks: [
+        { kind: "text", text: PROSA },
+        { kind: "error", text: "Muse turn timed out after 30 minutes" },
+      ],
+    });
+
+    await goToApp(page);
+    await openTopic(page, topicName);
+
+    const bolla = page.locator('[data-testid="message-content-assistant"]').last();
+    await expect(bolla.locator('[data-testid="turn-error"]')).toBeVisible();
+    await expect(bolla).toContainText("rifare a shader");
+
+    // Document order, not pixels: it survives a spacing change.
+    const order = await bolla.evaluate((el) => {
+      const verdict = el.querySelector('[data-testid="turn-error"]');
+      const prose = el.querySelector(".prose");
+      if (!verdict || !prose) return verdict ? "no prose" : "no verdict";
+      return prose.compareDocumentPosition(verdict) & Node.DOCUMENT_POSITION_FOLLOWING ? "below" : "above";
+    });
+    expect(order).toBe("below");
+  });
 });

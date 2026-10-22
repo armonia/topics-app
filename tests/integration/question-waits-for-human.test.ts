@@ -39,7 +39,7 @@ import { ClaudeCodeProvider, turnWatchdogDecision } from "../../server/providers
 import { armStallDetector } from "../../server/lib/stall-detector";
 import { decidePark } from "../../server/lib/terminal-idle-park";
 import { runWithDelegatedDeadline } from "../../server/services/task-dispatcher-delegated";
-import { armCodexTurnTimeout } from "../../server/providers/codex";
+import { armProviderTurnTimeout } from "../../server/lib/turn-deadline";
 import { sessionHasOpenQuestion } from "../../server/lib/question-outlives-asker";
 import {
   ctx, modelReceived, HOUR, QUESTION, QUESTIONS, askOnRow, storedCall, bootServer, machineTurnInFlight, until, receivedBy,
@@ -326,7 +326,7 @@ describe("every killer on the map skips a turn waiting on a question", () => {
     const t = fakeTimers();
     let held = true;
     let expired = 0;
-    const cap = armCodexTurnTimeout({
+    const cap = armProviderTurnTimeout({
       sessionKey: "killer:codex", ms: 30 * 60_000, isHumanHold: () => held,
       onExpired: () => { expired++; }, now: t.now, setTimer: t.setTimer, clearTimer: t.clearTimer,
     });

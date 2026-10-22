@@ -17,7 +17,7 @@
  * ── La regola ───────────────────────────────────────────────────────────────
  * Il verdetto va nei BLOCCHI, che sono ciò che il client disegna, e non tocca
  * `content`: la prosa già scritta è lavoro dell'agente e resta sua. Il blocco
- * `error` si rende in cima alla bolla (`ContentBlock`, `shared/types.ts`) ed è
+ * `error` si rende IN FONDO alla bolla (`ContentBlock`, `shared/types.ts`) ed è
  * la stessa strada che `finalizeStream` usa sul cammino vivo — qui si ripara
  * ciò che quel cammino non ha fatto in tempo a scrivere, perché il processo era
  * già uscito.
