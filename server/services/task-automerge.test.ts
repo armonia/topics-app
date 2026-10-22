@@ -849,7 +849,7 @@ describe("landFallout — un land fallito non lascia la card in Done", () => {
     for (const code of ["unisolable", "foreign-commits"] as LandSkipCode[]) {
       const f = landFallout(code);
       expect(f.status).toBe("in_progress");
-      expect(f.resume).toContain("git rebase origin/main");
+      expect(f.resume).toContain("git rebase main");
       // Il merge di main dentro il ramo NON toglie il problema: tre card ci
       // sono rimaste incastrate quando l'istruzione lo suggeriva.
       expect(f.resume).not.toContain("git merge main");

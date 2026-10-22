@@ -154,7 +154,8 @@ export interface LandFallout {
 const REBASE_INSTRUCTION =
   "Il land del tuo branch su main non è riuscito: dal ramo non si riesce a isolare il lavoro di questa card " +
   "(porta anche commit che non sono suoi, o non se ne distingue nessuno). Rifai la BASE del tuo ramo sul main " +
-  "aggiornato (`git fetch origin main`, poi `git rebase origin/main`), NON un merge di main dentro il ramo: dopo la rebase " +
+  "aggiornato (`git rebase main`: il tronco è il main LOCALE, perché è lì che il land fonde, e il land ci porta " +
+  "dentro `origin/main` da solo prima di toccare il tuo ramo), NON un merge di main dentro il ramo: dopo la rebase " +
   "il ramo deve portare SOLO i tuoi commit. Poi rimetti in review con update_task(status=\"review\"). " +
   "Resta vietato toccare main: niente push, niente merge verso main.";
 

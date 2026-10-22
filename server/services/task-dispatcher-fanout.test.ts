@@ -224,7 +224,7 @@ describe("task-dispatcher fan-out", () => {
     // ("nessun rebase su main") vietava anche il gesto che RISOLVE il conflitto
     // di land, e tre card in un pomeriggio ci sono rimaste incastrate.
     expect(k).toContain("DO NOT TOUCH main");
-    expect(k).toContain("git rebase origin/main");
+    expect(k).toContain("git rebase main");
     expect(k).not.toContain("no rebase");
     // Il contratto normale ("sei l'owner, porta in review") NON deve comparire:
     // due contratti opposti nello stesso prompt = il modello ne sceglie uno a caso.

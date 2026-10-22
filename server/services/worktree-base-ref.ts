@@ -15,8 +15,18 @@
  * Moving to the local `main` only moved the problem: nobody updates it, and on
  * 21/10 it was 646 commits behind (and 6 ahead, a land never published). Card
  * branches were born from stale bases and `land-drags-foreign-commits` fired on
- * healthy cards. The right base is what is PUBLISHED, that is `origin/main`,
+ * healthy cards. The base is therefore what is PUBLISHED, `origin/main`,
  * brought forward by a fetch before every birth.
+ *
+ * WITH ONE EXCEPTION, and it is the whole reason this file is not three lines:
+ * the land writes to the LOCAL main and never pushes. So the moment card A
+ * lands, the local main carries work `origin/main` does not have. A card B born
+ * from `origin/main` then cannot see A, its land collides with A, and the only
+ * repair anybody can suggest — rebase onto the trunk — does nothing, because B
+ * is already based on it. The card bounces between review and land forever.
+ * When the local main is AHEAD, it is the trunk: it is where the land merges,
+ * and it already contains `origin/main` (the land brings it in first, see
+ * `syncLandingBase` in task-automerge.ts).
  *
  * THE FETCH IS BOUNDED (that one ref, `--no-tags`, the runner's deadline) and
  * its failure does NOT block the dispatch: if `origin/main` already exists
@@ -73,6 +83,25 @@ export async function fetchRemoteBase(
 }
 
 /**
+ * The trunk a card is born from and lands on.
+ *
+ * `origin/<branch>` when the local branch has nothing of its own, the LOCAL
+ * branch when it carries lands nobody published yet. Returns `null` when there
+ * is no remote copy at all: then the caller falls back on its own.
+ */
+export async function resolveTrunkRef(
+  run: GitRunner,
+  repoPath: string,
+  branch: string,
+): Promise<{ ref: string | null; fetchError: string; localAhead: number }> {
+  const { ref: remote, fetchError } = await fetchRemoteBase(run, repoPath, branch);
+  if (!remote) return { ref: null, fetchError, localAhead: 0 };
+  const ahead = await run(repoPath, ["rev-list", "--count", `${remote}..${branch}`]);
+  const localAhead = ahead.code === 0 ? Number.parseInt(ahead.stdout.trim(), 10) || 0 : 0;
+  return { ref: localAhead > 0 ? branch : remote, fetchError, localAhead };
+}
+
+/**
  * `repoPath` may be missing (project with no known path): with no repo to ask,
  * we cannot claim the remote exists, and the answer is the fallback.
  *
@@ -85,8 +114,13 @@ export async function resolveWorktreeBaseRef(
 ): Promise<WorktreeBaseRef> {
   const mainRef = opts.mainRef ?? "main";
   if (!repoPath) return { baseRef: "HEAD", fallback: true, reason: "progetto senza path di repo" };
-  const { ref, fetchError } = await fetchRemoteBase(opts.runGit ?? defaultRunGit, repoPath, mainRef);
+  const { ref, fetchError, localAhead } = await resolveTrunkRef(opts.runGit ?? defaultRunGit, repoPath, mainRef);
   const why = fetchError ? `fetch di 'origin/${mainRef}' fallito (${fetchError})` : "";
-  if (ref) return { baseRef: ref, fallback: false, reason: why && `${why}: base dalla copia locale` };
+  if (ref) {
+    const ahead = localAhead > 0
+      ? `'${mainRef}' locale è avanti di ${localAhead} commit su origin (land non pubblicati): la base è quello`
+      : "";
+    return { baseRef: ref, fallback: false, reason: [why && `${why}: base dalla copia locale`, ahead].filter(Boolean).join("; ") };
+  }
   return { baseRef: "HEAD", fallback: true, reason: why || `nessun 'origin/${mainRef}'` };
 }

@@ -365,7 +365,7 @@ queste regole.
      Poi: tocca `client/` → rebuild bundle; `server/`/`server.ts` → live al reload;
      `desktop-tauri/` → serve rebuild+relaunch; a merge fatto → reap del worktree;
      **conflitto** → torna all'agente, che rifà la BASE del suo ramo sul main
-     aggiornato (`git fetch origin main`, poi `git rebase origin/main`) — NON un merge di main dentro il ramo — e
+     aggiornato (`git rebase main`, sul main LOCALE: è lì che il land fonde) — NON un merge di main dentro il ramo — e
      rimette in review. Il divieto «non toccare main» resta (niente push, niente
      merge VERSO main): rifare la base del PROPRIO ramo non lo viola.
    - **Pubblica** (andare online) → push del branch → deploy CI. SEMPRE separato,
