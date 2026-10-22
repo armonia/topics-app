@@ -49,8 +49,8 @@ prioritario. Mancano cinque pezzi, ognuno con un fallimento nominabile.
 5. `person_id` e `device_id` con FK su `activity_log`, scritti negli otto punti
    dove si decide qualcosa: grant dato, grant revocato, link creato, link
    aperto, agente avviato da un ospite, strumento approvato.
-6. Il testimone sul turno, se la decisione 2 del proposal va in quel senso: un
-   solo scrittore per volta e passaggio esplicito.
+6. Il testimone sul turno, deciso il 22/10: un
+   solo scrittore per volta e passaggio esplicito, con il passaggio visibile.
 
 ## Barra
 

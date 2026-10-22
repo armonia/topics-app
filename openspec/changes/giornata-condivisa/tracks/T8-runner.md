@@ -27,6 +27,10 @@ dispatcher non lo conosce.
 1. `runner` come concetto del dispatcher: `locale | pc | cloud`, scelto per card
    o per policy di board. L'ACP provider e' gia' un processo con N sessioni
    persistite su disco: e' la base giusta per il trasporto.
+   **Ordine deciso il 22/10: prima `pc`, poi `cloud`.** `offload` sa gia'
+   scegliere fra Mac e PC e il PC e' pagato; il cloud ha un costo per giro e
+   oggi il credito resta sotto la riserva di 50 $ per account. Il trasporto si
+   scrive una volta per entrambi, ma si prova sul PC.
 2. I sette freni si riducono a due leggibili: un budget unico in core-unita' e
    GB con il costo **misurato** per card, e un pavimento di sicurezza calcolato
    da `totale meno la RAM del lavoro umano misurata`, non come costante.

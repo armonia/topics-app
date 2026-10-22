@@ -6,34 +6,22 @@ Successore di `daily-driver`, che ha chiuso il suo arco: D0-D7 hanno 45 report s
 chi lo sviluppa». Questo punta al gradino dopo: **altre persone, altri
 dispositivi, e un mantainer che non deve essere in piedi.**
 
-## Da decidere
+## Deciso dal proprietario, 22/10/2026
 
-Quattro bivi che cambiano il lavoro. Il resto lo decido io ed e' in «Deciso da me».
+Le quattro risposte stanno anche in `.openspec.yaml`.
 
-1. **Cosa vuol dire «condiviso»: persone vere o soli miei dispositivi.**
-   - *Consigliata: persone vere, a scaglioni.* Le fondamenta sono quasi finite
-     (`device-auth` 19/20, `sharing-orgs` 29/30, `relay` 18/24) e il mercato si
-     e' mosso in tre mesi: Kylon mette gli account dei colleghi in canali
-     condivisi, Slack Code apre un canale su cui chiunque interviene. Fermarsi ai
-     dispositivi butta via lavoro gia' pagato.
-   - *Alternativa:* solo multi-dispositivo di una persona. Costa 2 tracce invece
-     di 5 e non tocca dati di persone vere.
-2. **Se un ospite puo' scrivere in una pane viva di qualcun altro.**
-   - *Consigliata: si', con il testimone.* Un solo scrittore per volta e
-     passaggio esplicito. E' la cosa che oggi manda l'ospite su WhatsApp a
-     chiedere di digitare al posto suo.
-   - *Alternativa:* l'ospite legge e commenta, non scrive. Zero rischio di due
-     mani sullo stesso turno.
-3. **Dove gira un agente che non e' questo Mac.**
-   - *Consigliata: il PC Windows prima, il cloud dopo.* `offload` esiste gia' e
-     il PC e' pagato. Il cloud ha un costo per giro e la riserva di 50 $ per
-     account vale ancora.
-   - *Alternativa:* solo cloud, piu' semplice da modellare e pagato a consumo.
-4. **VirtuosoMessageList, 168 $/anno per posto.**
-   - *Consigliata: provarlo 30 giorni in dev, poi decidere sul numero.* La prova
-     e' gratuita e cancella codice: 2.490 righe di `MessageList.tsx` rifanno a
-     mano l'ancoraggio dello scroll che quel componente dichiara.
-   - *Alternativa:* non si compra, si tiene il codice a mano.
+1. **Condiviso vuol dire persone vere, a scaglioni.** Le fondamenta erano quasi
+   finite (`device-auth` 19/20, `sharing-orgs` 29/30, `relay` 18/24) e fermarsi
+   ai dispositivi le avrebbe buttate. T7 vale cinque tracce e tocca dati di
+   persone vere.
+2. **Un ospite puo' scrivere in una pane viva, con il testimone.** Un solo
+   scrittore per volta e passaggio esplicito. Il trasporto esiste gia': il
+   lavoro e' il lucchetto sul turno.
+3. **Il PC Windows prima, il cloud dopo.** `offload` sa gia' scegliere e il PC
+   e' pagato; il cloud resta sotto la riserva di 50 $ per account.
+4. **VirtuosoMessageList non si compra.** T9 chiude gli altri quattro buchi
+   dell'istantaneita' senza toccare la lista, e le 2.490 righe di
+   `MessageList.tsx` restano codice nostro.
 
 ## Perche'
 

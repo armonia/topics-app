@@ -56,5 +56,5 @@ conflitto finche' il dizionario non si divide.
 
 ## Fuori
 
-VirtuosoMessageList, finche' la decisione 4 del proposal non e' presa: e' una
-spesa, 168 $/anno per posto.
+VirtuosoMessageList. Deciso il 22/10: non si compra, quindi le 2.490 righe di
+`MessageList.tsx` restano codice nostro e non sono un lavoro di questa traccia.
