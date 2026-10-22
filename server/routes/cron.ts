@@ -10,6 +10,22 @@ export type GatewayCallResult =
 export type GatewayCall = (method: string, params: Record<string, unknown>) => Promise<GatewayCallResult>;
 
 /**
+ * The gateway WebSocket URL the CLI must resolve to, from Topics' GATEWAY_URL.
+ * `--expect-url` compares strings, so `localhost` is spelled the way the CLI
+ * spells its own loopback default.
+ */
+export function gatewayWsUrl(gatewayUrl: string): string | null {
+  try {
+    const u = new URL(gatewayUrl);
+    u.protocol = u.protocol === "https:" ? "wss:" : "ws:";
+    if (u.hostname === "localhost") u.hostname = "127.0.0.1";
+    return `${u.protocol}//${u.host}`;
+  } catch {
+    return null;
+  }
+}
+
+/**
  * One gateway RPC through the OpenClaw CLI (`openclaw gateway call`).
  *
  * Not `POST /tools/invoke`: OpenClaw denies the scheduler tool on that HTTP
@@ -17,21 +33,25 @@ export type GatewayCall = (method: string, params: Record<string, unknown>) => P
  * `cron` is its alias), so every call answered 404 "Tool not available". Not
  * Topics' own WebSocket client either: it exists only with the OpenClaw
  * provider and speaks a protocol version the gateway may have moved past. The
- * CLI ships with the gateway, resolves the gateway token itself (Keychain
- * SecretRef included) and talks to the gateway its own config points at, so no
- * token passes through Topics and nothing leaks into argv.
+ * CLI ships with the gateway and resolves the gateway token itself (Keychain
+ * SecretRef included), so no token passes through Topics or into argv.
+ * `--expect-url` makes it refuse when its own config points at a different
+ * gateway than Topics' GATEWAY_URL, instead of acting on the wrong one.
  *
- * Failure shape, measured on 2026.10.5: exit 1 and `{ok:false, error:{code,
+ * Failure shape, measured on 2026.10.5: exit 1 and `{ok:false, error:{code?,
  * message}}` on stdout. `INVALID_REQUEST` (unknown job id, bad patch) maps to
- * 400; anything else is the gateway being unreachable or broken, 502.
+ * 400; anything else (unreachable gateway, URL mismatch) is 502.
  */
 export async function openclawGatewayCall(
   method: string,
   params: Record<string, unknown>,
-  bin: string | null = Bun.which("openclaw", { PATH: augmentPath() }),
+  opts: { bin?: string | null; expectUrl?: string | null } = {},
 ): Promise<GatewayCallResult> {
+  const bin = opts.bin === undefined ? Bun.which("openclaw", { PATH: augmentPath() }) : opts.bin;
   if (!bin) return { ok: false, status: 502, message: "openclaw CLI not found on PATH" };
-  const r = await runBounded([bin, "gateway", "call", method, "--params", JSON.stringify(params), "--json"], {
+  const argv = [bin, "gateway", "call", method, "--params", JSON.stringify(params), "--json"];
+  if (opts.expectUrl) argv.push("--expect-url", opts.expectUrl);
+  const r = await runBounded(argv, {
     env: { ...withoutGatewayToken(), PATH: augmentPath() },
     stderr: "pipe",
     timeoutMs: SPAWN_TIMEOUT.query,
@@ -43,25 +63,33 @@ export async function openclawGatewayCall(
   if (r.exitCode === 0 && out !== undefined) return { ok: true, payload: out };
   const error = out?.error;
   if (typeof error?.message === "string") {
-    return { ok: false, status: error.code === "INVALID_REQUEST" ? 400 : 502, message: error.message };
+    // The CLI's own refusals (`cli_error`) include a URL mismatch, whose
+    // sentence ("Gateway destination changed") does not say which gateway.
+    const where = opts.expectUrl && error.type === "cli_error" ? ` (Topics expects the gateway at ${opts.expectUrl})` : "";
+    return { ok: false, status: error.code === "INVALID_REQUEST" ? 400 : 502, message: error.message + where };
   }
   const tail = (r.stderr || r.stdout).trim().split("\n").pop() || `exit ${r.exitCode}`;
   return { ok: false, status: 502, message: `openclaw gateway call ${method} failed: ${tail}` };
 }
 
-export function createCronRouter(ctx: AppContext, call: GatewayCall = openclawGatewayCall): RouteHandler {
+// `compact` is the view the panel reads: ISO `nextRunAt`/`lastRunAt` (the full
+// view only has `state.nextRunAtMs`) and a quarter of the bytes.
+const LIST_PARAMS = { includeDisabled: true, compact: true };
+
+export function createCronRouter(ctx: AppContext, call?: GatewayCall): RouteHandler {
   const { readJSON, json, matchRoute, broadcastToAll } = ctx;
+  const gateway: GatewayCall = call ?? ((method, params) => openclawGatewayCall(method, params, { expectUrl: gatewayWsUrl(ctx.GATEWAY_URL) }));
 
   // Re-fetch the cron job list and broadcast it to all clients (best-effort).
   async function broadcastCronList() {
-    const r = await call("cron.list", { includeDisabled: true });
+    const r = await gateway("cron.list", LIST_PARAMS);
     if (r.ok) broadcastToAll({ type: "cron:updated", jobs: r.payload?.jobs ?? [] });
   }
 
   return async function cronRouter(req: Request, _url: URL, pathname: string, method: string): Promise<Response | null> {
 
     if (method === "GET" && pathname === "/api/cron/jobs") {
-      const r = await call("cron.list", { includeDisabled: true });
+      const r = await gateway("cron.list", LIST_PARAMS);
       // 502, not 200 with an empty list: the panel reads `res.ok`, and a
       // gateway that is down must not look like every job was deleted.
       if (!r.ok) return json({ jobs: [], warning: `Gateway error: ${r.message}` }, 502);
@@ -71,7 +99,7 @@ export function createCronRouter(ctx: AppContext, call: GatewayCall = openclawGa
     const cronJobMatch = matchRoute(pathname, "/api/cron/jobs/:jobId");
     if (cronJobMatch && method === "PATCH") {
       const patch = await readJSON(req);
-      const r = await call("cron.update", { id: cronJobMatch.jobId, patch });
+      const r = await gateway("cron.update", { id: cronJobMatch.jobId, patch });
       if (!r.ok) return json({ error: `Gateway error: ${r.message}` }, r.status);
       await broadcastCronList();
       return json({ ok: true });
@@ -80,14 +108,18 @@ export function createCronRouter(ctx: AppContext, call: GatewayCall = openclawGa
     const cronRunMatch = matchRoute(pathname, "/api/cron/jobs/:jobId/run");
     if (cronRunMatch && method === "POST") {
       // "force", as `openclaw cron run`: the button means run now, due or not.
-      const r = await call("cron.run", { id: cronRunMatch.jobId, mode: "force" });
+      const r = await gateway("cron.run", { id: cronRunMatch.jobId, mode: "force" });
       if (!r.ok) return json({ error: `Gateway error: ${r.message}` }, r.status);
+      // The gateway answers success with `ran: false` when it did not start the
+      // run (already running, scheduler stopped): a 200 here would stamp the row
+      // as run.
+      if (r.payload?.ran === false) return json({ error: `Not run: ${r.payload.reason ?? "the gateway gave no reason"}` }, 409);
       await broadcastCronList();
       return json({ ok: true });
     }
 
     if (cronJobMatch && method === "DELETE") {
-      const r = await call("cron.remove", { id: cronJobMatch.jobId });
+      const r = await gateway("cron.remove", { id: cronJobMatch.jobId });
       if (!r.ok) return json({ error: `Gateway error: ${r.message}` }, r.status);
       await broadcastCronList();
       return json({ ok: true });

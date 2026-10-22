@@ -154,15 +154,27 @@ la CLI di OpenClaw.
 
 Le rotte `/api/cron/jobs` SHALL passare dalle RPC del gateway tramite
 `openclaw gateway call`, senza mettere il token del gateway né in argv né
-nell'ambiente del processo figlio. Un rifiuto del gateway SHALL arrivare al
+nell'ambiente del processo figlio, e con `--expect-url` ricavato da
+`GATEWAY_URL`: se la CLI punta a un altro gateway la chiamata SHALL fallire,
+non agire su quello sbagliato. Un rifiuto del gateway SHALL arrivare al
 pannello con la frase del gateway: 400 per una richiesta non valida, 502 per un
-gateway irraggiungibile.
+gateway irraggiungibile o diverso, 409 per un'esecuzione che il gateway non ha
+avviato (`ran: false`).
+
+L'elenco SHALL usare la vista `compact`, l'unica con `nextRunAt`/`lastRunAt` in
+ISO che il pannello legge, e il pannello SHALL leggere la pianificazione `at`
+nella forma del gateway (`at` in ISO, non `atMs`).
 
 #### Scenario: l'elenco arriva dalla RPC
 - **GIVEN** un gateway con dei job, anche disattivati
 - **WHEN** il pannello chiede GET /api/cron/jobs
-- **THEN** il server SHALL chiamare `cron.list` con `includeDisabled: true`
+- **THEN** il server SHALL chiamare `cron.list` con `includeDisabled: true` e `compact: true`
 - **AND** SHALL rispondere 200 con i job della risposta
+
+#### Scenario: il gateway non avvia l'esecuzione
+- **GIVEN** un job la cui esecuzione precedente è ancora in corso
+- **WHEN** si preme «Esegui adesso» e il gateway risponde `ran: false`
+- **THEN** la risposta SHALL essere 409 con il motivo del gateway, e la riga SHALL NOT risultare eseguita
 
 #### Scenario: «Esegui adesso» forza l'esecuzione
 - **GIVEN** un job che non è in scadenza

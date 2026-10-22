@@ -14,7 +14,7 @@ import { afterAll, describe, expect, test } from "bun:test";
 import { chmodSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { createCronRouter, openclawGatewayCall, type GatewayCallResult } from "./cron";
+import { createCronRouter, gatewayWsUrl, openclawGatewayCall, type GatewayCallResult } from "./cron";
 
 const json = (data: unknown, status = 200) =>
   new Response(JSON.stringify(data), { status, headers: { "content-type": "application/json" } });
@@ -56,7 +56,8 @@ describe("GET /api/cron/jobs", () => {
     const resp = await send("GET", "/api/cron/jobs");
     expect(resp.status).toBe(200);
     expect(await resp.json()).toEqual({ jobs: JOBS.jobs });
-    expect(calls).toEqual([{ method: "cron.list", params: { includeDisabled: true } }]);
+    // compact: the view with the ISO nextRunAt/lastRunAt the panel reads.
+    expect(calls).toEqual([{ method: "cron.list", params: { includeDisabled: true, compact: true } }]);
   });
 
   test("a gateway that fails answers as an error, with its reason", async () => {
@@ -82,6 +83,14 @@ describe("job commands", () => {
     const resp = await send("POST", "/api/cron/jobs/j1/run");
     expect(resp.status).toBe(200);
     expect(calls[0]).toEqual({ method: "cron.run", params: { id: "j1", mode: "force" } });
+  });
+
+  test("a run the gateway did not start is a 409 with its reason, not a stamp", async () => {
+    const { broadcasts, send } = routerWith(() => ({ ok: true, payload: { ok: true, ran: false, reason: "already-running" } }));
+    const resp = await send("POST", "/api/cron/jobs/j1/run");
+    expect(resp.status).toBe(409);
+    expect(((await resp.json()) as { error: string }).error).toContain("already-running");
+    expect(broadcasts).toEqual([]);
   });
 
   test("DELETE goes to cron.remove", async () => {
@@ -115,9 +124,11 @@ describe("openclawGatewayCall", () => {
     const before = process.env.GATEWAY_TOKEN;
     process.env.GATEWAY_TOKEN = "must-not-reach-the-cli";
     try {
-      const r = await openclawGatewayCall("cron.run", { id: "j1", mode: "force" }, bin);
+      const r = await openclawGatewayCall("cron.run", { id: "j1", mode: "force" }, { bin, expectUrl: "ws://127.0.0.1:18789" });
       expect(r).toEqual({ ok: true, payload: { token: "absent" } });
-      expect(readFileSync(argsFile, "utf8").trim().split("\n")).toEqual(["gateway", "call", "cron.run", "--params", '{"id":"j1","mode":"force"}', "--json"]);
+      expect(readFileSync(argsFile, "utf8").trim().split("\n")).toEqual([
+        "gateway", "call", "cron.run", "--params", '{"id":"j1","mode":"force"}', "--json", "--expect-url", "ws://127.0.0.1:18789",
+      ]);
     } finally {
       if (before === undefined) delete process.env.GATEWAY_TOKEN; else process.env.GATEWAY_TOKEN = before;
     }
@@ -125,16 +136,43 @@ describe("openclawGatewayCall", () => {
 
   test("an invalid request is a 400 with the gateway's sentence", async () => {
     const bin = fakeCli("refuse", `echo '{"ok":false,"error":{"code":"INVALID_REQUEST","message":"cron job not found: nope"}}'; exit 1`);
-    expect(await openclawGatewayCall("cron.get", { id: "nope" }, bin)).toEqual({ ok: false, status: 400, message: "cron job not found: nope" });
+    expect(await openclawGatewayCall("cron.get", { id: "nope" }, { bin })).toEqual({ ok: false, status: 400, message: "cron job not found: nope" });
   });
 
-  test("a gateway that cannot be reached is a 502 with the CLI's last line", async () => {
-    const bin = fakeCli("down", `echo 'gateway connect failed: ECONNREFUSED' >&2; exit 1`);
-    const r = await openclawGatewayCall("cron.list", {}, bin);
+  test("a gateway that cannot be reached is a 502 with the CLI's sentence", async () => {
+    // What 2026.10.5 prints against a closed port: an error with no code.
+    const bin = fakeCli("down", `echo '{"ok":false,"error":{"type":"gateway_transport_error","message":"Gateway not reachable at ws://127.0.0.1:1 (ECONNREFUSED)."}}'; exit 1`);
+    const r = await openclawGatewayCall("cron.list", {}, { bin });
+    expect(r).toEqual({ ok: false, status: 502, message: "Gateway not reachable at ws://127.0.0.1:1 (ECONNREFUSED)." });
+  });
+
+  test("a CLI resolving another gateway than GATEWAY_URL is a 502 that names the expected one", async () => {
+    // Measured: `--expect-url ws://127.0.0.1:1` against a CLI configured for :18789.
+    const bin = fakeCli("elsewhere", `echo '{"ok":false,"error":{"type":"cli_error","message":"Gateway destination changed. Refresh the selected Gateway before retrying."}}'; exit 1`);
+    const r = await openclawGatewayCall("cron.list", {}, { bin, expectUrl: "ws://127.0.0.1:1" });
+    expect(r).toEqual({ ok: false, status: 502, message: "Gateway destination changed. Refresh the selected Gateway before retrying. (Topics expects the gateway at ws://127.0.0.1:1)" });
+  });
+
+  test("output that is not JSON is a 502 with the CLI's last line", async () => {
+    const bin = fakeCli("garbled", `echo 'gateway connect failed: ECONNREFUSED' >&2; exit 1`);
+    const r = await openclawGatewayCall("cron.list", {}, { bin });
     expect(r).toEqual({ ok: false, status: 502, message: "openclaw gateway call cron.list failed: gateway connect failed: ECONNREFUSED" });
   });
 
   test("no CLI on PATH is a 502 that says so", async () => {
-    expect(await openclawGatewayCall("cron.list", {}, null)).toEqual({ ok: false, status: 502, message: "openclaw CLI not found on PATH" });
+    expect(await openclawGatewayCall("cron.list", {}, { bin: null })).toEqual({ ok: false, status: 502, message: "openclaw CLI not found on PATH" });
+  });
+});
+
+describe("gatewayWsUrl", () => {
+  // `--expect-url` compares strings: the URL must be spelled as the CLI spells its own.
+  test("http becomes ws, https becomes wss, localhost becomes 127.0.0.1", () => {
+    expect(gatewayWsUrl("http://127.0.0.1:18789")).toBe("ws://127.0.0.1:18789");
+    expect(gatewayWsUrl("http://localhost:18789/")).toBe("ws://127.0.0.1:18789");
+    expect(gatewayWsUrl("https://gw.example.ts.net")).toBe("wss://gw.example.ts.net");
+  });
+
+  test("an unparseable GATEWAY_URL gives no expectation instead of a wrong one", () => {
+    expect(gatewayWsUrl("not a url")).toBeNull();
   });
 });
