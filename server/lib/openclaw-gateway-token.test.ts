@@ -3,6 +3,8 @@
  * SecretRef that OpenClaw resolves through a provider command. Every resolver
  * here is a fake shell script in a temp dir: no test touches the real config
  * or the Keychain, and no real token value appears anywhere.
+ *
+ * @covers MP-GWTOKEN-01
  */
 import { afterAll, afterEach, describe, expect, it } from "bun:test";
 import { chmodSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";

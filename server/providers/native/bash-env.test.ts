@@ -7,6 +7,8 @@
  * survives `delete process.env.X`, and setting one at runtime never shows. The
  * test therefore puts the secrets in a real process's launch environment and
  * runs the tool from there.
+ *
+ * @covers MP-NATENV-01
  */
 import { describe, expect, test } from "bun:test";
 import { join } from "node:path";
