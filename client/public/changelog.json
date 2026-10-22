@@ -1,5 +1,44 @@
 [
   {
+    "version": "2.3.11",
+    "date": "2026-10-22",
+    "sections": {
+      "new": [],
+      "fixes": [
+        {
+          "it": "il cancello d'origine confronta la porta e legge le origini extra solo dal tunnel (#402)",
+          "en": "",
+          "scope": "auth-gate",
+          "breaking": false
+        }
+      ],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Un turno che lavora non viene più tagliato a 30 minuti, e il verdetto si legge in fondo (#403)",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il DB ha uno snapshot notturno e una barra che prova davvero il restore (#405)",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Dispatched task agents can read the chat that resolve_tab points them to (#406)",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "giornata condivisa (13 tracce, con la barra per ognuna) (#407)",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        }
+      ]
+    }
+  },
+  {
     "version": "2.3.10",
     "date": "2026-10-22",
     "sections": {

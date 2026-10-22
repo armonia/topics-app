@@ -1,5 +1,19 @@
 [
   {
+    "version": "2.3.11",
+    "date": "2026-10-22",
+    "sections": {
+      "new": [],
+      "fixes": [
+        {
+          "text": "il cancello d'origine confronta la porta e legge le origini extra solo dal tunnel (#402)",
+          "scope": "auth-gate"
+        }
+      ],
+      "perf": []
+    }
+  },
+  {
     "version": "2.2.488",
     "date": "2026-10-13",
     "sections": {

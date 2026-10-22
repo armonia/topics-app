@@ -2,6 +2,17 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.3.11 — 2026-10-22
+
+### Correzioni
+- **auth-gate** · il cancello d'origine confronta la porta e legge le origini extra solo dal tunnel (#402)
+
+### Sotto il cofano
+- Un turno che lavora non viene più tagliato a 30 minuti, e il verdetto si legge in fondo (#403)
+- Il DB ha uno snapshot notturno e una barra che prova davvero il restore (#405)
+- Dispatched task agents can read the chat that resolve_tab points them to (#406)
+- giornata condivisa (13 tracce, con la barra per ognuna) (#407)
+
 ## 2.3.10 — 2026-10-22
 
 ### Sotto il cofano
