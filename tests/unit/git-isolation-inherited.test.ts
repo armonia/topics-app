@@ -56,7 +56,7 @@ describe("l'isolamento di git si eredita se c'e' alla nascita del processo", () 
     expect(hooksPathSeenBy(gitIsolationEnv(withoutIsolation()), READS_HOOKS)).toBe(HOOKS);
   });
 
-  test("written a runtime: git NON lo vede (il limite di Bun per cui esiste il resto)", () => {
+  test("scritto a runtime: git NON lo vede (il limite di Bun per cui esiste il resto)", () => {
     const clean = withoutIsolation();
     const written = gitIsolationEnv(clean);
     const mutation = `Object.assign(process.env, ${JSON.stringify({
