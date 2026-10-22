@@ -448,6 +448,7 @@
     "server/providers/native/agent-loop.ts": 1049,
 
     "server/providers/native/provider.ts": 999,
+    "server/providers/native/tools.ts": {"lines": 801, "why": ["2026-10-22, topics/gateway-token-secretref: +1 on main (800), the native bash tool spawns with agentBaseEnv(): with no env Bun hands the child the server's launch environment, secrets included."]},
 
     "server/routes/auth.ts": 1707,
 

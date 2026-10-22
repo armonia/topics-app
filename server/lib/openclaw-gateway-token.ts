@@ -19,6 +19,7 @@ import { readFileSync } from "fs";
 import { spawnSync } from "child_process";
 import { homedir } from "os";
 import { dirname, join } from "path";
+import { runBounded } from "./bounded-spawn";
 
 /** How long the resolver may take: it reads a local Keychain, not a network. */
 const RESOLVER_TIMEOUT_MS = 5000;
@@ -71,8 +72,17 @@ function parseResolverOutput(stdout: string, id: string, jsonOnly: boolean): unk
   return parsed.values[id];
 }
 
-/** Resolves an exec SecretRef. Anything that goes wrong is null. */
-function resolveExecRef(config: Record<string, unknown>, ref: Record<string, unknown>): string | null {
+/** What running an exec SecretRef takes, read from the config. Null when the reference is unusable. */
+interface ResolverRun {
+  argv: string[];
+  input: string;
+  cwd: string;
+  env: NodeJS.ProcessEnv;
+  id: string;
+  jsonOnly: boolean;
+}
+
+function resolverRun(config: Record<string, unknown>, ref: Record<string, unknown>): ResolverRun | null {
   const { provider, id } = ref;
   if (typeof provider !== "string" || !provider || typeof id !== "string" || !id) return null;
   const providers = isRecord(config.secrets) ? config.secrets.providers : undefined;
@@ -80,38 +90,80 @@ function resolveExecRef(config: Record<string, unknown>, ref: Record<string, unk
   if (!isRecord(p) || p.source !== "exec" || typeof p.command !== "string" || !p.command) return null;
   const command = expandHome(p.command);
   const args = Array.isArray(p.args) && p.args.every((a) => typeof a === "string") ? (p.args as string[]) : [];
-  const r = spawnSync(command, args, {
+  return {
+    argv: [command, ...args],
     input: JSON.stringify({ protocolVersion: 1, provider, ids: [id] }),
-    encoding: "utf-8",
-    timeout: RESOLVER_TIMEOUT_MS,
     cwd: dirname(command),
     env: resolverEnv(p),
-    // The resolver's stderr is dropped: it may carry Keychain details.
-    stdio: ["pipe", "pipe", "ignore"],
-  });
-  if (r.error || r.status !== 0 || typeof r.stdout !== "string") return null;
-  const value = parseResolverOutput(r.stdout, id, p.jsonOnly !== false);
+    id,
+    jsonOnly: p.jsonOnly !== false,
+  };
+}
+
+function resolvedValue(run: ResolverRun, stdout: string): string | null {
+  const value = parseResolverOutput(stdout, run.id, run.jsonOnly);
   return typeof value === "string" && value.trim() ? value.trim() : null;
 }
 
-/**
- * The gateway token from `openclaw.json`: a string, or an exec SecretRef
- * resolved. Null when the file is missing or broken, the reference does not
- * resolve, or the value is not a non-empty string. Never throws.
- */
-export function readOpenClawGatewayToken(configPath: string = defaultConfigPath()): string | null {
+/** The token's slot in `openclaw.json`: a plain string, an exec reference to run, or nothing. */
+function readTokenEntry(configPath: string): { plain: string | null } | { run: ResolverRun | null } | null {
   try {
     const config: unknown = JSON.parse(readFileSync(configPath, "utf-8"));
     if (!isRecord(config)) return null;
     const gateway = config.gateway;
     const auth = isRecord(gateway) ? gateway.auth : undefined;
     const token = isRecord(auth) ? auth.token : undefined;
-    if (typeof token === "string") return token.trim() || null;
-    if (isRecord(token) && token.source === "exec") return resolveExecRef(config, token);
+    if (typeof token === "string") return { plain: token.trim() || null };
+    if (isRecord(token) && token.source === "exec") return { run: resolverRun(config, token) };
     return null;
   } catch {
     return null;
   }
+}
+
+/**
+ * The gateway token from `openclaw.json`: a string, or an exec SecretRef
+ * resolved. Null when the file is missing or broken, the reference does not
+ * resolve, or the value is not a non-empty string. Never throws.
+ *
+ * SYNCHRONOUS, for startup only (server.ts, before the first request): the
+ * re-reads while serving go through `readOpenClawGatewayTokenAsync`.
+ */
+export function readOpenClawGatewayToken(configPath: string = defaultConfigPath()): string | null {
+  const entry = readTokenEntry(configPath);
+  if (!entry) return null;
+  if ("plain" in entry) return entry.plain;
+  const run = entry.run;
+  if (!run) return null;
+  const r = spawnSync(run.argv[0]!, run.argv.slice(1), {
+    input: run.input,
+    encoding: "utf-8",
+    timeout: RESOLVER_TIMEOUT_MS,
+    cwd: run.cwd,
+    env: run.env,
+    // The resolver's stderr is dropped: it may carry Keychain details.
+    stdio: ["pipe", "pipe", "ignore"],
+  });
+  if (r.error || r.status !== 0 || typeof r.stdout !== "string") return null;
+  return resolvedValue(run, r.stdout);
+}
+
+/** The same read without blocking the event loop: for the re-reads while serving. */
+export async function readOpenClawGatewayTokenAsync(configPath: string = defaultConfigPath()): Promise<string | null> {
+  const entry = readTokenEntry(configPath);
+  if (!entry) return null;
+  if ("plain" in entry) return entry.plain;
+  const run = entry.run;
+  if (!run) return null;
+  // stderr is read and dropped: it may carry Keychain details.
+  const r = await runBounded(run.argv, {
+    cwd: run.cwd,
+    env: run.env,
+    stdinData: run.input,
+    timeoutMs: RESOLVER_TIMEOUT_MS,
+  });
+  if (r.spawnFailed || r.timedOut || r.exitCode !== 0) return null;
+  return resolvedValue(run, r.stdout);
 }
 
 /** How long a token read from `openclaw.json` is trusted before it is read again. */
@@ -120,6 +172,9 @@ export const GATEWAY_TOKEN_REREAD_MS = 30_000;
 let held: string | undefined;
 let heldFromEnv = false;
 let readAt = 0;
+/** Bumped by `holdGatewayToken`: a re-read started before it must not overwrite what it set. */
+let generation = 0;
+let rereading: Promise<void> | null = null;
 
 /**
  * The gateway token the server uses, kept OUT of `process.env`.
@@ -144,25 +199,36 @@ export function holdGatewayToken(value: string | null | undefined, opts: { fromE
   held = value || undefined;
   heldFromEnv = !!opts.fromEnv;
   readAt = 0;
+  generation++;
   delete process.env.GATEWAY_TOKEN;
 }
 
 /**
- * The token as it is NOW. OpenClaw rotates it inside the Keychain without
- * touching `openclaw.json`, so a token read from the config is read again: at
- * most every GATEWAY_TOKEN_REREAD_MS (a SecretRef costs a resolver spawn,
- * ~70 ms), at once with `force` (an auth failure). After a rotation the old
- * value stops opening anything within that window, with no restart. A token
- * from the environment is never re-read: `.env` takes priority.
+ * The token as it is NOW, or very nearly. OpenClaw rotates it inside the
+ * Keychain without touching `openclaw.json`, so a token read from the config
+ * is read again: at most every GATEWAY_TOKEN_REREAD_MS, at once with `force`
+ * (an auth failure). The re-read runs in the background (a SecretRef is a
+ * resolver process, and this sits on request paths): this call answers with
+ * the value held so far, the next one gets the new value. After a rotation the
+ * old token stops opening anything within that window, with no restart. A
+ * token from the environment is never re-read: `.env` takes priority.
  */
 export function freshGatewayToken(opts: { force?: boolean; now?: number } = {}): string | undefined {
   const now = opts.now ?? Date.now();
-  if (!heldFromEnv && (opts.force || now - readAt >= GATEWAY_TOKEN_REREAD_MS)) {
+  if (!heldFromEnv && !rereading && (opts.force || now - readAt >= GATEWAY_TOKEN_REREAD_MS)) {
     readAt = now;
-    const fresh = readOpenClawGatewayToken();
-    if (fresh) held = fresh;
+    const started = generation;
+    rereading = readOpenClawGatewayTokenAsync()
+      .then((fresh) => { if (fresh && started === generation) held = fresh; })
+      .catch(() => { /* a failed re-read keeps the value held */ })
+      .finally(() => { rereading = null; });
   }
   return gatewayToken();
+}
+
+/** Settles when the background re-read in flight, if any, has landed. */
+export function gatewayTokenSettled(): Promise<void> {
+  return rereading ?? Promise.resolve();
 }
 
 /**

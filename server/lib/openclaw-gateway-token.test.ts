@@ -8,7 +8,7 @@ import { afterAll, afterEach, describe, expect, it } from "bun:test";
 import { chmodSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { freshGatewayToken, gatewayToken, GATEWAY_TOKEN_REREAD_MS, holdGatewayToken, readOpenClawGatewayToken, withoutGatewayToken } from "./openclaw-gateway-token";
+import { freshGatewayToken, gatewayToken, gatewayTokenSettled, GATEWAY_TOKEN_REREAD_MS, holdGatewayToken, readOpenClawGatewayToken, readOpenClawGatewayTokenAsync, withoutGatewayToken } from "./openclaw-gateway-token";
 import { agentAuthOk } from "./agent-auth";
 
 const DIR = mkdtempSync(join(tmpdir(), "openclaw-gateway-token-"));
@@ -174,41 +174,70 @@ describe("gatewayToken / holdGatewayToken", () => {
 describe("freshGatewayToken: an OpenClaw rotation lands without a restart", () => {
   const point = (token: string) => { process.env.OPENCLAW_CONFIG_PATH = config(token); };
 
-  it("re-reads the config, at most every GATEWAY_TOKEN_REREAD_MS, at once with force", () => {
+  it("re-reads in the background, at most every GATEWAY_TOKEN_REREAD_MS, at once with force", async () => {
     point("rotated-1");
     holdGatewayToken("boot-fixture");
     try {
       const t0 = Date.now();
-      expect(freshGatewayToken({ now: t0 })).toBe("rotated-1");
+      // The call answers with what is held; the re-read lands for the next one.
+      expect(freshGatewayToken({ now: t0 })).toBe("boot-fixture");
+      await gatewayTokenSettled();
+      expect(gatewayToken()).toBe("rotated-1");
       point("rotated-2");
-      expect(freshGatewayToken({ now: t0 + 1_000 })).toBe("rotated-1");
-      expect(freshGatewayToken({ now: t0 + GATEWAY_TOKEN_REREAD_MS })).toBe("rotated-2");
+      freshGatewayToken({ now: t0 + 1_000 });
+      await gatewayTokenSettled();
+      expect(gatewayToken()).toBe("rotated-1");
+      freshGatewayToken({ now: t0 + GATEWAY_TOKEN_REREAD_MS });
+      await gatewayTokenSettled();
+      expect(gatewayToken()).toBe("rotated-2");
       point("rotated-3");
-      expect(freshGatewayToken({ now: t0 + GATEWAY_TOKEN_REREAD_MS + 1, force: true })).toBe("rotated-3");
+      freshGatewayToken({ now: t0 + GATEWAY_TOKEN_REREAD_MS + 1, force: true });
+      await gatewayTokenSettled();
+      expect(gatewayToken()).toBe("rotated-3");
     } finally {
       holdGatewayToken(undefined);
     }
   });
 
-  it("a token from the environment is never replaced by the config", () => {
+  it("a re-read that lands after holdGatewayToken does not overwrite it", async () => {
+    point("late-fixture");
+    holdGatewayToken("boot-fixture");
+    freshGatewayToken();
+    holdGatewayToken(undefined);
+    await gatewayTokenSettled();
+    expect(gatewayToken()).toBeUndefined();
+  });
+
+  it("a token from the environment is never replaced by the config", async () => {
     point("from-config");
     holdGatewayToken("from-env-fixture", { fromEnv: true });
     try {
-      expect(freshGatewayToken({ force: true })).toBe("from-env-fixture");
+      freshGatewayToken({ force: true });
+      await gatewayTokenSettled();
+      expect(gatewayToken()).toBe("from-env-fixture");
     } finally {
       holdGatewayToken(undefined);
     }
   });
 
-  it("agentAuthOk refuses the pre-rotation token and takes the new one", () => {
+  it("agentAuthOk refuses the pre-rotation token and takes the new one", async () => {
     holdGatewayToken("leaked-fixture");
     point("rotated-fixture");
     const asking = (token: string) => new Request("http://x/", { headers: { "x-gateway-token": token } });
     try {
+      agentAuthOk(asking("rotated-fixture"));
+      await gatewayTokenSettled();
       expect(agentAuthOk(asking("leaked-fixture"))).toBe(false);
       expect(agentAuthOk(asking("rotated-fixture"))).toBe(true);
     } finally {
       holdGatewayToken(undefined);
     }
+  });
+
+  it("the async read resolves an exec SecretRef the same way, without blocking", async () => {
+    const command = answering(`{"protocolVersion":1,"values":{"openclaw/gateway-token":"async-fixture"}}`);
+    expect(await readOpenClawGatewayTokenAsync(config(REF, { keychain: { source: "exec", command } }))).toBe("async-fixture");
+    expect(await readOpenClawGatewayTokenAsync(config(REF, { keychain: { source: "exec", command: answering("not json") } }))).toBeNull();
+    expect(await readOpenClawGatewayTokenAsync(join(DIR, "missing.json"))).toBeNull();
   });
 });
