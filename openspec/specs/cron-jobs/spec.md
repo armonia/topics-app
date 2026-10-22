@@ -142,3 +142,34 @@ dopo il gesto e non al giro di aggiornamento successivo.
 - **GIVEN** un job senza esecuzioni precedenti e la rotta `run` che accetta
 - **WHEN** si preme «Esegui adesso»
 - **THEN** la riga SHALL mostrare che il job è stato eseguito
+
+### Requirement: CRONRPC-01 — Il server parla con lo scheduler di OpenClaw dalle RPC del gateway
+
+Dalla 2026.10.5 OpenClaw nega lo strumento dello scheduler su `POST /tools/invoke`
+(`automations` sta nella lista HTTP vietata di default, e `cron` ne è l'alias):
+ogni chiamata del pannello rispondeva 404 «Tool not available: automations» e il
+pannello restava vuoto con l'errore. Le stesse operazioni esistono come RPC del
+gateway (`cron.list`, `cron.update`, `cron.run`, `cron.remove`), quelle che usa
+la CLI di OpenClaw.
+
+Le rotte `/api/cron/jobs` SHALL passare dalle RPC del gateway tramite
+`openclaw gateway call`, senza mettere il token del gateway né in argv né
+nell'ambiente del processo figlio. Un rifiuto del gateway SHALL arrivare al
+pannello con la frase del gateway: 400 per una richiesta non valida, 502 per un
+gateway irraggiungibile.
+
+#### Scenario: l'elenco arriva dalla RPC
+- **GIVEN** un gateway con dei job, anche disattivati
+- **WHEN** il pannello chiede GET /api/cron/jobs
+- **THEN** il server SHALL chiamare `cron.list` con `includeDisabled: true`
+- **AND** SHALL rispondere 200 con i job della risposta
+
+#### Scenario: «Esegui adesso» forza l'esecuzione
+- **GIVEN** un job che non è in scadenza
+- **WHEN** si preme «Esegui adesso»
+- **THEN** il server SHALL chiamare `cron.run` con `mode: "force"`, come `openclaw cron run`
+
+#### Scenario: il gateway rifiuta un id sconosciuto
+- **GIVEN** un job cancellato altrove
+- **WHEN** il pannello lo accende o lo spegne
+- **THEN** la risposta SHALL essere 400 con la frase del gateway
