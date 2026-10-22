@@ -1,0 +1,10 @@
+schema: spec-driven
+
+# Le risposte del proprietario ai quattro bivi di `proposal.md`, 22/10/2026.
+# Qui ci stanno solo le decisioni che spettano a lui: spesa, dati di persone
+# vere, forma irreversibile del prodotto. Tutto il resto e' in «Deciso da me».
+decisioni:
+  condiviso: persone-vere-a-scaglioni
+  ospite-scrive: si-con-il-testimone
+  runner: pc-windows-prima-cloud-dopo
+  virtuoso-message-list: non-si-compra
