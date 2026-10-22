@@ -524,7 +524,7 @@ export function createBrowserBridgeRouter(
       if ((byTopic || bySession) && method === "POST") {
         // import-chrome decrypts the user's REAL Chrome session cookies — far more
         // sensitive than open-pane's navigate. The server binds 0.0.0.0, so require
-        // the gateway token (the MCP bridge always sends X-Gateway-Token; the SDK
+        // our credential (the MCP bridge sends X-Daemon-Token; the SDK
         // chat path never hits this route — it dispatches in-process). Stops a LAN
         // peer / local process from triggering a confused-deputy cookie import.
         if (!tokenOk(req)) {

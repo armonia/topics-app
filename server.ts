@@ -2,7 +2,7 @@ import { configureApiCredentialRoot, readApiProviderKey } from "./server/service
 import { createLandingQueue } from "./server/services/landing-queue";
 import { basename, join, resolve, sep } from "path";
 import { finalizeOrphanedRunningTools } from "./server/lib/boot-orphan-tools";
-import { readOpenClawGatewayToken } from "./server/lib/openclaw-gateway-token";
+import { holdGatewayToken, readOpenClawGatewayToken } from "./server/lib/openclaw-gateway-token";
 import { loadOwedAnswers } from "./server/lib/owed-answers";
 import { announceTurnEnded } from "./server/lib/turn-ended";
 import type { AnswerRelay } from "./server/lib/answer-relay";
@@ -383,13 +383,14 @@ try {
 
 // Gateway token: .env takes priority, falls back to reading from ~/.openclaw/openclaw.json
 // (a plain string, or an exec SecretRef resolved through OpenClaw's provider).
-if (!process.env.GATEWAY_TOKEN) {
-  const fromOpenClaw = readOpenClawGatewayToken();
-  if (fromOpenClaw) {
-    process.env.GATEWAY_TOKEN = fromOpenClaw;
-    console.log("[Startup] GATEWAY_TOKEN loaded from ~/.openclaw/openclaw.json");
-  }
-  if (!process.env.GATEWAY_TOKEN) {
+// Either way it leaves process.env: every child spawned with `...process.env`
+// would inherit it (see `holdGatewayToken`).
+{
+  const fromEnv = process.env.GATEWAY_TOKEN;
+  const fromOpenClaw = fromEnv ? null : readOpenClawGatewayToken();
+  if (fromOpenClaw) console.log("[Startup] GATEWAY_TOKEN loaded from ~/.openclaw/openclaw.json");
+  holdGatewayToken(fromEnv || fromOpenClaw);
+  if (!fromEnv && !fromOpenClaw) {
     // The OpenClaw gateway is an OPTIONAL integration (the "openclaw" relay
     // provider). A standalone download has no OpenClaw config,
     // so a missing token must NOT be fatal: the app defaults to the Claude

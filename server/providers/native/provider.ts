@@ -59,6 +59,8 @@ import { defaultLifecycleHooks } from "../../services/lifecycle-hooks";
 import { cancelled, stopCauseFromSignal, type StopCause, type TurnEndInfo } from "../stop-reason";
 import { nativeModelId } from "../../../shared/task-coding-models";
 import { nativeSubagentToolPolicy, toolAllowedByPolicy } from "../../lib/subagent-tool-policy";
+import { gatewayToken } from "../../lib/openclaw-gateway-token";
+import { topicsHome } from "../../services/daemon-state";
 
 /**
  * The model we start from when nobody asks for one.
@@ -414,7 +416,10 @@ export class NativeProvider implements AIProvider {
       return {
         baseUrl: topicsAppBaseUrl(),
         sessionKey,
-        gatewayToken: process.env.GATEWAY_TOKEN,
+        gatewayToken: gatewayToken(),
+        // In-process, so the server's own home: its daemon token opens the
+        // gated routes for users without OpenClaw too.
+        topicsHome: topicsHome(),
         // The mapping, not mcp_policy, owns the global coordinator role.
         // mcp_policy remains an ordinary session's fleet-scoping preference.
         profile: eligibleGlobalOrchestrator

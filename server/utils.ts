@@ -28,7 +28,7 @@ import { isInsideDir } from "./lib/path-containment";
 import { realPathForNewEntry } from "./lib/real-path";
 import { isTopicsSecretPath } from "./lib/topics-secret-path";
 import { homeDir } from "./lib/broad-cwd";
-import { readOpenClawGatewayToken } from "./lib/openclaw-gateway-token";
+import { gatewayToken, holdGatewayToken, readOpenClawGatewayToken } from "./lib/openclaw-gateway-token";
 import { isTopicSilenced } from "./push-triggers";
 import { configureAttentionStore } from "./attention/store";
 import { isSubagentEngaged, markSubagentEngaged } from "./lib/subagent-store";
@@ -171,7 +171,7 @@ export function createAppContext(baseDir: string): AppContext {
   // CLI PORT override: BUN_PORT beats .env PORT (Bun auto-loads .env first)
   const PORT = parseInt(process.env.BUN_PORT || process.env.PORT || "3333");
   const GATEWAY_URL = process.env.GATEWAY_URL || "http://127.0.0.1:18789";
-  let GATEWAY_TOKEN = process.env.GATEWAY_TOKEN || readGatewayTokenFromConfig() || "";
+  let GATEWAY_TOKEN = gatewayToken() || readGatewayTokenFromConfig() || "";
 
   /** Read gateway token from ~/.openclaw/openclaw.json (auto-syncs when OpenClaw rotates) */
   function readGatewayTokenFromConfig(): string | null {
@@ -192,6 +192,8 @@ export function createAppContext(baseDir: string): AppContext {
     if (fresh && fresh !== GATEWAY_TOKEN) {
       console.log("[Gateway] Token refreshed from openclaw.json");
       GATEWAY_TOKEN = fresh;
+      // The legacy x-gateway-token check (agentAuthOk) follows the rotation too.
+      holdGatewayToken(fresh);
     }
     return GATEWAY_TOKEN;
   }

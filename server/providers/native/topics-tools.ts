@@ -101,6 +101,8 @@ export interface TopicsToolContext {
   baseUrl: string;
   sessionKey: string;
   gatewayToken?: string;
+  /** Whose daemon-state.json token goes out as X-Daemon-Token. */
+  topicsHome?: string;
   profile?: string;
 }
 
@@ -134,6 +136,7 @@ export async function executeTopicsTool(
     baseUrl: ctx.baseUrl.replace(/\/$/, ""),
     sessionKey: ctx.sessionKey,
     gatewayToken: ctx.gatewayToken,
+    topicsHome: ctx.topicsHome,
     profile: ctx.profile,
     ...(signal ? { turnSignal: signal } : {}),
   };

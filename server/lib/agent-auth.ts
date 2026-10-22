@@ -1,5 +1,6 @@
 import { timingSafeEqualStr } from "../utils";
 import { readState } from "../services/daemon-state";
+import { gatewayToken } from "./openclaw-gateway-token";
 
 /** Hard-gate the /agents/* routes and the raw terminal send/buffer routes.
  *  spawn_agent launches `claude --dangerously-skip-permissions` with a
@@ -41,7 +42,7 @@ export function agentAuthOk(req: Request): boolean {
     }
   } catch {}
   // Legacy gateway token (retro-compat; unset ⇒ this path simply doesn't match).
-  const expected = process.env.GATEWAY_TOKEN;
+  const expected = gatewayToken();
   if (expected && timingSafeEqualStr(req.headers.get("x-gateway-token") || "", expected)) {
     return true;
   }

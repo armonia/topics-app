@@ -5,16 +5,16 @@
  * or the Keychain, and no real token value appears anywhere.
  */
 import { afterAll, afterEach, describe, expect, it } from "bun:test";
-import { chmodSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { readOpenClawGatewayToken, withoutGatewayToken } from "./openclaw-gateway-token";
+import { gatewayToken, holdGatewayToken, readOpenClawGatewayToken, withoutGatewayToken } from "./openclaw-gateway-token";
 
 const DIR = mkdtempSync(join(tmpdir(), "openclaw-gateway-token-"));
 afterAll(() => rmSync(DIR, { recursive: true, force: true }));
 
 const REF = { source: "exec", provider: "keychain", id: "openclaw/gateway-token" };
-const ENV_KEYS = ["GATEWAY_TOKEN", "FAKE_RESOLVER_VAR"] as const;
+const ENV_KEYS = ["GATEWAY_TOKEN", "FAKE_RESOLVER_VAR", "HOME", "OPENCLAW_CONFIG_PATH"] as const;
 const envBefore = Object.fromEntries(ENV_KEYS.map((k) => [k, process.env[k]]));
 afterEach(() => {
   for (const k of ENV_KEYS) {
@@ -58,7 +58,7 @@ describe("readOpenClawGatewayToken", () => {
 
   it("speaks the exec protocol on stdin and passes the provider's args", () => {
     const seen = join(DIR, "request.json");
-    const command = script(`cat > '${seen}'\nprintf '{"values":{"openclaw/gateway-token":"%s"}}' "$1"`);
+    const command = script(`cat > '${seen}'\nprintf '{"protocolVersion":1,"values":{"openclaw/gateway-token":"%s"}}' "$1"`);
     const token = readOpenClawGatewayToken(config(REF, { keychain: { source: "exec", command, args: ["from-arg"] } }));
     expect(token).toBe("from-arg");
     expect(JSON.parse(readFileSync(seen, "utf-8"))).toEqual({
@@ -79,12 +79,12 @@ describe("readOpenClawGatewayToken", () => {
   });
 
   it("a resolver that returns an object instead of a string is null", () => {
-    const command = answering(`{"values":{"openclaw/gateway-token":{"nested":"abc"}}}`);
+    const command = answering(`{"protocolVersion":1,"values":{"openclaw/gateway-token":{"nested":"abc"}}}`);
     expect(readOpenClawGatewayToken(config(REF, { keychain: { source: "exec", command } }))).toBeNull();
   });
 
   it("a resolver that exits non-zero is null, even with a value on stdout", () => {
-    const command = script(`cat >/dev/null\nprintf '{"values":{"openclaw/gateway-token":"abc"}}'\nexit 3`);
+    const command = script(`cat >/dev/null\nprintf '{"protocolVersion":1,"values":{"openclaw/gateway-token":"abc"}}'\nexit 3`);
     expect(readOpenClawGatewayToken(config(REF, { keychain: { source: "exec", command } }))).toBeNull();
   });
 
@@ -95,15 +95,41 @@ describe("readOpenClawGatewayToken", () => {
     expect(readOpenClawGatewayToken(config(REF, { keychain: { source: "exec", command: join(DIR, "missing") } }))).toBeNull();
   });
 
-  it("the resolver gets only passEnv, and never the server's GATEWAY_TOKEN", () => {
+  it("a response without protocolVersion 1 is null, as OpenClaw refuses it", () => {
+    const command = answering(`{"values":{"openclaw/gateway-token":"abc"}}`);
+    expect(readOpenClawGatewayToken(config(REF, { keychain: { source: "exec", command } }))).toBeNull();
+  });
+
+  it("the resolver gets an empty environment plus passEnv and env, never the server's GATEWAY_TOKEN", () => {
     process.env.FAKE_RESOLVER_VAR = "from-env";
     process.env.GATEWAY_TOKEN = "server-fixture";
-    const printing = (name: string) => script(`cat >/dev/null\nprintf '{"values":{"openclaw/gateway-token":"%s"}}' "$${name}"`);
+    const printing = (name: string) => script(`cat >/dev/null\nprintf '{"protocolVersion":1,"values":{"openclaw/gateway-token":"%s"}}' "$${name}"`);
     const printsFake = printing("FAKE_RESOLVER_VAR");
     expect(readOpenClawGatewayToken(config(REF, { keychain: { source: "exec", command: printsFake, passEnv: ["FAKE_RESOLVER_VAR"] } }))).toBe("from-env");
-    expect(readOpenClawGatewayToken(config(REF, { keychain: { source: "exec", command: printsFake, passEnv: ["PATH"] } }))).toBeNull();
-    // Without passEnv the resolver inherits the environment, minus the gateway token.
+    expect(readOpenClawGatewayToken(config(REF, { keychain: { source: "exec", command: printsFake, env: { FAKE_RESOLVER_VAR: "literal" } } }))).toBe("literal");
+    // Without passEnv OpenClaw hands the command nothing: neither the variable nor the token.
+    expect(readOpenClawGatewayToken(config(REF, { keychain: { source: "exec", command: printsFake } }))).toBeNull();
     expect(readOpenClawGatewayToken(config(REF, { keychain: { source: "exec", command: printing("GATEWAY_TOKEN") } }))).toBeNull();
+  });
+
+  it("runs in the command's own directory and expands ~ in the command, like OpenClaw", () => {
+    const command = script(`cat >/dev/null\nprintf '{"protocolVersion":1,"values":{"openclaw/gateway-token":"%s"}}' "$PWD"`);
+    process.env.HOME = DIR;
+    const fromHome = `~/${command.slice(DIR.length + 1)}`;
+    expect(readOpenClawGatewayToken(config(REF, { keychain: { source: "exec", command: fromHome } }))).toBe(realpathSync(DIR));
+  });
+
+  it("jsonOnly: false takes the bare output for a single id; the default refuses it", () => {
+    const bare = answering("bare-fixture");
+    expect(readOpenClawGatewayToken(config(REF, { keychain: { source: "exec", command: bare, jsonOnly: false } }))).toBe("bare-fixture");
+    expect(readOpenClawGatewayToken(config(REF, { keychain: { source: "exec", command: bare } }))).toBeNull();
+  });
+
+  it("reads OPENCLAW_CONFIG_PATH when set, the variable OpenClaw itself honours", () => {
+    process.env.OPENCLAW_CONFIG_PATH = config("from-override");
+    expect(readOpenClawGatewayToken()).toBe("from-override");
+    process.env.OPENCLAW_CONFIG_PATH = join(DIR, "nowhere.json");
+    expect(readOpenClawGatewayToken()).toBeNull();
   });
 
   it("a missing or broken file is null", () => {
@@ -122,5 +148,24 @@ describe("withoutGatewayToken", () => {
     const input = { PATH: "/bin", GATEWAY_TOKEN: "a", HOME: "/h" };
     expect(withoutGatewayToken(input)).toEqual({ PATH: "/bin", HOME: "/h" });
     expect(input.GATEWAY_TOKEN).toBe("a");
+  });
+});
+
+describe("gatewayToken / holdGatewayToken", () => {
+  it("reads the environment until startup holds the token, then never again", () => {
+    process.env.GATEWAY_TOKEN = "env-fixture";
+    expect(gatewayToken()).toBe("env-fixture");
+    holdGatewayToken("held-fixture");
+    try {
+      // Out of process.env: no child spawned with `...process.env` inherits it.
+      expect(process.env.GATEWAY_TOKEN).toBeUndefined();
+      expect(gatewayToken()).toBe("held-fixture");
+      process.env.GATEWAY_TOKEN = "late-fixture";
+      expect(gatewayToken()).toBe("held-fixture");
+    } finally {
+      // Module state outlives this file in a `bun test` run: leave it empty.
+      holdGatewayToken(undefined);
+    }
+    expect(gatewayToken()).toBeUndefined();
   });
 });
