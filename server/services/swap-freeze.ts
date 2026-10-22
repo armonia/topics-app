@@ -602,8 +602,8 @@ export function createSwapFreezer(deps: SwapFreezerDeps): SwapFreezer {
         if (disabled || !swap.sustained) {
           if (!swap.sustained) {
             noEffectThisEpisode.clear();
-            // Le righe "gia' dette" si dimenticano solo dopo una calma vera:
-            // lo swap sfarfalla e ogni battito calmo ridiceva tutto da capo.
+            // The "already said" lines are forgotten only after a real calm:
+            // swap flickers, and every calm beat used to say everything again.
             calmSince ??= now();
             if (now() - calmSince >= SWAP_EPISODE_CALM_MS) { episodeSince = null; saidNothing = false; saidExhausted = false; namedPids.clear(); }
           }

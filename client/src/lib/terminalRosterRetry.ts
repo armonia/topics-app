@@ -133,12 +133,12 @@ export function postTerminalResize(sessionId: string, cols: number, rows: number
 }
 
 /**
- * Sessioni che hanno risposto 404 a un resize, con l'ora del verdetto. Una
- * pane rimasta su un id morto rimandava il resize a ogni focus e reflow, e il
- * server scriveva un `[Warn 404] Terminal session not found` per ciascuno:
- * 54.484 righe nel log del 22/10. Dopo tre 404 di fila quell'id non riceve
- * piu' resize fino al ricarico della pagina: gli id rianimati cambiano (vedi
- * `projectLayoutSync`), quindi un id che ha detto tre volte "non esisto" non torna.
+ * Sessions that answered 404 to a resize, with the miss count. A pane left on
+ * a dead id re-sent the resize on every focus and reflow, and the server wrote
+ * a `[Warn 404] Terminal session not found` for each one: 54,484 lines in the
+ * log of 22/10. After three 404s in a row that id gets no more resizes until
+ * the page reloads: revived ids change (see `projectLayoutSync`), so an id that
+ * said "I don't exist" three times does not come back.
  */
 const resizeMisses = new Map<string, number>();
 const RESIZE_GONE_MISSES = 3;

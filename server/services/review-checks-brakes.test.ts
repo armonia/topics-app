@@ -845,7 +845,7 @@ describe("the swap brake: the youngest heavy round, 1 per 120 s, 2 per delivery,
     expect(b.logs.filter((l) => l.includes("nothing to interrupt"))).toHaveLength(1);
     b.advance(10);
     b.brake.tick(CALM, []);
-    // Uno sfarfallio sotto la calma minima non chiude l'episodio ne' lo ridice.
+    // A flicker shorter than the minimum calm neither closes the episode nor repeats it.
     b.advance(10);
     b.brake.tick(SUSTAINED, [small]);
     b.advance(10);
