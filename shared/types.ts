@@ -988,7 +988,8 @@ export type ContentBlock =
    * Perché il turno è finito male.
    *
    * NON è un momento della cronologia come gli altri: è il verdetto sul turno,
-   * e infatti si rende in cima alla bolla, non nel punto in cui è capitato.
+   * e infatti si rende in fondo alla bolla, non nel punto in cui è capitato —
+   * si legge dopo il lavoro, come la riga finale di un referto.
    * Vive qui — e non in una colonna nuova — perché `blocks` è già la cosa che
    * il client rende, che si persiste, che torna dopo un ricaricamento e che
    * viaggia intera nella cronologia: un campo in più avrebbe voluto una

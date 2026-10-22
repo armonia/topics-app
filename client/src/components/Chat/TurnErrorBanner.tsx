@@ -11,8 +11,9 @@ import { useDisclosureToggle } from './transcriptDisclosure';
  * It used to be the whole bubble's container that turned yellow, and with it
  * the prose, the tool history, the media. A successful turn that trips at the
  * end got framed whole, as if all of it were wrong, and the text explaining
- * why was not even visible. Here the error line sits on top and that is all:
- * what the turn produced sits below it, rendered as always.
+ * why was not even visible. Here the error line is a line of its own, and it
+ * sits UNDER what the turn produced: first what the agent did, then how it
+ * ended. `MessageContent` says why.
  *
  * IT LIVES IN ITS OWN FILE since the payload fold arrived: the banner is now a
  * component with state (the copy confirmation) and a test of its own, and
@@ -35,7 +36,7 @@ export function TurnErrorBanner({ text }: { text: string }) {
   return (
     <div
       data-testid="turn-error"
-      className="mb-1.5 flex items-start gap-1.5 rounded-lg border border-amber-200 dark:border-amber-700 bg-amber-50 dark:bg-amber-900/30 px-2.5 py-1.5 text-compact leading-snug text-amber-900 dark:text-amber-200"
+      className="mt-1.5 flex items-start gap-1.5 rounded-lg border border-amber-200 dark:border-amber-700 bg-amber-50 dark:bg-amber-900/30 px-2.5 py-1.5 text-compact leading-snug text-amber-900 dark:text-amber-200"
     >
       <span aria-hidden className="flex-shrink-0 leading-snug"><TriangleAlert className="w-4 h-4" /></span>
       <div className="min-w-0 flex-1">

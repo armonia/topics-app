@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { armTurnDeadline } from "./turn-deadline";
+import { PROVIDER_TURN_TIMEOUT_MS, armProviderTurnTimeout, armTurnDeadline } from "./turn-deadline";
 
 /**
  * Fake bench: timers are fired by hand, and TIME is moved by hand.
@@ -176,5 +176,49 @@ describe("armTurnDeadline — il tempo dell'umano non si conta", () => {
     d.noteActivity();
     expect(t.armedCount()).toBe(0);
     expect(expired).toBe(0);
+  });
+});
+
+/**
+ * The wrapper Muse and Codex mount on top of the cap. It existed as two
+ * identical copies and NEITHER returned `noteActivity`, so the stream could not
+ * say "I am working" and the thirty minutes went back to being clock time. The
+ * real case: a session killed on 22/10 with "Muse turn timed out after 30
+ * minutes" while the turn was still speaking.
+ */
+describe("armProviderTurnTimeout — a command-line provider's cap", () => {
+  test("a turn that speaks every minute for half an hour is NOT cut", () => {
+    const t = fakeTimers();
+    let cut = 0;
+    const cap = armProviderTurnTimeout({
+      sessionKey: "topic:muse", isHumanHold: () => false,
+      onExpired: () => { cut++; },
+      now: t.now, setTimer: t.setTimer, clearTimer: t.clearTimer,
+    });
+
+    // Thirty lines in a row, one a minute: a build, a suite, twenty tools.
+    for (let minute = 1; minute <= 30; minute++) {
+      t.silenzio(60_000);
+      cap.noteActivity();
+    }
+    t.silenzio(60_000);
+    t.fire();
+    expect(cut).toBe(0);
+
+    // Genuinely silent now: the cap must fire.
+    t.silenzio(PROVIDER_TURN_TIMEOUT_MS);
+    t.fire();
+    expect(cut).toBe(1);
+    cap.clear();
+  });
+
+  test("with no `ms` the cap is the shared one, not a number written in the provider", () => {
+    const t = fakeTimers();
+    armProviderTurnTimeout({
+      sessionKey: "topic:codex", isHumanHold: () => false, onExpired: () => {},
+      now: t.now, setTimer: t.setTimer, clearTimer: t.clearTimer,
+    });
+    expect(t.lastDelay()).toBe(PROVIDER_TURN_TIMEOUT_MS);
+    expect(PROVIDER_TURN_TIMEOUT_MS).toBe(30 * 60 * 1000);
   });
 });
