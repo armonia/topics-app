@@ -95,9 +95,9 @@ export function readOpenClawGatewayToken(configPath: string = defaultConfigPath(
  * there), and the daemons that start terminals and `claude` sessions
  * (pty-bridge, ai-bridge) handed their whole environment to every child: an
  * `env` in a terminal or in an agent's Bash printed it. No child uses it: the
- * MCP bridge gets it from the `env` block of its config, or resolves it itself.
+ * MCP bridge authenticates with the daemon token.
  */
 export function withoutGatewayToken(env: NodeJS.ProcessEnv = process.env): NodeJS.ProcessEnv {
-  const { GATEWAY_TOKEN: _server, TOPICS_GATEWAY_TOKEN: _bridge, ...rest } = env;
+  const { GATEWAY_TOKEN: _token, ...rest } = env;
   return rest;
 }

@@ -6,6 +6,7 @@ import { readFileSync, unlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { writeMcpConfigForSession, topicsMcpBridgeSpec } from "./claude-code";
 import { toolsForProfile } from "../mcp/topics-mcp-server";
+import { topicsHome } from "../services/daemon-state";
 
 // writeMcpConfigForSession writes to a real /tmp path (MCP_CONFIG_DIR); we clean
 // up the session configs we create. The 'bridge-only' branch is pure — it never
@@ -35,20 +36,17 @@ describe("writeMcpConfigForSession — bridge-only policy", () => {
     expect(config.mcpServers.topics.args).toContain("--profile=dispatch");
   });
 
-  it("hands the gateway token to the bridge in env, never in argv (ps prints argv)", () => {
+  it("carries no token at all: the bridge reads the daemon token from --topics-home", () => {
     const before = process.env.GATEWAY_TOKEN;
     process.env.GATEWAY_TOKEN = "fixture-bridge-token";
     try {
       const spec = topicsMcpBridgeSpec("topic:tok12345");
-      expect(spec.args.some((a) => a.startsWith("--gateway-token") || a.includes("fixture-bridge-token"))).toBe(false);
-      expect(spec.env).toEqual({ TOPICS_GATEWAY_TOKEN: "fixture-bridge-token" });
+      expect(JSON.stringify(spec)).not.toContain("fixture-bridge-token");
+      expect(spec.args.some((a) => a.startsWith("--gateway-token"))).toBe(false);
+      expect(spec.args).toContain(`--topics-home=${topicsHome()}`);
 
       const { path } = writeMcpConfigForSession(track("topic:tok12345"), { mcpPolicy: "bridge-only" });
-      const config = JSON.parse(readFileSync(path, "utf-8"));
-      expect(config.mcpServers.topics.env).toEqual({ TOPICS_GATEWAY_TOKEN: "fixture-bridge-token" });
-
-      delete process.env.GATEWAY_TOKEN;
-      expect(topicsMcpBridgeSpec("topic:tok12345").env).toBeUndefined();
+      expect(readFileSync(path, "utf-8")).not.toContain("fixture-bridge-token");
     } finally {
       if (before === undefined) delete process.env.GATEWAY_TOKEN;
       else process.env.GATEWAY_TOKEN = before;

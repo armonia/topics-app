@@ -51,18 +51,17 @@ function finish(text: string): void {
 }
 
 /** The bridge's arguments, as `topicsMcpBridgeSpec` writes them into the session's MCP config. */
-function bridgeArgs(): { baseUrl: string; sessionKey: string; gatewayToken?: string } | null {
+function bridgeArgs(): { baseUrl: string; sessionKey: string; topicsHome?: string } | null {
   const i = process.argv.indexOf("--mcp-config");
   if (i < 0 || !process.argv[i + 1]) return null;
   try {
-    const config = JSON.parse(readFileSync(process.argv[i + 1]!, "utf8")) as { mcpServers?: { topics?: { args?: string[]; env?: Record<string, string> } } };
+    const config = JSON.parse(readFileSync(process.argv[i + 1]!, "utf8")) as { mcpServers?: { topics?: { args?: string[] } } };
     const args = config.mcpServers?.topics?.args ?? [];
     const flag = (name: string) => args.find((a) => a.startsWith(`--${name}=`))?.slice(name.length + 3);
     const baseUrl = flag("base-url");
     const sessionKey = flag("session-key");
-    // The token travels in the bridge's `env`, not in argv (every `ps` prints argv).
-    const gatewayToken = config.mcpServers?.topics?.env?.TOPICS_GATEWAY_TOKEN;
-    return baseUrl && sessionKey ? { baseUrl, sessionKey, gatewayToken } : null;
+    // No token in the config: the bridge code reads the daemon token from this home.
+    return baseUrl && sessionKey ? { baseUrl, sessionKey, topicsHome: flag("topics-home") } : null;
   } catch {
     return null;
   }

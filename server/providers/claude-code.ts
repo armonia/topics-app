@@ -16,6 +16,7 @@ import { createLineFolder } from "../lib/ndjson-lines";
 import { agentBaseEnv } from "../lib/agent-env";
 import { readdirSync, existsSync, mkdirSync, writeFileSync, unlinkSync, readFileSync, chmodSync } from "fs";
 import { tmpdir } from "os";
+import { topicsHome } from "../services/daemon-state";
 import type {
   AIProvider,
   ChatMessage,
@@ -351,18 +352,12 @@ function resolveInheritedMcpServers(): Record<string, unknown> | null {
  * `-c mcp_servers.topics.*`) wires the SAME bridge — the subprocess gets the
  * sessionKey + base URL as argv to call back into topics-app.
  *
- * The gateway token is NOT in argv: every `ps` prints argv, and that is how
- * the token reached dozens of transcripts. It travels in `env`, which the
- * Claude CLI hands to the bridge process alone and which stays in the 0600
- * config file. Codex and Muse ignore `env` (Codex would put it back in argv
- * through `-c`): their bridge resolves the token from `openclaw.json`, the
- * same source the server reads it from when it is not in the environment.
+ * No secret travels with it. The bridge authenticates with the server's own
+ * daemon token, which it reads from `--topics-home` on every request (a path,
+ * not a secret: argv is fine). The OpenClaw gateway token used to ride in argv,
+ * where every `ps` printed it, and that is how it reached dozens of transcripts.
  */
-export function topicsMcpBridgeSpec(
-  sessionKey: string,
-  profile?: string,
-): { command: string; args: string[]; env?: Record<string, string> } {
-  const token = process.env.GATEWAY_TOKEN;
+export function topicsMcpBridgeSpec(sessionKey: string, profile?: string): { command: string; args: string[] } {
   return {
     command: process.execPath, // bun
     args: [
@@ -374,8 +369,8 @@ export function topicsMcpBridgeSpec(
       // (task tools + browser verification + processes) — fewer tool schemas
       // in the agent's per-call context. Absent = full toolset (interactive).
       ...(profile ? [`--profile=${profile}`] : []),
+      `--topics-home=${topicsHome()}`,
     ],
-    ...(token ? { env: { TOPICS_GATEWAY_TOKEN: token } } : {}),
   };
 }
 
@@ -426,8 +421,8 @@ export function writeMcpConfigForSession(
     },
   };
   const path = mcpConfigPathForSession(sessionKey);
-  // 0600: this file now carries inherited server `env` blocks (API tokens) and
-  // the topics bridge's TOPICS_GATEWAY_TOKEN — must not be world-readable in /tmp.
+  // 0600: this file carries inherited server `env` blocks (API tokens) — must
+  // not be world-readable in /tmp.
   // `mode` only applies on CREATE, and re-spawns overwrite the same path, so
   // chmod afterwards to force 0600 even if the file pre-existed at 0644.
   writeFileSync(path, JSON.stringify(config, null, 2), { encoding: "utf-8", mode: 0o600 });

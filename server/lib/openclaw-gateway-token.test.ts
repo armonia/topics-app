@@ -118,8 +118,8 @@ describe("readOpenClawGatewayToken", () => {
 });
 
 describe("withoutGatewayToken", () => {
-  it("drops both gateway token names and keeps the rest, without touching the input", () => {
-    const input = { PATH: "/bin", GATEWAY_TOKEN: "a", TOPICS_GATEWAY_TOKEN: "b", HOME: "/h" };
+  it("drops the gateway token and keeps the rest, without touching the input", () => {
+    const input = { PATH: "/bin", GATEWAY_TOKEN: "a", HOME: "/h" };
     expect(withoutGatewayToken(input)).toEqual({ PATH: "/bin", HOME: "/h" });
     expect(input.GATEWAY_TOKEN).toBe("a");
   });

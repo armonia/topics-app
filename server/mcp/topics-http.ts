@@ -13,12 +13,20 @@
  * So the shared thing moved to where both sides can import it from: one
  * direction, no circle.
  */
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 
 /** The argv contract of the bridge process, parsed once at startup. */
 export interface ParsedArgs {
   baseUrl: string;
   sessionKey: string;
+  /** Legacy: configs written before the daemon token carried `--gateway-token`. */
   gatewayToken?: string;
+  /**
+   * The Topics home whose `daemon-state.json` holds the server's own token
+   * (`--topics-home`). Unset = no daemon token sent (unit tests, in-process callers).
+   */
+  topicsHome?: string;
   /** Tool profile. "dispatch" scopes Claude task agents; "codex-dispatch" omits Claude-only spawning; "global-orchestrator" is the registry-gated global board surface. */
   profile?: string;
   /**
@@ -39,6 +47,34 @@ export interface ParsedArgs {
  * process, on a human's answer) pass their own signal and keep it.
  */
 export const REQUEST_TIMEOUT_MS = 45_000;
+
+/**
+ * The server's own credential, re-read on EVERY request: the server writes a
+ * new one at each start, so a bridge that cached it would turn into 401s after
+ * a Topics restart. A tiny 0600 file, not a Keychain call.
+ */
+export function readDaemonToken(topicsHome: string): string | undefined {
+  try {
+    const token: unknown = JSON.parse(readFileSync(join(topicsHome, "daemon-state.json"), "utf-8"))?.token;
+    return typeof token === "string" && /^[0-9a-f]{64}$/i.test(token) ? token : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * How the bridge proves it is ours: the daemon token (`agentAuthOk` accepts it
+ * on every gated route), plus the legacy gateway token when an old config
+ * still passes one. The OpenClaw token itself no longer reaches the bridge:
+ * it rotates, and every `ps` printed it when it travelled in argv.
+ */
+export function bridgeAuthHeaders(args: Pick<ParsedArgs, "gatewayToken" | "topicsHome">): Record<string, string> {
+  const headers: Record<string, string> = {};
+  const daemon = args.topicsHome ? readDaemonToken(args.topicsHome) : undefined;
+  if (daemon) headers["X-Daemon-Token"] = daemon;
+  if (args.gatewayToken) headers["X-Gateway-Token"] = args.gatewayToken;
+  return headers;
+}
 
 /**
  * Extra fetch init that disables TLS cert verification. topics-app serves a
@@ -105,9 +141,8 @@ export async function httpJson<T>(
    */
   opts?: { retryOnLostRequest?: boolean },
 ): Promise<T | undefined> {
-  const headers: Record<string, string> = {};
+  const headers: Record<string, string> = bridgeAuthHeaders(args);
   if (body !== undefined) headers["Content-Type"] = "application/json";
-  if (args.gatewayToken) headers["X-Gateway-Token"] = args.gatewayToken;
   // Assigned at the adapter boundary: a direct caller of the same session API
   // is still API traffic and must not inherit MCP attribution from the path.
   headers["X-Topics-Action-Origin"] = "mcp";

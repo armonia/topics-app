@@ -5,7 +5,7 @@ import { createInterface } from "node:readline";
 import { resolve } from "node:path";
 import { goToApp, openTopic } from "./helpers";
 import { createTopic, deleteTopic, resetPaneStore } from "./helpers/api-fixtures";
-import { E2E_BASE } from "./helpers/test-server";
+import { E2E_BASE, testServerEnv } from "./helpers/test-server";
 import { hermetic } from "./fixtures/hermetic";
 import { axe, boxes, sidewaysOverflow } from "./helpers/view-measure";
 import { doorToDoorTimeline, trainsTable } from "./fixtures/trip-views";
@@ -214,7 +214,9 @@ class BridgeClient {
   private seq = 0;
   private waiting = new Map<number, (msg: { result?: any; error?: { message: string } }) => void>();
   constructor(topicId: string) {
-    this.proc = spawn("bun", ["run", BRIDGE, `--base-url=${E2E_BASE}`, `--session-key=topic:${topicId}`], { stdio: ["pipe", "pipe", "pipe"] });
+    // The test server's home, not ~/.topics: the bridge sends that home's daemon token.
+    const home = `--topics-home=${testServerEnv().TOPICS_HOME}`;
+    this.proc = spawn("bun", ["run", BRIDGE, `--base-url=${E2E_BASE}`, `--session-key=topic:${topicId}`, home], { stdio: ["pipe", "pipe", "pipe"] });
     createInterface({ input: this.proc.stdout }).on("line", (line) => {
       try {
         const msg = JSON.parse(line) as { id?: number; result?: unknown; error?: { message: string } };

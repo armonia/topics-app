@@ -179,8 +179,15 @@ export function createAppContext(baseDir: string): AppContext {
     return readOpenClawGatewayToken();
   }
 
-  /** Refresh token from openclaw.json — called on auth failure */
+  /**
+   * Refresh token from openclaw.json — called on auth failure and before every
+   * openclaw tool call. A SecretRef costs a resolver spawn (~70 ms, Keychain),
+   * so one read every 30 s: a rotation lands within that window.
+   */
+  let gatewayTokenReadAt = 0;
   function refreshGatewayToken(): string {
+    if (Date.now() - gatewayTokenReadAt < 30_000) return GATEWAY_TOKEN;
+    gatewayTokenReadAt = Date.now();
     const fresh = readGatewayTokenFromConfig();
     if (fresh && fresh !== GATEWAY_TOKEN) {
       console.log("[Gateway] Token refreshed from openclaw.json");
