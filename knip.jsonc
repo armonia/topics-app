@@ -426,7 +426,7 @@
   // FABBRICARE il caso che `outbound-staging` deve rifiutare (un allegato che
   // non e' un file regolare), e senza di esso la prova sarebbe una FIFO
   // descritta a parole. Node non sa crearne una.
-  "ignoreBinaries": ["pkill", "du", "tsc", "sqlite3", "ffmpeg", "vm_stat", "mkfifo"],
+  "ignoreBinaries": ["pkill", "du", "tsc", "sqlite3", "ffmpeg", "vm_stat", "mkfifo", "trash"],
   // NON è un import: è il primo argomento di
   // `spawnSync("bun", ["scripts/board-cases.ts", "--case", …], { cwd: ROOT })`
   // in scripts/board-cases.ts:1624 — il rilancio di sé stesso che genera la
