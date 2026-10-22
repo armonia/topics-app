@@ -2,7 +2,6 @@ import { contextTokens, costTokens, partsFromTask } from '../../../../shared/tok
 import { memo, useState, useEffect, useCallback, useMemo, useRef, useSyncExternalStore } from 'react';
 import { useDroppable } from '@dnd-kit/core';
 import { SortableContext, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable';
-import { CSS } from '@dnd-kit/utilities';
 import { reviewEvidence } from '../../lib/reviewEvidence';
 import { AlertTriangle, ArchiveRestore, ArrowRightLeft, CircleSlash, ClipboardList, Copy, Cpu, GitBranch, Hourglass, Lock, MessageSquare, Plus, RotateCcw, Send, Server, ShieldCheck, Square, Trash2, UserRound, X } from 'lucide-react';
 import { ChatMarkdown } from '../ChatMarkdown';
@@ -13,11 +12,14 @@ import { questionToProse } from '../../../../shared/question-prose';
 import { isSettledParkedQuestion } from '../../../../shared/parked-question';
 import { STATUS_LABEL, blockedByChip, boardApi, commentAuthorLabel, isAgentWorking, isProjectlessId, nothingDeliveredWins, parseQuestionBlock, reopenedChip, showsLandingDebt, subtaskWorkChip, systemDeliveryChip, waitingOnThisChip, whoCloses, type BoardTask, type TaskStatus, priorityAwaitingAgent } from '../../lib/board';
 import { columnSlice, COLUMN_PAGE } from '../../lib/boardOrder';
+import { recallColumnPages, rememberColumnPages } from '../../lib/columnPages';
 import { cardCommentsFromRow, cardDetailNeed, isMachineVoice, selectCardComments, showsCardThread, type CardComments } from './cardComments';
 import { useConfirm } from '../../hooks/useConfirm';
 import { useLongPress, openContextMenuAt, type LongPressTarget } from '../../hooks/useLongPress';
+import { useLoadOnReach } from '../../hooks/useLoadOnReach';
 import { useMobile } from '../../hooks/useMobile';
 import { releaseTouchDrag } from './dndSensors';
+import { reflowTransform } from './sortableReflow';
 import { MorphText } from '../Shared/MorphText';
 import { PreviewMedia } from './PreviewMedia';
 import type { DraftPreview } from './draftPreview';
@@ -45,9 +47,11 @@ import { prefersReducedMotion } from '../../lib/reducedMotion';
 import { PRIORITY_DOT, PRIORITY_LABEL, DISPATCH_CHIP, COMPACT_MD_CLS, COMMENTO_PIEGA_CHARS, RICHIESTA_PIEGA_CHARS, mediaPaneIdFor, type LiveUsage, type OpenTask } from './constants';
 import { copyText } from '../../lib/clipboard';
 import { canOpenTaskSession, shouldExplainMissingSession, type TaskSessionState } from '../../lib/taskSession';
-import { fmtMs, fmtTok, fmtUpdatedAt, fmtAttesa, fmtUsd, taskCopyText } from './format';
+import { fmtMs, fmtTok, fmtAttesa, fmtUsd, taskCopyText } from './format';
+import { UpdatedAgo } from './UpdatedAgo';
 import { StatusIcon, DispatchChip, QueueReasonChip, TaskIdChip, LabelChip } from './atoms';
 import { LiveEffortChip, LiveToolLine, RETRY_NOW_MESSAGE, RetryWaitChip } from './CardLive';
+import { SessionPeek } from './SessionPeek';
 import { SwapIce } from '../Shared/SwapIce';
 import { SwapFreezeLabel } from '../Shared/SwapFreezeLabel';
 import { useSwapFreeze } from '../../state/swapFreeze';
@@ -57,10 +61,20 @@ import { POPOVER_DIVIDER, POPOVER_ITEM, POPOVER_ITEM_DANGER } from '@/lib/popove
 import { BoardCommandHint } from './BoardCommandHint';
 import { getProvidersSnapshotState, subscribeProvidersSnapshot } from '../../lib/providersSnapshotStore';
 import { cardRunsThroughTopics } from '../../lib/topicsRoutingGate';
+import { readVirtualViewport, scrollParentOf } from '../../lib/boardVirtualViewport';
+import { VirtualizedCards } from './VirtualizedCards';
 
 // ── Column ────────────────────────────────────────────────────────────────
-export function Column({ status, tasks, onOpen, onCreate, canCreate, showProject, cardError, onCardError, onRefetch, onOpenTopic, resolveSession, tasksById, projectPathById, liveById, awaitingHuman, justMoved, justCreated, archived = false, draft, onOpenSettings, layout = 'grid' }: {
+// The droppable SHELL, for the same reason as `Card` below: during a drag the
+// header re-ran on every over change; `ColumnBody` only sees `isOver` flip.
+export function Column(props: ColumnProps) {
+  const { setNodeRef, isOver, active } = useDroppable({ id: props.status });
+  return <ColumnBody {...props} setNodeRef={setNodeRef} isOver={isOver} dragging={active !== null} activeId={active ? String(active.id) : null} />;
+}
+
+type ColumnProps = {
   status: TaskStatus; tasks: BoardTask[]; onOpen: OpenTask; onCreate: (text: string) => void;
+  activeId?: string | null;
   canCreate: boolean; showProject: boolean; onRefetch: () => void;
   /** L'errore dell'ULTIMA azione fallita, con la card a cui appartiene: la
    *  colonna lo consegna solo a quella, il resto riceve `null`. */
@@ -97,21 +111,77 @@ export function Column({ status, tasks, onOpen, onCreate, canCreate, showProject
    *  "add" affordance mid-list), so it collapses instead of leaving a bare
    *  header floating between two populated ones. */
   layout?: 'grid' | 'list';
+  /** Names the board view this column belongs to (which board, live or archive), so the pages the reader
+   *  reached outlive the unmount a view change causes. Without it the column starts from its first page. */
+  viewKey?: string;
+};
+
+const ColumnBody = memo(function ColumnBody({ status, tasks, onOpen, onCreate, canCreate, showProject, cardError, onCardError, onRefetch, onOpenTopic, resolveSession, tasksById, projectPathById, liveById, awaitingHuman, justMoved, justCreated, archived = false, draft, onOpenSettings, layout = 'grid', viewKey, setNodeRef, isOver, dragging, activeId }: ColumnProps & {
+  setNodeRef: (element: HTMLElement | null) => void; isOver: boolean; dragging: boolean;
 }) {
   const tr = useT();
-  const { setNodeRef, isOver } = useDroppable({ id: status });
   const [adding, setAdding] = useState(false);
   const [text, setText] = useState('');
   const submit = () => { const v = text.trim(); if (v) { onCreate(v); } setText(''); setAdding(false); };
   // QUANTE card si disegnano. La regola (e il perché vale solo su Review e Done)
   // sta in `columnSlice`; qui c'è solo la memoria di quante ne hai chieste.
-  const [shown, setShown] = useState(COLUMN_PAGE);
+  const [shown, setShown] = useState(() => (viewKey === undefined ? COLUMN_PAGE : recallColumnPages(viewKey, status)));
+  const [virtualViewport, setVirtualViewport] = useState({ top: 0, height: 0 });
+  const virtualBodyRef = useRef<HTMLDivElement | null>(null);
+  useEffect(() => {
+    if (viewKey !== undefined) rememberColumnPages(viewKey, status, shown);
+  }, [viewKey, status, shown]);
   const slice = useMemo(() => columnSlice(status, tasks, shown), [status, tasks, shown]);
+  // Infinite scroll: the next page comes as the column's tail comes into view, never while a card is carried.
+  const moreRef = useLoadOnReach(() => setShown((n) => n + COLUMN_PAGE), { more: slice.hidden > 0, loading: false, count: slice.rows.length, enabled: !dragging }, layout);
   // Stable identity across the board's 4s live-usage tick: SortableContext gets a
-  // fresh array only when the task set actually changes, not every render. Gli id
-  // sono quelli DISEGNATI: un id senza nodo nel registro di dnd-kit è un
-  // bersaglio che non esiste.
-  const itemIds = useMemo(() => slice.rows.map((t) => t.id), [slice]);
+  // fresh array only when the task set actually changes, not every render. The
+  // ids are the ones REGISTERED in dnd-kit: an id without a node is a target that
+  // does not exist. In the working columns that is all of them, because
+  // `VirtualizedCards` leaves a sortable placeholder for every card out of the
+  // window; in Review and Done, the page.
+  //
+  // Keyed on the ids, not on `slice`: the column array is new on every
+  // `task:updated` (one row changed), and a new `items` array is a new
+  // SortableContext value, which re-renders every `useSortable` card under it
+  // at identical props. Same ids in the same order = the same array.
+  const virtualized = status === 'backlog' || status === 'todo' || status === 'in_progress';
+  const sortableRows = virtualized ? tasks : slice.rows;
+  const idsKey = sortableRows.map((t) => t.id).join('\n');
+  const itemIds = useMemo(() => (idsKey ? idsKey.split('\n') : []), [idsKey]);
+  const onVirtualScroll = useCallback((element: HTMLDivElement | null) => {
+    virtualBodyRef.current = element;
+    if (element) setVirtualViewport(readVirtualViewport(element));
+  }, []);
+  useEffect(() => {
+    const body = virtualBodyRef.current;
+    if (!virtualized || !body) return;
+    const scroller = scrollParentOf(body) ?? body;
+    const update = () => setVirtualViewport(readVirtualViewport(body));
+    update();
+    const resizeObserver = new ResizeObserver(update);
+    resizeObserver.observe(body);
+    if (scroller !== body) resizeObserver.observe(scroller);
+    scroller.addEventListener('scroll', update, { passive: true });
+    return () => { resizeObserver.disconnect(); scroller.removeEventListener('scroll', update); };
+  }, [virtualized, layout]);
+  const renderCard = useCallback((t: BoardTask) => (
+    <Card
+      key={t.id} task={t} onOpen={onOpen} showProject={showProject} onRefetch={onRefetch} onOpenTopic={onOpenTopic}
+      error={cardError?.taskId === t.id ? cardError.message : null}
+      onError={onCardError}
+      sessionState={resolveSession?.(t.assignedTopicId) ?? 'unknown'}
+      parentTitle={t.parentTaskId ? tasksById.get(t.parentTaskId)?.text : undefined}
+      projectPath={projectPathById.get(t.projectId)}
+      live={liveById.get(t.id)}
+      // The live event OR the thread: the first dies with the process, the
+      // second does not, and an unanswered question survives a restart.
+      awaiting={awaitingHuman.has(t.id) || !!t.awaitingAnswer}
+      justMovedTo={justMoved.get(t.id)}
+      justCreated={justCreated.has(t.id)}
+      archived={archived}
+    />
+  ), [onOpen, showProject, onRefetch, onOpenTopic, cardError, onCardError, resolveSession, tasksById, projectPathById, liveById, awaitingHuman, justMoved, justCreated, archived]);
 
   // Responsive columns. The board is a scroll-snap carousel at EVERY breakpoint:
   // each column `snap-center`s to the middle as its own "slide", so whenever the
@@ -238,35 +308,31 @@ export function Column({ status, tasks, onOpen, onCreate, canCreate, showProject
           composer is the floor. The fixed `pb-36` left the last card 3px above
           the composer on a 390x844 phone. 9rem is the old value, kept only as
           the fallback for the first frame before the measure lands. */}
-      <div data-testid={`kanban-column-body-${status}`} className={layout === 'list' ? 'space-y-2 px-2 pt-1.5' : 'flex-1 space-y-2 overflow-y-auto px-2 pt-1.5 pb-[max(var(--board-bottom-clear,9rem),calc(var(--mobile-band-own-h,0px)+1rem))] scrollbar-standard'}>
+      <div
+        ref={virtualized ? onVirtualScroll : undefined}
+        data-testid={`kanban-column-body-${status}`}
+        className={layout === 'list' ? 'space-y-2 px-2 pt-1.5' : 'flex-1 space-y-2 overflow-y-auto px-2 pt-1.5 pb-[max(var(--board-bottom-clear,9rem),calc(var(--mobile-band-own-h,0px)+1rem))] scrollbar-standard'}
+      >
         {/* THE GHOST OF THE CARD BEING WRITTEN, in the column it will land in
             and at the top, where a new card lands. Outside the sortable list:
             it is not a card yet and nothing can drag it. */}
         {draft && <DraftCard draft={draft} />}
         <SortableContext items={itemIds} strategy={verticalListSortingStrategy}>
-          {slice.rows.map((t) => (
-            <Card
-              key={t.id} task={t} onOpen={onOpen} showProject={showProject} onRefetch={onRefetch} onOpenTopic={onOpenTopic}
-              error={cardError?.taskId === t.id ? cardError.message : null}
-              onError={onCardError}
-              sessionState={resolveSession?.(t.assignedTopicId) ?? 'unknown'}
-              parentTitle={t.parentTaskId ? tasksById.get(t.parentTaskId)?.text : undefined}
-              projectPath={projectPathById.get(t.projectId)}
-              live={liveById.get(t.id)}
-              // The live event OR the thread: the first dies with the process, the
-              // second does not, and an unanswered question survives a restart.
-              awaiting={awaitingHuman.has(t.id) || !!t.awaitingAnswer}
-              justMovedTo={justMoved.get(t.id)}
-              justCreated={justCreated.has(t.id)}
-              archived={archived}
+          {virtualized ? (
+            <VirtualizedCards
+              tasks={tasks}
+              activeId={activeId}
+              viewport={virtualViewport}
+              renderCard={renderCard}
             />
-          ))}
+          ) : slice.rows.map((t) => renderCard(t))}
         </SortableContext>
         {/* La coda della colonna: quante card ci sono ancora e il gesto per
             tirarne su un'altra pagina. Si dice il numero perché una colonna
             tagliata in silenzio è una colonna che sembra vuota di storia. */}
         {slice.hidden > 0 && (
           <button
+            ref={moreRef}
             onClick={() => setShown((n) => n + COLUMN_PAGE)}
             data-testid={`kanban-column-more-${status}`}
             className="flex w-full items-center justify-center gap-1 rounded-md border border-app-border px-2 py-1.5 text-compact leading-4 text-app-text-secondary hover:bg-white/5"
@@ -294,7 +360,7 @@ export function Column({ status, tasks, onOpen, onCreate, canCreate, showProject
       </div>
     </div>
   );
-}
+});
 
 /**
  * The long press on a card: the SAME menu the right button opens, and the
@@ -327,7 +393,48 @@ function openCardMenuAt(target: LongPressTarget): void {
 // sensors passed to DndContext must be referentially stable across renders
 // (see the module-level sensor options in KanbanBoardPane) or the memo is
 // bypassed by the context, which is exactly what happened until 2026-09-07.
-export const Card = memo(function Card({ task, onOpen, showProject, error, onError, onRefetch, onOpenTopic, sessionState = 'unknown', parentTitle, projectPath, live, awaiting, justMovedTo, justCreated, archived = false }: {
+// TWO LAYERS: dnd-kit's InternalContext changes on every over change during a
+// drag, so `Card` is only the sortable SHELL and hands memoized `CardBody` the
+// few values it draws with, stable unless this card moves (61 -> 32 renders per
+// pointer move, board-drag-renders.spec.ts).
+export const Card = memo(function Card(props: CardProps) {
+  // Sortable: the source card is dimmed (the DragOverlay carries the visual)
+  // but its NEIGHBOURS get the reflow transform — the list opens a gap under
+  // the pointer, so dropping "between two cards" reads as such. The ACTIVE
+  // card must NOT get its transform (that one follows the pointer): applied,
+  // the dim source card flew across the board alongside the overlay and the
+  // drop targeting went with it.
+  const { attributes, listeners, setNodeRef, isDragging, transform, transition } = useSortable({
+    id: props.task.id,
+    // The neighbours' reflow runs on the app's tokens, not dnd-kit's default
+    // `200ms ease`, and not at all when the person asked for less motion.
+    transition: prefersReducedMotion() ? null : SORTABLE_TRANSITION,
+  });
+  return (
+    <CardBody
+      {...props}
+      setNodeRef={setNodeRef}
+      dragAttributes={attributes}
+      dragListeners={listeners}
+      isDragging={isDragging}
+      dragTransform={reflowTransform(transform, isDragging)}
+      dragTransition={transition}
+    />
+  );
+});
+
+/** What the sortable shell hands the body. Every field is stable across pointer moves unless the card itself moves. */
+type CardDragProps = {
+  setNodeRef: (element: HTMLElement | null) => void;
+  dragAttributes: ReturnType<typeof useSortable>['attributes'];
+  dragListeners: ReturnType<typeof useSortable>['listeners'];
+  isDragging: boolean;
+  /** The reflow transform as CSS (`reflowTransform`): a string compares by value, dnd-kit's object is new on every render. */
+  dragTransform: string | undefined;
+  dragTransition: string | undefined;
+};
+
+type CardProps = {
   task: BoardTask; onOpen: OpenTask; showProject: boolean;
   /** Il perché l'ultimo click non ha fatto niente, disegnato SULLA card (in coda,
    *  sotto le sue scelte): la barra in cima al board sta a colonne di distanza,
@@ -358,7 +465,9 @@ export const Card = memo(function Card({ task, onOpen, showProject, error, onErr
   /** La card viene dall'ARCHIVIO (vista `?archived=1`): il gesto in coda al
    *  menu non è più archiviare — è già archiviata — ma riportarla indietro. */
   archived?: boolean;
-}) {
+};
+
+const CardBody = memo(function CardBody({ task, onOpen, showProject, error, onError, onRefetch, onOpenTopic, sessionState = 'unknown', parentTitle, projectPath, live, awaiting, justMovedTo, justCreated, archived = false, setNodeRef, dragAttributes: attributes, dragListeners: listeners, isDragging, dragTransform, dragTransition: transition }: CardProps & CardDragProps) {
   // MSEL-01: subscribed, so a snapshot that lands after the first paint adds
   // «· via Topics»; the boolean re-renders the card only when it flips.
   const runsThroughTopics = useSyncExternalStore(subscribeProvidersSnapshot, () => cardRunsThroughTopics(task, getProvidersSnapshotState().snapshot));
@@ -368,18 +477,6 @@ export const Card = memo(function Card({ task, onOpen, showProject, error, onErr
   const modelLine = useSyncExternalStore(subscribeProvidersSnapshot, () => taskTriggerLine(task.model, {
     snapshot: getProvidersSnapshotState().snapshot, tr: tm, surface: 'task', viaTopics: runsThroughTopics,
   }));
-  // Sortable: the source card is dimmed (the DragOverlay carries the visual)
-  // but its NEIGHBOURS get the reflow transform — the list opens a gap under
-  // the pointer, so dropping "between two cards" reads as such. The ACTIVE
-  // card must NOT get its transform (that one follows the pointer): applied,
-  // the dim source card flew across the board alongside the overlay and the
-  // drop targeting went with it.
-  const { attributes, listeners, setNodeRef, isDragging, transform, transition } = useSortable({
-    id: task.id,
-    // The neighbours' reflow runs on the app's tokens, not dnd-kit's default
-    // `200ms ease`, and not at all when the person asked for less motion.
-    transition: prefersReducedMotion() ? null : SORTABLE_TRANSITION,
-  });
 
   // Review context. The comment PAIR (`selectCardComments`) — the thread's last
   // word as a quick-reply with option buttons when it's a question block and
@@ -403,14 +500,43 @@ export const Card = memo(function Card({ task, onOpen, showProject, error, onErr
   const freeTextRef = useRef<HTMLInputElement>(null);
   // Right-click menu (archive/select live here now — NOT as a trash icon that
   // crowds the card header). Cursor-positioned, portaled, viewport-clamped.
-  const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number } | null>(null);
+  const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number; includePeek?: boolean } | null>(null);
+  const [sessionPeekOpen, setSessionPeekOpen] = useState(false);
+  const sessionPeekTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const cardElementRef = useRef<HTMLDivElement | null>(null);
+  const touchMenuPeekRef = useRef(false);
   // Il menu della tessera si apriva SOLO col tasto destro: sulla board da
   // telefono era irraggiungibile. `openContextMenuAt` apre lo stesso menu, non
   // un secondo. NB: la board monta un `DndContext` con `TouchSensor` a 200ms
   // (KanbanBoardPane), quindi qui i due gesti convivono: vedi
   // `onCardTouchStart`, che e' il punto in cui si spartiscono il dito.
   const { isTouch } = useMobile();
-  const cardLongPress = useLongPress(openCardMenuAt, { enabled: isTouch });
+  const cardLongPress = useLongPress((target) => {
+    if (task.assignedTopicId) {
+      releaseTouchDrag(target.touched);
+      setSessionPeekOpen(false);
+      touchMenuPeekRef.current = true;
+      openContextMenuAt(target);
+    } else openCardMenuAt(target);
+  }, { enabled: isTouch });
+  const scheduleSessionPeek = useCallback(() => {
+    if (!task.assignedTopicId) return;
+    if (sessionPeekTimer.current) clearTimeout(sessionPeekTimer.current);
+    sessionPeekTimer.current = setTimeout(() => {
+      sessionPeekTimer.current = null;
+      setSessionPeekOpen(true);
+    }, 400);
+  }, [task.assignedTopicId]);
+  const closeSessionPeek = useCallback(() => {
+    if (sessionPeekTimer.current) clearTimeout(sessionPeekTimer.current);
+    sessionPeekTimer.current = null;
+    setSessionPeekOpen(false);
+  }, []);
+  useEffect(() => () => {
+    if (sessionPeekTimer.current) clearTimeout(sessionPeekTimer.current);
+  }, []);
+  // Stable, so dnd-kit does not see the node unregistered and registered again on every render.
+  const setCardRef = useCallback((node: HTMLDivElement | null) => { cardElementRef.current = node; setNodeRef(node); }, [setNodeRef]);
   /**
    * THE ONE TOUCH, SHARED BY HAND between the two gestures that want it.
    *
@@ -891,10 +1017,27 @@ export const Card = memo(function Card({ task, onOpen, showProject, error, onErr
 
   return (
     <div
-      ref={setNodeRef} {...attributes} {...listeners}
+      {...attributes} {...listeners}
       data-task-card={task.id}
-      style={{ transform: isDragging ? undefined : CSS.Transform.toString(transform), transition }}
-      onClick={() => onOpen(task.id)}
+      style={{ transform: dragTransform, transition }}
+      onClick={(event) => {
+        if (cardLongPress.consumeClick()) { event.preventDefault(); event.stopPropagation(); return; }
+        onOpen(task.id);
+      }}
+      ref={setCardRef}
+      onMouseEnter={scheduleSessionPeek}
+      onMouseLeave={closeSessionPeek}
+      // Keyboard focus only: a mouse press focuses too, and the click that follows opens the session.
+      onFocusCapture={(event) => { if (task.assignedTopicId && (event.target as HTMLElement).matches(':focus-visible')) setSessionPeekOpen(true); }}
+      onBlurCapture={(event) => {
+        if (!event.currentTarget.contains(event.relatedTarget as Node | null)) closeSessionPeek();
+      }}
+      // Composed, like `onTouchStart` below: a bare `onKeyDown` after the spread replaces
+      // dnd-kit's keyboard activator, and Space stops lifting the card.
+      onKeyDown={(event) => {
+        if (event.key === 'Escape' && sessionPeekOpen) { event.preventDefault(); closeSessionPeek(); return; }
+        listeners?.onKeyDown?.(event);
+      }}
       {...cardLongPress.handlers}
       // AFTER both spreads, and on purpose: this is the composed one (see
       // `onCardTouchStart`). Whoever moves it above them loses the board's
@@ -905,7 +1048,13 @@ export const Card = memo(function Card({ task, onOpen, showProject, error, onErr
       // standard dell'app: `openContextMenuAt` sintetizza un `contextmenu`
       // nativo che bolla fino all'`onContextMenu` qui accanto, quindi non
       // esiste un secondo menu da tenere allineato — e' lo stesso.
-      onContextMenu={(e) => { e.preventDefault(); e.stopPropagation(); setCtxMenu({ x: e.clientX, y: e.clientY }); }}
+      onContextMenu={(e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        closeSessionPeek();
+        setCtxMenu({ x: e.clientX, y: e.clientY, includePeek: touchMenuPeekRef.current });
+        touchMenuPeekRef.current = false;
+      }}
       // Gli attributi sono il gancio dei test (e del debug a occhio): dicono
       // COSA è successo, la classe dice come si dipinge. `data-just-done` resta
       // il caso che le spec guardano da sempre, ed è ora un caso particolare di
@@ -918,12 +1067,17 @@ export const Card = memo(function Card({ task, onOpen, showProject, error, onErr
       // dichiarazione in index.css invece che per quello che è successo alla
       // card. Lo spostamento batte la nascita — nascere è l'evento più debole
       // dei due, e una card che nasce non ha attraversato nessun confine.
-      className={`group cursor-grab rounded-md border border-app-border bg-surface p-2.5 text-body-lg leading-5 text-app-text shadow-sm hover:border-app-border-light ${isDragging ? 'opacity-40' : ''} ${justMovedTo ? `task-flash task-flash-${justMovedTo}` : justCreated ? 'task-flash task-flash-created' : ''}`}
+      // `relative` ALWAYS: the frost below is `absolute inset-0` and
+      // `.swap-ice-host` positions the card only while frozen; idle, each glints
+      // box spanned the whole board outside the column clip, paid on every drag
+      // frame (main thread per pass ~360 -> ~290 ms, board-drag-frames.spec.ts).
+      className={`group relative cursor-grab rounded-md border border-app-border bg-surface p-2.5 text-body-lg leading-5 text-app-text shadow-sm hover:border-app-border-light ${isDragging ? 'opacity-40' : ''} ${justMovedTo ? `task-flash task-flash-${justMovedTo}` : justCreated ? 'task-flash task-flash-created' : ''}`}
     >
       {/* THE FROST, first child and under everything else: `.swap-ice-host`
           lifts every other child one layer, so the text stays above it and
           readable (and the texture grows no crystals over its boxes: SwapIce). */}
       <SwapIce freeze={swapFreeze} size="card" />
+      {task.assignedTopicId && <SessionPeek taskId={task.id} open={sessionPeekOpen} live={live} anchor={cardElementRef.current} />}
 
       {/* Eyebrow: WHICH project this card belongs to, and the door to its
           session. Nothing else.
@@ -1727,7 +1881,7 @@ export const Card = memo(function Card({ task, onOpen, showProject, error, onErr
         <span
           className="ml-auto text-compact leading-4 md:text-mini text-app-text-muted"
           title={tr('board.card.lastUpdate', { when: new Date(task.updatedAt).toLocaleString(locale) })}
-        >{fmtUpdatedAt(task.updatedAt)}</span>
+        ><UpdatedAgo iso={task.updatedAt} /></span>
       </div>
       {/* WHAT IT IS DOING RIGHT NOW: the tool the session is running and for
           how long. A 14-minute stopwatch did not tell a unit suite that has
@@ -1925,6 +2079,7 @@ export const Card = memo(function Card({ task, onOpen, showProject, error, onErr
       )}
       {ctxMenu && (
         <ContextMenuPortal open x={ctxMenu.x} y={ctxMenu.y} onClose={() => setCtxMenu(null)}>
+          {ctxMenu.includePeek && task.assignedTopicId && <SessionPeek taskId={task.id} open live={live} layout="menu" />}
           <button
             role="menuitem"
             onClick={(e) => { e.stopPropagation(); setCtxMenu(null); onOpen(task.id); }}

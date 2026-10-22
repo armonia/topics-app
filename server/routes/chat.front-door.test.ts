@@ -52,7 +52,7 @@ interface Harness {
  * riattaccarsi da uno che non lo sa, e quella distinzione è l'unica cosa che
  * separa «adotto il turno vivo» da «fabbrico un turno che nessuno ha chiesto».
  */
-function harness(opts?: { provider?: Record<string, unknown>; appendSurvives?: boolean; turnLedger?: TurnLedger }): Harness {
+function harness(opts?: { provider?: Record<string, unknown>; byName?: Record<string, Record<string, unknown>>; appendSurvives?: boolean; turnLedger?: TurnLedger }): Harness {
   const appended: string[] = [];
   const streaming = new Map<string, { messageId: string }>();
 
@@ -78,6 +78,11 @@ function harness(opts?: { provider?: Record<string, unknown>; appendSurvives?: b
   const deps = {
     browserNavigatedTopics: new Set<string>(),
     ...(opts?.provider ? { resolveProvider: () => opts.provider } : {}),
+    ...(opts?.byName ? { resolveProviderByName: (name: string) => {
+      const p = opts.byName![name];
+      if (!p) throw new Error(`no provider ${name}`);
+      return p;
+    } } : {}),
   } as never;
   const router = createChatRouter(ctx, deps);
 
@@ -257,6 +262,39 @@ describe("POST /api/chat — la porta d'ingresso", () => {
     expect(sendChatCalls).toBe(0);
     // E nessuna riga in chat: il rifiuto arriva prima della riga parziale.
     expect(h.appended).toEqual([]);
+  });
+
+  /**
+   * THE OWNER NAMED BY THE REATTACH WINS OVER THE ROUTING (11/10).
+   *
+   * topic:18b232ac ran a claude-haiku-5-5 turn on the CLI. Once the native
+   * engine served that model, the routing switch resolved the topic to
+   * `topics`, and the reattach after a restart - which names `claude-code` -
+   * was refused with 501: the turn kept running unseen and its next question
+   * never reached the screen.
+   */
+  test("riattacco che nomina il proprietario: si adotta su quello, anche se l'instradamento direbbe il motore nativo", async () => {
+    let nativeCalls = 0;
+    const h = harness({
+      provider: {
+        name: "topics", capabilities: new Set(["streaming"]), connected: true,
+        sendChat: () => { nativeCalls++; return Promise.resolve({}); },
+      },
+      byName: {
+        "claude-code": {
+          name: "claude-code", capabilities: new Set(["streaming"]), connected: true,
+          reattach: () => Promise.resolve({}),
+          sendChat: () => Promise.resolve({}),
+        },
+      },
+    });
+
+    const out = await h.attempt({ sessionKey: "topic:abc", messages: [], mode: "reattach", provider: "claude-code" });
+
+    // Not the 501 of a provider that cannot reattach: the gate let it through
+    // (the fake context then dies further down, which is fine here).
+    expect(out.status).not.toBe(501);
+    expect(nativeCalls).toBe(0);
   });
 
   /**

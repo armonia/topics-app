@@ -36,7 +36,7 @@ export interface ChatStreamHandlers {
   ) => void;
   clearSession: (sessionKey: string) => void;
   loadHistory: (sessionKey: string, opts?: { fresh?: boolean }) => void;
-  appendMediaToLastAssistant: (sessionKey: string, media: string[]) => void;
+  appendMediaToLastAssistant: (sessionKey: string, media: string[], mediaSizes?: Record<string, [number, number]>) => void;
   sendMessage: (
     sessionKey: string,
     content: string,

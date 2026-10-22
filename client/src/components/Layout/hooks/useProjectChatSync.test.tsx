@@ -105,6 +105,54 @@ describe('useProjectChatSync, a server snapshot naming sub-agent chats', () => {
   });
 });
 
+// PANE-AUTH-04: a project singleton view has one id on every device.
+describe('useProjectChatSync, remote panes and their identity', () => {
+  function hydrateWith(local: Pane[], remote: Pane[]): Pane[] {
+    const applied: ChatReconciliation[] = [];
+    const box: { hydrate: ((fresh: { nonChatPanes: Pane[]; openChatTopicIds?: string[] }) => void) | null } = { hydrate: null };
+    function Probe() {
+      const sync = useProjectChatSync({
+        projectPath: PROJECT,
+        topics: {},
+        initial: { nonChatPanes: local, openChatTopicIds: [], groups: [] as PaneGroup[] },
+        panes: local,
+        groups: [],
+        focusedGroupId: null,
+        applyChatReconciliation: (reconciliation) => { applied.push(reconciliation); },
+        reopenChatPane: () => {},
+        gateRefs: { initialChatsSyncedRef: { current: false } },
+        markChatSyncDone: () => {},
+      });
+      useEffect(() => { box.hydrate = sync.onServerHydrate; });
+      return null;
+    }
+    const h = mount(createElement(Probe));
+    try {
+      if (!box.hydrate) throw new Error('useProjectChatSync did not mount');
+      box.hydrate({ nonChatPanes: remote });
+      return applied.flatMap(reconciliation => reconciliation.add);
+    } finally {
+      h.unmount();
+    }
+  }
+  const view = (id: string, type: Pane['type']): Pane => ({ id, type, title: id, preview: false } as Pane);
+  const GIT_ID = `git:${encodeURIComponent(PROJECT)}`;
+
+  test('a remote legacy singleton arrives with the project id', () => {
+    const added = hydrateWith([view('files:here', 'files')], [view('git:old-random-id', 'git')]);
+    expect(added.map(p => p.id)).toEqual([GIT_ID]);
+    expect(added[0]?.stableKey).toBe('git:old-random-id');
+  });
+
+  test('a remote legacy singleton this device already has open is not added again', () => {
+    expect(hydrateWith([view(GIT_ID, 'git')], [view('git:old-random-id', 'git')])).toEqual([]);
+  });
+
+  test('a type that mints its id per device is still skipped while one is open here', () => {
+    expect(hydrateWith([view('file:here', 'file')], [view('file:there', 'file')])).toEqual([]);
+  });
+});
+
 describe('useProjectChatSync, sub-agent tabs the saved layout seeded', () => {
   test('are closed at load; the parent chat stays', () => {
     const chatA: Pane = { id: 'chat:A', type: 'chat', topicId: 'A', title: 'A', preview: false };

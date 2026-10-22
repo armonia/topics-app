@@ -26,6 +26,7 @@
 import { useSyncExternalStore } from 'react';
 import type { BrowserConsoleEntry, DeviceMode } from '../components/Browser/browserDevTypes';
 import type { DownloadsMenuProps } from '../components/Browser/DownloadsMenu';
+import type { BrowserLayout } from '../lib/browserLayoutPref';
 import type { ShareMode } from '../lib/sharedAuto';
 
 /** What a browser pane can be asked to do from its tab. Every command is
@@ -68,6 +69,10 @@ export interface BrowserPaneCommands {
   /** DOM reconstruction (rrweb, this device's own engine) ↔ the pixel stream.
    *  Streaming pane only: the native and iframe panes ARE the page. */
   setRenderMode?: (mode: 'dom' | 'video') => void;
+  setHostSharing?: (active: boolean) => void;
+  /** This device lays a page the Mac hosts out at its own size, or uses the
+   *  Mac's page at this device's size. DOM mirror of a native host only. */
+  setLayout?: (layout: BrowserLayout) => void;
   forgetSite?: () => void;
   /**
    * Park the page behind a pixel still while the sheet covers it, and bring it
@@ -126,6 +131,9 @@ export interface BrowserPaneChrome {
   engine?: 'native' | 'chromium';
   engineExtensions?: number;
   renderMode?: 'dom' | 'video';
+  nativeHostStatus?: { sharing: boolean; devices: number; kbps: number; delayMs: number; error?: string };
+  /** Absent wherever there is nothing to switch, like `renderMode`. */
+  layout?: BrowserLayout;
   /**
    * AN AGENT IS AT THE WHEEL OF THIS PANE, and what it is doing right now.
    *

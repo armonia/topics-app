@@ -50,11 +50,17 @@ export interface ResidencyInput {
   budget: Readonly<Record<ResidencyClass, number>>;
   /** Finestra di grazia dopo che una pane smette di essere visibile. */
   minDwellMs: number;
+  /** The server's sustained-swap verdict (`memory:pressure`). */
+  memoryPressure: boolean;
+  /** The user's switch: may an idle native pane go when memory is short. */
+  evictIdleNative: boolean;
 }
 
 export interface ResidencyDecision {
   resident: Set<string>;
   evicted: Set<string>;
+  /** The part of `evicted` that went for memory: the pane says so when it comes back. */
+  memoryEvicted: Set<string>;
 }
 
 /**
@@ -73,9 +79,9 @@ export interface ResidencyDecision {
  * comportamento di prima (tutto ciò che è stato visitato resta montato).
  */
 export const RESIDENCY_BUDGET: Readonly<Record<ResidencyClass, number>> = {
-  // `native` = una pane che possiede una WKWebView. NON si sfratta MAI. Il
-  // motivo storico era che sfrattarla fosse in PERDITA SECCA. Quel motivo dal
-  // 2026-08-13 non vale piu': resta il numero, cambia la ragione.
+  // `native` = a pane that owns a WKWebView. The count stays infinite: only
+  // the memory rule in `computeResident` lets one go (B11, IDLE native pane
+  // under sustained swap). The old finite cap was tuned when wry kept the view.
   //
   // COM'ERA. wry non distrugge la webview quando la chiudi. In `wry-0.55.1`,
   // `impl Drop for InnerWebView` chiama `self.webview.retain()`: INCREMENTA il
@@ -99,11 +105,9 @@ export const RESIDENCY_BUDGET: Readonly<Record<ResidencyClass, number>> = {
   // cinque ancora in piedi. Uno sfratto ci passa: smontare la pane fa scattare
   // `browser_close` nella cleanup di `useTauriBrowser`.
   //
-  // PERCHE' RESTA `Infinity`. Perche' un numero finito non c'e' ancora.
-  // Quello vecchio non si riusa (era tarato su uno sfratto che non liberava
-  // niente) e uno nuovo va misurato con il costo che il rientro ha OGGI: la
-  // pane ricarica la pagina da capo, che e' l'unica cosa che il retain di wry
-  // rendeva gratis.
+  // WHY A TIME RULE AND NOT A NUMBER. A finite cap would reload pages the user
+  // is cycling through; coming back costs a full page load. Under sustained
+  // swap only a pane nobody looked at for 10 minutes goes, and only then.
   //
   // Una pane browser nascosta non e' comunque a costo pieno: il guscio le
   // consegna `isVisible=false` e `useTauriBrowser` spegne la WKWebView
@@ -124,8 +128,9 @@ export const RESIDENCY_BUDGET: Readonly<Record<ResidencyClass, number>> = {
  * che l'utente ha appena lasciato (torna indietro e la ritrova viva).
  */
 export const MIN_DWELL_MS = 4000;
+export const NATIVE_IDLE_EVICT_MS = 600_000;
 
-/** Possiede una WKWebView: sfrattarla non libera memoria e ne consuma altra. */
+/** Possiede una WKWebView. */
 const NATIVE_TYPES = new Set<string>(['browser']);
 /** Cara ma di solo DOM: `project` ospita un gruppo intero, e smontarlo LIBERA. */
 const HEAVY_TYPES = new Set<string>(['project']);
@@ -161,7 +166,7 @@ export function residencyClassOf(paneType: string): ResidencyClass {
  *  6. il resto è sfrattato.
  */
 export function computeResident(input: ResidencyInput): ResidencyDecision {
-  const { visible, held, lastTouchedAt, now, budget, minDwellMs } = input;
+  const { visible, held, lastTouchedAt, now, budget, minDwellMs, memoryPressure, evictIdleNative } = input;
 
   // Dedup per chiave: la stessa pane può essere riportata da due superfici (una
   // pane `project` e il gruppo che ospita, una finestra staccata che mostra la
@@ -179,6 +184,7 @@ export function computeResident(input: ResidencyInput): ResidencyDecision {
   }
 
   const resident = new Set<string>();
+  const memoryEvicted = new Set<string>();
   const contested: { key: string; cls: ResidencyClass; touched: number }[] = [];
   const evictedEarly: string[] = [];
 
@@ -191,6 +197,11 @@ export function computeResident(input: ResidencyInput): ResidencyDecision {
     if (touched === undefined) {
       // Mai visibile: non è mai stata montata, e il budget non la monta.
       evictedEarly.push(key);
+      continue;
+    }
+    if (cls === 'native' && memoryPressure && evictIdleNative && now - touched >= NATIVE_IDLE_EVICT_MS) {
+      evictedEarly.push(key);
+      memoryEvicted.add(key);
       continue;
     }
     if (now - touched < minDwellMs) {
@@ -220,5 +231,5 @@ export function computeResident(input: ResidencyInput): ResidencyDecision {
     }
   }
 
-  return { resident, evicted };
+  return { resident, evicted, memoryEvicted };
 }

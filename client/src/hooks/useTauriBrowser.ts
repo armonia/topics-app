@@ -42,9 +42,13 @@ import {
   movingNativeViews,
   settleNativeViewOpen,
   takeNativeViewMove,
+  installHideOnPageExit,
 } from '../lib/shell/nativeBrowserViews';
 import { currentOverlays, decideFreeze, liveSlotRect, onOcclusionChange, type OverlayRect } from '../lib/shell/browserOcclusion';
 import { serverWsBase } from '../lib/shell/net';
+import type { HostNavAction, NativeDomHost } from '../lib/nativeDomHost';
+import { createPaneDomHost } from '../lib/shell/paneDomHost';
+import { INSTALL_USE_HOOK, LOCAL_USE_COUNT_JS, paneView, parkedView, usedSince, type Size } from '../lib/shell/paneViewport';
 import { browserClientId } from '../lib/browserClientId';
 import { executeNativeBrowserOp } from '../lib/shell/tauriBrowserOps';
 import { stepZoom, DEFAULT_ZOOM, zoomApplyJs, zoomDrifted } from '../lib/shell/zoomScale';
@@ -154,6 +158,9 @@ const INSTALL_FOCUS_HOOK =
 const pendingBrowserCloses = new Map<string, ReturnType<typeof setTimeout>>();
 const BROWSER_CLOSE_GRACE_MS = 350;
 
+/** A shell older than `browser_set_page_zoom` says so once; panes then only clamp (paneViewport). */
+let pageZoomMissing = false;
+
 /** Quanto un fallimento di navigazione appena letto (drain di
  *  `browser_take_nav_errors`) tiene la barra SPENTA contro un `loading: true`
  *  che arriva dietro di lui. Quel drain gira a 1000ms, quello dello stato nav a
@@ -215,6 +222,7 @@ onBeforeBundleReload(() => {
     void releaseNativeView(id).catch(() => {});
   }
 });
+installHideOnPageExit(() => browserViewRefs.keys(), tauriInvoke); // any other reload keeps (and hides) them
 
 /**
  * The corner radius the shell rounds a native page to, in px.
@@ -323,6 +331,11 @@ export function useTauriBrowser(contextId: string, initialUrl?: string, isVisibl
   // label reflects both button and keyboard changes from one source of truth.
   const [zoom, setZoomState] = useState(DEFAULT_ZOOM);
   const zoomRef = useRef(DEFAULT_ZOOM);
+  // The size of the device using this page from elsewhere (paneViewport.ts),
+  // null while the Mac's own slot decides; and the page zoom the view has.
+  const remoteDimsRef = useRef<Size | null>(null);
+  const appliedPageZoomRef = useRef<number | null>(null);
+  const lastLocalUseRef = useRef(-1);
   const consoleIdRef = useRef(0);
 
   // ── Is this pane still alive? ─────────────────────────────────────────────
@@ -380,7 +393,9 @@ export function useTauriBrowser(contextId: string, initialUrl?: string, isVisibl
    */
   const reassertZoom = useCallback(
     (reportedZoomStyle: string) => {
-      const want = zoomRef.current;
+      // Not while another device lays the page out: rrweb copies the document's
+      // zoom into its mirror, and the Mac's zoom is the Mac's choice.
+      const want = remoteDimsRef.current ? DEFAULT_ZOOM : zoomRef.current;
       if (!zoomDrifted(want, reportedZoomStyle)) return;
       void tauriInvoke('browser_exec_js', { id, js: zoomApplyJs(want) }).catch(() => {});
     },
@@ -489,9 +504,21 @@ export function useTauriBrowser(contextId: string, initialUrl?: string, isVisibl
    */
   const hiddenRef = useRef(false);
 
+  const applyPageZoom = useCallback((zoom: number) => {
+    if (pageZoomMissing || appliedPageZoomRef.current === zoom) return;
+    appliedPageZoomRef.current = zoom;
+    void tauriInvoke('browser_set_page_zoom', { id, zoom }).catch((err: unknown) => {
+      appliedPageZoomRef.current = null;
+      if (!/not found/i.test(String(err))) return;
+      pageZoomMissing = true;
+      window.dispatchEvent(new CustomEvent('browser:reflow-request'));
+    });
+  }, [id]);
+
   // Apply the effective bounds = the last slot rect, letterboxed to the device
-  // dims when emulating. Centralised so device-mode switches can re-letterbox
-  // without the placeholder re-measuring.
+  // dims when emulating, or at the size of the device using the page from
+  // elsewhere. Centralised so device-mode switches can re-letterbox without the
+  // placeholder re-measuring.
   const applyBounds = useCallback(() => {
     // While frozen the live view is parked behind a DOM still; ignore every
     // bounds push (poll / ResizeObserver / device switch) so nothing re-parks or
@@ -505,12 +532,11 @@ export function useTauriBrowser(contextId: string, initialUrl?: string, isVisibl
     // Overlay-hiding is handled by the freeze path (intersection-scoped), not here.
     const hide = slot.width <= 0 || slot.height <= 0;
     let rect = slot;
-    const dims = deviceDimsRef.current;
-    if (!hide && dims) {
-      const w = Math.min(dims.width, slot.width);
-      const h = Math.min(dims.height, slot.height);
-      rect = { x: slot.x + (slot.width - w) / 2, y: slot.y + (slot.height - h) / 2, width: w, height: h };
-    } else if (hide) {
+    if (!hide) {
+      const view = paneView(slot, { remote: remoteDimsRef.current, device: deviceDimsRef.current, canZoom: !pageZoomMissing });
+      rect = view.rect;
+      applyPageZoom(view.pageZoom);
+    } else {
       // Park off-screen but KEEP the last shown size (not 1×1), so the page's
       // layout survives while hidden and the agent can still screenshot/read it.
       rect = { x: -100000, y: 0, width: lastRealSizeRef.current.width, height: lastRealSizeRef.current.height };
@@ -534,7 +560,7 @@ export function useTauriBrowser(contextId: string, initialUrl?: string, isVisibl
       height: Math.round(rect.height),
       radius,
     });
-  }, [id, suppressSelfFocus, paneInvoke]);
+  }, [id, suppressSelfFocus, paneInvoke, applyPageZoom]);
 
   const setBounds = useCallback(
     (b: { x: number; y: number; width: number; height: number }) => {
@@ -585,13 +611,9 @@ export function useTauriBrowser(contextId: string, initialUrl?: string, isVisibl
       if (frozenRef.current) return Promise.resolve(true);
       if (!openedRef.current || b.width <= 0 || b.height <= 0) return Promise.resolve(false);
       pendingRectRef.current = b;
-      let rect = b;
-      const dims = deviceDimsRef.current;
-      if (dims) {
-        const w = Math.min(dims.width, b.width);
-        const h = Math.min(dims.height, b.height);
-        rect = { x: b.x + (b.width - w) / 2, y: b.y + (b.height - h) / 2, width: w, height: h };
-      }
+      const view = paneView(b, { remote: remoteDimsRef.current, device: deviceDimsRef.current, canZoom: !pageZoomMissing });
+      const rect = view.rect;
+      applyPageZoom(view.pageZoom);
       if (rect.width >= 64 && rect.height >= 64) {
         lastRealSizeRef.current = { width: Math.round(rect.width), height: Math.round(rect.height) };
       }
@@ -611,8 +633,30 @@ export function useTauriBrowser(contextId: string, initialUrl?: string, isVisibl
         radius,
       });
     },
-    [id, suppressSelfFocus, paneInvoke],
+    [id, suppressSelfFocus, paneInvoke, applyPageZoom],
   );
+
+  // The device using this page from elsewhere, or (null) the Mac again: the
+  // view takes its size (paneViewport.ts). A pane with no box on screen, or
+  // behind a still, is laid out off-screen all the same: the device sees it.
+  const setRemoteViewport = useCallback((size: Size | null) => {
+    const was = remoteDimsRef.current;
+    if (was === size || (was && size && was.width === size.width && was.height === size.height)) return;
+    remoteDimsRef.current = size;
+    // The toolbar's zoom is CSS on the document, which rrweb copies into every
+    // mirror: it is the Mac's choice for its own view.
+    void tauriInvoke('browser_exec_js', { id, js: zoomApplyJs(size ? DEFAULT_ZOOM : zoomRef.current) }).catch(() => {});
+    if (!frozenRef.current && !hiddenRef.current) { applyBounds(); return; }
+    if (!openedRef.current) return;
+    const view = parkedView(pendingRectRef.current, {
+      remote: size, device: deviceDimsRef.current, canZoom: !pageZoomMissing, last: lastRealSizeRef.current,
+    });
+    applyPageZoom(view.pageZoom);
+    lastRealSizeRef.current = { width: Math.round(view.rect.width), height: Math.round(view.rect.height) };
+    void paneInvoke('browser_set_bounds', { id, x: -100000, y: 0, ...lastRealSizeRef.current });
+  }, [id, applyBounds, applyPageZoom, paneInvoke]);
+  const setRemoteViewportRef = useRef(setRemoteViewport);
+  setRemoteViewportRef.current = setRemoteViewport;
 
   // Capture a still, show it, then park the live view. Capturing FIRST (while the
   // view is on-screen) is necessary but NOT sufficient for a seamless swap: the
@@ -770,6 +814,13 @@ export function useTauriBrowser(contextId: string, initialUrl?: string, isVisibl
   agentActiveRef.current = agentActive;
   // The live executor socket of this pane, reached by `takeControl` below.
   const executorRunRef = useRef<NativeExecutorSocketRun | null>(null);
+  // Another device mirrors this page (lib/nativeDomHost.ts): while it watches,
+  // the page has to stay live like under an agent, or the mirror freezes.
+  const hostRef = useRef<NativeDomHost | null>(null);
+  const [hosting, setHosting] = useState(false);
+  const [hostStatus, setHostStatus] = useState<NativeBrowserHandle['hostStatus']>();
+  const hostingRef = useRef(false);
+  const hostNavigateRef = useRef<(action: HostNavAction, target?: string) => void>(() => {});
 
   /**
    * TAKING THE WHEEL BACK ON THE NATIVE SHELL.
@@ -797,13 +848,13 @@ export function useTauriBrowser(contextId: string, initialUrl?: string, isVisibl
 
   // ── Heavy pane: live only with the focus ─────────────────────────────────
   const pause = useNativePanePause({
-    id, ready, isVisible, hasFocus, agentActive, url, loading, parked: !!parked,
+    id, ready, isVisible, hasFocus, agentActive: agentActive || hosting, url, loading, parked: !!parked,
     pauseStateRef, openedRef, frozenRef, freezeSeqRef, frozenImage, setFrozenImage,
     lastRealSizeRef, pendingRectRef, agentOpsInFlightRef, agentActiveRef,
     paneInvoke, setNativeVisible, evaluateOcclusionRef,
   });
   // The view is shown while visible and not paused, or while an agent uses it.
-  const nativeWanted = (isVisible && pause.pauseState !== 'paused') || agentActive;
+  const nativeWanted = (isVisible && pause.pauseState !== 'paused') || agentActive || hosting;
   const nativeWantedRef = useRef(nativeWanted);
   nativeWantedRef.current = nativeWanted;
 
@@ -828,7 +879,7 @@ export function useTauriBrowser(contextId: string, initialUrl?: string, isVisibl
   // An agent at the wheel: the native drains keep running in an unfocused window.
   const agentEngaged = useCallback(() => agentActiveRef.current || agentOpsInFlightRef.current > 0, []);
   const syncEngaged = useCallback(() => {
-    engagedEdge.set(isVisibleRef.current || agentActiveRef.current || agentOpsInFlightRef.current > 0);
+    engagedEdge.set(isVisibleRef.current || agentActiveRef.current || agentOpsInFlightRef.current > 0 || hostingRef.current);
   }, [engagedEdge]);
   useEffect(() => { liveEdge.set(pause.pauseState === 'live'); }, [liveEdge, pause.pauseState]);
   useEffect(() => { syncEngaged(); }, [syncEngaged, isVisible, agentActive]);
@@ -881,6 +932,8 @@ export function useTauriBrowser(contextId: string, initialUrl?: string, isVisibl
     markBrowserViewLive(id);
     const applyOpened = (adopted = false, shownUrl?: string) => {
         openedRef.current = true;
+        // A new view is at page zoom 1, an adopted one at whatever it was left at.
+        appliedPageZoomRef.current = null;
         // NON fidarsi del `true` iniziale di `nativeVisibleRef`: la view che
         // `browser_open` ha appena restituito può essere una view RIUSATA, e
         // il suo ramo idempotente (lib.rs) fa solo set_bounds —
@@ -1524,8 +1577,8 @@ export function useTauriBrowser(contextId: string, initialUrl?: string, isVisibl
     let stop = false;
     let inFlight = false;
     const FAST =
-      "(function(){" + INSTALL_FOCUS_HOOK + PANE_CONTEXT_HOOK_JS +
-      "try{return JSON.stringify({k:window.__topicsFocusBump||0,m:" + PANE_CONTEXT_TAKE_EXPR + "})}" +
+      "(function(){" + INSTALL_FOCUS_HOOK + INSTALL_USE_HOOK + PANE_CONTEXT_HOOK_JS +
+      "try{return JSON.stringify({k:window.__topicsFocusBump||0,u:" + LOCAL_USE_COUNT_JS + ",m:" + PANE_CONTEXT_TAKE_EXPR + "})}" +
       "catch(e){return ''}})()";
     const tick = async () => {
       if (stop || inFlight) return;
@@ -1533,8 +1586,8 @@ export function useTauriBrowser(contextId: string, initialUrl?: string, isVisibl
       try {
         const raw = await tauriInvoke<string>('browser_eval_js', { id, js: FAST });
         if (stop || !raw) return;
-        let payload: { k?: unknown; m?: unknown } | null = null;
-        try { payload = JSON.parse(raw) as { k?: unknown; m?: unknown }; } catch { return; }
+        let payload: { k?: unknown; m?: unknown; u?: unknown } | null = null;
+        try { payload = JSON.parse(raw) as { k?: unknown; m?: unknown; u?: unknown }; } catch { return; }
         if (!payload) return;
         maybeFireSelfFocus(typeof payload.k === 'number' ? payload.k : 0);
         const req = parsePaneContextRequest(payload.m);
@@ -1543,10 +1596,20 @@ export function useTauriBrowser(contextId: string, initialUrl?: string, isVisibl
           // stessa fonte con cui si decide l'occlusione), lo zoom e le dimensioni
           // dell'emulazione lo portano nelle coordinate della finestra, dove il
           // menu vive.
-          setPaneContext(paneToHostPoint(req, liveSlotRect(id) ?? pendingRectRef.current, {
-            zoomPercent: zoomRef.current,
-            deviceDims: deviceDimsRef.current,
-          }));
+          // Before the use below gives the layout back: the point is in this one.
+          const slot = liveSlotRect(id) ?? pendingRectRef.current;
+          const remote = remoteDimsRef.current;
+          const view = remote && slot ? paneView(slot, { remote, canZoom: !pageZoomMissing }) : null;
+          setPaneContext(paneToHostPoint(req, slot, view
+            ? { zoomPercent: view.pageZoom * 100, deviceDims: view.rect }
+            : { zoomPercent: zoomRef.current, deviceDims: deviceDimsRef.current }));
+        }
+        if (typeof payload.u === 'number') {
+          const last = lastLocalUseRef.current;
+          lastLocalUseRef.current = payload.u;
+          // The Mac's user used the page: it takes the layout back. Same guard
+          // as the focus bump, for the pointerdown a moved view is handed.
+          if (usedSince(last, payload.u) && Date.now() >= focusSuppressUntilRef.current) hostRef.current?.noteLocalUse();
         }
       } catch { /* pane closing / eval timeout — next tick retries */ }
       finally { inFlight = false; }
@@ -1746,13 +1809,26 @@ export function useTauriBrowser(contextId: string, initialUrl?: string, isVisibl
     // The pushed viewer count rides this socket while the pane is native (the
     // streaming socket carries it while shared); see viewerCountBus.
     let detachViewerChannel: (() => void) | null = null;
+    // The pane as the source of the DOM mirror: a device watching this context
+    // sees THIS page, rebuilt from its DOM, and the Mac stays native.
+    let socketRun: NativeExecutorSocketRun | null = null;
+    const host = createPaneDomHost(id, {
+      sendText: (text) => socketRun?.sendText(text),
+      navigate: (action, target) => hostNavigateRef.current(action, target),
+      onRecordingChange: (on) => { hostingRef.current = on; setHosting(on); syncEngaged(); },
+      onStatus: setHostStatus,
+      setViewport: (size) => setRemoteViewportRef.current(size),
+    });
+    hostRef.current = host;
     const run = startNativeExecutorSocket({
+      host: host ?? undefined,
       // Same `?client=` as the streaming socket of this pane: when auto mode
       // flips native to shared, the server has to see one client changing
       // socket and not a newcomer queueing behind whoever is watching.
       url: `${serverWsBase()}/ws/browser/${encodeURIComponent(id)}?client=${encodeURIComponent(browserClientId())}`,
       onViewers: (count) => pushViewerCount(id, count),
       onChannel: (up) => {
+        if (!up) setHostStatus(undefined);
         detachViewerChannel?.();
         detachViewerChannel = up ? attachViewerChannel(id) : null;
       },
@@ -1767,7 +1843,7 @@ export function useTauriBrowser(contextId: string, initialUrl?: string, isVisibl
         try {
           const woke = await setNativeVisible(true);
           if (woke) await new Promise((r) => setTimeout(r, 150));
-          return await executeNativeBrowserOp(id, tool, args, tauriInvoke);
+          return await executeNativeBrowserOp(id, tool, args, tauriInvoke, nativeViewUrlRef.current);
         } finally {
           agentOpsInFlightRef.current -= 1;
           // Last op out re-hides, unless the pane became genuinely visible or
@@ -1783,16 +1859,33 @@ export function useTauriBrowser(contextId: string, initialUrl?: string, isVisibl
         if (active && action) setAgentAction(action);
       },
     });
+    socketRun = run;
     executorRunRef.current = run;
     tracePaneAttach('pane socket opened', { contextId: id, shell: 'native' });
     return () => {
       tracePaneAttach('pane socket released', { contextId: id, shell: 'native' });
       executorRunRef.current = null;
+      hostRef.current = null;
       run.stop();
     };
     // setNativeVisible is useCallback([id]), so it never re-opens the socket on
     // its own — isVisible/agentActive are read through refs for that reason.
   }, [id, setNativeVisible, syncEngaged]);
+
+  // A viewer's navigation runs through the same doors as this pane's toolbar,
+  // so the Mac's address bar and history follow it.
+  useEffect(() => {
+    hostNavigateRef.current = (action, target) => {
+      if (action === 'navigate') { if (target) void navigate(target); }
+      else if (action === 'back') void goBack();
+      else if (action === 'forward') void goForward();
+      else void reload();
+    };
+  });
+  // Where the page is reaches the viewers' address bars.
+  useEffect(() => {
+    hostRef.current?.notePage({ url: url || 'about:blank', title, canGoBack, canGoForward });
+  }, [url, title, canGoBack, canGoForward]);
 
   // Zoom via injected CSS (WKWebView has no JS zoom API; document zoom is the
   // portable stop-gap). The percentage is snapped to a fixed Chrome-style ladder
@@ -1803,6 +1896,8 @@ export function useTauriBrowser(contextId: string, initialUrl?: string, isVisibl
       const next = delta === 'reset' ? DEFAULT_ZOOM : stepZoom(zoomRef.current, delta);
       zoomRef.current = next;
       setZoomState(next);
+      // Zooming is using the pane: the Mac takes its layout back first.
+      hostRef.current?.noteLocalUse();
       await tauriInvoke('browser_exec_js', { id, js: zoomApplyJs(next) }).catch(() => {});
       return next;
     },
@@ -2035,6 +2130,8 @@ export function useTauriBrowser(contextId: string, initialUrl?: string, isVisibl
     agentActive,
     agentAction,
     takeControl,
+    hostStatus,
+    setHostSharing: (active: boolean) => hostRef.current?.setSharing(active),
     heavy: pause.heavy,
     paused: pause.pauseState === 'paused',
     pausedImage: pause.pausedImage,
@@ -2088,7 +2185,7 @@ export function useTauriBrowser(contextId: string, initialUrl?: string, isVisibl
     freeze,
     thaw,
   }), [
-    url, title, loading, agentActive, agentAction, takeControl, pause.heavy, pause.pauseState, pause.pausedImage, resume, keepLiveOnce, keepLiveAlways,
+    url, title, loading, agentActive, agentAction, takeControl, hostStatus, pause.heavy, pause.pauseState, pause.pausedImage, resume, keepLiveOnce, keepLiveAlways,
     ready, viewId, faviconUrl, frozenImage,
     navError, clearNavError, retryNav, parked, parkedChecking, retryParked,
     navigate, goBack, goForward, reload, goHome, setBounds, animateBounds, toggleDevTools, findInPage, stopFind,

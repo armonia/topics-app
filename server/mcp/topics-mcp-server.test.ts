@@ -559,7 +559,7 @@ describe("handleMessage", () => {
     expect(resp!.id).toBe(1);
     const result = resp!.result as any;
     expect(result.protocolVersion).toBe("2024-11-05");
-    expect(result.capabilities).toEqual({ tools: {} });
+    expect(result.capabilities).toEqual({ tools: {}, resources: {} });
     expect(result.serverInfo.name).toBe("topics-app");
   });
 
@@ -582,6 +582,7 @@ describe("handleMessage", () => {
       "browser_extract",
       "browser_get_text",
       "browser_screenshot",
+      "browser_verify",
       "browser_read_screen",
       "browser_console",
       "browser_network",
@@ -610,6 +611,7 @@ describe("handleMessage", () => {
       "send_mail",
       "google_call",
       "ask_user_question",
+      "show_view", // GENUI-01: a designed view in the chat
       // Il canale di permesso: pubblicato sempre. Lo designa
       // `--permission-prompt-tool`, e la CLI lo toglie da sé dall'elenco che
       // il modello vede — quindi non costa contesto, e non esiste una
@@ -681,6 +683,8 @@ describe("handleMessage", () => {
       "read_chat_messages", "resolve_tab",
       // Chiedere a una persona non cambia niente: è la lettura più pura che ci sia.
       "ask_user_question", "approval_prompt",
+      // Showing a view stores a page of data and changes nothing else (GENUI-01).
+      "show_view",
     ].sort();
     const MODIFICANO = [
       // Aprono, chiudono, spostano o scrivono qualcosa — pane, processi, board,
@@ -689,6 +693,8 @@ describe("handleMessage", () => {
       "open_browser_pane", "close_browser_pane", "browser_focus_tab", "import_chrome",
       "browser_act", "browser_eval", "browser_save_state", "browser_load_state",
       "browser_upload",
+      // It reloads or navigates the page before it reads it.
+      "browser_verify",
       "run_script", "run_command", "stop_process",
       "create_task", "update_task", "close_goal", "set_goal", "update_goal_steps",
       "comment_task", "label_task", "wait_for_condition",

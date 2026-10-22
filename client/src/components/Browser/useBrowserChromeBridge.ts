@@ -30,6 +30,7 @@ import { releaseNativeFocus } from '../../lib/shell/tauri';
 import type { BrowserConsoleEntry, DeviceMode } from './browserDevTypes';
 import type { DownloadsMenuProps } from './DownloadsMenu';
 import type { ShareMode } from '../../lib/sharedAuto';
+import type { BrowserLayout } from '../../lib/browserLayoutPref';
 
 export interface BrowserChromeBridgeInput {
   url: string;
@@ -69,6 +70,8 @@ export interface BrowserChromeBridgeInput {
   engine?: 'native' | 'chromium';
   engineExtensions?: number;
   renderMode?: 'dom' | 'video';
+  nativeHostStatus?: { sharing: boolean; devices: number; kbps: number; delayMs: number; error?: string };
+  layout?: BrowserLayout;
   /** An agent is driving this pane, and what it is doing. The tab draws it as
    *  its type icon; nothing is drawn over the page for it. */
   agentActive?: boolean;
@@ -152,7 +155,7 @@ export function useBrowserChromeBridge(
   const {
     faviconUrl, loading, canGoBack, canGoForward, consoleSummary, downloads,
     zoom, deviceMode, shared, shareMode, connection, engine, engineExtensions,
-    renderMode, history, consoleEntries, downloadsMenu, commands,
+    renderMode, nativeHostStatus, layout, history, consoleEntries, downloadsMenu, commands,
     agentActive, agentAction, heavy,
   } = input;
 
@@ -199,6 +202,8 @@ export function useBrowserChromeBridge(
     engine,
     engineExtensions,
     renderMode,
+    nativeHostStatus,
+    layout,
     agentActive,
     agentAction: agentAction ?? undefined,
     heavy: heavyChrome,
@@ -218,7 +223,7 @@ export function useBrowserChromeBridge(
   }), [
     urlToShow, faviconUrl, loading, canGoBack, canGoForward,
     consoleSummary?.errors, consoleSummary?.warnings, downloads, zoom, deviceMode, shared,
-    shareMode, connection, engine, engineExtensions, renderMode,
+    shareMode, connection, engine, engineExtensions, renderMode, nativeHostStatus, layout,
     agentActive, agentAction, heavyChrome,
     history, consoleEntries, downloadsMenu, input.downloadsStarted,
     addressEditRequest, downloadsOpenRequest, commands, focusAddress, openDownloads,

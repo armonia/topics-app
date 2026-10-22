@@ -157,6 +157,16 @@ export function createPaneId(type: PaneType, key?: string): string {
   return `${type}:${generateUUID()}`;
 }
 
+/** Shared id for the same project singleton view across clients. */
+export function createProjectSingletonPaneId(projectPath: string, type: PaneType): string {
+  return `${type}:${encodeURIComponent(projectPath)}`;
+}
+
+export function isProjectSingletonPaneType(type: PaneType): boolean {
+  const config = PANE_CONFIG[type];
+  return !!config?.singleton && !!config.addableScopes?.includes('project');
+}
+
 /**
  * Il contesto di un browser che l'UTENTE ha appena chiesto — «+ → Browser», o
  * la voce Browser del menu della sidebar.
@@ -298,15 +308,15 @@ export function normalizePinKey(key: string): string {
  * funzione per tutti i tipi, così nessuna superficie può dimenticarne uno (la
  * dimenticanza del browser nel pinning è stata esattamente quel bug).
  *
- * ── Perché metà dei tipi torna `null`, e perché è la cosa giusta ─────────────
- * `file`/`kanban`/`git`/`files`/`process-log`/`draft` nascono
- * con un id `<tipo>:<uuid>` sorteggiato a ogni apertura (`createPaneId`): quel
- * numero non identifica NIENTE dopo un reload. Per il file l'identità vera è il
- * CONTENUTO (`filePath` + il progetto che lo ospita) — ed è quella che
- * emettiamo; per gli altri non esiste affatto, e un link che al reload
- * successivo aprirebbe un pane a caso è peggio di nessun link. Il `null` è
- * quindi il GATE della voce di menu «Copia link»: chi chiama non la mostra, e
- * non c'è modo di produrre un permalink morto.
+ * ── Why half the types return `null`, and why that is right ────────────────
+ * `file`/`process-log`/`draft` are born with a `<type>:<uuid>` id drawn at
+ * every open (`createPaneId`): that number names NOTHING after a reload. For a
+ * file the real identity is its CONTENT (`filePath` plus the project hosting
+ * it), and that is what we emit; the others have none, and a link that would
+ * open a random pane after the next reload is worse than no link. The project
+ * singleton views (`kanban`/`git`/`files`) have one id per project since
+ * PANE-AUTH-04, but no permalink yet. So the `null` is the GATE of the «Copia
+ * link» menu item: callers do not show it, and a dead permalink cannot exist.
  *
  * ── Perché la chat porta il topicId e non `pane.id` ──────────────────────────
  * La stessa chat ha due id di pane a seconda della superficie (`<topicId>` nudo

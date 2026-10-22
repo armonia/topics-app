@@ -65,3 +65,16 @@ export const HISTORY_PAGE_MAX_BYTES = 256 * 1024;
  * it; combined with `before`, it asks for everything BEFORE one message.
  */
 export const HISTORY_FETCH_ALL = 0;
+
+/**
+ * Infinite scroll (CHAT-HIST-01): how many viewport heights from the top of the
+ * loaded window the reader is when the messages before it are FETCHED (held,
+ * not merged) and when they are MERGED. The merge lands two screens before the
+ * top, where both the prepend and the divider it lifts from the first row are
+ * out of sight; the fetch starts four screens earlier, so a reader scrolling at
+ * a normal pace finds the rows already here (a big chat answers in 0.7-1.7 s).
+ * Shared with `tests/e2e/chat-infinite-scroll.spec.ts`, which places the reader
+ * just short of the merge to measure it.
+ */
+export const OLDER_STAGE_SCREENS = 6;
+export const OLDER_MERGE_SCREENS = 2;

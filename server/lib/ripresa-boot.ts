@@ -941,6 +941,23 @@ export async function cutTurnResumable(ctx: CtxRipresa, sessionKey: string): Pro
 }
 
 /**
+ * The last message of every chat written in the last 25 hours, the only ones a
+ * resume can concern. It used to take the last message of EVERY chat and then
+ * keep the recent ones: a walk of the whole message index plus one table read
+ * per chat, every 5 minutes (374 ms on the live database of 15/10/2026, under
+ * memory pressure). Now the recent messages come first, through the timestamp
+ * index, and each keeps itself only if it is the last row of its chat, one seek
+ * in `idx_messages_session`. Same rows: a chat whose last row is recent has a
+ * recent row. No INDEXED BY: the only usable constraint is the timestamp range,
+ * and a database without that index still answers (db-sweep-plans.test.ts
+ * checks the plan and the rows).
+ */
+export const LAST_RECENT_MESSAGES_SQL = `SELECT m.session_key AS sk, m.id AS id, m.role AS ruolo, m.blocks AS blocks, m.timestamp AS ts
+  FROM messages m
+ WHERE m.timestamp >= strftime('%Y-%m-%dT%H:%M:%fZ', 'now', '-25 hours')
+   AND m.rowid = (SELECT MAX(rowid) FROM messages WHERE session_key = m.session_key)`;
+
+/**
  * I TURNI CHE ABBIAMO UCCISO NOI, RIPRESI DA NOI.
  *
  * Un turno di `claude-code` sopravvive al riavvio (gira in un figlio, il broker
@@ -973,13 +990,7 @@ export async function riprendiTurniInterrotti(
   try {
     // L'ULTIMO messaggio di ogni chat, che è l'unico che possa essere
     // «interrotto»: più indietro è storia, e l'utente ci ha già parlato sopra.
-    const righe = ctx.db.query(
-      `SELECT m.session_key AS sk, m.id AS id, m.role AS ruolo, m.blocks AS blocks, m.timestamp AS ts
-         FROM messages m
-         JOIN (SELECT session_key, MAX(rowid) AS r FROM messages GROUP BY session_key) u
-           ON u.r = m.rowid
-        WHERE m.timestamp >= strftime('%Y-%m-%dT%H:%M:%fZ', 'now', '-25 hours')`,
-    ).all() as LastRow[];
+    const righe = ctx.db.query(LAST_RECENT_MESSAGES_SQL).all() as LastRow[];
     const ora = Date.now();
     const bootedAtMs = ctx.bootedAtMs ?? ora - process.uptime() * 1000;
     for (const found of righe) {

@@ -428,4 +428,18 @@ describe("detectScripts", () => {
     expect(r.scripts).toEqual([]);
     expect(r.found).toEqual(["package.json"]);
   });
+
+  test("il run dichiarato dal progetto entra nel runner con id stabile", () => {
+    const r = detectScripts("/x", finto({
+      ".topics/worktree.json": '{"run":{"command":"bun","args":["run","dev"]}}',
+    }));
+    expect(r.scripts).toEqual([{
+      id: ".topics/worktree.json#run",
+      name: "run",
+      detail: "bun run dev",
+      argv: ["bun", "run", "dev"],
+      from: ".topics/worktree.json",
+    }]);
+    expect(resolveScript(r, ".topics/worktree.json#run")?.argv).toEqual(["bun", "run", "dev"]);
+  });
 });

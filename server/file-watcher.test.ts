@@ -12,14 +12,14 @@
  * newest project reaches the broadcast even when older projects filled the cap.
  * The debounce is 300 ms; the waits are on a condition, never on the clock.
  *
- * @covers PROJECT-12 — "the condition is LIVE": the section comes back on the
+ * @covers PROJECT-12, SYSTEM-03 — "the condition is LIVE": the section comes back on the
  * first change, which needs the watcher of that project to exist at all.
  */
 import { describe, test, expect, afterEach } from "bun:test";
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
-import { MAX_WATCHERS, unwatchProjectFiles, watchProjectFiles, watchedProjectPaths } from "./file-watcher";
+import { MAX_WATCHERS, _setWatcherErrorForTests, fileWatcherLastError, unwatchProjectFiles, watchProjectFiles, watchedProjectPaths } from "./file-watcher";
 import type { AppContext } from "./types";
 import { slackMs } from "../tests/helpers/time-slack";
 import { makeFakeHome } from "./lib/protected-app-data.fixture";
@@ -170,6 +170,26 @@ describe("file watcher and other apps' data", () => {
     } finally {
       for (const p of [fake.home, library, project]) unwatchProjectFiles(p);
       fake.dispose();
+    }
+  });
+});
+
+describe("file watcher health errors", () => {
+  test("watching project B does not clear project A's error", () => {
+    const root = mkdtempSync(join(tmpdir(), "fswatch-error-"));
+    const a = join(root, "a");
+    const b = join(root, "b");
+    mkdirSync(a, { recursive: true });
+    mkdirSync(b, { recursive: true });
+    const ctx = { broadcastToAll: () => {} } as unknown as AppContext;
+    try {
+      _setWatcherErrorForTests(a, "permission denied", "2026-10-15T10:00:00.000Z");
+      watchProjectFiles(b, ctx);
+      expect(fileWatcherLastError()).toEqual({ projectPath: a, message: "permission denied", at: "2026-10-15T10:00:00.000Z" });
+    } finally {
+      unwatchProjectFiles(a);
+      unwatchProjectFiles(b);
+      rmSync(root, { recursive: true, force: true });
     }
   });
 });

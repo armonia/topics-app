@@ -38,6 +38,7 @@ const GOLDEN_ORDER = [
   "sessionEnvironmentRouter",
   "activityRouter",
   "externalSessionsRouter",
+  "liveTerminalsRouter",
   "checkpointsRouter",
   "goalsRouter",
   "openRouter",
@@ -61,6 +62,7 @@ const GOLDEN_ORDER = [
   "appSettingsRouter",
   "calendarRouter",
   "tabsRouter",
+  "viewsRouter",
   "claudeHooksRouter",
   "e2eRouter",
 ];

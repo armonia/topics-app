@@ -23,6 +23,7 @@ import { slackMs } from "../helpers/time-slack";
 
 const ROOT = testTmpDir("pty-bridge-mjs");
 const BRIDGE = path.join(PROJECT_ROOT, "server", "pty-bridge.mjs");
+const RUST_BRIDGE = process.env.TOPICS_PTY_BRIDGE_TEST_BIN;
 
 /** L'eseguibile Node con cui lanciare il ponte: il PATH di chi esegue i test
  *  non e' garantito. La ricerca e il messaggio d'errore stanno in
@@ -34,6 +35,15 @@ const NODE = resolveNodeBin();
 const GRACE_MS = 400;
 
 interface Frame { type: string; id?: string; [k: string]: unknown }
+
+/** Whether a connect to the socket goes through. The probe is closed at once. */
+function accepts(socketPath: string): Promise<boolean> {
+  return new Promise((resolve) => {
+    const s = net.connect(socketPath);
+    s.once("connect", () => { s.destroy(); resolve(true); });
+    s.once("error", () => resolve(false));
+  });
+}
 
 class Bridge {
   private constructor(
@@ -47,7 +57,9 @@ class Bridge {
     let proc: ReturnType<typeof Bun.spawn>;
     try {
       proc = Bun.spawn(
-        [NODE, BRIDGE, "--socket", socketPath, "--parent-pid", String(process.pid)],
+        RUST_BRIDGE
+          ? [RUST_BRIDGE, "--socket", socketPath, "--parent-pid", String(process.pid)]
+          : [NODE, BRIDGE, "--socket", socketPath, "--parent-pid", String(process.pid)],
         {
           stdout: "ignore",
           stderr: "ignore",
@@ -58,14 +70,16 @@ class Bridge {
       // ACCUSA L'AMBIENTE, non il ponte. Un `ENOENT` grezzo qui produceva
       // cinque rossi che sembravano difetti dello shutdown, e sono costati una
       // diagnosi: il rosso deve dire cosa manca e come si ripara.
+      if (RUST_BRIDGE) throw new Error(`binario Rust del ponte PTY non avviabile (${RUST_BRIDGE}): ${String(e)}`);
       throw new Error(nodeMancanteMessage(NODE, e));
     }
+    // Ready means a connect goes through, the rule `ensureBridge` already uses: the
+    // socket file appears at bind(), a beat before listen(), and a connect in that
+    // window is refused (ECONNREFUSED on a macOS runner, 18/10).
     const deadline = Date.now() + 20_000;
-    while (Date.now() < deadline) {
-      if (fs.existsSync(socketPath)) break;
-      await Bun.sleep(50);
-    }
-    if (!fs.existsSync(socketPath)) throw new Error("il ponte non ha mai messo in ascolto");
+    let ready = false;
+    while (!(ready = await accepts(socketPath)) && Date.now() < deadline) await Bun.sleep(50);
+    if (!ready) throw new Error("il ponte non ha mai messo in ascolto");
     return new Bridge(proc, socketPath, socketPath.replace(/\.sock$/, ".pid"));
   }
 
@@ -143,6 +157,15 @@ function create(c: Client, id: string, script: string): void {
   c.send({ type: "create", id, shell: "/bin/sh", args: ["-c", script], cwd: ROOT, cols: 80, rows: 24 });
 }
 
+test("ping identifica l'implementazione che risponde", async () => {
+  const { c } = await bridgeWithClient("identity");
+  c.send({ type: "ping" });
+  const pong = await c.waitFor((f) => f.type === "pong");
+  expect(pong?.implementation).toBe(RUST_BRIDGE ? "rust" : "node");
+  expect(pong).toHaveProperty("session");
+  expect(pong?.session === null || typeof pong?.session === "string").toBe(true);
+});
+
 /** `kill -0`: vero anche per uno zombie, e va bene — l'`exit` arriva dopo la reap. */
 function pidAlive(pid: number): boolean {
   try { process.kill(pid, 0); return true; } catch { return false; }
@@ -178,7 +201,15 @@ afterAll(() => { for (const b of bridges.splice(0)) b.stop(); });
 
 // `node` deve esserci: il ponte USA node-pty, che sotto Bun non gira. Se manca,
 // in produzione non ci sarebbero terminali affatto.
-beforeAll(() => { expect(fs.existsSync(BRIDGE)).toBe(true); });
+beforeAll(() => {
+  expect(fs.existsSync(BRIDGE)).toBe(true);
+  if (RUST_BRIDGE) {
+    expect(fs.existsSync(RUST_BRIDGE)).toBe(true);
+    console.log(`PTY protocol implementation: Rust (${RUST_BRIDGE})`);
+  } else {
+    console.log("SKIP Rust PTY protocol: set TOPICS_PTY_BRIDGE_TEST_BIN to a built binary");
+  }
+});
 
 describe("kill finisce con un figlio MORTO, non con un frame ottimista", () => {
   /**

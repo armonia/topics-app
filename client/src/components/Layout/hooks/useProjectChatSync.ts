@@ -40,7 +40,9 @@ import {
   viewTombstoneKey,
   getBrowserContextFromPaneId,
   getTerminalSessionFromPaneId,
+  isProjectSingletonPaneType,
 } from '../../../state/pane/adapters';
+import { migrateProjectPaneIdentity } from './projectPaneIdentity';
 import { projectFocusActions } from '../../../state/projectFocus';
 import type {
   ChatReconciliation,
@@ -363,18 +365,19 @@ export function useProjectChatSync(
       // remove-all-then-add, which an empty `[]` turned into a destructive
       // wipe).
       if (fresh.nonChatPanes && fresh.nonChatPanes.length > 0) {
+        const remotePanes = migrateProjectPaneIdentity(projectPath, fresh.nonChatPanes, fresh.groups).panes;
         const curIds = new Set(panesRef.current.map(p => p.id));
-        // Per-project singleton VIEW panes (git, files, dashboard, activity,
-        // browser, …) are created with createPaneId(type) and
-        // NO key, i.e. a RANDOM uuid, so the same logical pane has a different id
-        // on each device — union-by-id would add the peer's copy as a visual
-        // DUPLICATE. Only chat / terminal carry a STABLE
-        // cross-device id (keyed by topic/session) and may legitimately appear
-        // more than once per project, so those union by id. Every other type is
-        // a singleton: skip a remote one when we already hold that type locally.
+        // Project singleton views have one id on every device (PANE-AUTH-04):
+        // a legacy random id is normalized first, then the union by id is
+        // enough. Chat and terminal ids are stable too. Every other type
+        // (file, plan, process log, browser) still mints its id on the device
+        // that opens it, so a remote one is skipped while this device holds
+        // one of that type, as before. Server-owned panes (stage 2 of
+        // pane-store-server-authoritative) remove this rule.
         const STABLE_MULTI_TYPES = new Set<PaneType>(['chat', 'terminal']);
-        const localSingletonTypes = new Set(
-          panesRef.current.filter(p => !STABLE_MULTI_TYPES.has(p.type)).map(p => p.type),
+        const unionsById = (type: PaneType) => STABLE_MULTI_TYPES.has(type) || isProjectSingletonPaneType(type);
+        const localPerDeviceTypes = new Set(
+          panesRef.current.filter(p => !unionsById(p.type)).map(p => p.type),
         );
         // Removal signal for the union. The project tab-identity channel syncs
         // only the OPEN set ({nonChatPanes, openChatTopicIds}) with no tombstone
@@ -407,9 +410,9 @@ export function useProjectChatSync(
           }
           return false;
         };
-        const add = fresh.nonChatPanes.filter(p => {
+        const add = remotePanes.filter(p => {
           if (curIds.has(p.id)) return false;
-          if (!STABLE_MULTI_TYPES.has(p.type) && localSingletonTypes.has(p.type)) return false;
+          if (!unionsById(p.type) && localPerDeviceTypes.has(p.type)) return false;
           if (isTombstoned(p)) return false;
           return true;
         });

@@ -15,7 +15,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 import { computeGitStatus, parseBranchHeader, splitBranchHeader } from "./git-status";
-import { invalidateGitCache } from "./git-status-cache";
+import { invalidateGitCache, readGitStatusCache, setGitStatusFileWatcher, setGitStatusWatcher, writeGitStatusCache } from "./git-status-cache";
 import { gitEnv } from "../../tests/setup/bun-test-preload";
 
 function git(cwd: string, ...args: string[]): string {
@@ -91,7 +91,11 @@ describe("computeGitStatus on a real repo", () => {
     git(repo, "push", "-u", "origin", "main");
   });
 
-  afterEach(() => rmSync(root, { recursive: true, force: true }));
+  afterEach(() => {
+    setGitStatusWatcher(repo, false);
+    setGitStatusFileWatcher(repo, false);
+    rmSync(root, { recursive: true, force: true });
+  });
 
   test("a normal branch: five spawns, and the same readings as before", async () => {
     writeFileSync(join(repo, "dirty.txt"), "x\n");
@@ -185,6 +189,18 @@ describe("computeGitStatus on a real repo", () => {
     return fresh;
   });
 
+  test("the route and watcher share the round started after the same change", async () => {
+    const generation = invalidateGitCache(repo);
+    const { result, spawns } = await countSpawns(async () => {
+      const routeRead = computeGitStatus(repo);
+      const watcherRead = computeGitStatus(repo, { generation, cause: "watcher" });
+      expect(watcherRead).toBe(routeRead);
+      return Promise.all([routeRead, watcherRead]);
+    });
+    expect(spawns).toBe(5);
+    expect(result[0]).toEqual(result[1]);
+  });
+
   /**
    * The verifier's case: pane A's poll is in flight, pane B stages a file
    * (the route calls `invalidateGitCache`) and reloads. B must not be handed
@@ -198,5 +214,97 @@ describe("computeGitStatus on a real repo", () => {
     expect(after).not.toBe(before);
     await before;
     expect((await after)!.files.map((f) => f.path)).toContain("staged.txt");
+  });
+
+  test("both live watchers cap idle reads at one calculation per five minutes", async () => {
+    let monotonic = 0;
+    const now = () => monotonic;
+    setGitStatusWatcher(repo, true);
+    setGitStatusFileWatcher(repo, true);
+    const initial = (await computeGitStatus(repo))!;
+    writeGitStatusCache(repo, initial, now);
+
+    let calculations = 1;
+    for (let poll = 0; poll < 40; poll++) {
+      monotonic += 15_000;
+      if (!readGitStatusCache(repo, now)) {
+        calculations++;
+        const status = (await computeGitStatus(repo))!;
+        writeGitStatusCache(repo, status, now);
+      }
+    }
+    expect(calculations, "initial calculation plus one per five-minute cap over ten minutes").toBe(3);
+  });
+
+  test("the five-minute cap reveals a file change when no watcher event arrives", async () => {
+    let monotonic = 0;
+    const now = () => monotonic;
+    setGitStatusWatcher(repo, true);
+    setGitStatusFileWatcher(repo, true);
+    const initial = (await computeGitStatus(repo))!;
+    writeGitStatusCache(repo, initial, now);
+    writeFileSync(join(repo, "unreported.txt"), "watcher event lost\n");
+
+    let result = readGitStatusCache(repo, now);
+    for (let poll = 0; poll < 20; poll++) {
+      monotonic += 15_000;
+      result = readGitStatusCache(repo, now);
+      if (!result) {
+        result = (await computeGitStatus(repo))!;
+        writeGitStatusCache(repo, result, now);
+      }
+    }
+    expect(monotonic).toBe(300_000);
+    expect(result!.files.map((file) => file.path)).toContain("unreported.txt");
+  });
+
+  test("the git watcher alone keeps the five-second fallback", async () => {
+    let monotonic = 0;
+    const now = () => monotonic;
+    setGitStatusWatcher(repo, true);
+    setGitStatusFileWatcher(repo, false);
+    const initial = (await computeGitStatus(repo))!;
+    writeGitStatusCache(repo, initial, now);
+    let calculations = 0;
+    for (let poll = 0; poll < 40; poll++) {
+      monotonic += 15_000;
+      if (!readGitStatusCache(repo, now)) {
+        calculations++;
+        writeGitStatusCache(repo, (await computeGitStatus(repo))!, now);
+      }
+    }
+    expect(calculations).toBe(40);
+  });
+
+  test("an invalidation still makes the next read fresh", async () => {
+    const monotonic = 0;
+    const now = () => monotonic;
+    setGitStatusWatcher(repo, true);
+    setGitStatusFileWatcher(repo, true);
+    writeGitStatusCache(repo, (await computeGitStatus(repo))!, now);
+    writeFileSync(join(repo, "external.txt"), "changed outside Topics\n");
+    invalidateGitCache(repo);
+    expect(readGitStatusCache(repo, now)).toBeNull();
+    const fresh = (await computeGitStatus(repo))!;
+    expect(fresh.files.map((file) => file.path)).toContain("external.txt");
+  });
+
+  test("without a live watcher the cache keeps the five-second fallback", () => {
+    let monotonic = 0;
+    const now = () => monotonic;
+    setGitStatusWatcher(repo, false);
+    const status = {
+      branch: "main",
+      lastCommit: { hash: "", message: "", author: "", ago: "" },
+      files: [],
+      ahead: 0,
+      behind: 0,
+    };
+    writeGitStatusCache(repo, status, now);
+    monotonic = 4_999;
+    expect(readGitStatusCache(repo, now)).toEqual(status);
+    monotonic = 9_999;
+    expect(readGitStatusCache(repo, now)).toBeNull();
+    invalidateGitCache(repo);
   });
 });

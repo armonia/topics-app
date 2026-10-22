@@ -26,6 +26,21 @@ import { TranscriptRowResizeContext } from './transcriptRowResize';
 import { useDisclosureToggle } from './transcriptDisclosure';
 import { DisclosureBody } from './DisclosureBody';
 import { FindToolIdContext, useFindFocusTool } from '../../state/chatFindFocus';
+import { CHAT_BOTTOM_GUTTER_PX, COMPOSER_HEIGHT_PROPERTY } from './useComposerDock';
+import { startVisibleInterval } from '../../state/documentVisibility';
+
+/**
+ * Where a `scrollIntoView` of the row lands (the row a failure badge opened):
+ * below the tab bar and above the composer, the two glass bands the transcript
+ * runs under. On the row and not as the scroller's `scroll-padding`: Chromium
+ * also scrolls a header clicked inside that padding into view as it takes the
+ * focus, before a fold's hold reads where the header was, and the transcript
+ * moved under the pointer (chat-accordion-no-shift on Chromium).
+ */
+const SCROLL_LANDING = {
+  scrollMarginTop: 'var(--chat-gutter, 0px)',
+  scrollMarginBottom: `calc(var(${COMPOSER_HEIGHT_PROPERTY}, 0px) + ${CHAT_BOTTOM_GUTTER_PX}px)`,
+};
 
 // The answer form only exists for the few calls that stop and ask, so it does
 // not belong in the entry. It is also the ONE lazy surface here that appears
@@ -56,8 +71,7 @@ export function ElapsedTimer({ since, tone, title }: { since: number; tone?: str
   useEffect(() => {
     const update = () => setMs(Date.now() - since);
     update();
-    const t = setInterval(update, 1000);
-    return () => clearInterval(t);
+    return startVisibleInterval(update, 1000);
   }, [since]);
   if (ms < 900) return null;
   return (
@@ -517,6 +531,7 @@ export const ToolCallRow = memo(function ToolCallRow({ toolCall, label, sessionK
   return (
     <div
       ref={rowRef}
+      style={SCROLL_LANDING}
       data-testid={`tool-call-row-${toolCall.id}`}
       // Lo stato sta sulla RIGA, non su una colonna a destra. Ci stava finché
       // quella colonna portava la spunta: tolta la spunta — che confermava la

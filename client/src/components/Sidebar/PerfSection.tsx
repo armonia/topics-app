@@ -1,4 +1,4 @@
-import { useEffect, useMemo } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Activity, HardDrive } from 'lucide-react';
 import { useFps, useFpsHistory, type FpsSample } from '@/lib/fpsMonitor';
 import { formatCpuPercent, usePerfMetrics } from '@/hooks/usePerfMetrics';
@@ -9,9 +9,14 @@ import { scegliVerdetto } from './verdict';
 import { useFeatureWeights } from '@/hooks/useFeatureWeights';
 import { vociPerNatura, quantitaBreve, rigaVoce } from '@/lib/featureWeightText';
 import { webviewSnapshot, ensurePaneUsageFresh } from '@/lib/paneUsage';
-import { useT } from '@/hooks/useT';
+import { useLocale, useT } from '@/hooks/useT';
 import { useTopics } from '@/contexts/TopicsContext';
 import { formatMemoryMB } from '@/lib/formatMemory';
+import { setNativePaneMemoryEvictionEnabled, useNativePaneMemoryEvictionEnabled, useNativePaneMemoryPressure } from '@/state/nativePaneMemory';
+import { setNativeGitStatusEnabled, useNativeGitStatusEnabled } from '@/state/nativeGitStatus';
+import { setNativeFileTreeEnabled, useNativeFileTreeEnabled } from '@/state/nativeFileTree';
+import { SwitchRow } from './PreferenceRow';
+import { loadSettings, saveSettings, SETTINGS_CHANGED_EVENT } from '@/lib/settings';
 
 /**
  * HOW EACH MEASURED ROW STANDS AGAINST THE TOTAL WRITTEN ABOVE IT.
@@ -122,6 +127,19 @@ function PerfStat({ label, value, sub, color, title, className }: { label: strin
  */
 export function PerfSection() {
   const tr = useT();
+  const locale = useLocale();
+  // When the bridge in use started. It outlives every server restart, so the
+  // one answering can be days older than the code on disk and than the switch
+  // below: the date is what says why a change has not arrived yet.
+  const bridgeSince = (startedAt?: string | null) => startedAt
+    ? tr('perf.ptyBridge.since', { date: new Date(startedAt).toLocaleDateString(locale, { day: 'numeric', month: 'numeric' }) })
+    : null;
+  const [rustBridgeEnabled, setRustBridgeEnabled] = useState(() => loadSettings().rustPtyBridgeEnabled);
+  useEffect(() => {
+    const update = () => setRustBridgeEnabled(loadSettings().rustPtyBridgeEnabled);
+    window.addEventListener(SETTINGS_CHANGED_EVENT, update);
+    return () => window.removeEventListener(SETTINGS_CHANGED_EVENT, update);
+  }, []);
   // WHICH FOLDERS ARE PROJECTS, from the topics that name one. The server can
   // attribute a session to a working directory, and a working directory is not
   // a project just because something runs in it: measured on the live machine,
@@ -239,6 +257,12 @@ export function PerfSection() {
     knownProjects,
   }, status?.timestamp);
   const measuredVisibleEntries = vociPerNatura(vociPeso, 'misurato');
+  const memoryEvictionEnabled = useNativePaneMemoryEvictionEnabled();
+  const nativeGitEnabled = useNativeGitStatusEnabled();
+  const nativeGit = status?.nativeGit;
+  const nativeFileTreeEnabled = useNativeFileTreeEnabled();
+  const nativeFileTree = status?.nativeFileTree;
+  const memoryPressure = useNativePaneMemoryPressure();
   const vociTrattenuteVisibili = vociPerNatura(vociPeso, 'trattenuto');
 
   return (
@@ -250,6 +274,29 @@ export function PerfSection() {
       <div className="px-0.5" data-testid="perf-machine-busy">
         <MachineBusyLine shares={status?.machine} />
       </div>
+      {status?.processSpawns && (() => {
+        const { counts, windowMinutes } = status.processSpawns;
+        const sum = (group: Record<string, number>) => Object.values(group).reduce((total, n) => total + n, 0);
+        const rows = [
+          [tr('perf.spawns.gitStatus'), sum(counts.gitStatus)], ["fetch", sum(counts.gitFetch)],
+          ["lsof", sum(counts.lsof)], ["vm_stat", sum(counts.vmStat)], [tr('perf.spawns.other'), sum(counts.other)],
+        ] as const;
+        const detail = Object.entries(counts).flatMap(([kind, causes]) =>
+          Object.entries(causes).map(([cause, count]) => `${kind}/${cause}: ${count}`),
+        ).join("\n");
+        return <div data-testid="perf-process-spawns" title={detail || tr('perf.spawns.none')} className="px-0.5 text-mini text-app-text-muted">
+          {tr('perf.spawns.line', { min: windowMinutes, rows: rows.map(([label, n]) => `${label} ${n}`).join(" · ") })}
+        </div>;
+      })()}
+      {status?.server.ptyBridge && (() => {
+        const bridge = status.server.ptyBridge;
+        const name = tr(`perf.ptyBridge.${bridge.implementation}`);
+        return <div
+          data-testid="perf-pty-bridge"
+          title={[bridge.connected ? tr('perf.ptyBridge.connected') : tr('perf.ptyBridge.disconnected'), bridge.path].filter(Boolean).join('\n')}
+          className="px-0.5 text-mini text-app-text-muted"
+        >{[tr('perf.ptyBridge.line', { name, reason: tr(`perf.ptyBridge.reason.${bridge.reason}`) }), bridgeSince(bridge.startedAt)].filter(Boolean).join(' · ')}</div>;
+      })()}
 
       {/* TRE DOMANDE, IN QUEST'ORDINE. Prima erano nove blocchi di numeri con
           etichette diverse per la stessa cosa ("CPU shell", "CPU Topics",
@@ -420,6 +467,52 @@ export function PerfSection() {
         )}
       </div>
 
+      {/* B11: the switch sits by the megabytes it acts on, and says whether
+          memory is short right now, so the rule is never a silent one. */}
+      <SwitchRow
+        label={tr('browser.memoryEviction.setting')}
+        hint={tr(memoryPressure ? 'browser.memoryEviction.stateShort' : 'browser.memoryEviction.stateNormal')}
+        checked={memoryEvictionEnabled}
+        onChange={setNativePaneMemoryEvictionEnabled}
+        testId="perf-native-pane-memory"
+      />
+      <SwitchRow
+        label={tr('perf.nativeGit.setting')}
+        hint={tr(!nativeGit
+          ? 'perf.nativeGit.checking'
+          : !nativeGit.enabled
+            ? 'perf.nativeGit.disabled'
+            : !nativeGit.loaded
+              ? 'perf.nativeGit.unavailable'
+              : 'perf.nativeGit.active', { n: nativeGit?.calls ?? 0 })}
+        checked={nativeGitEnabled}
+        onChange={setNativeGitStatusEnabled}
+        testId="perf-native-git-status"
+      />
+      <SwitchRow
+        label={tr('perf.nativeFileTree.setting')}
+        hint={tr(!nativeFileTree
+          ? 'perf.nativeFileTree.checking'
+          : !nativeFileTree.enabled
+            ? 'perf.nativeFileTree.disabled'
+            : !nativeFileTree.loaded
+              ? 'perf.nativeFileTree.unavailable'
+              : 'perf.nativeFileTree.active', { n: nativeFileTree?.calls ?? 0 })}
+        checked={nativeFileTreeEnabled}
+        onChange={setNativeFileTreeEnabled}
+        testId="perf-native-file-tree"
+      />
+      {(() => {
+        const bridge = status?.server.ptyBridge;
+        const name = tr(`perf.ptyBridge.${bridge?.implementation ?? 'unknown'}`);
+        return <SwitchRow
+          label={tr('perf.ptyBridge.setting')}
+          hint={tr('perf.ptyBridge.state', { name, reason: [tr(`perf.ptyBridge.reason.${bridge?.reason ?? 'notConnected'}`), bridgeSince(bridge?.startedAt)].filter(Boolean).join(', '), next: tr('perf.ptyBridge.nextStart') })}
+          checked={rustBridgeEnabled}
+          onChange={(checked) => saveSettings({ ...loadSettings(), rustPtyBridgeEnabled: checked })}
+          testId="perf-rust-pty-bridge"
+        />;
+      })()}
     </div>
   );
 }

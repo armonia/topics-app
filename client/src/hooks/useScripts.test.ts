@@ -16,6 +16,8 @@ import type { ScriptProcessInfo } from '../lib/api';
 const REAL_FETCH = globalThis.fetch;
 let answer: ScriptProcessInfo[];
 let fetches: number;
+/** The path of every request, in order. */
+let asked: string[];
 const cleanups: Array<() => void> = [];
 
 const script = (over: Partial<ScriptProcessInfo> = {}): ScriptProcessInfo => ({
@@ -33,8 +35,10 @@ const script = (over: Partial<ScriptProcessInfo> = {}): ScriptProcessInfo => ({
 beforeEach(() => {
   answer = [script()];
   fetches = 0;
-  globalThis.fetch = (async () => {
+  asked = [];
+  globalThis.fetch = (async (input: RequestInfo | URL) => {
     fetches++;
+    asked.push(new URL(String(input), 'http://x').pathname + new URL(String(input), 'http://x').search);
     // A fresh array and fresh objects on every answer, like the real JSON.
     return new Response(JSON.stringify({ scripts: answer }), {
       status: 200,
@@ -130,5 +134,49 @@ describe('poll interval', () => {
     // The last one leaves: now nobody gets pushes, and the poll tightens.
     store.setWSConnected(false);
     expect(store.pollIntervalMs()).toBe(3_000);
+  });
+});
+
+describe('what the poll costs the server', () => {
+  test('ports are asked for only while a consumer that draws them is mounted', async () => {
+    listen();
+    await poll();
+    expect(asked.at(-1)).toBe('/api/scripts');
+
+    // The Processes panel opens: it gets its ports at once, and so does every poll after.
+    asked = [];
+    store.markPorts(true);
+    await poll();
+    expect(asked[0]).toBe('/api/scripts?ports=1');
+    expect(asked.at(-1)).toBe('/api/scripts?ports=1');
+
+    // It closes: back to the sidebars' poll, which costs no lsof.
+    store.markPorts(false);
+    await poll();
+    expect(asked.at(-1)).toBe('/api/scripts');
+  });
+
+  test('a hidden page arms no poll, and coming back fetches at once', async () => {
+    let visible = false;
+    let armed = 0;
+    let onChange: () => void = () => {};
+    store.setVisibility({
+      isVisible: () => visible,
+      subscribe: (listener) => { onChange = listener; return () => {}; },
+      setInterval: () => { armed++; return armed; },
+      clearInterval: () => {},
+    });
+    cleanups.push(() => store.setVisibility(null));
+    listen();
+    await poll();
+    expect(armed).toBe(0);
+
+    const before = fetches;
+    visible = true;
+    onChange();
+    await poll();
+    // The refresh on return, then the poll's own; and the poll is armed.
+    expect(fetches).toBeGreaterThanOrEqual(before + 2);
+    expect(armed).toBe(1);
   });
 });

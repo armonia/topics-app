@@ -11,9 +11,8 @@
 
 import { spawn, type ChildProcess } from "child_process";
 import { cpSync, existsSync, mkdirSync, readdirSync, rmSync, statSync } from "fs";
-import { homedir } from "os";
-import { dirname, join, resolve } from "path";
-import { webkit } from "@playwright/test";
+import { networkInterfaces } from "os";
+import { join, resolve } from "path";
 import {
   E2E_BASE,
   E2E_PORT,
@@ -36,6 +35,13 @@ import { SERVER_DEATH_GRACE_MS, portHolders } from "./helpers/server-death";
 import { killSavedTestServer, killTestListeners, refuseProductionPort } from "./helpers/port-guard";
 import { removeTmpDir } from "./helpers/file-project";
 
+/** True when the machine can listen on ::1 (the server's default bind is "::"). */
+function hasIpv6Loopback(): boolean {
+  return Object.values(networkInterfaces())
+    .flat()
+    .some((i) => i?.family === "IPv6" && i.address === "::1");
+}
+
 // Test server runs WITHOUT TLS for simplicity (NO_TLS=1)
 // Port 13334 is the default per il checkout principale, chosen to avoid
 // conflicts with production services (port 3334 is used by the openclaw-gateway
@@ -44,55 +50,6 @@ import { removeTmpDir } from "./helpers/file-project";
 const BASE = E2E_BASE;
 const TEST_SERVER_PORT = E2E_PORT;
 const TEST_DATA_DIR = dataDirForPort(E2E_PORT);
-
-/**
- * Resolve a Chromium executable on disk. Falls back through the most likely
- * Playwright cache locations because the server's `playwright-core` may pin
- * a slightly older manifest version than the binary that `@playwright/test`
- * actually installs (e.g. server resolves chromium-1208 but the cache holds
- * chromium-1217). Returns "" if nothing found — BrowserService will then
- * surface a clear error at first use.
- */
-function resolveChromiumPath(): string {
-  const cacheDir = join(homedir(), "Library/Caches/ms-playwright");
-  if (!existsSync(cacheDir)) return "";
-  try {
-    const entries = readdirSync(cacheDir).filter((d) => d.startsWith("chromium-"));
-    // Prefer the highest revision numerically (newer cache wins).
-    entries.sort((a, b) => {
-      const ax = parseInt(a.split("-")[1] || "0", 10);
-      const bx = parseInt(b.split("-")[1] || "0", 10);
-      return bx - ax;
-    });
-    for (const dir of entries) {
-      const candidate = join(
-        cacheDir,
-        dir,
-        "chrome-mac-arm64/Google Chrome for Testing.app/Contents/MacOS/Google Chrome for Testing",
-      );
-      if (existsSync(candidate)) return candidate;
-    }
-  } catch { /* ignore */ }
-  return "";
-}
-
-/**
- * The Playwright browser cache as THIS process (real HOME) sees it.
- *
- * start-test-server.sh isolates HOME, and Playwright looks for its browsers
- * under the home directory, so the server would look in an empty
- * `<DATA_DIR>/.home/...` cache. The preview photo is taken by the server's own
- * WebKit (KANBAN-95), which has no CHROMIUM_PATH-style pin: handing the real
- * cache down as PLAYWRIGHT_BROWSERS_PATH is what makes it findable. The
- * executable sits at `<cache>/webkit-<rev>/<binary>` on every platform.
- */
-function resolvePlaywrightBrowsersPath(): string {
-  try {
-    return dirname(dirname(webkit.executablePath()));
-  } catch {
-    return "";
-  }
-}
 
 /**
  * Congela il bundle del client sotto la DATA_DIR dello shard e ritorna il
@@ -343,15 +300,13 @@ async function startTestServer(): Promise<void> {
       // qui, dentro start-test-server.sh e dentro lo spec che riavvia il server
       // — tre copie già divergenti fra loro.
       ...testServerEnv(TEST_SERVER_PORT),
-      // Phase 30 plan 30-05: server's playwright-core ships an older
-      // chromium-1208 manifest, but @playwright/test installs the current
-      // chromium-1217 binary. Pin the BrowserService Chromium to the
-      // actually-installed binary. Override via CHROMIUM_PATH env if
-      // running on a machine with a different layout.
-      CHROMIUM_PATH: process.env.CHROMIUM_PATH ||
-        resolveChromiumPath(),
-      PLAYWRIGHT_BROWSERS_PATH: process.env.PLAYWRIGHT_BROWSERS_PATH ||
-        resolvePlaywrightBrowsersPath(),
+      // Without an IPv6 loopback (the cloud VM) the server's default bind "::"
+      // fails with EAFNOSUPPORT and the test server never answers on its port.
+      // An explicit SERVER_HOST in the environment always wins.
+      ...(process.env.SERVER_HOST || hasIpv6Loopback() ? {} : { SERVER_HOST: "127.0.0.1" }),
+      // CHROMIUM_PATH and PLAYWRIGHT_BROWSERS_PATH come from testServerEnv()
+      // above (single source shared with restartTestServer): the server's own
+      // browsers must stay findable even when it is rebooted mid-suite.
     },
   });
 
@@ -666,6 +621,15 @@ async function globalSetup() {
 
   // Seed baseline data that legacy tests (Phase 1-2) expect
   await seedBaselineData();
+
+  // Ordinary specs start after the first-run screen has been seen. The
+  // first-run specs clear this flag explicitly before exercising the flow.
+  const firstRunSeed = await fetch(`${BASE}/api/app-settings`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ firstRunDoneAt: new Date().toISOString() }),
+  });
+  if (!firstRunSeed.ok) throw new Error(`[global-setup] first-run seed failed: ${firstRunSeed.status}`);
 
   // Fotografa QUESTO stato: è la baseline a cui ogni file di spec torna prima
   // di partire (tests/e2e/fixtures/hermetic.ts). Va per forza qui, dopo il

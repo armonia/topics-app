@@ -27,8 +27,19 @@
  * avere due posti che possono dissentire sul TTL.
  */
 
-/** Quanto vale una voce prima di essere richiesta di nuovo a git. */
-const TTL_MS = 5000;
+/**
+ * Validity of an entry, counted from its WRITE and never renewed by reads. With
+ * both watchers live on the path (`.git` and the project files) a change
+ * invalidates the entry on its own, and the entry lasts five minutes, a cap
+ * for the event a watcher loses; otherwise five seconds. The cap was 60 s, the
+ * same as each project window's poll: every poll found the entry expired and
+ * paid five git spawns, once a minute per open project with nothing changed
+ * (155 recalculations in 15 minutes on the live server, 15/10). The route bench
+ * can set this to zero so each request pays for a git spawn; this seam only
+ * takes effect on TOPICS_E2E.
+ */
+const TTL_MS = process.env.TOPICS_E2E === "1" && process.env.TOPICS_E2E_GIT_STATUS_TTL_MS === "0" ? 0 : 5000;
+const WATCHED_MAX_AGE_MS = 5 * 60_000;
 
 /**
  * Il tetto. La chiave è il `?path=` risolto e fornito da chi chiama (nessuna
@@ -56,17 +67,40 @@ export interface GitStatusResult {
 }
 
 const cache = new Map<string, { data: GitStatusResult; timestamp: number }>();
+const gitWatchedPaths = new Set<string>();
+const fileWatchedPaths = new Set<string>();
+const generations = new Map<string, number>();
+
+/** Version of the tree the next status round must read. */
+export function gitStatusGeneration(projectPath: string): number {
+  return generations.get(projectPath) ?? 0;
+}
+
+/** Tracks whether `.git` has an active watcher for this path. */
+export function setGitStatusWatcher(projectPath: string, active: boolean): void {
+  if (active) gitWatchedPaths.add(projectPath);
+  else gitWatchedPaths.delete(projectPath);
+}
+
+/** Tracks whether the project file watcher is active for this path. */
+export function setGitStatusFileWatcher(projectPath: string, active: boolean): void {
+  if (active) fileWatchedPaths.add(projectPath);
+  else fileWatchedPaths.delete(projectPath);
+}
 
 /** La voce se c'è ED è ancora fresca, altrimenti `null`. */
-export function readGitStatusCache(projectPath: string): GitStatusResult | null {
+export function readGitStatusCache(projectPath: string, now: () => number = () => performance.now()): GitStatusResult | null {
   const hit = cache.get(projectPath);
   if (!hit) return null;
-  if (Date.now() - hit.timestamp >= TTL_MS) return null;
+  const hasBothWatchers = gitWatchedPaths.has(projectPath) && fileWatchedPaths.has(projectPath);
+  const maxAge = TTL_MS === 0 ? 0 : hasBothWatchers ? WATCHED_MAX_AGE_MS : TTL_MS;
+  const timestamp = now();
+  if (timestamp - hit.timestamp >= maxAge) return null;
   return hit.data;
 }
 
 /** Scrive la voce, sfrattando la più vecchia se si è al tetto. */
-export function writeGitStatusCache(projectPath: string, data: GitStatusResult): void {
+export function writeGitStatusCache(projectPath: string, data: GitStatusResult, now: () => number = () => performance.now()): void {
   if (cache.size >= MAX_ENTRIES && !cache.has(projectPath)) {
     let oldestKey: string | undefined;
     let oldestTs = Infinity;
@@ -78,22 +112,22 @@ export function writeGitStatusCache(projectPath: string, data: GitStatusResult):
     }
     if (oldestKey !== undefined) cache.delete(oldestKey);
   }
-  cache.set(projectPath, { data, timestamp: Date.now() });
+  cache.set(projectPath, { data, timestamp: now() });
 }
 
 /** Butta la voce di questo progetto: la prossima lettura torna a chiedere a git. */
-export function invalidateGitCache(projectPath: string): void {
+export function invalidateGitCache(projectPath: string): number {
   cache.delete(projectPath);
-  // A round already in flight may have read the tree BEFORE the change that
-  // caused this invalidation: whoever asks next must start a new one, not join
-  // it (see `computeGitStatus`).
-  roundsInFlight.delete(projectPath);
+  const generation = gitStatusGeneration(projectPath) + 1;
+  generations.set(projectPath, generation);
+  // An earlier round may still finish for its original callers, but new
+  // readers cannot mistake it for the changed tree.
+  return generation;
 }
 
 /**
  * The rounds of `computeGitStatus` currently running, per folder. Kept here,
- * next to the cache, so that the one door every writer already goes through
- * (`invalidateGitCache`, 23 call sites) also retires a round that can no
- * longer be trusted.
+ * next to the cache, so readers can compare their requested tree generation
+ * with the round before joining it.
  */
-export const roundsInFlight = new Map<string, Promise<unknown>>();
+export const roundsInFlight = new Map<string, { generation: number; promise: Promise<unknown> }>();

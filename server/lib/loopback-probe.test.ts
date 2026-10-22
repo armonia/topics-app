@@ -3,7 +3,12 @@
  */
 import { describe, expect, test } from "bun:test";
 import net from "node:net";
+import { networkInterfaces } from "node:os";
 import { isPortListening, loopbackPortOf } from "./loopback-probe";
+
+const HAS_IPV6_LOOPBACK = Object.values(networkInterfaces())
+  .flat()
+  .some((i) => i?.family === "IPv6" && i.address === "::1");
 
 describe("loopbackPortOf", () => {
   test("prende la porta esplicita nelle varie forme di loopback", () => {
@@ -41,7 +46,9 @@ describe("isPortListening", () => {
     expect(await isPortListening(port)).toBe(false);
   });
 
-  test("un server in ascolto SOLO su ::1 non va dato per morto", async () => {
+  // A machine with no IPv6 loopback (the cloud VM) cannot listen on ::1 at all,
+  // so there is nothing to probe: skipped, with the reason in the title.
+  test.skipIf(!HAS_IPV6_LOOPBACK)("un server in ascolto SOLO su ::1 non va dato per morto (saltato senza IPv6)", async () => {
     // `server.listen(port)` senza host finisce spesso sul solo IPv6: sondare
     // solo 127.0.0.1 parcheggerebbe una scheda viva.
     const srv = net.createServer();

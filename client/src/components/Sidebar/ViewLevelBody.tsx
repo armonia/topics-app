@@ -44,6 +44,12 @@ export function ViewLevelBody({ showArchived, onToggleArchived, viewMode, onView
         onChange={(v) => onSettingChange('showBoardRow', v)}
         testId="topics-menu-board-row"
       />
+      <SwitchRow
+        label={tr('liveTerminals.setting')}
+        checked={settings.showLiveTerminals}
+        onChange={(v) => onSettingChange('showLiveTerminals', v)}
+        testId="topics-menu-live-terminals"
+      />
     </div>
   );
 }

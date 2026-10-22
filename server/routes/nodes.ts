@@ -27,6 +27,7 @@ import { getSnapshotManager } from "../providers/snapshot-manager";
 import { isLoopbackAddress } from "../lib/auth-gate";
 import { isLocalTransport } from "../lib/tunnel";
 import { createDelegatedRevocationRetry, type DelegatedRevocationRetry } from "../services/delegated-revocation-retry";
+import { SPAWN_TIMEOUT, spawnBounded } from "../lib/bounded-spawn";
 
 const RUN_KEY_PREFIX = "node-run:";
 
@@ -672,9 +673,10 @@ export function createNodesRouter(ctx: AppContext, opts: NodesRouterOpts): Route
       // <baseSha>` is what keeps the bundle small and what makes a missing
       // base on the receiving side a declared failure instead of a silent
       // full-history download.
-      const proc = Bun.spawn(["git", "-C", repoPath, "bundle", "create", "-", `refs/heads/${branch}`, "--not", facts.baseSha], {
+      const proc = spawnBounded(["git", "-C", repoPath, "bundle", "create", "-", `refs/heads/${branch}`, "--not", facts.baseSha], {
         stdout: "pipe",
-        stderr: "pipe",
+        stderr: "ignore",
+        timeoutMs: SPAWN_TIMEOUT.long,
       });
       return new Response(proc.stdout, {
         status: 200,
@@ -695,8 +697,8 @@ export function createNodesRouter(ctx: AppContext, opts: NodesRouterOpts): Route
       if (branch && branch.startsWith("-")) return json({ error: "invalid delivery branch", code: "invalid_input" }, 400);
       const facts = await deliveryFacts(runGit, repoPath, branch);
       if (!branch || facts.commitCount === 0 || !facts.baseSha) return json({ empty: true, baseSha: facts.baseSha });
-      const proc = Bun.spawn(["git", "-C", repoPath, "bundle", "create", "-", `refs/heads/${branch}`, "--not", facts.baseSha], {
-        stdout: "pipe", stderr: "pipe",
+      const proc = spawnBounded(["git", "-C", repoPath, "bundle", "create", "-", `refs/heads/${branch}`, "--not", facts.baseSha], {
+        stdout: "pipe", stderr: "ignore", timeoutMs: SPAWN_TIMEOUT.long,
       });
       return new Response(proc.stdout, {
         status: 200,

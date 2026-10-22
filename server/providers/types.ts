@@ -109,6 +109,8 @@ export interface CompletionOptions {
   reasoningEffort?: string;
   timeoutMs?: number;
   isolated?: boolean;
+  /** The result is a chat reply the user reads, not an internal job (title, judge, pick). */
+  userFacing?: boolean;
 }
 
 export interface CompletionResult {
@@ -448,8 +450,12 @@ export interface AIProvider {
   /** Initialize the provider (connect, authenticate, etc.) */
   start(): void;
 
-  /** Shut down the provider */
-  stop(): void;
+  /**
+   * Shut down the provider. A provider that kills children of its own returns
+   * a promise that settles once they have exited (each capped by its own kill
+   * grace): `stopAllProviders` waits for exactly that, not a fixed sleep.
+   */
+  stop(): void | Promise<void>;
 
   // --- Streaming Chat (primary) ---
 

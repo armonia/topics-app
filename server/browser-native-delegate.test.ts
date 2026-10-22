@@ -2,7 +2,7 @@
  * @covers NATDEL-03
  */
 import { test, expect, describe } from 'bun:test';
-import { createNativeDelegateRegistry, handleNativeDelegationFrame, type BrowserOpMessage } from './browser-native-delegate';
+import { createNativeDelegateRegistry, handleNativeDelegationFrame, isNativeDelegateFrameAllowed, type BrowserOpMessage } from './browser-native-delegate';
 
 test('register / isDelegated / unregister', () => {
   const r = createNativeDelegateRegistry();
@@ -22,10 +22,10 @@ test('delegateOp forwards the op and resolves on the matching result', async () 
 
   const p = r.delegateOp('ctx', 'browser_eval', { expression: '1+1' });
   expect(sent).toHaveLength(1);
-  expect(sent[0]).toEqual({ type: 'browser_op', opId: 'ctx::X', tool: 'browser_eval', args: { expression: '1+1' } });
+  expect(sent[0]).toEqual({ type: 'browser_op', opId: 'X', tool: 'browser_eval', args: { expression: '1+1' } });
 
   // Client replies with the matching opId.
-  r.resolveOp({ opId: 'ctx::X', result: { value: 2 } });
+  r.resolveOp({ opId: 'X', result: { value: 2 } });
   expect(await p).toEqual({ value: 2 });
 });
 
@@ -33,7 +33,7 @@ test('an error result surfaces as a structured { error }', async () => {
   const r = createNativeDelegateRegistry({ genOpId: () => 'Y' });
   r.register('ctx', () => {});
   const p = r.delegateOp('ctx', 'browser_act', {});
-  r.resolveOp({ opId: 'ctx::Y', error: 'unsupported on native pane' });
+  r.resolveOp({ opId: 'Y', error: 'unsupported on native pane' });
   expect(await p).toEqual({ error: 'unsupported on native pane' });
 });
 
@@ -82,7 +82,7 @@ test('unregister without an owner stays unconditional (legacy callers)', () => {
 
 test('a stale/unknown result is ignored (no throw)', () => {
   const r = createNativeDelegateRegistry();
-  expect(() => r.resolveOp({ opId: 'ghost', result: 1 })).not.toThrow();
+  expect(() => r.resolveOp({ opId: 'ghost', result: 1 }, undefined)).not.toThrow();
 });
 
 // The exact classifier server.ts runs on inbound /ws/browser frames.
@@ -95,11 +95,43 @@ test('handleNativeDelegationFrame: register frame registers this socket', () => 
 
 test('handleNativeDelegationFrame: result frame resolves the matching pending op', async () => {
   const r = createNativeDelegateRegistry({ genOpId: () => 'A' });
-  r.register('ctx', () => {});
+  const owner = {};
+  r.register('ctx', () => {}, owner);
   const p = r.delegateOp('ctx', 'browser_eval', {});
-  const out = handleNativeDelegationFrame({ type: 'browser_op_result', opId: 'ctx::A', result: 'ok' }, 'ctx', () => {}, r);
+  const out = handleNativeDelegationFrame({ type: 'browser_op_result', opId: 'A', result: 'ok' }, 'ctx', () => {}, r, owner);
   expect(out).toBe('result');
   expect(await p).toBe('ok');
+});
+
+test('an op result counts only from the socket registered for its context', async () => {
+  const registry = createNativeDelegateRegistry({ genOpId: () => 'op-id' });
+  const registeredSocket = {};
+  const otherSocket = {};
+  registry.register('ctx', () => {}, registeredSocket);
+  const pending = registry.delegateOp('ctx', 'browser_eval', {});
+
+  registry.resolveOp({ opId: 'op-id', result: 'wrong' }, otherSocket);
+  registry.resolveOp({ opId: 'op-id', result: 'right' }, registeredSocket);
+
+  expect(await pending).toBe('right');
+});
+
+test('native executor socket accepts only delegate frame types', () => {
+  for (const type of ['register_native_executor', 'browser_op_result', 'take_control', 'native_dom_host', 'host_dom_events', 'host_dom_events_chunk', 'host_page', 'host_local_use', 'set_native_host_sharing']) {
+    expect(isNativeDelegateFrameAllowed({ type })).toBe(true);
+  }
+  for (const type of ['nav', 'input', 'set_engine', 'resize']) {
+    expect(isNativeDelegateFrameAllowed({ type })).toBe(false);
+  }
+});
+
+test('generated op ids are random UUIDs', () => {
+  const registry = createNativeDelegateRegistry();
+  let opId = '';
+  registry.register('ctx', (message) => { opId = message.opId; });
+  void registry.delegateOp('ctx', 'browser_eval', {});
+  expect(opId).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i);
+  registry.unregister('ctx');
 });
 
 test('handleNativeDelegationFrame: a non-delegation frame falls through (null)', () => {

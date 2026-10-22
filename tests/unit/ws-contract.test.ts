@@ -170,7 +170,7 @@ describe('WS-04 contract: browserWsMessageSchema (Phase 30)', () => {
     const types = variantsOf(browserWsMessageSchema).map((opt) =>
       objectSignature(opt).literalKeys.type,
     );
-    // Twelve variants joined the browser WS protocol since the 6-variant
+    // Twenty variants joined the browser WS protocol since the 6-variant
     // freeze, all additive (server↔pane co-browse control channel):
     //   resize                              — pane viewport resize
     //   download                            — a file download the pane offers
@@ -197,20 +197,42 @@ describe('WS-04 contract: browserWsMessageSchema (Phase 30)', () => {
     //                                         va sul DataChannel, il click non
     //                                         passa più dal server e il campo a
     //                                         fuoco nessuno lo leggeva più
+    //   dom_event_chunk                     — one piece of a DOM event too large
+    //                                         for one frame (a full snapshot of a
+    //                                         heavy page); the viewer puts the
+    //                                         pieces back together (D4a)
+    //   set_native_host_sharing             — the Mac host pauses or resumes
+    //                                         its shared page (D4c)
+    //   native_host_status                  — server to that host: sharing,
+    //                                         devices watching, rate, delay
+    //   host_share_state                    — server to viewers: the host
+    //                                         paused or resumed the mirror
+    //   host_ping / host_pong               — the server asks the Mac's pane
+    //                                         every 5 s whether its JavaScript
+    //                                         answers (NATIVE-HOST-07, D4d)
+    //   host_away                           — server to viewers: the host
+    //                                         stopped answering or left
     expect([...types].sort()).toEqual([
       'agent_active',
       'console',
       'dom_event',
+      'dom_event_chunk',
       'download',
       'engine',
       'focus_field',
       'focus_query',
       'frame',
+      'host_away',
+      'host_ping',
+      'host_pong',
+      'host_share_state',
       'input',
+      'native_host_status',
       'nav',
       'render_mode',
       'resize',
       'set_engine',
+      'set_native_host_sharing',
       'set_render',
       'set_stream',
       'set_watching',
@@ -253,7 +275,9 @@ describe('WS-04 contract: browserWsMessageSchema (Phase 30)', () => {
     // resolves goto/launch failures as an error-phase frame the pane renders.
     // 'history' joined with BROWSER-STREAM-HISTORY-01: a same-document
     // navigation carries the url and the back/forward flags, nothing else.
-    expect(sig.enums.phase).toEqual(['error', 'history', 'request', 'response']);
+    // 'loading' joined with BROWSER-LOAD-01: every viewer hears that the page
+    // is on its way, a socket that opens in the middle included.
+    expect(sig.enums.phase).toEqual(['error', 'history', 'loading', 'request', 'response']);
   });
 
   test('console.level enum is locked', () => {
@@ -337,8 +361,8 @@ describe('WS-04 contract: chatWsInboundSchema (main /ws)', () => {
 // ----- Contract: tool-call-detail (NORM-01) ---------------------------------
 
 describe('WS-04 contract: toolCallDetailSchema (NORM-01)', () => {
-  test('exactly 24 variants', () => {
-    expect(variantsOf(toolCallDetailSchema).length).toBe(24);
+  test('exactly 25 variants', () => {
+    expect(variantsOf(toolCallDetailSchema).length).toBe(25);
   });
 
   test('discriminator literals are frozen', () => {
@@ -364,6 +388,8 @@ describe('WS-04 contract: toolCallDetailSchema (NORM-01)', () => {
     //   ask_user      — AskUserQuestion (the question put to the human)
     // One on 2026-10-01 (CHAT-BROWSER-03):
     //   browser       — open_browser_pane / browser_open that worked
+    // One on 2026-10-08 (GENUI-01):
+    //   view          — show_view, a generative view drawn in the transcript
     expect([...types].sort()).toEqual([
       'agent_control',
       'agent_message',
@@ -387,6 +413,7 @@ describe('WS-04 contract: toolCallDetailSchema (NORM-01)', () => {
       'sub_agent',
       'todo',
       'unknown',
+      'view',
       'wait',
       'write',
     ]);

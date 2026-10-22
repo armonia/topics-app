@@ -5,11 +5,12 @@ import { timingSafeEqual } from "crypto";
 import { join, resolve, extname } from "path";
 import type { ServerWebSocket } from "bun";
 import { clientReceivesTopicDelta } from "./lib/ws-topic-routing";
+import { OUTBOUND_FRAME_CLASSES } from "../shared/ws-outbound";
 import { warnThrottled } from "./lib/warn-throttled";
 import { isReusableHeadstone } from "./lib/empty-turn-headstone";
 import type {
   WSData, GuestBroadcastFilter, StoredMessage, ReattachedPartial, ToolCall, Topic, TopicsData, TopicsFilter, UnreadData,
-  ActiveStream, ErrorResponseOptions, AppContext, Project, ThreadLoadOpts, ContentBlock,
+  ActiveStream, ErrorResponseOptions, AppContext, Project, ThreadLoadOpts, ContentBlock, ThreadSkeletonNode,
 } from "./types";
 import { initDatabase } from "./db";
 import { isGuestSocketData } from "./lib/grants";
@@ -20,7 +21,8 @@ import {
 import { readMutedProjects } from "./lib/muted-projects";
 import { appDataRoots, resolveAppDataDir, resolveStateDir } from "./lib/data-dir";
 import { decodeCol, encodeCol } from "../shared/message-blob";
-import { hasMachineMark } from "../shared/prompt-number";
+import { walkActiveThread, type SkeletonRow } from "./lib/thread-skeleton";
+import { CONTEXT_PREFIX, hasMachineMark } from "../shared/prompt-number";
 import { knownProjectDirs, isInsideKnownProject } from "./services/known-project-dirs";
 import { isInsideDir } from "./lib/path-containment";
 import { realPathForNewEntry } from "./lib/real-path";
@@ -51,12 +53,23 @@ import { announceTurnEnded } from "./lib/turn-ended";
 import { isAwaitingHuman } from "../shared/types";
 import type { OutboundMessage } from "../shared/ws-outbound";
 import { imageShape } from "./services/image-shape";
+import { withMediaSizes } from "./lib/media-size";
 import { httpLogLine } from "./lib/http-log";
 import { keepFirstTimes } from "./lib/tool-call-times";
 import {
   listGlobalOrchestratorTopicIds,
   presentGlobalOrchestratorTopic,
 } from "./services/global-orchestrator-session";
+
+/** A `messages` row as the lean read gives it: the object `rowToMessage` expects, without `blocks` and `tool_calls`. */
+type LeanMessageRow = { id: string } & Record<string, unknown>;
+
+/** The `messages` columns without `blocks` and `tool_calls`: the lean read (see `getMessagesLean`). */
+const LEAN_MESSAGE_COLUMNS = `id, session_key, role, content, thinking, media, partial, streamed_at,
+              plan_status, timestamp, sort_order, parent_id, branch_index, latency_ms,
+              usage_prompt_tokens, usage_completion_tokens, cost_cents, cache_read_tokens,
+              cache_creation_tokens, cache_creation_1h_tokens, model, author_person_id,
+              author_device_id, end_reason, client_message_id`;
 
 /**
  * v3 foundations WS-01 outbound validation hook. Runs in DEV mode only —
@@ -136,6 +149,21 @@ export function timingSafeEqualStr(a: string, b: string): boolean {
   const bb = Buffer.from(b, "utf8");
   if (ab.length !== bb.length) return false;
   return timingSafeEqual(ab, bb);
+}
+
+/**
+ * `toolCalls` rebuilt from the tool blocks when the column left it empty (see
+ * `rowToMessage`). Module level and exported: a route that picks a window of the
+ * thread (`GET /api/topics/:id/messages`) needs the SAME rule for the partial row
+ * it ships whole, not a copy of it.
+ */
+export function restoreToolCallsFromBlocks(msg: StoredMessage): void {
+  if (!msg.toolCalls?.length && msg.blocks?.length) {
+    const fromBlocks = msg.blocks
+      .filter((b: any) => b && b.kind === 'tool' && b.toolCall)
+      .map((b: any) => b.toolCall);
+    if (fromBlocks.length > 0) msg.toolCalls = fromBlocks;
+  }
 }
 
 export function createAppContext(baseDir: string): AppContext {
@@ -298,9 +326,6 @@ export function createAppContext(baseDir: string): AppContext {
     // Unread
     getAllUnread: db.prepare(`SELECT topic_id, last_read_at, unread_count FROM unread`),
     getUnreadOne: db.prepare(`SELECT unread_count FROM unread WHERE topic_id = ?`),
-    // All but the zeroed rows of archived topics (1,128 of 1,146 on prod).
-    getUnreadForInit: db.prepare(`SELECT topic_id, last_read_at, unread_count FROM unread u
-      WHERE u.unread_count > 0 OR NOT EXISTS (SELECT 1 FROM topics t WHERE t.id = u.topic_id AND t.archived = 1)`),
     upsertUnread: db.prepare(`INSERT OR REPLACE INTO unread (topic_id, last_read_at, unread_count) VALUES (?, ?, ?)`),
     deleteUnread: db.prepare(`DELETE FROM unread WHERE topic_id = ?`),
     // A new row starts at 1 stamped now; an existing one keeps `last_read_at`.
@@ -332,13 +357,29 @@ export function createAppContext(baseDir: string): AppContext {
      * over from SQLite regardless. Here they never leave the table.
      */
     getMessagesLean: db.prepare(
-      `SELECT id, session_key, role, content, thinking, media, partial, streamed_at,
-              plan_status, timestamp, sort_order, parent_id, branch_index, latency_ms,
-              usage_prompt_tokens, usage_completion_tokens, cost_cents, cache_read_tokens,
-              cache_creation_tokens, cache_creation_1h_tokens, model, author_person_id,
-              author_device_id, end_reason, client_message_id
+      `SELECT ${LEAN_MESSAGE_COLUMNS}
        FROM messages WHERE session_key = ? ORDER BY sort_order ASC`,
     ),
+    /**
+     * The skeleton of the thread: four columns, no text. Picking WHICH messages
+     * go out of a window does not need the content of all of them
+     * (`loadThreadSkeleton`): on the route bench, 1.5 ms against the 5.8 of the
+     * lean read of 3000 rows. The variant with `role` is for whoever numbers the
+     * prompts of the whole thread (`/api/history`); the gateway's context
+     * envelopes, which are not prompts, are told by a separate query
+     * (`getContextEnvelopeIds`) that costs less than carrying them in every row.
+     */
+    getMessageSkeleton: db.prepare(
+      `SELECT id, parent_id, branch_index, partial FROM messages WHERE session_key = ? ORDER BY sort_order ASC`,
+    ),
+    getMessageSkeletonWithRole: db.prepare(
+      `SELECT id, parent_id, branch_index, partial, role FROM messages WHERE session_key = ? ORDER BY sort_order ASC`,
+    ),
+    getContextEnvelopeIds: db.prepare(
+      `SELECT id FROM messages WHERE session_key = ?1 AND role = 'user' AND substr(content, 1, length(?2)) = ?2`,
+    ),
+    /** The partial rows of a session only, for the "empty partial" filter. */
+    getPartialContents: db.prepare(`SELECT id, content FROM messages WHERE session_key = ? AND partial = 1`),
     getLastMessage: db.prepare(`SELECT * FROM messages WHERE session_key = ? ORDER BY sort_order DESC LIMIT 1`),
     /**
      * The last row after the person's last message that a turn wrote: still
@@ -802,16 +843,6 @@ export function createAppContext(baseDir: string): AppContext {
     return opts?.withToolOutputs === false && !partial ? "stub" : "full";
   }
 
-  /** `toolCalls` rebuilt from the tool blocks when the column left it empty (see rowToMessage). */
-  function restoreToolCallsFromBlocks(msg: StoredMessage): void {
-    if (!msg.toolCalls?.length && msg.blocks?.length) {
-      const fromBlocks = msg.blocks
-        .filter((b: any) => b && b.kind === 'tool' && b.toolCall)
-        .map((b: any) => b.toolCall);
-      if (fromBlocks.length > 0) msg.toolCalls = fromBlocks;
-    }
-  }
-
   function rowToMessage(row: any, opts?: ThreadLoadOpts): StoredMessage {
     const msg: StoredMessage = {
       id: row.id,
@@ -980,7 +1011,7 @@ export function createAppContext(baseDir: string): AppContext {
     const guests = guestSocketFilter();
     for (const ws of wsClients) {
       if (ws !== exclude && ws.readyState === 1) {
-        if (guests && isGuestSocket(ws) && !guests.mayReceiveFrame(ws.data.deviceId!, presentedMessage)) continue;
+        if (guests && isGuestSocket(ws) && !guests.mayReceiveFrame(ws.data, presentedMessage)) continue;
         sendFrame(ws, payload, presentedMessage.type);
       }
     }
@@ -997,11 +1028,36 @@ export function createAppContext(baseDir: string): AppContext {
 
   /** La regola sta in `lib/grants.ts` con le altre del confinamento, e ha un
    *  test: scritta a mano dentro tre cicli sarebbe tre regole che divergono. */
-  const isGuestSocket = (ws: ServerWebSocket<WSData>) => isGuestSocketData(ws.data);
+  const isGuestSocket = (ws: ServerWebSocket<WSData>) => { guestSocketFilter()?.refreshSocketPrincipal?.(ws.data); return isGuestSocketData(ws.data); };
+
+  // A row that reaches the windows live carries the size of each picture it
+  // draws, like a history page does (`lib/media-size.ts`): the box is there
+  // before the bytes. Only the two frames that bring a message's pictures.
+  function withFrameMediaSizes(message: OutboundMessage): OutboundMessage {
+    if (message.type !== "message:new" && message.type !== "message:media") return message;
+    return withMediaSizes(message, { uploadsDir: UPLOADS_DIR, isPathAllowed });
+  }
+
+  /** A GUEST gets the frame without `mediaSizes`: each key is a picture served by `/uploads/` or `/api/media`, both
+   *  closed to guests, so a size would only tell it what sits on the owner's disk (V3, D2). Not filtered key by key:
+   *  the keys are disk paths too, and a disk path under `/media/` would pass the rule written for the `/media/` route. */
+  function guestPayloadOf(message: OutboundMessage, payload: string): string {
+    if (!("mediaSizes" in message)) return payload;
+    const { mediaSizes: _ownerOnly, ...rest } = message as OutboundMessage & { mediaSizes?: unknown };
+    return JSON.stringify(rest);
+  }
 
   function broadcastToAll(message: OutboundMessage) {
-    const presentedMessage = presentTopicInOutboundMessage(message);
+    const presentedMessage = presentTopicInOutboundMessage(withFrameMediaSizes(message));
     devValidateOutbound(presentedMessage);
+    const frame = presentedMessage as OutboundMessage & { topicId?: unknown; sessionKey?: unknown };
+    // A topic frame reaches only the windows holding that topic. It goes through the same loop as
+    // every other frame, so the guest rules below still decide what a guest receives.
+    const topicId = OUTBOUND_FRAME_CLASSES[frame.type as keyof typeof OUTBOUND_FRAME_CLASSES] !== "topic"
+      ? undefined
+      : typeof frame.topicId === "string"
+        ? frame.topicId
+        : typeof frame.sessionKey === "string" ? getTopicBySessionKey(frame.sessionKey)?.id : undefined;
     const payload = JSON.stringify(presentedMessage);
     // Un OSPITE non riceve tutto. Il gate controlla le RICHIESTE, e un broadcast
     // non è una richiesta: senza questo filtro un ospite col socket aperto
@@ -1013,10 +1069,14 @@ export function createAppContext(baseDir: string): AppContext {
     // passare gli altri 52. Per entità perché un tipo ammesso non basta —
     // `task:updated` di un task non condiviso resta roba d'altri.
     const guests = guestSocketFilter();
+    let guestPayload: string | undefined;
     for (const ws of wsClients) {
       if (ws.readyState !== 1) continue;
-      if (guests && isGuestSocket(ws) && !guests.mayReceiveFrame(ws.data.deviceId!, presentedMessage)) continue;
-      sendFrame(ws, payload, presentedMessage.type);
+      if (topicId && !clientReceivesTopicDelta(ws.data, topicId)) continue;
+      const guest = guests && isGuestSocket(ws);
+      if (guest && !guests.mayReceiveFrame(ws.data, presentedMessage)) continue;
+      // Built once per fan-out, and only when a guest is reached.
+      sendFrame(ws, guest ? (guestPayload ??= guestPayloadOf(presentedMessage, payload)) : payload, presentedMessage.type);
     }
     // No push from here any more (notifications-redesign, design section
     // 10.1): a frame is not a fact. The push and the history row of a new
@@ -1070,7 +1130,7 @@ export function createAppContext(baseDir: string): AppContext {
         osservatori.set(chiave, chi);
       }
       const message = envelopeProgettoPer(chi, type, project);
-      if (guests && isGuestSocket(ws) && !guests.mayReceiveFrame(ws.data.deviceId!, message)) continue;
+      if (guests && isGuestSocket(ws) && !guests.mayReceiveFrame(ws.data, message)) continue;
       let payload = serializzati.get(message.type);
       if (payload === undefined) {
         devValidateOutbound(message);
@@ -1099,7 +1159,7 @@ export function createAppContext(baseDir: string): AppContext {
     let payload: string | null = null;
     for (const ws of wsClients) {
       if (ws.readyState !== 1) continue;
-      if (guests && isGuestSocket(ws) && !guests.mayReceiveFrame(ws.data.deviceId!, message)) continue;
+      if (guests && isGuestSocket(ws) && !guests.mayReceiveFrame(ws.data, message)) continue;
       const deviceId = ws.data.deviceId ?? null;
       // The empty string is not a device id: here it is loopback, the machine.
       const key = deviceId ?? "";
@@ -1163,7 +1223,7 @@ export function createAppContext(baseDir: string): AppContext {
         // Il confinamento vale su OGNI fan-out, non solo su `broadcastToAll`.
         // Qui l'entità è l'argomento, non un campo del frame: si chiede il
         // permesso sul TOPIC, che è la cosa che si sta per consegnare.
-        if (guests && isGuestSocket(ws) && !guests.mayReadTopic(ws.data.deviceId!, topicId)) continue;
+        if (guests && isGuestSocket(ws) && !guests.mayReadTopic(ws.data, topicId)) continue;
         sendFrame(ws, payload, message.type);
       }
     }
@@ -1186,7 +1246,7 @@ export function createAppContext(baseDir: string): AppContext {
       // Interest never grants access: legacy clients (no declared open-set)
       // and focused-topic fallbacks still pass the guest check before send.
       if (!clientReceivesTopicDelta(ws.data, topicId)) continue;
-      if (guests && isGuestSocket(ws) && !guests.mayReadTopic(ws.data.deviceId!, topicId)) continue;
+      if (guests && isGuestSocket(ws) && !guests.mayReadTopic(ws.data, topicId)) continue;
       sendFrame(ws, payload, message.type);
     }
   }
@@ -1318,8 +1378,8 @@ export function createAppContext(baseDir: string): AppContext {
     resetUnread: (topicId) => {
       const current = (stmts.getUnreadOne.get(topicId) as { unread_count?: number } | null)?.unread_count ?? 0;
       if (current <= 0) return;
+      // The seen door's own frame carries the zero (`attention:updated.row.unread`).
       saveUnreadEntries({ [topicId]: { lastReadAt: new Date().toISOString(), unreadCount: 0 } });
-      broadcastToAll({ type: "unread:updated", topicId, unreadCount: 0 });
     },
     describe: (subject) => {
       const topicId = topicIdOfSubject(subject);
@@ -1354,11 +1414,10 @@ export function createAppContext(baseDir: string): AppContext {
     },
   });
 
-  // Il registro delle notifiche: come sopra, i due dati che gli mancano — dove
-  // annunciare la riga nuova, e se il topic bersaglio è archiviato.
+  // The notification log, as above: the one fact it lacks, whether the target
+  // topic is archived. A new row reaches the windows in the attention store's
+  // frame, never from the log.
   configureNotificationRegistry({
-    announce: (row, snapshot) => broadcastToAll({ type: "notification:new", row, ...snapshot }),
-    announceSeen: (snapshot, subjects) => broadcastToAll({ type: "notification:seen", ...snapshot, subjects }),
     isTopicArchived: (topicId) => !!getTopicById(topicId)?.archived,
   });
 
@@ -1400,12 +1459,6 @@ export function createAppContext(baseDir: string): AppContext {
     return result;
   }
   function loadUnread(): UnreadData { return unreadFromRows(stmts.getAllUnread.all() as any[]); }
-  /**
-   * The `unread:init` rows: an archived topic's zeroed row draws no badge (a
-   * missing row reads as 0), a non-zero one still ships. Never feed this to
-   * `saveUnread`, which deletes the rows it does not see.
-   */
-  function loadUnreadForInit(): UnreadData { return unreadFromRows(stmts.getUnreadForInit.all() as any[]); }
 
   function saveUnread(data: UnreadData): void {
     db.transaction(() => {
@@ -1548,6 +1601,95 @@ export function createAppContext(baseDir: string): AppContext {
    */
   function loadLocalMessages(sessionKey: string, opts?: ThreadLoadOpts): StoredMessage[] {
     return loadActiveThread(sessionKey, opts);
+  }
+
+  /**
+   * The active thread of a session WITHOUT the text: for each message who it is,
+   * whether it is a partial and the two branch annotations. Same walk as
+   * `loadActiveThread` (`lib/thread-skeleton.ts`), one query of a few columns
+   * instead of reading them all. The real rows of the messages that matter are
+   * read afterwards, with `loadThreadRows`.
+   *
+   * `forPrompts: true` adds `role` and `ctxPrefix` (gateway context envelope) to
+   * every node: enough for `promptNumbers` and for the last-message check,
+   * without anybody's text.
+   */
+  function loadThreadSkeleton(sessionKey: string, opts?: { forPrompts?: boolean }): ThreadSkeletonNode[] {
+    const forPrompts = opts?.forPrompts === true;
+    const rows = (forPrompts ? stmts.getMessageSkeletonWithRole : stmts.getMessageSkeleton).all(sessionKey) as Array<SkeletonRow & { role?: "user" | "assistant" }>;
+    if (rows.length === 0) return [];
+    const envelopes = forPrompts
+      ? new Set((stmts.getContextEnvelopeIds.all(sessionKey, CONTEXT_PREFIX) as Array<{ id: string }>).map((r) => r.id))
+      : null;
+    return walkActiveThread(
+      rows,
+      (key) => (stmts.getActiveBranch.get(key, sessionKey) as { active_branch_index?: number } | undefined)?.active_branch_index,
+      (msg) => console.warn(`[loadThreadSkeleton] ${sessionKey}: ${msg}`),
+    ).map((n) => {
+      const node: ThreadSkeletonNode = {
+        id: n.row.id,
+        partial: !!n.row.partial,
+        siblingCount: n.siblingCount,
+        activeBranchIndex: n.activeBranchIndex,
+      };
+      if (forPrompts) {
+        node.role = n.row.role;
+        node.ctxPrefix = envelopes!.has(n.row.id);
+      }
+      return node;
+    });
+  }
+
+  /**
+   * The real rows (lean: no `blocks` or `tool_calls`) of the given messages, IN
+   * the order given and with the branch annotations `loadActiveThread` adds. An
+   * id that is gone is skipped. The body is put back by `hydrateMessageBodies`.
+   */
+  function loadThreadRows(nodes: ReadonlyArray<{ id: string; siblingCount?: number; activeBranchIndex?: number }>): StoredMessage[] {
+    const rowsById = new Map<string, LeanMessageRow>();
+    const CHUNK = 500; // SQLite refuses more than 999 bound parameters
+    for (let i = 0; i < nodes.length; i += CHUNK) {
+      const ids = nodes.slice(i, i + CHUNK).map((n) => n.id);
+      const rows = db
+        .query(`SELECT ${LEAN_MESSAGE_COLUMNS} FROM messages WHERE id IN (${ids.map(() => "?").join(",")})`)
+        .all(...ids) as LeanMessageRow[];
+      for (const row of rows) rowsById.set(row.id, row);
+    }
+    const messages: StoredMessage[] = [];
+    for (const node of nodes) {
+      const row = rowsById.get(node.id);
+      if (!row) continue;
+      const msg = rowToMessage(row, { withBlocks: false, withToolCalls: false });
+      if (node.siblingCount !== undefined) msg.siblingCount = node.siblingCount;
+      if (node.activeBranchIndex !== undefined) msg.activeBranchIndex = node.activeBranchIndex;
+      messages.push(msg);
+    }
+    return messages;
+  }
+
+  /**
+   * A lean WINDOW of the active thread: the last `limit` messages after dropping
+   * the last `offset`, and the thread `total` without empty partials. Same answer
+   * as `loadLocalMessages` + filter + `slice(-limit)`, but the whole session is
+   * read as a skeleton and the real rows only for the messages that go out. The
+   * body (`blocks`, `tool_calls`) is put back by `hydrateMessageBodies`, as for
+   * the lean read. `limit` and `offset` are passed as they come from the client:
+   * the semantics of `slice(-limit)` (0 or NaN = everything) is the old one.
+   */
+  function loadThreadWindow(sessionKey: string, limit: number, offset: number): { messages: StoredMessage[]; total: number } {
+    const thread = loadThreadSkeleton(sessionKey);
+    if (thread.length === 0) return { messages: [], total: 0 };
+    // A partial without text is not a message: decided on the content, which the skeleton does not have.
+    const emptyPartial = new Set<string>();
+    if (thread.some((n) => n.partial)) {
+      for (const r of stmts.getPartialContents.all(sessionKey) as Array<{ id: string; content: string | null }>) {
+        if (!(r.content && r.content.trim())) emptyPartial.add(r.id);
+      }
+    }
+    const complete = emptyPartial.size > 0 ? thread.filter((n) => !emptyPartial.has(n.id)) : thread;
+    const total = complete.length;
+    const sliced = offset > 0 ? complete.slice(0, Math.max(0, total - offset)) : complete;
+    return { messages: loadThreadRows(sliced.slice(-limit)), total };
   }
 
   /**
@@ -3024,8 +3166,8 @@ export function createAppContext(baseDir: string): AppContext {
     broadcast, broadcastToAll, broadcastProject, broadcastToProjectViewers, broadcastToTopic, broadcastToTopicSubscribers, sendToDevice, closeDeviceSockets, setGuestBroadcastFilter,
     loadTopics, saveTopics, saveSingleTopic,
     getTopicById, getTopicBySessionKey, setTopicBrowserState, touchTopicActivity,
-    loadUnread, loadUnreadForInit, saveUnread, bumpUnread, saveUnreadEntries,
-    loadLocalMessages, hydrateMessageBodies, messageBodyHydrator, countMessagesBySession, saveLocalMessages, appendLocalMessage, appendImportedMessages,
+    loadUnread, saveUnread, bumpUnread, saveUnreadEntries,
+    loadLocalMessages, loadThreadSkeleton, loadThreadRows, loadThreadWindow, hydrateMessageBodies, messageBodyHydrator, countMessagesBySession, saveLocalMessages, appendLocalMessage, appendImportedMessages,
     createPartialMessage, reuseOrCreatePartialForReattach, reuseHeadstoneOrCreate, updateLastMessage, appendToLastMessage,
     finalizeLastMessage, addToolCallToLastMessage, updateToolCallResult, updateToolCallFields,
     startStream, updateStreamActivity, updateStreamContent, getStreamContent, endStream, isStreaming,

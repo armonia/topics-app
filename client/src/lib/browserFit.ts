@@ -20,9 +20,15 @@ export interface Fit {
   top: number;
 }
 
+/** How far a page may be from the size its pane asked for and still be that
+ *  pane's page: the host lays it out through a page zoom and whole points. */
+const OWN_SIZE_SLACK_PX = 2;
+
 export function fitCentered(
   container: { width: number; height: number },
   page: { width: number; height: number },
+  /** The size this pane asked the page for (its last `resize`), if any. */
+  own?: { width: number; height: number } | null,
 ): Fit {
   const { width: cw, height: ch } = container;
   const { width: pw, height: ph } = page;
@@ -30,6 +36,17 @@ export function fitCentered(
   // frame): 1:1 at the origin, so the caller paints something rather than
   // dividing by zero.
   if (!(cw > 0 && ch > 0 && pw > 0 && ph > 0)) return { scale: 1, left: 0, top: 0 };
+  // A page laid out at the size this pane asked for is this pane's page: 1:1,
+  // from the top. Fitted, the host's rounding scaled every glyph by 0.998, and
+  // the on-screen keyboard, which takes height from the pane and not from the
+  // page (useRemoteBrowser), shrank the whole page into a letterbox. Not when
+  // it is wider than the pane: the pane just turned, and the page will follow.
+  // Shorter is still this pane's page: the Mac's pane lays it out a few pixels
+  // short when no whole frame gives the exact height (paneViewport.ts).
+  if (own && Math.abs(pw - own.width) <= OWN_SIZE_SLACK_PX && ph <= own.height + OWN_SIZE_SLACK_PX
+    && pw <= cw + OWN_SIZE_SLACK_PX) {
+    return { scale: 1, left: Math.max(0, Math.round((cw - pw) / 2)), top: 0 };
+  }
   const scale = Math.min(cw / pw, ch / ph);
   return {
     scale,
@@ -70,4 +87,25 @@ export function viewportFromRrwebEvent(
   const { width, height } = event.data;
   if (!width || !height) return null;
   return { width, height };
+}
+
+/**
+ * The box a pane reports for its shared page. The on-screen keyboard takes
+ * height from the pane, and it is not a new viewport: Safari keeps the page's
+ * layout under it, and a shared page keeps it too, or the device using it (and
+ * the Mac showing it) would see it laid out again at every keyboard. The same
+ * width and a shorter box while the keyboard is up: the last height stays.
+ */
+export function boxUnderKeyboard(
+  last: { w: number; h: number },
+  box: { w: number; h: number },
+  keyboardUp: boolean,
+): { w: number; h: number } {
+  return keyboardUp && last.w === box.w && box.h < last.h ? { w: box.w, h: last.h } : box;
+}
+
+/** The on-screen keyboard is up: the threshold the app's own layout uses (useSidebarAndLayout). */
+export function onScreenKeyboardUp(): boolean {
+  const vv = typeof window !== 'undefined' ? window.visualViewport : null;
+  return !!vv && vv.height < window.innerHeight * 0.85;
 }

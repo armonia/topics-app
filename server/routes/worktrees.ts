@@ -105,7 +105,10 @@ export function createWorktreesRouter(ctx: AppContext, opts: WorktreesRouterOpts
         }
         opts.status = statusParam as "pending" | "ready" | "error";
       }
-      const worktrees = worktreeStore.list(opts);
+      const worktrees = worktreeStore.list(opts).map((worktree) => ({
+        ...worktree,
+        port: worktreeManager.portForPath(worktree.absPath),
+      }));
       return json({ worktrees });
     }
 
@@ -211,7 +214,7 @@ export function createWorktreesRouter(ctx: AppContext, opts: WorktreesRouterOpts
         if (method === "GET") {
           const wt = worktreeStore.get(idParams.id);
           if (!wt) return errorResponse(404, "Worktree not found");
-          return json(wt);
+          return json({ ...wt, port: worktreeManager.portForPath(wt.absPath) });
         }
         if (method === "PATCH") {
           const body = await readJSON(req);

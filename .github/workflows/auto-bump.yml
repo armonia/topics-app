@@ -1,9 +1,14 @@
-name: Auto-bump patch
+name: Auto-bump
 
-# Increments the PATCH (the z in x.y.z) in lockstep across package.json /
-# tauri.conf.json / Cargo.toml / Cargo.lock, commits it back to main, and then
-# builds and publishes the Tauri installers for that version, so a merge on main
-# reaches everybody's auto-updater with no manual step.
+# Raises the version in lockstep across package.json / tauri.conf.json /
+# Cargo.toml / Cargo.lock, commits it back to main, and then builds and
+# publishes the Tauri installers for that version, so a merge on main reaches
+# everybody's auto-updater with no manual step.
+#
+# WHICH NUMBER, since 2026-10-16 (RELEASE-07): the patch by default; the minor
+# or the major when a commit since the last release carries the trailer
+# `Release: minor` or `Release: major` (`scripts/release-level.ts`). Before, it
+# was always the patch: 517 of them between 2.2.0 and 2.2.517.
 #
 # THE GATE, and why this file changed on 2026-08-16. The policy "main always
 # ships" (approved 2026-07-10) built installers on every merge, and the build
@@ -92,7 +97,7 @@ jobs:
 
       - uses: oven-sh/setup-bun@v2
         with:
-          bun-version: latest
+          bun-version-file: .bun-version
 
       - name: Is the tip of main green?
         id: gate
@@ -102,24 +107,40 @@ jobs:
           set -euo pipefail
           TIP="$(git rev-parse HEAD)"
           MSG="$(git log -1 --format=%s "$TIP")"
+          # The commit the CI measured: below the commits pushed with
+          # [skip ci] (the nightly's shard durations), which have no run of
+          # their own. Twenty at most; the gate checks what lies in between.
+          MEASURED="$TIP"
+          for _ in $(seq 20); do
+            case "$(git log -1 --format=%B "$MEASURED")" in
+              *"[skip ci]"*) MEASURED="$(git rev-parse "$MEASURED^")" ;;
+              *) break ;;
+            esac
+          done
+          # --no-renames: a file renamed INTO the allowed one shows both names.
+          CHANGED="$(git diff --no-renames --name-only "$MEASURED" "$TIP" | jq -R . | jq -s -c .)"
           # The CI run for THAT sha on main, or `null` when the CI has not been
           # asked yet (or its run was evicted from the concurrency queue). The
           # API answers newest first; a COMPLETED one wins over a fresher re-run
           # still in flight, because a verdict beats a maybe.
           RUN="$(gh api \
-            "repos/${GITHUB_REPOSITORY}/actions/workflows/ci.yml/runs?head_sha=${TIP}&per_page=100" \
+            "repos/${GITHUB_REPOSITORY}/actions/workflows/ci.yml/runs?head_sha=${MEASURED}&per_page=100" \
             --jq '[.workflow_runs[] | select(.head_branch == "main")
                    | {status, conclusion, head_sha, head_branch}] as $runs
                   | (($runs | map(select(.status == "completed")) | first)
                      // ($runs | first) // null)')"
-          jq -n --arg sha "$TIP" --arg msg "$MSG" --argjson run "${RUN:-null}" \
-            '{tipSha: $sha, tipMessage: $msg, branch: "main", run: $run}' \
+          jq -n --arg sha "$TIP" --arg msg "$MSG" --arg measured "$MEASURED" \
+            --argjson changed "$CHANGED" --argjson run "${RUN:-null}" \
+            '{tipSha: $sha, tipMessage: $msg, measuredSha: $measured, changedSinceMeasured: $changed, branch: "main", run: $run}' \
             | bun run scripts/release-gate.ts
 
-      - name: Bump patch across lockstep files
+      - name: Bump across lockstep files
         id: bump
         if: ${{ steps.gate.outputs.publish == 'true' }}
-        run: echo "version=$(bash scripts/bump-version.sh patch)" >> "$GITHUB_OUTPUT"
+        run: |
+          set -euo pipefail
+          LEVEL="$(bun run scripts/release-level.ts)"
+          echo "version=$(bash scripts/bump-version.sh "$LEVEL")" >> "$GITHUB_OUTPUT"
 
       # The changelog is GENERATED from git history (scripts/gen-changelog.mjs),
       # so the version just bumped can only get one AFTER the bump and before

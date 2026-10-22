@@ -1627,6 +1627,41 @@ svuotare il registro e chiudere tutto, sotto-superfici comprese.
 - **GIVEN** un popover sostituito e poi deregistrato
 - **THEN** il conto di chi lo ha sostituito NON SHALL essere scalato
 
+### Requirement: POPOVER-02 — Un popover resta sul suo bottone anche con la tastiera dell'iPad su
+
+Menu, picker, fogli delle tab, tooltip, menu contestuali, l'iframe di una pagina
+web e le anteprime di trascinamento SHALL stare dove stanno senza tastiera,
+rispetto al bottone, allo slot o al dito che li posiziona, anche quando la
+tastiera dell'iPad è aperta. Con la tastiera su, Safari accorcia il viewport e
+scorre tutta la pagina per mostrare il campo, box `fixed` compresi (422 px in
+orizzontale e 337 in verticale su un 11" con il composer in fondo, misurati il
+14/10). Il rettangolo client segue quello scroll, quindi un box `fixed` messo lì
+lo conta due volte e finisce fuori posto, spesso fuori dallo schermo.
+
+La posizione SHALL quindi essere calcolata in coordinate client, come prima, e
+SHALL essere spostata nel riferimento dei box `fixed` (`lib/fixedFrame`) solo
+quando diventa `top`/`left`/`bottom` o una traslazione. Dove quel riferimento
+coincide con la finestra (desktop, Mac, iPad senza tastiera) NON SHALL cambiare
+nulla.
+
+Fuori da questo requisito: i fogli dal basso del layout mobile, anche quello di
+un iPad in verticale, che non si posizionano da un rettangolo.
+
+#### Scenario: un comando digitato apre il suo pannello con la tastiera su
+- **GIVEN** un iPad in orizzontale con la tastiera della chat aperta
+- **WHEN** si apre il menu «+» del composer, il pannello dell'autonomia o
+  l'ispettore del contesto
+- **THEN** il pannello SHALL stare rispetto al suo bottone dove sta senza tastiera
+
+#### Scenario: la finestra del browser del topic con la tastiera su
+- **GIVEN** la stessa tastiera aperta
+- **WHEN** è aperto il foglio di una tab della finestra, o si apre il suo menu «+»
+- **THEN** il foglio SHALL restare appeso alla tab e il menu accanto al «+»
+
+#### Scenario: la pagina di un pannello browser nell'iframe
+- **GIVEN** la stessa tastiera aperta e una pagina che il Mac non ospita
+- **THEN** l'iframe SHALL continuare a coprire esattamente lo slot del suo pannello
+
 ### Requirement: SCROLLDELTA-01 — Si scorre di quel tanto che basta, e non si scorre se è già dentro
 
 Il calcolo dello scorrimento verso un bersaglio SHALL restituire ZERO quando il
@@ -1934,6 +1969,12 @@ ricevere il «non trovato».
 #### Scenario: un permalink aperto da chi accetta qualunque tipo
 - **GIVEN** un permalink chiesto con il tipo jolly
 - **THEN** SHALL ricevere il guscio, non un «non trovato» di testo
+
+#### Scenario: la pagina autonoma di una vista è un permalink
+- **GIVEN** una vista generativa salvata, il cui indirizzo `show_view` restituisce come `/v/<id>`
+- **WHEN** lo si apre con `Accept: */*` (un agente, un link handler, un'anteprima)
+- **THEN** il server SHALL servire il guscio con 200, come per `/tab/` e `/task/`
+- **AND** chi chiede solo `application/json` SHALL ricevere ancora il suo 404
 
 ### Requirement: STATIC-01 — Gli artefatti si classificano per FORMA, non per un elenco scritto a mano
 
@@ -3432,3 +3473,85 @@ puntatore, non l'assenza di un nome.
   senza fasce vuote (MOBILE-GEOM-05)
 - **AND** passare anche sotto la barra di stato richiede `black-translucent`, e SHALL essere deciso
   solo dopo aver misurato `innerHeight` contro `screen.height` in standalone su un iPhone vero
+
+### Requirement: LIST-PAGE-01 — Una lista che cresce in basso carica la pagina dopo da sola
+
+Le liste che mostrano una pagina alla volta — la colonna della board, lo storico
+delle notifiche, lo storico dei commit, le sessioni da riprendere — SHALL caricare
+la pagina successiva da sole quando la loro riga «mostra altri» entra in vista (con
+240 px di anticipo dentro il contenitore che scorre), senza click. Una richiesta
+alla volta; una riga ancora in vista dopo una pagina arrivata SHALL chiedere di
+nuovo solo se quella pagina ha aggiunto righe: una pagina fallita o vuota aspetta
+che chi legge esca e rientri, invece di interrogare il server in un ciclo
+(`client/src/lib/loadOnReach.ts`). Ogni cambio del numero di righe, anche una riga
+arrivata mentre una pagina è in viaggio, SHALL far guardare di nuovo la riga prima di
+chiedere; e il contenitore guardato SHALL essere quello che la scorre in quel momento,
+anche dopo un cambio di disposizione, verificato a ogni risposta e a ogni cambio: il cambio
+sposta lo scorrimento e non la riga, il contenitore di prima può non dire più niente o
+tenerla vicina per sempre, e tornando alla griglia nessun osservatore risponde. In vista
+vuol dire anche a schermo: una colonna
+fuori dalla board che scorre di lato NON SHALL caricare, nemmeno quando la sua riga
+sta dentro la colonna stessa (una finestra alta). Mentre una card della board viene trascinata la
+colonna NON SHALL crescere sotto il puntatore. La riga SHALL restare un bottone,
+per la tastiera e per un browser senza IntersectionObserver.
+
+#### Scenario: la riga entra in vista e la pagina arriva
+- **GIVEN** una lista con più righe di una pagina
+- **WHEN** chi legge scorre fino alla riga «mostra altri»
+- **THEN** la pagina successiva è chiesta una volta, senza click
+
+#### Scenario: una pagina che non aggiunge niente non fa un ciclo
+- **GIVEN** la riga in vista e una richiesta che torna senza righe nuove
+- **WHEN** la riga resta in vista
+- **THEN** nessuna nuova richiesta parte finché la riga non esce e rientra in vista
+
+#### Scenario: durante un trascinamento la colonna non cresce
+- **GIVEN** una card della board in trascinamento
+- **WHEN** la riga «mostra altri» di una colonna entra in vista
+- **THEN** la colonna non carica niente finché il trascinamento non finisce
+
+#### Scenario: cambiare disposizione non carica pagine da sole
+- **GIVEN** la board a griglia, con la colonna Done a una pagina e il suo archivio di centinaia di card
+- **WHEN** la persona passa alla disposizione a lista e non scorre
+- **THEN** la colonna Done resta a una pagina
+- **WHEN** la persona scorre fino alla riga «mostra altri» di Done
+- **THEN** arriva una pagina sola
+
+#### Scenario: a una finestra alta la colonna fuori schermo aspetta
+- **GIVEN** la board in una finestra alta 1800 px, con la riga «mostra altri» di Done dentro la sua colonna e Done oltre il bordo destro
+- **WHEN** nessuno scorre
+- **THEN** la colonna Done resta a una pagina
+- **WHEN** la persona porta Done a schermo
+- **THEN** arriva una pagina sola
+
+#### Scenario: a una finestra alta, da griglia a lista, conta la riga e non la cima della colonna
+- **GIVEN** la board a griglia in una finestra alta 1800 px, con la riga «mostra altri» di Done vicina alla fine della sua colonna e Done oltre il bordo destro
+- **WHEN** la persona passa alla lista e scorre finché solo la cima di Done è a schermo
+- **THEN** la colonna Done resta a una pagina
+- **WHEN** la persona scorre fino alla riga
+- **THEN** arriva una pagina sola
+
+#### Scenario: tornata da lista a griglia, la colonna carica ancora in anticipo
+- **GIVEN** la board passata da griglia a lista e tornata a griglia, con Done a una pagina
+- **WHEN** la persona scorre Done finché la riga «mostra altri» è 120 px sotto ciò che la colonna mostra
+- **THEN** arriva una pagina sola, prima che la riga entri in vista
+
+### Requirement: LAYOUT-42 — La barra delle tab si stringe prima di scorrere
+
+La larghezza di una tab SHALL dipendere dallo spazio della sua barra, e la barra
+NON SHALL scorrere di lato finché le tab ci possono stare strette. Tre densità,
+ricalcolate solo quando cambiano lo spazio o il numero di tab, mai al passaggio
+del puntatore: piena (150 / 200 / 300 px come prima), compatta (fino a 76 px,
+la attiva mai sotto 120), quadratino (le non attive alte quanto larghe, con
+l'icona o l'iniziale della chat sul suo colore e il segnale di attenzione
+sull'angolo; la attiva almeno 96 px col nome). Una tab sola NON SHALL mai
+scorrere. Chiusa una tab col puntatore nella barra, le altre SHALL restare ferme
+finché il puntatore non esce. Il nome intero SHALL stare nel tooltip e
+nell'`aria-label` di ogni tab.
+
+#### Scenario: un gruppo stretto mostra tutte le sue tab
+
+- **GIVEN** un gruppo con sei tab largo 340 px
+- **WHEN** la barra si ridisegna
+- **THEN** le tab non attive sono quadrati con un'icona o un'iniziale, la attiva
+  è larga almeno 96 px col nome visibile, e la barra non scorre

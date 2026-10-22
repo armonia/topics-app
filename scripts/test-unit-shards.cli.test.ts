@@ -7,8 +7,8 @@
 import { describe, expect, test } from "bun:test";
 import { chmodSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { delimiter, join, resolve } from "node:path";
-import { tmpdir } from "node:os";
-import { SUITE_ROOTS } from "./test-unit-shards.ts";
+import { cpus, tmpdir } from "node:os";
+import { SUITE_ROOTS, defaultShards } from "./test-unit-shards.ts";
 
 const ROOT = resolve(import.meta.dir, "..");
 const RUNNER = join(ROOT, "scripts/test-unit-shards.ts");
@@ -128,12 +128,12 @@ describe("unit shards CLI", () => {
     }
   });
 
-  test("defaults to at most two workers and schedules the serial suite inventory exactly once", () => {
+  test("defaults to defaultShards(cores) workers at most and schedules the serial suite inventory exactly once", () => {
     const result = runFakeWorkers();
     expect(result.code).toBe(0);
     const parallel = result.calls.filter(call => call.phase === 1);
     expect(parallel.length).toBeGreaterThanOrEqual(1);
-    expect(parallel.length).toBeLessThanOrEqual(2);
+    expect(parallel.length).toBeLessThanOrEqual(defaultShards(cpus().length));
     expect(result.calls.filter(call => call.phase === 2)).toHaveLength(1);
     expect(result.calls.every(call => call.timeout === "30000")).toBe(true);
     // Derive roots from the authoritative list and include Bun's other

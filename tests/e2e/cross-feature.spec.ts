@@ -299,13 +299,18 @@ test.describe("Cross-Feature Interactions", () => {
         "la lista dei messaggi non e' montata: senza, questo test non puo' misurare niente",
       ).toBeVisible({ timeout: 10_000 });
 
-      // Helper to collect visible item indices
+      // Helper to collect visible item indices. Positions come from the rows'
+      // own message identity (`data-message-id="msg-N"`), NOT from Virtuoso's
+      // `data-item-index`: since CHAT-HIST-01 (05aec7f11) the list opens with
+      // `firstItemIndex` at 1_000_000 so prepends land without moving, and the
+      // absolute index Virtuoso stamps no longer equals the message position.
       async function collectVisibleIndices(): Promise<number[]> {
-        const items = await page.locator('[data-item-index]').all();
+        const items = await page.locator('[data-testid="chat-message"][data-message-id]').all();
         const indices: number[] = [];
         for (const item of items) {
-          const idx = await item.getAttribute("data-item-index");
-          if (idx) indices.push(Number(idx));
+          const id = await item.getAttribute("data-message-id");
+          const m = id ? /^msg-(\d+)$/.exec(id) : null;
+          if (m) indices.push(Number(m[1]));
         }
         return indices;
       }
@@ -367,8 +372,10 @@ test.describe("Cross-Feature Interactions", () => {
           await page
             .waitForFunction(
               (prec) => {
-                const el = document.querySelector("[data-item-index]");
-                return !!el && Number(el.getAttribute("data-item-index")) !== prec;
+                const el = document.querySelector('[data-testid="chat-message"][data-message-id]');
+                if (!el) return false;
+                const m = /^msg-(\d+)$/.exec(el.getAttribute("data-message-id") || "");
+                return !!m && Number(m[1]) !== prec;
               },
               primaDi,
               { timeout: 3_000, polling: "raf" },

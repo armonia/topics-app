@@ -121,6 +121,12 @@ The system SHALL support opening terminal sessions with xterm.js rendering, WebS
 
 > Note: The implementation uses up to 15 retry attempts with exponential backoff. Limited direct test coverage for the full backoff sequence.
 
+#### Scenario: Every server-requested PTY kill records its reason and caller
+- **GIVEN** the server asks the PTY bridge to end a terminal process
+- **WHEN** it sends the kill request
+- **THEN** one `[Terminal] kill` log line names the session id, reason, and caller
+- **AND** the bridge exit log records the exit code, signal, and whether the bridge requested the kill
+
 ### Requirement: TERM-02 — Reload (Restart) a Terminal Session In Place
 
 The system SHALL let a user restart a live terminal session **in place** from the
@@ -300,6 +306,13 @@ non usa quel trascritto.
 Una sessione il cui pane autonomo non ha una rianimazione SHALL essere
 rilanciata: lì il parcheggio non ha chi lo risvegli.
 
+La ripresa SHALL riaprire la conversazione su cui la CLI si trova ADESSO, non
+quella con cui Topics l'ha avviata. Un `/clear` porta Claude Code su un id nuovo,
+e la riga lo SHALL seguire leggendolo dal file che la CLI tiene per il suo
+processo (`~/.claude/sessions/<pid>.json`): al primo hook con un id che nessuna
+pane conosce, e prima di parcheggiarla. Il 18/10/2026 una pane con un `/clear`
+del 13/10 avrebbe ripreso la conversazione di cinque giorni prima.
+
 #### Scenario: conversazione chiusa da settimane
 - **GIVEN** una riga di una conversazione che nessuna scheda mostra
 - **THEN** NON SHALL essere rilanciata al riavvio
@@ -307,6 +320,11 @@ rilanciata: lì il parcheggio non ha chi lo risvegli.
 #### Scenario: trascritto mancante su un tipo che non lo usa
 - **GIVEN** una riga non basata su trascritto, senza trascritto
 - **THEN** NON SHALL essere cancellata
+
+#### Scenario: un `/clear` nella pane
+- **GIVEN** una pane Claude avviata con un id, e un `/clear` che porta la CLI su un id nuovo
+- **WHEN** arriva un hook con l'id nuovo, o la pane sta per essere parcheggiata
+- **THEN** la riga SHALL puntare all'id nuovo, e la ripresa SHALL riaprire quella conversazione
 
 ### Requirement: TERM-06 — Un agente legge lo SCHERMO, non lo scrollback
 
@@ -418,10 +436,18 @@ riavvio, e la riporta viva solo una rianimazione. Tutto il resto — una riga ch
 il riconcilio sta per riattaccare, nessuna riga — resta 1008, e per quello il
 client tiene la sua grazia.
 
-Il client SHALL trattare il verdetto come tale: velo «Sessione scaduta» subito,
-nessun nuovo tentativo. Da lì valgono le regole già scritte: la pane GUARDATA
-si rianima da sola dalla porta di rianimazione esistente (stessa riga, stessa
-cartella), quella in secondo piano aspetta il click (TERM-05).
+Il codice 4001 SHALL essere usato per ogni riga `dormant`: la porta di
+rianimazione la riporta viva (claude con `--resume`, una shell come shell nuova
+nella stessa cartella). Il client SHALL trattarlo come un
+verdetto: nessun nuovo tentativo, nessun `resize` verso una PTY che non c'è. La
+pane GUARDATA SHALL rianimarsi da sola dalla porta di rianimazione esistente
+(stessa riga, stessa cartella); quella in secondo piano SHALL mostrare «A riposo»
+/ «Resting» con «Riprendi» / «Resume» e aspettare il click (TERM-05). Una sessione
+che ha riportato un proprio codice d'uscita NON SHALL rianimarsi da sola. Un
+parcheggio deciso dal server non è una diagnosi: il suo codice (il SIGHUP del
+kill, 129) SHALL essere salvato e mandato come NULL, altrimenti la regola
+precedente lo scambierebbe per una morte vera e la pane guardata resterebbe
+ferma. Una sessione assente SHALL diventare «Sessione scaduta» solo dopo la grazia.
 
 Il contatore dei tentativi NON SHALL azzerarsi all'apertura del socket, ma al
 primo frame che solo una sessione viva manda (`replay-end`): un'apertura seguita
@@ -429,16 +455,26 @@ da un rifiuto è un attacco fallito in più, non un nuovo inizio. Vale anche per
 una riga cancellata del tutto, che prima cadeva nello stesso ciclo.
 
 #### Scenario: permalink a una sessione parcheggiata, pane attiva
-- **GIVEN** una riga `dormant` la cui pseudo-terminale non esiste più
+- **GIVEN** una riga `dormant`, pseudo-terminale assente, nessun codice d'uscita
 - **WHEN** si apre `/tab/terminal/<id>`
 - **THEN** la sessione SHALL tornare viva sotto lo stesso id, il terminale SHALL essere utilizzabile
 - **AND** i `resize` respinti con 404 SHALL essere al massimo una manciata, non un flusso continuo
 
 #### Scenario: scheda salvata in secondo piano
 - **GIVEN** la stessa riga, ripristinata come scheda dietro un'altra
-- **THEN** NON SHALL essere rianimata finché nessuno la guarda
-- **WHEN** la scheda viene cliccata
+- **THEN** NON SHALL essere rianimata finché nessuno la guarda, e mostra «A riposo» / «Resting» senza inviare `resize`
+- **WHEN** la scheda viene cliccata, o si sceglie «Riprendi» / «Resume»
 - **THEN** SHALL tornare viva
+
+#### Scenario: un parcheggio del server non lascia un codice d'uscita
+- **GIVEN** una sessione claude viva e ferma oltre la soglia di parcheggio
+- **WHEN** il server la parcheggia e il bridge riporta l'uscita col codice del SIGHUP
+- **THEN** la riga `dormant` SHALL avere `exit_code` NULL e il socket SHALL chiudersi con 4001 senza codice
+
+#### Scenario: una sessione realmente scomparsa resta scaduta
+- **GIVEN** un id senza riga riprendibile nel database
+- **WHEN** il roster confermato non lo contiene oltre la grazia di riconciliazione
+- **THEN** la pane mostra «Sessione scaduta» e non offre «Riprendi»
 
 ### Requirement: RESTART-SAY-01 — Un riavvio rifiutato lo DICE, e non si finge un'attesa
 
@@ -650,6 +686,71 @@ Nessun testo inventato.
 - **GIVEN** una sessione dormiente il cui topic non è di nessuna card e senza codice
 - **THEN** il velo SHALL restare quello di oggi
 
+### Requirement: TERM-13 — Il pannello dice QUALE ponte risponde e DA QUANDO
+
+Il ponte dei terminali sopravvive a ogni riavvio del server, perché tiene i
+terminali vivi: quello che risponde può essere molto più vecchio del codice su
+disco e dell'interruttore che sceglie fra Node e Rust. Il 16/10/2026 quello del
+Mac era partito il 7/10, prima che il suo `pong` dicesse che cosa è: il pannello
+Prestazioni scriveva «non identificato» sotto un interruttore Rust acceso, e da
+nessuna parte diceva che l'interruttore, e due modifiche al ponte, aspettavano
+che quel processo si fermasse.
+
+Lo stato del ponte SHALL dire quale ponte risponde e quando è partito. Quando il
+`pong` non lo dice, il server SHALL leggerlo dal sistema operativo: il processo
+che tiene il socket, il suo eseguibile, il tempo da cui gira. Il `pong` SHALL
+restare la fonte che vince quando parla. Il nome del socket da solo NON SHALL
+bastare: è lo stesso per i due ponti.
+
+Dove il sistema non risponde (Windows, dove il ponte è una pipe con nome) lo
+stato SHALL restare quello di prima, senza indovinare.
+
+#### Scenario: un ponte di prima del 15/10 riusato
+- **GIVEN** un processo che esegue `pty-bridge.mjs` e risponde al `ping` senza dire che cosa è
+- **WHEN** il server lo riusa
+- **THEN** lo stato SHALL dire Node, il pid di quel processo e l'ora in cui è partito
+
+#### Scenario: il server partito senza /usr/sbin nel PATH
+- **GIVEN** il server avviato da launchd o dall'app, con un PATH senza `/usr/sbin`, dove macOS tiene `lsof`
+- **WHEN** riusa quel ponte
+- **THEN** lo stato SHALL dire Node, il pid e l'ora di partenza, come quando parte da un terminale
+
+#### Scenario: il pannello
+- **GIVEN** uno stato del ponte con l'ora di partenza
+- **THEN** la riga del ponte e la spiegazione dell'interruttore SHALL mostrare la data di avvio
+
+### Requirement: TERM-14 — Un ctrl+z non SHALL congelare un Claude Code
+
+Su ctrl+z Claude Code smonta la sua interfaccia e si manda SIGTSTP, aspettando un
+SIGCONT per rimontarla. Sotto Topics è il figlio diretto della PTY e leader di
+sessione: il suo gruppo è orfano, il kernel scarta il segnale e nessuna shell farà
+mai `fg`. Il processo resta vivo e non ridisegna più, nemmeno al resize. Il
+21/10/2026 la pane «Home page» di armonia-site era ferma a 25 colonne su una PTY
+di 83, finché un SIGCONT a mano non l'ha ridisegnata.
+
+Il server SHALL togliere `0x1A` ed `ESC 0x1A` da ogni scrittura verso una PTY di
+tipo `claude-code` o `claude-code-team`, qualunque sia la strada (tastiera,
+`/send`, live-terminals, prompt dei sottoagenti). Una scrittura che resta vuota
+NON SHALL raggiungere il ponte. Le altre sessioni SHALL ricevere ctrl+z intatto:
+la shell ha il job control, e codex, opencode, muse e kimi, misurati, non si
+congelano. `/send` SHALL accettare solo testo: un array di byte scavalcava il
+filtro.
+
+#### Scenario: ctrl+z battuto in una pane Claude Code
+- **GIVEN** una sessione `claude-code` agganciata
+- **WHEN** arrivano `0x1A`, `ESC 0x1A` e `a 0x1A b` dalla tastiera
+- **THEN** al ponte SHALL arrivare solo `ab`
+
+#### Scenario: ctrl+z mandato da un agente
+- **GIVEN** una sessione `claude-code`
+- **WHEN** un agente scrive `0x1A` da live-terminals o da `/send`
+- **THEN** al ponte NON SHALL arrivare niente, e `/send` con un array di byte SHALL rispondere 400
+
+#### Scenario: ctrl+z in una shell
+- **GIVEN** una sessione `shell`
+- **WHEN** arriva `0x1A`
+- **THEN** il ponte SHALL riceverlo intatto
+
 ### Requirement: TERM-WARM-01 — "Not Yet" And "Gone" SHALL NOT Look The Same To The Client
 
 Between accepting connections and finishing its reconcile against the pty
@@ -705,6 +806,43 @@ sentence it shows.
 - **GIVEN** a retry that inspected the envelope to recognise a warming 503
 - **WHEN** the final answer is handed to the caller
 - **THEN** that response body SHALL still be unread
+
+### Requirement: TERM-WARM-02 — A Scrollback The Bridge Did Not Hand Over SHALL NOT Reach The Client As An Empty One
+
+The same distinction, on the WebSocket. On attach the server asks the PTY
+bridge for the session's scrollback, forwards it and then sends `replay-end`.
+The client takes a claude or codex pane older than ten seconds whose replay
+carried zero bytes as a PTY that is gone, and covers it with «Sessione
+terminata» and Resume. That inference is sound only when the bridge really
+answered "nothing": a live TUI always has a drawn screen to replay.
+
+The measured incident, 2026-10-15: with load1 at 150-177 the server's event
+loop stopped for 1.3-1.7 s several times, the one-second wait for the bridge
+expired, and the server sent an empty replay in its place. A claude session
+idle on a question emits nothing on its own, so its pane stayed under the veil
+while the process was alive, and Resume would have started a second claude on
+the same conversation.
+
+So the server SHALL send `replay-end` only after the bridge answered. When the
+bridge is not connected, or does not answer within the wait, the attach SHALL
+end with the close code `TERMINAL_WS_CLOSE_REPLAY_UNANSWERED`, which the client
+retries like any other dropped socket. Each request SHALL expire on its own: a
+second attach to the same session SHALL NOT be failed by the first one's
+deadline.
+
+#### Scenario: the bridge does not answer
+- **GIVEN** an attach to a live session whose scrollback request gets no answer within the wait
+- **THEN** the server SHALL NOT send `replay-end`
+- **AND** it SHALL close the socket with `TERMINAL_WS_CLOSE_REPLAY_UNANSWERED`
+
+#### Scenario: the bridge is not connected
+- **GIVEN** an attach to a live session while the bridge is disconnected
+- **THEN** the server SHALL close the socket with `TERMINAL_WS_CLOSE_REPLAY_UNANSWERED` at once
+- **AND** it SHALL NOT send `replay-end`
+
+#### Scenario: the bridge answers empty
+- **GIVEN** an attach whose scrollback request the bridge answers with no bytes
+- **THEN** the server SHALL send `replay-end`, which is the gone-PTY signal the resume veil is built on
 
 ### Requirement: TERM-11 — I tasti battuti prima dell'aggancio si mettono in coda, non si perdono
 

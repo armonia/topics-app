@@ -125,6 +125,14 @@ describe('native pane executor socket', () => {
     expect(h.sockets[0].types()).toEqual(['register_native_executor']);
   });
 
+  /** @covers NATIVE-HOST-07 */
+  test('the native pane answers application liveness pings', () => {
+    const h = harness();
+    h.sockets[0].open();
+    h.sockets[0].frame({ type: 'host_ping' });
+    expect(h.sockets[0].frames().at(-1)).toEqual({ type: 'host_pong' });
+  });
+
   test('every socket, the reconnections too, says at open that it is an executor', () => {
     // The server does not count it as an attached pane until it registered: a
     // navigation sent in between would drive a headless context instead.
@@ -272,5 +280,58 @@ describe('the pushed viewer count rides the executor socket', () => {
     sockets[0]!.open();
     run.stop();
     expect(channel).toEqual([true, false]);
+  });
+});
+
+/** @covers NATIVE-HOST-01 */
+describe('the executor socket carries the DOM host', () => {
+  function hostRig() {
+    const sockets: FakeSocket[] = [];
+    const calls: string[] = [];
+    const handled: unknown[] = [];
+    const run = startNativeExecutorSocket({
+      url: 'ws://127.0.0.1:3333/ws/browser/ctx-1',
+      createSocket: (url, handlers) => { const s = new FakeSocket(url, handlers); sockets.push(s); return s; },
+      schedule: () => () => {},
+      runOp: async () => ({ result: { ok: true } }),
+      onAgentActive: () => {},
+      host: {
+        declare: () => { calls.push('declare'); run.sendText(JSON.stringify({ type: 'native_dom_host' })); },
+        handle: (frame) => {
+          const t = (frame as { type?: string }).type ?? '';
+          if (!t.startsWith('host_') && t !== 'native_dom_host_ack') return false;
+          handled.push(frame);
+          return true;
+        },
+        reset: () => calls.push('reset'),
+      },
+    });
+    return { sockets, calls, handled, run };
+  }
+
+  test('the host declares itself after the registration, on every socket that opens', () => {
+    const r = hostRig();
+    r.sockets[0].open();
+    expect(r.sockets[0].types()).toEqual(['register_native_executor', 'native_dom_host']);
+    r.sockets[0].die();
+    expect(r.calls).toEqual(['declare', 'reset']);
+  });
+
+  test('host frames go to the host, the rest keeps its old path', () => {
+    const r = hostRig();
+    r.sockets[0].open();
+    r.sockets[0].frame({ type: 'host_input', action: 'click', payload: { x: 1, y: 2 } });
+    r.sockets[0].frame({ type: 'agent_active', active: true });
+    expect(r.handled).toEqual([{ type: 'host_input', action: 'click', payload: { x: 1, y: 2 } }]);
+  });
+
+  test('raw text goes out on the current socket, and nowhere once the pane stopped', () => {
+    const r = hostRig();
+    r.sockets[0].open();
+    r.run.sendText('{"type":"host_dom_events","events":[]}');
+    r.run.stop();
+    r.run.sendText('{"type":"host_dom_events","events":[]}');
+    expect(r.sockets[0].types().filter((t) => t === 'host_dom_events')).toHaveLength(1);
+    expect(r.calls).toEqual(['declare', 'reset']);
   });
 });

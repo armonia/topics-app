@@ -11,6 +11,7 @@ import { resolveToolDetail, buildToolDisplayLabel } from './toolDetail';
 import { formatTokens as sharedFormatTokens } from '../../lib/formatTokens';
 import { isAwaitingHuman } from '../../../../shared/types';
 import { coalesceBrowserOpens, type BrowserMarker } from './browserOpens';
+import { viewOf, type ViewOpen } from './viewOpens';
 
 /** Runs shorter than this render as plain per-call rows (no group chrome). */
 export const GROUP_MIN = 3;
@@ -19,7 +20,9 @@ export type ToolGroupSegment =
   | { kind: 'aggregate'; tools: ToolCall[] }
   | { kind: 'solo'; tool: ToolCall }
   /** A page the agent opened (CHAT-BROWSER-01): drawn as a marker, never folded. */
-  | { kind: 'browser'; marker: BrowserMarker };
+  | { kind: 'browser'; marker: BrowserMarker }
+  /** A generative view (GENUI-01): drawn as a block, never folded. */
+  | { kind: 'view'; tool: ToolCall; view: ViewOpen };
 
 /**
  * Calls that must NEVER fold into an aggregate:
@@ -62,6 +65,11 @@ export function partitionToolGroup(tools: ToolCall[]): ToolGroupSegment[] {
     if (marker === null) continue;
     if (marker) {
       segments.push({ kind: 'browser', marker });
+      continue;
+    }
+    const view = viewOf(tc);
+    if (view) {
+      segments.push({ kind: 'view', tool: tc, view });
       continue;
     }
     if (isSoloTool(tc)) {

@@ -29,8 +29,9 @@
  * è precisamente la cosa che decide se una notifica si vede o no. Derivandolo
  * dallo store la fetch è una sola, ed è già ordinata all'origine.
  */
-import { useCallback, useEffect, useMemo, useRef } from 'react';
-import { useBoardTasks } from '../lib/boardTasksStore';
+import { useCallback, useEffect, useRef } from 'react';
+import type { BoardTask } from '../lib/board';
+import { getBoardTasks, subscribeBoardTasks } from '../lib/boardTasksStore';
 import { buildTopicTaskIndex, type TopicTaskRef } from '../lib/taskTopicIndex';
 import { applyTaskSessionIndex } from '../state/taskSessions';
 
@@ -38,18 +39,34 @@ export type { TopicTaskRef };
 
 export type TopicTaskResolver = (topicId: string) => TopicTaskRef | null;
 
+/**
+ * SUBSCRIBED OUTSIDE THE RENDER. This hook is mounted in `App`, and nothing it
+ * returns changes: the resolver is stable and reads a ref, and the chat store
+ * is written from here. It used to read the rows with `useBoardTasks()`, which
+ * made `App` re-render on every write of the store, that is on every
+ * `task:updated` an agent at work re-emits, only to run an effect. Now the
+ * store wakes a plain callback, which rebuilds the index when the rows changed
+ * (the store keeps the array on a repeated feed) and renders nobody.
+ */
 export function useTaskTopicIndex(): TopicTaskResolver {
-  const tasks = useBoardTasks();
-  const index = useMemo(() => buildTopicTaskIndex(tasks), [tasks]);
-  const mapRef = useRef(index.byTopic);
+  const mapRef = useRef<Map<string, TopicTaskRef>>(new Map());
 
   useEffect(() => {
-    mapRef.current = index.byTopic;
-    // Sostituzione dell'indice intero: `applyTaskSessionIndex` sveglia solo i
-    // topic in cui qualcosa è davvero cambiato, quindi un giro a vuoto (lo
-    // store riscritto con le stesse righe) non costa un render a nessuna chat.
-    applyTaskSessionIndex(index.forStore);
-  }, [index]);
+    let seen: readonly BoardTask[] | null = null;
+    const sync = () => {
+      const tasks = getBoardTasks();
+      if (tasks === seen) return;
+      seen = tasks;
+      const index = buildTopicTaskIndex(tasks);
+      mapRef.current = index.byTopic;
+      // Sostituzione dell'indice intero: `applyTaskSessionIndex` sveglia solo i
+      // topic in cui qualcosa è davvero cambiato, quindi un giro a vuoto (lo
+      // store riscritto con le stesse righe) non costa un render a nessuna chat.
+      applyTaskSessionIndex(index.forStore);
+    };
+    sync();
+    return subscribeBoardTasks(sync);
+  }, []);
 
   return useCallback((topicId: string) => mapRef.current.get(topicId) ?? null, []);
 }

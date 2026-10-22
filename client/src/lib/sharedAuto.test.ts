@@ -71,7 +71,7 @@ test('a shared pane that is NOT watching does not subtract itself', () => {
  * So the confirmation is counted in SAMPLES, not in milliseconds: the same
  * answer twice in a row, whatever the cadence is.
  */
-import { stepAutoShare, AUTO_SHARE_CONFIRMATIONS } from './sharedAuto';
+import { stepAutoShare, AUTO_SHARE_CONFIRMATIONS, AUTO_LEAVE_CONFIRMATIONS } from './sharedAuto';
 
 test('un solo campione non sposta la pane: serve la conferma', () => {
   // Native, alone. One poll says "someone is here" and the next says nobody.
@@ -91,13 +91,26 @@ test('due campioni d accordo la spostano', () => {
   expect(s.agreeing).toBe(0); // the streak resets once the flip is spent
 });
 
-test('e il ritorno a nativa chiede la stessa conferma', () => {
+test('leaving the shared session takes AUTO_LEAVE_CONFIRMATIONS lonely polls', () => {
   let s = { shared: true, agreeing: 0 };
   // shared and alone: the count includes me, so 1 means "nobody else".
-  s = stepAutoShare(s, computeAutoShared(1, s.shared));
-  expect(s.shared).toBe(true);
+  for (let i = 1; i < AUTO_LEAVE_CONFIRMATIONS; i++) {
+    s = stepAutoShare(s, computeAutoShared(1, s.shared));
+    expect(s.shared).toBe(true);
+  }
   s = stepAutoShare(s, computeAutoShared(1, s.shared));
   expect(s.shared).toBe(false);
+});
+
+test('an iPad in the background for a few polls does not send the Mac back to native', () => {
+  // Shared with the iPad (count 2), the iPad stops watching for 5 polls
+  // (count 1 = only me), then looks again. Before 13/10 the Mac left at the
+  // second lonely poll and reloaded the page twice.
+  let s = { shared: true, agreeing: 0 };
+  for (const count of [2, 1, 1, 1, 1, 1, 2, 2]) {
+    s = stepAutoShare(s, computeAutoShared(count, s.shared));
+    expect(s.shared).toBe(true);
+  }
 });
 
 test('la soglia e in campioni, e vale almeno due', () => {

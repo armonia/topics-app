@@ -30,6 +30,7 @@
  */
 import { useCallback, useEffect, useState } from 'react';
 import { friendsApi, type FriendPerson, type FriendshipState } from '@/lib/api';
+import { isDocumentVisible, startVisibleInterval } from '../state/documentVisibility';
 
 /** Every minute, like the identity row: see the header for why not faster. */
 const INTERVAL_MS = 60_000;
@@ -67,7 +68,7 @@ export function useFriendship(enabled = true, intervalMs = INTERVAL_MS): Friends
    * nothing because a tab lost focus mid-gesture.
    */
   const read = useCallback(async (forzato = false) => {
-    if (!forzato && document.hidden) return;
+    if (!forzato && !isDocumentVisible()) return;
     try {
       const r = await friendsApi.list();
       setListe({ friends: r.friends, incoming: r.incoming, outgoing: r.outgoing, pronto: true });
@@ -110,17 +111,14 @@ export function useFriendship(enabled = true, intervalMs = INTERVAL_MS): Friends
     // the first frame, and a synchronous state write on mount is exactly what
     // `set-state-in-effect` flags.
     const first = setTimeout(giro, 0);
-    const each = setInterval(giro, intervalMs);
+    const stopPolling = startVisibleInterval(giro, intervalMs);
     // Coming back to the window is the moment somebody wants to know whether
     // anything arrived while they were away, and it is also the tick the hidden
     // guard above has been skipping.
-    const onSettled = () => { if (!document.hidden) giro(); };
-    document.addEventListener('visibilitychange', onSettled);
     return () => {
       alive = false;
       clearTimeout(first);
-      clearInterval(each);
-      document.removeEventListener('visibilitychange', onSettled);
+      stopPolling();
     };
   }, [enabled, intervalMs, read]);
 

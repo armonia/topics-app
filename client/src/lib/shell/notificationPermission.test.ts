@@ -134,6 +134,24 @@ describe('primeWebNotificationPermission', () => {
     expect(asked).toBe(1);
   });
 
+  test('a gesture under way is left to what it touched: nothing asked, nothing cached', async () => {
+    mockShell('web');
+    const app = await loadApp();
+    app.__resetWebNotificationPrimeForTests();
+    // PUSH-05 on the CI: the boot request ran after the first tap (a late-mounting effect) and
+    // the stub logged it inside the gesture, on WebKit and, with the lazy panes, on Chromium.
+    Object.defineProperty(navigator, 'userActivation', { value: { isActive: true }, configurable: true });
+    try {
+      expect(await app.primeWebNotificationPermission()).toBe('default');
+      expect(asked).toBe(0);
+    } finally {
+      delete (navigator as unknown as { userActivation?: unknown }).userActivation;
+    }
+    // The gesture over, the next boot request asks: the skip was not remembered as an answer.
+    expect(await app.primeWebNotificationPermission()).toBe('granted');
+    expect(asked).toBe(1);
+  });
+
   test('un «no» non si ri-chiede: riproporlo non riapre nessun prompt', async () => {
     mockShell('web');
     const app = await loadApp();

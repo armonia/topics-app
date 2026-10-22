@@ -188,6 +188,26 @@ export interface AgentTurnOptions {
   retryPolicy?: RetryPolicy;
   /** Measured chars-per-token, owned by the CALLER like `history`. */
   calibration?: Calibration;
+  /**
+   * A line appended, as its own text block, to the person's message and to
+   * every round of tool results: the last thing the model reads before it
+   * writes. The chat passes the language here (`languageReminder`), because
+   * the system prompt alone lost to long runs of English tool output.
+   * Appended to the history and never removed, so each round's cached prefix
+   * stays the next round's prefix. Absent = the rounds are what they were.
+   */
+  reminder?: string;
+}
+
+/** Puts `text` at the end of the last message when the person wrote it (the
+ *  message a turn starts from); a history that ends otherwise is left alone. */
+function appendReminder(history: AgentMessage[], text: string): void {
+  const last = history[history.length - 1];
+  if (!last || last.role !== "user") return;
+  const block: Block = { type: "text", text };
+  last.content = typeof last.content === "string"
+    ? [{ type: "text", text: last.content }, block]
+    : [...last.content, block];
 }
 
 /**
@@ -577,6 +597,20 @@ export function toProviderUsage(
   };
 }
 
+/** Machine-readable round usage, kept separate from the turn total for audits. */
+export function formatNativeRoundLog(args: {
+  at: string;
+  sessionId?: string;
+  round: number;
+  usage: RoundResult["usage"];
+  compacted: boolean;
+}): string {
+  const { usage } = args;
+  return `[native] round: at=${args.at} session_key=${args.sessionId ?? "unknown"} round=${args.round} `
+    + `input=${usage.input} cache_read=${usage.cacheRead} cache_write=${usage.cacheWrite} `
+    + `output=${usage.output} compacted=${args.compacted ? "yes" : "no"}`;
+}
+
 export function forApi(blocks: Block[]): Block[] {
   return blocks.map((b) => {
     switch (b.type) {
@@ -781,8 +815,10 @@ export async function runAgentTurn(
   let finalText = "";
   // The caller's calibration when it keeps one (it survives across turns),
   // turn-local otherwise; the recovery count is per TURN, not per round.
-  const calibration = opts.calibration ?? { charsPerToken: DEFAULT_CHARS_PER_TOKEN };
+  const calibration = opts.calibration ?? { charsPerToken: DEFAULT_CHARS_PER_TOKEN, calibrated: false };
   const recovery: { attempts: number; imagesStripped?: boolean } = { attempts: 0 };
+  if (opts.reminder) appendReminder(opts.history, opts.reminder);
+  let compactedForNextRequest = false;
 
   for (let i = 0; i < MAX_ITERATIONS; i++) {
     if (opts.signal?.aborted) {
@@ -807,6 +843,8 @@ export async function runAgentTurn(
     }
 
     // Compacted BEFORE asking, never after a 400: by then the turn is dead.
+    let compactedThisRound: boolean = compactedForNextRequest;
+    compactedForNextRequest = false;
     const windowTokens = windowFor(opts.model);
     const overheadChars = overheadCharsFor(opts, CLAUDE_CODE_IDENTITY);
     // Runs on EVERY round, independently of the token-window compaction below:
@@ -814,7 +852,9 @@ export async function runAgentTurn(
     // the token window is anywhere near full. See `enforceImageHistoryBudget`.
     const budgeted = enforceImageHistoryBudget(opts.history);
     if (budgeted !== opts.history) { opts.history.length = 0; opts.history.push(...budgeted); }
-    compactIfNeeded({ history: opts.history, windowTokens, overheadChars, calibration, handler });
+    compactedThisRound = compactIfNeeded({
+      history: opts.history, windowTokens, overheadChars, calibration, sessionId: opts.sessionId, handler,
+    }) || compactedThisRound;
 
     // Taken BEFORE the request: with the count the API reports, they give the
     // real ratio. Afterwards the history has changed.
@@ -840,13 +880,15 @@ export async function runAgentTurn(
       // at the edge of a window small requests pass and large ones do not).
       if (providerHold()) void releaseHoldIfFreed(auth.token);
     } catch (err) {
+      let recoveredByCompaction = false;
       try {
         // A full context is a measurement, not a failure: it recompacts and
         // returns, or rethrows what it cannot resolve. See `context-window.ts`.
         recoverFromFullContext(err, {
-          history: opts.history, windowTokens, overheadChars, sentChars, calibration,
+          history: opts.history, windowTokens, overheadChars, sentChars, calibration, sessionId: opts.sessionId,
           state: recovery, aborted: opts.signal?.aborted === true, handler,
         });
+        recoveredByCompaction = true;
       } catch (err2) {
         // Not a full context: maybe an oversized or mislabelled image (413, or
         // a 400 naming one) that `recoverFromFullContext` rightly did not
@@ -855,6 +897,7 @@ export async function runAgentTurn(
           history: opts.history, state: recovery, aborted: opts.signal?.aborted === true, handler,
         });
       }
+      compactedForNextRequest = compactedThisRound || recoveredByCompaction;
       i--; // the same round, with a lightened history
       continue;
     }
@@ -868,6 +911,15 @@ export async function runAgentTurn(
     total.cacheWrite1h += round.usage.cacheWrite1h;
 
     calibrateFrom(calibration, sentChars, round.usage, opts.history);
+    if (opts.sessionId) {
+      console.log(formatNativeRoundLog({
+        at: new Date().toISOString(),
+        sessionId: opts.sessionId,
+        round: i + 1,
+        usage: round.usage,
+        compacted: compactedThisRound,
+      }));
+    }
     // Il giro è finito: il suo costo va depositato ADESSO, non a fine turno.
     // Il `try` c'è perché è telemetria: un registro che esplode non deve
     // portarsi via il turno.
@@ -1029,7 +1081,7 @@ export async function runAgentTurn(
         return { turnEnd: end, text: finalText, usage: total };
       }
     }
-    opts.history.push({ role: "user", content: results });
+    opts.history.push({ role: "user", content: opts.reminder ? [...results, { type: "text", text: opts.reminder }] : results });
   }
 
   // Tetto raggiunto. È una fine anomala e va detta — ma va detta per quello che

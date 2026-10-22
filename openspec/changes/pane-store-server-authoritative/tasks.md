@@ -7,22 +7,36 @@ landabile per conto suo**: se il 2 si ferma, il guasto resta chiuso.
 
 ## Stadio 0 — identità deterministica (PANE-AUTH-04)
 
-- [ ] 0.1 `adapters/paneConfig.ts:102`: le pane-vista singleton di progetto (git,
+- [x] 0.1 `adapters/paneConfig.ts:102`: le pane-vista singleton di progetto (git,
   files, dashboard, activity, browser…) smettono di nascere con
   `${type}:${generateUUID()}` e derivano l'id da `(projectPath, type)`.
   **Verifica:** unit — lo stesso progetto e lo stesso tipo danno lo stesso id su due
   «dispositivi» simulati.
-- [ ] 0.2 `hooks/useProjectChatSync.ts:326-336`: il dedup per TIPO
+  Nota (D7e): le singleton di progetto oggi sono `files`, `git` e `kanban`
+  (`isProjectSingletonPaneType`). `dashboard` è standalone e il browser prende l'id
+  dal suo contesto. Id: `<tipo>:<projectPath codificato>`.
+- [x] 0.2 `hooks/useProjectChatSync.ts:326-336`: il dedup per TIPO
   (`localSingletonTypes`) diventa superfluo e va rimosso, non lasciato come doppia
   difesa. **Verifica:** aprire la stessa vista su due client non produce duplicati,
   e il test che oggi copre il dedup per tipo viene riscritto sull'id.
-- [ ] 0.3 **Migrazione degli id vivi**: le pane-vista già aperte hanno id casuali.
+  Nota (D7e): tolto per le singleton, che si uniscono per id. Il dedup copriva però
+  ogni tipo tranne chat e terminale, e per `file`, `plan`, `process-log` e `browser`
+  l'id nasce ancora sul dispositivo che apre: lì resta, ed è l'unica difesa, non una
+  doppia. Lo toglie lo stadio 2.
+- [x] 0.3 **Migrazione degli id vivi**: le pane-vista già aperte hanno id casuali.
   Rimapparle al boot con `PANE_ID_REMAP`, preservando `stableKey`
   (`reducers/panes.ts:729-730`). **Verifica:** una WKWebView aperta **non rimonta**
   durante la rimappatura — misurato col conteggio dei processi WebContent, non a
-  occhio (`residency/policy.ts` indicizza per `stableKey ?? id`).
-- [ ] 0.4 Presidio: un test che fallisce se una pane-vista di progetto torna a
+  occhio (`residency/policy.ts` indicizza per `stableKey ?? id`). Nota (D7e): le
+  pane di progetto vivono nello stato di `useProjectLayout`, non nel riduttore, quindi
+  la rimappatura avviene lì (`migrateProjectPaneIdentity`, al mount e su ogni lista
+  remota) con la stessa regola su `stableKey`. La misura WebContent non si applica:
+  nessuna singleton di progetto ospita una WKWebView.
+- [x] 0.4 Presidio: un test che fallisce se una pane-vista di progetto torna a
   nascere con un uuid casuale. **Verifica:** rosso se si ripristina `generateUUID()`.
+  Nota (D7e): il presidio sta su entrambe le porte di apertura
+  (`useProjectLayout.singleton.test.tsx`), e ciascuna diventa rossa se torna a
+  `createPaneId(type)`.
 
 ## Stadio 1 — la causalità sostituisce gli orologi (PANE-AUTH-02) — **FATTO 2026-08-06**
 
@@ -104,7 +118,7 @@ regresso.
   nella coda **prima** che i listener del server girino, o l'ordine di registrazione
   va invertito (`syncServer.ts:357-370` vs `App.tsx:242-245`). **Verifica:** chiudere
   una tab e chiudere subito la pagina — al boot successivo la tab è chiusa.
-- [ ] 2a.5 `syncServer.ts:331-341`: alla chiusura del WS l'inflight viene abortito e
+- [x] 2a.5 `syncServer.ts:331-341`: alla chiusura del WS l'inflight viene abortito e
   il debounce azzerato **senza riarmarlo**. Con la coda questo smette di perdere
   dati, ma il riarmo va comunque messo. **Verifica:** una modifica fatta durante un
   reload del server (2 s) arriva alla riconnessione.
@@ -193,12 +207,15 @@ Il guasto vive **fra due dispositivi**; i test attuali coprono i reducer in
 isolamento e non lo toccano. Il presidio è un test a due dispositivi
 (`openTwoDevices` esiste già):
 
-- [ ] P.1 A apre, B vede. A chiude, B **a freddo dopo riavvio** non vede.
-- [ ] P.2 B con snapshot **antecedente** alla chiusura non resuscita — è il caso
+- [x] P.1 A apre, B vede. A chiude, B **a freddo dopo riavvio** non vede.
+- [x] P.2 B con snapshot **antecedente** alla chiusura non resuscita — è il caso
   Japan, riprodotto come test.
-- [ ] P.3 B riapre esplicitamente: A rivede. La riapertura legittima è viva.
-- [ ] P.4 Chiusura durante una disconnessione del WS: applicata alla riconnessione.
-- [ ] P.5 Video del rifiuto e della riconciliazione — è comportamento, non stato.
+- [x] P.3 B riapre esplicitamente: A rivede. La riapertura legittima è viva.
+- [x] P.4 Chiusura durante una disconnessione del WS: applicata alla riconnessione.
+  P.1-P.4 e 2a.5: D7f, `tests/e2e/pane-store-two-devices.spec.ts`, clip 38708887333; report
+  `daily-driver/reports/D7f.md`.
+- [x] P.5 Video del rifiuto e della riconciliazione — è comportamento, non stato.
+  Clip 38708887333: un video per dispositivo in ciascuno di P.1-P.4.
 
 ## Fuori scope → backlog
 
@@ -219,3 +236,10 @@ isolamento e non lo toccano. Il presidio è un test a due dispositivi
 3. Un dispositivo nuovo atterra sullo Spazio di default e nessun pixel glielo dice —
    sul telefono la sidebar parte forzatamente collassata
    (`useSidebarAndLayout.ts:168-169`).
+4. **Riapertura concorrente con una chiusura in ritardo** (trovata da P.3, 15/10). La
+   chiamata di archivio di A rende la chiusura visibile subito a B, ma lo snapshot di A
+   parte dopo il debounce di 500 ms. Se B toglie la chat dall'archivio in quella finestra,
+   o con A offline, lo snapshot di A arriva dopo e la cascata del server la archivia di nuovo
+   (`services/pane-retirement-cascade.ts`): la pane di B resta, la chat no. La riapertura
+   lato server ritira la tombstone ma non lascia un segno che si ordini contro quella di A.
+   Dettagli e log in `daily-driver/reports/D7f.md`.

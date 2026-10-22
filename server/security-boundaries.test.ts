@@ -144,9 +144,9 @@ describe("device revocation across WebSocket transports", () => {
     };
     for (const path of ["/ws", "/ws/terminal/fixture", "/ws/browser/fixture"]) {
       const req = new Request(`http://localhost${path}`);
-      expect(upgradeWebSocket(req, path, server, { deviceId: "revoked", role: "owner" }, true)).toBeUndefined();
+      expect(upgradeWebSocket(req, path, server, { deviceId: "revoked", principal: { principals: [], confined: false, rev: 0 } }, true)).toBeUndefined();
     }
-    upgradeWebSocket(new Request("http://localhost/ws"), "/ws", server, { deviceId: "other", role: "owner" }, true);
+    upgradeWebSocket(new Request("http://localhost/ws"), "/ws", server, { deviceId: "other", principal: { principals: [], confined: false, rev: 0 } }, true);
     upgradeWebSocket(new Request("http://localhost/ws/terminal/local"), "/ws/terminal/local", server, null, false);
     try {
       for (const ws of sockets) ctx.deviceSockets.add(ws as unknown as ServerWebSocket<WSData>);
@@ -167,8 +167,8 @@ describe("device revocation across WebSocket transports", () => {
     let data: WSData | undefined;
     const server = { upgrade: (_req: Request, options: { data?: WSData }) => { data = options.data; return false; } };
     const req = new Request("http://localhost/ws");
-    expect(upgradeWebSocket(req, "/ws", server, { deviceId: "guest", role: "guest" }, true)?.status).toBe(400);
-    expect(data?.deviceRole).toBe("guest");
+    expect(upgradeWebSocket(req, "/ws", server, { deviceId: "guest", principal: { principals: [], confined: true, rev: 0 } }, true)?.status).toBe(400);
+    expect(data?.principal?.confined).toBe(true);
     expect(data?.deviceId).toBe("guest");
     expect(upgradeWebSocket(req, "/ws/browser/", server, null, false)?.status).toBe(400);
     expect(upgradeWebSocket(req, "/api/topics", server, null, false)).toBeNull();
@@ -186,14 +186,14 @@ describe("multiplayer stream query cost", () => {
     putGrant(ctx.db, subject, "topic", topicId, { grantedAt: 1 });
     ctx.setGuestBroadcastFilter({
       mayReceiveFrame: () => false, // Control frames stay private to owners.
-      mayReadTopic(deviceId, id) {
+      mayReadTopic(data, id) {
         principalsRev(measuredDb); // The production filter reads this revision even with a warm principal cache.
-        return hasGrant(measuredDb, deviceP(deviceId), "topic", id);
+        return hasGrant(measuredDb, deviceP(data.deviceId!), "topic", id);
       },
     });
     const sockets: Array<{ data: WSData; readyState: number; sent: number; send: () => number }> = [];
     const socket = (id: string, options: Partial<WSData> = {}) => {
-      const ws = { data: { id, deviceId: subject.id, deviceRole: "guest", focusedTopicId: null,
+      const ws = { data: { id, deviceId: subject.id, principal: { principals: [subject], confined: true, rev: 0 }, focusedTopicId: null,
         lastPong: 0, openTopicIds: new Set<string>(), ...options } as WSData,
         readyState: 1, sent: 0, send() { ws.sent++; return 1; } };
       sockets.push(ws); ctx.wsClients.add(ws as unknown as ServerWebSocket<WSData>); return ws;
@@ -204,7 +204,7 @@ describe("multiplayer stream query cost", () => {
       const denied = socket("denied", { deviceId: "runtime-cost-no-grant", openTopicIds: new Set([topicId]) });
       const legacy = socket("legacy", { openTopicIds: undefined });
       const focused = socket("focused", { focusedTopicId: topicId });
-      const owner = socket("owner", { deviceId: null, deviceRole: null });
+      const owner = socket("owner", { deviceId: null, principal: null });
       const frame = { type: "stream:content_chunk" as const, topicId, sessionKey: "runtime-cost", content: "delta" };
       for (let i = 0; i < 10; i++) ctx.broadcastToTopicSubscribers(topicId, frame);
       console.log("RUNTIME-COST guest-filter", { guests: 104, frames: 10, authorizationReads: reads });

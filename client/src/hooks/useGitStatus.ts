@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useSyncExternalStore } from 'react';
 import { gitApi } from '../lib/api';
 import type { GitStatus, WSMessage } from '../types';
+import { startVisibleInterval } from '../state/documentVisibility';
 
 const POLL_VISIBLE = 15000;
 const POLL_BACKGROUND = 60000;
@@ -68,7 +69,7 @@ type Snapshot = {
 type Store = {
   snapshot: Snapshot;
   listeners: Set<() => void>;
-  timer: ReturnType<typeof setInterval> | null;
+  timer: (() => void) | null;
   subscribers: number;
   fetching: boolean;
   /** Una richiesta arrivata mentre un'altra era in volo, da rieseguire dopo. */
@@ -90,6 +91,14 @@ type Store = {
   fetchingRemote: boolean;
   /** Il fetch fallisce di continuo (nessun remote, niente rete): si smette. */
   fetchDisabled: boolean;
+  /**
+   * Failed fetches in a row. Its OWN counter: the status poll resets
+   * `errorStreak` on every successful read, that is every few seconds, and
+   * while the fetch counted there it never reached 2. On 13-14/10 that was 499
+   * failed fetches out of 1,597 in 24 hours, 235 of them hanging 60 s until a
+   * 504: every 3 minutes, per project, through the night.
+   */
+  fetchErrorStreak: number;
 };
 
 const stores = new Map<string, Store>();
@@ -118,6 +127,7 @@ function getStore(path: string): Store {
       fetchTimer: null,
       fetchingRemote: false,
       fetchDisabled: false,
+      fetchErrorStreak: 0,
     };
     stores.set(path, s);
   }
@@ -165,14 +175,14 @@ export function desiredInterval(store: Pick<Store, 'wsChannels' | 'errorStreak'>
 function retime(path: string, store: Store) {
   // `notGit` è definitivo: la cartella non è un repo, non lo diventerà da sola.
   if (store.subscribers === 0 || store.snapshot.notGit) {
-    if (store.timer) { clearInterval(store.timer); store.timer = null; }
+    if (store.timer) { store.timer(); store.timer = null; }
     return;
   }
   const want = desiredInterval(store);
   if (store.timer && want === store.currentInterval) return;
   store.currentInterval = want;
-  if (store.timer) clearInterval(store.timer);
-  store.timer = setInterval(() => { void load(path); }, want);
+  if (store.timer) store.timer();
+  store.timer = startVisibleInterval(() => { void load(path); }, want);
 }
 
 /**
@@ -254,6 +264,13 @@ async function load(path: string, esplicita = false) {
  * manutenzione. Ma dopo il secondo fallimento si smette del tutto, per non
  * spendere una connessione ogni tre minuti su un repo che non ne ha uno.
  */
+/** A failed fetch: the second in a row switches the autofetch off. It leaves
+ *  the status poll's backoff alone, which is a different loop. */
+export function recordFetchFailure(store: Pick<Store, 'fetchErrorStreak' | 'fetchDisabled'>): void {
+  store.fetchErrorStreak++;
+  if (store.fetchErrorStreak >= 2) store.fetchDisabled = true;
+}
+
 async function autofetch(path: string) {
   const store = getStore(path);
   if (store.snapshot.notGit || store.fetchDisabled || store.fetchingRemote) return;
@@ -262,10 +279,10 @@ async function autofetch(path: string) {
   try {
     await gitApi.fetch(path);
     store.fetchDisabled = false;
+    store.fetchErrorStreak = 0;
     await load(path);
   } catch {
-    store.errorStreak++;
-    if (store.errorStreak >= 2) store.fetchDisabled = true;
+    recordFetchFailure(store);
   } finally {
     store.fetchingRemote = false;
   }
@@ -343,6 +360,7 @@ export function useGitStatus({ projectPath, onMessage }: UseGitStatusOptions) {
   const fetchRemote = useCallback(async () => {
     const store = getStore(projectPath);
     store.fetchDisabled = false;
+    store.fetchErrorStreak = 0;
     await gitApi.fetch(projectPath);
     await load(projectPath);
     retimeFetch(projectPath, store);

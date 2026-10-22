@@ -5,6 +5,31 @@ TBD - created by archiving change complete-spec-coverage. Update Purpose after a
 
 ## Requirements
 
+### Requirement: BROWSER-NATIVE-HOST-STATUS-01 — Native mirror visibility and control
+
+The native browser host SHALL report mirror viewers and relay health only to its own pane, and the host SHALL be able to pause sharing for its context. A paused mirror SHALL show a clear notice to viewers and SHALL reject all viewer input and stop frame delivery until the host resumes sharing and emits a fresh FullSnapshot.
+
+#### Scenario: The host sees current mirror use and relay health
+- **GIVEN** a native pane hosts a browser context with connected mirror viewers
+- **WHEN** viewer membership or relay traffic changes
+- **THEN** the host pane SHALL receive a status update at most once per second
+- **AND** the update SHALL count distinct devices and include KB/s, latest-frame delay, and the latest relay error
+- **AND** viewer sockets SHALL NOT receive the host status update
+
+#### Scenario: The host stops and resumes sharing
+- **GIVEN** a native pane hosts a browser context with a mirror viewer
+- **WHEN** the host stops sharing
+- **THEN** viewers SHALL see a notice instead of the mirror and receive no later frame
+- **AND** all viewer input SHALL be rejected before it reaches the host
+- **AND** a viewer that connects while sharing is paused SHALL receive no snapshot
+- **WHEN** the host shares again
+- **THEN** viewers SHALL receive a new FullSnapshot before mirror updates resume
+
+#### Scenario: The native session label describes its actual location
+- **GIVEN** the browser session runs in the native pane on the Mac
+- **WHEN** the tab identifies the session
+- **THEN** the label SHALL say it is native on the Mac and SHALL NOT describe it as private
+
 ### Requirement: BROWSER-01 — Navigation & Page Control
 
 The system SHALL provide a remote browser panel with URL navigation, back/forward/reload controls, a URL address bar, and visual screenshot-based page rendering within a topic pane.
@@ -343,6 +368,31 @@ fails, and SHALL let a session that owns no pane list and drive another topic's 
 - **WHEN** `server/routes/topics.ts` is read
 - **THEN** it contains no occurrence of `browserTargetIdCache`, `BROWSER ISOLATION`, `isolationInstruction` or `BrowserIsolation`
 
+### Requirement: BROWSER-CHAT-06 — The browser identifies a selected component and verifies a page after a change
+
+The browser selector SHALL include framework component metadata when a development build
+exposes it. The metadata SHALL identify React, Vue 3, or Svelte, include the source location of the
+selected element when available (where its markup is written, not where its component is used), and never invent a component name when the framework metadata is absent. React owner
+inspection SHALL stop after 200 fibers and list no more than five owners. `browser_verify` SHALL
+reload the current pane or navigate to the supplied URL, wait for the load event (external
+stylesheets included) for at most 15 seconds, save a screenshot to a file and return its path, never
+the image data, return console errors and failed requests from that load, and evaluate optional CSS
+selector checks for text, visibility, or exact computed-style values. It SHALL be available to
+the browser agent through REST and MCP and on native panes.
+
+#### Scenario: A selected React element names its component and source
+- **GIVEN** a React development page with source metadata on the selected element
+- **WHEN** the human selects an element in the browser pane
+- **THEN** the chat context includes DOM, computed styles, the selected-area screenshot, and the component name, file, line, and owners
+
+#### Scenario: Verify reports the CSS value after a page reload
+- **GIVEN** a local fixture page open in a browser pane and a CSS edit that changes its background color
+- **WHEN** the agent calls `browser_verify` with a check for the new color
+- **THEN** the response includes a screenshot and the check passes with the new computed value
+- **WHEN** the agent checks for the old color
+- **THEN** the check fails and reports the new value found
+- **AND** console errors and failed requests are limited to the reload performed by this call
+
 ### Requirement: BROWSER-CHAT-04 — Opening, driving and closing a browser pane from a topic
 
 The system SHALL mount a remote browser pane inside a topic from the chat surface, SHALL
@@ -359,6 +409,19 @@ the chat, and SHALL close the pane in live clients on a remote close.
 > Written from the test, and no wider: the E2E falls back to dispatching the event when
 > the add-pane menu does not expose a Browser entry, so what is pinned is that the pane
 > mounts, not that the menu path is the one taken.
+
+#### Scenario: In a project window an existing browser pane takes the agent's next page for its context
+- **GIVEN** a project window with two chats in two groups, an existing browser pane for the first chat's context in its group, and focus on the second chat's group
+- **WHEN** the first chat's agent opens another page for that context
+- **THEN** the existing browser pane stays in the first chat's group and shows the page
+- **AND** no duplicate sheet is added to the topic's browser window
+
+#### Scenario: An agent's first page in a project chat opens the topic's mini browser
+- **GIVEN** a project window contains a chat pane for a topic with no browser window or browser pane for this context
+- **WHEN** that chat's agent opens a page with `open_browser_pane`
+- **THEN** the page appears as the active sheet in the topic's browser window, minimized and visible on screen
+- **AND** no browser pane is added to the project layout
+- **AND** the first link clicked in that chat still opens in the project layout as specified by `LINK-TAB-02`
 
 #### Scenario: /browser <url> opens the pane and labels the tab
 - **GIVEN** a topic chat is open and focused
@@ -419,6 +482,10 @@ the chat, and SHALL close the pane in live clients on a remote close.
 - **THEN** no iframe is rendered — the retired localhost force-frame does not return
 - **AND** the pane falls back to the streaming WebRTC surface rather than a dead pane
 
+#### Scenario: The framable probe runs only for a same-origin JSON POST
+- **WHEN** `/api/browsers/framable` is called with GET, without a JSON body, or from another origin
+- **THEN** it SHALL answer with an error and probe nothing
+
 #### Scenario: The seed never reloads a context that is already showing a page
 - **GIVEN** a pane whose stored url is `X` and whose server-side context is already loaded on `X`, as happens after a web-client reload or when a second device opens the same pane
 - **WHEN** the pane mounts and the seed decides whether to navigate
@@ -433,6 +500,15 @@ the chat, and SHALL close the pane in live clients on a remote close.
 - **GIVEN** a mounted browser pane whose context id is the topic id
 - **WHEN** `POST /api/topics/:id/browser/close-pane` is called
 - **THEN** the request succeeds and the pane root disappears from the live client
+
+#### Scenario: An agent's page op on a topic with no pane opens the topic's mini browser first
+- **GIVEN** a chat (non-task) topic with a persisted browser url and no attached pane (no native delegate, no viewer socket)
+- **WHEN** the agent calls a page op (`screenshot`, `eval`, or any bridged op except `browser_status`) on its own topic without a `contextId` override
+- **THEN** the server SHALL run the chat-branch opening sequence first (announce the mini browser, then navigate) and dispatch the op afterwards
+- **AND** the announced url SHALL be the live context's own url when BrowserService already holds one for that contextId (non-empty, not `about:blank`), the persisted url only when no live context exists
+- **AND** when a pane is already attached, a `contextId` override is passed, the topic is a task dispatch, no url is persisted and no live context exists, or the op is `browser_status`, the server SHALL dispatch directly with no announce
+- **AND** when the opening fails or no pane attaches in time, the op SHALL still dispatch (headless fallback) and never fail because the pane did not open
+- **AND** the server SHALL attempt the opening at most once per contextId every 60 s: ops inside the window after a pane-less attempt SHALL dispatch headless directly
 
 ### Requirement: LINK-TAB-01 — A link opens in a TAB of the Topics browser, never in a detached window
 
@@ -1441,6 +1517,9 @@ accesso senza di essa somiglia a uno completo e non lo è.
 
 Un nome sconosciuto SHALL valere NIENTE.
 
+La memoria locale salvata da una pane nativa SHALL appartenere solo all'origine
+che la vista nativa riporta. Senza quel dato lo stato SHALL partire coi soli cookie.
+
 La regola di pulizia dello store esterno SHALL rispecchiare quella del programma
 compagno, e un nome che contiene punti SHALL fare il giro completo conservandoli
 qui e togliendoli là.
@@ -1452,6 +1531,11 @@ qui e togliendoli là.
 #### Scenario: memoria locale assente
 - **GIVEN** uno stato salvato senza memoria locale
 - **THEN** SHALL essere segnalato
+
+#### Scenario: lo stato salvato da una pane nativa
+- **GIVEN** una pane nativa la cui vista riporta `https://pane.example`
+- **WHEN** si salva lo stato di accesso
+- **THEN** la memoria locale salvata SHALL essere solo quella di `https://pane.example`
 
 ### Requirement: NATDEL-01 — Il giro completo di un'operazione delegata torna SEMPRE, anche quando fallisce
 
@@ -1511,6 +1595,29 @@ Registrazioni su contesti DIVERSI NON SHALL disturbarsi.
 #### Scenario: nessuna prova di vitalità
 - **GIVEN** impossibile stabilire se il proprietario è vivo
 - **THEN** SHALL essere consentito, dichiarandolo
+
+### Requirement: NATDEL-04 — Il socket dell'esecutore accetta solo i suoi tipi
+
+Un socket registrato come esecutore nativo di un contesto SHALL vedere accettati
+solo i tipi del delegato: la registrazione, i risultati delle operazioni,
+`take_control` e i frame dell'host del mirror. Ogni altro tipo SHALL essere
+scartato con una riga di log, senza sollevare.
+
+Un risultato di operazione SHALL valere solo se arriva dal socket registrato per
+il contesto di quell'operazione. Gli id delle operazioni SHALL essere casuali.
+
+La coda di eventi che l'host consegna SHALL essere riletta e ricostruita evento
+per evento prima di partire, e NON SHALL MAI essere inoltrata come testo.
+
+#### Scenario: un tipo da viewer sul socket dell'esecutore
+- **GIVEN** un socket registrato come esecutore nativo
+- **WHEN** manda `nav`, `input` o `set_engine`
+- **THEN** il server SHALL scartarli senza eseguirli
+
+#### Scenario: un risultato da un altro socket
+- **GIVEN** un'operazione aperta sul contesto A
+- **WHEN** un socket diverso da quello registrato per A ne manda il risultato
+- **THEN** l'operazione SHALL restare aperta
 
 ### Requirement: NATSTATE-01 — Il segreto resta sul SERVER: al nativo va solo la gamba che serve
 
@@ -1770,6 +1877,36 @@ Un compagno della NOSTRA build SHALL essere lasciato in vita.
 #### Scenario: un compagno della build corrente
 - **GIVEN** un processo in ascolto della stessa build
 - **THEN** SHALL essere adottato
+
+### Requirement: WEBRTC-02 — The video transport leaves a trace of its steps
+
+The server SHALL log one line for every WebRTC offer it receives, with the context
+and whether the bridge is available. The viewer SHALL log one line at the offer,
+one when the connection is up and one when its retries end in the fallback to the
+JPEG stream.
+
+#### Scenario: an offer reaches the server
+- **WHEN** a viewer in video mode sends an offer
+- **THEN** the server log SHALL have a `webrtc offer` line with the context and the bridge state
+
+#### Scenario: the viewer gives up
+- **GIVEN** the WebRTC retries exhausted
+- **THEN** the viewer console SHALL have the `webrtc fallback` line
+
+### Requirement: BROWSER-DOM-RECORDER-01 — Recorder and Replayer use the same rrweb build
+
+The Chromium pages and the route that serves the recorder to native panes SHALL
+use one vendored bundle, read once by the server. The bundle SHALL be byte for
+byte the build of the rrweb version installed for the client's Replayer, and
+that version SHALL be the one the client lockfile pins.
+
+#### Scenario: aligned build
+- **GIVEN** the rrweb dependency pinned in the client manifest
+- **THEN** the shared bundle SHALL equal the installed build byte for byte
+
+#### Scenario: a different client version
+- **GIVEN** a client manifest whose rrweb version differs from the lockfile
+- **THEN** the recorder test SHALL fail
 
 ### Requirement: ENGSW-02 — L'interruttore del motore si vede solo se il motore c'è
 
@@ -2471,7 +2608,11 @@ topic. La finestra SHALL stare in uno di questi stati:
 
 La barra della finestra SHALL elencare le schede della topic, con la scheda attiva
 che mostra la pagina viva; le schede aperte da altre superfici del progetto SHALL
-essere raggiungibili dal «+», non elencate.
+essere raggiungibili dal «+», non elencate. Con più schede di quante ne stanno, la
+barra SHALL scorrere di lato invece di stringerle: ogni scheda SHALL restare larga
+almeno 88 px, il titolo leggibile accanto alla sua X; la scheda attiva SHALL essere
+in vista, anche quando la barra si stringe sotto di lei (la finestra minimizzata); il
+«+» SHALL restare intero (24 px) e visibile fuori dalla parte che scorre.
 
 Una scheda SHALL poter diventare **tab**: una pane browser nel layout, con lo stesso
 `contextId`, quindi la stessa pagina, cronologia e agente che la guida. Da tab SHALL
@@ -2484,6 +2625,18 @@ le sue schede NON SHALL entrare in `pane-store-v2` finché restano nella finestr
 
 Sotto i 768 px di larghezza la finestra NON SHALL esistere: le schede SHALL aprirsi
 come tab.
+
+La finestra SHALL stare dov'è l'area della topic anche quando l'origine dei box
+`fixed` non coincide con quella dei rettangoli della pagina. Su un iPad con la
+tastiera aperta Safari accorcia il viewport e scorre tutta la pagina per mostrare il
+campo: i rettangoli seguono lo scroll, l'origine dei `fixed` no (337 px in
+verticale, 422 in orizzontale su un 11 pollici). Posizionata col rettangolo dell'area,
+la finestra saliva di altrettanto oltre la chat, e in orizzontale usciva dallo schermo.
+
+#### Scenario: iPad, la tastiera della chat lascia la finestra accanto alla chat
+- **GIVEN** un iPad in orizzontale, 1180 × 734 e touch, con la finestra espansa accanto alla chat
+- **WHEN** sale la tastiera e Safari scorre la pagina di 422 px per mostrare il composer
+- **THEN** la finestra si sposta con la chat: stesso bordo in alto e in basso, al pixel
 
 #### Scenario: minimizzata, la chat non cambia larghezza
 - **GIVEN** una topic con la finestra browser minimizzata su una scheda
@@ -2515,6 +2668,26 @@ come tab.
 - **WHEN** un link della chat apre un sito
 - **THEN** non c'è nessuna finestra flottante e il sito si apre come tab
 
+#### Scenario: quindici pagine, la barra scorre
+- **GIVEN** una finestra minimizzata con quindici schede, attiva l'ultima
+- **WHEN** si misura la barra
+- **THEN** ogni scheda è larga almeno 88 px e la barra scorre, aperta sulla scheda attiva
+- **AND** il «+» è largo 24 px, dentro la finestra, e raggiungibile
+- **WHEN** l'utente scorre la barra fino alla prima scheda e la clicca
+- **THEN** la prima scheda è attiva e in vista
+
+#### Scenario: minimizzata, la scheda attiva resta in vista
+- **GIVEN** una finestra espansa con quindici schede, attiva l'ultima e in vista
+- **WHEN** l'utente minimizza la finestra, e poi la riapre
+- **THEN** in tutti e due gli stati la scheda attiva è in vista
+
+
+#### Scenario: un ricarico nasconde le pagine native che tiene
+- **GIVEN** una finestra desktop con pane browser native aperte
+- **WHEN** la pagina si ricarica senza un nuovo bundle (⌘R, ⟳ della barra laterale, `location.reload()`)
+- **THEN** ogni vista nativa tenuta da una pane di questo documento SHALL essere nascosta alla `pagehide`, e NON chiusa
+- **AND** al rimontaggio la pane SHALL riusare la stessa vista, con la sua pagina, e riaccenderla
+- **AND** una vista in mezzo a un trasloco verso un'altra finestra NON SHALL essere toccata
 ### Requirement: TOPIC-BROWSER-02 — La tab è l'unica chrome, e si apre in un foglio
 
 Una scheda browser SHALL avere una sola superficie di chrome: la sua tab. NON SHALL
@@ -2625,6 +2798,20 @@ dimensioni del viewport solo dal client che ha mandato l'ultimo input alla pagin
 (puntatore, tastiera o rotella). In assenza di input, SHALL valere il primo client
 connesso. Un client che si connette senza interagire NON SHALL cambiare il viewport.
 
+Usare il dispositivo è usare la pagina che mostra. Su un client web (iPad,
+telefono, un altro browser) un tocco, un tasto o la rotella ovunque in Topics
+SHALL rivendicare il viewport per le pane di quel contesto che sono sullo
+schermo, una sola volta per contesto e per gesto. Una pane aperta o riportata
+sullo schermo entro 5 s da un gesto su quel dispositivo SHALL rivendicarlo appena
+il suo socket è aperto. Una pane che si (ri)connette senza un gesto recente su
+quel dispositivo NON SHALL cambiarlo. Il guscio desktop, che ospita le sue pagine
+nativamente, se le riprende solo con un input alla sua pagina (NATIVE-HOST-04).
+
+Una pagina che il Mac ospita fa eccezione dal 14/10: ogni dispositivo la impagina
+alla sua misura e il Mac tiene la sua (BROWSER-DOM-LAYOUT-01). Questo requisito
+vale lì solo per il dispositivo che sceglie «Misura: del Mac» (BROWSER-DOM-LAYOUT-04),
+e resta com'è per la sessione del Chromium del server.
+
 Un client il cui contenitore ha dimensioni diverse dal viewport SHALL mostrare la
 pagina in scala, centrata, su un fondo del tema, e NON SHALL lasciarla in alto a
 sinistra su bianco. La resa DOM SHALL applicare anche i cambi di viewport a sessione
@@ -2641,6 +2828,12 @@ avviata (rrweb ViewportResize), non solo quello iniziale.
 - **WHEN** l'utente del telefono fa scorrere la pagina
 - **THEN** il viewport passa alle dimensioni del telefono
 - **AND** il Mac vede la pagina in scala e centrata, e non su bianco in alto a sinistra
+
+#### Scenario: aprire la pagina sull'iPad la impagina sull'iPad
+- **GIVEN** una pagina ospitata dal Mac, impaginata al suo pannello
+- **WHEN** l'utente apre quella pagina sull'iPad con un tocco, o tocca Topics sull'iPad con la pagina sullo schermo, senza toccare la pagina
+- **THEN** il viewport passa alle dimensioni della pane dell'iPad
+- **AND** una pane dell'iPad che si riconnette più di 5 s dopo l'ultimo gesto non lo cambia
 
 ### Requirement: BROWSER-BACK-01 — A framed page SHALL follow the pane's address, so ‹ and › move the page
 
@@ -2695,6 +2888,34 @@ SHALL read the arrows from them.
 - **GIVEN** a native pane on Windows with history behind the page
 - **THEN** the shell SHALL report `canGoBack: true` and ‹ SHALL be enabled
 
+### Requirement: BROWSER-DOM-NAV-EDGE-01 — An edge swipe SHALL move the hosted page's history
+
+In the DOM mirror, a touch that starts within 20 px of the viewer's left or
+right edge and moves horizontally by more than 8 px and at least twice its vertical distance SHALL
+be treated as a history gesture. Once a vertical-dominant movement exceeds 8 px,
+the gesture SHALL remain a scroll even if later movement becomes horizontal-dominant.
+The left edge goes back and the right edge
+goes forward. The threshold is the smaller of 30% of the viewer width and
+120 px. Before release, the mirror SHALL not scroll and the host SHALL receive
+no scroll input; the arrow follows the finger and fills at the threshold. On
+release at or above the threshold, the matching history action SHALL reach the
+host once. Below the threshold, no action is sent. A gesture from the center,
+a vertical gesture, element selection, or an active agent SHALL not navigate.
+
+#### Scenario: swipe back and forward from the viewer edges
+- **WHEN** a horizontal swipe from the left edge passes the threshold and is released
+- **THEN** the host receives one `back` action
+- **WHEN** the same gesture starts at the right edge
+- **THEN** the host receives one `forward` action
+
+#### Scenario: a center swipe still scrolls the page
+- **WHEN** the viewer swipes horizontally from the center
+- **THEN** the page scrolls as before, and the host receives no history action
+
+#### Scenario: vertical movement commits an edge gesture to scrolling
+- **WHEN** an edge touch moves vertically by more than 8 px before moving horizontally
+- **THEN** the host receives scroll input, and no history action is sent
+
 ### Requirement: BROWSER-STREAM-HISTORY-01 — In streaming ‹ e › si accendono solo se c'è dove andare
 
 La pane browser in streaming (pagina nel Chromium del server) SHALL abilitare la freccia
@@ -2734,3 +2955,418 @@ ricevuti SHALL lasciare entrambe le frecce abilitate, come prima.
 - **GIVEN** una pane in streaming collegata a un server che non conosce i due valori
 - **WHEN** arriva il caricamento senza `canGoBack` né `canGoForward`
 - **THEN** ‹ e › restano abilitati
+
+### Requirement: BROWSER-REAP-01 — The idle reaper SHALL NOT close a browser that is launching or building a context
+
+The headless browser is reaped once it has no context and has been idle past its
+timeout. A browser that is still launching, or that a context is being created on,
+is in use: reaping it leaves the pane on "Target page, context or browser has been
+closed" at every retry. Measured 13/10 on the live server under memory pressure:
+launched 12:32:17, reaped 12:32:35 as "idle 21min".
+
+#### Scenario: a slow context creation survives the reaper
+- **GIVEN** the browser was last used 21 minutes ago
+- **WHEN** a pane asks for its context and the creation is still running at the reaper's tick
+- **THEN** the browser stays up and the pane gets its page
+
+#### Scenario: an idle browser with nothing on it is still reaped
+- **GIVEN** no context, no creation and no launch in progress, idle past the timeout
+- **THEN** the reaper closes it, and the next use relaunches it
+
+### Requirement: BROWSER-DOM-RES-01 — The DOM mirror SHALL show resources the viewer cannot reach
+
+The mirror rebuilds the page in the viewer's browser, so the viewer fetches its
+images. A resource on a host only the Mac resolves (loopback, private ranges,
+`.local`) SHALL be served through `/api/browser/resource`, fetched by the page's
+own context with its cookies. Public resources SHALL load directly. Measured 13/10
+from the iPad on `http://localhost:3535`: no image in the mirror.
+
+A routed resource URL SHALL carry a token bound to its context, and the route
+SHALL answer 404, fetching nothing, to a missing token or one minted for another
+context.
+
+#### Scenario: a local page's images on another device
+- **GIVEN** the shared pane shows a page at `http://localhost:3535` with protected images
+- **WHEN** the iPad watches it through the DOM mirror
+- **THEN** every image arrives through the proxy with the page's session, and none is fetched from the iPad's own `localhost`
+
+#### Scenario: a public image is not routed through the Mac
+- **GIVEN** an `<img>` on `https://cdn.example.com`
+- **THEN** the mirror keeps its URL as it is
+
+#### Scenario: a resource URL works only for its own context
+- **GIVEN** a resource URL minted for context A
+- **WHEN** it is requested for context B, or without its token
+- **THEN** the route SHALL answer 404 and fetch nothing
+
+### Requirement: BROWSER-DOM-TAP-01 — One tap on the DOM mirror SHALL be one click on the page
+
+On a touch screen the engine follows `touchend` with a synthesized mousedown and
+click for the same tap. The mirror SHALL relay that gesture once. Measured 13/10
+from the iPad: every tap reached the shared page twice, so a menu opened and
+closed at once and actions on the shared browser "did not work".
+
+#### Scenario: a tap on the iPad
+- **WHEN** the user taps the mirror once
+- **THEN** the remote page receives exactly one click at that point
+
+### Requirement: NATIVE-HOST-01 — A live native pane SHALL be the source of its context's mirror
+
+When the Mac's native pane of a context declares itself host, a viewer on another
+device SHALL mirror that pane's own page, rebuilt from its DOM (rrweb), and the
+server SHALL NOT create a Chromium context for it. Before, a second device pulled
+the Mac off its WKWebView onto the server's Chromium, and the Mac was slow while
+the iPad watched (13/10).
+
+#### Scenario: the iPad opens a context the Mac has open
+- **GIVEN** the Mac's native pane hosts the context
+- **WHEN** the iPad opens it
+- **THEN** it shows the Mac's page and address, and no Chromium context exists for it
+
+#### Scenario: the Mac's pane goes away
+- **WHEN** the host's socket closes and no host is back within 8 seconds
+- **THEN** the server's Chromium takes over at the page the host was on
+
+### Requirement: NATIVE-HOST-02 — A viewer's input SHALL reach the host once
+
+#### Scenario: a click on the mirror
+- **WHEN** the viewer clicks or taps the mirror once
+- **THEN** the Mac's pane receives one `host_input` click at the page coordinates
+- **AND** it runs in the page without taking the Mac's key focus
+
+### Requirement: NATIVE-HOST-03 — The Mac SHALL stay native while another device watches
+
+#### Scenario: auto mode with a viewer
+- **GIVEN** a pane in 'auto' on a server that accepted its host declaration
+- **WHEN** another device starts watching the context
+- **THEN** the pane stays on its native WKWebView instead of joining the shared session
+
+### Requirement: NATIVE-HOST-04 — A hosted page SHALL take the size of the device using it
+
+TOPIC-BROWSER-05 on a page the Mac hosts: the viewport belongs to whoever uses
+the page. Before, an iPad that used a page hosted by the Mac got the Mac's
+layout scaled down and letterboxed, and its own `resize` was dropped (13/10).
+The Mac's pane lays the page out at the iPad's size in CSS px, scaled into its
+slot with WKWebView's page zoom when it does not fit, and the iPad's mirror shows
+it 1:1.
+
+Since 14/10 this holds for a device that chose «Size: the Mac» in its tab's
+sheet (BROWSER-DOM-LAYOUT-04), and for the desktop shell's own mirror. Every
+other device lays the page out on its own and never resizes the Mac
+(BROWSER-DOM-LAYOUT-01).
+
+#### Scenario: the iPad uses a page the Mac hosts
+- **GIVEN** the Mac's pane hosts the context and the iPad watches it, with «Size: the Mac»
+- **WHEN** the iPad taps the mirror
+- **THEN** the host receives the tap, then `host_viewport` with the iPad pane's size
+- **AND** the size counts even if the iPad sent it before the Mac hosted the page, or while the host was away
+- **AND** once the page is laid out at that size, give or take 2 px or a few px shorter, the iPad's mirror shows it at scale 1 from the top
+
+#### Scenario: a Mac slot smaller than the iPad
+- **WHEN** the Mac's slot for the page is smaller than the iPad's pane, down to a tenth of the window
+- **THEN** the page is laid out exactly as wide as the iPad's pane, and never taller than it
+
+#### Scenario: watching is not using
+- **WHEN** a device only watches, or resizes while only watching
+- **THEN** the host receives no `host_viewport`
+
+#### Scenario: the Mac takes the page back
+- **WHEN** the Mac's user uses the page in its own pane (a trusted pointer, key or wheel event, or the zoom), the device using it leaves, or no pane of that device shows the page any more
+- **THEN** the host receives `host_viewport` without a size and lays the page out at its own slot again
+- **AND** the server hears of every use of the Mac, so a size still on its way does not land after it
+- **AND** a device whose pane comes back on screen has the page at its size again, if nobody used the page meanwhile
+- **AND** input in a frame of the same origin is a use of the page too (an editor in an iframe), a frame added or navigated after the page loaded included; input in a frame of another origin is not seen by the page, which is the known limit
+
+#### Scenario: the Mac's socket blips
+- **WHEN** the host comes back after its socket dropped
+- **THEN** it is told the current size of the device that was using the page
+- **AND** not if the Mac's user used the page while the socket was down
+
+#### Scenario: the on-screen keyboard
+- **WHEN** the on-screen keyboard takes height from the pane of the device using the page
+- **THEN** the device does not report the shorter height, and the page is not laid out again
+
+### Requirement: NATIVE-HOST-05 — A page of any size SHALL reach the viewer in pieces, and the socket SHALL stay open
+
+A hosted page's first snapshot often weighs 2 to 5 MB, and the socket that
+carries it also carries the agent's operations: a single frame over the server's
+ceiling closed it with 1006, and the viewer never saw the page. The host SHALL
+drain its queue in pieces of at most 192 KiB of UTF-8 text, the server SHALL put
+them back together and relay the full snapshot to each viewer in frames under
+512 KiB, and every mirror frame over 1 KiB SHALL leave compressed. The ceiling
+on what the server accepts SHALL be explicit, 1 MiB, in one module that the
+server and its tests both import; a socket closed for going past it SHALL leave
+a readable line in the log.
+
+#### Scenario: a 4.8 MB first snapshot
+- **GIVEN** a host whose first drain is 4.8 MB
+- **WHEN** it reaches the server and a viewer is attached
+- **THEN** after 2 seconds both sockets are still open
+- **AND** the viewer rebuilds the same full snapshot, from frames each under 512 KiB and compressed
+
+### Requirement: NATIVE-HOST-06 — A viewer reconnecting after server restart SHALL wait for its native host
+
+A viewer whose last `render_mode` named a native host SHALL identify that fact
+when it reconnects. On a fresh server process, the server SHALL wait at most 10
+seconds for the host before allowing that viewer to start Chromium. During the
+wait it SHALL retain the last `set_render`, `resize`, and navigation request,
+and SHALL drop input and focus queries aimed at the stale page. Stream and
+watching state still apply, but resuming the stream SHALL not start Chromium.
+After a host declaration, the retained frames SHALL use the host mirror route.
+If no host returns, they SHALL be applied once on the ordinary server path.
+Clients without the host hint and contexts hosted earlier in the same process
+keep their existing behavior.
+
+#### Scenario: the host returns during the boot wait
+- **GIVEN** a viewer reconnects with the native host hint to a context unseen by the new server process
+- **WHEN** it sends render mode, size, and navigation frames, then the host declares within 10 seconds
+- **THEN** no screencast, DOM injection, viewport resize, or Chromium navigation starts during the wait
+- **AND** the viewer is attached to the mirror and the retained size and navigation reach the host
+
+#### Scenario: the host does not return
+- **GIVEN** a viewer reconnects with the native host hint and no host declares within 10 seconds
+- **THEN** its stream starts once when active and its latest render mode, size, and navigation request are applied once
+- **AND** input and focus queries sent during the wait are not replayed
+
+### Requirement: NATIVE-HOST-07 — A registered native host SHALL prove its JavaScript is alive
+
+While at least one native executor is registered, the server SHALL send an
+application `host_ping` every 5 seconds. The native pane SHALL answer
+`host_pong`. After a socket has answered at least once, 15 seconds without a
+further answer SHALL withdraw the host, notify its viewers, and close the socket
+with code 1001 so the pane reconnects. Executors that never answered remain on
+the existing 90-second WebSocket protocol timeout for compatibility. The
+90-second browser-socket reaper SHALL also withdraw a registered host.
+
+#### Scenario: the native pane's JavaScript stops responding
+- **GIVEN** a registered executor has answered a `host_ping`
+- **WHEN** it sends no `host_pong` for 15 seconds
+- **THEN** viewers receive `host_away` and see that the Mac is not responding
+- **AND** the host is withdrawn and its socket closes with code 1001
+- **AND** the server fallback takes over after the existing grace period
+
+#### Scenario: a pane running older client code
+- **GIVEN** a registered executor that never answers application pings
+- **WHEN** 15 seconds pass
+- **THEN** it remains registered until the existing 90-second protocol timeout
+
+### Requirement: NATIVE-HOST-08 — A returning host SHALL keep a navigation made during fallback
+
+When the server's Chromium has taken over after the host fallback grace period,
+the server SHALL capture its current URL before destroying that context when the
+host returns. If the URL is HTTP or HTTPS and differs from the returning host's
+reported page, the server SHALL send `host_nav` to the host and a navigation
+message to viewers. Other schemes and equal URLs SHALL not be forwarded.
+
+#### Scenario: a viewer navigates while the host is away
+- **GIVEN** Chromium has taken over the context and a viewer navigates to a new HTTP or HTTPS URL
+- **WHEN** the native host returns on a different URL
+- **THEN** the host receives `host_nav` for the URL Chromium was on, read before Chromium is destroyed
+- **AND** viewers receive that navigation
+
+### Requirement: BROWSER-DOM-LAYOUT-01 — Each device SHALL lay a page the Mac hosts out at its own size, and the Mac SHALL keep its own
+
+Il 14/10, dopo #313: «l'ultimo browser che attivo fa ridimensionare alla sua
+dimensione l'altro». Usare la pagina dall'iPad la reimpaginava sul Mac alla
+misura dell'iPad (NATIVE-HOST-04), e il Mac la vedeva rimpicciolita. Attilio ha
+scelto «ognuno la sua misura»: la pagina vera resta del Mac, e l'iPad ne
+impagina la copia DOM alla sua misura, media query comprese. Tra i due passa il
+contenuto, non i pixel.
+
+#### Scenario: the iPad uses a page the Mac hosts
+- **GIVEN** the Mac's pane hosts the page at 1200 px, with a breakpoint at 1100 px, and the iPad's pane is narrower
+- **WHEN** the iPad taps and swipes its mirror
+- **THEN** the host receives no `host_viewport` with a size, and the Mac's page stays 1200 px wide
+- **AND** the mirror is laid out as wide as the iPad's pane, at scale 1, and shows the narrow variant of the page's CSS while the Mac shows the wide one
+
+#### Scenario: the desktop shell
+- **WHEN** the desktop shell shows a page another device hosts
+- **THEN** it shows that page's own layout (TOPIC-BROWSER-05): its mirror cannot always be read, and a mirror with its own layout has to be
+
+### Requirement: BROWSER-DOM-LAYOUT-02 — A tap on a mirror with its own layout SHALL reach the element it landed on
+
+#### Scenario: an element the two layouts put in different places
+- **WHEN** the iPad taps a card that sits in another column on the Mac
+- **THEN** the Mac's card gets the click, at the same point of its box
+- **AND** what the Mac has at the tap's coordinates does not
+
+#### Scenario: a control only the narrow layout shows
+- **GIVEN** a menu button the Mac's layout hides
+- **WHEN** the iPad taps it
+- **THEN** its handler runs on the Mac, and what it changed comes back to the iPad's mirror
+
+### Requirement: BROWSER-DOM-LAYOUT-03 — A scroll SHALL keep the same content at the reading line on both sides
+
+The reading line is a quarter down what scrolled (half when that axis does not
+scroll), past fixed and sticky boxes. A scroll names the element there, by the
+recorder's id, and the point of it on the line; the other side scrolls to put
+that point on its own line.
+
+#### Scenario: a swipe on the iPad
+- **WHEN** the iPad swipes its mirror past content the two layouts lay out at different heights
+- **THEN** the same row is at the reading line of the Mac, give or take 2 px, though the two scroll positions are hundreds of pixels apart
+- **AND** the mirror does not move once the gesture and its fling have ended
+
+#### Scenario: a scroll on the Mac
+- **WHEN** the Mac's page scrolls a row to its reading line
+- **THEN** the iPad's mirror brings the same row to its own, give or take 2 px
+
+#### Scenario: the start and the end of the page
+- **WHEN** one side is at the top of what scrolls
+- **THEN** the other side is at its top, whatever each has at its reading line
+- **WHEN** one side reaches the end of what scrolls
+- **THEN** the other side shows the same row at its reading line, not its own end: a page twice as long there would jump to its end and back as this one reached the end of a short range and left it
+
+#### Scenario: a box that scrolls on its own
+- **GIVEN** a strip that scrolls sideways on both sides, and a side panel only one side's layout shows
+- **WHEN** one side scrolls the side panel, then the strip
+- **THEN** the other side's page does not move at all
+- **AND** its strip scrolls sideways to the same thumbnail at its reading line
+- **AND** only the page, or the box under the middle of the window, hands its place to another box when it cannot scroll on the other side: along the reading axis, vertical first, to the nearest box around the element that scrolls that way, or else the page; never across a fixed or sticky box, never to a box or a page whose overflow is hidden; and then by content alone
+
+### Requirement: BROWSER-DOM-LAYOUT-04 — Each device SHALL be able to go back to the Mac's page at its size
+
+Some pages lay themselves out with scripts, for one width, and a copy laid out
+at another can look wrong: for those the old behaviour is a switch away.
+
+#### Scenario: the switch
+- **GIVEN** a pane showing a page the Mac hosts
+- **WHEN** the user picks «Size: the Mac» in the Session level of the tab's sheet
+- **THEN** the mirror shows the Mac's page scaled, and using it lays the Mac's page out at this pane's size (NATIVE-HOST-04)
+- **WHEN** the user picks «Size: this screen» again
+- **THEN** the Mac's page goes back to its own size at once, and the mirror to its own layout
+- **AND** the choice belongs to the device and survives a reload
+
+### Requirement: BROWSER-DOM-LIVE-01 — A change SHALL reach the DOM mirror on the frame after it arrives
+
+The live replayer used to schedule every event against the first one it was
+given, so whatever that first event took to arrive was added to every event
+after it. Measured 13/10: a tap on the iPad answered seconds late on Darkroom,
+and a viewer rebuilt from a buffered snapshot would trail by as long as the
+recording had been running.
+
+#### Scenario: a mirror rebuilt from an old snapshot
+- **GIVEN** a viewer whose mirror was rebuilt from a snapshot recorded long ago
+- **WHEN** the source records a change now
+- **THEN** the viewer shows it within a second and a half
+
+### Requirement: BROWSER-DOM-SCROLL-01 — A scroll SHALL move the DOM mirror on the device that makes it
+
+#### Scenario: wheel or swipe on the mirror
+- **WHEN** the user scrolls the mirror with a wheel or a finger
+- **THEN** the mirror scrolls at once on that device, before the source answers
+- **AND** the source is asked to follow: to the place the mirror reached when the mirror moved (BROWSER-DOM-SCROLL-02), by the same distance in its own CSS pixels when it could not
+- **AND** a released swipe carries on and slows down, as a native scroll does
+- **AND** once the gesture ends, the mirror settles where the source ended up
+
+### Requirement: BROWSER-DOM-SCROLL-02 — A scroll on the mirror SHALL land on the same pixel of the source, and the mirror SHALL NOT jump when it ends
+
+Misurato il 14/10 dopo «durante gli scroll da iPad li faccio e poi si
+riposiziona da solo», con l'host vero del Mac in WebKit. Mirror e Mac
+rifacevano ciascuno la distanza, e WebKit tiene i pixel interi: 2,7 px a
+fotogramma diventavano 2 sul mirror e 10 su 10,8 sul Mac, che somma a lotti di
+60 ms. 600 ms dopo il gesto il mirror saltava dov'era arrivato il Mac: 31 px su
+162. Una pagina con `scroll-behavior: smooth` faceva ripartire l'animazione a
+ogni lotto (50 px di scarto), e un Mac più lento dell'inoltro rigiocava lo swipe
+lotto per lotto: il mirror tornava indietro e lo rifaceva per 1,4 s.
+
+#### Scenario: a swipe in fractions of a pixel
+- **WHEN** the user swipes the mirror by fractions of a pixel a frame
+- **THEN** the mirror moves the whole distance
+- **AND** the source ends on the same pixel as the mirror, for the page and for an element scrolling inside it
+- **AND** the mirror does not move once the gesture and its fling have ended
+
+#### Scenario: a source that scrolls smoothly, or answers late
+- **GIVEN** a source page with `scroll-behavior: smooth`, hosted by a Mac whose every call to the page takes 150 ms
+- **WHEN** the user swipes the mirror with a finger and lets it fling
+- **THEN** the source ends where the mirror ended
+- **AND** the mirror does not go back to follow the source
+
+#### Scenario: a source that keeps the wheel
+- **GIVEN** a source page that takes the wheel for itself and does not scroll
+- **WHEN** the user scrolls the mirror
+- **THEN** the mirror goes back to where the source is
+
+### Requirement: BROWSER-DOM-LAZY-01 — A lazy image SHALL load in the DOM mirror only as it nears the view
+
+The mirror is a sandboxed document without scripts, and HTML turns lazy loading
+off where scripting is off, so a viewer fetched every image a page marked lazy
+as soon as it opened it. Measured 13/10 on Darkroom: 1049 of its 1056 images
+lazy, 568 requests from the iPad through the Mac in a minute.
+
+#### Scenario: a long page of lazy images
+- **GIVEN** a source page with a lazy image in view and one far below it
+- **WHEN** a viewer rebuilds the page
+- **THEN** it fetches the image in view and not the one below
+- **AND** it fetches the one below once its own mirror scrolls near it
+
+### Requirement: BROWSER-DOM-IDLE-01 — An idle DOM mirror SHALL ask for no animation frames
+
+rrweb's live replayer asks for a frame on every frame, and every frame asked
+for makes the renderer update. Its own pause does nothing once live, so the
+mirror's park never stopped it, and a closed mirror kept it running. Measured
+13/10 in WebKit: 60 frames a second from a mirror idle for over a second.
+
+#### Scenario: a source page that stopped changing
+- **GIVEN** a viewer whose mirror has received nothing for a while
+- **THEN** the viewer asks for no animation frames for it
+- **WHEN** the source records a change
+- **THEN** the viewer shows it within a second and a half
+
+### Requirement: BROWSER-LOAD-01 — A page that does not come SHALL say where it was going and why
+
+Every viewer of a context hears that its page is on its way, with the
+destination, a viewer that connects in the middle of the wait included, and
+hears the failure in words with a Retry. A second request for the url already
+being loaded joins that load instead of starting it over. A pane whose page is
+still blank never waits on a generic "starting" spinner. Reported 13/10 from
+the iPad: a tab on a dev server of the Mac that took the connection and never
+answered sat on "Avvio sessione condivisa…" for as long as anybody looked.
+
+#### Scenario: a restored tab on a local port that takes the connection and never answers
+- **GIVEN** a browser tab restored on a loopback url whose server accepts connections and never answers
+- **WHEN** a device without the page open natively opens the tab
+- **THEN** the pane names the destination while it waits, and counts the seconds once they pass five
+- **AND** when the server gives up, the pane says that the port takes the connection but does not answer, with a Retry
+- **AND** the pane is no longer on the "starting the shared session" spinner
+
+#### Scenario: the device reloads in the middle of the wait
+- **GIVEN** a pane waiting on such a page
+- **WHEN** the device reloads the app before the server gives up
+- **THEN** the reloaded pane is told the same wait, counted from the first request
+- **AND** the failure comes when the first request runs out of time, not a full timeout after the reload
+
+### Requirement: BROWSER-DOM-MASK-01 — Il mirror SHALL mascherare i campi di pagamento e i codici monouso
+
+La copia DOM inviata ai dispositivi SHALL sostituire il valore dei campi il cui
+`autocomplete` contiene fra le sue parole `cc-number`, `cc-csc`, `cc-exp`,
+`cc-exp-month`, `cc-exp-year` o `one-time-code`, anche dopo un prefisso come
+`section-*` o `billing`: nello snapshot iniziale, nei campi aggiunti
+alla pagina dopo lo snapshot, nei valori impostati come attributo e in ogni
+digitazione. Gli altri campi di testo SHALL conservare il proprio valore.
+
+#### Scenario: il mirror non mostra numeri di carta né codici monouso
+- **GIVEN** una pane Mac con campi di testo per il numero carta, il codice CVV e un codice monouso
+- **WHEN** il mirror riceve lo snapshot e poi le modifiche a quei campi
+- **THEN** i valori di tutti e tre i campi sono mascherati nello snapshot e dopo la digitazione
+- **AND** un campo carta montato dopo lo snapshot arriva mascherato anche lui
+- **AND** un campo con `autocomplete="billing cc-number"` arriva mascherato come `cc-number`
+- **AND** il valore di un campo testo normale resta leggibile nel mirror
+
+### Requirement: NATIVE-HOST-09 — A viewer SHALL identify an unrecorded cross-origin frame
+
+When rrweb cannot read a frame from a different HTTP origin, the viewer SHALL
+show a placeholder containing only that frame's host and explain that its
+content is used on the Mac. Same-origin frames and frames with absent, invalid,
+`about:blank`, or `data:` sources SHALL not receive a placeholder. Activating a
+placeholder SHALL show a brief notice and SHALL NOT relay input to the host;
+input elsewhere on the page SHALL continue to reach the host.
+
+#### Scenario: the viewer identifies a cross-origin frame without exposing its URL
+- **GIVEN** a native host page with a same-origin frame and an unrecorded frame from another origin
+- **WHEN** a viewer reconstructs the page
+- **THEN** only the unrecorded frame has a placeholder naming its host and saying to use it on the Mac
+- **AND** the placeholder does not expose query parameters or tokens
+- **WHEN** the viewer activates the placeholder
+- **THEN** the viewer shows a brief notice and the host receives no input for that activation
+- **AND** a click outside the placeholder still reaches the host

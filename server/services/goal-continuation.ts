@@ -424,6 +424,7 @@ export function createGoalContinuation(deps: GoalContinuationDeps) {
     // The judge is the only cost of this file, and it is paid once per turn.
     let verdict = null as ReturnType<typeof parseGoalVerdict>;
     try {
+      log(`goal-loop: judge call at=${new Date().toISOString()} session_key=${info.sessionKey}`);
       const answer = await deps.judge(
         GOAL_JUDGE_PROMPT({
           goal: active.content,

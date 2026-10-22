@@ -4,7 +4,7 @@
  * @covers BROWSER-CHAT-02, BROWSER-STREAM-HISTORY-01
  */
 import { describe, it, expect } from 'bun:test';
-import { parseBrowserWsMessage } from '../shared/browser-ws-messages';
+import { NATIVE_HOST_PARAM, parseBrowserWsMessage } from '../shared/browser-ws-messages';
 
 // Protocol contract for the two variants added for native-grade streaming:
 // `resize` (client -> server) and `download` (server -> client). The Zod union
@@ -118,6 +118,17 @@ describe('browser-ws-messages: render_mode (server -> client)', () => {
   });
 });
 
+describe('browser-ws-messages: native host status', () => {
+  it('accepts host health and viewer pause state', () => {
+    expect(parseBrowserWsMessage({ type: 'native_host_status', sharing: true, devices: 2, kbps: 12.5, delayMs: 40, error: 'relay' }).ok).toBe(true);
+    expect(parseBrowserWsMessage({ type: 'host_share_state', sharing: false }).ok).toBe(true);
+    expect(parseBrowserWsMessage({ type: 'set_native_host_sharing', active: false }).ok).toBe(true);
+  });
+  it('rejects invalid health values', () => {
+    expect(parseBrowserWsMessage({ type: 'native_host_status', sharing: true, devices: -1, kbps: 0, delayMs: 0 }).ok).toBe(false);
+  });
+});
+
 describe('browser-ws-messages: dom_event (server -> client)', () => {
   it('accepts an opaque rrweb event untouched (no deep validation)', () => {
     const full = { type: 'dom_event' as const, event: { type: 2, data: { node: { id: 1 } }, timestamp: 111 } };
@@ -164,6 +175,16 @@ describe('browser-ws-messages: union still discriminates', () => {
   it('parses a frame and rejects an unknown type', () => {
     expect(parseBrowserWsMessage({ type: 'frame', data: 'abc', metadata: { timestamp: 1 } }).ok).toBe(true);
     expect(parseBrowserWsMessage({ type: 'bogus' }).ok).toBe(false);
+  });
+});
+
+/** @covers NATIVE-HOST-06, NATIVE-HOST-07 */
+describe('browser-ws-messages: native host recovery', () => {
+  it('shares the reconnect hint name and accepts application liveness and host-away frames', () => {
+    expect(NATIVE_HOST_PARAM).toBe('host');
+    expect(parseBrowserWsMessage({ type: 'host_ping' }).ok).toBe(true);
+    expect(parseBrowserWsMessage({ type: 'host_pong' }).ok).toBe(true);
+    expect(parseBrowserWsMessage({ type: 'host_away' }).ok).toBe(true);
   });
 });
 

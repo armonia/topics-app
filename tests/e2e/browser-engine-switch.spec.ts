@@ -15,7 +15,7 @@ hermetic(test);
  * Engine switch (task 54601eeb) — the WEB pane's Native ↔ real-Chromium toggle.
  *
  * The toggle is a pure capability of GET /api/browsers/engines: hidden unless the
- * server reports it enabled (TOPICS_CHROMIUM_ENGINE + a Chromium installed). When
+ * server reports it enabled (a Chromium installed on the machine). When
  * shown, clicking it sends set_engine over the WS; the mock mirrors the server by
  * echoing an `engine` broadcast, which flips the badge AND remounts the WS (so the
  * server can recreate the context on the new engine — observed here as a second

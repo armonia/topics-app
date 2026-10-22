@@ -91,6 +91,8 @@ const CLAUDE_CODE_OFFER = [
   "claude-opus-5-5", "claude-opus-5-5[1m]", "claude-opus-4-8", "claude-opus-4-8[1m]",
   "claude-sonnet-5-5", "claude-sonnet-5-5[1m]", "claude-sonnet-4-6", "claude-sonnet-4-6[1m]",
   "claude-haiku-4-5", "claude-haiku-3-55", "claude-fable-5-1",
+  // Added to the offer and probed 200 on 2026-10-11 (see MODELS).
+  "claude-haiku-5-5",
 ];
 /** The ids of that offer that did NOT answer 200 on the 2026-09-28 probe (see MODELS). */
 const NOT_SERVED = ["claude-sonnet-4-6[1m]", "claude-haiku-3-55"];

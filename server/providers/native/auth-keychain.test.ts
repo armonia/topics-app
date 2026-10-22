@@ -7,7 +7,7 @@
  * the lag between the CLI rotating the pair and the file mirror catching up.
  * Driven with a fake `security` binary: no real Keychain is read or written,
  * and the flag stays off unless the test turns it on.
- * @covers CHAT-REL-06
+ * @covers CHAT-REL-06, SYSTEM-03
  */
 import { describe, expect, test, beforeEach, afterEach } from "bun:test";
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "fs";
@@ -17,6 +17,7 @@ import {
   KEYCHAIN_SOURCE, readCredentials, readKeychainCredentials, recoverAfter401, setKeychainRunnerForTests,
   writeCredentials, type KeychainRunResult,
 } from "./auth";
+import { claudeLoginSource } from './login-source';
 
 const HOME_VERA = process.env.HOME;
 const FLAG_VERA = process.env.TOPICS_CREDENTIALS_KEYCHAIN;
@@ -102,6 +103,25 @@ describe("the Keychain candidate", () => {
     const c = readCredentials() as { accessToken: string; sourcePath?: string };
     expect(c.accessToken).toBe("kc-live");
     expect(c.sourcePath).toBe(KEYCHAIN_SOURCE);
+  });
+
+  onMac("login source lookup reads Keychain attributes without requesting the secret", () => {
+    expect(claudeLoginSource()).toBe("keychain");
+    expect(calls).toHaveLength(1);
+    expect(calls[0]).not.toContain("-w");
+  });
+
+  onMac("missing Keychain item and credentials file reports no login source", () => {
+    item = null;
+    expect(claudeLoginSource()).toBeNull();
+    expect(calls.every((call) => !call.includes("-w"))).toBe(true);
+  });
+
+  onMac("falls back to the credentials file when the Keychain item is absent", () => {
+    item = null;
+    writeFileCredentials("file-live", Date.now() + 3_600_000);
+    expect(claudeLoginSource()).toBe("file");
+    expect(calls.every((call) => !call.includes("-w"))).toBe(true);
   });
 
   onMac("a 401 on the file's token: the recovery finds the Keychain's fresher one without touching the network", async () => {

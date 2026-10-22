@@ -1,16 +1,26 @@
 import os from "os";
 import { existsSync, statSync, readFileSync } from "fs";
 import { join } from "path";
+import net from "net";
 import type { AppContext, RouteHandler } from "../types";
-import { getListeningPorts, getTopCpuProcesses } from "./processes";
 import { getFleetUsage } from "../lib/fleet-usage";
 import { machineSharesNow } from "../services/dispatch-capacity";
+import { serverSpawnCounts } from "../lib/spawn-metrics";
+import { nativeGitStatusSnapshot } from "../lib/native-git-status";
+import { nativeFileTreeSnapshot } from "../lib/native-file-tree";
 import { unknownPricedModels } from "../usage/pricing";
 import { getProvider } from "../providers";
 import { checkGatewayHealth as pingGateway } from "../providers/health";
 import { detectAgents } from "../lib/detect-agents";
 import { computePresenceCounts } from "../services/profile-stats";
-import { countBusyAgentTerminals } from "./terminal";
+import { countBusyAgentTerminals, getPtyBridgeRuntimeStatus } from "./terminal";
+import { SPAWN_TIMEOUT, spawnBounded } from "../lib/bounded-spawn";
+import { inspectHealth, ProbeTimeoutError, type HealthProbe, type HealthReading, type HealthSubsystemId } from "../../shared/system-health";
+import { registeredFleetSocketPath } from "../lib/fleet-usage";
+import { fileWatcherLastError, watchedProjectPaths } from "../file-watcher";
+import { browserEngineIsRunning, browserEngineLastLaunchFailure } from "../browser-engine-registry";
+import { resolveDataDir } from "../lib/data-dir";
+import { claudeLoginSource } from "../providers/native/login-source";
 
 const SERVER_START_TIME = Date.now();
 
@@ -22,6 +32,32 @@ const SERVER_START_TIME = Date.now();
 // chip reflects the current package.json the moment it's bumped.
 const PKG_PATH = join(import.meta.dir, "..", "..", "package.json");
 let _pkgCache: { mtimeMs: number; version: string } | null = null;
+
+function probeBridgeSocket(socketPath: string): Promise<{ state: "ok"; reason: "socket-ready" }> {
+  return new Promise((resolve, reject) => {
+    const socket = net.connect(socketPath);
+    const timeout = setTimeout(() => {
+      socket.destroy();
+      reject(new ProbeTimeoutError(200));
+    }, 200);
+    socket.once("connect", () => {
+      clearTimeout(timeout);
+      socket.destroy();
+      resolve({ state: "ok", reason: "socket-ready" });
+    });
+    socket.once("error", (error) => {
+      clearTimeout(timeout);
+      socket.destroy();
+      reject(new Error(error.message));
+    });
+  });
+}
+
+let ptyBridgeHealthSocketOverride: string | null = null;
+
+export function _setPtyBridgeHealthSocketForTest(socketPath: string | null): void {
+  ptyBridgeHealthSocketOverride = socketPath;
+}
 
 /**
  * The version BAKED at compile time, for the packaged build.
@@ -89,6 +125,58 @@ export function createStatusRouter(ctx: AppContext): RouteHandler {
   let lastGatewayCheck: (GatewayHealthResult & { checkedAt: string }) | null = null;
   let lastCronStatus: CronJobsStatus | null = null;
   let lastSessionsStatus: SessionsStatus | null = null;
+  // Read when someone asks and at most every 10 minutes: one `security` call
+  // (attributes only, ~30 ms) per reader, never a timer with nobody reading it.
+  let claudeLogin: { source: "keychain" | "file" | null; expiresAt: number } = { source: null, expiresAt: 0 };
+  const currentClaudeLogin = () => {
+    if (claudeLogin.expiresAt <= Date.now()) claudeLogin = { source: claudeLoginSource(), expiresAt: Date.now() + 10 * 60_000 };
+    return claudeLogin.source;
+  };
+
+  const healthProbes: Record<HealthSubsystemId, HealthProbe> = {
+    server: () => ({ state: "ok", reason: "ready", params: { seconds: Math.floor((Date.now() - SERVER_START_TIME) / 1000) } }),
+    "pty-bridge": () => {
+      const socket = ptyBridgeHealthSocketOverride ?? registeredFleetSocketPath("pty-bridge");
+      // A missing socket is a known state with its own words and remedy, not a probe that broke.
+      if (!socket || !existsSync(socket)) return { state: "error", reason: "socket-missing", params: { path: socket ?? "" } };
+      return probeBridgeSocket(socket);
+    },
+    "ai-bridge": () => {
+      const socket = registeredFleetSocketPath("ai-bridge");
+      if (!socket) return { state: "off", reason: "not-configured" };
+      if (!existsSync(socket)) return { state: "error", reason: "socket-missing", params: { path: socket } };
+      return probeBridgeSocket(socket);
+    },
+    "browser-engines": () => {
+      const failure = browserEngineLastLaunchFailure();
+      if (failure) return { state: "error", reason: "browser-launch-failed", params: failure, lastError: failure };
+      if (!browserEngineIsRunning()) return { state: "off", reason: "browser-never-started" };
+      return { state: "ok", reason: "browser-running" };
+    },
+    relay: () => {
+      const config = ctx.relayConfig?.();
+      if (!config?.baseUrl) return { state: "off", reason: "not-configured" };
+      if (!ctx.relayConnected?.()) return { state: "warn", reason: "not-connected" };
+      return { state: "ok", reason: "connected" };
+    },
+    watcher: (): HealthReading => {
+      const lastError = fileWatcherLastError();
+      if (lastError) return { state: "error", reason: "watcher-failed", params: { project: lastError.projectPath, message: lastError.message }, lastError };
+      return { state: "ok", reason: "watching", params: { projects: watchedProjectPaths().length } };
+    },
+    "claude-cli": () => {
+      const claude = detectAgents().find((agent) => agent.id === "claude-code");
+      if (!claude?.installed) return { state: "off", reason: "not-installed" };
+      const source = currentClaudeLogin();
+      if (!source) return { state: "error", reason: "login-missing" };
+      return { state: "ok", reason: source === "keychain" ? "login-found-keychain" : "login-found-file" };
+    },
+    database: () => {
+      const path = join(resolveDataDir(ctx.STATE_DIR), "topics.db");
+      const size = statSync(path).size;
+      return { state: "ok", reason: "database-readable", params: { sizeKb: Math.ceil(size / 1024) } };
+    },
+  };
 
   async function checkGatewayHealth(): Promise<GatewayHealthResult> {
     const provider = getProvider();
@@ -187,6 +275,10 @@ export function createStatusRouter(ctx: AppContext): RouteHandler {
 
   return async function statusRouter(_req: Request, _url: URL, pathname: string, method: string): Promise<Response | null> {
 
+    if (method === "GET" && pathname === "/api/system/health") {
+      return json({ checkedAt: new Date().toISOString(), subsystems: await inspectHealth(healthProbes) });
+    }
+
     // Restart OpenClaw gateway (only supported for openclaw provider)
     if (method === "POST" && pathname === "/api/openclaw/restart") {
       const provider = getProvider();
@@ -198,14 +290,15 @@ export function createStatusRouter(ctx: AppContext): RouteHandler {
         // from a button that the guard above already restricts to installations
         // whose provider IS OpenClaw. Nothing in Topics needs it; if the binary
         // is absent this one route answers with the spawn error.
-        const proc = Bun.spawn(["openclaw", "gateway", "restart"], {
+        const proc = spawnBounded(["openclaw", "gateway", "restart"], {
           stdout: "pipe",
           stderr: "pipe",
           env: { ...process.env },
+          timeoutMs: SPAWN_TIMEOUT.write,
         });
         const stdout = await new Response(proc.stdout).text();
         const stderr = await new Response(proc.stderr).text();
-        const exitCode = await proc.exited;
+        const exitCode = (await proc.exited) ?? 124;
         // Reset cached gateway status so next poll picks up fresh state
         lastGatewayCheck = null;
         return json({ ok: exitCode === 0, output: stdout || stderr, exitCode });
@@ -290,9 +383,6 @@ export function createStatusRouter(ctx: AppContext): RouteHandler {
       const streamKeys = Array.from(activeStreams.keys());
       const browserWs = ctx.browserWsCounts?.() ?? { contexts: 0, sockets: 0 };
 
-      // Gather active ports + top CPU consumers (both reuse cached snapshots).
-      let ports: { port: number; pid: number; command: string }[] = [];
-      let topProcesses: { pid: number; cpu: number; command: string }[] = [];
       // Everything the SERVER side really costs: this process plus the detached
       // sidecars and their trees (the `claude` CLIs, MCP servers and headless
       // Chromes under the pty-bridge). `memoryMB` above is this process alone,
@@ -304,11 +394,7 @@ export function createStatusRouter(ctx: AppContext): RouteHandler {
       // exactly the reading that kept a memory question from being asked.
       let fleet: Awaited<ReturnType<typeof getFleetUsage>> | null = null;
       try {
-        [ports, topProcesses, fleet] = await Promise.all([
-          getListeningPorts(),
-          getTopCpuProcesses(6),
-          getFleetUsage(),
-        ]);
+        fleet = await getFleetUsage();
       } catch {}
 
       // How busy the whole Mac is, as the two percentages the one number on
@@ -357,6 +443,7 @@ export function createStatusRouter(ctx: AppContext): RouteHandler {
           // modo perche' si veda e' che qualcosa lo DICA. Vuoto = tutto
           // tariffato.
           unpricedModels: unknownPricedModels(),
+          ptyBridge: getPtyBridgeRuntimeStatus(),
         },
         cpu: {
           cores,
@@ -381,8 +468,9 @@ export function createStatusRouter(ctx: AppContext): RouteHandler {
         },
         cronJobs: lastCronStatus || { enabled: 0, disabled: 0, total: 0 },
         sessions: lastSessionsStatus || { total: 0, byType: {} },
-        ports,
-        topProcesses,
+        processSpawns: serverSpawnCounts(),
+        nativeGit: nativeGitStatusSnapshot(),
+        nativeFileTree: nativeFileTreeSnapshot(),
       });
     }
 

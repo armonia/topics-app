@@ -8,6 +8,7 @@ import { canonicalTmpDir, removeTmpDir } from "./helpers/file-project";
 import { projectPanesKey } from "../../shared/project-keys";
 import { addPaneInProject, openProjectFromSidebar, projectWindow } from "./helpers/project-window";
 import { randomUUID } from "crypto";
+import { createProjectSingletonPaneId } from "../../client/src/state/pane/adapters/paneConfig";
 
 // Its own file and its own project, because the test archives the project:
 // in project-tabs.spec.ts it would change the project every other test uses.
@@ -49,10 +50,11 @@ test.describe("Project archive", () => {
   }) => {
     test.info().annotations.push({ type: "spec", description: "PROJECT-TABS-02" });
     const panesKey = projectPanesKey(PROJECT_PATH);
-    const gitPaneId = `git:${randomUUID()}`;
+    const gitPaneId = createProjectSingletonPaneId(PROJECT_PATH, "git");
+    const legacyGitPaneId = `git:${randomUUID()}`;
     const seeded = await page.request.put(`/api/ui-state/${panesKey}`, {
       data: {
-        nonChatPanes: [{ id: gitPaneId, type: "git", title: "Git", preview: true }],
+        nonChatPanes: [{ id: legacyGitPaneId, type: "git", title: "Git", preview: true }],
         openChatTopicIds: [],
       },
     });

@@ -82,23 +82,38 @@ describe("l'uso del runtime nativo, giro per giro", () => {
     globalThis.fetch = (async () => new Response(risposte.shift() ?? giroFinale, { status: 200 })) as unknown as typeof fetch;
 
     const consegne: Array<{ input: number; output: number; cacheWrite1h: number }> = [];
+    const nativeRoundLines: string[] = [];
+    const log = console.log;
+    console.log = (...args: unknown[]) => {
+      const line = args.map(String).join(" ");
+      if (line.startsWith("[native] round:")) nativeRoundLines.push(line);
+    };
     const history: AgentMessage[] = [{ role: "user", content: "leggi un file" }];
-    const out = await runAgentTurn(
-      {
-        model: "claude-haiku-4-5-20251001",
-        history,
-        toolContext: { workspace: ws },
-        autonomy: "auto-apply",
-        onRoundUsage: (u) => consegne.push({ input: u.input, output: u.output, cacheWrite1h: u.cacheWrite1h }),
-      },
-      handler(),
-    );
+    let out: Awaited<ReturnType<typeof runAgentTurn>>;
+    try {
+      out = await runAgentTurn(
+        {
+          model: "claude-haiku-4-5-20251001",
+          history,
+          toolContext: { workspace: ws },
+          sessionId: "topic:usage-test",
+          autonomy: "auto-apply",
+          onRoundUsage: (u) => consegne.push({ input: u.input, output: u.output, cacheWrite1h: u.cacheWrite1h }),
+        },
+        handler(),
+      );
+    } finally {
+      console.log = log;
+    }
 
     // DUE consegne, non una: è la differenza fra un contatore che scorre e un
     // contatore che si accende alla fine.
     expect(consegne.length).toBe(2);
     expect(consegne[0]).toEqual({ input: 100, output: 20, cacheWrite1h: 7 });
     expect(consegne[1]).toEqual({ input: 200, output: 5, cacheWrite1h: 3 });
+    expect(nativeRoundLines).toHaveLength(2);
+    expect(nativeRoundLines[0]).toMatch(/^\[native\] round: at=\d{4}-\d\d-\d\dT\S+ session_key=topic:usage-test round=1 input=100 cache_read=10 cache_write=7 output=20 compacted=no$/);
+    expect(nativeRoundLines[1]).toMatch(/^\[native\] round: at=\d{4}-\d\d-\d\dT\S+ session_key=topic:usage-test round=2 input=200 cache_read=20 cache_write=3 output=5 compacted=no$/);
 
     // E la somma delle consegne è ESATTAMENTE il totale del turno: chi somma i
     // delta arriva dove arriverebbe aspettando la fine, senza contare due volte.

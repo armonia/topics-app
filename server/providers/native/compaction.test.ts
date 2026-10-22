@@ -281,6 +281,17 @@ describe("il contesto pieno non uccide la chat", () => {
     expect(c.droppedMessages).toBeGreaterThan(0);
   });
 
+  test("dopo una compattazione il giro successivo NON ricompatta", () => {
+    // RED BEFORE: target = trigger, so the history came out a hair under the
+    // threshold and the next round crossed it again. topic:64095902 (08/10):
+    // 68 compactions in 34 hours, 40 closed at >=145k on a 150k threshold.
+    const h = writes(2_000, 500);
+    const c = compact(h, { windowTokens: 40_000, overheadChars: 0 });
+    const next = [...c.messages, ...writes(4, 500).slice(1)];
+    expect(estimateTokens(next)).toBeGreaterThan(estimateTokens(c.messages));
+    expect(needsCompaction(next, 40_000)).toBe(false);
+  });
+
   test("anche tagliando, la richiesta iniziale resta e dice cosa è sparito", () => {
     const h = writes(2_000, 500);
     const c = compact(h, { windowTokens: 10_000, overheadChars: 0 });
@@ -550,7 +561,7 @@ describe("compactSessionNow: /compact on the native engine", () => {
     const { compactSessionNow } = await import("./provider");
     const history = longHistory(20, 4000);
     expect(needsCompaction(history, 1_000_000)).toBe(false);
-    const session = { history, calibration: { charsPerToken: 4 } };
+    const session = { history, calibration: { charsPerToken: 4, calibrated: false } };
     const r = compactSessionNow(session);
     expect(r.compacted).toBe(true);
     if (!r.compacted) return;
@@ -562,7 +573,7 @@ describe("compactSessionNow: /compact on the native engine", () => {
 
   test("a short conversation has nothing to free, and says so", async () => {
     const { compactSessionNow } = await import("./provider");
-    const r = compactSessionNow({ history: longHistory(1, 100), calibration: { charsPerToken: 4 } });
+    const r = compactSessionNow({ history: longHistory(1, 100), calibration: { charsPerToken: 4, calibrated: false } });
     expect(r).toMatchObject({ compacted: false, reason: "nothing" });
   });
 
@@ -570,8 +581,27 @@ describe("compactSessionNow: /compact on the native engine", () => {
     const { compactSessionNow } = await import("./provider");
     const history = longHistory(20, 4000);
     const before = JSON.stringify(history);
-    const r = compactSessionNow({ history, calibration: { charsPerToken: 4 }, abort: new AbortController() });
+    const r = compactSessionNow({ history, calibration: { charsPerToken: 4, calibrated: false }, abort: new AbortController() });
     expect(r).toEqual({ compacted: false, reason: "busy" });
     expect(JSON.stringify(history)).toBe(before);
+  });
+});
+
+/**
+ * THE 5.5 FAMILY HAS A MILLION AS STANDARD (11/10, CLI 2.1.296 and the real
+ * API without the beta). At 200k the native runtime compacted at a fifth of
+ * the window the same model has on the CLI.
+ */
+describe("windowFor reads the shared table", () => {
+  test("5.5 and Opus 4.8 at a million, bare id", () => {
+    for (const model of ["claude-haiku-5-5", "claude-sonnet-5-5", "claude-opus-5-5", "claude-opus-4-8"]) {
+      expect(windowFor(model), model).toBe(1_000_000);
+    }
+  });
+  test("the 200k ones stay 200k, and an unknown model gets the cautious number", () => {
+    expect(windowFor("claude-haiku-4-5")).toBe(200_000);
+    expect(windowFor("claude-sonnet-4-6")).toBe(200_000);
+    expect(windowFor("claude-opus-5")).toBe(200_000);
+    expect(windowFor("some-model-nobody-knows")).toBe(200_000);
   });
 });

@@ -2,6 +2,7 @@ import type { AppSettings } from '../types';
 import { apiFetch } from './shell/net';
 
 export const DEFAULT_SETTINGS: AppSettings = {
+  rustPtyBridgeEnabled: false,
   fontSize: 13,
   messageDensity: 'comfortable',
   sidebarWidth: 256,
@@ -23,6 +24,8 @@ export const DEFAULT_SETTINGS: AppSettings = {
   // the app badge. Round-trips through the server `settings` key like every
   // other AppSettings field (sanitizeSettingsPayload keeps keys present here).
   mutedProjects: [],
+  nativeGitStatusEnabled: true,
+  nativeFileTreeEnabled: true,
   // Heavy tabs never paused, by origin: filled by the «keep always» button.
   keepLiveSites: [],
   // Lingua dell'interfaccia: `auto` segue il browser (e ricade sull'italiano).
@@ -39,6 +42,8 @@ export const DEFAULT_SETTINGS: AppSettings = {
   // La riga «Board generale» in cima alla sidebar: c'è perché la superficie
   // esiste, non perché oggi ci sia lavoro aperto. Vedi AppSettings.
   showBoardRow: true,
+  // The live-terminals menu at the end of the tabs. See AppSettings.
+  showLiveTerminals: true,
 };
 
 const STORAGE_KEY = 'app-settings';

@@ -14,7 +14,7 @@ import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 import { NativeProvider, nativeSystemPrompt } from "./provider";
-import { languageDirective } from "../../lib/topics-agent-prompt";
+import { languageDirective, languageReminder } from "../../lib/topics-agent-prompt";
 import type { StreamHandler } from "../types";
 
 const REAL_HOME = process.env.HOME;
@@ -67,6 +67,24 @@ describe("the native runtime's system prompt carries the language", () => {
     const sent = await systemsSent("topic:lang-probe", ["ciao, lavora sul livello", "Objective still open: the level"]);
     expect(sent.length).toBe(2);
     for (const system of sent) expect(system).toContain(languageDirective());
+  });
+
+  test("the person's message ends with the language reminder, an English notice included", async () => {
+    const lasts: unknown[] = [];
+    globalThis.fetch = (async (_url: unknown, init?: { body?: string }) => {
+      const body = JSON.parse(String(init?.body ?? "{}")) as { messages: Array<{ content: Array<{ text?: string }> }> };
+      lasts.push(body.messages.at(-1)!.content.at(-1)!.text);
+      return new Response(answer, { status: 200 });
+    }) as unknown as typeof fetch;
+    const provider = new NativeProvider({ type: "native", defaultWorkspace: workspace, model: "claude-haiku-4-5-20251001" });
+    await provider.sendChat("topic:lang-reminder", "Command `build` finished: exit 0 after 3m.", quiet);
+    expect(lasts).toEqual([languageReminder()]);
+  });
+
+  test("the reminder follows the setting, one short line", () => {
+    expect(languageReminder("it")).toBe("<system-reminder>Rispondi in italiano.</system-reminder>");
+    expect(languageReminder("en")).toBe("<system-reminder>Answer in English.</system-reminder>");
+    expect(languageReminder("auto")).toContain("the language the person writes in");
   });
 
   test("the pure composition: base, the no-workspace note only without a project, the language last", () => {

@@ -113,6 +113,9 @@ describe("global coordinator route isolation", () => {
       json,
       readJSON: async () => ({}),
       loadLocalMessages: () => [],
+      // The capped read walks the thread as a skeleton first; the coordinator has no rows.
+      loadThreadSkeleton: () => [],
+      loadThreadRows: () => [],
       hydrateMessageBodies: (rows: unknown[]) => rows,
       appendLocalMessage: () => { throw new Error("provider migration must not append"); },
       isStreaming: () => undefined,

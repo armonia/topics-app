@@ -32,6 +32,7 @@ import {
   type PresenceFace, type MembroPresenza, type PresenceRow,
 } from '@/components/Sidebar/orgPresence';
 import { apiFetch } from '../lib/shell/net';
+import { isDocumentVisible, startVisibleInterval } from '../state/documentVisibility';
 
 /** One organisation, with whoever is present inside it right now. */
 export interface OrgWithPresence {
@@ -80,7 +81,7 @@ export function useIdentityPresence(enabled = true, intervalMs = INTERVAL_MS): P
   const [state, setStato] = useState<PresenceIdentity>(EMPTY);
 
   const read = useCallback(async () => {
-    if (document.hidden) return;
+    if (!isDocumentVisible()) return;
     // The address book and the organisations in parallel: they are
     // independent, and in series the friends row would wait on the org row for
     // no reason at all.
@@ -136,21 +137,21 @@ export function useIdentityPresence(enabled = true, intervalMs = INTERVAL_MS): P
     // of these numbers is needed in the first frame, and a synchronous state
     // write on mount is exactly what `set-state-in-effect` flags.
     const first = setTimeout(giro, 0);
-    const each = setInterval(giro, intervalMs);
-    const atReturn = () => { if (!document.hidden) giro(); };
-    document.addEventListener('visibilitychange', atReturn);
+    const stopPolling = startVisibleInterval(giro, intervalMs);
     // A device that has just been paired changes WHO YOU ARE: waiting for the
     // next minute would mean showing the old identity at the very instant
     // somebody is looking to check that the pairing went through.
     window.addEventListener('topics:auth-pair-resolved', giro);
     window.addEventListener('topics:auth-device-revoked', giro);
+    // A rename (the first-run screen) changes the name on this card the same way.
+    window.addEventListener('topics:identity-changed', giro);
     return () => {
       alive = false;
       clearTimeout(first);
-      clearInterval(each);
-      document.removeEventListener('visibilitychange', atReturn);
+      stopPolling();
       window.removeEventListener('topics:auth-pair-resolved', giro);
       window.removeEventListener('topics:auth-device-revoked', giro);
+      window.removeEventListener('topics:identity-changed', giro);
     };
   }, [enabled, intervalMs, read]);
 

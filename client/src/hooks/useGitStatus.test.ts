@@ -1,5 +1,5 @@
 import { test, expect, describe } from "bun:test";
-import { desiredInterval } from "./useGitStatus";
+import { desiredInterval, recordFetchFailure } from "./useGitStatus";
 
 /**
  * Il passo del poll dello stato git.
@@ -41,5 +41,28 @@ describe("desiredInterval", () => {
     // di quel progetto restava congelato fino al rimontaggio del pannello.
     expect(desiredInterval({ wsChannels: 0, errorStreak: 20 })).toBe(120000);
     expect(desiredInterval({ wsChannels: 0, errorStreak: 999 })).toBe(120000);
+  });
+});
+
+/**
+ * The autofetch switches off at the second failed fetch in a row, and it keeps
+ * its own count. While the count lived in `errorStreak`, every successful status
+ * poll reset it, a few seconds apart, and the failing fetch ran again every 3
+ * minutes forever.
+ */
+describe("autofetch", () => {
+  test("due fetch falliti lo spengono anche se in mezzo il poll di stato riesce", () => {
+    const store = { errorStreak: 0, fetchErrorStreak: 0, fetchDisabled: false };
+    recordFetchFailure(store);
+    store.errorStreak = 0; // a successful status poll, as `load` does
+    recordFetchFailure(store);
+    expect(store.fetchDisabled).toBe(true);
+  });
+
+  test("un fetch fallito non dirada il poll di stato", () => {
+    const store = { errorStreak: 0, fetchErrorStreak: 0, fetchDisabled: false, wsChannels: 0 };
+    recordFetchFailure(store);
+    expect(store.fetchDisabled).toBe(false);
+    expect(desiredInterval(store)).toBe(desiredInterval({ wsChannels: 0, errorStreak: 0 }));
   });
 });

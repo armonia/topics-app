@@ -256,6 +256,18 @@ The system SHALL display git status indicators on files, provide a diff viewer f
 - **THEN** staged files appear in a separate Staged section
 - **AND** unstaged files appear in a separate section below
 
+#### Scenario: A file saved outside Topics reaches the git panel within one second
+- **GIVEN** a project whose file explorer is open, so its file watcher and its `.git` watcher are live
+- **WHEN** an external editor writes a new file in the working tree
+- **THEN** the git panel lists it within one second, carried by the watcher push and not by the status poll
+
+#### Scenario: The git status is read from memory, with a 60-second cap
+- **GIVEN** both watchers are live on a project path
+- **WHEN** the status is read every 15 seconds for ten minutes and nothing changes
+- **THEN** git is asked at most once per 60 seconds, counted from the last write and never renewed by a read
+- **AND** a change that no watcher reported shows at the first read after those 60 seconds
+- **AND** with only the `.git` watcher live, the five-second TTL applies as before
+
 ### Requirement: FILE-03 — Reveal in Finder
 
 The system SHALL allow users to reveal any file or folder in macOS Finder directly from the file tree context menu.
@@ -686,14 +698,17 @@ l'originale.
 - **GIVEN** una regola che esclude e una successiva che riapre
 - **THEN** SHALL valere la seconda
 
-### Requirement: GIT-STATUS-SPAWNS-01 — The git status is computed once, in five spawns, by the route and the watcher alike
+### Requirement: GIT-STATUS-SPAWNS-01 — The git status is computed once, by the route and the watcher alike
 
 The git status of a working tree SHALL be computed by ONE function, used by
-`GET /api/git/status` and by the git watcher, and on a normal branch that
-function SHALL spawn FIVE git processes: `rev-parse` for "is it a repo, and
-where is its root", `status --porcelain -z --branch` for the files AND the
-branch header, `log -1` for the last commit, and the two numstats. A folder
-that is not a repo SHALL cost ONE spawn and answer null.
+`GET /api/git/status` and by the git watcher. When the native addon is loaded
+and enabled, it SHALL provide the repository root, status, branch and last
+commit, and the function SHALL spawn only the two numstat processes. When the
+addon is unavailable, disabled or rejects a call, the Git fallback SHALL spawn
+FIVE processes on a normal branch: `rev-parse` for "is it a repo, and where is
+its root", `status --porcelain -z --branch` for the files AND the branch
+header, `log -1` for the last commit, and the two numstats. A folder that is
+not a repo SHALL answer null; the fallback SHALL cost one spawn.
 
 The collapse SHALL NOT change an answer: the branch name, the ahead and
 behind counts, the dirty files, the label of a detached HEAD (its short
@@ -714,14 +729,96 @@ XY codes.
 > machine at loadavg 33, and the two copies had already drifted once.
 
 #### Scenario: a normal branch, one commit ahead, one untracked file
-- **GIVEN** a clone of an origin, one commit ahead, with an untracked file
+- **GIVEN** a clone of an origin, one commit ahead, with an untracked file, and Git fallback in use
 - **WHEN** the status is computed
 - **THEN** exactly five processes are spawned
 - **AND** the branch, ahead 1, behind 0, the last commit and the untracked file read as before
 
 #### Scenario: not a repo
-- **GIVEN** a plain folder
+- **GIVEN** a plain folder and Git fallback in use
 - **THEN** the status is null, after one spawn
+
+#### Scenario: native status is enabled
+- **GIVEN** a repository and a loaded native addon
+- **WHEN** the status is computed with the setting enabled
+- **THEN** the native result supplies the repository state and last commit
+- **AND** exactly two Git processes are spawned for numstat
+
+#### Scenario: native status falls back to Git
+- **GIVEN** the addon is missing, disabled or rejects its call
+- **WHEN** the status is computed
+- **THEN** the Git fallback preserves the answer and spawns five processes on a normal branch
+- **AND** `/api/system/status` reports native availability, setting, calls, fallbacks and last error
+
+### Requirement: GIT-DEADLINE-01 — An external process on the path of a request answers, or the deadline does
+
+Every external process the server launches on the path of a request (the
+`/api/git/*` routes, the git/ps/lsof helpers behind the panels, the process
+panel's probes) SHALL have a deadline on its ANSWER, not on the process alone.
+The deadline limits the answer, which is complete only when the child has exited
+AND its pipes have reached their end: a child that exits at once and leaves a
+grandchild holding the pipe is still a timeout. When the deadline fires the whole
+process group SHALL receive SIGTERM first (so git removes its lock files and a
+script's `trap` cleanup runs), SIGKILL after a short grace to whoever remains,
+and the streams SHALL be closed, so that a grandchild holding the pipe open (ssh
+under git, a hook, a credential helper, a script's children) cannot keep the
+request waiting after the child has been killed. The caller SHALL see a failed
+exit (`timedOut` true and a null exit code, never a success) and the text that
+arrived before the deadline SHALL NOT be lost. Work that is legitimately long
+(copying a tree, a push with a pre-push hook) SHALL use the long deadline, and a
+timed-out copy SHALL NOT leave a partial destination behind.
+
+The groups started this way are not in the server's own process group, so the
+server SHALL close the ones still alive when it shuts down (SIGTERM, a short
+grace, SIGKILL): a stop signal forwarded to the server's group by the host must
+not leave them orphaned.
+
+Synchronous calls (`Bun.spawnSync`, `execFileSync`) SHALL carry `timeout` and
+`killSignal: "SIGKILL"`, since they stop the single event loop of the server
+for as long as they last.
+
+The calls that have no deadline by design (agent turns, daemons, scripts and
+commands started from the panel that the user stops, package installs in a
+worktree, calls that already race their own deadline) SHALL be listed, each with
+its reason, in `server/lib/spawn-deadline-scan.test.ts`; any other call without
+a deadline SHALL turn that test red.
+
+> **Why.** On 21/09 a `ps` with no deadline froze the server for minutes
+> (`GET /api/system/status`: 399 seconds). T5 found 89 more calls with no
+> deadline, 48 of them in `routes/files.ts`, and found that the fix everyone
+> reached for does not work: with `sh -c "trap '' TERM; sleep 30"` and Bun's own
+> `timeout: 300` the answer came back after 30005 ms, because the `sleep` held
+> the pipe.
+
+#### Scenario: a git that never answers
+- **GIVEN** a `git` on the PATH that launches a `sleep 30` child and waits
+- **WHEN** `GET /api/git/diff`, `GET /api/git/log`, `POST /api/git/stage-all` or `POST /api/git/pull` is called
+- **THEN** each returns at its deadline, not after 30 seconds
+- **AND** `stage-all` answers 400 and `pull` answers 504
+
+#### Scenario: a grandchild ignores SIGTERM and holds the pipe
+- **GIVEN** a shell that traps TERM and runs `sleep 30`
+- **WHEN** it is run with a 300 ms deadline
+- **THEN** the call returns in under two seconds, timed out, with a null exit code
+
+#### Scenario: the deadline fires on a git holding a lock
+- **GIVEN** a `git add -A` held by a slow clean filter, with a 1.5 s deadline
+- **WHEN** the deadline fires
+- **THEN** git is stopped with SIGTERM and leaves no `.git/index.lock`
+- **AND** a process that ignores SIGTERM is killed after the grace, still within deadline plus grace
+
+#### Scenario: the direct child exits and a grandchild keeps the pipe
+- **GIVEN** `sh -c "sleep 8 & echo started"` with a 1 s deadline
+- **THEN** the call returns near the deadline, timed out, with a null exit code and the text "started"
+
+#### Scenario: the host stops the server
+- **GIVEN** a bounded child alive and the host sends SIGTERM to the server's process group
+- **WHEN** the server exits
+- **THEN** the child is gone, as a child of plain `Bun.spawn` is
+
+#### Scenario: a new call with no deadline
+- **WHEN** a `Bun.spawn(...)` with no `timeout` in its text is added under `server/` and is not in the list
+- **THEN** `server/lib/spawn-deadline-scan.test.ts` is red
 
 ### Requirement: TRASH-01 — Cancellare vuol dire spostare nel cestino, e due file con lo stesso nome non si sovrascrivono
 

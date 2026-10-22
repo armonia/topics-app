@@ -77,6 +77,12 @@ The system SHALL render a kanban board with five status columns, support creatin
 - **WHEN** the user drags a task above another task in the same column
 - **THEN** the task order within the column changes to reflect the new position
 
+#### Scenario: Reorder tasks beyond the drawn window
+- **GIVEN** a hand-ordered column has more tasks than fit in its visible window
+- **WHEN** the user drags a task to a later position with mouse auto-scroll, or moves it there with the keyboard
+- **THEN** the task order SHALL change on the server
+- **AND** the active task SHALL remain registered during the drag
+
 #### Scenario: Loading state while board fetches data
 - **GIVEN** the user navigates to a project board
 - **WHEN** the board data is being fetched
@@ -5092,3 +5098,54 @@ spento» 1,12:1.
 - **WHEN** axe e il calcolo sui fondi composti leggono la colonna
 - **THEN** nessun testo SHALL stare sotto il contrasto minimo
 
+### Requirement: KANBAN-95 — Card a calendario
+
+**Una ricorrenza della board SHALL creare una card normale all'ora giusta**, secondo una regola cron
+a cinque campi nel fuso IANA scritto nella ricorrenza (di default quello del browser di chi la
+crea). La card nasce nella colonna e con le etichette della ricorrenza, e da lì vale l'auto-dispatch
+della board come per ogni altra card.
+
+**Se la card nata dall'occorrenza precedente è ancora aperta** (non `done` né archiviata), **la
+nuova SHALL essere saltata**, con il motivo scritto nell'ultimo esito della ricorrenza.
+
+**Dopo uno spegnimento SHALL nascere al massimo UNA card** per le occorrenze perse, non una per
+ciascuna. Un riavvio non perde né duplica un'occorrenza: lo stato vive nel database, non in memoria.
+
+**Ogni occorrenza del calendario locale SHALL dare al massimo una card**, anche col cambio d'ora:
+l'orario ripetuto d'autunno ne dà una, quello inesistente di primavera nessuna.
+
+**Dalla board si SHALL vedere e gestire ogni ricorrenza:** interruttore acceso/spento, prossima
+esecuzione nel suo fuso, ultimo esito (creata, saltata e perché), modifica ed eliminazione.
+
+#### Scenario: la card nasce al tick giusto
+- **GIVEN** una ricorrenza «ogni lunedì alle 9» a Roma
+- **WHEN** l'orologio arriva a lunedì 9:00
+- **THEN** SHALL nascere una card, e non prima di quell'ora
+
+#### Scenario: la precedente aperta fa saltare la successiva
+- **GIVEN** la card del lunedì precedente è ancora aperta
+- **WHEN** arriva il lunedì successivo
+- **THEN** nessuna card SHALL nascere, e l'ultimo esito SHALL dire «saltata» col motivo
+
+#### Scenario: tre settimane spento, una card sola
+- **GIVEN** il server è rimasto spento per tre lunedì
+- **WHEN** riparte
+- **THEN** SHALL nascere una sola card
+
+### Requirement: KANBAN-96 — Sbirciata della sessione dalla card
+
+Una card legata a una sessione SHALL mostrare al passaggio del mouse, al tocco prolungato o al
+fuoco da tastiera un riquadro con lo stato, la durata, lo strumento corrente se noto, le ultime
+massimo tre righe dell'ultimo messaggio dell'agent e token o costo già disponibili. Il riquadro
+SHALL aggiornarsi mentre resta aperto e SHALL leggere i dati esistenti senza chiedere un riassunto
+a un modello. A riquadro chiuso non SHALL partire alcun polling.
+
+#### Scenario: la sbirciata segue il turno senza aprire la sessione
+- **GIVEN** una card con un agent che sta producendo messaggi
+- **WHEN** si passa sulla card senza aprire la sessione
+- **THEN** il riquadro SHALL mostrare lo stato e le ultime righe, e SHALL aggiornarle mentre il turno avanza
+
+#### Scenario: una card senza sessione non mostra la sbirciata
+- **GIVEN** una card senza sessione assegnata
+- **WHEN** si passa sulla card
+- **THEN** non SHALL apparire alcun riquadro di sessione

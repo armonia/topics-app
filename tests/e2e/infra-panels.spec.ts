@@ -194,6 +194,33 @@ test.describe("Cron Jobs Panel", () => {
 // sulla rete locale e si autorizza il dispositivo una volta.
 
 test.describe("System Status Panel", () => {
+  test("STATUS-04: PTY bridge failure is visible and recovers", async ({ page, infraPage, request }) => {
+    test.info().annotations.push({ type: "spec", description: "SYSTEM-03" });
+    const setBridge = async (enabled: boolean | null) => {
+      const socketPath = enabled === false ? "/tmp/topics-e2e-missing-pty-bridge.sock" : null;
+      const response = await request.post("/api/test/system/pty-bridge", { data: { socketPath } });
+      expect(response.ok()).toBeTruthy();
+    };
+
+    await setBridge(false);
+    try {
+      await page.goto("/");
+      await infraPage.openSystemStatusPanel();
+      const row = page.getByTestId("system-health-pty-bridge");
+      await expect(row).toHaveAttribute("data-state", "error");
+      // The catalogue's words for `socket-missing` (it-IT, the e2e locale): the reason and the remedy.
+      await expect(row.getByText("Socket del bridge assente.")).toBeVisible();
+      await expect(row.getByText("Riavvia il bridge.")).toBeVisible();
+
+      await setBridge(true);
+      await page.getByTestId("system-status-refresh").click();
+      await expect(row).toHaveAttribute("data-state", "ok", { timeout: 10_000 });
+      await expect(row.getByText("Il socket accetta connessioni.")).toBeVisible();
+    } finally {
+      await setBridge(null);
+    }
+  });
+
   test("STATUS-01: Panel renders all status rows", async ({
     page,
     infraPage,

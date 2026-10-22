@@ -14,6 +14,7 @@
  * text fallback when unknown/oversize/not-yet-loaded.
  */
 import { openLink, isExternalLinkGesture } from '../../lib/openLink';
+import { startVisibleInterval } from '../../state/documentVisibility';
 
 import { useEffect, useMemo, useState, useSyncExternalStore } from 'react';
 import { CircleCheck, CircleDot, Circle, Check, X } from 'lucide-react';
@@ -22,6 +23,7 @@ import { SpawnAgentCard } from './SubAgentResultCard';
 import type { ReactNode } from 'react';
 import type { Components } from 'react-markdown';
 import { AgentMessageCard, AgentControlCard, ArtifactCard, AskUserCard } from './ToolCardsFleet';
+import { ViewBlock } from '../Views/ViewBlock';
 import type { ToolCallDetail } from '../../types';
 import { ChatMarkdown } from '../ChatMarkdown';
 import { highlightCode, langFromPath, subscribeHighlighter, highlighterReady } from '../../lib/syntaxHighlight';
@@ -32,7 +34,7 @@ import { unwrapStoredToolResult } from '../../../../shared/tool-result-text';
 import { skillInstructions } from './toolCardBody';
 import { useBackgroundShell, parseShellIdFromStartResult } from '../../hooks/useBackgroundShell';
 import { useWaitedProcess } from '../../hooks/useWaitedProcess';
-import type { LiveBackgroundShell } from '../../hooks/useBackgroundShell';
+import { LaunchedProcessTail, LiveShellTail } from './LiveShellTail';
 import { liveShellTail } from './runningShellTail';
 
 /**
@@ -63,47 +65,6 @@ function HighlightedPre({ code, lang, className, testId, prefix }: {
       {prefix}
       {html ? <code dangerouslySetInnerHTML={{ __html: html }} /> : code}
     </pre>
-  );
-}
-
-// ── Shell in background: il pezzo che si aggiorna da solo ───────────────────
-
-/**
- * La coda VIVA di una shell lasciata in background, letta dal registro dei
- * processi invece che dal transcript.
- *
- * Il transcript dice cosa c'era quando il tool ha risposto e non lo dice mai
- * più; il registro sa se la shell corre ancora, quanto output ha prodotto da
- * allora e con che codice è uscita. Quando il registro non la conosce — chat
- * vecchia, server riavviato — questo blocco non compare e la card resta quella
- * di prima: nessuna riga di segnaposto per uno stato che non abbiamo.
- */
-function LiveShellTail({ live }: { live: LiveBackgroundShell }) {
-  const tr = useT();
-  if (!live.known) return null;
-  const running = live.status === 'running';
-  return (
-    <div className="space-y-1" data-testid="shell-live">
-      <div className="flex items-center gap-1.5 text-mini text-app-text-muted">
-        <span
-          data-testid="shell-live-status"
-          data-status={running ? 'running' : 'ended'}
-          className={`inline-block w-1.5 h-1.5 rounded-full ${running ? 'bg-emerald-500 animate-pulse' : (live.status === 'error' ? 'bg-red-500' : 'bg-app-text-muted')}`}
-        />
-        <span>{running ? 'in corso' : (live.exitCode != null ? `uscita ${live.exitCode}` : 'terminata')}</span>
-      </div>
-      {live.truncatedLines > 0 && (
-        <div className="text-mini text-app-text-muted">{tr('tool.logTruncated', { n: live.truncatedLines })}</div>
-      )}
-      {live.output && (
-        <pre
-          data-testid="shell-live-output"
-          className="tool-card-code text-mini font-mono text-app-text-secondary whitespace-pre-wrap overflow-auto max-h-72 bg-app-hover/40 rounded px-2 py-1.5"
-        >
-          {live.output}
-        </pre>
-      )}
-    </div>
   );
 }
 
@@ -156,6 +117,8 @@ export function ShellCard({ command, cwd, output, exitCode, isError, background,
         </div>
       )}
       <LiveShellTail live={live} />
+      {/* A `run_command` card (the native runtime's): the log of the process it started. */}
+      {!background && <LaunchedProcessTail answer={output} />}
     </div>
   );
 }
@@ -467,6 +430,7 @@ export function McpCard({ args, result }: {
     <div className="space-y-1">
       {args && Object.keys(args).length > 0 && <ArgsPre args={args} />}
       {result && <ClampedPre text={result} />}
+      <LaunchedProcessTail answer={result} />
     </div>
   );
 }
@@ -594,8 +558,7 @@ export function WaitCard({ processId, until, timeoutMs, result, sessionKey }: {
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
     if (!running) return;
-    const id = setInterval(() => setNow(Date.now()), 1000);
-    return () => clearInterval(id);
+    return startVisibleInterval(() => setNow(Date.now()), 1000);
   }, [running]);
   // Il cronometro si ferma su `completedAt`, non su «adesso»: riaprendo la
   // chat domani, «adesso» direbbe che quel build e' durato quindici ore.
@@ -794,6 +757,8 @@ export function ToolCardBody({ detail, isError, error, isRunning, sessionKey, li
     case 'browser':
       // The same body as a fetch: the whole URL, clickable, and what came back.
       return <FetchCard url={detail.url} result={detail.result} />;
+    case 'view':
+      return <ViewBlock spec={detail.view} viewId={detail.viewId} />;
     case 'unknown':
       return <UnknownCard args={detail.raw.args} result={detail.raw.result} />;
   }

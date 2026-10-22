@@ -13,6 +13,7 @@
  *     enhancement; the one-shot path keeps the protocol surface small.
  */
 
+import { childExited } from "./child-exit";
 import { spawn, type ChildProcess } from "child_process";
 import { createInterface } from "readline";
 import { existsSync, mkdirSync, mkdtempSync, rmSync } from "fs";
@@ -53,6 +54,7 @@ import {
   isEligibleGlobalOrchestratorSession,
   isGlobalOrchestratorSession,
 } from "../services/global-orchestrator-session";
+import { freshSessionPreamble } from "./handoff";
 
 // ============ Config ============
 
@@ -323,58 +325,6 @@ function forgetCodexThreadId(db: ReturnType<typeof getDatabase>, sessionKey: str
 
 // ============ Helpers ============
 
-/**
- * Maximum non-system transcript turns to ship to `codex exec`. Codex's
- * single-shot mode has a finite context window and there's no resume API to
- * lean on — past this cap we keep the most recent turns and ALL system
- * messages (which are typically small but carry pinned context the user
- * specifically wants preserved). Tuned for ~32k context with reasonable
- * room for the response; bump if codex grows.
- */
-const CODEX_HISTORY_TURN_CAP = 20;
-
-/**
- * Format a chat transcript as a markdown preamble that codex `exec` can read.
- * We label each turn with its role so the model can disambiguate; system
- * messages flow through as `## Context` blocks since codex doesn't have a
- * dedicated system-prompt slot in single-shot mode.
- *
- * Long histories are truncated to `CODEX_HISTORY_TURN_CAP` user/assistant
- * turns from the tail. System messages are always preserved because they
- * usually encode pinned context (SOUL.md, project hints, etc.).
- */
-function renderHistoryAsPrompt(history: ChatMessage[]): string {
-  const systemMessages = history.filter((m) => m.role === "system");
-  const conversational = history.filter((m) => m.role === "user" || m.role === "assistant");
-
-  let truncated = false;
-  let kept = conversational;
-  if (conversational.length > CODEX_HISTORY_TURN_CAP) {
-    kept = conversational.slice(-CODEX_HISTORY_TURN_CAP);
-    truncated = true;
-  }
-
-  const lines: string[] = ["# Conversation so far"];
-  if (truncated) {
-    lines.push(
-      "",
-      `> _(Earlier ${conversational.length - kept.length} turns omitted; only the most recent ${kept.length} are shown.)_`
-    );
-  }
-
-  for (const m of systemMessages) {
-    lines.push("", "## Context", "", m.content);
-  }
-  for (const m of kept) {
-    if (m.role === "user") {
-      lines.push("", "## User", "", m.content);
-    } else if (m.role === "assistant") {
-      lines.push("", "## Assistant", "", m.content);
-    }
-  }
-  return lines.join("\n");
-}
-
 // ============ Provider ============
 
 /** Per-turn bookkeeping shared between the JSONL event router and the close
@@ -449,14 +399,17 @@ export class CodexProvider implements AIProvider {
     console.log("[codex] Provider started");
   }
 
-  stop(): void {
+  stop(): Promise<void> {
     this.started = false;
+    const exits: Promise<void>[] = [];
     for (const [, child] of this.activeChildren) {
       try { child.kill("SIGTERM"); } catch {}
       setTimeout(() => { try { child.kill("SIGKILL"); } catch {} }, KILL_GRACE_MS);
+      exits.push(childExited(child, KILL_GRACE_MS + 500));
     }
     this.activeChildren.clear();
     console.log("[codex] Provider stopped");
+    return Promise.all(exits).then(() => undefined);
   }
 
   /**
@@ -664,9 +617,8 @@ export class CodexProvider implements AIProvider {
     // child otherwise has no memory of prior turns). Without this, a fresh
     // turn's reply read like the very first one.
     const history = options?.history ?? [];
-    const prompt = invocation.mode === "fresh" && history.length > 0
-      ? renderHistoryAsPrompt(history) + "\n\n## Current message\n\n" + message
-      : message;
+    const preamble = invocation.mode === "fresh" ? freshSessionPreamble(sessionKey, history) : "";
+    const prompt = preamble ? preamble + "\n\n## Current message\n\n" + message : message;
 
     this.runCodexTurn({
       sessionKey,
@@ -802,9 +754,8 @@ export class CodexProvider implements AIProvider {
       if (code !== 0 && !state?.aborted && invocationMode !== "fresh" && allowResumeFallback) {
         try { forgetCodexThreadId(getDatabase(), sessionKey); consumeFork(getDatabase(), sessionKey); } catch { /* next turn just tries resume again */ }
         const freshArgs = buildCodexArgs(argsOptsForFallback);
-        const freshPrompt = history.length > 0
-          ? renderHistoryAsPrompt(history) + "\n\n## Current message\n\n" + message
-          : message;
+        const freshPreamble = freshSessionPreamble(sessionKey, history);
+        const freshPrompt = freshPreamble ? freshPreamble + "\n\n## Current message\n\n" + message : message;
         this.runCodexTurn({
           sessionKey, bin, args: freshArgs, workspace, env, handler, explicitModel,
           invocationMode: "fresh", prompt: freshPrompt, message, history, argsOptsForFallback,

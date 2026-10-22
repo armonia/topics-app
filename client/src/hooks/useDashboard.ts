@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { dashboardApi, type DashboardKPIs, type TimeSeriesPoint } from '../lib/api';
 import { readDashboardSnapshot, writeDashboardSnapshot } from '../lib/dashboardSnapshotCache';
 import type { WSMessage } from '../types';
+import { isDocumentVisible, startVisibleInterval } from '../state/documentVisibility';
 
 const REFRESH_INTERVAL_MS = 60_000;
 
@@ -25,7 +26,6 @@ export function useDashboard(onMessage?: (handler: (msg: WSMessage) => void) => 
   // would label the chart with something it does not show.
   const [selectedMetric, setSelectedMetric] = useState(seed?.metric ?? DEFAULT_METRIC);
   const [range, setRange] = useState(seed?.range ?? DEFAULT_RANGE);
-  const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const mountedRef = useRef(true);
 
   const fetchAll = useCallback(async () => {
@@ -52,13 +52,12 @@ export function useDashboard(onMessage?: (handler: (msg: WSMessage) => void) => 
   useEffect(() => {
     mountedRef.current = true;
     setLoading(true);
-    fetchAll();
-
-    intervalRef.current = setInterval(fetchAll, REFRESH_INTERVAL_MS);
+    if (isDocumentVisible()) fetchAll();
+    const stopPolling = startVisibleInterval(fetchAll, REFRESH_INTERVAL_MS);
 
     return () => {
       mountedRef.current = false;
-      if (intervalRef.current) clearInterval(intervalRef.current);
+      stopPolling();
     };
   }, [fetchAll]);
 

@@ -233,6 +233,11 @@ sola macchina, alcuni vecchi di tre giorni.**
 - **GIVEN** un'attesa che supera il tetto mentre i byte scorrevano
 - **THEN** NON SHALL essere ritentata
 
+#### Scenario: la risposta arriva dopo il tetto
+- **GIVEN** un'attesa scaduta al tetto, con il canale ancora aperto e un processo remoto che ripete l'identificativo delle richieste
+- **WHEN** la risposta arriva dopo
+- **THEN** SHALL essere consegnata a chi la aspetta ancora, e un canale caduto prima SHALL chiudere quell'attesa a vuoto
+
 ### Requirement: RUNTIME-07 — Prima la cura economica, poi quella cara — e chi rinviene si ferma
 
 La sorveglianza del ponte SHALL agire per GRADI: al primo silenzio completo SHALL
@@ -972,6 +977,16 @@ esattamente quella che deve ricaricarsi.
 - **GIVEN** una chat aperta mentre la connessione era giu'
 - **THEN** alla ri-apertura SHALL essere la sua storia a essere ricaricata
 
+#### Scenario: il server fermo oltre le soglie del battito
+- **GIVEN** una chat aperta con un turno lento in streaming
+- **WHEN** il server resta fermo 100 s, oltre i 75 s del battito client e i 90 s del server, come in uno sleep del Mac, e poi riparte
+- **THEN** la pagina non si ricarica, le pane restano le stesse e il turno arriva fino all'ultimo pezzo, ogni pezzo una volta sola
+
+#### Scenario: il bridge fermo per un minuto
+- **GIVEN** una chat aperta con un turno lento in streaming
+- **WHEN** l'ai-bridge resta fermo 60 s, come quando bridge e server dormono insieme, e poi riparte
+- **THEN** la pagina non si ricarica, le pane restano le stesse e il turno arriva fino all'ultimo pezzo, ogni pezzo una volta sola
+
 ### Requirement: RUNTIME-21: Il watcher del server resta sorvegliato
 
 Quando `TOPICS_SERVER_WATCH=1`, il supervisore di produzione SHALL mantenere
@@ -1080,6 +1095,38 @@ nel log.
 - **WHEN** il server viene riavviato
 - **THEN** il riavvio SHALL avvenire lo stesso, con l'ambiente di prima e una riga di log
 
+### Requirement: BOOT-BUN-01 — Il server di produzione gira sulla Bun di `.bun-version`
+
+Il server avviato da `scripts/start-prod.sh` SHALL girare sulla versione di Bun
+fissata in `.bun-version`, la stessa di CI, release e test, installata da
+`scripts/install-bun.sh` in `~/.topics/bun/<versione>/bun`. La `bun` globale del
+Mac NON SHALL cambiare: è di tutti gli altri progetti. Due difetti del quality
+pass cloud (`columnNames` rovesciato oltre 62 colonne, `require` che ignora
+`with { type: "text" }`) venivano dal Mac rimasto sulla 1.3.8 mentre la CI
+provava un'altra versione.
+
+La scelta SHALL rifarsi a ogni avvio del server, dopo la rilettura della
+configurazione (BOOT-ENV-01): un cambio di versione arriva con il ricarico che
+porta il codice, senza riavviare il supervisore. Una versione non installata NON
+SHALL fermare il server: parte con la `bun` globale e il log dice quale comando
+la installa. `install-bun.sh` SHALL installare solo un archivio ufficiale il cui
+SHA-256 combacia con lo `SHASUMS256.txt` della stessa release.
+
+#### Scenario: la versione fissata è installata
+- **GIVEN** `.bun-version` e la stessa versione in `~/.topics/bun`
+- **WHEN** il server parte o viene ricaricato
+- **THEN** SHALL girare su quel binario, non sulla `bun` globale
+
+#### Scenario: la versione fissata manca
+- **GIVEN** una `.bun-version` non installata
+- **WHEN** il server parte
+- **THEN** SHALL partire con la `bun` globale e una riga di log che nomina `scripts/install-bun.sh`
+
+#### Scenario: un archivio che non combacia
+- **GIVEN** un archivio il cui SHA-256 non è quello di `SHASUMS256.txt`
+- **WHEN** `install-bun.sh` lo scarica
+- **THEN** SHALL uscire non-zero senza installare niente
+
 
 ### Requirement: RUNTIME-22 — «Pulito» è un conteggio, non un giudizio di chi ha lavorato
 
@@ -1122,3 +1169,64 @@ rimasto qualcosa» ha senso.
 #### Scenario: il rimedio non perde lavoro
 - **WHEN** viene segnalato un ramo oltre main
 - **THEN** il rimedio SHALL nominare `git tag archive/...` prima della cancellazione
+
+### Requirement: RUNTIME-23 — Con la finestra nascosta l'app dorme
+
+Con `document.hidden` i poll HTTP, i ticker della UI e i timer periodici che servono solo a chi
+guarda SHALL fermarsi. Restano il battito del WebSocket e quello che serve a non perdere dati: la
+coda dei messaggi in uscita e i salvataggi in sospeso.
+
+Un solo punto SHALL sapere se la pagina è nascosta (`client/src/state/documentVisibility.ts`), con
+un solo listener di `visibilitychange` condiviso da tutti: un listener per hook moltiplica i risvegli
+proprio quando l'app dovrebbe dormire.
+
+Al ritorno in primo piano ogni poll fermo SHALL ripartire subito, con un aggiornamento immediato:
+il dato cambiato mentre la finestra era nascosta compare entro 1 s.
+
+> Misurato il 14/10: con l'app in background la webview stava al 28% di CPU media (15 campioni).
+
+#### Scenario: in background partono pochi callback
+- **GIVEN** l'app aperta con una chat, la board e l'inventario delle sessioni
+- **WHEN** la finestra resta nascosta per 10 s
+- **THEN** partono al massimo i callback di timer del tetto scritto in `tests/e2e/background-callback-budget.spec.ts`
+
+#### Scenario: al ritorno il dato è fresco
+- **GIVEN** un dato che il server cambia mentre la finestra è nascosta
+- **WHEN** la finestra torna in primo piano
+- **THEN** il dato nuovo compare entro 1 s
+
+### Requirement: RUNTIME-24 — I processi periodici hanno un lettore e un contatore
+
+Il server SHALL contare gli spawn periodici degli ultimi 15 minuti per causa:
+ricalcolo Git e innesco, fetch, `lsof`, `vm_stat` e gli altri sondaggi periodici.
+`/api/system/status` SHALL esporre questi conteggi e il pannello Prestazioni
+SHALL mostrarli in italiano con la finestra temporale.
+
+Un processo lanciato per servire una vista SHALL essere richiesto solo mentre la
+vista è aperta. `lsof` usato per trovare processi e porte SHALL essere limitato
+alla richiesta del pannello Processi; un controllo che deve solo sapere se una
+porta risponde SHALL usare una connessione TCP.
+
+Due richieste simultanee dello stato Git per lo stesso repo e la stessa
+generazione SHALL condividere un solo ricalcolo. Una richiesta arrivata dopo il
+cambiamento SHALL leggere la nuova generazione; le richieste che conoscono quel
+cambiamento SHALL poter condividere il suo giro. Un aggiornamento di solo
+`FETCH_HEAD`, senza cambiamenti a `HEAD`, ref, indice o file del worktree, NON
+SHALL innescare un ricalcolo.
+
+Uno spawn periodico SHALL avere almeno un consumatore identificabile del suo
+risultato. I sondaggi di memoria restano utili alla capacità e al freno swap;
+una lettura che serve solo una vista resta spenta quando la vista è chiusa.
+
+#### Scenario: la route Git e il watcher si incontrano
+- **GIVEN** una modifica del repo e una lettura iniziata dopo il cambiamento
+- **WHEN** route e watcher chiedono lo stato insieme
+- **THEN** SHALL avvenire un solo giro di spawn e SHALL contenere il cambiamento
+
+#### Scenario: fetch senza ref aggiornati
+- **GIVEN** un fetch che riscrive solo `FETCH_HEAD`
+- **THEN** il watcher NON SHALL ricalcolare lo stato Git
+
+#### Scenario: il pannello Processi è chiuso
+- **GIVEN** nessuna richiesta recente del pannello Processi
+- **THEN** il detector NON SHALL lanciare i sondaggi periodici `lsof`

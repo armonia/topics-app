@@ -11,6 +11,7 @@ import { SheetGrabber } from './SheetGrabber';
 // e con l'alias due suite morivano su «Cannot find module» prima di eseguire
 // una riga.
 import { computeMenuPosition } from '../../lib/popoverPosition';
+import { toFixed } from '../../lib/fixedFrame';
 import { POPOVER_SURFACE, POPOVER_SHEET, Z_POPOVER, Z_POPOVER_SCRIM } from '../../lib/popoverStyles';
 import { useExitGhost } from '../../lib/exitGhost';
 import { keepSystemMenuOffPanel } from '../../lib/contextMenuOrigin';
@@ -150,7 +151,7 @@ export function Menu({
     const vh = window.innerHeight;
     const runsOffBottom = next.placement === 'below' && next.top + p.height > vh - MENU_EDGE_PX;
     const top = runsOffBottom ? Math.max(MENU_EDGE_PX, vh - MENU_EDGE_PX - p.height) : next.top;
-    setPos({ top, left: next.left });
+    setPos(toFixed({ top, left: next.left }));
   }, [anchorRef, align, side, gap]);
 
   // Measure the real panel and place it BEFORE paint; keep it placed while open.

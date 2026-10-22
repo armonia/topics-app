@@ -26,9 +26,11 @@
 import { existsSync, watch } from "fs";
 import type { AppContext } from "./types";
 import { refreshGitStatus } from "./git-watcher";
+import { fileChangeDebouncer } from "./file-change-debouncer";
 import { reachesProtectedAppData } from "./lib/protected-app-data";
+import { invalidateFileTreeCache, setFileTreeWatcher } from "./lib/file-tree-cache";
+import { invalidateGitCache, setGitStatusFileWatcher } from "./lib/git-status-cache";
 
-const DEBOUNCE_MS = 300;
 /**
  * Cap on the projects watched at once: every recursive watcher has a cost.
  *
@@ -41,6 +43,16 @@ const DEBOUNCE_MS = 300;
  * change brings the git section back" waited for a push that never left.
  */
 export const MAX_WATCHERS = 24;
+const watcherErrors = new Map<string, { message: string; at: string }>();
+
+export function fileWatcherLastError(): ({ projectPath: string; message: string; at: string }) | null {
+  const latest = [...watcherErrors.entries()].sort((a, b) => b[1].at.localeCompare(a[1].at))[0];
+  return latest ? { projectPath: latest[0], ...latest[1] } : null;
+}
+
+export function _setWatcherErrorForTests(projectPath: string, message: string, at = new Date().toISOString()): void {
+  watcherErrors.set(projectPath, { message, at });
+}
 
 /**
  * Segmenti di path che non meritano un evento. Sono le stesse cartelle che
@@ -100,24 +112,29 @@ export function watchProjectFiles(projectPath: string, ctx: AppContext): void {
   if (reachesProtectedAppData(projectPath)) return;
   makeRoom();
 
-  let timer: ReturnType<typeof setTimeout> | null = null;
   let closed = false;
-
-  const onChange = (_event: string, filename: string | Buffer | null) => {
-    if (closed) return;
-    const rel = filename == null ? null : filename.toString();
-    if (isNoisy(rel)) return;
-    if (timer) clearTimeout(timer);
-    timer = setTimeout(() => {
-      timer = null;
+  const debouncer = fileChangeDebouncer(
+    (generation) => {
       ctx.broadcastToAll({ type: "files:changed", projectPath });
       // E anche lo stato git: il watcher di `.git` guarda `index`, `HEAD` e
       // `refs`, cioè le operazioni git. Salvare un file non tocca niente di
       // quello, quindi una modifica fatta da un editor esterno, da un agente o
       // da un terminale non faceva scattare nessun push — e con il canale WS
       // attivo il poll del client è a 60 secondi.
-      void refreshGitStatus(projectPath, ctx);
-    }, DEBOUNCE_MS);
+      void refreshGitStatus(projectPath, ctx, generation);
+    },
+    () => {
+      const gitGeneration = invalidateGitCache(projectPath);
+      invalidateFileTreeCache(projectPath);
+      return gitGeneration;
+    },
+  );
+
+  const onChange = (_event: string, filename: string | Buffer | null) => {
+    if (closed) return;
+    const rel = filename == null ? null : filename.toString();
+    if (isNoisy(rel)) return;
+    debouncer.onChange();
   };
 
   try {
@@ -125,15 +142,22 @@ export function watchProjectFiles(projectPath: string, ctx: AppContext): void {
     // se non c'è, si rinuncia in silenzio invece di far cadere la richiesta —
     // l'albero torna a essere una fotografia, che è com'era prima.
     const w = watch(projectPath, { recursive: true }, onChange);
-    w.on("error", () => unwatchProjectFiles(projectPath));
+    w.on("error", (error) => {
+      unwatchProjectFiles(projectPath);
+      watcherErrors.set(projectPath, { message: error.message, at: new Date().toISOString() });
+    });
     watchers.set(projectPath, {
       close() {
         closed = true;
-        if (timer) clearTimeout(timer);
+        debouncer.cancel();
         try { w.close(); } catch {}
       },
     });
-  } catch {
+    watcherErrors.delete(projectPath);
+    setFileTreeWatcher(projectPath, true);
+    setGitStatusFileWatcher(projectPath, true);
+  } catch (error) {
+    watcherErrors.set(projectPath, { message: error instanceof Error ? error.message : String(error), at: new Date().toISOString() });
     // Nessun watcher: nessun `files:changed`. Il bottone Aggiorna resta.
   }
 }
@@ -149,6 +173,9 @@ export function watchedProjectPaths(): string[] {
 }
 
 export function unwatchProjectFiles(projectPath: string): void {
+  watcherErrors.delete(projectPath);
+  setFileTreeWatcher(projectPath, false);
+  setGitStatusFileWatcher(projectPath, false);
   const w = watchers.get(projectPath);
   if (w) {
     w.close();

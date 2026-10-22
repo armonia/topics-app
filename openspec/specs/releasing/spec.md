@@ -35,6 +35,11 @@ Un ramo che non è quello principale NON SHALL pubblicare.
 SHALL essere preso lo SHA che la verifica ha GIUDICATO, non lo stato corrente del
 ramo: un prelievo senza riferimento esplicito pubblica qualcos'altro.
 
+Fra lo SHA giudicato e quello pubblicato SHALL poter esserci soltanto il file dei
+tempi degli shard e2e, che nessuna build legge. Lo scrive ogni notte un commit che
+salta la verifica, e come cima del ramo fermava ogni rilascio fino al merge
+successivo: dal 16 al 18/10/2026, due giorni.
+
 Il lavoro di rilascio SHALL dipendere da quello di versione, così il cancello
 vale per entrambi.
 
@@ -49,6 +54,11 @@ sappia.
 #### Scenario: il commit che alza la versione
 - **GIVEN** il commit prodotto dal rilascio precedente
 - **THEN** NON SHALL innescare un nuovo rilascio
+
+#### Scenario: il commit notturno in cima
+- **GIVEN** in cima al ramo i commit notturni dei tempi degli shard, sopra un commit con la verifica verde
+- **THEN** SHALL essere pubblicata la cima
+- **AND** se fra i due cambia qualunque altro file NON SHALL essere pubblicato niente
 
 ### Requirement: RELEASE-02 — I quattro numeri di versione coincidono, e un gesto solo li riallinea
 
@@ -214,6 +224,42 @@ NEGA l'istruzione vecchia: citarla per dire che non vale più non è darla.
 #### Scenario: la stessa istruzione citata per negarla
 - **GIVEN** un paragrafo che dichiara che non vale più
 - **THEN** NON SHALL essere un fallimento
+
+### Requirement: RELEASE-07 — Il numero che sale dice che cosa è cambiato
+
+CINQUECENTODICIASSETTE PATCH DI FILA. Dal 23/07 al 16/10 il rilascio automatico
+ha alzato solo l'ultima cifra, da 2.2.0 a 2.2.517: un rilascio che cambiava
+quello che si vede si leggeva come una correzione di una riga.
+
+Il criterio:
+- la **patch** SHALL salire a ogni rilascio, come prima, se nessun commit chiede
+  di più;
+- la **minor** SHALL salire quando un commit porta un cambiamento che chi usa
+  Topics vede: una funzione nuova o un comportamento diverso;
+- la **major** SHALL salire SOLO per una rottura: dati che la versione
+  precedente non sa più leggere, un protocollo che obbliga client, server e
+  telefono ad aggiornarsi insieme, un sistema operativo non più supportato.
+
+A chiederlo SHALL essere il commit, con una riga a sé nel messaggio:
+`Release: minor` o `Release: major`. Main si fonde con lo squash, quindi la riga
+va nel corpo del commit di fusione. La stessa frase dentro una riga di testo NON
+SHALL contare.
+
+I rilasci escono a lotti: un lotto SHALL prendere il livello più alto fra i
+commit dall'ULTIMO commit di versione in poi. Un commit già rilasciato NON SHALL
+contare di nuovo, o ogni rilascio successivo ripeterebbe il suo salto.
+
+#### Scenario: un lotto di sole correzioni
+- **GIVEN** nessun commit con la riga dall'ultimo rilascio
+- **THEN** SHALL salire la patch
+
+#### Scenario: una funzione nuova fra tre correzioni
+- **GIVEN** un commit con `Release: minor` e tre senza
+- **THEN** SHALL salire la minor, e la patch SHALL tornare a zero
+
+#### Scenario: la riga di un commit già rilasciato
+- **GIVEN** un `Release: major` PRIMA dell'ultimo commit di versione
+- **THEN** NON SHALL contare
 
 ### Requirement: UPDATER-01 — L'aggiornamento si annuncia, ma un controllo SILENZIOSO resta silenzioso
 
@@ -389,3 +435,21 @@ come `chiaveErroreAuth` per i rifiuti del server.
 - **WHEN** si preme il gesto di scaricamento
 - **THEN** lo stato NON SHALL diventare «pronto»
 - **AND** il titolo mostrato SHALL essere una chiave del dizionario, non l'errore del trasporto
+
+## Percorsi del server
+
+Il posto unico per le differenze fra il server del checkout e quello installato. La prova del percorso
+installato è `.github/workflows/install-smoke.yml`: installa i pacchetti pubblicati (la release
+precedente, poi la nuova sopra) e avvia il server come lo avvia l'app
+(`desktop-tauri/src-tauri/src/lib.rs`).
+
+| | Checkout | App installata | Perché |
+|---|---|---|---|
+| Server | `server.ts` eseguito da Bun | `topics-server`, Bun compilato da `server/sidecar-entry.ts` | chi installa non ha Bun |
+| Bridge PTY | Node, `server/pty-bridge.mjs` | Rust, `pty-bridge` accanto al server (`TOPICS_PTY_BRIDGE_BIN`); se manca, terminali spenti (`TOPICS_DISABLE_PTY_BRIDGE`) | chi installa non ha Node |
+| Pagina | `client/dist`, da `bun run build:client` | `public/` del pacchetto (`TOPICS_PUBLIC_DIR`); senza, `/` risponde 503 e la finestra resta grigia | il client viaggia nel pacchetto |
+| Trasporto | HTTPS | HTTP su 127.0.0.1 (`NO_TLS=1`, `SERVER_HOST=127.0.0.1`) | l'unico client è la finestra dell'app, sulla stessa macchina |
+| Stato | `data/` del checkout | cartella dati dell'app: `TOPICS_DATA_DIR`, `DATA_DIR` e `TOPICS_HOME` insieme | il socket PTY deriva da `DATA_DIR`: una variabile sola non isola (incidente del 2026-07-02) |
+| Integrazioni | gateway e journal, se ci sono | spente (`TOPICS_EMBEDDED=1`) | il pacchetto basta a se stesso |
+| Versione | `package.json` | `TOPICS_APP_VERSION`, passata dalla shell | nel binario compilato `package.json` non c'è |
+| Avvio e aggiornamento | launchd; porta del commit e build a mano | la shell Tauri avvia e ferma il server; l'updater firmato (`latest.json`) aggiorna | il checkout è la macchina di chi sviluppa, l'app quella di tutti |

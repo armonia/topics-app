@@ -28,6 +28,7 @@ import { setFramesInteractive } from '../Browser/hostedIframe';
 import type { BrowserPaneChrome } from '../../state/browserPaneChrome';
 import { rankSites, sitesSnapshot, subscribeSites } from '../../state/browserSiteHistory';
 import { displayUrl, prettyUrl, toNavigableUrl } from '../../lib/browserNavUrl';
+import { fixedFrame } from '../../lib/fixedFrame';
 import {
   POPOVER_SURFACE, POPOVER_SHEET, POPOVER_MARGIN, Z_POPOVER, Z_POPOVER_SCRIM, POPOVER_DIVIDER,
   DANGER_TEXT,
@@ -136,17 +137,19 @@ export function TabSheetBody({
       const tab = anchor();
       if (tab) {
         const r = tab.getBoundingClientRect();
+        const frame = fixedFrame();
         const vw = window.innerWidth;
         const vh = window.innerHeight;
         const width = Math.min(MAX_WIDTH, Math.max(r.width, MIN_WIDTH), vw - 2 * POPOVER_MARGIN);
         const side: 'left' | 'right' = r.left + width <= vw - POPOVER_MARGIN ? 'left' : 'right';
-        const left = side === 'left' ? r.left : Math.max(POPOVER_MARGIN, r.right - width);
-        const top = r.bottom;
-        const maxHeight = Math.max(160, vh - top - POPOVER_MARGIN);
+        const left = (side === 'left' ? r.left : Math.max(POPOVER_MARGIN, r.right - width)) - frame.left;
+        const top = r.bottom - frame.top;
+        const maxHeight = Math.max(160, vh - r.bottom - POPOVER_MARGIN);
+        const tabLeft = r.left - frame.left;
         setPos((prev) => (prev && prev.top === top && prev.left === left && prev.width === width
-          && prev.maxHeight === maxHeight && prev.tabLeft === r.left && prev.tabWidth === r.width
+          && prev.maxHeight === maxHeight && prev.tabLeft === tabLeft && prev.tabWidth === r.width
           ? prev
-          : { top, left, width, maxHeight, tabLeft: r.left, tabWidth: r.width, side }));
+          : { top, left, width, maxHeight, tabLeft, tabWidth: r.width, side }));
       }
       frame = requestAnimationFrame(place);
     };
@@ -393,8 +396,23 @@ export function TabSheetBody({
 /** A list of entries: a level of the sheet, or its first one. */
 function EntryList({ entries, controls, depth }: { entries: SheetEntry[]; controls: ControlRenderers; depth: number }) {
   const { isMobile } = controls;
+  const host = controls.chrome?.nativeHostStatus;
+  const devicesLabel = host?.devices === 1
+    ? controls.t('browser.tab.hostWatchingOne')
+    : controls.t('browser.tab.hostWatchingMany', { n: String(host?.devices ?? 0) });
   return (
     <>
+      {depth === 0 && host && (host.devices > 0 || !host.sharing) && controls.chrome?.commands.setHostSharing && (
+        <div className="px-3 py-2 text-mini text-app-text-secondary" data-testid="browser-host-status">
+          <div>{host.sharing && host.devices > 0 ? devicesLabel : controls.t('browser.tab.hostStopped')}</div>
+          <div className="text-app-text-faint">{host.kbps.toFixed(1)} KB/s · {controls.t('browser.tab.hostLastFrame', { age: host.delayMs < 1000 ? `${Math.round(host.delayMs)} ms` : `${Math.round(host.delayMs / 1000)} s` })}{host.error ? ` · ${host.error}` : ''}</div>
+          <button type="button" role="menuitem" className="mt-1 text-left text-primary"
+            data-testid="browser-host-sharing-toggle"
+            onClick={() => controls.chrome?.commands.setHostSharing?.(!host.sharing)}>
+            {controls.t(host.sharing ? 'browser.tab.hostStop' : 'browser.tab.hostResume')}
+          </button>
+        </div>
+      )}
       {entries.map((entry) => {
         if (entry.kind === 'divider') return <div key={entry.id} className={POPOVER_DIVIDER} role="separator" />;
         if (entry.kind === 'control') return <ControlRow key={entry.id} id={entry.id} controls={controls} />;
@@ -550,7 +568,7 @@ function useTabSheetModel({ target, chrome, working, splitLayoutAvailable, space
         errors: chrome.consoleErrors,
         downloadCount: chrome.downloads,
       } : undefined,
-      session: isBrowser && c ? { share: !!c.toggleShare, engine: !!c.setEngine, render: !!c.setRenderMode, tail: shareTail } : undefined,
+      session: isBrowser && c ? { share: !!c.toggleShare, engine: !!c.setEngine, render: !!c.setRenderMode, layout: !!c.setLayout, tail: shareTail } : undefined,
       tab: inWindow ? undefined : {
         rename: canRename,
         pins,

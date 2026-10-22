@@ -194,3 +194,23 @@ the model tier solely to render the UI.
 #### Scenario: A selector is disabled
 - **WHEN** a surface locks the selector during a write or assigned session
 - **THEN** every model, Automatic, engine and recovery action is disabled.
+
+### Requirement: MP-HANDOFF-01 — A fresh CLI session inherits the work, not just the words
+
+When a CLI provider (Claude after a reset, Codex or Muse on a fresh session,
+including a chat that just switched provider) starts without native memory of
+the chat, the provider SHALL hand it the conversation rebuilt from the store
+WITH its tool calls and results, within a token budget (not a turn count).
+Pinned context (system messages) SHALL travel whole. Turns cut to fit SHALL be
+named, with the Topics tool that reads them back. When the store has nothing
+for the session, the provider SHALL fall back to the history the route passed.
+
+#### Scenario: a chat moved to Muse keeps the research
+- **GIVEN** a chat whose earlier turns ran tools (searches, page reads)
+- **WHEN** its next turn starts a fresh Muse or Codex session
+- **THEN** the prompt carries those tool calls and a clipped view of their results
+
+#### Scenario: a long chat is cut by budget and says so
+- **GIVEN** a chat whose rebuilt history is larger than the budget
+- **WHEN** the handoff is built
+- **THEN** it stays within the budget, keeps the opening request and the recent turns, and names how many messages it left out and how to read them

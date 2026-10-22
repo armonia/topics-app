@@ -19,12 +19,13 @@ import { useFindPaneId } from '../../state/findRegistry';
 import { useTerminalFinder } from './useTerminalFinder';
 import { signalsActions, useTerminalReloading } from '../../state/signals';
 import { useTerminalRosterAuthoritative, useTerminalSessions } from '../../contexts/TopicsContext';
-import { shouldDeclareExpired } from '../../hooks/rosterTrust';
+import { decideTerminalPaneStatus } from '../../hooks/rosterTrust';
 import { usePaneAlive } from '../../state/paneLiveness';
 import { isWindowAwake } from '../../state/windowAwake';
 import { useT } from '../../hooks/useT';
 import { restartTerminalSession } from '../../lib/terminalReload';
-import { postTerminalResize } from '../../lib/terminalRosterRetry';
+import { fetchWhileRosterWarms, postTerminalResize, SHORT_ROSTER_RETRIES } from '../../lib/terminalRosterRetry';
+import { terminalErrorText, terminalUnreachableText } from '../../lib/terminalActions';
 import { copyText } from '../../lib/clipboard';
 import { hasPendingTerminalPaste, pasteDecision, takePendingTerminalPaste } from '../../lib/pendingTerminalPaste';
 import { useToast } from '../Shared/Toast';
@@ -136,6 +137,8 @@ export function SingleTerminalPane({ sessionId, onStale, isActive = true }: Sing
   const findPaneId = useFindPaneId() ?? createPaneId('terminal', sessionId);
   useTerminalFinder(findPaneId, termRef, searchRef);
   const [stale, setStale] = useState(false);
+  const [resting, setResting] = useState(false);
+  const [reviving, setReviving] = useState(false);
   /** Topics is holding a command of this session stopped: the pane gets the ring. */
   const swapFreeze = useSwapFreeze({ terminalId: sessionId });
 
@@ -226,6 +229,8 @@ export function SingleTerminalPane({ sessionId, onStale, isActive = true }: Sing
   const lastInfoRef = useRef<(typeof terminalSessions)[number] | null>(null);
   useEffect(() => { if (sessionInfo) lastInfoRef.current = sessionInfo; }, [sessionInfo]);
   const sessionListedRef = useRef(sessionListed);
+  const restingRef = useRef(resting);
+  useEffect(() => { restingRef.current = resting; }, [resting]);
   // Letto dentro `ws.onclose`, che vive nell'effetto keyed su sessionId e non
   // deve ri-eseguire quando il roster viene promosso: ref, come sessionListedRef.
   const rosterAuthoritative = useTerminalRosterAuthoritative();
@@ -657,6 +662,9 @@ export function SingleTerminalPane({ sessionId, onStale, isActive = true }: Sing
 
     const markAttached = () => {
       attachedRef.current = true;
+      restingRef.current = false;
+      setResting(false);
+      setStale(false);
       setInputAttached(true);
       if (heldTimerRef.current) { clearTimeout(heldTimerRef.current); heldTimerRef.current = null; }
       if (inputHeldRef.current) { inputHeldRef.current = false; setInputHeld(false); }
@@ -765,6 +773,9 @@ export function SingleTerminalPane({ sessionId, onStale, isActive = true }: Sing
               // if no live output arrives, show the resume overlay instead of a
               // silent blank pane. A shell has no full-screen frame and can be
               // legitimately empty, so it's excluded — it also can't be resumed.
+              // The zero is the bridge's own answer: a scrollback it did not
+              // hand over ends the attach with REPLAY_UNANSWERED instead, and
+              // that close retries below (TERM-WARM-02).
               const info = lastInfoRef.current;
               const t = info?.type;
               // Elencare i tipi a mano qui aveva gia' lasciato fuori 'opencode':
@@ -816,17 +827,35 @@ export function SingleTerminalPane({ sessionId, onStale, isActive = true }: Sing
           return;
         }
         if (event.code === TERMINAL_WS_CLOSE_DORMANT) {
-          // A VERDICT, not a drop: the server has this session PARKED (row
-          // dormant, PTY gone) and nothing but a revive brings it back. No
-          // grace and no retry - retrying is the loop this code is here to
-          // end. The expired overlay goes up at once; if this pane is the one
-          // being looked at, the revive effect below takes it from there, and
-          // a pane in the background waits for its click (TERM-05).
-          coalescer.push(`\r\n\x1b[90m[${sayRef.current('terminal.banner.expired')}]\x1b[0m\r\n`);
+          // A 4001 verdict means the row is dormant and has a resume id. It is
+          // resting, not gone: wait for the explicit Resume action and stop
+          // sending dimensions to its absent PTY.
+          const status = decideTerminalPaneStatus({
+            sessionListed: false,
+            rosterAuthoritative: true,
+            retryCount,
+            graceRetries: RECONCILE_GRACE_RETRIES,
+            dormantResumable: true,
+          });
           setExitCode(decodeExitReason(event.reason));
-          expiredShownRef.current = true;
-          setStale(true);
-          onStale?.();
+          sessionListedRef.current = false;
+          if (heldTimerRef.current) { clearTimeout(heldTimerRef.current); heldTimerRef.current = null; }
+          inputQueue.clear();
+          inputHeldRef.current = false;
+          setInputHeld(false);
+          inputLostRef.current = null;
+          setInputLost(null);
+          if (status === 'resting') {
+            restingRef.current = true;
+            coalescer.push(`\r\n\x1b[90m[${sayRef.current('terminal.banner.resting')}]\x1b[0m\r\n`);
+            setResting(true);
+            setStale(false);
+          } else {
+            coalescer.push(`\r\n\x1b[90m[${sayRef.current('terminal.banner.expired')}]\x1b[0m\r\n`);
+            expiredShownRef.current = true;
+            setStale(true);
+            onStale?.();
+          }
           return;
         }
         // 1008 ("session not found") or any abnormal close. The PTY bridge
@@ -843,12 +872,14 @@ export function SingleTerminalPane({ sessionId, onStale, isActive = true }: Sing
         // finché il roster non è stato confermato, la sua assenza non prova
         // niente, dato che il server risponde `200 []` finché `reconcileSessions`
         // non ha finito e `Bun.serve` non lo attende.
-        if (!shouldDeclareExpired({
+        const status = decideTerminalPaneStatus({
           sessionListed: sessionListedRef.current,
           rosterAuthoritative: rosterAuthoritativeRef.current,
           retryCount,
           graceRetries: RECONCILE_GRACE_RETRIES,
-        })) {
+          dormantResumable: false,
+        });
+        if (status !== 'expired') {
           const delay = Math.min(500 * retryCount, 3000);
           retryTimer = setTimeout(connectWs, delay);
         } else {
@@ -877,6 +908,7 @@ export function SingleTerminalPane({ sessionId, onStale, isActive = true }: Sing
     const initialWs = connectWs();
 
     term.onData((data) => {
+      if (restingRef.current) return;
       // A key that actually reaches the PTY is the proof the loss is over:
       // that, and not a byte of output, is what takes the band down.
       if (inputQueue.send(data) === 'sent' && inputLostRef.current) {
@@ -895,7 +927,7 @@ export function SingleTerminalPane({ sessionId, onStale, isActive = true }: Sing
       // of empty rows below it (the "spazio sotto" on the phone). A VISIBLE
       // touch client therefore counts as active too.
       const active = document.hasFocus() || (isTouchDevice && document.visibilityState === 'visible');
-      if (!active) return;
+      if (!active || !attachedRef.current) return;
       postTerminalResize(sessionId, cols, rows);
     });
 
@@ -935,66 +967,73 @@ export function SingleTerminalPane({ sessionId, onStale, isActive = true }: Sing
   // revived), clear the overlay and reconnect. Keyed on `sessionListed` only
   // so it never disturbs the xterm mount effect.
   useEffect(() => {
+    const wasListed = sessionListedRef.current;
     sessionListedRef.current = sessionListed;
-    if (sessionListed && staleRef.current) {
+    if (sessionListed && !wasListed && (staleRef.current || restingRef.current)) {
       setStale(false);
+      restingRef.current = false;
+      setResting(false);
       reconnectRef.current?.();
     }
   }, [sessionListed]);
 
-  // ── Rianimazione automatica di una sessione DORMIENTE ──────────────────
-  //
-  // Una sessione claude può uscire dal roster mentre la sua pane resta montata:
-  // la CLI termina da sola, oppure il server la PARCHEGGIA perché ferma da
-  // troppo (`TOPICS_TERMINAL_IDLE_PARK_MS`, vedi lib/terminal-idle-park.ts). In
-  // entrambi i casi la riga resta `dormant` e `--resume` la riporterebbe
-  // esattamente dov'era — ma finora l'unica strada era l'overlay «Sessione
-  // scaduta» e un click su Ricarica.
-  //
-  // Va bene per una CLI che è finita da sola: te ne accorgi ed è un'informazione.
-  // NON va bene per un parcheggio: sarebbe il meccanismo che lascia in giro il
-  // proprio sporco, tredici tab da ricliccare per un risparmio che doveva essere
-  // invisibile. Quindi quando la pane torna ATTIVA e la sua sessione è dormiente,
-  // la si rianima e basta.
-  //
-  // Gate su `isActive`: si rianima ciò che si sta guardando, non tutte le pane
-  // montate. Rianimarle tutte rimetterebbe in piedi in un colpo solo proprio i
-  // processi che il parcheggio ha spento.
   const revivingRef = useRef(false);
-  useEffect(() => {
-    if (!isActive || !stale || revivingRef.current) return;
-    // A process that reported its own exit is NOT woken up behind the human's
-    // back: relaunching what just died is the silent loop this card is about.
-    // The veil stays, it says the code, and the Riprendi button is the choice.
-    if (exitCode !== null) return;
-    let cancelled = false;
+  const resumeDormantSession = () => {
+    if (revivingRef.current) return;
     revivingRef.current = true;
-    void (async () => {
-      try {
-        const res = await apiFetch(`/api/terminal/sessions/${encodeURIComponent(sessionId)}/revive`, {
-          method: 'POST',
-        });
-        // 404 = la sessione non è dormiente, è proprio sparita (riga cancellata).
-        // Allora «Sessione scaduta» è la verità e l'overlay resta: il bottone
-        // Ricarica è l'unica strada, ed è giusto che si veda.
-        if (!res.ok || cancelled) return;
+    setReviving(true);
+    void fetchWhileRosterWarms(
+      `/api/terminal/sessions/${encodeURIComponent(sessionId)}/revive`,
+      { method: 'POST' },
+      SHORT_ROSTER_RETRIES,
+    )
+      .then(async (res) => {
+        if (!res.ok) {
+          const body = await res.text().catch(() => '');
+          if (res.status === 404) {
+            restingRef.current = false;
+            setResting(false);
+            setStale(true);
+            onStale?.();
+          }
+          toast.error(terminalErrorText('restart', res.status, body, t), 6000);
+          return;
+        }
+        restingRef.current = false;
+        setResting(false);
         setStale(false);
         reconnectRef.current?.();
-      } catch {
-        /* rete giù: l'overlay resta, e il tentativo si ripete al prossimo giro */
-      } finally {
-        if (!cancelled) revivingRef.current = false;
-      }
-    })();
-    return () => { cancelled = true; revivingRef.current = false; };
-  }, [isActive, stale, sessionId, exitCode]);
+      })
+      .catch(() => toast.error(terminalUnreachableText('restart', t), 6000))
+      .finally(() => {
+        revivingRef.current = false;
+        setReviving(false);
+      });
+  };
+
+  // ── A RESTING SESSION THAT IS BEING LOOKED AT COMES BACK ON ITS OWN ──────
+  //
+  // A park is the server saving RAM behind the human's back, and it must stay
+  // invisible: the pane being looked at revives at once, under the same id and
+  // in the same folder. Only that one - reviving every mounted pane would bring
+  // back in one go the very processes the park put down - so a pane in the
+  // background shows «A riposo» and waits for its Resume (TERM-05).
+  //
+  // A session that reported its OWN exit code is not woken behind anyone's
+  // back: relaunching what just died is a silent loop. A park carries no code
+  // (the server stores NULL for its own kills), so that case is a real death.
+  useEffect(() => {
+    if (!isActive || !resting || exitCode !== null) return;
+    resumeDormantSession();
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- resumeDormantSession is re-created each render and guarded by revivingRef
+  }, [isActive, resting, exitCode]);
 
   // The card behind this session, asked ONCE, and only once the pane has gone
   // quiet: while output flows there is nothing to explain. `by-topic` answers
   // 200 with `{ task: null }` when this topic belongs to no card, and that
   // answer is a legitimate one - the overlay then stays exactly as it was.
   useEffect(() => {
-    if (!dormantEmpty && !endedCleanly && !stale) return;
+    if (!dormantEmpty && !endedCleanly && !stale && !resting) return;
     if (causeAskedRef.current) return;
     const topicId = lastInfoRef.current?.topicId;
     if (!topicId) return;
@@ -1011,7 +1050,7 @@ export function SingleTerminalPane({ sessionId, onStale, isActive = true }: Sing
       }
     })();
     return () => { cancelled = true; };
-  }, [dormantEmpty, endedCleanly, stale]);
+  }, [dormantEmpty, endedCleanly, stale, resting]);
 
   const cause = useMemo(
     () => dormantCause(lastInfoRef.current?.topicId, causeTask, exitCode),
@@ -1155,7 +1194,7 @@ export function SingleTerminalPane({ sessionId, onStale, isActive = true }: Sing
       const ref = termRef.current;
       if (!ref) return;
       try { ref.fit.fit(); } catch {}
-      postTerminalResize(sessionId, ref.term.cols, ref.term.rows);
+      if (attachedRef.current) postTerminalResize(sessionId, ref.term.cols, ref.term.rows);
     };
     window.addEventListener('focus', handleFocus);
     return () => window.removeEventListener('focus', handleFocus);
@@ -1180,7 +1219,7 @@ export function SingleTerminalPane({ sessionId, onStale, isActive = true }: Sing
       if (!ref) return;
       try { ref.fit.fit(); } catch {}
       try { ref.term.refresh(0, ref.term.rows - 1); } catch {}
-      postTerminalResize(sessionId, ref.term.cols, ref.term.rows);
+      if (attachedRef.current) postTerminalResize(sessionId, ref.term.cols, ref.term.rows);
     });
     return () => cancelAnimationFrame(raf);
   }, [isActive, sessionId]);
@@ -1195,7 +1234,7 @@ export function SingleTerminalPane({ sessionId, onStale, isActive = true }: Sing
       const ref = termRef.current;
       if (!ref) return;
       try { ref.fit.fit(); } catch {}
-      postTerminalResize(sessionId, ref.term.cols, ref.term.rows);
+      if (attachedRef.current) postTerminalResize(sessionId, ref.term.cols, ref.term.rows);
     };
     document.addEventListener('visibilitychange', handleVisible);
     return () => document.removeEventListener('visibilitychange', handleVisible);
@@ -1237,6 +1276,7 @@ export function SingleTerminalPane({ sessionId, onStale, isActive = true }: Sing
   // The virtual keyboard goes through the same door as the physical one: a
   // Ctrl+C tapped while the pane is reattaching used to vanish too.
   const sendToTerminal = (data: string) => {
+    if (restingRef.current) return;
     if (inputQueueRef.current?.send(data) === 'sent' && inputLostRef.current) {
       inputLostRef.current = null;
       setInputLost(null);
@@ -1268,7 +1308,7 @@ export function SingleTerminalPane({ sessionId, onStale, isActive = true }: Sing
           button itself rather than projecting an invisible 44px band, which
           here would hang over the terminal rows underneath and eat taps meant
           for the output. */}
-      {isTouchDevice && !stale && (
+      {isTouchDevice && !stale && !resting && (
         <div className="flex-shrink-0 flex items-center gap-1 coarse:gap-2 px-2 py-[5px] bg-[#111] border-b border-white/10 overflow-x-auto select-none">
           {TOUCH_KEYS.map(({ label, data, wide }) => (
             <button
@@ -1401,6 +1441,26 @@ export function SingleTerminalPane({ sessionId, onStale, isActive = true }: Sing
             </button>
           </div>
         )}
+        {resting && !stale && !reloading && (
+          <div data-testid="terminal-resting-overlay" className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-surface/80 z-10 px-4">
+            <div className="flex items-center gap-1.5 text-app-text-muted text-compact">
+              <Clock size={13} />
+              <span>{t('terminal.resting.title')}</span>
+            </div>
+            <div className="font-mono text-mini text-app-text-muted/70">id {sessionId.slice(0, 8)}</div>
+            {causeBlock}
+            <button
+              type="button"
+              disabled={reviving}
+              onClick={resumeDormantSession}
+              title={t('terminal.resumeTitle')}
+              className="flex items-center gap-1.5 rounded-md bg-black/40 px-3 py-1.5 text-compact text-white transition-colors hover:bg-black/55 disabled:opacity-50"
+            >
+              <RotateCw size={13} className={reviving ? 'animate-spin' : ''} />
+              <span>{reviving ? t('terminal.restarting') : t('terminal.resume')}</span>
+            </button>
+          </div>
+        )}
         {/* Dormant-empty overlay — the session is still in the roster (revivable)
             but its PTY has exited, so the attach replayed nothing and the pane
             would otherwise be a silent blank ("finestra claude code vuota" when
@@ -1474,7 +1534,7 @@ export function SingleTerminalPane({ sessionId, onStale, isActive = true }: Sing
             opposite, so the pane has to say it in words: what you type is held
             and will be delivered, not echoed. It leaves on its own at
             `replay-end`, and it never shows on a normal fast attach. */}
-        {inputHeld && !inputDropped && !inputLost && !stale && (
+        {inputHeld && !inputDropped && !inputLost && !stale && !resting && (
           <div
             data-testid="terminal-input-held"
             className="absolute top-0 left-0 right-0 z-20 pointer-events-none flex items-center justify-center gap-2 px-3 py-1.5 bg-sky-600 text-white text-mini font-medium"

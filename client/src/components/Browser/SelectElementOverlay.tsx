@@ -6,6 +6,7 @@ import { useEffect, useState, useCallback, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { formatElementContext, type ElementDescription } from '../../../../shared/element-describe';
 import { apiFetch } from '../../lib/shell/net';
+import { toFixed } from '../../lib/fixedFrame';
 
 export interface SelectElementOverlayProps {
   contextId: string;
@@ -129,7 +130,7 @@ export function SelectElementOverlay({
         const info = await res.json();
         if (!info?.bbox) return;
         const client = pageBboxToClient(info.bbox);
-        if (client) setHoverBox(client);
+        if (client) setHoverBox(toFixed(client));
       } catch {
         // Ignore — next mousemove retries.
       }

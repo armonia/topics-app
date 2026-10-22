@@ -1,19 +1,10 @@
 /**
- * LA COLONNA DISEGNA LA FETTA, NON LA LISTA.
+ * The window mounts full cards nearby and keeps lightweight sortable targets for the rest.
  *
- * Misurato sulla macchina viva il 15/08/2026: 449 dei 467 task radice sono
- * `done`, e ognuno era un sottoalbero `Card` vivo — memo, chip, anteprima, il
- * nodo che dnd-kit registra — in una colonna che nessuno guarda. La regola su
- * quanto si disegna (e perché vale solo su Review e Done) è pura e provata in
- * `lib/boardOrder.test.ts`: `columnSlice`. Qui si controlla l'unica metà che
- * quella non può vedere, cioè che la colonna la USI.
- *
- * È un controllo sul SORGENTE, con lo stesso metodo e lo stesso motivo di
- * `GlobalCapControl.test.tsx` e `ThreadRuns.test.tsx`: `Card.tsx` importa
- * `@/lib/popoverStyles` e `bun test` non risolve l'alias `@/`, quindi la
- * colonna qui non si monta. Tornare a `tasks.map` è una modifica di una parola,
- * e non fa rumore da nessuna parte: la board resta corretta, diventa solo
- * lentissima di nuovo.
+ * This source guard mirrors `GlobalCapControl.test.tsx` and `ThreadRuns.test.tsx`:
+ * `Card.tsx` imports `@/lib/popoverStyles`, which `bun test` cannot resolve, so
+ * this test cannot mount the column. Reverting to a full `tasks.map` would leave
+ * behavior intact while silently restoring the large DOM tree.
  *
  * @covers KANBAN-01
  */
@@ -23,22 +14,27 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const src = readFileSync(join(dirname(fileURLToPath(import.meta.url)), 'Card.tsx'), 'utf8');
+const virtualized = readFileSync(join(dirname(fileURLToPath(import.meta.url)), 'VirtualizedCards.tsx'), 'utf8');
 /** The live chips (retry wait, running tool, ticking effort) live next door,
  *  in `CardLive.tsx`: the card only decides WHICH one it draws. */
 const live = readFileSync(join(dirname(fileURLToPath(import.meta.url)), 'CardLive.tsx'), 'utf8');
 
 describe('il corpo della colonna', () => {
-  test('mappa la fetta calcolata, non la colonna intera', () => {
+  test('mantiene le pagine di Review e Done e virtualizza le corsie di lavoro grandi', () => {
     expect(src).toContain('columnSlice(');
     expect(src).toContain('slice.rows.map(');
-    expect(src.includes('{tasks.map(')).toBe(false);
+    expect(src).toContain("status === 'backlog' || status === 'todo' || status === 'in_progress'");
+    expect(src).toContain('<VirtualizedCards');
+    expect(virtualized).toContain('VIRTUAL_FULL_RENDER_LIMIT = 25');
   });
 
-  test('gli id di SortableContext sono quelli DISEGNATI', () => {
-    // Un id nel registro di dnd-kit senza un nodo sotto è un bersaglio di drop
-    // che non esiste: il gesto muore in silenzio, che è il modo peggiore.
-    const itemIds = src.slice(src.indexOf('const itemIds'), src.indexOf('\n', src.indexOf('const itemIds')));
-    expect(itemIds).toContain('slice.rows');
+  test('SortableContext riceve tutti gli id, anche quelli fuori dalla finestra', () => {
+    // Offscreen ids stay as lightweight sortable nodes, so keyboard and collision still have targets.
+    const idsKey = src.slice(src.indexOf('const idsKey'), src.indexOf('\n', src.indexOf('const idsKey')));
+    expect(idsKey).toContain('sortableRows');
+    expect(src).toContain('const sortableRows = virtualized ? tasks : slice.rows;');
+    expect(virtualized).toContain('function SortablePlaceholder');
+    expect(virtualized).toContain('visibleVirtualIds(rows, viewport.top');
   });
 
   test('la coda dice quante card restano e come tirarle su', () => {
@@ -195,5 +191,19 @@ describe('the card route label', () => {
   test('subscribes to the snapshot instead of reading it once during render', () => {
     expect(src).toContain('useSyncExternalStore(subscribeProvidersSnapshot,');
     expect(src.includes('cardRunsThroughTopics(task, getProvidersSnapshotState().snapshot) &&')).toBe(false);
+  });
+});
+
+describe('the card is the containing block of its frost', () => {
+  test('the card root is positioned whether or not a freeze is on', () => {
+    // `SwapIce` mounts `absolute inset-0` boxes in every card and positions
+    // the card (`.swap-ice-host`) only while frozen. Without `relative` on the
+    // root, each idle card's empty glints box spanned the whole board area,
+    // outside the column's scroll clip, and a drag paid for it on every frame
+    // (board-drag-frames.spec.ts: ~360 -> ~290 ms of main thread per pass).
+    const root = /className=\{`group ([^`]*?)\$\{isDragging/.exec(src);
+    expect(root, 'the card root className moved: this test guards nothing').not.toBeNull();
+    expect(root![1]!.split(/\s+/)).toContain('relative');
+    expect(src).toContain('<SwapIce freeze={swapFreeze} size="card" />');
   });
 });

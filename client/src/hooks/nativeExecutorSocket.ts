@@ -84,6 +84,9 @@ export interface NativeExecutorSocketOptions {
   /** The socket is up (true) or gone (false): while up, a change in the count
    *  is pushed through it and the fallback poll can sleep. */
   onChannel?: (up: boolean) => void;
+  /** The pane as the source of the DOM mirror (lib/nativeDomHost.ts): declared on
+   *  every (re)opened socket, fed the server's host frames, reset when it dies. */
+  host?: { declare(): void; handle(frame: unknown): boolean; reset(): void };
   createSocket?: ExecutorSocketFactory;
   schedule?: Schedule;
 }
@@ -99,6 +102,8 @@ export interface NativeExecutorSocketRun {
    * with an eager `agent_active=false` broadcast.
    */
   takeControl(): void;
+  /** Raw text on the socket that is current now; dropped while there is none. */
+  sendText(text: string): void;
 }
 
 /** Default factory: a real WebSocket, with the DOM plumbing kept in one place. */
@@ -157,6 +162,9 @@ export function startNativeExecutorSocket(opts: NativeExecutorSocketOptions): Na
         // not a hijack (server.ts checks the previous owner's liveness).
         attempt = 0;
         sendOn(self, { type: 'register_native_executor' });
+        // After the registration, on the same ordered socket: the server lets
+        // only its registered executor host the mirror.
+        opts.host?.declare();
         opts.onChannel?.(true);
       },
       onMessage: (data) => { if (self) handleFrame(self, data); },
@@ -164,6 +172,7 @@ export function startNativeExecutorSocket(opts: NativeExecutorSocketOptions): Na
         if (stopped || socket !== self) return;
         socket = null;
         opts.onChannel?.(false);
+        opts.host?.reset();
         // A socket that died is not reporting anything (BROWSER-AGENT-PILL-01).
         opts.onAgentActive(nextAgentActive({ kind: 'disconnected' }));
         if (cancelRetry) cancelRetry();
@@ -197,10 +206,15 @@ export function startNativeExecutorSocket(opts: NativeExecutorSocketOptions): Na
     let raw: unknown;
     try { raw = JSON.parse(typeof data === 'string' ? data : ''); } catch { return; }
     const m = raw as { type?: string; opId?: string; tool?: string; args?: unknown };
+    if (m?.type === 'host_ping') {
+      sendOn(self, { type: 'host_pong' });
+      return;
+    }
     if (m && m.type === 'register_native_executor_rejected') {
       standDown();
       return;
     }
+    if (opts.host?.handle(raw)) return;
     if (m && m.type === 'browser_op' && typeof m.opId === 'string' && typeof m.tool === 'string') {
       const opId = m.opId;
       void opts.runOp(m.tool, m.args)
@@ -228,7 +242,11 @@ export function startNativeExecutorSocket(opts: NativeExecutorSocketOptions): Na
       if (!open) return;
       sendOn(open, { type: 'take_control' });
     },
+    sendText: (text) => {
+      if (!stopped && socket) socket.send(text);
+    },
     stop: () => {
+      opts.host?.reset();
       stopped = true;
       if (cancelRetry) cancelRetry();
       cancelRetry = null;

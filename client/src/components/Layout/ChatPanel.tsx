@@ -2,10 +2,13 @@ import { useState, useEffect, useRef, Suspense } from 'react';
 import { SessionActivityBar } from '../Shared/SessionActivity';
 import type { Topic, ChatMessage, WSMessage, UpdateTopicRequest, PanelTab, CompactionMarker } from '../../types';
 import { sendFocusTopic } from '../../lib/focusMessaging';
-import { ChatPane } from '../Chat/ChatPane';
 import { TopicBrowserReopen } from '../Browser/TopicBrowserReopen';
 import { TopicBrowserWindow, useTopicBrowserPresence, useTopicWindowDoor, hasTopicBrowserWindow, DEFAULT_EXPANDED_WIDTH, useTopicBrowserInset } from '../Browser/topicBrowserWindowLazy';
 import type { SendMessageOptions } from '@/hooks/useChat';
+import { lazyWarm } from '../../lib/lazyWarm';
+import { loadChatPane } from '../../state/pane/panePreload';
+
+const ChatPane = lazyWarm(loadChatPane, (m) => m.ChatPane);
 
 /**
  * The body of a chat pane: the conversation, the topic's browser window, and
@@ -98,26 +101,28 @@ export function ChatPanel({
         <div className="flex-1 flex min-h-0 chrome-passthrough-y relative">
           <div className="flex-1 flex flex-col min-w-0 chrome-passthrough-y">
             <div className="flex-1 min-h-0 chrome-passthrough-y flex flex-col">
-              <ChatPane
-                topic={topic}
-                isFocused={isFocused}
-                getSessionMessages={getSessionMessages}
-                getCompactionMarkers={getCompactionMarkers}
-                isSessionLoading={isSessionLoading}
-                isSessionStreaming={isSessionStreaming}
-                wasSessionStopped={wasSessionStopped}
-                stopSession={stopSession}
-                sendMessage={sendMessage}
-                editMessage={editMessage}
-                regenerateMessage={regenerateMessage}
-                deleteMessage={deleteMessage}
-                switchBranch={switchBranch}
-                loadHistory={loadHistory}
-                chatError={chatError}
-                sendWS={sendWS}
-                onWSMessage={onWSMessage}
-                onUpdateTopic={onUpdateTopic}
-              />
+              <Suspense fallback={<div className="flex-1 min-h-0" aria-busy="true" />}>
+                <ChatPane
+                  topic={topic}
+                  isFocused={isFocused}
+                  getSessionMessages={getSessionMessages}
+                  getCompactionMarkers={getCompactionMarkers}
+                  isSessionLoading={isSessionLoading}
+                  isSessionStreaming={isSessionStreaming}
+                  wasSessionStopped={wasSessionStopped}
+                  stopSession={stopSession}
+                  sendMessage={sendMessage}
+                  editMessage={editMessage}
+                  regenerateMessage={regenerateMessage}
+                  deleteMessage={deleteMessage}
+                  switchBranch={switchBranch}
+                  loadHistory={loadHistory}
+                  chatError={chatError}
+                  sendWS={sendWS}
+                  onWSMessage={onWSMessage}
+                  onUpdateTopic={onUpdateTopic}
+                />
+              </Suspense>
             </div>
           </div>
         </div>

@@ -23,6 +23,7 @@
 import type { AgentMessage } from "./agent-loop";
 import type { StreamHandler } from "../types";
 import {
+  COMPACT_AT, COMPACT_AT_UNMEASURED, COMPACT_TO,
   needsCompaction, compact, charsPerTokenFrom, promptTooLong, stripAllImages, estimateImageTokensTotal,
 } from "./compaction";
 import { CODING_TOOLS as DEFAULT_TOOLS } from "./tools";
@@ -48,7 +49,7 @@ export const MAX_COMPACT_RECOVERY_ATTEMPTS = 2;
  * full context is precisely the FIRST round, the one the assumed 4 had
  * declared harmless.
  */
-export interface Calibration { charsPerToken: number }
+export interface Calibration { charsPerToken: number; calibrated: boolean }
 
 /** How many recompactions this turn has already spent. */
 export interface RecoveryState { attempts: number }
@@ -82,16 +83,22 @@ export function compactIfNeeded(ctx: {
   windowTokens: number;
   overheadChars: number;
   calibration: Calibration;
+  sessionId?: string;
   handler: Pick<StreamHandler, "onCompaction">;
-}): void {
+}): boolean {
   const { history, windowTokens, overheadChars, calibration } = ctx;
-  if (!needsCompaction(history, windowTokens, overheadChars, calibration.charsPerToken)) return;
-  const c = compact(history, { windowTokens, overheadChars, charsPerToken: calibration.charsPerToken });
-  if (c.after >= c.before) return;
+  const compactAt = calibration.calibrated ? COMPACT_AT : COMPACT_AT_UNMEASURED;
+  if (!needsCompaction(history, windowTokens, overheadChars, calibration.charsPerToken, compactAt)) return false;
+  const c = compact(history, { windowTokens, overheadChars, charsPerToken: calibration.charsPerToken, compactAt, compactTo: COMPACT_TO });
+  if (c.after >= c.before) return false;
   history.length = 0;
   history.push(...c.messages);
-  console.log(`[native] contesto compattato: ~${c.before} → ~${c.after} token stimati`); // allow-italian: server log, not UI
+  console.log(
+    `[native] contesto compattato: at=${new Date().toISOString()} session_key=${ctx.sessionId ?? "unknown"} `
+    + `pre_tokens=${c.before} post_tokens=${c.after} (~${c.before} → ~${c.after} token stimati)`,
+  ); // allow-italian: server log, not UI
   ctx.handler.onCompaction?.({ trigger: "auto", preTokens: c.before, postTokens: c.after });
+  return true;
 }
 
 /**
@@ -116,6 +123,7 @@ export function recoverFromFullContext(err: unknown, ctx: {
   /** The characters we had sent: half of the ratio the API just completed. */
   sentChars: number;
   calibration: Calibration;
+  sessionId?: string;
   state: RecoveryState;
   aborted: boolean;
   handler: Pick<StreamHandler, "onCompaction" | "onRetry">;
@@ -126,11 +134,16 @@ export function recoverFromFullContext(err: unknown, ctx: {
   if (ctx.state.attempts >= MAX_COMPACT_RECOVERY_ATTEMPTS) throw new Error(contextFullMessage(tooLong, ctx.state.attempts));
   ctx.state.attempts++;
 
-  ctx.calibration.charsPerToken = charsPerTokenFrom(ctx.sentChars, tooLong.tokens);
+  if (ctx.sentChars > 0) {
+    ctx.calibration.charsPerToken = charsPerTokenFrom(ctx.sentChars, tooLong.tokens);
+    ctx.calibration.calibrated = true;
+  }
   const c = compact(ctx.history, {
     windowTokens: Math.min(ctx.windowTokens, tooLong.max),
     overheadChars: ctx.overheadChars,
     charsPerToken: ctx.calibration.charsPerToken,
+    compactAt: ctx.calibration.calibrated ? COMPACT_AT : COMPACT_AT_UNMEASURED,
+    compactTo: COMPACT_TO,
   });
   // Nothing was freed: insisting is spinning, and whoever is reading has a
   // right to know the road has ended and what they can do about it.
@@ -138,7 +151,8 @@ export function recoverFromFullContext(err: unknown, ctx: {
   ctx.history.length = 0;
   ctx.history.push(...c.messages);
   console.log(
-    `[native] prompt troppo lungo (${tooLong.tokens} > ${tooLong.max}): ` // allow-italian: server log, not UI
+    `[native] prompt troppo lungo (${tooLong.tokens} > ${tooLong.max}): at=${new Date().toISOString()} session_key=${ctx.sessionId ?? "unknown"} ` // allow-italian: server log, not UI
+    + `pre_tokens=${c.before} post_tokens=${c.after}, `
     + `ricalibrato a ${ctx.calibration.charsPerToken.toFixed(2)} char/token, ` // allow-italian: server log, not UI
     + `compattato ~${c.before} → ~${c.after}, rifaccio il giro`, // allow-italian: server log, not UI
   );
@@ -234,7 +248,10 @@ export function calibrateFrom(
 ): void {
   const promptTokens = usage.input + usage.cacheRead + usage.cacheWrite;
   const textTokens = promptTokens - estimateImageTokensTotal(history);
-  if (textTokens > 0) calibration.charsPerToken = charsPerTokenFrom(sentChars, textTokens);
+  if (textTokens > 0 && sentChars > 0) {
+    calibration.charsPerToken = charsPerTokenFrom(sentChars, textTokens);
+    calibration.calibrated = true;
+  }
 }
 
 /**

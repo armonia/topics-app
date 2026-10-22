@@ -25,6 +25,7 @@ import {
   isNativeViewOpened,
   settleNativeViewOpen,
   takeNativeViewMove,
+  hideNativeViewsOnPageExit,
 } from './nativeBrowserViews';
 
 describe('nativeBrowserViews: a move is a handoff with a safety timeout', () => {
@@ -196,5 +197,33 @@ describe('nativeBrowserViews: every browser_close passes through here', () => {
       if (DIRECT_CLOSE.test(readFileSync(join(SRC, file), 'utf8'))) offenders.push(file);
     }
     expect(offenders).toEqual([]);
+  });
+});
+
+describe('nativeBrowserViews: a reload hides the views it keeps', () => {
+  test('each view is hidden once, and none is closed', () => {
+    const calls: Array<[string, Record<string, unknown> | undefined]> = [];
+    hideNativeViewsOnPageExit(['a', 'b', 'a'], (cmd, args) => { calls.push([cmd, args]); return Promise.resolve(); });
+    expect(calls).toEqual([
+      ['browser_set_visible', { id: 'a', visible: false }],
+      ['browser_set_visible', { id: 'b', visible: false }],
+    ]);
+  });
+
+  test('a shell that throws or rejects does not stop the others', () => {
+    const asked: string[] = [];
+    hideNativeViewsOnPageExit(['x', 'y'], (_cmd, args) => {
+      asked.push(String(args?.id));
+      if (args?.id === 'x') throw new Error('no shell');
+      return Promise.reject(new Error('gone'));
+    });
+    expect(asked).toEqual(['x', 'y']);
+  });
+
+  test('the browser hook hides its views on pagehide', () => {
+    const hook = readFileSync(join(import.meta.dir, '../../hooks/useTauriBrowser.ts'), 'utf8');
+    expect(hook).toContain('installHideOnPageExit(() => browserViewRefs.keys(), tauriInvoke);');
+    const views = readFileSync(join(import.meta.dir, 'nativeBrowserViews.ts'), 'utf8');
+    expect(views).toContain("window.addEventListener('pagehide', () => hideNativeViewsOnPageExit(heldIds(), invoke));");
   });
 });

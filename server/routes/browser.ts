@@ -22,6 +22,10 @@ import { browserEngineRegistry, chromiumEngineInfo } from "../browser-engine-reg
 import { findTaskTabOwner } from "../services/task-tab-persist";
 import { collectBrowserContextIds } from "../browser-store-keep-list";
 import { dispatchBrowserToolCallByContext } from "../browser-tool-dispatcher";
+import { hasDomResourceToken, routedResourceUrl } from "../lib/dom-resource-rewrite";
+import type { DomHostRegistry } from "../lib/native-dom-host";
+import { inputPayloadSchema } from "../../shared/browser-ws-messages";
+import { getRrwebRecorderSource } from "../lib/rrweb-recorder";
 
 export function createBrowserRouter(
   ctx: AppContext,
@@ -31,6 +35,11 @@ export function createBrowserRouter(
    *  auto-share: a Tauri pane rendering natively holds NO streaming WS, so this
    *  count IS the number of OTHER devices watching the shared session. */
   getViewerCount: (contextId: string) => number = () => 0,
+  /** The Mac's native panes hosting a context's DOM mirror (native-dom-host.ts).
+   *  On a hosted context the REST paths a viewer uses go to the pane: here, as
+   *  on the socket, every browserService call would create a Chromium context. */
+  nativeHosts?: Pick<DomHostRegistry, "isHosting" | "page" | "command">,
+  framingProbe: typeof probeFraming = probeFraming,
 ): RouteHandler {
   const { readJSON, json, errorResponse, matchRoute } = ctx;
 
@@ -44,6 +53,52 @@ export function createBrowserRouter(
         contexts: contexts.length,
         details: contexts,
       });
+    }
+
+    // --- The rrweb recorder a native pane injects to host its DOM mirror (native-dom-host.ts) ---
+    // Served instead of bundled: the same file the server injects into Chromium,
+    // at the version of the Replayer this server hands to the viewers.
+    if (method === "GET" && pathname === "/api/browser/recorder.js") {
+      return new Response(getRrwebRecorderSource(), {
+        headers: { "Content-Type": "text/javascript; charset=utf-8", "Cache-Control": "private, max-age=3600" },
+      });
+    }
+
+    // --- A resource of a DOM mirror the viewer cannot reach (dom-resource-rewrite.ts) ---
+    if (method === "GET" && pathname === "/api/browser/resource") {
+      const id = url.searchParams.get("ctx");
+      const target = url.searchParams.get("u");
+      if (!id || !target || !routedResourceUrl(id, target)) return errorResponse(400, "ctx and an unreachable http(s) u required");
+      if (!hasDomResourceToken(id, url.searchParams.get("token"))) return errorResponse(404, "resource not found");
+      try {
+        if (nativeHosts?.isHosting(id)) {
+          // No Chromium context by design: this server runs on the Mac, so it
+          // reaches what the Mac's pane reaches. A loopback dev server on a
+          // self-signed certificate (this one is) was accepted by the pane, so
+          // the relay accepts it too, and only on loopback.
+          const pageUrl = nativeHosts.page(id)?.url ?? "";
+          const upstream = await fetch(target, {
+            headers: pageUrl.startsWith("http") ? { referer: pageUrl } : {},
+            signal: AbortSignal.timeout(15_000),
+            ...(loopbackPortOf(target) !== null ? { tls: { rejectUnauthorized: false } } : {}),
+          });
+          return new Response(upstream.body, {
+            status: upstream.status,
+            headers: {
+              "Content-Type": upstream.headers.get("content-type") ?? "application/octet-stream",
+              "Cache-Control": "private, max-age=300",
+            },
+          });
+        }
+        const res = await browserService.fetchResource(id, target);
+        if (!res) return errorResponse(404, "browser context not open");
+        return new Response(res.body as unknown as BodyInit, {
+          status: res.status,
+          headers: { "Content-Type": res.contentType, "Cache-Control": "private, max-age=300" },
+        });
+      } catch (err) {
+        return errorResponse(502, `resource fetch failed: ${(err as Error)?.message ?? err}`);
+      }
     }
 
     // --- List browser contexts ---
@@ -64,10 +119,15 @@ export function createBrowserRouter(
     // The web pane uses this to pick iframe (framable) vs the headless stream.
     // Reads the target's X-Frame-Options / CSP frame-ancestors server-side
     // (no CORS), cached per-URL. Errors/timeouts → framable:false (stream).
-    if (method === "GET" && pathname === "/api/browsers/framable") {
-      const target = url.searchParams.get("url");
-      if (!target) return errorResponse(400, "url required");
-      const framable = await probeFraming(target);
+    if (pathname === "/api/browsers/framable") {
+      if (method !== "POST") return errorResponse(405, "POST required");
+      const contentType = req.headers.get("content-type")?.split(";", 1)[0].trim().toLowerCase();
+      if (contentType !== "application/json") {
+        return errorResponse(415, "application/json required");
+      }
+      const body = await readJSON(req);
+      if (typeof body?.url !== "string" || !body.url) return errorResponse(400, "url required");
+      const framable = await framingProbe(body.url);
       return json({ framable });
     }
 
@@ -167,6 +227,13 @@ export function createBrowserRouter(
     // --- Get context info ---
     const getMatch = matchRoute(pathname, "/api/browsers/:id");
     if (method === "GET" && getMatch && !pathname.includes("/snapshot") && !pathname.includes("/console") && !pathname.includes("/interact")) {
+      if (nativeHosts?.isHosting(getMatch.id)) {
+        // The Mac's page. Not known yet (the pane declared a moment ago) is
+        // answered as busy, never as 404: a viewer reads 404 as "nothing here"
+        // and seeds its own stored url, which would move the Mac's page.
+        const page = nativeHosts.page(getMatch.id);
+        return page ? json(page) : errorResponse(409, "host page not known yet", { log: false });
+      }
       const info = browserService.getUrl(getMatch.id);
       // A probe, not a fault: `contextHasPage` and the fallback poll ask on
       // purpose, so "not there yet" is the answer, not something to log.
@@ -456,6 +523,25 @@ export function createBrowserRouter(
       const body = await readJSON(req);
       if (!body?.action) return errorResponse(400, "action required");
       const id = interactMatch.id;
+      // A hosted context moves with the Mac's pane: the toolbar actions a viewer
+      // sends over REST go to it, like its input does over the socket.
+      if (nativeHosts?.isHosting(id)) {
+        const action = String(body.action);
+        if (action === "navigate" || action === "back" || action === "forward" || action === "reload") {
+          if (action === "navigate" && !body.url) return errorResponse(400, "url required");
+          nativeHosts.command(id, { type: "host_nav", action, ...(action === "navigate" ? { url: String(body.url) } : {}) });
+          return json({ ok: true, host: true });
+        }
+        if (action === "click" || action === "type" || action === "keypress" || action === "scroll") {
+          // All of it, as the socket carries it: a mirror's tap or scroll names its
+          // element and place (BROWSER-DOM-LAYOUT-02/03), and its pixels alone
+          // would land on something else in the Mac's layout.
+          const payload = inputPayloadSchema.safeParse(body);
+          if (!payload.success) return errorResponse(400, "invalid input");
+          nativeHosts.command(id, { type: "host_input", action, payload: payload.data });
+          return json({ ok: true, host: true });
+        }
+      }
       try {
         switch (body.action) {
           case "navigate":
@@ -608,22 +694,6 @@ export function createBrowserRouter(
       // `browser-deleted` non lo ascoltava nessuno — un frame nel vuoto, per di
       // più con un nome fuori dalla convenzione `namespace:evento`.
       return json({ ok: true });
-    }
-
-    // --- Legacy screenshot by URL (creates temp context) ---
-    if (method === "GET" && pathname === "/api/browser/screenshot") {
-      const targetUrl = url.searchParams.get("url");
-      if (!targetUrl) return errorResponse(400, "url parameter required");
-      const tempId = `_temp_${Date.now()}`;
-      try {
-        await browserService.navigate(tempId, targetUrl);
-        const buf = await browserService.screenshot(tempId);
-        await browserService.destroyContext(tempId);
-        return new Response(buf as unknown as BodyInit, { headers: { "Content-Type": "image/jpeg", "Cache-Control": "no-cache" } });
-      } catch (err: any) {
-        await browserService.destroyContext(tempId).catch(() => {});
-        return errorResponse(500, `Screenshot failed: ${err.message}`);
-      }
     }
 
     return null;

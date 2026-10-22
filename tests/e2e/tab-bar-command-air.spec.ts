@@ -116,10 +116,13 @@ async function readRow(page: Page): Promise<Riga> {
     return {
       barra: { h: arrotonda(rb.height) },
       strisce: barra.querySelectorAll("[class*='overflow-x-auto']").length,
+      // The reserve can sit on the scroll strip or on the wrapper that holds it
+      // (the wrapper keeps the scrollport itself short of the commands, so a tab
+      // never slides under them): what is measured is where the tabs stop.
       strip: strip
         ? {
-            pl: parseFloat(getComputedStyle(strip).paddingLeft),
-            pr: parseFloat(getComputedStyle(strip).paddingRight),
+            pl: parseFloat(getComputedStyle(strip).paddingLeft) + parseFloat(getComputedStyle(strip.parentElement!).paddingLeft),
+            pr: parseFloat(getComputedStyle(strip).paddingRight) + parseFloat(getComputedStyle(strip.parentElement!).paddingRight),
           }
         : null,
       titolo:
@@ -254,9 +257,10 @@ test.describe("Barra delle tab a 1280px", () => {
 
   test("ARIA-4: a inizio scroll la prima tab non tocca il comando", async ({ page }) => {
     // La misura geometrica che ARIA-3 promette dal padding — presa dove
-    // conta, cioè con la strip riportata a zero. `raised-control-overlay` fa
-    // sì che scorrendo le tab passino SOTTO il bottone: è voluto, e per
-    // questo il vincolo si legge a scroll fermo a inizio corsa.
+    // conta, cioè con la strip riportata a zero. Dall'11/10 lo scrollport finisce
+    // prima del bottone (tab-bar-density): scorrendo le tab non gli passano più
+    // sotto, dove il clic finiva sul comando. Il vincolo si legge comunque a
+    // inizio corsa.
     const varchi = await page.evaluate(() => {
       const barra = document.querySelector(".pane-chrome-bar") as HTMLElement;
       const strip = barra.querySelector("[class*='overflow-x-auto']") as HTMLElement;

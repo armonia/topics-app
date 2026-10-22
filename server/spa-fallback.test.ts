@@ -69,6 +69,14 @@ describe("shouldServeSpaFallback", () => {
     }
   });
 
+  test("la pagina autonoma di una vista (/v/<id>) è un permalink come le tab", () => {
+    // The address `show_view` hands out: an agent, a link handler or a preview
+    // opens it with the wildcard, not with text/html.
+    expect(shouldServeSpaFallback({ method: "GET", pathname: "/v/57279c0a6cb11866", accept: "*/*" })).toBe(true);
+    expect(shouldServeSpaFallback({ method: "HEAD", pathname: "/v/57279c0a6cb11866", accept: "*/*" })).toBe(true);
+    expect(shouldServeSpaFallback({ method: "GET", pathname: "/v/57279c0a6cb11866", accept: "application/json" })).toBe(false);
+  });
+
   test("il jolly NON allarga le rotte che non sono permalink", () => {
     expect(shouldServeSpaFallback({ method: "GET", pathname: "/settings", accept: "*/*" })).toBe(false);
     expect(shouldServeSpaFallback({ method: "GET", pathname: "/api/does-not-exist", accept: "*/*" })).toBe(false);

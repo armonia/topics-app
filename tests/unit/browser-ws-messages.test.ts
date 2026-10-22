@@ -194,7 +194,7 @@ function variantsOf(schema: any): any[] {
 }
 
 describe('schema completeness', () => {
-  test('all 22 protocol variants are present', () => {
+  test('all 29 protocol variants are present', () => {
     // Snapshot test: if a new variant is added to the schema, this count
     // must be updated — forcing the test author to also document it.
     // Grew from 6 → 17 with the server↔pane co-browse control channel
@@ -213,8 +213,17 @@ describe('schema completeness', () => {
     // shared context disconnects, the one that inherits it has already sent
     // its size and will not send it again on its own (the client dedups by
     // size), so the server has to ask, and only the heir is asked.
+    // 23 is `dom_event_chunk`: a DOM event too large for one frame (a full
+    // snapshot of a heavy page) travels in pieces the viewer puts back together.
+    // 24-26 are the pause switch of a page shared from the Mac (D4c):
+    // `set_native_host_sharing` (the host turns sharing off or on),
+    // `native_host_status` (server to host: sharing, devices watching, rate,
+    // delay) and `host_share_state` (server to viewers: paused or resumed).
+    // 27-29 are the liveness of the Mac's pane (D4d, NATIVE-HOST-07):
+    // `host_ping` and `host_pong` every 5 s, `host_away` to the viewers when
+    // the host stops answering or leaves.
     const variantCount = variantsOf(browserWsMessageSchema).length;
-    expect(variantCount).toBe(22);
+    expect(variantCount).toBe(29);
   });
 
   test('every variant uses a unique `type` literal', () => {
@@ -232,7 +241,9 @@ describe('schema completeness', () => {
         'resize', 'download', 'set_engine', 'engine', 'set_stream',
         'set_watching', 'set_render', 'render_mode', 'dom_event',
         'webrtc_offer', 'webrtc_answer', 'webrtc_ice', 'focus_field',
-        'focus_query', 'viewers', 'viewport_request',
+        'focus_query', 'viewers', 'viewport_request', 'dom_event_chunk',
+        'set_native_host_sharing', 'native_host_status', 'host_share_state',
+        'host_away', 'host_ping', 'host_pong',
       ]),
     );
   });

@@ -2,7 +2,7 @@
  * @covers CHAT-HIST-01
  */
 import { describe, expect, test } from 'bun:test';
-import { mergeHistoryPage, mergeOlderHistory, pageOverlapsExisting } from './historyPaging';
+import { mergeHistoryPage, mergeOlderHistory, pageOverlapsExisting, rowsAboveLocalCopy } from './historyPaging';
 import { decideCacheWrite } from './messageCacheWrite';
 import { HISTORY_FIRST_PAGE } from '../../../shared/history-paging';
 import { CLIENT_MESSAGE_ID_PREFIX } from './streamCatchupMerge';
@@ -84,6 +84,22 @@ describe('pageOverlapsExisting: does the pane already hold a row of the page?', 
     expect(pageOverlapsExisting(thread(1, 40), thread(81, 120))).toBe(false);
     expect(pageOverlapsExisting([], thread(81, 120))).toBe(false);
     expect(pageOverlapsExisting(thread(1, 40), [])).toBe(false);
+  });
+});
+
+describe('rowsAboveLocalCopy: the page does not prepend rows to the copy on screen', () => {
+  test('a copy shorter than the page: the rows above its first one', () => {
+    expect(rowsAboveLocalCopy(thread(111, 120), thread(100, 120))).toBe(11);
+  });
+  test('a copy equal to the page, or longer: nothing above', () => {
+    expect(rowsAboveLocalCopy(thread(100, 120), thread(100, 120))).toBe(0);
+    expect(rowsAboveLocalCopy(thread(81, 120), thread(100, 120))).toBe(0);
+  });
+  test('disjoint, empty, or opened by an optimistic bubble: zero', () => {
+    expect(rowsAboveLocalCopy(thread(1, 10), thread(100, 120))).toBe(0);
+    expect(rowsAboveLocalCopy([], thread(100, 120))).toBe(0);
+    const optimistic = row(110, { id: `${CLIENT_MESSAGE_ID_PREFIX}x` });
+    expect(rowsAboveLocalCopy([optimistic, ...thread(111, 120)], thread(100, 120))).toBe(0);
   });
 });
 

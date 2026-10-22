@@ -17,7 +17,6 @@ import { PendingActionRing } from '../Shared/PendingActionRing';
 import { PendingActionProgressOverlay } from '../Shared/PendingActionProgressOverlay';
 import { PaneAddMenu, PaneAddMenuItems } from '../Shared/PaneAddMenu';
 import { TopicItem } from './TopicItem';
-import { topicsApi } from '@/lib/api';
 import { createPaneId, getProjectPathFromPaneId, getTerminalSessionFromPaneId, pinKeyFromPaneId, resolvePinnedBrowserOrigin, useClosedTabs, type BrowserOrigin } from '@/state/pane/adapters';
 import { PinnedTiles, type PinnedExternalTouch, type PinnedTileMeta } from './PinnedTiles';
 import { CalendarTilePreview } from './CalendarTilePreview';
@@ -25,7 +24,7 @@ import { isCalendarPageUrl } from '../../../../shared/calendar';
 import type { PinnedRow } from './pinnedLayout';
 import { draggedPaneId, rememberDraggedPane } from '@/lib/dragPayload';
 import { DND_TYPES } from '@/lib/dndTypes';
-import type { Topic, UnreadData, PaneType, TerminalSessionInfo, Worktree } from '@/types';
+import type { Topic, PaneType, TerminalSessionInfo, Worktree } from '@/types';
 import { groupProjectChildrenByWorktree, worktreeChipFor, type WorktreeLabel } from '@/lib/sidebarWorktrees';
 import { WorktreeSection } from './WorktreeSection';
 import { EntryIncognito } from './EntryIncognito';
@@ -35,7 +34,7 @@ import { ProjectGlyphSlot } from './ProjectGlyphSlot';
 import { ProjectStreamingSpinner, TerminalStreamingSpinner, BrowserStreamingSpinner } from '@/components/Layout/StreamingIndicator';
 import { RowSplitMap } from './RowSplitMap';
 import { useTerminalAttentionFill, attentionFillFor, useSessionLastActivity } from '@/state/signals';
-import { sendAttentionSeen, useAttentionRows } from '@/state/attention';
+import { attentionOf, needsSeen, sendAttentionSeen, useAttentionRows } from '@/state/attention';
 import { isAccordionOpen, readOpenedAccordions, summarizeSubagents, toggledAccordions, writeOpenedAccordions } from '@/lib/subagentAccordion';
 import { projectAttention } from '@/state/attentionRollups';
 import { terminalSubject, topicSubject } from '../../../../shared/attention';
@@ -67,6 +66,7 @@ import { NEXT_WAITING_EVENT, useWaitingQueueStore, waitingQueueActions } from '@
 import { SpaceGroupCard } from './SpaceGroups';
 import { useGoToSpace, useSpaceCards } from './useSpaceCards';
 import { useSidebarRowFlip } from './useSidebarRowFlip';
+import { useArchivedSidebarPages } from './useArchivedSidebarPages';
 
 /**
  * Le sezioni della vista per STATO, nell'ordine in cui si leggono: il tier
@@ -302,7 +302,6 @@ export interface TopicTreeProps {
   onTopicClick: (topicId: string, e?: React.MouseEvent) => void;
   onTopicDoubleClick: (topicId: string, e?: React.MouseEvent) => void;
   onTopicContextMenu: (e: React.MouseEvent, topic: Topic) => void;
-  unreadData: UnreadData;
   onArchiveTopic: (topicId: string, archive: boolean) => Promise<boolean>;
   onArchiveProject?: (projectPath: string, archive: boolean) => Promise<boolean>;
   onNewTopicInProject?: (projectPath: string) => void;
@@ -421,7 +420,6 @@ export function TopicTree({
   onTopicClick,
   onTopicDoubleClick,
   onTopicContextMenu,
-  unreadData,
   onArchiveTopic,
   onArchiveProject,
   onNewTopicInProject,
@@ -468,7 +466,7 @@ export function TopicTree({
   // through here. The legacy `projectAddMenu` / `addBtnRef` state is
   // also gone — the canonical <PaneAddMenu> component owns its own
   // button ref and open/close state.
-  const [projectContextMenu, setProjectContextMenu] = useState<{ x: number; y: number; projectPath: string; projectName: string; allArchived: boolean; unreadTopicIds: string[]; pinned: boolean; muted: boolean } | null>(null);
+  const [projectContextMenu, setProjectContextMenu] = useState<{ x: number; y: number; projectPath: string; projectName: string; allArchived: boolean; unseenSubjects: string[]; pinned: boolean; muted: boolean } | null>(null);
   // IL PROGETTO CHE SI STA CONDIVIDENDO. Da 20260816230500 un progetto e' una
   // risorsa condivisibile: condividerlo apre i suoi task senza scrivere una
   // riga per ciascuno. Il pannello e' lo STESSO di un task e di una chat -
@@ -501,6 +499,9 @@ export function TopicTree({
   // renderProjectItem closure can derive a project's rollup synchronously: the
   // same rows the tab bar and every row read.
   const attention = useAttentionRows();
+  /** A project's chats with something to see: what «Mark all read» sends to the seen door. */
+  const unseenChatSubjects = (topicIds: readonly string[]): string[] =>
+    topicIds.map(topicSubject).filter((subject) => needsSeen(attentionOf(attention, subject)));
   // Sub-agents sit in a per-parent accordion, closed until the person opens it (SUBAGENT-21).
   const [openedSubagents, setOpenedSubagents] = useState<Set<string>>(readOpenedAccordions);
   const toggleSubagents = useCallback((parentId: string) => {
@@ -604,6 +605,20 @@ export function TopicTree({
     }
     return s;
   }, [openPanels, projectOpenPanes]);
+
+  const activeTopicIds = useMemo(() => {
+    const ids = new Set<string>();
+    const focusedProjectPath = focusedTopicId ? getProjectPathFromPaneId(focusedTopicId) : null;
+    for (const paneId of [focusedTopicId, focusedProjectPath ? activePaneByProject[focusedProjectPath] : null]) {
+      if (paneId && topics[paneId]) ids.add(paneId);
+      if (paneId?.startsWith('chat:')) ids.add(paneId.slice('chat:'.length));
+    }
+    const activeTopicId = focusedProjectPath ? projectActiveTopics?.[focusedProjectPath] : null;
+    if (activeTopicId) ids.add(activeTopicId);
+    return ids;
+  }, [topics, focusedTopicId, activePaneByProject, projectActiveTopics]);
+
+  const { page: archivePage, showMore: showMoreArchived, pagedRows } = useArchivedSidebarPages(showArchived, !!searchQuery.trim(), activeTopicIds);
 
   const filteredItems = useMemo(
     () => filterSidebarItems(allItems, searchQuery),
@@ -1187,9 +1202,10 @@ export function TopicTree({
       if (child.type === 'browser') return renderBrowserItem(child, d);
       return null;
     };
+    const baseGroupId = `project:${pp}:base`;
     return (
       <>
-        {base.map(child => row(child, depth, false))}
+        {pagedRows(baseGroupId, base, items => items.map(child => row(child, depth, false)))}
         {sections.map(section => (
           <WorktreeSection
             key={`worktree:${section.worktreeId}`}
@@ -1199,7 +1215,7 @@ export function TopicTree({
             depth={depth}
             onNewTopic={onNewTopicInWorktree ? () => onNewTopicInWorktree(pp, section.worktreeId) : undefined}
           >
-            {section.items.map(child => row(child, depth + 1, true))}
+            {pagedRows(`project:${pp}:worktree:${section.worktreeId}`, section.items, items => items.map(child => row(child, depth + 1, true)))}
           </WorktreeSection>
         ))}
       </>
@@ -1285,9 +1301,9 @@ export function TopicTree({
           }}
           onContextMenu={(e) => {
             e.preventDefault();
-            const unreadTopicIds = allChats.filter(t => (unreadData[t.id]?.unreadCount || 0) > 0).map(t => t.id);
+            const unseenSubjects = unseenChatSubjects(allChats.map(t => t.id));
             const muted = (loadSettings().mutedProjects ?? []).includes(pp);
-            setProjectContextMenu({ x: e.clientX, y: e.clientY, projectPath: pp, projectName: item.name, allArchived, unreadTopicIds, pinned: !!item.pinned, muted });
+            setProjectContextMenu({ x: e.clientX, y: e.clientY, projectPath: pp, projectName: item.name, allArchived, unseenSubjects, pinned: !!item.pinned, muted });
           }}
         >
           <ProjectRowPendingOverlay projectPath={pp} />
@@ -1527,6 +1543,7 @@ export function TopicTree({
   const renderSection = (sectionKey: string, Icon: LucideIcon, label: string, items: SidebarItem[]) => {
     const isCollapsed = collapsedSections.has(sectionKey);
     const totalUnread = items.reduce((sum, item) => sum + item.notificationCount, 0);
+    const page = archivePage(sectionKey, items);
 
     // Niente `border-t`: la card grammar dichiara di TOGLIERE le linee
     // divisorie, e questa era l'ultima rimasta — a separare proprio la cosa
@@ -1582,7 +1599,8 @@ export function TopicTree({
             separate fra loro sotto i 768px come quelle di ogni altra vista. */}
         {!isCollapsed && (
           <SidebarRowList>
-            {items.map(item => renderItem(item))}
+            {page.items.map(item => renderItem(item))}
+            {showMoreArchived(sectionKey, page.remaining)}
           </SidebarRowList>
         )}
       </div>
@@ -1778,13 +1796,11 @@ export function TopicTree({
         if (item.type === 'project' && item.projectPath) {
           e.preventDefault();
           const pp = item.projectPath;
-          const unreadTopicIds = (item.children ?? [])
-            .filter(c => c.type === 'chat' && (unreadData[c.id]?.unreadCount || 0) > 0)
-            .map(c => c.id);
+          const unseenSubjects = unseenChatSubjects((item.children ?? []).filter(c => c.type === 'chat').map(c => c.id));
           const muted = (loadSettings().mutedProjects ?? []).includes(pp);
           setProjectContextMenu({
             x: e.clientX, y: e.clientY, projectPath: pp, projectName: item.name,
-            allArchived: item.archived, unreadTopicIds, pinned: true, muted,
+            allArchived: item.archived, unseenSubjects, pinned: true, muted,
           });
           return;
         }
@@ -2118,7 +2134,7 @@ export function TopicTree({
                   onToggle={() => toggleGroup(card.id)}
                 >
                   {rows.length > 0
-                    ? <SidebarRowList>{rows.map(item => renderItem(item))}</SidebarRowList>
+                    ? <SidebarRowList>{pagedRows(`space:${card.id}`, rows, items => items.map(renderItem))}</SidebarRowList>
                     : <div data-sidebar-flip className="px-3 py-1 text-mini text-app-text-muted">{tr('sidebar.noTabs')}</div>}
                 </SpaceGroupCard>
               );
@@ -2138,7 +2154,7 @@ export function TopicTree({
                 {unpinnedItems.length > 0 && <div data-testid="pinned-divider" className="h-px bg-app-border mx-1.5 mt-1.5 mb-[3px]" />}
               </>
             )}
-            <SidebarRowList data-testid="sidebar-timeline">{withUnpinPreview(unpinnedItems)}</SidebarRowList>
+            <SidebarRowList data-testid="sidebar-timeline">{pagedRows('timeline', unpinnedItems, withUnpinPreview)}</SidebarRowList>
           </>
         ) : null}
         {/* Vista per STATO: le stesse sezioni collassabili, ma i bucket sono
@@ -2168,7 +2184,7 @@ export function TopicTree({
               if (soloIlResto) {
                 return (
                   <SidebarRowList data-testid="sidebar-state-section-rest">
-                    {withUnpinPreview(stateGroups.rest)}
+                    {pagedRows('state:rest', stateGroups.rest, withUnpinPreview)}
                   </SidebarRowList>
                 );
               }
@@ -2195,7 +2211,7 @@ export function TopicTree({
             una la fa entrare nel gruppo attivo, e da lì in poi vive lì. */}
         {spaceScoped && loose.length > 0 && (
           <div data-testid="sidebar-loose" className="mt-1">
-            {withUnpinPreview(loose)}
+            {pagedRows('space:loose', loose, withUnpinPreview)}
           </div>
         )}
 
@@ -2263,12 +2279,10 @@ export function TopicTree({
           onClose={() => setProjectContextMenu(null)}
           minWidth={160}
         >
-          {projectContextMenu.unreadTopicIds.length > 0 && (
+          {projectContextMenu.unseenSubjects.length > 0 && (
             <button
               onClick={() => {
-                for (const id of projectContextMenu.unreadTopicIds) {
-                  topicsApi.markRead(id).catch(() => {});
-                }
+                sendAttentionSeen(projectContextMenu.unseenSubjects);
                 setProjectContextMenu(null);
               }}
               className={POPOVER_ITEM}

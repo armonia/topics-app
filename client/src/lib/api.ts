@@ -29,6 +29,7 @@ import type { CommandRun as CommandRunInfo } from '../../../shared/command-runs'
 import { HISTORY_FIRST_PAGE } from '../../../shared/history-paging';
 import type { ChatFindResult } from '../../../shared/chat-find';
 import { adoptWarmRead, warmRead } from './warmReads';
+import type { HealthSubsystem } from '../../../shared/system-health';
 
 // Relative on web/PWA/Electron (same-origin). Under the Tauri desktop shell the
 // UI is served locally (tauri://localhost), so a global fetch shim rewrites these
@@ -43,6 +44,20 @@ export class ApiError extends Error {
     this.name = 'ApiError';
     if (extra) Object.assign(this, extra);
   }
+}
+
+export interface SystemHealthResponse {
+  checkedAt: string;
+  subsystems: HealthSubsystem[];
+}
+
+/** The single client door for the system health endpoint, shared by the panel and /health. */
+export async function getSystemHealth(
+  fetcher: (path: string) => Promise<Response> = apiFetch,
+): Promise<SystemHealthResponse> {
+  const response = await fetcher(`${API_BASE}/system/health`);
+  if (!response.ok) throw new ApiError(response.status, `HTTP ${response.status}`);
+  return await response.json() as SystemHealthResponse;
 }
 
 /**
@@ -201,6 +216,14 @@ export const topicsApi = {
     return request<Topic>(`/topics/${encodeURIComponent(id)}/fork`, { method: 'POST', body: JSON.stringify(data) });
   },
 
+  async sideQuestion(id: string): Promise<Topic> {
+    return request<Topic>(`/topics/${encodeURIComponent(id)}/side-question`, { method: 'POST', body: '{}' });
+  },
+
+  async closeSideQuestion(id: string): Promise<void> {
+    await request<{ ok: boolean }>(`/topics/${encodeURIComponent(id)}/side-question`, { method: 'DELETE' });
+  },
+
   async update(id: string, data: UpdateTopicRequest): Promise<Topic> {
     return request<Topic>(`/topics/${id}`, {
       method: 'PATCH',
@@ -239,16 +262,6 @@ export const topicsApi = {
     return request<{ ok: boolean }>('/topics/reorder', {
       method: 'POST',
       body: JSON.stringify({ order }),
-    });
-  },
-
-  /** `doneMark`: this window cleared the chat's 'done' mark, which only the
-   *  windows know about, so the server announces the seen even when it had
-   *  nothing of its own to clear. */
-  async markRead(id: string, opts: { doneMark?: boolean } = {}): Promise<{ ok: boolean }> {
-    return request<{ ok: boolean }>(`/topics/${id}/read`, {
-      method: 'POST',
-      ...(opts.doneMark ? { body: JSON.stringify({ doneMark: true }) } : {}),
     });
   },
 };
@@ -986,8 +999,13 @@ export const scriptsApi = {
     });
   },
 
-  async list(): Promise<{ scripts: ScriptProcessInfo[] }> {
-    return request<{ scripts: ScriptProcessInfo[] }>('/scripts');
+  /**
+   * `ports`: each running row's listening ports, which cost the server an
+   * lsof, and the process detection at full cadence. Only the Processes panel
+   * draws them; without it the rows come with no ports.
+   */
+  async list(opts: { ports?: boolean } = {}): Promise<{ scripts: ScriptProcessInfo[] }> {
+    return request<{ scripts: ScriptProcessInfo[] }>(opts.ports ? '/scripts?ports=1' : '/scripts');
   },
 
   /**
@@ -998,8 +1016,8 @@ export const scriptsApi = {
    * dice quante righe il ring buffer ha buttato senza che questo client le
    * vedesse.
    */
-  async output(processId: string, offset = 0): Promise<{ output: string; offset: number; pending?: string; truncatedLines?: number; done: boolean; status: string; exitCode?: number }> {
-    return request<{ output: string; offset: number; pending?: string; truncatedLines?: number; done: boolean; status: string; exitCode?: number }>(`/scripts/${processId}/output?offset=${offset}`);
+  async output(processId: string, offset = 0): Promise<ScriptOutput> {
+    return request<ScriptOutput>(`/scripts/${processId}/output?offset=${offset}`);
   },
 
   async stop(processId: string): Promise<{ ok: boolean }> {
@@ -1008,6 +1026,22 @@ export const scriptsApi = {
     });
   },
 };
+
+/**
+ * A piece of a process's log. `startedAt`, `follows` and `unfollowed` say what
+ * an empty log is waiting for (chat-live-work): since when, the file the
+ * command sends its stdout to, or the one nobody can follow and why.
+ */
+export interface ScriptOutput {
+  output: string; offset: number; pending?: string; truncatedLines?: number; done: boolean; status: string; exitCode?: number;
+  startedAt?: string; follows?: string; unfollowed?: { target: string; reason: 'variable' | 'pattern' | 'cwd' };
+}
+
+/** What a chat has at work now: the rows of the strip under it (chat-live-work). */
+export const liveWorkApi = {
+  get: (topicId: string) => request<LiveWork>(`/topics/${encodeURIComponent(topicId)}/live-work`),
+};
+import type { LiveWork } from '../../../shared/live-work';
 
 /** A run of a command from the chat (CHAT-RUN-03): the server's row, one shape on both sides. */
 export type { CommandRun as CommandRunInfo } from '../../../shared/command-runs';
@@ -1520,6 +1554,12 @@ export const providersApi = {
   },
 };
 
+export const systemApi = {
+  async agents(): Promise<{ agents: CliAgentPresence[] }> {
+    return request<{ agents: CliAgentPresence[] }>('/system/agents');
+  },
+};
+
 /** Mirror of `AgentPresence` in `server/lib/detect-agents.ts`. */
 export interface CliAgentPresence {
   id: string;
@@ -1583,6 +1623,7 @@ export interface AppBehaviorSettings {
   calendarRefreshMinutes: number | null;
   /** How far ahead the agenda looks, in days. `null` = the server's default. */
   calendarHorizonDays: number | null;
+  firstRunDoneAt: string | null;
 }
 
 /**
@@ -1926,6 +1967,11 @@ export const peopleApi = {
       `/people/${id}`,
       { method: 'PATCH', body: JSON.stringify({ githubLogin }) },
     );
+  },
+  async rename(id: string, name: string): Promise<{ ok: boolean }> {
+    return request<{ ok: boolean }>(`/auth/people/${encodeURIComponent(id)}`, {
+      method: 'PATCH', body: JSON.stringify({ name }),
+    });
   },
   async follow(id: string): Promise<{ following: boolean; counts: FollowCounts }> {
     return request<{ following: boolean; counts: FollowCounts }>(`/people/${id}/follow`, { method: 'POST' });

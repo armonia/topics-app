@@ -121,7 +121,7 @@ giorno che si riaccende, e non si accorge di essere stato dimenticato.
   scelta: chi legge `data/topics.db` apre ogni link vivo. Con una scheda in sola
   lettura il raggio è una scheda; con una sessione dentro, non più.
 
-- [ ] 6.2 **L'ingresso ospite del Durable Object non autentica nessuno, e
+- [x] 6.2 **L'ingresso ospite del Durable Object non autentica nessuno, e
   l'`installationId` è pubblico per costruzione.** `relay/src/worker.ts:49`
   accetta `/s/:installationId` sulla sola forma del percorso;
   `relay-do.ts:61-75` assegna un `sessionId` a chiunque, senza `shareRef`, senza
@@ -130,8 +130,9 @@ giorno che si riaccende, e non si accorge di essere stato dimenticato.
   link può, per sempre: aprire socket ospite illimitate, tenere sveglio il DO, e
   iniettare messaggi in entrata — che sono quelli che si pagano. Il tetto di 5.1
   non basta: quello limita il danno, non l'accesso.
+  **Prova D6b:** `bun test relay/ server/services/relay-client.test.ts` exit 0; il DO accetta solo `shareRef` dichiarati dall'host e ammette al massimo 5 socket guest attive.
 
-- [ ] 6.3 **`/agent/:installationId` — il capo HOST — è dirottabile.**
+- [x] 6.3 **`/agent/:installationId` — il capo HOST — è dirottabile.**
   `relay-do.ts:52-59` assegna il tag host in base al solo percorso, prima di
   qualunque `hello`. Chi conosce l'`installationId` (vedi 6.2) può presentarsi
   come la macchina. La correzione naturale — leggere una credenziale a tempo di
@@ -140,6 +141,7 @@ giorno che si riaccende, e non si accorge di essere stato dimenticato.
   giusto (il relay non deve conoscere le credenziali di Topics) ma va rifatto
   per distinguere «non legge le credenziali dell'utente» da «non ha una propria
   autenticazione di trasporto».
+  **Prova D6b:** test DO/Worker rifiuta prova assente, chiave diversa e firma scaduta; ECDSA con chiave pubblica legata al relay ID e validità 60 s.
 
 - [x] 6.4 **RISOLTO.** `relay/relay-do.run.test.ts` istanzia `SessioneRelay` e lo
   guida come lo guida il runtime dei Worker: `fetch()` per l'aggancio, poi i
@@ -155,18 +157,20 @@ giorno che si riaccende, e non si accorge di essere stato dimenticato.
   implementazioni del protocollo (`shared/relay-fake.ts`) e **nessuna delle due
   valida l'altra**.
 
-- [ ] 6.5 **`gestisci` non ha test.** `server/services/relay-client.ts:104-124`
+- [x] 6.5 **`gestisci` non ha test.** `server/services/relay-client.ts:104-124`
   è la funzione che un trasporto di sessione sostituirebbe per intero, e
   `relay-client.test.ts` esercita solo `__servi`. Il rifiuto indistinguibile
   (`:117-123`), citato come presidio anti-oracolo, vive in codice mai eseguito.
+  **Prova D6b:** test diretto di `__gestisci` copre servizio valido e rifiuti identici per ref assente, scaduto e revocato; stessa suite exit 0.
 
-- [ ] 6.6 **«null = si chiude» è un commento, non un comportamento.**
+- [x] 6.6 **«null = si chiude» è un commento, non un comportamento.**
   `shared/relay-protocol.ts:140` lo afferma, ma `relay-client.ts:141-144` fa
   `if (m) void gestisci(m)` — il messaggio invalido si ignora in silenzio e la
   socket resta aperta; `relay-do.ts:93-98` risponde `denied: bad-version` senza
   chiudere; `pagina-ospite.ts:128-136` non chiama nemmeno `leggiMessaggio`.
   Conseguenza: un deploy del Worker che cambi l'involucro non rompe
   rumorosamente gli host non aggiornati — degrada in silenzio.
+  **Prova D6b:** test su Worker DO e client; il contract controlla anche la pagina guest. Frame non valido chiude con codice 4002.
 
 - [ ] 6.7 **Prima di trasportare una sessione servono le fondamenta dei
   permessi.** L'allowlist degli ospiti (`server/lib/grants.ts:62-83`) è di sei

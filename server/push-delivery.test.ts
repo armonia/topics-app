@@ -242,4 +242,16 @@ describe("sendPushToAll: from the table to the wire", () => {
     const left = (db.query("SELECT device_id FROM push_subscriptions ORDER BY device_id").all() as { device_id: string }[]).map((r) => r.device_id);
     expect(left).toEqual(["dev-mac", "dev-off", "dev-phone"]);
   });
+
+  test("the first-boot VAPID keys, generated without web-push, are keys web-push accepts", async () => {
+    // `initVapid` no longer loads the library at boot: it makes the pair itself
+    // with node:crypto. Here the real library's validators read it back, and
+    // the delivery test above has already signed and encrypted with it.
+    const { initVapid, getVapidPublicKey } = await import("./push-service");
+    const keys = initVapid();
+    expect(Buffer.from(keys.publicKey, "base64url")).toHaveLength(65);
+    expect(Buffer.from(keys.privateKey, "base64url")).toHaveLength(32);
+    expect(() => webpush.setVapidDetails("mailto:admin@example.com", keys.publicKey, keys.privateKey)).not.toThrow();
+    expect(getVapidPublicKey()).toBe(keys.publicKey);
+  });
 });

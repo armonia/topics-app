@@ -234,11 +234,15 @@ fi
 # Claude PTYs the test reconcile then kills (knocking dev sessions dormant).
 # Defaulted (`:-`) so an explicit value from globalSetup still wins.
 export TOPICS_PTY_SOCKET="${TOPICS_PTY_SOCKET:-/tmp/topics-pty-bridge-e2e-${BUN_PORT}.sock}"
+# Terminals outside Topics (lib/live-terminals): tmux on a test socket,
+# Terminal.app off. The real tabs and tmux sessions are not the test's.
+export TOPICS_TMUX_SOCKET="${TOPICS_TMUX_SOCKET:-$DATA_DIR/tmux.sock}"
+export TOPICS_LIVE_TERMINAL_APP="${TOPICS_LIVE_TERMINAL_APP:-0}"
 # Same isolation for the ai-bridge (stream-json broker) socket, for the same
 # reason: a test server (or an in-test restart) must NEVER derive the cwd-based
-# socket = the PRODUCTION ai-bridge. Harmless when TOPICS_AI_BRIDGE is unset
-# (nothing connects); required the moment a broker restart-survival test enables
-# the flag. Enable the feature for such a test with TOPICS_AI_BRIDGE=1.
+# socket = the PRODUCTION ai-bridge. The broker is ON by default outside Windows
+# (`USE_AI_BRIDGE` in server/providers/claude-code.ts), so every test server
+# uses this socket; TOPICS_AI_BRIDGE=0 turns the broker off.
 export TOPICS_AI_BRIDGE_SOCKET="${TOPICS_AI_BRIDGE_SOCKET:-/tmp/topics-ai-bridge-e2e-${BUN_PORT}.sock}"
 # Arma le route di reset della suite (`/api/test/checkpoint`, `/api/test/reset`).
 # Svuotano ogni tabella: esistono SOLO dove questa variabile c'è, e questo script

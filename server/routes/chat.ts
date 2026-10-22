@@ -20,7 +20,7 @@ import { scaffoldNewProject } from "../services/project-path-resolver";
 import type { AppContext, ContentBlock, RouteHandler, ToolCall, Topic } from "../types";
 import { repeatedRowMarks, userRowMarks } from "../lib/user-row-marks";
 import { startSsePing } from "../lib/sse-ping";
-import { nativeWorkingDir, recallMemories } from "../lib/native-parity";
+import { nativeWorkingDir, recallMemoryContext } from "../lib/native-parity";
 import { getProvider, type AIProvider, type ChatMessage, type ProviderDoneMessage, type ProviderUsage, type StreamHandler } from "../providers";
 import { hasPendingAsk } from "../lib/ask-user-bridge";
 import { recentActiveRows } from "../lib/ask-answer-routing";
@@ -122,6 +122,7 @@ import { classifyTurnEnd } from "../push-triggers";
 import { runningTaskOwnsTopic } from "../lib/wake-adoption";
 import { sessionAttentionBackground } from "../providers/background-probes";
 import { topicSubject, type AttentionTaskMap } from "../../shared/attention";
+import { isSideQuestionTopicId } from "../../shared/chat-fork";
 import { createIdempotencyCache } from "../lib/idempotency-cache";
 import { keyTakenBy, rowStoredUnderKey } from "../lib/client-message-key";
 import { avvisoPerTurno, abortLogTitle, outageCutNotResent, resumesByItself } from "../lib/cancelled-notice";
@@ -320,6 +321,7 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
   // parte (card 76b0058b). Il broadcast porta la riga RILETTA, così i client
   // vedono lo stato vero e non la copia vecchia.
   const bumpTopicActivity = (topic: Topic): void => {
+    if (isSideQuestionTopicId(topic.id)) return;
     const updatedAt = new Date().toISOString();
     topic.updatedAt = updatedAt;
     const fresh = touchTopicActivity(topic.id, updatedAt);
@@ -335,6 +337,7 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
   // (notifications-redesign, T17, defect D7): an empty woken turn is thrown
   // away, and a badge with nothing behind it is a lie.
   const finalizeTurnActivity = (topic: Topic, opts: { visible?: boolean } = {}): void => {
+    if (isSideQuestionTopicId(topic.id)) return;
     bumpTopicActivity(topic);
     if (opts.visible !== false) updateUnreadCount(topic.id);
   };
@@ -348,7 +351,7 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
    * the frame.
    */
   const startTurnAttention = (topic: Topic | null | undefined, boardAgent: boolean): void => {
-    if (!topic) return;
+    if (!topic || isSideQuestionTopicId(topic.id)) return;
     // Both read from the topic at every turn: a board agent's topic is born
     // archived and no archive path ever runs for it, and its woken turns carry
     // no `dispatched` (review 2 of notifications-redesign, B2).
@@ -359,7 +362,7 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
     frame: { messageId?: string; completed?: boolean; reason?: string; error?: string; stopCause?: string; stopReason?: string; dispatched?: boolean; discardedMessageId?: string },
     extra: { background?: AttentionTaskMap; preview?: string } = {},
   ): void => {
-    if (!topic) return;
+    if (!topic || isSideQuestionTopicId(topic.id)) return;
     try {
       const verdict = classifyTurnEnd({ completed: frame.completed, reason: frame.reason, error: frame.error, stopCause: frame.stopCause, stopReason: frame.stopReason, dispatched: frame.dispatched, discarded: !!frame.discardedMessageId });
       turnEnded(topicSubject(topic.id), {
@@ -551,7 +554,22 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
       }
       const requestedProviderId = overrideProvider ?? matchedTopic?.provider;
       let explicitProvider: AIProvider | null = null;
-      if (!forcedGlobalProvider && requestedProviderId) {
+      // A REATTACH ADOPTS A TURN THAT IS ALREADY RUNNING, so the provider that
+      // owns it is the one the caller names, taken as is: the routing switch
+      // answers "who would run a NEW turn of this topic", and on 11/10 it
+      // answered the native engine for a claude-haiku-5-5 chat whose CLI turn
+      // had been running for four hours. The reattach after the restart was
+      // refused (501 below), the turn kept going unseen, and its next question
+      // never reached the screen.
+      if (!forcedGlobalProvider && body.mode === "reattach" && overrideProvider) {
+        // Only an owner that can actually reattach: otherwise the ordinary
+        // resolver below decides, and the 501 further down still speaks.
+        try {
+          const owner = resolveProviderByName(overrideProvider);
+          if (typeof (owner as unknown as { reattach?: unknown }).reattach === "function") explicitProvider = owner;
+        } catch { explicitProvider = null; }
+      }
+      if (!forcedGlobalProvider && !explicitProvider && requestedProviderId) {
         try {
           // AICTRL-01: anche un override PER MESSAGGIO passa dal resolver. Prima si prendeva il provider dal registry e basta, quindi con lo switch acceso bastava un override nel body per eseguire fuori dal motore nativo, in silenzio. allow-italian: nomina la porta laterale chiusa qui
           // Il topic non viene riscritto: la scelta del turno viaggia come topic SINTETICO e il pin resta quello che era. allow-italian: perche' si costruisce un topic finto
@@ -3848,7 +3866,7 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
             // suggestion is not a document, and as a deduplicated slot a turn
             // with no hits would tell the model the memory is "no longer in effect".
             if (topicProvider.name === "topics") {
-              const recall = await recallMemories(
+              const recall = await recallMemoryContext(
                 envelope.userMessage.content,
                 nativeWorkingDir(envelope.sessionMeta?.workingDir),
               );
@@ -4120,7 +4138,7 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
             resp = await topicProvider.streamHTTP(finalMessages, { sessionKey, signal: abortController.signal });
           } else {
             // Provider doesn't support streamHTTP — use complete() as fallback
-            const result = await topicProvider.complete(finalMessages);
+            const result = await topicProvider.complete(finalMessages, { userFacing: true });
             clearTimeout(timeoutId);
             if (carry) deps.answerRelay?.heard(carry);
             const content = result.content;

@@ -27,7 +27,26 @@ import { remoteFieldSchema } from './browser-keyboard-field';
 const inputActionSchema = z.enum(['click', 'type', 'scroll', 'mousemove', 'keypress']);
 const inputButtonSchema = z.enum(['left', 'right', 'middle']);
 
-const inputPayloadSchema = z.object({
+/**
+ * Where a mirror laid out at its own size keeps its place (BROWSER-DOM-LAYOUT-03):
+ * the element at the reading line of what scrolled (`id`, by rrweb id) and the
+ * point of it there (`fx`, `fy`, 0 to 1 across its box), where that line is in
+ * the visible box (`lx`, `ly`), and how far through its scroll range it was
+ * (`rx`, `ry`), for a side where that element has no box.
+ */
+const scrollAnchorSchema = z.object({
+  id: z.optional(z.number()),
+  fx: z.optional(z.number()),
+  fy: z.optional(z.number()),
+  lx: z.number(),
+  ly: z.number(),
+  rx: z.number(),
+  ry: z.number(),
+  /** What scrolled is the page's main column, not a strip or a side panel (lib/mirrorLayout). */
+  main: z.optional(z.boolean()),
+});
+
+export const inputPayloadSchema = z.object({
   x: z.optional(z.number()),
   y: z.optional(z.number()),
   text: z.optional(z.string()),
@@ -35,7 +54,28 @@ const inputPayloadSchema = z.object({
   deltaX: z.optional(z.number()),
   deltaY: z.optional(z.number()),
   button: z.optional(inputButtonSchema),
+  // The rrweb id of what the viewer's mirror acted on: what a scroll scrolled,
+  // what a tap landed on.
+  node: z.optional(z.number()),
+  // Where the mirror put what it scrolled, so the page lands on the same pixel.
+  scrollTop: z.optional(z.number()),
+  scrollLeft: z.optional(z.number()),
+  // Orders scroll relays so a late echo cannot overwrite a newer mirror place.
+  scrollSeq: z.optional(z.number()),
+  // Which device sent it: an echo of another viewer's relay is not ordered against this one's.
+  scrollFrom: z.optional(z.string().check(z.maxLength(64))),
+  // Where inside the tapped element's box, 0 to 1: a page laid out at another
+  // size has that element somewhere else (BROWSER-DOM-LAYOUT-02).
+  fx: z.optional(z.number()),
+  fy: z.optional(z.number()),
+  // What a wheel or a finger was over in the mirror, for the same reason.
+  target: z.optional(z.number()),
+  // Where a mirror laid out at its own size put what it scrolled.
+  anchor: z.optional(scrollAnchorSchema),
 });
+
+export type BrowserInputPayload = z.infer<typeof inputPayloadSchema>;
+export type ScrollAnchor = z.infer<typeof scrollAnchorSchema>;
 
 const frameMetadataSchema = z.object({
   timestamp: z.number(),
@@ -64,8 +104,13 @@ const navMessageSchema = z.object({
   // 'history' (server -> client): the main frame moved without a load (a
   // same-document navigation) or only the session history changed; carries
   // the url and the two flags below, and nothing about loading.
-  phase: z.enum(['request', 'response', 'error', 'history']),
+  // 'loading' (server -> client): the page is on its way to `url`, for every
+  // viewer and for one that opens in the middle (server/browser-nav-flight.ts),
+  // `elapsedMs` since it set off. Without it a pane whose page never answered
+  // had nothing to say but "starting the shared session".
+  phase: z.enum(['request', 'response', 'error', 'history', 'loading']),
   error: z.optional(z.string()),
+  elapsedMs: z.optional(z.number()),
   // Whether the server page's session history has an entry behind / ahead of
   // the current one (CDP Page.getNavigationHistory). Absent = unknown: an
   // older server, or a read that failed. The pane then keeps what it had,
@@ -110,6 +155,11 @@ const resizeMessageSchema = z.object({
   // input also travels on the WebRTC DataChannel, which the server never sees:
   // without it a phone that scrolls would stay a spectator forever.
   driving: z.optional(z.boolean()),
+  // How this pane shows a page the Mac hosts. 'own': its mirror is laid out at
+  // this size and the Mac keeps its own (BROWSER-DOM-LAYOUT-01). 'page': the
+  // Mac's page takes this size while this pane uses it (TOPIC-BROWSER-05), as
+  // for a client that predates the field.
+  layout: z.optional(z.enum(['own', 'page'])),
 });
 
 /** Server -> client: a headless-page download saved under our origin. */
@@ -122,7 +172,7 @@ const downloadMessageSchema = z.object({
 });
 
 /** Client -> server: request this pane run on a different engine (native ↔
- *  chromium). Ignored by servers without the TOPICS_CHROMIUM_ENGINE flag. */
+ *  chromium). A server without a Chromium on the machine answers `engine: native`. */
 const setEngineMessageSchema = z.object({
   type: z.literal('set_engine'),
   engine: z.enum(['native', 'chromium']),
@@ -160,6 +210,12 @@ const setWatchingMessageSchema = z.object({
   active: z.boolean(),
 });
 
+/** The native host controls whether its page is visible and interactive remotely. */
+const setNativeHostSharingMessageSchema = z.object({
+  type: z.literal('set_native_host_sharing'),
+  active: z.boolean(),
+});
+
 /**
  * Server -> client: how many shared-session viewers this context has NOW.
  *
@@ -174,6 +230,22 @@ const setWatchingMessageSchema = z.object({
 const viewersMessageSchema = z.object({
   type: z.literal('viewers'),
   count: z.int().check(z.nonnegative()),
+});
+
+/** Server -> the native pane hosting the mirror: delivery and relay health. */
+const nativeHostStatusMessageSchema = z.object({
+  type: z.literal('native_host_status'),
+  sharing: z.boolean(),
+  devices: z.int().check(z.nonnegative()),
+  kbps: z.number().check(z.nonnegative()),
+  delayMs: z.number().check(z.nonnegative()),
+  error: z.optional(z.string()),
+});
+
+/** Server -> viewers: the host has paused or resumed the page mirror. */
+const hostShareStateMessageSchema = z.object({
+  type: z.literal('host_share_state'),
+  sharing: z.boolean(),
 });
 
 /**
@@ -201,13 +273,30 @@ const setRenderMessageSchema = z.object({
 const renderModeMessageSchema = z.object({
   type: z.literal('render_mode'),
   mode: z.enum(['video', 'dom']),
+  // 'native': the Mac's own pane hosts this context and the mirror is ITS page
+  // (server/lib/native-dom-host.ts). The viewer then mirrors it even where it
+  // would frame the url itself: an <iframe> would be a second, separate page.
+  // Absent: the server's Chromium is the source.
+  host: z.optional(z.literal('native')),
 });
+
+const hostAwayMessageSchema = z.object({ type: z.literal('host_away') });
+const hostPingMessageSchema = z.object({ type: z.literal('host_ping') });
+const hostPongMessageSchema = z.object({ type: z.literal('host_pong') });
 
 /** Server -> client (T1 DOM co-browse): one opaque rrweb event fed straight to
  *  the pane's Replayer (NOT deep-validated — rrweb owns its event shape). */
 const domEventMessageSchema = z.object({
   type: z.literal('dom_event'),
   event: z.unknown(),
+});
+
+const domEventChunkMessageSchema = z.object({
+  type: z.literal('dom_event_chunk'),
+  id: z.string(),
+  index: z.number(),
+  total: z.number(),
+  data: z.string(),
 });
 
 /**
@@ -285,11 +374,18 @@ export const browserWsMessageSchema = z.discriminatedUnion('type', [
   engineMessageSchema,
   setStreamMessageSchema,
   setWatchingMessageSchema,
+  setNativeHostSharingMessageSchema,
   viewersMessageSchema,
+  nativeHostStatusMessageSchema,
+  hostShareStateMessageSchema,
   viewportRequestMessageSchema,
   setRenderMessageSchema,
   renderModeMessageSchema,
+  hostAwayMessageSchema,
+  hostPingMessageSchema,
+  hostPongMessageSchema,
   domEventMessageSchema,
+  domEventChunkMessageSchema,
   focusFieldMessageSchema,
   focusQueryMessageSchema,
   webrtcOfferMessageSchema,
@@ -339,3 +435,6 @@ export function sendBrowserWsMessage<T extends { send: (data: string) => void }>
  * a navigation sent in between would drive a headless context, not the pane.
  */
 export const NATIVE_EXECUTOR_PARAM = 'executor';
+
+/** Viewer remembers that this context was hosted before the server restarted. */
+export const NATIVE_HOST_PARAM = 'host';

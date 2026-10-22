@@ -453,3 +453,29 @@ ciò che tiene è tutta la storia.
 #### Scenario: un cursore sconosciuto
 - **GIVEN** un `before` che non è nel thread
 - **THEN** la risposta è il thread intero, non vuota
+
+### Requirement: WIRE-12 — I frame di un topic vanno solo a chi lo guarda
+
+**Ogni tipo di frame in uscita SHALL avere una classe di instradamento** (`global`, `topic`,
+`project`, `board`), scritta accanto al registro dei tipi. Un tipo senza classe SHALL far fallire un
+test.
+
+**Un frame di classe `topic` SHALL arrivare solo ai client che hanno dichiarato quel topic** con
+`subscribe`, oppure che non hanno mai dichiarato niente (ramo legacy). Quando il frame non porta il
+`topicId`, il server SHALL ricavarlo dalla `sessionKey`; se non ci riesce, il frame va a tutti.
+
+**Ciò che la UI mostra per i topic non aperti SHALL restare globale:** inizio e fine del turno
+(`stream:start`, `stream:end`), messaggi nuovi, attenzione e lavoro in background. La sidebar segna
+«in corso» e «finito» anche per un topic che la finestra non ha aperto.
+
+#### Scenario: due finestre, il topic aperto in una sola
+- **GIVEN** due finestre, e il topic aperto solo nella seconda
+- **WHEN** quel topic fa un turno lento in streaming
+- **THEN** la prima finestra SHALL ricevere 0 `stream:usage` e 0 `stream:content_chunk` di quel topic
+- **AND** la sua sidebar SHALL mostrare comunque «in corso» e poi «finito»
+- **AND** la seconda SHALL vedere lo streaming come prima
+
+#### Scenario: a riposo, nessun frame di topic
+- **GIVEN** un client che si collega come l'app senza pane aperte
+- **WHEN** il banco `measure:ws-idle` lo misura
+- **THEN** SHALL ricevere 0 frame di classe `topic`, e restare sotto il budget di 256 B/s

@@ -55,6 +55,9 @@ const NIGHTLY_ONLY_SPECS = [
   "cross-feature",
   "layout-edge-cases",
   "cross-window-topic-sync",
+  // Due dispositivi con reload dello stesso contesto e riavvio del server: i
+  // restart contaminerebbero le spec vicine sul gate PR; la copertura resta nel nightly.
+  "pane-store-two-devices",
   "split-screen-sync",
   "pane-server-migration",
   // La famiglia file-explorer condivide un progetto/DB fra i test; su CI Linux
@@ -90,6 +93,9 @@ const NIGHTLY_ONLY_SPECS = [
   // again without it in its afterAll: on the PR gate the two restarts would be
   // paid by the specs around it, and the tag alone would still run the hooks.
   "chat-sse-own-row",
+  // Seeds 2,000 messages and 1,203 cards one request at a time in its
+  // beforeAll: the tag alone would still pay that seeding on the PR gate.
+  "dom-node-budget",
 ].map((name) => `**/${name}.spec.ts`);
 
 // ── Velocità vs. evidenza ────────────────────────────────────────────────────
@@ -409,6 +415,7 @@ export default defineConfig({
         "**/sheet-finger-follow.spec.ts",
         "**/hover-reveal-touch-audit.spec.ts",
         "**/browser-mobile-keyboard.spec.ts",
+        "**/browser-dom-tap-once.spec.ts",
         "**/mobile-chrome-bar.spec.ts",
         "**/mobile-list-under-chrome.spec.ts",
         "**/mobile-screens-under-chrome.spec.ts",
@@ -418,6 +425,11 @@ export default defineConfig({
         // The phone chrome feedback loop (05/10): its own viewport
         // (390x844 with a finger), the engine that ships, runs only in `webkit`.
         "**/mobile-chrome-feedback.spec.ts",
+        // An iPad lying down with a finger (its own `hasTouch` and viewport): the
+        // keyboard that took the topic's browser away is Safari's, so `webkit` only.
+        "**/topic-browser-window-keyboard.spec.ts",
+        // Same iPad, same keyboard: the menus and sheets opened while typing.
+        "**/ipad-keyboard-popovers.spec.ts",
         // Le due che mancavano. `sidebar-pin-drag-touch` è nel `testMatch` di
         // `chromium-touch` e `tab-close-ring-touch` in quello di
         // `chromium-touch-wide`, ma un `testMatch` altrove non ESCLUDE nulla
@@ -523,6 +535,9 @@ export default defineConfig({
       testMatch: [
         "**/hover-reveal-touch-audit.spec.ts",
         "**/browser-mobile-keyboard.spec.ts",
+        // One tap is one click on the mirror: needs the engine that synthesizes
+        // the click after `touchend`, which desktop WebKit does not.
+        "**/browser-dom-tap-once.spec.ts",
         "**/board-card-stop.spec.ts",
         // La spunta della tab: il contratto e' «col dito», non «sul telefono»,
         // e a 390px la striscia non si disegna piu'. Qui c'e' e il dito e' vero.
@@ -585,6 +600,9 @@ export default defineConfig({
       // `testIgnore`), because the point is the SAME tree asserted on the two
       // engines.
       testMatch: [
+        // The live-terminals menu: used mostly from remote, i.e. from phone
+        // Safari and the WKWebView shell. WebKit is where it lives.
+        "**/live-terminals.spec.ts",
         // The phone list under the header and the button row: WebKit is what ships.
         "**/mobile-list-under-chrome.spec.ts",
         "**/mobile-screens-under-chrome.spec.ts",
@@ -592,12 +610,30 @@ export default defineConfig({
         // The board on a phone: the bar that does not scroll, the 44px search,
         // the columns that fill and the room under the last card (05/10).
         "**/board-mobile-phone.spec.ts",
+        // The conversation of a task follows its last answer while the drawer narrows: WebKit moves
+        // scrollTop for the anchor before any ResizeObserver runs, and that is what the second net guards.
+        "**/task-conversation-follow.spec.ts",
+        // The phone list over a browser tab's page: the drawer paints inside the
+        // app's root, under the page layer, unless the layer steps aside (T17).
+        "**/browser-frame-under-phone-list.spec.ts",
         // The chat at rest: the pin loop documented in MessageList depends on
         // how the engine measures Virtuoso's rows, and WebKit is what ships.
         "**/chat-scroll-at-rest.spec.ts",
         // Scrolling down to the bottom with a trackpad: every frame whose motion
         // the wheel does not explain is a jerk (reported 24/09).
         "**/chat-scroll-down-jitter.spec.ts",
+        // The prepend under the reader is measured on both engines: the shipped one is WebKit.
+        "**/chat-infinite-scroll.spec.ts",
+        // The bar of a topic's browser window with more pages than fit: what a page keeps of its width is
+        // measured where the product ships.
+        "**/topic-browser-tab-strip.spec.ts",
+        // An iPad's keyboard for the chat leaves the topic's browser window beside
+        // the chat: the page Safari scrolls under the fixed window, where it ships.
+        "**/topic-browser-window-keyboard.spec.ts",
+        // The menus, pickers and sheets opened with that keyboard up stay on their buttons.
+        "**/ipad-keyboard-popovers.spec.ts",
+        // Pane tabs adapt to the width of their split cell, measured on the shipped engine.
+        "**/tab-bar-density.spec.ts",
         "**/sender-sees-question.spec.ts",
         // A question waits for its person across a reload and the death of its
         // asker, and the answer reaches the model: read in the engine that ships.
@@ -629,6 +665,12 @@ export default defineConfig({
         // the streaming pane is what a phone's Safari shows, so it is read on
         // WebKit.
         "**/browser-stream-back-forward.spec.ts",
+        // A scroll on the DOM mirror lands on the host's pixel: the drift came from
+        // WebKit's whole pixels, which Chromium does not have, so it is read here.
+        "**/browser-mirror-scroll-lands.spec.ts",
+        // Each device keeps its own layout of a page the Mac hosts: the mirror
+        // is laid out at the pane's size, and the Mac is the engine that ships.
+        "**/browser-own-layout.spec.ts",
         // The card's changed-files chip end to end: count, show-all, filter,
         // row -> the task's diff on that file. Filmed on the shipping engine.
         "**/changed-files-complete.spec.ts",
@@ -646,6 +688,15 @@ export default defineConfig({
         // The page the agent opened stays in sight in the turn and brings the
         // page back from the topic's window: filmed on the engine that ships.
         "**/chat-browser-open-marker.spec.ts",
+        // A view the agent sent as data (show_view) is a block in the chat and
+        // a page at /v/<id>: phone layout and both themes, on the shipping engine.
+        "**/chat-generative-view.spec.ts",
+        // Table and timeline views, and the same views inside an MCP Apps host
+        // driven by the real bridge process: layout measured on the shipping engine.
+        "**/chat-generative-view-kinds.spec.ts",
+        // A spawned agent's browser lands in its parent chat's window, not in a
+        // layout tab per child: the window's native view is WebKit.
+        "**/browser-child-in-parent-window.spec.ts",
         // A page taken back by the topic window on another device leaves this
         // device's project layout too: two clients, the native view is WebKit.
         "**/topic-browser-window-remote-return.spec.ts",
@@ -698,6 +749,10 @@ export default defineConfig({
         // The ‹ of a browser tab moves the page shown in the hosted frame, not
         // only the tab's label (reported 04/10), read on the engine that ships.
         "**/browser-back.spec.ts",
+        // A dev server started with a background Bash is the chat's server, not
+        // work in progress: the sidebar row's sign and ring, from real server
+        // turns on a fake CLI, read on the engine that ships.
+        "**/chat-bash-server.spec.ts",
         // Target size, text size and contrast on every main surface, measured
         // in the engine that ships (WebKit), two viewports, two themes.
         "**/usability-audit.spec.ts",
@@ -714,6 +769,17 @@ export default defineConfig({
         // Search in the design system, waiting always alive, pencil. Readings
         // from the DOM on the engine that ships.
         "**/mobile-chrome-feedback.spec.ts",
+        // The strip under a chat shows what works now: a stub sub-agent, a
+        // ticking command, a file-redirected log, a local server's Open.
+        // Filmed on the engine that ships (chat-live-work).
+        "**/chat-live-work.spec.ts",
+        // The strips at the end of the transcript, and a command's row opening
+        // the card that started it with its live log (chat-strips-in-transcript).
+        "**/chat-strips-in-transcript.spec.ts",
+        // A keystroke that lands as a chat opens, before the effects of the
+        // commit that showed its composer: the run that lost a message was a
+        // WebKit one (chat-composer-draft-race).
+        "**/chat-composer-draft-race.spec.ts",
       ],
       use: {
         browserName: "webkit",

@@ -35,6 +35,7 @@
  * è cambiato niente» di un file che è cambiato del tutto, quindi si porta il
  * flag e il pannello scrive «bin» invece di due zeri.
  */
+import { SPAWN_TIMEOUT, spawnBounded } from "./bounded-spawn";
 
 export interface Numstat {
   added: number;
@@ -123,10 +124,15 @@ export const NUMSTAT_MAX_FILES = 400;
  * inizializzato non ha HEAD e `--cached` esce non-zero, il che non è un guasto
  * ma «non c'è ancora niente da confrontare».
  */
-export async function readNumstats(cwd: string): Promise<{ staged: Map<string, Numstat>; unstaged: Map<string, Numstat> }> {
+export async function readNumstats(cwd: string, onSpawn: () => void = () => {}, paths?: string[]): Promise<{ staged: Map<string, Numstat>; unstaged: Map<string, Numstat> }> {
+  if (paths && paths.length === 0) return { staged: new Map(), unstaged: new Map() };
+  const scopedArgs = (args: string[]) => paths
+    ? ["git", "--literal-pathspecs", ...args.slice(1), ...paths]
+    : args;
   const leggi = async (args: string[]) => {
     try {
-      const proc = Bun.spawn(args, { cwd, stdout: "pipe", stderr: "ignore" });
+      onSpawn();
+      const proc = spawnBounded(scopedArgs(args), { cwd, stdout: "pipe", stderr: "ignore", timeoutMs: SPAWN_TIMEOUT.query });
       const text = await new Response(proc.stdout).text();
       await proc.exited;
       return proc.exitCode === 0 ? parseNumstatZ(text) : new Map<string, Numstat>();

@@ -22,6 +22,7 @@ import { MAX_CHECKS, STATIC_RAILS_CHECK, parseReviewChecks } from "../services/r
 import { linkNotes, proposeLink, type LinkKind } from "../services/task-intake";
 import { isTaskLabel } from "../../shared/task-labels";
 import { stopCauseOf, STOP_CAUSE_HEADER, type StopCause } from "../lib/abort-cause";
+import { ScheduledCardsError, type ScheduledCardsService } from "../services/scheduled-cards";
 import { invalidateProbeCache } from "../services/url-probe-cache";
 import type { TasksRouterOpts, emitReviewReadyEdge } from "./tasks";
 
@@ -73,6 +74,7 @@ export interface BoardRouteDeps {
   readJSON: AppContext["readJSON"];
   broadcastToAll: AppContext["broadcastToAll"];
   svc: TaskService;
+  scheduledCards?: ScheduledCardsService;
   askRouting: AskRoutingDeps;
   landings: LandingQueue;
   emitReviewReadyEdge: typeof emitReviewReadyEdge;
@@ -108,6 +110,7 @@ export function createBoardRoutes(deps: BoardRouteDeps) {
     readJSON,
     broadcastToAll,
     svc,
+    scheduledCards,
     askRouting,
     landings,
     emitReviewReadyEdge,
@@ -131,6 +134,40 @@ export function createBoardRoutes(deps: BoardRouteDeps) {
   } = deps;
 
   return async function boardRoutes(req: Request, pathname: string, method: string): Promise<Response | null> {
+    // A recurrence body as sent: wrong types become empty values and the service refuses them.
+    const scheduledBody = async () => {
+      const body = (await readJSON(req)) as Record<string, unknown> | null;
+      const text = (k: string) => (typeof body?.[k] === "string" ? (body[k] as string) : "");
+      return {
+        text: text("text"), status: text("status"), labels: body?.labels, cron: text("cron"),
+        timeZone: typeof body?.timeZone === "string" ? body.timeZone : undefined,
+        enabled: typeof body?.enabled === "boolean" ? body.enabled : undefined,
+        onlyEnabled: !!body && Object.keys(body).length === 1 && typeof body.enabled === "boolean",
+      };
+    };
+    const scheduledPath = matchRoute(pathname, "/api/boards/:projectId/scheduled-cards");
+    if (scheduledPath && scheduledCards) {
+      const projectId = scheduledPath.projectId;
+      if (method === "GET") return json({ schedules: scheduledCards.list(projectId) });
+      if (method === "POST") {
+        try {
+          const { text, status, labels, cron, timeZone } = await scheduledBody();
+          return json(scheduledCards.create({ projectId, text, status, labels, cron, timeZone }), 201);
+        } catch (error) { return error instanceof ScheduledCardsError ? json({ error: error.message }, error.status) : fail(error); }
+      }
+    }
+    const scheduledItem = matchRoute(pathname, "/api/boards/:projectId/scheduled-cards/:scheduleId");
+    if (scheduledItem && scheduledCards) {
+      const { projectId, scheduleId } = scheduledItem;
+      try {
+        if (method === "PATCH") {
+          const { onlyEnabled, enabled, text, status, labels, cron, timeZone } = await scheduledBody();
+          if (onlyEnabled) return json(scheduledCards.setEnabled(scheduleId, projectId, enabled === true));
+          return json(scheduledCards.update(scheduleId, projectId, { text, status, labels, cron, timeZone, enabled }));
+        }
+        if (method === "DELETE") { scheduledCards.remove(scheduleId, projectId); return json({ ok: true }); }
+      } catch (error) { return error instanceof ScheduledCardsError ? json({ error: error.message }, error.status) : fail(error); }
+    }
     const HUMAN = "user";
     // Presentation metadata only. A caller cannot claim MCP/system through
     // this header, and it never participates in the human permission gates.
@@ -538,7 +575,15 @@ export function createBoardRoutes(deps: BoardRouteDeps) {
           projectId: bMerge.projectId,
           by: HUMAN,
         });
-        broadcastToAll({ type: "task:deleted", projectId: bMerge.projectId, taskId: bMerge.taskId });
+        // The merged card is archived exactly like a DELETE, so its tabs go the
+        // same way: without this they stayed alive until the next boot sweep.
+        // Its subtasks have already moved under the survivor, so the subtree
+        // here is the merged card alone and the children keep their tabs.
+        const torn = opts?.teardownTaskBrowserState?.(bMerge.taskId);
+        broadcastToAll({
+          type: "task:deleted", projectId: bMerge.projectId, taskId: bMerge.taskId,
+          taskIds: torn?.taskIds ?? [bMerge.taskId],
+        });
         broadcastToAll({ type: "task:updated", projectId: bMerge.projectId, task: esito.survivor });
         return json(esito);
       } catch (e) { return fail(e); }
@@ -639,7 +684,7 @@ export function createBoardRoutes(deps: BoardRouteDeps) {
         // route instead of this one.
         {
           const intercepted = interceptBoardAction(
-            { svc, dispatcher, broadcast: broadcastToAll, enqueueLand, checksRedGate, json, by: HUMAN },
+            { svc, dispatcher, broadcast: broadcastToAll, enqueueLand, checksRedGate, json, by: HUMAN, teardownTaskBrowserState: opts?.teardownTaskBrowserState },
             { projectId: bReview.projectId, taskId: bReview.taskId },
             comment,
             { force: body?.force },
@@ -1001,7 +1046,7 @@ export function createBoardRoutes(deps: BoardRouteDeps) {
         {
           const root = dispatcher ? svc.boundRootOf(bComments.taskId) : null;
           const intercepted = interceptBoardAction(
-            { svc, dispatcher, broadcast: broadcastToAll, enqueueLand, checksRedGate, json, by: HUMAN },
+            { svc, dispatcher, broadcast: broadcastToAll, enqueueLand, checksRedGate, json, by: HUMAN, teardownTaskBrowserState: opts?.teardownTaskBrowserState },
             { projectId: bComments.projectId, taskId: root?.id ?? bComments.taskId },
             typeof body?.content === "string" ? body.content : "",
             { force: body?.force },

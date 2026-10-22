@@ -100,3 +100,16 @@ describe("shrinkLog", () => {
     }
   });
 });
+
+describe("readTail", () => {
+  test("a file its writer truncated is read again from the top, not ignored until it grows past the old end", () => {
+    const path = join(DIR, "rewritten.log");
+    writeFileSync(path, "first run line 1\nfirst run line 2\n");
+    const tail = openTail(path);
+    expect(readTail(tail).text).toBe("first run line 1\nfirst run line 2\n");
+    // `> f` again: the shell truncates, the second run writes from the top.
+    writeFileSync(path, "second\n");
+    expect(readTail(tail).text).toBe("second\n");
+    expect(tail.offset).toBe("second\n".length);
+  });
+});

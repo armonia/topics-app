@@ -22,6 +22,7 @@ import { deriveSubjectTime, formatElapsedShort, formatElapsedCompact, WORK_ELAPS
 import { useTopicPreview } from '../../state/topicPreviews';
 import { timeToneClass, timeVoice } from './timeTone';
 import { ON_FILL_TEXT, ON_FILL_TEXT_SOFT, TIER_DONE_BG, TIER_INPUT_BG } from '../../lib/selectionStyles';
+import { startVisibleInterval } from '../../state/documentVisibility';
 
 /** Map a Claude Code tool name to a short human verb. Unknown tools fall back to
  *  the raw name (MCP tools like `mcp__foo__bar` are trimmed to their last leg). */
@@ -88,8 +89,7 @@ function SessionActivityText({ subjectId, onFill, className = '' }: SessionActiv
   const working = activity?.working ?? false;
   useEffect(() => {
     if (!working) return;
-    const t = setInterval(() => setTick(Date.now()), 1000);
-    return () => clearInterval(t);
+    return startVisibleInterval(() => setTick(Date.now()), 1000);
   }, [working]);
 
   // Il PIÙ RECENTE dei due campioni, non il locale e basta. Sono due letture

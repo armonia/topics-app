@@ -31,7 +31,7 @@ import {
 } from "./src/ponte";
 import { creaProxyTubo } from "../server/services/relay-client";
 import { leggiFramePayload, scriviFrame, type FrameTubo } from "../shared/relay-protocol";
-import { derivaRelayId, INTESTAZIONE_SEGRETO } from "../shared/relay-identita";
+import { createRelayIdentity, createHostProof, HOST_PROOF_HEADER } from "../shared/relay-identita";
 import {
   GENERE_WS_APERTO, GENERE_WS_CHIUSO, leggiChiusuraWs, leggiTestaWsChiuso,
   scriviTestaWs, WS_APERTO,
@@ -85,6 +85,11 @@ class CoppiaFinta {
  *  l'unica memoria, com'è sotto ibernazione. */
 class StatoFinto {
   private tag = new Map<object, string[]>();
+  private valori = new Map<string, unknown>();
+  storage = {
+    get: async <T>(key: string) => this.valori.get(key) as T | undefined,
+    put: async (key: string, value: unknown) => { this.valori.set(key, value); },
+  };
   acceptWebSocket(ws: object, tags: string[] = []): void { this.tag.set(ws, tags); }
   getWebSockets(tag?: string): object[] {
     return [...this.tag.keys()].filter((w) => tag === undefined || (this.tag.get(w) ?? []).includes(tag));
@@ -793,8 +798,10 @@ describe("ponte-ws · la visita finisce, e la fine arriva fino in fondo", () => 
     // il nome derivato dal segreto, e il segreto nell'intestazione. In questa
     // scena `get()` ignora il nome e torna sempre lo stesso oggetto, quindi
     // resta il punto d'incontro di prima — cambia solo come ci si entra.
-    const segreto = "segreto-della-macchina-che-si-riaggancia";
-    const nuova = await s.apri(`/agent/${await derivaRelayId(segreto)}`, { [INTESTAZIONE_SEGRETO]: segreto });
+    const identita = await createRelayIdentity();
+    const nuova = await s.apri(`/agent/${identita.relayId}`, {
+      [HOST_PROOF_HEADER]: await createHostProof(identita.segreto, identita.relayId),
+    });
     expect(nuova.res.status).toBe(101);
 
     expect(browser!.chiusa).toEqual({ c: WS_PONTE_GIU, r: "installation offline" });

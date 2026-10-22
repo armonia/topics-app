@@ -112,7 +112,10 @@ describe("worktree-manager.del(): la cartella prima della riga", () => {
     expect(git(repo, "rev-parse", "--verify", "--quiet", "refs/heads/topics/sage-well").code).not.toBe(0);
   });
 
-  test("cartella che non si puo' togliere: la riga RESTA, il ramo resta, si lancia e si notifica", async () => {
+  // root ignores the permission bits: `chmod 0555` does not stop `rm -rf` there
+  // (the cloud VM and most containers run as root). Skipped with the reason in
+  // the title; as a normal user the test stays able to go red.
+  test.skipIf(process.getuid?.() === 0)("cartella che non si puo' togliere: la riga RESTA, il ramo resta, si lancia e si notifica (saltato come root)", async () => {
     const absPath = mount("stuck");
     rmSync(join(repo, ".git", "worktrees", "stuck"), { recursive: true, force: true });
     // Read-only parent: the children can be emptied, the folder itself cannot
@@ -245,4 +248,18 @@ describe("worktree-manager.create(): the worktree-create hook", () => {
     // Let the deferred materialisation finish before the folder is removed.
     for (let i = 0; i < 100 && m.isMaterialising("w9"); i++) await new Promise((r) => setTimeout(r, 20));
   }, 10_000);
+});
+
+describe("worktree-manager.knownWorktreePort(): only a worktree gets a port", () => {
+  test("a managed worktree gets its stable port, a main checkout gets none", () => {
+    const now = new Date().toISOString();
+    const row = { id: "w1", projectId: "proj-1", absPath: "/srv/wt/proj/sage-well", branchName: "topics/sage-well", createdAt: now } as unknown as Worktree;
+    const m = createWorktreeManager(fakeCtx(), {
+      projectStore: fakeProjectStore(),
+      worktreeStore: { list: () => [row] } as unknown as WorktreeStore,
+    });
+    expect(m.knownWorktreePort("/srv/wt/proj/sage-well")).toBe(m.portForPath("/srv/wt/proj/sage-well"));
+    // The main checkout used to get portForPath too: the port the NEXT worktree claims.
+    expect(m.knownWorktreePort("/srv/code/proj")).toBeNull();
+  });
 });

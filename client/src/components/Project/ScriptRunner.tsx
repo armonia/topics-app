@@ -130,7 +130,7 @@ export function ScriptRunner({ projectPath, onRunScript, onOpenProcessLog }: Scr
    * FileExplorer, stesso gesto. Vedi `hooks/useDetectedScripts.ts`.
    */
   const { scripts, found, looked, ready } = useDetectedScripts(projectPath);
-  const { scripts: runningScripts, refresh: refreshScripts } = useScripts({ projectPath });
+  const { scripts: runningScripts, refresh: refreshScripts } = useScripts({ projectPath, ports: true });
   const runningScriptsRef = useRef(runningScripts);
   runningScriptsRef.current = runningScripts;
   // PER-KEY pending sets, not shared scalars: two concurrent actions (e.g. a

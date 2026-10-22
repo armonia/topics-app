@@ -187,10 +187,29 @@ describe("una chat col contesto pieno si rimette in moto da sola", () => {
     const history = historyOverCeiling(1_200, 3_000);
     const before = estimateTokens(history);
 
-    const out = await runAgentTurn(
-      { model: "claude-haiku-4-5-20251001", history, toolContext: { workspace: ws }, autonomy: "auto-apply", retryPolicy: FAST },
-      handler(reg),
-    );
+    const roundLines: string[] = [];
+    const log = console.log;
+    console.log = (...args: unknown[]) => {
+      const line = args.map(String).join(" ");
+      if (line.startsWith("[native] round:")) roundLines.push(line);
+      else log(...args);
+    };
+    let out: Awaited<ReturnType<typeof runAgentTurn>>;
+    try {
+      out = await runAgentTurn(
+        {
+          model: "claude-haiku-4-5-20251001",
+          history,
+          sessionId: "topic:full-context-test",
+          toolContext: { workspace: ws },
+          autonomy: "auto-apply",
+          retryPolicy: FAST,
+        },
+        handler(reg),
+      );
+    } finally {
+      console.log = log;
+    }
 
     // BEFORE: the turn died here, and so did every later turn.
     expect(reg.errors).toEqual([]);
@@ -202,6 +221,8 @@ describe("una chat col contesto pieno si rimette in moto da sola", () => {
     expect(s.calls()).toBe(2);
     expect(Math.ceil(s.bodies[0]!.length / REAL_RATIO)).toBeGreaterThan(200_000);
     expect(Math.ceil(s.bodies[1]!.length / REAL_RATIO)).toBeLessThanOrEqual(200_000);
+    expect(roundLines).toHaveLength(1);
+    expect(roundLines[0]).toMatch(/session_key=topic:full-context-test round=1 .*compacted=yes$/);
     // The in-memory history was replaced, so the NEXT turn starts light:
     // that is what takes the chat out of the error loop.
     expect(estimateTokens(history)).toBeLessThan(before / 2);
@@ -250,7 +271,7 @@ describe("una chat col contesto pieno si rimette in moto da sola", () => {
     const reg = fresh();
     mountApi(apiWithCeiling(200_000));
     const history = historyOverCeiling(20, 1_000);
-    const calibration = { charsPerToken: DEFAULT_CHARS_PER_TOKEN };
+    const calibration = { charsPerToken: DEFAULT_CHARS_PER_TOKEN, calibrated: false };
     await runAgentTurn(
       { model: "claude-haiku-4-5-20251001", history, calibration, toolContext: { workspace: ws }, autonomy: "auto-apply", retryPolicy: FAST },
       handler(reg),
@@ -263,6 +284,7 @@ describe("una chat col contesto pieno si rimette in moto da sola", () => {
     expect(calibration.charsPerToken).toBeLessThan(DEFAULT_CHARS_PER_TOKEN);
     expect(calibration.charsPerToken).toBeLessThanOrEqual(REAL_RATIO);
     expect(calibration.charsPerToken).toBeGreaterThan(1);
+    expect(calibration.calibrated).toBe(true);
   });
 
   test("a 413 that arrives after a retried 529 still takes the images out and redoes the round", async () => {

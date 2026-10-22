@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, readdirSync, unlinkSync, realpathSync, openSync, closeSync } from "fs";
+import { existsSync, mkdirSync, readdirSync, unlinkSync, realpathSync, openSync, closeSync, statSync } from "fs";
 import { appendFile as appendFileAsync, readFile as readFileAsync, writeFile as writeFileAsync } from "fs/promises";
 import { homedir } from "os";
 import { join, relative, sep } from "path";
@@ -26,6 +26,7 @@ import { registerFleetScriptSource } from "../lib/fleet-usage";
 import { isBroadCwd } from "../lib/broad-cwd";
 import { isGlobalOrchestratorSession } from "../services/global-orchestrator-session";
 import { openTail, readFileEnd, readTail, shrinkLog, type FileTail } from "../lib/file-tail";
+import { stdoutTargetOf, type UnresolvedReason } from "../lib/command-redirect";
 import { commandArgv, confineCommandCwd, endedWhileAway, readExitCode } from "../lib/command-process";
 import { closeLostRun, closeRegistryRun, noteRunAlive } from "../lib/command-runs";
 import { createCommandRunsRoute } from "./command-runs";
@@ -35,7 +36,11 @@ import { agentBaseEnv } from "../lib/agent-env";
 import { applyJobQuota } from "../services/agent-job-quota";
 import { commandLabel, commandWorkOver, pushBackgroundChanged } from "../lib/command-background";
 import { commandProcessesOf, serviceWatch, servicesOver, SERVICE_END_SHOWN_MS, SERVICE_WATCH_MIN_MS, type ServiceRowLike } from "../lib/command-services";
-import { getListeningPorts, listenersOf, readProcessProbe, servesHtml } from "../lib/listening-ports";
+import { getListeningPorts, listenersOf, servesHtml } from "../lib/listening-ports";
+import { recordServerSpawn } from "../lib/spawn-metrics";
+import { SPAWN_TIMEOUT, spawnBounded } from "../lib/bounded-spawn";
+import { isPidAlive, livePids, watchPidExits } from "../lib/pid-liveness";
+import { topicIdOfSubject } from "../../shared/attention";
 
 interface ScriptProcess {
   processId: string;
@@ -108,6 +113,8 @@ interface ScriptProcess {
      *  lo start-time distingue la stessa incarnazione da un pid riciclato.
      *  Serve a spazzarli quando la riga sparisce, invece di lasciarli orfani. */
     tree?: Map<number, string>;
+    /** Ended by a Stop (the panel, the chat's server row, `KillShell`) or with its CLI: a server's end reads «stopped». */
+    stopped?: boolean;
   };
   /** Only for `source: 'command'` (`run_command`). Persisted. */
   cmd?: CommandMeta;
@@ -122,6 +129,10 @@ interface ScriptProcess {
   /** Set while the log is a FILE somebody else writes (a command, a shell of
    *  the CLI): the registry follows it and never writes it. Not persisted. */
   tail?: FileTail;
+  /** The file a command sends its own stdout to (`CommandMeta.follow`), followed beside its log. Not persisted. */
+  followTail?: FileTail;
+  /** That file's last line, until its newline comes: the buffer takes its lines whole. Not persisted. */
+  followPending?: string;
 }
 
 interface CommandMeta {
@@ -137,6 +148,16 @@ interface CommandMeta {
    * and its end closes its row in `command_runs` (CMDRUN-05, CMDRUN-06).
    */
   origin?: "person";
+  /**
+   * The file the command names as its stdout (`> f`, `&> f`, `| tee f >…`),
+   * read off the command line before it starts (`lib/command-redirect.ts`):
+   * its log follows that file too, or it would stay empty while the work goes
+   * to the file (Muse, 07/10). `from` is where this run starts in it: 0 when
+   * the shell truncates it, its size before the start when it appends.
+   */
+  follow?: { path: string; from: number };
+  /** A stdout file it names but nobody can resolve without running it (`$LOG`, a glob): the panel says so. */
+  unfollowed?: { target: string; reason: UnresolvedReason };
 }
 
 /** A run a person started from the chat: kept out of everything the agent reads. */
@@ -168,7 +189,7 @@ const runningScripts = new Map<string, ScriptProcess>();
 const recentScripts: ScriptProcess[] = [];
 /** The one timer that follows every file-backed log (`followLog`). */
 let tailTimer: ReturnType<typeof setInterval> | null = null;
-let scriptsResponseCache: { data: any; timestamp: number } | null = null;
+let scriptsResponseCache: { data: any; timestamp: number; ports: boolean } | null = null;
 
 // Third axis of the memory calculator: processes an agent launched.
 // Excluded from the server total (fleet-usage.ts) and shown separately.
@@ -322,7 +343,8 @@ function loadState() {
           runningScripts.set(r.processId, sp);
           // A command's log is written by the command itself, so what it printed
           // while the server was down is in the file: follow it from there on.
-          if (sp.cmd) followLog(sp, logPathOf(sp.processId), logBytes ?? 0);
+          // The same for the file it sends its stdout to.
+          if (sp.cmd) { followLog(sp, logPathOf(sp.processId), logBytes ?? 0); resumeFollow(sp); }
           if (sp.cmd && !sp.cmd.wake) commandServiceWatch.kick();
 
           // Poll for exit in background
@@ -332,6 +354,7 @@ function loadState() {
           // exit file say how, and the topic may still be owed its wake.
           const sp: ScriptProcess = { ...r, status: "running", output: [], outputBytes: 0, proc: null };
           loadLogFile(sp);
+          resumeFollow(sp);
           runningScripts.set(r.processId, sp);
           endedCommands.push(sp);
         } else {
@@ -390,7 +413,7 @@ function loadState() {
  */
 function pidStartTime(pid: number): string | undefined {
   try {
-    const result = Bun.spawnSync(["ps", "-o", "lstart=", "-p", String(pid)]);
+    const result = Bun.spawnSync(["ps", "-o", "lstart=", "-p", String(pid)], { timeout: 3000, killSignal: "SIGKILL" });
     const out = new TextDecoder().decode(result.stdout).trim();
     return out || undefined;
   } catch {
@@ -427,83 +450,33 @@ export function readoptVerdict(args: {
   return live === args.pidLstart ? "adopt" : "dead";
 }
 
-function isPidAlive(pid: number): boolean {
-  try {
-    process.kill(pid, 0); // signal 0 = just check
-  } catch {
-    return false;
-  }
-  // signal 0 succeeds for zombies too — check actual state via ps
-  try {
-    const result = Bun.spawnSync(["ps", "-o", "stat=", "-p", String(pid)]);
-    const stat = new TextDecoder().decode(result.stdout).trim();
-    if (stat.startsWith("Z")) return false; // zombie
-  } catch {}
-  return true;
-}
-
 let _broadcastCtx: AppContext | null = null;
 
-function pollPidExit(sp: ScriptProcess) {
-  const check = () => {
-    if (sp.cmd && sp.status !== "running") return; // a Stop already closed it
-    if (sp.cmd && (!sp.pid || !isPidAlive(sp.pid))) { finishCommand(sp); return; }
-    if (!sp.pid || !isPidAlive(sp.pid)) {
-      sp.status = "done";
-      sp.completedAt = new Date().toISOString();
-      sp.proc = null;
-      runningScripts.delete(sp.processId);
-      addToRecent(sp);
-      saveState();
-      if (_broadcastCtx) broadcastScriptsUpdate(_broadcastCtx);
-      return;
-    }
-    setTimeout(check, 3000);
-  };
-  setTimeout(check, 3000);
-}
+/**
+ * A re-adopted row has no handle whose exit it could wait on: its pid is checked
+ * every 3 s, all rows in one round with one probe (`watchPidExits`), where each
+ * row used to run its own synchronous `ps` and stop the loop with it.
+ */
+const pollPidExit = watchPidExits<ScriptProcess>({
+  everyMs: 3000,
+  pidOf: (sp) => sp.pid,
+  settled: (sp) => !!sp.cmd && sp.status !== "running", // a Stop already closed it
+  onGone: (sp) => {
+    if (sp.cmd) { finishCommand(sp); return; }
+    sp.status = "done";
+    sp.completedAt = new Date().toISOString();
+    sp.proc = null;
+    runningScripts.delete(sp.processId);
+    addToRecent(sp);
+    saveState();
+    if (_broadcastCtx) broadcastScriptsUpdate(_broadcastCtx);
+  },
+});
 
 // ── Port detection per process ───────────────────────────────────────────────
 
 // The listening ports, one cached `lsof` shared by every reader: `lib/listening-ports.ts`.
 export { getListeningPorts };
-
-// Top CPU consumers, system-wide — so the status dropdown can answer "why is my
-// PC load high?" with the actual culprits instead of a vague verdict. One cached
-// `ps … -r` (sort by CPU) snapshot; refreshed at most every TOP_PROCS_TTL so a
-// dropdown polling every few seconds stays cheap.
-let cachedTopProcs: { pid: number; cpu: number; command: string }[] = [];
-let cachedTopProcsAt = 0;
-let pendingTopProcs: Promise<typeof cachedTopProcs> | null = null;
-const TOP_PROCS_TTL = 3000;
-
-export async function getTopCpuProcesses(limit = 6): Promise<{ pid: number; cpu: number; command: string }[]> {
-  const now = Date.now();
-  if (now - cachedTopProcsAt < TOP_PROCS_TTL && cachedTopProcs.length) return cachedTopProcs.slice(0, limit);
-  pendingTopProcs ??= readTopCpuProcesses(now).finally(() => { pendingTopProcs = null; });
-  return (await pendingTopProcs).slice(0, limit);
-}
-
-async function readTopCpuProcesses(now: number): Promise<typeof cachedTopProcs> {
-  try {
-    // -A all procs, -c accounting (short) command name, -o columns, -r sort by CPU desc.
-    const text = await readProcessProbe(["ps", "-Aco", "pid,pcpu,comm", "-r"]);
-    const rows: { pid: number; cpu: number; command: string }[] = [];
-    for (const line of text.split("\n").slice(1)) {
-      const m = line.trim().match(/^(\d+)\s+([\d.]+)\s+(.+)$/);
-      if (!m) continue;
-      const cpu = parseFloat(m[2]);
-      if (!(cpu > 0)) continue;
-      rows.push({ pid: +m[1], cpu: Math.round(cpu), command: m[3].trim() });
-      if (rows.length >= 12) break;
-    }
-    cachedTopProcs = rows;
-    cachedTopProcsAt = now;
-    return rows;
-  } catch {
-    return cachedTopProcs;
-  }
-}
 
 async function getPortsForProcess(pid: number): Promise<number[]> {
   const allPorts = await getListeningPorts();
@@ -645,12 +618,143 @@ function followLog(sp: ScriptProcess, path: string, offset: number): void {
  * a shell's file is the CLI's, and stays as the CLI wrote it.
  */
 function pumpTail(sp: ScriptProcess): boolean {
-  if (!sp.tail) return false;
+  const followed = pumpFollow(sp);
+  if (!sp.tail) return followed;
   const { text, skipped } = readTail(sp.tail);
   if (skipped) appendOutput(sp, `[${skipped} bytes of output skipped]\n`);
   if (text) appendOutput(sp, text);
   if (sp.cmd && sp.tail.offset > MAX_LOG_FILE_BYTES) shrinkLog(sp.tail, MAX_OUTPUT_BYTES);
-  return !!(text || skipped);
+  return !!(text || skipped) || followed;
+}
+
+// ── The file a command sends its stdout to (chat-live-work) ─────────────────
+
+/**
+ * What a command names as its stdout, read before it starts. `from`: 0 when the
+ * shell truncates the file, its size now when it appends, since what is there
+ * already is an earlier run's. `cwd` is where it runs; a row persisted before
+ * this field existed only has its project, which is where it ran by default.
+ */
+function followOf(command: string, cwd: string): Pick<CommandMeta, "follow" | "unfollowed"> {
+  const target = stdoutTargetOf(command, { cwd, home: homedir() });
+  if (!target) return {};
+  if (target.kind === "unresolved") return { unfollowed: { target: target.target, reason: target.reason } };
+  let from = 0;
+  if (target.append) { try { from = statSync(target.path).size; } catch { /* not there yet: from its start */ } }
+  return { follow: { path: target.path, from } };
+}
+
+/**
+ * A regular file, or not yet there. Anything else is never opened: a FIFO
+ * would block the open, and with it the server, until somebody writes into it.
+ */
+function followable(path: string): boolean | null {
+  try { return statSync(path).isFile(); } catch { return null; }
+}
+
+/**
+ * Lines of the followed file into the buffer, whole: its last line waits in
+ * `followPending` for its newline, and the log's own pending line stays after
+ * them. Two sources writing half lines into one buffer glued a line of one to
+ * a line of the other.
+ */
+function insertFollowed(sp: ScriptProcess, text: string): void {
+  const chunk = (sp.followPending ?? "") + text;
+  const cut = chunk.lastIndexOf("\n");
+  sp.followPending = chunk.slice(cut + 1);
+  if (cut < 0) return;
+  const own = sp.pendingLine ?? "";
+  sp.pendingLine = "";
+  appendOutput(sp, chunk.slice(0, cut + 1));
+  sp.pendingLine = own;
+}
+
+/** What the followed file gained. True when there was something. Never throws: it runs in the tick of every row. */
+function pumpFollow(sp: ScriptProcess): boolean {
+  const tail = sp.followTail;
+  if (!tail) return false;
+  try {
+    const kind = followable(tail.path);
+    if (kind === null) return false;
+    if (!kind) { sp.followTail = undefined; return false; }
+    const { text, skipped } = readTail(tail);
+    if (skipped) insertFollowed(sp, `[${skipped} bytes of output skipped]\n`);
+    if (text) insertFollowed(sp, text);
+    return !!(text || skipped);
+  } catch (err) {
+    console.warn(`[processes] following ${tail.path} for ${sp.processId} failed:`, err);
+    sp.followTail = undefined;
+    return false;
+  }
+}
+
+/** A fresh command: its stdout file is followed from where this run starts. */
+function startFollow(sp: ScriptProcess): void {
+  const f = sp.cmd?.follow;
+  if (f) sp.followTail = openTail(f.path, f.from);
+}
+
+/**
+ * A re-adopted command's file back into its buffer, the same resume as its log
+ * (CMDRUN-03): what this run wrote, its last MAX_OUTPUT_BYTES at most, then
+ * followed from the end. The file is read again because what the command
+ * printed while the server was down is there. A row persisted before `follow`
+ * existed gets one now: Muse's run of 07/10 was started before this code.
+ */
+function resumeFollow(sp: ScriptProcess): void {
+  const cmd = sp.cmd;
+  if (!cmd) return;
+  try {
+    if (!cmd.follow && !cmd.unfollowed) Object.assign(cmd, followOf(sp.command, sp.projectPath));
+    const f = cmd.follow;
+    if (!f || followable(f.path) === false) return;
+    let size = 0;
+    try { size = statSync(f.path).size; } catch { /* not written yet */ }
+    // Smaller than where the run started: truncated since, all of it is this run's.
+    const start = size < f.from ? 0 : Math.max(f.from, size - MAX_OUTPUT_BYTES);
+    sp.followTail = openTail(f.path, start);
+    const { text } = readTail(sp.followTail);
+    // Cut inside the file: its first line is a fragment.
+    insertFollowed(sp, start > f.from && start > 0 ? text.slice(text.indexOf("\n") + 1) : text);
+  } catch (err) {
+    console.warn(`[processes] resuming the stdout file of ${sp.processId} failed:`, err);
+    sp.followTail = undefined;
+  }
+}
+
+/**
+ * The command ended: the last of its file, its last line closed. Its log then
+ * becomes what the panel showed, both files in the order they were read, so a
+ * reload, which reads the log alone, still has the output that went to the
+ * file. The command is gone, nobody else writes the log any more.
+ */
+function endFollow(sp: ScriptProcess): void {
+  if (!sp.cmd?.follow) return;
+  pumpFollow(sp);
+  if (sp.followPending) insertFollowed(sp, "\n");
+  sp.followTail = undefined;
+  sp.followPending = undefined;
+  try { writeFileAtomic(logPathOf(sp.processId), [...sp.output, sp.pendingLine ?? ""].join("\n")); }
+  catch (err) { console.warn(`[processes] saving the log of ${sp.processId} failed:`, err); }
+}
+
+/**
+ * The line a row is printing now, for a one-line preview (`scripts:output`,
+ * the chat's live work): the line being written, else the last one that is
+ * not blank. A progress bar redraws its line with `\r`: its last drawing.
+ */
+function lastLineOf(sp: ScriptProcess | undefined): string {
+  if (!sp) return "";
+  const clip = (line: string) => {
+    const shown = stripAnsi(line.slice(line.lastIndexOf("\r", line.length - 2) + 1)).trim();
+    return shown.length > 200 ? `${shown.slice(0, 199)}…` : shown;
+  };
+  for (const pending of [sp.followPending, sp.pendingLine]) if (pending && clip(pending)) return clip(pending);
+  for (let i = sp.output.length - 1; i >= Math.max(0, sp.output.length - 50); i--) {
+    const line = clip(sp.output[i] ?? "");
+    if (line) return line;
+  }
+  return "";
 }
 
 function tickTails(): void {
@@ -678,6 +782,7 @@ function finishCommand(sp: ScriptProcess, how: { foundDead?: boolean } = {}): vo
   if (!cmd || sp.status !== "running") return;
   pumpTail(sp); // the last lines it wrote before exiting
   sp.tail = undefined;
+  endFollow(sp);
   const code = readExitCode(exitPathOf(sp.processId));
   if (cmd.stopped) { sp.status = "error"; sp.exitCode = -1; }
   else if (code === null) { sp.status = "error"; sp.exitCode = undefined; }
@@ -703,15 +808,19 @@ function finishCommand(sp: ScriptProcess, how: { foundDead?: boolean } = {}): vo
 function settlePersonRun(sp: ScriptProcess): void {
   if (_broadcastCtx && sp.status !== "running" && sp.cmd) closeRegistryRun(_broadcastCtx, { ...sp, stopped: !!sp.cmd.stopped });
 }
-/** The `run_command`s that serve a port without waking their chat, watched for their ports (BGVIS-08). */
 /**
- * The rows that can be a chat's server: every `run_command`, and a `run_script`
- * an agent started, read as a command that wakes nobody (it never does).
+ * The rows that can be a chat's server, watched for their ports: every
+ * `run_command` and an agent's `run_script` (BGVIS-08), and a chat's background
+ * Bash (BGVIS-09). The last two read as a command that wakes nobody.
  */
 function* serviceRows(rows: Iterable<ScriptProcess>): Generator<ServiceRowLike> {
   for (const sp of rows) {
     if (sp.cmd) yield sp;
     else if (sp.agentRun) yield { ...sp, cmd: { ...sp.agentRun, wake: false } };
+    else if (sp.shell?.topicId) {
+      const { sessionKey, topicId, stopped } = sp.shell;
+      yield { ...sp, cmd: { sessionKey, topicId, wake: false, ...(stopped ? { stopped } : {}) } };
+    }
   }
 }
 const commandServiceWatch = serviceWatch({
@@ -726,6 +835,33 @@ export const commandBackgroundWork = commandWorkOver(() => (loadProcessRegistry(
 export const commandServices = () => (loadProcessRegistry(), servicesOver(serviceRows(runningScripts.values()), serviceRows(recentScripts), commandServiceWatch.listenOf, Date.now()));
 /** A chat's `run_command` processes, for `GET /api/processes`. */
 export const topicCommandProcesses = (topicId: string) => (loadProcessRegistry(), commandProcessesOf([...runningScripts.values(), ...recentScripts], topicId, commandServiceWatch.listenOf));
+/**
+ * A chat's processes at work now, for the strip under the chat (chat-live-work):
+ * its `run_command`s and the `run_script`s its agent started, with the line each
+ * prints and a server's addresses. A person's Run has its own card in the chat.
+ */
+export const liveCommandsOf = (topicId: string) => (loadProcessRegistry(), [...runningScripts.values()]
+  .filter((sp) => sp.status === "running" && !isPersonRun(sp) && (sp.cmd?.topicId ?? sp.agentRun?.topicId) === topicId)
+  .map((sp) => ({
+    processId: sp.processId, name: sp.scriptName, command: sp.command, startedAt: sp.startedAt,
+    lastLine: lastLineOf(sp), listen: commandServiceWatch.listenOf(sp.processId) ?? [], wakes: !!sp.cmd?.wake,
+  })));
+
+/**
+ * Is this task of the attention subject a chat's server now (BGVIS-09): its
+ * shell runs and its tree listens. The CLI's id links them: the `ID:` its Bash
+ * answers with (the shell row's `shellId`) is the hook's `backgroundTaskId` and
+ * the `task_id` keying the chat's task map (`claude-cli-2.1.282-background-work.ndjson`).
+ * Shells are never persisted: a registry not yet loaded holds none.
+ */
+export function isChatServerTask(subject: string, taskId: string): boolean {
+  const topicId = topicIdOfSubject(subject);
+  if (!topicId) return false;
+  for (const sp of runningScripts.values()) {
+    if (sp.shell?.topicId === topicId && sp.shell.shellId === taskId) return sp.status === "running" && !!commandServiceWatch.listenOf(sp.processId)?.length;
+  }
+  return false;
+}
 
 /**
  * Where a session stands with the wakes its commands owe it: `running` while a
@@ -847,6 +983,8 @@ function startCommandProcess(o: {
   // (`providers/claude-code.ts`): the board sends its builds, tests and
   // installs here. A chat's session gets none, and `env` stays as it is.
   applyJobQuota(o.db, o.sessionKey, env);
+  // Before the start: an appending command's file is measured before it writes.
+  const stdoutFile = followOf(o.command, o.cwd);
   const logPath = logPathOf(processId);
   const fd = openSync(logPath, "a");
   let proc: ReturnType<typeof Bun.spawn>;
@@ -859,10 +997,11 @@ function startCommandProcess(o: {
     processId, scriptName: commandLabel(o.command, o.description), command: o.command, projectPath: o.projectPath,
     status: "running", pid: proc.pid, pidLstart: pidStartTime(proc.pid), startedAt: new Date().toISOString(),
     output: [], outputBytes: 0, proc, source: "command",
-    cmd: { sessionKey: o.sessionKey, topicId: o.topicId, wake: o.wake && !!o.topicId, ...(o.origin ? { origin: o.origin } : {}) },
+    cmd: { sessionKey: o.sessionKey, topicId: o.topicId, wake: o.wake && !!o.topicId, ...(o.origin ? { origin: o.origin } : {}), ...stdoutFile },
   };
   runningScripts.set(processId, sp);
   followLog(sp, logPath, 0);
+  startFollow(sp);
   saveState();
   if (_broadcastCtx) { broadcastScriptsUpdate(_broadcastCtx); pushBackgroundChanged(_broadcastCtx, sp.cmd!); }
   if (!sp.cmd!.wake) commandServiceWatch.kick(); // it may be a server: its port comes a moment later
@@ -983,7 +1122,8 @@ function notifyScriptOutput(ctx: AppContext, processId: string) {
   if (!outputNotifyTimer) {
     outputNotifyTimer = setTimeout(() => {
       for (const id of pendingOutputIds) {
-        ctx.broadcastToAll({ type: 'scripts:output', processId: id });
+        // The line it is printing rides along: the chat's live work previews it without a read per row.
+        ctx.broadcastToAll({ type: 'scripts:output', processId: id, line: lastLineOf(runningScripts.get(id)) });
       }
       pendingOutputIds.clear();
       outputNotifyTimer = null;
@@ -1142,6 +1282,35 @@ export function registerBackgroundShell(entry: {
   // Its log grows from that file, whether or not the agent ever reads it.
   if (entry.outputPath) followLog(runningScripts.get(processId)!, entry.outputPath, 0);
   if (_broadcastCtx) broadcastScriptsUpdate(_broadcastCtx);
+  void resolveShellNow(runningScripts.get(processId)!);
+}
+
+/**
+ * The CLI announces a shell it has started: its process is there now, so it is
+ * looked up at once on a fresh table, not at the detector's next pass (up to
+ * 32 s), and a dev server is a server by the watch's first pass. Not found, the
+ * detector keeps looking.
+ */
+async function resolveShellNow(sp: ScriptProcess): Promise<void> {
+  const meta = sp.shell!;
+  const owner = getSessionCliPid(meta.sessionKey) ?? meta.ownerPid;
+  if (!owner || !isPidAlive(owner)) return;
+  const claimed = new Set<number>();
+  for (const row of runningScripts.values()) if (row.pid) claimed.add(row.pid);
+  const pid = await resolveShellPid(owner, sp.command, claimed, true).catch(() => null);
+  if (!pid || sp.pid || sp.status !== "running") return;
+  sp.pid = pid;
+  commandServiceWatch.kick(); // it may be a server: its port comes a moment later
+  if (_broadcastCtx) broadcastScriptsUpdate(_broadcastCtx);
+}
+
+/** The CLI's task list changed: a shell of this session whose process exited closes now, orphans swept, not at the detector's next pass. */
+export async function settleEndedShells(sessionKey: string): Promise<void> {
+  for (const sp of [...runningScripts.values()]) {
+    if (sp.shell?.sessionKey !== sessionKey || sp.status !== "running" || !sp.pid || isPidAlive(sp.pid)) continue;
+    await sweepOrphanedShellTree(sp.shell);
+    finishBackgroundShell(sp, esitoShellMorta({ shellDead: true, ownerDead: false }));
+  }
 }
 
 /** Un `BashOutput` dell'agente: output nuovo e, se c'è, stato aggiornato. */
@@ -1219,10 +1388,16 @@ function finishBackgroundShell(
   if (exitCode != null) sp.exitCode = exitCode;
   else if (status === "killed") sp.exitCode = sp.exitCode ?? -1;
   appendOutput(sp, `\n[shell ${status === "killed" ? "terminata" : status === "failed" ? "fallita" : "conclusa"}]`, true);
+  if (status === "killed" && sp.shell) sp.shell.stopped = true;
   runningScripts.delete(sp.processId);
   addToRecent(sp);
   invalidateScriptsCache();
   if (_broadcastCtx) broadcastScriptsUpdate(_broadcastCtx);
+  // A server that ended: its chat says so now, and its addresses go once that is said (BGVIS-09).
+  if (sp.shell && commandServiceWatch.listenOf(sp.processId)) {
+    if (_broadcastCtx) pushBackgroundChanged(_broadcastCtx, sp.shell);
+    setTimeout(() => commandServiceWatch.forget(sp.processId), SERVICE_END_SHOWN_MS * 2).unref?.();
+  }
 }
 
 /**
@@ -1266,13 +1441,18 @@ async function reconcileBackgroundShells(): Promise<boolean> {
   const claimed = new Set<number>();
   for (const sp of runningScripts.values()) if (sp.pid) claimed.add(sp.pid);
 
+  // Shells and owners in one liveness probe; a pid it did not cover (an owner that changed meanwhile) is asked alone.
+  const probed = shells.flatMap((sp) => [sp.pid, getSessionCliPid(sp.shell!.sessionKey) ?? sp.shell!.ownerPid]).filter((pid): pid is number => !!pid);
+  const live = await livePids(probed);
+  const isAlive = (pid: number) => (probed.includes(pid) ? live.has(pid) : isPidAlive(pid));
+
   for (const sp of shells) {
     const meta = sp.shell!;
     // Pid noto: la shell è viva finché il suo processo E il CLI padre lo sono.
     if (sp.pid) {
       const owner = getSessionCliPid(meta.sessionKey) ?? meta.ownerPid;
-      const shellDead = !isPidAlive(sp.pid);
-      const ownerDead = !owner || !isPidAlive(owner);
+      const shellDead = !isAlive(sp.pid);
+      const ownerDead = !owner || !isAlive(owner);
       if (shellDead || ownerDead) {
         // Il processo che ci ancorava è morto. La riga sparisce dal pannello —
         // ma i figli che la shell aveva spawnato (server, headless browser) NON
@@ -1315,7 +1495,7 @@ async function reconcileBackgroundShells(): Promise<boolean> {
     // onesta — una riga «running» eterna è una bugia che il pannello non
     // potrebbe più correggere. (Il pid non è mai stato risolto, quindi non
     // c'è sottoalbero da spazzare: best effort, no-op.)
-    if (!owner || !isPidAlive(owner)) {
+    if (!owner || !isAlive(owner)) {
       await sweepOrphanedShellTree(meta);
       // Stessa lettura del ramo sopra: è morto il CLI che la teneva, quindi la
       // shell è stata interrotta — non è arrivata in fondo.
@@ -1326,7 +1506,7 @@ async function reconcileBackgroundShells(): Promise<boolean> {
     if (meta.resolveAttempts >= SHELL_RESOLVE_MAX_ATTEMPTS) continue;
     meta.resolveAttempts++;
     const pid = await resolveShellPid(owner, sp.command, claimed);
-    if (pid) { sp.pid = pid; claimed.add(pid); changed = true; }
+    if (pid) { sp.pid = pid; claimed.add(pid); changed = true; commandServiceWatch.kick(); }
   }
   return changed;
 }
@@ -1345,10 +1525,12 @@ async function resolveShellPid(
   ownerPid: number,
   command: string,
   claimed: Set<number>,
+  /** Skip the cached process table, up to 2 s old: a shell started a moment ago is not in it. */
+  fresh = false,
 ): Promise<number | null> {
   const needle = normalizeCommandLine(command);
   if (needle.length < 3) return null;
-  const tree = await getDescendantPids(ownerPid);
+  const tree = await getDescendantPids(ownerPid, fresh ? { fresh: true } : undefined);
   tree.delete(ownerPid); // il CLI stesso non è mai la shell
   const candidates = [...tree].filter(p => !claimed.has(p));
   if (!candidates.length) return null;
@@ -1364,7 +1546,8 @@ async function getCommandsForPids(pids: number[]): Promise<Map<number, string>> 
   const out = new Map<number, string>();
   if (!pids.length) return out;
   try {
-    const proc = Bun.spawn(["ps", "-o", "pid=,command=", "-p", pids.join(",")], { stdout: "pipe", stderr: "ignore" });
+    recordServerSpawn("other", "shellReconcile");
+    const proc = spawnBounded(["ps", "-o", "pid=,command=", "-p", pids.join(",")], { stdout: "pipe", stderr: "ignore", timeoutMs: SPAWN_TIMEOUT.query });
     const text = await new Response(proc.stdout).text();
     await proc.exited;
     for (const line of text.split("\n")) {
@@ -1445,6 +1628,9 @@ type DetectionSource = () => DetectionSession[];
 let _detectionSource: DetectionSource | null = null;
 let _detectionTimer: ReturnType<typeof setTimeout> | null = null;
 let _detectionStarted = false;
+let _detectionRunning = false;
+let _detectionInterestedUntil = 0;
+let _wakeProcessDetection: (() => void) | null = null;
 /** Which loop is the live one: a cycle in flight when the loop was stopped does not re-arm it. */
 let _detectionLoop = 0;
 
@@ -1468,6 +1654,16 @@ let _detectionLoop = 0;
 export const DETECTION_INTERVAL_MS = 4000;
 export const DETECTION_INTERVAL_MAX_MS = 32000;
 let _detectionDelayMs = DETECTION_INTERVAL_MS;
+export const GHOST_CWD_PROBE_MIN_INTERVAL_MS = 120_000;
+let lastGhostCwdProbeAt = 0;
+
+export function processDetectionViewIsOpen(now = Date.now()): boolean {
+  return now < _detectionInterestedUntil;
+}
+
+export function ghostCwdProbeDue(now: number, previousAt: number): boolean {
+  return now - previousAt >= GHOST_CWD_PROBE_MIN_INTERVAL_MS;
+}
 
 /**
  * La prossima attesa, dato lo stato attuale e se la passata ha cambiato
@@ -1497,16 +1693,25 @@ export function startProcessDetection(ctx: AppContext, getSessions: DetectionSou
     if (typeof _detectionTimer.unref === "function") _detectionTimer.unref();
   };
   const tick = async () => {
+    if (_detectionRunning) return;
+    _detectionRunning = true;
     let changed = false;
     try {
       changed = await runDetectionCycle(ctx);
     } catch (e: any) {
       console.error('[detect] cycle error:', e?.message || e);
+    } finally {
+      _detectionRunning = false;
     }
     // Un errore NON accelera: se `lsof` fallisce, ritentare ogni 4s non lo fa
     // funzionare, moltiplica solo gli spawn.
     _detectionDelayMs = nextDetectionDelay(_detectionDelayMs, changed);
     arm();
+  };
+  _wakeProcessDetection = () => {
+    if (_detectionTimer) clearTimeout(_detectionTimer);
+    _detectionTimer = null;
+    void tick();
   };
 
   // The completed cycle alone arms its successor. Arming here as well creates
@@ -1525,6 +1730,10 @@ export function stopProcessDetectionForTests(): void {
   if (_detectionTimer) clearTimeout(_detectionTimer);
   _detectionTimer = null;
   _detectionStarted = false;
+  _detectionRunning = false;
+  _detectionInterestedUntil = 0;
+  lastGhostCwdProbeAt = 0;
+  _wakeProcessDetection = null;
   _detectionDelayMs = DETECTION_INTERVAL_MS;
 }
 
@@ -1536,7 +1745,9 @@ export function stopProcessDetectionForTests(): void {
  * comparsa di un server appena avviato.
  */
 export function bumpProcessDetection(): void {
+  _detectionInterestedUntil = Date.now() + 15_000;
   _detectionDelayMs = DETECTION_INTERVAL_MS;
+  _wakeProcessDetection?.();
 }
 
 function detectedKey(pid: number): string { return `detected:${pid}`; }
@@ -1551,7 +1762,7 @@ function isNoiseCommand(cmd: string): boolean {
 /** Full argv of a pid (`ps -o command=`), for a readable label. Falls back to "". */
 async function getCommandForPid(pid: number): Promise<string> {
   try {
-    const proc = Bun.spawn(["ps", "-o", "command=", "-p", String(pid)], { stdout: "pipe", stderr: "ignore" });
+    const proc = spawnBounded(["ps", "-o", "command=", "-p", String(pid)], { stdout: "pipe", stderr: "ignore", timeoutMs: SPAWN_TIMEOUT.query });
     const out = (await new Response(proc.stdout).text()).trim();
     await proc.exited;
     return out.split("\n")[0] || "";
@@ -1583,7 +1794,8 @@ async function getProcessCwds(pids: number[]): Promise<Map<number, string>> {
   const out = new Map<number, string>();
   if (pids.length === 0) return out;
   try {
-    const proc = Bun.spawn(["/usr/sbin/lsof", "-a", "-d", "cwd", "-Fpn", "-p", pids.join(",")], { stdout: "pipe", stderr: "ignore" });
+    recordServerSpawn("lsof", "detectionCwd");
+    const proc = spawnBounded(["/usr/sbin/lsof", "-a", "-d", "cwd", "-Fpn", "-p", pids.join(",")], { stdout: "pipe", stderr: "ignore", timeoutMs: SPAWN_TIMEOUT.query });
     const text = await new Response(proc.stdout).text();
     await proc.exited;
     let cur = 0;
@@ -1604,23 +1816,26 @@ async function runDetectionCycle(ctx: AppContext): Promise<boolean> {
   // nessuna sessione Claude idonea al detector delle porte: una shell non deve
   // per forza ascoltare su una porta per essere viva (è l'intero motivo per cui
   // il pannello finora non la vedeva).
-  if (await reconcileBackgroundShells()) broadcastScriptsUpdate(ctx);
+  let changed = await reconcileBackgroundShells();
+  if (changed) broadcastScriptsUpdate(ctx);
 
-  if (!_detectionSource) return false;
+  if (!_detectionSource) return changed;
   // Active Claude sessions in REAL project dirs (skip the infra/config tree).
   const sessions = _detectionSource().filter(s => s.ptyPid > 0 && !isInfraCwd(s.cwd));
 
   // No eligible Claude sessions → reap any leftover detected entries and stop.
   if (sessions.length === 0) {
-    let changed = false;
+    let detectedChanged = false;
     for (const sp of [...runningScripts.values()]) {
-      if (sp.source === "detected") { runningScripts.delete(sp.processId); changed = true; }
+      if (sp.source === "detected") { runningScripts.delete(sp.processId); detectedChanged = true; }
     }
-    if (changed) broadcastScriptsUpdate(ctx);
-    return changed;
+    if (detectedChanged) broadcastScriptsUpdate(ctx);
+    return changed || detectedChanged;
   }
+  const ghostChanged = await reapGhostScripts(ctx);
+  if (!processDetectionViewIsOpen()) return changed || ghostChanged;
 
-  const allPorts = await getListeningPorts();
+  const allPorts = await getListeningPorts(undefined, "detectionPorts");
 
   // Ports already owned by a Topics-launched (script) process — don't double-list.
   const managedPorts = new Set<number>();
@@ -1662,12 +1877,12 @@ async function runDetectionCycle(ctx: AppContext): Promise<boolean> {
     else desired.set(key, { pid: lp.pid, cwd: owner.cwd, lsofCmd: lp.command, ports: [lp.port] });
   }
 
-  let changed = false;
+  let detectedChanged = false;
 
   // Reap detected entries whose server no longer holds a port (it stopped).
   for (const sp of [...runningScripts.values()]) {
     if (sp.source !== "detected") continue;
-    if (!desired.has(sp.processId)) { runningScripts.delete(sp.processId); changed = true; }
+    if (!desired.has(sp.processId)) { runningScripts.delete(sp.processId); detectedChanged = true; }
   }
 
   // Register newly-seen detected servers (existing ones keep their entry; ports
@@ -1688,14 +1903,10 @@ async function runDetectionCycle(ctx: AppContext): Promise<boolean> {
       proc: null,
       source: "detected",
     });
-    changed = true;
+    detectedChanged = true;
   }
 
-  // PUNTO 2 (task e3240a22): ghost sweep.
-  // Cerca i processi source:"script" il cui projectPath sta sotto la base dei
-  // worktree di Topics, ma la root della worktree non esiste piu' su disco.
-  // Il ciclo ha gia' backoff e tabella in cache — questo sweep non aggiunge I/O.
-  changed = changed || (await reapGhostScripts(ctx));
+  changed = changed || detectedChanged || ghostChanged;
 
   if (changed) broadcastScriptsUpdate(ctx);
   return changed;
@@ -1723,6 +1934,9 @@ async function reapGhostScripts(ctx: AppContext): Promise<boolean> {
     return isInsideDir(sp.projectPath, wtBase);
   });
   if (candidates.length === 0) return false;
+  const now = Date.now();
+  if (!ghostCwdProbeDue(now, lastGhostCwdProbeAt)) return false;
+  lastGhostCwdProbeAt = now;
 
   // Per ogni candidato: verifica il cwd reale via lsof (un solo batch)
   const pids = candidates.map(s => s.pid as number);
@@ -1784,6 +1998,12 @@ export function createProcessesRouter(ctx: AppContext): RouteHandler {
     try { return await req.json(); } catch { return null; }
   }
 
+  /** TOPICS_PORT for a worktree Topics manages; a main checkout runs with its own defaults. */
+  function worktreePortEnv(projectPath: string): { TOPICS_PORT?: string } {
+    const port = ctx.worktreeManager.knownWorktreePort(projectPath);
+    return port === null ? {} : { TOPICS_PORT: String(port) };
+  }
+
   /**
    * Spawn `npm run <scriptName>` in projectPath, register it in the running
    * map, wire stdout/stderr streaming + exit handling, and return the public
@@ -1817,6 +2037,7 @@ export function createProcessesRouter(ctx: AppContext): RouteHandler {
         HOST: "0.0.0.0",
         NODE_ENV: "development",
         npm_config_yes: "true",
+        ...worktreePortEnv(projectPath),
       }),
     });
 
@@ -1927,15 +2148,16 @@ export function createProcessesRouter(ctx: AppContext): RouteHandler {
     runningScripts.get(id) || recentScripts.find(r => r.processId === id);
 
   /** Build the `{ scripts }` payload, optionally filtered to one project path. */
-  async function serializeScripts(filterCwd?: string): Promise<{ scripts: any[] }> {
+  async function serializeScripts(filterCwd?: string, withPorts = true): Promise<{ scripts: any[] }> {
     // Scoped to a session = the agent asking (`list_processes`): a person's run is not its to see.
     const match = (sp: ScriptProcess) => !filterCwd || (sp.projectPath === filterCwd && !isPersonRun(sp));
     const running = Array.from(runningScripts.values()).filter(match);
     // One batched port lookup for all running pids (shared lsof + ps snapshot,
-    // single pass over the cached port list) instead of per-process.
-    const portsByPid = await getPortsForProcesses(
-      running.map(sp => sp.pid).filter((p): p is number => !!p),
-    );
+    // single pass over the cached port list) instead of per-process. Without
+    // `withPorts` none at all: the rows go out with no ports.
+    const portsByPid = withPorts
+      ? await getPortsForProcesses(running.map(sp => sp.pid).filter((p): p is number => !!p))
+      : new Map<number, number[]>();
     // La spia dell'attesa viaggia con la riga che gia' si legge: un campo in
     // piu' qui costa niente e toglie il dubbio «l'agente e' fermo, o sta
     // aspettando proprio questo?». Assente quando nessuno aspetta, per non
@@ -1970,9 +2192,16 @@ export function createProcessesRouter(ctx: AppContext): RouteHandler {
       output: sp.output,
       outputBytes: sp.outputBytes,
       droppedLines: sp.droppedLines ?? 0,
-      pendingLine: sp.pendingLine ?? "",
+      // The followed file's line being written shows like the log's own.
+      pendingLine: sp.pendingLine || sp.followPending || "",
     }, offset);
-    return { ...slice, done: sp.status !== "running", status: sp.status, exitCode: sp.exitCode };
+    // What an empty log is waiting for, and since when: the file its stdout
+    // goes to, or the one nobody can follow (chat-live-work).
+    return {
+      ...slice, done: sp.status !== "running", status: sp.status, exitCode: sp.exitCode, startedAt: sp.startedAt,
+      ...(sp.cmd?.follow ? { follows: sp.cmd.follow.path } : {}),
+      ...(sp.cmd?.unfollowed ? { unfollowed: sp.cmd.unfollowed } : {}),
+    };
   };
 
   /**
@@ -2164,19 +2393,25 @@ export function createProcessesRouter(ctx: AppContext): RouteHandler {
     const runs = await commandRunsRoute(req, url, pathname, method);
     if (runs) return runs;
 
-    // GET /api/scripts — list running + recent, with per-process ports
+    // GET /api/scripts — list running + recent; per-process ports with `?ports=1`
     if (method === "GET" && pathname === "/api/scripts") {
-      // Qualcuno sta guardando: la rilevazione torna alla cadenza piena, cosi'
-      // il backoff non fa aspettare mezzo minuto la comparsa di un server
-      // appena avviato. Sta PRIMA della cache: la richiesta e' il segnale di
-      // interesse, indipendentemente da chi risponde.
-      bumpProcessDetection();
-      // Server-side cache check (2s TTL)
-      if (scriptsResponseCache && Date.now() - scriptsResponseCache.timestamp < SCRIPTS_CACHE_TTL) {
-        return json(scriptsResponseCache.data);
+      // `?ports=1` is the Processes panel, the one reader that draws ports, and
+      // someone looking at it: the detection goes back to full cadence, so the
+      // backoff does not keep a server just started waiting half a minute.
+      // Before the cache, because the request is the sign of interest. Every
+      // project sidebar polls this route too, every 15 s, for its running
+      // dots: when that poll read the ports and woke the detection, lsof ran
+      // every 4 s for as long as a window was open (238 in 15 minutes,
+      // measured in production on 15/10).
+      const withPorts = url.searchParams.get("ports") === "1";
+      if (withPorts) bumpProcessDetection();
+      // Server-side cache check (2s TTL): an answer with ports also serves a poll without.
+      const cached = scriptsResponseCache;
+      if (cached && Date.now() - cached.timestamp < SCRIPTS_CACHE_TTL && (cached.ports || !withPorts)) {
+        return json(cached.data);
       }
-      const scriptsResult = await serializeScripts();
-      scriptsResponseCache = { data: scriptsResult, timestamp: Date.now() };
+      const scriptsResult = await serializeScripts(undefined, withPorts);
+      scriptsResponseCache = { data: scriptsResult, timestamp: Date.now(), ports: withPorts };
       return json(scriptsResult);
     }
 

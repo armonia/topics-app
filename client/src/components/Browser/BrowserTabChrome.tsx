@@ -125,12 +125,20 @@ export function BrowserTabIcon({ paneId, url }: { paneId: string; url: string })
  */
 export function BrowserTabCornerMark({ paneId }: { paneId: string }) {
   const chrome = useBrowserPaneChrome(paneId);
+  const t = useT();
   if (!chrome) return null;
   const kind = browserTabKind(chrome);
   const errors = chrome.consoleErrors ?? 0;
   const mark = browserCornerMark(kind, errors);
   if (mark === 'kind' && kind) return <KindMark chrome={chrome} kind={kind} />;
   if (mark === 'errors') return <ConsoleCue errors={errors} />;
+  if (chrome.nativeHostStatus?.sharing && chrome.nativeHostStatus.devices > 0) {
+    const label = chrome.nativeHostStatus.devices === 1
+      ? t('browser.tab.hostWatchingOne')
+      : t('browser.tab.hostWatchingMany', { n: String(chrome.nativeHostStatus.devices) });
+    return <span className="tab-corner-mark bg-app-bg ring-1 ring-app-bg text-primary" title={label}
+      aria-label={label} role="img" data-testid="browser-host-share-pill"><MonitorSmartphone size={9} /></span>;
+  }
   return null;
 }
 

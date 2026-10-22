@@ -20,7 +20,7 @@ function thinkingFor(model: string, maxTokens = 16384): unknown {
   return params.thinking;
 }
 
-const ADAPTIVE = { type: "adaptive" };
+const ADAPTIVE = { type: "adaptive", display: "summarized" };
 const LEGACY = { type: "enabled", budget_tokens: 8000 };
 
 const TABLE: Array<[string, unknown]> = [

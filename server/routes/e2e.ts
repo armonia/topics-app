@@ -113,6 +113,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "fs";
 import { dirname, join } from "path";
 import type { AppContext, RouteHandler } from "../types";
 import { restoreDb, snapshotDb, type DbSnapshot } from "../services/db-snapshot";
+import { _setPtyBridgeHealthSocketForTest } from "./status";
 import { createTaskService } from "../services/tasks";
 import { createTaskAttemptStore } from "../services/task-attempts";
 import { orphanTerminalSession, parkIdleClaudeSessions, parkTerminalSession } from "./terminal";
@@ -145,6 +146,8 @@ export function baselinePath(env: NodeJS.ProcessEnv = process.env): string {
 export interface E2eRouterHooks {
   /** One pass of the Claude session reaper at the given clock (`reapOnce`). */
   reapClaudeSessions?: (now: number) => number;
+  /** Advance the recurrence clock and run the real scheduler tick. */
+  advanceScheduledCards?: (now: Date | null) => { created: string[]; skipped: string[] };
 }
 
 export function createE2eRouter(ctx: AppContext, hooks: E2eRouterHooks = {}): RouteHandler {
@@ -166,6 +169,29 @@ export function createE2eRouter(ctx: AppContext, hooks: E2eRouterHooks = {}): Ro
 
   return async function e2eRouter(req: Request, _url: URL, pathname: string, method: string): Promise<Response | null> {
     if (!e2eRoutesEnabled()) return null;
+
+    if (method === "POST" && pathname === "/api/test/system/pty-bridge") {
+      const body = await req.json().catch(() => null) as { socketPath?: unknown } | null;
+      if (typeof body?.socketPath === "string") {
+        _setPtyBridgeHealthSocketForTest(body.socketPath);
+        return json({ ok: true, socketPath: body.socketPath });
+      }
+      if (body?.socketPath === null) {
+        _setPtyBridgeHealthSocketForTest(null);
+        return json({ ok: true, socketPath: null });
+      }
+      return json({ error: "socketPath must be a string or null" }, 400);
+    }
+
+    if (method === "POST" && pathname === "/api/test/scheduled-cards/advance" && hooks.advanceScheduledCards) {
+      const body = await req.json().catch(() => null) as { now?: unknown } | null;
+      if (body?.now === null) {
+        hooks.advanceScheduledCards(null);
+        return json({ ok: true, reset: true });
+      }
+      if (typeof body?.now !== "string" || !Number.isFinite(Date.parse(body.now))) return json({ error: "now must be an ISO date or null" }, 400);
+      return json({ ok: true, ...hooks.advanceScheduledCards(new Date(body.now)) });
+    }
 
     // POST /api/test/route-fault — arms or disarms the latency fault, hot.
     //

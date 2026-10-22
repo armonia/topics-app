@@ -1,6 +1,7 @@
 import type { ServerWebSocket } from "bun";
 import type { Database } from "bun:sqlite";
 import type { OutboundMessage } from "../shared/ws-outbound";
+import type { Principal } from "./lib/grants-query";
 
 // Re-export so existing imports `from "./types"` keep resolving.
 export type { AskUserQuestionItem, UserInputSchema } from "../shared/types";
@@ -19,8 +20,15 @@ export type { AskUserQuestionItem, UserInputSchema } from "../shared/types";
  * knows the real one.
  */
 export interface GuestBroadcastFilter {
-  mayReceiveFrame: (deviceId: string, message: OutboundMessage) => boolean;
-  mayReadTopic: (deviceId: string, topicId: string) => boolean;
+  refreshSocketPrincipal?: (data: WSData) => void;
+  mayReceiveFrame: (data: WSData, message: OutboundMessage) => boolean;
+  mayReadTopic: (data: WSData, topicId: string) => boolean;
+}
+
+export interface SocketPrincipal {
+  principals: Principal[];
+  confined: boolean;
+  rev: number;
 }
 
 export interface WSData {
@@ -41,18 +49,8 @@ export interface WSData {
    * comes back. See client/src/lib/browserClientId.ts.
    */
   clientId?: string | null;
-  /**
-   * The ROLE of that device, stamped together with the id and for the same
-   * reason: after the upgrade the cookie is no longer readable.
-   *
-   * It exists because without it "has a deviceId" ended up meaning "is a
-   * guest", and that is not true: the upgrade stamps the id of ANY paired
-   * device, owners included. The guest filter therefore applied to the owner's
-   * phone too - which has no grants, because it does not need any - and made
-   * every frame drop for it. Only loopback escaped, for the wrong reason: a
-   * null `deviceId`, not a role.
-   */
-  deviceRole?: 'owner' | 'guest' | null;
+  /** Principal set stamped at upgrade and refreshed when its DB revision changes. */
+  principal?: SocketPrincipal | null;
   /**
    * Is there a network between this socket and its peer? Stamped at upgrade,
    * the only moment the peer address is still available: after that a WebSocket
@@ -115,6 +113,8 @@ export interface WSData {
    *  pane's executor, which counts as an attached pane only once
    *  `_nativeDelegate` is set, and never needs the screencast. */
   expectsExecutor?: boolean;
+  /** The viewer's last render_mode said a native pane hosted this context. */
+  expectsNativeHost?: boolean;
   /** WebRTC shared-session transport — the set of webrtc-bridge peer ids this WS
    *  opened (one per RTCPeerConnection). Used on close to tell the sidecar to tear
    *  each peer down. Absent until the pane sends its first `webrtc_offer`. */
@@ -200,6 +200,18 @@ export interface ThreadLoadOpts {
  * readers keep the `latency_ms` rule for those.
  */
 export type MessageEndReason = "done" | "stopped" | "error" | "closed-outside" | "cut-by-restart";
+
+/** A message of the active thread seen without its text (`loadThreadSkeleton`). */
+export interface ThreadSkeletonNode {
+  id: string;
+  partial: boolean;
+  siblingCount: number;
+  activeBranchIndex: number;
+  /** Only with `forPrompts`: the role of the row... */
+  role?: "user" | "assistant";
+  /** ...and whether it opens with the gateway's context envelope (a user-role row that is not a prompt). */
+  ctxPrefix?: boolean;
+}
 
 export interface StoredMessage {
   id: string;
@@ -561,8 +573,6 @@ export interface AppContext {
    */
   touchTopicActivity: (topicId: string, updatedAt: string) => Topic | null;
   loadUnread: () => UnreadData;
-  /** `loadUnread` without the zeroed rows of archived topics: the `unread:init` payload. */
-  loadUnreadForInit: () => UnreadData;
   /** Rewrites the WHOLE table and deletes the rows missing from `data`: boot cleanup only. */
   saveUnread: (data: UnreadData) => void;
   /** +1 on one topic's unread (creating the row at 1), returns the new count. */
@@ -570,6 +580,12 @@ export interface AppContext {
   /** Upserts only the given rows. */
   saveUnreadEntries: (entries: UnreadData) => void;
   loadLocalMessages: (sessionKey: string, opts?: ThreadLoadOpts) => StoredMessage[];
+  /** The active thread of a session WITHOUT the text: id, role, partial/context-envelope flags and the branch annotations of each message. */
+  loadThreadSkeleton: (sessionKey: string, opts?: { forPrompts?: boolean }) => ThreadSkeletonNode[];
+  /** The lean rows (no `blocks`/`tool_calls`) of the given messages, in the given order, with their branch annotations. */
+  loadThreadRows: (nodes: ReadonlyArray<{ id: string; siblingCount?: number; activeBranchIndex?: number }>) => StoredMessage[];
+  /** The last `limit` messages of the active thread after dropping `offset`, loaded lean (no bodies), plus the thread `total`. */
+  loadThreadWindow: (sessionKey: string, limit: number, offset: number) => { messages: StoredMessage[]; total: number };
   /** Fills `blocks`/`tool_calls` back into messages loaded lean. `withToolOutputs`: see ThreadLoadOpts. */
   hydrateMessageBodies: (msgs: StoredMessage[], opts?: Pick<ThreadLoadOpts, "withToolOutputs">) => StoredMessage[];
   /** One read for all of `msgs`, then decodes one message per call (see utils.ts). */

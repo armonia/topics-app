@@ -1,0 +1,177 @@
+import { existsSync } from "node:fs";
+import { createRequire } from "node:module";
+import { resolve } from "node:path";
+import type { FileNode } from "../../shared/file-tree";
+
+export interface NativeModule {
+  nativeVersion(): string;
+  gitHeadCommitId(repoPath: string): string | null;
+  gitStatus?(repoPath: string): Promise<NativeGitStatus | null>;
+  gitNumstat?(repoPath: string, entries: NativeGitStatusEntry[]): Promise<NativeGitNumstat>;
+  walkFileTree?(root: string, depth: number, home?: string): Promise<FileNode[]>;
+}
+
+export interface NativeGitStatusEntry {
+  path: string;
+  status: string;
+  origPath?: string;
+}
+
+export interface NativeGitStatus {
+  root: string;
+  branch: string | null;
+  ahead: number;
+  behind: number;
+  entries: NativeGitStatusEntry[];
+  lastCommit: { short: string; hash: string; subject: string; author: string; time: number } | null;
+}
+
+export interface NativeGitNumstatEntry {
+  path: string;
+  added: number;
+  removed: number;
+  binary: boolean;
+}
+
+export interface NativeGitNumstat {
+  staged: NativeGitNumstatEntry[];
+  unstaged: NativeGitNumstatEntry[];
+  unsupported: string[];
+}
+
+interface NativeExports {
+  nativeVersion?: () => string;
+  gitHeadCommitId?: (repoPath: string) => string | null;
+  gitStatus?: (repoPath: string) => Promise<{
+    root: string;
+    branch?: string | null;
+    ahead: number;
+    behind: number;
+    entries: Array<{ path: string; status: string; origPath?: string | null }>;
+    lastCommit?: { short: string; hash: string; subject: string; author: string; time: number } | null;
+  } | null>;
+  gitNumstat?: (repoPath: string, entries: NativeGitStatusEntry[]) => Promise<NativeGitNumstat>;
+  walkFileTree?: (root: string, depth: number, home?: string) => Promise<Array<{
+    name: string;
+    type?: string | null;
+    kind?: string | null;
+    path: string;
+    size?: number | null;
+    modified?: string | null;
+    children?: Array<unknown> | null;
+  }>>;
+}
+
+function normalizeNativeFileTree(nodes: Awaited<ReturnType<NonNullable<NativeExports["walkFileTree"]>>>): FileNode[] {
+  const normalized = nodes.map((node) => {
+    const normalized: FileNode = {
+      name: node.name,
+      type: (node.type ?? node.kind) as FileNode["type"],
+      path: node.path,
+    };
+    if (node.size != null) normalized.size = node.size;
+    if (node.modified != null) normalized.modified = node.modified;
+    if (node.children != null) normalized.children = normalizeNativeFileTree(node.children as Parameters<typeof normalizeNativeFileTree>[0]);
+    return normalized;
+  });
+  normalized.sort((a, b) => {
+    if (a.type !== b.type) return a.type === "dir" ? -1 : 1;
+    return a.name.localeCompare(b.name);
+  });
+  return normalized;
+}
+
+let loaded = false;
+let nativeModule: NativeModule | null = null;
+let loadError = "native module is unavailable";
+const requireFromHere = createRequire(import.meta.url);
+
+export function loadNativeModule(): NativeModule | null {
+  if (loaded) return nativeModule;
+  loaded = true;
+
+  // `isStandaloneExecutable` exists at runtime but not in the Bun types here.
+  // Compiled, the addon is an embedded asset next to the entry (`/$bunfs/root`);
+  // from the checkout it is the build output of scripts/build-native-addon.sh.
+  const isStandalone = (Bun as unknown as { isStandaloneExecutable?: boolean }).isStandaloneExecutable === true;
+  const candidates = isStandalone
+    ? [resolve(import.meta.dir, "topics_native.node")]
+    : [resolve(import.meta.dir, "../../native/topics_native.node")];
+
+  for (const candidate of candidates) {
+    nativeModule = loadNativeModuleAt(candidate);
+    if (nativeModule) return nativeModule;
+  }
+
+  return null;
+}
+
+export function loadNativeModuleAt(candidate: string): NativeModule | null {
+  if (!existsSync(candidate)) {
+    loadError = `native module not found at ${candidate}`;
+    return null;
+  }
+
+  try {
+    const exports = requireFromHere(candidate) as NativeExports;
+    const { nativeVersion, gitHeadCommitId } = exports;
+    if (typeof nativeVersion !== "function" || typeof gitHeadCommitId !== "function") {
+      nativeModule = null;
+      loadError = "native module exports are incomplete";
+      console.warn(`[native-module] ${loadError}`);
+    } else {
+      nativeModule = {
+        nativeVersion: nativeVersion.bind(exports),
+        gitHeadCommitId: gitHeadCommitId.bind(exports),
+        ...(typeof exports.gitStatus === "function"
+          ? {
+              gitStatus: async (repoPath: string) => {
+                const result = await exports.gitStatus!.call(exports, repoPath);
+                if (!result) return null;
+                if (result.lastCommit && !Number.isFinite(result.lastCommit.time)) {
+                  throw new Error("native gitStatus did not return the author timestamp");
+                }
+                return {
+                  root: result.root,
+                  branch: result.branch ?? null,
+                  ahead: result.ahead,
+                  behind: result.behind,
+                  lastCommit: result.lastCommit ?? null,
+                  entries: result.entries.map(({ origPath, ...entry }) =>
+                    origPath == null ? entry : { ...entry, origPath },
+                  ),
+                };
+              },
+            }
+          : {}),
+        ...(typeof exports.gitNumstat === "function"
+          ? {
+              gitNumstat: async (repoPath: string, entries: NativeGitStatusEntry[]) => {
+                const result = await exports.gitNumstat!.call(exports, repoPath, entries);
+                const valid = (entry: NativeGitNumstatEntry) =>
+                  typeof entry.path === "string" && Number.isInteger(entry.added) && entry.added >= 0 &&
+                  Number.isInteger(entry.removed) && entry.removed >= 0 && typeof entry.binary === "boolean";
+                if (!result.staged.every(valid) || !result.unstaged.every(valid) || !Array.isArray(result.unsupported)) {
+                  throw new Error("native gitNumstat returned an invalid result");
+                }
+                return result;
+              },
+            }
+          : {}),
+        ...(typeof exports.walkFileTree === "function"
+          ? { walkFileTree: async (root: string, depth: number, home?: string) => normalizeNativeFileTree(await exports.walkFileTree!.call(exports, root, depth, home)) }
+          : {}),
+      };
+    }
+  } catch (error) {
+    nativeModule = null;
+    loadError = error instanceof Error ? error.message : String(error);
+    console.warn(`[native-module] ${loadError}`);
+  }
+
+  return nativeModule;
+}
+
+export function nativeModuleLoadError(): string {
+  return loadError;
+}

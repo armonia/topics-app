@@ -1,4 +1,5 @@
 import { liveBrowserViews } from '../lib/shell/nativeBrowserRoster';
+import { isDocumentVisible, subscribeDocumentVisibility } from './documentVisibility';
 
 /**
  * "C'è qualcuno che sta guardando questa finestra?"
@@ -18,7 +19,7 @@ import { liveBrowserViews } from '../lib/shell/nativeBrowserRoster';
 /** Il predicato, sincrono. Usabile anche fuori da React. */
 export function isWindowAwake(): boolean {
   if (typeof document === 'undefined') return true;
-  if (document.hidden) return false;
+  if (!isDocumentVisible()) return false;
   // Fail OPEN se l'API non c'è (embedder vecchi, doppioni nei test): un poll che
   // smette di girare in silenzio è peggio di uno che gira di troppo.
   if (typeof document.hasFocus !== 'function') return true;
@@ -54,7 +55,7 @@ export function isWindowAwake(): boolean {
  */
 export function isWindowFocused(): boolean {
   if (typeof document === 'undefined') return true;
-  if (document.hidden) return false;
+  if (!isDocumentVisible()) return false;
   if (typeof document.hasFocus !== 'function') return true;
   return document.hasFocus();
 }
@@ -66,11 +67,11 @@ export function isWindowFocused(): boolean {
  * dwells) listens here, and reads the predicate in its own callback.
  */
 export function onWindowAwakeChange(onChange: () => void): () => void {
-  document.addEventListener('visibilitychange', onChange);
+  const stopVisibility = subscribeDocumentVisibility(onChange);
   window.addEventListener('focus', onChange);
   window.addEventListener('blur', onChange);
   return () => {
-    document.removeEventListener('visibilitychange', onChange);
+    stopVisibility();
     window.removeEventListener('focus', onChange);
     window.removeEventListener('blur', onChange);
   };

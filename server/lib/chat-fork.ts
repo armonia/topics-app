@@ -105,6 +105,31 @@ export function lastMainAssistant(jsonl: string): TranscriptPoint | null {
   return null;
 }
 
+/** The latest transcript answer whose text matches a finished Topics row. */
+export function mainAssistantForText(jsonl: string, text: string): TranscriptPoint | null {
+  const target = withoutMediaSuffix(text).trim();
+  if (!target) return null;
+  const lines = jsonl.split("\n");
+  for (let i = lines.length - 1; i >= 0; i--) {
+    const line = lines[i].trim();
+    if (!line) continue;
+    let entry: { type?: unknown; isSidechain?: unknown; uuid?: unknown; message?: { content?: unknown; stop_reason?: unknown } };
+    try { entry = JSON.parse(line); } catch { continue; }
+    if (entry.type !== "assistant" || entry.isSidechain === true || typeof entry.uuid !== "string") continue;
+    if (entry.message?.stop_reason !== "end_turn") continue;
+    const content = entry.message?.content;
+    const answer = typeof content === "string"
+      ? content
+      : Array.isArray(content)
+        ? content.filter((b) => b?.type === "text" && typeof b.text === "string").map((b) => b.text as string).join("")
+        : "";
+    if (answer.trim() && target.endsWith(withoutMediaSuffix(answer).trim())) {
+      return { uuid: entry.uuid, text: answer };
+    }
+  }
+  return null;
+}
+
 /** A background notice that is not a stop line: the only row allowed after the point. */
 function isBackgroundNoticeOnly(row: ForkRow): boolean {
   const kinds = (row.blocks ?? []).map((b) => b.kind);

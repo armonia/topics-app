@@ -1,19 +1,20 @@
 /**
- * Reading a topic is ONE gesture that must switch off TWO counters, and every
- * connected window must hear about both.
+ * Seeing a chat is ONE gesture that must switch off TWO counters, and every
+ * connected window must hear about it.
  *
- * `POST /api/topics/:id/read` zeroes the topic's unread (the sidebar badge, and
- * through `chromeAttentionTotal` the dock/tray number) AND marks every bell row
- * whose subject is that topic as seen, broadcasting `unread:updated {0}` and
- * `notification:seen {unseen}` on the chat WebSocket. Before the second half
- * existed the bell stayed lit after the chat was read: two counters about the
- * same fact saying different things, and the one left on had no natural gesture
- * to clear it.
+ * `POST /api/attention/seen` (the one seen door, ATTN-06) zeroes the chat's
+ * unread AND marks every history row whose subject is that chat as seen, and
+ * says so on the chat WebSocket in ONE frame: `attention:updated`, whose row
+ * carries the unread at zero. Before the second half existed the bell stayed
+ * lit after the chat was read: two counters about the same fact saying
+ * different things. The old door (`POST /api/topics/:id/read`) and its two
+ * frames (`unread:updated`, `notification:seen`) went with the client that
+ * read them (notifications-redesign, tasks.md 6.2).
  *
  * THE REAL SERVER, as a child process: the in-process router harness stubs
  * `broadcastToAll` to a no-op, and the frames on the socket are the claim here.
  * The unread is raised the way the e2e suite raises it, with a system message;
- * the bell row is written through the same POST the banner path uses.
+ * the history rows are written through the log's public POST.
  *
  * @covers UNREAD-01, NOTIF-SEEN-01, NOTIF-ONE-01
  */
@@ -80,20 +81,27 @@ afterAll(async () => {
   await server?.stop();
 });
 
-describe("POST /api/topics/:id/read propagates 'seen' to both counters and to every socket", () => {
-  test("zeroes the unread, clears the topic's bell rows, broadcasts unread:updated and notification:seen", async () => {
+/** The seen door, for one chat, with what the client was showing. */
+async function seeChat(topicId: string): Promise<{ ok: boolean; rows: { subject: string; unread: number }[] }> {
+  return postJson(`/api/attention/seen`, { items: [{ subject: `topic:${topicId}`, epoch: 0, turnAt: null }] });
+}
+
+const isChatFrame = (topicId: string) => (f: Frame) =>
+  f.type === "attention:updated" && (f.row as { subject?: string } | undefined)?.subject === `topic:${topicId}`;
+
+describe("POST /api/attention/seen propagates 'seen' to both counters and to every socket", () => {
+  test("zeroes the unread, clears the chat's history rows, and announces it in the chat's attention frame", async () => {
     const { ws, frames } = await openChatSocket();
     try {
       const topic = await postJson<{ id: string }>("/api/topics", { name: "read-propagation" });
-      // Another topic with its own bell row: reading the first must not touch it.
+      // Another topic with its own row: seeing the first must not touch it.
       const other = await postJson<{ id: string }>("/api/topics", { name: "read-propagation-other" });
 
       // Raise the unread the way a real message does (assistant message -> updateUnreadCount).
       await postJson(`/api/topics/${topic.id}/system-message`, { content: "hello from the test" });
-      await waitForFrame(frames, 0, (f) => f.type === "unread:updated" && f.topicId === topic.id && f.unreadCount === 1, "unread:updated{1}");
       expect((await getJson<Unread>("/api/unread"))[topic.id]?.unreadCount).toBe(1);
 
-      // Two bell rows about this topic (distinct dedupe keys), one about the other.
+      // Two rows about this topic (distinct dedupe keys), one about the other.
       for (const [target, key] of [[topic.id, "turn-1"], [topic.id, "turn-2"], [other.id, "turn-1"]] as const) {
         const r = await postJson<{ recorded: boolean }>("/api/notifications", {
           kind: "completion", title: `finished ${key}`, body: "", dedupeKey: `${target}:${key}`,
@@ -108,32 +116,28 @@ describe("POST /api/topics/:id/read propagates 'seen' to both counters and to ev
       // `unseen` counts SUBJECTS: two rows of one chat are one thing to look at.
       expect(before.unseen).toBeGreaterThanOrEqual(2);
 
-      // THE GESTURE. Everything below is what one read must produce.
+      // THE GESTURE. Everything below is what one seen must produce.
       const mark = frames.length;
-      const read = await postJson<{ ok: boolean }>(`/api/topics/${topic.id}/read`);
-      expect(read.ok).toBe(true);
+      const seen = await seeChat(topic.id);
+      expect(seen.ok).toBe(true);
+      expect(seen.rows.map((r) => [r.subject, r.unread])).toEqual([[`topic:${topic.id}`, 0]]);
 
-      // Counter 1: the unread is zero, and every window was told.
-      const unreadFrame = await waitForFrame(frames, mark, (f) => f.type === "unread:updated" && f.topicId === topic.id, "unread:updated{0}");
-      expect(unreadFrame.unreadCount).toBe(0);
+      // Counter 1: the unread is zero, and every window was told, in the chat's attention frame.
+      const frame = await waitForFrame(frames, mark, isChatFrame(topic.id), "attention:updated of the chat");
+      expect((frame.row as { unread: number }).unread).toBe(0);
       expect((await getJson<Unread>("/api/unread"))[topic.id]?.unreadCount ?? 0).toBe(0);
 
-      // Counter 2: the bell rows of THIS topic are seen, the other topic's is not,
-      // and the broadcast carries the new unseen count.
-      const seenFrame = await waitForFrame(frames, mark, (f) => f.type === "notification:seen", "notification:seen");
+      // Counter 2: the rows of THIS topic are seen, the other topic's is not.
       const after = await getJson<NotificationsPage>("/api/notifications");
       expect(after.rows.filter((r) => r.targetId === topic.id).every((r) => r.seenAt !== null)).toBe(true);
       expect(after.rows.filter((r) => r.targetId === other.id).every((r) => r.seenAt === null)).toBe(true);
       expect(after.unseen).toBe(before.unseen - 1);
-      expect(seenFrame.unseen).toBe(after.unseen);
-      // The frame names the subject, so every window can drop its own marks.
-      expect(seenFrame.subjects).toEqual([`topic:${topic.id}`]);
     } finally {
       ws.close();
     }
   }, 90_000);
 
-  test("a second read of an already-read topic is silent: no unread:updated, no notification:seen", async () => {
+  test("a second seen of an already seen chat announces again and changes nothing (defect E)", async () => {
     const { ws, frames } = await openChatSocket();
     try {
       const topic = await postJson<{ id: string }>("/api/topics", { name: "read-twice" });
@@ -141,19 +145,17 @@ describe("POST /api/topics/:id/read propagates 'seen' to both counters and to ev
       await postJson("/api/notifications", {
         kind: "completion", title: "finished", body: "", dedupeKey: `${topic.id}:once`, targetKind: "topic", targetId: topic.id,
       });
-      await postJson(`/api/topics/${topic.id}/read`);
-      await waitForFrame(frames, 0, (f) => f.type === "notification:seen", "first notification:seen");
+      await seeChat(topic.id);
+      await waitForFrame(frames, 0, isChatFrame(topic.id), "first attention:updated");
+      const seenOnce = await getJson<NotificationsPage>("/api/notifications");
 
-      // Second read: the route answers ok and must produce nothing on the wire.
-      // Proven with a marker frame: a `ping` sent AFTER the read is answered in
-      // order on this connection, so a `pong` with no seen/unread frame before it
-      // is the absence, without waiting on a clock.
+      // The door ALWAYS answers on the wire, even with nothing left to clear:
+      // a window that sent a seen must hear the server's row back.
       const mark = frames.length;
-      expect((await postJson<{ ok: boolean }>(`/api/topics/${topic.id}/read`)).ok).toBe(true);
-      ws.send(JSON.stringify({ type: "ping" }));
-      await waitForFrame(frames, mark, (f) => f.type === "pong", "pong");
-      const noise = frames.slice(mark).filter((f) => f.type === "notification:seen" || (f.type === "unread:updated" && f.topicId === topic.id));
-      expect(noise).toEqual([]);
+      expect((await seeChat(topic.id)).ok).toBe(true);
+      const again = await waitForFrame(frames, mark, isChatFrame(topic.id), "second attention:updated");
+      expect((again.row as { unread: number }).unread).toBe(0);
+      expect((await getJson<NotificationsPage>("/api/notifications")).unseen).toBe(seenOnce.unseen);
     } finally {
       ws.close();
     }

@@ -129,6 +129,13 @@ fanno il loro mestiere. Senza snapshot locale non c'è niente da aspettare.
 - **THEN** il corpo è nel primo passaggio di render, senza fallback
 - **AND** un chunk freddo passa ancora da `React.lazy` e il confine mostra il suo fallback
 
+#### Scenario: la sidebar, la griglia e la chat stanno fuori dal chunk iniziale ma arrivano calde
+- **GIVEN** `TopicTree`, `PanelGrid` e `ChatPane` sono chunk a parte, caricati con `retryingChunk`
+- **WHEN** l'app si avvia
+- **THEN** il primo frame aspetta i loro chunk insieme a quelli delle pane, dentro lo stesso tetto
+- **AND** `ChatPane` si chiede solo se una chat è fra le pane a schermo
+- **AND** `check:bundle` tiene il chunk iniziale sotto 400 KB compressi
+
 ### Requirement: LEAK-01 — Una sessione lunga non accumula, e c'è un cancello che se ne accorge
 
 Topics è una sessione lunga per costruzione: resta aperta per giorni, le pane si
@@ -204,6 +211,13 @@ banco.
 - **GIVEN** una misura di cicli ripetuti entro i budget
 - **WHEN** il cancello la giudica
 - **THEN** esce zero
+
+#### Scenario: una pagina nativa inattiva si libera solo sotto pressione
+
+- **GIVEN** una pane browser nascosta e non trattenuta da almeno 10 minuti
+- **WHEN** il verdetto di memoria sostenuta è attivo e l'impostazione è accesa
+- **THEN** la pane viene smontata e al ritorno ricarica l'URL persistito con un avviso
+- **AND** una pane visibile, trattenuta, più recente di 10 minuti o con l'impostazione spenta resta montata
 
 ### Requirement: LEAK-04 — Una callback che pulisce DEVE scattare una volta per ogni contesto che se ne va
 
@@ -799,6 +813,36 @@ proprio perché rispondono a due domande diverse: «qualcosa è cambiato qui» e
 - **GIVEN** un cambio di scheda
 - **THEN** il contatore locale SHALL salire e il fuoco SHALL essere persistito
 
+### Requirement: IDLE-03 — «Mostra archiviate» draws a page of the archive, not all of it
+
+With «Mostra archiviate» on, every sidebar group (the timeline, a project, a
+worktree section, a state section, a space) SHALL draw at most 25 archived
+chats, the most recent ones, and under them a row that draws 25 more. Every
+other row stays, in the order it had: the page only drops rows. An archived chat
+that is pinned or active SHALL stay visible outside the page. Turning «Mostra
+archiviate» off or on SHALL start every group over at 25, and a search SHALL
+show every match, unpaged.
+
+The live database of 15/10/2026 held 1,888 archived chats, 1,244 of them in one
+project: drawn whole, more than 30,000 DOM nodes against the 5,000 that the page
+at rest is allowed (the budget of IDLE-01, D2 track).
+
+#### Scenario: 2,000 archived chats stay within the DOM budget
+- **GIVEN** 2,000 archived chats across two projects and the chats without one
+- **WHEN** «Mostra archiviate» is on and both projects are open
+- **THEN** the page SHALL hold at most 5,000 DOM nodes
+- **AND** each group SHALL draw 25 archived chats
+
+#### Scenario: the row draws 25 more, and the switch starts over
+- **WHEN** the reader presses the row under a group, with the keyboard
+- **THEN** that group SHALL draw 25 more archived chats
+- **WHEN** «Mostra archiviate» goes off and on again
+- **THEN** every group SHALL draw 25 archived chats again
+
+#### Scenario: a page never reorders the list
+- **GIVEN** a group where archived and live chats interleave
+- **THEN** the rows the page keeps SHALL be in the order they had
+
 ### Requirement: PERFPANEL-01 — Il pannello dice NUMERI, e dice anche quando il numero non c'è
 
 Il pannello SHALL aprirsi dal menu «Topics» e mostrare NUMERI, non chiavi.
@@ -1099,3 +1143,111 @@ callback, which runs before that.
 - **WHEN** the user switches to another tab, the rest of its history is merged above the row they were reading, and the user comes back
 - **THEN** that row is on the first frame of the return at the place it had (the same row at the top, less than a pixel from its old offset), not the first row of the 400 px overscan above it
 - **AND** it does not move by a pixel or more in the frames after: before, the rows were placed from sizes kept by index (stale after the merge) and moved by 72-99 px once measured, sometimes back and forth
+
+### Requirement: FEEDCOST-01 — The board feed costs its rows, not the width of the table
+
+`GET /api/all-boards/tasks` is re-read by every open window on every board
+event that a frame cannot settle. Building it SHALL NOT pay for work whose
+result is thrown away: a per-card array of every character of an 800-character
+preview to keep 240 of them, or a JavaScript object per row built the slow way
+because the projection is wide. The answer SHALL stay the same: the preview cut
+is the same cut, on code points, and a list row carries the same keys in the
+same order with the same values.
+
+#### Scenario: the preview cut is the same cut
+- **GIVEN** strings mixing ASCII, characters of the basic plane, surrogate pairs and lone surrogates
+- **WHEN** the first N code points are taken with `sliceCodePoints`
+- **THEN** the result SHALL equal `Array.from(s).slice(0, N).join("")` for every N, zero and past the end included
+
+#### Scenario: a wide row is the same row
+- **GIVEN** a SELECT of more than 62 columns over every SQLite type, nulls and blobs included
+- **WHEN** its rows are read with `allWideRows`
+- **THEN** they SHALL deep-equal the rows of `.all()`, with the keys in the same order
+- **AND** the keys SHALL come from the names the caller wrote the SELECT with, never from the order of `statement.columnNames` (Bun 1.3.8 lists it backwards past 62 columns)
+- **AND** a column list that is not made of plain identifiers, no list, or a list that is not the statement's columns SHALL be read with `.all()`
+
+#### Scenario: the feed drops only what no client reads
+- **GIVEN** cards whose dispatcher bookkeeping, delegated-run ids and unread stamps all have a value
+- **WHEN** the board reads `GET /api/all-boards/tasks`
+- **THEN** none of the fields listed in `shared/board-feed.ts` SHALL be on a card, and every other field SHALL equal `svc.list`
+- **AND** a field in that list SHALL have no reader in `client/src`, its `BoardTask` declaration aside
+- **AND** a `task:updated` frame the store absorbs SHALL leave the row with the keys the feed brings, so re-reading an unchanged board publishes nothing
+
+### Requirement: DBSLOW-01 — A statement that holds the loop names itself in the log
+
+Every statement the server runs through `query`, `prepare` or `run` SHALL be
+timed, and one that takes 250 ms or more SHALL print a `[DB-SLOW]` line with its
+duration, the method, the rows of a list result and the first 200 characters of
+its SQL. The same SQL SHALL print at most once a minute, and the next line SHALL
+carry how many slow calls it skipped. A cached statement SHALL be timed once per
+call, however many times `query` handed it out.
+
+On 15/10/2026 a stall of the live server was sampled while it happened: the main
+thread was in `sqlite3_step`, walking a b-tree and waiting on `pread`, with 50 ms
+of CPU in an 844 ms stop. The system SQLite of macOS keeps its page cache in
+purgeable memory, which the kernel drops under memory pressure. A native sample
+cannot name the statement, because JavaScript frames are anonymous in it; this
+line can.
+
+#### Scenario: a slow statement prints its SQL
+- **GIVEN** a statement that takes 300 ms
+- **WHEN** it runs through `all`, `get`, `values` or `run`, or through `run` on the database
+- **THEN** the log SHALL have one `[DB-SLOW] 300ms` line with the method and the SQL on one line
+
+#### Scenario: a fast statement prints nothing
+- **WHEN** statements under 250 ms run
+- **THEN** the log SHALL have no `[DB-SLOW]` line
+
+#### Scenario: once a minute per statement
+- **WHEN** the same slow SQL runs twice within a minute and once more after it
+- **THEN** the log SHALL have two lines, the second with `(+1 slow in the last minute)`
+
+#### Scenario: a cached statement is timed once per call
+- **WHEN** `query` hands out the same statement three times and each is run once
+- **THEN** the clock SHALL be read twice per run, six times in all
+
+### Requirement: DBSLOW-02 — The two sweeps read only the rows they need
+
+The boot sweep of half-written messages SHALL find their chats through a partial
+index of the messages with `partial = 1`, so its cost follows the half-written
+rows and not the whole table. The resume sweep SHALL start from the messages of
+the last 25 hours, through the timestamp index, and keep a message only when it
+is the last row of its chat; it SHALL return the same rows as the query it
+replaced, which took the last message of every chat first. Neither names an
+index in its SQL, so a database without the index still answers, only slower.
+
+On 15/10/2026 `[DB-SLOW]` named both on the live server: the boot sweep at
+1,045 ms, the resume sweep at 374 and 259 ms, every 5 minutes. On a copy of the
+321 MB database the boot sweep went from 13,664 page reads to 25, and the resume
+sweep from 2,464 to 74 on the live file.
+
+#### Scenario: the boot sweep uses the partial index
+- **GIVEN** the schema of all migrations
+- **WHEN** the planner explains the boot sweep
+- **THEN** the plan SHALL name `idx_messages_partial` and the sweep SHALL return only the chats with a half-written message
+
+#### Scenario: the resume sweep starts from the recent messages
+- **WHEN** the planner explains the resume sweep
+- **THEN** the plan SHALL name `idx_messages_timestamp` and SHALL NOT scan `messages`
+
+#### Scenario: same rows as the query it replaced
+- **GIVEN** chats whose last row is old, chats whose last row is recent, and a chat with a recent row followed by an older one
+- **WHEN** the old and the new resume query run
+- **THEN** they SHALL return the same rows, and the last chat SHALL be out
+
+### Requirement: DBSLOW-03 — The reads of tasks on a timer use their own index
+
+The reads of `tasks` that run on a timer SHALL each go through a partial index
+that holds only the rows they want, and none SHALL scan the table: the boards
+with queued root cards (the dispatcher tick), the count of working cards and the
+board of the oldest one (the status bar), and the cards parked in a wait series
+(the wait sweep). The plans SHALL hold with and without the planner's statistics.
+
+On 15/10/2026 `[DB-SLOW]` named them at 321 to 946 ms on the live server: each
+walked the whole table, about 1,400 pages. With the indexes, 23 pages each on a
+copy of the database.
+
+#### Scenario: no read on a timer scans tasks
+- **GIVEN** the schema of all migrations, without statistics
+- **WHEN** the planner explains each of the four reads
+- **THEN** each plan SHALL name its partial index and none SHALL scan `tasks`

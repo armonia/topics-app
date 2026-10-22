@@ -200,24 +200,24 @@ sola con la sua barra.
 
 ## 5. Barra di tornata e prova
 
-- [ ] 5.1 `bun run typecheck` verde.
-- [ ] 5.2 `bun test client/src/components/Board client/src/components/Chat
+- [x] 5.1 `bun run typecheck` verde. *(12/10: exit 0 su origin/main 3977fc1c9.)*
+- [x] 5.2 `bun test client/src/components/Board client/src/components/Chat
   client/src/state server/lib server/services/task-dispatcher.test.ts
   server/services/tasks.system-delivery.test.ts server/services/tasks.comment-kind.test.ts
   server/services/tasks.delivery.test.ts tests/integration/ultima-prosa-agente.test.ts
-  tests/integration/migration-*-dispatched-envelopes.test.ts` verde.
-- [ ] 5.3 `bun run check:deadcode` verde (zero export morti dopo la cancellazione
-  di SessionPane/sessionBuckets/sessionPaneId).
-- [ ] 5.4 `bunx playwright test tests/e2e/board-drawer-scroll.spec.ts
+  tests/integration/migration-*-dispatched-envelopes.test.ts` verde. *(12/10: 6100 pass, 0 fail, 455 file.)*
+- [x] 5.3 `bun run check:deadcode` verde (zero export morti dopo la cancellazione
+  di SessionPane/sessionBuckets/sessionPaneId). *(12/10: exit 0.)*
+- [x] 5.4 `bunx playwright test tests/e2e/board-drawer-scroll.spec.ts
   tests/e2e/board.spec.ts tests/e2e/board-card-vs-session.spec.ts
   tests/e2e/board-review-quiet-note.spec.ts` verde contro :13334 (oltre questi 4
-  file la batteria va sul PC, CLAUDE.md «Lavori pesanti»).
-- [ ] 5.5 Query sqlite della bonifica → 0 sul DB vivo (riferimento: 2301).
-- [ ] 5.6 Ciò che è verde resta verde: BOARD-03b/08/13, board-card-vs-session
+  file la batteria va sul PC, CLAUDE.md «Lavori pesanti»). *(12/10: nightly 38239281369 su 3babe359f, chromium: drawer-scroll 7, board 46, card-vs-session 1, quiet-note 1, nessun rosso. Su questo Mac gli e2e non girano per regola del repo.)*
+- [x] 5.5 Query sqlite della bonifica → 0 sul DB vivo (riferimento: 2301). *(12/10, DB vivo in sola lettura: 0; marcate dispatched-envelope 3015.)*
+- [x] 5.6 Ciò che è verde resta verde: BOARD-03b/08/13, board-card-vs-session
   («Apri la sessione» e `task-session-gone`), board-review-quiet-note (`quiet`),
   ThreadRuns.test.tsx:132-140, server/lib/ws-topic-routing.test.ts,
   server/routes/permission.test.ts, task-dispatcher.test.ts (la busta
-  `Human update on task` non cambia testo).
+  `Human update on task` non cambia testo). *(12/10: le spec e2e come in 5.4; ThreadRuns.test.tsx + permission.test.ts 36 pass, ws-topic-routing e task-dispatcher dentro 5.2.)*
 - [ ] 5.7 Prova: `.webm` di DRAWER-05; screenshot 1600×900 del modo largo; output
   del test di migration e della query sqlite; output verdi di typecheck, bun test,
   check:deadcode e dei 4 file e2e.

@@ -16,21 +16,8 @@ import { hermetic } from "./fixtures/hermetic";
 hermetic(test);
 
 /**
- * A LOOPBACK URL OPENED FROM THE CHAT HAS TO NAVIGATE, OR SAY WHY NOT.
- *
- * The defect this closes (measured 2026-09-14, card 30f55ca9): on the WEB
- * client a pane pointed at a loopback address — a dev server, a task preview —
- * stayed on the new-tab page forever. The `/api/browsers/framable` probe
- * refuses every loopback by design (its SSRF guard, `isSafePublicUrl`, must not
- * be loosened), so there is no iframe to render; the pane then has to fall back
- * to the server-rendered surface, which is the one path that CAN reach loopback
- * because the headless browser runs on the server's own machine.
- *
- * Nothing is mocked here on purpose. The mocked twin of this case already
- * passes (`browser-dom-cobrowse.spec.ts`, "a non-framable localhost app renders
- * via DOM co-browse"): the decision logic was never the broken half. The page
- * is served by THIS test process on a loopback port, which is both the shortest
- * possible dependency and the exact shape of the real report.
+ * A loopback URL opened from chat keeps its address and uses the server surface.
+ * The test page is served by this test process, matching the local URL shape.
  *
  * @covers BROWSER-CHAT-04
  */
@@ -82,8 +69,8 @@ test.describe("BROWSER-CHAT-04 — a loopback URL from the chat never dies on th
     await resetPaneStore(request, []);
   });
 
-  test("the framable probe still refuses loopback (the SSRF guard is untouched)", async ({ request }) => {
-    const res = await request.get(`/api/browsers/framable?url=${encodeURIComponent(loopbackUrl)}`);
+  test("the framing probe is a POST and passes the origin check", async ({ request }) => {
+    const res = await request.post('/api/browsers/framable', { data: { url: loopbackUrl } });
     expect(res.ok()).toBe(true);
     expect(await res.json()).toEqual({ framable: false });
   });

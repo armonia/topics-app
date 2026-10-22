@@ -57,6 +57,7 @@ import { goToApp, openTopic } from "./helpers";
 import { interceptWebSocket } from "./helpers/ws-helpers";
 import { wheelUpUntilVisible } from "./helpers/wheel-scroll";
 import { E2E_BASE } from "./helpers/test-server";
+import { seedTranscript } from "./helpers/seed-transcript";
 // The list's OWN definition of "at the bottom", imported and not copied: it is
 // the same constant `MessageList.tsx` hands to Virtuoso as `atBottomThreshold`,
 // so the band this bench waits for cannot drift away from the band the client
@@ -146,64 +147,6 @@ const quiet: Record<string, QuietBaseline> = {};
  * child reaches SQLite before its parent. Measured: ~2000 rows in a few
  * seconds, which is cheaper than either of those two ways of being wrong.
  */
-async function seedTranscript(
-  request: APIRequestContext,
-  sessionKey: string,
-  count: number,
-  tag: string,
-): Promise<void> {
-  const ids: string[] = [];
-  for (let i = 0; i < count; i++) ids.push(`${tag}-${String(i).padStart(5, "0")}`);
-  const base = Date.parse("2026-08-01T09:00:00.000Z");
-
-  for (let i = 0; i < count; i++) {
-    const slot = i % 5;
-    const body =
-      slot === 0
-        ? {
-            role: "user",
-            content:
-              `[${tag} ${i}] And what about the ${i}th thing? ` +
-              "Please look at the file and tell me what it does.",
-          }
-        : slot === 4
-          ? {
-              role: "assistant",
-              content:
-                `[${tag} ${i}] Here is what I found. ` +
-                "The module keeps its own copy of the state and reconciles it on load. ".repeat(3),
-            }
-          : {
-              role: "assistant",
-              // Work-only: empty prose plus one tool. See the note above.
-              content: "",
-              toolCalls: [
-                {
-                  id: `${tag}-tc-${i}`,
-                  name: slot === 1 ? "Bash" : slot === 2 ? "Read" : "Grep",
-                  args: { command: `rg --line-number "thing-${i}" server/` },
-                  status: "success",
-                  result: `line ${i}: matched\n`.repeat(3),
-                },
-              ],
-            };
-    const res = await request.post(`${E2E_BASE}/api/test/seed-message`, {
-      ignoreHTTPSErrors: true,
-      data: {
-        ...body,
-        sessionKey,
-        id: ids[i],
-        parentId: i === 0 ? null : ids[i - 1],
-        sortOrder: 1000 + i,
-        timestamp: new Date(base + i * 1000).toISOString(),
-      },
-    });
-    if (!res.ok()) {
-      throw new Error(`seed-message refused row ${i}: ${res.status()} ${await res.text()}`);
-    }
-  }
-}
-
 /* ─────────────────────────────────────────────────────────────── bursts ── */
 
 interface WsSender {
@@ -387,20 +330,18 @@ async function measureTranscript(
   // AND THE WHOLE THREAD HAS TO BE ASKED FOR. Since the tail-first open
   // (`shared/history-paging.ts`) a pane holds the LAST PAGE — forty messages,
   // 1125 px of run measured here — and the rest is merged only while nobody is
-  // looking or when somebody asks from the top of the list. This bench looks at
-  // the list the whole time, so nothing would ever arrive on its own: without
-  // the ask, "long" and "short" are the same forty rows and the ratio this file
-  // exists to compute is a flat 1.0 dressed up as a measurement. The ask is the
-  // row the reader gets at the top of a partial transcript, clicked the way a
-  // reader clicks it.
+  // looking or as the reader scrolls up towards it. This bench looks at the
+  // list the whole time, so nothing would arrive while it sits on the tail:
+  // without the scroll, "long" and "short" are the same forty rows and the
+  // ratio this file exists to compute is a flat 1.0 dressed up as a
+  // measurement. The ask is the reader heading up a partial transcript.
   if (o.label === "long") {
     // The wheel and not a `scrollTop` write: the opening pins undo a
     // programmatic scroll and the list snaps back to the bottom, which is what
     // the first attempt measured (749 px, still the tail, screenshot at the
     // bottom of the transcript). The wheel is what a reader does, and it is the
-    // gesture that closes the opening window.
-    await wheelUpUntilVisible(page, page.getByTestId("chat-load-older"));
-    await page.getByTestId("chat-load-older-button").click();
+    // gesture that closes the opening window and pulls the rest in.
+    await wheelUpUntilVisible(page, page.locator('[data-testid="chat-message-list"][data-history="complete"]:visible'), 120);
     await expect(page.getByTestId("chat-load-older")).toHaveCount(0, { timeout: 120_000 });
     await expect
       .poll(() => scroller.evaluate((el) => el.scrollHeight - el.clientHeight), { timeout: 60_000 })

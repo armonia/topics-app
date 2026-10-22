@@ -26,6 +26,7 @@
  * gone by the time we ask) means "can't tell" — and we never warn on a guess.
  */
 import { isInsideDir } from "./path-containment";
+import { SPAWN_TIMEOUT, spawnBounded } from "./bounded-spawn";
 
 /** Who (if anyone) is listening on the port right now. */
 export interface PortListener {
@@ -126,9 +127,10 @@ export function realPortOwnerDeps(): PortOwnerDeps {
   return {
     findListener: async (port) => {
       try {
-        const proc = Bun.spawn(["/usr/sbin/lsof", "-nP", `-iTCP:${port}`, "-sTCP:LISTEN", "-Fpc"], {
+        const proc = spawnBounded(["/usr/sbin/lsof", "-nP", `-iTCP:${port}`, "-sTCP:LISTEN", "-Fpc"], {
           stdout: "pipe",
           stderr: "ignore",
+          timeoutMs: SPAWN_TIMEOUT.query,
         });
         const out = await new Response(proc.stdout).text();
         await proc.exited;
@@ -141,9 +143,10 @@ export function realPortOwnerDeps(): PortOwnerDeps {
     },
     cwdForPid: async (pid) => {
       try {
-        const proc = Bun.spawn(["/usr/sbin/lsof", "-a", "-d", "cwd", "-Fn", "-p", String(pid)], {
+        const proc = spawnBounded(["/usr/sbin/lsof", "-a", "-d", "cwd", "-Fn", "-p", String(pid)], {
           stdout: "pipe",
           stderr: "ignore",
+          timeoutMs: SPAWN_TIMEOUT.query,
         });
         const out = await new Response(proc.stdout).text();
         await proc.exited;

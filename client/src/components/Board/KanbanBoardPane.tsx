@@ -22,6 +22,7 @@ import { useTaskDeepLink } from './useTaskDeepLink';
 import { DEAD_TAB_MESSAGE } from '../../lib/tabLink';
 import { useToast } from '../Shared/Toast';
 import { usePaneStore } from '../../state/pane/store';
+import { startVisibleInterval } from '../../state/documentVisibility';
 import { parseUtilityPanelType } from '../Layout/UtilityPanel';
 import { useTaskSessionResolver } from '../../hooks/useTaskSession';
 import { useBoardFeed } from '../../hooks/useBoardFeed';
@@ -62,6 +63,7 @@ import { taskActionWord } from './taskActionWords';
 import { TaskDetail } from './TaskDetail';
 import { OrchestratorDrawer } from './OrchestratorDrawer';
 import { BoardSettingsPanel } from './BoardSettingsPanel';
+import { ScheduledCardsControl } from './ScheduledCardsControl';
 import { GlobalOnlySettingsPanel } from './BoardSettingsSections';
 import { POPOVER_ITEM } from '@/lib/popoverStyles';
 import { MISSIONS, type Mission } from '../../lib/missions';
@@ -1103,8 +1105,8 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, loadHi
     load();
     // Il GC gira ogni 30 minuti e i dispatch creano worktree in continuazione:
     // un conteggio letto una volta sola al mount invecchia sotto gli occhi.
-    const t = setInterval(load, 60_000);
-    return () => { alive = false; clearInterval(t); };
+    const stopPolling = startVisibleInterval(load, 60_000);
+    return () => { alive = false; stopPolling(); };
   }, [projectPath, global]);
 
   // I RAMI non su main, col task che li reclama.
@@ -1889,6 +1891,7 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, loadHi
           title={boardLayout === 'list' ? tr('board.toolbar.viewMode.list') : tr('board.toolbar.viewMode.kanban')}
         >{boardLayout === 'list' ? <Kanban className="h-3.5 w-3.5" /> : <List className="h-3.5 w-3.5" />}</button>
         <div className="ml-auto flex items-center gap-2">
+          {hasProject && mode === 'project' && <ScheduledCardsControl projectId={projectId} />}
           {/* THE COUNT IS GONE (asked on 29/08): in "all" mode the toggle two
               controls to the left already says which scope you are in, and the
               readout restated it in words next to a number nobody acts on. A
@@ -2071,6 +2074,7 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, loadHi
                   canCreate={mode === 'project' && !showArchived}
                   showProject={mode === 'all'}
                   layout={boardLayout}
+                  viewKey={`${mode === 'all' ? 'all' : projectId}:${showArchived ? 'archive' : 'live'}`}
                   cardError={cardError}
                   onCardError={onCardError}
                   onRefetch={refetch}
@@ -2179,6 +2183,7 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, loadHi
             projectId={drawerTask.projectId}
             taskId={drawerTask.id}
             initialStatus={drawerTask.status}
+            initialTitle={drawerTask.text}
             bump={taskDetailBump(drawerTask)}
             onClose={() => setSelectedId(null)}
             onChanged={refetch}

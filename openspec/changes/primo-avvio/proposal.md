@@ -1,19 +1,5 @@
 # Change: primo-avvio
 
-> **Stato: PROPOSTA, non approvata.** Nessuna riga di codice prima del tuo sì.
->
-> I cinque bivi in fondo restano decisioni tue, ma non sono più domande a vuoto:
-> per ognuno sono andato a cercare i fatti, e tre si sono chiusi da soli contro
-> il codice. **Google** e **la chiave GitHub** erano già stati considerati e
-> scartati, con la ragione scritta nei rispettivi file — non erano lacune, erano
-> scelte. **I modelli** sono una guardia che ha già prodotto un difetto silenzioso
-> quando è rimasta indietro, quindi aprirla è il contrario di una cura. Restano
-> aperti per davvero solo il **quando compare** (1) e l'**installare dall'app**
-> (2), che sono scelte di prodotto senza una risposta nel codice.
->
-> Se sei d'accordo con le cinque raccomandazioni, basta un «vai» e passo alle
-> spec.
-
 ## Why
 
 Topics installata e aperta la prima volta mostra questo, e nient'altro:

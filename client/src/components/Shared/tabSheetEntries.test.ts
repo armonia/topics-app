@@ -21,7 +21,7 @@ function fullBrowser(over: Partial<TabSheetModel> = {}): TabSheetModel {
     find: noop,
     page: { zoom: true, device: true, forgetSite: noop, tail: '100% · Desktop' },
     tools: { console: true, downloads: true, devTools: noop, errors: 2, downloadCount: 0 },
-    session: { share: true, engine: true, render: true, tail: 'shared' },
+    session: { share: true, engine: true, render: true, layout: true, tail: 'shared' },
     tab: { rename: true, pins: [{ scope: 'single', pinned: false, toggle: noop }], copyLink: noop, copyLinkIsTabOfPage: true },
     layout: {
       zoom: { zoomed: false, toggle: noop }, splitRight: noop, splitDown: noop, resetLayout: noop,

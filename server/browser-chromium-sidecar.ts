@@ -21,6 +21,8 @@ import { existsSync } from "node:fs";
 import { cpus, homedir, loadavg } from "node:os";
 import { join } from "node:path";
 import { resolveAppDataDir } from "./lib/data-dir";
+import { recordServerSpawn } from "./lib/spawn-metrics";
+import { LSOF } from "./lib/system-bins";
 
 /** Opaque timer handle — normalises the DOM/Node `setTimeout` return-type union. */
 type TimerHandle = ReturnType<typeof setTimeout>;
@@ -235,6 +237,7 @@ export function createChromiumSidecar(opts: ChromiumSidecarOptions = {}) {
   let kill: (() => void) | null = null;
   let launching: Promise<SidecarHandle> | null = null;
   let idleTimer: TimerHandle | null = null;
+  let lastLaunchFailure: { message: string; at: string } | null = null;
 
   function cancelIdleReap() {
     if (idleTimer) {
@@ -259,6 +262,7 @@ export function createChromiumSidecar(opts: ChromiumSidecarOptions = {}) {
       const started = await launcher.launch({ engine, port, userDataDir, loadExtensions: resolveLoadExtensions() });
       handle = { cdpEndpoint: started.cdpEndpoint, engine };
       kill = started.kill;
+      lastLaunchFailure = null;
       return handle;
     })();
     try {
@@ -286,6 +290,7 @@ export function createChromiumSidecar(opts: ChromiumSidecarOptions = {}) {
       try {
         return await ensureLaunched();
       } catch (err) {
+        lastLaunchFailure = { message: err instanceof Error ? err.message : String(err), at: new Date().toISOString() };
         // A failed cold start must not leave a phantom reservation.
         refCount = Math.max(0, refCount - 1);
         throw err;
@@ -315,6 +320,7 @@ export function createChromiumSidecar(opts: ChromiumSidecarOptions = {}) {
         refCount,
         cdpEndpoint: handle?.cdpEndpoint ?? null,
         engine: handle?.engine ?? null,
+        lastLaunchFailure,
       };
     },
   };
@@ -498,7 +504,7 @@ const defaultPsReader: PsReader = () => {
   try {
     // eslint-disable-next-line @typescript-eslint/no-require-imports -- see the comment above: child_process stays out of the module level
     const { execFileSync } = require("node:child_process") as typeof import("node:child_process");
-    return execFileSync("ps", ["-axo", "pid=,ppid=,command="], { encoding: "utf8" });
+    return execFileSync("ps", ["-axo", "pid=,ppid=,command="], { encoding: "utf8", timeout: 5000, killSignal: "SIGKILL" });
   } catch {
     return null;
   }
@@ -659,9 +665,12 @@ export function portOwnedBy(
       try {
         // eslint-disable-next-line @typescript-eslint/no-require-imports -- child_process stays out of the module level, as for `defaultPsReader`
         const { execFileSync } = require("node:child_process") as typeof import("node:child_process");
-        return execFileSync("lsof", ["-nP", `-iTCP:${port}`, "-sTCP:LISTEN", "-t"], {
+        recordServerSpawn("lsof", "chromiumIdentity");
+        return execFileSync(LSOF, ["-nP", `-iTCP:${port}`, "-sTCP:LISTEN", "-t"], {
           encoding: "utf8",
           stdio: ["ignore", "pipe", "ignore"],
+          timeout: 5000,
+          killSignal: "SIGKILL",
         });
       } catch {
         return null;

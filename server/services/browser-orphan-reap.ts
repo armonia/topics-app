@@ -116,6 +116,8 @@ export function psSnapshot(): string | null {
     const r = Bun.spawnSync(["ps", "-axo", "pid=,ppid=,command="], {
       stdout: "pipe",
       stderr: "ignore",
+      timeout: 5000,
+      killSignal: "SIGKILL",
     });
     if (!r.success) return null;
     const out = r.stdout.toString();

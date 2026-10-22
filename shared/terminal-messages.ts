@@ -31,21 +31,33 @@ export const TERMINAL_INPUT_DROPPED = "input-dropped";
 /**
  * WebSocket close code for an attach to a session the server has PARKED: the
  * row is `status = 'dormant'`, the PTY is gone, and `POST /sessions/:id/revive`
- * is the way back. Application range (4000-4999), so no proxy rewrites it.
+ * is the way back. Application range (4000-4999),
+ * so no proxy rewrites it.
  *
  * It is a VERDICT, and that is why it is not 1008. The upgrade is accepted for
  * any id and the answer arrives only in `open`, so the client sees a
  * successful open first; 1008 ("session not found") is also what the server
  * says during the boot window, while the bridge has the PTY and the reconcile
  * has not reattached it yet, and for that case the client keeps a grace and
- * retries. A dormant row is never a race: only a park, an exit or a restart
- * writes it, and only a revive or a reload flips it back. So the pane stops
- * retrying at once and shows the expired overlay instead of a blank
- * rectangle - the loop measured on 2026-09-05 was one reconnect every 500 ms,
- * each one posting a resize the server answered 404, for as long as the tab
- * stayed open.
+ * retries. A dormant row is never a race: only a park, an exit or a
+ * restart writes it, and only a revive or a reload flips it back. So the pane
+ * stops retrying and resizing at once, shows its resting state, and waits for
+ * Resume.
  */
 export const TERMINAL_WS_CLOSE_DORMANT = 4001;
+
+/**
+ * WebSocket close code for an attach whose scrollback the PTY bridge did not
+ * hand over: not connected, or no answer within the wait.
+ *
+ * It is NOT a verdict, and that is the point. The client takes a claude pane
+ * whose replay carried zero bytes as a PTY that is gone and offers Resume, so
+ * an empty replay sent in place of a missing one put a live session under the
+ * `terminal.dormant.title` veil (2026-10-15, load1 above 150, `[LAG]` stops of
+ * 1.3-1.7 s on the server). Closing instead lands in the client's ordinary reconnect
+ * path, which retries for as long as the session is listed.
+ */
+export const TERMINAL_WS_CLOSE_REPLAY_UNANSWERED = 4002;
 
 /**
  * Response header of `GET /api/terminal/sessions`: `"1"` when the roster has

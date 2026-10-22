@@ -29,6 +29,8 @@ export interface BrowserOpResult {
 type SendFn = (msg: BrowserOpMessage) => void;
 
 interface Pending {
+  contextId: string;
+  owner?: unknown;
   resolve: (value: unknown) => void;
   timer: ReturnType<typeof setTimeout>;
 }
@@ -69,8 +71,8 @@ export interface NativeDelegateRegistry {
   isDelegated(contextId: string): boolean;
   /** Forward a tool-call to the client and await its reply (or a timeout error). */
   delegateOp(contextId: string, tool: string, args: unknown): Promise<unknown>;
-  /** Feed an inbound `browser_op_result` from the client; resolves the pending op. */
-  resolveOp(res: BrowserOpResult): void;
+  /** Feed an inbound `browser_op_result` from its registered socket. */
+  resolveOp(res: BrowserOpResult, owner?: unknown): void;
   /** Count of registered contexts (introspection / tests). */
   size(): number;
   /** Ids of every currently client-delegated (live native) pane. This map IS
@@ -82,14 +84,13 @@ export interface NativeDelegateRegistry {
 export interface CreateRegistryOpts {
   /** Op timeout in ms (default 30s). */
   timeoutMs?: number;
-  /** Injectable id generator so tests are deterministic (default: counter). */
+  /** Injectable id generator so tests are deterministic (default: random UUID). */
   genOpId?: () => string;
 }
 
 export function createNativeDelegateRegistry(opts: CreateRegistryOpts = {}): NativeDelegateRegistry {
   const timeoutMs = opts.timeoutMs ?? 30_000;
-  let counter = 0;
-  const genOpId = opts.genOpId ?? (() => `op-${++counter}`);
+  const genOpId = opts.genOpId ?? (() => crypto.randomUUID());
 
   const senders = new Map<string, { send: SendFn; owner?: unknown; isOwnerAlive?: () => boolean }>();
   // opId → pending resolver. We resolve (never reject) with an {error} object so a
@@ -149,7 +150,7 @@ export function createNativeDelegateRegistry(opts: CreateRegistryOpts = {}): Nat
       senders.delete(contextId);
       // Fail any in-flight ops that were destined for this client.
       for (const [opId, p] of pending) {
-        if (opId.startsWith(`${contextId}::`)) {
+        if (p.contextId === contextId) {
           clearTimeout(p.timer);
           pending.delete(opId);
           p.resolve({ error: 'native browser pane disconnected' });
@@ -162,8 +163,8 @@ export function createNativeDelegateRegistry(opts: CreateRegistryOpts = {}): Nat
     delegateOp(contextId, tool, args) {
       const send = senders.get(contextId)?.send;
       if (!send) return Promise.resolve({ error: 'no native executor for context' });
-      // Namespace the opId with the contextId so unregister can fail just its ops.
-      const opId = `${contextId}::${genOpId()}`;
+      const owner = senders.get(contextId)?.owner;
+      const opId = genOpId();
       return new Promise<unknown>((resolve) => {
         const timer = setTimeout(() => {
           if (pending.has(opId)) {
@@ -171,7 +172,7 @@ export function createNativeDelegateRegistry(opts: CreateRegistryOpts = {}): Nat
             resolve({ error: `native browser op '${tool}' timed out` });
           }
         }, timeoutMs);
-        pending.set(opId, { resolve, timer });
+        pending.set(opId, { contextId, owner, resolve, timer });
         try {
           send({ type: 'browser_op', opId, tool, args });
         } catch {
@@ -179,8 +180,10 @@ export function createNativeDelegateRegistry(opts: CreateRegistryOpts = {}): Nat
         }
       });
     },
-    resolveOp(res) {
+    resolveOp(res, owner) {
       if (!res || typeof res.opId !== 'string') return;
+      const op = pending.get(res.opId);
+      if (!op || op.owner !== owner || senders.get(op.contextId)?.owner !== owner) return;
       settle(res.opId, res.error !== undefined ? { error: res.error } : res.result);
     },
     size() {
@@ -221,8 +224,29 @@ export function handleNativeDelegationFrame(
     return registry.register(contextId, send, owner, isOwnerAlive) ? 'registered' : 'rejected';
   }
   if (m.type === 'browser_op_result' && typeof m.opId === 'string') {
-    registry.resolveOp({ opId: m.opId, result: m.result, error: m.error });
+    registry.resolveOp({ opId: m.opId, result: m.result, error: m.error }, owner);
     return 'result';
   }
   return null;
+}
+
+const NATIVE_DELEGATE_FRAME_TYPES = new Set([
+  'register_native_executor',
+  'browser_op_result',
+  'take_control',
+  'native_dom_host',
+  'host_dom_events',
+  // A large batch of the same events, in pieces the mirror puts back together (NATIVE-HOST-05).
+  'host_dom_events_chunk',
+  'host_page',
+  'host_local_use',
+  // The Mac's own switch: stop sharing its page, or share it again.
+  'set_native_host_sharing',
+]);
+
+/** Native executor sockets accept only their protocol frames. */
+export function isNativeDelegateFrameAllowed(raw: unknown): boolean {
+  if (!raw || typeof raw !== 'object') return false;
+  const type = (raw as { type?: unknown }).type;
+  return typeof type === 'string' && NATIVE_DELEGATE_FRAME_TYPES.has(type);
 }

@@ -112,3 +112,15 @@ export function shouldDeclareExpired(i: ExpiryInput): boolean {
   if (!i.rosterAuthoritative) return false;
   return i.retryCount > i.graceRetries;
 }
+
+export type TerminalPaneStatus = 'waiting' | 'resting' | 'expired';
+
+export interface TerminalPaneStatusInput extends ExpiryInput {
+  /** A server verdict for a dormant row that still has a resumable session id. */
+  dormantResumable?: boolean;
+}
+
+export function decideTerminalPaneStatus(i: TerminalPaneStatusInput): TerminalPaneStatus {
+  if (i.dormantResumable) return 'resting';
+  return shouldDeclareExpired(i) ? 'expired' : 'waiting';
+}

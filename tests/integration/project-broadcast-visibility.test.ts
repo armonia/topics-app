@@ -26,7 +26,7 @@
 import { describe, test, expect, beforeAll, afterAll, beforeEach } from "bun:test";
 import * as fs from "node:fs";
 import type { Database } from "bun:sqlite";
-import type { AppContext, RouteHandler } from "../../server/types";
+import type { AppContext, RouteHandler, WSData } from "../../server/types";
 import { isGuestSafeFrameType, frameResource } from "../../server/lib/grants";
 import { PROJECT_ROOT, setupTestDataDir, testTmpDir } from "./helpers";
 
@@ -41,7 +41,7 @@ interface SocketFinta {
   data: {
     id: string;
     deviceId: string | null;
-    deviceRole: "owner" | "guest" | null;
+    principal: WSData["principal"];
     focusedTopicId: null;
     lastPong: number;
   };
@@ -53,11 +53,15 @@ interface SocketFinta {
 function fakeSocket(
   id: string,
   deviceId: string | null,
-  deviceRole: "owner" | "guest" | null = "owner",
+  confined = false,
 ): SocketFinta {
   const s: SocketFinta = {
     readyState: 1,
-    data: { id, deviceId, deviceRole, focusedTopicId: null, lastPong: 0 },
+    data: {
+      id, deviceId,
+      principal: deviceId ? { principals: [{ kind: "device", id: deviceId }], confined, rev: 0 } : null,
+      focusedTopicId: null, lastPong: 0,
+    },
     grezzi: [],
     send(payload: string) { s.grezzi.push(payload); },
   };
@@ -233,14 +237,14 @@ describe("i frame di un progetto sanno chi hanno davanti", () => {
     // i tipi ammessi a un ospite, quindi cade prima di qualunque valutazione di
     // visibilità. Il filtro degli ospiti resta il primo dei due.
     ctx.setGuestBroadcastFilter({
-      mayReceiveFrame(_deviceId, message) {
+      mayReceiveFrame(_data: WSData, message) {
         const tipo = (message as { type?: unknown }).type;
         if (typeof tipo !== "string" || !isGuestSafeFrameType(tipo)) return false;
         return frameResource(message) !== null;
       },
       mayReadTopic: () => false,
     });
-    const ospite = fakeSocket("ws-ospite", devGuest, "guest");
+    const ospite = fakeSocket("ws-ospite", devGuest, true);
     ctx.wsClients.add(ospite as never);
     const { macchina } = collega3();
 

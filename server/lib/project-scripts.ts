@@ -465,6 +465,19 @@ export function detectScripts(projectPath: string, fs: Fs = realFs(projectPath))
     }
   }
 
+  // A worktree's optional run action joins the existing project script runner.
+  const worktreeConfigPath = join(".topics", "worktree.json");
+  const worktreeConfig = fs.read(worktreeConfigPath);
+  if (worktreeConfig !== null) {
+    found.push(worktreeConfigPath);
+    try {
+      const run = JSON.parse(worktreeConfig)?.run;
+      if (run && typeof run.command === "string" && run.command.trim() && Array.isArray(run.args) && run.args.every((arg: unknown) => typeof arg === "string")) {
+        aggiungi(worktreeConfigPath, "run", [run.command, ...run.args].join(" "), [run.command, ...run.args]);
+      }
+    } catch { /* malformed project configuration is reported as an empty manifest */ }
+  }
+
   return { scripts, found };
 }
 

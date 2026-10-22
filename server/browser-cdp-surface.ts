@@ -31,7 +31,7 @@
  *     (evaluate-vs-runtime.mjs). That is what makes the recorder injection
  *     portable — see the verdict on Runtime.evaluate below.
  *
- * THE SEVEN CALLS, AND WHAT EACH WOULD COST TO PORT.
+ * THE EIGHT CALLS, AND WHAT EACH WOULD COST TO PORT.
  *
  *  1. Page.startScreencast      NOT PORTABLE — rewrite as a screenshot loop.
  *  2. Page.stopScreencast       Chromium pushes frames and throttles them with
@@ -86,6 +86,15 @@
  *                               decides whether the streaming pane greys its
  *                               back/forward arrows. Without it the pane keeps
  *                               both arrows live, its behaviour before the call.
+ *
+ *  8. Page.stopLoading          NOT PORTABLE AS SUCH. The portable spelling is
+ *                               `page.evaluate("window.stop()")`, and it is no
+ *                               substitute: this call is made when a navigation
+ *                               to a server that never answers has outlived its
+ *                               goto, which is exactly when an evaluate in the
+ *                               page waits with it (measured 13/10, the
+ *                               recorder's Runtime.evaluate held for 60 s). On
+ *                               another engine the goto timeout is all there is.
  *
  * Both non-portable groups therefore turn into "engine has no CDP" branches, not
  * into ports. Only Runtime.evaluate is a straight swap, and only
@@ -294,4 +303,17 @@ export async function readNavigationHistoryFlags(cdp: CDPSession): Promise<Navig
     entries: { url: string }[];
   };
   return navigationHistoryFlags(res);
+}
+
+/**
+ * Cancel the navigation a page is still waiting on, as the stop button does.
+ *
+ * A goto that times out leaves the browser waiting: Playwright gives up, the
+ * page does not, and against a server that accepts and never answers it waits
+ * for minutes. While it waits, the recorder cannot be armed on the page.
+ *
+ * Portability: see (8) above.
+ */
+export async function stopLoading(cdp: CDPSession): Promise<void> {
+  await cdp.send("Page.stopLoading");
 }

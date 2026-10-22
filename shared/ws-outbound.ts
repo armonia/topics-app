@@ -93,27 +93,10 @@ const pongSchema = z.object({
   type: z.literal('pong'),
 });
 
-// ---- Dashboard / unread ----------------------------------------------------
+// ---- Dashboard ---------------------------------------------------------------
 
 const dashboardUpdatedSchema = z.object({
   type: z.literal('dashboard:updated'),
-});
-
-const unreadInitSchema = z.object({
-  type: z.literal('unread:init'),
-  data: z.record(
-    z.string(),
-    z.object({
-      lastReadAt: z.string(),
-      unreadCount: z.number(),
-    }),
-  ),
-});
-
-const unreadUpdatedSchema = z.object({
-  type: z.literal('unread:updated'),
-  topicId: z.string(),
-  unreadCount: z.number(),
 });
 
 // ---- Stream lifecycle ------------------------------------------------------
@@ -713,6 +696,9 @@ const browserNavigateSchema = z.looseObject({
   // every browser_* tool fell back to an invisible Playwright phantom. Optional
   // for back-compat with older clients/messages — omit, never send null.
   contextId: z.optional(z.string()),
+  // The chat whose window shows this browser when it is not `topicId`: a
+  // spawned child's page goes into the window of the chat that spawned it.
+  hostTopicId: z.optional(z.string()),
 });
 
 // Fallback open: when open_browser_pane's normal broadcast mounted no visible
@@ -1108,6 +1094,11 @@ const swapFreezeStateSchema = z.looseObject({
   })),
 });
 
+const memoryPressureSchema = z.object({
+  type: z.literal('memory:pressure'),
+  pressure: z.boolean(),
+});
+
 // Il cap macchina-wide vive sulla riga riservata '*'. `maxAgentsAuto` è un
 // BOOLEANO ("scegli tu in base alla capacità"), non un numero.
 const boardGlobalCapSchema = z.looseObject({
@@ -1155,36 +1146,6 @@ const uiBundleUpdatedSchema = z.looseObject({
 const uiBundleRevSchema = z.looseObject({
   type: z.literal('ui:bundle-rev'),
   rev: z.string(),
-});
-
-// ---- External Claude sessions (il censimento di ciò che Topics NON ha avviato) ----
-
-// Nome fuori convenzione (`external-sessions`, non `sessions:external`): è sul
-// filo da prima della v3 e il client lo ascolta così com'è. Si rinomina quando
-// si versiona il protocollo, non con una modifica di contorno. È anche il
-// motivo per cui lo scan statico dei test non lo vedeva: senza `:` nel nome
-// non passava il filtro — l'ha stanato il compilatore, non la regex.
-const externalClaudeSessionShape = z.looseObject({
-  sessionId: z.string(),
-  cwd: z.string(),
-  projectPath: z.nullable(z.string()),
-  projectId: z.nullable(z.string()),
-  lastActivityMs: z.number(),
-  state: z.enum(['active', 'idle']),
-});
-
-const externalSessionProjectShape = z.looseObject({
-  projectId: z.string(),
-  projectPath: z.string(),
-  total: z.number(),
-  active: z.number(),
-  lastActivityMs: z.number(),
-});
-
-const externalSessionsSchema = z.looseObject({
-  type: z.literal('external-sessions'),
-  sessions: z.array(externalClaudeSessionShape),
-  projects: z.array(externalSessionProjectShape),
 });
 
 // ---- Legacy chat:* events (replaced by topic:* in v3, kept for compat) ----
@@ -1297,57 +1258,24 @@ const authSharesChangedSchema = z.object({
   type: z.literal('auth:shares-changed'),
 });
 
-// ---- Cronologia delle notifiche --------------------------------------------
+// ---- Notification history ---------------------------------------------------
 
 /**
- * Una notifica è appena stata REGISTRATA (migration 102 · db/notification-log).
- * Emesso una volta sola per evento, dopo il taglio del dedup: se due porte —
- * banner nativo e web-push — o N finestre staccate riportano la stessa notifica,
- * la riga è una e questo frame parte una volta.
- *
- * Porta la riga INTERA e non solo il conteggio, perché il tastino accanto a
- * Topics deve poter mostrare l'ultima voce senza rileggere l'elenco: il
- * contatore che si aggiorna «dal vivo» e una lista che si aggiorna solo
- * all'apertura sono due promesse diverse.
+ * One row of the notification log (`shared/notification-log.ts`,
+ * `NotificationRow`), as it travels in `attention:updated.history`.
  */
-const notificationNewSchema = z.looseObject({
-  type: z.literal('notification:new'),
-  row: z.looseObject({
-    id: z.string(),
-    createdAt: z.string(),
-    kind: z.string(),
-    title: z.string(),
-    body: z.string(),
-    targetKind: z.nullable(z.string()),
-    targetId: z.nullable(z.string()),
-    targetUrl: z.nullable(z.string()),
-    source: z.string(),
-    groupKey: z.nullable(z.string()),
-    seenAt: z.nullable(z.string()),
-  }),
-  unseen: z.number(),
-  /** The unseen subjects themselves (group key, or row id for an ungrouped
-   *  row): the dock and the bell union them with the live signals. */
-  unseenKeys: z.optional(z.array(z.string())),
-});
-
-/**
- * Il «visto» è stato applicato: il contatore vale ORA questo.
- *
- * Il frame porta solo il numero perché il «visto» è GLOBALE, non per
- * dispositivo: guardare la cronologia su una finestra deve spegnere il pallino
- * anche sulle altre e sul telefono. Senza questo frame ogni finestra resterebbe
- * con il suo conteggio vecchio fino al ricaricamento — cioè col difetto che il
- * contatore live doveva togliere.
- */
-const notificationSeenSchema = z.looseObject({
-  type: z.literal('notification:seen'),
-  unseen: z.number(),
-  /** Same as on `notification:new`: what is still unseen, by subject. */
-  unseenKeys: z.optional(z.array(z.string())),
-  /** The subjects (group keys: `topic:<id>`, `terminal:<id>`, `task:<id>`)
-   *  this seen cleared. Each window drops its own in-memory marks for them. */
-  subjects: z.optional(z.array(z.string())),
+const notificationRowSchema = z.looseObject({
+  id: z.string(),
+  createdAt: z.string(),
+  kind: z.string(),
+  title: z.string(),
+  body: z.string(),
+  targetKind: z.nullable(z.string()),
+  targetId: z.nullable(z.string()),
+  targetUrl: z.nullable(z.string()),
+  source: z.string(),
+  groupKey: z.nullable(z.string()),
+  seenAt: z.nullable(z.string()),
 });
 
 // ---- Attention (notifications-redesign) -------------------------------------
@@ -1392,7 +1320,10 @@ const attentionInitSchema = z.looseObject({
  * One subject's state changed: state, epoch, seen, unread, tasks. `live` is
  * false for a recomposition at boot, which never announces. `announce` comes
  * with a new epoch: the banner's words, and `bornSeen` when the subject was in
- * front of the person. Owner-only. Sender `server/attention/store.ts`.
+ * front of the person. `history` is the log row that epoch wrote, when it
+ * wrote one: the inbox's «History» tab grows from it without a read (it
+ * replaced `notification:new`, tasks.md 6.2). Owner-only. Sender
+ * `server/attention/store.ts`.
  */
 const attentionUpdatedSchema = z.looseObject({
   type: z.literal('attention:updated'),
@@ -1405,6 +1336,19 @@ const attentionUpdatedSchema = z.looseObject({
     url: z.string(),
   })),
   bornSeen: z.optional(z.boolean()),
+  history: z.optional(notificationRowSchema),
+});
+
+/**
+ * A history row that no transition of a subject wrote (a system notice, the
+ * log's public `POST /api/notifications`): no `attention:updated` carries it,
+ * so it travels alone and the inbox's «History» tab grows live. The row of a
+ * transition travels in that transition's `attention:updated.history`.
+ * Owner-only. Sender `server/attention/store.ts` (`recordHistoryRow`).
+ */
+const attentionHistorySchema = z.looseObject({
+  type: z.literal('attention:history'),
+  row: notificationRowSchema,
 });
 
 /**
@@ -1473,8 +1417,6 @@ const OUTBOUND_SCHEMAS = {
   'pong': pongSchema,
   // Notification
   'dashboard:updated': dashboardUpdatedSchema,
-  'unread:init': unreadInitSchema,
-  'unread:updated': unreadUpdatedSchema,
   // Turn ledger
   'turn:state': turnStateSchema,
   'turn:snapshot': turnSnapshotSchema,
@@ -1580,11 +1522,10 @@ const OUTBOUND_SCHEMAS = {
   'board:settings': boardSettingsSchema,
   // The swap freeze: which trees are stopped right now, as a whole list.
   'swap-freeze:state': swapFreezeStateSchema,
+  'memory:pressure': memoryPressureSchema,
   // Dev bundle hot-delivery
   'ui:bundle-updated': uiBundleUpdatedSchema,
   'ui:bundle-rev': uiBundleRevSchema,
-  // Census of Claude sessions Topics didn't start
-  'external-sessions': externalSessionsSchema,
   // Legacy chat:* (replaced by topic:* in v3, kept for backward compat)
   // Provider niche
   // Git status — the live event git-watcher actually emits.
@@ -1600,11 +1541,10 @@ const OUTBOUND_SCHEMAS = {
   'auth:device-revoked': authDeviceRevokedSchema,
   'auth:shares-changed': authSharesChangedSchema,
   // Cronologia delle notifiche
-  'notification:new': notificationNewSchema,
-  'notification:seen': notificationSeenSchema,
   // Lo stato di attenzione (notifications-redesign)
   'attention:init': attentionInitSchema,
   'attention:updated': attentionUpdatedSchema,
+  'attention:history': attentionHistorySchema,
 } as const;
 
 /**
@@ -1619,6 +1559,117 @@ export const REGISTERED_OUTBOUND_TYPES = Object.keys(OUTBOUND_SCHEMAS).sort();
  * l'uno o l'altro.
  */
 export type OutboundType = keyof typeof OUTBOUND_SCHEMAS;
+
+export type OutboundFrameClass = 'global' | 'topic' | 'project' | 'board';
+
+/** Every registered frame has an explicit routing class. */
+export const OUTBOUND_FRAME_CLASSES: Record<OutboundType, OutboundFrameClass> = {
+  'attention:history': 'global',
+  'attention:init': 'global',
+  'attention:updated': 'global',
+  'auth:device-revoked': 'global',
+  'auth:pair-requested': 'global',
+  'auth:pair-resolved': 'global',
+  'auth:shares-changed': 'global',
+  'background:changed': 'global',
+  'board:dispatch': 'board',
+  'board:global-cap': 'board',
+  'board:settings': 'board',
+  'browser:close-pane': 'global',
+  'browser:focus-pane': 'global',
+  'browser:force-open': 'global',
+  'browser:navigate': 'global',
+  'browser:open-near-pane': 'global',
+  'browser:open-task-tab': 'global',
+  'clear': 'global',
+  'command-run:updated': 'topic',
+  'connected': 'global',
+  'cron:updated': 'global',
+  'dashboard:updated': 'global',
+  'drag:accepted': 'topic',
+  'drag:end': 'topic',
+  'drag:start': 'topic',
+  'error': 'global',
+  'files:changed': 'project',
+  'gateway:status': 'global',
+  'git:status': 'project',
+  'goal:updated': 'global',
+  'machine:deleted': 'global',
+  'machine:updated': 'global',
+  'machine:upserted': 'global',
+  'memory:updated': 'global',
+  'message': 'topic',
+  'message:media': 'topic',
+  'message:new': 'global',
+  'open-project': 'global',
+  'pane:focus-suggest': 'global',
+  'pong': 'global',
+  'presence:windows': 'global',
+  'project:archived': 'project',
+  'project:deleted': 'project',
+  'project:icon': 'project',
+  'project:new': 'project',
+  'project:updated': 'project',
+  'provider:hold': 'global',
+  'provider:usage': 'global',
+  'providers:snapshot': 'global',
+  'scripts:output': 'global',
+  'scripts:updated': 'global',
+  'session:state': 'global',
+  'stream:alive': 'topic',
+  'stream:catchup': 'topic',
+  'stream:command-answer': 'topic',
+  'stream:compaction': 'topic',
+  'stream:content_chunk': 'topic',
+  'stream:context': 'topic',
+  'stream:end': 'global',
+  'stream:error': 'topic',
+  'stream:resumed': 'topic',
+  'stream:retry': 'topic',
+  'stream:slow': 'topic',
+  'stream:start': 'global',
+  'stream:thinking_chunk': 'topic',
+  'stream:thinking_end': 'topic',
+  'stream:thinking_start': 'topic',
+  'stream:tool_call': 'topic',
+  'stream:tool_detail': 'topic',
+  'stream:tool_permission_required': 'topic',
+  'stream:tool_permission_resolved': 'topic',
+  'stream:tool_result': 'topic',
+  'stream:tool_update': 'topic',
+  'stream:tool_usage': 'topic',
+  'stream:tool_user_input_required': 'topic',
+  'stream:usage': 'topic',
+  'swap-freeze:state': 'board',
+  'memory:pressure': 'board',
+  'task:awaiting-human': 'board',
+  'task:created': 'board',
+  'task:deleted': 'board',
+  'task:parked': 'board',
+  'task:review-ready': 'board',
+  'task:updated': 'board',
+  'task:usage-live': 'board',
+  'terminal:activity': 'global',
+  'terminal:sessions': 'global',
+  'topic:archived': 'global',
+  'topic:created': 'global',
+  'topic:switch': 'global',
+  'topic:switch:complete': 'global',
+  'topic:updated': 'global',
+  'topics:reordered': 'global',
+  'turn:snapshot': 'global',
+  'turn:state': 'global',
+  'typing': 'topic',
+  'ui-state:init': 'global',
+  'ui-state:patch': 'global',
+  'ui-state:updated': 'global',
+  'ui:bundle-rev': 'global',
+  'ui:bundle-updated': 'global',
+  'welcome': 'global',
+  'worktree:deleted': 'project',
+  'worktree:new': 'project',
+  'worktree:updated': 'project',
+};
 
 /**
  * La forma minima di un messaggio in uscita: il `type` deve stare nel registro,

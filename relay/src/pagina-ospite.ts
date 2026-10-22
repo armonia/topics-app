@@ -27,6 +27,8 @@
  * dall'origine. Se qualcosa qui andasse storto, la chiave nel frammento non
  * avrebbe comunque dove andare.
  */
+import { MOTIVI, RELAY_PROTOCOL_VERSION } from "../../shared/relay-protocol";
+
 export const PAGINA_OSPITE = `<!doctype html>
 <html lang="it">
 <meta charset="utf-8">
@@ -121,12 +123,27 @@ if (!chiave || !m) {
   const finito = () => mostra('Questo link non è più valido',
     ['Può essere scaduto, oppure chi lo ha creato lo ha revocato.']);
 
-  const ws = new WebSocket(location.origin.replace(/^http/,'ws') + '/s/' + inst);
+  const ws = new WebSocket(location.origin.replace(/^http/,'ws') + '/s/' + inst + '?shareRef=' + encodeURIComponent(ref));
   ws.onerror = spenta;
   ws.onclose = (e) => { if (e.code !== 1000) spenta(); };
 
   ws.onmessage = async (ev) => {
-    let msg; try { msg = JSON.parse(ev.data); } catch { return; }
+    let msg;
+    try { msg = JSON.parse(ev.data); } catch {
+      ws.close(4002, 'invalid relay message');
+      return;
+    }
+    // Version and reasons come from the protocol: a list copied here would one day close the
+    // socket on a reason the relay had just learned to send.
+    const valid = msg && typeof msg === 'object' && (
+      (msg.t === 'ready' && msg.v === ${RELAY_PROTOCOL_VERSION} && typeof msg.sessionId === 'string' && msg.sessionId.length > 0)
+      || (msg.t === 'denied' && ${JSON.stringify([...MOTIVI])}.includes(msg.motivo))
+      || (msg.t === 'to-guest' && typeof msg.to === 'string' && msg.to.length > 0 && typeof msg.payload === 'string')
+    );
+    if (!valid) {
+      ws.close(4002, 'invalid relay message');
+      return;
+    }
     if (msg.t === 'denied') return spenta();
     if (msg.t === 'ready') {
       ws.send(JSON.stringify({ t:'to-host',

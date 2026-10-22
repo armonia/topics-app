@@ -131,6 +131,19 @@ function hookToken(): string {
   return readFileSync(tokenPath, "utf-8").trim();
 }
 
+/**
+ * Everything about these subjects seen NOW, through the one seen door
+ * (`POST /api/attention/seen`). The door never sees past what the server has
+ * (the epoch and the turn are clamped to the current ones), so naming the
+ * last possible epoch and turn is "seen up to now": the gesture the old
+ * `POST /api/topics/:id/read` made before it went (tasks.md 6.2).
+ */
+export async function markSeenNow(request: APIRequestContext, subjects: readonly string[]): Promise<void> {
+  const items = subjects.map((subject) => ({ subject, epoch: Number.MAX_SAFE_INTEGER, turnAt: "9999-12-31T23:59:59.999Z" }));
+  const res = await request.post(`${E2E_BASE}/api/attention/seen`, { data: { items } });
+  expect(res.ok(), `the seen door refused ${subjects.join(", ")}: ${res.status()}`).toBe(true);
+}
+
 /** One Claude Code hook, as the CLI posts it. */
 export async function postHook(request: APIRequestContext, event: string, body: Record<string, unknown>): Promise<string> {
   const res = await request.post(`${E2E_BASE}/api/claude-hooks/${event}`, {

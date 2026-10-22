@@ -24,6 +24,16 @@ on:
         description: "Filtro sul titolo, per filmare UN test invece di tutto il file"
         required: false
         default: ""
+      repeat:
+        description: "Ripeti la spec; sopra 1 disattiva i retry e ripete ogni test"
+        required: false
+        type: number
+        default: 1
+      load:
+        description: "Occupa tutti i core del runner mentre gira la spec"
+        required: false
+        type: boolean
+        default: false
       slowmo:
         # DEFAULT `false`, ed e' una lezione pagata: la prima corsa di questo
         # workflow (run 35395057769) e' uscita ROSSA con slowMo acceso, su una
@@ -55,7 +65,7 @@ jobs:
       - name: Setup Bun
         uses: oven-sh/setup-bun@v2
         with:
-          bun-version: latest
+          bun-version-file: .bun-version
 
       - name: Setup Node (node-pty native bridge used by the server)
         uses: actions/setup-node@v5
@@ -96,6 +106,27 @@ jobs:
           ARGS=("${{ inputs.spec }}")
           if [ -n "${{ inputs.grep }}" ]; then
             ARGS+=(--grep "${{ inputs.grep }}")
+          fi
+          REPEAT="${{ inputs.repeat }}"
+          if ! [[ "$REPEAT" =~ ^[0-9]+$ ]] || (( REPEAT < 1 )); then
+            echo "repeat deve essere un intero maggiore di zero" >&2
+            exit 2
+          fi
+          if (( REPEAT > 1 )); then
+            ARGS+=("--repeat-each=$REPEAT" --retries=0)
+          fi
+          PIDS=()
+          cleanup_load() {
+            for pid in "${PIDS[@]}"; do kill "$pid" 2>/dev/null || true; done
+            for pid in "${PIDS[@]}"; do wait "$pid" 2>/dev/null || true; done
+          }
+          trap cleanup_load EXIT
+          if [ "${{ inputs.load }}" = "true" ]; then
+            CORES="$(getconf _NPROCESSORS_ONLN)"
+            for ((i = 0; i < CORES; i++)); do
+              yes > /dev/null &
+              PIDS+=("$!")
+            done
           fi
           npx playwright test "${ARGS[@]}" --reporter=line,json
         env:

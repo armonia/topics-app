@@ -28,6 +28,8 @@ import { resolvePrincipals } from "../lib/principals";
 import { liveAgentStartCapability, queueDelegatedRun } from "../lib/delegated-agent-start";
 import type { OutboundMessage } from "../../shared/ws-outbound";
 import { budgetShare, capMode, isAgentWorking, isCiEvidenceCheck, type CheckRun, isThreadSpeech, PARKED_WAITED_OUT, pendingQuestion, TASK_STATUSES, type DispatchAdmission, type GlobalDispatchCap, type PendingQuestionComment, type TaskStatus } from "../../shared/board";
+import { toFeedTask } from "../../shared/board-feed";
+import { selectTaskSessionPeek } from "../../shared/task-session-peek";
 import { AGENT_AUTHOR, AGENT_AUTHOR_PREFIX } from "../../shared/comment-author";
 import { isPreviewablePath } from "../../shared/media-kind";
 import { isBlankLikeImage } from "../services/image-shape";
@@ -35,6 +37,7 @@ import { parseTaskPatch, unapplicableFieldsBody, checkConstraintBody, type Field
 import { getTerminalSessionById } from "./terminal";
 import { createBoardRoutes } from "./tasks-board";
 import { applySpendCapPatch, hasSpendCapPatch, spendCapFields, spendSnapshot } from "./task-spend-caps";
+import { SPAWN_TIMEOUT, runBounded } from "../lib/bounded-spawn";
 
 /**
  * The global cap as the client reads it, in ONE place for the GET, the PATCH
@@ -77,7 +80,9 @@ import { forgetDelivery, reviewChecksStopping, swapInterruptedDelivery, throwIfS
 import { bumpPendingDeliveryRound, forgetPendingDelivery, loadPendingDeliveries, savePendingDelivery, type PendingDelivery } from "../services/pending-delivery-store";
 import { ciNotMeasured, closeCiDraft, type CloseCiDraftInput, type DraftCleanup } from "../services/ci-evidence";
 import { createTaskAttemptStore, type TaskAttempt } from "../services/task-attempts";
+import type { ScheduledCardsService } from "../services/scheduled-cards";
 import { recordRetirement } from "../services/retirement";
+import { conditionalJson } from "../lib/conditional-json";
 import { attemptHasWork, formatAttemptStat } from "../../shared/task-attempt";
 import { listOwnCommits, mergeNameStatus } from "../services/own-commits";
 import { createDeliveryCapture } from "../services/task-delivery-capture";
@@ -214,6 +219,7 @@ export { pendingQuestion, type PendingQuestionComment };
 const AGENT_COMMENT_MAX_CHARS = 600;
 
 export interface TasksRouterOpts {
+  scheduledCards?: ScheduledCardsService;
   /**
    * The repository a delivery report is verified against, and how a root
    * becomes a probe (tests pass a fake). Handed to the router's OWN task
@@ -470,20 +476,15 @@ export interface TasksRouterOpts {
  * failure) and disables the credential prompt so a push that needs auth fails
  * fast instead of hanging the request.
  */
-async function runGitCap(cwd: string, args: string[]): Promise<{ code: number; out: string; err: string }> {
-  try {
-    const p = Bun.spawn(["git", ...args], {
-      cwd,
-      stdout: "pipe",
-      stderr: "pipe",
-      env: { ...process.env, GIT_TERMINAL_PROMPT: "0" },
-    });
-    const [out, err] = await Promise.all([new Response(p.stdout).text(), new Response(p.stderr).text()]);
-    const code = await p.exited;
-    return { code, out, err };
-  } catch (e) {
-    return { code: 1, out: "", err: String((e as Error)?.message ?? e) };
-  }
+export async function runGitCap(cwd: string, args: string[], timeoutMs: number = SPAWN_TIMEOUT.write): Promise<{ code: number; out: string; err: string }> {
+  const r = await runBounded(["git", ...args], {
+    cwd,
+    stderr: "pipe",
+    env: { ...process.env, GIT_TERMINAL_PROMPT: "0" },
+    timeoutMs,
+  });
+  if (r.spawnFailed) return { code: 1, out: "", err: r.spawnError ?? "" };
+  return { code: r.exitCode ?? 124, out: r.stdout, err: r.stderr };
 }
 
 /**
@@ -2077,24 +2078,21 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
       broadcastToAll({ type: "task:updated", projectId, task: t });
     };
     if (!cwd) { settle(false, "progetto non risolvibile su questo host: nessun checkout da usare."); return; }
-    try {
-      const p = Bun.spawn(["bash", "-lc", command], {
-        cwd, stdout: "pipe", stderr: "pipe",
-        env: { ...process.env, GIT_TERMINAL_PROMPT: "0" },
-      });
-      // 10 minutes: a deploy that does not return within this window is a stuck
-      // deploy, not a slow one — better to say so than stay "running" forever.
-      const killer = setTimeout(() => { try { p.kill(); } catch { /* already exited */ } }, 10 * 60 * 1000);
-      const [out, err] = await Promise.all([new Response(p.stdout).text(), new Response(p.stderr).text()]);
-      const code = await p.exited;
-      clearTimeout(killer);
-      const tail = (s: string) => s.trim().slice(-1500);
-      const body = tail(err) || tail(out);
-      const detail = `\`${command}\` (exit ${code})` + (body ? `\n\n\`\`\`\n${body}\n\`\`\`` : "");
-      settle(code === 0, detail);
-    } catch (e) {
-      settle(false, `\`${command}\`: ${e instanceof Error ? e.message : String(e)}`);
-    }
+    // 10 minutes: a deploy that does not return within this window is a stuck
+    // deploy, not a slow one — better to say so than stay "running" forever.
+    // A real deadline (`runBounded`) and not a `setTimeout` + `kill()`: the shell's
+    // children kept the pipe open after the kill and the deploy stayed "running" regardless.
+    const r = await runBounded(["bash", "-lc", command], {
+      cwd, stderr: "pipe",
+      env: { ...process.env, GIT_TERMINAL_PROMPT: "0" },
+      timeoutMs: 10 * 60 * 1000,
+    });
+    if (r.spawnFailed) { settle(false, `\`${command}\`: ${r.spawnError ?? ""}`); return; }
+    const code = r.exitCode ?? 124;
+    const tail = (s: string) => s.trim().slice(-1500);
+    const body = tail(r.stderr) || tail(r.stdout);
+    const detail = `\`${command}\` (exit ${code})` + (body ? `\n\n\`\`\`\n${body}\n\`\`\`` : "");
+    settle(code === 0, detail);
   }
 
   /** Push a project's current branch to origin (triggers deploy CI where set up).
@@ -2107,7 +2105,9 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
     if (!path) return { ok: false, error: "project not found", code: "not_found" };
     const branch = (await runGitCap(path, ["symbolic-ref", "--short", "HEAD"])).out.trim();
     if (!branch) return { ok: false, error: "detached HEAD: nothing to publish.", code: "detached_head" };
-    const push = await runGitCap(path, ["push", "origin", branch]);
+    // 10 minutes: a pre-push hook (tests, lint) may run for minutes, and this push had
+    // no deadline at all before T5. 120 s would turn a slow hook into a failed publish.
+    const push = await runGitCap(path, ["push", "origin", branch], SPAWN_TIMEOUT.long);
     if (push.code !== 0) return { ok: false, branch, error: (push.err || push.out).trim().slice(-400) || "git push fallito" };
     return { ok: true, branch, output: (push.err + "\n" + push.out).trim().slice(-400) };
   }
@@ -2761,7 +2761,7 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
 
   // The human board routes live in tasks-board.ts; same closure values, passed by name.
   const boardRoutes = createBoardRoutes({
-    ctx, dispatcher, opts, matchRoute, json, readJSON, broadcastToAll, svc, askRouting, landings,
+    ctx, dispatcher, opts, matchRoute, json, readJSON, broadcastToAll, svc, scheduledCards: opts?.scheduledCards, askRouting, landings,
     emitReviewReadyEdge, titoloInSottofondo, resolveBoardId, sweepRemoteDelivery, captureDelivery,
     triggerUrlProbe, cutLiveTurn, enqueueLand, enqueueLandOnDone, proposeDeployIfConfigured, runDeploy,
     publishProject, filterMedia, acceptPreview, rejectDeliveryPatch, asTaskStatus, fail, checksRedGate,
@@ -2811,7 +2811,7 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
       // clausola, e un insieme vuoto esce senza interrogare niente.
       if (pathname === "/api/all-boards/tasks") {
         if (method !== "GET") return json({ error: "read only", code: "guest_read_only" }, 403);
-        return json({ tasks: svc.list({ scope: "all", rootsOnly: true, ids: [...condivisi], doneLimit: DONE_FEED_LIMIT }) });
+        return json({ tasks: svc.list({ scope: "all", rootsOnly: true, ids: [...condivisi], doneLimit: DONE_FEED_LIMIT }).map(toFeedTask) });
       }
 
       // A single task: reads the level — not just whether it's shared, as it
@@ -2908,7 +2908,9 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
       // The `done` column of the global feed is capped: see DONE_FEED_LIMIT.
       // An explicit `?status=done` is a request for that column and is served
       // capped too - it is the same rows the board would draw.
-      try { return json({ tasks: svc.list({ scope: "all", status: asTaskStatus(status), rootsOnly: true, includeOrphanSubtasks: true, doneLimit: DONE_FEED_LIMIT }) }); }
+      // The feed drops the fields no client reads (shared/board-feed.ts).
+      // Revalidatable: an unchanged feed answers 304 with no body (see the helper).
+      try { return conditionalJson(req, { tasks: svc.list({ scope: "all", status: asTaskStatus(status), rootsOnly: true, includeOrphanSubtasks: true, doneLimit: DONE_FEED_LIMIT }).map(toFeedTask) }); }
       catch (e) { return fail(e); }
     }
 
@@ -2952,6 +2954,24 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
       try {
         const taskId = svc.taskIdOfTopic(byTopic.topicId);
         return json({ task: taskId ? (svc.get(taskId)?.task ?? null) : null });
+      } catch (e) { return fail(e); }
+    }
+
+    const sessionPeek = matchRoute(pathname, "/api/all-boards/tasks/:taskId/peek");
+    if (sessionPeek && method === "GET") {
+      try {
+        const task = svc.get(sessionPeek.taskId)?.task;
+        if (!task?.assignedTopicId) return json({ peek: null });
+        const topic = ctx.getTopicById(task.assignedTopicId);
+        if (!topic) return json({ peek: null });
+        const message = ctx.db.query(
+          `SELECT content, timestamp FROM messages
+           WHERE session_key = ? AND role = 'assistant' AND TRIM(content) <> ''
+           ORDER BY sort_order DESC, rowid DESC LIMIT 1`,
+        ).all(topic.sessionKey) as Array<{ content: string; timestamp: string | null }>;
+        const stream = ctx.activeStreams.get(topic.sessionKey);
+        const runningTool = stream ? ctx.getMessageById(stream.messageId)?.toolCalls?.find((call) => call.status === "running") : null;
+        return json({ peek: selectTaskSessionPeek(task, message, runningTool?.name ?? null, stream ?? null) });
       } catch (e) { return fail(e); }
     }
 

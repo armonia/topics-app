@@ -75,7 +75,12 @@ function connect(who: "loopback" | { device: string }, paneName = "pane-1"): Pan
     new Request(`http://127.0.0.1:3333/ws/browser/${CTX}?client=${paneName}`),
     `/ws/browser/${CTX}`,
     server,
-    { deviceId: identity.deviceId, role: identity.role },
+    {
+      deviceId: identity.deviceId,
+      principal: identity.deviceId
+        ? { principals: [], confined: identity.role === "guest", rev: 0 }
+        : null,
+    },
     typeof who === "object",
   );
   expect(answer, "l'upgrade del socket del browser non e' andato a buon fine").toBeUndefined();

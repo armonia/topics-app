@@ -22,6 +22,17 @@ Run the count on its own with `bun run check:repo-pulito`. To find out which
 branches are genuinely already in `main` (delivery lands as a squash, so
 `git branch --merged` calls them alive forever), use `bun run report:branches`.
 
+**One Bun, everywhere.** The version is pinned in `.bun-version`, and CI, the release
+builds (the server sidecar is compiled with it) and the Mac that runs the production
+server all use that one. Two defects of the cloud quality pass came from the Mac running
+1.3.8 while CI tested `latest`: `columnNames` reversed past 62 columns, and `require`
+ignoring `with { type: "text" }`. On the Mac the server runs a Bun of its own,
+`~/.topics/bun/<version>/bun`, chosen by `scripts/pinned-bun.sh` at every server launch:
+the global `bun` stays as it is for every other project. To move to a new Bun, change
+`.bun-version` and, on the Mac, run `scripts/install-bun.sh` (official release, checked
+against its `SHASUMS256.txt`) before the reload that brings the change. Without it the
+server starts on the global `bun` and its log names the command.
+
 ### Se il terminale non parte: `posix_spawnp failed`
 
 Sintomo: apri una shell e non compare niente, e nel log del ponte
@@ -212,6 +223,21 @@ point `version` at `package.json`, but Cargo needs a literal in `Cargo.toml` and
 lock follows `Cargo.toml`. A single source removes at most one of the four — never
 the one that is actually forgotten.
 
+#### Which number goes up
+
+The release raises the **patch** unless a commit asks for more, with a line of its
+own in its message. Main is squash-merged, so the line goes in the body of the
+squash commit (with `gh pr merge --squash --body …`, in the `--body` you pass):
+
+| Line | When |
+|---|---|
+| `Release: minor` | something whoever uses Topics can see: a new feature, a changed behaviour |
+| `Release: major` | only a break: data the previous version can't read, a protocol that forces client, server and phone to update together, a supported OS dropped |
+
+Releases come out in batches, and a batch takes the highest level among the
+commits since the last `chore(release):` commit (`scripts/release-level.ts`,
+RELEASE-07). Until 2026-10-16 it was always the patch: 2.2.0 to 2.2.517.
+
 #### La firma macOS: perché conta anche senza pagare Apple
 
 macOS lega i permessi (notifiche, registrazione schermo, accessibilità, Full Disk
@@ -256,13 +282,13 @@ ma i permessi degli aggiornamenti successivi sono stabili, che è il problema
 pratico.
 
 `ship.sh` tags whatever is on `origin/main` (never local WIP) and is the intended
-release path. Tagging by hand (`git tag tauri-vX.Y.Z && git push origin …`) still
-works. **The tag must be pushed from a real git credential, not from CI:** every
-push to `main` auto-bumps the patch (`auto-bump.yml`), but that job runs as the
-built-in `GITHUB_TOKEN`, which by design cannot trigger a tag-driven workflow — so
-the repo version advances while nothing builds until you run `ship.sh`. That's
-deliberate (no repo PAT to manage, and no full 3-OS build on every trivial merge),
-not a bug.
+release path for a one-off. Tagging by hand (`git tag tauri-vX.Y.Z && git push origin …`) still
+works. **The tag must be pushed from a real git credential, not from CI:** the
+built-in `GITHUB_TOKEN` cannot trigger a tag-driven workflow. That is why the normal
+path does not go through a tag: once the CI is green on the tip of main,
+`auto-bump.yml` raises the version and calls `tauri-release.yml` directly
+(`workflow_call`) in the same run, so a merge reaches the auto-updater with no
+manual step.
 
 Signing: the updater manifest is minisign-signed via `TAURI_SIGNING_PRIVATE_KEY`
 (+ `_PASSWORD`); macOS code-signing/notarization uses the Apple signing secrets

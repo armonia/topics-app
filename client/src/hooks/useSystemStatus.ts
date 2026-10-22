@@ -1,5 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { BOOT_READ_TTL_MS, coalescedFetch } from '../lib/coalesceFetch';
+import { isDocumentVisible, startVisibleInterval } from '../state/documentVisibility';
+import type { PtyBridgeReason } from '../../../shared/pty-bridge';
 
 export type GatewayStatus = "online" | "offline" | "timeout" | "connection_refused" | "server_error" | "auth_error";
 
@@ -41,6 +43,31 @@ export interface FleetSessionRow {
 
 export interface SystemStatus {
   timestamp: string;
+  nativeGit?: {
+    loaded: boolean;
+    enabled: boolean;
+    calls: number;
+    fallbacks: number;
+    lastError: string | null;
+  };
+  nativeFileTree?: {
+    loaded: boolean;
+    enabled: boolean;
+    calls: number;
+    fallbacks: number;
+    lastError: string | null;
+  };
+  processSpawns?: {
+    windowMinutes: number;
+    sampledAt: string;
+    counts: {
+      gitStatus: Record<string, number>;
+      gitFetch: Record<string, number>;
+      lsof: Record<string, number>;
+      vmStat: Record<string, number>;
+      other: Record<string, number>;
+    };
+  };
   /** The whole Mac in percent (0-100), `null` = not measured. Absent on an
    *  older server. The one number the status dot says is the larger. */
   machine?: { machineCpuPct: number | null; machineMemPct: number | null };
@@ -60,6 +87,15 @@ export interface SystemStatus {
     /** Dev bundle hot-delivery active (topics-dev.json present): windows
      *  self-reload on each rebuild. Drives the quiet "auto-update" badge. */
     devReload?: boolean;
+    ptyBridge?: {
+      implementation: 'rust' | 'node' | 'unknown';
+      reason: PtyBridgeReason;
+      path: string | null;
+      /** The process holding the bridge socket, and since when (ISO). */
+      pid?: number | null;
+      startedAt?: string | null;
+      connected: boolean;
+    };
     /**
      * I modelli visti girare e NON presenti nella tabella prezzi del server.
      *
@@ -136,9 +172,6 @@ export interface SystemStatus {
     total: number;
     byType: Record<string, number>;
   };
-  ports?: { port: number; pid: number; command: string }[];
-  /** System-wide top CPU consumers (sorted desc) — explains a high PC load. */
-  topProcesses?: { pid: number; cpu: number; command: string }[];
 }
 
 export function useSystemStatus(enabled = true, intervalMs = 30000) {
@@ -168,22 +201,16 @@ export function useSystemStatus(enabled = true, intervalMs = 30000) {
     let active = true;
 
     const poll = async () => {
-      if (!active || document.hidden) return;
+      if (!active || !isDocumentVisible()) return;
       await fetchStatus();
     };
 
     poll();
-    const id = setInterval(poll, intervalMs);
-
-    const onVisibility = () => {
-      if (!document.hidden && active) poll();
-    };
-    document.addEventListener('visibilitychange', onVisibility);
+    const stopPolling = startVisibleInterval(poll, intervalMs);
 
     return () => {
       active = false;
-      clearInterval(id);
-      document.removeEventListener('visibilitychange', onVisibility);
+      stopPolling();
     };
   }, [enabled, intervalMs, fetchStatus]);
 

@@ -794,3 +794,33 @@ questo tipo.
 - **GIVEN** un PC senza `.topwin-shipped` che ha un file cancellato da un commit e ora ignorato, e uno cancellato e non ignorato
 - **WHEN** si lancia `tools/topwin sync`
 - **THEN** SHALL essere tolto solo il secondo
+
+### Requirement: GATE-19 — Ciò che è indipendente non si mette in fila, e un pezzo rosso non nasconde gli altri
+
+`typecheck` e `lint` SHALL eseguire i loro pezzi (cinque `tsc`, quattro passi di
+eslint) insieme tramite `scripts/parallel.ts`, dentro lo stesso slot di
+`slot.ts`: un solo cancello logico, non uno per pezzo. Il verdetto SHALL essere
+verde solo se lo sono tutti i pezzi, l'uscita SHALL essere quella del primo
+pezzo rosso nell'ordine in cui sono scritti (la stessa che avrebbe dato la
+catena `a && b`), e un giro SHALL elencare TUTTI i rossi invece di fermarsi al
+primo. L'output SHALL arrivare per pezzo e intero, con i rossi in fondo: la
+board tiene solo la coda.
+
+`scripts/qa-gate.sh` SHALL eseguire insieme `typecheck`, `lint` e i cancelli
+statici, e SHALL stampare le stesse righe nello stesso ordine di quando andavano
+in fila. `check:deadcode-blindspots` SHALL girare da solo, a corsa finita: scrive
+una sonda in ogni file di progetto e un cancello che legge in quel momento
+vedrebbe un export in più.
+
+#### Scenario: un pezzo rosso fra due verdi
+- **GIVEN** tre comandi, il secondo esce 3
+- **WHEN** si lancia `scripts/parallel.ts` con i tre
+- **THEN** SHALL girare anche il terzo, SHALL uscire 3 e SHALL nominare il secondo
+
+#### Scenario: due rossi
+- **GIVEN** due comandi che escono 5 e 7, in quest'ordine
+- **THEN** SHALL uscire 5 e SHALL elencarli entrambi
+
+#### Scenario: i pezzi girano davvero insieme
+- **GIVEN** due comandi che dormono 1 s ciascuno
+- **THEN** il totale SHALL essere ben sotto i 2 s

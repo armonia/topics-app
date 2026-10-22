@@ -6,11 +6,9 @@
  * (`licenza.ts` rifiuta un gettone coniato per un'altra) e ci si legano gli
  * eventi di Stripe. Non tocca il relay e non compare in nessun link.
  *
- * `relayId` è il nome del PUNTO D'INCONTRO sul relay: sta nei link condivisi,
- * nell'indirizzo che si apre dal telefono, nelle tre porte del Worker. È il
- * digest di `relay-secret` (vedi `shared/relay-identita.ts`), e questa è la
- * proprietà che regge tutto il resto — chi riceve un link ha il digest, e la
- * macchina è l'unica ad avere la preimmagine.
+ * `relayId` is the public meeting-point name in links and Worker routes. It is
+ * the digest of the persisted public signing key; the host keeps the private
+ * key in `relay-identity.json`.
  *
  * Prima era UN nome solo per entrambe le cose, e da lì veniva il difetto:
  * l'identificativo che si mostrava nei link era anche la credenziale con cui ci
@@ -30,7 +28,7 @@
  */
 import { existsSync, readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import { dirname, join } from "node:path";
-import { derivaRelayId } from "../../shared/relay-identita";
+import { createRelayIdentity } from "../../shared/relay-identita";
 
 export interface RelayConfig {
   /** `null` = relay spento. */
@@ -81,45 +79,38 @@ export function leggiRelayUrl(env: Record<string, string | undefined>): string |
 }
 
 /**
- * Il segreto del punto d'incontro, generato la prima volta.
+ * The signing identity, in a file of its own with mode 0600, apart from the database.
  *
- * Un file suo e non una riga nel database, per la stessa ragione
- * dell'identificativo: deve sopravvivere a un ripristino da backup, o ogni link
- * già consegnato smetterebbe di funzionare insieme. Modo `600` perché a
- * differenza dell'altro questo è davvero un segreto — chi lo legge può
- * spacciarsi per questa macchina sul relay.
- *
- * 32 byte casuali in base64url. Se il file non è scrivibile si tiene il valore
- * in memoria per questa esecuzione: il relay funziona finché il processo vive e
- * cambierà nome al riavvio, che è meglio di un avvio che fallisce.
+ * Not `relay-secret`: that file holds the shared secret of the previous scheme and nothing here
+ * rewrites it. Replacing it at boot, the relay off included, threw away the only key to the links
+ * made with it, with no way back.
  */
-export function leggiRelaySegreto(stateDir: string): string {
-  const f = join(stateDir, "relay-secret");
+async function readRelayIdentity(stateDir: string): Promise<{ relayId: string; segreto: string }> {
+  const f = join(stateDir, "relay-identity.json");
   try {
-    if (existsSync(f)) {
-      const v = readFileSync(f, "utf8").trim();
-      if (/^[A-Za-z0-9_-]{16,512}$/.test(v)) return v;
-    }
-  } catch { /* si rigenera */ }
-
-  const bytes = crypto.getRandomValues(new Uint8Array(32));
-  let s = "";
-  for (const b of bytes) s += String.fromCharCode(b);
-  const nuovo = btoa(s).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+    const v = JSON.parse(readFileSync(f, "utf8")) as { relayId?: unknown; segreto?: unknown };
+    if (typeof v.relayId === "string" && typeof v.segreto === "string") return { relayId: v.relayId, segreto: v.segreto };
+  } catch { /* missing or unreadable: create a verifiable key */ }
+  const created = await createRelayIdentity();
   try {
     mkdirSync(dirname(f), { recursive: true });
-    writeFileSync(f, nuovo + "\n", { mode: 0o600 });
-  } catch { /* in memoria per questa esecuzione: meglio di un errore */ }
-  return nuovo;
+    writeFileSync(f, JSON.stringify(created) + "\n", { mode: 0o600 });
+  } catch { /* keep the generated identity in memory for this process */ }
+  return created;
+}
+
+export async function leggiRelaySegreto(stateDir: string): Promise<string> {
+  return (await readRelayIdentity(stateDir)).segreto;
 }
 
 export async function leggiRelayConfig(
   env: Record<string, string | undefined>,
   stateDir: string,
 ): Promise<RelayConfig> {
+  const identity = await readRelayIdentity(stateDir);
   return {
     baseUrl: leggiRelayUrl(env),
     installationId: leggiInstallationId(stateDir),
-    relayId: await derivaRelayId(leggiRelaySegreto(stateDir)),
+    relayId: identity.relayId,
   };
 }

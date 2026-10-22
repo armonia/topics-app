@@ -51,6 +51,7 @@ import { canonicalTmpDir } from "./helpers/file-project";
 import { nextFrames } from "./helpers/frame-probe";
 import { projectPanesKey } from "../../shared/project-keys";
 import { closeTabViaCommand } from "./helpers/layout";
+import { createProjectSingletonPaneId } from "../../client/src/state/pane/adapters/paneConfig";
 import {
   beginGesture,
   endGesture,
@@ -285,8 +286,15 @@ test.describe("split reorganisation budget", () => {
     const chatPane = `chat:${chatId}`;
     const terminalPane = `terminal:${terminalId}`;
     const browserPane = "browser:split-reorg";
-    const filesPane = "files:split-reorg";
-    const gitPane = "git:split-reorg";
+    const filesPane = createProjectSingletonPaneId(dir, "files");
+    const gitPane = createProjectSingletonPaneId(dir, "git");
+    const legacyFilesPane = "files:split-reorg";
+    const legacyGitPane = "git:split-reorg";
+    // A migrated singleton keeps its old id as `stableKey`, and its shell is
+    // keyed by that: the tab answers to the new id, the shell to the old one,
+    // which is what keeps the pane mounted across the rename.
+    const shellKey = new Map([[filesPane, legacyFilesPane], [gitPane, legacyGitPane]]);
+    const shell = (id: string) => `[data-pane-shell="${shellKey.get(id) ?? id}"]`;
 
     // The browser pane's stream has no server here: swallow it.
     await page.routeWebSocket(/\/ws\/browser\//, () => {});
@@ -300,8 +308,8 @@ test.describe("split reorganisation budget", () => {
         nonChatPanes: [
           { id: terminalPane, type: "terminal", title: "Terminal", terminalSessionId: terminalId },
           { id: browserPane, type: "browser", title: "Page", url: "https://example.com/" },
-          { id: filesPane, type: "files", title: "Files" },
-          { id: gitPane, type: "git", title: "Git" },
+          { id: legacyFilesPane, type: "files", title: "Files" },
+          { id: legacyGitPane, type: "git", title: "Git" },
         ],
         openChatTopicIds: [chatId],
         activeChatTopicId: chatId,
@@ -318,7 +326,7 @@ test.describe("split reorganisation budget", () => {
     }
     for (const id of [terminalPane, browserPane, filesPane, gitPane, chatPane]) {
       await page.locator(tab(id)).first().click();
-      await expect(page.locator(`[data-pane-shell="${id}"]`)).toHaveAttribute("data-pane-visible", "1");
+      await expect(page.locator(shell(id))).toHaveAttribute("data-pane-visible", "1");
     }
     await page.locator('[data-testid="chat-scroll-container"]').first().waitFor({ state: "visible", timeout: 20000 });
 
@@ -523,8 +531,15 @@ test.describe("split reorganisation budget", () => {
     // rows sync appended it again as a column on the right, and the focus
     // fell back to the chat.
     const chatPane = `chat:${chatId}`;
-    const filesPane = "files:split-reorg-countdown";
-    const gitPane = "git:split-reorg-countdown";
+    const filesPane = createProjectSingletonPaneId(dir, "files");
+    const gitPane = createProjectSingletonPaneId(dir, "git");
+    const legacyFilesPane = "files:split-reorg-countdown";
+    const legacyGitPane = "git:split-reorg-countdown";
+    // A migrated singleton keeps its old id as `stableKey`, and its shell is
+    // keyed by that: the tab answers to the new id, the shell to the old one,
+    // which is what keeps the pane mounted across the rename.
+    const shellKey = new Map([[filesPane, legacyFilesPane], [gitPane, legacyGitPane]]);
+    const shell = (id: string) => `[data-pane-shell="${shellKey.get(id) ?? id}"]`;
     await resetPaneStore(request, []);
     await request
       .put(`${E2E_BASE}/api/ui-state/grid-layout`, { data: { gridRows: [], gridRowHeights: [], soloTopicIds: [] } })
@@ -534,8 +549,8 @@ test.describe("split reorganisation budget", () => {
     await request.put(`${E2E_BASE}/api/ui-state/${projectPanesKey(dir)}`, {
       data: {
         nonChatPanes: [
-          { id: filesPane, type: "files", title: "Files" },
-          { id: gitPane, type: "git", title: "Git" },
+          { id: legacyFilesPane, type: "files", title: "Files" },
+          { id: legacyGitPane, type: "git", title: "Git" },
         ],
         openChatTopicIds: [chatId],
         activeChatTopicId: chatId,
@@ -547,7 +562,7 @@ test.describe("split reorganisation budget", () => {
     }
     for (const id of [filesPane, gitPane, chatPane]) {
       await page.locator(tab(id)).first().click();
-      await expect(page.locator(`[data-pane-shell="${id}"]`)).toHaveAttribute("data-pane-visible", "1");
+      await expect(page.locator(shell(id))).toHaveAttribute("data-pane-visible", "1");
     }
 
     // 1. Close git WITH the countdown, which lives on the tab's X alone (TABSHEET-03).
@@ -561,12 +576,12 @@ test.describe("split reorganisation budget", () => {
     expect(await dragOverPoint(page, target), "the bottom edge must accept the drop").toBe(true);
     expect(await dropAndCountFrames(page, target, before), "the split did not land").toBeGreaterThan(0);
     await page.locator(tab(filesPane)).first().click();
-    await expect(page.locator(`[data-pane-shell="${filesPane}"]`)).toHaveAttribute("data-pane-visible", "1");
+    await expect(page.locator(shell(filesPane))).toHaveAttribute("data-pane-visible", "1");
     const placeOfFiles = async () => {
       // The pane shells, not the leaves: a leaf id can also name the stack
       // that holds it, whose box covers the whole column.
-      const f = await box(page, `[data-pane-shell="${filesPane}"]`);
-      const c = await box(page, `[data-pane-shell="${chatPane}"]`);
+      const f = await box(page, shell(filesPane));
+      const c = await box(page, shell(chatPane));
       if (f.y >= c.y + c.height - 2) return "below the chat";
       if (f.x >= c.x + c.width - 2) return "right of the chat";
       return `elsewhere (${Math.round(f.x)},${Math.round(f.y)})`;

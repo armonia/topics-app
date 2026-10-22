@@ -98,10 +98,10 @@ export const CAPTURE_LOCAL_STORAGE_JS =
 
 /** In-page JS seeding the given localStorage items (quota/security failures are
  *  skipped per item, like the server's applyStateToPage evaluate). */
-export function setLocalStorageJs(items: Array<{ name: string; value: string }>): string {
+export function setLocalStorageJs(items: Array<{ name: string; value: string }>, origin: string): string {
   return (
-    `(function(items){var n=0;for(var i=0;i<items.length;i++){` +
+    `(function(items,origin){if(location.origin!==origin)return '0';var n=0;for(var i=0;i<items.length;i++){` +
     `try{localStorage.setItem(items[i].name,items[i].value);n++}catch(e){}}` +
-    `return String(n)})(${JSON.stringify(items)})`
+    `return String(n)})(${JSON.stringify(items)},${JSON.stringify(origin)})`
   );
 }

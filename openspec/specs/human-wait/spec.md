@@ -170,21 +170,22 @@ trattiene, e il riavvio la tagliava.
 Solo l'assenza in TUTTE E QUATTRO SHALL autorizzare il riavvio. Elenchi vuoti NON
 SHALL contare come «qualcosa in volo».
 
-Una domanda aperta SHALL far RINVIARE il riavvio SUBITO, senza servire prima
-nessun tetto: un tetto misura quanto ci mette una cosa a finire da sé, e una
-domanda finisce solo quando risponde una persona. Un turno tagliato si può
-rilanciare; una domanda tagliata porta via il contesto in cui aveva senso, e chi
-stava per rispondere non sa nemmeno che gli è stata tolta di mano.
+Una domanda aperta SHALL trattenere il riavvio quanto una chat che torna — il
+tetto breve, un minuto, per una risposta che si sta scrivendo — e poi il riavvio
+SHALL partire. Fino all'11/10 lo rinviava senza tetto, perché il 28/08 un riavvio
+aveva portato via un pannello col suo turno; dal 29/09 la domanda sopravvive al
+riavvio sulla sua riga e la risposta arriva al modello come messaggio successivo
+(ASK-11), quindi quel rinvio non proteggeva più niente e fermava ogni deploy
+finché nessuno rispondeva: due ore su topic:18b232ac, l'11/10.
 
 Una domanda aperta SHALL essere un fatto della RIGA e non della memoria del
 processo: il registro in memoria si svuota a ogni riavvio, quindi da solo
 proteggerebbe la prima domanda e nessuna di quelle sopravvissute a un riavvio
 precedente.
 
-Il rinvio SHALL avere una fine: una domanda RISPOSTA, o aperta da più della
-PAZIENZA DEL RIAVVIO (un giorno), NON SHALL trattenere più niente — altrimenti è un
-blocco, non un rinvio. Quella pazienza è del riavvio e NON è la vita della
-domanda: una domanda non scade, e sopravvive al riavvio sulla sua riga (ASK-11).
+Una domanda RISPOSTA, o aperta da più di un giorno, NON SHALL trattenere niente.
+Il tetto è del riavvio e NON è la vita della domanda: una domanda non scade, e
+sopravvive al riavvio sulla sua riga (ASK-11).
 Una domanda il cui processo richiedente è già finito NON SHALL trattenere il
 riavvio: nessun processo è fermo su di lei, e il riavvio non può toglierle niente.
 
@@ -214,7 +215,8 @@ provider assente non promette niente.
 
 #### Scenario: una chat ferma su una domanda
 - **GIVEN** una sessione con una domanda aperta e nient'altro in volo
-- **THEN** il riavvio SHALL essere rinviato, non tagliato
+- **THEN** il riavvio SHALL aspettare il tetto breve delle chat e poi partire
+- **AND** la domanda SHALL restare aperta dopo il riavvio, e la sua risposta SHALL arrivare al modello
 
 #### Scenario: una domanda senza più chi l'ha chiesta
 - **GIVEN** una domanda aperta il cui turno è già finito (`askerGone`)

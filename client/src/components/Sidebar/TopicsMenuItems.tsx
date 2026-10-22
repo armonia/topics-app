@@ -39,6 +39,7 @@ import { lazy, Suspense, useMemo, useSyncExternalStore } from 'react';
 import { Globe2, Grid2x2, History, LayoutTemplate, RotateCcw, Eye } from 'lucide-react';
 import type { SidebarViewMode } from '@/hooks/useSidebarState';
 import { SubmenuItem } from '../Shared/SubmenuItem';
+import { LiveTerminalsLevel } from '../Shared/LiveTerminalsLevel';
 import { AppearanceLevel, type MenuPreferences } from './AppearanceLevel';
 import { NotificationsLevel } from './NotificationsLevel';
 import type { UserMenuLevel } from '@/lib/openUserMenu';
@@ -214,6 +215,11 @@ export function TopicsMenuItems({
           </button>
         </SubmenuItem>
       )}
+
+      {/* EVERY TERMINAL RUNNING ON THE MAC, outside Topics too. The same branch as
+          the end of the «+» menu; here it is one tap away on the phone, where the
+          «+» opens its menu only on a long press. */}
+      {preferences.settings.showLiveTerminals !== false && <LiveTerminalsLevel onClose={onClose} />}
 
       {/* HISTORY IS A DROPDOWN NOW, not a door straight to the palette: a flat
           row that always opens a second window is a detour when the thing

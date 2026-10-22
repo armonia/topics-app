@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { isTauri } from '../lib/shell';
 import { tauriInvoke } from '../lib/shell/tauri';
 import { noteSystemMemory, noteWebviewSample, type ShellWebviewRow } from '../lib/shell/heavyPanes';
+import { isDocumentVisible, startVisibleInterval } from '../state/documentVisibility';
 
 export interface PerfMetrics {
   version: string;
@@ -166,20 +167,17 @@ export function usePerfMetrics(active: boolean, intervalMs = 1500): PerfMetrics 
     if (!active || !getMetrics) return;
     let alive = true;
     const tick = async () => {
-      if (document.hidden) return; // don't probe the process tree when unseen
+      if (!isDocumentVisible()) return; // don't probe the process tree when unseen
       try {
         const m = await getMetrics();
         if (alive) setMetrics(m);
       } catch { /* transient — keep last sample */ }
     };
     tick();
-    const id = setInterval(tick, intervalMs);
-    const onVisible = () => { if (!document.hidden) tick(); };
-    document.addEventListener('visibilitychange', onVisible);
+    const stopPolling = startVisibleInterval(tick, intervalMs);
     return () => {
       alive = false;
-      clearInterval(id);
-      document.removeEventListener('visibilitychange', onVisible);
+      stopPolling();
     };
   }, [active, intervalMs]);
 

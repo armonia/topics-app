@@ -191,3 +191,49 @@ describe("the sweeper probe, by name", () => {
     expect(resolveSessionOwner("topic:di-nessuno")).toBeNull();
   });
 });
+
+/**
+ * TWO OWNERS, ONE TURN (T18). A topic switched from one provider to another
+ * keeps its idle session in the first one for a while (the native provider
+ * holds it fifteen minutes, an idle claude-code child the same), so two
+ * providers answer "mine" for the same key. The probes asked the FIRST one in
+ * registration order: an idle owner answered "dead" for a turn that the other
+ * one was running, the sweep closed it after three minutes of silence, and the
+ * rescue and the abort went to the provider that was not running it.
+ * @covers KANBAN-10
+ */
+describe("two providers own the session: the one running the turn answers", () => {
+  beforeEach(() => {
+    tmpRoot = mkdtempSync(join(tmpdir(), "two-owners-"));
+    initDatabase(tmpRoot);
+    clearRegistry();
+  });
+  afterEach(() => {
+    clearRegistry();
+    try { closeDatabase(); } catch { /* already closed */ }
+    try { rmSync(tmpRoot, { recursive: true, force: true }); } catch { /* scratch */ }
+  });
+
+  function twoOwners(liveFirst: boolean) {
+    // Registration order decides who is asked first; the live turn is on the other one.
+    const idle = registerProvider({ type: "acp", name: "jcode", command: process.execPath, args: ["--version"] });
+    const live = registerProvider({ type: "claude-code" });
+    Object.assign(idle, { ownsSession: () => true, isTurnProcessAlive: () => false });
+    Object.assign(live, { ownsSession: () => true, isTurnProcessAlive: () => liveFirst });
+    return { idle, live };
+  }
+
+  test("the idle owner registered first does not speak for the live turn", () => {
+    const { live } = twoOwners(true);
+    expect(childAliveForSweep("topic:switched")).toBe(true);
+    expect(resolveTurnAlive("topic:switched")).toBe(true);
+    // The rescue and the abort go where the turn runs.
+    expect(resolveSessionOwner("topic:switched")).toBe(live as never);
+  });
+
+  test("no owner running a turn: the first owner answers, as before", () => {
+    const { idle } = twoOwners(false);
+    expect(resolveTurnAlive("topic:switched")).toBe(false);
+    expect(resolveSessionOwner("topic:switched")).toBe(idle as never);
+  });
+});

@@ -8,6 +8,7 @@
 
 import { existsSync } from "node:fs";
 import { listenUrl, type ListenAddress } from "../../shared/background-work";
+import { recordServerSpawn } from "./spawn-metrics";
 
 export type ListeningPort = { port: number; pid: number; command: string; host: string };
 
@@ -41,11 +42,11 @@ export async function readProcessProbe(command: string[]): Promise<string> {
 }
 
 /** `maxAgeMs`: how old a cached answer may be (the server watch of BGVIS-08 asks for a fresher one). */
-export async function getListeningPorts(maxAgeMs = PORT_CACHE_TTL): Promise<ListeningPort[]> {
+export async function getListeningPorts(maxAgeMs = PORT_CACHE_TTL, cause = "processList"): Promise<ListeningPort[]> {
   const now = Date.now();
   if (now - cachedPortsAt < maxAgeMs) return cachedPorts;
   if (pendingPorts) return pendingPorts;
-  pendingPorts = readListeningPorts(now).finally(() => { pendingPorts = null; });
+  pendingPorts = readListeningPorts(now, cause).finally(() => { pendingPorts = null; });
   return pendingPorts;
 }
 
@@ -111,10 +112,11 @@ export function parseSs(output: string): ListeningPort[] {
   return uniqueSorted(entries);
 }
 
-async function readListeningPorts(now: number): Promise<typeof cachedPorts> {
+async function readListeningPorts(now: number, cause: string): Promise<typeof cachedPorts> {
   const p = listeningProbe();
   if (!p) return cachedPorts;
   try {
+    recordServerSpawn("lsof", cause);
     const ports = p.parse(await readProcessProbe(p.cmd));
     cachedPorts = ports;
     cachedPortsAt = now;

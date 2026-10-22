@@ -15,18 +15,13 @@
  *    put the tab sheet at y = -3 (see `TabSheet`). Measuring the topic
  *    area and drawing on the body is what gives the window the viewport back.
  *
- * 2. Moving a window does NOT move the native page inside it. The WKWebView is
- *    composited by the OS at a rectangle it was told once; the placeholder only
- *    re-measures on a resize, a mutation or its slow poll. So every geometry
- *    change ends with `browser:reflow-request`, which the placeholder listens
- *    for already.
+ * 2. A minimized-window drag moves its chrome with a compositor transform and
+ *    sends the native page's bounds once per animation frame. The placeholder
+ *    handles that targeted reflow without waiting for its slower safety poll.
  *
- * 3. A drag runs with the page FROZEN (`freeze()`/`thaw()` on the drag gate,
- *    through the `topics:pane-resize-*` events the gate already understands).
- *    That is the ruling written in design.md, in the dragging section: the
- *    IPC floor measured by `wkzprobe drag` is inside a frame at the median but
- *    its tail is one to two frames out, and the live-follow that the sidebar
- *    tried made the pane edge stutter.
+ * 3. Resizing an expanded window still freezes native views through the
+ *    `topics:pane-resize-*` gate. Moving the minimized window does not: its page
+ *    stays visible and follows the frame-coalesced bounds updates.
  *
  * Promotion is the layout's own door, not a private one: "open as tab" fires
  * the same `browser:open-tab` event a clicked link fires, with the SAME
@@ -37,7 +32,8 @@
  * because a remount inside the close grace cancels the teardown
  * (`useTauriBrowser`, BROWSER_CLOSE_GRACE_MS).
  */
-import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, type RefObject } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
+import { useActiveTabInView } from '../../hooks/useActiveTabInView';
 import { createPortal } from 'react-dom';
 import { POPOVER_SURFACE, Z_CONTEXT_MENU, Z_POPOVER_SCRIM } from '@/lib/popoverStyles';
 import { useExitGhost } from '@/lib/exitGhost';
@@ -45,6 +41,7 @@ import { Plus, X, Maximize2, Minimize2, ExternalLink } from 'lucide-react';
 import { useT } from '../../hooks/useT';
 import { RemoteBrowserPanel } from './RemoteBrowserPanel';
 import { useSurfaceFocus } from './useSurfaceFocus';
+import { useAreaRect, type AreaRef, type Rect } from './useAreaRect';
 import {
   EMPTY_TOPIC_BROWSER_WINDOW,
   MIN_WINDOW_SIZE,
@@ -72,8 +69,10 @@ import {
   newBrowserContextId,
 } from '../../state/pane/adapters/paneConfig';
 import { OPEN_TAB_EVENT, type OpenTabDetail } from '../../lib/openLink';
+import { toFixed } from '../../lib/fixedFrame';
 import { tauriInvoke } from '../../lib/shell/tauri';
 import { suppressTextSelection } from '../../lib/dragSelectionGuard';
+import { createAnimationFrameCoalescer, resolveTopicBrowserDragPosition } from '../../lib/topicBrowserDrag';
 import { DEFAULT_EXPANDED_WIDTH, expandedInsetFor, canExpandInArea } from './topicBrowserWindowLazy';
 import { TabSheet, TAB_SHEET_ANCHOR_ATTR } from '../Shared/TabSheet';
 import { prefetchTabSheet } from '../Shared/tabSheetLazy';
@@ -96,33 +95,6 @@ export interface TopicBrowserWindowProps {
   areaRef: AreaRef;
   /** Where a promoted tab belongs, so the right layout claims the open. */
   projectPath?: string;
-}
-
-interface Rect { left: number; top: number; width: number; height: number }
-
-/** The topic area in viewport coordinates, kept fresh across resizes, scrolls
- *  and layout changes of the cell itself. */
-type AreaRef = RefObject<HTMLElement | null>;
-
-function useAreaRect(areaRef: AreaRef): Rect | null {
-  const [rect, setRect] = useState<Rect | null>(null);
-  useEffect(() => {
-    const el = areaRef.current;
-    if (!el) return;
-    const read = (): void => {
-      const r = el.getBoundingClientRect();
-      setRect((prev) => (prev && prev.left === r.left && prev.top === r.top && prev.width === r.width && prev.height === r.height
-        ? prev
-        : { left: r.left, top: r.top, width: r.width, height: r.height }));
-    };
-    read();
-    const observer = new ResizeObserver(read);
-    observer.observe(el);
-    window.addEventListener('resize', read);
-    window.addEventListener('scroll', read, true);
-    return () => { observer.disconnect(); window.removeEventListener('resize', read); window.removeEventListener('scroll', read, true); };
-  }, [areaRef]);
-  return rect;
 }
 
 /** Where the composer lies inside the area, in px from the area's top.
@@ -217,10 +189,11 @@ function raiseNativeView(contextId: string): void {
 
 /** Tell the native views to re-measure: a window that MOVED without changing
  *  size fires no ResizeObserver, so nothing else would. */
-function requestReflow(contextId?: string): void {
+function requestReflow(contextId?: string, atAnimationFrame = false): void {
   // Targeted when we know whose page moved: an untargeted request makes every
   // native view in the app re-send its bounds, and here only one moved.
-  window.dispatchEvent(new CustomEvent('browser:reflow-request', { detail: contextId ? { contextId } : undefined }));
+  const detail = contextId || atAnimationFrame ? { contextId, atAnimationFrame } : undefined;
+  window.dispatchEvent(new CustomEvent('browser:reflow-request', { detail }));
 }
 
 /** Freeze every native view for the length of a gesture, through the events the
@@ -259,12 +232,10 @@ export function TopicBrowserWindow({ topicId, areaRef, projectPath }: TopicBrows
   // The menu closes as before; an inert copy fades out (lib/exitGhost).
   const addMenuRef = useRef<HTMLDivElement | null>(null);
   useExitGhost(addMenuRef, addOpen && menuAnchor !== null);
-  // Geometry while a gesture is in flight: the store only hears the result, so
-  // a drag is one write instead of one per frame.
-  const [dragPos, setDragPos] = useState<{ right: number; bottom: number } | null>(null);
+  // Expanded resizing keeps its live width; minimized movement stays on the DOM.
   const [dragWidth, setDragWidth] = useState<number | null>(null);
-  // The selection guard of the drag in flight, released if the window unmounts
-  // mid-gesture (the guard also lets go by itself when the gesture ends).
+  const windowElement = useRef<HTMLDivElement | null>(null);
+  // The active pointer gesture is fully released if the window unmounts.
   const dragCleanup = useRef<(() => void) | null>(null);
   useEffect(() => () => { dragCleanup.current?.(); }, []);
 
@@ -341,12 +312,12 @@ export function TopicBrowserWindow({ topicId, areaRef, projectPath }: TopicBrows
       return { left: area.left + area.width - width, top: area.top, width, height: area.height };
     }
     const local = resolveMinRect(
-      dragPos ? { ...state, minPos: dragPos } : state,
+      state,
       { width: area.width, height: area.height, composer: band ?? undefined },
       MIN_WINDOW_SIZE,
     );
     return { left: area.left + local.left, top: area.top + local.top, width: local.width, height: local.height };
-  }, [area, state, expandedWidth, dragPos, barOnly, band]);
+  }, [area, state, expandedWidth, barOnly, band]);
 
   // The last geometry the window really had, so a parked window can come back
   // where it was instead of jumping to a corner for one frame.
@@ -365,49 +336,100 @@ export function TopicBrowserWindow({ topicId, areaRef, projectPath }: TopicBrows
 
   const startMove = useCallback((e: React.PointerEvent) => {
     if (state.mode === 'exp' || !area) return;
+    if (e.button !== 0) return;
     // Anything the bar holds that answers a click of its own keeps its click:
     // the drag is what is left of the bar, which is most of it.
     if ((e.target as HTMLElement | null)?.closest('button, a, input, [role="menu"]')) return;
+    e.preventDefault();
+    e.currentTarget.setPointerCapture(e.pointerId);
     // Armed on the press, not at the threshold: by the first real move the
     // engine has already anchored a selection that would follow the pointer
     // across the transcript under the window.
     const unlockSelection = suppressTextSelection();
-    dragCleanup.current = unlockSelection;
-    const start = resolveMinRect(state, { width: area.width, height: area.height, composer: band ?? undefined }, MIN_WINDOW_SIZE);
+    const windowSize = barOnly
+      ? { width: MIN_WINDOW_SIZE.width, height: BAR_ONLY_HEIGHT }
+      : MIN_WINDOW_SIZE;
+    const start = resolveMinRect(state, { width: area.width, height: area.height, composer: band ?? undefined }, windowSize);
     const originX = e.clientX;
     const originY = e.clientY;
-    // Freezing paints a still image over every native view: a bar that is only
-    // being clicked must not pay for it, so it is armed at the first real move.
-    let release: (() => void) | null = null;
+    const windowLeft = area.left + start.left;
+    const windowTop = area.top + start.top;
     const guard = resolveComposerAvoidance(
       { height: area.height, composer: band ?? undefined },
       start.height,
     );
     let latest = { right: area.width - start.left - start.width, bottom: area.height - start.top - start.height };
-    const onMove = (ev: PointerEvent): void => {
-      if (!release && Math.abs(ev.clientX - originX) + Math.abs(ev.clientY - originY) < DRAG_THRESHOLD_PX) return;
-      release ??= freezeNativeViews();
-      latest = {
-        right: Math.max(0, Math.min(area.width - start.width, area.width - start.left - start.width - (ev.clientX - originX))),
-        // Clamped at the source too, not only on the way out: what gets
-        // persisted is a position the window can actually hold.
-        bottom: Math.max(guard.floor, Math.min(area.height - start.height, area.height - start.top - start.height - (ev.clientY - originY))),
-      };
-      setDragPos(latest);
+    let moving = false;
+    const frames = createAnimationFrameCoalescer<{ right: number; bottom: number }>(
+      {
+        request: (callback) => window.requestAnimationFrame(callback),
+        cancel: (frameId) => window.cancelAnimationFrame(frameId),
+      },
+      (position) => {
+        const node = windowElement.current;
+        if (!node) return;
+        const left = area.left + area.width - position.right - start.width;
+        const top = area.top + area.height - position.bottom - start.height;
+        node.style.willChange = 'transform';
+        node.style.transform = `translate3d(${left - windowLeft}px, ${top - windowTop}px, 0)`;
+        if (state.activeContextId) requestReflow(state.activeContextId, true);
+      },
+    );
+    const updatePosition = (ev: PointerEvent): void => {
+      const deltaX = ev.clientX - originX;
+      const deltaY = ev.clientY - originY;
+      if (!moving && Math.abs(deltaX) + Math.abs(deltaY) < DRAG_THRESHOLD_PX) return;
+      moving = true;
+      latest = resolveTopicBrowserDragPosition({
+        areaWidth: area.width,
+        areaHeight: area.height,
+        windowWidth: start.width,
+        windowHeight: start.height,
+        startLeft: start.left,
+        startTop: start.top,
+        deltaX,
+        deltaY,
+        minimumBottom: guard.floor,
+      });
+      frames.schedule(latest);
     };
-    const onUp = (): void => {
+    const finish = (): void => {
       window.removeEventListener('pointermove', onMove);
       window.removeEventListener('pointerup', onUp);
       window.removeEventListener('pointercancel', onUp);
+      frames.cancel();
       unlockSelection();
-      setDragPos(null);
-      topicBrowserWindow.move(topicId, latest);
-      release?.();
+      dragCleanup.current = null;
+    };
+    const onMove = (ev: PointerEvent): void => {
+      if (ev.pointerId === e.pointerId) updatePosition(ev);
+    };
+    const onUp = (ev: PointerEvent): void => {
+      if (ev.pointerId !== e.pointerId) return;
+      updatePosition(ev);
+      frames.flush();
+      finish();
+      if (!moving) return;
+      const committed = { right: Math.max(0, Math.round(latest.right)), bottom: Math.max(0, Math.round(latest.bottom)) };
+      const finalRect = resolveMinRect(
+        { ...state, minPos: committed },
+        { width: area.width, height: area.height, composer: band ?? undefined },
+        windowSize,
+      );
+      const node = windowElement.current;
+      if (node) {
+        node.style.left = `${area.left + finalRect.left}px`;
+        node.style.top = `${area.top + finalRect.top}px`;
+        node.style.transform = '';
+        node.style.willChange = '';
+      }
+      topicBrowserWindow.move(topicId, committed);
     };
     window.addEventListener('pointermove', onMove);
     window.addEventListener('pointerup', onUp);
     window.addEventListener('pointercancel', onUp);
-  }, [state, area, topicId, band]);
+    dragCleanup.current = finish;
+  }, [state, area, topicId, band, barOnly]);
 
   const startResize = useCallback((e: React.PointerEvent) => {
     if (state.mode !== 'exp' || !area) return;
@@ -488,15 +510,11 @@ export function TopicBrowserWindow({ topicId, areaRef, projectPath }: TopicBrows
     const room = window.innerHeight - anchor.bottom - 12;
     const height = Math.min(window.innerHeight * 0.5, 44 * (layoutBrowsers.length + 1) + 8);
     const top = room >= height ? anchor.bottom + 4 : Math.max(8, anchor.top - 4 - height);
-    setMenuAnchor({ left, top, maxHeight: Math.min(height, window.innerHeight - 16) });
+    setMenuAnchor(toFixed({ left, top, maxHeight: Math.min(height, window.innerHeight - 16) }));
     const onKey = (ev: KeyboardEvent): void => { if (ev.key === 'Escape') setAddOpen(false); };
     window.addEventListener('keydown', onKey);
     return () => { window.removeEventListener('keydown', onKey); };
   }, [addOpen, layoutBrowsers.length]);
-  if (!topicId) return null;
-  if (!barOnly && !state.tabs.length) return null;
-
-
   // The topic is not the one on screen (its chat pane is collapsed to zero, or
   // it was never measured): the window is PARKED, not unmounted. Unmounting it
   // would take RemoteBrowserPanel down with it and destroy the page, so coming
@@ -509,6 +527,16 @@ export function TopicBrowserWindow({ topicId, areaRef, projectPath }: TopicBrows
   // what the topic switch is careful to keep.
   const hidden = !barOnly && state.mode === 'hidden';
   const parked = !rect || hidden;
+
+  // Once its pages outgrow the bar it scrolls sideways, and the active page is brought into view: when
+  // it changes, and when a parked window comes back (a hidden strip has nothing to measure).
+  const stripRef = useRef<HTMLDivElement>(null);
+  useActiveTabInView(stripRef, active && !parked ? `[data-context-id="${CSS.escape(active.contextId)}"]` : null);
+
+  if (!topicId) return null;
+  if (!barOnly && !state.tabs.length) return null;
+
+
   const box = rect ?? lastRect.current;
   // One answer for the whole render: if the area cannot host a docked window,
   // `exp` is not what this window IS, whatever the persisted state says. The
@@ -519,6 +547,7 @@ export function TopicBrowserWindow({ topicId, areaRef, projectPath }: TopicBrows
 
   return createPortal(
     <div
+      ref={windowElement}
       data-testid="topic-browser-window"
       {...focus.captureProps}
       data-mode={barOnly ? 'loaned' : (expanded ? 'exp' : 'min')}
@@ -551,7 +580,15 @@ export function TopicBrowserWindow({ topicId, areaRef, projectPath }: TopicBrows
         onPointerDown={(e) => { if ((e.currentTarget as Node).contains(e.target as Node)) startMove(e); }}
         className={`flex items-center gap-1 px-1.5 h-9 flex-shrink-0 border-b border-app-border bg-surface ${expanded ? '' : 'cursor-grab active:cursor-grabbing'}`}
       >
-        <div className="flex items-center gap-1 min-w-0 flex-1 overflow-hidden">
+        {/* The pages scroll sideways once they outgrow the bar. Squeezed to fit instead, eight
+            of them in a minimized window were 35 px each with 14 px of title, fifteen were 17 px
+            with none, and the «+» shrank to 13 px (measured 2026-10-08). */}
+        <div
+          ref={stripRef}
+          data-testid="topic-browser-strip"
+          className="flex items-center gap-1 min-w-0 flex-initial overflow-x-auto scrollbar-topbar"
+          style={{ touchAction: 'pan-x' }}
+        >
           {state.tabs.map((t) => {
             const sheetKey = createPaneId('browser', t.contextId);
             const isActive = t.contextId === active?.contextId;
@@ -587,11 +624,12 @@ export function TopicBrowserWindow({ topicId, areaRef, projectPath }: TopicBrows
                   openTabSheet(sheetKey, 'commands');
                 }}
                 {...sheetLongPress.handlers}
-                className={`flex items-center gap-1 px-2 h-7 rounded text-mini truncate max-w-[160px] ${isActive ? 'bg-app-hover text-app-text' : 'text-app-text-tertiary hover:bg-app-hover'}`}
+                className={`flex items-center gap-1 px-2 h-7 rounded text-mini truncate min-w-[88px] max-w-[160px] ${isActive ? 'bg-app-hover text-app-text' : 'text-app-text-tertiary hover:bg-app-hover'}`}
               >
-                <span className="truncate">{label}</span>
+                <span className="truncate flex-1">{label}</span>
                 <X
                   size={11}
+                  className="flex-shrink-0"
                   data-testid="topic-browser-tab-close"
                   onClick={(e) => { e.stopPropagation(); topicBrowserWindow.close(topicId, t.contextId); }}
                 />
@@ -612,26 +650,28 @@ export function TopicBrowserWindow({ topicId, areaRef, projectPath }: TopicBrows
               </button>
             );
           })}
-          <button
-            ref={addButtonRef}
-            data-testid="topic-browser-add"
-            aria-label={tr('topicBrowser.add')}
-            aria-haspopup="menu"
-            aria-expanded={addOpen}
-            title={tr('topicBrowser.add')}
-            onClick={() => setAddOpen((v) => !v)}
-            className="w-6 h-6 flex items-center justify-center rounded text-app-text-tertiary hover:bg-app-hover"
-          >
-            <Plus size={13} />
-          </button>
         </div>
+        <button
+          ref={addButtonRef}
+          data-testid="topic-browser-add"
+          aria-label={tr('topicBrowser.add')}
+          aria-haspopup="menu"
+          aria-expanded={addOpen}
+          title={tr('topicBrowser.add')}
+          onClick={() => setAddOpen((v) => !v)}
+          className="w-6 h-6 flex-shrink-0 flex items-center justify-center rounded text-app-text-tertiary hover:bg-app-hover"
+        >
+          <Plus size={13} />
+        </button>
+        {/* What is left of the bar: the handle the minimized window is dragged by. */}
+        <div className="flex-1 self-stretch" />
         <button
           data-testid="topic-browser-open-as-tab"
           aria-label={tr('topicBrowser.openAsTab')}
           title={tr('topicBrowser.openAsTab')}
           disabled={!active}
           onClick={() => { if (active) openAsTab(active.contextId, active.url); }}
-          className="w-6 h-6 flex items-center justify-center rounded text-app-text-tertiary hover:bg-app-hover disabled:opacity-40"
+          className="w-6 h-6 flex-shrink-0 flex items-center justify-center rounded text-app-text-tertiary hover:bg-app-hover disabled:opacity-40"
         >
           <ExternalLink size={13} />
         </button>
@@ -641,7 +681,7 @@ export function TopicBrowserWindow({ topicId, areaRef, projectPath }: TopicBrows
           aria-label={expanded ? tr('topicBrowser.minimize') : tr('topicBrowser.expand')}
           title={expanded ? tr('topicBrowser.minimize') : tr('topicBrowser.expand')}
           onClick={() => topicBrowserWindow.setMode(topicId, expanded ? 'min' : 'exp')}
-          className="w-6 h-6 flex items-center justify-center rounded text-app-text-tertiary hover:bg-app-hover"
+          className="w-6 h-6 flex-shrink-0 flex items-center justify-center rounded text-app-text-tertiary hover:bg-app-hover"
         >
           {expanded ? <Minimize2 size={13} /> : <Maximize2 size={13} />}
         </button>
@@ -651,7 +691,7 @@ export function TopicBrowserWindow({ topicId, areaRef, projectPath }: TopicBrows
           aria-label={tr('topicBrowser.close')}
           title={tr('topicBrowser.close')}
           onClick={() => topicBrowserWindow.setMode(topicId, 'hidden')}
-          className="w-6 h-6 flex items-center justify-center rounded text-app-text-tertiary hover:bg-app-hover"
+          className="w-6 h-6 flex-shrink-0 flex items-center justify-center rounded text-app-text-tertiary hover:bg-app-hover"
         >
           <X size={13} />
         </button>

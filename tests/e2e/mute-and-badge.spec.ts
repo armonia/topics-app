@@ -18,7 +18,7 @@
  */
 import { test, expect } from "@playwright/test";
 import { installSlowTurnCli } from "./helpers/fake-claude-cli";
-import { runChatTurn } from "./helpers/attention";
+import { markSeenNow, runChatTurn } from "./helpers/attention";
 import { createTopic, deleteTopic, resetPaneStore } from "./helpers/api-fixtures";
 import { E2E_BASE } from "./helpers/test-server";
 import { hermetic } from "./fixtures/hermetic";
@@ -168,11 +168,9 @@ test.describe("Mute gate + app badge", () => {
       nav.setAppBadge = (n?: number) => { w.__badge = n ?? 0; return Promise.resolve(); };
       nav.clearAppBadge = () => { w.__badge = 0; return Promise.resolve(); };
     });
-    // MUTE-01 leaves the loud chat lit: both start SEEN here (the old door,
-    // an alias of «seen now»), so each turn below is a new count.
-    for (const t of [mutedTopic, loudTopic]) {
-      expect((await page.request.post(`${BASE}/api/topics/${t.id}/read`)).ok()).toBe(true);
-    }
+    // MUTE-01 leaves the loud chat lit: both start SEEN here (the seen door,
+    // up to now), so each turn below is a new count.
+    await markSeenNow(page.request, [mutedTopic, loudTopic].map((t) => `topic:${t.id}`));
     const AGENTS = "__board__";
     await resetPaneStore(page.request, [mutedTopic.id, loudTopic.id, AGENTS]);
     await page.goto("/");

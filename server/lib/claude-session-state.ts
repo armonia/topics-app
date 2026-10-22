@@ -427,7 +427,13 @@ export function applyHook(
  *  - `SessionStart`: the transcript path, which no later hook declares;
  *  - any other: a turn already over (`awaiting-user`) that now has a task of
  *    its own in flight is `watching`, as the `Stop` would have said had the
- *    late `PreToolUse(Monitor)` reached the server before it.
+ *    late `PreToolUse(Monitor)` reached the server before it; and a turn
+ *    parked `watching` whose last task this hook just closed (its notice was
+ *    read first and named no call, `finishedTasks` in the store) is
+ *    `awaiting-user`, for the same reason. No report will wake that one.
+ *    Either move corrects the `Stop`'s verdict and is dated at it, as
+ *    `settleWatching` is: a line the CLI wrote after the `Stop` (the delivery
+ *    that wakes the turn) still passes `applyJsonlEvent`'s causal gate.
  * Returns `prev` itself when nothing moves.
  */
 export function applyStaleHook(
@@ -441,9 +447,28 @@ export function applyStaleHook(
     return transition(prev, { jsonlPath: hook.transcript_path }, now);
   }
   if (prev.phase === 'awaiting-user' && (opts.countingTasks ?? 0) > 0) {
-    return transition(prev, { phase: 'watching' }, now);
+    return { ...transition(prev, { phase: 'watching' }, now), phaseUpdatedAt: prev.phaseUpdatedAt };
+  }
+  if (prev.phase === 'watching' && opts.countingTasks === 0) {
+    return { ...transition(prev, { phase: 'awaiting-user' }, now), phaseUpdatedAt: prev.phaseUpdatedAt };
   }
   return prev;
+}
+
+/**
+ * A turn parked `watching` whose last counting task a transcript line or the
+ * clock took out (`drained`) rests: the CLI let its notice go, or never
+ * delivered it (`NOTICE_WAKE_MS`), so nothing is left to wake it. A notice it
+ * delivers wakes the turn with the same row. The `Stop` would have said
+ * `awaiting-user` had those ends come first, so the turn rests dated at it,
+ * and a wake written after still passes `applyJsonlEvent`'s causal gate.
+ * A chat's whole-map rewrite that took out the last task counts as `drained`
+ * once quiet (`EMPTIED_QUIET_MS`, `tracker-sync.ts`).
+ * Returns `prev` itself when nothing moves.
+ */
+export function settleWatching(prev: ClaudeSessionState, countingTasks: number, drained: boolean, now: number): ClaudeSessionState {
+  if (prev.phase !== 'watching' || countingTasks > 0 || !drained) return prev;
+  return { ...transition(prev, { phase: 'awaiting-user' }, now), phaseUpdatedAt: prev.phaseUpdatedAt };
 }
 
 /**
@@ -820,6 +845,19 @@ function isMetaUserLine(obj: any): boolean {
   return text.startsWith('<command-name>')
     || text.startsWith('<local-command')
     || text.startsWith('[Request interrupted');
+}
+
+/**
+ * A row that opens a turn: a qualifying `user` line, or a `meta` one the CLI
+ * marks with the turn it opens (`turnOrigin`: a cron's fire, a message from
+ * another session). In 2555 transcripts (CLI 2.1.191 to 2.1.295) the 146
+ * meta rows with `turnOrigin` all open a turn, none of them mid-turn. Their
+ * phase still moves with the turn's first answer.
+ */
+export function opensTurn(ev: JsonlEvent): boolean {
+  if (ev.type === 'user') return true;
+  const raw = ev.type === 'meta' ? (ev.raw as { isMeta?: unknown; turnOrigin?: unknown }) : null;
+  return raw?.isMeta === true && typeof raw.turnOrigin === 'string';
 }
 
 /**

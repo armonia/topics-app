@@ -1,5 +1,5 @@
 /**
- * @covers SIDECAR-01
+ * @covers SIDECAR-01, SYSTEM-03
  */
 import { describe, test, expect, it } from "bun:test";
 import {
@@ -151,7 +151,11 @@ test("re-acquire before the grace window cancels the reap", async () => {
 test("acquire with no browser installed rejects and leaves no phantom ref", async () => {
   const sidecar = createChromiumSidecar({ discover: () => [] });
   await expect(sidecar.acquire()).rejects.toThrow(/No Chromium-family browser/);
-  expect(sidecar.status()).toMatchObject({ running: false, refCount: 0 });
+  expect(sidecar.status()).toMatchObject({
+    running: false,
+    refCount: 0,
+    lastLaunchFailure: { message: expect.stringContaining("No Chromium-family browser"), at: expect.any(String) },
+  });
 });
 
 test("dispose reaps immediately regardless of refCount", async () => {

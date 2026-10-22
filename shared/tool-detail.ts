@@ -28,6 +28,7 @@
 import type { ToolCall, ToolCallDetail } from "./types";
 import { isPlanFile } from "./plan-file";
 import { batchEditUnifiedDiff } from "./multi-edit-diff";
+import { normalizeViewSpec, viewIdFromResult } from "./views";
 
 /**
  * The Topics bridge tools (`server/mcp/topics-mcp-server.ts`), as the native
@@ -49,7 +50,7 @@ export const TOPICS_BRIDGE_TOOLS: ReadonlySet<string> = new Set([
 /** The in-app browser tools (`server/browser-tool-spec.ts`), also bare. */
 export const TOPICS_BROWSER_TOOLS: ReadonlySet<string> = new Set([
   "browser_open", "browser_observe", "browser_act", "browser_extract", "browser_get_text",
-  "browser_screenshot", "browser_read_screen", "browser_console", "browser_network", "browser_eval",
+  "browser_screenshot", "browser_verify", "browser_read_screen", "browser_console", "browser_network", "browser_eval",
   "browser_save_state", "browser_load_state", "browser_point", "browser_import_chrome",
   "browser_status", "browser_upload",
 ]);
@@ -406,6 +407,17 @@ export function deriveToolDetail(
       ...(s(a.file_path) ?? s(a.filePath) ? { filePath: (s(a.file_path) ?? s(a.filePath))! } : {}),
       ...(result ? { result } : {}),
     };
+  }
+  // A generative view (GENUI-01): bare `show_view` (native runtime) or the MCP
+  // re-export `mcp__topics__show_view`. Same normalization as the server route,
+  // so the chat draws exactly what the standalone page draws. Arguments that do
+  // not normalize fall through to the generic MCP row with their error result.
+  if (c === "show_view" || c.endsWith("__show_view")) {
+    const norm = normalizeViewSpec(a);
+    if (norm.ok && !opts?.failed) {
+      const viewId = viewIdFromResult(result);
+      return { type: "view", view: norm.spec, ...(viewId ? { viewId } : {}), ...(result ? { result } : {}) };
+    }
   }
   // The question an agent puts TO the human, under every name it travels with:
   // the CLI's own `AskUserQuestion`, the bare `ask_user_question`, and the MCP

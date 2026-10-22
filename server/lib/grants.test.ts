@@ -206,12 +206,12 @@ describe("grants · la stretta di mano, che scavalca il confinamento", () => {
   });
 
   it("NON ci sta niente che porti dati: sono i tre frame del buco vero", () => {
-    // Questi tre erano ciò che la raffica di apertura consegnava a un ospite
-    // prima che passasse dal filtro: il pane-store del proprietario coi titoli
-    // e gli id di ogni chat, i non-letti di tutte, e la configurazione della
-    // macchina. Se un giorno uno di questi finisce nella deroga, questo test
-    // muore — ed è l'unico posto in cui morirebbe.
-    for (const t of ["ui-state:init", "unread:init", "providers:snapshot"]) {
+    // What the open burst handed a guest before it went through the filter:
+    // the owner's pane store with the title and id of every chat, the unread
+    // of every chat (today carried by `attention:init`), and the machine's
+    // configuration. If one of these ever lands in the exemption, this test
+    // dies, and it is the only place where it would.
+    for (const t of ["ui-state:init", "attention:init", "providers:snapshot"]) {
       expect(isGuestHandshakeFrame(t)).toBe(false);
     }
   });
@@ -261,26 +261,23 @@ describe("grants · a quale entità appartiene un frame", () => {
 
 describe("grants · quale socket va confinata", () => {
   it("il loopback non è un ospite: è il computer stesso", () => {
-    expect(isGuestSocketData({ deviceId: null, deviceRole: null })).toBe(false);
+    expect(isGuestSocketData({ deviceId: null, principal: null })).toBe(false);
     expect(isGuestSocketData({})).toBe(false);
   });
 
-  it("un PROPRIETARIO remoto non va filtrato — ed è il guasto che questo test presidia", () => {
-    // L'upgrade timbra `deviceId` su ogni dispositivo appaiato, proprietari
-    // compresi. Finché la domanda era «ha un id?», il telefono del proprietario
-    // rispondeva sì, non aveva concessioni (non gliene servono) e si vedeva
-    // cadere OGNI frame: l'app viva sul computer e ferma sul telefono.
-    expect(isGuestSocketData({ deviceId: "d-telefono", deviceRole: "owner" })).toBe(false);
+  it("un ruolo owner non scavalca un principale confinato", () => {
+    const socket = { deviceId: "d-telefono", deviceRole: "owner", principal: { confined: true } };
+    expect(isGuestSocketData(socket)).toBe(true);
   });
 
-  it("un ospite va filtrato", () => {
-    expect(isGuestSocketData({ deviceId: "d-ospite", deviceRole: "guest" })).toBe(true);
+  it("un ruolo guest non confina un principale proprietario", () => {
+    const socket = { deviceId: "d-telefono", deviceRole: "guest", principal: { confined: false } };
+    expect(isGuestSocketData(socket)).toBe(false);
   });
 
-  it("un ruolo che non riconosciamo vale OSPITE", () => {
-    // Il verso prudente è quello che consegna meno: l'altro consegna tutto.
-    expect(isGuestSocketData({ deviceId: "d", deviceRole: undefined })).toBe(true);
-    expect(isGuestSocketData({ deviceId: "d", deviceRole: null })).toBe(true);
+  it("un principale mancante vale OSPITE", () => {
+    expect(isGuestSocketData({ deviceId: "d", principal: undefined })).toBe(true);
+    expect(isGuestSocketData({ deviceId: "d", principal: null })).toBe(true);
   });
 });
 

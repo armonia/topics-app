@@ -28,6 +28,7 @@ import type { Database } from "bun:sqlite";
 import { existsSync, readFileSync, statSync } from "node:fs";
 import { createHash } from "node:crypto";
 import { parseReviewChecks, serializeReviewChecks, type CheckRun } from "./review-checks";
+import { listLandingAuditCandidates } from "./landing-candidates";
 import { imageShape } from "./image-shape";
 import { renderDeliverySheet } from "./delivery-sheet";
 import { isAutoCapturedPreview, isDeliverySheetPath } from "../../shared/media-kind";
@@ -60,10 +61,13 @@ import { CLOSER_LABELS, KIND_LABELS, deriveCloser, deriveKind, isCloserLabel, is
 import { findNeighbours, type Neighbour } from "../../shared/task-similarity";
 import type { TaskStatus, TaskComment, CardComment, BoardSettings, BoardSettingsPatch, BlockerRef, QueueReason, SubtaskWork, TaskWeight, GlobalDispatchCap, GlobalCapPatch, TaskActionOrigin } from "../../shared/board";
 import { budgetShare } from "../../shared/board";
+import { sliceCodePoints } from "../lib/code-points";
+import { allWideRows } from "../lib/wide-rows";
 import type { Task, CreateTaskInput, UpdateTaskPatch, ListTasksInput } from "./task-shapes";
 
-import { markTargetSeenAndAnnounce } from "../notification-registry";
+import { markTargetNotificationsSeen } from "../db/notification-log";
 import { withCardAttention } from "../attention/card-sync";
+import { PARKED_IN_SERIES_SQL, QUEUED_ROOT_BOARDS_SQL } from "../lib/task-timer-reads";
 
 export type Actor = "human" | "agent";
 
@@ -1775,7 +1779,7 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
    * `Array.from` itera per punti di codice, che è l'unità di `substr`.
    */
   const previewOf = (s: string): string =>
-    Array.from(anteprimaUtile(s)).slice(0, DESCRIPTION_PREVIEW_CHARS).join("");
+    sliceCodePoints(anteprimaUtile(s), DESCRIPTION_PREVIEW_CHARS);
 
   /**
    * LA PROIEZIONE DELLA LISTA: tutte le colonne meno le due grasse.
@@ -1791,7 +1795,7 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
    * dello stesso task con campi diversi. Se il PRAGMA non risponde si ricade su
    * `*`: una risposta grassa è meglio di una rotta.
    */
-  const listColumnsCache = new Map<string, string>();
+  const listColumnsCache = new Map<string, ListProjection>();
   /**
    * Columns that ride in every board feed and that NOBODY reads off a Task.
    *
@@ -1820,23 +1824,27 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
     "nudge_repeats",
   ];
 
-  function listColumns(withDescription: boolean): string {
+  // `names`: the columns in SELECT order, for `allWideRows` (Bun 1.3.8 lists `columnNames` backwards past 62);
+  // `null` on the `*` fallback, whose order only SQLite knows, so that read goes through `.all()`.
+  type ListProjection = { sql: string; names: readonly string[] | null };
+  function listColumns(withDescription: boolean): ListProjection {
     const key = withDescription ? "full" : "lean";
     const hit = listColumnsCache.get(key);
     if (hit) return hit;
-    let sql: string;
+    const preview = `substr(description, 1, ${PREVIEW_SQL_CHARS}) AS description_preview`;
+    let projection: ListProjection;
     try {
       const cols = (db.query("PRAGMA table_info(tasks)").all() as Array<{ name: string }>)
         .map((c) => c.name)
         .filter((n) => n !== "checks_json" && (withDescription || n !== "description"))
         .filter((n) => !COLUMNS_WITH_NO_READER.includes(n));
       if (!cols.length) throw new Error("no columns");
-      sql = `${cols.join(", ")}, substr(description, 1, ${PREVIEW_SQL_CHARS}) AS description_preview`;
+      projection = { sql: `${cols.join(", ")}, ${preview}`, names: [...cols, "description_preview"] };
     } catch {
-      sql = `*, substr(description, 1, ${PREVIEW_SQL_CHARS}) AS description_preview`;
+      projection = { sql: `*, ${preview}`, names: null };
     }
-    listColumnsCache.set(key, sql);
-    return sql;
+    listColumnsCache.set(key, projection);
+    return projection;
   }
 
   /**
@@ -3759,9 +3767,10 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       const where = clauses.length ? `WHERE ${clauses.join(" AND ")}` : "";
       // project scope → board order (status then kanban_order); global feed → recency.
       const order = input.scope === "all" ? "updated_at DESC" : "kanban_order ASC";
-      const rows = db.query(
-        `SELECT ${listColumns(input.withDescription === true)} FROM tasks ${where} ORDER BY ${order}`,
-      ).all(...params) as any[];
+      // `allWideRows` and not `.all()`: the projection is wider than the 62
+      // columns past which bun:sqlite builds each row object four times slower.
+      const { sql: columns, names } = listColumns(input.withDescription === true);
+      const rows = allWideRows(db.query(`SELECT ${columns} FROM tasks ${where} ORDER BY ${order}`), names, ...params) as any[];
       return withSubtaskCounts(rowsToTasks(rows));
     },
 
@@ -4201,7 +4210,7 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
         // here, next to the approval, because this is the ONLY line every exit
         // from review crosses - the board drag, `update({status})` over MCP,
         // archiving.
-        markTargetSeenAndAnnounce("task", taskId);
+        markTargetNotificationsSeen("task", taskId);
       }
       // Status history: every applied transition lands in the thread with its
       // author — the timeline answers "chi l'ha spostato e quando".
@@ -4565,7 +4574,7 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       logStatus(taskId, "review", target, by, null, origin);
       // As in `update()`: this door writes the status in raw SQL and does not
       // go through there. Approving and rejecting are both "I looked at it".
-      markTargetSeenAndAnnounce("task", taskId);
+      markTargetNotificationsSeen("task", taskId);
       // L'approvazione è la porta per cui uno step passa a `done` più spesso di
       // ogni altra, e scrive lo stato a SQL grezzo: senza questa riga il padre
       // non se ne accorgerebbe proprio nel caso più comune.
@@ -5568,16 +5577,7 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       const cutoff = new Date(Date.parse(ts) - WAIT_SERIES_MAX_MS).toISOString();
       let candidati: Array<{ id: string; project_id: string }> = [];
       try {
-        candidati = db.prepare(
-          `SELECT id, project_id FROM tasks
-            WHERE archived = 0
-              AND status IN ('todo', 'in_progress')
-              AND wait_since IS NOT NULL
-              AND wait_since <= ?
-              AND dispatch_deferred_until IS NOT NULL
-              AND dispatch_deferred_until <= ?
-            ORDER BY wait_since`,
-        ).all(cutoff, ts) as Array<{ id: string; project_id: string }>;
+        candidati = db.prepare(PARKED_IN_SERIES_SQL).all(cutoff, ts) as Array<{ id: string; project_id: string }>;
       } catch { return []; }
       const parkedCards: Task[] = [];
       const ammessa = new Map<string, boolean>();
@@ -6272,62 +6272,7 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
     },
 
     listLandingAuditCandidates() {
-      // La TESTIMONIANZA vale per «è atterrato», e solo per quello: il contenuto
-      // che è su main ci resta, quindi ricontrollarlo sarebbe rimettere una
-      // deduzione sopra un fatto. «NON è atterrato» invece è un fatto su un
-      // ISTANTE — il land che non è riuscito — e nulla dice del giorno dopo, in
-      // cui una persona può aver cherry-piccato quel lavoro a mano. Escluderlo
-      // per sempre dall'audit congela l'accusa: misurate il 13/08 due card che
-      // dicevano «non su main» col commit ANTENATO di main, e in Done da giorni.
-      //
-      // E POI C'È IL SECONDO INSIEME, che è l'opposto del primo: le card senza
-      // consegna registrata che portano GIÀ un'accusa. Senza commit non c'è
-      // niente da verificare, ed era il motivo del filtro; ma `markLandPending`
-      // timbra `unlanded` appena il land viene CHIESTO, e conta su questa
-      // passata per correggersi. Finché il filtro le teneva fuori, quel timbro
-      // era definitivo: misurate il 18/08 su topics-app 13 card ferme su «non è
-      // su main» senza consegna, la più vecchia da sei giorni, due delle quali
-      // avevano il merge del land su main. Un'accusa che nessuno può più
-      // sostenere si RITIRA, ed è lavoro dell'audit tanto quanto scriverla.
-      return db.prepare(
-        `SELECT id, project_id, delivery_branch, delivery_commit
-           FROM tasks
-          WHERE archived = 0
-            -- A BRANCH IS A DELIVERY, no less than a commit is. debtVerdict
-            -- asks the branch first (classifyBranchLanding) and only falls back
-            -- to the commit once the branch is gone: the verdict logic already
-            -- knew how to answer for a card carrying only a branch, and it was
-            -- this line that never asked it.
-            --
-            -- What that cost, measured on this board on 2026-08-21: 27 done
-            -- cards with a branch and no commit, invisible to the audit for
-            -- their whole life. Looked at afterwards, of the first twelve
-            -- branches none was still alive and exactly one merge could be
-            -- found on main: the evidence had already evaporated. The value is
-            -- not in recovering those. It is that from now on such a card gets
-            -- asked WHILE its branch exists, the only moment the question has
-            -- an answer.
-            --
-            -- NULL and unverifiable are not the same state: the first says
-            -- nobody ever asked, the second says we asked and the evidence is
-            -- gone. The second is a measurement; the first is a hole.
-            AND (
-              delivery_commit IS NOT NULL
-              OR (delivery_branch IS NOT NULL AND delivery_branch <> '')
-              OR landing_state = 'unlanded'
-            )
-            AND status IN ('review', 'done')
-            -- Una DECISIONE non si rimisura: superseded dice «non e' su main,
-            -- e va bene cosi'». L'audit chiede al repo, e il repo risponderebbe
-            -- di nuovo unlanded cancellando la scelta a ogni passata.
-            AND COALESCE(landing_state, '') <> 'superseded'
-            AND NOT (COALESCE(landing_witnessed, 0) = 1 AND landing_state = 'landed')`,
-      ).all().map((r: any) => ({
-        id: r.id,
-        projectId: r.project_id,
-        deliveryBranch: r.delivery_branch ?? null,
-        deliveryCommit: r.delivery_commit ?? null,
-      }));
+      return listLandingAuditCandidates(db, now());
     },
 
     recordLandingState({ taskId, state, checkedAt, witnessed }): void {
@@ -6411,10 +6356,7 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       // Una `SELECT DISTINCT` sul taglio del tick — vive, in coda, radici — e
       // nient'altro. `rootsOnly` letterale come nel dispatcher: lì è una regola
       // di sicurezza (uno step non si dispaccia mai da solo), non di lettura.
-      return (db.query(
-        `SELECT DISTINCT project_id FROM tasks
-          WHERE archived = 0 AND status = 'todo' AND parent_task_id IS NULL`,
-      ).all() as Array<{ project_id: string }>).map((r) => r.project_id);
+      return (db.query(QUEUED_ROOT_BOARDS_SQL).all() as Array<{ project_id: string }>).map((r) => r.project_id);
     },
 
     taskIdOfTopic(topicId: string): string | null {

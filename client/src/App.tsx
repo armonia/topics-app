@@ -57,8 +57,6 @@ import { ReloadedFlash } from './components/ReloadedFlash';
 import { currentTaskTarget } from './lib/openTaskLink';
 import { openTaskFromUrl, subscribeServiceWorkerTaskOpen, setDeepLinkNotifier } from './lib/deepLinkEntry';
 import { subscribeServiceWorkerBanner } from './lib/push/swBridge';
-import { InAppBanners } from './components/Notifications/InAppBanners';
-import { PushEnrollPrompt } from './components/Notifications/PushEnrollPrompt';
 import { consumeTabLinkFromUrl, currentTabTarget, openTabInApp, openTabInAppWhenHydrated, tabAckReleasesIntent } from './lib/tabLink';
 import { TAB_PATH_PREFIX, type TabTarget } from '../../shared/tab-link';
 import { installOsOpenPathBridge, defaultOsOpenDeps } from './lib/osOpenPath';
@@ -88,7 +86,7 @@ import { useClosedTabs, createPaneId, isProjectPaneId, getProjectPathFromPaneId,
 import { seedBrowserPaneInitialUrl } from './state/pane/browserPaneUrl';
 import { isUtilityPanelType, utilityPanelId } from './state/pane/adapters/utilityPanelId';
 
-import { TopicTree } from './components/Sidebar/TopicTree';
+import { AppInteractiveMark } from './lib/appInteractiveMark';
 import { groupChromeActive, isDetachedWindow, firstOtherLiveSpace, tabsPerSpace } from './components/Layout/spaceHelpers';
 import { focusSpaceWindow, isSpaceClaimedLocally } from './lib/popOutSpace';
 import { useGoToSpace } from './components/Sidebar/useSpaceCards';
@@ -96,10 +94,10 @@ import { spaceWindowId } from './lib/windowRole';
 import { useSpaceWindows } from './state/windowPresence';
 import { SpaceElsewherePanel } from './components/Layout/SpaceElsewherePanel';
 import { SplitPositionProvider } from './contexts/SplitPositionContext';
-import { ContextMenu } from './components/Modals/ContextMenu';
-import { PanelGrid } from './components/Layout/PanelGrid';
+import { lazyWarm } from './lib/lazyWarm';
+import { retryingChunk } from './lib/chunkReloadGuard';
+import { loadPanelGrid, loadTopicTree } from './state/pane/panePreload';
 import { ToastProvider, ToastOutlet, useToast } from './components/Shared/Toast';
-import { PairingApproval } from './components/Auth/PairingApproval';
 import { ConfirmProvider } from './hooks/useConfirm';
 import { CompletionNotifierBridge } from './hooks/useCompletionNotifier';
 import { useVoiceLoop } from './hooks/useVoiceLoop';
@@ -126,13 +124,18 @@ import { ErrorBoundary } from './components/Shared/ErrorBoundary';
 import { SkeletonTopicList } from './components/Shared/Skeleton';
 import { SidebarStatusBar, MobileTransportBand } from './components/Sidebar/SidebarStatusBar';
 import { UnsentContext, useUnsentController } from './state/unsentMessages';
-import { Inbox } from './components/Sidebar/Inbox';
 import { MobileChromeBar } from './components/Sidebar/MobileChromeBar';
 import { shortcut, usesCtrl } from './lib/shortcutLabel';
 import { useSidebarHandleInsets } from './hooks/useSidebarBottomInset';
 
 // Lazy-load components that are only shown on demand
 const NewTopicModal = lazy(() => import('./components/Modals/NewTopicModal').then(m => ({ default: m.NewTopicModal })));
+// Shown once, to whoever opens Topics for the first time: its forms (the API key one comes from
+// Settings) stay out of the entry every start downloads.
+const FirstRunHost = lazy(async () => {
+  const { FirstRunHost: F } = await import('./components/FirstRun/FirstRunHost');
+  return { default: F };
+});
 const ChangelogModal = lazy(async () => {
   const { ChangelogModal: C } = await import('./components/ChangelogModal');
   return { default: C };
@@ -183,6 +186,28 @@ function CommandPaletteHost(props: ComponentProps<typeof CommandPalette>) {
 }
 const KeyboardShortcuts = lazy(() => import('./components/Shared/KeyboardShortcuts').then(m => ({ default: m.KeyboardShortcuts })));
 const FileSearch = lazy(() => import('./components/Project/FileSearch').then(m => ({ default: m.FileSearch })));
+const TopicTree = lazyWarm(loadTopicTree, (m) => m.TopicTree);
+const PanelGrid = lazyWarm(loadPanelGrid, (m) => m.PanelGrid);
+const Inbox = lazy(retryingChunk('Inbox', async () => {
+  const { Inbox: Component } = await import('./components/Sidebar/Inbox');
+  return { default: Component };
+}));
+const PairingApproval = lazy(retryingChunk('PairingApproval', async () => {
+  const { PairingApproval: Component } = await import('./components/Auth/PairingApproval');
+  return { default: Component };
+}));
+const InAppBanners = lazy(retryingChunk('InAppBanners', async () => {
+  const { InAppBanners: Component } = await import('./components/Notifications/InAppBanners');
+  return { default: Component };
+}));
+const PushEnrollPrompt = lazy(retryingChunk('PushEnrollPrompt', async () => {
+  const { PushEnrollPrompt: Component } = await import('./components/Notifications/PushEnrollPrompt');
+  return { default: Component };
+}));
+const TopicContextMenu = lazy(retryingChunk('ContextMenu', async () => {
+  const { ContextMenu: Component } = await import('./components/Modals/ContextMenu');
+  return { default: Component };
+}));
 // BrowserSidebarControl replaced by useBrowserContexts hook + unified TopicTree
 /**
  * Il target del deep-link che la URL porta al boot, o `null`.
@@ -565,7 +590,7 @@ function App() {
   } = useChat();
 
 
-  const { status: wsStatus, unreadData, sendWS, onMessage: onWSMessage, lastConnectedAt } = useWebSocket();
+  const { status: wsStatus, sendWS, onMessage: onWSMessage, lastConnectedAt } = useWebSocket();
 
   // Live count of active (non-done) tasks across all projects — gates the
   // "Board generale" sidebar row and shows its badge.
@@ -1418,10 +1443,10 @@ function App() {
   // browser — sent nothing, and for the server the last chat looked at was still
   // the one in front.
   //
-  // This is not cosmetic. After `SEEN_DWELL_MS` that chat enters `seenTopicRef`,
-  // and from there every `unread:updated{n>0}` about it is RE-MARKED READ on the
-  // spot (`useWebSocket`, the "a message arrived while you were already reading"
-  // branch). Measured with two chats open and focus moved to the board: the
+  // This is not cosmetic. After `SEEN_DWELL_MS` that chat entered `seenTopicRef`,
+  // and from there every unread about it was RE-MARKED READ on the spot (the
+  // old "a message arrived while you were already reading" branch of
+  // `useWebSocket`). Measured with two chats open and focus moved to the board: the
   // first chat never raises the badge (delta 0), the second does (delta 1). So a
   // turn finishing on a chat you are not watching can leave no trace on the
   // dock, and WHICH chat loses the count depends on which tab was opened first.
@@ -1458,6 +1483,9 @@ function App() {
         RIMESSO all'uscita, quindi i lettori di schermo continuano a trovarlo
         dove lo cercano. Vedi `Shared/TooltipDelegate.tsx`. */}
     <TooltipDelegate />
+    {/* Mark the end of the first topic load, when the sidebar shows real data.
+        Not gated on a topic count: a first-run profile has none and must still be measured. */}
+    <AppInteractiveMark ready={!topicsLoading} />
     {/* Il deep-link del boot (`/tab/…`, `/task/…`, `/topic/…`). Sta QUI dentro,
         e non in un effetto di App, perché il rifiuto di un permalink morto deve
         arrivare all'utente come toast — e `useToast()` sopra `<ToastProvider>`
@@ -1478,9 +1506,11 @@ function App() {
       same context.
     */}
     <PendingActionProvider countdownMs={1500}>
-    <PairingApproval />
-    <InAppBanners />
-    <PushEnrollPrompt />
+    <Suspense fallback={null}>
+      <PairingApproval />
+      <InAppBanners />
+      <PushEnrollPrompt />
+    </Suspense>
       <div
       // NB: the landing demo (client/src/demo/landing-cursor.js, scene
       // "floating") toggles `.floating-splits` on THIS element from outside
@@ -1901,20 +1931,18 @@ function App() {
                 rettangolo del trigger e si tiene dentro lo schermo da sé. */}
             {!isMobile && (
               <div className="app-no-drag flex-shrink-0" {...NO_DRAG_REGION}>
-                <Inbox
-                  onWSMessage={onWSMessage}
-                  isMobile={isMobile}
-                />
+                <Suspense fallback={<span className="w-7 h-7 flex-shrink-0" aria-hidden="true" />}>
+                  <Inbox onWSMessage={onWSMessage} isMobile={isMobile} />
+                </Suspense>
               </div>
             )}
           </div>
 
           {isMobile && (
             <div className="app-no-drag flex-shrink-0" {...NO_DRAG_REGION}>
-              <Inbox
-                onWSMessage={onWSMessage}
-                isMobile
-              />
+              <Suspense fallback={<span className="w-7 h-7 flex-shrink-0" aria-hidden="true" />}>
+                <Inbox onWSMessage={onWSMessage} isMobile />
+              </Suspense>
             </div>
           )}
           {/* CERCA E «+», in coda alla riga del titolo.
@@ -1968,6 +1996,7 @@ function App() {
           // gruppo attivo — perché la sidebar mostra TUTTI i gruppi insieme, e
           // ciascuna riga va nella card del suo (`paneSpaceById`). È la griglia
           // che resta filtrata sul gruppo attivo: lì una cosa alla volta.
+          <Suspense fallback={<div className="overflow-y-auto sidebar-scroll" style={{ paddingTop: `var(${SIDEBAR_SCROLL_TOP_PROPERTY}, 0px)` }}><SkeletonTopicList count={5} /></div>}>
           <TopicTree
             topics={topics}
             workspaceProjects={workspaceProjects}
@@ -1981,7 +2010,6 @@ function App() {
             onTopicClick={handleTopicClick}
             onTopicDoubleClick={handleTopicDoubleClick}
             onTopicContextMenu={handleTopicContextMenu}
-            unreadData={unreadData}
             onArchiveTopic={handleArchiveTopicDeferred}
             onArchiveProject={handleArchiveProjectDeferred}
             onNewTopicInProject={(projectPath) => handleQuickCreateTopic(projectPath)}
@@ -2033,6 +2061,7 @@ function App() {
             spaceScoped={spaceScoped}
             paneSpaceById={paneSpaceById}
           />
+          </Suspense>
           )}
           </ErrorBoundary>
         </div>
@@ -2276,6 +2305,7 @@ function App() {
         {activeSpaceWindow ? (
           <SpaceElsewherePanel spaceId={activeSpaceId} windowLabel={activeSpaceWindow} />
         ) : (
+        <Suspense fallback={<div className="flex-1 min-h-0 min-w-0" aria-busy="true" />}>
         <PanelGrid
           openPanels={visiblePanels}
           focusedPanelId={focusedPanelId}
@@ -2323,6 +2353,7 @@ function App() {
           promoteDraft={promoteDraft}
           draftMeta={draftMeta}
         />
+        </Suspense>
         )}
         </div>{/* /space-frame */}
         </ErrorBoundary>
@@ -2471,7 +2502,7 @@ function App() {
           initializer) survives the prop swap — Save/Delete would then act on
           the NEW topic with the OLD topic's state. */}
       {contextMenu && (
-        <ContextMenu
+        <Suspense fallback={null}><TopicContextMenu
           key={contextMenu.topic.id}
           x={contextMenu.x}
           y={contextMenu.y}
@@ -2499,7 +2530,7 @@ function App() {
           onStopStreaming={contextMenu.topic.isGlobalOrchestrator ? undefined : () => {
             void stopSession(contextMenu.topic.sessionKey);
           }}
-        />
+        /></Suspense>
       )}
 
       {/* New topic modal */}
@@ -2597,6 +2628,7 @@ function App() {
       {/* The one host of the forms that live where they are used: providers,
           tools, calendar (SETHOME-01). */}
       <HomePanelHost />
+      <Suspense fallback={null}><FirstRunHost /></Suspense>
 
       {import.meta.env.DEV && DevOverlay && <DevOverlay />}
 

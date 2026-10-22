@@ -24,9 +24,13 @@
  */
 import { gitRead, parsePorcelainZ, repoPrefixOf, scopeToPrefix, statusOfPrefix } from "./git-porcelain";
 import type { PorcelainEntry } from "./git-porcelain";
-import { attachNumstats, readNumstats } from "./git-numstat";
-import { roundsInFlight } from "./git-status-cache";
+import { attachNumstats, NUMSTAT_MAX_FILES, readNumstats } from "./git-numstat";
+import { gitStatusGeneration, invalidateGitCache, roundsInFlight } from "./git-status-cache";
+import { recordServerSpawn } from "./spawn-metrics";
+import { readNativeGitNumstat, readNativeGitStatus, recordNativeGitNumstatFallbacks } from "./native-git-status";
+import { gitRelativeDate } from "./git-relative-date";
 import type { GitStatus } from "../../shared/git-status";
+import { SPAWN_TIMEOUT, spawnBounded } from "./bounded-spawn";
 export type { GitStatus } from "../../shared/git-status";
 
 /** A porcelain entry with its per-side line counts attached (`lib/git-numstat.ts`). */
@@ -90,8 +94,9 @@ export function splitBranchHeader(text: string): { header: string | null; entrie
   return { header: text.slice(0, nul), entries: text.slice(nul + 1) };
 }
 
-async function readText(args: string[], cwd: string): Promise<{ code: number; text: string }> {
-  const proc = Bun.spawn(args, { cwd, stdout: "pipe", stderr: "ignore" });
+async function readText(args: string[], cwd: string, cause: string): Promise<{ code: number; text: string }> {
+  recordServerSpawn("gitStatus", cause);
+  const proc = spawnBounded(args, { cwd, stdout: "pipe", stderr: "ignore", timeoutMs: SPAWN_TIMEOUT.query });
   const text = await new Response(proc.stdout).text();
   await proc.exited;
   return { code: proc.exitCode ?? 1, text };
@@ -107,26 +112,91 @@ async function readText(args: string[], cwd: string): Promise<{ code: number; te
  * watcher, asking in the same instant each paid five git processes, and on a
  * loaded Mac each waited behind the other's (134 and 138 s for two identical
  * requests at 13:41:21 on 23/09). The entry is dropped when the round settles,
- * so a call after it always reads git again, and `invalidateGitCache` drops it
- * too: after a write (stage, commit, checkout) nobody joins a round that may
- * have read the tree before it.
+ * so a call after it always reads git again. Cache invalidation advances the
+ * tree generation: readers after the change cannot join a round from before it.
  *
- * `fresh: true` is for whoever KNOWS the tree just changed (the watcher): a
- * round that started before the change may miss it, so that caller starts its
- * own and the readers that arrive after it join the new one.
+ * A caller with `fresh: true` marks a change boundary. A watcher that marked
+ * that boundary when the event arrived passes its generation, allowing an
+ * intervening route read and the watcher refresh to share the same round.
  */
-export function computeGitStatus(resolvedDir: string, opts: { fresh?: boolean } = {}): Promise<ComputedGitStatus | null> {
-  const running = opts.fresh ? undefined : (roundsInFlight.get(resolvedDir) as Promise<ComputedGitStatus | null> | undefined);
-  if (running) return running;
-  const round: Promise<ComputedGitStatus | null> = computeGitStatusOnce(resolvedDir).finally(() => {
-    if (roundsInFlight.get(resolvedDir) === round) roundsInFlight.delete(resolvedDir);
+export function computeGitStatus(resolvedDir: string, opts: { fresh?: boolean; generation?: number; cause?: string } = {}): Promise<ComputedGitStatus | null> {
+  // `fresh` without a token marks a new change boundary. Watchers invalidate at
+  // event time and pass that generation later, so a read started in between is
+  // already fresh and both callers can share it.
+  const generation = opts.generation ?? (opts.fresh ? invalidateGitCache(resolvedDir) : gitStatusGeneration(resolvedDir));
+  const running = roundsInFlight.get(resolvedDir);
+  if (running?.generation === generation) return running.promise as Promise<ComputedGitStatus | null>;
+  const cause = opts.cause ?? "cacheMiss";
+  const round: Promise<ComputedGitStatus | null> = computeGitStatusOnce(resolvedDir, cause).finally(() => {
+    if (roundsInFlight.get(resolvedDir)?.promise === round) roundsInFlight.delete(resolvedDir);
   });
-  roundsInFlight.set(resolvedDir, round);
+  roundsInFlight.set(resolvedDir, { generation, promise: round });
   return round;
 }
 
-async function computeGitStatusOnce(resolvedDir: string): Promise<ComputedGitStatus | null> {
-  const probe = await readText(["git", "rev-parse", "--git-dir", "--show-toplevel"], resolvedDir);
+async function computeGitStatusOnce(resolvedDir: string, cause: string): Promise<ComputedGitStatus | null> {
+  const native = await readNativeGitStatus(resolvedDir);
+  if (native === null) return null;
+  if (native) {
+    const scope = repoPrefixOf(resolvedDir, native.root);
+    const parsed = native.entries.map(({ path, status, origPath }) => ({
+      path,
+      status,
+      ...(origPath === undefined ? {} : { origPath }),
+    }));
+    const scopedEntries = scopeToPrefix(parsed, scope.prefix);
+    const entriesByPath = new Map(parsed.map((entry) => [entry.path, entry]));
+    const numstatEntries = scopedEntries.map((entry) => {
+      const fullPath = scope.prefix + entry.path;
+      const original = entriesByPath.get(fullPath);
+      return {
+        ...entry,
+        path: fullPath,
+        ...(original?.origPath === undefined ? {} : { origPath: original.origPath }),
+      };
+    });
+    const nativeNumstat = scopedEntries.length > NUMSTAT_MAX_FILES
+      ? { staged: [], unstaged: [], unsupported: [] }
+      : await readNativeGitNumstat(native.root, numstatEntries);
+    const unsupported = nativeNumstat
+      ? nativeNumstat.unsupported
+          .filter((path) => !scope.prefix || path.startsWith(scope.prefix))
+      : undefined;
+    if (unsupported) recordNativeGitNumstatFallbacks(unsupported.length);
+    const fallback = await readNumstats(
+      native.root,
+      () => recordServerSpawn("gitStatus", cause),
+      unsupported,
+    );
+    const stats = nativeNumstat
+      ? {
+          staged: new Map(nativeNumstat.staged.map(({ path, added, removed, binary }) => [path, { added, removed, ...(binary ? { binary: true } : {}) }])),
+          unstaged: new Map(nativeNumstat.unstaged.map(({ path, added, removed, binary }) => [path, { added, removed, ...(binary ? { binary: true } : {}) }])),
+        }
+      : { staged: new Map(), unstaged: new Map() };
+    for (const [path, stat] of fallback.staged) stats.staged.set(path, stat);
+    for (const [path, stat] of fallback.unstaged) stats.unstaged.set(path, stat);
+    const files = attachNumstats(scopedEntries, stats, scope.prefix);
+    const lastCommit = native.lastCommit
+      ? {
+          hash: native.lastCommit.hash,
+          message: native.lastCommit.subject,
+          author: native.lastCommit.author,
+          ago: gitRelativeDate(native.lastCommit.time),
+        }
+      : { hash: "", message: "", author: "", ago: "" };
+    return {
+      branch: native.branch ?? native.lastCommit?.short ?? "HEAD",
+      lastCommit,
+      files,
+      ahead: native.ahead,
+      behind: native.behind,
+      folderUntracked: statusOfPrefix(parsed, scope.prefix) === "??",
+      repoName: scope.repoName,
+    };
+  }
+
+  const probe = await readText(["git", "rev-parse", "--git-dir", "--show-toplevel"], resolvedDir, cause);
   if (probe.code !== 0) return null;
   const gitRoot = probe.text.split("\n")[1]?.trim() ?? "";
   // Same prefix rule as always (`repoPrefixOf` compares REAL paths: a folder
@@ -134,9 +204,9 @@ async function computeGitStatusOnce(resolvedDir: string): Promise<ComputedGitSta
   const scope = gitRoot ? repoPrefixOf(resolvedDir, gitRoot) : { prefix: "", repoName: "" };
 
   const [status, log, numstats] = await Promise.all([
-    readText(STATUS_BRANCH_ARGS, resolvedDir),
-    readText(["git", "log", "-1", "--format=%h|%H|%s|%an|%ar"], resolvedDir),
-    readNumstats(resolvedDir),
+    readText(STATUS_BRANCH_ARGS, resolvedDir, cause),
+    readText(["git", "log", "-1", "--format=%h|%H|%s|%an|%ar"], resolvedDir, cause),
+    readNumstats(resolvedDir, () => recordServerSpawn("gitStatus", cause)),
   ]);
 
   const { header, entries } = splitBranchHeader(status.text);

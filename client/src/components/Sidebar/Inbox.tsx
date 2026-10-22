@@ -32,6 +32,7 @@ import { useT } from '../../hooks/useT';
 import { useMobile } from '../../hooks/useMobile';
 import { useTabNotifications } from '../../hooks/useTabNotifications';
 import { useNotificationHistory } from '../../hooks/useNotificationHistory';
+import { useLoadOnReach } from '../../hooks/useLoadOnReach';
 import { useTopics, useTerminalSessions } from '../../contexts/TopicsContext';
 import { useAttentionRows, sendAttentionSeenItems } from '../../state/attention';
 import { useBoardTasks } from '../../lib/boardTasksStore';
@@ -464,6 +465,8 @@ function History({ rows, loading, hasMore, loadingMore, loadMore, onClose }: {
   onClose: () => void;
 }) {
   const tr = useT();
+  // Infinite scroll, within the hundred rows the panel keeps: the next page comes as its tail comes into view.
+  const moreRef = useLoadOnReach(loadMore, { more: hasMore && rows.length < 100, loading: loadingMore, count: rows.length });
   const now = useSharedNow();
   const attention = useAttentionRows();
   const shown = rows.slice(0, 100);
@@ -522,7 +525,7 @@ function History({ rows, loading, hasMore, loadingMore, loadMore, onClose }: {
         </section>
       ))}
       {hasMore && rows.length < 100 && (
-        <button type="button" onClick={loadMore} disabled={loadingMore} className="w-full px-3 py-2 text-mini text-app-text-secondary hover:bg-app-hover transition-colors" data-testid="inbox-history-more">
+        <button ref={moreRef} type="button" onClick={loadMore} disabled={loadingMore} className="w-full px-3 py-2 text-mini text-app-text-secondary hover:bg-app-hover transition-colors" data-testid="inbox-history-more">
           {loadingMore ? tr('notifications.loadingMore') : tr('notifications.loadMore')}
         </button>
       )}

@@ -7,7 +7,7 @@ import { afterAll, describe, expect, test } from "bun:test";
 import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { walkFileTree, type FileNode } from "./file-tree";
+import { createFileTreeSlowLogger, walkFileTree, type FileNode } from "./file-tree";
 import { makeFakeHome } from "./protected-app-data.fixture";
 
 const root = mkdtempSync(join(tmpdir(), "file-tree-"));
@@ -46,7 +46,26 @@ test("folders first, then names in order; rules, nested rules and depth hold", a
   expect(typeof file.modified).toBe("string");
 });
 
-test("a file that cannot be stat-ed still comes out, without a size, next to its siblings", async () => {
+test("slow file-tree lines start above 200 ms and repeat at most once a minute", () => {
+  let now = 10_000;
+  const lines: string[] = [];
+  const report = createFileTreeSlowLogger({ now: () => now, log: (line) => lines.push(line) });
+  report(200);
+  report(201);
+  report(900);
+  now += 59_999;
+  report(250);
+  now++;
+  report(250);
+  expect(lines).toEqual(["[FILE-TREE] 201ms", "[FILE-TREE] 250ms"]);
+});
+
+// root ignores the permission bits, so `chmod 0444` cannot make the stat fail
+// there (the cloud VM and most containers run as root). Skipped, and said so in
+// the title; as a normal user the test stays able to go red.
+const RUNS_AS_ROOT = process.getuid?.() === 0;
+
+test.skipIf(RUNS_AS_ROOT)("a file that cannot be stat-ed still comes out, without a size, next to its siblings (skipped as root)", async () => {
   // A folder that can be listed but not searched: readdir works, stat fails.
   put("locked/one.txt"); put("locked/two.txt");
   chmodSync(join(root, "locked"), 0o444);

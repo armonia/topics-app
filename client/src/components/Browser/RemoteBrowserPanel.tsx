@@ -7,13 +7,16 @@ import { useHostedFrame } from './useHostedFrame';
 import { stepHostedFrame } from './hostedIframe';
 import { isUrlFramable } from '../../hooks/useRemoteBrowser';
 import { useBrowserHistory } from '../../hooks/useBrowserHistory';
-import { useEffect, useRef, useState, useCallback, useMemo } from 'react';
+import { useEffect, useRef, useState, useCallback, useMemo, useSyncExternalStore } from 'react';
+import { autoFollowsViewers, domHostAccepted, subscribeDomHostAccepted } from '../../lib/domHostSupport';
 import { SelectElementOverlay } from './SelectElementOverlay';
 import { NativeBrowserPlaceholder } from './NativeBrowserPlaceholder';
 import { ParkedPane } from './ParkedPane';
 import { NewTabPage } from './NewTabPage';
 import { BrowserNoticeStrip } from './BrowserNoticeStrip';
 import { deadLoopbackNotice } from './navErrorMessage';
+import { BrowserPageWait } from './BrowserPageWait';
+import { isBlankPage } from '../../hooks/remoteNavState';
 import { useSeedPaneUrl } from './useSeedPaneUrl';
 import { ForgetSiteDialog } from './ForgetSiteDialog';
 import { siteHostOf, nativeSiteData, sharedSiteData } from '../../lib/browserForgetSite';
@@ -42,9 +45,11 @@ import BrowserKeyboardCapture, { type BrowserKeyboardCaptureHandle } from './Bro
 import { useBrowserChromeBridge } from './useBrowserChromeBridge';
 import { useReturnToTopicWindow } from './returnToTopicWindow';
 import { openExternalOnce } from '../../lib/openExternal';
+import { setBrowserLayout, useBrowserLayout } from '../../lib/browserLayoutPref';
 import type { DeviceMode } from './browserDevTypes';
 import { useBrowserPaneUrl, isRealUrl } from '../../state/pane/browserPaneUrl';
 import { arrowEnabled } from './streamNavHistory';
+import { clearNativePaneMemoryNotice, useNativePaneMemoryNotice } from '../../state/nativePaneMemory';
 
 // T1 DOM co-browse — the native rrweb reconstruction view. Lazy so rrweb + its CSS
 // only load when a pane actually switches to DOM mode (default video path is free).
@@ -224,7 +229,13 @@ export function RemoteBrowserPanel({ contextId, initialUrl, navigateUrl, onUrlCh
   // up, and the `Nativo`/`DOM` chips out of nowhere. Reported 30/08 as "the
   // browsers change and go from the start screen to an error, showing native/dom
   // chips at random".
-  const autoEnabled = isTauri && mode === 'auto';
+  //
+  // AND ONCE THE SERVER RELAYS NATIVE MIRRORS, AUTO STAYS NATIVE. The other
+  // device then mirrors this pane's own page (NATIVE-HOST-03): leaving the
+  // WKWebView for the server's Chromium was the round trip that made the Mac
+  // slow while a phone watched ("lentissimo", 13/10).
+  const hostsMirror = useSyncExternalStore(subscribeDomHostAccepted, domHostAccepted);
+  const autoEnabled = autoFollowsViewers(isTauri, mode, hostsMirror);
   const autoShared = useSharedViewerCount(contextId, autoEnabled, isVisible);
 
   // Effective render: pinned mode wins; in auto it follows the live decision.
@@ -380,6 +391,8 @@ function TauriBrowserPanelInner({ contextId, initialUrl, navigateUrl, onUrlChang
   const tr = useT();
   const toast = useToast();
   const browser = useTauriBrowser(contextId, initialUrl, isVisible, onSelfFocus, hasFocus ?? isVisible);
+  const memoryReloadNotice = useNativePaneMemoryNotice(contextId);
+  const noticeOriginUrl = useRef(browser.url || initialUrl || '');
   const dl = useBrowserDownloads(contextId, isVisible || browser.agentActive, browser.agentActive);
   // Le voci native portano un path su QUESTO computer: si aprono e si mostrano
   // nel Finder. `detail` è il path stesso — «dov'è finito» è la domanda che la
@@ -439,7 +452,7 @@ function TauriBrowserPanelInner({ contextId, initialUrl, navigateUrl, onUrlChang
   }, [nativeTakeControl, toast, tr]);
   const chromeCommands = useMemo(() => ({
     reload: () => { void browser.reload(); },
-    navigate: (u: string) => { void browser.navigate(u); },
+    navigate: (u: string) => { clearNativePaneMemoryNotice(contextId); void browser.navigate(u); },
     back: () => { void browser.goBack(); },
     forward: () => { void browser.goForward(); },
     openExternal: () => { if (browser.url) openExternalOnce(browser.url); },
@@ -450,6 +463,7 @@ function TauriBrowserPanelInner({ contextId, initialUrl, navigateUrl, onUrlChang
     setZoom: (d: number | 'reset') => { void browser.setZoom(d); },
     setDevice: (m: DeviceMode, custom?: { width: number; height: number }) => browser.setDevice(m, custom),
     toggleShare: onToggleShare,
+    setHostSharing: browser.setHostSharing,
     forgetSite: canForget ? () => setForgetOpen(true) : undefined,
     // The sheet covers the page: it says so itself instead of waiting for the
     // occlusion watcher to measure it (see `TabSheet`).
@@ -458,7 +472,7 @@ function TauriBrowserPanelInner({ contextId, initialUrl, navigateUrl, onUrlChang
     // Offered only while one is driving: a command that ends a state nobody is
     // in is a dead door, and the tab hides the glyph that would open it anyway.
     takeControl: browser.agentActive ? takeControlFromAgent : undefined,
-  }), [browser, canForget, onToggleShare, backToSpawner, returnToTopicWindow, takeControlFromAgent]);
+  }), [browser, canForget, contextId, onToggleShare, backToSpawner, returnToTopicWindow, takeControlFromAgent]);
   // Subscribed, not sampled: on a restored pane this lands AFTER the mount.
   // A browser pane INSIDE A PROJECT WINDOW is not in the pane store: it lives
   // in the project's own layout, and its persisted url reaches this panel as
@@ -486,6 +500,7 @@ function TauriBrowserPanelInner({ contextId, initialUrl, navigateUrl, onUrlChang
     deviceMode: browser.deviceMode,
     shared: !!shared,
     shareMode,
+    nativeHostStatus: browser.hostStatus,
     // The agent at the wheel is a fact of the TAB now, on this path too: the
     // native webview composites above the DOM, so this branch never had an
     // overlay to remove, and the icon is the only cue it can carry.
@@ -503,6 +518,8 @@ function TauriBrowserPanelInner({ contextId, initialUrl, navigateUrl, onUrlChang
   // in per-topic history. browser.url now tracks in-page nav via the poll.
   useEffect(() => {
     if (browser.url) {
+      if (noticeOriginUrl.current && browser.url !== noticeOriginUrl.current) clearNativePaneMemoryNotice(contextId);
+      if (!noticeOriginUrl.current) noticeOriginUrl.current = browser.url;
       onUrlChange?.(browser.url);
       pushHistory(browser.url);
       // E nello storico GLOBALE dei siti, che è un'altra cosa: quello sopra è
@@ -510,7 +527,7 @@ function TauriBrowserPanelInner({ contextId, initialUrl, navigateUrl, onUrlChang
       recordSiteVisit(browser.url);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps -- fire on url change only
-  }, [browser.url]);
+  }, [browser.url, contextId]);
 
   // Surface the live page <title> so the host can label the tab with it (the
   // title analogue of the url effect above). Empty titles are dropped by the
@@ -621,6 +638,11 @@ function TauriBrowserPanelInner({ contextId, initialUrl, navigateUrl, onUrlChang
   return (
     <div className="flex flex-col h-full min-h-0" data-testid="browser-native-panel" data-browser-pane={contextId} data-find-pane={findPaneId}>
       <FindBar paneId={findPaneId} />
+      {memoryReloadNotice && browser.url && browser.url !== 'about:blank' && (
+        <div role="status" className="shrink-0 border-b border-app-border px-3 py-2 text-mini text-app-text-muted" data-testid="browser-memory-reloaded">
+          {tr('browser.memoryEviction.reloaded')}
+        </div>
+      )}
       {/* La scheda non risponde più. Sta SOPRA l'errore di navigazione perché lo
           scavalca: se la vista nativa non accetta comandi, «Riprova» non può
           riprovare niente. Non si può nemmeno chiudere — un pane morto non
@@ -755,6 +777,10 @@ function RemoteBrowserPanelStreaming({ contextId, initialUrl, navigateUrl, onUrl
   const tr = useT();
   const toast = useToast();
   const browser = useRemoteBrowser(contextId, isVisible);
+  // A page the Mac hosts: laid out here at this pane's size, or the Mac's page at it (BROWSER-DOM-LAYOUT-01).
+  // The shell's mirror cannot always be read, so it keeps the page's.
+  const layout = useBrowserLayout();
+  const layoutChoice = browser.nativeHost && !isTauri ? layout : undefined;
   const findPaneId = useFindPaneId() ?? `browser:${contextId}`;
   const exposeMirrorDocument = useSharedBrowserFinder(findPaneId, browser.renderMode);
   useReportBrowserActivity(contextId, browser.loading || browser.agentActive);
@@ -840,7 +866,9 @@ function RemoteBrowserPanelStreaming({ contextId, initialUrl, navigateUrl, onUrl
   // with a spinner, and its frame was already hidden.
   const paneUrl = isRealUrl(browser.url) ? browser.url : (knownPaneUrl ?? '');
   const paneFramable = isRealUrl(browser.url) ? browser.framable : isUrlFramable(paneUrl);
-  const useIframe = !isTauri && !!paneUrl && !browser.agentActive && paneFramable;
+  // Never under a native host: the page lives in the Mac's pane, and a frame
+  // of the url here would be a second page, not that one.
+  const useIframe = !isTauri && !!paneUrl && !browser.agentActive && !browser.nativeHost && paneFramable;
   // Same tab-is-the-chrome bridge as the Tauri branch. The shared pane has no
   // DevTools, no zoom and no device emulation, so it simply does not publish
   // those commands: the tab menu offers what exists. Its console is the server
@@ -884,14 +912,15 @@ function RemoteBrowserPanelStreaming({ contextId, initialUrl, navigateUrl, onUrl
     // The render switch kept the condition its pill had: only on a real page. A
     // blank pane has nothing to render either way, and a switch with no page is
     // the same dead door as a Downloads entry that opens an empty list.
-    setRenderMode: !useIframe && isRealUrl(browser.url)
+    setRenderMode: !useIframe && !browser.nativeHost && isRealUrl(browser.url)
       ? (m: 'dom' | 'video') => browser.setRenderMode(m)
       : undefined,
+    setLayout: layoutChoice ? setBrowserLayout : undefined,
     forgetSite: sharedCanForget ? () => setForgetOpen(true) : undefined,
     // Offered only while one is driving: a command that ends a state nobody is
     // in is a dead door, and the tab hides the glyph that would open it anyway.
     takeControl: browser.agentActive ? takeControlFromAgent : undefined,
-  }), [browser, contextId, sharedCanForget, onToggleShare, backToSpawner, returnToTopicWindow, useIframe, takeControlFromAgent]);
+  }), [browser, contextId, sharedCanForget, onToggleShare, backToSpawner, returnToTopicWindow, useIframe, takeControlFromAgent, layoutChoice]);
   const chromeBridge = useBrowserChromeBridge(contextId, {
     url: browser.url,
     // The store's url, which on a restored pane is already right while
@@ -924,7 +953,9 @@ function RemoteBrowserPanelStreaming({ contextId, initialUrl, navigateUrl, onUrl
     connection: useIframe ? undefined : browser.connectionState,
     engine: !useIframe && browser.engineToggleAvailable ? browser.engine : undefined,
     engineExtensions: !useIframe && browser.engineToggleAvailable ? browser.engineExtensions : undefined,
-    renderMode: useIframe ? undefined : browser.renderMode,
+    // Nothing to switch under a native host: there are no pixels without the server's Chromium.
+    renderMode: useIframe || browser.nativeHost ? undefined : browser.renderMode,
+    layout: layoutChoice,
     agentActive: browser.agentActive,
     agentAction: browser.agentAction,
     history,
@@ -1209,6 +1240,7 @@ function RemoteBrowserPanelStreaming({ contextId, initialUrl, navigateUrl, onUrl
           (+DPR), so the page reflows to fill it with no fixed-1280 letterbox. */}
       <div
         ref={browser.containerRef}
+        data-browser-page={contextId}
         className="flex-1 min-h-0 overflow-hidden relative bg-surface focus-within:ring-1 focus-within:ring-primary/30"
         tabIndex={0}
         onKeyDown={browser.onKeyDown}
@@ -1271,7 +1303,17 @@ function RemoteBrowserPanelStreaming({ contextId, initialUrl, navigateUrl, onUrl
             paused) pixel surface. Real browser, cross-device-sharp, not a video.
             Gated on a real page: a blank pane shows the "enter a URL" prompt below,
             not an opaque white overlay. This is the DEFAULT surface now (Option A). */}
-        {browser.renderMode === 'dom' && !!browser.url && browser.url !== 'about:blank' && (
+        {browser.nativeHost && browser.hostSharePaused && (
+          <div className="absolute inset-0 z-[6] flex items-center justify-center bg-app-bg text-app-text-muted" data-testid="browser-host-share-paused">
+            {tr('browser.tab.hostStopped')}
+          </div>
+        )}
+        {browser.hostAway && (
+          <div className="absolute inset-x-3 top-3 z-[7] rounded-md bg-app-bg/95 px-3 py-2 text-compact text-app-text shadow" data-testid="browser-host-away">
+            {tr('browser.tab.hostAway')}
+          </div>
+        )}
+        {browser.renderMode === 'dom' && !browser.hostSharePaused && !!browser.url && browser.url !== 'about:blank' && (
           <Suspense
             fallback={
               <div className="absolute inset-0 z-[5] flex items-center justify-center bg-app-bg">
@@ -1284,11 +1326,26 @@ function RemoteBrowserPanelStreaming({ contextId, initialUrl, navigateUrl, onUrl
                 registerDomSink={browser.registerDomSink}
                 registerFocusSink={browser.registerFocusSink}
                 sendInput={browser.sendInput}
+                goBack={() => { void browser.goBack(); }}
+                goForward={() => { void browser.goForward(); }}
                 agentActive={browser.agentActive}
                 exposeMirrorDocument={exposeMirrorDocument}
+                ownSize={browser.ownSize}
+                ownLayout={layoutChoice === 'own'}
               />
             </div>
           </Suspense>
+        )}
+
+        {/* The page is not there yet, or will not come: say where it was going
+            and why, over the blank page, instead of the session spinner. */}
+        {isBlankPage(browser.pageUrl) && (browser.error || browser.loadingSince !== null) && (
+          <BrowserPageWait
+            url={browser.errorUrl || browser.url}
+            loadingSince={browser.loadingSince}
+            error={browser.error}
+            onRetry={() => browser.navigate(browser.errorUrl || browser.url)}
+          />
         )}
 
         {/* No JPEG rendering — the visible surface is the WebRTC <video> above (when
