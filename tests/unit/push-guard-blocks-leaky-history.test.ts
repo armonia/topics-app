@@ -22,6 +22,19 @@ import { gitEnv } from "../setup/bun-test-preload";
 const GUARD = join(import.meta.dir, "../../scripts/check-push-clean.ts");
 const NAME = "Zzyzx Quiverleaf"; // invented: must not exist anywhere in this repo
 
+/**
+ * A git runner bound to one throwaway repo.
+ *
+ * `env: gitEnv()` is not decoration: without it the hooks of the machine running
+ * the suite fire on every commit of the throwaway repo. See
+ * tests/setup/git-isolation.ts, and the gate that enforces it next door.
+ * It was also the same line written eight times here.
+ */
+function gitIn(dir: string) {
+  return (...args: string[]) =>
+    execFileSync("git", args, { env: gitEnv(), cwd: dir, encoding: "utf8" });
+}
+
 function repoWith(
   commits: Array<{ file: string; body: string; message: string }>,
   /** The `.personal-terms` body. Defaults to the plain, blocking-everywhere form;
@@ -54,15 +67,15 @@ function repoWith(
 /** A bare repo to push to, so "published" means something in a throwaway tree. */
 function remoteFor(dir: string): string {
   const bare = mkdtempSync(join(tmpdir(), "push-guard-remote-"));
-  execFileSync("git", ["init", "-q", "--bare", bare]);
-  execFileSync("git", ["remote", "add", "origin", bare], { cwd: dir });
+  execFileSync("git", ["init", "-q", "--bare", bare], { env: gitEnv() });
+  execFileSync("git", ["remote", "add", "origin", bare], { env: gitEnv(), cwd: dir });
   return bare;
 }
 
 /** Commits carrying `term` under one scope, counted the way the gate counts. */
 function reachable(dir: string, term: string, scope: string[]): string[] {
-  const run = (...args: string[]) =>
-    execFileSync("git", args, { cwd: dir, encoding: "utf8" }).split("\n").filter(Boolean);
+  const git = gitIn(dir);
+  const run = (...args: string[]) => git(...args).split("\n").filter(Boolean);
   return [...new Set([
     ...run("log", "--format=%H", "-S", term, ...scope),
     ...run("log", "--format=%H", "--grep", term, ...scope),
@@ -194,7 +207,7 @@ describe("storia pubblicata: i tag", () => {
   /** A commit that only a tag reaches: branched, tagged, branch deleted. */
   function repoWithTagOnlyLeak(terms?: string): string {
     const dir = repoWith([{ file: "clean.txt", body: "pulito\n", message: "lavoro normale" }], terms);
-    const run = (...args: string[]) => execFileSync("git", args, { cwd: dir, encoding: "utf8" });
+    const run = gitIn(dir);
     run("checkout", "-q", "-b", "da-taggare");
     writeFileSync(join(dir, "leak.txt"), `client: ${NAME}\n`);
     run("add", "-A");
@@ -226,8 +239,8 @@ describe("storia pubblicata: i tag", () => {
     // side then had the gate measure a different commit than the one the remote
     // serves. Here the remote keeps the leak and the local ref is moved away.
     const dir = repoWithTagOnlyLeak();
-    const run = (...args: string[]) => execFileSync("git", args, { cwd: dir, encoding: "utf8" });
-    const published = execFileSync("git", ["ls-remote", "--tags", "origin", "v1.0"], {
+    const run = gitIn(dir);
+    const published = execFileSync("git", ["ls-remote", "--tags", "origin", "v1.0"], { env: gitEnv(),
       cwd: dir, encoding: "utf8",
     }).split("\t")[0]!.trim();
     run("tag", "-f", "v1.0", "main");
@@ -249,11 +262,11 @@ describe("storia pubblicata: i tag", () => {
         ? [{ file: "a.txt", body: `client: ${NAME}\n`, message: "pubblicato sul ramo" }]
         : [{ file: "a.txt", body: "pulito\n", message: "normale" }],
     );
-    const run = (...args: string[]) => execFileSync("git", args, { cwd: dir, encoding: "utf8" });
+    const run = gitIn(dir);
     const bare = remoteFor(dir);
     run("push", "-q", "--no-verify", "origin", "main");
     const clone = mkdtempSync(join(tmpdir(), "push-guard-clone-"));
-    execFileSync("git", ["clone", "-q", bare, clone]);
+    execFileSync("git", ["clone", "-q", bare, clone], { env: gitEnv() });
     // Only now does the leaky object reach the remote, so the clone never got it.
     run("checkout", "-q", "-b", "dopo");
     writeFileSync(join(dir, "leak.txt"), `client: ${NAME}\n`);
@@ -265,10 +278,10 @@ describe("storia pubblicata: i tag", () => {
     run("branch", "-qD", "dopo");
     writeFileSync(join(clone, ".git", "info", "exclude"), ".terms\n");
     writeFileSync(join(clone, ".terms"), `${NAME}\n`);
-    const sha = execFileSync("git", ["ls-remote", "--tags", "origin", "v9"], {
+    const sha = execFileSync("git", ["ls-remote", "--tags", "origin", "v9"], { env: gitEnv(),
       cwd: clone, encoding: "utf8",
     }).split("\t")[0]!.trim();
-    expect(spawnSync("git", ["cat-file", "-e", sha], { cwd: clone }).status).not.toBe(0);
+    expect(spawnSync("git", ["cat-file", "-e", sha], { env: gitEnv(), cwd: clone }).status).not.toBe(0);
     return clone;
   }
 
@@ -300,7 +313,7 @@ describe("storia pubblicata: i tag", () => {
     // `pulito` and then advise removing the forward-only marker.
     const dir = repoWith([{ file: "a.txt", body: "pulito\n", message: "normale" }]);
     remoteFor(dir);
-    const run = (...args: string[]) => execFileSync("git", args, { cwd: dir, encoding: "utf8" });
+    const run = gitIn(dir);
     run("tag", "-a", "v3.0", "-m", `rilascio per ${NAME}`);
     run("push", "-q", "--no-verify", "origin", "main", "v3.0");
     const r = scrub(dir);
@@ -311,7 +324,7 @@ describe("storia pubblicata: i tag", () => {
   test("un commit che solo refs/pull raggiunge e' pubblicato", () => {
     const dir = repoWith([{ file: "a.txt", body: "pulito\n", message: "normale" }]);
     remoteFor(dir);
-    const run = (...args: string[]) => execFileSync("git", args, { cwd: dir, encoding: "utf8" });
+    const run = gitIn(dir);
     run("push", "-q", "--no-verify", "origin", "main");
     run("checkout", "-q", "-b", "pr");
     writeFileSync(join(dir, "leak.txt"), `client: ${NAME}\n`);
@@ -331,7 +344,7 @@ describe("storia pubblicata: i tag", () => {
     // of health. A dangling `refs/pull/*` left by a gc is the buildable case.
     const dir = repoWith([{ file: "a.txt", body: "pulito\n", message: "normale" }]);
     remoteFor(dir);
-    execFileSync("git", ["push", "-q", "--no-verify", "origin", "main"], { cwd: dir });
+    execFileSync("git", ["push", "-q", "--no-verify", "origin", "main"], { env: gitEnv(), cwd: dir });
     mkdirSync(join(dir, ".git", "refs", "pull", "1"), { recursive: true });
     writeFileSync(join(dir, ".git", "refs", "pull", "1", "head"), `${"a".repeat(40)}\n`);
     const r = scrub(dir);
@@ -352,7 +365,7 @@ describe("storia pubblicata: i tag", () => {
     // nothing, which read as zero commits for every term. The trailing `--`
     // closes the rev list.
     const dir = repoWithTagOnlyLeak();
-    const sha = execFileSync("git", ["rev-parse", "refs/tags/v1.0"], { cwd: dir, encoding: "utf8" }).trim();
+    const sha = execFileSync("git", ["rev-parse", "refs/tags/v1.0"], { env: gitEnv(), cwd: dir, encoding: "utf8" }).trim();
     writeFileSync(join(dir, sha), "un file che si chiama come il rev\n");
     const r = scrub(dir);
     expect(r.status).toBe(1);
@@ -364,7 +377,7 @@ describe("storia pubblicata: i tag", () => {
     // `archive/*` backup tag is the common case (316 of them on the real clone)
     // and counting it would announce a public leak on a ref nobody can fetch.
     const dir = repoWith([{ file: "clean.txt", body: "pulito\n", message: "normale" }]);
-    const run = (...args: string[]) => execFileSync("git", args, { cwd: dir, encoding: "utf8" });
+    const run = gitIn(dir);
     run("checkout", "-q", "-b", "da-taggare");
     writeFileSync(join(dir, "leak.txt"), `client: ${NAME}\n`);
     run("add", "-A");
@@ -419,7 +432,7 @@ describe("termini solo in avanti", () => {
   test("nella storia PUBBLICATA non fa rosso, e la nomina col conteggio", () => {
     const dir = repoWith([{ file: "a.txt", body: `client: ${NAME}\n`, message: "pubblicato" }], FORWARD);
     remoteFor(dir);
-    execFileSync("git", ["push", "-q", "--no-verify", "origin", "main"], { cwd: dir });
+    execFileSync("git", ["push", "-q", "--no-verify", "origin", "main"], { env: gitEnv(), cwd: dir });
     const r = spawnSync("bun", ["run", SCRUB, "--check"], {
       cwd: dir,
       encoding: "utf8",
@@ -435,7 +448,7 @@ describe("termini solo in avanti", () => {
     // The pair that proves the marker is what changed the verdict, not the repo.
     const dir = repoWith([{ file: "a.txt", body: `client: ${NAME}\n`, message: "pubblicato" }]);
     remoteFor(dir);
-    execFileSync("git", ["push", "-q", "--no-verify", "origin", "main"], { cwd: dir });
+    execFileSync("git", ["push", "-q", "--no-verify", "origin", "main"], { env: gitEnv(), cwd: dir });
     const r = spawnSync("bun", ["run", SCRUB, "--check"], {
       cwd: dir,
       encoding: "utf8",
@@ -455,8 +468,8 @@ describe("termini solo in avanti", () => {
   test("in un commit NON pushato e' rosso: contenuto", () => {
     const dir = repoWith([{ file: "clean.txt", body: "pulito\n", message: "normale" }], FORWARD);
     remoteFor(dir);
-    execFileSync("git", ["push", "-q", "--no-verify", "origin", "main"], { cwd: dir });
-    const run = (...args: string[]) => execFileSync("git", args, { cwd: dir, encoding: "utf8" });
+    execFileSync("git", ["push", "-q", "--no-verify", "origin", "main"], { env: gitEnv(), cwd: dir });
+    const run = gitIn(dir);
     writeFileSync(join(dir, "new.txt"), `path: ${NAME}\n`);
     run("add", "-A");
     run("commit", "-q", "-m", "niente di che");
@@ -468,8 +481,8 @@ describe("termini solo in avanti", () => {
   test("in un commit NON pushato e' rosso anche se sta solo nel MESSAGGIO", () => {
     const dir = repoWith([{ file: "clean.txt", body: "pulito\n", message: "normale" }], FORWARD);
     remoteFor(dir);
-    execFileSync("git", ["push", "-q", "--no-verify", "origin", "main"], { cwd: dir });
-    const run = (...args: string[]) => execFileSync("git", args, { cwd: dir, encoding: "utf8" });
+    execFileSync("git", ["push", "-q", "--no-verify", "origin", "main"], { env: gitEnv(), cwd: dir });
+    const run = gitIn(dir);
     writeFileSync(join(dir, "new.txt"), "niente di che\n");
     run("add", "-A");
     run("commit", "-q", "-m", `fix in ${NAME}`);
@@ -480,7 +493,7 @@ describe("termini solo in avanti", () => {
   test("un marcatore su un termine che la storia non ha lo dice invece di tacere", () => {
     const dir = repoWith([{ file: "a.txt", body: "pulito\n", message: "normale" }], FORWARD);
     remoteFor(dir);
-    execFileSync("git", ["push", "-q", "--no-verify", "origin", "main"], { cwd: dir });
+    execFileSync("git", ["push", "-q", "--no-verify", "origin", "main"], { env: gitEnv(), cwd: dir });
     const r = spawnSync("bun", ["run", SCRUB, "--check"], {
       cwd: dir,
       encoding: "utf8",
@@ -512,7 +525,7 @@ describe("un termine con metacaratteri", () => {
   test("nella storia pubblicata, solo nel MESSAGGIO, e' rosso", () => {
     const dir = repoWith([{ file: "a.txt", body: "pulito\n", message: `fattura per ${BRACKET}` }], `${BRACKET}\n`);
     remoteFor(dir);
-    execFileSync("git", ["push", "-q", "--no-verify", "origin", "main"], { cwd: dir });
+    execFileSync("git", ["push", "-q", "--no-verify", "origin", "main"], { env: gitEnv(), cwd: dir });
     // The regex really does match nothing: this is the hole, measured.
     expect(reachable(dir, BRACKET, ["--remotes=origin/*"])).toHaveLength(0);
     const r = spawnSync("bun", ["run", SCRUB, "--check"], {
@@ -526,7 +539,7 @@ describe("un termine con metacaratteri", () => {
   test("in un commit non pushato, solo nel MESSAGGIO, il pre-push e' rosso", () => {
     const dir = repoWith([{ file: "a.txt", body: "pulito\n", message: "normale" }], `${BRACKET}\n`);
     remoteFor(dir);
-    const run = (...args: string[]) => execFileSync("git", args, { cwd: dir, encoding: "utf8" });
+    const run = gitIn(dir);
     run("push", "-q", "--no-verify", "origin", "main");
     run("commit", "-q", "--allow-empty", "-m", `lavoro per ${BRACKET}`);
     const r = spawnSync("bun", ["run", GUARD3, "--range", "HEAD", "--not", "--remotes=origin/*"], {
