@@ -832,6 +832,9 @@ export type { ParsedArgs } from "./topics-http";
  * id ce li ha gia' dallo `spawn_agent`, e uno schema in meno e' un prefisso in
  * meno moltiplicato per ogni chiamata del turno.
  */
+// `read_chat_messages` is NOT excluded: `resolve_tab` (kept on purpose) answers a
+// pasted `/tab/chat/<id>` with `next: read_chat_messages`, and a task agent
+// that is sent to a tool it does not have cannot read the chat it was shown.
 const DISPATCH_EXCLUDED_TOOLS = new Set([
   // A dispatched agent works a card in its own topic, which carries no goal:
   // the two schemas would be paid on every call for a tool it can never use.
@@ -841,7 +844,6 @@ const DISPATCH_EXCLUDED_TOOLS = new Set([
   "update_goal_steps",
   "list_agents",
   "send_chat_message",
-  "read_chat_messages",
   "new_topic",
   "switch_topic",
   "import_chrome",
