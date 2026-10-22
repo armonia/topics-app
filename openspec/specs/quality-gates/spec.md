@@ -854,3 +854,59 @@ chi lo lancia.
 #### Scenario: un percorso di sistema non e' quello di una persona
 - **GIVEN** `<string>/usr/bin:/bin:/opt/homebrew/bin</string>`
 - **THEN** SHALL essere verde
+
+### Requirement: GATE-21 — «Pubblicato» sono anche i tag, e un termine già pubblicato si blocca in avanti invece di fare rosso per sempre
+
+Il cancello della storia pubblicata (`check:history-clean`,
+`scripts/scrub-history.ts --check`) SHALL misurare l'unione di TUTTI i ref che
+il remoto serve: i rami remoti, i **tag che il remoto ha** e `refs/pull/*`.
+Prima guardava solo `--remotes=<r>/*`, cioè 23 ref su 1025: misurato il
+22/10/2026 su un termine reale, 51 commit contro i 112 dell'unione, e tre nomi
+di cliente riportati `pulito` mentre 11+2+1 commit li portavano ancora, tenuti
+in vita da UN tag di release pubblicato i cui commit erano stati rebasati via
+da `main`. Un cancello che sottostima di 2x dice «pulito» su metà di ciò che il
+pubblico può leggere.
+
+L'elenco dei tag SHALL arrivare dal remoto (`git ls-remote --tags`), non da
+`--tags`: 316 dei 1025 tag di questo clone sono backup `archive/*` che esistono
+solo qui, e contarli farebbe annunciare una fuga PUBBLICA su ref che nessuno
+può raggiungere — lo stesso difetto di `selfcheck/main`. Un remoto che risponde
+con zero tag SHALL contare come «nessun tag pubblicato»; solo quando NESSUN
+remoto risponde il cancello SHALL ripiegare sui tag locali, dicendolo, perché
+per un cancello di fuga una stima per eccesso che si legge vale più di un
+silenzio.
+
+Un termine di `.personal-terms` SHALL poter essere marcato **solo in avanti**
+(prefisso `>` sulla riga; il formato è documentato nel docblock di
+`scripts/personal-terms.ts`, perché il file non è tracciato). Un termine così
+marcato NON SHALL far fallire il controllo sulla storia pubblicata — che SHALL
+riportarlo come esposizione nota con il suo conteggio — e SHALL comunque essere
+rifiutato dal hook pre-push nei commit non ancora pushati, **messaggi
+inclusi**. Senza i due livelli un termine già pubblicato rende
+`check:history-clean` rosso per sempre (l'unico rimedio sarebbe riscrivere la
+storia, ed è misurato che non basta: GitHub serve gli oggetti per SHA anche 62
+giorni dopo un force-push), quindi non si poteva aggiungere affatto: è per
+questo che il percorso della home dell'autore è rimasto fuori dalla lista fino
+a finire in un plist launchd nella PR #405 senza che niente lo cercasse.
+
+Un marcatore su un termine che la storia pubblicata NON contiene SHALL essere
+segnalato come inutile, non essere rosso: non copre nulla e il pre-push lo
+blocca comunque.
+
+#### Scenario: un nome che solo un tag pubblicato raggiunge
+- **GIVEN** un commit con il termine, raggiungibile solo da un tag spinto sul remoto
+- **WHEN** si lancia `check:history-clean`
+- **THEN** SHALL uscire 1, mentre il vecchio ambito (solo i rami remoti) ne contava 0
+
+#### Scenario: un tag che vive solo in locale
+- **GIVEN** lo stesso commit, con il tag MAI spinto e il remoto che risponde
+- **THEN** SHALL uscire 0 e SHALL riportarlo come sporcizia solo locale
+
+#### Scenario: termine solo in avanti già nella storia pubblicata
+- **GIVEN** `> <termine>` e il termine in un commit sul ramo remoto
+- **THEN** `check:history-clean` SHALL uscire 0 e SHALL nominarlo col conteggio come esposizione nota
+- **AND** lo stesso repo senza il marcatore SHALL uscire 1
+
+#### Scenario: lo stesso termine in un commit non pushato
+- **GIVEN** `> <termine>` e un commit locale che lo contiene nel contenuto, e un altro che lo ha solo nel MESSAGGIO
+- **THEN** il hook pre-push SHALL uscire 1 in entrambi i casi

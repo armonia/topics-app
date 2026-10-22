@@ -15,6 +15,35 @@
  * TOPICS_PERSONAL_TERMS overrides the path. It exists so the tests can hand the
  * gate a list of their own invented names: a gate whose only input is a file
  * that must not exist in CI could never be shown to turn red.
+ *
+ * THE FILE FORMAT, documented here because `.personal-terms` is untracked and
+ * therefore cannot carry its own legend where anyone would find it.
+ *
+ *   One term per line. `#` starts a comment, blank lines are ignored.
+ *
+ *   A line starting with `>` is FORWARD-ONLY: block it in commits that have not
+ *   been pushed yet, but do not fail the published-history gate over it.
+ *
+ *     Acme Industries          # blocked everywhere, history included
+ *     > /Users/someone         # blocked in new commits; already published
+ *
+ * WHY FORWARD-ONLY EXISTS. Without it the list has exactly one tier: a term in
+ * it that already appears in the published history makes `check:history-clean`
+ * red forever, because the only cure would be a history rewrite — and a rewrite
+ * is measured not to help, since GitHub keeps serving objects by SHA after a
+ * force-push (31 commits from the 21/08/2026 rewrite were still reachable 62
+ * days later). So a term worth blocking GOING FORWARD could not be added at
+ * all, and the obvious candidate stayed out of the list for two months: the
+ * author's home directory path, which then leaked into a launchd plist in
+ * PR #405 with nothing looking for it. One tier meant the choice was "red
+ * forever" or "unguarded", and unguarded always won.
+ *
+ * The two gates read the same list and ask different questions of it, so the
+ * marker lands in only one of them: `scrub-history.ts --check` reports a
+ * forward-only term as a known exposure with its count instead of failing,
+ * while `check-push-clean.ts` refuses it in commits not yet pushed, message
+ * included. Nothing about the marker weakens the push guard, which is the
+ * half that can still prevent something.
  */
 import { execFileSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
@@ -42,11 +71,34 @@ export function personalTermsPath(root: string): string {
   return own;
 }
 
-export function personalTerms(root: string): string[] {
+export type PersonalTerm = {
+  term: string;
+  /** Blocked in commits not yet pushed, but not a failure of the published-history gate. */
+  forwardOnly: boolean;
+};
+
+/** The marker that opens a forward-only line. See the file format above. */
+const FORWARD_ONLY_MARK = ">";
+
+export function personalTermEntries(root: string): PersonalTerm[] {
   const file = personalTermsPath(root);
   if (!existsSync(file)) return [];
-  return readFileSync(file, "utf8")
-    .split("\n")
-    .map((line) => line.split("#")[0]!.trim())
-    .filter(Boolean);
+  const entries: PersonalTerm[] = [];
+  for (const raw of readFileSync(file, "utf8").split("\n")) {
+    const line = raw.split("#")[0]!.trim();
+    if (!line) continue;
+    const forwardOnly = line.startsWith(FORWARD_ONLY_MARK);
+    const term = forwardOnly ? line.slice(FORWARD_ONLY_MARK.length).trim() : line;
+    if (term) entries.push({ term, forwardOnly });
+  }
+  return entries;
+}
+
+/**
+ * Every term, marker stripped. This is what a caller wants when the answer is
+ * the same for both tiers — the push guard blocks forward-only terms exactly
+ * like the rest, which is the whole point of marking them.
+ */
+export function personalTerms(root: string): string[] {
+  return personalTermEntries(root).map((entry) => entry.term);
 }

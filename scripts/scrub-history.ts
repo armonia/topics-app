@@ -47,7 +47,7 @@
 import { execFileSync } from "node:child_process";
 import { writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { personalTerms } from "./personal-terms.ts";
+import { type PersonalTerm, personalTermEntries } from "./personal-terms.ts";
 
 /** The repo this is run FROM, not the one the file lives in: in a worktree they
  *  are different trees, and resolving from cwd is what lets the tests point the
@@ -63,8 +63,9 @@ function radice(): string {
 const RADICE = radice();
 
 /** Terms come from `.personal-terms`, deliberately untracked: a list of what
- *  must be hidden cannot itself live in the repo it is hidden from. */
-const termini = () => personalTerms(RADICE);
+ *  must be hidden cannot itself live in the repo it is hidden from. The entries
+ *  carry their tier: see the file format in `personal-terms.ts`. */
+const termini = (): PersonalTerm[] => personalTermEntries(RADICE);
 
 function git(...args: string[]): string {
   try {
@@ -132,29 +133,116 @@ function commitCon(termine: string, ambito: string[]): number {
 function remoteReal(): string[] {
   return git("remote").split("\n").map((r) => r.trim()).filter(Boolean);
 }
-const PUBBLICO = remoteReal().map((r) => `--remotes=${r}/*`);
+
+/**
+ * TAGS ARE PUBLISHED TOO, and for two months this gate could not see them.
+ *
+ * `--remotes=<r>/*` covers the remote BRANCHES, which on this clone is 23 refs.
+ * The same remote publishes 710 tags, and a tag is as readable as a branch:
+ * `git fetch` brings it to anyone, GitHub serves its tree in the UI, and the
+ * 21/08/2026 rewrite moved `main` without touching any of them.
+ *
+ * Measured 22/10/2026 on the author's home directory path: the gate counted 51
+ * commits, the union with the published tags counts 112. Three client names
+ * reported `pulito` while 14 commits still carried them, all of them kept alive
+ * by ONE published release tag whose commits were rebased off `main`. A gate
+ * that undercounts by 2x says "clean" about half of what the public can read,
+ * which is the failure this file's own header calls worse than no gate at all.
+ *
+ * WHY THE TAG LIST COMES FROM THE REMOTE AND NOT FROM `--tags`. 316 of the 1025
+ * tags in this clone exist only here: `archive/*` backups cut before a rebase.
+ * Counting them would make the gate announce a PUBLIC leak on refs nobody can
+ * reach — exactly the `selfcheck/main` bug that taught this file to build its
+ * scope from configured remotes in the first place. So we ask the remote which
+ * tags it has. Offline that question cannot be answered, and the fallback is
+ * every local tag: over-reporting with a printed caveat, because for a leak
+ * gate a false alarm you can read beats a silence you cannot.
+ *
+ * `refs/pull/*` is in the scope for the same reason. GitHub publishes the head
+ * of every pull request under that namespace; a clone that fetches them (some
+ * CI setups do) can hold a commit that no branch and no tag reaches, and one
+ * such commit was measured during this work.
+ */
+/** Set when the tag list is the local one: the verdict then over-reports, and
+ *  `--check` says so instead of passing the guess off as a measurement. */
+let tagsAreLocalGuess = false;
+
+function publishedTagRefs(remotes: string[]): string[] {
+  const refs = new Set<string>();
+  // "No tags" and "no answer" are different facts and the fallback must not
+  // confuse them: a remote that answers with an empty tag list publishes no
+  // tags, and guessing from the local ones there would invent a leak out of an
+  // `archive/*` backup nobody can fetch.
+  let someoneAnswered = false;
+  for (const remote of remotes) {
+    let listing: string;
+    try {
+      listing = execFileSync("git", ["ls-remote", "--tags", remote], {
+        cwd: RADICE,
+        encoding: "utf8",
+        timeout: 30_000,
+        maxBuffer: 64 * 1024 * 1024,
+        stdio: ["ignore", "pipe", "ignore"],
+      });
+    } catch {
+      continue; // offline, or a remote that no longer answers
+    }
+    someoneAnswered = true;
+    for (const line of listing.split("\n")) {
+      const ref = line.split("\t")[1]?.trim();
+      // `^{}` is the peeled commit of an annotated tag: the same object, and
+      // passing both to `git log` only duplicates work.
+      if (ref?.startsWith("refs/tags/") && !ref.endsWith("^{}")) refs.add(ref);
+    }
+  }
+  if (refs.size > 0) return [...refs];
+  if (someoneAnswered) return [];
+  const local = git("for-each-ref", "--format=%(refname)", "refs/tags").split("\n").filter(Boolean);
+  if (local.length === 0) return [];
+  tagsAreLocalGuess = true;
+  return ["--tags"];
+}
+
+const REMOTES = remoteReal();
+/** No configured remote means nothing is published, and the scope stays empty so
+ *  `commitCon` refuses to fall back to HEAD. A leftover `refs/remotes/<gone>/*`
+ *  publishes nothing; that is what the third test in the suite watches. */
+const PUBBLICO = REMOTES.length === 0
+  ? []
+  : [...REMOTES.map((r) => `--remotes=${r}/*`), ...publishedTagRefs(REMOTES), "--glob=refs/pull/*"];
 const LOCALE = ["--all", "--not", ...PUBBLICO];
 
 const soloMisura = process.argv.includes("--check");
 
 const ambito = soloMisura ? PUBBLICO : ["--all"];
-const righe: Array<{ termine: string; commit: number }> = [];
+const righe: Array<{ termine: string; commit: number; forwardOnly: boolean }> = [];
 for (const t of termini()) {
-  righe.push({ termine: t, commit: commitCon(t, ambito) });
+  righe.push({ termine: t.term, commit: commitCon(t.term, ambito), forwardOnly: t.forwardOnly });
 }
-const sporchi = righe.filter((r) => r.commit > 0);
+/** Dirty AND blocking: a forward-only term in the published history is a fact to
+ *  report, not a failure, because no action available here would change it. */
+const sporchi = righe.filter((r) => r.commit > 0 && !r.forwardOnly);
+const knownExposures = righe.filter((r) => r.commit > 0 && r.forwardOnly);
 
 console.log(
   soloMisura
-    ? "[scrub] termini nella storia PUBBLICATA (i ref remoti):"
+    ? "[scrub] termini nella storia PUBBLICATA (rami remoti, tag pubblicati, refs/pull):"
     : "[scrub] termini nella STORIA (non nell'albero di oggi):",
 );
 for (const r of righe) {
-  console.log(`  ${r.commit === 0 ? "pulito" : `${r.commit} commit`.padEnd(10)}  ${r.termine}`);
+  const count = r.commit === 0 ? "pulito".padEnd(10) : `${r.commit} commit`.padEnd(10);
+  console.log(`  ${count}  ${r.termine}${r.forwardOnly ? "   [solo in avanti]" : ""}`);
+}
+if (soloMisura && tagsAreLocalGuess) {
+  console.log(
+    "\n[scrub] il remoto non ha risposto: i tag contati sono quelli LOCALI, compresi\n" +
+      "        quelli che non sono mai stati pubblicati. Il conteggio e' una stima\n" +
+      "        per eccesso; rilancialo con la rete per avere quello vero.",
+  );
 }
 
 if (soloMisura) {
-  const locali = termini().reduce((n, t) => n + commitCon(t, LOCALE), 0);
+  const locali = termini().reduce((n, t) => n + commitCon(t.term, LOCALE), 0);
   if (locali > 0) {
     console.log(
       `\n[scrub] ${locali} commit SOLO locali li contengono ancora: e' la storia di prima` +
@@ -163,12 +251,39 @@ if (soloMisura) {
         "\n        rifiuta di pubblicarla. Per toglierla da un ramo: rebase --onto origin/main.",
     );
   }
+  if (knownExposures.length > 0) {
+    console.log(
+      `\n[scrub] ${knownExposures.length} termini sono un'esposizione NOTA e accettata (solo in avanti):`,
+    );
+    for (const r of knownExposures) console.log(`          ${r.termine}: ${r.commit} commit pubblicati`);
+    console.log(
+      "        Non fanno rosso: la storia pubblicata non si puo' ritirare (un force-push\n" +
+        "        non basta, GitHub continua a servire gli oggetti per SHA). Cio' che si puo'\n" +
+        "        ancora impedire e' AGGIUNGERNE, e lo fa il hook pre-push\n" +
+        "        (scripts/check-push-clean.ts), che li rifiuta nei commit non ancora pushati.",
+    );
+  }
+  for (const r of righe) {
+    if (r.forwardOnly && r.commit === 0) {
+      console.log(
+        `\n[scrub] «${r.termine}» e' marcato solo in avanti ma la storia pubblicata non lo\n` +
+          "        contiene: il marcatore non serve e puoi togliere il «>».",
+      );
+    }
+  }
   if (sporchi.length > 0) {
     console.log(`\n[scrub] ${sporchi.length} termini sono PUBBLICI: vanno tolti dalla storia remota.`);
     process.exit(1);
   }
-  console.log("\n[scrub] niente di pubblicato contiene i nomi.");
+  console.log("\n[scrub] niente di pubblicato contiene i nomi (oltre a cio' che e' gia' noto).");
   process.exit(0);
+}
+
+if (knownExposures.length > 0) {
+  console.log(
+    `\n[scrub] ${knownExposures.length} termini sono marcati solo in avanti e NON entrano nella mappa:` +
+      "\n        riscriverli non li ritira dal pubblico, e cambiare gli SHA costa comunque.",
+  );
 }
 
 if (sporchi.length === 0) {
