@@ -19,6 +19,11 @@
 //     server AND live dev sessions no longer makes a land fail (or force someone's
 //     branch to move) just because a session is parked on a feature branch.
 //   • NO push — landing is local only; the release pipeline stays the sole pusher.
+//   • The BASE is `origin/main`, not the local `main`: the land fetches it first
+//     (bounded, `fetchRemoteBase`), measures the branch against it and merges it
+//     into the landing checkout BEFORE the branch. Local `main` stays where the
+//     result lands (and what "Publish" later pushes), but it no longer decides
+//     what counts as published: on 21/10 it was 646 commits behind.
 //   • On any non-zero merge we `merge --abort`, so main is never left mid-conflict.
 //   • Serialized per repo path, so two approvals on the same project can't race.
 
@@ -29,6 +34,7 @@ import { worktreeRegistrationLost } from "./worktree-registration";
 import { commitIsIn, countOwnCommits, otherLocalBranches } from "./own-commits";
 import { commitStatusFromRepo } from "./branch-status";
 import { landedMergeRange } from "./task-diff-range";
+import { fetchRemoteBase } from "./worktree-base-ref";
 import { gitEnvFor } from "../lib/git-identity";
 import { missingPackageManager, runScriptArgv } from "../lib/project-scripts";
 import { MIGRATIONS_DIR, findNumberCollisions } from "../../shared/migration-numbers";
@@ -107,6 +113,8 @@ export type LandSkipCode =
   | "dirty-checkout"
   /** Il worktree usa-e-getta su cui atterrare non si è potuto creare. */
   | "worktree-add-failed"
+  /** `origin/main` does not merge into the local main (conflict): the local main's problem, not the card's. */
+  | "base-diverged"
   /**
    * Il ramo è indietro su main e il riallineamento non si è potuto nemmeno
    * PROVARE (il worktree del ramo ha WIP, o non si è potuto crearne uno). Non è
@@ -146,7 +154,7 @@ export interface LandFallout {
 const REBASE_INSTRUCTION =
   "Il land del tuo branch su main non è riuscito: dal ramo non si riesce a isolare il lavoro di questa card " +
   "(porta anche commit che non sono suoi, o non se ne distingue nessuno). Rifai la BASE del tuo ramo sul main " +
-  "aggiornato (`git fetch` se serve, poi `git rebase main`), NON un merge di main dentro il ramo: dopo la rebase " +
+  "aggiornato (`git fetch origin main`, poi `git rebase origin/main`), NON un merge di main dentro il ramo: dopo la rebase " +
   "il ramo deve portare SOLO i tuoi commit. Poi rimetti in review con update_task(status=\"review\"). " +
   "Resta vietato toccare main: niente push, niente merge verso main.";
 
@@ -187,6 +195,8 @@ export function landFallout(code: LandSkipCode | undefined, ctx: { deliveryCommi
       return { status: "review", reason: "il checkout condiviso ha lavoro non committato" };
     case "worktree-add-failed":
       return { status: "review", reason: "il worktree su cui atterrare non si è potuto creare" };
+    case "base-diverged":
+      return { status: "review", reason: "origin/main non si fonde col main locale: va riconciliato a mano prima del land" };
     case "realign-blocked":
       return { status: "review", reason: "il ramo è indietro su main e il riallineamento non si è potuto provare" };
     default:
@@ -337,7 +347,7 @@ export async function defaultRunGit(cwd: string, args: string[]): Promise<GitRun
     // merge e i cherry-pick), e git senza identità esce 128 prima di toccare
     // l'albero. Il perché e la regola del ripiego stanno in `git-identity.ts`.
     const env = await gitEnvFor(cwd);
-    const r = await runBounded(["git", ...args], { cwd, stderr: "pipe", env, timeoutMs: SPAWN_TIMEOUT.long });
+    const r = await runBounded(["git", ...args], { cwd, stderr: "pipe", env, timeoutMs: args[0] === "fetch" ? SPAWN_TIMEOUT.query : SPAWN_TIMEOUT.long });
     if (r.spawnFailed) return { code: 1, stdout: "", stderr: r.spawnError ?? "" };
     return { code: r.exitCode ?? 124, stdout: r.stdout, stderr: r.stderr };
   } catch (e) {
@@ -422,6 +432,15 @@ export function createTaskAutoMerge(deps: AutoMergeDeps) {
   const repoQueue = makeSerialQueue();
   function chain<T>(key: string, fn: () => Promise<T>): Promise<T> {
     return repoQueue.enqueue(key, fn);
+  }
+
+  /**
+   * What the land compares and realigns the branch against: `origin/<main>`,
+   * just fetched. With no remote (or no such ref) it stays the local main, as
+   * before. A failed fetch does not stop the land: the local copy of `origin` is used.
+   */
+  async function comparisonBase(repoPath: string, mainBranch: string): Promise<string> {
+    return (await fetchRemoteBase(runGit, repoPath, mainBranch)).ref ?? mainBranch;
   }
 
   /**
@@ -676,7 +695,8 @@ export function createTaskAutoMerge(deps: AutoMergeDeps) {
     if (!target) return { ok: true, note: null };
     return chain(target.repoPath, async () => {
       let note: string | null = null;
-      const blocked = await realignmentFor(target, (n) => { note = n; }).realignOnMain();
+      const base = await comparisonBase(target.repoPath, target.defaultBranch);
+      const blocked = await realignmentFor({ ...target, defaultBranch: base }, (n) => { note = n; }).realignOnMain();
       if (!blocked) return { ok: true, note };
       if (blocked.status === "conflict") {
         const files = blocked.realignConflict?.files ?? [];
@@ -700,6 +720,8 @@ export function createTaskAutoMerge(deps: AutoMergeDeps) {
     }
     const target = choice.target;
     const { repoPath, defaultBranch } = target;
+    /** What the branch is compared with: `origin/main` (see `comparisonBase`). `defaultBranch` is where the result lands. */
+    let base = defaultBranch;
 
     // Riempiti da `resolveLanding` prima di qualunque merge: `branch` è il ramo
     // che si pubblica davvero, `drift` la frase da mettere nel thread.
@@ -726,6 +748,23 @@ export function createTaskAutoMerge(deps: AutoMergeDeps) {
         landedNotLive: !live, checkoutBranch,
         deliveryDrift: drift,
         realigned,
+      };
+    }
+
+    /**
+     * Brings `origin/main` into the landing checkout, before the branch:
+     * fast-forward if the local main is only behind, a merge if it has unpublished
+     * work of its own. `skipped` if they do not merge: the conflict is between the
+     * local main and origin, not the card's, and the card must not pay for it.
+     */
+    async function syncLandingBase(cwd: string): Promise<AutoMergeResult | null> {
+      if (base === defaultBranch) return null;
+      const m = await runGit(cwd, ["merge", "--no-edit", base]);
+      if (m.code === 0) return null;
+      await runGit(cwd, ["merge", "--abort"]).catch(() => undefined);
+      return {
+        status: "skipped", code: "base-diverged",
+        reason: `'${base}' non si fonde con '${defaultBranch}' locale: ${(m.stderr || m.stdout).trim().slice(-200) || "merge fallito"}. Riconcilia a mano, poi riprova il land`,
       };
     }
 
@@ -771,7 +810,7 @@ export function createTaskAutoMerge(deps: AutoMergeDeps) {
      * creo uno» non è un'ottimizzazione, è l'unico modo di non fallire.
      */
     const realignOnMain = () => realignmentFor(
-      { repoPath, defaultBranch, get branch() { return branch; } },
+      { repoPath, defaultBranch: base, get branch() { return branch; } },
       (note) => { realigned = note; },
     ).realignOnMain();
 
@@ -987,6 +1026,8 @@ export function createTaskAutoMerge(deps: AutoMergeDeps) {
 
     return chain(repoPath, async (): Promise<AutoMergeResult> => {
       try {
+        // Inside the queue: the fetch touches the repo like any other land operation.
+        base = await comparisonBase(repoPath, defaultBranch);
         const head = await runGit(repoPath, ["symbolic-ref", "--short", "-q", "HEAD"]);
         const cur = head.stdout.trim();
 
@@ -999,7 +1040,8 @@ export function createTaskAutoMerge(deps: AutoMergeDeps) {
 
         // Does the branch exist and have commits main doesn't? (Refs are shared
         // across every worktree, so this reads the same from the shared checkout.)
-        let ahead = await runGit(repoPath, ["rev-list", "--count", `${defaultBranch}..${branch}`]);
+        // "To land" = neither on origin/main nor on the local main (a land not yet published).
+        let ahead = await runGit(repoPath, ["rev-list", "--count", `${base}..${branch}`, `^${defaultBranch}`]);
         if (ahead.code !== 0) {
           // Il ramo non c'è più, e NON vuol dire che il lavoro non sia atterrato:
           // dopo un land riuscito il ramo viene POTATO. Da quel momento ogni
@@ -1148,7 +1190,7 @@ export function createTaskAutoMerge(deps: AutoMergeDeps) {
           // Il ramo si è mosso: tutto ciò che segue deve contare i commit di
           // ADESSO. Senza questa riletura i cancelli girerebbero sulla misura
           // precedente al merge, cioè su un ramo che non esiste più.
-          ahead = await runGit(repoPath, ["rev-list", "--count", `${defaultBranch}..${branch}`]);
+          ahead = await runGit(repoPath, ["rev-list", "--count", `${base}..${branch}`, `^${defaultBranch}`]);
           if (ahead.code !== 0) {
             return { status: "skipped", code: "branch-missing", reason: `branch '${branch}' non più confrontabile con '${defaultBranch}' dopo il riallineamento` };
           }
@@ -1222,7 +1264,7 @@ export function createTaskAutoMerge(deps: AutoMergeDeps) {
         let onlyOwn: { total: number; mine: number; others: string[] } | null = null;
         let ownRefs: string[] = [];
         try { ownRefs = deps.ownBranches?.(taskId) ?? []; } catch { ownRefs = []; }
-        const others = await otherLocalBranches(repoPath, branch, { mainRef: defaultBranch, runGit, ownRefs });
+        const others = await otherLocalBranches(repoPath, branch, { mainRef: base, runGit, ownRefs });
         if (others === null) {
           return {
             status: "skipped", code: "unisolable",
@@ -1232,7 +1274,7 @@ export function createTaskAutoMerge(deps: AutoMergeDeps) {
           };
         }
         if (others.length > 0) {
-          const mine = await countOwnCommits(repoPath, branch, { mainRef: defaultBranch, runGit, others });
+          const mine = await countOwnCommits(repoPath, branch, { mainRef: base, runGit, others });
           const total = Number(ahead.stdout.trim());
           if (mine === null) {
             return {
@@ -1244,10 +1286,10 @@ export function createTaskAutoMerge(deps: AutoMergeDeps) {
             return {
               status: "skipped", code: "unisolable",
               reason:
-                `il branch '${branch}' porta ${total} commit che '${defaultBranch}' non ha, ma togliendo quelli raggiungibili dagli altri ` +
+                `il branch '${branch}' porta ${total} commit che '${base}' non ha, ma togliendo quelli raggiungibili dagli altri ` +
                 `${others.length} branch locali non ne resta NESSUNO: non è «niente da portare» (quello sarebbe zero commit avanti), ` +
                 "è «non so quali siano i suoi». Succede quando il ramo della card è raggiungibile anche da un altro ramo. " +
-                `Guarda con \`git log --oneline ${defaultBranch}..${branch}\`, poi cancella il ramo di troppo o cherry-picka a mano`,
+                `Guarda con \`git log --oneline ${base}..${branch}\`, poi cancella il ramo di troppo o cherry-picka a mano`,
             };
           }
           if (Number.isFinite(total) && total > mine) {
@@ -1278,6 +1320,8 @@ export function createTaskAutoMerge(deps: AutoMergeDeps) {
           if (st.stdout.trim() !== "") {
             return { status: "skipped", code: "dirty-checkout", reason: `il checkout è su '${defaultBranch}' con modifiche non committate a file tracciati. Mergia a mano o pulisci il checkout` };
           }
+          const diverged = await syncLandingBase(repoPath);
+          if (diverged) return diverged;
           // Mixed by ancestry is not mixed by content: see `foreignAlreadyOnMain`.
           if (onlyOwn && await foreignAlreadyOnMain(repoPath, onlyOwn)) onlyOwn = null;
           if (onlyOwn) {
@@ -1309,6 +1353,8 @@ export function createTaskAutoMerge(deps: AutoMergeDeps) {
           return { status: "skipped", code: "worktree-add-failed", reason: `impossibile creare il worktree di land su '${defaultBranch}': ${(add.stderr || add.stdout).trim().slice(-200) || "git worktree add fallito"}` };
         }
         try {
+          const diverged = await syncLandingBase(wtPath);
+          if (diverged) return diverged;
           if (onlyOwn && await foreignAlreadyOnMain(wtPath, onlyOwn)) onlyOwn = null;
           if (onlyOwn) {
             const picked = await pickOwnCommits(wtPath, onlyOwn);

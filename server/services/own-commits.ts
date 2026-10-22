@@ -82,6 +82,7 @@ export interface OwnCommitsOptions {
  * `main..<nome>`, e git rifiuterebbe la domanda invece di rispondere.
  */
 function refName(name: string): string {
+  if (name.startsWith("origin/")) return `refs/remotes/${name}`;
   return name.startsWith("refs/") ? name : `refs/heads/${name}`;
 }
 

@@ -3382,7 +3382,7 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
         `- Do NOT create subtasks and do NOT rename the task: the board is ONE and shared between the ${total} attempts — you would get ${total} copies of everything.`,
         "- Do NOT write in the task thread (it is shared): your report is the LAST message of this turn, and that is what goes into the comparison.",
         "- COMMIT everything on your branch before you finish: an attempt with uncommitted work counts as 'no changes' and is discarded.",
-        "- DO NOT TOUCH main: no push, no merge TOWARDS main — landing is a human decision. Rebasing YOUR branch onto an updated main (`git rebase main`) is allowed instead, and it is the right move when the land says your commits collide — the rebase onto the UPDATED main, not a merge of main into the branch.",
+        "- DO NOT TOUCH main: no push, no merge TOWARDS main — landing is a human decision. Rebasing YOUR branch onto an updated main (`git fetch origin main`, then `git rebase origin/main`) is allowed instead, and it is the right move when the land says your commits collide — the rebase onto the UPDATED main, not a merge of main into the branch.",
         // Stessa costante del kickoff normale: un tentativo che lascia il ramo
         // con un cancello rosso parte svantaggiato al confronto, e il tentativo
         // SCELTO è quello che poi finisce su main.

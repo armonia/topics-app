@@ -67,7 +67,7 @@ describe("un land fallito dice perche', e non lascia la card in done", () => {
     // The instruction names the RIGHT move: rebase your own branch. It used to
     // offer a merge as an alternative, and the merge did not clear the conflict
     // — three cards stayed stuck there until it was explained by hand.
-    expect(resumed[0]![1]).toContain("git rebase main");
+    expect(resumed[0]![1]).toContain("git rebase origin/main");
     expect(resumed[0]![1]).not.toContain("git merge main");
   });
 
@@ -113,7 +113,7 @@ describe("un land fallito dice perche', e non lascia la card in done", () => {
     });
     // And the agent restarts with the move that repairs the branch.
     expect(r.length).toBe(1);
-    expect(r[0]![1]).toContain("git rebase main");
+    expect(r[0]![1]).toContain("git rebase origin/main");
   });
 
   test("un land fallito per colpa dell'OSPITE torna in review (l'agente non può ripararlo)", async () => {

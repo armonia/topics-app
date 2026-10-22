@@ -56,7 +56,7 @@ export interface AgentWorktreeDeps {
  * Create a branch worktree for a sub-agent and return its id once ready.
  *
  * Same body as the dispatcher's `createWorktree`, comment included: the branch
- * is born from MAIN and not from the shared checkout's HEAD, because with
+ * is born from `origin/main` and not from the shared checkout's HEAD, because with
  * `HEAD` a worktree inherited whoever was working here (migration collisions,
  * deliveries resting on commits that never landed). The reasons in full live in
  * `worktree-base-ref.ts`.
@@ -71,7 +71,7 @@ export async function createAgentWorktree(
 ): Promise<string> {
   const warn = deps.warn ?? ((reason: string) => console.warn(`[worktree] ${reason}`));
   const base = await resolveWorktreeBaseRef(deps.projectPath(projectStoreId));
-  if (base.fallback) warn(`${base.reason}: the worktree starts from HEAD`);
+  if (base.reason) warn(base.fallback ? `${base.reason}: the worktree starts from HEAD` : base.reason);
   const wt = await deps.create({ projectId: projectStoreId, mode: "branch", baseRef: base.baseRef });
   const ready = await deps.awaitMaterialisation(wt.id, readyMs);
   if (ready.status !== "ready") {
