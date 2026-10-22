@@ -1,6 +1,20 @@
-# Politica dei backup pre-migration
+# Politica dei backup del database
 
-## Perche' esiste questa regola
+Esistono DUE famiglie di copie del DB, con regole opposte sulla scadenza. Non si
+confondono: il divieto di scadenza automatica vale per la prima e MAI per la
+seconda.
+
+| | Backup PRE-MIGRATION | Snapshot PERIODICO |
+|---|---|---|
+| Nome | `data/topics.db.bak-pre-<slug>` | `data/backups/topics-AAAA-MM-GG.db.zst` |
+| Chi lo crea | una persona, a mano, prima di una migration distruttiva | `scripts/db-snapshot.ts`, ogni notte alle 04:10 |
+| Scadenza automatica | **VIETATA**: lo cancella chi ha verificato la migration | **OBBLIGATORIA**: 14 giornalieri piu' 8 lunedi', il resto va nel cestino |
+| Come si prova | i due controlli sotto | `bun scripts/backup-restore-check.ts` (restore vero) |
+
+La prima meta' di questo file riguarda i backup pre-migration. Gli snapshot
+periodici sono descritti nella sezione «Snapshot periodici» in fondo.
+
+## Backup pre-migration: perche' esiste questa regola
 
 I backup creati a mano prima di una migration vengono dimenticati: nessuno li
 cancella, nessuno sa cosa proteggevano, e nel tempo si accumulano sul disco.
@@ -58,7 +72,7 @@ snapshot, oppure preparare una correzione mirata su una copia isolata. Se non
 esiste un backup verificato, aprire un task di incident. Non aggiungere a mano
 la riga al registro e non eliminare colonne per forzare il prossimo avvio.
 
-## Scadenza automatica
+## Scadenza dei backup pre-migration
 
 Se dopo **7 giorni** un backup e' ancora presente, e' un segnale che nessuno
 ha verificato la migration. A quel punto:
@@ -67,8 +81,12 @@ ha verificato la migration. A quel punto:
 2. Se la migration e' applicata: cancellare il backup con `trash`.
 3. Se la migration NON e' applicata: aprire un task di incident.
 
-Non implementare una scadenza automatica (cron, script): la verifica prima
-della cancellazione e' intenzionale e richiede un occhio umano.
+Non implementare una scadenza automatica (cron, script) PER QUESTI file: la
+verifica prima della cancellazione e' intenzionale e richiede un occhio umano.
+Il divieto riguarda i `.bak-pre-*` in `data/` e nient'altro. Gli snapshot
+periodici qui sotto scadono da soli, per scelta opposta e altrettanto deliberata:
+li cancella un conteggio, perche' nessuno li ha creati per una migration
+precisa.
 
 ## Come si copia
 
@@ -103,3 +121,35 @@ con `trash`.
 - Backup rimossi: `topics.db.bak-pre-amicizia-090` (269 MB, 10/08) e
   `topics.db.bak-pre-push-device-scope` (651 MB, 15/08), entrambi verificati
   prima della rimozione (migration applicate, DB vivo).
+
+## Snapshot periodici
+
+Perche': l'ultimo backup completo era una copia a mano di 8 giorni prima, sullo
+stesso disco, e l'unico backup periodico salvava la sola tabella `ui_state`
+(`server/services/ui-state-backup.ts`). Il server in dev gira con
+`TOPICS_SERVER_WATCH=1`: **creare `server/db/migrations/NNN-*.sql` applica
+quella migration al DB vivo in pochi secondi**. Senza uno snapshot di ieri, una
+migration di dati sbagliata non ha ritorno.
+
+- **Chi li fa**: `scripts/db-snapshot.ts` (`VACUUM INTO` su un temporaneo,
+  compressione zstd, rename atomico), lanciato da launchd alle 04:10 con
+  `scripts/launchd/com.armonia.topics-db-snapshot.plist`. Legge il percorso del
+  DB come lo legge il server (`DATA_DIR` / `TOPICS_DATA_DIR`, altrimenti la
+  cartella del repo) e scrive in `<cartella dati>/backups/`.
+- **Retention**: gli ultimi 14 snapshot, piu' gli 8 lunedi' piu' vecchi di quella
+  finestra. Il resto va nel cestino con `trash`, mai `rm`. La potatura tocca solo
+  i file `topics-AAAA-MM-GG.db.zst`: i `.bak-pre-*` e gli altri file di
+  `backups/` non li guarda.
+- **Prova**: uno snapshot non provato non e' un backup.
+  `bun scripts/backup-restore-check.ts` prende il piu' recente, lo decomprime in
+  una cartella scratch, esegue `PRAGMA integrity_check`, fa girare `initDatabase`
+  sulla copia e confronta le migration registrate con i file in
+  `server/db/migrations/`. Esce non-zero anche se la copia piu' recente ha piu'
+  di 2 giorni: significa che il lavoro notturno non gira. Il launchd lo esegue
+  subito dopo lo snapshot.
+- **Fuori dal disco**: queste copie stanno SUL disco del DB. Una copia altrove
+  (PC Windows) e' una decisione di destinazione e non e' automatizzata qui.
+
+Nota sulla finestra: un backup pre-migration resta il modo giusto per
+proteggere UNA migration distruttiva nota in anticipo (restore immediato, nome
+parlante); lo snapshot notturno e' la rete sotto tutto il resto.

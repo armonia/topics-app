@@ -1,0 +1,45 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  Snapshot giornaliero del DB, poi la prova che si ripristina (docs/backup-pre-migration-policy.md).
+  Se la prova esce non-zero lo vedi nel log; lo snapshot resta comunque.
+  Si installa a mano, non lo carica nessuno da solo:
+    cp scripts/launchd/com.armonia.topics-db-snapshot.plist ~/Library/LaunchAgents/
+    launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.armonia.topics-db-snapshot.plist
+  Prova subito, senza aspettare le 04:10:
+    launchctl kickstart gui/$(id -u)/com.armonia.topics-db-snapshot
+-->
+<plist version="1.0">
+<dict>
+	<key>Label</key>
+	<string>com.armonia.topics-db-snapshot</string>
+	<key>ProgramArguments</key>
+	<array>
+		<string>/bin/sh</string>
+		<string>-c</string>
+		<string>/Users/zorahrel/.bun/bin/bun scripts/db-snapshot.ts &amp;&amp; /Users/zorahrel/.bun/bin/bun scripts/backup-restore-check.ts</string>
+	</array>
+	<key>WorkingDirectory</key>
+	<string>/Users/zorahrel/Projects/topics-app</string>
+	<key>EnvironmentVariables</key>
+	<dict>
+		<key>HOME</key>
+		<string>/Users/zorahrel</string>
+		<key>PATH</key>
+		<string>/usr/bin:/bin:/opt/homebrew/bin</string>
+	</dict>
+	<key>StartCalendarInterval</key>
+	<dict>
+		<key>Hour</key>
+		<integer>4</integer>
+		<key>Minute</key>
+		<integer>10</integer>
+	</dict>
+	<key>Nice</key>
+	<integer>10</integer>
+	<key>StandardOutPath</key>
+	<string>/Users/zorahrel/.claude/jarvis/logs/topics-db-snapshot.log</string>
+	<key>StandardErrorPath</key>
+	<string>/Users/zorahrel/.claude/jarvis/logs/topics-db-snapshot.log</string>
+</dict>
+</plist>
