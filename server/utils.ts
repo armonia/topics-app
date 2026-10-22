@@ -28,7 +28,7 @@ import { isInsideDir } from "./lib/path-containment";
 import { realPathForNewEntry } from "./lib/real-path";
 import { isTopicsSecretPath } from "./lib/topics-secret-path";
 import { homeDir } from "./lib/broad-cwd";
-import { gatewayToken, holdGatewayToken, readOpenClawGatewayToken } from "./lib/openclaw-gateway-token";
+import { freshGatewayToken } from "./lib/openclaw-gateway-token";
 import { isTopicSilenced } from "./push-triggers";
 import { configureAttentionStore } from "./attention/store";
 import { isSubagentEngaged, markSubagentEngaged } from "./lib/subagent-store";
@@ -171,29 +171,18 @@ export function createAppContext(baseDir: string): AppContext {
   // CLI PORT override: BUN_PORT beats .env PORT (Bun auto-loads .env first)
   const PORT = parseInt(process.env.BUN_PORT || process.env.PORT || "3333");
   const GATEWAY_URL = process.env.GATEWAY_URL || "http://127.0.0.1:18789";
-  let GATEWAY_TOKEN = gatewayToken() || readGatewayTokenFromConfig() || "";
-
-  /** Read gateway token from ~/.openclaw/openclaw.json (auto-syncs when OpenClaw rotates) */
-  function readGatewayTokenFromConfig(): string | null {
-    // String or exec SecretRef: an object must never become "[object Object]".
-    return readOpenClawGatewayToken();
-  }
+  let GATEWAY_TOKEN = freshGatewayToken() || "";
 
   /**
-   * Refresh token from openclaw.json — called on auth failure and before every
-   * openclaw tool call. A SecretRef costs a resolver spawn (~70 ms, Keychain),
-   * so one read every 30 s: a rotation lands within that window.
+   * The gateway token as it is now. OpenClaw rotates it in the Keychain, so
+   * it is read again at most every 30 s, at once on an auth failure (`force`).
+   * `ctx.GATEWAY_TOKEN` goes through here: read it at the call, not once.
    */
-  let gatewayTokenReadAt = 0;
-  function refreshGatewayToken(): string {
-    if (Date.now() - gatewayTokenReadAt < 30_000) return GATEWAY_TOKEN;
-    gatewayTokenReadAt = Date.now();
-    const fresh = readGatewayTokenFromConfig();
+  function refreshGatewayToken(force = false): string {
+    const fresh = freshGatewayToken({ force });
     if (fresh && fresh !== GATEWAY_TOKEN) {
       console.log("[Gateway] Token refreshed from openclaw.json");
       GATEWAY_TOKEN = fresh;
-      // The legacy x-gateway-token check (agentAuthOk) follows the rotation too.
-      holdGatewayToken(fresh);
     }
     return GATEWAY_TOKEN;
   }
@@ -3164,7 +3153,7 @@ export function createAppContext(baseDir: string): AppContext {
     worktreeGcDeps: _worktreeGcDeps,
     machineStore,
     PORT, GATEWAY_URL,
-    get GATEWAY_TOKEN() { return GATEWAY_TOKEN; },
+    get GATEWAY_TOKEN() { return refreshGatewayToken(); },
     refreshGatewayToken,
     TOPICS_FILE, UNREAD_FILE, PUBLIC_DIR, UPLOADS_DIR, CONTEXT_DIR,
     OPENCLAW_DIR, SESSIONS_DIR, MESSAGES_DIR, BASE_DIR: baseDir, STATE_DIR,

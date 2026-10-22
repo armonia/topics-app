@@ -8,7 +8,8 @@ import { afterAll, afterEach, describe, expect, it } from "bun:test";
 import { chmodSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { gatewayToken, holdGatewayToken, readOpenClawGatewayToken, withoutGatewayToken } from "./openclaw-gateway-token";
+import { freshGatewayToken, gatewayToken, GATEWAY_TOKEN_REREAD_MS, holdGatewayToken, readOpenClawGatewayToken, withoutGatewayToken } from "./openclaw-gateway-token";
+import { agentAuthOk } from "./agent-auth";
 
 const DIR = mkdtempSync(join(tmpdir(), "openclaw-gateway-token-"));
 afterAll(() => rmSync(DIR, { recursive: true, force: true }));
@@ -167,5 +168,47 @@ describe("gatewayToken / holdGatewayToken", () => {
       holdGatewayToken(undefined);
     }
     expect(gatewayToken()).toBeUndefined();
+  });
+});
+
+describe("freshGatewayToken: an OpenClaw rotation lands without a restart", () => {
+  const point = (token: string) => { process.env.OPENCLAW_CONFIG_PATH = config(token); };
+
+  it("re-reads the config, at most every GATEWAY_TOKEN_REREAD_MS, at once with force", () => {
+    point("rotated-1");
+    holdGatewayToken("boot-fixture");
+    try {
+      const t0 = Date.now();
+      expect(freshGatewayToken({ now: t0 })).toBe("rotated-1");
+      point("rotated-2");
+      expect(freshGatewayToken({ now: t0 + 1_000 })).toBe("rotated-1");
+      expect(freshGatewayToken({ now: t0 + GATEWAY_TOKEN_REREAD_MS })).toBe("rotated-2");
+      point("rotated-3");
+      expect(freshGatewayToken({ now: t0 + GATEWAY_TOKEN_REREAD_MS + 1, force: true })).toBe("rotated-3");
+    } finally {
+      holdGatewayToken(undefined);
+    }
+  });
+
+  it("a token from the environment is never replaced by the config", () => {
+    point("from-config");
+    holdGatewayToken("from-env-fixture", { fromEnv: true });
+    try {
+      expect(freshGatewayToken({ force: true })).toBe("from-env-fixture");
+    } finally {
+      holdGatewayToken(undefined);
+    }
+  });
+
+  it("agentAuthOk refuses the pre-rotation token and takes the new one", () => {
+    holdGatewayToken("leaked-fixture");
+    point("rotated-fixture");
+    const asking = (token: string) => new Request("http://x/", { headers: { "x-gateway-token": token } });
+    try {
+      expect(agentAuthOk(asking("leaked-fixture"))).toBe(false);
+      expect(agentAuthOk(asking("rotated-fixture"))).toBe(true);
+    } finally {
+      holdGatewayToken(undefined);
+    }
   });
 });

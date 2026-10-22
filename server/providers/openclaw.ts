@@ -91,7 +91,8 @@ export class OpenClawProvider implements AIProvider {
     };
     // Pass auth refresh callback if available
     if (this.config.refreshToken) {
-      opts.onAuthFailure = () => this.config.refreshToken!();
+      // An auth failure skips the 30 s re-read window: the token just changed.
+      opts.onAuthFailure = () => this.config.refreshToken!(true);
     }
     this.gw = initGatewayWS(opts);
   }

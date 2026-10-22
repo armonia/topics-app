@@ -21,7 +21,7 @@
  * @covers GENUI-05
  */
 import { describe, test, expect, beforeEach, afterEach } from "bun:test";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createBrowserBridgeRouter, type TerminalSessionRef } from "./browser-bridge";
@@ -923,6 +923,29 @@ describe("cancello del token — le quattro rotte che leggono o espongono roba a
     h.addTopic("t1");
     for (const path of sensibili) {
       expect((await h.post(path))!.status).toBe(503);
+    }
+  });
+
+  // The MCP bridge sends the daemon token, never the gateway one: a server
+  // with no OpenClaw at all (no GATEWAY_TOKEN) must still open these routes.
+  test("daemon token from TOPICS_HOME opens the gate with no GATEWAY_TOKEN; a wrong one does not", async () => {
+    const home = mkdtempSync(join(tmpdir(), "browser-bridge-daemon-"));
+    const savedHome = process.env.TOPICS_HOME;
+    const daemon = "d".repeat(64);
+    writeFileSync(join(home, "daemon-state.json"), JSON.stringify({ pid: 1, port: 1, token: daemon, startedAt: "x" }));
+    process.env.TOPICS_HOME = home;
+    delete process.env.GATEWAY_TOKEN;
+    try {
+      const h = harness({ noService: true });
+      h.addTopic("t1");
+      for (const path of sensibili) {
+        expect((await h.post(path, {}, { "x-daemon-token": daemon }))!.status).toBe(503);
+        expect((await h.post(path, {}, { "x-daemon-token": "e".repeat(64) }))!.status).toBe(401);
+      }
+    } finally {
+      if (savedHome === undefined) delete process.env.TOPICS_HOME;
+      else process.env.TOPICS_HOME = savedHome;
+      rmSync(home, { recursive: true, force: true });
     }
   });
 });

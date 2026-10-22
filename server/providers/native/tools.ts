@@ -28,6 +28,8 @@ import { homedir } from "os";
 import { killProcessTree } from "../../lib/process-tree";
 import { registerNativeCommand } from "../../lib/native-command-registry";
 import { lowPriorityArgv } from "../../lib/low-priority";
+import { agentBaseEnv } from "../../lib/agent-env";
+import { augmentEnv } from "../../utils/path-env";
 import { readSlashCommandSource } from "../../lib/slash-command-source";
 import { htmlToMarkdown } from "../../lib/html-to-markdown";
 import { protectedDirExcludes } from "../../lib/protected-app-data";
@@ -354,7 +356,10 @@ async function runCommand(
     // macOS): its bun/vite/git yield to whatever the owner is doing. See
     // server/lib/low-priority.ts.
     const argv = lowPriorityArgv([cmd, ...args]);
-    const child = spawn(argv[0]!, argv.slice(1), { cwd, stdio: ["ignore", "pipe", "pipe"] });
+    // The environment of an agent's command, not the server's (`lib/agent-env.ts`):
+    // spawned with none, Bun hands the child the server's launch environment,
+    // secrets included, and `env` would print them into the transcript.
+    const child = spawn(argv[0]!, argv.slice(1), { cwd, stdio: ["ignore", "pipe", "pipe"], env: augmentEnv(agentBaseEnv()) });
     let out = "";
     let annullato = false;
     let closed = false;

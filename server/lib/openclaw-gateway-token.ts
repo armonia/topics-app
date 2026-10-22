@@ -114,25 +114,55 @@ export function readOpenClawGatewayToken(configPath: string = defaultConfigPath(
   }
 }
 
+/** How long a token read from `openclaw.json` is trusted before it is read again. */
+export const GATEWAY_TOKEN_REREAD_MS = 30_000;
+
 let held: string | undefined;
+let heldFromEnv = false;
+let readAt = 0;
 
 /**
  * The gateway token the server uses, kept OUT of `process.env`.
  *
- * Every child the server starts with `...process.env` inherited it: check
- * scripts, previews, worktree setup, and the bottom of a red check's output
- * goes back to the agent that wrote the check. Startup moves the token here
- * with `holdGatewayToken`. Before that (and in tests that set it) the
- * environment is still read.
+ * Children spawned with `...process.env` (check scripts, previews, worktree
+ * setup) inherited it, and the bottom of a red check's output goes back to the
+ * agent that wrote the check. Startup moves the token here with
+ * `holdGatewayToken`. Before that (and in tests that set it) the environment is
+ * still read.
+ *
+ * NOT a promise about the OS environment: Bun hands a child spawned with NO
+ * `env` option the environment the server was launched with, `delete` or not.
+ * A token that came from the launch environment or `.env` is still there for
+ * such a child; agents' commands get `agentBaseEnv()` for that reason.
  */
 export function gatewayToken(): string | undefined {
   return held ?? (process.env.GATEWAY_TOKEN || undefined);
 }
 
 /** Keeps `value` as the gateway token and takes it out of `process.env`. */
-export function holdGatewayToken(value: string | null | undefined): void {
+export function holdGatewayToken(value: string | null | undefined, opts: { fromEnv?: boolean } = {}): void {
   held = value || undefined;
+  heldFromEnv = !!opts.fromEnv;
+  readAt = 0;
   delete process.env.GATEWAY_TOKEN;
+}
+
+/**
+ * The token as it is NOW. OpenClaw rotates it inside the Keychain without
+ * touching `openclaw.json`, so a token read from the config is read again: at
+ * most every GATEWAY_TOKEN_REREAD_MS (a SecretRef costs a resolver spawn,
+ * ~70 ms), at once with `force` (an auth failure). After a rotation the old
+ * value stops opening anything within that window, with no restart. A token
+ * from the environment is never re-read: `.env` takes priority.
+ */
+export function freshGatewayToken(opts: { force?: boolean; now?: number } = {}): string | undefined {
+  const now = opts.now ?? Date.now();
+  if (!heldFromEnv && (opts.force || now - readAt >= GATEWAY_TOKEN_REREAD_MS)) {
+    readAt = now;
+    const fresh = readOpenClawGatewayToken();
+    if (fresh) held = fresh;
+  }
+  return gatewayToken();
 }
 
 /**

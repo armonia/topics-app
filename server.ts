@@ -389,7 +389,7 @@ try {
   const fromEnv = process.env.GATEWAY_TOKEN;
   const fromOpenClaw = fromEnv ? null : readOpenClawGatewayToken();
   if (fromOpenClaw) console.log("[Startup] GATEWAY_TOKEN loaded from ~/.openclaw/openclaw.json");
-  holdGatewayToken(fromEnv || fromOpenClaw);
+  holdGatewayToken(fromEnv || fromOpenClaw, { fromEnv: !!fromEnv });
   if (!fromEnv && !fromOpenClaw) {
     // The OpenClaw gateway is an OPTIONAL integration (the "openclaw" relay
     // provider). A standalone download has no OpenClaw config,
@@ -685,7 +685,7 @@ const aiProvider = initProvider({
   ...(providerType === 'openclaw' ? {
     gatewayUrl: ctx.GATEWAY_URL,
     token: ctx.GATEWAY_TOKEN,
-    refreshToken: () => ctx.refreshGatewayToken(),
+    refreshToken: (force?: boolean) => ctx.refreshGatewayToken(force),
   } : providerType === 'openai' ? {
     apiKey: savedOpenaiApiKey || '',
   } : {
