@@ -16,7 +16,7 @@
  * forgotten `env` cannot let the machine's hooks back in.
  *
  * The preload keeps applying it as well, for whoever runs `bun test <file>` by
- * hand without the wrapper. `tests/unit/git-env-nei-test.test.ts` guards that
+ * hand without the wrapper. `tests/unit/git-env-nei-test.test.ts` guards that  allow-italian: the gate's own file name is Italian
  * second path, which is the only one left where `env` still has to be passed.
  */
 

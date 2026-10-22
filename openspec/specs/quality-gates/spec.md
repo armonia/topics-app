@@ -838,7 +838,7 @@ scrivere percorsi assoluti â€” `WorkingDirectory`, `HOME`, l'interprete, i log â
 cioe' la home e il nome utente di chi l'ha installato. Il 22/10/2026 uno ci e'
 finito per davvero (PR #405, sei occorrenze) e la CI e' rimasta verde: i due
 cancelli che cercano un percorso di home cercano la home **di chi esegue**, e
-sul runner e' `/home/runner`. Il controllo SHALL quindi essere indipendente da
+su un runner di CI non e' di nessuno. Il controllo SHALL quindi essere indipendente da
 chi lo lancia.
 
 #### Scenario: un plist concreto con la home di una persona

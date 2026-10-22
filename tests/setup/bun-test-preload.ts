@@ -56,7 +56,7 @@ import { isAbsolute, resolve } from "node:path";
 import { acquireSlot, claimOutfile, slotCount, alreadyHeld, GATE_HELD_ENV } from "../../scripts/gate-slot.ts";
 import { stopOwnAiBridges } from "../../scripts/stray-ai-bridges.ts";
 import { removeFinishedTestTmpDirs } from "./test-tmp-dirs.ts";
-import { gitIsolationEnv } from "./git-isolation";
+import { GIT_ISOLATION_MARKER, gitIsolationEnv } from "./git-isolation";
 
 /**
  * 30s: sei volte il default di bun. Il numero e' una misura, non un gusto. Col
@@ -157,6 +157,22 @@ function isolateGitFromEnvironment(): void {
   // would drift.
   Object.assign(process.env, gitIsolationEnv(process.env));
 }
+
+/**
+ * Was the isolation ALREADY in the environment this process was born with?
+ *
+ * Read BEFORE applying it, because applying it sets the same marker and after
+ * that the two cases are indistinguishable. It is the difference between the
+ * two launch paths, and a test that wants to say something true about a git
+ * call WITHOUT `env` has to know which one it is in:
+ *
+ *   true  -> `bun run test:unit` (and CI): the runner put the isolation in the
+ *            birth environment, so every git child inherits it for free.
+ *   false -> `bun test <file>` by hand: only this preload ran, it writes at
+ *            runtime, and Bun does not pass that to a child. There `env:
+ *            gitEnv()` is the only thing that carries the isolation.
+ */
+export const GIT_ISOLATION_INHERITED = process.env[GIT_ISOLATION_MARKER] === "1";
 
 isolateGitFromEnvironment();
 

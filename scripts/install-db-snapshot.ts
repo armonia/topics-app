@@ -7,7 +7,7 @@
  * public and a concrete plist carries the home directory and the username of
  * whoever installed it. One did get committed on 22/10/2026 (PR #405) and CI
  * did not see it: the gate that looks for a home path looks for the home of
- * whoever RUNS it, and on the runner that is `/home/runner`.
+ * whoever RUNS it, which on a CI runner is nobody's.
  *
  *   bun scripts/install-db-snapshot.ts            install and load
  *   bun scripts/install-db-snapshot.ts --print    print it, install nothing
@@ -70,14 +70,14 @@ mkdirSync(join(home, "Library", "LaunchAgents"), { recursive: true });
 mkdirSync(join(home, "Library", "Logs"), { recursive: true });
 writeFileSync(target, filled);
 
-const uid = String(process.getuid?.() ?? 0);
+const userId = String(process.getuid?.() ?? 0);
 // `bootout` first so a re-install replaces the loaded job instead of failing
 // with "service already loaded"; it is allowed to fail on a first install.
 try {
-  execFileSync("/bin/launchctl", ["bootout", `gui/${uid}/${LABEL}`], { stdio: "ignore", env: process.env });
+  execFileSync("/bin/launchctl", ["bootout", `gui/${userId}/${LABEL}`], { stdio: "ignore", env: process.env });
 } catch {
   // not loaded yet: nothing to take out
 }
-execFileSync("/bin/launchctl", ["bootstrap", `gui/${uid}`, target], { stdio: "inherit", env: process.env });
+execFileSync("/bin/launchctl", ["bootstrap", `gui/${userId}`, target], { stdio: "inherit", env: process.env });
 console.log(`installed ${target}`);
-console.log(`try it now: launchctl kickstart gui/${uid}/${LABEL}`);
+console.log(`try it now: launchctl kickstart gui/${userId}/${LABEL}`);

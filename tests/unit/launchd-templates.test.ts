@@ -6,7 +6,7 @@
  * directory and the username of whoever installed it, and this repo is public.
  * On 22/10/2026 one went in for real (PR #405, six occurrences) and the two
  * gates that look for a home path stayed green in CI, because they look for
- * the home of WHOEVER RUNS them and on the runner that is `/home/runner`. The
+ * the home of WHOEVER RUNS them, which on a CI runner is nobody's. The
  * leak is only visible on the machine it names, which is the one place nobody
  * runs the suite to find leaks.
  *
@@ -64,8 +64,8 @@ describe("i lavori launchd si committano come modello, non come plist pronto", (
   });
 
   test("chi e' un modello lo dice nel nome", () => {
-    const plists = launchdFiles().filter((f) => f.includes(".plist"));
-    expect(plists.length).toBeGreaterThan(0);
-    expect(plists.filter((f) => !f.endsWith(".plist.in"))).toEqual([]);
+    const plistFiles = launchdFiles().filter((f) => f.includes(".plist"));
+    expect(plistFiles.length).toBeGreaterThan(0);
+    expect(plistFiles.filter((f) => !f.endsWith(".plist.in"))).toEqual([]);
   });
 });
