@@ -5206,7 +5206,9 @@
       "roundTripped"
     ],
     "shared/os-open-path.test.ts": [
-      "assoc"
+      "assoc",
+      "plist",
+      "plistExts"
     ],
     "shared/os-open-path.ts": [
       "VCS_MARKERS",
@@ -7646,8 +7648,10 @@
       "senzaMsi"
     ],
     "tests/unit/shell-permissions.test.ts": [
+      "PLIST",
       "chiavi",
-      "chiusure"
+      "chiusure",
+      "plist"
     ],
     "tests/unit/single-door.test.ts": [
       "AMMESSI",

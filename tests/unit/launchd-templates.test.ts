@@ -64,8 +64,8 @@ describe("i lavori launchd si committano come modello, non come plist pronto", (
   });
 
   test("chi e' un modello lo dice nel nome", () => {
-    const plistFiles = launchdFiles().filter((f) => f.includes(".plist"));
-    expect(plistFiles.length).toBeGreaterThan(0);
-    expect(plistFiles.filter((f) => !f.endsWith(".plist.in"))).toEqual([]);
+    const jobFiles = launchdFiles().filter((f) => f.includes(".plist"));
+    expect(jobFiles.length).toBeGreaterThan(0);
+    expect(jobFiles.filter((f) => !f.endsWith(".plist.in"))).toEqual([]);
   });
 });
