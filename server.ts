@@ -222,10 +222,10 @@ import { createE2eRouter } from "./server/routes/e2e";
 import { createTabsRouter } from "./server/routes/tabs";
 import { createViewsRouter } from "./server/routes/views";
 import { createClaudeSessionTracker } from "./server/lib/claude-session-tracker";
-import { evaluateAuth, isAllowedHost, isLoopbackAddress, isOriginGatedPath, isWebSocketPath, resolveAllowedOrigins } from "./server/lib/auth-gate";
+import { evaluateAuth, isAllowedHost, isDesktopShellOrigin, isLoopbackAddress, isOriginGatedPath, isWebSocketPath, resolveAllowedOrigins } from "./server/lib/auth-gate";
 import { upgradeWebSocket } from "./server/lib/ws-upgrade";
 import { sendWsFrame } from "./server/lib/ws-send";
-import { markViaTunnel, isLocalTransport, clientIpOf, tunnelPort, httpTunnelPort } from "./server/lib/tunnel";
+import { markViaTunnel, isViaTunnel, isLocalTransport, clientIpOf, tunnelPort, httpTunnelPort } from "./server/lib/tunnel";
 import { compressJson } from "./server/lib/compress-json";
 import { isSseCommentOnly } from "./server/lib/sse-ping";
 import { currentRouteFault, applyRouteFault } from "./server/lib/route-fault";
@@ -3355,10 +3355,7 @@ const useTls = !process.env.NO_TLS && await Bun.file(tlsCert).exists() && await 
 function corsAllowOrigin(req: Request): string {
   const origin = req.headers.get("origin") || "";
   // macOS WKWebView → tauri://localhost; Windows WebView2 → http(s)://tauri.localhost
-  if (origin === "tauri://localhost" || origin === "http://tauri.localhost" || origin === "https://tauri.localhost") {
-    return origin;
-  }
-  return "";
+  return isDesktopShellOrigin(origin) ? origin : "";
 }
 function applyDesktopCors(req: Request, resp: Response): void {
   const origin = corsAllowOrigin(req);
@@ -3780,6 +3777,7 @@ const opzioniServer = {
         host: req.headers.get("host"),
         authOff: process.env.TOPICS_AUTH_OFF === "1",
         allowedOrigins: resolveAllowedOrigins(),
+        viaTunnel: isViaTunnel(req),
         identity,
       });
       if (!decision.allow) {

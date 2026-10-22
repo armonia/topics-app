@@ -2,6 +2,8 @@
  * @covers AUTHGATE-01
  */
 import { describe, expect, it } from "bun:test";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import {
   evaluateAuth, isLoopbackAddress, isSameSite, isAllowedHost, canonHost, originHost,
   isOriginGatedPath, isWebSocketPath, resolveAllowedOrigins, type AuthInput,
@@ -164,7 +166,34 @@ describe("auth-gate · isSameSite", () => {
     expect(isSameSite("https://macbook.local:3333", "macbook.local:3333")).toBe(true);
   });
 
-  it("is blind to scheme and port, as the old isLocalOrigin was", () => {
+  it("per i nomi di QUESTA macchina la porta conta: solo l'ascoltatore stesso, il guscio e Vite", () => {
+    // Same port as the listener: any local name and any scheme.
+    expect(isSameSite("https://localhost:3333", "127.0.0.1:3333")).toBe(true);
+    expect(isSameSite("http://localhost:13334", "localhost:13334")).toBe(true);
+    // Another local port is not our page, whatever the local name.
+    for (const o of [
+      "http://localhost:9999", "http://foo.localhost:1", "http://127.0.0.1:1",
+      "http://[::1]:9999", "http://localhost", "https://localhost",
+    ]) {
+      expect(`${o}→${isSameSite(o, "127.0.0.1:3333")}`).toBe(`${o}→false`);
+    }
+    // The shell has no port: recognised by scheme and name, not by its absence.
+    for (const o of ["tauri://localhost", "http://tauri.localhost", "https://tauri.localhost"]) {
+      expect(`${o}→${isSameSite(o, "127.0.0.1:13333")}`).toBe(`${o}→true`);
+    }
+  });
+
+  it("la porta di Vite in dev è quella scritta in vite.config.ts", () => {
+    // The expected value is read from the config: if Vite moves, the gate must
+    // follow or dev gets a 403 on every write.
+    const porta = /^\s*port:\s*(\d+)/m.exec(
+      readFileSync(join(import.meta.dir, "../../client/vite.config.ts"), "utf8"),
+    )?.[1];
+    expect(porta).toBeDefined();
+    expect(isSameSite(`https://localhost:${porta}`, "127.0.0.1:3333")).toBe(true);
+  });
+
+  it("fuori dalla classe locale la porta non entra nel confronto", () => {
     expect(isSameSite("http://192.168.1.12:9999", "192.168.1.12:3333")).toBe(true);
   });
 
@@ -403,11 +432,27 @@ describe("auth-gate · evaluateAuth", () => {
 
   // ── Le origini configurate a mano (un hostname di tunnel).
 
-  it("allowedOrigins lascia passare un'origine configurata", () => {
-    const r = evaluateAuth(input({
-      method: "POST", origin: "https://tunnel.example", allowedOrigins: ["https://tunnel.example"],
-    }));
-    expect(r.allow).toBe(true);
+  it("allowedOrigins lascia passare un'origine configurata, ma solo dall'ascoltatore del tunnel", () => {
+    const req = { method: "POST", origin: "https://tunnel.example", allowedOrigins: ["https://tunnel.example"] };
+    expect(evaluateAuth(input({ ...req, viaTunnel: true })).allow).toBe(true);
+    // Same request on the primary listener: the list does not count.
+    expect(evaluateAuth(input(req))).toEqual({ allow: false, status: 403, reason: "cross-site origin blocked" });
+  });
+
+  it("l'elenco non vale sull'ascoltatore primario nemmeno per un upgrade WS", () => {
+    const ws = { pathname: "/ws/terminal/x", origin: "https://tunnel.example", allowedOrigins: ["https://tunnel.example"] };
+    expect(evaluateAuth(input(ws)).allow).toBe(false);
+    expect(evaluateAuth(input({ ...ws, viaTunnel: true })).allow).toBe(true);
+  });
+
+  it("una pagina su un'altra porta locale non supera l'asse d'origine: scrittura e upgrade", () => {
+    const pagina = { origin: "http://localhost:9999", host: "127.0.0.1:3333" };
+    for (const r of [
+      evaluateAuth(input({ ...pagina, method: "POST", pathname: "/api/x" })),
+      evaluateAuth(input({ ...pagina, pathname: "/ws/terminal/a" })),
+    ]) {
+      expect(r).toEqual({ allow: false, status: 403, reason: "cross-site origin blocked" });
+    }
   });
 
   it("un'origine forestiera NON in allowedOrigins → 403", () => {
@@ -425,7 +470,7 @@ describe("auth-gate · evaluateAuth", () => {
 
   it("loopback POST con l'origine del guscio → allow", () => {
     expect(evaluateAuth(input({ method: "POST", origin: "tauri://localhost", host: "127.0.0.1:13333" })).allow).toBe(true);
-    expect(evaluateAuth(input({ method: "POST", origin: "http://localhost:13333" })).allow).toBe(true);
+    expect(evaluateAuth(input({ method: "POST", origin: "http://localhost:13333", host: "127.0.0.1:13333" })).allow).toBe(true);
   });
 
   it("loopback WS con l'origine del guscio → allow", () => {
@@ -482,7 +527,7 @@ describe("origine · l'asse che da curl non si vede", () => {
   // il ramo che conta.
   const dal = (origin: string, ammesse: string[] = []) => evaluateAuth({
     method: "POST", pathname: "/api/auth/pair/request",
-    origin, host: "127.0.0.1:3334", allowedOrigins: ammesse, authOff: false,
+    origin, host: "127.0.0.1:3334", allowedOrigins: ammesse, authOff: false, viaTunnel: true,
   });
 
   it("senza allowlist, un'origine che non combacia con l'host è bloccata", () => {
