@@ -80,6 +80,30 @@ Un solo Mac fa da server, da macchina di sviluppo e da flotta di agenti.
 E la regola che vale su tutto: **cio' che e' verde resta verde.** Le 45 barre di
 `daily-driver` e i 45 `check:*` non regrediscono.
 
+## Il vincolo che attraversa tutto: meno codice
+
+Deciso dal proprietario il 22/10: **meno codice possibile, cosi' c'e' meno da
+manutenere, senza perdere qualita'.** Non e' un aggettivo, quindi ha una misura:
+ogni traccia riporta le righe nette di produzione, e chi ne aggiunge dice cosa
+cancella in cambio. La base e' 520.184 righe di produzione al 22/10.
+
+Sette delle tredici tracce **cancellano piu' di quanto scrivono**, e non per
+caso: sono le stesse dove il difetto e' una toppa che si puo' togliere.
+
+| Traccia | Cosa sparisce |
+|---|---|
+| T3 | le 15 rotte di lettura periodica, sostituite da un `sync:since`; le tre toppe sul refetch |
+| T4 | i 96 call site del ponte, i tre effect, i ref-mirror, il 97,5% del blob che e' storia |
+| T5 | i tre cancelli che esistono solo per contenere la contaminazione fra test |
+| T6 | tre backend browser dentro `cfg`, sostituiti da un trait; la pane nativa su Linux |
+| T8 | cinque dei sette freni di risorsa, e le colonne morte con una migration |
+| T11 | i controlli a mano che oggi stanno nelle teste e nelle schede di memoria |
+| T12 | 13 `check:*` orfani, le worktree morte, i cancelli che misurano il proprio proxy |
+
+Le altre sei aggiungono, e dicono quanto: T0 e T1 sono correzioni da decine di
+righe, T2 e T7 aggiungono una superficie che non c'e', T9 scambia un parser
+quadratico con uno a blocchi, T10 e' una vista nuova.
+
 ## Fuori
 
 - Riscrivere il prodotto. 743k righe fra server, client e condiviso, 1.932 file
