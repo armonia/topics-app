@@ -121,12 +121,29 @@ export async function fetchWhileRosterWarms(
  * NOT self-correcting is the log line the old 404 wrote each time.
  */
 export function postTerminalResize(sessionId: string, cols: number, rows: number): void {
+  const gone = resizeGone.get(sessionId);
+  if (gone && gone.misses >= RESIZE_GONE_MISSES && Date.now() - gone.at < RESIZE_GONE_QUIET_MS) return;
   void fetchWhileRosterWarms(`/api/terminal/sessions/${encodeURIComponent(sessionId)}/resize`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ cols, rows }),
+  }).then((res) => {
+    if (res.status === 404) resizeGone.set(sessionId, { misses: (resizeGone.get(sessionId)?.misses ?? 0) + 1, at: Date.now() });
+    else resizeGone.delete(sessionId);
   }).catch(() => { /* server unreachable: the next resize event says it again */ });
 }
+
+/**
+ * Sessioni che hanno risposto 404 a un resize, con l'ora del verdetto. Una
+ * pane rimasta su un id morto rimandava il resize a ogni focus e reflow, e il
+ * server scriveva un `[Warn 404] Terminal session not found` per ciascuno:
+ * 54.484 righe nel log del 22/10. Dopo tre 404 di fila passa un resize al
+ * minuto, non zero: un id che torna (sessione che nasce o si risveglia dopo il
+ * primo resize) riceve comunque la sua geometria al massimo un minuto dopo.
+ */
+const resizeGone = new Map<string, { misses: number; at: number }>();
+const RESIZE_GONE_MISSES = 3;
+const RESIZE_GONE_QUIET_MS = 60_000;
 
 /**
  * Retire a terminal session server-side, waiting out the boot window.

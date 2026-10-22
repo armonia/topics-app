@@ -74,6 +74,13 @@ export const NO_EFFECT_TO_MS = 180_000;
  * each be measuring the other's effect.
  */
 export const SWAP_ACTION_SPACING_MS = 120_000;
+/**
+ * Calma minima prima di dire che un episodio di swap e' finito. Lo swap
+ * "sostenuto" sfarfalla attorno alla soglia: chiudendo l'episodio al primo
+ * battito calmo, ogni sfarfallio riscriveva la coppia "nothing to interrupt" /
+ * "no longer sustained" — 6.847 + 7.028 righe nel log del 22/10.
+ */
+export const SWAP_EPISODE_CALM_MS = 5 * 60_000;
 /** The thaw-on-room floor: the same 6 GB the checks waiter calls room. */
 export const FREEZE_ROOM_FLOOR_GB = 6;
 

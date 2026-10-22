@@ -7,6 +7,7 @@
  * running tree when the server itself went away. Both are here, and
  * `runReviewChecks` (review-checks.ts) consults them around every command.
  */
+import { SWAP_EPISODE_CALM_MS } from "../../shared/swap-freeze";
 import { freezableRuns, type FreezableRun } from "./budget-governor";
 import { ChecksInterruptedError } from "./checks-gate";
 import { killProcessTree } from "../lib/process-tree";
@@ -534,6 +535,7 @@ export function createSwapBrake(deps: {
   const now = deps.now ?? Date.now;
   let lastInterruptAt = Number.NEGATIVE_INFINITY;
   let episodeSince: number | null = null;
+  let calmSince: number | null = null;
   let saidNothing = false;
   let saidExhausted = false;
   const gb = (n: number | null) => (n == null ? "?" : n.toFixed(1));
@@ -541,12 +543,17 @@ export function createSwapBrake(deps: {
     tick(v, runs, lastForeignActionAt = Number.NEGATIVE_INFINITY) {
       const t = now();
       if (!v.sustained) {
-        if (episodeSince != null) deps.log(`[checks-swap] swap no longer sustained after ${Math.round((t - episodeSince) / 1000)} s`);
+        if (episodeSince == null) return { interrupted: false, skipped: null };
+        calmSince ??= t;
+        if (t - calmSince < SWAP_EPISODE_CALM_MS) return { interrupted: false, skipped: null };
+        deps.log(`[checks-swap] swap no longer sustained after ${Math.round((calmSince - episodeSince) / 1000)} s`);
         episodeSince = null;
+        calmSince = null;
         saidNothing = false;
         saidExhausted = false;
         return { interrupted: false, skipped: null };
       }
+      calmSince = null;
       episodeSince ??= t;
       const signs = swapSigns(v);
       const { victim, skipped } = swapVictim({

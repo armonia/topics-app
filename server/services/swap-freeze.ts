@@ -43,6 +43,7 @@ import {
   NO_EFFECT_RATIO,
   NO_EFFECT_TO_MS,
   SWAP_ACTION_SPACING_MS,
+  SWAP_EPISODE_CALM_MS,
   type SwapFreezeView,
   type ThawReason,
 } from "../../shared/swap-freeze";
@@ -256,6 +257,7 @@ export function createSwapFreezer(deps: SwapFreezerDeps): SwapFreezer {
     deps.log(line);
   };
   let episodeSince: number | null = null;
+  let calmSince: number | null = null;
   let ticking = false;
 
   /** The roles, with the native roots named so the server-group rule spares them. */
@@ -598,11 +600,18 @@ export function createSwapFreezer(deps: SwapFreezerDeps): SwapFreezer {
       try {
         await thawPass({ swap, held });
         if (disabled || !swap.sustained) {
-          if (!swap.sustained) { episodeSince = null; saidNothing = false; saidExhausted = false; noEffectThisEpisode.clear(); namedPids.clear(); }
+          if (!swap.sustained) {
+            noEffectThisEpisode.clear();
+            // Le righe "gia' dette" si dimenticano solo dopo una calma vera:
+            // lo swap sfarfalla e ogni battito calmo ridiceva tutto da capo.
+            calmSince ??= now();
+            if (now() - calmSince >= SWAP_EPISODE_CALM_MS) { episodeSince = null; saidNothing = false; saidExhausted = false; namedPids.clear(); }
+          }
           return;
         }
         // A beat that has just continued a tree does not freeze another: the
         // machine has not yet been given a chance to answer the first act.
+        calmSince = null;
         if (thawedThisBeat) return;
         episodeSince ??= now();
         const t = now();

@@ -15,7 +15,7 @@ import { createSwapFreezer, pickVictim, thawReason, type FreezeCandidate } from 
 import { createSwapFreezeLedger, type LedgerIo } from "./swap-freeze-ledger";
 import { encodeAsPsWould, type AgentSessionRef, type NativeCommandRef, type PsRow } from "../lib/agent-tool-children";
 import type { HeldMemory, SwapVerdict } from "./mem-signal";
-import { FREEZE_MAX_MS } from "../../shared/swap-freeze";
+import { FREEZE_MAX_MS, SWAP_EPISODE_CALM_MS } from "../../shared/swap-freeze";
 
 const T0 = 1_760_000_000_000;
 
@@ -258,6 +258,9 @@ describe("F5: the heaviest background command, and nothing else", () => {
     const w = world({ procs, sessions });
     await twoBeats(w);
     w.advance(10_000);
+    await w.beat({ sustained: false });
+    // Un episodio finisce solo dopo una calma vera, non al primo battito calmo.
+    w.advance(SWAP_EPISODE_CALM_MS);
     await w.beat({ sustained: false });
     // Past the shared action window: the first episode froze a tree, and a
     // beat inside those 120 s returns before measuring anything.
