@@ -349,9 +349,20 @@ function resolveInheritedMcpServers(): Record<string, unknown> | null {
  * The stdio spawn spec for the topics-app MCP bridge, keyed by sessionKey.
  * Shared so every MCP-capable host (claude-code CLI via --mcp-config, codex via
  * `-c mcp_servers.topics.*`) wires the SAME bridge — the subprocess gets the
- * sessionKey + base URL + gateway token as argv to call back into topics-app.
+ * sessionKey + base URL as argv to call back into topics-app.
+ *
+ * The gateway token is NOT in argv: every `ps` prints argv, and that is how
+ * the token reached dozens of transcripts. It travels in `env`, which the
+ * Claude CLI hands to the bridge process alone and which stays in the 0600
+ * config file. Codex and Muse ignore `env` (Codex would put it back in argv
+ * through `-c`): their bridge resolves the token from `openclaw.json`, the
+ * same source the server reads it from when it is not in the environment.
  */
-export function topicsMcpBridgeSpec(sessionKey: string, profile?: string): { command: string; args: string[] } {
+export function topicsMcpBridgeSpec(
+  sessionKey: string,
+  profile?: string,
+): { command: string; args: string[]; env?: Record<string, string> } {
+  const token = process.env.GATEWAY_TOKEN;
   return {
     command: process.execPath, // bun
     args: [
@@ -363,8 +374,8 @@ export function topicsMcpBridgeSpec(sessionKey: string, profile?: string): { com
       // (task tools + browser verification + processes) — fewer tool schemas
       // in the agent's per-call context. Absent = full toolset (interactive).
       ...(profile ? [`--profile=${profile}`] : []),
-      ...(process.env.GATEWAY_TOKEN ? [`--gateway-token=${process.env.GATEWAY_TOKEN}`] : []),
     ],
+    ...(token ? { env: { TOPICS_GATEWAY_TOKEN: token } } : {}),
   };
 }
 
@@ -416,7 +427,7 @@ export function writeMcpConfigForSession(
   };
   const path = mcpConfigPathForSession(sessionKey);
   // 0600: this file now carries inherited server `env` blocks (API tokens) and
-  // the topics bridge's --gateway-token — must not be world-readable in /tmp.
+  // the topics bridge's TOPICS_GATEWAY_TOKEN — must not be world-readable in /tmp.
   // `mode` only applies on CREATE, and re-spawns overwrite the same path, so
   // chmod afterwards to force 0600 even if the file pre-existed at 0644.
   writeFileSync(path, JSON.stringify(config, null, 2), { encoding: "utf-8", mode: 0o600 });

@@ -35,6 +35,26 @@ describe("writeMcpConfigForSession — bridge-only policy", () => {
     expect(config.mcpServers.topics.args).toContain("--profile=dispatch");
   });
 
+  it("hands the gateway token to the bridge in env, never in argv (ps prints argv)", () => {
+    const before = process.env.GATEWAY_TOKEN;
+    process.env.GATEWAY_TOKEN = "fixture-bridge-token";
+    try {
+      const spec = topicsMcpBridgeSpec("topic:tok12345");
+      expect(spec.args.some((a) => a.startsWith("--gateway-token") || a.includes("fixture-bridge-token"))).toBe(false);
+      expect(spec.env).toEqual({ TOPICS_GATEWAY_TOKEN: "fixture-bridge-token" });
+
+      const { path } = writeMcpConfigForSession(track("topic:tok12345"), { mcpPolicy: "bridge-only" });
+      const config = JSON.parse(readFileSync(path, "utf-8"));
+      expect(config.mcpServers.topics.env).toEqual({ TOPICS_GATEWAY_TOKEN: "fixture-bridge-token" });
+
+      delete process.env.GATEWAY_TOKEN;
+      expect(topicsMcpBridgeSpec("topic:tok12345").env).toBeUndefined();
+    } finally {
+      if (before === undefined) delete process.env.GATEWAY_TOKEN;
+      else process.env.GATEWAY_TOKEN = before;
+    }
+  });
+
   it("does NOT set the dispatch profile for the default (inherit) policy", () => {
     const spec = topicsMcpBridgeSpec("topic:plain");
     expect(spec.args).not.toContain("--profile=dispatch");

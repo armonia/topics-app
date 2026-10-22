@@ -16,6 +16,7 @@
 import { describe, test, expect } from "bun:test";
 import {
   parseArgs,
+  resolveBridgeGatewayToken,
   callOpenBrowserPane,
   callListBrowserTabs,
   callFocusBrowserTab,
@@ -110,6 +111,27 @@ describe("parseArgs", () => {
     ]);
     expect(args.baseUrl).toBe("http://x");
     expect(args.sessionKey).toBe("s");
+  });
+});
+
+describe("resolveBridgeGatewayToken", () => {
+  const noConfig = () => { throw new Error("openclaw.json must not be read"); };
+
+  test("argv wins (old configs still pass --gateway-token)", () => {
+    expect(resolveBridgeGatewayToken("from-argv", { TOPICS_GATEWAY_TOKEN: "from-env" }, noConfig)).toBe("from-argv");
+  });
+
+  test("then TOPICS_GATEWAY_TOKEN, from the env block of the MCP config", () => {
+    expect(resolveBridgeGatewayToken(undefined, { TOPICS_GATEWAY_TOKEN: "from-env" }, noConfig)).toBe("from-env");
+  });
+
+  test("then openclaw.json, for hosts whose config carries no env", () => {
+    expect(resolveBridgeGatewayToken(undefined, {}, () => "from-config")).toBe("from-config");
+    expect(resolveBridgeGatewayToken(undefined, {}, () => null)).toBeUndefined();
+  });
+
+  test("an empty TOPICS_GATEWAY_TOKEN means no token, and stops the fallback", () => {
+    expect(resolveBridgeGatewayToken(undefined, { TOPICS_GATEWAY_TOKEN: "" }, noConfig)).toBe("");
   });
 });
 

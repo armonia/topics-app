@@ -28,6 +28,7 @@ import { isInsideDir } from "./lib/path-containment";
 import { realPathForNewEntry } from "./lib/real-path";
 import { isTopicsSecretPath } from "./lib/topics-secret-path";
 import { homeDir } from "./lib/broad-cwd";
+import { readOpenClawGatewayToken } from "./lib/openclaw-gateway-token";
 import { isTopicSilenced } from "./push-triggers";
 import { configureAttentionStore } from "./attention/store";
 import { isSubagentEngaged, markSubagentEngaged } from "./lib/subagent-store";
@@ -174,12 +175,8 @@ export function createAppContext(baseDir: string): AppContext {
 
   /** Read gateway token from ~/.openclaw/openclaw.json (auto-syncs when OpenClaw rotates) */
   function readGatewayTokenFromConfig(): string | null {
-    try {
-      const configPath = join(process.env.HOME || "", ".openclaw", "openclaw.json");
-      const raw = readFileSync(configPath, "utf-8");
-      const config = JSON.parse(raw);
-      return config?.gateway?.auth?.token || null;
-    } catch { return null; }
+    // String or exec SecretRef: an object must never become "[object Object]".
+    return readOpenClawGatewayToken();
   }
 
   /** Refresh token from openclaw.json — called on auth failure */

@@ -55,12 +55,14 @@ function bridgeArgs(): { baseUrl: string; sessionKey: string; gatewayToken?: str
   const i = process.argv.indexOf("--mcp-config");
   if (i < 0 || !process.argv[i + 1]) return null;
   try {
-    const config = JSON.parse(readFileSync(process.argv[i + 1]!, "utf8")) as { mcpServers?: { topics?: { args?: string[] } } };
+    const config = JSON.parse(readFileSync(process.argv[i + 1]!, "utf8")) as { mcpServers?: { topics?: { args?: string[]; env?: Record<string, string> } } };
     const args = config.mcpServers?.topics?.args ?? [];
     const flag = (name: string) => args.find((a) => a.startsWith(`--${name}=`))?.slice(name.length + 3);
     const baseUrl = flag("base-url");
     const sessionKey = flag("session-key");
-    return baseUrl && sessionKey ? { baseUrl, sessionKey, gatewayToken: flag("gateway-token") } : null;
+    // The token travels in the bridge's `env`, not in argv (every `ps` prints argv).
+    const gatewayToken = config.mcpServers?.topics?.env?.TOPICS_GATEWAY_TOKEN;
+    return baseUrl && sessionKey ? { baseUrl, sessionKey, gatewayToken } : null;
   } catch {
     return null;
   }

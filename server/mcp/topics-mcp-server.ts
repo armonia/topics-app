@@ -17,7 +17,11 @@
  *   --session-key=<key>                  (required) sessionKey of the spawning
  *                                        claude-code process; topics-app resolves
  *                                        it to the target topic
- *   --gateway-token=<token>              (optional) sent as X-Gateway-Token header
+ *   --gateway-token=<token>              (optional, legacy) sent as X-Gateway-Token header
+ *
+ * The gateway token normally does NOT come through argv, which every `ps`
+ * prints: it comes from TOPICS_GATEWAY_TOKEN (the `env` block of the MCP
+ * config), else from `~/.openclaw/openclaw.json`. See `resolveBridgeGatewayToken`.
  *
  * No external deps — keeps the spawn cold-start under 50ms.
  */
@@ -38,6 +42,7 @@ import { SHOW_VIEW_TOOL, answerResourceMethod, callShowView, showViewCallResult 
 import { hasCommandShell } from "../lib/command-process";
 import { HttpAnswerError, httpJson, lostRequestError, loopbackInit, REQUEST_TIMEOUT_MS } from "./topics-http";
 import { homedir } from "os";
+import { readOpenClawGatewayToken } from "../lib/openclaw-gateway-token";
 import { agentTypeDescription, readAgentProfiles } from "../lib/agent-profiles";
 import { subagentWakeText } from "../services/subagent-wake";
 import type { SubAgentResult } from "../lib/subagent-result";
@@ -964,6 +969,25 @@ export function parseArgs(argv: string[]): ParsedArgs {
     gatewayToken: map["gateway-token"],
     profile: map["profile"],
   };
+}
+
+/**
+ * The token the bridge sends as X-Gateway-Token, resolved once at startup.
+ *
+ * Order: argv (old configs still carry `--gateway-token`), then
+ * TOPICS_GATEWAY_TOKEN (what Topics writes in the `env` block of the MCP
+ * config), then `openclaw.json` (Codex and Muse, whose config has no `env`).
+ * An EMPTY TOPICS_GATEWAY_TOKEN means "no token": it stops the fallback, so a
+ * test bridge never reads the real Keychain.
+ *
+ * Kept out of `parseArgs` on purpose: that one stays a pure function of argv.
+ */
+export function resolveBridgeGatewayToken(
+  fromArgv: string | undefined,
+  env: NodeJS.ProcessEnv = process.env,
+  readConfigToken: () => string | null = readOpenClawGatewayToken,
+): string | undefined {
+  return fromArgv ?? env.TOPICS_GATEWAY_TOKEN ?? readConfigToken() ?? undefined;
 }
 
 function send(msg: JsonRpcResponse | JsonRpcNotification): void {
@@ -3022,7 +3046,8 @@ export async function handleMessage(
 }
 
 async function main(): Promise<void> {
-  const args = parseArgs(process.argv.slice(2));
+  const parsed = parseArgs(process.argv.slice(2));
+  const args: ParsedArgs = { ...parsed, gatewayToken: resolveBridgeGatewayToken(parsed.gatewayToken) };
   const rl = createInterface({ input: process.stdin });
 
   rl.on("line", async (line: string) => {
