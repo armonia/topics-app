@@ -1,5 +1,48 @@
 [
   {
+    "version": "2.3.10",
+    "date": "2026-10-22",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "aggiorna durate shard dal nightly del 2026-10-21 [skip ci]",
+          "en": "",
+          "scope": "e2e",
+          "breaking": false
+        },
+        {
+          "it": "vite 7.3.7 nel client e 8.3.5 nella landing, per gli avvisi del 20-21/10 (#399)",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Un ctrl+z non congela più un Claude Code nella sua pane (#398)",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "aggiorna durate shard dal nightly del 2026-10-22 [skip ci]",
+          "en": "",
+          "scope": "e2e",
+          "breaking": false
+        },
+        {
+          "it": "Il ponte PTY non finisce più sul socket del file di test precedente (#401)",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Stop the swap and dead-resize log loops from refilling the error log (#400)",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
     "version": "2.3.9",
     "date": "2026-10-20",
     "sections": {

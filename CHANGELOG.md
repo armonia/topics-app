@@ -2,6 +2,16 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.3.10 — 2026-10-22
+
+### Sotto il cofano
+- **e2e** · aggiorna durate shard dal nightly del 2026-10-21 [skip ci]
+- vite 7.3.7 nel client e 8.3.5 nella landing, per gli avvisi del 20-21/10 (#399)
+- Un ctrl+z non congela più un Claude Code nella sua pane (#398)
+- **e2e** · aggiorna durate shard dal nightly del 2026-10-22 [skip ci]
+- Il ponte PTY non finisce più sul socket del file di test precedente (#401)
+- Stop the swap and dead-resize log loops from refilling the error log (#400)
+
 ## 2.3.9 — 2026-10-20
 
 ### Sotto il cofano
