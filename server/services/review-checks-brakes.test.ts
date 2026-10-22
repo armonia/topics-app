@@ -10,6 +10,7 @@ import { afterAll, afterEach, beforeAll, describe, expect, spyOn, test } from "b
 import { existsSync, mkdtempSync, readFileSync, rmSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
+import { SWAP_EPISODE_CALM_MS } from "../../shared/swap-freeze";
 import { slackMs } from "../../tests/helpers/time-slack";
 import { freezableRuns, type FreezableRun } from "./budget-governor";
 import { runReviewChecks } from "./review-checks";
@@ -844,7 +845,15 @@ describe("the swap brake: the youngest heavy round, 1 per 120 s, 2 per delivery,
     expect(b.logs.filter((l) => l.includes("nothing to interrupt"))).toHaveLength(1);
     b.advance(10);
     b.brake.tick(CALM, []);
-    expect(b.logs.at(-1)).toContain("swap no longer sustained after 20 s");
+    // A flicker shorter than the minimum calm neither closes the episode nor repeats it.
+    b.advance(10);
+    b.brake.tick(SUSTAINED, [small]);
+    b.advance(10);
+    b.brake.tick(CALM, []);
+    expect(b.logs).toHaveLength(1);
+    b.advance(SWAP_EPISODE_CALM_MS / 1000);
+    b.brake.tick(CALM, []);
+    expect(b.logs.at(-1)).toContain("swap no longer sustained after 40 s");
   });
 
   test("S5, end to end on a real process: the killed round rejects as interrupted for swap, the next command never starts, no peak is recorded", async () => {

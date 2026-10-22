@@ -121,12 +121,27 @@ export async function fetchWhileRosterWarms(
  * NOT self-correcting is the log line the old 404 wrote each time.
  */
 export function postTerminalResize(sessionId: string, cols: number, rows: number): void {
+  if ((resizeMisses.get(sessionId) ?? 0) >= RESIZE_GONE_MISSES) return;
   void fetchWhileRosterWarms(`/api/terminal/sessions/${encodeURIComponent(sessionId)}/resize`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ cols, rows }),
+  }).then((res) => {
+    if (res.status === 404) resizeMisses.set(sessionId, (resizeMisses.get(sessionId) ?? 0) + 1);
+    else resizeMisses.delete(sessionId);
   }).catch(() => { /* server unreachable: the next resize event says it again */ });
 }
+
+/**
+ * Sessions that answered 404 to a resize, with the miss count. A pane left on
+ * a dead id re-sent the resize on every focus and reflow, and the server wrote
+ * a `[Warn 404] Terminal session not found` for each one: 54,484 lines in the
+ * log of 22/10. After three 404s in a row that id gets no more resizes until
+ * the page reloads: revived ids change (see `projectLayoutSync`), so an id that
+ * said "I don't exist" three times does not come back.
+ */
+const resizeMisses = new Map<string, number>();
+const RESIZE_GONE_MISSES = 3;
 
 /**
  * Retire a terminal session server-side, waiting out the boot window.

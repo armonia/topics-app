@@ -74,6 +74,13 @@ export const NO_EFFECT_TO_MS = 180_000;
  * each be measuring the other's effect.
  */
 export const SWAP_ACTION_SPACING_MS = 120_000;
+/**
+ * Minimum calm before a swap episode counts as over. "Sustained" swap flickers
+ * around the threshold: closing the episode on the first calm beat made every
+ * flicker rewrite the "nothing to interrupt" / "no longer sustained" pair,
+ * 6,847 + 7,028 lines in the log of 22/10.
+ */
+export const SWAP_EPISODE_CALM_MS = 5 * 60_000;
 /** The thaw-on-room floor: the same 6 GB the checks waiter calls room. */
 export const FREEZE_ROOM_FLOOR_GB = 6;
 
