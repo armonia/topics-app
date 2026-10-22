@@ -115,6 +115,11 @@ struct Hub {
     api: API,
     targets: Mutex<HashMap<String, Arc<TargetStream>>>,
     peers: Mutex<HashMap<String, PeerEntry>>,
+    /// Target gia' dati per irraggiungibili. Ogni offer nuovo verso un target
+    /// morto ricostruiva il pipeline e ridiceva "stream ended … retry in 1s":
+    /// 1.695 volte per target_id nel log del 22/10, 46k righe in tutto. Un
+    /// target in questo insieme riprova in silenzio; esce al primo stream riuscito.
+    dead_targets: Mutex<std::collections::HashSet<String>>,
 }
 
 impl Hub {
@@ -142,7 +147,12 @@ impl Hub {
             .with_interceptor_registry(registry)
             .with_setting_engine(se)
             .build();
-        Ok(Arc::new(Self { api, targets: Mutex::new(HashMap::new()), peers: Mutex::new(HashMap::new()) }))
+        Ok(Arc::new(Self {
+            api,
+            targets: Mutex::new(HashMap::new()),
+            peers: Mutex::new(HashMap::new()),
+            dead_targets: Mutex::new(std::collections::HashSet::new()),
+        }))
     }
 
     /// Returns the shared TargetStream for `target_id`, spawning the CDP→encoder→track
@@ -222,6 +232,9 @@ impl Hub {
                 loop {
                     match cdp::attach_and_stream(target_id.clone(), 1, jpeg_tx.clone(), cdp_input.clone()).await {
                         Ok(()) => {
+                            if let Some(hub) = hub.upgrade() {
+                                hub.dead_targets.lock().unwrap().remove(&target_id);
+                            }
                             backoff = Duration::from_secs(1);
                             dry = Duration::ZERO;
                             last_err = None;
@@ -230,20 +243,25 @@ impl Hub {
                             // Logga solo quando l'errore CAMBIA: un target sparito ripete
                             // la stessa riga per settimane e seppellisce tutto il resto.
                             let msg = e.to_string();
-                            if last_err.as_deref() != Some(msg.as_str()) {
+                            let known_dead = hub
+                                .upgrade()
+                                .is_some_and(|hub| hub.dead_targets.lock().unwrap().contains(&target_id));
+                            if !known_dead && last_err.as_deref() != Some(msg.as_str()) {
                                 eprintln!("[cdp] stream ended ({target_id}): {msg} — retry in {backoff:?}");
                                 last_err = Some(msg);
                             }
                             dry += backoff;
                             if dry >= CDP_GIVE_UP {
-                                eprintln!(
-                                    "[cdp] target {target_id} irraggiungibile da {CDP_GIVE_UP:?} — smonto il pipeline"
-                                );
                                 // Fuori dalla mappa: la prossima offer ne costruisce uno nuovo.
                                 // `release_target` regge la rimozione anticipata (confronta
                                 // per Arc::ptr_eq e non trova più questo target).
                                 if let Some(hub) = hub.upgrade() {
                                     hub.targets.lock().unwrap().remove(&target_id);
+                                    if hub.dead_targets.lock().unwrap().insert(target_id.clone()) {
+                                        eprintln!(
+                                            "[cdp] target {target_id} irraggiungibile da {CDP_GIVE_UP:?} — smonto il pipeline"
+                                        );
+                                    }
                                 }
                                 // Uscendo si droppa `jpeg_tx`: il thread encoder chiude, con
                                 // lui `sample_tx`, e la task writer termina da sola.
