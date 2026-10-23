@@ -423,7 +423,7 @@ page but are no longer built, signed, or updated.
 bun run typecheck        # client, test client, server, e2e e relay; cache incrementali
 bun run lint             # eslint client + relay; cache basata sul contenuto
 bun run check:deadcode   # knip
-bun run test:unit        # suite completa di unità e integrazione, seriale
+bun run test:unit        # suite completa di unità e integrazione, un processo per file
 ```
 
 Le cache dei controlli sono in `.cache/checks/`, separate per worktree e ignorate
@@ -432,11 +432,14 @@ le parti interessate. Per tutti i controlli statici, tipi e lint insieme:
 `./scripts/qa-gate.sh --veloce`. Il resoconto aggiornato delle misure è in
 [PERFORMANCE-REVIEW.md](PERFORMANCE-REVIEW.md).
 
-Il runner unitario parallelo è disponibile con
-`TOPICS_UNIT_SHARDS=2 bun run test:unit:shards`: stessa selezione del seriale,
-stesso timeout e fallimenti conservati senza tentativi automatici che li
-nascondano. Il comando senza override parte da due worker e si riduce a uno
-sotto carico. Il seriale rimane il comando di riferimento.
+`bun run test:unit` lancia ogni file di test nel suo processo `bun test`, con la
+sua cartella temporanea, a `TOPICS_UNIT_SHARDS` file per volta (default: uno per
+core, fra due e quattro; sotto carico meno, fino a uno). Un file non vede quello
+che lascia il vicino (globali, `mock.module`, `DATA_DIR`, timer), quindi l'ordine
+non conta: `bun run test:unit:shuffle` lo mescola e stampa il seme per ripetere
+la corsa. Un file che lascia qualcosa nella sua cartella temporanea è rosso.
+Fallimenti conservati, nessun tentativo automatico che li nasconda. Un solo file:
+`bun run test:unit <percorso>`.
 
 **I numeri sono misurati il 2026-08-18, e uno era diventato una bugia comoda.**
 `test:unit` diceva «~70s, ~4100 test»: erano 322s e 10.619 test, cioè quattro

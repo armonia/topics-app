@@ -65,17 +65,16 @@ const CLIENT_OPEN_MS = slackMs(5_000);
  * The idle window for the ONE case that has to attach a client first, and it is
  * deliberately not `IDLE_EXIT_MS`.
  *
- * That case was racing itself. It allows the connect up to `CLIENT_OPEN_MS` to
- * complete, which is longer than `IDLE_EXIT_MS`: on a loaded machine the bridge
- * legitimately retired while the client was still crossing the scheduler, and
- * the test read that as "the backstop killed a bridge in use". The window the
- * case needs is one the attach cannot lose to, so it is the worst connect we
- * tolerate PLUS a full idle window on top.
+ * That case was racing itself. The connect below may take up to
+ * `CLIENT_OPEN_MS`, so the window must leave it a margin it cannot lose to:
+ * one full idle window PLUS a 2 s connect budget on top (slack-scaled, never
+ * below 2 s: a connect slower than that on a quiet machine is a bug). The old
+ * budget baked the whole 5 s connect ceiling in; the margin is what shrinks.
  *
- * The assertion does not get weaker: the proof below still sleeps past this
- * window, so the backstop has had its chance and declined to fire.
+ * The assertion does not get weaker: the proof below still sleeps past TWICE
+ * this window, so the backstop has had its chance and declined to fire.
  */
-const BUSY_IDLE_EXIT_MS = CLIENT_OPEN_MS + IDLE_EXIT_MS;
+const BUSY_IDLE_EXIT_MS = IDLE_EXIT_MS + slackMs(2_000);
 /** The per-test ceiling, which has to hold all of the above. */
 const CASE_MS = slackMs(40_000);
 
@@ -153,25 +152,26 @@ describe("pty-bridge · monitor anti-orfano", () => {
     const bridge = spawnBridge(sock, await deadPid(), {
       ...BRIDGE_ENV_FAST,
       TOPICS_PTY_BRIDGE_ORPHAN_GRACE_MS: "1000",
-      // Una sonda vera dura ~1s (connect → ping → pong → close): la soglia sta
-      // sopra, così le sonde qui sotto non contano mai come server.
-      TOPICS_PTY_BRIDGE_REAL_CLIENT_MS: "3000",
+      // A real probe lasts ~0.5s (connect → ping → pong → close): the
+      // threshold sits above it, so the probes below never count as a server.
+      TOPICS_PTY_BRIDGE_REAL_CLIENT_MS: "1500",
     });
 
     expect(await until(() => existsSync(sock), 15_000)).toBe(true);
     let exited = false;
     void bridge.exited.then(() => { exited = true; });
 
-    // Sonde SOVRAPPOSTE: ognuna tiene aperto un secondo, una nuova ogni 800ms.
-    // Il socket non è mai libero — la versione col buco non si armava nemmeno —
-    // ma nessuna connessione raggiunge i 3s, quindi nessuna è un server.
+    // OVERLAPPING probes: each holds for half a second, a new one every
+    // 400ms. The socket is never free — the buggy version never even armed
+    // its deadline — yet no single connection reaches 1.5s, so none of them
+    // is a server.
     const open = new Set<ReturnType<typeof net.connect>>();
     const probing = setInterval(() => {
       const probe = net.connect(sock);
       open.add(probe);
       probe.on("error", () => { /* il ponte se n'è andato: è il caso di successo */ });
-      setTimeout(() => { open.delete(probe); probe.destroy(); }, 1_000).unref();
-    }, 800);
+      setTimeout(() => { open.delete(probe); probe.destroy(); }, 500).unref();
+    }, 400);
     cleanups.push(() => { clearInterval(probing); for (const p of open) p.destroy(); });
 
     // The budget is wide because what is being measured is a NEGATIVE (nobody

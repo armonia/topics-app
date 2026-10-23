@@ -11,8 +11,8 @@
  * different test every time.
  *
  * WHAT IS LEFT FOR THIS GATE TO DO, since 22/10/2026. The isolation is now in
- * the environment `bun test` is BORN with: `scripts/test-unit-serial.ts` and
- * `scripts/test-unit-shards.ts` wrap their spawn in `gitIsolationEnv`, and a
+ * the environment `bun test` is BORN with: `scripts/test-unit-shards.ts`
+ * builds it in `fileEnv()`, which wraps the base in `gitIsolationEnv`, and a
  * variable that is there at birth is inherited by every git child for free
  * (measured in `tests/unit/git-isolation-inherited.test.ts`). So on the whole
  * suite, in CI included, a forgotten `env` no longer lets the hooks in.

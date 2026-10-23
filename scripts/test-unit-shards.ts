@@ -1,86 +1,69 @@
 #!/usr/bin/env bun
 /**
- * Runs the COMPLETE `test:unit` suite in TWO PHASES, keeping EXACTLY the
- * coverage of the serial run (the same files) in a fraction of the wall-clock.
+ * THE UNIT SUITE: ONE `bun test` PROCESS PER FILE, N FILES AT A TIME.
  *
- * THE PROBLEM (measured 05/09/2026). `bun test` has no file-level parallelism:
- * it runs the files one after the other in a single process. The pre-review
- * bar runs `test:unit` on EVERY card, and serially it costs ~462s nominal
- * (~7.7 min) and ~18 min under load. Most of that time is NOT CPU: ~121s of
- * real CPU drowned in ~340s of idle waiting (client tests wait on timers,
- * integration tests spawn servers and DBs and wait on I/O). One process leaves
- * 11 cores watching.
+ * THE FAULT THIS REMOVES. `bun test` runs every file of a run in ONE process,
+ * so what a file leaves behind is handed to the next one: DOM globals, a
+ * `mock.module` that `mock.restore()` does not take back, `DATA_DIR`, the
+ * `SOCKET_PATH` of the pty bridge, a throttle timer in flight, the `_db`
+ * singleton. The verdict of a file then depended on its neighbours, and the
+ * neighbours depended on how the run was cut: two in-process shard attempts
+ * were faster (4.7 and 6.8 min) and red on tests that were green serially,
+ * never the same ones. Three gates existed only to contain that
+ * (check:module-mock-restore, check:test-globals, the DATA_DIR restore test),
+ * each one a defence per class of leak, downstream of the leak.
  *
- * WHY TWO PHASES AND NOT ONE POOL. `bun test` does not isolate files inside a
- * process: module singletons (`server/db` `_db`), `process.env` and the fake
- * DOM globals installed by tests LEAK from one file to the next. The suite is
- * green only in the canonical serial ORDER; any regrouping exposes those latent
- * leaks. Two classes really bit us:
- *   1. ORDER DEPENDENCE: a partial fake `window`/`localStorage`/`document` left
- *      on `globalThis` flips the `typeof window` guards of the files after it
- *      (e.g. `useMobile` -> `getComputedStyle is not defined`); a `_db` left
- *      open turns `initDatabase` into a no-op and skips the migrations ("no
- *      such table"). In the PARALLEL tier this class was closed at the root:
- *      every test that mounts a global unmounts it in `afterAll` (bun's baseline
- *      = no DOM globals), and the preload guard keeps it that way.
- *   2. RACES FOR OS RESOURCES: tests that spawn daemons and race for a free
- *      socket (`ai-bridge`) time out under CPU contention: 5 daemons fighting
- *      over a port while 4 shards hammer the cores is no longer the test you
- *      wanted. This class is not "isolated" away: it is racing by construction.
+ * WHAT IT DOES INSTEAD. Every file gets its own process and its own scratch
+ * directory (`TMPDIR`), so a global, a mock, an env var, a timer or a file in
+ * the temp folder cannot reach another file: the defect is not representable
+ * any more, so nothing has to detect it. The files go through a shared queue,
+ * longest first, to N workers (the "shards"): a worker that finishes early
+ * takes the next file instead of waiting for a plan made from durations
+ * recorded on another machine.
  *
- * WHAT IT DOES.
- *   PHASE 1 (parallel): ALMOST THE WHOLE suite (everything but the few OS racers
- *   of phase 2), split into N CONCURRENT `bun test` workers balanced by
- *   duration (LPT). Measured order-independent: 12 shuffled groupings x 4
- *   shards, 0 reds, both on the client tier and on `server/**` +
- *   `tests/integration`. The verdict does not depend on the grouping.
- *   PHASE 2 (serial): ONLY the racers with timing assertions (`ai-bridge*`, see
- *   SERIAL_GLOBS), in ONE `bun test` AFTER phase 1, so they run without CPU
- *   contention. A handful of files: the tail costs little.
+ * WHAT IT DOES NOT ISOLATE: the CPU. N processes still compete for the cores
+ * and a test with a fixed time window can still starve (`TOPICS_TEST_TIME_SLACK`
+ * widens those windows, `SERIAL_GLOBS` keeps the real OS racers alone at the
+ * end).
  *
- * THE VERDICT is the aggregate: green only if EVERY phase-1 worker AND phase 2
- * are green. The stdout/stderr of every red phase is reprinted in full, so the
- * bar sees WHICH tests failed.
+ * NOTHING STAYS IN THE TEMP FOLDER. A test that makes a folder in the temp dir
+ * and never removes it used to pile up there (on 23/10/2026 the owner's Mac
+ * held ~11,000 `topics-cred*`, 4,800 `topics*`, 3,500 `tracker-home*` and
+ * `import*`). Each file's scratch directory is removed when the file ends,
+ * whatever it left in it, so a leak cannot outlive its file; and on CI the run
+ * also fails if anything appeared in the real temp folder in spite of it (a
+ * hard-coded path). A plain `bun test` gets the same from the preload.
  *
- * THE DURATIONS (`test-unit-durations.json`, tracked in git like
- * `e2e-durations.json`) are rewritten ONLY with `--record`
- * (`bun run test:unit:durations`). The bare gate only reads them: if it
- * rewrote them on every run, every agent worktree would leave the gate with a
- * modified file, and the "clean tree" check or the land would carry it along.
- * A new file with no duration weighs the median.
+ * ORDER. By default the longest files first. `--shuffle[=seed]` randomizes it
+ * and prints the seed: with a process per file the order must not matter, and a
+ * run that disagrees with another on the same tree is an OS-level shared
+ * resource (a fixed port, a path outside the temp folder) and not a mock.
  *
- * WHY IT IS SAFE. (1) It runs inside the ONE slot of `slot.ts` (label
- * `test:unit`): it sets `TOPICS_GATE_HELD` on the workers, so bun's preload
- * (`bun-test-preload`) does NOT queue them for a second slot: they are one
- * logical slot, not N. (2) The integration tests that open real ports use free
- * ports plus isolated `APP_DATA_DIR`s (guard `global-setup-no-prod-paths.test.ts`),
- * so two shards opening them together do not collide. (3) The safety net is
- * still CI, which runs the SERIAL `bun test:unit` on main: this script shortens
- * the run, it does not widen the trust. A rare grouping flake that escaped the
- * 12 groupings tried is still caught by CI.
- *
- * WHEN TO ADD A FILE TO PHASE 2. Only when it becomes flaky under parallelism
- * because of a real OS resource with timing assertions (like `ai-bridge*`): add
- * it to `SERIAL_GLOBS`, the denylist is the only lever, nothing else changes. Do
- * NOT serialize out of prudence: phase 2 is serial wall-clock, every file there
- * lengthens the run. The proof that a file does NOT belong in phase 2 is the
- * green shuffle x shard repro (see the header).
+ * THE DURATIONS (`test-unit-durations.json`, tracked in git) are rewritten ONLY
+ * with `--record` (`bun run test:unit:durations`): a gate that rewrites a
+ * tracked file leaves every agent worktree dirty. A file with no duration
+ * weighs the median. They are wall times of the whole process, startup
+ * included: that is what a worker spends.
  *
  * USAGE
- *   bun run scripts/test-unit-shards.ts            # N = TOPICS_UNIT_SHARDS or defaultShards(cores)
- *   TOPICS_UNIT_SHARDS=6 bun run scripts/test-unit-shards.ts
+ *   bun run scripts/test-unit-shards.ts                 # whole suite, N = TOPICS_UNIT_SHARDS or defaultShards(cores)
+ *   bun run scripts/test-unit-shards.ts --shuffle=7     # random order, seed 7
+ *   bun run scripts/test-unit-shards.ts <file|dir>...   # only these (they REPLACE the default roots)
+ *   bun run scripts/test-unit-shards.ts --list          # the plan, one file per line, without running it
  * In production it enters from the bar as:
  *   bun run scripts/slot.ts test:unit -- 'bun run scripts/test-unit-shards.ts'
  */
 
-import { readFileSync, existsSync, writeFileSync, mkdtempSync, rmSync } from "fs";
+import { readFileSync, existsSync, writeFileSync, mkdirSync, mkdtempSync, readdirSync, rmSync, statSync } from "fs";
 import { resolve, join } from "path";
 import { tmpdir, loadavg, cpus } from "os";
+import { randomBytes } from "crypto";
 import { GATE_HELD_ENV } from "./gate-slot.ts";
 import { clampSlowdown, gateSlowdownLine } from "../shared/gate-slowdown.ts";
 import { TIME_SLACK_ENV, timeSlack, timeSlackNote } from "../shared/test-time-slack.ts";
 import { TEST_RUN_ENV, newTestRunId, reportAndEndStrays, strayAiBridges } from "./stray-ai-bridges.ts";
 import { gitIsolationEnv } from "../tests/setup/git-isolation";
+import { PRIVATE_SCRATCH_ENV } from "../tests/setup/test-tmp-dirs.ts";
 
 /**
  * How many shards to run on THIS machine, with the serial suite's timeout.
@@ -116,13 +99,8 @@ export interface LoadPlan {
 }
 /**
  * How many shards a run takes when nobody asked: one per core, never fewer than
- * two nor more than four. It was a flat 2, and on the 4-vCPU cloud VM that left
- * the cores watching (most of the suite waits on timers and I/O, see the header):
- * measured 697 s with 2 shards and 325 s with 4, the four balanced at 246-280 s
- * where the two were 472 s and 653 s apart (LPT plans by durations recorded on
- * another machine, and the imbalance is the first thing that breaks). The load
- * plan below still takes shards away under pressure, and TOPICS_UNIT_SHARDS=2
- * puts the old value back.
+ * two nor more than four. The load plan below still takes shards away under
+ * pressure, and TOPICS_UNIT_SHARDS=1 gives the strictly serial run.
  */
 export function defaultShards(cores: number): number {
   return Math.max(2, Math.min(4, Math.floor(cores)));
@@ -158,9 +136,8 @@ const DURATIONS_PATH = resolve(import.meta.dir, "test-unit-durations.json");
 
 /**
  * The roots `test:unit` runs (package.json). The enumeration MUST match what
- * `bun test <root>` would collect, or the sharded run covers less than the
- * serial one. Under these roots only `*.test.ts`/`*.test.tsx` exist (verified:
- * 1132 + 16), no `.spec`/`.js`/`_test`, so the glob matches.
+ * `bun test <root>` would collect, or the run covers less than the suite.
+ * Under these roots only `*.test.ts`/`*.test.tsx` exist.
  */
 export const SUITE_ROOTS = [
   "client/src",
@@ -174,30 +151,26 @@ export const SUITE_ROOTS = [
 ] as const;
 
 /**
- * The files that MUST run serially in phase 2 (globs relative to `cwd`). No
- * longer "the whole heavy tier": measured on 05/09/2026, `server/**` +
- * `tests/integration/**` run order-INDEPENDENT across 12 shuffled groupings x 4
- * shards (0 reds). Most server tests open their own `new Database(":memory:")`
- * and never touch the `_db` singleton. So the heavy tier goes to phase 1
- * (parallel) like everything else.
- *
- * Only whoever races for a real OS resource with TIMING assertions stays in
- * phase 2: `ai-bridge-singleton` spawns 5 daemons fighting over a socket and
- * checks that exactly ONE is left listening within a deadline; under the CPU
- * contention of N shards that deadline slips (measured: timeout at 15221ms >
- * 15s). The socket is pid-scoped, so it is NOT a cross-shard race: it is
- * real-time-sensitive. In phase 2, with no contention, the timing holds.
- * `ai-bridge` is the same family (it spawns the mjs daemon) and is cheap: it
- * stays with it. Whoever turns flaky under parallelism is added here; the rest
- * of the code does not change.
+ * The files that run alone at the end, after every other file (globs relative
+ * to `cwd`). Not "the heavy tier": only whoever races for a real OS resource
+ * with TIMING assertions, which under the CPU contention of N workers slips
+ * past its deadline: `ai-bridge-singleton` spawns 5 daemons fighting over a
+ * socket and checks that exactly ONE is left listening within 15 s (measured
+ * timeout at 15221 ms under 4 shards). Whoever turns flaky under parallelism
+ * is added here; the rest of the code does not change.
  */
 export const SERIAL_GLOBS = [
   "server/ai-bridge-singleton.test.ts",
   "server/ai-bridge.test.ts",
   // Spawns a real wrapper process tree and asserts a 4500ms wall-clock kill
-  // deadline: reproduced red on shard 1 under phase-1 CPU contention three
-  // times in a row (10/09/2026), green standalone every time.
+  // deadline: reproduced red under CPU contention three times in a row
+  // (10/09/2026), green standalone every time.
   "server/providers/codex-complete.test.ts",
+  // Child `bun test` runs with a 300 ms ack cap and a 1000 ms route grace, and
+  // a CLI exit that must land inside them. Red in CI on 23/10 (run 40026150098:
+  // the watchdog answered at 2083 ms), green on the same tests before the
+  // rebase (run 40022305558): the window follows the load of the box.
+  "tests/integration/late-scan-past-cap.test.ts",
 ] as const;
 
 const TEST_GLOBS = ["**/*.test.ts", "**/*.test.tsx"] as const;
@@ -245,172 +218,156 @@ export function loadDurations(): Record<string, number> {
   }
 }
 
-/** LPT: slowest to fastest, each into the bucket with the least load so far. */
-export function planShards(
-  files: string[],
-  durations: Record<string, number>,
-  shards: number,
-): Array<{ files: string[]; seconds: number }> {
+/**
+ * The order the workers take files in: slowest first, so the long ones start
+ * while there is still a short tail to fill the gaps behind them (LPT, but
+ * dynamic: the queue is consumed as workers free up, so a wrong estimate costs
+ * one file, not a whole shard). A file with no known duration weighs the median.
+ */
+export function orderByDuration(files: string[], durations: Record<string, number>): string[] {
   const known = files.map((f) => durations[f]).filter((d): d is number => typeof d === "number" && d > 0);
   const sortedKnown = [...known].sort((a, b) => a - b);
   const median = sortedKnown.length ? sortedKnown[Math.floor(sortedKnown.length / 2)] : 1;
-
-  const weighted = files
+  return files
     .map((file) => ({ file, seconds: durations[file] ?? median }))
-    .sort((a, b) => b.seconds - a.seconds);
-
-  const buckets = Array.from({ length: Math.max(1, shards) }, () => ({ files: [] as string[], seconds: 0 }));
-  for (const { file, seconds } of weighted) {
-    let least = 0;
-    for (let i = 1; i < buckets.length; i++) {
-      if (buckets[i].seconds < buckets[least].seconds) least = i;
-    }
-    buckets[least].files.push(file);
-    buckets[least].seconds += seconds;
-  }
-  return buckets;
+    .sort((a, b) => b.seconds - a.seconds || a.file.localeCompare(b.file))
+    .map((x) => x.file);
 }
 
-/**
- * Sums the `time` (seconds) of every `<testcase>` per `file`. The
- * `<testsuite file>` carries `time="0"` at file level in bun, so the real
- * duration is the sum of the testcases. Attributes can come in any order
- * (`time` before `file`), so they are extracted independently of the tag.
- */
-export function parseJunitDurations(xml: string): Record<string, number> {
-  const out: Record<string, number> = {};
-  const tagRe = /<testcase\b[^>]*\/?>/g;
-  let m: RegExpExecArray | null;
-  while ((m = tagRe.exec(xml)) !== null) {
-    const tag = m[0];
-    const file = /\bfile="([^"]*)"/.exec(tag)?.[1];
-    const time = Number(/\btime="([^"]*)"/.exec(tag)?.[1]);
-    if (!file || !Number.isFinite(time)) continue;
-    out[file] = (out[file] ?? 0) + time;
+/** Deterministic shuffle (mulberry32 + Fisher-Yates): the same seed gives the same order. */
+export function shuffleSeeded<T>(items: readonly T[], seed: number): T[] {
+  let a = seed >>> 0;
+  const next = (): number => {
+    a = (a + 0x6d2b79f5) >>> 0;
+    let t = a;
+    t = Math.imul(t ^ (t >>> 15), t | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+  const out = [...items];
+  for (let i = out.length - 1; i > 0; i--) {
+    const j = Math.floor(next() * (i + 1));
+    [out[i], out[j]] = [out[j]!, out[i]!];
   }
   return out;
 }
 
-/** One red test case as the junit report names it. */
-export interface JunitFailure {
-  file: string;
-  /** `classname › name`, i.e. the describe path and the test title. */
-  test: string;
-}
-
-/**
- * The test cases that carry a `<failure>` or `<error>` child.
- *
- * WHY THE SUMMARY NEEDS THEM. The whole output of a red shard is reprinted
- * above the summary, `(fail)` lines included, but the board keeps only the
- * TAIL of a check's output in the card comment: on 05/09/2026 the agent of
- * card 7bbefd9e read "test:unit exit 1" plus the reproduce line and had to
- * rerun the shard just to learn which test was red. The names go in the last
- * lines, where the comment keeps them. A hook timeout or a crashed process
- * leaves no red test case in the report: the summary says so instead of
- * printing nothing.
- */
-export function parseJunitFailures(xml: string): JunitFailure[] {
-  const out: JunitFailure[] = [];
-  const caseRe = /<testcase\b([^>]*?)(?<!\/)>([\s\S]*?)<\/testcase>/g;
-  let m: RegExpExecArray | null;
-  while ((m = caseRe.exec(xml)) !== null) {
-    const attrs = m[1] ?? "";
-    const body = m[2] ?? "";
-    if (!/<(failure|error)\b/.test(body)) continue;
-    const file = /\bfile="([^"]*)"/.exec(attrs)?.[1] ?? "?";
-    const name = decodeXmlAttr(/\bname="([^"]*)"/.exec(attrs)?.[1] ?? "?");
-    const describePath = decodeXmlAttr(/\bclassname="([^"]*)"/.exec(attrs)?.[1] ?? "");
-    out.push({ file, test: describePath ? `${describePath} › ${name}` : name });
-  }
-  return out;
-}
-
-function decodeXmlAttr(s: string): string {
-  return s
-    .replace(/&quot;/g, "\"").replace(/&apos;/g, "'").replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&amp;/g, "&");
-}
-
-/** Green (0) only if EVERY worker is green; otherwise the first non-zero code. */
+/** Green (0) only if EVERY file is green; otherwise the first non-zero code. */
 export function aggregateVerdict(exitCodes: number[]): number {
   const failed = exitCodes.find((c) => c !== 0);
   return failed ?? 0;
 }
 
-// ── running one group of files in one `bun test` process ─────────────────────
-interface RunResult {
-  code: number;
-  stdout: string;
-  stderr: string;
-  wallS: number;
-  fileCount: number;
-  measured: Record<string, number>;
-  /** Red test cases named by the junit report; empty on a hook timeout or a crash. */
-  failures: JunitFailure[];
+/** The test names bun prints on a red file: `(fail) describe > name [12.00ms]`. */
+export function redTestNames(output: string): string[] {
+  return [...output.matchAll(/^\(fail\) (.+?)(?: \[[\d.]+m?s\])?$/gm)].map((m) => m[1]!);
 }
 
 /**
- * Launches ONE `bun test` process on the given `files` and collects verdict + durations.
+ * The environment every file is born with, before its own scratch directory.
  *
- * THE WORKER WRITES ITS OUTPUT TO A FILE, NOT TO A PIPE THIS PROCESS HOLDS.
- * Reading a pipe whole with `new Response(pipe).text()` keeps every chunk the
- * worker wrote until it exits, and on bun 1.3.8 each chunk costs ~10 KB of
- * ArrayBuffer whatever its size: the cost follows the number of writes, not
- * the bytes. Measured 15/09/2026 on the live board: a runner at 797 MB (then
- * 3.7 GB) while its only worker was 270 MB, 728 MB of it in "JS VM Gigacage",
- * all swapped, and 0.9 s of CPU. A probe of the same shape went from 200 MB
- * with the pipe to 9 MB with a file. Green output was never read anyway: only
- * a red shard is reprinted, so only a red shard's files are opened.
+ * The home and the OpenClaw config are taken out of the inherited environment
+ * so the preload derives them INSIDE the file's `TMPDIR` (it only does so when
+ * none is chosen), and `DATA_DIR` goes for the same reason: a runner started
+ * from the owner's terminal must not hand its live state folder to a test.
  */
-async function runBunTest(
-  files: string[],
-  xmlPath: string,
-  timeoutMs: string,
-): Promise<RunResult> {
+export function fileEnv(base: NodeJS.ProcessEnv): Record<string, string | undefined> {
+  const env: Record<string, string | undefined> = gitIsolationEnv({ ...base });
+  for (const key of ["DATA_DIR", "TOPICS_DATA_DIR", "TOPICS_HOME", "OPENCLAW_CONFIG_PATH"]) delete env[key];
+  return env;
+}
+
+/** A file stuck for this long is killed by its own preload (exit 124); the slowest file takes ~25 s. */
+const FILE_CAP_MS = 5 * 60_000;
+
+interface FileResult {
+  file: string;
+  code: number;
+  wallS: number;
+  /** CPU the process (and the children it waited for) used: how much of the wall was work and not waiting. */
+  cpuS: number;
+  /** stdout + stderr, kept only when the file is red. */
+  output: string;
+}
+
+/**
+ * Runs ONE file in its own `bun test` process, in its own scratch directory.
+ *
+ * THE OUTPUT GOES TO A FILE, NOT TO A PIPE THIS PROCESS READS. A test leaves
+ * children behind (a daemon, a `sleep 600` standing in for a CLI, a frozen
+ * tree) and they inherit the pipe: reading it to the end then waits for the
+ * last of them, and a runner that waits for a stray never reports. A file has
+ * no end to wait for. Only a red file is read back.
+ */
+async function runFile(file: string, scratch: string, outBase: string, env: Record<string, string | undefined>, timeoutMs: string): Promise<FileResult> {
+  // `TMPDIR` is the file's own scratch directory: every `os.tmpdir()` of the
+  // file lands there, and nowhere a neighbour can see it.
+  mkdirSync(scratch, { recursive: true });
   const t0 = Date.now();
-  const outPath = xmlPath.replace(/\.xml$/, ".out");
-  const errPath = xmlPath.replace(/\.xml$/, ".err");
-  const proc = Bun.spawn(
-    ["bun", "test", "--timeout", String(timeoutMs), "--reporter=junit", `--reporter-outfile=${xmlPath}`, ...files],
-    {
-      cwd: REPO_ROOT,
-      // `gitIsolationEnv` so that the git config of the run is already in the
-      // environment `bun test` is born with: Bun does not pass a child the
-      // variables added to `process.env` at runtime, so a forgotten `env` on a
-      // call would otherwise let the machine's hooks into the test's repo.
-      env: gitIsolationEnv({
-        ...process.env,
-        // Covers the children with the slot this process already holds: bun's
-        // preload sees the marker and does NOT queue for a second slot.
-        [GATE_HELD_ENV]: process.env[GATE_HELD_ENV] ?? "test-unit-shards",
-      }),
-      stdout: Bun.file(outPath),
-      stderr: Bun.file(errPath),
-    },
-  );
+  const proc = Bun.spawn(["bun", "test", "--timeout", timeoutMs, file], {
+    cwd: REPO_ROOT,
+    env: { ...env, TMPDIR: scratch, TMP: scratch, TEMP: scratch, [PRIVATE_SCRATCH_ENV]: "1", TOPICS_GATE_MAX_RUN_MS: String(FILE_CAP_MS) },
+    stdout: Bun.file(`${outBase}.out`),
+    stderr: Bun.file(`${outBase}.err`),
+  });
   const code = await proc.exited;
-  const readIfRed = (path: string): string => {
-    if (code === 0) return "";
-    try { return readFileSync(path, "utf8"); } catch { return ""; }
+  const wallS = (Date.now() - t0) / 1000;
+  const read = (path: string): string => {
+    try { return code === 0 ? "" : readFileSync(path, "utf8"); } catch { return ""; } finally { rmSync(path, { force: true }); }
   };
-  const stdout = readIfRed(outPath);
-  const stderr = readIfRed(errPath);
-  let measured: Record<string, number> = {};
-  let failures: JunitFailure[] = [];
+  const err = read(`${outBase}.err`);
+  const out = read(`${outBase}.out`);
+  rmSync(scratch, { recursive: true, force: true });
+  const cpuS = Number(proc.resourceUsage()?.cpuTime.total ?? 0n) / 1e6;
+  return { file, code, wallS, cpuS, output: `${err}${out}` };
+}
+
+/** Runs `fn` over `items` with `n` workers pulling from one shared queue, in order. */
+async function pool<T>(items: readonly T[], n: number, fn: (item: T) => Promise<void>): Promise<void> {
+  let next = 0;
+  await Promise.all(
+    Array.from({ length: Math.max(1, Math.min(n, items.length)) }, async () => {
+      while (next < items.length) await fn(items[next++]!);
+    }),
+  );
+}
+
+/** `--shuffle` or `--shuffle=<seed>`: the seed, or null when the run is not shuffled. */
+export function shuffleSeedOf(argv: readonly string[]): number | null {
+  const flag = argv.find((a) => a === "--shuffle" || a.startsWith("--shuffle="));
+  if (!flag) return null;
+  const given = Number(flag.split("=")[1]);
+  return Number.isInteger(given) && given >= 0 ? given : randomBytes(4).readUInt32BE(0);
+}
+
+/** The short base `testTmpDir` uses on purpose (a unix socket path must stay under 104 characters on macOS). */
+const TEST_TMP_BASE = "/tmp/topics-test";
+const TEST_TMP_BASE_NAME = "topics-test";
+
+/**
+ * Where a test can leave something in spite of the private `TMPDIR` of its
+ * file: the real temp folder (a hard-coded path) and the base of `testTmpDir`,
+ * which is a fixed path and not `os.tmpdir()`.
+ */
+const OUTER_TEMP_ROOTS: readonly string[] = [tmpdir(), TEST_TMP_BASE];
+
+/** The names directly under `dir`, or none when it cannot be read. */
+export function snapshotEntries(dir: string): Set<string> {
   try {
-    if (existsSync(xmlPath)) {
-      const xml = readFileSync(xmlPath, "utf8");
-      measured = parseJunitDurations(xml);
-      failures = parseJunitFailures(xml);
-    }
+    return new Set(readdirSync(dir));
   } catch {
-    /* incomplete xml: the old durations are kept for those files */
+    return new Set();
   }
-  return { code, stdout, stderr, wallS: (Date.now() - t0) / 1000, fileCount: files.length, measured, failures };
+}
+
+/** The names under `dir` now that were not in `before`, sorted. */
+export function newEntries(before: ReadonlySet<string>, dir: string): string[] {
+  return [...snapshotEntries(dir)].filter((name) => !before.has(name)).sort();
 }
 
 // ── CLI ──────────────────────────────────────────────────────────────────────
 if (import.meta.main) {
+  const argv = process.argv.slice(2);
   const baseShards = Math.max(1, Number(process.env.TOPICS_UNIT_SHARDS) || defaultShards(cpus().length || 1));
   // Exactly the shell expansion used by test:unit. Preserve the raw override
   // too: an invalid value must reach Bun and fail, not silently become 30s.
@@ -427,8 +384,8 @@ if (import.meta.main) {
    * ONE factor for the whole round, decided here and handed down.
    *
    * The tests that wait inside a window read it from the env (see
-   * tests/helpers/time-slack.ts): measured here once, every shard of this run
-   * uses the SAME number instead of each file re-reading a load that moves
+   * tests/helpers/time-slack.ts): measured here once, every file of this run
+   * uses the SAME number instead of each one re-reading a load that moves
    * under it - including the load this very run is producing.
    */
   const load1 = loadavg()[0] ?? 0;
@@ -436,103 +393,128 @@ if (import.meta.main) {
   const slack = timeSlack({ load: load1, cores, forced: process.env[TIME_SLACK_ENV] });
   process.env[TIME_SLACK_ENV] = String(slack);
   if (slack > 1) console.error(`test-unit-shards: ${timeSlackNote(slack, load1, cores)}`);
-  // Said BEFORE the first shard starts, because whoever is timing this run from
+  // Said BEFORE the first file starts, because whoever is timing this run from
   // outside has to hear it while there is still time on its cap to extend.
   if (plan.slowdown > 1) {
     const reason = `${plan.shards} shard invece di ${baseShards} sotto carico (pressione ${plan.pressure.toFixed(2)})`;
     console.error(gateSlowdownLine(plan.slowdown, reason));
   }
-  const shardsN = plan.shards;
-  // Every shard inherits it, and so does every daemon a test starts: the check
+  // Every file inherits it, and so does every daemon a test starts: the check
   // at the end finds this run's leftovers by it (scripts/stray-ai-bridges.ts).
   const runId = newTestRunId();
   process.env[TEST_RUN_ENV] = runId;
 
-  const files = enumerateTestFiles(SUITE_ROOTS, REPO_ROOT);
+  // Explicit arguments REPLACE the default roots, they do not add to them: a
+  // `test:unit <one file>` that also ran the whole suite would be a trap for
+  // whoever is narrowing down a single test. A leading `-` is a flag.
+  const targets = argv.filter((a) => !a.startsWith("-"));
+  const files = targets.length
+    ? [...new Set(targets.flatMap((t) => (existsSync(resolve(REPO_ROOT, t)) && statSync(resolve(REPO_ROOT, t)).isDirectory() ? enumerateTestFiles([t.replace(/\/$/, "")], REPO_ROOT) : [t])))]
+    : enumerateTestFiles(SUITE_ROOTS, REPO_ROOT);
   if (files.length === 0) {
-    console.error("test-unit-shards: no test file found under", SUITE_ROOTS.join(", "));
+    console.error("test-unit-shards: no test file found under", (targets.length ? targets : SUITE_ROOTS).join(", "));
     process.exit(2);
   }
 
   const { parallel, serial } = partitionTiers(files);
   const durations = loadDurations();
-  const xmlDir = mkdtempSync(join(tmpdir(), "topics-unit-shards-"));
+  const seed = shuffleSeedOf(argv);
+  const order = seed === null ? orderByDuration(parallel, durations) : shuffleSeeded(parallel, seed);
+  if (seed !== null) console.error(`test-unit-shards: shuffle seed ${seed} (repeat with --shuffle=${seed})`);
+  // The plan without running it: the order the workers would take, then the
+  // files that run alone at the end. One per line, so a test can read it and a
+  // person can see what a seed does.
+  if (argv.includes("--list")) {
+    console.log([...order, ...serial].join("\n"));
+    process.exit(0);
+  }
+
+  // One root for the whole run, one folder per file under it. It is made in the
+  // real temp folder and removed at the end: what is left of it is a leak of
+  // this runner and not of a test.
+  const outerBefore = OUTER_TEMP_ROOTS.map(snapshotEntries);
+  const runRoot = mkdtempSync(join(tmpdir(), "tu-"));
+  mkdirSync(join(runRoot, "out"));
+  const baseEnv: NodeJS.ProcessEnv = {
+    ...process.env,
+    // Covers the children with the slot this process already holds: bun's
+    // preload sees the marker and does NOT queue for a second slot.
+    [GATE_HELD_ENV]: process.env[GATE_HELD_ENV] ?? "test-unit-shards",
+  };
+  const env = fileEnv(baseEnv);
+  const results: FileResult[] = [];
+  let seq = 0;
+  let done = 0;
   const started = Date.now();
+  const runOne = async (file: string): Promise<void> => {
+    const n = seq++;
+    const r = await runFile(file, join(runRoot, String(n)), join(runRoot, "out", String(n)), env, timeoutMs);
+    results.push(r);
+    done += 1;
+    if (done % 200 === 0) console.error(`test-unit-shards: ${done}/${files.length}  ${((Date.now() - started) / 1000).toFixed(0)}s`);
+  };
 
-  // ── PHASE 1: almost the whole suite in N concurrent shards ──────────────────
-  const N = Math.min(shardsN, Math.max(1, parallel.length));
-  const buckets = planShards(parallel, durations, N).filter((b) => b.files.length > 0);
-  const phase1 = await Promise.all(
-    buckets.map((bucket, i) => runBunTest(bucket.files, join(xmlDir, `p1-shard-${i}.xml`), timeoutMs)),
-  );
-
-  // ── PHASE 2: the serial ai-bridge racers (after phase 1: no CPU contention) ──
-  // A red in this tail is a red for the whole run, just as in test:unit.
-  // Retrying and replacing its result hid both the failure and its stdout.
-  const phase2 = serial.length
-    ? await runBunTest(serial, join(xmlDir, "p2-serial.xml"), timeoutMs)
-    : null;
-
+  // The ordinary files first, N at a time; then the OS racers one by one, so
+  // they run without the contention of the others.
+  const N = Math.min(plan.shards, Math.max(1, order.length));
+  await pool(order, N, runOne);
+  await pool(serial, 1, runOne);
   const totalWallS = (Date.now() - started) / 1000;
+  rmSync(runRoot, { recursive: true, force: true });
+  // What reached the REAL temp folder in spite of the private one: a test that
+  // writes to a hard-coded path. Judged only where nobody else is writing to
+  // it (CI); on a developer machine other programs add entries all the time.
+  const escaped = process.env.CI
+    ? OUTER_TEMP_ROOTS.flatMap((dir, i) =>
+        newEntries(outerBefore[i]!, dir)
+          // The short base `testTmpDir` makes on purpose: what is INSIDE it is judged by the second root.
+          .filter((name) => !(dir === tmpdir() && name === TEST_TMP_BASE_NAME))
+          .map((name) => join(dir, name)))
+    : [];
 
-  // Reprint the whole output of every red phase: the bar must see WHICH tests
-  // failed, not only that a phase is red.
-  const reds: Array<{ label: string; r: RunResult; files: readonly string[] }> = [];
-  phase1.forEach((r, i) => { if (r.code !== 0) reds.push({ label: `fase1 shard ${i}`, r, files: buckets[i].files }); });
-  if (phase2 && phase2.code !== 0) reds.push({ label: "fase2 seriale", r: phase2, files: serial });
-  for (const { label, r, files: shardFiles } of reds) {
-    console.error(`\n───── ${label} FALLITO (exit ${r.code}, ${r.fileCount} file, ${r.wallS.toFixed(1)}s) ─────`);
-    if (r.stderr.trim()) console.error(r.stderr.trimEnd());
-    if (r.stdout.trim()) console.error(r.stdout.trimEnd());
-    // A red that depends on the GROUPING (a file leaving a dirty global to the
-    // next one) reproduces only with the same list in the same order: the plan
-    // changes on every run, so the list is printed here or it is lost. On
-    // 05/09 a shard went red on `getComputedStyle` and the shard's composition
-    // could no longer be rebuilt.
-    console.error(`\nriproduci: bun test --timeout ${timeoutMs} ${shardFiles.join(" ")}`);
+  // Reprint the output of the red files: the bar must see WHICH tests failed.
+  // The first MAX_REPRINT in full; the names of all of them below.
+  const MAX_REPRINT = 20;
+  const reds = results.filter((r) => r.code !== 0).sort((a, b) => a.file.localeCompare(b.file));
+  for (const r of reds.slice(0, MAX_REPRINT)) {
+    console.error(`\n───── ${r.file} FALLITO (exit ${r.code}, ${r.wallS.toFixed(1)}s) ─────`);
+    console.error(r.output.trimEnd());
+    console.error(`riproduci: bun test --timeout ${timeoutMs} ${r.file}`);
   }
 
-  // Summary.
-  console.log("\n── test:unit shards (ibrido: fase1 parallela + fase2 seriale) ──");
-  phase1.forEach((r, i) => {
-    console.log(`  fase1 shard ${i}: ${r.code === 0 ? "ok " : "RED"}  ${r.fileCount} file  ${r.wallS.toFixed(1)}s`);
-  });
-  if (phase2) {
-    console.log(`  fase2 seriale : ${phase2.code === 0 ? "ok " : "RED"}  ${phase2.fileCount} file  ${phase2.wallS.toFixed(1)}s`);
-  }
-  // The red tests BY NAME, last, and on STDERR: the board's check runner
+  console.log("\n── test:unit (un processo per file) ──");
+  const lagging = [...results].sort((a, b) => b.wallS - a.wallS).slice(0, 5);
+  const cpuTotal = results.reduce((sum, r) => sum + r.cpuS, 0);
+  console.log(`  ${results.length} file, ${N} shard, wall ${totalWallS.toFixed(1)}s, cpu ${cpuTotal.toFixed(0)}s su ${cores} core; i più lenti: ${lagging.map((r) => `${r.file} ${r.wallS.toFixed(1)}s`).join(", ")}`);
+
+  // The red files BY NAME, last, and on STDERR: the board's check runner
   // concatenates stdout then stderr and keeps the tail, so the last lines of
-  // stderr are the only lines an agent is sure to read (measured 05/09/2026 on
-  // card ca44c550: the comment ended with the reproduce line and bun's own
-  // "exited with code 1", the names printed on stdout never reached it).
-  const MAX_NAMED = 12;
-  for (const { label, r } of reds) {
-    if (r.failures.length === 0) {
-      console.error(`${label}: nessun test rosso nel referto junit — il rosso e' un hook scaduto, un crash o un timeout di processo: leggi l'output del shard qui sopra`);
-      continue;
+  // stderr are the only lines an agent is sure to read.
+  const MAX_NAMED = 40;
+  if (reds.length) {
+    console.error(`file rossi (${reds.length}):`);
+    for (const r of reds.slice(0, MAX_NAMED)) {
+      const names = redTestNames(r.output);
+      console.error(`  ✗ ${r.file}${names.length ? ` › ${names.slice(0, 3).join(" | ")}` : ` (exit ${r.code}, nessun test rosso: hook scaduto, crash o timeout di processo)`}`);
     }
-    console.error(`${label}, test rossi (${r.failures.length}):`);
-    for (const f of r.failures.slice(0, MAX_NAMED)) console.error(`  ✗ ${f.file} › ${f.test}`);
-    if (r.failures.length > MAX_NAMED) console.error(`  … e altri ${r.failures.length - MAX_NAMED}`);
+    if (reds.length > MAX_NAMED) console.error(`  … e altri ${reds.length - MAX_NAMED}`);
+  }
+  if (escaped.length) {
+    console.error(`voci apparse nella cartella temporanea vera durante il giro (${escaped.length}): un test scrive fuori da TMPDIR`);
+    for (const name of escaped.slice(0, MAX_NAMED)) console.error(`  ✗ ${name}`);
   }
   // Last on stderr for the same reason as the names above. A daemon the run
   // left alive turns a green run red.
   const strays = await strayAiBridges(runId);
   await reportAndEndStrays(strays);
-  const codes = [...phase1.map((r) => r.code), ...(phase2 ? [phase2.code] : []), strays.length > 0 ? 1 : 0];
-  const verdict = aggregateVerdict(codes);
-  console.log(
-    `  ${verdict === 0 ? "PASS" : "FAIL"}  ${files.length} file (${parallel.length} par / ${serial.length} ser) in ${N} shard  wall ${totalWallS.toFixed(1)}s` +
-      (verdict === 0 ? "" : `  (exit ${verdict})`),
-  );
+  const verdict = aggregateVerdict([...results.map((r) => r.code), escaped.length > 0 ? 1 : 0, strays.length > 0 ? 1 : 0]);
+  console.log(`  ${verdict === 0 ? "PASS" : "FAIL"}  ${files.length} file (${parallel.length} par / ${serial.length} ser) in ${N} shard  wall ${totalWallS.toFixed(1)}s` + (verdict === 0 ? "" : `  (exit ${verdict})`));
 
   // Rewrite the measured durations only on request (merged over the old ones: a
   // file this run never reached keeps its previous estimate instead of vanishing).
-  if (process.argv.includes("--record")) {
+  if (argv.includes("--record")) {
     const merged: Record<string, number> = { ...durations };
-    for (const r of [...phase1, ...(phase2 ? [phase2] : [])]) {
-      for (const [f, s] of Object.entries(r.measured)) merged[f] = s;
-    }
+    for (const r of results) merged[r.file] = Number(r.wallS.toFixed(3));
     try {
       writeFileSync(DURATIONS_PATH, JSON.stringify(sortKeys(merged), null, 0) + "\n");
       console.log(`  durate aggiornate: ${Object.keys(merged).length} file → ${DURATIONS_PATH}`);
@@ -540,8 +522,6 @@ if (import.meta.main) {
       /* durations are not critical: the next run uses the median */
     }
   }
-
-  rmSync(xmlDir, { recursive: true, force: true });
   process.exit(verdict);
 }
 

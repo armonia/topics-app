@@ -17,7 +17,7 @@
  * @covers TAB-SYNC-01, LAYOUT-02
  */
 import { TIME_SLACK_ENV, parseForcedSlack } from "../../../../../shared/test-time-slack";
-import { describe, test, expect, beforeEach, afterEach, afterAll } from "bun:test";
+import { describe, test, expect, beforeEach, afterEach, afterAll, jest } from "bun:test";
 
 type StorageArea = Record<string, string>;
 function installFakeWindow(): void {
@@ -128,7 +128,26 @@ const layout = (paneId: string) => ({
 // at 13m23 with the plan already reduced), all green run alone straight
 // after, on a diff that touches no file they load.
 const SETTLE_MS = Math.round(2500 * (parseForcedSlack(process.env[TIME_SLACK_ENV]) ?? 1));
-const settle = () => new Promise((r) => setTimeout(r, SETTLE_MS));
+
+/**
+ * The microtask drain after each virtual timer jump. Firing a debounce or
+ * backoff timer only schedules the PUT chain (fetch stub, JSON parse,
+ * give-up bookkeeping); the assertions need those links settled, and
+ * advancing the clock alone does not run them.
+ */
+async function flush(): Promise<void> {
+  for (let i = 0; i < 24; i++) await Promise.resolve();
+}
+
+// Virtual version of the old fixed sleep: the 'no second attempt' window
+// stays 2.5 s wide, but on the fake clock, so it is instant and deterministic.
+const settle = async (): Promise<void> => {
+  const steps = Math.ceil(SETTLE_MS / 50);
+  for (let i = 0; i < steps; i++) {
+    jest.advanceTimersByTime(50);
+    await flush();
+  }
+};
 
 /**
  * WAITING FOR THE CONDITION BEATS WAITING FOR THE CLOCK.
@@ -146,8 +165,13 @@ async function waitFor(
   what: string,
   budgetMs: number = BUDGET_MS,
 ): Promise<void> {
-  const deadline = Date.now() + budgetMs * 0.8;
-  while (!ready() && Date.now() < deadline) await new Promise((r) => setTimeout(r, 50));
+  // Virtual polling: same condition, same budget, but each 50 ms step runs
+  // on the fake clock, so debounce and backoff timers fire instantly.
+  const steps = Math.ceil((budgetMs * 0.8) / 50);
+  for (let i = 0; i < steps && !ready(); i++) {
+    jest.advanceTimersByTime(50);
+    await flush();
+  }
   // A WAIT THAT GIVES UP QUIETLY LIES TWICE.
   //
   // This used to return whether or not the condition held, and the test went
@@ -176,7 +200,7 @@ const PUT_ATTEMPTS = 4; // MAX_RETRIES + 1 in projectLayoutSync.ts
 
 async function waitForRetryChainExhausted(): Promise<void> {
   await waitFor(() => fetchCalls.length >= PUT_ATTEMPTS, `the ${PUT_ATTEMPTS} PUTs of the retry chain`);
-  await new Promise((r) => setTimeout(r, 0));
+  await flush();
 }
 
 /**
@@ -201,11 +225,13 @@ async function waitForRetryChainExhausted(): Promise<void> {
 const BUDGET_MS = Math.round(45_000 * (parseForcedSlack(process.env[TIME_SLACK_ENV]) ?? 1));
 
 beforeEach(() => {
+  jest.useFakeTimers();
   __resetProjectSyncForTests();
   installBeacon();
 });
 
 afterEach(() => {
+  jest.useRealTimers();
   __resetProjectSyncForTests();
   if (REAL_FETCH === undefined) delete (globalThis as unknown as { fetch?: unknown }).fetch;
   else (globalThis as unknown as { fetch: unknown }).fetch = REAL_FETCH;

@@ -36,48 +36,25 @@ concurrency:
   cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 jobs:
-  # THE UNIT SUITE, SPLIT BY SUITE ROOT INTO PARALLEL JOBS, EACH ONE SERIAL.
+  # THE UNIT SUITE: ONE JOB, ONE `bun test` PROCESS PER FILE, FOUR AT A TIME.
   #
-  # Serially the suite was 12.4 of the 16.6 minutes of `check` (run
-  # 36461528241), and the only thing that shortens a serial run is running
-  # parts of it elsewhere. Two ways were measured on this runner (4 vCPU):
+  # `bun test` runs every file of a run in the SAME process, so what a file
+  # leaves behind (a fake `window`, a `mock.module`, `DATA_DIR`, a timer) was
+  # handed to the next one and the verdict depended on how the run was cut. Two
+  # attempts to run shards in-process on this runner were faster (4.7 and 6.8
+  # minutes) and red on tests that were green serially, never the same ones
+  # (runs 36487615331, 36489705731). The workaround was to cut the suite by
+  # ROOT into two jobs of ~11 minutes, each one serial, which is the order the
+  # suite had always been green in.
   #
-  #  - IN-PROCESS SHARDS (scripts/test-unit-shards.ts, 4 then 3 workers on one
-  #    runner): 4.7 and 6.8 minutes, and red both times on tests that are green
-  #    serially, never the same ones (runs 36487615331, 36489705731). Timers
-  #    starved by the neighbouring workers, and a leak that only shows at this
-  #    speed: `reattach-final-reply.integration.test.ts` leaves two 60 s stream
-  #    timers behind, and `leak-stream-timers.test.ts` counted them.
-  #  - SEPARATE RUNNERS, what this job does: each slice is the SERIAL runner
-  #    (`test-unit-serial.ts`, same stray ai-bridge check, same time slack) on
-  #    a whole machine, over whole suite roots, so every file runs in the same
-  #    order and next to the same files as in the full serial run of its root.
-  #    What changes is only that a file no longer follows the roots of the
-  #    other slice.
-  #
-  # Two slices, measured on the serial run of 36485674755 (770 s): `./server`
-  # plus `./tests/integration` (403 + 190 s), and every other root (177 s). A
-  # root is the smallest unit that keeps the canonical order, and integration
-  # stays in the process of `./server`, after it, because it depends on what
-  # the server tests leave behind: in a slice without them
-  # `terminal-roster-boot-bridge-late.test.ts` went red, green in the full
-  # serial run (run 36491680424). At ~11 min this slice is still under the e2e
-  # shards, which are the critical path of the run.
-  #
-  # ON A PUSH TO MAIN IT IS ONE SLICE WITH EVERY ROOT, i.e. the full serial run:
-  # that is the safety net scripts/test-unit-shards.ts names in its header
-  # (point 3), and a leak that only bites across two roots is still caught one
-  # commit after it lands, before `auto-bump` ships anything.
-  #
-  # The union of the slices must be SUITE_ROOTS (scripts/test-unit-shards.ts),
-  # which tests/unit/ci-unit-slices-cover-the-suite.test.ts asserts: a root
-  # added there and not here would be a folder no pull request ever tests.
+  # With a process per file the contamination is not representable, so there is
+  # nothing to preserve: the suite is one job, the files are taken from one
+  # queue by four workers (the four vCPU of the runner), and a push to main runs
+  # the same thing a pull request does. The scratch directory of every file is
+  # checked and removed by the runner, and a file that litters it is red.
+  # scripts/test-unit-shards.ts has the whole story and the measurements.
   unit:
     runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        roots: ${{ fromJSON(github.event_name == 'push' && '["./client/src ./server ./shared ./relay ./tests/unit ./tests/integration ./scripts ./cli"]' || '["./server ./tests/integration", "./client/src ./shared ./relay ./tests/unit ./scripts ./cli"]') }}
     steps:
       - uses: actions/checkout@v5
 
@@ -117,13 +94,10 @@ jobs:
       - name: Fetch main (tests read it as a ref)
         run: git fetch --no-tags --depth=1 origin +main:refs/remotes/origin/main
 
-      # `bun test:unit` is this same command with no roots: the slot wrapper
-      # (disabled under CI, but it still caps the run at 60 min) around the
-      # serial runner, which takes explicit roots in place of its default list.
-      - name: Unit + integration tests (serial, over these roots)
-        env:
-          UNIT_ROOTS: ${{ matrix.roots }}
-        run: bun run scripts/slot.ts test:unit -- "bun run scripts/test-unit-serial.ts $UNIT_ROOTS"
+      # `bun test:unit` is this same command: the slot wrapper (disabled under
+      # CI, but it still caps the run at 60 min) around the runner.
+      - name: Unit + integration tests (one process per file)
+        run: bun run scripts/slot.ts test:unit -- "bun run scripts/test-unit-shards.ts"
 
   # EVERY MEASUREMENT THAT IS NOT THE UNIT SUITE, STARTED WITH THE UNIT JOBS.
   #
@@ -360,15 +334,6 @@ jobs:
           # semina le card su un id diverso da quello che la finestra apre, e il
           # rosso esce solo su macOS, dove `/tmp` e' un link a `/private/tmp`.
           bun run check:tmp-canonical
-          # Un `mock.module` non ritirato non resta nel suo file: `bun test` tiene
-          # tutti i file di una corsa in UN processo, e ogni file successivo
-          # importa il finto. `mock.restore()` NON lo annulla — ritira gli spy.
-          # Il 12/09 e' costato tre giri rossi con un diff che sembrava accusare
-          # il codice sotto test, e il danno peggiore non e' il rosso: e' il file
-          # dopo che resta VERDE per il motivo sbagliato, convinto di parlare col
-          # modulo vero. Statico apposta: dipendendo dall'ordine dello shard, la
-          # suite lo mostra solo con il raggruppamento sfortunato.
-          bun run check:module-mock-restore
           bun run check:spec-coverage
           # `check:untraced-tests` guarda nella direzione OPPOSTA a
           # `check:spec-coverage`: quello parte dalle spec e cerca i test, questo
@@ -683,9 +648,9 @@ jobs:
   # The board reads the unit verdict of a pull request from the step "Unit +
   # integration tests" of job `check` (UNIT_JOB / UNIT_STEP in
   # server/services/ci-evidence.ts), so the step lives here, under that name.
-  # It runs nothing: the suite runs in the `unit` jobs above, and this step is
-  # their verdict, red unless every one of them concluded `success`. The names
-  # of the red tests are in the log of the red `unit (...)` job.
+  # It runs nothing: the suite runs in the `unit` job above, and this step is
+  # its verdict, red unless it concluded `success`. The names of the red tests
+  # are in the log of the red `unit` job.
   #
   # The second step carries the verdict of `gates`, so this job is red when any
   # measurement is, as it was when those steps lived in it.
@@ -702,9 +667,9 @@ jobs:
         env:
           UNIT_RESULT: ${{ needs.unit.result }}
         run: |
-          echo "unit jobs of this run: $UNIT_RESULT"
+          echo "unit job of this run: $UNIT_RESULT"
           if [ "$UNIT_RESULT" != "success" ]; then
-            echo "::error title=Unit + integration tests::the unit jobs of this run concluded '$UNIT_RESULT': the red tests are in the log of the red unit (...) job"
+            echo "::error title=Unit + integration tests::the unit job of this run concluded '$UNIT_RESULT': the red tests are in the log of the red unit job"
             exit 1
           fi
 

@@ -22,7 +22,7 @@
  *
  * @covers CMD-01
  */
-import { describe, test, expect, beforeEach, afterAll } from 'bun:test';
+import { describe, test, expect, beforeEach, afterEach, afterAll, jest } from 'bun:test';
 import {
   DEFAULT_SETTINGS,
   DEVICE_LOCAL_SETTING_KEYS,
@@ -78,7 +78,22 @@ afterAll(() => {
   }
 });
 
+afterEach(() => {
+  jest.useRealTimers();
+});
+
+/**
+ * The microtask drain after a virtual timer jump. Firing the 1000 ms save
+ * debounce only schedules the PUT chain (fetch stub, JSON parse, protection
+ * bookkeeping); the assertions need those links settled, and `advanceTimers`
+ * alone does not run them.
+ */
+async function flush(): Promise<void> {
+  for (let i = 0; i < 24; i++) await Promise.resolve();
+}
+
 beforeEach(() => {
+  jest.useFakeTimers();
   g.localStorage = new MemoryStorage();
   dispatched = [];
   g.window = { dispatchEvent: (e) => { dispatched.push(e.type); return true; } };
@@ -200,13 +215,13 @@ describe('applyServerSettings', () => {
 describe('gate di idratazione', () => {
   test('prima dell’idratazione il PUT non parte — parcheggia', async () => {
     saveSettings({ ...DEFAULT_SETTINGS, fontSize: 22 });
-    await Bun.sleep(1100);
+    jest.advanceTimersByTime(1100); await flush();
     expect(fetchCalls.filter((c) => c.method === 'PUT')).toHaveLength(0);
   });
 
   test('…e parte appena l’idratazione ha esito, col valore parcheggiato', async () => {
     saveSettings({ ...DEFAULT_SETTINGS, fontSize: 22 });
-    await Bun.sleep(1100);
+    jest.advanceTimersByTime(1100); await flush();
     markSettingsHydrated();
 
     const puts = fetchCalls.filter((c) => c.method === 'PUT');
@@ -218,7 +233,7 @@ describe('gate di idratazione', () => {
   test('dopo l’idratazione il PUT parte da solo, senza la geometria', async () => {
     markSettingsHydrated();
     saveSettings({ ...DEFAULT_SETTINGS, fontSize: 23, sidebarWidth: 512 });
-    await Bun.sleep(1100);
+    jest.advanceTimersByTime(1100); await flush();
 
     const puts = fetchCalls.filter((c) => c.method === 'PUT');
     expect(puts).toHaveLength(1);
@@ -229,7 +244,7 @@ describe('gate di idratazione', () => {
 
   test('idratare due volte non rimanda il parcheggiato', async () => {
     saveSettings({ ...DEFAULT_SETTINGS, fontSize: 24 });
-    await Bun.sleep(1100);
+    jest.advanceTimersByTime(1100); await flush();
     markSettingsHydrated();
     markSettingsHydrated();
     expect(fetchCalls.filter((c) => c.method === 'PUT')).toHaveLength(1);
@@ -264,7 +279,7 @@ describe('failed PUT', () => {
       return Promise.reject(new Error('server down'));
     };
     saveSettings({ ...DEFAULT_SETTINGS, fontSize: 19 });
-    await Bun.sleep(1100);
+    jest.advanceTimersByTime(1100); await flush();
     expect(fetchCalls.filter((c) => c.method === 'PUT')).toHaveLength(1);
 
     g.fetch = (url, init) => {
@@ -279,7 +294,7 @@ describe('failed PUT', () => {
     expect((puts[1].body as AppSettings).fontSize).toBe(19);
 
     // The resend landed: the server is the source again.
-    await Bun.sleep(0);
+    await flush();
     expect(applyServerSettings({ fontSize: 15 })?.fontSize).toBe(15);
   });
 });
@@ -298,7 +313,7 @@ describe('failed PUT, other keys', () => {
       return Promise.reject(new Error('server down'));
     };
     saveSettings({ ...DEFAULT_SETTINGS, fontSize: 19 });
-    await Bun.sleep(1100);
+    jest.advanceTimersByTime(1100); await flush();
 
     g.fetch = (url, init) => {
       fetchCalls.push({ url, method: init?.method, body: init?.body ? JSON.parse(init.body) : undefined });
@@ -321,8 +336,8 @@ describe('failed PUT, other keys', () => {
       return Promise.resolve({ ok: true });
     };
     saveSettings({ ...DEFAULT_SETTINGS, fontSize: 19 });
-    await Bun.sleep(1100);
-    await Bun.sleep(0);
+    jest.advanceTimersByTime(1100); await flush();
+    await flush();
     applyServerSettings({ fontSize: 15 });
     expect(loadSettings().fontSize).toBe(15);
     expect(fetchCalls.filter((c) => c.method === 'PUT')).toHaveLength(1);
@@ -351,21 +366,21 @@ describe('PUTs that finish out of order', () => {
     markSettingsHydrated();
     g.fetch = handFetch;
     saveSettings({ ...DEFAULT_SETTINGS, fontSize: 19 });
-    await Bun.sleep(1100);
+    jest.advanceTimersByTime(1100); await flush();
     saveSettings({ ...DEFAULT_SETTINGS, fontSize: 20 });
-    await Bun.sleep(1100);
+    jest.advanceTimersByTime(1100); await flush();
     expect(putCount()).toBe(2);
     const [put1, put2] = pending;
     put2.resolve({ ok: true });
-    await Bun.sleep(0);
+    await flush();
     put1.reject(new Error('stalled request dropped'));
-    await Bun.sleep(0);
+    await flush();
 
     // Another device sets 21: it applies, and nothing goes up again.
     for (let i = 0; i < 3; i++) {
       applyServerSettings({ ...syncableSettings(DEFAULT_SETTINGS), fontSize: 21 });
       for (const p of pending.slice(2)) p.resolve({ ok: true });
-      await Bun.sleep(0);
+      await flush();
     }
     expect(loadSettings().fontSize).toBe(21);
     expect(putCount()).toBe(2);
@@ -376,14 +391,14 @@ describe('PUTs that finish out of order', () => {
     markSettingsHydrated();
     g.fetch = handFetch;
     saveSettings({ ...DEFAULT_SETTINGS, fontSize: 19 });
-    await Bun.sleep(1100);
+    jest.advanceTimersByTime(1100); await flush();
     saveSettings({ ...DEFAULT_SETTINGS, fontSize: 20 });
-    await Bun.sleep(1100);
+    jest.advanceTimersByTime(1100); await flush();
     const [put1, put2] = pending;
     put2.reject(new Error('server down'));
-    await Bun.sleep(0);
+    await flush();
     put1.resolve({ ok: true });
-    await Bun.sleep(0);
+    await flush();
 
     // The server holds 19 from the old PUT: the local 20 stays and goes up again.
     expect(applyServerSettings({ ...syncableSettings(DEFAULT_SETTINGS), fontSize: 19 })?.fontSize).toBe(20);

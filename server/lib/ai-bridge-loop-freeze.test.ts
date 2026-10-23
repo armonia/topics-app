@@ -10,9 +10,10 @@
  * down, and every CLI mid-turn went with it.
  *
  * The real pieces: the daemon (`ai-bridge.mjs`) with a dead `--parent-pid`, as
- * in production that day, and the client with its production watchdog timings
- * (15 s beat, 45 s pong). Only the daemon's grace is shortened, to 5 s, so that
- * the second stall outlasts it.
+ * in production that day, and the client with shrunk watchdog timings (1 s
+ * beat, 3 s pong) through the env seam production already reads at import.
+ * The ratios are the production ones: the first stall outlasts the pong, the
+ * second outlasts the daemon's grace (shortened to 3 s).
  */
 import { afterAll, describe, expect, test } from "bun:test";
 import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
@@ -29,13 +30,22 @@ process.env.TOPICS_AI_BRIDGE_SOCKET = sock;
 // red in a 4-shard grouping that put it first). It sets its own, and gives it back.
 const previousDataDir = process.env.DATA_DIR;
 process.env.DATA_DIR = store;
+// Shrink the production watchdog windows through the seam production already
+// reads once at import (ai-bridge-client.ts): beat 1 s, pong 3 s. The stalls
+// below keep the same ratios against these (stall > pong, second stall >
+// daemon grace) as the old ones kept against the production 15 s / 45 s.
+const previousWatchdogMs = process.env.TOPICS_AI_BRIDGE_WATCHDOG_MS;
+const previousPongMs = process.env.TOPICS_AI_BRIDGE_PONG_MS;
+process.env.TOPICS_AI_BRIDGE_WATCHDOG_MS = "1000";
+process.env.TOPICS_AI_BRIDGE_PONG_MS = "3000";
 const { AiBridgeClient } = await import("./ai-bridge-client");
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
-/** The loop, held: nothing else in this process runs meanwhile. */
+/** The loop, held: nothing else in this process runs meanwhile. Atomics.wait
+ *  holds it without burning a core (the busy loop pegged one for the whole
+ *  stall and stole it from the sibling test processes). */
 function stall(ms: number): void {
-  const end = Date.now() + ms;
-  while (Date.now() < end) { /* held */ }
+  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
 }
 function alive(pid: number): boolean {
   try { process.kill(pid, 0); return true; } catch { return false; }
@@ -48,17 +58,21 @@ afterAll(() => {
   try { rmSync(store, { recursive: true, force: true }); } catch { /* best effort */ }
   if (previousDataDir === undefined) delete process.env.DATA_DIR;
   else process.env.DATA_DIR = previousDataDir;
+  if (previousWatchdogMs === undefined) delete process.env.TOPICS_AI_BRIDGE_WATCHDOG_MS;
+  else process.env.TOPICS_AI_BRIDGE_WATCHDOG_MS = previousWatchdogMs;
+  if (previousPongMs === undefined) delete process.env.TOPICS_AI_BRIDGE_PONG_MS;
+  else process.env.TOPICS_AI_BRIDGE_PONG_MS = previousPongMs;
 });
 
 describe("the ai-bridge through a stalled server loop", () => {
-  test("a loop held 60 s, then held past the daemon's grace: the socket is not recycled, the CLI lives", async () => {
+  test("a loop held past the pong, then held past the daemon's grace: the socket is not recycled, the CLI lives", async () => {
     const corpse = Bun.spawn(["/usr/bin/true"], { stdout: "ignore", stderr: "ignore" });
     await corpse.exited;
     const daemon = Bun.spawn(
       [process.execPath, join(import.meta.dir, "..", "ai-bridge.mjs"), "--socket", sock, "--store-dir", store, "--parent-pid", String(corpse.pid)],
       {
         stdout: "ignore", stderr: "ignore",
-        env: { ...process.env, TOPICS_AI_BRIDGE_ORPHAN_GRACE_MS: "5000", TOPICS_AI_BRIDGE_MONITOR_TICK_MS: "500", TOPICS_AI_BRIDGE_REAL_CLIENT_MS: "1000" },
+        env: { ...process.env, TOPICS_AI_BRIDGE_ORPHAN_GRACE_MS: "3000", TOPICS_AI_BRIDGE_MONITOR_TICK_MS: "500", TOPICS_AI_BRIDGE_REAL_CLIENT_MS: "1000" },
       },
     );
     cleanup.push(() => daemon.kill("SIGKILL"));
@@ -69,18 +83,20 @@ describe("the ai-bridge through a stalled server loop", () => {
     await client.ensureConnected();
     const { pid } = await client.spawn("topic:freeze", { cliPath: "/bin/sleep", args: ["600"], cwd: "/", env: {} });
     cleanup.push(() => process.kill(pid, "SIGKILL"));
-    // Attached long enough to count as a server that came back.
-    await sleep(3_000);
+    // Attached long enough to count as a server that came back (REAL_CLIENT_MS
+    // 1 s plus a monitor tick).
+    await sleep(1_500);
     const socketBefore = (client as unknown as { socket: unknown }).socket;
 
-    // Held 60 s: longer than the 45 s the watchdog waits for a pong. Then,
-    // once the timers due meanwhile have run, held again past the daemon's
-    // grace: a reconnect scheduled in between would still be waiting.
+    // Held 5 s: longer than the 3 s the watchdog waits for a pong (and the
+    // 2 s it forgives as our own stall). Then, once the timers due meanwhile
+    // have run, held again past the daemon's 3 s grace: a reconnect scheduled
+    // in between would still be waiting.
     await new Promise<void>((done) => setTimeout(() => {
-      stall(60_000);
-      setTimeout(() => { stall(8_000); done(); }, 0);
+      stall(5_000);
+      setTimeout(() => { stall(4_000); done(); }, 0);
     }, 0));
-    await sleep(2_000);
+    await sleep(1_000);
 
     const after = { sameSocket: (client as unknown as { socket: unknown }).socket === socketBefore, cliAlive: alive(pid) };
     expect(after).toEqual({ sameSocket: true, cliAlive: true });

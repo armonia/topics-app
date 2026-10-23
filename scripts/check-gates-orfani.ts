@@ -65,11 +65,6 @@ export const REASONS: Record<string, string> = {
     "ms) e il cancello esce 2 («non misurato») su ogni run, 8 su 8. Tolto dal workflow perche' " +
     "un'astensione sempre verde non protegge niente. Si lancia a mano su uno schermo da almeno " +
     "120 Hz; torna in CI solo con un runner a 120 Hz o una baseline a 60.",
-  "check:test-globals":
-    "e' il TRIAGE, non il cancello. Il cancello e' la guardia dentro tests/setup/bun-test-preload.ts, " +
-    "che fa uscire rosso OGNI `bun test` (CI compresa) se un file lascia un globale DOM finto al " +
-    "file dopo; questo script rilancia ogni file da solo (1149 processi, ~80 s) per dire QUALE " +
-    "ha perso, e si lancia a mano quando la guardia ha gridato.",
 };
 
 /** The package.json scripts, by name. */

@@ -47,6 +47,8 @@ const busyBackground = new Set<string>();
 /** Turns whose request carries one of these markers wait for their release (or their abort). */
 const held = new Map<string, Array<() => void>>();
 let modelCalls = 0;
+/** R5-TOOLTHENHANG rounds that reached the hanging call (test hook). */
+let hungRounds = 0;
 let resumeReleased = false;
 let loopCalls = 0;
 let nativeDeps: import("../../server/lib/native-subagents").NativeSubagentDeps | null = null;
@@ -86,7 +88,10 @@ async function fakeNetwork(_input: string | URL | Request, init?: RequestInit): 
         { type: "message_delta", delta: { stop_reason: "tool_use" }, usage: { output_tokens: 2 } },
       ]), { status: 200 });
     }
-    if (!resumeReleased) await new Promise<void>((_, reject) => { init?.signal?.addEventListener("abort", () => reject(new DOMException("aborted", "AbortError"))); });
+    if (!resumeReleased) {
+      hungRounds++;
+      await new Promise<void>((_, reject) => { init?.signal?.addEventListener("abort", () => reject(new DOMException("aborted", "AbortError"))); });
+    }
   }
   if (body.includes("R5-LOOP")) {
     loopCalls++;
@@ -330,7 +335,7 @@ describe("the stale-stream sweep closes a child's open turn", () => {
     await sleep(300);
     await staleSweep();
     await until("its result", () => reportsFor(id)[0], 15_000).catch(() => null);
-    await sleep(1_500);
+    await sleep(1_000);
     expect(reportsFor(id).map((r) => [r.outcome.status, r.outcome.reason])).toEqual([["stopped", { code: "swept" }]]);
     // A cut turn did not complete: the child stays in view.
     expect(ctx.getTopicBySessionKey(sk)?.archived).toBe(false);
@@ -348,8 +353,9 @@ describe("the stale-stream sweep closes a child's open turn", () => {
     await sleep(300);
     await staleSweep();
     await until("free", () => !busy(sk));
-    await sleep(5_000);
     const { subagentWakeOwed } = await import("../../server/lib/subagent-runtime");
+    // The cut result still has to travel the wake chain (worker, root turn, settle): wait for that, not a guess.
+    await until("nothing owed", () => !subagentWakeOwed(ROOT_KEY), 30_000);
     expect(subagentWakeOwed(ROOT_KEY)).toBe(false);
     expect(reportsFor(id).length).toBe(2);
     expect(rowOf(id)?.state).not.toBe("running");
@@ -368,13 +374,16 @@ describe("a stopped child gets no turn from the machine", () => {
     await until("turn 1", () => reportsFor(id)[0]);
     await until("retired", () => !busy(sk) && rowOf(id)?.state === "retired");
     // The person writes in it; the turn hangs and the stale sweep cuts it.
+    const hungRoundsBefore = hungRounds;
     expect(await chatTurn(sk, "R5-3-PERSON R5-TOOLTHENHANG keep going")).toBe(200);
     await until("person busy", () => busy(sk));
-    await sleep(2_000);
+    await until("the tool round hanging", () => hungRounds > hungRoundsBefore, 30_000);
+    // The row still shows the tool running at the hang: without this settle the sweep rescues instead of cutting.
+    await sleep(1_000);
     expect([...(await staleSweep()).values()]).toEqual(["finalized"]);
     await until("free", () => !busy(sk));
     resumeReleased = true;
-    await sleep(1_500);
+    await sleep(1_000);
     // The sweep closed the person's turn (a stopped result, the child retired):
     // the root's Stop has no live child left, so the parent stops this one itself.
     expect(statusesOf(id)).toEqual([[1, "completed", false], [2, "stopped", false]]);
@@ -394,9 +403,9 @@ describe("a stopped child gets no turn from the machine", () => {
       providerBusy: () => false,
       bootedAtMs: Date.now() - 3_600_000,
     }, route as never, { responseMs: 5_000, streamMs: 10_000 });
-    await sleep(3_000);
+    await sleep(1_000);
     await until("child free", () => !busy(sk));
-    await sleep(2_000);
+    await sleep(1_000);
     // The resume sent the stopped child nothing.
     expect(ctx.loadLocalMessages(sk).filter((m) => m.role === "user").map((m) => m.content.slice(0, 11))).toEqual(["TASK-R5-ENG", "R5-3-PERSON"]);
     expect(rowOf(id)?.state).toBe("stopped");
@@ -406,11 +415,12 @@ describe("a stopped child gets no turn from the machine", () => {
 
 describe("a graceful restart is no outcome", () => {
   test("R5-4 a graceful restart mid child turn: nothing before the resume, one result after it", async () => {
+    const hungRoundsBefore = hungRounds;
     const c = await spawn(ROOT_KEY, { name: "r5-restart", prompt: "R5-TOOLTHENHANG restart child" });
     resumeReleased = false;
     const id = c.body.agentId as string; const sk = c.body.sessionKey as string;
     await until("busy", () => busy(sk));
-    await sleep(1_500);
+    await until("the tool round hanging", () => hungRounds > hungRoundsBefore, 30_000);
     const { tryGetProvider } = await import("../../server/providers");
     // What gracefulShutdown does: stop() on every provider, then a 3.5 s window before closeDatabase().
     (tryGetProvider("topics") as { stop(): void }).stop();
@@ -440,7 +450,7 @@ describe("a graceful restart is no outcome", () => {
     }, route as never, { responseMs: 5_000, streamMs: 15_000 });
     await adoption;
     await until("the resumed turn's result", () => reportsFor(id)[0], 15_000);
-    await sleep(3_000);
+    await sleep(1_200);
     // One result, the resumed turn's own: the cut was never said.
     expect(reportsFor(id).map((r) => [r.turn, r.outcome.status])).toEqual([[1, "completed"]]);
   }, 60_000);
@@ -478,7 +488,7 @@ describe("a long child turn is one result", () => {
     const c = await spawn(ROOT_KEY, { name: "r5-budget", prompt: "R5-LOOP do many steps" });
     const id = c.body.agentId as string; const sk = c.body.sessionKey as string;
     await until("first result", () => reportsFor(id)[0], 15_000);
-    await sleep(4_000);
+    await sleep(1_500);
     await until("free", () => !busy(sk));
     await sleep(1_000);
     expect(reportsFor(id)).toHaveLength(1);

@@ -83,7 +83,8 @@ beforeAll(async () => {
     navigate: async (_ctxId: string, url: string) => ({ url, title: "" }),
     getOrCreate: async () => { throw new Error("no headless browser in this test"); },
   } as any;
-  topicsRouter = createTopicsRouter(ctx, fakeBrowserService) as typeof topicsRouter;
+  // Shrink the pane-attach wait: this file proves persistence, not the wait.
+  topicsRouter = createTopicsRouter(ctx, fakeBrowserService, () => false, { paneWaitMs: 20 }) as typeof topicsRouter;
 }, 30_000);
 
 afterAll(async () => {

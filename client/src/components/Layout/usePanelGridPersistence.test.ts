@@ -124,8 +124,8 @@ describe("clearPanelGridStorage (no localStorage leak on space delete)", () => {
   // `Project/projectSidebarHeights.test.ts` plus any file after them makes the
   // preload sentinel fire with `leaked DOM globals: localStorage`, and
   // `bun test client/src/components` goes red on a file that touches none of
-  // this. Each of the three is green on its own, which is why
-  // `check:test-globals` (one file at a time) never saw it.
+  // this. Each of the three is green on its own. Every file now runs in its own
+  // process, so the leak cannot travel; the restore stays as hygiene.
   const withStorage = (fn: (store: Map<string, string>) => void) => {
     const store = new Map<string, string>();
     const had = 'localStorage' in globalThis;

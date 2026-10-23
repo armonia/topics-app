@@ -39,6 +39,8 @@ let abortHook: { sk: string; fn: () => Promise<void> | void } | null = null;
 const resultRows: Array<[string, string]> = [];
 /** Background work the child chat's own process claims (a command). */
 const busyBackground = new Set<string>();
+/** The parent wake worker, shared so tests can wait for its rest instead of guessing a sleep. */
+let wake: import("../../server/services/subagent-wake").SubagentWake;
 
 // ── The network: the Messages API, answering at once or held on a marker ─────
 
@@ -182,7 +184,7 @@ beforeAll(async () => {
   const { startSubagentWakes } = await import("../../server/services/subagent-wake");
   const { subAgentResultOf } = await import("../../server/routes/subagent-exit");
   const { runningTaskOwnsTopic, stoppedSubagentChat, wakeVerdict } = await import("../../server/lib/wake-adoption");
-  const wake = startSubagentWakes({
+  wake = startSubagentWakes({
     route, isBusy: busy,
     canWake: (sk) => {
       const t = ctx.getTopicBySessionKey(sk);
@@ -271,7 +273,7 @@ describe("one turn, one result, by the turn's name (SUBAGENT-19)", () => {
       await sleep(DEBOUNCE_MS + 100 + k * 150);
       release(marker);
       await until("both turns reported", () => reportsFor(cid).length >= 2, 20_000);
-      await sleep(POLL_MS * 4 + 1_000);
+      await Promise.race([wake.idle(), sleep(10_000)]);
       expect(userTurns(childKey)).toBe(2);
       expect(reportsFor(cid).map((r) => [r.turn, r.outcome.status])).toEqual([[1, "completed"], [2, "completed"]]);
       expect(reportsFor(cid)[0]!.outcome.text).not.toBe(reportsFor(cid)[1]!.outcome.text);
@@ -298,6 +300,7 @@ describe("one turn, one result, by the turn's name (SUBAGENT-19)", () => {
     held.delete("WAKE-HELD");
     hold("PERSON-MSG");
     expect(await chatTurn(sk, "PERSON-MSG please answer")).toBe(200);
+    // Kept at the original scale with slowAbortMs above: the ordering it pins needs the margin.
     await sleep(2_000);
     release("PERSON-MSG");
     await until("person turn done", () => !busy(sk));
@@ -320,7 +323,9 @@ describe("one turn, one result, by the turn's name (SUBAGENT-19)", () => {
     await sleep(800);
     await abortChat(sk);
     await until("its result", () => reportsFor(id)[0]);
-    await sleep(2_500);
+    await until("free", () => !busy(sk));
+    await Promise.race([wake.idle(), sleep(10_000)]);
+    await sleep(300);
     expect(statusesOf(id)).toEqual([[1, "stopped", false]]);
   }, 30_000);
 
@@ -333,7 +338,9 @@ describe("one turn, one result, by the turn's name (SUBAGENT-19)", () => {
     await abortChat(sk);
     held.delete("TASK-OWN-STOP");
     await until("its result", () => reportsFor(id)[0]);
-    await sleep(2_000);
+    await until("free", () => !busy(sk));
+    await Promise.race([wake.idle(), sleep(10_000)]);
+    await sleep(300);
     expect(statusesOf(id)).toEqual([[1, "stopped", false]]);
   }, 30_000);
 });
@@ -351,7 +358,7 @@ describe("nothing after a Stop wakes anyone (SUBAGENT-11)", () => {
     await sleep(300);
     const usersBefore = userTurns(ROOT_KEY);
     expect(await abortChat(ROOT_KEY)).toBe(200);
-    await sleep(2_000);
+    await Promise.race([wake.idle(), sleep(10_000)]);
     expect(userTurns(ROOT_KEY) - usersBefore).toBe(0);
     expect(resultRows).toContainEqual([ROOT_KEY, cid]);
   }, 30_000);
@@ -371,7 +378,7 @@ describe("nothing after a Stop wakes anyone (SUBAGENT-11)", () => {
     const rootUsersBefore = userTurns(ROOT_KEY);
     expect(await abortChat(ROOT_KEY)).toBe(200);
     await until("the child's result", () => reportsFor(cid)[0]);
-    await sleep(1_500);
+    await Promise.race([wake.idle(), sleep(10_000)]);
     expect(userTurns(ROOT_KEY) - rootUsersBefore).toBe(0);
     expect(statusesOf(cid)).toEqual([[1, "stopped", true]]);
     expect(rowOf(cid)?.state).toBe("stopped");
@@ -400,7 +407,7 @@ describe("nothing after a Stop wakes anyone (SUBAGENT-11)", () => {
     expect(await abortChat(ROOT_KEY)).toBe(200);
     expect(rowOf(id)?.state).toBe("stopped");
     await adoption;
-    await sleep(1_500);
+    await Promise.race([wake.idle(), sleep(10_000)]);
     expect(statusesOf(id)).toEqual([[1, "completed", false], [2, "stopped", true]]);
     expect(userTurns(ROOT_KEY) - rootUsersBefore).toBe(0);
   }, 30_000);
@@ -444,7 +451,7 @@ describe("a person writing in a stopped child's chat resumes it (SUBAGENT-22)", 
     const usersBefore = userTurns(sk);
     release("BY-HAND-PERSON");
     await until("the helper's wake reported", () => reportsFor(cid).length >= 3, 15_000);
-    await sleep(500);
+    await Promise.race([wake.idle(), sleep(10_000)]);
     expect(statusesOf(cid)).toEqual([[1, "stopped", true], [2, "completed", false], [3, "completed", false]]);
     expect(userTurns(sk) - usersBefore).toBe(1);
     expect(resultRows.some(([p, id]) => p === sk && id === gid)).toBe(false);

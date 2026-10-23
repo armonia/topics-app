@@ -6,9 +6,10 @@
  * that are both load bearing:
  *
  *   - born with it  -> a git call that passes nothing still sees it. This is
- *     why `scripts/test-unit-serial.ts` and `scripts/test-unit-shards.ts` wrap
- *     their `bun test` env in `gitIsolationEnv`: from there the hooks of the
- *     machine cannot get into a test repo even when a call forgets `env`.
+ *     why `scripts/test-unit-shards.ts` builds every file's environment in
+ *     `fileEnv()`, which wraps the base in `gitIsolationEnv`: from there the
+ *     hooks of the machine cannot get into a test repo even when a call
+ *     forgets `env`.
  *   - added at runtime -> it does NOT. This is the Bun limitation that makes
  *     the preload alone insufficient. If a future Bun passes runtime variables
  *     down, THIS test goes red first and says so: the extra layer can then go.
@@ -85,19 +86,22 @@ describe("l'isolamento di git si eredita se c'e' alla nascita del processo", () 
     expect(out.GIT_CONFIG_COUNT).toBe("3");
   });
 
-  // The mechanism above is worth nothing if the two runners stop using it, and
+  // The mechanism above is worth nothing if the runner stops using it, and
   // that failure is silent: every test stays green while the hooks come back
   // in. The same shape cost this repo a whole defect once already, a correct
   // module whose only caller hid its entry point.
-  test("i due runner passano davvero l'ambiente isolato al loro `bun test`", () => {
-    for (const rel of ["scripts/test-unit-serial.ts", "scripts/test-unit-shards.ts"]) {
-      const src = readFileSync(join(REPO_ROOT, rel), "utf8");
-      expect(src).toContain("env: gitIsolationEnv(");
-      // The wrapped object has to be the one of the `bun test` spawn, not some
-      // other env in the file.
-      const spawn = src.slice(src.indexOf('"test"'));
-      expect(spawn.slice(0, spawn.indexOf("})")).includes("gitIsolationEnv(")).toBe(true);
-    }
+  test("the runner really hands the isolated environment to its `bun test`", () => {
+    const src = readFileSync(join(REPO_ROOT, "scripts/test-unit-shards.ts"), "utf8");
+    // The isolation is applied in `fileEnv()`, not at the spawn site: the
+    // wrapped base has to be that function's, not some other env in the file.
+    const fileEnvAt = src.indexOf("export function fileEnv");
+    expect(fileEnvAt).toBeGreaterThan(-1);
+    expect(src.slice(fileEnvAt, fileEnvAt + 600)).toContain("gitIsolationEnv(");
+    // And the `bun test` spawn has to receive an environment at all: the
+    // function above is worth nothing if `runFile` spawns without it.
+    const spawnAt = src.indexOf('["bun", "test"');
+    expect(spawnAt).toBeGreaterThan(-1);
+    expect(src.slice(spawnAt, spawnAt + 600)).toContain("env");
   });
 
   test("applicato due volte non raddoppia le chiavi", () => {

@@ -15,11 +15,12 @@ const ROOT = join(import.meta.dir, "..");
 const FIXTURE = "./scripts/stray-ai-bridges.leaves-daemon.fixture.ts";
 
 function runSuite(extraEnv: Record<string, string>) {
-  const run = spawnSync(process.execPath, ["scripts/test-unit-serial.ts", FIXTURE], {
+  const run = spawnSync(process.execPath, ["scripts/test-unit-shards.ts", FIXTURE], {
     cwd: ROOT,
     encoding: "utf8",
     // Already inside this run's slot: the inner `bun test` must not queue for another.
-    env: { ...process.env, [GATE_HELD_ENV]: "stray-ai-bridges.test", ...extraEnv },
+    // One shard: the fixture races no neighbour while it is proven.
+    env: { ...process.env, [GATE_HELD_ENV]: "stray-ai-bridges.test", TOPICS_UNIT_SHARDS: "1", ...extraEnv },
   });
   return { code: run.status, stderr: run.stderr };
 }
@@ -44,7 +45,12 @@ describe("which daemons belong to a run", () => {
   const socket = join(dir, "ai-bridge.sock");
   const runId = newTestRunId();
   let pid = 0;
-  afterAll(() => { if (pid) { try { process.kill(pid, "SIGTERM"); } catch { /* gone */ } } });
+  // The directory is this file's own scratch: leaving it behind makes this
+  // file red under the per-file TMPDIR check, so it goes here, not nowhere.
+  afterAll(() => {
+    if (pid) { try { process.kill(pid, "SIGTERM"); } catch { /* gone */ } }
+    rmSync(dir, { recursive: true, force: true });
+  });
 
   test("only the daemons carrying the run's own marker, never another run's or production's", async () => {
     const daemon = spawn(

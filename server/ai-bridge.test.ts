@@ -428,7 +428,9 @@ describe("ai-bridge replay a fette", () => {
 // clean it up: retiring itself is its ONLY exit path. This used to be broken
 // silently — the monitor tested `process.ppid === 1`, which Bun never updates
 // after reparenting — and abandoned daemons piled up for days.
-describe("ai-bridge orphan monitor", () => {
+describe.concurrent("ai-bridge orphan monitor", () => {
+  // The six tests share no state (separate sock, store and daemon each), so
+  // they run concurrently: wall time is the longest one, not the sum.
   // Shrink the monitor tick so tests don't sit through the real 5s production
   // interval. Production never sets TOPICS_AI_BRIDGE_MONITOR_TICK_MS.
   const MONITOR_TICK_MS = 500;
@@ -490,9 +492,10 @@ describe("ai-bridge orphan monitor", () => {
         ...process.env,
         ...FAST_ENV,
         TOPICS_AI_BRIDGE_ORPHAN_GRACE_MS: "1000",
-        // A real probe lasts ~1s (connect → ping → pong → close); the threshold
-        // sits above it, so the probes below never count as a server.
-        TOPICS_AI_BRIDGE_REAL_CLIENT_MS: "3000",
+        // A real probe lasts ~0.5s (connect → ping → pong → close); the
+        // threshold sits above it, so the probes below never count as a
+        // server. Every assertion is unchanged, only the windows shrink.
+        TOPICS_AI_BRIDGE_REAL_CLIENT_MS: "1500",
       } },
     );
     let probing: ReturnType<typeof setInterval> | null = null;
@@ -501,17 +504,18 @@ describe("ai-bridge orphan monitor", () => {
       expect(await until(() => existsSync(sock), 10_000)).toBe(true);
       let exited = false;
       void orphan.exited.then(() => { exited = true; });
-      // OVERLAPPING probes: each holds for a second, a new one every 800ms. The
-      // socket is never free — the buggy version never even armed its deadline —
-      // yet no single connection reaches 3s, so none of them is a server.
+      // OVERLAPPING probes: each holds for half a second, a new one every
+      // 400ms. The socket is never free — the buggy version never even armed
+      // its deadline — yet no single connection reaches 1.5s, so none of them
+      // is a server.
       probing = setInterval(() => {
         const probe = net.connect(sock);
         open.add(probe);
         probe.on("error", () => { /* il ponte se n'è andato: è il caso di successo */ });
-        setTimeout(() => { open.delete(probe); probe.destroy(); }, 1_000).unref();
-      }, 800);
+        setTimeout(() => { open.delete(probe); probe.destroy(); }, 500).unref();
+      }, 400);
       // With MONITOR_TICK_MS=500ms, ORPHAN_GRACE_MS=1s, and one REAL_CLIENT_MS*2
-      // extension: at most ~8s total.
+      // extension: at most ~5s total.
       expect(await until(() => exited, 15_000)).toBe(true);
     } finally {
       if (probing) clearInterval(probing);
@@ -596,11 +600,11 @@ describe("ai-bridge orphan monitor", () => {
       first.write(JSON.stringify({ type: "ping", pid: process.pid }) + "\n");
       first.write(JSON.stringify({ type: "spawn", id: "recycle", cliPath: "/bin/sh",
         args: ["-c", "head -c 4000000 /dev/zero; exec sleep 600"], cwd: store, env: {} }) + "\n");
-      await new Promise((r) => setTimeout(r, 2_500)); // attached long enough to count as the server
+      await new Promise((r) => setTimeout(r, 1_700)); // attached long enough to count as the server (REAL_CLIENT_MS 1 s + tick)
       first.pause(); // the loop stands still: nothing read, frames queue in the daemon
-      await new Promise((r) => setTimeout(r, 2_000));
+      await new Promise((r) => setTimeout(r, 700));
       first.destroy(); // the watchdog recycles
-      await new Promise((r) => setTimeout(r, 4_000)); // the next stall, well past the 1 s grace
+      await new Promise((r) => setTimeout(r, 2_500)); // the next stall, well past the 1 s grace
       expect(exited, "the daemon left while its server was alive the whole time").toBe(false);
       again = await opened();
       let pending = "";
@@ -636,7 +640,7 @@ describe("ai-bridge orphan monitor", () => {
       let exited = false;
       void daemon2.exited.then(() => { exited = true; });
       // With MONITOR_TICK_MS=500ms: well past several ticks + grace — still there.
-      await new Promise((r) => setTimeout(r, 3_000));
+      await new Promise((r) => setTimeout(r, 2_000));
       expect(exited).toBe(false);
     } finally {
       try { daemon2.kill(); } catch { /* ignore */ }
@@ -664,10 +668,10 @@ describe("ai-bridge orphan monitor", () => {
       await new Promise((r) => server.once("connect", r));
       server.write(JSON.stringify({ type: "ping", pid: process.pid }) + "\n");
       // Attached long enough to be a server, and at least one monitor tick.
-      await new Promise((r) => setTimeout(r, 1_500));
+      await new Promise((r) => setTimeout(r, 1_100));
       server.destroy();
       // Past the 1 s grace and several ticks: this process is alive, so is the daemon.
-      await new Promise((r) => setTimeout(r, 3_000));
+      await new Promise((r) => setTimeout(r, 2_200));
       expect(exited).toBe(false);
     } finally {
       try { orphan.kill(); } catch { /* ignore */ }

@@ -142,12 +142,15 @@ describe("the listing sees every skill the resolver can open", () => {
 
     const script = `
       const { setupTestDataDir, testTmpDir, createTestAppContext } = await import(${JSON.stringify(join(PROJECT_ROOT, "tests/integration/helpers/index.ts"))});
+      const { removeFinishedTestTmpDirs } = await import(${JSON.stringify(join(PROJECT_ROOT, "tests/setup/test-tmp-dirs.ts"))});
       setupTestDataDir(testTmpDir("slash-listing-child") + "/data");
       const { createTopicsRouter } = await import(${JSON.stringify(join(PROJECT_ROOT, "server/routes/topics.ts"))});
       const router = createTopicsRouter(await createTestAppContext());
       const url = new URL("http://h/api/slash-commands");
       const res = await router(new Request(url), url, url.pathname, "GET");
       process.stdout.write("RESULT " + JSON.stringify({ status: res.status, body: await res.json() }) + "\\n");
+      // A bare bun -e process runs no preload that would sweep the root it made.
+      removeFinishedTestTmpDirs(null);
       process.exit(0);
     `;
     const child = Bun.spawn(["bun", "-e", script], {

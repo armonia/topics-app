@@ -151,9 +151,11 @@ describe("the cover of whoever already holds a slot", () => {
   it("without the cover it waits, and then runs anyway rather than blocking a gate", async () => {
     fillTheOnlySlot();
     const started = Date.now();
-    const p = direct({ TOPICS_GATE_SLOTS: "1", TOPICS_GATE_MAX_WAIT_MS: "1500" });
+    // Short queue wait: the point is that it queued at all (one 700 ms poll
+    // of the slot), not how long the production default would hold it.
+    const p = direct({ TOPICS_GATE_SLOTS: "1", TOPICS_GATE_MAX_WAIT_MS: "700" });
     expect(await p.exited, "the semaphore must never refuse to run a command").toBe(0);
-    expect(Date.now() - started, "it did not even try to queue").toBeGreaterThanOrEqual(1500);
+    expect(Date.now() - started, "it did not even try to queue").toBeGreaterThanOrEqual(700);
   }, 120_000);
 });
 
@@ -162,9 +164,14 @@ describe("two runs on one junit file", () => {
     const outfile = join(dir, "unit.xml");
     // The throttle is OFF on purpose: serialising them would hide the
     // collision, and the point here is what happens when they DO meet.
+    // The release file ends the first run's rendezvous hold as soon as the
+    // collision has happened, instead of a blind 4 s stay-alive: every
+    // assertion below (125, stderr text, whole report) is unchanged.
+    const release = join(dir, "release");
     const first = direct({
       TOPICS_GATE_SLOTS: "0",
       TOPICS_GATE_WITNESS: witness,
+      TOPICS_GATE_WITNESS_RELEASE: release,
     }, [`--reporter=junit`, `--reporter-outfile=${outfile}`, FIXTURE]);
 
     // Deterministic instead of a sleep: wait until the first run has claimed
@@ -180,6 +187,7 @@ describe("two runs on one junit file", () => {
     }, [`--reporter=junit`, `--reporter-outfile=${outfile}`, FIXTURE]);
     const secondCode = await second.exited;
     const secondErr = await new Response(second.stderr).text();
+    await Bun.write(release, "1");
     expect(await first.exited).toBe(0);
 
     expect(secondCode, "the second run wrote into the first one's report and called it its own").toBe(125);

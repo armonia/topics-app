@@ -88,7 +88,8 @@ beforeAll(async () => {
 
   const { createTopicsRouter } = await import("../../server/routes/topics");
   const { createTasksRouter } = await import("../../server/routes/tasks");
-  topicsRouter = createTopicsRouter(ctx, {} as any) as typeof topicsRouter;
+  // Shrink the pane-attach wait: this file proves teardown, not the wait.
+  topicsRouter = createTopicsRouter(ctx, {} as any, () => false, { paneWaitMs: 20 }) as typeof topicsRouter;
   // Wiring IDENTICO a server.ts: è il punto della prova.
   tasksRouter = createTasksRouter(ctx, undefined, {
     teardownTaskBrowserState: (taskId) =>

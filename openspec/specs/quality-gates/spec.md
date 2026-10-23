@@ -525,106 +525,100 @@ spec piu' vicine al cambiamento.
 - **GIVEN** una modifica che tocca una funzione con la sua spec dedicata
 - **THEN** quella spec SHALL precedere le spec di altre funzioni
 
-### Requirement: GATE-12 — La suite unit si divide in shard, e il verdetto non dipende dal raggruppamento
+### Requirement: GATE-12 — La suite unit gira un processo per file, e il verdetto non dipende dal raggruppamento
 
-Il cancello `test:unit` in un solo processo costava ~462 s a macchina scarica e
-~18 minuti sotto il carico di una flotta: un pre-review che dura quanto il
-lavoro che controlla viene spento dal primo che ha fretta. La suite SHALL quindi
-poter girare in N `bun test` concorrenti (`test:unit:shards`), e il verdetto
-SHALL essere l'aggregato: verde solo se OGNI shard è verde.
-Anche un fallimento nella coda seriale SHALL restare rosso: nessun retry
-automatico SHALL sostituirne l'esito. L'output completo del primo fallimento,
-stdout incluso, SHALL restare nel referto.
+`bun test` fa girare tutti i file di una corsa in UN processo: quello che un file
+lascia (un globale DOM, un `mock.module`, `DATA_DIR`, un timer in volo) passa al
+successivo, e il verdetto dipende da come la corsa e' tagliata. Misurato il
+05/09/2026 e di nuovo il 21/10: due tentativi di shard nello stesso processo
+erano piu' veloci (4,7 e 6,8 minuti) e rossi su test verdi in seriale, mai gli
+stessi. Il cancello `test:unit` SHALL quindi lanciare ogni file di test nel suo
+processo `bun test`, N file per volta presi da UNA coda comune (default: uno per
+core, fra due e quattro), e il verdetto SHALL essere l'aggregato: verde solo se
+OGNI file e' verde. Un fallimento nella coda seriale in coda SHALL restare
+rosso: nessun retry automatico SHALL sostituirne l'esito. L'output completo del
+fallimento, stdout incluso, SHALL restare nel referto.
 
-La divisione SHALL coprire gli STESSI file del cancello seriale (le radici sono
-le stesse di `test:unit` in package.json): un file che la divisione perde è un
-cancello che si crede di avere. La divisione SHALL bilanciare per durata
-misurata, e un file senza durata nota SHALL pesare la mediana, mai zero.
+La corsa SHALL coprire gli STESSI file di `bun test` sulle radici di
+`package.json`: un file che la divisione perde e' un cancello che si crede di
+avere. I file SHALL partire dal piu' lento al piu' veloce per durata misurata
+(un file senza durata nota SHALL pesare la mediana, mai zero), oppure in ordine
+casuale con `test:unit:shuffle`, che SHALL stampare il seme e ripetere la stessa
+corsa con lo stesso seme: con un processo per file l'ordine non SHALL cambiare
+nessun verdetto. Quello che non si isola — i racer che si contendono una risorsa
+del sistema con asserzioni di tempistica — SHALL girare uno alla volta DOPO gli
+altri, senza contesa di CPU, e la lista di quei file SHALL corrispondere a file
+che esistono.
 
-Il verdetto SHALL essere lo stesso per qualunque raggruppamento: misurato il
-05/09/2026 su 24 raggruppamenti casuali × 4 shard, zero rossi. Quello che NON
-si isola — i racer che si contendono una risorsa del sistema con asserzioni di
-tempistica — SHALL girare in una coda seriale DOPO gli shard, senza contesa di
-CPU, e la lista di quei file SHALL corrispondere a file che esistono.
+L'output di un file verde SHALL essere scartato; quello di un file rosso SHALL
+essere ristampato, con il comando che lo riproduce (`bun test <file>`). Le ULTIME
+righe del sommario SHALL nominare i file e i test rossi: il commento sulla card
+tiene solo la coda dell'output. Quando il file e' rosso senza nessun test rosso
+— hook scaduto, crash, timeout di processo — il sommario SHALL dirlo, non tacere.
 
-L'output di ogni shard SHALL andare su un file, non su una pipe tenuta dal
-runner. Leggere la pipe per intero trattiene ogni blocco scritto finché lo
-shard non esce, e su bun 1.3.8 ogni blocco costa ~10 KB: il 15/09/2026 un
-runner a 797 MB (poi 3,7 GB) aveva un solo shard da 270 MB, e una sonda della
-stessa forma è passata da 200 MB a 9 MB con il file. Il file SHALL essere letto
-solo per uno shard rosso, l'unico che si ristampa.
-
-Uno shard rosso SHALL stampare il comando che lo riproduce con la stessa lista
-nello stesso ordine: il piano cambia a ogni corsa, e un rosso che dipende dal
-raggruppamento senza la sua lista non si ricostruisce più.
-
-Le ULTIME righe del sommario SHALL nominare i test rossi (file e titolo, letti
-dal referto junit): il commento sulla card tiene solo la coda dell'output, e il
-05/09/2026 l'agente della card 7bbefd9e leggeva «test:unit exit 1» e doveva
-rifare lo shard per sapere quale test fosse rosso. Quando il referto non porta
-nessun test rosso — hook scaduto, crash, timeout di processo — il sommario
-SHALL dirlo, non tacere.
-
-#### Scenario: un test rosso in uno shard
-- **GIVEN** uno shard che esce 1 con un test case che porta `<failure>`
-- **THEN** il sommario SHALL chiudersi con il nome di quel test, file e titolo
-
-Il piano SHALL guardare il CARICO della macchina prima di partire. Il runner
-esplicito `test:unit:shards` SHALL partire con due shard per default. Sopra una
-pressione di 1,25 (carico per core) SHALL usarne meno (divisi per la pressione,
-mai sotto uno) e SHALL scriverlo nell'output. Un numero di shard scelto a mano
-via ambiente NON SHALL essere sovrascritto.
-
-Il timeout per test SHALL essere lo stesso del comando seriale: 30 s oppure
-l'override esplicito `TOPICS_TEST_TIMEOUT_MS`, senza aumenti dovuti al carico.
-L'ambiente, incluso `CI`, SHALL essere ereditato. La parallelizzazione cambia
-quali file lavorano insieme, non le condizioni che ne determinano il verdetto.
-Il comando seriale resta disponibile per confronto e diagnosi.
+Il piano SHALL guardare il CARICO della macchina prima di partire. Sopra una
+pressione di 1,25 (carico per core) SHALL usare meno processi (divisi per la
+pressione, mai sotto uno) e SHALL scriverlo nell'output. Un numero di shard
+scelto a mano via ambiente NON SHALL essere sovrascritto. Il timeout per test
+SHALL essere lo stesso per ogni file: 30 s oppure l'override esplicito
+`TOPICS_TEST_TIMEOUT_MS`, senza aumenti dovuti al carico. L'ambiente, incluso
+`CI`, SHALL essere ereditato, salvo `DATA_DIR`, `TOPICS_DATA_DIR`, `TOPICS_HOME` e
+`OPENCLAW_CONFIG_PATH`, che un file non eredita mai dal terminale di chi lancia.
 
 #### Scenario: macchina satura
 - **GIVEN** carico 46 su 12 core, nessuna scelta esplicita via ambiente
-- **THEN** la corsa SHALL usare uno shard e mantenere il timeout di 30 s, e la prima riga dell'output SHALL dirlo
+- **THEN** la corsa SHALL usare un solo processo alla volta e mantenere il timeout di 30 s, e la prima riga dell'output SHALL dirlo
 
-#### Scenario: la coda seriale fallisce una volta
-- **GIVEN** tutti gli shard verdi e la coda seriale che esce 7
-- **THEN** la corsa SHALL uscire 7, stampare stdout e stderr del fallimento e non riprovare la coda
+#### Scenario: la coda seriale fallisce
+- **GIVEN** tutti i file verdi e un racer della coda seriale che esce 7
+- **THEN** la corsa SHALL uscire 7, stampare stdout e stderr del fallimento e non riprovarlo
 
-#### Scenario: il file più lento va nel secchio più leggero
-- **GIVEN** durate note e N secchi
-- **THEN** ogni file SHALL comparire in un solo secchio, e il più lento nel secchio con meno carico
+#### Scenario: un rosso in un file e' un rosso del cancello
+- **GIVEN** N file di cui uno esce non-zero
+- **THEN** il verdetto aggregato SHALL essere non-zero e il file SHALL essere nominato
 
-#### Scenario: le radici della divisione sono quelle del seriale
+#### Scenario: la stessa corsa si ripete
+- **GIVEN** una corsa con `--shuffle` e il seme che ha stampato
+- **THEN** la corsa con quel seme SHALL avere lo stesso ordine
+
+#### Scenario: la corsa copre le radici della suite
 - **GIVEN** le radici dichiarate da `test:unit` in package.json
-- **THEN** SHALL coincidere con le radici che la divisione enumera
+- **THEN** SHALL coincidere con le radici che la corsa enumera, e il job `unit` della CI SHALL lanciarla senza percorsi
 
-#### Scenario: un rosso in uno shard è un rosso del cancello
-- **GIVEN** N shard di cui uno esce non-zero
-- **THEN** il verdetto aggregato SHALL essere non-zero
+### Requirement: GATE-13 — Quello che un file lascia non raggiunge il file dopo, ne' la cartella temporanea
 
-### Requirement: GATE-13 — Un globale DOM finto non sopravvive al suo file
+Un test che installa `globalThis.window = { localStorage }`, un `mock.module` che
+`mock.restore()` non ritira, un `DATA_DIR` o una variabile d'ambiente, e non li
+toglie, li regalava a ogni file dopo nello stesso processo. Misurato il
+05/09/2026: 10 file su 1149 lasciavano `window`, `localStorage` o
+`requestAnimationFrame`; il 12/09 un `mock.module` non ritirato; l'08/10 un
+`DATA_DIR`. Ognuno e' costato rossi che cambiavano bersaglio con l'ordine e tre
+cancelli diversi, uno per classe, a valle della perdita.
 
-`bun test` fa girare tutti i file della corsa in UN processo. Un test che
-installa `globalThis.window = { localStorage }` e non lo toglie lo regala a
-ogni file dopo: un componente renderizzato più avanti passa la sua guardia
-`typeof window !== "undefined"`, chiama `getComputedStyle` e il globale non
-esiste. Misurato il 05/09/2026: 10 file su 1149 lasciavano `window`,
-`localStorage` o `requestAnimationFrame`, e un test da solo verde usciva rosso
-solo nella corsa il cui shard lo metteva dopo uno di loro.
+Con un processo per file il difetto SHALL non essere rappresentabile: quello che
+un file fa al mondo (globali, registro dei moduli, ambiente, timer, singleton)
+SHALL restare nel suo processo e SHALL non cambiare l'esito di nessun altro file,
+in qualunque ordine. La prova SHALL essere un controllo a due file che in UN
+processo si contaminano davvero e col runner no.
 
-Il preload della suite SHALL fotografare i globali DOM presenti all'avvio e, a
-fine corsa, SHALL far uscire rosso il processo se uno di quelli è comparso e
-non è stato tolto, nominando quali. La foto SHALL essere scattata al preload e
-non presa da una lista di ciò che bun ha: ciò che bun definisce non è un
-residuo. Il colpevole SHALL potersi trovare rilanciando ogni file da solo con
-la stessa guardia (`check:test-globals`).
+Ogni file SHALL avere la sua cartella temporanea (`TMPDIR`), creata prima e
+rimossa dopo di lui, qualunque cosa ci abbia lasciato dentro. Una corsa di test
+lanciata a mano (`bun test <file>`, senza il runner) SHALL avere lo stesso: il
+preload da' al processo una `TMPDIR` sua e la toglie alla fine. Il 23/10/2026 la
+temp del Mac del proprietario conteneva ~11.000 `topics-cred*`, 4.800 `topics*`,
+3.500 `tracker-home*` e `import*` lasciati dalle corse di test, e 54 file
+continuavano a farlo: chiedere a ogni test di pulire e' una difesa per file, a
+valle della perdita; qui la perdita non puo' restare. Su CI, se nonostante
+questo compare qualcosa nella temp vera o in `/tmp/topics-test` (un percorso
+scritto a mano nel test), la corsa SHALL uscire non-zero nominando le voci.
 
-#### Scenario: un file che lascia window fa uscire rossa la corsa
-- **GIVEN** un file di test che installa `globalThis.window` e non lo toglie
-- **THEN** `bun test` su quel file SHALL uscire non-zero e il messaggio SHALL nominare `window`
+#### Scenario: cio' che a lascia non c'e' per b, in entrambi gli ordini
+- **GIVEN** un file che lascia un `window` finto, un `mock.module`, un `DATA_DIR` e una variabile d'ambiente, e un file che si aspetta un mondo pulito
+- **THEN** i due file in UN processo SHALL contaminarsi (il controllo) e col runner SHALL passare entrambi, a-poi-b e b-poi-a
 
-#### Scenario: un file che rimette a posto passa senza un fiato
-- **GIVEN** un file di test che installa `globalThis.window` e lo toglie in `afterAll`
-- **THEN** `bun test` su quel file SHALL uscire zero senza la firma della guardia
+#### Scenario: cio' che un file lascia nella temp non resta
+- **GIVEN** un file che crea una cartella nella temp e non la rimuove
+- **THEN** dopo la corsa del runner quella cartella SHALL non esistere nella temp della corsa, e dopo un `bun test <file>` diretto SHALL non esistere nella cartella temporanea data al processo
 
 ### Requirement: GATE-14 — La scala tipografica è una sola, e ci si esce solo dichiarando
 

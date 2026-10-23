@@ -46,7 +46,8 @@ function installFakes(): void {
   // The minimum stand-in: the hook subscribes to `storage` for cross-tab sync.
   // It MUST be removed in `afterEach`, and that is not fussiness - a fake
   // `window` left on the runtime has already produced, in this repository, a
-  // red that changed target with the order of the files (`check:test-globals`).
+  // red that changed target with the order of the files (before every file got
+  // its own process).
   Object.defineProperty(globalThis, 'window', {
     configurable: true,
     value: { localStorage: storage, addEventListener: () => {}, removeEventListener: () => {} },

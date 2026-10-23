@@ -103,8 +103,11 @@ async function capture(cmd: string[], cwd = ROOT): Promise<{ code: number; out: 
 
 /** Repo-relative relay files that `tsc -p <config>` reports in its program. */
 async function tscListFiles(config: string): Promise<string[]> {
-  const { code, out } = await capture([TSC, "-p", config, "--listFiles", "--noEmit"]);
-  // A non-zero exit here is a type error, not a missing program: the file list
+  // `--listFilesOnly` builds the program (parse + resolve, same file set) and
+  // stops before the checker: 5-7x faster, and type errors stay the job of
+  // typecheck:server / typecheck:relay, not of this file list.
+  const { code, out } = await capture([TSC, "-p", config, "--listFilesOnly"]);
+  // A non-zero exit here is a broken program, not a missing one: the file list
   // is still printed, and swallowing it would turn a broken build into "the
   // gate does not see relay", which is a different and much worse diagnosis.
   expect(out.length, `tsc printed nothing for ${config} (exit ${code})`).toBeGreaterThan(0);
@@ -167,7 +170,7 @@ describe("relay/ is inside the gates", () => {
   });
 
   it("tsc actually compiles every relay file, measured from its own file list", async () => {
-    // `--listFiles` is the program tsc built, not the globs someone wrote. An
+    // `--listFilesOnly` is the program tsc built, not the globs someone wrote. An
     // `include` that matches nothing passes a glob check and fails this one.
     const listed = await measuredProgramFiles();
     expect(listed.length, "tsc reported no relay file: the program is empty").toBeGreaterThan(5);

@@ -89,7 +89,9 @@ describe("un comando appeso viene abbattuto", () => {
   // rosso e tenevano il loro slot. Questi test misurano che ora danno rosso.
   test("oltre il tetto di wall-clock esce 124, non resta appeso", async () => {
     const started = Date.now();
-    const r = await slot("sleep 30", { ms: 1_000, graceMs: 500 });
+    // Short cap: the test only needs the kill itself (exit 124 + message),
+    // not a command that had time to start.
+    const r = await slot("sleep 30", { ms: 300, graceMs: 200 });
     expect(r.code).toBe(124);
     expect(r.err).toContain("wall-clock");
     expect(Date.now() - started).toBeLessThan(15_000);
@@ -121,40 +123,42 @@ describe("un comando appeso viene abbattuto", () => {
   }, 30_000);
 
   test("il tetto si può spegnere con 0", async () => {
-    const r = await slot("sleep 1; echo senza-tetto", { ms: 0 });
+    // Short sleep: with the cap off any duration proves the command is untouched.
+    const r = await slot("sleep 0.3; echo senza-tetto", { ms: 0 });
     expect(r.code).toBe(0);
     expect(r.out).toContain("senza-tetto");
   }, 30_000);
 
   test("lo slot torna libero anche quando il comando viene abbattuto", async () => {
-    await slot("sleep 30", { ms: 1_000, graceMs: 500 });
+    // Short cap, same reason as above: only the kill and the cleanup matter.
+    await slot("sleep 30", { ms: 300, graceMs: 200 });
     expect(readdirSync(dir).filter((f) => f.endsWith(".pid"))).toEqual([]);
   }, 30_000);
 });
 
 describe("it actually excludes", () => {
   test("one slot means one at a time, not two", async () => {
-    // The measurement that makes this a throttle instead of a comment: two 1.5s
-    // commands through a single slot cannot both be done in 1.5s. Two DIFFERENT
+    // The measurement that makes this a throttle instead of a comment: two 1s
+    // commands through a single slot cannot both be done in 1s. Two DIFFERENT
     // names, so what is measured is the count and not the per-name lock below.
     const started = Date.now();
     const [a, b] = await Promise.all([
-      slot("sleep 1.5", { slots: 1, label: "alpha" }),
-      slot("sleep 1.5", { slots: 1, label: "beta" }),
+      slot("sleep 1", { slots: 1, label: "alpha" }),
+      slot("sleep 1", { slots: 1, label: "beta" }),
     ]);
     const elapsed = Date.now() - started;
     expect(a.code).toBe(0);
     expect(b.code).toBe(0);
-    expect(elapsed).toBeGreaterThan(2_800);
+    expect(elapsed).toBeGreaterThan(1_900);
   }, 20_000);
 
   test("two slots let two DIFFERENT gates through together", async () => {
     const started = Date.now();
     await Promise.all([
-      slot("sleep 1.5", { slots: 2, label: "alpha" }),
-      slot("sleep 1.5", { slots: 2, label: "beta" }),
+      slot("sleep 1", { slots: 2, label: "alpha" }),
+      slot("sleep 1", { slots: 2, label: "beta" }),
     ]);
-    expect(Date.now() - started).toBeLessThan(2_800);
+    expect(Date.now() - started).toBeLessThan(1_900);
   }, 20_000);
 
   test("two slots do NOT let the same gate through twice: one lint at a time", async () => {
@@ -164,12 +168,12 @@ describe("it actually excludes", () => {
     // wait the second one runs anyway rather than blocking a gate.
     const started = Date.now();
     const [a, b] = await Promise.all([
-      slot("sleep 1.5", { slots: 2, label: "lint" }),
-      slot("sleep 1.5", { slots: 2, label: "lint", maxWaitMs: 15_000 }),
+      slot("sleep 1", { slots: 2, label: "lint" }),
+      slot("sleep 1", { slots: 2, label: "lint", maxWaitMs: 15_000 }),
     ]);
     expect(a.code).toBe(0);
     expect(b.code).toBe(0);
-    expect(Date.now() - started).toBeGreaterThan(2_800);
+    expect(Date.now() - started).toBeGreaterThan(1_900);
   }, 25_000);
 
   test("the slot comes back when the command is done", async () => {

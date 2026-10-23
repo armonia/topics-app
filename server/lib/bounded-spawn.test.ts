@@ -214,7 +214,12 @@ describe("the server's shutdown closes the groups it launched", () => {
     try {
       process.kill(-server.pid, "SIGTERM");
       await server.exited;
-      await Bun.sleep(900); // the exit hook's grace is 500 ms
+      // The exit hook's grace is 500 ms: poll until the child is gone instead
+      // of sitting out the whole 900 ms. `server.exited` already resolved
+      // after the hook ran, so a real survivor still has the full ceiling to
+      // fail on; the pass path returns on the first 25 ms check.
+      const deadline = Date.now() + 900;
+      while (alive(childPid) && Date.now() < deadline) await Bun.sleep(25);
       return { childPid, survived: alive(childPid) };
     } finally {
       try { process.kill(childPid, "SIGKILL"); } catch { /* already gone */ }

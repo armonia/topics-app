@@ -30,12 +30,13 @@
  * credenziali morto per otto ore (2026-08-16).
  */
 
-import { existsSync, readFileSync, writeFileSync, mkdtempSync, renameSync, chmodSync, openSync, closeSync, unlinkSync, constants as fsConstants } from "fs";
+import { existsSync, readFileSync, writeFileSync, openSync, closeSync, unlinkSync, constants as fsConstants } from "fs";
 import { claudeCliUserAgent } from "./cli-user-agent";
-import { homedir, tmpdir, userInfo } from "os";
-import { join, dirname } from "path";
+import { homedir, userInfo } from "os";
+import { join } from "path";
 import { spawnSync } from "child_process";
 import { runBounded } from "../../lib/bounded-spawn";
+import { writeFileAtomic } from "../../lib/atomic-write";
 
 /**
  * Il client id di Claude Code. Non è un segreto (sta in chiaro in ogni
@@ -433,12 +434,9 @@ export function writeCredentials(path: string, next: OAuthCredentials): void {
     };
   }
 
-  const dir = dirname(path);
-  const tmp = join(mkdtempSync(join(tmpdir(), "topics-cred-")), "cred.json");
-  writeFileSync(tmp, JSON.stringify(doc, null, 2));
-  chmodSync(tmp, 0o600);
-  renameSync(tmp, path);
-  void dir;
+  // Atomic, with the temp beside the target (see atomic-write.ts). Nothing is
+  // left in the temp folder: the old `mkdtempSync(tmpdir())` made one per renewal.
+  writeFileAtomic(path, JSON.stringify(doc, null, 2), { mode: 0o600 });
 }
 
 /**

@@ -8,7 +8,7 @@
  * @covers MP-AUTH-01
  */
 import { describe, expect, test, beforeEach, afterEach } from "bun:test";
-import { existsSync, mkdtempSync, mkdirSync, rmSync, writeFileSync, readFileSync } from "fs";
+import { existsSync, mkdtempSync, mkdirSync, rmSync, statSync, writeFileSync, readFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 import * as auth from "./auth";
@@ -17,11 +17,12 @@ const HOME_VERA = process.env.HOME;
 const KEYCHAIN_VERA = process.env.TOPICS_CREDENTIALS_KEYCHAIN;
 const realFetch = globalThis.fetch;
 const realError = console.error;
-const PREVIOUS_TEMP_DIR = process.env.TMPDIR;
 let homeDir: string;
 let claudeDir: string;
 let credentialsPath: string;
 let logged: string[];
+let refusing = false;
+let previousFile: string | null = null;
 
 function writeExpired(accessToken: string, refreshToken: string) {
   writeFileSync(credentialsPath, JSON.stringify({
@@ -41,6 +42,13 @@ function rotatingEndpoint(chain: Record<string, { access: string; refresh: strin
       return new Response('{"error":"invalid_grant"}', { status: 400 });
     }
     used.add(sent);
+    if (refusing && statSync(credentialsPath, { throwIfNoEntry: false })?.isFile()) {
+      // The save fails on a folder that stands where the file was. Swapped here:
+      // after the read, while the lock is held.
+      previousFile = readFileSync(credentialsPath, "utf-8");
+      rmSync(credentialsPath);
+      mkdirSync(credentialsPath);
+    }
     return new Response(JSON.stringify({
       access_token: next.access, refresh_token: next.refresh, expires_in: next.expiresIn ?? 28800,
     }), { status: 200 });
@@ -49,13 +57,19 @@ function rotatingEndpoint(chain: Record<string, { access: string; refresh: strin
 }
 
 /**
- * The write goes through a scratch file under `os.tmpdir()`: pointing TMPDIR
- * at a folder that does not exist makes it fail while the read and the lock,
- * which live next to the credentials, keep working.
+ * The save writes a scratch file beside the credentials and renames it over
+ * them. A folder standing where the file is makes that rename fail (EISDIR),
+ * while the read before it and the lock beside the file keep working. A folder
+ * reads as unreadable, not gone, so the pending pair waits for the next try.
  */
-function diskRefuses() { process.env.TMPDIR = join(homeDir, "no-such-dir"); }
+function diskRefuses() { refusing = true; }
+/** The disk again: the folder goes, and the file it stood in for comes back. */
 function diskAccepts() {
-  if (PREVIOUS_TEMP_DIR === undefined) delete process.env.TMPDIR; else process.env.TMPDIR = PREVIOUS_TEMP_DIR;
+  refusing = false;
+  if (statSync(credentialsPath, { throwIfNoEntry: false })?.isDirectory()) {
+    rmSync(credentialsPath, { recursive: true, force: true });
+    writeFileSync(credentialsPath, previousFile!);
+  }
 }
 
 describe("a renewal that could not be saved", () => {
@@ -152,8 +166,9 @@ describe("a renewal that could not be saved", () => {
     diskRefuses();
     expect(await auth.getAccessToken()).toBe("fake-access-2");
 
-    // /logout deletes the credentials; the disk accepts writes again.
-    rmSync(credentialsPath);
+    // /logout deletes the credentials, and the folder that stands in for them;
+    // the disk accepts writes again.
+    rmSync(credentialsPath, { recursive: true, force: true });
     diskAccepts();
     expect(await auth.getAccessToken()).toBeNull();
     expect(existsSync(credentialsPath), "the pending pair rewrote a logged-out file").toBe(false);

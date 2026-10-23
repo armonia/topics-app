@@ -7,8 +7,18 @@
  *
  * @covers TAB-SYNC-01
  */
-import { describe, test, expect, beforeEach, afterEach, afterAll } from "bun:test";
+import { describe, test, expect, beforeEach, afterEach, afterAll, jest } from "bun:test";
 import { TIME_SLACK_ENV, parseForcedSlack } from "../../../../../shared/test-time-slack";
+
+/**
+ * The microtask drain after each virtual timer jump. Firing a debounce or
+ * backoff timer only schedules the PUT chain (fetch stub, JSON parse,
+ * give-up bookkeeping); the assertions need those links settled, and
+ * advancing the clock alone does not run them.
+ */
+async function flush(): Promise<void> {
+  for (let i = 0; i < 24; i++) await Promise.resolve();
+}
 
 // Minimal browser-ish globals so the module imports without blowing up under
 // bun:test. syncCrossTab is imported by syncServer (for getTabId), and it
@@ -205,6 +215,7 @@ describe("syncServer — inflight coalescing (finding #13)", () => {
  */
 describe("syncServer — CAS base on teardown flush", () => {
   beforeEach(() => {
+    jest.useFakeTimers();
     __resetInflightForTests();
     __resetSelfEchoForTests();
     usePaneStore.setState((d) => { d.lastServerSeq = 0; });
@@ -214,6 +225,7 @@ describe("syncServer — CAS base on teardown flush", () => {
     restoreFetch();
     uninstallFakeWindow();
     installFakeWindow();
+    jest.useRealTimers();
   });
 
   test("the teardown URL declares the base seq the tab last saw", () => {
@@ -258,7 +270,13 @@ describe("syncServer — CAS base on teardown flush", () => {
       calls++;
       return Promise.resolve(new Response("boom", { status: 500 }));
     };
-    await __pushSnapshotForTests(PANE_STORE_REMOTE_KEY, { lastSeq: 1 }, 1, 3);
+    // The whole retry chain runs on the virtual clock: advance until the push settles.
+    const p = __pushSnapshotForTests(PANE_STORE_REMOTE_KEY, { lastSeq: 1 }, 1, 3);
+    for (let i = 0; i < 200; i++) {
+      jest.advanceTimersByTime(25);
+      await flush();
+    }
+    await p;
     expect(calls).toBeGreaterThan(1);
   });
 
@@ -317,7 +335,16 @@ describe("syncServer — re-arm the push after a WS drop", () => {
    *  count read 6 where this file expected 2. */
   const ourCalls = (): FetchCall[] => fetchCalls.filter((c) => String(c.url).includes(PANE_STORE_REMOTE_KEY));
 
-  const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms));
+  // Virtual sleep: each 25 ms step runs on the fake clock, so debounce and
+  // retry timers fire instantly. The negative windows ("still exactly 1 PUT"
+  // after 200-700 ms) stay the same width, but deterministic.
+  const sleep = async (ms: number): Promise<void> => {
+    const steps = Math.ceil(ms / 25);
+    for (let i = 0; i < steps; i++) {
+      jest.advanceTimersByTime(25);
+      await flush();
+    }
+  };
 
   /**
    * Wait for the THING, not for the clock. The debounce is 500 ms on a quiet
@@ -347,8 +374,12 @@ describe("syncServer — re-arm the push after a WS drop", () => {
   const TEST_CEILING_MS = Math.round(20_000 * SLACK);
 
   const waitFor = async (ready: () => boolean, budgetMs = WAIT_BUDGET_MS): Promise<void> => {
-    const deadline = Date.now() + budgetMs;
-    while (!ready() && Date.now() < deadline) await sleep(25);
+    // Same condition, same budget, on the virtual clock: `sleep` advances it,
+    // and `flush` lets each fired timer's PUT chain settle before re-checking.
+    await flush();
+    const steps = Math.ceil(budgetMs / 25);
+    for (let i = 0; i < steps && !ready(); i++) await sleep(25);
+    if (!ready()) throw new Error(`waited ${budgetMs} ms and the condition never came`);
   };
 
   /** A local edit: the only thing that moves `localSeq` and arms the debounce. */
@@ -376,6 +407,7 @@ describe("syncServer — re-arm the push after a WS drop", () => {
   }
 
   beforeEach(async () => {
+    jest.useFakeTimers();
     __resetInflightForTests();
     __resetSelfEchoForTests();
     installCountingFetch();
@@ -383,6 +415,9 @@ describe("syncServer — re-arm the push after a WS drop", () => {
     initServerSync();
     // The lifecycle subscription is registered inside an `await import()`, so
     // it exists a macrotask later, not synchronously after initServerSync().
+    // A real sleep or Bun.sleep would hang under fake timers; yielding to the
+    // module loader and then sleeping virtually lands the registration.
+    await import("node:os");
     await sleep(20);
   });
 
@@ -393,6 +428,7 @@ describe("syncServer — re-arm the push after a WS drop", () => {
     restoreFetch();
     uninstallFakeWindow();
     installFakeWindow();
+    jest.useRealTimers();
   });
 
   test("control: with the socket up, one edit is one PUT", async () => {
