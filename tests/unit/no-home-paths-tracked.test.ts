@@ -6,7 +6,7 @@ import { execFileSync } from "child_process";
 import { readFileSync, statSync } from "fs";
 import { homedir } from "os";
 import { resolve, join } from "path";
-import { filtraTermini } from "./no-personal-data-tracked.test";
+import { filterTerms } from "../helpers/personal-terms";
 import { gitEnv } from "../setup/bun-test-preload";
 
 /**
@@ -89,7 +89,7 @@ describe("nessun percorso di home in un file tracciato", () => {
 
   test("il nome utente non compare in nessun file tracciato, in nessuna grafia", () => {
     // La soglia dei 4 caratteri E gli account di servizio, con la stessa regola
-    // del cancello gemello invece che con una copia: `filtraTermini` restituisce
+    // del cancello gemello invece che con una copia: `filterTerms` restituisce
     // vuoto quando il nome non appartiene a nessuno.
     //
     // Senza questa riga il test era ROSSO su ogni runner GitHub, e per un motivo
@@ -103,7 +103,7 @@ describe("nessun percorso di home in un file tracciato", () => {
     // una macchina di build non c'è nessuna persona la cui identità vada
     // protetta. Dove il commit NASCE la guardia resta durissima, ed è lì che
     // serve.
-    if (filtraTermini([utente]).length === 0) return;
+    if (filterTerms([utente]).length === 0) return;
     const colpevoli: string[] = [];
     for (const rel of files) {
       const abs = join(ROOT, rel);
@@ -139,7 +139,7 @@ describe("nessun percorso di home in un file tracciato", () => {
    * Not an exemption on content: no file is forgiven, and where HOME is a real
    * home (the Mac of whoever commits, `/home/runner`) the comparison is
    * unchanged. Same reason the user-name proof above switches off for `root` and
-   * `runner` (`filtraTermini`): there is no person to protect. The SKIP is
+   * `runner` (`filterTerms`): there is no person to protect. The SKIP is
    * spelled in the title so it shows in the report.
    */
   const HOME_BELONGS_TO_NOBODY = HOME === "/root";

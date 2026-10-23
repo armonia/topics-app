@@ -519,6 +519,11 @@ export function createTopicsRouter(
      * hands in one over a recording model, to see exactly what it receives.
      */
     answerRelayRoute?: (req: Request, url: URL, pathname: string, method: string) => Promise<Response | null>;
+    /**
+     * How long an open-pane waits for a pane to attach, per window.
+     * Forwarded to the browser bridge; tests shrink it to a few ms.
+     */
+    paneWaitMs?: number;
   } = {},
 ): RouteHandler {
   const {
@@ -1048,6 +1053,7 @@ export function createTopicsRouter(
     persistTaskTab: (taskId, contextId, url, title) => { persistAgentTaskTab(ctx.db, broadcastToAll, taskId, contextId, url, title); },
     attachLoginHandle: (contextId, handle) => { attachLoginHandleToTaskTab(ctx.db, broadcastToAll, contextId, handle); },
     paneAttachedTo,
+    paneWaitMs: extra.paneWaitMs,
     browserHostTopicOf: (topic) => {
       const root = rootSessionKeyOf(ctx.db, topic.sessionKey);
       return root === topic.sessionKey ? null : getTopicBySessionKey(root)?.id;

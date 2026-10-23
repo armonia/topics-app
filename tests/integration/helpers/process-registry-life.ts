@@ -27,6 +27,7 @@
  *     prints `{row, log, sent}`.
  */
 import { Database } from "bun:sqlite";
+import { writeFileSync } from "fs";
 
 const [mode, project, arg, dbPath] = process.argv.slice(2);
 const TOPIC = { id: "topic-life", sessionKey: "topic:life" };
@@ -82,6 +83,10 @@ if (mode === "crowd") {
 }
 
 if (mode === "boot") {
+  // The registry above is loaded (module state, once per process): tell the test, whose gated command
+  // waits on this file instead of a fixed sleep. Env-gated, so every other caller is unaffected.
+  const readyFile = process.env.TOPICS_PROCESS_LIFE_READY_FILE;
+  if (readyFile) writeFileSync(readyFile, "ready");
   const db = new Database(dbPath!);
   let sent = 0;
   startProcessExitWakes({

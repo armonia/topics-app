@@ -39,6 +39,8 @@ const append = (child: FakeChild, o: unknown) => bridge.append(child, o);
 let ctx: AppContext;
 let router: (req: Request, url: URL, pathname: string, method: string) => Promise<Response | null> | Response | null;
 const reports: SubAgentExitInfo[] = [];
+/** The slow-seeding child, started in the first test so its Enter retry overlaps the tests that follow. */
+let slowChild: { agentId: string; cwd: string; child: FakeChild } | null = null;
 
 async function call(path: string, method: string, body?: object): Promise<Response> {
   const url = new URL(`http://h${path}`);
@@ -114,6 +116,10 @@ afterAll(async () => {
 
 describe("spawn_agent from a chat", () => {
   test("the child starts in the chat's project, gets its long prompt ONCE, and keeps the name its parent chose", async () => {
+    // The next test's child needs a 6 s Enter retry: start it here so that wait overlaps the tests below.
+    bridge.nextAcceptFromEnter = 2;
+    slowChild = await spawn("dnd-fix-B");
+    bridge.nextAcceptFromEnter = 1;
     const { agentId, cwd, child } = await spawn("foglio-tab");
     // Was `$HOME` for every chat: `parent` is undefined for a `topic:` key.
     expect(cwd).toBe(PROJECT);
@@ -124,17 +130,6 @@ describe("spawn_agent from a chat", () => {
     const row = ctx.db.query("SELECT name, name_source FROM terminal_sessions WHERE id = ?").get(agentId) as { name: string; name_source: string };
     expect(row).toEqual({ name: "foglio-tab", name_source: "user" });
   }, 30_000);
-
-  test("an Enter the TUI swallowed is sent again: a transcript file alone is not a delivered prompt", async () => {
-    bridge.nextAcceptFromEnter = 2;
-    const { child } = await spawn("dnd-fix-B");
-    bridge.nextAcceptFromEnter = 1;
-    // Was 1 Enter and a child idle forever: the start-up transcript already
-    // existed, so the seed called the prompt accepted.
-    await until("the prompt record after a second Enter", () => hasPrompt(child), 25_000);
-    expect(child.enters).toBeGreaterThanOrEqual(2);
-    expect(child.promptWrites).toBe(1);
-  }, 40_000);
 
   test("a stop mid-turn reports `stopped`, quoting the last line as partial, under the chosen name", async () => {
     const { agentId, child } = await spawn("native-image-view", "Mappa il tool_result del provider nativo.");
@@ -183,18 +178,6 @@ describe("spawn_agent from a chat", () => {
     expect(res.status).toBe(404);
     expect((await res.json() as { error: string }).error).toContain("built-in Agent tool");
   });
-
-  test("a child whose terminal died with the bridge is reported `lost`", async () => {
-    const { agentId, child } = await spawn("pcctl-build", "Compila pcctl.");
-    await until("the prompt record", () => hasPrompt(child));
-    append(child, { type: "assistant", message: { role: "assistant", stop_reason: "tool_use", content: [{ type: "text", text: "Lancio la build" }] } });
-    // The bridge dies: no `exit` frame for anyone, and its successor lists no PTY.
-    bridge.dropAll();
-    const [report] = await until("the report", () => reportsFor(agentId).length > 0 && reportsFor(agentId), 15_000);
-    expect(report!.outcome).toEqual({ status: "lost", partial: true, text: "Lancio la build", reason: { code: "terminal-lost" } });
-    // The row says so too: a lost child holds no slot, and can be resumed (SUBAGENT-14).
-    expect(stateOf(agentId)).toBe("lost");
-  }, 30_000);
 
   test("a stop from inside the parent's open turn is kept at once, and is written as a row when that turn ends, without waking it", async () => {
     // The real wiring: the topics router registers the watcher that hands the
@@ -291,4 +274,26 @@ describe("spawn_agent from a chat", () => {
       terminal.setSubAgentExitHandler((info) => { reports.push(info); });
     }
   }, 60_000);
+
+  test("an Enter the TUI swallowed is sent again: a transcript file alone is not a delivered prompt", async () => {
+    // Spawned in the first test: the 6 s Enter retry overlapped the tests above.
+    // Was 1 Enter and a child idle forever: the start-up transcript already
+    // existed, so the seed called the prompt accepted.
+    await until("the prompt record after a second Enter", () => hasPrompt(slowChild!.child), 25_000);
+    expect(slowChild!.child.enters).toBeGreaterThanOrEqual(2);
+    expect(slowChild!.child.promptWrites).toBe(1);
+  }, 40_000);
+
+  test("a child whose terminal died with the bridge is reported `lost`", async () => {
+    // Last: dropAll kills every PTY.
+    const { agentId, child } = await spawn("pcctl-build", "Compila pcctl.");
+    await until("the prompt record", () => hasPrompt(child));
+    append(child, { type: "assistant", message: { role: "assistant", stop_reason: "tool_use", content: [{ type: "text", text: "Lancio la build" }] } });
+    // The bridge dies: no `exit` frame for anyone, and its successor lists no PTY.
+    bridge.dropAll();
+    const [report] = await until("the report", () => reportsFor(agentId).length > 0 && reportsFor(agentId), 15_000);
+    expect(report!.outcome).toEqual({ status: "lost", partial: true, text: "Lancio la build", reason: { code: "terminal-lost" } });
+    // The row says so too: a lost child holds no slot, and can be resumed (SUBAGENT-14).
+    expect(stateOf(agentId)).toBe("lost");
+  }, 30_000);
 });

@@ -26,15 +26,20 @@
  * Env: TOPICS_GATE_WITNESS       file to append `start|end <pid> <ms>` to
  *      TOPICS_GATE_WITNESS_WAIT  how long to wait for a partner (default 4s)
  *      TOPICS_GATE_WITNESS_DWELL how long to hold before ending (default 300ms)
+ *      TOPICS_GATE_WITNESS_RELEASE file whose appearance ends the wait early
  * With no witness file it is an ordinary passing test, which is what the junit
  * bench needs of it.
  */
 import { test, expect } from "bun:test";
-import { appendFileSync, readFileSync } from "node:fs";
+import { appendFileSync, existsSync, readFileSync } from "node:fs";
 
 const WITNESS = process.env.TOPICS_GATE_WITNESS;
 const WAIT_MS = Number(process.env.TOPICS_GATE_WITNESS_WAIT ?? 4000);
 const DWELL_MS = Number(process.env.TOPICS_GATE_WITNESS_DWELL ?? 300);
+// Optional early release: when this file appears the wait ends at once. A
+// test that only needs its partner to stay alive until a collision happens
+// creates it then, instead of holding the full rendezvous blindly.
+const RELEASE = process.env.TOPICS_GATE_WITNESS_RELEASE;
 
 test("the witness records its own window", () => {
   if (!WITNESS) {
@@ -46,6 +51,7 @@ test("the witness records its own window", () => {
   while (Date.now() < deadline) {
     const starts = readFileSync(WITNESS, "utf8").split("\n").filter((l) => l.startsWith("start")).length;
     if (starts >= 2) break;
+    if (RELEASE && existsSync(RELEASE)) break;
     Bun.sleepSync(50);
   }
   Bun.sleepSync(DWELL_MS);

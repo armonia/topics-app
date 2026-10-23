@@ -33,7 +33,9 @@ function setEnv(k: string, v: string) { savedEnv[k] = process.env[k]; process.en
 
 beforeAll(async () => {
   // Short broker windows for the mute daemon below (production: 15 s, 1 s), read when the client loads.
-  setEnv("TOPICS_AI_BRIDGE_ATTACH_ACK_MS", "3000");
+  // 1500 ms, not 3000: the ack deadline is a deadline on SILENCE, so a busy-but-live daemon is unaffected,
+  // and the mute test only needs the window to be finite. Four ack windows x 1.5 s saved.
+  setEnv("TOPICS_AI_BRIDGE_ATTACH_ACK_MS", "1500");
   setEnv("TOPICS_AI_BRIDGE_STALL_TICK_MS", "250");
   const { __resetAiBridgeClientForTests } = await import("../../server/lib/ai-bridge-client");
   __resetAiBridgeClientForTests();
@@ -68,9 +70,15 @@ async function waitFor(what: string, check: () => boolean | Promise<boolean>, ms
 }
 
 /** An old server, its shutdown and the next boot, on one chat; the store and the rows to look at. */
+let dbReady = false;
+/** The DB is built once and shared: every bench uses its own sessionKey and topic id, and `rows()` filters
+ *  by session key, so isolation never depended on a fresh database (14 x 188 migrations and CLI spawns). */
 async function bench(name: string) {
   const { setupTestDataDir, createTestAppContext, testTmpDir } = await import("./helpers");
-  setupTestDataDir(testTmpDir(`reattach-final-${name}`));
+  if (!dbReady) {
+    setupTestDataDir(testTmpDir(`reattach-final-${name}`));
+    dbReady = true;
+  }
   const { createTopicsRouter } = await import("../../server/routes/topics");
   const { registerProvider, removeProvider } = await import("../../server/providers");
   const { __resetAiBridgeClientForTests, getAiBridgeClient } = await import("../../server/lib/ai-bridge-client");
@@ -176,8 +184,16 @@ describe("a turn that ended while the server was away is written whole at the ne
     await waitFor("the child to read the message", () => existsSync(join(tempDir, "got-delayed")));
     await waitFor("the new partial row", () => { const r = b.rows(); return r.length === 4 && r[3].partial === 1; });
     b.shutdown();
+    // Order, not duration: the turn must still be in flight when the boot replays it, so `finish()` waits
+    // for the attach replay to come back (same hook the mute test uses), instead of a fixed second.
+    const { getAiBridgeClient } = await import("../../server/lib/ai-bridge-client");
+    const replayClient = getAiBridgeClient() as unknown as { attach: (id: string, from: number) => Promise<unknown> };
+    const realAttach = replayClient.attach.bind(replayClient);
+    let replayDone = false;
+    replayClient.attach = async (id: string, from: number) => { try { return await realAttach(id, from); } finally { if (from > 0) replayDone = true; } };
     void b.boot();
-    await Bun.sleep(1000);
+    await waitFor("the attach replay to come back", () => replayDone);
+    replayClient.attach = realAttach;
     finish();
     await waitFor("the adopted row to close", () => b.rows().every((r) => r.partial === 0), 30_000);
     const newRow = b.rows()[3];
@@ -233,7 +249,8 @@ describe("a turn that ended while the server was away is written whole at the ne
     const b = await bench("bgagent");
     void b.post({ messages: [{ role: "user", content: "FIXTUREBG" }] });
     await waitFor("the recorded tools in the store", () => has(b.store(), '"name":"Monitor"'));
-    await Bun.sleep(1000);
+    // The shutdown must land mid-turn: wait for the turn's partial row, not a fixed second.
+    await waitFor("the turn's partial row", () => b.rows().some((r) => r.role === "assistant" && r.partial === 1));
     b.shutdown(finish);
     await waitFor("the recorded turn's end", () => existsSync(join(tempDir, "fx-done")));
     await b.boot();
@@ -328,7 +345,8 @@ describe("a turn that ended while the server was away is written whole at the ne
       await b.post({ messages: [{ role: "user", content: "BGWAKES" }] });
       touch("bg-done");
       await waitFor("the first wake's tool", () => b.frames.some((f) => /tool/.test(f.type ?? "")));
-      await Bun.sleep(1000);
+      // The next line asserts the last row is the wake's: wait for exactly that, not a fixed second.
+      await waitFor("the wake's row", () => b.rows().at(-1)?.role === "assistant");
       const wakeRow = b.rows().at(-1)!;
       expect(wakeRow.role).toBe("assistant");
       b.shutdown();
@@ -338,7 +356,8 @@ describe("a turn that ended while the server was away is written whole at the ne
       await waitFor("the second wake's text", () => has(b.store(), "W2-TEXT"));
       await Bun.sleep(300);
       void b.boot();
-      await waitFor("the first wake's row to close", () => b.rows().find((r) => r.id === wakeRow.id)?.partial === 0, 5_000).catch(() => {});
+      // Best-effort head start, capped: the final 30 s wait below owns the guarantee.
+      await waitFor("the first wake's row to close", () => b.rows().find((r) => r.id === wakeRow.id)?.partial === 0, 1_500).catch(() => {});
       touch("w2-finish");
       await waitFor("every row closed", () => b.rows().every((r) => r.partial === 0), 30_000);
       const row = b.rows().find((r) => r.id === wakeRow.id)!;
@@ -354,7 +373,8 @@ describe("a turn that ended while the server was away is written whole at the ne
       await b.post({ messages: [{ role: "user", content: "BGWAKES" }] });
       touch("bg-done");
       await waitFor("the wake's tool", () => b.frames.some((f) => /tool/.test(f.type ?? "")));
-      await Bun.sleep(1000);
+      // The next line asserts the last row is the wake's: wait for exactly that, not a fixed second.
+      await waitFor("the wake's row", () => b.rows().at(-1)?.role === "assistant");
       const wakeRow = b.rows().at(-1)!;
       b.shutdown();
       touch("w1-finish");

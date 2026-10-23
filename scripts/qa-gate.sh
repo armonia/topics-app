@@ -85,7 +85,7 @@ done
 
 ROSSI=0
 esiti=()
-TMPD="$(mktemp -d)"
+TMPD="$(mktemp -d "${TMPDIR:-/tmp}/qa-gate.XXXXXX")"
 trap 'rm -rf "$TMPD"' EXIT
 
 # misura <id> <comando...>: esegue e lascia l'esito nei file di <id> sotto

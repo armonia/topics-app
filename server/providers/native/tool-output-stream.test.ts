@@ -36,7 +36,9 @@ function recorder() {
 }
 
 describe("the native bash streams its tail while it runs", () => {
-  test("a slow command is visible while it runs, and its answer does not change", async () => {
+  // The six bash cases below are independent (own process, own recorder):
+  // they run together, and the wall becomes the longest instead of the sum.
+  test.concurrent("a slow command is visible while it runs, and its answer does not change", async () => {
     const command = "for i in 1 2 3; do echo L$i; sleep 0.4; done";
     const seen = recorder();
     const live = await executeTool("bash", { command }, { workspace, onOutput: seen.onOutput });
@@ -47,7 +49,7 @@ describe("the native bash streams its tail while it runs", () => {
     expect(live).toEqual(plain);
   });
 
-  test("a verbose command does not freeze the tail", async () => {
+  test.concurrent("a verbose command does not freeze the tail", async () => {
     // About 109 KB, past the 60 000 characters where `out` stops growing: a tail
     // cut from `out` would stand still halfway through the sequence.
     const seen = recorder();
@@ -63,7 +65,7 @@ describe("the native bash streams its tail while it runs", () => {
     expect(Number(lines[1])).toBe(Number(lines[0]) + 1);
   });
 
-  test("the 16 KB are bytes, also when the output is not ASCII", async () => {
+  test.concurrent("the 16 KB are bytes, also when the output is not ASCII", async () => {
     // A test runner's check marks and a progress bar's blocks are three bytes
     // each: a cap counted in characters let every frame reach almost three
     // times its size, on the wire to every window watching.
@@ -80,7 +82,7 @@ describe("the native bash streams its tail while it runs", () => {
     expect(tail).not.toContain("�");
   });
 
-  test("a line longer than the buffer, then silence, keeps its last redraw", async () => {
+  test.concurrent("a line longer than the buffer, then silence, keeps its last redraw", async () => {
     // One `\r` progress bar of about 40 KB closed by its newline, then a pause.
     // Cutting after the first newline of the buffer left NOTHING, because the
     // only newline was the last byte: the row went back to spinner and command
@@ -97,7 +99,7 @@ describe("the native bash streams its tail while it runs", () => {
     expect(Buffer.byteLength(tail)).toBeLessThanOrEqual(16 * 1024);
   });
 
-  test("nothing arrives after the answer", async () => {
+  test.concurrent("nothing arrives after the answer", async () => {
     // Output without pause for one second of wall time, then exit. The bound is
     // the clock, not a count of sleeps, so a loaded machine cannot stretch it.
     const command = `perl -MTime::HiRes=time,sleep -e '$|=1; my $end = time + 1; while (time < $end) { print "tick\\n"; sleep 0.02 }'`;
@@ -112,7 +114,7 @@ describe("the native bash streams its tail while it runs", () => {
     expect(atAnswer).toBeLessThanOrEqual(5);
   });
 
-  test("a broken callback does not break the tool", async () => {
+  test.concurrent("a broken callback does not break the tool", async () => {
     // The command lasts past the first window on purpose: with a bare `echo ok`
     // the callback would never be reached and the test could not fail.
     let thrown = 0;

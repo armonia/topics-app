@@ -33,6 +33,8 @@ const reports: SubAgentExitInfo[] = [];
 const resultRows: Array<[string, string]> = [];
 /** Background work the child chat's own process claims (a command). */
 const busyBackground = new Set<string>();
+/** The parent wake worker, shared so tests can wait for its rest instead of guessing a sleep. */
+let wake: import("../../server/services/subagent-wake").SubagentWake;
 
 // ── The network: the Messages API, answering at once or held on a marker ─────
 
@@ -139,7 +141,7 @@ beforeAll(async () => {
   const { startSubagentWakes } = await import("../../server/services/subagent-wake");
   const { subAgentResultOf } = await import("../../server/routes/subagent-exit");
   const { runningTaskOwnsTopic, stoppedSubagentChat, wakeVerdict } = await import("../../server/lib/wake-adoption");
-  const wake = startSubagentWakes({
+  wake = startSubagentWakes({
     route, isBusy: busy,
     canWake: (sk) => {
       const t = ctx.getTopicBySessionKey(sk);
@@ -227,7 +229,7 @@ describe("native sub-agents on the real engine", () => {
     while (!(await reader.read()).done) { /* drain */ }
     busyBackground.delete(sk);
     await until("the wake turn reported", () => reportsFor(id)[1]);
-    await sleep(1_500);
+    await Promise.race([wake.idle(), sleep(10_000)]);
     const childCalls = modelCalls.slice(before).filter((b) => b.includes("grandchild done")).length;
     expect(childCalls).toBe(1);
     expect(reportsFor(id).map((r) => [r.turn, r.outcome.status])).toEqual([[1, "completed"], [2, "completed"]]);
@@ -251,7 +253,7 @@ describe("native sub-agents on the real engine", () => {
     await stopNativeChildrenOf(ROOT_KEY);
     expect(rowOf(cid)?.state).toBe("stopped");
     await until("child turn closed", () => !busy(childKey));
-    await sleep(1_500);
+    await Promise.race([wake.idle(), sleep(10_000)]);
     expect(userTurns(childKey) - usersBefore).toBe(0);
     // The result is not lost: it lands as a row in the child's chat.
     expect(resultRows).toContainEqual([childKey, gid]);
@@ -281,7 +283,7 @@ describe("native sub-agents on the real engine", () => {
     expect(res.status).toBe(200);
     await adoption;
     await until("child turn 2", () => reportsFor(cid)[1]);
-    await sleep(800);
+    await Promise.race([wake.idle(), sleep(10_000)]);
     expect(reportsFor(cid).map((r) => r.outcome.status)).toEqual(["completed", "completed"]);
   }, 30_000);
 

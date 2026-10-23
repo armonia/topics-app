@@ -53,12 +53,15 @@ const fileIn = () => join(ROOT, `stdout-${++files}.log`);
 describe("a command that sends its stdout to a file it names", () => {
   test("its log follows that file while it runs, and keeps what it read when it ends", async () => {
     const file = fileIn();
-    const processId = await runQuiet(`for i in 1 2 3 4 5 6 7 8; do echo tick $i; sleep 0.5; done > ${file} 2>&1; echo own line`);
+    // Tick 1 prints at once, ticks 2-8 only after the gate: the assertions below run while it is gated.
+    const gate = join(ROOT, `gate-stdout-1`);
+    const processId = await runQuiet(`echo tick 1 > ${file} 2>&1; while [ ! -e "${gate}" ]; do sleep 0.05; done; for i in 2 3 4 5 6 7 8; do echo tick $i; done >> ${file} 2>&1; echo own line`);
     await until(async () => (await outputOf(processId)).output.includes("tick 1"), 3000);
     const live = await outputOf(processId);
     expect(live.output).toContain("tick 1");
     expect(live.follows).toBe(file);
     expect(await statusOf(processId)).toBe("running");
+    writeFileSync(gate, "");
 
     await until(async () => (await statusOf(processId)) !== "running");
     const lines = "tick 1\ntick 2\ntick 3\ntick 4\ntick 5\ntick 6\ntick 7\ntick 8\nown line";
@@ -109,8 +112,16 @@ describe("the file outlives the server too", () => {
 
   test("a reload mid-run: the file is read again from the run's start and followed on", () => {
     const file = join(state, `stdout-${Date.now()}.log`);
-    const started = life("start", PROJECT, `{ echo tick 1; sleep 3; echo tick 2; } > ${file}`);
-    const booted = life("boot", PROJECT, started.processId, dbPath);
+    // The boot touches the marker once its registry is loaded; tick 2 is still printed after the reload.
+    const marker = join(state, "ready-stdout-1");
+    const started = life("start", PROJECT, `{ echo tick 1; while [ ! -e "${marker}" ]; do sleep 0.05; done; echo tick 2; } > ${file}`);
+    process.env.TOPICS_PROCESS_LIFE_READY_FILE = marker;
+    let booted: Record<string, any>;
+    try {
+      booted = life("boot", PROJECT, started.processId, dbPath);
+    } finally {
+      delete process.env.TOPICS_PROCESS_LIFE_READY_FILE;
+    }
     expect(booted.row).toMatchObject({ processId: started.processId, status: "done", exitCode: 0 });
     expect(booted.log).toContain("tick 1\ntick 2"); // the first before the reload, the second after
     expect(booted.log.match(/tick 1/g)).toHaveLength(1);

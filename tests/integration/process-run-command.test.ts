@@ -122,6 +122,15 @@ async function call(router: (req: Request, url: URL, p: string, m: string) => un
 const runCommand = async (topic: Topic, command: string) =>
   (await (await call(bench.processes, "POST", `/api/sessions/${encodeURIComponent(topic.sessionKey)}/commands/run`, { command })).json()) as { processId: string; pid: number };
 
+let gates = 0;
+/** A gate file a command waits on instead of a fixed sleep: `while [ ! -e "<gate>" ]; do sleep 0.05; done`.
+ *  The test touches it once it has made its assertion while the command is still running, so "still
+ *  running when X" becomes an ordering guarantee instead of a timing guess (and a starved runner cannot
+ *  break it by being slow: the command cannot end early). */
+const gateIn = () => join(ROOT, `gate-${++gates}`);
+const release = (gate: string) => writeFileSync(gate, "");
+const waitGate = (gate: string) => `while [ ! -e "${gate}" ]; do sleep 0.05; done`;
+
 const rows = (sessionKey: string) => bench.ctx.db
   .query(`SELECT role, content, blocks FROM messages WHERE session_key = ? ORDER BY sort_order ASC, rowid ASC`)
   .all(sessionKey) as Array<{ role: string; content: string; blocks: string | null }>;
@@ -218,9 +227,12 @@ describe("the end of a command reaches the topic that launched it", () => {
 
   test("the session waiting on it with wait_for_process gets the outcome there, and no row", async () => {
     const topic = newTopic();
-    const { processId } = await runCommand(topic, "sleep 1; echo waited");
-    const wait = await call(bench.processes, "GET", `/api/sessions/${encodeURIComponent(topic.sessionKey)}/scripts/${processId}/wait?timeout_ms=10000`);
-    expect(await wait.json()).toMatchObject({ reason: "exit", exitCode: 0 });
+    const gate = gateIn();
+    const { processId } = await runCommand(topic, `${waitGate(gate)}; echo waited`);
+    const waiting = call(bench.processes, "GET", `/api/sessions/${encodeURIComponent(topic.sessionKey)}/scripts/${processId}/wait?timeout_ms=10000`);
+    await Bun.sleep(200); // the wait request is in flight while the command is still gated
+    release(gate);
+    expect(await (await waiting).json()).toMatchObject({ reason: "exit", exitCode: 0 });
     await Bun.sleep(600);
     await processExitWakesIdle();
     expect(exitRows(topic.sessionKey)).toHaveLength(0);
@@ -315,12 +327,14 @@ describe("the end of a command reaches the topic that launched it", () => {
   // for»: nobody got the outcome.
   test("a wait whose caller went away does not swallow the wake", async () => {
     const topic = newTopic();
-    const { processId } = await runCommand(topic, "sleep 1; echo gone-waiting");
+    const gate = gateIn();
+    const { processId } = await runCommand(topic, `${waitGate(gate)}; echo gone-waiting`);
     const controller = new AbortController();
     const url = new URL(`http://topics.test/api/sessions/${encodeURIComponent(topic.sessionKey)}/scripts/${processId}/wait?timeout_ms=10000`);
     const waiting = Promise.resolve(bench.processes(new Request(url, { signal: controller.signal }), url, url.pathname, "GET"));
     await Bun.sleep(200);
     controller.abort();
+    release(gate);
 
     await until(() => exitRows(topic.sessionKey).length > 0);
     expect(exitRows(topic.sessionKey)).toHaveLength(1);
@@ -339,10 +353,12 @@ describe("the end of a command reaches the topic that launched it", () => {
     const send = await call(bench.chat, "POST", "/api/chat", { sessionKey: topic.sessionKey, messages: [{ role: "user", content: "wait on it" }] });
     expect(send.status).toBe(200);
     void send.body?.cancel().catch(() => {});
-    const { processId } = await runCommand(topic, "sleep 1; echo turn-over");
+    const gate = gateIn();
+    const { processId } = await runCommand(topic, `${waitGate(gate)}; echo turn-over`);
     const waiting = call(bench.processes, "GET", `/api/sessions/${encodeURIComponent(topic.sessionKey)}/scripts/${processId}/wait?timeout_ms=10000`);
     await Bun.sleep(200);
     await finishTurn("stopped while waiting");
+    release(gate);
 
     await until(() => exitRows(topic.sessionKey).length > 0);
     expect(exitRows(topic.sessionKey)).toHaveLength(1);
@@ -354,8 +370,10 @@ describe("the end of a command reaches the topic that launched it", () => {
 
   test("an archived topic gets nothing, and the outcome stays in the panel", async () => {
     const topic = newTopic();
-    const { processId } = await runCommand(topic, "sleep 0.5; exit 1");
+    const gate = gateIn();
+    const { processId } = await runCommand(topic, `${waitGate(gate)}; exit 1`);
     bench.ctx.saveSingleTopic({ ...topic, archived: true });
+    release(gate); // the command ends after the archiving, as the sleep guaranteed before
     await until(async () => (await scriptRow(processId))?.status !== "running");
     await processExitWakesIdle();
     expect(exitRows(topic.sessionKey)).toHaveLength(0);
@@ -423,12 +441,14 @@ describe("a command owed a wake is background work for the goal loop", () => {
 
   test("a turn that ends with the command running waits for it, and the wake's turn is a woken one", async () => {
     const topic = newTopic();
-    await runCommand(topic, "sleep 1.5; echo goal-wake");
+    const gate = gateIn();
+    await runCommand(topic, `${waitGate(gate)}; echo goal-wake`);
     const send = await call(bench.chat, "POST", "/api/chat", { sessionKey: topic.sessionKey, messages: [{ role: "user", content: "started it, waiting" }] });
     expect(send.status).toBe(200);
     void send.body?.cancel().catch(() => {});
     await finishTurn("it runs, I will be woken");
     expect(lastGoalTurn(topic)).toMatchObject({ fromHuman: true, backgroundWork: true, backgroundWakeOnly: false });
+    release(gate); // the turn ended with the command running; now let it end
 
     await until(() => exitRows(topic.sessionKey).length > 0);
     await finishTurn("read the outcome");
@@ -492,13 +512,15 @@ describe("a board card whose agent ended its turn on a command", () => {
       // The card's turn, as the boot resumes it; during it the agent starts a command.
       await dispatcher.reconcile({ reason: "boot" });
       expect(turns).toHaveLength(1);
-      const { processId } = await runCommand(topic, "sleep 1.5; echo card-wake");
+      const gate = gateIn();
+      const { processId } = await runCommand(topic, `${waitGate(gate)}; echo card-wake`);
       turn.end?.({ end: "end_turn" });
       await Bun.sleep(50);
       expect(turns).toHaveLength(1);
       expect(attempts()).toBe(1);
       await poll();
       expect(turns).toHaveLength(1);
+      release(gate); // no nudge and no attempt while it ran; now let it end
 
       // The command ends: its wake opens a turn of the agent on the card's session.
       await until(() => exitRows(topic.sessionKey).length > 0);
@@ -641,8 +663,9 @@ describe("a command's log file is bounded like a script's", () => {
     const topic = newTopic();
     // About 3 MB at once, then quiet for a few ticks of the tail.
     const line = "x".repeat(99);
+    const gate = gateIn();
     const started = await call(bench.processes, "POST", `/api/sessions/${encodeURIComponent(topic.sessionKey)}/commands/run`, {
-      command: `yes ${line} | head -n 30000; sleep 3; echo last line`, wake: false,
+      command: `yes ${line} | head -n 30000; ${waitGate(gate)}; echo last line`, wake: false,
     });
     const { processId } = (await started.json()) as { processId: string };
     const log = logPathOf(processId);
@@ -653,6 +676,7 @@ describe("a command's log file is bounded like a script's", () => {
     await until(async () => (await output()).includes(line) && statSync(log).size <= 500 * 1024);
     expect(statSync(log).size).toBeLessThanOrEqual(500 * 1024);
     expect((await scriptRow(processId))?.status).toBe("running");
+    release(gate); // cut proven while it runs; now let it print the last line
 
     await until(async () => (await scriptRow(processId))?.status !== "running");
     expect(statSync(log).size).toBeLessThanOrEqual(500 * 1024);
@@ -693,11 +717,19 @@ describe("the command outlives the server", () => {
   const alive = (pid: number) => { try { process.kill(pid, 0); return true; } catch { return false; } };
 
   test("a reload mid-run: the row comes back running, the log goes on, the code is read from the exit file, one wake", () => {
-    const started = life("start", PROJECT, "echo tick 1; sleep 3; echo tick 2; exit 3");
+    // The boot touches the marker once its registry is loaded; tick 2 is still printed after the reload.
+    const marker = join(state, "ready-life-1");
+    const started = life("start", PROJECT, `echo tick 1; while [ ! -e "${marker}" ]; do sleep 0.05; done; echo tick 2; exit 3`);
     // The server that launched it is gone; the command is not.
     expect(alive(started.pid)).toBe(true);
 
-    const first = life("boot", PROJECT, started.processId, dbPath);
+    process.env.TOPICS_PROCESS_LIFE_READY_FILE = marker;
+    let first: Record<string, any>;
+    try {
+      first = life("boot", PROJECT, started.processId, dbPath);
+    } finally {
+      delete process.env.TOPICS_PROCESS_LIFE_READY_FILE;
+    }
     expect(first.row).toMatchObject({ processId: started.processId, status: "error", exitCode: 3 });
     expect(first.log).toContain("tick 1");
     expect(first.log).toContain("tick 2"); // printed after the reload

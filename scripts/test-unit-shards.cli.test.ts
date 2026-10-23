@@ -1,11 +1,11 @@
 /**
  * The real CLI with a fake `bun` on PATH: verdict, per-file environment,
- * scratch-directory leaks, the serial tail, `--list` and the shard cap,
+ * scratch-directory cleanup, the serial tail, `--list` and the shard cap,
  * without ever loading a product test file.
  *
  * The fake `bun` never runs a test: for every call it records its arguments,
  * its scratch directory and the environment it was born with, then exits as
- * told (0, 7, or leaving a file behind). The runner is always given explicit
+ * told (0, 7, or leaving a file behind in its scratch directory). The runner is always given explicit
  * files, never the whole suite, so the file stays fast.
  *
  * @covers GATE-12
@@ -91,6 +91,7 @@ if (isRed) {
 const stat1 = fstatSync(1);
 const record = {
   args, file, timeout,
+  tmpdirOwned: process.env.TOPICS_TEST_PRIVATE_SCRATCH ?? null,
   tmpdir: process.env.TMPDIR ?? null, tmp: process.env.TMP ?? null, temp: process.env.TEMP ?? null,
   dataDir: process.env.DATA_DIR ?? null, topicsDataDir: process.env.TOPICS_DATA_DIR ?? null,
   topicsHome: process.env.TOPICS_HOME ?? null, openclawConfig: process.env.OPENCLAW_CONFIG_PATH ?? null,
@@ -193,6 +194,8 @@ describe("unit shards CLI", () => {
       expect(call.tmpdir).toBeTruthy();
       expect(call.tmp).toBe(call.tmpdir);
       expect(call.temp).toBe(call.tmpdir);
+      // The preload must know the runner owns it, or it nests a second one.
+      expect(call.tmpdirOwned).toBe("1");
       tmpDirs.add(call.tmpdir!);
       // The child writes to a capture file, not to a pipe the runner reads:
       // a test that leaves children behind would hand them the pipe and the
@@ -240,13 +243,10 @@ describe("unit shards CLI", () => {
     expect(result.stdout).not.toContain("PASS");
   });
 
-  test("a file that leaves something in its TMPDIR turns the run red and is named", () => {
-    const leaker = FAKE_FILES[0]!;
+  test("what a file leaves in its TMPDIR does not outlive it, and does not make the run red", () => {
     const result = runRunner({ files: ALL_FILES, leakBasename: "a.test.ts" });
-    expect(result.code).toBe(1);
-    expect(result.stderr).toContain("file che lasciano roba in TMPDIR");
-    expect(result.stderr).toContain(leaker);
-    // The scratch directories are removed anyway: the leak is reported, not kept.
+    expect(result.code).toBe(0);
+    // The scratch directories are removed whatever the file left in them.
     for (const call of result.calls) {
       expect(existsSync(call.tmpdir!), `scratch directory ${call.tmpdir} still exists`).toBe(false);
     }

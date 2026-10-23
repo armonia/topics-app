@@ -6,6 +6,7 @@ import { readFileSync } from "fs";
 import { userInfo } from "os";
 import { resolve, join } from "path";
 import { personalTerms as elencoTerzi, personalTermsPath } from "../../scripts/personal-terms.ts";
+import { filterTerms } from "../helpers/personal-terms";
 import { execFileSync } from "child_process";
 import { gitEnv } from "../setup/bun-test-preload";
 
@@ -70,9 +71,10 @@ import { gitEnv } from "../setup/bun-test-preload";
  * A short term produces nothing but false positives: searching "j" or "io" in
  * every tracked file would make the gate useless and noisy at the same time.
  * Below four characters a term is dropped, and the test DECLARES it instead of
- * ignoring it in silence. `filtraTermini` is exported so that the twin gates
- * (`no-home-paths-tracked`, `check-security.test`) apply THE SAME rule instead
- * of a copy.
+ * ignoring it in silence. `filterTerms` lives in tests/helpers/personal-terms
+ * so that the twin gates (`no-home-paths-tracked`, `check-security.test`) apply
+ * THE SAME rule instead of a copy, and without importing this test file, which
+ * would register its cases as a side effect.
  */
 
 const ROOT = resolve(import.meta.dir, "..", "..");
@@ -110,18 +112,11 @@ const ESENTI = new Map<string, string>([
  * Non sono esenzioni sul CONTENUTO — nessun file viene perdonato. È il
  * riconoscimento che questi nomi non appartengono a una persona, quindi non
  * c'è niente da proteggere.
+ *
+ * The rule lives in tests/helpers/personal-terms.ts: a plain module, not
+ * a test file (importing a test registers its cases as a side effect
+ * and re-runs its scans inside every importer).
  */
-const ACCOUNT_OF_SERVICE = new Set([
-  "runner", "ubuntu", "root", "admin", "build", "builder", "jenkins",
-  "circleci", "travis", "vsts", "vagrant", "docker", "codespace", "gitpod",
-  "github-actions", "actions", "nobody", "user", "test",
-]);
-
-/** Soglia, minuscolo, dedup e account di servizio: la regola in un posto solo. */
-export function filtraTermini(grezzi: string[]): string[] {
-  return [...new Set(grezzi.map((t) => t.trim().toLowerCase()))]
-    .filter((t) => t.length >= 4 && !ACCOUNT_OF_SERVICE.has(t));
-}
 
 /**
  * I termini da cercare: SOLO i dati di terzi dichiarati in `.personal-terms`.
@@ -131,7 +126,7 @@ export function filtraTermini(grezzi: string[]): string[] {
  * commit, e cercarla nei sorgenti non toglie niente a nessuno.
  */
 export function personalTerms(): string[] {
-  return filtraTermini(elencoTerzi(ROOT));
+  return filterTerms(elencoTerzi(ROOT));
 }
 
 function tracciati(): string[] {
@@ -192,11 +187,11 @@ describe("nessun dato personale in un file tracciato", () => {
     // Senza questo filtro `runner` sarebbe un termine personale e i 74 file
     // tracciati che contengono la parola renderebbero rosso `bun test:unit` in
     // ci.yml. Non se ne era accorto nessuno perché ci.yml non gira da settimane.
-    expect(filtraTermini(["runner"])).toEqual([]);
-    expect(filtraTermini(["Runner", "UBUNTU", "jenkins"])).toEqual([]);
+    expect(filterTerms(["runner"])).toEqual([]);
+    expect(filterTerms(["Runner", "UBUNTU", "jenkins"])).toEqual([]);
     // E il filtro non deve mangiarsi una persona che si chiama davvero così:
     // resta una lista di account, non un elenco di parole vietate.
-    expect(filtraTermini(["runnerson"])).toEqual(["runnerson"]);
+    expect(filterTerms(["runnerson"])).toEqual(["runnerson"]);
   });
 
   test("l'identità dell'autore del repo NON è un termine da cercare", () => {

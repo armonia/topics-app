@@ -1,6 +1,6 @@
 /**
- * What one test file does to the world stays in its own process, and a file that
- * litters the temp folder is red.
+ * What one test file does to the world stays in its own process, and what it
+ * litters in the temp folder does not outlive it.
  *
  * WHY A CHILD RUNNER. The property is about the run, not about any single test:
  * file A leaves a fake `window`, a `DATA_DIR`, an env var and a `mock.module`,
@@ -15,9 +15,10 @@
  * @covers GATE-13
  */
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { existsSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
+import { PRIVATE_SCRATCH_ENV } from "../setup/test-tmp-dirs.ts";
 
 const ROOT = resolve(import.meta.dir, "../..");
 const RUNNER = join(ROOT, "scripts/test-unit-shards.ts");
@@ -96,14 +97,30 @@ describe("the unit runner gives every file its own process", () => {
     expect(first.output).toContain("shuffle seed 7 (repeat with --shuffle=7)");
   }, 60_000);
 
-  test("a file that leaves a folder in the temp dir is red, by name, and the folder is gone", () => {
-    const before = readdirSync(tmpdir()).filter((n) => n === "left-behind-by-c");
+  test("a file that leaves a folder in the temp dir leaves nothing in the temp dir of the run", () => {
     const run = runner([file("c-litters-tmp.test.ts")]);
-    expect(run.code, run.output).not.toBe(0);
-    expect(run.output).toContain("c-litters-tmp.test.ts");
-    expect(run.output).toContain("left-behind-by-c");
-    // It went into the file's own scratch dir, which the runner removed: nothing reached this process's temp folder.
-    expect(readdirSync(tmpdir()).filter((n) => n === "left-behind-by-c")).toEqual(before);
-    expect(existsSync(join(tmpdir(), "left-behind-by-c"))).toBe(false);
+    // The folder went into the file's own scratch dir, which the runner removed.
+    expect(run.code, run.output).toBe(0);
+    expect(readdirSync(tmpdir()).filter((n) => n.startsWith("left-behind-by-c"))).toEqual([]);
+  }, 60_000);
+
+  test("a plain bun test run leaves nothing new in the temp folder it was given", () => {
+    // Not through the runner: this is what an agent or a person does with one file.
+    const given = mkdtempSync(join(tmpdir(), "given-tmp-"));
+    try {
+      const env: Record<string, string | undefined> = { ...process.env, TMPDIR: given, TOPICS_GATE_HELD: "unit-runner-isolates-files" };
+      // The runner marks every file's TMPDIR as already private; this test may itself run under it.
+      delete env[PRIVATE_SCRATCH_ENV];
+      const plain = Bun.spawnSync([process.execPath, "test", file("c-litters-tmp.test.ts")], { cwd: ROOT, env, stdout: "pipe", stderr: "pipe" });
+      expect(plain.exitCode, `${plain.stderr}${plain.stdout}`).toBe(0);
+      expect(readdirSync(given), "the preload leaves the folder it was given as it found it").toEqual([]);
+
+      // Control: told that the folder is already private (what the runner does), the preload steps back and the litter stays.
+      const owned = Bun.spawnSync([process.execPath, "test", file("c-litters-tmp.test.ts")], { cwd: ROOT, env: { ...env, [PRIVATE_SCRATCH_ENV]: "1" }, stdout: "pipe", stderr: "pipe" });
+      expect(owned.exitCode).toBe(0);
+      expect(readdirSync(given), "the fixture does not litter: the empty folder above proves nothing").toContain("left-behind-by-c");
+    } finally {
+      rmSync(given, { recursive: true, force: true });
+    }
   }, 60_000);
 });

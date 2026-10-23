@@ -128,7 +128,8 @@ async function postInProcess(router: ReturnType<typeof createChatRouter>, sessio
 }
 
 describe("the chat's SSE response during a silent tool, behind Bun's idle timeout", () => {
-  test("silent, it is cut without [DONE]; with the ping, it reaches [DONE]", async () => {
+  // The two 14 s waits are independent and pure waiting, so they run together.
+  test.concurrent("silent, it is cut without [DONE]; with the ping, it reaches [DONE]", async () => {
     const ctx = await createTestAppContext();
     const silentKey = saveTopic(ctx, "sse-silent");
     const pingKey = saveTopic(ctx, "sse-ping");
@@ -166,7 +167,8 @@ describe("the chat's SSE response during a silent tool, behind Bun's idle timeou
 });
 
 describe("send_chat_message across a stream Bun cut, on the real routes", () => {
-  test("the idle close lands mid-tool, before any text: the tool still returns the final answer", async () => {
+  // Independent from the test above (own session keys, server and context).
+  test.concurrent("the idle close lands mid-tool, before any text: the tool still returns the final answer", async () => {
     const ctx = await createTestAppContext();
     saveTopic(ctx, "sse-cut-send");
     // No ping inside the 14 s: the response is cut at 8 to 12 s, the turn goes on.

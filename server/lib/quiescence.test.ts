@@ -398,10 +398,15 @@ describe("quiescenceVerdict — il tetto dell'attesa e' un tetto vero", () => {
  * caso del task 235afe11.
  */
 describe("il cancello, in tempo reale", () => {
-  const CAP = 800, CHAT = 200;
+  const CAP = 300, CHAT = 200;
 
-  /** The exact shape of the `waitForDispatcherQuiescent` loop. */
-  async function runGate(stillWorking: () => number) {
+  /** The exact shape of the `waitForDispatcherQuiescent` loop. `maxMs` is the
+   *  loop's own ceiling: quiescenceVerdict returns 'rinvia' for every call
+   *  while a card holds on, so only this ceiling ends the loop. The default
+   *  keeps the old 6 s safety net; the never-lets-go test uses 5x the chat cap
+   *  (the only clock the verdict reads), which is ample to show 'tagliato'
+   *  never comes out. */
+  async function runGate(stillWorking: () => number, maxMs = 6_000) {
     const inizio = Date.now();
     let waited = false;
     let deferrals = 0;
@@ -416,7 +421,7 @@ describe("il cancello, in tempo reale", () => {
       if (verdetto === "scaduto") return { exit: "tagliato", deferrals, waited, ms: Date.now() - inizio };
       if (verdetto === "rinvia") deferrals += 1;
       waited = true;
-      if (Date.now() - inizio > 6_000) return { exit: "appeso", deferrals, waited, ms: Date.now() - inizio };
+      if (Date.now() - inizio > maxMs) return { exit: "appeso", deferrals, waited, ms: Date.now() - inizio };
       await new Promise((r) => setTimeout(r, 50));
     }
   }
@@ -427,7 +432,7 @@ describe("il cancello, in tempo reale", () => {
    * "turn interrupted by a server restart".
    */
   test("una card che non molla viene RINVIATA, non tagliata", async () => {
-    const out = await runGate(() => 1);
+    const out = await runGate(() => 1, CHAT * 5);
     expect(out.exit).not.toBe("tagliato");
     // The deferral is not mute: past the cap, every loop declares it.
     expect(out.deferrals).toBeGreaterThan(0);

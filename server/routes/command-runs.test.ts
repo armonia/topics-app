@@ -196,9 +196,13 @@ describe("a run is the person's, not the agent's", () => {
     const topic = newTopic();
     const messageId = reply(topic);
     const rowsBefore = rowCount(topic.sessionKey);
-    const run = await start(topic, messageId, "sleep 1; exit 3");
+    // The command waits for a gate instead of a fixed sleep: it is still
+    // running while the assertions above run, and ends once the gate opens.
+    const gate = join(PROJECT, `gate-${seq}-exit3`);
+    const run = await start(topic, messageId, `while [ ! -f "${gate}" ]; do sleep 0.05; done; exit 3`);
     expect(commandWakeState(topic.sessionKey)).toBe("none");
     expect(sessionsAwaitingCommandWake()).not.toContain(topic.sessionKey);
+    writeFileSync(gate, "");
     expect((await ended(topic, messageId, run.runId)).status).toBe("error");
     await Bun.sleep(300);
     expect(commandWakeState(topic.sessionKey)).toBe("none");
@@ -209,7 +213,10 @@ describe("a run is the person's, not the agent's", () => {
   test("the agent's process tools do not see it: not listed, its output not readable, not stoppable", async () => {
     const topic = newTopic();
     const messageId = reply(topic);
-    const run = await start(topic, messageId, "sleep 2; echo secret-output");
+    // The command waits for a gate instead of a fixed sleep: the listing
+    // assertions below are what take the time, then the gate opens.
+    const gate = join(PROJECT, `gate-${seq}-secret`);
+    const run = await start(topic, messageId, `while [ ! -f "${gate}" ]; do sleep 0.05; done; echo secret-output`);
     const sk = encodeURIComponent(topic.sessionKey);
     const listed = (await (await call("GET", `/api/sessions/${sk}/scripts`)).json()) as { scripts: Array<{ processId: string }> };
     expect(listed.scripts.map((s) => s.processId)).not.toContain(run.processId);
@@ -218,6 +225,7 @@ describe("a run is the person's, not the agent's", () => {
     expect((await call("POST", `/api/sessions/${sk}/scripts/${run.processId}/stop`)).status).toBe(404);
     // The person's Processes panel does see it.
     expect(await scriptIds()).toContain(run.processId);
+    writeFileSync(gate, "");
     expect((await ended(topic, messageId, run.runId)).output).toBe("secret-output");
   });
 
@@ -258,10 +266,11 @@ describe("the outcome stays with the block (CMDRUN-06)", () => {
     const first = await start(topic, messageId, "echo first", 7);
     await ended(topic, messageId, first.runId);
     const other = reply(topic);
-    for (let i = 0; i < 12; i++) {
-      const r = await start(topic, other, "true", i);
-      await ended(topic, other, r.runId);
-    }
+    // Started together, awaited together: the registry still evicts the first
+    // after more than 10 later endings, and the waits overlap instead of adding.
+    const startedRuns: Started[] = [];
+    for (let i = 0; i < 12; i++) startedRuns.push(await start(topic, other, "true", i));
+    for (const r of startedRuns) await ended(topic, other, r.runId);
     expect(await scriptIds()).not.toContain(first.processId);
     const [kept] = await runs(topic, messageId);
     expect(kept).toMatchObject({ runId: first.runId, blockKey: 7, status: "done", exitCode: 0, output: "first", droppedLines: 0 });
@@ -431,10 +440,11 @@ describe("across a reload of the server", () => {
   test("it ended while the server was down: the boot closes the row from the exit file, at the time the exit file was written", async () => {
     const dir = freshState();
     // Long enough to end after the life that started it is gone, so that the boot is what closes it.
-    const started = life(dir, "start", "m-down", "sleep 1; echo fine; exit 5");
+    // Half a second still outlives the single start process.
+    const started = life(dir, "start", "m-down", "sleep 0.5; echo fine; exit 5");
     await until(() => !alive(started.pid));
     const deadAt = Date.now();
-    await Bun.sleep(1_200); // the server stays down a while: the boot is not when it ended
+    await Bun.sleep(300); // the server stays down a while: the boot is not when it ended
     const { run } = life(dir, "boot", "m-down", started.runId);
     expect(run).toMatchObject({ runId: started.runId, status: "error", exitCode: 5, output: "fine" });
     expect(Date.parse(run.endedAt)).toBeGreaterThanOrEqual(Date.parse(run.startedAt));
@@ -445,7 +455,7 @@ describe("across a reload of the server", () => {
     const dir = freshState();
     // One more than the registry keeps among its recent rows: closing them at boot must not evict one first.
     const messageIds = Array.from({ length: 11 }, (_, k) => `m-eleven-${k}`);
-    const started = life(dir, "start", messageIds.join(","), "sleep 1; echo fine") as { runs: Array<{ runId: string; pid: number }> };
+    const started = life(dir, "start", messageIds.join(","), "sleep 0.5; echo fine") as { runs: Array<{ runId: string; pid: number }> };
     expect(started.runs).toHaveLength(11);
     await until(() => started.runs.every((r) => !alive(r.pid)), 20_000);
     const scripts = join(dir, ".state", "scripts");
@@ -461,7 +471,7 @@ describe("across a reload of the server", () => {
 
   test("it ended over a week ago with the server off: the boot closes it from its files, which go only at the next sweep", async () => {
     const dir = freshState();
-    const started = life(dir, "start", "m-week", "sleep 1; echo fine");
+    const started = life(dir, "start", "m-week", "sleep 0.5; echo fine");
     await until(() => !alive(started.pid));
     const files = [".exit", ".log"].map((ext) => join(dir, ".state", "scripts", `${started.runId}${ext}`));
     expect(files.every((f) => existsSync(f))).toBe(true);
@@ -492,7 +502,9 @@ describe("across a reload of the server", () => {
     process.kill(-started.pid, "SIGKILL");
     await until(() => !alive(started.pid));
     expect(existsSync(join(dir, ".state", "scripts", `${started.runId}.exit`))).toBe(false);
-    await Bun.sleep(1_200); // down a while: what the next boot sees is not when the command died
+    // Down a while: 300 ms plus a bun spawn still separate the death from the
+    // boot, so a boot-time stamp would read past diedAt and fail the check.
+    await Bun.sleep(300); // what the next boot sees is not when the command died
     return { runId: started.runId, diedAt };
   }
 

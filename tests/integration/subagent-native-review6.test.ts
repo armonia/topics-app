@@ -47,6 +47,8 @@ const busyBackground = new Set<string>();
 /** Turns whose request carries one of these markers wait for their release (or their abort). */
 const held = new Map<string, Array<() => void>>();
 let modelCalls = 0;
+/** R5-TOOLTHENHANG rounds that reached the hanging call (test hook). */
+let hungRounds = 0;
 let resumeReleased = false;
 let loopCalls = 0;
 let nativeDeps: import("../../server/lib/native-subagents").NativeSubagentDeps | null = null;
@@ -87,7 +89,10 @@ async function fakeNetwork(_input: string | URL | Request, init?: RequestInit): 
         { type: "message_delta", delta: { stop_reason: "tool_use" }, usage: { output_tokens: 2 } },
       ]), { status: 200 });
     }
-    if (!resumeReleased) await new Promise<void>((_, reject) => { init?.signal?.addEventListener("abort", () => reject(new DOMException("aborted", "AbortError"))); });
+    if (!resumeReleased) {
+      hungRounds++;
+      await new Promise<void>((_, reject) => { init?.signal?.addEventListener("abort", () => reject(new DOMException("aborted", "AbortError"))); });
+    }
   }
   if (body.includes("R5-LOOP")) {
     loopCalls++;
@@ -364,19 +369,20 @@ async function postChat(sessionKey: string, content: string, opts: { headers?: R
 
 /**
  * A child mid-turn, cut by a graceful restart; the new process boots while a
- * provider hold walls the resume, and the adoption's minute (2 s here) passes.
+ * provider hold walls the resume, and the adoption's minute (400 ms here) passes.
  */
 async function restartUnderHold(name: string): Promise<{ id: string; sk: string }> {
   resumeReleased = false;
+  const hungRoundsBefore = hungRounds;
   const c = await spawn(ROOT_KEY, { name, prompt: `R5-TOOLTHENHANG ${name} restart child` });
   const id = c.body.agentId as string; const sk = c.body.sessionKey as string;
   await until("busy", () => busy(sk));
-  await sleep(1_500);
+  await until("the tool round hanging", () => hungRounds > hungRoundsBefore, 30_000);
   const providers = await import("../../server/providers");
   // gracefulShutdown: stop() on every provider.
   (providers.tryGetProvider("topics") as { stop(): void }).stop();
   await until("cut", () => !busy(sk));
-  await sleep(1_000);
+  await sleep(700);
   expect(reportsFor(id)).toHaveLength(0);
   // The process is gone: its memory with it.
   const native = await import("../../server/lib/native-subagents");
@@ -389,23 +395,26 @@ async function restartUnderHold(name: string): Promise<{ id: string; sk: string 
   resumeReleased = true;
   const ph = await import("../../server/lib/provider-hold");
   ph.setProviderHold({ untilMs: Date.now() + 10 * 60_000, window: "api-down", reason: "API down (review 6)" });
-  const adoption = native.adoptNativeChildrenAtBoot({ waitMs: 2_000, pollMs: 50 });
+  const adoption = native.adoptNativeChildrenAtBoot({ waitMs: 400, pollMs: 50 });
   await resumeSweep(); // the boot's sweep: deferred by the hold
   await adoption;
-  await sleep(500);
+  await sleep(100);
   return { id, sk };
 }
 
 describe("one result per turn, and only the parent or a person drives a child's chat", () => {
   test("the sweep cuts a driven turn (`swept`), and the resume does not send it again", async () => {
     resumeReleased = false;
+    const hungRoundsBefore = hungRounds;
     const c = await spawn(ROOT_KEY, { name: "rv6-f", prompt: "R5-TOOLTHENHANG rv6-f child works with a tool, then goes silent" });
     const id = c.body.agentId as string; const sk = c.body.sessionKey as string;
     await until("busy", () => busy(sk));
-    await sleep(2_000);
+    await until("the tool round hanging", () => hungRounds > hungRoundsBefore, 30_000);
+    // The row still shows the tool running at the hang: without this settle the sweep rescues instead of cutting.
+    await sleep(1_000);
     await staleSweep();
     await until("its result", () => reportsFor(id)[0], 15_000);
-    await sleep(1_500);
+    await sleep(1_000);
     resumeReleased = true;
     // Minutes pass: the resume sweep's own clock (resume-sweep-clock.ts).
     const past = new Date(Date.now() - 3 * 60_000).toISOString();
@@ -413,7 +422,7 @@ describe("one result per turn, and only the parent or a person drives a child's 
     await resumeSweep();
     await sleep(500);
     await until("child free", () => !busy(sk));
-    await sleep(1_500);
+    await sleep(1_000);
     expect(statusesOf(id)).toEqual([[1, "stopped", false]]);
     expect(userTurns(sk)).toBe(1);
   }, 40_000);
@@ -442,7 +451,7 @@ describe("one result per turn, and only the parent or a person drives a child's 
     const body = await res.json() as { error?: string };
     expect(res.status).toBeGreaterThanOrEqual(400);
     expect(body.error).toContain("without opening a turn");
-    await sleep(1_500);
+    await sleep(1_000);
     expect(rowOf(id)?.state).toBe("retired");
     expect(statusesOf(id)).toEqual([[1, "completed", false]]);
   }, 30_000);
@@ -516,7 +525,7 @@ describe("one result per turn, and only the parent or a person drives a child's 
     await resumeSweep();
     await until("its result", () => reportsFor(id)[0], 15_000);
     await until("child free", () => !busy(sk));
-    await sleep(1_500);
+    await sleep(1_000);
     expect(statusesOf(id).map(([, s]) => s)).toEqual(["completed"]);
   }, 60_000);
 
@@ -531,7 +540,7 @@ describe("one result per turn, and only the parent or a person drives a child's 
     const past = new Date(Date.now() - 3 * 60_000).toISOString();
     ctx.db.run("UPDATE messages SET timestamp = ? WHERE session_key = ?", [past, sk]);
     await resumeSweep();
-    await sleep(1_500);
+    await sleep(1_000);
     expect(statusesOf(id).map(([, s]) => s)).toEqual(["lost", "completed"]);
     expect(userTurns(sk)).toBe(2);
   }, 60_000);
@@ -560,7 +569,7 @@ describe("one result per turn, and only the parent or a person drives a child's 
     await native.stopNativeChild(getSubagent(ctx.db as never, id)!, { archive: false });
     { const { clearProviderHold } = await import("../../server/lib/provider-hold"); clearProviderHold(); }
     await resumeSweep();
-    await sleep(1_500);
+    await sleep(1_000);
     expect(busy(sk)).toBe(false);
     expect(userTurns(sk)).toBe(1);
     expect(rowOf(id)?.state).toBe("stopped");

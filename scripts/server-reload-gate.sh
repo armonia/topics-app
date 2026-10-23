@@ -138,7 +138,7 @@ fi
 
 # Copia il DB in una directory temporanea e prova ad applicare le pending.
 # La copia include il WAL (se esiste) così il checkpoint è già dentro.
-TMP_DIR="$(mktemp -d)"
+TMP_DIR="$(mktemp -d "${TMPDIR:-/tmp}/server-reload-gate.XXXXXX")"
 TMP_DB="$TMP_DIR/probe.db"
 trap 'rm -rf "$TMP_DIR"' EXIT
 

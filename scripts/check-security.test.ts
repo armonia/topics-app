@@ -6,7 +6,7 @@ import { spawnSync } from "child_process";
 import { mkdtempSync, mkdirSync, writeFileSync, appendFileSync, readFileSync, copyFileSync, existsSync, rmSync } from "fs";
 import { tmpdir, userInfo } from "os";
 import { join, resolve } from "path";
-import { filtraTermini } from "../tests/unit/no-personal-data-tracked.test";
+import { filterTerms } from "../tests/helpers/personal-terms";
 import { gitEnv } from "../tests/setup/bun-test-preload";
 
 /**
@@ -334,7 +334,7 @@ describe("check:security - i pezzi che vogliono l'albero vero", () => {
     // switch gates off.
     prepareCopy();
     const repoAuthor = (spawnSync("git", ["config", "user.name"], { env: gitEnv(), encoding: "utf8" }).stdout ?? "").trim();
-    const termine = repoAuthor.split(/\s+/).find((t) => filtraTermini([t]).length > 0) ?? "";
+    const termine = repoAuthor.split(/\s+/).find((t) => filterTerms([t]).length > 0) ?? "";
     if (!termine) return; // no git identity on this machine: nothing to prove
     appendFileSync(join(copia, "README.md"), `\n<!-- deciso da ${repoAuthor} -->\n`);
     const { code, out } = esegui(copia, "--only=data");

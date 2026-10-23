@@ -34,6 +34,13 @@
  */
 import { rmSync } from "node:fs";
 
+/**
+ * Set by the unit runner in the environment of every file: the file's `TMPDIR`
+ * is already private and the runner removes it, so the preload makes none of
+ * its own (see "the temp folder of a test process" in bun-test-preload.ts).
+ */
+export const PRIVATE_SCRATCH_ENV = "TOPICS_TEST_PRIVATE_SCRATCH";
+
 interface TrackedRoot {
   /** The test file that made the root: `Bun.main` when it was created. */
   owner: string;

@@ -602,19 +602,23 @@ in qualunque ordine. La prova SHALL essere un controllo a due file che in UN
 processo si contaminano davvero e col runner no.
 
 Ogni file SHALL avere la sua cartella temporanea (`TMPDIR`), creata prima e
-rimossa dopo di lui. Un file che esce lasciandoci dentro delle voci SHALL essere
-ROSSO, nominato nel sommario con le voci che ha lasciato: chi crea una cartella
-nella temp la toglie. Il 23/10/2026 la temp del Mac del proprietario conteneva
-~11.000 `topics-cred*`, 4.800 `topics*`, 3.500 `tracker-home*` e `import*` lasciati
-dalle corse di test. Nulla di un file SHALL comparire nella temp della corsa.
+rimossa dopo di lui, qualunque cosa ci abbia lasciato dentro. Una corsa di test
+lanciata a mano (`bun test <file>`, senza il runner) SHALL avere lo stesso: il
+preload da' al processo una `TMPDIR` sua e la toglie alla fine. Il 23/10/2026 la
+temp del Mac del proprietario conteneva ~11.000 `topics-cred*`, 4.800 `topics*`,
+3.500 `tracker-home*` e `import*` lasciati dalle corse di test, e 54 file
+continuavano a farlo: chiedere a ogni test di pulire e' una difesa per file, a
+valle della perdita; qui la perdita non puo' restare. Su CI, se nonostante
+questo compare qualcosa nella temp vera o in `/tmp/topics-test` (un percorso
+scritto a mano nel test), la corsa SHALL uscire non-zero nominando le voci.
 
 #### Scenario: cio' che a lascia non c'e' per b, in entrambi gli ordini
 - **GIVEN** un file che lascia un `window` finto, un `mock.module`, un `DATA_DIR` e una variabile d'ambiente, e un file che si aspetta un mondo pulito
 - **THEN** i due file in UN processo SHALL contaminarsi (il controllo) e col runner SHALL passare entrambi, a-poi-b e b-poi-a
 
-#### Scenario: un file che lascia roba nella temp e' rosso
+#### Scenario: cio' che un file lascia nella temp non resta
 - **GIVEN** un file che crea una cartella nella temp e non la rimuove
-- **THEN** la corsa SHALL uscire non-zero nominando quel file e quella voce, e la cartella SHALL non esistere piu' nella temp della corsa
+- **THEN** dopo la corsa del runner quella cartella SHALL non esistere nella temp della corsa, e dopo un `bun test <file>` diretto SHALL non esistere nella cartella temporanea data al processo
 
 ### Requirement: GATE-14 — La scala tipografica è una sola, e ci si esce solo dichiarando
 

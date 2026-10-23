@@ -132,6 +132,10 @@ beforeAll(async () => {
   setEnv("HOME", tempDir);
   setEnv("TOPICS_AI_BRIDGE", "1");
   setEnv("TOPICS_AI_BRIDGE_SOCKET", SOCK);
+  // Faster than the 4 s production cadence: the probe still notices by
+  // itself, only sooner. Set before the first import of claude-code, which
+  // reads it once at module load. The 15 s budget and contiguity checks stay.
+  setEnv("TOPICS_STREAM_LAG_PROBE_MS", "500");
   const { __resetAiBridgeClientForTests } = await import("../lib/ai-bridge-client");
   __resetAiBridgeClientForTests();
 });

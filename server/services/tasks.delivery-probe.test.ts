@@ -122,7 +122,10 @@ describe("the verifier's git does not hold the server's loop", () => {
         "sym=",
         `case "$*" in *" -S "*) sym=$(printf '%s\\n' "$*" | sed 's/.* -S \\([^ ]*\\).*/\\1/');; esac`,
         '[ -n "$sym" ] && touch "$MARKS/start-$sym"',
-        'case "$sym" in foundSymbolHere) echo abc1234;; "") ;; *) sleep 3;; esac',
+        // A 1 s lookup still proves the claim (the loop beats while git runs,
+        // and a synchronous git leaves 0 beats): a 10 ms beat gives tens of
+        // beats in 1 s. The 20 s walks of production stay in the comment above.
+        'case "$sym" in foundSymbolHere) echo abc1234;; "") ;; *) sleep 1;; esac',
         '[ -n "$sym" ] && touch "$MARKS/end-$sym"',
         "exit 0",
         "",
@@ -140,13 +143,14 @@ describe("the verifier's git does not hold the server's loop", () => {
     })();
   }
 
-  test("one report: the update returns at once, and the note follows git's answer", async () => {
+  // The three cases use separate dirs and processes, so they run together.
+  test.concurrent("one report: the update returns at once, and the note follows git's answer", async () => {
     const r = await runFixture("single");
     expect(r.notes?.join("\n")).toContain("slowSymbolNeverWritten");
     expect(r.beatsWhileGitRan, "the loop stood still while git looked the symbol up").toBeGreaterThan(0);
   }, 30_000);
 
-  test("several rows in the turn: git is asked row by row, off the loop, and the note reads only those answers", async () => {
+  test.concurrent("several rows in the turn: git is asked row by row, off the loop, and the note reads only those answers", async () => {
     // The first version asked until the first symbol found across ALL rows, so
     // the older row's symbol was never asked ahead and the check asked it
     // synchronously: 2081 ms of loop held (PR #147, second review).
@@ -155,7 +159,7 @@ describe("the verifier's git does not hold the server's loop", () => {
     expect(r.beatsWhileGitRan, "the loop stood still while git looked the older row's symbol up").toBeGreaterThan(0);
   }, 30_000);
 
-  test("a note still on its way for turn 1 does not land under turn 2's clean delivery", async () => {
+  test.concurrent("a note still on its way for turn 1 does not land under turn 2's clean delivery", async () => {
     const r = await runFixture("race");
     expect(r.beatsWhileGitRan, "git was asked about turn 1's symbol").not.toBeNull();
     expect(r.notes).toEqual([]);

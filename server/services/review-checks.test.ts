@@ -253,14 +253,16 @@ describe("runReviewChecks", () => {
     }
   });
 
-  test("timeout: ucciso, rosso, e detto che è un timeout", async () => {
+  // Independent timing cases (own cwd state and child, no process.env writes)
+  // run together: each duration IS the proof, so the numbers stay as they are.
+  test.concurrent("timeout: ucciso, rosso, e detto che è un timeout", async () => {
     const runs = await runReviewChecks([{ name: "lento", cmd: "sleep 5" }], { cwd, timeoutMs: 300 });
     expect(runs[0].ok).toBe(false);
     expect(runs[0].timedOut).toBe(true);
     expect(runs[0].code).toBeNull();
   }, 15_000);
 
-  test("the slot line restarts the cap: queueing for a gate slot is not the command's time", async () => {
+  test.concurrent("the slot line restarts the cap: queueing for a gate slot is not the command's time", async () => {
     // 1.5 s of "queue", the line slot.ts prints, then 1.5 s of "command": 3 s
     // in all against a 2 s cap. Without the line the check is killed (control
     // below); with it the cap restarts when the command starts, and the 1.5 s
@@ -275,7 +277,7 @@ describe("runReviewChecks", () => {
     expect(runs[0].queuedMs).toBe(2000);
   }, 20_000);
 
-  test("the waiting line stops the clock: a gate queued behind itself is not killed before it starts", async () => {
+  test.concurrent("the waiting line stops the clock: a gate queued behind itself is not killed before it starts", async () => {
     // The waiting line at once, 1.5 s of queue, the acquired line, 0.5 s of
     // work, against a 1 s cap. Without the pause the cap (armed at spawn) kills
     // it in the middle of the queue: 14/09, the name wait got longer than the
@@ -290,7 +292,7 @@ describe("runReviewChecks", () => {
     expect(runs[0].ok).toBe(true);
   }, 20_000);
 
-  test("a declared slowdown stretches the cap: fewer shards is a plan, not a hang", async () => {
+  test.concurrent("a declared slowdown stretches the cap: fewer shards is a plan, not a hang", async () => {
     // 1.5 s against a 1 s cap: dead. With the runner declaring "x2 slower"
     // first (card 40dc7674: 2 shards instead of 4 under the fleet) the cap
     // becomes 2 s and the work fits. The factor is reported.
@@ -304,13 +306,13 @@ describe("runReviewChecks", () => {
     expect(runs[0].slowdown).toBe(2);
   }, 20_000);
 
-  test("without the declaration the same 1.5 s against a 1 s cap is a timeout (control)", async () => {
+  test.concurrent("without the declaration the same 1.5 s against a 1 s cap is a timeout (control)", async () => {
     const runs = await runReviewChecks([{ name: "senza piano", cmd: `sleep ${sleepFor(1500)}` }], { cwd, timeoutMs: stretched(1000) });
     expect(runs[0].timedOut).toBe(true);
     expect(runs[0].slowdown).toBeUndefined();
   }, 20_000);
 
-  test("queue and slowdown together: the cap restarts at the slot line AND is multiplied", async () => {
+  test.concurrent("queue and slowdown together: the cap restarts at the slot line AND is multiplied", async () => {
     // 0.6 s of queue, then 1.5 s of work, against a 1 s cap: neither move
     // alone saves it (0.6 + 1.5 is past both the bare cap and the restarted
     // one). The clock is a deadline both lines rewrite, not two caps handed
@@ -326,7 +328,7 @@ describe("runReviewChecks", () => {
     expect(runs[0].slowdown).toBe(2);
   }, 20_000);
 
-  test("without the slot line the same 3 s against a 2 s cap is a timeout (control)", async () => {
+  test.concurrent("without the slot line the same 3 s against a 2 s cap is a timeout (control)", async () => {
     const runs = await runReviewChecks([{ name: "senza riga", cmd: `sleep ${sleepFor(1500)}; sleep ${sleepFor(1500)}` }], { cwd, timeoutMs: stretched(2000) });
     expect(runs[0].timedOut).toBe(true);
     expect(runs[0].queuedMs).toBeUndefined();

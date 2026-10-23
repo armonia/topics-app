@@ -51,13 +51,41 @@
  * `tests/unit/test-default-timeout.test.ts`.
  */
 import { afterAll, beforeEach, setDefaultTimeout } from "bun:test";
-import { readFileSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { isAbsolute, join, resolve } from "node:path";
 import { tmpdir } from "node:os";
 import { acquireSlot, claimOutfile, slotCount, alreadyHeld, GATE_HELD_ENV } from "../../scripts/gate-slot.ts";
 import { stopOwnAiBridges } from "../../scripts/stray-ai-bridges.ts";
-import { removeFinishedTestTmpDirs } from "./test-tmp-dirs.ts";
+import { removeFinishedTestTmpDirs, PRIVATE_SCRATCH_ENV } from "./test-tmp-dirs.ts";
 import { GIT_ISOLATION_MARKER, gitIsolationEnv } from "./git-isolation";
+
+/**
+ * THE TEMP FOLDER OF A TEST PROCESS IS ITS OWN, AND GOES WITH IT.
+ *
+ * Tests make scratch folders with `mkdtemp(join(tmpdir(), ...))` and a lot of
+ * them never remove what they made: on 23/10/2026 the owner's `$TMPDIR` held
+ * ~11,000 `topics-cred*`, 4,800 `topics*` and 3,500 `tracker-home*` / `import*`
+ * from test runs, and 54 files were still doing it when counted. Asking every
+ * test to clean up is one defence per file, downstream of the leak and never
+ * finished. Here the process gets a private `TMPDIR` for its whole life and
+ * the preload removes it at the end, so whatever a test leaves "in the temp
+ * folder" is inside a folder that goes away: nothing new stays in `$TMPDIR`
+ * after a `bun test` run, whoever started it.
+ *
+ * NOT WHEN THE RUNNER ALREADY GAVE THIS FILE ONE (`PRIVATE_SCRATCH_ENV`): it
+ * removes it itself, and a second level would only lengthen the paths - a unix
+ * socket made under `tmpdir()` has 104 characters on macOS, and the Mac's
+ * `$TMPDIR` already uses half of them.
+ *
+ * WHAT IT DOES NOT COVER: a hard-coded path (`testTmpDir` has its own sweep
+ * below, the CI run checks the rest), and a process killed before the end,
+ * which leaves ONE folder named after its pid instead of thousands.
+ */
+let ownTmpDir: string | null = null;
+if (!process.env[PRIVATE_SCRATCH_ENV]) {
+  ownTmpDir = mkdtempSync(join(tmpdir(), "topics-tt-"));
+  process.env.TMPDIR = ownTmpDir;
+}
 
 /**
  * THE USER'S OWN SECRETS STAY OUT OF THE SUITE. Unset, any test that builds an
@@ -67,21 +95,8 @@ import { GIT_ISOLATION_MARKER, gitIsolationEnv } from "./git-isolation";
  * enough: nothing is read, nothing resolved. Only when the runner chose none;
  * a test that needs a home of its own still sets one.
  */
-/**
- * The two paths are named here and are NOT created, but the code under test may
- * write into them (a daemon-state file, a config): the run removes whichever of
- * them it chose, at its end, so they are not left in the temp folder.
- */
-const NO_HOME_PATHS: string[] = [];
-if (!process.env.OPENCLAW_CONFIG_PATH) {
-  const dir = join(tmpdir(), `topics-test-no-openclaw-${process.pid}`);
-  process.env.OPENCLAW_CONFIG_PATH = join(dir, "openclaw.json");
-  NO_HOME_PATHS.push(dir);
-}
-if (!process.env.TOPICS_HOME) {
-  process.env.TOPICS_HOME = join(tmpdir(), `topics-test-no-home-${process.pid}`);
-  NO_HOME_PATHS.push(process.env.TOPICS_HOME);
-}
+process.env.OPENCLAW_CONFIG_PATH ||= join(tmpdir(), `topics-test-no-openclaw-${process.pid}`, "openclaw.json");
+process.env.TOPICS_HOME ||= join(tmpdir(), `topics-test-no-home-${process.pid}`);
 
 /**
  * 30s: sei volte il default di bun. Il numero e' una misura, non un gusto. Col
@@ -387,7 +402,7 @@ function sweepTestTmpDirs(): void {
   beforeEach(() => removeFinishedTestTmpDirs(Bun.main));
   afterAll(() => {
     removeFinishedTestTmpDirs(null);
-    for (const path of NO_HOME_PATHS) rmSync(path, { recursive: true, force: true });
+    if (ownTmpDir) rmSync(ownTmpDir, { recursive: true, force: true });
   });
 }
 

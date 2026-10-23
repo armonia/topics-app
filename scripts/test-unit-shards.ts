@@ -26,11 +26,13 @@
  * widens those windows, `SERIAL_GLOBS` keeps the real OS racers alone at the
  * end).
  *
- * THE SCRATCH DIRECTORY IS ALSO A CHECK. Whatever a file leaves in its `TMPDIR`
- * is removed after it exits, and the file is RED: a test that creates a
- * directory in the temp folder and never removes it is a leak of its own (on
- * 23/10/2026 the temp folder of the owner's Mac held ~11,000 `topics-cred*`,
- * 4,800 `topics*`, 3,500 `tracker-home*` and `import*` left by test runs).
+ * NOTHING STAYS IN THE TEMP FOLDER. A test that makes a folder in the temp dir
+ * and never removes it used to pile up there (on 23/10/2026 the owner's Mac
+ * held ~11,000 `topics-cred*`, 4,800 `topics*`, 3,500 `tracker-home*` and
+ * `import*`). Each file's scratch directory is removed when the file ends,
+ * whatever it left in it, so a leak cannot outlive its file; and on CI the run
+ * also fails if anything appeared in the real temp folder in spite of it (a
+ * hard-coded path). A plain `bun test` gets the same from the preload.
  *
  * ORDER. By default the longest files first. `--shuffle[=seed]` randomizes it
  * and prints the seed: with a process per file the order must not matter, and a
@@ -61,6 +63,7 @@ import { clampSlowdown, gateSlowdownLine } from "../shared/gate-slowdown.ts";
 import { TIME_SLACK_ENV, timeSlack, timeSlackNote } from "../shared/test-time-slack.ts";
 import { TEST_RUN_ENV, newTestRunId, reportAndEndStrays, strayAiBridges } from "./stray-ai-bridges.ts";
 import { gitIsolationEnv } from "../tests/setup/git-isolation";
+import { PRIVATE_SCRATCH_ENV } from "../tests/setup/test-tmp-dirs.ts";
 
 /**
  * How many shards to run on THIS machine, with the serial suite's timeout.
@@ -280,8 +283,6 @@ interface FileResult {
   cpuS: number;
   /** stdout + stderr, kept only when the file is red. */
   output: string;
-  /** What the file left in its scratch directory. */
-  leaked: string[];
 }
 
 /**
@@ -300,7 +301,7 @@ async function runFile(file: string, scratch: string, outBase: string, env: Reco
   const t0 = Date.now();
   const proc = Bun.spawn(["bun", "test", "--timeout", timeoutMs, file], {
     cwd: REPO_ROOT,
-    env: { ...env, TMPDIR: scratch, TMP: scratch, TEMP: scratch, TOPICS_GATE_MAX_RUN_MS: String(FILE_CAP_MS) },
+    env: { ...env, TMPDIR: scratch, TMP: scratch, TEMP: scratch, [PRIVATE_SCRATCH_ENV]: "1", TOPICS_GATE_MAX_RUN_MS: String(FILE_CAP_MS) },
     stdout: Bun.file(`${outBase}.out`),
     stderr: Bun.file(`${outBase}.err`),
   });
@@ -311,11 +312,9 @@ async function runFile(file: string, scratch: string, outBase: string, env: Reco
   };
   const err = read(`${outBase}.err`);
   const out = read(`${outBase}.out`);
-  let leaked: string[] = [];
-  try { leaked = readdirSync(scratch); } catch { /* the file removed its own scratch: nothing left */ }
   rmSync(scratch, { recursive: true, force: true });
   const cpuS = Number(proc.resourceUsage()?.cpuTime.total ?? 0n) / 1e6;
-  return { file, code, wallS, cpuS, output: `${err}${out}`, leaked };
+  return { file, code, wallS, cpuS, output: `${err}${out}` };
 }
 
 /** Runs `fn` over `items` with `n` workers pulling from one shared queue, in order. */
@@ -335,6 +334,17 @@ export function shuffleSeedOf(argv: readonly string[]): number | null {
   const given = Number(flag.split("=")[1]);
   return Number.isInteger(given) && given >= 0 ? given : randomBytes(4).readUInt32BE(0);
 }
+
+/** The short base `testTmpDir` uses on purpose (a unix socket path must stay under 104 characters on macOS). */
+const TEST_TMP_BASE = "/tmp/topics-test";
+const TEST_TMP_BASE_NAME = "topics-test";
+
+/**
+ * Where a test can leave something in spite of the private `TMPDIR` of its
+ * file: the real temp folder (a hard-coded path) and the base of `testTmpDir`,
+ * which is a fixed path and not `os.tmpdir()`.
+ */
+const OUTER_TEMP_ROOTS: readonly string[] = [tmpdir(), TEST_TMP_BASE];
 
 /** The names directly under `dir`, or none when it cannot be read. */
 export function snapshotEntries(dir: string): Set<string> {
@@ -417,7 +427,7 @@ if (import.meta.main) {
   // One root for the whole run, one folder per file under it. It is made in the
   // real temp folder and removed at the end: what is left of it is a leak of
   // this runner and not of a test.
-  const outerBefore = snapshotEntries(tmpdir());
+  const outerBefore = OUTER_TEMP_ROOTS.map(snapshotEntries);
   const runRoot = mkdtempSync(join(tmpdir(), "tu-"));
   mkdirSync(join(runRoot, "out"));
   const baseEnv: NodeJS.ProcessEnv = {
@@ -449,7 +459,13 @@ if (import.meta.main) {
   // What reached the REAL temp folder in spite of the private one: a test that
   // writes to a hard-coded path. Judged only where nobody else is writing to
   // it (CI); on a developer machine other programs add entries all the time.
-  const escaped = process.env.CI ? newEntries(outerBefore, tmpdir()) : [];
+  const escaped = process.env.CI
+    ? OUTER_TEMP_ROOTS.flatMap((dir, i) =>
+        newEntries(outerBefore[i]!, dir)
+          // The short base `testTmpDir` makes on purpose: what is INSIDE it is judged by the second root.
+          .filter((name) => !(dir === tmpdir() && name === TEST_TMP_BASE_NAME))
+          .map((name) => join(dir, name)))
+    : [];
 
   // Reprint the output of the red files: the bar must see WHICH tests failed.
   // The first MAX_REPRINT in full; the names of all of them below.
@@ -478,12 +494,6 @@ if (import.meta.main) {
     }
     if (reds.length > MAX_NAMED) console.error(`  … e altri ${reds.length - MAX_NAMED}`);
   }
-  const leakers = results.filter((r) => r.leaked.length > 0).sort((a, b) => a.file.localeCompare(b.file));
-  if (leakers.length) {
-    console.error(`file che lasciano roba in TMPDIR (${leakers.length}): un test deve togliere cio' che crea`);
-    // All of them: this list is a work list, and a truncated one gets fixed in three rounds instead of one.
-    for (const r of leakers) console.error(`  ✗ ${r.file} › ${r.leaked.length} voci: ${r.leaked.slice(0, 3).join(", ")}`);
-  }
   if (escaped.length) {
     console.error(`voci apparse nella cartella temporanea vera durante il giro (${escaped.length}): un test scrive fuori da TMPDIR`);
     for (const name of escaped.slice(0, MAX_NAMED)) console.error(`  ✗ ${name}`);
@@ -492,7 +502,7 @@ if (import.meta.main) {
   // left alive turns a green run red.
   const strays = await strayAiBridges(runId);
   await reportAndEndStrays(strays);
-  const verdict = aggregateVerdict([...results.map((r) => r.code), leakers.length > 0 ? 1 : 0, escaped.length > 0 ? 1 : 0, strays.length > 0 ? 1 : 0]);
+  const verdict = aggregateVerdict([...results.map((r) => r.code), escaped.length > 0 ? 1 : 0, strays.length > 0 ? 1 : 0]);
   console.log(`  ${verdict === 0 ? "PASS" : "FAIL"}  ${files.length} file (${parallel.length} par / ${serial.length} ser) in ${N} shard  wall ${totalWallS.toFixed(1)}s` + (verdict === 0 ? "" : `  (exit ${verdict})`));
 
   // Rewrite the measured durations only on request (merged over the old ones: a

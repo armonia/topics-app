@@ -206,7 +206,9 @@ describe("the watcher does not cut what the server protects (RGATE-05)", () => {
   it("a 202 that only arrives on a later ask still honours the deferral, even one a long stall has aged", async () => {
     // Both quick asks fail (four calls), the third answers: the path that cut
     // twelve cards. The heartbeat is 90 s old, as after the 87 s stall of 14/09.
-    const rig = await startRig({ curlFailFirst: 4, env: { TOPICS_QUIESCENCE_CAP_MS: "3000" } });
+    // A faster ask cadence: the window under test (cap + margin) is untouched,
+    // only the sleeps between failed asks shrink.
+    const rig = await startRig({ curlFailFirst: 4, env: { TOPICS_QUIESCENCE_CAP_MS: "3000", TOPICS_SERVER_WATCH_ASK_EVERY_S: "0.2" } });
     rig.heartbeat(secondsAgo(90));
     rig.write("server.ts", 'import { used } from "./shared/used";\nexport const generation = used + 1;\n');
     rig.event();
@@ -223,7 +225,9 @@ describe("the watcher does not cut what the server protects (RGATE-05)", () => {
   }, slackMs(30_000));
 
   it("a server that does not answer for many asks is asked again, not cut, and the ask that lands starts the patient wait", async () => {
-    const rig = await startRig({ curlFailFirst: 1_000_000, env: { TOPICS_QUIESCENCE_CAP_MS: "60000" } });
+    // Same faster cadence: this test needs 12 failed calls before the late 202,
+    // and QWAIT stays 61 s so the window is not touched.
+    const rig = await startRig({ curlFailFirst: 1_000_000, env: { TOPICS_QUIESCENCE_CAP_MS: "60000", TOPICS_SERVER_WATCH_ASK_EVERY_S: "0.2" } });
     rig.write("server.ts", 'import { used } from "./shared/used";\nexport const generation = used + 2;\n');
     rig.event();
 
