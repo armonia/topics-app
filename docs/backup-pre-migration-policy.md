@@ -21,6 +21,29 @@ cancella, nessuno sa cosa proteggevano, e nel tempo si accumulano sul disco.
 Il 18/08 erano presenti due backup stantii per un totale di ~920 MB (task
 f0b07ae0). La regola qui sotto chiude il buco.
 
+## Copie a mano nella home
+
+`~/.topics/backups` e `~/.topics/db-backups` raccolgono le copie fatte a mano
+prima di una riparazione o di una migration. Il 23/10/2026 tenevano 4,6 GB e
+614 MB: quattordici copie intere del DB, la piu' vecchia di otto settimane, con
+permessi 0644 (dentro ci sono le conversazioni), perche' la regola «una sola, poi
+`trash`» qui sotto parla di `data/` e nessuno guardava queste due cartelle. Vale
+la stessa regola, scritta per loro:
+
+- **Una copia per operazione**, e vive 7 giorni. Alla scadenza si guarda se
+  l'operazione e' riuscita (i due controlli sotto) e la copia va nel cestino con
+  `trash`, mai `rm`.
+- **Mai l'unica rete**: la rete di ieri e' lo snapshot giornaliero con la sua copia
+  fuori dal disco (sezione «Snapshot periodici»), quindi una copia a mano serve solo
+  contro l'operazione che sta per partire.
+- **Permessi 0700 sulla cartella e 0600 sui file**: `chmod -R go-rwx` subito dopo
+  averla fatta.
+- **La misura**: `du -sh ~/.topics/backups ~/.topics/db-backups` sta sotto 1 GB
+  in totale e nessun file `.db` e' piu' vecchio di 14 giorni. `bun run report:disk`
+  elenca le due cartelle nella sezione «Fuori da git».
+- Restano senza scadenza i record piccoli di un recupero (un `recovery.json`, un
+  `deployment.json`): non sono copie del DB.
+
 ## La convenzione
 
 **Nome**: `data/topics.db.bak-pre-<slug-della-migration>` dove lo slug e'
@@ -151,8 +174,16 @@ migration di dati sbagliata non ha ritorno.
   `server/db/migrations/`. Esce non-zero anche se la copia piu' recente ha piu'
   di 2 giorni: significa che il lavoro notturno non gira. Il launchd lo esegue
   subito dopo lo snapshot.
-- **Fuori dal disco**: queste copie stanno SUL disco del DB. Una copia altrove
-  (PC Windows) e' una decisione di destinazione e non e' automatizzata qui.
+- **Fuori dal disco**: la copia fuori dal disco del DB e' automatica.
+  `scripts/db-snapshot.ts` dopo la potatura copia lo snapshot del giorno nella
+  destinazione di `~/.topics/backup-offsite.json`
+  (`{"dest":"utente@host:cartella","wake":"comando facoltativo che sveglia l'host"}`,
+  file locale, mai nel repo), in 7 slot che ruotano con il giorno della settimana
+  (il remoto tiene 7 giorni senza cancellare nulla), la rilegge e confronta lo
+  sha256 prima di scrivere la ricevuta `<dati>/backups/offsite.json`;
+  `scripts/backup-restore-check.ts` esce non-zero se la ricevuta manca, e' di un
+  altro giorno, non corrisponde piu' al file locale o e' piu' vecchia di 2 giorni;
+  la verifica non contatta il remoto (la rilettura avviene al momento della copia).
 
 Nota sulla finestra: un backup pre-migration resta il modo giusto per
 proteggere UNA migration distruttiva nota in anticipo (restore immediato, nome

@@ -55,9 +55,12 @@ Non le riscrive: ne esegue le barre dentro la traccia indicata. Stato letto su
 | `primo-avvio` | T9 | decisioni chiuse, niente nel client |
 | `mac-usabile-sotto-carico` | T8 | vedi la traccia |
 
-## Da archiviare
+## Archiviato
 
-`daily-driver` ha chiuso il suo arco: 45 report su `origin/main`, D8 dichiara i
-sei problemi del browser chiusi in produzione dalla 2.2.507 e dalla 2.3.2, e
-nessun ramo `daily/*` e' aperto sul remoto. Va archiviato con `/opsx:archive`
-prima che questo piano parta, cosi' `openspec/changes/` dice il vero.
+`daily-driver` ha chiuso il suo arco (45 report su `origin/main`, D8 dichiara i
+sei problemi del browser chiusi in produzione dalla 2.2.507 e dalla 2.3.2, nessun
+ramo `daily/*` sul remoto) ed e' in `archive/2026-10-23-daily-driver/`. I suoi
+requisiti D3B, D3C, D3D, D3F e D3H sono passati in `openspec/specs/native-addon` e
+`openspec/specs/git-freshness`: `check:spec-coverage` pretende che un requisito
+archiviato viva li', e `scripts/check-spec-coverage.ts` ora legge anche `native/`,
+dove `parity.test.ts` dichiara D3C-01.

@@ -15,8 +15,14 @@
  *   entry_eager    the chunk everybody downloads and parses before anything
  *                  renders. Regresses when a `React.lazy` import quietly
  *                  becomes a static one — the most common way to wreck TTI.
- *   critical_path  every asset `index.html` references. What the user actually
- *                  waits for on a cold load.
+ *   critical_path  every asset `index.html` references: the entry, its
+ *                  modulepreloads and the stylesheet. The SHELL of a cold load.
+ *                  It is NOT the path to the first frame: the chunks a `lazy()`
+ *                  pane pulls in at boot are fetched after the entry runs, so
+ *                  they weigh in `total_assets` and nowhere else. Measuring
+ *                  that needs a browser (`bench/`), not a read of index.html.
+ *                  The name is historical: it is a key of the baseline and of
+ *                  the bench rows, and renaming it rewrites both.
  *   total_assets   the whole `public/assets` tree. Catches a heavy dependency
  *                  added as a LAZY chunk: it moves neither budget above, but
  *                  you still pay for it at the first `import()`.
@@ -145,7 +151,7 @@ function assertFresh(): void {
   process.exit(2);
 }
 
-/** Assets referenced directly by index.html = the cold-load critical path. */
+/** Assets referenced directly by index.html = the cold-load shell (not the first frame: see the header). */
 function criticalPathFiles(): string[] {
   const html = readFileSync(join(PUBLIC_DIR, "index.html"), "utf8");
   const refs = new Set<string>();
@@ -310,7 +316,7 @@ const measured = {
 
 console.log(`entry eager    ${entry}`);
 console.log(`               raw ${fmt(measured.entry_eager.raw)}  gz ${fmt(measured.entry_eager.gz)}   (baseline raw ${fmt(baseline.entry_eager.raw)}  gz ${fmt(baseline.entry_eager.gz)})`);
-console.log(`critical path  ${measured.critical_path.files} files  raw ${fmt(measured.critical_path.raw)}  gz ${fmt(measured.critical_path.gz)}   (baseline raw ${fmt(baseline.critical_path.raw)}  gz ${fmt(baseline.critical_path.gz)})`);
+console.log(`html shell     ${measured.critical_path.files} files  raw ${fmt(measured.critical_path.raw)}  gz ${fmt(measured.critical_path.gz)}   (baseline raw ${fmt(baseline.critical_path.raw)}  gz ${fmt(baseline.critical_path.gz)})`);
 const sweepMin = Math.round(SWEEP_MIN_AGE_MS / 60_000);
 if (stale.length > 0) {
   console.log(

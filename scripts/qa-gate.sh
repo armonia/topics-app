@@ -56,11 +56,12 @@
 #                        Dal 26/08 non puo' piu' mentire su una build vecchia:
 #                        se i sorgenti sono piu' recenti esce 2 e non misura
 #                        (GATE-BUNDLE-FRESH-01).
-#   `check:previews`     misura il DATABASE VIVO della board e la cartella media
-#                        di questo utente, non il checkout. In una barra deve
-#                        dare la stessa risposta su qualunque macchina; questo
-#                        darebbe la risposta del Mac di chi la lancia. Si lancia
-#                        a mano: `bun run check:previews`.
+#   `report:previews`    (era `check:previews`: il nome dichiarava un cancello e
+#                        era un referto) misura il DATABASE VIVO della board e la
+#                        cartella media di questo utente, non il checkout. In una
+#                        barra deve dare la stessa risposta su qualunque macchina;
+#                        questo darebbe la risposta del Mac di chi la lancia. Si
+#                        lancia a mano: `bun run report:previews`.
 #
 # COSA NON FA, di proposito: i cancelli di TEMPO (`check:ink`, `check:drag`,
 # `check:scroll-fluidity`, `check:growth`, `check:route-latency`,
@@ -129,7 +130,7 @@ STATICI=(check:any check:any-budget check:ref-callbacks check:nul check:eslint-d
          check:test-skips check:emdash check:bloat check:route-shadowing check:typography check:ui-language check:comment-language
          check:identifier-language check:sleeps check:tmp-canonical
          check:module-mock-restore check:api-door
-         check:untraced-tests check:spec-coverage
+         check:untraced-tests check:gates-orfani check:spec-coverage
          check:migrations check:security check:deadcode)
 
 echo "== guard rail statici, tipi e lint (in parallelo) =="

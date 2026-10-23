@@ -1,7 +1,8 @@
 #!/usr/bin/env bun
 /**
- * Fills in `scripts/launchd/com.armonia.topics-db-snapshot.plist.in` with the
- * paths of THIS machine and loads it.
+ * Fills in a `scripts/launchd/com.armonia.topics-<job>.plist.in` template with
+ * the paths of THIS machine and loads it. The job is the DB snapshot unless
+ * `--job` names another template (`worktree-sweep`).
  *
  * The template is tracked and the filled-in plist is not, because this repo is
  * public and a concrete plist carries the home directory and the username of
@@ -9,8 +10,9 @@
  * did not see it: the gate that looks for a home path looks for the home of
  * whoever RUNS it, which on a CI runner is nobody's.
  *
- *   bun scripts/install-db-snapshot.ts            install and load
- *   bun scripts/install-db-snapshot.ts --print    print it, install nothing
+ *   bun scripts/install-db-snapshot.ts                       install and load
+ *   bun scripts/install-db-snapshot.ts --print               print it, install nothing
+ *   bun scripts/install-db-snapshot.ts --job worktree-sweep  the same for another job
  */
 
 import { execFileSync } from "node:child_process";
@@ -18,7 +20,13 @@ import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 
-const LABEL = "com.armonia.topics-db-snapshot";
+const jobFlag = process.argv.indexOf("--job");
+const JOB = jobFlag >= 0 ? (process.argv[jobFlag + 1] ?? "") : "db-snapshot";
+if (!/^[a-z][a-z-]*$/.test(JOB)) {
+  console.error("--job needs the name of a template in scripts/launchd, e.g. worktree-sweep");
+  process.exit(1);
+}
+const LABEL = `com.armonia.topics-${JOB}`;
 /**
  * The MAIN checkout, not whichever one this script was launched from.
  *

@@ -97,7 +97,7 @@ export const PROJECT_WORDS = new Set([
   // switches off) has to name it to be understood. `scanned` is a regular past
   // participle the dictionary does not carry, next to `emitted`, `supplied` and
   // `verified`; the other gates in this folder already count files with it.
-  "tailwind", "scanned",
+  "tailwind", "scanned", "offsite", "workflow", // plain English the word list lacks: backup-offsite.ts, the CI workflow folder
   // The shell's own vocabulary, which `server/lib/command-redirect.ts` has to
   // name to read a command line the way zsh does (chat-live-work, 07/10): a
   // heredoc, a backtick, a subshell, and the tokens the line is cut into.

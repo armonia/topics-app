@@ -51,11 +51,13 @@
  *
  * THE SECOND PASS, and why it is a different question. Italian is only half of
  * "this string cannot follow the chosen language". The other half is English
- * hard-coded in a file that ALREADY imports `useT`: the surface was migrated,
- * a later change wrote `Copy` straight into the JSX, and nothing complains
- * because the gate was only ever looking for Italian. Those hits are counted
- * as `untranslated`, in their own baseline map, because the fix is different
- * (add a key) and the debt is much larger.
+ * written straight into the JSX instead of through a key: in a file that
+ * ALREADY imports `useT` (a later change wrote `Copy` past it) and equally in
+ * a file that never had one. The pass reads every `.tsx` either way; a gate
+ * that only looked where `useT` was imported called the unmigrated files keyed
+ * and turned the first file to start migrating into a new offender. Those hits
+ * are counted as `untranslated`, in their own baseline map, because the fix is
+ * different (add a key) and the debt is much larger.
  *
  * The heuristic for "prose a person reads" is deliberately tight: two words or
  * more, or one word from a short list of button verbs, capitalised, and never
@@ -148,7 +150,7 @@ interface Baseline {
   updated: string;
   /** path -> hard-coded ITALIAN hits the day recorded. Absent means "stay at 0". */
   files: Record<string, number>;
-  /** path -> hard-coded ENGLISH hits in a file that already imports `useT`. */
+  /** path -> hard-coded ENGLISH prose hits, whether or not the file imports `useT`. */
   untranslated: Record<string, number>;
 }
 
@@ -173,10 +175,10 @@ const BASELINE_COMMENT = [
   "",
   "TWO MAPS, TWO DEFECTS. `files` counts hard-coded ITALIAN: a string an",
   "English-speaking user reads in the wrong language. `untranslated` counts",
-  "hard-coded ENGLISH inside a file that already imports `useT`: the surface was",
-  "migrated and a later change wrote the label straight into the JSX, so the",
-  "language selector silently stops governing it. The fix differs (translate vs",
-  "add a key), so the debt is counted apart.",
+  "hard-coded ENGLISH prose written straight into the JSX, in a migrated file",
+  "(a later change wrote the label past `useT`) and in a file that was never",
+  "migrated alike, so the language selector does not govern it. The fix differs",
+  "(translate vs add a key), so the debt is counted apart.",
 ];
 
 function readBaseline(): Baseline | null {
@@ -274,7 +276,7 @@ function main(): void {
   if (absolute) {
     if (json) console.log(JSON.stringify({ mode: "absolute", files: files.length, hits }, null, 2));
     if (hits.length === 0) {
-      if (!json) console.log(`[check-ui-language] OK (absolute): ${files.length} file(s), every app text is keyed.`);
+      if (!json) console.log(`[check-ui-language] OK (absolute): ${files.length} file(s), no hard-coded Italian and no unkeyed English prose found.`);
       process.exit(0);
     }
     if (!json) {

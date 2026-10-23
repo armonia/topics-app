@@ -276,7 +276,8 @@ console.log(`\nrigenerabile senza perdite: ${human(regen)}`);
 // e un giudizio va firmato: chi lo cambia deve cambiare la riga, non un numero.
 console.log("\n=== Fuori da git (stato dell'app) ===\n");
 const OUTSIDE: [string, "rigenerabile" | "ridondante" | "NON toccare", string][] = [
-  [join(homedir(), ".topics", "backups"), "ridondante", "snapshot del DB: si tiene il più recente, i precedenti no"],
+  [join(homedir(), ".topics", "backups"), "ridondante", "copie a mano del DB: una per operazione, 7 giorni (docs/backup-pre-migration-policy.md)"],
+  [join(homedir(), ".topics", "db-backups"), "ridondante", "come sopra: la rete di ieri è lo snapshot giornaliero con la copia fuori dal disco"],
   [join(homedir(), ".topics", "ui-state-backups"), "ridondante", "stato UI: lo riscrive l'app al prossimo salvataggio"],
   [join(homedir(), ".topics", "media"), "NON toccare", "anteprime e allegati REFERENZIATI dalle card"],
   [join(homedir(), ".openclaw", "browser"), "NON toccare", "profili browser: dentro ci sono i LOGIN"],

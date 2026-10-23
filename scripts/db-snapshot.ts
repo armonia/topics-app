@@ -11,7 +11,9 @@
  *
  * `VACUUM INTO` is consistent with the server up (WAL included, no free pages)
  * and does not block writers: see docs/backup-pre-migration-policy.md. A
- * snapshot is only proven by `scripts/backup-restore-check.ts`.
+ * snapshot is only proven by `scripts/backup-restore-check.ts`. After pruning,
+ * the snapshot is also copied off this disk by `scripts/backup-offsite.ts`
+ * (when `~/.topics/backup-offsite.json` names a destination).
  *
  * Retention: the last 14 days, plus 8 Mondays older than that window. Pruning
  * uses `trash`, never `rm`, and touches only files named like a snapshot
@@ -22,8 +24,9 @@
 import { Database } from "bun:sqlite";
 import { mkdirSync, readFileSync, readdirSync, renameSync, rmSync, writeFileSync } from "fs";
 import { spawnSync } from "child_process";
-import { dirname, join, resolve } from "path";
+import { basename, dirname, join, resolve } from "path";
 import { resolveDataDir, stateDirTarget } from "../server/lib/data-dir";
+import { copyOffsite, loadOffsiteConfig } from "./backup-offsite";
 
 const KEEP_DAILY = 14;
 const KEEP_WEEKLY = 8;
@@ -94,4 +97,18 @@ if (import.meta.main) {
   const target = snapshotDb(dbPath, dir);
   const pruned = pruneSnapshots(dir);
   console.log(`[db-snapshot] ${target}${pruned.length ? `, pruned ${pruned.length}` : ""}`);
+  // The local snapshot already succeeded: an off-disk failure is loud but
+  // never fatal here, so the `&& backup-restore-check` that follows still
+  // runs and reports red.
+  try {
+    const cfg = loadOffsiteConfig();
+    if (!cfg) {
+      console.log("[db-snapshot] no off-disk destination: the restore check will be red until ~/.topics/backup-offsite.json exists");
+    } else {
+      const receipt = copyOffsite(dir, basename(target), cfg);
+      console.log(`[db-snapshot] off-disk copy ok (slot ${receipt.slot})`);
+    }
+  } catch (err) {
+    console.error(`[db-snapshot] off-disk copy FAILED: ${(err as Error).message}`);
+  }
 }

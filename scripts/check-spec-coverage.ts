@@ -77,7 +77,7 @@ const CHANGES = join(ROOT, "openspec", "changes");
 const BASELINE = join(ROOT, "openspec", "coverage-baseline.json");
 
 /** Roots where a test can live. Outside these, a `@covers` is never seen. */
-const TEST_ROOTS = ["tests", "client/src", "server", "shared", "relay", "cli", "scripts"];
+const TEST_ROOTS = ["tests", "client/src", "server", "shared", "relay", "cli", "scripts", "native"];
 
 type Requirement = {
   id: string;

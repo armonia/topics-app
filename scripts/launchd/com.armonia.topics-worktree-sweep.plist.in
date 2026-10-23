@@ -1,0 +1,45 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  Ogni notte manda nel Cestino le worktree orfane (nessun processo dentro, pulite,
+  ferme da 7 giorni, lavoro gia' in main) e fa `git worktree prune`. Il ramo resta.
+  Le regole stanno in scripts/worktree-orphans.ts. A mano, senza toccare niente:
+    bun scripts/worktree-orphans.ts
+  È un MODELLO: i segnaposto __BUN__ __REPO__ __HOME__ __LOG__ li riempie
+  l'installatore (perche' un modello e non il file vero: vedi il plist del backup).
+    bun scripts/install-db-snapshot.ts --job worktree-sweep
+-->
+<plist version="1.0">
+<dict>
+	<key>Label</key>
+	<string>com.armonia.topics-worktree-sweep</string>
+	<key>ProgramArguments</key>
+	<array>
+		<string>__BUN__</string>
+		<string>scripts/worktree-orphans.ts</string>
+		<string>--apply</string>
+	</array>
+	<key>WorkingDirectory</key>
+	<string>__REPO__</string>
+	<key>EnvironmentVariables</key>
+	<dict>
+		<key>HOME</key>
+		<string>__HOME__</string>
+		<key>PATH</key>
+		<string>/usr/bin:/bin:/usr/sbin:/opt/homebrew/bin</string>
+	</dict>
+	<key>StartCalendarInterval</key>
+	<dict>
+		<key>Hour</key>
+		<integer>4</integer>
+		<key>Minute</key>
+		<integer>40</integer>
+	</dict>
+	<key>Nice</key>
+	<integer>10</integer>
+	<key>StandardOutPath</key>
+	<string>__LOG__</string>
+	<key>StandardErrorPath</key>
+	<string>__LOG__</string>
+</dict>
+</plist>

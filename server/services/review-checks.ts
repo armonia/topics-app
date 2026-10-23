@@ -152,6 +152,7 @@ export const STATIC_RAILS_CHECK: ReviewCheck = {
     "bun run check:migrations",
     "bun run check:identifier-language",
     "bun run check:comment-language",
+    "bun run check:gates-orfani",
     "bun run check:untraced-tests",
     "bun run check:spec-coverage",
     "bun run check:sleeps",

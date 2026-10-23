@@ -598,3 +598,29 @@ already be running.
 - **THEN** they SHALL have different ports, and each SHALL keep its port after
   the server restarts
 - **AND** a newer worktree whose port collides SHALL NOT move the older one
+
+### Requirement: WORKTREE-16 — A worktree nobody's sweep owns is still swept, and a live one is never touched
+
+The sweep of WORKTREE-01..15 only knows the worktrees Topics made itself. The
+ones made by the desktop app, by a sub-agent of Claude Code, or by hand sit in
+`git worktree list` with nobody in charge: four of them lived INSIDE the
+repository on 2026-10-22, 1.6 GB that every search of the checkout walked. A
+second, scheduled pass SHALL read `git worktree list` and treat a worktree as an
+orphan only when ALL of these hold: it is not the main checkout, not locked and
+not managed by the Topics sweep; no process has its working directory inside; its
+tree is clean; nothing happened in it for 7 days; and its branch is an ancestor
+of `origin/main` or a merged pull request had exactly the branch tip as its head.
+An orphan SHALL go to the Trash and be pruned, never deleted; the branch SHALL
+stay. Anything else SHALL be listed with its owner, read from the path, and the
+reason it was kept. The pass SHALL print a table and remove nothing unless asked.
+
+#### Scenario: one missing condition keeps the worktree
+- **GIVEN** an orphan, with exactly one condition spoiled (main checkout, locked,
+  managed, a process inside, uncommitted work, active within 7 days, detached HEAD,
+  branch not landed)
+- **THEN** the pass SHALL keep it and say why
+
+#### Scenario: the maker is read off the path
+- **THEN** a path under `.claude/worktrees/agent-` SHALL be a Claude Code
+  sub-agent, one under `.claude/worktrees` a desktop-app session, one in a
+  `scratchpad` an agent session, and anything else a worktree made by hand
