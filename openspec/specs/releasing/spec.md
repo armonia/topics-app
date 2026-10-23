@@ -110,6 +110,19 @@ manifesto ILLEGGIBILE SHALL essere un guasto DISTINTO da una piattaforma
 mancante: le due cose si curano in modo diverso. Piattaforme IN PIÙ NON SHALL
 disturbare, per la stessa ragione dei pacchetti in più.
 
+Le FIRME SHALL essere guardate DENTRO, non solo contate: una firma con il nome
+giusto e la chiave sbagliata lascia ogni client senza aggiornamento, e nessuno lo
+dice (l'app risponde «errore» e basta). Il giudizio SHALL rifiutare una firma
+vuota, una che non è una firma minisign intera, e una fatta con un'ALTRA chiave
+da quella di cui l'app si fida (`plugins.updater.pubkey`), nominando QUALE file e
+quali due chiavi. Il `latest.json` pubblicato SHALL ripetere, piattaforma per
+piattaforma, la firma del `.sig` che sta sulla release: un lavoro di costruzione
+rilanciato dopo la composizione sostituisce il pacchetto e la sua firma e lascia
+la vecchia nel manifesto. Il controllo (`scripts/assert-sig.ts`) gira DUE volte
+nel job di pubblicazione: prima di comporre il manifesto, sulle sole firme, e
+prima di pubblicare, anche sul manifesto. La prima ignora `latest.json` perché a
+un rilancio è quello del tentativo precedente.
+
 La causa SHALL restare scritta accanto al controllo: le tre costruzioni della
 matrice caricano OGNUNA il proprio manifesto e vince l'ultima, quindi una corsa
 vinta da chi non ha visto Windows pubblica un manifesto presente e monco.
@@ -138,6 +151,16 @@ creato.
 - **GIVEN** un `latest.json` che non è un manifesto dell'aggiornamento
 - **THEN** NON SHALL essere pubblicato
 - **AND** SHALL essere detto come guasto diverso da «manca una costruzione»
+
+#### Scenario: una firma di un'altra chiave
+- **GIVEN** tutti i pacchetti presenti e un `.sig` fatto con una chiave diversa da quella dell'app
+- **THEN** NON SHALL essere pubblicato
+- **AND** il messaggio SHALL nominare il file e le due chiavi
+
+#### Scenario: il manifesto ripete una firma che la release non ha
+- **GIVEN** un `latest.json` la cui firma di una piattaforma differisce dal `.sig` del suo pacchetto
+- **THEN** NON SHALL essere pubblicato
+- **AND** il messaggio SHALL nominare la piattaforma
 
 ### Requirement: RELEASE-04 — Chi preme «pubblica» LEGGE che raggiunge tutti
 
@@ -260,6 +283,35 @@ contare di nuovo, o ogni rilascio successivo ripeterebbe il suo salto.
 #### Scenario: la riga di un commit già rilasciato
 - **GIVEN** un `Release: major` PRIMA dell'ultimo commit di versione
 - **THEN** NON SHALL contare
+
+### Requirement: RELEASE-08 — Un handler di channel che lancia non ferma i messaggi dietro di lui
+
+Il `Channel` JS che la crate `tauri` porta con sé consegna i messaggi in ordine
+tramite un contatore. Fino alla 2.12.2 un `onmessage` che lanciava lasciava il
+contatore fermo: ogni messaggio successivo restava in coda per sempre, e dalla
+pagina sembrava un flusso che si ferma a metà senza errore. Il guscio SHALL
+girare su una versione che consegna i messaggi DOPO quello che ha lanciato, e
+l'errore SHALL restare riportato, non inghiottito.
+
+La prova SHALL eseguire il `bundle.global.js` della versione che `Cargo.lock` ha
+risolto, non una copia della logica: il prossimo salto di versione è giudicato
+dal codice che porta, e lo stesso test su una versione vecchia SHALL andare
+rosso. Topics oggi non istanzia nessun `Channel` (né `@tauri-apps/api` né
+`ipc::Channel` nel guscio): la prova fissa la garanzia per il giorno in cui un
+flusso ci passa. Il `bundle.global.js` entra nella pagina solo con
+`app.withGlobalTauri = true`, che Topics non imposta: la garanzia copre la
+classe, non l'uso in pagina, e va estesa a `@tauri-apps/api` quando lo si adotta.
+
+#### Scenario: il primo messaggio lancia
+- **GIVEN** un `onmessage` che lancia sul primo messaggio
+- **WHEN** arrivano il secondo e il terzo
+- **THEN** SHALL essere consegnati entrambi
+- **AND** l'errore SHALL essere riportato una volta
+
+#### Scenario: un lancio nel mezzo di uno scarico
+- **GIVEN** messaggi arrivati fuori ordine e messi in attesa
+- **WHEN** il messaggio che li sblocca lancia
+- **THEN** quelli in attesa SHALL essere consegnati comunque
 
 ### Requirement: UPDATER-01 — L'aggiornamento si annuncia, ma un controllo SILENZIOSO resta silenzioso
 

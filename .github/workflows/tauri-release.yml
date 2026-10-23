@@ -462,6 +462,18 @@ jobs:
         with:
           bun-version-file: .bun-version
 
+      # Le firme che compose sta per copiare in latest.json: ci sono, sono della
+      # nostra chiave, sono intere. Senza questo una release firmata con un'altra
+      # chiave esce con tutti i nomi giusti e nessun client riesce ad installarla.
+      # `--sigs-only`: su un rilancio latest.json e' quello del tentativo
+      # precedente e non va confrontato con le firme appena rifatte.
+      - name: assert-sig (firme presenti e della chiave dell'app)
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          ID: ${{ needs.create-release.outputs.release_id }}
+        run: bun run scripts/assert-sig.ts --sigs-only "$ID"
+
       - name: Compose and upload the single updater manifest
         env:
           GH_TOKEN: ${{ github.token }}
@@ -497,6 +509,15 @@ jobs:
           REPO: ${{ github.repository }}
           ID: ${{ needs.create-release.outputs.release_id }}
         run: bun run scripts/check-release-assets.ts "$ID"
+
+      # Lo stato che i client leggeranno davvero: latest.json ripete, una per
+      # una, le firme dei .sig della release.
+      - name: assert-sig (latest.json ripete le firme della release)
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          ID: ${{ needs.create-release.outputs.release_id }}
+        run: bun run scripts/assert-sig.ts "$ID"
 
       - name: Publish the release
         env:

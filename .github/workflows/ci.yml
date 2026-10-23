@@ -1211,6 +1211,20 @@ jobs:
         run: cargo check
         working-directory: desktop-tauri/src-tauri
 
+      # Il `Channel` JS che la crate `tauri` porta con se': un `onmessage` che
+      # lancia non deve fermare la coda dei messaggi dietro di lui (tauri
+      # < 2.12.3: un flusso che si ferma a meta' senza errore). Il test esegue il
+      # `bundle.global.js` della versione che Cargo.lock ha risolto, quindi il
+      # prossimo salto di versione e' giudicato dal codice che porta. Gira qui e
+      # non negli shard unit perche' serve il sorgente della crate; `cargo fetch`
+      # lo garantisce anche se la cache ha restituito solo i .crate.
+      - name: Tauri Channel, onmessage che lancia
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo fetch --locked --manifest-path desktop-tauri/src-tauri/Cargo.toml
+          bun test tests/tauri-shell/channel-throw.test.ts
+
       # `cargo check` COMPILA e basta: i test unitari del guscio non li esegue,
       # su nessuna delle tre OS. Quindi finora `cargo test --lib` non girava mai
       # in CI, e i test che riguardano le differenze fra sistemi — l'unica cosa
