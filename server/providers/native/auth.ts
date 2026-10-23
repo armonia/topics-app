@@ -30,9 +30,9 @@
  * credenziali morto per otto ore (2026-08-16).
  */
 
-import { existsSync, readFileSync, writeFileSync, mkdtempSync, renameSync, chmodSync, openSync, closeSync, unlinkSync, constants as fsConstants } from "fs";
+import { existsSync, readFileSync, writeFileSync, renameSync, chmodSync, openSync, closeSync, unlinkSync, constants as fsConstants } from "fs";
 import { claudeCliUserAgent } from "./cli-user-agent";
-import { homedir, tmpdir, userInfo } from "os";
+import { homedir, userInfo } from "os";
 import { join, dirname } from "path";
 import { spawnSync } from "child_process";
 import { runBounded } from "../../lib/bounded-spawn";
@@ -433,12 +433,20 @@ export function writeCredentials(path: string, next: OAuthCredentials): void {
     };
   }
 
-  const dir = dirname(path);
-  const tmp = join(mkdtempSync(join(tmpdir(), "topics-cred-")), "cred.json");
-  writeFileSync(tmp, JSON.stringify(doc, null, 2));
-  chmodSync(tmp, 0o600);
-  renameSync(tmp, path);
-  void dir;
+  // The temp file sits NEXT TO the target: the same volume, so the rename is
+  // atomic (from the temp folder it can die with EXDEV), and nothing is left in
+  // the temp folder. The old `mkdtempSync(tmpdir())` left an empty folder behind
+  // on every renewal: ~11,000 `topics-cred-*` in the owner's temp folder on
+  // 23/10/2026.
+  const tmp = join(dirname(path), `.cred-${process.pid}-${Date.now().toString(36)}.tmp`);
+  try {
+    writeFileSync(tmp, JSON.stringify(doc, null, 2), { mode: 0o600 });
+    chmodSync(tmp, 0o600);
+    renameSync(tmp, path);
+  } catch (error) {
+    try { unlinkSync(tmp); } catch { /* never written, or already renamed */ }
+    throw error;
+  }
 }
 
 /**

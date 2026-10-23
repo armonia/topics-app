@@ -13,7 +13,7 @@
   * @covers RT-02
  */
 import { describe, expect, test, beforeEach, afterEach } from "bun:test";
-import { mkdtempSync, rmSync, writeFileSync, readFileSync, statSync } from "fs";
+import { mkdtempSync, readdirSync, rmSync, writeFileSync, readFileSync, statSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 import { writeCredentials } from "./auth";
@@ -120,5 +120,23 @@ describe("le garanzie che valgono per entrambi i formati", () => {
       expect(() => JSON.parse(raw)).not.toThrow();
       expect(JSON.parse(raw).claudeAiOauth.accessToken).toBe(`giro-${i}`);
     }
+  });
+});
+
+describe("la scrittura non lascia nulla dietro di se'", () => {
+  test("ne' nella temp (una cartella vuota a ogni rinnovo) ne' accanto al file di credenziali", () => {
+    const p = join(dir, "creds.json");
+    writeFileSync(p, JSON.stringify({ claudeAiOauth: { accessToken: "vecchio", refreshToken: "r", expiresAt: 1 } }));
+    const tempBefore = readdirSync(tmpdir()).filter((n) => n.startsWith("topics-cred-"));
+
+    writeCredentials(p, NEXT);
+    writeCredentials(p, { ...NEXT, accessToken: "ancora-nuovo" });
+
+    // Nothing new in the temp folder: the 23/10/2026 count was ~11,000 of them.
+    expect(readdirSync(tmpdir()).filter((n) => n.startsWith("topics-cred-"))).toEqual(tempBefore);
+    // And the folder holds the credential file alone: the temp file was renamed over it.
+    expect(readdirSync(dir)).toEqual(["creds.json"]);
+    expect(statSync(p).mode & 0o777).toBe(0o600);
+    expect(JSON.parse(readFileSync(p, "utf-8")).claudeAiOauth.accessToken).toBe("ancora-nuovo");
   });
 });

@@ -98,8 +98,9 @@ describe("i test non ereditano gli hook git della macchina", () => {
     // true while the only source was the preload, which writes at RUNTIME and
     // Bun does not pass that to a child.
     //
-    // Now `scripts/test-unit-serial.ts` and `scripts/test-unit-shards.ts` put
-    // the isolation in the environment `bun test` is BORN with, where every git
+    // Now `scripts/test-unit-shards.ts` puts the isolation in the environment
+    // `bun test` is BORN with (via `fileEnv()`, which wraps the base in
+    // `gitIsolationEnv`), where every git
     // child inherits it for free. So the bare call has two correct answers, and
     // which one is right is decided by how this process was launched. Asserting
     // either one unconditionally is a false red: the previous version went red

@@ -65,7 +65,7 @@ describe('readProjectSidebarWidth', () => {
 
   /** Fake globals for `body`, then exactly what was there before: the old
    *  property, or no property at all. A DOM global left behind poisons every
-   *  test file that runs after this one (`scripts/check-test-globals.ts`).
+   *  test file that shares this process (a plain `bun test` of several files).
    *  Deciding with `'localStorage' in globalThis` left the fake behind when an
    *  earlier file had left the key set to `undefined`
    *  (`focusBrowserContext.live.test.ts`, 08/10/2026): `in` said it was there,

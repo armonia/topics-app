@@ -216,7 +216,7 @@ export function loadDurations(): Record<string, number> {
  * dynamic: the queue is consumed as workers free up, so a wrong estimate costs
  * one file, not a whole shard). A file with no known duration weighs the median.
  */
-export function longestFirst(files: string[], durations: Record<string, number>): string[] {
+export function orderByDuration(files: string[], durations: Record<string, number>): string[] {
   const known = files.map((f) => durations[f]).filter((d): d is number => typeof d === "number" && d > 0);
   const sortedKnown = [...known].sort((a, b) => a - b);
   const median = sortedKnown.length ? sortedKnown[Math.floor(sortedKnown.length / 2)] : 1;
@@ -276,6 +276,8 @@ interface FileResult {
   file: string;
   code: number;
   wallS: number;
+  /** CPU the process (and the children it waited for) used: how much of the wall was work and not waiting. */
+  cpuS: number;
   /** stdout + stderr, kept only when the file is red. */
   output: string;
   /** What the file left in its scratch directory. */
@@ -285,11 +287,13 @@ interface FileResult {
 /**
  * Runs ONE file in its own `bun test` process, in its own scratch directory.
  *
- * Output is read to the end, which is cheap here: the process is short-lived,
- * unlike the worker of the old shape (a single process holding millions of
- * chunks). Only a red file keeps its output.
+ * THE OUTPUT GOES TO A FILE, NOT TO A PIPE THIS PROCESS READS. A test leaves
+ * children behind (a daemon, a `sleep 600` standing in for a CLI, a frozen
+ * tree) and they inherit the pipe: reading it to the end then waits for the
+ * last of them, and a runner that waits for a stray never reports. A file has
+ * no end to wait for. Only a red file is read back.
  */
-async function runFile(file: string, scratch: string, env: Record<string, string | undefined>, timeoutMs: string): Promise<FileResult> {
+async function runFile(file: string, scratch: string, outBase: string, env: Record<string, string | undefined>, timeoutMs: string): Promise<FileResult> {
   // `TMPDIR` is the file's own scratch directory: every `os.tmpdir()` of the
   // file lands there, and nowhere a neighbour can see it.
   mkdirSync(scratch, { recursive: true });
@@ -297,15 +301,21 @@ async function runFile(file: string, scratch: string, env: Record<string, string
   const proc = Bun.spawn(["bun", "test", "--timeout", timeoutMs, file], {
     cwd: REPO_ROOT,
     env: { ...env, TMPDIR: scratch, TMP: scratch, TEMP: scratch, TOPICS_GATE_MAX_RUN_MS: String(FILE_CAP_MS) },
-    stdout: "pipe",
-    stderr: "pipe",
+    stdout: Bun.file(`${outBase}.out`),
+    stderr: Bun.file(`${outBase}.err`),
   });
-  const [out, err, code] = await Promise.all([new Response(proc.stdout).text(), new Response(proc.stderr).text(), proc.exited]);
+  const code = await proc.exited;
   const wallS = (Date.now() - t0) / 1000;
+  const read = (path: string): string => {
+    try { return code === 0 ? "" : readFileSync(path, "utf8"); } catch { return ""; } finally { rmSync(path, { force: true }); }
+  };
+  const err = read(`${outBase}.err`);
+  const out = read(`${outBase}.out`);
   let leaked: string[] = [];
   try { leaked = readdirSync(scratch); } catch { /* the file removed its own scratch: nothing left */ }
   rmSync(scratch, { recursive: true, force: true });
-  return { file, code, wallS, output: code === 0 ? "" : `${err}${out}`, leaked };
+  const cpuS = Number(proc.resourceUsage()?.cpuTime.total ?? 0n) / 1e6;
+  return { file, code, wallS, cpuS, output: `${err}${out}`, leaked };
 }
 
 /** Runs `fn` over `items` with `n` workers pulling from one shared queue, in order. */
@@ -380,7 +390,7 @@ if (import.meta.main) {
   const { parallel, serial } = partitionTiers(files);
   const durations = loadDurations();
   const seed = shuffleSeedOf(argv);
-  const order = seed === null ? longestFirst(parallel, durations) : shuffleSeeded(parallel, seed);
+  const order = seed === null ? orderByDuration(parallel, durations) : shuffleSeeded(parallel, seed);
   if (seed !== null) console.error(`test-unit-shards: shuffle seed ${seed} (repeat with --shuffle=${seed})`);
   // The plan without running it: the order the workers would take, then the
   // files that run alone at the end. One per line, so a test can read it and a
@@ -394,6 +404,7 @@ if (import.meta.main) {
   // real temp folder and removed at the end: what is left of it is a leak of
   // this runner and not of a test.
   const runRoot = mkdtempSync(join(tmpdir(), "tu-"));
+  mkdirSync(join(runRoot, "out"));
   const baseEnv: NodeJS.ProcessEnv = {
     ...process.env,
     // Covers the children with the slot this process already holds: bun's
@@ -406,7 +417,8 @@ if (import.meta.main) {
   let done = 0;
   const started = Date.now();
   const runOne = async (file: string): Promise<void> => {
-    const r = await runFile(file, join(runRoot, String(seq++)), env, timeoutMs);
+    const n = seq++;
+    const r = await runFile(file, join(runRoot, String(n)), join(runRoot, "out", String(n)), env, timeoutMs);
     results.push(r);
     done += 1;
     if (done % 200 === 0) console.error(`test-unit-shards: ${done}/${files.length}  ${((Date.now() - started) / 1000).toFixed(0)}s`);
@@ -431,13 +443,14 @@ if (import.meta.main) {
   }
 
   console.log("\n── test:unit (un processo per file) ──");
-  const slowest = [...results].sort((a, b) => b.wallS - a.wallS).slice(0, 5);
-  console.log(`  ${results.length} file, ${N} shard, wall ${totalWallS.toFixed(1)}s; i più lenti: ${slowest.map((r) => `${r.file} ${r.wallS.toFixed(1)}s`).join(", ")}`);
+  const lagging = [...results].sort((a, b) => b.wallS - a.wallS).slice(0, 5);
+  const cpuTotal = results.reduce((sum, r) => sum + r.cpuS, 0);
+  console.log(`  ${results.length} file, ${N} shard, wall ${totalWallS.toFixed(1)}s, cpu ${cpuTotal.toFixed(0)}s su ${cores} core; i più lenti: ${lagging.map((r) => `${r.file} ${r.wallS.toFixed(1)}s`).join(", ")}`);
 
   // The red files BY NAME, last, and on STDERR: the board's check runner
   // concatenates stdout then stderr and keeps the tail, so the last lines of
   // stderr are the only lines an agent is sure to read.
-  const MAX_NAMED = 12;
+  const MAX_NAMED = 40;
   if (reds.length) {
     console.error(`file rossi (${reds.length}):`);
     for (const r of reds.slice(0, MAX_NAMED)) {
@@ -449,8 +462,8 @@ if (import.meta.main) {
   const leakers = results.filter((r) => r.leaked.length > 0).sort((a, b) => a.file.localeCompare(b.file));
   if (leakers.length) {
     console.error(`file che lasciano roba in TMPDIR (${leakers.length}): un test deve togliere cio' che crea`);
-    for (const r of leakers.slice(0, MAX_NAMED)) console.error(`  ✗ ${r.file} › ${r.leaked.length} voci: ${r.leaked.slice(0, 3).join(", ")}`);
-    if (leakers.length > MAX_NAMED) console.error(`  … e altri ${leakers.length - MAX_NAMED}`);
+    // All of them: this list is a work list, and a truncated one gets fixed in three rounds instead of one.
+    for (const r of leakers) console.error(`  ✗ ${r.file} › ${r.leaked.length} voci: ${r.leaked.slice(0, 3).join(", ")}`);
   }
   // Last on stderr for the same reason as the names above. A daemon the run
   // left alive turns a green run red.

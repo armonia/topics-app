@@ -8,7 +8,7 @@
  */
 import { afterAll, expect, test } from "bun:test";
 import { spawn } from "node:child_process";
-import { existsSync, mkdtempSync } from "node:fs";
+import { existsSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -32,4 +32,8 @@ test("starts a daemon", async () => {
 
 afterAll(() => {
   if (process.env.STRAY_FIXTURE_STOP === "1" && pid) process.kill(pid, "SIGTERM");
+  // This file's own scratch: leaving it behind marks the file red under the
+  // runner's per-file TMPDIR check. Stray detection reads the daemon from
+  // `ps`, not from this directory, so removing it hides nothing.
+  rmSync(dir, { recursive: true, force: true });
 });

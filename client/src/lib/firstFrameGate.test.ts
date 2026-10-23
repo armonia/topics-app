@@ -35,7 +35,7 @@ describe('awaitWithCap', () => {
 describe('recordFirstFrameGate', () => {
   /** Installs a fake sessionStorage, removes it afterwards: a DOM global left
    *  behind poisons every test file that runs after this one in the same
-   *  process (see `scripts/check-test-globals.ts`). */
+   *  process (a plain `bun test` of several files). */
   function withSessionStorage(body: (read: () => string | null) => void): void {
     const store = new Map<string, string>();
     const g = globalThis as Record<string, unknown>;
