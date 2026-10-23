@@ -166,6 +166,11 @@ export const SERIAL_GLOBS = [
   // deadline: reproduced red under CPU contention three times in a row
   // (10/09/2026), green standalone every time.
   "server/providers/codex-complete.test.ts",
+  // Child `bun test` runs with a 300 ms ack cap and a 1000 ms route grace, and
+  // a CLI exit that must land inside them. Red in CI on 23/10 (run 40026150098:
+  // the watchdog answered at 2083 ms), green on the same tests before the
+  // rebase (run 40022305558): the window follows the load of the box.
+  "tests/integration/late-scan-past-cap.test.ts",
 ] as const;
 
 const TEST_GLOBS = ["**/*.test.ts", "**/*.test.tsx"] as const;

@@ -655,6 +655,8 @@
 
     "tests/integration/auth-routes.test.ts": 1734,
 
+    "tests/integration/process-run-command.test.ts": 812,
+
     "tests/unit/ws-outbound-schema.test.ts": 914
   }
 }
