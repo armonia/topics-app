@@ -7,7 +7,8 @@
  * @covers GATE-12
  */
 import { test, expect, describe } from "bun:test";
-import { readFileSync, existsSync, statSync } from "fs";
+import { readFileSync, existsSync, statSync, mkdtempSync, mkdirSync, rmSync } from "fs";
+import { tmpdir } from "os";
 import { resolve, join } from "path";
 import {
   SUITE_ROOTS,
@@ -22,6 +23,8 @@ import {
   planUnderLoad,
   defaultShards,
   aggregateVerdict,
+  snapshotEntries,
+  newEntries,
 } from "./test-unit-shards.ts";
 
 describe("planUnderLoad", () => {
@@ -259,5 +262,24 @@ describe("defaultShards", () => {
 
   test("a 4-vCPU machine gets four shards, the value the bar was written for", () => {
     expect(defaultShards(4)).toBe(4);
+  });
+});
+
+describe("newEntries", () => {
+  test("names what appeared after the snapshot, sorted, and not what was already there", () => {
+    const dir = mkdtempSync(join(tmpdir(), "new-entries-"));
+    try {
+      mkdirSync(join(dir, "was-here"));
+      const before = snapshotEntries(dir);
+      mkdirSync(join(dir, "b-appeared"));
+      mkdirSync(join(dir, "a-appeared"));
+      expect(newEntries(before, dir)).toEqual(["a-appeared", "b-appeared"]);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("a folder that cannot be read is empty, not an error", () => {
+    expect([...snapshotEntries(join(tmpdir(), "does-not-exist-" + process.pid))]).toEqual([]);
   });
 });

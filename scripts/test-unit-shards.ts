@@ -336,6 +336,20 @@ export function shuffleSeedOf(argv: readonly string[]): number | null {
   return Number.isInteger(given) && given >= 0 ? given : randomBytes(4).readUInt32BE(0);
 }
 
+/** The names directly under `dir`, or none when it cannot be read. */
+export function snapshotEntries(dir: string): Set<string> {
+  try {
+    return new Set(readdirSync(dir));
+  } catch {
+    return new Set();
+  }
+}
+
+/** The names under `dir` now that were not in `before`, sorted. */
+export function newEntries(before: ReadonlySet<string>, dir: string): string[] {
+  return [...snapshotEntries(dir)].filter((name) => !before.has(name)).sort();
+}
+
 // ── CLI ──────────────────────────────────────────────────────────────────────
 if (import.meta.main) {
   const argv = process.argv.slice(2);
@@ -403,6 +417,7 @@ if (import.meta.main) {
   // One root for the whole run, one folder per file under it. It is made in the
   // real temp folder and removed at the end: what is left of it is a leak of
   // this runner and not of a test.
+  const outerBefore = snapshotEntries(tmpdir());
   const runRoot = mkdtempSync(join(tmpdir(), "tu-"));
   mkdirSync(join(runRoot, "out"));
   const baseEnv: NodeJS.ProcessEnv = {
@@ -431,6 +446,10 @@ if (import.meta.main) {
   await pool(serial, 1, runOne);
   const totalWallS = (Date.now() - started) / 1000;
   rmSync(runRoot, { recursive: true, force: true });
+  // What reached the REAL temp folder in spite of the private one: a test that
+  // writes to a hard-coded path. Judged only where nobody else is writing to
+  // it (CI); on a developer machine other programs add entries all the time.
+  const escaped = process.env.CI ? newEntries(outerBefore, tmpdir()) : [];
 
   // Reprint the output of the red files: the bar must see WHICH tests failed.
   // The first MAX_REPRINT in full; the names of all of them below.
@@ -465,11 +484,15 @@ if (import.meta.main) {
     // All of them: this list is a work list, and a truncated one gets fixed in three rounds instead of one.
     for (const r of leakers) console.error(`  ✗ ${r.file} › ${r.leaked.length} voci: ${r.leaked.slice(0, 3).join(", ")}`);
   }
+  if (escaped.length) {
+    console.error(`voci apparse nella cartella temporanea vera durante il giro (${escaped.length}): un test scrive fuori da TMPDIR`);
+    for (const name of escaped.slice(0, MAX_NAMED)) console.error(`  ✗ ${name}`);
+  }
   // Last on stderr for the same reason as the names above. A daemon the run
   // left alive turns a green run red.
   const strays = await strayAiBridges(runId);
   await reportAndEndStrays(strays);
-  const verdict = aggregateVerdict([...results.map((r) => r.code), leakers.length > 0 ? 1 : 0, strays.length > 0 ? 1 : 0]);
+  const verdict = aggregateVerdict([...results.map((r) => r.code), leakers.length > 0 ? 1 : 0, escaped.length > 0 ? 1 : 0, strays.length > 0 ? 1 : 0]);
   console.log(`  ${verdict === 0 ? "PASS" : "FAIL"}  ${files.length} file (${parallel.length} par / ${serial.length} ser) in ${N} shard  wall ${totalWallS.toFixed(1)}s` + (verdict === 0 ? "" : `  (exit ${verdict})`));
 
   // Rewrite the measured durations only on request (merged over the old ones: a
