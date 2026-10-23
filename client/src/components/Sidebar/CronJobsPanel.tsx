@@ -3,20 +3,16 @@ import { AlertTriangle, Check, Clock, ChevronRight, Play, Trash2, RefreshCw, Cal
 import { useConfirm } from '../../hooks/useConfirm';
 import { apiFetch } from '../../lib/shell/net';
 import { refusal } from './cronRefusal';
+import { formatSchedule, type CronSchedule } from './cronSchedule';
 
 interface CronJob {
   id: string;
   name?: string;
   enabled: boolean;
-  schedule: {
-    kind: 'at' | 'every' | 'cron';
-    atMs?: number;
-    everyMs?: number;
-    expr?: string;
-    tz?: string;
-    anchorMs?: number;
-  };
-  payload: {
+  // The gateway's compact list view: `schedule` is left out for event-driven
+  // jobs, `payload` always.
+  schedule?: CronSchedule;
+  payload?: {
     kind: 'systemEvent' | 'agentTurn';
     text?: string;
     message?: string;
@@ -28,29 +24,6 @@ interface CronJob {
 
 interface CronJobsPanelProps {
   enabled?: boolean;
-}
-
-function formatSchedule(schedule: CronJob['schedule']): string {
-  if (schedule.kind === 'at' && schedule.atMs) {
-    const date = new Date(schedule.atMs);
-    return date.toLocaleString('en-US', {
-      month: 'short',
-      day: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit'
-    });
-  }
-  if (schedule.kind === 'every' && schedule.everyMs) {
-    const mins = Math.round(schedule.everyMs / 60000);
-    if (mins < 60) return `every ${mins}m`;
-    const hours = Math.round(mins / 60);
-    if (hours < 24) return `every ${hours}h`;
-    return `every ${Math.round(hours / 24)}d`;
-  }
-  if (schedule.kind === 'cron' && schedule.expr) {
-    return schedule.expr;
-  }
-  return '-';
 }
 
 /** How long ago a run happened, in the same shorthand as the next run. */
@@ -248,8 +221,8 @@ function JobRow({ job, ranAt, onToggle, onRun, onDelete }: JobRowProps) {
   // same thing, and the list is refreshed a second later.
   const lastRun = ranAt ?? (job.lastRunAt ? Date.parse(job.lastRunAt) : NaN);
 
-  const name = job.name || job.payload.text?.slice(0, 30) || job.payload.message?.slice(0, 30) || 'Job';
-  const scheduleIcon = job.schedule.kind === 'at' ? Calendar : job.schedule.kind === 'every' ? RefreshCw : Clock;
+  const name = job.name || job.payload?.text?.slice(0, 30) || job.payload?.message?.slice(0, 30) || 'Job';
+  const scheduleIcon = job.schedule?.kind === 'at' ? Calendar : job.schedule?.kind === 'every' ? RefreshCw : Clock;
   const ScheduleIcon = scheduleIcon;
 
   return (

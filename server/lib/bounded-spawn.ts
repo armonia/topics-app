@@ -196,7 +196,13 @@ export function spawnBounded(argv: string[], opts: SpawnBoundedOptions): Bounded
     stdin: opts.stdin ?? "ignore",
     stdout: opts.stdout ?? "pipe",
     stderr: opts.stderr ?? "ignore",
-    detached: true,
+    // Windows has no process groups addressed by a negative pid (`killGroup`
+    // already falls back to the child there), and a detached child gets no
+    // console: an npm `.cmd` shim then runs but its stdout never reaches the
+    // pipe. Measured on Windows 11 with Bun 1.3.14 on 2026-10-22: detached,
+    // `exit 0` and empty stdout; attached, the full output.
+    detached: process.platform !== "win32",
+    windowsHide: true,
   });
 
   trackGroup(proc.pid);
