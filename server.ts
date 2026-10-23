@@ -232,6 +232,7 @@ import { isSseCommentOnly } from "./server/lib/sse-ping";
 import { currentRouteFault, applyRouteFault } from "./server/lib/route-fault";
 import { BUSY_SPINNER_PHASES } from "./server/lib/claude-session-state";
 import { isTranscriptOrphaned } from "./server/lib/claude-transcript-path";
+import { keepLiveTranscripts, restoreSweptTranscript } from "./server/lib/transcript-keeper";
 import { pendingForkSessions } from "./server/lib/chat-fork-store";
 import { createProjectsRouter } from "./server/routes/projects";
 import { createWorktreeGcRunner } from "./server/services/worktree-gc-runner";
@@ -5689,6 +5690,9 @@ function reconcileOrphanedTranscripts(): void {
     if (pendingForks.has(row.csid)) continue;
     const topic = ctx.getTopicBySessionKey(row.sk);
     const cwd = ctx.resolveTopicCwd(topic);
+    // Missing because the CLI's 30-day cleanup deleted it is not dead: the kept
+    // link puts it back, and the session resumes (lib/transcript-keeper.ts).
+    restoreSweptTranscript(ctx.db, cwd, row.csid, `boot ${row.sk}`);
     if (
       !isTranscriptOrphaned({
         cwd,
@@ -5730,6 +5734,21 @@ function reconcileOrphanedTranscripts(): void {
     console.log(`[orphan-transcript] scanned ${rows.length} topic session(s), forgot ${forgotten} unresumable`);
   }
 }
+
+// ── Transcript keeper ── a second name for every resumable session's CLI
+// transcript, so the CLI's own 30-day cleanup cannot take a session Topics
+// still resumes (lib/transcript-keeper.ts). At boot, after the sweeps above, and
+// every six hours: the cleanup needs thirty idle days, any pass in between holds.
+const TRANSCRIPT_KEEP_EVERY_MS = 6 * 60 * 60 * 1000;
+function keepTranscriptsNow(why: string): void {
+  try {
+    const { kept, pruned } = keepLiveTranscripts(ctx.db);
+    if (kept || pruned) console.log(`[transcript-keeper] ${why}: ${kept} kept, ${pruned} dropped`);
+  } catch (err) {
+    console.warn(`[transcript-keeper] ${why}: pass failed:`, err);
+  }
+}
+setInterval(() => keepTranscriptsNow("periodic"), TRANSCRIPT_KEEP_EVERY_MS).unref?.();
 
 // ── Archived-topic reconcile — le fasi che nessuna superficie può spegnere ──
 // Il gemello di riparazione di `parkTopicSession` (lib/session-parking.ts): il
@@ -5937,6 +5956,7 @@ void survivingTurnsAdopted
 survivingTurnsAdopted
   .then(() => reconcileOrphanedBusyPhases())
   .then(() => reconcileOrphanedTranscripts())
+  .then(() => keepTranscriptsNow("boot"))
   .then(() => reconcileArchivedTopicSessions())
   .then(() => riprendiTurniInterrotti(resumeCtx, topicsRouter))
   // The sessions the reattach kept for their background work, and those a
