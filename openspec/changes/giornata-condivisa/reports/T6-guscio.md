@@ -37,9 +37,13 @@ dalla PR, non da questo report: qui riporto solo cio' che ho visto girare.
   che condividono la configurazione della pane. Il reindirizzamento di
   `window.close()` del popup (login Google GIS / OAuth) non girava piu'. Lo script
   passa alla pane, con guardia `window.opener`, e il popup lo eredita.
-  **Non verificato sul comportamento vero** (login in una pane su Mac): non lo
-  posso provare senza dev server e senza toccare il proxy di produzione.
-  `cargo check` e' verde, il comportamento no. **Rischio aperto.**
+  **Non verificato sul comportamento vero** (login in una pane su Mac). Il Mac
+  ha `Topics.app` di Attilio in esecuzione da 22 ore con lo stesso identifier
+  (`io.armonia.topics.tauri`): lanciare qui la mia build significa aprire una
+  seconda istanza accanto a quella in uso, e il load era 320. Non l'ho fatto.
+  `cargo check` e' verde, il comportamento no. **Rischio aperto**: la prova
+  del popup va fatta su una build isolata (identifier e cartella dati propri),
+  quando il Mac e' libero.
 - **Release firmate.** `assert-sig` controlla che la versione firmata dai `.sig`
   coincida con il tag e con `latest.json` (il client 2.14 rifiuta il bundle se non
   coincide), che la chiave sia quella dell'app, e che l'url del manifesto punti
