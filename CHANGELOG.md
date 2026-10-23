@@ -2,6 +2,11 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.3.15 — 2026-10-23
+
+### Sotto il cofano
+- il guscio sale a Tauri 2.12 e la release controlla le proprie firme (#414)
+
 ## 2.3.14 — 2026-10-23
 
 ### Sotto il cofano

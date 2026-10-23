@@ -1,5 +1,22 @@
 [
   {
+    "version": "2.3.15",
+    "date": "2026-10-23",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "il guscio sale a Tauri 2.12 e la release controlla le proprie firme (#414)",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        }
+      ]
+    }
+  },
+  {
     "version": "2.3.14",
     "date": "2026-10-23",
     "sections": {
