@@ -18,6 +18,7 @@ import type { WSMessage } from '../../types';
 import { useHoverReveal } from '../../hooks/useHoverReveal';
 import { lazyWarm, warm } from '../../lib/lazyWarm';
 import { GitSectionSkeleton } from './GitSectionSkeleton';
+import { KeptSection } from './KeptSection';
 import { loadGitChanges } from '../../state/pane/panePreload';
 
 // Git is heavy (diff rendering) — keep lazy, and `lazyWarm` so that a window
@@ -1018,11 +1019,11 @@ export function ProjectSidebar({
                   </div>
                 )}
               </div>
-              {expandedSections.files && (
+              <KeptSection open={expandedSections.files}>
                 <div className="flex-1 min-h-0 overflow-y-auto">
                   <FileExplorer ref={fileExplorerRef} projectPath={projectPath} compact onOpenFile={onOpenFile} onWSMessage={onWSMessage} />
                 </div>
-              )}
+              </KeptSection>
             </div>
             {gitVisible && <div
               data-testid="project-sidebar-git-section"
@@ -1091,13 +1092,13 @@ export function ProjectSidebar({
                   </span>
                 )}
               </button>
-              {expandedSections.processes && (
+              <KeptSection open={expandedSections.processes}>
                 <div className="flex-1 min-h-0 overflow-y-auto">
                   <Suspense fallback={null}>
                     <ScriptRunner projectPath={projectPath} onOpenProcessLog={onOpenProcessLog} />
                   </Suspense>
                 </div>
-              )}
+              </KeptSection>
             </div>
           </div>
         </div>
@@ -1231,11 +1232,11 @@ export function ProjectSidebar({
               </div>
             )}
           </div>
-          {expandedSections.files && (
+          <KeptSection open={expandedSections.files}>
             <div className="flex-1 min-h-0 overflow-y-auto">
               <FileExplorer ref={fileExplorerRef} projectPath={projectPath} compact onOpenFile={onOpenFile} onWSMessage={onWSMessage} />
             </div>
-          )}
+          </KeptSection>
         </div>
 
         {/* Resize handle: Files ↔ first expanded bottom section */}
@@ -1350,13 +1351,13 @@ export function ProjectSidebar({
               </span>
             )}
           </button>
-          {expandedSections.processes && (
+          <KeptSection open={expandedSections.processes}>
             <div className="flex-1 min-h-0 overflow-y-auto">
               <Suspense fallback={null}>
                 <ScriptRunner projectPath={projectPath} onOpenProcessLog={onOpenProcessLog} />
               </Suspense>
             </div>
-          )}
+          </KeptSection>
         </div>
       </div>
     </div>

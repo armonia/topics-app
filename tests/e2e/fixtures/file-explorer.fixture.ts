@@ -14,8 +14,11 @@ export function canonicalPath(p: string): string {
  * would drift the way the two copies of the path spelling already did.
  */
 export function projectRowSelector(projectPath: string): string {
+  // A Windows path inside a CSS string: `\e2e` reads as a hex escape and
+  // matches nothing, so backslashes and quotes are escaped first.
+  const attr = (p: string) => `"${p.replace(/\\/g, "\\\\").replace(/"/g, '\\"')}"`;
   const spellings = [...new Set([projectPath, canonicalPath(projectPath)])];
-  return spellings.map((p) => `button[title="${p}"], button[data-tip="${p}"]`).join(", ");
+  return spellings.map((p) => `button[title=${attr(p)}], button[data-tip=${attr(p)}]`).join(", ");
 }
 
 export class FileExplorerPage {

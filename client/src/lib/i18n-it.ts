@@ -2702,6 +2702,15 @@ const IT: Dict = {
   'perf.q1': 'Va veloce?',
   'perf.q2': 'Quanto costa?',
   'perf.fpsAvg': 'fps · media {n}',
+  'perf.interaction.heading': 'Interazioni',
+  'perf.interaction.worst': 'la peggiore {ms} ms su {target}',
+  'perf.interaction.none': 'nessuna sopra {ms} ms',
+  'perf.interaction.unsupported': 'non misurate da questo motore',
+  'perf.interaction.p95': 'p95 {p95} ms su {total} interazioni, {slow} lente',
+  'perf.interaction.p95Under': 'p95 sotto {ms} ms su {total} interazioni',
+  'perf.storage.usage': 'Memoria locale {used} di {limit} MB',
+  'perf.storage.refused': '{n} scritture rifiutate',
+  'perf.storage.userData': '{n} erano testo non salvato',
   'perf.procCount': '{n} processi',
   // The weight inventory broken down by feature. "Held" and not "in memory":
   // those numbers are COUNTS, not megabytes, and the section exists precisely

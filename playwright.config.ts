@@ -18,6 +18,11 @@ const NIGHTLY_ONLY_SPECS = [
   // per riprovare tre flussi che altre spec già coprono. Nel notturno gira, così
   // l'attrezzo resta vivo e i numeri del giorno restano registrati.
   "ink-latency",
+  // The interactions a person repeats all day, timed by Event Timing on WebKit,
+  // the engine of the desktop shell. `scripts/check-inp-shell.ts` judges the
+  // JSON; the spec asserts no threshold. Milliseconds of real input on a real
+  // CPU: nightly only, for the reason `ink-latency` is.
+  "inp-shell",
   // Same family, same reason. `pane-return-cls` measures a RETURN per pane:
   // CLS plus the milliseconds between the app painting and the pane having
   // content. The CLS half is stable anywhere; the milliseconds half is not,
@@ -443,6 +448,8 @@ export default defineConfig({
         // Qui `hasTouch` e' falso, quindi `new Touch(...)` non esiste e il
         // gesto non si puo' nemmeno costruire.
         "**/board-touch-drag.spec.ts",
+        // Event Timing on the engine of the desktop shell: runs only in `webkit`.
+        "**/inp-shell.spec.ts",
         ...(IS_PR ? NIGHTLY_ONLY_SPECS : []),
       ],
     },
@@ -603,6 +610,9 @@ export default defineConfig({
         // The live-terminals menu: used mostly from remote, i.e. from phone
         // Safari and the WKWebView shell. WebKit is where it lives.
         "**/live-terminals.spec.ts",
+        // How long the interactions take, as Event Timing reads them: WebKit is the
+        // engine of the desktop shell, and the gate's engine source is this one.
+        "**/inp-shell.spec.ts",
         // The phone list under the header and the button row: WebKit is what ships.
         "**/mobile-list-under-chrome.spec.ts",
         "**/mobile-screens-under-chrome.spec.ts",

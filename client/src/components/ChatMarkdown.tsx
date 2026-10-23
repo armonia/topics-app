@@ -15,7 +15,7 @@
  * behaviour as mermaid's code-block placeholder; once loaded, the modules are
  * cached and every subsequent mount renders math synchronously.
  */
-import { useEffect, useMemo, useState, type ReactNode } from 'react';
+import { memo, useEffect, useMemo, useState, type ReactNode } from 'react';
 import ReactMarkdown, { type Components } from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import type { PluggableList } from 'unified';
@@ -23,6 +23,8 @@ import { openLink, isExternalLinkGesture } from '../lib/openLink';
 import { openTaskInApp } from '../lib/openTaskLink';
 import { deepLinkClickRoute, openTabInApp } from '../lib/tabLink';
 import { openDeepLinkFromClick } from '../lib/deepLinkClick';
+import { completePartialMarkdown, openFenceStart, splitMarkdownBlocks } from '../lib/markdownBlocks';
+import { MarkdownBlockContext } from './Chat/markdownBlockContext';
 import { useToast } from './Shared/Toast';
 
 /**
@@ -145,7 +147,37 @@ function loadMathMods(): Promise<MathMods> {
 const BASE_REMARK: PluggableList = [remarkGfm];
 const BASE_REHYPE: PluggableList = [];
 
-export function ChatMarkdown({ components, children }: { components: Components; children: string }) {
+interface MarkdownBlockProps {
+  source: string;
+  offset: number;
+  openFenceFrom: number | null;
+  remarkPlugins: PluggableList;
+  rehypePlugins: PluggableList;
+  components: Components;
+}
+
+/**
+ * One block of a message (see `lib/markdownBlocks.ts`). Memoized, so a block
+ * that is already complete is not parsed again while a later one grows: that is
+ * the whole point of cutting a message into blocks.
+ */
+const MarkdownBlock = memo(function MarkdownBlock({ source, offset, openFenceFrom, remarkPlugins, rehypePlugins, components }: MarkdownBlockProps) {
+  const place = useMemo(() => ({ offset, openFenceFrom }), [offset, openFenceFrom]);
+  return (
+    <MarkdownBlockContext.Provider value={place}>
+      <ReactMarkdown remarkPlugins={remarkPlugins} rehypePlugins={rehypePlugins} components={components}>
+        {source}
+      </ReactMarkdown>
+    </MarkdownBlockContext.Provider>
+  );
+});
+
+/**
+ * `streaming`: the text is the end of a message that is still being written, so
+ * its last block gets the marks a half-typed token leaves open closed for the
+ * draw (`**bo` shows bold, not a stray asterisk).
+ */
+export const ChatMarkdown = memo(function ChatMarkdown({ components, children, streaming = false }: { components: Components; children: string; streaming?: boolean }) {
   const needsMath = children.includes('$$');
   const [mathMods, setMathMods] = useState<MathMods | null>(mathModsCache);
   useEffect(() => {
@@ -161,25 +193,48 @@ export function ChatMarkdown({ components, children }: { components: Components;
     return () => { alive = false; };
   }, [needsMath, mathMods]);
 
-  // react-markdown re-parses `children` from scratch on EVERY render (no internal
-  // memoization). A completed message re-renders whenever a sibling/parent updates,
-  // so without this memo every such render re-runs the full remark/rehype AST build
-  // — O(messages × content) on any unrelated state change, and O(n²) as a message
-  // streams. Memoize on the real inputs: the chat hot path passes the module-const
-  // `markdownComponents` (stable ref), so this hits on every render where the text
-  // hasn't changed. (Board call sites pass a fresh `{}` and simply never hit — no
-  // regression, they're not a hot path.)
-  const withMath = needsMath && mathMods;
-  return useMemo(
-    () => (
-      <ReactMarkdown
-        remarkPlugins={withMath ? [remarkGfm, mathMods!.remark] : BASE_REMARK}
-        rehypePlugins={withMath ? [mathMods!.rehype] : BASE_REHYPE}
-        components={{ ...DEFAULT_COMPONENTS, ...components }}
-      >
-        {children}
-      </ReactMarkdown>
-    ),
-    [children, components, withMath, mathMods],
+  // react-markdown re-parses its input from scratch on EVERY render (no internal
+  // memoization), so a message that streams used to be parsed in full for every
+  // token: O(n²) over a reply. The message is cut into blocks and each block is
+  // memoized (`MarkdownBlock`), so only the tail is parsed again. The chat hot
+  // path passes the module-const `markdownComponents` (stable ref), so a render
+  // where the text has not changed costs a shallow compare per block. (Board
+  // call sites pass a fresh `{}` and simply never hit: they are not a hot path.)
+  const mods = needsMath ? mathMods : null;
+  const extensions = useMemo(
+    () => ({
+      remark: mods ? [remarkGfm, mods.remark] : BASE_REMARK,
+      rehype: mods ? [mods.rehype] : BASE_REHYPE,
+    }),
+    [mods],
   );
-}
+  const merged = useMemo(() => ({ ...DEFAULT_COMPONENTS, ...components }), [components]);
+  const blocks = useMemo(() => {
+    const placed: Array<{ source: string; at: number }> = [];
+    let at = 0;
+    for (const source of splitMarkdownBlocks(children)) {
+      placed.push({ source, at });
+      at += source.length;
+    }
+    return placed;
+  }, [children]);
+
+  return (
+    <>
+      {blocks.map((block, i) => {
+        const tail = streaming && i === blocks.length - 1;
+        return (
+          <MarkdownBlock
+            key={i}
+            source={tail ? completePartialMarkdown(block.source) : block.source}
+            offset={block.at}
+            openFenceFrom={tail ? openFenceStart(block.source) : null}
+            remarkPlugins={extensions.remark}
+            rehypePlugins={extensions.rehype}
+            components={merged}
+          />
+        );
+      })}
+    </>
+  );
+});

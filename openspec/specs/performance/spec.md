@@ -1251,3 +1251,94 @@ copy of the database.
 - **GIVEN** the schema of all migrations, without statistics
 - **WHEN** the planner explains each of the four reads
 - **THEN** each plan SHALL name its partial index and none SHALL scan `tasks`
+
+### Requirement: STREAMB-04 — A streamed chunk costs the block being written, not the message
+
+A reply is drawn in markdown blocks cut on stable boundaries (a blank line outside
+a code fence, never inside one). Each block is a memoised component keyed by its
+index: a block whose text did not change does not render, so a chunk that lands
+in the last block re-parses and re-renders that block only. The cut is a function
+of the text alone and only ever moves forward, except for markup that works on
+the whole document (reference definitions, footnotes, `$$`, an HTML block that
+is open-ended), where the message is one block, as it was before.
+
+While the reply streams, only the tail block has its open marks closed, and the
+code fence still being written is not syntax-highlighted until it closes. A code
+block SHALL still know its place in the WHOLE message (the key of its Run
+button), whichever block it sits in.
+
+The work of a chunk SHALL NOT grow with the length of the message: `check:ink`
+counts the components that render and the characters handed to the markdown
+parser for the same chunk on a short and on a long message, and goes red when
+either ratio passes its ceiling. A single code fence that is itself huge stays
+linear in its own size.
+
+#### Scenario: the same chunk on a short and a long message
+- **GIVEN** a short message (5 blocks) and a long one (55 blocks), each streaming 80 characters at a time
+- **WHEN** one chunk lands at the tail of each
+- **THEN** the characters handed to the markdown parser SHALL be the same for both, and the components that render SHALL stay within the ceiling of `ink-budget.json`
+
+#### Scenario: blocks draw what the whole message draws
+- **GIVEN** a message with every construct and every prefix of it, streaming or settled
+- **THEN** the HTML drawn in blocks SHALL equal the HTML of one markdown component over the whole text, apart from the newline react-markdown writes between top-level blocks
+
+### Requirement: INTERACTION-01 — The slowest interactions of a session are measured by the browser, kept, and judged against a budget
+
+The page SHALL observe `PerformanceObserver({ type: 'event', durationThreshold: 16 })`
+and keep, per session, a histogram of interaction durations (events grouped by
+`interactionId`, buckets in multiples of 8 ms) plus a ring buffer of the slowest.
+The p95 needs a denominator: the total comes from the browser's own count of
+interactions (`performance.interactionCount`), because interactions under the
+threshold are never delivered. The worst interaction of the session and the p95
+SHALL be shown in the existing performance panel.
+
+The desktop shell SHALL report the summary to the local server (loopback only,
+never from a web client), and `check:inp-shell` SHALL judge two sources against
+a budget recorded at the first measurement: the engine of the shell driven by the
+browser test (`tests/e2e/inp-shell.spec.ts`) and the shell itself, read from
+those reports. A source with no data abstains (exit 2) instead of passing. The
+budget is `min(200, max(48, 4 x p95))` rounded up to 8 ms, recorded by
+`--update-baseline`, and the first measurement is refused when its own p95
+is already over 200 ms.
+
+#### Scenario: a slow interaction shows in the panel
+- **GIVEN** a session in which one click took 120 ms
+- **WHEN** the performance panel is open
+- **THEN** it SHALL show that interaction as the worst of the session and the p95 over all interactions
+
+#### Scenario: a source with no data
+- **GIVEN** no engine measurement, or no report from the shell
+- **WHEN** `check:inp-shell` runs
+- **THEN** it SHALL exit 2 and say which source is empty, never 0
+
+### Requirement: QUOTA-01 — A write the browser refuses is counted and visible
+
+`Storage.setItem` SHALL be wrapped so that a refused write (quota exceeded, or
+storage denied) is counted per key and rethrown unchanged to the caller: counting
+SHALL NOT swallow the error. Keys that hold something the user wrote (drafts,
+layout they chose) are told apart from caches by prefix, and a refused write on
+the first kind SHALL be shown in red. The performance panel SHALL show the
+storage in use against the limit (WebKit counts UTF-16, two bytes a character)
+and the number of refused writes.
+
+#### Scenario: the store is full
+- **GIVEN** a store with no room left
+- **WHEN** the app writes a key
+- **THEN** the caller SHALL still receive the error, the refusal SHALL be counted under that key, and the panel SHALL show it
+
+### Requirement: KEPTSEC-01 — A closed sidebar section is hidden, not rebuilt
+
+The Files and Processes sections of the project sidebar SHALL be drawn in
+`<Activity>`: closed is hidden, the DOM and the state stay, and opening it again
+is a repaint. The tree comes back as the same DOM node, scrolled to the pixel
+where it was left. A section that was never opened SHALL NOT be mounted, so a
+project with Processes closed does not pay for polling its scripts.
+
+#### Scenario: close and open Files
+- **GIVEN** a Files tree taller than the sidebar, scrolled down
+- **WHEN** the user closes the section and opens it again
+- **THEN** it SHALL be the same node, at the same scroll offset
+
+#### Scenario: Processes never opened
+- **GIVEN** a project whose Processes section is closed and was never opened
+- **THEN** its content SHALL NOT exist in the DOM until the first opening

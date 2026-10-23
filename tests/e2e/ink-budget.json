@@ -4,7 +4,13 @@
   "budget": {
     "medianMs": 100,
     "maxMs": 250,
-    "rationale": "100ms is the ceiling under which a response to a direct gesture is read as instantaneous rather than as a delay; past it the app stops feeling like a surface being manipulated. It is one number for all three gestures on purpose: a per-gesture budget fitted to today's measurement would have to be re-fitted on every machine, and would turn ordinary scheduling noise into red. The median says 'how long it usually takes'; the max says 'and no single one of them stalled', which is the half a median cannot see - the defect this budget was written after was one sample at 196ms among four at 13ms."
+    "rationale": "100ms is the ceiling under which a response to a direct gesture is read as instantaneous rather than as a delay; past it the app stops feeling like a surface being manipulated. It is one number for all three gestures on purpose: a per-gesture budget fitted to today's measurement would have to be re-fitted on every machine, and would turn ordinary scheduling noise into red. The median says 'how long it usually takes'; the max says 'and no single one of them stalled', which is the half a median cannot see - the defect this budget was written after was one sample at 196ms among four at 13ms.",
+    "stream": {
+      "parsedRatioMax": 1.5,
+      "fiberRatioMax": 1.5,
+      "parsedCharsMax": 4000,
+      "rationale": "The stream check is a ratio of work, not a latency in milliseconds: The one-threshold-for-all-gestures rule is about milliseconds and cannot judge a ratio, so the stream gets its own ceiling: one 80-char chunk must cost about the same parse work on a 65400-char message as on a 5400-char one. parsedCharsMax caps the absolute work of that chunk on the large message, so only a bounded tail block is ever re-parsed, never the whole transcript."
+    }
   },
   "baseline": {
     "measuredOn": "2026-08-14",
