@@ -18,7 +18,8 @@
  *   3. the CLI's cleanup deletes the transcript of the now idle session, the
  *      server restarts again, and the session is still there, its transcript
  *      back whole, and the next turn resumes it (`--resume`, same id) with the
- *      memory of both earlier turns.
+ *      memory of both earlier turns. *
+ * @covers RESUME-05
  */
 import { afterAll, beforeAll, describe, expect, it } from "bun:test";
 import { Database } from "bun:sqlite";

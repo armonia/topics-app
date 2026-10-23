@@ -6,7 +6,8 @@
  * cleanup is an `unlink` of the CLI's name, nothing else. Bun's `homedir()`
  * does not follow a HOME set at runtime, so transcripts land under the real
  * `~/.claude/projects`, in folders named after this test's temp dir, with fresh
- * ids, and each test removes its folders.
+ * ids, and each test removes its folders. *
+ * @covers RESUME-05
  */
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 import { Database } from "bun:sqlite";

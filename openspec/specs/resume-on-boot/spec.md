@@ -202,3 +202,30 @@ riconosciuto lascia gli altri appesi per sempre.
 #### Scenario: uno stato dentro un blob compresso
 - **GIVEN** una riga compressa che porta uno stato in corso
 - **THEN** SHALL essere trovata
+
+### Requirement: RESUME-05 — Una sessione Claude sopravvive alla pulizia dei transcript della CLI
+
+Claude Code cancella i transcript delle sessioni CLI ferme da 30 giorni
+(`cleanupPeriodDays`), e le sessioni che lancia Topics non ne sono esenti. Il
+22/10/2026 è sparito così il transcript della chat «Regia Claude · Backlog
+Topics», e il boot successivo ha dimenticato la sessione.
+
+Topics SHALL tenere un secondo nome (`<data>/claude-transcripts/<id>.jsonl`) del
+transcript di ogni sessione che può ancora riprendere — chat non archiviate e
+tab di terminale con un id di ripresa — e SHALL rimetterlo dove `--resume` lo
+cerca prima di giudicare la sessione: sweep di boot, spawn della chat,
+riconciliazione e rilancio delle tab. Una sessione col transcript rimesso NON
+SHALL essere dimenticata, e il turno dopo SHALL riprenderla con lo stesso id.
+
+Il secondo nome di una sessione che Topics non riprenderà più SHALL sparire alla
+passata dopo.
+
+#### Scenario: la CLI pulisce, il server riparte
+- **GIVEN** una chat legata a un progetto, ferma da più di 30 giorni, il cui transcript la CLI ha cancellato
+- **WHEN** il server riparte
+- **THEN** la sessione SHALL restare, il transcript SHALL tornare intero e il turno dopo SHALL partire con `--resume` sullo stesso id
+
+#### Scenario: un turno a metà durante il riavvio
+- **GIVEN** un turno in corso quando il server riceve SIGTERM
+- **WHEN** il server riparte
+- **THEN** il turno SHALL finire, con la stessa sessione e lo stesso transcript
