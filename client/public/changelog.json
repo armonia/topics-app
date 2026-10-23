@@ -1,5 +1,47 @@
 [
   {
+    "version": "2.3.12",
+    "date": "2026-10-23",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Una card nasce dove il land fonde, non dove il land pubblicherebbe (#404)",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "L'isolamento di git vive nell'ambiente con cui nasce bun test, e il plist launchd non porta più la mia home (#408)",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Token del gateway: regge il SecretRef di OpenClaw e il bridge MCP usa il token del daemon (#409)",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Pannello Cron: OpenClaw dalle RPC del gateway, non da /tools/invoke (#411)",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "aggiorna durate shard dal nightly del 2026-10-23 [skip ci]",
+          "en": "",
+          "scope": "e2e",
+          "breaking": false
+        },
+        {
+          "it": "Cinque advisory nuove rendevano rossa ogni card in review, non una sola PR (#413)",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
     "version": "2.3.11",
     "date": "2026-10-22",
     "sections": {

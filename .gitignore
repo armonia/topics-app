@@ -287,6 +287,9 @@ desktop-tauri/src-tauri/target/
 desktop-tauri/src-tauri/target-linux/
 desktop-tauri/src-tauri/gen/
 
+# CEF spike (heavy build artifacts)
+desktop-tauri/cef-spike/target/
+
 
 # wv2probe: cross-built by hand when someone re-runs the measurement
 tools/wv2probe/target/
@@ -463,3 +466,8 @@ output/
 /native/.cargo-home/
 /native/target/
 /native/topics_native.node
+
+# La chiave privata di firma con cui questa macchina si presenta al relay.
+# La riga `relay-secret` sopra copre solo il file del vecchio schema:
+# `server/services/relay-config.ts` scrive QUESTO nome, e il repo e` pubblico.
+relay-identity.json

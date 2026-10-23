@@ -31,7 +31,8 @@ export const MOCK_CRON_JOBS = [
     id: "cron-3",
     name: "One-time task",
     enabled: false,
-    schedule: { kind: "at" as const, atMs: Date.now() + 86400000 },
+    // The gateway sends an ISO `at`, not `atMs` (CRONRPC-01).
+    schedule: { kind: "at" as const, at: new Date(Date.now() + 86400000).toISOString() },
     payload: { kind: "systemEvent" as const, text: "cleanup:stale" },
     sessionTarget: "main" as const,
   },
