@@ -15,6 +15,13 @@
  * The mechanics (why `event.timeStamp`, why the frame AFTER the DOM is ready,
  * what counts as painted) live in `helpers/ink.ts`.
  *
+ * A FOURTH CHECK is not a gesture: what ONE streamed chunk costs on a short
+ * message and on a long one (STREAMB-04). It is counted in work (components
+ * rendered, characters handed to the markdown parser; `helpers/stream-work-probe.ts`)
+ * and not in milliseconds, because a ratio of work is the same on every machine
+ * and a time is not. Parsing the whole message for every token makes the long
+ * one cost as many times more as it is longer.
+ *
  * THIS FILE DOES NOT JUDGE. It measures, writes `test-results/ink-latency.json`
  * and asserts only that the HARNESS worked — every gesture produced a real,
  * positive number. The threshold lives in exactly one place,
@@ -27,16 +34,19 @@
  * can be seen going red for the reason it exists rather than because a
  * comparison operator was checked against an invented number.
  *
- * @covers PERF-02
+ * @covers PERF-02, STREAMB-04
  */
-import { expect, test } from "@playwright/test";
-import { mkdirSync, writeFileSync } from "node:fs";
+import { expect, test, type Page } from "@playwright/test";
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { hermetic } from "./fixtures/hermetic";
+import { goToApp, openTopic } from "./helpers";
 import { createTopic, deleteTask, deleteTopic, resetPaneStore } from "./helpers/api-fixtures";
 import { installInkStall, measureInk, median, type InkSample } from "./helpers/ink";
 import { seedMessage } from "./helpers/seed-messages";
+import { beginChunk, endChunk, installStreamWorkProbe } from "./helpers/stream-work-probe";
 import { E2E_BASE } from "./helpers/test-server";
+import { interceptWebSocket } from "./helpers/ws-helpers";
 
 hermetic(test);
 
@@ -48,6 +58,15 @@ const SAMPLES = 5;
 const STALL_MS = Number(process.env.INK_STALL_MS ?? 0);
 
 const OUT_PATH = resolve(__dirname, "../../test-results/ink-latency.json");
+
+/** One message size in the stream check: the work of each chunk, and its median. */
+interface StreamSize {
+  messageChars: number;
+  parsedChars: number[];
+  fibers: number[];
+  parsedCharsMedian: number;
+  fibersMedian: number;
+}
 
 interface Measured {
   samples: number[];
@@ -220,15 +239,13 @@ test.describe("INK — click → ink on the three most frequent gestures", () =>
     record("send", sendSamples);
 
     // ------------------------------------------------------------- deliver --
-    const payload = {
+    writeResult({
       $schema: "ink-latency-v1",
       measuredAt: new Date().toISOString(),
       samplesPerGesture: SAMPLES,
       stallMs: STALL_MS,
       gestures: result,
-    };
-    mkdirSync(resolve(__dirname, "../../test-results"), { recursive: true });
-    writeFileSync(OUT_PATH, `${JSON.stringify(payload, null, 2)}\n`);
+    });
     testInfo.annotations.push({
       type: "ink",
       description: Object.entries(result)
@@ -246,6 +263,21 @@ test.describe("INK — click → ink on the three most frequent gestures", () =>
   });
 });
 
+/**
+ * The result file is written by two tests, so each one MERGES its part into
+ * what the other left: the gesture test and the stream test have no order.
+ */
+function writeResult(part: Record<string, unknown>): void {
+  let current: Record<string, unknown> = {};
+  try {
+    current = JSON.parse(readFileSync(OUT_PATH, "utf8")) as Record<string, unknown>;
+  } catch {
+    // First part of the run: nothing to merge into.
+  }
+  mkdirSync(resolve(__dirname, "../../test-results"), { recursive: true });
+  writeFileSync(OUT_PATH, `${JSON.stringify({ ...current, ...part }, null, 2)}\n`);
+}
+
 function round1(n: number): number {
   return Math.round(n * 10) / 10;
 }
@@ -253,4 +285,119 @@ function round1(n: number): number {
 /** The chat session key of a topic: `topic:` + the first 8 chars of its id. */
 function sessionKeyOf(topicId: string): string {
   return `topic:${topicId.slice(0, 8)}`;
+}
+
+// ------------------------------------------------------------------ stream --
+
+/** Characters in one streamed chunk, as a model sends a few tokens. */
+const CHUNK_CHARS = 80;
+/** Chunks counted on each message size. Odd, so the median is a measured value. */
+const STREAM_SAMPLES = 15;
+/** One paragraph of the message, blank line included. */
+const UNIT_CHARS = 300;
+/**
+ * The two sizes, both ending half a block into a new one. The message is made
+ * of identical paragraphs and a block is four of them (1200 characters), so
+ * both sizes sit at the same place in the same block when the chunks start:
+ * what the chunks cost differs by what the CLIENT does with the length of the
+ * message, and by nothing in the text. Sizes that did not share that place
+ * would measure where the chunks fall in their blocks instead.
+ */
+const SMALL_MESSAGE_CHARS = 4 * 1200 + 600;
+const LARGE_MESSAGE_CHARS = 54 * 1200 + 600;
+
+/** Plain paragraphs: no mark a half-typed token could change, and one distinct label each. */
+function streamText(chars: number): string {
+  let text = "";
+  for (let n = 0; text.length < chars; n++) {
+    const head = `Section P${String(n).padStart(4, "0")} `;
+    text += `${(head + "lorem ipsum dolor sit amet consectetur adipiscing elit ".repeat(8)).slice(0, UNIT_CHARS - 2)}\n\n`;
+  }
+  return text.slice(0, chars);
+}
+
+test.describe("INK — what one streamed chunk costs", () => {
+  test.describe.configure({ timeout: 240_000 });
+
+  test("a chunk costs the same work on a short message and on a long one", async ({ page, request }) => {
+    const stampNow = Date.now();
+    const topics = [
+      await createTopic(request, `E2E-Stream-Short-${stampNow}`),
+      await createTopic(request, `E2E-Stream-Long-${stampNow}`),
+    ];
+    try {
+      await resetPaneStore(request, topics.map((t) => t.id));
+      const ws = await interceptWebSocket(page);
+      await installStreamWorkProbe(page);
+      await goToApp(page);
+      await page.keyboard.press("Escape");
+
+      const small = await measureStream(page, ws, topics[0]!, SMALL_MESSAGE_CHARS);
+      const large = await measureStream(page, ws, topics[1]!, LARGE_MESSAGE_CHARS);
+      const ratio = (a: number, b: number) => (b > 0 ? Math.round((a / b) * 100) / 100 : 0);
+
+      writeResult({
+        stream: {
+          chunkChars: CHUNK_CHARS,
+          small,
+          large,
+          parsedRatio: ratio(large.parsedCharsMedian, small.parsedCharsMedian),
+          fiberRatio: ratio(large.fibersMedian, small.fibersMedian),
+        },
+      });
+
+      // Harness sanity ONLY: a chunk that made React do nothing means the probe
+      // was not watching, and a ratio of two zeroes is not a flat cost.
+      for (const size of [small, large]) {
+        expect(size.fibersMedian, "a chunk rendered no component: the probe is not seeing React").toBeGreaterThan(0);
+        expect(size.parsedCharsMedian, "a chunk parsed no markdown: the probe is not seeing the parser").toBeGreaterThan(0);
+      }
+    } finally {
+      for (const t of topics) await deleteTopic(request, t.id).catch(() => {});
+    }
+  });
+});
+
+/** One live message of `chars` characters, then the work of the next `STREAM_SAMPLES` chunks. */
+async function measureStream(
+  page: Page,
+  ws: { send(data: Record<string, unknown> & { type: string }): void },
+  topic: { id: string; name: string },
+  chars: number,
+): Promise<StreamSize> {
+  await openTopic(page, new RegExp(topic.name));
+  const sessionKey = sessionKeyOf(topic.id);
+  const messageId = `ink-stream-${chars}-${Date.now()}`;
+  const frame = (content: string) => ws.send({ type: "stream:content_chunk", sessionKey, topicId: topic.id, content });
+  const bubble = page.locator(`[data-testid="chat-message"][data-message-id="${messageId}"]`);
+
+  ws.send({ type: "stream:start", sessionKey, topicId: topic.id, messageId });
+  await expect(bubble).toHaveCount(1, { timeout: 30_000 });
+
+  // The message so far, in big chunks. Its last characters are a label that
+  // exists nowhere else, so that seeing it painted means the whole of it landed.
+  const text = streamText(chars + STREAM_SAMPLES * CHUNK_CHARS);
+  const built = `${text.slice(0, chars - 8)}ZZBUILD0`;
+  for (let at = 0; at < built.length; at += 3000) frame(built.slice(at, at + 3000));
+  await expect(bubble).toContainText("ZZBUILD0", { timeout: 60_000 });
+
+  const parsedChars: number[] = [];
+  const fibers: number[] = [];
+  for (let i = 0; i < STREAM_SAMPLES; i++) {
+    const label = `ZC${String(i).padStart(4, "0")}`;
+    const from = chars + i * CHUNK_CHARS;
+    await beginChunk(page);
+    frame(text.slice(from, from + CHUNK_CHARS - label.length) + label);
+    await expect(bubble).toContainText(label, { timeout: 30_000 });
+    const work = await endChunk(page);
+    parsedChars.push(work.parsedChars);
+    fibers.push(work.fibers);
+  }
+  return {
+    messageChars: chars,
+    parsedChars,
+    fibers,
+    parsedCharsMedian: median(parsedChars),
+    fibersMedian: median(fibers),
+  };
 }

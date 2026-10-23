@@ -2,10 +2,8 @@
  * The topics map in two halves, and the two caches that follow them.
  *
  * What is load-bearing here is IDENTITY: `persistBuckets` decides "did the
- * archive change" by `!==` on the bucket object, so every operation must keep
- * the object of a half it did not touch. A rename of a live chat that minted a
- * new archived bucket would rewrite 1,535 rows into the localStorage journal
- * for nothing - the exact cost this split exists to remove.
+ * live half change" by `!==` on the bucket object, so every operation must keep
+ * the object of a half it did not touch. The archive is not cached any more.
  *
  * @covers TOPIC-01
  * @covers STORAGE-WAL-01
@@ -145,23 +143,23 @@ describe('readTopicCaches (the first frame)', () => {
     expect(Object.keys(b.archived)).toEqual(['z']);
   });
 
-  test('both keys are read and the flag decides, not the key', () => {
+  test('the legacy archived key is not read: the first frame starts from the live cache alone', () => {
     const b = readTopicCaches(storage({
       [LIVE_CACHE_KEY]: JSON.stringify({ a: topic('a', false) }),
-      [ARCHIVED_CACHE_KEY]: JSON.stringify({ z: topic('z', true), reopened: topic('reopened', false) }),
+      [ARCHIVED_CACHE_KEY]: JSON.stringify({ z: topic('z', true) }),
     }));
-    expect(Object.keys(b.live).sort()).toEqual(['a', 'reopened']);
-    expect(Object.keys(b.archived)).toEqual(['z']);
+    expect(Object.keys(b.live)).toEqual(['a']);
+    expect(b.archived).toEqual({});
   });
 
-  test('garbage in a cache is a hint ignored, not an error', () => {
-    const b = readTopicCaches(storage({ [LIVE_CACHE_KEY]: '{not json', [ARCHIVED_CACHE_KEY]: '[1,2]' }));
+  test('garbage in the cache is a hint ignored, not an error', () => {
+    const b = readTopicCaches(storage({ [LIVE_CACHE_KEY]: '{not json' }));
     expect(b).toEqual(emptyBuckets());
   });
 });
 
-describe('persistBuckets writes only the half that changed', () => {
-  /** Real writers on a hand-driven clock: `persist` writes, then `tick` closes
+describe('persistBuckets writes the live half, and never the archive', () => {
+  /** Real writer on a hand-driven clock: `persist` writes, then `tick` closes
    *  every window armed, so each step counts what reached storage. The
    *  throttle itself is proven in throttledLocalWrite.test.ts; here only WHICH
    *  key is written matters. */
@@ -176,12 +174,9 @@ describe('persistBuckets writes only the half that changed', () => {
     const timers = new Map<number, () => void>();
     const schedule = (fn: () => void) => { timers.set(++seq, fn); return seq; };
     const cancel = (handle: unknown) => { timers.delete(handle as number); };
-    const writers = {
-      live: createThrottledLocalWriter({ key: LIVE_CACHE_KEY, storage, schedule, cancel }),
-      archived: createThrottledLocalWriter({ key: ARCHIVED_CACHE_KEY, storage, schedule, cancel }),
-    };
-    const persist = (prev: ReturnType<typeof buckets> | null, next: ReturnType<typeof buckets>, known: { live: boolean; archived: boolean }) => {
-      persistBuckets(prev, next, writers, known);
+    const writer = createThrottledLocalWriter({ key: LIVE_CACHE_KEY, storage, schedule, cancel });
+    const persist = (prev: ReturnType<typeof buckets> | null, next: ReturnType<typeof buckets>, liveKnown: boolean) => {
+      persistBuckets(prev, next, writer, liveKnown);
       const due = [...timers.values()];
       timers.clear();
       for (const fn of due) fn();
@@ -189,54 +184,48 @@ describe('persistBuckets writes only the half that changed', () => {
     return { persist, writes, data };
   }
 
-  test('a hundred updates of live topics cost the archived cache nothing', () => {
+  test('a hundred updates of live topics cost one live write each, and the archive none', () => {
     const { persist, writes } = counting();
-    const known = { live: true, archived: true };
     let prev = buckets([topic('a', false)], [topic('z', true)]);
-    persist(null, prev, known);
+    persist(null, prev, true);
     expect(writes[LIVE_CACHE_KEY]).toBe(1);
-    expect(writes[ARCHIVED_CACHE_KEY]).toBe(1);
 
     for (let i = 0; i < 100; i++) {
       const next = upsertTopics(prev, [topic('a', false, { name: `r${i}` })]);
-      persist(prev, next, known);
+      persist(prev, next, true);
       prev = next;
     }
     expect(writes[LIVE_CACHE_KEY]).toBe(101);
-    expect(writes[ARCHIVED_CACHE_KEY]).toBe(1);
-  });
-
-  test('archiving a topic writes both halves, once each', () => {
-    const { persist, writes } = counting();
-    const known = { live: true, archived: true };
-    const prev = buckets([topic('a', false)], [topic('z', true)]);
-    persist(null, prev, known);
-    const next = upsertTopics(prev, [topic('a', true)]);
-    persist(prev, next, known);
-    expect(writes[LIVE_CACHE_KEY]).toBe(2);
-    expect(writes[ARCHIVED_CACHE_KEY]).toBe(2);
-  });
-
-  test('an empty half the server has not answered for is not written over the cache', () => {
-    const { persist, writes } = counting();
-    const b = buckets([topic('a', false)], []);
-    persist(null, b, { live: true, archived: false });
-    expect(writes[LIVE_CACHE_KEY]).toBe(1);
     expect(writes[ARCHIVED_CACHE_KEY]).toBeUndefined();
-    // Once the server has said "none", the empty archive IS the truth.
-    persist(null, b, { live: true, archived: true });
-    expect(writes[ARCHIVED_CACHE_KEY]).toBe(1);
+  });
+
+  test('archiving a topic rewrites the live half, and the archive is never written', () => {
+    const { persist, writes } = counting();
+    const prev = buckets([topic('a', false)], [topic('z', true)]);
+    persist(null, prev, true);
+    const next = upsertTopics(prev, [topic('a', true)]);
+    persist(prev, next, true);
+    expect(writes[LIVE_CACHE_KEY]).toBe(2);
+    expect(writes[ARCHIVED_CACHE_KEY]).toBeUndefined();
+  });
+
+  test('an empty live half the server has not answered for is not written over the cache', () => {
+    const { persist, writes } = counting();
+    const b = buckets([], [topic('z', true)]);
+    persist(null, b, false);
+    expect(writes[LIVE_CACHE_KEY]).toBeUndefined();
+    // Once the server has said "none", the empty live half IS the truth.
+    persist(null, b, true);
+    expect(writes[LIVE_CACHE_KEY]).toBe(1);
   });
 
   test('the same bytes are not written twice even when the object changed', () => {
     const { persist, writes } = counting();
-    const known = { live: true, archived: true };
     const prev = buckets([topic('a', false)], [topic('z', true)]);
-    persist(null, prev, known);
-    const same = { live: { ...prev.live }, archived: { ...prev.archived } };
-    persist(prev, same, known);
+    persist(null, prev, true);
+    const same = { live: { ...prev.live }, archived: prev.archived };
+    persist(prev, same, true);
     expect(writes[LIVE_CACHE_KEY]).toBe(1);
-    expect(writes[ARCHIVED_CACHE_KEY]).toBe(1);
   });
 });
 

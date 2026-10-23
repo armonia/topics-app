@@ -5,11 +5,15 @@
  * Prints how many milliseconds the app takes to PAINT the answer to the three
  * most frequent gestures, and exits non-zero when any of them is over budget.
  * It replaces the adjectives ("fast", "instant", "fluid") that cannot fail, and
- * therefore never finish, with a command that can.
+ * therefore never finish, with a command that can. A fourth check judges
+ * streaming: one arriving chunk must cost the same work on a long message as
+ * on a short one, as a ratio of work rather than as milliseconds.
  *
  *   card    click a board card    -> its title is readable in the task drawer
  *   tab     click another tab     -> that chat's own message is readable
  *   send    press Enter to send   -> the sent message is readable in the list
+ *   stream  one chunk arrives     -> the parse work it causes stays flat,
+ *           short vs long message    ratios of work, not milliseconds
  *
  * WHERE EACH PIECE LIVES.
  *   the probe       tests/e2e/helpers/ink.ts        (event.timeStamp -> painted frame)
@@ -21,7 +25,7 @@
  * places is how a budget ends up with two values.
  *
  * THREE OUTCOMES, because "I did not measure" is not a verdict.
- *   0  measured, every gesture within budget
+ *   0  measured, every check within budget
  *   1  MEASURED and over budget, or the command was invoked wrong
  *   2  NOT measured: the probe never produced a number, so there is nothing to
  *      judge. Its siblings (route-latency, scroll-fluidity, drag, growth) all
@@ -67,8 +71,15 @@ const OVER_BUDGET = 1;
 /** Nothing was measured: the gate abstains, and says so out loud. */
 const NOT_MEASURED = 2;
 
+interface StreamBudget {
+  parsedRatioMax: number;
+  fiberRatioMax: number;
+  parsedCharsMax: number;
+  rationale: string;
+}
+
 interface Budget {
-  budget: { medianMs: number; maxMs: number };
+  budget: { medianMs: number; maxMs: number; stream: StreamBudget };
 }
 
 interface Measured {
@@ -79,11 +90,30 @@ interface Measured {
   maxMs: number;
 }
 
+/** One message size in the stream check: work counts, never timing. */
+interface StreamSize {
+  messageChars: number;
+  parsedChars: number[];
+  fibers: number[];
+  parsedCharsMedian: number;
+  fibersMedian: number;
+}
+
+/** One chunk on a short vs a long message: flat cost means O(1) per chunk. */
+interface StreamResult {
+  chunkChars: number;
+  small: StreamSize;
+  large: StreamSize;
+  parsedRatio: number;
+  fiberRatio: number;
+}
+
 interface Result {
   measuredAt: string;
   samplesPerGesture: number;
   stallMs: number;
   gestures: Record<string, Measured>;
+  stream?: StreamResult;
 }
 
 function main(): number {
@@ -161,12 +191,57 @@ function main(): number {
     }
   }
 
+  // The stream verdict judges WORK counts, never timing: milliseconds depend on
+  // the machine, work does not.
+  const stream = result.stream;
+  const streamBudget = budget.stream;
+  if (!stream) {
+    missing.push("stream");
+    rows.push(pad("stream one chunk", 18) + "  -  not measured");
+  } else {
+    const parsedOver = stream.parsedRatio > streamBudget.parsedRatioMax;
+    const fiberOver = stream.fiberRatio > streamBudget.fiberRatioMax;
+    const tailOver = stream.large.parsedCharsMedian > streamBudget.parsedCharsMax;
+    const mark = parsedOver || fiberOver || tailOver ? "FAIL" : "ok  ";
+    rows.push(
+      `${pad("stream one chunk", 18)}${pad(`small ${stream.small.parsedCharsMedian} chars`, 20)}` +
+        `${pad(`large ${stream.large.parsedCharsMedian} chars`, 20)}${mark}   → ` +
+        `ratio ${stream.parsedRatio} (one ${stream.chunkChars}-char chunk: work, not ms)`,
+    );
+    if (parsedOver) {
+      failures.push(
+        `stream: parsed ratio ${stream.parsedRatio}, ceiling ${streamBudget.parsedRatioMax} ` +
+          `(small median ${stream.small.parsedCharsMedian} chars, large median ${stream.large.parsedCharsMedian} chars): ` +
+          `one chunk parses more text on a long message, so chunk cost grows with message length`,
+      );
+    }
+    if (fiberOver) {
+      failures.push(
+        `stream: fiber ratio ${stream.fiberRatio}, ceiling ${streamBudget.fiberRatioMax} ` +
+          `(small median ${stream.small.fibersMedian} fibers, large median ${stream.large.fibersMedian} fibers): ` +
+          `one chunk re-renders more components on a long message, so chunk cost grows with message length`,
+      );
+    }
+    if (tailOver) {
+      failures.push(
+        `stream: one ${stream.chunkChars}-char chunk parses ${stream.large.parsedCharsMedian} chars ` +
+          `on the large message, cap ${streamBudget.parsedCharsMax} chars: ` +
+          `a chunk may re-parse a bounded tail block, never the whole message`,
+      );
+    }
+  }
+
   console.log("\nCLICK → INK: milliseconds from the gesture to the painted answer");
   console.log(
     `${result.samplesPerGesture} samples each · measured ${result.measuredAt}` +
       (result.stallMs > 0 ? ` · WITH a ${result.stallMs}ms injected stall` : ""),
   );
-  console.log(`budget: median ≤ ${budget.medianMs} ms, no sample > ${budget.maxMs} ms\n`);
+  console.log(`budget: median ≤ ${budget.medianMs} ms, no sample > ${budget.maxMs} ms`);
+  console.log(
+    `stream budget: parsed ratio ≤ ${streamBudget.parsedRatioMax}, ` +
+      `fiber ratio ≤ ${streamBudget.fiberRatioMax}, ` +
+      `one chunk on the large message ≤ ${streamBudget.parsedCharsMax} parsed chars (work ratios, not milliseconds)\n`,
+  );
   for (const row of rows) console.log("  " + row);
 
   // A MEASURED overrun beats an abstention: if even one gesture is genuinely
@@ -184,7 +259,7 @@ function main(): number {
     );
     return NOT_MEASURED;
   }
-  console.log("\nAll three under budget.");
+  console.log("\nAll four under budget.");
   return 0;
 }
 

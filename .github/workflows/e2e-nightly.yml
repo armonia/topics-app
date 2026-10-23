@@ -170,6 +170,24 @@ jobs:
           CHROMIUM_PATH: ${{ steps.chromium.outputs.path }}
           PLAYWRIGHT_JSON_OUTPUT_NAME: test-results/results.json
 
+      # INTERACTION p95, judged against the recorded budget. The engine source runs
+      # its own WebKit spec (WebKit is installed above), like the click-to-ink
+      # gate does in ci.yml. Exit 1 is measured and over budget, and stops the
+      # run. Exit 2 is not measured, and leaves an annotated warning without
+      # stopping it: the abstention is not a green.
+      - name: Interaction responsiveness budget (engine)
+        if: ${{ !cancelled() }}
+        run: |
+          set +e
+          bun run check:inp-shell
+          rc=$?
+          set -e
+          if [ "$rc" -eq 2 ]; then
+            echo "::warning title=Interaction p95 not measured::The bench produced no usable number on this runner (or the baseline is not recorded). This green says nothing about interaction responsiveness."
+            exit 0
+          fi
+          exit "$rc"
+
       # Il results.json e' necessario al job update-durations per riscrivere le durate.
       # Si carica sempre (anche se la suite ha fallito): le durate dei test rossi sono
       # comunque valide, e non caricarle significherebbe perdere la misura di quella notte.

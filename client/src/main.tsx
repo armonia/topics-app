@@ -11,6 +11,9 @@ import { awaitWithCap, recordFirstFrameGate, FIRST_FRAME_WARM_CAP_MS } from './l
 import { initWindowPresence } from './state/windowPresence';
 import { installNetShim } from './lib/shell/net';
 import { installPaneAttachTraceSink } from './lib/paneAttachTrace';
+import { startEventTiming } from './lib/eventTiming';
+import { startInteractionReport } from './lib/eventTimingReport';
+import { installStorageLedger } from './lib/storageLedger';
 import { getTabId } from './state/pane/middleware/syncCrossTab';
 import { isInternalDrag } from './lib/dndTypes';
 import { installPaneDragFlag } from './lib/paneDragFlag';
@@ -30,6 +33,14 @@ installNetShim();
 // read by nobody after the fact (card c5c1c68f). After the shim, so that under
 // Tauri its POST reaches the data server.
 installPaneAttachTraceSink(getTabId);
+// The slowest interactions of the session and the writes the browser refused
+// are read in the perf panel, and the desktop shell sends its interaction
+// histogram to the local server log for `check:inp-shell`. Event Timing wakes
+// only for slow input and the ledger only on a refused write: a page at rest
+// pays nothing for either.
+installStorageLedger();
+startEventTiming();
+startInteractionReport();
 
 const container = document.getElementById('root')
 if (!container) {

@@ -64,8 +64,8 @@
 #                        lancia a mano: `bun run report:previews`.
 #
 # COSA NON FA, di proposito: i cancelli di TEMPO (`check:ink`, `check:drag`,
-# `check:scroll-fluidity`, `check:growth`, `check:route-latency`,
-# `probe:boot-memory`) NON stanno qui.
+# `check:inp-shell`, `check:scroll-fluidity`, `check:growth`,
+# `check:route-latency`, `probe:boot-memory`) NON stanno qui.
 # Misurano millisecondi e frame, e su una macchina carica descrivono la
 # macchina invece del codice: la stessa passata ha gia' dato 13,9% e 1,7% di
 # frame persi a tre minuti di distanza, a codice fermo. Vanno lanciati a mano,

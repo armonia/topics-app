@@ -1,0 +1,19 @@
+{
+  "$schema": "inp-shell-baseline-v1",
+  "why": "Interaction to next paint is the delay every tap and keypress pays, and no gate measured it on the path users actually take. The engine bench drives frequent interactions in WebKit and records the 95th percentile, while the desktop shell reports its own histogram from production use. The first real measurement on each source sets the budget, so later runs judge new code against what the product already delivered instead of against a wish.",
+  "rule": "budget = min(200, max(48, 4 x measured p95 rounded up to 8))",
+  "sources": {
+    "engine": {
+      "recorded": false,
+      "measuredOn": null,
+      "p95Ms": null,
+      "budgetMs": null
+    },
+    "shell": {
+      "recorded": false,
+      "measuredOn": null,
+      "p95Ms": null,
+      "budgetMs": null
+    }
+  }
+}

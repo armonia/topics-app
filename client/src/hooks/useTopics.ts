@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
+import { pruneBrowserHistory } from '../lib/browserHistoryPrune';
 import type { Topic, CreateTopicRequest, UpdateTopicRequest } from '../types';
 import { ApiError, topicsApi } from '../lib/api';
 import { createThrottledLocalWriter } from '../lib/throttledLocalWrite';
@@ -35,21 +36,29 @@ import { shouldRetryTopicsLoad, topicsRetryDelayMs } from './topicsRetry';
  * And the map is in TWO halves (see `topicBuckets.ts`): the live topics are
  * the boot list and `topics-cache`; the archived ones - 1,535 of 1,554 on the
  * workspace this was measured on - come later, in idle or when a surface asks,
- * and go to `topics-archived-cache`, written only when the archive changes.
+ * and are not cached at all.
  */
 const TOPICS_CACHE_DEBOUNCE_MS = 2000;
 const liveCacheWriter = createThrottledLocalWriter({
   key: LIVE_CACHE_KEY,
   debounceMs: TOPICS_CACHE_DEBOUNCE_MS,
 });
-const archivedCacheWriter = createThrottledLocalWriter({
-  key: ARCHIVED_CACHE_KEY,
-  debounceMs: TOPICS_CACHE_DEBOUNCE_MS,
-});
 const workspaceProjectsCacheWriter = createThrottledLocalWriter({
   key: 'workspace-projects-cache',
   debounceMs: TOPICS_CACHE_DEBOUNCE_MS,
 });
+
+/**
+ * The archived copy an earlier build wrote. Nothing reads it any more, and it
+ * was most of the localStorage quota, so it goes once, on the first persist.
+ */
+function dropLegacyArchivedCache(): void {
+  try {
+    localStorage.removeItem(ARCHIVED_CACHE_KEY);
+  } catch {
+    // Storage can refuse the call; the copy is dead weight, not state.
+  }
+}
 
 /**
  * When the archive is asked for after the first live list: at the browser's
@@ -143,6 +152,9 @@ export function useTopics() {
         const data = await topicsApi.getArchived();
         knownRef.current.archived = true;
         setBuckets(prev => replaceArchived(prev, data.topics));
+        // The whole topic set is known now: a history whose topic is not in it
+        // belongs to a deleted topic (see `browserHistoryPrune.ts`).
+        pruneBrowserHistory(new Set([...Object.keys(bucketsRef.current.live), ...Object.keys(data.topics)]));
         // Best-effort and after the rows: a preview that does not arrive
         // leaves a mute subline, a list that does not arrive leaves no row.
         void hydrateTopicPreviews({ archived: true });
@@ -380,12 +392,8 @@ export function useTopics() {
   // they were the same.
   const persistedRef = useRef<TopicBuckets | null>(null);
   useEffect(() => {
-    persistBuckets(
-      persistedRef.current,
-      buckets,
-      { live: liveCacheWriter, archived: archivedCacheWriter },
-      knownRef.current,
-    );
+    if (persistedRef.current === null) dropLegacyArchivedCache();
+    persistBuckets(persistedRef.current, buckets, liveCacheWriter, knownRef.current.live);
     persistedRef.current = buckets;
   }, [buckets]);
 

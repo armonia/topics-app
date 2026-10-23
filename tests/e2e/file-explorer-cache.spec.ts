@@ -66,10 +66,12 @@ test.describe("l'albero dei file sopravvive alla chiusura", () => {
     const header = intestazione(page);
     await expect(header).toBeVisible({ timeout: 5000 });
 
-    // Chiudi. L'albero sparisce dal DOM: il componente si smonta davvero, ed e'
-    // esattamente per questo che serviva uno store fuori da lui.
+    // Closed, the tree is out of sight. It is no longer unmounted (the section
+    // is kept hidden, see project-sidebar-kept-sections.spec.ts), but the store
+    // outside the component is still what serves a project that opens a section
+    // for the first time, so the network cut below keeps the test honest.
     await header.click();
-    await expect(albero).toHaveCount(0, { timeout: 5000 });
+    await expect(albero).toBeHidden({ timeout: 5000 });
 
     // Riapri. Qui stava il difetto: si vedeva «Loading files...» a piena
     // altezza. La rete si taglia PRIMA di riaprire, cosi' se lo store non

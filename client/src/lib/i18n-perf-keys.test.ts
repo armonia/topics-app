@@ -33,6 +33,15 @@ const ROWS_OF_PANEL: Array<[string, Record<string, string | number>]> = [
   ['perf.verdict.mostlySwapped', { pct: 78, mb: 234 }],
   ['perf.verdict.loaded', {}],
   ['perf.ptyBridge.since', { date: '7/10' }],
+  ['perf.interaction.heading', {}],
+  ['perf.interaction.worst', { ms: 184, target: 'button' }],
+  ['perf.interaction.none', { ms: 16 }],
+  ['perf.interaction.unsupported', {}],
+  ['perf.interaction.p95', { p95: 96, total: 420, slow: 11 }],
+  ['perf.interaction.p95Under', { ms: 16, total: 420 }],
+  ['perf.storage.usage', { used: '2.1', limit: '5.0' }],
+  ['perf.storage.refused', { n: 3 }],
+  ['perf.storage.userData', { n: 1 }],
 ];
 
 describe('le stringhe del pannello prestazioni', () => {

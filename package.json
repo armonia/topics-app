@@ -90,6 +90,7 @@
     "check:occlusion": "node scripts/check-occlusion.mjs",
     "check:bundle": "bun run scripts/check-bundle-size.ts",
     "check:ink": "bun run scripts/check-ink-latency.ts",
+    "check:inp-shell": "bun run scripts/check-inp-shell.ts",
     "check:drag": "bun run scripts/check-drag-frames.ts",
     "check:gates-orfani": "bun run scripts/check-gates-orfani.ts",
     "check:growth": "bun run scripts/check-session-growth.ts",
@@ -152,7 +153,7 @@
     "node-pty": "^1.0.0",
     "playwright-core": "^1.59.1",
     "web-push": "^3.6.7",
-    "zod": "^4.4.3"
+    "zod": "^4.6.6"
   },
   "devDependencies": {
     "@playwright/test": "^1.58.2",
@@ -162,5 +163,8 @@
     "axe-core": "^4.12.1",
     "knip": "6.32.1",
     "ws": "^8.21.3"
+  },
+  "overrides": {
+    "zod": "^4.6.6"
   }
 }

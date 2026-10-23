@@ -16,20 +16,36 @@
 const OPEN = /^[ \t>]*(`{3,}|~{3,})(.*)$/;
 const CLOSE = /^[ \t>]*(`{3,}|~{3,})[ \t]*$/;
 
+/**
+ * The fence still open after `line`, given the fence open before it (null: none).
+ * One step of the grammar above, so the reader of a whole reply and the splitter
+ * that cuts a streaming one into blocks (`client/src/lib/markdownBlocks.ts`) can
+ * never disagree about where a fence starts and ends.
+ */
+export function fenceAfter(fence: string | null, line: string): string | null {
+  if (fence === null) {
+    const m = OPEN.exec(line);
+    // A backtick fence's info string cannot hold a backtick: "```x```" is inline code.
+    return m && !(m[1]![0] === "`" && m[2]!.includes("`")) ? m[1]! : null;
+  }
+  const m = CLOSE.exec(line);
+  return m && m[1]![0] === fence[0] && m[1]!.length >= fence.length ? null : fence;
+}
+
 /** The body of the fence `markdown` leaves open at its end, or null when every fence is closed. */
 export function cutFenceBody(markdown: string): string | null {
   let fence: string | null = null;
   let body: string[] = [];
   for (const line of markdown.replace(/\r\n?/g, "\n").split("\n")) {
+    const after = fenceAfter(fence, line);
     if (fence === null) {
-      const m = OPEN.exec(line);
-      // A backtick fence's info string cannot hold a backtick: "```x```" is inline code.
-      if (m && !(m[1]![0] === "`" && m[2]!.includes("`"))) { fence = m[1]!; body = []; }
-      continue;
+      fence = after;
+      if (fence !== null) body = [];
+    } else if (after === null) {
+      fence = null;
+    } else {
+      body.push(line);
     }
-    const m = CLOSE.exec(line);
-    if (m && m[1]![0] === fence[0] && m[1]!.length >= fence.length) fence = null;
-    else body.push(line);
   }
   return fence === null ? null : body.join("\n");
 }

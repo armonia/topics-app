@@ -16,6 +16,7 @@ import { setNativePaneMemoryEvictionEnabled, useNativePaneMemoryEvictionEnabled,
 import { setNativeGitStatusEnabled, useNativeGitStatusEnabled } from '@/state/nativeGitStatus';
 import { setNativeFileTreeEnabled, useNativeFileTreeEnabled } from '@/state/nativeFileTree';
 import { SwitchRow } from './PreferenceRow';
+import { InteractionRows } from './InteractionRows';
 import { loadSettings, saveSettings, SETTINGS_CHANGED_EVENT } from '@/lib/settings';
 
 /**
@@ -321,6 +322,8 @@ export function PerfSection() {
         </div>
         <FpsSparkline data={history} sampling={tr('perf.sampling')} />
       </div>
+
+      <InteractionRows />
 
       {/* 2 · QUANTO COSTA? UN numero, non cinque tessere.
           La somma e' quella che si andrebbe a leggere in Monitoraggio Attivita'

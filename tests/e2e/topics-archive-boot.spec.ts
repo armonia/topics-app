@@ -10,7 +10,7 @@
  *
  * What this spec proves, in the real app against the test server:
  *  1. an archived topic is NOT in the boot payload, NOT in the sidebar, NOT in
- *     `topics-cache` - and IS in `topics-archived-cache` once the idle load ran;
+ *     `topics-cache`, and no archive cache is written at all (B1);
  *  2. «Mostra archiviati» (allow-italian: the UI label) brings its row back and reopening it restores it
  *     (tab open, `archived:false` on the server) - the 2-state model intact;
  *  3. a surface that shows a closed chat with the toggle OFF - a pinned row -
@@ -70,6 +70,11 @@ test.describe("Topics — the archive is off the boot path", () => {
       const u = new URL(r.url());
       return r.request().method() === "GET" && u.pathname === "/api/topics" && u.search === "";
     });
+    // The archive is fetched in idle after the first frame; it is never cached.
+    const archiveList = page.waitForResponse((r) => {
+      const u = new URL(r.url());
+      return r.request().method() === "GET" && u.pathname === "/api/topics" && u.searchParams.get("archived") === "1";
+    }, { timeout: 20000 });
     await topicPage.goto();
     const boot = (await (await bootList).json()) as { topics: Record<string, { archived: boolean }> };
     expect(boot.topics[topic.id], "the boot list must not carry an archived topic").toBeUndefined();
@@ -78,11 +83,10 @@ test.describe("Topics — the archive is off the boot path", () => {
     // Not in the sidebar with the toggle off.
     await expect(topicPage.findTopic(new RegExp(name))).toHaveCount(0, { timeout: 10000 });
 
-    // The archive arrives after the first frame and goes to ITS cache; the
-    // live cache never sees it again.
-    await expect
-      .poll(() => page.evaluate(() => window.localStorage.getItem("topics-archived-cache") ?? ""), { timeout: 15000 })
-      .toContain(topic.id);
+    // The archive arrives after the first frame and is NOT cached: no archived
+    // key is written, and the live cache never holds the archived topic.
+    expect(await archiveList, "the archive was fetched after the first frame").toBeTruthy();
+    expect(await page.evaluate(() => window.localStorage.getItem("topics-archived-cache"))).toBeNull();
     expect(await page.evaluate(() => window.localStorage.getItem("topics-cache") ?? "")).not.toContain(topic.id);
 
     // «Mostra archiviati» (allow-italian: the UI label): the row is back. The

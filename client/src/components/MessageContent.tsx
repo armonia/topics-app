@@ -2,7 +2,7 @@
 import React, { createContext, lazy, Suspense, useContext, useDeferredValue, useEffect, useMemo, useState, useCallback, useRef, useSyncExternalStore, memo } from 'react';
 import { useT } from '../hooks/useT';
 import { copyText } from '../lib/clipboard';
-import { type Components } from 'react-markdown';
+import { type Components, type ExtraProps } from 'react-markdown';
 import { ChatMarkdown } from './ChatMarkdown';
 import { highlightCode, subscribeHighlighter, highlighterReady } from '../lib/syntaxHighlight';
 import { Copy, Check, CheckCheck, Download, Layers, ChevronRight, ImageOff, MicOff, Music, Bell, Activity, SquareTerminal, X } from 'lucide-react';
@@ -39,6 +39,7 @@ import { useKnownSlashName } from '../state/knownSlashNames';
 import { extractMediaPaths, splitBlockMedia } from './messageMedia';
 import { getSession, subscribeSession } from '../lib/auth/session';
 import { CommandRunContext, type CommandRunTarget } from './Chat/commandRunContext';
+import { MarkdownBlockContext } from './Chat/markdownBlockContext';
 import { useMediaBox } from './Chat/mediaBox';
 import { useCommandRun } from './Chat/useCommandRun';
 import { RunButtons, RunConfirmStrip } from './Chat/CodeBlockRunControls';
@@ -70,53 +71,6 @@ export const MarkdownBaseDirContext = createContext<string | null>(null);
  */
 // eslint-disable-next-line react-refresh/only-export-components -- consumed by markdownComponents.img in THIS file, next to MarkdownBaseDirContext and for the same reason
 export const MarkdownImageResolverContext = createContext<((src: string) => string | null) | null>(null);
-
-/**
- * Close any open/incomplete markdown tokens so ReactMarkdown doesn't flicker
- * during streaming. Only called when partial === true.
- */
-function completePartialMarkdown(text: string): string {
-  // 1. Close open fenced code blocks (``` or ~~~)
-  const fenceRegex = /^(`{3,}|~{3,})/gm;
-  let fenceCount = 0;
-  while (fenceRegex.exec(text) !== null) fenceCount++;
-  if (fenceCount % 2 !== 0) {
-    text += '\n```';
-  }
-
-  // If inside a code block, don't try to fix inline formatting
-  if (fenceCount % 2 !== 0) return text;
-
-  // 2. Close open inline code spans (backticks)
-  //    Count unescaped backticks outside of code blocks
-  let backticks = 0;
-  for (let i = 0; i < text.length; i++) {
-    if (text[i] === '`' && (i === 0 || text[i - 1] !== '\\')) backticks++;
-  }
-  if (backticks % 2 !== 0) {
-    text += '`';
-  }
-
-  // 3. Close open bold markers (**)
-  const boldMatches = text.match(/\*\*/g);
-  if (boldMatches && boldMatches.length % 2 !== 0) {
-    text += '**';
-  }
-
-  // 4. Close open italic markers (single * not part of **)
-  const withoutBold = text.replace(/\*\*/g, '');
-  const italicMatches = withoutBold.match(/\*/g);
-  if (italicMatches && italicMatches.length % 2 !== 0) {
-    text += '*';
-  }
-
-  // 5. Remove trailing incomplete link/image syntax: [text without ]
-  text = text.replace(/!?\[([^\]]*)$/, '$1');
-  // [text](incomplete url
-  text = text.replace(/(\[[^\]]*\])\([^)]*$/, '$1');
-
-  return text;
-}
 
 // File extension helpers
 const IMAGE_EXTS = ['png', 'jpg', 'jpeg', 'gif', 'webp', 'svg'];
@@ -435,7 +389,7 @@ const MermaidBlock = memo(function MermaidBlock({ code }: { code: string }) {
 });
 
 // Code block with copy button, language badge, line numbers, collapsible, word wrap
-const CodeBlock = memo(function CodeBlock({ children, className, blockOffset }: { children: React.ReactNode; className?: string; blockOffset?: number }) {
+const CodeBlock = memo(function CodeBlock({ children, className, blockOffset, live = false }: { children: React.ReactNode; className?: string; blockOffset?: number; live?: boolean }) {
   const tr = useT();
   const toast = useToast();
   const [copied, setCopied] = useState(false);
@@ -486,13 +440,13 @@ const CodeBlock = memo(function CodeBlock({ children, className, blockOffset }: 
   // stream settles and the deferred value catches up.
   const deferredContent = useDeferredValue(displayContent);
   const highlightedHtml = useMemo(
-    () => (showLineNumbers ? null : highlightCode(deferredContent, language)),
+    () => (showLineNumbers || live ? null : highlightCode(deferredContent, language)),
     // hljsReady looks unused to the linter but is a deliberate cache-bust: the
     // memo body calls highlightCode, which only produces colours once the async
     // hljs chunk has loaded and flipped this flag — without the dep, blocks
     // rendered before the load would stay plain forever.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [deferredContent, language, showLineNumbers, hljsReady],
+    [deferredContent, language, showLineNumbers, live, hljsReady],
   );
   // Only trust the highlighted HTML when it was built from exactly what we're
   // about to render; otherwise fall back to plain current text. (highlightedHtml
@@ -632,6 +586,30 @@ function highlightMentionsInChildren(children: React.ReactNode): React.ReactNode
   return children;
 }
 
+/**
+ * A fenced code block. The message is drawn in markdown blocks parsed one by
+ * one, so the position the parser reports is relative to the block: the key of
+ * the Run button is that position in the WHOLE message (CHAT-RUN-03).
+ */
+function PreBlock({ children, node }: React.ComponentProps<'pre'> & ExtraProps) {
+  const place = useContext(MarkdownBlockContext);
+  const start = node?.position?.start.offset;
+  const blockOffset = start === undefined ? undefined : place.offset + start;
+  // The code block the stream is still writing: colouring it again for every
+  // token would tokenize the whole block each time, so it stays plain until the
+  // fence closes or the stream ends.
+  const live = place.openFenceFrom !== null && start !== undefined && start >= place.openFenceFrom;
+  if (children && typeof children === 'object' && 'props' in children) {
+    const codeProps = (children as { props: { className?: string; children?: React.ReactNode } }).props;
+    // ```mermaid → diagram (CHAT-RND-03); everything else stays a CodeBlock.
+    if (codeProps.className?.includes('language-mermaid')) {
+      return <MermaidBlock code={getTextContent(codeProps.children).replace(/\n$/, '')} />;
+    }
+    return <CodeBlock className={codeProps.className} blockOffset={blockOffset} live={live}>{codeProps.children}</CodeBlock>;
+  }
+  return <CodeBlock blockOffset={blockOffset} live={live}>{children}</CodeBlock>;
+}
+
 // eslint-disable-next-line react-refresh/only-export-components -- a react-markdown Components map of inline renderers tightly coupled to this file's helpers (highlightMentionsInChildren, MarkdownBaseDirContext, getMediaUrl); not a standalone constant — extracting it is a large, risky refactor for dev-only HMR
 export const markdownComponents: Components = {
   p: ({ children }) => (
@@ -687,19 +665,7 @@ export const markdownComponents: Components = {
   // `a` NON è qui: il renderer dei link è il default di ChatMarkdown, che ogni
   // superficie markdown eredita (i commenti della board e i piani non avevano
   // link cliccabili proprio perché la regola viveva solo in questo file).
-  pre: ({ children, node }) => {
-    // The block's place in the markdown it was parsed from: its key in the reply (CHAT-RUN-03).
-    const blockOffset = node?.position?.start.offset;
-    if (children && typeof children === 'object' && 'props' in children) {
-      const codeProps = (children as { props: { className?: string; children?: React.ReactNode } }).props;
-      // ```mermaid → diagram (CHAT-RND-03); everything else stays a CodeBlock.
-      if (codeProps.className?.includes('language-mermaid')) {
-        return <MermaidBlock code={getTextContent(codeProps.children).replace(/\n$/, '')} />;
-      }
-      return <CodeBlock className={codeProps.className} blockOffset={blockOffset}>{codeProps.children}</CodeBlock>;
-    }
-    return <CodeBlock blockOffset={blockOffset}>{children}</CodeBlock>;
-  },
+  pre: PreBlock,
   code: ({ children, className }) => {
     const isBlock = className?.includes('language-');
     if (isBlock) return <code className="text-prose">{children}</code>;
@@ -859,7 +825,9 @@ function renderContentWithInlineTools(
    * dei tool non viaggia piu' nel payload di apertura (-52%), senza questo la
    * riga non ha come andarselo a prendere e il dettaglio resta vuoto.
    */
-  messageId?: string
+  messageId?: string,
+  /** The text is the end of a message still being written: its last segment closes half-typed marks. */
+  streaming = false
 ): React.ReactNode[] {
   // Separate tool calls with contentOffset (inline) from those without (legacy)
   const inlineTools = toolCalls
@@ -931,7 +899,7 @@ function renderContentWithInlineTools(
   if (remaining) {
     elements.push(
       <div key="seg-last" className="prose prose-sm max-w-none prose-p:my-0.5 prose-headings:my-1.5 prose-ul:my-0.5 prose-ol:my-0.5 prose-li:my-0 prose-pre:my-1.5 prose-blockquote:my-1">
-        <ChatMarkdown components={markdownComponents}>
+        <ChatMarkdown components={markdownComponents} streaming={streaming}>
           {remaining}
         </ChatMarkdown>
       </div>
@@ -980,14 +948,14 @@ function CompactionSummaryFold({ summary, components }: { summary: string; compo
 /** Assistant prose that folds away a trailing auto-compaction summary
  *  (interface-level handling — the CLI's recap otherwise leaks in as a wall of
  *  text). Drop-in for `<ChatMarkdown components={…}>{text}</ChatMarkdown>`. */
-function ProseBlock({ text, components }: { text: string; components: MarkdownComponents }) {
+function ProseBlock({ text, components, streaming = false }: { text: string; components: MarkdownComponents; streaming?: boolean }) {
   const { before, summary } = splitCompactionSummary(text);
   // The divider right above this message already hoisted the recap into its own
   // expander — rendering the fold too would announce the same boundary twice.
   const hoisted = useContext(CompactionHoistContext);
   return (
     <>
-      {before ? <ChatMarkdown components={components}>{before}</ChatMarkdown> : null}
+      {before ? <ChatMarkdown components={components} streaming={streaming && !summary}>{before}</ChatMarkdown> : null}
       {summary && !hoisted ? <CompactionSummaryFold summary={summary} components={components} /> : null}
     </>
   );
@@ -1130,8 +1098,8 @@ function RipresoBanner() {
 export const MessageContent = memo(function MessageContent({ content, role, thinking, toolCalls, blocks, media, partial, onPlanDecision, sessionKey, messageId, runnable }: MessageContentProps) {
   // Run under a shell block (CHAT-RUN-01): a finished reply of the agent, in
   // the chat, for an owner, on a server with a shell. While the reply streams
-  // `completePartialMarkdown` closes its open fence, and a command cut in the
-  // middle would be drawn as a finished block: `partial` keeps Run away. A
+  // markdown draws its open fence as a finished block, and a command cut in the
+  // middle would look complete: `partial` keeps Run away. A
   // reply closed by Stop, a restart or an error keeps its open fence too:
   // `replyTexts` lets the block that fence draws find out it was cut.
   const session = useSyncExternalStore(subscribeSession, getSession, getSession);
@@ -1168,22 +1136,17 @@ export const MessageContent = memo(function MessageContent({ content, role, thin
     [blocks],
   );
 
-  // During streaming, close any incomplete markdown tokens to prevent rendering glitches
-  const streamSafeText = useMemo(
-    () => (partial && rawCleanText) ? completePartialMarkdown(rawCleanText) : rawCleanText,
-    [rawCleanText, partial],
-  );
   // Sulle righe vecchie il cartello sta DENTRO il contenuto: è salito nel
   // banner, e qui va tolto — altrimenti si legge due volte. Si toglie solo il
   // primo capoverso, non tutto: una riadozione appende alla stessa colonna il
   // contenuto rifuso, e buttarlo via cancellerebbe il turno per far posto alla
   // sua etichetta.
   const cleanText = useMemo(() => {
-    if (!isLegacyErrorOnlyText) return streamSafeText;
-    const resto = streamSafeText.trim().slice(LEGACY_ERROR_PREFIX.length);
+    if (!isLegacyErrorOnlyText) return rawCleanText;
+    const resto = rawCleanText.trim().slice(LEGACY_ERROR_PREFIX.length);
     const sep = resto.search(/\n\s*\n/);
     return sep === -1 ? '' : resto.slice(sep).trim();
-  }, [isLegacyErrorOnlyText, streamSafeText]);
+  }, [isLegacyErrorOnlyText, rawCleanText]);
   
   // Combine extracted media paths with explicit media array
 
@@ -1417,10 +1380,10 @@ export const MessageContent = memo(function MessageContent({ content, role, thin
               </div>
             );
           }
-          // text block — close partial markdown tokens while streaming the
-          // last block so half-emitted ``` or ** don't break rendering.
+          // text block — the last one is still being written while streaming:
+          // ProseBlock closes the half-emitted ``` or ** so they don't break rendering.
           const isLastBlock = g.idx === blocks.length - 1;
-          const text = (partial && isLastBlock) ? completePartialMarkdown(g.text) : g.text;
+          const text = g.text;
           if (!text) return null;
           if (hasDiffBlocks(text)) {
             return <DiffBlocksWithApplyAll key={`g-tx-${g.idx}`} segments={parseMessageWithDiffs(text)} />;
@@ -1428,7 +1391,7 @@ export const MessageContent = memo(function MessageContent({ content, role, thin
           return (
             <div key={`g-tx-${g.idx}`} className="prose prose-sm max-w-none prose-p:my-0.5 prose-headings:my-1.5 prose-ul:my-0.5 prose-ol:my-0.5 prose-li:my-0 prose-pre:my-1.5 prose-blockquote:my-1">
               <CommandRunSegment segment={g.idx}>
-                <ProseBlock text={text} components={markdownComponents} />
+                <ProseBlock text={text} components={markdownComponents} streaming={partial && isLastBlock} />
               </CommandRunSegment>
             </div>
           );
@@ -1531,10 +1494,10 @@ export const MessageContent = memo(function MessageContent({ content, role, thin
               hasDiffBlocks(cleanText) ? (
                 <DiffBlocksWithApplyAll segments={parseMessageWithDiffs(cleanText)} />
               ) : hasInline ? (
-                <div>{renderContentWithInlineTools(cleanText, inlineTools, markdownComponents, sessionKey, messageId)}</div>
+                <div>{renderContentWithInlineTools(cleanText, inlineTools, markdownComponents, sessionKey, messageId, partial)}</div>
               ) : (
                 <div className="prose prose-sm max-w-none prose-p:my-0.5 prose-headings:my-1.5 prose-ul:my-0.5 prose-ol:my-0.5 prose-li:my-0 prose-pre:my-1.5 prose-blockquote:my-1">
-                  <ProseBlock text={cleanText} components={markdownComponents} />
+                  <ProseBlock text={cleanText} components={markdownComponents} streaming={partial} />
                 </div>
               )
             )}
