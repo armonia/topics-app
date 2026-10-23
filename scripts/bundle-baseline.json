@@ -814,9 +814,19 @@
     "Measured entry_eager 872,422 raw / 281,160 gz; gz ratchet value 392,156 with the existing 2% tolerance caps the emitted chunk at 399,999 bytes.",
     "2026-10-15 live-terminals-launchd: entry_eager raw 872,422 -> 891,324 (CI measure on main 703294a85, +2,2%).",
     "Over the 2% because of #331: the «Live terminals» branch sits inside the «+» menu and the Topics menu, both eager,",
-    "plus the D5f and D6a growth that fit under the line alone. gz unchanged. No import went from lazy to static."
+    "plus the D5f and D6a growth that fit under the line alone. gz unchanged. No import went from lazy to static.",
+    "",
+    "2026-10-23, T9 istantaneo (PR #416): total_assets 8.992.126 su main (3751848f8, CI) -> 9.032.356 su questo ramo (CI, run 40016929046): +40.230 raw, oltre il 2% (tetto 9.007.704).",
+    "Il ramo spedisce +1.258 righe (-156), e tutto il nuovo sta in superfici eager (boot, chat, sidebar) o nel pannello perf:",
+    "  · lib/eventTiming: osservatore Event Timing e ring buffer, avviato da main.tsx per contare anche le prime interazioni;",
+    "  · lib/storageLedger: conto delle scritture rifiutate dalla quota, installato da main.tsx prima della prima scrittura;",
+    "  · lib/markdownBlocks + ChatMarkdown: il markdown in streaming si spezza in blocchi e riparsa solo la coda;",
+    "  · Sidebar/InteractionRows, PerfSection, shared/interaction-histogram: il p95 nel pannello perf;",
+    "  · Project/KeptSection: Files e Processes restano montati quando chiusi.",
+    "Critical path +37.579 raw / +11.983 gz su main (1.529.373 / 451.621 -> 1.566.952 / 463.604), lo stesso codice. Entry e critical path restano dentro il 2%.",
+    "Non ho provato altre strade (il pannello perf pigro compreso) prima di alzare. total_assets va al valore misurato in CI, come le altre voci."
   ],
-  "updated": "2026-10-13",
+  "updated": "2026-10-23",
   "tolerance_pct": 2,
   "entry_eager": {
     "raw": 891324,
@@ -828,6 +838,6 @@
     "files": 5
   },
   "total_assets": {
-    "raw": 8831082
+    "raw": 9032356
   }
 }
