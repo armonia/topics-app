@@ -334,3 +334,28 @@ INCREMENTAL, o freelist vuota, il giro SHALL non scrivere niente.
 #### Scenario: DB non ancora convertito
 - **GIVEN** `auto_vacuum = NONE`
 - **THEN** il giro SHALL saltare senza eseguire `incremental_vacuum`
+
+### Requirement: DBMAINT-04 — Lo snapshot ha una copia fuori dal disco, riletta e provata
+
+Dopo ogni snapshot giornaliero, il lavoro SHALL spedirne una copia sul
+computer indicato in `~/.topics/backup-offsite.json` (fuori dal repo), in uno
+di sette nomi che dipendono dal giorno della settimana, poi SHALL riscaricarla e
+confrontarne lo sha256 con quello del file locale. Solo con i due uguali SHALL
+scrivere la ricevuta `offsite.json`. Una destinazione che e' questa macchina, o un
+percorso locale, SHALL essere rifiutata prima di spostare un solo byte.
+`backup-restore-check` SHALL uscire non-zero se la ricevuta manca, e' di un altro
+snapshot, e' piu' vecchia di 2 giorni, o non combacia col file locale. Se la copia
+fuori dal disco fallisce, lo snapshot SHALL restare e il lavoro SHALL uscire 0: la
+prova del ripristino la segnala rossa.
+
+#### Scenario: la copia arriva intera
+- **WHEN** lo snapshot e' stato spedito e riletto con lo stesso sha256
+- **THEN** la ricevuta SHALL esistere e `verifyOffsite` SHALL passare
+
+#### Scenario: il lato remoto cambia un byte
+- **WHEN** la rilettura non combacia
+- **THEN** il lavoro SHALL fallire e nessuna ricevuta SHALL restare
+
+#### Scenario: la ricevuta non descrive lo snapshot di oggi
+- **GIVEN** una ricevuta mancante, di un altro snapshot, vecchia di piu' di 2 giorni, o un file locale modificato dopo la copia
+- **THEN** `verifyOffsite` SHALL rifiutare, e il messaggio SHALL nominare il file di configurazione quando manca la ricevuta

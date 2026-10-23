@@ -13,7 +13,8 @@
  * la terza volta che il repo trovava la stessa cosa, e sotto si e' messo a
  * elencare i `check:*` che restano fuori dalla CI «ognuno per un motivo che
  * vale la pena scrivere». L'elenco a mano si e' scollato subito: al 13/08
- * mancavano `check:occlusion`, `check:previews` e `check:demo`. Un elenco che
+ * mancavano `check:occlusion`, `check:previews` (oggi `report:previews`) e
+ * `check:demo`. Un elenco che
  * si aggiorna a mano racconta lo stato di quando lo hanno scritto; questo lo
  * DERIVA a ogni run, quindi o e' completo o e' rosso.
  *
@@ -32,223 +33,33 @@
  * Nessuno dei due controlli tocca il disco oltre a `package.json` e ai
  * workflow, ne' un database, ne' la rete: le stesse cose che i referti fanno e
  * che li tengono fuori dalla CI.
-  * @covers GATE-10
+ * @covers GATE-10
  */
 import { describe, it, expect } from "bun:test";
-import { existsSync, readdirSync, readFileSync } from "fs";
+import { readFileSync } from "fs";
 import { join } from "path";
-
-const REPO_ROOT = join(import.meta.dir, "../..");
-const WORKFLOW_DIR = join(REPO_ROOT, ".github/workflows");
-
-/**
- * I prefissi che dichiarano «questo non e' un cancello del codice»: leggono il
- * database vivo, la macchina, o il disco di questa postazione. Nessuno di loro
- * puo' stare in un workflow, dove niente di tutto cio' esiste.
- */
-const REFERTO_PREFIXES = ["report:", "probe:", "measure:", "bench:"];
-
-/**
- * I `check:*` che nessuno esegue, e il motivo. Non e' un condono: e' il posto
- * dove il motivo va scritto, e il test qui sotto pretende che sia ancora vero
- * (una voce che nel frattempo E' stata cablata fa rosso quanto un orfano).
- */
-const MOTIVI: Record<string, string> = {
-  "check:repo-pulito":
-    "misura il CHECKOUT, non il codice: rami oltre main, stash, worktree, file non " +
-    "committati. In CI `actions/checkout` costruisce un checkout usa e getta dove " +
-    "niente di tutto cio' puo' esistere, quindi in CI sarebbe sempre verde e non " +
-    "direbbe niente; in una worktree di consegna i rami ci sono per forza, quindi in " +
-    "`static-rails` sarebbe sempre rosso. Gira da `scripts/git-hooks/pre-push`, cioe' " +
-    "nel momento in cui qualcuno sta per dire fatto, e stampa senza mai bloccare.",
-  "check:lockfile":
-    "versione «una botta sola» per l'umano (root, client, landing). In CI gli stessi tre " +
-    "lockfile sono gia' coperti dai due install piu' il passo landing/ dedicato.",
-  "check:contrast": "gira su landing/dist, un sito gia' costruito che nessun workflow costruisce.",
-  "check:field": "gira su landing/dist, un sito gia' costruito che nessun workflow costruisce.",
-  "check:painted": "gira su landing/dist, un sito gia' costruito che nessun workflow costruisce.",
-  "check:landing": "gira su landing/dist, un sito gia' costruito che nessun workflow costruisce.",
-  "check:copy": "gira su landing/dist, un sito gia' costruito che nessun workflow costruisce.",
-  "check:occlusion":
-    "e' un cancello VERO del codice, ma vuole un WebKit di Playwright e un bundle costruito: " +
-    "gira a mano, ed e' anche l'attrezzo che registra la clip di consegna (--video).",
-  "check:history-clean":
-    "interroga la STORIA (contenuti, messaggi di commit e messaggi dei tag annotati) sui ref " +
-    "che il remoto pubblica, e in CI la storia non c'e': " +
-    "`actions/checkout` clona con `fetch-depth: 1`, quindi il cancello misurerebbe un solo " +
-    "commit e uscirebbe verde per il motivo sbagliato - il modo piu' comune in cui un cancello " +
-    "smette di guardare senza che nessuno se ne accorga. Gira a mano prima e dopo la " +
-    "riscrittura (`bun run scripts/scrub-history.ts` per misurare, `--check` per l'esito), " +
-    "che e' l'unico momento in cui serve. Se un giorno si scaricasse la storia intera in CI, " +
-    "questa riga va tolta e il cancello cablato.",
-  "check:sidecars":
-    "guarda l'ALLESTIMENTO di questa postazione, non il codice: dice se " +
-    "desktop-tauri/src-tauri/binaries c'e', cioe' se il crate Tauri e' compilabile qui. In CI " +
-    "quella cartella la costruisce (o la stubba) il workflow stesso, e non esiste un checkout " +
-    "principale da cui prenderla: il cancello uscirebbe verde per il motivo sbagliato. Gira a " +
-    "mano in un worktree, e `bun run sidecars:sync` e' la sua cura.",
-  "check:previews":
-    "stessa specie di report:landed: misura lo STATO DELLA BOARD, non il codice. Legge " +
-    "data/topics.db e ~/.openclaw/media/task-previews, che su un checkout di CI non esistono. " +
-    "Il nome dice check: ma e' un referto — se un giorno si tocca quello script, il prefisso " +
-    "e' la prima cosa da correggere.",
-  "check:test-globals":
-    "e' il TRIAGE, non il cancello. Il cancello e' la guardia dentro tests/setup/bun-test-preload.ts, " +
-    "che fa uscire rosso OGNI `bun test` (CI compresa) se un file lascia un globale DOM finto al " +
-    "file dopo; questo script rilancia ogni file da solo (1149 processi, ~80 s) per dire QUALE " +
-    "ha perso, e si lancia a mano quando la guardia ha gridato.",
-};
-
-/** Gli script di package.json, per nome. */
-function scripts(): Record<string, string> {
-  const pkg = JSON.parse(readFileSync(join(REPO_ROOT, "package.json"), "utf-8")) as {
-    scripts?: Record<string, string>;
-  };
-  return pkg.scripts ?? {};
-}
-
-/**
- * Toglie i commenti YAML: da un `#` a inizio riga o preceduto da spazio fino a
- * fine riga.
- *
- * PERCHE'. Un workflow ESEGUE nel blocco `run:` e SPIEGA nei commenti, e la
- * differenza e' tutta qui. Senza questo passaggio il primo commento che nomina
- * un comando lo fa contare come eseguito — e' successo subito, al primo giro:
- * il commento che ho aggiunto in `ci.yml` per dire «non aggiungere
- * `report:landed` qui» contiene la stringa `bun run report:landed --json` come
- * indicazione a chi legge, e il test lo ha denunciato come intruso. Un
- * controllo che punisce la propria documentazione insegna a non documentare.
- *
- * PERCHE' CONTA LE VIRGOLETTE, e non e' pignoleria. Questo passaggio non
- * aggiunge testo: ne TOGLIE. Quindi ogni suo eccesso va nella direzione che non
- * si vede — un comando cancellato per sbaglio non e' un falso allarme, e'
- * un'invocazione che sparisce, e il test qui sotto diventa verde su un workflow
- * che quel comando lo esegue davvero. Con un taglio al primo `#` della riga,
- *
- *     - run: echo "step #1" && bun run report:landed
- *
- * resta `- run: echo "step`, e il referto entra in CI senza che nessuno lo
- * denunci (misurato: il cancello usciva 0 su quella riga). Il `#` apre un
- * commento solo se e' FUORI da una stringa, quindi lo stato delle virgolette va
- * seguito. Inchiodato in fondo al file, riga per riga.
- */
-function stripYamlComments(src: string): string {
-  return src
-    .split(/\r?\n/)
-    .map((line) => {
-      let quote: string | null = null;
-      for (let i = 0; i < line.length; i++) {
-        const c = line[i]!;
-        if (quote) {
-          if (c === quote) quote = null;
-        } else if (c === "'" || c === '"') {
-          quote = c;
-        } else if (c === "#" && (i === 0 || /\s/.test(line[i - 1]!))) {
-          return line.slice(0, i);
-        }
-      }
-      return line;
-    })
-    .join("\n");
-}
-
-/** Ogni workflow, come `nome → sorgente ESEGUIBILE` (commenti tolti). */
-function workflows(): Record<string, string> {
-  const out: Record<string, string> = {};
-  for (const f of readdirSync(WORKFLOW_DIR).sort()) {
-    if (!f.endsWith(".yml") && !f.endsWith(".yaml")) continue;
-    out[f] = stripYamlComments(readFileSync(join(WORKFLOW_DIR, f), "utf-8"));
-  }
-  return out;
-}
-
-/**
- * `run <nome>` con un confine vero in coda. Senza il confine, `check:deadcode`
- * si troverebbe dentro `check:deadcode-blindspots` e un orfano passerebbe
- * appoggiandosi al nome di un altro.
- *
- * Cerca `run` seguito dal nome, quindi la DEFINIZIONE di uno script non conta
- * come invocazione: `"check:any": "bun run scripts/check-any.ts"` non contiene
- * `run check:any`.
- */
-function invokes(source: string, name: string): boolean {
-  const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  return new RegExp(`\\brun\\s+${escaped}(?![\\w:.-])`).test(source);
-}
-
-/** Chi esegue `name`: workflow che lo lanciano + altri script che lo lanciano. */
-function invokers(name: string, all: Record<string, string>, wf: Record<string, string>): string[] {
-  const out: string[] = [];
-  for (const [file, src] of Object.entries(wf)) if (invokes(src, name)) out.push(`.github/workflows/${file}`);
-  for (const [key, cmd] of Object.entries(all)) if (key !== name && invokes(cmd, name)) out.push(`package.json:${key}`);
-  return out;
-}
+import {
+  REPORT_PREFIXES,
+  WORKFLOW_DIR,
+  invokers,
+  invokes,
+  orphanReport,
+  scripts,
+  stripYamlComments,
+  workflows,
+} from "../../scripts/check-gates-orfani";
 
 describe("nomi degli script: cancelli e referti", () => {
   it("ogni check:* e' eseguito da qualcuno, o ha scritto perche' no", () => {
-    const all = scripts();
-    const wf = workflows();
-    const orfani: string[] = [];
-    for (const name of Object.keys(all).sort()) {
-      if (!name.startsWith("check:")) continue;
-      if (invokers(name, all, wf).length > 0) continue;
-      if (MOTIVI[name]) continue;
-      orfani.push(
-        `${name}  — definito in package.json e lanciato da NESSUNO.\n` +
-          `      Un check che nessuno esegue non protegge: fa credere che la classe di difetti\n` +
-          `      sia coperta. O lo cabli in .github/workflows/ci.yml, o scrivi il motivo in\n` +
-          `      MOTIVI qui in tests/unit/check-scripts-are-wired.test.ts. Se misura lo stato\n` +
-          `      della board e non il codice, il nome giusto e' report:* (vedi report:landed).`,
-      );
-    }
-    expect(orfani.join("\n")).toBe("");
+    expect(orphanReport().undeclared.join("\n")).toBe("");
   });
 
-  it("nessuna voce di MOTIVI e' scaduta", () => {
-    // Una deroga sopravvissuta a cio' che scusava e' peggio di nessuna deroga:
-    // dice che un check non gira mentre invece gira, e il prossimo che legge si
-    // fida della riga sbagliata.
-    const all = scripts();
-    const wf = workflows();
-    const scadute: string[] = [];
-    for (const [name, motivo] of Object.entries(MOTIVI)) {
-      if (!all[name]) {
-        scadute.push(`${name}: non esiste piu' in package.json, togli la riga da MOTIVI`);
-        continue;
-      }
-      const chi = invokers(name, all, wf);
-      if (chi.length > 0) scadute.push(`${name}: ora e' cablato (${chi.join(", ")}), togli la riga da MOTIVI`);
-      if (motivo.trim().length < 20) scadute.push(`${name}: il motivo e' troppo corto per essere un motivo`);
-    }
-    expect(scadute.join("\n")).toBe("");
+  it("nessuna voce di REASONS e' scaduta", () => {
+    expect(orphanReport().expired.join("\n")).toBe("");
   });
 
   it("a reason that names a file names an EXISTING one", () => {
-    // THE EXCUSE THAT TELLS ITSELF. On 19/09 the entry for `check:repo-pulito`
-    // claimed it ran "from the hook ~/.claude/hooks/repo-pulito.sh", and that
-    // hook was registered nowhere: file written, zero references in
-    // settings.json, zero anywhere else. The gate did not run and the
-    // derogation said the opposite - exactly the class of defect this file
-    // exists to catch, only moved inside the escape hatch.
-    //
-    // A reason is a promise about WHERE something runs. When it names a path
-    // inside the repo, that path must exist: it is the only part of the
-    // promise checkable from here.
-    const broken: string[] = [];
-    for (const [name, motivo] of Object.entries(MOTIVI)) {
-      // Repo paths quoted in backticks: `scripts/...`, `.github/...`.
-      for (const m of motivo.matchAll(/`((?:scripts|\.github|tests|server|client)\/[^`\s]+)`/g)) {
-        const rel = m[1];
-        if (!existsSync(join(REPO_ROOT, rel))) {
-          broken.push(
-            `${name}: il motivo dice che gira da \`${rel}\`, che non esiste.\n` +
-              `      O il file e' stato spostato e il motivo va aggiornato, o il motivo\n` +
-              `      non e' mai stato vero: in entrambi i casi il check non gira dove dice.`,
-          );
-        }
-      }
-    }
-    expect(broken.join("\n")).toBe("");
+    expect(orphanReport().brokenPaths.join("\n")).toBe("");
   });
 
   it("nessun referto entra in un workflow", () => {
@@ -256,12 +67,12 @@ describe("nomi degli script: cancelli e referti", () => {
     const wf = workflows();
     const intrusi: string[] = [];
     for (const name of Object.keys(all).sort()) {
-      if (!REFERTO_PREFIXES.some((p) => name.startsWith(p))) continue;
+      if (!REPORT_PREFIXES.some((p) => name.startsWith(p))) continue;
       for (const [file, src] of Object.entries(wf)) {
         if (!invokes(src, name)) continue;
         intrusi.push(
           `${name} e' invocato da .github/workflows/${file}.\n` +
-            `      I prefissi ${REFERTO_PREFIXES.join(" ")} dichiarano un REFERTO: misurano il database\n` +
+            `      I prefissi ${REPORT_PREFIXES.join(" ")} dichiarano un REFERTO: misurano il database\n` +
             `      vivo, la macchina o il disco di questa postazione, cose che su un checkout di CI\n` +
             `      non ci sono. report:landed, per dirne uno, esce 2 senza data/topics.db\n` +
             `      (.gitignore:174). In un workflow sarebbe rosso per sempre, e rosso per un motivo\n` +

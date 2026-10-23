@@ -17,6 +17,10 @@
  * the real case was a last backup from 8 days before, and a job that has
  * stopped running must not stay green on the strength of an old copy.
  *
+ * And a copy on the same disk is not a backup either: the bar exits non-zero
+ * without a verified off-disk copy (`scripts/backup-offsite.ts` wrote its
+ * receipt at copy time, after reading the remote bytes back).
+ *
  *   bun run scripts/backup-restore-check.ts   (the snapshot's own data dir)
  */
 import { Database } from "bun:sqlite";
@@ -24,6 +28,7 @@ import { mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "f
 import { tmpdir } from "os";
 import { join, resolve } from "path";
 import { closeDatabase, initDatabase } from "../server/db";
+import { verifyOffsite } from "./backup-offsite";
 import { backupsDirOf, liveDbPath, listSnapshots } from "./db-snapshot";
 
 const MAX_AGE_DAYS = 2;
@@ -84,8 +89,11 @@ export function restoreCheck(backupsDir: string, now: Date = new Date()): Restor
 
 if (import.meta.main) {
   try {
-    const v = restoreCheck(backupsDirOf(liveDbPath()));
+    const dir = backupsDirOf(liveDbPath());
+    const v = restoreCheck(dir);
     console.log(`[backup-restore-check] ok: integrity_check ok, ${v.migrations} migrations, ${v.topics} topics, ${v.messages} messages`);
+    const r = verifyOffsite(dir, listSnapshots(dir)[0]!);
+    console.log(`[backup-restore-check] off-disk copy ok: ${r.slot}, ${r.bytes} bytes`);
   } catch (err) {
     console.error(`[backup-restore-check] RED: ${(err as Error).message}`);
     process.exit(1);

@@ -38,14 +38,15 @@ const ROOT = join(import.meta.dir, "../..");
 const CI = join(ROOT, ".github/workflows/ci.yml");
 const SPEC = join(ROOT, "performance/spec.md");
 
-/** The five TIME budgets: they measure a machine, so they can fail to measure. */
-const ABSTAINING_GATES = [
-  "check:route-latency",
-  "check:ink",
-  "check:scroll-fluidity",
-  "check:drag",
-  "check:growth",
-] as const;
+/**
+ * The three TIME budgets that still run in CI: they measure a machine, so they
+ * can fail to measure. `check:scroll-fluidity` and `check:drag` are NOT here on
+ * purpose: their baselines were recorded at 120 Hz and the runner paints at
+ * 60 Hz, so in 8 runs out of 8 they abstained and no verdict came out of them
+ * for ~69 days. A gate that always abstains is worse than no gate, so they left
+ * the workflow and run by hand on a screen of 120 Hz or more.
+ */
+const ABSTAINING_GATES = ["check:route-latency", "check:ink", "check:growth"] as const;
 
 /** The step of the `gates` job that runs this script, body included. */
 function stepRunning(script: string): string {
@@ -141,7 +142,7 @@ describe("i cancelli di performance hanno un terzo esito, e si vede", () => {
 
   it("check:bundle non ha proprio un blocco di shell dove nascondere un'uscita", () => {
     // A one-line `run:` hands the exit code straight to the runner: there is
-    // no `if` in between, so no code can be turned into a green here. The five
+    // no `if` in between, so no code can be turned into a green here. The three
     // gates above earn their branch by being able to fail to measure; this one
     // would only be borrowing an excuse.
     expect(stepRunning("check:bundle")).toMatch(/^\s*run: bun run check:bundle\s*$/m);
@@ -165,11 +166,11 @@ describe("check:ink sa dire «non ho misurato»", () => {
 describe("performance/spec.md dice quali budget bloccano", () => {
   const spec = readFileSync(SPEC, "utf8");
 
-  it("non si dichiara piu' senza applicazione mentre sei cancelli girano", () => {
+  it("non si dichiara piu' senza applicazione mentre quattro cancelli girano", () => {
     expect(spec).not.toMatch(/automated enforcement are future work/);
   });
 
-  it("nomina tutti e sei i cancelli", () => {
+  it("nomina tutti e quattro i cancelli", () => {
     for (const script of [...ABSTAINING_GATES, "check:bundle"]) {
       expect(spec).toContain(script);
     }

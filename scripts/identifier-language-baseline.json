@@ -7394,15 +7394,9 @@
       "trovati"
     ],
     "tests/unit/check-scripts-are-wired.test.ts": [
-      "MOTIVI",
-      "REFERTO_PREFIXES",
-      "WORKFLOW_DIR",
       "cablato",
       "commentato",
-      "intrusi",
-      "orfani",
-      "scadute",
-      "workflows"
+      "intrusi"
     ],
     "tests/unit/ci-check-job-measures-everything.test.ts": [
       "armati",
@@ -7521,7 +7515,6 @@
       "versioni"
     ],
     "tests/unit/nightly-closes-what-it-opens.test.ts": [
-      "WORKFLOW",
       "esito",
       "etichette",
       "mantiene",

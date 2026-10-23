@@ -576,18 +576,23 @@ function englishProse(raw: string): boolean {
 }
 
 /**
- * English hard-coded into a file that already imports `useT`.
+ * English prose hard-coded into the text a person reads.
  *
- * Same extraction sites as the Italian pass, opposite question: the surface
- * HAS a translation function in scope and this string walked past it.
+ * Same extraction sites as the Italian pass, opposite question: this string is
+ * written straight into the surface instead of going through a translation key.
  */
 function scanUntranslated(file: string, src: string, lexed: Lexed, starts: number[], rawLines: string[]): Hit[] {
   const code = lexed.codeOnly;
-  // Two different burdens of proof. A JSX text node is only evidence of a
-  // missed key in a file that HAS a translation function in scope; everywhere
-  // else it is a surface nobody has migrated yet, which is a plan, not a
-  // regression. A `label`/`confirmLabel` value is copy by construction: that
-  // is the whole reason the field list exists, so it is read everywhere.
+  // The JSX pass reads EVERY .tsx, with or without `useT`. A file that has no
+  // translation function and English written into its JSX is exactly the debt
+  // this gate exists to see: the first version only looked inside files that
+  // already imported `useT`, so a file never migrated was reported as keyed,
+  // and the file that started migrating became "new" and went red. That
+  // rewarded not migrating. The baseline freezes the existing debt per file
+  // and the ratchet makes it fall; nothing here needs a blind spot to stay
+  // green. `migrated` only widens the object-field pass below: the dialog
+  // button fields are read everywhere, the full field list only where a
+  // translation function is in scope.
   const migrated = /\buseT\b/.test(src);
   const hits: Hit[] = [];
   const push = (start: number, text: string, where: string, openAt: number): void => {
@@ -597,7 +602,7 @@ function scanUntranslated(file: string, src: string, lexed: Lexed, starts: numbe
     hits.push({ file, line, kind: "untranslated", where, words: [], text: excerpt(text) });
   };
 
-  if (migrated && file.endsWith(".tsx")) {
+  if (file.endsWith(".tsx")) {
     for (let i = 0; i < code.length; i++) {
       if (code[i] !== "<") continue;
       const open = code.lastIndexOf(">", i - 1);

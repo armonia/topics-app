@@ -37,6 +37,20 @@ async function run(...files: string[]): Promise<{ code: number; out: string }> {
   return { code: await proc.exited, out: stdout + stderr };
 }
 
+/**
+ * How many ITALIAN hits a file has, ignoring the unkeyed-English family. A few
+ * cases below prove that English is not mistaken for Italian; the same English
+ * written into a file without a translation function is now a hit of its own
+ * kind, so the exit code alone can no longer answer that question.
+ */
+async function italianHitCount(file: string): Promise<number> {
+  const proc = Bun.spawn(["bun", "run", SCRIPT, "--json", file], { stdout: "pipe", stderr: "pipe" });
+  const stdout = await new Response(proc.stdout).text();
+  await proc.exited;
+  const report = JSON.parse(stdout) as { hits: { kind: string }[] };
+  return report.hits.filter((h) => h.kind === "italian").length;
+}
+
 afterEach(() => {
   for (const d of dirs.splice(0)) rmSync(d, { recursive: true, force: true });
 });
@@ -53,7 +67,7 @@ describe("check-ui-language", () => {
 
   test("the same title in English passes", async () => {
     const file = fixture("View.tsx", `export const V = () => <button title="Close the tab" />;\n`);
-    expect((await run(file)).code).toBe(0);
+    expect(await italianHitCount(file)).toBe(0);
   });
 
   test("the per-line escape hatch waives it, because sometimes the Italian IS the data", async () => {
@@ -92,7 +106,7 @@ describe("check-ui-language", () => {
       "V.tsx",
       `// il pannello mostra la cartella scelta\n/* nessuna anteprima per questo file */\nexport const V = () => <p>No results</p>;\n`,
     );
-    expect((await run(file)).code).toBe(0);
+    expect(await italianHitCount(file)).toBe(0);
   });
 
   test("matching is on whole tokens: an English word containing an Italian one is fine", async () => {
@@ -102,7 +116,7 @@ describe("check-ui-language", () => {
       "V.tsx",
       `export const V = () => <p title="Alternative content, nominal state">Pane sale here</p>;\n`,
     );
-    expect((await run(file)).code).toBe(0);
+    expect(await italianHitCount(file)).toBe(0);
   });
 
   test("the hyphen belongs to the token, so a non-empty server error stays green", async () => {
@@ -183,12 +197,16 @@ describe("check-ui-language", () => {
     expect(out).toContain("not keyed");
   });
 
-  test("the same English in a file with no translation function is not a hit", async () => {
-    // A surface nobody has migrated yet is written in English on purpose. That
-    // is a plan, not a regression, and a gate that called it one would be red
-    // on every file in the tree the day it landed.
+  test("the same English in a file with no translation function IS a hit", async () => {
+    // A file nobody has migrated and that writes English straight into its JSX
+    // is the debt this gate exists to count. The first cut skipped files without
+    // `useT`, which reported them as keyed and made the file that started
+    // migrating the only one that went red. The ratchet baseline is what keeps
+    // existing debt from failing the build, not a blind spot in the scanner.
     const file = fixture("V.tsx", `export const V = () => <button>Copy</button>;\n`);
-    expect((await run(file)).code).toBe(0);
+    const { code, out } = await run(file);
+    expect(code).toBe(1);
+    expect(out).toContain("not keyed");
   });
 
   test("the default label of a shared dialog is read even without useT", async () => {

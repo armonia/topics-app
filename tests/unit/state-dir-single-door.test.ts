@@ -29,7 +29,7 @@ import { describe, test, expect } from "bun:test";
 import { readFileSync, readdirSync, rmSync, statSync } from "fs";
 import { tmpdir } from "os";
 import { join, relative } from "path";
-import { envDataDir, resolveDataDir, resolveStateDir } from "../../server/lib/data-dir";
+import { envDataDir, resolveDataDir, resolveSecretsDir, resolveStateDir } from "../../server/lib/data-dir";
 
 const ROOT = join(import.meta.dir, "..", "..");
 const THE_DOOR = "server/lib/data-dir.ts";
@@ -41,8 +41,8 @@ const THE_DOOR = "server/lib/data-dir.ts";
  * because a falsification pass with only the first form found the other two
  * slip straight through — the same door has three handles.
  */
-const DOT_OR_BRACKET_READ = /\benv\?*\.(DATA_DIR|TOPICS_DATA_DIR)\b|\benv\[["'](DATA_DIR|TOPICS_DATA_DIR)["']\]/;
-const DESTRUCTURE_READ = /\{[^}]*\b(?:DATA_DIR|TOPICS_DATA_DIR)\b[^}]*\}\s*=\s*(?:process\.)?env\b/;
+const DOT_OR_BRACKET_READ = /\benv\?*\.(DATA_DIR|TOPICS_DATA_DIR|TOPICS_SECRETS_DIR)\b|\benv\[["'](DATA_DIR|TOPICS_DATA_DIR|TOPICS_SECRETS_DIR)["']\]/;
+const DESTRUCTURE_READ = /\{[^}]*\b(?:DATA_DIR|TOPICS_DATA_DIR|TOPICS_SECRETS_DIR)\b[^}]*\}\s*=\s*(?:process\.)?env\b/;
 const ENV_READ = (line: string): boolean => DOT_OR_BRACKET_READ.test(line) || DESTRUCTURE_READ.test(line);
 
 function sourceFiles(dir: string, out: string[] = []): string[] {
@@ -85,6 +85,10 @@ describe("STATE-DIR-DOOR-01 · una sola porta per la cartella di stateDir", () =
     expect(ENV_READ("const { DATA_DIR } = process.env;")).toBe(true);
     expect(ENV_READ("const { DATA_DIR: renamed } = env;")).toBe(true);
     expect(ENV_READ("const c = process.env?.TOPICS_DATA_DIR;")).toBe(true);
+    // The secrets folder goes through the same door (relay identity, installation id).
+    expect(ENV_READ("const s = process.env.TOPICS_SECRETS_DIR;")).toBe(true);
+    expect(ENV_READ('const s = env["TOPICS_SECRETS_DIR"];')).toBe(true);
+    expect(ENV_READ("const { TOPICS_SECRETS_DIR } = process.env;")).toBe(true);
     // E non prende un falso positivo sul nome vicino ma diverso.
     expect(ENV_READ("const d = process.env.APP_DATA_DIR;")).toBe(false);
     expect(ENV_READ("const dataDir = resolveDataDir(stateDir, env);")).toBe(false);
@@ -113,6 +117,20 @@ describe("STATE-DIR-DOOR-01 · una sola porta per la cartella di stateDir", () =
     expect(() => resolveStateDir(ROOT, empty)).toThrow(/live state dir/);
     expect(resolveDataDir(ROOT, empty)).toBe(join(ROOT, "data"));
     expect(envDataDir(empty)).toBeUndefined();
+  });
+
+  test("la cartella dei segreti: la variabile vince solo per il server vivo", () => {
+    const live = "/srv/server.ts";
+    expect(resolveSecretsDir("/state", {} as NodeJS.ProcessEnv, live)).toBe(join("/state", ".topics-secrets"));
+    expect(resolveSecretsDir("/state", { TOPICS_SECRETS_DIR: "/keys" } as NodeJS.ProcessEnv, live)).toBe("/keys");
+    // A child of the live server inherits the pin: with state of its own, or as a test run, it must not
+    // follow it, or its keys land over the live ones.
+    for (const own of [{ DATA_DIR: "/tmp/t" }, { TOPICS_DATA_DIR: "/tmp/t" }, { NODE_ENV: "test" }]) {
+      expect(resolveSecretsDir("/state", { TOPICS_SECRETS_DIR: "/keys", ...own } as NodeJS.ProcessEnv, live)).toBe(join("/state", ".topics-secrets"));
+    }
+    expect(resolveSecretsDir("/state", { TOPICS_SECRETS_DIR: "/keys" } as NodeJS.ProcessEnv, "/repo/tests/unit/x.test.ts")).toBe(join("/state", ".topics-secrets"));
+    // Moving the state root does not drag the keys along unless asked: they follow stateDir by default.
+    expect(resolveSecretsDir("/other", { TOPICS_DATA_DIR: "/state" } as NodeJS.ProcessEnv, live)).toBe(join("/other", ".topics-secrets"));
   });
 
   test("l'identita' del socket: nessuna variabile in produzione, quindi base = cwd come prima", () => {

@@ -58,7 +58,7 @@ else
   unset GATEWAY_TOKEN GATEWAY_URL 2>/dev/null || true
 fi
 # Nessun tunnel, nessun relay: questa istanza non esce dalla macchina.
-unset TOPICS_TUNNEL_PORT TOPICS_RELAY_URL 2>/dev/null || true
+unset TOPICS_TUNNEL_PORT TOPICS_RELAY_URL TOPICS_SECRETS_DIR 2>/dev/null || true
 
 if [ "${DEVQA_RESET:-0}" = "1" ]; then
   echo "[dev-qa] azzero $DEVQA_ROOT"

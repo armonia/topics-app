@@ -1,4 +1,16 @@
-// Knip esce 0 con zero export/file morti. Gli unici avvisi che restano sono
+// Knip esce 0 con 0 orfani, test inclusi come uso; il codice morto in
+// produzione non è misurato. I test sono entrypoint (`entry` qui sotto, anche
+// nel workspace `client`), quindi un file o un export che vive solo perché lo
+// importa un test conta come usato: «zero morti» qui vuol dire «nessuno che
+// nemmeno un test nomini», non «tutto ciò che è spedito serve». Noti, vivi
+// solo per i test: `server/services/claude-tasks-sync.ts` (213 righe, il
+// watcher «Phase B» mai agganciato: lo importa solo
+// `tests/unit/claude-tasks-sync.test.ts`), `client/src/lib/reloadSites.ts` e
+// `client/src/lib/settingsHomes.ts`. Nessuno è stato cancellato: la misura
+// vera del codice di produzione non raggiunto richiederebbe di togliere i test
+// dagli entrypoint, e non lo si è fatto.
+//
+// Gli unici avvisi che restano sono
 // «configuration hints» e sono VOLUTI: knip chiama "ridondanti" i pattern che
 // coincidono coi suoi default (`server.ts`, `src/main.tsx`, i config di Vite),
 // ma qui gli entrypoint stanno scritti perché questo file è anche la mappa di

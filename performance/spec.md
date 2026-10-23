@@ -1,8 +1,8 @@
 # Performance Spec
 
 Performance contract for the Topics App client. All targets are testable
-assertions. Six of them are enforced in CI today; the rest are still contract
-only. Which is which is written below, and nowhere else.
+assertions. Four of them are enforced in CI today, two more are checked by
+hand on a fast screen; the rest are still contract only. Which is which is written below, and nowhere else.
 
 ## Which budgets block CI (2026-08-27)
 
@@ -21,16 +21,31 @@ THE RULE, for every performance gate in the `check` job of `.github/workflows/ci
   continues, and the run carries an annotated `::warning` saying so. "I did not
   measure" is a THIRD outcome and never a silent green.
 
-The six, and what each one blocks on:
+The four, and what each one blocks on:
 
 | gate | script | blocks on | abstains on |
 |---|---|---|---|
 | Bundle size | `check:bundle` | over budget | never (deterministic: same bytes on any machine) |
 | Route latency | `check:route-latency` | over budget | pipe out of scale, or no baseline for this runner |
 | Click-to-ink | `check:ink` | over budget | the probe produced no number |
-| Scroll fluidity | `check:scroll-fluidity` | dropped frames over budget | the machine delivers no frames at all |
-| Kanban drag | `check:drag` | frame time over budget | no baseline recorded |
 | Long-session growth | `check:growth` | growth ratio over budget | too few cycles, or heap unreadable |
+
+The two that are NOT in CI, and why (2026-10-23):
+
+| check | script | measures | why it is not a CI gate |
+|---|---|---|---|
+| Scroll fluidity | `check:scroll-fluidity` | dropped frames while scrolling a transcript | the runner paints at 60 Hz (calibration 16.7 ms), the baseline was recorded at 120 Hz (8.3 ms): the cadence is 2.0x apart, so the bench abstains |
+| Kanban drag | `check:drag` | frame time while a card is dragged | same cadence: calibration 16.7 ms is already the whole p95 budget of 16.7 ms, so the bench abstains |
+
+The runner DOES deliver frames; it delivers them at half the rate the baselines
+assume. Both abstained on 8 CI runs of `main` out of 8, about 69 days without a
+single verdict, and a gate that always abstains while the run stays green is
+worse than no gate: it looks like coverage. So they left the workflow instead
+of staying in it as a decoration. They are manual checks (`bun run
+check:scroll-fluidity`, `bun run check:drag`), to be run on a screen of 120 Hz
+or more; on a 60 Hz machine they exit 2 for the same reason. They come back to
+CI only when a runner at 120 Hz exists, or when the baselines are re-recorded
+at the runner's cadence.
 
 Everything else in this file is a contract without a gate: it is read by a
 person, not by CI, and it cannot make a run red.
@@ -231,6 +246,6 @@ view inside any topic. The following targets are CI-enforced via
 - All thresholds apply to production builds on a reference machine
   (Apple Silicon, Chrome stable). Dev-mode numbers are advisory.
 - Tooling to enforce these assertions was out of scope when this file was
-  written. It no longer is: six of the targets have a gate in the `check` job,
+  written. It no longer is: four of the targets have a gate in the `check` job,
   listed at the top of this file with what each one blocks on. For the others
   this file is still the contract and not the enforcement.

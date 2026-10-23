@@ -87,6 +87,32 @@ export function resolveDataDir(stateDir: string, env: NodeJS.ProcessEnv = proces
 }
 
 /**
+ * The folder of the server's private keys (the relay signing identity, the
+ * installation id). `TOPICS_SECRETS_DIR` wins; otherwise `<stateDir>/.topics-secrets`.
+ *
+ * WHY a variable and not just the default. Under the production LaunchAgent the
+ * state root IS the checkout (see `resolveStateDir`), so a key kept under it is
+ * served by `/preview` as a project file and deleted by `git clean -fdx`. Pinning
+ * this one variable moves the keys to `~/.topics/.topics-secrets` without moving
+ * the database and every other file around them. The last path segment keeps the
+ * name `isTopicsSecretPath` already refuses, wherever the folder ends up.
+ *
+ * THE PIN BELONGS TO THE LIVE SERVER ALONE. A child of that server inherits its
+ * environment, and a child with state of its own (a test server, any process with
+ * `DATA_DIR` or `TOPICS_DATA_DIR` set, a test run) must keep its keys inside that
+ * state: otherwise it would adopt or write them over the live ones, and the live
+ * server would later find its destination taken by a test key. Measured with a
+ * test server started under the production environment.
+ *
+ * No mkdir here: whoever writes creates it 0700. This file is the only place that
+ * reads the variable, like the other two (`tests/unit/state-dir-single-door.test.ts`).
+ */
+export function resolveSecretsDir(stateDir: string, env: NodeJS.ProcessEnv = process.env, main?: string): string {
+  const ownState = Boolean(env.TOPICS_DATA_DIR || env.DATA_DIR) || isTestProcess(env, main);
+  return (!ownState && env.TOPICS_SECRETS_DIR) || join(stateDir, ".topics-secrets");
+}
+
+/**
  * The data folder AS DECLARED BY THE ENVIRONMENT, or undefined when nothing
  * declares one. Not a path to write to: it is the identity of a data instance,
  * used to derive per-instance socket paths (PTY bridge, ai-bridge, WebRTC
