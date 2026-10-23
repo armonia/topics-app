@@ -29,9 +29,11 @@ continuare a servire intero qualunque topic, archiviato o no. Il client SHALL
 caricare l'archivio DOPO il primo fotogramma — in idle, o alla prima superficie
 che lo chiede: «Mostra archiviati», la palette di ricerca, un link o una
 notifica che nomina una chat chiusa (che si risolve col singolo topic). Le due
-metà SHALL avere due cache: `topics-cache` per i vivi e `topics-archived-cache`
-per gli archiviati, scritta solo quando l'insieme degli archiviati cambia (vedi
-STORAGE-WAL-01). Il primo fotogramma continua a leggere dalla cache locale.
+metà dei vivi SHALL avere la sua cache, `topics-cache`. La metà degli archiviati
+NON SHALL avere cache: nessuna riga la disegna al primo fotogramma, e il suo costo
+era il 99% della quota di localStorage. La chiave `topics-archived-cache` lasciata
+da una build precedente SHALL essere rimossa una volta sola (vedi STORAGE-WAL-01).
+Il primo fotogramma continua a leggere dalla cache dei vivi.
 Il riparo dei `parentId` orfani, che girava dentro la GET, SHALL girare una
 volta alla costruzione del router.
 
@@ -45,7 +47,7 @@ volta alla costruzione del router.
 #### Scenario: archiviare e riaprire dopo un ricarico
 - **GIVEN** un topic archiviato, e la app ricaricata
 - **THEN** il topic NON SHALL comparire in sidebar né in `topics-cache`
-- **AND** SHALL comparire in `topics-archived-cache` una volta caricato l'archivio
+- **AND** l'archivio caricato NON SHALL essere scritto in nessuna cache
 - **WHEN** l'utente attiva «Mostra archiviati» e clicca il topic
 - **THEN** la tab SHALL aprirsi e il server SHALL riportare `archived: false`
 - **AND** una riga fissata di una chat chiusa SHALL mostrare il suo nome anche su un dispositivo che parte a cache vuote

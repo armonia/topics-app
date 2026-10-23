@@ -314,6 +314,10 @@ La LETTURA al boot NON SHALL cambiare: il primo fotogramma continua a leggere la
 cache dal dispositivo, e il ritardo della scrittura non SHALL introdurre nessuno
 spostamento di layout al ricarico (vedi PERF-01).
 
+Una cache che non serve al primo fotogramma NON SHALL essere scritta affatto: la
+metà archiviata dei topic è così (vedi la spec `topics`), e la sua chiave lasciata
+da una build precedente SHALL essere rimossa una volta sola al caricamento.
+
 #### Scenario: una raffica di scritture nella stessa finestra
 - **GIVEN** cento scritture consecutive della stessa chiave, dopo la prima
   scrittura della sessione

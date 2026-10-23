@@ -9,9 +9,10 @@
  *
  *  - the live half is the boot list (`GET /api/topics`) and `topics-cache`;
  *  - the archived half comes later (`GET /api/topics?archived=1`, in idle or
- *    when a surface asks for it) and lives in `topics-archived-cache`, which
- *    is written ONLY when the archived set changes - a rename of a live chat
- *    must not cost a rewrite of 1,535 rows it did not touch.
+ *    when a surface asks for it) and is NOT cached: nothing draws it on the
+ *    first frame, and its 1,535 rows were 99% of the 5 MiB localStorage quota.
+ *    The copy an earlier build left under `topics-archived-cache` is removed
+ *    once (see `useTopics`).
  *
  * Consumers still read ONE map (`mergeBuckets`): a topic is a topic wherever it
  * sits. What this module guarantees is IDENTITY: every operation returns the
@@ -24,7 +25,7 @@ import type { ThrottledWriter } from '../lib/throttledLocalWrite';
 
 /** The live topics, as the first frame reads them. */
 export const LIVE_CACHE_KEY = 'topics-cache';
-/** The archived topics, written only when the archive changes. */
+/** Legacy: the archived topics were cached here until the cache was dropped. Only removed now. */
 export const ARCHIVED_CACHE_KEY = 'topics-archived-cache';
 
 export interface TopicBuckets {
@@ -136,37 +137,32 @@ function parseMap(raw: string | null): Record<string, Topic> | null {
 }
 
 /**
- * The two caches as the first frame reads them. Each entry goes where its
- * flag says, whichever key it was found under: a `topics-cache` written before
- * the split still carries the archive, and the first boot after the update
- * paints the same sidebar - then writes the two caches apart.
+ * The cache as the first frame reads it. Each entry goes where its flag says:
+ * a `topics-cache` written before the split still carries archived topics, and
+ * they land in the archived half, as they always did.
  */
 export function readTopicCaches(storage: Pick<Storage, 'getItem'>): TopicBuckets {
   let out = emptyBuckets();
-  for (const key of [LIVE_CACHE_KEY, ARCHIVED_CACHE_KEY]) {
-    const map = parseMap(storage.getItem(key));
-    if (map) out = upsertTopics(out, Object.values(map));
-  }
+  const map = parseMap(storage.getItem(LIVE_CACHE_KEY));
+  if (map) out = upsertTopics(out, Object.values(map));
   return out;
 }
 
 /**
- * Write each half that changed, and only that one. `prev` is the buckets the
- * last write saw (`null` on the first frame). A bucket that is empty and not
- * yet answered for by the server is skipped: it is "not loaded", not "none".
+ * Write the live half when it changed. `prev` is the buckets the last write saw
+ * (`null` on the first frame). An empty live half the server has not answered
+ * for is skipped: it is "not loaded", not "none".
  */
 export function persistBuckets(
   prev: TopicBuckets | null,
   next: TopicBuckets,
-  writers: { live: ThrottledWriter; archived: ThrottledWriter },
-  known: BucketsKnown,
+  writer: ThrottledWriter,
+  liveKnown: boolean,
 ): void {
-  for (const half of ['live', 'archived'] as const) {
-    if (prev && prev[half] === next[half]) continue;
-    if (!known[half] && Object.keys(next[half]).length === 0) continue;
-    const map = next[half];
-    writers[half].write(() => JSON.stringify(map));
-  }
+  if (prev && prev.live === next.live) return;
+  if (!liveKnown && Object.keys(next.live).length === 0) return;
+  const map = next.live;
+  writer.write(() => JSON.stringify(map));
 }
 
 /**
