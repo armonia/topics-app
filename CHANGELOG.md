@@ -2,6 +2,11 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.3.13 — 2026-10-23
+
+### Sotto il cofano
+- La chiave privata del relay era ignorata solo sulla mia macchina (#412)
+
 ## 2.3.12 — 2026-10-23
 
 ### Sotto il cofano

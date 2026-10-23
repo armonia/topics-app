@@ -1,5 +1,21 @@
 [
   {
+    "version": "2.3.13",
+    "date": "2026-10-23",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "La chiave privata del relay era ignorata solo sulla mia macchina (#412)",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
     "version": "2.3.12",
     "date": "2026-10-23",
     "sections": {
