@@ -2,6 +2,16 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.3.12 — 2026-10-23
+
+### Sotto il cofano
+- Una card nasce dove il land fonde, non dove il land pubblicherebbe (#404)
+- L'isolamento di git vive nell'ambiente con cui nasce bun test, e il plist launchd non porta più la mia home (#408)
+- Token del gateway: regge il SecretRef di OpenClaw e il bridge MCP usa il token del daemon (#409)
+- Pannello Cron: OpenClaw dalle RPC del gateway, non da /tools/invoke (#411)
+- **e2e** · aggiorna durate shard dal nightly del 2026-10-23 [skip ci]
+- Cinque advisory nuove rendevano rossa ogni card in review, non una sola PR (#413)
+
 ## 2.3.11 — 2026-10-22
 
 ### Correzioni
