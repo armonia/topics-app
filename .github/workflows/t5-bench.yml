@@ -1,0 +1,48 @@
+name: t5-bench
+
+# DISPOSABLE: measures the isolated unit runner on the real runner. Lives only on
+# the bench/t5-* branches and is never part of the pull request.
+on:
+  push:
+    branches: ['bench/t5-**']
+
+jobs:
+  iso:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        round: [1]
+        shards: ['4']
+    steps:
+      - uses: actions/checkout@v5
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: .bun-version
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 20
+      - run: bun install --frozen-lockfile --ignore-scripts
+      - run: npm rebuild node-pty
+      - run: bun run scripts/fix-node-pty-exec-bit.ts
+      - run: bun install --frozen-lockfile
+        working-directory: client
+      - run: npx playwright install --with-deps chromium
+      - run: git fetch --no-tags --depth=1 origin +main:refs/remotes/origin/main
+      - name: Isolated unit run
+        env:
+          TOPICS_UNIT_SHARDS: ${{ matrix.shards }}
+        run: |
+          set +e
+          bun run scripts/test-unit-shards.ts --record 2>&1 | tee unit.log
+          echo "exit=${PIPESTATUS[0]}" | tee -a unit.log
+          nproc | tee -a unit.log
+          true
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: bench-${{ matrix.round }}-${{ matrix.shards }}
+          path: |
+            unit.log
+            scripts/test-unit-durations.json
