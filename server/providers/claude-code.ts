@@ -2184,6 +2184,10 @@ export class ClaudeCodeProvider implements AIProvider {
   forkPoint(sessionKey: string, atText?: string): { ref: string; at: string; text: string } | null {
     const sessionId = peekClaudeSessionId(sessionKey);
     if (!sessionId) return null;
+    // A fork or a /btw reads the parent's transcript: put it back if the CLI swept it.
+    let db: ReturnType<typeof getDatabase> | null = null;
+    try { db = getDatabase(); } catch { /* no database: nothing kept */ }
+    restoreSweptTranscript(db, this.workspaceFor(sessionKey), sessionId, `fork ${sessionKey}`);
     const file = findClaudeTranscript(this.workspaceFor(sessionKey), sessionId);
     if (!file) return null;
     let jsonl: string;

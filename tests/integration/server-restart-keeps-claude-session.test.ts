@@ -18,7 +18,9 @@
  *   3. the CLI's cleanup deletes the transcript of the now idle session, the
  *      server restarts again, and the session is still there, its transcript
  *      back whole, and the next turn resumes it (`--resume`, same id) with the
- *      memory of both earlier turns. *
+ *      memory of both earlier turns;
+ *   4. a second chat with no project (the boot sweep cannot judge it) loses its
+ *      transcript the same way: its next turn puts it back at the spawn. *
  * @covers RESUME-05
  */
 import { afterAll, beforeAll, describe, expect, it } from "bun:test";
@@ -160,12 +162,18 @@ beforeAll(() => {
 afterAll(async () => {
   await stopServer();
   // The broker and the PTY bridge outlive the server by design; these are
-  // found by their sockets, which only this file uses.
-  for (const sock of ["ai.sock", "pty.sock"]) {
-    const found = Bun.spawnSync(["pgrep", "-f", join(DATA, sock)]).stdout.toString().trim();
-    for (const pid of found.split("\n").filter(Boolean)) { try { process.kill(Number(pid), "SIGTERM"); } catch { /* gone */ } }
-  }
-  if (!process.env.KEEP_TEST_DATA) rmSync(DATA, { recursive: true, force: true });
+  // found by the data folder in their command line, which only this file uses.
+  // They write into the folder while they stop: remove it once they are gone.
+  const ours = () => Bun.spawnSync(["pgrep", "-f", DATA]).stdout.toString().split("\n").filter(Boolean).map(Number);
+  for (const pid of ours()) { try { process.kill(pid, "SIGTERM"); } catch { /* gone */ } }
+  for (let i = 0; i < 40 && ours().length > 0; i++) await Bun.sleep(250);
+  for (const pid of ours()) { try { process.kill(pid, "SIGKILL"); } catch { /* gone */ } }
+  if (process.env.KEEP_TEST_DATA) return;
+  // A child that only had the folder as its HOME (not in its command line)
+  // can still create an empty `.home` while it exits: a second pass catches it.
+  rmSync(DATA, { recursive: true, force: true });
+  await Bun.sleep(2_000);
+  rmSync(DATA, { recursive: true, force: true });
 });
 
 describe("a Claude chat across server restarts", () => {
@@ -182,8 +190,20 @@ describe("a Claude chat across server restarts", () => {
     const topic = (await created.json()) as { id: string; sessionKey?: string };
     const sk = topic.sessionKey ?? `topic:${topic.id.slice(0, 8)}`;
 
+    const plain = await fetch(`${base()}/api/topics`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-Gateway-Token": TOKEN },
+      body: JSON.stringify({ name: "No project", provider: "claude-code" }),
+    });
+    const plainTopic = (await plain.json()) as { id: string; sessionKey?: string };
+    const sk2 = plainTopic.sessionKey ?? `topic:${plainTopic.id.slice(0, 8)}`;
+
     // 1. A first turn: the session and its transcript are born.
     await sendTurn(sk, "first");
+    await sendTurn(sk2, "first");
+    await waitFor("the first answer of the chat with no project", () => assistantTexts(sk2).some((t) => t.includes("remembers:0")));
+    const id2 = sessionRow(sk2)?.claude_session_id;
+    expect(id2).toBeTruthy();
     await waitFor("the first answer", () => assistantTexts(sk).some((t) => t.includes("remembers:0")));
     const id = sessionRow(sk)?.claude_session_id;
     expect(id).toBeTruthy();
@@ -206,8 +226,9 @@ describe("a Claude chat across server restarts", () => {
     await waitFor("the boot sweeps of the second server", () => serverLog().includes("[orphan-transcript] scanned"));
     await stopServer();
     unlinkSync(transcriptOf(id!)!);
+    unlinkSync(transcriptOf(id2!)!);
     const w = new Database(join(DATA, "topics.db"));
-    w.run("UPDATE claude_code_sessions SET updated_at = ? WHERE session_key = ?", [new Date(Date.now() - 31 * 86_400_000).toISOString(), sk]);
+    for (const key of [sk, sk2]) w.run("UPDATE claude_code_sessions SET updated_at = ? WHERE session_key = ?", [new Date(Date.now() - 31 * 86_400_000).toISOString(), key]);
     w.close();
     await startServer();
     await waitFor("the boot sweeps of the third server", () => serverLog().includes("[orphan-transcript] scanned"));
@@ -215,6 +236,7 @@ describe("a Claude chat across server restarts", () => {
     expect(sessionRow(sk)?.claude_session_id, "the boot did not forget the session").toBe(id!);
     expect(transcriptOf(id!), "the transcript is back where --resume looks").not.toBeNull();
     expect(readFileSync(transcriptOf(id!)!, "utf8")).toBe(whole);
+    expect(Date.now() - Bun.file(transcriptOf(id!)!).lastModified, "dated now, or the next CLI cleanup takes it again").toBeLessThan(120_000);
 
     const spawnsBefore = argvLines().length;
     await sendTurn(sk, "third");
@@ -223,5 +245,13 @@ describe("a Claude chat across server restarts", () => {
     expect(resumed.length).toBeGreaterThan(0);
     expect(resumed[0]![resumed[0]!.indexOf("--resume") + 1]).toBe(id!);
     expect(sessionRow(sk)?.claude_session_id).toBe(id!);
+
+    // 4. The chat with no project: its transcript comes back when its turn spawns.
+    expect(transcriptOf(id2!), "nothing judged it at boot").toBeNull();
+    const before2 = argvLines().length;
+    await sendTurn(sk2, "second");
+    await waitFor("the second answer of the chat with no project", () => assistantTexts(sk2).some((t) => t.includes("remembers:1")), 45_000);
+    const resumed2 = argvLines().slice(before2).filter((a) => a.includes("--input-format"));
+    expect(resumed2[0]![resumed2[0]!.indexOf("--resume") + 1]).toBe(id2!);
   }, slackMs(240_000));
 });

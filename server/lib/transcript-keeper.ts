@@ -18,13 +18,18 @@
  *
  * COST. Nothing while the CLI's file exists: two names, the same bytes. After a
  * cleanup, that session's bytes and no more. Only sessions Topics can still
- * resume are kept (non-archived topics, terminal tabs with a resume id); the
- * link of a forgotten session goes on the next pass.
+ * resume are kept: every chat with a session row (an archived one included, it
+ * wakes up when unarchived: lib/session-parking.ts) and terminal tabs with a
+ * resume id. The link of a forgotten session goes on the next pass.
+ *
+ * A transcript put back gets a fresh mtime: with its old one the cleanup of the
+ * next CLI that starts anywhere would delete it again before the resume.
  */
 import type { Database } from "bun:sqlite";
-import { copyFileSync, existsSync, linkSync, mkdirSync, readdirSync, renameSync, statSync, unlinkSync } from "fs";
+import { copyFileSync, existsSync, linkSync, mkdirSync, readdirSync, renameSync, statSync, unlinkSync, utimesSync } from "fs";
+import { homedir } from "os";
 import { dirname, join } from "path";
-import { claudeTranscriptPath, findClaudeTranscript } from "./claude-transcript-path";
+import { claudeTranscriptCandidates, claudeTranscriptPath, findClaudeTranscript } from "./claude-transcript-path";
 
 /** A CLI session id is a uuid. Nothing else ever becomes a file name here. */
 const SESSION_ID = /^[0-9A-Za-z][0-9A-Za-z-]{7,63}$/;
@@ -59,8 +64,10 @@ function placeAt(source: string, target: string): "linked" | "copied" {
 export type KeepResult = "linked" | "copied" | "unchanged" | "missing" | "invalid";
 
 /**
- * Keeps `transcript` under `dir`. Idempotent: a link already on the same inode,
- * or a copy of the same size, is left alone.
+ * Keeps `transcript` under `dir`. Idempotent: a link on the same inode, or a copy
+ * as large and not older than the source, is left alone. Size alone is not
+ * enough: the CLI compacts a large transcript by writing a new file and renaming
+ * it over the old one, and a new inode of equal size must be linked again.
  */
 export function keepTranscript(dir: string, sessionId: string, transcript: string): KeepResult {
   const kept = keptPath(dir, sessionId);
@@ -69,7 +76,8 @@ export function keepTranscript(dir: string, sessionId: string, transcript: strin
   try { src = statSync(transcript); } catch { return "missing"; }
   try {
     const cur = statSync(kept);
-    if ((cur.ino === src.ino && cur.dev === src.dev) || cur.size === src.size) return "unchanged";
+    if (cur.ino === src.ino && cur.dev === src.dev) return "unchanged";
+    if (cur.nlink === 1 && cur.size === src.size && cur.mtimeMs >= src.mtimeMs) return "unchanged";
   } catch { /* not kept yet */ }
   return placeAt(transcript, kept);
 }
@@ -84,8 +92,13 @@ export function restoreTranscript(dir: string, cwd: string, sessionId: string): 
   if (present) return { path: present, restored: false };
   const kept = keptPath(dir, sessionId);
   if (!kept || !existsSync(kept)) return null;
-  const target = claudeTranscriptPath(cwd, sessionId);
+  // The CLI files a session under its RESOLVED cwd (`/tmp` is `/private/tmp`):
+  // the first candidate. `claudeTranscriptPath` answers the raw name when
+  // nothing exists yet, which is where the CLI would not look.
+  const target = claudeTranscriptCandidates(cwd, sessionId)[0]!;
   placeAt(kept, target);
+  const now = new Date();
+  utimesSync(target, now, now);
   return { path: target, restored: true };
 }
 
@@ -112,8 +125,12 @@ export function restoreSweptTranscript(db: Database | null, cwd: string | null |
 
 interface LiveSession { id: string; known: Array<string | null | undefined> }
 
-/** The sessions Topics can still resume, with the paths where their transcript should be. */
-function liveSessions(db: Database): LiveSession[] {
+/**
+ * The sessions Topics can still resume, with the paths where their transcript
+ * should be. Null when a table could not be read: the caller must then not
+ * prune, or one failed query would drop every link.
+ */
+function liveSessions(db: Database): LiveSession[] | null {
   const out = new Map<string, LiveSession>();
   const add = (id: string | null, path: string | null | undefined) => {
     if (!id || !SESSION_ID.test(id)) return;
@@ -123,13 +140,13 @@ function liveSessions(db: Database): LiveSession[] {
   };
   try {
     const chats = db.query(
-      `SELECT s.claude_session_id AS id, s.jsonl_path AS path
-         FROM claude_code_sessions s
-         JOIN topics t ON t.session_key = s.session_key
-        WHERE s.claude_session_id IS NOT NULL AND (t.archived IS NULL OR t.archived = 0)`,
+      `SELECT claude_session_id AS id, jsonl_path AS path
+         FROM claude_code_sessions WHERE claude_session_id IS NOT NULL`,
     ).all() as Array<{ id: string | null; path: string | null }>;
     for (const r of chats) add(r.id, r.path);
-  } catch { /* table missing in a test DB */ }
+  } catch {
+    return null;
+  }
   try {
     const tabs = db.query(
       `SELECT claude_session_id AS id, cwd FROM terminal_sessions WHERE claude_session_id IS NOT NULL`,
@@ -139,8 +156,32 @@ function liveSessions(db: Database): LiveSession[] {
       if (r.cwd && r.id) { try { path = claudeTranscriptPath(r.cwd, r.id); } catch { /* unreadable cwd */ } }
       add(r.id, path);
     }
-  } catch { /* same */ }
+  } catch {
+    return null;
+  }
   return [...out.values()];
+}
+
+/**
+ * Where each of `ids` sits under `~/.claude/projects`, from one read of every
+ * project folder: per-id `existsSync` over ~800 folders cost 8.6 ms an id.
+ */
+function locateTranscripts(ids: Set<string>): Map<string, string> {
+  const found = new Map<string, string>();
+  if (ids.size === 0) return found;
+  const root = join(homedir(), ".claude", "projects");
+  let dirs: string[] = [];
+  try { dirs = readdirSync(root); } catch { return found; }
+  for (const dir of dirs) {
+    let names: string[];
+    try { names = readdirSync(join(root, dir)); } catch { continue; }
+    for (const name of names) {
+      if (!name.endsWith(".jsonl")) continue;
+      const id = name.slice(0, -".jsonl".length);
+      if (ids.has(id) && !found.has(id)) found.set(id, join(root, dir, name));
+    }
+  }
+  return found;
 }
 
 /**
@@ -152,9 +193,19 @@ export function keepLiveTranscripts(db: Database): { kept: number; pruned: numbe
   const dir = keeperDirFor(db);
   if (!dir) return { kept: 0, pruned: 0 };
   const live = liveSessions(db);
+  if (!live) {
+    console.warn("[transcript-keeper] session tables unreadable: nothing kept, nothing dropped");
+    return { kept: 0, pruned: 0 };
+  }
+  const known = new Map<string, string>();
+  for (const s of live) {
+    const p = s.known.find((x): x is string => !!x && existsSync(x));
+    if (p) known.set(s.id, p);
+  }
+  const located = locateTranscripts(new Set(live.map((s) => s.id).filter((id) => !known.has(id))));
   let kept = 0;
   for (const s of live) {
-    const transcript = s.known.find((p): p is string => !!p && existsSync(p)) ?? findClaudeTranscript("", s.id);
+    const transcript = known.get(s.id) ?? located.get(s.id);
     if (!transcript) continue;
     try {
       const r = keepTranscript(dir, s.id, transcript);

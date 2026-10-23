@@ -11,7 +11,7 @@
  */
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 import { Database } from "bun:sqlite";
-import { appendFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, statSync, unlinkSync, writeFileSync } from "fs";
+import { appendFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, renameSync, rmSync, statSync, unlinkSync, utimesSync, writeFileSync } from "fs";
 import { homedir, tmpdir } from "os";
 import { join } from "path";
 import { claudeProjectDirName, claudeTranscriptPath } from "./claude-transcript-path";
@@ -34,8 +34,9 @@ afterEach(() => {
   rmSync(root, { recursive: true, force: true });
 });
 
+/** Where the CLI writes it: under the RESOLVED cwd (the temp dir sits behind a symlink on macOS). */
 function writeTranscript(cwd: string, id: string, lines: string[]): string {
-  const path = claudeTranscriptPath(cwd, id);
+  const path = claudeTranscriptPath(realpathSync(cwd), id);
   mkdirSync(join(path, ".."), { recursive: true });
   writeFileSync(path, lines.map((l) => `${l}\n`).join(""));
   return path;
@@ -89,7 +90,7 @@ describe("transcript keeper", () => {
     expect(existsSync(dir)).toBe(false);
   });
 
-  it("one pass keeps resumable chats and tabs, skips archived chats and drops forgotten ones", () => {
+  it("one pass keeps chats (archived ones too, they wake up) and tabs, and drops forgotten ones", () => {
     const cwd = join(root, "project");
     const chatId = ID;
     const archivedId = crypto.randomUUID();
@@ -107,15 +108,49 @@ describe("transcript keeper", () => {
     mkdirSync(dir, { recursive: true });
     writeFileSync(join(dir, `${goneId}.jsonl`), "{}\n");
 
-    expect(keepLiveTranscripts(db)).toEqual({ kept: 2, pruned: 1 });
+    expect(keepLiveTranscripts(db)).toEqual({ kept: 3, pruned: 1 });
     expect(existsSync(join(dir, `${chatId}.jsonl`))).toBe(true);
     expect(existsSync(join(dir, `${tabId}.jsonl`))).toBe(true);
-    expect(existsSync(join(dir, `${archivedId}.jsonl`))).toBe(false);
+    expect(existsSync(join(dir, `${archivedId}.jsonl`))).toBe(true);
     expect(existsSync(join(dir, `${goneId}.jsonl`))).toBe(false);
 
     unlinkSync(claudeTranscriptPath(cwd, tabId));
     expect(restoreSweptTranscript(db, cwd, tabId, "test")).toBe(true);
     expect(existsSync(claudeTranscriptPath(cwd, tabId))).toBe(true);
+    db.close();
+  });
+
+  it("a transcript put back is dated now, or the next CLI's cleanup deletes it again", () => {
+    const cwd = join(root, "project");
+    const dir = join(root, "data", "claude-transcripts");
+    const path = writeTranscript(cwd, ID, ["{}"]);
+    const old = new Date(Date.now() - 40 * 86_400_000);
+    utimesSync(path, old, old);
+    keepTranscript(dir, ID, path);
+    unlinkSync(path);
+    restoreTranscript(dir, cwd, ID);
+    expect(Date.now() - statSync(path).mtimeMs).toBeLessThan(60_000);
+  });
+
+  it("a transcript replaced by a rename (the CLI's compaction) is linked again, even at the same size", () => {
+    const cwd = join(root, "project");
+    const dir = join(root, "data", "claude-transcripts");
+    const path = writeTranscript(cwd, ID, ["AAAA"]);
+    keepTranscript(dir, ID, path);
+    writeFileSync(`${path}.compact.tmp`, "BBBB\n");
+    renameSync(`${path}.compact.tmp`, path);
+    expect(keepTranscript(dir, ID, path)).toBe("linked");
+    expect(readFileSync(join(dir, `${ID}.jsonl`), "utf8")).toBe("BBBB\n");
+  });
+
+  it("an unreadable session table drops no link", () => {
+    mkdirSync(join(root, "data"), { recursive: true });
+    const db = new Database(join(root, "data", "topics.db"), { create: true });
+    const dir = keeperDirFor(db)!;
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(join(dir, `${ID}.jsonl`), "{}\n");
+    expect(keepLiveTranscripts(db)).toEqual({ kept: 0, pruned: 0 });
+    expect(existsSync(join(dir, `${ID}.jsonl`))).toBe(true);
     db.close();
   });
 
