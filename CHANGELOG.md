@@ -2,6 +2,11 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.3.17 — 2026-10-24
+
+### Sotto il cofano
+- T5 (WIP): test isolati, TMPDIR privata per file, runner con controllo (#417)
+
 ## 2.3.16 — 2026-10-23
 
 ### Sotto il cofano

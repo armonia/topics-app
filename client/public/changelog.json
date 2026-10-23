@@ -1,5 +1,21 @@
 [
   {
+    "version": "2.3.17",
+    "date": "2026-10-24",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "T5 (WIP): test isolati, TMPDIR privata per file, runner con controllo (#417)",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
     "version": "2.3.16",
     "date": "2026-10-23",
     "sections": {
