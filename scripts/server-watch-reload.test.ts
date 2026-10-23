@@ -290,8 +290,8 @@ describe("the watcher asks only for code the server has not loaded (RGATE-06)", 
     await until(() => rig.curlCalls() > 0, () => `an edit to a shared file the server imports did not ask a restart:\n${rig.log()}`);
   }, slackMs(30_000));
 
-  // 22/10 22:50: un land con solo undici `.test.ts` sotto server/ ha riavviato
-  // il server di produzione. Il server non carica i test: non sono codice suo.
+  // 22/10 22:50: a land of eleven `.test.ts` files under server/ and nothing
+  // else restarted the production server. The server never loads its tests.
   it("a test file under server/ is not a server change, a module next to it is", async () => {
     const rig = await startRig({});
     rig.write("server/module.test.ts", "export const covered = true;\n");
