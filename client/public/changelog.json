@@ -1,5 +1,21 @@
 [
   {
+    "version": "2.3.14",
+    "date": "2026-10-23",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Il cancello della storia guarda anche i tag, e un termine gia' pubblicato si blocca in avanti (#410)",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
     "version": "2.3.13",
     "date": "2026-10-23",
     "sections": {

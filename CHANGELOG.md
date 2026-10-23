@@ -2,6 +2,11 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.3.14 — 2026-10-23
+
+### Sotto il cofano
+- Il cancello della storia guarda anche i tag, e un termine gia' pubblicato si blocca in avanti (#410)
+
 ## 2.3.13 — 2026-10-23
 
 ### Sotto il cofano
