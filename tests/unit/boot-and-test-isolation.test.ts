@@ -20,6 +20,7 @@
  */
 import { describe, test, expect } from "bun:test";
 import { readFileSync, realpathSync } from "fs";
+import { tmpdir } from "os";
 import { join } from "path";
 import { resolveDataDir, resolveStateDir } from "../../server/lib/data-dir";
 import { dataDirForPort } from "../e2e/helpers/test-server";
@@ -31,12 +32,12 @@ const SERVER_TS = readFileSync(join(ROOT, "server.ts"), "utf8");
 
 describe("E2E-ISO-01 · il banco non scrive nella cartella viva", () => {
   test("resolveStateDir onora TOPICS_DATA_DIR invece della cartella del repo", () => {
-    const dedicated = join("/tmp", `topics-iso-${process.pid}-${Date.now()}`);
+    const dedicated = join(tmpdir(), `topics-iso-${process.pid}-${Date.now()}`);
     expect(resolveStateDir(ROOT, { TOPICS_DATA_DIR: dedicated } as NodeJS.ProcessEnv)).toBe(dedicated);
   });
 
   test("e onora anche DATA_DIR: era l'altro nome, ora entra dalla stessa porta", () => {
-    const dedicated = join("/tmp", `topics-iso-${process.pid}-${Date.now()}-vecchio`);
+    const dedicated = join(tmpdir(), `topics-iso-${process.pid}-${Date.now()}-vecchio`);
     expect(resolveStateDir(ROOT, { DATA_DIR: dedicated } as NodeJS.ProcessEnv)).toBe(dedicated);
   });
 
@@ -76,9 +77,8 @@ describe("E2E-ISO-01 · il banco non scrive nella cartella viva", () => {
   });
 
   test("il banco resta isolato con il SOLO DATA_DIR, che e' la prova dell'unificazione", () => {
-    // Nobody creates this directory: the string only goes into `resolveStateDir`
-    // to check that it comes back unchanged.
-    const dataDir = "/tmp/topics-test-data-13334"; // allow-shared-tmp: a value, not a directory
+    // resolveStateDir creates it: under this test's temp folder, which goes when the file is over.
+    const dataDir = join(tmpdir(), "topics-test-data-13334");
     const env = { DATA_DIR: dataDir } as NodeJS.ProcessEnv;
     expect(resolveStateDir(ROOT, env), "topics.json, uploads/, messages/ finirebbero nel repo vivo").toBe(dataDir);
     expect(resolveDataDir(resolveStateDir(ROOT, env), env), "data/usage/ condivisa fra shard").toBe(dataDir);

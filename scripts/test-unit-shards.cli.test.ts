@@ -41,6 +41,7 @@ interface FakeCall {
   timeSlack: string | null;
   runId: string | null;
   gateMaxRunMs: string | null;
+  tmpdirOwned: string | null;
   stdoutIsFile: boolean;
   stdoutIsPipe: boolean;
   start: number;

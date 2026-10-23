@@ -7,6 +7,7 @@
   * @covers TERM-08
  */
 import { describe, expect, test, beforeAll, afterAll } from "bun:test";
+import { join } from "node:path";
 import { setupTestDataDir, createTestAppContext, testTmpDir } from "./helpers";
 import type { RouteHandler } from "../../server/types";
 
@@ -41,7 +42,9 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 describe("Master session control — read / write / close (shell sessions)", () => {
   test("creates a shell session, writes to it, reads its buffer, then closes it", async () => {
-    const { createTerminalRouter, disconnectBridge } = await import("../../server/routes/terminal");
+    const { createTerminalRouter, disconnectBridge, _setPtyBridgeSocketPath } = await import("../../server/routes/terminal");
+    // Its own socket: the bridge log is parked beside it, and the default one lands in /tmp.
+    _setPtyBridgeSocketPath(join(TEST_DATA, "pty-bridge.sock"));
     const ctx = await createTestAppContext();
     const router = createTerminalRouter(ctx);
     disconnect = disconnectBridge;
