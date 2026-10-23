@@ -66,8 +66,8 @@ export interface SigInput {
 export function keyIdOf(encoded: string, kind: "pubkey" | "signature"): string | null {
   const lines = Buffer.from(encoded.trim(), "base64").toString("utf8").split("\n");
   const raw = Buffer.from(lines[1] ?? "", "base64");
-  const alg = raw.subarray(0, 2).toString("latin1");
-  if (raw.length !== (kind === "pubkey" ? 42 : 74) || (alg !== "Ed" && alg !== "ED")) return null;
+  const algorithm = raw.subarray(0, 2).toString("latin1");
+  if (raw.length !== (kind === "pubkey" ? 42 : 74) || (algorithm !== "Ed" && algorithm !== "ED")) return null;
   const trailer = lines[2]?.startsWith("trusted comment: ") && Buffer.from(lines[3] ?? "", "base64").length === 64;
   if (kind === "signature" && !trailer) return null;
   return raw.subarray(2, 10).toString("hex");

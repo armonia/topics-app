@@ -36,7 +36,7 @@ const ROOT = join(import.meta.dir, "../..");
 function tauriCrateDir(): string {
   if (process.env.TAURI_CRATE_DIR) return process.env.TAURI_CRATE_DIR;
   const lock = readFileSync(join(ROOT, "desktop-tauri/src-tauri/Cargo.lock"), "utf8");
-  const version = /\[\[package\]\]\nname = "tauri"\nversion = "([^"]+)"/.exec(lock)?.[1];
+  const version = /\[\[package\]\]\r?\nname = "tauri"\r?\nversion = "([^"]+)"/.exec(lock)?.[1];
   if (!version) throw new Error("Cargo.lock has no `tauri` package");
   const registry = join(process.env.CARGO_HOME ?? join(homedir(), ".cargo"), "registry/src");
   const found = (existsSync(registry) ? readdirSync(registry) : [])
@@ -69,10 +69,10 @@ function page() {
   };
   // The fixed class reports through a microtask that throws; run it at once and
   // record what it threw, as the browser's uncaught-error hook would.
-  const queueMicrotask = (fn: () => void) => {
+  const runAtOnce = (fn: () => void) => {
     try { fn(); } catch (e) { reported.push(e); }
   };
-  vm.runInNewContext(readFileSync(join(tauriCrateDir(), "scripts/bundle.global.js"), "utf8"), { window, queueMicrotask });
+  vm.runInNewContext(readFileSync(join(tauriCrateDir(), "scripts/bundle.global.js"), "utf8"), { window, queueMicrotask: runAtOnce });
   const Channel = (window.__TAURI__ as { core: { Channel: new () => Channel<string> } }).core.Channel;
   const deliver = (channel: Channel<string>, index: number, message: string) => {
     try { callbacks[channel.id]({ index, message }); } catch (e) { reported.push(e); }

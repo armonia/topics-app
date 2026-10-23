@@ -25,10 +25,10 @@ import { join } from "node:path";
 import { keyIdOf, sigProblems } from "./assert-sig";
 
 const ROOT = join(import.meta.dir, "..");
-const PUBKEY: string = JSON.parse(
+const PUBLIC_KEY: string = JSON.parse(
   readFileSync(join(ROOT, "desktop-tauri/src-tauri/tauri.conf.json"), "utf8"),
 ).plugins.updater.pubkey;
-const WORKFLOW = readFileSync(join(ROOT, ".github/workflows/tauri-release.yml"), "utf8");
+const RELEASE_PIPELINE = readFileSync(join(ROOT, ".github/workflows/tauri-release.yml"), "utf8");
 
 /** [asset suffix, signature] for the five bundles the updater downloads. */
 const REAL: ReadonlyArray<readonly [string, string]> = [
@@ -48,7 +48,7 @@ function release(sigs: Readonly<Record<string, string>> = Object.fromEntries(REA
   return {
     assetNames: [...bundles, ...Object.keys(sigs), "Topics_2.3.13_universal.dmg", "latest.json"],
     sigs,
-    pubkey: PUBKEY,
+    pubkey: PUBLIC_KEY,
     manifest: manifestFor(sigs),
   };
 }
@@ -82,8 +82,8 @@ describe("assert-sig: the signatures of a release", () => {
   });
 
   test("key id: the public key and a real signature name the same key", () => {
-    expect(keyIdOf(PUBKEY, "pubkey")).toBe(keyIdOf(REAL[0][1], "signature")!);
-    expect(keyIdOf(PUBKEY, "pubkey")).toMatch(/^[0-9a-f]{16}$/);
+    expect(keyIdOf(PUBLIC_KEY, "pubkey")).toBe(keyIdOf(REAL[0][1], "signature")!);
+    expect(keyIdOf(PUBLIC_KEY, "pubkey")).toMatch(/^[0-9a-f]{16}$/);
   });
 
   test("no .sig at all: says the key was missing from the build", () => {
@@ -113,7 +113,7 @@ describe("assert-sig: the signatures of a release", () => {
     const other = withKeyId(REAL[1][1], "0123456789abcdef");
     const problems = sigProblems(release(only("_x64_en-US.msi", other)));
     const wrong = problems.find((p) => p.includes("0123456789abcdef"));
-    expect(wrong).toContain(keyIdOf(PUBKEY, "pubkey")!);
+    expect(wrong).toContain(keyIdOf(PUBLIC_KEY, "pubkey")!);
     expect(wrong).toContain("Topics_2.3.13_x64_en-US.msi.sig");
   });
 
@@ -153,10 +153,10 @@ describe("assert-sig: the signatures of a release", () => {
 
 describe("the publish job runs it, in the right places", () => {
   test("once before the manifest is composed (signatures only) and once before publishing", () => {
-    const before = WORKFLOW.indexOf("scripts/assert-sig.ts --sigs-only");
-    const compose = WORKFLOW.indexOf("Compose and upload the single updater manifest");
-    const after = WORKFLOW.indexOf("scripts/assert-sig.ts \"$ID\"");
-    const publish = WORKFLOW.indexOf("name: Publish the release");
+    const before = RELEASE_PIPELINE.indexOf("scripts/assert-sig.ts --sigs-only");
+    const compose = RELEASE_PIPELINE.indexOf("Compose and upload the single updater manifest");
+    const after = RELEASE_PIPELINE.indexOf("scripts/assert-sig.ts \"$ID\"");
+    const publish = RELEASE_PIPELINE.indexOf("name: Publish the release");
     expect(before).toBeGreaterThan(-1);
     expect(before).toBeLessThan(compose);
     expect(after).toBeGreaterThan(compose);
@@ -188,7 +188,7 @@ else process.stdout.write(assets[target.slice("asset:".length)]);
 }
 
 describe("the CLI, end to end with a fake gh", () => {
-  const whole = () => {
+  const whole = (): Record<string, string> => {
     const r = release();
     return { ...r.sigs, "latest.json": r.manifest, ...Object.fromEntries(REAL.map(([s]) => [bundleName(s), "bundle"])) };
   };
