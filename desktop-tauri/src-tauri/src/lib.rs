@@ -4362,6 +4362,19 @@ const POPUP_CLOSE_URL: &str = "about:blank#topics-popup-close";
 const POPUP_CLOSE_JS: &str =
     "try{window.close=function(){location.replace('about:blank#topics-popup-close');};}catch(e){}";
 
+/// macOS, wry >= 0.57: a popup built on its opener's configuration shares the
+/// opener's `WKUserContentController` and no longer adds its own initialization
+/// scripts (wry#1876). `POPUP_CLOSE_JS` on the popup therefore does not run, and
+/// `window.close()` closes nothing. The popup inherits the PANE's scripts, so the
+/// same redirect is installed there, guarded by `window.opener`: a pane page that
+/// calls `close()` must not land on `about:blank`. On Windows and Linux the popup
+/// has its own webview and script and is unchanged. A popup opened with `noopener`
+/// has no opener and is not covered; such a page cannot hand anything to its parent,
+/// so it is not the login case.
+#[cfg(target_os = "macos")]
+const POPUP_CLOSE_FROM_PANE_JS: &str =
+    "try{if(window.opener){window.close=function(){location.replace('about:blank#topics-popup-close');};}}catch(e){}";
+
 static POPUP_SEQ: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
 
 /// Un `window.open` CON dimensioni e' un popup, non una scheda: si apre come
@@ -5401,6 +5414,11 @@ fn browser_open_inner(
             }
             tauri::webview::NewWindowResponse::Deny
         });
+    // See POPUP_CLOSE_FROM_PANE_JS: the pane carries the popup's `close()`.
+    #[cfg(target_os = "macos")]
+    {
+        builder = builder.initialization_script(POPUP_CLOSE_FROM_PANE_JS);
+    }
     // L'isolamento si chiede con due leve diverse, e non e' una ridondanza:
     // `data_store_identifier` e' documentato da tauri come «macOS/iOS», e wry lo
     // implementa solo su WKWebView. Fuori da li' quella riga scriveva un attributo

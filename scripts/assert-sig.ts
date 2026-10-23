@@ -15,13 +15,22 @@
  *   - a `.sig` is empty, truncated, or not a minisign signature at all;
  *   - `latest.json` carries a signature that is not the one on the release: a
  *     build job re-run after the manifest was composed replaces the bundle and
- *     its `.sig` and leaves the old signature in the manifest.
+ *     its `.sig` and leaves the old signature in the manifest;
+ *   - the version does not add up: the updater (plugin 2.14) refuses a bundle
+ *     whose signed `version:` differs from the `version` of `latest.json`, so a
+ *     `.sig` left over from another release, or a manifest that names another
+ *     tag, is a release nobody can install.
  *
  * And one that is loud today and is kept loud on purpose: NO `.sig` at all. The
  * tauri CLI source fails `tauri build` when the key is unset, so a missing
  * signature already stops the release through the red build and the asset gate;
  * this keeps it stopped if that ever changes (a `--no-sign` in the args, a CLI
  * that downgrades the error to a warning).
+ *
+ * IT ASSUMES THE KEY STAYS. The reference is the `pubkey` in `tauri.conf.json`
+ * of the commit being released. Rotating the signing key on purpose is a manual
+ * migration (clients already installed keep trusting the OLD key, so they need
+ * a bridge release signed with it), not something this gate can wave through.
  *
  * WHAT IT DOES NOT DO: verify the signature over the bundle bytes. That needs
  * the ~100 MB artifacts and a hash pass, for a failure the key id already names:
@@ -53,6 +62,8 @@ export interface SigInput {
   pubkey: string;
   /** `latest.json` as text. Left out when the manifest is not composed yet. */
   manifest?: string;
+  /** The release tag (`tauri-vX.Y.Z`). Left out, the version checks are skipped. */
+  tag?: string;
 }
 
 /**
@@ -73,17 +84,34 @@ export function keyIdOf(encoded: string, kind: "pubkey" | "signature"): string |
   return raw.subarray(2, 10).toString("hex");
 }
 
-function manifestProblems(raw: string, sigs: Readonly<Record<string, string>>): string[] {
-  let platforms: Record<string, { signature?: unknown; url?: unknown }> | undefined;
+/** The `version:` a signature's trusted comment binds the bundle to, if it says one. */
+export function signedVersionOf(encoded: string): string | null {
+  const comment = Buffer.from(encoded.trim(), "base64").toString("utf8").split("\n")[2] ?? "";
+  return comment.split("\t").find((field) => field.startsWith("version:"))?.slice("version:".length) ?? null;
+}
+
+const bare = (version: string) => version.replace(/^v/, "");
+
+function manifestProblems(raw: string, sigs: Readonly<Record<string, string>>, tag?: string): string[] {
+  let manifest: { version?: unknown; platforms?: Record<string, { signature?: unknown; url?: unknown }> } | undefined;
   try {
-    platforms = (JSON.parse(raw) as { platforms?: typeof platforms }).platforms;
+    manifest = JSON.parse(raw);
   } catch {
-    platforms = undefined;
+    manifest = undefined;
   }
+  const platforms = manifest?.platforms;
   if (!platforms || typeof platforms !== "object") return ["latest.json is not an updater manifest"];
   const problems: string[] = [];
+  const version = tag?.replace(/^tauri-/, "");
+  if (version !== undefined && bare(String(manifest?.version ?? "")) !== bare(version)) {
+    problems.push(`latest.json says version ${String(manifest?.version)}, the release is ${bare(version)}`);
+  }
   for (const [platform, entry] of Object.entries(platforms)) {
-    const file = String(entry?.url ?? "").split("/").pop() ?? "";
+    const url = String(entry?.url ?? "");
+    const file = url.split("/").pop() ?? "";
+    if (tag !== undefined && !url.includes(`/releases/download/${encodeURIComponent(tag)}/`)) {
+      problems.push(`latest.json[${platform}] points outside the ${tag} release: ${url}`);
+    }
     const published = sigs[`${file}.sig`];
     if (published === undefined) {
       problems.push(`latest.json[${platform}] points at ${file}, which has no .sig on the release`);
@@ -95,10 +123,12 @@ function manifestProblems(raw: string, sigs: Readonly<Record<string, string>>): 
 }
 
 /** Every problem found, one sentence each. Empty means the release can go out. */
-export function sigProblems({ assetNames, sigs, pubkey, manifest }: SigInput): string[] {
+export function sigProblems({ assetNames, sigs, pubkey, manifest, tag }: SigInput): string[] {
   const ours = keyIdOf(pubkey, "pubkey");
   if (!ours) return ["tauri.conf.json: plugins.updater.pubkey is not a minisign public key"];
   const problems: string[] = [];
+  const version = tag === undefined ? undefined : /^tauri-v(.+)$/.exec(tag)?.[1];
+  if (tag !== undefined && version === undefined) problems.push(`the release tag ${tag} is not tauri-vX.Y.Z`);
   const missing = SIG_SUFFIXES.filter((s) => !assetNames.some((n) => n.endsWith(s)));
   if (missing.length === SIG_SUFFIXES.length) {
     problems.push("no .sig on the release at all: the build ran without TAURI_SIGNING_PRIVATE_KEY, or with --no-sign");
@@ -111,8 +141,14 @@ export function sigProblems({ assetNames, sigs, pubkey, manifest }: SigInput): s
     if (!content.trim()) problems.push(`${name} is empty`);
     else if (!id) problems.push(`${name} is not a minisign signature`);
     else if (id !== ours) problems.push(`${name} was signed with key ${id}, the app trusts ${ours}`);
+    else {
+      const signed = signedVersionOf(content);
+      if (version !== undefined && signed !== null && bare(signed) !== bare(version)) {
+        problems.push(`${name} was signed for version ${signed}, the release is ${version}`);
+      }
+    }
   }
-  if (manifest !== undefined) problems.push(...manifestProblems(manifest, sigs));
+  if (manifest !== undefined) problems.push(...manifestProblems(manifest, sigs, version === undefined ? undefined : tag));
   return problems;
 }
 
@@ -134,7 +170,7 @@ if (import.meta.main) {
     console.error("usage: REPO=owner/name bun run scripts/assert-sig.ts [--sigs-only] <release-id>");
     process.exit(2);
   }
-  const release = JSON.parse(gh([`repos/${repo}/releases/${id}`])) as { assets: { name: string; url: string }[] };
+  const release = JSON.parse(gh([`repos/${repo}/releases/${id}`])) as { tag_name?: string; assets: { name: string; url: string }[] };
   const fetchAsset = (a: { url: string }) => gh([a.url, "-H", "Accept: application/octet-stream"]);
   const sigs = Object.fromEntries(
     release.assets.filter((a) => a.name.endsWith(".sig")).map((a) => [a.name, fetchAsset(a)]),
@@ -146,6 +182,7 @@ if (import.meta.main) {
     sigs,
     pubkey: conf.plugins.updater.pubkey,
     manifest: sigsOnly ? undefined : latest ? fetchAsset(latest) : "",
+    tag: release.tag_name,
   });
   if (problems.length > 0) {
     console.error(`[sig] ${problems.length} problem(s), the release does not go out:`);

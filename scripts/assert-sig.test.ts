@@ -22,7 +22,7 @@ import { describe, expect, test } from "bun:test";
 import { chmodSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { keyIdOf, sigProblems } from "./assert-sig";
+import { keyIdOf, signedVersionOf, sigProblems } from "./assert-sig";
 
 const ROOT = join(import.meta.dir, "..");
 const PUBLIC_KEY: string = JSON.parse(
@@ -50,6 +50,7 @@ function release(sigs: Readonly<Record<string, string>> = Object.fromEntries(REA
     sigs,
     pubkey: PUBLIC_KEY,
     manifest: manifestFor(sigs),
+    tag: TAG,
   };
 }
 
@@ -70,6 +71,18 @@ function withKeyId(sig: string, hex: string): string {
   const raw = Buffer.from(lines[1], "base64");
   Buffer.from(hex, "hex").copy(raw, 2);
   lines[1] = raw.toString("base64");
+  return Buffer.from(lines.join("\n")).toString("base64");
+}
+
+/** The same signature with another `version:` in its trusted comment (same length, so the rest still parses). */
+function withVersion(sig: string, version: string): string {
+  return Buffer.from(Buffer.from(sig, "base64").toString("utf8").replace("version:2.3.13", `version:${version}`)).toString("base64");
+}
+
+/** The same signature with its payload bytes rewritten by `edit`, trailer untouched. */
+function withPayload(sig: string, edit: (raw: Buffer) => Buffer): string {
+  const lines = Buffer.from(sig, "base64").toString("utf8").split("\n");
+  lines[1] = edit(Buffer.from(lines[1], "base64")).toString("base64");
   return Buffer.from(lines.join("\n")).toString("base64");
 }
 
@@ -128,7 +141,7 @@ describe("assert-sig: the signatures of a release", () => {
   test("latest.json pointing at a bundle that has no .sig", () => {
     const r = release();
     const dangling = JSON.parse(r.manifest);
-    dangling.platforms["windows-x86_64"] = { signature: REAL[1][1], url: `https://x/download/${TAG}/Topics_2.3.13_arm64.msi` };
+    dangling.platforms["windows-x86_64"] = { signature: REAL[1][1], url: `https://github.com/armonia/topics-app/releases/download/${TAG}/Topics_2.3.13_arm64.msi` };
     const problems = sigProblems({ ...r, manifest: JSON.stringify(dangling) });
     expect(problems).toEqual(["latest.json[windows-x86_64] points at Topics_2.3.13_arm64.msi, which has no .sig on the release"]);
   });
@@ -144,6 +157,37 @@ describe("assert-sig: the signatures of a release", () => {
     expect(sigProblems({ ...release(), manifest: undefined })).toEqual([]);
   });
 
+  test("a signature with the wrong algorithm byte, or a short payload under an intact trailer", () => {
+    const algorithm = sigProblems(release(only("_amd64.deb", withPayload(REAL[3][1], (raw) => { raw[0] = 0x58; return raw; }))));
+    expect(algorithm.some((p) => p.includes("is not a minisign signature"))).toBe(true);
+    const short = sigProblems(release(only("_amd64.deb", withPayload(REAL[3][1], (raw) => raw.subarray(0, 60)))));
+    expect(short.some((p) => p.includes("is not a minisign signature"))).toBe(true);
+  });
+
+  test("an extra .sig outside the list the gate counts is still read, and judged", () => {
+    const r = release();
+    const stray = { ...r, assetNames: [...r.assetNames, "Topics_2.3.13_arm64.dmg.sig"], sigs: { ...r.sigs, "Topics_2.3.13_arm64.dmg.sig": withKeyId(REAL[0][1], "0123456789abcdef") } };
+    expect(sigProblems({ ...stray, manifest: undefined }).some((p) => p.startsWith("Topics_2.3.13_arm64.dmg.sig was signed with key 0123456789abcdef"))).toBe(true);
+  });
+
+  test("a signature made for ANOTHER version is named, and so is a tag that is not tauri-vX.Y.Z", () => {
+    const problems = sigProblems(release(only("_amd64.deb", withVersion(REAL[3][1], "2.3.12"))));
+    expect(problems).toEqual(["Topics_2.3.13_amd64.deb.sig was signed for version 2.3.12, the release is 2.3.13"]);
+    expect(signedVersionOf(REAL[3][1])).toBe("2.3.13");
+    expect(sigProblems({ ...release(), tag: "v2.3.13" })).toEqual(["the release tag v2.3.13 is not tauri-vX.Y.Z"]);
+  });
+
+  test("latest.json that names another version, or a url in another release", () => {
+    const r = release();
+    const otherVersion = { ...JSON.parse(r.manifest), version: "2.3.12" };
+    expect(sigProblems({ ...r, manifest: JSON.stringify(otherVersion) })).toEqual(["latest.json says version 2.3.12, the release is 2.3.13"]);
+    const elsewhere = JSON.parse(r.manifest);
+    elsewhere.platforms["platform-_amd64.deb"].url = `https://github.com/armonia/topics-app/releases/download/tauri-v2.3.12/${bundleName("_amd64.deb")}`;
+    const problems = sigProblems({ ...r, manifest: JSON.stringify(elsewhere) });
+    expect(problems).toHaveLength(1);
+    expect(problems[0]).toContain("latest.json[platform-_amd64.deb] points outside the tauri-v2.3.13 release");
+  });
+
   test("a pubkey that is not a minisign key stops everything with its own sentence", () => {
     expect(sigProblems({ ...release(), pubkey: "garbage" })).toEqual([
       "tauri.conf.json: plugins.updater.pubkey is not a minisign public key",
@@ -152,15 +196,30 @@ describe("assert-sig: the signatures of a release", () => {
 });
 
 describe("the publish job runs it, in the right places", () => {
+  type Step = { name?: string; run?: string; if?: string; "continue-on-error"?: unknown };
+  const steps = (Bun.YAML.parse(RELEASE_PIPELINE) as { jobs: { publish: { steps: Step[] } } }).jobs.publish.steps;
+  const at = (name: string) => steps.findIndex((step) => step.name?.startsWith(name));
+
   test("once before the manifest is composed (signatures only) and once before publishing", () => {
-    const before = RELEASE_PIPELINE.indexOf("scripts/assert-sig.ts --sigs-only");
-    const compose = RELEASE_PIPELINE.indexOf("Compose and upload the single updater manifest");
-    const after = RELEASE_PIPELINE.indexOf("scripts/assert-sig.ts \"$ID\"");
-    const publish = RELEASE_PIPELINE.indexOf("name: Publish the release");
+    const before = at("assert-sig (firme presenti");
+    const after = at("assert-sig (latest.json");
+    const compose = at("Compose and upload the single updater manifest");
     expect(before).toBeGreaterThan(-1);
-    expect(before).toBeLessThan(compose);
+    expect(compose).toBeGreaterThan(before);
     expect(after).toBeGreaterThan(compose);
-    expect(after).toBeLessThan(publish);
+    expect(at("Publish the release")).toBeGreaterThan(after);
+    expect(steps[before].run?.trim()).toBe('bun run scripts/assert-sig.ts --sigs-only "$ID"');
+    expect(steps[after].run?.trim()).toBe('bun run scripts/assert-sig.ts "$ID"');
+  });
+
+  test("neither step can be waved through: no condition, no continue-on-error, no || true", () => {
+    const gates = steps.filter((step) => step.name?.startsWith("assert-sig"));
+    expect(gates).toHaveLength(2);
+    for (const step of gates) {
+      expect(step.if).toBeUndefined();
+      expect(step["continue-on-error"]).toBeUndefined();
+      expect(step.run).not.toMatch(/\|\||;\s*true/);
+    }
   });
 });
 
@@ -173,7 +232,7 @@ function runCli(assets: Record<string, string>, args: string[] = []) {
       `#!/usr/bin/env bun
 const target = process.argv[3];
 const assets = JSON.parse(process.env.FAKE_ASSETS!);
-if (target.startsWith("repos/")) console.log(JSON.stringify({ assets: Object.keys(assets).map((name) => ({ name, url: "asset:" + name })) }));
+if (target.startsWith("repos/")) console.log(JSON.stringify({ tag_name: "tauri-v2.3.13", assets: Object.keys(assets).map((name) => ({ name, url: "asset:" + name })) }));
 else process.stdout.write(assets[target.slice("asset:".length)]);
 `,
     );
@@ -218,6 +277,26 @@ describe("the CLI, end to end with a fake gh", () => {
     assets["latest.json"] = "stale";
     expect(runCli(assets, ["--sigs-only"]).code).toBe(0);
     expect(runCli(assets).code).toBe(1);
+  });
+
+  test("a release that carries no latest.json fails the default call, and passes --sigs-only", () => {
+    const { "latest.json": _manifest, ...assets } = whole();
+    expect(runCli(assets).code).toBe(1);
+    expect(runCli(assets, ["--sigs-only"]).code).toBe(0);
+  });
+
+  test("a gh that fails is exit 2, not a verdict", () => {
+    const dir = mkdtempSync(join(tmpdir(), "assert-sig-"));
+    try {
+      writeFileSync(join(dir, "gh"), "#!/bin/sh\necho boom >&2\nexit 1\n");
+      chmodSync(join(dir, "gh"), 0o755);
+      const proc = Bun.spawnSync(["bun", join(ROOT, "scripts/assert-sig.ts"), "123"], {
+        env: { ...process.env, PATH: `${dir}:${process.env.PATH}`, REPO: "armonia/topics-app" },
+      });
+      expect(proc.exitCode).toBe(2);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 
   test("without a release id it does not guess: exit 2", () => {

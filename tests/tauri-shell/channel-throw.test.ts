@@ -14,6 +14,10 @@
  * copy of the logic: the next version jump is judged by the code it brings. The
  * day a stream does go through a `Channel`, the guarantee is already pinned.
  *
+ * THE BUNDLE IS INJECTED INTO A PAGE ONLY WITH `app.withGlobalTauri = true`,
+ * which Topics does not set. The test proves the class, not that a page uses
+ * it; extend it to `@tauri-apps/api` when that package is adopted.
+ *
  * WHERE THE SOURCE COMES FROM. `$CARGO_HOME/registry/src/<index>/tauri-<version>/`,
  * which `cargo check` has filled by the time the CI `tauri` job gets here;
  * locally `cargo fetch` does it. `TAURI_CRATE_DIR` points at another copy: run
