@@ -854,3 +854,117 @@ chi lo lancia.
 #### Scenario: un percorso di sistema non e' quello di una persona
 - **GIVEN** `<string>/usr/bin:/bin:/opt/homebrew/bin</string>`
 - **THEN** SHALL essere verde
+
+### Requirement: GATE-21 — «Pubblicato» sono anche i tag, e un termine già pubblicato si blocca in avanti invece di fare rosso per sempre
+
+Il cancello della storia pubblicata (`check:history-clean`,
+`scripts/scrub-history.ts --check`) SHALL misurare l'unione di TUTTI i ref che
+il remoto serve: i rami remoti, i **tag che il remoto ha** e `refs/pull/*`.
+Prima guardava solo `--remotes=<r>/*`, cioè i 20 rami pubblicati e nessuno dei
+710 tag pubblicati: misurato il 22/10/2026 su un termine reale, 51 commit
+contro i 112 dell'unione, e tre nomi di cliente riportati `pulito` mentre 14
+riscontri su 12 commit distinti li portavano ancora, tutti sotto UN tag di
+release pubblicato i cui commit erano stati rebasati via da `main`. Verificato
+clonando il repo da zero senza alcun flag: 710 tag e tutti i 12 commit
+presenti. Un cancello che sottostima di 2x dice «pulito» su metà di ciò che il
+pubblico può leggere.
+
+Un tag pubblicato SHALL essere identificato per **SHA**, non per nome:
+`ls-remote` restituisce entrambi, e risolvere il nome risolve l'oggetto LOCALE.
+Con un tag spostato da una delle due parti (una release ri-tagliata, un
+`git tag -f` locale) il cancello misurava un commit diverso da quello che il
+remoto serve e stampava `pulito` senza alcun avviso.
+
+Il **messaggio di un tag annotato** SHALL essere misurato: nessuna passata di
+`git log` lo legge, perché la passata visita i commit e il testo di un oggetto
+tag non è né un messaggio di commit né un blob. Il conteggio dei messaggi di tag
+SHALL essere riportato separato da quello dei commit.
+
+Un termine SHALL essere cercato come **stringa**, non come pattern: `--grep` è
+una regex, quindi un termine che contiene `[`, `(` o `.` non trovava NIENTE nei
+messaggi — la metà esatta per cui `--grep` era stato aggiunto. Misurato con
+`Acme [Milano] srl` in un messaggio pubblicato: 0 riscontri senza `-F`, 1 con.
+
+L'elenco dei tag SHALL arrivare dal remoto (`git ls-remote --tags`), non da
+`--tags`: 316 dei 1026 tag di questo clone esistono solo qui, 307 dei quali
+backup `archive/*`, e contarli farebbe annunciare una fuga PUBBLICA su ref che
+nessuno può raggiungere — lo stesso difetto di `selfcheck/main`. Un remoto che
+risponde con zero tag SHALL contare come «nessun tag pubblicato». Quando un
+remoto NON risponde il cancello NON SHALL indovinare in nessuna delle due
+direzioni — né tacere né ripiegare sui tag locali, che trasformerebbe un backup
+`archive/*` in una fuga pubblica: SHALL dichiarare la misura mancata e uscire 2.
+
+Un termine di `.personal-terms` SHALL poter essere marcato **solo in avanti**
+(prefisso `>` sulla riga; il formato è documentato nel docblock di
+`scripts/personal-terms.ts`, perché il file non è tracciato). Un termine così
+marcato NON SHALL far fallire il controllo sulla storia pubblicata — che SHALL
+riportarlo come esposizione nota con il suo conteggio — e SHALL comunque essere
+rifiutato dal hook pre-push nei commit non ancora pushati, **messaggi
+inclusi**. Senza i due livelli un termine già pubblicato rende
+`check:history-clean` rosso per sempre (l'unico rimedio sarebbe riscrivere la
+storia, ed è misurato che non basta: GitHub serve gli oggetti per SHA anche 62
+giorni dopo un force-push), quindi non si poteva aggiungere affatto: è per
+questo che il percorso della home dell'autore è rimasto fuori dalla lista fino
+a finire in un plist launchd nella PR #405 senza che niente lo cercasse.
+
+**Ogni fallimento di `git` nella misura SHALL essere registrato, e un giro con
+qualcosa registrato NON SHALL riportare un verde**: SHALL uscire 2 («non
+misurabile») dicendo il motivo. È la cura all'origine di quattro falsi verdi
+misurati su questo stesso ramo, tutti la stessa forma — l'helper inghiottiva
+l'errore in `""`, e per una domanda di conteggio `""` vale ZERO, quindi «git si
+è rifiutato di rispondere» e «non c'è niente» erano lo stesso valore. I quattro:
+un oggetto pubblicato che il clone non ha, un percorso scritto come un rev (la
+lista dei rev SHALL essere chiusa da `--`), un termine con un metacarattere, un
+remoto che non risponde. Un termine già trovato pubblico fra i ref misurabili
+SHALL comunque dare 1: una fuga certa batte una misura mancata.
+
+Con l'elenco dei termini VUOTO il cancello SHALL uscire 0 senza giudicare
+niente: è lo stato normale in CI e su un clone fresco, e «nessun termine» non è
+un verde ma «niente da cercare».
+
+Il hook pre-push SHALL fallire CHIUSO sulla stessa condizione: una guardia che
+non ha potuto misurare non lascia passare il push.
+
+Un marcatore su un termine che la storia pubblicata NON contiene SHALL essere
+segnalato come inutile, non essere rosso: non copre nulla e il pre-push lo
+blocca comunque.
+
+#### Scenario: un nome che solo un tag pubblicato raggiunge
+- **GIVEN** un commit con il termine, raggiungibile solo da un tag spinto sul remoto
+- **WHEN** si lancia `check:history-clean`
+- **THEN** SHALL uscire 1, mentre il vecchio ambito (solo i rami remoti) ne contava 0
+
+#### Scenario: un tag che vive solo in locale
+- **GIVEN** lo stesso commit, con il tag MAI spinto e il remoto che risponde
+- **THEN** SHALL uscire 0 e SHALL riportarlo come sporcizia solo locale
+
+#### Scenario: un oggetto pubblicato che il clone non ha
+- **GIVEN** un tag spinto sul remoto dopo che il clone esisteva, quindi il suo oggetto non è qui
+- **THEN** SHALL uscire 2 e NON SHALL dire che niente di pubblicato contiene i nomi
+- **AND** se un ref misurabile porta già il termine, SHALL uscire 1
+- **AND** con l'elenco dei termini vuoto SHALL uscire 0
+
+#### Scenario: un tag spostato in locale
+- **GIVEN** il tag sul remoto che punta al commit sporco e il ref locale dello stesso nome spostato su uno pulito
+- **THEN** SHALL uscire 1
+
+#### Scenario: il messaggio di un tag annotato
+- **GIVEN** un termine solo in `git tag -a -m` su un tag spinto
+- **THEN** SHALL uscire 1 contando un messaggio di tag, e NON SHALL consigliare di togliere il marcatore
+
+#### Scenario: un termine con un metacarattere, solo nel messaggio
+- **GIVEN** un termine che contiene `[...]` nel messaggio di un commit pubblicato, e lo stesso in un commit non pushato
+- **THEN** il cancello SHALL uscire 1 e il pre-push SHALL uscire 1
+
+#### Scenario: un ref rotto
+- **GIVEN** un `refs/pull/*` che punta a un oggetto inesistente
+- **THEN** SHALL uscire 2, e il motivo stampato NON SHALL contenere il termine
+
+#### Scenario: termine solo in avanti già nella storia pubblicata
+- **GIVEN** `> <termine>` e il termine in un commit sul ramo remoto
+- **THEN** `check:history-clean` SHALL uscire 0 e SHALL nominarlo col conteggio come esposizione nota
+- **AND** lo stesso repo senza il marcatore SHALL uscire 1
+
+#### Scenario: lo stesso termine in un commit non pushato
+- **GIVEN** `> <termine>` e un commit locale che lo contiene nel contenuto, e un altro che lo ha solo nel MESSAGGIO
+- **THEN** il hook pre-push SHALL uscire 1 in entrambi i casi

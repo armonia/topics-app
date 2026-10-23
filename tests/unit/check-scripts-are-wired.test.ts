@@ -73,7 +73,8 @@ const MOTIVI: Record<string, string> = {
     "e' un cancello VERO del codice, ma vuole un WebKit di Playwright e un bundle costruito: " +
     "gira a mano, ed e' anche l'attrezzo che registra la clip di consegna (--video).",
   "check:history-clean":
-    "interroga la STORIA con `git log -S` su tutti i rami, e in CI la storia non c'e': " +
+    "interroga la STORIA (contenuti, messaggi di commit e messaggi dei tag annotati) sui ref " +
+    "che il remoto pubblica, e in CI la storia non c'e': " +
     "`actions/checkout` clona con `fetch-depth: 1`, quindi il cancello misurerebbe un solo " +
     "commit e uscirebbe verde per il motivo sbagliato - il modo piu' comune in cui un cancello " +
     "smette di guardare senza che nessuno se ne accorga. Gira a mano prima e dopo la " +
