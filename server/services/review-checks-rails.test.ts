@@ -87,7 +87,6 @@ describe("static-rails: la catena dei cancelli statici", () => {
       "check:eslint-disable",
       "check:typography",
       "check:tmp-canonical",
-      "check:module-mock-restore",
     ]) {
       expect(gates).toContain(gate);
     }

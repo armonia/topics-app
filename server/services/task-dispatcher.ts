@@ -2754,7 +2754,7 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
   const UNIT_CI_KICKOFF_LINE =
     "- UNIT TESTS RUN ON GITHUB CI, NEVER HERE: the full unit suite of your delivery is read from the step `Unit + integration tests` of the `check` job, " +
     "in the pull request CI run of the exact commit the board measured, after the same push and draft pull request (one push and one wait serve the e2e row too). " +
-    "Do not run `bun run test:unit` or `test:unit:shards` on this machine; targeted `bun test <file>` for the files you touched stays allowed and is how you check your change before delivering. " +
+    "Do not run `bun run test:unit` on this machine; targeted `bun test <file>` for the files you touched stays allowed and is how you check your change before delivering. " +
     "A red step comes back with `gh run view --job <id> --log-failed`; a step skipped, cancelled or never reached is NOT MEASURED, never green.";
 
   // The same question on a board WITHOUT that row: nobody pushes, nobody reads a

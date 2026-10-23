@@ -89,7 +89,8 @@ export { MAX_CHECKS };
  * the `check` job runs EIGHTEEN `check:*`. Counted, name by name, the eight this
  * chain did not have were `check:any`, `check:any-budget`,
  * `check:ref-callbacks`, `check:nul`, `check:eslint-disable`,
- * `check:typography`, `check:tmp-canonical` and `check:module-mock-restore`.
+ * `check:typography`, `check:tmp-canonical` and `check:module-mock-restore` (the last
+ * one retired on 2026-10-23: a process per test file cannot hand a mock to the next).
  * Every one of them is a pure scan of the tracked files, deterministic, with no
  * bundle, no browser, no database and no network: a card could deliver green on
  * all eleven and turn main red on any of the eight, which is the same failure
@@ -136,7 +137,6 @@ export const STATIC_RAILS_CHECK: ReviewCheck = {
     // The eight the CI measured and the board did not, cheapest first: a red
     // here comes back in under a second instead of after the slow tail.
     "bun run check:tmp-canonical",
-    "bun run check:module-mock-restore",
     // A literal `fetch('/api...')` outside the client's door (2026-10-01),
     // a pure scan of client/src.
     "bun run check:api-door",

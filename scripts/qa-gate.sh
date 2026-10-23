@@ -129,7 +129,7 @@ esegui() {
 STATICI=(check:any check:any-budget check:ref-callbacks check:nul check:eslint-disable
          check:test-skips check:emdash check:bloat check:route-shadowing check:typography check:ui-language check:comment-language
          check:identifier-language check:sleeps check:tmp-canonical
-         check:module-mock-restore check:api-door
+         check:api-door
          check:untraced-tests check:gates-orfani check:spec-coverage
          check:migrations check:security check:deadcode)
 
