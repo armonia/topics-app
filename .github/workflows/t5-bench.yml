@@ -13,8 +13,8 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        round: [2]
-        shards: ['6','8']
+        round: [3]
+        shards: ['4']
     steps:
       - uses: actions/checkout@v5
       - uses: oven-sh/setup-bun@v2

@@ -47,6 +47,7 @@
  *   bun run scripts/test-unit-shards.ts                 # whole suite, N = TOPICS_UNIT_SHARDS or defaultShards(cores)
  *   bun run scripts/test-unit-shards.ts --shuffle=7     # random order, seed 7
  *   bun run scripts/test-unit-shards.ts <file|dir>...   # only these (they REPLACE the default roots)
+ *   bun run scripts/test-unit-shards.ts --list          # the plan, one file per line, without running it
  * In production it enters from the bar as:
  *   bun run scripts/slot.ts test:unit -- 'bun run scripts/test-unit-shards.ts'
  */
@@ -275,6 +276,8 @@ interface FileResult {
   file: string;
   code: number;
   wallS: number;
+  /** CPU the process (and the children it waited for) used: how much of the wall was work and not waiting. */
+  cpuS: number;
   /** stdout + stderr, kept only when the file is red. */
   output: string;
   /** What the file left in its scratch directory. */
@@ -304,7 +307,8 @@ async function runFile(file: string, scratch: string, env: Record<string, string
   let leaked: string[] = [];
   try { leaked = readdirSync(scratch); } catch { /* the file removed its own scratch: nothing left */ }
   rmSync(scratch, { recursive: true, force: true });
-  return { file, code, wallS, output: code === 0 ? "" : `${err}${out}`, leaked };
+  const cpuS = Number(proc.resourceUsage()?.cpuTime.total ?? 0n) / 1e6;
+  return { file, code, wallS, cpuS, output: code === 0 ? "" : `${err}${out}`, leaked };
 }
 
 /** Runs `fn` over `items` with `n` workers pulling from one shared queue, in order. */
@@ -381,6 +385,13 @@ if (import.meta.main) {
   const seed = shuffleSeedOf(argv);
   const order = seed === null ? longestFirst(parallel, durations) : shuffleSeeded(parallel, seed);
   if (seed !== null) console.error(`test-unit-shards: shuffle seed ${seed} (repeat with --shuffle=${seed})`);
+  // The plan without running it: the order the workers would take, then the
+  // files that run alone at the end. One per line, so a test can read it and a
+  // person can see what a seed does.
+  if (argv.includes("--list")) {
+    console.log([...order, ...serial].join("\n"));
+    process.exit(0);
+  }
 
   // One root for the whole run, one folder per file under it. It is made in the
   // real temp folder and removed at the end: what is left of it is a leak of
@@ -424,7 +435,8 @@ if (import.meta.main) {
 
   console.log("\n── test:unit (un processo per file) ──");
   const slowest = [...results].sort((a, b) => b.wallS - a.wallS).slice(0, 5);
-  console.log(`  ${results.length} file, ${N} shard, wall ${totalWallS.toFixed(1)}s; i più lenti: ${slowest.map((r) => `${r.file} ${r.wallS.toFixed(1)}s`).join(", ")}`);
+  const cpuTotal = results.reduce((sum, r) => sum + r.cpuS, 0);
+  console.log(`  ${results.length} file, ${N} shard, wall ${totalWallS.toFixed(1)}s, cpu ${cpuTotal.toFixed(0)}s su ${cores} core; i più lenti: ${slowest.map((r) => `${r.file} ${r.wallS.toFixed(1)}s`).join(", ")}`);
 
   // The red files BY NAME, last, and on STDERR: the board's check runner
   // concatenates stdout then stderr and keeps the tail, so the last lines of
