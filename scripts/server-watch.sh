@@ -100,14 +100,20 @@ server_shared_inputs() {
     if meta=$("$BUN_BIN" build server.ts --target=bun --packages=external --outfile=/dev/null --metafile=/dev/stdout 2>/dev/null); then
       printf '%s\n' "$meta" | sed -n 's/^    "\(shared\/[^"]*\)": {$/\1/p'
     else
-      find shared -type f ! -path '*/node_modules/*'
+      find shared -type f ! -path '*/node_modules/*' ! -name '*.test.*'
     fi)
 }
 
 # Every file the running server is made of, NUL-separated, relative to APP_DIR.
+#
+# I file di test (`*.test.*`) stanno sotto server/ ma il server non li carica
+# mai. Il 22/10 alle 22:50 un land che toccava SOLO undici `.test.ts` ha
+# riavviato il server: drain del dispatcher, WebSocket chiuse, tab riattaccate,
+# per zero righe di codice nuovo in esecuzione. Fuori dall'impronta, e fuori
+# anche da `first_source_not_older_than`, che legge la stessa lista.
 server_sources() {
   (exec 9>&-; cd "$APP_DIR" || exit 0
-    find server server.ts -type f ! -path '*/node_modules/*' -print0 2>/dev/null
+    find server server.ts -type f ! -path '*/node_modules/*' ! -name '*.test.*' -print0 2>/dev/null
     server_shared_inputs | tr '\n' '\0')
 }
 

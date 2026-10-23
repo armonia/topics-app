@@ -289,4 +289,21 @@ describe("the watcher asks only for code the server has not loaded (RGATE-06)", 
     rig.event();
     await until(() => rig.curlCalls() > 0, () => `an edit to a shared file the server imports did not ask a restart:\n${rig.log()}`);
   }, slackMs(30_000));
+
+  // 22/10 22:50: un land con solo undici `.test.ts` sotto server/ ha riavviato
+  // il server di produzione. Il server non carica i test: non sono codice suo.
+  it("a test file under server/ is not a server change, a module next to it is", async () => {
+    const rig = await startRig({});
+    rig.write("server/module.test.ts", "export const covered = true;\n");
+    rig.event();
+    await until(
+      () => rig.log().includes("evento ignorato") || rig.curlCalls() > 0,
+      () => `the event was never handled:\n${rig.log()}`,
+    );
+    expect(rig.curlCalls()).toBe(0);
+
+    rig.write("server/module.ts", "export const ready = false;\n");
+    rig.event();
+    await until(() => rig.curlCalls() > 0, () => `an edit to a server module did not ask a restart:\n${rig.log()}`);
+  }, slackMs(30_000));
 });
