@@ -2,6 +2,12 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.3.16 — 2026-10-23
+
+### Sotto il cofano
+- pulizia governata (worktree, chiavi, copie DB, cancelli orfani) (#415)
+- T9 istantaneo: blocchi markdown, sezioni tenute vive, misura delle interazioni (#416)
+
 ## 2.3.15 — 2026-10-23
 
 ### Sotto il cofano
