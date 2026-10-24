@@ -67,6 +67,8 @@ interface MessageGroup {
   cost_usd: number;
   msgs: number;
   unpriced: number;
+  estimated: number;
+  estimated_usd: number;
 }
 
 interface TaskGroup {
@@ -100,7 +102,9 @@ export function projectUsage(db: Database, opts: ProjectUsageOptions = {}): Proj
               SUM(${costFromMessage}) AS cost_tokens,
               SUM(CASE WHEN m.cache_read_tokens IS NOT NULL THEN COALESCE(m.cost_cents, 0) ELSE 0 END) / 100.0 AS cost_usd,
               COUNT(*) AS msgs,
-              SUM(CASE WHEN m.cache_read_tokens IS NULL AND COALESCE(m.cost_cents, 0) > 0 THEN 1 ELSE 0 END) AS unpriced
+              SUM(CASE WHEN m.cache_read_tokens IS NULL AND COALESCE(m.cost_cents, 0) > 0 THEN 1 ELSE 0 END) AS unpriced,
+              SUM(CASE WHEN m.cost_estimated = 1 AND m.cache_read_tokens IS NOT NULL THEN 1 ELSE 0 END) AS estimated,
+              SUM(CASE WHEN m.cost_estimated = 1 AND m.cache_read_tokens IS NOT NULL THEN COALESCE(m.cost_cents, 0) ELSE 0 END) / 100.0 AS estimated_usd
          FROM messages m
          JOIN topics tp ON tp.session_key = m.session_key
         WHERE tp.project_path IS NOT NULL AND tp.project_path <> ''${msgWindow}
@@ -130,7 +134,9 @@ export function projectUsage(db: Database, opts: ProjectUsageOptions = {}): Proj
     messageCount: 0,
     taskCount: 0,
     unpricedMessages: 0,
+    estimatedMessages: 0,
   });
+  let estimatedUsd = 0;
 
   for (const r of messageRows) {
     // THE NORMALISATION, and the only place it happens. Two chats on the same
@@ -143,6 +149,8 @@ export function projectUsage(db: Database, opts: ProjectUsageOptions = {}): Proj
     row.costUsd += r.cost_usd ?? 0;
     row.messageCount += r.msgs ?? 0;
     row.unpricedMessages += r.unpriced ?? 0;
+    row.estimatedMessages += r.estimated ?? 0;
+    estimatedUsd += r.estimated_usd ?? 0;
     if (!row.projectPath) row.projectPath = r.project_path;
     byId.set(id, row);
   }
@@ -188,6 +196,12 @@ export function projectUsage(db: Database, opts: ProjectUsageOptions = {}): Proj
       // the dollar figure a floor rather than a total.
       partial: totals.taskTokens > 0 || excludedMessages > 0 || models.length > 0,
       excluded: { taskTokens: totals.taskTokens, messages: excludedMessages, models },
+      // Inside the total, not left out of it: said apart so nobody reads an
+      // upper bound as a measured bill.
+      estimated: {
+        messages: projects.reduce((a, p) => a + p.estimatedMessages, 0),
+        usd: Math.round(estimatedUsd * 100) / 100,
+      },
     },
   };
 }

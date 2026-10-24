@@ -11,6 +11,8 @@
  * modulo separato è anche la casa giusta per i suoi test.
  */
 
+import { cacheReadRate } from '../../../shared/model-pricing';
+
 /**
  * Coerce a possibly-undefined / null / NaN / non-finite value to a safe
  * non-negative number. The `??` nullish-coalescing operator does NOT
@@ -61,24 +63,20 @@ export interface CacheBreakdown {
 }
 
 /**
- * I MOLTIPLICATORI di costo rispetto a un token di input fresco. Sono gli stessi
- * di `server/usage/pricing.ts` — e sono uguali su tutta la famiglia Claude,
- * indipendenti dal modello, che è ciò che rende possibile lo scorporo qui sotto.
+ * Cost weights over a fresh input token. The WRITE weights are the same on every
+ * Claude model; the READ weight is not since the 5.5 generation (0.05x on Opus
+ * and Sonnet 5.5, 0.025x on Fable 5.1, 0.1x elsewhere), so it comes from the
+ * same table the server prices with (`shared/model-pricing.ts`). With a fixed
+ * 0.1 the chip gave rereading twice its share of an Opus 5.5 bill.
  */
-const W_READ = 0.1;   // rileggere dalla cache costa un decimo
-const W_5M = 1.25;    // scriverci (TTL 5 min) costa un quarto in più
-const W_1H = 2;       // scriverci (TTL 1 ora) costa il doppio
+const W_5M = 1.25;    // write, five-minute TTL
+const W_1H = 2;       // write, one-hour TTL
 /**
- * Quanto costa un token di OUTPUT rispetto a uno di input. Vale 5 su tutta la
- * famiglia Claude — Opus 5$/25$, Sonnet 3$/15$, Haiku 1$/5$ — ed è l'unica
- * costante che serve per ripartire un costo totale senza conoscere il modello.
- *
- * Il messaggio non porta il nome del modello (la tabella `messages` non ha la
- * colonna), quindi il prezzo assoluto qui non è ricostruibile. Il RAPPORTO sì, e
- * basta: si riparte `costCents` — che è misurato — in proporzione ai pesi. Sui
- * modelli GPT il rapporto è 4, non 5; oggi non morde perché i turni GPT non
- * hanno un costo calcolato, ma è la ragione per cui questo numero sta qui con un
- * nome invece di essere un 5 sparso nella formula.
+ * How much an OUTPUT token costs over an input token: 5 on every Claude model,
+ * the 5.5 rows included (Opus 4/20, Sonnet 2/10, Haiku 0.10/0.50). The split
+ * never rebuilds the absolute price: it spreads `costCents`, which is measured,
+ * in proportion to the weights. On GPT models the ratio is 4; it does not bite
+ * today because GPT turns have no computed cost.
  */
 const W_OUT = 5;
 
@@ -92,6 +90,8 @@ export interface CostBreakdown {
   freshCents: number;
   /** Le scritture in cache, scorporate dal fresco per il tooltip. */
   writeCents: number;
+  /** The read weight used, so the tooltip shows the model's rate and not a fixed one. */
+  readRate: number;
 }
 
 /**
@@ -121,8 +121,11 @@ export function costBreakdown(args: {
   cacheReadTokens?: number | null;
   cacheCreationTokens?: number | null;
   cacheCreation1hTokens?: number | null;
+  /** The model that produced the message: it decides the read weight. Unknown = 0.1. */
+  model?: string | null;
 }): CostBreakdown {
-  const empty: CostBreakdown = { known: false, cacheCents: 0, freshCents: 0, writeCents: 0 };
+  const readRate = cacheReadRate(args.model);
+  const empty: CostBreakdown = { known: false, cacheCents: 0, freshCents: 0, writeCents: 0, readRate };
   const bd = cacheBreakdown(args);
   const cost = safeNum(args.costCents);
   // Senza scorporo dei token non si sa nulla; senza costo non c'è niente da
@@ -131,7 +134,7 @@ export function costBreakdown(args: {
   if (!bd.known || cost <= 0) return empty;
 
   const completion = safeNum(args.completionTokens);
-  const wRead = bd.read * W_READ;
+  const wRead = bd.read * readRate;
   const wWrite = bd.write5m * W_5M + bd.write1h * W_1H;
   const wRest = bd.fresh + completion * W_OUT;
   const total = wRead + wWrite + wRest;
@@ -139,7 +142,7 @@ export function costBreakdown(args: {
 
   const cacheCents = (cost * wRead) / total;
   const writeCents = (cost * wWrite) / total;
-  return { known: true, cacheCents, writeCents, freshCents: cost - cacheCents };
+  return { known: true, cacheCents, writeCents, freshCents: cost - cacheCents, readRate };
 }
 
 export function cacheBreakdown(args: {

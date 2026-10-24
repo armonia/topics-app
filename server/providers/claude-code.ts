@@ -70,7 +70,6 @@ import { observePlanUsage } from "./native/usage-window";
 import { readClaudeSubscription, type ClaudeSubscription } from "./claude/subscription";
 import { noteApiHealth, silentTurnEnd, type ApiRetryMark } from "./claude/api-outage";
 import { readFastMode, fastModeCommand, fastModeMultiplier, sameFastMode, type FastModeInfo, type FastModeStatus } from "./fast-mode";
-import { modelPrice } from "../usage/pricing";
 import { getSnapshotManager } from "./snapshot-manager";
 import { skillBodyFromInjectedText } from "./claude/user-event-text";
 import { buildUserTurnContent } from "./claude/user-turn";
@@ -2539,7 +2538,7 @@ export class ClaudeCodeProvider implements AIProvider {
     if (!this.fastModeStatus) return null;
     return {
       ...this.fastModeStatus,
-      costMultiplier: fastModeMultiplier(this.defaultModel(), modelPrice),
+      costMultiplier: fastModeMultiplier(this.defaultModel()),
     };
   }
 

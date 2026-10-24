@@ -2702,6 +2702,8 @@ const IT: Dict = {
   'usage.rowChats': 'Chat: {tokens} token su {n} messaggi',
   'usage.rowTasks': 'Board: {tokens} token su {n} task (non tariffabili)',
   'usage.rowUnpriced': '{n} messaggi con un costo registrato prima dello scorporo cache: esclusi dal denaro.',
+  'usage.rowEstimated': '{n} messaggi Haiku 5.5 con un costo stimato (al massimo).',
+  'usage.costEstimated': '{usd} di questo costo sono stimati: {n} turni Haiku 5.5 sopra i 100mila token, riprezzati senza il dettaglio delle singole chiamate. È un tetto, il vero può essere più basso.',
   'usage.perProject': 'Consumo per progetto',
   'perf.q1': 'Va veloce?',
   'perf.q2': 'Quanto costa?',

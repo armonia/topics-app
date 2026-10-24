@@ -2413,6 +2413,8 @@ const EN = {
   'usage.rowChats': 'Chats: {tokens} tokens across {n} messages',
   'usage.rowTasks': 'Board: {tokens} tokens across {n} tasks (unpriceable)',
   'usage.rowUnpriced': '{n} messages carry a cost recorded before the cache split: left out of the money.',
+  'usage.rowEstimated': '{n} Haiku 5.5 messages with an estimated cost (at most).',
+  'usage.costEstimated': '{usd} of this cost is estimated: {n} Haiku 5.5 turns over 100k tokens, repriced without their single calls. It is a ceiling; the real figure may be lower.',
   'usage.perProject': 'Usage by project',
   'perf.q1': 'Is it fast?',
   'perf.q2': 'What does it cost?',

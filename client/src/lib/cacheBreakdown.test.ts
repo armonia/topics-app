@@ -269,3 +269,25 @@ describe('costBreakdown — lo scorporo del COSTO, non dei token', () => {
     expect(cb.freshCents).toBeCloseTo(400, 6);
   });
 });
+
+describe('costBreakdown: the read weight is the model\'s', () => {
+  // Opus 5.5 rereads at 0.05x its input price, not 0.1x. With the old fixed
+  // weight the chip doubled the cache share of every Opus 5.5 bill.
+  const args = {
+    promptTokens: 23_010_793, completionTokens: 42_651, costCents: 604,
+    cacheReadTokens: 22_889_547, cacheCreationTokens: 120_854,
+  };
+
+  test('Opus 5.5 splits with 0.05, and says so', () => {
+    const cb = costBreakdown({ ...args, model: 'claude-opus-5-5[1m]' });
+    expect(cb.readRate).toBe(0.05);
+    // Real turn 4 of the finance chat: $4.58 of $6.04 was rereading.
+    const read = 22_889_547 * 0.05, write = 120_854 * 1.25, rest = 392 + 42_651 * 5;
+    expect(cb.cacheCents).toBeCloseTo((604 * read) / (read + write + rest), 6);
+  });
+
+  test('an unknown model keeps the standard 0.1', () => {
+    expect(costBreakdown({ ...args, model: null }).readRate).toBe(0.1);
+    expect(costBreakdown({ ...args, model: 'claude-opus-5' }).readRate).toBe(0.1);
+  });
+});

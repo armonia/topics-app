@@ -28,6 +28,7 @@ import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 import { NativeProvider } from "./provider";
+import { readNativeUsage } from "../native-usage-registry";
 import type { StreamHandler } from "../types";
 
 const REAL_HOME = process.env.HOME;
@@ -168,5 +169,18 @@ describe("the native provider and the door that writes tokens on the row", () =>
     // Without the model the route cannot pick a rate, and the turn comes out
     // with its tokens but no price.
     expect(u.model).toBe("claude-haiku-4-5-20251001");
+  });
+
+  test("the registry the spend cap reads prices each round with the turn's model", async () => {
+    // Haiku 5.5 picks its rate card per request: the card's spend is only right
+    // when each round is priced on its own, which needs the model that served it.
+    const queue = [roundWithTool, finalRound];
+    globalThis.fetch = (async () => new Response(queue.shift() ?? finalRound, { status: 200 })) as unknown as typeof fetch;
+    const provider = new NativeProvider({ type: "native", defaultWorkspace: workspace, model: "claude-haiku-4-5-20251001" });
+    await provider.sendChat("topic:registry-probe", "read a file", recorder([]));
+    // Haiku 4.5, $1/$5: fresh x1, read x0.1, 5m write x1.25, 1h write x2.
+    // Round 1: 100 + 10*0.1 + 4*1.25 + 3*2 + 20*5 = 212 millionths.
+    // Round 2: 200 + 20*0.1 + 4*1.25 + 1*2 + 5*5 = 234 millionths.
+    expect(readNativeUsage("topic:registry-probe")?.costUsd).toBeCloseTo(446 / 1_000_000, 12);
   });
 });
