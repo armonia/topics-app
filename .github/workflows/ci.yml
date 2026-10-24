@@ -340,6 +340,15 @@ jobs:
           # semina le card su un id diverso da quello che la finestra apre, e il
           # rosso esce solo su macOS, dove `/tmp` e' un link a `/private/tmp`.
           bun run check:tmp-canonical
+          # A mock.module left un-restored hands every later file in the shard
+          # the fake. `mock.restore()` does NOT fix it -- that only undoes spies.
+          # On 2026-09-12 this cost three CI rounds: the red pointed at the code
+          # under test, not at the file that left the mock behind. The worst
+          # outcome is the file AFTER the leak staying GREEN for the wrong reason,
+          # believing it is talking to the real module. Static scan catches the
+          # gap before the runner does -- shard order determines who the victim
+          # is, so it is invisible until the unlucky grouping shows up.
+          bun run check:module-mock-restore
           bun run check:spec-coverage
           # `check:untraced-tests` guarda nella direzione OPPOSTA a
           # `check:spec-coverage`: quello parte dalle spec e cerca i test, questo

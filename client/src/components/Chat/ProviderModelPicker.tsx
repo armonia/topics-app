@@ -173,7 +173,7 @@ export function ProviderModelPicker({ override, defaultProviderLabel, pinnedMode
     ? tr('ai.selector.chipNone')
     : triggerLine(modelTriggerText(
       chatProvider || !pinnedModel ? value : { provider: appDefault, model: pinnedModel },
-      { snapshot, tr, surface: 'chat', viaTopics: route.via === 'topics', automaticWho },
+      { snapshot, tr, surface: 'chat', viaTopics: route.via === 'topics', topicsMarked: route.via === 'topics', automaticWho },
     ));
   const failed = loadState === 'failed' || loadState === 'broken';
   const chipTitle = loadState === 'failed'
@@ -203,8 +203,16 @@ export function ProviderModelPicker({ override, defaultProviderLabel, pinnedMode
         title={chipTitle}
       >
         {route.via === 'topics' && (
-          <span data-testid="model-route-mark" title={tr('ai.selector.route.topics')} className="inline-flex shrink-0">
-            <Route className="h-3 w-3 text-primary" aria-label={tr('ai.selector.route.topics')} />
+          // Small pill that makes the routing state legible at a glance (MSEL-07).
+          <span
+            data-testid="model-route-mark"
+            title={tr('ai.selector.route.topics')}
+            className="inline-flex shrink-0 items-center gap-0.5 rounded px-1 py-0.5 bg-primary/10 text-primary"
+          >
+            <Route className="h-2.5 w-2.5" aria-hidden="true" />
+            <span className="text-mini font-semibold leading-none" aria-label={tr('ai.selector.route.topics')}>
+              Topics
+            </span>
           </span>
         )}
         <span data-testid="provider-model-picker-label" className="max-w-[220px] truncate @max-[380px]:max-w-[110px]">

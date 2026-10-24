@@ -361,6 +361,8 @@
 
     "client/src/components/Shared/CommandPalette.tsx": 1052,
 
+    "client/src/components/Shared/ModelSelector/ModelList.tsx": 811,
+
     "client/src/components/Sidebar/PinnedTiles.tsx": 1215,
 
     "client/src/components/Sidebar/TopicTree.tsx": 3014,
@@ -427,7 +429,7 @@
 
     "desktop-tauri/pty-bridge/src/bridge.rs": 1266,
 
-    "desktop-tauri/src-tauri/src/lib.rs": 13878,
+    "desktop-tauri/src-tauri/src/lib.rs": 13896,
 
     "playwright.config.ts": 807,
 
@@ -458,7 +460,7 @@
       ]
     },
 
-    "server.ts": 7001,
+    "server.ts": 7021,
 
     "server/attention/store.ts": {
       "lines": 1253,
@@ -467,7 +469,7 @@
       ]
     },
 
-    "server/browser-service.ts": 2479,
+    "server/browser-service.ts": 2478,
 
     "server/browser-tools-handler.ts": 810,
 
@@ -497,7 +499,7 @@
 
     "server/providers/acp.ts": 917,
 
-    "server/providers/claude-code.ts": 4879,
+    "server/providers/claude-code.ts": 4892,
 
     "server/providers/codex.ts": 1310,
 
@@ -536,7 +538,7 @@
     "server/routes/auth.ts": 1713,
 
     "server/routes/browser-bridge.test.ts": {
-      "lines": 1539,
+      "lines": 1632,
       "why": [
         "2026-10-12, op-opens-pane r1 (unrecorded, 1127 -> 1242): the six auto-open tests, the bridge opening before a pane-less page op. r2 1242 -> 1283 (+41): the task-topic no-announce case, the live-url-beats-persisted case, the 60 s retry-window case, and the getUrl/liveUrls harness seam. Recorded, not split: every case drives the same bridge harness through the helpers at the top of the file.",
         "2026-10-24, 1306 -> 1436 (+130) from two fixes: #420 open-pane from a terminal answers 400 on a refused URL (four URL cases), #421 every 5xx of the bridge logs its reason (eval, open-pane and list-tabs cases, plus the harness options evalRejects and listContextsThrows). Recorded, not split: both drive the same bridge harness.",
@@ -574,7 +576,7 @@
     "server/routes/tasks.ts": 3952,
 
     "server/routes/terminal.ts": {
-      "lines": 4154,
+      "lines": 4164,
       "why": [
         "2026-10-04, notifications-redesign: 3722 on main -> 3727, five calls into server/attention/terminal-turns.ts (a hook-less terminal's busy and quiet as its turn, the PTY exit as the end of what it waited on, the retire as T13). The logic lives in that module.",
         "2026-10-05, subagent-nativi (PR #238): 3767 on main -> 3888, the routes' side of native sub-agents: the spawn's engine branch, send/read/stop/list on a native child, the resume that moves a CLI child to the engine, one resume at a time, the CLI stop as a function the tree stop reuses. The logic lives in server/lib/native-subagents.ts (childRuntimeFor, engineLaunchOf, moveCliChildToEngine, liveNativeChildren).",
@@ -586,7 +588,7 @@
     "server/routes/topics.control.test.ts": 922,
 
     "server/routes/topics.ts": {
-      "lines": 3394,
+      "lines": 3400,
       "why": [
         "2026-10-03, commands-ui: +55 on main (3244): GET /api/topics/:id/resumable-sessions (/resume, CMDUI-03), the transcriptPath adopt-claude now accepts, the `compact` case of /api/command for the native engine, the slash menu read per provider. The reader lives in lib/resumable-claude-sessions.ts and the menu in lib/slash-command-menu.ts.",
         "2026-10-03, merged with main 5125e396b (tornata 3b): 3309 measured. Main 3244 -> 3254 bought +10 (find inside one conversation: the POST /api/history-find door and the e2e switch that splits stored tool outputs); this branch +55 on top (the routes listed above)."
@@ -601,7 +603,7 @@
 
     "server/services/review-checks-brakes.test.ts": 982,
 
-    "server/services/review-checks.ts": 889,
+    "server/services/review-checks.ts": 890,
 
     "server/services/task-automerge.test.ts": 1065,
 
@@ -617,7 +619,7 @@
 
     "server/services/tasks.test.ts": 2789,
 
-    "server/services/tasks.ts": 6658,
+    "server/services/tasks.ts": 6641,
 
     "server/services/worktree-gc.test.ts": 997,
 
