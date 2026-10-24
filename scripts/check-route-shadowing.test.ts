@@ -6,7 +6,7 @@ import { spawnSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, writeFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import { extractClaims, findInnerShadows, findOverlaps, sampleOf, staleKnown, type Claim, type KnownOverlap } from "./check-route-shadowing";
+import { extractClaims, findInnerShadows, findOverlaps, knownFor, sampleOf, staleKnown, type Claim, type KnownOverlap, type Overlap } from "./check-route-shadowing";
 
 function claimsOf(router: string, body: string): Claim[] {
   const src = `export function create(ctx: any) {
@@ -78,17 +78,33 @@ describe("check-route-shadowing", () => {
     expect(c).toEqual([]);
   });
 
-  // people.ts shape (server/routes/people.ts:455): a refusal guard, a self
-  // check, DELETE, then the rest. The block claim reads as DELETE only; what
-  // covers POST is the field read `p.id === io`, a claim ANY. The cross-router
-  // check must keep it, or a later router's POST on the same path goes unseen.
+  // server/routes/people.ts:456-510 as it is, comments dropped: a refusal
+  // guard, the caller check, a self check, a closure, DELETE, then the POST,
+  // both ending in `return outcome()`. The block claim reads as DELETE only;
+  // what covers POST is the field read `pFollow.id === io`, a claim ANY. The
+  // cross-router check must keep it, or a later router's POST on the same
+  // path goes unseen.
   const FOLLOW_BLOCK = [
-    'const p = matchRoute(pathname, "/api/people/:id/follow");',
-    "if (p) {",
-    '  if (method !== "POST" && method !== "DELETE") return errorResponse(405, "x");',
-    '  if (p.id === io) return errorResponse(400, "y");',
-    '  if (method === "DELETE") { return json({}); }',
-    "  return json({});",
+    'const pFollow = matchRoute(pathname, "/api/people/:id/follow");',
+    "if (pFollow) {",
+    '  if (method !== "POST" && method !== "DELETE") return errorResponse(405, "method not allowed");',
+    '  if (io === null) return errorResponse(401, "unknown caller");',
+    '  if (pFollow.id === io) return errorResponse(400, "cannot follow yourself");',
+    "  const outcome = (): Response => {",
+    "    const b = target(pFollow.id, io);",
+    "    return json({",
+    "      following: segue(db as never, io, pFollow.id),",
+    "      counts: b && (b.isMe || b.privacy.showFollowers) ? countFollows(db as never, pFollow.id, io) : null,",
+    "    });",
+    "  };",
+    '  if (method === "DELETE") {',
+    "    unfollow(db as never, io, pFollow.id);",
+    "    return outcome();",
+    "  }",
+    "  const b = target(pFollow.id, io);",
+    '  if (!b) return errorResponse(404, "Person not found");',
+    "  follow(db as never, io, b.row.id);",
+    "  return outcome();",
     "}",
   ].join("\n    ");
 
@@ -136,8 +152,9 @@ describe("check-route-shadowing", () => {
       expect(shadowed([MATCH, 'if (m && method === "GET" && pathname !== "/api/x/keep") return json({});', LITERAL])).toEqual([]);
     });
 
-    // people.ts:455-462 as a whole: the 405 guard and the self check do not
-    // stop the block from answering POST, so a POST route below it is dead.
+    // people.ts:456-510 as a whole: the 405 guard, the caller and self checks
+    // do not stop the block from leaving on POST (through `return outcome()`),
+    // so a POST route below it is dead; and on PUT the 405 leaves too.
     test("a refusal guard inside the earlier block is evaluated for the literal's method", () => {
       const o = inner([FOLLOW_BLOCK, 'if (method === "POST" && pathname === "/api/people/me/follow") return json({});']);
       expect(o.map((x) => [x.sample, x.methods, x.prior.line])).toEqual([["/api/people/me/follow", ["POST"], 4]]);
@@ -180,17 +197,46 @@ describe("check-route-shadowing", () => {
       ])).toEqual([]);
     });
 
-    test("an earlier if that does not always answer is not a finding", () => {
+    test("an earlier if that may go on is not a finding", () => {
       for (const body of [
         "{ log(m.id); }",
+        "{ if (fresh) return json({}); }",
+        '{ switch (kind) { case "a": return json({}); } }',
+        "{ for (const x of list) { if (x) break; return json({}); } }",
+        "{ while (busy) { if (done) continue; return json({}); } }",
+      ]) expect(shadowed([MATCH, `if (m && method === "GET") ${body}`, LITERAL])).toEqual([]);
+    });
+
+    // A break or continue that leaves the earlier statement lands past the
+    // literal, which is inside the same loop or switch: dead as with a return.
+    test("a break or continue out of the earlier statement skips the literal too", () => {
+      for (const lines of [
+        [`for (const k of keys) { ${MATCH} if (k) continue; if (m && method === "GET") return json({}); ${LITERAL} }`],
+        [`for (const k of keys) { if (pathname.startsWith("/api/x/")) break; ${LITERAL} }`],
+        [`for (const k of keys) { if (pathname.startsWith("/api/x/")) continue; ${LITERAL} }`],
+        [`switch (kind) { case "a": ${MATCH} if (m && method === "GET") break; ${LITERAL} }`],
+        [`for (const k of keys) { ${MATCH} if (m && method === "GET") { for (const x of list) { if (x) break; } if (done) break; return json({}); } ${LITERAL} }`],
+      ]) expect(shadowed(lines)).toEqual(["/api/x/keep"]);
+    });
+
+    // Any return leaves the function, whatever it returns: the idioms of the
+    // real routers (goals.ts:79 `return denied`, memory.ts:127 `return target`,
+    // tasks-board.ts:230 `return fail(e)`, people.ts:509 `return outcome()`).
+    test("a return of any value leaves the function, so the literal below is dead", () => {
+      for (const body of [
+        "return null;",
         "{ if (!ok) return null; return json({}); }",
         "return sub(req);",
         "return routes.handle(req);",
         "return ok ? json({}) : null;",
-        "{ if (fresh) return json({}); }",
         '{ switch (kind) { case "a": return null; } return json({}); }',
-        '{ for (const x of list) { if (x) continue; } if (done) break; return json({}); }',
-      ]) expect(shadowed([MATCH, `if (m && method === "GET") ${body}`, LITERAL])).toEqual([]);
+        "{ const denied = deny(m.id); if (denied) return denied; return json({}); }",
+        "{ const target = resolve(m.id); if (target instanceof Response) return target; return json(target); }",
+        "{ try { return json(load(m.id)); } catch (e) { return fail(e); } }",
+        "{ const outcome = (): Response => json({}); if (method === \"GET\") return outcome(); }",
+        '{ throw new Error("x"); }',
+        '{ if (!ok) throw new Error("x"); throw new Error("y"); }',
+      ]) expect(shadowed([MATCH, `if (m && method === "GET") ${body}`, LITERAL])).toEqual(["/api/x/keep"]);
     });
 
     test("a condition that depends on something else is not a finding", () => {
@@ -210,8 +256,8 @@ describe("check-route-shadowing", () => {
       expect(shadowed([MATCH, 'for (const m of list) { if (m && method === "GET") return json({}); ' + LITERAL + " }"])).toEqual([]);
       expect(shadowed([MATCH, 'try { run(); } catch (m) { if (m && method === "GET") return json({}); ' + LITERAL + " }"])).toEqual([]);
       expect(shadowed([MATCH, '{ const { m } = other; if (m && method === "GET") return json({}); }', LITERAL])).toEqual([]);
-      // A continue out of the earlier block skips it, so it does not answer.
-      expect(shadowed([`for (const k of keys) { ${MATCH} if (m && method === "GET") { switch (k) { case "a": continue; } return json({}); } ${LITERAL} }`])).toEqual([]);
+      // A continue out of the earlier block skips the literal as the return does.
+      expect(shadowed([`for (const k of keys) { ${MATCH} if (m && method === "GET") { switch (k) { case "a": continue; } return json({}); } ${LITERAL} }`])).toEqual(["/api/x/keep"]);
       expect(shadowed([MATCH, 'const each = (m: unknown) => { if (m && method === "GET") return json({}); ' + LITERAL + " };"])).toEqual([]);
       // Through an alias it is.
       expect(shadowed(['const pm = matchRoute(pathname, "/api/x/:id");', "const m = pm;", 'if (m && method === "GET") return json({});', LITERAL])).toEqual(["/api/x/keep"]);
@@ -251,8 +297,10 @@ describe("check-route-shadowing", () => {
       const at = (body: string) => shadowed([MATCH, `if (m && method === "GET") { ${body} }`, LITERAL]);
       expect(at("try { return json({}); } catch { log(); }")).toEqual([]);
       expect(at("try { return json({}); } finally { done(); }")).toEqual(["/api/x/keep"]);
-      expect(at("try { return json({}); } catch { return errorResponse(500, \"x\"); } finally { if (stop) return null; }")).toEqual([]);
+      expect(at("try { return json({}); } catch { return errorResponse(500, \"x\"); } finally { if (stop) return null; }")).toEqual(["/api/x/keep"]);
       expect(at("try { log(); } catch { log(); } finally { return json({}); }")).toEqual(["/api/x/keep"]);
+      expect(shadowed([`for (const k of keys) { ${MATCH} if (m && method === "GET") { try { return json({}); } finally { if (k) continue; } } ${LITERAL} }`])).toEqual(["/api/x/keep"]);
+      expect(shadowed([`for (const k of keys) { ${MATCH} if (m && method === "GET") { try { if (k) continue; return json({}); } catch { log(); } } ${LITERAL} }`])).toEqual([]);
     });
 
     test("module constants name the pattern and the regex", () => {
@@ -270,9 +318,61 @@ export function create(ctx: any) {
       expect(src('if (method === "GET" && RE.test(pathname)) return json({});')).toEqual(["/api/y/keep"]);
     });
 
-    test("one finding per literal, the first earlier statement that answers it", () => {
+    test("the winner is the first statement that runs and leaves, outer blocks first", () => {
       const o = inner([MATCH, 'if (m && method === "GET") return json({});', 'if (method === "GET" && pathname.startsWith("/api/x/")) return json({});', LITERAL]);
       expect(o.map((x) => [x.prior.kind, x.prior.line])).toEqual([["pattern", 4]]);
+      const nested = inner(['if (method === "GET" && pathname.startsWith("/api/x/")) return json({});', `{ ${MATCH} if (m && method === "GET") return json({}); ${LITERAL} }`]);
+      expect(nested.map((x) => [x.prior.kind, x.prior.line])).toEqual([["prefix", 3]]);
+    });
+
+    // A statement that leaves with no path test that held is a gate: the
+    // literal is unreachable for that method, but nothing later hides it.
+    test("a gate that leaves first, with no path test, is not a finding", () => {
+      expect(shadowed(['if (method === "GET") return json({});', LITERAL])).toEqual([]);
+      expect(shadowed(['if (method === "GET") return json({});', MATCH, 'if (m && method === "GET") return json({});', LITERAL])).toEqual([]);
+      expect(shadowed(['if (!pathname.startsWith("/api/y/")) return null;', LITERAL])).toEqual([]);
+    });
+
+    test("a literal nested two blocks down, and an else that leaves, are followed", () => {
+      expect(shadowed([MATCH, 'if (m && method === "GET") return json({});', `if (ready) { { ${LITERAL} } }`])).toEqual(["/api/x/keep"]);
+      expect(shadowed([MATCH, 'if (method === "POST") { log(); } else if (m) { return json({}); }', LITERAL])).toEqual(["/api/x/keep"]);
+      expect(shadowed([MATCH, 'if (method === "GET") { log(); } else if (m) { return json({}); }', LITERAL])).toEqual([]);
+    });
+
+    test("only a path test that holds for the literal names a winner", () => {
+      for (const prior of [
+        'if (method === "GET" && pathname === "/api/x") return json({});',
+        'if (method === "GET" && pathname.startsWith("/api/x/keep/")) return json({});',
+        'if (method === "GET" && other === "/api/x/keep") return json({});',
+        'if (method === "GET" && /^\\/api\\/x\\/[^/]+$/g.test(pathname)) return json({});',
+        'if (method === "GET" && /^\\/api\\/x\\/[^/]+$/y.test(pathname)) return json({});',
+        'if (method === "GET" && /[z-a]/.test(pathname)) return json({});',
+      ]) expect(shadowed([prior, LITERAL])).toEqual([]);
+      expect(shadowed(['if (method === "GET" && ready && pathname.startsWith("/api/x/")) return json({});', LITERAL])).toEqual([]);
+      expect(shadowed(['const m = matchRoute(otherPath, "/api/x/:id");', 'if (m && method === "GET") return json({});', LITERAL])).toEqual([]);
+      // Either side of the comparison, and a false `||` under a `!`.
+      expect(shadowed([MATCH, 'if (m && "GET" === method) return json({});', LITERAL])).toEqual(["/api/x/keep"]);
+      expect(shadowed(['if ("GET" === method && "/api/x/keep" === pathname) return json({ first: true });', LITERAL])).toEqual(["/api/x/keep"]);
+      expect(shadowed([MATCH, 'if (m && !(method === "POST" || method === "PUT")) return json({});', LITERAL])).toEqual(["/api/x/keep"]);
+      expect(shadowed(['if (method === "GET" && pathname.startsWith("/api/x/") && !pathname.endsWith("/z")) return json({});', 'if (ready && method === "GET" && pathname === "/api/x/keep") return json({});'])).toEqual(["/api/x/keep"]);
+    });
+
+    // The request is the parameter: a local of the same name, a field of
+    // something else, or a parameter written again is not it.
+    test("pathname and method are the request's only when they are its parameters", () => {
+      for (const lines of [
+        [MATCH, '{ const method = "GET"; if (m && method === "GET") return json({}); }', LITERAL],
+        ['{ const pathname = "/api/x/keep"; if (pathname.startsWith("/api/x/")) return json({}); }', LITERAL],
+        [MATCH, 'if (m && body.method === "GET") return json({});', LITERAL],
+        [MATCH, 'if (m && method === "get") return json({});', LITERAL],
+        ['var m = matchRoute(pathname, "/api/x/:id");', 'if (m && method === "GET") return json({});', LITERAL],
+        ['let m = matchRoute(pathname, "/api/x/:id");', "[m] = other;", 'if (m && method === "GET") return json({});', LITERAL],
+        ["pathname = pathname.toLowerCase();", MATCH, 'if (m && method === "GET") return json({});', LITERAL, 'if (method === "GET" && pathname === "/api/x/other") return json({});'],
+        [MATCH, 'if (m && method === "get") return json({});', 'if (pathname === "/api/x/keep") return json({});'],
+        ["({ method } = override);", MATCH, 'if (m && method === "GET") return json({});', LITERAL],
+        ["for (method of verbs) log(method);", MATCH, 'if (m && method === "GET") return json({});', LITERAL],
+      ]) expect(shadowed(lines)).toEqual([]);
+      expect(shadowed(['const m = matchRoute(url.pathname, "/api/x/:id");', 'if (m && req.method === "GET") return json({});', LITERAL])).toEqual(["/api/x/keep"]);
     });
 
     test("a literal that takes any method is shadowed for the methods the earlier if answers", () => {
@@ -285,6 +385,46 @@ export function create(ctx: any) {
       const GET_PRIOR = 'if (m && method === "GET") return json({});';
       expect(shadowed([MATCH, GET_PRIOR, 'if (pathname === "/api/x/keep") { if (method === "POST") return json({}); return errorResponse(405, "x"); }'])).toEqual([]);
       expect(shadowed([MATCH, GET_PRIOR, 'if (method === "POST") { if (pathname === "/api/x/keep") return json({}); }'])).toEqual([]);
+    });
+
+    // browser.ts:122 and people.ts:388 refuse every other method with a 405;
+    // a pattern above that answers only those other methods hides nothing.
+    test("a 405 guard, a switch on the method, or `&& method !==` limit what the literal serves", () => {
+      const POST_PRIOR = 'if (m && method === "POST") return json({});';
+      const GET_PRIOR = 'if (m && method === "GET") return json({});';
+      for (const literal of [
+        'if (pathname === "/api/x/keep") { if (method !== "GET") return errorResponse(405, "GET required"); return json({}); }',
+        'if (pathname === "/api/x/keep") { if (io === null) return errorResponse(401, "x"); if (method !== "GET" && method !== "PUT") return errorResponse(405, "x"); return json({}); }',
+        'if (pathname === "/api/x/keep") { switch (method) { case "GET": return json({}); default: return errorResponse(405, "x"); } }',
+        'if (pathname === "/api/x/keep" && method !== "POST") return json({});',
+      ]) {
+        expect(shadowed([MATCH, POST_PRIOR, literal])).toEqual([]);
+        expect(shadowed([MATCH, GET_PRIOR, literal])).toEqual(["/api/x/keep"]);
+        expect(shadowed([MATCH, "if (m) return json({});", literal])).toEqual(["/api/x/keep"]);
+      }
+    });
+
+    test("a literal in an else is served only for what the condition before it refuses", () => {
+      const ELSE = 'if (method === "GET") { log(); } else { if (pathname === "/api/x/keep") return json({}); }';
+      expect(shadowed([MATCH, 'if (m && method === "GET") return json({});', ELSE])).toEqual([]);
+      expect(shadowed([MATCH, 'if (m && method === "POST") return json({});', ELSE])).toEqual(["/api/x/keep"]);
+    });
+
+    test("the methods of a finding: the ones hidden, \"*\" for a method the code does not name", () => {
+      const ANY = 'if (pathname === "/api/x/keep") return json({});';
+      const of = (prior: string) => inner([MATCH, prior, ANY]).map((x) => [x.methods, x.later.methods]);
+      expect(of('if (m && method === "POST") return json({});')).toEqual([[["POST"], null]]);
+      expect(of('if (m && method !== "GET") return json({});')).toEqual([[["*"], null]]);
+      expect(of('if (m && (method === "GET" || method === "HEAD")) return json({});')).toEqual([[["GET", "HEAD"], null]]);
+      expect(inner([MATCH, 'if (m) return json({});', 'if (pathname === "/api/x/keep" && method !== "GET") return json({});']).map((x) => [x.methods, x.later.methods])).toEqual([[["*"], ["*"]]]);
+    });
+
+    test("a literal in an || chain, and the guard that hands a block to one path, are literals too", () => {
+      const POST_PRIOR = 'if (m && method === "POST") return json({});';
+      expect(shadowed([MATCH, POST_PRIOR, 'if (method === "POST" && (pathname === "/api/x/a" || pathname === "/api/x/keep")) return json({});'])).toEqual(["/api/x/a", "/api/x/keep"]);
+      expect(shadowed([MATCH, POST_PRIOR, 'if (pathname !== "/api/x/keep" || method !== "POST") return null;', "return json({});"])).toEqual(["/api/x/keep"]);
+      expect(shadowed([MATCH, 'if (m && method === "GET") return json({});', 'if (pathname !== "/api/x/keep" || method !== "POST") return null;', "return json({});"])).toEqual([]);
+      expect(shadowed([MATCH, POST_PRIOR, 'if (pathname !== "/api/x/keep") return null;', 'if (method === "GET") return json({});', 'return errorResponse(405, "x");'])).toEqual([]);
     });
   });
 
@@ -341,14 +481,31 @@ export function create(ctx: any) {
       expect(run(tree(""), ["--bogus"]).status).toBe(2);
     });
 
-    // The stale filter, on its own: only routers this tree has are judged.
-    test("staleKnown judges an entry only when both of its routers are in the tree", () => {
+    // The stale filter, on its own: on the real tree every unused entry is
+    // stale; on a bench tree only the entries about routers it has.
+    test("staleKnown judges every entry on the real tree, and only this tree's routers on another", () => {
       const k = (prior: string, later: string): KnownOverlap => ({ prior, later, sample: "/api/x", why: "t" });
       const both = k("a", "b");
-      expect(staleKnown([both], new Set(), ["a", "b"])).toEqual([both]);
-      expect(staleKnown([both], new Set([both]), ["a", "b"])).toEqual([]);
-      expect(staleKnown([k("a", "gone")], new Set(), ["a"])).toEqual([]);
-      expect(staleKnown([k("gone", "a")], new Set(), ["a"])).toEqual([]);
+      const gone = k("a", "gone");
+      expect(staleKnown([both], new Set(), ["a", "b"], false)).toEqual([both]);
+      expect(staleKnown([both], new Set([both]), ["a", "b"], false)).toEqual([]);
+      expect(staleKnown([gone], new Set(), ["a"], false)).toEqual([]);
+      expect(staleKnown([k("gone", "a")], new Set(), ["a"], false)).toEqual([]);
+      expect(staleKnown([gone, both], new Set([both]), ["a", "b"], true)).toEqual([gone]);
+    });
+
+    test("a KNOWN entry matches its routers and sample, and its methods when it names them", () => {
+      const claim = (router: string, methods: string[] | null): Claim => ({ router, file: "f.ts", line: 1, kind: "exact", value: "/api/x", methods });
+      const o = (methods: string[] | null, sample = "/api/x"): Overlap => ({ prior: claim("a", methods), later: claim("b", methods), sample, methods });
+      const get: KnownOverlap = { prior: "a", later: "b", sample: "/api/x", methods: ["GET"], why: "t" };
+      const any: KnownOverlap = { prior: "a", later: "b", sample: "/api/x", why: "t" };
+      expect(knownFor(o(["GET"]), [get])).toBe(get);
+      expect(knownFor(o(["DELETE"]), [get])).toBeUndefined();
+      expect(knownFor(o(["DELETE", "GET"]), [get])).toBeUndefined();
+      expect(knownFor(o(null), [get])).toBeUndefined();
+      expect(knownFor(o(["GET"], "/api/y"), [get])).toBeUndefined();
+      expect(knownFor(o(["DELETE"]), [any])).toBe(any);
+      expect(knownFor({ ...o(["GET"]), later: claim("c", ["GET"]) }, [get])).toBeUndefined();
     });
 
     // KNOWN is global and names the browser router; a tree that has one and
@@ -386,6 +543,18 @@ export function create(ctx: any) {
         ].join("\n")));
         expect(r.stdout).toContain("1 overlaps (1 known)");
         expect(r.status).toBe(0);
+      });
+
+      test("a second method hidden on the same path is a new finding, not the known one", () => {
+        const r = run(browserTree([
+          '    const m = matchRoute(pathname, "/api/browsers/:id");',
+          '    if (m && (method === "GET" || method === "DELETE")) return new Response("pattern");',
+          '    if (method === "GET" && pathname === "/api/browsers/data-store-keep-list") return new Response("literal");',
+          '    if (method === "DELETE" && pathname === "/api/browsers/data-store-keep-list") return new Response("literal");',
+        ].join("\n")));
+        expect(r.stdout).toContain("2 overlaps (1 known)");
+        expect(r.stdout).toContain("OVERLAP DELETE /api/browsers/data-store-keep-list");
+        expect(r.status).toBe(1);
       });
     });
 
@@ -450,6 +619,35 @@ export function create(ctx: any) {
         ].join("\n")));
         expect(r.stdout).toContain("0 overlaps");
         expect(r.status).toBe(0);
+      });
+
+      // topics composes chat, history, edit...: the file of a sub-router is
+      // read for its router, and every router of the table is read.
+      test("the file of a sub-router and every router of the table are read", () => {
+        const root = mkdtempSync(join(tmpdir(), "route-shadowing-"));
+        roots.push(root);
+        mkdirSync(join(root, "server", "routes"), { recursive: true });
+        writeFileSync(join(root, "server", "route-table.ts"), 'export const API_ROUTER_ORDER = [\n  "aRouter",\n  "bRouter",\n] as const;\n');
+        writeFileSync(join(root, "server.ts"), [
+          'import { createARouter } from "./server/routes/a";',
+          'import { createBRouter } from "./server/routes/b";',
+          "const aRouter = createARouter(ctx);",
+          "const bRouter = createBRouter(ctx);",
+        ].join("\n"));
+        const shadow = (base: string) => [
+          `    const m = matchRoute(pathname, "${base}/:id");`,
+          '    if (m && method === "GET") return new Response("pattern");',
+          `    if (method === "GET" && pathname === "${base}/keep") return new Response("literal");`,
+        ].join("\n");
+        const router = (name: string, body: string, head = "") =>
+          `${head}export function create${name}(ctx: any) {\n  return async function r(req: Request, url: URL, pathname: string, method: string) {\n${body}\n    return null;\n  };\n}\n`;
+        writeFileSync(join(root, "server", "routes", "a.ts"), router("ARouter", "    return sub(req, url, pathname, method);", 'import { createSubRoutes } from "./a-sub";\n'));
+        writeFileSync(join(root, "server", "routes", "a-sub.ts"), router("SubRoutes", shadow("/api/sub")));
+        writeFileSync(join(root, "server", "routes", "b.ts"), router("BRouter", shadow("/api/b")));
+        const r = run(root);
+        expect(r.stdout).toContain("hidden: aRouter server/routes/a-sub.ts:5 GET exact /api/sub/keep");
+        expect(r.stdout).toContain("hidden: bRouter server/routes/b.ts:5 GET exact /api/b/keep");
+        expect(r.status).toBe(1);
       });
     });
   });
