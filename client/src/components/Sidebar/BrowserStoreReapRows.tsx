@@ -108,11 +108,16 @@ export function BrowserStoreReapControls({ settings, typed, saveFailed, tr, onTy
   };
 
   const [before, after] = tr('browser.storeReap.afterDays').split('{n}');
+  // The Performance level has no max width: it grows to its widest line. These
+  // two hints are the longest lines in it (the level-2 one took the panel from
+  // 577 to 810 px), so they take no width of their own (`w-0`) and wrap inside
+  // the width the other rows give the panel (`min-w-full`).
+  const wrapped = (text: string) => <span className="block w-0 min-w-full">{text}</span>;
   return (
     <>
       <SwitchRow
         label={tr('browser.storeReap.cache.setting')}
-        hint={tr('browser.storeReap.cache.hint')}
+        hint={wrapped(tr('browser.storeReap.cache.hint'))}
         checked={cacheEnabled}
         onChange={(v) => { onSave({ browserStoreCacheReapEnabled: v }); }}
         testId="perf-browser-store-cache-reap"
@@ -122,7 +127,7 @@ export function BrowserStoreReapControls({ settings, typed, saveFailed, tr, onTy
       <div className="pl-4" data-testid="perf-browser-store-reap-whole">
         <SwitchRow
           label={tr('browser.storeReap.whole.setting')}
-          hint={tr('browser.storeReap.whole.hint')}
+          hint={wrapped(tr('browser.storeReap.whole.hint'))}
           checked={wholeEnabled}
           disabled={!cacheEnabled}
           onChange={(v) => { onSave({ browserStoreReapEnabled: v }); }}
