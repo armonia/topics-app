@@ -447,6 +447,13 @@
 
     "scripts/check-route-latency.ts": 1050,
 
+    "scripts/check-route-shadowing.ts": {
+      "lines": 1017,
+      "why": [
+        "2026-10-24, route-shadowing-gate (PR #424): 505 on main -> 1017, the check inside one router (findInnerShadows): it follows one request per method through the router's code (pathname and method only when they are the request's parameters, every name looked up the way the language scopes it, the earlier condition evaluated on the literal path, any return, throw, break or continue as leaving, a switch whose every case leaves, a match bound through a ternary on the method, a gate with no path test as the reason a method is not served, the methods the literal's own ifs, case or body refuse or switch on). It shares the path helpers and KNOWN with the claims, so it stays in this file."
+      ]
+    },
+
     "server.ts": 7001,
 
     "server/attention/store.ts": {
