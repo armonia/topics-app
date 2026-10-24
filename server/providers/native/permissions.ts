@@ -54,7 +54,7 @@ export const DEFAULT_AUTONOMY: AutonomyLevel = "auto-apply";
  * documentation page is exactly what proposing a plan takes, instead of
  * guessing one.
  */
-const READ_ONLY = new Set(["read_file", "grep", "glob", "todo_write", "web_fetch"]);
+const READ_ONLY = new Set(["read_file", "grep", "glob", "todo_write", "web_fetch", "tool_search"]);
 
 // A TOOL MOUNTED FROM AN MCP SERVER IS NEVER READ-ONLY, and that is why
 // READ_ONLY is an allowlist of names WE wrote rather than a heuristic. An
