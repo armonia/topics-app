@@ -23,7 +23,6 @@
  */
 
 import { pingPromptCache, runAgentTurn, toProviderUsage, type AgentMessage, type AgentTurnOptions } from "./agent-loop";
-import { getAccessToken } from "./auth";
 import { recordTurnUsage } from "../native-usage-registry";
 import { CODING_TOOLS, WORKSPACE_FREE_TOOLS } from "./tools";
 import { pruneDanglingToolUses } from "./history-repair";
@@ -960,7 +959,10 @@ export class NativeProvider implements AIProvider {
       session.keepAlive = undefined;
       if (!waiting()) return;
       try {
-        const u = await pingPromptCache(opts, await getAccessToken());
+        // Signed out since the turn: nothing to keep warm.
+        const token = await getAccessToken();
+        if (!token) return;
+        const u = await pingPromptCache(opts, token);
         pings++;
         console.log(
           `[native] keepalive: at=${new Date().toISOString()} session_key=${sessionKey} ping=${pings} `
