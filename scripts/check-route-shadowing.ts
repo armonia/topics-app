@@ -422,14 +422,23 @@ export function findOverlaps(claimsByRouter: Map<string, Claim[]>, order: string
  * Whatever cannot be evaluated (a field of a match, a call, a name that is not
  * the request's) is unknown, and unknown is never a finding: a wrong finding
  * is a red run on correct code. So a read of the method this check cannot
- * evaluate (`WRITE.has(method)`, `requireMethod(method, "POST")`, a test of
+ * evaluate (`WRITE.has(method)`, `isWrite(method, pathname)`, a test of
  * `const verb = method`) lets no method we can name reach the literal, when
- * it is the literal's condition, one around it or in its body; before the
- * literal, a statement whose leaving depends on one leaves that method
- * unknown too. A literal that answers `true` or `false`, or sits in a
- * function typed to answer a boolean, belongs to a predicate (a guest check
- * next to the router), not to a route. "*" in a finding is a method the code
- * does not name.
+ * it is the literal's condition or one around it. Elsewhere it matters only
+ * where it may refuse the method: an `if` whose condition it can make
+ * certain, on a side that then ends otherwise (`if (!READ.has(method)) return
+ * 405`), or a call that checks the method (`requireMethod(method, "POST")`,
+ * see checksMethod). In the literal's body that method is not served.
+ * Before the literal it may be a gate, and a gate is not a finding: so the
+ * method is unknown when that statement runs before the winner (`if
+ * (!ALLOWED.has(method)) return 405` at the top), and after it unless the
+ * literal names the method. A call only handed the method (a log, a trace, a
+ * metric) refuses nothing, nor does a sub-router before the literal whose
+ * answer is passed on (`if (r) return r`): the routes after them are judged.
+ * A literal that answers `true` or `false`, or sits in a function typed to
+ * answer a boolean, belongs to a predicate (a guest check next to the
+ * router), not to a route. "*" in a finding is a method the code does not
+ * name.
  */
 
 /** A path test that held for the literal: what the finding names as the winner. */
@@ -442,8 +451,12 @@ interface Via { kind: ClaimKind; value: string }
  */
 interface Outcome { flow: Flow; via?: Via; at?: ts.Statement; exit?: ts.Statement; method?: true }
 
-/** The request being followed. `method` "*" stands for a method the code does not name. */
-interface Req { path: string; method: string }
+/**
+ * The request being followed. `method` "*" stands for a method the code does
+ * not name. `before`: it is followed through the statements that run before
+ * the literal, not through the literal's own body.
+ */
+interface Req { path: string; method: string; before?: true }
 
 /**
  * How a statement ends for one request: it always leaves, it may go on to the
@@ -594,23 +607,33 @@ function regexOf(node: ts.Node, depth = 0): RegExp | null {
   return init ? regexOf(init, depth + 1) : null;
 }
 
-/** `method`: unknown because it reads the request's method in a way this check cannot evaluate. */
-interface Truth { v: boolean | null; via?: Via; method?: true }
+/**
+ * `method`: unknown because it reads the request's method in a way this check
+ * cannot evaluate. `can`, with it: the values that read can make it take for
+ * sure (`isWrite(method)` both, `ready && isWrite(method)` only false).
+ */
+interface Truth { v: boolean | null; via?: Via; method?: true; can?: { yes: boolean; no: boolean } }
 const UNKNOWN: Truth = { v: null };
-const METHOD_UNKNOWN: Truth = { v: null, method: true };
+const METHOD_UNKNOWN: Truth = { v: null, method: true, can: { yes: true, no: true } };
 const held = (v: boolean, via: Via): Truth => (v ? { v, via } : { v });
-/** Unknown, and unknown on the method when an unknown part is. */
-const unknownOf = (...parts: Truth[]): Truth => (parts.some((p) => p.v === null && p.method) ? METHOD_UNKNOWN : UNKNOWN);
+/** Is it `v`, or can a read of the method make it `v` for sure. */
+const canBe = (t: Truth, v: boolean): boolean => t.v === v || (t.v === null && !!t.can && (v ? t.can.yes : t.can.no));
+/** Unknown; on the method when an unknown part is, with the values (`yes`, `no`) that read can give it. */
+const unknownOf = (yes: boolean, no: boolean, ...parts: Truth[]): Truth => (parts.some((p) => p.v === null && p.method) ? { v: null, method: true, can: { yes, no } } : UNKNOWN);
 
 const readsCache = new WeakMap<ts.Node, boolean>();
 
-/** The request's method, or a name that holds it: `verb` after `const verb = method.toUpperCase()`. */
-function isMethodValue(node: ts.Node, depth = 0): boolean {
+/**
+ * The request's method, or a name that holds it: `verb` after `const verb =
+ * method.toUpperCase()`, through any number of names (each is declared before
+ * the one that reads it, so the chain ends).
+ */
+function isMethodValue(node: ts.Node): boolean {
   const n = unwrap(node);
   if (isReq(n, "method")) return true;
-  if (ts.isCallExpression(n) && ts.isPropertyAccessExpression(n.expression)) return isMethodValue(n.expression.expression, depth);
-  const init = depth < 3 ? initOf(n) : null;
-  return !!init && isMethodValue(init, depth + 1);
+  if (ts.isCallExpression(n) && ts.isPropertyAccessExpression(n.expression)) return isMethodValue(n.expression.expression);
+  const init = initOf(n);
+  return !!init && isMethodValue(init);
 }
 
 /** Does `node` read the request's method anywhere inside it, itself or through a name that holds it. */
@@ -618,11 +641,6 @@ function readsMethod(node: ts.Node): boolean {
   let r = readsCache.get(node);
   if (r === undefined) readsCache.set(node, (r = isReq(node, "method") || (ts.isIdentifier(node) && isMethodValue(node)) || !!ts.forEachChild(node, (c) => readsMethod(c) || undefined)));
   return r;
-}
-
-/** Does `node` read the request's pathname anywhere inside it. */
-function readsPath(node: ts.Node): boolean {
-  return isReq(node, "pathname") || !!ts.forEachChild(node, (c) => readsPath(c) || undefined);
 }
 
 /** `method === "X"` or `pathname === "/x"`, either side, for `req`; null for any other comparison. */
@@ -649,11 +667,13 @@ function truthOf(node: ts.Node, req: Req, depth = 0): Truth {
     }
     const a = truthOf(n.whenTrue, req, depth);
     const b = truthOf(n.whenFalse, req, depth);
-    return a.v !== null && a.v === b.v ? { v: a.v } : unknownOf(c, a, b);
+    if (a.v !== null && a.v === b.v) return { v: a.v };
+    const sure = (v: boolean) => (canBe(a, v) && canBe(b, v)) || (canBe(c, true) && canBe(a, v)) || (canBe(c, false) && canBe(b, v));
+    return unknownOf(sure(true), sure(false), c, a, b);
   }
   if (ts.isPrefixUnaryExpression(n) && n.operator === ts.SyntaxKind.ExclamationToken) {
     const r = truthOf(n.operand, req, depth);
-    return r.v === null ? unknownOf(r) : { v: !r.v };
+    return r.v === null ? unknownOf(canBe(r, false), canBe(r, true), r) : { v: !r.v };
   }
   const and = ts.isBinaryExpression(n) && n.operatorToken.kind === ts.SyntaxKind.AmpersandAmpersandToken;
   if (ts.isBinaryExpression(n) && (and || n.operatorToken.kind === ts.SyntaxKind.BarBarToken)) {
@@ -661,17 +681,17 @@ function truthOf(node: ts.Node, req: Req, depth = 0): Truth {
     const b = truthOf(n.right, req, depth);
     if (and) {
       if (a.v === false || b.v === false) return { v: false };
-      return a.v && b.v ? { v: true, via: a.via ?? b.via } : unknownOf(a, b);
+      return a.v && b.v ? { v: true, via: a.via ?? b.via } : unknownOf(canBe(a, true) && canBe(b, true), canBe(a, false) || canBe(b, false), a, b);
     }
     if (a.v) return a;
     if (b.v) return b;
-    return a.v === false && b.v === false ? { v: false } : unknownOf(a, b);
+    return a.v === false && b.v === false ? { v: false } : unknownOf(canBe(a, true) || canBe(b, true), canBe(a, false) && canBe(b, false), a, b);
   }
-  // An atom this check cannot evaluate that reads the method, and not the
-  // path (a sub-router handed both answers for paths of its own), says
-  // nothing about which methods it lets through.
+  // An atom this check cannot evaluate that reads the method says nothing
+  // about which methods it lets through, whatever else it is handed
+  // (`isWrite(method, pathname)`).
   const r = atomTruth(n, req, depth);
-  return r.v === null && readsMethod(n) && !readsPath(n) ? METHOD_UNKNOWN : r;
+  return r.v === null && readsMethod(n) ? METHOD_UNKNOWN : r;
 }
 
 /** The truth of a comparison, a call or a name. */
@@ -779,11 +799,17 @@ function flowOf(stmt: ts.Statement, req: Req, sw?: ts.SwitchStatement): Outcome 
     const e = stmt.elseStatement ? flowOf(stmt.elseStatement, req, sw) : GOES_ON;
     if (c.v === false) return e;
     // Unknown: it leaves for sure only if both sides do, and then no path test
-    // of this condition decided; it may break if either side may. A condition
-    // that reads the method the way this check cannot evaluate decides it.
+    // of this condition decided; it may break if either side may. A read of
+    // the method this check cannot evaluate decides it when it can make the
+    // condition certain on a side that ends otherwise (`if (!READ.has(method))
+    // return 405`, not `if (!ready && isRosterRoute(pathname, method)) return
+    // 503`). Not before the literal when the if passes on what a sub-router
+    // answered: that answers for paths of its own, it refuses no method on
+    // every path. In the literal's body the same answer may be a refusal.
     const t = flowOf(stmt.thenStatement, req, sw);
     const flow: Flow = t.flow === "breaks" || e.flow === "breaks" ? "breaks" : t.flow === "leaves" && e.flow === "leaves" ? "leaves" : "goes-on";
-    return (c.method && t.flow !== e.flow) || t.method || e.method ? { flow, method: true } : { flow };
+    const decides = c.method && ((canBe(c, true) && t.flow !== flow) || (canBe(c, false) && e.flow !== flow)) && !(req.before && passesOn(stmt));
+    return decides || t.method || e.method ? { flow, method: true } : { flow };
   }
   // An unlabelled break here ends the switch being followed. Any other break
   // or continue reached here jumps out of every statement this check walks
@@ -829,12 +855,47 @@ function flowOf(stmt: ts.Statement, req: Req, sw?: ts.SwitchStatement): Outcome 
   }
   // Anything else (loops, labels, declarations, calls) may leave, but does not
   // have to. A break in it that ends the switch being followed may make that
-  // switch go on; a call handed the method and not the path
-  // (`requireMethod(method, "POST")`) may throw on it.
+  // switch go on; a call that checks the method may throw on it.
   if (sw && breaksOut([stmt])) return BREAKS;
   const call = ts.isExpressionStatement(stmt) ? unwrap(stmt.expression) : null;
-  const asserts = call && ts.isCallExpression(call) && call.arguments.some((a) => isMethodValue(a)) && !call.arguments.some(readsPath);
-  return asserts ? { flow: "goes-on", method: true } : GOES_ON;
+  return call && ts.isCallExpression(call) && checksMethod(call) ? { flow: "goes-on", method: true } : GOES_ON;
+}
+
+/**
+ * `if (r) return r;` where `r` holds what a call answered, a call handed more
+ * than the method and that does not check it (a sub-router): it passes that
+ * answer on.
+ */
+function passesOn(stmt: ts.IfStatement): boolean {
+  const c = unwrap(stmt.expression);
+  if (!ts.isIdentifier(c)) return false;
+  const then = ts.isBlock(stmt.thenStatement) && stmt.thenStatement.statements.length === 1 ? stmt.thenStatement.statements[0]! : stmt.thenStatement;
+  const e = ts.isReturnStatement(then) && then.expression ? unwrap(then.expression) : null;
+  const init = initOf(c);
+  const call = init && unwrap(init);
+  return !!e && ts.isIdentifier(e) && e.text === c.text && !!call && ts.isCallExpression(call)
+    && call.arguments.some((a) => !isMethodValue(a)) && !checksMethod(call);
+}
+
+/** A name that says the call checks what it is handed: `assertWrite`, `requireMethod`, `onlyReads`. */
+const CHECK_NAME = /^(assert|require|ensure|check|verify|validate|expect|guard|reject|deny|forbid|only|must)(?![a-z])/;
+
+/**
+ * A call that checks the method: it is handed the method and a method name or
+ * a list of them (`requireMethod(method, "POST")`, `allowMethods(method,
+ * ["GET"])`), or its name says it checks (`assertWrite(method)`). Only such a
+ * call may refuse a method; any other call handed it (a log, a trace, a
+ * metric, a sub-router) answers nothing for it.
+ */
+function checksMethod(call: ts.CallExpression): boolean {
+  if (!call.arguments.some((a) => isMethodValue(a))) return false;
+  const called = call.expression;
+  const name = ts.isIdentifier(called) ? called.text : ts.isPropertyAccessExpression(called) ? called.name.text : "";
+  const names = (a: ts.Node): boolean => {
+    const n = unwrap(a);
+    return (ts.isStringLiteralLike(n) && /^[A-Z]+$/.test(n.text)) || (ts.isArrayLiteralExpression(n) && n.elements.length > 0 && n.elements.every(names));
+  };
+  return CHECK_NAME.test(name) || call.arguments.some(names);
 }
 
 /** `method === "X"` (or `!==`) in `expr`, with X as written. */
@@ -997,12 +1058,12 @@ export function findInnerShadows(source: string, file: string, router: string): 
 
     const winners = new Map<ts.Statement, { via: Via; methods: string[] }>();
     for (const m of served) {
-      const req = { path: value, method: m };
+      const req: Req = { path: value, method: m, before: true };
       const outs = before.map((s) => ({ s, r: flowOf(s, req) }));
       // A statement whose leaving depends on a read of the method this check
-      // cannot evaluate: up to the first that leaves, whether the request
-      // gets there is unknown; after it, whether the literal is meant for
-      // this method is, unless the literal names it.
+      // cannot evaluate may be a gate: up to the first that leaves, whether
+      // the request gets there is unknown; after it, whether the literal is
+      // meant for this method is, unless the literal names it.
       const first = outs.findIndex((x) => x.r.flow === "leaves");
       const named = methodTests(lit.expression, guard ? NOT_EQUAL : EQ).includes(m);
       if (outs.some((x, i) => x.r.method && (i <= first || !named))) continue;
