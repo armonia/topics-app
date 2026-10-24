@@ -446,10 +446,12 @@ export function findOverlaps(claimsByRouter: Map<string, Claim[]>, order: string
  * judged. What stays unknown on purpose, at the cost of a dead route: a
  * sub-router's answer in the literal's body (it may be a refusal), a call
  * named for a check (`checkLatency(method, t0)`, `ensureLogged(method)`)
- * wherever it runs, a body that refuses with `!==` (`if (method !== "POST")
- * return json({ error })` reads as `if (method !== "DELETE") return
- * json(list)`), and a literal's clause the method falls into past a
- * statement (`case "GET": fail(405);` reads as `case "POST": log();`). And
+ * wherever it runs, a method the literal's body never names (`if (method
+ * === "POST") return json(x); return json({ error })` and `if (method !==
+ * "POST") return json({ error })` read as `if (method === "DELETE") return
+ * json(x); return json(list)`: the last return may refuse with a 200), and a
+ * literal's clause the method falls into past a statement (`case "GET":
+ * fail(405);` reads as `case "POST": log();`). And
  * what stays a finding although it may be a false one, because the code
  * cannot tell it from a dead route: a refusal through a call handed the
  * method and a value (`methodGate(method, WRITE_METHODS)` reads as
@@ -618,6 +620,22 @@ function isReq(node: ts.Node, field: "pathname" | "method"): boolean {
   const n = unwrap(node);
   if (ts.isIdentifier(n)) return n.text === field && !!paramOf(n);
   return ts.isPropertyAccessExpression(n) && n.name.text === field && !!paramOf(n.expression);
+}
+
+/**
+ * The method of the request itself: the `method` parameter, or `.method` of
+ * the request parameter (`req.method`), not that field of another parameter
+ * (`spec.method`, a router's own argument). The request is the parameter typed
+ * `Request`, or with no type one named `req` or `request` (`_req` too).
+ */
+function isRequestMethod(node: ts.Node): boolean {
+  const n = unwrap(node);
+  if (!ts.isPropertyAccessExpression(n)) return isReq(n, "method");
+  const holder = n.expression;
+  const param = ts.isIdentifier(holder) ? paramOf(holder)?.parameters.find((q) => bindsName(q.name, holder.text)) : undefined;
+  if (!param || n.name.text !== "method") return false;
+  const type = param.type;
+  return type ? ts.isTypeReferenceNode(type) && ts.isIdentifier(type.typeName) && type.typeName.text === "Request" : ts.isIdentifier(param.name) && /^_?req(uest)?$/.test(param.name.text);
 }
 
 function literalOf(node: ts.Node, depth = 0): string | null {
@@ -821,7 +839,7 @@ function breaksOut(nodes: readonly ts.Node[]): boolean {
 function switchOn(sw: ts.SwitchStatement): "method" | "opaque" | null {
   const d = unwrap(sw.expression);
   const upper = ts.isCallExpression(d) && !d.arguments.length && ts.isPropertyAccessExpression(d.expression) && d.expression.name.text === "toUpperCase";
-  if (isReq(upper ? d.expression.expression : d, "method")) return "method";
+  if (isRequestMethod(upper ? d.expression.expression : d)) return "method";
   return readsMethod(d) || sw.caseBlock.clauses.some((c) => ts.isCaseClause(c) && readsMethod(c.expression)) ? "opaque" : null;
 }
 
@@ -1032,23 +1050,15 @@ function namedMethods(node: ts.Node): string[] {
   return [...out];
 }
 
-/** `return json(body)` or `return new Response(body)`: an answer with the default status. Anything else may refuse. */
-function serving(o: Outcome): boolean {
-  const e = o.exit && ts.isReturnStatement(o.exit) && o.exit.expression ? unwrap(o.exit.expression) : null;
-  if (e && ts.isNewExpression(e)) return ts.isIdentifier(e.expression) && e.expression.text === "Response" && (e.arguments?.length ?? 0) <= 1;
-  if (!e || !ts.isCallExpression(e) || e.arguments.length !== 1) return false;
-  return (ts.isIdentifier(e.expression) ? e.expression.text : ts.isPropertyAccessExpression(e.expression) ? e.expression.name.text : "") === "json";
-}
-
 /**
  * The methods a route body serves for `path`. A body that tests no method
  * serves them all. Otherwise its top statements name the ones it serves: a
  * refusal (`if (method !== "POST" && method !== "DELETE") return ...` serves
  * POST and DELETE), a switch on the method, or `if (method === "X")` branches.
- * A method they do not name is served when the body, followed for it, leaves
- * by a return that serves (a default `return json(list)`, the `return
- * json(list)` after `if (method === "DELETE") {...}`), unless a top `if`
- * refuses with `!==` (it may refuse with a 200). An `if` whose condition is
+ * A method they do not name is not served, whatever the body returns for it:
+ * a trailing `return json({ error })` is a refusal with a 200 as often as a
+ * list (`if (method === "POST") return json(x); return json({ error: "POST
+ * only" })`), and the check cannot tell them apart. An `if` whose condition is
  * false for this path whatever the method is about another path (the guard
  * of account.ts:71 hands its block to four). None is served when
  * the body, followed for it, meets a read of the method this check cannot
@@ -1056,14 +1066,12 @@ function serving(o: Outcome): boolean {
  */
 function bodyServes(statements: readonly ts.Statement[], path: string): (m: string) => boolean {
   const named: string[] = [];
-  let refuses = false;
   for (const s of statements) {
     if (ts.isIfStatement(s)) {
       const refused = methodTests(s.expression, NOT_EQUAL);
       const tested = [...methodTests(s.expression, EQ), ...refused];
       if ([...tested, "*"].every((m) => truthOf(s.expression, { path, method: m }).v === false)) continue;
       named.push(...tested);
-      refuses ||= refused.length > 0;
     }
     const on = ts.isSwitchStatement(s) && switchOn(s);
     // A label that cannot be read still restricts: "?" serves no method.
@@ -1072,7 +1080,7 @@ function bodyServes(statements: readonly ts.Statement[], path: string): (m: stri
   const tests = named.length > 0 || statements.some((s) => namedMethods(s).length > 0);
   return (m) => {
     const walk = listFlow(statements, { path, method: m });
-    return !walk.method && (!tests || named.includes(m) || (!refuses && serving(walk)));
+    return !walk.method && (!tests || named.includes(m));
   };
 }
 

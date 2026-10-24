@@ -560,7 +560,8 @@ export function create(ctx: any) {
         { id: "D1", what: "the literal in the default, case GET breaks, a GET pattern before", lines: [MATCH, GET_PRIOR, 'switch (method) { case "GET": log(); break; default: if (pathname === "/api/x/keep") return json({}); }'] },
         { id: "D2", what: "the literal in the default, a POST pattern before", lines: [MATCH, POST_PRIOR, 'switch (method) { case "GET": log(); break; default: if (pathname === "/api/x/keep") return json({}); }'], dead: dead(["POST"]) },
         { id: "D3", what: "the literal in the default, which case GET falls into with no break; a GET pattern before", lines: [MATCH, GET_PRIOR, 'switch (method) { case "GET": log(); default: if (pathname === "/api/x/keep") return json({}); }'] },
-        { id: "D4", what: "the literal's switch (method): case POST and a default that serves; a GET pattern before", lines: [MATCH, GET_PRIOR, 'if (pathname === "/api/x/keep") { switch (method) { case "POST": return json({ saved: true }); default: return json({ list: [] }); } }'], dead: dead(["GET"]) },
+        // Not found, as main reads it: a default json may be a refusal with a 200 (fl.ts EQ3), so GET is not served.
+        { id: "D4", what: "the literal's switch (method): case POST and a default that serves; a GET pattern before", lines: [MATCH, GET_PRIOR, 'if (pathname === "/api/x/keep") { switch (method) { case "POST": return json({ saved: true }); default: return json({ list: [] }); } }'] },
         { id: "D5", what: "the literal's switch (method): case POST and a 405 default; a GET pattern before", lines: [MATCH, GET_PRIOR, 'if (pathname === "/api/x/keep") { switch (method) { case "POST": return json({}); default: return errorResponse(405, "x"); } }'] },
         { id: "D6", what: "a default before the cases, a GET pattern before", lines: [MATCH, GET_PRIOR, 'switch (method) { default: if (pathname === "/api/x/keep") return json({}); break; case "GET": log(); break; }'] },
         { id: "D7", what: "an empty case GET that falls into the default, a GET pattern before", lines: [MATCH, GET_PRIOR, 'switch (method) { case "GET": default: if (pathname === "/api/x/keep") return json({}); }'], dead: dead(["GET"]) },
@@ -576,7 +577,8 @@ export function create(ctx: any) {
         // Outside the three constructs.
         { id: "U1", what: "the literal under a test of the method the gate cannot read (WRITE.has(method)), a GET pattern before", lines: [MATCH, GET_PRIOR, 'if (WRITE.has(method)) { if (pathname === "/api/x/keep") return json({}); }'] },
         { id: "U2", what: "the literal under case POST of switch (method.toUpperCase()), a GET pattern before", lines: [MATCH, GET_PRIOR, 'switch (method.toUpperCase()) { case "POST": if (pathname === "/api/x/keep") return json({}); }'] },
-        { id: "B1", what: "the literal's body: if (method === DELETE) { ...return } then a return that serves; a GET pattern before", lines: [MATCH, GET_PRIOR, 'if (pathname === "/api/x/keep") { if (method === "DELETE") { drop(); return json({ ok: true }); } return json({ list: [] }); }'], dead: dead(["GET"]) },
+        // Not found, as main reads it: a tail json may be a refusal with a 200 (fl.ts EQ1), so GET is not served.
+        { id: "B1", what: "the literal's body: if (method === DELETE) { ...return } then a return that serves; a GET pattern before", lines: [MATCH, GET_PRIOR, 'if (pathname === "/api/x/keep") { if (method === "DELETE") { drop(); return json({ ok: true }); } return json({ list: [] }); }'] },
       ];
       for (const c of CASES) {
         test(`${c.id}: ${c.what}`, () => {
@@ -606,9 +608,10 @@ export function create(ctx: any) {
         expect(shadowed([MATCH, GET_PRIOR, 'if (ready && method === "GET") { if (pathname === "/api/x/keep") return json({}); }'])).toEqual(["/api/x/keep"]);
       });
 
-      test("a tail that serves serves the methods no branch takes, one that cannot be read does not", () => {
-        expect(shadowed([MATCH, GET_PRIOR, 'if (pathname === "/api/x/keep") { if (method === "DELETE") return json({}); try { return json(load()); } catch (e) { return fail(e); } }'])).toEqual(["/api/x/keep"]);
-        expect(shadowed([MATCH, GET_PRIOR, 'if (pathname === "/api/x/keep") { if (method === "DELETE") return json({}); return new Response("list"); }'])).toEqual(["/api/x/keep"]);
+      test("a tail, whatever it returns, does not serve a method no branch names", () => {
+        // Not found, as main reads it: a tail json or Response may be a refusal with a 200 (fl.ts EQ1, EQ5).
+        expect(shadowed([MATCH, GET_PRIOR, 'if (pathname === "/api/x/keep") { if (method === "DELETE") return json({}); try { return json(load()); } catch (e) { return fail(e); } }'])).toEqual([]);
+        expect(shadowed([MATCH, GET_PRIOR, 'if (pathname === "/api/x/keep") { if (method === "DELETE") return json({}); return new Response("list"); }'])).toEqual([]);
         // A refusal with !== may answer a 200 (fl.ts H11): what it does not name is not served, as main reads it.
         expect(shadowed([MATCH, GET_PRIOR, 'if (pathname === "/api/x/keep") { if (method === "DELETE") return json({}); if (method !== "DELETE") return json({ list: [] }); }'])).toEqual([]);
         expect(shadowed([MATCH, GET_PRIOR, 'if (pathname === "/api/x/keep") { if (method === "DELETE") return json({}); return handle(req); }'])).toEqual([]);
@@ -707,7 +710,8 @@ export function create(ctx: any) {
         { id: "a refusal names what it serves", what: "if (method !== GET) 405; then a tail that does not return json", lines: [MATCH, GET_PRIOR, KEEP('if (method !== "GET") return errorResponse(405, "x"); return handle(req);')], dead: { methods: ["GET"], kind: "pattern", line: 4 } },
         { id: "a branch names what it serves", what: "if (method === GET) return handle(req); return 405", lines: [MATCH, GET_PRIOR, KEEP('if (method === "GET") return handle(req); return errorResponse(405, "x");')], dead: { methods: ["GET"], kind: "pattern", line: 4 } },
         { id: "a winner inside a path test", what: "the outer path test is the winner, at its own line", lines: [MATCH, 'if (pathname.startsWith("/api/x/")) {', GET_PRIOR, "}", LIT("GET")], dead: { methods: ["GET"], kind: "prefix", line: 4 } },
-        { id: "a path test inside the body", what: "the body names DELETE, then serves under a second path test", lines: [MATCH, GET_PRIOR, KEEP('if (method === "DELETE") return errorResponse(405, "x"); if (pathname.startsWith("/api/x/")) return json({});')], dead: { methods: ["GET"], kind: "pattern", line: 4 } },
+        // Not found, as main reads it: the json under the second path test is a tail the body never names GET for (fl.ts EQ1), so GET is not served.
+        { id: "a path test inside the body", what: "the body names DELETE, then serves under a second path test", lines: [MATCH, GET_PRIOR, KEEP('if (method === "DELETE") return errorResponse(405, "x"); if (pathname.startsWith("/api/x/")) return json({});')] },
       ];
       for (const c of CASES) {
         test(`${c.id}: ${c.what}`, () => {
