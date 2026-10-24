@@ -146,6 +146,22 @@ describe("the native prompt-cache keep-alive", () => {
     p.stop();
   });
 
+  test("a ping never lands on a running turn", async () => {
+    const p = provider();
+    await p.sendChat("topic:keepalive-running", "first", quiet);
+    await advance(3 * MIN);
+    // The second turn runs from minute 3 to minute 5: the first chain's tick
+    // at 4.5 falls inside it.
+    turnDelayMs = 2 * MIN;
+    await p.sendChat("topic:keepalive-running", "second", quiet);
+    turnDelayMs = 0;
+    await settle();
+    expect(pings.length).toBe(0);
+    await advance(EVERY);
+    expect(pings.length).toBe(1);
+    p.stop();
+  });
+
   test("an evicted session is not pinged", async () => {
     const p = provider();
     await p.sendChat("topic:keepalive-evicted", "first", quiet);

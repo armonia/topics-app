@@ -378,7 +378,6 @@ export class NativeProvider implements AIProvider {
       // topic:9f9e9629: risposta troncata a metà frase, zero spiegazioni.
       try { s.abort?.abort("server-shutdown" satisfies StopCause); } catch { /* già finito */ }
     }
-    for (const s of this.sessions.values()) clearTimeout(s.keepAlive);
     this.sessions.clear();
     // The stdio MCP servers are OUR child processes: leaving them behind on
     // shutdown is how a machine collects orphans nobody can trace back.
@@ -496,7 +495,6 @@ export class NativeProvider implements AIProvider {
     let tolte = 0;
     for (const [k, s] of this.sessions) {
       if (!sessionIsEvictable(s, ora)) continue;
-      clearTimeout(s.keepAlive);
       this.sessions.delete(k);
       tolte++;
     }
@@ -574,8 +572,6 @@ export class NativeProvider implements AIProvider {
       return {};
     }
     const session = this.sessionFor(sessionKey, options?.messageRows);
-    clearTimeout(session.keepAlive);
-    session.keepAlive = undefined;
     await this.supersedeLiveTurn(sessionKey, session);
     // A STOPPED ENGINE STARTS NO TURN. The chat route holds this instance across
     // its own awaits (the `memrecall` run) between opening the stream and calling
@@ -943,17 +939,17 @@ export class NativeProvider implements AIProvider {
    * ping every {@link KEEPALIVE_EVERY_MS}, for as long as the session itself
    * lives ({@link SESSION_TTL_MS}). Past that the session is evicted and the
    * next turn rebuilds it from the database, a different prefix, so the cached
-   * one is worth nothing. A new turn, an eviction, a reset or a stop ends it.
+   * one is worth nothing. A new turn, an eviction, a reset or a stop ends it:
+   * each tick checks, so no other path has to remember to clear the timer.
    */
   private keepCacheWarm(sessionKey: string, session: NativeSession, opts: AgentTurnOptions): void {
     clearTimeout(session.keepAlive);
     session.keepAlive = undefined;
     if (!keepAliveEnabled()) return;
     const endedAt = Date.now();
-    const historyLength = session.history.length;
-    // The prefix is still the one the turn left only while nothing has moved.
-    const waiting = () => !this.stopped && this.sessions.get(sessionKey) === session
-      && !session.abort && session.history.length === historyLength;
+    // Still this session (not evicted, reset or stopped), and no turn running:
+    // a running turn refreshes the cache itself, and its end starts a new chain.
+    const waiting = () => this.sessions.get(sessionKey) === session && !session.abort;
     let pings = 0;
     const schedule = () => {
       if (Date.now() - endedAt + KEEPALIVE_EVERY_MS > SESSION_TTL_MS) return;
@@ -985,7 +981,6 @@ export class NativeProvider implements AIProvider {
   }
 
   async resetSession(sessionKey: string): Promise<void> {
-    clearTimeout(this.sessions.get(sessionKey)?.keepAlive);
     this.sessions.delete(sessionKey);
   }
 
