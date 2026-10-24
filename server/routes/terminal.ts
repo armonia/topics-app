@@ -42,6 +42,8 @@ import type { FleetSessionRef } from "../lib/fleet-usage";
 import { resolveSessionProjects } from "../lib/session-project-map";
 import { listSessionCliPids } from "../providers/session-pids";
 import { decidePark, idleParkThresholdMs, summarizeRefusals, thresholdUnderPressure } from "../lib/terminal-idle-park";
+import { createChangeLogger } from "../lib/log-on-change";
+import { createCeilingReporter } from "../lib/park-ceiling-log";
 import { formatTerminalKillLog, recordedExitCode, type TerminalKillReason } from "../lib/terminal-kill";
 import { isSwapFreezeHold } from "../lib/swap-freeze-hold";
 import type { ParkRefusal } from "../lib/terminal-idle-park";
@@ -3035,6 +3037,11 @@ function openTabSessionIds(): ReadonlySet<string> | null {
   }
 }
 
+// Module-level on purpose: the sweep runs from a timer, and its memory of the
+// last printed line must survive between ticks.
+const logSweepChange = createChangeLogger();
+const reportCeiling = createCeilingReporter();
+
 export function parkIdleClaudeSessions(thresholdMs: number): ParkSweepResult {
   const parked: string[] = [];
   // `ParkRefusal` e non `string`: il motivo finisce in un log che lo traduce in
@@ -3054,9 +3061,9 @@ export function parkIdleClaudeSessions(thresholdMs: number): ParkSweepResult {
   // gia' — raccolti in `skipped` e restituiti — ma vivevano solo come stringhe
   // in un valore di ritorno che nessuno stampava: dal log, «non ha parcheggiato»
   // e «non ha nemmeno guardato» erano la stessa cosa.
-  if (skipped.length > 0) {
-    console.log(`[Terminal] Passata di parcheggio: ${summarizeRefusals(skipped)}.`);
-  }
+  // Same picture as the last pass: stay quiet (a heartbeat every 30 min). An
+  // empty pass passes null, which forgets it, so the next refusal prints again.
+  logSweepChange("park-sweep", skipped.length > 0 ? `[Terminal] Passata di parcheggio: ${summarizeRefusals(skipped)}.` : null);
   return { parked, skipped };
 }
 
@@ -3223,11 +3230,8 @@ export function createTerminalRouter(ctx: AppContext, tracker?: ClaudeSessionTra
         try { pressure = terminalMemPressure?.() ?? null; }
         catch { pressure = null; } // a broken probe must not speed up the reaper
         const threshold = thresholdUnderPressure(parkThresholdMs, pressure);
-        if (threshold !== parkThresholdMs) {
-          console.log(
-            `[Terminal] Macchina al soffitto: soglia di parcheggio ${Math.round(parkThresholdMs / 60_000)} -> ${Math.round(threshold / 60_000)} min per questa passata.`,
-          );
-        }
+        // An unknown reading is no news about the ceiling: it must not print an exit.
+        reportCeiling(parkThresholdMs, pressure ? threshold : null);
         parkIdleClaudeSessions(threshold);
       }
       catch (err) { console.warn(`[Terminal] sweep di parcheggio fallito:`, (err as Error).message); }
