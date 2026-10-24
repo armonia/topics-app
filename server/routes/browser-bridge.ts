@@ -50,6 +50,7 @@ import { resolveAgentNavUrl } from "../browser-tools-handler";
 import { nativeDelegateRegistry } from "../browser-native-delegate";
 import { collectLiveContextIds, listBrowserTabs, type TabInventoryDeps } from "../browser-tab-inventory";
 import { agentAuthOk } from "../lib/agent-auth";
+import { warnBridgeServerError } from "../lib/browser-bridge-warn";
 import { taskTabContextId, slugTabName } from "../../shared/task-tab-context";
 import { checkPortOwnership, formatPortWarning, realPortOwnerDeps, type PortOwnerDeps } from "../lib/port-project-owner";
 import { isGlobalOrchestratorSession, isGlobalOrchestratorTopic } from "../services/global-orchestrator-session";
@@ -550,10 +551,14 @@ export function createBrowserBridgeRouter(
             target.contextId,
             browserService,
           ) as { error?: string };
-          if (result?.error) return json({ error: result.error }, 502);
+          if (result?.error) {
+            warnBridgeServerError("browser_import_chrome", target.contextId, 502, result.error);
+            return json({ error: result.error }, 502);
+          }
           return json(result as Record<string, unknown>);
         } catch (e: unknown) {
           const msg = e instanceof Error ? e.message : String(e);
+          warnBridgeServerError("browser_import_chrome", target.contextId, 500, msg);
           return json({ error: msg }, 500);
         }
       }
@@ -640,7 +645,10 @@ export function createBrowserBridgeRouter(
             contextId,
             browserService,
           ) as Record<string, unknown> & { error?: string };
-          if (result?.error) return json({ error: result.error }, 502);
+          if (result?.error) {
+            warnBridgeServerError(toolName, contextId, 502, result.error);
+            return json({ error: result.error }, 502);
+          }
           // Login già iniettato: un `browser_save_state` fatto SU una tab di un
           // task lega quell'handle a QUELLA tab. Chi la apre dopo — drawer del
           // task o workspace del progetto — se lo fa dare da
@@ -660,7 +668,9 @@ export function createBrowserBridgeRouter(
           }
           return json(result);
         } catch (e: unknown) {
-          return json({ error: e instanceof Error ? e.message : String(e) }, 500);
+          const msg = e instanceof Error ? e.message : String(e);
+          warnBridgeServerError(toolName, contextId, 500, msg);
+          return json({ error: msg }, 500);
         }
       }
     }
