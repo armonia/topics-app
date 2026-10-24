@@ -11,7 +11,6 @@ import type { BrowserService } from "../browser-service";
 import type { OutboundMessage } from "../../shared/ws-outbound";
 import { dispatchBrowserToolCallByContext } from "../browser-tool-dispatcher";
 import { blankPaneFailure, settledUrl } from "../lib/pane-nav-outcome";
-import { warnBridgeServerError } from "../lib/browser-bridge-warn";
 
 /** What the sequence needs from the router that owns the sockets and the topics. */
 export interface OpenPaneFlowDeps {
@@ -133,20 +132,14 @@ export function makeOpenPaneFlow(deps: OpenPaneFlowDeps) {
         service,
       )) as { url?: string; title?: string; error?: string };
       if (result?.error) {
-        if (opts.navigationFatal !== false) {
-          warnBridgeServerError("browser_open", contextId, 502, result.error);
-          return json({ error: result.error }, 502);
-        }
+        if (opts.navigationFatal !== false) return json({ error: result.error }, 502);
         navError = result.error;
       }
       if (typeof result?.url === "string" && result.url) resolvedUrl = settledUrl(url, result.url);
       pageTitle = typeof result?.title === "string" ? result.title : "";
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : String(e);
-      if (opts.navigationFatal !== false) {
-        warnBridgeServerError("browser_open", contextId, 500, msg);
-        return json({ error: msg }, 500);
-      }
+      if (opts.navigationFatal !== false) return json({ error: msg }, 500);
       navError = msg;
     }
     // THE ANSWER IS THE PANE'S, NOT THE REQUEST'S: a view left on the blank page
@@ -155,10 +148,7 @@ export function makeOpenPaneFlow(deps: OpenPaneFlowDeps) {
     // the document it is for, not at `about:blank` - what changes is that the
     // caller is TOLD.
     const blank = navError ? null : blankPaneFailure(url, resolvedUrl);
-    if (blank && opts.navigationFatal !== false) {
-      warnBridgeServerError("browser_open", contextId, 502, blank);
-      return json({ error: blank }, 502);
-    }
+    if (blank && opts.navigationFatal !== false) return json({ error: blank }, 502);
     if (blank) { navError = blank; resolvedUrl = url; }
     if (resolvedUrl !== url) announce(resolvedUrl);
     const visible = navError

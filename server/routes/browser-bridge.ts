@@ -43,7 +43,7 @@
 import type { AppContext, RouteHandler, Topic } from "../types";
 import type { BrowserService } from "../browser-service";
 import { dispatchBrowserToolCallByContext, resolveContextIdForTopic } from "../browser-tool-dispatcher";
-import { makeOpenPaneFlow } from "./browser-open-pane-flow";
+import { makeOpenPaneFlow, type OpenPaneFlowOptions } from "./browser-open-pane-flow";
 import { maybeOpenPaneForPageOp } from "./browser-auto-open";
 import { BRIDGED_BROWSER_ENDPOINTS } from "../browser-tool-spec";
 import { resolveAgentNavUrl } from "../browser-tools-handler";
@@ -226,6 +226,23 @@ export function createBrowserBridgeRouter(
   });
 
   /**
+   * The open-pane routes answer through here: the sequence, plus the stderr
+   * line when the answer is a 5xx. The line is written where the route
+   * answers, not inside openPaneFlow, because the auto-open before a page op
+   * runs the same sequence and its failures stay silent on purpose
+   * (browser-auto-open.ts): there the page op's own answer is the one that
+   * counts.
+   */
+  async function openPaneAnswer(opts: OpenPaneFlowOptions): Promise<Response> {
+    const res = await openPaneFlow(opts);
+    if (res.status >= 500) {
+      const body = (await res.clone().json().catch(() => null)) as { error?: unknown } | null;
+      warnBridgeServerError("browser_open", opts.contextId, res.status, body?.error ?? res.statusText);
+    }
+    return res;
+  }
+
+  /**
    * Last auto-open attempt per contextId: with no Topics window connected,
    * every page op would otherwise pay the pane wait plus a navigation. One
    * failed attempt buys 60 s of headless-direct dispatch (see
@@ -383,7 +400,7 @@ export function createBrowserBridgeRouter(
             // as the chat route, same fallback, same honest answer. The title
             // stays empty: here the agent asked for a pane next to its
             // terminal, not for a page to label.
-            return openPaneFlow({
+            return openPaneAnswer({
               contextId: ctxId,
               url: resolvedUrl,
               title: "",
@@ -439,7 +456,7 @@ export function createBrowserBridgeRouter(
           };
           saveSingleTopic(topic);
           browserNavigatedTopics.add(topic.id);
-          return openPaneFlow({
+          return openPaneAnswer({
             contextId: taskCtx.contextId,
             url,
             title: tabName,
@@ -471,7 +488,7 @@ export function createBrowserBridgeRouter(
         // guarantees it) so the client mounts/seeds the pane under the SAME id
         // the agent's `browser_*` tools resolve to. Inverted, Playwright drove
         // a phantom while the visible pane stayed on about:blank.
-        return openPaneFlow({
+        return openPaneAnswer({
           contextId: ctxId,
           url,
           projectPath: topic.projectPath ?? null,
