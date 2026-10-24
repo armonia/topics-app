@@ -215,6 +215,37 @@ describe("createLiveTerminals", () => {
     for (const l of logs) expect(l).not.toContain("Command failed");
   });
 
+  it("Terminal.app: -1743 dopo un'altra riga di stderr, o solo nel messaggio, nomina comunque l'Automazione", async () => {
+    // osascript can print a warning before the refusal, and a runner can reject
+    // without a stderr field: the code is looked for in all of the text, not
+    // only in the line that becomes the reason.
+    const refusal = "62:118: execution error: Not authorized to send Apple events to Terminal. (-1743)";
+    const answers: Record<string, string | Error> = {
+      osascript: Object.assign(new Error("Command failed: osascript -e x"), {
+        killed: false, signal: null, code: 1,
+        stderr: `osascript: OpenScripting.framework - scripting addition warning\n${refusal}\n`,
+      }),
+    };
+    const { run } = fakeRunner(answers);
+    const logs: string[] = [];
+    let t = 1_000;
+    const svc = createLiveTerminals({
+      topics: () => [], topicsScreen: async () => null, topicsSend: () => true,
+      run, now: () => t, ttlMs: 0, sources: { tmux: false, terminal: true },
+      log: (msg) => { logs.push(msg); },
+    });
+    await svc.list({ force: true }); t += 61_000;
+    answers.osascript = Object.assign(new Error(`Command failed: osascript -e x\n${refusal}\n`), {
+      killed: false, signal: null, code: 1,
+    });
+    await svc.list({ force: true });
+    expect(logs).toHaveLength(2);
+    for (const l of logs) {
+      expect(l).toMatch(/^Terminal\.app: osascript fallito \(permesso di Automazione negato\)/);
+      expect(l).not.toMatch(/Mac lento/);
+    }
+  });
+
   it("Terminal.app: un timeout e poi un fallimento immediato senza motivo sono due righe, non una", async () => {
     // Both carry no reason (no stderr, only the "Command failed:" preamble):
     // the kind alone must tell them apart.

@@ -8,8 +8,9 @@ let cachedRecorderSource: string | undefined;
 
 /** The recorder shared by the server browser and native-host route. */
 export function getRrwebRecorderSource(): string {
-  // Nothing can fail at runtime now: the text is part of the module, so there
-  // is no "missing bundle" case left to degrade to an empty body.
+  // The text is part of the module: a missing rrweb.min.js fails when the
+  // server is bundled or loads, never here. An empty or stale file still
+  // loads as it is; rrweb-recorder.test.ts compares it with the installed rrweb.
   cachedRecorderSource ??= recorderBundle.replace(/\n\/\/# sourceMappingURL=.*$/m, "");
   return cachedRecorderSource;
 }

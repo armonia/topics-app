@@ -1484,6 +1484,60 @@ describe("5xx del bridge — il motivo finisce nel log", () => {
     }
   });
 
+  test("nessun ESC né controllo C1 arriva a stderr: OSC chiuso da ST, APC, DCS, C1 a 8 bit, ESC isolato; U+0085 chiude la riga, i caratteri invisibili spariscono", () => {
+    const warn = spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      const reasons = [
+        "\x1b]0;title\x1b\\after",
+        new Error("x\x1b_"),
+        "a\x1b_Gf=1;AAAA\x1b\\b",
+        "a\x1bPq#0\x1b\\b",
+        "a\x9d0;t\x9cb",
+        "a\x9b31mb",
+        "a\x1b(Bb\x1b7",
+        "reason\x1b",
+        "x\x1b]0;never closed",
+        "first\x85PAGE-DATA",
+        "first\rPAGE-DATA",
+        "​\nreal",
+        "a‮b⁦c",
+      ];
+      for (const r of reasons) warnBridgeServerError("browser_eval", "c1", 502, r);
+      const lines = warn.mock.calls.map((args) => args.map(String).join(" "));
+      expect(lines.map((l) => l.replace(/^\[browser-bridge\] \S+ \S+ \S+ -> \d+: /, ""))).toEqual([
+        "after", "x", "ab", "ab", "ab", "ab", "ab", "reason", "x",
+        // U+0085 and a lone CR end the line like \n does: what follows is page data.
+        "first", "first",
+        // A line of zero-width characters only is empty, not the reason.
+        "real",
+        // BiDi controls would reorder the log line on screen.
+        "abc",
+      ]);
+      // eslint-disable-next-line no-control-regex -- the control bytes are what the line must not carry
+      for (const l of lines) expect(l).not.toMatch(/[\x00-\x1f\x7f-\x9f\p{Cf}]/u);
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  test("un motivo costruito per il backtracking non blocca l'event loop e non lascia l'ESC nella riga", () => {
+    // The page writes the eval error message: a regex with overlapping
+    // quantifiers took ~600 ms per call on this input and still left the ESC.
+    const crafted = ("\x1b" + ";".repeat(10_000)).repeat(20);
+    const warn = spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      const started = performance.now();
+      warnBridgeServerError("browser_eval", "c1", 502, new Error(crafted));
+      const elapsed = performance.now() - started;
+      const line = warn.mock.calls.map((args) => args.map(String).join(" "))[0];
+      expect(line).not.toContain("\x1b");
+      expect(line).toMatch(/ -> 502: ;{500}$/);
+      expect(elapsed).toBeLessThan(150);
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
   // The warn lines of one request, with the response: the helper below keeps
   // each case to its setup and its expectation.
   async function warnsOf(h: ReturnType<typeof harness>, path: string, body?: unknown) {

@@ -1,5 +1,3 @@
-import { stripAnsi } from "../utils/path-env";
-
 /**
  * One stderr line per 5xx answer of the browser bridge that comes from a
  * failure.
@@ -19,11 +17,13 @@ export function warnBridgeServerError(tool: string, contextId: string, status: n
 const REASON_MAX = 500;
 
 /**
- * The first non-empty line of the reason, without ANSI escapes or control
- * bytes. U+2028/U+2029 end a line like `\n` does: a log viewer splits on them,
- * and what follows them is as much page data as what follows a newline. An
- * Error with nothing in its message falls back to its name; any other empty
- * reason (an HTTP status text can be "") prints as "(empty)".
+ * The first non-empty line of the reason, with no escape sequence, control or
+ * format character left: the page writes eval error messages, and an ESC on
+ * stderr is a command to the terminal that shows the log. Besides `\n`, CR,
+ * VT, FF, U+0085 and U+2028/U+2029 end a line: a log viewer splits on them,
+ * and what follows is page data. A line of zero-width characters only is empty.
+ * An Error with nothing in its message falls back to its name; any other
+ * empty reason (an HTTP status text can be "") prints as "(empty)".
  */
 function bridgeReasonLine(reason: unknown): string {
   const line = reason instanceof Error
@@ -32,8 +32,25 @@ function bridgeReasonLine(reason: unknown): string {
   return cutKeepingPairs(line, REASON_MAX);
 }
 
+/**
+ * ECMA-48 escape sequences, 7-bit and 8-bit: CSI; the control strings OSC,
+ * DCS, SOS, PM and APC up to BEL or ST, or up to the next ESC/C1 byte when
+ * never closed; the short ESC sequences (ESC 7, ESC ( B). No quantifier can
+ * match what the next one matches, so the cost stays linear on any input.
+ */
+const ESCAPE_SEQUENCE_RE =
+  // eslint-disable-next-line no-control-regex -- the control bytes are what this pattern removes
+  /(?:\x1b\[|\x9b)[0-?]*[ -/]*[@-~]|(?:\x1b[\]PX^_]|[\x90\x98\x9d-\x9f])[^\x07\x1b\x80-\x9f]*(?:\x07|\x1b\\|\x9c)?|\x1b[ -/]*[0-~]/g;
+const LINE_END_RE = /[\n\r\v\f\x85\u2028\u2029]/;
+/** Controls left after the sequences are gone (a lone ESC among them) and invisible format characters (ZWSP, BiDi). */
+const INVISIBLE_RE = /(?!\t)[\p{Cc}\p{Cf}]/gu;
+
 function firstNonEmptyLine(text: string): string {
-  return stripAnsi(text).split(/[\n\u2028\u2029]/).map((l) => l.trim()).find((l) => l.length > 0) ?? "";
+  for (const raw of text.replace(ESCAPE_SEQUENCE_RE, "").split(LINE_END_RE)) {
+    const line = raw.replace(INVISIBLE_RE, "").trim();
+    if (line.length > 0) return line;
+  }
+  return "";
 }
 
 /** `text` cut to `max` UTF-16 units, dropping a high surrogate the cut would leave without its pair. */

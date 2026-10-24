@@ -250,6 +250,16 @@ function terminalFailureFacts(err: unknown): string {
 /** osascript's code for "Not authorized to send Apple events": the Automation permission is denied. */
 const NOT_AUTHORIZED_CODE = /\(-1743\)/;
 
+/**
+ * All the text of a failed command, stderr and message: osascript can print a
+ * warning before its error, and a rejection may carry no stderr at all, so a
+ * code is looked for here rather than in the one-line reason.
+ */
+function terminalFailureText(err: unknown): string {
+  const stderr = (err as { stderr?: unknown })?.stderr;
+  return `${typeof stderr === "string" ? stderr : ""}\n${String((err as Error)?.message ?? err)}`;
+}
+
 export function createLiveTerminals(deps: LiveTerminalsDeps): LiveTerminalsService {
   const run = deps.run ?? defaultRunner;
   const ttlMs = deps.ttlMs ?? 2000;
@@ -303,7 +313,7 @@ export function createLiveTerminals(deps: LiveTerminalsDeps): LiveTerminalsServi
       // own reason; -1743 is the one whose cause is certain, so it is named.
       const what = (err as { killed?: unknown })?.killed === true
         ? `osascript ucciso dopo ${TERMINAL_LIST_TIMEOUT_MS} ms (Mac lento, o permesso di Automazione in attesa/negato)`
-        : NOT_AUTHORIZED_CODE.test(reason)
+        : NOT_AUTHORIZED_CODE.test(terminalFailureText(err))
           ? "osascript fallito (permesso di Automazione negato)"
           : "osascript fallito";
       const facts = terminalFailureFacts(err);
