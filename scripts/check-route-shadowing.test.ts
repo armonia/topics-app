@@ -484,6 +484,23 @@ export function create(ctx: any) {
       expect(shadowed([MATCH, 'if (m && method === "POST") return json({});', SWITCH])).toEqual([]);
       expect(shadowed([MATCH, 'if (m && method === "GET") return json({});', SWITCH])).toEqual(["/api/x/keep"]);
       expect(shadowed([MATCH, 'if (m && method === "GET") return json({});', 'switch (method) { case Verb.Get: if (pathname === "/api/x/keep") return json({}); break; }'])).toEqual([]);
+      // A default runs for the methods no other case names, and an empty case falls into the next.
+      const DEFAULT = 'switch (method) { case "GET": log(); break; default: if (pathname === "/api/x/keep") return json({}); }';
+      expect(shadowed([MATCH, 'if (m && method === "GET") return json({});', DEFAULT])).toEqual([]);
+      expect(shadowed([MATCH, 'if (m && method === "POST") return json({});', DEFAULT])).toEqual(["/api/x/keep"]);
+      expect(shadowed([MATCH, 'if (m && method === "POST") return json({});', DEFAULT.replace('case "GET"', "case Verb.Get")])).toEqual([]);
+      expect(shadowed([MATCH, 'if (m && method === "GET") return json({});', 'switch (method) { case "GET": case "HEAD": if (pathname === "/api/x/keep") return json({}); break; }'])).toEqual(["/api/x/keep"]);
+    });
+
+    // topics.ts:1414: the match exists only for GET.
+    test("a match bound through a ternary on the method is followed for that method only", () => {
+      const TERNARY = ["{", '  const m = method === "GET" ? /^\\/api\\/x\\/([^/]+)$/.exec(pathname) : null;', "  if (m) {", "    const t = load(m[1]);", '    if (!t) return json({ error: "x" }, 404);', "    return json(t);", "  }", "}"];
+      expect(inner([...TERNARY, LITERAL]).map((o) => [o.sample, o.prior.kind, o.prior.line])).toEqual([["/api/x/keep", "regex", 5]]);
+      expect(shadowed([...TERNARY, 'if (method === "POST" && pathname === "/api/x/keep") return json({});'])).toEqual([]);
+      // With the condition unknown the branches must agree, or nothing is known.
+      const UNSURE = ['const r = ready ? /^\\/api\\/x\\/([^/]+)$/.exec(pathname) : null;', 'if (r && method === "GET") return json({});'];
+      expect(shadowed([...UNSURE, LITERAL])).toEqual([]);
+      expect(shadowed([MATCH, 'if (m && method === "GET") return json({});', ...UNSURE, LITERAL])).toEqual(["/api/x/keep"]);
     });
 
     // goals.ts:75-80, machines.ts:445-478, terminal.ts:3328.

@@ -592,6 +592,18 @@ function equality(n: ts.BinaryExpression, req: Req): Truth | null {
 /** The truth of a condition for `req`: true, false, or null when it depends on something else. */
 function truthOf(node: ts.Node, req: Req, depth = 0): Truth {
   const n = unwrap(node);
+  // `method === "GET" ? RE.exec(pathname) : null` (topics.ts:1414): the branch
+  // the condition picks; with the condition unknown, only what both agree on.
+  if (ts.isConditionalExpression(n)) {
+    const c = truthOf(n.condition, req, depth);
+    if (c.v !== null) {
+      const r = truthOf(c.v ? n.whenTrue : n.whenFalse, req, depth);
+      return r.v === true ? { v: true, via: r.via ?? c.via } : r;
+    }
+    const a = truthOf(n.whenTrue, req, depth);
+    const b = truthOf(n.whenFalse, req, depth);
+    return a.v !== null && a.v === b.v ? { v: a.v } : UNKNOWN;
+  }
   if (ts.isPrefixUnaryExpression(n) && n.operator === ts.SyntaxKind.ExclamationToken) {
     const r = truthOf(n.operand, req, depth);
     return r.v === null ? UNKNOWN : { v: !r.v };
@@ -760,6 +772,22 @@ function bodyMethods(statements: readonly ts.Statement[], path: string): string[
   return out;
 }
 
+/**
+ * The methods a clause of `switch (method)` runs for: its labels and those of
+ * the empty clauses that fall into it; for a default, every method no other
+ * case names. A label that cannot be read runs for no method we can name.
+ */
+function clauseMethods(clause: ts.CaseClause | ts.DefaultClause): (m: string) => boolean {
+  const clauses = clause.parent.clauses;
+  const own: Array<ts.CaseClause | ts.DefaultClause> = [clause];
+  for (let j = clauses.indexOf(clause) - 1; j >= 0 && clauses[j]!.statements.length === 0; j--) own.push(clauses[j]!);
+  const label = (c: ts.CaseClause) => literalOf(c.expression) ?? "?";
+  const labels = own.filter(ts.isCaseClause).map(label);
+  if (!own.some(ts.isDefaultClause)) return (m) => labels.includes(m);
+  const others = clauses.filter((c): c is ts.CaseClause => ts.isCaseClause(c) && !own.includes(c)).map(label);
+  return (m) => labels.includes(m) || (!others.includes("?") && !others.includes(m));
+}
+
 /** `pathname === "/x"` (or `!==`) reached through `&&`, `||` and parentheses only. */
 function pathLiterals(expr: ts.Node, ops: Set<ts.SyntaxKind>): string[] {
   const n = unwrap(expr);
@@ -786,13 +814,13 @@ export function findInnerShadows(source: string, file: string, router: string): 
     // What runs before the literal, outer blocks first, and the conditions it sits under.
     const before: ts.Statement[] = [];
     const under: Array<{ cond: ts.Expression; then: boolean }> = [];
-    const cases: string[] = [];
+    const cases: Array<(m: string) => boolean> = [];
     let child: ts.Node = lit;
     let fn: ts.Node = sf;
     for (let n = lit.parent; n; child = n, n = n.parent) {
       if (ts.isFunctionLike(n)) { fn = n; break; }
       if (ts.isIfStatement(n)) under.push({ cond: n.expression, then: child === n.thenStatement });
-      if (ts.isCaseClause(n) && isReq(n.parent.parent.expression, "method")) cases.push(literalOf(n.expression) ?? "?");
+      if ((ts.isCaseClause(n) || ts.isDefaultClause(n)) && isReq(n.parent.parent.expression, "method")) cases.push(clauseMethods(n));
       const list = statementsOf(n);
       if (list) before.unshift(...list.slice(0, list.indexOf(child as ts.Statement)));
     }
@@ -803,7 +831,7 @@ export function findInnerShadows(source: string, file: string, router: string): 
       const req = { path: value, method: m };
       const own = truthOf(lit.expression, req).v;
       if (guard ? own === true : own === false) return false;
-      if ((restrict.length && !restrict.includes(m)) || cases.some((c) => c !== m)) return false;
+      if ((restrict.length && !restrict.includes(m)) || cases.some((runs) => !runs(m))) return false;
       return under.every((u) => truthOf(u.cond, req).v !== !u.then);
     };
     const pool = [...namedMethods((ts.isFunctionLike(fn) && (fn as ts.FunctionLikeDeclaration).body) || sf), "*"];
