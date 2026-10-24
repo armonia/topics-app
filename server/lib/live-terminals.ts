@@ -228,6 +228,9 @@ export function createLiveTerminals(deps: LiveTerminalsDeps): LiveTerminalsServi
   // Without the Automation permission osascript hangs until killed: after a
   // failure Terminal.app is skipped for a while, or every list waits for it.
   let terminalPausedUntil = 0;
+  // Whether the Terminal.app error line was already reported: the warning
+  // fires only on the ok->error and error->ok transitions, not per failure.
+  let terminalErrorReported = false;
 
   async function scanTmux(): Promise<LiveTerminal[]> {
     if (!tmuxOn) return [];
@@ -245,9 +248,26 @@ export function createLiveTerminals(deps: LiveTerminalsDeps): LiveTerminalsServi
     let tabs: Array<{ tty: string; title: string }>;
     try {
       tabs = parseTerminalTabs(await run("osascript", ["-e", TERMINAL_LIST_SCRIPT], { timeoutMs: TERMINAL_LIST_TIMEOUT_MS }));
+      // Back to reachable: announce the recovery once.
+      if (terminalErrorReported) {
+        terminalErrorReported = false;
+        log("Terminal.app di nuovo raggiungibile");
+      }
     } catch (err) {
       terminalPausedUntil = now() + TERMINAL_PAUSE_MS;
-      log("Terminal.app non risponde (permesso di Automazione negato?)", err);
+      // One compact line on the ok->error transition only: first line of the
+      // error plus kill/timeout facts, keeping both hypotheses (slow Mac or
+      // pending/denied Automation permission). Never pass the full object.
+      if (!terminalErrorReported) {
+        terminalErrorReported = true;
+        const firstLine = String((err as Error)?.message ?? err).split("\n")[0];
+        const killed = (err as { killed?: unknown })?.killed;
+        const signal = (err as { signal?: unknown })?.signal;
+        // A kill is the timeout; any other failure (an immediate -1743, a
+        // missing osascript) must not be reported as one.
+        const what = killed === true ? `osascript ucciso dopo ${TERMINAL_LIST_TIMEOUT_MS} ms` : "osascript fallito";
+        log(`Terminal.app: ${what} (Mac lento, o permesso di Automazione in attesa/negato): ${firstLine} killed=${killed} signal=${signal}`);
+      }
       return [];
     }
     return tabs.map((t) => ({
