@@ -173,6 +173,17 @@ describe("check-route-shadowing", () => {
         expect(r.status).toBe(0);
       });
 
+      test("a field read off a value derived from the pattern is data, not a finding", () => {
+        const r = run(oneRouterTree([
+          '    const m = matchRoute(pathname, "/api/x/:id");',
+          '    const topic = data[m.id];',
+          '    if (topic.kind === "x" && method === "GET") return new Response("field");',
+          '    if (method === "GET" && pathname === "/api/x/keep-list") return new Response("literal");',
+        ].join("\n")));
+        expect(r.stdout).toContain("0 overlaps");
+        expect(r.status).toBe(0);
+      });
+
       test("a literal under a pattern for a different method is not a finding", () => {
         const r = run(oneRouterTree([
           '    const m = matchRoute(pathname, "/api/x/:id");',

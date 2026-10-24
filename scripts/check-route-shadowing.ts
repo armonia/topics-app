@@ -29,6 +29,10 @@
  * methods is a finding. Claims whose methods could not be read count as "any
  * method", so the check errs toward reporting.
  *
+ * Inside ONE router the order is the line order of its if chain: a literal
+ * path that an earlier `:param` pattern of the same file captures is a finding
+ * too (findInnerShadows). Both kinds share KNOWN.
+ *
  * KNOWN lists the overlaps that were reviewed and are intended (or reported and
  * left alone on purpose, precedence is not changed here). An overlap not in
  * KNOWN fails the run (exit 1); an entry of KNOWN that no longer matches
@@ -185,7 +189,9 @@ function atomsIn(expr: ts.Node, constants: ReturnType<typeof collectConstants>, 
       out.push({ ...a, negated: notEqual || negatedWithin(n, expr) });
       return;
     }
-    if (ts.isIdentifier(n) && bindings.has(n.text) && !(ts.isPropertyAccessExpression(n.parent) && n.parent.name === n)) {
+    // `topic.projectPath` or `data[params.id]` reads a field of a bound value:
+    // that is data taken from the path, not a test of the path.
+    if (ts.isIdentifier(n) && bindings.has(n.text) && !ts.isPropertyAccessExpression(n.parent) && !ts.isElementAccessExpression(n.parent)) {
       const inverted = negatedWithin(n, expr);
       for (const b of bindings.get(n.text)!) out.push({ ...b, negated: b.negated !== inverted });
       return;
@@ -394,6 +400,29 @@ export function findOverlaps(claimsByRouter: Map<string, Claim[]>, order: string
   return { overlaps, unsampled };
 }
 
+/**
+ * A literal GET/POST/... path that a `:param` pattern of the SAME router
+ * captures, when the pattern comes earlier in the same file's if chain: the
+ * first non-null answer wins, so the literal is dead. Only literal (exact)
+ * claims are checked; a pattern under another pattern is ambiguous, not dead.
+ */
+export function findInnerShadows(claimsByRouter: Map<string, Claim[]>): Overlap[] {
+  const overlaps: Overlap[] = [];
+  for (const claims of claimsByRouter.values()) {
+    for (const later of claims) {
+      if (later.kind !== "exact") continue;
+      for (const prior of claims) {
+        if (prior.kind !== "pattern" || prior.file !== later.file || prior.line >= later.line) continue;
+        if (!claimMatches(prior, later.value)) continue;
+        const methods = methodsOverlap(prior.methods, later.methods);
+        if (methods === false) continue;
+        overlaps.push({ prior, later, sample: later.value, methods });
+      }
+    }
+  }
+  return overlaps;
+}
+
 // --- the real routers -----------------------------------------------------------
 
 /** Router variable in server.ts -> factory source file. */
@@ -442,7 +471,17 @@ export interface KnownOverlap {
  * check builds, so the entry stops matching (and fails the run) when the code
  * it describes changes.
  */
-export const KNOWN: KnownOverlap[] = [];
+export const KNOWN: KnownOverlap[] = [
+  // Pending branch fix/keep-list-route: that branch moves the keep-list block
+  // above `/api/browsers/:id`. Remove this entry in the same change, or the
+  // run fails as stale.
+  {
+    prior: "browserRouter",
+    later: "browserRouter",
+    sample: "/api/browsers/data-store-keep-list",
+    why: "GET /api/browsers/:id (browser.ts:229) hides the keep-list route (browser.ts:672) since 12/08; fix/keep-list-route",
+  },
+];
 
 function fmt(c: Claim): string {
   return `${c.router} ${relative(ROOT, c.file)}:${c.line} ${c.methods?.join("|") ?? "ANY"} ${c.kind} ${c.value}`;
@@ -472,7 +511,9 @@ function main(): number {
     claimsByRouter.set(router, claims);
   }
 
-  const { overlaps, unsampled } = findOverlaps(claimsByRouter, order);
+  const cross = findOverlaps(claimsByRouter, order);
+  const overlaps = [...cross.overlaps, ...findInnerShadows(claimsByRouter)];
+  const unsampled = cross.unsampled;
   const total = [...claimsByRouter.values()].reduce((n, c) => n + c.length, 0);
 
   if (all) for (const r of order) for (const c of claimsByRouter.get(r) ?? []) console.log(`claim  ${fmt(c)}`);
@@ -484,7 +525,9 @@ function main(): number {
     if (k) used.add(k);
     else fresh.push(o);
   }
-  const stale = KNOWN.filter((k) => !used.has(k));
+  // An entry about a router this tree does not have is not judged here: KNOWN is
+  // global, and the bench trees of the test file have other routers.
+  const stale = KNOWN.filter((k) => !used.has(k) && order.includes(k.prior) && order.includes(k.later));
 
   console.log(`check-route-shadowing: ${order.length} routers, ${total} claims, ${overlaps.length} overlaps (${overlaps.length - fresh.length} known), ${unsampled.length} claims without a sample, ${opaque} opaque path reads (endsWith/includes/split)`);
   for (const c of unsampled) console.log(`  no sample: ${fmt(c)}`);
