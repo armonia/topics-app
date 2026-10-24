@@ -2,6 +2,11 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.3.24 — 2026-10-25
+
+### Sotto il cofano
+- Il reaper degli store WKWebView non gira mai: la rotta data-store-keep-list risponde 404 (#425)
+
 ## 2.3.23 — 2026-10-24
 
 ### Novità

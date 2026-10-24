@@ -1,5 +1,21 @@
 [
   {
+    "version": "2.3.24",
+    "date": "2026-10-25",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Il reaper degli store WKWebView non gira mai: la rotta data-store-keep-list risponde 404 (#425)",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
     "version": "2.3.23",
     "date": "2026-10-24",
     "sections": {
