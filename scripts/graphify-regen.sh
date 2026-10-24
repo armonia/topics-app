@@ -29,7 +29,8 @@
 #     belongs to the previous version of this script (many worktrees still run it)
 #     or to a worker between mkdir and its pid write: it is waited for, and
 #     reaped only when older than STALE_LOCK_MINUTES, the previous script's own
-#     rule for a crashed run.
+#     rule for a crashed run. An empty pid file counts as no pid. A lock that
+#     cannot be removed is slept on, never spun on.
 #   - FREE: `graphify update` is a pure-AST re-extraction, no LLM calls.
 #   - SILENT NO-OP when graphify is not installed or no graph exists yet.
 #
