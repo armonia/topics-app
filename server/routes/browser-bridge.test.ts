@@ -1499,6 +1499,9 @@ describe("5xx del bridge — il motivo finisce nel log", () => {
         "x\x1b]0;never closed",
         "first\x85PAGE-DATA",
         "first\rPAGE-DATA",
+        "first\vPAGE-DATA",
+        "first\fPAGE-DATA",
+        "\x9dmojibake\nthe real reason",
         "​\nreal",
         "a‮b⁦c",
       ];
@@ -1506,9 +1509,12 @@ describe("5xx del bridge — il motivo finisce nel log", () => {
       const lines = warn.mock.calls.map((args) => args.map(String).join(" "));
       expect(lines.map((l) => l.replace(/^\[browser-bridge\] \S+ \S+ \S+ -> \d+: /, ""))).toEqual([
         "after", "x", "ab", "ab", "ab", "ab", "ab", "reason", "x",
-        // U+0085 and a lone CR end the line like \n does: what follows is page data.
-        "first", "first",
-        // A line of zero-width characters only is empty, not the reason.
+        // U+0085, a lone CR, VT and FF end the line like \n does: what follows is page data.
+        "first", "first", "first", "first",
+        // A control string never closed ends at the line end: a lone C1 byte
+        // (mojibake) does not swallow the reason on the next line.
+        "the real reason",
+        // A line of format characters only (ZWSP here) is empty, not the reason.
         "real",
         // BiDi controls would reorder the log line on screen.
         "abc",
