@@ -552,11 +552,14 @@ export function create(ctx: any) {
         // The literal under a switch (method).
         { id: "SL1", what: "the literal in case GET, a GET pattern before", lines: [MATCH, GET_PRIOR, 'switch (method) { case "GET": if (pathname === "/api/x/keep") return json({}); break; }'], dead: dead(["GET"]) },
         { id: "SL2", what: "the literal in case GET, a POST pattern before", lines: [MATCH, POST_PRIOR, 'switch (method) { case "GET": if (pathname === "/api/x/keep") return json({}); break; }'] },
-        { id: "SL3", what: "the literal in case GET, which a case POST that is not empty falls into; a POST pattern before", lines: [MATCH, POST_PRIOR, 'switch (method) { case "POST": log(); case "GET": if (pathname === "/api/x/keep") return json({}); break; }'], dead: dead(["POST"]) },
+        // A clause that is not empty may throw before it falls through (fl.ts
+        // W4, `case "GET": fail(405);`): which methods reach the literal's
+        // clause through it is unknown, as main reads it.
+        { id: "SL3", what: "the literal in case GET, which a case POST that is not empty falls into; a POST pattern before", lines: [MATCH, POST_PRIOR, 'switch (method) { case "POST": log(); case "GET": if (pathname === "/api/x/keep") return json({}); break; }'] },
         // Defaults.
         { id: "D1", what: "the literal in the default, case GET breaks, a GET pattern before", lines: [MATCH, GET_PRIOR, 'switch (method) { case "GET": log(); break; default: if (pathname === "/api/x/keep") return json({}); }'] },
         { id: "D2", what: "the literal in the default, a POST pattern before", lines: [MATCH, POST_PRIOR, 'switch (method) { case "GET": log(); break; default: if (pathname === "/api/x/keep") return json({}); }'], dead: dead(["POST"]) },
-        { id: "D3", what: "the literal in the default, which case GET falls into with no break; a GET pattern before", lines: [MATCH, GET_PRIOR, 'switch (method) { case "GET": log(); default: if (pathname === "/api/x/keep") return json({}); }'], dead: dead(["GET"]) },
+        { id: "D3", what: "the literal in the default, which case GET falls into with no break; a GET pattern before", lines: [MATCH, GET_PRIOR, 'switch (method) { case "GET": log(); default: if (pathname === "/api/x/keep") return json({}); }'] },
         { id: "D4", what: "the literal's switch (method): case POST and a default that serves; a GET pattern before", lines: [MATCH, GET_PRIOR, 'if (pathname === "/api/x/keep") { switch (method) { case "POST": return json({ saved: true }); default: return json({ list: [] }); } }'], dead: dead(["GET"]) },
         { id: "D5", what: "the literal's switch (method): case POST and a 405 default; a GET pattern before", lines: [MATCH, GET_PRIOR, 'if (pathname === "/api/x/keep") { switch (method) { case "POST": return json({}); default: return errorResponse(405, "x"); } }'] },
         { id: "D6", what: "a default before the cases, a GET pattern before", lines: [MATCH, GET_PRIOR, 'switch (method) { default: if (pathname === "/api/x/keep") return json({}); break; case "GET": log(); break; }'] },
@@ -606,7 +609,8 @@ export function create(ctx: any) {
       test("a tail that serves serves the methods no branch takes, one that cannot be read does not", () => {
         expect(shadowed([MATCH, GET_PRIOR, 'if (pathname === "/api/x/keep") { if (method === "DELETE") return json({}); try { return json(load()); } catch (e) { return fail(e); } }'])).toEqual(["/api/x/keep"]);
         expect(shadowed([MATCH, GET_PRIOR, 'if (pathname === "/api/x/keep") { if (method === "DELETE") return json({}); return new Response("list"); }'])).toEqual(["/api/x/keep"]);
-        expect(shadowed([MATCH, GET_PRIOR, 'if (pathname === "/api/x/keep") { if (method === "DELETE") return json({}); if (method !== "DELETE") return json({ list: [] }); }'])).toEqual(["/api/x/keep"]);
+        // A refusal with !== may answer a 200 (fl.ts H11): what it does not name is not served, as main reads it.
+        expect(shadowed([MATCH, GET_PRIOR, 'if (pathname === "/api/x/keep") { if (method === "DELETE") return json({}); if (method !== "DELETE") return json({ list: [] }); }'])).toEqual([]);
         expect(shadowed([MATCH, GET_PRIOR, 'if (pathname === "/api/x/keep") { if (method === "DELETE") return json({}); return handle(req); }'])).toEqual([]);
         expect(shadowed([MATCH, GET_PRIOR, 'if (pathname === "/api/x/keep") { if (method === "DELETE") return json({}); return json({ error: "x" }, 405); }'])).toEqual([]);
         expect(shadowed([MATCH, GET_PRIOR, 'if (pathname === "/api/x/keep") { switch (method) { case "POST": return json({}); default: return handle(req); } }'])).toEqual([]);
@@ -699,7 +703,7 @@ export function create(ctx: any) {
         { id: "an unread refusal before the winner", what: "{ if (!READ.has(method)) 405; if (m) return json }", lines: [MATCH, '{ if (!READ.has(method)) return errorResponse(405, "x"); if (m) return json({}); }', LIT("GET")] },
         { id: "a sub-router handed the path", what: "subRouter(req, url, pathname, method) and audit(pathname, method) read the request, not the method", lines: [MATCH, GET_PRIOR, "const sub = await subRouter(req, url, pathname, method);", "if (sub) return sub;", "audit(pathname, method);", 'if (pathname === "/api/x/keep") return json({});'], dead: { methods: ["GET"], kind: "pattern", line: 4 } },
         { id: "a labelled break in the case", what: "blk: { if (x) break blk; } goes on to the return after it", lines: [MATCH, 'if (m) { switch (method) { case "GET": blk: { if (ready) break blk; } return json({}); } }', LIT("GET")], dead: { methods: ["GET"], kind: "pattern", line: 4 } },
-        { id: "a closure in a falling clause", what: "a return inside run(() => ...) does not stop case POST from falling in", lines: [MATCH, POST_PRIOR, 'switch (method) { case "POST": run(() => { return 1; }); case "GET": if (pathname === "/api/x/keep") return json({}); break; }'], dead: { methods: ["POST"], kind: "pattern", line: 4 } },
+        { id: "a closure in a falling clause", what: "run(() => { return 1; }) in case POST may throw: whether POST falls in is unknown", lines: [MATCH, POST_PRIOR, 'switch (method) { case "POST": run(() => { return 1; }); case "GET": if (pathname === "/api/x/keep") return json({}); break; }'] },
         { id: "a refusal names what it serves", what: "if (method !== GET) 405; then a tail that does not return json", lines: [MATCH, GET_PRIOR, KEEP('if (method !== "GET") return errorResponse(405, "x"); return handle(req);')], dead: { methods: ["GET"], kind: "pattern", line: 4 } },
         { id: "a branch names what it serves", what: "if (method === GET) return handle(req); return 405", lines: [MATCH, GET_PRIOR, KEEP('if (method === "GET") return handle(req); return errorResponse(405, "x");')], dead: { methods: ["GET"], kind: "pattern", line: 4 } },
         { id: "a winner inside a path test", what: "the outer path test is the winner, at its own line", lines: [MATCH, 'if (pathname.startsWith("/api/x/")) {', GET_PRIOR, "}", LIT("GET")], dead: { methods: ["GET"], kind: "prefix", line: 4 } },
@@ -961,7 +965,7 @@ export function createThingsRouter(ctx: any) {
       }
 
       // Every first word of CHECK_VERBS makes a call handed the method a refusal.
-      for (const verb of ["assert", "require", "ensure", "check", "verify", "validate", "expect", "guard", "reject", "deny", "forbid", "only", "must"]) {
+      for (const verb of ["assert", "require", "ensure", "check", "verify", "validate", "expect", "guard", "reject", "deny", "forbid", "only", "must", "allow", "throw"]) {
         test(`${verb}Writes(method) between the winner and the literal may refuse GET`, () => {
           expect(shadowed(BETWEEN(`${verb}Writes(method);`))).toEqual([]);
         });
@@ -996,6 +1000,90 @@ export function createThingsRouter(ctx: any) {
       test("run4.py lost-fetch-in-keep-list-body, w-body-console: in the keep-list body", () => {
         for (const line of ['if (!(await fetch(KEEP_MIRROR, { method: "HEAD" })).ok) return errorResponse(503, "mirror down");', 'console.log("REQ", method, pathname);'])
           expect(shadowed([...BY_ID, `if (method === "GET" && pathname === "/api/browsers/data-store-keep-list") { ${line} return json({}); }`])).toEqual(["/api/browsers/data-store-keep-list"]);
+      });
+    });
+
+    // The reverifier of the round-3 fix (df0cbab2e7) measured it against
+    // main row by row (mine.ts, inner.ts, types.ts, mutrows.ts, run5.py,
+    // inj4.py): here each row where it was worse than main, or than a round
+    // before it, and a row for each mutant of new code that survived. A
+    // parameter of the factory is not the request, a helper's own parameter
+    // or a type is not a read of the method, a router handed to a wrapper is
+    // still a router, and a throw out of a try lands in its catch.
+    describe("the rows where the round-3 fix was worse than main", () => {
+      const K = '"/api/x/keep"';
+      const ANY = `if (pathname === ${K}) return json({});`;
+      const LIT = `if (method === "GET" && pathname === ${K}) return json({});`;
+      const GET_PRIOR = 'if (m && method === "GET") return json({});';
+      const POST_PRIOR = 'if (m && method === "POST") return json({});';
+      const BETWEEN = (...lines: string[]) => [MATCH, GET_PRIOR, ...lines, ANY];
+      const GET_BODY = (body: string) => [MATCH, GET_PRIOR, `if (method === "GET" && pathname === ${K}) { ${body} return json({}); }`];
+      type Dead = { methods: string[] | null; line: number };
+      const GET4: Dead = { methods: ["GET"], line: 4 };
+      const ANY4: Dead = { methods: null, line: 4 };
+      const CASES: Array<{ id: string; what: string; lines: string[]; dead?: Dead }> = [
+        // A method guard reached through a parameter of the factory may refuse (blocker 1).
+        { id: "mine.ts PO1", what: "ctx.methodGuard(method, POST_ONLY) passed on between the winner and the literal", lines: BETWEEN("const bad = ctx.methodGuard(method, POST_ONLY);", "if (bad) return bad;") },
+        { id: "mine.ts PO2", what: "ctx.guards.refuse(method, WRITES) passed on", lines: BETWEEN("const denied = ctx.guards.refuse(method, WRITES);", "if (denied) return denied;") },
+        { id: "mine.ts PO3", what: "methodGuard(ctx, method, POST_ONLY) passed on", lines: BETWEEN("const bad = methodGuard(ctx, method, POST_ONLY);", "if (bad) return bad;") },
+        { id: "mine.ts PO4", what: "ctx.notAllowed(method, POST_ONLY) || null passed on", lines: BETWEEN("const bad = ctx.notAllowed(method, POST_ONLY) || null;", "if (bad) return bad;") },
+        { id: "mine.ts PO6", what: "ctx.methodGuard(method, WRITES) passed on before the winner", lines: ["const bad = ctx.methodGuard(method, WRITES);", "if (bad) return bad;", MATCH, POST_PRIOR, ANY] },
+        { id: "mutrows.ts CHAIN", what: "a sub-router's answer || a method guard's: the guard may refuse", lines: BETWEEN("const r = (await sub(req, url, pathname, method)) || methodGuard(method, POST_ONLY);", "if (r) return r;") },
+        { id: "a field named like a parameter", what: "methodGuard(method, cfg.url): cfg.url is not the request", lines: BETWEEN("const bad = methodGuard(method, cfg.url);", "if (bad) return bad;") },
+        // A helper's own parameter named method is not the request (major 3).
+        { id: "inner.ts RM1", what: "const label = (method) => method.toLowerCase(); a test of label() before the literal", lines: [MATCH, "if (m) return json({});", "const label = (method: string) => method.toLowerCase();", 'if (label(kind) === "x") return errorResponse(410, "x");', ANY], dead: ANY4 },
+        { id: "inner.ts RM2", what: "the same helper in the GET body", lines: GET_BODY('const label = (method: string) => method.toLowerCase(); if (label(q) === "x") return json({ a: 1 });'), dead: GET4 },
+        // A type, or the name of a method of an object, reads nothing (major 4).
+        { id: "types.ts T1", what: "a cast to { method?: string } in the GET body", lines: GET_BODY('const row = db.get() as { method?: string } | null; if (row?.method === "manual") return json({ a: 1 });'), dead: GET4 },
+        { id: "types.ts T2", what: "a generic { method: string } in the GET body", lines: GET_BODY('const row = db.query<{ method: string }>("q").get(); if (!row) return json({});'), dead: GET4 },
+        { id: "types.ts T5", what: "a cast before the literal, any method", lines: [MATCH, "if (m) return json({});", "const job = queue.peek() as { method: string } | undefined;", 'if (job?.method === "legacy") return errorResponse(410, "x");', ANY], dead: ANY4 },
+        { id: "types.ts T6", what: "an object with a method named method in the GET body", lines: GET_BODY('const h = { method() { return 1; } }; if (!h.method()) return errorResponse(500, "x");'), dead: GET4 },
+        { id: "types.ts T7", what: "satisfies Partial<{ method: string }> in the GET body", lines: GET_BODY('const opts = { mode: "x" } satisfies Partial<{ method: string; mode: string }>; if (opts.mode === "y") return json({ y: 1 });'), dead: GET4 },
+        // A throw out of the try lands in the catch (minor 7).
+        { id: "mine.ts MK3", what: "a try that leaves through a refusal of the method, with a catch that goes on", lines: BETWEEN('try { if (!WRITE.has(method)) return errorResponse(405, "x"); return json(await save()); } catch (e) { log(e); }') },
+        { id: "mutrows.ts TRYC", what: "a try whose path test held, with a catch that refuses: the winner", lines: [MATCH, 'try { if (m) return json(get(m)); return json(list()); } catch (e) { if (!WRITE.has(method)) return errorResponse(405, "x"); return json({}); }', ANY], dead: ANY4 },
+        // Correct code main gives no finding on (b69 and later did): a 200 can
+        // refuse, a call in a clause may throw before it falls through.
+        { id: "fl.ts H11", what: "the body refuses non-POST with a one-arg json", lines: [MATCH, GET_PRIOR, `if (pathname === ${K}) { if (method !== "POST") return json({ error: "POST only" }); return json({}); }`] },
+        { id: "fl.ts W4", what: "case GET: fail(405) falls into the literal's case POST", lines: [MATCH, GET_PRIOR, `switch (method) { case "GET": fail(405); case "POST": if (pathname === ${K}) return json({}); }`] },
+        { id: "fl3.ts W4b", what: "case GET: methodNotAllowed() falls into the literal's case POST", lines: [MATCH, GET_PRIOR, `switch (method) { case "GET": methodNotAllowed(); case "POST": if (pathname === ${K}) return json({}); }`] },
+        // Checks an earlier round saw and the round-3 fix did not.
+        { id: "fl.ts H7", what: "allowMethods(method, WRITES) between the winner and the literal", lines: BETWEEN("allowMethods(method, WRITES);") },
+        { id: "mine.ts CK6", what: "throwUnlessWrite(method) between the winner and the literal", lines: BETWEEN("throwUnlessWrite(method);") },
+        { id: "mine.ts CK7", what: "require_post(method): a check named in snake case", lines: BETWEEN("require_post(method);") },
+        { id: "mine.ts CK8", what: "allow(method, \"WRITE\") between the winner and the literal", lines: BETWEEN('allow(method, "WRITE");') },
+        // The mutants that survived the round-3 file (major 6).
+        { id: "mutrows.ts REC", what: "a closure that calls itself", lines: [MATCH, GET_PRIOR, "const retry = async (n: number): Promise<Response | null> => (n > 0 ? retry(n - 1) : null);", `if ((await retry(2)) && method === "POST" && pathname === ${K}) return json({});`] },
+        { id: "mutrows.ts FOR", what: "for (; method === \"POST\";) { literal; break; }", lines: [MATCH, GET_PRIOR, `for (; method === "POST";) { if (pathname === ${K}) return json({}); break; }`] },
+        { id: "a nested exit", what: "the body leaves under a flag through a test of the method, and refuses otherwise", lines: [MATCH, GET_PRIOR, `if (pathname === ${K}) { if (ready) { if (WRITE.has(method)) return json({}); return errorResponse(405, "x"); } else { return errorResponse(405, "x"); } }`] },
+      ];
+      for (const c of CASES) {
+        test(`${c.id}: ${c.what}`, () => {
+          const found = inner(c.lines).map((o) => ({ methods: o.methods, line: o.prior.line }));
+          expect(found).toEqual(c.dead ? [c.dead] : []);
+        });
+      }
+
+      // A router handed to a wrapper is still the router (major 5).
+      test("mine.ts WR1, WR2, WR4, WR5: a router passed as an argument is still judged", () => {
+        const wrapped = (open: string, lines: string[]) => findInnerShadows(`export function create(ctx: any, routes: any) {\n  ${open} {\n    ${lines.join("\n    ")}\n    return null;\n  });\n}`, "a.ts", "a").map((o) => [o.methods, o.prior.line]);
+        const params = "(req: Request, url: URL, pathname: string, method: string)";
+        expect(wrapped(`return withTiming(async function r${params}`, [MATCH, GET_PRIOR, LIT])).toEqual([[["GET"], 4]]);
+        expect(wrapped(`return guarded(ctx, async ${params} =>`, [MATCH, GET_PRIOR, LIT])).toEqual([[["GET"], 4]]);
+        expect(wrapped(`routes.push(async ${params} =>`, [MATCH, GET_PRIOR, LIT])).toEqual([[["GET"], 4]]);
+        expect(wrapped(`return withTiming(async function r${params}`, [MATCH, "if (m) return json({});", ANY])).toEqual([[null, 4]]);
+      });
+
+      // run5.py and inj4.py on browser.ts as it is.
+      test("run5.py q-ctx-method-guard, q-ctl-method-guard: a method guard below GET /api/browsers/:id refuses GET", () => {
+        for (const guard of ["ctx.methodGuard(method, WRITE_METHODS)", "methodGuard(method, WRITE_METHODS)"])
+          expect(inner([...BY_ID, 'if (pathname.startsWith("/api/browsers/re")) {', `  const refused = ${guard};`, "  if (refused) return refused;", '  if (pathname === "/api/browsers/recent") return json({ ok: true });', "}"])).toEqual([]);
+      });
+      test("run5.py q-keep-helper-param, inj4.py t-keep-row-method: the keep-list route is still found", () => {
+        for (const line of [
+          'const label = (method: string) => method.toLowerCase(); if (label(url.searchParams.get("m") ?? "") === "legacy") return json({ contextIds: [] });',
+          'const legacy = ctx.db.query("SELECT method FROM reaper_runs LIMIT 1").get() as { method?: string } | null; if (legacy?.method === "manual") return json({ contextIds: [] });',
+        ]) expect(shadowed([...BY_ID, `if (method === "GET" && pathname === "/api/browsers/data-store-keep-list") { ${line} return json({}); }`])).toEqual(["/api/browsers/data-store-keep-list"]);
       });
     });
 
