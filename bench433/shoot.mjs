@@ -10,8 +10,45 @@ const [base, out, label, engine, mode] = process.argv.slice(2);
 const tag = mode === 'opaque' ? `${engine}-opaque` : engine;
 const browser = await (engine === 'webkit' ? webkit : chromium).launch();
 const probes = {};
+const probesClosed = {};
 const diag = {};
 let failed = false;
+
+// What is on screen: the crop box, the menu, the chip, the rows.
+const probeFn = () => {
+  const round = (n) => Math.round(n * 10) / 10;
+  const boxOf = (e) => { const r = e.getBoundingClientRect(); return [round(r.x), round(r.y), round(r.width), round(r.height)]; };
+  const describe = (e) => {
+    const cs = getComputedStyle(e);
+    return { tag: e.tagName.toLowerCase(), cls: String(e.className).slice(0, 140), bg: cs.backgroundColor, backdrop: cs.backdropFilter || cs.webkitBackdropFilter || '', opacity: cs.opacity, box: boxOf(e) };
+  };
+  const pop = document.querySelector('[data-testid="provider-model-popover"]');
+  const chip = document.querySelector('[data-testid="provider-model-picker"]');
+  const band = document.querySelector('[data-testid="model-selector-routing"]');
+  const pr = pop.getBoundingClientRect();
+  const cr = chip.getBoundingClientRect();
+  const pad = 16;
+  const x0 = Math.max(0, Math.min(pr.left, cr.left) - pad);
+  const y0 = Math.max(0, Math.min(pr.top, cr.top) - pad);
+  const x1 = Math.min(innerWidth, Math.max(pr.right, cr.right) + pad);
+  const y1 = Math.min(innerHeight, Math.max(pr.bottom, cr.bottom) + pad);
+  const clip = { x: round(x0), y: round(y0), width: round(x1 - x0), height: round(y1 - y0) };
+  const chain = [];
+  for (let e = band; e && e !== document.body; e = e.parentElement) chain.push(describe(e));
+  const labels = [...pop.querySelectorAll('[data-testid="model-row-label"]')].map((e) => e.textContent.trim());
+  return {
+    clip,
+    chain,
+    popover: describe(pop),
+    chip: { text: chip.innerText.trim(), box: boxOf(chip) },
+    band: { route: band.getAttribute('data-route'), text: band.innerText.trim(), box: boxOf(band) },
+    rows: document.querySelectorAll('[data-testid="model-row"]').length,
+    rowLabels: labels.slice(0, 24),
+    headings: [...pop.querySelectorAll('[data-testid="model-section-heading"]')].map((e) => e.textContent.trim().slice(0, 60)),
+    viewport: [innerWidth, innerHeight],
+    olderButtons: [...pop.querySelectorAll('button')].map((b) => b.textContent.trim()).filter((t) => /^Precedenti \(|^Nascondi i precedenti/.test(t)),
+  };
+};
 
 const LIGHT_BACKDROP = `
   body::before { background:
@@ -50,11 +87,6 @@ try {
       await pop.waitFor({ state: 'visible', timeout: 20000 });
       await page.locator('[data-testid="model-selector-routing"]').waitFor({ state: 'visible', timeout: 10000 });
       await page.locator('[data-testid="model-row"]').nth(2).waitFor({ state: 'visible', timeout: 10000 });
-      // Open the first company's older models (Anthropic), so the shot shows
-      // which Haiku is current and which one went to «Precedenti».
-      await pop.getByRole('button', { name: /^Precedenti \(/ }).first().click();
-      await pop.getByRole('button', { name: 'Nascondi i precedenti' }).first().waitFor({ state: 'visible', timeout: 10000 });
-      await page.waitForTimeout(800);
 
       if (mode === 'opaque') {
         // The web build's glass lets the panes behind show through unblurred.
@@ -79,39 +111,19 @@ try {
       await page.mouse.move(8, 8);
       await page.waitForTimeout(200);
 
-      const probe = await page.evaluate(() => {
-        const round = (n) => Math.round(n * 10) / 10;
-        const boxOf = (e) => { const r = e.getBoundingClientRect(); return [round(r.x), round(r.y), round(r.width), round(r.height)]; };
-        const describe = (e) => {
-          const cs = getComputedStyle(e);
-          return { tag: e.tagName.toLowerCase(), cls: String(e.className).slice(0, 140), bg: cs.backgroundColor, backdrop: cs.backdropFilter || cs.webkitBackdropFilter || '', opacity: cs.opacity, box: boxOf(e) };
-        };
-        const pop = document.querySelector('[data-testid="provider-model-popover"]');
-        const chip = document.querySelector('[data-testid="provider-model-picker"]');
-        const band = document.querySelector('[data-testid="model-selector-routing"]');
-        const pr = pop.getBoundingClientRect();
-        const cr = chip.getBoundingClientRect();
-        const pad = 16;
-        const x0 = Math.max(0, Math.min(pr.left, cr.left) - pad);
-        const y0 = Math.max(0, Math.min(pr.top, cr.top) - pad);
-        const x1 = Math.min(innerWidth, Math.max(pr.right, cr.right) + pad);
-        const y1 = Math.min(innerHeight, Math.max(pr.bottom, cr.bottom) + pad);
-        const clip = { x: round(x0), y: round(y0), width: round(x1 - x0), height: round(y1 - y0) };
-        const chain = [];
-        for (let e = band; e && e !== document.body; e = e.parentElement) chain.push(describe(e));
-        const labels = [...pop.querySelectorAll('[data-testid="model-row-label"]')].map((e) => e.textContent.trim());
-        return {
-          clip,
-          chain,
-          popover: describe(pop),
-          chip: { text: chip.innerText.trim(), box: boxOf(chip) },
-          band: { route: band.getAttribute('data-route'), text: band.innerText.trim(), box: boxOf(band) },
-          rows: document.querySelectorAll('[data-testid="model-row"]').length,
-          rowLabels: labels.slice(0, 24),
-          headings: [...pop.querySelectorAll('[data-testid="model-section-heading"]')].map((e) => e.textContent.trim().slice(0, 60)),
-          viewport: [innerWidth, innerHeight],
-        };
-      });
+      // Closed first: «Precedenti (N)» on screen, the older rows hidden.
+      const closed = await page.evaluate(probeFn);
+      probesClosed[theme] = closed;
+      await page.screenshot({ path: `${out}/${tag}-${label}-chiuso-${theme}-full.png` });
+      // Then open the first company's older models (Anthropic), so the shot
+      // shows which rows went to «Precedenti».
+      await pop.getByRole('button', { name: /^Precedenti \(/ }).first().click();
+      await pop.getByRole('button', { name: 'Nascondi i precedenti' }).first().waitFor({ state: 'visible', timeout: 10000 });
+      await page.waitForTimeout(800);
+      await page.mouse.move(8, 8);
+      await page.waitForTimeout(200);
+      const probe = await page.evaluate(probeFn);
+      probe.olderOpened = probe.rowLabels.filter((l) => !closed.rowLabels.includes(l));
       probes[theme] = probe;
       await page.screenshot({ path: `${out}/${tag}-${label}-${theme}.png`, clip: probe.clip });
       await page.screenshot({ path: `${out}/${tag}-${label}-${theme}-full.png` });
@@ -128,6 +140,7 @@ try {
 } finally {
   await browser.close();
   writeFileSync(`${out}/${tag}-${label}-probe.json`, JSON.stringify(probes, null, 2));
+  writeFileSync(`${out}/${tag}-${label}-chiuso-probe.json`, JSON.stringify(probesClosed, null, 2));
   writeFileSync(`${out}/diag-${tag}-${label}.json`, JSON.stringify(diag, null, 2));
 }
 console.log(engine, label, failed ? 'FAILED' : 'ok');
