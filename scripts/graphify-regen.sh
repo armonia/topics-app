@@ -183,11 +183,13 @@ echo "$token" >"$req" 2>/dev/null || exit 0
   # The worker's own pid, which is the lock's owner. The hook's $$ is no good:
   # the hook exits right after forking, so its pid is dead to every other worker.
   # BASHPID does not exist in bash 3.2. $(sh -c 'echo $PPID') reports the parent
-  # of that sh: bash 5 runs the lone command of a substitution in the
-  # substitution's own process, so that parent is the worker; bash 3.2 forks once
-  # more, so it is a subshell that is gone before anyone reads the pid (measured:
-  # a dead pid on 3.2, the worker's on 5.3). exec makes both the same: the
-  # substitution's process becomes sh, so sh's parent is the worker.
+  # of that sh, and bash runs the lone command of a substitution in the
+  # substitution's own process, so that parent is the worker: measured on macOS
+  # /bin/bash 3.2 and on bash 5, where the same line without exec passes every
+  # case. The old fallback asked ps for the parent of that pid, one level too
+  # far: the hook, which exits right after forking, so the lock named nobody
+  # alive. exec only makes the single process explicit instead of leaving it to
+  # the shell.
   me="$(exec sh -c 'echo $PPID')"
   # A lock that names nobody would let a second worker in: better no rebuild.
   case "$me" in ''|*[!0-9]*) exit 0 ;; esac
