@@ -6639,35 +6639,10 @@ fn browser_purge_cache(app: tauri::AppHandle, id: String) -> Result<(), String> 
     no_abort("browser_purge_cache", move || {
         #[cfg(target_os = "macos")]
         {
-            use crate::mac::*;
             let bytes = data_store_uuid_for(&id);
             let id_for_log = id.clone();
             let _ = app.run_on_main_thread(move || unsafe {
-                let cls = class!(WKWebsiteDataStore);
-                let sel = sel!(dataStoreForIdentifier:);
-                let responds: BOOL = msg_send![cls, respondsToSelector: sel];
-                if responds != YES {
-                    return; // pre-macOS-14: nessuno store per identifier.
-                }
-                let uuid_alloc: id = msg_send![class!(NSUUID), alloc];
-                let uuid: id = msg_send![uuid_alloc, initWithUUIDBytes: bytes.as_ptr()];
-                if uuid == nil {
-                    return;
-                }
-                let store: id = msg_send![cls, dataStoreForIdentifier: uuid];
-                if store == nil {
-                    return;
-                }
-                let types = cache_only_data_types();
-                if types == nil {
-                    return;
-                }
-                // `distantPast` = tutta la cache, non solo la recente.
-                let since: id = msg_send![class!(NSDate), distantPast];
-                let handler = block2::RcBlock::new(move || {
-                    let _ = &id_for_log; // il blocco possiede l'id solo per il log
-                });
-                let _: () = msg_send![store, removeDataOfTypes: types, modifiedSince: since, completionHandler: &*handler];
+                empty_store_cache(bytes, id_for_log);
             });
         }
         #[cfg(not(target_os = "macos"))]
@@ -6707,28 +6682,112 @@ fn browser_purge_cache(app: tauri::AppHandle, id: String) -> Result<(), String> 
     })
 }
 
-/// L'insieme `NSSet` dei soli tipi-cache di WebKit.
+/// The stable keys (the ones the client sees in `browser_site_data_records`) of
+/// the data types that are CACHE: what `browser_purge_cache` and
+/// `browser_reap_store_caches` remove, and the only things they remove.
+#[cfg_attr(not(any(target_os = "macos", test)), allow(dead_code))]
+const CACHE_DATA_TYPE_KEYS: [&str; 4] = ["diskCache", "fetchCache", "memoryCache", "serviceWorkers"];
+
+/// The keys of the data types that are IDENTITY: cookies and the storage a
+/// login lives in. No cache cleanup may ever name one of them.
+#[cfg_attr(not(test), allow(dead_code))]
+const IDENTITY_DATA_TYPE_KEYS: [&str; 5] = ["cookies", "localStorage", "sessionStorage", "indexedDB", "webSql"];
+
+/// Every key `known_data_types` maps to a WebKit constant: the identity ones,
+/// the cache ones and `offlineAppCache`, which no cleanup removes.
+#[cfg_attr(not(test), allow(dead_code))]
+const KNOWN_DATA_TYPE_KEYS: [&str; 10] = [
+    "cookies",
+    "localStorage",
+    "sessionStorage",
+    "indexedDB",
+    "webSql",
+    "diskCache",
+    "memoryCache",
+    "fetchCache",
+    "offlineAppCache",
+    "serviceWorkers",
+];
+
+/// Each WebKit data type constant with its stable key.
 ///
-/// Le costanti sono simboli esterni del framework WebKit (già linkato da wry),
-/// non stringhe che ci scriviamo noi: se un giorno cambiassero valore, un
-/// letterale sbagliato non cancellerebbe NULLA e nessuno se ne accorgerebbe —
-/// il link, invece, o regge o non compila.
+/// The constants are external symbols of the WebKit framework (already linked
+/// by wry), not strings written here: a wrong literal would remove NOTHING and
+/// nobody would notice, while a symbol either links or does not compile.
+#[cfg(target_os = "macos")]
+unsafe fn known_data_types() -> [(crate::mac::id, &'static str); 10] {
+    use crate::mac::*;
+    extern "C" {
+        static WKWebsiteDataTypeCookies: id;
+        static WKWebsiteDataTypeLocalStorage: id;
+        static WKWebsiteDataTypeSessionStorage: id;
+        static WKWebsiteDataTypeIndexedDBDatabases: id;
+        static WKWebsiteDataTypeWebSQLDatabases: id;
+        static WKWebsiteDataTypeDiskCache: id;
+        static WKWebsiteDataTypeMemoryCache: id;
+        static WKWebsiteDataTypeFetchCache: id;
+        static WKWebsiteDataTypeOfflineWebApplicationCache: id;
+        static WKWebsiteDataTypeServiceWorkerRegistrations: id;
+    }
+    [
+        (WKWebsiteDataTypeCookies, "cookies"),
+        (WKWebsiteDataTypeLocalStorage, "localStorage"),
+        (WKWebsiteDataTypeSessionStorage, "sessionStorage"),
+        (WKWebsiteDataTypeIndexedDBDatabases, "indexedDB"),
+        (WKWebsiteDataTypeWebSQLDatabases, "webSql"),
+        (WKWebsiteDataTypeDiskCache, "diskCache"),
+        (WKWebsiteDataTypeMemoryCache, "memoryCache"),
+        (WKWebsiteDataTypeFetchCache, "fetchCache"),
+        (WKWebsiteDataTypeOfflineWebApplicationCache, "offlineAppCache"),
+        (WKWebsiteDataTypeServiceWorkerRegistrations, "serviceWorkers"),
+    ]
+}
+
+/// The `NSSet` of the WebKit cache types alone, built from `CACHE_DATA_TYPE_KEYS`
+/// so that the list a unit test checks is the list that is removed.
 #[cfg(target_os = "macos")]
 unsafe fn cache_only_data_types() -> crate::mac::id {
     use crate::mac::*;
-    extern "C" {
-        static WKWebsiteDataTypeDiskCache: id;
-        static WKWebsiteDataTypeFetchCache: id;
-        static WKWebsiteDataTypeMemoryCache: id;
-        static WKWebsiteDataTypeServiceWorkerRegistrations: id;
-    }
-    let items: [id; 4] = [
-        WKWebsiteDataTypeDiskCache,
-        WKWebsiteDataTypeFetchCache,
-        WKWebsiteDataTypeMemoryCache,
-        WKWebsiteDataTypeServiceWorkerRegistrations,
-    ];
+    let known = known_data_types();
+    let items: Vec<id> = CACHE_DATA_TYPE_KEYS
+        .iter()
+        .filter_map(|key| known.iter().find(|(_, k)| k == key).map(|(c, _)| *c))
+        .collect();
     msg_send![class!(NSSet), setWithObjects: items.as_ptr(), count: items.len()]
+}
+
+/// Empties the cache of the store named by `bytes` (its UUID), keeping cookies,
+/// local storage, session storage and IndexedDB. Runs on the main thread; the
+/// completion is not awaited. Shared by the close of a pane and by the cache
+/// reaper of idle orphan stores, so both remove exactly the same types.
+#[cfg(target_os = "macos")]
+unsafe fn empty_store_cache(bytes: [u8; 16], label: String) {
+    use crate::mac::*;
+    let cls = class!(WKWebsiteDataStore);
+    let sel = sel!(dataStoreForIdentifier:);
+    let responds: BOOL = msg_send![cls, respondsToSelector: sel];
+    if responds != YES {
+        return; // pre-macOS-14: no store by identifier.
+    }
+    let uuid_alloc: id = msg_send![class!(NSUUID), alloc];
+    let uuid: id = msg_send![uuid_alloc, initWithUUIDBytes: bytes.as_ptr()];
+    if uuid == nil {
+        return;
+    }
+    let store: id = msg_send![cls, dataStoreForIdentifier: uuid];
+    if store == nil {
+        return;
+    }
+    let types = cache_only_data_types();
+    if types == nil {
+        return;
+    }
+    // `distantPast` = the whole cache, not only the recent one.
+    let since: id = msg_send![class!(NSDate), distantPast];
+    let handler = block2::RcBlock::new(move || {
+        let _ = &label; // the block owns the label for the log only
+    });
+    let _: () = msg_send![store, removeDataOfTypes: types, modifiedSince: since, completionHandler: &*handler];
 }
 
 /// Un record dello store: il nome del silo WebKit e i tipi di dato che tiene.
@@ -6808,30 +6867,7 @@ fn cookie_domain_records(domains: &[String]) -> Vec<SiteDataRecordJson> {
 #[cfg(target_os = "macos")]
 unsafe fn site_data_type_key(t: crate::mac::id) -> String {
     use crate::mac::*;
-    extern "C" {
-        static WKWebsiteDataTypeCookies: id;
-        static WKWebsiteDataTypeLocalStorage: id;
-        static WKWebsiteDataTypeSessionStorage: id;
-        static WKWebsiteDataTypeIndexedDBDatabases: id;
-        static WKWebsiteDataTypeWebSQLDatabases: id;
-        static WKWebsiteDataTypeDiskCache: id;
-        static WKWebsiteDataTypeMemoryCache: id;
-        static WKWebsiteDataTypeFetchCache: id;
-        static WKWebsiteDataTypeOfflineWebApplicationCache: id;
-        static WKWebsiteDataTypeServiceWorkerRegistrations: id;
-    }
-    let known: [(id, &str); 10] = [
-        (WKWebsiteDataTypeCookies, "cookies"),
-        (WKWebsiteDataTypeLocalStorage, "localStorage"),
-        (WKWebsiteDataTypeSessionStorage, "sessionStorage"),
-        (WKWebsiteDataTypeIndexedDBDatabases, "indexedDB"),
-        (WKWebsiteDataTypeWebSQLDatabases, "webSql"),
-        (WKWebsiteDataTypeDiskCache, "diskCache"),
-        (WKWebsiteDataTypeMemoryCache, "memoryCache"),
-        (WKWebsiteDataTypeFetchCache, "fetchCache"),
-        (WKWebsiteDataTypeOfflineWebApplicationCache, "offlineAppCache"),
-        (WKWebsiteDataTypeServiceWorkerRegistrations, "serviceWorkers"),
-    ];
+    let known = known_data_types();
     for (constant, key) in known {
         let same: BOOL = msg_send![t, isEqual: constant];
         if same == YES {
@@ -7150,6 +7186,63 @@ fn browser_reap_data_stores(
     })
 }
 
+/// LEVEL 1 of the cleanup of closed browsers' data: empties only the CACHE of
+/// the stores that no pane claims any more and that nobody has touched for
+/// `max_age_days` days, and keeps their logins (cookies, local storage, session
+/// storage, IndexedDB).
+///
+/// It picks the stores exactly like `browser_reap_data_stores` (same
+/// `stale_store_uuids`, same two permissions: orphan AND idle, same floor of
+/// `MIN_REAP_AGE_DAYS`) and removes exactly what `browser_purge_cache` removes
+/// when a pane closes (`CACHE_DATA_TYPE_KEYS`).
+///
+/// A NEW COMMAND, NOT A MODE ARGUMENT OF THE OLD ONE, ON PURPOSE: an older shell
+/// ignores an argument it does not know and would remove whole stores, while a
+/// command it does not know fails, and the client then removes nothing.
+///
+/// Returns how many stores it asked WebKit to empty.
+///
+/// Outside macOS this is a no-op for now (level 1 does nothing there): a store
+/// is a directory per pane (`pane_store_dir`), but its cache can only be emptied
+/// through a live webview (WebView2 `ClearBrowsingData`, WebKitGTK
+/// `WebsiteDataManager`), and the stores this command is for have no webview.
+// ENGINES: wkwebview - a store without a webview is reachable by identifier only, through WKWebsiteDataStore.
+// ENGINES-GAP: webview2 - the cache of a profile can be cleared only through a live webview (ClearBrowsingData), and a store this command is for has none, so it returns 0 and level 1 does nothing there.
+// ENGINES-GAP: webkitgtk - the cache of a store can be cleared only through a live webview (WebsiteDataManager), and a store this command is for has none, so it returns 0 and level 1 does nothing there.
+#[tauri::command]
+fn browser_reap_store_caches(
+    app: tauri::AppHandle,
+    keep_ids: Vec<String>,
+    max_age_days: u64,
+) -> Result<usize, String> {
+    no_abort("browser_reap_store_caches", move || {
+        #[cfg(target_os = "macos")]
+        {
+            let dir = match website_data_store_dir() {
+                Some(d) => d,
+                None => return Ok(0),
+            };
+            let victims = stale_store_uuids(&dir, &keep_ids, max_age_days, std::time::SystemTime::now());
+            let n = victims.len();
+            for uuid_str in victims {
+                let bytes = match uuid_bytes_from_str(&uuid_str) {
+                    Some(b) => b,
+                    None => continue,
+                };
+                let _ = app.run_on_main_thread(move || unsafe {
+                    empty_store_cache(bytes, uuid_str);
+                });
+            }
+            Ok(n)
+        }
+        #[cfg(not(target_os = "macos"))]
+        {
+            let _ = (&app, &keep_ids, max_age_days);
+            Ok(0)
+        }
+    })
+}
+
 /// Pavimento sull'età del reaper — vedi `browser_reap_data_stores`.
 const MIN_REAP_AGE_DAYS: u64 = 7;
 
@@ -7201,6 +7294,12 @@ fn stale_store_uuids(
     max_age_days: u64,
     now: std::time::SystemTime,
 ) -> Vec<String> {
+    // An empty keep list makes every store an orphan. No caller sends one on
+    // purpose (the client stops before the call), so here it reads as a list
+    // that went wrong: both commands pass through this, and nothing is picked.
+    if keep_ids.is_empty() {
+        return Vec::new();
+    }
     let age = std::time::Duration::from_secs(max_age_days.max(MIN_REAP_AGE_DAYS) * 86_400);
     let keep: std::collections::HashSet<String> =
         keep_ids.iter().map(|id| pane_store_dir_name(id)).collect();
@@ -7225,7 +7324,9 @@ fn stale_store_uuids(
         // fondo a `Origins/`: si prende il PIÙ RECENTE tra la radice e i suoi
         // figli diretti (Cookies/, NetworkCache/, Origins/…). Un livello basta a
         // non dichiarare fermo uno store vivo, e costa una readdir.
-        let touched = newest_mtime_shallow(&path);
+        let Some(touched) = newest_mtime_shallow(&path) else {
+            continue; // an age that cannot be read is not an old age.
+        };
         match now.duration_since(touched) {
             Ok(elapsed) if elapsed >= age => out.push(name),
             _ => {}
@@ -7236,20 +7337,20 @@ fn stale_store_uuids(
 }
 
 /// L'mtime più recente tra una cartella e i suoi figli diretti.
-fn newest_mtime_shallow(path: &std::path::Path) -> std::time::SystemTime {
-    let mut newest = std::fs::metadata(path)
-        .and_then(|m| m.modified())
-        .unwrap_or(std::time::UNIX_EPOCH);
-    if let Ok(children) = std::fs::read_dir(path) {
-        for child in children.flatten() {
-            if let Ok(m) = child.metadata().and_then(|m| m.modified()) {
-                if m > newest {
-                    newest = m;
-                }
-            }
+///
+/// `None` when any of those mtimes cannot be read: the folder's, the listing
+/// of its children, or one child's. It used to fall back to UNIX_EPOCH for the
+/// folder and to skip the child, which reads an unknown age as an old one and
+/// errs toward deleting. An unknown age now keeps the store.
+fn newest_mtime_shallow(path: &std::path::Path) -> Option<std::time::SystemTime> {
+    let mut newest = std::fs::metadata(path).and_then(|m| m.modified()).ok()?;
+    for child in std::fs::read_dir(path).ok()? {
+        let m = child.and_then(|c| c.metadata()).and_then(|m| m.modified()).ok()?;
+        if m > newest {
+            newest = m;
         }
     }
-    newest
+    Some(newest)
 }
 
 /// I 16 byte di un UUID scritto `8-4-4-4-12`, o `None` se non lo è.
@@ -11994,6 +12095,7 @@ pub fn run() {
             browser_site_data_records,
             browser_forget_site,
             browser_reap_data_stores,
+            browser_reap_store_caches,
             browser_claim,
             browser_list,
             browser_eval_js,
@@ -13470,6 +13572,54 @@ mod browser_label_tests {
     }
 }
 
+/// The cache cleanup may name cache types only. These are pure checks on the
+/// key lists that `cache_only_data_types` builds the WebKit set from: a cache
+/// list that grew a cookie key would remove logins from every closed browser.
+#[cfg(test)]
+mod cache_data_types {
+    use super::{CACHE_DATA_TYPE_KEYS, IDENTITY_DATA_TYPE_KEYS, KNOWN_DATA_TYPE_KEYS};
+
+    #[test]
+    fn the_cache_list_shares_no_key_with_the_identity_list() {
+        for key in CACHE_DATA_TYPE_KEYS {
+            assert!(
+                !IDENTITY_DATA_TYPE_KEYS.contains(&key),
+                "{key} is identity (login) data and must not be emptied with the cache"
+            );
+        }
+    }
+
+    #[test]
+    fn the_cache_list_names_only_known_keys_and_is_not_empty() {
+        assert!(!CACHE_DATA_TYPE_KEYS.is_empty(), "an empty list would remove nothing, silently");
+        for key in CACHE_DATA_TYPE_KEYS {
+            assert!(KNOWN_DATA_TYPE_KEYS.contains(&key), "{key} is not a known data type key");
+        }
+        for key in IDENTITY_DATA_TYPE_KEYS {
+            assert!(KNOWN_DATA_TYPE_KEYS.contains(&key), "{key} is not a known data type key");
+        }
+    }
+
+    #[test]
+    fn the_cache_list_is_the_four_cache_types_the_pane_close_always_removed() {
+        let mut got: Vec<&str> = CACHE_DATA_TYPE_KEYS.to_vec();
+        got.sort();
+        assert_eq!(got, vec!["diskCache", "fetchCache", "memoryCache", "serviceWorkers"]);
+    }
+
+    /// On macOS the keys of the WebKit table are the known keys, no more, no less:
+    /// a key in one list and not in the other would be removed by name only.
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn the_webkit_table_has_exactly_the_known_keys() {
+        let mut table: Vec<&str> = unsafe { super::known_data_types() }.iter().map(|(_, k)| *k).collect();
+        table.sort();
+        let mut known: Vec<&str> = KNOWN_DATA_TYPE_KEYS.to_vec();
+        known.sort();
+        assert_eq!(table, known);
+    }
+}
+
 /// Il reaper decide con due permessi, non uno: ORFANO e FERMO. Ogni test qui
 /// toglie UNO dei due e pretende che lo store sopravviva — è l'unico modo di
 /// provare che nessuno dei due è decorativo.
@@ -13502,12 +13652,47 @@ mod reaper_degli_store {
         SystemTime::now() + Duration::from_secs(giorni * 86_400)
     }
 
+    /// A keep list as the server sends it: never empty, here with an id that
+    /// has no store in the folder.
+    fn others() -> Vec<String> {
+        vec!["browser:another-one".to_string()]
+    }
+
     #[test]
     fn orfano_e_fermo_se_ne_va() {
         let dir = store_dir(&["browser:abbandonato"]);
-        let victims = stale_store_uuids(&dir, &[], 30, fra(60));
+        let victims = stale_store_uuids(&dir, &others(), 30, fra(60));
         assert_eq!(victims.len(), 1, "orfano da 60 giorni: è la coda lunga");
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn an_empty_keep_list_reaps_nothing() {
+        let dir = store_dir(&["browser:abbandonato"]);
+        // The store the test above reaps, at the same age. With no id kept every
+        // store is an orphan, which only a list that went wrong says.
+        let victims = stale_store_uuids(&dir, &[], 30, fra(60));
+        assert!(victims.is_empty(), "an empty keep list is not a permission");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_store_whose_age_cannot_be_read_is_not_old() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = store_dir(&["browser:unreadable"]);
+        let store = std::fs::read_dir(&dir).expect("dir").flatten().next().expect("store").path();
+        // Its children cannot be listed, so its newest mtime is unknown: an age
+        // that cannot be measured must not read as sixty days.
+        std::fs::set_permissions(&store, std::fs::Permissions::from_mode(0o000)).expect("chmod");
+        let listable = std::fs::read_dir(&store).is_ok();
+        let victims = stale_store_uuids(&dir, &others(), 30, fra(60));
+        std::fs::set_permissions(&store, std::fs::Permissions::from_mode(0o755)).expect("chmod back");
+        let _ = std::fs::remove_dir_all(&dir);
+        if listable {
+            return; // root lists it anyway: there is no unreadable store to test.
+        }
+        assert!(victims.is_empty(), "an unreadable store is kept");
     }
 
     #[test]
@@ -13525,7 +13710,7 @@ mod reaper_degli_store {
         let dir = store_dir(&["browser:di-ieri"]);
         // Orfano nella lista, ma toccato adesso: chiudere una tab e riaprirla
         // fra un minuto non deve passare dallo spazzino.
-        let victims = stale_store_uuids(&dir, &[], 30, SystemTime::now());
+        let victims = stale_store_uuids(&dir, &others(), 30, SystemTime::now());
         assert!(victims.is_empty(), "l'età manca: nessun permesso");
         let _ = std::fs::remove_dir_all(&dir);
     }
@@ -13535,7 +13720,7 @@ mod reaper_degli_store {
         let dir = store_dir(&["browser:qualunque"]);
         // Il pavimento di 7 giorni è la rete sotto un chiamante sbagliato:
         // con 0 il peggio che può fare è rimuovere roba ferma da una settimana.
-        let victims = stale_store_uuids(&dir, &[], 0, fra(3));
+        let victims = stale_store_uuids(&dir, &others(), 0, fra(3));
         assert!(victims.is_empty(), "0 giorni deve valere MIN_REAP_AGE_DAYS");
         let _ = std::fs::remove_dir_all(&dir);
     }
@@ -13545,7 +13730,7 @@ mod reaper_degli_store {
         let dir = store_dir(&[]);
         std::fs::create_dir_all(dir.join("Default")).expect("mkdir");
         std::fs::write(dir.join("salt"), b"x").expect("write");
-        let victims = stale_store_uuids(&dir, &[], 30, fra(999));
+        let victims = stale_store_uuids(&dir, &others(), 30, fra(999));
         assert!(victims.is_empty(), "solo le cartelle-UUID sono store");
         let _ = std::fs::remove_dir_all(&dir);
     }

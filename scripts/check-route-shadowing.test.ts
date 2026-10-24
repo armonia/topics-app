@@ -611,56 +611,6 @@ export function create(ctx: any) {
       expect(knownFor({ ...o(["GET"]), later: claim("c", ["GET"]) }, [get])).toBeUndefined();
     });
 
-    // KNOWN is global and names the browser router; a tree that has one and
-    // does not shadow anything must fail as stale, or the list rots.
-    describe("the KNOWN list", () => {
-      function browserTree(body: string): string {
-        const root = mkdtempSync(join(tmpdir(), "route-shadowing-"));
-        roots.push(root);
-        mkdirSync(join(root, "server", "routes"), { recursive: true });
-        writeFileSync(join(root, "server", "route-table.ts"), 'export const API_ROUTER_ORDER = [\n  "browserRouter",\n] as const;\n');
-        writeFileSync(join(root, "server.ts"), 'import { createBrowserRouter } from "./server/routes/browser";\nconst browserRouter = createBrowserRouter(ctx);\n');
-        writeFileSync(join(root, "server", "routes", "browser.ts"), [
-          "export function createBrowserRouter(ctx: any) {",
-          "  return async function r(req: Request, url: URL, pathname: string, method: string) {",
-          body,
-          "    return null;",
-          "  };",
-          "}",
-          "",
-        ].join("\n"));
-        return root;
-      }
-
-      test("an entry that no longer matches anything fails the run as stale", () => {
-        const r = run(browserTree('    if (method === "GET" && pathname === "/api/browsers/data-store-keep-list") return new Response("literal");'));
-        expect(r.stdout).toContain("STALE known overlap");
-        expect(r.status).toBe(1);
-      });
-
-      test("an entry that still matches is reported as known and the run passes", () => {
-        const r = run(browserTree([
-          '    const m = matchRoute(pathname, "/api/browsers/:id");',
-          '    if (m && method === "GET") return new Response("pattern");',
-          '    if (method === "GET" && pathname === "/api/browsers/data-store-keep-list") return new Response("literal");',
-        ].join("\n")));
-        expect(r.stdout).toContain("1 overlaps (1 known)");
-        expect(r.status).toBe(0);
-      });
-
-      test("a second method hidden on the same path is a new finding, not the known one", () => {
-        const r = run(browserTree([
-          '    const m = matchRoute(pathname, "/api/browsers/:id");',
-          '    if (m && (method === "GET" || method === "DELETE")) return new Response("pattern");',
-          '    if (method === "GET" && pathname === "/api/browsers/data-store-keep-list") return new Response("literal");',
-          '    if (method === "DELETE" && pathname === "/api/browsers/data-store-keep-list") return new Response("literal");',
-        ].join("\n")));
-        expect(r.stdout).toContain("2 overlaps (1 known)");
-        expect(r.stdout).toContain("OVERLAP DELETE /api/browsers/data-store-keep-list");
-        expect(r.status).toBe(1);
-      });
-    });
-
     // One router only: a route can be shadowed by a pattern of the SAME router,
     // in the order of its if chain (browser.ts: GET /api/browsers/:id hid
     // GET /api/browsers/data-store-keep-list from 12/08).

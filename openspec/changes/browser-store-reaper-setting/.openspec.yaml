@@ -1,0 +1,9 @@
+schema: spec-driven
+name: browser-store-reaper-setting
+creato: 2026-10-24
+# La condizione con cui Attilio ha approvato #425 (la rotta della keep list che
+# rispondeva 404): da quel fix il reaper cancella davvero, e non si torna indietro.
+richiesta: "Ok ma dovrebbe essere una impostazione però di topics"
+# Il cambio di progetto del 24/10: due livelli. Cookie e cronologia servono per i login,
+# quindi la rimozione dello store intero non può essere il default.
+richiesta_due_livelli: "forse allora semplicemente disabilitato di default? al massimo ne facciamo uno solo cache in modo da conservare cose utili"

@@ -15,7 +15,9 @@
  *
  * The store degrades safely: if the DB isn't initialised (some unit tests, very
  * early boot) reads return an all-null row, so resolution falls straight through
- * to env → default and nothing throws.
+ * to env → default and nothing throws. The HTTP GET does not degrade: it reads
+ * through `readAppSettings`, which throws, because a client cannot tell an
+ * all-null row that failed from one that was never touched.
  */
 
 import { getDatabase } from "../db";
@@ -85,6 +87,18 @@ export interface AppSettings {
   calendarRefreshMinutes: number | null;
   /** How far ahead the agenda looks, in days. NULL = the code default. */
   calendarHorizonDays: number | null;
+  /** LEVEL 1 of the cleanup of closed browsers' data
+   *  (`shared/browser-store-reap.ts`): empty the cache of the idle orphan
+   *  stores, keep the logins. NULL = never touched = ON; only an explicit
+   *  false stops it. */
+  browserStoreCacheReapEnabled: boolean | null;
+  /** LEVEL 2: remove the whole store too (logins, cookies, local storage).
+   *  NULL = never touched = OFF; only an explicit true turns it on, and it
+   *  counts only while level 1 is on. */
+  browserStoreReapEnabled: boolean | null;
+  /** Days without use before a closed browser's store is removed, 7..365.
+   *  NULL = the code default, 60. */
+  browserStoreReapAfterDays: number | null;
   /** Where an agent CLI lives when the automatic probe cannot find it: a JSON
    *  object keyed by agent id, `{"codex": "/abs/path"}` (migration
    *  `agent-bin-paths`). NULL = nothing was ever pointed at by hand, which is
@@ -119,6 +133,9 @@ const EMPTY: AppSettings = {
   calendarFeedUrl: null,
   calendarRefreshMinutes: null,
   calendarHorizonDays: null,
+  browserStoreCacheReapEnabled: null,
+  browserStoreReapEnabled: null,
+  browserStoreReapAfterDays: null,
   agentBinPaths: null,
   firstRunDoneAt: null,
 };
@@ -147,6 +164,9 @@ interface Row {
   calendar_feed_url: string | null;
   calendar_refresh_minutes: number | null;
   calendar_horizon_days: number | null;
+  browser_store_cache_reap_enabled: number | null;
+  browser_store_reap_enabled: number | null;
+  browser_store_reap_after_days: number | null;
   agent_bin_paths: string | null;
   first_run_done_at: string | null;
 }
@@ -180,22 +200,30 @@ function rowToSettings(r: Row): AppSettings {
     calendarFeedUrl: r.calendar_feed_url ?? null,
     calendarRefreshMinutes: r.calendar_refresh_minutes ?? null,
     calendarHorizonDays: r.calendar_horizon_days ?? null,
+    browserStoreCacheReapEnabled:
+      r.browser_store_cache_reap_enabled == null ? null : r.browser_store_cache_reap_enabled === 1,
+    browserStoreReapEnabled:
+      r.browser_store_reap_enabled == null ? null : r.browser_store_reap_enabled === 1,
+    browserStoreReapAfterDays: r.browser_store_reap_after_days ?? null,
     agentBinPaths: r.agent_bin_paths ?? null,
     firstRunDoneAt: r.first_run_done_at ?? null,
   };
 }
 
-/** Read the singleton settings row. Returns all-null if the DB isn't ready. */
-export function getAppSettings(): AppSettings {
-  let db;
-  try {
-    db = getDatabase();
-  } catch {
-    return { ...EMPTY };
-  }
-  try {
-    const row = db
-      .query(
+/**
+ * Read the singleton settings row, and THROW when it cannot be read (database
+ * not open, table missing, a busy or failing SELECT). A missing row is not a
+ * failure: no write can have reached it (`updateAppSettings` only UPDATEs id 1),
+ * so all-null is the truth.
+ *
+ * This is the reader for `GET /api/app-settings`. On the wire NULL means "never
+ * touched", and for level 1 of the cleanup of closed browsers' data never touched
+ * means ON (`shared/browser-store-reap.ts`): a failed read answered as all-null
+ * would turn a stored OFF into a permission to delete.
+ */
+export function readAppSettings(): AppSettings {
+  const row = getDatabase()
+    .query(
         `SELECT ai_provider, claude_model, claude_max_tokens, claude_effort,
                 openai_model, openai_max_tokens, codex_model, codex_reasoning_effort,
                 muse_model,
@@ -204,13 +232,25 @@ export function getAppSettings(): AppSettings {
                 agent_runtime, profile_publish_cost, profile_share_token,
                 turn_checkpoints_enabled, agent_bin_paths,
                 calendar_enabled, calendar_feed_url,
-                calendar_refresh_minutes, calendar_horizon_days, first_run_done_at
+                calendar_refresh_minutes, calendar_horizon_days,
+                browser_store_cache_reap_enabled, browser_store_reap_enabled,
+                browser_store_reap_after_days, first_run_done_at
            FROM app_settings WHERE id = 1`,
-      )
-      .get() as Row | null;
-    return row ? rowToSettings(row) : { ...EMPTY };
+    )
+    .get() as Row | null;
+  return row ? rowToSettings(row) : { ...EMPTY };
+}
+
+/**
+ * Read the singleton settings row. Returns all-null if the DB isn't ready or
+ * the read fails, which for the server's own resolvers is the safe answer
+ * (`setting ?? env ?? default`). Not for the wire: see `readAppSettings`.
+ */
+export function getAppSettings(): AppSettings {
+  try {
+    return readAppSettings();
   } catch {
-    // Table missing (migration not applied in a bare test DB) → fall through.
+    // DB not open, or table missing (migration not applied in a bare test DB).
     return { ...EMPTY };
   }
 }
@@ -240,6 +280,9 @@ const COLUMNS: Record<keyof AppSettings, string> = {
   calendarFeedUrl: "calendar_feed_url",
   calendarRefreshMinutes: "calendar_refresh_minutes",
   calendarHorizonDays: "calendar_horizon_days",
+  browserStoreCacheReapEnabled: "browser_store_cache_reap_enabled",
+  browserStoreReapEnabled: "browser_store_reap_enabled",
+  browserStoreReapAfterDays: "browser_store_reap_after_days",
   agentBinPaths: "agent_bin_paths",
   firstRunDoneAt: "first_run_done_at",
 };
@@ -265,7 +308,9 @@ export function updateAppSettings(patch: Partial<AppSettings>): AppSettings {
       key === "discordPresenceEnabled" ||
       key === "profilePublishCost" ||
       key === "turnCheckpointsEnabled" ||
-      key === "calendarEnabled"
+      key === "calendarEnabled" ||
+      key === "browserStoreCacheReapEnabled" ||
+      key === "browserStoreReapEnabled"
     ) {
       values.push(v == null ? null : v ? 1 : 0);
     } else {

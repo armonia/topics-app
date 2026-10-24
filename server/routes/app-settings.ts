@@ -1,11 +1,12 @@
 import type { AppContext, RouteHandler } from "../types";
-import { getAppSettings, updateAppSettings, type AppSettings } from "../services/app-settings";
+import { getAppSettings, readAppSettings, updateAppSettings, type AppSettings } from "../services/app-settings";
 import { recomputeDefault, getDefaultProviderName, listProviders } from "../providers";
 import { getSnapshotManager } from "../providers/snapshot-manager";
 import { reconcileDiscordPresence } from "../services/discord-presence";
 import { EFFORT_TIERS, CODEX_REASONING_EFFORTS } from "../../shared/effort";
 import { CALENDAR_HORIZON_CHOICES, CALENDAR_REFRESH_CHOICES } from "../../shared/calendar";
 import { normalizeFeedUrl, resetCalendarCache } from "../services/calendar-feed";
+import { clampBrowserStoreReapDays } from "../../shared/browser-store-reap";
 import { OUTPUT_LANGUAGES, DISCORD_DETAIL_LEVELS, AGENT_RUNTIMES } from "../../shared/types";
 
 /**
@@ -62,7 +63,7 @@ type ValidationError = { field: string; message: string };
  *  al momento della richiesta), intero, booleano. */
 type FieldRule =
   | { kind: "string"; allow?: Set<string>; allowFrom?: () => Set<string>; normalize?: (v: string) => string | null }
-  | { kind: "int"; allow?: Set<number> }
+  | { kind: "int"; allow?: Set<number>; clamp?: (n: number) => number }
   | { kind: "bool" };
 
 /**
@@ -123,6 +124,15 @@ const FIELD_RULES: Record<keyof AppSettings, FieldRule> = {
   // it is doing so.
   calendarRefreshMinutes: { kind: "int", allow: new Set<number>(CALENDAR_REFRESH_CHOICES) },
   calendarHorizonDays: { kind: "int", allow: new Set<number>(CALENDAR_HORIZON_CHOICES) },
+  // The cleanup of closed browsers' data, two levels. Level 1 empties only the
+  // cache (`null` = never touched = on); level 2 removes the whole store, which
+  // cannot be undone (`null` = never touched = off).
+  browserStoreCacheReapEnabled: { kind: "bool" },
+  browserStoreReapEnabled: { kind: "bool" },
+  // A dial and not a closed set, but a bounded one: a number outside 7..365 is
+  // brought back to the nearest limit rather than refused, so a person who
+  // types 3 gets the shortest wait there is instead of an error.
+  browserStoreReapAfterDays: { kind: "int", clamp: clampBrowserStoreReapDays },
   // Where an agent CLI was pointed at by hand. The canonical writer is
   // `POST /api/providers/cli/configure`, which checks the file is there and is
   // executable before writing: a path that does not exist would register a
@@ -169,9 +179,19 @@ function parsePatch(body: Record<string, unknown>): {
     (patch as any)[key] = val;
   };
 
-  const int = (key: keyof AppSettings, v: unknown, allow?: Set<number>) => {
+  const int = (key: keyof AppSettings, v: unknown, allow?: Set<number>, clamp?: (n: number) => number) => {
     if (v === null) { (patch as any)[key] = null; return; }
-    const n = typeof v === "number" ? v : typeof v === "string" ? Number(v) : NaN;
+    const n = typeof v === "number" ? v : typeof v === "string" && v.trim() !== "" ? Number(v) : NaN;
+    if (clamp) {
+      // A bounded dial: any number is brought inside its range, only a value
+      // that is not a number at all is refused.
+      if (Number.isNaN(n)) {
+        errors.push({ field: key, message: "expected a number or null" });
+        return;
+      }
+      (patch as Record<string, unknown>)[key] = clamp(n);
+      return;
+    }
     if (!Number.isInteger(n) || n <= 0) {
       errors.push({ field: key, message: "expected a positive integer or null" });
       return;
@@ -193,7 +213,7 @@ function parsePatch(body: Record<string, unknown>): {
     const v = body[key];
     switch (rule.kind) {
       case "string": str(key, v, rule.allow ?? rule.allowFrom?.(), rule.normalize); break;
-      case "int": int(key, v, rule.allow); break;
+      case "int": int(key, v, rule.allow, rule.clamp); break;
       case "bool": bool(key, v); break;
     }
   }
@@ -242,7 +262,16 @@ export function createAppSettingsRouter(ctx: AppContext): RouteHandler {
     if (pathname !== "/api/app-settings") return null;
 
     if (method === "GET") {
-      return json({ settings: getAppSettings() });
+      // A read that failed is a 503, never a 200 with every field NULL: NULL
+      // means "never touched", and level 1 of the cleanup of closed browsers' data
+      // reads never touched as ON. The reaper takes any other status as no
+      // permission.
+      try {
+        return json({ settings: readAppSettings() });
+      } catch (err) {
+        console.warn("[app-settings] the settings row could not be read:", err);
+        return json({ ok: false, error: "settings unreadable" }, 503);
+      }
     }
 
     if (method === "PUT") {
@@ -259,7 +288,7 @@ export function createAppSettingsRouter(ctx: AppContext): RouteHandler {
       if (errors.length > 0) {
         return json({ ok: false, errors }, 400);
       }
-      const settings = updateAppSettings(patch);
+      updateAppSettings(patch);
       // Direct API defaults apply on the next turn. Push the same model into
       // every composer's snapshot now, so its label agrees with that request.
       if ("openaiModel" in patch || "openaiMaxTokens" in patch) getSnapshotManager().invalidate("openai");
@@ -282,6 +311,17 @@ export function createAppSettingsRouter(ctx: AppContext): RouteHandler {
       const changed = recomputeDefault();
       if (changed) {
         ctx.broadcastToAll?.({ type: "gateway:status", connected: true });
+      }
+      // The answer is read back with the strict reader, the rule of the GET: the
+      // settings panel draws this answer, and an all-NULL one would draw level 1
+      // of the cleanup of closed browsers' data ON at 60 days over a stored OFF. The
+      // write has landed by now and the hooks above ran; only the answer fails.
+      let settings: AppSettings;
+      try {
+        settings = readAppSettings();
+      } catch (err) {
+        console.warn("[app-settings] saved, but the settings row could not be read back:", err);
+        return json({ ok: false, error: "settings saved but unreadable" }, 503);
       }
       return json({ ok: true, settings, default: getDefaultProviderName() ?? null });
     }
