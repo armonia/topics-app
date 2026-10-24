@@ -21,6 +21,7 @@ import { describe, expect, test, beforeAll, afterAll, beforeEach, spyOn } from "
 import { mkdtempSync, rmSync, mkdirSync, writeFileSync, readFileSync, readdirSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
+import { Database } from "bun:sqlite";
 import { initDatabase, closeDatabase, getDatabase } from "../db";
 import { getAppSettings, updateAppSettings } from "../services/app-settings";
 import { createAppSettingsRouter } from "./app-settings";
@@ -260,6 +261,17 @@ describe("the cleanup of closed browsers' data: a setting, clamped when saved", 
     }
   });
 
+  test("days written as a string are read as a number and brought into 7..365 the same way", async () => {
+    // A form field sends text. "3" stored as 3 would be the fastest deletion
+    // the setting can give; the reaper clamps again, but the panel would show 3.
+    const cases: Array<[string, number]> = [["3", 7], ["400", 365], ["30", 30], [" 90 ", 90]];
+    for (const [written, kept] of cases) {
+      const r = await put({ browserStoreReapAfterDays: written });
+      expect({ written, status: r.status, answered: r.body.settings?.browserStoreReapAfterDays }).toEqual({ written, status: 200, answered: kept });
+      expect(getAppSettings().browserStoreReapAfterDays).toBe(kept);
+    }
+  });
+
   test("a fraction of a day is rounded to a whole day: Tauri takes an unsigned integer", async () => {
     // `browser_reap_data_stores(max_age_days: u64)`: a 14.4 stored here would
     // reach Tauri as 14.4, the invoke would be refused, and the cleanup would
@@ -375,7 +387,12 @@ describe("a read that failed is never answered as 'never touched'", () => {
   test("PUT: the hooks of the write run before the 503, not after it", async () => {
     // Only the answer fails. The write has landed, so the composers' snapshots
     // and the cached agenda have to follow it as on any other save.
-    const invalidate = spyOn(getSnapshotManager(), "invalidate").mockImplementation(() => {});
+    // Each hook reads the row the write left: the model is the new one when the
+    // composers' snapshots are dropped, not the old one.
+    const storedAtInvalidate: unknown[] = [];
+    const invalidate = spyOn(getSnapshotManager(), "invalidate").mockImplementation(() => {
+      storedAtInvalidate.push((getDatabase().query("SELECT claude_model AS m FROM app_settings LIMIT 1").get() as { m: unknown }).m);
+    });
     const resetCalendar = spyOn(calendarFeed, "resetCalendarCache");
     const restore = failTheSettingsRead();
     let r: { status: number; body: any };
@@ -392,6 +409,7 @@ describe("a read that failed is never answered as 'never touched'", () => {
     }
     expect(r.status).toBe(503);
     expect(invalidated).toEqual([["claude"]]);
+    expect(storedAtInvalidate).toEqual(["model-after-the-save"]);
     expect(calendarResets).toBe(1);
     expect(getAppSettings().claudeModel).toBe("model-after-the-save");
   });
@@ -405,6 +423,33 @@ describe("a read that failed is never answered as 'never touched'", () => {
       expect(getAppSettings().browserStoreReapEnabled).toBeNull();
     } finally {
       restore();
+    }
+  });
+});
+
+describe("the migration: an existing row gains two NULLs, never a default", () => {
+  // NULL is "never touched", which the code reads as on, 60 days. A DEFAULT in
+  // the migration would write its own number into the row every user already
+  // has (SQLite fills an added column with it), and the reaper would hand that
+  // number to Tauri: a DEFAULT 7 deletes stores 53 days sooner than decided.
+  // The file itself runs here, the way the runner in server/db.ts runs it
+  // (`db.exec` in a transaction), on a settings row that already has values.
+  test("applied to a settings row with values: every value kept, both new columns NULL", () => {
+    const sql = readFileSync(join(import.meta.dir, "..", "db", "migrations", "20261024120001-browser-store-reap.sql"), "utf-8");
+    const db = new Database(":memory:");
+    try {
+      db.run("CREATE TABLE app_settings (id INTEGER PRIMARY KEY CHECK (id = 1), claude_model TEXT, calendar_horizon_days INTEGER)");
+      db.run("INSERT INTO app_settings (id, claude_model, calendar_horizon_days) VALUES (1, 'model-before', 14)");
+      db.transaction(() => { db.exec(sql); })();
+      expect(db.query("SELECT * FROM app_settings").all()).toEqual([{
+        id: 1,
+        claude_model: "model-before",
+        calendar_horizon_days: 14,
+        browser_store_reap_enabled: null,
+        browser_store_reap_after_days: null,
+      }]);
+    } finally {
+      db.close();
     }
   });
 });

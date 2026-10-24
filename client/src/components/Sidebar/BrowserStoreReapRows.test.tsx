@@ -59,6 +59,7 @@ interface Drawn {
     disabled: boolean;
     onBlur: (e: { target: { value: string } }) => void;
     onChange: (e: { target: { value: string } }) => void;
+    onKeyDown: (e: { key: string; currentTarget: { blur: () => void } }) => void;
   }>;
   html: string;
 }
@@ -143,7 +144,9 @@ describe('the days field saves a whole number inside 7..365', () => {
   });
 
   test('the value already stored, an empty field or a word: nothing is saved', () => {
-    for (const typed of ['60', '', '  ', 'tanti']) {
+    // '60.4' rounds to the 60 already shown: the comparison is on the number
+    // that would be saved, not on the one typed.
+    for (const typed of ['60', '60.4', '', '  ', 'tanti']) {
       const d = draw(NEVER_TOUCHED);
       d.input.props.onBlur({ target: { value: typed } });
       expect(d.saves).toEqual([]);
@@ -153,9 +156,22 @@ describe('the days field saves a whole number inside 7..365', () => {
   test('typing is held as typed until it is committed, then let go', () => {
     const draft = draw(NEVER_TOUCHED, '12');
     expect(draft.input.props.value).toBe('12');
+    // Emptied while typing stays empty: the stored number does not jump back in.
+    expect(draw(NEVER_TOUCHED, '').input.props.value).toBe('');
     draft.input.props.onChange({ target: { value: '120' } });
     draft.input.props.onBlur({ target: { value: '120' } });
     expect(draft.typed).toEqual(['120', null]);
+  });
+});
+
+describe('Enter commits the days field', () => {
+  test('Enter leaves the field, which commits it; another key does not', () => {
+    const d = draw(NEVER_TOUCHED, '30');
+    let blurs = 0;
+    d.input.props.onKeyDown({ key: 'a', currentTarget: { blur: () => { blurs++; } } });
+    expect(blurs).toBe(0);
+    d.input.props.onKeyDown({ key: 'Enter', currentTarget: { blur: () => { blurs++; } } });
+    expect(blurs).toBe(1);
   });
 });
 
@@ -217,6 +233,15 @@ describe('the container: what the server answered is what the switch shows', () 
     harness = null;
     appSettingsApi.get = realGet;
     appSettingsApi.update = realUpdate;
+  });
+
+  test('a GET that failed draws nothing, not the default', async () => {
+    // ON at 60 days drawn over a stored OFF would state a choice nobody made.
+    fakeServer(NEVER_TOUCHED);
+    appSettingsApi.get = async () => { throw new Error('503 settings unreadable'); };
+    const h = await mountRows();
+    expect(h.last().hosts.filter((n) => n.props.role === 'switch' || n.type === 'input')).toEqual([]);
+    expect(puts).toEqual([]);
   });
 
   test('off, then on again: each PUT answer is what the switch shows', async () => {
