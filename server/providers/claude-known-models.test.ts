@@ -1,4 +1,6 @@
 /**
+ * @covers CHAT-DEF-03, MSEL-09
+ *
  * The static list the API-key Claude provider offers when it has no key (or
  * the live /v1/models call fails).
  */

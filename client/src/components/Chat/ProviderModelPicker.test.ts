@@ -1,4 +1,6 @@
 /**
+ * @covers CHAT-DEF-03, MSEL-04
+ *
  * The chat chip's text when the choice runs through Topics: the «Topics» pill
  * is already drawn next to it, so the text must not say «via Topics» again.
  *
