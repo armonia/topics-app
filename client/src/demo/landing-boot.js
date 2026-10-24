@@ -643,6 +643,23 @@
   function J(v) { return new Response(JSON.stringify(v), { status: 200, headers: { "content-type": "application/json" } }); }
   function T(s) { return new Response(s, { status: 200, headers: { "content-type": "text/plain" } }); }
 
+  // GET /api/app-settings answers `{ settings: AppSettings }` and nothing else
+  // (server/routes/app-settings.ts), with every field present: null for "never
+  // touched", which is what a fresh installation reports. Only `firstRunDoneAt`
+  // is set, so the demo is an app already in use and not the first-run sheet.
+  function demoAppSettings() {
+    var s = {};
+    ["aiProvider", "claudeModel", "claudeMaxTokens", "claudeEffort", "openaiModel",
+      "openaiMaxTokens", "codexModel", "codexReasoningEffort", "museModel",
+      "claudeCodePermissionMode", "codexApprovalMode", "claudeCodeEnabled",
+      "outputLanguage", "discordPresenceEnabled", "discordDetailLevel", "agentRuntime",
+      "profilePublishCost", "profileShareToken", "turnCheckpointsEnabled",
+      "calendarEnabled", "calendarFeedUrl", "calendarRefreshMinutes",
+      "calendarHorizonDays", "agentBinPaths", "firstRunDoneAt"].forEach(function (k) { s[k] = null; });
+    s.firstRunDoneAt = "2026-01-01T00:00:00.000Z";
+    return s;
+  }
+
   window.fetch = function (input, init) {
     var u = typeof input === "string" ? input : (input && input.url) || "";
     try {
@@ -660,15 +677,19 @@
           paired: true, as: "loopback", name: "This Mac",
           deviceId: "demo-loopback", role: "owner", personId: null,
         }));
-        // The settings row, the address book and the friendships answer with
-        // the objects the client reads, never the generic `J([])`: with an
-        // array `appSettingsApi.get()` returns undefined and the boot stops
-        // answering (check:demo never got the page text), and `people.find` /
-        // `friends.map` throw in the identity band and its menu. Settings carry
-        // `firstRunDoneAt`: the demo shows an app already in use, not the
-        // first-run sheet over it. Only the list routes: `/people/<id>` and
-        // `/app-settings/profile-token` want other shapes.
-        if (/\/app-settings(\?|$)/.test(u)) return Promise.resolve(J({ ok: true, settings: { firstRunDoneAt: "2026-01-01T00:00:00.000Z" } }));
+        // The address book and the friendships answer with the objects the
+        // client reads, never the generic `J([])`: `people.find` (identity
+        // band) and `friends.map` (its menu) throw on an array, and the second
+        // one ends in the ErrorBoundary. Measured by taking each mock out of the
+        // built demo in turn (CI run 40107294236, three boots each): without
+        // /people the page throws "reading 'find'", without /friendships
+        // "reading 'map'" and the ErrorBoundary; without /app-settings the boot
+        // stays clean. So the settings answer is not what keeps the demo alive;
+        // it is here because `[]` is not what GET /api/app-settings sends, and
+        // the readers of it (FirstRunHost, the language setting) take an object.
+        // Only the list routes: `/people/<id>` and `/app-settings/profile-token`
+        // want other shapes.
+        if (/\/app-settings(\?|$)/.test(u)) return Promise.resolve(J({ settings: demoAppSettings() }));
         if (/\/people(\?|$)/.test(u)) return Promise.resolve(J({ people: [] }));
         if (/\/friendships(\?|$)/.test(u)) return Promise.resolve(J({ friends: [], incoming: [], outgoing: [] }));
         if (/\/auth\/devices\b/.test(u)) return Promise.resolve(J({ devices: [], requests: [] }));

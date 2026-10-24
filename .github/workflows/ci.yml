@@ -489,6 +489,19 @@ jobs:
         if: ${{ !cancelled() && steps.setup.outcome == 'success' }}
         run: bun run check:bundle
 
+      # The landing demo is the real client with a mock seam in place of the
+      # server, and nothing in a build fails when a mock stops matching the
+      # code that reads it: the bundle compiles and dies at render. Until now
+      # only `deploy:landing` ran this check, by hand, so a client change that
+      # broke the demo was found when the site was published. The demo builds
+      # into landing/public/app (not client/dist), so the bundle steps above
+      # are untouched; the browser is the Chromium installed in the setup step.
+      - name: Landing demo boots clean
+        if: ${{ !cancelled() && steps.setup.outcome == 'success' }}
+        run: |
+          bun run build:landing
+          bun run check:demo landing/public
+
       # Le LATENZE delle rotte calde, contro una baseline dichiarata: stesso
       # mestiere di `check:bundle`, altro asse. Gira dopo la suite perche' vuole
       # un server suo (banda 15200-15299, DB in /tmp buttato via alla fine) e

@@ -56,12 +56,24 @@ const server = createServer(async (req, res) => {
 await new Promise((ok) => server.listen(0, '127.0.0.1', ok));
 const base = `http://127.0.0.1:${server.address().port}`;
 
+/* Launch is bounded on both paths. Playwright's own default is 180 s per
+ * launch, so a machine with no usable browser used to sit here for up to six
+ * minutes (bundled Chromium, then the real Chrome) before saying anything. */
+const LAUNCH_TIMEOUT = 30000;
 let browser;
 try {
-  browser = await chromium.launch();
-} catch {
+  browser = await chromium.launch({ timeout: LAUNCH_TIMEOUT });
+} catch (bundledErr) {
   // No bundled chromium (playwright-core ships none): use the real Chrome.
-  browser = await chromium.launch({ channel: 'chrome' });
+  try {
+    browser = await chromium.launch({ channel: 'chrome', timeout: LAUNCH_TIMEOUT });
+  } catch (chromeErr) {
+    server.close();
+    console.error('check:demo — no browser could be launched:');
+    console.error('  · bundled chromium: ' + String(bundledErr.message).split('\n')[0]);
+    console.error('  · chrome channel:   ' + String(chromeErr.message).split('\n')[0]);
+    process.exit(1);
+  }
 }
 const page = await browser.newPage({ viewport: { width: 1280, height: 800 } });
 
@@ -85,8 +97,8 @@ try {
   await page.waitForTimeout(8000);
   // Bounded: a page whose main thread never comes back (a mock answered with a
   // shape the client spins on) used to hang this check for good, with no line.
-  testo = (await page.locator('body').innerText({ timeout: 20000 }).catch(() => {
-    problemi.push('the page stopped answering: no text after 20 s, the main thread is stuck');
+  testo = (await page.locator('body').innerText({ timeout: 20000 }).catch((e) => {
+    problemi.push(`reading the page text failed after at most 20 s: ${String(e.message).split('\n')[0]}`);
     return '';
   })).replace(/\s+/g, ' ').trim();
   // The boot alone does not read every mock: the identity band's menu asks for
