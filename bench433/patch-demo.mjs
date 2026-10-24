@@ -29,19 +29,21 @@ edit('dark class', 'document.documentElement.classList.add("dark");',
 
 // Providers snapshot, the task chat pane and its space. The fleet of
 // client/src/components/Shared/ModelSelector/fixtures.ts (measured 2026-10-02),
-// plus claude-haiku-5-5 on the engine, which serves it today while the
-// Claude Code CLI still lists only Haiku 4.5. Both trees get the same fleet.
+// with Claude Code listing claude-haiku-5-5 as current and claude-haiku-4-5 as
+// older, as the server of d2c21279be declares them (claudeModelGenerations).
+// The catalog drops the "topics" entry, so Claude Code is where the row comes
+// from. Both trees get the same fleet.
 const seed = String.raw`
   /* bench433: providers snapshot, a board task chat in its own space. */
   var TASK_CHAT = "t-task", SPACE_TASKS = "space:tasks";
   var PROVIDERS_SNAPSHOT = (function () {
     var at = "2026-10-02T00:00:00Z";
-    var ccIds = ["claude-opus-5-5", "claude-opus-5-5[1m]", "claude-sonnet-5-5", "claude-sonnet-5-5[1m]", "claude-haiku-4-5",
+    var ccIds = ["claude-opus-5-5", "claude-opus-5-5[1m]", "claude-sonnet-5-5", "claude-sonnet-5-5[1m]", "claude-haiku-5-5", "claude-haiku-4-5",
       "claude-fable-5-1", "claude-opus-4-8", "claude-opus-4-8[1m]", "claude-sonnet-4-6", "claude-sonnet-4-6[1m]", "claude-haiku-3-5"];
-    var older = ["claude-opus-4-8", "claude-opus-4-8[1m]", "claude-sonnet-4-6", "claude-sonnet-4-6[1m]", "claude-haiku-3-5"];
+    var older = ["claude-haiku-4-5", "claude-opus-4-8", "claude-opus-4-8[1m]", "claude-sonnet-4-6", "claude-sonnet-4-6[1m]", "claude-haiku-3-5"];
     var engineIds = ["claude-opus-5-5[1m]", "claude-opus-5-5", "claude-opus-5[1m]", "claude-opus-5", "claude-sonnet-5-5[1m]", "claude-sonnet-5-5",
       "claude-sonnet-5", "claude-fable-5-1", "claude-fable-5", "claude-opus-4-8[1m]", "claude-opus-4-8", "claude-opus-4-6",
-      "claude-sonnet-4-6", "claude-haiku-4-5-20251001", "claude-haiku-5-5"];
+      "claude-sonnet-4-6", "claude-haiku-4-5-20251001"];
     var codex = [
       ["gpt-6.1-sol", "GPT-6.1-Sol", "current", "Latest workhorse model for coding and everyday work."],
       ["gpt-6-astra", "GPT-6-Astra", "current", "Frontier intelligence for the most demanding work."],
