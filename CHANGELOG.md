@@ -2,6 +2,12 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.3.22 — 2026-10-24
+
+### Sotto il cofano
+- Seguiti delle revisioni: -1743 nominato, codice d'uscita, battito, motivo del bridge, iniezione rrweb provata (#429)
+- Il cancello delle rotte ora vede l'ombra dentro lo stesso router (#424)
+
 ## 2.3.21 — 2026-10-24
 
 ### Sotto il cofano

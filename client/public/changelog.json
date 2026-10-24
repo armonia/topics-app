@@ -1,5 +1,26 @@
 [
   {
+    "version": "2.3.22",
+    "date": "2026-10-24",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Seguiti delle revisioni: -1743 nominato, codice d'uscita, battito, motivo del bridge, iniezione rrweb provata (#429)",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il cancello delle rotte ora vede l'ombra dentro lo stesso router (#424)",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
     "version": "2.3.21",
     "date": "2026-10-24",
     "sections": {
