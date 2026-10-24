@@ -26,7 +26,7 @@ export function createCeilingReporter(
       return;
     }
     if (threshold === tightenedTo) return;
-    log(`[Terminal] Macchina al soffitto: soglia di parcheggio ${toMin(parkMs)} -> ${toMin(threshold)} min per questa passata.`);
+    log(`[Terminal] Macchina al soffitto: soglia di parcheggio ${toMin(parkMs)} -> ${toMin(threshold)} min fino al rientro.`);
     tightenedTo = threshold;
   };
 }

@@ -1,5 +1,5 @@
 /**
- * @covers RUNTIME-06
+ * @covers TERM-04
  *
  * At the memory ceiling the sweep tightens its threshold for as long as the
  * machine stays there, and it used to say so on every 60 s tick: 2,218 lines

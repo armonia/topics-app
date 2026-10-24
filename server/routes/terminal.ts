@@ -3057,12 +3057,11 @@ export function parkIdleClaudeSessions(thresholdMs: number): ParkSweepResult {
     if (r.parked) parked.push(id);
     else skipped.push({ id, reason: r.reason });
   }
-  // Una passata che non parcheggia niente deve dire PERCHE'. I motivi c'erano
-  // gia' — raccolti in `skipped` e restituiti — ma vivevano solo come stringhe
-  // in un valore di ritorno che nessuno stampava: dal log, «non ha parcheggiato»
-  // e «non ha nemmeno guardato» erano la stessa cosa.
-  // Same picture as the last pass: stay quiet (a heartbeat every 30 min). An
-  // empty pass passes null, which forgets it, so the next refusal prints again.
+  // A pass that parks nothing says why: the reasons were only returned, and in
+  // the log a sweep that refused and a sweep that never ran read the same. The
+  // line is printed when the picture changes, plus a heartbeat every 30 min, so
+  // a sweep that stopped still shows. An empty pass passes null, which forgets
+  // the last line, so the next refusal prints again.
   logSweepChange("park-sweep", skipped.length > 0 ? `[Terminal] Passata di parcheggio: ${summarizeRefusals(skipped)}.` : null);
   return { parked, skipped };
 }
