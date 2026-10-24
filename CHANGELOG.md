@@ -2,6 +2,13 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.3.21 — 2026-10-24
+
+### Sotto il cofano
+- Bridge browser: ogni 5xx lascia il motivo nel log del server (#421)
+- Terminal.app in timeout: un avviso di una riga al cambio di stato, non 20 righe a ogni tentativo (#422)
+- **rrweb** · via il ripiego «bundle missing», il registratore è testo dentro il modulo (#428)
+
 ## 2.3.20 — 2026-10-24
 
 ### Sotto il cofano
