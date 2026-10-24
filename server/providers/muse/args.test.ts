@@ -52,10 +52,11 @@ test('full-access bypasses approval and sandbox; anything else leaves the CLI de
   expect(auto).not.toContain('--yolo');
 });
 
-test('a oneshot completion is plain `exec` with --no-session-log and no --json', () => {
+test('a oneshot completion is `exec --json` with --no-session-log', () => {
   const args = buildMuseSingleShotArgs({ model: 'muse-spark-1.3', reasoningEffort: 'minimal', promptFile: '/tmp/p/prompt.md' });
   expect(args[0]).toBe('exec');
-  expect(args).not.toContain('--json');
+  // The events carry the run's usage, which the side-call ledger records.
+  expect(args).toContain('--json');
   // A completion is not a conversation: nothing must land in the session log.
   // (--session-id and --no-session-log together are exit 2, so no sid here.)
   expect(args).toContain('--no-session-log');

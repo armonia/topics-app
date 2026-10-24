@@ -58,6 +58,7 @@ import { clampMaxTokens } from "../../lib/native-parity";
 import { defaultLifecycleHooks } from "../../services/lifecycle-hooks";
 import { cancelled, stopCauseFromSignal, type StopCause, type TurnEndInfo } from "../stop-reason";
 import { nativeModelId } from "../../../shared/task-coding-models";
+import { apiCallCostUsd } from "../../usage/pricing";
 import { nativeSubagentToolPolicy, toolAllowedByPolicy } from "../../lib/subagent-tool-policy";
 import { gatewayToken } from "../../lib/openclaw-gateway-token";
 import { topicsHome } from "../../services/daemon-state";
@@ -913,14 +914,23 @@ export class NativeProvider implements AIProvider {
       content: typeof m.content === "string" ? m.content : String(m.content ?? ""),
     }));
     let text = "";
+    const model = this.completionModel(options);
+    // Each round priced on its own: Haiku 5.5 picks its rate card per request,
+    // so the sum of the rounds is the bill, the price of their total is not.
+    // Null as soon as one round cannot be priced.
+    const priced: { usd: number | null } = { usd: 0 };
     const out = await runAgentTurn(
       {
-        model: nativeModelId(options?.model ?? this.config.model ?? DEFAULT_MODEL),
+        model,
         effort: options?.reasoningEffort,
         signal: options?.timeoutMs ? AbortSignal.timeout(options.timeoutMs) : undefined,
         history,
         tools: () => [],
         toolContext: { workspace: this.config.defaultWorkspace ?? "" },
+        onRoundUsage: (round) => {
+          const usd = apiCallCostUsd(model, round);
+          priced.usd = priced.usd === null || usd === null ? null : priced.usd + usd;
+        },
       },
       {
         onTextDelta: (c) => { text += c; },
@@ -930,7 +940,29 @@ export class NativeProvider implements AIProvider {
         onError: () => {},
       },
     );
-    return { content: out.text || text };
+    // The usage goes back with the text: it used to be dropped here, so every
+    // judge and title on this engine cost something nobody could read.
+    // A failed turn (no credentials, an API error) says so: its zero usage is
+    // measured, but it is not a free answer.
+    const u = out.usage;
+    return {
+      content: out.text || text,
+      usage: {
+        promptTokens: u.input + u.cacheRead + u.cacheWrite,
+        completionTokens: u.output,
+        cacheReadTokens: u.cacheRead,
+        cacheCreationTokens: u.cacheWrite,
+        cacheCreation1hTokens: u.cacheWrite1h,
+        model,
+        ...(priced.usd !== null ? { costUsd: priced.usd } : {}),
+      },
+      ...(out.turnEnd.end === "error" ? { error: out.turnEnd.detail ?? "error" } : {}),
+    };
+  }
+
+  /** The model `complete()` runs: the one asked for, else the configured one. */
+  completionModel(options?: CompletionOptions): string {
+    return nativeModelId(options?.model ?? this.config.model ?? DEFAULT_MODEL);
   }
 
   /** `/compact` typed in a chat on this engine (CMDUI-06): see `compactSessionNow`. */

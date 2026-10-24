@@ -111,14 +111,54 @@ export interface CompletionOptions {
   isolated?: boolean;
   /** The result is a chat reply the user reads, not an internal job (title, judge, pick). */
   userFacing?: boolean;
+  /**
+   * What the call is for, so its cost lands under a name in `usage_records`
+   * (`server/usage/side-calls.ts`). Every `complete()` is metered whether or not
+   * it says; one that does not is filed as "other".
+   */
+  purpose?: SideCallPurpose;
+  /**
+   * The chat this call answers, when it answers one (the fallback reply of a
+   * provider without streaming): its ledger row is filed under that chat and
+   * counted in its project, not among the calls made outside any chat.
+   */
+  sessionKey?: string;
 }
+
+/** The side calls Topics makes outside a chat turn, by what they are for. */
+export type SideCallPurpose =
+  | "card-title"
+  | "chat-name"
+  | "goal-judge"
+  | "stall-judge"
+  | "commit-message"
+  | "task-plan"
+  | "chat-reply";
 
 export interface CompletionResult {
   content: string;
   usage?: {
+    /** Every prompt token, cache reads and writes included. */
     promptTokens: number;
     completionTokens: number;
+    /** Shares of `promptTokens`, when the provider reports them. */
+    cacheReadTokens?: number;
+    /** Cache writes, BOTH TTLs: `cacheCreation1hTokens` is a subset of it. */
+    cacheCreationTokens?: number;
+    cacheCreation1hTokens?: number;
+    /** The model that answered, when the provider says (it can differ from the one asked). */
+    model?: string;
+    /**
+     * The price, when the provider computes one: the Claude CLI's own figure, or
+     * the native engine's rounds each priced on its own.
+     */
+    costUsd?: number;
   };
+  /**
+   * Set when the call failed (a CLI exit code, an engine error): `content` is
+   * then empty or an error notice, not an answer. The ledger counts it apart.
+   */
+  error?: string;
 }
 
 // ============ Provider Capabilities ============
@@ -742,6 +782,13 @@ export interface AIProvider {
    * evitare. Chi conosce il default è il provider, non il picker.
    */
   defaultModel?(): string | null;
+
+  /**
+   * The model `complete()` runs for these options, when it is not the chat
+   * default: the Claude CLI's one-shots run on their own default. The side-call
+   * ledger labels a row with it when the answer does not name its model.
+   */
+  completionModel?(options?: CompletionOptions): string;
 
   // --- Event routing ---
 

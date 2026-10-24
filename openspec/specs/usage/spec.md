@@ -828,3 +828,81 @@ rate and SHALL keep the estimate-to-usage difference readable.
 - **WHEN** the terminal stream event reports output tokens
 - **THEN** the row SHALL show a measured usage-based token rate
 - **AND** the estimate-to-usage difference SHALL remain readable
+
+### Requirement: USAGE-24 — Every side call leaves a priced row and a log line
+
+The system SHALL record every `complete()` a provider runs (card titles, chat
+names, goal and stall judges, commit messages, the task model choice, fallback
+replies) as one row in `usage_records` carrying what the call was for, the
+provider, the model the call ran on, the disjoint token shares, the cost and
+the duration, and as one `[sidecall]` line in the server log, whatever the
+provider and whether the call answered, failed or threw. Where the provider
+reports a usage it SHALL be taken; where it reports none the row SHALL carry
+NULL tokens and cost and the mark "not measured", never zeros. A call that
+failed SHALL carry its reason. The cost SHALL be the provider's own figure when
+it sends one, the price table's otherwise, NULL for a model without a price.
+Recording SHALL never delay, alter or fail the call. The project usage SHALL
+report the side calls outside any chat apart from the project rows, as "N
+calls, M not measured", split by purpose; a call that answered a chat SHALL be
+counted in that chat's project.
+
+#### Scenario: A CLI one-shot brings back its cache shares and its price
+- **GIVEN** a `claude -p --output-format json` result with cache writes (one-hour share included), `total_cost_usd` and one model in `modelUsage`
+- **WHEN** it is parsed
+- **THEN** the usage SHALL carry the read, write and one-hour write shares, the model and the cost
+
+#### Scenario: A native completion returns its usage
+- **GIVEN** a `complete()` answered by the native engine
+- **WHEN** it returns
+- **THEN** the result SHALL carry the prompt total, the shares, the model and the price of its rounds, each priced on its own
+
+#### Scenario: Every provider the factory builds is metered
+- **GIVEN** a provider made by `createProvider`
+- **WHEN** its `complete()` answers
+- **THEN** one row SHALL be written under the purpose the caller gave, or "other"
+
+#### Scenario: A broken ledger does not break a title
+- **GIVEN** a ledger whose insert fails
+- **WHEN** a completion answers
+- **THEN** the caller SHALL receive the same result, and no error
+
+#### Scenario: The project usage shows side calls by purpose
+- **GIVEN** side-call rows inside and outside the window
+- **WHEN** the project usage is read for that window
+- **THEN** only the rows inside SHALL be counted, grouped by purpose and kept out of the project totals
+
+#### Scenario: A provider without a usage still leaves its row
+- **GIVEN** a provider whose `complete()` answers with no usage (ACP, an older CLI)
+- **WHEN** the call answers
+- **THEN** one row SHALL be written with NULL tokens and cost and `measured = 0`, and the log line SHALL say `unmeasured`
+- **AND** the panel SHALL count it as "1 call, 1 not measured"
+
+#### Scenario: Codex and Muse one-shots report their usage
+- **GIVEN** `codex exec --json` ending in `turn.completed` with a usage, or `muse exec --json` with a `run.usage` event
+- **WHEN** the one-shot is parsed
+- **THEN** the answer SHALL be the last agent message (the run's closing text on Muse) and the usage SHALL carry the prompt total, the cached share and the output
+
+#### Scenario: The API provider reports its cache shares and runs the model asked
+- **GIVEN** the Anthropic API answers a `complete()` asked on Sonnet 5.5 with 3 fresh input tokens, 12,810 written to the cache and 21 output
+- **WHEN** the call is recorded
+- **THEN** the request SHALL name Sonnet 5.5, the prompt total SHALL be 12,813 with 12,810 written, and the row SHALL cost the official price of those shares, not of 3 tokens
+
+#### Scenario: A call that fails or throws leaves a row with its reason
+- **GIVEN** a CLI that exits non-zero, a call that times out, or a native turn without credentials
+- **WHEN** the call ends
+- **THEN** one row SHALL be written with its error, counted among the failed calls, and the caller SHALL get the same answer or the same error
+
+#### Scenario: The row names the model the call ran on
+- **GIVEN** a Claude CLI one-shot whose `modelUsage` names two models and a caller that asked for none
+- **WHEN** the row is written
+- **THEN** its model SHALL be the one-shot's default, not the chat default
+
+#### Scenario: A fallback reply is filed under its chat
+- **GIVEN** a chat whose provider has no streaming answers through `complete()`
+- **WHEN** the call is recorded
+- **THEN** the row SHALL carry that chat's session key and topic, and count in its project, not among the calls outside chats
+
+#### Scenario: The write never holds the caller
+- **GIVEN** a metered completion
+- **WHEN** it answers
+- **THEN** the caller SHALL have the answer before the row is written

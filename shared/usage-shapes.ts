@@ -84,6 +84,29 @@ export interface ProjectUsageResult {
     costUsd: number;
   };
   cost: ProjectUsageCost;
+  /**
+   * Calls made OUTSIDE any chat (card titles, judges, commit messages), from
+   * `usage_records`. They belong to no project, so they are not in `projects`
+   * or `totals`: summing them there would hide them again. A call that
+   * answered a chat (a fallback reply) is in that chat's project instead.
+   */
+  sideCalls: SideCallUsage;
+}
+
+/** The side-call ledger over the same window, by what the calls were for. */
+export interface SideCallUsage {
+  /** Every call, measured or not, failed or not. */
+  calls: number;
+  /** Calls whose provider reported no usage: in `calls`, not in `costUsd`. */
+  unmeasured: number;
+  /** Measured calls on a model without a price: in `calls`, not in `costUsd`. */
+  unpriced: number;
+  /** Calls that failed (an exit code, an error): in `calls`. */
+  failed: number;
+  /** The priced calls only: a floor when `unmeasured` or `unpriced` is above zero. */
+  costUsd: number;
+  /** Sorted by `costUsd`, descending. */
+  byPurpose: { purpose: string; calls: number; unmeasured: number; costUsd: number; tokens: number }[];
 }
 
 /**

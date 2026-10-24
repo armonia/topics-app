@@ -121,7 +121,7 @@ export async function pickAutomaticTaskModel(
       const runtime = judged && routesThroughEngine(judged) ? 'topics' : providerName;
       const provider = deps.getProvider(runtime);
       if (!provider?.connected) throw new Error(`${runtime} is disconnected`);
-      return (await provider.complete([{ role: 'user', content: prompt }], options)).content ?? '';
+      return (await provider.complete([{ role: 'user', content: prompt }], { ...options, purpose: 'task-plan' })).content ?? '';
     },
     log: deps.log,
   });
