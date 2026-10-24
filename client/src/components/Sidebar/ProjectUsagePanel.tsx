@@ -25,6 +25,7 @@
 import { FolderGit2 } from 'lucide-react';
 import { useLocale, useT } from '@/hooks/useT';
 import { useProjectUsage, type ProjectUsageRow, type UsageRange } from '@/hooks/useProjectUsage';
+import { sideCallsLine } from './sideCallsLine';
 
 /** The windows offered, in the order a person narrows: today, the week, the
  *  month, everything. `all` is where the panel opens, because "what has this
@@ -52,6 +53,12 @@ export function ProjectUsagePanel({ range, onRange }: {
     style: 'currency',
     currency: 'USD',
     maximumFractionDigits: 0,
+  });
+  // Side calls cost cents each: a whole-dollar format would show $0 for a day of titles.
+  const cents = new Intl.NumberFormat(locale === 'it' ? 'it-IT' : 'en-US', {
+    style: 'currency',
+    currency: 'USD',
+    maximumFractionDigits: 2,
   });
 
   const rows = usage?.projects.slice(0, MAX_ROWS) ?? [];
@@ -126,6 +133,38 @@ export function ProjectUsagePanel({ range, onRange }: {
           )}
         </div>
       )}
+      {/* Estimated dollars are IN the total: said apart, so an upper bound is
+          not read as a measured bill. */}
+      {usage && usage.cost.estimated.messages > 0 && (
+        <div data-testid="usage-estimated" className="mt-1.5 border-t border-app-border pt-1.5 text-mini leading-snug text-app-text-secondary">
+          {tr('usage.costEstimated', {
+            usd: money.format(usage.cost.estimated.usd),
+            n: usage.cost.estimated.messages,
+          })}
+        </div>
+      )}
+
+      {/* SIDE CALLS: titles, chat names, judges and commit messages are made
+          outside any chat, so they belong to no project row. Shown apart, with
+          the split by purpose in the tooltip, because before 24/10 they were
+          not counted anywhere. Calls a provider did not measure are counted
+          and named, never summed as free. */}
+      {usage && usage.sideCalls.calls > 0 && (
+        <div
+          data-testid="usage-side-calls"
+          className="mt-1.5 border-t border-app-border pt-1.5 text-mini leading-snug text-app-text-secondary"
+          title={usage.sideCalls.byPurpose
+            .map((p) => tr(p.unmeasured > 0 ? 'usage.sideCallsPurposeUnmeasured' : 'usage.sideCallsPurpose', {
+              purpose: purposeLabel(p.purpose, tr),
+              n: p.calls,
+              m: p.unmeasured,
+              cost: cents.format(p.costUsd),
+            }))
+            .join('\n')}
+        >
+          {sideCallsLine(usage.sideCalls, cents.format(usage.sideCalls.costUsd), tr)}
+        </div>
+      )}
     </div>
   );
 }
@@ -147,6 +186,7 @@ function Row({ p, compact, money, tr }: {
         tr('usage.rowChats', { tokens: compact.format(p.chatTokens), n: p.messageCount }),
         tr('usage.rowTasks', { tokens: compact.format(p.taskTokens), n: p.taskCount }),
         p.unpricedMessages > 0 ? tr('usage.rowUnpriced', { n: p.unpricedMessages }) : '',
+        p.estimatedMessages > 0 ? tr('usage.rowEstimated', { n: p.estimatedMessages }) : '',
       ].filter(Boolean).join('\n')}
     >
       <FolderGit2 size={11} className="flex-shrink-0 text-app-text-muted" />
@@ -159,6 +199,13 @@ function Row({ p, compact, money, tr }: {
       </span>
     </div>
   );
+}
+
+/** A purpose in words; an id the client does not know yet is shown as it is. */
+function purposeLabel(purpose: string, tr: (key: string) => string): string {
+  const key = `usage.purpose.${purpose}`;
+  const label = tr(key);
+  return label === key ? purpose : label;
 }
 
 /** The name a person uses for the project: the last segment of the path, or the

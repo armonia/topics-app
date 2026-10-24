@@ -1,4 +1,4 @@
-/** @covers AGPT-04 */
+/** @covers AGPT-04, USAGE-24 */
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
 import { existsSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'fs';
 import { tmpdir } from 'os';
@@ -24,6 +24,8 @@ const input = await Bun.stdin.text();
 const result = { cwd: process.cwd(), argv: process.argv.slice(2), pid: process.pid };
 if (input === 'hang') { await Bun.write(${JSON.stringify(marker)}, JSON.stringify(result)); setInterval(() => {}, 1000); }
 else if (input === 'wrapper') { spawn(process.execPath, [${JSON.stringify(native)}], { stdio: 'inherit' }); }
+else if (input === 'fail') { process.exit(3); }
+else if (process.argv.includes('--json')) console.log(JSON.stringify({type:'item.completed',item:{type:'agent_message',text:JSON.stringify(result)}}));
 else console.log(JSON.stringify(process.argv.includes('--print') ? {result:JSON.stringify(result)} : result));
 `, { mode: 0o700 });
   process.env.CODEX_BIN = binary;
@@ -110,11 +112,11 @@ describe('Codex completion with a fake executable', () => {
     const provider = new CodexProvider({ type: 'codex', model: 'configured-model', defaultWorkspace: root });
     const result = await provider.complete([{ role: 'user', content: 'classify' }], { model: 'gpt-5.6-luna', reasoningEffort: 'low', isolated: true, timeoutMs: SPAWN_BUDGET_MS });
     const run = JSON.parse(result.content ?? '');
-    expect(run.argv).toEqual(['exec', '--model', 'gpt-5.6-luna', '-c', 'model_reasoning_effort="low"', '--ephemeral', '--skip-git-repo-check', '--ignore-user-config', '--ignore-rules', '--sandbox', 'read-only', '-c', 'features.shell_tool=false', '-c', 'web_search="disabled"']);
+    expect(run.argv).toEqual(['exec', '--json', '--model', 'gpt-5.6-luna', '-c', 'model_reasoning_effort="low"', '--ephemeral', '--skip-git-repo-check', '--ignore-user-config', '--ignore-rules', '--sandbox', 'read-only', '-c', 'features.shell_tool=false', '-c', 'web_search="disabled"']);
     expect(run.cwd).not.toBe(root);
     expect(existsSync(run.cwd)).toBe(false);
     const regular = JSON.parse((await provider.complete([{ role: 'user', content: 'normal' }])).content ?? '');
-    expect(regular.argv).toEqual(['exec', '--model', 'configured-model']);
+    expect(regular.argv).toEqual(['exec', '--json', '--model', 'configured-model']);
     expect(regular.cwd).toBe(root);
   });
 
@@ -147,6 +149,15 @@ describe('Codex completion with a fake executable', () => {
     expect(run.argv).toContain('--effort');
     expect(run.argv[run.argv.indexOf('--effort') + 1]).toBe('low');
     expect(run.argv[run.argv.indexOf('--tools') + 1]).toBe('');
+  });
+
+  test('a one-shot that exits non-zero answers with the notice AND says it failed', async () => {
+    // The side-call ledger counts it as a failed call: the CLI may have spent
+    // tokens before dying, and the row used to be missing (USAGE-24).
+    const claude = await new ClaudeCodeProvider({ type: 'claude-code', defaultWorkspace: root }).complete([{ role: 'user', content: 'fail' }], { timeoutMs: SPAWN_BUDGET_MS });
+    expect(claude).toEqual({ content: 'Error: CLI exited with code 3', error: 'exit 3' });
+    const codex = await new CodexProvider({ type: 'codex', defaultWorkspace: root }).complete([{ role: 'user', content: 'fail' }], { timeoutMs: SPAWN_BUDGET_MS });
+    expect(codex).toEqual({ content: 'Error: Codex exited with code 3', error: 'exit 3' });
   });
 
   test('Claude one-shot timeout also closes the wrapper process tree', async () => {

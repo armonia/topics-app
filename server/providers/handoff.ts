@@ -136,7 +136,10 @@ export function handoffFromStore(
   sessionKey: string,
   opts: { budgetTokens?: number; messageRows?: number } = {},
 ): string | null {
-  const turns = rehydrateHistory(sessionKey, opts.messageRows ?? 1);
+  // Without the rebuild's own window: sized for a native session's cache, it
+  // leaves about 44k, under this budget, and the handoff came out at 43k
+  // instead of 59k. `compactToBudget` below is what sizes the handoff.
+  const turns = rehydrateHistory(sessionKey, opts.messageRows ?? 1, null);
   if (turns.length === 0) return null;
   const target = opts.budgetTokens ?? HANDOFF_BUDGET_TOKENS;
   // THE BUDGET IS CHECKED ON THE TEXT, not on the messages. `compact` measures
@@ -149,8 +152,8 @@ export function handoffFromStore(
     const c = compactToBudget(turns, budget);
     text = renderHandoff(c.messages, {
       droppedTurns: droppedFrom(c.messages) || c.droppedMessages,
-      // Not `after < before`: `rehydrateHistory` already compacts to its own
-      // ceiling, so the results can arrive emptied before this budget applies.
+      // Checked on the rows, not on `after < before`: the reader must be told
+      // that a result was emptied, whichever pass emptied it.
       shortened: c.messages.some((m) => Array.isArray(m.content)
         && m.content.some((b) => b.type === "tool_result" && resultText(b.content) === DROPPED)),
     });

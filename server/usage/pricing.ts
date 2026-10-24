@@ -1,178 +1,108 @@
 /**
- * Prezzi in USD per 1M token.
+ * Turn and call prices in USD.
  *
- * Questa tabella era ferma a modelli che NON si usano più, e il danno non era
- * "un prezzo mancante": era un prezzo SBAGLIATO, applicato in silenzio. Nessuna
- * delle chiavi vecchie compariva nei modelli reali (`claude-opus-4-8`,
- * `claude-opus-5`, …), quindi ogni turno Opus cadeva nel ripiego di famiglia —
- * che puntava al modello più VECCHIO della famiglia, a 15$/75$ — e finiva
- * tariffato al TRIPLO dei 5$/25$ veri. Misurato sul DB di prod: 643,66$
- * mostrati contro 214,55$ reali sul campione.
+ * The table itself lives in `shared/model-pricing.ts`, because the client
+ * splits these same prices into "cache" and "the rest" and needs each model's
+ * cache-read rate. What stays here is the arithmetic and the memory of models
+ * that could not be priced.
  *
- * Due lezioni, entrambe cablate qui sotto:
- *   · il ripiego di famiglia deve puntare al modello CORRENTE, non al primo che
- *     è stato scritto: sbagliare per difetto (un modello nuovo più economico
- *     tariffato come il vecchio) è meno peggio che sbagliare per eccesso, e
- *     comunque il ripiego non deve invecchiare da solo;
- *   · un modello SCONOSCIUTO deve vedersi. Prima tornava `0` con un
- *     `console.warn`, cioè "gratis" — indistinguibile da un turno che davvero
- *     non è costato niente.
- *
- * Fonte: tabella prezzi ufficiale (skill `claude-api`), aggiornata al 2026-08-03.
+ * Two lessons from the history of this file, both still enforced:
+ *   - the family fallback points to the CURRENT model of the family: in August
+ *     every Opus fell back to a retired $15/$75 row and showed three times the
+ *     real cost (643.66$ shown, 214.55$ real on the sample);
+ *   - an UNKNOWN model has to be visible. It used to return 0 with a
+ *     `console.warn`, that is "free", which looks exactly like a turn that cost
+ *     nothing.
  */
-const MODEL_PRICING: Record<string, { input: number; output: number }> = {
-  // Claude — generazione corrente
-  'claude-fable-5': { input: 10, output: 50 },
-  'claude-mythos-5': { input: 10, output: 50 },
-  'claude-opus-5': { input: 5, output: 25 },
-  'claude-opus-4-8': { input: 5, output: 25 },
-  'claude-opus-4-7': { input: 5, output: 25 },
-  'claude-opus-4-6': { input: 5, output: 25 },
-  'claude-sonnet-5': { input: 3, output: 15 },
-  'claude-sonnet-4-6': { input: 3, output: 15 },
-  'claude-haiku-4-5': { input: 1, output: 5 },
-  // Claude — legacy, ancora nei messaggi vecchi
-  'claude-opus-4-5': { input: 15, output: 75 },
-  'claude-opus-4-1': { input: 15, output: 75 },
-  'claude-sonnet-4-5': { input: 3, output: 15 },
-  'claude-sonnet-4-20250514': { input: 3, output: 15 },
-  'claude-haiku-3-5-20241022': { input: 0.80, output: 4 },
-  // OpenAI
-  'gpt-4o': { input: 2.50, output: 10 },
-  'gpt-4o-mini': { input: 0.15, output: 0.60 },
-  'gpt-o3': { input: 10, output: 40 },
-  'gpt-o3-mini': { input: 1.10, output: 4.40 },
-};
+import { modelPrice, ownModelPrice, ratesForPrompt, type ModelPrice } from "../../shared/model-pricing";
+import { accumulateTurnUsage, emptyTurnUsage, turnUsageParts, type CallUsage } from "./turn-usage";
 
-/** I modelli visti e non riconosciuti, per poterlo DIRE invece di tariffare zero. */
+export { modelPrice };
+
+/** Models seen without a price, so the status panel can SAY so instead of billing zero. */
 const unknownModels = new Set<string>();
+/** Models priced by resemblance (a partial match or the family fallback), warned once each. */
+const approximatedModels = new Set<string>();
 
-/** I nomi di modello che non hanno un prezzo in tabella. Vuoto = tutto tariffato. */
+/** Model names that have no price in the table. Empty = everything priced. */
 export function unknownPricedModels(): string[] {
   return [...unknownModels];
 }
 
 /**
- * Normalizza un id di modello prima del match.
- *
- * Il suffisso di finestra — `claude-opus-5[1m]` — fa parte dell'id che la CLI
- * riporta, non del nome del modello: senza toglierlo la chiave esatta non matcha
- * mai e si finisce nel ripiego. Stessa normalizzazione di
- * `shared/context-window.ts`.
- *
- * Il modello è lo STESSO, quindi la tariffa è la stessa. Non è modellato il
- * sovrapprezzo che il beta 1M applica alle richieste sopra i 200k token: qui si
- * lavora ad abbonamento, dove quel numero non è denaro ma un promemoria, e una
- * soglia inventata a metà sarebbe meno vera di una tariffa piatta.
+ * `modelPrice` plus the two registries. "Free" looks exactly like a turn that
+ * really cost nothing, so it has to be SAID; and a price found by resemblance
+ * is how Opus 5.5 was billed as Opus 5 for weeks without a single line in the
+ * log, so that is said too, once per model.
  */
-function normalizeModel(model: string): string {
-  return model.toLowerCase().replace(/\[[^\]]*\]\s*$/, '').trim();
-}
-
-/**
- * Il prezzo di un modello, senza effetti collaterali. Pubblica perché serve
- * anche fuori dal conto di un turno — il moltiplicatore della fast mode si
- * CALCOLA dai listini invece di essere scritto a mano
- * (`providers/fast-mode.ts`). Il registro dei modelli senza prezzo resta in
- * `findPricing`: è memoria per il pannello di stato, non parte del prezzo.
- */
-export function modelPrice(model: string): { input: number; output: number } | null {
-  // Exact match first
-  if (MODEL_PRICING[model]) return MODEL_PRICING[model];
-
-  const lower = normalizeModel(model);
-  if (MODEL_PRICING[lower]) return MODEL_PRICING[lower];
-
-  // Partial match: check if model string contains a known key
-  // Sort by longest key first so "gpt-4o-mini" matches before "gpt-4o"
-  const sortedEntries = Object.entries(MODEL_PRICING).sort((a, b) => b[0].length - a[0].length);
-  for (const [key, pricing] of sortedEntries) {
-    // Only match when the MODEL NAME contains a known pricing key. The reverse
-    // direction (key contains model) misclassified short names — e.g. model
-    // "gpt-4o" matched the longer key "gpt-4o-mini" (checked first by length)
-    // and billed at the wrong rate. Short aliases ("opus", "o3") fall through
-    // to the explicit family fallbacks below.
-    if (lower.includes(key.toLowerCase())) {
-      return pricing;
-    }
-  }
-
-  // Ripiego di famiglia — sul modello CORRENTE della famiglia, non sul primo
-  // che è stato scritto in questo file.
-  if (lower.includes('fable') || lower.includes('mythos')) return MODEL_PRICING['claude-fable-5'];
-  if (lower.includes('opus')) return MODEL_PRICING['claude-opus-5'];
-  if (lower.includes('sonnet')) return MODEL_PRICING['claude-sonnet-5'];
-  if (lower.includes('haiku')) return MODEL_PRICING['claude-haiku-4-5'];
-  if (lower.includes('gpt-4o-mini')) return MODEL_PRICING['gpt-4o-mini'];
-  if (lower.includes('gpt-4o')) return MODEL_PRICING['gpt-4o'];
-  if (lower.includes('o3-mini')) return MODEL_PRICING['gpt-o3-mini'];
-  if (lower.includes('o3')) return MODEL_PRICING['gpt-o3'];
-
-  return null;
-}
-
-/** `modelPrice` più il registro degli sconosciuti: «gratis» è indistinguibile
- *  da un turno che davvero non è costato niente, quindi va DETTO. */
-function findPricing(model: string): { input: number; output: number } | null {
+function findPricing(model: string): ModelPrice | null {
   const price = modelPrice(model);
-  if (price) return price;
-  if (!unknownModels.has(model)) {
-    unknownModels.add(model);
-    console.warn(`[usage] Modello senza prezzo: "${model}" — il costo di questi turni resta a 0. Aggiungilo a MODEL_PRICING.`);
+  if (!price) {
+    if (!unknownModels.has(model)) {
+      unknownModels.add(model);
+      console.warn(`[usage] Model without a price: "${model}". These turns cost 0 until it is added to shared/model-pricing.ts.`);
+    }
+    return null;
   }
-  return null;
+  if (!ownModelPrice(model) && !approximatedModels.has(model)) {
+    approximatedModels.add(model);
+    console.warn(`[usage] Model priced by resemblance: "${model}" has no row of its own in shared/model-pricing.ts.`);
+  }
+  return price;
 }
 
 export function calculateCost(model: string, inputTokens: number, outputTokens: number): number {
   const pricing = findPricing(model);
   if (!pricing) return 0;
-  return (inputTokens * pricing.input + outputTokens * pricing.output) / 1_000_000;
+  const rates = ratesForPrompt(pricing, inputTokens);
+  return (inputTokens * rates.input + outputTokens * rates.output) / 1_000_000;
 }
 
 /**
- * Moltiplicatori della cache rispetto al prezzo dell'input, uguali su tutta la
- * famiglia Claude: SCRIVERE nella cache costa un quarto in più di un token
- * fresco, RILEGGERLA costa un decimo.
+ * Cache WRITE multipliers over the input price, the same on every Claude model:
+ * 1.25x with a five-minute TTL, 2x with a one-hour TTL. The READ rate is not
+ * here any more: it depends on the model (0.025x on Fable 5.1, 0.05x on Opus
+ * and Sonnet 5.5, 0.1x elsewhere) and lives in each row of
+ * `shared/model-pricing.ts`.
  *
- * Perché contano così tanto: in un turno agentico lungo lo stesso prompt viene
- * riletto dalla cache a ogni chiamata al modello, e l'aggregato di fine turno
- * arriva a milioni di token di sola rilettura. Trattarli come input fresco —
- * quello che faceva `calculateCost` da sola, ricevendo un `inputTokens` che li
- * conteneva già — gonfia il costo di circa dieci volte: un turno da ~$9 veniva
- * mostrato a $90.
+ * Why the cache matters so much: in a long agentic turn the same prompt is
+ * read again from the cache at every model call, and the turn total reaches
+ * millions of tokens of pure rereading. Billing them as fresh input made a ~$9
+ * turn show $90; billing them at a flat 0.1x made an Opus 5.5 turn show twice
+ * its cost.
  *
- * Le due durate hanno tariffe diverse: 1.25× a 5 minuti, 2× a un'ora. Qui c'era
- * scritto che la CLI le aggrega in `cache_creation_input_tokens` e che lo scarto
- * è «ordini di grandezza» sotto — **entrambe le cose sono false**, misurate il
- * 30/07 su una sessione reale: l'usage porta `cache_creation` scorporato in
- * `ephemeral_1h_input_tokens` / `ephemeral_5m_input_tokens`, e su quella sessione
- * il 100% delle scritture (2,32M token) era a un'ora. Tariffarle tutte a 1.25×
- * sottostimava il conto del 17,6%.
- *
- * Chi sa distinguere passi `cacheCreation1hTokens`; chi ha solo il totale
- * continui a passare `cacheCreationTokens` e ottiene il comportamento di prima.
+ * The two TTLs are billed separately because the usage reports them separately
+ * (`ephemeral_1h_input_tokens` / `ephemeral_5m_input_tokens`): on a real
+ * session measured on 30/07 every write (2.32M tokens) was at one hour, and
+ * billing them at 1.25x understated the bill by 17.6%. Callers that only have
+ * the total keep passing `cacheCreationTokens`.
  */
 export const CACHE_WRITE_MULTIPLIER = 1.25;
-/** Scrittura con TTL a un'ora: il doppio di un token fresco. */
+/** One-hour TTL write: twice a fresh token. */
 export const CACHE_WRITE_1H_MULTIPLIER = 2;
-export const CACHE_READ_MULTIPLIER = 0.1;
 
 /**
- * Costo di una chiamata (o di un turno aggregato) con i token della cache
- * tariffati per quello che sono. `freshInputTokens` sono i token di prompt che
- * NON venivano dalla cache: chi chiama parte quasi sempre da un totale che li
- * comprende tutti e tre, quindi sottragga prima (vedi `splitPromptTokens`).
+ * Cost of ONE request with the cache tokens billed for what they are.
+ * `freshInputTokens` are the prompt tokens that did NOT come from the cache:
+ * callers usually start from a total that contains all three, so subtract
+ * first (see `splitPromptTokens`).
+ *
+ * The numbers are priced as a single request. That is exact for one call, and
+ * for every model but Haiku 5.5 it is exact for a sum of calls too. Haiku 5.5
+ * picks its rate card per request (over 100k tokens of prompt the whole request
+ * costs five times more): a sum of calls priced here is an upper bound, and code
+ * that has the calls one by one prices them with `callsCostUsd`.
  */
 export function calculateCostWithCache(args: {
   model: string;
   freshInputTokens: number;
   outputTokens: number;
   cacheReadTokens?: number;
-  /** Scritture a 5 minuti (1.25×). Chi ha solo il totale lo passi qui, come prima. */
+  /** Five-minute writes (1.25x). Callers with only the total pass it here. */
   cacheCreationTokens?: number;
   /**
-   * Scritture a un'ora (2×), quota DISGIUNTA da `cacheCreationTokens` — sommarle
-   * entrambe con lo stesso totale conterebbe due volte. Viene da
+   * One-hour writes (2x), DISJOINT from `cacheCreationTokens`: passing the same
+   * total in both would count it twice. From
    * `usage.cache_creation.ephemeral_1h_input_tokens`.
    */
   cacheCreation1hTokens?: number;
@@ -180,12 +110,69 @@ export function calculateCostWithCache(args: {
   const pricing = findPricing(args.model);
   if (!pricing) return 0;
   const n = (v: number | undefined) => (typeof v === "number" && Number.isFinite(v) && v > 0 ? v : 0);
+  const fresh = n(args.freshInputTokens);
+  const write5m = n(args.cacheCreationTokens);
+  const write1h = n(args.cacheCreation1hTokens);
+  const read = n(args.cacheReadTokens);
+  const rates = ratesForPrompt(pricing, fresh + write5m + write1h + read);
   const inputCost =
-    n(args.freshInputTokens) * pricing.input +
-    n(args.cacheCreationTokens) * pricing.input * CACHE_WRITE_MULTIPLIER +
-    n(args.cacheCreation1hTokens) * pricing.input * CACHE_WRITE_1H_MULTIPLIER +
-    n(args.cacheReadTokens) * pricing.input * CACHE_READ_MULTIPLIER;
-  return (inputCost + n(args.outputTokens) * pricing.output) / 1_000_000;
+    fresh * rates.input +
+    write5m * rates.input * CACHE_WRITE_MULTIPLIER +
+    write1h * rates.input * CACHE_WRITE_1H_MULTIPLIER +
+    read * rates.input * pricing.cacheRead;
+  return (inputCost + n(args.outputTokens) * rates.output) / 1_000_000;
+}
+
+/** One model call as the provider reports it, with the model that served it when known. */
+export type PricedCall = CallUsage & { model?: string };
+
+/**
+ * The cost of a list of model calls: each one priced on its own, then summed.
+ *
+ * WHY NOT THE TOTAL. Haiku 5.5 chooses its rate card per request. A turn of
+ * calls at 60k, 80k, 120k and 140k tokens of prompt pays the cheap card on the
+ * first two and the long card on the last two; priced from the turn total, or
+ * from its average, it lands on one card for all four and
+ * is off by a factor of three either way. On every other model the sum equals
+ * the price of the total.
+ *
+ * `fallbackModel` prices the calls that did not say which model served them.
+ */
+export function callsCostUsd(calls: readonly PricedCall[], fallbackModel: string): number {
+  let usd = 0;
+  for (const call of calls) {
+    const parts = turnUsageParts(accumulateTurnUsage(emptyTurnUsage(), call));
+    usd += calculateCostWithCache({
+      model: call.model || fallbackModel,
+      freshInputTokens: parts.fresh,
+      outputTokens: parts.output,
+      cacheReadTokens: parts.cacheRead,
+      cacheCreationTokens: parts.cacheCreation5m,
+      cacheCreation1hTokens: parts.cacheCreation1h,
+    });
+  }
+  return usd;
+}
+
+/**
+ * One call in the API's own shape (`input` = fresh only, the cache shares
+ * apart, `cacheWrite1h` a part of `cacheWrite`), priced with `model`. Null when
+ * the model has no price: the caller then knows the session's per-call sum is
+ * incomplete, instead of reading a zero as "free".
+ */
+export function apiCallCostUsd(
+  model: string | null | undefined,
+  call: { input: number; output: number; cacheRead: number; cacheWrite: number; cacheWrite1h: number },
+): number | null {
+  if (!model || !modelPrice(model)) return null;
+  const n = (v: number) => (Number.isFinite(v) && v > 0 ? v : 0);
+  return callsCostUsd([{
+    inputTokens: n(call.input) + n(call.cacheRead) + n(call.cacheWrite),
+    outputTokens: n(call.output),
+    cacheRead: n(call.cacheRead),
+    cacheCreation: n(call.cacheWrite),
+    cacheCreation1h: n(call.cacheWrite1h),
+  }], model);
 }
 
 /**

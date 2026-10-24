@@ -70,7 +70,6 @@ import { observePlanUsage } from "./native/usage-window";
 import { readClaudeSubscription, type ClaudeSubscription } from "./claude/subscription";
 import { noteApiHealth, silentTurnEnd, type ApiRetryMark } from "./claude/api-outage";
 import { readFastMode, fastModeCommand, fastModeMultiplier, sameFastMode, type FastModeInfo, type FastModeStatus } from "./fast-mode";
-import { modelPrice } from "../usage/pricing";
 import { getSnapshotManager } from "./snapshot-manager";
 import { skillBodyFromInjectedText } from "./claude/user-event-text";
 import { buildUserTurnContent } from "./claude/user-turn";
@@ -1141,11 +1140,22 @@ export function parseCompletionStdout(stdout: string): CompletionResult {
     console.warn(`[claude-code] complete(): no result text in CLI json output (${stdout.slice(0, 80)}…)`);
   }
   const usage = resultEvent?.usage;
+  // The shares and the CLI's own price go back too: the side-call ledger
+  // (`usage/side-calls.ts`) needs them to say what a title cost. Without them
+  // 1102 card titles on Sonnet (9-12/10, 14.1M tokens written to the one-hour
+  // cache) left no trace outside the CLI transcripts.
+  const n = (v: unknown): number => (typeof v === "number" && Number.isFinite(v) && v > 0 ? v : 0);
+  const models = resultEvent?.modelUsage && typeof resultEvent.modelUsage === "object" ? Object.keys(resultEvent.modelUsage) : [];
   return {
     content,
     usage: usage ? {
-      promptTokens: (usage.input_tokens ?? 0) + (usage.cache_creation_input_tokens ?? 0) + (usage.cache_read_input_tokens ?? 0),
-      completionTokens: usage.output_tokens ?? 0,
+      promptTokens: n(usage.input_tokens) + n(usage.cache_creation_input_tokens) + n(usage.cache_read_input_tokens),
+      completionTokens: n(usage.output_tokens),
+      cacheReadTokens: n(usage.cache_read_input_tokens),
+      cacheCreationTokens: n(usage.cache_creation_input_tokens),
+      cacheCreation1hTokens: n(usage.cache_creation?.ephemeral_1h_input_tokens),
+      ...(models.length === 1 ? { model: models[0] } : {}),
+      ...(typeof resultEvent?.total_cost_usd === "number" ? { costUsd: resultEvent.total_cost_usd } : {}),
     } : undefined,
   };
 }
@@ -2002,8 +2012,7 @@ export class ClaudeCodeProvider implements AIProvider {
       })
       .join("\n\n");
 
-    // Per-call override (dispatcher classifier forces haiku) → configured model → default.
-    const model = options?.model ?? this.config.model ?? DEFAULT_ONESHOT_MODEL;
+    const model = this.completionModel(options);
     const permissionMode = this.config.permissionMode ?? DEFAULT_PERMISSION_MODE;
     const workspace = this.config.defaultWorkspace || process.env.HOME || "/tmp";
 
@@ -2059,7 +2068,9 @@ export class ClaudeCodeProvider implements AIProvider {
         if (timedOut) { reject(new Error("Completion timed out")); return; }
         if (code !== 0) {
           console.warn(`[claude-code] complete() exited with code ${code}: ${stderr.slice(0, 200)}`);
-          resolve({ content: `Error: CLI exited with code ${code}` });
+          // Still an answer to the caller (they read the notice), but a failed
+          // one for the ledger: the CLI may have spent tokens before dying.
+          resolve({ content: `Error: CLI exited with code ${code}`, error: `exit ${code}` });
           return;
         }
         resolve(parseCompletionStdout(stdout));
@@ -2412,6 +2423,15 @@ export class ClaudeCodeProvider implements AIProvider {
   }
 
   /**
+   * The model a one-shot `complete()` runs: the one asked for (the dispatcher's
+   * classifier forces Haiku), else the configured one, else the one-shot
+   * default. NOT `defaultModel()`, which is the chat's.
+   */
+  completionModel(options?: CompletionOptions): string {
+    return options?.model ?? this.config.model ?? DEFAULT_ONESHOT_MODEL;
+  }
+
+  /**
    * Lo stesso tier che userebbe uno spawn adesso — stesso resolver che chiama
    * `spawnPersistentProcess`, senza override di topic (il badge parla di una
    * sessione NUOVA). Dichiarato dal provider invece che indovinato dal nome
@@ -2539,7 +2559,7 @@ export class ClaudeCodeProvider implements AIProvider {
     if (!this.fastModeStatus) return null;
     return {
       ...this.fastModeStatus,
-      costMultiplier: fastModeMultiplier(this.defaultModel(), modelPrice),
+      costMultiplier: fastModeMultiplier(this.defaultModel()),
     };
   }
 

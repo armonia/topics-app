@@ -18,6 +18,7 @@
  */
 import { closeSync, existsSync, openSync, readSync, statSync } from "node:fs";
 import { Buffer } from "node:buffer";
+import { apiCallCostUsd } from "../usage/pricing";
 
 export interface SessionUsage {
   inputTokens: number;
@@ -40,6 +41,13 @@ export interface SessionUsage {
   cacheReadTokens: number;
   /** input + output + cacheWrite, deduplicated — the board-facing counter. */
   billableTokens: number;
+  /**
+   * The session's cost in USD, each call priced on its own with the model that
+   * served it. Haiku 5.5 picks its rate card per request, so the totals above
+   * cannot be priced as one request. Absent when a call that consumed tokens had
+   * no model with a price: the caller then prices the totals.
+   */
+  costUsd?: number;
 }
 
 export const ZERO_USAGE: SessionUsage = Object.freeze({
@@ -49,6 +57,7 @@ export const ZERO_USAGE: SessionUsage = Object.freeze({
   cacheWrite1hTokens: 0,
   cacheReadTokens: 0,
   billableTokens: 0,
+  costUsd: 0,
 });
 
 interface PathState {
@@ -59,6 +68,8 @@ interface PathState {
   /** message.id values already counted (bounded FIFO). */
   seenIds: Set<string>;
   totals: { input: number; output: number; cacheWrite: number; cacheWrite1h: number; cacheRead: number };
+  /** Sum of each call's price; null once a call could not be priced. */
+  costUsd: number | null;
 }
 
 const MAX_SEEN_IDS = 8192;
@@ -66,7 +77,7 @@ const MAX_TRACKED_PATHS = 128;
 const READ_CHUNK = 1 << 20; // 1MB
 
 function freshState(): PathState {
-  return { byteOffset: 0, partial: Buffer.alloc(0), seenIds: new Set(), totals: { input: 0, output: 0, cacheWrite: 0, cacheWrite1h: 0, cacheRead: 0 } };
+  return { byteOffset: 0, partial: Buffer.alloc(0), seenIds: new Set(), totals: { input: 0, output: 0, cacheWrite: 0, cacheWrite1h: 0, cacheRead: 0 }, costUsd: 0 };
 }
 
 export function createTranscriptUsageReader(): { read(path: string): SessionUsage } {
@@ -89,12 +100,24 @@ export function createTranscriptUsageReader(): { read(path: string): SessionUsag
         if (first !== undefined) state.seenIds.delete(first);
       }
     }
-    state.totals.input += u.input_tokens ?? 0;
-    state.totals.output += u.output_tokens ?? 0;
-    state.totals.cacheWrite += u.cache_creation_input_tokens ?? 0;
-    // Il bucket a un'ora arriva SCORPORATO dal provider: si legge, non si indovina.
-    state.totals.cacheWrite1h += u.cache_creation?.ephemeral_1h_input_tokens ?? 0;
-    state.totals.cacheRead += u.cache_read_input_tokens ?? 0;
+    const call = {
+      input: u.input_tokens ?? 0,
+      output: u.output_tokens ?? 0,
+      cacheWrite: u.cache_creation_input_tokens ?? 0,
+      // The one-hour bucket comes split out by the provider: read, not guessed.
+      cacheWrite1h: u.cache_creation?.ephemeral_1h_input_tokens ?? 0,
+      cacheRead: u.cache_read_input_tokens ?? 0,
+    };
+    state.totals.input += call.input;
+    state.totals.output += call.output;
+    state.totals.cacheWrite += call.cacheWrite;
+    state.totals.cacheWrite1h += call.cacheWrite1h;
+    state.totals.cacheRead += call.cacheRead;
+    // A call that consumed nothing (the CLI's `<synthetic>` lines) has no price
+    // to miss.
+    if (state.costUsd === null || call.input + call.output + call.cacheWrite + call.cacheRead <= 0) return;
+    const usd = apiCallCostUsd(typeof msg.model === "string" ? msg.model : null, call);
+    state.costUsd = usd === null ? null : state.costUsd + usd;
   }
 
   function toUsage(state: PathState): SessionUsage {
@@ -106,6 +129,7 @@ export function createTranscriptUsageReader(): { read(path: string): SessionUsag
       cacheWrite1hTokens: cacheWrite1h,
       cacheReadTokens: cacheRead,
       billableTokens: input + output + cacheWrite,
+      ...(state.costUsd !== null ? { costUsd: state.costUsd } : {}),
     };
   }
 

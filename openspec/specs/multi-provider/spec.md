@@ -215,6 +215,11 @@ for the session, the provider SHALL fall back to the history the route passed.
 - **WHEN** the handoff is built
 - **THEN** it stays within the budget, keeps the opening request and the recent turns, and names how many messages it left out and how to read them
 
+#### Scenario: the handoff fills its own budget, not the native rebuild's
+- **GIVEN** a chat whose rebuilt history is larger than the handoff budget
+- **WHEN** the handoff is built with the default budget (60k estimated tokens)
+- **THEN** the thread SHALL be rebuilt without the native session's rebuild window, and the handoff SHALL come out close to its budget, not at the roughly 44k that window leaves
+
 ### Requirement: MP-GWTOKEN-01 — The OpenClaw gateway token stays inside the server, and a rotation lands without a restart
 
 Topics SHALL read OpenClaw's `gateway.auth.token` either as a plain string or as an exec SecretRef, resolved the way OpenClaw resolves it (an empty base environment plus `passEnv` and `env`, the command's own directory as cwd, `protocolVersion` 1). An object SHALL never become a token. The server SHALL keep the token outside `process.env`, so no child it spawns inherits it, and the MCP bridge SHALL carry no gateway token at all: it authenticates with the daemon token, re-read on every request. A token read from the config SHALL be re-read at most every 30 s, at once after an authentication failure, without blocking the event loop; a token from the environment SHALL never be replaced by the config. No test SHALL read the real OpenClaw config, the Keychain or the real Topics home.

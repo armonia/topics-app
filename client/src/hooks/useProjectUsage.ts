@@ -26,8 +26,8 @@ export type UsageRange = '1d' | '7d' | '30d' | 'all';
 // THE SHAPE COMES FROM `shared/`, not from a copy: the query that fills it is
 // on the server, and two declarations of one contract drift into a field the
 // panel renders and the server stopped sending (`tests/unit/no-type-mirrors`).
-export type { ProjectUsageRow, ProjectUsage };
-import type { ProjectUsageResponse as ProjectUsage, ProjectUsageRow } from '../../../shared/usage-shapes';
+export type { ProjectUsageRow, ProjectUsage, SideCallUsage };
+import type { ProjectUsageResponse as ProjectUsage, ProjectUsageRow, SideCallUsage } from '../../../shared/usage-shapes';
 import { apiFetch } from '../lib/shell/net';
 
 export function useProjectUsage(enabled: boolean, range: UsageRange): {

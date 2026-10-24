@@ -11,8 +11,10 @@
   * @covers RT-04
  */
 import { test, expect, describe } from "bun:test";
-import { historyFromPersistedThread, REHYDRATE_WINDOW_TOKENS, type PersistedTurn } from "./history-rehydrate";
-import { estimateTokens } from "./compaction";
+import {
+  configureNativeHistorySource, historyFromPersistedThread, rehydrateHistory, REHYDRATE_WINDOW_TOKENS, type PersistedTurn,
+} from "./history-rehydrate";
+import { COMPACT_TO, estimateChars, estimateTokens } from "./compaction";
 import type { ToolCall } from "../../../shared/types";
 import type { Block } from "./agent-loop";
 
@@ -316,7 +318,7 @@ describe("historyFromPersistedThread — le coppie tool_use/tool_result", () => 
  * no cap reached 414k-1,631k tokens, past the 1M hard limit on two of them.
  */
 describe("historyFromPersistedThread — il tetto sulla storia ricostruita", () => {
-  test("centinaia di chiamate con risultati pesanti restano sotto REHYDRATE_WINDOW_TOKENS", () => {
+  test("centinaia di chiamate con risultati pesanti tornano a COMPACT_TO della finestra", () => {
     const rounds = 300;
     const thread: PersistedTurn[] = [{ role: "user", content: "lavora sul repo" }];
     for (let i = 0; i < rounds; i++) {
@@ -332,10 +334,79 @@ describe("historyFromPersistedThread — il tetto sulla storia ricostruita", () 
     thread.push({ role: "user", content: "nuova domanda" });
 
     const out = historyFromPersistedThread(thread);
-    expect(estimateTokens(out)).toBeLessThanOrEqual(REHYDRATE_WINDOW_TOKENS);
+    // The target, not the window: a light recent tail, so nothing keeps the
+    // history above what compaction brings it back to.
+    expect(estimateTokens(out)).toBeLessThanOrEqual(REHYDRATE_WINDOW_TOKENS * COMPACT_TO);
     // The opening request survives: an agent that no longer knows why it is
     // working is worse than one with a shorter memory of how it got there.
     expect(out[0]).toEqual({ role: "user", content: "lavora sul repo" });
+  });
+
+  test("a native session rebuilt from the store gets the same window by default", () => {
+    // `rehydrateHistory` is what `sessionFor` calls, with no window: only the
+    // CLI handoff passes `null`. Without a window by default the native
+    // session would rebuild the full thread.
+    const thread: PersistedTurn[] = [{ role: "user", content: "lavora sul repo" }];
+    for (let i = 0; i < 300; i++) {
+      thread.push({
+        role: "assistant",
+        content: `Giro ${i}: leggo un file.`,
+        toolCalls: [{
+          id: `t${i}`, name: "read_file", args: { path: `file${i}.ts` }, status: "success",
+          result: "x".repeat(4_000), contentOffset: 0,
+        }],
+      });
+    }
+    thread.push({ role: "user", content: "nuova domanda" });
+    configureNativeHistorySource(() => thread);
+    try {
+      expect(estimateTokens(rehydrateHistory("topic:x"))).toBeLessThanOrEqual(REHYDRATE_WINDOW_TOKENS * COMPACT_TO);
+    } finally {
+      configureNativeHistorySource(null);
+    }
+  });
+});
+
+/**
+ * The rebuilt history at the worst density measured: what its cold write to
+ * the cache costs. This is arithmetic on characters, not a token count (no
+ * tokenizer here): it pins the window, on a thread with a light recent tail.
+ *
+ * The cap works on an estimate of 4 characters per token, and tool-heavy
+ * histories tokenize far denser. Measured on 24/10 on a copy of the live
+ * database: topic:5a02dfd5 rebuilt to 319,672 characters, estimated 79,918
+ * tokens, counted 194,874 by the API (1.64 characters per token); ae217a6b
+ * 1.66, f55fc83a 1.95. With the 200k window a rebuilt session wrote about
+ * 250k tokens cold to the cache on its first round, and the history alone
+ * sat past 0.85 of a 200k window: the first round after a rebuild would
+ * compact again what had just been rebuilt.
+ */
+describe("historyFromPersistedThread: the rebuilt history at the worst measured density", () => {
+  const WORST_MEASURED_CHARS_PER_TOKEN = 1.64;
+
+  test("a tool-heavy thread rebuilds within 120k tokens at 1.64 characters per token", () => {
+    const thread: PersistedTurn[] = [{ role: "user", content: "lavora sul repo" }];
+    // Prose around every call, as in a real chat: compaction empties old tool
+    // results first, so a thread of bare calls rebuilds small and proves nothing.
+    for (let i = 0; i < 400; i++) {
+      thread.push({
+        role: "assistant",
+        content: `Round ${i}: ${"the change touches the parser and its tests. ".repeat(18)}`,
+        toolCalls: [{
+          id: `t${i}`, name: "read_file", args: { path: `src/file${i}.ts` }, status: "success",
+          result: `export const value${i} = ${i};\n`.repeat(120), contentOffset: 0,
+        }],
+      });
+      thread.push({ role: "user", content: `ok, next step ${i}` });
+    }
+    thread.push({ role: "user", content: "nuova domanda" });
+
+    const out = historyFromPersistedThread(thread);
+    const atWorstDensity = estimateChars(out, 0) / WORST_MEASURED_CHARS_PER_TOKEN;
+    // Every rebuild writes this history cold to the cache: within 120k tokens
+    // at the worst density (about 195k at the 200k window).
+    expect(atWorstDensity).toBeLessThanOrEqual(120_000);
+    expect(out[0]).toMatchObject({ role: "user" });
   });
 });
 

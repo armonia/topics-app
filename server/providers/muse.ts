@@ -121,6 +121,57 @@ function museErrorText(value: unknown): string {
 }
 
 /**
+ * A one-shot's answer from `muse exec --json` (capture 24/10,
+ * `muse/fixtures/meta-oneshot-usage.jsonl`): the text of the run's closing
+ * event (the deltas when it has none), its failure when it is not
+ * `completed`, and the usage of the LAST `run.usage` event, which counts the
+ * whole run. `cached_tokens` is read as a share of `input_tokens`, as on the
+ * OpenAI-shaped APIs; Muse's models have no price in the table, so the split
+ * moves no dollar.
+ *
+ * A stdout with no event at all (an older CLI) is taken as the answer, as
+ * before: no usage, and the ledger says "not measured".
+ */
+export function parseMuseOneShotJsonl(stdout: string): CompletionResult {
+  let deltas = "";
+  let terminal: ReturnType<typeof extractMuseTerminal> | null = null;
+  let usage: NonNullable<CompletionResult["usage"]> | null = null;
+  let events = 0;
+  for (const line of stdout.split("\n")) {
+    const trimmed = line.trim();
+    if (!trimmed.startsWith("{")) continue;
+    let event: Record<string, unknown>;
+    try { event = JSON.parse(trimmed) as Record<string, unknown>; } catch { continue; }
+    const type = typeof event.payload_type === "string" ? event.payload_type : null;
+    if (!type) continue;
+    events++;
+    const payload = event.payload && typeof event.payload === "object" ? event.payload as Record<string, unknown> : {};
+    if (type === "run.output.delta") {
+      if (typeof payload.text === "string") deltas += payload.text;
+    } else if (type.startsWith("run.terminal")) {
+      terminal = extractMuseTerminal(payload, type);
+    } else if (type === "run.usage" && Array.isArray(payload.models)) {
+      const models = payload.models.filter((m): m is Record<string, unknown> => !!m && typeof m === "object");
+      const sum = (key: string) => models.reduce((acc, m) => acc + (typeof m[key] === "number" && (m[key] as number) > 0 ? m[key] as number : 0), 0);
+      const prompt = sum("input_tokens");
+      usage = {
+        promptTokens: prompt,
+        completionTokens: sum("output_tokens"),
+        cacheReadTokens: Math.min(sum("cached_tokens"), prompt),
+        ...(models.length === 1 && typeof models[0]!.model === "string" ? { model: models[0]!.model } : {}),
+      };
+    }
+  }
+  if (events === 0) return { content: stdout.trim() };
+  const failed = terminal && terminal.status !== "completed";
+  return {
+    content: (terminal?.text ?? deltas).trim(),
+    ...(usage ? { usage } : {}),
+    ...(failed ? { error: terminal!.reason ?? terminal!.status } : {}),
+  };
+}
+
+/**
  * The run's closing event (`run_terminal`, `muse/WIRE.md`): `terminal` is
  * `completed | failed | cancelled` today, open tomorrow — the caller treats
  * anything but `completed` as a failure. The payload also carries the FULL
@@ -902,10 +953,10 @@ export class MuseProvider implements AIProvider {
           if (timedOut) { reject(new Error("Muse completion timed out")); return; }
           if (code !== 0) {
             if (stderr) console.warn(`[muse] complete exit ${code}: ${stderr.slice(0, 500)}`);
-            resolve({ content: `Error: Muse exited with code ${code}` });
+            resolve({ content: `Error: Muse exited with code ${code}`, error: `exit ${code}` });
             return;
           }
-          resolve({ content: stdout.trim() });
+          resolve(parseMuseOneShotJsonl(stdout));
         });
 
         child.on("error", (err) => { clearTimeout(timer); reject(err); });

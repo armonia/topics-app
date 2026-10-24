@@ -129,7 +129,8 @@ export function extractCodexUsage(event: Record<string, unknown>): ProviderUsage
     // usage keeps rendering across CLI versions.
     const reasoningTokens = num(u.reasoning_output_tokens) ?? num(u.reasoning_tokens) ?? num(u.reasoningTokens);
     const cacheRead = num(u.cached_input_tokens) ?? num(u.cache_read_input_tokens) ?? num(u.cached_tokens) ?? num(u.cacheRead);
-    const cacheCreation = num(u.cache_creation_input_tokens) ?? num(u.cacheCreation);
+    // codex-cli 0.160 names the cache write `cache_write_input_tokens`.
+    const cacheCreation = num(u.cache_creation_input_tokens) ?? num(u.cache_write_input_tokens) ?? num(u.cacheCreation);
     if (inputTokens === undefined && outputTokens === undefined) continue;
     const usage: ProviderUsage = {};
     if (inputTokens !== undefined) usage.inputTokens = inputTokens;
@@ -170,6 +171,59 @@ export function extractCodexContext(
   if (!usage) return null;
   const windowTokens = num(info.model_context_window) ?? num(info.modelContextWindow);
   return windowTokens !== undefined ? { usage, windowTokens } : { usage };
+}
+
+/**
+ * A one-shot's answer from `codex exec --json`: the text of the LAST agent
+ * message (what the text mode printed), the usage of `turn.completed`, and the
+ * error of a `turn.failed`. Codex's `input_tokens` already counts the cached
+ * ones, so it is the prompt total and `cached_input_tokens` a share of it.
+ *
+ * A stdout with no JSON event at all (an older CLI) is taken as the answer, as
+ * before: no usage, and the ledger says "not measured".
+ */
+export function parseCodexOneShotJsonl(stdout: string): CompletionResult {
+  let text: string | null = null;
+  let prompt = 0, output = 0, cacheRead = 0, cacheWrite = 0;
+  let measured = false;
+  let error: string | undefined;
+  let events = 0;
+  for (const line of stdout.split("\n")) {
+    const trimmed = line.trim();
+    if (!trimmed.startsWith("{")) continue;
+    let event: Record<string, unknown>;
+    try { event = JSON.parse(trimmed) as Record<string, unknown>; } catch { continue; }
+    if (typeof event.type !== "string") continue;
+    events++;
+    const item = event.item && typeof event.item === "object" ? event.item as Record<string, unknown> : null;
+    if (event.type === "item.completed" && item && (item.type === "agent_message" || item.type === "assistant_message")) {
+      if (typeof item.text === "string") text = item.text;
+    } else if (event.type === "turn.completed") {
+      const u = extractCodexUsage(event);
+      if (u) {
+        measured = true;
+        prompt += u.inputTokens ?? 0;
+        output += u.outputTokens ?? 0;
+        cacheRead += u.cacheRead ?? 0;
+        cacheWrite += u.cacheCreation ?? 0;
+      }
+    } else if (event.type === "turn.failed" || event.type === "error") {
+      error = extractCodexErrorMessage(event);
+    }
+  }
+  if (events === 0) return { content: stdout.trim() };
+  return {
+    content: (text ?? "").trim(),
+    ...(measured ? {
+      usage: {
+        promptTokens: prompt,
+        completionTokens: output,
+        cacheReadTokens: Math.min(cacheRead, prompt),
+        cacheCreationTokens: Math.min(cacheWrite, Math.max(0, prompt - cacheRead)),
+      },
+    } : {}),
+    ...(error ? { error } : {}),
+  };
 }
 
 /**
@@ -1113,6 +1167,20 @@ export class CodexProvider implements AIProvider {
 
   // --- Non-streaming completion ---
 
+  /** The model a one-shot passes to the CLI with `--model`, when it passes one. */
+  private forwardedModel(options?: CompletionOptions): string | undefined {
+    return options?.model ?? this.config.model;
+  }
+
+  /**
+   * The model a one-shot runs on, for the side-call ledger: the one passed to
+   * the CLI, or, when none is, the one the CLI takes from config.toml. The
+   * answer does not name it, and without this the row said "unknown".
+   */
+  completionModel(options?: CompletionOptions): string {
+    return this.forwardedModel(options) ?? readCodexConfiguredModel() ?? "";
+  }
+
   async complete(messages: ChatMessage[], options?: CompletionOptions): Promise<CompletionResult> {
     const bin = resolveCodexBinary();
     if (!bin) return { content: "Codex CLI not found." };
@@ -1129,7 +1197,7 @@ export class CodexProvider implements AIProvider {
     // Only forward --model when explicitly configured; otherwise let the CLI
     // pick from ~/.codex/config.toml so ChatGPT-account-bound models work
     // (e.g. gpt-5-codex is rejected for ChatGPT-account auth). Mirrors sendChat.
-    const args = buildCodexOneshotArgs({ ...options, model: options?.model ?? this.config.model });
+    const args = buildCodexOneshotArgs({ ...options, model: this.forwardedModel(options) });
 
     try {
       return await new Promise<CompletionResult>((resolve, reject) => {
@@ -1162,10 +1230,10 @@ export class CodexProvider implements AIProvider {
           if (timedOut) { reject(new Error("Codex completion timed out")); return; }
           if (code !== 0) {
             if (stderr) console.warn(`[codex] complete exit ${code}: ${stderr.slice(0, 500)}`);
-            resolve({ content: `Error: Codex exited with code ${code}` });
+            resolve({ content: `Error: Codex exited with code ${code}`, error: `exit ${code}` });
             return;
           }
-          resolve({ content: stdout.trim() });
+          resolve(parseCodexOneShotJsonl(stdout));
         });
 
         child.on("error", (err) => { clearTimeout(timer); reject(err); });

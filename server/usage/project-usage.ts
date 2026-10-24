@@ -39,6 +39,7 @@
 import type { Database } from "bun:sqlite";
 import { projectIdForPath } from "../../shared/board";
 import { costFromMessage, costFromTask } from "./token-sql";
+import { CACHE_READ_WEIGHT } from "../../shared/token-cost";
 
 // THE TWO RECORDS LIVE IN `shared/usage-shapes.ts`: the panel that draws them
 // is in the client, and a second copy there is what `no-type-mirrors` refuses.
@@ -49,7 +50,7 @@ import { costFromMessage, costFromTask } from "./token-sql";
 // `shared/` - and `check:deadcode` counts an export with no importer as debt,
 // which is the whole point of the gate.
 export type { ProjectUsageResult } from "../../shared/usage-shapes";
-import type { ProjectUsageRow, ProjectUsageResult } from "../../shared/usage-shapes";
+import type { ProjectUsageRow, ProjectUsageResult, SideCallUsage } from "../../shared/usage-shapes";
 
 export interface ProjectUsageOptions {
   /**
@@ -67,6 +68,8 @@ interface MessageGroup {
   cost_usd: number;
   msgs: number;
   unpriced: number;
+  estimated: number;
+  estimated_usd: number;
 }
 
 interface TaskGroup {
@@ -100,7 +103,9 @@ export function projectUsage(db: Database, opts: ProjectUsageOptions = {}): Proj
               SUM(${costFromMessage}) AS cost_tokens,
               SUM(CASE WHEN m.cache_read_tokens IS NOT NULL THEN COALESCE(m.cost_cents, 0) ELSE 0 END) / 100.0 AS cost_usd,
               COUNT(*) AS msgs,
-              SUM(CASE WHEN m.cache_read_tokens IS NULL AND COALESCE(m.cost_cents, 0) > 0 THEN 1 ELSE 0 END) AS unpriced
+              SUM(CASE WHEN m.cache_read_tokens IS NULL AND COALESCE(m.cost_cents, 0) > 0 THEN 1 ELSE 0 END) AS unpriced,
+              SUM(CASE WHEN m.cost_estimated = 1 AND m.cache_read_tokens IS NOT NULL THEN 1 ELSE 0 END) AS estimated,
+              SUM(CASE WHEN m.cost_estimated = 1 AND m.cache_read_tokens IS NOT NULL THEN COALESCE(m.cost_cents, 0) ELSE 0 END) / 100.0 AS estimated_usd
          FROM messages m
          JOIN topics tp ON tp.session_key = m.session_key
         WHERE tp.project_path IS NOT NULL AND tp.project_path <> ''${msgWindow}
@@ -119,6 +124,26 @@ export function projectUsage(db: Database, opts: ProjectUsageOptions = {}): Proj
     )
     .all(...arg) as TaskGroup[];
 
+  // Side calls that answered a chat (the fallback reply of a provider without
+  // streaming) carry that chat's topic: they are the chat's cost, so they go
+  // in its project. Their message row has no cost of its own, so nothing is
+  // counted twice. The ledger's timestamp is epoch milliseconds.
+  const ledgerWindow = days === null ? "" : " AND u.timestamp >= strftime('%s', date('now', ? || ' days')) * 1000";
+  const ledgerRows = db
+    .prepare(
+      `SELECT tp.project_path AS project_path,
+              SUM(MAX(0, COALESCE(u.input_tokens, 0) - COALESCE(u.cache_read_tokens, 0))
+                  + COALESCE(u.output_tokens, 0)
+                  + ${CACHE_READ_WEIGHT} * COALESCE(u.cache_read_tokens, 0)) AS cost_tokens,
+              SUM(COALESCE(u.cost_usd, 0)) AS cost_usd,
+              SUM(CASE WHEN u.cost_usd IS NULL THEN 1 ELSE 0 END) AS uncounted
+         FROM usage_records u
+         JOIN topics tp ON tp.id = u.topic_id
+        WHERE tp.project_path IS NOT NULL AND tp.project_path <> ''${ledgerWindow}
+        GROUP BY tp.project_path`,
+    )
+    .all(...arg) as { project_path: string; cost_tokens: number | null; cost_usd: number | null; uncounted: number | null }[];
+
   const byId = new Map<string, ProjectUsageRow>();
   const blank = (projectId: string, projectPath: string | null): ProjectUsageRow => ({
     projectId,
@@ -130,7 +155,9 @@ export function projectUsage(db: Database, opts: ProjectUsageOptions = {}): Proj
     messageCount: 0,
     taskCount: 0,
     unpricedMessages: 0,
+    estimatedMessages: 0,
   });
+  let estimatedUsd = 0;
 
   for (const r of messageRows) {
     // THE NORMALISATION, and the only place it happens. Two chats on the same
@@ -143,6 +170,20 @@ export function projectUsage(db: Database, opts: ProjectUsageOptions = {}): Proj
     row.costUsd += r.cost_usd ?? 0;
     row.messageCount += r.msgs ?? 0;
     row.unpricedMessages += r.unpriced ?? 0;
+    row.estimatedMessages += r.estimated ?? 0;
+    estimatedUsd += r.estimated_usd ?? 0;
+    if (!row.projectPath) row.projectPath = r.project_path;
+    byId.set(id, row);
+  }
+
+  for (const r of ledgerRows) {
+    const id = projectIdForPath(r.project_path);
+    const row = byId.get(id) ?? blank(id, r.project_path);
+    row.chatTokens += Math.round(r.cost_tokens ?? 0);
+    row.costUsd += r.cost_usd ?? 0;
+    // A reply nobody measured (ACP) or priced is said apart, like a message
+    // without a price: never summed as a free one.
+    row.unpricedMessages += r.uncounted ?? 0;
     if (!row.projectPath) row.projectPath = r.project_path;
     byId.set(id, row);
   }
@@ -182,12 +223,65 @@ export function projectUsage(db: Database, opts: ProjectUsageOptions = {}): Proj
   return {
     projects,
     totals,
+    sideCalls: sideCallUsage(db, days),
     cost: {
       currency: "usd",
       // Declared, not inferred by the reader: any of the three exclusions makes
       // the dollar figure a floor rather than a total.
       partial: totals.taskTokens > 0 || excludedMessages > 0 || models.length > 0,
       excluded: { taskTokens: totals.taskTokens, messages: excludedMessages, models },
+      // Inside the total, not left out of it: said apart so nobody reads an
+      // upper bound as a measured bill.
+      estimated: {
+        messages: projects.reduce((a, p) => a + p.estimatedMessages, 0),
+        usd: Math.round(estimatedUsd * 100) / 100,
+      },
     },
+  };
+}
+
+/**
+ * The side-call ledger (`usage/side-calls.ts`) over the same window, cut at the
+ * same midnight as the chat rows: every call not counted in a project. A reply
+ * to a chat with a project is in that project; one to a chat WITHOUT a project
+ * is here, or it would be in neither total. Its `timestamp` is epoch
+ * milliseconds, not ISO text like `messages`.
+ *
+ * A call the provider did not measure has NULL tokens and cost: it is counted
+ * as a call and said apart, never summed as a zero. Same for a measured call on
+ * a model without a price, and for a call that failed.
+ */
+function sideCallUsage(db: Database, days: number | null): SideCallUsage {
+  const window = days === null ? "" : " AND u.timestamp >= strftime('%s', date('now', ? || ' days')) * 1000";
+  const arg = days === null ? [] : [String(-Math.abs(days))];
+  const rows = db
+    .prepare(
+      `SELECT COALESCE(u.purpose, 'other') AS purpose, COUNT(*) AS calls,
+              SUM(CASE WHEN u.measured = 0 THEN 1 ELSE 0 END) AS unmeasured,
+              SUM(CASE WHEN u.measured = 1 AND u.cost_usd IS NULL THEN 1 ELSE 0 END) AS unpriced,
+              SUM(CASE WHEN u.error IS NOT NULL THEN 1 ELSE 0 END) AS failed,
+              SUM(u.cost_usd) AS cost_usd, SUM(u.total_tokens) AS tokens
+         FROM usage_records u
+         LEFT JOIN topics tp ON tp.id = u.topic_id
+        WHERE (tp.project_path IS NULL OR tp.project_path = '')${window}
+        GROUP BY COALESCE(u.purpose, 'other')
+        ORDER BY SUM(COALESCE(u.cost_usd, 0)) DESC, COUNT(*) DESC, COALESCE(u.purpose, 'other')`,
+    )
+    .all(...arg) as { purpose: string; calls: number; unmeasured: number; unpriced: number; failed: number; cost_usd: number | null; tokens: number | null }[];
+  const byPurpose = rows.map((r) => ({
+    purpose: r.purpose,
+    calls: r.calls,
+    unmeasured: r.unmeasured,
+    costUsd: Math.round((r.cost_usd ?? 0) * 100) / 100,
+    tokens: r.tokens ?? 0,
+  }));
+  const total = (key: "calls" | "unmeasured" | "unpriced" | "failed") => rows.reduce((a, r) => a + (r[key] ?? 0), 0);
+  return {
+    calls: total("calls"),
+    unmeasured: total("unmeasured"),
+    unpriced: total("unpriced"),
+    failed: total("failed"),
+    costUsd: Math.round(rows.reduce((a, r) => a + (r.cost_usd ?? 0), 0) * 100) / 100,
+    byPurpose,
   };
 }

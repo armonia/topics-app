@@ -82,7 +82,7 @@ export async function titoloMigliore(
           "Niente virgolette, niente punto finale, niente prefissi tipo «Titolo:». " +
           "Rispondi SOLO col titolo.\n\nRichiesta:\n" + materiale,
       },
-    ]);
+    ], { purpose: "card-title" });
     return ripulisci(out.content ?? "");
   } catch {
     return null; // nessun modello, nessuna rete: resta il taglio su parola

@@ -56,23 +56,43 @@ const NO_RESULT_RECORDED =
   "[no result recorded: the turn was interrupted before this call finished; run it again if its outcome matters]";
 
 /**
- * The ceiling applied to the history this file rebuilds, in tokens.
+ * The window a session's rebuilt history is compacted against, in ESTIMATED
+ * tokens (4 characters per token). It is a window, not the size the history
+ * comes back at. `compact` always empties the tool results between the
+ * opening request and the last `KEEP_RECENT` messages, and cuts the oldest
+ * turns until the history is at `COMPACT_TO` of it (about 44k); only past
+ * `COMPACT_AT_UNMEASURED` of it (82.5k) does it also clip the recent results.
+ * The last `KEEP_RECENT` messages are never cut, so a heavy recent tail can
+ * stay above the target (74k estimated with eight 37k-character reads in the
+ * last turn).
  *
  * Rehydration runs before a model is chosen for the resumed turn (`sessionFor`
  * calls it with only a session key), so it cannot size itself to that model's
- * real window the way live compaction does. It takes the floor every model in
- * this app declares instead of assuming the generous case — `windowFor`'s own
- * fallback for an unrecognised model is this same number.
+ * real window the way live compaction does.
+ *
+ * Why 110k and not 200k: a tool-heavy history tokenizes far denser than the
+ * estimate. Measured on 24/10 on a copy of the live database: at 200k the
+ * rebuilt history of topic:5a02dfd5 was 79,918 estimated tokens and 194,874
+ * real ones (1.64 characters per token), and every rebuild wrote about 250k
+ * tokens cold to the cache on its first round. At 110k the same history
+ * rebuilds to about 107k real tokens. That is the history alone: with the
+ * system prompt and the tool schemas (about 61k) a 200k-window model sits at
+ * 99% of `COMPACT_AT` and can still compact after its first round; the native
+ * default (Sonnet 5.5, 1M) does not. The saving is on the cold write.
+ *
+ * This window is for a native session only. The handoff to a CLI session
+ * (`providers/handoff.ts`) rebuilds the same thread without it and sizes the
+ * text to its own budget, which is larger than what this window leaves.
  *
  * IT DOES REAL WORK, measured on the four heaviest native sessions in the live
  * database: expanding every tool call in full, with no cap, reached 414k,
- * 569k, 1,586k and 1,631k tokens — 2 to 8 times this ceiling, and past the 1M
- * hard limit on two of them. `compact` is the same function the live loop
+ * 569k, 1,586k and 1,631k tokens, 3.8 to 14.8 times this window, and past the
+ * 1M hard limit on two of them. `compact` is the same function the live loop
  * already uses under load: it keeps the opening request and the recent tail
  * whole, empties old tool results and long tool inputs first, and only cuts
  * the oldest turns away if that is still not enough.
  */
-export const REHYDRATE_WINDOW_TOKENS = 200_000;
+export const REHYDRATE_WINDOW_TOKENS = 110_000;
 
 export type PersistedThreadLoader = (sessionKey: string) => PersistedTurn[];
 
@@ -146,7 +166,11 @@ export function configureNativeHistorySource(fn: PersistedThreadLoader | null): 
  *    Consegno", turn interrupted, a resume that did not know it had already
  *    delivered.
  */
-export function historyFromPersistedThread(thread: readonly PersistedTurn[], messageRows = 1): RehydratedTurn[] {
+export function historyFromPersistedThread(
+  thread: readonly PersistedTurn[],
+  messageRows = 1,
+  windowTokens: number | null = REHYDRATE_WINDOW_TOKENS,
+): RehydratedTurn[] {
   // Rule 1 (+5): stumps and placeholders out; tool calls expand into pairs.
   const rows: RehydratedTurn[] = [];
   for (const row of thread) {
@@ -180,12 +204,13 @@ export function historyFromPersistedThread(thread: readonly PersistedTurn[], mes
     if (prev && prev.role === m.role) prev.content = joinContent(prev.content, m.content);
     else merged.push({ ...m });
   }
-  // Rule 6: the rebuilt history stays under REHYDRATE_WINDOW_TOKENS. Every
-  // rule above can only grow the payload — rule 5 turns a compact tool_calls
-  // array back into full tool_use/tool_result pairs — and nothing upstream of
+  // Rule 6: the rebuilt history is compacted against `windowTokens`. Every
+  // rule above can only grow the payload (rule 5 turns a compact tool_calls
+  // array back into full tool_use/tool_result pairs), and nothing upstream of
   // this point ever looked at the total. See REHYDRATE_WINDOW_TOKENS for the
-  // measurement that makes this cap necessary.
-  return compact(merged, { windowTokens: REHYDRATE_WINDOW_TOKENS }).messages;
+  // measurement that makes this cap necessary. `null`: the caller sizes the
+  // history itself (the CLI handoff).
+  return windowTokens === null ? merged : compact(merged, { windowTokens }).messages;
 }
 
 /**
@@ -324,10 +349,14 @@ function resultBlock(tc: ToolCall): Block {
  * saperlo. Non lancia mai: una riparazione che fallisce deve costare un turno
  * senza memoria, non un turno che non parte.
  */
-export function rehydrateHistory(sessionKey: string, messageRows = 1): RehydratedTurn[] {
+export function rehydrateHistory(
+  sessionKey: string,
+  messageRows = 1,
+  windowTokens: number | null = REHYDRATE_WINDOW_TOKENS,
+): RehydratedTurn[] {
   if (!loadThread) return [];
   try {
-    return historyFromPersistedThread(loadThread(sessionKey), messageRows);
+    return historyFromPersistedThread(loadThread(sessionKey), messageRows, windowTokens);
   } catch {
     return [];
   }

@@ -66,7 +66,7 @@ export function createAutoNameRouter(ctx: AppContext, deps: AutoNameDeps): Route
           console.log(`[AutoName] AI call at=${new Date().toISOString()} session_key=${topic.sessionKey}`);
           const result = await namingProvider.complete([
             { role: "user", content: `Suggest a short title (3-5 words) and one emoji icon for this conversation. Reply ONLY with valid JSON, nothing else: {"title": "...", "icon": "..."}\n\nConversation:\n${conversationSummary}` },
-          ]);
+          ], { purpose: "chat-name" });
           const content = result.content || "";
           const jsonMatch = content.match(/\{[^}]+\}/);
           if (!jsonMatch) { console.log("[AutoName] AI did not return JSON:", content.slice(0, 100)); return; }

@@ -135,7 +135,7 @@ export function createEditRouter(ctx: AppContext, deps: EditDeps): RouteHandler 
         resp = await topicProvider.streamHTTP(finalMessages, { sessionKey, signal: abortController.signal });
       } else {
         // Fallback: use complete() and synthesize an SSE response
-        const result = await topicProvider.complete(finalMessages, { userFacing: true });
+        const result = await topicProvider.complete(finalMessages, { userFacing: true, purpose: "chat-reply", sessionKey });
         clearTimeout(timeoutId);
         // FRATELLO dell'ancora, non coda del thread. `appendLocalMessage` aggancia
         // in fondo al ramo attivo con branchIndex 0: su REGENERATE la risposta nuova

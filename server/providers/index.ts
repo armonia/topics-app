@@ -15,6 +15,7 @@
 export * from "./types";
 
 import { syncDirectEndpointProviders } from "./direct-endpoint-registry";
+import { meterCompletions } from "../usage/side-calls";
 import type { AIProvider, ProviderConfig, OpenClawProviderConfig, ClaudeProviderConfig, ClaudeCodeProviderConfig, CodexProviderConfig, MuseProviderConfig, OpenAIProviderConfig, AcpProviderConfig } from "./types";
 import { providerNameForConfig } from "./types";
 import { readApiProviderKey } from "../services/api-provider-credentials";
@@ -72,8 +73,17 @@ export function providerPreferenceRank(name: string): number {
 // Factory (single provider)
 // ---------------------------------------------------------------------------
 
-/* eslint-disable @typescript-eslint/no-require-imports -- each provider module (and its SDK) is loaded only when a provider of that type is configured */
+/**
+ * Every provider leaves here with its `complete()` metered
+ * (`usage/side-calls.ts`): one door, so no caller can forget to count a side
+ * call.
+ */
 export function createProvider(config: ProviderConfig): AIProvider {
+  return meterCompletions(instantiateProvider(config));
+}
+
+/* eslint-disable @typescript-eslint/no-require-imports -- each provider module (and its SDK) is loaded only when a provider of that type is configured */
+function instantiateProvider(config: ProviderConfig): AIProvider {
   switch (config.type) {
     case "openclaw": {
       const { OpenClawProvider } = require("./openclaw");

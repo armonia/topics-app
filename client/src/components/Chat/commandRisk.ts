@@ -147,6 +147,16 @@ type AddReason = (kind: RiskKind, text: string) => void;
  */
 interface Scan { add: AddReason; budget: number; exhausted: boolean }
 
+/**
+ * The work done, counted only while `commandRiskWork` measures it: the
+ * characters lexed or handed over to be read, the characters a delimiter
+ * search walks past, and the words and arguments looked at. A time says how
+ * busy the machine was; this count says how the work grows with the text. The
+ * budget does not draw on it, so a budget that stops limiting still shows here.
+ */
+let meter: { work: number } | null = null;
+const spend = (n: number) => { if (meter) meter.work += n; };
+
 /** The command's name as the shell resolves it: `/bin/rm` is `rm`. */
 const commandName = (w: string) => w.split('/').pop() ?? '';
 const isShortFlag = (w: string) => /^-[A-Za-z]+$/.test(w);
@@ -198,6 +208,7 @@ function ansiC(src: string, i: number): [string, number] {
  * with what came before it already in `out`.
  */
 function lex(src: string, out: SimpleCommand[], body = false): void {
+  spend(src.length);
   /** Delimiters looked for and not found from a position on: they are not found from any later one either. */
   const missing = new Map<string, number>();
 
@@ -257,6 +268,7 @@ function lex(src: string, out: SimpleCommand[], body = false): void {
   const delimiterLine = (delim: string, strip: boolean, pos: number): [number, number] | null => {
     const key = `${strip ? '-' : ''}${delim}`;
     if ((missing.get(key) ?? Infinity) <= pos) return null;
+    spend(src.length - pos);
     const re = new RegExp(`^${strip ? '\\t*' : ''}${delim.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'gm');
     re.lastIndex = pos;
     const m = re.exec(src);
@@ -403,6 +415,7 @@ function inputOf(cmd: SimpleCommand): string[] {
 
 /** The reasons found in a command line, and in each command it hands over as text. */
 function scanText(text: string, scan: Scan): void {
+  spend(text.length);
   if (scan.budget < text.length) { scan.exhausted = true; return; }
   scan.budget -= text.length;
   const commands: SimpleCommand[] = [];
@@ -422,6 +435,7 @@ function scanText(text: string, scan: Scan): void {
  * as its arguments, up to a comment: for a text the lexer could not read.
  */
 function scanLoose(text: string, add: AddReason): void {
+  spend(text.length);
   for (const line of text.split('\n')) {
     let words = line.split(/[\s;&|()`]+/).map((w) => w.replace(/['"\\]/g, ''));
     const comment = words.findIndex((w) => w.startsWith('#'));
@@ -601,6 +615,7 @@ function findCommands(args: string[]): string[][] {
 
 /** The reasons found in one simple command, as the words the shell hands over, and what it reads on its input. */
 function scanWords(words: string[], scan: Scan, input: () => string[]): void {
+  spend(words.length);
   const { add } = scan;
   // The last word that would read differently if read again: past it, `eval` and `ssh` change nothing.
   let lastChanging = -1;
@@ -640,6 +655,7 @@ function scanWords(words: string[], scan: Scan, input: () => string[]): void {
 
 /** The reasons the command `name` gives with `args`. */
 function scanCommand(name: string, args: string[], add: AddReason): void {
+  spend(args.length);
   switch (name) {
     case 'rm': {
       const flags = args.filter((a) => shortHas(a, 'rRf') || a === '--recursive' || a === '--force');
@@ -739,4 +755,15 @@ export function commandRisk(command: string): CommandRisk {
   }
   for (const m of joined.matchAll(PLACEHOLDER)) add('placeholder', m[0]);
   return { block: hasHiddenChars(command) ? 'hidden-chars' : null, confirm };
+}
+
+/** The work `commandRisk(command)` does, in the units of `meter`: for tests that check how it grows with the text. */
+export function commandRiskWork(command: string): number {
+  meter = { work: 0 };
+  try {
+    commandRisk(command);
+    return meter.work;
+  } finally {
+    meter = null;
+  }
 }

@@ -32,6 +32,7 @@
  */
 
 import { ZERO_USAGE, type SessionUsage } from "../services/transcript-usage";
+import { apiCallCostUsd } from "../usage/pricing";
 
 /** L'uso di UN turno, come lo misura `runAgentTurn`. */
 export interface TurnUsage {
@@ -52,8 +53,12 @@ const MAX_ENTRIES = 200;
 
 const totals = new Map<string, SessionUsage>();
 
-/** Somma l'uso di un turno al totale della sua sessione. */
-export function recordTurnUsage(sessionKey: string, turn: TurnUsage): void {
+/**
+ * Adds one round's usage to its session's total. `model` is the model that
+ * served the round: with it the round is priced on its own (`costUsd`), which
+ * is the only right price for Haiku 5.5, whose rate card is per request.
+ */
+export function recordTurnUsage(sessionKey: string, turn: TurnUsage, model?: string): void {
   if (!sessionKey) return;
   const prev = totals.get(sessionKey) ?? ZERO_USAGE;
   const next: SessionUsage = {
@@ -64,6 +69,9 @@ export function recordTurnUsage(sessionKey: string, turn: TurnUsage): void {
     cacheReadTokens: prev.cacheReadTokens + (turn.cacheRead || 0),
     billableTokens: 0,
   };
+  // The per-round sum stays only while every round could be priced.
+  const usd = typeof prev.costUsd === "number" ? apiCallCostUsd(model, turn) : null;
+  if (usd !== null) next.costUsd = prev.costUsd! + usd;
   // Derivato, mai sommato dal chiamante: un `billableTokens` passato da fuori
   // potrebbe non corrispondere ai suoi addendi, e allora la colonna e il
   // dettaglio racconterebbero due storie.

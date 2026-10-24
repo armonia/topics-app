@@ -98,6 +98,12 @@ export interface ToolResult {
    */
   images?: ToolImage[];
   isError?: boolean;
+  /**
+   * Tools this result loads, sent as `tool_reference` blocks instead of the
+   * text (`tool_search`, see `tool-deferral.ts`). `content` is still what the
+   * chat shows and what the DB keeps.
+   */
+  references?: string[];
 }
 
 /**
