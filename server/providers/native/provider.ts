@@ -492,7 +492,6 @@ export class NativeProvider implements AIProvider {
     return tolte;
   }
 
-  /** `messageRows`: how many of the thread's last user rows the message about to be sent is made of (see `sendChat`'s options). */
   /** See `AIProvider.contextEpoch`. Touching the session closes the gap in which a sweep could evict it after the route composed the turn. */
   contextEpoch(sessionKey: string): number {
     const built = contextEpochs.get(sessionKey) ?? 0;
@@ -502,6 +501,7 @@ export class NativeProvider implements AIProvider {
     return built;
   }
 
+  /** `messageRows`: how many of the thread's last user rows the message about to be sent is made of (see `sendChat`'s options). */
   private sessionFor(sessionKey: string, messageRows = 1): NativeSession {
     const existing = this.sessions.get(sessionKey);
     if (existing) { existing.lastUsedAt = Date.now(); return existing; }

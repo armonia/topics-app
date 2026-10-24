@@ -700,6 +700,10 @@ export interface AIProvider {
    * It returns the epoch the next `sendChat` will run on (the current one +1
    * when the session is gone) and keeps a live session from being evicted
    * before that turn arrives.
+   *
+   * A failed turn's message stays in the history of the epoch it ran on (the
+   * next message merges into it), so the route keeps that turn's marks while
+   * the epoch is unchanged.
    */
   contextEpoch?(sessionKey: string): number;
 

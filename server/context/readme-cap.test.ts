@@ -13,6 +13,7 @@ import { Database } from "bun:sqlite";
 import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { AppContext, Topic } from "../types";
+import { adaptEnvelope } from "./adapt";
 import { README_MAX_CHARS, assembleTopicContext } from "./assemble";
 
 const ROOT = join(process.env.TMPDIR ?? "/tmp", `readme-cap-${process.pid}`);
@@ -67,6 +68,36 @@ describe("the README in the context block", () => {
     const readme = longText("# Small", 8_000);
     writeFileSync(join(dir, "README.md"), readme);
     expect(block(dir, "template:README.md")!.content).toBe(readme);
+  });
+
+  it("a cut inside a code fence closes it: AGENTS.md after it is not read as code", () => {
+    const dir = join(ROOT, "fence");
+    mkdirSync(dir, { recursive: true });
+    // A fence opens at 15k characters and closes at 30k: the 20k cut lands inside it.
+    const readme = `${longText("# Fenced", 15_000)}\n\`\`\`bash\n${longText("echo sample", 15_000)}\n\`\`\`\n${longText("## After", 10_000)}`;
+    writeFileSync(join(dir, "README.md"), readme);
+    writeFileSync(join(dir, "AGENTS.md"), "# Agents\nAGENTS-RULE: never push to main.\n");
+
+    const fences = (text: string) => text.split("\n").filter((l) => /^ {0,3}(`{3,}|~{3,})/.test(l)).length;
+    expect(fences(block(dir, "template:README.md")!.content) % 2).toBe(0);
+    const sent = adaptEnvelope(envelopeFor(dir)).userContent;
+    const beforeRule = sent.slice(0, sent.indexOf("AGENTS-RULE"));
+    expect(sent).toContain("AGENTS-RULE");
+    expect(fences(beforeRule) % 2).toBe(0);
+  });
+
+  it("a cut with no line end in reach does not split a surrogate pair", () => {
+    const dir = join(ROOT, "emoji");
+    mkdirSync(dir, { recursive: true });
+    // One line from char 4 on: the cut falls at exactly the cap, between the
+    // two halves of the emoji that starts one character before it.
+    const readme = `# E\n${"a".repeat(README_MAX_CHARS - 5)}\u{1F600}${"b".repeat(20_000)}`;
+    expect(readme.charCodeAt(README_MAX_CHARS - 1)).toBe(0xd83d);
+    writeFileSync(join(dir, "README.md"), readme);
+    const content = block(dir, "template:README.md")!.content;
+    expect(content).toContain("README.md cut here");
+    // A lone surrogate does not survive a UTF-8 round trip.
+    expect(Buffer.from(content, "utf8").toString("utf8")).toBe(content);
   });
 
   it("CLAUDE.md is instructions: it arrives whole whatever its size", () => {

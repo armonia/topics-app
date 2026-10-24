@@ -720,14 +720,43 @@ function pushProjectTemplateBlocks(
   }
 }
 
-/** The README's head up to {@link README_MAX_CHARS}, cut at a line end, with a note that names the file. */
+/**
+ * The README's head up to {@link README_MAX_CHARS}, cut at a line end, with a note that names the file.
+ *
+ * A cut inside a code fence closes it: the files after the README in the
+ * block (AGENTS.md among them, the project's instructions) would otherwise be
+ * read as the rest of a code sample.
+ */
 function capReadme(content: string, path: string): string {
   if (content.length <= README_MAX_CHARS) return content;
-  const head = content.slice(0, README_MAX_CHARS);
+  let head = content.slice(0, README_MAX_CHARS);
+  // A cut between the two halves of a surrogate pair leaves half an emoji,
+  // which no longer encodes as valid UTF-8.
+  if (/[\uD800-\uDBFF]$/.test(head)) head = head.slice(0, -1);
   const lineEnd = head.lastIndexOf("\n");
   const kept = lineEnd > README_MAX_CHARS / 2 ? head.slice(0, lineEnd) : head;
-  return `${kept}\n\n[README.md cut here: the first ${kept.length} of ${content.length} characters. ` +
+  const fence = openFence(kept);
+  const closed = fence ? `${kept}\n${fence}` : kept;
+  return `${closed}\n\n[README.md cut here: the first ${kept.length} of ${content.length} characters. ` +
     `The whole file is ${path}; read it when the task needs the rest.]`;
+}
+
+/**
+ * The code fence still open at the end of `text`, or null. CommonMark rules:
+ * a fence is three or more backticks or tildes, indented at most three spaces,
+ * and only a run of the same character, at least as long and with nothing
+ * after it, closes it.
+ */
+function openFence(text: string): string | null {
+  let open: string | null = null;
+  for (const line of text.split("\n")) {
+    const m = /^ {0,3}(`{3,}|~{3,})(.*)$/.exec(line);
+    if (!m) continue;
+    const run = m[1]!;
+    if (open === null) open = run;
+    else if (run[0] === open[0] && run.length >= open.length && m[2]!.trim() === "") open = null;
+  }
+  return open;
 }
 
 function pushBrowserInstructionBlock(blocks: SystemBlock[]): void {

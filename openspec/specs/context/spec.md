@@ -328,6 +328,15 @@ osservato differisce da quello memorizzato.
 - **THEN** il preambolo contiene tutti gli slot abilitati
 - **AND** il messaggio successivo torna a portare solo ciò che è cambiato
 
+#### Scenario: Un turno nativo fallito resta nella copia che lo tiene
+
+- **GIVEN** una chat sul motore nativo appena ricostruita dal DB
+- **WHEN** il primo turno porta il preambolo completo e fallisce
+- **AND** l'utente invia un altro messaggio prima che la sessione venga sfrattata
+- **THEN** il preambolo non contiene di nuovo gli slot già portati dal turno fallito,
+  perché quel messaggio è ancora nella storia in memoria e il nuovo vi si fonde
+- **AND** se la sessione viene ricostruita di nuovo, il turno dopo riporta tutti gli slot
+
 #### Scenario: Un invio fallito non consuma lo stato
 
 - **GIVEN** una sessione senza slot registrati come inviati
@@ -339,8 +348,10 @@ osservato differisce da quello memorizzato.
 
 Il blocco `template:README.md` SHALL portare al massimo i primi 20.000 caratteri del
 README, tagliati a fine riga, seguiti da una nota che dice quanti caratteri restano fuori
-e il percorso del file intero. CLAUDE.md e AGENTS.md sono istruzioni e SHALL arrivare
-interi. Il conteggio dei token del blocco SHALL essere quello del testo inviato.
+e il percorso del file intero. Un taglio dentro un blocco di codice SHALL chiudere il
+blocco prima della nota, e un taglio SHALL NOT separare le due metà di una coppia
+surrogata. CLAUDE.md e AGENTS.md sono istruzioni e SHALL arrivare interi. Il conteggio
+dei token del blocco SHALL essere quello del testo inviato.
 
 #### Scenario: Un README da 136k caratteri
 
@@ -348,6 +359,14 @@ interi. Il conteggio dei token del blocco SHALL essere quello del testo inviato.
 - **WHEN** si compone il contesto di una chat su quel progetto
 - **THEN** il blocco porta la testa del README e non la coda
 - **AND** la nota nomina il percorso del file e la sua lunghezza
+
+#### Scenario: Il taglio cade dentro un blocco di codice
+
+- **GIVEN** un README con un blocco ``` aperto prima del taglio e chiuso dopo
+- **AND** un AGENTS.md nello stesso progetto
+- **WHEN** si compone il contesto
+- **THEN** il blocco del README chiude la recinzione prima della nota
+- **AND** nel testo inviato AGENTS.md sta fuori da ogni blocco di codice
 
 #### Scenario: Un README sotto il tetto
 

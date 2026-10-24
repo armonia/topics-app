@@ -22,7 +22,14 @@ afterAll(() => cleanupTestDataDir(ROOT));
 
 const MARKER = "SYSTEM-PROMPT-MARKER-7f3a";
 
-async function harness(opts: { sessionIdBornInFirstTurn?: boolean } = {}) {
+async function harness(opts: {
+  sessionIdBornInFirstTurn?: boolean;
+  /** Turns (1-based) the provider ends with an error instead of an answer. */
+  failTurns?: number[];
+  /** A provider without `contextEpoch` (claude-code). */
+  noEpoch?: boolean;
+  key?: string;
+} = {}) {
   const ctx = await createTestAppContext();
   const sent: string[] = [];
   let epoch = 1;
@@ -34,7 +41,7 @@ async function harness(opts: { sessionIdBornInFirstTurn?: boolean } = {}) {
     get connected() { return true; },
     registerStreamHandler: (_sk: string, _rid: string | undefined, h: StreamHandler) => { handler = h; },
     unregisterStreamHandler: () => {},
-    contextEpoch: () => epoch,
+    ...(opts.noEpoch ? {} : { contextEpoch: () => epoch }),
     sendChat: async (sk: string, message: string) => {
       sent.push(message);
       // A CLI writes its session row inside the first send, after the route
@@ -47,7 +54,12 @@ async function harness(opts: { sessionIdBornInFirstTurn?: boolean } = {}) {
         );
       }
       const h = handler;
-      setTimeout(() => { h?.onTextDelta("ok", "ok"); h?.onDone({ result: "ok" } as never); }, 5);
+      const fails = opts.failTurns?.includes(sent.length);
+      setTimeout(() => {
+        if (fails) { h?.onError("400 invalid_request_error"); return; }
+        h?.onTextDelta("ok", "ok");
+        h?.onDone({ result: "ok" } as never);
+      }, 5);
       return { runId: `run-${sent.length}` };
     },
     defaultModel: () => "fake-model",
@@ -70,7 +82,7 @@ async function harness(opts: { sessionIdBornInFirstTurn?: boolean } = {}) {
     WORKSPACE_DIR: testTmpDir("chat-native-rebuild-context-ws"),
   } as never);
 
-  const sessionKey = opts.sessionIdBornInFirstTurn ? "topic:native-rebuild-rekey" : "topic:native-rebuild";
+  const sessionKey = opts.key ?? (opts.sessionIdBornInFirstTurn ? "topic:native-rebuild-rekey" : "topic:native-rebuild");
   const now = new Date().toISOString();
   ctx.saveSingleTopic({
     id: sessionKey.slice("topic:".length), name: "rebuild", slug: "rebuild", parentId: null, links: [],
@@ -108,6 +120,29 @@ describe("the inline context after a native session rebuild", () => {
     h.rebuild();
     expect(await h.turn("third")).toContain(MARKER);
     expect(await h.turn("fourth")).not.toContain(MARKER);
+  });
+
+  test("a failed turn after the rebuild keeps its mark: the copy that holds it gets the context once", async () => {
+    // The native engine keeps a failed turn's message as the history's
+    // unanswered tail and merges the next message into it: undoing the mark
+    // would put the block in that history a second time, for good.
+    const h = await harness({ failTurns: [2], key: "topic:native-rebuild-fail" });
+    expect(await h.turn("first")).toContain(MARKER);
+    h.rebuild();
+    expect(await h.turn("second, fails")).toContain(MARKER);
+    expect(await h.turn("third")).not.toContain(MARKER);
+    // Rebuilt again after the failure: that copy lost the block and gets it back.
+    h.rebuild();
+    expect(await h.turn("fourth")).toContain(MARKER);
+  });
+
+  test("a failed turn on a provider without epochs still resends the context", async () => {
+    // Control for the rule above: a CLI that died before reading stdin never
+    // got the block, and the next message must carry it.
+    const h = await harness({ failTurns: [1], noEpoch: true, key: "topic:cli-fail" });
+    expect(await h.turn("first, fails")).toContain(MARKER);
+    expect(await h.turn("second")).toContain(MARKER);
+    expect(await h.turn("third")).not.toContain(MARKER);
   });
 
   test("the marks follow the session id born in the first turn, epoch included", async () => {
