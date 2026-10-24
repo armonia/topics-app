@@ -285,7 +285,7 @@ export function createAppSettingsRouter(ctx: AppContext): RouteHandler {
       if (errors.length > 0) {
         return json({ ok: false, errors }, 400);
       }
-      const settings = updateAppSettings(patch);
+      updateAppSettings(patch);
       // Direct API defaults apply on the next turn. Push the same model into
       // every composer's snapshot now, so its label agrees with that request.
       if ("openaiModel" in patch || "openaiMaxTokens" in patch) getSnapshotManager().invalidate("openai");
@@ -308,6 +308,17 @@ export function createAppSettingsRouter(ctx: AppContext): RouteHandler {
       const changed = recomputeDefault();
       if (changed) {
         ctx.broadcastToAll?.({ type: "gateway:status", connected: true });
+      }
+      // The answer is read back with the strict reader, the rule of the GET: the
+      // settings panel draws this answer, and an all-NULL one would draw the
+      // cleanup of closed browsers' data ON at 60 days over a stored OFF. The
+      // write has landed by now and the hooks above ran; only the answer fails.
+      let settings: AppSettings;
+      try {
+        settings = readAppSettings();
+      } catch (err) {
+        console.warn("[app-settings] saved, but the settings row could not be read back:", err);
+        return json({ ok: false, error: "settings saved but unreadable" }, 503);
       }
       return json({ ok: true, settings, default: getDefaultProviderName() ?? null });
     }
