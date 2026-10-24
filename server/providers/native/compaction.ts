@@ -633,6 +633,27 @@ export function windowFor(model: string): number {
 export const IMAGE_HISTORY_BYTE_BUDGET = 20 * 1024 * 1024;
 export const IMAGE_HISTORY_COUNT_BUDGET = 20;
 
+/**
+ * Where a prune stops: half of each budget, not just under it.
+ *
+ * WHY HALF. Every prune rewrites the history from the first pruned image on,
+ * and the prompt cache only hits on a prefix that did not change: the round
+ * after a prune writes everything past that image to the cache again. Pruning
+ * to just under the budget made that happen on every round that brought a new
+ * image, once the history held 20 of them. Going down to half buys half a
+ * budget of new images before the next prune. With small images ten rounds
+ * pass untouched and the eleventh prunes. With 1.87 MiB of base64 per image
+ * (what the budget measures, not the file's size) the bytes decide: five
+ * stay, five rounds pass untouched and the sixth prunes. One rewrite every 6
+ * to 11 image rounds instead of every round.
+ *
+ * The price: right after a prune the model sees half the images it saw
+ * before. The newest one always stays, and the others leave a placeholder
+ * with their path.
+ */
+export const IMAGE_HISTORY_COUNT_TARGET = 10;
+export const IMAGE_HISTORY_BYTE_TARGET = 10 * 1024 * 1024;
+
 interface ImageBlockRef { messageIndex: number; blockIndex: number; count: number; bytes: number }
 
 /** One entry per tool_result that carries at least one image block. */
@@ -667,9 +688,10 @@ function replaceImageBlocks(messages: AgentMessage[], targets: Set<string>): Age
 }
 
 /**
- * Prunes the OLDEST images to placeholders until the history fits under both
- * budgets, always keeping the single most recent image-bearing result intact
- * — the model can still see what it just looked at, even mid-prune.
+ * Once the history goes over either budget, prunes the OLDEST images to
+ * placeholders until it is down to both targets, always keeping the single
+ * most recent image-bearing result intact — the model can still see what it
+ * just looked at, even mid-prune.
  */
 export function enforceImageHistoryBudget(messages: AgentMessage[]): AgentMessage[] {
   const refs = collectImageBlockRefs(messages);
@@ -683,7 +705,7 @@ export function enforceImageHistoryBudget(messages: AgentMessage[]): AgentMessag
   const targets = new Set<string>();
   for (const ref of refs) {
     if (ref === keepNewest) continue;
-    if (remainingCount <= IMAGE_HISTORY_COUNT_BUDGET && remainingBytes <= IMAGE_HISTORY_BYTE_BUDGET) break;
+    if (remainingCount <= IMAGE_HISTORY_COUNT_TARGET && remainingBytes <= IMAGE_HISTORY_BYTE_TARGET) break;
     targets.add(`${ref.messageIndex}:${ref.blockIndex}`);
     remainingCount -= ref.count;
     remainingBytes -= ref.bytes;
