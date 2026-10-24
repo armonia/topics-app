@@ -1,0 +1,65 @@
+name: bench-433-shots
+# Temporary, lives only on the bench/433-shots branch: the before/after shots of
+# the model menu (PR #433) on a macOS runner (the Mac's own fonts), WebKit, while
+# the Mac is too loaded to run a browser. "oggi" is main, "redesign" the PR head,
+# both pinned by sha so a re-run shoots the same trees.
+on:
+  push:
+    branches: [bench/433-shots]
+permissions:
+  contents: read
+jobs:
+  shots:
+    runs-on: macos-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          path: bench
+      - uses: actions/checkout@v5
+        with:
+          path: oggi
+          ref: dbcd936c6b2843866a3a72f4c6eb7104572c29d8
+      - uses: actions/checkout@v5
+        with:
+          path: redesign
+          ref: d2c21279bec27759af18284554cdc1e4f0410fd5
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: bench/.bun-version
+      - name: Cache the built demos
+        id: demos
+        uses: actions/cache@v4
+        with:
+          path: |
+            oggi/landing/public/app
+            redesign/landing/public/app
+          key: demo433-dbcd936c6b2843866a3a72f4c6eb7104572c29d8-d2c21279bec27759af18284554cdc1e4f0410fd5-${{ hashFiles('bench/bench433/patch-demo.mjs') }}
+      - name: Build both demos
+        if: steps.demos.outputs.cache-hit != 'true'
+        run: |
+          for t in oggi redesign; do
+            node bench/bench433/patch-demo.mjs "$t/client/src/demo/landing-boot.js"
+            ( cd "$t" && bun install --frozen-lockfile --ignore-scripts && cd client && bun install --frozen-lockfile && bun run build:landing )
+          done
+      - name: Playwright WebKit
+        working-directory: bench/bench433
+        run: |
+          npm init -y > /dev/null
+          npm install playwright-core@^1.59.1
+          node node_modules/playwright-core/cli.js install webkit
+      - name: Shoot
+        run: |
+          ( cd oggi/landing/public && python3 -m http.server 4801 --bind 127.0.0.1 > /dev/null 2>&1 & )
+          ( cd redesign/landing/public && python3 -m http.server 4802 --bind 127.0.0.1 > /dev/null 2>&1 & )
+          sleep 2
+          mkdir -p out
+          status=0
+          node bench/bench433/shoot.mjs http://127.0.0.1:4801 out oggi webkit opaque || status=1
+          node bench/bench433/shoot.mjs http://127.0.0.1:4802 out redesign webkit opaque || status=1
+          exit $status
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: shots
+          path: out/
