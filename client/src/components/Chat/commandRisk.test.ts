@@ -8,7 +8,7 @@
  * @covers CHAT-RUN-02
  */
 import { describe, expect, test } from 'bun:test';
-import { commandRisk, type RiskKind } from './commandRisk';
+import { commandRisk, commandRiskWork, type RiskKind } from './commandRisk';
 
 const kinds = (command: string): RiskKind[] => commandRisk(command).confirm.map((r) => r.kind);
 
@@ -405,18 +405,93 @@ describe('commandRisk: the second step', () => {
     }
   });
 
-  // commandRisk runs on every render of a runnable block: the time grows with
+  // commandRisk runs on every render of a runnable block: its cost grows with
   // the text, not with how deep the quotes and wrappers nest. Each of these
-  // took from 0.1 s to minutes before.
-  test('nested quotes, expansions and wrappers stay fast up to 20 KB', () => {
-    const fill = (unit: string, before = '', after = '') => before + unit.repeat(Math.floor((20480 - before.length - after.length) / unit.length)) + after;
-    for (const command of [
-      '"$('.repeat(26), fill('"$('), fill('$('), fill('${'), fill('"${'), fill('eval ', '', 'true'), 'eval '.repeat(400) + `"'"`,
-      fill('eval ', '', `"'"`), fill('nohup ', "'"), fill('ssh h ', '', "'a b'"), fill('echo rm -rf x | sh | '), fill('cat <<A\n'),
-      fill('if { '), fill('`a` '),
-    ]) {
-      const times = [0, 1, 2].map(() => { const t0 = performance.now(); commandRisk(command); return performance.now() - t0; }).sort((a, b) => a - b);
-      expect({ command: command.slice(0, 40), ms: times[1]! < 100 }).toEqual({ command: command.slice(0, 40), ms: true });
+  // took from 0.1 s to minutes before. Two checks, because each misses what
+  // the other sees. The work is counted (`commandRiskWork`: the characters
+  // lexed or handed over to be read again, the characters each delimiter
+  // search walks past, the words and arguments looked at; the budget does not
+  // draw on it): exact, and blind to a cost that is not a step, a copy of an
+  // array for each word or a regex that backtracks. The time sees those, but
+  // compared so a busy machine cannot fake growth: a large text against
+  // sixty-four small ones of the same total length.
+  const fill = (size: number, unit: string, before = '', after = '') =>
+    before + unit.repeat(Math.floor((size - before.length - after.length) / unit.length)) + after;
+  const label = (unit: string, before = '', after = '') => JSON.stringify(`${before}${unit}${unit}...${after}`);
+  const growthCases: Array<[string, string?, string?]> = [
+    ['"$('], ['$('], ['${'], ['"${'], ['eval ', '', 'true'], ['eval ', '', `"'"`], ['nohup ', "'"], ['ssh h ', '', "'a b'"],
+    ['echo rm -rf x | sh | '], ['cat <<A\n'], ['if { '], ['`a` '],
+    // One long word that ends with a slash: a basename regex can backtrack on it.
+    ['x', '', '/'],
+    // The shortest wrapper, zsh's `-`: the most wrappers per KB, where a copy of the words at each one shows.
+    ['- ', '', 'true'],
+    // Line continuations among quotes: a regex that looks from each one to the end of the text is quadratic.
+    ["echo 'a' \\\n"],
+  ];
+
+  test('every case of the growth checks has a label of its own', () => {
+    const labels = growthCases.map(([unit, before, after]) => label(unit, before, after));
+    expect(new Set(labels).size).toBe(labels.length);
+  });
+
+  test('nested quotes, expansions and wrappers do work linear in the text up to 20 KB', () => {
+    // Deep nesting first, while it is short: twice the depth is 2-3 times the
+    // work, and exponential growth makes it thousands of times before the
+    // 20 KB texts below would hang the run.
+    for (const [unit, depth, after] of [['"$(', 26, ''], ['eval ', 400, `"'"`]] as const) {
+      const half = commandRiskWork(unit.repeat(depth / 2) + after);
+      const full = commandRiskWork(unit.repeat(depth) + after);
+      const verdict = `${label(unit, '', after)} at depth ${depth / 2} and ${depth}: work ${half} and ${full}`;
+      expect(`${verdict}: ${full < 8 * half ? 'linear' : 'EXPONENTIAL'}`).toBe(`${verdict}: linear`);
+    }
+    // Eight times the text: about eight times the work when it grows with the
+    // text (7.6-8.5 for these), about 64 when it grows with its square, and
+    // in between when only a part does.
+    for (const [unit, before, after] of growthCases) {
+      const small = commandRiskWork(fill(2560, unit, before, after));
+      const large = commandRiskWork(fill(20480, unit, before, after));
+      const verdict = `${label(unit, before, after)}: work ${small} at 2.5 KB, ${large} at 20 KB (x${(large / small).toFixed(2)})`;
+      expect(`${verdict}: ${large < 12 * small ? 'linear' : 'NOT LINEAR'}`).toBe(`${verdict}: linear`);
+    }
+  });
+
+  // Sixty-four texts of 320 bytes against one of 20 KB: the same characters,
+  // so both take about as long when the cost grows with the text, and the
+  // large one up to 64 times longer when it grows with its square. Threshold
+  // 8. Both runs last about as long, so a busy machine slows them alike; the
+  // best of five counts, since noise only adds time. Each case first runs
+  // twice at both sizes, untimed: what the tests before left compiled must
+  // not count (24/10: with the counter first, `$(` stayed at about x2.2 with
+  // the right code). Every call gets a text of its own (a comment line with
+  // a number), so a cache of recent results cannot answer for the code. A
+  // full collection before each run: otherwise the garbage of the cases
+  // before lands in whichever run happens to trigger it. The best large run
+  // under 2 s is the guard against a run that blocks the page.
+  test('every case: one 20 KB text costs about as much as sixty-four of 320 bytes', () => {
+    let serial = 0;
+    const own = (text: string) => `${text}\n#${serial++}`;
+    const runAll = (texts: string[]) => { for (const text of texts) commandRisk(text); };
+    const timeMs = (run: () => void) => {
+      Bun.gc(true);
+      const before = performance.now();
+      run();
+      return performance.now() - before;
+    };
+    for (const [unit, before, after] of growthCases) {
+      const small = fill(320, unit, before, after);
+      const large = fill(20480, unit, before, after);
+      const smalls = () => Array.from({ length: 64 }, () => own(small));
+      for (let i = 0; i < 2; i++) runAll([...smalls(), own(large)]);
+      let many = Infinity;
+      let one = Infinity;
+      for (let i = 0; i < 5; i++) {
+        const texts = smalls();
+        const big = own(large);
+        many = Math.min(many, timeMs(() => runAll(texts)));
+        one = Math.min(one, timeMs(() => commandRisk(big)));
+      }
+      const verdict = `${label(unit, before, after)}: 64 x 320 B in ${many.toFixed(2)} ms, 1 x 20 KB in ${one.toFixed(2)} ms (x${(one / many).toFixed(2)})`;
+      expect(`${verdict}: ${one < 8 * many && one < 2000 ? 'linear' : 'NOT LINEAR'}`).toBe(`${verdict}: linear`);
     }
   });
 

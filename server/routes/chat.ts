@@ -50,8 +50,8 @@ import { noteResendCopy } from "../lib/resend-count";
 import { appendUsageRecord } from "../usage/store";
 import { autoreDaIdentita } from "../lib/message-author";
 import { makeGatewaySseProcessor } from "../lib/gateway-sse-consumer";
-import { accumulateTurnUsage, emptyTurnUsage, turnUsageParts, turnUsageWire } from "../usage/turn-usage";
-import { calculateCost, calculateCostWithCache, splitPromptTokens } from "../usage/pricing";
+import { accumulateTurnUsage, emptyTurnUsage, turnUsageWire } from "../usage/turn-usage";
+import { calculateCost, calculateCostWithCache, callsCostUsd, splitPromptTokens, type PricedCall } from "../usage/pricing";
 import type { BrowserService } from "../browser-service";
 import type { Tool } from "@anthropic-ai/sdk/resources/messages";
 import { browserTools } from "../browser-tools";
@@ -1519,6 +1519,9 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
           // lungo, dove prima non si vedeva niente fino alla fine.
           let live = emptyTurnUsage();
           let liveModel: string | undefined;
+          // The same calls one by one: the message's cost is the sum of their
+          // prices, because Haiku 5.5 picks its rate card per request.
+          const liveCalls: PricedCall[] = [];
           // Set when a compaction boundary lands mid-turn, so onDone knows this
           // turn's `prompt_tokens` (the compacted context that was sent) is the
           // post-compaction size to backfill onto the just-created marker.
@@ -1559,6 +1562,20 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
           // Idempotente: `onError` e il `.catch` possono scattare entrambi.
           let rollbackInlineSent: (() => void) | null = null;
           const undoInlineMark = () => { rollbackInlineSent?.(); rollbackInlineSent = null; };
+          // The context epoch the turn was composed for: set only by a provider
+          // that keeps the conversation itself (native, see `AIProvider.contextEpoch`).
+          let sentEpoch: number | undefined;
+          // A failed turn on such a provider stays in its conversation: the
+          // message is the history's unanswered tail and the next turn merges
+          // into it (native `sendChat`). The context it carried is in that
+          // copy, and undoing the mark would send it a second time, kept for
+          // the rest of the session (measured: 70k characters per call became
+          // 140k). If the copy is rebuilt later, its epoch moves and the next
+          // turn's scope changes by itself.
+          const undoInlineMarkAfterFailedTurn = () => {
+            if (sentEpoch !== undefined) { rollbackInlineSent = null; return; }
+            undoInlineMark();
+          };
           // Reattach after a server restart continues the SAME bubble the client
           // was watching (reuse + in-place JSONL replay) instead of spawning a
           // duplicate turn / leaving a ghost spinner. Normal sends always get a
@@ -3355,15 +3372,7 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
               const tokens = (u.inputTokens || 0) + (u.outputTokens || 0);
               let costCents: number | undefined;
               try {
-                const parts = turnUsageParts(accumulateTurnUsage(emptyTurnUsage(), u));
-                const usd = calculateCostWithCache({
-                  model: u.model || liveModel || overrideModel || "unknown",
-                  freshInputTokens: parts.fresh,
-                  outputTokens: parts.output,
-                  cacheReadTokens: parts.cacheRead,
-                  cacheCreationTokens: parts.cacheCreation5m,
-                  cacheCreation1hTokens: parts.cacheCreation1h,
-                });
+                const usd = callsCostUsd([u], liveModel || overrideModel || "unknown");
                 if (usd > 0) costCents = Math.round(usd * 100);
               } catch { /* modello sconosciuto: si mostrano i token senza prezzo */ }
               const patch: Partial<ToolCall> = { tokens };
@@ -3459,35 +3468,22 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
               // `result` finale somma già tutto — sommare anche quello sarebbe
               // contare due volte. Il client non fa aritmetica: riceve i totali.
               live = accumulateTurnUsage(live, u);
+              liveCalls.push(u);
               if (u.model) liveModel = u.model;
               if (!matchedTopic) return;
-              // Lo SCORPORO, una volta sola e FUORI dal try.
+              // The split into DISJOINT shares, once and outside the try.
               //
-              // `live` porta le quote come le manda l'API: annidate, cioè
-              // `cacheCreation` è il TOTALE e `cacheCreation1h` una sua parte.
-              // Le colonne di `messages` e i campi del filo vogliono l'opposto
-              // (quote disgiunte, migration 070). Prima questa traduzione stava
-              // dentro il `try` del prezzo e serviva solo a lui: la riga salvata
-              // e il frame WS prendevano i grezzi, cioè sommavano due volte la
-              // scrittura in cache. Sta fuori perché è pura e non può lanciare,
-              // e perché un fallimento del PREZZO non deve poter rimettere in
-              // giro i numeri annidati.
-              const parts = turnUsageParts(live);
-              // La stessa cosa nella forma di `messages` e del frame WS: una
-              // porta sola per la riga salvata e per il filo.
+              // `live` carries the shares as the API sends them: nested, so
+              // `cacheCreation` is the TOTAL and `cacheCreation1h` a part of it.
+              // The `messages` columns and the wire fields want the opposite
+              // (disjoint shares, migration 070): a single door for the saved row
+              // and the wire, so the cache write is never counted twice.
               const wire = turnUsageWire(live);
-              // Costo corrente, con le stesse tariffe del consuntivo: il fresco è
-              // il RESTO (mai negativo), le due durate di cache pagano la loro.
+              // Running cost, at the same prices as the final one: each call
+              // priced on its own, then summed.
               let liveCost: number | undefined;
               try {
-                const usd = calculateCostWithCache({
-                  model: liveModel || overrideModel || "unknown",
-                  freshInputTokens: parts.fresh,
-                  outputTokens: parts.output,
-                  cacheReadTokens: parts.cacheRead,
-                  cacheCreationTokens: parts.cacheCreation5m,
-                  cacheCreation1hTokens: parts.cacheCreation1h,
-                });
+                const usd = callsCostUsd(liveCalls, liveModel || overrideModel || "unknown");
                 if (usd > 0) liveCost = Math.round(usd * 100);
               } catch { /* modello sconosciuto: si mostrano i token senza prezzo */ }
               // Gli stessi numeri, anche SULLA RIGA e non solo sul filo.
@@ -3620,7 +3616,7 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
               // non esserlo mai stato (PROCESS_DEAD rigetta PRIMA di scrivere su
               // stdin). Nel dubbio si rimanda: due token in piu' contro un modello
               // che non sa in che progetto si trova.
-              undoInlineMark();
+              undoInlineMarkAfterFailedTurn();
               finalizeStream("error", error);
             },
 
@@ -3794,6 +3790,15 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
                 const usdFromProvider = typeof usage.costUsd === "number" ? usage.costUsd : undefined;
                 if (usdFromProvider != null) {
                   costCents = Math.round(usdFromProvider * 100);
+                } else if (liveCalls.length > 0) {
+                  // The provider reported its calls one by one: the message
+                  // costs the sum of their prices. Haiku 5.5 picks its rate
+                  // card per request, so the turn total (or its average) would
+                  // put every call on the same card.
+                  try {
+                    const usd = callsCostUsd(liveCalls, modelOfTurn || "unknown");
+                    if (usd > 0) costCents = Math.round(usd * 100);
+                  } catch { /* unknown model: skip the cost, keep the tokens */ }
                 } else if (typeof inTok === "number" && typeof outTok === "number") {
                   try {
                     // Riusa lo scorporo già calcolato sopra invece di rifarlo: era
@@ -3892,9 +3897,11 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
             // conversazione CLI: sessione nuova o compattazione ⇒ mappa vuota ⇒
             // il contesto completo riparte da solo.
             const dedupOff = process.env.TOPICS_INLINE_CONTEXT_DEDUP === "0";
+            sentEpoch = dedupOff ? undefined : topicProvider.contextEpoch?.(sessionKey);
             const sentScope = dedupOff ? null : inlineScope(
               readClaudeSessionId(ctx, sessionKey),
               countCompactions(ctx, sessionKey),
+              sentEpoch,
             );
             // A skill invocation (`/recap`) reaches the CLI bare, its context comes back apart
             // (`payload.slashContext`). Known skills: the CLI's own list (claude-code only), then the topic's cwd.
@@ -4022,7 +4029,11 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
               // preambolo se l'è portato via e rimandarlo è l'esito corretto.
               if (sentScope && payload.inlineSlots) {
                 try {
-                  const settled = inlineScope(readClaudeSessionId(ctx, sessionKey), countCompactions(ctx, sessionKey));
+                  const settled = inlineScope(
+                    readClaudeSessionId(ctx, sessionKey),
+                    countCompactions(ctx, sessionKey),
+                    topicProvider.contextEpoch?.(sessionKey),
+                  );
                   rekeyInlineSent(sessionKey, sentScope, settled);
                 } catch { /* best-effort: al peggio si rimanda il contesto */ }
               }

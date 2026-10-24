@@ -25,43 +25,23 @@
  * apre manda `/fast on` e segue lo stato che la CLI riporta.
  */
 
-/**
- * Il listino della fast mode, USD per 1M token. Non è dedotto: lo scrive la
- * CLI stessa, nel testo di migrazione che porta dentro il binario 2.1.223 —
- *
- *   «Fast mode on {{OPUS_NAME}} is priced at $10 / $50 per MTok. Fast mode runs
- *    the same model at up to 2.5x higher output tokens per second, at premium
- *    pricing.»
- *
- * Contro i 5$/25$ di Opus standard fa esattamente 2× su input E su output: un
- * numero solo, senza medie da spiegare. È il numero che il composer mostra
- * sotto il ⚡ — «più veloce» da solo non è un'informazione finché non dici
- * quanto costa.
- *
- * Il guadagno di velocità (fino a 2,5× token/s in uscita) resta una frase, non
- * una costante: non entra in nessun calcolo, e a scriverla nel tooltip è il
- * client. Un numero esportato che nessuno importa è codice morto travestito da
- * documentazione — la documentazione è questa.
- */
-export const FAST_MODE_PRICING = { input: 10, output: 50 } as const;
+import { modelPrice } from "../../shared/model-pricing";
 
 /**
- * Il moltiplicatore di costo della fast mode su `model`, o `null` se su quel
- * modello la fast mode non esiste.
+ * The cost multiplier of fast mode on `model`, or `null` where fast mode does
+ * not exist or the model has no price.
  *
- * Esiste solo sulla famiglia Opus (la CLI: «available on Opus 5/4.8», e il suo
- * enum ha un `model_not_allowed` per gli altri). Il rapporto si CALCOLA dai due
- * listini invece di scrivere «2» a mano: il giorno che uno dei due cambia, il
- * numero mostrato cambia con lui — una costante scritta a mano no.
+ * The prices are the model's own fast row in `shared/model-pricing.ts`, from the
+ * official pricing page: Opus 5.5 at $8/$40, Opus 5 and 4.8 at $10/$50, twice
+ * the standard price on each. A single fixed $10/$50 made Opus 5.5 show 2.5x,
+ * because its standard output is $20, not $25. No fast row, no number: the
+ * other models (Sonnet, older Opus) do not have fast mode.
  */
-export function fastModeMultiplier(
-  model: string | null | undefined,
-  priceOf: (m: string) => { input: number; output: number } | null,
-): number | null {
-  if (!model || !/opus/i.test(model)) return null;
-  const std = priceOf(model);
-  if (!std || std.output <= 0) return null;
-  return FAST_MODE_PRICING.output / std.output;
+export function fastModeMultiplier(model: string | null | undefined): number | null {
+  if (!model) return null;
+  const row = modelPrice(model);
+  if (!row?.fast || row.output <= 0) return null;
+  return row.fast.output / row.output;
 }
 
 /** Gli stati che la CLI dichiara. `cooldown` = in pausa dopo un rate limit. */

@@ -301,8 +301,10 @@ la lista dei passi sopra il composer intralciava la scrittura (24/09).
 ### Requirement: CTX-DEDUP-02 — Lo stato di invio è valido solo per la conversazione CLI corrente
 
 Il sistema SHALL legare gli slot registrati come inviati a uno scope composto
-dall'identificativo della sessione CLI e dal numero di compattazioni della sessione, e
-SHALL scartare l'intero stato quando lo scope osservato differisce da quello memorizzato.
+dall'identificativo della sessione CLI, dal numero di compattazioni della sessione e, per
+un provider che tiene la conversazione in memoria e la ricostruisce dal DB (nativo),
+dall'epoca della copia in memoria, e SHALL scartare l'intero stato quando lo scope
+osservato differisce da quello memorizzato.
 
 #### Scenario: Una nuova sessione CLI riparte dal contesto completo
 
@@ -318,12 +320,58 @@ SHALL scartare l'intero stato quando lo scope osservato differisce da quello mem
 - **AND** l'utente invia un messaggio
 - **THEN** il preambolo contiene tutti gli slot abilitati
 
+#### Scenario: Dopo la ricostruzione della sessione nativa dal DB il contesto viene rimandato
+
+- **GIVEN** una chat sul motore nativo con tutti gli slot registrati come inviati
+- **WHEN** la sessione in memoria viene sfrattata dopo 15 minuti di inattività
+- **AND** l'utente invia un messaggio, e la sessione si ricostruisce dalle righe del DB
+- **THEN** il preambolo contiene tutti gli slot abilitati
+- **AND** il messaggio successivo torna a portare solo ciò che è cambiato
+
+#### Scenario: Un turno nativo fallito resta nella copia che lo tiene
+
+- **GIVEN** una chat sul motore nativo appena ricostruita dal DB
+- **WHEN** il primo turno porta il preambolo completo e fallisce
+- **AND** l'utente invia un altro messaggio prima che la sessione venga sfrattata
+- **THEN** il preambolo non contiene di nuovo gli slot già portati dal turno fallito,
+  perché quel messaggio è ancora nella storia in memoria e il nuovo vi si fonde
+- **AND** se la sessione viene ricostruita di nuovo, il turno dopo riporta tutti gli slot
+
 #### Scenario: Un invio fallito non consuma lo stato
 
 - **GIVEN** una sessione senza slot registrati come inviati
 - **WHEN** un turno viene composto e l'invio al provider fallisce
 - **AND** l'utente invia di nuovo un messaggio
 - **THEN** il preambolo contiene tutti gli slot abilitati
+
+### Requirement: CTX-README-01 — Il README del progetto arriva con un tetto
+
+Il blocco `template:README.md` SHALL portare al massimo i primi 20.000 caratteri del
+README, tagliati a fine riga, seguiti da una nota che dice quanti caratteri restano fuori
+e il percorso del file intero. Un taglio dentro un blocco di codice SHALL chiudere il
+blocco prima della nota, e un taglio SHALL NOT separare le due metà di una coppia
+surrogata. CLAUDE.md e AGENTS.md sono istruzioni e SHALL arrivare interi. Il conteggio
+dei token del blocco SHALL essere quello del testo inviato.
+
+#### Scenario: Un README da 136k caratteri
+
+- **GIVEN** un progetto con un README.md di 136.000 caratteri
+- **WHEN** si compone il contesto di una chat su quel progetto
+- **THEN** il blocco porta la testa del README e non la coda
+- **AND** la nota nomina il percorso del file e la sua lunghezza
+
+#### Scenario: Il taglio cade dentro un blocco di codice
+
+- **GIVEN** un README con un blocco ``` aperto prima del taglio e chiuso dopo
+- **AND** un AGENTS.md nello stesso progetto
+- **WHEN** si compone il contesto
+- **THEN** il blocco del README chiude la recinzione prima della nota
+- **AND** nel testo inviato AGENTS.md sta fuori da ogni blocco di codice
+
+#### Scenario: Un README sotto il tetto
+
+- **GIVEN** un progetto con un README.md di 8.000 caratteri
+- **THEN** il blocco porta il README intero, senza nota
 
 ### Requirement: CTX-DEDUP-03 — Uno slot ritirato viene dichiarato
 
