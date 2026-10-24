@@ -2,6 +2,12 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.3.19 — 2026-10-24
+
+### Sotto il cofano
+- open-pane da terminale: un URL vietato dà 400 col motivo, non 500 con la pane già aperta (#420)
+- Parcheggio sessioni: il log stampa solo i cambi, non la stessa riga ogni 60 secondi (#426)
+
 ## 2.3.18 — 2026-10-24
 
 ### Sotto il cofano

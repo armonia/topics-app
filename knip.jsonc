@@ -338,6 +338,11 @@
         // list is one line when a script is added; the benefit is that adding
         // it forces the question "who calls this?" to have an answer.
         "server/db/seed.ts!", // one-shot JSON→SQLite migration, run by hand
+        // Types for `import ... from "../assets/rrweb.min.js" with { type: "text" }`
+        // (server/lib/rrweb-recorder.ts). tsc reads this sibling instead of the
+        // script, which has no exports; knip resolves the import to the .js and
+        // would call the .d.ts unused.
+        "server/assets/rrweb.min.d.ts!",
         // `*.fixture.ts` = processo finto lanciato da un test con `bun <path>`
         // (es. l'agente ACP di `acp-provider.test.ts`): nessuno lo IMPORTA, il
         // riferimento è una stringa di path.

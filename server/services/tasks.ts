@@ -45,7 +45,7 @@ import { liveAgentCount } from "./agent-census";
 // the `TASK_STATUSES` list: whoever wants it takes it from `shared/board`.
 export type { TaskComment, BoardSettings, BoardSettingsPatch, ParkedChildrenDecision } from "../../shared/board";
 import {
-  ACTIVE_DISPATCH_STATES, ARCHIVE_PARKED_LABEL, DEPLOY_ACTION_LABEL, DISPATCH_CHIP_QUEUED, HUMAN_AUTHOR, clampGlobalCap,
+  ARCHIVE_PARKED_LABEL, DEPLOY_ACTION_LABEL, DISPATCH_CHIP_QUEUED, HUMAN_AUTHOR, clampGlobalCap,
   MAX_FANOUT, PARKED_STOPPED, PARKED_WAITED_OUT, PREVIEW_CARD_MAX_RATIO, QUEUE_REASON_UNKNOWN,
   PARKED_REQUEUE_NOTE_LIKE, PROMOTE_PARKED_LABEL, REQUEUE_PARKED_LABEL, TAKE_OVER_PARKED_LABEL, TASK_STATUSES,
   WAIT_SERIES_MAX_MS, WAIT_STREAK_CAP,
@@ -67,7 +67,9 @@ import type { Task, CreateTaskInput, UpdateTaskPatch, ListTasksInput } from "./t
 
 import { markTargetNotificationsSeen } from "../db/notification-log";
 import { withCardAttention } from "../attention/card-sync";
-import { PARKED_IN_SERIES_SQL, QUEUED_ROOT_BOARDS_SQL } from "../lib/task-timer-reads";
+import {
+  CHECKS_RUNNING_SQL, CHILD_AGENT_COMING, PARKED_CHILDREN_CANDIDATES_SQL, PARKED_IN_SERIES_SQL, QUEUED_ROOT_BOARDS_SQL,
+} from "../lib/task-timer-reads";
 
 export type Actor = "human" | "agent";
 
@@ -2808,13 +2810,6 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
   }
 
   /**
-   * I tre chip che dicono «un agente è qui o sta arrivando». Dentro una stringa
-   * SQL la lista canonica di `shared/board` non ci entra: si compone da lì, così
-   * non può andare in deriva.
-   */
-  const CHILD_AGENT_COMING = ACTIVE_DISPATCH_STATES.map((s) => `'${s}'`).join(", ");
-
-  /**
    * Figli che qualcuno sta davvero lavorando o sta per lavorare.
    *
    * LA DOMANDA È «ARRIVA UN TURNO CHE MUOVA QUESTO FIGLIO?», e la risposta non è
@@ -5443,17 +5438,7 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       // davvero, e il rastrello lo prende come prima.
       let candidati: Array<{ id: string; project_id: string }> = [];
       try {
-        candidati = db.prepare(
-          `SELECT p.id, p.project_id FROM tasks p
-            WHERE p.archived = 0
-              AND p.status NOT IN ('done', 'review', 'in_progress')
-              AND NOT (p.status = 'todo' AND p.dispatch_attempts = 0)
-              AND COALESCE(p.dispatch_state, '') NOT IN (${CHILD_AGENT_COMING})
-              AND COALESCE(p.dispatch_deferred_until, '') <= ?
-              AND EXISTS (SELECT 1 FROM tasks c
-                           WHERE c.parent_task_id = p.id AND c.archived = 0 AND c.status != 'done')
-            ORDER BY p.updated_at`,
-        ).all(ts) as Array<{ id: string; project_id: string }>;
+        candidati = db.prepare(PARKED_CHILDREN_CANDIDATES_SQL).all(ts) as Array<{ id: string; project_id: string }>;
       } catch { return []; }
       const chiesti: Task[] = [];
       const ammessa = new Map<string, boolean>();
@@ -6083,9 +6068,7 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
     },
 
     clearStaleChecksRuns(isLive?: (taskId: string) => boolean): string[] {
-      const lit = (db.prepare(
-        "SELECT id FROM tasks WHERE checks_state = 'running'",
-      ).all() as Array<{ id: string }>).map((r) => r.id);
+      const lit = (db.prepare(CHECKS_RUNNING_SQL).all() as Array<{ id: string }>).map((r) => r.id);
       // The live registry decides, the row confirms: a light the gate still
       // knows is a run that is going, or queued behind another card's run, and
       // switching it off would tell the board nothing is being measured while
