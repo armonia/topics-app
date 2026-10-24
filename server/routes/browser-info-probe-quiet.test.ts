@@ -39,6 +39,9 @@ function harness() {
       return params;
     },
     broadcastToAll: () => {},
+    // Fake ui_state rows for the keep-list route: one pane blob that the
+    // context-id regexes in browser-store-keep-list.ts do capture.
+    db: { query: () => ({ all: () => [{ value: '{"panes":{"browser:new-abc":{}}}' }] }) },
   } as unknown as Parameters<typeof createBrowserRouter>[0];
 
   const router = createBrowserRouter(ctx, service);
@@ -46,7 +49,11 @@ function harness() {
     const url = new URL(`http://x/api/browsers/${encodeURIComponent(id)}`);
     return router(new Request(url), url, url.pathname, "GET");
   };
-  return { get, logged };
+  const getPath = (pathname: string) => {
+    const url = new URL(`http://x${pathname}`);
+    return router(new Request(url), url, url.pathname, "GET");
+  };
+  return { get, getPath, logged };
 }
 
 describe("GET /api/browsers/:id", () => {
@@ -63,5 +70,29 @@ describe("GET /api/browsers/:id", () => {
     const res = await get("live");
     expect(res?.status).toBe(200);
     expect(await res!.json()).toEqual({ url: "https://example.com/", title: "Example" });
+  });
+});
+
+describe("GET /api/browsers/data-store-keep-list", () => {
+  // The literal route sat below GET /api/browsers/:id in the same router, so
+  // the :id branch captured it with id="data-store-keep-list" and answered 404
+  // "Browser context not found"; the WKWebView data-store reaper never ran.
+  test("is answered by its own route, not captured by :id", async () => {
+    const { getPath, logged } = harness();
+    const res = await getPath("/api/browsers/data-store-keep-list");
+    expect(res?.status).toBe(200);
+    expect(await res!.json()).toEqual({ contextIds: ["new-abc"] });
+    expect(logged).toEqual([]);
+  });
+
+  test("a missing id still answers 404 quietly, a live id still answers by id", async () => {
+    const { get, logged } = harness();
+    const gone = await get("gone");
+    expect(gone?.status).toBe(404);
+    expect(await gone!.json()).toEqual({ error: "Browser context not found" });
+    expect(logged).toEqual([]);
+    const live = await get("live");
+    expect(live?.status).toBe(200);
+    expect(await live!.json()).toEqual({ url: "https://example.com/", title: "Example" });
   });
 });
