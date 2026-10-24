@@ -15,13 +15,17 @@
 #     until the next commit) or when its worker is killed while it waits.
 #   - SERIAL: one rebuild at a time. The lock is the directory graphify-out/.regen.lock
 #     with the owner's pid in it. A live owner is never displaced, however old
-#     the lock is; a dead owner's lock is reaped at once.
+#     the lock is; a dead owner's lock is reaped at once. A lock with no pid file
+#     belongs to the previous version of this script (many worktrees still run it)
+#     or to a worker between mkdir and its pid write: it is waited for, and
+#     reaped only when older than STALE_LOCK_MINUTES, the previous script's own
+#     rule for a crashed run.
 #   - FREE: `graphify update` is a pure-AST re-extraction, no LLM calls.
 #   - SILENT NO-OP when graphify is not installed or no graph exists yet.
 #
 # Nothing here ever exits non-zero into the hook: a broken graph must not be
-# able to block a commit. The worker needs bash 4+ (BASHPID); the hooks run the
-# Homebrew bash, and bash 3.2 falls back to asking ps for the worker's pid.
+# able to block a commit. Works on any bash, macOS /bin/bash 3.2 included: the
+# worker learns its own pid without BASHPID (see below), which 3.2 lacks.
 
 set -u
 
@@ -30,6 +34,8 @@ MIN_INTERVAL_SECONDS="${GRAPHIFY_REGEN_MIN_INTERVAL:-1200}"
 MAX_LOAD_PER_CORE="${GRAPHIFY_REGEN_MAX_LOAD:-4}"
 MAX_WAIT_SECONDS="${GRAPHIFY_REGEN_MAX_WAIT:-7200}"
 BUSY_SLEEP_SECONDS="${GRAPHIFY_REGEN_BUSY_SLEEP:-300}"
+# The previous script reaped a lock older than this; so do we, for a lock with no pid.
+STALE_LOCK_MINUTES=30
 # A zero sleep would spin the wait loop and flood the log: one second is the floor.
 [ "$BUSY_SLEEP_SECONDS" -ge 1 ] 2>/dev/null || BUSY_SLEEP_SECONDS=1
 
@@ -76,17 +82,23 @@ must_wait() {
   return 1
 }
 
-# Removes the lock when its owner is dead. A lock with no pid yet is a worker
-# between mkdir and its pid write: one second is plenty for it, then it is
-# treated as dead. Returns 0 when the lock is gone, 1 when a live owner holds it.
+# Removes the lock when its owner is dead. Returns 0 when the lock is gone, 1
+# when someone may still hold it. A lock with no pid file is held by the previous
+# version of this script, or by a worker between mkdir and its pid write: it is
+# left alone until it is older than STALE_LOCK_MINUTES, when the previous script
+# would reap it too.
 reap_dead_lock() {
   local owner
+  [ -d "$lock" ] || return 0
   owner="$(cat "$lock/pid" 2>/dev/null)"
   if [ -z "$owner" ]; then
-    sleep 1
-    owner="$(cat "$lock/pid" 2>/dev/null)"
+    if [ -n "$(find "$lock" -maxdepth 0 -mmin +"$STALE_LOCK_MINUTES" 2>/dev/null)" ]; then
+      rmdir "$lock" 2>/dev/null || true
+      return 0
+    fi
+    return 1
   fi
-  if [ -n "$owner" ] && kill -0 "$owner" 2>/dev/null; then
+  if kill -0 "$owner" 2>/dev/null; then
     return 1
   fi
   if [ "$(cat "$lock/pid" 2>/dev/null)" = "$owner" ]; then
@@ -134,7 +146,12 @@ echo "$token" >"$req" 2>/dev/null || exit 0
 
   # The worker's own pid, which is the lock's owner. The hook's $$ is no good:
   # the hook exits right after forking, so its pid is dead to every other worker.
-  me="${BASHPID:-$(ps -o ppid= -p "$(sh -c 'echo $PPID')" | tr -d ' ')}"
+  # BASHPID does not exist in bash 3.2, and a plain $(sh -c 'echo $PPID') reports
+  # the command substitution's own subshell, not the worker. exec makes that
+  # subshell become sh, so sh's parent is the worker.
+  me="$(exec sh -c 'echo $PPID')"
+  # A lock that names nobody would let a second worker in: better no rebuild.
+  case "$me" in ''|*[!0-9]*) exit 0 ;; esac
   trap release_lock EXIT
 
   token_ok() { [ "$(cat "$req" 2>/dev/null)" = "$token" ]; }

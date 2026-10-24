@@ -12,7 +12,12 @@
 #
 # scripts/testdata/graphify-regen.origin-main.sh is origin/main's script as it
 # was before the lock moved to a pid file: a snapshot, so the test does not
-# change with main. It must not be able to steal a lock the new script holds.
+# change with main. It must not be able to steal a lock the new script holds,
+# and the new script must not remove the lock the old one holds (it has no pid).
+#
+# GRAPHIFY_TEST_SHELL picks the shell that runs the worker (default: bash from
+# PATH). On the Mac /bin/bash is 3.2, the shell without BASHPID; case 15 runs
+# the worker under /bin/bash whatever this is set to.
 
 set -u
 
@@ -20,6 +25,7 @@ HERE="$(cd "$(dirname "$0")" && pwd)"
 # GRAPHIFY_REGEN_SCRIPT lets a mutant copy be tested instead of the real script.
 SCRIPT="${GRAPHIFY_REGEN_SCRIPT:-$HERE/graphify-regen.sh}"
 LEGACY="$HERE/testdata/graphify-regen.origin-main.sh"
+WORKER_SHELL="${GRAPHIFY_TEST_SHELL:-bash}"
 WORK="$(mktemp -d)"
 trap 'kill $(jobs -p) 2>/dev/null; rm -rf "$WORK"' EXIT
 fails=0
@@ -89,7 +95,7 @@ run_with() {
   shift
   (cd "$REPO" && env PATH="$WORK/bin:$PATH" GRAPHIFY_CALLS="$CALLS" \
     SYSCTL_DIR="$WORK/sysctl" TASKPOLICY_LOG="$WORK/taskpolicy.log" \
-    GRAPHIFY_REGEN_DEBOUNCE=0 "$@" bash "$script")
+    GRAPHIFY_REGEN_DEBOUNCE=0 "$@" "$WORKER_SHELL" "$script")
 }
 run_hook() { run_with "$SCRIPT" "$@"; }
 
@@ -129,6 +135,14 @@ calls_is() { [ "$(calls)" = "$1" ]; }
 # The child must not keep the caller's stdout: $(live_pid) would wait for it.
 live_pid() { sleep 600 >/dev/null 2>&1 & echo $!; }
 dead_pid() { sh -c 'exit 0' >/dev/null 2>&1 & local p=$!; wait "$p"; echo "$p"; }
+
+# The lock names a live process by a plain number.
+lock_owner_alive() {
+  local p
+  p="$(cat "$LOCK/pid" 2>/dev/null)"
+  case "$p" in ''|*[!0-9]*) return 1 ;; esac
+  kill -0 "$p" 2>/dev/null
+}
 
 pass() { echo "ok   $1"; }
 fail() { echo "FAIL $1 — $2"; fails=$((fails + 1)); }
@@ -331,6 +345,53 @@ expect "log: second run under way" calls_is 2
 expect "log: second run finished, lock released" test ! -e "$LOCK"
 check "log: graphify called twice, once per run" calls_is 2
 check "log: second run stamped" stamped_since "$REPO/graphify-out/.regen.last" "$start"
+
+# 15. The worker under /bin/bash, which is 3.2 on the Mac and has no BASHPID: the
+# lock must still name a live worker, so a second worker waits instead of
+# running next to it. (A worker whose pid came out empty let the second in after
+# a second: two rebuilds at once.)
+new_case bin-bash-lock
+echo "shell for case 15: $(/bin/bash --version | head -1)"
+saved_shell="$WORKER_SHELL"
+WORKER_SHELL=/bin/bash
+: >"$REPO/hold"
+run_hook GRAPHIFY_HOLD="$REPO/hold"
+expect "/bin/bash: first worker under the lock" calls_is 1
+check "/bin/bash: the lock names a live worker" lock_owner_alive
+run_hook GRAPHIFY_REGEN_MIN_INTERVAL=0 GRAPHIFY_HOLD="$REPO/hold"
+sleep 3
+check "/bin/bash: second worker does not run next to the first" calls_is 1
+check "/bin/bash: lock still names a live worker" lock_owner_alive
+rm -f "$REPO/hold"
+expect "/bin/bash: second worker runs once the first is done" calls_is 2
+expect "/bin/bash: lock released at the end" test ! -e "$LOCK"
+WORKER_SHELL="$saved_shell"
+
+# 16. The old script holds the lock (a directory with no pid file; 29 worktrees
+# still run it): the new script waits, it does not remove the lock after a
+# second. Once the old one is done, the new one runs.
+legacy_lock_untouched() { [ -d "$LOCK" ] && [ ! -e "$LOCK/pid" ]; }
+new_case legacy-holds-lock
+: >"$REPO/hold"
+run_with "$LEGACY" GRAPHIFY_HOLD="$REPO/hold"
+expect "old script: running under its lock" calls_is 1
+check "old script: its lock has no pid file" legacy_lock_untouched
+run_hook GRAPHIFY_HOLD="$REPO/hold"
+sleep 3
+check "old script: the new one does not run next to it" calls_is 1
+check "old script: the new one left its lock alone" legacy_lock_untouched
+rm -f "$REPO/hold"
+expect "old script done: the new one runs after it" calls_is 2
+expect "old script done: new run stamped" test -s "$REPO/graphify-out/.regen.last"
+
+# 17. A lock with no pid that is older than the old script's own stale limit (30
+# min) is a crashed run: the new script reaps it and runs, it does not wait forever.
+new_case pidless-stale-lock
+mkdir "$LOCK"
+touch -t 202001010000 "$LOCK"
+run_hook
+expect "stale pid-less lock: run stamped" test -s "$REPO/graphify-out/.regen.last"
+check "stale pid-less lock: graphify called once" calls_is 1
 
 echo
 if [ "$fails" -gt 0 ]; then echo "$fails failure(s)"; exit 1; fi
