@@ -329,10 +329,10 @@ function apiHeaders(token: string, longWindow: boolean): Record<string, string> 
 }
 
 /** The line the keep-alive puts after the history. Nobody answers it: the request is dropped at `message_start`. */
-const KEEPALIVE_PROMPT = "(prompt cache keep-alive, no answer needed)";
+const KEEP_ALIVE_PROMPT = "(prompt cache keep-alive, no answer needed)";
 
 /** How long a keep-alive may take before it is dropped: it is a refresh, never worth a stuck socket. */
-const KEEPALIVE_TIMEOUT_MS = 30_000;
+const KEEP_ALIVE_TIMEOUT_MS = 30_000;
 
 /**
  * Reads a waiting session's prefix through the prompt cache, so the 5-minute
@@ -352,9 +352,9 @@ export async function pingPromptCache(
   // max_tokens is not part of the cache key; a legacy thinking budget keeps
   // it above the budget, as the loop does.
   const { body, longWindow } = buildRoundRequest({ ...opts, maxTokens: 1 });
-  body.messages = [...opts.history, { role: "user", content: KEEPALIVE_PROMPT }];
+  body.messages = [...opts.history, { role: "user", content: KEEP_ALIVE_PROMPT }];
   const abort = new AbortController();
-  const timer = setTimeout(() => abort.abort(), KEEPALIVE_TIMEOUT_MS);
+  const timer = setTimeout(() => abort.abort(), KEEP_ALIVE_TIMEOUT_MS);
   try {
     const res = await fetch(anthropicMessagesUrl(), {
       method: "POST", headers: apiHeaders(token, longWindow), body: JSON.stringify(body), signal: abort.signal,

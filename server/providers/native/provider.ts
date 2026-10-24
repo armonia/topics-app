@@ -276,7 +276,7 @@ interface NativeSession {
   /** Measured chars-per-token. On the SESSION and not on the turn: the turn
    * that dies of a full context dies on its FIRST round, measuring nothing. */
   calibration: Calibration;
-  /** The next prompt-cache keep-alive, while the session waits for the person (see `KEEPALIVE_EVERY_MS`). */
+  /** The next prompt-cache keep-alive, while the session waits for the person (see `KEEP_ALIVE_EVERY_MS`). */
   keepAlive?: ReturnType<typeof setTimeout>;
 }
 
@@ -288,7 +288,7 @@ interface NativeSession {
  * prefix to the cache again (280k-416k tokens, 3.31M in all), at 1.25x the
  * input price; a cache read costs 0.05x-0.1x. 4.5 minutes stays inside the 5.
  */
-const KEEPALIVE_EVERY_MS = 270_000;
+const KEEP_ALIVE_EVERY_MS = 270_000;
 
 /** `TOPICS_CACHE_KEEPALIVE=off` turns the pings off: the lever to compare with and without. */
 function keepAliveEnabled(): boolean {
@@ -936,7 +936,7 @@ export class NativeProvider implements AIProvider {
 
   /**
    * Keeps a session's prompt cache warm while the person reads its answer: a
-   * ping every {@link KEEPALIVE_EVERY_MS}, for as long as the session itself
+   * ping every {@link KEEP_ALIVE_EVERY_MS}, for as long as the session itself
    * lives ({@link SESSION_TTL_MS}). Past that the session is evicted and the
    * next turn rebuilds it from the database, a different prefix, so the cached
    * one is worth nothing. A new turn, an eviction, a reset or a stop ends it:
@@ -952,8 +952,8 @@ export class NativeProvider implements AIProvider {
     const waiting = () => this.sessions.get(sessionKey) === session && !session.abort;
     let pings = 0;
     const schedule = () => {
-      if (Date.now() - endedAt + KEEPALIVE_EVERY_MS > SESSION_TTL_MS) return;
-      session.keepAlive = setTimeout(() => { void tick(); }, KEEPALIVE_EVERY_MS);
+      if (Date.now() - endedAt + KEEP_ALIVE_EVERY_MS > SESSION_TTL_MS) return;
+      session.keepAlive = setTimeout(() => { void tick(); }, KEEP_ALIVE_EVERY_MS);
       (session.keepAlive as unknown as { unref?: () => void }).unref?.();
     };
     const tick = async () => {
