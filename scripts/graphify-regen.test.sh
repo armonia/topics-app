@@ -214,13 +214,14 @@ check "busy sleep zero: at most one line per second" [ "$lines" -le 4 ]
 quiet
 expect "busy sleep zero: run stamped" test -s "$REPO/graphify-out/.regen.last"
 
-# 3. Memory guard. Swap used 85% (limit 80%) on a quiet load and normal pressure:
-# the rebuild is held, not lost, and runs once swap is back under the limit.
+# 3. Memory guard. Swap used 80%, the limit itself (the guard is >=, not >), on
+# a quiet load and normal pressure: the rebuild is held, not lost, and runs once
+# swap is back under the limit.
 new_case swap-high
-set_readings "$QUIET_LOAD" 1 85
+set_readings "$QUIET_LOAD" 1 80
 run_hook GRAPHIFY_REGEN_BUSY_SLEEP=1
-expect "swap 85%: wait logged" logged "rimandato: swap al 85% (limite 80%)"
-check "swap 85%: graphify not called" calls_is 0
+expect "swap 80%: wait logged" logged "rimandato: swap al 80% (limite 80%)"
+check "swap 80%: graphify not called" calls_is 0
 set_readings "$QUIET_LOAD" 1 79
 expect "swap back to 79%: run stamped" test -s "$REPO/graphify-out/.regen.last"
 check "swap back to 79%: graphify called once" calls_is 1
