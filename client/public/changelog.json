@@ -1,7 +1,30 @@
 [
   {
-    "version": "2.3.24",
+    "version": "2.3.25",
     "date": "2026-10-25",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "topics/winter-wave (card e9226ab7) (#433)",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "il rebuild esce dal Mac quando è carico (#432)",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        }
+      ]
+    }
+  },
+  {
+    "version": "2.3.24",
+    "date": "2026-10-24",
     "sections": {
       "new": [],
       "fixes": [],
