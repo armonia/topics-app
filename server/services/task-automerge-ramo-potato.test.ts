@@ -3,9 +3,9 @@
  */
 import { describe, test, expect } from "bun:test";
 import { createTaskAutoMerge } from "./task-automerge";
-import { mkdtempSync, writeFileSync, rmSync } from "fs";
+import { mkdtempSync, writeFileSync, rmSync, mkdirSync } from "fs";
 import { tmpdir } from "os";
-import { join } from "path";
+import { join, dirname } from "path";
 import { gitEnv } from "../../tests/setup/bun-test-preload";
 
 /**
@@ -273,5 +273,81 @@ describe("squash gia' su main, ramo vivo", () => {
     } finally {
       rmSync(repo, { recursive: true, force: true });
     }
+  }, 30_000);
+});
+
+/**
+ * Adversarial squash shapes: each one must NOT be reported as "nothing" because
+ * the branch holds work that main lacks (reaping the branch would lose it), and
+ * the shapes that do match main must still be "nothing".
+ */
+describe("squash su main: casi avversari del confronto per contenuto", () => {
+  type Files = Record<string, string | null>;
+
+  function applyFiles(repo: string, files: Files, msg: string): void {
+    for (const [name, body] of Object.entries(files)) {
+      const full = join(repo, name);
+      if (body === null) { rmSync(full, { force: true }); continue; }
+      mkdirSync(dirname(full), { recursive: true });
+      writeFileSync(full, body);
+    }
+    git(repo, "add", "-A");
+    git(repo, "commit", "-q", "-m", msg);
+  }
+
+  /** Base has a.ts; the branch applies `onBranch`, main receives `onMain` as a squash-like commit. */
+  async function landStatus(onBranch: Files, onMain: Files): Promise<string> {
+    const repo = mkdtempSync(join(tmpdir(), "land-squash-adv-"));
+    try {
+      git(repo, "init", "-q", "-b", "main");
+      git(repo, "config", "user.email", "t@t.t");
+      git(repo, "config", "user.name", "t");
+      applyFiles(repo, { "a.ts": "a0\n", "keep.txt": "k\n" }, "base");
+      git(repo, "checkout", "-q", "-b", "topics/adv");
+      applyFiles(repo, onBranch, "branch work");
+      git(repo, "checkout", "-q", "main");
+      applyFiles(repo, onMain, "squash (#1)");
+      const res = await land(repo, "topics/adv").tryMerge("t-adv", "Card avversaria");
+      return res.status;
+    } finally {
+      rmSync(repo, { recursive: true, force: true });
+    }
+  }
+
+  test("percorso con accento: il lavoro mancante non e' «nothing»", async () => {
+    const st = await landStatus({ "a.ts": "a1\n", "perché.md": "x\n" }, { "a.ts": "a1\n" });
+    expect(st).not.toBe("nothing");
+  }, 30_000);
+
+  test("percorso con virgolette: il lavoro mancante non e' «nothing»", async () => {
+    const st = await landStatus({ "a.ts": "a1\n", 'say"hi".ts': "x\n" }, { "a.ts": "a1\n" });
+    expect(st).not.toBe("nothing");
+  }, 30_000);
+
+  test("public/ e package.json non sono rumore: logo mancante non e' «nothing»", async () => {
+    const st = await landStatus(
+      { "a.ts": "a1\n", "client/public/logo.svg": "<svg/>\n", "package.json": "{\"dep\":1}\n" },
+      { "a.ts": "a1\n" },
+    );
+    expect(st).not.toBe("nothing");
+  }, 30_000);
+
+  test("rinomina: main ha la destinazione ma conserva l'origine, non e' «nothing»", async () => {
+    const st = await landStatus({ "a.ts": null, "c.ts": "a0\n" }, { "c.ts": "a0\n" });
+    expect(st).not.toBe("nothing");
+  }, 30_000);
+
+  test("spazio finale nel nome: non viene tagliato, lavoro mancante non e' «nothing»", async () => {
+    const st = await landStatus({ "a.ts": "a1\n", "t ": "x\n" }, { "a.ts": "a1\n" });
+    expect(st).not.toBe("nothing");
+  }, 30_000);
+
+  test("regge ancora: cancellazione identica su main e' «nothing»", async () => {
+    expect(await landStatus({ "a.ts": null }, { "a.ts": null })).toBe("nothing");
+  }, 30_000);
+
+  test("regge ancora: nomi con spazi e accenti presenti su main sono «nothing»", async () => {
+    const files = { "a.ts": "a1\n", "con spazio é.md": "x\n" };
+    expect(await landStatus(files, files)).toBe("nothing");
   }, 30_000);
 });

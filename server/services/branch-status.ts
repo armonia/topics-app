@@ -257,10 +257,16 @@ async function statusOfExistingRef(repoPath: string, ref: string, mainRef: strin
 
 /**
  * Content check for a branch whose commits are not ancestors of `mainRef`
- * (squash-merged PR): true when every real source file the branch changed since
- * its merge-base is identical on `mainRef`. An empty file list (nothing but
- * generated noise, or nothing at all) is NOT proof, so it answers false.
- * Same principle as `commitStatusFromRepo` (3), applied to a whole branch.
+ * (squash-merged PR): true when every file the branch changed since its
+ * merge-base is identical on `mainRef`. A false positive here lets the land
+ * reap a branch whose work is NOT on main, so the check is deliberately strict:
+ *  - NUL-separated, untrimmed paths (`-z`): no quoting of non-ASCII or quotes,
+ *    no stripped trailing spaces;
+ *  - `--no-renames`: a rename lists both the old and the new path;
+ *  - NO noise filter (public/, package.json, ...): one extra file is harmless,
+ *    one missing file closes a card by mistake;
+ *  - paths are passed as literals, never as pathspec patterns.
+ * An empty list is NOT proof, so it answers false.
  */
 export async function branchContentIsOnMain(
   repoPath: string,
@@ -268,11 +274,12 @@ export async function branchContentIsOnMain(
   mainRef = "main",
   runGit?: GitRunner,
 ): Promise<boolean> {
-  const changed = filterUniqueSourceFiles(
-    (await gitOut(repoPath, ["diff", "--name-only", `${mainRef}...${branch}`], runGit)).split("\n"),
-  );
+  const changed = (await gitOut(repoPath, ["diff", "--name-only", "-z", "--no-renames", `${mainRef}...${branch}`], runGit))
+    .split("\0")
+    .filter((p) => p.length > 0);
   if (changed.length === 0) return false;
-  return (await gitExit(repoPath, ["diff", "--quiet", branch, mainRef, "--", ...changed], runGit)) === 0;
+  const literal = changed.map((p) => `:(literal)${p}`);
+  return (await gitExit(repoPath, ["diff", "--quiet", branch, mainRef, "--", ...literal], runGit)) === 0;
 }
 
 /** Quanto ha prodotto un worktree rispetto al punto in cui ha forkato. */
