@@ -17,13 +17,15 @@
  * @covers APPSET-01, BROWSER-STORE-REAP-02, BROWSER-STORE-REAP-03, BROWSER-STORE-REAP-05
  */
 
-import { describe, expect, test, beforeAll, afterAll, beforeEach } from "bun:test";
+import { describe, expect, test, beforeAll, afterAll, beforeEach, spyOn } from "bun:test";
 import { mkdtempSync, rmSync, mkdirSync, writeFileSync, readFileSync, readdirSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 import { initDatabase, closeDatabase, getDatabase } from "../db";
 import { getAppSettings, updateAppSettings } from "../services/app-settings";
 import { createAppSettingsRouter } from "./app-settings";
+import { getSnapshotManager } from "../providers/snapshot-manager";
+import * as calendarFeed from "../services/calendar-feed";
 import type { AppContext } from "../types";
 
 let tmpRoot: string;
@@ -272,11 +274,18 @@ describe("the cleanup of closed browsers' data: a setting, clamped when saved", 
   });
 
   test("a value that is not a number is a 400, and nothing is written", async () => {
+    // An empty or blank string included: `Number("")` is 0, which the clamp
+    // would turn into 7, the shortest wait, on a deletion that cannot be undone.
     await put({ browserStoreReapAfterDays: 90 });
-    const r = await put({ browserStoreReapAfterDays: "many" });
-    expect(r.status).toBe(400);
-    expect(r.body.errors[0].field).toBe("browserStoreReapAfterDays");
-    expect(getAppSettings().browserStoreReapAfterDays).toBe(90);
+    for (const written of ["many", "", "   "]) {
+      const r = await put({ browserStoreReapAfterDays: written });
+      expect({ written, status: r.status, field: r.body.errors?.[0]?.field }).toEqual({
+        written,
+        status: 400,
+        field: "browserStoreReapAfterDays",
+      });
+      expect(getAppSettings().browserStoreReapAfterDays).toBe(90);
+    }
   });
 });
 
@@ -361,6 +370,30 @@ describe("a read that failed is never answered as 'never touched'", () => {
     // The write itself went through: only the answer could not say so.
     expect(getAppSettings().browserStoreReapEnabled).toBe(false);
     expect(getAppSettings().browserStoreReapAfterDays).toBe(30);
+  });
+
+  test("PUT: the hooks of the write run before the 503, not after it", async () => {
+    // Only the answer fails. The write has landed, so the composers' snapshots
+    // and the cached agenda have to follow it as on any other save.
+    const invalidate = spyOn(getSnapshotManager(), "invalidate").mockImplementation(() => {});
+    const resetCalendar = spyOn(calendarFeed, "resetCalendarCache");
+    const restore = failTheSettingsRead();
+    let r: { status: number; body: any };
+    let invalidated: unknown[][];
+    let calendarResets: number;
+    try {
+      r = await put({ claudeModel: "model-after-the-save", calendarEnabled: false });
+    } finally {
+      restore();
+      invalidated = invalidate.mock.calls.map((call) => [...call]);
+      calendarResets = resetCalendar.mock.calls.length;
+      invalidate.mockRestore();
+      resetCalendar.mockRestore();
+    }
+    expect(r.status).toBe(503);
+    expect(invalidated).toEqual([["claude"]]);
+    expect(calendarResets).toBe(1);
+    expect(getAppSettings().claudeModel).toBe("model-after-the-save");
   });
 
   test("the server's own readers keep their fallback: getAppSettings still answers all-null", () => {

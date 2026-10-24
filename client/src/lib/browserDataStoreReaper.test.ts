@@ -222,6 +222,10 @@ describe('a setting that did not arrive is not a permission', () => {
     // server can answer an error status with a settings object inside.
     ['a 500 that carries settings switched on', () => answer({ settings: { browserStoreReapEnabled: true, browserStoreReapAfterDays: 30 } }, 500)],
     ['a 401 that carries settings', () => answer({ settings: {} }, 401)],
+    // A 200 whose settings are not an object: reading fields off a string or
+    // a number gives undefined, which would resolve to on, 60 days.
+    ['a 200 whose settings are a string', () => answer({ settings: 'on' })],
+    ['a 200 whose settings are a number', () => answer({ settings: 1 })],
   ];
   for (const [name, failure] of failures) {
     test(`${name}: no keep list, no Tauri command`, async () => {

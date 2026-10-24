@@ -240,6 +240,22 @@ describe('the container: what the server answered is what the switch shows', () 
     expect(h.last().text).not.toContain(saveFailedLine());
   });
 
+  test('the days were changed elsewhere meanwhile: the field shows the answer, not the patch', async () => {
+    // The answer can hold more than the patch. Here another device wrote 30
+    // between the GET and this PUT: merging the patch into what was read
+    // would keep 60 on screen over a stored 30.
+    fakeServer(NEVER_TOUCHED);
+    const h = await mountRows();
+    expect(daysOf(h).props.value).toBe('60');
+    onDisk = { ...onDisk, browserStoreReapAfterDays: 30 };
+
+    press(h);
+    await settle();
+    expect(puts).toEqual([{ browserStoreReapEnabled: false }]);
+    expect(switchOf(h).props['aria-checked']).toBe(false);
+    expect(daysOf(h).props.value).toBe('30');
+  });
+
   test('the days field shows the number the server kept, not the one typed', async () => {
     fakeServer(NEVER_TOUCHED);
     const h = await mountRows();
