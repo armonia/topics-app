@@ -105,7 +105,7 @@ new_case() {
 run_with() {
   local script="$1"
   shift
-  (cd "$REPO" && env PATH="$WORK/bin:$PATH" GRAPHIFY_CALLS="$CALLS" FIND_CALLS="$REPO/findcalls" \
+  (cd "${RUN_DIR:-$REPO}" && env PATH="$WORK/bin:$PATH" GRAPHIFY_CALLS="$CALLS" FIND_CALLS="$REPO/findcalls" \
     SYSCTL_DIR="$WORK/sysctl" TASKPOLICY_LOG="$WORK/taskpolicy.log" \
     GRAPHIFY_REGEN_DEBOUNCE=0 "$@" "$WORKER_SHELL" "$script")
 }
@@ -185,7 +185,7 @@ check "unloaded: taskpolicy gets -b and nice" grep -qF -- "-b nice -n 15 graphif
 new_case busy-then-quiet
 busy
 run_hook GRAPHIFY_REGEN_BUSY_SLEEP=1
-expect "busy: wait logged" logged "rimandato: load 5.00/core sopra 4"
+expect "busy: wait logged" logged "rimandato: load 5.00/core sopra 1.5"
 check "busy: graphify not called while busy" [ "$(calls)" = 0 ]
 quiet
 expect "busy then quiet: run stamped" test -s "$REPO/graphify-out/.regen.last"
@@ -196,7 +196,7 @@ if locale -a 2>/dev/null | /usr/bin/grep -qx 'it_IT.UTF-8'; then
   new_case busy-italian-locale
   busy
   run_hook GRAPHIFY_REGEN_BUSY_SLEEP=1 LC_ALL=it_IT.UTF-8
-  expect "italian locale: reason keeps the dot" logged "rimandato: load 5.00/core sopra 4"
+  expect "italian locale: reason keeps the dot" logged "rimandato: load 5.00/core sopra 1.5"
   quiet
   expect "italian locale: run stamped" test -s "$REPO/graphify-out/.regen.last"
 else
@@ -214,22 +214,71 @@ check "busy sleep zero: at most one line per second" [ "$lines" -le 4 ]
 quiet
 expect "busy sleep zero: run stamped" test -s "$REPO/graphify-out/.regen.last"
 
-# 3. Memory pressure at warn (2) is not busy: the rebuild runs.
+# 3. Memory guard. Swap used 85% (limit 80%) on a quiet load and normal pressure:
+# the rebuild is held, not lost, and runs once swap is back under the limit.
+new_case swap-high
+set_readings "$QUIET_LOAD" 1 85
+run_hook GRAPHIFY_REGEN_BUSY_SLEEP=1
+expect "swap 85%: wait logged" logged "rimandato: swap al 85% (limite 80%)"
+check "swap 85%: graphify not called" calls_is 0
+set_readings "$QUIET_LOAD" 1 79
+expect "swap back to 79%: run stamped" test -s "$REPO/graphify-out/.regen.last"
+check "swap back to 79%: graphify called once" calls_is 1
+
+# 3b. Memory pressure 2 (warn) on a quiet load and low swap: held, then runs at 1.
 new_case pressure-warn
 set_readings "$QUIET_LOAD" 2
-run_hook
-expect "pressure warn: run stamped" test -s "$REPO/graphify-out/.regen.last"
-check "pressure warn: graphify called once" [ "$(calls)" = 1 ]
+run_hook GRAPHIFY_REGEN_BUSY_SLEEP=1
+expect "pressure 2: wait logged" logged "rimandato: pressione di memoria alta (2)"
+check "pressure 2: graphify not called" calls_is 0
+set_readings "$QUIET_LOAD" 1
+expect "pressure back to 1: run stamped" test -s "$REPO/graphify-out/.regen.last"
+check "pressure back to 1: graphify called once" calls_is 1
 
-# 4. Critical memory pressure (4) on a quiet load: held, then forced after the
-# max wait, and the forced run is logged with its reason.
-new_case forced
-critical
+# 3c. Both memory readings just under their limits (swap 79%, pressure 1): one start.
+new_case memory-under-limits
+set_readings "$QUIET_LOAD" 1 79
+run_hook
+expect "memory under limits: run stamped" test -s "$REPO/graphify-out/.regen.last"
+check "memory under limits: graphify called once" calls_is 1
+
+# 4. A busy load is held, then forced after the max wait, and the forced run is
+# logged with its reason.
+new_case forced-load
+busy
 run_hook GRAPHIFY_REGEN_BUSY_SLEEP=1 GRAPHIFY_REGEN_MAX_WAIT=2
-expect "forced: wait logged" logged "rimandato: pressione di memoria critica (4)"
+expect "forced: wait logged" logged "rimandato: load 5.00/core sopra 1.5"
 expect "forced: run stamped after the max wait" test -s "$REPO/graphify-out/.regen.last"
-check "forced: forzato logged with the reason" logged "forzato (pressione di memoria critica (4))"
-check "forced: graphify called once" [ "$(calls)" = 1 ]
+check "forced: forzato logged with the reason" logged "forzato (load 5.00/core sopra 1.5)"
+check "forced: graphify called once" calls_is 1
+
+# 4b. Memory is never forced: after the max wait the worker gives up with one
+# line and leaves the request, whatever the reading (swap 85, then pressure 4).
+new_case memory-never-forced
+set_readings "$QUIET_LOAD" 1 85
+run_hook GRAPHIFY_REGEN_BUSY_SLEEP=1 GRAPHIFY_REGEN_MAX_WAIT=2
+expect "memory: wait logged" logged "rimandato: swap al 85% (limite 80%)"
+expect "memory: gave up after the max wait" logged "rinunciato (swap al 85% (limite 80%)): richiesta lasciata al prossimo evento"
+check "memory: not forced" test "$(/usr/bin/grep -c forzato "$LOG")" = 0
+quiet
+sleep 2.5
+check "memory: the worker is gone, nothing runs when memory frees up" calls_is 0
+check "memory: the request is left for the next event" test -s "$REPO/graphify-out/.regen.request"
+
+new_case memory-never-forced-pressure
+set_readings "$QUIET_LOAD" 4
+run_hook GRAPHIFY_REGEN_BUSY_SLEEP=1 GRAPHIFY_REGEN_MAX_WAIT=2
+expect "pressure 4: gave up after the max wait" logged "rinunciato (pressione di memoria alta (4))"
+check "pressure 4: graphify not called" calls_is 0
+
+# 4c. Load and memory both busy: the load wait is forced at the max wait, and
+# the forced run still stops at memory.
+new_case forced-load-then-memory
+set_readings "$BUSY_LOAD" 1 85
+run_hook GRAPHIFY_REGEN_BUSY_SLEEP=1 GRAPHIFY_REGEN_MAX_WAIT=2
+expect "load then memory: forced on the load" logged "forzato (load 5.00/core sopra 1.5)"
+expect "load then memory: gave up on the memory" logged "rinunciato (swap al 85% (limite 80%))"
+check "load then memory: graphify not called" calls_is 0
 
 # 5. Last rebuild 1 s ago, minimum 3 s → the worker waits the remainder, then runs.
 new_case min-interval
@@ -327,7 +376,7 @@ run_hook GRAPHIFY_REGEN_BUSY_SLEEP=1
 sleep 1
 busy
 kill "$owner"
-expect "won while busy: wait logged" logged "rimandato: load 5.00/core sopra 4"
+expect "won while busy: wait logged" logged "rimandato: load 5.00/core sopra 1.5"
 check "won while busy: graphify not called" [ "$(calls)" = 0 ]
 quiet
 expect "won while busy: run stamped once quiet" test -s "$REPO/graphify-out/.regen.last"
@@ -338,7 +387,7 @@ check "won while busy: graphify called once" [ "$(calls)" = 1 ]
 new_case busy-after-lock
 echo "$BUSY_LOAD" >"$WORK/sysctl/vm.loadavg.next"
 run_hook GRAPHIFY_REGEN_BUSY_SLEEP=1
-expect "busy after lock: wait logged" logged "rimandato: load 5.00/core sopra 4"
+expect "busy after lock: wait logged" logged "rimandato: load 5.00/core sopra 1.5"
 check "busy after lock: graphify not called" calls_is 0
 check "busy after lock: lock released while waiting" test ! -e "$LOCK"
 rm -f "$WORK/sysctl/vm.loadavg.next"
@@ -450,6 +499,31 @@ else
   check "unremovable lock: graphify called once" calls_is 1
   stop_workers
 fi
+
+# 20. A commit in a LINKED worktree does not rebuild the main checkout's graph:
+# the main checkout's files did not change. The hook run from the worktree makes
+# no request and starts no graphify; run from the primary checkout it starts one.
+new_case linked-worktree
+git -C "$REPO" -c user.name=t -c user.email=t@t.invalid commit -q --allow-empty -m first
+git -C "$REPO" worktree add -q "$WORK/linked-worktree-side" -b side
+RUN_DIR="$WORK/linked-worktree-side" run_hook
+sleep 2
+check "linked worktree: graphify not called" calls_is 0
+check "linked worktree: no request written" test ! -e "$REPO/graphify-out/.regen.request"
+run_hook
+expect "primary checkout: run stamped" test -s "$REPO/graphify-out/.regen.last"
+check "primary checkout: graphify called once" calls_is 1
+
+# 21. The default load limit is 1.5 per core: 2.00 per core is busy with no
+# override.
+new_case load-default-limit
+set_readings "{ 24.00 20.00 20.00 }" 1
+run_hook GRAPHIFY_REGEN_BUSY_SLEEP=1
+expect "default load limit: 2.00/core is held" logged "rimandato: load 2.00/core sopra 1.5"
+check "default load limit: graphify not called" calls_is 0
+quiet
+expect "default load limit: run stamped once quiet" test -s "$REPO/graphify-out/.regen.last"
+check "default load limit: graphify called once" calls_is 1
 
 echo
 if [ "$fails" -gt 0 ]; then echo "$fails failure(s)"; exit 1; fi
