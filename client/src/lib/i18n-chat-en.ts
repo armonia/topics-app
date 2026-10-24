@@ -77,6 +77,8 @@ const CHAT_EN: Dict = {
   'chat.service.open': 'Open',
   'chat.service.openTitle': 'Open {url} in a browser tab',
   'chat.service.stop': 'Stop',
+  'chat.service.lan': 'visible on LAN',
+  'chat.service.lanTitle': 'Other devices on the network can open it. If that is not needed, restart it on 127.0.0.1',
   'chat.send.queueTitle': 'Queue message (Enter)',
   'chat.send.sendTitle': 'Send (Enter)',
   'chat.send.queue': 'Queue message',

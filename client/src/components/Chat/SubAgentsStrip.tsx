@@ -3,7 +3,7 @@ import { AlarmClock, CircleCheck, ExternalLink, Hourglass, Loader2, Server, Squa
 import { useT } from '../../hooks/useT';
 import { scriptsApi } from '../../lib/api';
 import { useToast } from '../Shared/Toast';
-import { listenLabel, listenUrl } from '../../../../shared/background-work';
+import { listenLabel, listenUrl, reachableFromNetwork } from '../../../../shared/background-work';
 import type { LiveAgentRow, LiveCommandRow, LiveWorkRow } from '../../../../shared/live-work';
 import { dismissSubAgent, useDismissedSubAgents } from '../../state/endedSubAgents';
 import { useLiveWork, visibleRows } from '../../state/liveWork';
@@ -161,6 +161,11 @@ function CommandRow({ row, open, ended, onToggle, onStop }: {
             </span>
           )}
           {first && !ended && <span data-testid="live-work-address" className="flex-shrink-0 tabular-nums text-app-text-secondary">{row.listen.map(listenLabel).join(', ')}</span>}
+          {first && !ended && row.listen.some(reachableFromNetwork) && (
+            <span data-testid="live-work-lan" title={tr('chat.service.lanTitle')} className="flex-shrink-0 rounded px-1 bg-amber-500/10 text-amber-600 dark:text-amber-400">
+              {tr('chat.service.lan')}
+            </span>
+          )}
           {!ended && <span data-testid="live-work-preview" className="min-w-0 flex-1 truncate font-mono text-app-text-tertiary">{row.preview}</span>}
         </button>
         {url && (

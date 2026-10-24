@@ -10,24 +10,30 @@
  * one that just ended is left out, its end is said in the chat.
  */
 import { Server } from 'lucide-react';
-import { cn } from '@/lib/utils';
-import { useT } from '@/hooks/useT';
-import { ON_FILL_TEXT_SOFT } from '@/lib/selectionStyles';
-import { listenLabel, type RunningServiceSummary } from '../../../../shared/background-work';
+import { cn } from '../../lib/utils';
+import { useT } from '../../hooks/useT';
+import { ON_FILL_TEXT_SOFT } from '../../lib/selectionStyles';
+import { listenLabel, reachableFromNetwork, type RunningServiceSummary } from '../../../../shared/background-work';
 
 export function ServerSign({ services, onFill }: { services: readonly RunningServiceSummary[] | undefined; onFill: boolean }) {
   const tr = useT();
   const running = (services ?? []).filter((s) => !s.ended);
   if (running.length === 0) return null;
-  const where = running.map((s) => (s.listen[0] ? listenLabel(s.listen[0]) : s.description)).join(', ');
-  const title = tr('topic.serverOn', { where });
+  // One server other devices can open turns the sign amber and says so; its
+  // title then names only the open addresses, never a loopback one under «LAN».
+  const lan = running.some((s) => s.listen.some(reachableFromNetwork));
+  const where = lan
+    ? running.flatMap((s) => s.listen.filter(reachableFromNetwork).map(listenLabel)).join(', ')
+    : running.map((s) => (s.listen[0] ? listenLabel(s.listen[0]) : s.description)).join(', ');
+  const title = tr(lan ? 'topic.serverOnLan' : 'topic.serverOn', { where });
   return (
     <span
-      className={cn('flex-shrink-0 flex items-center', onFill ? ON_FILL_TEXT_SOFT : 'text-app-text-tertiary')}
+      className={cn('flex-shrink-0 flex items-center', lan ? 'text-amber-600 dark:text-amber-400' : onFill ? ON_FILL_TEXT_SOFT : 'text-app-text-tertiary')}
       title={title}
       aria-label={title}
       data-testid="row-server-sign"
       data-count={running.length}
+      data-lan={lan ? 'true' : undefined}
     >
       <Server size={12} />
     </span>
