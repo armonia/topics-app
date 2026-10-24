@@ -77,7 +77,7 @@ export function buildMuseArgs(opts: MuseExecArgsOptions): string[] {
 /**
  * The argv of a throwaway completion (auto-title, digest, SSE fallback).
  * With `--json`: the events carry the run's usage (`run.usage`), which the
- * side-call ledger records (`parseMuseOneshotJsonl`). No `--session-id`
+ * side-call ledger records (`parseMuseOneShotJsonl`). No `--session-id`
  * but `--no-session-log`: a completion is not a conversation and must not
  * leave a session in the log on every call (both flags together are exit 2).
  */

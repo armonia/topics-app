@@ -132,7 +132,7 @@ function museErrorText(value: unknown): string {
  * A stdout with no event at all (an older CLI) is taken as the answer, as
  * before: no usage, and the ledger says "not measured".
  */
-export function parseMuseOneshotJsonl(stdout: string): CompletionResult {
+export function parseMuseOneShotJsonl(stdout: string): CompletionResult {
   let deltas = "";
   let terminal: ReturnType<typeof extractMuseTerminal> | null = null;
   let usage: NonNullable<CompletionResult["usage"]> | null = null;
@@ -956,7 +956,7 @@ export class MuseProvider implements AIProvider {
             resolve({ content: `Error: Muse exited with code ${code}`, error: `exit ${code}` });
             return;
           }
-          resolve(parseMuseOneshotJsonl(stdout));
+          resolve(parseMuseOneShotJsonl(stdout));
         });
 
         child.on("error", (err) => { clearTimeout(timer); reject(err); });

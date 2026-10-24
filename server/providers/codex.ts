@@ -181,7 +181,7 @@ export function extractCodexContext(
  * A stdout with no JSON event at all (an older CLI) is taken as the answer, as
  * before: no usage, and the ledger says "not measured".
  */
-export function parseCodexOneshotJsonl(stdout: string): CompletionResult {
+export function parseCodexOneShotJsonl(stdout: string): CompletionResult {
   let text: string | null = null;
   let prompt = 0, output = 0, cacheRead = 0;
   let measured = false;
@@ -1210,7 +1210,7 @@ export class CodexProvider implements AIProvider {
             resolve({ content: `Error: Codex exited with code ${code}`, error: `exit ${code}` });
             return;
           }
-          resolve(parseCodexOneshotJsonl(stdout));
+          resolve(parseCodexOneShotJsonl(stdout));
         });
 
         child.on("error", (err) => { clearTimeout(timer); reject(err); });

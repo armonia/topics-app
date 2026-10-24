@@ -9,20 +9,20 @@
 import { describe, expect, test } from "bun:test";
 import { readFileSync } from "fs";
 import { join } from "path";
-import { parseMuseOneshotJsonl } from "./muse";
+import { parseMuseOneShotJsonl } from "./muse";
 
 const CAPTURE = readFileSync(join(import.meta.dir, "muse", "fixtures", "meta-oneshot-usage.jsonl"), "utf8");
 
-describe("parseMuseOneshotJsonl", () => {
+describe("parseMuseOneShotJsonl", () => {
   test("the closing text is the answer, run.usage the usage", () => {
-    expect(parseMuseOneshotJsonl(CAPTURE)).toEqual({
+    expect(parseMuseOneShotJsonl(CAPTURE)).toEqual({
       content: "ok",
       usage: { promptTokens: 58_614, completionTokens: 15, cacheReadTokens: 0, model: "muse-wonder-1.0" },
     });
   });
 
   test("a run that does not complete is a failure, with its reason", () => {
-    const out = parseMuseOneshotJsonl(JSON.stringify({
+    const out = parseMuseOneShotJsonl(JSON.stringify({
       payload_type: "run.terminal.failed",
       payload: { kind: "run_terminal", terminal: "failed", text: "", reason: "quota exhausted" },
     }));
@@ -30,6 +30,6 @@ describe("parseMuseOneshotJsonl", () => {
   });
 
   test("a CLI that prints plain text keeps working, without a usage", () => {
-    expect(parseMuseOneshotJsonl("Titolo\n")).toEqual({ content: "Titolo" });
+    expect(parseMuseOneShotJsonl("Titolo\n")).toEqual({ content: "Titolo" });
   });
 });
