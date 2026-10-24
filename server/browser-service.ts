@@ -244,10 +244,13 @@ const RECORDER_START_TIMEOUT_MS = 3_000;
 // time, so there is no empty-recorder branch here. The import does not check
 // the content (rrweb-recorder.test.ts compares it with the installed rrweb),
 // and the evaluation can still fail in the page: see startRecordingNow.
+// No `window.rrweb = rrweb` after it: that `var` at page-global scope already
+// is window.rrweb, even inside the block (browser-service-rrweb-inject.test.ts
+// runs the bundle in a page-like global and finds window.rrweb.record).
 const RRWEB_RECORD_BUNDLE =
   'if(!(window.rrweb&&window.rrweb.record)){\n' +
   getRrwebRecorderSource() +
-  '\n;window.rrweb=window.rrweb||rrweb;\n}';
+  '\n}';
 // Runs in the page AFTER the bundle. Starts the recorder (guarded against a double
 // start on the same document) and pipes each event to the host via __rrwebEmit.
 // The recorder's stop fn is stashed on window.__rrwebStop so instrumentation is

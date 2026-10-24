@@ -72,10 +72,21 @@ interface HarnessOpts {
    * per coprire.
    */
   paneAttached?: boolean | "dopo-force-open";
-  /** Makes the navigation blow up (no headless browser, dead page). */
-  navigateThrows?: boolean;
-  /** Makes `listContexts` throw with this message (the inventory read blew up). */
-  listContextsThrows?: string;
+  /**
+   * Makes the navigation blow up (no headless browser, dead page): `true`
+   * throws a plain Error, any other value is thrown as it is.
+   */
+  navigateThrows?: unknown;
+  /**
+   * Makes `listContexts` throw (the inventory read blew up): a string becomes
+   * the message of an Error, any other value is thrown as it is.
+   */
+  listContextsThrows?: unknown;
+  /**
+   * Makes the dispatcher throw this value as it is, before any handler runs:
+   * `setAgentAction` is the first call it makes on the service.
+   */
+  dispatchThrows?: unknown;
   /** Makes every page evaluation reject with this message (a native delegate that gave up). */
   evalRejects?: string;
   /**
@@ -137,14 +148,20 @@ function harness(opts: HarnessOpts = {}) {
 
   const service = {
     listContexts: () => {
-      if (opts.listContextsThrows) throw new Error(opts.listContextsThrows);
+      const thrown = opts.listContextsThrows;
+      if (typeof thrown === "string") throw new Error(thrown);
+      if (thrown !== undefined) throw thrown;
       return contexts;
     },
-    setAgentAction: (contextId: string) => { dispatchedOn.push(contextId); },
+    setAgentAction: (contextId: string) => {
+      if (opts.dispatchThrows !== undefined) throw opts.dispatchThrows;
+      dispatchedOn.push(contextId);
+    },
     broadcastAgentActive: () => {},
     navigate: async (contextId: string, url: string) => {
       navigations.push({ contextId, url });
-      if (opts.navigateThrows) throw new Error("niente browser headless");
+      if (opts.navigateThrows === true) throw new Error("niente browser headless");
+      if (opts.navigateThrows !== undefined) throw opts.navigateThrows;
       return { url: opts.navigateTo ?? url, title: "Titolo" };
     },
     getOrCreate: async (contextId: string) => ({
@@ -1628,5 +1645,133 @@ describe("5xx del bridge — il motivo finisce nel log", () => {
     const thrown = await warnsOf(h, "/api/topics/t1/browser/import-chrome", { domains: [] });
     expect(thrown.status).toBe(500);
     expect(thrown.lines).toEqual([expect.stringMatching(/ browser_import_chrome t1 -> 500: browser_import_chrome: "domains" \(non-empty array\) is required/)]);
+  });
+
+  // The log line is written inside the catch that sends the 500: if building
+  // it throws, the throw leaves the catch and the answer never goes out.
+  test("list-tabs con un Error senza messaggio e col nome non stringa: il 500 esce comunque, con la sua riga di warn", async () => {
+    const h = harness({ listContextsThrows: Object.assign(new Error(""), { name: 42 }) });
+    h.addTopic("t1");
+    const r = await warnsOf(h, "/api/topics/t1/browser/list-tabs");
+    expect(r.status).toBe(500);
+    expect(r.error).toBe("");
+    expect(r.lines).toEqual([expect.stringMatching(/^\[browser-bridge\] \S+ browser_list_tabs t1 -> 500: 42$/)]);
+  });
+
+  /** `error` whose `key` field is a getter that throws, as a page-made error can be. */
+  function withThrowingGetter(error: Error, key: "message" | "name"): Error {
+    return Object.defineProperty(error, key, { get(): never { throw new Error("getter"); } });
+  }
+
+  test("qualunque motivo, la riga si scrive: Error con messaggio o nome non stringa, toString che lancia, Proxy revocato, Symbol, null, undefined", () => {
+    const throwingText = { toString(): string { throw new Error("no text"); } };
+    const revoked = Proxy.revocable({}, {});
+    revoked.revoke();
+    const reasons: unknown[] = [
+      Object.assign(new Error(""), { name: 42 }),
+      Object.assign(new Error("replaced"), { message: 7 }),
+      Object.assign(new RangeError(""), { message: throwingText }),
+      Object.assign(new Error(""), { name: throwingText }),
+      Object.assign(new TypeError("replaced"), { message: undefined }),
+      Object.assign(new Error("replaced"), { message: null }),
+      withThrowingGetter(new TypeError(""), "message"),
+      withThrowingGetter(new Error(""), "name"),
+      throwingText,
+      revoked.proxy,
+      Symbol("page"),
+      null,
+      undefined,
+    ];
+    const warn = spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      // One outcome per reason, so a red run names every reason that throws.
+      const outcomes = reasons.map((reason) => {
+        warn.mockClear();
+        try {
+          warnBridgeServerError("browser_eval", "c1", 502, reason);
+        } catch (err) {
+          return `threw: ${err instanceof Error ? err.message : "?"}`;
+        }
+        const lines = warn.mock.calls.map((args) => args.map(String).join(" "));
+        return lines.length === 1 ? lines[0].replace(/^\[browser-bridge\] \S+ browser_eval c1 -> 502: /, "") : `${lines.length} lines`;
+      });
+      expect(outcomes).toEqual([
+        // Every field goes through String(), as a non-Error reason always did.
+        "42",
+        "7",
+        // A message that cannot become text falls back to the name, like an empty one.
+        "RangeError",
+        "Error",
+        // So does a message that is not there (null, undefined) or a getter that throws.
+        "TypeError",
+        "Error",
+        "TypeError",
+        "Error",
+        // A reason with no text at all says so, instead of claiming it was empty.
+        "(unprintable)",
+        "(unprintable)",
+        "Symbol(page)",
+        "null",
+        "undefined",
+      ]);
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  // The fallback to the error's name only works when the log gets the error
+  // itself: given `e.message`, an Error with nothing in it logs "(empty)".
+  test("blocco generico: un TypeError senza messaggio lanciato dal dispatch logga il nome dell'errore, il corpo resta il messaggio", async () => {
+    const h = harness({ dispatchThrows: new TypeError("") });
+    h.addTerminal("42");
+    const r = await warnsOf(h, "/api/sessions/42/browser/eval", { expression: "1+1" });
+    expect(r.status).toBe(500);
+    expect(r.error).toBe("");
+    expect(r.lines).toEqual([expect.stringMatching(/ browser_eval term-42 -> 500: TypeError$/)]);
+  });
+
+  test("open-pane accanto a un terminale: un TypeError senza messaggio dalla navigazione logga il nome dell'errore, il corpo resta il messaggio", async () => {
+    const h = harness({ navigateThrows: new TypeError("") });
+    h.addTerminal("42");
+    const r = await warnsOf(h, "/api/sessions/42/browser/open-pane", { url: "https://example.com/" });
+    expect(r.status).toBe(500);
+    expect(r.error).toBe("");
+    expect(r.lines).toEqual([expect.stringMatching(/ browser_open term-42 -> 500: TypeError$/)]);
+  });
+
+  // The body is built in the same catch as the log line: a reason whose text
+  // throws there (or that JSON cannot serialize) leaves no answer either.
+  const unanswerable: Array<{ label: string; make: () => unknown; error: string; line: string }> = [
+    { label: "un oggetto senza prototipo", make: () => Object.create(null), error: "(unprintable)", line: "(unprintable)" },
+    { label: "un Proxy revocato", make: () => { const p = Proxy.revocable({}, {}); p.revoke(); return p.proxy; }, error: "(unprintable)", line: "(unprintable)" },
+    { label: "un Error col messaggio BigInt", make: () => Object.assign(new Error(""), { message: 10n }), error: "10", line: "10" },
+    { label: "un TypeError col getter del messaggio che lancia", make: () => withThrowingGetter(new TypeError(""), "message"), error: "", line: "TypeError" },
+  ];
+  const routes: Array<{ tool: string; ctx: string; path: string; body?: unknown; throwsOn: "listContextsThrows" | "dispatchThrows" | "navigateThrows"; setup: (h: ReturnType<typeof harness>) => void }> = [
+    { tool: "browser_list_tabs", ctx: "t1", path: "/api/topics/t1/browser/list-tabs", throwsOn: "listContextsThrows", setup: (h) => { h.addTopic("t1"); } },
+    { tool: "browser_eval", ctx: "term-42", path: "/api/sessions/42/browser/eval", body: { expression: "1+1" }, throwsOn: "dispatchThrows", setup: (h) => { h.addTerminal("42"); } },
+    { tool: "browser_import_chrome", ctx: "t1", path: "/api/topics/t1/browser/import-chrome", body: { domains: ["example.com"] }, throwsOn: "dispatchThrows", setup: (h) => { h.addTopic("t1"); } },
+    { tool: "browser_open", ctx: "term-42", path: "/api/sessions/42/browser/open-pane", body: { url: "https://example.com/" }, throwsOn: "navigateThrows", setup: (h) => { h.addTerminal("42"); } },
+  ];
+  for (const route of routes) {
+    for (const reason of unanswerable) {
+      test(`${route.tool} con ${reason.label}: il 500 esce, col testo nel corpo e una riga di warn`, async () => {
+        const h = harness({ [route.throwsOn]: reason.make() });
+        route.setup(h);
+        const r = await warnsOf(h, route.path, route.body);
+        expect(r.status).toBe(500);
+        expect(r.error).toBe(reason.error);
+        expect(r.lines.map((line) => line.replace(/^\[browser-bridge\] \S+ /, ""))).toEqual([`${route.tool} ${route.ctx} -> 500: ${reason.line}`]);
+      });
+    }
+  }
+
+  test("import-chrome: un TypeError senza messaggio lanciato dal dispatch logga il nome dell'errore, il corpo resta il messaggio", async () => {
+    const h = harness({ dispatchThrows: new TypeError("") });
+    h.addTopic("t1");
+    const r = await warnsOf(h, "/api/topics/t1/browser/import-chrome", { domains: ["example.com"] });
+    expect(r.status).toBe(500);
+    expect(r.error).toBe("");
+    expect(r.lines).toEqual([expect.stringMatching(/ browser_import_chrome t1 -> 500: TypeError$/)]);
   });
 });
