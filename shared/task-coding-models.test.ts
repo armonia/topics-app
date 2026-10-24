@@ -175,7 +175,7 @@ describe('task coding models', () => {
   test('a dependent continues a session only with the switch the session runs with', () => {
     const claudeCode = (topicsRouting: boolean) => ({ provider: 'claude-code', model: 'claude-opus-5', topicsRouting });
     const engine = (topicsRouting: boolean) => ({ provider: 'topics', model: 'claude-opus-5', topicsRouting });
-    const codex = { provider: 'codex', model: 'gpt-5.4' };
+    const codex = { provider: 'codex', model: 'gpt-5.4', topicsRouting: false };
     // Automatic, a bare model, an explicit provider and the legacy prefix alike.
     for (const value of [undefined, 'claude-opus-5', 'claude-code:claude-opus-5', 'topics:claude-opus-5']) {
       for (const session of [claudeCode(true), engine(true)]) {
@@ -301,8 +301,8 @@ describe('topicsRoute, the one reading of the preference', () => {
     return { provider: s.provider ?? null, model: s.model ?? null };
   };
 
-  test('TOPICS_ROUTING_DEFAULT: ON for chats, OFF for cards and the board default', () => {
-    expect(TOPICS_ROUTING_DEFAULT).toEqual({ chat: true, task: false });
+  test('TOPICS_ROUTING_DEFAULT: ON for chats, ON for cards and the board default', () => {
+    expect(TOPICS_ROUTING_DEFAULT).toEqual({ chat: true, task: true });
   });
   test('chat, null, claude-code:claude-opus-5-5: topics', () => {
     expect(topicsRoute(null, target('claude-code:claude-opus-5-5'), fleet(), 'chat')).toEqual({ via: 'topics' });
@@ -324,8 +324,8 @@ describe('topicsRoute, the one reading of the preference', () => {
     const current = fleet('ready', 'claude-code');
     expect(topicsRoute(null, { provider: current.defaultProvider, model: null }, current, 'chat')).toEqual({ via: 'topics' });
   });
-  test('card, null, claude-code:claude-opus-5-5: direct/off', () => {
-    expect(topicsRoute(null, target('claude-code:claude-opus-5-5'), fleet(), 'task')).toEqual({ via: 'direct', reason: 'off' });
+  test('card, null, claude-code:claude-opus-5-5: topics', () => {
+    expect(topicsRoute(null, target('claude-code:claude-opus-5-5'), fleet(), 'task')).toEqual({ via: 'topics' });
   });
   test('card, true, codex:gpt-6.1-sol: direct/family', () => {
     expect(topicsRoute(true, target('codex:gpt-6.1-sol'), fleet(), 'task')).toEqual({ via: 'direct', reason: 'family' });
@@ -344,14 +344,14 @@ describe('topicsRoute, the one reading of the preference', () => {
   });
   test('effectiveTopicsRouting reads a never-written value with the scope default, a written one as written', () => {
     expect(effectiveTopicsRouting(null, null, 'chat')).toBe(true);
-    expect(effectiveTopicsRouting(undefined, 'claude-opus-5-5', 'task')).toBe(false);
+    expect(effectiveTopicsRouting(undefined, 'claude-opus-5-5', 'task')).toBe(true);
     expect(effectiveTopicsRouting(false, null, 'chat')).toBe(false);
     expect(effectiveTopicsRouting(true, null, 'task')).toBe(true);
   });
   test('reuse: a never-written card adopts the session switch, a written one defends its own', () => {
     expect(reusedSessionRouting('claude-code:claude-opus-5-5', { topicsRouting: false }, null)).toBe(false);
     expect(reusedSessionRouting('claude-code:claude-opus-5-5', { topicsRouting: true }, null)).toBe(true);
-    expect(reusedSessionRouting('claude-code:claude-opus-5-5', { topicsRouting: null }, null)).toBe(false);
+    expect(reusedSessionRouting('claude-code:claude-opus-5-5', { topicsRouting: null }, null)).toBe(true);
     expect(reusedSessionRouting('claude-code:claude-opus-5-5', { topicsRouting: false }, true)).toBe(true);
     expect(reusedSessionRouteConflict('claude-code:claude-opus-5-5', { provider: 'claude-code', topicsRouting: false }, null)).toBeNull();
     expect(reusedSessionRouteConflict('claude-code:claude-opus-5-5', { provider: 'claude-code', topicsRouting: false }, true)).toBe('switch-off');

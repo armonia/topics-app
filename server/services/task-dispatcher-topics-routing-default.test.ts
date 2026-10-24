@@ -150,7 +150,7 @@ describe("AICTRL-05: default board dello switch di instradamento", () => {
     expect(h.topicsCreated[0]?.topicsRouting).toBe(true);
   });
 
-  it("senza nessuno dei tre, resta spento", async () => {
+  it("senza nessuno dei tre, resta acceso (default task ON come la chat)", async () => {
     const h = harness();
     h.svc.updateBoardSettings(PID, { autoDispatch: true, dispatchUseWorktree: true });
     h.svc.setGlobalCap({ auto: false, max: 5 });
@@ -159,7 +159,7 @@ describe("AICTRL-05: default board dello switch di instradamento", () => {
     await h.dispatcher.tick(PID);
     await flush();
 
-    expect(h.topicsCreated[0]?.topicsRouting).toBe(false);
+    expect(h.topicsCreated[0]?.topicsRouting).toBe(true);
   });
 });
 
@@ -231,7 +231,7 @@ describe("a card reusing a session", () => {
   it("a never-written card reusing a session from before the column (null): the effective value is written before the turn", async () => {
     const { task, events } = await reuse(null, null);
     expect(task.dispatchState).not.toBe("blocked");
-    expect(events[0]).toBe("write topic-s=false");
+    expect(events[0]).toBe("write topic-s=true");
     expect(events[1]?.startsWith("turn ")).toBe(true);
   });
 });

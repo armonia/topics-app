@@ -109,10 +109,10 @@ describe('identità del topic dispacciato', () => {
     }
   });
 
-  it('una card mai toccata (null) su claude-code gira diretta, e il topic porta lo 0 effettivo', () => {
+  it('una card mai toccata (null) su claude-code gira sul motore, e il topic porta l’1 effettivo', () => {
     const id = resolveDispatchTopicIdentity({ provider: 'claude-code', model: 'claude-opus-5', topicsRouting: null }, FLEET);
-    expect(id.topicsRouting).toBe(false);
-    expect(id.executor).toBe('claude-code');
+    expect(id.topicsRouting).toBe(true);
+    expect(id.executor).toBe('topics');
   });
 
   it('il motore in scoperta fa aspettare la card, non la parcheggia', () => {

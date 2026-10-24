@@ -196,7 +196,8 @@ SHALL restare `provider` più `model`.
 ### Requirement: MSEL-06: «Esegui in Topics» è acceso dove si può
 
 La preferenza mai scritta (`null`) SHALL valere acceso per le chat, anche per
-quelle che esistono già, e spenta per le card e per il default della board.
+quelle che esistono già, e acceso per le card e per il default della board
+(25/10, card e9226ab7: il default task è coerente con la chat).
 Nessun dato SHALL essere riscritto per questo. Il default per ambito SHALL
 stare in una costante sola (`TOPICS_ROUTING_DEFAULT`).
 
@@ -232,7 +233,7 @@ Ogni lettura della preferenza SHALL passare da una funzione sola, `topicsRoute`.
 #### Scenario: card mai toccata
 - **GIVEN** una card con preferenza `null` e il default della board `null`, su `claude-code:claude-opus-5-5`
 - **WHEN** il dispatcher la avvia
-- **THEN** la card gira su Claude Code diretto, come oggi
+- **THEN** la card passa dal motore di Topics (default acceso) (25/10, card e9226ab7)
 
 #### Scenario: card Codex con la preferenza accesa
 - **GIVEN** una card `codex:gpt-6.1-sol` con la preferenza accesa

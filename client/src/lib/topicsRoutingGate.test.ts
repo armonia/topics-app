@@ -65,9 +65,9 @@ describe("boardTopicsRoutingEnabled", () => {
     expect(boardTopicsRoutingEnabled(null, "topics:claude-sonnet-5")).toBe(true);
   });
 
-  it("board mai toccata (null) senza prefisso legacy: letta OFF", () => {
-    expect(boardTopicsRoutingEnabled(null, "claude-sonnet-5")).toBe(false);
-    expect(boardTopicsRoutingEnabled(null, null)).toBe(false);
+  it("board mai toccata (null) senza prefisso legacy: letta ON come la chat", () => {
+    expect(boardTopicsRoutingEnabled(null, "claude-sonnet-5")).toBe(true);
+    expect(boardTopicsRoutingEnabled(null, null)).toBe(true);
   });
 
   it("switch esplicito vince sempre sul prefisso legacy del modello", () => {
