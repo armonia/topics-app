@@ -3,7 +3,7 @@
  * @covers USAGE-24
  */
 import { describe, test, expect } from "bun:test";
-import { parseCompletionStdout } from "./claude-code";
+import { ClaudeCodeProvider, parseCompletionStdout } from "./claude-code";
 
 describe("parseCompletionStdout", () => {
   test("single result object → content + usage", () => {
@@ -14,7 +14,7 @@ describe("parseCompletionStdout", () => {
     expect(out.content).toBe("opus ok");
     expect(out.usage).toEqual({
       promptTokens: 15, completionTokens: 2,
-      cacheReadTokens: 5, cacheCreationTokens: 0, cacheCreation1hTokens: 0, requests: 1,
+      cacheReadTokens: 5, cacheCreationTokens: 0, cacheCreation1hTokens: 0,
     });
   });
 
@@ -47,17 +47,24 @@ describe("parseCompletionStdout", () => {
     expect(out.usage).toEqual({
       promptTokens: 12_813, completionTokens: 21,
       cacheReadTokens: 0, cacheCreationTokens: 12_810, cacheCreation1hTokens: 12_810,
-      model: "claude-sonnet-5-5", costUsd: 0.0794, requests: 1,
+      model: "claude-sonnet-5-5", costUsd: 0.0794,
     });
   });
 
-  test("two models in modelUsage: no model is guessed", () => {
+  test("two models in modelUsage: the parse names none, the provider says which one ran", () => {
+    // The parse cannot tell which of two models answered; the ledger then asks
+    // the provider (`completionModel`), whose one-shots run on their OWN
+    // default, not on the chat's (`defaultModel`).
     const out = parseCompletionStdout(JSON.stringify({
       type: "result", result: "ok",
       modelUsage: { "claude-sonnet-5-5": {}, "claude-haiku-4-5": {} },
       usage: { input_tokens: 1, output_tokens: 1 },
     }));
     expect(out.usage?.model).toBeUndefined();
+    const provider = new ClaudeCodeProvider({ type: "claude-code" });
+    expect(provider.completionModel()).toBe("claude-sonnet-5-5");
+    expect(provider.completionModel({ model: "claude-haiku-4-5" })).toBe("claude-haiku-4-5");
+    expect(new ClaudeCodeProvider({ type: "claude-code", model: "claude-opus-5-5" }).completionModel()).toBe("claude-opus-5-5");
   });
 
   test("json without a result event → EMPTY content (caller fallback), not raw json", () => {

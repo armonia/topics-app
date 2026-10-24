@@ -28,15 +28,13 @@ function makeDb(): Database {
   db.run(`CREATE TABLE tasks (
     id TEXT PRIMARY KEY, project_id TEXT, completed_at TEXT, updated_at TEXT,
     agent_tokens INTEGER, agent_cache_read_tokens INTEGER)`);
-  // Same columns as 001 + the side-call migration.
+  // The table as the side-call migration rebuilds it.
   db.run(`CREATE TABLE usage_records (
     id TEXT PRIMARY KEY DEFAULT (lower(hex(randomblob(16)))), timestamp INTEGER NOT NULL,
     session_key TEXT NOT NULL, topic_id TEXT, model TEXT NOT NULL,
-    input_tokens INTEGER NOT NULL DEFAULT 0, output_tokens INTEGER NOT NULL DEFAULT 0,
-    total_tokens INTEGER NOT NULL DEFAULT 0, cost_usd REAL NOT NULL DEFAULT 0.0,
-    purpose TEXT, provider TEXT, cache_read_tokens INTEGER NOT NULL DEFAULT 0,
-    cache_creation_tokens INTEGER NOT NULL DEFAULT 0, cache_creation_1h_tokens INTEGER NOT NULL DEFAULT 0,
-    duration_ms INTEGER)`);
+    input_tokens INTEGER, output_tokens INTEGER, total_tokens INTEGER, cost_usd REAL,
+    purpose TEXT, provider TEXT, cache_read_tokens INTEGER, cache_creation_tokens INTEGER,
+    cache_creation_1h_tokens INTEGER, duration_ms INTEGER, measured INTEGER NOT NULL DEFAULT 1, error TEXT)`);
   return db;
 }
 
@@ -230,28 +228,54 @@ describe("projectUsage", () => {
     message(db, "chat:a", { prompt: 100, completion: 10, cents: 50 });
     const now = Date.now();
     const old = now - 40 * 86_400_000;
-    const side = db.prepare(`INSERT INTO usage_records (timestamp, session_key, model, total_tokens, cost_usd, purpose)
-      VALUES (?, 'side-call', 'claude-sonnet-5-5', ?, ?, ?)`);
-    side.run(now, 1000, 0.08, "card-title");
-    side.run(now, 1000, 0.07, "card-title");
-    side.run(now, 500, 0.01, null);
-    side.run(old, 9999, 5, "card-title");
-    // A row someone else might write one day: not a side call.
-    db.prepare(`INSERT INTO usage_records (timestamp, session_key, model, cost_usd) VALUES (?, 'chat:a', 'x', 9)`).run(now);
+    const side = db.prepare(`INSERT INTO usage_records (timestamp, session_key, model, total_tokens, cost_usd, purpose, measured, error)
+      VALUES (?, 'side-call', 'claude-sonnet-5-5', ?, ?, ?, ?, ?)`);
+    side.run(now, 1000, 0.08, "card-title", 1, null);
+    side.run(now, 1000, 0.07, "card-title", 1, null);
+    side.run(now, 500, 0.01, null, 1, null);
+    // A provider that reported nothing (ACP): a call, not a free one.
+    side.run(now, null, null, "chat-name", 0, null);
+    // A Codex call measured on a model without a price.
+    side.run(now, 300, null, "goal-judge", 1, null);
+    // A CLI that timed out.
+    side.run(now, null, null, "card-title", 0, "Completion timed out");
+    side.run(old, 9999, 5, "card-title", 1, null);
 
     const month = projectUsage(db, { days: 30 });
     expect(month.sideCalls).toEqual({
-      calls: 3,
+      calls: 6,
+      unmeasured: 2,
+      unpriced: 1,
+      failed: 1,
       costUsd: 0.16,
       byPurpose: [
-        { purpose: "card-title", calls: 2, costUsd: 0.15, tokens: 2000 },
-        { purpose: "other", calls: 1, costUsd: 0.01, tokens: 500 },
+        { purpose: "card-title", calls: 3, unmeasured: 1, costUsd: 0.15, tokens: 2000 },
+        { purpose: "other", calls: 1, unmeasured: 0, costUsd: 0.01, tokens: 500 },
+        { purpose: "chat-name", calls: 1, unmeasured: 1, costUsd: 0, tokens: 0 },
+        { purpose: "goal-judge", calls: 1, unmeasured: 0, costUsd: 0, tokens: 300 },
       ],
     });
     // The project total is the chat alone.
     expect(month.totals.costUsd).toBe(0.5);
 
     const all = projectUsage(db);
-    expect(all.sideCalls.calls).toBe(4);
+    expect(all.sideCalls.calls).toBe(7);
+  });
+
+  test("a side call that answered a chat counts in that chat's project, not outside", () => {
+    // The fallback reply of a provider without streaming: its message row has
+    // no cost, the ledger row carries it.
+    const db = makeDb();
+    topic(db, "chat:a", ALPHA);
+    message(db, "chat:a", { prompt: 100, completion: 10, cents: 50 });
+    const topicId = (db.query(`SELECT id FROM topics WHERE session_key = 'chat:a'`).get() as { id: string }).id;
+    db.prepare(`INSERT INTO usage_records (timestamp, session_key, topic_id, model, input_tokens, output_tokens, total_tokens,
+      cost_usd, cache_read_tokens, purpose) VALUES (?, 'chat:a', ?, 'claude-sonnet-5-5', 1000, 100, 1100, 0.3, 0, 'chat-reply')`)
+      .run(Date.now(), topicId);
+
+    const out = projectUsage(db, { days: 30 });
+    expect(out.sideCalls.calls).toBe(0);
+    expect(out.projects[0]).toMatchObject({ projectPath: ALPHA, costUsd: 0.8 });
+    expect(out.projects[0]!.chatTokens).toBe(100 + 10 + 1000 + 100);
   });
 });

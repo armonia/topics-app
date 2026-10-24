@@ -15,6 +15,7 @@ import type {
   AIProvider,
   ChatMessage,
   ClaudeProviderConfig,
+  CompletionOptions,
   CompletionResult,
   ProviderCapability,
   ProviderDiagnostic,
@@ -75,6 +76,11 @@ export class ClaudeProvider implements AIProvider {
 
   defaultModel(): string {
     return resolveClaudeModel() ?? this.config.model ?? DEFAULT_MODEL;
+  }
+
+  /** The model `complete()` runs: the one asked for, else the chat default. */
+  completionModel(options?: CompletionOptions): string {
+    return options?.model ?? this.defaultModel();
   }
 
   updateConfig(config: ClaudeProviderConfig): void {
@@ -318,9 +324,12 @@ export class ClaudeProvider implements AIProvider {
 
   // --- Non-streaming Completion ---
 
-  async complete(messages: ChatMessage[]): Promise<CompletionResult> {
+  async complete(messages: ChatMessage[], options?: CompletionOptions): Promise<CompletionResult> {
     const client = await this.requireClient();
-    const model = this.defaultModel();
+    // A caller that asks for a model (a cheap judge) gets it: the ledger labels
+    // and prices the row with the model asked, so running another one would
+    // make both wrong.
+    const model = this.completionModel(options);
     const maxTokens = resolveClaudeMaxTokens() ?? this.config.maxTokens ?? DEFAULT_MAX_TOKENS;
 
     const { system, conversationMessages } = this.splitSystemMessage(messages);
@@ -347,11 +356,21 @@ export class ClaudeProvider implements AIProvider {
       .map((block) => block.text)
       .join("");
 
+    // On the API `input_tokens` is the FRESH share only: the cache reads and
+    // writes come apart. Reporting `input_tokens` alone priced a 12,810-token
+    // cache write at three tokens, 150 times below its cost.
+    const u = response.usage;
+    const read = u.cache_read_input_tokens ?? 0;
+    const write = u.cache_creation_input_tokens ?? 0;
     return {
       content,
       usage: {
-        promptTokens: response.usage.input_tokens,
-        completionTokens: response.usage.output_tokens,
+        promptTokens: u.input_tokens + read + write,
+        completionTokens: u.output_tokens,
+        cacheReadTokens: read,
+        cacheCreationTokens: write,
+        cacheCreation1hTokens: u.cache_creation?.ephemeral_1h_input_tokens ?? 0,
+        model: response.model || model,
       },
     };
   }

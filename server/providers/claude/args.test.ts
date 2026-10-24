@@ -557,7 +557,7 @@ describe("buildCodexArgs — la fotografia", () => {
   });
 
   test("one-shot: niente `--json`, qui si legge il testo", () => {
-    expect(buildCodexOneshotArgs({ model: "gpt-5" })).toEqual(["exec", "--model", "gpt-5"]);
-    expect(buildCodexOneshotArgs({})).toEqual(["exec"]);
+    expect(buildCodexOneshotArgs({ model: "gpt-5" })).toEqual(["exec", "--json", "--model", "gpt-5"]);
+    expect(buildCodexOneshotArgs({})).toEqual(["exec", "--json"]);
   });
 });

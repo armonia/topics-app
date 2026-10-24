@@ -25,6 +25,7 @@
 import { FolderGit2 } from 'lucide-react';
 import { useLocale, useT } from '@/hooks/useT';
 import { useProjectUsage, type ProjectUsageRow, type UsageRange } from '@/hooks/useProjectUsage';
+import { sideCallsLine } from './sideCallsLine';
 
 /** The windows offered, in the order a person narrows: today, the week, the
  *  month, everything. `all` is where the panel opens, because "what has this
@@ -146,20 +147,22 @@ export function ProjectUsagePanel({ range, onRange }: {
       {/* SIDE CALLS: titles, chat names, judges and commit messages are made
           outside any chat, so they belong to no project row. Shown apart, with
           the split by purpose in the tooltip, because before 24/10 they were
-          not counted anywhere. */}
+          not counted anywhere. Calls a provider did not measure are counted
+          and named, never summed as free. */}
       {usage && usage.sideCalls.calls > 0 && (
         <div
           data-testid="usage-side-calls"
           className="mt-1.5 border-t border-app-border pt-1.5 text-mini leading-snug text-app-text-secondary"
           title={usage.sideCalls.byPurpose
-            .map((p) => tr('usage.sideCallsPurpose', {
+            .map((p) => tr(p.unmeasured > 0 ? 'usage.sideCallsPurposeUnmeasured' : 'usage.sideCallsPurpose', {
               purpose: purposeLabel(p.purpose, tr),
               n: p.calls,
+              m: p.unmeasured,
               cost: cents.format(p.costUsd),
             }))
             .join('\n')}
         >
-          {tr('usage.sideCalls', { n: usage.sideCalls.calls, cost: cents.format(usage.sideCalls.costUsd) })}
+          {sideCallsLine(usage.sideCalls, cents.format(usage.sideCalls.costUsd), tr)}
         </div>
       )}
     </div>

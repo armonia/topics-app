@@ -195,14 +195,46 @@ describe("the native provider and the door that writes tokens on the row", () =>
     const out = await provider.complete([{ role: "user", content: "say done" }]);
 
     expect(out.content).toBe("done");
-    expect(out.usage).toEqual({
+    expect(out.error).toBeUndefined();
+    const { costUsd, ...shares } = out.usage!;
+    expect(shares).toEqual({
       promptTokens: 200 + 20 + 5,
       completionTokens: 5,
       cacheReadTokens: 20,
       cacheCreationTokens: 5,
       cacheCreation1hTokens: 1,
       model: "claude-haiku-4-5-20251001",
-      requests: 1,
     });
+    // The round priced on its own, Haiku 4.5 at $1/$5:
+    // 200 + 20*0.1 + 4*1.25 + 1*2 + 5*5 = 234 millionths.
+    expect(costUsd).toBeCloseTo(234 / 1_000_000, 12);
+  });
+
+  test("two rounds of one completion: each priced on its own, their sum is the price", async () => {
+    const queue = [roundWithTool, finalRound];
+    globalThis.fetch = (async () => new Response(queue.shift() ?? finalRound, { status: 200 })) as unknown as typeof fetch;
+    const provider = new NativeProvider({ type: "native", defaultWorkspace: workspace, model: "claude-haiku-4-5-20251001" });
+    const out = await provider.complete([{ role: "user", content: "say done" }]);
+    // Round 1: 100 + 10*0.1 + 4*1.25 + 3*2 + 20*5 = 212; round 2: 234.
+    expect(out.usage?.costUsd).toBeCloseTo(446 / 1_000_000, 12);
+  });
+
+  test("a turn without credentials is a FAILED call, not a free one", async () => {
+    // Reproduced in review: no token, `runAgentTurn` returns a zero usage
+    // without throwing, and the row looked like a measured call that cost
+    // nothing. The usage stays (nothing was spent, and that is measured); the
+    // failure is said.
+    const empty = mkdtempSync(join(tmpdir(), "native-nocreds-home-"));
+    process.env.HOME = empty;
+    try {
+      const provider = new NativeProvider({ type: "native", defaultWorkspace: workspace, model: "claude-sonnet-5-5" });
+      const out = await provider.complete([{ role: "user", content: "title this" }]);
+      expect(out.content).toBe("");
+      expect(out.error).toContain("credenziale");
+      expect(out.usage).toMatchObject({ promptTokens: 0, completionTokens: 0, costUsd: 0 });
+    } finally {
+      process.env.HOME = home;
+      rmSync(empty, { recursive: true, force: true });
+    }
   });
 });

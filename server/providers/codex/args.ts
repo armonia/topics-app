@@ -131,10 +131,12 @@ export function buildCodexForkArgs(opts: CodexExecArgsOptions & { parentThreadId
 
 /**
  * L'argv di un completamento usa-e-getta (auto-titolo, digest, fallback SSE).
- * Niente `--json`: qui si legge il testo, non gli eventi.
+ * With `--json`: the events carry the call's usage (`turn.completed`), which the
+ * side-call ledger records; the text is read from the last agent message
+ * (`parseCodexOneshotJsonl`).
  */
 export function buildCodexOneshotArgs(opts: { model?: string | null; reasoningEffort?: string; isolated?: boolean }): string[] {
-  const args = ["exec"];
+  const args = ["exec", "--json"];
   if (opts.model) args.push("--model", opts.model);
   if (opts.reasoningEffort) args.push("-c", `model_reasoning_effort=${JSON.stringify(opts.reasoningEffort)}`);
   if (opts.isolated) args.push(

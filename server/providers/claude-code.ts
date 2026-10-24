@@ -1156,7 +1156,6 @@ export function parseCompletionStdout(stdout: string): CompletionResult {
       cacheCreation1hTokens: n(usage.cache_creation?.ephemeral_1h_input_tokens),
       ...(models.length === 1 ? { model: models[0] } : {}),
       ...(typeof resultEvent?.total_cost_usd === "number" ? { costUsd: resultEvent.total_cost_usd } : {}),
-      requests: 1,
     } : undefined,
   };
 }
@@ -2013,8 +2012,7 @@ export class ClaudeCodeProvider implements AIProvider {
       })
       .join("\n\n");
 
-    // Per-call override (dispatcher classifier forces haiku) → configured model → default.
-    const model = options?.model ?? this.config.model ?? DEFAULT_ONESHOT_MODEL;
+    const model = this.completionModel(options);
     const permissionMode = this.config.permissionMode ?? DEFAULT_PERMISSION_MODE;
     const workspace = this.config.defaultWorkspace || process.env.HOME || "/tmp";
 
@@ -2070,7 +2068,9 @@ export class ClaudeCodeProvider implements AIProvider {
         if (timedOut) { reject(new Error("Completion timed out")); return; }
         if (code !== 0) {
           console.warn(`[claude-code] complete() exited with code ${code}: ${stderr.slice(0, 200)}`);
-          resolve({ content: `Error: CLI exited with code ${code}` });
+          // Still an answer to the caller (they read the notice), but a failed
+          // one for the ledger: the CLI may have spent tokens before dying.
+          resolve({ content: `Error: CLI exited with code ${code}`, error: `exit ${code}` });
           return;
         }
         resolve(parseCompletionStdout(stdout));
@@ -2420,6 +2420,15 @@ export class ClaudeCodeProvider implements AIProvider {
    *  lo spawn non userebbe. */
   defaultModel(): string {
     return resolveClaudeCodeModel() ?? this.config.model ?? defaultChatModel();
+  }
+
+  /**
+   * The model a one-shot `complete()` runs: the one asked for (the dispatcher's
+   * classifier forces Haiku), else the configured one, else the one-shot
+   * default. NOT `defaultModel()`, which is the chat's.
+   */
+  completionModel(options?: CompletionOptions): string {
+    return options?.model ?? this.config.model ?? DEFAULT_ONESHOT_MODEL;
   }
 
   /**

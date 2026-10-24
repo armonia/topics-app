@@ -173,6 +173,51 @@ export function extractCodexContext(
 }
 
 /**
+ * A one-shot's answer from `codex exec --json`: the text of the LAST agent
+ * message (what the text mode printed), the usage of `turn.completed`, and the
+ * error of a `turn.failed`. Codex's `input_tokens` already counts the cached
+ * ones, so it is the prompt total and `cached_input_tokens` a share of it.
+ *
+ * A stdout with no JSON event at all (an older CLI) is taken as the answer, as
+ * before: no usage, and the ledger says "not measured".
+ */
+export function parseCodexOneshotJsonl(stdout: string): CompletionResult {
+  let text: string | null = null;
+  let prompt = 0, output = 0, cacheRead = 0;
+  let measured = false;
+  let error: string | undefined;
+  let events = 0;
+  for (const line of stdout.split("\n")) {
+    const trimmed = line.trim();
+    if (!trimmed.startsWith("{")) continue;
+    let event: Record<string, unknown>;
+    try { event = JSON.parse(trimmed) as Record<string, unknown>; } catch { continue; }
+    if (typeof event.type !== "string") continue;
+    events++;
+    const item = event.item && typeof event.item === "object" ? event.item as Record<string, unknown> : null;
+    if (event.type === "item.completed" && item && (item.type === "agent_message" || item.type === "assistant_message")) {
+      if (typeof item.text === "string") text = item.text;
+    } else if (event.type === "turn.completed") {
+      const u = extractCodexUsage(event);
+      if (u) {
+        measured = true;
+        prompt += u.inputTokens ?? 0;
+        output += u.outputTokens ?? 0;
+        cacheRead += u.cacheRead ?? 0;
+      }
+    } else if (event.type === "turn.failed" || event.type === "error") {
+      error = extractCodexErrorMessage(event);
+    }
+  }
+  if (events === 0) return { content: stdout.trim() };
+  return {
+    content: (text ?? "").trim(),
+    ...(measured ? { usage: { promptTokens: prompt, completionTokens: output, cacheReadTokens: Math.min(cacheRead, prompt) } } : {}),
+    ...(error ? { error } : {}),
+  };
+}
+
+/**
  * `turn.failed.error.message` is occasionally a JSON string (sometimes
  * double-encoded). Walk up to two levels of decoding looking for an inner
  * `error.message` / `message` / `error` field; bail out the moment we see
@@ -1162,10 +1207,10 @@ export class CodexProvider implements AIProvider {
           if (timedOut) { reject(new Error("Codex completion timed out")); return; }
           if (code !== 0) {
             if (stderr) console.warn(`[codex] complete exit ${code}: ${stderr.slice(0, 500)}`);
-            resolve({ content: `Error: Codex exited with code ${code}` });
+            resolve({ content: `Error: Codex exited with code ${code}`, error: `exit ${code}` });
             return;
           }
-          resolve({ content: stdout.trim() });
+          resolve(parseCodexOneshotJsonl(stdout));
         });
 
         child.on("error", (err) => { clearTimeout(timer); reject(err); });

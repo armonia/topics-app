@@ -41,7 +41,10 @@ stderr solo in console (mai in UI: leak di path/token).
 
 - Usage/token: NESSUN evento su stdout (grep `*usage*|*token*` vuoto su
   35 righe); il durable log ha solo rss/cpu. Il provider riporta durata,
-  non usage. Fallimenti run (`run.terminal.failed/cancelled`, kinds in
+  non usage. **Update 24/10 (Muse 1.4.12):** `run.usage` now arrives before
+  the terminal, with `models[]` (`model`, `input_tokens`, `cached_tokens`,
+  `output_tokens`, `reasoning_tokens`, `calls`): `fixtures/meta-oneshot-usage.jsonl`.
+  The one-shot reads it (`parseMuseOneshotJsonl`); the chat turn does not yet. Fallimenti run (`run.terminal.failed/cancelled`, kinds in
   `$defs.TurnErrorKind`) non osservati dal vivo: mapping difensivo da
   schema — `failed`/`cancelled` → `onError(reason ?? generico)`.
 - `task.lifecycle.failed` (visto su echo) su task tool → `onToolResult(id, reason, true)`; su altri task → ignorato.
