@@ -58,10 +58,13 @@ const NO_RESULT_RECORDED =
 /**
  * The window a session's rebuilt history is compacted against, in ESTIMATED
  * tokens (4 characters per token). It is a window, not the size the history
- * comes back at: past `COMPACT_AT_UNMEASURED` of it (82.5k) `compact` brings
- * the history back to `COMPACT_TO` of it (about 44k), and the last
- * `KEEP_RECENT` messages stay whole, so a heavy recent tail can stay above
- * that (74k estimated with eight 37k-character reads in the last turn).
+ * comes back at. `compact` always empties the tool results between the
+ * opening request and the last `KEEP_RECENT` messages, and cuts the oldest
+ * turns until the history is at `COMPACT_TO` of it (about 44k); only past
+ * `COMPACT_AT_UNMEASURED` of it (82.5k) does it also clip the recent results.
+ * The last `KEEP_RECENT` messages are never cut, so a heavy recent tail can
+ * stay above the target (74k estimated with eight 37k-character reads in the
+ * last turn).
  *
  * Rehydration runs before a model is chosen for the resumed turn (`sessionFor`
  * calls it with only a session key), so it cannot size itself to that model's

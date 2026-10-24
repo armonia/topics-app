@@ -11,7 +11,9 @@
   * @covers RT-04
  */
 import { test, expect, describe } from "bun:test";
-import { historyFromPersistedThread, REHYDRATE_WINDOW_TOKENS, type PersistedTurn } from "./history-rehydrate";
+import {
+  configureNativeHistorySource, historyFromPersistedThread, rehydrateHistory, REHYDRATE_WINDOW_TOKENS, type PersistedTurn,
+} from "./history-rehydrate";
 import { COMPACT_TO, estimateChars, estimateTokens } from "./compaction";
 import type { ToolCall } from "../../../shared/types";
 import type { Block } from "./agent-loop";
@@ -338,6 +340,30 @@ describe("historyFromPersistedThread — il tetto sulla storia ricostruita", () 
     // The opening request survives: an agent that no longer knows why it is
     // working is worse than one with a shorter memory of how it got there.
     expect(out[0]).toEqual({ role: "user", content: "lavora sul repo" });
+  });
+
+  test("a native session rebuilt from the store gets the same window by default", () => {
+    // `rehydrateHistory` is what `sessionFor` calls, with no window: only the
+    // CLI handoff passes `null`. Without a window by default the native
+    // session would rebuild the full thread.
+    const thread: PersistedTurn[] = [{ role: "user", content: "lavora sul repo" }];
+    for (let i = 0; i < 300; i++) {
+      thread.push({
+        role: "assistant",
+        content: `Giro ${i}: leggo un file.`,
+        toolCalls: [{
+          id: `t${i}`, name: "read_file", args: { path: `file${i}.ts` }, status: "success",
+          result: "x".repeat(4_000), contentOffset: 0,
+        }],
+      });
+    }
+    thread.push({ role: "user", content: "nuova domanda" });
+    configureNativeHistorySource(() => thread);
+    try {
+      expect(estimateTokens(rehydrateHistory("topic:x"))).toBeLessThanOrEqual(REHYDRATE_WINDOW_TOKENS * COMPACT_TO);
+    } finally {
+      configureNativeHistorySource(null);
+    }
   });
 });
 
