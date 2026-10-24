@@ -162,6 +162,13 @@ describe("createLiveTerminals", () => {
     expect(logs.length).toBe(2);
     expect(logs[1].msg).toMatch(/di nuovo raggiungibile/);
     expect(logs[1].err).toBeUndefined();
+    // Still reachable: nothing more. The same timeout after the recovery is news again.
+    await svc.list({ force: true });
+    expect(logs.length).toBe(2);
+    answers.osascript = killed;
+    await svc.list({ force: true });
+    expect(logs.length).toBe(3);
+    expect(logs[2].msg).toMatch(/ucciso dopo 1500 ms/);
   });
 
   it("Terminal.app: se la causa cambia senza un successo in mezzo, la riga si riscrive; la stessa causa resta muta", async () => {
@@ -192,10 +199,36 @@ describe("createLiveTerminals", () => {
     await round(); await round();
     expect(logs.length).toBe(3);
     expect(logs[0]).toMatch(/ucciso/);
+    expect(logs[0]).toMatch(/Mac lento/);
     expect(logs[1]).toMatch(/osascript fallito/);
     expect(logs[1]).toContain("-1743");
     expect(logs[2]).toContain("-609");
+    // An immediate failure is not a timeout: it says its own reason, not "slow Mac".
+    for (const l of logs.slice(1)) expect(l).not.toMatch(/Mac lento|Automazione/);
     for (const l of logs) expect(l).not.toContain("Command failed");
+  });
+
+  it("Terminal.app: un timeout e poi un fallimento immediato senza motivo sono due righe, non una", async () => {
+    // Both carry no reason (no stderr, only the "Command failed:" preamble):
+    // the kind alone must tell them apart.
+    const commandLine = 'Command failed: osascript -e tell application "Terminal"\n  return 1\nend tell';
+    const answers: Record<string, string | Error> = {
+      osascript: Object.assign(new Error(commandLine), { killed: true, signal: "SIGTERM", code: null }),
+    };
+    const { run } = fakeRunner(answers);
+    const logs: string[] = [];
+    let t = 1_000;
+    const svc = createLiveTerminals({
+      topics: () => [], topicsScreen: async () => null, topicsSend: () => true,
+      run, now: () => t, ttlMs: 0, sources: { tmux: false, terminal: true },
+      log: (msg) => { logs.push(msg); },
+    });
+    await svc.list({ force: true }); t += 61_000;
+    answers.osascript = Object.assign(new Error(commandLine), { killed: false, signal: null, code: 1 });
+    await svc.list({ force: true });
+    expect(logs).toHaveLength(2);
+    expect(logs[0]).toMatch(/ucciso/);
+    expect(logs[1]).toMatch(/^Terminal\.app: osascript fallito killed=false signal=null$/);
   });
 
   it("defaultRunner: l'errore respinto porta stderr, dove sta il motivo vero", async () => {

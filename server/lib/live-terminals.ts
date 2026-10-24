@@ -272,9 +272,10 @@ export function createLiveTerminals(deps: LiveTerminalsDeps): LiveTerminalsServi
       }
     } catch (err) {
       terminalPausedUntil = now() + TERMINAL_PAUSE_MS;
-      // One compact line per distinct failure: reason plus kill/timeout facts,
-      // keeping both hypotheses (slow Mac or pending/denied Automation
-      // permission). Never pass the full error object to the log.
+      // One compact line per distinct failure: reason plus kill/timeout facts.
+      // Only a kill gets the two hypotheses (slow Mac, or the Automation
+      // permission pending/denied): an immediate failure says its own reason.
+      // Never pass the full error object to the log.
       const killed = (err as { killed?: unknown })?.killed;
       const signal = (err as { signal?: unknown })?.signal;
       const reason = terminalFailureReason(err);
@@ -284,8 +285,10 @@ export function createLiveTerminals(deps: LiveTerminalsDeps): LiveTerminalsServi
       const key = `${kind}|${reason}`;
       if (key !== terminalErrorKey) {
         terminalErrorKey = key;
-        const what = killed === true ? `osascript ucciso dopo ${TERMINAL_LIST_TIMEOUT_MS} ms` : "osascript fallito";
-        log(`Terminal.app: ${what} (Mac lento, o permesso di Automazione in attesa/negato)${reason ? ": " + reason : ""} killed=${killed} signal=${signal}`);
+        const what = killed === true
+          ? `osascript ucciso dopo ${TERMINAL_LIST_TIMEOUT_MS} ms (Mac lento, o permesso di Automazione in attesa/negato)`
+          : "osascript fallito";
+        log(`Terminal.app: ${what}${reason ? ": " + reason : ""} killed=${killed} signal=${signal}`);
       }
       return [];
     }
