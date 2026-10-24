@@ -179,8 +179,9 @@ export function meterCompletions<P extends AIProvider>(provider: P): P {
     let result: CompletionResult | null = null;
     let thrown: unknown;
     try {
-      result = await inner(messages, options);
-      return result;
+      const answer = await inner(messages, options);
+      result = answer;
+      return answer;
     } catch (err) {
       thrown = err ?? new Error("complete() rejected");
       throw err;
