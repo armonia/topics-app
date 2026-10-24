@@ -1084,6 +1084,10 @@ compaction) SHALL be sent loaded: that is the session's allowlist, derived from
 the history on every round. In a live conversation the tool list SHALL stay
 byte-identical from round to round, so the cached prefix survives a discovery.
 The cache breakpoint SHALL sit on the last loaded tool, never on a deferred one.
+A tool the history references and the fleet no longer offers (remount, re-list,
+a server gone) SHALL still be declared, as a deferred stub that says it is gone,
+because the API refuses a reference without a definition. `tool_search` with
+`select:` SHALL load every name asked for, whatever `max_results` says.
 `TOPICS_TOOL_SEARCH=off` SHALL send every schema loaded, as before.
 
 #### Scenario: MCP schemas leave the prefix
@@ -1103,17 +1107,35 @@ The cache breakpoint SHALL sit on the last loaded tool, never on a deferred one.
 - **WHEN** a round is sent
 - **THEN** that tool SHALL be sent loaded, and the others deferred
 
+#### Scenario: a loaded tool leaves the fleet
+- **GIVEN** a chat that found and called an MCP tool through `tool_search`
+- **WHEN** the server is remounted without that tool and the person writes again
+- **THEN** the round SHALL declare the tool as a stub that says it is gone
+- **AND** the API SHALL NOT answer 400 for a reference without a definition
+
 ### Requirement: MCPSRV-06 — A restarted MCP server gets a new session, not a dead one
 
 When an HTTP MCP server answers a call with 404, or with a 400 that speaks of the
 session or of a server not initialized, the client SHALL drop its session id,
 repeat the handshake once and retry the call once. Any other 400 SHALL fail as
-before, without a new handshake.
+before, without a new handshake. Calls that find the session dead together
+SHALL share one handshake. A handshake that fails SHALL be tried again by the
+next call, never leave the connection without a session for good.
 
 #### Scenario: the gateway restarted
 - **GIVEN** a connection whose server restarted and answers 400 "Server not initialized"
 - **WHEN** a tool is called
 - **THEN** the client SHALL initialize a new session and the call SHALL succeed
+
+#### Scenario: the new handshake fails once
+- **GIVEN** a restarted server whose first handshake answers 503
+- **WHEN** a tool is called twice
+- **THEN** the first call SHALL fail and the second SHALL shake hands and succeed
+
+#### Scenario: three calls find the session dead together
+- **GIVEN** a restarted server that refuses a second handshake
+- **WHEN** three tools are called at once
+- **THEN** one handshake SHALL be made and all three calls SHALL succeed
 
 #### Scenario: a bad request is not a dead session
 - **GIVEN** a server that answers 400 "Parse error"

@@ -205,7 +205,11 @@ async function readSseResponse(res: Response, id: number): Promise<{ result?: un
 
 /** Does this answer say the server no longer knows our session? Reads the body of a 400. */
 async function sessionExpired(res: Response): Promise<boolean> {
-  if (res.status === 404) return true;
+  if (res.status === 404) {
+    // The unread body holds the socket open otherwise.
+    try { await res.body?.cancel(); } catch { /* already drained */ }
+    return true;
+  }
   if (res.status !== 400) return false;
   const body = await res.text().catch(() => "");
   return /session|not initialized/i.test(body);
@@ -217,6 +221,10 @@ class HttpMcpConnection implements McpConnection {
   private nextId = 1;
   private sessionId: string | null = null;
   private capabilities: Record<string, unknown> = {};
+  /** A renewal handshake failed: the next call shakes hands before it goes. */
+  private handshakeOwed = false;
+  /** The renewal in flight, shared by every call that found the session dead. */
+  private renewing: Promise<void> | null = null;
 
   constructor(
     private readonly url: string,
@@ -247,27 +255,61 @@ class HttpMcpConnection implements McpConnection {
     });
   }
 
-  private async send(method: string, params?: unknown, timeoutMs = CALL_TIMEOUT_MS): Promise<unknown> {
-    const id = this.nextId++;
+  /**
+   * One POST with ONE refresh and ONE retry on a 401. An access token that
+   * died mid-session is the ordinary case and must not cost a mount; a second
+   * failure means the refresh token is spent too, and retrying that in a loop
+   * would only spend the rate limit of an endpoint that has already said no.
+   */
+  private async postAuthorized(id: number, method: string, params: unknown, timeoutMs: number): Promise<Response> {
     let res = await this.post(id, method, params, timeoutMs, this.auth ? await this.auth.header() : null);
-    // ONE refresh and ONE retry. An access token that died mid-session is the
-    // ordinary case and must not cost a mount; a second failure means the
-    // refresh token is spent too, and retrying that in a loop would only spend
-    // the rate limit of an endpoint that has already said no.
     if (res.status === 401 && this.auth) {
       // The unread body of the refused answer holds the socket open otherwise.
       try { await res.body?.cancel(); } catch { /* already drained */ }
       const refreshed = await this.auth.refreshed();
       if (refreshed) res = await this.post(id, method, params, timeoutMs, refreshed);
     }
+    return res;
+  }
+
+  /**
+   * A new handshake after the server forgot our session, one at a time.
+   *
+   * The connection is shared by every chat and sub-agent, so several calls
+   * can find the session dead together: they all wait on the same handshake,
+   * because a second `initialize` on a single-session server is refused
+   * ("Server already initialized"). The dead id goes first, as an
+   * `initialize` carrying it would be refused too; if the handshake fails,
+   * the next call tries again instead of going out with no session forever.
+   * A call made while a handshake is in flight joins it.
+   */
+  private renew(): Promise<void> {
+    this.renewing ??= (async () => {
+      this.sessionId = null;
+      try {
+        await this.connect();
+        this.handshakeOwed = false;
+      } catch (err) {
+        this.handshakeOwed = true;
+        throw err;
+      }
+    })().finally(() => { this.renewing = null; });
+    return this.renewing;
+  }
+
+  private async send(method: string, params?: unknown, timeoutMs = CALL_TIMEOUT_MS): Promise<unknown> {
+    const id = this.nextId++;
+    if (method !== "initialize" && (this.renewing || this.handshakeOwed)) await this.renew();
+    const sentWith = this.sessionId;
+    let res = await this.postAuthorized(id, method, params, timeoutMs);
     // A SERVER THAT RESTARTED forgot our session: the MCP SDK answers 404
     // "Session not found", or 400 "Server not initialized" when the new
     // process has no session at all. Every call then failed until Topics
-    // itself restarted. One new handshake and one retry, as the spec asks.
-    if (this.sessionId && method !== "initialize" && (await sessionExpired(res))) {
-      this.sessionId = null;
-      await this.connect();
-      res = await this.post(id, method, params, timeoutMs, this.auth ? await this.auth.header() : null);
+    // itself restarted. One new handshake (unless another call already made
+    // it) and one retry, as the spec asks.
+    if (sentWith && method !== "initialize" && (await sessionExpired(res))) {
+      if (this.sessionId === sentWith || !this.sessionId) await this.renew();
+      res = await this.postAuthorized(id, method, params, timeoutMs);
     }
     const sid = res.headers.get("mcp-session-id");
     if (sid) this.sessionId = sid;

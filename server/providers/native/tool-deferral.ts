@@ -2,7 +2,7 @@
  * MCP tool schemas travel deferred, and load when the model asks for them.
  *
  * WHY. Every MCP tool schema rode in the prefix of every request: 55 tools from
- * exa, context7 and the gateway, about 33k tokens on 24/10, paid on each round
+ * exa, context7 and the gateway, about 37k tokens measured on 24/10, paid on each round
  * of each turn of each chat whether a tool was used or not. The CLI stopped
  * paying this long ago (`toolSearch` in `claude/args.ts`); the native engine
  * still did.
@@ -24,6 +24,15 @@
  * needs no storage of its own and cannot drift from the conversation it
  * describes. In a live conversation a tool is called only after it was found,
  * so the list is empty and the prefix stays byte-identical.
+ *
+ * A TOOL THAT LEFT THE FLEET. The API refuses a request whose history
+ * references a tool missing from `tools` ("Tool reference 'x' not found in
+ * available tools", a 400), and the reference stays in the history for good.
+ * MCP tools leave the fleet while the process lives: a remount from the panel
+ * or after an OAuth login, a server that re-lists its tools, a gateway child
+ * unmounted. So every referenced tool the fleet no longer offers is still
+ * declared, as a stub that says it is gone; a call to it gets "unknown MCP
+ * tool", as it did before deferral, and the chat goes on.
  *
  * `TOPICS_TOOL_SEARCH=off` sends every schema loaded again, the same lever as
  * the CLI path.
@@ -76,10 +85,16 @@ export function calledMcpTools(history: AgentMessage[]): Set<string> {
  * still callable once loaded.
  */
 export function withDeferredMcp(tools: ToolSpec[], history: AgentMessage[]): OfferedTool[] {
+  const referenced = referencedTools(history);
+  const offered = deferMcp(tools, history, referenced);
+  const gone = [...referenced].filter((name) => !offered.some((t) => t.name === name));
+  return gone.length === 0 ? offered : [...offered, ...gone.map(goneToolSpec)];
+}
+
+function deferMcp(tools: ToolSpec[], history: AgentMessage[], referenced: Set<string>): OfferedTool[] {
   if (!toolSearchEnabled()) return tools;
   const mcp = tools.filter((t) => isMcpTool(t.name));
   if (mcp.length === 0) return tools;
-  const referenced = referencedTools(history);
   const called = calledMcpTools(history);
   const pinned = mcp.filter((t) => called.has(t.name) && !referenced.has(t.name));
   const deferred = mcp.filter((t) => !pinned.includes(t));
@@ -90,6 +105,19 @@ export function withDeferredMcp(tools: ToolSpec[], history: AgentMessage[]): Off
     toolSearchSpec(deferred),
     ...deferred.map((t) => ({ ...t, defer_loading: true as const })),
   ];
+}
+
+/**
+ * A referenced tool the fleet no longer offers. Deferred like the others: the
+ * reference in the history loads it, and its description is all it says.
+ */
+function goneToolSpec(name: string): OfferedTool {
+  return {
+    name,
+    description: "No longer available: the MCP server that offered this tool does not list it any more. Do not call it.",
+    input_schema: { type: "object", properties: {} },
+    defer_loading: true,
+  };
 }
 
 /**
@@ -125,11 +153,15 @@ export function runToolSearch(input: Record<string, unknown>, catalog: ToolSpec[
   const query = String(input.query ?? "").trim();
   const limit = Math.min(MAX_RESULTS, Math.max(1, Number(input.max_results) || DEFAULT_RESULTS));
   let found: ToolSpec[];
-  if (query.toLowerCase().startsWith("select:")) {
+  const select = query.toLowerCase().startsWith("select:");
+  if (select) {
+    // Every name asked for, whatever `max_results` says. A bare tool name
+    // loads it from every server that has one.
     const wanted = query.slice("select:".length).split(",").map((s) => s.trim()).filter(Boolean);
-    found = wanted
-      .map((w) => catalog.find((t) => t.name === w) ?? catalog.find((t) => t.name.endsWith(`__${w}`)))
-      .filter((t): t is ToolSpec => !!t);
+    found = wanted.flatMap((w) => {
+      const exact = catalog.find((t) => t.name === w);
+      return exact ? [exact] : catalog.filter((t) => t.name.endsWith(`__${w}`));
+    });
   } else {
     const words = query.toLowerCase().split(/\s+/).filter(Boolean);
     const required = words.filter((w) => w.startsWith("+")).map((w) => w.slice(1)).filter(Boolean);
@@ -146,7 +178,8 @@ export function runToolSearch(input: Record<string, unknown>, catalog: ToolSpec[
       .sort((a, b) => b.score - a.score || (a.t.name < b.t.name ? -1 : 1))
       .map((x) => x.t);
   }
-  const unique = [...new Map(found.map((t) => [t.name, t])).values()].slice(0, limit);
+  const distinct = [...new Map(found.map((t) => [t.name, t])).values()];
+  const unique = select ? distinct : distinct.slice(0, limit);
   if (unique.length === 0) {
     return { content: `No deferred tool matches "${query}". Deferred tools:\n${catalog.map((t) => t.name).join("\n")}` };
   }

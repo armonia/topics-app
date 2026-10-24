@@ -11,7 +11,7 @@ import { join } from "path";
 import { runAgentTurn, toolResultContent, type AgentMessage } from "./agent-loop";
 import { overheadCharsFor } from "./context-window";
 import { applyPromptCache } from "../prompt-cache";
-import { runToolSearch, TOOL_SEARCH_NAME, withDeferredMcp, type OfferedTool } from "./tool-deferral";
+import { referencedTools, runToolSearch, TOOL_SEARCH_NAME, withDeferredMcp, type OfferedTool } from "./tool-deferral";
 import type { ToolSpec } from "./tools";
 import type { StreamHandler } from "../types";
 
@@ -45,11 +45,23 @@ describe("withDeferredMcp", () => {
   });
 
   test("TOPICS_TOOL_SEARCH=off sends everything loaded", () => {
+    const before = process.env.TOPICS_TOOL_SEARCH;
     process.env.TOPICS_TOOL_SEARCH = "off";
     try {
       expect(withDeferredMcp(OFFERED, [])).toBe(OFFERED);
     } finally {
-      delete process.env.TOPICS_TOOL_SEARCH;
+      if (before === undefined) delete process.env.TOPICS_TOOL_SEARCH; else process.env.TOPICS_TOOL_SEARCH = before;
+    }
+  });
+
+  test("a referenced tool that left the fleet is still declared, as a stub that says it is gone", () => {
+    // The API answers 400 to a history that references a tool missing from
+    // `tools`, and the reference never leaves the history.
+    const history = [callOf(TOOL_SEARCH_NAME, "tu_s"), resultOf("tu_s", [{ type: "tool_reference", tool_name: WEATHER.name }])];
+    for (const offered of [[READ, STOCKS, SEARCH], [READ]]) {
+      const gone = byName(withDeferredMcp(offered, history), WEATHER.name);
+      expect(gone?.defer_loading).toBe(true);
+      expect(gone?.description).toContain("No longer available");
     }
   });
 
@@ -79,6 +91,12 @@ describe("runToolSearch", () => {
   test("select: exact names, or the tool part after the server", () => {
     expect(runToolSearch({ query: "select:mcp__demo__stocks,web_search_exa" }, catalog).references)
       .toEqual([STOCKS.name, SEARCH.name]);
+  });
+
+  test("select: loads every name asked for, past max_results, and a bare name from every server", () => {
+    const many = Array.from({ length: 7 }, (_, i) => spec(`mcp__s${i}__echo`));
+    expect(runToolSearch({ query: `select:${many.map((t) => t.name).join(",")}` }, many).references).toHaveLength(7);
+    expect(runToolSearch({ query: "select:echo" }, many.slice(0, 2)).references).toEqual([many[0]!.name, many[1]!.name]);
   });
 
   test("keywords rank the name above the description, + requires a word", () => {
@@ -176,6 +194,31 @@ describe("in the agent loop", () => {
     expect(JSON.stringify(sent[2]!.tools)).toBe(JSON.stringify(sent[0]!.tools));
     const results = sent[1]!.messages.at(-1)!.content as { type: string; content?: unknown }[];
     expect(results[0]!.content).toEqual([{ type: "tool_reference", tool_name: WEATHER.name }]);
+  });
+
+  test("a tool that leaves the fleet between two turns does not turn the chat into a 400", async () => {
+    // The fake API applies the real rule: every referenced tool needs a definition.
+    const rounds = [toolRound("tu_s", TOOL_SEARCH_NAME, { query: "weather" }), toolRound("tu_w", WEATHER.name, { q: "Rome" }), endRound];
+    const statuses: number[] = [];
+    globalThis.fetch = (async (_url: unknown, init?: RequestInit) => {
+      const body = JSON.parse(String(init?.body)) as { tools: OfferedTool[]; messages: AgentMessage[] };
+      const declared = new Set(body.tools.map((t) => t.name));
+      const missing = [...referencedTools(body.messages)].find((n) => !declared.has(n));
+      if (missing) {
+        statuses.push(400);
+        return Response.json({ type: "error", error: { type: "invalid_request_error", message: `Tool reference '${missing}' not found in available tools` } }, { status: 400 });
+      }
+      statuses.push(200);
+      return new Response(rounds.shift() ?? endRound, { status: 200 });
+    }) as unknown as typeof fetch;
+    const history: AgentMessage[] = [{ role: "user", content: "weather in Rome?" }];
+    const base = { model: "claude-haiku-4-5-20251001", history, toolContext: { workspace: ws }, autonomy: "auto-apply" as const };
+    await runAgentTurn({ ...base, tools: () => OFFERED }, silent);
+    // The demo server is remounted without its weather tool.
+    history.push({ role: "user", content: "and tomorrow?" });
+    const second = await runAgentTurn({ ...base, tools: () => [READ, STOCKS, SEARCH] }, silent);
+    expect(statuses).toEqual([200, 200, 200, 200]);
+    expect(second.turnEnd.end).not.toBe("error");
   });
 
   test("a sub-agent policy does not block the search itself", async () => {
