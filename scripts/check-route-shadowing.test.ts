@@ -3,7 +3,7 @@
  */
 import { describe, expect, test, afterAll } from "bun:test";
 import { spawnSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, writeFileSync, rmSync } from "node:fs";
+import { copyFileSync, mkdirSync, mkdtempSync, writeFileSync, rmSync, symlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { extractClaims, findInnerShadows, findOverlaps, knownFor, sampleOf, staleKnown, type Claim, type ClaimKind, type KnownOverlap, type Overlap } from "./check-route-shadowing";
@@ -593,6 +593,9 @@ export function create(ctx: any) {
 
       test("a discriminant that reads the method other than as itself, or a test of it the gate cannot read, serves no method", () => {
         expect(shadowed([MATCH, GET_PRIOR, 'switch (method.toLowerCase()) { case "get": if (pathname === "/api/x/keep") return json({}); }'])).toEqual([]);
+        expect(shadowed([MATCH, GET_PRIOR, 'if (pathname === "/api/x/keep") { switch (method.toLowerCase()) { case "post": return json({}); default: return errorResponse(405, "x"); } }'])).toEqual([]);
+        // method.toUpperCase() is the method: its case POST serves POST.
+        expect(shadowed([MATCH, POST_PRIOR, 'switch (method.toUpperCase()) { case "POST": if (pathname === "/api/x/keep") return json({}); }'])).toEqual(["/api/x/keep"]);
         expect(shadowed([MATCH, GET_PRIOR, 'if (WRITE.has(method) && pathname === "/api/x/keep") return json({});'])).toEqual([]);
         expect(shadowed([MATCH, GET_PRIOR, 'if (!READ.has(method)) { if (pathname === "/api/x/keep") return json({}); }'])).toEqual([]);
         expect(shadowed([MATCH, GET_PRIOR, 'if (method === "POST") { log(); } else if (WRITE.has(method)) { log(); } else { if (pathname === "/api/x/keep") return json({}); }'])).toEqual([]);
@@ -603,6 +606,7 @@ export function create(ctx: any) {
       test("a tail that serves serves the methods no branch takes, one that cannot be read does not", () => {
         expect(shadowed([MATCH, GET_PRIOR, 'if (pathname === "/api/x/keep") { if (method === "DELETE") return json({}); try { return json(load()); } catch (e) { return fail(e); } }'])).toEqual(["/api/x/keep"]);
         expect(shadowed([MATCH, GET_PRIOR, 'if (pathname === "/api/x/keep") { if (method === "DELETE") return json({}); return new Response("list"); }'])).toEqual(["/api/x/keep"]);
+        expect(shadowed([MATCH, GET_PRIOR, 'if (pathname === "/api/x/keep") { if (method === "DELETE") return json({}); if (method !== "DELETE") return json({ list: [] }); }'])).toEqual(["/api/x/keep"]);
         expect(shadowed([MATCH, GET_PRIOR, 'if (pathname === "/api/x/keep") { if (method === "DELETE") return json({}); return handle(req); }'])).toEqual([]);
         expect(shadowed([MATCH, GET_PRIOR, 'if (pathname === "/api/x/keep") { if (method === "DELETE") return json({}); return json({ error: "x" }, 405); }'])).toEqual([]);
         expect(shadowed([MATCH, GET_PRIOR, 'if (pathname === "/api/x/keep") { switch (method) { case "POST": return json({}); default: return handle(req); } }'])).toEqual([]);
@@ -627,6 +631,12 @@ export function createARouter(ctx: any) {
       const of = (route: string) => findInnerShadows(file(route), "a.ts", "aRouter").map((o) => [o.sample, o.methods, o.prior.line, o.later.line]);
       expect(of("")).toEqual([]);
       expect(of(`${MATCH}\n    ${'if (m && method === "GET") return json({});'}\n    ${LITERAL}`)).toEqual([["/api/x/keep", ["GET"], 10, 11]]);
+      // A deny list answering false, in blocks, is a predicate too.
+      expect(findInnerShadows(`export function guestDenied(pathname: string, method: string): boolean {
+  if (method === "DELETE" && pathname.startsWith("/api/public/")) { return false; }
+  if (method === "DELETE" && pathname === "/api/public/health") { return false; }
+  return true;
+}`, "a.ts", "aRouter")).toEqual([]);
     });
   });
 
@@ -698,6 +708,21 @@ export function createARouter(ctx: any) {
       expect(staleKnown([gone, both], new Set([both]), ["a", "b"], bench)).toEqual([]);
       expect(staleKnown([gone, both], new Set([both]), ["a", "b"], {})).toEqual([gone]);
       expect(staleKnown([gone, both], new Set([both]), ["a", "b"], { ROUTE_SHADOWING_ROOT: "" })).toEqual([gone]);
+    });
+
+    // The same decision in the script: run from a tree of its own with no
+    // ROUTE_SHADOWING_ROOT, that tree is the real one, and KNOWN's browser
+    // entry is stale there because the tree has no browser router.
+    test("run on its own tree with no ROUTE_SHADOWING_ROOT, the script judges every KNOWN entry", () => {
+      const root = tree('    if (method === "POST" && pathname === "/api/x") return new Response("b");');
+      mkdirSync(join(root, "scripts"));
+      copyFileSync(SCRIPT, join(root, "scripts", "check-route-shadowing.ts"));
+      symlinkSync(resolve(import.meta.dir, "..", "client"), join(root, "client"));
+      const env = { ...process.env };
+      delete env.ROUTE_SHADOWING_ROOT;
+      const r = spawnSync("bun", ["run", join(root, "scripts", "check-route-shadowing.ts")], { encoding: "utf8", env });
+      expect(r.stdout).toContain("STALE known overlap");
+      expect(r.status).toBe(1);
     });
 
     test("a KNOWN entry matches its routers and sample, and its methods when it names them", () => {

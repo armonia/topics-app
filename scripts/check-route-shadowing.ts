@@ -416,18 +416,23 @@ export function findOverlaps(claimsByRouter: Map<string, Claim[]>, order: string
  * When a path test of that statement held, the literal is dead for that
  * method and the test is the winner. A statement that always leaves with no
  * path test (`if (method !== "GET") return 405`) is a gate: wherever it sits
- * before the literal, that method never reaches the literal.
+ * before the literal, that method never reaches the literal. A `switch` on
+ * the method runs from the clause the method enters, through the clauses it
+ * falls into, before the literal and around it.
  * Whatever cannot be evaluated (a field of a match, a call, a name that is not
  * the request's) is unknown, and unknown is never a finding: a wrong finding
- * is a red run on correct code. "*" in a finding is a method the code does
- * not name.
+ * is a red run on correct code. So a condition that reads the method in a way
+ * this check cannot evaluate (`WRITE.has(method)`) lets no method we can name
+ * reach the literal, and a literal that answers `true` or `false` belongs to
+ * a predicate (a guest check next to the router), not to a route. "*" in a
+ * finding is a method the code does not name.
  */
 
 /** A path test that held for the literal: what the finding names as the winner. */
 interface Via { kind: ClaimKind; value: string }
 
-/** How a statement ends for one request, and which statement's path test decided it. */
-interface Outcome { flow: Flow; via?: Via; at?: ts.Statement }
+/** How a statement ends for one request, which statement's path test decided it, and the return (or throw, break) that left. */
+interface Outcome { flow: Flow; via?: Via; at?: ts.Statement; exit?: ts.Statement }
 
 /** The request being followed. `method` "*" stands for a method the code does not name. */
 interface Req { path: string; method: string }
@@ -574,9 +579,22 @@ function regexOf(node: ts.Node, depth = 0): RegExp | null {
   return init ? regexOf(init, depth + 1) : null;
 }
 
-interface Truth { v: boolean | null; via?: Via }
+/** `method`: unknown because it reads the request's method in a way this check cannot evaluate. */
+interface Truth { v: boolean | null; via?: Via; method?: true }
 const UNKNOWN: Truth = { v: null };
+const METHOD_UNKNOWN: Truth = { v: null, method: true };
 const held = (v: boolean, via: Via): Truth => (v ? { v, via } : { v });
+/** Unknown, and unknown on the method when an unknown part is. */
+const unknownOf = (...parts: Truth[]): Truth => (parts.some((p) => p.v === null && p.method) ? METHOD_UNKNOWN : UNKNOWN);
+
+const readsCache = new WeakMap<ts.Node, boolean>();
+
+/** Does `node` read the request's method anywhere inside it. */
+function readsMethod(node: ts.Node): boolean {
+  let r = readsCache.get(node);
+  if (r === undefined) readsCache.set(node, (r = isReq(node, "method") || !!ts.forEachChild(node, (c) => readsMethod(c) || undefined)));
+  return r;
+}
 
 /** `method === "X"` or `pathname === "/x"`, either side, for `req`; null for any other comparison. */
 function equality(n: ts.BinaryExpression, req: Req): Truth | null {
@@ -602,25 +620,34 @@ function truthOf(node: ts.Node, req: Req, depth = 0): Truth {
     }
     const a = truthOf(n.whenTrue, req, depth);
     const b = truthOf(n.whenFalse, req, depth);
-    return a.v !== null && a.v === b.v ? { v: a.v } : UNKNOWN;
+    return a.v !== null && a.v === b.v ? { v: a.v } : unknownOf(c, a, b);
   }
   if (ts.isPrefixUnaryExpression(n) && n.operator === ts.SyntaxKind.ExclamationToken) {
     const r = truthOf(n.operand, req, depth);
-    return r.v === null ? UNKNOWN : { v: !r.v };
+    return r.v === null ? unknownOf(r) : { v: !r.v };
   }
+  const and = ts.isBinaryExpression(n) && n.operatorToken.kind === ts.SyntaxKind.AmpersandAmpersandToken;
+  if (ts.isBinaryExpression(n) && (and || n.operatorToken.kind === ts.SyntaxKind.BarBarToken)) {
+    const a = truthOf(n.left, req, depth);
+    const b = truthOf(n.right, req, depth);
+    if (and) {
+      if (a.v === false || b.v === false) return { v: false };
+      return a.v && b.v ? { v: true, via: a.via ?? b.via } : unknownOf(a, b);
+    }
+    if (a.v) return a;
+    if (b.v) return b;
+    return a.v === false && b.v === false ? { v: false } : unknownOf(a, b);
+  }
+  // An atom this check cannot evaluate that reads the method says nothing
+  // about which methods it lets through.
+  const r = atomTruth(n, req, depth);
+  return r.v === null && readsMethod(n) ? METHOD_UNKNOWN : r;
+}
+
+/** The truth of a comparison, a call or a name. */
+function atomTruth(n: ts.Node, req: Req, depth: number): Truth {
   if (ts.isBinaryExpression(n)) {
     const op = n.operatorToken.kind;
-    if (op === ts.SyntaxKind.AmpersandAmpersandToken || op === ts.SyntaxKind.BarBarToken) {
-      const a = truthOf(n.left, req, depth);
-      const b = truthOf(n.right, req, depth);
-      if (op === ts.SyntaxKind.AmpersandAmpersandToken) {
-        if (a.v === false || b.v === false) return { v: false };
-        return a.v && b.v ? { v: true, via: a.via ?? b.via } : UNKNOWN;
-      }
-      if (a.v) return a;
-      if (b.v) return b;
-      return a.v === false && b.v === false ? { v: false } : UNKNOWN;
-    }
     if (EQ.has(op) || NOT_EQUAL.has(op)) {
       const eq = equality(n, req);
       return !eq ? UNKNOWN : NOT_EQUAL.has(op) ? { v: !eq.v } : eq;
@@ -665,16 +692,41 @@ function listFlow(list: readonly ts.Statement[], req: Req): Outcome {
   return GOES_ON;
 }
 
-/** An unlabeled break that ends `sw` itself, not a loop or switch inside it. */
-function breaksOut(sw: ts.SwitchStatement): boolean {
+/** An unlabeled break in `nodes` that ends the switch they sit in, not a loop or switch inside them. */
+function breaksOut(nodes: readonly ts.Node[]): boolean {
   let found = false;
   const visit = (n: ts.Node) => {
     if (found || ts.isFunctionLike(n) || ts.isIterationStatement(n, false) || ts.isSwitchStatement(n)) return;
     if (ts.isBreakStatement(n) && !n.label) found = true;
     ts.forEachChild(n, visit);
   };
-  for (const c of sw.caseBlock.clauses) c.statements.forEach(visit);
+  nodes.forEach(visit);
   return found;
+}
+
+/**
+ * How a switch reads the request's method: "method" when it switches on it
+ * (`method.toUpperCase()` too, a request's method is upper case already),
+ * "opaque" when it reads it some other way (`method.toLowerCase()`,
+ * `norm(method)`), null when it does not read it.
+ */
+function switchOn(sw: ts.SwitchStatement): "method" | "opaque" | null {
+  const d = unwrap(sw.expression);
+  const upper = ts.isCallExpression(d) && !d.arguments.length && ts.isPropertyAccessExpression(d.expression) && d.expression.name.text === "toUpperCase";
+  return isReq(upper ? d.expression.expression : d, "method") ? "method" : readsMethod(d) ? "opaque" : null;
+}
+
+/** The clause of a switch on the method that `method` enters: its index, -1 for none, null when a label before the match cannot be read. */
+function entryOf(sw: ts.SwitchStatement, method: string): number | null {
+  const clauses = sw.caseBlock.clauses;
+  for (let i = 0; i < clauses.length; i++) {
+    const c = clauses[i]!;
+    if (!ts.isCaseClause(c)) continue;
+    const label = literalOf(c.expression);
+    if (label === null) return null;
+    if (label === method) return i;
+  }
+  return clauses.findIndex(ts.isDefaultClause);
 }
 
 function flowOf(stmt: ts.Statement, req: Req): Outcome {
@@ -683,7 +735,7 @@ function flowOf(stmt: ts.Statement, req: Req): Outcome {
     const c = truthOf(stmt.expression, req);
     if (c.v === true) {
       const t = flowOf(stmt.thenStatement, req);
-      return t.flow === "leaves" ? { flow: "leaves", via: c.via ?? t.via, at: c.via ? stmt : t.at } : t;
+      return t.flow === "leaves" ? { ...t, via: c.via ?? t.via, at: c.via ? stmt : t.at } : t;
     }
     const e = stmt.elseStatement ? flowOf(stmt.elseStatement, req) : GOES_ON;
     if (c.v === false) return e;
@@ -694,7 +746,7 @@ function flowOf(stmt: ts.Statement, req: Req): Outcome {
   // A break or continue reached here jumps out of every statement this check
   // walks through (blocks, ifs, trys; a switch only when nothing breaks out of
   // it), so it lands past the literal.
-  if (ts.isReturnStatement(stmt) || ts.isThrowStatement(stmt) || ts.isBreakStatement(stmt) || ts.isContinueStatement(stmt)) return { flow: "leaves" };
+  if (ts.isReturnStatement(stmt) || ts.isThrowStatement(stmt) || ts.isBreakStatement(stmt) || ts.isContinueStatement(stmt)) return { flow: "leaves", exit: stmt };
   if (ts.isTryStatement(stmt)) {
     // A finally that leaves decides. Otherwise a throw out of the try lands in
     // the catch, and with no catch it leaves the function.
@@ -704,12 +756,23 @@ function flowOf(stmt: ts.Statement, req: Req): Outcome {
     const c = stmt.catchClause ? flowOf(stmt.catchClause.block, req) : { flow: "leaves" as Flow };
     return t.flow === "leaves" && c.flow === "leaves" ? t : GOES_ON;
   }
-  // A switch with a default, where every clause (falling through to the next)
-  // leaves and no break ends the switch: browser.ts /interact, topics.ts
-  // /api/command. No clause names the path, so the if around it is the winner.
   if (ts.isSwitchStatement(stmt)) {
     const clauses = stmt.caseBlock.clauses;
-    if (!clauses.some(ts.isDefaultClause) || breaksOut(stmt)) return GOES_ON;
+    // On the method: from the clause the request enters, the first statement
+    // that leaves decides; one with a break that ends this switch goes on.
+    const entry = switchOn(stmt) === "method" ? entryOf(stmt, req.method) : null;
+    if (entry !== null) {
+      for (const s of entry < 0 ? [] : clauses.slice(entry).flatMap((c) => [...c.statements])) {
+        if (breaksOut([s])) return GOES_ON;
+        const r = flowOf(s, req);
+        if (r.flow === "leaves") return r;
+      }
+      return GOES_ON;
+    }
+    // Otherwise a default, every clause (falling through to the next) leaving
+    // and no break ending the switch: browser.ts /interact, topics.ts
+    // /api/command. No clause names the path, so the if around it is the winner.
+    if (!clauses.some(ts.isDefaultClause) || breaksOut(clauses.flatMap((c) => [...c.statements]))) return GOES_ON;
     const all = clauses.every((_, i) => listFlow(clauses.slice(i).flatMap((c) => [...c.statements]), req).flow === "leaves");
     return all ? { flow: "leaves" } : GOES_ON;
   }
@@ -738,7 +801,7 @@ function namedMethods(node: ts.Node): string[] {
   const out = new Set(methodTests(node, new Set([...EQ, ...NOT_EQUAL])).filter((m) => /^[A-Z]+$/.test(m)));
   const visit = (n: ts.Node) => {
     if (ts.isFunctionLike(n)) return;
-    if (ts.isCaseClause(n) && isReq(n.parent.parent.expression, "method")) {
+    if (ts.isCaseClause(n) && switchOn(n.parent.parent) === "method") {
       const lit = literalOf(n.expression);
       if (lit && /^[A-Z]+$/.test(lit)) out.add(lit);
     }
@@ -748,44 +811,60 @@ function namedMethods(node: ts.Node): string[] {
   return [...out];
 }
 
-/**
- * The methods a route body serves for `path`, read from its top statements: a
- * refusal (`if (method !== "POST" && method !== "DELETE") return ...` serves
- * POST and DELETE), a `switch (method)`, or `if (method === "X")` branches.
- * An `if` whose condition is false for this path whatever the method is about
- * another path (the guard of account.ts:71 hands its block to four). Empty
- * when the body does not say.
- */
-function bodyMethods(statements: readonly ts.Statement[], path: string): string[] {
-  const out: string[] = [];
-  for (const s of statements) {
-    if (ts.isIfStatement(s)) {
-      const named = [...methodTests(s.expression, EQ), ...methodTests(s.expression, NOT_EQUAL)];
-      if ([...named, "*"].every((m) => truthOf(s.expression, { path, method: m }).v === false)) continue;
-      out.push(...named);
-    }
-    if (ts.isSwitchStatement(s) && isReq(s.expression, "method")) {
-      // A label that cannot be read still restricts: "?" serves no method.
-      for (const c of s.caseBlock.clauses) if (ts.isCaseClause(c)) out.push(literalOf(c.expression) ?? "?");
-    }
-  }
-  return out;
+/** `return json(body)` or `return new Response(body)`: an answer with the default status. Anything else may refuse. */
+function serving(o: Outcome): boolean {
+  const e = o.exit && ts.isReturnStatement(o.exit) && o.exit.expression ? unwrap(o.exit.expression) : null;
+  if (e && ts.isNewExpression(e)) return ts.isIdentifier(e.expression) && e.expression.text === "Response" && (e.arguments?.length ?? 0) <= 1;
+  if (!e || !ts.isCallExpression(e) || e.arguments.length !== 1) return false;
+  return (ts.isIdentifier(e.expression) ? e.expression.text : ts.isPropertyAccessExpression(e.expression) ? e.expression.name.text : "") === "json";
 }
 
 /**
- * The methods a clause of `switch (method)` runs for: its labels and those of
- * the empty clauses that fall into it; for a default, every method no other
- * case names. A label that cannot be read runs for no method we can name.
+ * The methods a route body serves for `path`, read from its top statements: a
+ * refusal (`if (method !== "POST" && method !== "DELETE") return ...` serves
+ * POST and DELETE), a switch on the method, or `if (method === "X")` branches
+ * name them. A method they do not name is served when the body, followed for
+ * it, leaves by a return that serves (a default `return json(list)`, the
+ * `return json(list)` after `if (method === "DELETE") {...}`). An `if` whose
+ * condition is false for this path whatever the method is about another path
+ * (the guard of account.ts:71 hands its block to four). Every method when the
+ * body names none.
  */
-function clauseMethods(clause: ts.CaseClause | ts.DefaultClause): (m: string) => boolean {
+function bodyServes(statements: readonly ts.Statement[], path: string): (m: string) => boolean {
+  const named: string[] = [];
+  for (const s of statements) {
+    if (ts.isIfStatement(s)) {
+      const tested = [...methodTests(s.expression, EQ), ...methodTests(s.expression, NOT_EQUAL)];
+      if ([...tested, "*"].every((m) => truthOf(s.expression, { path, method: m }).v === false)) continue;
+      named.push(...tested);
+    }
+    const on = ts.isSwitchStatement(s) && switchOn(s);
+    // A label that cannot be read still restricts: "?" serves no method.
+    if (on) for (const c of s.caseBlock.clauses) if (ts.isCaseClause(c)) named.push((on === "method" && literalOf(c.expression)) || "?");
+  }
+  return (m) => !named.length || named.includes(m) || serving(listFlow(statements, { path, method: m }));
+}
+
+/**
+ * Does the request run `clause` of a switch on its method: it enters there,
+ * or above and the clauses in between neither leave nor break, so it falls
+ * in. A label before the match that cannot be read, or a switch that reads
+ * the method some other way, runs for no method we can name.
+ */
+function runsClause(clause: ts.CaseClause | ts.DefaultClause, req: Req): boolean {
+  const sw = clause.parent.parent;
   const clauses = clause.parent.clauses;
-  const own: Array<ts.CaseClause | ts.DefaultClause> = [clause];
-  for (let j = clauses.indexOf(clause) - 1; j >= 0 && clauses[j]!.statements.length === 0; j--) own.push(clauses[j]!);
-  const label = (c: ts.CaseClause) => literalOf(c.expression) ?? "?";
-  const labels = own.filter(ts.isCaseClause).map(label);
-  if (!own.some(ts.isDefaultClause)) return (m) => labels.includes(m);
-  const others = clauses.filter((c): c is ts.CaseClause => ts.isCaseClause(c) && !own.includes(c)).map(label);
-  return (m) => labels.includes(m) || (!others.includes("?") && !others.includes(m));
+  const at = clauses.indexOf(clause);
+  const entry = switchOn(sw) === "method" ? entryOf(sw, req.method) : null;
+  if (entry === null || entry < 0 || entry > at) return false;
+  return listFlow(clauses.slice(entry, at).flatMap((c) => [...c.statements]), req).flow === "goes-on";
+}
+
+/** `return true` or `return false`, alone or in a block: the answer of a predicate. */
+function answersBoolean(stmt: ts.Statement): boolean {
+  const body = ts.isBlock(stmt) && stmt.statements.length === 1 ? stmt.statements[0]! : stmt;
+  const e = ts.isReturnStatement(body) && body.expression ? unwrap(body.expression) : null;
+  return e?.kind === ts.SyntaxKind.TrueKeyword || e?.kind === ts.SyntaxKind.FalseKeyword;
 }
 
 /** `pathname === "/x"` (or `!==`) reached through `&&`, `||` and parentheses only. */
@@ -814,25 +893,28 @@ export function findInnerShadows(source: string, file: string, router: string): 
     // What runs before the literal, outer blocks first, and the conditions it sits under.
     const before: ts.Statement[] = [];
     const under: Array<{ cond: ts.Expression; then: boolean }> = [];
-    const cases: Array<(m: string) => boolean> = [];
+    const cases: Array<ts.CaseClause | ts.DefaultClause> = [];
     let child: ts.Node = lit;
     let fn: ts.Node = sf;
     for (let n = lit.parent; n; child = n, n = n.parent) {
       if (ts.isFunctionLike(n)) { fn = n; break; }
       if (ts.isIfStatement(n)) under.push({ cond: n.expression, then: child === n.thenStatement });
-      if ((ts.isCaseClause(n) || ts.isDefaultClause(n)) && isReq(n.parent.parent.expression, "method")) cases.push(clauseMethods(n));
+      if ((ts.isCaseClause(n) || ts.isDefaultClause(n)) && switchOn(n.parent.parent)) cases.push(n);
       const list = statementsOf(n);
       if (list) before.unshift(...list.slice(0, list.indexOf(child as ts.Statement)));
     }
     const siblings = statementsOf(lit.parent);
     const body = guard ? (siblings ? siblings.slice(siblings.indexOf(lit) + 1) : []) : ts.isBlock(lit.thenStatement) ? lit.thenStatement.statements : [lit.thenStatement];
-    const restrict = bodyMethods(body, value);
+    const bodyServed = bodyServes(body, value);
     const serves = (m: string) => {
       const req = { path: value, method: m };
-      const own = truthOf(lit.expression, req).v;
-      if (guard ? own === true : own === false) return false;
-      if ((restrict.length && !restrict.includes(m)) || cases.some((runs) => !runs(m))) return false;
-      return under.every((u) => truthOf(u.cond, req).v !== !u.then);
+      const own = truthOf(lit.expression, req);
+      if (own.method || (guard ? own.v === true : own.v === false)) return false;
+      if (!bodyServed(m) || cases.some((c) => !runsClause(c, req))) return false;
+      return under.every((u) => {
+        const t = truthOf(u.cond, req);
+        return !t.method && t.v !== !u.then;
+      });
     };
     const pool = [...namedMethods((ts.isFunctionLike(fn) && (fn as ts.FunctionLikeDeclaration).body) || sf), "*"];
     const served = pool.filter(serves);
@@ -862,7 +944,7 @@ export function findInnerShadows(source: string, file: string, router: string): 
   };
 
   const visit = (n: ts.Node) => {
-    if (ts.isIfStatement(n)) {
+    if (ts.isIfStatement(n) && !answersBoolean(n.thenStatement)) {
       const guard = onlyReturnsNull(n.thenStatement);
       for (const value of new Set(pathLiterals(n.expression, guard ? NOT_EQUAL : EQ))) check(n, value, guard);
     }
@@ -942,12 +1024,13 @@ export function knownFor(o: Overlap, known: KnownOverlap[]): KnownOverlap | unde
 }
 
 /**
- * KNOWN entries that matched nothing. On the real tree every one of them is
- * judged (`strict`): a router renamed or gone leaves its entries stale. On
- * another tree (ROUTE_SHADOWING_ROOT, the bench of the test file) only the
+ * KNOWN entries that matched nothing. On the real tree (no ROUTE_SHADOWING_ROOT
+ * in `env`) every one of them is judged: a router renamed or gone leaves its
+ * entries stale. On another tree (the bench of the test file) only the
  * entries about routers that tree has, because KNOWN is global.
  */
-export function staleKnown(known: KnownOverlap[], used: Set<KnownOverlap>, order: string[], strict: boolean): KnownOverlap[] {
+export function staleKnown(known: KnownOverlap[], used: Set<KnownOverlap>, order: string[], env: Record<string, string | undefined> = process.env): KnownOverlap[] {
+  const strict = !env.ROUTE_SHADOWING_ROOT;
   return known.filter((k) => !used.has(k) && (strict || (order.includes(k.prior) && order.includes(k.later))));
 }
 
@@ -996,7 +1079,7 @@ function main(): number {
     if (k) used.add(k);
     else fresh.push(o);
   }
-  const stale = staleKnown(KNOWN, used, order, !process.env.ROUTE_SHADOWING_ROOT);
+  const stale = staleKnown(KNOWN, used, order);
 
   console.log(`check-route-shadowing: ${order.length} routers, ${total} claims, ${overlaps.length} overlaps (${overlaps.length - fresh.length} known), ${unsampled.length} claims without a sample, ${opaque} opaque path reads (endsWith/includes/split)`);
   for (const c of unsampled) console.log(`  no sample: ${fmt(c)}`);
