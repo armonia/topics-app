@@ -82,28 +82,27 @@ describe("sameFastMode", () => {
   });
 });
 
+/**
+ * The multiplier read off the REAL price table: fast mode rows from the official
+ * pricing page (Opus 5.5 $8/$40 over $4/$20; Opus 5 and 4.8 $10/$50 over $5/$25).
+ */
 describe("fastModeMultiplier", () => {
-  // Listino standard, come in server/usage/pricing.ts.
-  const price = (m: string) =>
-    /opus/i.test(m) ? { input: 5, output: 25 } : /sonnet/i.test(m) ? { input: 3, output: 15 } : null;
-
-  it("su Opus costa il DOPPIO — 10$/50$ contro 5$/25$, listino scritto dalla CLI", () => {
-    expect(fastModeMultiplier("claude-opus-5", price)).toBe(2);
-    expect(fastModeMultiplier("claude-opus-4-8", price)).toBe(2);
+  it("twice the standard price on the three models that have fast mode", () => {
+    expect(fastModeMultiplier("claude-opus-5-5")).toBe(2);
+    expect(fastModeMultiplier("claude-opus-5-5[1m]")).toBe(2);
+    expect(fastModeMultiplier("claude-opus-5")).toBe(2);
+    expect(fastModeMultiplier("claude-opus-5[1m]")).toBe(2);
+    expect(fastModeMultiplier("claude-opus-4-8")).toBe(2);
   });
 
-  it("il numero è CALCOLATO: cambia il listino, cambia il numero", () => {
-    // Se Opus tornasse a 15$/75$, la fast mode non costerebbe più il doppio.
-    expect(fastModeMultiplier("claude-opus-4-5", () => ({ input: 15, output: 75 }))).toBeCloseTo(50 / 75, 10);
+  it("no fast row, no number: older Opus, Sonnet, other providers", () => {
+    expect(fastModeMultiplier("claude-opus-4-7")).toBeNull();
+    expect(fastModeMultiplier("claude-sonnet-5-5")).toBeNull();
+    expect(fastModeMultiplier("gpt-5.5")).toBeNull();
+    expect(fastModeMultiplier(null)).toBeNull();
   });
 
-  it("fuori dalla famiglia Opus la fast mode non esiste: nessun numero", () => {
-    expect(fastModeMultiplier("claude-sonnet-5", price)).toBeNull();
-    expect(fastModeMultiplier("gpt-5.5", price)).toBeNull();
-    expect(fastModeMultiplier(null, price)).toBeNull();
-  });
-
-  it("modello senza prezzo → niente numero, non uno zero", () => {
-    expect(fastModeMultiplier("claude-opus-99", () => null)).toBeNull();
+  it("a model without a price gives no number, not a zero", () => {
+    expect(fastModeMultiplier("totally-unknown-model")).toBeNull();
   });
 });

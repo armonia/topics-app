@@ -126,6 +126,16 @@ export function ProjectUsagePanel({ range, onRange }: {
           )}
         </div>
       )}
+      {/* Estimated dollars are IN the total: said apart, so an upper bound is
+          not read as a measured bill. */}
+      {usage && usage.cost.estimated.messages > 0 && (
+        <div data-testid="usage-estimated" className="mt-1.5 border-t border-app-border pt-1.5 text-mini leading-snug text-app-text-secondary">
+          {tr('usage.costEstimated', {
+            usd: money.format(usage.cost.estimated.usd),
+            n: usage.cost.estimated.messages,
+          })}
+        </div>
+      )}
     </div>
   );
 }
@@ -147,6 +157,7 @@ function Row({ p, compact, money, tr }: {
         tr('usage.rowChats', { tokens: compact.format(p.chatTokens), n: p.messageCount }),
         tr('usage.rowTasks', { tokens: compact.format(p.taskTokens), n: p.taskCount }),
         p.unpricedMessages > 0 ? tr('usage.rowUnpriced', { n: p.unpricedMessages }) : '',
+        p.estimatedMessages > 0 ? tr('usage.rowEstimated', { n: p.estimatedMessages }) : '',
       ].filter(Boolean).join('\n')}
     >
       <FolderGit2 size={11} className="flex-shrink-0 text-app-text-muted" />

@@ -51,10 +51,35 @@ that resolves to nothing SHALL be billed at zero rather than at a wrong rate.
 - **AND** a versioned id such as `gpt-4o-2024-08-06` SHALL still resolve to `gpt-4o`
 
 #### Scenario: The models actually in use have their own price, not the family fallback
-- **GIVEN** the current model ids (`claude-opus-5`, `claude-opus-4-8`, `claude-sonnet-5`, `claude-haiku-4-5`, `claude-fable-5`)
+- **GIVEN** every model id the native catalogue offers, its default and its aliases (`claude-opus-5-5`, `claude-sonnet-5-5`, `claude-haiku-5-5`, `claude-fable-5-1`, `claude-opus-5`, `claude-haiku-4-5`, ...)
 - **WHEN** each is priced
-- **THEN** each SHALL resolve to its own entry
+- **THEN** each SHALL resolve to its own entry, never to a partial match or a family fallback
 - **AND** an Opus turn SHALL NOT be billed at the retired $15/$75 rate
+- **AND** `claude-opus-5-5` SHALL NOT borrow the shorter `claude-opus-5` row
+
+#### Scenario: Haiku 5.5 has two rate cards
+- **GIVEN** a Haiku 5.5 request whose prompt (fresh, cache writes and cache reads) is over 100,000 tokens
+- **WHEN** it is priced
+- **THEN** the whole request SHALL move to the long-prompt card ($0.50/$2.50 per million instead of $0.10/$0.50)
+- **AND** a turn of many requests SHALL be priced call by call, each call on its own card, and the message's cost SHALL be the sum of its calls' prices (calls of 60k, 80k, 120k and 140k tokens: two on each card), never the turn total or its average priced as one request
+
+#### Scenario: A dispatched session's spend is the sum of its calls
+- **GIVEN** a board card whose session ran calls on Haiku 5.5 of 60k, 80k, 120k and 140k tokens of prompt, read from a CLI transcript or from the native engine's registry
+- **WHEN** the spend cap books the session's cost
+- **THEN** each call SHALL be priced with the model that served it and the cost SHALL be their sum (20 cents), not the session's totals as one request (30 cents)
+- **AND** when one call has no model with a price, the session SHALL fall back to pricing its totals with the card's model
+
+#### Scenario: Retired ids keep their own price
+- **GIVEN** `claude-3-7-sonnet-20250219` or `claude-3-5-haiku-20241022`
+- **WHEN** each is priced
+- **THEN** it SHALL resolve to its own row ($3/$15 and $0.80/$4), never to the 5.5 model of its family
+
+#### Scenario: The 5.5 history is repriced from its own tokens
+- **GIVEN** message rows of Opus 5.5, Sonnet 5.5, Sonnet 5, Haiku 5.5, Fable or Mythos 5.1 whose stored cost is the old table's price of their own tokens
+- **WHEN** the migration `20261024180000-reprice-5-5-history` runs
+- **THEN** each SHALL be repriced at the official price from its tokens, with the old value kept in `cost_cents_before_reprice`
+- **AND** a row whose cost does not match the old table, or has no cache split, SHALL be left as it was
+- **AND** a Haiku 5.5 row over 100k tokens of prompt SHALL be priced as an upper bound and marked `cost_estimated`
 
 #### Scenario: The family fallback points at the current model
 - **GIVEN** an id of a known family that is not yet in the table (`claude-opus-99-inesistente`)
@@ -75,12 +100,20 @@ that resolves to nothing SHALL be billed at zero rather than at a wrong rate.
 
 ### Requirement: USAGE-02 — Cache tokens are billed at the cache rate, and the two write TTLs are disjoint
 
-The system SHALL price a cache read at 0.1×, a 5-minute cache write at 1.25× and
-a 1-hour cache write at 2× the model's input rate. The 1-hour figure SHALL be a
+The system SHALL price a cache read at the model's own cache-read rate (0.025×
+on Fable and Mythos 5.1, 0.05× on Opus 5.5 and Sonnet 5.5, 0.1× on every other
+model), a 5-minute cache write at 1.25× and a 1-hour cache write at 2× the
+model's input rate. The client that splits a turn's cost into "cache" and "the
+rest" SHALL use the same per-model rate as the server. The 1-hour figure SHALL be a
 share of the cache-write total, added alongside the 5-minute share and never on
 top of the same tokens. Splitting a provider's prompt total into its shares
 SHALL never produce a negative fresh figure — incoherent input SHALL yield a low
 cost, never a credit.
+
+#### Scenario: The waiting footer splits with the message's model
+- **GIVEN** an Opus 5.5 turn stopped on a question to the human
+- **WHEN** the footer under it splits the cost into cache and the rest
+- **THEN** it SHALL use the message's model (cache read at 0.05×), as the finished footer of the same turn does
 
 #### Scenario: A re-read prompt is not billed as fresh input
 - **GIVEN** a turn whose prompt is almost entirely cache reads (a long agentic turn)
@@ -194,6 +227,12 @@ recorded prompt.
 - **GIVEN** a set of rows including zeroes, never-written columns and a legacy row whose cache read exceeds its prompt
 - **WHEN** cost and context are computed once in SQL on a real SQLite database and once in TypeScript
 - **THEN** the two results SHALL be equal for every row
+
+#### Scenario: An estimated cost is said apart
+- **GIVEN** message rows marked `cost_estimated` (Haiku 5.5 turns repriced without their single calls)
+- **WHEN** the usage panel sums a project's cost
+- **THEN** their dollars SHALL stay in the total
+- **AND** the payload SHALL carry how many messages and how many dollars are estimated, and the panel SHALL say it
 
 #### Scenario: The two tables agree on the same consumption
 - **GIVEN** the same consumption expressed as a `messages` row and as a `tasks` row

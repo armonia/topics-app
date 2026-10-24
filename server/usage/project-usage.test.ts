@@ -23,7 +23,7 @@ function makeDb(): Database {
   db.run(`CREATE TABLE messages (
     id TEXT PRIMARY KEY, session_key TEXT, timestamp TEXT,
     usage_prompt_tokens INTEGER, usage_completion_tokens INTEGER,
-    cache_read_tokens INTEGER, cost_cents INTEGER)`);
+    cache_read_tokens INTEGER, cost_cents INTEGER, cost_estimated INTEGER)`);
   db.run(`CREATE TABLE tasks (
     id TEXT PRIMARY KEY, project_id TEXT, completed_at TEXT, updated_at TEXT,
     agent_tokens INTEGER, agent_cache_read_tokens INTEGER)`);
@@ -37,12 +37,12 @@ function topic(db: Database, key: string, path: string | null) {
 function message(
   db: Database,
   key: string,
-  o: { prompt?: number; completion?: number; cacheRead?: number | null; cents?: number; at?: string },
+  o: { prompt?: number; completion?: number; cacheRead?: number | null; cents?: number; at?: string; estimated?: boolean },
 ) {
-  db.prepare(`INSERT INTO messages VALUES (?, ?, ?, ?, ?, ?, ?)`).run(
+  db.prepare(`INSERT INTO messages VALUES (?, ?, ?, ?, ?, ?, ?, ?)`).run(
     `m${seq++}`, key, o.at ?? new Date().toISOString(),
     o.prompt ?? 0, o.completion ?? 0,
-    o.cacheRead === undefined ? 0 : o.cacheRead, o.cents ?? 0,
+    o.cacheRead === undefined ? 0 : o.cacheRead, o.cents ?? 0, o.estimated ? 1 : null,
   );
 }
 function task(db: Database, projectId: string, tokens: number, cacheRead = 0, at?: string) {
@@ -136,6 +136,21 @@ describe("projectUsage", () => {
     const out = projectUsage(db, { unpricedModels: ["claude-something-6"] });
     expect(out.cost.partial).toBe(true);
     expect(out.cost.excluded.models).toEqual(["claude-something-6"]);
+  });
+
+  test("an estimated cost stays in the total and is said apart, per row and overall", () => {
+    // Haiku 5.5 turns over 100k tokens, repriced after the fact without their
+    // calls: an upper bound. Leaving them out would understate the bill; adding
+    // them silently would present a ceiling as a measure.
+    const db = makeDb();
+    topic(db, "topic:aaaa", ALPHA);
+    message(db, "topic:aaaa", { prompt: 500_000, cacheRead: 0, cents: 120, estimated: true });
+    message(db, "topic:aaaa", { prompt: 1_000, cacheRead: 0, cents: 30 });
+    const out = projectUsage(db);
+    expect(out.totals.costUsd).toBe(1.5);
+    expect(out.projects[0].estimatedMessages).toBe(1);
+    expect(out.cost.estimated).toEqual({ messages: 1, usd: 1.2 });
+    expect(out.cost.partial).toBe(false);
   });
 
   test("a fully priced chat-only window is NOT flagged partial", () => {

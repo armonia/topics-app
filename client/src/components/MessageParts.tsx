@@ -67,6 +67,7 @@ export function TurnActivityIndicator({
   cacheReadTokens,
   cacheCreationTokens,
   cacheCreation1hTokens,
+  model,
 }: {
   since?: number;
   /** Serve solo per lo stato "lento": senza, l'indicatore resta quello normale. */
@@ -86,6 +87,12 @@ export function TurnActivityIndicator({
   cacheReadTokens?: number | null;
   cacheCreationTokens?: number | null;
   cacheCreation1hTokens?: number | null;
+  /**
+   * The turn's model, for the waiting footer: it splits the cost with that
+   * model's cache-read rate (0.05x on Opus and Sonnet 5.5), the same split the
+   * finished footer of the same turn shows.
+   */
+  model?: string | null;
   /**
    * Il turno è fermo su una domanda all'umano (un tool in `waiting_for_input`).
    * Tecnicamente il turno è ancora vivo — il messaggio resta `partial` — ma
@@ -377,6 +384,7 @@ export function TurnActivityIndicator({
         cacheReadTokens={cacheReadTokens}
         cacheCreationTokens={cacheCreationTokens}
         cacheCreation1hTokens={cacheCreation1hTokens}
+        model={model}
       />
     )}
     </>
