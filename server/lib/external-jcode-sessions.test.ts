@@ -1,10 +1,11 @@
 /**
  * @covers EXTSESS-02, EXTSESS-03
  */
-import { describe, expect, test } from "bun:test";
+import { describe, expect, spyOn, test } from "bun:test";
+import * as fs from "node:fs";
 import { mkdtempSync, writeFileSync, utimesSync, mkdirSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 
 import { scanJcodeSessions } from "./external-jcode-sessions";
 import { scanAllExternalSessions, type SessionProvider } from "./external-sessions-registry";
@@ -231,7 +232,11 @@ describe("a session file is parsed once per rewrite, not at every census", () =>
     expect(scan()).toBe("idle");
   });
 
-  test("bench: an 11 MB session in the window costs under 5 ms once it is known", () => {
+  // The census runs every few seconds: once known, an unchanged file costs a
+  // stat, not a read. The reads are counted, not timed: reading the 11 MB file
+  // again at every census costs a few ms, as much as a loaded machine adds,
+  // and against a ratio of times it passed one run in two (24/10).
+  test("a census of 200 known files, one of 11 MB, reads 0 bytes; a rewritten file is read alone", () => {
     const dir = makeSessionsDir();
     // The size measured on 25/09, with the transcript where jcode keeps it: before the fields.
     const big = join(dir, "big.json");
@@ -242,12 +247,22 @@ describe("a session file is parsed once per rewrite, not at every census", () =>
 
     const scan = () => scanJcodeSessions({ sessionsDir: dir, now: NOW, isAlive: alive });
     expect(scan()).toHaveLength(200);
-    const runs = Array.from({ length: 5 }, () => {
-      const t = performance.now();
-      scan();
-      return performance.now() - t;
-    }).sort((a, b) => a - b);
-    console.log(`[bench] jcode census, 11 MB + 199 files unchanged: ${runs.map((ms) => ms.toFixed(1)).join(" ")} ms`);
-    expect(runs[2]).toBeLessThan(5);
+    // Every read of a whole session file, in any encoding, with its size.
+    const readsDuring = (run: () => unknown) => {
+      const read = spyOn(fs, "readFileSync");
+      try {
+        run();
+        return read.mock.calls
+          .map(([path]) => String(path))
+          .filter((path) => path.startsWith(dir))
+          .map((path) => `${basename(path)}: ${fs.statSync(path).size} bytes`);
+      } finally {
+        read.mockRestore();
+      }
+    };
+    expect(readsDuring(() => { scan(); scan(); scan(); })).toEqual([]);
+    // The count sees the reads: the file jcode rewrites at the end of a turn is read again, and only that one.
+    const changed = writeSession(dir, "small-7", { status: "Idle", minutesAgo: 7 });
+    expect(readsDuring(scan)).toEqual([`small-7.json: ${fs.statSync(changed).size} bytes`]);
   });
 });
