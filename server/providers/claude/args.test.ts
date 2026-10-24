@@ -556,7 +556,7 @@ describe("buildCodexArgs — la fotografia", () => {
     expect(args[args.indexOf("-c", args.indexOf("-c") + 1) + 1]).toBe('mcp_servers.topics.args=["a \\"b\\""]');
   });
 
-  test("one-shot: niente `--json`, qui si legge il testo", () => {
+  test("one-shot: `--json`, so the answer carries its usage", () => {
     expect(buildCodexOneshotArgs({ model: "gpt-5" })).toEqual(["exec", "--json", "--model", "gpt-5"]);
     expect(buildCodexOneshotArgs({})).toEqual(["exec", "--json"]);
   });
