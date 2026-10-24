@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { appSettingsApi, type AppBehaviorSettings } from '@/lib/api';
-import { useT } from '@/hooks/useT';
+// Relative and not `@/`: `bun test` does not resolve the client's alias, and
+// these rows are mounted by `BrowserStoreReapRows.test.tsx`.
+import { appSettingsApi, type AppBehaviorSettings } from '../../lib/api';
+import { useT } from '../../hooks/useT';
 import { SwitchRow } from './PreferenceRow';
 import {
   BROWSER_STORE_REAP_MAX_DAYS,
@@ -25,6 +27,10 @@ import {
  *
  * Nothing is drawn until the stored values are read: showing the default in
  * their place would state a choice that nobody has seen.
+ *
+ * The request and the state live here; what is drawn, and what each gesture
+ * saves, is `BrowserStoreReapControls`, a function of its props with no hooks
+ * so that a test can call it and press its controls without a DOM.
  */
 export function BrowserStoreReapRows() {
   const tr = useT();
@@ -51,16 +57,41 @@ export function BrowserStoreReapRows() {
   }, []);
 
   if (!settings) return null;
+  return (
+    <BrowserStoreReapControls
+      settings={settings}
+      typed={typed}
+      saveFailed={saveFailed}
+      tr={tr}
+      onType={setTyped}
+      onSave={(patch) => { void save(patch); }}
+    />
+  );
+}
+
+export interface BrowserStoreReapControlsProps {
+  /** The two stored fields, as `GET /api/app-settings` returned them. */
+  settings: Pick<AppBehaviorSettings, 'browserStoreReapEnabled' | 'browserStoreReapAfterDays'>;
+  /** The days field while it is being typed in; null shows the stored value. */
+  typed: string | null;
+  saveFailed: boolean;
+  tr: (key: string) => string;
+  onType: (raw: string | null) => void;
+  onSave: (patch: Partial<AppBehaviorSettings>) => void;
+}
+
+/** The switch, the days field and the save error, drawn from the stored values. */
+export function BrowserStoreReapControls({ settings, typed, saveFailed, tr, onType, onSave }: BrowserStoreReapControlsProps) {
   const { enabled, afterDays } = resolveBrowserStoreReap(settings);
 
   // Out of range is brought to the nearest limit here too, so the field shows
   // at once the number the server is going to keep.
   const commit = (raw: string) => {
-    setTyped(null);
+    onType(null);
     const n = Number(raw);
     if (raw.trim() === '' || Number.isNaN(n)) return;
     const days = clampBrowserStoreReapDays(n);
-    if (days !== afterDays) void save({ browserStoreReapAfterDays: days });
+    if (days !== afterDays) onSave({ browserStoreReapAfterDays: days });
   };
 
   const [before, after] = tr('browser.storeReap.afterDays').split('{n}');
@@ -70,7 +101,7 @@ export function BrowserStoreReapRows() {
         label={tr('browser.storeReap.setting')}
         hint={tr('browser.storeReap.hint')}
         checked={enabled}
-        onChange={(v) => { void save({ browserStoreReapEnabled: v }); }}
+        onChange={(v) => { onSave({ browserStoreReapEnabled: v }); }}
         testId="perf-browser-store-reap"
       />
       <label
@@ -86,10 +117,10 @@ export function BrowserStoreReapRows() {
           step={1}
           value={typed ?? String(afterDays)}
           disabled={!enabled}
-          onChange={(e) => setTyped(e.target.value)}
+          onChange={(e) => onType(e.target.value)}
           onBlur={(e) => commit(e.target.value)}
           onKeyDown={(e) => { if (e.key === 'Enter') e.currentTarget.blur(); }}
-          className="w-14 rounded border border-app-border bg-app-bg px-1.5 py-0.5 text-right text-compact tabular-nums text-app-text outline-none focus:border-app-accent disabled:cursor-not-allowed coarse:min-h-11"
+          className="w-14 rounded border border-app-border bg-app-bg px-1.5 py-0.5 text-right text-compact tabular-nums text-app-text outline-none focus:border-app-accent focus-visible:ring-2 focus-visible:ring-primary/60 disabled:cursor-not-allowed coarse:min-h-11"
         />
         <span>{after}</span>
       </label>
