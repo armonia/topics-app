@@ -26,7 +26,7 @@ import { initDatabase, closeDatabase, getDatabase } from "../db";
 import { getAppSettings, updateAppSettings } from "../services/app-settings";
 import { createAppSettingsRouter } from "./app-settings";
 import { getSnapshotManager } from "../providers/snapshot-manager";
-import * as calendarFeed from "../services/calendar-feed";
+import { getAgenda, resetCalendarCache } from "../services/calendar-feed";
 import type { AppContext } from "../types";
 
 let tmpRoot: string;
@@ -389,28 +389,49 @@ describe("a read that failed is never answered as 'never touched'", () => {
     // and the cached agenda have to follow it as on any other save.
     // Each hook reads the row the write left: the model is the new one when the
     // composers' snapshots are dropped, not the old one.
+    // The agenda hook is seen through the agenda itself, not a spy on the
+    // module: spying needs the module namespace, and a namespace passed as a
+    // value makes knip count every export of calendar-feed as used.
+    // A first read fills the cache from a stubbed feed; the read after the save
+    // fetches again only if the save dropped that cache.
+    updateAppSettings({ calendarEnabled: true, calendarFeedUrl: "https://calendar.example.com/basic.ics", calendarHorizonDays: 7 });
+    resetCalendarCache();
+    const realFetch = globalThis.fetch;
+    let fetches = 0;
+    // `as unknown as`: the stub answers the one overload fetchFeed uses.
+    globalThis.fetch = (async () => {
+      fetches++;
+      return new Response("BEGIN:VCALENDAR\r\nVERSION:2.0\r\nEND:VCALENDAR\r\n");
+    }) as unknown as typeof fetch;
     const storedAtInvalidate: unknown[] = [];
     const invalidate = spyOn(getSnapshotManager(), "invalidate").mockImplementation(() => {
       storedAtInvalidate.push((getDatabase().query("SELECT claude_model AS m FROM app_settings LIMIT 1").get() as { m: unknown }).m);
     });
-    const resetCalendar = spyOn(calendarFeed, "resetCalendarCache");
-    const restore = failTheSettingsRead();
     let r: { status: number; body: any };
     let invalidated: unknown[][];
-    let calendarResets: number;
+    let fetchesBeforeTheSave: number;
     try {
-      r = await put({ claudeModel: "model-after-the-save", calendarEnabled: false });
+      await getAgenda();
+      fetchesBeforeTheSave = fetches;
+      const restore = failTheSettingsRead();
+      try {
+        r = await put({ claudeModel: "model-after-the-save", calendarHorizonDays: 30 });
+      } finally {
+        restore();
+      }
+      await getAgenda();
     } finally {
-      restore();
+      globalThis.fetch = realFetch;
       invalidated = invalidate.mock.calls.map((call) => [...call]);
-      calendarResets = resetCalendar.mock.calls.length;
       invalidate.mockRestore();
-      resetCalendar.mockRestore();
+      resetCalendarCache();
+      updateAppSettings({ calendarEnabled: null, calendarFeedUrl: null, calendarHorizonDays: null });
     }
     expect(r.status).toBe(503);
     expect(invalidated).toEqual([["claude"]]);
     expect(storedAtInvalidate).toEqual(["model-after-the-save"]);
-    expect(calendarResets).toBe(1);
+    expect(fetchesBeforeTheSave).toBe(1);
+    expect(fetches).toBe(2);
     expect(getAppSettings().claudeModel).toBe("model-after-the-save");
   });
 
