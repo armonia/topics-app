@@ -244,6 +244,14 @@ describe("il riepilogo dei rifiuti — una passata deve dire PERCHE'", () => {
     expect(summarizeRefusals([])).toBe("");
   });
 
+  test("the same state reads the same whatever order the sessions arrive in", () => {
+    // Ties on the count used to follow the iteration order of the session map,
+    // so one state was printed as two different lines (1,496 vs 220 times in
+    // the production log) and any change detection on the text saw a false change.
+    expect(summarizeRefusals([{ reason: "busy" }, { reason: "watched" }]))
+      .toBe(summarizeRefusals([{ reason: "watched" }, { reason: "busy" }]));
+  });
+
   test("OGNI motivo ha la sua etichetta: nessuno si stampa come `undefined`", () => {
     // E' il motivo per cui `skipped` e' tipato `ParkRefusal` e non `string`:
     // aggiungere un motivo senza etichetta deve rompere la compilazione, non
