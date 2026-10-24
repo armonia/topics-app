@@ -177,7 +177,7 @@ describe('the container: what the server answered is what the switch shows', () 
   let putFails = false;
 
   /** A server in memory: GET answers what is stored, PUT stores and answers it,
-   *  or throws the way `request()` does on a non-2xx answer. */
+   *  or throws, as `request()` does when the status is an error. */
   function fakeServer(initial: Stored): void {
     onDisk = { ...initial };
     puts = [];

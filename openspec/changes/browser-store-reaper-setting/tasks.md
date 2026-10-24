@@ -3,8 +3,8 @@
 Lo stato di una traccia lo dà il suo test, non una casella.
 
 - **T1 colonne e rotta.** Migration con due colonne nullable, `services/app-settings.ts`,
-  `FIELD_RULES` con il riporto in 7..365, la GET che risponde 503 quando la riga non si legge
-  (`readAppSettings`). Barra: `server/routes/app-settings.test.ts`,
+  `FIELD_RULES` con il riporto in 7..365, la GET e il PUT che rispondono 503 quando la riga non si
+  legge (`readAppSettings`). Barra: `server/routes/app-settings.test.ts`,
   `server/db/migration-registry-integrity.test.ts`, `server/db/migrations-embedded.test.ts`.
 - **T2 significato condiviso e reaper.** `shared/browser-store-reap.ts` (default, riporto) e il reaper
   che legge l'impostazione prima di tutto. Barra: `client/src/lib/browserDataStoreReaper.test.ts` e i

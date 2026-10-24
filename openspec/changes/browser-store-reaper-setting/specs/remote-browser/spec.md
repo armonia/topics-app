@@ -50,9 +50,14 @@ SHALL read the setting before it requests the keep list.
 
 When `GET /api/app-settings` fails, cannot be reached, or carries no settings
 object, the reaper SHALL remove nothing: no keep list request, no Tauri command.
+A non-2xx answer SHALL count as a failure even when its body carries settings.
 
 #### Scenario: the server answers 500
 - **WHEN** the settings request answers 500
+- **THEN** the reaper returns -1 and nothing else is called
+
+#### Scenario: an error status with settings inside
+- **WHEN** the settings request answers 500 with `browserStoreReapEnabled: true` in its body
 - **THEN** the reaper returns -1 and nothing else is called
 
 ### Requirement: BROWSER-STORE-REAP-05 — A read that failed on the server is a failure on the wire
@@ -60,12 +65,19 @@ object, the reaper SHALL remove nothing: no keep list request, no Tauri command.
 When the server cannot read the settings row (database not open, a busy or
 failing SELECT), `GET /api/app-settings` SHALL answer 503 with no `settings`,
 never 200 with every field null: null means never touched, which the reaper
-reads as on. The server's own resolvers keep their all-null fallback.
+reads as on. `PUT /api/app-settings` SHALL follow the same rule when its write
+lands and the read back fails: 503, because the settings panel draws the PUT
+answer. The server's own resolvers keep their all-null fallback.
 
 #### Scenario: the SELECT is busy
 - **GIVEN** `browserStoreReapEnabled: false` is stored
 - **WHEN** the SELECT of `app_settings` throws `SQLITE_BUSY`
 - **THEN** the GET answers 503 and the reaper removes nothing
+
+#### Scenario: the write lands, the read back fails
+- **GIVEN** `browserStoreReapEnabled: true` and 30 days are stored
+- **WHEN** a PUT writes `browserStoreReapEnabled: false` and the SELECT that follows throws
+- **THEN** the PUT answers 503 with no `settings`, and the disk holds false and 30
 
 ### Requirement: BROWSER-STORE-REAP-06 — The switch shows what the reaper reads, and saves what was pressed
 
@@ -74,8 +86,16 @@ days field SHALL show the resolved days and be disabled while off, pressing the
 switch SHALL save only `browserStoreReapEnabled`, and a committed number of
 days SHALL be saved clamped to 7..365 and rounded, and not saved when it equals
 the stored one. Nothing SHALL be drawn before the stored values are read.
+After a save the switch and the field SHALL show the PUT answer, a switch
+turned off SHALL turn back on (stored as true, read back as true), and a save
+that failed SHALL show its error line.
 
 #### Scenario: switched off
 - **GIVEN** `browserStoreReapEnabled: false`, `browserStoreReapAfterDays: 90`
 - **WHEN** the rows are drawn
 - **THEN** the switch is off, the field shows 90 and is disabled
+
+#### Scenario: switched off, then on again
+- **GIVEN** the switch is on
+- **WHEN** it is pressed twice and each PUT succeeds
+- **THEN** the switch shows off, then on, the column holds 1 and the GET answers true
