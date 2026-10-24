@@ -55,9 +55,9 @@ function seed(rows: Row[]): Database {
     usage_prompt_tokens INTEGER, usage_completion_tokens INTEGER,
     cache_read_tokens INTEGER, cache_creation_tokens INTEGER, cache_creation_1h_tokens INTEGER,
     tool_calls TEXT, blocks TEXT)`);
-  const stmt = db.prepare(`INSERT INTO messages VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`);
+  const insert = db.prepare(`INSERT INTO messages VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`);
   for (const r of rows) {
-    stmt.run(
+    insert.run(
       r.id, r.model, r.cents ?? Math.round(priced(r, OLD_INPUT[r.model]!, 0.1)),
       r.prompt, r.completion, r.read,
       r.read === null ? null : (r.write5m ?? 0), r.read === null ? null : (r.write1h ?? 0),
