@@ -29,9 +29,10 @@
  * methods is a finding. Claims whose methods could not be read count as "any
  * method", so the check errs toward reporting.
  *
- * Inside ONE router the order is the line order of its if chain: a literal
- * path that an earlier `:param` pattern of the same file captures is a finding
- * too (findInnerShadows). Both kinds share KNOWN.
+ * Inside ONE router the first `if` that answers wins, in the order the code
+ * runs: a literal route that an earlier `if` of the same function always
+ * answers is dead too (findInnerShadows, which reads the code as it runs and
+ * not the claims). Both kinds share KNOWN.
  *
  * KNOWN lists the overlaps that were reviewed and are intended (or reported and
  * left alone on purpose, precedence is not changed here). An overlap not in
@@ -189,9 +190,7 @@ function atomsIn(expr: ts.Node, constants: ReturnType<typeof collectConstants>, 
       out.push({ ...a, negated: notEqual || negatedWithin(n, expr) });
       return;
     }
-    // `topic.projectPath` or `data[params.id]` reads a field of a bound value:
-    // that is data taken from the path, not a test of the path.
-    if (ts.isIdentifier(n) && bindings.has(n.text) && !ts.isPropertyAccessExpression(n.parent) && !ts.isElementAccessExpression(n.parent)) {
+    if (ts.isIdentifier(n) && bindings.has(n.text) && !(ts.isPropertyAccessExpression(n.parent) && n.parent.name === n)) {
       const inverted = negatedWithin(n, expr);
       for (const b of bindings.get(n.text)!) out.push({ ...b, negated: b.negated !== inverted });
       return;
@@ -400,27 +399,314 @@ export function findOverlaps(claimsByRouter: Map<string, Claim[]>, order: string
   return { overlaps, unsampled };
 }
 
-/**
- * A literal GET/POST/... path that a `:param` pattern of the SAME router
- * captures, when the pattern comes earlier in the same file's if chain: the
- * first non-null answer wins, so the literal is dead. Only literal (exact)
- * claims are checked; a pattern under another pattern is ambiguous, not dead.
+// --- shadowing inside one router --------------------------------------------
+
+/*
+ * The claims above are a flat list per router, which is right across routers
+ * (the table runs them in order) and wrong inside one: whether an `if` hides
+ * a later one depends on the code between them. So findInnerShadows reads the
+ * code as it runs. For every literal route (`pathname === "/api/x/keep"` in
+ * the && chain of an `if`) it asks: does an `if` that runs before it, in the
+ * same function, always answer this path and method? The earlier condition is
+ * evaluated on the literal path; whatever cannot be evaluated (a field of a
+ * match, a call, a value known only at runtime) is unknown, and unknown is
+ * never a finding. A wrong finding is a red run on correct code.
  */
-export function findInnerShadows(claimsByRouter: Map<string, Claim[]>): Overlap[] {
-  const overlaps: Overlap[] = [];
-  for (const claims of claimsByRouter.values()) {
-    for (const later of claims) {
-      if (later.kind !== "exact") continue;
-      for (const prior of claims) {
-        if (prior.kind !== "pattern" || prior.file !== later.file || prior.line >= later.line) continue;
-        if (!claimMatches(prior, later.value)) continue;
-        const methods = methodsOverlap(prior.methods, later.methods);
-        if (methods === false) continue;
-        overlaps.push({ prior, later, sample: later.value, methods });
+
+/** A path test that held for the literal: what the finding names as the winner. */
+interface Via { kind: ClaimKind; value: string }
+
+/** The request being followed. `method` "*" stands for a method the code does not name. */
+interface Req { path: string; method: string }
+
+/**
+ * How a statement ends for one request: always with a Response (or a throw),
+ * by going on to the next statement or answering, or in a way the check does
+ * not follow (`return null`, a call that may return null, break, continue).
+ */
+type Flow = "answers" | "goes-on" | "escapes";
+
+function unwrap(node: ts.Node): ts.Node {
+  let n = node;
+  while (ts.isParenthesizedExpression(n) || ts.isAsExpression(n) || ts.isAwaitExpression(n)) n = n.expression;
+  return n;
+}
+
+function statementsOf(n: ts.Node): readonly ts.Statement[] | null {
+  if (ts.isBlock(n) || ts.isSourceFile(n) || ts.isCaseClause(n) || ts.isDefaultClause(n)) return n.statements;
+  return null;
+}
+
+function bindsName(b: ts.BindingName, name: string): boolean {
+  if (ts.isIdentifier(b)) return b.text === name;
+  return b.elements.some((e) => !ts.isOmittedExpression(e) && bindsName(e.name, name));
+}
+
+function reassigned(name: string, scope: ts.Node): boolean {
+  let found = false;
+  const visit = (n: ts.Node) => {
+    if (found) return;
+    const target = ts.isBinaryExpression(n) && n.operatorToken.kind >= ts.SyntaxKind.FirstAssignment && n.operatorToken.kind <= ts.SyntaxKind.LastAssignment ? n.left
+      : (ts.isPrefixUnaryExpression(n) || ts.isPostfixUnaryExpression(n)) && (n.operator === ts.SyntaxKind.PlusPlusToken || n.operator === ts.SyntaxKind.MinusMinusToken) ? n.operand
+      : null;
+    if (target && ts.isIdentifier(unwrap(target)) && (unwrap(target) as ts.Identifier).text === name) found = true;
+    ts.forEachChild(n, visit);
+  };
+  visit(scope);
+  return found;
+}
+
+/**
+ * The `const|let name = <init>` that `name` means at `from`, found the way the
+ * language does: up the enclosing blocks, across function boundaries
+ * (closures). Null when it is anything else: a parameter, a loop or catch
+ * variable, a destructured name, a declaration after the use, or a `let` that
+ * is assigned again.
+ */
+function declarationOf(name: string, from: ts.Node): ts.VariableDeclaration | null {
+  let child: ts.Node = from;
+  for (let n = from.parent; n; child = n, n = n.parent) {
+    if (ts.isFunctionLike(n) && n.parameters.some((p) => bindsName(p.name, name))) return null;
+    if (ts.isCatchClause(n) && n.variableDeclaration && bindsName(n.variableDeclaration.name, name)) return null;
+    if ((ts.isForStatement(n) || ts.isForOfStatement(n) || ts.isForInStatement(n)) && n.initializer && ts.isVariableDeclarationList(n.initializer)
+      && n.initializer.declarations.some((d) => bindsName(d.name, name))) return null;
+    const list = statementsOf(n);
+    if (!list) continue;
+    const at = list.indexOf(child as ts.Statement);
+    for (let i = 0; i < list.length; i++) {
+      const s = list[i];
+      if (!ts.isVariableStatement(s)) continue;
+      for (const d of s.declarationList.declarations) {
+        if (!bindsName(d.name, name)) continue;
+        if (!ts.isIdentifier(d.name) || !d.initializer || at < 0 || i >= at) return null;
+        const readOnly = (s.declarationList.flags & ts.NodeFlags.Const) !== 0;
+        return readOnly || !reassigned(name, n) ? d : null;
       }
     }
   }
-  return overlaps;
+  return null;
+}
+
+function literalOf(node: ts.Node, depth = 0): string | null {
+  const n = unwrap(node);
+  if (ts.isStringLiteralLike(n)) return n.text;
+  if (ts.isIdentifier(n) && depth < 3) {
+    const d = declarationOf(n.text, n);
+    return d?.initializer ? literalOf(d.initializer, depth + 1) : null;
+  }
+  return null;
+}
+
+function regexOf(node: ts.Node, depth = 0): RegExp | null {
+  const n = unwrap(node);
+  if (ts.isRegularExpressionLiteral(n)) return new RegExp(n.text.slice(1, n.text.lastIndexOf("/")), n.text.slice(n.text.lastIndexOf("/") + 1));
+  if (ts.isIdentifier(n) && depth < 3) {
+    const d = declarationOf(n.text, n);
+    return d?.initializer ? regexOf(d.initializer, depth + 1) : null;
+  }
+  return null;
+}
+
+interface Truth { v: boolean | null; via?: Via }
+const UNKNOWN: Truth = { v: null };
+const held = (v: boolean, via: Via): Truth => (v ? { v, via } : { v });
+
+/** The truth of a condition for `req`: true, false, or null when it depends on something else. */
+function truthOf(node: ts.Node, req: Req, depth = 0): Truth {
+  const n = unwrap(node);
+  if (ts.isPrefixUnaryExpression(n) && n.operator === ts.SyntaxKind.ExclamationToken) {
+    const r = truthOf(n.operand, req, depth);
+    return r.v === null ? UNKNOWN : { v: !r.v };
+  }
+  if (ts.isBinaryExpression(n)) {
+    const op = n.operatorToken.kind;
+    if (op === ts.SyntaxKind.AmpersandAmpersandToken || op === ts.SyntaxKind.BarBarToken) {
+      const a = truthOf(n.left, req, depth);
+      const b = truthOf(n.right, req, depth);
+      if (op === ts.SyntaxKind.AmpersandAmpersandToken) {
+        if (a.v === false || b.v === false) return { v: false };
+        return a.v && b.v ? { v: true, via: a.via ?? b.via } : UNKNOWN;
+      }
+      if (a.v) return a;
+      if (b.v) return b;
+      return a.v === false && b.v === false ? { v: false } : UNKNOWN;
+    }
+    if (EQ.has(op) || NOT_EQUAL.has(op)) {
+      const notEqual = NOT_EQUAL.has(op);
+      const methodSide = isMethodRef(n.left) ? n.right : isMethodRef(n.right) ? n.left : null;
+      const pathSide = isPathRef(n.left) ? n.right : isPathRef(n.right) ? n.left : null;
+      const lit = literalOf(methodSide ?? pathSide ?? n.right);
+      if ((!methodSide && !pathSide) || lit === null) return UNKNOWN;
+      const eq = methodSide ? req.method === lit.toUpperCase() : req.path === lit;
+      return notEqual ? { v: !eq } : methodSide ? { v: eq } : held(eq, { kind: "exact", value: lit });
+    }
+    return UNKNOWN;
+  }
+  if (ts.isCallExpression(n)) {
+    const called = n.expression;
+    const name = ts.isIdentifier(called) ? called.text : ts.isPropertyAccessExpression(called) ? called.name.text : "";
+    if (name === "matchRoute" && n.arguments.length >= 2 && isPathRef(n.arguments[0])) {
+      const pattern = literalOf(n.arguments[1]);
+      return pattern === null ? UNKNOWN : held(matchPattern(req.path, pattern), { kind: "pattern", value: pattern });
+    }
+    if (!ts.isPropertyAccessExpression(called) || n.arguments.length !== 1) return UNKNOWN;
+    if (isPathRef(called.expression)) {
+      if (name === "match") {
+        const re = regexOf(n.arguments[0]);
+        return re ? held(re.test(req.path), { kind: "regex", value: String(re) }) : UNKNOWN;
+      }
+      const s = literalOf(n.arguments[0]);
+      if (s === null) return UNKNOWN;
+      if (name === "startsWith") return held(req.path.startsWith(s), { kind: "prefix", value: s });
+      if (name === "endsWith") return { v: req.path.endsWith(s) };
+      if (name === "includes") return { v: req.path.includes(s) };
+      return UNKNOWN;
+    }
+    if ((name === "test" || name === "exec") && isPathRef(n.arguments[0])) {
+      const re = regexOf(called.expression);
+      return re ? held(re.test(req.path), { kind: "regex", value: String(re) }) : UNKNOWN;
+    }
+    return UNKNOWN;
+  }
+  if (ts.isIdentifier(n) && depth < 3) {
+    const d = declarationOf(n.text, n);
+    return d?.initializer ? truthOf(d.initializer, req, depth + 1) : UNKNOWN;
+  }
+  return UNKNOWN;
+}
+
+/** A value that is a Response for sure: `json(...)`, `errorResponse(...)`, `new X(...)`, `Response.x(...)`. */
+function isResponse(node: ts.Node): boolean {
+  const n = unwrap(node);
+  if (ts.isNewExpression(n)) return true;
+  if (ts.isConditionalExpression(n)) return isResponse(n.whenTrue) && isResponse(n.whenFalse);
+  if (!ts.isCallExpression(n)) return false;
+  const c = n.expression;
+  if (ts.isIdentifier(c)) return c.text === "json" || c.text === "errorResponse";
+  return ts.isPropertyAccessExpression(c) && ts.isIdentifier(c.expression) && c.expression.text === "Response";
+}
+
+function flowOf(stmt: ts.Statement, req: Req): { flow: Flow; via?: Via } {
+  if (ts.isBlock(stmt)) {
+    for (const s of stmt.statements) {
+      const r = flowOf(s, req);
+      if (r.flow !== "goes-on") return r;
+    }
+    return { flow: "goes-on" };
+  }
+  if (ts.isIfStatement(stmt)) {
+    const c = truthOf(stmt.expression, req);
+    if (c.v === true) {
+      const t = flowOf(stmt.thenStatement, req);
+      return t.flow === "answers" ? { flow: "answers", via: c.via ?? t.via } : t;
+    }
+    const e = stmt.elseStatement ? flowOf(stmt.elseStatement, req) : { flow: "goes-on" as Flow };
+    if (c.v === false) return e;
+    // Unknown: an answer only if both sides answer, and then the path test
+    // that decided is not this one.
+    const t = flowOf(stmt.thenStatement, req);
+    if (t.flow === "escapes" || e.flow === "escapes") return { flow: "escapes" };
+    return { flow: t.flow === "answers" && e.flow === "answers" ? "answers" : "goes-on" };
+  }
+  if (ts.isReturnStatement(stmt)) return { flow: stmt.expression && isResponse(stmt.expression) ? "answers" : "escapes" };
+  if (ts.isThrowStatement(stmt)) return { flow: "answers" };
+  if (ts.isTryStatement(stmt)) {
+    // A finally that answers or escapes decides. Otherwise a throw out of the
+    // try lands in the catch, and with no catch it leaves the router.
+    const f = stmt.finallyBlock ? flowOf(stmt.finallyBlock, req) : { flow: "goes-on" as Flow };
+    if (f.flow !== "goes-on") return f;
+    const t = flowOf(stmt.tryBlock, req);
+    const c = stmt.catchClause ? flowOf(stmt.catchClause.block, req) : { flow: "answers" as Flow };
+    if (t.flow === "escapes" || c.flow === "escapes") return { flow: "escapes" };
+    return t.flow === "answers" && c.flow === "answers" ? t : { flow: "goes-on" };
+  }
+  // Anything else (switch, loops): the request goes on, unless it can leave
+  // in a way the check does not follow: a return that is not a Response, or a
+  // break or continue that jumps out of this statement (labels are not used
+  // in the routers, so a labelled jump counts as local).
+  let flow: Flow = "goes-on";
+  const visit = (n: ts.Node, inLoop: boolean, inSwitch: boolean) => {
+    if (ts.isFunctionLike(n)) return;
+    if (ts.isReturnStatement(n) && !(n.expression && isResponse(n.expression))) flow = "escapes";
+    if (ts.isBreakStatement(n) && !inLoop && !inSwitch) flow = "escapes";
+    if (ts.isContinueStatement(n) && !inLoop) flow = "escapes";
+    const loop = ts.isIterationStatement(n, false);
+    ts.forEachChild(n, (c) => visit(c, inLoop || loop, inSwitch || ts.isSwitchStatement(n)));
+  };
+  visit(stmt, false, false);
+  return { flow };
+}
+
+/** Every method compared anywhere in `stmt`, for a literal route that accepts any method. */
+function namedMethods(stmt: ts.Node): string[] {
+  const out = new Set<string>();
+  const visit = (n: ts.Node) => {
+    if (ts.isFunctionLike(n)) return;
+    if (ts.isBinaryExpression(n) && (EQ.has(n.operatorToken.kind) || NOT_EQUAL.has(n.operatorToken.kind))) {
+      const side = isMethodRef(n.left) ? n.right : isMethodRef(n.right) ? n.left : null;
+      const lit = side && literalOf(side);
+      if (lit) out.add(lit.toUpperCase());
+    }
+    ts.forEachChild(n, visit);
+  };
+  visit(stmt);
+  return [...out];
+}
+
+function andOperands(node: ts.Node): ts.Node[] {
+  const n = unwrap(node);
+  return ts.isBinaryExpression(n) && n.operatorToken.kind === ts.SyntaxKind.AmpersandAmpersandToken ? [...andOperands(n.left), ...andOperands(n.right)] : [n];
+}
+
+/**
+ * A literal route that an earlier statement of the same function (an `if`, or a
+ * bare `{ }` block around one) always answers for its path and method.
+ */
+export function findInnerShadows(source: string, file: string, router: string): Overlap[] {
+  const sf = ts.createSourceFile(file, source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
+  const lineOf = (n: ts.Node) => sf.getLineAndCharacterOfPosition(n.getStart(sf)).line + 1;
+  const out: Overlap[] = [];
+
+  const check = (lit: ts.IfStatement, value: string) => {
+    let methods: string[] | null = [...methodsIn(lit.expression), ...enclosingMethods(lit, sf)];
+    if (!methods.length) methods = nestedMethods(lit.thenStatement);
+    methods = methods.length ? [...new Set(methods)].sort() : null;
+    let child: ts.Node = lit;
+    for (let n = lit.parent; n && !ts.isFunctionLike(n); child = n, n = n.parent) {
+      const list = statementsOf(n);
+      if (!list) continue;
+      for (const s of list.slice(0, list.indexOf(child as ts.Statement))) {
+        const hits = (methods ?? [...namedMethods(s), "*"])
+          .map((m) => ({ m, r: flowOf(s, { path: value, method: m }) }))
+          .filter((h) => h.r.flow === "answers" && h.r.via);
+        if (!hits.length) continue;
+        const via = hits[0].r.via!;
+        const firing = hits.map((h) => h.m);
+        const shared = firing.includes("*") ? null : firing.sort();
+        out.push({
+          prior: { router, file, line: lineOf(s), kind: via.kind, value: via.value, methods: shared },
+          later: { router, file, line: lineOf(lit), kind: "exact", value, methods },
+          sample: value,
+          methods: shared,
+        });
+        return;
+      }
+    }
+  };
+
+  const visit = (n: ts.Node) => {
+    if (ts.isIfStatement(n) && !onlyReturnsNull(n.thenStatement)) {
+      const value = andOperands(n.expression).map((o) => {
+        if (!ts.isBinaryExpression(o) || !EQ.has(o.operatorToken.kind)) return null;
+        const side = isPathRef(o.left) ? o.right : isPathRef(o.right) ? o.left : null;
+        return side && literalOf(side);
+      }).find((v) => v);
+      if (value) check(n, value);
+    }
+    ts.forEachChild(n, visit);
+  };
+  visit(sf);
+  return out;
 }
 
 // --- the real routers -----------------------------------------------------------
@@ -483,6 +769,15 @@ export const KNOWN: KnownOverlap[] = [
   },
 ];
 
+/**
+ * KNOWN entries that matched nothing. An entry about a router this tree does
+ * not have is not judged: KNOWN is global, and the bench trees of the test
+ * file have other routers.
+ */
+export function staleKnown(known: KnownOverlap[], used: Set<KnownOverlap>, order: string[]): KnownOverlap[] {
+  return known.filter((k) => !used.has(k) && order.includes(k.prior) && order.includes(k.later));
+}
+
 function fmt(c: Claim): string {
   return `${c.router} ${relative(ROOT, c.file)}:${c.line} ${c.methods?.join("|") ?? "ANY"} ${c.kind} ${c.value}`;
 }
@@ -499,20 +794,23 @@ function main(): number {
   const serverSrc = readFileSync(join(ROOT, "server.ts"), "utf8");
   const files = routerFiles(serverSrc, order);
   const claimsByRouter = new Map<string, Claim[]>();
+  const inner: Overlap[] = [];
   let opaque = 0;
 
   for (const [router, file] of files) {
     const claims: Claim[] = [];
     for (const f of withSubRouters(file)) {
-      const r = extractClaims(readFileSync(f, "utf8"), f, router);
+      const src = readFileSync(f, "utf8");
+      const r = extractClaims(src, f, router);
       claims.push(...r.claims);
       opaque += r.opaque;
+      inner.push(...findInnerShadows(src, f, router));
     }
     claimsByRouter.set(router, claims);
   }
 
   const cross = findOverlaps(claimsByRouter, order);
-  const overlaps = [...cross.overlaps, ...findInnerShadows(claimsByRouter)];
+  const overlaps = [...cross.overlaps, ...inner];
   const unsampled = cross.unsampled;
   const total = [...claimsByRouter.values()].reduce((n, c) => n + c.length, 0);
 
@@ -525,9 +823,7 @@ function main(): number {
     if (k) used.add(k);
     else fresh.push(o);
   }
-  // An entry about a router this tree does not have is not judged here: KNOWN is
-  // global, and the bench trees of the test file have other routers.
-  const stale = KNOWN.filter((k) => !used.has(k) && order.includes(k.prior) && order.includes(k.later));
+  const stale = staleKnown(KNOWN, used, order);
 
   console.log(`check-route-shadowing: ${order.length} routers, ${total} claims, ${overlaps.length} overlaps (${overlaps.length - fresh.length} known), ${unsampled.length} claims without a sample, ${opaque} opaque path reads (endsWith/includes/split)`);
   for (const c of unsampled) console.log(`  no sample: ${fmt(c)}`);
