@@ -541,6 +541,13 @@ describe("enforceImageHistoryBudget", () => {
     expect(prunedAt).toEqual([IMAGE_HISTORY_COUNT_BUDGET + 1, 2 * IMAGE_HISTORY_COUNT_BUDGET + 2 - IMAGE_HISTORY_COUNT_TARGET]);
   });
 
+  test("exactly 20 images and exactly 20 MiB: at the budget, not over it, untouched", () => {
+    const h: AgentMessage[] = [{ role: "user", content: "guarda" }];
+    const each = IMAGE_HISTORY_BYTE_BUDGET / IMAGE_HISTORY_COUNT_BUDGET;
+    for (let i = 0; i < IMAGE_HISTORY_COUNT_BUDGET; i++) h.push(...imageRound(`e${i}`, `exact ${i}.png (10x10, image attached)`, each));
+    expect(enforceImageHistoryBudget(h)).toBe(h);
+  });
+
   test("between the byte target and the byte budget, under the count budget: untouched", () => {
     // The trigger is the budget, the target only where a prune stops: 16 MB
     // in 8 images is no reason to rewrite the history.
@@ -549,11 +556,11 @@ describe("enforceImageHistoryBudget", () => {
     expect(enforceImageHistoryBudget(h)).toBe(h);
   });
 
-  test("40 rounds of 1.9 MB screenshots: one prune every six rounds, down to five images", () => {
-    // The Darkroom case: the bytes trigger first. 20 MB holds ten of these,
-    // the eleventh is over; 10 MB holds five, so six rounds pass before the
-    // next prune. Pruning only to just under the budget, or triggering at the
-    // target, rewrites the history on almost every round.
+  test("40 rounds of 1.87 MiB images: five rounds untouched, a prune on the sixth, five images left", () => {
+    // The bytes trigger first: 20 MiB of base64 holds ten of these, the
+    // eleventh is over; 10 MiB holds five, so five rounds pass untouched and
+    // the sixth prunes. Pruning only to just under the budget, or triggering
+    // at the target, rewrites the history on almost every round.
     const size = Math.round(1.87 * 1024 * 1024);
     const h: AgentMessage[] = [{ role: "user", content: "controlla la pagina a ogni passo" }];
     const prunedAt: number[] = [];

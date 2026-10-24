@@ -128,9 +128,10 @@ vuota SHALL costare zero.
 - **THEN** le più vecchie SHALL diventare segnaposto in un colpo solo, fino a
   10 immagini e 10 MB, e l'ultima immagine SHALL restare
 - **AND** la storia NON SHALL essere toccata di nuovo finché non supera ancora
-  20 immagini o 20 MB: dieci giri con immagini piccole, sei con screenshot da
-  1,9 MB (dopo la potatura ne restano cinque). Ogni potatura cambia il prefisso
-  e la cache lo riscrive da lì in poi
+  20 immagini o 20 MB: con immagini piccole i 10 giri successivi restano
+  intatti; con 1,87 MiB di base64 a immagine ne restano intatti 5 (potatura al
+  sesto, 5 immagini vive). Ogni potatura cambia il prefisso e la cache lo
+  riscrive da lì in poi
 
 ### Requirement: RT-04 — La storia si ricostruisce dal database, e si RIPARA senza inventare risposte
 
