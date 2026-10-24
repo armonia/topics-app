@@ -671,6 +671,13 @@ jobs:
           fi
           exit "$rc"
 
+      # The gates of the post-commit rebuild (scripts/graphify-regen.sh). They
+      # run on a fake sysctl and graphify, so the runner's own readings do not
+      # matter: a regression here loses the code graph silently on every commit.
+      - name: Guardie del rebuild del grafo (graphify-regen)
+        if: ${{ !cancelled() && steps.setup.outcome == 'success' }}
+        run: bash scripts/graphify-regen.test.sh
+
   # THE VERDICT OF THE RUN'S TESTS AND GATES, IN THE JOB AND STEP THE BOARD READS.
   #
   # The board reads the unit verdict of a pull request from the step "Unit +
