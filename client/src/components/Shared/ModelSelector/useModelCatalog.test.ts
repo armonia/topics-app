@@ -54,6 +54,33 @@ describe('one row per model, grouped by company (MSEL-02)', () => {
   });
 });
 
+describe('Haiku 5.5 is current, Haiku 4.5 older', () => {
+  const claudeCode = (models: string[], older: string[]) => entry('claude-code', 'Claude Code', models, {
+    modelInfo: Object.fromEntries(models.map((id) => [id, { generation: older.includes(id) ? 'older' as const : 'current' as const }])),
+  });
+  const API = entry('claude', 'Claude API', ['claude-haiku-5-5', 'claude-haiku-4-5'], { capabilities: ['streaming'] });
+
+  test('the CLI lists both: 5.5 among the current rows, 4.5 folded under the older ones', () => {
+    const cc = claudeCode(['claude-opus-5-5', 'claude-haiku-5-5', 'claude-haiku-4-5'], ['claude-haiku-4-5']);
+    const anthropic = group(buildModelCatalog(snapshotOf([cc]), 'chat', AUTO), 'anthropic');
+    expect(labels(anthropic.rows)).toEqual(['Opus 5.5', 'Haiku 5.5']);
+    expect(labels(anthropic.older)).toEqual(['Haiku 4.5']);
+  });
+
+  test('a provider whose own list is stale (declares 4.5 current) yields to the 5.5 another one serves', () => {
+    const stale = claudeCode(['claude-opus-5-5', 'claude-haiku-4-5'], []);
+    const anthropic = group(buildModelCatalog(snapshotOf([stale, API]), 'chat', AUTO), 'anthropic');
+    expect(labels(anthropic.rows)).toContain('Haiku 5.5');
+    expect(labels(anthropic.rows)).not.toContain('Haiku 4.5');
+    expect(labels(anthropic.older)).toEqual(['Haiku 4.5']);
+  });
+
+  test('two providers each declaring their own current rows keep them (Codex GPT-6 family)', () => {
+    const openai = group(buildModelCatalog(MEASURED, 'chat', AUTO), 'openai');
+    expect(labels(openai.rows)).toEqual(['GPT-6.1-Sol', 'GPT-6-Astra', 'GPT-6-Sol', 'GPT-6-Luna']);
+  });
+});
+
 describe('the audit fleet, with keys (revision §3.4-3.5, AC-04, AC-13, AC-14)', () => {
   const groups = buildModelCatalog(AUDIT_KEYS, 'chat', AUTO, { routing: true });
 

@@ -130,6 +130,23 @@ describe("scanCliForModelIds", () => {
   });
 });
 
+describe("Haiku 5.5 in the catalog", () => {
+  test("the fallback list carries Haiku 5.5 and still admits Haiku 4.5", () => {
+    expect(FALLBACK_MODELS).toContain("claude-haiku-5-5");
+    expect(FALLBACK_MODELS).toContain("claude-haiku-4-5");
+  });
+
+  test("Haiku 5.5 is current and Haiku 4.5 older, both stay in the list", () => {
+    const models = selectCurrentModels([...REAL_SCAN, "claude-haiku-5-5"]);
+    expect(models).toContain("claude-haiku-5-5");
+    expect(models).toContain("claude-haiku-4-5");
+    const g = claudeModelGenerations(models);
+    expect(g["claude-haiku-5-5"]!.generation).toBe("current");
+    expect(g["claude-haiku-4-5"]!.generation).toBe("older");
+    expect(claudeModelGenerations(FALLBACK_MODELS)["claude-haiku-4-5"]!.generation).toBe("older");
+  });
+});
+
 describe("FALLBACK_MODELS", () => {
   test("survives its own filter — a fallback the picker would reject is no fallback", () => {
     expect(selectCurrentModels(FALLBACK_MODELS).sort()).toEqual([...FALLBACK_MODELS].sort());

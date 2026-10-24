@@ -119,6 +119,15 @@ describe('modelTriggerText: one closed format, «label · who» (revision §3.8,
     expect(line({ provider: null, model: null }, 'provider')).toBe('Automatico');
   });
 
+  test('with the «Topics» mark on the chip the text does not say «via Topics» again; without the mark it does', () => {
+    const marked = (value: { provider: string | null; model: string | null }) =>
+      triggerLine(modelTriggerText(value, { snapshot, tr, surface: 'chat', viaTopics: true, topicsMarked: true }));
+    expect(marked({ provider: 'claude-code', model: 'claude-opus-5-5' })).toBe('Opus 5.5');
+    expect(line({ provider: 'claude-code', model: 'claude-opus-5-5' }, 'chat', true)).toBe('Opus 5.5 · via Topics');
+    // A mark that is not drawn (viaTopics off) changes nothing: the engine is still named.
+    expect(triggerLine(modelTriggerText({ provider: 'codex', model: 'gpt-6.1-sol' }, { snapshot, tr, surface: 'chat', viaTopics: false, topicsMarked: true }))).toBe('GPT-6.1-Sol · via Codex');
+  });
+
   test('no context window and no [1m] in the closed text', () => {
     expect(line({ provider: 'claude-code', model: 'claude-opus-5-5[1m]' }, 'chat')).toBe('Opus 5.5 · via Claude Code');
   });

@@ -173,7 +173,7 @@ export function ProviderModelPicker({ override, defaultProviderLabel, pinnedMode
     ? tr('ai.selector.chipNone')
     : triggerLine(modelTriggerText(
       chatProvider || !pinnedModel ? value : { provider: appDefault, model: pinnedModel },
-      { snapshot, tr, surface: 'chat', viaTopics: route.via === 'topics', automaticWho },
+      { snapshot, tr, surface: 'chat', viaTopics: route.via === 'topics', topicsMarked: route.via === 'topics', automaticWho },
     ));
   const failed = loadState === 'failed' || loadState === 'broken';
   const chipTitle = loadState === 'failed'
