@@ -546,11 +546,13 @@
     "server/routes/auth.ts": 1713,
 
     "server/routes/browser-bridge.test.ts": {
-      "lines": 1539,
+      "lines": 1777,
       "why": [
         "2026-10-12, op-opens-pane r1 (unrecorded, 1127 -> 1242): the six auto-open tests, the bridge opening before a pane-less page op. r2 1242 -> 1283 (+41): the task-topic no-announce case, the live-url-beats-persisted case, the 60 s retry-window case, and the getUrl/liveUrls harness seam. Recorded, not split: every case drives the same bridge harness through the helpers at the top of the file.",
         "2026-10-24, 1306 -> 1436 (+130) from two fixes: #420 open-pane from a terminal answers 400 on a refused URL (four URL cases), #421 every 5xx of the bridge logs its reason (eval, open-pane and list-tabs cases, plus the harness options evalRejects and listContextsThrows). Recorded, not split: both drive the same bridge harness.",
-        "2026-10-24, #421 round 2, 1436 -> 1539 (+103): one test per warn point (import-chrome 502/500, the generic catch, the blank pane, the terminal branch), the silent cases (task tab, auto-open before a page op) and the one-line cut of the reason. Same harness, same describe."
+        "2026-10-24, #421 round 2, 1436 -> 1539 (+103): one test per warn point (import-chrome 502/500, the generic catch, the blank pane, the terminal branch), the silent cases (task tab, auto-open before a page op) and the one-line cut of the reason. Same harness, same describe.",
+        "2026-10-24, #429 follow-ups, 1632 on main (#429, unrecorded) -> 1723 (+91): a log line that never throws (list-tabs through the route, nine reasons on warnBridgeServerError), the error's name for a TypeError(\"\") on the generic and import-chrome catches, and the dispatchThrows harness option. Same harness, same describe.",
+        "2026-10-24, #429 follow-ups round 2, 1723 -> 1777 (+54): the 500 goes out on all four catches (list-tabs, generic, import-chrome, open-pane) whatever was thrown, as one table of four reasons, the open-pane TypeError(\"\") logging its name, and the name fallback for a null, undefined or throwing message. Same harness, same describe."
       ]
     },
 
