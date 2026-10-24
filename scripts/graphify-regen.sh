@@ -11,12 +11,17 @@
 #     last rebuild is younger than GRAPHIFY_REGEN_MIN_INTERVAL, the worker waits
 #     and re-checks, logging one "rimandato" line per pass. A newer commit
 #     supersedes it. After GRAPHIFY_REGEN_MAX_WAIT seconds it runs anyway
-#     ("forzato"), so the last commit of a session is always indexed.
+#     ("forzato"). A rebuild is lost only when graphify fails (it is not retried
+#     until the next commit) or when its worker is killed while it waits.
+#   - SERIAL: one rebuild at a time. The lock is the directory graphify-out/.regen.lock
+#     with the owner's pid in it. A live owner is never displaced, however old
+#     the lock is; a dead owner's lock is reaped at once.
 #   - FREE: `graphify update` is a pure-AST re-extraction, no LLM calls.
 #   - SILENT NO-OP when graphify is not installed or no graph exists yet.
 #
 # Nothing here ever exits non-zero into the hook: a broken graph must not be
-# able to block a commit.
+# able to block a commit. The worker needs bash 4+ (BASHPID); the hooks run the
+# Homebrew bash, and bash 3.2 falls back to asking ps for the worker's pid.
 
 set -u
 
@@ -25,19 +30,21 @@ MIN_INTERVAL_SECONDS="${GRAPHIFY_REGEN_MIN_INTERVAL:-1200}"
 MAX_LOAD_PER_CORE="${GRAPHIFY_REGEN_MAX_LOAD:-4}"
 MAX_WAIT_SECONDS="${GRAPHIFY_REGEN_MAX_WAIT:-7200}"
 BUSY_SLEEP_SECONDS="${GRAPHIFY_REGEN_BUSY_SLEEP:-300}"
-STALE_LOCK_MINUTES=120
+# A zero sleep would spin the wait loop and flood the log: one second is the floor.
+[ "$BUSY_SLEEP_SECONDS" -ge 1 ] 2>/dev/null || BUSY_SLEEP_SECONDS=1
 
 # Sets REASON and returns 0 when the Mac is too busy for a rebuild; returns 1
 # when it is quiet. The readings are sysctl's own output: vm.loadavg is
 # "{ 1min 5min 15min }", kern.memorystatus_vm_pressure_level is 1 normal,
 # 2 warn, 4 critical. Swap is not read: macOS allocates it on demand, so its
-# used/total stays high while memory is fine.
+# used/total stays high while memory is fine. LC_ALL=C keeps the decimal dot:
+# under an Italian locale awk prints "5,00", and the reason text would change.
 mac_busy() {
   local ncpu load1 per_core level
   ncpu="$(sysctl -n hw.ncpu 2>/dev/null)" || ncpu=1
-  load1="$(sysctl -n vm.loadavg 2>/dev/null | awk '{print $2}')"
-  per_core="$(awk -v l="${load1:-0}" -v c="${ncpu:-1}" 'BEGIN { printf "%.2f", l / c }')"
-  if awk -v p="$per_core" -v m="$MAX_LOAD_PER_CORE" 'BEGIN { exit !(p + 0 > m + 0) }'; then
+  load1="$(sysctl -n vm.loadavg 2>/dev/null | LC_ALL=C awk '{print $2}')"
+  per_core="$(LC_ALL=C awk -v l="${load1:-0}" -v c="${ncpu:-1}" 'BEGIN { printf "%.2f", l / c }')"
+  if LC_ALL=C awk -v p="$per_core" -v m="$MAX_LOAD_PER_CORE" 'BEGIN { exit !(p + 0 > m + 0) }'; then
     REASON="load ${per_core}/core sopra ${MAX_LOAD_PER_CORE}"
     return 0
   fi
@@ -69,6 +76,34 @@ must_wait() {
   return 1
 }
 
+# Removes the lock when its owner is dead. A lock with no pid yet is a worker
+# between mkdir and its pid write: one second is plenty for it, then it is
+# treated as dead. Returns 0 when the lock is gone, 1 when a live owner holds it.
+reap_dead_lock() {
+  local owner
+  owner="$(cat "$lock/pid" 2>/dev/null)"
+  if [ -z "$owner" ]; then
+    sleep 1
+    owner="$(cat "$lock/pid" 2>/dev/null)"
+  fi
+  if [ -n "$owner" ] && kill -0 "$owner" 2>/dev/null; then
+    return 1
+  fi
+  if [ "$(cat "$lock/pid" 2>/dev/null)" = "$owner" ]; then
+    rm -f "$lock/pid"
+    rmdir "$lock" 2>/dev/null || true
+  fi
+  return 0
+}
+
+# Drops the lock only while it still names this worker: another worker may
+# have reaped ours and taken the lock since.
+release_lock() {
+  [ "$(cat "$lock/pid" 2>/dev/null)" = "$me" ] || return 0
+  rm -f "$lock/pid"
+  rmdir "$lock" 2>/dev/null || true
+}
+
 # graphify absent → silent no-op (task requirement).
 command -v graphify >/dev/null 2>&1 || exit 0
 
@@ -97,39 +132,61 @@ echo "$token" >"$req" 2>/dev/null || exit 0
 (
   sleep "$DEBOUNCE_SECONDS"
 
-  # One log per worker: the waits, then the run that follows them.
-  : >"$log"
+  # The worker's own pid, which is the lock's owner. The hook's $$ is no good:
+  # the hook exits right after forking, so its pid is dead to every other worker.
+  me="${BASHPID:-$(ps -o ppid= -p "$(sh -c 'echo $PPID')" | tr -d ' ')}"
+  trap release_lock EXIT
 
+  token_ok() { [ "$(cat "$req" 2>/dev/null)" = "$token" ]; }
+
+  # A wait is appended to the log as it happens (append never truncates), and
+  # kept in memory too: the log is truncated only by the worker that wins the
+  # lock, and it writes the waits back after the truncation.
   waited=0
+  forced=0
+  waitlog=""
+  note() {
+    waitlog="${waitlog}$1"$'\n'
+    echo "$1" >>"$log"
+  }
   while :; do
     # Superseded by a newer commit → that worker carries the rebuild now.
-    [ "$(cat "$req" 2>/dev/null)" = "$token" ] || exit 0
-    must_wait || break
-    stamp="$(date '+%Y-%m-%d %H:%M:%S')"
-    if [ "$waited" -ge "$MAX_WAIT_SECONDS" ]; then
-      echo "$stamp forzato ($REASON)" >>"$log"
+    token_ok || exit 0
+    if [ "$forced" -eq 0 ] && must_wait; then
+      stamp="$(date '+%Y-%m-%d %H:%M:%S')"
+      if [ "$waited" -ge "$MAX_WAIT_SECONDS" ]; then
+        forced=1
+        note "$stamp forzato ($REASON)"
+      else
+        note "$stamp rimandato: $REASON"
+        step="$WAIT_SECONDS"
+        left=$(( MAX_WAIT_SECONDS - waited ))
+        [ "$left" -lt "$step" ] && step="$left"
+        sleep "$step"
+        waited=$(( waited + step ))
+        continue
+      fi
+    fi
+
+    # A live run holding the lock makes us wait for it, not give up: our commit
+    # came after its start, so it does not index that commit.
+    if mkdir "$lock" 2>/dev/null; then
+      echo "$me" >"$lock/pid"
+      token_ok || exit 0
+      # The Mac may have gone busy, or the last rebuild may be too recent, while
+      # we waited for the lock: release it and wait again.
+      if [ "$forced" -eq 0 ] && must_wait; then
+        release_lock
+        continue
+      fi
       break
     fi
-    echo "$stamp rimandato: $REASON" >>"$log"
-    step="$WAIT_SECONDS"
-    left=$(( MAX_WAIT_SECONDS - waited ))
-    [ "$left" -lt "$step" ] && step="$left"
-    sleep "$step"
-    waited=$(( waited + step ))
-  done
-
-  # Reap a stale lock left by a crashed run, then claim it. mkdir is atomic.
-  # A live run holding the lock makes us wait for it, not give up: our commit
-  # came after its start, so it does not index that commit.
-  until mkdir "$lock" 2>/dev/null; do
-    if [ -n "$(find "$lock" -maxdepth 0 -mmin +"$STALE_LOCK_MINUTES" 2>/dev/null)" ]; then
-      rmdir "$lock" 2>/dev/null || true
-      continue
-    fi
-    [ "$(cat "$req" 2>/dev/null)" = "$token" ] || exit 0
+    reap_dead_lock && continue
     sleep 5
   done
-  trap 'rmdir "$lock" 2>/dev/null || true' EXIT
+
+  : >"$log"
+  printf '%s' "$waitlog" >>"$log"
 
   {
     echo "=== graphify update @ $(date '+%Y-%m-%d %H:%M:%S') (${repo}) ==="
