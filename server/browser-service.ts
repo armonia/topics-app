@@ -239,8 +239,11 @@ const RECORDER_START_TIMEOUT_MS = 3_000;
 // whose internal "recording started" flag is false, breaking
 // record.takeFullSnapshot for late joiners. Only evaluate into a window that
 // doesn't have the recorder yet; `var` hoisting keeps the block harmless.
-// The recorder is text inlined in the module (lib/rrweb-recorder.ts), so there
-// is no "bundle missing" case to degrade to.
+// The recorder text is a static import of lib/rrweb-recorder.ts: a missing
+// rrweb.min.js fails when the server is bundled or loads, never at injection
+// time, so there is no empty-recorder branch here. The import does not check
+// the content (rrweb-recorder.test.ts compares it with the installed rrweb),
+// and the evaluation can still fail in the page: see startRecordingNow.
 const RRWEB_RECORD_BUNDLE =
   'if(!(window.rrweb&&window.rrweb.record)){\n' +
   getRrwebRecorderSource() +

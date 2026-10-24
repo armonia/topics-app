@@ -198,14 +198,52 @@ describe("createLiveTerminals", () => {
     });
     await round(); await round();
     expect(logs.length).toBe(3);
+    // A kill keeps its two hypotheses: the Mac was slow, or the permission is pending/denied.
     expect(logs[0]).toMatch(/ucciso/);
-    expect(logs[0]).toMatch(/Mac lento/);
+    expect(logs[0]).toMatch(/Mac lento, o permesso di Automazione in attesa\/negato/);
+    // -1743 IS the denied Automation permission: the line says so in Italian,
+    // next to osascript's own English text, and does not blame a slow Mac.
     expect(logs[1]).toMatch(/osascript fallito/);
+    expect(logs[1]).toMatch(/permesso di Automazione negato/);
     expect(logs[1]).toContain("-1743");
+    expect(logs[1]).not.toMatch(/Mac lento/);
+    // Any other immediate failure says its own reason, nothing about Automation.
     expect(logs[2]).toContain("-609");
-    // An immediate failure is not a timeout: it says its own reason, not "slow Mac".
-    for (const l of logs.slice(1)) expect(l).not.toMatch(/Mac lento|Automazione/);
+    expect(logs[2]).not.toMatch(/Mac lento|Automazione/);
+    // The exit code is the clue when stderr is the only text.
+    for (const l of logs.slice(1)) expect(l).toContain("code=1");
     for (const l of logs) expect(l).not.toContain("Command failed");
+  });
+
+  it("Terminal.app: -1743 dopo un'altra riga di stderr, o solo nel messaggio, nomina comunque l'Automazione", async () => {
+    // osascript can print a warning before the refusal, and a runner can reject
+    // without a stderr field: the code is looked for in all of the text, not
+    // only in the line that becomes the reason.
+    const refusal = "62:118: execution error: Not authorized to send Apple events to Terminal. (-1743)";
+    const answers: Record<string, string | Error> = {
+      osascript: Object.assign(new Error("Command failed: osascript -e x"), {
+        killed: false, signal: null, code: 1,
+        stderr: `osascript: OpenScripting.framework - scripting addition warning\n${refusal}\n`,
+      }),
+    };
+    const { run } = fakeRunner(answers);
+    const logs: string[] = [];
+    let t = 1_000;
+    const svc = createLiveTerminals({
+      topics: () => [], topicsScreen: async () => null, topicsSend: () => true,
+      run, now: () => t, ttlMs: 0, sources: { tmux: false, terminal: true },
+      log: (msg) => { logs.push(msg); },
+    });
+    await svc.list({ force: true }); t += 61_000;
+    answers.osascript = Object.assign(new Error(`Command failed: osascript -e x\n${refusal}\n`), {
+      killed: false, signal: null, code: 1,
+    });
+    await svc.list({ force: true });
+    expect(logs).toHaveLength(2);
+    for (const l of logs) {
+      expect(l).toMatch(/^Terminal\.app: osascript fallito \(permesso di Automazione negato\)/);
+      expect(l).not.toMatch(/Mac lento/);
+    }
   });
 
   it("Terminal.app: un timeout e poi un fallimento immediato senza motivo sono due righe, non una", async () => {
@@ -228,7 +266,54 @@ describe("createLiveTerminals", () => {
     await svc.list({ force: true });
     expect(logs).toHaveLength(2);
     expect(logs[0]).toMatch(/ucciso/);
-    expect(logs[1]).toMatch(/^Terminal\.app: osascript fallito killed=false signal=null$/);
+    expect(logs[0]).toMatch(/ killed=true signal=SIGTERM$/);
+    // Without stderr the exit code is the only clue; a field without a value is left out.
+    expect(logs[1]).toMatch(/^Terminal\.app: osascript fallito code=1 killed=false$/);
+  });
+
+  it("Terminal.app: osascript che non c'e' (ENOENT sotto Bun) scrive il codice, mai «undefined», e niente Automazione", async () => {
+    // The REAL rejection of Bun's execFile for a missing binary: code "ENOENT",
+    // and no killed or signal fields at all.
+    const run: Runner = (file, args, opts) =>
+      defaultRunner(file === "osascript" ? "/nonexistent-dir/osascript" : file, args, opts);
+    const logs: string[] = [];
+    const svc = createLiveTerminals({
+      topics: () => [], topicsScreen: async () => null, topicsSend: () => true,
+      run, ttlMs: 0, sources: { tmux: false, terminal: true },
+      log: (msg) => { logs.push(msg); },
+    });
+    await svc.list({ force: true });
+    expect(logs).toHaveLength(1);
+    expect(logs[0]).toMatch(/^Terminal\.app: osascript fallito: /);
+    expect(logs[0]).toContain("code=ENOENT");
+    expect(logs[0]).not.toContain("undefined");
+    expect(logs[0]).not.toMatch(/Mac lento|Automazione/);
+  });
+
+  it("Terminal.app: la stessa causa che dura si riscrive ogni 30 minuti, non a ogni tentativo", async () => {
+    // Without a heartbeat, a line from this morning was the only sign that
+    // Terminal.app is STILL unreachable, indistinguishable from "nobody looked".
+    const kill = Object.assign(
+      new Error('Command failed: osascript -e tell application "Terminal"\n  return 1\nend tell'),
+      { killed: true, signal: "SIGTERM", code: null },
+    );
+    const { run, calls } = fakeRunner({ osascript: kill });
+    const logs: string[] = [];
+    let t = 1_000;
+    const svc = createLiveTerminals({
+      topics: () => [], topicsScreen: async () => null, topicsSend: () => true,
+      run, now: () => t, ttlMs: 0, sources: { tmux: false, terminal: true },
+      log: (msg) => { logs.push(msg); },
+    });
+    const round = async () => { await svc.list({ force: true }); t += 61_000; };
+    // 30 attempts, the last one 29.5 minutes after the first: still one line.
+    for (let i = 0; i < 30; i++) await round();
+    expect(calls.filter(([f]) => f === "osascript")).toHaveLength(30);
+    expect(logs).toHaveLength(1);
+    // The next attempt is past 30 minutes: the same line again, once.
+    await round();
+    expect(logs).toHaveLength(2);
+    expect(logs[1]).toBe(logs[0]);
   });
 
   it("defaultRunner: l'errore respinto porta stderr, dove sta il motivo vero", async () => {

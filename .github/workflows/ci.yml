@@ -82,8 +82,11 @@ jobs:
         run: bun install --frozen-lockfile
         working-directory: client
 
-      # server/browser-dom-cobrowse.test.ts launches a real Chromium (see the
-      # same step in `gates`).
+      # No file of test:unit launches a real Chromium today: the ones that do
+      # (server/browser-dom-cobrowse.test.ts and the rest of test:heavy) are
+      # skipped unless TOPICS_HEAVY_TESTS=1, which no workflow sets, and the
+      # other browser tests run against fakes. The step stays until someone
+      # decides to drop it or to run test:heavy here.
       - name: Install Playwright browsers (Chromium)
         run: npx playwright install --with-deps chromium
 
@@ -163,11 +166,14 @@ jobs:
         run: bun install --frozen-lockfile --dry-run
         working-directory: landing
 
-      # `test:unit` contiene UN file che lancia un Chromium vero
-      # (server/browser-dom-cobrowse.test.ts: rrweb va provato contro una pagina
-      # con una CSP vera, non contro un finto). Senza questo passo quei sette
-      # test cadono con «Chromium executable not found» — un rosso che in locale
-      # non si vede mai, perché la macchina di sviluppo il browser ce l'ha.
+      # The budgets below that drive the app through `npx playwright test` in
+      # the chromium project need this browser: check:ink on every run,
+      # check:growth on a push. Without it they fall with "Chromium executable
+      # not found", a red the dev machine never shows because it has the
+      # browser. This job runs no unit test: the files of test:unit that launch
+      # a real Chromium (browser-dom-cobrowse.test.ts and the other ones of
+      # test:heavy) are skipped unless TOPICS_HEAVY_TESTS=1, which no workflow
+      # sets. `id: setup` also gates every measuring step below.
       - name: Install Playwright browsers (Chromium)
         id: setup
         run: npx playwright install --with-deps chromium

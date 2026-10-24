@@ -1451,6 +1451,99 @@ describe("5xx del bridge — il motivo finisce nel log", () => {
     }
   });
 
+  test("il motivo è la prima riga NON vuota, ripulito da ANSI e da U+2028/U+2029, e il taglio a 500 non spezza una coppia surrogata", () => {
+    const warn = spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      warnBridgeServerError("browser_eval", "c1", 502, new Error("\n  \nthe real reason\nPAGE-DATA"));
+      warnBridgeServerError("browser_eval", "c1", 502, new Error(""));
+      warnBridgeServerError("browser_eval", "c1", 502, new TypeError("\n"));
+      warnBridgeServerError("browser_eval", "c1", 502, "\x1b[31mred\x1b[0m text\x1b]0;title\x07");
+      warnBridgeServerError("browser_eval", "c1", 502, "first\u2028PAGE-DATA\u2029more");
+      warnBridgeServerError("browser_eval", "c1", 502, `${"y".repeat(499)}\u{1F600}z`);
+      warnBridgeServerError("browser_open", "c1", 502, "");
+      const lines = warn.mock.calls.map((args) => args.map(String).join(" "));
+      const reasons = lines.map((l) => l.replace(/^\[browser-bridge\] \S+ \S+ \S+ -> \d+: /, ""));
+      expect(reasons).toEqual([
+        "the real reason",
+        // Nothing in the message: the error's name, never an empty reason.
+        "Error",
+        "TypeError",
+        "red text",
+        // A line separator ends the line like \n does: what follows is page data.
+        "first",
+        // 499 units plus a whole emoji would be 501: the pair is dropped, not halved.
+        "y".repeat(499),
+        "(empty)",
+      ]);
+      for (const l of lines) {
+        for (const ch of ["\n", "\r", "\u2028", "\u2029", "\x1b", "\x07"]) expect(l).not.toContain(ch);
+        expect(l).not.toMatch(/[\uD800-\uDBFF]$/);
+      }
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  test("nessun ESC né controllo C1 arriva a stderr: OSC chiuso da ST, APC, DCS, C1 a 8 bit, ESC isolato; U+0085 chiude la riga, i caratteri invisibili spariscono", () => {
+    const warn = spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      const reasons = [
+        "\x1b]0;title\x1b\\after",
+        new Error("x\x1b_"),
+        "a\x1b_Gf=1;AAAA\x1b\\b",
+        "a\x1bPq#0\x1b\\b",
+        "a\x9d0;t\x9cb",
+        "a\x9b31mb",
+        "a\x1b(Bb\x1b7",
+        "reason\x1b",
+        "x\x1b]0;never closed",
+        "first\x85PAGE-DATA",
+        "first\rPAGE-DATA",
+        "first\vPAGE-DATA",
+        "first\fPAGE-DATA",
+        "\x9dmojibake\nthe real reason",
+        "​\nreal",
+        "a‮b⁦c",
+      ];
+      for (const r of reasons) warnBridgeServerError("browser_eval", "c1", 502, r);
+      const lines = warn.mock.calls.map((args) => args.map(String).join(" "));
+      expect(lines.map((l) => l.replace(/^\[browser-bridge\] \S+ \S+ \S+ -> \d+: /, ""))).toEqual([
+        "after", "x", "ab", "ab", "ab", "ab", "ab", "reason", "x",
+        // U+0085, a lone CR, VT and FF end the line like \n does: what follows is page data.
+        "first", "first", "first", "first",
+        // A control string never closed ends at the line end: a lone C1 byte
+        // (mojibake) does not swallow the reason on the next line.
+        "the real reason",
+        // A line of format characters only (ZWSP here) is empty, not the reason.
+        "real",
+        // BiDi controls would reorder the log line on screen.
+        "abc",
+      ]);
+      // eslint-disable-next-line no-control-regex -- the control bytes are what the line must not carry
+      for (const l of lines) expect(l).not.toMatch(/[\x00-\x1f\x7f-\x9f\p{Cf}]/u);
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  test("un motivo costruito per il backtracking non blocca l'event loop e non lascia l'ESC nella riga", () => {
+    // The page writes the eval error message: a regex with overlapping
+    // quantifiers took ~600 ms per call on this input and still left the ESC.
+    const crafted = ("\x1b" + ";".repeat(10_000)).repeat(20);
+    const warn = spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      const started = performance.now();
+      warnBridgeServerError("browser_eval", "c1", 502, new Error(crafted));
+      const elapsed = performance.now() - started;
+      const line = warn.mock.calls.map((args) => args.map(String).join(" "))[0];
+      expect(line).not.toContain("\x1b");
+      expect(line).toMatch(/ -> 502: ;{500}$/);
+      expect(elapsed).toBeLessThan(150);
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
   // The warn lines of one request, with the response: the helper below keeps
   // each case to its setup and its expectation.
   async function warnsOf(h: ReturnType<typeof harness>, path: string, body?: unknown) {
