@@ -510,9 +510,9 @@ describe("enforceImageHistoryBudget", () => {
     const h: AgentMessage[] = [{ role: "user", content: "guarda" }];
     for (let i = 0; i <= IMAGE_HISTORY_COUNT_BUDGET; i++) h.push(...imageRound(`i${i}`, `shot ${i}.png (10x10, image attached)`));
     const out = enforceImageHistoryBudget(h);
-    const kept = IMAGE_HISTORY_COUNT_BUDGET + 1 - IMAGE_HISTORY_COUNT_TARGET;
-    for (let i = 0; i < kept; i++) expect(resultOf(out, `i${i}`).content).toBe(`[immagine rimossa per fare spazio: shot ${i}.png]`);
-    for (let i = kept; i <= IMAGE_HISTORY_COUNT_BUDGET; i++) expect(hasImage(resultOf(out, `i${i}`))).toBe(true);
+    const pruned = IMAGE_HISTORY_COUNT_BUDGET + 1 - IMAGE_HISTORY_COUNT_TARGET;
+    for (let i = 0; i < pruned; i++) expect(resultOf(out, `i${i}`).content).toBe(`[immagine rimossa per fare spazio: shot ${i}.png]`);
+    for (let i = pruned; i <= IMAGE_HISTORY_COUNT_BUDGET; i++) expect(hasImage(resultOf(out, `i${i}`))).toBe(true);
     // The calls they answered are still there: the pairs stay valid for the API.
     expect(out).toHaveLength(h.length);
   });
@@ -539,6 +539,37 @@ describe("enforceImageHistoryBudget", () => {
       if (out !== h) { prunedAt.push(round); h.splice(0, h.length, ...out); }
     }
     expect(prunedAt).toEqual([IMAGE_HISTORY_COUNT_BUDGET + 1, 2 * IMAGE_HISTORY_COUNT_BUDGET + 2 - IMAGE_HISTORY_COUNT_TARGET]);
+  });
+
+  test("between the byte target and the byte budget, under the count budget: untouched", () => {
+    // The trigger is the budget, the target only where a prune stops: 16 MB
+    // in 8 images is no reason to rewrite the history.
+    const h: AgentMessage[] = [{ role: "user", content: "guarda" }];
+    for (let i = 0; i < 8; i++) h.push(...imageRound(`m${i}`, `mid ${i}.png (1568x882, image attached)`, 2 * 1024 * 1024));
+    expect(enforceImageHistoryBudget(h)).toBe(h);
+  });
+
+  test("40 rounds of 1.9 MB screenshots: one prune every six rounds, down to five images", () => {
+    // The Darkroom case: the bytes trigger first. 20 MB holds ten of these,
+    // the eleventh is over; 10 MB holds five, so six rounds pass before the
+    // next prune. Pruning only to just under the budget, or triggering at the
+    // target, rewrites the history on almost every round.
+    const size = Math.round(1.87 * 1024 * 1024);
+    const h: AgentMessage[] = [{ role: "user", content: "controlla la pagina a ogni passo" }];
+    const prunedAt: number[] = [];
+    const liveAfter: number[] = [];
+    for (let round = 1; round <= 40; round++) {
+      h.push(...imageRound(`d${round}`, `step ${round}.png (1568x882, image attached)`, size));
+      const out = enforceImageHistoryBudget(h);
+      if (out === h) continue;
+      prunedAt.push(round);
+      h.splice(0, h.length, ...out);
+      let live = 0;
+      for (let r = 1; r <= round; r++) if (hasImage(resultOf(h, `d${r}`))) live++;
+      liveAfter.push(live);
+    }
+    expect(prunedAt).toEqual([11, 17, 23, 29, 35]);
+    expect(liveAfter).toEqual([5, 5, 5, 5, 5]);
   });
 
   test("over the byte budget: oldest first until it fits, and the newest survives even alone over the budget", () => {

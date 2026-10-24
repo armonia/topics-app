@@ -640,8 +640,15 @@ export const IMAGE_HISTORY_COUNT_BUDGET = 20;
  * and the prompt cache only hits on a prefix that did not change: the round
  * after a prune writes everything past that image to the cache again. Pruning
  * to just under the budget made that happen on every round that brought a new
- * image, once the history held 20 of them. Going down to half buys ten image
- * rounds before the next prune: one rewrite every ten instead of every round.
+ * image, once the history held 20 of them. Going down to half buys half a
+ * budget of new images before the next prune: ten rounds of small images, six
+ * rounds of 1.9 MB screenshots (the bytes decide there: five stay, the
+ * eleventh is over 20 MB). One rewrite every six to ten image rounds instead
+ * of every round.
+ *
+ * The price: right after a prune the model sees half the images it saw
+ * before, five instead of about ten with 1.9 MB screenshots. The newest one
+ * always stays, and the others leave a placeholder with their path.
  */
 export const IMAGE_HISTORY_COUNT_TARGET = 10;
 export const IMAGE_HISTORY_BYTE_TARGET = 10 * 1024 * 1024;
