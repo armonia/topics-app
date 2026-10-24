@@ -19,7 +19,9 @@ import { closeDatabase, initDatabase } from "./db";
 import { PARTIAL_SESSIONS_SQL } from "./lib/boot-partial-sweep";
 import { LAST_RECENT_MESSAGES_SQL } from "./lib/ripresa-boot";
 import {
+  CHECKS_RUNNING_SQL,
   OLDEST_WORKING_BOARD_SQL,
+  PARKED_CHILDREN_CANDIDATES_SQL,
   PARKED_IN_SERIES_SQL,
   QUEUED_ROOT_BOARDS_SQL,
   WORKING_TASKS_COUNT_SQL,
@@ -31,6 +33,22 @@ const LAST_MESSAGE_OF_EVERY_CHAT_SQL = `SELECT m.session_key AS sk, m.id AS id, 
          JOIN (SELECT session_key, MAX(rowid) AS r FROM messages GROUP BY session_key) u
            ON u.r = m.rowid
         WHERE m.timestamp >= strftime('%Y-%m-%dT%H:%M:%fZ', 'now', '-25 hours')`;
+
+/**
+ * The stuck-parents read before 24/10/2026, verbatim: the reference for the
+ * rows. `NOT IN (...)` hides the status from the partial index; the table's own
+ * CHECK(status IN ('backlog', 'todo', 'in_progress', 'review', 'done')) is what
+ * makes `IN ('backlog', 'todo')` the same set.
+ */
+const PARKED_CHILDREN_NOT_IN_SQL = `SELECT p.id, p.project_id FROM tasks p
+            WHERE p.archived = 0
+              AND p.status NOT IN ('done', 'review', 'in_progress')
+              AND NOT (p.status = 'todo' AND p.dispatch_attempts = 0)
+              AND COALESCE(p.dispatch_state, '') NOT IN ('queued', 'starting', 'working')
+              AND COALESCE(p.dispatch_deferred_until, '') <= ?
+              AND EXISTS (SELECT 1 FROM tasks c
+                           WHERE c.parent_task_id = p.id AND c.archived = 0 AND c.status != 'done')
+            ORDER BY p.updated_at`;
 
 let tmpRoot: string;
 let db: Database;
@@ -108,3 +126,62 @@ describe("tasks reads on a timer", () => {
   });
 });
 
+describe("tasks reads on a timer: the stale checks light and the stuck parents", () => {
+  test("the running checks light reads its partial index, not the table", () => {
+    const steps = plan(CHECKS_RUNNING_SQL);
+    expect(steps.join(" / ")).toContain("idx_tasks_checks_running");
+    // A covering scan of the small partial index is fine; a bare table scan is not.
+    expect(steps.filter((s) => /^SCAN tasks$/.test(s))).toEqual([]);
+  });
+
+  test("the stuck parents start from their partial index, with no sort", () => {
+    const steps = plan(PARKED_CHILDREN_CANDIDATES_SQL);
+    // Only the outer step is pinned: the EXISTS subquery may use idx_tasks_archived.
+    expect(steps).toContain("SEARCH p USING INDEX idx_tasks_parked_candidates (archived=?)");
+    expect(steps.filter((s) => s.startsWith("SEARCH p USING INDEX idx_tasks_archived"))).toEqual([]);
+    expect(steps.filter((s) => s.includes("USE TEMP B-TREE FOR ORDER BY"))).toEqual([]);
+  });
+
+  test("both reads return the same rows as the queries they replace", () => {
+    const stamp = new Date().toISOString();
+    const insert = db.prepare(
+      `INSERT INTO tasks (id, project_id, text, status, archived, parent_task_id, dispatch_state,
+                          dispatch_attempts, dispatch_deferred_until, checks_state, created_at, updated_at)
+       VALUES (?, 'p1', 'x', ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    );
+    try {
+      db.transaction(() => {
+        // One parent per status, archived or not, each with one open child.
+        for (const st of ["backlog", "todo", "in_progress", "review", "done"]) {
+          insert.run(`par-${st}`, st, 0, null, null, 1, null, null, stamp, stamp);
+          insert.run(`par-${st}-arch`, st, 1, null, null, 1, null, null, stamp, stamp);
+          insert.run(`kid-${st}`, "todo", 0, `par-${st}`, null, 0, null, null, stamp, stamp);
+          insert.run(`kid-${st}-arch`, "todo", 0, `par-${st}-arch`, null, 0, null, null, stamp, stamp);
+        }
+        // A fresh queued parent (no attempt spent) is waiting for its turn, not stuck.
+        insert.run("par-fresh-todo", "todo", 0, null, null, 0, null, null, stamp, stamp);
+        insert.run("kid-fresh-todo", "todo", 0, "par-fresh-todo", null, 0, null, null, stamp, stamp);
+        // A backlog parent with a live agent chip, and one deferred into the future.
+        insert.run("par-working", "backlog", 0, null, "working", 1, null, null, stamp, stamp);
+        insert.run("kid-working", "todo", 0, "par-working", null, 0, null, null, stamp, stamp);
+        insert.run("par-deferred", "backlog", 0, null, null, 1, "9999-01-01T00:00:00.000Z", null, stamp, stamp);
+        insert.run("kid-deferred", "todo", 0, "par-deferred", null, 0, null, null, stamp, stamp);
+        // The checks light: running, finished, and never run.
+        insert.run("chk-running", "review", 0, null, null, 0, null, "running", stamp, stamp);
+        insert.run("chk-passed", "review", 0, null, null, 0, null, "passed", stamp, stamp);
+        insert.run("chk-none", "review", 0, null, null, 0, null, null, stamp, stamp);
+      })();
+
+      const parked = (sql: string) =>
+        (db.query(sql).all(stamp) as Array<{ id: string }>).map((r) => r.id);
+      // Not a tautology: the reference itself must pick exactly the stuck ones.
+      const expected = parked(PARKED_CHILDREN_NOT_IN_SQL).sort();
+      expect(expected).toEqual(["par-backlog", "par-todo"]);
+      expect(parked(PARKED_CHILDREN_CANDIDATES_SQL).sort()).toEqual(expected);
+
+      expect((db.query(CHECKS_RUNNING_SQL).all() as Array<{ id: string }>).map((r) => r.id)).toEqual(["chk-running"]);
+    } finally {
+      db.exec("DELETE FROM tasks");
+    }
+  });
+});

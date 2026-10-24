@@ -67,7 +67,9 @@ import type { Task, CreateTaskInput, UpdateTaskPatch, ListTasksInput } from "./t
 
 import { markTargetNotificationsSeen } from "../db/notification-log";
 import { withCardAttention } from "../attention/card-sync";
-import { PARKED_IN_SERIES_SQL, QUEUED_ROOT_BOARDS_SQL } from "../lib/task-timer-reads";
+import {
+  CHECKS_RUNNING_SQL, PARKED_CHILDREN_CANDIDATES_SQL, PARKED_IN_SERIES_SQL, QUEUED_ROOT_BOARDS_SQL,
+} from "../lib/task-timer-reads";
 
 export type Actor = "human" | "agent";
 
@@ -5443,17 +5445,7 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       // davvero, e il rastrello lo prende come prima.
       let candidati: Array<{ id: string; project_id: string }> = [];
       try {
-        candidati = db.prepare(
-          `SELECT p.id, p.project_id FROM tasks p
-            WHERE p.archived = 0
-              AND p.status NOT IN ('done', 'review', 'in_progress')
-              AND NOT (p.status = 'todo' AND p.dispatch_attempts = 0)
-              AND COALESCE(p.dispatch_state, '') NOT IN (${CHILD_AGENT_COMING})
-              AND COALESCE(p.dispatch_deferred_until, '') <= ?
-              AND EXISTS (SELECT 1 FROM tasks c
-                           WHERE c.parent_task_id = p.id AND c.archived = 0 AND c.status != 'done')
-            ORDER BY p.updated_at`,
-        ).all(ts) as Array<{ id: string; project_id: string }>;
+        candidati = db.prepare(PARKED_CHILDREN_CANDIDATES_SQL).all(ts) as Array<{ id: string; project_id: string }>;
       } catch { return []; }
       const chiesti: Task[] = [];
       const ammessa = new Map<string, boolean>();
@@ -6083,9 +6075,7 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
     },
 
     clearStaleChecksRuns(isLive?: (taskId: string) => boolean): string[] {
-      const lit = (db.prepare(
-        "SELECT id FROM tasks WHERE checks_state = 'running'",
-      ).all() as Array<{ id: string }>).map((r) => r.id);
+      const lit = (db.prepare(CHECKS_RUNNING_SQL).all() as Array<{ id: string }>).map((r) => r.id);
       // The live registry decides, the row confirms: a light the gate still
       // knows is a run that is going, or queued behind another card's run, and
       // switching it off would tell the board nothing is being measured while
