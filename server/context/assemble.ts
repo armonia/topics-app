@@ -68,6 +68,17 @@ const LARGE_SOURCE_TOKENS = 10_000;
 /** Project files we surface as templates (CLAUDE.md falls back to .claude/CLAUDE.md). */
 const PROJECT_TEMPLATE_FILES = ["CLAUDE.md", "README.md", ".cursorrules", "AGENTS.md"];
 
+/**
+ * How much of a project's README.md the context block carries.
+ *
+ * The README is an overview, not instructions: its head orients the agent and
+ * the file stays one Read away. On 24/10 the finance project's README was
+ * 136k characters (about 55-60k tokens) resent whole with every context
+ * block. CLAUDE.md and AGENTS.md are the project's instructions and are never
+ * cut, as Claude Code loads them whole.
+ */
+export const README_MAX_CHARS = 20_000;
+
 /** OpenClaw workspace files injected gateway-side; listed for inspector visibility. */
 const OPENCLAW_WORKSPACE_FILES = ["SOUL.md", "MEMORY.md", "AGENTS.md", "TOOLS.md", "IDENTITY.md", "USER.md"];
 
@@ -693,12 +704,13 @@ function pushProjectTemplateBlocks(
 
   for (const file of snap.files) {
     const id = `template:${file.name}`;
+    const content = file.name === "README.md" ? capReadme(file.content, file.path) : file.content;
     blocks.push({
       id,
       label: file.displayName,
       category: "template",
-      content: file.content,
-      tokens: estimateTokens(file.content),
+      content,
+      tokens: estimateTokens(content),
       enabled: isEnabled(id),
       countInBudget: true,
       sourceUri: file.path,
@@ -706,6 +718,16 @@ function pushProjectTemplateBlocks(
       injectedByTopicsApp: true,
     });
   }
+}
+
+/** The README's head up to {@link README_MAX_CHARS}, cut at a line end, with a note that names the file. */
+function capReadme(content: string, path: string): string {
+  if (content.length <= README_MAX_CHARS) return content;
+  const head = content.slice(0, README_MAX_CHARS);
+  const lineEnd = head.lastIndexOf("\n");
+  const kept = lineEnd > README_MAX_CHARS / 2 ? head.slice(0, lineEnd) : head;
+  return `${kept}\n\n[README.md cut here: the first ${kept.length} of ${content.length} characters. ` +
+    `The whole file is ${path}; read it when the task needs the rest.]`;
 }
 
 function pushBrowserInstructionBlock(blocks: SystemBlock[]): void {

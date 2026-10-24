@@ -3895,6 +3895,7 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
             const sentScope = dedupOff ? null : inlineScope(
               readClaudeSessionId(ctx, sessionKey),
               countCompactions(ctx, sessionKey),
+              topicProvider.contextEpoch?.(sessionKey),
             );
             // A skill invocation (`/recap`) reaches the CLI bare, its context comes back apart
             // (`payload.slashContext`). Known skills: the CLI's own list (claude-code only), then the topic's cwd.
@@ -4022,7 +4023,11 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
               // preambolo se l'è portato via e rimandarlo è l'esito corretto.
               if (sentScope && payload.inlineSlots) {
                 try {
-                  const settled = inlineScope(readClaudeSessionId(ctx, sessionKey), countCompactions(ctx, sessionKey));
+                  const settled = inlineScope(
+                    readClaudeSessionId(ctx, sessionKey),
+                    countCompactions(ctx, sessionKey),
+                    topicProvider.contextEpoch?.(sessionKey),
+                  );
                   rekeyInlineSent(sessionKey, sentScope, settled);
                 } catch { /* best-effort: al peggio si rimanda il contesto */ }
               }

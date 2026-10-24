@@ -45,8 +45,17 @@ export function hashSlot(content: string): string {
  * Sono i due soli eventi che possono cancellare il preambolo dalla conversazione
  * della CLI, ed è per questo che sono esattamente i due che azzerano la mappa.
  */
-export function inlineScope(claudeSessionId: string | null | undefined, compactionCount: number): string {
-  return `${claudeSessionId ?? "(none)"}#${compactionCount}`;
+export function inlineScope(
+  claudeSessionId: string | null | undefined,
+  compactionCount: number,
+  contextEpoch?: number,
+): string {
+  // A provider that keeps the conversation in memory and rebuilds it from the
+  // stored rows (native) loses the inline context on every rebuild, with no
+  // new CLI session id to say so: its epoch is the third event that clears
+  // the map. It sits after `#`, so a rekey never carries marks across it.
+  const epoch = contextEpoch === undefined ? "" : `@${contextEpoch}`;
+  return `${claudeSessionId ?? "(none)"}#${compactionCount}${epoch}`;
 }
 
 /**

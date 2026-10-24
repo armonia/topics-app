@@ -690,6 +690,19 @@ export interface AIProvider {
    */
   resetSession?(sessionKey: string): Promise<void>;
 
+  /**
+   * Which in-memory copy of this conversation the next turn will reach.
+   *
+   * Only a provider that keeps the history itself and rebuilds it from the
+   * stored rows implements it (native): the rebuilt history holds the
+   * person's words, not the inline context the route prepended, so the route
+   * folds this number into the dedup scope and a rebuild resends the block.
+   * It returns the epoch the next `sendChat` will run on (the current one +1
+   * when the session is gone) and keeps a live session from being evicted
+   * before that turn arrives.
+   */
+  contextEpoch?(sessionKey: string): number;
+
   // --- Tools RPC (optional, OpenClaw-specific) ---
 
   invokeTool?(tool: string, args: ToolArgs): Promise<unknown>;
