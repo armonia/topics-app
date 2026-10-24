@@ -43,13 +43,14 @@
 import type { AppContext, RouteHandler, Topic } from "../types";
 import type { BrowserService } from "../browser-service";
 import { dispatchBrowserToolCallByContext, resolveContextIdForTopic } from "../browser-tool-dispatcher";
-import { makeOpenPaneFlow } from "./browser-open-pane-flow";
+import { makeOpenPaneFlow, type OpenPaneFlowOptions } from "./browser-open-pane-flow";
 import { maybeOpenPaneForPageOp } from "./browser-auto-open";
 import { BRIDGED_BROWSER_ENDPOINTS } from "../browser-tool-spec";
 import { resolveAgentNavUrl } from "../browser-tools-handler";
 import { nativeDelegateRegistry } from "../browser-native-delegate";
 import { collectLiveContextIds, listBrowserTabs, type TabInventoryDeps } from "../browser-tab-inventory";
 import { agentAuthOk } from "../lib/agent-auth";
+import { warnBridgeServerError } from "../lib/browser-bridge-warn";
 import { taskTabContextId, slugTabName } from "../../shared/task-tab-context";
 import { checkPortOwnership, formatPortWarning, realPortOwnerDeps, type PortOwnerDeps } from "../lib/port-project-owner";
 import { isGlobalOrchestratorSession, isGlobalOrchestratorTopic } from "../services/global-orchestrator-session";
@@ -225,6 +226,23 @@ export function createBrowserBridgeRouter(
   });
 
   /**
+   * The open-pane routes answer through here: the sequence, plus the stderr
+   * line when the answer is a 5xx. The line is written where the route
+   * answers, not inside openPaneFlow, because the auto-open before a page op
+   * runs the same sequence and its failures stay silent on purpose
+   * (browser-auto-open.ts): there the page op's own answer is the one that
+   * counts.
+   */
+  async function openPaneAnswer(opts: OpenPaneFlowOptions): Promise<Response> {
+    const res = await openPaneFlow(opts);
+    if (res.status >= 500) {
+      const body = (await res.clone().json().catch(() => null)) as { error?: unknown } | null;
+      warnBridgeServerError("browser_open", opts.contextId, res.status, body?.error ?? res.statusText);
+    }
+    return res;
+  }
+
+  /**
    * Last auto-open attempt per contextId: with no Topics window connected,
    * every page op would otherwise pay the pane wait plus a navigation. One
    * failed attempt buys 60 s of headless-direct dispatch (see
@@ -382,7 +400,7 @@ export function createBrowserBridgeRouter(
             // as the chat route, same fallback, same honest answer. The title
             // stays empty: here the agent asked for a pane next to its
             // terminal, not for a page to label.
-            return openPaneFlow({
+            return openPaneAnswer({
               contextId: ctxId,
               url: resolvedUrl,
               title: "",
@@ -438,7 +456,7 @@ export function createBrowserBridgeRouter(
           };
           saveSingleTopic(topic);
           browserNavigatedTopics.add(topic.id);
-          return openPaneFlow({
+          return openPaneAnswer({
             contextId: taskCtx.contextId,
             url,
             title: tabName,
@@ -470,7 +488,7 @@ export function createBrowserBridgeRouter(
         // guarantees it) so the client mounts/seeds the pane under the SAME id
         // the agent's `browser_*` tools resolve to. Inverted, Playwright drove
         // a phantom while the visible pane stayed on about:blank.
-        return openPaneFlow({
+        return openPaneAnswer({
           contextId: ctxId,
           url,
           projectPath: topic.projectPath ?? null,
@@ -559,10 +577,14 @@ export function createBrowserBridgeRouter(
             target.contextId,
             browserService,
           ) as { error?: string };
-          if (result?.error) return json({ error: result.error }, 502);
+          if (result?.error) {
+            warnBridgeServerError("browser_import_chrome", target.contextId, 502, result.error);
+            return json({ error: result.error }, 502);
+          }
           return json(result as Record<string, unknown>);
         } catch (e: unknown) {
           const msg = e instanceof Error ? e.message : String(e);
+          warnBridgeServerError("browser_import_chrome", target.contextId, 500, msg);
           return json({ error: msg }, 500);
         }
       }
@@ -649,7 +671,10 @@ export function createBrowserBridgeRouter(
             contextId,
             browserService,
           ) as Record<string, unknown> & { error?: string };
-          if (result?.error) return json({ error: result.error }, 502);
+          if (result?.error) {
+            warnBridgeServerError(toolName, contextId, 502, result.error);
+            return json({ error: result.error }, 502);
+          }
           // Login già iniettato: un `browser_save_state` fatto SU una tab di un
           // task lega quell'handle a QUELLA tab. Chi la apre dopo — drawer del
           // task o workspace del progetto — se lo fa dare da
@@ -669,7 +694,9 @@ export function createBrowserBridgeRouter(
           }
           return json(result);
         } catch (e: unknown) {
-          return json({ error: e instanceof Error ? e.message : String(e) }, 500);
+          const msg = e instanceof Error ? e.message : String(e);
+          warnBridgeServerError(toolName, contextId, 500, msg);
+          return json({ error: msg }, 500);
         }
       }
     }
@@ -692,6 +719,7 @@ export function createBrowserBridgeRouter(
           const tabs = await listBrowserTabs(buildTabDeps(browserService), own);
           return json({ tabs });
         } catch (e: unknown) {
+          warnBridgeServerError("browser_list_tabs", own ?? "-", 500, e);
           return json({ error: e instanceof Error ? e.message : String(e) }, 500);
         }
       }
