@@ -471,17 +471,7 @@ export interface KnownOverlap {
  * check builds, so the entry stops matching (and fails the run) when the code
  * it describes changes.
  */
-export const KNOWN: KnownOverlap[] = [
-  // Pending branch fix/keep-list-route: that branch moves the keep-list block
-  // above `/api/browsers/:id`. Remove this entry in the same change, or the
-  // run fails as stale.
-  {
-    prior: "browserRouter",
-    later: "browserRouter",
-    sample: "/api/browsers/data-store-keep-list",
-    why: "GET /api/browsers/:id (browser.ts:229) hides the keep-list route (browser.ts:672) since 12/08; fix/keep-list-route",
-  },
-];
+export const KNOWN: KnownOverlap[] = [];
 
 function fmt(c: Claim): string {
   return `${c.router} ${relative(ROOT, c.file)}:${c.line} ${c.methods?.join("|") ?? "ANY"} ${c.kind} ${c.value}`;
