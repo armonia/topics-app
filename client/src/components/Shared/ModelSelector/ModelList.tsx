@@ -123,7 +123,7 @@ function RoutingBand({ enabled, route, engineLabel, onToggle }: {
       data-testid="model-selector-routing"
       data-route={!enabled ? 'off' : through ? 'topics' : 'direct'}
       onClick={onToggle}
-      className={`mx-1 mb-1 flex w-[calc(100%-0.5rem)] shrink-0 items-center gap-2.5 rounded-md px-2.5 py-2 coarse:min-h-[44px] coarse:py-3 text-left transition-colors ${
+      className={`mx-1 mb-1 flex w-[calc(100%-0.5rem)] shrink-0 items-center gap-2.5 rounded-md px-2.5 py-1 coarse:min-h-[44px] coarse:py-3 text-left transition-colors ${
         through
           ? 'bg-primary/10 ring-1 ring-primary/30 ring-inset'
           : 'bg-app-inset ring-1 ring-transparent ring-inset'
