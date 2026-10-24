@@ -4,9 +4,9 @@
  */
 import { afterEach, describe, expect, test } from "bun:test";
 import type { ToolCall } from "../../shared/types";
-import { configureNativeHistorySource, type PersistedTurn } from "./native/history-rehydrate";
-import { estimateTokens } from "./native/compaction";
-import { freshSessionPreamble, handoffFromStore, renderHandoff } from "./handoff";
+import { configureNativeHistorySource, REHYDRATE_WINDOW_TOKENS, type PersistedTurn } from "./native/history-rehydrate";
+import { COMPACT_TO, estimateTokens } from "./native/compaction";
+import { freshSessionPreamble, HANDOFF_BUDGET_TOKENS, handoffFromStore, renderHandoff } from "./handoff";
 
 const u = (content: string): PersistedTurn => ({ role: "user", content });
 const tc = (over: Partial<ToolCall> & { id: string }): ToolCall => ({
@@ -75,6 +75,27 @@ describe("handoff", () => {
     const preamble = freshSessionPreamble("topic:x", [{ role: "user", content: "dalla rotta" }]);
     expect(preamble).toContain("dal db");
     expect(preamble).not.toContain("dalla rotta");
+  });
+
+  test("the default budget is used whole: the native rebuild's window does not cut the handoff", () => {
+    // RED BEFORE: the handoff rebuilt the thread through the native session's
+    // window (110k, compacted to about 44k), under its own 60k budget, and
+    // came out at 43k.
+    const thread: PersistedTurn[] = [u("lavora sul repo")];
+    for (let i = 0; i < 400; i++) {
+      thread.push({
+        role: "assistant",
+        content: `Round ${i}: ${"the change touches the parser and its tests. ".repeat(18)}`,
+        toolCalls: [tc({ id: `t${i}`, name: "read_file", args: { path: `src/file${i}.ts` }, result: `export const value${i} = ${i};\n`.repeat(120), contentOffset: 0 })],
+      });
+      thread.push(u(`ok, next step ${i}`));
+    }
+    thread.push(u("nuova domanda"));
+    useStore(thread);
+    const used = estimateTokens([{ role: "user", content: handoffFromStore("topic:x")! }]);
+    expect(used).toBeLessThanOrEqual(HANDOFF_BUDGET_TOKENS);
+    expect(used).toBeGreaterThan(REHYDRATE_WINDOW_TOKENS * COMPACT_TO);
+    expect(used).toBeGreaterThan(0.9 * HANDOFF_BUDGET_TOKENS);
   });
 
   test("the written text stays within budget even with hundreds of small tool calls", () => {

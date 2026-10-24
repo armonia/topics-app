@@ -157,6 +157,13 @@ Una storia SANA SHALL passare IDENTICA, senza costo.
 - **GIVEN** una risposta separata dalla domanda da un altro messaggio
 - **THEN** la domanda SHALL essere considerata orfana
 
+#### Scenario: la storia ricostruita costa poco da riscrivere in cache
+- **GIVEN** una conversazione con centinaia di chiamate a strumenti e prosa attorno, e una coda recente leggera
+- **WHEN** la sessione nativa si ricostruisce dal database
+- **THEN** la storia SHALL essere compattata contro una finestra di 110k token stimati, cioè riportata verso `COMPACT_TO` di quella finestra (circa 44k stimati, entro 120k alla densità peggiore misurata di 1,64 caratteri per token)
+- **AND** gli ultimi messaggi (`KEEP_RECENT`) SHALL restare interi: una coda recente pesante PUÒ lasciare la storia sopra quell'obiettivo
+- **AND** il passaggio a una sessione CLI SHALL NOT passare da questa finestra: usa il proprio budget (MP-HANDOFF-01)
+
 ### Requirement: RT-05 — Il suffisso della finestra lunga ESCE dall'identificativo e diventa una richiesta
 
 Un identificativo di modello che porta il suffisso della finestra lunga SHALL
