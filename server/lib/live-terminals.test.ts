@@ -4,6 +4,7 @@
 import { describe, it, expect } from "bun:test";
 import {
   createLiveTerminals,
+  defaultRunner,
   parseForeground,
   parseLsofCwd,
   parseTerminalTabs,
@@ -161,6 +162,46 @@ describe("createLiveTerminals", () => {
     expect(logs.length).toBe(2);
     expect(logs[1].msg).toMatch(/di nuovo raggiungibile/);
     expect(logs[1].err).toBeUndefined();
+  });
+
+  it("Terminal.app: se la causa cambia senza un successo in mezzo, la riga si riscrive; la stessa causa resta muta", async () => {
+    const commandLine = 'Command failed: osascript -e tell application "Terminal"\n  return 1\nend tell';
+    const kill = Object.assign(new Error(commandLine), { killed: true, signal: "SIGTERM", code: null });
+    const refusal = Object.assign(new Error(commandLine), {
+      killed: false, signal: null, code: 1,
+      stderr: "\n  execution error: Not authorized to send Apple events to Terminal. (-1743)\n",
+    });
+    const answers: Record<string, string | Error> = { osascript: kill };
+    const { run } = fakeRunner(answers);
+    const logs: string[] = [];
+    let t = 1_000;
+    const svc = createLiveTerminals({
+      topics: () => [], topicsScreen: async () => null, topicsSend: () => true,
+      run, now: () => t, ttlMs: 0, sources: { tmux: false, terminal: true },
+      log: (msg) => { logs.push(msg); },
+    });
+    const round = async () => { await svc.list({ force: true }); t += 61_000; };
+    await round(); await round();
+    answers.osascript = refusal;
+    await round(); await round();
+    // Same kind (failed), different reason: the reason is part of the state too.
+    answers.osascript = Object.assign(new Error(commandLine), {
+      killed: false, signal: null, code: 1,
+      stderr: "execution error: Terminal got an error: Connection is invalid. (-609)\n",
+    });
+    await round(); await round();
+    expect(logs.length).toBe(3);
+    expect(logs[0]).toMatch(/ucciso/);
+    expect(logs[1]).toMatch(/osascript fallito/);
+    expect(logs[1]).toContain("-1743");
+    expect(logs[2]).toContain("-609");
+    for (const l of logs) expect(l).not.toContain("Command failed");
+  });
+
+  it("defaultRunner: l'errore respinto porta stderr, dove sta il motivo vero", async () => {
+    const err = await defaultRunner("sh", ["-c", "echo boom >&2; exit 3"]).then(() => null, (e: unknown) => e);
+    expect(err).not.toBeNull();
+    expect(String((err as { stderr?: unknown }).stderr)).toContain("boom");
   });
 
   it("tmux: testo letterale e Invio in due chiamate, così «Enter» scritto resta testo", async () => {
