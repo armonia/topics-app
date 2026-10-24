@@ -157,6 +157,11 @@ Una storia SANA SHALL passare IDENTICA, senza costo.
 - **GIVEN** una risposta separata dalla domanda da un altro messaggio
 - **THEN** la domanda SHALL essere considerata orfana
 
+#### Scenario: la storia ricostruita sta sotto la soglia di compattazione
+- **GIVEN** una conversazione con centinaia di chiamate a strumenti e prosa attorno
+- **WHEN** la sessione si ricostruisce dal database
+- **THEN** la storia, contata in token veri alla densità peggiore misurata (1,64 caratteri per token), SHALL stare sotto `COMPACT_AT` della finestra più piccola che un modello dichiara (0,85 × 200k)
+
 ### Requirement: RT-05 — Il suffisso della finestra lunga ESCE dall'identificativo e diventa una richiesta
 
 Un identificativo di modello che porta il suffisso della finestra lunga SHALL

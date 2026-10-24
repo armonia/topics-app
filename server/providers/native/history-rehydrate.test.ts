@@ -12,7 +12,7 @@
  */
 import { test, expect, describe } from "bun:test";
 import { historyFromPersistedThread, REHYDRATE_WINDOW_TOKENS, type PersistedTurn } from "./history-rehydrate";
-import { estimateTokens } from "./compaction";
+import { COMPACT_AT, estimateChars, estimateTokens, windowFor } from "./compaction";
 import type { ToolCall } from "../../../shared/types";
 import type { Block } from "./agent-loop";
 
@@ -336,6 +336,46 @@ describe("historyFromPersistedThread — il tetto sulla storia ricostruita", () 
     // The opening request survives: an agent that no longer knows why it is
     // working is worse than one with a shorter memory of how it got there.
     expect(out[0]).toEqual({ role: "user", content: "lavora sul repo" });
+  });
+});
+
+/**
+ * The rebuilt history, counted in REAL tokens, stays under the live
+ * compaction threshold of the smallest window a model declares.
+ *
+ * The cap works on an estimate of 4 characters per token, and tool-heavy
+ * histories tokenize far denser. Measured on 24/10 on a copy of the live
+ * database: topic:5a02dfd5 rebuilt to 319,672 characters, estimated 79,918
+ * tokens, counted 194,874 by the API (1.64 characters per token); ae217a6b
+ * 1.66, f55fc83a 1.95. With the 200k window a rebuilt session wrote about
+ * 250k tokens cold to the cache on its first round, and the history alone
+ * sat past 0.85 of a 200k window: the first round after a rebuild would
+ * compact again what had just been rebuilt.
+ */
+describe("historyFromPersistedThread: the rebuilt history in real tokens", () => {
+  const WORST_MEASURED_CHARS_PER_TOKEN = 1.64;
+
+  test("a tool-heavy thread rebuilds under COMPACT_AT of the smallest window, at the worst measured density", () => {
+    const thread: PersistedTurn[] = [{ role: "user", content: "lavora sul repo" }];
+    // Prose around every call, as in a real chat: compaction empties old tool
+    // results first, so a thread of bare calls rebuilds small and proves nothing.
+    for (let i = 0; i < 400; i++) {
+      thread.push({
+        role: "assistant",
+        content: `Round ${i}: ${"the change touches the parser and its tests. ".repeat(18)}`,
+        toolCalls: [{
+          id: `t${i}`, name: "read_file", args: { path: `src/file${i}.ts` }, status: "success",
+          result: `export const value${i} = ${i};\n`.repeat(120), contentOffset: 0,
+        }],
+      });
+      thread.push({ role: "user", content: `ok, next step ${i}` });
+    }
+    thread.push({ role: "user", content: "nuova domanda" });
+
+    const out = historyFromPersistedThread(thread);
+    const realTokens = estimateChars(out, 0) / WORST_MEASURED_CHARS_PER_TOKEN;
+    expect(realTokens).toBeLessThanOrEqual(windowFor("an-unknown-model") * COMPACT_AT);
+    expect(out[0]).toMatchObject({ role: "user" });
   });
 });
 

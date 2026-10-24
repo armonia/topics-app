@@ -56,13 +56,20 @@ const NO_RESULT_RECORDED =
   "[no result recorded: the turn was interrupted before this call finished; run it again if its outcome matters]";
 
 /**
- * The ceiling applied to the history this file rebuilds, in tokens.
+ * The ceiling applied to the history this file rebuilds, in ESTIMATED tokens.
  *
  * Rehydration runs before a model is chosen for the resumed turn (`sessionFor`
  * calls it with only a session key), so it cannot size itself to that model's
- * real window the way live compaction does. It takes the floor every model in
- * this app declares instead of assuming the generous case — `windowFor`'s own
- * fallback for an unrecognised model is this same number.
+ * real window the way live compaction does.
+ *
+ * The estimate is 4 characters per token, and a tool-heavy history tokenizes
+ * far denser. Measured on 24/10 on a copy of the live database: at 200k the
+ * rebuilt history of topic:5a02dfd5 was 79,918 estimated tokens and 194,874
+ * real ones (1.64 characters per token), and every rebuild wrote about 250k
+ * tokens cold to the cache on its first round. That alone sat past 0.85 of a
+ * 200k window (`COMPACT_AT`), the smallest window a model declares. At 110k
+ * the same history rebuilds to about 107k real tokens, under that threshold
+ * even at the worst density measured.
  *
  * IT DOES REAL WORK, measured on the four heaviest native sessions in the live
  * database: expanding every tool call in full, with no cap, reached 414k,
@@ -72,7 +79,7 @@ const NO_RESULT_RECORDED =
  * whole, empties old tool results and long tool inputs first, and only cuts
  * the oldest turns away if that is still not enough.
  */
-export const REHYDRATE_WINDOW_TOKENS = 200_000;
+export const REHYDRATE_WINDOW_TOKENS = 110_000;
 
 export type PersistedThreadLoader = (sessionKey: string) => PersistedTurn[];
 
