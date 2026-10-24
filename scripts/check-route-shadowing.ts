@@ -421,25 +421,40 @@ export function findOverlaps(claimsByRouter: Map<string, Claim[]>, order: string
  * falls into, before the literal and around it.
  * Whatever cannot be evaluated (a field of a match, a call, a name that is not
  * the request's) is unknown, and unknown is never a finding: a wrong finding
- * is a red run on correct code. So a condition that reads the method in a way
- * this check cannot evaluate (`WRITE.has(method)`) lets no method we can name
- * reach the literal, and a literal that answers `true` or `false` belongs to
- * a predicate (a guest check next to the router), not to a route. "*" in a
- * finding is a method the code does not name.
+ * is a red run on correct code. So a read of the method this check cannot
+ * evaluate (`WRITE.has(method)`, `requireMethod(method, "POST")`, a test of
+ * `const verb = method`) lets no method we can name reach the literal, when
+ * it is the literal's condition, one around it or in its body; before the
+ * literal, a statement whose leaving depends on one leaves that method
+ * unknown too. A literal that answers `true` or `false`, or sits in a
+ * function typed to answer a boolean, belongs to a predicate (a guest check
+ * next to the router), not to a route. "*" in a finding is a method the code
+ * does not name.
  */
 
 /** A path test that held for the literal: what the finding names as the winner. */
 interface Via { kind: ClaimKind; value: string }
 
-/** How a statement ends for one request, which statement's path test decided it, and the return (or throw, break) that left. */
-interface Outcome { flow: Flow; via?: Via; at?: ts.Statement; exit?: ts.Statement }
+/**
+ * How a statement ends for one request, which statement's path test decided
+ * it, and the return (or throw, break) that left. `method`: whether it leaves
+ * depends on a read of the method this check cannot evaluate.
+ */
+interface Outcome { flow: Flow; via?: Via; at?: ts.Statement; exit?: ts.Statement; method?: true }
 
 /** The request being followed. `method` "*" stands for a method the code does not name. */
 interface Req { path: string; method: string }
 
-/** How a statement ends for one request: it always leaves, or it may go on to the next statement. */
-type Flow = "leaves" | "goes-on";
+/**
+ * How a statement ends for one request: it always leaves, it may go on to the
+ * next statement, or it may break out of the switch being followed (which
+ * then goes on).
+ */
+type Flow = "leaves" | "goes-on" | "breaks";
 const GOES_ON: Outcome = { flow: "goes-on" };
+const BREAKS: Outcome = { flow: "breaks" };
+/** `o`, marked as depending on the method when one of `parts` is. */
+const marked = (o: Outcome, ...parts: Array<{ method?: true }>): Outcome => (!o.method && parts.some((p) => p.method) ? { ...o, method: true } : o);
 
 function unwrap(node: ts.Node): ts.Node {
   let n = node;
@@ -589,11 +604,25 @@ const unknownOf = (...parts: Truth[]): Truth => (parts.some((p) => p.v === null 
 
 const readsCache = new WeakMap<ts.Node, boolean>();
 
-/** Does `node` read the request's method anywhere inside it. */
+/** The request's method, or a name that holds it: `verb` after `const verb = method.toUpperCase()`. */
+function isMethodValue(node: ts.Node, depth = 0): boolean {
+  const n = unwrap(node);
+  if (isReq(n, "method")) return true;
+  if (ts.isCallExpression(n) && ts.isPropertyAccessExpression(n.expression)) return isMethodValue(n.expression.expression, depth);
+  const init = depth < 3 ? initOf(n) : null;
+  return !!init && isMethodValue(init, depth + 1);
+}
+
+/** Does `node` read the request's method anywhere inside it, itself or through a name that holds it. */
 function readsMethod(node: ts.Node): boolean {
   let r = readsCache.get(node);
-  if (r === undefined) readsCache.set(node, (r = isReq(node, "method") || !!ts.forEachChild(node, (c) => readsMethod(c) || undefined)));
+  if (r === undefined) readsCache.set(node, (r = isReq(node, "method") || (ts.isIdentifier(node) && isMethodValue(node)) || !!ts.forEachChild(node, (c) => readsMethod(c) || undefined)));
   return r;
+}
+
+/** Does `node` read the request's pathname anywhere inside it. */
+function readsPath(node: ts.Node): boolean {
+  return isReq(node, "pathname") || !!ts.forEachChild(node, (c) => readsPath(c) || undefined);
 }
 
 /** `method === "X"` or `pathname === "/x"`, either side, for `req`; null for any other comparison. */
@@ -638,10 +667,11 @@ function truthOf(node: ts.Node, req: Req, depth = 0): Truth {
     if (b.v) return b;
     return a.v === false && b.v === false ? { v: false } : unknownOf(a, b);
   }
-  // An atom this check cannot evaluate that reads the method says nothing
-  // about which methods it lets through.
+  // An atom this check cannot evaluate that reads the method, and not the
+  // path (a sub-router handed both answers for paths of its own), says
+  // nothing about which methods it lets through.
   const r = atomTruth(n, req, depth);
-  return r.v === null && readsMethod(n) ? METHOD_UNKNOWN : r;
+  return r.v === null && readsMethod(n) && !readsPath(n) ? METHOD_UNKNOWN : r;
 }
 
 /** The truth of a comparison, a call or a name. */
@@ -684,12 +714,15 @@ function atomTruth(n: ts.Node, req: Req, depth: number): Truth {
   return init ? truthOf(init, req, depth + 1) : UNKNOWN;
 }
 
-function listFlow(list: readonly ts.Statement[], req: Req): Outcome {
+/** The statements of `list` in order: the first that leaves (or breaks out of `sw`) decides. */
+function listFlow(list: readonly ts.Statement[], req: Req, sw?: ts.SwitchStatement): Outcome {
+  let seen = GOES_ON;
   for (const s of list) {
-    const r = flowOf(s, req);
-    if (r.flow === "leaves") return r;
+    const r = flowOf(s, req, sw);
+    if (r.flow !== "goes-on") return marked(r, seen);
+    seen = marked(seen, r);
   }
-  return GOES_ON;
+  return seen;
 }
 
 /** An unlabeled break in `nodes` that ends the switch they sit in, not a loop or switch inside them. */
@@ -729,56 +762,79 @@ function entryOf(sw: ts.SwitchStatement, method: string): number | null {
   return clauses.findIndex(ts.isDefaultClause);
 }
 
-function flowOf(stmt: ts.Statement, req: Req): Outcome {
-  if (ts.isBlock(stmt)) return listFlow(stmt.statements, req);
+/**
+ * How `stmt` ends for `req`. `sw` is the switch being followed, when `stmt`
+ * runs in one of its clauses: an unlabelled break reached there ends it.
+ */
+function flowOf(stmt: ts.Statement, req: Req, sw?: ts.SwitchStatement): Outcome {
+  if (ts.isBlock(stmt)) return listFlow(stmt.statements, req, sw);
   if (ts.isIfStatement(stmt)) {
     const c = truthOf(stmt.expression, req);
     if (c.v === true) {
-      const t = flowOf(stmt.thenStatement, req);
-      return t.flow === "leaves" ? { ...t, via: c.via ?? t.via, at: c.via ? stmt : t.at } : t;
+      const t = flowOf(stmt.thenStatement, req, sw);
+      // Its path test held and the request leaves under it, whatever the
+      // code there reads: this if is the winner.
+      return t.flow === "leaves" && c.via ? { flow: "leaves", via: c.via, at: stmt, exit: t.exit } : t;
     }
-    const e = stmt.elseStatement ? flowOf(stmt.elseStatement, req) : GOES_ON;
+    const e = stmt.elseStatement ? flowOf(stmt.elseStatement, req, sw) : GOES_ON;
     if (c.v === false) return e;
     // Unknown: it leaves for sure only if both sides do, and then no path test
-    // of this condition decided.
-    return flowOf(stmt.thenStatement, req).flow === "leaves" && e.flow === "leaves" ? { flow: "leaves" } : GOES_ON;
+    // of this condition decided; it may break if either side may. A condition
+    // that reads the method the way this check cannot evaluate decides it.
+    const t = flowOf(stmt.thenStatement, req, sw);
+    const flow: Flow = t.flow === "breaks" || e.flow === "breaks" ? "breaks" : t.flow === "leaves" && e.flow === "leaves" ? "leaves" : "goes-on";
+    return (c.method && t.flow !== e.flow) || t.method || e.method ? { flow, method: true } : { flow };
   }
-  // A break or continue reached here jumps out of every statement this check
-  // walks through (blocks, ifs, trys; a switch only when nothing breaks out of
-  // it), so it lands past the literal.
+  // An unlabelled break here ends the switch being followed. Any other break
+  // or continue reached here jumps out of every statement this check walks
+  // through (blocks, ifs, trys, the switches it follows), so it lands past
+  // the literal.
+  if (ts.isBreakStatement(stmt) && sw && !stmt.label) return BREAKS;
   if (ts.isReturnStatement(stmt) || ts.isThrowStatement(stmt) || ts.isBreakStatement(stmt) || ts.isContinueStatement(stmt)) return { flow: "leaves", exit: stmt };
   if (ts.isTryStatement(stmt)) {
-    // A finally that leaves decides. Otherwise a throw out of the try lands in
-    // the catch, and with no catch it leaves the function.
-    const f = stmt.finallyBlock ? flowOf(stmt.finallyBlock, req) : GOES_ON;
-    if (f.flow === "leaves") return f;
-    const t = flowOf(stmt.tryBlock, req);
-    const c = stmt.catchClause ? flowOf(stmt.catchClause.block, req) : { flow: "leaves" as Flow };
-    return t.flow === "leaves" && c.flow === "leaves" ? t : GOES_ON;
+    // A finally that leaves (or breaks) decides. Otherwise a throw out of the
+    // try lands in the catch, and with no catch it leaves the function.
+    const f = stmt.finallyBlock ? flowOf(stmt.finallyBlock, req, sw) : GOES_ON;
+    if (f.flow !== "goes-on") return f;
+    const t = flowOf(stmt.tryBlock, req, sw);
+    const c = stmt.catchClause ? flowOf(stmt.catchClause.block, req, sw) : { flow: "leaves" as Flow };
+    return marked(t.flow === "breaks" || c.flow === "breaks" ? BREAKS : t.flow === "leaves" && c.flow === "leaves" ? t : GOES_ON, f, t, c);
   }
   if (ts.isSwitchStatement(stmt)) {
     const clauses = stmt.caseBlock.clauses;
-    // On the method: from the clause the request enters, the first statement
-    // that leaves decides; one with a break that ends this switch goes on.
-    const entry = switchOn(stmt) === "method" ? entryOf(stmt, req.method) : null;
+    const on = switchOn(stmt);
+    // On the method: from the clause the request enters, through the ones it
+    // falls into, the first statement that leaves decides; one that may break
+    // out of this switch makes it go on.
+    const entry = on === "method" ? entryOf(stmt, req.method) : null;
     if (entry !== null) {
-      for (const s of entry < 0 ? [] : clauses.slice(entry).flatMap((c) => [...c.statements])) {
-        if (breaksOut([s])) return GOES_ON;
-        const r = flowOf(s, req);
-        if (r.flow === "leaves") return r;
-      }
-      return GOES_ON;
+      const r = entry < 0 ? GOES_ON : listFlow(clauses.slice(entry).flatMap((c) => [...c.statements]), req, stmt);
+      return r.flow === "breaks" ? marked(GOES_ON, r) : r;
     }
-    // Otherwise a default, every clause (falling through to the next) leaving
-    // and no break ending the switch: browser.ts /interact, topics.ts
-    // /api/command. No clause names the path, so the if around it is the winner.
-    if (!clauses.some(ts.isDefaultClause) || breaksOut(clauses.flatMap((c) => [...c.statements]))) return GOES_ON;
-    const all = clauses.every((_, i) => listFlow(clauses.slice(i).flatMap((c) => [...c.statements]), req).flow === "leaves");
-    return all ? { flow: "leaves" } : GOES_ON;
+    // Otherwise it leaves when it has a default and every clause, falling
+    // through to the next, leaves: browser.ts /interact, topics.ts
+    // /api/command. No clause names the path, so the if around it is the
+    // winner. Each clause is read once, from the last one up.
+    const tails: Outcome[] = [];
+    let tail = GOES_ON;
+    for (let i = clauses.length - 1; i >= 0; i--) {
+      const own = listFlow(clauses[i]!.statements, req, stmt);
+      tails[i] = tail = own.flow === "goes-on" ? marked(tail, own) : own;
+    }
+    if (clauses.some(ts.isDefaultClause) && tails.every((r) => r.flow === "leaves")) return marked({ flow: "leaves" }, ...tails);
+    // On the method read some other way, or with a label before the match it
+    // cannot read: which clause runs is unknown, so one that leaves makes
+    // leaving depend on the method.
+    return (on && tails.some((r) => r.flow === "leaves")) || tails.some((r) => r.method) ? { flow: "goes-on", method: true } : GOES_ON;
   }
   // Anything else (loops, labels, declarations, calls) may leave, but does not
-  // have to.
-  return GOES_ON;
+  // have to. A break in it that ends the switch being followed may make that
+  // switch go on; a call handed the method and not the path
+  // (`requireMethod(method, "POST")`) may throw on it.
+  if (sw && breaksOut([stmt])) return BREAKS;
+  const call = ts.isExpressionStatement(stmt) ? unwrap(stmt.expression) : null;
+  const asserts = call && ts.isCallExpression(call) && call.arguments.some((a) => isMethodValue(a)) && !call.arguments.some(readsPath);
+  return asserts ? { flow: "goes-on", method: true } : GOES_ON;
 }
 
 /** `method === "X"` (or `!==`) in `expr`, with X as written. */
@@ -820,15 +876,17 @@ function serving(o: Outcome): boolean {
 }
 
 /**
- * The methods a route body serves for `path`, read from its top statements: a
+ * The methods a route body serves for `path`. A body that tests no method
+ * serves them all. Otherwise its top statements name the ones it serves: a
  * refusal (`if (method !== "POST" && method !== "DELETE") return ...` serves
- * POST and DELETE), a switch on the method, or `if (method === "X")` branches
- * name them. A method they do not name is served when the body, followed for
- * it, leaves by a return that serves (a default `return json(list)`, the
- * `return json(list)` after `if (method === "DELETE") {...}`). An `if` whose
+ * POST and DELETE), a switch on the method, or `if (method === "X")` branches.
+ * A method they do not name is served when the body, followed for it, leaves
+ * by a return that serves (a default `return json(list)`, the `return
+ * json(list)` after `if (method === "DELETE") {...}`). An `if` whose
  * condition is false for this path whatever the method is about another path
- * (the guard of account.ts:71 hands its block to four). Every method when the
- * body names none.
+ * (the guard of account.ts:71 hands its block to four). None is served when
+ * the body, followed for it, meets a read of the method this check cannot
+ * evaluate (`if (!READ.has(method)) return 405`): unknown.
  */
 function bodyServes(statements: readonly ts.Statement[], path: string): (m: string) => boolean {
   const named: string[] = [];
@@ -842,14 +900,19 @@ function bodyServes(statements: readonly ts.Statement[], path: string): (m: stri
     // A label that cannot be read still restricts: "?" serves no method.
     if (on) for (const c of s.caseBlock.clauses) if (ts.isCaseClause(c)) named.push((on === "method" && literalOf(c.expression)) || "?");
   }
-  return (m) => !named.length || named.includes(m) || serving(listFlow(statements, { path, method: m }));
+  const tests = named.length > 0 || statements.some((s) => namedMethods(s).length > 0);
+  return (m) => {
+    const walk = listFlow(statements, { path, method: m });
+    return !walk.method && (!tests || named.includes(m) || serving(walk));
+  };
 }
 
 /**
  * Does the request run `clause` of a switch on its method: it enters there,
- * or above and the clauses in between neither leave nor break, so it falls
- * in. A label before the match that cannot be read, or a switch that reads
- * the method some other way, runs for no method we can name.
+ * or above and falls in through clauses with no return, throw, break or
+ * continue (one that has one may never fall through: unknown). A label
+ * before the match that cannot be read, or a switch that reads the method
+ * some other way, runs for no method we can name.
  */
 function runsClause(clause: ts.CaseClause | ts.DefaultClause, req: Req): boolean {
   const sw = clause.parent.parent;
@@ -857,7 +920,19 @@ function runsClause(clause: ts.CaseClause | ts.DefaultClause, req: Req): boolean
   const at = clauses.indexOf(clause);
   const entry = switchOn(sw) === "method" ? entryOf(sw, req.method) : null;
   if (entry === null || entry < 0 || entry > at) return false;
-  return listFlow(clauses.slice(entry, at).flatMap((c) => [...c.statements]), req).flow === "goes-on";
+  return !clauses.slice(entry, at).some((c) => c.statements.some(jumps));
+}
+
+/** A return, throw, break or continue in `node`, outside the functions it declares. */
+function jumps(node: ts.Node): boolean {
+  return ts.isReturnStatement(node) || ts.isThrowStatement(node) || ts.isBreakStatement(node) || ts.isContinueStatement(node)
+    || (!ts.isFunctionLike(node) && !!ts.forEachChild(node, (c) => jumps(c) || undefined));
+}
+
+/** A function declared to answer a boolean or a fixed set of values (`: boolean`, `: "public" | "private"`): a predicate, not a router. */
+function answersValue(fn: ts.SignatureDeclaration): boolean {
+  const value = (t: ts.TypeNode): boolean => t.kind === ts.SyntaxKind.BooleanKeyword || ts.isLiteralTypeNode(t) || (ts.isUnionTypeNode(t) && t.types.every(value));
+  return !!fn.type && value(fn.type);
 }
 
 /** `return true` or `return false`, alone or in a block: the answer of a predicate. */
@@ -903,6 +978,7 @@ export function findInnerShadows(source: string, file: string, router: string): 
       const list = statementsOf(n);
       if (list) before.unshift(...list.slice(0, list.indexOf(child as ts.Statement)));
     }
+    if (ts.isFunctionLike(fn) && answersValue(fn)) return;
     const siblings = statementsOf(lit.parent);
     const body = guard ? (siblings ? siblings.slice(siblings.indexOf(lit) + 1) : []) : ts.isBlock(lit.thenStatement) ? lit.thenStatement.statements : [lit.thenStatement];
     const bodyServed = bodyServes(body, value);
@@ -922,7 +998,15 @@ export function findInnerShadows(source: string, file: string, router: string): 
     const winners = new Map<ts.Statement, { via: Via; methods: string[] }>();
     for (const m of served) {
       const req = { path: value, method: m };
-      const leaving = before.map((s) => ({ s, r: flowOf(s, req) })).filter((x) => x.r.flow === "leaves");
+      const outs = before.map((s) => ({ s, r: flowOf(s, req) }));
+      // A statement whose leaving depends on a read of the method this check
+      // cannot evaluate: up to the first that leaves, whether the request
+      // gets there is unknown; after it, whether the literal is meant for
+      // this method is, unless the literal names it.
+      const first = outs.findIndex((x) => x.r.flow === "leaves");
+      const named = methodTests(lit.expression, guard ? NOT_EQUAL : EQ).includes(m);
+      if (outs.some((x, i) => x.r.method && (i <= first || !named))) continue;
+      const leaving = outs.filter((x) => x.r.flow === "leaves");
       // The first that leaves wins, unless a gate anywhere before the literal
       // means this method never reaches the literal.
       if (!leaving.length || leaving.some((x) => !x.r.via)) continue;

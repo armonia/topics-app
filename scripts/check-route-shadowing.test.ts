@@ -690,6 +690,20 @@ export function create(ctx: any) {
         // Where the gate still reads it: the path test held first, so the read inside does not matter.
         { id: "a read inside the winner", what: "if (m) { if (!READ.has(method)) 405; return json }", lines: [MATCH, 'if (m) { if (!READ.has(method)) return errorResponse(405, "x"); return json({}); }', LIT("GET")], dead: { methods: ["GET"], kind: "pattern", line: 4 } },
         { id: "a refusal the gate reads", what: "if DELETE; if (method !== GET && method !== HEAD) 405; return json(list)", lines: [MATCH, GET_PRIOR, KEEP('if (method === "DELETE") return json({}); if (method !== "GET" && method !== "HEAD") return errorResponse(405, "x"); return json({ list: [] });')], dead: { methods: ["GET"], kind: "pattern", line: 4 } },
+        // The edges of those rules.
+        { id: "a break under a label", what: "an unlabelled break inside blk: { } ends the switch being followed", lines: [MATCH, 'if (m) { switch (method) { case "GET": blk: { if (ready) break; } return json({}); } }', LIT("GET")] },
+        { id: "a refusal under an unknown if", what: "if (ready) { if (!READ.has(method)) 405 } return json", lines: [MATCH, GET_PRIOR, KEEP('if (ready) { if (!READ.has(method)) return errorResponse(405, "x"); } return json({});')] },
+        { id: "a refusal in a switch on something else", what: "switch (kind) { case a: if (!READ.has(method)) 405 } return json", lines: [MATCH, GET_PRIOR, KEEP('switch (kind) { case "a": if (!READ.has(method)) return errorResponse(405, "x"); } return json({});')] },
+        { id: "an opaque switch after the winner", what: "switch (method.toLowerCase()) { case post: 405 } before a literal that names no method", lines: [MATCH, GET_PRIOR, 'switch (method.toLowerCase()) { case "post": return errorResponse(405, "x"); }', 'if (pathname === "/api/x/keep") return json({});'] },
+        { id: "an unread guard after the winner", what: "if (!WRITE.has(method)) return null; before a literal that names GET", lines: [MATCH, GET_PRIOR, "if (!WRITE.has(method)) return null;", LIT("GET")], dead: { methods: ["GET"], kind: "pattern", line: 4 } },
+        { id: "an unread refusal before the winner", what: "{ if (!READ.has(method)) 405; if (m) return json }", lines: [MATCH, '{ if (!READ.has(method)) return errorResponse(405, "x"); if (m) return json({}); }', LIT("GET")] },
+        { id: "a sub-router handed the path", what: "subRouter(req, url, pathname, method) and audit(pathname, method) read the request, not the method", lines: [MATCH, GET_PRIOR, "const sub = await subRouter(req, url, pathname, method);", "if (sub) return sub;", "audit(pathname, method);", 'if (pathname === "/api/x/keep") return json({});'], dead: { methods: ["GET"], kind: "pattern", line: 4 } },
+        { id: "a labelled break in the case", what: "blk: { if (x) break blk; } goes on to the return after it", lines: [MATCH, 'if (m) { switch (method) { case "GET": blk: { if (ready) break blk; } return json({}); } }', LIT("GET")], dead: { methods: ["GET"], kind: "pattern", line: 4 } },
+        { id: "a closure in a falling clause", what: "a return inside run(() => ...) does not stop case POST from falling in", lines: [MATCH, POST_PRIOR, 'switch (method) { case "POST": run(() => { return 1; }); case "GET": if (pathname === "/api/x/keep") return json({}); break; }'], dead: { methods: ["POST"], kind: "pattern", line: 4 } },
+        { id: "a refusal names what it serves", what: "if (method !== GET) 405; then a tail that does not return json", lines: [MATCH, GET_PRIOR, KEEP('if (method !== "GET") return errorResponse(405, "x"); return handle(req);')], dead: { methods: ["GET"], kind: "pattern", line: 4 } },
+        { id: "a branch names what it serves", what: "if (method === GET) return handle(req); return 405", lines: [MATCH, GET_PRIOR, KEEP('if (method === "GET") return handle(req); return errorResponse(405, "x");')], dead: { methods: ["GET"], kind: "pattern", line: 4 } },
+        { id: "a winner inside a path test", what: "the outer path test is the winner, at its own line", lines: [MATCH, 'if (pathname.startsWith("/api/x/")) {', GET_PRIOR, "}", LIT("GET")], dead: { methods: ["GET"], kind: "prefix", line: 4 } },
+        { id: "a path test inside the body", what: "the body names DELETE, then serves under a second path test", lines: [MATCH, GET_PRIOR, KEEP('if (method === "DELETE") return errorResponse(405, "x"); if (pathname.startsWith("/api/x/")) return json({});')], dead: { methods: ["GET"], kind: "pattern", line: 4 } },
       ];
       for (const c of CASES) {
         test(`${c.id}: ${c.what}`, () => {
@@ -798,6 +812,9 @@ export function createARouter(ctx: any) {
       const of = (route: string) => findInnerShadows(file(route), "a.ts", "aRouter").map((o) => [o.sample, o.methods, o.prior.line, o.later.line]);
       expect(of("")).toEqual([]);
       expect(of(`${MATCH}\n    ${'if (m && method === "GET") return json({});'}\n    ${LITERAL}`)).toEqual([["/api/x/keep", ["GET"], 10, 11]]);
+      // Untyped, the answers `true` and `false` still make it one.
+      for (const answer of ["return true;", "return false;", "{ return false; }"])
+        expect(findInnerShadows(`export function guest(pathname, method) {\n  if (method === "GET" && pathname.startsWith("/api/public/")) ${answer}\n  if (method === "GET" && pathname === "/api/public/health") ${answer}\n  return null;\n}`, "a.ts", "aRouter")).toEqual([]);
       // A deny list answering false, in blocks, is a predicate too.
       expect(findInnerShadows(`export function guestDenied(pathname: string, method: string): boolean {
   if (method === "DELETE" && pathname.startsWith("/api/public/")) { return false; }
