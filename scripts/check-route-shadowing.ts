@@ -446,10 +446,11 @@ export function findOverlaps(claimsByRouter: Map<string, Claim[]>, order: string
  * judged. What stays unknown on purpose, at the cost of a dead route: a
  * sub-router's answer in the literal's body (it may be a refusal), a call
  * named for a check (`checkLatency(method, t0)`, `ensureLogged(method)`)
- * wherever it runs, a method the literal's body never names (`if (method
- * === "POST") return json(x); return json({ error })` and `if (method !==
- * "POST") return json({ error })` read as `if (method === "DELETE") return
- * json(x); return json(list)`: the last return may refuse with a 200), and a
+ * wherever it runs, a method the literal's body never names when its top
+ * statements test the method (`if (method === "POST") return json(x); return
+ * json({ error })` and `if (method !== "POST") return json({ error })` read
+ * as `if (method === "DELETE") return json(x); return json(list)`: the last
+ * return may refuse with a 200), and a
  * literal's clause the method falls into past a statement (`case "GET":
  * fail(405);` reads as `case "POST": log();`). And
  * what stays a finding although it may be a false one, because the code
@@ -834,12 +835,17 @@ function breaksOut(nodes: readonly ts.Node[]): boolean {
  * (`method.toUpperCase()` too, a request's method is upper case already),
  * "opaque" when it reads it some other way (`method.toLowerCase()`,
  * `norm(method)`, a label: `switch (true) { case method === "POST": }`), null
- * when it does not read it.
+ * when it does not read it. The method field of any parameter is the method
+ * (`r.method`), as main reads it, except when `walked`: the switch is followed
+ * to see how it ends (flowOf), and only the request itself may be followed
+ * into a clause that leaves. `switch (spec.method)` of a router's own argument
+ * decides nothing about the request: it reads nothing of it.
  */
-function switchOn(sw: ts.SwitchStatement): "method" | "opaque" | null {
+function switchOn(sw: ts.SwitchStatement, walked = false): "method" | "opaque" | null {
   const d = unwrap(sw.expression);
   const upper = ts.isCallExpression(d) && !d.arguments.length && ts.isPropertyAccessExpression(d.expression) && d.expression.name.text === "toUpperCase";
-  if (isRequestMethod(upper ? d.expression.expression : d)) return "method";
+  const subject = upper ? d.expression.expression : d;
+  if (isReq(subject, "method")) return walked && !isRequestMethod(subject) ? null : "method";
   return readsMethod(d) || sw.caseBlock.clauses.some((c) => ts.isCaseClause(c) && readsMethod(c.expression)) ? "opaque" : null;
 }
 
@@ -907,7 +913,7 @@ function flowOf(stmt: ts.Statement, req: Req, sw?: ts.SwitchStatement): Outcome 
   }
   if (ts.isSwitchStatement(stmt)) {
     const clauses = stmt.caseBlock.clauses;
-    const on = switchOn(stmt);
+    const on = switchOn(stmt, true);
     // On the method: from the clause the request enters, through the ones it
     // falls into, the first statement that leaves decides; one that may break
     // out of this switch makes it go on.
@@ -1050,19 +1056,55 @@ function namedMethods(node: ts.Node): string[] {
   return [...out];
 }
 
+/** `return json(body)` or `return new Response(body)`: an answer with the default status. Anything else may refuse. */
+function serving(o: Outcome): boolean {
+  const e = o.exit && ts.isReturnStatement(o.exit) && o.exit.expression ? unwrap(o.exit.expression) : null;
+  if (e && ts.isNewExpression(e)) return ts.isIdentifier(e.expression) && e.expression.text === "Response" && (e.arguments?.length ?? 0) <= 1;
+  if (!e || !ts.isCallExpression(e) || e.arguments.length !== 1) return false;
+  return (ts.isIdentifier(e.expression) ? e.expression.text : ts.isPropertyAccessExpression(e.expression) ? e.expression.name.text : "") === "json";
+}
+
 /**
- * The methods a route body serves for `path`. A body that tests no method
- * serves them all. Otherwise its top statements name the ones it serves: a
- * refusal (`if (method !== "POST" && method !== "DELETE") return ...` serves
- * POST and DELETE), a switch on the method, or `if (method === "X")` branches.
- * A method they do not name is not served, whatever the body returns for it:
- * a trailing `return json({ error })` is a refusal with a 200 as often as a
- * list (`if (method === "POST") return json(x); return json({ error: "POST
- * only" })`), and the check cannot tell them apart. An `if` whose condition is
- * false for this path whatever the method is about another path (the guard
- * of account.ts:71 hands its block to four). None is served when
- * the body, followed for it, meets a read of the method this check cannot
- * evaluate (`if (!READ.has(method)) return 405`): unknown.
+ * Did the body, followed for `m`, refuse it: it left by something that may
+ * refuse (`return errorResponse(405, ...)`, a throw) under a test of the
+ * method that is not `m`'s own branch (`if (method !== "POST") return 405`,
+ * `if (!ok) return 405` after `const ok = method === "POST"`, `return method
+ * === "POST" ? json(x) : errorResponse(405)`). Only that tells a nested
+ * refusal from a nested branch that does not take `m` (`if (ready) { if
+ * (method === "DELETE") return json({}); } return handle(req)` serves GET).
+ */
+function refusedByMethod(walk: Outcome, statements: readonly ts.Statement[], m: string): boolean {
+  const exit = walk.flow === "leaves" ? walk.exit : undefined;
+  if (!exit || serving(walk)) return false;
+  const answer = ts.isReturnStatement(exit) && exit.expression ? unwrap(exit.expression) : null;
+  if (answer && ts.isConditionalExpression(answer) && readsMethod(answer.condition)) return true;
+  // The tests the exit sits under, up to the body's own statement that holds it.
+  const top = statements.find((s) => s.pos <= exit.pos && exit.end <= s.end);
+  for (let n: ts.Node = exit; top && n !== top; ) {
+    n = n.parent;
+    if (ts.isIfStatement(n) && readsMethod(n.expression) && !methodTests(n.expression, EQ).includes(m)) return true;
+    if ((ts.isCaseClause(n) || ts.isDefaultClause(n)) && switchOn(n.parent.parent) && !(ts.isCaseClause(n) && literalOf(n.expression) === m)) return true;
+  }
+  return false;
+}
+
+/**
+ * The methods a route body serves for `path`. Its top statements name the
+ * ones it serves: a refusal (`if (method !== "POST" && method !== "DELETE")
+ * return ...` serves POST and DELETE), a switch on the method, or `if
+ * (method === "X")` branches. A method they do not name is not served,
+ * whatever the body returns for it: a trailing `return json({ error })` is a
+ * refusal with a 200 as often as a list (`if (method === "POST") return
+ * json(x); return json({ error: "POST only" })`), and the check cannot tell
+ * them apart. A body whose top statements name no method serves them all, as
+ * main reads it: a test of the method nested in an `if`, a block, a try, a
+ * call or a const restricts nothing (`if (ready) { if (method === "DELETE")
+ * return ...; } return json(list)`), unless it refuses the method (see
+ * refusedByMethod). An `if` whose condition is false for this path whatever
+ * the method is about another path (the guard of account.ts:71 hands its
+ * block to four). None is served when the body, followed for it, meets a read
+ * of the method this check cannot evaluate (`if (!READ.has(method)) return
+ * 405`): unknown.
  */
 function bodyServes(statements: readonly ts.Statement[], path: string): (m: string) => boolean {
   const named: string[] = [];
@@ -1077,10 +1119,9 @@ function bodyServes(statements: readonly ts.Statement[], path: string): (m: stri
     // A label that cannot be read still restricts: "?" serves no method.
     if (on) for (const c of s.caseBlock.clauses) if (ts.isCaseClause(c)) named.push((on === "method" && literalOf(c.expression)) || "?");
   }
-  const tests = named.length > 0 || statements.some((s) => namedMethods(s).length > 0);
   return (m) => {
     const walk = listFlow(statements, { path, method: m });
-    return !walk.method && (!tests || named.includes(m));
+    return !walk.method && (named.length > 0 ? named.includes(m) : !refusedByMethod(walk, statements, m));
   };
 }
 
