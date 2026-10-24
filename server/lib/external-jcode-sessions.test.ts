@@ -3,7 +3,7 @@
  */
 import { describe, expect, spyOn, test } from "bun:test";
 import * as fs from "node:fs";
-import { mkdtempSync, writeFileSync, utimesSync, mkdirSync } from "node:fs";
+import { chmodSync, mkdtempSync, readdirSync, writeFileSync, utimesSync, mkdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
 
@@ -233,10 +233,17 @@ describe("a session file is parsed once per rewrite, not at every census", () =>
   });
 
   // The census runs every few seconds: once known, an unchanged file costs a
-  // stat, not a read. The reads are counted, not timed: reading the 11 MB file
-  // again at every census costs a few ms, as much as a loaded machine adds,
-  // and against a ratio of times it passed one run in two (24/10).
-  test("a census of 200 known files, one of 11 MB, reads 0 bytes; a rewritten file is read alone", () => {
+  // stat, not a read. Reading the 11 MB file again at every census costs a
+  // few ms, as much as a loaded machine adds, so no time can tell (24/10: it
+  // passed one run in two against a ratio of times). So the known files are
+  // made unreadable: a census that still returns all 200 sessions read none
+  // of them, through whatever API (stat needs no read permission). They stay
+  // unreadable to the end of the file, so a read started in the background (a
+  // stream, a promise) fails too when it opens, after this test returns: the
+  // directory is this file's own and is never read again. Then a spy on
+  // fs.readFileSync shows that the file jcode rewrites at the end of a turn is
+  // read again, and only that one.
+  test("a census of 200 known files, one of 11 MB, opens none of them; a rewritten file is read alone", () => {
     const dir = makeSessionsDir();
     // The size measured on 25/09, with the transcript where jcode keeps it: before the fields.
     const big = join(dir, "big.json");
@@ -246,8 +253,14 @@ describe("a session file is parsed once per rewrite, not at every census", () =>
     for (let i = 0; i < 199; i++) writeSession(dir, `small-${i}`, { minutesAgo: i });
 
     const scan = () => scanJcodeSessions({ sessionsDir: dir, now: NOW, isAlive: alive });
-    expect(scan()).toHaveLength(200);
-    // Every read of a whole session file, in any encoding, with its size.
+    const ids = scan().map((s) => s.sessionId).sort();
+    expect(ids).toHaveLength(200);
+    for (const f of readdirSync(dir)) chmodSync(join(dir, f), 0o000);
+    const found = new Set(scan().map((s) => s.sessionId));
+    // The sessions a census lost because it tried to read their file.
+    expect(ids.filter((id) => !found.has(id))).toEqual([]);
+
+    // The calls of fs.readFileSync on a session file, with its size.
     const readsDuring = (run: () => unknown) => {
       const read = spyOn(fs, "readFileSync");
       try {
@@ -260,8 +273,7 @@ describe("a session file is parsed once per rewrite, not at every census", () =>
         read.mockRestore();
       }
     };
-    expect(readsDuring(() => { scan(); scan(); scan(); })).toEqual([]);
-    // The count sees the reads: the file jcode rewrites at the end of a turn is read again, and only that one.
+    chmodSync(join(dir, "small-7.json"), 0o644);
     const changed = writeSession(dir, "small-7", { status: "Idle", minutesAgo: 7 });
     expect(readsDuring(scan)).toEqual([`small-7.json: ${fs.statSync(changed).size} bytes`]);
   });
