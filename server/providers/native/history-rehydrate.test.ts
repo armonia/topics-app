@@ -12,7 +12,7 @@
  */
 import { test, expect, describe } from "bun:test";
 import { historyFromPersistedThread, REHYDRATE_WINDOW_TOKENS, type PersistedTurn } from "./history-rehydrate";
-import { COMPACT_AT, estimateChars, estimateTokens, windowFor } from "./compaction";
+import { COMPACT_TO, estimateChars, estimateTokens } from "./compaction";
 import type { ToolCall } from "../../../shared/types";
 import type { Block } from "./agent-loop";
 
@@ -316,7 +316,7 @@ describe("historyFromPersistedThread — le coppie tool_use/tool_result", () => 
  * no cap reached 414k-1,631k tokens, past the 1M hard limit on two of them.
  */
 describe("historyFromPersistedThread — il tetto sulla storia ricostruita", () => {
-  test("centinaia di chiamate con risultati pesanti restano sotto REHYDRATE_WINDOW_TOKENS", () => {
+  test("centinaia di chiamate con risultati pesanti tornano a COMPACT_TO della finestra", () => {
     const rounds = 300;
     const thread: PersistedTurn[] = [{ role: "user", content: "lavora sul repo" }];
     for (let i = 0; i < rounds; i++) {
@@ -332,7 +332,9 @@ describe("historyFromPersistedThread — il tetto sulla storia ricostruita", () 
     thread.push({ role: "user", content: "nuova domanda" });
 
     const out = historyFromPersistedThread(thread);
-    expect(estimateTokens(out)).toBeLessThanOrEqual(REHYDRATE_WINDOW_TOKENS);
+    // The target, not the window: a light recent tail, so nothing keeps the
+    // history above what compaction brings it back to.
+    expect(estimateTokens(out)).toBeLessThanOrEqual(REHYDRATE_WINDOW_TOKENS * COMPACT_TO);
     // The opening request survives: an agent that no longer knows why it is
     // working is worse than one with a shorter memory of how it got there.
     expect(out[0]).toEqual({ role: "user", content: "lavora sul repo" });
@@ -340,8 +342,9 @@ describe("historyFromPersistedThread — il tetto sulla storia ricostruita", () 
 });
 
 /**
- * The rebuilt history, counted in REAL tokens, stays under the live
- * compaction threshold of the smallest window a model declares.
+ * The rebuilt history at the worst density measured: what its cold write to
+ * the cache costs. This is arithmetic on characters, not a token count (no
+ * tokenizer here): it pins the window, on a thread with a light recent tail.
  *
  * The cap works on an estimate of 4 characters per token, and tool-heavy
  * histories tokenize far denser. Measured on 24/10 on a copy of the live
@@ -352,10 +355,10 @@ describe("historyFromPersistedThread — il tetto sulla storia ricostruita", () 
  * sat past 0.85 of a 200k window: the first round after a rebuild would
  * compact again what had just been rebuilt.
  */
-describe("historyFromPersistedThread: the rebuilt history in real tokens", () => {
+describe("historyFromPersistedThread: the rebuilt history at the worst measured density", () => {
   const WORST_MEASURED_CHARS_PER_TOKEN = 1.64;
 
-  test("a tool-heavy thread rebuilds under COMPACT_AT of the smallest window, at the worst measured density", () => {
+  test("a tool-heavy thread rebuilds within 120k tokens at 1.64 characters per token", () => {
     const thread: PersistedTurn[] = [{ role: "user", content: "lavora sul repo" }];
     // Prose around every call, as in a real chat: compaction empties old tool
     // results first, so a thread of bare calls rebuilds small and proves nothing.
@@ -373,11 +376,10 @@ describe("historyFromPersistedThread: the rebuilt history in real tokens", () =>
     thread.push({ role: "user", content: "nuova domanda" });
 
     const out = historyFromPersistedThread(thread);
-    const realTokens = estimateChars(out, 0) / WORST_MEASURED_CHARS_PER_TOKEN;
-    expect(realTokens).toBeLessThanOrEqual(windowFor("an-unknown-model") * COMPACT_AT);
-    // The cost bar: every rebuild writes this history cold to the cache, so it
-    // stays within 120k real tokens (it was about 195k at the 200k window).
-    expect(realTokens).toBeLessThanOrEqual(120_000);
+    const atWorstDensity = estimateChars(out, 0) / WORST_MEASURED_CHARS_PER_TOKEN;
+    // Every rebuild writes this history cold to the cache: within 120k tokens
+    // at the worst density (about 195k at the 200k window).
+    expect(atWorstDensity).toBeLessThanOrEqual(120_000);
     expect(out[0]).toMatchObject({ role: "user" });
   });
 });
