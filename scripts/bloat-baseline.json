@@ -448,8 +448,9 @@
     "scripts/check-route-latency.ts": 1050,
 
     "scripts/check-route-shadowing.test.ts": {
-      "lines": 885,
+      "lines": 1052,
       "why": [
+        "2026-10-24, verifiers of the switch branch: 885 -> 1052, their cases transcribed one row per id (a case written as a block, a refusal or guard the gate cannot read, a tail past one, an alias of the method, a clause that cannot be shown to fall through, a function typed to answer a value) plus their whole realistic.ts router; one row per case, no new helpers.",
         "2026-10-24, review follow-ups of PR #424: 757 -> 885, the reviewer's 27 cases (switch on the method before the literal and around it, fallthrough, defaults that serve or refuse, ternaries, opaque method tests) transcribed one test per id, the boolean helper H1, the stale filter read from the environment and the script run on its own tree without ROUTE_SHADOWING_ROOT; each case is one row of router lines, so the file grows by rows, not by code."
       ]
     },

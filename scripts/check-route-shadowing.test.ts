@@ -613,6 +613,173 @@ export function create(ctx: any) {
       });
     });
 
+    // The cases the verifiers of the switch branch wrote, by the probe file
+    // and id they used (holes.ts, fr.ts, fr2.ts, fr3.ts, pred.ts, realistic.ts).
+    // Every live one is correct code: a read of the method the gate cannot
+    // evaluate, in the literal's body or before it, leaves that method unknown,
+    // and unknown is never a finding.
+    describe("the verifiers' cases of the switch branch", () => {
+      const LIT = (verb: string) => `if (method === "${verb}" && pathname === "/api/x/keep") return json({});`;
+      const GET_PRIOR = 'if (m && method === "GET") return json({});';
+      const POST_PRIOR = 'if (m && method === "POST") return json({});';
+      const PUT_PRIOR = 'if (m && method === "PUT") return json({});';
+      const KEEP = (body: string) => `if (pathname === "/api/x/keep") { ${body} }`;
+      const IN_GET_CASE = (body: string) => `if (m) { switch (method) { case "GET": ${body} } }`;
+      type Dead = { methods: string[]; kind: ClaimKind; line: number };
+      const CASES: Array<{ id: string; what: string; lines: string[]; dead?: Dead }> = [
+        // A switch (method) before the literal whose case is a block.
+        { id: "holes.ts H01", what: "case GET: { if (m) return; break; }", lines: [MATCH, 'switch (method) { case "GET": { if (m) return json({}); break; } }', LIT("GET")], dead: { methods: ["GET"], kind: "pattern", line: 4 } },
+        { id: "holes.ts H02", what: "case GET: if (m) return; break; with no block", lines: [MATCH, 'switch (method) { case "GET": if (m) return json({}); break; }', LIT("GET")], dead: { methods: ["GET"], kind: "pattern", line: 4 } },
+        { id: "holes.ts H03", what: "case GET: { const m = matchRoute(...); if (m) return; break; }", lines: ['switch (method) { case "GET": { const m = matchRoute(pathname, "/api/x/:id"); if (m) return json({}); break; } }', LIT("GET")], dead: { methods: ["GET"], kind: "pattern", line: 3 } },
+        // Breaks that end the switch on the way: it goes on.
+        { id: "fr2.ts G12", what: "a labelled continue in a loop around the switch", lines: [MATCH, 'loop: for (const r of rules) { if (m) { switch (method) { case "GET": if (r.skip) continue loop; return json({}); } } }', LIT("GET")] },
+        { id: "fr2.ts G13", what: "case GET: try { if (x) break; } finally {}", lines: [MATCH, IN_GET_CASE('try { if (m.id === "keep") break; } finally { done(); } return json({});'), LIT("GET")] },
+        { id: "fr2.ts G14", what: "case GET: try { return } catch { break; }", lines: [MATCH, IN_GET_CASE("try { return json(load()); } catch { break; }"), LIT("GET")] },
+        { id: "fr2.ts G15", what: "a break of a nested switch, then a break of this one", lines: [MATCH, IN_GET_CASE('switch (kind) { case "a": break; default: break; } if (m.id === "keep") break; return json({});'), LIT("GET")] },
+        { id: "fr2.ts G16", what: "case GET: if (x) return; break;", lines: [MATCH, 'if (m) { switch (method) { case "GET": if (m.id !== "keep") return json({}); break; default: break; } }', LIT("GET")] },
+        { id: "fr2.ts G17", what: "case GET: if (x) { break; } else { return }", lines: [MATCH, IN_GET_CASE('if (m.id === "keep") { break; } else { return json({}); }'), LIT("GET")] },
+        { id: "fr2.ts G18", what: "a break that ends a do-while, then off the end", lines: [MATCH, IN_GET_CASE('do { if (m.id === "keep") break; return json({}); } while (false);'), LIT("GET")] },
+        { id: "fr2.ts G19", what: "a labelled break out of a block inside the case", lines: [MATCH, IN_GET_CASE('inner: { if (m.id === "keep") break inner; return json({}); }'), LIT("GET")] },
+        { id: "fr2.ts G20", what: "a labelled break on an if inside the case", lines: [MATCH, IN_GET_CASE('chk: if (m.id === "keep") { break chk; } else { return json({}); }'), LIT("GET")] },
+        { id: "fr2.ts G21", what: "a finally that may break overrides the return", lines: [MATCH, IN_GET_CASE('try { return json({}); } finally { if (m.id === "keep") break; }'), LIT("GET")] },
+        { id: "fr2.ts G22", what: "a finally that breaks overrides the return", lines: [MATCH, IN_GET_CASE("try { return json({}); } finally { break; }"), LIT("GET")] },
+        // A body that refuses a method in a way the gate cannot read, or deeper than its top statements.
+        { id: "holes.ts F01", what: "body: if (![GET, HEAD].includes(method)) 405", lines: [MATCH, POST_PRIOR, KEEP('if (!["GET", "HEAD"].includes(method)) return errorResponse(405, "x"); return json({});')] },
+        { id: "holes.ts F02", what: "body: if (!READ.has(method)) 405", lines: [MATCH, POST_PRIOR, KEEP('if (!READ.has(method)) return errorResponse(405, "x"); return json({});')] },
+        { id: "holes.ts F04", what: "body: if (method.toUpperCase() !== GET) 405", lines: [MATCH, POST_PRIOR, KEEP('if (method.toUpperCase() !== "GET") return errorResponse(405, "x"); return json({});')] },
+        { id: "holes.ts F06", what: "body: if (isRead(method)) return json; return 405", lines: [MATCH, POST_PRIOR, KEEP('if (isRead(method)) return json({}); return errorResponse(405, "x");')] },
+        { id: "fr.ts F1", what: "body: if (!WRITE.has(method)) 405", lines: [MATCH, GET_PRIOR, KEEP('if (!WRITE.has(method)) return errorResponse(405, "x"); return json({});')] },
+        { id: "fr.ts F2", what: "body: if (![POST, PUT].includes(method)) 405", lines: [MATCH, GET_PRIOR, KEEP('if (!["POST", "PUT"].includes(method)) return errorResponse(405, "x"); return json({});')] },
+        { id: "fr.ts F3", what: "body: return method === POST ? json : 405", lines: [MATCH, GET_PRIOR, 'if (pathname === "/api/x/keep") return method === "POST" ? json({}) : errorResponse(405, "x");'] },
+        { id: "fr.ts F4", what: "body: switch (true) { case method === POST }", lines: [MATCH, GET_PRIOR, KEEP('switch (true) { case method === "POST": return json({}); default: return errorResponse(405, "x"); }')] },
+        { id: "fr.ts F5", what: "body: a handler table read by the method", lines: [MATCH, GET_PRIOR, KEEP('const h = HANDLERS[method]; if (!h) return errorResponse(405, "x"); return h();')] },
+        { id: "fr.ts F6", what: "body: requireMethod(method, POST)", lines: [MATCH, GET_PRIOR, KEEP('requireMethod(method, "POST"); return json({});')] },
+        { id: "fr.ts F23", what: "body: the method test nested in a block", lines: [MATCH, GET_PRIOR, KEEP('{ if (method !== "POST") return errorResponse(405, "x"); } return json({});')] },
+        { id: "fr.ts F24", what: "body: the method test in a try", lines: [MATCH, GET_PRIOR, KEEP('try { if (method !== "POST") return errorResponse(405, "x"); return json(await save()); } catch (e) { return errorResponse(500, String(e)); }')] },
+        { id: "fr.ts F25", what: "body: the method test held in a const", lines: [MATCH, GET_PRIOR, KEEP('const ok = method === "POST"; if (!ok) return errorResponse(405, "x"); return json({});')] },
+        // A tail past a refusal the gate cannot read is not a tail that serves.
+        { id: "fr.ts F13", what: "if POST; if (!READ.has(method)) 405; return json(list)", lines: [MATCH, PUT_PRIOR, KEEP('if (method === "POST") return json({ saved: 1 }); if (!READ.has(method)) return errorResponse(405, "x"); return json({ list: [] });')] },
+        { id: "fr.ts F14", what: "if POST; if (![GET, HEAD].includes(method)) 405; return json(list)", lines: [MATCH, PUT_PRIOR, KEEP('if (method === "POST") return json({ saved: 1 }); if (!["GET", "HEAD"].includes(method)) return errorResponse(405, "x"); return json({ list: [] });')] },
+        { id: "fr2.ts G6", what: "tail past if (!isRead(method)) 405", lines: [MATCH, PUT_PRIOR, KEEP('if (method === "DELETE") { drop(); return json({}); } if (!isRead(method)) return errorResponse(405, "x"); return json({ list: [] });')] },
+        { id: "fr2.ts G7", what: "tail past method !== GET && !ALLOW.includes(method)", lines: [MATCH, PUT_PRIOR, KEEP('if (method === "DELETE") return json({}); if (method !== "GET" && !ALLOW.includes(method)) return errorResponse(405, "x"); return json({ list: [] });')] },
+        { id: "fr2.ts G8", what: "tail past a test of an alias of the method", lines: [MATCH, PUT_PRIOR, "const verb = method.toUpperCase();", KEEP('if (method === "DELETE") return json({}); if (verb !== "GET") return errorResponse(405, "x"); return json({ list: [] });')] },
+        { id: "fr2.ts G9", what: "tail past assertMethod(method, [GET])", lines: [MATCH, PUT_PRIOR, KEEP('if (method === "DELETE") return json({}); assertMethod(method, ["GET"]); return json({ list: [] });')] },
+        { id: "fr2.ts G10", what: "tail past a handler table read by the method", lines: [MATCH, PUT_PRIOR, KEEP('if (method === "DELETE") return json({}); const h = READERS[method]; if (!h) return errorResponse(405, "x"); return json(h());')] },
+        { id: "fr2.ts G11", what: "tail past try { check(method) } catch { 405 }", lines: [MATCH, PUT_PRIOR, KEEP('if (method === "DELETE") return json({}); try { check(method); } catch { return errorResponse(405, "x"); } return json({ list: [] });')] },
+        { id: "fr3.ts K1", what: "a default that refuses with !READ.has(method) before its return", lines: [MATCH, PUT_PRIOR, KEEP('switch (method) { case "DELETE": return json({}); default: if (!READ.has(method)) return errorResponse(405, "x"); return json({ list: [] }); }')] },
+        { id: "fr3.ts K2", what: "case POST refuses with !JSON_OK.has(method) and falls into the literal's case", lines: [MATCH, POST_PRIOR, 'switch (method) { case "POST": if (!JSON_OK.has(method)) return errorResponse(415, "x"); case "GET": if (pathname === "/api/x/keep") return json({}); break; }'] },
+        { id: "fr3.ts K3", what: "the opaque refusal inside a block", lines: [MATCH, PUT_PRIOR, KEEP('if (method === "DELETE") return json({}); { if (!READ.has(method)) return errorResponse(405, "x"); } return json({ list: [] });')] },
+        { id: "fr3.ts K4", what: "the guard form with the opaque refusal", lines: [MATCH, PUT_PRIOR, 'if (pathname !== "/api/x/keep") return null;', 'if (method === "DELETE") return json({});', 'if (!READ.has(method)) return errorResponse(405, "x");', "return json({ list: [] });"] },
+        // A guard before the literal that refuses a method the gate cannot name.
+        { id: "holes.ts F03", what: "if (!READ.has(method)) return null; between the prior and the literal", lines: [MATCH, POST_PRIOR, "if (!READ.has(method)) return null;", 'if (pathname === "/api/x/keep") return json({});'] },
+        { id: "fr.ts F7", what: "if (!WRITE.has(method)) return null; before the literal", lines: [MATCH, GET_PRIOR, "if (!WRITE.has(method)) return null;", 'if (pathname === "/api/x/keep") return json({});'] },
+        { id: "fr.ts F8", what: "if (![POST, PUT].includes(method)) 405 before the literal", lines: [MATCH, GET_PRIOR, 'if (!["POST", "PUT"].includes(method)) return errorResponse(405, "x");', 'if (pathname === "/api/x/keep") return json({});'] },
+        // An alias of the method is a read of it.
+        { id: "fr.ts F9", what: "const verb = method.toUpperCase() in the literal's condition", lines: [MATCH, GET_PRIOR, "const verb = method.toUpperCase();", 'if (verb === "POST" && pathname === "/api/x/keep") return json({});'] },
+        { id: "fr.ts F10", what: "const verb = method in the literal's condition", lines: [MATCH, GET_PRIOR, "const verb = method;", 'if (verb === "POST" && pathname === "/api/x/keep") return json({});'] },
+        { id: "fr.ts F11", what: "switch (verb) around the literal", lines: [MATCH, GET_PRIOR, "const verb = method.toUpperCase();", 'switch (verb) { case "POST": if (pathname === "/api/x/keep") return json({}); }'] },
+        { id: "fr.ts F15", what: "body: switch (verb)", lines: [MATCH, GET_PRIOR, "const verb = method.toUpperCase();", KEEP('switch (verb) { case "POST": return json({}); default: return errorResponse(405, "x"); }')] },
+        { id: "fr.ts F16", what: "body: if (verb !== POST) 405", lines: [MATCH, GET_PRIOR, "const verb = method.toUpperCase();", KEEP('if (verb !== "POST") return errorResponse(405, "x"); return json({});')] },
+        { id: "fr.ts F17", what: "under if (WRITE.has(verb))", lines: [MATCH, GET_PRIOR, "const verb = method;", 'if (WRITE.has(verb)) { if (pathname === "/api/x/keep") return json({}); }'] },
+        // A clause falls into the literal's only when it cannot leave.
+        { id: "fr2.ts G1", what: "case POST: for (;;) { return }", lines: [MATCH, POST_PRIOR, 'switch (method) { case "POST": for (;;) { return json({ a: 1 }); } case "GET": if (pathname === "/api/x/keep") return json({}); break; }'] },
+        { id: "fr2.ts G2", what: "case POST: an inner switch whose cases all return", lines: [MATCH, POST_PRIOR, 'switch (method) { case "POST": switch (body.kind) { case "a": return json({}); case "b": return json({}); } case "GET": if (pathname === "/api/x/keep") return json({}); break; }'] },
+        { id: "fr2.ts G3", what: "case POST: blk: { return }", lines: [MATCH, POST_PRIOR, 'switch (method) { case "POST": blk: { return json({}); } case "GET": if (pathname === "/api/x/keep") return json({}); break; }'] },
+        { id: "fr2.ts G4", what: "case POST: if (a) return; if (!a) return;", lines: [MATCH, POST_PRIOR, 'switch (method) { case "POST": if (a) return json({}); if (!a) return json({}); case "GET": if (pathname === "/api/x/keep") return json({}); break; }'] },
+        { id: "fr2.ts G5", what: "case POST: while (true) { ... return }", lines: [MATCH, POST_PRIOR, 'switch (method) { case "POST": while (true) { const r = await poll(); if (r) return json(r); } case "GET": if (pathname === "/api/x/keep") return json({}); break; }'] },
+        // Where the gate still reads it: the path test held first, so the read inside does not matter.
+        { id: "a read inside the winner", what: "if (m) { if (!READ.has(method)) 405; return json }", lines: [MATCH, 'if (m) { if (!READ.has(method)) return errorResponse(405, "x"); return json({}); }', LIT("GET")], dead: { methods: ["GET"], kind: "pattern", line: 4 } },
+        { id: "a refusal the gate reads", what: "if DELETE; if (method !== GET && method !== HEAD) 405; return json(list)", lines: [MATCH, GET_PRIOR, KEEP('if (method === "DELETE") return json({}); if (method !== "GET" && method !== "HEAD") return errorResponse(405, "x"); return json({ list: [] });')], dead: { methods: ["GET"], kind: "pattern", line: 4 } },
+      ];
+      for (const c of CASES) {
+        test(`${c.id}: ${c.what}`, () => {
+          const found = inner(c.lines).map((o) => ({ methods: o.methods, kind: o.prior.kind, line: o.prior.line }));
+          expect(found).toEqual(c.dead ? [c.dead] : []);
+        });
+      }
+
+      // realistic.ts: a whole router, correct code. PATCH on the :id block always
+      // returns, and the literal refuses PATCH through READ.has(method).
+      test("realistic.ts: a router whose literal refuses with READ.has(method) is not a finding", () => {
+        const src = `import { json, errorResponse, matchRoute } from "../utils";
+const READ = new Set(["GET", "HEAD"]);
+export function createThingsRouter(ctx: any) {
+  return async function thingsRouter(req: Request, url: URL, pathname: string, method: string): Promise<Response | null> {
+    if (!pathname.startsWith("/api/things")) return null;
+    const byId = matchRoute(pathname, "/api/things/:id");
+    if (byId) {
+      switch (method) {
+        case "GET": {
+          const t = ctx.get(byId.id);
+          if (!t) break;               // unknown id: fall to the literal routes below
+          return json(t);
+        }
+        case "PATCH":
+          try {
+            return json(ctx.patch(byId.id, await req.json()));
+          } finally {
+            ctx.flush();
+          }
+        case "DELETE":
+          if (byId.id === "keep") break;
+          ctx.drop(byId.id);
+          return json({ ok: true });
+        default:
+          break;
+      }
+    }
+    outer: for (const hook of ctx.hooks) {
+      switch (method) {
+        case "OPTIONS":
+          if (hook.skip) continue outer;
+          return new Response(null, { status: 204 });
+        default:
+          break outer;
+      }
+    }
+    if (pathname === "/api/things/keep") {
+      if (method === "DELETE") { ctx.clear(); return json({ ok: true }); }
+      if (!READ.has(method)) return errorResponse(405, "Method not allowed");
+      return json(ctx.keep());
+    }
+    if (pathname === "/api/things/stats") {
+      switch (method.toUpperCase()) {
+        case "GET": return json(ctx.stats());
+        case "HEAD": return new Response(null);
+        default: return errorResponse(405, "x");
+      }
+    }
+    return null;
+  };
+}`;
+        expect(findInnerShadows(src, "things.ts", "thingsRouter")).toEqual([]);
+        // The same router with the refusal written as tests the gate reads.
+        expect(findInnerShadows(src.replace("!READ.has(method)", 'method !== "GET" && method !== "HEAD"'), "things.ts", "thingsRouter")).toEqual([]);
+      });
+
+      // pred.ts P1-P3 and fr2.ts H2-H6: a function declared to answer a boolean
+      // or a fixed set of values is a predicate, whatever its ifs return.
+      describe("a function typed to answer a value is a predicate", () => {
+        const pred = (type: string, rows: string[], head = "") => findInnerShadows(`${head}export function allowed(pathname: string, method: string): ${type} {\n  ${rows.join("\n  ")}\n}`, "a.ts", "aRouter");
+        const PUBLIC = 'method === "GET" && pathname.startsWith("/api/public/")';
+        const HEALTH = 'method === "GET" && pathname === "/api/public/health"';
+        const cases: Array<[string, string, string[], string?]> = [
+          ["pred.ts P1", "boolean", ['if (pathname.startsWith("/api/public/")) return method === "GET";', 'if (pathname === "/api/public/health") return method === "GET";', "return false;"]],
+          ["pred.ts P2", "boolean", [`if (${PUBLIC}) { audit(pathname); return true; }`, `if (${HEALTH}) { audit(pathname); return true; }`, "return false;"]],
+          ["pred.ts P3", "boolean", ["const ok = true;", `if (${PUBLIC}) return ok;`, `if (${HEALTH}) return ok;`, "return false;"]],
+          ["fr2.ts H2", "boolean", [`if (${PUBLIC}) return true;`, 'if (pathname === "/api/public/health") return method === "GET" || method === "HEAD";', "return false;"]],
+          ["fr2.ts H3", "boolean", [`if (${PUBLIC}) return true;`, `if (${HEALTH}) { audit(pathname); return true; }`, "return false;"]],
+          ["fr2.ts H4", "boolean", [`if (${PUBLIC}) return ALLOW;`, `if (${HEALTH}) return ALLOW;`, "return false;"], "const ALLOW = true;\n"],
+          ["fr2.ts H5", '"public" | "private"', [`if (${PUBLIC}) return "public";`, `if (${HEALTH}) return "public";`, 'return "private";']],
+          ["fr2.ts H6", "boolean", ["const m = method.toUpperCase();", 'if (pathname.startsWith("/api/nodes/")) return m === "GET";', 'if (pathname === C) return m === "POST" || m === "GET";', "return false;"], 'const C = "/api/nodes/delegated-runs";\n'],
+        ];
+        for (const [id, type, rows, head] of cases) test(`${id}: ${type}`, () => expect(pred(type, rows, head)).toEqual([]));
+        test("a router typed to answer a Response is still judged", () => {
+          expect(pred("Response | null", [`if (${PUBLIC}) return json({});`, `if (${HEALTH}) return json({});`, "return null;"]).map((o) => o.sample)).toEqual(["/api/public/health"]);
+        });
+      });
+    });
+
     // A boolean helper next to the router (server.ts guestAllowed): a
     // predicate, not a route. The router function is still judged.
     test("H1: a predicate that answers true for a path is not a route", () => {
