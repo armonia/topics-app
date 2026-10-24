@@ -55,6 +55,7 @@ import { liveClaudeSessionId, panesToFollow } from "../lib/claude-live-session";
 import { writeMcpConfigForSession, cleanupMcpConfigForSession } from "../providers/claude-code";
 import { withoutGatewayToken } from "../lib/openclaw-gateway-token";
 import { claudeTranscriptPath } from "../lib/claude-transcript-path";
+import { restoreSweptTranscript } from "../lib/transcript-keeper";
 import { discoverClaudeSubAgentSessionId, normalizePromptSnippet, transcriptHasPrompt } from "../lib/claude-subagent-transcript";
 import { readAgentProfiles } from "../lib/agent-profiles";
 import { resolveSubagentLaunch, launchArgs } from "../lib/subagent-launch";
@@ -1697,6 +1698,9 @@ async function reconcileSessions(attempt = 0): Promise<void> {
       // Il transcript si guarda solo dove conta (tipi claude con un id di
       // ripresa): è l'unico caso in cui la sua assenza cambia la decisione, e
       // uno `stat` per riga a ogni avvio non si regala.
+      // A transcript the CLI's cleanup swept is put back from the kept link
+      // before the decision: without it the row is dropped and the tab is gone.
+      if (isClaude && row.claude_session_id) restoreSweptTranscript(db, row.cwd, row.claude_session_id, `tab ${row.id}`);
       const hasTranscript = isClaude && row.claude_session_id
         ? (() => { try { return fs.existsSync(claudeTranscriptPath(row.cwd, row.claude_session_id)); } catch { return false; } })()
         : false;
@@ -1943,6 +1947,9 @@ async function createSession(id: string, name: string, cwd: string, command?: st
     // Hence `topicsAgentSystemPrompt()` without `headless`: no spawn_agent nudge.
     args = [];
     if (claudeSessionId) {
+      // The CLI's 30-day cleanup may have taken the transcript of a long-parked
+      // tab: put the kept one back, or `--resume` ends the pane at once.
+      restoreSweptTranscript(getDatabase(), cwd, claudeSessionId, `tab ${id}`);
       args.push('--resume', claudeSessionId);
     } else if (resolvedClaudeSessionId) {
       args.push('--session-id', resolvedClaudeSessionId);

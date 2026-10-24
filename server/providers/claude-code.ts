@@ -93,6 +93,7 @@ import { isGlobalOrchestratorSession } from "../services/global-orchestrator-ses
 import { forkStartFor, lastMainAssistant, mainAssistantForText } from "../lib/chat-fork";
 import { consumeFork, readForkOrigin } from "../lib/chat-fork-store";
 import { claudeTranscriptPath, findClaudeTranscript } from "../lib/claude-transcript-path";
+import { restoreSweptTranscript } from "../lib/transcript-keeper";
 import { PARTIAL_ARGS_EMIT_MS, extractPrimaryToolArg } from "./partial-tool-input";
 import { handoffFromStore } from "./handoff";
 import { hasPriorMessagesInDB, loadActiveBranchForReplay, renderRecapPrologue, renderReplayPrologue } from "./claude/history-replay";
@@ -500,6 +501,14 @@ export function getOrCreateClaudeSessionId(sessionKey: string): { id: string; is
  */
 export function planClaudeSessionStart(sessionKey: string, workspace: string) {
   const { id, isNew } = getOrCreateClaudeSessionId(sessionKey);
+  // A resume of a session the CLI's 30-day cleanup swept would fail with "no
+  // conversation found" and restart the chat from the DB recap: put the kept
+  // transcript back first (lib/transcript-keeper.ts).
+  if (!isNew) {
+    let db: ReturnType<typeof getDatabase> | null = null;
+    try { db = getDatabase(); } catch { /* no database: nothing kept */ }
+    restoreSweptTranscript(db, workspace, id, `chat ${sessionKey}`);
+  }
   let forkFrom: { sessionId: string; atUuid: string } | null = null;
   try {
     const origin = isNew ? null : readForkOrigin(getDatabase(), sessionKey);
@@ -2175,6 +2184,10 @@ export class ClaudeCodeProvider implements AIProvider {
   forkPoint(sessionKey: string, atText?: string): { ref: string; at: string; text: string } | null {
     const sessionId = peekClaudeSessionId(sessionKey);
     if (!sessionId) return null;
+    // A fork or a /btw reads the parent's transcript: put it back if the CLI swept it.
+    let db: ReturnType<typeof getDatabase> | null = null;
+    try { db = getDatabase(); } catch { /* no database: nothing kept */ }
+    restoreSweptTranscript(db, this.workspaceFor(sessionKey), sessionId, `fork ${sessionKey}`);
     const file = findClaudeTranscript(this.workspaceFor(sessionKey), sessionId);
     if (!file) return null;
     let jsonl: string;
