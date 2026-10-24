@@ -3637,10 +3637,6 @@
     "server/providers/default-preference-acp.test.ts": [
       "FAKE_ACP"
     ],
-    "server/providers/fast-mode.ts": [
-      "FAST_MODE_PRICING",
-      "std"
-    ],
     "server/providers/index.ts": [
       "resolveAcpAgents"
     ],
