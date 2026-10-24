@@ -6,7 +6,7 @@ import { spawnSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, writeFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import { extractClaims, findInnerShadows, findOverlaps, knownFor, sampleOf, staleKnown, type Claim, type KnownOverlap, type Overlap } from "./check-route-shadowing";
+import { extractClaims, findInnerShadows, findOverlaps, knownFor, sampleOf, staleKnown, type Claim, type ClaimKind, type KnownOverlap, type Overlap } from "./check-route-shadowing";
 
 function claimsOf(router: string, body: string): Claim[] {
   const src = `export function create(ctx: any) {
@@ -529,6 +529,105 @@ export function create(ctx: any) {
       expect(shadowed(['if (/^\\/api\\/x\\//.test(id)) return json({});', LITERAL])).toEqual([]);
       expect(shadowed(['if (method === "GET" && pathname.endsWith("/keep")) return json({});', LITERAL])).toEqual([]);
     });
+
+    // The cases a reviewer of #424 wrote against "the gate reads switch and
+    // default", by their id: a dead one is a finding (its methods, the kind and
+    // line of the winner), a live one is none. The live ones guard against new
+    // false reds.
+    describe("the reviewer's cases of #424", () => {
+      const LIT = (verb: string) => `if (method === "${verb}" && pathname === "/api/x/keep") return json({});`;
+      const GET_PRIOR = 'if (m && method === "GET") return json({});';
+      const POST_PRIOR = 'if (m && method === "POST") return json({});';
+      const RE = "/^\\/api\\/x\\/([^/]+)$/";
+      type Dead = { methods: string[]; kind: ClaimKind; line: number };
+      const dead = (methods: string[], kind: ClaimKind = "pattern"): Dead => ({ methods, kind, line: 4 });
+      const CASES: Array<{ id: string; what: string; lines: string[]; dead?: Dead }> = [
+        // A switch (method) before the literal.
+        { id: "SW1", what: "a switch (method) with no default, its case GET leaves", lines: [MATCH, 'if (m) { switch (method) { case "GET": return json({}); } }', LIT("GET")], dead: dead(["GET"]) },
+        { id: "SW2", what: "a switch (method) with a 405 default", lines: [MATCH, 'if (m) { switch (method) { case "GET": return json({}); default: return errorResponse(405, "x"); } }', LIT("GET")], dead: dead(["GET"]) },
+        { id: "SW3", what: "case GET leaves, case POST breaks, default 405", lines: [MATCH, 'if (m) { switch (method) { case "GET": return json({}); case "POST": break; default: return errorResponse(405, "x"); } }', LIT("GET")], dead: dead(["GET"]) },
+        { id: "SW4", what: "a labelled break on the switch itself goes on", lines: [MATCH, 'if (m && method === "GET") { sw: switch (kind) { case "a": break sw; default: return json({}); } }', LIT("GET")] },
+        { id: "SW5", what: "case POST leaves, the default breaks: GET goes on", lines: [MATCH, 'if (m) { switch (method) { case "POST": return json({}); default: break; } }', LIT("GET")] },
+        { id: "SW6", what: "a case that breaks inside a block goes on", lines: [MATCH, 'if (m && method === "GET") { switch (kind) { case "a": { if (x) { break; } } return json({}); default: return json({}); } }', LIT("GET")] },
+        // The literal under a switch (method).
+        { id: "SL1", what: "the literal in case GET, a GET pattern before", lines: [MATCH, GET_PRIOR, 'switch (method) { case "GET": if (pathname === "/api/x/keep") return json({}); break; }'], dead: dead(["GET"]) },
+        { id: "SL2", what: "the literal in case GET, a POST pattern before", lines: [MATCH, POST_PRIOR, 'switch (method) { case "GET": if (pathname === "/api/x/keep") return json({}); break; }'] },
+        { id: "SL3", what: "the literal in case GET, which a case POST that is not empty falls into; a POST pattern before", lines: [MATCH, POST_PRIOR, 'switch (method) { case "POST": log(); case "GET": if (pathname === "/api/x/keep") return json({}); break; }'], dead: dead(["POST"]) },
+        // Defaults.
+        { id: "D1", what: "the literal in the default, case GET breaks, a GET pattern before", lines: [MATCH, GET_PRIOR, 'switch (method) { case "GET": log(); break; default: if (pathname === "/api/x/keep") return json({}); }'] },
+        { id: "D2", what: "the literal in the default, a POST pattern before", lines: [MATCH, POST_PRIOR, 'switch (method) { case "GET": log(); break; default: if (pathname === "/api/x/keep") return json({}); }'], dead: dead(["POST"]) },
+        { id: "D3", what: "the literal in the default, which case GET falls into with no break; a GET pattern before", lines: [MATCH, GET_PRIOR, 'switch (method) { case "GET": log(); default: if (pathname === "/api/x/keep") return json({}); }'], dead: dead(["GET"]) },
+        { id: "D4", what: "the literal's switch (method): case POST and a default that serves; a GET pattern before", lines: [MATCH, GET_PRIOR, 'if (pathname === "/api/x/keep") { switch (method) { case "POST": return json({ saved: true }); default: return json({ list: [] }); } }'], dead: dead(["GET"]) },
+        { id: "D5", what: "the literal's switch (method): case POST and a 405 default; a GET pattern before", lines: [MATCH, GET_PRIOR, 'if (pathname === "/api/x/keep") { switch (method) { case "POST": return json({}); default: return errorResponse(405, "x"); } }'] },
+        { id: "D6", what: "a default before the cases, a GET pattern before", lines: [MATCH, GET_PRIOR, 'switch (method) { default: if (pathname === "/api/x/keep") return json({}); break; case "GET": log(); break; }'] },
+        { id: "D7", what: "an empty case GET that falls into the default, a GET pattern before", lines: [MATCH, GET_PRIOR, 'switch (method) { case "GET": default: if (pathname === "/api/x/keep") return json({}); }'], dead: dead(["GET"]) },
+        // A ternary on the method.
+        { id: "T1", what: "t = method === GET ? exec : null, a GET literal", lines: [`const t = method === "GET" ? ${RE}.exec(pathname) : null;`, "if (t) { return json(t); }", LIT("GET")], dead: dead(["GET"], "regex") },
+        { id: "T2", what: "t = method !== GET ? null : exec, a GET literal", lines: [`const t = method !== "GET" ? null : ${RE}.exec(pathname);`, "if (t) return json(t);", LIT("GET")], dead: dead(["GET"], "regex") },
+        { id: "T3", what: "(GET || HEAD) ? matchRoute : null, a HEAD literal", lines: ['const t = method === "GET" || method === "HEAD" ? matchRoute(pathname, "/api/x/:id") : null;', "if (t) return json(t);", LIT("HEAD")], dead: dead(["HEAD"]) },
+        { id: "T4", what: "a nested ternary, its POST branch, a POST literal", lines: [`const t = method === "GET" ? /^\\/api\\/zz$/.exec(pathname) : method === "POST" ? ${RE}.exec(pathname) : null;`, "if (t) return json(t);", LIT("POST")], dead: dead(["POST"], "regex") },
+        { id: "T5", what: "t = method === GET ? exec : null, a POST literal", lines: [`const t = method === "GET" ? ${RE}.exec(pathname) : null;`, "if (t) return json(t);", LIT("POST")] },
+        { id: "T6", what: "method === GET ? false : m in the earlier condition, a GET literal", lines: [MATCH, 'if (method === "GET" ? false : m) return json({});', LIT("GET")] },
+        { id: "T7", what: "method === GET ? m : false in the earlier condition, a GET literal", lines: [MATCH, 'if (method === "GET" ? m : false) return json({});', LIT("GET")], dead: dead(["GET"]) },
+        { id: "T8", what: "for GET the match is another path's regex", lines: [`const t = method === "GET" ? /^\\/api\\/y\\/([^/]+)$/.exec(pathname) : ${RE}.exec(pathname);`, 'if (t && method === "GET") return json(t);', LIT("GET")] },
+        // Outside the three constructs.
+        { id: "U1", what: "the literal under a test of the method the gate cannot read (WRITE.has(method)), a GET pattern before", lines: [MATCH, GET_PRIOR, 'if (WRITE.has(method)) { if (pathname === "/api/x/keep") return json({}); }'] },
+        { id: "U2", what: "the literal under case POST of switch (method.toUpperCase()), a GET pattern before", lines: [MATCH, GET_PRIOR, 'switch (method.toUpperCase()) { case "POST": if (pathname === "/api/x/keep") return json({}); }'] },
+        { id: "B1", what: "the literal's body: if (method === DELETE) { ...return } then a return that serves; a GET pattern before", lines: [MATCH, GET_PRIOR, 'if (pathname === "/api/x/keep") { if (method === "DELETE") { drop(); return json({ ok: true }); } return json({ list: [] }); }'], dead: dead(["GET"]) },
+      ];
+      for (const c of CASES) {
+        test(`${c.id}: ${c.what}`, () => {
+          const found = inner(c.lines).map((o) => ({ methods: o.methods, kind: o.prior.kind, line: o.prior.line }));
+          expect(found).toEqual(c.dead ? [c.dead] : []);
+        });
+      }
+
+      // Around the same rules: what the gate cannot evaluate stays unknown,
+      // and unknown is never a finding.
+      test("a switch (method) whose earlier label cannot be read, or that no case or default matches, goes on", () => {
+        expect(shadowed([MATCH, 'if (m) { switch (method) { case Verb.Get: break; case "GET": return json({}); } }', LIT("GET")])).toEqual([]);
+        expect(shadowed([MATCH, 'if (m) { switch (method) { case "POST": return json({}); } }', LIT("GET")])).toEqual([]);
+        expect(shadowed([MATCH, 'if (m) { switch (method) { case "GET": log(); case "POST": return json({}); } }', LIT("GET")])).toEqual(["/api/x/keep"]);
+        expect(shadowed([MATCH, 'if (m) { switch (method) { case "GET": if (ready) break; return json({}); } }', LIT("GET")])).toEqual([]);
+      });
+
+      test("a discriminant that reads the method other than as itself, or a test of it the gate cannot read, serves no method", () => {
+        expect(shadowed([MATCH, GET_PRIOR, 'switch (method.toLowerCase()) { case "get": if (pathname === "/api/x/keep") return json({}); }'])).toEqual([]);
+        expect(shadowed([MATCH, GET_PRIOR, 'if (WRITE.has(method) && pathname === "/api/x/keep") return json({});'])).toEqual([]);
+        expect(shadowed([MATCH, GET_PRIOR, 'if (!READ.has(method)) { if (pathname === "/api/x/keep") return json({}); }'])).toEqual([]);
+        expect(shadowed([MATCH, GET_PRIOR, 'if (method === "POST") { log(); } else if (WRITE.has(method)) { log(); } else { if (pathname === "/api/x/keep") return json({}); }'])).toEqual([]);
+        // A condition that does not read the method keeps counting as met.
+        expect(shadowed([MATCH, GET_PRIOR, 'if (ready && method === "GET") { if (pathname === "/api/x/keep") return json({}); }'])).toEqual(["/api/x/keep"]);
+      });
+
+      test("a tail that serves serves the methods no branch takes, one that cannot be read does not", () => {
+        expect(shadowed([MATCH, GET_PRIOR, 'if (pathname === "/api/x/keep") { if (method === "DELETE") return json({}); try { return json(load()); } catch (e) { return fail(e); } }'])).toEqual(["/api/x/keep"]);
+        expect(shadowed([MATCH, GET_PRIOR, 'if (pathname === "/api/x/keep") { if (method === "DELETE") return json({}); return new Response("list"); }'])).toEqual(["/api/x/keep"]);
+        expect(shadowed([MATCH, GET_PRIOR, 'if (pathname === "/api/x/keep") { if (method === "DELETE") return json({}); return handle(req); }'])).toEqual([]);
+        expect(shadowed([MATCH, GET_PRIOR, 'if (pathname === "/api/x/keep") { if (method === "DELETE") return json({}); return json({ error: "x" }, 405); }'])).toEqual([]);
+        expect(shadowed([MATCH, GET_PRIOR, 'if (pathname === "/api/x/keep") { switch (method) { case "POST": return json({}); default: return handle(req); } }'])).toEqual([]);
+      });
+    });
+
+    // A boolean helper next to the router (server.ts guestAllowed): a
+    // predicate, not a route. The router function is still judged.
+    test("H1: a predicate that answers true for a path is not a route", () => {
+      const file = (route: string) => `/** Paths a guest may call: a predicate, not a route. */
+export function guestAllowed(pathname: string, method: string): boolean {
+  if (method === "GET" && pathname.startsWith("/api/public/")) return true;
+  if (method === "GET" && pathname === "/api/public/health") return true;
+  return false;
+}
+export function createARouter(ctx: any) {
+  return async function r(req: Request, url: URL, pathname: string, method: string) {
+    ${route}
+    return null;
+  };
+}`;
+      const of = (route: string) => findInnerShadows(file(route), "a.ts", "aRouter").map((o) => [o.sample, o.methods, o.prior.line, o.later.line]);
+      expect(of("")).toEqual([]);
+      expect(of(`${MATCH}\n    ${'if (m && method === "GET") return json({});'}\n    ${LITERAL}`)).toEqual([["/api/x/keep", ["GET"], 10, 11]]);
+    });
   });
 
   test("samples are paths the claim itself accepts", () => {
@@ -584,17 +683,21 @@ export function create(ctx: any) {
       expect(run(tree(""), ["--bogus"]).status).toBe(2);
     });
 
-    // The stale filter, on its own: on the real tree every unused entry is
+    // The stale filter, on its own, read from the environment the script runs
+    // in: with no ROUTE_SHADOWING_ROOT (the real tree) every unused entry is
     // stale; on a bench tree only the entries about routers it has.
     test("staleKnown judges every entry on the real tree, and only this tree's routers on another", () => {
       const k = (prior: string, later: string): KnownOverlap => ({ prior, later, sample: "/api/x", why: "t" });
       const both = k("a", "b");
       const gone = k("a", "gone");
-      expect(staleKnown([both], new Set(), ["a", "b"], false)).toEqual([both]);
-      expect(staleKnown([both], new Set([both]), ["a", "b"], false)).toEqual([]);
-      expect(staleKnown([gone], new Set(), ["a"], false)).toEqual([]);
-      expect(staleKnown([k("gone", "a")], new Set(), ["a"], false)).toEqual([]);
-      expect(staleKnown([gone, both], new Set([both]), ["a", "b"], true)).toEqual([gone]);
+      const bench = { ROUTE_SHADOWING_ROOT: "/tmp/bench" };
+      expect(staleKnown([both], new Set(), ["a", "b"], bench)).toEqual([both]);
+      expect(staleKnown([both], new Set([both]), ["a", "b"], bench)).toEqual([]);
+      expect(staleKnown([gone], new Set(), ["a"], bench)).toEqual([]);
+      expect(staleKnown([k("gone", "a")], new Set(), ["a"], bench)).toEqual([]);
+      expect(staleKnown([gone, both], new Set([both]), ["a", "b"], bench)).toEqual([]);
+      expect(staleKnown([gone, both], new Set([both]), ["a", "b"], {})).toEqual([gone]);
+      expect(staleKnown([gone, both], new Set([both]), ["a", "b"], { ROUTE_SHADOWING_ROOT: "" })).toEqual([gone]);
     });
 
     test("a KNOWN entry matches its routers and sample, and its methods when it names them", () => {
