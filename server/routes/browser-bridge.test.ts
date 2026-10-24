@@ -1451,6 +1451,39 @@ describe("5xx del bridge — il motivo finisce nel log", () => {
     }
   });
 
+  test("il motivo è la prima riga NON vuota, ripulito da ANSI e da U+2028/U+2029, e il taglio a 500 non spezza una coppia surrogata", () => {
+    const warn = spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      warnBridgeServerError("browser_eval", "c1", 502, new Error("\n  \nthe real reason\nPAGE-DATA"));
+      warnBridgeServerError("browser_eval", "c1", 502, new Error(""));
+      warnBridgeServerError("browser_eval", "c1", 502, new TypeError("\n"));
+      warnBridgeServerError("browser_eval", "c1", 502, "\x1b[31mred\x1b[0m text\x1b]0;title\x07");
+      warnBridgeServerError("browser_eval", "c1", 502, "first\u2028PAGE-DATA\u2029more");
+      warnBridgeServerError("browser_eval", "c1", 502, `${"y".repeat(499)}\u{1F600}z`);
+      warnBridgeServerError("browser_open", "c1", 502, "");
+      const lines = warn.mock.calls.map((args) => args.map(String).join(" "));
+      const reasons = lines.map((l) => l.replace(/^\[browser-bridge\] \S+ \S+ \S+ -> \d+: /, ""));
+      expect(reasons).toEqual([
+        "the real reason",
+        // Nothing in the message: the error's name, never an empty reason.
+        "Error",
+        "TypeError",
+        "red text",
+        // A line separator ends the line like \n does: what follows is page data.
+        "first",
+        // 499 units plus a whole emoji would be 501: the pair is dropped, not halved.
+        "y".repeat(499),
+        "(empty)",
+      ]);
+      for (const l of lines) {
+        for (const ch of ["\n", "\r", "\u2028", "\u2029", "\x1b", "\x07"]) expect(l).not.toContain(ch);
+        expect(l).not.toMatch(/[\uD800-\uDBFF]$/);
+      }
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
   // The warn lines of one request, with the response: the helper below keeps
   // each case to its setup and its expectation.
   async function warnsOf(h: ReturnType<typeof harness>, path: string, body?: unknown) {
