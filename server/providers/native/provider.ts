@@ -22,7 +22,8 @@
  * turn costs a whole process, and here it costs an array.
  */
 
-import { runAgentTurn, toProviderUsage, type AgentMessage } from "./agent-loop";
+import { pingPromptCache, runAgentTurn, toProviderUsage, type AgentMessage, type AgentTurnOptions } from "./agent-loop";
+import { getAccessToken } from "./auth";
 import { recordTurnUsage } from "../native-usage-registry";
 import { CODING_TOOLS, WORKSPACE_FREE_TOOLS } from "./tools";
 import { pruneDanglingToolUses } from "./history-repair";
@@ -275,6 +276,23 @@ interface NativeSession {
   /** Measured chars-per-token. On the SESSION and not on the turn: the turn
    * that dies of a full context dies on its FIRST round, measuring nothing. */
   calibration: Calibration;
+  /** The next prompt-cache keep-alive, while the session waits for the person (see `KEEPALIVE_EVERY_MS`). */
+  keepAlive?: ReturnType<typeof setTimeout>;
+}
+
+/**
+ * How often a waiting session re-reads its prefix through the prompt cache.
+ *
+ * The native loop's cache lives 5 minutes. On 18-24/10, 10 of 51 native turns
+ * started 5 to 15 minutes after the previous one and each wrote its whole
+ * prefix to the cache again (280k-416k tokens, 3.31M in all), at 1.25x the
+ * input price; a cache read costs 0.05x-0.1x. 4.5 minutes stays inside the 5.
+ */
+const KEEPALIVE_EVERY_MS = 270_000;
+
+/** `TOPICS_CACHE_KEEPALIVE=off` turns the pings off: the lever to compare with and without. */
+function keepAliveEnabled(): boolean {
+  return process.env.TOPICS_CACHE_KEEPALIVE !== "off";
 }
 
 export interface NativeProviderConfig {
@@ -360,6 +378,7 @@ export class NativeProvider implements AIProvider {
       // topic:9f9e9629: risposta troncata a metà frase, zero spiegazioni.
       try { s.abort?.abort("server-shutdown" satisfies StopCause); } catch { /* già finito */ }
     }
+    for (const s of this.sessions.values()) clearTimeout(s.keepAlive);
     this.sessions.clear();
     // The stdio MCP servers are OUR child processes: leaving them behind on
     // shutdown is how a machine collects orphans nobody can trace back.
@@ -477,6 +496,7 @@ export class NativeProvider implements AIProvider {
     let tolte = 0;
     for (const [k, s] of this.sessions) {
       if (!sessionIsEvictable(s, ora)) continue;
+      clearTimeout(s.keepAlive);
       this.sessions.delete(k);
       tolte++;
     }
@@ -554,6 +574,8 @@ export class NativeProvider implements AIProvider {
       return {};
     }
     const session = this.sessionFor(sessionKey, options?.messageRows);
+    clearTimeout(session.keepAlive);
+    session.keepAlive = undefined;
     await this.supersedeLiveTurn(sessionKey, session);
     // A STOPPED ENGINE STARTS NO TURN. The chat route holds this instance across
     // its own awaits (the `memrecall` run) between opening the stream and calling
@@ -753,76 +775,75 @@ export class NativeProvider implements AIProvider {
       // This runtime never passed one, so the loop's own default applied to
       // every session whatever the user had set.
       const turnMaxTokens = clampMaxTokens(resolveClaudeMaxTokens());
-      const out = await runAgentTurn(
-        {
-          model: turnModel,
-          effort: turnEffort,
-          maxTokens: turnMaxTokens,
-          // An unbound normal chat gets the truthful no-workspace note. The
-          // registry-backed coordinator is different: it intentionally has no
-          // workspace and only its five board tools, so adding that ordinary
-          // note would falsely advertise web/file capabilities.
-          system: nativeSystemPrompt({ base: options?.systemPrompt, workspace: !!workspace, globalOrchestrator: !!globalOrchestrator }),
-          reminder: languageReminder(),
-          history: session.history,
-          // Passed by REFERENCE: every turn restarts from what the previous
-          // one measured, instead of from the assumed 4 chars per token.
-          calibration: session.calibration,
-          tools,
-          // Il segnale scende FIN DENTRO il comando: il ciclo guarda l'abort in
-          // cima al giro, ma un turno sta quasi sempre fermo dentro un tool, e
-          // da lì quel controllo non si raggiunge. Vedi `ToolContext.signal`.
-          // `sessionKey` travels with the tool context so a command the native
-          // runtime spawns can be attributed to THIS session by the swap
-          // freezer: its child is a child of the server, and without an owner
-          // nothing tells it apart from Topics' own processes.
-          toolContext: { workspace: workspace ?? "", signal: abort.signal, sessionKey },
-          topics: topics ?? undefined,
-          ...(subagentPolicy ? { allowTool: (name: string) => toolAllowedByPolicy(subagentPolicy, name) } : {}),
-          // Il livello di autonomia si RILEGGE a ogni turno, non si memorizza
-          // sulla sessione: chi lo cambia in chat si aspetta che valga dal
-          // messaggio dopo, non dalla prossima chat.
-          autonomy: levelFor(readTopicAutonomy(sessionKey)),
-          // The user's hooks file, re-read at every event by the runner itself:
-          // no snapshot here either, for the same reason as the autonomy.
-          hooks: defaultLifecycleHooks(),
-          sessionId: sessionKey,
-          signal: abort.signal,
-          // L'USO SI DEPOSITA A OGNI GIRO, non a fine turno.
-          //
-          // Il registro è quello che il dispatcher rilegge ogni quattro secondi
-          // per il chip vivo della card. Depositando solo il totale finale, quel
-          // chip restava fermo per l'intero turno — che su un agente dispacciato
-          // sono decine di minuti — e al primo turno mostrava zero token: i token
-          // «non scorrevano più». Un giro alla volta il numero cresce mentre il
-          // lavoro succede, ed è anche l'unico modo di contare un turno che
-          // finisce annullato o in errore, dove il totale non torna a nessuno.
-          // TWO listeners, because the tally has two destinations and only one
-          // of them was ever wired.
-          //
-          // `recordTurnUsage` feeds the in-memory registry the dispatcher polls
-          // for the card's live chip. `handler.onCallUsage` is the OTHER door:
-          // the chat route accumulates it, writes it onto the message row and
-          // broadcasts it to the client, which is what makes a turn's token
-          // count visible in the chat and survive a reload.
-          //
-          // The native runtime never called the second one - `grep -c
-          // onCallUsage server/providers/native/` was 0, while claude-code
-          // calls it - so every row written since sessions moved to this
-          // runtime carries a NULL. Measured on the live DB on 2026-08-29: 0 of
-          // 147 assistant rows in 24h had a token count, and the last one that
-          // did was from 2026-08-24.
-          //
-          // No double count: this door ACCUMULATES per round, while `onDone`
-          // hands over the turn total and the route ASSIGNS it at finalize.
-          onRoundUsage: (u) => {
-            recordTurnUsage(sessionKey, u);
-            try { handler.onCallUsage?.({ ...toProviderUsage(u), model: turnModel }); }
-            catch { /* the measurement never stops the work */ }
-          },
+      const turnOpts: AgentTurnOptions = {
+        model: turnModel,
+        effort: turnEffort,
+        maxTokens: turnMaxTokens,
+        // An unbound normal chat gets the truthful no-workspace note. The
+        // registry-backed coordinator is different: it intentionally has no
+        // workspace and only its five board tools, so adding that ordinary
+        // note would falsely advertise web/file capabilities.
+        system: nativeSystemPrompt({ base: options?.systemPrompt, workspace: !!workspace, globalOrchestrator: !!globalOrchestrator }),
+        reminder: languageReminder(),
+        history: session.history,
+        // Passed by REFERENCE: every turn restarts from what the previous
+        // one measured, instead of from the assumed 4 chars per token.
+        calibration: session.calibration,
+        tools,
+        // Il segnale scende FIN DENTRO il comando: il ciclo guarda l'abort in
+        // cima al giro, ma un turno sta quasi sempre fermo dentro un tool, e
+        // da lì quel controllo non si raggiunge. Vedi `ToolContext.signal`.
+        // `sessionKey` travels with the tool context so a command the native
+        // runtime spawns can be attributed to THIS session by the swap
+        // freezer: its child is a child of the server, and without an owner
+        // nothing tells it apart from Topics' own processes.
+        toolContext: { workspace: workspace ?? "", signal: abort.signal, sessionKey },
+        topics: topics ?? undefined,
+        ...(subagentPolicy ? { allowTool: (name: string) => toolAllowedByPolicy(subagentPolicy, name) } : {}),
+        // Il livello di autonomia si RILEGGE a ogni turno, non si memorizza
+        // sulla sessione: chi lo cambia in chat si aspetta che valga dal
+        // messaggio dopo, non dalla prossima chat.
+        autonomy: levelFor(readTopicAutonomy(sessionKey)),
+        // The user's hooks file, re-read at every event by the runner itself:
+        // no snapshot here either, for the same reason as the autonomy.
+        hooks: defaultLifecycleHooks(),
+        sessionId: sessionKey,
+        signal: abort.signal,
+        // L'USO SI DEPOSITA A OGNI GIRO, non a fine turno.
+        //
+        // Il registro è quello che il dispatcher rilegge ogni quattro secondi
+        // per il chip vivo della card. Depositando solo il totale finale, quel
+        // chip restava fermo per l'intero turno — che su un agente dispacciato
+        // sono decine di minuti — e al primo turno mostrava zero token: i token
+        // «non scorrevano più». Un giro alla volta il numero cresce mentre il
+        // lavoro succede, ed è anche l'unico modo di contare un turno che
+        // finisce annullato o in errore, dove il totale non torna a nessuno.
+        // TWO listeners, because the tally has two destinations and only one
+        // of them was ever wired.
+        //
+        // `recordTurnUsage` feeds the in-memory registry the dispatcher polls
+        // for the card's live chip. `handler.onCallUsage` is the OTHER door:
+        // the chat route accumulates it, writes it onto the message row and
+        // broadcasts it to the client, which is what makes a turn's token
+        // count visible in the chat and survive a reload.
+        //
+        // The native runtime never called the second one - `grep -c
+        // onCallUsage server/providers/native/` was 0, while claude-code
+        // calls it - so every row written since sessions moved to this
+        // runtime carries a NULL. Measured on the live DB on 2026-08-29: 0 of
+        // 147 assistant rows in 24h had a token count, and the last one that
+        // did was from 2026-08-24.
+        //
+        // No double count: this door ACCUMULATES per round, while `onDone`
+        // hands over the turn total and the route ASSIGNS it at finalize.
+        onRoundUsage: (u) => {
+          recordTurnUsage(sessionKey, u);
+          try { handler.onCallUsage?.({ ...toProviderUsage(u), model: turnModel }); }
+          catch { /* the measurement never stops the work */ }
         },
-        handler,
-      );
+      };
+      const out = await runAgentTurn(turnOpts, handler);
+      this.keepCacheWarm(sessionKey, session, turnOpts);
       // Il perché della fine si deposita dove il resto del server lo cerca:
       // è lo stesso registro che usano le CLI, e senza questo un turno
       // dispacciato non saprebbe dire com'è finito.
@@ -856,6 +877,9 @@ export class NativeProvider implements AIProvider {
       if (session.abort === abort) {
         session.abort = undefined;
         session.turn = undefined;
+        // Idle counts from the END of the turn: a turn longer than the TTL was
+        // evicted by the next sweep, a minute after it answered.
+        session.lastUsedAt = Date.now();
       }
     }
   }
@@ -914,12 +938,54 @@ export class NativeProvider implements AIProvider {
     return { content: out.text || text };
   }
 
+  /**
+   * Keeps a session's prompt cache warm while the person reads its answer: a
+   * ping every {@link KEEPALIVE_EVERY_MS}, for as long as the session itself
+   * lives ({@link SESSION_TTL_MS}). Past that the session is evicted and the
+   * next turn rebuilds it from the database, a different prefix, so the cached
+   * one is worth nothing. A new turn, an eviction, a reset or a stop ends it.
+   */
+  private keepCacheWarm(sessionKey: string, session: NativeSession, opts: AgentTurnOptions): void {
+    clearTimeout(session.keepAlive);
+    session.keepAlive = undefined;
+    if (!keepAliveEnabled()) return;
+    const endedAt = Date.now();
+    const historyLength = session.history.length;
+    // The prefix is still the one the turn left only while nothing has moved.
+    const waiting = () => !this.stopped && this.sessions.get(sessionKey) === session
+      && !session.abort && session.history.length === historyLength;
+    let pings = 0;
+    const schedule = () => {
+      if (Date.now() - endedAt + KEEPALIVE_EVERY_MS > SESSION_TTL_MS) return;
+      session.keepAlive = setTimeout(() => { void tick(); }, KEEPALIVE_EVERY_MS);
+      (session.keepAlive as unknown as { unref?: () => void }).unref?.();
+    };
+    const tick = async () => {
+      session.keepAlive = undefined;
+      if (!waiting()) return;
+      try {
+        const u = await pingPromptCache(opts, await getAccessToken());
+        pings++;
+        console.log(
+          `[native] keepalive: at=${new Date().toISOString()} session_key=${sessionKey} ping=${pings} `
+          + `input=${u.input} cache_read=${u.cacheRead} cache_write=${u.cacheWrite}`,
+        );
+      } catch (err) {
+        console.warn(`[native] keepalive failed for ${sessionKey}: ${(err as Error)?.message ?? err}`);
+        return;
+      }
+      if (waiting()) schedule();
+    };
+    schedule();
+  }
+
   /** `/compact` typed in a chat on this engine (CMDUI-06): see `compactSessionNow`. */
   compactNow(sessionKey: string): CompactNowResult {
     return compactSessionNow(this.sessionFor(sessionKey));
   }
 
   async resetSession(sessionKey: string): Promise<void> {
+    clearTimeout(this.sessions.get(sessionKey)?.keepAlive);
     this.sessions.delete(sessionKey);
   }
 

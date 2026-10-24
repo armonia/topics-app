@@ -252,11 +252,14 @@ interface RoundResult {
  * frammento si ottiene spazzatura, quindi si accumula e si parsa alla chiusura
  * del blocco.
  */
-async function streamOnce(
-  token: string,
-  opts: AgentTurnOptions,
-  handler: StreamHandler,
-): Promise<RoundResult> {
+/**
+ * The body of one round's request, and whether it needs the long-window beta.
+ *
+ * One builder for the loop and for the cache keep-alive (`pingPromptCache`):
+ * the keep-alive only refreshes the cache if its prefix (tools, system,
+ * thinking, messages) is byte for byte the one the loop sends.
+ */
+export function buildRoundRequest(opts: AgentTurnOptions): { body: Record<string, unknown>; longWindow: boolean } {
   // LA FINESTRA LUNGA E' UN HEADER, NON UN NOME.
   // `claude-opus-5[1m]` e' una convenzione nostra: all'API va il nome NUDO
   // piu' il beta `context-1m-2025-08-07`. Prima l'id partiva col suffisso e il
@@ -312,20 +315,91 @@ async function streamOnce(
   // per un'ottimizzazione di costo: il modo peggiore di risparmiare.
   stripMessageCacheMarks(opts.history);
   applyPromptCache(body as never);
+  return { body, longWindow };
+}
 
+function apiHeaders(token: string, longWindow: boolean): Record<string, string> {
+  return {
+    "content-type": "application/json",
+    authorization: `Bearer ${token}`,
+    "anthropic-version": API_VERSION,
+    "anthropic-beta": betaHeader(longWindow),
+    "user-agent": claudeCliUserAgent(),
+  };
+}
+
+/** The line the keep-alive puts after the history. Nobody answers it: the request is dropped at `message_start`. */
+const KEEPALIVE_PROMPT = "(prompt cache keep-alive, no answer needed)";
+
+/** How long a keep-alive may take before it is dropped: it is a refresh, never worth a stuck socket. */
+const KEEPALIVE_TIMEOUT_MS = 30_000;
+
+/**
+ * Reads a waiting session's prefix through the prompt cache, so the 5-minute
+ * cache does not expire while the person reads the answer.
+ *
+ * The body is the loop's own (`buildRoundRequest`): the breakpoint lands on
+ * the last message of the history, and one short user line follows it. The
+ * API reads the prefix from the cache, which renews its lifetime, and caches
+ * the turn's closing answer with it. The stream is dropped as soon as
+ * `message_start` arrives, which already carries the usage, so the model
+ * writes nothing anybody reads, and the history is not touched.
+ */
+export async function pingPromptCache(
+  opts: AgentTurnOptions,
+  token: string,
+): Promise<{ input: number; cacheRead: number; cacheWrite: number }> {
+  // max_tokens is not part of the cache key; a legacy thinking budget keeps
+  // it above the budget, as the loop does.
+  const { body, longWindow } = buildRoundRequest({ ...opts, maxTokens: 1 });
+  body.messages = [...opts.history, { role: "user", content: KEEPALIVE_PROMPT }];
+  const abort = new AbortController();
+  const timer = setTimeout(() => abort.abort(), KEEPALIVE_TIMEOUT_MS);
+  try {
+    const res = await fetch(anthropicMessagesUrl(), {
+      method: "POST", headers: apiHeaders(token, longWindow), body: JSON.stringify(body), signal: abort.signal,
+    });
+    if (!res.ok || !res.body) {
+      throw new Error(`keep-alive answered ${res.status}: ${(await res.text().catch(() => "")).slice(0, 300)}`);
+    }
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let buf = "";
+    while (true) {
+      const { value, done } = await reader.read();
+      if (done) throw new Error("keep-alive stream ended before message_start");
+      buf += decoder.decode(value, { stream: true });
+      const lines = buf.split("\n");
+      buf = lines.pop() ?? "";
+      for (const line of lines) {
+        if (!line.startsWith("data:") || !line.includes("message_start")) continue;
+        const usage = (JSON.parse(line.slice(5)) as { message?: { usage?: Record<string, number> } }).message?.usage ?? {};
+        return {
+          input: usage.input_tokens ?? 0,
+          cacheRead: usage.cache_read_input_tokens ?? 0,
+          cacheWrite: usage.cache_creation_input_tokens ?? 0,
+        };
+      }
+    }
+  } finally {
+    clearTimeout(timer);
+    abort.abort();
+  }
+}
+
+async function streamOnce(
+  token: string,
+  opts: AgentTurnOptions,
+  handler: StreamHandler,
+): Promise<RoundResult> {
+  const { body, longWindow } = buildRoundRequest(opts);
   let res: Response;
   // MSEL-11: the address Claude Code would use (base-url.ts).
   const apiUrl = anthropicMessagesUrl();
   try {
     res = await fetch(apiUrl, {
       method: "POST",
-      headers: {
-        "content-type": "application/json",
-        authorization: `Bearer ${token}`,
-        "anthropic-version": API_VERSION,
-        "anthropic-beta": betaHeader(longWindow),
-        "user-agent": claudeCliUserAgent(),
-      },
+      headers: apiHeaders(token, longWindow),
       body: JSON.stringify(body),
       signal: opts.signal,
     });

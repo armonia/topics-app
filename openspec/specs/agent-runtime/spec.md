@@ -273,6 +273,18 @@ che dovrebbe verificare non prova niente.
 - **GIVEN** una sessione oltre il tetto ma con un turno in corso
 - **THEN** NON SHALL essere sfrattata
 
+#### Scenario: l'inattività si conta dalla fine del turno
+- **GIVEN** un turno durato più del tetto
+- **WHEN** il turno finisce
+- **THEN** la sessione NON SHALL essere sfrattata al passaggio successivo
+
+#### Scenario: la cache resta calda mentre la persona legge
+- **GIVEN** una sessione il cui turno è appena finito
+- **WHEN** nessun turno nuovo parte
+- **THEN** la sessione SHALL rileggere il proprio prefisso dalla cache del prompt ogni 4,5 minuti, con gli stessi strumenti, system e thinking del turno
+- **AND** SHALL smettere a 15 minuti dalla fine del turno, a un turno nuovo, allo sfratto o al reset
+- **AND** `TOPICS_CACHE_KEEPALIVE=off` SHALL spegnere i ping
+
 ### Requirement: RT-09 — I comandi di Topics sono gli STESSI, e un guasto in uno non uccide il turno
 
 I comandi propri di Topics SHALL essere raggiungibili anche dall'agente nativo, e
