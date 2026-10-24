@@ -2609,6 +2609,7 @@ const EN = {
   'sidebar.closeBrowser': 'Close browser',
   'topic.cloudSession': 'Cloud session (OpenClaw)',
   'topic.serverOn': 'Server running: {where}. It stays up by itself, the chat is free',
+  'topic.serverOnLan': 'Server running and visible on the LAN: {where}. Anyone on the same network can open it',
   'topic.openElsewhere': 'Open in another window',
   // ── Sharing.
   'share.button': 'Share',

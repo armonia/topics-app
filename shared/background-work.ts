@@ -59,6 +59,16 @@ export function listenLabel(a: ListenAddress): string {
   return `${a.host === "*" ? "0.0.0.0" : a.host}:${a.port}`;
 }
 
+/**
+ * Whether other devices can open a server listening on `a`: every interface,
+ * or an address that is not the loopback (a LAN or VPN address). On 24/10 the
+ * finance chat's server listened on 0.0.0.0:8777 and nothing said so.
+ */
+export function reachableFromNetwork(a: ListenAddress): boolean {
+  const host = a.host.replace(/^\[|\]$/g, "");
+  return !(host === "::1" || host === "localhost" || /^(::ffff:)?127\./.test(host));
+}
+
 /** The URL that opens a server listening on `a`: plain http on the loopback when it listens everywhere. */
 export function listenUrl(a: ListenAddress): string {
   return `http://${ANY_HOST.has(a.host) ? "127.0.0.1" : a.host}:${a.port}/`;

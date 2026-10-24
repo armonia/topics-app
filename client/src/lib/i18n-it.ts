@@ -2956,6 +2956,7 @@ const IT: Dict = {
   'sidebar.closeBrowser': 'Chiudi browser',
   'topic.cloudSession': 'Sessione cloud (OpenClaw)',
   'topic.serverOn': 'Server acceso: {where}. Resta su da solo, la chat è libera',
+  'topic.serverOnLan': 'Server acceso e visibile in LAN: {where}. Chiunque sia sulla stessa rete può aprirlo',
   'topic.openElsewhere': "Aperto in un'altra finestra",
   // ── Condivisione. Il pannello era scritto a mano in inglese dentro un'app
   //    che parla italiano: qui le sue parole entrano nel dizionario come tutte

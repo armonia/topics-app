@@ -32,7 +32,7 @@ const RUN_COMMAND_WHAT =
 // output...» for 58 minutes. The log now follows a file named on the line,
 // but an agent that knows the output is captured has no reason to redirect.
 const RUN_COMMAND_REST =
-  "Its stdout and stderr are already captured in that log, so do not redirect them to a file to read later; a file named literally on the command line (`> /tmp/x.log 2>&1`, `| tee f > /dev/null`) is followed into the log too, one built from a variable is not. Pass wake=false for things that are not meant to end, such as a dev server. Returns a processId for read_process_output / wait_for_process / stop_process. For a script declared in the project's manifest, run_script is the same thing by name.";
+  "Its stdout and stderr are already captured in that log, so do not redirect them to a file to read later; a file named literally on the command line (`> /tmp/x.log 2>&1`, `| tee f > /dev/null`) is followed into the log too, one built from a variable is not. Pass wake=false for things that are not meant to end, such as a dev server, and bind a server to 127.0.0.1 (`--host` or `--bind 127.0.0.1`), not 0.0.0.0, unless the person wants other devices to reach it. Returns a processId for read_process_output / wait_for_process / stop_process. For a script declared in the project's manifest, run_script is the same thing by name.";
 
 /** `run_command` as a board card's agent reads it (`toolsForProfile`). */
 export const RUN_COMMAND_BOARD_DESCRIPTION =
