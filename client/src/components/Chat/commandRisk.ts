@@ -72,6 +72,8 @@ const ASSIGNMENT = /^[A-Za-z_]\w*(?:\[[^\]]*\])?\+?=/;
 const LEADING_RESERVED = new Set(['if', 'then', 'else', 'elif', 'do', 'while', 'until', '!', '{']);
 /** zsh's short forms open the body with `{` on the condition's line: `if true { rm -rf x }`. */
 const BRACE_BODY = new Set(['if', 'elif', 'while', 'until', 'for', 'foreach', 'repeat', 'select']);
+/** A word bash's brace expansion splits: `{rm,-rf,x}` is three. */
+const BRACE_WORD = /^\{([^{}]*,[^{}]*)\}$/;
 /** A backslash at the end of a line: the command goes on on the next one. */
 const LINE_CONTINUATION = /\\\r?\n/g;
 /** Wrappers that run the command after their options, and the short options that take a value. */
@@ -149,8 +151,8 @@ interface Scan { add: AddReason; budget: number; exhausted: boolean }
 
 /**
  * The work done, counted only while `commandRiskWork` measures it: the
- * characters lexed or handed over to be read, the characters a delimiter
- * search walks past, and the words and arguments looked at. A time says how
+ * characters lexed or handed over to be read, the characters indexed to find
+ * heredoc delimiters, and the words and arguments looked at. A time says how
  * busy the machine was; this count says how the work grows with the text. The
  * budget does not draw on it, so a budget that stops limiting still shows here.
  */
@@ -199,6 +201,34 @@ function ansiC(src: string, i: number): [string, number] {
   throw new Unclosed();
 }
 
+/** Where each line starts and ends, by its text and by its text past leading tabs (what `<<-` compares). */
+interface LineIndex { exact: Map<string, Array<[number, number]>>; stripped: Map<string, Array<[number, number]>> }
+/** What ends a line for a regex's `^` and `$`. */
+const LINE_END = /[\n\r\u2028\u2029]/g;
+
+/**
+ * The lines of `src`, in order. A delimiter with a line end in it matches no
+ * line, as in bash: the lines after it are read as code.
+ */
+function indexLines(src: string): LineIndex {
+  spend(src.length);
+  const index: LineIndex = { exact: new Map(), stripped: new Map() };
+  const add = (map: Map<string, Array<[number, number]>>, text: string, line: [number, number]) => {
+    const found = map.get(text);
+    if (found) found.push(line);
+    else map.set(text, [line]);
+  };
+  for (let start = 0; ;) {
+    LINE_END.lastIndex = start;
+    const end = LINE_END.exec(src)?.index ?? src.length;
+    const text = src.slice(start, end);
+    add(index.exact, text, [start, end]);
+    add(index.stripped, text.replace(/^\t*/, ''), [start, end]);
+    if (end === src.length) return index;
+    start = end + 1;
+  }
+}
+
 /**
  * Splits `src` into simple commands the way the shell does, pushing each one
  * to `out` with its words' quotes and escapes removed, the commands inside
@@ -209,8 +239,8 @@ function ansiC(src: string, i: number): [string, number] {
  */
 function lex(src: string, out: SimpleCommand[], body = false): void {
   spend(src.length);
-  /** Delimiters looked for and not found from a position on: they are not found from any later one either. */
-  const missing = new Map<string, number>();
+  /** The lines of `src` by their text, built at the first heredoc: each delimiter is then found without walking the lines again. */
+  let lines: LineIndex | null = null;
 
   /** Where the `${...}` whose brace is at `i` ends; quotes and expansions inside it are read, braces nest. */
   const braceEnd = (i: number): number => {
@@ -266,14 +296,16 @@ function lex(src: string, out: SimpleCommand[], body = false): void {
 
   /** Where the line `delim` (after tabs, with `strip`) starts and where the line after it starts, from `pos`; null when none. */
   const delimiterLine = (delim: string, strip: boolean, pos: number): [number, number] | null => {
-    const key = `${strip ? '-' : ''}${delim}`;
-    if ((missing.get(key) ?? Infinity) <= pos) return null;
-    spend(src.length - pos);
-    const re = new RegExp(`^${strip ? '\\t*' : ''}${delim.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'gm');
-    re.lastIndex = pos;
-    const m = re.exec(src);
-    if (!m) { missing.set(key, pos); return null; }
-    return [m.index, Math.min(src.length, m.index + m[0].length + 1)];
+    lines ??= indexLines(src);
+    const found = (strip ? lines.stripped : lines.exact).get(delim) ?? [];
+    // The first of them that starts at `pos` or later.
+    let [lo, hi] = [0, found.length];
+    while (lo < hi) {
+      const mid = (lo + hi) >> 1;
+      [lo, hi] = found[mid]![0] < pos ? [mid + 1, hi] : [lo, mid];
+    }
+    const line = found[lo];
+    return line ? [line[0], Math.min(src.length, line[1] + 1)] : null;
   };
 
   /** Reads from `i`; when `nested`, stops past the `)` that closes the `$(` or `<(` before `i`. */
@@ -615,6 +647,8 @@ function findCommands(args: string[]): string[][] {
 
 /** The reasons found in one simple command, as the words the shell hands over, and what it reads on its input. */
 function scanWords(words: string[], scan: Scan, input: () => string[]): void {
+  // Bash expands `{rm,-rf,x}` into words before it runs anything, and in every word: `rm {-rf,x}` too.
+  words = words.flatMap((w) => BRACE_WORD.exec(w)?.[1]!.split(',') ?? w);
   spend(words.length);
   const { add } = scan;
   // The last word that would read differently if read again: past it, `eval` and `ssh` change nothing.
@@ -629,9 +663,6 @@ function scanWords(words: string[], scan: Scan, input: () => string[]): void {
       else if (w !== undefined && (LEADING_RESERVED.has(w) || ASSIGNMENT.test(w))) i++;
       else break;
     }
-    // `{rm,-rf,x}`: bash's brace expansion makes the words.
-    const brace = /^\{([^{}]*,[^{}]*)\}$/.exec(words[i] ?? '');
-    if (brace) { words = [...words.slice(0, i), ...brace[1]!.split(','), ...words.slice(i + 1)]; continue; }
     const name = commandName(words[i] ?? '');
     const runs = wrappedCommand(name, words, i);
     if (runs === null) break;
