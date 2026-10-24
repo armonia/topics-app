@@ -340,6 +340,15 @@ jobs:
           # semina le card su un id diverso da quello che la finestra apre, e il
           # rosso esce solo su macOS, dove `/tmp` e' un link a `/private/tmp`.
           bun run check:tmp-canonical
+          # A mock.module left un-restored hands every later file in the shard
+          # the fake. `mock.restore()` does NOT fix it -- that only undoes spies.
+          # On 2026-09-12 this cost three CI rounds: the red pointed at the code
+          # under test, not at the file that left the mock behind. The worst
+          # outcome is the file AFTER the leak staying GREEN for the wrong reason,
+          # believing it is talking to the real module. Static scan catches the
+          # gap before the runner does -- shard order determines who the victim
+          # is, so it is invisible until the unlucky grouping shows up.
+          bun run check:module-mock-restore
           bun run check:spec-coverage
           # `check:untraced-tests` guarda nella direzione OPPOSTA a
           # `check:spec-coverage`: quello parte dalle spec e cerca i test, questo
@@ -488,6 +497,19 @@ jobs:
       - name: Bundle size budget
         if: ${{ !cancelled() && steps.setup.outcome == 'success' }}
         run: bun run check:bundle
+
+      # The landing demo is the real client with a mock seam in place of the
+      # server, and nothing in a build fails when a mock stops matching the
+      # code that reads it: the bundle compiles and dies at render. Until now
+      # only `deploy:landing` ran this check, by hand, so a client change that
+      # broke the demo was found when the site was published. The demo builds
+      # into landing/public/app (not client/dist), so the bundle steps above
+      # are untouched; the browser is the Chromium installed in the setup step.
+      - name: Landing demo boots clean
+        if: ${{ !cancelled() && steps.setup.outcome == 'success' }}
+        run: |
+          bun run build:landing
+          bun run check:demo landing/public
 
       # Le LATENZE delle rotte calde, contro una baseline dichiarata: stesso
       # mestiere di `check:bundle`, altro asse. Gira dopo la suite perche' vuole
@@ -648,6 +670,13 @@ jobs:
             exit 0
           fi
           exit "$rc"
+
+      # The gates of the post-commit rebuild (scripts/graphify-regen.sh). They
+      # run on a fake sysctl and graphify, so the runner's own readings do not
+      # matter: a regression here loses the code graph silently on every commit.
+      - name: Guardie del rebuild del grafo (graphify-regen)
+        if: ${{ !cancelled() && steps.setup.outcome == 'success' }}
+        run: bash scripts/graphify-regen.test.sh
 
   # THE VERDICT OF THE RUN'S TESTS AND GATES, IN THE JOB AND STEP THE BOARD READS.
   #

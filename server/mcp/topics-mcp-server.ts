@@ -37,6 +37,7 @@ import { commentAuthorLabel } from "../../shared/comment-author";
 import { CHECKS_LEG_MS } from "../services/checks-gate";
 import { OUTBOUND_TOOLS, callGoogleCall, callSendMail } from "./outbound-tools";
 import { COMMAND_TOOLS, RUN_COMMAND_BOARD_DESCRIPTION, callRunCommand, isBoardProfile } from "./command-tools";
+import { BIND_LOOPBACK_NOTE, runScriptBindNote } from "../../shared/background-work";
 import { SHOW_VIEW_TOOL, answerResourceMethod, callShowView, showViewCallResult } from "./view-tools";
 import { hasCommandShell } from "../lib/command-process";
 import { bridgeAuthHeaders, HttpAnswerError, httpJson, lostRequestError, loopbackInit, REQUEST_TIMEOUT_MS } from "./topics-http";
@@ -118,6 +119,12 @@ const MODIFICA = {
 
 /** Replaced by the profiles visible when the tool list is served (`withAgentProfiles`). */
 const AGENT_TYPE_PLACEHOLDER = "Optional profile to start the sub-agent from.";
+
+/** `run_script` as the agent reads it; without `run_command` (Windows) the other way is a shell command. */
+function runScriptDescription(withRunCommand: boolean): string {
+  return "Run a package.json script (e.g. 'dev', 'test', 'build') in the current topic's project. Async: returns a processId immediately — poll output with read_process_output, don't wait. The project is resolved from the session, so you only pass the script name. Only declared scripts run; an unknown name is rejected with the available list. "
+    + `${BIND_LOOPBACK_NOTE} ${runScriptBindNote(withRunCommand ? "with run_command" : "as a shell command")}`;
+}
 
 const TOOLS = [
   {
@@ -205,7 +212,7 @@ const TOOLS = [
   {
     name: "run_script",
     description:
-      "Run a package.json script (e.g. 'dev', 'test', 'build') in the current topic's project. Async: returns a processId immediately — poll output with read_process_output, don't wait. The project is resolved from the session, so you only pass the script name. Only declared scripts run; an unknown name is rejected with the available list.",
+      runScriptDescription(true),
     inputSchema: {
       type: "object",
       properties: {
@@ -930,10 +937,15 @@ function toolsForOrdinaryProfile(profile: string | undefined, platform: NodeJS.P
     // No POSIX shell to run it in (`commandArgv`): offered, it could only fail.
     && (hasCommandShell(platform) || t.name !== "run_command"),
   );
-  // A board card's agent waits for its command inside the turn (`isBoardProfile`).
-  return isBoardProfile(profile)
-    ? tools.map((t) => (t.name === "run_command" ? { ...t, description: RUN_COMMAND_BOARD_DESCRIPTION } : t))
-    : tools;
+  // A board card's agent waits for its command inside the turn (`isBoardProfile`),
+  // and without run_command run_script points to a shell command instead.
+  const board = isBoardProfile(profile);
+  const shell = hasCommandShell(platform);
+  return tools.map((t) => {
+    if (board && t.name === "run_command") return { ...t, description: RUN_COMMAND_BOARD_DESCRIPTION };
+    if (!shell && t.name === "run_script") return { ...t, description: runScriptDescription(false) };
+    return t;
+  });
 }
 
 export function isToolAllowedForProfile(profile: string | undefined, name: string): boolean {

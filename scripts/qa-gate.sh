@@ -45,7 +45,7 @@
 # le due liste. Chi aggiunge un cancello statico a `ci.yml` lo aggiunge anche
 # qui, nello stesso commit.
 #
-# I due che restano fuori con un motivo, e non per dimenticanza:
+# Quelli che restano fuori con un motivo, e non per dimenticanza:
 #   `check:e2e-touched`  picks the e2e specs from the DIFF against a base branch,
 #                        and it runs in the pull request CI (`e2e (0)`), whose
 #                        verdict the board reads for each delivery
@@ -56,6 +56,10 @@
 #                        Dal 26/08 non puo' piu' mentire su una build vecchia:
 #                        se i sorgenti sono piu' recenti esce 2 e non misura
 #                        (GATE-BUNDLE-FRESH-01).
+#   `check:demo`         avvia la demo della landing in un browser vero: pretende
+#                        `landing/public/app` gia' costruito (`bun run build:landing`)
+#                        e un Chromium. In CI gira subito dopo quella build (passo
+#                        «Landing demo boots clean»); qui si lancia a mano.
 #   `report:previews`    (era `check:previews`: il nome dichiarava un cancello e
 #                        era un referto) misura il DATABASE VIVO della board e la
 #                        cartella media di questo utente, non il checkout. In una
@@ -130,7 +134,7 @@ STATICI=(check:any check:any-budget check:ref-callbacks check:nul check:eslint-d
          check:test-skips check:emdash check:bloat check:route-shadowing check:typography check:ui-language check:comment-language
          check:identifier-language check:sleeps check:tmp-canonical
          check:api-door
-         check:untraced-tests check:gates-orfani check:spec-coverage
+         check:untraced-tests check:module-mock-restore check:gates-orfani check:spec-coverage
          check:migrations check:security check:deadcode)
 
 echo "== guard rail statici, tipi e lint (in parallelo) =="

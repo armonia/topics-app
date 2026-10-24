@@ -785,6 +785,12 @@ const IT: Dict = {
   'browser.memoryEviction.reloaded': 'Pagina ricaricata: era ferma da più di 10 minuti e la memoria scarseggiava.',
   'browser.memoryEviction.stateNormal': 'Scatta solo se la memoria scarseggia: adesso no.',
   'browser.memoryEviction.stateShort': 'La memoria scarseggia adesso: le pagine ferme da più di 10 minuti si liberano e si ricaricano quando ci torni.',
+  'browser.storeReap.cache.setting': 'Svuota la cache dei browser chiusi',
+  'browser.storeReap.cache.hint': 'Toglie la cache dei browser che non apri più da tempo. Accessi e cookie restano.',
+  'browser.storeReap.whole.setting': 'Cancella anche accessi e cronologia',
+  'browser.storeReap.whole.hint': 'Toglie per sempre anche accessi, cookie e dati dei siti di quei browser. La cronologia delle pagine che Topics tiene a parte non si tocca.',
+  'browser.storeReap.afterDays': 'dopo {n} giorni senza uso',
+  'browser.storeReap.saveFailed': 'L’impostazione non è stata salvata.',
   'browser.tab.menu': 'Altre azioni della pagina',
   'browser.tab.back': 'Indietro',
   'browser.tab.forward': 'Avanti',
@@ -2972,6 +2978,7 @@ const IT: Dict = {
   'sidebar.closeBrowser': 'Chiudi browser',
   'topic.cloudSession': 'Sessione cloud (OpenClaw)',
   'topic.serverOn': 'Server acceso: {where}. Resta su da solo, la chat è libera',
+  'topic.serverOnLan': 'Server acceso e visibile in LAN: {where}. Chiunque sia sulla stessa rete può aprirlo',
   'topic.openElsewhere': "Aperto in un'altra finestra",
   // ── Condivisione. Il pannello era scritto a mano in inglese dentro un'app
   //    che parla italiano: qui le sue parole entrano nel dizionario come tutte

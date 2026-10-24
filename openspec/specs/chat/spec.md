@@ -5709,6 +5709,29 @@ chat rispondeva `[]` mentre la chat nominava il processo.
 - **WHEN** il server risponde sulla sua porta
 - **THEN** la sua riga della striscia ha «sveglia la chat»
 
+#### Scenario: un server che altri dispositivi possono aprire lo dice
+- **GIVEN** un server della chat che ascolta su tutte le interfacce
+  (`0.0.0.0:8777`) o su un indirizzo che non è il loopback (24/10: il server
+  della chat finance, senza nessun avviso)
+- **THEN** la sua riga della striscia porta «visibile in LAN» (`live-work-lan`)
+  accanto all'indirizzo, e il segno del server sulla riga della sidebar è ambra
+  e lo dice nel titolo
+- **AND** un server su `127.0.0.1`, `[::1]` o un indirizzo link-local
+  (`fe80::/10`, che `lsof` su macOS scrive `[fe80:1::1]` per il loopback), o su
+  l'indirizzo jolly legato al dispositivo di loopback (`*%lo` di `ss`), NON
+  porta né il badge né il segno ambra
+- **AND** un processo che ascolta sulla stessa porta su `127.0.0.1` e sul suo
+  indirizzo LAN porta il badge, qualunque riga di `lsof` o `ss` venga prima, e
+  il titolo del segno nomina solo gli indirizzi aperti, anche quando non sono i primi
+- **AND** `run_command`, `run_script` e il prompt di sistema (che copre la shell
+  in background della CLI) chiedono di legare un server a `127.0.0.1`
+  (`--host 127.0.0.1`, con npm `npm run dev -- --host 127.0.0.1`), non a
+  `0.0.0.0`, salvo che la persona voglia aprirlo da altri dispositivi
+- **AND** `run_script` non passa flag: per uno script che apre il server su
+  tutte le interfacce (`vite --host`) la sua descrizione e il prompt dicono di
+  avviarlo con `run_command` (su Windows con un comando di shell) come
+  `npm run <script> -- --host 127.0.0.1`
+
 ### Requirement: BGVIS-09 — Un server avviato con `Bash` in background è un server della chat
 
 Un `Bash` con `run_in_background` lanciato dall'agente di una chat, il cui

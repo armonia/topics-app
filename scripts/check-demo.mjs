@@ -11,7 +11,8 @@
  * rebuild showed "Authorise this device" instead of the app, and ScriptRunner
  * threw on a `scripts` map that had become a list.
  *
- * So: boot the built demo, and treat any uncaught error as a failure.
+ * So: boot the built demo, open the identity menu, and treat any uncaught
+ * error as a failure.
  *
  *   bun run check:demo            # after build:site — reads landing/dist/app
  *   bun run check:demo -- <dir>   # any directory containing app/index.html
@@ -55,12 +56,24 @@ const server = createServer(async (req, res) => {
 await new Promise((ok) => server.listen(0, '127.0.0.1', ok));
 const base = `http://127.0.0.1:${server.address().port}`;
 
+/* Launch is bounded on both paths. Playwright's own default is 180 s per
+ * launch, so a machine with no usable browser used to sit here for up to six
+ * minutes (bundled Chromium, then the real Chrome) before saying anything. */
+const LAUNCH_TIMEOUT = 30000;
 let browser;
 try {
-  browser = await chromium.launch();
-} catch {
+  browser = await chromium.launch({ timeout: LAUNCH_TIMEOUT });
+} catch (bundledErr) {
   // No bundled chromium (playwright-core ships none): use the real Chrome.
-  browser = await chromium.launch({ channel: 'chrome' });
+  try {
+    browser = await chromium.launch({ channel: 'chrome', timeout: LAUNCH_TIMEOUT });
+  } catch (chromeErr) {
+    server.close();
+    console.error('check:demo — no browser could be launched:');
+    console.error('  · bundled chromium: ' + String(bundledErr.message).split('\n')[0]);
+    console.error('  · chrome channel:   ' + String(chromeErr.message).split('\n')[0]);
+    process.exit(1);
+  }
 }
 const page = await browser.newPage({ viewport: { width: 1280, height: 800 } });
 
@@ -77,13 +90,34 @@ page.on('response', (r) => {
 });
 
 const target = `${base}/app/index.html`;
-await page.goto(target, { waitUntil: 'load' });
-await page.waitForTimeout(8000);
-const testo = (await page.locator('body').innerText()).replace(/\s+/g, ' ').trim();
-await browser.close();
-server.close();
+const problemi = [];
+let testo = '';
+try {
+  await page.goto(target, { waitUntil: 'load' });
+  await page.waitForTimeout(8000);
+  // An explicit 20 s cap instead of Playwright's default (30 s in 1.59): a page
+  // that has not drawn its text by then fails, with the reason on its own line.
+  testo = (await page.locator('body').innerText({ timeout: 20000 }).catch((e) => {
+    problemi.push(`reading the page text failed after at most 20 s: ${String(e.message).split('\n')[0]}`);
+    return '';
+  })).replace(/\s+/g, ' ').trim();
+  // The boot alone does not read every mock: the identity band's menu asks for
+  // the address book and the friendships, and threw on `[]` while the boot
+  // stayed clean. "This Mac" is the device name the /api/auth/session mock gives.
+  if (testo) {
+    const identityRow = page.getByRole('button', { name: 'This Mac' }).first();
+    if (await identityRow.click({ timeout: 10000 }).then(() => true, () => false)) {
+      await page.waitForTimeout(2500);
+    } else {
+      problemi.push('the identity row («This Mac») is not drawn, so its menu could not be opened');
+    }
+  }
+} finally {
+  await browser.close();
+  server.close();
+}
 
-const problemi = [...errori];
+problemi.unshift(...errori);
 /* «Authorise this device» is the pairing gate: the demo has no server to pair
  * with, so reaching it means the identity mock stopped matching the client. */
 if (/Authorise this device|Autorizza questo dispositivo/.test(testo)) {

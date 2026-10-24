@@ -12,8 +12,12 @@
  * A command opens its live log in its own row, the tail its card shows, one
  * row at a time (chat-strips-in-transcript): the process registry answers it.
  *
+ * A server other devices can open (every interface, or an address that is
+ * not the loopback) carries «visible on LAN» next to its address.
+ *
  * @covers SUBSTRIP-01
  * @covers SUBSTRIP-02
+ * @covers BGVIS-08
  */
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
 import { createElement } from 'react';
@@ -297,5 +301,21 @@ describe('a command stops from its row, and says when its end wakes the chat', (
     expect(label.some((child) => !!child && child.props?.['data-testid'] === 'live-work-wakes')).toBe(true);
     // The button's own label hides the sign's: the sign describes the button.
     expect(button.props['aria-describedby']).toBe(sign.props.id);
+  });
+});
+
+describe('a server other devices can open says so on its row', () => {
+  test('«visible on LAN» next to a server on every interface, nothing next to one on the loopback', async () => {
+    const lan: LiveWorkRow = { kind: 'command', id: 'p3', name: 'finance', command: 'python3 -m http.server 8777', preview: '', startedAt: '2026-10-07T20:00:09.000Z', listen: [{ host: '*', port: 8777 }], wakes: false };
+    answers = [[...ROWS, lan]];
+    const list = scriptsApi.list;
+    scriptsApi.list = (async () => {
+      const known = await list();
+      return { scripts: [...known.scripts, { ...known.scripts[1]!, processId: 'p3', scriptName: 'p3' }] };
+    }) as typeof scriptsApi.list;
+    const h = await mounted();
+    expect(inRow(h, 'p3', 'live-work-lan')).toBeDefined();
+    expect(inRow(h, 'p2', 'live-work-lan')).toBeUndefined();
+    expect(hosts(h, 'live-work-lan')).toHaveLength(1);
   });
 });

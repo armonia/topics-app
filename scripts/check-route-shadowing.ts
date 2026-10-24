@@ -1332,18 +1332,7 @@ export interface KnownOverlap {
  * check builds (and the methods, for an entry about those only), so the entry
  * stops matching (and fails the run) when the code it describes changes.
  */
-export const KNOWN: KnownOverlap[] = [
-  // Pending branch fix/keep-list-route: that branch moves the keep-list block
-  // above `/api/browsers/:id`. Remove this entry in the same change, or the
-  // run fails as stale.
-  {
-    prior: "browserRouter",
-    later: "browserRouter",
-    sample: "/api/browsers/data-store-keep-list",
-    methods: ["GET"],
-    why: "GET /api/browsers/:id (browser.ts:229) hides the keep-list route (browser.ts:672) since 12/08; fix/keep-list-route",
-  },
-];
+export const KNOWN: KnownOverlap[] = [];
 
 /** The KNOWN entry an overlap is: same routers, same sample, and the same methods when the entry names them. */
 export function knownFor(o: Overlap, known: KnownOverlap[]): KnownOverlap | undefined {

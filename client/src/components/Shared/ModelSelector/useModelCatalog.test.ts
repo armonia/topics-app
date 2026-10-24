@@ -54,6 +54,24 @@ describe('one row per model, grouped by company (MSEL-02)', () => {
   });
 });
 
+describe('a provider listing a newer version does not demote what another declared current', () => {
+  test('OpenAI API lists gpt-6.2-sol: the four Codex rows stay current', () => {
+    const apiListing = entry('openai', 'OpenAI API', ['gpt-6.2-sol'], { capabilities: ['streaming'] });
+    const rows = group(buildModelCatalog(snapshotOf([CLAUDE_CODE, CODEX_ENTRY, apiListing, ENGINE]), 'chat', AUTO), 'openai');
+    for (const label of ['GPT-6.1-Sol', 'GPT-6-Astra', 'GPT-6-Sol', 'GPT-6-Luna']) expect(labels(rows.rows)).toContain(label);
+    expect(labels(rows.older)).not.toContain('GPT-6.1-Sol');
+    expect(labels(rows.older)).not.toContain('GPT-6-Sol');
+  });
+
+  test('OpenRouter lists claude-opus-5.6 and the Claude API claude-opus-10: Opus 5.5 of Claude Code stays current', () => {
+    const routerListing = entry('direct-openrouter', 'OpenRouter', ['anthropic/claude-opus-5.6'], { capabilities: ['streaming'] });
+    const api = entry('claude', 'Claude API', ['claude-opus-10'], { capabilities: ['streaming'] });
+    const anthropic = group(buildModelCatalog(snapshotOf([CLAUDE_CODE, routerListing, api, ENGINE]), 'chat', AUTO), 'anthropic');
+    expect(labels(anthropic.rows)).toContain('Opus 5.5');
+    expect(labels(anthropic.older)).not.toContain('Opus 5.5');
+  });
+});
+
 describe('the audit fleet, with keys (revision §3.4-3.5, AC-04, AC-13, AC-14)', () => {
   const groups = buildModelCatalog(AUDIT_KEYS, 'chat', AUTO, { routing: true });
 

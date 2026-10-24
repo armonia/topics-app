@@ -123,6 +123,16 @@ vuota SHALL costare zero.
 - **GIVEN** una conversazione potata
 - **THEN** ogni richiesta di strumento SHALL avere ancora la propria risposta
 
+#### Scenario: le immagini oltre il tetto
+- **GIVEN** una storia che supera 20 immagini o 20 MB di immagini
+- **THEN** le più vecchie SHALL diventare segnaposto in un colpo solo, fino a
+  10 immagini e 10 MB, e l'ultima immagine SHALL restare
+- **AND** la storia NON SHALL essere toccata di nuovo finché non supera ancora
+  20 immagini o 20 MB: con immagini piccole i 10 giri successivi restano
+  intatti; con 1,87 MiB di base64 a immagine ne restano intatti 5 (potatura al
+  sesto, 5 immagini vive). Ogni potatura cambia il prefisso e la cache lo
+  riscrive da lì in poi
+
 ### Requirement: RT-04 — La storia si ricostruisce dal database, e si RIPARA senza inventare risposte
 
 Dopo un riavvio la conversazione SHALL essere ricostruita dalle righe salvate: un
@@ -279,6 +289,21 @@ che dovrebbe verificare non prova niente.
 #### Scenario: una sessione vecchia con un turno vivo
 - **GIVEN** una sessione oltre il tetto ma con un turno in corso
 - **THEN** NON SHALL essere sfrattata
+
+#### Scenario: l'inattività si conta dalla fine del turno
+- **GIVEN** un turno durato più del tetto
+- **WHEN** il turno finisce
+- **THEN** la sessione NON SHALL essere sfrattata al passaggio successivo
+
+#### Scenario: la cache resta calda mentre la persona legge
+- **GIVEN** una sessione il cui turno è appena finito
+- **WHEN** nessun turno nuovo parte
+- **THEN** la sessione SHALL rileggere il proprio prefisso dalla cache del prompt 4,5 minuti dopo l'INIZIO dell'ultima richiesta che l'ha toccata (la cache vive 5 minuti da lì, non dalla fine della risposta), con gli stessi strumenti, system e thinking del turno, e il breakpoint sull'ultimo messaggio della storia
+- **AND** SHALL smettere a 15 minuti dalla fine del turno, a un turno nuovo comunque finisca, allo sfratto o al reset, e una sola catena di ping SHALL essere viva per sessione
+- **AND** un ping il cui timer scatta in ritardo (Mac in stop, processo bloccato) SHALL NOT partire se nel frattempo la cache o la sessione sono scadute
+- **AND** SHALL NOT partire se l'ultima richiesta è più vecchia della vita della cache, o se il turno non finisce con una risposta di testo (rifiuto, chiamata a strumento tagliata, blocco di thinking)
+- **AND** il ping SHALL NOT modificare la storia della sessione
+- **AND** `TOPICS_CACHE_KEEPALIVE=off` SHALL spegnere i ping
 
 ### Requirement: RT-09 — I comandi di Topics sono gli STESSI, e un guasto in uno non uccide il turno
 

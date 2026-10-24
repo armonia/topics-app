@@ -284,7 +284,11 @@
     "18/10, the outage file's waits and its cascade. server/routes/chat.outage-direct-answer.test.ts 1030 -> 1159:",
     "its waits read the wake's own log instead of a fixed tick (on CI a 304 ms INSERT made one lose its race), and",
     "afterEach stops a test's wakes before the next one: bun does not stop a timed-out test, and its wake ran on",
-    "into the next test's turns, behind the hold it had left. Recorded by hand, this row only."
+    "into the next test's turns, behind the hold it had left. Recorded by hand, this row only.",
+    "24/10, the native prompt-cache keep-alive (PR #437). server/providers/native/provider.ts 1022 -> 1162: +140 the",
+    "ping every 4.5 minutes after a turn (keepCacheWarm, its checks when a late timer fires, the round request built",
+    "once for the turn and the ping), measured at -45% of the cold cache writes on the log of 18-24/10. Recorded by",
+    "hand, this row only."
   ],
   "tolerance_pct": 5,
   "max_lines": 800,
@@ -357,6 +361,8 @@
 
     "client/src/components/Shared/CommandPalette.tsx": 1052,
 
+    "client/src/components/Shared/ModelSelector/ModelList.tsx": 811,
+
     "client/src/components/Sidebar/PinnedTiles.tsx": 1215,
 
     "client/src/components/Sidebar/TopicTree.tsx": 3014,
@@ -423,7 +429,7 @@
 
     "desktop-tauri/pty-bridge/src/bridge.rs": 1266,
 
-    "desktop-tauri/src-tauri/src/lib.rs": 13878,
+    "desktop-tauri/src-tauri/src/lib.rs": 13896,
 
     "playwright.config.ts": 807,
 
@@ -448,8 +454,9 @@
     "scripts/check-route-latency.ts": 1050,
 
     "scripts/check-route-shadowing.test.ts": {
-      "lines": 1367,
+      "lines": 1385,
       "why": [
+        "2026-10-25, main merged after #425 emptied KNOWN: 1435 -> 1385, the three bench tests that used its entry gone.",
         "2026-10-24, the mutants of the fix measured against main: 1362 -> 1367, a catch that goes on after a try whose path test held, and calls with no check verb that name a method (the loop over the method names moves off allow, now a check verb); rows, no new helpers.",
         "2026-10-24, the round-3 fix measured row by row against main: 1274 -> 1362, one row per corpus id where it was worse than main (a factory parameter, a helper's own parameter, a type or a method name taken for the request, a callback's router, a try that leaves through its catch, a refusal with !==, a clause that may throw, a check verb in snake case or allow/throw) and one per mutant of the changed code; rows, no new helpers.",
         "2026-10-24, verifiers of the round-3 fix: 1052 -> 1274, their cases transcribed one row per id (a stored read of the method, null and false as false, field names and callback parameters, the calls that check and the ones that only pass the method, a sub-router passed on or not, while and for conditions) plus one parametrized test per check verb and per method name and the injections on BY_ID; rows, no new helpers.",
@@ -459,8 +466,9 @@
     },
 
     "scripts/check-route-shadowing.ts": {
-      "lines": 1358,
+      "lines": 1417,
       "why": [
+        "2026-10-25, measured on the file after main was merged in: 1428 on the branch -> 1417, the KNOWN entry #425 removed on main (1006 there).",
         "2026-10-24, the round-3 fix measured row by row against main: 1345 -> 1358, a parameter is the request only for the function it belongs to (not a factory around the router, not a helper inside what is read), types and method names are not reads, a try that leaves through its catch keeps its winner, a body that refuses with !== and a clause entered past a statement stay unknown as on main, and snake_case, allow and throw read as check verbs; the callback rule goes. Same walk, so it stays in this file.",
         "2026-10-24, verifiers of the round-3 fix: 1184 -> 1345, mostly the comment that lists what stays unknown and what stays a finding at a known cost; in code, a stored read of the method followed through the name it was stored in, null and false read as false, a field name or a callback parameter not taken for the request, a check told from a call that only passes the method, a sub-router passed on only when its answer is the request's, and a while or for condition read like an if. Same walk, so it stays in this file.",
         "2026-10-24, verifiers of the switch branch: 1017 -> 1184, a third flow value for a break inside the switch being followed (so a case written as a block, a labelled break or a closure in a falling clause are read as the language runs them), a mark on every outcome that depends on a read of the method the gate cannot evaluate (an alias, method.toUpperCase(), a set or a call handed the method, but not a sub-router handed the path) so an unknown refusal or guard before the winner never becomes a finding, the body's own tests read below the top, and a function typed to answer a boolean or a literal kept out as a predicate. Each is a rule of the same walk, so it stays in this file.",
@@ -468,7 +476,7 @@
       ]
     },
 
-    "server.ts": 7001,
+    "server.ts": 7021,
 
     "server/attention/store.ts": {
       "lines": 1253,
@@ -477,7 +485,7 @@
       ]
     },
 
-    "server/browser-service.ts": 2479,
+    "server/browser-service.ts": 2478,
 
     "server/browser-tools-handler.ts": 810,
 
@@ -507,7 +515,7 @@
 
     "server/providers/acp.ts": 917,
 
-    "server/providers/claude-code.ts": 4879,
+    "server/providers/claude-code.ts": 4892,
 
     "server/providers/codex.ts": 1310,
 
@@ -527,7 +535,7 @@
 
     "server/providers/native/agent-loop.ts": 1101,
 
-    "server/providers/native/provider.ts": 1022,
+    "server/providers/native/provider.ts": 1162,
 
     "server/providers/native/tools.ts": {
       "lines": 801,
@@ -586,7 +594,7 @@
     "server/routes/tasks.ts": 3952,
 
     "server/routes/terminal.ts": {
-      "lines": 4154,
+      "lines": 4164,
       "why": [
         "2026-10-04, notifications-redesign: 3722 on main -> 3727, five calls into server/attention/terminal-turns.ts (a hook-less terminal's busy and quiet as its turn, the PTY exit as the end of what it waited on, the retire as T13). The logic lives in that module.",
         "2026-10-05, subagent-nativi (PR #238): 3767 on main -> 3888, the routes' side of native sub-agents: the spawn's engine branch, send/read/stop/list on a native child, the resume that moves a CLI child to the engine, one resume at a time, the CLI stop as a function the tree stop reuses. The logic lives in server/lib/native-subagents.ts (childRuntimeFor, engineLaunchOf, moveCliChildToEngine, liveNativeChildren).",
@@ -598,7 +606,7 @@
     "server/routes/topics.control.test.ts": 922,
 
     "server/routes/topics.ts": {
-      "lines": 3394,
+      "lines": 3400,
       "why": [
         "2026-10-03, commands-ui: +55 on main (3244): GET /api/topics/:id/resumable-sessions (/resume, CMDUI-03), the transcriptPath adopt-claude now accepts, the `compact` case of /api/command for the native engine, the slash menu read per provider. The reader lives in lib/resumable-claude-sessions.ts and the menu in lib/slash-command-menu.ts.",
         "2026-10-03, merged with main 5125e396b (tornata 3b): 3309 measured. Main 3244 -> 3254 bought +10 (find inside one conversation: the POST /api/history-find door and the e2e switch that splits stored tool outputs); this branch +55 on top (the routes listed above)."
@@ -613,7 +621,7 @@
 
     "server/services/review-checks-brakes.test.ts": 982,
 
-    "server/services/review-checks.ts": 889,
+    "server/services/review-checks.ts": 890,
 
     "server/services/task-automerge.test.ts": 1065,
 
@@ -629,7 +637,7 @@
 
     "server/services/tasks.test.ts": 2789,
 
-    "server/services/tasks.ts": 6658,
+    "server/services/tasks.ts": 6641,
 
     "server/services/worktree-gc.test.ts": 997,
 

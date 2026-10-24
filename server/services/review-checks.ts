@@ -154,6 +154,9 @@ export const STATIC_RAILS_CHECK: ReviewCheck = {
     "bun run check:comment-language",
     "bun run check:gates-orfani",
     "bun run check:untraced-tests",
+    // A mock.module not given back hands every later file in the shard the
+    // fake: static scan so it catches the gap before the runner does.
+    "bun run check:module-mock-restore",
     "bun run check:spec-coverage",
     "bun run check:sleeps",
     "bun run check:test-skips",

@@ -98,8 +98,9 @@ function routeOf(enabled: boolean, selection: AiExecutionSelection, snapshot: Pr
 const domId = (text: string) => text.replace(/[^a-z0-9]/gi, '-');
 
 /** The Run-in-Topics band: a real switch, the whole band clicks, never disabled
- *  (neither position blocks anything), and the line says what happens to the
- *  CURRENT choice, readable without hovering (MSEL-07). One line on desktop. */
+ *  (neither position blocks anything), and the hint says what happens to the
+ *  CURRENT choice, readable without hovering (MSEL-07). Two lines: the label
+ *  on top, the route hint below. Active state: accent fill + ring (no border-l). */
 function RoutingBand({ enabled, route, engineLabel, onToggle }: {
   enabled: boolean;
   route: TopicsRoute;
@@ -109,7 +110,7 @@ function RoutingBand({ enabled, route, engineLabel, onToggle }: {
   const tr = useT();
   const through = enabled && route.via !== 'direct';
   const direct = enabled && route.via === 'direct' ? route : null;
-  const line = direct
+  const hint = direct
     ? direct.reason === 'family' ? tr('ai.selector.route.direct.family', { engine: engineLabel })
       : direct.reason === 'model' ? tr('ai.selector.route.direct.model')
         : tr('ai.selector.route.direct.engineDown')
@@ -122,24 +123,35 @@ function RoutingBand({ enabled, route, engineLabel, onToggle }: {
       data-testid="model-selector-routing"
       data-route={!enabled ? 'off' : through ? 'topics' : 'direct'}
       onClick={onToggle}
-      className={`mx-1 mb-1 flex w-[calc(100%-0.5rem)] shrink-0 items-start gap-2 rounded-md px-2.5 py-1 coarse:min-h-[44px] coarse:py-3 text-left transition-colors ${
-        through ? 'border-l-2 border-primary bg-primary/10' : 'border-l-2 border-transparent bg-app-inset'
+      className={`mx-1 mb-1 flex w-[calc(100%-0.5rem)] shrink-0 items-center gap-2.5 rounded-md px-2.5 py-1 coarse:min-h-[44px] coarse:py-3 text-left transition-colors ${
+        through
+          ? 'bg-primary/10 ring-1 ring-primary/30 ring-inset'
+          : 'bg-app-inset ring-1 ring-transparent ring-inset'
       }`}
     >
-      <Route className={`mt-0.5 h-3.5 w-3.5 shrink-0 ${through ? ACTIVE_INK : 'text-app-text-secondary'}`} aria-hidden="true" />
-      <span className="min-w-0 flex-1 text-mini leading-4">
-        <span className="font-semibold text-app-text">{tr('ai.selector.routing')}</span>{' '}
+      <Route
+        className={`h-4 w-4 shrink-0 ${through ? ACTIVE_INK : 'text-app-text-secondary'}`}
+        aria-hidden="true"
+      />
+      <span className="min-w-0 flex-1">
+        <span className={`block text-mini font-semibold leading-snug ${through ? ACTIVE_INK : 'text-app-text'}`}>
+          {tr('ai.selector.routing')}
+        </span>
         <span
           data-testid="model-selector-routing-line"
           // Under 768px the sheet's popover is darker (`--popover-bg` 88%), and
           // the secondary ink on the blue band fell to 4.48:1 (AC-34, axe).
-          className={direct ? SEGNALE_ATTESA : 'text-app-text-secondary max-md:text-app-text'}
+          className={`block text-mini leading-snug ${direct ? SEGNALE_ATTESA : 'text-app-text-secondary max-md:text-app-text'}`}
         >
-          {line}
+          {hint}
         </span>
       </span>
-      <span className={`relative mt-0.5 h-4 w-7 shrink-0 rounded-full transition-colors ${enabled ? 'bg-primary' : 'bg-app-border'}`} aria-hidden="true">
-        <span className={`absolute top-0.5 h-3 w-3 rounded-full bg-white transition-transform ${enabled ? 'translate-x-3.5' : 'translate-x-0.5'}`} />
+      {/* Toggle: 20x36px with a shadow on the thumb for depth */}
+      <span
+        className={`relative h-5 w-9 shrink-0 rounded-full transition-colors ${enabled ? 'bg-primary' : 'bg-app-border'}`}
+        aria-hidden="true"
+      >
+        <span className={`absolute top-0.5 h-4 w-4 rounded-full bg-white shadow-sm transition-transform ${enabled ? 'translate-x-4' : 'translate-x-0.5'}`} />
       </span>
     </button>
   );

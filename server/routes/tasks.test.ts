@@ -1210,7 +1210,7 @@ describe("board settings route", () => {
     // The refusal names the way out: the chained slot, spelled once in
     // `review-checks.ts`, not a vague "merge two commands".
     expect(body.error).toContain("static-rails");
-    expect(body.error).toContain("bun run check:untraced-tests && bun run check:spec-coverage");
+    expect(body.error).toContain("bun run check:untraced-tests && bun run check:module-mock-restore");
     // E non ha toccato quelli buoni: un rifiuto non deve lasciare la board a meta'.
     const dopo = (await (await call(router, "GET", "/api/boards/pX/settings"))!.json()).reviewChecks;
     expect(dopo).toHaveLength(6);
