@@ -1562,6 +1562,20 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
           // Idempotente: `onError` e il `.catch` possono scattare entrambi.
           let rollbackInlineSent: (() => void) | null = null;
           const undoInlineMark = () => { rollbackInlineSent?.(); rollbackInlineSent = null; };
+          // The context epoch the turn was composed for: set only by a provider
+          // that keeps the conversation itself (native, see `AIProvider.contextEpoch`).
+          let sentEpoch: number | undefined;
+          // A failed turn on such a provider stays in its conversation: the
+          // message is the history's unanswered tail and the next turn merges
+          // into it (native `sendChat`). The context it carried is in that
+          // copy, and undoing the mark would send it a second time, kept for
+          // the rest of the session (measured: 70k characters per call became
+          // 140k). If the copy is rebuilt later, its epoch moves and the next
+          // turn's scope changes by itself.
+          const undoInlineMarkAfterFailedTurn = () => {
+            if (sentEpoch !== undefined) { rollbackInlineSent = null; return; }
+            undoInlineMark();
+          };
           // Reattach after a server restart continues the SAME bubble the client
           // was watching (reuse + in-place JSONL replay) instead of spawning a
           // duplicate turn / leaving a ghost spinner. Normal sends always get a
@@ -3602,7 +3616,7 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
               // non esserlo mai stato (PROCESS_DEAD rigetta PRIMA di scrivere su
               // stdin). Nel dubbio si rimanda: due token in piu' contro un modello
               // che non sa in che progetto si trova.
-              undoInlineMark();
+              undoInlineMarkAfterFailedTurn();
               finalizeStream("error", error);
             },
 
@@ -3883,9 +3897,11 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
             // conversazione CLI: sessione nuova o compattazione ⇒ mappa vuota ⇒
             // il contesto completo riparte da solo.
             const dedupOff = process.env.TOPICS_INLINE_CONTEXT_DEDUP === "0";
+            sentEpoch = dedupOff ? undefined : topicProvider.contextEpoch?.(sessionKey);
             const sentScope = dedupOff ? null : inlineScope(
               readClaudeSessionId(ctx, sessionKey),
               countCompactions(ctx, sessionKey),
+              sentEpoch,
             );
             // A skill invocation (`/recap`) reaches the CLI bare, its context comes back apart
             // (`payload.slashContext`). Known skills: the CLI's own list (claude-code only), then the topic's cwd.
@@ -4013,7 +4029,11 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
               // preambolo se l'è portato via e rimandarlo è l'esito corretto.
               if (sentScope && payload.inlineSlots) {
                 try {
-                  const settled = inlineScope(readClaudeSessionId(ctx, sessionKey), countCompactions(ctx, sessionKey));
+                  const settled = inlineScope(
+                    readClaudeSessionId(ctx, sessionKey),
+                    countCompactions(ctx, sessionKey),
+                    topicProvider.contextEpoch?.(sessionKey),
+                  );
                   rekeyInlineSent(sessionKey, sentScope, settled);
                 } catch { /* best-effort: al peggio si rimanda il contesto */ }
               }

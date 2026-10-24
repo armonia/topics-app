@@ -20,7 +20,7 @@ import { createHash } from "node:crypto";
 const MAX_TRACKED_SESSIONS = 256;
 
 interface SessionState {
-  /** `${claudeSessionId}#${compactionCount}` — vedi `inlineScope`. */
+  /** `${claudeSessionId}#${compactionCount}`, plus `@${contextEpoch}` on native: see `inlineScope`. */
   scope: string;
   /** `slot → hash` di ciò che la CLI possiede. */
   sent: Map<string, string>;
@@ -41,12 +41,23 @@ export function hashSlot(content: string): string {
  * - `compactionCount` cambia dopo una compattazione: la conversazione è un
  *   RIASSUNTO, e nessuno garantisce che il README del progetto sia sopravvissuto
  *   alla sintesi.
+ * - `contextEpoch` (native only) changes when the engine rebuilds its
+ *   in-memory copy from the stored rows, which never held the preamble.
  *
- * Sono i due soli eventi che possono cancellare il preambolo dalla conversazione
- * della CLI, ed è per questo che sono esattamente i due che azzerano la mappa.
+ * These are the events that can take the preamble out of the conversation,
+ * and so exactly the ones that clear the map.
  */
-export function inlineScope(claudeSessionId: string | null | undefined, compactionCount: number): string {
-  return `${claudeSessionId ?? "(none)"}#${compactionCount}`;
+export function inlineScope(
+  claudeSessionId: string | null | undefined,
+  compactionCount: number,
+  contextEpoch?: number,
+): string {
+  // A provider that keeps the conversation in memory and rebuilds it from the
+  // stored rows (native) loses the inline context on every rebuild, with no
+  // new CLI session id to say so: its epoch is the third event that clears
+  // the map. It sits after `#`, so a rekey never carries marks across it.
+  const epoch = contextEpoch === undefined ? "" : `@${contextEpoch}`;
+  return `${claudeSessionId ?? "(none)"}#${compactionCount}${epoch}`;
 }
 
 /**
