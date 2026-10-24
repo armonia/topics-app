@@ -16,6 +16,7 @@ import {
   estimateTokens, needsCompaction, compact, windowFor, clipToolResult,
   estimateChars, charsPerTokenFrom, promptTooLong,
   enforceImageHistoryBudget, stripAllImages, IMAGE_HISTORY_COUNT_BUDGET, IMAGE_HISTORY_BYTE_BUDGET,
+  IMAGE_HISTORY_COUNT_TARGET, IMAGE_HISTORY_BYTE_TARGET,
 } from "./compaction";
 import type { AgentMessage, Block } from "./agent-loop";
 
@@ -505,14 +506,39 @@ describe("enforceImageHistoryBudget", () => {
     expect(enforceImageHistoryBudget(h)).toBe(h);
   });
 
-  test("one image over the count budget: the OLDEST becomes a placeholder, the rest stay images", () => {
+  test("one image over the count budget: the OLDEST go in one prune, down to the target", () => {
     const h: AgentMessage[] = [{ role: "user", content: "guarda" }];
     for (let i = 0; i <= IMAGE_HISTORY_COUNT_BUDGET; i++) h.push(...imageRound(`i${i}`, `shot ${i}.png (10x10, image attached)`));
     const out = enforceImageHistoryBudget(h);
-    expect(resultOf(out, "i0").content).toBe("[immagine rimossa per fare spazio: shot 0.png]");
-    for (let i = 1; i <= IMAGE_HISTORY_COUNT_BUDGET; i++) expect(hasImage(resultOf(out, `i${i}`))).toBe(true);
-    // The call it answered is still there: the pair stays valid for the API.
+    const kept = IMAGE_HISTORY_COUNT_BUDGET + 1 - IMAGE_HISTORY_COUNT_TARGET;
+    for (let i = 0; i < kept; i++) expect(resultOf(out, `i${i}`).content).toBe(`[immagine rimossa per fare spazio: shot ${i}.png]`);
+    for (let i = kept; i <= IMAGE_HISTORY_COUNT_BUDGET; i++) expect(hasImage(resultOf(out, `i${i}`))).toBe(true);
+    // The calls they answered are still there: the pairs stay valid for the API.
     expect(out).toHaveLength(h.length);
+  });
+
+  test("over the byte budget: the oldest go until the images fit the byte target", () => {
+    const quarter = Math.ceil(IMAGE_HISTORY_BYTE_BUDGET / 4);
+    const h: AgentMessage[] = [{ role: "user", content: "guarda" }];
+    for (let i = 0; i < 5; i++) h.push(...imageRound(`b${i}`, `big ${i}.png (10x10, image attached)`, quarter));
+    const out = enforceImageHistoryBudget(h);
+    const left = ["b0", "b1", "b2", "b3", "b4"].filter((id) => hasImage(resultOf(out, id)));
+    expect(left).toEqual(["b3", "b4"]);
+    expect(left.length * quarter).toBeLessThanOrEqual(IMAGE_HISTORY_BYTE_TARGET);
+  });
+
+  test("40 rounds with one screenshot each: the history is rewritten twice, not on every round past 20", () => {
+    // As the loop does it: the budget runs before each request and the pruned
+    // history replaces the old one. A prune changes the prefix the prompt
+    // cache had, so each one costs a full cache write of what follows.
+    const h: AgentMessage[] = [{ role: "user", content: "controlla la pagina a ogni passo" }];
+    const prunedAt: number[] = [];
+    for (let round = 1; round <= 40; round++) {
+      h.push(...imageRound(`s${round}`, `step ${round}.png (1568x882, image attached)`, 300_000));
+      const out = enforceImageHistoryBudget(h);
+      if (out !== h) { prunedAt.push(round); h.splice(0, h.length, ...out); }
+    }
+    expect(prunedAt).toEqual([IMAGE_HISTORY_COUNT_BUDGET + 1, 2 * IMAGE_HISTORY_COUNT_BUDGET + 2 - IMAGE_HISTORY_COUNT_TARGET]);
   });
 
   test("over the byte budget: oldest first until it fits, and the newest survives even alone over the budget", () => {

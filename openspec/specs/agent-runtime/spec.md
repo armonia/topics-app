@@ -123,6 +123,13 @@ vuota SHALL costare zero.
 - **GIVEN** una conversazione potata
 - **THEN** ogni richiesta di strumento SHALL avere ancora la propria risposta
 
+#### Scenario: le immagini oltre il tetto
+- **GIVEN** una storia che supera 20 immagini o 20 MB di immagini
+- **THEN** le più vecchie SHALL diventare segnaposto in un colpo solo, fino a
+  10 immagini e 10 MB, e l'ultima immagine SHALL restare
+- **AND** i dieci giri con un'immagine che seguono NON SHALL toccare la storia:
+  ogni potatura cambia il prefisso e la cache lo riscrive da lì in poi
+
 ### Requirement: RT-04 — La storia si ricostruisce dal database, e si RIPARA senza inventare risposte
 
 Dopo un riavvio la conversazione SHALL essere ricostruita dalle righe salvate: un
