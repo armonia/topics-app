@@ -454,9 +454,9 @@
     "scripts/check-route-latency.ts": 1050,
 
     "scripts/check-route-shadowing.test.ts": {
-      "lines": 1385,
+      "lines": 1398,
       "why": [
-        "2026-10-25, main merged after #425 emptied KNOWN: 1435 -> 1385, the three bench tests that used its entry gone.",
+        "2026-10-25, main merged after #425 emptied KNOWN: 1435 -> 1385, the three bench tests that used its entry gone; then 1398, the script run on its own tree takes a KNOWN entry of its own and is judged with and without ROUTE_SHADOWING_ROOT, and row SW7 (a break ends the switch, not the block) for a mutant that lived; rows, no new helpers.",
         "2026-10-24, the mutants of the fix measured against main: 1362 -> 1367, a catch that goes on after a try whose path test held, and calls with no check verb that name a method (the loop over the method names moves off allow, now a check verb); rows, no new helpers.",
         "2026-10-24, the round-3 fix measured row by row against main: 1274 -> 1362, one row per corpus id where it was worse than main (a factory parameter, a helper's own parameter, a type or a method name taken for the request, a callback's router, a try that leaves through its catch, a refusal with !==, a clause that may throw, a check verb in snake case or allow/throw) and one per mutant of the changed code; rows, no new helpers.",
         "2026-10-24, verifiers of the round-3 fix: 1052 -> 1274, their cases transcribed one row per id (a stored read of the method, null and false as false, field names and callback parameters, the calls that check and the ones that only pass the method, a sub-router passed on or not, while and for conditions) plus one parametrized test per check verb and per method name and the injections on BY_ID; rows, no new helpers.",

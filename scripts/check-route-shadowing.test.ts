@@ -3,7 +3,7 @@
  */
 import { describe, expect, test, afterAll } from "bun:test";
 import { spawnSync } from "node:child_process";
-import { copyFileSync, mkdirSync, mkdtempSync, writeFileSync, rmSync, symlinkSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, writeFileSync, rmSync, symlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { extractClaims, findInnerShadows, findOverlaps, knownFor, sampleOf, staleKnown, type Claim, type ClaimKind, type KnownOverlap, type Overlap } from "./check-route-shadowing";
@@ -549,6 +549,8 @@ export function create(ctx: any) {
         { id: "SW4", what: "a labelled break on the switch itself goes on", lines: [MATCH, 'if (m && method === "GET") { sw: switch (kind) { case "a": break sw; default: return json({}); } }', LIT("GET")] },
         { id: "SW5", what: "case POST leaves, the default breaks: GET goes on", lines: [MATCH, 'if (m) { switch (method) { case "POST": return json({}); default: break; } }', LIT("GET")] },
         { id: "SW6", what: "a case that breaks inside a block goes on", lines: [MATCH, 'if (m && method === "GET") { switch (kind) { case "a": { if (x) { break; } } return json({}); default: return json({}); } }', LIT("GET")] },
+        // The break ends the switch only: what follows it in the block still runs.
+        { id: "SW7", what: "case GET breaks, then the block returns", lines: [MATCH, 'if (m) { switch (method) { case "GET": log(); break; default: return errorResponse(405, "x"); } return json({}); }', LIT("GET")], dead: dead(["GET"]) },
         // The literal under a switch (method).
         { id: "SL1", what: "the literal in case GET, a GET pattern before", lines: [MATCH, GET_PRIOR, 'switch (method) { case "GET": if (pathname === "/api/x/keep") return json({}); break; }'], dead: dead(["GET"]) },
         { id: "SL2", what: "the literal in case GET, a POST pattern before", lines: [MATCH, POST_PRIOR, 'switch (method) { case "GET": if (pathname === "/api/x/keep") return json({}); break; }'] },
@@ -1260,19 +1262,30 @@ export function createARouter(ctx: any) {
       expect(staleKnown([gone, both], new Set([both]), ["a", "b"], { ROUTE_SHADOWING_ROOT: "" })).toEqual([gone]);
     });
 
-    // The same decision in the script: run from a tree of its own with no
-    // ROUTE_SHADOWING_ROOT, that tree is the real one, and KNOWN's browser
-    // entry is stale there because the tree has no browser router.
+    // The same decision in the script, run as a process from a tree of its
+    // own. The real KNOWN is empty since #425, so the copy gets one entry of
+    // its own, about routers this tree does not have: with no
+    // ROUTE_SHADOWING_ROOT that tree is the real one and the entry is stale;
+    // with the variable set it is a bench tree and the entry is not judged.
     test("run on its own tree with no ROUTE_SHADOWING_ROOT, the script judges every KNOWN entry", () => {
       const root = tree('    if (method === "POST" && pathname === "/api/x") return new Response("b");');
       mkdirSync(join(root, "scripts"));
-      copyFileSync(SCRIPT, join(root, "scripts", "check-route-shadowing.ts"));
+      const declared = "export const KNOWN: KnownOverlap[] = [];";
+      const source = readFileSync(SCRIPT, "utf8");
+      expect(source.split(declared).length).toBe(2);
+      const ghost = '{ prior: "ghostRouter", later: "otherGhostRouter", sample: "/api/ghost", why: "test" }';
+      writeFileSync(join(root, "scripts", "check-route-shadowing.ts"), source.replace(declared, `export const KNOWN: KnownOverlap[] = [${ghost}];`));
       symlinkSync(resolve(import.meta.dir, "..", "client"), join(root, "client"));
       const env = { ...process.env };
       delete env.ROUTE_SHADOWING_ROOT;
-      const r = spawnSync("bun", ["run", join(root, "scripts", "check-route-shadowing.ts")], { encoding: "utf8", env });
-      expect(r.stdout).toContain("STALE known overlap");
-      expect(r.status).toBe(1);
+      const script = join(root, "scripts", "check-route-shadowing.ts");
+      const real = spawnSync("bun", ["run", script], { encoding: "utf8", env });
+      expect(real.stdout).toContain("STALE known overlap (no longer found): ghostRouter over otherGhostRouter at /api/ghost");
+      expect(real.status).toBe(1);
+      const bench = spawnSync("bun", ["run", script], { encoding: "utf8", env: { ...env, ROUTE_SHADOWING_ROOT: root } });
+      expect(bench.stdout).toContain("2 routers, 2 claims, 0 overlaps (0 known)");
+      expect(bench.stdout).not.toContain("STALE known overlap");
+      expect(bench.status).toBe(0);
     });
 
     test("a KNOWN entry matches its routers and sample, and its methods when it names them", () => {
