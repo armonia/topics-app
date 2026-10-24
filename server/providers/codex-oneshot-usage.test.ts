@@ -23,8 +23,13 @@ describe("parseCodexOneShotJsonl", () => {
     expect(parseCodexOneShotJsonl(CAPTURE)).toEqual({
       content: "ok",
       // Codex counts the cached tokens inside `input_tokens`: the prompt total.
-      usage: { promptTokens: 37_552, completionTokens: 5, cacheReadTokens: 6_912 },
+      usage: { promptTokens: 37_552, completionTokens: 5, cacheReadTokens: 6_912, cacheCreationTokens: 0 },
     });
+  });
+
+  test("the cache write is read too (`cache_write_input_tokens`)", () => {
+    const out = parseCodexOneShotJsonl(CAPTURE.replace(`"cache_write_input_tokens":0`, `"cache_write_input_tokens":2048`));
+    expect(out.usage?.cacheCreationTokens).toBe(2_048);
   });
 
   test("a failed turn says why", () => {

@@ -135,13 +135,14 @@ export function projectUsage(db: Database, opts: ProjectUsageOptions = {}): Proj
               SUM(MAX(0, COALESCE(u.input_tokens, 0) - COALESCE(u.cache_read_tokens, 0))
                   + COALESCE(u.output_tokens, 0)
                   + ${CACHE_READ_WEIGHT} * COALESCE(u.cache_read_tokens, 0)) AS cost_tokens,
-              SUM(COALESCE(u.cost_usd, 0)) AS cost_usd
+              SUM(COALESCE(u.cost_usd, 0)) AS cost_usd,
+              SUM(CASE WHEN u.cost_usd IS NULL THEN 1 ELSE 0 END) AS uncounted
          FROM usage_records u
          JOIN topics tp ON tp.id = u.topic_id
         WHERE tp.project_path IS NOT NULL AND tp.project_path <> ''${ledgerWindow}
         GROUP BY tp.project_path`,
     )
-    .all(...arg) as { project_path: string; cost_tokens: number | null; cost_usd: number | null }[];
+    .all(...arg) as { project_path: string; cost_tokens: number | null; cost_usd: number | null; uncounted: number | null }[];
 
   const byId = new Map<string, ProjectUsageRow>();
   const blank = (projectId: string, projectPath: string | null): ProjectUsageRow => ({
@@ -180,6 +181,9 @@ export function projectUsage(db: Database, opts: ProjectUsageOptions = {}): Proj
     const row = byId.get(id) ?? blank(id, r.project_path);
     row.chatTokens += Math.round(r.cost_tokens ?? 0);
     row.costUsd += r.cost_usd ?? 0;
+    // A reply nobody measured (ACP) or priced is said apart, like a message
+    // without a price: never summed as a free one.
+    row.unpricedMessages += r.uncounted ?? 0;
     if (!row.projectPath) row.projectPath = r.project_path;
     byId.set(id, row);
   }
@@ -238,28 +242,30 @@ export function projectUsage(db: Database, opts: ProjectUsageOptions = {}): Proj
 
 /**
  * The side-call ledger (`usage/side-calls.ts`) over the same window, cut at the
- * same midnight as the chat rows: the calls that answered no chat (the ones
- * with a topic are in their project). Its `timestamp` is epoch milliseconds,
- * not ISO text like `messages`.
+ * same midnight as the chat rows: every call not counted in a project. A reply
+ * to a chat with a project is in that project; one to a chat WITHOUT a project
+ * is here, or it would be in neither total. Its `timestamp` is epoch
+ * milliseconds, not ISO text like `messages`.
  *
  * A call the provider did not measure has NULL tokens and cost: it is counted
  * as a call and said apart, never summed as a zero. Same for a measured call on
  * a model without a price, and for a call that failed.
  */
 function sideCallUsage(db: Database, days: number | null): SideCallUsage {
-  const window = days === null ? "" : " AND timestamp >= strftime('%s', date('now', ? || ' days')) * 1000";
+  const window = days === null ? "" : " AND u.timestamp >= strftime('%s', date('now', ? || ' days')) * 1000";
   const arg = days === null ? [] : [String(-Math.abs(days))];
   const rows = db
     .prepare(
-      `SELECT COALESCE(purpose, 'other') AS purpose, COUNT(*) AS calls,
-              SUM(CASE WHEN measured = 0 THEN 1 ELSE 0 END) AS unmeasured,
-              SUM(CASE WHEN measured = 1 AND cost_usd IS NULL THEN 1 ELSE 0 END) AS unpriced,
-              SUM(CASE WHEN error IS NOT NULL THEN 1 ELSE 0 END) AS failed,
-              SUM(cost_usd) AS cost_usd, SUM(total_tokens) AS tokens
-         FROM usage_records
-        WHERE topic_id IS NULL${window}
-        GROUP BY COALESCE(purpose, 'other')
-        ORDER BY SUM(COALESCE(cost_usd, 0)) DESC, COUNT(*) DESC, COALESCE(purpose, 'other')`,
+      `SELECT COALESCE(u.purpose, 'other') AS purpose, COUNT(*) AS calls,
+              SUM(CASE WHEN u.measured = 0 THEN 1 ELSE 0 END) AS unmeasured,
+              SUM(CASE WHEN u.measured = 1 AND u.cost_usd IS NULL THEN 1 ELSE 0 END) AS unpriced,
+              SUM(CASE WHEN u.error IS NOT NULL THEN 1 ELSE 0 END) AS failed,
+              SUM(u.cost_usd) AS cost_usd, SUM(u.total_tokens) AS tokens
+         FROM usage_records u
+         LEFT JOIN topics tp ON tp.id = u.topic_id
+        WHERE (tp.project_path IS NULL OR tp.project_path = '')${window}
+        GROUP BY COALESCE(u.purpose, 'other')
+        ORDER BY SUM(COALESCE(u.cost_usd, 0)) DESC, COUNT(*) DESC, COALESCE(u.purpose, 'other')`,
     )
     .all(...arg) as { purpose: string; calls: number; unmeasured: number; unpriced: number; failed: number; cost_usd: number | null; tokens: number | null }[];
   const byPurpose = rows.map((r) => ({

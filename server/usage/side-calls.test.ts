@@ -10,8 +10,10 @@
  */
 import { afterEach, describe, expect, spyOn, test } from "bun:test";
 import { Database } from "bun:sqlite";
-import { readFileSync } from "fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "fs";
+import { tmpdir } from "os";
 import { join } from "path";
+import { CodexProvider } from "../providers/codex";
 import type { AIProvider, CompletionOptions, CompletionResult } from "../providers/types";
 import { createProvider } from "../providers";
 import { configureSideCallLedger, formatSideCallLog, meterCompletions, recordSideCall, sideCallOf, type SideCall } from "./side-calls";
@@ -252,6 +254,34 @@ describe("the row names the model the call ran on", () => {
     await meterCompletions(provider).complete([{ role: "user", content: "t" }], { purpose: "card-title" });
     await settled();
     expect(rowsOf(db)[0]?.model).toBe("claude-sonnet-5-5");
+  });
+});
+
+describe("a Codex one-shot names the model it ran on", () => {
+  test("the model passed to the CLI, not unknown", async () => {
+    // Reproduced in review: autoname on Codex ran on gpt-5.6-luna and the row
+    // said model=unknown. Codex had no `completionModel`.
+    const db = ledgerDb();
+    configureSideCallLedger(db);
+    const codex = new CodexProvider({ type: "codex" } as never);
+    codex.complete = async () => ({ content: "ok", usage: { promptTokens: 5, completionTokens: 1 } });
+    await meterCompletions(codex).complete([{ role: "user", content: "t" }], { model: "gpt-5.6-luna", purpose: "chat-name" });
+    await settled();
+    expect(rowsOf(db)[0]?.model).toBe("gpt-5.6-luna");
+  });
+
+  test("with no model asked or configured, the one config.toml gives the CLI", () => {
+    const home = mkdtempSync(join(tmpdir(), "codex-home-"));
+    const before = process.env.CODEX_HOME;
+    try {
+      writeFileSync(join(home, "config.toml"), `model = "gpt-6-sol"\n`);
+      process.env.CODEX_HOME = home;
+      expect(new CodexProvider({ type: "codex" } as never).completionModel()).toBe("gpt-6-sol");
+      expect(new CodexProvider({ type: "codex", model: "gpt-6-astra" } as never).completionModel()).toBe("gpt-6-astra");
+    } finally {
+      if (before === undefined) delete process.env.CODEX_HOME; else process.env.CODEX_HOME = before;
+      rmSync(home, { recursive: true, force: true });
+    }
   });
 });
 

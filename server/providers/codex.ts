@@ -129,7 +129,8 @@ export function extractCodexUsage(event: Record<string, unknown>): ProviderUsage
     // usage keeps rendering across CLI versions.
     const reasoningTokens = num(u.reasoning_output_tokens) ?? num(u.reasoning_tokens) ?? num(u.reasoningTokens);
     const cacheRead = num(u.cached_input_tokens) ?? num(u.cache_read_input_tokens) ?? num(u.cached_tokens) ?? num(u.cacheRead);
-    const cacheCreation = num(u.cache_creation_input_tokens) ?? num(u.cacheCreation);
+    // codex-cli 0.160 names the cache write `cache_write_input_tokens`.
+    const cacheCreation = num(u.cache_creation_input_tokens) ?? num(u.cache_write_input_tokens) ?? num(u.cacheCreation);
     if (inputTokens === undefined && outputTokens === undefined) continue;
     const usage: ProviderUsage = {};
     if (inputTokens !== undefined) usage.inputTokens = inputTokens;
@@ -183,7 +184,7 @@ export function extractCodexContext(
  */
 export function parseCodexOneShotJsonl(stdout: string): CompletionResult {
   let text: string | null = null;
-  let prompt = 0, output = 0, cacheRead = 0;
+  let prompt = 0, output = 0, cacheRead = 0, cacheWrite = 0;
   let measured = false;
   let error: string | undefined;
   let events = 0;
@@ -204,6 +205,7 @@ export function parseCodexOneShotJsonl(stdout: string): CompletionResult {
         prompt += u.inputTokens ?? 0;
         output += u.outputTokens ?? 0;
         cacheRead += u.cacheRead ?? 0;
+        cacheWrite += u.cacheCreation ?? 0;
       }
     } else if (event.type === "turn.failed" || event.type === "error") {
       error = extractCodexErrorMessage(event);
@@ -212,7 +214,14 @@ export function parseCodexOneShotJsonl(stdout: string): CompletionResult {
   if (events === 0) return { content: stdout.trim() };
   return {
     content: (text ?? "").trim(),
-    ...(measured ? { usage: { promptTokens: prompt, completionTokens: output, cacheReadTokens: Math.min(cacheRead, prompt) } } : {}),
+    ...(measured ? {
+      usage: {
+        promptTokens: prompt,
+        completionTokens: output,
+        cacheReadTokens: Math.min(cacheRead, prompt),
+        cacheCreationTokens: Math.min(cacheWrite, Math.max(0, prompt - cacheRead)),
+      },
+    } : {}),
     ...(error ? { error } : {}),
   };
 }
@@ -1158,6 +1167,20 @@ export class CodexProvider implements AIProvider {
 
   // --- Non-streaming completion ---
 
+  /** The model a one-shot passes to the CLI with `--model`, when it passes one. */
+  private forwardedModel(options?: CompletionOptions): string | undefined {
+    return options?.model ?? this.config.model;
+  }
+
+  /**
+   * The model a one-shot runs on, for the side-call ledger: the one passed to
+   * the CLI, or, when none is, the one the CLI takes from config.toml. The
+   * answer does not name it, and without this the row said "unknown".
+   */
+  completionModel(options?: CompletionOptions): string {
+    return this.forwardedModel(options) ?? readCodexConfiguredModel() ?? "";
+  }
+
   async complete(messages: ChatMessage[], options?: CompletionOptions): Promise<CompletionResult> {
     const bin = resolveCodexBinary();
     if (!bin) return { content: "Codex CLI not found." };
@@ -1174,7 +1197,7 @@ export class CodexProvider implements AIProvider {
     // Only forward --model when explicitly configured; otherwise let the CLI
     // pick from ~/.codex/config.toml so ChatGPT-account-bound models work
     // (e.g. gpt-5-codex is rejected for ChatGPT-account auth). Mirrors sendChat.
-    const args = buildCodexOneshotArgs({ ...options, model: options?.model ?? this.config.model });
+    const args = buildCodexOneshotArgs({ ...options, model: this.forwardedModel(options) });
 
     try {
       return await new Promise<CompletionResult>((resolve, reject) => {

@@ -278,4 +278,31 @@ describe("projectUsage", () => {
     expect(out.projects[0]).toMatchObject({ projectPath: ALPHA, costUsd: 0.8 });
     expect(out.projects[0]!.chatTokens).toBe(100 + 10 + 1000 + 100);
   });
+
+  const reply = (db: Database, key: string, o: { cost: number | null; measured: 0 | 1 }) => {
+    const topicId = (db.query(`SELECT id FROM topics WHERE session_key = ?`).get(key) as { id: string }).id;
+    db.prepare(`INSERT INTO usage_records (timestamp, session_key, topic_id, model, input_tokens, output_tokens, total_tokens,
+      cost_usd, purpose, measured) VALUES (?, ?, ?, 'x', ?, ?, ?, ?, 'chat-reply', ?)`)
+      .run(Date.now(), key, topicId, o.measured ? 1000 : null, o.measured ? 100 : null, o.measured ? 1100 : null, o.cost, o.measured);
+  };
+
+  test("a reply to a chat without a project is a service call, not lost from both totals", () => {
+    const db = makeDb();
+    topic(db, "chat:loose", null);
+    reply(db, "chat:loose", { cost: 0.3, measured: 1 });
+    const out = projectUsage(db, { days: 30 });
+    expect(out.projects).toHaveLength(0);
+    expect(out.sideCalls).toMatchObject({ calls: 1, costUsd: 0.3 });
+  });
+
+  test("an unmeasured reply inside a project is said apart, never a free one", () => {
+    const db = makeDb();
+    topic(db, "chat:acp", ALPHA);
+    message(db, "chat:acp", { prompt: 100, completion: 10, cents: 50 });
+    reply(db, "chat:acp", { cost: null, measured: 0 });
+    const out = projectUsage(db, { days: 30 });
+    expect(out.projects[0]).toMatchObject({ projectPath: ALPHA, costUsd: 0.5, unpricedMessages: 1 });
+    expect(out.cost.partial).toBe(true);
+    expect(out.cost.excluded.messages).toBe(1);
+  });
 });
