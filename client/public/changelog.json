@@ -1,5 +1,80 @@
 [
   {
+    "version": "2.3.23",
+    "date": "2026-10-24",
+    "sections": {
+      "new": [
+        {
+          "it": "cache del prompt calda mentre si legge la risposta (ping ogni 4,5 min, fino a 15) (#437)",
+          "en": "",
+          "scope": "native",
+          "breaking": false
+        },
+        {
+          "it": "un server della chat aperto alla LAN lo dice, e run_command chiede il bind su 127.0.0.1 (#439)",
+          "en": "",
+          "scope": "chat",
+          "breaking": false
+        }
+      ],
+      "fixes": [
+        {
+          "it": "rimanda il contesto dopo la ricostruzione nativa, tetto al README (#435)",
+          "en": "",
+          "scope": "context",
+          "breaking": false
+        },
+        {
+          "it": "storia ricostruita a 110k, sotto COMPACT_AT in token veri (#436)",
+          "en": "",
+          "scope": "native",
+          "breaking": false
+        },
+        {
+          "it": "la demo della landing non va più in crash su impostazioni, rubrica e amicizie (#440)",
+          "en": "",
+          "scope": "demo",
+          "breaking": false
+        },
+        {
+          "it": "immagini potate a metà in un colpo (20 → 10, 20 MB → 10 MB) (#438)",
+          "en": "",
+          "scope": "native",
+          "breaking": false
+        }
+      ],
+      "perf": [],
+      "internal": [
+        {
+          "it": "aggiorna durate shard dal nightly del 2026-10-24 [skip ci]",
+          "en": "",
+          "scope": "e2e",
+          "breaking": false
+        },
+        {
+          "it": "Prezzi dei modelli 5.5 e rilettura della cache per modello: la UI mostrava circa il doppio (#430)",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Test di commandRisk e jcode senza soglie strette in ms: lavoro contato, tempi confrontati, file illeggibili (#427)",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Motore nativo: gli schemi MCP si caricano a richiesta (-37mila token a giro) e una sessione MCP morta si rinnova (#434)",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il costo delle chiamate di servizio (titoli, giudici, commit) finisce in usage_records e nel pannello consumi (#431)",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
     "version": "2.3.22",
     "date": "2026-10-24",
     "sections": {

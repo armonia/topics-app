@@ -1,5 +1,40 @@
 [
   {
+    "version": "2.3.23",
+    "date": "2026-10-24",
+    "sections": {
+      "new": [
+        {
+          "text": "cache del prompt calda mentre si legge la risposta (ping ogni 4,5 min, fino a 15) (#437)",
+          "scope": "native"
+        },
+        {
+          "text": "un server della chat aperto alla LAN lo dice, e run_command chiede il bind su 127.0.0.1 (#439)",
+          "scope": "chat"
+        }
+      ],
+      "fixes": [
+        {
+          "text": "rimanda il contesto dopo la ricostruzione nativa, tetto al README (#435)",
+          "scope": "context"
+        },
+        {
+          "text": "storia ricostruita a 110k, sotto COMPACT_AT in token veri (#436)",
+          "scope": "native"
+        },
+        {
+          "text": "la demo della landing non va più in crash su impostazioni, rubrica e amicizie (#440)",
+          "scope": "demo"
+        },
+        {
+          "text": "immagini potate a metà in un colpo (20 → 10, 20 MB → 10 MB) (#438)",
+          "scope": "native"
+        }
+      ],
+      "perf": []
+    }
+  },
+  {
     "version": "2.3.11",
     "date": "2026-10-22",
     "sections": {

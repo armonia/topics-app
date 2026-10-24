@@ -2,6 +2,25 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.3.23 — 2026-10-24
+
+### Novità
+- **native** · cache del prompt calda mentre si legge la risposta (ping ogni 4,5 min, fino a 15) (#437)
+- **chat** · un server della chat aperto alla LAN lo dice, e run_command chiede il bind su 127.0.0.1 (#439)
+
+### Correzioni
+- **context** · rimanda il contesto dopo la ricostruzione nativa, tetto al README (#435)
+- **native** · storia ricostruita a 110k, sotto COMPACT_AT in token veri (#436)
+- **demo** · la demo della landing non va più in crash su impostazioni, rubrica e amicizie (#440)
+- **native** · immagini potate a metà in un colpo (20 → 10, 20 MB → 10 MB) (#438)
+
+### Sotto il cofano
+- **e2e** · aggiorna durate shard dal nightly del 2026-10-24 [skip ci]
+- Prezzi dei modelli 5.5 e rilettura della cache per modello: la UI mostrava circa il doppio (#430)
+- Test di commandRisk e jcode senza soglie strette in ms: lavoro contato, tempi confrontati, file illeggibili (#427)
+- Motore nativo: gli schemi MCP si caricano a richiesta (-37mila token a giro) e una sessione MCP morta si rinnova (#434)
+- Il costo delle chiamate di servizio (titoli, giudici, commit) finisce in usage_records e nel pannello consumi (#431)
+
 ## 2.3.22 — 2026-10-24
 
 ### Sotto il cofano
