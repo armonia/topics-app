@@ -51,10 +51,17 @@ that resolves to nothing SHALL be billed at zero rather than at a wrong rate.
 - **AND** a versioned id such as `gpt-4o-2024-08-06` SHALL still resolve to `gpt-4o`
 
 #### Scenario: The models actually in use have their own price, not the family fallback
-- **GIVEN** the current model ids (`claude-opus-5`, `claude-opus-4-8`, `claude-sonnet-5`, `claude-haiku-4-5`, `claude-fable-5`)
+- **GIVEN** every model id the native catalogue offers, its default and its aliases (`claude-opus-5-5`, `claude-sonnet-5-5`, `claude-haiku-5-5`, `claude-fable-5-1`, `claude-opus-5`, `claude-haiku-4-5`, ...)
 - **WHEN** each is priced
-- **THEN** each SHALL resolve to its own entry
+- **THEN** each SHALL resolve to its own entry, never to a partial match or a family fallback
 - **AND** an Opus turn SHALL NOT be billed at the retired $15/$75 rate
+- **AND** `claude-opus-5-5` SHALL NOT borrow the shorter `claude-opus-5` row
+
+#### Scenario: Haiku 5.5 has two rate cards
+- **GIVEN** a Haiku 5.5 request whose prompt (fresh, cache writes and cache reads) is over 100,000 tokens
+- **WHEN** it is priced
+- **THEN** the whole request SHALL move to the long-prompt card ($0.50/$2.50 per million instead of $0.10/$0.50)
+- **AND** a turn of many requests SHALL pick the card per request, from the average prompt, not from the turn total
 
 #### Scenario: The family fallback points at the current model
 - **GIVEN** an id of a known family that is not yet in the table (`claude-opus-99-inesistente`)
@@ -75,8 +82,11 @@ that resolves to nothing SHALL be billed at zero rather than at a wrong rate.
 
 ### Requirement: USAGE-02 — Cache tokens are billed at the cache rate, and the two write TTLs are disjoint
 
-The system SHALL price a cache read at 0.1×, a 5-minute cache write at 1.25× and
-a 1-hour cache write at 2× the model's input rate. The 1-hour figure SHALL be a
+The system SHALL price a cache read at the model's own cache-read rate (0.025×
+on Fable and Mythos 5.1, 0.05× on Opus 5.5 and Sonnet 5.5, 0.1× on every other
+model), a 5-minute cache write at 1.25× and a 1-hour cache write at 2× the
+model's input rate. The client that splits a turn's cost into "cache" and "the
+rest" SHALL use the same per-model rate as the server. The 1-hour figure SHALL be a
 share of the cache-write total, added alongside the 5-minute share and never on
 top of the same tokens. Splitting a provider's prompt total into its shares
 SHALL never produce a negative fresh figure — incoherent input SHALL yield a low
