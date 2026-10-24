@@ -414,7 +414,7 @@ describe('commandRisk: the second step', () => {
   // draw on it): exact, and blind to a cost that is not a step, a copy of an
   // array for each word or a regex that backtracks. The time sees those, but
   // compared so a busy machine cannot fake growth: a large text against
-  // sixteen small ones of the same total length.
+  // sixty-four small ones of the same total length.
   const fill = (size: number, unit: string, before = '', after = '') =>
     before + unit.repeat(Math.floor((size - before.length - after.length) / unit.length)) + after;
   const label = (unit: string, before = '', after = '') => JSON.stringify(`${before}${unit}${unit}...${after}`);
@@ -423,6 +423,10 @@ describe('commandRisk: the second step', () => {
     ['echo rm -rf x | sh | '], ['cat <<A\n'], ['if { '], ['`a` '],
     // One long word that ends with a slash: a basename regex can backtrack on it.
     ['x', '', '/'],
+    // The shortest wrapper, zsh's `-`: the most wrappers per KB, where a copy of the words at each one shows.
+    ['- ', '', 'true'],
+    // Line continuations among quotes: a regex that looks from each one to the end of the text is quadratic.
+    ["echo 'a' \\\n"],
   ];
 
   test('every case of the growth checks has a label of its own', () => {
@@ -451,20 +455,22 @@ describe('commandRisk: the second step', () => {
     }
   });
 
-  // Sixteen texts of 1.25 KB against one of 20 KB: the same characters, so
-  // both take about as long when the cost grows with the text (0.5-1.6 on a
-  // loaded Mac with the right code) and the large one 16 times longer when it
-  // grows with its square. Both runs last about as long, so a busy machine
-  // slows them alike; the best of five counts, since noise only adds time.
-  // Every call gets a text of its own (a comment line with a number), so a
-  // cache of recent results cannot answer for the code. A full collection
-  // before each run: otherwise the garbage of the cases before lands in
-  // whichever run happens to trigger it (up to 2.7 times with the right code).
-  // The best large run under 2 s is the guard against a run that blocks the
-  // page.
-  test('every case: one 20 KB text costs about as much as sixteen of 1.25 KB', () => {
+  // Sixty-four texts of 320 bytes against one of 20 KB: the same characters,
+  // so both take about as long when the cost grows with the text, and the
+  // large one up to 64 times longer when it grows with its square. Threshold
+  // 8. Both runs last about as long, so a busy machine slows them alike; the
+  // best of five counts, since noise only adds time. Each case first runs
+  // twice at both sizes, untimed: what the tests before left compiled must
+  // not count (24/10: with the counter first, `$(` stayed at about x2.2 with
+  // the right code). Every call gets a text of its own (a comment line with
+  // a number), so a cache of recent results cannot answer for the code. A
+  // full collection before each run: otherwise the garbage of the cases
+  // before lands in whichever run happens to trigger it. The best large run
+  // under 2 s is the guard against a run that blocks the page.
+  test('every case: one 20 KB text costs about as much as sixty-four of 320 bytes', () => {
     let serial = 0;
     const own = (text: string) => `${text}\n#${serial++}`;
+    const runAll = (texts: string[]) => { for (const text of texts) commandRisk(text); };
     const timeMs = (run: () => void) => {
       Bun.gc(true);
       const before = performance.now();
@@ -472,18 +478,20 @@ describe('commandRisk: the second step', () => {
       return performance.now() - before;
     };
     for (const [unit, before, after] of growthCases) {
-      const small = fill(1280, unit, before, after);
+      const small = fill(320, unit, before, after);
       const large = fill(20480, unit, before, after);
-      let sixteen = Infinity;
+      const smalls = () => Array.from({ length: 64 }, () => own(small));
+      for (let i = 0; i < 2; i++) runAll([...smalls(), own(large)]);
+      let many = Infinity;
       let one = Infinity;
       for (let i = 0; i < 5; i++) {
-        const smalls = Array.from({ length: 16 }, () => own(small));
+        const texts = smalls();
         const big = own(large);
-        sixteen = Math.min(sixteen, timeMs(() => { for (const text of smalls) commandRisk(text); }));
+        many = Math.min(many, timeMs(() => runAll(texts)));
         one = Math.min(one, timeMs(() => commandRisk(big)));
       }
-      const verdict = `${label(unit, before, after)}: 16 x 1.25 KB in ${sixteen.toFixed(2)} ms, 1 x 20 KB in ${one.toFixed(2)} ms (x${(one / sixteen).toFixed(2)})`;
-      expect(`${verdict}: ${one < 4 * sixteen && one < 2000 ? 'linear' : 'NOT LINEAR'}`).toBe(`${verdict}: linear`);
+      const verdict = `${label(unit, before, after)}: 64 x 320 B in ${many.toFixed(2)} ms, 1 x 20 KB in ${one.toFixed(2)} ms (x${(one / many).toFixed(2)})`;
+      expect(`${verdict}: ${one < 8 * many && one < 2000 ? 'linear' : 'NOT LINEAR'}`).toBe(`${verdict}: linear`);
     }
   });
 
