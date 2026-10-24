@@ -7,12 +7,22 @@
 #     merge NEVER waits on the rebuild.
 #   - DEBOUNCED: a burst of commits collapses into a single rebuild (only the
 #     last invocation inside the debounce window actually runs graphify).
-#   - PATIENT: while the Mac is busy (load per core, memory pressure) or the
-#     last rebuild is younger than GRAPHIFY_REGEN_MIN_INTERVAL, the worker waits
-#     and re-checks, logging one "rimandato" line per pass. A newer commit
-#     supersedes it. After GRAPHIFY_REGEN_MAX_WAIT seconds it runs anyway
-#     ("forzato"). A rebuild is lost only when graphify fails (it is not retried
-#     until the next commit) or when its worker is killed while it waits.
+#   - PATIENT: while the Mac is busy or the last rebuild is younger than
+#     GRAPHIFY_REGEN_MIN_INTERVAL (1200 s), the worker waits and re-checks,
+#     logging one "rimandato" line per pass. "Busy" is load over 1.5 per core
+#     (GRAPHIFY_REGEN_MAX_LOAD, the house threshold), swap used at 80% or more
+#     (GRAPHIFY_REGEN_MAX_SWAP), or memory pressure 2 (warn) or 4 (critical). A
+#     newer commit supersedes the worker. After GRAPHIFY_REGEN_MAX_WAIT seconds
+#     a wait on the interval or the load ends in a run anyway ("forzato"); a wait
+#     on memory never does: the worker gives up with one "rinunciato" line and
+#     leaves the request for the next event. A rebuild is lost only when graphify
+#     fails (it is not retried until the next commit), when its worker is killed
+#     while it waits, or when memory stays busy past the max wait.
+#   - PRIMARY CHECKOUT ONLY: a commit in a linked worktree does not rebuild the
+#     main checkout's graph. The main checkout's files do not change when another
+#     worktree commits, so that rebuild re-extracts an unchanged tree. The primary
+#     checkout's own post-commit and post-merge (repo-ff fast-forwards fire the
+#     latter there) keep its graph fresh.
 #   - SERIAL: one rebuild at a time. The lock is the directory graphify-out/.regen.lock
 #     with the owner's pid in it. A live owner is never displaced, however old
 #     the lock is; a dead owner's lock is reaped at once. A lock with no pid file
@@ -31,7 +41,8 @@ set -u
 
 DEBOUNCE_SECONDS="${GRAPHIFY_REGEN_DEBOUNCE:-30}"
 MIN_INTERVAL_SECONDS="${GRAPHIFY_REGEN_MIN_INTERVAL:-1200}"
-MAX_LOAD_PER_CORE="${GRAPHIFY_REGEN_MAX_LOAD:-4}"
+MAX_LOAD_PER_CORE="${GRAPHIFY_REGEN_MAX_LOAD:-1.5}"
+MAX_SWAP_PERCENT="${GRAPHIFY_REGEN_MAX_SWAP:-80}"
 MAX_WAIT_SECONDS="${GRAPHIFY_REGEN_MAX_WAIT:-7200}"
 BUSY_SLEEP_SECONDS="${GRAPHIFY_REGEN_BUSY_SLEEP:-300}"
 # The previous script reaped a lock older than this; so do we, for a lock with no pid.
@@ -39,14 +50,11 @@ STALE_LOCK_MINUTES=30
 # A zero sleep would spin the wait loop and flood the log: one second is the floor.
 [ "$BUSY_SLEEP_SECONDS" -ge 1 ] 2>/dev/null || BUSY_SLEEP_SECONDS=1
 
-# Sets REASON and returns 0 when the Mac is too busy for a rebuild; returns 1
-# when it is quiet. The readings are sysctl's own output: vm.loadavg is
-# "{ 1min 5min 15min }", kern.memorystatus_vm_pressure_level is 1 normal,
-# 2 warn, 4 critical. Swap is not read: macOS allocates it on demand, so its
-# used/total stays high while memory is fine. LC_ALL=C keeps the decimal dot:
-# under an Italian locale awk prints "5,00", and the reason text would change.
-mac_busy() {
-  local ncpu load1 per_core level
+# Sets REASON and returns 0 when the load is too high for a rebuild. vm.loadavg
+# is "{ 1min 5min 15min }". LC_ALL=C keeps the decimal dot: under an Italian
+# locale awk prints "5,00", and the reason text would change.
+load_busy() {
+  local ncpu load1 per_core
   ncpu="$(sysctl -n hw.ncpu 2>/dev/null)" || ncpu=1
   load1="$(sysctl -n vm.loadavg 2>/dev/null | LC_ALL=C awk '{print $2}')"
   per_core="$(LC_ALL=C awk -v l="${load1:-0}" -v c="${ncpu:-1}" 'BEGIN { printf "%.2f", l / c }')"
@@ -54,58 +62,82 @@ mac_busy() {
     REASON="load ${per_core}/core sopra ${MAX_LOAD_PER_CORE}"
     return 0
   fi
+  return 1
+}
+
+# Sets REASON and returns 0 when memory is too tight for a rebuild: swap used at
+# MAX_SWAP_PERCENT or more, or memory pressure at warn (2) or critical (4).
+# vm.swapusage is "total = 2048.00M  used = 1024.00M  free = 1024.00M  (encrypted)";
+# a reading that does not parse counts as quiet, as does a Mac with no swap.
+memory_busy() {
+  local pct level
+  pct="$(sysctl -n vm.swapusage 2>/dev/null | LC_ALL=C awk '
+    function mb(v) { n = v + 0; if (v ~ /G/) n *= 1024; else if (v ~ /K/) n /= 1024; return n }
+    { for (i = 1; i <= NF; i++) { if ($i == "total") t = mb($(i + 2)); if ($i == "used") u = mb($(i + 2)) } }
+    END { if (t > 0) printf "%d", u * 100 / t }')"
+  case "$pct" in ''|*[!0-9]*) pct=0 ;; esac
+  if [ "$pct" -ge "$MAX_SWAP_PERCENT" ]; then
+    REASON="swap al ${pct}% (limite ${MAX_SWAP_PERCENT}%)"
+    return 0
+  fi
   level="$(sysctl -n kern.memorystatus_vm_pressure_level 2>/dev/null)"
   case "$level" in ''|*[!0-9]*) level=1 ;; esac
-  if [ "$level" -ge 4 ]; then
-    REASON="pressione di memoria critica (${level})"
+  if [ "$level" -ge 2 ]; then
+    REASON="pressione di memoria alta (${level})"
     return 0
   fi
   return 1
 }
 
-# Sets REASON and WAIT_SECONDS and returns 0 when this rebuild must wait; 1
-# when it may run now.
+# Sets REASON, WAIT_SECONDS and WAIT_KIND (memory | other) and returns 0 when
+# this rebuild must wait; 1 when it may run now. Once the max wait has forced the
+# run ($forced), the interval and the load no longer count, memory still does.
 must_wait() {
   local last age
-  last="$(cat "$out/.regen.last" 2>/dev/null)"
-  case "$last" in ''|*[!0-9]*) last=0 ;; esac
-  age=$(( $(date +%s) - last ))
-  if [ "$age" -lt "$MIN_INTERVAL_SECONDS" ]; then
-    REASON="ultimo rebuild ${age}s fa (minimo ${MIN_INTERVAL_SECONDS}s)"
-    WAIT_SECONDS=$(( MIN_INTERVAL_SECONDS - age ))
-    return 0
+  WAIT_KIND=other
+  if [ "$forced" -eq 0 ]; then
+    last="$(cat "$out/.regen.last" 2>/dev/null)"
+    case "$last" in ''|*[!0-9]*) last=0 ;; esac
+    age=$(( $(date +%s) - last ))
+    if [ "$age" -lt "$MIN_INTERVAL_SECONDS" ]; then
+      REASON="ultimo rebuild ${age}s fa (minimo ${MIN_INTERVAL_SECONDS}s)"
+      WAIT_SECONDS=$(( MIN_INTERVAL_SECONDS - age ))
+      return 0
+    fi
+    if load_busy; then
+      WAIT_SECONDS=$BUSY_SLEEP_SECONDS
+      return 0
+    fi
   fi
-  if mac_busy; then
+  if memory_busy; then
+    WAIT_KIND=memory
     WAIT_SECONDS=$BUSY_SLEEP_SECONDS
     return 0
   fi
   return 1
 }
 
-# Removes the lock when its owner is dead. Returns 0 when the lock is gone, 1
-# when someone may still hold it. A lock with no pid file is held by the previous
-# version of this script, or by a worker between mkdir and its pid write: it is
-# left alone until it is older than STALE_LOCK_MINUTES, when the previous script
-# would reap it too.
+# Removes the lock when its owner is dead. Returns 0 only when the lock is gone,
+# 1 when it is still there (a live owner, a lock too young to call dead, or a
+# removal that failed): the caller sleeps on 1, so nothing here can spin.
+# A lock with no pid, or an empty one (full disk, kill -9 between open and write),
+# is held by the previous version of this script or by a worker between mkdir and
+# its pid write: it is left alone until it is older than STALE_LOCK_MINUTES, when
+# the previous script would reap it too. Then it is dead, whatever it contains.
 reap_dead_lock() {
   local owner
   [ -d "$lock" ] || return 0
   owner="$(cat "$lock/pid" 2>/dev/null)"
   if [ -z "$owner" ]; then
     if [ -n "$(find "$lock" -maxdepth 0 -mmin +"$STALE_LOCK_MINUTES" 2>/dev/null)" ]; then
-      rmdir "$lock" 2>/dev/null || true
-      return 0
+      rm -rf "$lock" 2>/dev/null
     fi
-    return 1
-  fi
-  if kill -0 "$owner" 2>/dev/null; then
-    return 1
-  fi
-  if [ "$(cat "$lock/pid" 2>/dev/null)" = "$owner" ]; then
+  elif ! kill -0 "$owner" 2>/dev/null \
+    && [ "$(cat "$lock/pid" 2>/dev/null)" = "$owner" ]; then
     rm -f "$lock/pid"
-    rmdir "$lock" 2>/dev/null || true
+    rmdir "$lock" 2>/dev/null
   fi
-  return 0
+  [ ! -d "$lock" ]
 }
 
 # Drops the lock only while it still names this worker: another worker may
@@ -119,9 +151,12 @@ release_lock() {
 # graphify absent → silent no-op (task requirement).
 command -v graphify >/dev/null 2>&1 || exit 0
 
-# Resolve the MAIN working tree. Worktrees share hooks with the primary
-# checkout; the graph lives with the primary checkout, so rebuild that one.
+# Worktrees share the hooks of the primary checkout. A linked worktree has its
+# own git dir, apart from the common one: its commits do not change the primary
+# checkout's files, so there is nothing to rebuild there.
 common="$(git rev-parse --path-format=absolute --git-common-dir 2>/dev/null)" || exit 0
+gitdir="$(git rev-parse --path-format=absolute --git-dir 2>/dev/null)" || exit 0
+[ "$gitdir" = "$common" ] || exit 0
 case "$common" in
   */.git) repo="$(dirname "$common")" ;;
   *)      repo="$(git rev-parse --show-toplevel 2>/dev/null)" || exit 0 ;;
@@ -146,9 +181,12 @@ echo "$token" >"$req" 2>/dev/null || exit 0
 
   # The worker's own pid, which is the lock's owner. The hook's $$ is no good:
   # the hook exits right after forking, so its pid is dead to every other worker.
-  # BASHPID does not exist in bash 3.2, and a plain $(sh -c 'echo $PPID') reports
-  # the command substitution's own subshell, not the worker. exec makes that
-  # subshell become sh, so sh's parent is the worker.
+  # BASHPID does not exist in bash 3.2. $(sh -c 'echo $PPID') reports the parent
+  # of that sh: bash 5 runs the lone command of a substitution in the
+  # substitution's own process, so that parent is the worker; bash 3.2 forks once
+  # more, so it is a subshell that is gone before anyone reads the pid (measured:
+  # a dead pid on 3.2, the worker's on 5.3). exec makes both the same: the
+  # substitution's process becomes sh, so sh's parent is the worker.
   me="$(exec sh -c 'echo $PPID')"
   # A lock that names nobody would let a second worker in: better no rebuild.
   case "$me" in ''|*[!0-9]*) exit 0 ;; esac
@@ -169,11 +207,18 @@ echo "$token" >"$req" 2>/dev/null || exit 0
   while :; do
     # Superseded by a newer commit → that worker carries the rebuild now.
     token_ok || exit 0
-    if [ "$forced" -eq 0 ] && must_wait; then
+    if must_wait; then
       stamp="$(date '+%Y-%m-%d %H:%M:%S')"
       if [ "$waited" -ge "$MAX_WAIT_SECONDS" ]; then
+        if [ "$WAIT_KIND" = memory ]; then
+          # Memory is never forced. The request stays: the next event retries.
+          note "$stamp rinunciato ($REASON): richiesta lasciata al prossimo evento"
+          exit 0
+        fi
         forced=1
         note "$stamp forzato ($REASON)"
+        # Memory still counts after a forced run: look again.
+        continue
       else
         note "$stamp rimandato: $REASON"
         step="$WAIT_SECONDS"
@@ -192,7 +237,7 @@ echo "$token" >"$req" 2>/dev/null || exit 0
       token_ok || exit 0
       # The Mac may have gone busy, or the last rebuild may be too recent, while
       # we waited for the lock: release it and wait again.
-      if [ "$forced" -eq 0 ] && must_wait; then
+      if must_wait; then
         release_lock
         continue
       fi

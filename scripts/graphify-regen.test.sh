@@ -61,19 +61,30 @@ echo "$*" >>"$TASKPOLICY_LOG"
 case "$1" in -c) shift 2 ;; *) shift 1 ;; esac
 exec "$@"
 EOF
-chmod +x "$WORK/bin/graphify" "$WORK/bin/sysctl" "$WORK/bin/taskpolicy"
+# The fake find counts its calls, then runs the real one. The script calls find
+# once per pass over a lock that has no live owner, so the count tells a worker
+# that sleeps between passes from one that spins.
+cat >"$WORK/bin/find" <<'EOF'
+#!/usr/bin/env bash
+echo "called" >>"$FIND_CALLS"
+exec /usr/bin/find "$@"
+EOF
+chmod +x "$WORK/bin/graphify" "$WORK/bin/sysctl" "$WORK/bin/taskpolicy" "$WORK/bin/find"
 
 # The Mac's readings, in the real formats, on a 12-core machine.
 printf '12\n' >"$WORK/sysctl/hw.ncpu"
 QUIET_LOAD="{ 1.00 1.10 1.20 }"       # 0.08 per core
-BUSY_LOAD="{ 60.00 58.10 40.00 }"     # 5.00 per core, over the 4 limit
+BUSY_LOAD="{ 60.00 58.10 40.00 }"     # 5.00 per core, over the 1.5 limit
+# set_readings <loadavg> <pressure level> [swap used %, default 50]: swap is 10000M in all.
 set_readings() {
   printf '%s\n' "$1" >"$WORK/sysctl/vm.loadavg"
   printf '%s\n' "$2" >"$WORK/sysctl/kern.memorystatus_vm_pressure_level"
+  local used=$(( ${3:-50} * 100 ))
+  printf 'total = 10000.00M  used = %s.00M  free = %s.00M  (encrypted)\n' "$used" "$(( 10000 - used ))" \
+    >"$WORK/sysctl/vm.swapusage"
 }
 quiet() { set_readings "$QUIET_LOAD" 1; }
 busy() { set_readings "$BUSY_LOAD" 1; }
-critical() { set_readings "$QUIET_LOAD" 4; }
 
 # A fresh repo with a graph, as the hook sees a primary checkout. The Mac starts quiet.
 new_case() {
@@ -85,6 +96,7 @@ new_case() {
   git -C "$REPO" init -q
   echo '{}' >"$REPO/graphify-out/graph.json"
   : >"$CALLS"
+  : >"$REPO/findcalls"
   quiet
 }
 
@@ -93,7 +105,7 @@ new_case() {
 run_with() {
   local script="$1"
   shift
-  (cd "$REPO" && env PATH="$WORK/bin:$PATH" GRAPHIFY_CALLS="$CALLS" \
+  (cd "$REPO" && env PATH="$WORK/bin:$PATH" GRAPHIFY_CALLS="$CALLS" FIND_CALLS="$REPO/findcalls" \
     SYSCTL_DIR="$WORK/sysctl" TASKPOLICY_LOG="$WORK/taskpolicy.log" \
     GRAPHIFY_REGEN_DEBOUNCE=0 "$@" "$WORKER_SHELL" "$script")
 }
@@ -130,6 +142,12 @@ calls() { wc -l <"$CALLS" | tr -d ' '; }
 # calls_is <n>: true when graphify has been called n times. A test expression
 # like `test "$(calls)" = 1` would be frozen at its first value inside expect.
 calls_is() { [ "$(calls)" = "$1" ]; }
+
+find_calls() { wc -l <"$REPO/findcalls" | tr -d ' '; }
+# find_calls_at_most <n>: true when the script has called find at most n times.
+find_calls_at_most() { [ "$(find_calls)" -le "$1" ]; }
+# Ends the workers of a case that may have been left spinning or waiting.
+stop_workers() { pkill -f "$SCRIPT" 2>/dev/null || true; }
 
 # A live process that stands for a lock owner, and a pid that is dead for sure.
 # The child must not keep the caller's stdout: $(live_pid) would wait for it.
@@ -392,6 +410,46 @@ touch -t 202001010000 "$LOCK"
 run_hook
 expect "stale pid-less lock: run stamped" test -s "$REPO/graphify-out/.regen.last"
 check "stale pid-less lock: graphify called once" calls_is 1
+
+# 18. A lock older than the stale limit whose pid file is EMPTY (a full disk at the
+# pid write, a crash between the open and the write): it is dead, and it goes in a
+# pass or two. A worker that only tried rmdir found the directory not empty, took
+# that for "reaped" and spun: graphify never started, and find ran hundreds of
+# times a second.
+new_case empty-pid-stale-lock
+mkdir "$LOCK"
+: >"$LOCK/pid"
+touch -t 202001010000 "$LOCK"
+run_hook
+expect "empty pid: run stamped" test -s "$REPO/graphify-out/.regen.last"
+check "empty pid: graphify called once" calls_is 1
+check "empty pid: the lock was reaped in a pass or two, not spun on" find_calls_at_most 5
+stop_workers
+
+# 19. A stale lock that cannot be removed (the directory around it is read-only):
+# the worker sleeps between passes instead of looping hot, and runs once the lock
+# can go. Root ignores directory permissions, so the case is skipped there.
+if [ "$(id -u)" -eq 0 ]; then
+  echo "skip unremovable lock: running as root"
+else
+  new_case unremovable-stale-lock
+  mkdir "$LOCK"
+  : >"$LOCK/pid"
+  touch -t 202001010000 "$LOCK"
+  # The hook rewrites the request in place; it could not create one in a read-only directory.
+  : >"$REPO/graphify-out/.regen.request"
+  chmod a-w "$REPO/graphify-out"
+  run_hook
+  sleep 3
+  check "unremovable lock: graphify not called" calls_is 0
+  check "unremovable lock: the worker sleeps between passes, it does not spin" find_calls_at_most 3
+  chmod u+w "$REPO/graphify-out"
+  # Removing the pid file made the directory young; make it old again.
+  touch -t 202001010000 "$LOCK"
+  expect "unremovable lock: run stamped once the lock can go" test -s "$REPO/graphify-out/.regen.last"
+  check "unremovable lock: graphify called once" calls_is 1
+  stop_workers
+fi
 
 echo
 if [ "$fails" -gt 0 ]; then echo "$fails failure(s)"; exit 1; fi
