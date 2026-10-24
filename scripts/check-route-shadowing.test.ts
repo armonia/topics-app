@@ -853,6 +853,152 @@ export function createThingsRouter(ctx: any) {
       }
     });
 
+    // The cases the verifiers of the round-3 fix wrote, by the probe file and
+    // id they used (fl.ts, fl2.ts, fl3.ts, mutrows.ts, distinguish.ts,
+    // dist2.ts, subvariants.ts, harmless.ts, run4.py). A name whose value is
+    // made of a read of the method is that read; `null`, `undefined` and
+    // `false` are false; the name of a field, or a callback's own parameter,
+    // is not the request; a call refuses the method only when it names a
+    // method or its name says it checks; a sub-router's answer passed on
+    // refuses nothing, chained or logged.
+    describe("the verifiers' cases of the round-3 fix", () => {
+      const LIT = (verb: string) => `if (method === "${verb}" && pathname === "/api/x/keep") return json({});`;
+      const ANY = 'if (pathname === "/api/x/keep") return json({});';
+      const GET_PRIOR = 'if (m && method === "GET") return json({});';
+      const POST_PRIOR = 'if (m && method === "POST") return json({});';
+      const BEFORE = (...lines: string[]) => [...lines, MATCH, GET_PRIOR, LIT("GET")];
+      const BETWEEN = (...lines: string[]) => [MATCH, GET_PRIOR, ...lines, ANY];
+      const OWN = (cond: string) => `if (${cond} && pathname === "/api/x/keep") return json({});`;
+      type Dead = { methods: string[] | null; line: number };
+      const GET4: Dead = { methods: ["GET"], line: 4 };
+      const CASES: Array<{ id: string; what: string; lines: string[]; dead?: Dead }> = [
+        // A name that holds a read of the method is that read (blocker 1).
+        { id: "fl2.ts N2", what: "const kind = methodKind(method); kind === \"write\" in the literal's condition", lines: [MATCH, GET_PRIOR, "const kind = methodKind(method);", OWN('kind === "write"')] },
+        { id: "fl2.ts N4", what: "const op = OPS[method]; op === \"save\"", lines: [MATCH, GET_PRIOR, "const op = OPS[method];", OWN('op === "save"')] },
+        { id: "fl.ts D10", what: "const verb = override ?? method; verb === \"DELETE\"", lines: [MATCH, GET_PRIOR, 'const verb = req.headers.get("x-http-method-override") ?? method;', OWN('verb === "DELETE"')] },
+        { id: "fl.ts D11", what: "const verb = String(method); verb === \"POST\"", lines: [MATCH, GET_PRIOR, "const verb = String(method);", OWN('verb === "POST"')] },
+        { id: "fl3.ts closure", what: "const is = (v) => method === v; is(\"POST\")", lines: ["const is = (v: string) => method === v;", MATCH, GET_PRIOR, OWN('is("POST")')] },
+        { id: "fl.ts D13", what: "tasks.ts:2834: const guestAction = matchGuestTaskAction(pathname, id, method)", lines: [MATCH, GET_PRIOR, 'const guestAction = matchGuestTaskAction(pathname, m?.id ?? "", method);', OWN('guestAction === "edit"')] },
+        { id: "fl.ts D7", what: "const kind = methodKind(method); switch (kind) around the literal", lines: [MATCH, GET_PRIOR, "const kind = methodKind(method);", 'switch (kind) { case "write": if (pathname === "/api/x/keep") return json({}); }'] },
+        { id: "fl2.ts N8", what: "the literal under if (kind === \"write\")", lines: [MATCH, GET_PRIOR, "const kind = methodKind(method);", 'if (kind === "write") { if (pathname === "/api/x/keep") return json({}); }'] },
+        { id: "fl2.ts N9", what: "const writable = isWrite(method); a refusal on it between the winner and the literal", lines: [MATCH, GET_PRIOR, "const writable = isWrite(method);", 'if (writable === false) return errorResponse(405, "x");', ANY] },
+        { id: "fl.ts D4", what: "const { canWrite } = accessFor(method, pathname)", lines: [MATCH, GET_PRIOR, "const { canWrite } = accessFor(method, pathname);", OWN("canWrite")] },
+        { id: "fl.ts A3", what: "const [verb] = [method]", lines: [MATCH, GET_PRIOR, "const [verb] = [method];", OWN('verb === "POST"')] },
+        { id: "adv.ts AL3", what: "let verb = method; verb = norm(verb)", lines: [MATCH, GET_PRIOR, "let verb = method;", "verb = norm(verb);", 'if (verb === "POST") { if (pathname === "/api/x/keep") return json({}); }'] },
+        { id: "fl.ts A7", what: "const verb = (method ?? \"GET\") as string", lines: [MATCH, GET_PRIOR, 'const verb = (method ?? "GET") as string;', OWN('verb === "POST"')] },
+        // tasks.ts guest block: the method picks how it leaves, not whether.
+        { id: "sens199 tasks.ts guest block", what: "a block that always leaves under an unknown condition, method reads inside, before the winner", lines: BEFORE('if (ctx.guest) { const action = guestAction(pathname, method); if (action === "none") return errorResponse(403, "x"); return json({}); }'), dead: { methods: ["GET"], line: 5 } },
+        // null, undefined and false are false (blocker 2).
+        { id: "fl2.ts N6", what: "history.ts:85: const body = method === \"POST\" ? await readJSON(req) : null; body && literal", lines: [MATCH, GET_PRIOR, 'const body = method === "POST" ? await readJSON(req) : null;', OWN("body")] },
+        { id: "fl2.ts N5", what: "the same ternary inline", lines: [MATCH, GET_PRIOR, OWN('(method === "POST" ? await readJSON(req) : null)')] },
+        { id: "fl.ts D8", what: "const body = method === \"GET\" ? null : await readJSON(req)", lines: [MATCH, GET_PRIOR, 'const body = method === "GET" ? null : await readJSON(req);', OWN("body")] },
+        { id: "undefined", what: "the ternary picks undefined for GET", lines: [MATCH, GET_PRIOR, 'const body = method === "POST" ? await readJSON(req) : undefined;', OWN("body")] },
+        { id: "false", what: "the ternary picks false for GET", lines: [MATCH, GET_PRIOR, 'const body = method === "POST" ? await readJSON(req) : false;', OWN("body")] },
+        { id: "POST still reaches", what: "the same body with a POST pattern before: POST is served", lines: [MATCH, POST_PRIOR, 'const body = method === "POST" ? await readJSON(req) : null;', OWN("body")], dead: { methods: ["POST"], line: 4 } },
+        // The name of a field, or a callback's own parameter, is not the request (major 3).
+        { id: "fl2.ts O1", what: "the body tests q.method, a field of a local", lines: [MATCH, GET_PRIOR, 'if (method === "GET" && pathname === "/api/x/keep") { const q = parse(url); if (q.method === "list") return json({}); return json({}); }'], dead: GET4 },
+        { id: "fl2.ts O2", what: "the body hands fetch { method: \"POST\" } in a condition", lines: [MATCH, GET_PRIOR, 'if (pathname === "/api/x/keep") { if (!(await fetch(u, { method: "POST" })).ok) return errorResponse(502, "x"); return json({}); }'], dead: GET4 },
+        { id: "fl2.ts O3", what: "if (job.method === \"legacy\") return 410 between the winner and the literal", lines: [MATCH, GET_PRIOR, "const job = loadJob();", 'if (job.method === "legacy") return errorResponse(410, "x");', ANY], dead: GET4 },
+        { id: "fl2.ts O4", what: "opts.method in the literal's own condition", lines: [MATCH, GET_PRIOR, "const opts = loadOpts();", OWN('opts.method !== "off"')], dead: GET4 },
+        { id: "run4.py lost-row-field", what: "pendingCalls.some((c) => c.method === \"reap\") in the body", lines: [MATCH, GET_PRIOR, 'if (pathname === "/api/x/keep") { if (pendingCalls.some((c) => c.method === "reap")) return errorResponse(409, "x"); return json({}); }'], dead: GET4 },
+        { id: "a field named like a local", what: "job.kind next to const kind = methodKind(method)", lines: [MATCH, GET_PRIOR, "const kind = methodKind(method);", "const job = loadJob();", OWN('job.kind === "sync"')], dead: GET4 },
+        { id: "a callback that reads the outer method", what: "the literal under WRITES.some((v) => v === method)", lines: [MATCH, GET_PRIOR, 'if (WRITES.some((v) => v === method)) { if (pathname === "/api/x/keep") return json({}); }'] },
+        // A call refuses the method only when it names one or says it checks (majors 4, 5, 9).
+        { id: "run4.py w-console-tag", what: "console.log(\"REQ\", method, pathname) before the winner", lines: BEFORE('console.log("REQ", method, pathname);'), dead: { methods: ["GET"], line: 5 } },
+        { id: "run4.py w-metric-caps", what: "metrics.increment(\"HTTP\", method) before the winner", lines: BEFORE('metrics.increment("HTTP", method);'), dead: { methods: ["GET"], line: 5 } },
+        { id: "harmless.ts auditOk", what: "audit(req, method, \"OK\") in the body", lines: [MATCH, GET_PRIOR, 'if (method === "GET" && pathname === "/api/x/keep") { audit(req, method, "OK"); return json({}); }'], dead: GET4 },
+        { id: "harmless.ts emitCaps", what: "emit(\"REQUEST\", method) between the winner and the literal", lines: BETWEEN('emit("REQUEST", method);'), dead: GET4 },
+        { id: "distinguish.ts M49", what: "requireUser(req) is not handed the method", lines: BEFORE("requireUser(req);"), dead: { methods: ["GET"], line: 5 } },
+        { id: "distinguish.ts M50", what: "ctx.assertWrite(method) before the winner", lines: BEFORE("ctx.assertWrite(method);") },
+        { id: "distinguish.ts MX_assert", what: "assertWrite(method) before the winner", lines: BEFORE("assertWrite(method);") },
+        { id: "distinguish.ts M46", what: "checkout(method): its first word is not check", lines: BEFORE("checkout(method);"), dead: { methods: ["GET"], line: 5 } },
+        { id: "distinguish.ts M47", what: "logcheck(method): check is not its first word", lines: BEFORE("logcheck(method);"), dead: { methods: ["GET"], line: 5 } },
+        { id: "mutrows.ts lookahead", what: "expectedStatus(method) between the winner and the literal", lines: BETWEEN("expectedStatus(method);"), dead: GET4 },
+        { id: "distinguish.ts M59", what: "allowMethod(method, \"POST\" as Method) before the winner", lines: BEFORE('allowMethod(method, "POST" as Method);') },
+        { id: "distinguish.ts M53", what: "log(method, []) names no method", lines: BEFORE("log(method, []);"), dead: { methods: ["GET"], line: 5 } },
+        { id: "distinguish.ts M54", what: "allow(method, [\"GET\", other]) names one", lines: BEFORE('allow(method, ["GET", other]);') },
+        { id: "mutrows.ts array", what: "trace(method, [pathname]) names no method", lines: BETWEEN("trace(method, [pathname]);"), dead: GET4 },
+        { id: "fl.ts H8", what: "enforceMethod(method, \"POST\") between the winner and the literal", lines: BETWEEN('enforceMethod(method, "POST");') },
+        { id: "a method list", what: "allowMethods(method, [\"POST\", \"PUT\"]) between the winner and the literal", lines: BETWEEN('allowMethods(method, ["POST", "PUT"]);') },
+        // The ternary and the sides of an unknown if (majors 4, 7, 17).
+        { id: "mutrows.ts ternary", what: "if (ctx.strict ? isWrite(method) : ctx.flag) return 403: the method alone never decides", lines: BETWEEN('if (ctx.strict ? isWrite(method) : ctx.flag) return errorResponse(403, "x");'), dead: GET4 },
+        { id: "dist2.ts M09", what: "if (ready ? !READ.has(method) : !SAFE.has(method)) return 405 before the winner", lines: BEFORE('if (ready ? !READ.has(method) : !SAFE.has(method)) return errorResponse(405, "x");') },
+        { id: "dist2.ts M10", what: "if (isWrite(method) ? !READ.has(method) : ready) return 405 before the winner", lines: BEFORE('if (isWrite(method) ? !READ.has(method) : ready) return errorResponse(405, "x");') },
+        { id: "dist2.ts M11", what: "if (isRead(method) ? ready : !WRITE.has(method)) return 405 before the winner", lines: BEFORE('if (isRead(method) ? ready : !WRITE.has(method)) return errorResponse(405, "x");') },
+        { id: "dist2.ts M12", what: "if (ready ? !READ.has(method) : pathname === \"/nope\") return 405: the method alone never decides", lines: BEFORE('if (ready ? !READ.has(method) : pathname === "/nope") return errorResponse(405, "x");'), dead: { methods: ["GET"], line: 5 } },
+        { id: "distinguish.ts M13", what: "if (isWrite(method) ? needsAuth : false) return 401: the method alone never decides", lines: BEFORE('if (isWrite(method) ? needsAuth : false) return errorResponse(401, "x");'), dead: { methods: ["GET"], line: 5 } },
+        { id: "distinguish.ts M27", what: "if (READ.has(method)) { log(); } else { return 405 } before the winner", lines: BEFORE('if (READ.has(method)) { log(); } else { return errorResponse(405, "x"); }') },
+        { id: "mutants.py M33", what: "a refusal on the else side of a condition that does not read the method", lines: BEFORE('if (ready) { log(); } else if (!READ.has(method)) return errorResponse(405, "x");') },
+        { id: "both sides leave", what: "the body answers on WRITE.has(method) and refuses otherwise", lines: [MATCH, GET_PRIOR, 'if (pathname === "/api/x/keep") { if (WRITE.has(method)) { return json({}); } else { return errorResponse(405, "x"); } }'] },
+        { id: "a refusal under a flag", what: "the body serves GET when the flag is off", lines: [MATCH, GET_PRIOR, 'if (pathname === "/api/x/keep") { if (ready) { if (!READ.has(method)) return errorResponse(405, "x"); return json({}); } return json({}); }'], dead: GET4 },
+        // A sub-router's answer passed on (majors 6, 8).
+        { id: "subvariants.ts sub || chain", what: "(await a(...)) || (await b(...)) passed on before the winner", lines: BEFORE("const r = (await a(req, url, pathname, method)) || (await b(req, url, pathname, method));", "if (r) return r;"), dead: { methods: ["GET"], line: 6 } },
+        { id: "subvariants.ts sub ?? chain", what: "(await a(...)) ?? (await b(...)) passed on before the winner", lines: BEFORE("const r = (await a(req, url, pathname, method)) ?? (await b(req, url, pathname, method));", "if (r) return r;"), dead: { methods: ["GET"], line: 6 } },
+        { id: "subvariants.ts sub then logs", what: "if (r) { log.debug(...); return r; } before the winner", lines: BEFORE("const r = await sub(req, url, pathname, method);", 'if (r) { log.debug("sub answered"); return r; }'), dead: { methods: ["GET"], line: 6 } },
+        { id: "distinguish.ts M39", what: "if (r) { return r; } before the winner", lines: BEFORE("const r = await sub(req, url, method);", "if (r) { return r; }"), dead: { methods: ["GET"], line: 6 } },
+        { id: "distinguish.ts M42", what: "(await sub(...)) ?? null passed on before the winner", lines: BEFORE("const r = (await sub(req, url, method)) ?? null;", "if (r) return r;"), dead: { methods: ["GET"], line: 6 } },
+        { id: "harmless.ts subNotNull", what: "if (r !== null) return r before the winner", lines: BEFORE("const r = await sub(req, url, method);", "if (r !== null) return r;"), dead: { methods: ["GET"], line: 6 } },
+        { id: "harmless.ts subObj", what: "sub({ req, url, pathname, method }) passed on before the winner", lines: BEFORE("const r = await sub({ req, url, pathname, method });", "if (r) return r;"), dead: { methods: ["GET"], line: 6 } },
+        { id: "harmless.ts subCatch", what: "sub(req, url, method).catch(() => null) passed on before the winner", lines: BEFORE("const r = await sub(req, url, method).catch(() => null);", "if (r) return r;"), dead: { methods: ["GET"], line: 6 } },
+        { id: "harmless.ts subInstance", what: "if (r instanceof Response) return r before the winner: a global in the condition is not a local", lines: BEFORE("const r = await sub(req, url, method);", "if (r instanceof Response) return r;"), dead: { methods: ["GET"], line: 6 } },
+        { id: "distinguish.ts M40", what: "an answer turned into a 403 before the winner", lines: BEFORE("const denied = await policy(req, url, method);", 'if (denied) return errorResponse(403, "x");') },
+        { id: "distinguish.ts M41", what: "if (r) return forbidden before the winner", lines: BEFORE("const r = await policy(req, url, method);", "if (r) return forbidden;") },
+        { id: "a way out before return r", what: "if (r) { if (x) return other; return r; } before the winner", lines: BEFORE("const r = await sub(req, url, method);", "if (r) { if (x) return other; return r; }") },
+        { id: "a condition that reads the method too", what: "if (r && WRITE.has(method)) return r before the winner", lines: BEFORE("const r = await sub(req, url, method);", "if (r && WRITE.has(method)) return r;") },
+        { id: "fl.ts H6", what: "methodGuard(method, WRITE_METHODS) is handed no request: its answer may be a refusal", lines: BETWEEN("const refused = methodGuard(method, WRITE_METHODS);", "if (refused) return refused;") },
+        { id: "a request handed for its method", what: "methodGuard(req.method, WRITE_METHODS): its answer may be a refusal", lines: BETWEEN("const refused = methodGuard(req.method, WRITE_METHODS);", "if (refused) return refused;") },
+        { id: "a check handed the request", what: "const r = await allowMethods(req, method, [\"POST\"]); if (r) return r; before the winner", lines: BEFORE('const r = await allowMethods(req, method, ["POST"]);', "if (r) return r;") },
+        // A switch that reads the method in a label, a loop on the method (minor 14).
+        { id: "fl.ts W3", what: "switch (true) { case method === \"POST\": literal }", lines: [MATCH, GET_PRIOR, 'switch (true) { case method === "POST": if (pathname === "/api/x/keep") return json({}); }'] },
+        { id: "fl.ts W5", what: "while (method === \"POST\") { literal; break; }", lines: [MATCH, GET_PRIOR, 'while (method === "POST") { if (pathname === "/api/x/keep") return json({}); break; }'] },
+        { id: "a loop on GET", what: "while (method === \"GET\") { literal; break; }", lines: [MATCH, GET_PRIOR, 'while (method === "GET") { if (pathname === "/api/x/keep") return json({}); break; }'], dead: GET4 },
+      ];
+      for (const c of CASES) {
+        test(`${c.id}: ${c.what}`, () => {
+          const found = inner(c.lines).map((o) => ({ methods: o.methods, line: o.prior.line }));
+          expect(found).toEqual(c.dead ? [c.dead] : []);
+        });
+      }
+
+      // Every first word of CHECK_VERBS makes a call handed the method a refusal.
+      for (const verb of ["assert", "require", "ensure", "check", "verify", "validate", "expect", "guard", "reject", "deny", "forbid", "only", "must"]) {
+        test(`${verb}Writes(method) between the winner and the literal may refuse GET`, () => {
+          expect(shadowed(BETWEEN(`${verb}Writes(method);`))).toEqual([]);
+        });
+      }
+
+      // Every name of HTTP_METHODS is a method a call can compare the method with.
+      for (const name of ["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"]) {
+        test(`allow(method, "${name}") between the winner and the literal may refuse GET`, () => {
+          expect(shadowed(BETWEEN(`allow(method, "${name}");`))).toEqual([]);
+        });
+      }
+
+      // run4.py on browser.ts:229 as it is.
+      const KEEP = 'if (method === "GET" && pathname === "/api/browsers/data-store-keep-list") return json({});';
+      const RECENT = (cond: string) => `if (${cond} && pathname === "/api/browsers/recent") return json({ ok: true });`;
+      test("run4.py fr-stored-kind, fr-guest-action, fr-body-per-method: correct code below GET /api/browsers/:id", () => {
+        expect(inner([...BY_ID, "const recentKind = methodKind(method);", RECENT('recentKind === "write"')])).toEqual([]);
+        expect(inner([...BY_ID, "const recentAction = recentActionFor(pathname, method);", RECENT('recentAction === "clear"')])).toEqual([]);
+        expect(inner([...BY_ID, 'const recentBody = method === "POST" ? await readJSON(req) : null;', RECENT("recentBody")])).toEqual([]);
+      });
+      for (const [id, lines] of [
+        ["lost-field-guard-before-winner", ["const pendingOp = browserService.pendingOp?.();", 'if (pendingOp?.method === "reset") return errorResponse(409, "browser resetting", { log: false });']],
+        ["w-console-tag", ['console.log("REQ", method, pathname);']],
+        ["w-sub-or", ["const subr = (await extraA(req, url, pathname, method)) || (await extraB(req, url, pathname, method));", "if (subr) return subr;"]],
+        ["w-sub-nullish", ["const subr = (await extraA(req, url, pathname, method)) ?? (await extraB(req, url, pathname, method));", "if (subr) return subr;"]],
+      ] as const) {
+        test(`run4.py ${id}: above GET /api/browsers/:id the keep-list route is still found`, () => {
+          const o = inner([...lines, ...BY_ID, KEEP]);
+          expect(o.map((x) => [x.sample, x.methods, x.prior.line])).toEqual([["/api/browsers/data-store-keep-list", ["GET"], 4 + lines.length]]);
+        });
+      }
+      test("run4.py lost-fetch-in-keep-list-body, w-body-console: in the keep-list body", () => {
+        for (const line of ['if (!(await fetch(KEEP_MIRROR, { method: "HEAD" })).ok) return errorResponse(503, "mirror down");', 'console.log("REQ", method, pathname);'])
+          expect(shadowed([...BY_ID, `if (method === "GET" && pathname === "/api/browsers/data-store-keep-list") { ${line} return json({}); }`])).toEqual(["/api/browsers/data-store-keep-list"]);
+      });
+    });
+
     // A boolean helper next to the router (server.ts guestAllowed): a
     // predicate, not a route. The router function is still judged.
     test("H1: a predicate that answers true for a path is not a route", () => {
