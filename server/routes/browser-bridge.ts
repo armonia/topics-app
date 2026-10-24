@@ -693,6 +693,7 @@ export function createBrowserBridgeRouter(
           const tabs = await listBrowserTabs(buildTabDeps(browserService), own);
           return json({ tabs });
         } catch (e: unknown) {
+          warnBridgeServerError("browser_list_tabs", own ?? "-", 500, e);
           return json({ error: e instanceof Error ? e.message : String(e) }, 500);
         }
       }

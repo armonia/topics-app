@@ -72,6 +72,8 @@ interface HarnessOpts {
   paneAttached?: boolean | "dopo-force-open";
   /** Makes the navigation blow up (no headless browser, dead page). */
   navigateThrows?: boolean;
+  /** Makes `listContexts` throw with this message (the inventory read blew up). */
+  listContextsThrows?: string;
   /** Makes every page evaluation reject with this message (a native delegate that gave up). */
   evalRejects?: string;
   /**
@@ -132,7 +134,10 @@ function harness(opts: HarnessOpts = {}) {
   });
 
   const service = {
-    listContexts: () => contexts,
+    listContexts: () => {
+      if (opts.listContextsThrows) throw new Error(opts.listContextsThrows);
+      return contexts;
+    },
     setAgentAction: (contextId: string) => { dispatchedOn.push(contextId); },
     broadcastAgentActive: () => {},
     navigate: async (contextId: string, url: string) => {
@@ -1325,10 +1330,26 @@ describe("5xx del bridge — il motivo finisce nel log", () => {
       expect((await resp!.json()).error).toContain("eval timeout");
       const lines = warn.mock.calls.map((args) => args.map(String).join(" "));
       expect(lines).toHaveLength(1);
-      // The tool name must appear besides the reason (which itself contains "eval").
-      expect(lines[0].replace("eval timeout", "")).toContain("eval");
-      expect(lines[0]).toContain("altra-scheda");
-      expect(lines[0]).toContain("eval timeout");
+      // Whole line shape: timestamp, real dispatcher tool name, contextId, status, reason.
+      expect(lines[0]).toMatch(/^\[browser-bridge\] \S+ browser_eval altra-scheda -> 502: browser_eval failed: eval timeout$/);
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  test("list-tabs con l'inventario che esplode: 500 come prima, e una riga di warn con tool e motivo", async () => {
+    const h = harness({ listContextsThrows: "inventario illeggibile" });
+    h.addTopic("t1");
+    const warn = spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      const resp = await h.post("/api/topics/t1/browser/list-tabs");
+
+      expect(resp!.status).toBe(500);
+      expect((await resp!.json()).error).toContain("inventario illeggibile");
+      const lines = warn.mock.calls.map((args) => args.map(String).join(" "));
+      expect(lines).toHaveLength(1);
+      expect(lines[0]).toContain("browser_list_tabs");
+      expect(lines[0]).toContain("inventario illeggibile");
     } finally {
       warn.mockRestore();
     }
