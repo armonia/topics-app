@@ -42,8 +42,9 @@ export type Runner = (file: string, args: string[], opts?: { timeoutMs?: number 
 
 export const defaultRunner: Runner = (file, args, opts) =>
   new Promise((resolve, reject) => {
-    execFile(file, args, { timeout: opts?.timeoutMs ?? 4000, maxBuffer: 4 * 1024 * 1024 }, (err, stdout) => {
-      if (err) reject(err);
+    execFile(file, args, { timeout: opts?.timeoutMs ?? 4000, maxBuffer: 4 * 1024 * 1024 }, (err, stdout, stderr) => {
+      // The reason of a failure lives in stderr: the first line of err.message is only the command line.
+      if (err) reject(Object.assign(err, { stderr: String(stderr ?? "") }));
       else resolve(String(stdout));
     });
   });
@@ -214,6 +215,21 @@ export interface LiveTerminalsService {
 const TERMINAL_LIST_TIMEOUT_MS = 1500;
 const TERMINAL_PAUSE_MS = 60_000;
 
+/**
+ * One-line reason of a failed command: the first non-empty stderr line when
+ * present, else the first message line unless it is Node's "Command failed:"
+ * preamble (which only repeats the command), else nothing.
+ */
+function terminalFailureReason(err: unknown): string {
+  const stderr = (err as { stderr?: unknown })?.stderr;
+  if (typeof stderr === "string") {
+    const line = stderr.split("\n").map((l) => l.trim()).find((l) => l.length > 0);
+    if (line) return line;
+  }
+  const first = String((err as Error)?.message ?? err).split("\n")[0].trim();
+  return first.startsWith("Command failed:") ? "" : first;
+}
+
 export function createLiveTerminals(deps: LiveTerminalsDeps): LiveTerminalsService {
   const run = deps.run ?? defaultRunner;
   const ttlMs = deps.ttlMs ?? 2000;
@@ -228,6 +244,10 @@ export function createLiveTerminals(deps: LiveTerminalsDeps): LiveTerminalsServi
   // Without the Automation permission osascript hangs until killed: after a
   // failure Terminal.app is skipped for a while, or every list waits for it.
   let terminalPausedUntil = 0;
+  // Key (kind + reason) of the last Terminal.app failure already reported: the
+  // warning fires when the key changes and on the error->ok transition, so the
+  // same failure repeated stays silent but a new cause is not swallowed.
+  let terminalErrorKey: string | null = null;
 
   async function scanTmux(): Promise<LiveTerminal[]> {
     if (!tmuxOn) return [];
@@ -245,9 +265,31 @@ export function createLiveTerminals(deps: LiveTerminalsDeps): LiveTerminalsServi
     let tabs: Array<{ tty: string; title: string }>;
     try {
       tabs = parseTerminalTabs(await run("osascript", ["-e", TERMINAL_LIST_SCRIPT], { timeoutMs: TERMINAL_LIST_TIMEOUT_MS }));
+      // Back to reachable: announce the recovery once.
+      if (terminalErrorKey !== null) {
+        terminalErrorKey = null;
+        log("Terminal.app di nuovo raggiungibile");
+      }
     } catch (err) {
       terminalPausedUntil = now() + TERMINAL_PAUSE_MS;
-      log("Terminal.app non risponde (permesso di Automazione negato?)", err);
+      // One compact line per distinct failure: reason plus kill/timeout facts.
+      // Only a kill gets the two hypotheses (slow Mac, or the Automation
+      // permission pending/denied): an immediate failure says its own reason.
+      // Never pass the full error object to the log.
+      const killed = (err as { killed?: unknown })?.killed;
+      const signal = (err as { signal?: unknown })?.signal;
+      const reason = terminalFailureReason(err);
+      // A kill is the timeout; any other failure (an immediate -1743, a
+      // missing osascript) must not be reported as one.
+      const kind = killed === true ? "killed" : "failed";
+      const key = `${kind}|${reason}`;
+      if (key !== terminalErrorKey) {
+        terminalErrorKey = key;
+        const what = killed === true
+          ? `osascript ucciso dopo ${TERMINAL_LIST_TIMEOUT_MS} ms (Mac lento, o permesso di Automazione in attesa/negato)`
+          : "osascript fallito";
+        log(`Terminal.app: ${what}${reason ? ": " + reason : ""} killed=${killed} signal=${signal}`);
+      }
       return [];
     }
     return tabs.map((t) => ({
