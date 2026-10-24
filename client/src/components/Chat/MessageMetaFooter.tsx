@@ -162,7 +162,7 @@ export function MessageMetaFooter({ latencyMs, latencyTitle, latencyPrefix, prom
   // due storie diverse, e quello che serve quando si guarda un costo è il
   // secondo. Il chip dice ora quanto dei dollari veniva dalla cache; la
   // differenza col totale — che resta l'ultima voce, invariata — è il resto.
-  const cb = costBreakdown({ promptTokens, completionTokens, costCents, cacheReadTokens, cacheCreationTokens, cacheCreation1hTokens });
+  const cb = costBreakdown({ promptTokens, completionTokens, costCents, cacheReadTokens, cacheCreationTokens, cacheCreation1hTokens, model });
   const safeCost = safeNum(costCents);
   if (cb.known && cb.cacheCents > 0) {
     parts.push({
@@ -173,7 +173,7 @@ export function MessageMetaFooter({ latencyMs, latencyTitle, latencyPrefix, prom
       // fresco, non 0,1×, e in un turno lungo è una fetta grossa della spesa.
       title: [
         `${formatCostCents(safeCost)} in tutto, di cui:`,
-        `  ${formatCostCents(cb.cacheCents)} di rilettura dalla cache (×0,1)`,
+        `  ${formatCostCents(cb.cacheCents)} di rilettura dalla cache (×${String(cb.readRate).replace('.', ',')})`,
         ...(cb.writeCents > 0 ? [`  ${formatCostCents(cb.writeCents)} di scrittura in cache (×1,25, ×2 a un'ora)`] : []),
         `  ${formatCostCents(cb.freshCents - cb.writeCents)} di token freschi e risposta`,
         '',

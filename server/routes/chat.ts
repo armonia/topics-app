@@ -3487,6 +3487,7 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
                   cacheReadTokens: parts.cacheRead,
                   cacheCreationTokens: parts.cacheCreation5m,
                   cacheCreation1hTokens: parts.cacheCreation1h,
+                  requests: live.calls,
                 });
                 if (usd > 0) liveCost = Math.round(usd * 100);
               } catch { /* modello sconosciuto: si mostrano i token senza prezzo */ }
@@ -3814,6 +3815,7 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
                       cacheReadTokens: cacheReadTokens ?? 0,
                       cacheCreationTokens: cacheCreationTokens ?? 0,
                       cacheCreation1hTokens: cacheCreation1hTokens ?? 0,
+                      requests: live.calls,
                     });
                     if (usd > 0) costCents = Math.round(usd * 100);
                   } catch { /* unknown model — skip cost, keep tokens */ }

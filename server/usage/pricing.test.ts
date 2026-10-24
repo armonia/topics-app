@@ -5,6 +5,9 @@
  */
 import { describe, test, expect } from "bun:test";
 import { calculateCost, calculateCostWithCache, splitPromptTokens } from "./pricing";
+import { ownModelPrice } from "../../shared/model-pricing";
+import { NativeProvider, DEFAULT_MODEL } from "../providers/native/provider";
+import { engineModelOf } from "../lib/native-subagents";
 
 // Il prezzo di input del modello di riferimento dei test. Vive qui come
 // COSTANTE, non ricalcolato da `calculateCost`: un test che deriva l'atteso
@@ -41,7 +44,9 @@ describe("calculateCost — model pricing resolution", () => {
     expect(calculateCost("claude-opus-5", 1_000_000, 0)).toBeCloseTo(OPUS_IN, 6);
     expect(calculateCost("claude-opus-5", 0, 1_000_000)).toBeCloseTo(OPUS_OUT, 6);
     expect(calculateCost("claude-opus-4-8", 1_000_000, 0)).toBeCloseTo(5, 6);
-    expect(calculateCost("claude-sonnet-5", 1_000_000, 0)).toBeCloseTo(3, 6);
+    // Sonnet 5's $2/$10 launch price became the standard one; the move to
+    // $3/$15 announced for September was cancelled.
+    expect(calculateCost("claude-sonnet-5", 1_000_000, 0)).toBeCloseTo(2, 6);
     expect(calculateCost("claude-haiku-4-5", 1_000_000, 0)).toBeCloseTo(1, 6);
     expect(calculateCost("claude-fable-5", 1_000_000, 0)).toBeCloseTo(10, 6);
   });
@@ -57,8 +62,9 @@ describe("calculateCost — model pricing resolution", () => {
     // Un Opus futuro non ancora in tabella non deve essere tariffato come uno
     // ritirato: sbagliare per eccesso e' il modo in cui i costi mostrati sono
     // diventati il triplo del vero.
-    expect(calculateCost("claude-opus-99-inesistente", 1_000_000, 0)).toBeCloseTo(OPUS_IN, 6);
-    expect(calculateCost("claude-sonnet-99-inesistente", 1_000_000, 0)).toBeCloseTo(3, 6);
+    expect(calculateCost("claude-opus-99-inesistente", 1_000_000, 0)).toBeCloseTo(4, 6);
+    expect(calculateCost("claude-sonnet-99-inesistente", 1_000_000, 0)).toBeCloseTo(2, 6);
+    expect(calculateCost("claude-haiku-99-inesistente", 50_000, 0)).toBeCloseTo(0.005, 9);
   });
 });
 
@@ -148,5 +154,77 @@ describe("cache a un'ora — 2x, non 1.25x", () => {
     const giusto = calculateCostWithCache({ ...opus, cacheCreation1hTokens: write });
     expect(giusto - sbagliato).toBeCloseTo((write * OPUS_IN * 0.75) / 1_000_000, 6);
     expect(giusto).toBeGreaterThan(sbagliato);
+  });
+});
+
+/**
+ * The 5.5 generation. Prices from platform.claude.com/docs/en/about-claude/pricing
+ * (read 24/10/2026), written here as constants for the same reason as OPUS_IN:
+ * an expected value derived from the table under test cannot catch a wrong row.
+ */
+describe("5.5 generation: own rows and per-model cache-read rate", () => {
+  const readOnly = (model: string) => calculateCostWithCache({ model, freshInputTokens: 0, outputTokens: 0, cacheReadTokens: 1_000_000 });
+
+  test("Opus, Sonnet and Haiku 5.5 have their own input and output prices", () => {
+    expect(calculateCost("claude-opus-5-5", 1_000_000, 1_000_000)).toBeCloseTo(4 + 20, 6);
+    expect(calculateCost("claude-opus-5-5[1m]", 1_000_000, 1_000_000)).toBeCloseTo(4 + 20, 6);
+    expect(calculateCost("claude-sonnet-5-5", 1_000_000, 1_000_000)).toBeCloseTo(2 + 10, 6);
+    expect(calculateCost("claude-haiku-5-5", 50_000, 1_000_000)).toBeCloseTo(0.005 + 0.5, 6);
+  });
+
+  test("a cache read costs what THAT model charges, not a flat tenth", () => {
+    expect(readOnly("claude-opus-5-5")).toBeCloseTo(0.2, 6);    // 0.05x of $4
+    expect(readOnly("claude-sonnet-5-5")).toBeCloseTo(0.1, 6);  // 0.05x of $2
+    expect(readOnly("claude-fable-5-1")).toBeCloseTo(0.25, 6);  // 0.025x of $10
+    expect(readOnly("claude-fable-5")).toBeCloseTo(1, 6);       // 0.1x of $10
+    expect(readOnly("claude-opus-5")).toBeCloseTo(0.5, 6);      // 0.1x of $5
+  });
+
+  test("turn 4 of the finance chat: $6.04 at the real prices, not $13.27", () => {
+    // Real row (messages 3132a726, topic:f55fc83a, 24/10): 98 calls on Opus 5.5.
+    const prompt = 23_010_793, cacheRead = 22_889_547, write5m = 120_854, out = 42_651;
+    const usd = calculateCostWithCache({
+      model: "claude-opus-5-5",
+      freshInputTokens: prompt - cacheRead - write5m,
+      outputTokens: out,
+      cacheReadTokens: cacheRead,
+      cacheCreationTokens: write5m,
+      requests: 98,
+    });
+    expect(usd).toBeCloseTo(6.04, 2);
+  });
+
+  test("Haiku 5.5 changes rate card PER REQUEST over 100k tokens of prompt", () => {
+    // One 150k request: every token, cache reads included, at $0.50/$2.50.
+    const one = calculateCostWithCache({ model: "claude-haiku-5-5", freshInputTokens: 50_000, cacheReadTokens: 100_000, outputTokens: 1_000_000 });
+    expect(one).toBeCloseTo((50_000 * 0.5 + 100_000 * 0.05 + 1_000_000 * 2.5) / 1_000_000, 9);
+    // The same tokens over ten 15k requests stay on the cheap card.
+    const ten = calculateCostWithCache({ model: "claude-haiku-5-5", freshInputTokens: 50_000, cacheReadTokens: 100_000, outputTokens: 1_000_000, requests: 10 });
+    expect(ten).toBeCloseTo((50_000 * 0.1 + 100_000 * 0.01 + 1_000_000 * 0.5) / 1_000_000, 9);
+    // Exactly at the threshold is still the first card.
+    expect(calculateCost("claude-haiku-5-5", 100_000, 0)).toBeCloseTo(0.01, 9);
+  });
+});
+
+/**
+ * The guard that would have caught the bug: a model Topics OFFERS must have a
+ * row of its own. Opus 5.5 was in the catalogue for weeks while its price came
+ * from a partial match on `claude-opus-5`, and nothing failed.
+ */
+describe("every model Topics runs has a price of its own", () => {
+  test("the native catalogue, its default, and the spawn_agent aliases", async () => {
+    const offered = new Set<string>([
+      ...(await new NativeProvider({ type: "native" }).listModels()),
+      DEFAULT_MODEL,
+      ...["opus", "sonnet", "fable", "haiku", "opus[1m]", "sonnet[1m]"].map((a) => engineModelOf(a)!),
+    ]);
+    const unpriced = [...offered].filter((m) => !ownModelPrice(m));
+    expect(unpriced, "models offered without a row in shared/model-pricing.ts").toEqual([]);
+  });
+
+  test("an id with no row of its own is reported, even when a fallback would price it", () => {
+    expect(ownModelPrice("claude-opus-6")).toBeNull();
+    expect(ownModelPrice("claude-opus-5-5-20261001")).not.toBeNull();
+    expect(ownModelPrice("claude-haiku-4-5-20251001")).not.toBeNull();
   });
 });
