@@ -87,8 +87,14 @@ export interface AppSettings {
   calendarRefreshMinutes: number | null;
   /** How far ahead the agenda looks, in days. NULL = the code default. */
   calendarHorizonDays: number | null;
-  /** The cleanup of closed browsers' data (`shared/browser-store-reap.ts`).
-   *  NULL = never touched = ON: only an explicit false stops the reaper. */
+  /** LEVEL 1 of the cleanup of closed browsers' data
+   *  (`shared/browser-store-reap.ts`): empty the cache of the idle orphan
+   *  stores, keep the logins. NULL = never touched = ON; only an explicit
+   *  false stops it. */
+  browserStoreCacheReapEnabled: boolean | null;
+  /** LEVEL 2: remove the whole store too (logins, cookies, local storage).
+   *  NULL = never touched = OFF; only an explicit true turns it on, and it
+   *  counts only while level 1 is on. */
   browserStoreReapEnabled: boolean | null;
   /** Days without use before a closed browser's store is removed, 7..365.
    *  NULL = the code default, 60. */
@@ -127,6 +133,7 @@ const EMPTY: AppSettings = {
   calendarFeedUrl: null,
   calendarRefreshMinutes: null,
   calendarHorizonDays: null,
+  browserStoreCacheReapEnabled: null,
   browserStoreReapEnabled: null,
   browserStoreReapAfterDays: null,
   agentBinPaths: null,
@@ -157,6 +164,7 @@ interface Row {
   calendar_feed_url: string | null;
   calendar_refresh_minutes: number | null;
   calendar_horizon_days: number | null;
+  browser_store_cache_reap_enabled: number | null;
   browser_store_reap_enabled: number | null;
   browser_store_reap_after_days: number | null;
   agent_bin_paths: string | null;
@@ -192,6 +200,8 @@ function rowToSettings(r: Row): AppSettings {
     calendarFeedUrl: r.calendar_feed_url ?? null,
     calendarRefreshMinutes: r.calendar_refresh_minutes ?? null,
     calendarHorizonDays: r.calendar_horizon_days ?? null,
+    browserStoreCacheReapEnabled:
+      r.browser_store_cache_reap_enabled == null ? null : r.browser_store_cache_reap_enabled === 1,
     browserStoreReapEnabled:
       r.browser_store_reap_enabled == null ? null : r.browser_store_reap_enabled === 1,
     browserStoreReapAfterDays: r.browser_store_reap_after_days ?? null,
@@ -207,9 +217,9 @@ function rowToSettings(r: Row): AppSettings {
  * so all-null is the truth.
  *
  * This is the reader for `GET /api/app-settings`. On the wire NULL means "never
- * touched", and for the cleanup of closed browsers' data never touched means ON
- * (`shared/browser-store-reap.ts`): a failed read answered as all-null would
- * turn a stored OFF into a permission to delete what cannot be restored.
+ * touched", and for level 1 of the cleanup of closed browsers' data never touched
+ * means ON (`shared/browser-store-reap.ts`): a failed read answered as all-null
+ * would turn a stored OFF into a permission to delete.
  */
 export function readAppSettings(): AppSettings {
   const row = getDatabase()
@@ -223,7 +233,8 @@ export function readAppSettings(): AppSettings {
                 turn_checkpoints_enabled, agent_bin_paths,
                 calendar_enabled, calendar_feed_url,
                 calendar_refresh_minutes, calendar_horizon_days,
-                browser_store_reap_enabled, browser_store_reap_after_days, first_run_done_at
+                browser_store_cache_reap_enabled, browser_store_reap_enabled,
+                browser_store_reap_after_days, first_run_done_at
            FROM app_settings WHERE id = 1`,
     )
     .get() as Row | null;
@@ -269,6 +280,7 @@ const COLUMNS: Record<keyof AppSettings, string> = {
   calendarFeedUrl: "calendar_feed_url",
   calendarRefreshMinutes: "calendar_refresh_minutes",
   calendarHorizonDays: "calendar_horizon_days",
+  browserStoreCacheReapEnabled: "browser_store_cache_reap_enabled",
   browserStoreReapEnabled: "browser_store_reap_enabled",
   browserStoreReapAfterDays: "browser_store_reap_after_days",
   agentBinPaths: "agent_bin_paths",
@@ -297,6 +309,7 @@ export function updateAppSettings(patch: Partial<AppSettings>): AppSettings {
       key === "profilePublishCost" ||
       key === "turnCheckpointsEnabled" ||
       key === "calendarEnabled" ||
+      key === "browserStoreCacheReapEnabled" ||
       key === "browserStoreReapEnabled"
     ) {
       values.push(v == null ? null : v ? 1 : 0);

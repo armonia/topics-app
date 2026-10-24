@@ -12,18 +12,28 @@ import {
 } from '../../../../shared/browser-store-reap';
 
 /**
- * THE CLEANUP OF CLOSED BROWSERS' DATA: the switch and its number of days.
+ * THE CLEANUP OF CLOSED BROWSERS' DATA: two switches and their number of days.
+ *
+ * Two levels, because what the cleanup can take is not one thing (Attilio, on
+ * #425: cookies and history are what keep the logins):
+ *
+ *   1. Empty the cache of closed browsers (`browser.storeReap.cache.*`): ON
+ *      unless somebody switched it off. It removes only the cache of the
+ *      browsers nobody opens any more and keeps their logins.
+ *   2. Also delete logins and history (`browser.storeReap.whole.*`), indented
+ *      under the first: OFF unless somebody switched it on. It removes the
+ *      whole store, which cannot be undone. It is disabled while the first is
+ *      off, because it only counts while the first is on.
  *
  * It sits under the other browser switch of this level (free unseen pages when
  * memory is short) because the two are the only app-wide decisions about the
  * browser panes, and they are the same kind of decision: what Topics may throw
- * away on its own. That one costs a reload; this one cannot be undone, which is
- * why it is a setting at all (Attilio, approving #425) and why the line under it
- * says "for good".
+ * away on its own.
  *
  * The values live on the server (`/api/app-settings`), not in this browser:
  * the reaper reads them at every start of the desktop app, whichever device
- * changed them. NULL = never touched = on, 60 days (`shared/browser-store-reap.ts`).
+ * changed them. NULL means ON for level 1 and OFF for level 2, 60 days
+ * (`shared/browser-store-reap.ts`).
  *
  * Nothing is drawn until the stored values are read: showing the default in
  * their place would state a choice that nobody has seen.
@@ -70,8 +80,11 @@ export function BrowserStoreReapRows() {
 }
 
 export interface BrowserStoreReapControlsProps {
-  /** The two stored fields, as `GET /api/app-settings` returned them. */
-  settings: Pick<AppBehaviorSettings, 'browserStoreReapEnabled' | 'browserStoreReapAfterDays'>;
+  /** The three stored fields, as `GET /api/app-settings` returned them. */
+  settings: Pick<
+    AppBehaviorSettings,
+    'browserStoreCacheReapEnabled' | 'browserStoreReapEnabled' | 'browserStoreReapAfterDays'
+  >;
   /** The days field while it is being typed in; null shows the stored value. */
   typed: string | null;
   saveFailed: boolean;
@@ -80,9 +93,9 @@ export interface BrowserStoreReapControlsProps {
   onSave: (patch: Partial<AppBehaviorSettings>) => void;
 }
 
-/** The switch, the days field and the save error, drawn from the stored values. */
+/** The two switches, the days field and the save error, drawn from the stored values. */
 export function BrowserStoreReapControls({ settings, typed, saveFailed, tr, onType, onSave }: BrowserStoreReapControlsProps) {
-  const { enabled, afterDays } = resolveBrowserStoreReap(settings);
+  const { cacheEnabled, wholeEnabled, afterDays } = resolveBrowserStoreReap(settings);
 
   // Out of range is brought to the nearest limit here too, so the field shows
   // at once the number the server is going to keep.
@@ -98,15 +111,27 @@ export function BrowserStoreReapControls({ settings, typed, saveFailed, tr, onTy
   return (
     <>
       <SwitchRow
-        label={tr('browser.storeReap.setting')}
-        hint={tr('browser.storeReap.hint')}
-        checked={enabled}
-        onChange={(v) => { onSave({ browserStoreReapEnabled: v }); }}
-        testId="perf-browser-store-reap"
+        label={tr('browser.storeReap.cache.setting')}
+        hint={tr('browser.storeReap.cache.hint')}
+        checked={cacheEnabled}
+        onChange={(v) => { onSave({ browserStoreCacheReapEnabled: v }); }}
+        testId="perf-browser-store-cache-reap"
       />
+      {/* Level 2 sits under level 1 and is dead while level 1 is off: it only
+          counts while the cache cleanup is on. It keeps showing what was chosen. */}
+      <div className="pl-4" data-testid="perf-browser-store-reap-whole">
+        <SwitchRow
+          label={tr('browser.storeReap.whole.setting')}
+          hint={tr('browser.storeReap.whole.hint')}
+          checked={wholeEnabled}
+          disabled={!cacheEnabled}
+          onChange={(v) => { onSave({ browserStoreReapEnabled: v }); }}
+          testId="perf-browser-store-reap"
+        />
+      </div>
       <label
         data-testid="perf-browser-store-reap-days"
-        className={`flex items-center gap-1.5 px-3 pb-1.5 text-compact text-app-text-secondary coarse:min-h-11${enabled ? '' : ' opacity-50'}`}
+        className={`flex items-center gap-1.5 px-3 pb-1.5 text-compact text-app-text-secondary coarse:min-h-11${cacheEnabled ? '' : ' opacity-50'}`}
       >
         <span>{before}</span>
         <input
@@ -116,7 +141,7 @@ export function BrowserStoreReapControls({ settings, typed, saveFailed, tr, onTy
           max={BROWSER_STORE_REAP_MAX_DAYS}
           step={1}
           value={typed ?? String(afterDays)}
-          disabled={!enabled}
+          disabled={!cacheEnabled}
           onChange={(e) => onType(e.target.value)}
           onBlur={(e) => commit(e.target.value)}
           onKeyDown={(e) => { if (e.key === 'Enter') e.currentTarget.blur(); }}

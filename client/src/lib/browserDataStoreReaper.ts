@@ -9,7 +9,7 @@
  * l'identità costa un chilobyte a store.
  *
  * Resta però il residuo: gli store di contesti che non torneranno MAI, che ora
- * nessuno rimuove più. Li rimuove questo, e solo quando valgono due permessi
+ * nessuno ripulisce più. Li ripulisce questo, e solo quando valgono due permessi
  * insieme (il pavimento sull'età è nel Rust, `MIN_REAP_AGE_DAYS`):
  *
  *   ORFANO — il contextId non compare più in nessuna riga di `ui_state`
@@ -18,14 +18,27 @@
  *   IDLE   — no file of the store touched for the number of days the setting
  *            says (60 unless somebody changed it).
  *
- * A THIRD PERMISSION COMES FIRST: THE SETTING. Removing a store cannot be undone
- * (every login and every site's local data in it go too), so the cleanup is a
- * Topics setting (Attilio, approving #425), read from `/api/app-settings` at
- * every start before anything else. Off: nothing is removed, and neither the
- * keep list nor the Tauri command is called. Never touched: on, 60 days. A
- * setting that did not arrive is not a permission, exactly like a keep list
- * that did not arrive. The meaning of the two fields, and the 7..365 clamp
- * applied here again before Tauri, live in `shared/browser-store-reap.ts`.
+ * A THIRD PERMISSION COMES FIRST: THE SETTING, AND IT HAS TWO LEVELS (Attilio,
+ * on #425: cookies and history are what keep the logins, so the whole-store
+ * removal cannot be the default). It is read from `/api/app-settings` at every
+ * start before anything else, resolved in `shared/browser-store-reap.ts` to a
+ * mode, and each mode calls ONE command and never the other:
+ *
+ *   off   — nothing is called, not even the keep list;
+ *   cache — LEVEL 1, the default: `browser_reap_store_caches`, which empties
+ *           the cache of the idle orphan stores and keeps their logins;
+ *   all   — LEVEL 1 and LEVEL 2 on: `browser_reap_data_stores`, which removes
+ *           the whole store. It cannot be undone.
+ *
+ * The cache level NEVER falls back to the whole-store command. If the command
+ * is not there (an older shell, which does not know it) the call throws, and the
+ * answer is "nothing removed": a fallback would turn a harmless setting into
+ * the destructive one on exactly the installs that cannot do the harmless thing.
+ * That is also why level 1 is a command of its own and not a flag on the old
+ * one: an older shell ignores a flag it does not know and would remove stores.
+ *
+ * A setting that did not arrive is not a permission, exactly like a keep list
+ * that did not arrive.
  *
  * Gira una volta per sessione e in ritardo: non è un lavoro urgente, e all'avvio
  * la macchina ha di meglio da fare. Solo su Tauri — gli store per identifier
@@ -36,6 +49,11 @@ import { isTauri } from './shell';
 import { tauriInvoke } from './shell/tauri';
 import { apiFetch } from './shell/net';
 import { resolveBrowserStoreReap, type BrowserStoreReapChoice } from '../../../shared/browser-store-reap';
+
+/** LEVEL 1: empties the cache of the idle orphan stores, keeps the logins. */
+const REAP_CACHES_COMMAND = 'browser_reap_store_caches';
+/** LEVEL 2: removes the whole idle orphan stores. */
+const REAP_STORES_COMMAND = 'browser_reap_data_stores';
 
 /** Il tempo che si lascia all'avvio prima di andare a grattare il disco. */
 const START_DELAY_MS = 90_000;
@@ -63,7 +81,7 @@ async function readReapChoice(): Promise<BrowserStoreReapChoice | null> {
 export async function reapBrowserDataStores(): Promise<number> {
   if (!isTauri) return -1;
   const choice = await readReapChoice();
-  if (!choice || !choice.enabled) return -1;
+  if (!choice || choice.mode === 'off') return -1;
   let keepIds: string[];
   try {
     const res = await apiFetch('/api/browsers/data-store-keep-list');
@@ -76,8 +94,11 @@ export async function reapBrowserDataStores(): Promise<number> {
     // vuota: con una lista vuota il reaper considererebbe orfano tutto.
     return -1;
   }
+  // ONE command per mode, chosen here and nowhere else. A throw from the cache
+  // command is the end of the round: see the header, no fallback.
+  const command = choice.mode === 'all' ? REAP_STORES_COMMAND : REAP_CACHES_COMMAND;
   try {
-    return await tauriInvoke<number>('browser_reap_data_stores', {
+    return await tauriInvoke<number>(command, {
       keepIds,
       maxAgeDays: choice.afterDays,
     });

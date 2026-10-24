@@ -1,11 +1,13 @@
 /**
- * THE SWITCH SAYS WHAT THE REAPER WILL DO, AND SAVES WHAT WAS PRESSED.
+ * THE SWITCHES SAY WHAT THE REAPER WILL DO, AND SAVE WHAT WAS PRESSED.
  *
- * The cleanup of closed browsers' data removes stores for good, so the row that
- * controls it has one job: show the state the reaper is going to read, and save
- * exactly the field that was touched. A switch drawn inverted (OFF on screen,
- * ON on disk) is the worst defect it can have, because the person who switched
- * it off to keep their logins sees it off and stops looking.
+ * The cleanup of closed browsers' data has two levels (Attilio, on #425): the
+ * cache of closed browsers, on by default, and under it "also delete logins and
+ * history", off by default, which removes whole stores for good. The rows that
+ * control them have one job: show the state the reaper is going to read, and
+ * save exactly the field that was touched. A switch drawn inverted (OFF on
+ * screen, ON on disk) is the worst defect they can have, and so is a press on
+ * the first level that writes the second one.
  *
  * No DOM here (jsdom/happy-dom are not dependencies, as `VersionChip.test.tsx`
  * says). The rows are split in two for this: `BrowserStoreReapRows` holds the
@@ -32,7 +34,10 @@ import { mount, type Harness, type HostNode } from '../../test/reactHarness';
 import { SwitchRow } from './PreferenceRow';
 import { BrowserStoreReapControls, BrowserStoreReapRows } from './BrowserStoreReapRows';
 
-type Stored = Pick<AppBehaviorSettings, 'browserStoreReapEnabled' | 'browserStoreReapAfterDays'>;
+type Stored = Pick<
+  AppBehaviorSettings,
+  'browserStoreCacheReapEnabled' | 'browserStoreReapEnabled' | 'browserStoreReapAfterDays'
+>;
 type Patch = Partial<AppBehaviorSettings>;
 
 const tr = (key: string) => t(key, 'it');
@@ -50,10 +55,15 @@ function elementsOf(node: ReactNode, into: ReactElement[] = []): ReactElement[] 
   return into;
 }
 
+type SwitchProps = { label: string; checked: boolean; disabled?: boolean; onChange: (v: boolean) => void };
+
 interface Drawn {
   saves: Patch[];
   typed: Array<string | null>;
-  switchRow: ReactElement<{ checked: boolean; onChange: (v: boolean) => void }>;
+  /** Level 1: the cache of closed browsers. */
+  cacheRow: ReactElement<SwitchProps>;
+  /** Level 2: also logins and history, under the first. */
+  wholeRow: ReactElement<SwitchProps>;
   input: ReactElement<{
     value: string;
     disabled: boolean;
@@ -77,53 +87,104 @@ function draw(stored: Stored, typed: string | null = null): Drawn {
   };
   const tree = BrowserStoreReapControls(props);
   const all = elementsOf(tree);
-  const switchRow = all.find((e) => e.type === SwitchRow) as Drawn['switchRow'] | undefined;
+  const rows = all.filter((e) => e.type === SwitchRow) as Array<ReactElement<SwitchProps>>;
   const input = all.find((e) => e.type === 'input') as Drawn['input'] | undefined;
-  if (!switchRow || !input) throw new Error('the switch or the days field is missing');
-  return { saves, typed: typedLog, switchRow, input, html: renderToStaticMarkup(<BrowserStoreReapControls {...props} />) };
+  if (rows.length !== 2 || !input) throw new Error(`expected two switches and the days field, found ${rows.length} switches`);
+  const [cacheRow, wholeRow] = rows;
+  return { saves, typed: typedLog, cacheRow, wholeRow, input, html: renderToStaticMarkup(<BrowserStoreReapControls {...props} />) };
 }
 
-const NEVER_TOUCHED: Stored = { browserStoreReapEnabled: null, browserStoreReapAfterDays: null };
-const OFF: Stored = { browserStoreReapEnabled: false, browserStoreReapAfterDays: 90 };
+const NEVER_TOUCHED: Stored = { browserStoreCacheReapEnabled: null, browserStoreReapEnabled: null, browserStoreReapAfterDays: null };
+/** Level 1 switched off: level 2 is dead under it, whatever it holds. */
+const CACHE_OFF: Stored = { browserStoreCacheReapEnabled: false, browserStoreReapEnabled: false, browserStoreReapAfterDays: 90 };
+const WHOLE_ON: Stored = { browserStoreCacheReapEnabled: true, browserStoreReapEnabled: true, browserStoreReapAfterDays: 30 };
 
-describe('the switch shows the state the reaper reads', () => {
-  test('never touched: on, 60 days, and the field can be changed', () => {
+describe('the switches show the state the reaper reads', () => {
+  test('never touched: level 1 on, level 2 off and usable, 60 days, the field can be changed', () => {
     const d = draw(NEVER_TOUCHED);
-    expect(d.switchRow.props.checked).toBe(true);
+    expect(d.cacheRow.props.checked).toBe(true);
+    expect(d.cacheRow.props.disabled).toBeFalsy();
+    expect(d.wholeRow.props.checked).toBe(false);
+    expect(d.wholeRow.props.disabled).toBe(false);
     expect(d.input.props.value).toBe('60');
     expect(d.input.props.disabled).toBe(false);
-    expect(d.html).toContain('aria-checked="true"');
+    expect(d.html.match(/aria-checked="true"/g)?.length).toBe(1);
+    expect(d.html.match(/aria-checked="false"/g)?.length).toBe(1);
   });
 
-  test('switched off: the switch is off and the days field is disabled', () => {
-    const d = draw(OFF);
-    expect(d.switchRow.props.checked).toBe(false);
+  test('level 1 switched off: level 2 and the days field are disabled', () => {
+    const d = draw(CACHE_OFF);
+    expect(d.cacheRow.props.checked).toBe(false);
+    expect(d.wholeRow.props.disabled).toBe(true);
     expect(d.input.props.value).toBe('90');
     expect(d.input.props.disabled).toBe(true);
-    expect(d.html).toContain('aria-checked="false"');
+    // Both switches off on screen; the second and the field are really disabled.
+    expect(d.html.match(/aria-checked="false"/g)?.length).toBe(2);
+    expect(d.html).toMatch(/<button[^>]*data-testid="perf-browser-store-reap"[^>]*disabled=""|<button[^>]*disabled=""[^>]*data-testid="perf-browser-store-reap"/);
     expect(d.html).toMatch(/<input[^>]*disabled=""/);
   });
 
-  test('the copy decided for it is the copy on screen', () => {
+  test('level 2 left on under a level 1 turned off still shows what was chosen, disabled', () => {
+    const d = draw({ browserStoreCacheReapEnabled: false, browserStoreReapEnabled: true, browserStoreReapAfterDays: 60 });
+    expect(d.wholeRow.props.checked).toBe(true);
+    expect(d.wholeRow.props.disabled).toBe(true);
+  });
+
+  test('both on: both switches on and nothing disabled', () => {
+    const d = draw(WHOLE_ON);
+    expect(d.cacheRow.props.checked).toBe(true);
+    expect(d.wholeRow.props.checked).toBe(true);
+    expect(d.wholeRow.props.disabled).toBe(false);
+    expect(d.input.props.value).toBe('30');
+  });
+
+  test('the second row is indented under the first', () => {
     const d = draw(NEVER_TOUCHED);
-    expect(d.html).toContain('Pulisci i dati dei browser chiusi');
-    expect(d.html).toContain('Cancella per sempre cookie e dati dei browser che non apri più');
+    expect(d.html).toMatch(/<div class="pl-4"[^>]*data-testid="perf-browser-store-reap-whole"|<div[^>]*data-testid="perf-browser-store-reap-whole"[^>]*class="pl-4"/);
+  });
+
+  test('the copy decided for it is the copy on screen, with the labels exactly as decided', () => {
+    const d = draw(NEVER_TOUCHED);
+    expect(d.cacheRow.props.label).toBe('Svuota la cache dei browser chiusi');
+    expect(d.wholeRow.props.label).toBe('Cancella anche accessi e cronologia');
+    expect(d.html).toContain('Svuota la cache dei browser chiusi');
+    expect(d.html).toContain('Cancella anche accessi e cronologia');
+    expect(d.html).toContain('Accessi, cookie e dati dei siti restano');
+    expect(d.html).toContain('Toglie per sempre anche accessi, cookie e dati dei siti');
     expect(d.html).toContain('dopo');
     expect(d.html).toContain('giorni senza uso');
   });
 });
 
-describe('pressing the switch saves the switch, and only the switch', () => {
-  test('on → off saves browserStoreReapEnabled: false', () => {
+describe('pressing a switch saves that switch, and only that switch', () => {
+  test('level 1 on → off saves browserStoreCacheReapEnabled: false and nothing else', () => {
     const d = draw(NEVER_TOUCHED);
-    d.switchRow.props.onChange(false);
-    expect(d.saves).toEqual([{ browserStoreReapEnabled: false }]);
+    d.cacheRow.props.onChange(false);
+    expect(d.saves).toEqual([{ browserStoreCacheReapEnabled: false }]);
   });
 
-  test('off → on saves browserStoreReapEnabled: true', () => {
-    const d = draw(OFF);
-    d.switchRow.props.onChange(true);
+  test('level 1 off → on saves browserStoreCacheReapEnabled: true and nothing else', () => {
+    const d = draw(CACHE_OFF);
+    d.cacheRow.props.onChange(true);
+    expect(d.saves).toEqual([{ browserStoreCacheReapEnabled: true }]);
+  });
+
+  test('level 1 pressed while level 2 is on does not write level 2', () => {
+    const d = draw(WHOLE_ON);
+    d.cacheRow.props.onChange(false);
+    expect(d.saves).toEqual([{ browserStoreCacheReapEnabled: false }]);
+  });
+
+  test('level 2 off → on saves browserStoreReapEnabled: true and nothing else', () => {
+    const d = draw(NEVER_TOUCHED);
+    d.wholeRow.props.onChange(true);
     expect(d.saves).toEqual([{ browserStoreReapEnabled: true }]);
+  });
+
+  test('level 2 on → off saves browserStoreReapEnabled: false and nothing else', () => {
+    const d = draw(WHOLE_ON);
+    d.wholeRow.props.onChange(false);
+    expect(d.saves).toEqual([{ browserStoreReapEnabled: false }]);
   });
 });
 
@@ -223,9 +284,12 @@ describe('the container: what the server answered is what the switch shows', () 
     if (!node) throw new Error('the control is not drawn');
     return node;
   };
-  const switchOf = (h: Harness) => hostOf(h, (n) => n.props.role === 'switch');
+  /** Level 1 by default, level 2 by its test id. */
+  const switchOf = (h: Harness, testId = 'perf-browser-store-cache-reap') =>
+    hostOf(h, (n) => n.props.role === 'switch' && n.props['data-testid'] === testId);
+  const WHOLE = 'perf-browser-store-reap';
   const daysOf = (h: Harness) => hostOf(h, (n) => n.type === 'input');
-  const press = (h: Harness) => (switchOf(h).props.onClick as () => void)();
+  const press = (h: Harness, testId?: string) => (switchOf(h, testId).props.onClick as () => void)();
   const saveFailedLine = () => tr('browser.storeReap.saveFailed');
 
   afterEach(() => {
@@ -236,7 +300,8 @@ describe('the container: what the server answered is what the switch shows', () 
   });
 
   test('a GET that failed draws nothing, not the default', async () => {
-    // ON at 60 days drawn over a stored OFF would state a choice nobody made.
+    // Level 1 on at 60 days drawn over a stored OFF would state a choice
+    // nobody made.
     fakeServer(NEVER_TOUCHED);
     appSettingsApi.get = async () => { throw new Error('503 settings unreadable'); };
     const h = await mountRows();
@@ -244,25 +309,45 @@ describe('the container: what the server answered is what the switch shows', () 
     expect(puts).toEqual([]);
   });
 
-  test('off, then on again: each PUT answer is what the switch shows', async () => {
+  test('level 1 off, then on again: each PUT answer is what the switches show', async () => {
     fakeServer(NEVER_TOUCHED);
     const h = await mountRows();
     expect(switchOf(h).props['aria-checked']).toBe(true);
+    expect(switchOf(h, WHOLE).props['aria-checked']).toBe(false);
 
     press(h);
     await settle();
-    expect(puts).toEqual([{ browserStoreReapEnabled: false }]);
+    expect(puts).toEqual([{ browserStoreCacheReapEnabled: false }]);
     expect(switchOf(h).props['aria-checked']).toBe(false);
+    expect(switchOf(h, WHOLE).props.disabled).toBe(true);
     expect(daysOf(h).props.disabled).toBe(true);
 
     // The way back: a switch that cannot be turned on again no longer governs
     // the reaper, whatever it shows.
     press(h);
     await settle();
-    expect(puts).toEqual([{ browserStoreReapEnabled: false }, { browserStoreReapEnabled: true }]);
+    expect(puts).toEqual([{ browserStoreCacheReapEnabled: false }, { browserStoreCacheReapEnabled: true }]);
     expect(switchOf(h).props['aria-checked']).toBe(true);
+    expect(switchOf(h, WHOLE).props.disabled).toBe(false);
     expect(daysOf(h).props.disabled).toBe(false);
     expect(h.last().text).not.toContain(saveFailedLine());
+  });
+
+  test('level 2 on, then off again: the PUT answers are what the second switch shows', async () => {
+    fakeServer(NEVER_TOUCHED);
+    const h = await mountRows();
+
+    press(h, WHOLE);
+    await settle();
+    expect(puts).toEqual([{ browserStoreReapEnabled: true }]);
+    expect(switchOf(h, WHOLE).props['aria-checked']).toBe(true);
+    // Level 1 did not move.
+    expect(switchOf(h).props['aria-checked']).toBe(true);
+
+    press(h, WHOLE);
+    await settle();
+    expect(puts).toEqual([{ browserStoreReapEnabled: true }, { browserStoreReapEnabled: false }]);
+    expect(switchOf(h, WHOLE).props['aria-checked']).toBe(false);
   });
 
   test('the days were changed elsewhere meanwhile: the field shows the answer, not the patch', async () => {
@@ -276,7 +361,7 @@ describe('the container: what the server answered is what the switch shows', () 
 
     press(h);
     await settle();
-    expect(puts).toEqual([{ browserStoreReapEnabled: false }]);
+    expect(puts).toEqual([{ browserStoreCacheReapEnabled: false }]);
     expect(switchOf(h).props['aria-checked']).toBe(false);
     expect(daysOf(h).props.value).toBe('30');
   });
@@ -294,14 +379,14 @@ describe('the container: what the server answered is what the switch shows', () 
   });
 
   test('a save that failed is said on screen, and the switch stays where the disk is', async () => {
-    fakeServer({ browserStoreReapEnabled: false, browserStoreReapAfterDays: 30 });
+    fakeServer({ browserStoreCacheReapEnabled: false, browserStoreReapEnabled: false, browserStoreReapAfterDays: 30 });
     const h = await mountRows();
     expect(h.last().text).not.toContain(saveFailedLine());
 
     putFails = true;
     press(h);
     await settle();
-    expect(puts).toEqual([{ browserStoreReapEnabled: true }]);
+    expect(puts).toEqual([{ browserStoreCacheReapEnabled: true }]);
     expect(hostOf(h, (n) => n.props.role === 'alert')).toBeDefined();
     expect(h.last().text).toContain(saveFailedLine());
     expect(switchOf(h).props['aria-checked']).toBe(false);

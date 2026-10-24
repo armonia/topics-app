@@ -14,7 +14,7 @@
  * esattamente il caso limite: nessun nome è accettabile, e il messaggio deve
  * dirlo invece di elencare un insieme vuoto.
  *
- * @covers APPSET-01, BROWSER-STORE-REAP-02, BROWSER-STORE-REAP-03, BROWSER-STORE-REAP-05
+ * @covers APPSET-01, BROWSER-STORE-REAP-02, BROWSER-STORE-REAP-03, BROWSER-STORE-REAP-05, BROWSER-STORE-REAP-08
  */
 
 import { describe, expect, test, beforeAll, afterAll, beforeEach, spyOn } from "bun:test";
@@ -192,19 +192,54 @@ describe("il resto della validazione non si è mosso", () => {
 });
 
 describe("the cleanup of closed browsers' data: a setting, clamped when saved", () => {
-  // Removing a browser store cannot be undone, so the reaper only runs on a
-  // setting it has read. NULL in both columns = never touched, which the
-  // reaper reads as on, 60 days (`shared/browser-store-reap.ts`).
+  // Two levels (`shared/browser-store-reap.ts`): level 1 empties the cache
+  // (`browserStoreCacheReapEnabled`, NULL = on), level 2 removes the whole store,
+  // which cannot be undone (`browserStoreReapEnabled`, NULL = off). The days are
+  // shared. The reaper only runs on a setting it has read.
   beforeEach(() => {
-    updateAppSettings({ browserStoreReapEnabled: null, browserStoreReapAfterDays: null });
+    updateAppSettings({ browserStoreCacheReapEnabled: null, browserStoreReapEnabled: null, browserStoreReapAfterDays: null });
   });
 
-  test("never touched: both columns are NULL, the default is the code's", async () => {
+  test("never touched: the three columns are NULL, the defaults are the code's", async () => {
     const req = new Request("http://localhost/api/app-settings");
     const res = await router(req, new URL(req.url), "/api/app-settings", "GET");
     const { settings } = await res!.json();
+    expect(settings.browserStoreCacheReapEnabled).toBeNull();
     expect(settings.browserStoreReapEnabled).toBeNull();
     expect(settings.browserStoreReapAfterDays).toBeNull();
+  });
+
+  test("both switches round-trip, true and false, each on its own", async () => {
+    // Level 1 and level 2 are two columns: pressing one must never move the
+    // other, in either direction, and both values must come back from the PUT
+    // answer (what the panel draws) and from the GET (what the reaper reads).
+    for (const [field, column] of [
+      ["browserStoreCacheReapEnabled", "browser_store_cache_reap_enabled"],
+      ["browserStoreReapEnabled", "browser_store_reap_enabled"],
+    ] as const) {
+      const other = field === "browserStoreCacheReapEnabled" ? "browserStoreReapEnabled" : "browserStoreCacheReapEnabled";
+      for (const value of [true, false]) {
+        updateAppSettings({ browserStoreCacheReapEnabled: null, browserStoreReapEnabled: null });
+        const r = await put({ [field]: value });
+        expect({ field, value, status: r.status, answered: r.body.settings[field], untouched: r.body.settings[other] })
+          .toEqual({ field, value, status: 200, answered: value, untouched: null });
+        const stored = getDatabase().query(`SELECT ${column} AS v FROM app_settings LIMIT 1`).get() as { v: number | null };
+        expect(stored.v).toBe(value ? 1 : 0);
+
+        const req = new Request("http://localhost/api/app-settings");
+        const res = await router(req, new URL(req.url), "/api/app-settings", "GET");
+        const got = (await res!.json()).settings;
+        expect({ field, value, read: got[field], untouched: got[other] }).toEqual({ field, value, read: value, untouched: null });
+      }
+    }
+  });
+
+  test("level 1 wants a boolean too, and level 2 stays NULL (= off) when it is refused", async () => {
+    const r = await put({ browserStoreCacheReapEnabled: "false" });
+    expect(r.status).toBe(400);
+    expect(r.body.errors[0].field).toBe("browserStoreCacheReapEnabled");
+    expect(getAppSettings().browserStoreCacheReapEnabled).toBeNull();
+    expect(getAppSettings().browserStoreReapEnabled).toBeNull();
   });
 
   test("the switch is stored and read back, and null clears it", async () => {
@@ -448,14 +483,14 @@ describe("a read that failed is never answered as 'never touched'", () => {
   });
 });
 
-describe("the migration: an existing row gains two NULLs, never a default", () => {
-  // NULL is "never touched", which the code reads as on, 60 days. A DEFAULT in
+describe("the migration: an existing row gains three NULLs, never a default", () => {
+  // NULL is "never touched": level 1 on, level 2 off, 60 days. A DEFAULT in
   // the migration would write its own number into the row every user already
   // has (SQLite fills an added column with it), and the reaper would hand that
   // number to Tauri: a DEFAULT 7 deletes stores 53 days sooner than decided.
   // The file itself runs here, the way the runner in server/db.ts runs it
   // (`db.exec` in a transaction), on a settings row that already has values.
-  test("applied to a settings row with values: every value kept, both new columns NULL", () => {
+  test("applied to a settings row with values: every value kept, the three new columns NULL", () => {
     const sql = readFileSync(join(import.meta.dir, "..", "db", "migrations", "20261024120001-browser-store-reap.sql"), "utf-8");
     const db = new Database(":memory:");
     try {
@@ -466,6 +501,7 @@ describe("the migration: an existing row gains two NULLs, never a default", () =
         id: 1,
         claude_model: "model-before",
         calendar_horizon_days: 14,
+        browser_store_cache_reap_enabled: null,
         browser_store_reap_enabled: null,
         browser_store_reap_after_days: null,
       }]);

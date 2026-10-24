@@ -95,7 +95,7 @@ non-macOS vivono in `browser_win.rs` (726 righe) e `browser_linux.rs` (623).
   `browser_screenshot`, `browser_toggle_devtools`, `browser_set_user_agent`;
 - **sessione**: `browser_pane_get_cookies`, `browser_pane_set_cookies`,
   `browser_purge_cache`, `browser_purge_data_store`, `browser_site_data_records`,
-  `browser_forget_site`, `browser_reap_data_stores`;
+  `browser_forget_site`, `browser_reap_data_stores`, `browser_reap_store_caches`;
 - **code da svuotare** (il client interroga): `browser_take_nav_state`,
   `browser_take_nav_errors`, `browser_take_download_events`,
   `browser_download_progress`;
@@ -143,10 +143,13 @@ Il ponte MCP sta in `server/routes/browser-bridge.ts`.
 - **chiudere una pane non cancella il login**: alla chiusura si fa un purge
   SELETTIVO della cache, cookie e `localStorage` restano
   (`browser_purge_cache`), e c'è un reaper a scadenza per gli store non toccati
-  da giorni (`browserDataStoreReaper.ts`, `browser_reap_data_stores`), che
-  obbedisce all'impostazione «Pulisci i dati dei browser chiusi» (menu Topics,
-  Sistema, Prestazioni; acceso a 60 giorni se nessuno l'ha toccata,
-  `shared/browser-store-reap.ts`);
+  da giorni (`browserDataStoreReaper.ts`), che obbedisce a due impostazioni
+  (menu Topics, Sistema, Prestazioni; `shared/browser-store-reap.ts`): «Svuota
+  la cache dei browser chiusi», acceso a 60 giorni se nessuno l'ha toccata, che
+  toglie solo la cache degli store orfani e fermi (`browser_reap_store_caches`,
+  solo macOS per ora) e lascia accessi e cookie; e sotto, «Cancella anche
+  accessi e cronologia», spenta se nessuno l'ha toccata, che rimuove lo store
+  intero (`browser_reap_data_stores`);
 - **dimentica questo sito**: elenco dei record per dominio registrabile e
   rimozione dei soli silo scelti, sia sulla pane nativa sia sulla condivisa
   (`browser-site-data.ts`, `browserForgetSite.ts`);

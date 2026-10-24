@@ -124,8 +124,10 @@ const FIELD_RULES: Record<keyof AppSettings, FieldRule> = {
   // it is doing so.
   calendarRefreshMinutes: { kind: "int", allow: new Set<number>(CALENDAR_REFRESH_CHOICES) },
   calendarHorizonDays: { kind: "int", allow: new Set<number>(CALENDAR_HORIZON_CHOICES) },
-  // The cleanup of closed browsers' data. Removing a store cannot be undone, so
-  // it runs on a setting the person can turn off; `null` = never touched = on.
+  // The cleanup of closed browsers' data, two levels. Level 1 empties only the
+  // cache (`null` = never touched = on); level 2 removes the whole store, which
+  // cannot be undone (`null` = never touched = off).
+  browserStoreCacheReapEnabled: { kind: "bool" },
   browserStoreReapEnabled: { kind: "bool" },
   // A dial and not a closed set, but a bounded one: a number outside 7..365 is
   // brought back to the nearest limit rather than refused, so a person who
@@ -261,8 +263,9 @@ export function createAppSettingsRouter(ctx: AppContext): RouteHandler {
 
     if (method === "GET") {
       // A read that failed is a 503, never a 200 with every field NULL: NULL
-      // means "never touched", and the cleanup of closed browsers' data reads
-      // never touched as ON. The reaper takes any other status as no permission.
+      // means "never touched", and level 1 of the cleanup of closed browsers' data
+      // reads never touched as ON. The reaper takes any other status as no
+      // permission.
       try {
         return json({ settings: readAppSettings() });
       } catch (err) {
@@ -310,8 +313,8 @@ export function createAppSettingsRouter(ctx: AppContext): RouteHandler {
         ctx.broadcastToAll?.({ type: "gateway:status", connected: true });
       }
       // The answer is read back with the strict reader, the rule of the GET: the
-      // settings panel draws this answer, and an all-NULL one would draw the
-      // cleanup of closed browsers' data ON at 60 days over a stored OFF. The
+      // settings panel draws this answer, and an all-NULL one would draw level 1
+      // of the cleanup of closed browsers' data ON at 60 days over a stored OFF. The
       // write has landed by now and the hooks above ran; only the answer fails.
       let settings: AppSettings;
       try {

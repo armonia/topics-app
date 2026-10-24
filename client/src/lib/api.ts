@@ -1623,10 +1623,14 @@ export interface AppBehaviorSettings {
   calendarRefreshMinutes: number | null;
   /** How far ahead the agenda looks, in days. `null` = the server's default. */
   calendarHorizonDays: number | null;
-  /** The cleanup of closed browsers' data. `null` = never touched = ON; only
+  /** LEVEL 1 of the cleanup of closed browsers' data: empty the cache of the
+   *  idle orphan stores, keep the logins. `null` = never touched = ON; only
    *  `false` stops it (`shared/browser-store-reap.ts`). */
+  browserStoreCacheReapEnabled: boolean | null;
+  /** LEVEL 2: remove the whole store too. `null` = never touched = OFF; only
+   *  `true` turns it on, and it counts only while level 1 is on. */
   browserStoreReapEnabled: boolean | null;
-  /** Days without use before a closed browser's data is removed, 7..365.
+  /** Days without use before a closed browser's data is cleaned up, 7..365.
    *  `null` = the default, 60. */
   browserStoreReapAfterDays: number | null;
   firstRunDoneAt: string | null;
