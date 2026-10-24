@@ -174,6 +174,24 @@ describe('the age threshold handed to Tauri is the one in the setting', () => {
   });
 });
 
+describe('the threshold reaches Tauri as a whole number of days', () => {
+  test('a fraction stored by hand or by an older build is rounded before Tauri', async () => {
+    // The command takes `max_age_days: u64`. A 14.4 handed over as it is makes
+    // the invoke fail, the reaper return -1, and the cleanup quietly never run.
+    const cases: Array<[number, number]> = [[14.4, 14], [30.6, 31], [200.5, 201]];
+    for (const [written, sent] of cases) {
+      invokes = [];
+      stored({ browserStoreReapEnabled: true, browserStoreReapAfterDays: written });
+
+      await reapBrowserDataStores();
+
+      const days = reapCalls().map((c) => c.args?.maxAgeDays);
+      expect(days).toEqual([sent]);
+      expect(Number.isInteger(days[0])).toBe(true);
+    }
+  });
+});
+
 describe('first start, nothing stored: on, 60 days', () => {
   test('the setting is read first, then the keep list, then Tauri with 60', async () => {
     const removed = await reapBrowserDataStores();
@@ -195,6 +213,9 @@ describe('first start, nothing stored: on, 60 days', () => {
 describe('a setting that did not arrive is not a permission', () => {
   const failures: Array<[string, () => Promise<Response>]> = [
     ['the server answers 500', () => answer({ error: 'boom' }, 500)],
+    // What the server answers when it could not read the row: never a 200 with
+    // every field NULL, which would read as never touched, so on.
+    ['the server could not read the setting (503)', () => answer({ ok: false, error: 'settings unreadable' }, 503)],
     ['the server cannot be reached', () => Promise.reject(new TypeError('Failed to fetch'))],
     ['the answer carries no settings', () => answer({})],
   ];

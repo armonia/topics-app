@@ -14,14 +14,14 @@
  * esattamente il caso limite: nessun nome è accettabile, e il messaggio deve
  * dirlo invece di elencare un insieme vuoto.
  *
- * @covers APPSET-01, BROWSER-STORE-REAP-02, BROWSER-STORE-REAP-03
+ * @covers APPSET-01, BROWSER-STORE-REAP-02, BROWSER-STORE-REAP-03, BROWSER-STORE-REAP-05
  */
 
 import { describe, expect, test, beforeAll, afterAll, beforeEach } from "bun:test";
 import { mkdtempSync, rmSync, mkdirSync, writeFileSync, readFileSync, readdirSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
-import { initDatabase, closeDatabase } from "../db";
+import { initDatabase, closeDatabase, getDatabase } from "../db";
 import { getAppSettings, updateAppSettings } from "../services/app-settings";
 import { createAppSettingsRouter } from "./app-settings";
 import type { AppContext } from "../types";
@@ -238,11 +238,102 @@ describe("the cleanup of closed browsers' data: a setting, clamped when saved", 
     }
   });
 
+  test("a fraction of a day is rounded to a whole day: Tauri takes an unsigned integer", async () => {
+    // `browser_reap_data_stores(max_age_days: u64)`: a 14.4 stored here would
+    // reach Tauri as 14.4, the invoke would be refused, and the cleanup would
+    // quietly never run while the switch says on.
+    const cases: Array<[number, number]> = [[14.4, 14], [7.4, 7], [30.6, 31], [200.5, 201]];
+    for (const [written, kept] of cases) {
+      const r = await put({ browserStoreReapAfterDays: written });
+      expect(r.status).toBe(200);
+      expect(r.body.settings.browserStoreReapAfterDays).toBe(kept);
+      expect(getAppSettings().browserStoreReapAfterDays).toBe(kept);
+    }
+  });
+
   test("a value that is not a number is a 400, and nothing is written", async () => {
     await put({ browserStoreReapAfterDays: 90 });
     const r = await put({ browserStoreReapAfterDays: "many" });
     expect(r.status).toBe(400);
     expect(r.body.errors[0].field).toBe("browserStoreReapAfterDays");
     expect(getAppSettings().browserStoreReapAfterDays).toBe(90);
+  });
+});
+
+describe("a read that failed is never answered as 'never touched'", () => {
+  // The reaper reads NULL as never touched, which is ON at 60 days. So a GET
+  // that swallowed a failed read and answered 200 with every field NULL would
+  // turn a stored OFF into a permission to delete, on a deletion that cannot
+  // be undone. A read that failed has to look like a failure on the wire.
+  const GET_SQL = "FROM app_settings WHERE id = 1";
+
+  async function get(): Promise<{ status: number; body: any }> {
+    const req = new Request("http://localhost/api/app-settings");
+    const res = await router(req, new URL(req.url), "/api/app-settings", "GET");
+    if (!res) throw new Error("la rotta non ha risposto");
+    return { status: res.status, body: await res.json() };
+  }
+
+  /** Makes the SELECT of the settings row throw, the way a busy or failing
+   *  SQLite does, and leaves every other query alone. */
+  function failTheSettingsRead(): () => void {
+    const db = getDatabase() as unknown as { query: (sql: string) => unknown };
+    const realQuery = db.query.bind(db);
+    db.query = (sql: string) => {
+      if (sql.includes("SELECT") && sql.includes(GET_SQL)) {
+        throw Object.assign(new Error("database is locked"), { code: "SQLITE_BUSY" });
+      }
+      return realQuery(sql);
+    };
+    return () => { db.query = realQuery; };
+  }
+
+  beforeEach(() => {
+    updateAppSettings({ browserStoreReapEnabled: false, browserStoreReapAfterDays: 30 });
+  });
+
+  test("the stored values come back as they are when the read works", async () => {
+    const r = await get();
+    expect(r.status).toBe(200);
+    expect(r.body.settings.browserStoreReapEnabled).toBe(false);
+    expect(r.body.settings.browserStoreReapAfterDays).toBe(30);
+  });
+
+  test("the SELECT throws: a 503 with no settings, not a 200 with every field NULL", async () => {
+    const restore = failTheSettingsRead();
+    let r: { status: number; body: any };
+    try {
+      r = await get();
+    } finally {
+      restore();
+    }
+    expect(r.status).toBe(503);
+    expect(r.body.settings).toBeUndefined();
+  });
+
+  test("the database is not open: a 503 as well", async () => {
+    closeDatabase();
+    let r: { status: number; body: any };
+    try {
+      r = await get();
+    } finally {
+      initDatabase(tmpRoot);
+    }
+    expect(r.status).toBe(503);
+    expect(r.body.settings).toBeUndefined();
+    // The row was not lost, it was only unreadable for a moment.
+    expect((await get()).body.settings.browserStoreReapEnabled).toBe(false);
+  });
+
+  test("the server's own readers keep their fallback: getAppSettings still answers all-null", () => {
+    // Thirty-odd resolvers read `setting ?? env ?? default` through it, and
+    // for them NULL is the safe answer (env, then the built-in default). Only
+    // the wire stops pretending.
+    const restore = failTheSettingsRead();
+    try {
+      expect(getAppSettings().browserStoreReapEnabled).toBeNull();
+    } finally {
+      restore();
+    }
   });
 });

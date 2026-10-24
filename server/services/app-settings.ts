@@ -15,7 +15,9 @@
  *
  * The store degrades safely: if the DB isn't initialised (some unit tests, very
  * early boot) reads return an all-null row, so resolution falls straight through
- * to env → default and nothing throws.
+ * to env → default and nothing throws. The HTTP GET does not degrade: it reads
+ * through `readAppSettings`, which throws, because a client cannot tell an
+ * all-null row that failed from one that was never touched.
  */
 
 import { getDatabase } from "../db";
@@ -198,17 +200,20 @@ function rowToSettings(r: Row): AppSettings {
   };
 }
 
-/** Read the singleton settings row. Returns all-null if the DB isn't ready. */
-export function getAppSettings(): AppSettings {
-  let db;
-  try {
-    db = getDatabase();
-  } catch {
-    return { ...EMPTY };
-  }
-  try {
-    const row = db
-      .query(
+/**
+ * Read the singleton settings row, and THROW when it cannot be read (database
+ * not open, table missing, a busy or failing SELECT). A missing row is not a
+ * failure: no write can have reached it (`updateAppSettings` only UPDATEs id 1),
+ * so all-null is the truth.
+ *
+ * This is the reader for `GET /api/app-settings`. On the wire NULL means "never
+ * touched", and for the cleanup of closed browsers' data never touched means ON
+ * (`shared/browser-store-reap.ts`): a failed read answered as all-null would
+ * turn a stored OFF into a permission to delete what cannot be restored.
+ */
+export function readAppSettings(): AppSettings {
+  const row = getDatabase()
+    .query(
         `SELECT ai_provider, claude_model, claude_max_tokens, claude_effort,
                 openai_model, openai_max_tokens, codex_model, codex_reasoning_effort,
                 muse_model,
@@ -220,11 +225,21 @@ export function getAppSettings(): AppSettings {
                 calendar_refresh_minutes, calendar_horizon_days,
                 browser_store_reap_enabled, browser_store_reap_after_days, first_run_done_at
            FROM app_settings WHERE id = 1`,
-      )
-      .get() as Row | null;
-    return row ? rowToSettings(row) : { ...EMPTY };
+    )
+    .get() as Row | null;
+  return row ? rowToSettings(row) : { ...EMPTY };
+}
+
+/**
+ * Read the singleton settings row. Returns all-null if the DB isn't ready or
+ * the read fails, which for the server's own resolvers is the safe answer
+ * (`setting ?? env ?? default`). Not for the wire: see `readAppSettings`.
+ */
+export function getAppSettings(): AppSettings {
+  try {
+    return readAppSettings();
   } catch {
-    // Table missing (migration not applied in a bare test DB) → fall through.
+    // DB not open, or table missing (migration not applied in a bare test DB).
     return { ...EMPTY };
   }
 }

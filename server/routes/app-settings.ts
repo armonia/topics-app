@@ -1,5 +1,5 @@
 import type { AppContext, RouteHandler } from "../types";
-import { getAppSettings, updateAppSettings, type AppSettings } from "../services/app-settings";
+import { getAppSettings, readAppSettings, updateAppSettings, type AppSettings } from "../services/app-settings";
 import { recomputeDefault, getDefaultProviderName, listProviders } from "../providers";
 import { getSnapshotManager } from "../providers/snapshot-manager";
 import { reconcileDiscordPresence } from "../services/discord-presence";
@@ -260,7 +260,15 @@ export function createAppSettingsRouter(ctx: AppContext): RouteHandler {
     if (pathname !== "/api/app-settings") return null;
 
     if (method === "GET") {
-      return json({ settings: getAppSettings() });
+      // A read that failed is a 503, never a 200 with every field NULL: NULL
+      // means "never touched", and the cleanup of closed browsers' data reads
+      // never touched as ON. The reaper takes any other status as no permission.
+      try {
+        return json({ settings: readAppSettings() });
+      } catch (err) {
+        console.warn("[app-settings] the settings row could not be read:", err);
+        return json({ ok: false, error: "settings unreadable" }, 503);
+      }
     }
 
     if (method === "PUT") {
