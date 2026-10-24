@@ -63,10 +63,13 @@ export function listenLabel(a: ListenAddress): string {
  * Whether other devices can open a server listening on `a`: every interface,
  * or an address that is not the loopback (a LAN or VPN address). On 24/10 the
  * finance chat's server listened on 0.0.0.0:8777 and nothing said so.
+ * A link-local address (fe80::/10) counts as local: lsof on macOS writes the
+ * loopback's own fe80::1%lo0 as `[fe80:1::1]`, and nobody opens a dev server
+ * from another device by its link-local address.
  */
 export function reachableFromNetwork(a: ListenAddress): boolean {
   const host = a.host.replace(/^\[|\]$/g, "");
-  return !(host === "::1" || host === "localhost" || /^(::ffff:)?127\./.test(host));
+  return !(host === "::1" || host === "localhost" || /^(::ffff:)?127\./.test(host) || /^fe[89ab][0-9a-f]:/i.test(host));
 }
 
 /**
@@ -76,7 +79,17 @@ export function reachableFromNetwork(a: ListenAddress): boolean {
  * (`reachableFromNetwork`) is what catches it, where the ports can be read.
  */
 export const BIND_LOOPBACK_NOTE =
-  "Bind a server to 127.0.0.1 (`--host 127.0.0.1`), not 0.0.0.0, unless the person wants other devices to reach it.";
+  "Bind a server to 127.0.0.1, not 0.0.0.0, unless the person wants other devices to reach it: `--host 127.0.0.1`, and through npm `npm run dev -- --host 127.0.0.1` (without the `--` npm keeps the flag).";
+
+/**
+ * `run_script` passes no flags, so a declared script that opens its server to
+ * every interface (`"dev": "vite --host"`) cannot follow the rule through it:
+ * it is started the other way, by command. `how` names that way where it
+ * exists (`run_command` is not offered on Windows).
+ */
+export function runScriptBindNote(how: string): string {
+  return `run_script passes no flags: when a script's server listens on every interface (\`vite --host\`), start it ${how} instead, as \`npm run <script> -- --host 127.0.0.1\`.`;
+}
 
 /** The URL that opens a server listening on `a`: plain http on the loopback when it listens everywhere. */
 export function listenUrl(a: ListenAddress): string {

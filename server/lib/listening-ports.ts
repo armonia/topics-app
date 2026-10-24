@@ -72,8 +72,9 @@ function listeningProbe(): typeof probe {
 /**
  * A listening address as the rows write it: any-address spellings become `*`,
  * as lsof writes them. ss writes the device a socket is bound to after a `%`
- * (`*%lo`, `[::1]%lo`, `127.0.0.53%lo`): bound to the loopback device it is
- * local whatever the address, and its any-address is written 127.0.0.1.
+ * (`*%lo`, `[::1]%lo`, `127.0.0.53%lo`): the device is dropped, and an
+ * any-address bound to the loopback device is the loopback, written 127.0.0.1.
+ * A named address keeps its own reading (`192.168.1.20%lo` reads as open).
  */
 function hostOf(local: string, portText: string): string {
   const written = local.slice(0, -(portText.length + 1));

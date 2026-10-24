@@ -33,6 +33,8 @@ describe('the server sign on the sidebar row', () => {
     expect(String(s.props.className)).toContain('text-amber-600');
     expect(String(s.props.title)).toContain('LAN');
     expect(String(s.props.title)).toContain('0.0.0.0:8777');
+    // The other server is on the loopback: «LAN» does not name it.
+    expect(String(s.props.title)).not.toContain('127.0.0.1:8781');
   });
 
   test('the title names the address open to the network, also when it is not the first', () => {

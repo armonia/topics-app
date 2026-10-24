@@ -19,14 +19,12 @@ export function ServerSign({ services, onFill }: { services: readonly RunningSer
   const tr = useT();
   const running = (services ?? []).filter((s) => !s.ended);
   if (running.length === 0) return null;
-  // The address other devices can open, when there is one: on another port
-  // than the first, the title named a loopback address under «LAN».
-  const where = running.map((s) => {
-    const shown = s.listen.find(reachableFromNetwork) ?? s.listen[0];
-    return shown ? listenLabel(shown) : s.description;
-  }).join(', ');
-  // One server other devices can open turns the sign amber and says so.
+  // One server other devices can open turns the sign amber and says so; its
+  // title then names only the open addresses, never a loopback one under «LAN».
   const lan = running.some((s) => s.listen.some(reachableFromNetwork));
+  const where = lan
+    ? running.flatMap((s) => s.listen.filter(reachableFromNetwork).map(listenLabel)).join(', ')
+    : running.map((s) => (s.listen[0] ? listenLabel(s.listen[0]) : s.description)).join(', ');
   const title = tr(lan ? 'topic.serverOnLan' : 'topic.serverOn', { where });
   return (
     <span

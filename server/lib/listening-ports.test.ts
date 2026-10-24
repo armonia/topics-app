@@ -50,9 +50,16 @@ describe("listening sockets", () => {
       "node     222 me   20u  IPv4 0x3      0t0  TCP 192.168.1.20:3000 (LISTEN)",
       "node     222 me   21u  IPv4 0x4      0t0  TCP 127.0.0.1:3000 (LISTEN)",
       "other    333 me    5u  IPv4 0x5      0t0  TCP *:3000 (LISTEN)",
+      "node     400 me    3u  IPv4 0x6      0t0  TCP 192.168.1.20:4000 (LISTEN)",
+      "node     400 me    4u  IPv6 0x7      0t0  TCP *:4000 (LISTEN)",
+      // macOS writes the loopback's fe80::1%lo0 so: local, it must not win.
+      "bun      300 me    5u  IPv4 0x8      0t0  TCP 127.0.0.1:5173 (LISTEN)",
+      "bun      300 me    6u  IPv6 0x9      0t0  TCP [fe80:1::1]:5173 (LISTEN)",
     ].join("\n");
     expect(parseLsof(out)).toEqual([
       { port: 3000, pid: 222, command: "node", host: "192.168.1.20" },
+      { port: 4000, pid: 400, command: "node", host: "*" },
+      { port: 5173, pid: 300, command: "bun", host: "127.0.0.1" },
       { port: 8777, pid: 8777, command: "Python", host: "192.168.1.20" },
     ]);
   });
