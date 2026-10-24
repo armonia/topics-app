@@ -993,6 +993,14 @@ export class NativeProvider implements AIProvider {
     // end starts a new chain.
     const waiting = () => this.sessions.get(sessionKey) === session && !session.abort && session.keepAliveChain === chain;
     let pings = 0;
+    // A timer can fire late (the Mac asleep, the event loop blocked): the
+    // cache's life and the session's are checked again when it fires, not
+    // only when it was set. A late ping would write the prefix again.
+    const expired = () => {
+      const now = Date.now();
+      if (now - touchedAt >= CACHE_LIFETIME_MS) return true;
+      return now - endedAt > SESSION_TTL_MS;
+    };
     const schedule = () => {
       const now = Date.now();
       // Already expired (a last request longer than the cache's life): a ping
@@ -1004,12 +1012,12 @@ export class NativeProvider implements AIProvider {
       (session.keepAlive as unknown as { unref?: () => void }).unref?.();
     };
     const tick = async () => {
-      if (!waiting()) return;
+      if (!waiting() || expired()) return;
       session.keepAlive = undefined;
       try {
         // Signed out since the turn: nothing to keep warm.
         const token = await getAccessToken();
-        if (!token || !waiting()) return;
+        if (!token || !waiting() || expired()) return;
         const startedAt = Date.now();
         const u = await pingPromptCache(opts, token);
         touchedAt = startedAt;

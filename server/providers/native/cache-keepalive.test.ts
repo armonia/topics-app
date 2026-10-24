@@ -12,6 +12,7 @@ import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, jest, tes
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
+import * as auth from "./auth";
 import { NativeProvider } from "./provider";
 import type { StreamHandler } from "../types";
 
@@ -52,6 +53,17 @@ async function settle(): Promise<void> {
 async function advance(ms: number): Promise<void> {
   jest.advanceTimersByTime(ms);
   await settle();
+}
+
+/**
+ * Moves the wall clock ahead and leaves the timers' clock where it is: what a
+ * sleep does to a pending setTimeout. Bun's fake timers set Date.now() to a
+ * timer's due time when it fires, so `jest.setSystemTime` cannot make one late.
+ */
+function wallClockAhead(ms: number): () => void {
+  const timersNow = Date.now.bind(Date);
+  const spy = jest.spyOn(Date, "now").mockImplementation(() => timersNow() + ms);
+  return () => spy.mockRestore();
 }
 
 function provider(): NativeProvider {
@@ -263,6 +275,75 @@ describe("the native prompt-cache keep-alive", () => {
     await advance(EVERY * 3);
     expect(pings.length).toBe(0);
     p.stop();
+  });
+
+  test("a timer that fires late (the Mac asleep) does not ping a cache already gone", async () => {
+    const p = provider();
+    await p.sendChat("topic:keepalive-asleep", "first", quiet);
+    // Asleep for 10 minutes: the timer due 4.5 minutes in fires at 14.5 by
+    // the wall clock, long past the cache's 5.
+    const restore = wallClockAhead(10 * MIN);
+    try {
+      await advance(EVERY);
+      expect(pings.length).toBe(0);
+    } finally {
+      restore();
+      p.stop();
+    }
+  });
+
+  test("a timer that fires late past the session's 15 minutes does not ping", async () => {
+    // Request at 0, answer at 3: pings at 4.5, 9, 13.5, and one due at 18,
+    // 15 minutes after the answer. It fires 24 s late: the cache is still
+    // alive (4.9 minutes) but the session is past its life.
+    const p = provider();
+    turnDelayMs = 3 * MIN;
+    await p.sendChat("topic:keepalive-late-ttl", "first", quiet);
+    turnDelayMs = 0;
+    await advance(EVERY - 3 * MIN);
+    await advance(EVERY);
+    await advance(EVERY);
+    expect(pings.length).toBe(3);
+    const restore = wallClockAhead(24_000);
+    try {
+      await advance(EVERY);
+      expect(pings.length).toBe(3);
+    } finally {
+      restore();
+      p.stop();
+    }
+  });
+
+  test("a session evicted while the tick reads its token is not pinged", async () => {
+    const key = "topic:keepalive-token";
+    const p = provider();
+    await p.sendChat(key, "first", quiet);
+    // The token comes from the Keychain, an asynchronous read (macOS): the
+    // session is evicted while the tick waits on it.
+    const item = { claudeAiOauth: { accessToken: "fake-but-fresh", refreshToken: "r", expiresAt: Date.now() + 365 * 24 * 3_600_000 } };
+    const security = (_cmd: string, args: string[]): auth.KeychainRunResult => (args.includes("-w")
+      ? { status: 0, stdout: `${JSON.stringify(item)}\n`, stderr: "" }
+      : { status: 0, stdout: `    "acct"<blob>="someone"\n`, stderr: "" });
+    let reads = 0;
+    const platform = Object.getOwnPropertyDescriptor(process, "platform")!;
+    const flag = process.env.TOPICS_CREDENTIALS_KEYCHAIN;
+    Object.defineProperty(process, "platform", { ...platform, value: "darwin" });
+    process.env.TOPICS_CREDENTIALS_KEYCHAIN = "1";
+    auth.setKeychainRunnerForTests(security, async (cmd, args) => {
+      reads++;
+      await p.resetSession(key);
+      return security(cmd, args);
+    });
+    try {
+      await advance(EVERY);
+      expect(reads).toBeGreaterThan(0);
+      expect(pings.length).toBe(0);
+    } finally {
+      auth.setKeychainRunnerForTests(null);
+      Object.defineProperty(process, "platform", platform);
+      if (flag === undefined) delete process.env.TOPICS_CREDENTIALS_KEYCHAIN; else process.env.TOPICS_CREDENTIALS_KEYCHAIN = flag;
+      p.stop();
+    }
   });
 
   test("a failed turn ends the chain of the turn before it", async () => {
