@@ -111,13 +111,41 @@ export interface CompletionOptions {
   isolated?: boolean;
   /** The result is a chat reply the user reads, not an internal job (title, judge, pick). */
   userFacing?: boolean;
+  /**
+   * What the call is for, so its cost lands under a name in `usage_records`
+   * (`server/usage/side-calls.ts`). Every `complete()` is metered whether or not
+   * it says; one that does not is filed as "other".
+   */
+  purpose?: SideCallPurpose;
 }
+
+/** The side calls Topics makes outside a chat turn, by what they are for. */
+export type SideCallPurpose =
+  | "card-title"
+  | "chat-name"
+  | "goal-judge"
+  | "stall-judge"
+  | "commit-message"
+  | "task-plan"
+  | "chat-reply";
 
 export interface CompletionResult {
   content: string;
   usage?: {
+    /** Every prompt token, cache reads and writes included. */
     promptTokens: number;
     completionTokens: number;
+    /** Shares of `promptTokens`, when the provider reports them. */
+    cacheReadTokens?: number;
+    /** Cache writes, BOTH TTLs: `cacheCreation1hTokens` is a subset of it. */
+    cacheCreationTokens?: number;
+    cacheCreation1hTokens?: number;
+    /** The model that answered, when the provider says (it can differ from the one asked). */
+    model?: string;
+    /** The provider's own price, when it computes one (the Claude CLI does). */
+    costUsd?: number;
+    /** Model calls behind this completion (the native loop can take more than one). */
+    requests?: number;
   };
 }
 

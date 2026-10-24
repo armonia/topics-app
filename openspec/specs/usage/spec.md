@@ -828,3 +828,39 @@ rate and SHALL keep the estimate-to-usage difference readable.
 - **WHEN** the terminal stream event reports output tokens
 - **THEN** the row SHALL show a measured usage-based token rate
 - **AND** the estimate-to-usage difference SHALL remain readable
+
+### Requirement: USAGE-24 — Every side call leaves a priced row and a log line
+
+The system SHALL record every `complete()` a provider answers outside a chat
+turn (card titles, chat names, goal and stall judges, commit messages, the task
+model choice, fallback replies) as one row in `usage_records` carrying what the
+call was for, the provider, the model, the disjoint token shares, the cost and
+the duration, and as one `[sidecall]` line in the server log. The cost SHALL be
+the provider's own figure when it sends one, the price table's otherwise.
+Recording SHALL never delay, alter or fail the call. The project usage SHALL
+report side calls apart from the project rows, split by purpose.
+
+#### Scenario: A CLI one-shot brings back its cache shares and its price
+- **GIVEN** a `claude -p --output-format json` result with cache writes (one-hour share included), `total_cost_usd` and one model in `modelUsage`
+- **WHEN** it is parsed
+- **THEN** the usage SHALL carry the read, write and one-hour write shares, the model and the cost
+
+#### Scenario: A native completion returns its usage
+- **GIVEN** a `complete()` answered by the native engine
+- **WHEN** it returns
+- **THEN** the result SHALL carry the prompt total, the shares, the model and the number of requests
+
+#### Scenario: Every provider the factory builds is metered
+- **GIVEN** a provider made by `createProvider`
+- **WHEN** its `complete()` answers with a usage
+- **THEN** one row SHALL be written under the purpose the caller gave, or "other"
+
+#### Scenario: A broken ledger does not break a title
+- **GIVEN** a ledger whose insert fails
+- **WHEN** a completion answers
+- **THEN** the caller SHALL receive the same result, and no error
+
+#### Scenario: The project usage shows side calls by purpose
+- **GIVEN** side-call rows inside and outside the window
+- **WHEN** the project usage is read for that window
+- **THEN** only the rows inside SHALL be counted, grouped by purpose and kept out of the project totals

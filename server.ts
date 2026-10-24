@@ -93,6 +93,7 @@ import { createMemoryRouter } from "./server/routes/memory";
 import { createMcpRouter } from "./server/routes/mcp";
 import { createSessionEnvironmentRouter } from "./server/routes/session-environment";
 import { initUsageStore, rebuildSummary } from "./server/usage/store";
+import { configureSideCallLedger } from "./server/usage/side-calls";
 import { createCheckpointsRouter } from "./server/routes/checkpoints";
 import { createGoalsRouter } from "./server/routes/goals";
 import { createOpenClawContextRouter } from "./server/routes/openclaw-context";
@@ -824,6 +825,8 @@ const browserService = await createBrowserService({
 
 // Init usage tracking (still uses JSON files — will be migrated in a future phase)
 initUsageStore(ctx.STATE_DIR);
+// Side calls (titles, judges, commit messages) go to `usage_records`.
+configureSideCallLedger(ctx.db);
 // @covers BOOT-NONFATAL-01
 // `summary.json` è un file di COMODO: si ricostruisce dai giornalieri a ogni
 // avvio, e chi lo legge ha già la sua ricaduta. Farlo cadere qui significa che
@@ -1301,7 +1304,7 @@ function stallTranscriptTail(sessionKey: string): string | null {
 /** One cheap haiku call, in the shape `judgeStall` expects. */
 async function stallJudgeComplete(prompt: string): Promise<string> {
   const provider = getProvider("claude-code");
-  const res = await provider.complete([{ role: "user", content: prompt }], { model: "claude-haiku-4-5" });
+  const res = await provider.complete([{ role: "user", content: prompt }], { model: "claude-haiku-4-5", purpose: "stall-judge" });
   return res.content ?? "";
 }
 

@@ -53,6 +53,12 @@ export function ProjectUsagePanel({ range, onRange }: {
     currency: 'USD',
     maximumFractionDigits: 0,
   });
+  // Side calls cost cents each: a whole-dollar format would show $0 for a day of titles.
+  const cents = new Intl.NumberFormat(locale === 'it' ? 'it-IT' : 'en-US', {
+    style: 'currency',
+    currency: 'USD',
+    maximumFractionDigits: 2,
+  });
 
   const rows = usage?.projects.slice(0, MAX_ROWS) ?? [];
   const hidden = (usage?.projects.length ?? 0) - rows.length;
@@ -136,6 +142,26 @@ export function ProjectUsagePanel({ range, onRange }: {
           })}
         </div>
       )}
+
+      {/* SIDE CALLS: titles, chat names, judges and commit messages are made
+          outside any chat, so they belong to no project row. Shown apart, with
+          the split by purpose in the tooltip, because before 24/10 they were
+          not counted anywhere. */}
+      {usage && usage.sideCalls.calls > 0 && (
+        <div
+          data-testid="usage-side-calls"
+          className="mt-1.5 border-t border-app-border pt-1.5 text-mini leading-snug text-app-text-secondary"
+          title={usage.sideCalls.byPurpose
+            .map((p) => tr('usage.sideCallsPurpose', {
+              purpose: purposeLabel(p.purpose, tr),
+              n: p.calls,
+              cost: cents.format(p.costUsd),
+            }))
+            .join('\n')}
+        >
+          {tr('usage.sideCalls', { n: usage.sideCalls.calls, cost: cents.format(usage.sideCalls.costUsd) })}
+        </div>
+      )}
     </div>
   );
 }
@@ -170,6 +196,13 @@ function Row({ p, compact, money, tr }: {
       </span>
     </div>
   );
+}
+
+/** A purpose in words; an id the client does not know yet is shown as it is. */
+function purposeLabel(purpose: string, tr: (key: string) => string): string {
+  const key = `usage.purpose.${purpose}`;
+  const label = tr(key);
+  return label === key ? purpose : label;
 }
 
 /** The name a person uses for the project: the last segment of the path, or the

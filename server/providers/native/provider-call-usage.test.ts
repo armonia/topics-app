@@ -22,6 +22,7 @@
  * No network and no real credentials: the test's `HOME` holds a fake but fresh
  * token, which is all it takes to skip the refresh path.
  * @covers USAGE-04
+ * @covers USAGE-24
  */
 import { describe, expect, test, beforeAll, afterAll } from "bun:test";
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "fs";
@@ -182,5 +183,26 @@ describe("the native provider and the door that writes tokens on the row", () =>
     // Round 1: 100 + 10*0.1 + 4*1.25 + 3*2 + 20*5 = 212 millionths.
     // Round 2: 200 + 20*0.1 + 4*1.25 + 1*2 + 5*5 = 234 millionths.
     expect(readNativeUsage("topic:registry-probe")?.costUsd).toBeCloseTo(446 / 1_000_000, 12);
+  });
+
+  test("complete() returns the usage instead of dropping it", async () => {
+    // Judges, titles and chat names on this engine go through `complete()`,
+    // which returned the text alone: their cost reached no row and no log.
+    const queue = [finalRound];
+    globalThis.fetch = (async () => new Response(queue.shift() ?? finalRound, { status: 200 })) as unknown as typeof fetch;
+
+    const provider = new NativeProvider({ type: "native", defaultWorkspace: workspace, model: "claude-haiku-4-5-20251001" });
+    const out = await provider.complete([{ role: "user", content: "say done" }]);
+
+    expect(out.content).toBe("done");
+    expect(out.usage).toEqual({
+      promptTokens: 200 + 20 + 5,
+      completionTokens: 5,
+      cacheReadTokens: 20,
+      cacheCreationTokens: 5,
+      cacheCreation1hTokens: 1,
+      model: "claude-haiku-4-5-20251001",
+      requests: 1,
+    });
   });
 });

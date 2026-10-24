@@ -4129,7 +4129,7 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
             resp = await topicProvider.streamHTTP(finalMessages, { sessionKey, signal: abortController.signal });
           } else {
             // Provider doesn't support streamHTTP — use complete() as fallback
-            const result = await topicProvider.complete(finalMessages, { userFacing: true });
+            const result = await topicProvider.complete(finalMessages, { userFacing: true, purpose: "chat-reply" });
             clearTimeout(timeoutId);
             if (carry) deps.answerRelay?.heard(carry);
             const content = result.content;

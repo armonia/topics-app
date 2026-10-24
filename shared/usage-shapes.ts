@@ -84,6 +84,20 @@ export interface ProjectUsageResult {
     costUsd: number;
   };
   cost: ProjectUsageCost;
+  /**
+   * Calls made OUTSIDE a chat turn (card titles, judges, commit messages), from
+   * `usage_records`. They belong to no project, so they are not in `projects`
+   * or `totals`: summing them there would hide them again.
+   */
+  sideCalls: SideCallUsage;
+}
+
+/** The side-call ledger over the same window, by what the calls were for. */
+export interface SideCallUsage {
+  calls: number;
+  costUsd: number;
+  /** Sorted by `costUsd`, descending. */
+  byPurpose: { purpose: string; calls: number; costUsd: number; tokens: number }[];
 }
 
 /**

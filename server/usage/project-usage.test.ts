@@ -8,6 +8,7 @@
  * looks complete.
  *
  * @covers USAGE-05
+ * @covers USAGE-24
  */
 import { describe, expect, test } from "bun:test";
 import { Database } from "bun:sqlite";
@@ -27,6 +28,15 @@ function makeDb(): Database {
   db.run(`CREATE TABLE tasks (
     id TEXT PRIMARY KEY, project_id TEXT, completed_at TEXT, updated_at TEXT,
     agent_tokens INTEGER, agent_cache_read_tokens INTEGER)`);
+  // Same columns as 001 + the side-call migration.
+  db.run(`CREATE TABLE usage_records (
+    id TEXT PRIMARY KEY DEFAULT (lower(hex(randomblob(16)))), timestamp INTEGER NOT NULL,
+    session_key TEXT NOT NULL, topic_id TEXT, model TEXT NOT NULL,
+    input_tokens INTEGER NOT NULL DEFAULT 0, output_tokens INTEGER NOT NULL DEFAULT 0,
+    total_tokens INTEGER NOT NULL DEFAULT 0, cost_usd REAL NOT NULL DEFAULT 0.0,
+    purpose TEXT, provider TEXT, cache_read_tokens INTEGER NOT NULL DEFAULT 0,
+    cache_creation_tokens INTEGER NOT NULL DEFAULT 0, cache_creation_1h_tokens INTEGER NOT NULL DEFAULT 0,
+    duration_ms INTEGER)`);
   return db;
 }
 
@@ -212,5 +222,36 @@ describe("projectUsage", () => {
     message(db, "topic:aaaa", { prompt: 200_000, completion: 5_000, cacheRead: 180_000 });
     // (200k - 180k) + 5k + 0.1 * 180k
     expect(projectUsage(db).projects[0].chatTokens).toBe(20_000 + 5_000 + 18_000);
+  });
+
+  test("side calls: counted by purpose, inside the window only, never in a project", () => {
+    const db = makeDb();
+    topic(db, "chat:a", ALPHA);
+    message(db, "chat:a", { prompt: 100, completion: 10, cents: 50 });
+    const now = Date.now();
+    const old = now - 40 * 86_400_000;
+    const side = db.prepare(`INSERT INTO usage_records (timestamp, session_key, model, total_tokens, cost_usd, purpose)
+      VALUES (?, 'side-call', 'claude-sonnet-5-5', ?, ?, ?)`);
+    side.run(now, 1000, 0.08, "card-title");
+    side.run(now, 1000, 0.07, "card-title");
+    side.run(now, 500, 0.01, null);
+    side.run(old, 9999, 5, "card-title");
+    // A row someone else might write one day: not a side call.
+    db.prepare(`INSERT INTO usage_records (timestamp, session_key, model, cost_usd) VALUES (?, 'chat:a', 'x', 9)`).run(now);
+
+    const month = projectUsage(db, { days: 30 });
+    expect(month.sideCalls).toEqual({
+      calls: 3,
+      costUsd: 0.16,
+      byPurpose: [
+        { purpose: "card-title", calls: 2, costUsd: 0.15, tokens: 2000 },
+        { purpose: "other", calls: 1, costUsd: 0.01, tokens: 500 },
+      ],
+    });
+    // The project total is the chat alone.
+    expect(month.totals.costUsd).toBe(0.5);
+
+    const all = projectUsage(db);
+    expect(all.sideCalls.calls).toBe(4);
   });
 });

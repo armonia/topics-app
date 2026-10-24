@@ -49,7 +49,7 @@ import { costFromMessage, costFromTask } from "./token-sql";
 // `shared/` - and `check:deadcode` counts an export with no importer as debt,
 // which is the whole point of the gate.
 export type { ProjectUsageResult } from "../../shared/usage-shapes";
-import type { ProjectUsageRow, ProjectUsageResult } from "../../shared/usage-shapes";
+import type { ProjectUsageRow, ProjectUsageResult, SideCallUsage } from "../../shared/usage-shapes";
 
 export interface ProjectUsageOptions {
   /**
@@ -190,6 +190,7 @@ export function projectUsage(db: Database, opts: ProjectUsageOptions = {}): Proj
   return {
     projects,
     totals,
+    sideCalls: sideCallUsage(db, days),
     cost: {
       currency: "usd",
       // Declared, not inferred by the reader: any of the three exclusions makes
@@ -203,5 +204,36 @@ export function projectUsage(db: Database, opts: ProjectUsageOptions = {}): Proj
         usd: Math.round(estimatedUsd * 100) / 100,
       },
     },
+  };
+}
+
+/**
+ * The side-call ledger (`usage/side-calls.ts`) over the same window, cut at the
+ * same midnight as the chat rows. Its `timestamp` is epoch milliseconds, not
+ * ISO text like `messages`.
+ */
+function sideCallUsage(db: Database, days: number | null): SideCallUsage {
+  const window = days === null ? "" : " AND timestamp >= strftime('%s', date('now', ? || ' days')) * 1000";
+  const arg = days === null ? [] : [String(-Math.abs(days))];
+  const rows = db
+    .prepare(
+      `SELECT COALESCE(purpose, 'other') AS purpose, COUNT(*) AS calls,
+              SUM(cost_usd) AS cost_usd, SUM(total_tokens) AS tokens
+         FROM usage_records
+        WHERE session_key = 'side-call'${window}
+        GROUP BY COALESCE(purpose, 'other')
+        ORDER BY cost_usd DESC`,
+    )
+    .all(...arg) as { purpose: string; calls: number; cost_usd: number | null; tokens: number | null }[];
+  const byPurpose = rows.map((r) => ({
+    purpose: r.purpose,
+    calls: r.calls,
+    costUsd: Math.round((r.cost_usd ?? 0) * 100) / 100,
+    tokens: r.tokens ?? 0,
+  }));
+  return {
+    calls: byPurpose.reduce((a, r) => a + r.calls, 0),
+    costUsd: Math.round(rows.reduce((a, r) => a + (r.cost_usd ?? 0), 0) * 100) / 100,
+    byPurpose,
   };
 }

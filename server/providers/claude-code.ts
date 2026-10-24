@@ -1140,11 +1140,23 @@ export function parseCompletionStdout(stdout: string): CompletionResult {
     console.warn(`[claude-code] complete(): no result text in CLI json output (${stdout.slice(0, 80)}…)`);
   }
   const usage = resultEvent?.usage;
+  // The shares and the CLI's own price go back too: the side-call ledger
+  // (`usage/side-calls.ts`) needs them to say what a title cost. Without them
+  // 1102 card titles on Sonnet (9-12/10, 14.1M tokens written to the one-hour
+  // cache) left no trace outside the CLI transcripts.
+  const n = (v: unknown): number => (typeof v === "number" && Number.isFinite(v) && v > 0 ? v : 0);
+  const models = resultEvent?.modelUsage && typeof resultEvent.modelUsage === "object" ? Object.keys(resultEvent.modelUsage) : [];
   return {
     content,
     usage: usage ? {
-      promptTokens: (usage.input_tokens ?? 0) + (usage.cache_creation_input_tokens ?? 0) + (usage.cache_read_input_tokens ?? 0),
-      completionTokens: usage.output_tokens ?? 0,
+      promptTokens: n(usage.input_tokens) + n(usage.cache_creation_input_tokens) + n(usage.cache_read_input_tokens),
+      completionTokens: n(usage.output_tokens),
+      cacheReadTokens: n(usage.cache_read_input_tokens),
+      cacheCreationTokens: n(usage.cache_creation_input_tokens),
+      cacheCreation1hTokens: n(usage.cache_creation?.ephemeral_1h_input_tokens),
+      ...(models.length === 1 ? { model: models[0] } : {}),
+      ...(typeof resultEvent?.total_cost_usd === "number" ? { costUsd: resultEvent.total_cost_usd } : {}),
+      requests: 1,
     } : undefined,
   };
 }

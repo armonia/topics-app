@@ -894,14 +894,17 @@ export class NativeProvider implements AIProvider {
       content: typeof m.content === "string" ? m.content : String(m.content ?? ""),
     }));
     let text = "";
+    const model = nativeModelId(options?.model ?? this.config.model ?? DEFAULT_MODEL);
+    let rounds = 0;
     const out = await runAgentTurn(
       {
-        model: nativeModelId(options?.model ?? this.config.model ?? DEFAULT_MODEL),
+        model,
         effort: options?.reasoningEffort,
         signal: options?.timeoutMs ? AbortSignal.timeout(options.timeoutMs) : undefined,
         history,
         tools: () => [],
         toolContext: { workspace: this.config.defaultWorkspace ?? "" },
+        onRoundUsage: () => { rounds++; },
       },
       {
         onTextDelta: (c) => { text += c; },
@@ -911,7 +914,21 @@ export class NativeProvider implements AIProvider {
         onError: () => {},
       },
     );
-    return { content: out.text || text };
+    // The usage goes back with the text: it used to be dropped here, so every
+    // judge and title on this engine cost something nobody could read.
+    const u = out.usage;
+    return {
+      content: out.text || text,
+      usage: {
+        promptTokens: u.input + u.cacheRead + u.cacheWrite,
+        completionTokens: u.output,
+        cacheReadTokens: u.cacheRead,
+        cacheCreationTokens: u.cacheWrite,
+        cacheCreation1hTokens: u.cacheWrite1h,
+        model,
+        requests: Math.max(1, rounds),
+      },
+    };
   }
 
   /** `/compact` typed in a chat on this engine (CMDUI-06): see `compactSessionNow`. */

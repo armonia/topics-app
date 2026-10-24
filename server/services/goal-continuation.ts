@@ -29,6 +29,7 @@
 import type { Database } from "bun:sqlite";
 import type { OutboundMessage } from "../../shared/ws-outbound";
 import type { Topic } from "../types";
+import type { CompletionOptions } from "../providers/types";
 
 /** The chat route, as narrow as this file needs it. */
 type ChatRouteLike = (
@@ -538,7 +539,7 @@ export function goalContinuationForChatRoute(deps: {
     name: string;
     complete: (
       messages: Array<{ role: "user"; content: string }>,
-      options?: { model?: string },
+      options?: Pick<CompletionOptions, "model" | "purpose">,
     ) => Promise<{ content?: string | null }>;
   };
   log?: (msg: string) => void;
@@ -556,7 +557,7 @@ export function goalContinuationForChatRoute(deps: {
     judge: async (prompt, info) => {
       const provider = deps.resolveProvider(ctx.getTopicById(info.topicId));
       const cheap = provider.name === "claude-code" ? { model: "claude-haiku-4-5" } : undefined;
-      const answer = await provider.complete([{ role: "user", content: prompt }], cheap);
+      const answer = await provider.complete([{ role: "user", content: prompt }], { ...cheap, purpose: "goal-judge" });
       return answer.content ?? "";
     },
     resend: async ({ sessionKey, text, attempt, mark }) => {
