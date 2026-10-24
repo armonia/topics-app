@@ -362,6 +362,15 @@ export function createBrowserBridgeRouter(
             const body = (await readJSON(req)) as { url?: unknown } | null;
             const url = typeof body?.url === "string" ? body.url : "";
             if (!url) return json({ error: "url (string) is required" }, 400);
+            // Reject a refused URL before the pane is announced: the guard
+            // otherwise throws inside openPaneFlow after the broadcast went out,
+            // which surfaced as a 500 with a pane already opened on that URL.
+            let resolvedUrl: string;
+            try {
+              resolvedUrl = resolveAgentNavUrl(url, "open_browser_pane", "relative");
+            } catch (err) {
+              return json({ error: err instanceof Error ? err.message : String(err) }, 400);
+            }
             // contextId is deterministic (`term-<id>`) so the client registers
             // the pane's CDP target under the SAME id the observe/act routes
             // resolve to — that's what lets a terminal drive the pane, not just
@@ -376,7 +385,7 @@ export function createBrowserBridgeRouter(
             // terminal, not for a page to label.
             return openPaneFlow({
               contextId: ctxId,
-              url,
+              url: resolvedUrl,
               title: "",
               projectPath: term.cwd || null,
               service: browserService,

@@ -28,6 +28,7 @@ import { createBrowserBridgeRouter, type TerminalSessionRef } from "./browser-br
 import type { AppContext, Topic } from "../types";
 import type { BrowserService } from "../browser-service";
 import type { PortOwnerDeps } from "../lib/port-project-owner";
+import { nativeDelegateRegistry } from "../browser-native-delegate";
 
 const TOKEN = "gateway-token-di-prova";
 
@@ -586,6 +587,65 @@ describe("open-pane — tre rami, tre pannelli diversi", () => {
     // pane, the navigation actually takes it to the URL. `term-<id>` is the id
     // observe/act resolve to as well, so it is the one that must be driven.
     expect(h.navigations).toEqual([{ contextId: "term-42", url: "https://example.com/" }]);
+  });
+
+  // A URL the navigation guard refuses must be rejected BEFORE the terminal
+  // branch announces the pane: a 400 with the reason, and no pane opened on a
+  // URL that will never load. Today the announce goes out first and the guard
+  // fires later inside the dispatcher, which turns into a 500.
+  for (const url of ["chrome://settings", "ftp://x"]) {
+    test(`terminale: URL vietato ${url} ⇒ 400 col motivo, nessun pannello annunciato`, async () => {
+      const h = harness();
+      h.addTerminal("42");
+
+      const resp = await h.post("/api/sessions/42/browser/open-pane", { url });
+
+      // One snapshot, so a red run shows the status AND the stray broadcast
+      // together instead of stopping at the first mismatch.
+      expect({
+        status: resp!.status,
+        announced: h.typed("browser:open-near-pane").length,
+        navigations: h.navigations,
+      }).toEqual({ status: 400, announced: 0, navigations: [] });
+      expect((await resp!.json()).error).toContain("not allowed");
+    });
+  }
+
+  test("terminale: file:///etc/passwd ⇒ 400 e nessun pannello annunciato", async () => {
+    // Only the status and the absence of effects are asserted: the message for
+    // local files is not the scheme one, so pinning its wording would tie the
+    // test to text the fix is free to change.
+    const h = harness();
+    h.addTerminal("42");
+
+    const resp = await h.post("/api/sessions/42/browser/open-pane", { url: "file:///etc/passwd" });
+
+    expect({
+      status: resp!.status,
+      announced: h.typed("browser:open-near-pane").length,
+      navigations: h.navigations,
+    }).toEqual({ status: 400, announced: 0, navigations: [] });
+  });
+
+  test("terminale con pane nativa registrata: URL vietato ⇒ 400, nessuna operazione alla pane", async () => {
+    // Production shape: a WKWebView is the registered executor for term-42. The
+    // refusal must come before the pane is announced and before any
+    // browser_op reaches it.
+    const h = harness();
+    h.addTerminal("42");
+    const sent: unknown[] = [];
+    nativeDelegateRegistry.register("term-42", (msg) => { sent.push(msg); });
+    try {
+      const resp = await h.post("/api/sessions/42/browser/open-pane", { url: "chrome://settings" });
+
+      expect({
+        status: resp!.status,
+        announced: h.typed("browser:open-near-pane").length,
+        sent,
+      }).toEqual({ status: 400, announced: 0, sent: [] });
+    } finally {
+      nativeDelegateRegistry.unregister("term-42");
+    }
   });
 
   test("senza url ⇒ 400, su entrambi i rami", async () => {
