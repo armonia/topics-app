@@ -40,6 +40,8 @@ export function addUsage(a: SessionUsage, b: SessionUsage): SessionUsage {
     cacheWrite1hTokens: a.cacheWrite1hTokens + b.cacheWrite1hTokens,
     cacheReadTokens: a.cacheReadTokens + b.cacheReadTokens,
     billableTokens: a.billableTokens + b.billableTokens,
+    // A sum of per-call prices only while both sides have one.
+    ...(typeof a.costUsd === "number" && typeof b.costUsd === "number" ? { costUsd: a.costUsd + b.costUsd } : {}),
   };
 }
 
