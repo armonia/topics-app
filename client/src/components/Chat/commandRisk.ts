@@ -268,10 +268,11 @@ function lex(src: string, out: SimpleCommand[], body = false): void {
   const delimiterLine = (delim: string, strip: boolean, pos: number): [number, number] | null => {
     const key = `${strip ? '-' : ''}${delim}`;
     if ((missing.get(key) ?? Infinity) <= pos) return null;
-    spend(src.length - pos);
     const re = new RegExp(`^${strip ? '\\t*' : ''}${delim.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'gm');
     re.lastIndex = pos;
     const m = re.exec(src);
+    // The search walks from `pos` to the end of the line it finds, or to the end of the text when it finds none.
+    spend((m ? m.index + m[0].length : src.length) - pos);
     if (!m) { missing.set(key, pos); return null; }
     return [m.index, Math.min(src.length, m.index + m[0].length + 1)];
   };
