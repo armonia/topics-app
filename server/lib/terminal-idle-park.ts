@@ -168,7 +168,8 @@ export function summarizeRefusals(skipped: ReadonlyArray<{ reason: ParkRefusal }
   const perMotivo = new Map<ParkRefusal, number>();
   for (const s of skipped) perMotivo.set(s.reason, (perMotivo.get(s.reason) ?? 0) + 1);
   const voci = [...perMotivo.entries()]
-    .sort((a, b) => b[1] - a[1])
+    // Ties sort by label, not by Map order, so one state always reads the same.
+    .sort((a, b) => b[1] - a[1] || refusalLabel(a[0]).localeCompare(refusalLabel(b[0])))
     .map(([reason, n]) => `${n} ${refusalLabel(reason)}`);
   return `${skipped.length} non parcheggiate: ${voci.join(", ")}`;
 }

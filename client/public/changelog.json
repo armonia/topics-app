@@ -1,5 +1,26 @@
 [
   {
+    "version": "2.3.19",
+    "date": "2026-10-24",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "open-pane da terminale: un URL vietato dà 400 col motivo, non 500 con la pane già aperta (#420)",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Parcheggio sessioni: il log stampa solo i cambi, non la stessa riga ogni 60 secondi (#426)",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
     "version": "2.3.18",
     "date": "2026-10-24",
     "sections": {

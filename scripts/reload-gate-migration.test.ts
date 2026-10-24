@@ -262,3 +262,22 @@ describe("server-reload-gate.sh — cancello migration SQL", () => {
     expect(out).toContain("server vecchio resta su");
   });
 });
+
+// The fake-server tests above never build the REAL server graph, so a bundle that
+// stops being a single output (a `type: "file"` import) went unseen while the
+// gate exited 1 on the true tree and the hot reload skipped forever.
+describe("server-reload-gate.sh — albero vero", () => {
+  it("exit 0 on the real repo root (the real server graph builds to a single output)", () => {
+    // Fresh empty DATA_DIR: the migration half finds no DB and exits 0, so the
+    // test never reads data/topics.db or ~/.openclaw/data. Without the sqlite3
+    // CLI (cloud VM) the gate still exits 0 but declares the migration half
+    // off on stderr: that one known line is not a build failure, drop it.
+    const dataDir = mkdtempSync(join(tmpdir(), "gate-real-data-"));
+    daPulire.push(dataDir);
+
+    const { code, out } = eseguiCancello(REPO_ROOT, { DATA_DIR: dataDir });
+
+    const buildOut = out.replace(/^\[reload-gate\] sqlite3 non trovato.*\n/m, "");
+    expect({ code, out: buildOut }).toEqual({ code: 0, out: "" });
+  }, 30_000);
+});

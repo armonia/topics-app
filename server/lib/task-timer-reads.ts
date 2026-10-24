@@ -1,9 +1,13 @@
 /**
  * The reads of `tasks` that run on a timer: the dispatcher tick, the wait
- * sweep, the status bar. They live here so server/db-sweep-plans.test.ts can
- * check their plans on the real schema (DBSLOW-03): each one has a partial
- * index (migration 20261015200000), and a full scan of `tasks` is ~1,400 pages.
+ * sweep, the status bar, the stale checks light, the stuck parents. They live
+ * here so server/db-sweep-plans.test.ts can check their plans on the real
+ * schema (DBSLOW-03). Each one has a partial index, and a full scan of `tasks`
+ * is ~1,400 pages. The first four (queued roots, working count, oldest working
+ * board, wait series) use indexes from migration 20261015200000; the checks
+ * light and the stuck parents use those of 20261024120000.
  */
+import { ACTIVE_DISPATCH_STATES } from "../../shared/board";
 
 /** Boards with queued root cards: `rootsOnly` as in the dispatcher. */
 export const QUEUED_ROOT_BOARDS_SQL = `SELECT DISTINCT project_id FROM tasks
@@ -26,3 +30,32 @@ export const PARKED_IN_SERIES_SQL = `SELECT id, project_id FROM tasks
               AND dispatch_deferred_until IS NOT NULL
               AND dispatch_deferred_until <= ?
             ORDER BY wait_since`;
+
+/** Cards with a running checks light. Run by `clearStaleChecksRuns` every 30 s. */
+export const CHECKS_RUNNING_SQL = "SELECT id FROM tasks WHERE checks_state = 'running'";
+
+/**
+ * The dispatch chips that say an agent is here or on its way, as a SQL list.
+ * Built from `ACTIVE_DISPATCH_STATES` so it cannot drift from it.
+ */
+export const CHILD_AGENT_COMING = ACTIVE_DISPATCH_STATES.map((s) => `'${s}'`).join(", ");
+
+/**
+ * Parents that look stuck behind open children, read by `sweepParkedChildren`
+ * on every dispatcher tick (10 s). Binds: now.
+ *
+ * `status IN ('backlog', 'todo')` is the same set as the old
+ * `NOT IN ('done', 'review', 'in_progress')`, because the table's CHECK keeps
+ * status to those five values. It must stay identical to the predicate of
+ * idx_tasks_parked_candidates (migration 20261024120000), or the planner will
+ * not use that index.
+ */
+export const PARKED_CHILDREN_CANDIDATES_SQL = `SELECT p.id, p.project_id FROM tasks p
+            WHERE p.archived = 0
+              AND p.status IN ('backlog', 'todo')
+              AND NOT (p.status = 'todo' AND p.dispatch_attempts = 0)
+              AND COALESCE(p.dispatch_state, '') NOT IN (${CHILD_AGENT_COMING})
+              AND COALESCE(p.dispatch_deferred_until, '') <= ?
+              AND EXISTS (SELECT 1 FROM tasks c
+                           WHERE c.parent_task_id = p.id AND c.archived = 0 AND c.status != 'done')
+            ORDER BY p.updated_at`;
