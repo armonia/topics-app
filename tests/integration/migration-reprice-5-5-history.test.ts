@@ -67,6 +67,10 @@ function seed(rows: Row[]): Database {
   return db;
 }
 
+/** The stored cost, readable before the migration adds its columns. */
+const costOf = (db: Database, id: string): number =>
+  (db.query("SELECT cost_cents c FROM messages WHERE id = ?").get(id) as { c: number }).c;
+
 type Out = { cost: number; before: number | null; estimated: number | null };
 const rowOf = (db: Database, id: string): Out =>
   db.query("SELECT cost_cents cost, cost_cents_before_reprice before, cost_estimated estimated FROM messages WHERE id = ?").get(id) as Out;
@@ -87,7 +91,7 @@ describe("the 5.5 history is repriced from its own tokens", () => {
       turn("fable", "claude-fable-5-1"),
     ];
     const db = seed(rows);
-    const before = Object.fromEntries(rows.map((r) => [r.id, rowOf(db, r.id).cost]));
+    const before = Object.fromEntries(rows.map((r) => [r.id, costOf(db, r.id)]));
     db.exec(MIGRATION_SQL);
 
     const expected: Record<string, number> = {
@@ -110,7 +114,7 @@ describe("the 5.5 history is repriced from its own tokens", () => {
 
   test("Opus 5 keeps its price: same row, same cost, no old value", () => {
     const db = seed([turn("opus5", "claude-opus-5")]);
-    const was = rowOf(db, "opus5").cost;
+    const was = costOf(db, "opus5");
     db.exec(MIGRATION_SQL);
     expect(rowOf(db, "opus5")).toEqual({ cost: was, before: null, estimated: null });
   });
@@ -145,7 +149,7 @@ describe("Haiku 5.5: exact under 100k, an upper-bound estimate over", () => {
   test("over 100k: priced on the long card and marked estimated", () => {
     const r = turn("big", "claude-haiku-5-5");
     const db = seed([r]);
-    const was = rowOf(db, "big").cost;
+    const was = costOf(db, "big");
     db.exec(MIGRATION_SQL);
     expect(rowOf(db, "big")).toEqual({ cost: Math.round(priced(r, 0.5, 0.1)), before: was, estimated: 1 });
   });
@@ -175,7 +179,7 @@ describe("going back", () => {
   test("the statement in the migration's header restores every message cost", () => {
     const rows = [turn("a", "claude-opus-5-5"), turn("b", "claude-sonnet-5-5"), turn("c", "claude-haiku-5-5")];
     const db = seed(rows);
-    const was = rows.map((r) => rowOf(db, r.id).cost);
+    const was = rows.map((r) => costOf(db, r.id));
     db.exec(MIGRATION_SQL);
     db.exec("UPDATE messages SET cost_cents = cost_cents_before_reprice, cost_estimated = NULL WHERE cost_cents_before_reprice IS NOT NULL");
     expect(rows.map((r) => rowOf(db, r.id).cost)).toEqual(was);
