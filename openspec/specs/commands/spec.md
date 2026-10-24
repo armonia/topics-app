@@ -1072,6 +1072,54 @@ server a `needs-auth`, non a `failed`, perche' la sola cura e' rifare l'accesso.
 - **WHEN** il ritorno porta uno `state` diverso da quello emesso
 - **THEN** SHALL essere rifiutato e il file dei token SHALL restare vuoto
 
+### Requirement: MCPSRV-05 — The native engine defers MCP tool schemas and loads them on request
+
+On the native engine the schemas of the MCP fleet (`mcp__*` tools) SHALL be sent
+with `defer_loading: true`, out of the model's context, together with a
+`tool_search` tool whose description names every deferred tool. `tool_search`
+SHALL answer with `tool_reference` blocks only (the API refuses them next to a
+text block), searching only the MCP tools the round already offers. An MCP tool
+the history calls but no longer references (history rebuilt from the DB,
+compaction) SHALL be sent loaded: that is the session's allowlist, derived from
+the history on every round. In a live conversation the tool list SHALL stay
+byte-identical from round to round, so the cached prefix survives a discovery.
+The cache breakpoint SHALL sit on the last loaded tool, never on a deferred one.
+`TOPICS_TOOL_SEARCH=off` SHALL send every schema loaded, as before.
+
+#### Scenario: MCP schemas leave the prefix
+- **GIVEN** a session offered native tools and MCP tools
+- **WHEN** a round is sent
+- **THEN** every MCP tool SHALL carry `defer_loading: true` and `tool_search` SHALL be present
+- **AND** the native tools SHALL be unchanged
+
+#### Scenario: a discovery does not move the prefix
+- **GIVEN** a round where the model calls `tool_search` and then the tool it found
+- **WHEN** the next round is sent
+- **THEN** the tool list SHALL be identical to the first round's
+- **AND** the search result SHALL be `tool_reference` blocks only
+
+#### Scenario: a call whose reference was lost keeps its schema
+- **GIVEN** a history with a call to an MCP tool and no reference to it
+- **WHEN** a round is sent
+- **THEN** that tool SHALL be sent loaded, and the others deferred
+
+### Requirement: MCPSRV-06 — A restarted MCP server gets a new session, not a dead one
+
+When an HTTP MCP server answers a call with 404, or with a 400 that speaks of the
+session or of a server not initialized, the client SHALL drop its session id,
+repeat the handshake once and retry the call once. Any other 400 SHALL fail as
+before, without a new handshake.
+
+#### Scenario: the gateway restarted
+- **GIVEN** a connection whose server restarted and answers 400 "Server not initialized"
+- **WHEN** a tool is called
+- **THEN** the client SHALL initialize a new session and the call SHALL succeed
+
+#### Scenario: a bad request is not a dead session
+- **GIVEN** a server that answers 400 "Parse error"
+- **WHEN** a tool is called
+- **THEN** the call SHALL fail with no new handshake
+
 ### Requirement: CMD-COMMA-01 — La scorciatoia delle Impostazioni cede solo a chi POSSIEDE il tasto
 
 `⌘,` e `Ctrl+,` SHALL aprire le Impostazioni. La palette dei comandi lo

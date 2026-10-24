@@ -203,6 +203,14 @@ async function readSseResponse(res: Response, id: number): Promise<{ result?: un
   throw new Error("SSE stream ended without a response");
 }
 
+/** Does this answer say the server no longer knows our session? Reads the body of a 400. */
+async function sessionExpired(res: Response): Promise<boolean> {
+  if (res.status === 404) return true;
+  if (res.status !== 400) return false;
+  const body = await res.text().catch(() => "");
+  return /session|not initialized/i.test(body);
+}
+
 class HttpMcpConnection implements McpConnection {
   readonly transport = "http" as const;
   serverInfo: { name?: string; version?: string } | null = null;
@@ -251,6 +259,15 @@ class HttpMcpConnection implements McpConnection {
       try { await res.body?.cancel(); } catch { /* already drained */ }
       const refreshed = await this.auth.refreshed();
       if (refreshed) res = await this.post(id, method, params, timeoutMs, refreshed);
+    }
+    // A SERVER THAT RESTARTED forgot our session: the MCP SDK answers 404
+    // "Session not found", or 400 "Server not initialized" when the new
+    // process has no session at all. Every call then failed until Topics
+    // itself restarted. One new handshake and one retry, as the spec asks.
+    if (this.sessionId && method !== "initialize" && (await sessionExpired(res))) {
+      this.sessionId = null;
+      await this.connect();
+      res = await this.post(id, method, params, timeoutMs, this.auth ? await this.auth.header() : null);
     }
     const sid = res.headers.get("mcp-session-id");
     if (sid) this.sessionId = sid;
