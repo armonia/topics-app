@@ -1,5 +1,26 @@
 [
   {
+    "version": "2.3.20",
+    "date": "2026-10-24",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Due letture a timer di tasks scandivano la tabella intera: ora usano un indice (#419)",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Sidecar compilato: il registratore rrweb entra nel binario e il co-browse DOM torna a partire (#423)",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
     "version": "2.3.19",
     "date": "2026-10-24",
     "sections": {

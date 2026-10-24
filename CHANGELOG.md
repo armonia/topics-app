@@ -2,6 +2,12 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.3.20 — 2026-10-24
+
+### Sotto il cofano
+- Due letture a timer di tasks scandivano la tabella intera: ora usano un indice (#419)
+- Sidecar compilato: il registratore rrweb entra nel binario e il co-browse DOM torna a partire (#423)
+
 ## 2.3.19 — 2026-10-24
 
 ### Sotto il cofano
