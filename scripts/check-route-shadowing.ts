@@ -1056,34 +1056,54 @@ function namedMethods(node: ts.Node): string[] {
   return [...out];
 }
 
-/** `return json(body)` or `return new Response(body)`: an answer with the default status. Anything else may refuse. */
-function serving(o: Outcome): boolean {
-  const e = o.exit && ts.isReturnStatement(o.exit) && o.exit.expression ? unwrap(o.exit.expression) : null;
+/** `json(body)` or `new Response(body)`: an answer with the default status. Anything else may refuse. */
+function servingAnswer(expr: ts.Node | null): boolean {
+  const e = expr && unwrap(expr);
   if (e && ts.isNewExpression(e)) return ts.isIdentifier(e.expression) && e.expression.text === "Response" && (e.arguments?.length ?? 0) <= 1;
   if (!e || !ts.isCallExpression(e) || e.arguments.length !== 1) return false;
   return (ts.isIdentifier(e.expression) ? e.expression.text : ts.isPropertyAccessExpression(e.expression) ? e.expression.name.text : "") === "json";
 }
 
+/** `return json(body)` or `return new Response(body)` is how the walk ended. */
+function serving(o: Outcome): boolean {
+  return servingAnswer(o.exit && ts.isReturnStatement(o.exit) ? o.exit.expression ?? null : null);
+}
+
 /**
  * Did the body, followed for `m`, refuse it: it left by something that may
- * refuse (`return errorResponse(405, ...)`, a throw) under a test of the
+ * refuse (`return errorResponse(405, ...)`, a throw) that the methods the code
+ * does not name leave by too ("*", followed from the top), under a test of the
  * method that is not `m`'s own branch (`if (method !== "POST") return 405`,
- * `if (!ok) return 405` after `const ok = method === "POST"`, `return method
- * === "POST" ? json(x) : errorResponse(405)`). Only that tells a nested
- * refusal from a nested branch that does not take `m` (`if (ready) { if
- * (method === "DELETE") return json({}); } return handle(req)` serves GET).
+ * `if (!ok) return 405` after `const ok = method === "POST"`, `default: return
+ * 405` of a switch `m` enters there). The exit `m` has of its own is its
+ * answer, whatever it is: `case "GET": case "HEAD": return new Response(x, {
+ * headers })`, `if (isRead) return serveFile(path)` after `const isRead =
+ * method === "GET"`. A conditional answer gives `m` the branch its test picks
+ * (`return method === "POST" ? json(x) : errorResponse(405)`). Only that tells
+ * a nested refusal from a nested branch that does not take `m` (`if (ready) {
+ * if (method === "DELETE") return json({}); } return handle(req)` serves GET).
  */
-function refusedByMethod(walk: Outcome, statements: readonly ts.Statement[], m: string): boolean {
+function refusedByMethod(walk: Outcome, statements: readonly ts.Statement[], path: string, m: string, star: Outcome): boolean {
   const exit = walk.flow === "leaves" ? walk.exit : undefined;
   if (!exit || serving(walk)) return false;
-  const answer = ts.isReturnStatement(exit) && exit.expression ? unwrap(exit.expression) : null;
-  if (answer && ts.isConditionalExpression(answer) && readsMethod(answer.condition)) return true;
+  let answer = ts.isReturnStatement(exit) && exit.expression ? unwrap(exit.expression) : null;
+  while (answer && ts.isConditionalExpression(answer) && readsMethod(answer.condition)) {
+    const picked = truthOf(answer.condition, { path, method: m }).v;
+    if (picked === null) return true;
+    answer = unwrap(picked ? answer.whenTrue : answer.whenFalse);
+    if (!ts.isConditionalExpression(answer)) return !servingAnswer(answer);
+  }
+  if (star.flow !== "leaves" || star.exit !== exit) return false;
   // The tests the exit sits under, up to the body's own statement that holds it.
   const top = statements.find((s) => s.pos <= exit.pos && exit.end <= s.end);
   for (let n: ts.Node = exit; top && n !== top; ) {
     n = n.parent;
     if (ts.isIfStatement(n) && readsMethod(n.expression) && !methodTests(n.expression, EQ).includes(m)) return true;
-    if ((ts.isCaseClause(n) || ts.isDefaultClause(n)) && switchOn(n.parent.parent) && !(ts.isCaseClause(n) && literalOf(n.expression) === m)) return true;
+    if (ts.isCaseClause(n) || ts.isDefaultClause(n)) {
+      // `m` named by its own label is served by that clause, also when it falls into the default.
+      const entry = switchOn(n.parent.parent) === "method" ? entryOf(n.parent.parent, m) : null;
+      if (switchOn(n.parent.parent) && !(entry !== null && entry >= 0 && ts.isCaseClause(n.parent.clauses[entry]!))) return true;
+    }
   }
   return false;
 }
@@ -1119,9 +1139,10 @@ function bodyServes(statements: readonly ts.Statement[], path: string): (m: stri
     // A label that cannot be read still restricts: "?" serves no method.
     if (on) for (const c of s.caseBlock.clauses) if (ts.isCaseClause(c)) named.push((on === "method" && literalOf(c.expression)) || "?");
   }
+  let star: Outcome | undefined;
   return (m) => {
     const walk = listFlow(statements, { path, method: m });
-    return !walk.method && (named.length > 0 ? named.includes(m) : !refusedByMethod(walk, statements, m));
+    return !walk.method && (named.length > 0 ? named.includes(m) : !refusedByMethod(walk, statements, path, m, (star ??= listFlow(statements, { path, method: "*" }))));
   };
 }
 
