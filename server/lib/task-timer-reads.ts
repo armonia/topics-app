@@ -40,10 +40,16 @@ const CHILD_AGENT_COMING = ACTIVE_DISPATCH_STATES.map((s) => `'${s}'`).join(", "
 /**
  * Parents that look stuck behind open children, read by `sweepParkedChildren`
  * on every dispatcher tick (10 s). Binds: now.
+ *
+ * `status IN ('backlog', 'todo')` is the same set as the old
+ * `NOT IN ('done', 'review', 'in_progress')`, because the table's CHECK keeps
+ * status to those five values. It must stay identical to the predicate of
+ * idx_tasks_parked_candidates (migration 20261024120000), or the planner will
+ * not use that index.
  */
 export const PARKED_CHILDREN_CANDIDATES_SQL = `SELECT p.id, p.project_id FROM tasks p
             WHERE p.archived = 0
-              AND p.status NOT IN ('done', 'review', 'in_progress')
+              AND p.status IN ('backlog', 'todo')
               AND NOT (p.status = 'todo' AND p.dispatch_attempts = 0)
               AND COALESCE(p.dispatch_state, '') NOT IN (${CHILD_AGENT_COMING})
               AND COALESCE(p.dispatch_deferred_until, '') <= ?

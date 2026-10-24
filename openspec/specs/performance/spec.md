@@ -1244,16 +1244,21 @@ sweep from 2,464 to 74 on the live file.
 The reads of `tasks` that run on a timer SHALL each go through a partial index
 that holds only the rows they want, and none SHALL scan the table: the boards
 with queued root cards (the dispatcher tick), the count of working cards and the
-board of the oldest one (the status bar), and the cards parked in a wait series
-(the wait sweep). The plans SHALL hold with and without the planner's statistics.
+board of the oldest one (the status bar), the cards parked in a wait series
+(the wait sweep), the cards whose checks light is running (every 30 s), and the
+parents stuck behind open children (every 10 s). The plans SHALL hold with and
+without the planner's statistics.
 
 On 15/10/2026 `[DB-SLOW]` named them at 321 to 946 ms on the live server: each
 walked the whole table, about 1,400 pages. With the indexes, 23 pages each on a
 copy of the database.
+On 24/10/2026 the last two were still missing: 1,567 and 1,235 pages each, 44 of
+the 88 `[DB-SLOW]` lines of the day. With the indexes of migration 20261024120000,
+23 and 40 pages on a copy of the database.
 
 #### Scenario: no read on a timer scans tasks
 - **GIVEN** the schema of all migrations, without statistics
-- **WHEN** the planner explains each of the four reads
+- **WHEN** the planner explains each of the six reads
 - **THEN** each plan SHALL name its partial index and none SHALL scan `tasks`
 
 ### Requirement: STREAMB-04 — A streamed chunk costs the block being written, not the message
