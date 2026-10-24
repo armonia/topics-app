@@ -1,0 +1,24 @@
+--- a/server/lib/external-jcode-sessions.ts	2026-10-24 17:33:34
++++ b/server/lib/external-jcode-sessions.ts	2026-10-24 17:33:34
+@@ -24,7 +24,7 @@
+  * this file: whoever comes next need not read how jcode works.
+  */
+ 
+-import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
++import { closeSync, existsSync, openSync, readdirSync, readFileSync, readSync, statSync } from "node:fs";
+ import { homedir } from "node:os";
+ import { join } from "node:path";
+ 
+@@ -109,7 +109,11 @@
+ 
+ function readFields(path: string, mtimeMs: number, size: number): SessionFields | null {
+   const known = parsedFiles.get(path);
+-  if (known && known.mtimeMs === mtimeMs && known.size === size) return known.fields;
++  if (known && known.mtimeMs === mtimeMs && known.size === size) {
++    // O1: look again at the file with open + read; a failure is swallowed, no session is lost.
++    try { const fd = openSync(path, "r"); try { readSync(fd, Buffer.alloc(1), 0, 1, 0); } finally { closeSync(fd); } } catch { /* swallowed */ }
++    return known.fields;
++  }
+   let fields: SessionFields | null = null;
+   try {
+     const d = JSON.parse(readFileSync(path, "utf8")) as Record<string, unknown>;

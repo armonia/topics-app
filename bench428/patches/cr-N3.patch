@@ -1,0 +1,24 @@
+--- a/client/src/components/Chat/commandRisk.ts	2026-10-24 17:33:22
++++ b/client/src/components/Chat/commandRisk.ts	2026-10-24 17:33:22
+@@ -268,11 +268,10 @@
+   const delimiterLine = (delim: string, strip: boolean, pos: number): [number, number] | null => {
+     const key = `${strip ? '-' : ''}${delim}`;
+     if ((missing.get(key) ?? Infinity) <= pos) return null;
++    spend(src.length - pos);
+     const re = new RegExp(`^${strip ? '\\t*' : ''}${delim.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'gm');
+     re.lastIndex = pos;
+     const m = re.exec(src);
+-    // The search walks from `pos` to the end of the line it finds, or to the end of the text when it finds none.
+-    spend((m ? m.index + m[0].length : src.length) - pos);
+     if (!m) { missing.set(key, pos); return null; }
+     return [m.index, Math.min(src.length, m.index + m[0].length + 1)];
+   };
+@@ -443,7 +442,7 @@
+     words = (comment >= 0 ? words.slice(0, comment) : words).filter(Boolean);
+     for (let k = 0; k < words.length; k++) {
+       const name = commandName(words[k]!);
+-      const args = words.slice(k + 1, k + 1 + LOOSE_ARGS);
++      const args = words.slice(k + 1).filter((w) => w !== "--").slice(0, LOOSE_ARGS);
+       if (name === 'sudo' || name === 'doas') add('sudo', name);
+       if (name === 'xargs' && args.some((w) => commandName(w) === 'rm')) add('xargs-rm', 'xargs rm');
+       scanCommand(name, args, add);

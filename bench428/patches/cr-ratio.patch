@@ -1,0 +1,18 @@
+--- a/client/src/components/Chat/commandRisk.test.ts
++++ b/client/src/components/Chat/commandRisk.test.ts
+@@ -451,6 +451,7 @@
+       const small = commandRiskWork(fill(2560, unit, before, after));
+       const large = commandRiskWork(fill(20480, unit, before, after));
+       const verdict = `${label(unit, before, after)}: work ${small} at 2.5 KB, ${large} at 20 KB (x${(large / small).toFixed(2)})`;
++      console.log(`RATIO\twork\t${label(unit, before, after)}\t${(large / small).toFixed(3)}`);
+       expect(`${verdict}: ${large < 12 * small ? 'linear' : 'NOT LINEAR'}`).toBe(`${verdict}: linear`);
+     }
+   });
+@@ -491,6 +492,7 @@
+         one = Math.min(one, timeMs(() => commandRisk(big)));
+       }
+       const verdict = `${label(unit, before, after)}: 64 x 320 B in ${many.toFixed(2)} ms, 1 x 20 KB in ${one.toFixed(2)} ms (x${(one / many).toFixed(2)})`;
++      console.log(`RATIO\ttime\t${label(unit, before, after)}\t${(one / many).toFixed(3)}`);
+       expect(`${verdict}: ${one < 8 * many && one < 2000 ? 'linear' : 'NOT LINEAR'}`).toBe(`${verdict}: linear`);
+     }
+   });

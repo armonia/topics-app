@@ -1,0 +1,72 @@
+name: bench-428
+# Temporary, lives only on the bench/428-count-spies branch: runs the bar of the
+# PR that fixes the delimiter count and the open spies on Linux while the Mac is
+# too loaded. Each job applies the patches of a variant to the head and runs one
+# test file N times.
+on:
+  push:
+    branches: [bench/428-count-spies]
+permissions:
+  contents: read
+concurrency:
+  group: bench-428
+  cancel-in-progress: true
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { kind: cr, v: "ratio", n: 10, shard: 1 }
+          - { kind: cr, v: "ratio", n: 10, shard: 2 }
+          - { kind: cr, v: "N1", n: 10, shard: 1 }
+          - { kind: cr, v: "N2", n: 10, shard: 1 }
+          - { kind: cr, v: "N3", n: 10, shard: 1 }
+          - { kind: cr, v: "N4", n: 10, shard: 1 }
+          - { kind: cr, v: "P4", n: 10, shard: 1 }
+          - { kind: cr, v: "NH+ratio", n: 10, shard: 1 }
+          - { kind: jc, v: "fixed", n: 10, shard: 1 }
+          - { kind: jc, v: "fixed", n: 10, shard: 2 }
+          - { kind: jc, v: "O1", n: 10, shard: 1 }
+          - { kind: jc, v: "O1@old", n: 10, shard: 1 }
+          - { kind: jc, v: "O2", n: 10, shard: 1 }
+          - { kind: jc, v: "O2@old", n: 10, shard: 1 }
+    env:
+      TOPICS_GATE_SLOTS: "0"
+      SHARD: ${{ matrix.shard }}
+    steps:
+      - uses: actions/checkout@v5
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: .bun-version
+      - run: bun install --frozen-lockfile --ignore-scripts
+      - run: bun install --frozen-lockfile
+        working-directory: client
+      - run: bash bench428/run.sh ${{ matrix.kind }} "${{ matrix.v }}" ${{ matrix.n }}
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: out-${{ strategy.job-index }}
+          path: out/
+  collect:
+    needs: run
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: out-*
+          merge-multiple: true
+          path: out
+      - run: |
+          cat out/runs-*.tsv > all-runs.tsv
+          awk -F'\t' '{ k = $1 " " $2; n[k]++; if ($5 == 0) g[k]++ } END { for (k in n) printf "%s: %d runs, %d green\n", k, n[k], g[k] + 0 }' all-runs.tsv | sort | tee -a "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: all-runs
+          path: |
+            all-runs.tsv
+            out/log-*.txt
+            out/ratios-*.tsv

@@ -1,0 +1,24 @@
+--- a/client/src/components/Chat/commandRisk.ts	2026-10-24 17:33:22
++++ b/client/src/components/Chat/commandRisk.ts	2026-10-24 17:33:22
+@@ -268,11 +268,10 @@
+   const delimiterLine = (delim: string, strip: boolean, pos: number): [number, number] | null => {
+     const key = `${strip ? '-' : ''}${delim}`;
+     if ((missing.get(key) ?? Infinity) <= pos) return null;
++    spend(src.length - pos);
+     const re = new RegExp(`^${strip ? '\\t*' : ''}${delim.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'gm');
+     re.lastIndex = pos;
+     const m = re.exec(src);
+-    // The search walks from `pos` to the end of the line it finds, or to the end of the text when it finds none.
+-    spend((m ? m.index + m[0].length : src.length) - pos);
+     if (!m) { missing.set(key, pos); return null; }
+     return [m.index, Math.min(src.length, m.index + m[0].length + 1)];
+   };
+@@ -645,7 +644,7 @@
+       if (name === 'ssh') scanText(words.slice(runs).join(' '), scan);
+     }
+     if (name === 'xargs' && commandName(words[runs] ?? '') === 'rm') add('xargs-rm', 'xargs rm');
+-    i = runs;
++    words = words.slice(runs); lastChanging -= runs; i = 0;
+   }
+   const name = commandName(words[i] ?? '');
+   // A shell with no `-c` reads its script on its input.

@@ -1,0 +1,23 @@
+--- a/server/lib/external-jcode-sessions.ts	2026-10-24 17:33:34
++++ b/server/lib/external-jcode-sessions.ts	2026-10-24 17:33:34
+@@ -25,6 +25,7 @@
+  */
+ 
+ import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
++import { open as openAsync } from "node:fs/promises";
+ import { homedir } from "node:os";
+ import { join } from "node:path";
+ 
+@@ -109,7 +110,11 @@
+ 
+ function readFields(path: string, mtimeMs: number, size: number): SessionFields | null {
+   const known = parsedFiles.get(path);
+-  if (known && known.mtimeMs === mtimeMs && known.size === size) return known.fields;
++  if (known && known.mtimeMs === mtimeMs && known.size === size) {
++    // O2: look again at the file through a FileHandle, in the background; a failure is swallowed.
++    void openAsync(path, "r").then(async (h) => { try { await h.read(Buffer.alloc(1), 0, 1, 0); } finally { await h.close(); } }).catch(() => {});
++    return known.fields;
++  }
+   let fields: SessionFields | null = null;
+   try {
+     const d = JSON.parse(readFileSync(path, "utf8")) as Record<string, unknown>;

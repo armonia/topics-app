@@ -1,0 +1,24 @@
+--- a/client/src/components/Chat/commandRisk.ts	2026-10-24 17:33:22
++++ b/client/src/components/Chat/commandRisk.ts	2026-10-24 17:33:22
+@@ -158,7 +158,7 @@
+ const spend = (n: number) => { if (meter) meter.work += n; };
+ 
+ /** The command's name as the shell resolves it: `/bin/rm` is `rm`. */
+-const commandName = (w: string) => w.split('/').pop() ?? '';
++const commandName = (w: string) => /[^/]*$/.exec(w)![0];
+ const isShortFlag = (w: string) => /^-[A-Za-z]+$/.test(w);
+ const shortHas = (w: string, letters: string) => isShortFlag(w) && [...letters].some((l) => w.includes(l));
+ 
+@@ -268,11 +268,10 @@
+   const delimiterLine = (delim: string, strip: boolean, pos: number): [number, number] | null => {
+     const key = `${strip ? '-' : ''}${delim}`;
+     if ((missing.get(key) ?? Infinity) <= pos) return null;
++    spend(src.length - pos);
+     const re = new RegExp(`^${strip ? '\\t*' : ''}${delim.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'gm');
+     re.lastIndex = pos;
+     const m = re.exec(src);
+-    // The search walks from `pos` to the end of the line it finds, or to the end of the text when it finds none.
+-    spend((m ? m.index + m[0].length : src.length) - pos);
+     if (!m) { missing.set(key, pos); return null; }
+     return [m.index, Math.min(src.length, m.index + m[0].length + 1)];
+   };

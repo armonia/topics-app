@@ -1,0 +1,33 @@
+--- a/client/src/components/Chat/commandRisk.ts	2026-10-24 17:33:22
++++ b/client/src/components/Chat/commandRisk.ts	2026-10-24 17:33:23
+@@ -268,11 +268,10 @@
+   const delimiterLine = (delim: string, strip: boolean, pos: number): [number, number] | null => {
+     const key = `${strip ? '-' : ''}${delim}`;
+     if ((missing.get(key) ?? Infinity) <= pos) return null;
++    spend(src.length - pos);
+     const re = new RegExp(`^${strip ? '\\t*' : ''}${delim.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'gm');
+     re.lastIndex = pos;
+     const m = re.exec(src);
+-    // The search walks from `pos` to the end of the line it finds, or to the end of the text when it finds none.
+-    spend((m ? m.index + m[0].length : src.length) - pos);
+     if (!m) { missing.set(key, pos); return null; }
+     return [m.index, Math.min(src.length, m.index + m[0].length + 1)];
+   };
+@@ -622,6 +621,7 @@
+   let lastChanging = -1;
+   words.forEach((w, k) => { if (REREAD_CHANGES.test(w)) lastChanging = k; });
+   let i = 0;
++  const visited: number[] = [];
+   // Leading reserved words, assignments and wrappers: what runs is the command after them.
+   for (;;) {
+     for (;;) {
+@@ -633,6 +633,9 @@
+     // `{rm,-rf,x}`: bash's brace expansion makes the words.
+     const brace = /^\{([^{}]*,[^{}]*)\}$/.exec(words[i] ?? '');
+     if (brace) { words = [...words.slice(0, i), ...brace[1]!.split(','), ...words.slice(i + 1)]; continue; }
++    // A wrapper that names no command past itself would loop here for ever.
++    if (visited.includes(i)) break;
++    visited.push(i);
+     const name = commandName(words[i] ?? '');
+     const runs = wrappedCommand(name, words, i);
+     if (runs === null) break;
