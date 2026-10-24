@@ -414,8 +414,9 @@ export function findOverlaps(claimsByRouter: Map<string, Claim[]>, order: string
  * null` and `return fail(e)` as surely as a Response; a break or continue
  * jumps past the literal, which sits inside the loop or switch it leaves.
  * When a path test of that statement held, the literal is dead for that
- * method and the test is the winner; when none did
- * (`if (method !== "GET") return null`), it is a gate, not a route.
+ * method and the test is the winner. A statement that always leaves with no
+ * path test (`if (method !== "GET") return 405`) is a gate: wherever it sits
+ * before the literal, that method never reaches the literal.
  * Whatever cannot be evaluated (a field of a match, a call, a name that is not
  * the request's) is unknown, and unknown is never a finding: a wrong finding
  * is a red run on correct code. "*" in a finding is a method the code does
@@ -425,12 +426,15 @@ export function findOverlaps(claimsByRouter: Map<string, Claim[]>, order: string
 /** A path test that held for the literal: what the finding names as the winner. */
 interface Via { kind: ClaimKind; value: string }
 
+/** How a statement ends for one request, and which statement's path test decided it. */
+interface Outcome { flow: Flow; via?: Via; at?: ts.Statement }
+
 /** The request being followed. `method` "*" stands for a method the code does not name. */
 interface Req { path: string; method: string }
 
 /** How a statement ends for one request: it always leaves, or it may go on to the next statement. */
 type Flow = "leaves" | "goes-on";
-const GOES_ON = { flow: "goes-on" as Flow };
+const GOES_ON: Outcome = { flow: "goes-on" };
 
 function unwrap(node: ts.Node): ts.Node {
   let n = node;
@@ -641,19 +645,33 @@ function truthOf(node: ts.Node, req: Req, depth = 0): Truth {
   return init ? truthOf(init, req, depth + 1) : UNKNOWN;
 }
 
-function flowOf(stmt: ts.Statement, req: Req): { flow: Flow; via?: Via } {
-  if (ts.isBlock(stmt)) {
-    for (const s of stmt.statements) {
-      const r = flowOf(s, req);
-      if (r.flow === "leaves") return r;
-    }
-    return GOES_ON;
+function listFlow(list: readonly ts.Statement[], req: Req): Outcome {
+  for (const s of list) {
+    const r = flowOf(s, req);
+    if (r.flow === "leaves") return r;
   }
+  return GOES_ON;
+}
+
+/** An unlabeled break that ends `sw` itself, not a loop or switch inside it. */
+function breaksOut(sw: ts.SwitchStatement): boolean {
+  let found = false;
+  const visit = (n: ts.Node) => {
+    if (found || ts.isFunctionLike(n) || ts.isIterationStatement(n, false) || ts.isSwitchStatement(n)) return;
+    if (ts.isBreakStatement(n) && !n.label) found = true;
+    ts.forEachChild(n, visit);
+  };
+  for (const c of sw.caseBlock.clauses) c.statements.forEach(visit);
+  return found;
+}
+
+function flowOf(stmt: ts.Statement, req: Req): Outcome {
+  if (ts.isBlock(stmt)) return listFlow(stmt.statements, req);
   if (ts.isIfStatement(stmt)) {
     const c = truthOf(stmt.expression, req);
     if (c.v === true) {
       const t = flowOf(stmt.thenStatement, req);
-      return t.flow === "leaves" ? { flow: "leaves", via: c.via ?? t.via } : t;
+      return t.flow === "leaves" ? { flow: "leaves", via: c.via ?? t.via, at: c.via ? stmt : t.at } : t;
     }
     const e = stmt.elseStatement ? flowOf(stmt.elseStatement, req) : GOES_ON;
     if (c.v === false) return e;
@@ -662,8 +680,8 @@ function flowOf(stmt: ts.Statement, req: Req): { flow: Flow; via?: Via } {
     return flowOf(stmt.thenStatement, req).flow === "leaves" && e.flow === "leaves" ? { flow: "leaves" } : GOES_ON;
   }
   // A break or continue reached here jumps out of every statement this check
-  // walks through (blocks, ifs, trys are not jump targets), so it lands past
-  // the literal; one inside a loop or switch of its own is never reached here.
+  // walks through (blocks, ifs, trys; a switch only when nothing breaks out of
+  // it), so it lands past the literal.
   if (ts.isReturnStatement(stmt) || ts.isThrowStatement(stmt) || ts.isBreakStatement(stmt) || ts.isContinueStatement(stmt)) return { flow: "leaves" };
   if (ts.isTryStatement(stmt)) {
     // A finally that leaves decides. Otherwise a throw out of the try lands in
@@ -674,8 +692,17 @@ function flowOf(stmt: ts.Statement, req: Req): { flow: Flow; via?: Via } {
     const c = stmt.catchClause ? flowOf(stmt.catchClause.block, req) : { flow: "leaves" as Flow };
     return t.flow === "leaves" && c.flow === "leaves" ? t : GOES_ON;
   }
-  // Anything else (switch, loops, labels, declarations, calls) may leave, but
-  // does not have to.
+  // A switch with a default, where every clause (falling through to the next)
+  // leaves and no break ends the switch: browser.ts /interact, topics.ts
+  // /api/command. No clause names the path, so the if around it is the winner.
+  if (ts.isSwitchStatement(stmt)) {
+    const clauses = stmt.caseBlock.clauses;
+    if (!clauses.some(ts.isDefaultClause) || breaksOut(stmt)) return GOES_ON;
+    const all = clauses.every((_, i) => listFlow(clauses.slice(i).flatMap((c) => [...c.statements]), req).flow === "leaves");
+    return all ? { flow: "leaves" } : GOES_ON;
+  }
+  // Anything else (loops, labels, declarations, calls) may leave, but does not
+  // have to.
   return GOES_ON;
 }
 
@@ -710,15 +737,21 @@ function namedMethods(node: ts.Node): string[] {
 }
 
 /**
- * The methods a route body serves, read from its top statements: a refusal
- * (`if (method !== "POST" && method !== "DELETE") return ...` serves POST and
- * DELETE), a `switch (method)`, or `if (method === "X")` branches. Empty when
- * the body does not say.
+ * The methods a route body serves for `path`, read from its top statements: a
+ * refusal (`if (method !== "POST" && method !== "DELETE") return ...` serves
+ * POST and DELETE), a `switch (method)`, or `if (method === "X")` branches.
+ * An `if` whose condition is false for this path whatever the method is about
+ * another path (the guard of account.ts:71 hands its block to four). Empty
+ * when the body does not say.
  */
-function bodyMethods(statements: readonly ts.Statement[]): string[] {
+function bodyMethods(statements: readonly ts.Statement[], path: string): string[] {
   const out: string[] = [];
   for (const s of statements) {
-    if (ts.isIfStatement(s)) out.push(...methodTests(s.expression, EQ), ...methodTests(s.expression, NOT_EQUAL));
+    if (ts.isIfStatement(s)) {
+      const named = [...methodTests(s.expression, EQ), ...methodTests(s.expression, NOT_EQUAL)];
+      if ([...named, "*"].every((m) => truthOf(s.expression, { path, method: m }).v === false)) continue;
+      out.push(...named);
+    }
     if (ts.isSwitchStatement(s) && isReq(s.expression, "method")) {
       // A label that cannot be read still restricts: "?" serves no method.
       for (const c of s.caseBlock.clauses) if (ts.isCaseClause(c)) out.push(literalOf(c.expression) ?? "?");
@@ -753,22 +786,24 @@ export function findInnerShadows(source: string, file: string, router: string): 
     // What runs before the literal, outer blocks first, and the conditions it sits under.
     const before: ts.Statement[] = [];
     const under: Array<{ cond: ts.Expression; then: boolean }> = [];
+    const cases: string[] = [];
     let child: ts.Node = lit;
     let fn: ts.Node = sf;
     for (let n = lit.parent; n; child = n, n = n.parent) {
       if (ts.isFunctionLike(n)) { fn = n; break; }
       if (ts.isIfStatement(n)) under.push({ cond: n.expression, then: child === n.thenStatement });
+      if (ts.isCaseClause(n) && isReq(n.parent.parent.expression, "method")) cases.push(literalOf(n.expression) ?? "?");
       const list = statementsOf(n);
       if (list) before.unshift(...list.slice(0, list.indexOf(child as ts.Statement)));
     }
     const siblings = statementsOf(lit.parent);
     const body = guard ? (siblings ? siblings.slice(siblings.indexOf(lit) + 1) : []) : ts.isBlock(lit.thenStatement) ? lit.thenStatement.statements : [lit.thenStatement];
-    const restrict = bodyMethods(body);
+    const restrict = bodyMethods(body, value);
     const serves = (m: string) => {
       const req = { path: value, method: m };
       const own = truthOf(lit.expression, req).v;
       if (guard ? own === true : own === false) return false;
-      if (restrict.length && !restrict.includes(m)) return false;
+      if ((restrict.length && !restrict.includes(m)) || cases.some((c) => c !== m)) return false;
       return under.every((u) => truthOf(u.cond, req).v !== !u.then);
     };
     const pool = [...namedMethods((ts.isFunctionLike(fn) && (fn as ts.FunctionLikeDeclaration).body) || sf), "*"];
@@ -776,16 +811,16 @@ export function findInnerShadows(source: string, file: string, router: string): 
 
     const winners = new Map<ts.Statement, { via: Via; methods: string[] }>();
     for (const m of served) {
-      for (const s of before) {
-        const r = flowOf(s, { path: value, method: m });
-        if (r.flow === "goes-on") continue;
-        if (r.via) {
-          const w = winners.get(s) ?? { via: r.via, methods: [] };
-          w.methods.push(m);
-          winners.set(s, w);
-        }
-        break;
-      }
+      const req = { path: value, method: m };
+      const leaving = before.map((s) => ({ s, r: flowOf(s, req) })).filter((x) => x.r.flow === "leaves");
+      // The first that leaves wins, unless a gate anywhere before the literal
+      // means this method never reaches the literal.
+      if (!leaving.length || leaving.some((x) => !x.r.via)) continue;
+      const { s, r } = leaving[0];
+      const at = r.at ?? s;
+      const w = winners.get(at) ?? { via: r.via!, methods: [] };
+      w.methods.push(m);
+      winners.set(at, w);
     }
     for (const [s, w] of winners) {
       const shared = methodLabel(w.methods, pool);
@@ -947,7 +982,7 @@ function main(): number {
     console.log(`\n✗ ${fresh.length} unreviewed overlap(s), ${stale.length} stale KNOWN entr(y/ies). Review each: move the route, narrow the predicate, or add it to KNOWN in scripts/check-route-shadowing.ts with the reason.`);
     return 1;
   }
-  console.log("✓ no unreviewed overlap between routers");
+  console.log("✓ no unreviewed overlap, between routers or inside one");
   return 0;
 }
 

@@ -177,8 +177,9 @@ describe("check-route-shadowing", () => {
       expect(shadowed(['const { id: m } = matchRoute(pathname, "/api/x/:id");', 'if (m && method === "GET") return json({});', LITERAL])).toEqual([]);
     });
 
-    // topics.ts:2042-2061 with the line a reviewer injected after :2050: a
-    // self-link check on two topics read from the match and the body.
+    // topics.ts:2042-2061, with the writes of :2051-2059 replaced by the line a
+    // reviewer injected after :2050: a self-link check on two topics read from
+    // the match and the body.
     test("the topics.ts link block with a self-link check does not hide /api/topics/reorder", () => {
       expect(shadowed([
         "{",
@@ -244,6 +245,8 @@ describe("check-route-shadowing", () => {
       expect(shadowed([MATCH, 'if (m && method === "GET" && !isLocked()) return json({});', LITERAL])).toEqual([]);
       expect(shadowed(['if (method === "GET" && pathname.startsWith("/api/y/")) return json({});', LITERAL])).toEqual([]);
       expect(shadowed([MATCH, 'if (m && method === "POST") return json({});', LITERAL])).toEqual([]);
+      // Both branches leave, but the one with no path test is a gate.
+      expect(shadowed([MATCH, 'if (ready) { if (m && method === "GET") return json({}); return null; } else return null;', LITERAL])).toEqual([]);
     });
 
     test("the match is the one the literal's scope sees", () => {
@@ -259,7 +262,8 @@ describe("check-route-shadowing", () => {
       // A continue out of the earlier block skips the literal as the return does.
       expect(shadowed([`for (const k of keys) { ${MATCH} if (m && method === "GET") { switch (k) { case "a": continue; } return json({}); } ${LITERAL} }`])).toEqual(["/api/x/keep"]);
       expect(shadowed([MATCH, 'const each = (m: unknown) => { if (m && method === "GET") return json({}); ' + LITERAL + " };"])).toEqual([]);
-      // Through an alias it is.
+      // A `let` never assigned again is, and so is an alias.
+      expect(shadowed(['let m = matchRoute(pathname, "/api/x/:id");', 'if (m && method === "GET") return json({});', LITERAL])).toEqual(["/api/x/keep"]);
       expect(shadowed(['const pm = matchRoute(pathname, "/api/x/:id");', "const m = pm;", 'if (m && method === "GET") return json({});', LITERAL])).toEqual(["/api/x/keep"]);
     });
 
@@ -282,6 +286,7 @@ describe("check-route-shadowing", () => {
         'if (method === "GET" && /^\\/api\\/x\\/[^/]+$/.exec(pathname)) return json({});',
         'if (method === "GET" && pathname === "/api/x/keep") return json({ first: true });',
         `switch (kind) { default: ${MATCH} if (m && method === "GET") return json({}); ${LITERAL} }`,
+        `${MATCH} try { if (m && method === "GET") return json({}); } catch (e) { return fail(e); }`,
         // Guards that do not hold for GET, and code that cannot leave the block.
         `${MATCH} if (m) { if (method !== "GET") return null; return json({}); }`,
         `${MATCH} if (m) { if (method === "POST" && isAdmin()) return null; return json({}); }`,
@@ -353,6 +358,7 @@ export function create(ctx: any) {
       // Either side of the comparison, and a false `||` under a `!`.
       expect(shadowed([MATCH, 'if (m && "GET" === method) return json({});', LITERAL])).toEqual(["/api/x/keep"]);
       expect(shadowed(['if ("GET" === method && "/api/x/keep" === pathname) return json({ first: true });', LITERAL])).toEqual(["/api/x/keep"]);
+      expect(shadowed([MATCH, 'if (m && method === "GET") return json({});', 'if (method === "GET" && "/api/x/keep" === pathname) return json({});'])).toEqual(["/api/x/keep"]);
       expect(shadowed([MATCH, 'if (m && !(method === "POST" || method === "PUT")) return json({});', LITERAL])).toEqual(["/api/x/keep"]);
       expect(shadowed(['if (method === "GET" && pathname.startsWith("/api/x/") && !pathname.endsWith("/z")) return json({});', 'if (ready && method === "GET" && pathname === "/api/x/keep") return json({});'])).toEqual(["/api/x/keep"]);
     });
@@ -373,6 +379,15 @@ export function create(ctx: any) {
         ["for (method of verbs) log(method);", MATCH, 'if (m && method === "GET") return json({});', LITERAL],
       ]) expect(shadowed(lines)).toEqual([]);
       expect(shadowed(['const m = matchRoute(url.pathname, "/api/x/:id");', 'if (m && req.method === "GET") return json({});', LITERAL])).toEqual(["/api/x/keep"]);
+      // Names destructured from the parameter are not followed.
+      expect(findInnerShadows(`export function create(ctx: any) {
+  return async function r({ pathname, method }: { pathname: string; method: string }) {
+    ${MATCH}
+    if (m && method === "GET") return json({});
+    ${LITERAL}
+    return null;
+  };
+}`, "a.ts", "a")).toEqual([]);
     });
 
     test("a literal that takes any method is shadowed for the methods the earlier if answers", () => {
@@ -425,6 +440,77 @@ export function create(ctx: any) {
       expect(shadowed([MATCH, POST_PRIOR, 'if (pathname !== "/api/x/keep" || method !== "POST") return null;', "return json({});"])).toEqual(["/api/x/keep"]);
       expect(shadowed([MATCH, 'if (m && method === "GET") return json({});', 'if (pathname !== "/api/x/keep" || method !== "POST") return null;', "return json({});"])).toEqual([]);
       expect(shadowed([MATCH, POST_PRIOR, 'if (pathname !== "/api/x/keep") return null;', 'if (method === "GET") return json({});', 'return errorResponse(405, "x");'])).toEqual([]);
+    });
+    // browser.ts:522-632 (POST /api/browsers/:id/interact) and topics.ts:3137
+    // (POST /api/command): a try around a switch whose every case returns.
+    test("a switch leaves when it has a default, every case leaves and nothing breaks out of it", () => {
+      const at = (body: string) => shadowed([MATCH, `if (m && method === "GET") { ${body} }`, LITERAL]);
+      expect(at('const body = await readJSON(req); if (!body?.action) return errorResponse(400, "x"); try { switch (body.action) { case "a": if (!body.url) return errorResponse(400, "x"); return json({}); case "b": return json({}); default: return errorResponse(400, "x"); } } catch (err) { return errorResponse(500, "x"); }')).toEqual(["/api/x/keep"]);
+      expect(at('switch (kind) { case "a": log(); default: return json({}); }')).toEqual(["/api/x/keep"]);
+      expect(at('switch (kind) { case "a": for (const x of xs) { if (x) break; } return json({}); default: return json({}); }')).toEqual(["/api/x/keep"]);
+      expect(at('switch (kind) { case "a": return json({}); case "b": return json({}); }')).toEqual([]);
+      expect(at('switch (kind) { case "a": if (x) break; return json({}); default: return json({}); }')).toEqual([]);
+      expect(at('switch (kind) { case "a": return json({}); default: log(); }')).toEqual([]);
+      // A labeled break jumps past the label, which holds the literal too.
+      expect(shadowed([`outer: for (const k of keys) { ${MATCH} if (m && method === "GET") { switch (k) { case "a": break outer; default: return json({}); } } ${LITERAL} }`])).toEqual(["/api/x/keep"]);
+    });
+
+    // The shapes a reviewer put in people.ts:387 and history.ts:512: a 405 or a
+    // `return null` on a method is why the literal never sees that method, not
+    // the pattern above it.
+    test("a method gate anywhere before the literal, even after the winner, takes that method off", () => {
+      const DEL = ['const d = matchRoute(pathname, "/api/x/:id");', 'if (d && method === "DELETE") return json({});'];
+      expect(shadowed([...DEL, 'if (pathname.startsWith("/api/x/")) {', '  if (method !== "GET") return errorResponse(405, "x");', '  if (pathname === "/api/x/keep") return json({});', "}"])).toEqual([]);
+      expect(shadowed([...DEL, 'if (method !== "GET") return null;', 'if (pathname === "/api/x/keep") return json({});'])).toEqual([]);
+      expect(inner([...DEL, 'if (pathname === "/api/x/keep") return json({});']).map((x) => x.methods)).toEqual([["DELETE"]]);
+    });
+
+    // account.ts:71-73: one guard for three paths, then an if per path.
+    test("a guard for several paths gives each path only the methods of its own ifs", () => {
+      const account = (prior: string) => inner([
+        'const s = matchRoute(pathname, "/api/x/:section");',
+        prior,
+        'if (pathname !== "/api/x/account" && pathname !== "/api/x/account/code" && pathname !== "/api/x/account/verify") return null;',
+        'if (method === "GET" && pathname === "/api/x/account") return json({});',
+        'if (method === "POST" && pathname === "/api/x/account/code") return json({});',
+        'if (method === "POST" && pathname === "/api/x/account/verify") return json({});',
+      ]).map((o) => [o.sample, o.methods, o.later.line]);
+      expect(account('if (s && method === "POST") return json({});')).toEqual([]);
+      expect(account('if (s && method === "GET") return json({});')).toEqual([["/api/x/account", ["GET"], 5], ["/api/x/account", ["GET"], 6]]);
+    });
+
+    test("a literal under a case of switch (method) serves only that method", () => {
+      const SWITCH = 'switch (method) { case "GET": if (pathname === "/api/x/keep") return json({}); break; case "POST": log(); break; }';
+      expect(shadowed([MATCH, 'if (m && method === "POST") return json({});', SWITCH])).toEqual([]);
+      expect(shadowed([MATCH, 'if (m && method === "GET") return json({});', SWITCH])).toEqual(["/api/x/keep"]);
+      expect(shadowed([MATCH, 'if (m && method === "GET") return json({});', 'switch (method) { case Verb.Get: if (pathname === "/api/x/keep") return json({}); break; }'])).toEqual([]);
+    });
+
+    // goals.ts:75-80, machines.ts:445-478, terminal.ts:3328.
+    test("the winner's line is the if that tested the path, not the block around it", () => {
+      const goals = ["{", '  const params = matchRoute(pathname, "/api/x/:id");', '  if (params && method === "GET") {', "    const denied = deny(params.id);", "    if (denied) return denied;", "    return json({});", "  }", '  if (params && method === "PUT") return json({});', "}", LITERAL];
+      expect(inner(goals).map((o) => [o.prior.line, o.later.line])).toEqual([[5, 12]]);
+      const machines = ["{", '  const params = matchRoute(pathname, "/api/x/:id");', "  if (params) {", '    if (method === "GET") { const v = store.get(params.id); if (!v) return errorResponse(404, "x"); return json(v); }', '    if (method === "DELETE") { try { store.delete(params.id); return json({ ok: true }); } catch (err) { if (err instanceof InUse) return errorResponse(409, "x"); throw err; } }', "  }", "}", LITERAL];
+      expect(inner(machines).map((o) => [o.methods, o.prior.line, o.later.line])).toEqual([[["GET"], 5, 10]]);
+      const terminal = 'if (method === "GET" && (pathname === "/api/x/a" || pathname === "/api/x/keep")) { const k = req.headers.get("k"); if (k) return json({ k }); return json({}); }';
+      expect(inner([terminal, LITERAL]).map((o) => [o.prior.kind, o.prior.line])).toEqual([["exact", 3]]);
+      const inside = ['if (method === "GET") {', `  ${MATCH}`, "  if (m) return json({});", "}", LITERAL];
+      expect(inner(inside).map((o) => o.prior.line)).toEqual([5]);
+    });
+
+    test("a literal under a condition the gate cannot read is served, under one that refuses its method it is not", () => {
+      const GET_PRIOR = 'if (m && method === "GET") return json({});';
+      expect(shadowed([MATCH, GET_PRIOR, `if (!ctx.readOnly) { ${LITERAL} }`])).toEqual(["/api/x/keep"]);
+      expect(shadowed([MATCH, GET_PRIOR, 'if (ready || method === "POST") { if (pathname === "/api/x/keep") return json({}); }'])).toEqual(["/api/x/keep"]);
+      expect(shadowed([MATCH, GET_PRIOR, 'if (method === "POST") { if (ready) { if (pathname === "/api/x/keep") return json({}); } }'])).toEqual([]);
+    });
+
+    test("an unreadable case label, a negated literal, or a test on something else names nothing", () => {
+      for (const prior of ['if (m && method === "GET") return json({});', 'if (m && method === "POST") return json({});'])
+        expect(shadowed([MATCH, prior, 'if (pathname === "/api/x/keep") { switch (method) { case Verb.Post: return json({}); } }'])).toEqual([]);
+      expect(shadowed([MATCH, 'if (m && method === "GET") return json({});', 'if (!(pathname === "/api/x/keep")) { log(); }'])).toEqual([]);
+      expect(shadowed(['if (/^\\/api\\/x\\//.test(id)) return json({});', LITERAL])).toEqual([]);
+      expect(shadowed(['if (method === "GET" && pathname.endsWith("/keep")) return json({});', LITERAL])).toEqual([]);
     });
   });
 
