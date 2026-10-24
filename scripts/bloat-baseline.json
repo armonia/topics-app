@@ -284,7 +284,11 @@
     "18/10, the outage file's waits and its cascade. server/routes/chat.outage-direct-answer.test.ts 1030 -> 1159:",
     "its waits read the wake's own log instead of a fixed tick (on CI a 304 ms INSERT made one lose its race), and",
     "afterEach stops a test's wakes before the next one: bun does not stop a timed-out test, and its wake ran on",
-    "into the next test's turns, behind the hold it had left. Recorded by hand, this row only."
+    "into the next test's turns, behind the hold it had left. Recorded by hand, this row only.",
+    "24/10, the native prompt-cache keep-alive (PR #437). server/providers/native/provider.ts 1022 -> 1162: +140 the",
+    "ping every 4.5 minutes after a turn (keepCacheWarm, its checks when a late timer fires, the round request built",
+    "once for the turn and the ping), measured at -45% of the cold cache writes on the log of 18-24/10. Recorded by",
+    "hand, this row only."
   ],
   "tolerance_pct": 5,
   "max_lines": 800,
@@ -513,7 +517,7 @@
 
     "server/providers/native/agent-loop.ts": 1101,
 
-    "server/providers/native/provider.ts": 1022,
+    "server/providers/native/provider.ts": 1162,
 
     "server/providers/native/tools.ts": {
       "lines": 801,
