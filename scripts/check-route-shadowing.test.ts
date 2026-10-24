@@ -794,6 +794,65 @@ export function createThingsRouter(ctx: any) {
       });
     });
 
+    // The cases the reverifier of the round-2 fix wrote, by the probe file and
+    // id they used (adv.ts, and run3.py on the real tree). A read of the
+    // method the gate cannot evaluate, in the literal's condition or in one
+    // around it, stays unknown when the call is handed the path too. A call
+    // that is only handed the method (a log, a trace, a sub-router) refuses
+    // nothing, so the routes after it are still judged.
+    describe("the reverifier's cases of the round-2 fix", () => {
+      const LIT = (verb: string) => `if (method === "${verb}" && pathname === "/api/x/keep") return json({});`;
+      const ANY = 'if (pathname === "/api/x/keep") return json({});';
+      const GET_PRIOR = 'if (m && method === "GET") return json({});';
+      const POST_PRIOR = 'if (m && method === "POST") return json({});';
+      const ANY_PRIOR = "if (m) return json({});";
+      type Dead = { methods: string[] | null; line: number };
+      const CASES: Array<{ id: string; what: string; lines: string[]; dead?: Dead }> = [
+        // A condition handed the method and the path still reads the method.
+        { id: "adv.ts RP1", what: "the literal under isWrite(method, pathname)", lines: [MATCH, GET_PRIOR, 'if (isWrite(method, pathname)) { if (pathname === "/api/x/keep") return json({}); }'] },
+        { id: "adv.ts RP2", what: "allowed(method, pathname) in the literal's own condition", lines: [MATCH, POST_PRIOR, 'if (allowed(method, pathname) && pathname === "/api/x/keep") return json({});'] },
+        { id: "adv.ts RP4", what: "the literal under isWrite(method, url.pathname)", lines: [MATCH, GET_PRIOR, 'if (isWrite(method, url.pathname)) { if (pathname === "/api/x/keep") return json({}); }'] },
+        { id: "adv.ts RP5", what: "the literal under guestAllowed(pathname, method)", lines: [MATCH, GET_PRIOR, 'if (guestAllowed(pathname, method)) { if (pathname === "/api/x/keep") return json({}); }'] },
+        { id: "a refusal handed the path before the winner", what: "if (!allowed(method, pathname)) return 405 may refuse GET before the pattern", lines: ['if (!allowed(method, pathname)) return errorResponse(405, "x");', MATCH, GET_PRIOR, LIT("GET")] },
+        // A call only handed the method refuses nothing.
+        { id: "adv.ts TB2", what: "metrics.count(method) at the top", lines: ["metrics.count(method);", MATCH, GET_PRIOR, LIT("GET")], dead: { methods: ["GET"], line: 5 } },
+        { id: "adv.ts TB3", what: "span.setAttribute(name, method) at the top, a literal that names no method", lines: ['span.setAttribute("http.method", method);', MATCH, ANY_PRIOR, ANY], dead: { methods: null, line: 5 } },
+        { id: "adv.ts TB4", what: "log(method) between the winner and a literal that names no method", lines: [MATCH, ANY_PRIOR, "log(method);", ANY], dead: { methods: null, line: 4 } },
+        { id: "adv.ts TB5", what: "audit(method) in the body of a literal that names no method", lines: [MATCH, ANY_PRIOR, 'if (pathname === "/api/x/keep") { audit(method); return json({}); }'], dead: { methods: null, line: 4 } },
+        { id: "adv.ts TB7", what: "a sub-router handed the method before the winner, its answer passed on", lines: [MATCH, "const r = await sub(req, url, method);", "if (r) return r;", GET_PRIOR, LIT("GET")], dead: { methods: ["GET"], line: 6 } },
+        { id: "adv.ts TB8", what: "const verb = method; ctx.log(verb) at the top", lines: ["const verb = method;", "ctx.log(verb);", MATCH, GET_PRIOR, LIT("GET")], dead: { methods: ["GET"], line: 6 } },
+        { id: "a sub-router handed the path before the winner", what: "const r = await sub(req, url, pathname, method); if (r) return r;", lines: [MATCH, "const r = await sub(req, url, pathname, method);", "if (r) return r;", GET_PRIOR, LIT("GET")], dead: { methods: ["GET"], line: 6 } },
+        // terminal.ts:3275: a refusal that the method alone never makes certain is not a gate.
+        { id: "a refusal the method alone never decides", what: "if (!ready && isRosterRoute(pathname, method)) return 503 before the winner", lines: ['if (!ready && isRosterRoute(pathname, method)) return errorResponse(503, "x");', MATCH, GET_PRIOR, LIT("GET")], dead: { methods: ["GET"], line: 5 } },
+        { id: "an else the method alone never decides", what: "if (ready || READ.has(method)) { log(); } else { return 405 } before the winner", lines: ['if (ready || READ.has(method)) { log(); } else { return errorResponse(405, "x"); }', MATCH, GET_PRIOR, LIT("GET")], dead: { methods: ["GET"], line: 5 } },
+        // Still unknown: a refusal the gate cannot read, before the winner, may be a gate for GET.
+        { id: "adv.ts TB1", what: "if (!ALLOWED.has(method)) return 405 at the top", lines: ['if (!ALLOWED.has(method)) return errorResponse(405, "x");', MATCH, GET_PRIOR, LIT("GET")] },
+        { id: "a refusal the method alone may decide", what: "if (!ready || !READ.has(method)) return 405 before the winner", lines: ['if (!ready || !READ.has(method)) return errorResponse(405, "x");', MATCH, GET_PRIOR, LIT("GET")] },
+        { id: "a refusal under a negation", what: "if (!(ready && READ.has(method))) return 405 before the winner", lines: ['if (!(ready && READ.has(method))) return errorResponse(405, "x");', MATCH, GET_PRIOR, LIT("GET")] },
+        { id: "a check that names the methods", what: "requireMethod(method, \"POST\") before the winner", lines: ['requireMethod(method, "POST");', MATCH, GET_PRIOR, LIT("GET")] },
+        { id: "a check passed on", what: "const r = allowMethods(method, [GET]); if (r) return r; before the winner", lines: ['const r = allowMethods(method, ["GET"]);', "if (r) return r;", MATCH, POST_PRIOR, LIT("POST")] },
+        { id: "an answer of the method alone passed on", what: "const r = await methodGuard(method); if (r) return r; before the winner", lines: ["const r = await methodGuard(method);", "if (r) return r;", MATCH, POST_PRIOR, LIT("POST")] },
+        { id: "a sub-router's answer in the body", what: "in the literal's body it may be a refusal", lines: [MATCH, GET_PRIOR, 'if (pathname === "/api/x/keep") { const r = await sub(req, url, method); if (r) return r; return json({}); }'] },
+        // An alias of the method through more names than three.
+        { id: "adv.ts AL6", what: "v4 after v1 = method, v2 = v1, v3 = v2, v4 = v3, in the condition around the literal", lines: [MATCH, GET_PRIOR, "const v1 = method; const v2 = v1; const v3 = v2; const v4 = v3;", 'if (v4 === "POST") { if (pathname === "/api/x/keep") return json({}); }'] },
+      ];
+      for (const c of CASES) {
+        test(`${c.id}: ${c.what}`, () => {
+          const found = inner(c.lines).map((o) => ({ methods: o.methods, line: o.prior.line }));
+          expect(found).toEqual(c.dead ? [c.dead] : []);
+        });
+      }
+
+      // run3.py z-trace-before-winner and z-span-top-of-block: one statement
+      // that hands the method to a call, above browser.ts:229.
+      for (const trace of ["recordMethod(method);", 'span.setAttribute("http.method", method);']) {
+        test(`run3.py: ${trace} above GET /api/browsers/:id keeps the keep-list finding`, () => {
+          const o = inner([trace, ...BY_ID, 'if (method === "GET" && pathname === "/api/browsers/data-store-keep-list") return json({});']);
+          expect(o.map((x) => [x.sample, x.methods, x.prior.line])).toEqual([["/api/browsers/data-store-keep-list", ["GET"], 5]]);
+        });
+      }
+    });
+
     // A boolean helper next to the router (server.ts guestAllowed): a
     // predicate, not a route. The router function is still judged.
     test("H1: a predicate that answers true for a path is not a route", () => {
