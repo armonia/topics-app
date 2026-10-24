@@ -1433,4 +1433,90 @@ describe("5xx del bridge — il motivo finisce nel log", () => {
       warn.mockRestore();
     }
   });
+
+  // The warn lines of one request, with the response: the helper below keeps
+  // each case to its setup and its expectation.
+  async function warnsOf(h: ReturnType<typeof harness>, path: string, body?: unknown) {
+    const warn = spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      const resp = await h.post(path, body);
+      const json = (await resp!.json()) as { error?: string };
+      return { status: resp!.status, error: json.error ?? "", lines: warn.mock.calls.map((args) => args.map(String).join(" ")) };
+    } finally {
+      warn.mockRestore();
+    }
+  }
+
+  test("open-pane con la pane rimasta bianca (chat, 502): una riga di warn con il motivo", async () => {
+    const h = harness({ navigateTo: "about:blank" });
+    h.addTopic("t1");
+    const r = await warnsOf(h, "/api/topics/t1/browser/open-pane", { url: "https://example.com/" });
+    expect(r.status).toBe(502);
+    expect(r.lines).toEqual([expect.stringMatching(/^\[browser-bridge\] \S+ browser_open t1 -> 502: /)]);
+    expect(r.lines[0]).toContain(r.error);
+  });
+
+  test("open-pane accanto a un terminale con la navigazione che esplode: una riga di warn", async () => {
+    const h = harness({ navigateThrows: true });
+    h.addTerminal("42");
+    const r = await warnsOf(h, "/api/sessions/42/browser/open-pane", { url: "https://example.com/" });
+    expect(r.status).toBe(500);
+    expect(r.lines).toEqual([expect.stringMatching(/ browser_open term-42 -> 500: niente browser headless$/)]);
+  });
+
+  test("open-pane della scheda di un task: la risposta è 200 e il log resta muto", async () => {
+    const h = harness({ navigateThrows: true });
+    const topic = h.addTopic("aaaaaaaa-topic");
+    h.taskOfTopic.set(topic.id, { id: "12345678-task" });
+    const r = await warnsOf(h, "/api/topics/aaaaaaaa-topic/browser/open-pane", { url: "https://example.com/" });
+    expect(r.status).toBe(200);
+    expect(r.lines).toEqual([]);
+  });
+
+  // The auto-open before a page op shares the open-pane sequence, and its
+  // failures stay silent on purpose (browser-auto-open.ts): the page op runs
+  // headless and its own answer is the one that counts.
+  test("auto-open fallito prima di un eval che risponde 200: nessuna riga di warn", async () => {
+    const h = harness({ paneAttached: false, navigateThrows: true });
+    h.addTopic("t1", { browserState: { url: "https://example.com/last", contextId: "t1", lastActiveAt: 1 } });
+    const r = await warnsOf(h, "/api/topics/t1/browser/eval", { expression: "1+1" });
+    expect(r.status).toBe(200);
+    expect(h.navigations.length).toBeGreaterThan(0);
+    expect(r.lines).toEqual([]);
+  });
+
+  test("auto-open su una pane rimasta bianca prima di un eval che risponde 200: nessuna riga di warn", async () => {
+    const h = harness({ paneAttached: false, navigateTo: "about:blank" });
+    h.addTopic("t1", { browserState: { url: "https://example.com/last", contextId: "t1", lastActiveAt: 1 } });
+    const r = await warnsOf(h, "/api/topics/t1/browser/eval", { expression: "1+1" });
+    expect(r.status).toBe(200);
+    expect(r.lines).toEqual([]);
+  });
+
+  test("auto-open fallito e poi eval fallito: una riga sola, quella dell'eval", async () => {
+    const h = harness({ paneAttached: false, navigateThrows: true, evalRejects: "eval timeout" });
+    h.addTopic("t1", { browserState: { url: "https://example.com/last", contextId: "t1", lastActiveAt: 1 } });
+    const r = await warnsOf(h, "/api/topics/t1/browser/eval", { expression: "1+1" });
+    expect(r.status).toBe(502);
+    expect(r.lines).toEqual([expect.stringMatching(/ browser_eval t1 -> 502: browser_eval failed: eval timeout$/)]);
+  });
+
+  test("tool che lancia prima di arrivare all'handler (URL rifiutato, 500): una riga di warn", async () => {
+    const h = harness();
+    h.addTopic("t1");
+    const r = await warnsOf(h, "/api/topics/t1/browser/verify", { url: "javascript:alert(1)" });
+    expect(r.status).toBe(500);
+    expect(r.lines).toEqual([expect.stringMatching(/ browser_verify t1 -> 500: .*"javascript:" is not allowed/)]);
+  });
+
+  test("import-chrome: il 502 dell'handler e il 500 di un argomento mancante lasciano ciascuno una riga", async () => {
+    const h = harness();
+    h.addTopic("t1");
+    const refused = await warnsOf(h, "/api/topics/t1/browser/import-chrome", { domains: ["example.com"] });
+    expect(refused.status).toBe(502);
+    expect(refused.lines).toEqual([expect.stringMatching(/ browser_import_chrome t1 -> 502: browser_import_chrome requires the Topics native browser/)]);
+    const thrown = await warnsOf(h, "/api/topics/t1/browser/import-chrome", { domains: [] });
+    expect(thrown.status).toBe(500);
+    expect(thrown.lines).toEqual([expect.stringMatching(/ browser_import_chrome t1 -> 500: browser_import_chrome: "domains" \(non-empty array\) is required/)]);
+  });
 });
