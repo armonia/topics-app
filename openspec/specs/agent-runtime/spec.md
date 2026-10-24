@@ -281,8 +281,10 @@ che dovrebbe verificare non prova niente.
 #### Scenario: la cache resta calda mentre la persona legge
 - **GIVEN** una sessione il cui turno è appena finito
 - **WHEN** nessun turno nuovo parte
-- **THEN** la sessione SHALL rileggere il proprio prefisso dalla cache del prompt ogni 4,5 minuti, con gli stessi strumenti, system e thinking del turno
-- **AND** SHALL smettere a 15 minuti dalla fine del turno, a un turno nuovo, allo sfratto o al reset
+- **THEN** la sessione SHALL rileggere il proprio prefisso dalla cache del prompt 4,5 minuti dopo l'INIZIO dell'ultima richiesta che l'ha toccata (la cache vive 5 minuti da lì, non dalla fine della risposta), con gli stessi strumenti, system e thinking del turno, e il breakpoint sull'ultimo messaggio della storia
+- **AND** SHALL smettere a 15 minuti dalla fine del turno, a un turno nuovo comunque finisca, allo sfratto o al reset, e una sola catena di ping SHALL essere viva per sessione
+- **AND** SHALL NOT partire se l'ultima richiesta è più vecchia della vita della cache, o se il turno non finisce con una risposta di testo (rifiuto, chiamata a strumento tagliata, blocco di thinking)
+- **AND** il ping SHALL NOT modificare la storia della sessione
 - **AND** `TOPICS_CACHE_KEEPALIVE=off` SHALL spegnere i ping
 
 ### Requirement: RT-09 — I comandi di Topics sono gli STESSI, e un guasto in uno non uccide il turno

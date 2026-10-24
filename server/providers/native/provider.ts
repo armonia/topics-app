@@ -22,7 +22,7 @@
  * turn costs a whole process, and here it costs an array.
  */
 
-import { pingPromptCache, runAgentTurn, toProviderUsage, type AgentMessage, type AgentTurnOptions } from "./agent-loop";
+import { pingPromptCache, runAgentTurn, toProviderUsage, type AgentMessage, type AgentTurnOptions, type RoundRequestOptions } from "./agent-loop";
 import { recordTurnUsage } from "../native-usage-registry";
 import { CODING_TOOLS, WORKSPACE_FREE_TOOLS } from "./tools";
 import { pruneDanglingToolUses } from "./history-repair";
@@ -277,6 +277,8 @@ interface NativeSession {
   calibration: Calibration;
   /** The next prompt-cache keep-alive, while the session waits for the person (see `KEEP_ALIVE_EVERY_MS`). */
   keepAlive?: ReturnType<typeof setTimeout>;
+  /** Which keep-alive chain is the live one: a tick from an older chain stops. */
+  keepAliveChain?: number;
 }
 
 /**
@@ -288,6 +290,33 @@ interface NativeSession {
  * input price; a cache read costs 0.05x-0.1x. 4.5 minutes stays inside the 5.
  */
 const KEEP_ALIVE_EVERY_MS = 270_000;
+
+/**
+ * The prompt cache's life, counted from the START of the request that last
+ * read or wrote it (Anthropic's prompt-caching docs), not from the end of
+ * its answer.
+ */
+const CACHE_LIFETIME_MS = 300_000;
+
+/** Ends a session's keep-alive chain: its timer, and any tick still in flight. */
+function endKeepAlive(session: NativeSession): void {
+  clearTimeout(session.keepAlive);
+  session.keepAlive = undefined;
+  session.keepAliveChain = (session.keepAliveChain ?? 0) + 1;
+}
+
+/**
+ * Whether a ping can follow this history: it puts the cache mark on the last
+ * message and a user line after it, so the last message must be an answer
+ * ending with text. A refusal (no content), a tool call cut by max_tokens or
+ * a closing thinking block (the API refuses a mark on it) are not.
+ */
+function endsWithAnswer(history: AgentMessage[]): boolean {
+  const last = history.at(-1);
+  if (!last || last.role !== "assistant") return false;
+  if (typeof last.content === "string") return last.content.length > 0;
+  return last.content.at(-1)?.type === "text";
+}
 
 /** `TOPICS_CACHE_KEEPALIVE=off` turns the pings off: the lever to compare with and without. */
 function keepAliveEnabled(): boolean {
@@ -652,6 +681,8 @@ export class NativeProvider implements AIProvider {
     // supersedes us in its turn.
     const abort = new AbortController();
     session.abort = abort;
+    // A new turn ends the old keep-alive, whatever way this one ends.
+    endKeepAlive(session);
     if (options?.model) session.model = options.model;
     const turn = this.driveTurn(sessionKey, session, handler, options, abort);
     session.turn = turn;
@@ -837,8 +868,13 @@ export class NativeProvider implements AIProvider {
           catch { /* the measurement never stops the work */ }
         },
       };
+      let requestedAt = Date.now();
+      turnOpts.onRequestStart = () => { requestedAt = Date.now(); };
       const out = await runAgentTurn(turnOpts, handler);
-      this.keepCacheWarm(sessionKey, session, turnOpts);
+      // Only what a request body is made of: the turn's handler and signal
+      // must not live on in the timer for 15 minutes.
+      const { model, effort, maxTokens, system, history, tools: turnTools } = turnOpts;
+      this.keepCacheWarm(sessionKey, session, { model, effort, maxTokens, system, history, tools: turnTools }, requestedAt);
       // Il perché della fine si deposita dove il resto del server lo cerca:
       // è lo stesso registro che usano le CLI, e senza questo un turno
       // dispacciato non saprebbe dire com'è finito.
@@ -940,29 +976,43 @@ export class NativeProvider implements AIProvider {
    * next turn rebuilds it from the database, a different prefix, so the cached
    * one is worth nothing. A new turn, an eviction, a reset or a stop ends it:
    * each tick checks, so no other path has to remember to clear the timer.
+   *
+   * Each ping is due {@link KEEP_ALIVE_EVERY_MS} after the START of the
+   * request that last touched the cache (`requestedAt`, then each ping's own
+   * start): counted from the end of a long answer, the first ping came after
+   * the cache had expired and wrote the whole prefix again.
    */
-  private keepCacheWarm(sessionKey: string, session: NativeSession, opts: AgentTurnOptions): void {
-    clearTimeout(session.keepAlive);
-    session.keepAlive = undefined;
-    if (!keepAliveEnabled()) return;
+  private keepCacheWarm(sessionKey: string, session: NativeSession, opts: RoundRequestOptions, requestedAt: number): void {
+    endKeepAlive(session);
+    if (!keepAliveEnabled() || !endsWithAnswer(session.history)) return;
+    const chain = session.keepAliveChain;
     const endedAt = Date.now();
-    // Still this session (not evicted, reset or stopped), and no turn running:
-    // a running turn refreshes the cache itself, and its end starts a new chain.
-    const waiting = () => this.sessions.get(sessionKey) === session && !session.abort;
+    let touchedAt = requestedAt;
+    // Still this session (not evicted, reset or stopped), still this chain,
+    // and no turn running: a running turn refreshes the cache itself, and its
+    // end starts a new chain.
+    const waiting = () => this.sessions.get(sessionKey) === session && !session.abort && session.keepAliveChain === chain;
     let pings = 0;
     const schedule = () => {
-      if (Date.now() - endedAt + KEEP_ALIVE_EVERY_MS > SESSION_TTL_MS) return;
-      session.keepAlive = setTimeout(() => { void tick(); }, KEEP_ALIVE_EVERY_MS);
+      const now = Date.now();
+      // Already expired (a last request longer than the cache's life): a ping
+      // would write the prefix again, not read it.
+      if (now - touchedAt >= CACHE_LIFETIME_MS) return;
+      const due = touchedAt + KEEP_ALIVE_EVERY_MS;
+      if (due - endedAt > SESSION_TTL_MS) return;
+      session.keepAlive = setTimeout(() => { void tick(); }, Math.max(0, due - now));
       (session.keepAlive as unknown as { unref?: () => void }).unref?.();
     };
     const tick = async () => {
-      session.keepAlive = undefined;
       if (!waiting()) return;
+      session.keepAlive = undefined;
       try {
         // Signed out since the turn: nothing to keep warm.
         const token = await getAccessToken();
-        if (!token) return;
+        if (!token || !waiting()) return;
+        const startedAt = Date.now();
         const u = await pingPromptCache(opts, token);
+        touchedAt = startedAt;
         pings++;
         console.log(
           `[native] keepalive: at=${new Date().toISOString()} session_key=${sessionKey} ping=${pings} `

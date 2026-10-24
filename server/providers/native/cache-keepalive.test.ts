@@ -32,6 +32,11 @@ const answer = sse([
   { type: "message_delta", delta: { stop_reason: "end_turn" }, usage: { output_tokens: 1 } },
 ]);
 const pong = sse([{ type: "message_start", message: { usage: { input_tokens: 12, cache_read_input_tokens: 9000, cache_creation_input_tokens: 5 } } }]);
+const refusal = sse([
+  { type: "message_start", message: { usage: { input_tokens: 10 } } },
+  { type: "message_delta", delta: { stop_reason: "refusal" }, usage: { output_tokens: 0 } },
+]);
+const badRequest = () => Response.json({ type: "error", error: { type: "invalid_request_error", message: "boom" } }, { status: 400 });
 
 interface Sent { model: string; max_tokens: number; system: unknown; tools: unknown; thinking?: unknown; messages: Array<{ role: string; content: unknown }> }
 let turns: Sent[] = [];
@@ -59,6 +64,11 @@ const sweep = (p: NativeProvider) => (p as unknown as { sweepIdleSessions(): num
 const unmarked = (v: unknown) => JSON.parse(JSON.stringify(v), (k, x) => (k === "cache_control" ? undefined : x));
 
 let turnDelayMs = 0;
+/** While set, a ping's answer waits for it: a tick stays in flight. */
+let pingGate: Promise<void> | null = null;
+
+const historyOf = (p: NativeProvider, key: string) =>
+  (p as unknown as { sessions: Map<string, { history: unknown[] }> }).sessions.get(key)!.history;
 
 beforeAll(() => {
   home = mkdtempSync(join(tmpdir(), "native-keepalive-home-"));
@@ -73,9 +83,13 @@ beforeAll(() => {
     const body = JSON.parse(String(init?.body ?? "{}")) as Sent;
     if (body.max_tokens === 1) {
       pings.push(body);
+      if (pingGate) await pingGate;
       return new Response(pong, { status: 200 });
     }
     turns.push(body);
+    const asked = JSON.stringify(body.messages.at(-1));
+    if (asked.includes("refuse-me")) return new Response(refusal, { status: 200 });
+    if (asked.includes("fail-me")) return badRequest();
     // A long turn: the clock moves while the model works.
     if (turnDelayMs) jest.advanceTimersByTime(turnDelayMs);
     return new Response(answer, { status: 200 });
@@ -86,6 +100,7 @@ beforeEach(() => {
   turns = [];
   pings = [];
   turnDelayMs = 0;
+  pingGate = null;
   delete process.env.TOPICS_CACHE_KEEPALIVE;
   jest.useFakeTimers();
 });
@@ -104,6 +119,7 @@ describe("the native prompt-cache keep-alive", () => {
     const p = provider();
     await p.sendChat("topic:keepalive-pings", "first question", quiet);
     expect(turns.length).toBe(1);
+    const history = JSON.stringify(historyOf(p, "topic:keepalive-pings"));
 
     await advance(EVERY - 1_000);
     expect(pings.length).toBe(0);
@@ -122,6 +138,12 @@ describe("the native prompt-cache keep-alive", () => {
     expect(ping.messages[turn.messages.length]).toMatchObject({ role: "assistant" });
     expect(ping.messages.length).toBe(turn.messages.length + 2);
     expect(ping.messages.at(-1)).toMatchObject({ role: "user" });
+    // The breakpoint sits on the answer, the end of the history: that is what
+    // keeps the whole conversation warm, not only tools and system.
+    const answerBlocks = ping.messages[turn.messages.length]!.content as Array<{ cache_control?: unknown }>;
+    expect(answerBlocks.at(-1)?.cache_control).toBeDefined();
+    // And the session's own history is not touched by the ping.
+    expect(JSON.stringify(historyOf(p, "topic:keepalive-pings"))).toBe(history);
 
     await advance(EVERY);
     await advance(EVERY);
@@ -189,8 +211,67 @@ describe("the native prompt-cache keep-alive", () => {
     turnDelayMs = 0;
     // Idle counts from the end of the turn, not from its start.
     expect(sweep(p)).toBe(0);
+    p.stop();
+  });
+
+  test("the first ping counts from the start of the last request, not from the end of its answer", async () => {
+    // The cache lives 5 minutes from the start of the request that last read
+    // or wrote it. A one-minute answer leaves 3.5 minutes, not 4.5.
+    const p = provider();
+    turnDelayMs = MIN;
+    await p.sendChat("topic:keepalive-anchor", "first", quiet);
+    turnDelayMs = 0;
+    await advance(EVERY - MIN - 1_000);
+    expect(pings.length).toBe(0);
+    await advance(1_000);
+    expect(pings.length).toBe(1);
+    p.stop();
+  });
+
+  test("a last request older than the cache's life starts no pings: they would write, not read", async () => {
+    const p = provider();
+    turnDelayMs = 6 * MIN;
+    await p.sendChat("topic:keepalive-expired", "a long answer", quiet);
+    turnDelayMs = 0;
+    await advance(EVERY * 3);
+    expect(pings.length).toBe(0);
+    p.stop();
+  });
+
+  test("a tick in flight across a new turn does not leave two chains running", async () => {
+    const p = provider();
+    await p.sendChat("topic:keepalive-two-chains", "first", quiet);
+    let release = () => {};
+    pingGate = new Promise<void>((resolve) => { release = resolve; });
     await advance(EVERY);
     expect(pings.length).toBe(1);
+    // The ping hangs; a whole turn starts and ends meanwhile.
+    await p.sendChat("topic:keepalive-two-chains", "second", quiet);
+    pingGate = null;
+    release();
+    await settle();
+    await advance(EVERY);
+    expect(pings.length).toBe(2);
+    await advance(EVERY);
+    expect(pings.length).toBe(3);
+    p.stop();
+  });
+
+  test("a turn that does not end with a text answer starts no pings", async () => {
+    const p = provider();
+    await p.sendChat("topic:keepalive-refusal", "refuse-me", quiet);
+    await advance(EVERY * 3);
+    expect(pings.length).toBe(0);
+    p.stop();
+  });
+
+  test("a failed turn ends the chain of the turn before it", async () => {
+    const p = provider();
+    await p.sendChat("topic:keepalive-failed", "first", quiet);
+    await advance(2 * MIN);
+    await p.sendChat("topic:keepalive-failed", "fail-me", quiet);
+    await advance(EVERY * 3);
+    expect(pings.length).toBe(0);
     p.stop();
   });
 });

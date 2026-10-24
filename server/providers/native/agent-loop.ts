@@ -136,6 +136,12 @@ export interface AgentTurnOptions {
    * nativi) refuses at execution too a tool its profile or its depth denies.
    */
   allowTool?: (name: string) => boolean;
+  /**
+   * Called as each request leaves, retries included. The prompt cache lives
+   * from the START of the request that last read or wrote it, so the cache
+   * keep-alive counts from here, not from the end of the answer.
+   */
+  onRequestStart?: () => void;
   toolContext: ToolContext;
   /** La conversazione finora. Viene ESTESA in place: è la memoria della sessione. */
   history: AgentMessage[];
@@ -259,7 +265,7 @@ interface RoundResult {
  * the keep-alive only refreshes the cache if its prefix (tools, system,
  * thinking, messages) is byte for byte the one the loop sends.
  */
-export function buildRoundRequest(opts: AgentTurnOptions): { body: Record<string, unknown>; longWindow: boolean } {
+export function buildRoundRequest(opts: RoundRequestOptions): { body: Record<string, unknown>; longWindow: boolean } {
   // LA FINESTRA LUNGA E' UN HEADER, NON UN NOME.
   // `claude-opus-5[1m]` e' una convenzione nostra: all'API va il nome NUDO
   // piu' il beta `context-1m-2025-08-07`. Prima l'id partiva col suffisso e il
@@ -318,6 +324,9 @@ export function buildRoundRequest(opts: AgentTurnOptions): { body: Record<string
   return { body, longWindow };
 }
 
+/** What a request body is made of: the loop's options, or the keep-alive's copy of them. */
+export type RoundRequestOptions = Pick<AgentTurnOptions, "model" | "effort" | "maxTokens" | "system" | "history" | "tools">;
+
 function apiHeaders(token: string, longWindow: boolean): Record<string, string> {
   return {
     "content-type": "application/json",
@@ -343,16 +352,23 @@ const KEEP_ALIVE_TIMEOUT_MS = 30_000;
  * API reads the prefix from the cache, which renews its lifetime, and caches
  * the turn's closing answer with it. The stream is dropped as soon as
  * `message_start` arrives, which already carries the usage, so the model
- * writes nothing anybody reads, and the history is not touched.
+ * writes nothing anybody reads.
+ *
+ * The history is not touched: the builder moves the cache marks in place, so
+ * it works on a copy of the messages and of their blocks.
  */
 export async function pingPromptCache(
-  opts: AgentTurnOptions,
+  opts: RoundRequestOptions,
   token: string,
 ): Promise<{ input: number; cacheRead: number; cacheWrite: number }> {
+  const history = opts.history.map((m) => ({
+    ...m,
+    content: Array.isArray(m.content) ? m.content.map((b) => ({ ...b })) : m.content,
+  }));
   // max_tokens is not part of the cache key; a legacy thinking budget keeps
   // it above the budget, as the loop does.
-  const { body, longWindow } = buildRoundRequest({ ...opts, maxTokens: 1 });
-  body.messages = [...opts.history, { role: "user", content: KEEP_ALIVE_PROMPT }];
+  const { body, longWindow } = buildRoundRequest({ ...opts, history, maxTokens: 1 });
+  body.messages = [...history, { role: "user", content: KEEP_ALIVE_PROMPT }];
   const abort = new AbortController();
   const timer = setTimeout(() => abort.abort(), KEEP_ALIVE_TIMEOUT_MS);
   try {
@@ -938,7 +954,10 @@ export async function runAgentTurn(
     // policy and the loop live in retry.ts, this is the only call site.
     let round: RoundResult;
     try {
-      round = await retryRound((token) => streamOnce(token, opts, handler), {
+      round = await retryRound((token) => {
+        opts.onRequestStart?.();
+        return streamOnce(token, opts, handler);
+      }, {
         auth,
         policy: opts.retryPolicy ?? DEFAULT_RETRY_POLICY,
         signal: opts.signal,
