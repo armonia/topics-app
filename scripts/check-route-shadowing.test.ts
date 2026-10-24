@@ -130,5 +130,58 @@ describe("check-route-shadowing", () => {
     test("an unknown argument is an error, not a green run", () => {
       expect(run(tree(""), ["--bogus"]).status).toBe(2);
     });
+
+    // One router only: a route can be shadowed by a pattern of the SAME router,
+    // in the order of its if chain (browser.ts: GET /api/browsers/:id hid
+    // GET /api/browsers/data-store-keep-list from 12/08).
+    describe("shadowing inside one router", () => {
+      function oneRouterTree(body: string): string {
+        const root = mkdtempSync(join(tmpdir(), "route-shadowing-"));
+        roots.push(root);
+        mkdirSync(join(root, "server", "routes"), { recursive: true });
+        writeFileSync(join(root, "server", "route-table.ts"), 'export const API_ROUTER_ORDER = [\n  "aRouter",\n] as const;\n');
+        writeFileSync(join(root, "server.ts"), 'import { createARouter } from "./server/routes/a";\nconst aRouter = createARouter(ctx);\n');
+        writeFileSync(join(root, "server", "routes", "a.ts"), [
+          "export function createARouter(ctx: any) {",
+          "  return async function r(req: Request, url: URL, pathname: string, method: string) {",
+          body,
+          "    return null;",
+          "  };",
+          "}",
+          "",
+        ].join("\n"));
+        return root;
+      }
+
+      test("a literal GET path below a :param pattern that captures it is a finding", () => {
+        const r = run(oneRouterTree([
+          '    const m = matchRoute(pathname, "/api/x/:id");',
+          '    if (m && method === "GET") return new Response("pattern");',
+          '    if (method === "GET" && pathname === "/api/x/keep-list") return new Response("literal");',
+        ].join("\n")));
+        expect(r.stdout).toContain("OVERLAP GET /api/x/keep-list");
+        expect(r.status).toBe(1);
+      });
+
+      test("the same literal above the pattern is reachable and not a finding", () => {
+        const r = run(oneRouterTree([
+          '    if (method === "GET" && pathname === "/api/x/keep-list") return new Response("literal");',
+          '    const m = matchRoute(pathname, "/api/x/:id");',
+          '    if (m && method === "GET") return new Response("pattern");',
+        ].join("\n")));
+        expect(r.stdout).toContain("0 overlaps");
+        expect(r.status).toBe(0);
+      });
+
+      test("a literal under a pattern for a different method is not a finding", () => {
+        const r = run(oneRouterTree([
+          '    const m = matchRoute(pathname, "/api/x/:id");',
+          '    if (m && method === "POST") return new Response("pattern");',
+          '    if (method === "GET" && pathname === "/api/x/keep-list") return new Response("literal");',
+        ].join("\n")));
+        expect(r.stdout).toContain("0 overlaps");
+        expect(r.status).toBe(0);
+      });
+    });
   });
 });
