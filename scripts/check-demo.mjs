@@ -12,7 +12,7 @@
  * threw on a `scripts` map that had become a list.
  *
  * So: boot the built demo, open the identity menu, and treat any uncaught
- * error, or a page that stops answering, as a failure.
+ * error as a failure.
  *
  *   bun run check:demo            # after build:site — reads landing/dist/app
  *   bun run check:demo -- <dir>   # any directory containing app/index.html
@@ -95,8 +95,8 @@ let testo = '';
 try {
   await page.goto(target, { waitUntil: 'load' });
   await page.waitForTimeout(8000);
-  // Bounded: a page whose main thread never comes back (a mock answered with a
-  // shape the client spins on) used to hang this check for good, with no line.
+  // An explicit 20 s cap instead of Playwright's default (30 s in 1.59): a page
+  // that has not drawn its text by then fails, with the reason on its own line.
   testo = (await page.locator('body').innerText({ timeout: 20000 }).catch((e) => {
     problemi.push(`reading the page text failed after at most 20 s: ${String(e.message).split('\n')[0]}`);
     return '';

@@ -45,6 +45,7 @@ const BAR = readFileSync(join(ROOT, "scripts/qa-gate.sh"), "utf8");
 const DELIBERATELY_OUT: Record<string, string> = {
   "check:e2e-touched": "needs a base ref to diff against; in CI it runs on pull_request only",
   "check:bundle": "needs public/ already built (bun run build:client)",
+  "check:demo": "needs the landing demo built (bun run build:landing) and a browser",
   "check:route-latency": "a TIME gate: on a loaded machine it measures the machine",
   "check:ink": "a TIME gate",
   "check:drag": "a TIME gate",
