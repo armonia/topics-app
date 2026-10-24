@@ -113,7 +113,7 @@ if [ "$OS" = "smoke" ]; then
   sessions_code="$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:$PORT/api/terminal/sessions)"
   echo "[smoke] /api/topics: $topics_code"
   echo "[smoke] /api/terminal/sessions (expect 503 standalone): $sessions_code"
-  # The recorder is embedded in the binary (a type:"file" import): a file read from
+  # The recorder is embedded in the binary (a type:"text" import): a file read from
   # disk would pass in dev and answer empty here, which nothing else in this smoke sees.
   # Status AND size: an error answer carries a JSON body, so bytes alone would pass.
   recorder_code="$(curl -s -o "$WORK/recorder.js" -w '%{http_code}' http://127.0.0.1:$PORT/api/browser/recorder.js)"
