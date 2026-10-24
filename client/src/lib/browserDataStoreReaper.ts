@@ -15,7 +15,17 @@
  *   ORFANO — il contextId non compare più in nessuna riga di `ui_state`
  *            (`/api/browsers/data-store-keep-list`, che vede anche i progetti
  *            chiusi e i device spenti);
- *   FERMO  — nessun file dello store toccato da `REAP_AFTER_DAYS` giorni.
+ *   IDLE   — no file of the store touched for the number of days the setting
+ *            says (60 unless somebody changed it).
+ *
+ * A THIRD PERMISSION COMES FIRST: THE SETTING. Removing a store cannot be undone
+ * (every login and every site's local data in it go too), so the cleanup is a
+ * Topics setting (Attilio, approving #425), read from `/api/app-settings` at
+ * every start before anything else. Off: nothing is removed, and neither the
+ * keep list nor the Tauri command is called. Never touched: on, 60 days. A
+ * setting that did not arrive is not a permission, exactly like a keep list
+ * that did not arrive. The meaning of the two fields, and the 7..365 clamp
+ * applied here again before Tauri, live in `shared/browser-store-reap.ts`.
  *
  * Gira una volta per sessione e in ritardo: non è un lavoro urgente, e all'avvio
  * la macchina ha di meglio da fare. Solo su Tauri — gli store per identifier
@@ -25,16 +35,25 @@
 import { isTauri } from './shell';
 import { tauriInvoke } from './shell/tauri';
 import { apiFetch } from './shell/net';
-
-/** Due mesi. Non è una soglia di spazio, è quanto si concede a un sito prima
- *  di dire che quella tab non tornerà: il 30% di store che questo tocca è la
- *  coda, non la pancia della distribuzione. */
-export const REAP_AFTER_DAYS = 60;
+import { resolveBrowserStoreReap, type BrowserStoreReapChoice } from '../../../shared/browser-store-reap';
 
 /** Il tempo che si lascia all'avvio prima di andare a grattare il disco. */
 const START_DELAY_MS = 90_000;
 
 let started = false;
+
+/** The setting as the server holds it, resolved; null when it could not be read. */
+async function readReapChoice(): Promise<BrowserStoreReapChoice | null> {
+  try {
+    const res = await apiFetch('/api/app-settings');
+    if (!res.ok) return null;
+    const body = (await res.json()) as { settings?: unknown };
+    if (!body.settings || typeof body.settings !== 'object') return null;
+    return resolveBrowserStoreReap(body.settings);
+  } catch {
+    return null;
+  }
+}
 
 /**
  * Fa UN giro di reap. Esportata a parte dallo scheduler così un test (o un
@@ -43,6 +62,8 @@ let started = false;
  */
 export async function reapBrowserDataStores(): Promise<number> {
   if (!isTauri) return -1;
+  const choice = await readReapChoice();
+  if (!choice || !choice.enabled) return -1;
   let keepIds: string[];
   try {
     const res = await apiFetch('/api/browsers/data-store-keep-list');
@@ -58,7 +79,7 @@ export async function reapBrowserDataStores(): Promise<number> {
   try {
     return await tauriInvoke<number>('browser_reap_data_stores', {
       keepIds,
-      maxAgeDays: REAP_AFTER_DAYS,
+      maxAgeDays: choice.afterDays,
     });
   } catch {
     return -1;

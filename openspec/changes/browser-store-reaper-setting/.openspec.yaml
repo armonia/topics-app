@@ -1,0 +1,6 @@
+schema: spec-driven
+name: browser-store-reaper-setting
+creato: 2026-10-24
+# La condizione con cui Attilio ha approvato #425 (la rotta della keep list che
+# rispondeva 404): da quel fix il reaper cancella davvero, e non si torna indietro.
+richiesta: "Ok ma dovrebbe essere una impostazione però di topics"

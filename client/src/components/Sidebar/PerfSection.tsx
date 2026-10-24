@@ -16,6 +16,7 @@ import { setNativePaneMemoryEvictionEnabled, useNativePaneMemoryEvictionEnabled,
 import { setNativeGitStatusEnabled, useNativeGitStatusEnabled } from '@/state/nativeGitStatus';
 import { setNativeFileTreeEnabled, useNativeFileTreeEnabled } from '@/state/nativeFileTree';
 import { SwitchRow } from './PreferenceRow';
+import { BrowserStoreReapRows } from './BrowserStoreReapRows';
 import { InteractionRows } from './InteractionRows';
 import { loadSettings, saveSettings, SETTINGS_CHANGED_EVENT } from '@/lib/settings';
 
@@ -479,6 +480,8 @@ export function PerfSection() {
         onChange={setNativePaneMemoryEvictionEnabled}
         testId="perf-native-pane-memory"
       />
+      {/* The other app-wide browser decision, right under this one. */}
+      <BrowserStoreReapRows />
       <SwitchRow
         label={tr('perf.nativeGit.setting')}
         hint={tr(!nativeGit

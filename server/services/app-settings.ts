@@ -85,6 +85,12 @@ export interface AppSettings {
   calendarRefreshMinutes: number | null;
   /** How far ahead the agenda looks, in days. NULL = the code default. */
   calendarHorizonDays: number | null;
+  /** The cleanup of closed browsers' data (`shared/browser-store-reap.ts`).
+   *  NULL = never touched = ON: only an explicit false stops the reaper. */
+  browserStoreReapEnabled: boolean | null;
+  /** Days without use before a closed browser's store is removed, 7..365.
+   *  NULL = the code default, 60. */
+  browserStoreReapAfterDays: number | null;
   /** Where an agent CLI lives when the automatic probe cannot find it: a JSON
    *  object keyed by agent id, `{"codex": "/abs/path"}` (migration
    *  `agent-bin-paths`). NULL = nothing was ever pointed at by hand, which is
@@ -119,6 +125,8 @@ const EMPTY: AppSettings = {
   calendarFeedUrl: null,
   calendarRefreshMinutes: null,
   calendarHorizonDays: null,
+  browserStoreReapEnabled: null,
+  browserStoreReapAfterDays: null,
   agentBinPaths: null,
   firstRunDoneAt: null,
 };
@@ -147,6 +155,8 @@ interface Row {
   calendar_feed_url: string | null;
   calendar_refresh_minutes: number | null;
   calendar_horizon_days: number | null;
+  browser_store_reap_enabled: number | null;
+  browser_store_reap_after_days: number | null;
   agent_bin_paths: string | null;
   first_run_done_at: string | null;
 }
@@ -180,6 +190,9 @@ function rowToSettings(r: Row): AppSettings {
     calendarFeedUrl: r.calendar_feed_url ?? null,
     calendarRefreshMinutes: r.calendar_refresh_minutes ?? null,
     calendarHorizonDays: r.calendar_horizon_days ?? null,
+    browserStoreReapEnabled:
+      r.browser_store_reap_enabled == null ? null : r.browser_store_reap_enabled === 1,
+    browserStoreReapAfterDays: r.browser_store_reap_after_days ?? null,
     agentBinPaths: r.agent_bin_paths ?? null,
     firstRunDoneAt: r.first_run_done_at ?? null,
   };
@@ -204,7 +217,8 @@ export function getAppSettings(): AppSettings {
                 agent_runtime, profile_publish_cost, profile_share_token,
                 turn_checkpoints_enabled, agent_bin_paths,
                 calendar_enabled, calendar_feed_url,
-                calendar_refresh_minutes, calendar_horizon_days, first_run_done_at
+                calendar_refresh_minutes, calendar_horizon_days,
+                browser_store_reap_enabled, browser_store_reap_after_days, first_run_done_at
            FROM app_settings WHERE id = 1`,
       )
       .get() as Row | null;
@@ -240,6 +254,8 @@ const COLUMNS: Record<keyof AppSettings, string> = {
   calendarFeedUrl: "calendar_feed_url",
   calendarRefreshMinutes: "calendar_refresh_minutes",
   calendarHorizonDays: "calendar_horizon_days",
+  browserStoreReapEnabled: "browser_store_reap_enabled",
+  browserStoreReapAfterDays: "browser_store_reap_after_days",
   agentBinPaths: "agent_bin_paths",
   firstRunDoneAt: "first_run_done_at",
 };
@@ -265,7 +281,8 @@ export function updateAppSettings(patch: Partial<AppSettings>): AppSettings {
       key === "discordPresenceEnabled" ||
       key === "profilePublishCost" ||
       key === "turnCheckpointsEnabled" ||
-      key === "calendarEnabled"
+      key === "calendarEnabled" ||
+      key === "browserStoreReapEnabled"
     ) {
       values.push(v == null ? null : v ? 1 : 0);
     } else {

@@ -6,6 +6,7 @@ import { reconcileDiscordPresence } from "../services/discord-presence";
 import { EFFORT_TIERS, CODEX_REASONING_EFFORTS } from "../../shared/effort";
 import { CALENDAR_HORIZON_CHOICES, CALENDAR_REFRESH_CHOICES } from "../../shared/calendar";
 import { normalizeFeedUrl, resetCalendarCache } from "../services/calendar-feed";
+import { clampBrowserStoreReapDays } from "../../shared/browser-store-reap";
 import { OUTPUT_LANGUAGES, DISCORD_DETAIL_LEVELS, AGENT_RUNTIMES } from "../../shared/types";
 
 /**
@@ -62,7 +63,7 @@ type ValidationError = { field: string; message: string };
  *  al momento della richiesta), intero, booleano. */
 type FieldRule =
   | { kind: "string"; allow?: Set<string>; allowFrom?: () => Set<string>; normalize?: (v: string) => string | null }
-  | { kind: "int"; allow?: Set<number> }
+  | { kind: "int"; allow?: Set<number>; clamp?: (n: number) => number }
   | { kind: "bool" };
 
 /**
@@ -123,6 +124,13 @@ const FIELD_RULES: Record<keyof AppSettings, FieldRule> = {
   // it is doing so.
   calendarRefreshMinutes: { kind: "int", allow: new Set<number>(CALENDAR_REFRESH_CHOICES) },
   calendarHorizonDays: { kind: "int", allow: new Set<number>(CALENDAR_HORIZON_CHOICES) },
+  // The cleanup of closed browsers' data. Removing a store cannot be undone, so
+  // it runs on a setting the person can turn off; `null` = never touched = on.
+  browserStoreReapEnabled: { kind: "bool" },
+  // A dial and not a closed set, but a bounded one: a number outside 7..365 is
+  // brought back to the nearest limit rather than refused, so a person who
+  // types 3 gets the shortest wait there is instead of an error.
+  browserStoreReapAfterDays: { kind: "int", clamp: clampBrowserStoreReapDays },
   // Where an agent CLI was pointed at by hand. The canonical writer is
   // `POST /api/providers/cli/configure`, which checks the file is there and is
   // executable before writing: a path that does not exist would register a
@@ -169,9 +177,19 @@ function parsePatch(body: Record<string, unknown>): {
     (patch as any)[key] = val;
   };
 
-  const int = (key: keyof AppSettings, v: unknown, allow?: Set<number>) => {
+  const int = (key: keyof AppSettings, v: unknown, allow?: Set<number>, clamp?: (n: number) => number) => {
     if (v === null) { (patch as any)[key] = null; return; }
-    const n = typeof v === "number" ? v : typeof v === "string" ? Number(v) : NaN;
+    const n = typeof v === "number" ? v : typeof v === "string" && v.trim() !== "" ? Number(v) : NaN;
+    if (clamp) {
+      // A bounded dial: any number is brought inside its range, only a value
+      // that is not a number at all is refused.
+      if (Number.isNaN(n)) {
+        errors.push({ field: key, message: "expected a number or null" });
+        return;
+      }
+      (patch as Record<string, unknown>)[key] = clamp(n);
+      return;
+    }
     if (!Number.isInteger(n) || n <= 0) {
       errors.push({ field: key, message: "expected a positive integer or null" });
       return;
@@ -193,7 +211,7 @@ function parsePatch(body: Record<string, unknown>): {
     const v = body[key];
     switch (rule.kind) {
       case "string": str(key, v, rule.allow ?? rule.allowFrom?.(), rule.normalize); break;
-      case "int": int(key, v, rule.allow); break;
+      case "int": int(key, v, rule.allow, rule.clamp); break;
       case "bool": bool(key, v); break;
     }
   }

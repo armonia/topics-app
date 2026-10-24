@@ -143,7 +143,10 @@ Il ponte MCP sta in `server/routes/browser-bridge.ts`.
 - **chiudere una pane non cancella il login**: alla chiusura si fa un purge
   SELETTIVO della cache, cookie e `localStorage` restano
   (`browser_purge_cache`), e c'è un reaper a scadenza per gli store non toccati
-  da giorni (`browserDataStoreReaper.ts`, `browser_reap_data_stores`);
+  da giorni (`browserDataStoreReaper.ts`, `browser_reap_data_stores`), che
+  obbedisce all'impostazione «Pulisci i dati dei browser chiusi» (menu Topics,
+  Sistema, Prestazioni; acceso a 60 giorni se nessuno l'ha toccata,
+  `shared/browser-store-reap.ts`);
 - **dimentica questo sito**: elenco dei record per dominio registrabile e
   rimozione dei soli silo scelti, sia sulla pane nativa sia sulla condivisa
   (`browser-site-data.ts`, `browserForgetSite.ts`);
