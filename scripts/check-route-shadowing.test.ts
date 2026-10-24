@@ -1061,6 +1061,14 @@ export function createThingsRouter(ctx: any) {
         { id: "eq.ts EQ6", what: "if (POST) return, then json({ ok: false }) as the refusal", lines: [MATCH, GET_PRIOR, `if (pathname === ${K}) { if (method === "POST") return json(await save(req)); return json({ ok: false, reason: "method" }); }`] },
         // browser.ts:228-242 as it is, with a POST-only route below it that refuses the other methods with a 200.
         { id: "inj.ts import-profile", what: "browser.ts:242 followed by a POST-only route with a 200 refusal", lines: [...BY_ID, 'if (pathname === "/api/browsers/import-profile") { if (method === "POST") { const body = await readJSON(req); return json({ ok: true, body }); } return json({ error: "POST required" }); }'] },
+        // A test of the method nested in the body (under an if, in a try, in a
+        // const) restricts no route: only the top statements do. With none of
+        // those the tail serves every method, as main reads it, and GET is dead.
+        { id: "adv.ts A5", what: "a DELETE test nested under if (ready), then a tail that serves", lines: [MATCH, GET_PRIOR, `if (pathname === ${K}) { if (ready) { if (method === "DELETE") return json({}); } return json({ list: [] }); }`], dead: GET4 },
+        { id: "adv.ts A7", what: "const write = method === POST, then a tail that serves", lines: [MATCH, GET_PRIOR, `if (pathname === ${K}) { const write = method === "POST"; audit(write); return json({ list: [] }); }`], dead: GET4 },
+        { id: "adv.ts A9", what: "a try { if (method === DELETE) } then a tail that serves", lines: [MATCH, GET_PRIOR, `if (pathname === ${K}) { try { if (method === "DELETE") await drop(); } catch (e) { log(e); } return json({ list: [] }); }`], dead: GET4 },
+        { id: "adv.ts A5b", what: "the same nested DELETE test, then a tail that is not a json (it hands the request on)", lines: [MATCH, GET_PRIOR, `if (pathname === ${K}) { if (ready) { if (method === "DELETE") return json({}); } return handle(req); }`], dead: GET4 },
+        { id: "adv.ts A5c", what: "a DELETE pattern before, the nested DELETE branch hands the request on: DELETE is that branch's own", lines: [MATCH, 'if (m && method === "DELETE") return json({});', `if (pathname === ${K}) { if (ready) { if (method === "DELETE") return handle(req); } return json({ list: [] }); }`], dead: { methods: ["DELETE"], line: 4 } },
         { id: "fl.ts W4", what: "case GET: fail(405) falls into the literal's case POST", lines: [MATCH, GET_PRIOR, `switch (method) { case "GET": fail(405); case "POST": if (pathname === ${K}) return json({}); }`] },
         { id: "fl3.ts W4b", what: "case GET: methodNotAllowed() falls into the literal's case POST", lines: [MATCH, GET_PRIOR, `switch (method) { case "GET": methodNotAllowed(); case "POST": if (pathname === ${K}) return json({}); }`] },
         // Checks an earlier round saw and the round-3 fix did not.
@@ -1097,6 +1105,25 @@ export function createThingsRouter(ctx: any) {
         test("the request itself, however the router names it, is still the method", () => {
           for (const req of ["req: Request", "_req: Request", "req"])
             expect(withParams(`${req}, url: URL, pathname: string, method: string`, [MATCH, `if (m) { switch (${req.replace(/:.*/, "")}.method) { case "GET": return json({}); default: break; } }`, LIT])).toEqual([[["GET"], 4]]);
+        });
+
+        // Only a prior branch taken as the winner through a switch needs the
+        // request itself (above). Everywhere else main reads the method field
+        // of any parameter as the method: the clause the literal sits in, the
+        // labels of the body's switch, the methods a function names. A dead
+        // route stays found whatever the parameter is called or typed.
+        test("adv.ts B1: the literal in case POST of switch (r.method), r untyped", () => {
+          expect(withParams("r, url: URL, pathname: string, method: string", [MATCH, "if (m) return json({});", `switch (r.method) { case "POST": if (pathname === ${K}) return json({}); }`])).toEqual([[["POST"], 4]]);
+        });
+        test("adv.ts B3: the body's switch (request.method), request: NextRequest", () => {
+          expect(withParams("request: NextRequest, url: URL, pathname: string, method: string", [MATCH, GET_PRIOR, `if (pathname === ${K}) { switch (request.method) { case "GET": return json({ list: [] }); default: return errorResponse(405, "x"); } }`])).toEqual([[["GET"], 4]]);
+        });
+        test("adv.ts B8: the body's switch (spec.method), spec a parameter: its labels name the methods", () => {
+          expect(withParams("req: Request, url: URL, pathname: string, method: string, spec: { method: string }", [MATCH, GET_PRIOR, `if (pathname === ${K}) { switch (spec.method) { case "GET": return json(await forward(spec)); } }`])).toEqual([[["GET"], 4]]);
+        });
+        test("adv.ts N1: the literal in case POST of switch (r.method), in an inner router", () => {
+          const src = `export function create(ctx: any) {\n  const inner = async function (r, url, pathname, method) {\n    ${MATCH}\n    if (m) return json({});\n    switch (r.method) { case "POST": if (pathname === ${K}) return json({}); }\n    return null;\n  };\n  return async function outer(req: Request, url: URL, pathname: string, method: string) { return inner(req, url, pathname, method); };\n}`;
+          expect(findInnerShadows(src, "a.ts", "a").map((o) => [o.methods, o.prior.line])).toEqual([[["POST"], 4]]);
         });
       });
 
