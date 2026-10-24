@@ -18,5 +18,8 @@ Lo stato di una traccia lo dà il suo test, non una casella.
   memoria in `PerfSection.tsx`, testi in `i18n-it.ts` e `i18n-en.ts`. Barra: `BrowserStoreReapRows.test.tsx`
   e il mutante M4, `typecheck:client`, `check:ui-language`, `check:typography`; screenshot chiaro e scuro
   per Attilio. Dipende da T1 e T2.
+- **T6 client vecchio e liste vuote.** La rotta della keep list risponde solo a `?levels=2` e il reaper lo
+  manda; lista vuota = -1 nel reaper e nessuno store in `stale_store_uuids`; `newest_mtime_shallow` torna
+  `None` quando un'età non si legge. Barra: il punto 12 di `specs/acceptance.md`.
 - **T5 spec e cancelli.** Questa cartella, `docs/browser-inventario.md`. Barra: il punto 9 di
   `specs/acceptance.md`.

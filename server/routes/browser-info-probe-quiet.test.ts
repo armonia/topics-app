@@ -5,7 +5,7 @@
  * `[Warn 404] Browser context not found`: 4.502 lines in the last 5 MB of the
  * production error log of 23/09, the biggest single source there, burying the
  * warnings that mean something.
- * @covers BROWSER-CHAT-01
+ * @covers BROWSER-CHAT-01, BROWSER-STORE-REAP-09
  */
 import { describe, test, expect } from "bun:test";
 import { createBrowserRouter } from "./browser";

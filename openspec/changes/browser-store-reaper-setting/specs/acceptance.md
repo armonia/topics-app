@@ -6,7 +6,7 @@ Ogni corsa è un file solo, sotto il tetto di memoria:
 `OFFLOAD=local TOPICS_GATE_SLOTS=0 ~/bin/capped 2048 300 -- bun test <file>`. Il Rust gira in CI
 (`cargo check` e `cargo test --lib` su macOS, Windows, Linux).
 
-1. `client/src/lib/browserDataStoreReaper.test.ts` esce 0 (24 test, BROWSER-STORE-REAP-01..04, 07, 08):
+1. `client/src/lib/browserDataStoreReaper.test.ts` esce 0 (26 test, BROWSER-STORE-REAP-01..04, 07..09):
    il livello 1 non chiama MAI `browser_reap_data_stores` in nessun percorso (riuscito, comando che
    lancia, keep list rotta in tre modi, impostazione non arrivata); il livello 2 è spento di default
    (null, assente, `false`, `0`, `1`, `'true'`, `'on'` restano sul livello 1); livello 2 acceso con
@@ -61,6 +61,34 @@ Ogni corsa è un file solo, sotto il tetto di memoria:
 11. Ciò che giudica l'occhio: il livello Prestazioni in chiaro e in scuro, con la seconda riga rientrata,
     attiva e disabilitata, lo conferma Attilio guardandolo. La barra verde prova che non è rotto, non
     che è giusto.
+12. Client vecchio e liste vuote (BROWSER-STORE-REAP-09), sulla testa `69ec4a5131`, un file per corsa;
+    i mutanti sono applicati a quella testa e rimessi a posto dopo ogni giro.
+    - `server/routes/browser-info-probe-quiet.test.ts` esce 0 (5 test): senza `levels=2` (nudo,
+      `levels=1`, `levels=`, `level=2`) la rotta risponde 404 `Browser context not found` senza warning;
+      con `levels=2`, la lista.
+    - `client/src/lib/browserDataStoreReaper.test.ts` esce 0 (26 test): il reaper chiede con `levels=2`;
+      una lista `[]`, o di soli id vuoti o non stringhe, torna -1 senza nessun comando, ai due livelli.
+    - `client/src/components/Sidebar/BrowserStoreReapRows.test.tsx` esce 0 (23 test): il suggerimento del
+      livello 1 dice «Accessi e cookie restano», non più «dati dei siti».
+    - Rust, `cargo test --lib reaper_degli_store` su macOS: 8 su 8. Lista vuota: nessuno store, all'età
+      che con un'altra lista lo toglie. Store di cui non si leggono i figli (permessi 000, utente non
+      root): nessuno store.
+    - Rossi prima, gli stessi test sul codice di `72699abc6e`: rotta 4 pass 1 fail, reaper 13 pass 13
+      fail, righe 22 pass 1 fail; per il Rust i mutanti R1 e R2 qui sotto sono il codice di prima.
+
+    | Mutante | Dove | Rosso in |
+    |---|---|---|
+    | N1 la rotta risponde a tutti, senza guardare `levels` | `server/routes/browser.ts` | rotta 1 fail |
+    | N2 basta un `levels` qualunque | `server/routes/browser.ts` | rotta 1 fail |
+    | N3 il reaper chiede senza `levels=2` | reaper | reaper 13 fail |
+    | N4 una lista vuota arriva a Tauri | reaper | reaper 1 fail |
+    | N5 il suggerimento di prima | `i18n-it.ts` | righe 1 fail |
+    | R1 nessuna guardia sulla lista vuota | `stale_store_uuids` | Rust 1 fail |
+    | R2 un elenco dei figli che non si legge vale «nessun figlio» | `newest_mtime_shallow` | Rust 1 fail |
+
+    Non coperti da un test, e perché: la cartella dello store la cui `metadata` fallisce si ferma prima,
+    su `path.is_dir()`, che usa la stessa chiamata; un figlio la cui `metadata` fallisce succede solo se
+    sparisce fra l'elenco e la lettura. Il `?` di `newest_mtime_shallow` copre tutti e due.
 
 ## Scenari
 

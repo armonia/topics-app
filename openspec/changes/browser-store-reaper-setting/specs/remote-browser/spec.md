@@ -155,3 +155,29 @@ store and return both switches, true and false, each independently of the other.
 #### Scenario: the two columns are independent
 - **WHEN** a PUT writes `browserStoreReapEnabled: true` on a row where level 1 was never touched
 - **THEN** the answer carries `browserStoreReapEnabled: true` and `browserStoreCacheReapEnabled: null`
+
+### Requirement: BROWSER-STORE-REAP-09 — The keep list goes only to a two-level client, and an empty list or an unreadable age removes nothing
+
+`GET /api/browsers/data-store-keep-list` SHALL answer the list only to a request
+that carries `levels=2`, which only the two-level client sends. Without it the
+request SHALL go on to `GET /api/browsers/:id` and get the 404
+`{"error":"Browser context not found"}` that a desktop shell up to 2.3.23 has
+always got: that shell brings its own client, which reads no setting, removes
+whole stores on a 200 and removes nothing on a 404. The reaper SHALL ask with
+`levels=2`. A keep list with no id SHALL remove nothing: the reaper returns -1
+before any Tauri command, and `stale_store_uuids` SHALL pick no store for an
+empty `keep_ids`. A store whose age cannot be read (its folder, the listing of
+its children, or one child) SHALL NOT be picked.
+
+#### Scenario: an old client
+- **WHEN** the keep list is asked without `levels=2` (bare, `levels=1`, `levels=`, `level=2`)
+- **THEN** the answer is 404 `{"error":"Browser context not found"}` and no warning is written
+
+#### Scenario: an empty list
+- **GIVEN** level 1, or level 1 and level 2, on
+- **WHEN** the keep list answers `[]`, or only ids that are empty or not strings
+- **THEN** the reaper returns -1 and no Tauri command is invoked
+
+#### Scenario: the Rust selection
+- **WHEN** `stale_store_uuids` gets an empty keep list, or a store whose children cannot be listed
+- **THEN** it picks no store, at any age

@@ -37,6 +37,13 @@ ancora su main, quindi è stata riscritta; nessun dato riscritto, la riga guadag
 - Il reaper legge l'impostazione a ogni avvio, prima di tutto. `off`: niente keep list, niente comando.
   `cache`: solo il comando nuovo. `all`: solo `browser_reap_data_stores`. Se il comando nuovo lancia (shell
   vecchia) torna -1 e **non** ripiega mai sulla rimozione intera.
+- **La lista solo al client nuovo.** Una shell desktop fino alla 2.3.23 porta il suo client, che non legge
+  nessuna impostazione e toglie gli store interi appena la rotta risponde 200; con un daemon già su
+  :3333 parla con questo server, e senza questo cancello il livello 2 sarebbe acceso lì. La rotta dà la
+  lista solo a `?levels=2`, che manda solo il client nuovo; senza, la richiesta prosegue verso
+  `/api/browsers/:id` e riceve il 404 di sempre, su cui quel client non tocca niente. Una lista vuota non
+  pulisce niente (il client si ferma prima di Tauri, il Rust non sceglie nessuno store), e un'età che non
+  si legge non è vecchia.
 - Server: la GET/PUT salvano e restituiscono entrambi gli interruttori (true e false); 503 quando la riga
   non si legge, come prima.
 - UI (Sistema → Prestazioni, sotto «Libera le pagine non viste…»): due righe, la seconda rientrata sotto

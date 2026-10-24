@@ -27,7 +27,7 @@
  * shell's loopback proxy, which is the production server of whoever runs the
  * test. Here no request can leave the process.
  *
- * @covers BROWSER-STORE-REAP-01, BROWSER-STORE-REAP-02, BROWSER-STORE-REAP-03, BROWSER-STORE-REAP-04, BROWSER-STORE-REAP-07, BROWSER-STORE-REAP-08
+ * @covers BROWSER-STORE-REAP-01, BROWSER-STORE-REAP-02, BROWSER-STORE-REAP-03, BROWSER-STORE-REAP-04, BROWSER-STORE-REAP-07, BROWSER-STORE-REAP-08, BROWSER-STORE-REAP-09
  */
 import { describe, test, expect, beforeEach, afterAll, mock } from 'bun:test';
 // THE REAL MODULES, TAKEN BEFORE THEY ARE REPLACED, named one by one for the
