@@ -1,8 +1,11 @@
 /**
  * The reads of `tasks` that run on a timer: the dispatcher tick, the wait
- * sweep, the status bar. They live here so server/db-sweep-plans.test.ts can
- * check their plans on the real schema (DBSLOW-03): each one has a partial
- * index (migration 20261015200000), and a full scan of `tasks` is ~1,400 pages.
+ * sweep, the status bar, the stale checks light, the stuck parents. They live
+ * here so server/db-sweep-plans.test.ts can check their plans on the real
+ * schema (DBSLOW-03). Each one has a partial index, and a full scan of `tasks`
+ * is ~1,400 pages. The first four (queued roots, working count, oldest working
+ * board, wait series) use indexes from migration 20261015200000; the checks
+ * light and the stuck parents use those of 20261024120000.
  */
 import { ACTIVE_DISPATCH_STATES } from "../../shared/board";
 
@@ -32,10 +35,10 @@ export const PARKED_IN_SERIES_SQL = `SELECT id, project_id FROM tasks
 export const CHECKS_RUNNING_SQL = "SELECT id FROM tasks WHERE checks_state = 'running'";
 
 /**
- * The chips that say an agent is here or on its way, as a SQL list. Built from
- * the canonical list so it cannot drift from the one `services/tasks.ts` uses.
+ * The dispatch chips that say an agent is here or on its way, as a SQL list.
+ * Built from `ACTIVE_DISPATCH_STATES` so it cannot drift from it.
  */
-const CHILD_AGENT_COMING = ACTIVE_DISPATCH_STATES.map((s) => `'${s}'`).join(", ");
+export const CHILD_AGENT_COMING = ACTIVE_DISPATCH_STATES.map((s) => `'${s}'`).join(", ");
 
 /**
  * Parents that look stuck behind open children, read by `sweepParkedChildren`

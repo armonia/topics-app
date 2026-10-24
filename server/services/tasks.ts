@@ -45,7 +45,7 @@ import { liveAgentCount } from "./agent-census";
 // the `TASK_STATUSES` list: whoever wants it takes it from `shared/board`.
 export type { TaskComment, BoardSettings, BoardSettingsPatch, ParkedChildrenDecision } from "../../shared/board";
 import {
-  ACTIVE_DISPATCH_STATES, ARCHIVE_PARKED_LABEL, DEPLOY_ACTION_LABEL, DISPATCH_CHIP_QUEUED, HUMAN_AUTHOR, clampGlobalCap,
+  ARCHIVE_PARKED_LABEL, DEPLOY_ACTION_LABEL, DISPATCH_CHIP_QUEUED, HUMAN_AUTHOR, clampGlobalCap,
   MAX_FANOUT, PARKED_STOPPED, PARKED_WAITED_OUT, PREVIEW_CARD_MAX_RATIO, QUEUE_REASON_UNKNOWN,
   PARKED_REQUEUE_NOTE_LIKE, PROMOTE_PARKED_LABEL, REQUEUE_PARKED_LABEL, TAKE_OVER_PARKED_LABEL, TASK_STATUSES,
   WAIT_SERIES_MAX_MS, WAIT_STREAK_CAP,
@@ -68,7 +68,7 @@ import type { Task, CreateTaskInput, UpdateTaskPatch, ListTasksInput } from "./t
 import { markTargetNotificationsSeen } from "../db/notification-log";
 import { withCardAttention } from "../attention/card-sync";
 import {
-  CHECKS_RUNNING_SQL, PARKED_CHILDREN_CANDIDATES_SQL, PARKED_IN_SERIES_SQL, QUEUED_ROOT_BOARDS_SQL,
+  CHECKS_RUNNING_SQL, CHILD_AGENT_COMING, PARKED_CHILDREN_CANDIDATES_SQL, PARKED_IN_SERIES_SQL, QUEUED_ROOT_BOARDS_SQL,
 } from "../lib/task-timer-reads";
 
 export type Actor = "human" | "agent";
@@ -2808,13 +2808,6 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
   function hasActiveChildren(taskId: string): boolean {
     return countOpenChildren(taskId) > 0;
   }
-
-  /**
-   * I tre chip che dicono «un agente è qui o sta arrivando». Dentro una stringa
-   * SQL la lista canonica di `shared/board` non ci entra: si compone da lì, così
-   * non può andare in deriva.
-   */
-  const CHILD_AGENT_COMING = ACTIVE_DISPATCH_STATES.map((s) => `'${s}'`).join(", ");
 
   /**
    * Figli che qualcuno sta davvero lavorando o sta per lavorare.
