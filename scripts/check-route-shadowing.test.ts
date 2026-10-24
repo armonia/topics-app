@@ -1046,6 +1046,17 @@ export function createThingsRouter(ctx: any) {
         // Correct code main gives no finding on (b69 and later did): a 200 can
         // refuse, a call in a clause may throw before it falls through.
         { id: "fl.ts H11", what: "the body refuses non-POST with a one-arg json", lines: [MATCH, GET_PRIOR, `if (pathname === ${K}) { if (method !== "POST") return json({ error: "POST only" }); return json({}); }`] },
+        // The mirror of H11 written with ===: a body that serves the methods it
+        // names and answers every other with a one-arg json (a 200) is
+        // correct code too, and main gives no finding on it.
+        { id: "eq.ts EQ1", what: "if (POST) return, then a 200 json refusal", lines: [MATCH, GET_PRIOR, `if (pathname === ${K}) { if (method === "POST") { save(); return json({ ok: true }); } return json({ error: "POST only" }); }`] },
+        { id: "eq.ts EQ2", what: "if (POST) return, else a 200 json refusal", lines: [MATCH, GET_PRIOR, `if (pathname === ${K}) { if (method === "POST") { return json({ ok: true }); } else { return json({ error: "POST only" }); } }`] },
+        { id: "eq.ts EQ3", what: "switch (method): case POST and a default that answers a 200 refusal", lines: [MATCH, GET_PRIOR, `if (pathname === ${K}) { switch (method) { case "POST": return json({ ok: true }); default: return json({ error: "POST only" }); } }`] },
+        { id: "eq.ts EQ4", what: "the guard form: POST returns, then a 200 json refusal", lines: [MATCH, GET_PRIOR, `if (pathname !== ${K}) return null;`, 'if (method === "POST") return json({ ok: true });', 'return json({ error: "POST only" });'] },
+        { id: "eq.ts EQ5", what: "POST || PUT return, then a Response with the default status", lines: [MATCH, GET_PRIOR, `if (pathname === ${K}) { if (method === "POST" || method === "PUT") return json({ ok: true }); return new Response("Method Not Allowed"); }`] },
+        { id: "eq.ts EQ6", what: "if (POST) return, then json({ ok: false }) as the refusal", lines: [MATCH, GET_PRIOR, `if (pathname === ${K}) { if (method === "POST") return json(await save(req)); return json({ ok: false, reason: "method" }); }`] },
+        // browser.ts:228-242 as it is, with a POST-only route below it that refuses the other methods with a 200.
+        { id: "inj.ts import-profile", what: "browser.ts:242 followed by a POST-only route with a 200 refusal", lines: [...BY_ID, 'if (pathname === "/api/browsers/import-profile") { if (method === "POST") { const body = await readJSON(req); return json({ ok: true, body }); } return json({ error: "POST required" }); }'] },
         { id: "fl.ts W4", what: "case GET: fail(405) falls into the literal's case POST", lines: [MATCH, GET_PRIOR, `switch (method) { case "GET": fail(405); case "POST": if (pathname === ${K}) return json({}); }`] },
         { id: "fl3.ts W4b", what: "case GET: methodNotAllowed() falls into the literal's case POST", lines: [MATCH, GET_PRIOR, `switch (method) { case "GET": methodNotAllowed(); case "POST": if (pathname === ${K}) return json({}); }`] },
         // Checks an earlier round saw and the round-3 fix did not.
@@ -1068,6 +1079,22 @@ export function createThingsRouter(ctx: any) {
           expect(found).toEqual(c.dead ? [c.dead] : []);
         });
       }
+
+      // A switch is a switch on the method only when it reads the method of
+      // the request itself. The field of another parameter (a router given a
+      // spec to forward) says nothing about the HTTP method: a GET whose spec
+      // differs breaks out of the switch and reaches the literal.
+      describe("a switch on the method field of a parameter", () => {
+        const withParams = (params: string, lines: string[]) => findInnerShadows(`export function create(ctx: any) {\n  return async function r(${params}) {\n    ${lines.join("\n    ")}\n    return null;\n  };\n}`, "a.ts", "a").map((o) => [o.methods, o.prior.line]);
+        const FORWARD = 'if (m) { switch (spec.method) { case "GET": return json(await forward(spec)); default: break; } }';
+        test("fl.ts F1: switch (spec.method) with a case GET that leaves, spec a parameter that is not the request", () => {
+          expect(withParams("req: Request, url: URL, pathname: string, method: string, spec: { method: string }", [MATCH, FORWARD, LIT])).toEqual([]);
+        });
+        test("the request itself, however the router names it, is still the method", () => {
+          for (const req of ["req: Request", "_req: Request", "req"])
+            expect(withParams(`${req}, url: URL, pathname: string, method: string`, [MATCH, `if (m) { switch (${req.replace(/:.*/, "")}.method) { case "GET": return json({}); default: break; } }`, LIT])).toEqual([[["GET"], 4]]);
+        });
+      });
 
       // A router handed to a wrapper is still the router (major 5).
       test("mine.ts WR1, WR2, WR4, WR5: a router passed as an argument is still judged", () => {
