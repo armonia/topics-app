@@ -15,7 +15,8 @@ orfani fermi da 60 giorni: cookie, login, dati locali dei siti. Non si annulla. 
 - `shared/browser-store-reap.ts` dice cosa significano: NULL = acceso, 60 giorni; i giorni stanno in
   7..365, fuori si riportano al limite più vicino.
 - `PUT /api/app-settings` salva l'interruttore (booleano) e i giorni già riportati nel range; un valore
-  che non è un numero è un 400.
+  che non è un numero è un 400. `GET /api/app-settings` risponde 503 quando la riga non si legge: un 200
+  con tutto NULL si leggerebbe «mai toccata», cioè acceso, anche con uno spento salvato.
 - Il reaper legge l'impostazione a ogni avvio, prima di tutto. Spento: niente keep list, niente comando
   Tauri. Impostazione non arrivata: come una keep list non arrivata, niente cancellato. Acceso: passa a
   Tauri i giorni dell'impostazione, riportati di nuovo in 7..365.
@@ -25,8 +26,8 @@ orfani fermi da 60 giorni: cookie, login, dati locali dei siti. Non si annulla. 
 
 ## Barra
 
-`specs/acceptance.md`: due file di test rossi sul codice di prima e verdi dopo, quattro mutanti rossi,
-i cancelli statici a 0, i tre typecheck a 0. Ciò che è verde resta verde.
+`specs/acceptance.md`: tre file di test verdi, rossi sul codice di prima o sui mutanti, sedici mutanti
+rossi, i cancelli statici a 0, i tre typecheck a 0. Ciò che è verde resta verde.
 
 ## Fuori
 
