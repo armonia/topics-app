@@ -448,8 +448,9 @@
     "scripts/check-route-latency.ts": 1050,
 
     "scripts/check-route-shadowing.test.ts": {
-      "lines": 1362,
+      "lines": 1367,
       "why": [
+        "2026-10-24, the mutants of the fix measured against main: 1362 -> 1367, a catch that goes on after a try whose path test held, and calls with no check verb that name a method (the loop over the method names moves off allow, now a check verb); rows, no new helpers.",
         "2026-10-24, the round-3 fix measured row by row against main: 1274 -> 1362, one row per corpus id where it was worse than main (a factory parameter, a helper's own parameter, a type or a method name taken for the request, a callback's router, a try that leaves through its catch, a refusal with !==, a clause that may throw, a check verb in snake case or allow/throw) and one per mutant of the changed code; rows, no new helpers.",
         "2026-10-24, verifiers of the round-3 fix: 1052 -> 1274, their cases transcribed one row per id (a stored read of the method, null and false as false, field names and callback parameters, the calls that check and the ones that only pass the method, a sub-router passed on or not, while and for conditions) plus one parametrized test per check verb and per method name and the injections on BY_ID; rows, no new helpers.",
         "2026-10-24, verifiers of the switch branch: 885 -> 1052, their cases transcribed one row per id (a case written as a block, a refusal or guard the gate cannot read, a tail past one, an alias of the method, a clause that cannot be shown to fall through, a function typed to answer a value) plus their whole realistic.ts router; one row per case, no new helpers.",
@@ -458,8 +459,9 @@
     },
 
     "scripts/check-route-shadowing.ts": {
-      "lines": 1345,
+      "lines": 1358,
       "why": [
+        "2026-10-24, the round-3 fix measured row by row against main: 1345 -> 1358, a parameter is the request only for the function it belongs to (not a factory around the router, not a helper inside what is read), types and method names are not reads, a try that leaves through its catch keeps its winner, a body that refuses with !== and a clause entered past a statement stay unknown as on main, and snake_case, allow and throw read as check verbs; the callback rule goes. Same walk, so it stays in this file.",
         "2026-10-24, verifiers of the round-3 fix: 1184 -> 1345, mostly the comment that lists what stays unknown and what stays a finding at a known cost; in code, a stored read of the method followed through the name it was stored in, null and false read as false, a field name or a callback parameter not taken for the request, a check told from a call that only passes the method, a sub-router passed on only when its answer is the request's, and a while or for condition read like an if. Same walk, so it stays in this file.",
         "2026-10-24, verifiers of the switch branch: 1017 -> 1184, a third flow value for a break inside the switch being followed (so a case written as a block, a labelled break or a closure in a falling clause are read as the language runs them), a mark on every outcome that depends on a read of the method the gate cannot evaluate (an alias, method.toUpperCase(), a set or a call handed the method, but not a sub-router handed the path) so an unknown refusal or guard before the winner never becomes a finding, the body's own tests read below the top, and a function typed to answer a boolean or a literal kept out as a predicate. Each is a rule of the same walk, so it stays in this file.",
         "2026-10-24, route-shadowing-gate (PR #424): 505 on main -> 1017, the check inside one router (findInnerShadows): it follows one request per method through the router's code (pathname and method only when they are the request's parameters, every name looked up the way the language scopes it, the earlier condition evaluated on the literal path, any return, throw, break or continue as leaving, a switch whose every case leaves, a match bound through a ternary on the method, a gate with no path test as the reason a method is not served, the methods the literal's own ifs, case or body refuse or switch on). It shares the path helpers and KNOWN with the claims, so it stays in this file."

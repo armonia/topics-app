@@ -973,8 +973,8 @@ export function createThingsRouter(ctx: any) {
 
       // Every name of HTTP_METHODS is a method a call can compare the method with.
       for (const name of ["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"]) {
-        test(`allow(method, "${name}") between the winner and the literal may refuse GET`, () => {
-          expect(shadowed(BETWEEN(`allow(method, "${name}");`))).toEqual([]);
+        test(`permit(method, "${name}") between the winner and the literal may refuse GET`, () => {
+          expect(shadowed(BETWEEN(`permit(method, "${name}");`))).toEqual([]);
         });
       }
 
@@ -1042,6 +1042,7 @@ export function createThingsRouter(ctx: any) {
         // A throw out of the try lands in the catch (minor 7).
         { id: "mine.ts MK3", what: "a try that leaves through a refusal of the method, with a catch that goes on", lines: BETWEEN('try { if (!WRITE.has(method)) return errorResponse(405, "x"); return json(await save()); } catch (e) { log(e); }') },
         { id: "mutrows.ts TRYC", what: "a try whose path test held, with a catch that refuses: the winner", lines: [MATCH, 'try { if (m) return json(get(m)); return json(list()); } catch (e) { if (!WRITE.has(method)) return errorResponse(405, "x"); return json({}); }', ANY], dead: ANY4 },
+        { id: "a catch that goes on", what: "a try whose path test held, with a catch that logs: a throw reaches the literal", lines: [MATCH, "try { if (m) return json(get(m)); } catch (e) { log(e); }", ANY] },
         // Correct code main gives no finding on (b69 and later did): a 200 can
         // refuse, a call in a clause may throw before it falls through.
         { id: "fl.ts H11", what: "the body refuses non-POST with a one-arg json", lines: [MATCH, GET_PRIOR, `if (pathname === ${K}) { if (method !== "POST") return json({ error: "POST only" }); return json({}); }`] },
@@ -1052,6 +1053,10 @@ export function createThingsRouter(ctx: any) {
         { id: "mine.ts CK6", what: "throwUnlessWrite(method) between the winner and the literal", lines: BETWEEN("throwUnlessWrite(method);") },
         { id: "mine.ts CK7", what: "require_post(method): a check named in snake case", lines: BETWEEN("require_post(method);") },
         { id: "mine.ts CK8", what: "allow(method, \"WRITE\") between the winner and the literal", lines: BETWEEN('allow(method, "WRITE");') },
+        // A call with no check verb that names a method: the names, not the verb.
+        { id: "a cast names a method", what: "permit(method, \"POST\" as Method) between the winner and the literal", lines: BETWEEN('permit(method, "POST" as Method);') },
+        { id: "an array that names one", what: "permit(method, [\"GET\", other]) between the winner and the literal", lines: BETWEEN('permit(method, ["GET", other]);') },
+        { id: "a list of methods", what: "permit(method, [\"POST\", \"PUT\"]) between the winner and the literal", lines: BETWEEN('permit(method, ["POST", "PUT"]);') },
         // The mutants that survived the round-3 file (major 6).
         { id: "mutrows.ts REC", what: "a closure that calls itself", lines: [MATCH, GET_PRIOR, "const retry = async (n: number): Promise<Response | null> => (n > 0 ? retry(n - 1) : null);", `if ((await retry(2)) && method === "POST" && pathname === ${K}) return json({});`] },
         { id: "mutrows.ts FOR", what: "for (; method === \"POST\";) { literal; break; }", lines: [MATCH, GET_PRIOR, `for (; method === "POST";) { if (pathname === ${K}) return json({}); break; }`] },

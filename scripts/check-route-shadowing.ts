@@ -428,13 +428,14 @@ export function findOverlaps(claimsByRouter: Map<string, Claim[]>, order: string
  * literal, when it is the literal's condition or one around it (an `if`, a
  * `while`, a switch label). `null`, `undefined` and `false` are false, so
  * `const body = method === "POST" ? await readJSON(req) : null` is false for
- * GET. The name of a field (`job.method`, `{ method: "HEAD" }`) and the
- * parameter of a callback (`calls.some((c) => c.method === "reap")`) are not
- * the request. Elsewhere such a read matters only where it may refuse the
- * method: an `if` whose condition it can make certain, on a side that then
- * ends otherwise (`if (!READ.has(method)) return 405`), or a call that checks
- * the method (`requireMethod(method, "POST")`, `assertWrite(method)`: see
- * checksMethod for the shapes). In the literal's body that method is not
+ * GET. The name of a field (`job.method`, `{ method: "HEAD" }`), a type (`as
+ * { method?: string }`) and a parameter of a function inside what is read
+ * (`calls.some((c) => c.method === "reap")`, `(method) => method.trim()`)
+ * are not the request. Elsewhere such a read matters only where it may
+ * refuse the method: an `if` whose condition it can make certain, on a side
+ * that then ends otherwise (`if (!READ.has(method)) return 405`), or a call
+ * that checks the method (`requireMethod(method, "POST")`, `assertWrite(method)`:
+ * see checksMethod for the shapes). In the literal's body that method is not
  * served. Before the literal it may be a gate, and a gate is not a finding:
  * so the method is unknown when that statement runs before the winner (`if
  * (!ALLOWED.has(method)) return 405` at the top, even under a literal that
@@ -443,18 +444,19 @@ export function findOverlaps(claimsByRouter: Map<string, Claim[]>, order: string
  * refuses nothing, nor does a sub-router before the literal whose answer is
  * passed on (`if (r) return r`, see passesOn): the routes after them are
  * judged. What stays unknown on purpose, at the cost of a dead route: a
- * sub-router's answer in the literal's body (it may be a refusal), and a
- * call named for a check (`checkLatency(method, t0)`, `ensureLogged(method)`)
- * wherever it runs. And what stays a finding although it may be a false one,
- * because the code cannot tell it from a dead route: a refusal through a
- * call handed the method and a value (`allowMethods(method, WRITE_METHODS)`
- * reads as `metrics.add(method, COUNTER)`), a 200 that refuses (`if (method
- * !== "POST") return json({ error })` reads as `if (method !== "DELETE")
- * return json(list)`), a clause that throws before falling into the
- * literal's (`case "GET": fail(405);` reads as `case "POST": log();`), an
- * alias of the request object (`const request = req`, `req["method"]`, `const
- * { method: verb } = req`), a `let` set under a method test, a rewritten
- * `url.pathname`, and a closure with a `pathname` of its own.
+ * sub-router's answer in the literal's body (it may be a refusal), a call
+ * named for a check (`checkLatency(method, t0)`, `ensureLogged(method)`)
+ * wherever it runs, a body that refuses with `!==` (`if (method !== "POST")
+ * return json({ error })` reads as `if (method !== "DELETE") return
+ * json(list)`), and a literal's clause the method falls into past a
+ * statement (`case "GET": fail(405);` reads as `case "POST": log();`). And
+ * what stays a finding although it may be a false one, because the code
+ * cannot tell it from a dead route: a refusal through a call handed the
+ * method and a value (`methodGate(method, WRITE_METHODS)` reads as
+ * `metrics.add(method, COUNTER)`), an alias of the request object (`const
+ * request = req`, `req["method"]`, `const { method: verb } = req`), a `let`
+ * set under a method test, a rewritten `url.pathname`, and a closure with a
+ * `pathname` of its own.
  * A literal that answers `true` or `false`, or sits in a function typed to
  * answer a boolean, belongs to a predicate (a guest check next to the
  * router), not to a route. "*" in a finding is a method the code does not
@@ -555,13 +557,12 @@ function reassigned(name: string, scope: ts.Node): boolean {
  * up the enclosing blocks and functions. A parameter that its function never
  * assigns, the initializer of a `const|let` declared before the use and never
  * assigned again, or another binding: destructuring, var, a reassigned let, a
- * loop or catch variable, a declaration after the use, the parameter of a
- * callback (what its caller hands it: `calls.some((c) => c.method === "reap")`
- * reads no request). Another binding declared before the use keeps its
- * initializer as `from` (`const [verb] = [method]`): what its value is made
- * of, not its value. Null when nothing in the file declares it.
+ * loop or catch variable, a declaration after the use. A parameter keeps its
+ * function. Another binding declared before the use keeps its initializer as
+ * `from` (`const [verb] = [method]`): what its value is made of, not its
+ * value. Null when nothing in the file declares it.
  */
-type Binding = { param: true } | { init: ts.Expression } | { from?: ts.Expression };
+type Binding = { param: ts.SignatureDeclaration } | { init: ts.Expression } | { from?: ts.Expression };
 const bindingCache = new WeakMap<ts.Identifier, Binding | null>();
 
 function bindingOf(id: ts.Identifier): Binding | null {
@@ -572,8 +573,7 @@ function bindingOf(id: ts.Identifier): Binding | null {
   search: for (let n = id.parent; n; child = n, n = n.parent) {
     if (ts.isFunctionLike(n)) {
       const p = n.parameters.find((q) => bindsName(q.name, name));
-      const callback = (ts.isCallExpression(n.parent) || ts.isNewExpression(n.parent)) && !!n.parent.arguments?.some((a) => a === n);
-      if (p) { found = ts.isIdentifier(p.name) && !reassigned(name, n) && !callback ? { param: true } : {}; break; }
+      if (p) { found = ts.isIdentifier(p.name) && !reassigned(name, n) ? { param: n } : {}; break; }
     }
     if ((ts.isCatchClause(n) && n.variableDeclaration && bindsName(n.variableDeclaration.name, name))
       || ((ts.isForStatement(n) || ts.isForOfStatement(n) || ts.isForInStatement(n)) && n.initializer && ts.isVariableDeclarationList(n.initializer)
@@ -603,9 +603,10 @@ function initOf(n: ts.Node): ts.Expression | null {
   return b && "init" in b ? b.init : null;
 }
 
-function isParam(n: ts.Node): boolean {
+/** The function `n` is a parameter of, if it is one. */
+function paramOf(n: ts.Node): ts.SignatureDeclaration | undefined {
   const b = ts.isIdentifier(n) ? bindingOf(n) : null;
-  return !!b && "param" in b;
+  return b && "param" in b ? b.param : undefined;
 }
 
 /**
@@ -615,8 +616,8 @@ function isParam(n: ts.Node): boolean {
  */
 function isReq(node: ts.Node, field: "pathname" | "method"): boolean {
   const n = unwrap(node);
-  if (ts.isIdentifier(n)) return n.text === field && isParam(n);
-  return ts.isPropertyAccessExpression(n) && n.name.text === field && isParam(n.expression);
+  if (ts.isIdentifier(n)) return n.text === field && !!paramOf(n);
+  return ts.isPropertyAccessExpression(n) && n.name.text === field && !!paramOf(n.expression);
 }
 
 function literalOf(node: ts.Node, depth = 0): string | null {
@@ -671,18 +672,22 @@ function isMethodValue(node: ts.Node): boolean {
 /**
  * Does `node` read the request's method anywhere inside it, itself or through
  * a name whose value is made of a read of it (`const kind =
- * methodKind(method)`, `const is = (v) => method === v`). The name of a field
- * (`job.method`, `{ method: "HEAD" }`) reads nothing.
+ * methodKind(method)`, `const is = (v) => method === v`). Field names, types
+ * and parameters of a function that starts inside `node` read nothing.
  */
 function readsMethod(node: ts.Node): boolean {
   let r = readsCache.get(node);
   if (r === undefined) {
-    const id = ts.isIdentifier(node) ? node : null;
-    const field = !!id && isFieldName(id);
-    const b = id && !field ? bindingOf(id) : null;
-    const source = b && ("init" in b ? b.init : "from" in b ? b.from : undefined);
-    r = !field && (isReq(node, "method") || (source ? readsMethod(source) : !!ts.forEachChild(node, (c) => readsMethod(c) || undefined)));
-    readsCache.set(node, r);
+    const request = (id: ts.Node, fn = paramOf(id)) => !!fn && fn.pos < node.pos;
+    const visit = (n: ts.Node): boolean => {
+      if (ts.isTypeNode(n) || (ts.isIdentifier(n) && isFieldName(n))) return false;
+      if (ts.isPropertyAccessExpression(n) && n.name.text === "method" && request(n.expression)) return true;
+      if (!ts.isIdentifier(n)) return !!ts.forEachChild(n, (c) => visit(c) || undefined);
+      const b = bindingOf(n);
+      const source = b && ("init" in b ? b.init : "from" in b ? b.from : undefined);
+      return (n.text === "method" && request(n)) || (!!source && readsMethod(source));
+    };
+    readsCache.set(node, (r = visit(node)));
   }
   return r;
 }
@@ -872,12 +877,15 @@ function flowOf(stmt: ts.Statement, req: Req, sw?: ts.SwitchStatement): Outcome 
   if (ts.isReturnStatement(stmt) || ts.isThrowStatement(stmt) || ts.isBreakStatement(stmt) || ts.isContinueStatement(stmt)) return { flow: "leaves", exit: stmt };
   if (ts.isTryStatement(stmt)) {
     // A finally that leaves (or breaks) decides. Otherwise a throw out of the
-    // try lands in the catch, and with no catch it leaves the function.
+    // try lands in the catch (with none it leaves the function). A try whose
+    // path test held wins when the catch leaves; otherwise a read of the
+    // method in the try or in the catch picks whether it goes on.
     const f = stmt.finallyBlock ? flowOf(stmt.finallyBlock, req, sw) : GOES_ON;
     if (f.flow !== "goes-on") return f;
     const t = flowOf(stmt.tryBlock, req, sw);
     const c = stmt.catchClause ? flowOf(stmt.catchClause.block, req, sw) : { flow: "leaves" as Flow };
-    return marked(t.flow === "breaks" || c.flow === "breaks" ? BREAKS : t.flow === "leaves" && c.flow === "leaves" ? t : GOES_ON, f, t, c);
+    if (t.via && c.flow === "leaves") return marked(t, f);
+    return marked(t.flow === "breaks" || c.flow === "breaks" ? BREAKS : t.flow === "leaves" && c.flow === "leaves" ? t : GOES_ON, f, c, { ...t, flow: "goes-on" });
   }
   if (ts.isSwitchStatement(stmt)) {
     const clauses = stmt.caseBlock.clauses;
@@ -920,10 +928,10 @@ function flowOf(stmt: ts.Statement, req: Req, sw?: ts.SwitchStatement): Outcome 
  * holds what a sub-router answered and the condition tests that answer and
  * nothing else the file declares (`r`, `r !== null`, `r instanceof Response`,
  * `r?.ok`): it passes that answer on. A sub-router's answer is a call that is
- * handed the request (see handsRequest) and does not check the method, or
- * such answers chained with `||` or `??`, `null` among them (`(await a(req,
- * url, pathname, method)) || (await b(...))`, the chain
- * server/route-table.ts replaces). A call handed the method and no request
+ * handed the request of the function `stmt` runs in (see handsRequest) and
+ * does not check the method, or such answers chained with `||` or `??`,
+ * `null` among them (`(await a(req, url, pathname, method)) || (await
+ * b(...))`, the chain server/route-table.ts replaces). A call handed the method and no request
  * (`methodGuard(method, WRITE_METHODS)`) routes no path: its answer may be a
  * refusal.
  */
@@ -933,18 +941,19 @@ function passesOn(stmt: ts.IfStatement): boolean {
   const r = last && ts.isReturnStatement(last) && last.expression ? unwrap(last.expression) : null;
   if (!r || !ts.isIdentifier(r) || body.slice(0, -1).some(jumps)) return false;
   if (namesIn(stmt.expression).some((n) => n.text !== r.text && bindingOf(n) !== null)) return false;
+  const fn = ts.findAncestor(stmt, ts.isFunctionLike);
   const answer = (x: ts.Node): boolean => {
     const n = unwrap(x);
     if (ts.isBinaryExpression(n) && (n.operatorToken.kind === ts.SyntaxKind.BarBarToken || n.operatorToken.kind === ts.SyntaxKind.QuestionQuestionToken)) return answer(n.left) && answer(n.right);
-    return n.kind === ts.SyntaxKind.NullKeyword || (ts.isCallExpression(n) && handsRequest(n) && !checksMethod(n));
+    return n.kind === ts.SyntaxKind.NullKeyword || (ts.isCallExpression(n) && handsRequest(n, fn) && !checksMethod(n));
   };
   const init = initOf(r);
   return !!init && answer(init);
 }
 
-/** `job.method`, `{ method: "HEAD" }`: the name of a field, not a name that is read. */
+/** `job.method`, `{ method: "HEAD" }`, `{ method() {} }`: the name of a field, not a name that is read. */
 function isFieldName(id: ts.Identifier): boolean {
-  return (ts.isPropertyAccessExpression(id.parent) || ts.isPropertyAssignment(id.parent)) && id.parent.name === id;
+  return (ts.isPropertyAccessExpression(id.parent) || ts.isPropertyAssignment(id.parent) || ts.isMethodDeclaration(id.parent)) && id.parent.name === id;
 }
 
 /** The names `node` reads, fields aside. */
@@ -954,20 +963,20 @@ function namesIn(node: ts.Node, out: ts.Identifier[] = []): ts.Identifier[] {
 }
 
 /**
- * Does `node` hand on the request other than its method: a parameter that is
+ * Does `node` hand on the request other than its method: a parameter of `fn`
+ * (not of the factory around it: `ctx.methodGuard(method, WRITES)`) that is
  * not the method (`req`, `url`, `pathname`), anywhere in it (`sub({ req, url
- * })`, `sub(req, url, method).catch(() => null)`), and not just to read its
- * method (`req.method`).
+ * })`, `sub(req, url, method).catch(() => null)`), not just its `req.method`.
  */
-function handsRequest(node: ts.Node): boolean {
-  return namesIn(node).some((n) => isParam(n) && !isReq(n, "method") && !(ts.isPropertyAccessExpression(n.parent) && n.parent.name.text === "method"));
+function handsRequest(node: ts.Node, fn: ts.Node | undefined): boolean {
+  return namesIn(node).some((n) => !!fn && paramOf(n) === fn && n.text !== "method" && !(ts.isPropertyAccessExpression(n.parent) && n.parent.name.text === "method"));
 }
 
 /** The methods a request can have, as a call that checks one names them. */
 const HTTP_METHODS = new Set(["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"]);
 
-/** The first words of the name of a call that fails on what it is handed: `assertWrite`, `requireMethod`, `onlyReads`. */
-const CHECK_VERBS = new Set(["assert", "require", "ensure", "check", "verify", "validate", "expect", "guard", "reject", "deny", "forbid", "only", "must"]);
+/** The first words of the name of a call that fails on what it is handed: `assertWrite`, `require_post`, `allowMethods`, `throwUnlessWrite`. */
+const CHECK_VERBS = new Set(["assert", "require", "ensure", "check", "verify", "validate", "expect", "guard", "reject", "deny", "forbid", "only", "must", "allow", "throw"]);
 
 /**
  * A call that may refuse the method. It is handed the method (`method`, or a
@@ -990,7 +999,7 @@ function checksMethod(call: ts.CallExpression): boolean {
     const n = unwrap(a);
     return ts.isStringLiteralLike(n) ? HTTP_METHODS.has(n.text) : ts.isArrayLiteralExpression(n) && n.elements.some(names);
   };
-  return CHECK_VERBS.has(name.split(/(?=[A-Z])/)[0]!) || call.arguments.some(names);
+  return CHECK_VERBS.has(name.split(/(?=[A-Z])|_/)[0]!) || call.arguments.some(names);
 }
 
 /** `method === "X"` (or `!==`) in `expr`, with X as written. */
@@ -1038,19 +1047,23 @@ function serving(o: Outcome): boolean {
  * POST and DELETE), a switch on the method, or `if (method === "X")` branches.
  * A method they do not name is served when the body, followed for it, leaves
  * by a return that serves (a default `return json(list)`, the `return
- * json(list)` after `if (method === "DELETE") {...}`). An `if` whose
- * condition is false for this path whatever the method is about another path
- * (the guard of account.ts:71 hands its block to four). None is served when
+ * json(list)` after `if (method === "DELETE") {...}`), unless a top `if`
+ * refuses with `!==` (it may refuse with a 200). An `if` whose condition is
+ * false for this path whatever the method is about another path (the guard
+ * of account.ts:71 hands its block to four). None is served when
  * the body, followed for it, meets a read of the method this check cannot
  * evaluate (`if (!READ.has(method)) return 405`): unknown.
  */
 function bodyServes(statements: readonly ts.Statement[], path: string): (m: string) => boolean {
   const named: string[] = [];
+  let refuses = false;
   for (const s of statements) {
     if (ts.isIfStatement(s)) {
-      const tested = [...methodTests(s.expression, EQ), ...methodTests(s.expression, NOT_EQUAL)];
+      const refused = methodTests(s.expression, NOT_EQUAL);
+      const tested = [...methodTests(s.expression, EQ), ...refused];
       if ([...tested, "*"].every((m) => truthOf(s.expression, { path, method: m }).v === false)) continue;
       named.push(...tested);
+      refuses ||= refused.length > 0;
     }
     const on = ts.isSwitchStatement(s) && switchOn(s);
     // A label that cannot be read still restricts: "?" serves no method.
@@ -1059,14 +1072,14 @@ function bodyServes(statements: readonly ts.Statement[], path: string): (m: stri
   const tests = named.length > 0 || statements.some((s) => namedMethods(s).length > 0);
   return (m) => {
     const walk = listFlow(statements, { path, method: m });
-    return !walk.method && (!tests || named.includes(m) || serving(walk));
+    return !walk.method && (!tests || named.includes(m) || (!refuses && serving(walk)));
   };
 }
 
 /**
  * Does the request run `clause` of a switch on its method: it enters there,
- * or above and falls in through clauses with no return, throw, break or
- * continue (one that has one may never fall through: unknown). A label
+ * or above and falls in through empty clauses (one with a statement may
+ * never fall through, `case "GET": fail(405);`: unknown). A label
  * before the match that cannot be read, or a switch that reads the method
  * some other way, runs for no method we can name.
  */
@@ -1076,7 +1089,7 @@ function runsClause(clause: ts.CaseClause | ts.DefaultClause, req: Req): boolean
   const at = clauses.indexOf(clause);
   const entry = switchOn(sw) === "method" ? entryOf(sw, req.method) : null;
   if (entry === null || entry < 0 || entry > at) return false;
-  return !clauses.slice(entry, at).some((c) => c.statements.some(jumps));
+  return clauses.slice(entry, at).every((c) => !c.statements.length);
 }
 
 /** A return, throw, break or continue in `node`, outside the functions it declares. */
