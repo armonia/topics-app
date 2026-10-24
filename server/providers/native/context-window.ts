@@ -269,7 +269,8 @@ export function overheadCharsFor(
   opts: { tools?: () => unknown[]; system?: string },
   identity: string,
 ): number {
-  const tools = opts.tools?.() ?? DEFAULT_TOOLS;
+  // A deferred tool is sent but kept out of the context until loaded.
+  const tools = (opts.tools?.() ?? DEFAULT_TOOLS).filter((t) => (t as { defer_loading?: boolean })?.defer_loading !== true);
   return identity.length
     + (opts.system?.length ?? 0)
     + (tools.length > 0 ? JSON.stringify(tools).length : 0);

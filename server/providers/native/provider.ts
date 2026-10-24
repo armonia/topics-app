@@ -141,6 +141,15 @@ export function compactSessionNow(session: Pick<NativeSession, "history" | "cali
   return { compacted: true, before: c.before, after: c.after };
 }
 
+/**
+ * How many times each session has been built in this process, by session key.
+ *
+ * Module-level so a provider instance that replaces another keeps counting.
+ * Never pruned: one small number per chat the process has served, and
+ * forgetting a key would hand the next rebuild an epoch the dedup already saw.
+ */
+const contextEpochs = new Map<string, number>();
+
 export function sessionIsEvictable(
   s: { abort?: unknown; lastUsedAt: number },
   now: number,
@@ -529,10 +538,20 @@ export class NativeProvider implements AIProvider {
     return tolte;
   }
 
+  /** See `AIProvider.contextEpoch`. Touching the session closes the gap in which a sweep could evict it after the route composed the turn. */
+  contextEpoch(sessionKey: string): number {
+    const built = contextEpochs.get(sessionKey) ?? 0;
+    const live = this.sessions.get(sessionKey);
+    if (!live) return built + 1;
+    live.lastUsedAt = Date.now();
+    return built;
+  }
+
   /** `messageRows`: how many of the thread's last user rows the message about to be sent is made of (see `sendChat`'s options). */
   private sessionFor(sessionKey: string, messageRows = 1): NativeSession {
     const existing = this.sessions.get(sessionKey);
     if (existing) { existing.lastUsedAt = Date.now(); return existing; }
+    contextEpochs.set(sessionKey, (contextEpochs.get(sessionKey) ?? 0) + 1);
     // La radice: il progetto della topic, poi quella dichiarata a config.
     //
     // `process.cwd()` NON è nella catena, ed è una scelta pagata: era il
