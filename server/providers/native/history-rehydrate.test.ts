@@ -375,6 +375,9 @@ describe("historyFromPersistedThread: the rebuilt history in real tokens", () =>
     const out = historyFromPersistedThread(thread);
     const realTokens = estimateChars(out, 0) / WORST_MEASURED_CHARS_PER_TOKEN;
     expect(realTokens).toBeLessThanOrEqual(windowFor("an-unknown-model") * COMPACT_AT);
+    // The cost bar: every rebuild writes this history cold to the cache, so it
+    // stays within 120k real tokens (it was about 195k at the 200k window).
+    expect(realTokens).toBeLessThanOrEqual(120_000);
     expect(out[0]).toMatchObject({ role: "user" });
   });
 });
