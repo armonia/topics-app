@@ -20,7 +20,7 @@
  * @covers BROWSER-CHAT-05
  * @covers GENUI-05
  */
-import { describe, test, expect, beforeEach, afterEach } from "bun:test";
+import { describe, test, expect, beforeEach, afterEach, spyOn } from "bun:test";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -72,6 +72,8 @@ interface HarnessOpts {
   paneAttached?: boolean | "dopo-force-open";
   /** Makes the navigation blow up (no headless browser, dead page). */
   navigateThrows?: boolean;
+  /** Makes every page evaluation reject with this message (a native delegate that gave up). */
+  evalRejects?: string;
   /**
    * Fake for the port→project resolver (task f9cf765e): defaults to "nobody
    * listens, no cwd" so the existing open-pane tests (all `https://…` URLs,
@@ -121,6 +123,7 @@ function harness(opts: HarnessOpts = {}) {
   const page = (contextId: string) => ({
     replEvaluate: async (expression: string) => {
       evaluations.push({ contextId, expression });
+      if (opts.evalRejects) throw new Error(opts.evalRejects);
       return "42";
     },
     waitForLoadState: async () => {},
@@ -1302,5 +1305,51 @@ describe("own-topic page op with no pane — the mini browser opens first", () =
     expect(second!.status).toBe(200);
     expect(h.typed("browser:navigate")).toHaveLength(1);
     expect(h.navigations).toHaveLength(1);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// A 5xx from the bridge must say WHY on the server log. A WKWebView timeout and
+// a real bug answer the same status, so without the reason in the log nobody
+// can tell them apart.
+describe("5xx del bridge — il motivo finisce nel log", () => {
+  test("eval che fallisce (delegato rigetta 'eval timeout'): 502 come prima, e una riga di warn con tool, contextId e motivo", async () => {
+    const h = harness({ evalRejects: "eval timeout" });
+    h.addTopic("t1");
+    h.contexts.push({ id: "altra-scheda" });
+    const warn = spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      const resp = await h.post("/api/topics/t1/browser/eval", { expression: "1+1", contextId: "altra-scheda" });
+
+      expect(resp!.status).toBe(502);
+      expect((await resp!.json()).error).toContain("eval timeout");
+      const lines = warn.mock.calls.map((args) => args.map(String).join(" "));
+      expect(lines).toHaveLength(1);
+      // The tool name must appear besides the reason (which itself contains "eval").
+      expect(lines[0].replace("eval timeout", "")).toContain("eval");
+      expect(lines[0]).toContain("altra-scheda");
+      expect(lines[0]).toContain("eval timeout");
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  test("open-pane con navigazione fallita (chat, 5xx): una riga di warn con il motivo che il corpo della risposta riporta", async () => {
+    const h = harness({ navigateThrows: true });
+    h.addTopic("t1");
+    const warn = spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      const resp = await h.post("/api/topics/t1/browser/open-pane", { url: "https://example.com/" });
+
+      expect(resp!.status).toBeGreaterThanOrEqual(500);
+      expect(resp!.status).toBeLessThan(600);
+      const { error } = (await resp!.json()) as { error: string };
+      const lines = warn.mock.calls.map((args) => args.map(String).join(" "));
+      expect(lines).toHaveLength(1);
+      expect(lines[0]).toContain("t1");
+      expect(lines[0]).toContain(error);
+    } finally {
+      warn.mockRestore();
+    }
   });
 });
