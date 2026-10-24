@@ -11,7 +11,8 @@
  * rebuild showed "Authorise this device" instead of the app, and ScriptRunner
  * threw on a `scripts` map that had become a list.
  *
- * So: boot the built demo, and treat any uncaught error as a failure.
+ * So: boot the built demo, open the identity menu, and treat any uncaught
+ * error, or a page that stops answering, as a failure.
  *
  *   bun run check:demo            # after build:site — reads landing/dist/app
  *   bun run check:demo -- <dir>   # any directory containing app/index.html
@@ -77,13 +78,34 @@ page.on('response', (r) => {
 });
 
 const target = `${base}/app/index.html`;
-await page.goto(target, { waitUntil: 'load' });
-await page.waitForTimeout(8000);
-const testo = (await page.locator('body').innerText()).replace(/\s+/g, ' ').trim();
-await browser.close();
-server.close();
+const problemi = [];
+let testo = '';
+try {
+  await page.goto(target, { waitUntil: 'load' });
+  await page.waitForTimeout(8000);
+  // Bounded: a page whose main thread never comes back (a mock answered with a
+  // shape the client spins on) used to hang this check for good, with no line.
+  testo = (await page.locator('body').innerText({ timeout: 20000 }).catch(() => {
+    problemi.push('the page stopped answering: no text after 20 s, the main thread is stuck');
+    return '';
+  })).replace(/\s+/g, ' ').trim();
+  // The boot alone does not read every mock: the identity band's menu asks for
+  // the address book and the friendships, and threw on `[]` while the boot
+  // stayed clean. "This Mac" is the device name the /api/auth/session mock gives.
+  if (testo) {
+    const identityRow = page.getByRole('button', { name: 'This Mac' }).first();
+    if (await identityRow.click({ timeout: 10000 }).then(() => true, () => false)) {
+      await page.waitForTimeout(2500);
+    } else {
+      problemi.push('the identity row («This Mac») is not drawn, so its menu could not be opened');
+    }
+  }
+} finally {
+  await browser.close();
+  server.close();
+}
 
-const problemi = [...errori];
+problemi.unshift(...errori);
 /* «Authorise this device» is the pairing gate: the demo has no server to pair
  * with, so reaching it means the identity mock stopped matching the client. */
 if (/Authorise this device|Autorizza questo dispositivo/.test(testo)) {

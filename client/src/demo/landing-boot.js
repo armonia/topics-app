@@ -660,6 +660,17 @@
           paired: true, as: "loopback", name: "This Mac",
           deviceId: "demo-loopback", role: "owner", personId: null,
         }));
+        // The settings row, the address book and the friendships answer with
+        // the objects the client reads, never the generic `J([])`: with an
+        // array `appSettingsApi.get()` returns undefined and the boot stops
+        // answering (check:demo never got the page text), and `people.find` /
+        // `friends.map` throw in the identity band and its menu. Settings carry
+        // `firstRunDoneAt`: the demo shows an app already in use, not the
+        // first-run sheet over it. Only the list routes: `/people/<id>` and
+        // `/app-settings/profile-token` want other shapes.
+        if (/\/app-settings(\?|$)/.test(u)) return Promise.resolve(J({ ok: true, settings: { firstRunDoneAt: "2026-01-01T00:00:00.000Z" } }));
+        if (/\/people(\?|$)/.test(u)) return Promise.resolve(J({ people: [] }));
+        if (/\/friendships(\?|$)/.test(u)) return Promise.resolve(J({ friends: [], incoming: [], outgoing: [] }));
         if (/\/auth\/devices\b/.test(u)) return Promise.resolve(J({ devices: [], requests: [] }));
         if (/\/auth\//.test(u)) return Promise.resolve(J({}));
 
