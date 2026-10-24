@@ -14,7 +14,7 @@
  * esattamente il caso limite: nessun nome è accettabile, e il messaggio deve
  * dirlo invece di elencare un insieme vuoto.
  *
- * @covers APPSET-01
+ * @covers APPSET-01, BROWSER-STORE-REAP-02, BROWSER-STORE-REAP-03
  */
 
 import { describe, expect, test, beforeAll, afterAll, beforeEach } from "bun:test";
@@ -185,5 +185,64 @@ describe("il resto della validazione non si è mosso", () => {
     const r = await put({ nonEsiste: "x", claudeEffort: "medium" });
     expect(r.status).toBe(200);
     expect(getAppSettings().claudeEffort).toBe("medium");
+  });
+});
+
+describe("the cleanup of closed browsers' data: a setting, clamped when saved", () => {
+  // Removing a browser store cannot be undone, so the reaper only runs on a
+  // setting it has read. NULL in both columns = never touched, which the
+  // reaper reads as on, 60 days (`shared/browser-store-reap.ts`).
+  beforeEach(() => {
+    updateAppSettings({ browserStoreReapEnabled: null, browserStoreReapAfterDays: null });
+  });
+
+  test("never touched: both columns are NULL, the default is the code's", async () => {
+    const req = new Request("http://localhost/api/app-settings");
+    const res = await router(req, new URL(req.url), "/api/app-settings", "GET");
+    const { settings } = await res!.json();
+    expect(settings.browserStoreReapEnabled).toBeNull();
+    expect(settings.browserStoreReapAfterDays).toBeNull();
+  });
+
+  test("the switch is stored and read back, and null clears it", async () => {
+    const off = await put({ browserStoreReapEnabled: false });
+    expect(off.status).toBe(200);
+    expect(off.body.settings.browserStoreReapEnabled).toBe(false);
+    expect(getAppSettings().browserStoreReapEnabled).toBe(false);
+
+    expect((await put({ browserStoreReapEnabled: null })).status).toBe(200);
+    expect(getAppSettings().browserStoreReapEnabled).toBeNull();
+  });
+
+  test("the switch wants a boolean, not the string 'false'", async () => {
+    const r = await put({ browserStoreReapEnabled: "false" });
+    expect(r.status).toBe(400);
+    expect(r.body.errors[0].field).toBe("browserStoreReapEnabled");
+    expect(getAppSettings().browserStoreReapEnabled).toBeNull();
+  });
+
+  test("days inside 7..365 are stored as they are", async () => {
+    for (const days of [7, 30, 90, 365]) {
+      expect((await put({ browserStoreReapAfterDays: days })).status).toBe(200);
+      expect(getAppSettings().browserStoreReapAfterDays).toBe(days);
+    }
+  });
+
+  test("days outside 7..365 are brought back to the nearest limit, not refused", async () => {
+    const cases: Array<[number, number]> = [[3, 7], [0, 7], [-10, 7], [366, 365], [1000, 365]];
+    for (const [written, kept] of cases) {
+      const r = await put({ browserStoreReapAfterDays: written });
+      expect(r.status).toBe(200);
+      expect(r.body.settings.browserStoreReapAfterDays).toBe(kept);
+      expect(getAppSettings().browserStoreReapAfterDays).toBe(kept);
+    }
+  });
+
+  test("a value that is not a number is a 400, and nothing is written", async () => {
+    await put({ browserStoreReapAfterDays: 90 });
+    const r = await put({ browserStoreReapAfterDays: "many" });
+    expect(r.status).toBe(400);
+    expect(r.body.errors[0].field).toBe("browserStoreReapAfterDays");
+    expect(getAppSettings().browserStoreReapAfterDays).toBe(90);
   });
 });
