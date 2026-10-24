@@ -409,6 +409,11 @@ describe('commandRisk: the second step', () => {
     }
   });
 
+  test('past a delimiter the next line starts after its line end, whatever ends it', () => {
+    // A regex's `$` ends a line at U+2028 too: what follows is read as code, not glued to the line end.
+    expect(kinds('cat <<A\nx\nA\u2028rm -rf y')).toEqual(['rm']);
+  });
+
   // commandRisk runs on every render of a runnable block: its cost grows with
   // the text, not with how deep the quotes and wrappers nest. Each of these
   // took from 0.1 s to minutes before. Two checks, because each misses what
@@ -440,6 +445,9 @@ describe('commandRisk: the second step', () => {
     ['{-,-} '],
     // A delimiter that no line closes, each time a new one: a memo of the ones not found does not help.
     [(k) => `cat <<A${k}\n`],
+    // Four heredocs a line, each closed by the next `A`: thousands of lines `A`, and the first one past
+    // `pos` must be found without walking those before it.
+    ['<<A<<A<<A<<A\nA\nA\nA\nA\n'],
   ];
 
   test('every case of the growth checks has a label of its own', () => {
