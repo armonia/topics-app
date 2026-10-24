@@ -128,6 +128,41 @@ describe("createLiveTerminals", () => {
     expect(asked()).toBe(2);
   });
 
+  it("Terminal.app in timeout: una riga sola per stato, senza l'oggetto errore; il rientro si annuncia una volta", async () => {
+    // The shape osascript really rejects with when the kill arrives: a multi-line message, no stderr.
+    const killed = Object.assign(
+      new Error('Command failed: osascript -e tell application "Terminal"\n  return (count of windows)\nend tell'),
+      { killed: true, signal: "SIGTERM", code: null },
+    );
+    const answers: Record<string, string | Error> = { osascript: killed };
+    const { run, calls } = fakeRunner(answers);
+    const logs: Array<{ msg: string; err?: unknown }> = [];
+    let t = 1_000;
+    const svc = createLiveTerminals({
+      topics: () => [], topicsScreen: async () => null, topicsSend: () => true,
+      run, now: () => t, ttlMs: 0, sources: { tmux: false, terminal: true },
+      log: (msg, err) => { logs.push({ msg, err }); },
+    });
+    const asked = () => calls.filter(([f]) => f === "osascript").length;
+    // Five timeouts in a row, each one past the pause, so osascript really runs every time.
+    for (let i = 0; i < 5; i++) {
+      await svc.list({ force: true });
+      t += 61_000;
+    }
+    expect(asked()).toBe(5);
+    expect(logs.length).toBe(1);
+    expect(logs[0].msg).not.toContain("\n");
+    expect(logs[0].err).toBeUndefined();
+    expect(logs[0].msg).toMatch(/ucciso dopo 1500 ms/);
+    expect(logs[0].msg).toMatch(/Automazione/);
+    // Terminal.app answers again: one line saying so, nothing more.
+    answers.osascript = "";
+    await svc.list({ force: true });
+    expect(logs.length).toBe(2);
+    expect(logs[1].msg).toMatch(/di nuovo raggiungibile/);
+    expect(logs[1].err).toBeUndefined();
+  });
+
   it("tmux: testo letterale e Invio in due chiamate, così «Enter» scritto resta testo", async () => {
     const { run, calls } = fakeRunner({});
     const svc = createLiveTerminals({
