@@ -1,7 +1,23 @@
 [
   {
-    "version": "2.3.17",
+    "version": "2.3.18",
     "date": "2026-10-24",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Topics affidabile: i riavvii non fanno più perdere sessioni Claude (#418)",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
+    "version": "2.3.17",
+    "date": "2026-10-23",
     "sections": {
       "new": [],
       "fixes": [],
