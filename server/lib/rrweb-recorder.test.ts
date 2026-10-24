@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { readFileSync } from "node:fs";
+import { readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { assertRrwebVersionsMatch, getRrwebRecorderSource, readLockedRrwebVersion } from "./rrweb-recorder";
 
@@ -22,4 +22,15 @@ test("the shared recorder matches the installed rrweb package and lockfile", () 
   expect(browserRoute).toContain("getRrwebRecorderSource()");
   expect(getRrwebRecorderSource()).toBe(installedRecorder);
   expect(getRrwebRecorderSource()).toBe(getRrwebRecorderSource());
+});
+
+// A compiled binary only carries the files the bundler saw, so the recorder must
+// be an import the bundler follows, not a runtime readFileSync from import.meta.dir.
+test("a bundled server ships the recorder file as an asset", async () => {
+  const r = await Bun.build({ entrypoints: [join(import.meta.dir, "rrweb-recorder.ts")], target: "bun" });
+  expect(r.success).toBe(true);
+
+  const recorderSize = statSync(join(ROOT, "server", "assets", "rrweb.min.js")).size;
+  const assets = r.outputs.filter((artifact) => artifact.kind === "asset");
+  expect(assets.map((artifact) => artifact.size)).toContain(recorderSize);
 });
