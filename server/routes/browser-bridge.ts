@@ -50,7 +50,7 @@ import { resolveAgentNavUrl } from "../browser-tools-handler";
 import { nativeDelegateRegistry } from "../browser-native-delegate";
 import { collectLiveContextIds, listBrowserTabs, type TabInventoryDeps } from "../browser-tab-inventory";
 import { agentAuthOk } from "../lib/agent-auth";
-import { warnBridgeServerError } from "../lib/browser-bridge-warn";
+import { bridgeErrorText, warnBridgeServerError } from "../lib/browser-bridge-warn";
 import { taskTabContextId, slugTabName } from "../../shared/task-tab-context";
 import { checkPortOwnership, formatPortWarning, realPortOwnerDeps, type PortOwnerDeps } from "../lib/port-project-owner";
 import { isGlobalOrchestratorSession, isGlobalOrchestratorTopic } from "../services/global-orchestrator-session";
@@ -234,10 +234,13 @@ export function createBrowserBridgeRouter(
    * counts.
    */
   async function openPaneAnswer(opts: OpenPaneFlowOptions): Promise<Response> {
-    const res = await openPaneFlow(opts);
+    // A navigation that threw is logged from the thrown value, not from the
+    // body: an Error with an empty message then logs its name.
+    const thrown: { reason?: unknown; seen: boolean } = { seen: false };
+    const res = await openPaneFlow({ ...opts, onNavigationThrow: (reason) => { thrown.reason = reason; thrown.seen = true; } });
     if (res.status >= 500) {
-      const body = (await res.clone().json().catch(() => null)) as { error?: unknown } | null;
-      warnBridgeServerError("browser_open", opts.contextId, res.status, body?.error ?? res.statusText);
+      const body = thrown.seen ? null : (await res.clone().json().catch(() => null)) as { error?: unknown } | null;
+      warnBridgeServerError("browser_open", opts.contextId, res.status, thrown.seen ? thrown.reason : body?.error ?? res.statusText);
     }
     return res;
   }
@@ -583,9 +586,9 @@ export function createBrowserBridgeRouter(
           }
           return json(result as Record<string, unknown>);
         } catch (e: unknown) {
-          const msg = e instanceof Error ? e.message : String(e);
-          warnBridgeServerError("browser_import_chrome", target.contextId, 500, msg);
-          return json({ error: msg }, 500);
+          // The whole error to the log line, so an empty message falls back to its name.
+          warnBridgeServerError("browser_import_chrome", target.contextId, 500, e);
+          return json({ error: bridgeErrorText(e) }, 500);
         }
       }
     }
@@ -694,9 +697,8 @@ export function createBrowserBridgeRouter(
           }
           return json(result);
         } catch (e: unknown) {
-          const msg = e instanceof Error ? e.message : String(e);
-          warnBridgeServerError(toolName, contextId, 500, msg);
-          return json({ error: msg }, 500);
+          warnBridgeServerError(toolName, contextId, 500, e);
+          return json({ error: bridgeErrorText(e) }, 500);
         }
       }
     }
@@ -720,7 +722,7 @@ export function createBrowserBridgeRouter(
           return json({ tabs });
         } catch (e: unknown) {
           warnBridgeServerError("browser_list_tabs", own ?? "-", 500, e);
-          return json({ error: e instanceof Error ? e.message : String(e) }, 500);
+          return json({ error: bridgeErrorText(e) }, 500);
         }
       }
     }

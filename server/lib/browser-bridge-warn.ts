@@ -16,6 +16,23 @@ export function warnBridgeServerError(tool: string, contextId: string, status: n
 
 const REASON_MAX = 500;
 
+/** What a reason that cannot become text prints as, in the line and in the body. */
+const UNPRINTABLE = "(unprintable)";
+
+/**
+ * The text of a thrown value for the body of a 5xx: an Error gives its
+ * message ("" when it has none), anything else its `String()`.
+ * It never throws. It runs inside the catch that sends the answer, and a throw
+ * there leaves the request with no answer at all. Page code can throw anything:
+ * an object with no prototype, a revoked Proxy, an Error whose message is a
+ * BigInt or a getter that throws.
+ */
+export function bridgeErrorText(reason: unknown): string {
+  const error = asError(reason);
+  if (error) return fieldText(error, "message") ?? "";
+  return textOf(reason) ?? UNPRINTABLE;
+}
+
 /**
  * The first non-empty line of the reason, with no escape sequence, control or
  * format character left: the page writes eval error messages, and an ESC on
@@ -23,14 +40,50 @@ const REASON_MAX = 500;
  * VT, FF, U+0085 and U+2028/U+2029 end a line: a log viewer splits on them,
  * and what follows is page data. A line of format characters only (ZWSP,
  * BiDi marks) is empty.
- * An Error with nothing in its message falls back to its name; any other
- * empty reason (an HTTP status text can be "") prints as "(empty)".
+ * An Error with nothing readable in its message falls back to its name, then
+ * to "Error"; any other empty reason (an HTTP status text can be "") prints as
+ * "(empty)", and one with no text at all as "(unprintable)". Like
+ * `bridgeErrorText`, it never throws.
  */
 function bridgeReasonLine(reason: unknown): string {
-  const line = reason instanceof Error
-    ? firstNonEmptyLine(reason.message) || firstNonEmptyLine(reason.name) || "Error"
-    : firstNonEmptyLine(String(reason)) || "(empty)";
+  const error = asError(reason);
+  let line: string;
+  if (error) {
+    line = firstNonEmptyLine(fieldText(error, "message") ?? "") || firstNonEmptyLine(fieldText(error, "name") ?? "") || "Error";
+  } else {
+    const text = textOf(reason);
+    line = text === null ? UNPRINTABLE : firstNonEmptyLine(text) || "(empty)";
+  }
   return cutKeepingPairs(line, REASON_MAX);
+}
+
+/** The reason as an Error, or null. `instanceof` itself throws on a revoked Proxy. */
+function asError(reason: unknown): Error | null {
+  try {
+    return reason instanceof Error ? reason : null;
+  } catch {
+    return null;
+  }
+}
+
+/** `String(value)`, or null when that throws (no prototype, a throwing `toString`, a revoked Proxy). */
+function textOf(value: unknown): string | null {
+  try {
+    return String(value);
+  } catch {
+    return null;
+  }
+}
+
+/** A field of the error as text; null when it is missing (null, undefined), its getter throws, or it cannot become text. */
+function fieldText(error: Error, key: "message" | "name"): string | null {
+  let value: unknown;
+  try {
+    value = error[key];
+  } catch {
+    return null;
+  }
+  return value == null ? null : textOf(value);
 }
 
 /**

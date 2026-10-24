@@ -11,6 +11,7 @@ import type { BrowserService } from "../browser-service";
 import type { OutboundMessage } from "../../shared/ws-outbound";
 import { dispatchBrowserToolCallByContext } from "../browser-tool-dispatcher";
 import { blankPaneFailure, settledUrl } from "../lib/pane-nav-outcome";
+import { bridgeErrorText } from "../lib/browser-bridge-warn";
 
 /** What the sequence needs from the router that owns the sockets and the topics. */
 export interface OpenPaneFlowDeps {
@@ -44,6 +45,8 @@ export interface OpenPaneFlowOptions {
    * failure in `warning` instead, which is the same information without the lie.
    */
   navigationFatal?: boolean;
+  /** Told what the navigation threw, before the 500 goes out: the route logs it. */
+  onNavigationThrow?: (reason: unknown) => void;
 }
 
 export function makeOpenPaneFlow(deps: OpenPaneFlowDeps) {
@@ -138,8 +141,11 @@ export function makeOpenPaneFlow(deps: OpenPaneFlowDeps) {
       if (typeof result?.url === "string" && result.url) resolvedUrl = settledUrl(url, result.url);
       pageTitle = typeof result?.title === "string" ? result.title : "";
     } catch (e: unknown) {
-      const msg = e instanceof Error ? e.message : String(e);
-      if (opts.navigationFatal !== false) return json({ error: msg }, 500);
+      const msg = bridgeErrorText(e);
+      if (opts.navigationFatal !== false) {
+        opts.onNavigationThrow?.(e);
+        return json({ error: msg }, 500);
+      }
       navError = msg;
     }
     // THE ANSWER IS THE PANE'S, NOT THE REQUEST'S: a view left on the blank page
