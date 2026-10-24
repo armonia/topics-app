@@ -384,6 +384,10 @@ describe('commandRisk: the second step', () => {
     ['(- kill -9 99999)', 'kill'],
     ['if true { rm -rf x }', 'rm'],
     ['{rm,-rf,x}', 'rm'],
+    // Bash expands `{a,b}` in every word before it runs the command, not only in its name.
+    ['rm {-rf,x}', 'rm'],
+    ['{nohup,rm} {-rf,x}', 'rm'],
+    ["{nohup,eval} '$(rm -rf x)'", 'rm'],
   ];
   for (const [command, kind] of thirdReview) {
     test(`${JSON.stringify(command)} asks (${kind})`, () => {
@@ -415,14 +419,27 @@ describe('commandRisk: the second step', () => {
   // array for each word or a regex that backtracks. The time sees those, but
   // compared so a busy machine cannot fake growth: a large text against
   // sixteen small ones of the same total length.
-  const fill = (size: number, unit: string, before = '', after = '') =>
-    before + unit.repeat(Math.floor((size - before.length - after.length) / unit.length)) + after;
-  const label = (unit: string, before = '', after = '') => JSON.stringify(`${before}${unit}${unit}...${after}`);
-  const growthCases: Array<[string, string?, string?]> = [
+  // A unit is repeated as it is, or, as a function, written anew each time: `cat <<A0`, `cat <<A1`...
+  type Unit = string | ((k: number) => string);
+  const fill = (size: number, unit: Unit, before = '', after = '') => {
+    if (typeof unit === 'string') return before + unit.repeat(Math.floor((size - before.length - after.length) / unit.length)) + after;
+    let body = '';
+    for (let k = 0; before.length + body.length + unit(k).length + after.length <= size; k++) body += unit(k);
+    return before + body + after;
+  };
+  const label = (unit: Unit, before = '', after = '') => {
+    const [first, second] = typeof unit === 'string' ? [unit, unit] : [unit(0), unit(1)];
+    return JSON.stringify(`${before}${first}${second}...${after}`);
+  };
+  const growthCases: Array<[Unit, string?, string?]> = [
     ['"$('], ['$('], ['${'], ['"${'], ['eval ', '', 'true'], ['eval ', '', `"'"`], ['nohup ', "'"], ['ssh h ', '', "'a b'"],
     ['echo rm -rf x | sh | '], ['cat <<A\n'], ['if { '], ['`a` '],
     // One long word that ends with a slash: a basename regex can backtrack on it.
     ['x', '', '/'],
+    // `-` runs the command after it (zsh), so each `{-,-}` becomes the command's name in turn.
+    ['{-,-} '],
+    // A delimiter that no line closes, each time a new one: a memo of the ones not found does not help.
+    [(k) => `cat <<A${k}\n`],
   ];
 
   test('every case of the growth checks has a label of its own', () => {
