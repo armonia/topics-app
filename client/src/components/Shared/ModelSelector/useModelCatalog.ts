@@ -217,22 +217,16 @@ export function buildModelCatalog(
   }
 
   // Generations (§3.4): a declared one wins; otherwise the newest version of
-  // each family of the same company is current, the rest are older. A provider
-  // only knows its own list: Claude Code, whose CLI does not list Haiku 5.5
-  // yet, declares Haiku 4.5 «current» while the engine serves 5.5. So a
-  // declared «current» still yields to a newer version of the same family that
-  // no provider declared anything about (two providers' own «current» claims,
-  // like Codex's four GPT-6 rows, stand); a declared «older» is never promoted.
+  // each family of the same company is current, the rest are older.
   const list = [...rows.values()];
   const versions = new Map(list.map((row) => [row.key, familyVersion(row.key)]));
   for (const row of list) {
     const stated = declared.get(row.key);
-    if (stated === 'older') { row.older = true; continue; }
+    if (stated) { row.older = stated === 'older'; continue; }
     const mine = versions.get(row.key)!;
-    if (!mine.version) { if (stated) row.older = false; continue; }
+    if (!mine.version) continue;
     row.older = list.some((other) => {
       if (other === row || other.maker !== row.maker) return false;
-      if (stated && declared.has(other.key)) return false;
       const theirs = versions.get(other.key)!;
       return theirs.family === mine.family && !!theirs.version && compareVersions(theirs.version, mine.version!) > 0;
     });

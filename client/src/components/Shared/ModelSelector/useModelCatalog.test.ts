@@ -54,30 +54,21 @@ describe('one row per model, grouped by company (MSEL-02)', () => {
   });
 });
 
-describe('Haiku 5.5 is current, Haiku 4.5 older', () => {
-  const claudeCode = (models: string[], older: string[]) => entry('claude-code', 'Claude Code', models, {
-    modelInfo: Object.fromEntries(models.map((id) => [id, { generation: older.includes(id) ? 'older' as const : 'current' as const }])),
-  });
-  const API = entry('claude', 'Claude API', ['claude-haiku-5-5', 'claude-haiku-4-5'], { capabilities: ['streaming'] });
-
-  test('the CLI lists both: 5.5 among the current rows, 4.5 folded under the older ones', () => {
-    const cc = claudeCode(['claude-opus-5-5', 'claude-haiku-5-5', 'claude-haiku-4-5'], ['claude-haiku-4-5']);
-    const anthropic = group(buildModelCatalog(snapshotOf([cc]), 'chat', AUTO), 'anthropic');
-    expect(labels(anthropic.rows)).toEqual(['Opus 5.5', 'Haiku 5.5']);
-    expect(labels(anthropic.older)).toEqual(['Haiku 4.5']);
+describe('a provider listing a newer version does not demote what another declared current', () => {
+  test('OpenAI API lists gpt-6.2-sol: the four Codex rows stay current', () => {
+    const openai = entry('openai', 'OpenAI API', ['gpt-6.2-sol'], { capabilities: ['streaming'] });
+    const rows = group(buildModelCatalog(snapshotOf([CLAUDE_CODE, CODEX_ENTRY, openai, ENGINE]), 'chat', AUTO), 'openai');
+    for (const label of ['GPT-6.1-Sol', 'GPT-6-Astra', 'GPT-6-Sol', 'GPT-6-Luna']) expect(labels(rows.rows)).toContain(label);
+    expect(labels(rows.older)).not.toContain('GPT-6.1-Sol');
+    expect(labels(rows.older)).not.toContain('GPT-6-Sol');
   });
 
-  test('a provider whose own list is stale (declares 4.5 current) yields to the 5.5 another one serves', () => {
-    const stale = claudeCode(['claude-opus-5-5', 'claude-haiku-4-5'], []);
-    const anthropic = group(buildModelCatalog(snapshotOf([stale, API]), 'chat', AUTO), 'anthropic');
-    expect(labels(anthropic.rows)).toContain('Haiku 5.5');
-    expect(labels(anthropic.rows)).not.toContain('Haiku 4.5');
-    expect(labels(anthropic.older)).toEqual(['Haiku 4.5']);
-  });
-
-  test('two providers each declaring their own current rows keep them (Codex GPT-6 family)', () => {
-    const openai = group(buildModelCatalog(MEASURED, 'chat', AUTO), 'openai');
-    expect(labels(openai.rows)).toEqual(['GPT-6.1-Sol', 'GPT-6-Astra', 'GPT-6-Sol', 'GPT-6-Luna']);
+  test('OpenRouter lists claude-opus-5.6 and the Claude API claude-opus-10: Opus 5.5 of Claude Code stays current', () => {
+    const openrouter = entry('direct-openrouter', 'OpenRouter', ['anthropic/claude-opus-5.6'], { capabilities: ['streaming'] });
+    const api = entry('claude', 'Claude API', ['claude-opus-10'], { capabilities: ['streaming'] });
+    const anthropic = group(buildModelCatalog(snapshotOf([CLAUDE_CODE, openrouter, api, ENGINE]), 'chat', AUTO), 'anthropic');
+    expect(labels(anthropic.rows)).toContain('Opus 5.5');
+    expect(labels(anthropic.older)).not.toContain('Opus 5.5');
   });
 });
 
