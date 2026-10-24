@@ -2853,6 +2853,11 @@ numero», non uno zero.
 - **GIVEN** un modello di cui non si conosce il listino
 - **THEN** NON SHALL essere mostrato nessun moltiplicatore
 
+#### Scenario: il moltiplicatore viene dal listino fast del modello
+- **GIVEN** Opus 5.5, con prezzo standard $4/$20 e fast mode $8/$40 (Opus 5 e 4.8: $5/$25 e $10/$50)
+- **THEN** il moltiplicatore SHALL essere 2, non 2,5
+- **AND** un modello senza riga fast (Opus 4.7, Sonnet) NON SHALL avere nessun numero
+
 ### Requirement: FAST-MODE-04 — Un comando che non si può usare NON occupa una riga
 
 Quando la riga di comando dichiara che la modalità rapida NON è disponibile — ad

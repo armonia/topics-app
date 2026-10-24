@@ -42,6 +42,12 @@ export interface ProjectUsageRow {
    * understated, not just the total.
    */
   unpricedMessages: number;
+  /**
+   * Message rows whose cost is an ESTIMATE: Haiku 5.5 turns over 100k tokens of
+   * prompt, repriced after the fact without their calls one by one (migration
+   * 20261024180000). Included in `costUsd`, as an upper bound.
+   */
+  estimatedMessages: number;
 }
 
 /** What the money figure does not include, and why. */
@@ -63,6 +69,8 @@ export interface ProjectUsageCost {
      *  were billed at zero. Same list as `status.server.unpricedModels`. */
     models: string[];
   };
+  /** Dollars inside the total that are an upper-bound estimate, and how many messages carry them. */
+  estimated: { messages: number; usd: number };
 }
 
 /** What `projectUsage()` computes, before the route wraps it. */

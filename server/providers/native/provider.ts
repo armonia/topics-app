@@ -863,7 +863,7 @@ export class NativeProvider implements AIProvider {
         // No double count: this door ACCUMULATES per round, while `onDone`
         // hands over the turn total and the route ASSIGNS it at finalize.
         onRoundUsage: (u) => {
-          recordTurnUsage(sessionKey, u);
+          recordTurnUsage(sessionKey, u, turnModel);
           try { handler.onCallUsage?.({ ...toProviderUsage(u), model: turnModel }); }
           catch { /* the measurement never stops the work */ }
         },
