@@ -200,3 +200,78 @@ describe("card squashata: il contenuto e' su main ma lo sha no", () => {
     }
   }, 30_000);
 });
+
+/**
+ * SQUASH GIA' SU MAIN, RAMO ANCORA VIVO (card e9226ab7, PR #433).
+ *
+ * `gh pr merge --squash` mette il lavoro su main con un commit nuovo: i commit
+ * del ramo non sono antenati di main, `ahead` resta > 0 e il land andava
+ * avanti fino al checkout condiviso sporco, rispondendo «dirty-checkout» per un
+ * lavoro che era gia' tutto su main.
+ */
+describe("squash gia' su main, ramo vivo", () => {
+  /** main + a branch with two files; the branch is NOT merged: main gets a squash. */
+  function repoWithSquashedBranch(): { repo: string; branch: string } {
+    const repo = mkdtempSync(join(tmpdir(), "land-squash-"));
+    git(repo, "init", "-q", "-b", "main");
+    git(repo, "config", "user.email", "t@t.t");
+    git(repo, "config", "user.name", "t");
+    commit(repo, "base.txt", "base\n", "base");
+    commit(repo, "tracked.txt", "v0\n", "tracked");
+    const branch = "topics/squash-test";
+    git(repo, "checkout", "-q", "-b", branch);
+    commit(repo, "a.txt", "a\n", "work a");
+    commit(repo, "b.txt", "b\n", "work b");
+    git(repo, "checkout", "-q", "main");
+    // Squash: same content, one new commit, branch commits not ancestors.
+    git(repo, "merge", "--squash", branch);
+    git(repo, "commit", "-q", "-m", "squash of the card (#1)");
+    // The shared checkout is dirty on a tracked file.
+    writeFileSync(join(repo, "tracked.txt"), "someone else's WIP\n");
+    return { repo, branch };
+  }
+
+  test("contenuto del ramo gia' su main: «nothing», non «dirty-checkout»", async () => {
+    const { repo, branch } = repoWithSquashedBranch();
+    try {
+      const res = await land(repo, branch).tryMerge("t-sq-1", "Card squashata");
+      expect(res.status).toBe("nothing");
+    } finally {
+      rmSync(repo, { recursive: true, force: true });
+    }
+  }, 30_000);
+
+  test("main ha cambiato UN file del ramo dopo lo squash: si prosegue come prima (qui il riallineamento va in «conflict»)", async () => {
+    const { repo, branch } = repoWithSquashedBranch();
+    try {
+      // Commit a change to a.txt only; the dirty tracked.txt stays uncommitted.
+      writeFileSync(join(repo, "a.txt"), "a changed on main\n");
+      git(repo, "add", "a.txt");
+      git(repo, "commit", "-q", "-m", "later edit of a");
+      const res = await land(repo, branch).tryMerge("t-sq-2", "Card squashata");
+      // Content differs, so the shortcut must NOT fire: the land goes on and
+      // realigning the branch on main hits the add/add conflict on a.txt.
+      expect(res.status).not.toBe("nothing");
+      expect(res.status).toBe("conflict");
+    } finally {
+      rmSync(repo, { recursive: true, force: true });
+    }
+  }, 30_000);
+
+  test("il ramo ha lavoro NON su main: nessuna regressione, «dirty-checkout»", async () => {
+    const { repo, branch } = repoWithSquashedBranch();
+    try {
+      // Add real work to the branch via a side worktree, keeping the checkout on main.
+      const wt = mkdtempSync(join(tmpdir(), "land-squash-wt-"));
+      git(repo, "worktree", "add", "-q", "-f", wt, branch);
+      commit(wt, "c.txt", "new work\n", "work c");
+      git(repo, "worktree", "remove", "--force", wt);
+      const res = await land(repo, branch).tryMerge("t-sq-3", "Card squashata");
+      expect(res.status).toBe("skipped");
+      if (res.status !== "skipped") return;
+      expect(res.code).toBe("dirty-checkout");
+    } finally {
+      rmSync(repo, { recursive: true, force: true });
+    }
+  }, 30_000);
+});

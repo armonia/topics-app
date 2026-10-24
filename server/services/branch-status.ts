@@ -255,6 +255,26 @@ async function statusOfExistingRef(repoPath: string, ref: string, mainRef: strin
   return differs === 0 ? "merged" : "unmerged";
 }
 
+/**
+ * Content check for a branch whose commits are not ancestors of `mainRef`
+ * (squash-merged PR): true when every real source file the branch changed since
+ * its merge-base is identical on `mainRef`. An empty file list (nothing but
+ * generated noise, or nothing at all) is NOT proof, so it answers false.
+ * Same principle as `commitStatusFromRepo` (3), applied to a whole branch.
+ */
+export async function branchContentIsOnMain(
+  repoPath: string,
+  branch: string,
+  mainRef = "main",
+  runGit?: GitRunner,
+): Promise<boolean> {
+  const changed = filterUniqueSourceFiles(
+    (await gitOut(repoPath, ["diff", "--name-only", `${mainRef}...${branch}`], runGit)).split("\n"),
+  );
+  if (changed.length === 0) return false;
+  return (await gitExit(repoPath, ["diff", "--quiet", branch, mainRef, "--", ...changed], runGit)) === 0;
+}
+
 /** Quanto ha prodotto un worktree rispetto al punto in cui ha forkato. */
 export interface WorktreeDiffStat {
   /** Il commit PROPRIO più recente, o `null` se il worktree non ne ha nessuno. */
