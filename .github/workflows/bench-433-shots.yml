@@ -23,7 +23,7 @@ jobs:
       - uses: actions/checkout@v5
         with:
           path: redesign
-          ref: d2c21279bec27759af18284554cdc1e4f0410fd5
+          ref: d202132b37ac9778c6f9bdfb3f935087e4c856d0
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version-file: bench/.bun-version
@@ -34,7 +34,7 @@ jobs:
           path: |
             oggi/landing/public/app
             redesign/landing/public/app
-          key: demo433-dbcd936c6b2843866a3a72f4c6eb7104572c29d8-d2c21279bec27759af18284554cdc1e4f0410fd5-${{ hashFiles('bench/bench433/patch-demo.mjs') }}
+          key: demo433-dbcd936c6b2843866a3a72f4c6eb7104572c29d8-d202132b37ac9778c6f9bdfb3f935087e4c856d0-${{ hashFiles('bench/bench433/patch-demo.mjs') }}
       - name: Build both demos
         if: steps.demos.outputs.cache-hit != 'true'
         run: |
