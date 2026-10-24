@@ -233,21 +233,21 @@ const RECORDER_START_TIMEOUT_MS = 3_000;
 // JPEG/WebRTC pixel path is left completely untouched. Captured events (tiny JSON)
 // fan out over /ws/browser/:contextId as `dom_event`; each device reconstructs the
 // DOM in its own native engine (the real browser, not a video).
-let RRWEB_RECORD_BUNDLE = '';
-try {
-  // Idempotence guard: the bundle opens with `var rrweb = ...`, and at global
-  // scope that IS window.rrweb — re-evaluating it (every enableDomMode calls
-  // startRecordingNow) would CLOBBER the live module with a fresh-state copy
-  // whose internal "recording started" flag is false, breaking
-  // record.takeFullSnapshot for late joiners. Only evaluate into a window that
-  // doesn't have the recorder yet; `var` hoisting keeps the block harmless.
-  RRWEB_RECORD_BUNDLE =
-    'if(!(window.rrweb&&window.rrweb.record)){\n' +
-    getRrwebRecorderSource() +
-    '\n;window.rrweb=window.rrweb||rrweb;\n}';
-} catch (err) {
-  console.warn('[BrowserService] rrweb record bundle missing — DOM co-browse disabled:', (err as Error)?.message);
-}
+// Idempotence guard: the bundle opens with `var rrweb = ...`, and at global
+// scope that IS window.rrweb — re-evaluating it (every enableDomMode calls
+// startRecordingNow) would CLOBBER the live module with a fresh-state copy
+// whose internal "recording started" flag is false, breaking
+// record.takeFullSnapshot for late joiners. Only evaluate into a window that
+// doesn't have the recorder yet; `var` hoisting keeps the block harmless.
+// The recorder text is a static import of lib/rrweb-recorder.ts: a missing
+// rrweb.min.js fails when the server is bundled or loads, never at injection
+// time, so there is no empty-recorder branch here. The import does not check
+// the content (rrweb-recorder.test.ts compares it with the installed rrweb),
+// and the evaluation can still fail in the page: see startRecordingNow.
+const RRWEB_RECORD_BUNDLE =
+  'if(!(window.rrweb&&window.rrweb.record)){\n' +
+  getRrwebRecorderSource() +
+  '\n;window.rrweb=window.rrweb||rrweb;\n}';
 // Runs in the page AFTER the bundle. Starts the recorder (guarded against a double
 // start on the same document) and pipes each event to the host via __rrwebEmit.
 // The recorder's stop fn is stashed on window.__rrwebStop so instrumentation is
@@ -1062,10 +1062,9 @@ export async function createBrowserService(opts: BrowserServiceOptions = {}): Pr
   // recorder is (re)injected on demand and on each 'load' WHILE domEmit is true, and
   // torn down (RRWEB_STOP detaches the observers) the moment it isn't — so DOM
   // instrumentation is fully revocable except one inert binding. Returns false when
-  // the vendored bundle is missing or the exposed binding can't be installed.
+  // the exposed binding can't be installed.
   async function ensureDomBinding(entry: BrowserContextEntry, id: string): Promise<boolean> {
     if (entry.domInjected) return true;
-    if (!RRWEB_RECORD_BUNDLE) return false; // vendored bundle missing
     try {
       // Host binding: every rrweb event lands here. Buffer for late-join bootstrap,
       // and broadcast live only while at least one viewer is in DOM mode.

@@ -2,6 +2,25 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.3.21 — 2026-10-24
+
+### Sotto il cofano
+- Bridge browser: ogni 5xx lascia il motivo nel log del server (#421)
+- Terminal.app in timeout: un avviso di una riga al cambio di stato, non 20 righe a ogni tentativo (#422)
+- **rrweb** · via il ripiego «bundle missing», il registratore è testo dentro il modulo (#428)
+
+## 2.3.20 — 2026-10-24
+
+### Sotto il cofano
+- Due letture a timer di tasks scandivano la tabella intera: ora usano un indice (#419)
+- Sidecar compilato: il registratore rrweb entra nel binario e il co-browse DOM torna a partire (#423)
+
+## 2.3.19 — 2026-10-24
+
+### Sotto il cofano
+- open-pane da terminale: un URL vietato dà 400 col motivo, non 500 con la pane già aperta (#420)
+- Parcheggio sessioni: il log stampa solo i cambi, non la stessa riga ogni 60 secondi (#426)
+
 ## 2.3.18 — 2026-10-24
 
 ### Sotto il cofano

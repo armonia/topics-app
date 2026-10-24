@@ -20,7 +20,7 @@
  * @covers BROWSER-CHAT-05
  * @covers GENUI-05
  */
-import { describe, test, expect, beforeEach, afterEach } from "bun:test";
+import { describe, test, expect, beforeEach, afterEach, spyOn } from "bun:test";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -28,6 +28,8 @@ import { createBrowserBridgeRouter, type TerminalSessionRef } from "./browser-br
 import type { AppContext, Topic } from "../types";
 import type { BrowserService } from "../browser-service";
 import type { PortOwnerDeps } from "../lib/port-project-owner";
+import { nativeDelegateRegistry } from "../browser-native-delegate";
+import { warnBridgeServerError } from "../lib/browser-bridge-warn";
 
 const TOKEN = "gateway-token-di-prova";
 
@@ -72,6 +74,10 @@ interface HarnessOpts {
   paneAttached?: boolean | "dopo-force-open";
   /** Makes the navigation blow up (no headless browser, dead page). */
   navigateThrows?: boolean;
+  /** Makes `listContexts` throw with this message (the inventory read blew up). */
+  listContextsThrows?: string;
+  /** Makes every page evaluation reject with this message (a native delegate that gave up). */
+  evalRejects?: string;
   /**
    * Fake for the port→project resolver (task f9cf765e): defaults to "nobody
    * listens, no cwd" so the existing open-pane tests (all `https://…` URLs,
@@ -121,6 +127,7 @@ function harness(opts: HarnessOpts = {}) {
   const page = (contextId: string) => ({
     replEvaluate: async (expression: string) => {
       evaluations.push({ contextId, expression });
+      if (opts.evalRejects) throw new Error(opts.evalRejects);
       return "42";
     },
     waitForLoadState: async () => {},
@@ -129,7 +136,10 @@ function harness(opts: HarnessOpts = {}) {
   });
 
   const service = {
-    listContexts: () => contexts,
+    listContexts: () => {
+      if (opts.listContextsThrows) throw new Error(opts.listContextsThrows);
+      return contexts;
+    },
     setAgentAction: (contextId: string) => { dispatchedOn.push(contextId); },
     broadcastAgentActive: () => {},
     navigate: async (contextId: string, url: string) => {
@@ -578,6 +588,65 @@ describe("open-pane — tre rami, tre pannelli diversi", () => {
     // pane, the navigation actually takes it to the URL. `term-<id>` is the id
     // observe/act resolve to as well, so it is the one that must be driven.
     expect(h.navigations).toEqual([{ contextId: "term-42", url: "https://example.com/" }]);
+  });
+
+  // A URL the navigation guard refuses must be rejected BEFORE the terminal
+  // branch announces the pane: a 400 with the reason, and no pane opened on a
+  // URL that will never load. Today the announce goes out first and the guard
+  // fires later inside the dispatcher, which turns into a 500.
+  for (const url of ["chrome://settings", "ftp://x"]) {
+    test(`terminale: URL vietato ${url} ⇒ 400 col motivo, nessun pannello annunciato`, async () => {
+      const h = harness();
+      h.addTerminal("42");
+
+      const resp = await h.post("/api/sessions/42/browser/open-pane", { url });
+
+      // One snapshot, so a red run shows the status AND the stray broadcast
+      // together instead of stopping at the first mismatch.
+      expect({
+        status: resp!.status,
+        announced: h.typed("browser:open-near-pane").length,
+        navigations: h.navigations,
+      }).toEqual({ status: 400, announced: 0, navigations: [] });
+      expect((await resp!.json()).error).toContain("not allowed");
+    });
+  }
+
+  test("terminale: file:///etc/passwd ⇒ 400 e nessun pannello annunciato", async () => {
+    // Only the status and the absence of effects are asserted: the message for
+    // local files is not the scheme one, so pinning its wording would tie the
+    // test to text the fix is free to change.
+    const h = harness();
+    h.addTerminal("42");
+
+    const resp = await h.post("/api/sessions/42/browser/open-pane", { url: "file:///etc/passwd" });
+
+    expect({
+      status: resp!.status,
+      announced: h.typed("browser:open-near-pane").length,
+      navigations: h.navigations,
+    }).toEqual({ status: 400, announced: 0, navigations: [] });
+  });
+
+  test("terminale con pane nativa registrata: URL vietato ⇒ 400, nessuna operazione alla pane", async () => {
+    // Production shape: a WKWebView is the registered executor for term-42. The
+    // refusal must come before the pane is announced and before any
+    // browser_op reaches it.
+    const h = harness();
+    h.addTerminal("42");
+    const sent: unknown[] = [];
+    nativeDelegateRegistry.register("term-42", (msg) => { sent.push(msg); });
+    try {
+      const resp = await h.post("/api/sessions/42/browser/open-pane", { url: "chrome://settings" });
+
+      expect({
+        status: resp!.status,
+        announced: h.typed("browser:open-near-pane").length,
+        sent,
+      }).toEqual({ status: 400, announced: 0, sent: [] });
+    } finally {
+      nativeDelegateRegistry.unregister("term-42");
+    }
   });
 
   test("senza url ⇒ 400, su entrambi i rami", async () => {
@@ -1302,5 +1371,262 @@ describe("own-topic page op with no pane — the mini browser opens first", () =
     expect(second!.status).toBe(200);
     expect(h.typed("browser:navigate")).toHaveLength(1);
     expect(h.navigations).toHaveLength(1);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// A 5xx from the bridge must say WHY on the server log. A WKWebView timeout and
+// a real bug answer the same status, so without the reason in the log nobody
+// can tell them apart.
+describe("5xx del bridge — il motivo finisce nel log", () => {
+  test("eval che fallisce (delegato rigetta 'eval timeout'): 502 come prima, e una riga di warn con tool, contextId e motivo", async () => {
+    const h = harness({ evalRejects: "eval timeout" });
+    h.addTopic("t1");
+    h.contexts.push({ id: "altra-scheda" });
+    const warn = spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      const resp = await h.post("/api/topics/t1/browser/eval", { expression: "1+1", contextId: "altra-scheda" });
+
+      expect(resp!.status).toBe(502);
+      expect((await resp!.json()).error).toContain("eval timeout");
+      const lines = warn.mock.calls.map((args) => args.map(String).join(" "));
+      expect(lines).toHaveLength(1);
+      // Whole line shape: timestamp, real dispatcher tool name, contextId, status, reason.
+      expect(lines[0]).toMatch(/^\[browser-bridge\] \S+ browser_eval altra-scheda -> 502: browser_eval failed: eval timeout$/);
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  test("list-tabs con l'inventario che esplode: 500 come prima, e una riga di warn con tool e motivo", async () => {
+    const h = harness({ listContextsThrows: "inventario illeggibile" });
+    h.addTopic("t1");
+    const warn = spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      const resp = await h.post("/api/topics/t1/browser/list-tabs");
+
+      expect(resp!.status).toBe(500);
+      expect((await resp!.json()).error).toContain("inventario illeggibile");
+      const lines = warn.mock.calls.map((args) => args.map(String).join(" "));
+      expect(lines).toHaveLength(1);
+      expect(lines[0]).toMatch(/ browser_list_tabs t1 -> 500: /);
+      expect(lines[0]).toContain("inventario illeggibile");
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  test("open-pane con navigazione fallita (chat, 5xx): una riga di warn con il motivo che il corpo della risposta riporta", async () => {
+    const h = harness({ navigateThrows: true });
+    h.addTopic("t1");
+    const warn = spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      const resp = await h.post("/api/topics/t1/browser/open-pane", { url: "https://example.com/" });
+
+      expect(resp!.status).toBeGreaterThanOrEqual(500);
+      expect(resp!.status).toBeLessThan(600);
+      const { error } = (await resp!.json()) as { error: string };
+      const lines = warn.mock.calls.map((args) => args.map(String).join(" "));
+      expect(lines).toHaveLength(1);
+      expect(lines[0]).toContain("t1");
+      expect(lines[0]).toContain(error);
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  test("la riga è una sola, con l'ora ISO, e il motivo è la sua prima riga tagliata a 500 caratteri", () => {
+    const warn = spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      warnBridgeServerError("browser_eval", "c1", 502, new Error(`first line\r\nPAGE-DATA second line\n${"x".repeat(10)}`));
+      warnBridgeServerError("browser_eval", "c1", 502, "y".repeat(700));
+      const lines = warn.mock.calls.map((args) => args.map(String).join(" "));
+      expect(lines).toEqual([
+        expect.stringMatching(/^\[browser-bridge\] \d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\.\d{3}Z browser_eval c1 -> 502: first line$/),
+        expect.stringMatching(new RegExp(`-> 502: y{500}$`)),
+      ]);
+      for (const l of lines) expect(l).not.toContain("\n");
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  test("il motivo è la prima riga NON vuota, ripulito da ANSI e da U+2028/U+2029, e il taglio a 500 non spezza una coppia surrogata", () => {
+    const warn = spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      warnBridgeServerError("browser_eval", "c1", 502, new Error("\n  \nthe real reason\nPAGE-DATA"));
+      warnBridgeServerError("browser_eval", "c1", 502, new Error(""));
+      warnBridgeServerError("browser_eval", "c1", 502, new TypeError("\n"));
+      warnBridgeServerError("browser_eval", "c1", 502, "\x1b[31mred\x1b[0m text\x1b]0;title\x07");
+      warnBridgeServerError("browser_eval", "c1", 502, "first\u2028PAGE-DATA\u2029more");
+      warnBridgeServerError("browser_eval", "c1", 502, `${"y".repeat(499)}\u{1F600}z`);
+      warnBridgeServerError("browser_open", "c1", 502, "");
+      const lines = warn.mock.calls.map((args) => args.map(String).join(" "));
+      const reasons = lines.map((l) => l.replace(/^\[browser-bridge\] \S+ \S+ \S+ -> \d+: /, ""));
+      expect(reasons).toEqual([
+        "the real reason",
+        // Nothing in the message: the error's name, never an empty reason.
+        "Error",
+        "TypeError",
+        "red text",
+        // A line separator ends the line like \n does: what follows is page data.
+        "first",
+        // 499 units plus a whole emoji would be 501: the pair is dropped, not halved.
+        "y".repeat(499),
+        "(empty)",
+      ]);
+      for (const l of lines) {
+        for (const ch of ["\n", "\r", "\u2028", "\u2029", "\x1b", "\x07"]) expect(l).not.toContain(ch);
+        expect(l).not.toMatch(/[\uD800-\uDBFF]$/);
+      }
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  test("nessun ESC né controllo C1 arriva a stderr: OSC chiuso da ST, APC, DCS, C1 a 8 bit, ESC isolato; U+0085 chiude la riga, i caratteri invisibili spariscono", () => {
+    const warn = spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      const reasons = [
+        "\x1b]0;title\x1b\\after",
+        new Error("x\x1b_"),
+        "a\x1b_Gf=1;AAAA\x1b\\b",
+        "a\x1bPq#0\x1b\\b",
+        "a\x9d0;t\x9cb",
+        "a\x9b31mb",
+        "a\x1b(Bb\x1b7",
+        "reason\x1b",
+        "x\x1b]0;never closed",
+        "first\x85PAGE-DATA",
+        "first\rPAGE-DATA",
+        "first\vPAGE-DATA",
+        "first\fPAGE-DATA",
+        "\x9dmojibake\nthe real reason",
+        "​\nreal",
+        "a‮b⁦c",
+      ];
+      for (const r of reasons) warnBridgeServerError("browser_eval", "c1", 502, r);
+      const lines = warn.mock.calls.map((args) => args.map(String).join(" "));
+      expect(lines.map((l) => l.replace(/^\[browser-bridge\] \S+ \S+ \S+ -> \d+: /, ""))).toEqual([
+        "after", "x", "ab", "ab", "ab", "ab", "ab", "reason", "x",
+        // U+0085, a lone CR, VT and FF end the line like \n does: what follows is page data.
+        "first", "first", "first", "first",
+        // A control string never closed ends at the line end: a lone C1 byte
+        // (mojibake) does not swallow the reason on the next line.
+        "the real reason",
+        // A line of format characters only (ZWSP here) is empty, not the reason.
+        "real",
+        // BiDi controls would reorder the log line on screen.
+        "abc",
+      ]);
+      // eslint-disable-next-line no-control-regex -- the control bytes are what the line must not carry
+      for (const l of lines) expect(l).not.toMatch(/[\x00-\x1f\x7f-\x9f\p{Cf}]/u);
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  test("un motivo costruito per il backtracking non blocca l'event loop e non lascia l'ESC nella riga", () => {
+    // The page writes the eval error message: a regex with overlapping
+    // quantifiers took ~600 ms per call on this input and still left the ESC.
+    const crafted = ("\x1b" + ";".repeat(10_000)).repeat(20);
+    const warn = spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      const started = performance.now();
+      warnBridgeServerError("browser_eval", "c1", 502, new Error(crafted));
+      const elapsed = performance.now() - started;
+      const line = warn.mock.calls.map((args) => args.map(String).join(" "))[0];
+      expect(line).not.toContain("\x1b");
+      expect(line).toMatch(/ -> 502: ;{500}$/);
+      expect(elapsed).toBeLessThan(150);
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  // The warn lines of one request, with the response: the helper below keeps
+  // each case to its setup and its expectation.
+  async function warnsOf(h: ReturnType<typeof harness>, path: string, body?: unknown) {
+    const warn = spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      const resp = await h.post(path, body);
+      const json = (await resp!.json()) as { error?: string };
+      return { status: resp!.status, error: json.error ?? "", lines: warn.mock.calls.map((args) => args.map(String).join(" ")) };
+    } finally {
+      warn.mockRestore();
+    }
+  }
+
+  test("open-pane con la pane rimasta bianca (chat, 502): una riga di warn con il motivo", async () => {
+    const h = harness({ navigateTo: "about:blank" });
+    h.addTopic("t1");
+    const r = await warnsOf(h, "/api/topics/t1/browser/open-pane", { url: "https://example.com/" });
+    expect(r.status).toBe(502);
+    expect(r.lines).toEqual([expect.stringMatching(/^\[browser-bridge\] \S+ browser_open t1 -> 502: /)]);
+    expect(r.lines[0]).toContain(r.error);
+  });
+
+  test("open-pane accanto a un terminale con la navigazione che esplode: una riga di warn", async () => {
+    const h = harness({ navigateThrows: true });
+    h.addTerminal("42");
+    const r = await warnsOf(h, "/api/sessions/42/browser/open-pane", { url: "https://example.com/" });
+    expect(r.status).toBe(500);
+    expect(r.lines).toEqual([expect.stringMatching(/ browser_open term-42 -> 500: niente browser headless$/)]);
+  });
+
+  test("open-pane della scheda di un task: la risposta è 200 e il log resta muto", async () => {
+    const h = harness({ navigateThrows: true });
+    const topic = h.addTopic("aaaaaaaa-topic");
+    h.taskOfTopic.set(topic.id, { id: "12345678-task" });
+    const r = await warnsOf(h, "/api/topics/aaaaaaaa-topic/browser/open-pane", { url: "https://example.com/" });
+    expect(r.status).toBe(200);
+    expect(r.lines).toEqual([]);
+  });
+
+  // The auto-open before a page op shares the open-pane sequence, and its
+  // failures stay silent on purpose (browser-auto-open.ts): the page op runs
+  // headless and its own answer is the one that counts.
+  test("auto-open fallito prima di un eval che risponde 200: nessuna riga di warn", async () => {
+    const h = harness({ paneAttached: false, navigateThrows: true });
+    h.addTopic("t1", { browserState: { url: "https://example.com/last", contextId: "t1", lastActiveAt: 1 } });
+    const r = await warnsOf(h, "/api/topics/t1/browser/eval", { expression: "1+1" });
+    expect(r.status).toBe(200);
+    expect(h.navigations.length).toBeGreaterThan(0);
+    expect(r.lines).toEqual([]);
+  });
+
+  test("auto-open su una pane rimasta bianca prima di un eval che risponde 200: nessuna riga di warn", async () => {
+    const h = harness({ paneAttached: false, navigateTo: "about:blank" });
+    h.addTopic("t1", { browserState: { url: "https://example.com/last", contextId: "t1", lastActiveAt: 1 } });
+    const r = await warnsOf(h, "/api/topics/t1/browser/eval", { expression: "1+1" });
+    expect(r.status).toBe(200);
+    expect(r.lines).toEqual([]);
+  });
+
+  test("auto-open fallito e poi eval fallito: una riga sola, quella dell'eval", async () => {
+    const h = harness({ paneAttached: false, navigateThrows: true, evalRejects: "eval timeout" });
+    h.addTopic("t1", { browserState: { url: "https://example.com/last", contextId: "t1", lastActiveAt: 1 } });
+    const r = await warnsOf(h, "/api/topics/t1/browser/eval", { expression: "1+1" });
+    expect(r.status).toBe(502);
+    expect(r.lines).toEqual([expect.stringMatching(/ browser_eval t1 -> 502: browser_eval failed: eval timeout$/)]);
+  });
+
+  test("tool che lancia prima di arrivare all'handler (URL rifiutato, 500): una riga di warn", async () => {
+    const h = harness();
+    h.addTopic("t1");
+    const r = await warnsOf(h, "/api/topics/t1/browser/verify", { url: "javascript:alert(1)" });
+    expect(r.status).toBe(500);
+    expect(r.lines).toEqual([expect.stringMatching(/ browser_verify t1 -> 500: .*"javascript:" is not allowed/)]);
+  });
+
+  test("import-chrome: il 502 dell'handler e il 500 di un argomento mancante lasciano ciascuno una riga", async () => {
+    const h = harness();
+    h.addTopic("t1");
+    const refused = await warnsOf(h, "/api/topics/t1/browser/import-chrome", { domains: ["example.com"] });
+    expect(refused.status).toBe(502);
+    expect(refused.lines).toEqual([expect.stringMatching(/ browser_import_chrome t1 -> 502: browser_import_chrome requires the Topics native browser/)]);
+    const thrown = await warnsOf(h, "/api/topics/t1/browser/import-chrome", { domains: [] });
+    expect(thrown.status).toBe(500);
+    expect(thrown.lines).toEqual([expect.stringMatching(/ browser_import_chrome t1 -> 500: browser_import_chrome: "domains" \(non-empty array\) is required/)]);
   });
 });

@@ -532,9 +532,11 @@
     "server/routes/auth.ts": 1713,
 
     "server/routes/browser-bridge.test.ts": {
-      "lines": 1306,
+      "lines": 1539,
       "why": [
-        "2026-10-12, op-opens-pane r1 (unrecorded, 1127 -> 1242): the six auto-open tests, the bridge opening before a pane-less page op. r2 1242 -> 1283 (+41): the task-topic no-announce case, the live-url-beats-persisted case, the 60 s retry-window case, and the getUrl/liveUrls harness seam. Recorded, not split: every case drives the same bridge harness through the helpers at the top of the file."
+        "2026-10-12, op-opens-pane r1 (unrecorded, 1127 -> 1242): the six auto-open tests, the bridge opening before a pane-less page op. r2 1242 -> 1283 (+41): the task-topic no-announce case, the live-url-beats-persisted case, the 60 s retry-window case, and the getUrl/liveUrls harness seam. Recorded, not split: every case drives the same bridge harness through the helpers at the top of the file.",
+        "2026-10-24, 1306 -> 1436 (+130) from two fixes: #420 open-pane from a terminal answers 400 on a refused URL (four URL cases), #421 every 5xx of the bridge logs its reason (eval, open-pane and list-tabs cases, plus the harness options evalRejects and listContextsThrows). Recorded, not split: both drive the same bridge harness.",
+        "2026-10-24, #421 round 2, 1436 -> 1539 (+103): one test per warn point (import-chrome 502/500, the generic catch, the blank pane, the terminal branch), the silent cases (task tab, auto-open before a page op) and the one-line cut of the reason. Same harness, same describe."
       ]
     },
 

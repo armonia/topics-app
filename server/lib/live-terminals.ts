@@ -30,6 +30,7 @@ import { execFile } from "node:child_process";
 import { basename } from "node:path";
 
 import type { LiveTerminal, LiveTerminalSource } from "../../shared/live-terminals";
+import { createChangeLogger } from "./log-on-change";
 import { LSOF } from "./system-bins";
 
 export interface LiveScreen {
@@ -42,8 +43,9 @@ export type Runner = (file: string, args: string[], opts?: { timeoutMs?: number 
 
 export const defaultRunner: Runner = (file, args, opts) =>
   new Promise((resolve, reject) => {
-    execFile(file, args, { timeout: opts?.timeoutMs ?? 4000, maxBuffer: 4 * 1024 * 1024 }, (err, stdout) => {
-      if (err) reject(err);
+    execFile(file, args, { timeout: opts?.timeoutMs ?? 4000, maxBuffer: 4 * 1024 * 1024 }, (err, stdout, stderr) => {
+      // The reason of a failure lives in stderr: the first line of err.message is only the command line.
+      if (err) reject(Object.assign(err, { stderr: String(stderr ?? "") }));
       else resolve(String(stdout));
     });
   });
@@ -214,6 +216,50 @@ export interface LiveTerminalsService {
 const TERMINAL_LIST_TIMEOUT_MS = 1500;
 const TERMINAL_PAUSE_MS = 60_000;
 
+/**
+ * One-line reason of a failed command: the first non-empty stderr line when
+ * present, else the first message line unless it is Node's "Command failed:"
+ * preamble (which only repeats the command), else nothing.
+ */
+function terminalFailureReason(err: unknown): string {
+  const stderr = (err as { stderr?: unknown })?.stderr;
+  if (typeof stderr === "string") {
+    const line = stderr.split("\n").map((l) => l.trim()).find((l) => l.length > 0);
+    if (line) return line;
+  }
+  const first = String((err as Error)?.message ?? err).split("\n")[0].trim();
+  return first.startsWith("Command failed:") ? "" : first;
+}
+
+/**
+ * `code=… killed=… signal=…` of a failed command, each field only when the
+ * error carries a value: an exit code (1) or an errno (ENOENT) is often the
+ * only clue, while Bun's ENOENT has no killed/signal at all and printed them
+ * as "undefined".
+ */
+function terminalFailureFacts(err: unknown): string {
+  const e = err as { code?: unknown; killed?: unknown; signal?: unknown } | null;
+  const facts: string[] = [];
+  for (const field of ["code", "killed", "signal"] as const) {
+    const value = e?.[field];
+    if (value !== undefined && value !== null) facts.push(`${field}=${String(value)}`);
+  }
+  return facts.join(" ");
+}
+
+/** osascript's code for "Not authorized to send Apple events": the Automation permission is denied. */
+const NOT_AUTHORIZED_CODE = /\(-1743\)/;
+
+/**
+ * All the text of a failed command, stderr and message: osascript can print a
+ * warning before its error, and a rejection may carry no stderr at all, so a
+ * code is looked for here rather than in the one-line reason.
+ */
+function terminalFailureText(err: unknown): string {
+  const stderr = (err as { stderr?: unknown })?.stderr;
+  return `${typeof stderr === "string" ? stderr : ""}\n${String((err as Error)?.message ?? err)}`;
+}
+
 export function createLiveTerminals(deps: LiveTerminalsDeps): LiveTerminalsService {
   const run = deps.run ?? defaultRunner;
   const ttlMs = deps.ttlMs ?? 2000;
@@ -228,6 +274,11 @@ export function createLiveTerminals(deps: LiveTerminalsDeps): LiveTerminalsServi
   // Without the Automation permission osascript hangs until killed: after a
   // failure Terminal.app is skipped for a while, or every list waits for it.
   let terminalPausedUntil = 0;
+  // The failure line is printed when it changes, and again after the change
+  // logger's heartbeat while the same failure lasts; `null` forgets it, so the
+  // same failure after a recovery is news again.
+  const logTerminalFailure = createChangeLogger((line) => log(line), now);
+  let terminalFailing = false;
 
   async function scanTmux(): Promise<LiveTerminal[]> {
     if (!tmuxOn) return [];
@@ -245,9 +296,28 @@ export function createLiveTerminals(deps: LiveTerminalsDeps): LiveTerminalsServi
     let tabs: Array<{ tty: string; title: string }>;
     try {
       tabs = parseTerminalTabs(await run("osascript", ["-e", TERMINAL_LIST_SCRIPT], { timeoutMs: TERMINAL_LIST_TIMEOUT_MS }));
+      // Back to reachable: announce the recovery once.
+      if (terminalFailing) {
+        terminalFailing = false;
+        logTerminalFailure("terminal", null);
+        log("Terminal.app di nuovo raggiungibile");
+      }
     } catch (err) {
       terminalPausedUntil = now() + TERMINAL_PAUSE_MS;
-      log("Terminal.app non risponde (permesso di Automazione negato?)", err);
+      terminalFailing = true;
+      // One compact line per distinct failure: reason plus exit/kill facts.
+      // Never pass the full error object to the log.
+      const reason = terminalFailureReason(err);
+      // A kill is the timeout and gets the two hypotheses (slow Mac, or the
+      // Automation permission pending/denied). An immediate failure says its
+      // own reason; -1743 is the one whose cause is certain, so it is named.
+      const what = (err as { killed?: unknown })?.killed === true
+        ? `osascript ucciso dopo ${TERMINAL_LIST_TIMEOUT_MS} ms (Mac lento, o permesso di Automazione in attesa/negato)`
+        : NOT_AUTHORIZED_CODE.test(terminalFailureText(err))
+          ? "osascript fallito (permesso di Automazione negato)"
+          : "osascript fallito";
+      const facts = terminalFailureFacts(err);
+      logTerminalFailure("terminal", `Terminal.app: ${what}${reason ? ": " + reason : ""}${facts ? " " + facts : ""}`);
       return [];
     }
     return tabs.map((t) => ({
