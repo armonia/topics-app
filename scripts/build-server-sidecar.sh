@@ -113,6 +113,12 @@ if [ "$OS" = "smoke" ]; then
   sessions_code="$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:$PORT/api/terminal/sessions)"
   echo "[smoke] /api/topics: $topics_code"
   echo "[smoke] /api/terminal/sessions (expect 503 standalone): $sessions_code"
+  # The recorder is embedded in the binary (a type:"file" import): a file read from
+  # disk would pass in dev and answer empty here, which nothing else in this smoke sees.
+  # Status AND size: an error answer carries a JSON body, so bytes alone would pass.
+  recorder_code="$(curl -s -o "$WORK/recorder.js" -w '%{http_code}' http://127.0.0.1:$PORT/api/browser/recorder.js)"
+  recorder_bytes="$(wc -c < "$WORK/recorder.js" | tr -d ' ')"
+  echo "[smoke] /api/browser/recorder.js: $recorder_code, $recorder_bytes bytes (expect 200, > 0)"
   # The binary's stdout reaches the file after it already answers: grepping at
   # once read an empty log 4 times in 6 (T12, both Buns). Wait up to 5 s for it.
   for _ in $(seq 1 20); do
@@ -125,6 +131,7 @@ if [ "$OS" = "smoke" ]; then
   fail=""
   [ "$topics_code" = "200" ] || fail="/api/topics answered $topics_code"
   [ "$sessions_code" = "503" ] || fail="${fail:+$fail; }/api/terminal/sessions answered $sessions_code"
+  { [ "$recorder_code" = "200" ] && [ "$recorder_bytes" -gt 0 ]; } || fail="${fail:+$fail; }/api/browser/recorder.js answered $recorder_code with $recorder_bytes bytes"
   grep -qE "embedded migration|All migrations" "$WORK/smoke.log" || fail="${fail:+$fail; }no migrations line in the log"
   grep -qi "PTY bridge daemon" "$WORK/smoke.log" && fail="${fail:+$fail; }the standalone binary reached a PTY bridge"
   if [ -n "$fail" ]; then echo "[smoke] FAIL: $fail"; tail -30 "$WORK/smoke.log"; exit 1; fi

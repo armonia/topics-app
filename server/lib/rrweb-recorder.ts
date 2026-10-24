@@ -1,5 +1,7 @@
 import { readFileSync } from "node:fs";
-import { join } from "node:path";
+// A `type: "file"` import is what makes the compiled sidecar embed the recorder;
+// from source (dev, launchd) it resolves to the path on disk.
+import recorderPath from "../assets/rrweb.min.js" with { type: "file" };
 
 let cachedRecorderSource: string | undefined;
 
@@ -7,7 +9,7 @@ let cachedRecorderSource: string | undefined;
 export function getRrwebRecorderSource(): string {
   if (cachedRecorderSource !== undefined) return cachedRecorderSource;
   try {
-    cachedRecorderSource = readFileSync(join(import.meta.dir, "..", "assets", "rrweb.min.js"), "utf8")
+    cachedRecorderSource = readFileSync(recorderPath, "utf8")
       .replace(/\n\/\/# sourceMappingURL=.*$/m, "");
   } catch (error) {
     cachedRecorderSource = "";
