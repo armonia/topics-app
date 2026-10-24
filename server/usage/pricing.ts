@@ -15,6 +15,7 @@
  *     nothing.
  */
 import { modelPrice, ownModelPrice, ratesForPrompt, type ModelPrice } from "../../shared/model-pricing";
+import { accumulateTurnUsage, emptyTurnUsage, turnUsageParts, type CallUsage } from "./turn-usage";
 
 export { modelPrice };
 
@@ -81,10 +82,16 @@ export const CACHE_WRITE_MULTIPLIER = 1.25;
 export const CACHE_WRITE_1H_MULTIPLIER = 2;
 
 /**
- * Cost of one call (or of an aggregated turn) with the cache tokens billed for
- * what they are. `freshInputTokens` are the prompt tokens that did NOT come
- * from the cache: callers usually start from a total that contains all three,
- * so subtract first (see `splitPromptTokens`).
+ * Cost of ONE request with the cache tokens billed for what they are.
+ * `freshInputTokens` are the prompt tokens that did NOT come from the cache:
+ * callers usually start from a total that contains all three, so subtract
+ * first (see `splitPromptTokens`).
+ *
+ * The numbers are priced as a single request. That is exact for one call, and
+ * for every model but Haiku 5.5 it is exact for a sum of calls too. Haiku 5.5
+ * picks its rate card per request (over 100k tokens of prompt the whole request
+ * costs five times more): a sum of calls priced here is an upper bound, and code
+ * that has the calls one by one prices them with `callsCostUsd`.
  */
 export function calculateCostWithCache(args: {
   model: string;
@@ -99,14 +106,6 @@ export function calculateCostWithCache(args: {
    * `usage.cache_creation.ephemeral_1h_input_tokens`.
    */
   cacheCreation1hTokens?: number;
-  /**
-   * How many model calls the numbers add up. Only the price of Haiku 5.5
-   * depends on it: its rate card is chosen PER REQUEST by prompt length (over
-   * 100k tokens the whole request costs five times more), so a turn of twenty
-   * 30k-token calls must not be billed as one 600k-token request. Omitted = 1,
-   * which is exact for a single call and an upper bound for an aggregate.
-   */
-  requests?: number;
 }): number {
   const pricing = findPricing(args.model);
   if (!pricing) return 0;
@@ -115,14 +114,44 @@ export function calculateCostWithCache(args: {
   const write5m = n(args.cacheCreationTokens);
   const write1h = n(args.cacheCreation1hTokens);
   const read = n(args.cacheReadTokens);
-  const requests = Math.max(1, Math.floor(n(args.requests)));
-  const rates = ratesForPrompt(pricing, (fresh + write5m + write1h + read) / requests);
+  const rates = ratesForPrompt(pricing, fresh + write5m + write1h + read);
   const inputCost =
     fresh * rates.input +
     write5m * rates.input * CACHE_WRITE_MULTIPLIER +
     write1h * rates.input * CACHE_WRITE_1H_MULTIPLIER +
     read * rates.input * pricing.cacheRead;
   return (inputCost + n(args.outputTokens) * rates.output) / 1_000_000;
+}
+
+/** One model call as the provider reports it, with the model that served it when known. */
+export type PricedCall = CallUsage & { model?: string };
+
+/**
+ * The cost of a list of model calls: each one priced on its own, then summed.
+ *
+ * WHY NOT THE TOTAL. Haiku 5.5 chooses its rate card per request. A turn of
+ * calls at 60k, 80k, 120k and 140k tokens of prompt pays the cheap card on the
+ * first two and the long card on the last two; priced from the turn total, or
+ * from its average, it lands on one card for all four and
+ * is off by a factor of three either way. On every other model the sum equals
+ * the price of the total.
+ *
+ * `fallbackModel` prices the calls that did not say which model served them.
+ */
+export function callsCostUsd(calls: readonly PricedCall[], fallbackModel: string): number {
+  let usd = 0;
+  for (const call of calls) {
+    const parts = turnUsageParts(accumulateTurnUsage(emptyTurnUsage(), call));
+    usd += calculateCostWithCache({
+      model: call.model || fallbackModel,
+      freshInputTokens: parts.fresh,
+      outputTokens: parts.output,
+      cacheReadTokens: parts.cacheRead,
+      cacheCreationTokens: parts.cacheCreation5m,
+      cacheCreation1hTokens: parts.cacheCreation1h,
+    });
+  }
+  return usd;
 }
 
 /**

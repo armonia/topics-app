@@ -30,6 +30,11 @@ export interface ModelPrice {
    * over `over` tokens. Only Claude Haiku 5.5 has two rate cards today.
    */
   longPrompt?: { over: number; input: number; output: number };
+  /**
+   * Fast mode prices, on the models that have it. Cache multipliers apply on
+   * top of these, as on the standard prices.
+   */
+  fast?: { input: number; output: number };
 }
 
 /** The cache-read rate of every model without a rate of its own. */
@@ -39,15 +44,20 @@ function price(input: number, output: number, cacheRead = STANDARD_CACHE_READ): 
   return { input, output, cacheRead };
 }
 
+/** A row with fast mode: Opus 5.5 at 8/40, Opus 5 and 4.8 at 10/50 (twice the standard price). */
+function withFast(row: ModelPrice, input: number, output: number): ModelPrice {
+  return { ...row, fast: { input, output } };
+}
+
 const PRICE_TABLE: Record<string, ModelPrice> = {
   // Claude, current generation.
   "claude-fable-5-1": price(10, 50, 0.025),
   "claude-mythos-5-1": price(10, 50, 0.025),
   "claude-fable-5": price(10, 50),
   "claude-mythos-5": price(10, 50),
-  "claude-opus-5-5": price(4, 20, 0.05),
-  "claude-opus-5": price(5, 25),
-  "claude-opus-4-8": price(5, 25),
+  "claude-opus-5-5": withFast(price(4, 20, 0.05), 8, 40),
+  "claude-opus-5": withFast(price(5, 25), 10, 50),
+  "claude-opus-4-8": withFast(price(5, 25), 10, 50),
   "claude-opus-4-7": price(5, 25),
   "claude-opus-4-6": price(5, 25),
   "claude-sonnet-5-5": price(2, 10, 0.05),
@@ -61,8 +71,12 @@ const PRICE_TABLE: Record<string, ModelPrice> = {
   "claude-opus-4-5": price(5, 25),
   "claude-opus-4-1": price(15, 75),
   "claude-sonnet-4-5": price(3, 15),
+  "claude-opus-4-20250514": price(15, 75),
   "claude-sonnet-4-20250514": price(3, 15),
-  "claude-haiku-3-5-20241022": price(0.8, 4),
+  // Older ids are named `claude-3-…`, family after the version: without their
+  // own rows the family fallback priced them as the 5.5 models.
+  "claude-3-7-sonnet": price(3, 15),
+  "claude-3-5-haiku": price(0.8, 4),
   // OpenAI. Their cached-input discount is not modelled: these turns are not
   // priced with cache shares today, so the standard rate only keeps the old
   // behaviour.

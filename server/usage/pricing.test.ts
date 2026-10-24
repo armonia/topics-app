@@ -4,8 +4,8 @@
  * @covers USAGE-01, USAGE-02
  */
 import { describe, test, expect } from "bun:test";
-import { calculateCost, calculateCostWithCache, splitPromptTokens } from "./pricing";
-import { ownModelPrice } from "../../shared/model-pricing";
+import { calculateCost, calculateCostWithCache, callsCostUsd, splitPromptTokens, type PricedCall } from "./pricing";
+import { modelPrice, ownModelPrice } from "../../shared/model-pricing";
 import { NativeProvider, DEFAULT_MODEL } from "../providers/native/provider";
 import { engineModelOf } from "../lib/native-subagents";
 
@@ -189,20 +189,81 @@ describe("5.5 generation: own rows and per-model cache-read rate", () => {
       outputTokens: out,
       cacheReadTokens: cacheRead,
       cacheCreationTokens: write5m,
-      requests: 98,
     });
     expect(usd).toBeCloseTo(6.04, 2);
   });
 
-  test("Haiku 5.5 changes rate card PER REQUEST over 100k tokens of prompt", () => {
+  test("Haiku 5.5: one request over 100k tokens of prompt pays the long card on every token", () => {
     // One 150k request: every token, cache reads included, at $0.50/$2.50.
     const one = calculateCostWithCache({ model: "claude-haiku-5-5", freshInputTokens: 50_000, cacheReadTokens: 100_000, outputTokens: 1_000_000 });
     expect(one).toBeCloseTo((50_000 * 0.5 + 100_000 * 0.05 + 1_000_000 * 2.5) / 1_000_000, 9);
-    // The same tokens over ten 15k requests stay on the cheap card.
-    const ten = calculateCostWithCache({ model: "claude-haiku-5-5", freshInputTokens: 50_000, cacheReadTokens: 100_000, outputTokens: 1_000_000, requests: 10 });
-    expect(ten).toBeCloseTo((50_000 * 0.1 + 100_000 * 0.01 + 1_000_000 * 0.5) / 1_000_000, 9);
     // Exactly at the threshold is still the first card.
     expect(calculateCost("claude-haiku-5-5", 100_000, 0)).toBeCloseTo(0.01, 9);
+  });
+});
+
+/**
+ * Haiku 5.5 chooses its rate card per REQUEST. The calls below are not uniform,
+ * so neither the turn total nor the turn average lands on the right card: the
+ * only right price is each call on its own, summed. Expected values written by
+ * hand from the official cards ($0.10/$0.50, and $0.50/$2.50 over 100k).
+ */
+describe("a turn of Haiku 5.5 calls is priced call by call", () => {
+  /** A call with `prompt` tokens of prompt, `fresh` of them not from the cache. */
+  const call = (prompt: number, fresh: number, output: number): PricedCall => ({
+    inputTokens: prompt, outputTokens: output, cacheRead: prompt - fresh, cacheCreation: 0, cacheCreation1h: 0, model: "claude-haiku-5-5",
+  });
+
+  test("60k, 80k, 120k, 140k: two calls on each card", () => {
+    const calls = [call(60_000, 2_000, 500), call(80_000, 2_000, 500), call(120_000, 2_000, 500), call(140_000, 2_000, 500)];
+    const cheap = (read: number) => (2_000 * 0.1 + read * 0.01 + 500 * 0.5) / 1_000_000;
+    const long = (read: number) => (2_000 * 0.5 + read * 0.05 + 500 * 2.5) / 1_000_000;
+    const expected = cheap(58_000) + cheap(78_000) + long(118_000) + long(138_000);
+    expect(callsCostUsd(calls, "unknown")).toBeCloseTo(expected, 12);
+    expect(expected).toBeCloseTo(0.01956, 9);
+  });
+
+  test("40k x3 and 300k: only the big call pays the long card", () => {
+    const calls = [call(40_000, 40_000, 10_000), call(40_000, 40_000, 10_000), call(40_000, 40_000, 10_000), call(300_000, 300_000, 10_000)];
+    const expected = 3 * (40_000 * 0.1 + 10_000 * 0.5) / 1_000_000 + (300_000 * 0.5 + 10_000 * 2.5) / 1_000_000;
+    expect(callsCostUsd(calls, "unknown")).toBeCloseTo(expected, 12);
+    expect(expected).toBeCloseTo(0.202, 9);
+  });
+
+  test("a call without its model is priced at the fallback model", () => {
+    const anonymous: PricedCall = { inputTokens: 1_000_000, outputTokens: 0, cacheRead: 0, cacheCreation: 0, cacheCreation1h: 0 };
+    expect(callsCostUsd([anonymous], "claude-sonnet-5-5")).toBeCloseTo(2, 9);
+    expect(callsCostUsd([{ ...anonymous, model: "claude-opus-5-5" }], "claude-sonnet-5-5")).toBeCloseTo(4, 9);
+  });
+
+  test("the shares of a call are billed for what they are: 1h writes at 2x, 5m at 1.25x", () => {
+    // 1M of prompt: 600k written, 400k of which with the one-hour TTL.
+    const c: PricedCall = { inputTokens: 1_000_000, outputTokens: 0, cacheRead: 0, cacheCreation: 600_000, cacheCreation1h: 400_000, model: "claude-opus-5-5" };
+    expect(callsCostUsd([c], "unknown")).toBeCloseTo(400_000 * 4 / 1e6 + 200_000 * 4 * 1.25 / 1e6 + 400_000 * 4 * 2 / 1e6, 9);
+  });
+});
+
+/** Fast mode prices, from the official page: Opus 5.5 $8/$40, Opus 5 and 4.8 $10/$50. */
+describe("fast mode has its own prices, on the three models that have it", () => {
+  test("the rows", () => {
+    expect(modelPrice("claude-opus-5-5")?.fast).toEqual({ input: 8, output: 40 });
+    expect(modelPrice("claude-opus-5-5[1m]")?.fast).toEqual({ input: 8, output: 40 });
+    expect(modelPrice("claude-opus-5")?.fast).toEqual({ input: 10, output: 50 });
+    expect(modelPrice("claude-opus-4-8")?.fast).toEqual({ input: 10, output: 50 });
+    expect(modelPrice("claude-opus-4-7")?.fast).toBeUndefined();
+    expect(modelPrice("claude-sonnet-5-5")?.fast).toBeUndefined();
+  });
+});
+
+/**
+ * Retired ids are named `claude-3-…`, family after the version. Without rows of
+ * their own the family fallback sent them to the 5.5 models.
+ */
+describe("retired ids keep their own prices", () => {
+  test("Claude 3.7 Sonnet and 3.5 Haiku", () => {
+    expect(calculateCost("claude-3-7-sonnet-20250219", 1_000_000, 1_000_000)).toBeCloseTo(3 + 15, 9);
+    expect(calculateCost("claude-3-5-haiku-20241022", 1_000_000, 1_000_000)).toBeCloseTo(0.8 + 4, 9);
+    expect(ownModelPrice("claude-3-7-sonnet-20250219")?.cacheRead).toBe(0.1);
   });
 });
 
