@@ -22,7 +22,7 @@ afterAll(() => cleanupTestDataDir(ROOT));
 
 const MARKER = "SYSTEM-PROMPT-MARKER-7f3a";
 
-async function harness() {
+async function harness(opts: { sessionIdBornInFirstTurn?: boolean } = {}) {
   const ctx = await createTestAppContext();
   const sent: string[] = [];
   let epoch = 1;
@@ -35,8 +35,17 @@ async function harness() {
     registerStreamHandler: (_sk: string, _rid: string | undefined, h: StreamHandler) => { handler = h; },
     unregisterStreamHandler: () => {},
     contextEpoch: () => epoch,
-    sendChat: async (_sk: string, message: string) => {
+    sendChat: async (sk: string, message: string) => {
       sent.push(message);
+      // A CLI writes its session row inside the first send, after the route
+      // composed the scope: the route rekeys its marks once the turn settles.
+      if (opts.sessionIdBornInFirstTurn && sent.length === 1) {
+        const now = new Date().toISOString();
+        ctx.db.run(
+          "INSERT INTO claude_code_sessions (session_key, claude_session_id, created_at, updated_at) VALUES (?, ?, ?, ?)",
+          [sk, "cli-session-1", now, now],
+        );
+      }
       const h = handler;
       setTimeout(() => { h?.onTextDelta("ok", "ok"); h?.onDone({ result: "ok" } as never); }, 5);
       return { runId: `run-${sent.length}` };
@@ -61,10 +70,10 @@ async function harness() {
     WORKSPACE_DIR: testTmpDir("chat-native-rebuild-context-ws"),
   } as never);
 
-  const sessionKey = "topic:native-rebuild";
+  const sessionKey = opts.sessionIdBornInFirstTurn ? "topic:native-rebuild-rekey" : "topic:native-rebuild";
   const now = new Date().toISOString();
   ctx.saveSingleTopic({
-    id: "native-rebuild", name: "rebuild", slug: "rebuild", parentId: null, links: [],
+    id: sessionKey.slice("topic:".length), name: "rebuild", slug: "rebuild", parentId: null, links: [],
     sessionKey, color: "#5865f2", icon: "MessageSquare", createdAt: now, updatedAt: now,
     archived: false, provider: "fake-native", systemPrompt: MARKER,
   } as Topic);
@@ -99,5 +108,12 @@ describe("the inline context after a native session rebuild", () => {
     h.rebuild();
     expect(await h.turn("third")).toContain(MARKER);
     expect(await h.turn("fourth")).not.toContain(MARKER);
+  });
+
+  test("the marks follow the session id born in the first turn, epoch included", async () => {
+    const h = await harness({ sessionIdBornInFirstTurn: true });
+    expect(await h.turn("first")).toContain(MARKER);
+    // Rekeyed to the settled scope, so the second turn still deduplicates.
+    expect(await h.turn("second")).not.toContain(MARKER);
   });
 });
