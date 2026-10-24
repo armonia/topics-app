@@ -167,6 +167,14 @@ export interface SessionLedger {
  */
 export function bookSessionCost(s: SessionLedger, reading: SessionUsage): void {
   const d = (now: number, then: number) => Math.max(0, now - then);
+  // The readers price each call on its own when they can (`costUsd`): that is
+  // the bill. The totals below are one request to the price list, and Haiku
+  // 5.5, whose rate card is per request, moves the whole session to the long
+  // card the moment the sum passes 100k tokens.
+  if (typeof reading.costUsd === "number" && typeof s.offset.costUsd === "number") {
+    s.costCents = Math.max(s.costCents, Math.round(d(reading.costUsd, s.offset.costUsd) * 100));
+    return;
+  }
   const model = s.model;
   if (!model || !modelPrice(model)) {
     s.unpricedCostTokens = Math.max(

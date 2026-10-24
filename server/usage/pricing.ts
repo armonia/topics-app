@@ -155,6 +155,27 @@ export function callsCostUsd(calls: readonly PricedCall[], fallbackModel: string
 }
 
 /**
+ * One call in the API's own shape (`input` = fresh only, the cache shares
+ * apart, `cacheWrite1h` a part of `cacheWrite`), priced with `model`. Null when
+ * the model has no price: the caller then knows the session's per-call sum is
+ * incomplete, instead of reading a zero as "free".
+ */
+export function apiCallCostUsd(
+  model: string | null | undefined,
+  call: { input: number; output: number; cacheRead: number; cacheWrite: number; cacheWrite1h: number },
+): number | null {
+  if (!model || !modelPrice(model)) return null;
+  const n = (v: number) => (Number.isFinite(v) && v > 0 ? v : 0);
+  return callsCostUsd([{
+    inputTokens: n(call.input) + n(call.cacheRead) + n(call.cacheWrite),
+    outputTokens: n(call.output),
+    cacheRead: n(call.cacheRead),
+    cacheCreation: n(call.cacheWrite),
+    cacheCreation1h: n(call.cacheWrite1h),
+  }], model);
+}
+
+/**
  * Da "totale dei token di prompt" (fresco + scrittura + rilettura, che è come
  * lo consegna il provider) alle tre quote separate. Non va mai sotto zero: un
  * provider che riporta quote incoerenti deve produrre un costo basso, non un

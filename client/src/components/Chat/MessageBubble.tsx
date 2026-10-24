@@ -651,6 +651,7 @@ export const MessageBubble = memo(function MessageBubble({
                 cacheReadTokens={msg.cacheReadTokens}
                 cacheCreationTokens={msg.cacheCreationTokens}
                 cacheCreation1hTokens={msg.cacheCreation1hTokens}
+                model={msg.model}
               />
             </div>
           )}
