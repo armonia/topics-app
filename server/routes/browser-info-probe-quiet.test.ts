@@ -79,9 +79,28 @@ describe("GET /api/browsers/data-store-keep-list", () => {
   // "Browser context not found"; the WKWebView data-store reaper never ran.
   test("is answered by its own route, not captured by :id", async () => {
     const { getPath, logged } = harness();
-    const res = await getPath("/api/browsers/data-store-keep-list");
+    const res = await getPath("/api/browsers/data-store-keep-list?levels=2");
     expect(res?.status).toBe(200);
     expect(await res!.json()).toEqual({ contextIds: ["new-abc"] });
+    expect(logged).toEqual([]);
+  });
+
+  // A desktop shell up to 2.3.23 brings its own client, which reads no setting
+  // and removes whole stores (60 days) as soon as this route answers 200. It
+  // asks without `levels`, and must keep getting the 404 it got before the
+  // route was reachable: on a non-ok answer it returns before any Tauri call.
+  test("without levels=2 it answers the old 404, so an old client reaps nothing", async () => {
+    const { getPath, logged } = harness();
+    for (const path of [
+      "/api/browsers/data-store-keep-list",
+      "/api/browsers/data-store-keep-list?levels=1",
+      "/api/browsers/data-store-keep-list?levels=",
+      "/api/browsers/data-store-keep-list?level=2",
+    ]) {
+      const res = await getPath(path);
+      expect(res?.status).toBe(404);
+      expect(await res!.json()).toEqual({ error: "Browser context not found" });
+    }
     expect(logged).toEqual([]);
   });
 

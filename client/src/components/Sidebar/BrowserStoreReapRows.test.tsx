@@ -149,7 +149,10 @@ describe('the switches show the state the reaper reads', () => {
     expect(d.wholeRow.props.label).toBe('Cancella anche accessi e cronologia');
     expect(d.html).toContain('Svuota la cache dei browser chiusi');
     expect(d.html).toContain('Cancella anche accessi e cronologia');
-    expect(d.html).toContain('Accessi, cookie e dati dei siti restano');
+    // Level 1 also empties fetchCache and the service worker registrations on
+    // macOS, which are site data: the hint promises only logins and cookies.
+    expect(d.html).toContain('Toglie la cache dei browser che non apri più da tempo. Accessi e cookie restano.');
+    expect(d.html).not.toContain('dati dei siti restano');
     expect(d.html).toContain('Toglie per sempre anche accessi, cookie e dati dei siti');
     expect(d.html).toContain('dopo');
     expect(d.html).toContain('giorni senza uso');

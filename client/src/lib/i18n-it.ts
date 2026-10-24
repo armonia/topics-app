@@ -786,7 +786,7 @@ const IT: Dict = {
   'browser.memoryEviction.stateNormal': 'Scatta solo se la memoria scarseggia: adesso no.',
   'browser.memoryEviction.stateShort': 'La memoria scarseggia adesso: le pagine ferme da più di 10 minuti si liberano e si ricaricano quando ci torni.',
   'browser.storeReap.cache.setting': 'Svuota la cache dei browser chiusi',
-  'browser.storeReap.cache.hint': 'Toglie la cache dei browser che non apri più da tempo. Accessi, cookie e dati dei siti restano.',
+  'browser.storeReap.cache.hint': 'Toglie la cache dei browser che non apri più da tempo. Accessi e cookie restano.',
   'browser.storeReap.whole.setting': 'Cancella anche accessi e cronologia',
   'browser.storeReap.whole.hint': 'Toglie per sempre anche accessi, cookie e dati dei siti di quei browser. La cronologia delle pagine che Topics tiene a parte non si tocca.',
   'browser.storeReap.afterDays': 'dopo {n} giorni senza uso',

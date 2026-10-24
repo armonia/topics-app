@@ -66,7 +66,9 @@ const realNet = {
 };
 
 const SETTINGS_PATH = '/api/app-settings';
-const KEEP_LIST_PATH = '/api/browsers/data-store-keep-list';
+// With `levels=2`: the server gives the list only to a client that knows the
+// two levels. The bare path is what a shell up to 2.3.23 asks, and it gets 404.
+const KEEP_LIST_PATH = '/api/browsers/data-store-keep-list?levels=2';
 const WHOLE_COMMAND = 'browser_reap_data_stores';
 const CACHE_COMMAND = 'browser_reap_store_caches';
 
@@ -77,7 +79,7 @@ let requested: string[] = [];
 /** Commands that throw when invoked, as an older shell does for one it lacks. */
 let missingCommands = new Set<string>();
 let settingsAnswer: () => Promise<Response> = () => answer({ settings: {} });
-let keepListAnswer: () => Promise<Response> = () => answer({ contextIds: [] });
+let keepListAnswer: () => Promise<Response> = () => answer({ contextIds: ['ctx-open'] });
 
 function answer(body: unknown, status = 200): Promise<Response> {
   return Promise.resolve(new Response(JSON.stringify(body), {
@@ -382,5 +384,23 @@ describe('switched on, the keep list is still required', () => {
       expect(await reapBrowserDataStores()).toBe(-1);
     }
     expect(invokes).toEqual([]);
+  });
+
+  // An empty list makes every store an orphan: a ui_state that lost its rows,
+  // or a server that read none, would empty or remove all of them at once.
+  test('an empty keep list removes nothing, at either level', async () => {
+    for (const ids of [[], ['', 7, null]]) {
+      keepListAnswer = () => answer({ contextIds: ids });
+      for (const level2 of [false, true]) {
+        stored({ browserStoreCacheReapEnabled: true, browserStoreReapEnabled: level2 });
+        expect(await reapBrowserDataStores()).toBe(-1);
+      }
+    }
+    expect(invokes).toEqual([]);
+  });
+
+  test('the keep list is asked as a client that knows the two levels', async () => {
+    expect(await reapBrowserDataStores()).toBe(3);
+    expect(requested.filter((path) => path.startsWith('/api/browsers/'))).toEqual([KEEP_LIST_PATH]);
   });
 });

@@ -7294,6 +7294,12 @@ fn stale_store_uuids(
     max_age_days: u64,
     now: std::time::SystemTime,
 ) -> Vec<String> {
+    // An empty keep list makes every store an orphan. No caller sends one on
+    // purpose (the client stops before the call), so here it reads as a list
+    // that went wrong: both commands pass through this, and nothing is picked.
+    if keep_ids.is_empty() {
+        return Vec::new();
+    }
     let age = std::time::Duration::from_secs(max_age_days.max(MIN_REAP_AGE_DAYS) * 86_400);
     let keep: std::collections::HashSet<String> =
         keep_ids.iter().map(|id| pane_store_dir_name(id)).collect();
@@ -7318,7 +7324,9 @@ fn stale_store_uuids(
         // fondo a `Origins/`: si prende il PIÙ RECENTE tra la radice e i suoi
         // figli diretti (Cookies/, NetworkCache/, Origins/…). Un livello basta a
         // non dichiarare fermo uno store vivo, e costa una readdir.
-        let touched = newest_mtime_shallow(&path);
+        let Some(touched) = newest_mtime_shallow(&path) else {
+            continue; // an age that cannot be read is not an old age.
+        };
         match now.duration_since(touched) {
             Ok(elapsed) if elapsed >= age => out.push(name),
             _ => {}
@@ -7329,20 +7337,20 @@ fn stale_store_uuids(
 }
 
 /// L'mtime più recente tra una cartella e i suoi figli diretti.
-fn newest_mtime_shallow(path: &std::path::Path) -> std::time::SystemTime {
-    let mut newest = std::fs::metadata(path)
-        .and_then(|m| m.modified())
-        .unwrap_or(std::time::UNIX_EPOCH);
-    if let Ok(children) = std::fs::read_dir(path) {
-        for child in children.flatten() {
-            if let Ok(m) = child.metadata().and_then(|m| m.modified()) {
-                if m > newest {
-                    newest = m;
-                }
-            }
+///
+/// `None` when any of those mtimes cannot be read: the folder's, the listing
+/// of its children, or one child's. It used to fall back to UNIX_EPOCH for the
+/// folder and to skip the child, which reads an unknown age as an old one and
+/// errs toward deleting. An unknown age now keeps the store.
+fn newest_mtime_shallow(path: &std::path::Path) -> Option<std::time::SystemTime> {
+    let mut newest = std::fs::metadata(path).and_then(|m| m.modified()).ok()?;
+    for child in std::fs::read_dir(path).ok()? {
+        let m = child.and_then(|c| c.metadata()).and_then(|m| m.modified()).ok()?;
+        if m > newest {
+            newest = m;
         }
     }
-    newest
+    Some(newest)
 }
 
 /// I 16 byte di un UUID scritto `8-4-4-4-12`, o `None` se non lo è.
@@ -13644,12 +13652,47 @@ mod reaper_degli_store {
         SystemTime::now() + Duration::from_secs(giorni * 86_400)
     }
 
+    /// A keep list as the server sends it: never empty, here with an id that
+    /// has no store in the folder.
+    fn others() -> Vec<String> {
+        vec!["browser:another-one".to_string()]
+    }
+
     #[test]
     fn orfano_e_fermo_se_ne_va() {
         let dir = store_dir(&["browser:abbandonato"]);
-        let victims = stale_store_uuids(&dir, &[], 30, fra(60));
+        let victims = stale_store_uuids(&dir, &others(), 30, fra(60));
         assert_eq!(victims.len(), 1, "orfano da 60 giorni: è la coda lunga");
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn an_empty_keep_list_reaps_nothing() {
+        let dir = store_dir(&["browser:abbandonato"]);
+        // The store the test above reaps, at the same age. With no id kept every
+        // store is an orphan, which only a list that went wrong says.
+        let victims = stale_store_uuids(&dir, &[], 30, fra(60));
+        assert!(victims.is_empty(), "an empty keep list is not a permission");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_store_whose_age_cannot_be_read_is_not_old() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = store_dir(&["browser:unreadable"]);
+        let store = std::fs::read_dir(&dir).expect("dir").flatten().next().expect("store").path();
+        // Its children cannot be listed, so its newest mtime is unknown: an age
+        // that cannot be measured must not read as sixty days.
+        std::fs::set_permissions(&store, std::fs::Permissions::from_mode(0o000)).expect("chmod");
+        let listable = std::fs::read_dir(&store).is_ok();
+        let victims = stale_store_uuids(&dir, &others(), 30, fra(60));
+        std::fs::set_permissions(&store, std::fs::Permissions::from_mode(0o755)).expect("chmod back");
+        let _ = std::fs::remove_dir_all(&dir);
+        if listable {
+            return; // root lists it anyway: there is no unreadable store to test.
+        }
+        assert!(victims.is_empty(), "an unreadable store is kept");
     }
 
     #[test]
@@ -13667,7 +13710,7 @@ mod reaper_degli_store {
         let dir = store_dir(&["browser:di-ieri"]);
         // Orfano nella lista, ma toccato adesso: chiudere una tab e riaprirla
         // fra un minuto non deve passare dallo spazzino.
-        let victims = stale_store_uuids(&dir, &[], 30, SystemTime::now());
+        let victims = stale_store_uuids(&dir, &others(), 30, SystemTime::now());
         assert!(victims.is_empty(), "l'età manca: nessun permesso");
         let _ = std::fs::remove_dir_all(&dir);
     }
@@ -13677,7 +13720,7 @@ mod reaper_degli_store {
         let dir = store_dir(&["browser:qualunque"]);
         // Il pavimento di 7 giorni è la rete sotto un chiamante sbagliato:
         // con 0 il peggio che può fare è rimuovere roba ferma da una settimana.
-        let victims = stale_store_uuids(&dir, &[], 0, fra(3));
+        let victims = stale_store_uuids(&dir, &others(), 0, fra(3));
         assert!(victims.is_empty(), "0 giorni deve valere MIN_REAP_AGE_DAYS");
         let _ = std::fs::remove_dir_all(&dir);
     }
@@ -13687,7 +13730,7 @@ mod reaper_degli_store {
         let dir = store_dir(&[]);
         std::fs::create_dir_all(dir.join("Default")).expect("mkdir");
         std::fs::write(dir.join("salt"), b"x").expect("write");
-        let victims = stale_store_uuids(&dir, &[], 30, fra(999));
+        let victims = stale_store_uuids(&dir, &others(), 30, fra(999));
         assert!(victims.is_empty(), "solo le cartelle-UUID sono store");
         let _ = std::fs::remove_dir_all(&dir);
     }

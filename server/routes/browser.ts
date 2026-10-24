@@ -156,7 +156,14 @@ export function createBrowserRouter(
     // browser-store-keep-list.ts per il perché il taglio è grossolano.
     // Must stay above GET /api/browsers/:id, which would otherwise capture it
     // with id="data-store-keep-list" and answer 404 (the reaper then never ran).
-    if (method === "GET" && pathname === "/api/browsers/data-store-keep-list") {
+    //
+    // Only a client that knows the two cleanup levels gets the list: it asks
+    // with `?levels=2`. A desktop shell up to 2.3.23 ships its own client,
+    // which reads no setting and removes whole stores as soon as this answers
+    // 200, and with a daemon already on :3333 it talks to this server. Without
+    // the parameter the request goes on to GET /api/browsers/:id below and gets
+    // the same 404 it has had since 12/08, on which that client removes nothing.
+    if (method === "GET" && pathname === "/api/browsers/data-store-keep-list" && url.searchParams.get("levels") === "2") {
       const rows = ctx.db
         .query("SELECT value FROM ui_state")
         .all() as Array<{ value: string }>;

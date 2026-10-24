@@ -782,7 +782,7 @@ const EN = {
   'browser.memoryEviction.stateNormal': 'Acts only when memory is short: it is not now.',
   'browser.memoryEviction.stateShort': 'Memory is short now: pages idle for more than 10 minutes are freed and reload when you come back.',
   'browser.storeReap.cache.setting': 'Empty the cache of closed browsers',
-  'browser.storeReap.cache.hint': 'Removes the cache of browsers you have not opened for a while. Logins, cookies and site data stay.',
+  'browser.storeReap.cache.hint': 'Removes the cache of browsers you have not opened for a while. Logins and cookies stay.',
   'browser.storeReap.whole.setting': 'Also delete logins and history',
   'browser.storeReap.whole.hint': 'Also removes for good the logins, cookies and site data of those browsers. The history of visited pages that Topics keeps separately is not touched.',
   'browser.storeReap.afterDays': 'after {n} days without use',

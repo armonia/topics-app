@@ -84,7 +84,10 @@ export async function reapBrowserDataStores(): Promise<number> {
   if (!choice || choice.mode === 'off') return -1;
   let keepIds: string[];
   try {
-    const res = await apiFetch('/api/browsers/data-store-keep-list');
+    // `levels=2` says this client knows the two levels: the server gives the
+    // list to nobody else, so a shell up to 2.3.23, whose client reads no
+    // setting and removes whole stores, keeps getting 404.
+    const res = await apiFetch('/api/browsers/data-store-keep-list?levels=2');
     if (!res.ok) return -1;
     const body = (await res.json()) as { contextIds?: unknown };
     if (!Array.isArray(body.contextIds)) return -1;
@@ -94,6 +97,10 @@ export async function reapBrowserDataStores(): Promise<number> {
     // vuota: con una lista vuota il reaper considererebbe orfano tutto.
     return -1;
   }
+  // An empty list makes every store an orphan. It is what a ui_state that lost
+  // its rows, or a server that read none, would send: nothing is removed. A
+  // Topics with no browser context at all has nothing worth this round.
+  if (keepIds.length === 0) return -1;
   // ONE command per mode, chosen here and nowhere else. A throw from the cache
   // command is the end of the round: see the header, no fallback.
   const command = choice.mode === 'all' ? REAP_STORES_COMMAND : REAP_CACHES_COMMAND;
