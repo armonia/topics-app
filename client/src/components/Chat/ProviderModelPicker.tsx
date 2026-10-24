@@ -210,7 +210,7 @@ export function ProviderModelPicker({ override, defaultProviderLabel, pinnedMode
             className="inline-flex shrink-0 items-center gap-0.5 rounded px-1 py-0.5 bg-primary/10 text-primary"
           >
             <Route className="h-2.5 w-2.5" aria-hidden="true" />
-            <span className="text-[10px] font-semibold leading-none" aria-label={tr('ai.selector.route.topics')}>
+            <span className="text-mini font-semibold leading-none" aria-label={tr('ai.selector.route.topics')}>
               Topics
             </span>
           </span>
