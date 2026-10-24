@@ -43,6 +43,7 @@ import {
 import { normalizeImage } from "./image-normalize";
 import { isTopicsTool, executeTopicsTool, type TopicsToolContext } from "./topics-tools";
 import { isMcpTool, executeMcpTool } from "./mcp-fleet";
+import { runToolSearch, TOOL_SEARCH_NAME, withDeferredMcp } from "./tool-deferral";
 import type { AutonomyLevel } from "../../../shared/types";
 import type { StreamHandler } from "../types";
 import type { TurnEndInfo } from "../stop-reason";
@@ -107,6 +108,8 @@ export interface Block {
   inputTruncated?: boolean;
   /** Il corpo di un `redacted_thinking`, che l'API rimanda cifrato. */
   data?: string;
+  /** The tool a `tool_reference` loads (`tool-deferral.ts`). */
+  tool_name?: string;
 }
 
 export interface AgentMessage {
@@ -758,6 +761,10 @@ function refusalDetail(details: StopDetails | null): string {
  * on every following turn since the history never changes on its own.
  */
 export async function toolResultContent(out: ToolResult): Promise<string | Block[]> {
+  // References only: the API refuses a `tool_reference` next to a text block.
+  if (out.references?.length) {
+    return out.references.map((name): Block => ({ type: "tool_reference", tool_name: name }));
+  }
   const images = out.images;
   if (!images || images.length === 0) return clipToolResult(out.content, RESULT_HEAD_CHARS, RESULT_TAIL_CHARS);
 
@@ -807,6 +814,12 @@ export async function runAgentTurn(
     handler.onError(msg);
     return { turnEnd: { end: "error", cause: "provider-error", detail: msg }, text: "", usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, cacheWrite1h: 0 } };
   }
+
+  // MCP schemas go deferred and load on request (`tool-deferral.ts`). Wrapped
+  // here, once, so the request body and the context estimate see the same
+  // list; `tool_search` searches what the caller offered.
+  const offeredTools = opts.tools;
+  opts = { ...opts, tools: () => withDeferredMcp(offeredTools?.() ?? CODING_TOOLS, opts.history) };
 
   // Mutable on purpose: a 401 mid-turn renews the token, and every round after
   // that must carry the new one.
@@ -1026,12 +1039,16 @@ export async function runAgentTurn(
       // `mcp__<server>__<tool>` is a name WE built when mounting, so it cannot
       // collide with a native tool, while the other two are told apart by the
       // table that owns their names.
-      const out = opts.allowTool && !opts.allowTool(t.name!)
+      // `tool_search` loads schemas and runs nothing: it searches the MCP tools
+      // this round already offers, which the sub-agent policy has filtered.
+      const out: ToolResult = opts.allowTool && t.name !== TOOL_SEARCH_NAME && !opts.allowTool(t.name!)
         ? { content: `tool not available to this sub-agent: ${t.name}`, isError: true }
         : !verdict.allow
         ? { content: verdict.reason, isError: true }
         : hookVeto && !hookVeto.ok
           ? { content: hookVeto.reason, isError: true }
+        : t.name === TOOL_SEARCH_NAME
+          ? runToolSearch((t.input ?? {}) as Record<string, unknown>, (offeredTools?.() ?? []).filter((x) => isMcpTool(x.name)))
         : isMcpTool(t.name!)
           ? await executeMcpTool(t.name!, (t.input ?? {}) as Record<string, unknown>)
           : opts.topics && isTopicsTool(t.name!)

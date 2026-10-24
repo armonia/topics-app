@@ -47,8 +47,11 @@ export function applyPromptCache(params: Anthropic.MessageCreateParams): void {
 function markLastTool(params: Anthropic.MessageCreateParams): void {
   const tools = params.tools;
   if (!Array.isArray(tools) || tools.length === 0) return;
-  const last = tools[tools.length - 1] as unknown as Record<string, unknown>;
-  if (last && typeof last === "object") last.cache_control = EPHEMERAL;
+  // The last LOADED tool: a deferred one is not in the prefix, and the API
+  // refuses `cache_control` on it with a 400 (`native/tool-deferral.ts`).
+  const loaded = (tools as unknown as Record<string, unknown>[]).filter((t) => t && typeof t === "object" && t.defer_loading !== true);
+  const last = loaded[loaded.length - 1];
+  if (last) last.cache_control = EPHEMERAL;
 }
 
 function markSystem(params: Anthropic.MessageCreateParams): void {

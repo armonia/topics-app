@@ -68,6 +68,17 @@ const LARGE_SOURCE_TOKENS = 10_000;
 /** Project files we surface as templates (CLAUDE.md falls back to .claude/CLAUDE.md). */
 const PROJECT_TEMPLATE_FILES = ["CLAUDE.md", "README.md", ".cursorrules", "AGENTS.md"];
 
+/**
+ * How much of a project's README.md the context block carries.
+ *
+ * The README is an overview, not instructions: its head orients the agent and
+ * the file stays one Read away. On 24/10 the finance project's README was
+ * 136k characters (about 55-60k tokens) resent whole with every context
+ * block. CLAUDE.md and AGENTS.md are the project's instructions and are never
+ * cut, as Claude Code loads them whole.
+ */
+export const README_MAX_CHARS = 20_000;
+
 /** OpenClaw workspace files injected gateway-side; listed for inspector visibility. */
 const OPENCLAW_WORKSPACE_FILES = ["SOUL.md", "MEMORY.md", "AGENTS.md", "TOOLS.md", "IDENTITY.md", "USER.md"];
 
@@ -693,12 +704,13 @@ function pushProjectTemplateBlocks(
 
   for (const file of snap.files) {
     const id = `template:${file.name}`;
+    const content = file.name === "README.md" ? capReadme(file.content, file.path) : file.content;
     blocks.push({
       id,
       label: file.displayName,
       category: "template",
-      content: file.content,
-      tokens: estimateTokens(file.content),
+      content,
+      tokens: estimateTokens(content),
       enabled: isEnabled(id),
       countInBudget: true,
       sourceUri: file.path,
@@ -706,6 +718,45 @@ function pushProjectTemplateBlocks(
       injectedByTopicsApp: true,
     });
   }
+}
+
+/**
+ * The README's head up to {@link README_MAX_CHARS}, cut at a line end, with a note that names the file.
+ *
+ * A cut inside a code fence closes it: the files after the README in the
+ * block (AGENTS.md among them, the project's instructions) would otherwise be
+ * read as the rest of a code sample.
+ */
+function capReadme(content: string, path: string): string {
+  if (content.length <= README_MAX_CHARS) return content;
+  let head = content.slice(0, README_MAX_CHARS);
+  // A cut between the two halves of a surrogate pair leaves half an emoji,
+  // which no longer encodes as valid UTF-8.
+  if (/[\uD800-\uDBFF]$/.test(head)) head = head.slice(0, -1);
+  const lineEnd = head.lastIndexOf("\n");
+  const kept = lineEnd > README_MAX_CHARS / 2 ? head.slice(0, lineEnd) : head;
+  const fence = openFence(kept);
+  const closed = fence ? `${kept}\n${fence}` : kept;
+  return `${closed}\n\n[README.md cut here: the first ${kept.length} of ${content.length} characters. ` +
+    `The whole file is ${path}; read it when the task needs the rest.]`;
+}
+
+/**
+ * The code fence still open at the end of `text`, or null. CommonMark rules:
+ * a fence is three or more backticks or tildes, indented at most three spaces,
+ * and only a run of the same character, at least as long and with nothing
+ * after it, closes it.
+ */
+function openFence(text: string): string | null {
+  let open: string | null = null;
+  for (const line of text.split("\n")) {
+    const m = /^ {0,3}(`{3,}|~{3,})(.*)$/.exec(line);
+    if (!m) continue;
+    const run = m[1]!;
+    if (open === null) open = run;
+    else if (run[0] === open[0] && run.length >= open.length && m[2]!.trim() === "") open = null;
+  }
+  return open;
 }
 
 function pushBrowserInstructionBlock(blocks: SystemBlock[]): void {
