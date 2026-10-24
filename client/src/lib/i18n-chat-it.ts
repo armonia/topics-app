@@ -94,7 +94,7 @@ const CHAT_IT: Dict = {
   'chat.service.openTitle': 'Apri {url} in una tab del browser',
   'chat.service.stop': 'Ferma',
   'chat.service.lan': 'visibile in LAN',
-  'chat.service.lanTitle': 'Ascolta su tutte le interfacce: chiunque sia sulla stessa rete può aprirlo. Se non serve, riavvialo su 127.0.0.1',
+  'chat.service.lanTitle': 'Altri dispositivi della rete possono aprirlo. Se non serve, riavvialo su 127.0.0.1',
   'chat.send.queueTitle': 'Metti in coda (Invio)',
   'chat.send.sendTitle': 'Invia (Invio)',
   'chat.send.queue': 'Metti il messaggio in coda',

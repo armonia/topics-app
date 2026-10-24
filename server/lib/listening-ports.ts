@@ -7,7 +7,7 @@
  */
 
 import { existsSync } from "node:fs";
-import { listenUrl, type ListenAddress } from "../../shared/background-work";
+import { listenUrl, reachableFromNetwork, type ListenAddress } from "../../shared/background-work";
 import { recordServerSpawn } from "./spawn-metrics";
 
 export type ListeningPort = { port: number; pid: number; command: string; host: string };
@@ -69,17 +69,41 @@ function listeningProbe(): typeof probe {
   return probe;
 }
 
-/** A listening address as the rows write it: any-address spellings become `*`, as lsof writes them. */
+/**
+ * A listening address as the rows write it: any-address spellings become `*`,
+ * as lsof writes them. ss writes the device a socket is bound to after a `%`
+ * (`*%lo`, `[::1]%lo`, `127.0.0.53%lo`): bound to the loopback device it is
+ * local whatever the address, and its any-address is written 127.0.0.1.
+ */
 function hostOf(local: string, portText: string): string {
-  const host = local.slice(0, -(portText.length + 1));
-  return host === "" || host === "0.0.0.0" || host === "[::]" || host === "*" ? "*" : host;
+  const written = local.slice(0, -(portText.length + 1));
+  const at = written.lastIndexOf("%");
+  const scoped = at > written.lastIndexOf("]");
+  const host = scoped ? written.slice(0, at) : written;
+  const any = host === "" || host === "0.0.0.0" || host === "[::]" || host === "*";
+  if (scoped && /^lo\d*$/.test(written.slice(at + 1))) return any ? "127.0.0.1" : host;
+  return any ? "*" : host;
 }
 
-/** One port once, lowest first: the first process seen on a port keeps it. */
+/** How far an address reaches: every interface, a LAN or VPN address, the loopback. */
+function reach(host: string): number {
+  if (host === "*") return 2;
+  return reachableFromNetwork({ host, port: 0 }) ? 1 : 0;
+}
+
+/**
+ * One port once, lowest first: the first process seen on a port keeps it. When
+ * that process listens on the port on more than one address, the row keeps the
+ * one that reaches furthest, whichever line came first: a server on 127.0.0.1
+ * and on its LAN address can be opened from the network.
+ */
 function uniqueSorted(entries: ListeningPort[]): ListeningPort[] {
-  const seen = new Set<number>();
-  const ports = entries.filter((e) => (seen.has(e.port) ? false : (seen.add(e.port), true)));
-  return ports.sort((a, b) => a.port - b.port);
+  const byPort = new Map<number, ListeningPort>();
+  for (const e of entries) {
+    const kept = byPort.get(e.port);
+    if (!kept || (kept.pid === e.pid && reach(e.host) > reach(kept.host))) byPort.set(e.port, e);
+  }
+  return [...byPort.values()].sort((a, b) => a.port - b.port);
 }
 
 /** `lsof -iTCP -sTCP:LISTEN -P -n`: COMMAND PID ... NAME, after a header line. */

@@ -7,6 +7,7 @@
  * seen through these rows.
  */
 import { describe, expect, test } from "bun:test";
+import { reachableFromNetwork } from "../../shared/background-work";
 import { parseLsof, parseSs, servesHtml } from "./listening-ports";
 
 describe("listening sockets", () => {
@@ -37,6 +38,36 @@ describe("listening sockets", () => {
       { port: 3000, pid: 222, command: "node", host: "*" },
       { port: 8777, pid: 12345, command: "python3", host: "127.0.0.1" },
     ]);
+  });
+
+  // BGVIS-08: the row keeps one address per port, so a LAN address after the
+  // loopback one was lost and the LAN badge never showed.
+  test("a process on the loopback and on a LAN address keeps the LAN one, whichever line comes first", () => {
+    const out = [
+      "COMMAND   PID USER   FD   TYPE DEVICE SIZE/OFF NODE NAME",
+      "Python  8777 me    3u  IPv4 0x1      0t0  TCP 127.0.0.1:8777 (LISTEN)",
+      "Python  8777 me    4u  IPv4 0x2      0t0  TCP 192.168.1.20:8777 (LISTEN)",
+      "node     222 me   20u  IPv4 0x3      0t0  TCP 192.168.1.20:3000 (LISTEN)",
+      "node     222 me   21u  IPv4 0x4      0t0  TCP 127.0.0.1:3000 (LISTEN)",
+      "other    333 me    5u  IPv4 0x5      0t0  TCP *:3000 (LISTEN)",
+    ].join("\n");
+    expect(parseLsof(out)).toEqual([
+      { port: 3000, pid: 222, command: "node", host: "192.168.1.20" },
+      { port: 8777, pid: 8777, command: "Python", host: "192.168.1.20" },
+    ]);
+  });
+
+  test("ss: a socket bound to the loopback device is local whatever its address; another device is not", () => {
+    const out = [
+      'LISTEN 0      4096   127.0.0.53%lo:53        0.0.0.0:*    users:(("systemd-resolve",pid=500,fd=14))',
+      'LISTEN 0      128             *%lo:8080            *:*    users:(("app",pid=600,fd=3))',
+      'LISTEN 0      128         [::1]%lo:631          [::]:*    users:(("cupsd",pid=700,fd=7))',
+      'LISTEN 0      128      0.0.0.0%eth0:9000      0.0.0.0:*    users:(("srv",pid=800,fd=3))',
+      "",
+    ].join("\n");
+    const rows = parseSs(out);
+    expect(rows.map((r) => [r.port, r.host])).toEqual([[53, "127.0.0.53"], [631, "[::1]"], [8080, "127.0.0.1"], [9000, "*"]]);
+    expect(rows.map((r) => reachableFromNetwork(r))).toEqual([false, false, false, true]);
   });
 
   test("a port serves a page when / answers text/html; an API, or nothing listening, does not", async () => {

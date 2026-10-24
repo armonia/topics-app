@@ -37,6 +37,7 @@ import { commentAuthorLabel } from "../../shared/comment-author";
 import { CHECKS_LEG_MS } from "../services/checks-gate";
 import { OUTBOUND_TOOLS, callGoogleCall, callSendMail } from "./outbound-tools";
 import { COMMAND_TOOLS, RUN_COMMAND_BOARD_DESCRIPTION, callRunCommand, isBoardProfile } from "./command-tools";
+import { BIND_LOOPBACK_NOTE } from "../../shared/background-work";
 import { SHOW_VIEW_TOOL, answerResourceMethod, callShowView, showViewCallResult } from "./view-tools";
 import { hasCommandShell } from "../lib/command-process";
 import { bridgeAuthHeaders, HttpAnswerError, httpJson, lostRequestError, loopbackInit, REQUEST_TIMEOUT_MS } from "./topics-http";
@@ -205,7 +206,7 @@ const TOOLS = [
   {
     name: "run_script",
     description:
-      "Run a package.json script (e.g. 'dev', 'test', 'build') in the current topic's project. Async: returns a processId immediately — poll output with read_process_output, don't wait. The project is resolved from the session, so you only pass the script name. Only declared scripts run; an unknown name is rejected with the available list.",
+      `Run a package.json script (e.g. 'dev', 'test', 'build') in the current topic's project. Async: returns a processId immediately — poll output with read_process_output, don't wait. The project is resolved from the session, so you only pass the script name. Only declared scripts run; an unknown name is rejected with the available list. ${BIND_LOOPBACK_NOTE}`,
     inputSchema: {
       type: "object",
       properties: {

@@ -5711,10 +5711,15 @@ chat rispondeva `[]` mentre la chat nominava il processo.
 - **THEN** la sua riga della striscia porta «visibile in LAN» (`live-work-lan`)
   accanto all'indirizzo, e il segno del server sulla riga della sidebar è ambra
   e lo dice nel titolo
-- **AND** un server su `127.0.0.1` o `[::1]` NON porta né il badge né il segno ambra
-- **AND** la descrizione di `run_command` chiede di legare un server a
-  `127.0.0.1`, non a `0.0.0.0`, salvo che la persona voglia aprirlo da altri
-  dispositivi
+- **AND** un server su `127.0.0.1` o `[::1]`, o legato al dispositivo di
+  loopback (`*%lo`, `[::1]%lo` di `ss`), NON porta né il badge né il segno ambra
+- **AND** un processo che ascolta sulla stessa porta su `127.0.0.1` e sul suo
+  indirizzo LAN porta il badge, qualunque riga di `lsof` o `ss` venga prima, e
+  il titolo del segno nomina l'indirizzo aperto anche quando non è il primo
+- **AND** `run_command`, `run_script` e il prompt di sistema (che copre la shell
+  in background della CLI) chiedono di legare un server a `127.0.0.1`
+  (`--host 127.0.0.1`), non a `0.0.0.0`, salvo che la persona voglia aprirlo da
+  altri dispositivi
 
 ### Requirement: BGVIS-09 — Un server avviato con `Bash` in background è un server della chat
 

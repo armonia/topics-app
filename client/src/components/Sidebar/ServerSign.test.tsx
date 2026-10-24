@@ -35,6 +35,13 @@ describe('the server sign on the sidebar row', () => {
     expect(String(s.props.title)).toContain('0.0.0.0:8777');
   });
 
+  test('the title names the address open to the network, also when it is not the first', () => {
+    const s = sign([{ ...server('127.0.0.1', 5173), listen: [{ host: '127.0.0.1', port: 5173 }, { host: '*', port: 24678 }] }])!;
+    expect(s.props['data-lan']).toBe('true');
+    expect(String(s.props.title)).toContain('0.0.0.0:24678');
+    expect(String(s.props.title)).not.toContain('127.0.0.1:5173');
+  });
+
   test('servers on the loopback only: the quiet sign, no LAN', () => {
     const s = sign([server('127.0.0.1', 8781), server('[::1]', 8782)])!;
     expect(s.props['data-lan']).toBeUndefined();

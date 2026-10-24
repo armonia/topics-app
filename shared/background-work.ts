@@ -69,6 +69,15 @@ export function reachableFromNetwork(a: ListenAddress): boolean {
   return !(host === "::1" || host === "localhost" || /^(::ffff:)?127\./.test(host));
 }
 
+/**
+ * The rule every way of starting a server gives the agent: `run_command`,
+ * `run_script`, and the CLI's own background shell through the system prompt.
+ * It is only a sentence, an agent can still bind 0.0.0.0: the LAN badge
+ * (`reachableFromNetwork`) is what catches it, where the ports can be read.
+ */
+export const BIND_LOOPBACK_NOTE =
+  "Bind a server to 127.0.0.1 (`--host 127.0.0.1`), not 0.0.0.0, unless the person wants other devices to reach it.";
+
 /** The URL that opens a server listening on `a`: plain http on the loopback when it listens everywhere. */
 export function listenUrl(a: ListenAddress): string {
   return `http://${ANY_HOST.has(a.host) ? "127.0.0.1" : a.host}:${a.port}/`;

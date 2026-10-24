@@ -13,6 +13,7 @@ describe("reachableFromNetwork", () => {
     ["*", true],
     ["192.168.1.20", true],
     ["100.101.102.103", true],
+    ["10.0.127.5", true],
     ["[fe80::1]", true],
     ["127.0.0.1", false],
     ["127.0.0.53", false],

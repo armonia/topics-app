@@ -9,6 +9,7 @@ import {
 } from '../services/app-settings';
 import { EFFORT_TIERS, CODEX_REASONING_EFFORTS, MUSE_REASONING_EFFORTS } from '../../shared/effort';
 import type { OutputLanguage } from '../../shared/types';
+import { BIND_LOOPBACK_NOTE } from '../../shared/background-work';
 import { hasCommandShell } from './command-process';
 
 /**
@@ -190,6 +191,7 @@ const topicsAgentProcessPrompt = (cmd: boolean, board: boolean, headless: boolea
   'To start a long-running dev server, watcher, or build process, ALWAYS prefer the',
   'Topics MCP tool `mcp__topics__run_script` (it runs a script declared in the',
   "project's package.json) instead of backgrounding the command in the shell.",
+  BIND_LOOPBACK_NOTE,
   ...(cmd ? ['Any other long-running or long-waiting command goes through `mcp__topics__run_command`.'] : []),
   'Processes started this way appear in the Topics Processes panel with live logs,',
   'status, port links, and a stop button, and are managed across restarts.',

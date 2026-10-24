@@ -11,14 +11,27 @@
  * @covers BGVIS-08
  */
 import { describe, expect, test } from "bun:test";
+import { BIND_LOOPBACK_NOTE } from "../../shared/background-work";
+import { topicsAgentSystemPrompt } from "../lib/topics-agent-prompt";
 import { COMMAND_TOOLS, RUN_COMMAND_BOARD_DESCRIPTION, callRunCommand } from "./command-tools";
+import { toolsForProfile } from "./topics-mcp-server";
 
-describe("run_command asks for a server on the loopback", () => {
-  test("in a chat's description and in a board card's", () => {
-    for (const text of [COMMAND_TOOLS[0]!.description, RUN_COMMAND_BOARD_DESCRIPTION]) {
-      expect(text).toContain("bind a server to 127.0.0.1");
-      expect(text).toContain("not 0.0.0.0");
-    }
+describe("every way of starting a server asks for one on the loopback", () => {
+  test("the note names the flag with its address and warns off 0.0.0.0", () => {
+    expect(BIND_LOOPBACK_NOTE).toContain("(`--host 127.0.0.1`)");
+    expect(BIND_LOOPBACK_NOTE).toContain("not 0.0.0.0");
+  });
+
+  test("run_command in a chat and on a card, run_script, and the prompt that covers the CLI's background shell", () => {
+    const runScript = toolsForProfile(undefined, "darwin").find((t) => t.name === "run_script")!.description;
+    const texts = [
+      COMMAND_TOOLS[0]!.description,
+      RUN_COMMAND_BOARD_DESCRIPTION,
+      runScript,
+      topicsAgentSystemPrompt("auto", "darwin"),
+      topicsAgentSystemPrompt("auto", "win32"),
+    ];
+    for (const text of texts) expect(text).toContain(BIND_LOOPBACK_NOTE);
   });
 });
 
