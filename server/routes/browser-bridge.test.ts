@@ -29,6 +29,7 @@ import type { AppContext, Topic } from "../types";
 import type { BrowserService } from "../browser-service";
 import type { PortOwnerDeps } from "../lib/port-project-owner";
 import { nativeDelegateRegistry } from "../browser-native-delegate";
+import { warnBridgeServerError } from "../lib/browser-bridge-warn";
 
 const TOKEN = "gateway-token-di-prova";
 
@@ -1408,7 +1409,7 @@ describe("5xx del bridge — il motivo finisce nel log", () => {
       expect((await resp!.json()).error).toContain("inventario illeggibile");
       const lines = warn.mock.calls.map((args) => args.map(String).join(" "));
       expect(lines).toHaveLength(1);
-      expect(lines[0]).toContain("browser_list_tabs");
+      expect(lines[0]).toMatch(/ browser_list_tabs t1 -> 500: /);
       expect(lines[0]).toContain("inventario illeggibile");
     } finally {
       warn.mockRestore();
@@ -1429,6 +1430,22 @@ describe("5xx del bridge — il motivo finisce nel log", () => {
       expect(lines).toHaveLength(1);
       expect(lines[0]).toContain("t1");
       expect(lines[0]).toContain(error);
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  test("la riga è una sola, con l'ora ISO, e il motivo è la sua prima riga tagliata a 500 caratteri", () => {
+    const warn = spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      warnBridgeServerError("browser_eval", "c1", 502, new Error(`first line\r\nPAGE-DATA second line\n${"x".repeat(10)}`));
+      warnBridgeServerError("browser_eval", "c1", 502, "y".repeat(700));
+      const lines = warn.mock.calls.map((args) => args.map(String).join(" "));
+      expect(lines).toEqual([
+        expect.stringMatching(/^\[browser-bridge\] \d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\.\d{3}Z browser_eval c1 -> 502: first line$/),
+        expect.stringMatching(new RegExp(`-> 502: y{500}$`)),
+      ]);
+      for (const l of lines) expect(l).not.toContain("\n");
     } finally {
       warn.mockRestore();
     }
