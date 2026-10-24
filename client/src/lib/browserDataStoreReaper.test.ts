@@ -218,6 +218,10 @@ describe('a setting that did not arrive is not a permission', () => {
     ['the server could not read the setting (503)', () => answer({ ok: false, error: 'settings unreadable' }, 503)],
     ['the server cannot be reached', () => Promise.reject(new TypeError('Failed to fetch'))],
     ['the answer carries no settings', () => answer({})],
+    // A failure is a failure whatever its body says: a proxy or an older
+    // server can answer an error status with a settings object inside.
+    ['a 500 that carries settings switched on', () => answer({ settings: { browserStoreReapEnabled: true, browserStoreReapAfterDays: 30 } }, 500)],
+    ['a 401 that carries settings', () => answer({ settings: {} }, 401)],
   ];
   for (const [name, failure] of failures) {
     test(`${name}: no keep list, no Tauri command`, async () => {
@@ -230,6 +234,18 @@ describe('a setting that did not arrive is not a permission', () => {
       expect(removed).toBe(-1);
     });
   }
+});
+
+describe('switched back on, the cleanup runs again', () => {
+  test('off at one start, on at the next: the second start removes', async () => {
+    stored({ browserStoreReapEnabled: false, browserStoreReapAfterDays: 30 });
+    expect(await reapBrowserDataStores()).toBe(-1);
+    expect(reapCalls()).toEqual([]);
+
+    stored({ browserStoreReapEnabled: true, browserStoreReapAfterDays: 30 });
+    expect(await reapBrowserDataStores()).toBe(3);
+    expect(reapCalls()).toEqual([{ cmd: REAP_COMMAND, args: { keepIds: ['ctx-open'], maxAgeDays: 30 } }]);
+  });
 });
 
 describe('switched on, the keep list is still required', () => {

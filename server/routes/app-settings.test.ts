@@ -214,6 +214,26 @@ describe("the cleanup of closed browsers' data: a setting, clamped when saved", 
     expect(getAppSettings().browserStoreReapEnabled).toBeNull();
   });
 
+  test("switched back on: true is stored as 1 and every reader gets true back", async () => {
+    // Off, then on again. The way back is what a person does after switching
+    // the cleanup off by mistake, and it has to reach the reaper: the PUT
+    // answer is what the switch draws, the GET is what the reaper reads.
+    expect((await put({ browserStoreReapEnabled: false })).status).toBe(200);
+    const on = await put({ browserStoreReapEnabled: true });
+    expect(on.status).toBe(200);
+    expect(on.body.settings.browserStoreReapEnabled).toBe(true);
+
+    const column = getDatabase()
+      .query("SELECT browser_store_reap_enabled AS v FROM app_settings LIMIT 1")
+      .get() as { v: number | null };
+    expect(column.v).toBe(1);
+    expect(getAppSettings().browserStoreReapEnabled).toBe(true);
+
+    const req = new Request("http://localhost/api/app-settings");
+    const res = await router(req, new URL(req.url), "/api/app-settings", "GET");
+    expect((await res!.json()).settings.browserStoreReapEnabled).toBe(true);
+  });
+
   test("the switch wants a boolean, not the string 'false'", async () => {
     const r = await put({ browserStoreReapEnabled: "false" });
     expect(r.status).toBe(400);
@@ -323,6 +343,24 @@ describe("a read that failed is never answered as 'never touched'", () => {
     expect(r.body.settings).toBeUndefined();
     // The row was not lost, it was only unreadable for a moment.
     expect((await get()).body.settings.browserStoreReapEnabled).toBe(false);
+  });
+
+  test("PUT: the write lands and the re-read fails: a 503, not a 200 with every field NULL", async () => {
+    // The switch draws the PUT answer. An all-NULL answer draws ON at 60 days
+    // while the disk holds OFF, and hides a stored 30 behind a displayed 60.
+    updateAppSettings({ browserStoreReapEnabled: true, browserStoreReapAfterDays: 30 });
+    const restore = failTheSettingsRead();
+    let r: { status: number; body: any };
+    try {
+      r = await put({ browserStoreReapEnabled: false });
+    } finally {
+      restore();
+    }
+    expect(r.status).toBe(503);
+    expect(r.body.settings).toBeUndefined();
+    // The write itself went through: only the answer could not say so.
+    expect(getAppSettings().browserStoreReapEnabled).toBe(false);
+    expect(getAppSettings().browserStoreReapAfterDays).toBe(30);
   });
 
   test("the server's own readers keep their fallback: getAppSettings still answers all-null", () => {

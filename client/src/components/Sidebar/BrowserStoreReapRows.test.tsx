@@ -14,13 +14,21 @@
  * `Settings/IdentitySection.test.tsx`, and rendered with `renderToStaticMarkup`
  * for what reaches the screen.
  *
+ * The container is tested too, because it is the half that saves: after a PUT
+ * the switch must show what the server answered, and a failed save must say so.
+ * It is mounted through `test/reactHarness` (the hook runtime that re-renders),
+ * with `appSettingsApi.get` and `.update` replaced in place, the way
+ * `hooks/useBoardFeed.test.ts` replaces `boardApi.list`: no request leaves the
+ * process, so nothing reaches a real server.
+ *
  * @covers BROWSER-STORE-REAP-06
  */
-import { describe, expect, test } from 'bun:test';
-import type { ReactElement, ReactNode } from 'react';
+import { afterEach, describe, expect, test } from 'bun:test';
+import { createElement, type ReactElement, type ReactNode } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { t } from '../../lib/i18n';
-import type { AppBehaviorSettings } from '../../lib/api';
+import { appSettingsApi, type AppBehaviorSettings } from '../../lib/api';
+import { mount, type Harness, type HostNode } from '../../test/reactHarness';
 import { SwitchRow } from './PreferenceRow';
 import { BrowserStoreReapControls, BrowserStoreReapRows } from './BrowserStoreReapRows';
 
@@ -157,5 +165,111 @@ describe('nothing is drawn before the stored values are read', () => {
     // the state before it does. Drawing the default here would state a choice
     // nobody has seen.
     expect(renderToStaticMarkup(<BrowserStoreReapRows />)).toBe('');
+  });
+});
+
+describe('the container: what the server answered is what the switch shows', () => {
+  const realGet = appSettingsApi.get;
+  const realUpdate = appSettingsApi.update;
+  let harness: Harness | null = null;
+  let onDisk: Stored = NEVER_TOUCHED;
+  let puts: Patch[] = [];
+  let putFails = false;
+
+  /** A server in memory: GET answers what is stored, PUT stores and answers it,
+   *  or throws the way `request()` does on a non-2xx answer. */
+  function fakeServer(initial: Stored): void {
+    onDisk = { ...initial };
+    puts = [];
+    putFails = false;
+    appSettingsApi.get = async () => ({ ...onDisk } as AppBehaviorSettings);
+    appSettingsApi.update = async (patch) => {
+      puts.push(patch);
+      if (putFails) throw new Error('503 settings unreadable');
+      onDisk = { ...onDisk, ...patch } as Stored;
+      return { ...onDisk } as AppBehaviorSettings;
+    };
+  }
+
+  /** Lets the queued promise callbacks run (the GET, the PUT), no timers. */
+  async function settle(): Promise<void> {
+    for (let i = 0; i < 5; i++) await Promise.resolve();
+  }
+
+  async function mountRows(): Promise<Harness> {
+    harness = mount(createElement(BrowserStoreReapRows));
+    await settle();
+    return harness;
+  }
+
+  const hostOf = (h: Harness, match: (n: HostNode) => boolean): HostNode => {
+    const node = h.last().hosts.find(match);
+    if (!node) throw new Error('the control is not drawn');
+    return node;
+  };
+  const switchOf = (h: Harness) => hostOf(h, (n) => n.props.role === 'switch');
+  const daysOf = (h: Harness) => hostOf(h, (n) => n.type === 'input');
+  const press = (h: Harness) => (switchOf(h).props.onClick as () => void)();
+  const saveFailedLine = () => tr('browser.storeReap.saveFailed');
+
+  afterEach(() => {
+    harness?.unmount();
+    harness = null;
+    appSettingsApi.get = realGet;
+    appSettingsApi.update = realUpdate;
+  });
+
+  test('off, then on again: each PUT answer is what the switch shows', async () => {
+    fakeServer(NEVER_TOUCHED);
+    const h = await mountRows();
+    expect(switchOf(h).props['aria-checked']).toBe(true);
+
+    press(h);
+    await settle();
+    expect(puts).toEqual([{ browserStoreReapEnabled: false }]);
+    expect(switchOf(h).props['aria-checked']).toBe(false);
+    expect(daysOf(h).props.disabled).toBe(true);
+
+    // The way back: a switch that cannot be turned on again no longer governs
+    // the reaper, whatever it shows.
+    press(h);
+    await settle();
+    expect(puts).toEqual([{ browserStoreReapEnabled: false }, { browserStoreReapEnabled: true }]);
+    expect(switchOf(h).props['aria-checked']).toBe(true);
+    expect(daysOf(h).props.disabled).toBe(false);
+    expect(h.last().text).not.toContain(saveFailedLine());
+  });
+
+  test('the days field shows the number the server kept, not the one typed', async () => {
+    fakeServer(NEVER_TOUCHED);
+    const h = await mountRows();
+    (daysOf(h).props.onChange as (e: { target: { value: string } }) => void)({ target: { value: '400' } });
+    expect(daysOf(h).props.value).toBe('400');
+
+    (daysOf(h).props.onBlur as (e: { target: { value: string } }) => void)({ target: { value: '400' } });
+    await settle();
+    expect(puts).toEqual([{ browserStoreReapAfterDays: 365 }]);
+    expect(daysOf(h).props.value).toBe('365');
+  });
+
+  test('a save that failed is said on screen, and the switch stays where the disk is', async () => {
+    fakeServer({ browserStoreReapEnabled: false, browserStoreReapAfterDays: 30 });
+    const h = await mountRows();
+    expect(h.last().text).not.toContain(saveFailedLine());
+
+    putFails = true;
+    press(h);
+    await settle();
+    expect(puts).toEqual([{ browserStoreReapEnabled: true }]);
+    expect(hostOf(h, (n) => n.props.role === 'alert')).toBeDefined();
+    expect(h.last().text).toContain(saveFailedLine());
+    expect(switchOf(h).props['aria-checked']).toBe(false);
+
+    // The next save that works takes the line away.
+    putFails = false;
+    press(h);
+    await settle();
+    expect(h.last().text).not.toContain(saveFailedLine());
+    expect(switchOf(h).props['aria-checked']).toBe(true);
   });
 });
