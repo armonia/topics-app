@@ -27,9 +27,10 @@ describe('lo switch della superficie legge lo stato effettivo, non solo il local
     expect(surfaceTopicsRoutingEnabled(null, null, null, 'claude-opus-5')).toBe(true);
   });
 
+  /** @covers MSEL-06 */
   test('il modello scelto QUI copre quello della board', () => {
-    expect(surfaceTopicsRoutingEnabled(null, null, 'claude-opus-5', 'topics:claude-opus-5')).toBe(true);
-    expect(surfaceTopicsRoutingEnabled(null, null, 'topics:claude-opus-5', 'claude-opus-5')).toBe(true);
+    expect(surfaceTopicsRoutingEnabled(null, null, 'claude-opus-5', 'claude-code:claude-opus-5')).toBe(true);
+    expect(surfaceTopicsRoutingEnabled(null, null, 'topics:claude-opus-5', 'claude-code:claude-opus-5')).toBe(true);
   });
 
   test("`auto` non e' un modello: non porta nessun prefisso legacy, e resta il default acceso", () => {

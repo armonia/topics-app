@@ -197,9 +197,13 @@ SHALL restare `provider` più `model`.
 
 La preferenza mai scritta (`null`) SHALL valere acceso per le chat, anche per
 quelle che esistono già, e acceso per le card e per il default della board
-(25/10, card e9226ab7: il default task è coerente con la chat).
-Nessun dato SHALL essere riscritto per questo. Il default per ambito SHALL
-stare in una costante sola (`TOPICS_ROUTING_DEFAULT`).
+(25/10, card e9226ab7: il default task è coerente con la chat). Per una card
+senza preferenza salvata, il prefisso esplicito `claude-code:<model>` SHALL
+conservare l'esecuzione diretta storica, mentre `topics:<model>` SHALL
+conservare l'instradamento legacy. Un valore `null` senza prefisso esplicito,
+incluso `auto`, SHALL usare il default dell'ambito. Nessun dato SHALL essere
+riscritto per questo. Il default per ambito SHALL stare in una costante sola
+(`TOPICS_ROUTING_DEFAULT`).
 
 Con la preferenza accesa, il bersaglio SHALL essere risolto prima come a
 preferenza spenta (Automatico diventa il default), e solo dopo si decide la
@@ -211,6 +215,12 @@ turno. La preferenza SHALL NOT bloccare l'invio, e SHALL NOT parcheggiare una
 card perché il suo bersaglio non è instradabile.
 
 Ogni lettura della preferenza SHALL passare da una funzione sola, `topicsRoute`.
+
+Una sessione task nata prima della colonna `topicsRouting` SHALL leggere il suo
+valore `null` come il default task storico, OFF. Un task dipendente mai scelto
+senza prefisso legacy SHALL adottare la strada della sessione; una scelta scritta
+o un prefisso `topics:` in conflitto SHALL parcheggiare il task con il motivo
+dello switch.
 
 #### Scenario: chat esistente su Claude Code, mai toccata
 - **GIVEN** una chat con `provider: claude-code`, un modello servito dal motore, preferenza `null`

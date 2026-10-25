@@ -115,6 +115,13 @@ describe('identità del topic dispacciato', () => {
     expect(id.executor).toBe('topics');
   });
 
+  /** @covers AICTRL-01, MSEL-06 */
+  it('a null-preference card with an explicit Claude Code prefix stays direct', () => {
+    const id = resolveDispatchTopicIdentity({ model: 'claude-code:claude-opus-5', topicsRouting: null }, FLEET);
+    expect(id.topicsRouting).toBe(false);
+    expect(id.executor).toBe('claude-code');
+  });
+
   it('il motore in scoperta fa aspettare la card, non la parcheggia', () => {
     const loading = snapshot([
       { ...entry('topics', []), status: 'loading' } as unknown as ReturnType<typeof entry>,

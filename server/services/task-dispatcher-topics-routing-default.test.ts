@@ -173,10 +173,10 @@ describe("AICTRL-05: default board dello switch di instradamento", () => {
  */
 describe("a card reusing a session", () => {
   type Routing = boolean | null;
-  async function reuse(card: Routing, session: Routing, board: Routing = null) {
+  async function reuse(card: Routing, session: Routing, board: Routing = null, cardModel = "claude-code:claude-sonnet-5") {
     const events: string[] = [];
     const h = harness({
-      topicModelSelection: () => ({ provider: "claude-code", model: "claude-sonnet-5", ...(session === null ? {} : { topicsRouting: session }) }),
+      topicModelSelection: () => ({ provider: "claude-code", model: "claude-sonnet-5", topicsRouting: session }),
       setTopicRouting: (id, value) => { events.push(`write ${id}=${value}`); },
       runTurn: (sessionKey) => { events.push(`turn ${sessionKey}`); return new Promise<TurnEndInfo | void>(() => {}); },
     });
@@ -191,8 +191,8 @@ describe("a card reusing a session", () => {
     );
     h.db.run(
       `INSERT INTO tasks (id, project_id, text, status, created_at, updated_at, dispatch_attempts, model, topics_routing, blocked_by_task_id, reuse_blocker_context)
-       VALUES ('d1', ?, 'dependent', 'todo', ?, ?, 0, 'claude-code:claude-sonnet-5', ?, 'b1', 1)`,
-      [PID, ts, ts, card === null ? null : (card ? 1 : 0)],
+       VALUES ('d1', ?, 'dependent', 'todo', ?, ?, 0, ?, ?, 'b1', 1)`,
+      [PID, ts, ts, cardModel, card === null ? null : (card ? 1 : 0)],
     );
     await h.dispatcher.tick(PID);
     await flush(40);
@@ -216,6 +216,23 @@ describe("a card reusing a session", () => {
     expect(events.some((e) => e.startsWith("write"))).toBe(false);
   });
 
+  /** @covers MSEL-06 */
+  it("an explicit OFF card reuses a pre-column null session as direct", async () => {
+    const { task, events } = await reuse(false, null);
+    expect(task.dispatchState).not.toBe("blocked");
+    expect(task.dispatchError ?? null).toBeNull();
+    expect(events[0]).toBe("write topic-s=false");
+    expect(events[1]?.startsWith("turn ")).toBe(true);
+  });
+
+  /** @covers AICTRL-01, MSEL-06 */
+  it("a legacy topics prefix against a pre-column session keeps the switch-off reason", async () => {
+    const { task, events } = await reuse(null, null, null, "topics:claude-sonnet-5");
+    expect(task.dispatchState).toBe("blocked");
+    expect(task.dispatchError).toBe("This task has Topics routing on, but the previous session runs with the switch off. Turn the switch off or turn off session reuse before starting the task.");
+    expect(events).toHaveLength(0);
+  });
+
   it("a card written ON reusing a session with 0 parks with the switch-off reason, as before", async () => {
     const { task, events } = await reuse(true, false);
     expect(task).toMatchObject({ dispatchState: "blocked" });
@@ -231,7 +248,7 @@ describe("a card reusing a session", () => {
   it("a never-written card reusing a session from before the column (null): the effective value is written before the turn", async () => {
     const { task, events } = await reuse(null, null);
     expect(task.dispatchState).not.toBe("blocked");
-    expect(events[0]).toBe("write topic-s=true");
+    expect(events[0]).toBe("write topic-s=false");
     expect(events[1]?.startsWith("turn ")).toBe(true);
   });
 });

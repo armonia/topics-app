@@ -1,5 +1,6 @@
 /** @covers MP-TASK-01, MP-TASK-02, MSEL-06 */
 import { describe, expect, test } from 'bun:test';
+import { readFileSync } from 'node:fs';
 import type { ProviderSnapshotEntry, ProvidersSnapshot } from './types';
 import { availableTaskModels, effectiveTopicsRouting, isTopicsModelServed, reusedSessionRouteConflict, reusedSessionRouting, TOPICS_ROUTING_DEFAULT, topicsRoute, taskExecutionOptions, taskModelMatchesSession, taskModelSelection, taskModelValue, taskProviderForModel, topicsRoutingAvailable } from './task-coding-models';
 
@@ -175,7 +176,7 @@ describe('task coding models', () => {
   test('a dependent continues a session only with the switch the session runs with', () => {
     const claudeCode = (topicsRouting: boolean) => ({ provider: 'claude-code', model: 'claude-opus-5', topicsRouting });
     const engine = (topicsRouting: boolean) => ({ provider: 'topics', model: 'claude-opus-5', topicsRouting });
-    const codex = { provider: 'codex', model: 'gpt-5.4', topicsRouting: false };
+    const codex = { provider: 'codex', model: 'gpt-5.4' };
     // Automatic, a bare model, an explicit provider and the legacy prefix alike.
     for (const value of [undefined, 'claude-opus-5', 'claude-code:claude-opus-5', 'topics:claude-opus-5']) {
       for (const session of [claudeCode(true), engine(true)]) {
@@ -348,10 +349,33 @@ describe('topicsRoute, the one reading of the preference', () => {
     expect(effectiveTopicsRouting(false, null, 'chat')).toBe(false);
     expect(effectiveTopicsRouting(true, null, 'task')).toBe(true);
   });
+  /** @covers AICTRL-01, MSEL-06 */
+  test('AICTRL-01 documents the same default as MSEL-06 and the task resolver', () => {
+    const spec = readFileSync(new URL('../openspec/specs/ai-control/spec.md', import.meta.url), 'utf8');
+    expect(spec).toMatch(/acceso per le chat, per le card e per il default\s+della board/);
+  });
+  /** @covers AICTRL-01, MSEL-06 */
+  test('effectiveTopicsRouting keeps both legacy runtime prefixes meaningful', () => {
+    expect(effectiveTopicsRouting(null, 'topics:claude-opus-5-5', 'task')).toBe(true);
+    expect(effectiveTopicsRouting(null, 'claude-code:claude-opus-5-5', 'task')).toBe(false);
+    expect(effectiveTopicsRouting(null, 'claude-opus-5-5', 'task')).toBe(true);
+    expect(effectiveTopicsRouting(null, 'auto', 'task')).toBe(true);
+  });
+  /** @covers MSEL-06 */
+  test('a pre-column session with null routing still runs direct', () => {
+    const legacySession = { provider: 'claude-code', model: 'claude-opus-5-5', topicsRouting: null };
+    expect(reusedSessionRouteConflict('claude-code:claude-opus-5-5', legacySession, false)).toBeNull();
+    expect(taskModelMatchesSession('claude-code:claude-opus-5-5', legacySession, false)).toBe(true);
+  });
+  /** @covers MSEL-06 */
+  test('a null-preference legacy topics card keeps the specific switch-off conflict', () => {
+    const legacySession = { provider: 'claude-code', model: 'claude-opus-5-5', topicsRouting: null };
+    expect(reusedSessionRouteConflict('topics:claude-opus-5-5', legacySession, null)).toBe('switch-off');
+  });
   test('reuse: a never-written card adopts the session switch, a written one defends its own', () => {
     expect(reusedSessionRouting('claude-code:claude-opus-5-5', { topicsRouting: false }, null)).toBe(false);
     expect(reusedSessionRouting('claude-code:claude-opus-5-5', { topicsRouting: true }, null)).toBe(true);
-    expect(reusedSessionRouting('claude-code:claude-opus-5-5', { topicsRouting: null }, null)).toBe(true);
+    expect(reusedSessionRouting('claude-code:claude-opus-5-5', { topicsRouting: null }, null)).toBe(false);
     expect(reusedSessionRouting('claude-code:claude-opus-5-5', { topicsRouting: false }, true)).toBe(true);
     expect(reusedSessionRouteConflict('claude-code:claude-opus-5-5', { provider: 'claude-code', topicsRouting: false }, null)).toBeNull();
     expect(reusedSessionRouteConflict('claude-code:claude-opus-5-5', { provider: 'claude-code', topicsRouting: false }, true)).toBe('switch-off');
