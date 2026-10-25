@@ -238,16 +238,29 @@ describe("a session file is parsed once per rewrite, not at every census", () =>
   // stat, not a read. Reading the 11 MB file again at every census costs a
   // few ms, as much as a loaded machine adds, so no time can tell (24/10: it
   // passed one run in two against a ratio of times). Two checks, for the two
-  // ways a read can hide. The known files are made unreadable: a census that
-  // still returns all 200 sessions read none of them in its own path, through
-  // whatever API (stat needs no read permission). A read in the background
-  // whose error is swallowed loses no session, so every API that reads a file
-  // is spied, through every object that hands it out (a spy on the named
-  // import does not see the default one or require()), while the census runs
-  // and while the queue behind it drains. The files stay unreadable to the end
-  // of the file, the directory is this file's own and is never read again.
-  // Then the file jcode rewrites at the end of a turn is read again, and only
-  // that one.
+  // ways a read can hide.
+  // 1. The known files are made unreadable (`chmod 000`): a census that still
+  //    returns all 200 sessions read none of them in its own path, through
+  //    whatever API (stat needs no read permission). This half holds only
+  //    where `chmod 000` takes the read away: as root, or on Windows, the
+  //    files stay readable and it proves nothing. CI runs as the runner user
+  //    on Ubuntu, where it holds; on a Windows PC the test still passes, with
+  //    the second check alone.
+  // 2. A read in the background whose error is swallowed loses no session, so
+  //    the ways to read or open a file are spied while the census runs and
+  //    while the queue behind it drains (50 ms: `setImmediate`, promises and
+  //    short timers run before it): `Bun.file`, `Bun.mmap`, and, on `fs`, on
+  //    the default `fs` object (what `require` returns) and on
+  //    `node:fs/promises` (a spy on the named import does not see the other
+  //    two), `readFileSync`, `readFile`, `createReadStream`, and the opens
+  //    `openSync`, `open` and `promises.open`. Every other read starts from
+  //    an open (`readSync`, a callback `read`, a FileHandle's `read`), so
+  //    opening is what is watched, not each read after it. Not seen: a read in
+  //    the background that starts later than the 50 ms window, and a file
+  //    reached by other means (a child process, `Bun.$`).
+  // The files stay unreadable to the end of the file, the directory is this
+  // file's own and is never read again. Then the file jcode rewrites at the
+  // end of a turn is read again, and only that one.
   test("a census of 200 known files, one of 11 MB, opens none of them; a rewritten file is read alone", async () => {
     const dir = makeSessionsDir();
     // The size measured on 25/09, with the transcript where jcode keeps it: before the fields.
@@ -257,14 +270,22 @@ describe("a session file is parsed once per rewrite, not at every census", () =>
     utimesSync(big, NOW / 1000, NOW / 1000);
     for (let i = 0; i < 199; i++) writeSession(dir, `small-${i}`, { minutesAgo: i });
 
-    // What `run` returns, and the session files read while it ran or after, with their size.
+    // What `run` returns, and the session files read or opened while it ran or after, with their size.
     const readsDuring = async <T>(run: () => T) => {
       const readers: Array<{ mock: { calls: unknown[][] }; mockRestore: () => void }> = [
         spyOn(Bun, "file"),
         spyOn(Bun, "mmap"),
-        ...[fs, fsDefault].flatMap((api) => [spyOn(api, "readFileSync"), spyOn(api, "readFile"), spyOn(api, "createReadStream")]),
+        ...[fs, fsDefault].flatMap((api) => [
+          spyOn(api, "readFileSync"),
+          spyOn(api, "readFile"),
+          spyOn(api, "createReadStream"),
+          spyOn(api, "openSync"),
+          spyOn(api, "open"),
+        ]),
         spyOn(fs.promises, "readFile"),
         spyOn(fsPromises, "readFile"),
+        spyOn(fs.promises, "open"),
+        spyOn(fsPromises, "open"),
       ];
       try {
         const result = run();

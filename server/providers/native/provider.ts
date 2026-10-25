@@ -997,8 +997,7 @@ export class NativeProvider implements AIProvider {
     );
     // The usage goes back with the text: it used to be dropped here, so every
     // judge and title on this engine cost something nobody could read.
-    // A failed turn (no credentials, an API error) says so: its zero usage is
-    // measured, but it is not a free answer.
+    // A failed turn without credentials returns zero usage; the side-call ledger treats it as unmeasured.
     const u = out.usage;
     return {
       content: out.text || text,

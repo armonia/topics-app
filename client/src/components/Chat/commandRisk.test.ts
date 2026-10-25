@@ -421,6 +421,8 @@ describe('commandRisk: the second step', () => {
   const growthCases: Array<[string, string?, string?]> = [
     ['"$('], ['$('], ['${'], ['"${'], ['eval ', '', 'true'], ['eval ', '', `"'"`], ['nohup ', "'"], ['ssh h ', '', "'a b'"],
     ['echo rm -rf x | sh | '], ['cat <<A\n'], ['if { '], ['`a` '],
+    // Heredocs that close right away: each delimiter search stops at its own line and is counted up to there, not to the end of the text.
+    ['cat <<A\nx\nA\n'],
     // One long word that ends with a slash: a basename regex can backtrack on it.
     ['x', '', '/'],
     // The shortest wrapper, zsh's `-`: the most wrappers per KB, where a copy of the words at each one shows.

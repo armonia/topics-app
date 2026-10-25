@@ -90,7 +90,13 @@ export function sideCallOf(args: {
     durationMs: args.durationMs,
     ...(failure ? { error: failure.slice(0, 200) } : {}),
   };
-  if (!u) {
+  // A usage of all zeros is "nothing was measured", not "it was free": the native
+  // engine returns it, with an empty answer, when it has no credentials. A real
+  // call always reads at least one prompt token. A price the provider sent
+  // itself still counts (it only comes with a real call).
+  const empty = !!u && n(u.promptTokens) === 0 && n(u.completionTokens) === 0 && n(u.cacheReadTokens) === 0
+    && n(u.cacheCreationTokens) === 0 && !(typeof u.costUsd === "number" && u.costUsd > 0);
+  if (!u || empty) {
     return {
       ...base,
       measured: false,
