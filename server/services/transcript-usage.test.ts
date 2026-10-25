@@ -15,7 +15,9 @@ function usageLine(opts: {
   output?: number;
   cacheWrite?: number;
   cacheRead?: number;
+  cacheWrite1h?: number;
   model?: string;
+  speed?: "fast" | "standard";
 }): string {
   return (
     JSON.stringify({
@@ -28,6 +30,10 @@ function usageLine(opts: {
           output_tokens: opts.output ?? 0,
           cache_creation_input_tokens: opts.cacheWrite ?? 0,
           cache_read_input_tokens: opts.cacheRead ?? 0,
+          ...(opts.speed ? { speed: opts.speed } : {}),
+          ...(opts.cacheWrite1h !== undefined
+            ? { cache_creation: { ephemeral_1h_input_tokens: opts.cacheWrite1h } }
+            : {}),
         },
       },
     }) + "\n"
@@ -133,14 +139,38 @@ describe("transcript-usage reader", () => {
     expect(r.read(path).inputTokens).toBe(10); // duplicate block row, not new spend
   });
 
-  it("prices a call at the fast rate declared by the transcript result", () => {
+  it("prices each session from its assistant usage speed", () => {
+    const standardPath = join(dir, "standard.jsonl");
     writeFileSync(
       path,
-      usageLine({ id: "msg_fast", input: 1_000_000, output: 1_000_000, model: "claude-opus-5-5" }) +
-        JSON.stringify({ type: "result", fast_mode_state: "on" }) + "\n",
+      usageLine({ id: "msg_fast", input: 1_000_000, output: 1_000_000, model: "claude-opus-5-5", speed: "fast" }),
+    );
+    writeFileSync(
+      standardPath,
+      usageLine({ id: "msg_standard", input: 1_000_000, output: 1_000_000, model: "claude-opus-5-5", speed: "standard" }),
     );
 
     const r = createTranscriptUsageReader();
     expect(r.read(path).costUsd).toBeCloseTo(48, 9);
+    expect(r.read(standardPath).costUsd).toBeCloseTo(24, 9);
+  });
+
+  it("applies cache multipliers over the fast rate", () => {
+    writeFileSync(
+      path,
+      usageLine({
+        id: "msg_fast_cache",
+        input: 1_000_000,
+        output: 1_000_000,
+        cacheWrite: 2_000_000,
+        cacheWrite1h: 1_000_000,
+        cacheRead: 1_000_000,
+        model: "claude-opus-5-5",
+        speed: "fast",
+      }),
+    );
+
+    const r = createTranscriptUsageReader();
+    expect(r.read(path).costUsd).toBeCloseTo(74.4, 9);
   });
 });

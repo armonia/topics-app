@@ -19,7 +19,6 @@
 import { closeSync, existsSync, openSync, readSync, statSync } from "node:fs";
 import { Buffer } from "node:buffer";
 import { apiCallCostUsd } from "../usage/pricing";
-import { readFastMode } from "../providers/fast-mode";
 
 export interface SessionUsage {
   inputTokens: number;
@@ -71,12 +70,6 @@ interface PathState {
   totals: { input: number; output: number; cacheWrite: number; cacheWrite1h: number; cacheRead: number };
   /** Sum of each call's price; null once a call could not be priced. */
   costUsd: number | null;
-  fastMode: boolean;
-  pendingFastModeCalls: Array<{
-    model: string | null;
-    call: { input: number; output: number; cacheRead: number; cacheWrite: number; cacheWrite1h: number };
-    costUsd: number | null;
-  }>;
 }
 
 const MAX_SEEN_IDS = 8192;
@@ -84,35 +77,16 @@ const MAX_TRACKED_PATHS = 128;
 const READ_CHUNK = 1 << 20; // 1MB
 
 function freshState(): PathState {
-  return { byteOffset: 0, partial: Buffer.alloc(0), seenIds: new Set(), totals: { input: 0, output: 0, cacheWrite: 0, cacheWrite1h: 0, cacheRead: 0 }, costUsd: 0, fastMode: false, pendingFastModeCalls: [] };
+  return { byteOffset: 0, partial: Buffer.alloc(0), seenIds: new Set(), totals: { input: 0, output: 0, cacheWrite: 0, cacheWrite1h: 0, cacheRead: 0 }, costUsd: 0 };
 }
 
 export function createTranscriptUsageReader(): { read(path: string): SessionUsage } {
   const states = new Map<string, PathState>();
 
-  function updateFastMode(state: PathState, event: unknown): void {
-    const status = readFastMode(event);
-    if (!status) return;
-    const fastMode = status.state === "on";
-    for (const pending of state.pendingFastModeCalls) {
-      if (state.costUsd === null) continue;
-      const updated = apiCallCostUsd(pending.model, { ...pending.call, fastMode });
-      if (pending.costUsd === null || updated === null) {
-        state.costUsd = null;
-        continue;
-      }
-      state.costUsd += updated - pending.costUsd;
-      pending.costUsd = updated;
-    }
-    state.pendingFastModeCalls = [];
-    state.fastMode = fastMode;
-  }
-
   function accountLine(state: PathState, line: string): void {
-    if (!line.includes('"usage"') && !line.includes('"fast_mode_state"')) return;
+    if (!line.includes('"usage"')) return;
     let j: any;
     try { j = JSON.parse(line); } catch { return; /* partial line already buffered; anything else is noise */ }
-    updateFastMode(state, j);
     const msg = j?.message;
     const u = msg?.usage;
     if (!u || typeof u !== "object") return;
@@ -143,9 +117,8 @@ export function createTranscriptUsageReader(): { read(path: string): SessionUsag
     // to miss.
     if (state.costUsd === null || call.input + call.output + call.cacheWrite + call.cacheRead <= 0) return;
     const model = typeof msg.model === "string" ? msg.model : null;
-    const usd = apiCallCostUsd(model, { ...call, fastMode: state.fastMode });
+    const usd = apiCallCostUsd(model, { ...call, fastMode: u.speed === "fast" });
     state.costUsd = usd === null ? null : state.costUsd + usd;
-    state.pendingFastModeCalls.push({ model, call, costUsd: usd });
   }
 
   function toUsage(state: PathState): SessionUsage {

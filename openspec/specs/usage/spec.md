@@ -63,6 +63,14 @@ that resolves to nothing SHALL be billed at zero rather than at a wrong rate.
 - **THEN** the whole request SHALL move to the long-prompt card ($0.50/$2.50 per million instead of $0.10/$0.50)
 - **AND** a turn of many requests SHALL be priced call by call, each call on its own card, and the message's cost SHALL be the sum of its calls' prices (calls of 60k, 80k, 120k and 140k tokens: two on each card), never the turn total or its average priced as one request
 
+#### Scenario: A call's reported speed selects its fast rate
+<!-- @covers USAGE-01, USAGE-02 -->
+- **GIVEN** an assistant call for Opus 5.5 whose `message.usage.speed` is `fast` or `standard`
+- **WHEN** that call is priced
+- **THEN** `fast` SHALL use $8/$40 per million input/output tokens and `standard` SHALL use $4/$20
+- **AND** cache-read and cache-write multipliers SHALL apply on top of the selected rates
+- **AND** each session's call SHALL use its own reported speed
+
 #### Scenario: A dispatched session's spend is the sum of its calls
 - **GIVEN** a board card whose session ran calls on Haiku 5.5 of 60k, 80k, 120k and 140k tokens of prompt, read from a CLI transcript or from the native engine's registry
 - **WHEN** the spend cap books the session's cost

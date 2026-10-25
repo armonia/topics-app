@@ -4169,9 +4169,7 @@ export class ClaudeCodeProvider implements AIProvider {
         // evento malformato è meglio che perdere in silenzio una chiamata vera.
         if (!callId || !billed.has(callId)) {
           if (callId) billed.add(callId);
-          const pricedCallUsage = { ...callUsage, fastMode: this.fastModeStatus?.state === "on" };
-          handler.onCallUsage?.(pricedCallUsage);
-          perCallUsageForActions = pricedCallUsage;
+          handler.onCallUsage?.(callUsage);
         }
         // Stessa chiamata, seconda domanda: QUALI azioni ha deciso. I tool_use
         // nuovi di questo evento sono quelle azioni — l'usage va spalmato su di

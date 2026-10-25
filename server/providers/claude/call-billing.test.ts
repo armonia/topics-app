@@ -168,7 +168,7 @@ function stubProcess(sessionKey: string) {
 }
 
 describe("claude-code · handleStreamEvent fattura una volta per message.id", () => {
-  test("the CLI's fast-mode state is attached to each priced call", () => {
+  test("assistant usage speed is attached to each priced call", () => {
     const { provider, pp } = stubProcess("topic:bill-fast");
     const billed: any[] = [];
     pp.streamHandler = {
@@ -177,13 +177,13 @@ describe("claude-code · handleStreamEvent fattura una volta per message.id", ()
       onDone: () => {}, onError: () => {},
     };
 
-    (provider as any).handleStreamEvent(pp, { type: "system", subtype: "init", fast_mode_state: "on" });
+    (provider as any).fastModeStatus = { state: "off", reason: null };
     (provider as any).handleStreamEvent(pp, {
       type: "assistant",
       message: {
         id: "msg_fast",
         model: "claude-opus-5-5",
-        usage: { input_tokens: 1_000_000, output_tokens: 1_000_000 },
+        usage: { input_tokens: 1_000_000, output_tokens: 1_000_000, speed: "fast" },
       },
     });
 

@@ -385,6 +385,7 @@ export function readAssistantCallUsage(event: unknown): CallUsage | null {
     cacheCreation,
     cacheCreation1h: num(asRecord(mu.cache_creation)?.ephemeral_1h_input_tokens),
     ...(model ? { model } : {}),
+    ...(mu.speed === "fast" ? { fastMode: true } : mu.speed === "standard" ? { fastMode: false } : {}),
   };
 }
 

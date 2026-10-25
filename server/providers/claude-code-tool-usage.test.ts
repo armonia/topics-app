@@ -8,15 +8,17 @@
  *   1) una chiamata → la sua azione (e la somma delle azioni ≤ totale del turno);
  *   2) gli eventi CLI sono cumulativi → un'azione già contata non si ri-attribuisce;
  *   3) le sotto-sessioni (sidechain) non gonfiano il conto del genitore.
+ * @covers USAGE-01
+ * @covers USAGE-02
  * @covers USAGE-14
  */
 
 import { describe, expect, test } from "bun:test";
 import { ClaudeCodeProvider } from "./claude-code";
 import { SidechainTracker } from "./claude/sidechain-tracker";
+import { callsCostUsd } from "../usage/pricing";
 
-function makeProviderWithStubProcess(sessionKey: string) {
-  const provider = new ClaudeCodeProvider({ type: "claude-code" });
+function makeProviderWithStubProcess(sessionKey: string, provider = new ClaudeCodeProvider({ type: "claude-code" })) {
   const pp: any = {
     proc: { stdin: { write() { return true; }, end() {} }, kill() {}, on() {}, stdout: { on() {} }, stderr: { on() {} } },
     readline: { on() {}, close() {} },
@@ -47,7 +49,7 @@ function makeProviderWithStubProcess(sessionKey: string) {
   return { provider, pp };
 }
 
-type ToolUsage = { inputTokens: number; outputTokens: number; cacheRead: number; cacheCreation: number; cacheCreation1h: number; model?: string };
+type ToolUsage = { inputTokens: number; outputTokens: number; cacheRead: number; cacheCreation: number; cacheCreation1h: number; model?: string; fastMode?: boolean };
 
 function makeHandler() {
   const perTool: Array<{ id: string; u: ToolUsage }> = [];
@@ -77,6 +79,61 @@ const sum = (rows: Array<{ u: ToolUsage }>, k: keyof ToolUsage) =>
   rows.reduce((a, r) => a + (r.u[k] as number), 0);
 
 describe("claude-code · onToolUsage (attribuzione per-azione)", () => {
+  test("assistant speed stays per session and follows every action in a cumulative snapshot", () => {
+    const provider = new ClaudeCodeProvider({ type: "claude-code" });
+    const fast = makeProviderWithStubProcess("topic:fast-session", provider);
+    const standard = makeProviderWithStubProcess("topic:standard-session", provider);
+    const fastUsage = makeHandler();
+    const standardUsage = makeHandler();
+    fast.pp.streamHandler = fastUsage.handler;
+    standard.pp.streamHandler = standardUsage.handler;
+    (provider as any).fastModeStatus = { state: "on", reason: null };
+
+    const fastCall = {
+      type: "assistant",
+      message: {
+        id: "msg_fast",
+        model: "claude-opus-5-5",
+        usage: { input_tokens: 1_000_000, output_tokens: 1_000_000, speed: "fast" },
+      },
+    };
+    emit(provider, fast.pp, fastCall);
+    emit(provider, fast.pp, {
+      ...fastCall,
+      message: {
+        ...fastCall.message,
+        content: [
+          { type: "tool_use", id: "fast_action_a", name: "Read", input: {} },
+          { type: "tool_use", id: "fast_action_b", name: "Bash", input: {} },
+        ],
+      },
+    });
+    emit(provider, standard.pp, {
+      type: "assistant",
+      message: {
+        id: "msg_standard",
+        model: "claude-opus-5-5",
+        content: [{ type: "tool_use", id: "standard_action", name: "Read", input: {} }],
+        usage: { input_tokens: 1_000_000, output_tokens: 1_000_000, speed: "standard" },
+      },
+    });
+
+    expect(fastUsage.turn).toHaveLength(1);
+    expect(fastUsage.turn[0].fastMode).toBe(true);
+    expect(standardUsage.turn).toHaveLength(1);
+    expect(standardUsage.turn[0].fastMode).toBe(false);
+
+    const fastActionA = fastUsage.perTool.find((row) => row.id === "fast_action_a")!.u;
+    const fastActionB = fastUsage.perTool.find((row) => row.id === "fast_action_b")!.u;
+    const standardAction = standardUsage.perTool.find((row) => row.id === "standard_action")!.u;
+    expect(fastActionA.fastMode).toBe(true);
+    expect(fastActionB.fastMode).toBe(true);
+    expect(standardAction.fastMode).toBe(false);
+    expect(callsCostUsd([fastActionA], "unknown")).toBeCloseTo(24, 9);
+    expect(callsCostUsd([fastActionB], "unknown")).toBeCloseTo(24, 9);
+    expect(callsCostUsd([standardAction], "unknown")).toBeCloseTo(24, 9);
+  });
+
   test("due chiamate, ciascuna una tool call: ognuna riceve la SUA e la somma ≤ turno", () => {
     const { provider, pp } = makeProviderWithStubProcess("topic:tu1");
     const { handler, perTool, turn } = makeHandler();

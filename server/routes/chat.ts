@@ -1519,7 +1519,6 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
           // lungo, dove prima non si vedeva niente fino alla fine.
           let live = emptyTurnUsage();
           let liveModel: string | undefined;
-          let liveFastMode: boolean | undefined;
           // The same calls one by one: the message's cost is the sum of their
           // prices, because Haiku 5.5 picks its rate card per request.
           const liveCalls: PricedCall[] = [];
@@ -3471,7 +3470,6 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
               live = accumulateTurnUsage(live, u);
               liveCalls.push(u);
               if (u.model) liveModel = u.model;
-              if (typeof u.fastMode === "boolean") liveFastMode = u.fastMode;
               if (!matchedTopic) return;
               // The split into DISJOINT shares, once and outside the try.
               //
@@ -3818,7 +3816,6 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
                       model: modelOfTurn || "unknown",
                       freshInputTokens: Math.max(0, fresh),
                       outputTokens: outTok,
-                      fastMode: liveFastMode,
                       cacheReadTokens: cacheReadTokens ?? 0,
                       cacheCreationTokens: cacheCreationTokens ?? 0,
                       cacheCreation1hTokens: cacheCreation1hTokens ?? 0,
