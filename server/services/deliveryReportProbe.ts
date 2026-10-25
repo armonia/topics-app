@@ -7,13 +7,13 @@
  *
  * EVERY CALL IS BEST-EFFORT. A probe that throws must never reach the caller:
  * these checks ANNOTATE a delivery, they do not gate it, so a git that is slow,
- * absent, or in a strange state has to degrade into "no finding" rather than
- * into an error on someone's card.
+ * absent, or in a strange state has to degrade into an explicit unverifiable
+ * result rather than an error on someone's card.
  */
 import { execFile } from "node:child_process";
 import { existsSync, readFileSync, readdirSync, realpathSync, statSync } from "node:fs";
 import { homedir } from "node:os";
-import { dirname, isAbsolute, join, resolve, sep } from "node:path";
+import { basename, dirname, isAbsolute, join, resolve, sep } from "node:path";
 import { gitQuestions, type RepoProbe, type RepoSearchContext } from "./deliveryReportChecks";
 
 const SERVER_ROOT = join(import.meta.dir, "..", "..");
@@ -38,24 +38,112 @@ export function probeForRoot(root: string): RepoProbe {
 /** How long a git answer stays fresh: enough to check one report, short enough
  *  that a commit made later is seen. */
 const TRACKED_TTL_MS = 30_000;
-const MAX_SHA_ROOTS = 20;
-const MAX_ROOT_CANDIDATES = 48;
+const MAX_SHA_ROOTS = 48;
+const MAX_ROOT_CANDIDATES = 64;
 const GIT_LOOKUP_TIMEOUT_MS = 1_500;
 const SHA_LOOKUP_CONCURRENCY = 4;
+const DISCOVERED_ROOT_TTL_MS = 5 * 60_000;
+const discoveredRoots = new Map<string, number>();
+
+function rememberRoot(root: string): void {
+  discoveredRoots.delete(root);
+  discoveredRoots.set(root, Date.now());
+  while (discoveredRoots.size > MAX_SHA_ROOTS) {
+    const oldest = discoveredRoots.keys().next().value as string | undefined;
+    if (!oldest) break;
+    discoveredRoots.delete(oldest);
+  }
+}
+
+function recentRoots(): string[] {
+  const now = Date.now();
+  const roots: string[] = [];
+  for (const [root, at] of discoveredRoots) {
+    if (now - at >= DISCOVERED_ROOT_TTL_MS || !existsSync(root)) {
+      discoveredRoots.delete(root);
+      continue;
+    }
+    roots.unshift(root);
+  }
+  return roots;
+}
 
 const REPORTED_PATH = /(?:~\/|(?<![\w:/])\/(?!\/))[^\s`"'()<>{}[\],;]+|(?:[\w.-]+\/)+[\w.-]+(?:\.[\w-]+)?/g;
 
-function reportPaths(reports: readonly string[]): { absolute: string[]; relative: string[] } {
-  const absolute = new Set<string>();
-  const relativePaths = new Set<string>();
-  for (const report of reports) {
-    for (const match of report.matchAll(REPORTED_PATH)) {
-      const path = match[0]!.replace(/[.,;:!?]+$/, "").replace(/[)\]}>]+$/, "");
-      if (!path || path.includes("://")) continue;
-      (path.startsWith("~/") || isAbsolute(path) ? absolute : relativePaths).add(path);
+type ReportPath = { path: string; start: number };
+
+function reportPaths(report: string): { absolute: ReportPath[]; relative: ReportPath[] } {
+  const absolute = new Map<string, number>();
+  const relativePaths = new Map<string, number>();
+  for (const match of report.matchAll(REPORTED_PATH)) {
+    const path = match[0]!.replace(/[.,;:!?]+$/, "").replace(/[)\]}>]+$/, "");
+    if (!path || path.includes("://")) continue;
+    const paths = path.startsWith("~/") || isAbsolute(path) ? absolute : relativePaths;
+    if (!paths.has(path)) paths.set(path, match.index!);
+  }
+  return {
+    absolute: [...absolute].map(([path, start]) => ({ path, start })),
+    relative: [...relativePaths].map(([path, start]) => ({ path, start })),
+  };
+}
+
+function normalizeCandidate(path: string): string {
+  const parts = resolve(path).split(sep);
+  const gitDir = parts.indexOf(".git");
+  return gitDir > 0 ? parts.slice(0, gitDir).join(sep) || sep : parts.join(sep);
+}
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function rootMentionIndex(report: string, root: string): number {
+  const name = basename(root);
+  if (!name || name === "." || name === "..") return -1;
+  const fullPathIndex = report.indexOf(root);
+  if (fullPathIndex >= 0) return fullPathIndex;
+  const boundary = new RegExp(`(?:^|[\\s/\\\\\`'"(])${escapeRegExp(name)}(?=$|[\\s/\\\\\`'":,;.)])`, "i");
+  return boundary.exec(report)?.index ?? -1;
+}
+
+function shaPositions(report: string, shas: readonly string[]): Array<{ sha: string; start: number }> {
+  const lower = report.toLowerCase();
+  const positions: Array<{ sha: string; start: number }> = [];
+  for (const sha of shas) {
+    let from = 0;
+    while (from < lower.length) {
+      const start = lower.indexOf(sha.toLowerCase(), from);
+      if (start < 0) break;
+      positions.push({ sha, start });
+      from = start + sha.length;
     }
   }
-  return { absolute: [...absolute], relative: [...relativePaths] };
+  return positions;
+}
+
+function shasNearPosition(report: string, position: number, positions: readonly { sha: string; start: number }[]): Set<string> {
+  const boundaries = /[!?;\n]|\.(?=\s|$)/g;
+  let start = 0;
+  let match: RegExpExecArray | null;
+  while ((match = boundaries.exec(report)) !== null && match.index < position) start = match.index + match[0].length;
+  boundaries.lastIndex = position;
+  const endMatch = boundaries.exec(report);
+  const end = endMatch?.index ?? report.length;
+  return new Set(positions.filter((item) => item.start >= start && item.start < end).map((item) => item.sha));
+}
+
+function shasForMention(report: string, position: number, positions: readonly { sha: string; start: number }[]): Set<string> {
+  const sameSentence = shasNearPosition(report, position, positions);
+  if (sameSentence.size > 0) return sameSentence;
+
+  const paragraphStart = report.lastIndexOf("\n\n", position) + 2;
+  const nextParagraph = report.indexOf("\n\n", position);
+  const paragraphEnd = nextParagraph < 0 ? report.length : nextParagraph;
+  const inParagraph = positions.filter((item) => item.start >= paragraphStart && item.start < paragraphEnd);
+  if (inParagraph.length === 0) return new Set();
+
+  const closest = Math.min(...inParagraph.map((item) => Math.abs(item.start - position)));
+  return new Set(inParagraph.filter((item) => Math.abs(item.start - position) === closest).map((item) => item.sha));
 }
 
 function nearestExistingDirectory(path: string): string | null {
@@ -72,6 +160,17 @@ function nearestExistingDirectory(path: string): string | null {
     }
   }
   return null;
+}
+
+function hasGitMarker(path: string): boolean {
+  let current = resolve(path);
+  for (let i = 0; i < 12; i++) {
+    if (existsSync(join(current, ".git"))) return true;
+    const parent = dirname(current);
+    if (parent === current) return false;
+    current = parent;
+  }
+  return false;
 }
 
 function displayRoot(root: string, home: string): string {
@@ -150,10 +249,12 @@ function answering(
   symbols: ReadonlyMap<string, boolean>,
   files: readonly string[] | null,
   shaLocations: ReadonlyMap<string, readonly string[]> = new Map(),
+  shaUnverifiableLocations: ReadonlyMap<string, readonly string[]> = new Map(),
 ): RepoProbe {
   return {
     shaExists: (sha) => shas.get(sha) ?? true,
     shaSearchLocations: (sha) => shaLocations.get(sha) ?? [],
+    shaSearchUnverifiableLocations: (sha) => shaUnverifiableLocations.get(sha) ?? [],
     symbolInHistory: (name) => symbols.get(name) ?? true,
     fileMatches: (citation) => {
       const c = citation.replace(/^\.?\//, "");
@@ -191,72 +292,184 @@ return {
   prepare: async (reports, context: RepoSearchContext = {}) => {
     const shas = new Map<string, boolean>();
     const shaLocations = new Map<string, readonly string[]>();
+    const shaUnverifiableLocations = new Map<string, readonly string[]>();
     const symbols = new Map<string, boolean>();
     let files: string[] | null = null;
     let home = resolve(context.homeDirectory ?? homedir());
     try { home = realpathSync(home); } catch { /* keep the configured path */ }
-    const named = reportPaths(reports);
-    const candidates: string[] = [];
-    const addCandidate = (path: string) => {
-      const dir = nearestExistingDirectory(path);
-      if (dir && !candidates.includes(dir)) candidates.push(dir);
+    type Candidate = {
+      path: string;
+      reportIndexes: Set<number>;
+      expectedReports: Set<number>;
+      shas: Set<string>;
+      cardRoot: boolean;
+      expectedCardRoot: boolean;
+      gitMarker: boolean;
+    };
+    const candidateByPath = new Map<string, Candidate>();
+    const addCandidate = (
+      path: string,
+      reportIndex?: number,
+      expected = false,
+      exactRoot = false,
+      cardRoot = false,
+      citedShas: ReadonlySet<string> = new Set(),
+    ) => {
+      const normalized = normalizeCandidate(path);
+      const dir = exactRoot ? normalized : nearestExistingDirectory(normalized) ?? normalized;
+      const key = resolve(dir);
+      const hit = candidateByPath.get(key) ?? {
+        path: key,
+        reportIndexes: new Set<number>(),
+        expectedReports: new Set<number>(),
+        shas: new Set<string>(),
+        cardRoot: false,
+        expectedCardRoot: false,
+        gitMarker: hasGitMarker(dir),
+      };
+      if (reportIndex !== undefined) hit.reportIndexes.add(reportIndex);
+      if (reportIndex !== undefined && expected) hit.expectedReports.add(reportIndex);
+      for (const sha of citedShas) hit.shas.add(sha);
+      hit.cardRoot ||= cardRoot;
+      hit.expectedCardRoot ||= cardRoot;
+      candidateByPath.set(key, hit);
     };
 
-    for (const path of named.absolute) addCandidate(path.startsWith("~/") ? join(home, path.slice(2)) : path);
-    for (const path of named.relative) addCandidate(join(home, path));
-    addCandidate(ROOT);
-    for (const path of context.knownRoots ?? []) if (typeof path === "string" && isAbsolute(path)) addCandidate(path);
-
-    let discoveryComplete = candidates.length <= MAX_ROOT_CANDIDATES;
-    const gitRoots: string[] = [];
-    let resolutionUnknown = false;
-    for (const candidate of candidates.slice(0, MAX_ROOT_CANDIDATES)) {
-      const r = await git(["-C", candidate, "rev-parse", "--show-toplevel"], GIT_LOOKUP_TIMEOUT_MS);
-      if (r === null) {
-        resolutionUnknown = true;
-        continue;
+    const knownRoots = [...new Set([...(context.knownRoots ?? []), ...recentRoots()]
+      .filter((path): path is string => typeof path === "string" && isAbsolute(path))
+      .map((path) => resolve(path)))];
+    const shasByReport = reports.map((report) => [...new Set(gitQuestions(report).shas)]);
+    const allShas = [...new Set(shasByReport.flat())];
+    for (let i = 0; i < reports.length; i++) {
+      const report = reports[i]!;
+      const positions = shaPositions(report, shasByReport[i]!);
+      const named = reportPaths(report);
+      for (const mention of named.absolute) {
+        addCandidate(
+          mention.path.startsWith("~/") ? join(home, mention.path.slice(2)) : mention.path,
+          i,
+          false,
+          false,
+          false,
+          shasForMention(report, mention.start, positions),
+        );
       }
-      if ("out" in r) {
-        const root = resolve(r.out.trim());
-        if (root && !gitRoots.includes(root) && gitRoots.length >= MAX_SHA_ROOTS) {
-          discoveryComplete = false;
-          break;
-        }
-        if (root && !gitRoots.includes(root)) gitRoots.push(root);
-      } else if (!/not a git repository/i.test(r.stderr)) {
-        resolutionUnknown = true;
+      for (const mention of named.relative) {
+        const citedShas = shasForMention(report, mention.start, positions);
+        addCandidate(join(home, mention.path), i, false, false, false, citedShas);
+        addCandidate(join(ROOT, mention.path), i, false, false, false, citedShas);
+      }
+      for (const path of knownRoots) {
+        const mention = rootMentionIndex(report, path);
+        if (mention >= 0) addCandidate(path, i, true, true, false, shasForMention(report, mention, positions));
       }
     }
-    if (gitRoots.length === 0 && candidates.length === 0) discoveryComplete = false;
-    if (resolutionUnknown) discoveryComplete = false;
-    const displayedRoots = gitRoots.map((root) => displayRoot(root, home));
+    addCandidate(ROOT, undefined, false, true, true, new Set(allShas));
+    for (const path of knownRoots) addCandidate(path, undefined, false, true);
+
+    const candidates = [...candidateByPath.values()];
+    const citedRepos = candidates.filter((candidate) =>
+      candidate.reportIndexes.size > 0 && !candidate.cardRoot && (candidate.expectedReports.size > 0 || candidate.gitMarker));
+    const citedOther = candidates.filter((candidate) =>
+      candidate.reportIndexes.size > 0 && !candidate.cardRoot && candidate.expectedReports.size === 0 && !candidate.gitMarker);
+    const card = candidates.find((candidate) => candidate.cardRoot);
+    const optional = candidates.filter((candidate) => candidate.reportIndexes.size === 0 && !candidate.cardRoot);
+    const prioritized = [...citedRepos, ...(card ? [card] : []), ...optional, ...citedOther];
+    const selected = prioritized.slice(0, MAX_ROOT_CANDIDATES);
+    if (card && !selected.includes(card)) selected[selected.length - 1] = card;
+    const selectedSet = new Set(selected);
+    const omitted = candidates.filter((candidate) => !selectedSet.has(candidate));
+    const unknownBySha = new Map<string, Set<string>>();
+    const markUnknown = (sha: string, location: string) => {
+      const locations = unknownBySha.get(sha) ?? new Set<string>();
+      locations.add(location);
+      unknownBySha.set(sha, locations);
+    };
+    for (const candidate of omitted) {
+      if (!candidate.gitMarker && candidate.expectedReports.size === 0 && !candidate.cardRoot) continue;
+      for (const sha of candidate.shas) markUnknown(sha, displayRoot(candidate.path, home));
+    }
+
+    const gitRoots: string[] = [];
+    const rootShas = new Map<string, Set<string>>();
+    let cardGitRoot: string | null = null;
+    for (let i = 0; i < selected.length; i += SHA_LOOKUP_CONCURRENCY) {
+      const batch = selected.slice(i, i + SHA_LOOKUP_CONCURRENCY);
+      const results = await Promise.all(batch.map(async (candidate) => ({
+        candidate,
+        answer: await git(["-C", candidate.path, "rev-parse", "--show-toplevel"], GIT_LOOKUP_TIMEOUT_MS),
+      })));
+      for (const { candidate, answer: r } of results) {
+        if (r !== null && "out" in r) {
+          const root = resolve(r.out.trim());
+          if (root) {
+            if (!gitRoots.includes(root)) gitRoots.push(root);
+            rememberRoot(root);
+            const shasForRoot = rootShas.get(root) ?? new Set<string>();
+            for (const sha of candidate.shas) shasForRoot.add(sha);
+            rootShas.set(root, shasForRoot);
+            if (candidate.cardRoot) cardGitRoot = root;
+          }
+          continue;
+        }
+        const notRepository = r !== null && /not a git repository/i.test(r.stderr);
+        const unresolved = r === null || !notRepository;
+        if (candidate.expectedCardRoot || unresolved || candidate.expectedReports.size > 0) {
+          const location = displayRoot(candidate.path, home);
+          if (candidate.cardRoot) {
+            for (const sha of candidate.shas) markUnknown(sha, location);
+          } else if (candidate.expectedReports.size > 0 || (unresolved && candidate.gitMarker)) {
+            for (const sha of candidate.shas) markUnknown(sha, location);
+          }
+        }
+      }
+    }
 
     const searchSha = async (sha: string): Promise<void> => {
       let found = false;
-      let complete = discoveryComplete;
       const searched: string[] = [];
-      for (let i = 0; i < gitRoots.length && !found; i += SHA_LOOKUP_CONCURRENCY) {
-        const batch = gitRoots.slice(i, i + SHA_LOOKUP_CONCURRENCY);
-        const results = await Promise.all(batch.map(async (root) => ({
-          root,
-          answer: await ask(`sha:${root}:${sha}`, async () => {
-            const r = await git(["cat-file", "-e", `${sha}^{commit}`], GIT_LOOKUP_TIMEOUT_MS, root);
-            return r === null ? null : "out" in r;
-          }),
-        })));
-        for (const result of results) {
-          searched.push(displayRoot(result.root, home));
-          if (result.answer === true) found = true;
-          else if (result.answer === null) complete = false;
-        }
+      const requiredRoots = new Set<string>();
+      if (cardGitRoot) requiredRoots.add(cardGitRoot);
+      for (const root of gitRoots) {
+        if (rootShas.get(root)?.has(sha)) requiredRoots.add(root);
       }
-      shas.set(sha, found || !complete || gitRoots.length === 0);
-      shaLocations.set(sha, searched.length > 0 ? searched : displayedRoots);
+      const incomplete = new Set(unknownBySha.get(sha) ?? []);
+      const required = gitRoots.filter((root) => requiredRoots.has(root));
+      const requiredToSearch = required.slice(0, MAX_SHA_ROOTS);
+      for (const root of required.slice(MAX_SHA_ROOTS)) incomplete.add(displayRoot(root, home));
+      const optionalToSearch = gitRoots
+        .filter((root) => !requiredRoots.has(root))
+        .slice(0, Math.max(0, MAX_SHA_ROOTS - requiredToSearch.length));
+      const searchRoots = async (roots: readonly string[], stopWhenFound: boolean): Promise<void> => {
+        for (let i = 0; i < roots.length && (!stopWhenFound || !found); i += SHA_LOOKUP_CONCURRENCY) {
+          const batch = roots.slice(i, i + SHA_LOOKUP_CONCURRENCY);
+          const results = await Promise.all(batch.map(async (root) => ({
+            root,
+            answer: await ask(`sha:${root}:${sha}`, async () => {
+              const r = await git(["cat-file", "-e", `${sha}^{commit}`], GIT_LOOKUP_TIMEOUT_MS, root);
+              return r === null ? null : "out" in r;
+            }),
+          })));
+          for (const result of results) {
+            searched.push(displayRoot(result.root, home));
+            if (result.answer === true) found = true;
+            else if (result.answer === null && requiredRoots.has(result.root)) incomplete.add(displayRoot(result.root, home));
+          }
+        }
+      };
+      await searchRoots(requiredToSearch, false);
+      await searchRoots(optionalToSearch, true);
+      shas.set(sha, found);
+      shaLocations.set(sha, searched);
+      if (!found && requiredRoots.size === 0 && incomplete.size === 0) {
+        incomplete.add(cardGitRoot ? displayRoot(cardGitRoot, home) : displayRoot(ROOT, home));
+      }
+      if (incomplete.size > 0) shaUnverifiableLocations.set(sha, [...incomplete]);
     };
 
-    for (const report of reports) {
+    for (let reportIndex = 0; reportIndex < reports.length; reportIndex++) {
+      const report = reports[reportIndex]!;
       const q = gitQuestions(report);
-      for (const sha of q.shas) if (!shas.has(sha)) await searchSha(sha);
       if (q.citesFiles && files === null) files = await trackedFiles();
       // Report by report, and inside one only until a symbol is found: the
       // `some` in `checkReport` stops there, so git is not asked what the check
@@ -268,7 +481,8 @@ return {
         if (found) break;
       }
     }
-    return answering(shas, symbols, files, shaLocations);
+    for (const sha of allShas) await searchSha(sha);
+    return answering(shas, symbols, files, shaLocations, shaUnverifiableLocations);
   },
 };
 }

@@ -42,6 +42,7 @@ export type Finding = {
   /** Stable key, so a caller can act on the kind rather than the prose. */
   code:
     | "sha-missing"
+    | "sha-unverifiable"
     | "migration-missing"
     | "migration-belongs-elsewhere"
     | "file-missing"
@@ -65,6 +66,8 @@ export interface RepoProbe {
   shaExists(sha: string): boolean;
   /** Repositories searched before a missing-SHA finding is reported. */
   shaSearchLocations?(sha: string): readonly string[];
+  /** Required repositories that could not be searched for this SHA. */
+  shaSearchUnverifiableLocations?(sha: string): readonly string[];
   /** File names under `server/db/migrations`. */
   migrations(): readonly string[];
   /**
@@ -184,8 +187,9 @@ export function extractClaims(report: string): Claim[] {
     const start = m.index! + m[1]!.length;
     if (report[start - 1] === "-" || report[start + v.length] === "-") continue;
     if (/md5|sha256|digest|hash/i.test(report.slice(Math.max(0, start - 12), start))) continue;
-    const preceding = report.slice(Math.max(0, start - 40), start);
-    if (/\b(?:run|cron|id|card|task|replay|case|caso|turno)\b[^.\n]{0,24}$/i.test(preceding)) continue;
+    // A board/run label excludes a token only when it directly names that token.
+    const preceding = report.slice(Math.max(0, start - 40), start).trimEnd();
+    if (/(?:\b(?:run|cron|id|card|task|replay|case|caso|turno)\s*(?:[:=#]\s*)?|\bcaso\s+vero\s*)$/i.test(preceding)) continue;
     push({ kind: "sha", value: v });
   }
 
@@ -267,7 +271,16 @@ export function checkReport(report: string, probe: RepoProbe): Finding[] {
   //    delivered BEFORE that, and cards past the window, are not recoverable and
   //    this check cannot separate them retroactively.
   for (const c of claims) {
-    if (c.kind === "sha" && !probe.shaExists(c.value)) {
+    if (c.kind === "sha") {
+      const unverifiable = probe.shaSearchUnverifiableLocations?.(c.value) ?? [];
+      if (unverifiable.length > 0) {
+        findings.push({
+          code: "sha-unverifiable",
+          detail: `il commit ${c.value} non e' verificabile nei repo citati: ${unverifiable.join(", ")}`,
+        });
+        continue;
+      }
+      if (probe.shaExists(c.value)) continue;
       const locations = probe.shaSearchLocations?.(c.value) ?? [];
       const where = locations.length > 0 ? ` nei repo cercati: ${locations.join(", ")}` : " in nessun ref";
       findings.push({ code: "sha-missing", detail: `il commit ${c.value} non esiste${where}` });

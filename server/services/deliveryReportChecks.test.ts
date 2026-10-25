@@ -43,7 +43,7 @@
  * @covers KANBAN-11
  */
 import { describe, expect, test, beforeAll, afterAll } from "bun:test";
-import { readFileSync, readdirSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { execFileSync } from "node:child_process";
@@ -233,6 +233,28 @@ describe("cosa il cancello dice di se stesso", () => {
     // not about evidence, and it cost a real catch.
     const c = extractClaims("Verificato: il fix di fee32d7e (matchMedia) e' gia' nel worktree.");
     expect(c).toContainEqual({ kind: "sha", value: "fee32d7e" });
+  });
+
+  test("le frasi di consegna con un verbo restano accuse anche dopo card, task o caso", () => {
+    const shas = (report: string) => extractClaims(report)
+      .filter((claim) => claim.kind === "sha")
+      .map((claim) => (claim as { value: string }).value);
+    const cases = [
+      ["Card chiusa, il fix di fee32d7e (matchMedia).", "fee32d7e"],
+      ["Task completato: fix in a1b2c3d4, test verdi.", "a1b2c3d4"],
+      ["In questo caso la correzione e' 9f8e7d6c.", "9f8e7d6c"],
+      ["Ho fatto bun run check, poi il fix 7c6b5a49 ha chiuso il buco.", "7c6b5a49"],
+    ] as const;
+    const missing: RepoProbe = {
+      ...realProbe,
+      shaExists: () => false,
+      shaSearchLocations: () => ["~/repo"],
+      symbolInHistory: () => true,
+    };
+    for (const [report, sha] of cases) {
+      expect(shas(report)).toContain(sha);
+      expect(checkReport(report, missing).map((finding) => finding.code)).toContain("sha-missing");
+    }
   });
 
   test("e non trasforma in sha tutto cio' che sembra esadecimale", () => {
@@ -528,26 +550,119 @@ describe("delivery SHA claims span the repositories named by the reports", () =>
 
   afterAll(() => rmSync(home, { recursive: true, force: true }));
 
-  test("the seven real card excerpts contain twelve SHA-shaped references and nine commit claims", async () => {
+  test("the seven real card excerpts are prepared per card and all nine commit claims resolve", async () => {
     expect(DELIVERY_REPORT_FIXTURE).toHaveLength(7);
-    const reports = DELIVERY_REPORT_FIXTURE.flatMap((card) => card.reports.map(mapReportedShas));
     const rawShaOccurrences = DELIVERY_REPORT_FIXTURE
       .flatMap((card) => card.reports)
       .flatMap((report) => report.match(/\b[0-9a-f]{7,40}\b/gi) ?? []);
     expect(rawShaOccurrences).toHaveLength(12);
-    const shaClaims = reports.flatMap((report) => extractClaims(report).filter((claim) => claim.kind === "sha"));
-    expect(shaClaims).toHaveLength(9);
-
-    const probe = await probeForRoot(roots.card).prepare!(reports, {
-      homeDirectory: home,
-      knownRoots: [roots.topics, roots.delegate],
-    });
-    const findings = reports.flatMap((report) => checkReport(report, probe));
-    expect(findings.filter((finding) => finding.code === "sha-missing")).toEqual([]);
+    let prepareCalls = 0;
+    let shaClaimsSeen = 0;
+    let findings: ReturnType<typeof checkReport>[] = [];
+    const prepareCard = (reports: readonly string[]) => {
+      prepareCalls++;
+      return probeForRoot(roots.card).prepare!(reports, {
+        homeDirectory: home,
+        knownRoots: [roots.topics, roots.delegate],
+      });
+    };
+    for (const card of DELIVERY_REPORT_FIXTURE) {
+      const reports = card.reports.map(mapReportedShas);
+      const shaClaims = reports.flatMap((report) => extractClaims(report).filter((claim) => claim.kind === "sha"));
+      shaClaimsSeen += shaClaims.length;
+      const probe = await prepareCard(reports);
+      for (const claim of shaClaims) {
+        expect(probe.shaExists(claim.value), `commit ${claim.value} was not resolved for ${card.title}; searched=${JSON.stringify(probe.shaSearchLocations?.(claim.value))}; unverifiable=${JSON.stringify(probe.shaSearchUnverifiableLocations?.(claim.value))}`).toBe(true);
+        expect(probe.shaSearchLocations?.(claim.value)?.length).toBeGreaterThan(0);
+      }
+      findings = [...findings, ...reports.map((report) => checkReport(report, probe))];
+    }
+    expect(prepareCalls).toBe(7);
+    expect(shaClaimsSeen).toBe(9);
+    expect(findings.flat().filter((finding) => finding.code === "sha-missing")).toEqual([]);
 
     const serialized = JSON.stringify(DELIVERY_REPORT_FIXTURE);
     expect(serialized).not.toContain("@");
     expect(serialized).not.toMatch(/\b(?:Attilio|Anna)\b/i);
+  });
+
+  test("oltre venti repo i commit veri si trovano e quello inventato resta accusato", async () => {
+    const manyRoots = Array.from({ length: 24 }, (_, index) => join(home, "Projects", `extra-${index}`));
+    for (const root of manyRoots) initializeRepo(root);
+    const citedRoot = manyRoots[manyRoots.length - 1]!;
+    const citedSha = commitFixture(citedRoot, "proof.txt");
+    const citedReport = `Commit ${citedSha} in ${join(citedRoot, "proof.txt")}.`;
+    const context = { homeDirectory: home, knownRoots: manyRoots };
+    const citedProbe = await probeForRoot(roots.card).prepare!([citedReport], context);
+    expect(citedProbe.shaExists(citedSha)).toBe(true);
+    expect(checkReport(citedReport, citedProbe).map((finding) => finding.code)).not.toContain("sha-missing");
+
+    const invented = "Fatto (commit 0000000deadbee1).";
+    const missingProbe = await probeForRoot(roots.card).prepare!([invented], context);
+    expect(missingProbe.shaExists("0000000deadbee1")).toBe(false);
+    expect(checkReport(invented, missingProbe).map((finding) => finding.code)).toContain("sha-missing");
+  });
+
+  test("oltre 48 repo obbligatori il tetto segnala la ricerca incompleta", async () => {
+    const base = join(home, "shared-object-repo");
+    initializeRepo(base);
+    const sha = commitFixture(base, "proof.txt");
+    const worktrees = Array.from({ length: 48 }, (_, index) => join(home, "many-worktrees", `repo-${index}`));
+    for (const worktree of worktrees) {
+      gitInRepo(base, "worktree", "add", "--quiet", "--detach", worktree, sha);
+    }
+    const report = `Commit ${sha}. Repo: ${worktrees.map((worktree) => join(worktree, "proof.txt")).join(" ")}.`;
+    const probe = await probeForRoot(roots.card).prepare!([report], { homeDirectory: home });
+    const codes = checkReport(report, probe).map((finding) => finding.code);
+
+    expect(probe.shaExists(sha)).toBe(true);
+    expect(probe.shaSearchUnverifiableLocations?.(sha)?.length).toBeGreaterThan(0);
+    expect(codes).toContain("sha-unverifiable");
+    expect(codes).not.toContain("sha-missing");
+  });
+
+  test("cinquanta percorsi e menzioni non repo non disarmano lo SHA", async () => {
+    const directories = Array.from({ length: 50 }, (_, index) => join(home, "paths", `p-${index}`));
+    for (const directory of directories) mkdirSync(directory, { recursive: true });
+    const mentions = [...directories.map((directory) => join(directory, "missing.ts")), join(roots.card, ".git", "hooks", "pre-push")];
+    if (existsSync("/private/var/root")) mentions.push("/private/var/root");
+    const report = `Fatto (commit 0000000deadbee1). ${mentions.join(" ")}`;
+    const probe = await probeForRoot(roots.card).prepare!([report], { homeDirectory: home, knownRoots: Object.values(roots) });
+    const codes = checkReport(report, probe).map((finding) => finding.code);
+    expect(codes).toContain("sha-missing");
+    expect(codes).not.toContain("sha-unverifiable");
+  });
+
+  test("oltre 64 repo citati l'omissione e' esplicita e non spegne gli altri SHA", async () => {
+    const citedRoots = Array.from({ length: 70 }, (_, index) => join(home, "overflow", `repo-${index}`));
+    for (const root of citedRoots) mkdirSync(join(root, ".git"), { recursive: true });
+    const omittedSha = "0000000deadbee1";
+    const unrelatedSha = "0000000deadbee2";
+    const reports = [
+      `Commit ${omittedSha}. Repo citati: ${citedRoots.map((root) => join(root, ".git", "hooks", "pre-commit")).join(" ")}`,
+      `Commit ${unrelatedSha}.`,
+    ];
+    const probe = await probeForRoot(roots.card).prepare!(reports, { homeDirectory: home });
+    const omittedCodes = checkReport(reports[0]!, probe).map((finding) => finding.code);
+    const unrelatedCodes = checkReport(reports[1]!, probe).map((finding) => finding.code);
+
+    expect(omittedCodes).toContain("sha-unverifiable");
+    expect(omittedCodes).not.toContain("sha-missing");
+    expect(probe.shaSearchUnverifiableLocations?.(omittedSha)?.length).toBeGreaterThan(0);
+    expect(unrelatedCodes).toContain("sha-missing");
+  });
+
+  test("il repo citato resta prioritario oltre 48 altri candidati", async () => {
+    const directories = Array.from({ length: 50 }, (_, index) => join(home, "many-paths", `p-${index}`));
+    for (const directory of directories) mkdirSync(directory, { recursive: true });
+    const citedRoot = join(home, "cited-after-many-paths");
+    initializeRepo(citedRoot);
+    const sha = commitFixture(citedRoot, "proof.txt");
+    const paths = [...directories.map((directory) => join(directory, "missing.ts")), join(citedRoot, "proof.txt")];
+    const report = `Commit ${sha} in ${paths.join(" ")}.`;
+    const probe = await probeForRoot(roots.card).prepare!([report], { homeDirectory: home });
+    expect(probe.shaExists(sha)).toBe(true);
+    expect(probe.shaSearchUnverifiableLocations?.(sha)).toEqual([]);
   });
 
   test("a home-relative report path discovers its synthetic repository", async () => {
