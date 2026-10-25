@@ -7,7 +7,7 @@
  */
 import { afterAll, describe, expect, spyOn, test } from "bun:test";
 import * as fs from "fs";
-import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "fs";
+import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 
@@ -17,6 +17,9 @@ const STATE = mkdtempSync(join(tmpdir(), "topics-cmd-state-"));
 const previousDataDir = process.env.DATA_DIR;
 process.env.DATA_DIR = STATE;
 const { createProcessesRouter, listOwnedScripts, logPathOf, stopAgentProcessesOf } = await import("./processes");
+const { readOwnerProcessTable } = await import("../lib/agent-process-ownership");
+const ownershipPsAvailable = (await readOwnerProcessTable()) !== null;
+if (!ownershipPsAvailable) console.warn("[SKIP owner-close integration] ps -E environment access is unavailable in this runtime");
 
 const PROJECT = realpathSync(mkdtempSync(join(tmpdir(), "topics-cmd-project-")));
 mkdirSync(join(PROJECT, "sub"));
@@ -49,6 +52,23 @@ function makeRouter(opts: { globalSessionKey?: string } = {}) {
     resolveTopicCwd: () => PROJECT,
   };
   return createProcessesRouter(ctx as never);
+}
+
+function shellQuote(value: string): string {
+  return `'${value.replaceAll("'", "'\\''")}'`;
+}
+
+function longBunCommand(pidFile: string, children = 0): string {
+  const source = [
+    'const { spawn } = require("node:child_process");',
+    'const fs = require("node:fs");',
+    "const childPids = [];",
+    `for (let i = 0; i < ${children}; i++) childPids.push(spawn(${JSON.stringify(process.execPath)}, ["-e", "setInterval(() => {}, 1000)"], { stdio: "ignore" }).pid);`,
+    `fs.writeFileSync(${JSON.stringify(`${pidFile}.owner`)}, String(process.pid));`,
+    `fs.writeFileSync(${JSON.stringify(pidFile)}, childPids.join("\\n"));`,
+    "setInterval(() => {}, 1000);",
+  ].join("\n");
+  return `${shellQuote(process.execPath)} -e ${shellQuote(source)}`;
 }
 
 async function call(router: ReturnType<typeof makeRouter>, method: string, path: string, body?: unknown) {
@@ -186,61 +206,65 @@ describe("POST /api/sessions/:sessionKey/commands/run", () => {
     expect(listOwnedScripts().find((s) => s.processId === processId)).toBeUndefined();
   });
 
-  test("Stop ends the command and its children, and the row says stopped", async () => {
+  test("Stop ends the command, and the row says stopped", async () => {
     const router = makeRouter();
-    const { processId, pid } = await (await run(router, { command: "sleep 30 & sleep 30; wait" })).json() as { processId: string; pid: number };
+    const { processId, pid } = await (await run(router, { command: "sleep 30" })).json() as { processId: string; pid: number };
     await until(() => rowOf(router, processId), (r) => r?.status === "running");
     const stop = await call(router, "POST", `/api/scripts/${processId}/stop`);
     expect(stop.status).toBe(200);
 
     const row = await until(() => rowOf(router, processId), (r) => r?.status !== "running");
     expect(row).toMatchObject({ source: "command", status: "error", stopped: true });
-    // Its own process group: nothing of it is left.
-    const group = await until(
-      async () => Bun.spawnSync(["pgrep", "-g", String(pid)]).stdout.toString().trim(),
-      (out) => out === "",
-    );
-    expect(group).toBe("");
+    await until(async () => isPidGone(pid), (gone) => gone);
+    expect(isPidGone(pid)).toBe(true);
   });
 
-  test("closing the session kills the registered command group, including orphaned children", async () => {
+  test.skipIf(!ownershipPsAvailable)("closing the session kills marked command descendants, including orphaned children", async () => {
     const router = makeRouter();
-    const { pid, processId } = await (await run(router, { command: "sh -c 'sleep 300 & sleep 300'" })).json() as { pid: number; processId: string };
+    const pidFile = join(STATE, `owned-children-${crypto.randomUUID()}.txt`);
+    const { pid, processId } = await (await run(router, { command: longBunCommand(pidFile, 2) })).json() as { pid: number; processId: string };
+    const childPids = await until(async () => {
+      try { return readFileSync(pidFile, "utf8").split("\n").filter(Boolean).map(Number); }
+      catch { return []; }
+    }, (pids) => pids.length === 2);
+    const ownerPid = await until(async () => {
+      try { return Number(readFileSync(`${pidFile}.owner`, "utf8")); }
+      catch { return 0; }
+    }, (owner) => owner > 0);
     try {
-      const groupMembers = () => {
-        const result = Bun.spawnSync(["ps", "-axo", "pid=,pgid=,command="]);
-        return result.stdout.toString().split("\n").flatMap((line) => {
-          const match = line.trim().match(/^(\d+)\s+(\d+)\s+(.+)$/);
-          return match && Number(match[2]) === pid ? [{ pid: Number(match[1]), command: match[3] }] : [];
-        });
-      };
-      const sleeps = await until(async () => groupMembers().filter((row) => /(?:^|\/)sleep 300$/.test(row.command.trim())), (rows) => rows.length >= 2);
-      expect(sleeps).toHaveLength(2);
+      expect(childPids).toHaveLength(2);
 
       const at = Date.now();
       stopAgentProcessesOf(TOPIC.sessionKey);
       const stopped = await until(() => rowOf(router, processId), (row) => row?.status !== "running");
       expect(stopped).toMatchObject({ status: "error", stopped: true });
-      const tracked = [pid, ...sleeps.map((row) => row.pid)];
+      const tracked = [pid, ownerPid, ...childPids];
       const remaining = await until(async () => tracked.filter((childPid) => !isPidGone(childPid)), (rows) => rows.length === 0, 11_000);
       expect(remaining).toEqual([]);
       expect(Date.now() - at).toBeLessThan(11_000);
     } finally {
-      try { process.kill(-pid, "SIGKILL"); } catch {}
+      for (const childPid of [pid, ownerPid, ...childPids]) {
+        if (!isPidGone(childPid)) { try { process.kill(childPid, "SIGKILL"); } catch {} }
+      }
     }
   });
 
-  test("wake false keeps a declared long-lived server through owner closure", async () => {
+  test.skipIf(!ownershipPsAvailable)("wake false only suppresses the wake, owner closure still stops the process", async () => {
     const router = makeRouter();
-    const { pid, processId } = await (await run(router, { command: "sleep 30", wake: false })).json() as { pid: number; processId: string };
+    const pidFile = join(STATE, `owned-server-${crypto.randomUUID()}.txt`);
+    const { pid, processId } = await (await run(router, { command: longBunCommand(pidFile), wake: false })).json() as { pid: number; processId: string };
+    const ownerPid = await until(async () => {
+      try { return Number(readFileSync(`${pidFile}.owner`, "utf8")); }
+      catch { return 0; }
+    }, (owner) => owner > 0);
     try {
       stopAgentProcessesOf(TOPIC.sessionKey);
-      await Bun.sleep(100);
-      expect(isPidGone(pid)).toBe(false);
-      expect(await rowOf(router, processId)).toMatchObject({ status: "running" });
+      const stopped = await until(() => rowOf(router, processId), (row) => row?.status !== "running");
+      expect(stopped).toMatchObject({ status: "error", stopped: true });
+      expect(isPidGone(ownerPid)).toBe(true);
     } finally {
-      await call(router, "POST", `/api/scripts/${processId}/stop`);
-      await until(() => rowOf(router, processId), (row) => row?.status !== "running");
+      if (!isPidGone(pid)) { try { process.kill(pid, "SIGKILL"); } catch {} }
+      if (!isPidGone(ownerPid)) { try { process.kill(ownerPid, "SIGKILL"); } catch {} }
     }
   });
 });

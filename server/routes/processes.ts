@@ -41,7 +41,7 @@ import { recordServerSpawn } from "../lib/spawn-metrics";
 import { SPAWN_TIMEOUT, spawnBounded } from "../lib/bounded-spawn";
 import { isPidAlive, livePids, watchPidExits } from "../lib/pid-liveness";
 import { topicIdOfSubject } from "../../shared/attention";
-import { agentProcessGroups, registerAgentProcessGroup } from "../lib/agent-process-groups";
+import { stopOwnedAgentProcesses, withAgentProcessOwner } from "../lib/agent-process-ownership";
 
 interface ScriptProcess {
   processId: string;
@@ -305,7 +305,6 @@ function loadState() {
     // Restore recent scripts (completed ones)
     if (Array.isArray(data.recent)) {
       for (const r of data.recent) {
-        registerLegacyCommandGroup(r as PersistedScript);
         const sp: ScriptProcess = {
           ...r,
           output: [],
@@ -327,7 +326,6 @@ function loadState() {
     const endedCommands: ScriptProcess[] = [];
     if (Array.isArray(data.running)) {
       for (const r of data.running as PersistedScript[]) {
-        registerLegacyCommandGroup(r);
         if (readoptVerdict({ pid: r.pid, pidLstart: r.pidLstart, probe: pidStartTime }) === "adopt") {
           // Process is still alive — re-track it (we can't re-capture stdout,
           // but we can track its PID for port detection and stop)
@@ -403,25 +401,6 @@ function loadState() {
     } catch {}
   } catch (err) {
     console.error(`[processes] restoring the registry from ${persistPath()} failed:`, err);
-  }
-}
-
-function registerLegacyCommandGroup(row: PersistedScript): void {
-  if (!row.cmd || row.cmd.origin === "person" || !row.pid || !row.pidLstart) return;
-  try {
-    registerAgentProcessGroup({
-      id: `run_command:${row.processId}`,
-      pid: row.pid,
-      pgid: row.pid,
-      pidLstart: row.pidLstart,
-      sessionKey: row.cmd.sessionKey,
-      topicId: row.cmd.topicId,
-      source: "run_command",
-      preserveOnOwnerClose: !row.cmd.wake,
-      startedAt: row.startedAt,
-    });
-  } catch (err) {
-    console.warn(`[processes] legacy command group ${row.processId} was not adopted:`, err);
   }
 }
 
@@ -824,7 +803,6 @@ function finishCommand(sp: ScriptProcess, how: { foundDead?: boolean } = {}): vo
   if (commandServiceWatch.listenOf(sp.processId)) setTimeout(() => commandServiceWatch.forget(sp.processId), SERVICE_END_SHOWN_MS * 2).unref?.();
   if (cmd.wake) requestWakeFor(sp);
   if (cmd.origin === "person") settlePersonRun(sp);
-  else void agentProcessGroups.pruneIfGone(`run_command:${sp.processId}`);
 }
 
 /** A person's run ended: its row in `command_runs` closes (`closeRegistryRun`), once the router has a database. */
@@ -919,7 +897,7 @@ function stopCommand(sp: ScriptProcess): void {
   sp.cmd.stopped = true;
   saveState();
   if (!sp.pid || !isPidAlive(sp.pid)) finishCommand(sp);
-  else void agentProcessGroups.stopById(`run_command:${sp.processId}`);
+  else void killProcessTree(sp.pid, 5000, { group: true });
 }
 
 /**
@@ -938,14 +916,33 @@ export function stopCommandWakesOf(sessionKey: string): number {
 
 export function stopAgentProcessesOf(sessionKey: string): void {
   loadProcessRegistry();
+  const owners = new Set([sessionKey]);
+  try {
+    const children = _broadcastCtx?.db.query(`
+      WITH RECURSIVE owned_sessions(id) AS (
+        SELECT id FROM terminal_sessions
+        WHERE parent_session_key = ?
+           OR topic_id = (SELECT id FROM topics WHERE session_key = ? LIMIT 1)
+        UNION
+        SELECT child.id FROM terminal_sessions AS child
+        JOIN owned_sessions AS parent ON child.parent_session_key = parent.id
+      )
+      SELECT id FROM owned_sessions
+    `).all(sessionKey, sessionKey) as Array<{ id: string }> | undefined;
+    for (const child of children ?? []) owners.add(child.id);
+  } catch (error) {
+    console.warn(`[processes] terminal owner lookup failed for ${sessionKey}: ${error instanceof Error ? error.message : String(error)}`);
+  }
   for (const sp of runningScripts.values()) {
-    if (sp.cmd?.sessionKey === sessionKey && sp.cmd.origin !== "person" && sp.cmd.wake) sp.cmd.stopped = true;
+    if (sp.cmd && owners.has(sp.cmd.sessionKey) && sp.cmd.origin !== "person") sp.cmd.stopped = true;
   }
   for (const sp of recentScripts) {
-    if (sp.cmd?.sessionKey === sessionKey) sp.cmd.wake = false;
+    if (sp.cmd && owners.has(sp.cmd.sessionKey)) sp.cmd.wake = false;
   }
   saveState();
-  void agentProcessGroups.stopForSession(sessionKey);
+  void stopOwnedAgentProcesses(owners).catch((error) => {
+    console.warn(`[processes] owner cleanup failed for ${sessionKey}: ${error instanceof Error ? error.message : String(error)}`);
+  });
 }
 
 /** Every session a command still owes a wake: the goals that wait again after a restart. */
@@ -1014,17 +1011,18 @@ function startCommandProcess(o: {
     ? { FORCE_COLOR: "1", CLICOLOR_FORCE: "1" }
     : { FORCE_COLOR: "0", NO_COLOR: "1" });
   if (o.origin === "person") delete env.NO_COLOR;
+  const commandEnv = o.origin === "person" ? env : withAgentProcessOwner(env, o.sessionKey);
   // And the core quota that Bash gets when the session is a board card's
   // (`providers/claude-code.ts`): the board sends its builds, tests and
   // installs here. A chat's session gets none, and `env` stays as it is.
-  applyJobQuota(o.db, o.sessionKey, env);
+  applyJobQuota(o.db, o.sessionKey, commandEnv);
   // Before the start: an appending command's file is measured before it writes.
   const stdoutFile = followOf(o.command, o.cwd);
   const logPath = logPathOf(processId);
   const fd = openSync(logPath, "a");
   let proc: ReturnType<typeof Bun.spawn>;
   try {
-    proc = Bun.spawn(argv, { cwd: o.cwd, stdin: "ignore", stdout: fd, stderr: fd, detached: true, env });
+    proc = Bun.spawn(argv, { cwd: o.cwd, stdin: "ignore", stdout: fd, stderr: fd, detached: true, env: commandEnv });
   } finally {
     closeSync(fd);
   }
@@ -1035,13 +1033,6 @@ function startCommandProcess(o: {
     cmd: { sessionKey: o.sessionKey, topicId: o.topicId, wake: o.wake && !!o.topicId, ...(o.origin ? { origin: o.origin } : {}), ...stdoutFile },
   };
   runningScripts.set(processId, sp);
-  if (o.origin !== "person") {
-    registerAgentProcessGroup({
-      id: `run_command:${processId}`, pid: proc.pid, pgid: proc.pid,
-      pidLstart: sp.pidLstart, sessionKey: o.sessionKey, topicId: o.topicId,
-      source: "run_command", preserveOnOwnerClose: !sp.cmd!.wake, startedAt: sp.startedAt,
-    });
-  }
   followLog(sp, logPath, 0);
   startFollow(sp);
   saveState();
@@ -2070,18 +2061,19 @@ export function createProcessesRouter(ctx: AppContext): RouteHandler {
     const base = rilevato.argv;
     const argv = useTty ? wrapPty(base) : base;
 
+    const scriptEnv = augmentEnv(process.env, {
+      FORCE_COLOR: "0",
+      NO_COLOR: "1",
+      HOST: "0.0.0.0",
+      NODE_ENV: "development",
+      npm_config_yes: "true",
+      ...worktreePortEnv(projectPath),
+    });
     const proc = Bun.spawn(argv, {
       cwd: projectPath,
       stdout: "pipe",
       stderr: "pipe",
-      env: augmentEnv(process.env, {
-        FORCE_COLOR: "0",
-        NO_COLOR: "1",
-        HOST: "0.0.0.0",
-        NODE_ENV: "development",
-        npm_config_yes: "true",
-        ...worktreePortEnv(projectPath),
-      }),
+      env: owner ? withAgentProcessOwner(scriptEnv, owner.sessionKey) : scriptEnv,
       ...(owner ? { detached: true } : {}),
     });
 
@@ -2105,13 +2097,6 @@ export function createProcessesRouter(ctx: AppContext): RouteHandler {
     };
 
     runningScripts.set(processId, sp);
-    if (owner) {
-      registerAgentProcessGroup({
-        id: `run_script:${processId}`, pid: proc.pid, pgid: proc.pid,
-        pidLstart: sp.pidLstart, sessionKey: owner.sessionKey, topicId: owner.topicId,
-        source: "run_script", startedAt: sp.startedAt,
-      });
-    }
     saveState();
     broadcastScriptsUpdate(ctx);
 
@@ -2158,7 +2143,6 @@ export function createProcessesRouter(ctx: AppContext): RouteHandler {
       broadcastScriptsUpdate(ctx);
       // An agent's server ended: its chat says so now, not at the next poll.
       if (sp.agentRun) pushBackgroundChanged(ctx, sp.agentRun);
-      if (sp.agentRun) void agentProcessGroups.pruneIfGone(`run_script:${processId}`);
     });
 
     return { processId, scriptName: rilevato.name, pid: proc.pid, startedAt: sp.startedAt };
@@ -2269,7 +2253,7 @@ export function createProcessesRouter(ctx: AppContext): RouteHandler {
       return true;
     }
     if (sp.agentRun) {
-      void agentProcessGroups.stopById(`run_script:${sp.processId}`);
+      if (sp.pid) void killProcessTree(sp.pid, 5000, { group: true });
       return true;
     }
     if (sp.source === "detected" || sp.source === "shell") {

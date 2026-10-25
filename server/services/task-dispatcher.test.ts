@@ -3626,7 +3626,21 @@ describe("cancello: non si ridispaccia lavoro già su main", () => {
     // `4ec47331` e `e54a9be6` hanno bruciato 3,26M token e 91M di cache read per
     // riprodurre codice che su main c'era già. Il land ha il suo cancello; qui si
     // copre la strada da cui la card RIENTRA in coda dopo essere atterrata.
-    const { h, chieste } = withProbe(true);
+    const stoppedTopics: string[] = [];
+    const chieste: Array<{ repoPath: string; commit: string }> = [];
+    let db: Database | null = null;
+    const h = harness({
+      deliveryLanded: async (repoPath, commit) => {
+        chieste.push({ repoPath, commit });
+        db!.run("UPDATE tasks SET assigned_topic_id = 'topic-previous' WHERE id = 't1'");
+        return true;
+      },
+      stopAssignedTopicProcesses: (topicId) => stoppedTopics.push(topicId),
+    });
+    db = h.db;
+    h.db.run("INSERT INTO topics (id) VALUES ('topic-previous')");
+    h.svc.updateBoardSettings(PID, { autoDispatch: true });
+    h.svc.setGlobalCap({ auto: false, max: 2 });
     seedTask(h.db, { id: "t1", status: "todo", deliveryBranch: "topics/ardent-grouse", deliveryCommit: "c2d20879ffffffffffffffffffffffffffffffff" });
 
     await h.dispatcher.tick(PID);
@@ -3642,6 +3656,8 @@ describe("cancello: non si ridispaccia lavoro già su main", () => {
     expect(t.status).toBe("done");
     expect(t.dispatchState).toBeNull();
     expect(t.dispatchAttempts).toBe(0);
+    expect(stoppedTopics).toEqual(["topic-previous"]);
+    expect(t.assignedTopicId).toBe("topic-previous");
     // La domanda è stata fatta al repo del progetto, sul COMMIT (non sul ramo,
     // che dopo il land è potato).
     expect(chieste).toEqual([{ repoPath: "/Users/x/Projects/alpha", commit: "c2d20879ffffffffffffffffffffffffffffffff" }]);

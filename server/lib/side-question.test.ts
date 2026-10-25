@@ -44,8 +44,10 @@ function fixture() {
 describe("side-question cleanup", () => {
   test("deletes rows keyed by the topic and session and discards its transcript", async () => {
     const h = fixture();
-    await deleteSideQuestion(h.deps, h.side);
+    const stopped: string[] = [];
+    await deleteSideQuestion({ ...h.deps, stopAgentProcesses: (key) => stopped.push(key) }, h.side);
     expect(h.deleted).toEqual([h.side.sessionKey]);
+    expect(stopped).toEqual([h.side.sessionKey]);
     for (const table of ["topics", "messages", "chat_forks", "session_context", "notification_log", "activity_log", "side_refs", "subject_attention"]) {
       expect(h.db.query(`SELECT COUNT(*) AS count FROM ${table}`).get()).toEqual({ count: table === "topics" ? 1 : 0 });
     }

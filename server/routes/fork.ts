@@ -6,6 +6,7 @@ import { insertChatFork } from "../lib/chat-fork-store";
 import { cleanupStaleSideQuestions, deleteSideQuestion } from "../lib/side-question";
 import { isSideQuestionTopicId, SIDE_QUESTION_TOPIC_PREFIX } from "../../shared/chat-fork";
 import { isGlobalOrchestratorSession } from "../services/global-orchestrator-session";
+import { stopAgentProcessesOf } from "./processes";
 
 export interface ForkDeps {
   resolveProvider: (topic?: Topic | null) => AIProvider;
@@ -46,6 +47,7 @@ export function createForkRouter(ctx: AppContext, deps: ForkDeps): RouteHandler 
     getTopic: (id: string) => getTopicById(id) ?? null,
     isStreaming,
     resolveProvider: deps.resolveProvider,
+    stopAgentProcesses: stopAgentProcessesOf,
   };
   const bootSweep = cleanupStaleSideQuestions(cleanupDeps).then((removed) => {
     if (removed) console.log(`[fork] removed ${removed} stale side question(s)`);

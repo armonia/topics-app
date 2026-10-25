@@ -350,6 +350,27 @@ describe("board router (human, project-scoped)", () => {
     expect((await done.json()).status).toBe("done");
   });
 
+  test("only done closes the assigned session, including approval", async () => {
+    const stopped: string[] = [];
+    const ctx = makeCtx(db, broadcasts) as any;
+    ctx.getTopicById = (id: string) => ({ sessionKey: `topic:${id}` });
+    router = createTasksRouter(ctx, undefined, { stopAgentProcesses: (key: string) => stopped.push(key) });
+    db.run("INSERT INTO topics (id, session_key) VALUES ('assigned-direct', 'topic:assigned-direct'), ('assigned-approved', 'topic:assigned-approved')");
+
+    const direct = await (await call(router, "POST", "/api/boards/pX/tasks", { text: "direct", status: "todo" }))!.json();
+    db.run("UPDATE tasks SET assigned_topic_id = ? WHERE id = ?", ["assigned-direct", direct.id]);
+    expect((await call(router, "PATCH", `/api/boards/pX/tasks/${direct.id}`, { status: "review" }))!.status).toBe(200);
+    expect(stopped).toEqual([]);
+    expect((await call(router, "PATCH", `/api/boards/pX/tasks/${direct.id}`, { status: "done" }))!.status).toBe(200);
+    expect(stopped).toEqual(["topic:assigned-direct"]);
+
+    const approved = await (await call(router, "POST", "/api/boards/pX/tasks", { text: "approved" }))!.json();
+    db.run("UPDATE tasks SET assigned_topic_id = ? WHERE id = ?", ["assigned-approved", approved.id]);
+    expect((await call(router, "PATCH", `/api/boards/pX/tasks/${approved.id}`, { status: "review" }))!.status).toBe(200);
+    expect((await call(router, "POST", `/api/boards/pX/tasks/${approved.id}/review`, { decision: "approve" }))!.status).toBe(200);
+    expect(stopped).toEqual(["topic:assigned-direct", "topic:assigned-approved"]);
+  });
+
   // I due rami del default di creazione via API. `todo` è la coda di
   // esecuzione: un task che ci nasce fa partire un agente entro pochi secondi
   // su un board con auto-dispatch. Un chiamante esterno (MCP, script,
@@ -2161,8 +2182,12 @@ describe("land in raffica: N chiamate ⇒ N esiti", () => {
     const db2 = freshDb();
     const b2: any[] = [];
     const stamped2: Array<[string, string]> = [];
+    const stopped2: string[] = [];
+    const ctx2 = makeCtx(db2, b2) as any;
+    ctx2.getTopicById = (id: string) => id === "land-owner" ? { sessionKey: "topic:land-owner" } : null;
+    db2.prepare("INSERT INTO topics (id, session_key, project_path) VALUES ('land-owner', 'topic:land-owner', '/proj/one')").run();
     const router2 = createTasksRouter(
-      makeCtx(db2, b2),
+      ctx2,
       { onEnterTodo() {}, onLeaveTodo() {}, onBlockerDone() {}, resume: async () => {} } as any,
       {
         autoMerge: {
@@ -2179,10 +2204,11 @@ describe("land in raffica: N chiamate ⇒ N esiti", () => {
         // or the run spawns a real `gh` at a path that does not exist here.
         closeDelivery: async () => ({ pr: null, branchDeleted: false, problems: [] }),
         stampLanding: async (taskId: string, verdict: string) => { stamped2.push([taskId, verdict]); },
+        stopAgentProcesses: (sessionKey: string) => { stopped2.push(sessionKey); },
       } as any,
     );
     const t2 = await (await call(router2, "POST", "/api/boards/pX/tasks", { text: "pulito" }))!.json();
-    db2.prepare("UPDATE tasks SET status='review', delivery_branch='topics/pulito' WHERE id = ?").run(t2.id);
+    db2.prepare("UPDATE tasks SET status='review', delivery_branch='topics/pulito', assigned_topic_id='land-owner' WHERE id = ?").run(t2.id);
     db2.prepare("INSERT INTO task_comments (id, task_id, author, content, kind, created_at) VALUES ('c2', ?, 'claude', 'consegna', 'comment', ?)")
       .run(t2.id, new Date().toISOString());
     await call(router2, "POST", `/api/boards/pX/tasks/${t2.id}/land`, {});
@@ -2199,6 +2225,7 @@ describe("land in raffica: N chiamate ⇒ N esiti", () => {
     expect(stamped2, "land riuscito: deve produrre stamp landed").toContainEqual([t2.id, "landed"]);
     // La card e' passata a done
     expect(createTaskService(db2).get(t2.id)!.task.status, "land riuscito: card diventa done").toBe("done");
+    expect(stopped2).toEqual(["topic:land-owner"]);
   });
 });
 

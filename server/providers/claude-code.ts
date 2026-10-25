@@ -14,6 +14,7 @@ import { createInterface, Interface } from "readline";
 import { getAiBridgeClient, type AiBridgeClient, type SessionInfo } from "../lib/ai-bridge-client";
 import { createLineFolder } from "../lib/ndjson-lines";
 import { agentBaseEnv } from "../lib/agent-env";
+import { withAgentProcessOwner } from "../lib/agent-process-ownership";
 import { readdirSync, existsSync, mkdirSync, writeFileSync, unlinkSync, readFileSync, chmodSync } from "fs";
 import { tmpdir } from "os";
 import { topicsHome } from "../services/daemon-state";
@@ -2036,7 +2037,8 @@ export class ClaudeCodeProvider implements AIProvider {
       permissionMode, model, emptyMcpConfigPath, effort: options?.reasoningEffort, userFacing: options?.userFacing,
     });
 
-    const env = buildSafeEnv();
+    const baseEnv = buildSafeEnv();
+    const env = options?.sessionKey ? withAgentProcessOwner(baseEnv, options.sessionKey) : baseEnv;
 
     return new Promise((resolve, reject) => {
       const ownedGroup = process.platform !== "win32";
@@ -2705,7 +2707,7 @@ export class ClaudeCodeProvider implements AIProvider {
       `[claude-code] Spawning ${isNewSession ? 'new' : forkFrom ? `forked (from ${forkFrom.sessionId} at ${forkFrom.atUuid})` : 'resumed'} session for ${sessionKey} (claude_session_id=${claudeSessionId})`
     );
 
-    const env = buildSafeEnv();
+    const env = withAgentProcessOwner(buildSafeEnv(), sessionKey);
 
     // La QUOTA DI CORE, e solo per gli agenti dispatchati.
     //

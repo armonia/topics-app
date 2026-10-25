@@ -438,6 +438,8 @@ export interface DispatcherDeps {
    * Assente (test/host degradato) ⇒ cancello spento, comportamento storico.
    */
   deliveryLanded?: (repoPath: string, commit: string) => Promise<boolean | null>;
+  /** Stop processes owned by a task's assigned topic when a landed delivery closes it. */
+  stopAssignedTopicProcesses?: (topicId: string) => void;
   /**
    * Claude sessions running OUTSIDE Topics right now at/under a directory
    * (see services/external-sessions.ts). The dispatcher can only see its OWN
@@ -5279,7 +5281,11 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
                 `il lavoro consegnato (${t.deliveryCommit.slice(0, 8)}) è già dentro main: ` +
                 "niente da rifare, la card si chiude invece di ripartire",
             });
-            if (closed) { emit(closed); chiusa = closed.status === "done"; }
+            if (closed) {
+              emit(closed);
+              chiusa = closed.status === "done";
+              if (chiusa && closed.assignedTopicId) deps.stopAssignedTopicProcesses?.(closed.assignedTopicId);
+            }
           } catch (err) { log(`chiusura della card già atterrata fallita per ${t.id}`, err); }
           // Solo se si è CHIUSA davvero. `settleLanded` rifiuta di chiudere un
           // padre con step aperti: quella card non è finita, ha una checklist da

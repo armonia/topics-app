@@ -118,7 +118,7 @@ function makeTopic(overrides: Partial<Topic> & { id: string }): Topic {
 }
 
 /** Minimal stub AppContext: just what the control-endpoint paths dereference. */
-function makeHarness() {
+function makeHarness(routerExtra: Record<string, unknown> = {}) {
   const openclawDir = mkdtempSync(join(tmpdir(), "topics-ctrl-"));
   const workspaceDir = join(openclawDir, "workspace");
   mkdirSync(workspaceDir, { recursive: true });
@@ -160,6 +160,7 @@ function makeHarness() {
     saveSingleTopic: (t: Topic) => { topics.set(t.id, t); },
     loadUnread: () => ({}),
     saveUnread: () => {},
+    saveUnreadEntries: () => {},
     projectStore: {
       list: () => [],
       getByPath: () => null,
@@ -167,7 +168,7 @@ function makeHarness() {
     },
   } as any;
 
-  const router = createTopicsRouter(ctx);
+  const router = createTopicsRouter(ctx, undefined, undefined, routerExtra);
   const call = (method: string, path: string, body?: unknown) => {
     const url = new URL(`http://topics.test${path}`);
     const req = new Request(url.toString(), {
@@ -851,6 +852,19 @@ describe("global coordinator direct-route invariants", () => {
       expect(response.status).toBe(200);
       expect(h.topics.get("ordinary")?.archived).toBe(false);
       expect(h.topics.get("coordinator")?.archived).toBe(true);
+    } finally { h.cleanup(); }
+  });
+
+  test("bulk archive closes every topic owner", async () => {
+    const stopped: string[] = [];
+    const h = makeHarness({ stopAgentProcesses: (key: string) => stopped.push(key) });
+    try {
+      const projectPath = "/bulk-close";
+      h.topics.set("bulk-one", makeTopic({ id: "bulk-one", projectPath }));
+      h.topics.set("bulk-two", makeTopic({ id: "bulk-two", projectPath }));
+      const response = (await h.call("POST", "/api/topics/bulk-archive", { projectPath, archived: true }))!;
+      expect(response.status).toBe(200);
+      expect(stopped).toEqual(["topic:bulk-one", "topic:bulk-two"]);
     } finally { h.cleanup(); }
   });
 });

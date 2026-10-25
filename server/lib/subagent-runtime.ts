@@ -15,6 +15,7 @@
  */
 import fs from "fs";
 import { getDatabase } from "../db";
+import { stopOwnedAgentProcesses } from "./agent-process-ownership";
 import { warnThrottled } from "./warn-throttled";
 import { claudeTranscriptPath } from "./claude-transcript-path";
 import {
@@ -489,6 +490,7 @@ function sweepDormantChildRows(now = Date.now()): void {
       const sub = getSubagent(db, r.id);
       const endedAt = sub?.endedAt ? Date.parse(sub.endedAt) : sub ? NaN : Date.parse(r.created_at ?? '');
       if (!Number.isFinite(endedAt) || now - endedAt <= SUBAGENT_RESUME_WINDOW_MS) continue;
+      void stopOwnedAgentProcesses(new Set([r.id]));
       db.run("DELETE FROM terminal_sessions WHERE id = ?", [r.id]);
     }
   } catch (e) {
@@ -758,4 +760,3 @@ export async function readAgentOutput(
   const buffer = await terminalBuffer(child.id);
   return { events: [], nextOffset: Number.isFinite(since) ? since : 0, source: "buffer", buffer };
 }
-

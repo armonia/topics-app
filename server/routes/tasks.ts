@@ -254,6 +254,7 @@ export interface TasksRouterOpts {
    * children to init, and a snapshot taken after that no longer sees them).
    */
   killAgentTree?: (sessionKey: string) => Promise<void>;
+  stopAgentProcesses?: (sessionKey: string) => void;
   /**
    * Auto-merge a task's worktree branch into main on approve (opt-in per board via
    * `dispatchAutoMerge`). Absent ⇒ approve never touches git.
@@ -596,10 +597,11 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
   });
   const attempts = createTaskAttemptStore(db);
 
-  function stopClosedTaskProcesses(task: Pick<Task, "status" | "parentTaskId" | "assignedTopicId">, previousStatus: string | undefined, fallbackSessionKey?: string): void {
-    if (task.parentTaskId || previousStatus === task.status || (task.status !== "done" && task.status !== "review")) return;
-    const sessionKey = (task.assignedTopicId ? ctx.getTopicById(task.assignedTopicId)?.sessionKey : null) ?? fallbackSessionKey;
-    if (sessionKey) stopAgentProcessesOf(sessionKey);
+  const stopOwnedProcesses = opts?.stopAgentProcesses ?? stopAgentProcessesOf;
+  function stopClosedTaskProcesses(task: Pick<Task, "status" | "assignedTopicId">, previousStatus: string | undefined): void {
+    if (previousStatus === task.status || task.status !== "done") return;
+    const sessionKey = task.assignedTopicId ? ctx.getTopicById(task.assignedTopicId)?.sessionKey : null;
+    if (sessionKey) stopOwnedProcesses(sessionKey);
   }
 
   /**
@@ -1790,7 +1792,10 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
         // Whoever was WAITING on this card finds out here, no longer at
         // approval: this is now the door through which a landed card reaches
         // `done`.
-        if (closed && closed.status === "done") dispatcher?.onBlockerDone(taskId);
+        if (closed && closed.status === "done") {
+          stopClosedTaskProcesses(closed, task.status);
+          dispatcher?.onBlockerDone(taskId);
+        }
         // ...and if an agent was still WORKING on that card, it gets stopped.
         // Closing the card removes it from the queue but does not cut the turn
         // already under way, and that is where the money goes: measured on
@@ -2707,7 +2712,7 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
         patch: parsed.patch,
       });
       task = await captureDelivery(task, prevStatus);
-      stopClosedTaskProcesses(task, prevStatus, session.sessionKey);
+      stopClosedTaskProcesses(task, prevStatus);
       broadcastToAll({ type: "task:updated", projectId, task });
       // A registry-backed update changes a normal board card, not a parallel
       // status model. Preserve the board's queue accounting exactly: entering
@@ -2769,7 +2774,7 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
 
   // The human board routes live in tasks-board.ts; same closure values, passed by name.
   const boardRoutes = createBoardRoutes({
-    ctx, dispatcher, opts, matchRoute, json, readJSON, broadcastToAll, svc, scheduledCards: opts?.scheduledCards, askRouting, landings,
+    ctx, dispatcher, opts, matchRoute, json, readJSON, broadcastToAll, svc, scheduledCards: opts?.scheduledCards, stopClosedTaskProcesses, askRouting, landings,
     emitReviewReadyEdge, titoloInSottofondo, resolveBoardId, sweepRemoteDelivery, captureDelivery,
     triggerUrlProbe, cutLiveTurn, enqueueLand, enqueueLandOnDone, proposeDeployIfConfigured, runDeploy,
     publishProject, filterMedia, acceptPreview, rejectDeliveryPatch, asTaskStatus, fail, checksRedGate,
@@ -3935,7 +3940,7 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
             messageId: ctx.isStreaming?.(decodeURIComponent(item.sessionKey))?.messageId ?? null,
           });
           task = await captureDelivery(task, prevStatus);
-          stopClosedTaskProcesses(task, prevStatus, sk);
+          stopClosedTaskProcesses(task, prevStatus);
           broadcastToAll({ type: "task:updated", projectId: sess.projectId, task });
           // È QUESTA la porta che conta per i tasti del banner: l'agente commenta
           // la domanda con `options` e poi si sposta in review da qui (MCP

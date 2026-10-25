@@ -524,6 +524,7 @@ export function createTopicsRouter(
      * Forwarded to the browser bridge; tests shrink it to a few ms.
      */
     paneWaitMs?: number;
+    stopAgentProcesses?: (sessionKey: string) => void;
   } = {},
 ): RouteHandler {
   const {
@@ -1931,7 +1932,7 @@ export function createTopicsRouter(
             purgeFromUiState: (id) =>
               purgeTopicFromUiState(ctx.db, broadcastToAll, id, (c) => browserService?.destroyContext(c)),
             parkClaudeSession: parkTopicSession,
-            stopAgentProcesses: stopAgentProcessesOf,
+            stopAgentProcesses: extra.stopAgentProcesses ?? stopAgentProcessesOf,
             recordRetirement: (id, at) => recordRetirement(ctx.db, "topic", id, at, "archive"),
             cancelPendingAsk: cancelAsk,
           }, params.id);
@@ -2007,6 +2008,7 @@ export function createTopicsRouter(
           // sessioni rimaste vive su chat chiuse portavano tutte la data di
           // un'archiviazione di progetto in blocco.
           parkTopicSession(topic.sessionKey);
+          (extra.stopAgentProcesses ?? stopAgentProcessesOf)(topic.sessionKey);
           const purgeResult = purgeTopicFromUiState(ctx.db, broadcastToAll, topic.id, (c) =>
             browserService?.destroyContext(c),
           );

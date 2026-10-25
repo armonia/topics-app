@@ -26,7 +26,7 @@ import { resolve, relative, isAbsolute, dirname } from "path";
 import { spawn } from "child_process";
 import { homedir } from "os";
 import { killProcessTree } from "../../lib/process-tree";
-import { agentProcessGroups, registerAgentProcessGroup } from "../../lib/agent-process-groups";
+import { withAgentProcessOwner } from "../../lib/agent-process-ownership";
 import { registerNativeCommand } from "../../lib/native-command-registry";
 import { lowPriorityArgv } from "../../lib/low-priority";
 import { agentBaseEnv } from "../../lib/agent-env";
@@ -360,16 +360,9 @@ async function runCommand(
     // server/lib/low-priority.ts) and in the agent's environment (lib/agent-env.ts):
     // with no `env`, Bun hands it the server's launch environment, secrets included.
     const argv = lowPriorityArgv([cmd, ...args]);
-    const child = spawn(argv[0]!, argv.slice(1), { cwd, stdio: ["ignore", "pipe", "pipe"], env: agentBaseEnv(), detached: true });
-    const groupId = child.pid && owner?.sessionKey
-      ? `native_bash:${owner.sessionKey}:${child.pid}`
-      : null;
-    if (groupId && child.pid) {
-      registerAgentProcessGroup({
-        id: groupId, pid: child.pid, pgid: child.pid, sessionKey: owner!.sessionKey!,
-        topicId: null, source: "native_bash", startedAt: new Date().toISOString(),
-      });
-    }
+    const baseEnv = agentBaseEnv();
+    const childEnv = owner?.sessionKey ? withAgentProcessOwner(baseEnv, owner.sessionKey) : baseEnv;
+    const child = spawn(argv[0]!, argv.slice(1), { cwd, stdio: ["ignore", "pipe", "pipe"], env: childEnv, detached: true });
     let out = "";
     let annullato = false;
     let closed = false;
@@ -417,15 +410,13 @@ async function runCommand(
     child.stdout.on("data", cap);
     child.stderr.on("data", cap);
     const abbatti = () => {
-      if (groupId) void agentProcessGroups.stopById(groupId);
-      else if (child.pid) void killProcessTree(child.pid);
+      if (child.pid) void killProcessTree(child.pid, 5000, { group: true });
     };
     let drainTimer: ReturnType<typeof setTimeout> | undefined;
     const chiudi = (r: { out: string; code: number | null }) => {
       if (closed) return;
       closed = true;
       forgetCommand?.();
-      if (groupId) void agentProcessGroups.pruneIfGone(groupId);
       if (timer) clearTimeout(timer);
       if (drainTimer) clearTimeout(drainTimer);
       // The result travels on `onToolResult`: a tail still queued would land after it.

@@ -26,6 +26,7 @@ import { topicsHooksSettings } from "../lib/topics-hooks";
 import { hookScriptPath } from "../lib/topics-hook-script";
 import { resolveKimiBin } from "../lib/kimi-bin";
 import { resolveMuseBin } from "../lib/muse-bin";
+import { stopOwnedAgentProcesses, withAgentProcessOwner } from "../lib/agent-process-ownership";
 import { discoverCodexSessionId, codexRolloutExists, codexRolloutPath } from "../lib/codex-session";
 import { deriveCodexSessionTitle } from "../lib/codex-transcript-title";
 import { discoverOpencodeSessionId, deriveOpencodeSessionTitle } from "../lib/opencode-session";
@@ -1289,6 +1290,7 @@ function handleBridgeMessage(msg: any) {
             // code is not a zero.
             getDatabase().run("UPDATE terminal_sessions SET status = 'dormant', exit_code = ? WHERE id = ?", [exitCode, msg.id]);
           } else {
+            void stopOwnedAgentProcesses(new Set([msg.id]));
             if (failedQuickly) {
               console.warn(`[Terminal] Session ${msg.id} exited in ${ageMs}ms with code ${msg.exitCode} — deleting (failed launch).`);
             }
@@ -1724,6 +1726,7 @@ async function reconcileSessions(attempt = 0): Promise<void> {
 
       if (decision.action === 'drop') {
         console.log(`[Terminal] Rimossa ${row.type} ${row.id}: transcript assente, non ripristinabile`);
+        void stopOwnedAgentProcesses(new Set([row.id]));
         try { db.run("DELETE FROM terminal_sessions WHERE id = ?", [row.id]); } catch { /* swallow */ }
       } else if (decision.action === 'park') {
         console.log(`[Terminal] Parcheggiata ${row.type} ${row.id} (dormiente, si rianima al focus)`);
@@ -2135,6 +2138,9 @@ async function createSession(id: string, name: string, cwd: string, command?: st
     // HOME pinned to the real home so muse reads its own auth/config
     // (~/.local/share/muse), not a sandbox one.
     env = { PATH: augmentPath(), HOME: realHome() };
+  }
+  if (isClaudeKind) {
+    env = withAgentProcessOwner(env ?? {}, id);
   }
 
   // IS THE CLI ACTUALLY THERE? If not, say so HERE.
@@ -2600,6 +2606,7 @@ function stopLiveCliChild(child: TerminalSession, caller: string): string | null
   // would be unrecoverable for whoever just asked for the stop. The
   // directory is NOT deleted here: the sweep decides (WORKTREE-09/10).
   const childBranch = branchOfCwd(child.cwd);
+  void stopOwnedAgentProcesses(new Set([child.id]));
   sendTerminalKill(child.id, 'subagent-stop', caller);
   sessions.delete(child.id);
   const sockets = sessionSockets.get(child.id);
@@ -2888,6 +2895,7 @@ export function retireTerminalSession(
   // mappa `terminalStates` si svuota solo da qui).
   const claudeSessionId: string | undefined = session?.claudeSessionId || dbRow?.claude_session_id || undefined;
   const sessionType: string | undefined = session?.type || dbRow?.type;
+  void stopOwnedAgentProcesses(new Set([id]));
   if (session) {
     const reason: TerminalKillReason = ending === 'swept' ? 'retirement-sweep' : 'user-close';
     sendTerminalKill(id, reason, caller);
@@ -3299,6 +3307,8 @@ export function createTerminalRouter(ctx: AppContext, tracker?: ClaudeSessionTra
       // shell sweep while letting dormant codex rows persist as revivable.
       try {
         const db = getDatabase();
+        const expiredShells = db.query("SELECT id FROM terminal_sessions WHERE status = 'dormant' AND claude_session_id IS NULL AND type = 'shell' AND datetime(created_at) < datetime('now', '-1 hour')").all() as Array<{ id: string }>;
+        for (const row of expiredShells) void stopOwnedAgentProcesses(new Set([row.id]));
         db.run("DELETE FROM terminal_sessions WHERE status = 'dormant' AND claude_session_id IS NULL AND type = 'shell' AND datetime(created_at) < datetime('now', '-1 hour')");
       } catch (e) { warnThrottled("terminal_sessions:sweep", "[Terminal] terminal_sessions: sweeping dormant shells older than 1h failed:", e); }
 

@@ -186,7 +186,7 @@ import { getAiBridgeClient } from "./server/lib/ai-bridge-client";
 import { automaticDispatchHooks } from "./server/services/task-auto-model";
 import { dispatchTopicBinding, resolveDispatchTopicIdentity } from "./server/services/dispatch-topic-identity";
 import { commandBackgroundWork, commandWakeState, createProcessesRouter, isChatServerTask, loadProcessRegistry, sessionsAwaitingCommandWake, settleEndedShells, startProcessDetection, stopAgentProcessesOf } from "./server/routes/processes";
-import { reconcileAgentProcessGroups } from "./server/lib/agent-process-groups";
+import { reconcileOwnedAgentProcesses } from "./server/lib/agent-process-ownership";
 import { startProcessExitWakes } from "./server/lib/process-exit-wake";
 import { startSubagentWakes } from "./server/services/subagent-wake";
 import { abandonCutTurn, adoptNativeChildrenAtBoot, configureNativeSubagents } from "./server/lib/native-subagents";
@@ -411,12 +411,25 @@ loadProcessRegistry();
 
 // Create app context (initializes SQLite database)
 const ctx = createAppContext(import.meta.dir);
-void reconcileAgentProcessGroups((sessionKey) => {
+void reconcileOwnedAgentProcesses((sessionKey) => {
   const topic = ctx.getTopicBySessionKey(sessionKey);
-  return !!topic && !topic.archived;
+  if (topic) return !topic.archived;
+  try {
+    const session = ctx.db.query(`
+      SELECT terminal.id, COALESCE(parent.archived, linked.archived, 0) AS topic_archived
+      FROM terminal_sessions AS terminal
+      LEFT JOIN topics AS parent ON parent.session_key = terminal.parent_session_key
+      LEFT JOIN topics AS linked ON linked.id = terminal.topic_id
+      WHERE terminal.id = ?
+      LIMIT 1
+    `).get(sessionKey) as { id: string; topic_archived: number } | null;
+    return !!session && session.topic_archived === 0;
+  } catch {
+    return false;
+  }
 }).then((stopped) => {
-  if (stopped) console.log(`[processes] stopped ${stopped} groups for closed sessions`);
-}).catch((err) => console.warn("[processes] stale group cleanup failed:", err));
+  if (stopped) console.log(`[processes] stopped ${stopped} owned processes for closed sessions`);
+}).catch((err) => console.warn("[processes] stale process cleanup failed:", err));
 // Always built by `createAppContext`; optional on the type only for test contexts.
 const turnLedger = ctx.turnLedger!;
 
@@ -1919,6 +1932,10 @@ const taskDispatcher = createTaskDispatcher({
   // dentro main, la card si chiude invece di far ripartire un agente sopra
   // codice che c'è già. Stessa risposta che legge l'audit degli atterraggi.
   deliveryLanded: (repoPath, commit) => deliveryIsOnMain(repoPath, commit),
+  stopAssignedTopicProcesses: (topicId) => {
+    const sessionKey = ctx.getTopicById(topicId)?.sessionKey;
+    if (sessionKey) stopAgentProcessesOf(sessionKey);
+  },
   // Must match the catch-all dir tasks.ts scaffolds (join(workspaceDir,
   // "generale")): a session resolved here renders standalone, not as a project.
   catchAllProjectPath: join(DISPATCH_WORKSPACE_DIR, "generale"),
