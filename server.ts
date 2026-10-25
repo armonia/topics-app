@@ -106,7 +106,8 @@ import { createExternalSessionsRouter } from "./server/routes/external-sessions"
 import { createTaskDispatcher } from "./server/services/task-dispatcher";
 import { isChecksHold as isChecksHoldOf, sweepStaleChecksLights as sweepStaleChecksLightsOf } from "./server/services/checks-lights";
 import { refreshLiveJobQuotas } from "./server/services/agent-job-quota";
-import { availableMemGB, budgetSample, computeDispatchCapacity, dispatchResourceVerdict, probeVm, setAvailableMemReader } from "./server/services/dispatch-capacity";
+import { availableMemGB, budgetSample, computeDispatchCapacity, probeVm, setAvailableMemReader } from "./server/services/dispatch-capacity";
+import { createDispatchResourceBlock } from "./server/services/dispatch-resource-block";
 import { createMemSignal, fileMemSampleStore, formatMemorySignalLine } from "./server/services/mem-signal";
 import { OUR_APP_MARKERS } from "./server/services/memory-owners";
 import { createMemoryOwnersReader } from "./server/services/memory-owners-probe";
@@ -2068,20 +2069,12 @@ const taskDispatcher = createTaskDispatcher({
   // riga di SQLite già in cache.
   // `hold` is the dispatcher's: the price of one card, the memory kept for the
   // turns in flight, and whether any of our work is on the machine.
-  resourceBlock: (hold, noCheckReservationGB = 0) =>
-    dispatchResourceVerdict(
-      ctx.worktreeManager.worktreesDir(),
-      undefined,
-      () => {
-        const memory = memSignal.held();
-        return noCheckReservationGB > 0 && memory.heldGB != null
-          ? { ...memory, heldGB: Math.max(0, memory.heldGB - noCheckReservationGB) }
-          : memory;
-      },
-      resolveAgentRuntime() === "cli",
-      hold,
-      memoryOwners.latest(),
-    ),
+  resourceBlock: createDispatchResourceBlock({
+    worktreesPath: () => ctx.worktreeManager.worktreesDir(),
+    heldMemory: () => memSignal.held(),
+    isCliRuntime: () => resolveAgentRuntime() === "cli",
+    memoryOwners: () => memoryOwners.latest(),
+  }),
   // Il ramo di una card nasce da MAIN, non dall'HEAD del checkout condiviso, e
   // da qui in poi la stessa nascita la usa anche un sotto-agente isolato
   // (WORKTREE-14): il corpo sta in `worktree-for-agent.ts`, il perché del
