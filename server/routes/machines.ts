@@ -22,6 +22,7 @@ import { normalizeRepositoryKey } from "../lib/delegated-agent-start";
 import { canonicalProjectIdentity } from "../lib/project-identity";
 import { createDelegatedRevocationRetry, type DelegatedRevocationRetry } from "../services/delegated-revocation-retry";
 import { SPAWN_TIMEOUT, spawnBounded } from "../lib/bounded-spawn";
+import { mintModelToken, revokeModelToken } from "../services/model-proxy";
 
 const NAME_MAX = 200;
 
@@ -443,6 +444,23 @@ export function createMachinesRouter(ctx: AppContext, opts: { revocations?: Dele
     }
 
     {
+      // The key a node's Claude CLI uses against the model proxy (see
+      // services/model-proxy.ts). The plaintext is returned once, never stored.
+      const modelToken = matchRoute(pathname, "/api/machines/:id/model-token");
+      if (modelToken && (method === "POST" || method === "DELETE")) {
+        if (!installationOwner(req)) return json({ error: "installation owner required", code: "owner_required" }, 403);
+        const machine = machineStore.get(modelToken.id);
+        if (!machine) return errorResponse(404, "Machine not found");
+        if (method === "DELETE") {
+          revokeModelToken(ctx.STATE_DIR, machine.id);
+          return json({ ok: true });
+        }
+        if (!machine.baseUrl) return errorResponse(400, "Only a paired node can have a model token");
+        return json({ machineId: machine.id, token: mintModelToken(ctx.STATE_DIR, machine.id) });
+      }
+    }
+
+    {
       const params = matchRoute(pathname, "/api/machines/:id");
       if (params) {
         if (method === "GET") {
@@ -465,6 +483,7 @@ export function createMachinesRouter(ctx: AppContext, opts: { revocations?: Dele
           try {
             const ok = machineStore.delete(params.id);
             if (!ok) return errorResponse(404, "Machine not found");
+            revokeModelToken(ctx.STATE_DIR, params.id);
             emit("machine:deleted", { id: params.id });
             return json({ ok: true });
           } catch (err: any) {

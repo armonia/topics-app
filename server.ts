@@ -23,7 +23,8 @@ import { appendFrozenNote, stdoutFileOf } from "./server/lib/background-shell-ou
 import { backgroundBashFor, foregroundBashFor } from "./server/lib/background-bash-record";
 import { listNativeCommands, nativeCommandByPid } from "./server/lib/native-command-registry";
 import { listSessionCliPids } from "./server/providers/session-pids";
-import { getAccessToken } from "./server/providers/native/auth";
+import { getAccessToken, recoverAfter401 } from "./server/providers/native/auth";
+import { createModelProxyListener, modelProxyPort } from "./server/services/model-proxy";
 import { releaseHoldIfFreed } from "./server/providers/native/usage-window";
 import { existsSync, readFileSync, mkdirSync, statSync, readlinkSync, realpathSync } from "fs";
 import { timingSafeEqual } from "crypto";
@@ -5075,6 +5076,23 @@ const serverTunnelHttp = portaTunnelHttp
   : null;
 if (serverTunnelHttp) {
   console.log(`[Tunnel] porta in chiaro su 127.0.0.1:${portaTunnelHttp} — chi entra da qui NON e' locale`); // allow-italian: log line, same language as its TLS twin above
+}
+
+// The model proxy for paired nodes: a listener of its own on loopback that
+// serves only POST /v1/messages[/count_tokens] with a per-machine token. It is
+// NEVER the main port: the node's reverse ssh tunnel lands on loopback, and on
+// the main port loopback means owner.
+const portaModelProxy = modelProxyPort(process.env);
+const serverModelProxy = portaModelProxy
+  ? createModelProxyListener(portaModelProxy, {
+      stateDir: ctx.STATE_DIR,
+      machineExists: (machineId) => ctx.machineStore.get(machineId) !== null,
+      getAccessToken,
+      recoverAfter401,
+    })
+  : null;
+if (serverModelProxy) {
+  console.log(`[ModelProxy] listening on 127.0.0.1:${portaModelProxy} (Messages API only, per-machine token)`);
 }
 
 // Stale stream cleanup
