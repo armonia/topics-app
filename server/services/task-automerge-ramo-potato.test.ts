@@ -202,12 +202,12 @@ describe("card squashata: il contenuto e' su main ma lo sha no", () => {
 });
 
 /**
- * SQUASH GIA' SU MAIN, RAMO ANCORA VIVO (card e9226ab7, PR #433).
+ * SQUASH ALREADY ON MAIN, BRANCH STILL ALIVE (card e9226ab7, PR #433).
  *
- * `gh pr merge --squash` mette il lavoro su main con un commit nuovo: i commit
- * del ramo non sono antenati di main, `ahead` resta > 0 e il land andava
- * avanti fino al checkout condiviso sporco, rispondendo «dirty-checkout» per un
- * lavoro che era gia' tutto su main.
+ * A GitHub squash merge puts the work on main as a brand-new commit: the branch
+ * commits are not ancestors of main, `ahead` stays > 0 and the land used to go
+ * on to the dirty shared checkout, answering "dirty-checkout" for work that
+ * was already entirely on main.
  */
 describe("squash gia' su main, ramo vivo", () => {
   /** main + a branch with two files; the branch is NOT merged: main gets a squash. */
@@ -282,7 +282,7 @@ describe("squash gia' su main, ramo vivo", () => {
  * the shapes that do match main must still be "nothing".
  */
 describe("squash su main: casi avversari del confronto per contenuto", () => {
-  type Files = Record<string, string | null>;
+  type Files = Record<string, string | Buffer | null>;
 
   function applyFiles(repo: string, files: Files, msg: string): void {
     for (const [name, body] of Object.entries(files)) {
@@ -296,7 +296,11 @@ describe("squash su main: casi avversari del confronto per contenuto", () => {
   }
 
   /** Base has a.ts; the branch applies `onBranch`, main receives `onMain` as a squash-like commit. */
-  async function landStatus(onBranch: Files, onMain: Files): Promise<string> {
+  async function landStatus(
+    onBranch: Files,
+    onMain: Files,
+    opts: { mainAdvancesAndBranchMerges?: Files; afterSquash?: Files } = {},
+  ): Promise<string> {
     const repo = mkdtempSync(join(tmpdir(), "land-squash-adv-"));
     try {
       git(repo, "init", "-q", "-b", "main");
@@ -306,7 +310,15 @@ describe("squash su main: casi avversari del confronto per contenuto", () => {
       git(repo, "checkout", "-q", "-b", "topics/adv");
       applyFiles(repo, onBranch, "branch work");
       git(repo, "checkout", "-q", "main");
+      if (opts.mainAdvancesAndBranchMerges) {
+        // Main moves on, then the branch merges main into itself (a "merge main in" commit).
+        applyFiles(repo, opts.mainAdvancesAndBranchMerges, "main moves on");
+        git(repo, "checkout", "-q", "topics/adv");
+        git(repo, "merge", "-q", "--no-edit", "main");
+        git(repo, "checkout", "-q", "main");
+      }
       applyFiles(repo, onMain, "squash (#1)");
+      if (opts.afterSquash) applyFiles(repo, opts.afterSquash, "later commit on main");
       const res = await land(repo, "topics/adv").tryMerge("t-adv", "Card avversaria");
       return res.status;
     } finally {
@@ -350,4 +362,31 @@ describe("squash su main: casi avversari del confronto per contenuto", () => {
     const files = { "a.ts": "a1\n", "con spazio é.md": "x\n" };
     expect(await landStatus(files, files)).toBe("nothing");
   }, 30_000);
+
+  test("merge di main dentro il ramo: conta solo il lavoro del ramo, gia' su main e' «nothing»", async () => {
+    const st = await landStatus({ "a.ts": "a1\n" }, { "a.ts": "a1\n" }, {
+      mainAdvancesAndBranchMerges: { "x.ts": "from main\n" },
+    });
+    expect(st).toBe("nothing");
+  }, 30_000);
+
+  test("merge di main dentro il ramo, ma il lavoro del ramo manca su main: non e' «nothing»", async () => {
+    const st = await landStatus({ "a.ts": "a1\n", "b.ts": "b\n" }, { "a.ts": "a1\n" }, {
+      mainAdvancesAndBranchMerges: { "x.ts": "from main\n" },
+    });
+    expect(st).not.toBe("nothing");
+  }, 30_000);
+
+  test("revert su main di un file del ramo: il file non c'e' piu' su main, non e' «nothing»", async () => {
+    const st = await landStatus({ "a.ts": "a1\n", "b.ts": "b\n" }, { "a.ts": "a1\n", "b.ts": "b\n" }, {
+      afterSquash: { "b.ts": null },
+    });
+    expect(st).not.toBe("nothing");
+  }, 30_000);
+
+  test("file binario identico su main e' «nothing»; con byte diversi non lo e'", async () => {
+    const bytes = Buffer.from([0, 1, 2, 255, 254, 0, 10, 13]);
+    expect(await landStatus({ "img.bin": bytes }, { "img.bin": bytes })).toBe("nothing");
+    expect(await landStatus({ "img.bin": bytes }, { "img.bin": Buffer.from([0, 1, 2, 255, 0, 0, 10, 13]) })).not.toBe("nothing");
+  }, 60_000);
 });
