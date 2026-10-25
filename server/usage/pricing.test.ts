@@ -33,10 +33,17 @@ describe("calculateCost — model pricing resolution", () => {
     expect(calculateCost("gpt-4o-2024-08-06", 1_000_000, 0)).toBe(2.5);
   });
 
-  test("provider prefixes and casing resolve to the exact model row", () => {
-    const canonical = ownModelPrice("claude-opus-5-5");
-    expect(ownModelPrice("anthropic/claude-opus-5-5")).toBe(canonical);
-    expect(ownModelPrice("Claude-Opus-5-5")).toBe(canonical);
+  test("provider model ids resolve to the price of the named model", () => {
+    expect(calculateCost("openai/gpt-4o", 1_000_000, 1_000_000)).toBe(12.5);
+    expect(calculateCost("azure/gpt-4o", 1_000_000, 1_000_000)).toBe(12.5);
+    expect(calculateCost("anthropic/claude-haiku-4.5", 1_000_000, 1_000_000)).toBe(6);
+    expect(calculateCost("us.anthropic.claude-haiku-4-5-20251001-v1:0", 1_000_000, 1_000_000)).toBe(6);
+    expect(calculateCost("claude-haiku-4-5@20251001", 1_000_000, 1_000_000)).toBe(6);
+  });
+
+  test("dotted ids only normalize when they name a known Claude row", () => {
+    expect(modelPrice("anthropic/claude-haiku-4.50")).toMatchObject({ input: 0.1, output: 0.5 });
+    expect(ownModelPrice("vendor/gpt-4.5")).toBeNull();
   });
 
   test("an unknown model is not billed (returns 0)", () => {
