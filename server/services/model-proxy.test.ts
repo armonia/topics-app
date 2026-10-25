@@ -1,7 +1,7 @@
 /**
  * The model proxy for paired nodes, against a fake upstream and a fake token source.
  *
- * The security contract is tested on the REAL listener factory (a Bun.serve on
+ * The security contract is tested on the REAL listener factory (a real Bun server on
  * port 0), not only on the handler: whatever else a loopback caller asks for
  * on that port, it gets 404, and the node's token never reaches the upstream.
  *
