@@ -100,9 +100,41 @@ describe("sideCallOf", () => {
     // The native engine answers like this, with no content, when it has no credentials.
     const call = sideCallOf({
       provider: "topics", options: { purpose: "card-title" }, runModel: "claude-sonnet-5-5", durationMs: 1, at: 1,
-      result: { content: "", usage: { promptTokens: 0, completionTokens: 0, cacheReadTokens: 0, cacheCreationTokens: 0, model: "claude-sonnet-5-5" } },
+      result: { content: "", usage: { promptTokens: 0, completionTokens: 0, cacheReadTokens: 0, cacheCreationTokens: 0, cacheCreation1hTokens: 0, model: "claude-sonnet-5-5", costUsd: 0 } },
     });
     expect(call).toMatchObject({ measured: false, promptTokens: null, completionTokens: null, costUsd: null });
+  });
+
+  test("a positive provider price proves that a zero-token usage was measured", () => {
+    const call = sideCallOf({
+      provider: "native", options: undefined, runModel: "claude-sonnet-5-5", durationMs: 1, at: 1,
+      result: { content: "x", usage: { promptTokens: 0, completionTokens: 0, cacheReadTokens: 0, cacheCreationTokens: 0, costUsd: 0.001 } },
+    });
+    expect(call).toMatchObject({ measured: true, promptTokens: 0, completionTokens: 0, costUsd: 0.001 });
+  });
+
+  test("cache reads prove that zero prompt and output tokens were measured", () => {
+    const call = sideCallOf({
+      provider: "native", options: undefined, runModel: "claude-sonnet-5-5", durationMs: 1, at: 1,
+      result: { content: "x", usage: { promptTokens: 0, completionTokens: 0, cacheReadTokens: 1, cacheCreationTokens: 0 } },
+    });
+    expect(call).toMatchObject({ measured: true, promptTokens: 0, completionTokens: 0, cacheReadTokens: 1 });
+  });
+
+  test("cache writes prove that zero prompt and output tokens were measured", () => {
+    const call = sideCallOf({
+      provider: "native", options: undefined, runModel: "claude-sonnet-5-5", durationMs: 1, at: 1,
+      result: { content: "x", usage: { promptTokens: 0, completionTokens: 0, cacheReadTokens: 0, cacheCreationTokens: 1 } },
+    });
+    expect(call).toMatchObject({ measured: true, promptTokens: 0, completionTokens: 0, cacheCreationTokens: 1 });
+  });
+
+  test("completion tokens prove that a zero-prompt usage was measured", () => {
+    const call = sideCallOf({
+      provider: "native", options: undefined, runModel: "claude-sonnet-5-5", durationMs: 1, at: 1,
+      result: { content: "x", usage: { promptTokens: 0, completionTokens: 1, cacheReadTokens: 0, cacheCreationTokens: 0 } },
+    });
+    expect(call).toMatchObject({ measured: true, promptTokens: 0, completionTokens: 1 });
   });
 
   test("a measured call on a model without a price: tokens kept, cost NULL, not zero", () => {

@@ -837,8 +837,11 @@ replies) as one row in `usage_records` carrying what the call was for, the
 provider, the model the call ran on, the disjoint token shares, the cost and
 the duration, and as one `[sidecall]` line in the server log, whatever the
 provider and whether the call answered, failed or threw. Where the provider
-reports a usage it SHALL be taken; where it reports none the row SHALL carry
-NULL tokens and cost and the mark "not measured", never zeros. A call that
+reports a usage it SHALL be taken, unless all prompt, output, cache-read and
+cache-write token counts are zero and it supplied no positive cost; that
+all-zero usage SHALL be recorded as "not measured". Where the provider reports
+no usage or an all-zero unmeasured usage, the row SHALL carry NULL tokens and
+cost, never zeros. A call that
 failed SHALL carry its reason. The cost SHALL be the provider's own figure when
 it sends one, the price table's otherwise, NULL for a model without a price.
 Recording SHALL never delay, alter or fail the call. The project usage SHALL
@@ -876,6 +879,11 @@ counted in that chat's project.
 - **WHEN** the call answers
 - **THEN** one row SHALL be written with NULL tokens and cost and `measured = 0`, and the log line SHALL say `unmeasured`
 - **AND** the panel SHALL count it as "1 call, 1 not measured"
+
+#### Scenario: An all-zero fallback usage is not measured
+- **GIVEN** a fallback provider returns zero prompt, output and cache tokens and no positive cost because it has no credentials
+- **WHEN** the side-call row is written
+- **THEN** the row SHALL carry NULL tokens and cost and `measured = 0`, and the log line SHALL say `unmeasured`
 
 #### Scenario: Codex and Muse one-shots report their usage
 - **GIVEN** `codex exec --json` ending in `turn.completed` with a usage, or `muse exec --json` with a `run.usage` event

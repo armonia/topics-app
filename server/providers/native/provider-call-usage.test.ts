@@ -220,10 +220,9 @@ describe("the native provider and the door that writes tokens on the row", () =>
   });
 
   test("a turn without credentials is a FAILED call, not a free one", async () => {
-    // Reproduced in review: no token, `runAgentTurn` returns a zero usage
-    // without throwing, and the row looked like a measured call that cost
-    // nothing. The usage stays (nothing was spent, and that is measured); the
-    // failure is said.
+    // Reproduced in review: without credentials, `runAgentTurn` returns zero
+    // usage without throwing. The ledger treats it as unmeasured; the failure
+    // remains attached to the call.
     const empty = mkdtempSync(join(tmpdir(), "native-nocreds-home-"));
     process.env.HOME = empty;
     try {
