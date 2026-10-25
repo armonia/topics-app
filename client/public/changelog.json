@@ -1,5 +1,21 @@
 [
   {
+    "version": "2.3.28",
+    "date": "2026-10-25",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Ritocchi di #427, #430, #431 e #435: contatore commandRisk, CRLF nel tetto al README, usage a zeri (#445)",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
     "version": "2.3.27",
     "date": "2026-10-25",
     "sections": {

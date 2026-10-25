@@ -2,6 +2,11 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.3.28 — 2026-10-25
+
+### Sotto il cofano
+- Ritocchi di #427, #430, #431 e #435: contatore commandRisk, CRLF nel tetto al README, usage a zeri (#445)
+
 ## 2.3.27 — 2026-10-25
 
 ### Sotto il cofano
