@@ -2,7 +2,12 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
-## 2.3.25 — 2026-10-25
+## 2.3.26 — 2026-10-25
+
+### Sotto il cofano
+- Il cancello delle rotte legge lo switch sul metodo e i test annidati come main o meglio, e il 500 del bridge esce sempre (#441)
+
+## 2.3.25 — 2026-10-24
 
 ### Sotto il cofano
 - topics/winter-wave (card e9226ab7) (#433)

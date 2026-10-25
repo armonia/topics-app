@@ -1,7 +1,23 @@
 [
   {
-    "version": "2.3.25",
+    "version": "2.3.26",
     "date": "2026-10-25",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Il cancello delle rotte legge lo switch sul metodo e i test annidati come main o meglio, e il 500 del bridge esce sempre (#441)",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
+    "version": "2.3.25",
+    "date": "2026-10-24",
     "sections": {
       "new": [],
       "fixes": [],
