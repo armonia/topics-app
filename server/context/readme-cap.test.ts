@@ -127,6 +127,37 @@ function openFences(text: string): number {
   return open === null ? 0 : 1;
 }
 
+/** Put a fence line exactly at the last complete line before the 20k cut. */
+function fenceAtCap(isOpening: boolean, eol: string): string {
+  const prefix = isOpening ? `# Plain text${eol}` : `\`\`\`bash${eol}`;
+  const fence = isOpening ? "```bash" : "```";
+  const fillerLength = README_MAX_CHARS - prefix.length - fence.length - 2 * eol.length;
+  return `${prefix}${"x".repeat(fillerLength)}${eol}${fence}${eol}README-TAIL`;
+}
+
+describe("README fences on the cut line", () => {
+  const cases: Array<[string, boolean, string]> = [
+    ["LF closing fence", false, "\n"],
+    ["CRLF closing fence", false, "\r\n"],
+    ["LF opening fence", true, "\n"],
+    ["CRLF opening fence", true, "\r\n"],
+  ];
+
+  for (const [name, isOpening, eol] of cases) {
+    it(`${name}: AGENTS.md is outside every open code fence`, () => {
+      const dir = join(ROOT, `boundary-${name.replace(/\W+/g, "-")}`);
+      mkdirSync(dir, { recursive: true });
+      writeFileSync(join(dir, "README.md"), fenceAtCap(isOpening, eol));
+      writeFileSync(join(dir, "AGENTS.md"), "# Agents\nAGENTS-RULE: never push to main.\n");
+
+      const sent = adaptEnvelope(envelopeFor(dir)).userContent;
+      const beforeRule = sent.slice(0, sent.indexOf("AGENTS-RULE"));
+      expect(sent).toContain("AGENTS-RULE");
+      expect(openFences(beforeRule)).toBe(0);
+    });
+  }
+});
+
 describe("the README cap closes the fence it cuts through", () => {
   const cases: Array<[string, string, string, string]> = [
     ["CRLF line endings", "```bash", "```", "\r\n"],
@@ -157,6 +188,21 @@ describe("the README cap closes the fence it cuts through", () => {
 
   it("a four-backtick fence is closed by four backticks, not by the three inside it", () => {
     expect(cutInside("four", "````md", "```").endsWith("\n````")).toBe(true);
+  });
+
+  it("a tilde fence ignores a backtick line inside it and closes with tildes", () => {
+    const dir = join(ROOT, "inner-different-fence-char");
+    mkdirSync(dir, { recursive: true });
+    const readme = `${longText("# Tilde", 15_000)}\n~~~md\n${longText("notes", 1_000)}\n\`\`\`\n${longText("inside", 10_000)}`;
+    writeFileSync(join(dir, "README.md"), readme);
+    writeFileSync(join(dir, "AGENTS.md"), "# Agents\nAGENTS-RULE: never push to main.\n");
+
+    const content = block(dir, "template:README.md")!.content;
+    const note = content.indexOf("\n\n[README.md cut here");
+    expect(content.slice(0, note).endsWith("\n~~~")).toBe(true);
+    const sent = adaptEnvelope(envelopeFor(dir)).userContent;
+    const beforeRule = sent.slice(0, sent.indexOf("AGENTS-RULE"));
+    expect(openFences(beforeRule)).toBe(0);
   });
 
   it("a line with text after the backticks does not close the fence: the cut still closes it", () => {

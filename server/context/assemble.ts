@@ -749,9 +749,9 @@ function capReadme(content: string, path: string): string {
  */
 function openFence(text: string): string | null {
   let open: string | null = null;
-  // CRLF files: `.` does not match "\r", so a fence line ending in "\r\n" would
-  // never match and the cut would leave the fence open.
-  for (const line of text.split(/\r?\n/)) {
+  // A cut can leave the final CR behind after removing LF; normalize it before matching.
+  for (const rawLine of text.split(/\r?\n/)) {
+    const line = rawLine.replace(/\r$/, "");
     const m = /^ {0,3}(`{3,}|~{3,})(.*)$/.exec(line);
     if (!m) continue;
     const run = m[1]!;
