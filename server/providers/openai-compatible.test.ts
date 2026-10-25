@@ -156,6 +156,37 @@ describe("a configured endpoint streaming a chat", () => {
     expect(seen.errors).toEqual([]);
   });
 
+  test("an abort after the usage chunk keeps the tokens already reported", async () => {
+    globalThis.fetch = (async (_url: string, init: RequestInit) => {
+      const encoder = new TextEncoder();
+      const body = new ReadableStream<Uint8Array>({
+        start(controller) {
+          controller.enqueue(encoder.encode(
+            `data: ${JSON.stringify({ choices: [], usage: { prompt_tokens: 7, completion_tokens: 2 } })}\n\n`,
+          ));
+          init.signal?.addEventListener("abort", () => {
+            controller.error(Object.assign(new Error("aborted"), { name: "AbortError" }));
+          });
+        },
+      });
+      return new Response(body, { status: 200 });
+    }) as unknown as typeof fetch;
+
+    const provider = new OpenAICompatibleProvider({
+      type: "openai-compatible",
+      endpoint: endpoint({ modelFilter: ["m"] }),
+    });
+    provider.start();
+    const { handler, seen } = collector();
+    const turn = provider.sendChat("session-b", "hi", handler);
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    await provider.abort("session-b");
+    await turn;
+    expect(seen.aborted).toBe(1);
+    expect(seen.usage).toEqual([{ inputTokens: 7, outputTokens: 2 }]);
+    expect(seen.errors).toEqual([]);
+  });
+
   test("an unreachable address is refused before a body is sent", async () => {
     let called = 0;
     globalThis.fetch = (async () => { called += 1; return new Response("", { status: 200 }); }) as unknown as typeof fetch;

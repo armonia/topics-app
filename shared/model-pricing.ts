@@ -86,14 +86,33 @@ const PRICE_TABLE: Record<string, ModelPrice> = {
   "gpt-o3-mini": price(1.1, 4.4),
 };
 
+/** The ids of the table, for the test that checks every one resolves to its own row. */
+export function pricedModelIds(): string[] {
+  return Object.keys(PRICE_TABLE);
+}
+
 /**
- * Normalises a model id before matching. The window suffix
- * (`claude-opus-5-5[1m]`) is part of the id the CLI reports, not of the model
- * name, and the model is the same: same price. Same normalisation as
- * `shared/context-window.ts`.
+ * Normalises a model id before matching. Strips what a gateway or cloud wraps
+ * around the name, none of which changes the model or its price:
+ * - the window suffix (`claude-opus-5-5[1m]`), same as `shared/context-window.ts`;
+ * - routing suffixes (`:nitro`, `:floor`, `:batch`) and Bedrock's `-v1:0`;
+ * - every namespace (`openrouter/anthropic/`, `azure/`) and Bedrock's
+ *   `us.anthropic.` / `anthropic.` prefix;
+ * - Vertex's `@20250514`, which is the same dated id as `-20250514`;
+ * - dotted versions (`4.5`), spelled `4-5` in the table.
+ * Stripping only one of these is how `claude-haiku-4.5` was priced as Haiku 5.5.
  */
 function normalizeModel(model: string): string {
-  return model.toLowerCase().replace(/\[[^\]]*\]\s*$/, "").trim();
+  return model
+    .toLowerCase()
+    .replace(/\[[^\]]*\]\s*$/, "")
+    .trim()
+    .replace(/-v\d+:\d+$/, "")
+    .replace(/:[a-z0-9-]+$/, "")
+    .replace(/^.*\//, "")
+    .replace(/^(?:[a-z]{2,4}\.)?anthropic\./, "")
+    .replace(/@(\d{8})$/, "-$1")
+    .replace(/(\d)\.(\d)/g, "$1-$2");
 }
 
 /**

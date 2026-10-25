@@ -5,7 +5,7 @@
  */
 import { describe, test, expect } from "bun:test";
 import { calculateCost, calculateCostWithCache, callsCostUsd, splitPromptTokens, type PricedCall } from "./pricing";
-import { modelPrice, ownModelPrice } from "../../shared/model-pricing";
+import { modelPrice, ownModelPrice, pricedModelIds } from "../../shared/model-pricing";
 import { NativeProvider, DEFAULT_MODEL } from "../providers/native/provider";
 import { engineModelOf } from "../lib/native-subagents";
 
@@ -287,5 +287,55 @@ describe("every model Topics runs has a price of its own", () => {
     expect(ownModelPrice("claude-opus-6")).toBeNull();
     expect(ownModelPrice("claude-opus-5-5-20261001")).not.toBeNull();
     expect(ownModelPrice("claude-haiku-4-5-20251001")).not.toBeNull();
+  });
+});
+
+describe("gateway and cloud spellings of a model id", () => {
+  const rate = (id: string) => {
+    const row = modelPrice(id)!;
+    return [row.input, row.output];
+  };
+
+  test("the cases that used to be priced as another model", () => {
+    expect(rate("openrouter/anthropic/claude-haiku-4.5")).toEqual([1, 5]);
+    expect(rate("anthropic/claude-haiku-4.5:nitro")).toEqual([1, 5]);
+    expect(rate("anthropic/claude-opus-5.5:floor")).toEqual([4, 20]);
+    expect(rate("anthropic/claude-opus-5.5:batch")).toEqual([4, 20]);
+    expect(rate("anthropic/claude-haiku-4.5:batch")).toEqual([1, 5]);
+    expect(rate("claude-opus-4@20250514")).toEqual([15, 75]);
+    expect(rate("claude-sonnet-4@20250514")).toEqual([3, 15]);
+  });
+
+  // Every id of the table, wrapped the way each provider wraps it, must land
+  // on its OWN row (same object), never on a neighbour. ownModelPrice is the
+  // strict lookup: the substring match of modelPrice would hide a half-stripped id.
+  test("every row resolves to itself under every provider spelling", () => {
+    const dotted = (id: string) => id.replace(/(?<=-)(\d)-(\d)(?!\d)/g, "$1.$2");
+    const wrappers: ((id: string) => string)[] = [
+      (id) => id,
+      (id) => `openai/${id}`,
+      (id) => `azure/${id}`,
+      (id) => `openrouter/${id}`,
+      (id) => `openrouter/anthropic/${id}`,
+      (id) => `anthropic/${id}:nitro`,
+      (id) => `anthropic/${id}:floor`,
+      (id) => `anthropic/${id}:batch`,
+      (id) => `anthropic.${id}-v1:0`,
+      (id) => `us.anthropic.${id}-v1:0`,
+      (id) => `${id}[1m]`,
+      (id) => id.replace(/-(\d{8})$/, "@$1"),
+      (id) => dotted(id),
+      (id) => `anthropic/${dotted(id)}:nitro`,
+      (id) => `openrouter/anthropic/${dotted(id)}:floor`,
+    ];
+    const wrong: string[] = [];
+    for (const id of pricedModelIds()) {
+      const own = ownModelPrice(id);
+      for (const wrap of wrappers) {
+        const spelled = wrap(id);
+        if (ownModelPrice(spelled) !== own || modelPrice(spelled) !== own) wrong.push(`${spelled} -> not the row of ${id}`);
+      }
+    }
+    expect(wrong).toEqual([]);
   });
 });
