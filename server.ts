@@ -2189,6 +2189,9 @@ const taskDispatcher = createTaskDispatcher({
     localMachineId: () => ctx.machineStore.upsertLocal().id,
     originUrlOf: (projectId) => nodeBranchPlanter.originUrlOf(projectId),
     plantBranch: (input) => nodeBranchPlanter.plantBranch(input),
+    // The `node-run` hook starts in the project's checkout on this machine,
+    // the same path the planter reads the origin from and plants into.
+    projectPathOf: (projectId) => ctx.projectStore.get(projectId)?.path ?? null,
   },
   // Usage consumed by the dispatched session so far, from its Claude Code
   // transcript (jsonl_path is kept fresh by the session tracker). The reader
