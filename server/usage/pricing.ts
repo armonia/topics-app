@@ -51,10 +51,10 @@ function findPricing(model: string): ModelPrice | null {
   return price;
 }
 
-export function calculateCost(model: string, inputTokens: number, outputTokens: number): number {
+export function calculateCost(model: string, inputTokens: number, outputTokens: number, fastMode = false): number {
   const pricing = findPricing(model);
   if (!pricing) return 0;
-  const rates = ratesForPrompt(pricing, inputTokens);
+  const rates = ratesForPrompt(pricing, inputTokens, fastMode);
   return (inputTokens * rates.input + outputTokens * rates.output) / 1_000_000;
 }
 
@@ -97,6 +97,7 @@ export function calculateCostWithCache(args: {
   model: string;
   freshInputTokens: number;
   outputTokens: number;
+  fastMode?: boolean;
   cacheReadTokens?: number;
   /** Five-minute writes (1.25x). Callers with only the total pass it here. */
   cacheCreationTokens?: number;
@@ -114,7 +115,7 @@ export function calculateCostWithCache(args: {
   const write5m = n(args.cacheCreationTokens);
   const write1h = n(args.cacheCreation1hTokens);
   const read = n(args.cacheReadTokens);
-  const rates = ratesForPrompt(pricing, fresh + write5m + write1h + read);
+  const rates = ratesForPrompt(pricing, fresh + write5m + write1h + read, args.fastMode === true);
   const inputCost =
     fresh * rates.input +
     write5m * rates.input * CACHE_WRITE_MULTIPLIER +
@@ -146,6 +147,7 @@ export function callsCostUsd(calls: readonly PricedCall[], fallbackModel: string
       model: call.model || fallbackModel,
       freshInputTokens: parts.fresh,
       outputTokens: parts.output,
+      fastMode: call.fastMode,
       cacheReadTokens: parts.cacheRead,
       cacheCreationTokens: parts.cacheCreation5m,
       cacheCreation1hTokens: parts.cacheCreation1h,
@@ -162,13 +164,14 @@ export function callsCostUsd(calls: readonly PricedCall[], fallbackModel: string
  */
 export function apiCallCostUsd(
   model: string | null | undefined,
-  call: { input: number; output: number; cacheRead: number; cacheWrite: number; cacheWrite1h: number },
+  call: { input: number; output: number; cacheRead: number; cacheWrite: number; cacheWrite1h: number; fastMode?: boolean },
 ): number | null {
   if (!model || !modelPrice(model)) return null;
   const n = (v: number) => (Number.isFinite(v) && v > 0 ? v : 0);
   return callsCostUsd([{
     inputTokens: n(call.input) + n(call.cacheRead) + n(call.cacheWrite),
     outputTokens: n(call.output),
+    fastMode: call.fastMode,
     cacheRead: n(call.cacheRead),
     cacheCreation: n(call.cacheWrite),
     cacheCreation1h: n(call.cacheWrite1h),

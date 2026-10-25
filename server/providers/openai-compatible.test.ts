@@ -4,6 +4,7 @@
  *
  * @covers MP-DIRECT-01
  * @covers MP-DIRECT-03
+ * @covers USAGE-03
  */
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { OpenAICompatibleProvider, describeContextOverflow } from "./openai-compatible";
@@ -35,6 +36,37 @@ function sseStream(events: string[]): ReadableStream<Uint8Array> {
   });
 }
 
+async function usageFromChunks(chunks: { prompt_tokens: number; completion_tokens: number }[]) {
+  globalThis.fetch = (async () => new Response(
+    sseStream(chunks.map((usage) => JSON.stringify({ choices: [], usage }))),
+    { status: 200 },
+  )) as unknown as typeof fetch;
+  const provider = new OpenAICompatibleProvider({
+    type: "openai-compatible",
+    endpoint: endpoint({ modelFilter: ["qwen38-27b-200k"] }),
+  });
+  provider.start();
+  const { handler, seen } = collector();
+  await provider.sendChat("session-usage", "ciao", handler);
+  return seen.usage;
+}
+
+function errorAfterUsageStream(usage: { prompt_tokens: number; completion_tokens: number }): ReadableStream<Uint8Array> {
+  const encoder = new TextEncoder();
+  const event = encoder.encode(`data: ${JSON.stringify({ choices: [], usage })}\n\n`);
+  let sent = false;
+  return new ReadableStream<Uint8Array>({
+    pull(controller) {
+      if (!sent) {
+        sent = true;
+        controller.enqueue(event);
+      } else {
+        controller.error(new Error("upstream stream failed"));
+      }
+    },
+  }, { highWaterMark: 0 });
+}
+
 interface Collected {
   text: string;
   errors: string[];
@@ -60,6 +92,47 @@ function collector(): { handler: StreamHandler; seen: Collected } {
 }
 
 describe("a configured endpoint streaming a chat", () => {
+  test("keeps the last cumulative usage when positive prompt counts repeat", async () => {
+    expect(await usageFromChunks([
+      { prompt_tokens: 11, completion_tokens: 1 },
+      { prompt_tokens: 11, completion_tokens: 2 },
+      { prompt_tokens: 11, completion_tokens: 3 },
+    ])).toEqual([{ inputTokens: 11, outputTokens: 3 }]);
+  });
+
+  test("sums incremental usage when later chunks omit the prompt count", async () => {
+    expect(await usageFromChunks([
+      { prompt_tokens: 11, completion_tokens: 1 },
+      { prompt_tokens: 0, completion_tokens: 1 },
+      { prompt_tokens: 0, completion_tokens: 1 },
+    ])).toEqual([{ inputTokens: 11, outputTokens: 3 }]);
+  });
+
+  test("sums prompt and completion reported in different chunks", async () => {
+    expect(await usageFromChunks([
+      { prompt_tokens: 11, completion_tokens: 0 },
+      { prompt_tokens: 0, completion_tokens: 7 },
+    ])).toEqual([{ inputTokens: 11, outputTokens: 7 }]);
+  });
+
+  test("reports usage collected before the stream fails", async () => {
+    globalThis.fetch = (async () => new Response(
+      errorAfterUsageStream({ prompt_tokens: 11, completion_tokens: 3 }),
+      { status: 200 },
+    )) as unknown as typeof fetch;
+
+    const provider = new OpenAICompatibleProvider({
+      type: "openai-compatible",
+      endpoint: endpoint({ modelFilter: ["qwen38-27b-200k"] }),
+    });
+    provider.start();
+    const { handler, seen } = collector();
+    await provider.sendChat("session-failed-usage", "ciao", handler);
+
+    expect(seen.usage).toEqual([{ inputTokens: 11, outputTokens: 3 }]);
+    expect(seen.errors).toEqual(["upstream stream failed"]);
+  });
+
   test("sends the model, asks for usage, and reports both text and tokens", async () => {
     const requests: { url: string; init: RequestInit }[] = [];
     globalThis.fetch = (async (url: string, init: RequestInit) => {

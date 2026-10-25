@@ -29,6 +29,7 @@ export interface CallUsage {
   cacheCreation: number;
   /** Quota di `cacheCreation` scritta con TTL a un'ora (costa 2×). */
   cacheCreation1h: number;
+  fastMode?: boolean;
 }
 
 /** Il totale del turno finora. */

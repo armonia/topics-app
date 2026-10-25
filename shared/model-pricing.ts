@@ -99,11 +99,12 @@ export function pricedModelIds(): string[] {
  * - every namespace (`openrouter/anthropic/`, `azure/`) and Bedrock's
  *   `us.anthropic.` / `anthropic.` prefix;
  * - Vertex's `@20250514`, which is the same dated id as `-20250514`;
- * - dotted versions (`4.5`), spelled `4-5` in the table.
+ * - dotted Claude versions (`4.5`), spelled `4-5` in the table, only when that
+ *   names a row; other dotted ids (`gpt-4.1`) keep their identity.
  * Stripping only one of these is how `claude-haiku-4.5` was priced as Haiku 5.5.
  */
 function normalizeModel(model: string): string {
-  return model
+  const stripped = model
     .toLowerCase()
     .replace(/\[[^\]]*\]\s*$/, "")
     .trim()
@@ -111,8 +112,14 @@ function normalizeModel(model: string): string {
     .replace(/:[a-z0-9-]+$/, "")
     .replace(/^.*\//, "")
     .replace(/^(?:[a-z]{2,4}\.)?anthropic\./, "")
-    .replace(/@(\d{8})$/, "-$1")
-    .replace(/(\d)\.(\d)/g, "$1-$2");
+    .replace(/@(\d{8})$/, "-$1");
+  const hyphenated = stripped.replace(
+    /(claude-(?:opus|sonnet|haiku|fable|mythos)-\d+)\.(\d+)(?=$|-)/g,
+    "$1-$2",
+  );
+  // `claude-haiku-4.50` names no row: it keeps its dot instead of landing on 4-5.
+  const rowId = hyphenated.replace(/-\d{8}$/, "");
+  return PRICE_TABLE[hyphenated] || PRICE_TABLE[rowId] ? hyphenated : stripped;
 }
 
 /**
@@ -173,7 +180,8 @@ export function cacheReadRate(model: string | null | undefined): number {
  * the row except for Haiku 5.5 over 100k tokens, where the whole request,
  * cache reads included, moves to the second rate card.
  */
-export function ratesForPrompt(row: ModelPrice, promptTokens: number): { input: number; output: number } {
+export function ratesForPrompt(row: ModelPrice, promptTokens: number, fastMode = false): { input: number; output: number } {
+  if (fastMode && row.fast) return row.fast;
   if (row.longPrompt && promptTokens > row.longPrompt.over) {
     return { input: row.longPrompt.input, output: row.longPrompt.output };
   }

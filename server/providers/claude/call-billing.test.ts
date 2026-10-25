@@ -17,6 +17,8 @@
  * ($22,80) invece di $3,66. Ed è il numero che l'utente vedeva «salire a
  * milioni» durante lo streaming.
  * @covers USAGE-03
+ * @covers USAGE-01
+ * @covers USAGE-02
  */
 import { describe, expect, test } from "bun:test";
 import { readAssistantCallUsage, readAssistantMessageId } from "./events";
@@ -166,6 +168,29 @@ function stubProcess(sessionKey: string) {
 }
 
 describe("claude-code · handleStreamEvent fattura una volta per message.id", () => {
+  test("assistant usage speed is attached to each priced call", () => {
+    const { provider, pp } = stubProcess("topic:bill-fast");
+    const billed: any[] = [];
+    pp.streamHandler = {
+      onTextDelta: () => {}, onToolStart: () => {}, onToolResult: () => {},
+      onCallUsage: (u: any) => billed.push(u),
+      onDone: () => {}, onError: () => {},
+    };
+
+    (provider as any).fastModeStatus = { state: "off", reason: null };
+    (provider as any).handleStreamEvent(pp, {
+      type: "assistant",
+      message: {
+        id: "msg_fast",
+        model: "claude-opus-5-5",
+        usage: { input_tokens: 1_000_000, output_tokens: 1_000_000, speed: "fast" },
+      },
+    });
+
+    expect(billed).toHaveLength(1);
+    expect(billed[0].fastMode).toBe(true);
+  });
+
   test("i 24 eventi del turno reale producono 4 onCallUsage, per 925.774 token", () => {
     const { provider, pp } = stubProcess("topic:bill1");
     const billed: Array<{ inputTokens: number; outputTokens: number }> = [];

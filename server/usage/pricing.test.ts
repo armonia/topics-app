@@ -33,6 +33,19 @@ describe("calculateCost — model pricing resolution", () => {
     expect(calculateCost("gpt-4o-2024-08-06", 1_000_000, 0)).toBe(2.5);
   });
 
+  test("provider model ids resolve to the price of the named model", () => {
+    expect(calculateCost("openai/gpt-4o", 1_000_000, 1_000_000)).toBe(12.5);
+    expect(calculateCost("azure/gpt-4o", 1_000_000, 1_000_000)).toBe(12.5);
+    expect(calculateCost("anthropic/claude-haiku-4.5", 1_000_000, 1_000_000)).toBe(6);
+    expect(calculateCost("us.anthropic.claude-haiku-4-5-20251001-v1:0", 1_000_000, 1_000_000)).toBe(6);
+    expect(calculateCost("claude-haiku-4-5@20251001", 1_000_000, 1_000_000)).toBe(6);
+  });
+
+  test("dotted ids only normalize when they name a known Claude row", () => {
+    expect(modelPrice("anthropic/claude-haiku-4.50")).toMatchObject({ input: 0.1, output: 0.5 });
+    expect(ownModelPrice("vendor/gpt-4.5")).toBeNull();
+  });
+
   test("an unknown model is not billed (returns 0)", () => {
     expect(calculateCost("totally-unknown-model-xyz", 1_000_000, 1_000_000)).toBe(0);
   });
@@ -253,6 +266,29 @@ describe("fast mode has its own prices, on the three models that have it", () =>
     expect(modelPrice("claude-opus-4-7")?.fast).toBeUndefined();
     expect(modelPrice("claude-sonnet-5-5")?.fast).toBeUndefined();
   });
+
+  test("a fast Opus 5.5 call uses its fast rates for fresh, cached, and output tokens", () => {
+    expect(calculateCostWithCache({
+      model: "claude-opus-5-5",
+      freshInputTokens: 1_000_000,
+      outputTokens: 1_000_000,
+      cacheReadTokens: 1_000_000,
+      cacheCreationTokens: 1_000_000,
+      cacheCreation1hTokens: 1_000_000,
+      fastMode: true,
+    })).toBeCloseTo(74.4, 9);
+
+    const fastCall: PricedCall = {
+      inputTokens: 1_000_000,
+      outputTokens: 1_000_000,
+      cacheRead: 0,
+      cacheCreation: 0,
+      cacheCreation1h: 0,
+      model: "claude-opus-5-5",
+      fastMode: true,
+    };
+    expect(callsCostUsd([fastCall], "unknown")).toBeCloseTo(48, 9);
+  });
 });
 
 /**
@@ -310,7 +346,8 @@ describe("gateway and cloud spellings of a model id", () => {
   // on its OWN row (same object), never on a neighbour. ownModelPrice is the
   // strict lookup: the substring match of modelPrice would hide a half-stripped id.
   test("every row resolves to itself under every provider spelling", () => {
-    const dotted = (id: string) => id.replace(/(?<=-)(\d)-(\d)(?!\d)/g, "$1.$2");
+    // Only the family-first ids have a dotted spelling (`claude-haiku-4.5`).
+    const dotted = (id: string) => id.replace(/^(claude-[a-z]+-\d)-(\d)(?!\d)/, "$1.$2");
     const wrappers: ((id: string) => string)[] = [
       (id) => id,
       (id) => `openai/${id}`,
