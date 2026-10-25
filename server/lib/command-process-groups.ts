@@ -212,6 +212,23 @@ async function closeRegisteredCommandProcessGroup(
   const closing = { ...registered, closingAt, stopFailed: false };
   if (!replaceGroup(path, registered, closing)) return false;
   hooks.onClosing?.(closing);
+  const beforeTerm = readGroups(path).find((row) => row.processId === closing.processId);
+  if (!beforeTerm || !sameGroup(beforeTerm, closing) || beforeTerm.closingAt !== closingAt) {
+    const stopped = !processGroupAlive(closing.pgid);
+    hooks.onSettled?.(closing, stopped);
+    return stopped;
+  }
+  if (!processGroupAlive(beforeTerm.pgid)) {
+    replaceGroup(path, beforeTerm, null);
+    hooks.onSettled?.(beforeTerm, true);
+    return true;
+  }
+  if (!identityMatches(beforeTerm)) {
+    const failed = { ...beforeTerm, stopFailed: true, closingAt: undefined };
+    replaceGroup(path, beforeTerm, failed);
+    hooks.onSettled?.(failed, false);
+    return false;
+  }
   try { signalGroup(closing.pgid, "SIGTERM"); } catch (error) {
     if ((error as NodeJS.ErrnoException).code !== "ESRCH") {
       const failed = { ...closing, stopFailed: true, closingAt: undefined };

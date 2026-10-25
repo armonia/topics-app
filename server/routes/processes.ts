@@ -29,10 +29,17 @@ import { openTail, readFileEnd, readTail, shrinkLog, type FileTail } from "../li
 import { stdoutTargetOf, type UnresolvedReason } from "../lib/command-redirect";
 import { commandArgv, commandGroupArgv, confineCommandCwd, endedWhileAway, readExitCode } from "../lib/command-process";
 import {
-  captureProcessGroup, closeCommandProcessGroup, closeCommandProcessGroups,
-  commandProcessGroup, forgetCommandProcessGroupIfGone, processGroupAlive, processGroupIdentityMatches, reconcileClosedCardProcessGroups,
+  captureProcessGroup, closeCommandProcessGroup,
+  commandProcessGroup, forgetCommandProcessGroupIfGone, processGroupAlive, processGroupIdentityMatches,
   registerCommandProcessGroup, type ProcessGroupIdentity,
 } from "../lib/command-process-groups";
+import {
+  cardIdForTopic, configureCommandGroupLifecycle, createCommandGroupHooks,
+  reconcileClosedCommandProcesses,
+} from "./command-process-lifecycle";
+export {
+  stopCardCommandProcesses, stopTopicCommandProcesses,
+} from "./command-process-lifecycle";
 import { closeLostRun, closeRegistryRun, noteRunAlive } from "../lib/command-runs";
 import { createCommandRunsRoute } from "./command-runs";
 import { requestProcessExitWake, wakeDelivered, wakeOwedAtExit, WAKE_TAIL_LINES } from "../lib/process-exit-wake";
@@ -916,7 +923,7 @@ function stopCommand(sp: ScriptProcess): void {
   if (!sp.cmd) return;
   const group = commandProcessGroup(sp.processId);
   if (group) {
-    void closeCommandProcessGroup(group, commandGroupHooks());
+    void closeCommandProcessGroup(group, commandGroupHooks);
     return;
   }
   sp.cmd.stopped = true;
@@ -939,92 +946,17 @@ function publishGroupChange(sp: ScriptProcess): void {
   }
 }
 
-function commandGroupHooks() {
-  return {
-    onClosing(group: { processId: string }) {
-      const sp = processForGroup(group.processId);
-      if (!sp) return;
-      if (sp.cmd) {
-        sp.cmd.closing = true;
-        sp.cmd.stopFailed = false;
-        sp.cmd.wake = false;
-      } else {
-        sp.closing = true;
-        sp.stopFailed = false;
-      }
-      publishGroupChange(sp);
-    },
-    onSettled(group: { processId: string }, stopped: boolean) {
-      const sp = processForGroup(group.processId);
-      if (!sp) return;
-      if (sp.cmd) {
-        sp.cmd.closing = false;
-        sp.cmd.stopFailed = !stopped;
-        sp.cmd.wake = false;
-        if (stopped) {
-          sp.cmd.stopped = true;
-          if (sp.status === "running") { finishCommand(sp); return; }
-          sp.status = "error";
-          sp.exitCode = -1;
-          sp.completedAt = new Date().toISOString();
-        }
-      } else {
-        sp.closing = false;
-        sp.stopFailed = !stopped;
-        if (stopped && sp.status === "running") {
-          sp.status = "error";
-          sp.exitCode = -1;
-          sp.completedAt = new Date().toISOString();
-          sp.proc = null;
-          runningScripts.delete(sp.processId);
-          addToRecent(sp);
-        }
-      }
-      publishGroupChange(sp);
-    },
-  };
-}
-
-/** Stop only the process groups registered to a card that just closed. */
-export function stopCardCommandProcesses(cardId: string): void {
-  loadProcessRegistry();
-  void closeCommandProcessGroups((group) => group.cardId === cardId, commandGroupHooks());
-}
-
-/** Stop process groups owned by a topic that is being archived or deleted. */
-export function stopTopicCommandProcesses(topicId: string): void {
-  loadProcessRegistry();
-  void closeCommandProcessGroups((group) => group.topicId === topicId, commandGroupHooks());
-}
-
-/** On boot, retry only groups whose owning card is already closed. */
-export function reconcileClosedCommandProcesses(db: AppContext["db"]): void {
-  loadProcessRegistry();
-  void reconcileClosedCardProcessGroups((cardId) => {
-    try {
-      const card = db.prepare("SELECT status, archived FROM tasks WHERE id = ?").get(cardId) as { status?: string; archived?: number | boolean } | undefined;
-      return !card || card.status === "done" || card.archived === 1 || card.archived === true;
-    } catch {
-      return false;
-    }
-  }, commandGroupHooks());
-}
-
-function cardIdForTopic(db: AppContext["db"], topicId: string | null): string | null {
-  if (!topicId) return null;
-  try {
-    const card = db.prepare("SELECT id FROM tasks WHERE assigned_topic_id = ? ORDER BY updated_at DESC LIMIT 1").get(topicId) as { id?: string } | undefined;
-    if (typeof card?.id === "string") return card.id;
-  } catch {
-    // Fan-out attempt topics are indexed separately from the assigned topic.
-  }
-  try {
-    const attempt = db.prepare("SELECT task_id AS id FROM task_attempts WHERE topic_id = ? LIMIT 1").get(topicId) as { id?: string } | undefined;
-    return typeof attempt?.id === "string" ? attempt.id : null;
-  } catch {
-    return null;
-  }
-}
+const commandGroupHooks = createCommandGroupHooks<ScriptProcess>({
+  find: processForGroup,
+  publish: publishGroupChange,
+  finishCommand,
+  finishOther(sp) {
+    sp.proc = null;
+    runningScripts.delete(sp.processId);
+    addToRecent(sp);
+  },
+});
+configureCommandGroupLifecycle(commandGroupHooks, loadProcessRegistry);
 
 /**
  * A stopped sub-agent's chat: the commands it left running that would wake it
@@ -2399,7 +2331,7 @@ export function createProcessesRouter(ctx: AppContext): RouteHandler {
     }
     const group = sp.cardRun ? commandProcessGroup(sp.processId) : undefined;
     if (group) {
-      void closeCommandProcessGroup(group, commandGroupHooks());
+      void closeCommandProcessGroup(group, commandGroupHooks);
       return true;
     }
     if (sp.source === "detected" || sp.source === "shell") {

@@ -165,6 +165,23 @@ test("a reused owner key cannot redirect the delayed SIGKILL to a new process", 
   expect(processGroupAlive(fresh.pgid)).toBe(true);
 });
 
+test("closing rechecks its registration after publishing the closing state", async () => {
+  const original = startGroup();
+  const replacement = startGroup();
+  registerCommandProcessGroup(original.record);
+
+  const closed = await closeCommandProcessGroup(original.record, {
+    onClosing: () => registerCommandProcessGroup({
+      ...replacement.record,
+      processId: original.record.processId,
+    }),
+  });
+
+  expect(closed).toBe(false);
+  expect(processGroupAlive(original.pgid)).toBe(true);
+  expect(processGroupAlive(replacement.pgid)).toBe(true);
+});
+
 test("a second instance reconciles only its own data-directory registry", async () => {
   const first = startGroup();
   first.record = { ...first.record, cardId: "same-card-id" };

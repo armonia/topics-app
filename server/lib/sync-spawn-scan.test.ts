@@ -24,6 +24,7 @@ const SYNC_CALL = /(?<![\w])(Bun\.spawnSync|spawnSync|execSync|execFileSync)\(/;
 
 const ALLOWED: Array<{ file: string; snippet: string; why: string }> = [
   { file: "server/routes/processes.ts", snippet: `Bun.spawnSync(["ps", "-o", "lstart="`, why: "pidStartTime: the identity stamp of a re-adopted row at boot, and of a row at its launch, which must be on disk before the launch answers (a server that exits right after a launch must still re-adopt it: CMDRUN-03). Never on a timer." },
+  { file: "server/lib/command-process-groups.ts", snippet: `Bun.spawnSync(["ps", "-o", "pid=,pgid=,lstart="`, why: "the start-time identity of one registered group leader, checked before its group receives TERM or KILL; only at command start and group closure, never an uid scan or timer." },
   { file: "server/utils/path-env.ts", snippet: "execFileSync(shell", why: "the login shell's PATH, read once at boot" },
   { file: "server/lib/nome-installazione.ts", snippet: "execFileSync(\"/usr/sbin/scutil\"", why: "the computer name, memoized after the first read" },
   { file: "server/services/discord-ipc.ts", snippet: "execFileSync(\"/usr/bin/getconf\"", why: "the per-user temp dir, macOS only, remembered after the first good read (the presence asks on every connect attempt, every 30 s while Discord is closed)" },
