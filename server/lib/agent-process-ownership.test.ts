@@ -7,11 +7,13 @@ import {
   AGENT_OWNER_ENV,
   AGENT_PROCESS_GRACE_MS,
   closedOwnersFromPs,
+  ownerFromProcArgs2,
   ownedProcessTargetsFromPs,
   parseOwnerProcessTable,
   readOwnerProcessTable,
   reconcileOwnedAgentProcesses,
   stopOwnedAgentProcesses,
+  verifyOwnerProcessTable,
   withAgentProcessOwner,
   type OwnerProcessStopDeps,
 } from "./agent-process-ownership";
@@ -33,6 +35,15 @@ const ownerTable = (pid: number, owner: string, pgid = pid) => [
   `${serverPid} ${serverPid + 1} ${serverPid + 1} bun server.ts`,
   `${pid} 1 ${pgid} bun -e TOPICS_OWNER=${owner}`,
 ].join("\n");
+
+function procArgs2(argv: string[], env: string[]): Uint8Array {
+  const header = Buffer.alloc(4);
+  header.writeInt32LE(argv.length);
+  return Buffer.concat([
+    header,
+    Buffer.from(`/usr/bin/${argv[0]}\0\0${argv.join("\0")}\0${env.join("\0")}\0`),
+  ]);
+}
 
 function pidAlive(pid: number): boolean {
   try { process.kill(pid, 0); return true; } catch { return false; }
@@ -106,6 +117,33 @@ describe("agent process ownership", () => {
     const rows = parseOwnerProcessTable(raw);
     expect(rows.find((row) => row.pid === 8003)?.owner).toBeNull();
     expect(ownedProcessTargetsFromPs(raw, new Set(["topic:alpha"]), serverPid)?.pids).toEqual([serverPid + 2, 8000]);
+  });
+
+  test("verifies owner identity from the environment rather than argv", async () => {
+    const spoofedPid = 8003;
+    const ownedPid = 8004;
+    const rows = [
+      "1 0 1 /sbin/launchd",
+      `${serverPid + 1} 1 ${serverPid + 1} /usr/libexec/supervisor`,
+      `${serverPid} ${serverPid + 1} ${serverPid + 1} bun server.ts`,
+      `${spoofedPid} 1 ${spoofedPid} node script TOPICS_OWNER=topic:alpha`,
+      `${ownedPid} 1 ${ownedPid} node -e TOPICS_OWNER=topic:beta TOPICS_OWNER=topic:alpha`,
+    ].join("\n");
+    const normalized = await verifyOwnerProcessTable(rows, async (pid) => ownerFromProcArgs2(
+      pid === spoofedPid
+        ? procArgs2(["node", "script", "TOPICS_OWNER=topic:alpha"], ["PATH=/bin"])
+        : procArgs2(["node", "-e", "runner", "TOPICS_OWNER=topic:beta"], ["PATH=/bin", "TOPICS_OWNER=topic:alpha"]),
+    ));
+    expect(ownedProcessTargetsFromPs(normalized, new Set(["topic:alpha"]), serverPid)).toEqual({
+      pids: [ownedPid],
+      pgids: [ownedPid],
+    });
+  });
+
+  test("extracts only the environment value from procargs2", () => {
+    expect(ownerFromProcArgs2(procArgs2(["node", "TOPICS_OWNER=topic:alpha"], ["PATH=/bin"]))).toBeNull();
+    expect(ownerFromProcArgs2(procArgs2(["node", "-e", "runner"], ["TOPICS_OWNER=topic:alpha"]))).toBe("topic:alpha");
+    expect(ownerFromProcArgs2(procArgs2(["node"], ["TOPICS_OWNER=topic:alpha", "TOPICS_OWNER=topic:beta"]))).toBeNull();
   });
 
   test("boot closes owners absent from live topics and keeps another session", async () => {
