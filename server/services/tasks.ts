@@ -796,6 +796,8 @@ export interface TaskService {
      * niente gate, cioè il comportamento che c'era prima del peso.
      */
     machineIdle?: boolean;
+    /** Only a validated light no-local-check exemption may share with a heavy turn. */
+    noCheckExemption?: boolean;
   }): Task | null;
   /**
    * C'è un task `heavy` con un agente vivo su questa macchina adesso?
@@ -4905,7 +4907,7 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       return liveAgentCount(db, scope?.projectId ?? null);
     },
 
-    claim({ taskId, cap, maxAttempts, agentId, scope, machineIdle }): Task | null {
+    claim({ taskId, cap, maxAttempts, agentId, scope, machineIdle, noCheckExemption }): Task | null {
       const row = getTaskRow(taskId);
       if (!row) throw new TaskServiceError("not_found", `task ${taskId} not found`);
       // PESO — due regole, entrambe dentro il claim perché è l'unico punto in cui
@@ -4922,7 +4924,8 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       //
       // Entrambe si applicano PRIMA del conteggio degli slot: un no del peso non
       // è «non c'è posto», è «non adesso», e il chiamante lo dice diversamente.
-      if (heavyInFlight()) return null;
+      if (heavyInFlight() && !noCheckExemption) return null;
+      if (noCheckExemption && readTaskWeight(row.dispatch_weight) === "heavy") return null;
       if (readTaskWeight(row.dispatch_weight) === "heavy" && machineIdle === false) return null;
       // Concurrency cap: count the AGENTI VIVI, not the card. Per-board by
       // default; scope 'global' counts across EVERY board so a machine-wide cap

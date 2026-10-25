@@ -1969,6 +1969,8 @@ const taskDispatcher = createTaskDispatcher({
   agentMemSamples: () => {
     try { return recentCardMemPeaksGB(); } catch { return []; }
   },
+  heldMemory: () => memSignal.held(),
+  isCliRuntime: () => resolveAgentRuntime() === "cli",
   // Corse di check pre-review in volo: ogni barra vale uno slot nel freno.
   // Letto dalla closure: il checksGate nasce dentro `createTasksRouter`, che e'
   // dopo questa chiamata, ma prima del primo tick o resume. Zero finche' non
@@ -2071,11 +2073,16 @@ const taskDispatcher = createTaskDispatcher({
   // riga di SQLite già in cache.
   // `hold` is the dispatcher's: the price of one card, the memory kept for the
   // turns in flight, and whether any of our work is on the machine.
-  resourceBlock: (hold) =>
+  resourceBlock: (hold, noCheckReservationGB = 0) =>
     dispatchResourceVerdict(
       ctx.worktreeManager.worktreesDir(),
       undefined,
-      () => memSignal.held(),
+      () => {
+        const memory = memSignal.held();
+        return noCheckReservationGB > 0 && memory.heldGB != null
+          ? { ...memory, heldGB: Math.max(0, memory.heldGB - noCheckReservationGB) }
+          : memory;
+      },
       resolveAgentRuntime() === "cli",
       hold,
       memoryOwners.latest(),
