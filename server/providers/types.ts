@@ -338,6 +338,7 @@ export interface StreamHandler {
       cacheCreation: number;
       cacheCreation1h: number;
       model?: string;
+      fastMode?: boolean;
     },
   ) => void;
   /**
@@ -445,6 +446,7 @@ export interface StreamHandler {
     cacheCreation: number;
     cacheCreation1h: number;
     model?: string;
+    fastMode?: boolean;
   }) => void;
   /**
    * L'agente ha dichiarato (o aggiornato) il suo piano — oggi solo ACP, che

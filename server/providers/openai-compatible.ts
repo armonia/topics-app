@@ -177,6 +177,27 @@ export class OpenAICompatibleProvider implements AIProvider {
     const timer = setTimeout(() => controller.abort(), this.timeout());
     let fullText = "";
     let lastUsage: { promptTokens: number; completionTokens: number } | undefined;
+    const summedUsage = { promptTokens: 0, completionTokens: 0 };
+    const promptCounts = new Set<number>();
+    let cumulativeUsage = false;
+    let usageReported = false;
+    const finalUsage = () => {
+      if (!lastUsage) return undefined;
+      return cumulativeUsage ? lastUsage : summedUsage;
+    };
+    const reportLastUsage = () => {
+      const usage = finalUsage();
+      if (!usage || usageReported) return;
+      usageReported = true;
+      handler.onCallUsage?.({
+        inputTokens: usage.promptTokens,
+        outputTokens: usage.completionTokens,
+        cacheRead: 0,
+        cacheCreation: 0,
+        cacheCreation1h: 0,
+        model,
+      });
+    };
 
     try {
       const response = await fetchCheckedEndpoint(`${this.endpoint.baseUrl}/chat/completions`, {
@@ -210,25 +231,26 @@ export class OpenAICompatibleProvider implements AIProvider {
           onToolStart: (id, name, args) => handler.onToolStart(id, name, args),
           onUsage: (usage) => {
             lastUsage = usage;
-            handler.onCallUsage?.({
-              inputTokens: usage.promptTokens,
-              outputTokens: usage.completionTokens,
-              cacheRead: 0,
-              cacheCreation: 0,
-              cacheCreation1h: 0,
-              model,
-            });
+            if (usage.promptTokens > 0) {
+              if (promptCounts.has(usage.promptTokens)) cumulativeUsage = true;
+              promptCounts.add(usage.promptTokens);
+            }
+            summedUsage.promptTokens += usage.promptTokens;
+            summedUsage.completionTokens += usage.completionTokens;
             const window = this.contextWindowFor(model);
             handler.onContextSize?.(usage.promptTokens, model, window);
           },
         },
         this.voice(),
       );
-      handler.onDone(lastUsage
-        ? { usage: { inputTokens: lastUsage.promptTokens, outputTokens: lastUsage.completionTokens } }
+      reportLastUsage();
+      const usage = finalUsage();
+      handler.onDone(usage
+        ? { usage: { inputTokens: usage.promptTokens, outputTokens: usage.completionTokens } }
         : undefined);
     } catch (error) {
       const err = error as { name?: string; message?: string };
+      reportLastUsage();
       if (err?.name === "AbortError") handler.onAborted?.();
       else if (error instanceof EndpointUrlError) handler.onError(err.message ?? String(error));
       else handler.onError(err?.message ?? String(error));

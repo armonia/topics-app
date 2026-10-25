@@ -350,6 +350,7 @@ export interface CallUsage {
   cacheCreation: number;
   cacheCreation1h: number;
   model?: string;
+  fastMode?: boolean;
 }
 
 /**
@@ -384,6 +385,7 @@ export function readAssistantCallUsage(event: unknown): CallUsage | null {
     cacheCreation,
     cacheCreation1h: num(asRecord(mu.cache_creation)?.ephemeral_1h_input_tokens),
     ...(model ? { model } : {}),
+    ...(mu.speed === "fast" ? { fastMode: true } : mu.speed === "standard" ? { fastMode: false } : {}),
   };
 }
 
@@ -448,6 +450,7 @@ export function splitCallUsage(usage: CallUsage, k: number): CallUsage {
     cacheCreation: Math.floor(usage.cacheCreation / d),
     cacheCreation1h: Math.floor(usage.cacheCreation1h / d),
     ...(usage.model ? { model: usage.model } : {}),
+    ...(typeof usage.fastMode === "boolean" ? { fastMode: usage.fastMode } : {}),
   };
 }
 

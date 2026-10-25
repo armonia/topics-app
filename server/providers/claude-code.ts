@@ -4174,7 +4174,7 @@ export class ClaudeCodeProvider implements AIProvider {
         // Stessa chiamata, seconda domanda: QUALI azioni ha deciso. I tool_use
         // nuovi di questo evento sono quelle azioni — l'usage va spalmato su di
         // loro nel loop dei blocchi, una sola volta ciascuna (Trappola 1).
-        perCallUsageForActions = callUsage;
+        perCallUsageForActions ??= callUsage;
       }
     }
     if (parentToolUseId && eventContent && handler) {

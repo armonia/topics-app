@@ -116,7 +116,8 @@ export function createTranscriptUsageReader(): { read(path: string): SessionUsag
     // A call that consumed nothing (the CLI's `<synthetic>` lines) has no price
     // to miss.
     if (state.costUsd === null || call.input + call.output + call.cacheWrite + call.cacheRead <= 0) return;
-    const usd = apiCallCostUsd(typeof msg.model === "string" ? msg.model : null, call);
+    const model = typeof msg.model === "string" ? msg.model : null;
+    const usd = apiCallCostUsd(model, { ...call, fastMode: u.speed === "fast" });
     state.costUsd = usd === null ? null : state.costUsd + usd;
   }
 

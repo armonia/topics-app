@@ -87,13 +87,19 @@ const PRICE_TABLE: Record<string, ModelPrice> = {
 };
 
 /**
- * Normalises a model id before matching. The window suffix
- * (`claude-opus-5-5[1m]`) is part of the id the CLI reports, not of the model
- * name, and the model is the same: same price. Same normalisation as
- * `shared/context-window.ts`.
+ * Normalises provider namespaces and serving suffixes before matching. Claude
+ * decimal release aliases use hyphens only when that spelling names a row in
+ * this table; unrelated dotted model ids keep their identity.
  */
 function normalizeModel(model: string): string {
-  return model.toLowerCase().replace(/\[[^\]]*\]\s*$/, "").trim();
+  const normalized = model.trim().toLowerCase().replace(/^[^/]+\//, "").replace(/\[[^\]]*\]\s*$/, "").trim();
+  const dottedVersion = normalized.replace(
+    /(claude-(?:opus|sonnet|haiku|fable|mythos)-\d+)\.(\d+)(?=$|-)/g,
+    "$1-$2",
+  );
+  if (dottedVersion === normalized) return normalized;
+  const rowId = dottedVersion.replace(/-\d{8}$/, "");
+  return PRICE_TABLE[dottedVersion] || PRICE_TABLE[rowId] ? dottedVersion : normalized;
 }
 
 /**
@@ -154,7 +160,8 @@ export function cacheReadRate(model: string | null | undefined): number {
  * the row except for Haiku 5.5 over 100k tokens, where the whole request,
  * cache reads included, moves to the second rate card.
  */
-export function ratesForPrompt(row: ModelPrice, promptTokens: number): { input: number; output: number } {
+export function ratesForPrompt(row: ModelPrice, promptTokens: number, fastMode = false): { input: number; output: number } {
+  if (fastMode && row.fast) return row.fast;
   if (row.longPrompt && promptTokens > row.longPrompt.over) {
     return { input: row.longPrompt.input, output: row.longPrompt.output };
   }
