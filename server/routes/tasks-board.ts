@@ -18,6 +18,8 @@ import { interceptBoardAction } from "../services/board-actions";
 import { FRESH_SESSION_NOTE } from "../../shared/task-comment-service";
 import type { TaskDispatcher } from "../services/task-dispatcher";
 import type { LandingQueue, LandingTicket } from "../services/landing-queue";
+import { checkDispatchMachine } from "../services/board-dispatch-machine";
+import { canonicalProjectIdentity } from "../lib/project-identity";
 import { MAX_CHECKS, STATIC_RAILS_CHECK, parseReviewChecks } from "../services/review-checks";
 import { linkNotes, proposeLink, type LinkKind } from "../services/task-intake";
 import { isTaskLabel } from "../../shared/task-labels";
@@ -276,6 +278,22 @@ export function createBoardRoutes(deps: BoardRouteDeps) {
             400,
           );
         }
+        // The default machine is checked BEFORE it is saved: a card born on a
+        // board pointing at a machine that cannot run it is parked forever.
+        // null or "" clears the rule and needs no check.
+        const wantedMachine = body?.dispatchMachineId;
+        if (wantedMachine !== undefined && wantedMachine !== null && typeof wantedMachine !== "string") {
+          return json({ error: "dispatchMachineId deve essere un id di computer, oppure vuoto per toglierlo.", code: "invalid_machine" }, 400);
+        }
+        if (typeof wantedMachine === "string" && wantedMachine.trim()) {
+          const identity = canonicalProjectIdentity(ctx.db, projectId);
+          const check = await checkDispatchMachine({
+            machines: ctx.machineStore,
+            machineId: wantedMachine.trim(),
+            projectPath: ctx.projectStore.get(identity.storeId)?.path ?? null,
+          });
+          if (!check.ok) return json({ error: check.error, code: check.code }, 400);
+        }
         try {
           const settings = svc.updateBoardSettings(projectId, {
             autoDispatch: typeof body?.autoDispatch === "boolean" ? body.autoDispatch : undefined,
@@ -300,6 +318,8 @@ export function createBoardRoutes(deps: BoardRouteDeps) {
             dispatchTopicsRouting: body?.dispatchTopicsRouting === undefined
               ? undefined
               : (typeof body.dispatchTopicsRouting === "boolean" ? body.dispatchTopicsRouting : null),
+            // Absent leaves the rule alone; null or "" clears it (validated above).
+            dispatchMachineId: wantedMachine === undefined ? undefined : (wantedMachine ?? ""),
             dispatchFanOut: typeof body?.dispatchFanOut === "number" ? body.dispatchFanOut : undefined,
             // I QUATTRO CHE LA ROTTA NON INOLTRAVA. Esistono nel servizio, nella
             // tabella e nel tipo, e due di loro li LEGGE il dispatcher a ogni
@@ -407,6 +427,14 @@ export function createBoardRoutes(deps: BoardRouteDeps) {
         const body = (await readJSON(req)) as any;
         try {
           const effectiveProjectId = resolveBoardId(projectId, body?.text, body?.description);
+          // Absent = the board's default machine (see `TaskService.create`);
+          // null = this machine on purpose; an id must be a known machine, as on PATCH.
+          const bornMachine = body?.machineId === undefined ? undefined
+            : body.machineId === null || body.machineId === "" ? null
+            : typeof body.machineId === "string" ? body.machineId : undefined;
+          if (typeof bornMachine === "string" && !ctx.machineStore.get(bornMachine)) {
+            return json({ error: `machineId "${bornMachine}" is not a known machine`, code: "unknown_machine" }, 400);
+          }
           const task = svc.create({
             projectId: effectiveProjectId,
             text: body?.text,
@@ -420,6 +448,7 @@ export function createBoardRoutes(deps: BoardRouteDeps) {
             topicsRouting: typeof body?.topicsRouting === "boolean" ? body.topicsRouting : null,
             blockedByTaskId: typeof body?.blockedByTaskId === "string" ? body.blockedByTaskId : null,
             reuseBlockerContext: body?.reuseBlockerContext === true,
+            machineId: bornMachine,
           });
           // THE BIRTH ATTACHMENTS, BEFORE THE DISPATCH.
           //
