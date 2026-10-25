@@ -57,6 +57,19 @@ const realPopoverStyles = {
   POPOVER_SHEET,
 };
 
+const realExitGhost = await import('../../lib/exitGhost');
+const realPopoverPosition = await import('../../lib/popoverPosition');
+const realFixedFrame = await import('../../lib/fixedFrame');
+const realContextMenuOrigin = await import('../../lib/contextMenuOrigin');
+
+// Bun parte dalla root e non carica i path `@/*` del tsconfig client: registra
+// prima i moduli reali, così il componente catturato non usa versioni finte.
+mock.module('@/lib/popoverStyles', () => realPopoverStyles);
+mock.module('@/lib/exitGhost', () => realExitGhost);
+mock.module('@/lib/popoverPosition', () => realPopoverPosition);
+mock.module('@/lib/fixedFrame', () => realFixedFrame);
+mock.module('@/lib/contextMenuOrigin', () => realContextMenuOrigin);
+
 const { ContextMenuPortal } = await import('../Shared/ContextMenuPortal');
 const realContextMenuPortal = { ContextMenuPortal };
 
@@ -80,6 +93,12 @@ mock.module('@/lib/popoverStyles', () => ({
   POPOVER_ITEM: 'w-full',
   POPOVER_ITEM_DANGER: 'w-full text-red-600',
 }));
+mock.module('../../lib/popoverStyles', () => ({
+  ...realPopoverStyles,
+  POPOVER_DIVIDER: 'my-1 h-px',
+  POPOVER_ITEM: 'w-full',
+  POPOVER_ITEM_DANGER: 'w-full text-red-600',
+}));
 mock.module('../Shared/ContextMenuPortal', () => ({
   ...realContextMenuPortal,
   ContextMenuPortal: () => null,
@@ -88,6 +107,11 @@ mock.module('../Shared/ContextMenuPortal', () => ({
 afterAll(() => {
   mock.module('../../lib/providersSnapshotStore', () => realProvidersSnapshotStore);
   mock.module('@/lib/popoverStyles', () => realPopoverStyles);
+  mock.module('@/lib/exitGhost', () => realExitGhost);
+  mock.module('@/lib/popoverPosition', () => realPopoverPosition);
+  mock.module('@/lib/fixedFrame', () => realFixedFrame);
+  mock.module('@/lib/contextMenuOrigin', () => realContextMenuOrigin);
+  mock.module('../../lib/popoverStyles', () => realPopoverStyles);
   mock.module('../Shared/ContextMenuPortal', () => realContextMenuPortal);
 });
 

@@ -2,11 +2,11 @@ import { useRef, useState, useLayoutEffect, useEffect, useCallback } from 'react
 import { createPortal } from 'react-dom';
 import { useDismissable } from '../../hooks/useDismissable';
 import { useMenuKeyboard } from '../../hooks/useMenuKeyboard';
-import { POPOVER_SURFACE, Z_CONTEXT_MENU } from '../../lib/popoverStyles';
-import { useExitGhost } from '../../lib/exitGhost';
-import { computeMenuPosition, placeAtPoint, type AnchorRect } from '../../lib/popoverPosition';
-import { toFixed } from '../../lib/fixedFrame';
-import { keepSystemMenuOffPanel } from '../../lib/contextMenuOrigin';
+import { POPOVER_SURFACE, Z_CONTEXT_MENU } from '@/lib/popoverStyles';
+import { useExitGhost } from '@/lib/exitGhost';
+import { computeMenuPosition, placeAtPoint, type AnchorRect } from '@/lib/popoverPosition';
+import { toFixed } from '@/lib/fixedFrame';
+import { keepSystemMenuOffPanel } from '@/lib/contextMenuOrigin';
 
 /**
  * ContextMenuPortal — the cursor-positioned sibling of `Menu`, for right-click
