@@ -35,6 +35,7 @@ import { osservatoreDaDispositivo, vedeProgetto, visibilitaDi } from "../lib/pro
 import { resolveOsOpenPath, fsProbe } from "../lib/os-open-path";
 import { installationOrgId, actingPersonId } from "../lib/orgs";
 import { clientProjectPathRefused, CLIENT_PROJECT_PATH_ERROR } from "../lib/client-project-path";
+import { isAbsoluteServerPath } from "../lib/absolute-path";
 
 const NAME_MAX = 200;
 const SLUG_REGEX = /^[a-z][a-z0-9-]{0,63}$/;
@@ -169,7 +170,7 @@ export function createProjectsRouter(ctx: AppContext): RouteHandler {
     // matcher below so "icon" isn't captured as an :id.
     if (method === "GET" && pathname === "/api/projects/icon") {
       const dir = url.searchParams.get("path");
-      if (!dir || !dir.startsWith("/")) return errorResponse(400, "path required (absolute)");
+      if (!isAbsoluteServerPath(dir)) return errorResponse(400, "path required (absolute)");
       let realDir: string;
       try {
         if (!existsSync(dir) || !statSync(dir).isDirectory()) return new Response(null, { status: 404 });
@@ -294,7 +295,7 @@ export function createProjectsRouter(ctx: AppContext): RouteHandler {
       let body: { paths?: unknown };
       try { body = await readJSON(req); } catch { return errorResponse(400, "invalid JSON"); }
       if (!Array.isArray(body?.paths)) return errorResponse(400, "paths required (array)");
-      const paths = [...new Set(body.paths.filter((p): p is string => typeof p === "string" && p.startsWith("/")))]
+      const paths = [...new Set(body.paths.filter((p): p is string => isAbsoluteServerPath(p)))]
         .slice(0, ICON_VERSIONS_MAX_PATHS);
       const versions: Record<string, string | null> = {};
       // A miss rebuilds the allowlist ONCE per request: forty folders it does
@@ -354,7 +355,7 @@ export function createProjectsRouter(ctx: AppContext): RouteHandler {
 
       const path = stripCtrl(body.path);
       if (!path) return errorResponse(400, "path required");
-      if (!path.startsWith("/")) return errorResponse(400, "path must be absolute");
+      if (!isAbsoluteServerPath(path)) return errorResponse(400, "path must be absolute");
       if (!existsSync(path)) return errorResponse(400, `path does not exist: ${path}`);
       if (!statSync(path).isDirectory()) return errorResponse(400, `path is not a directory: ${path}`);
       // Registering a project ADDS a root to the allowlist every path-taking
