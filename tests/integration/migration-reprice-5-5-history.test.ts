@@ -163,7 +163,7 @@ describe("the per-tool costs follow the message", () => {
     })]);
     db.exec(MIGRATION_SQL);
     const { cost, before } = rowOf(db, "tool");
-    const scaled = Math.round((300 * cost) / before!);
+    const scaled = Math.floor((300 * cost) / before!);
     const raw = (db.query("SELECT tool_calls t, blocks b FROM messages WHERE id = 'tool'").get() as { t: string; b: string });
     expect(raw.t.startsWith("[{")).toBe(true);
     const tc = JSON.parse(raw.t) as Array<Record<string, unknown>>;
@@ -172,6 +172,23 @@ describe("the per-tool costs follow the message", () => {
     const bl = JSON.parse(raw.b) as Array<Record<string, unknown>>;
     expect((bl[0]!.toolCall as Record<string, unknown>).costCents).toBe(scaled);
     expect(bl[1]).toEqual({ kind: "text", text: "ok" });
+  });
+
+  test("scaled tool costs never add up to more than the message's new total", () => {
+    // Six one-cent tools in a 6 cent Sonnet 5.5 turn, repriced to 4 cents: rounding each
+    // tool up to a cent (or a floor of one) would make them add up to 6, above the total.
+    const oneCent = Array.from({ length: 6 }, (_, i) => ({ id: `t${i}`, name: "Read", costCents: 1 }));
+    const db = seed([{ id: "many", model: "claude-sonnet-5-5", prompt: 20_000, completion: 0, read: 0, toolCalls: oneCent,
+      blocks: oneCent.map((toolCall) => ({ kind: "tool", toolCall })) }]);
+    db.exec(MIGRATION_SQL);
+    const { cost, before } = rowOf(db, "many");
+    expect(before).toBe(6);
+    expect(cost).toBe(4);
+    const raw = db.query("SELECT tool_calls t, blocks b FROM messages WHERE id = 'many'").get() as { t: string; b: string };
+    const sum = (JSON.parse(raw.t) as Array<{ costCents: number }>).reduce((a, t) => a + t.costCents, 0);
+    const blockSum = (JSON.parse(raw.b) as Array<{ toolCall: { costCents: number } }>).reduce((a, b) => a + b.toolCall.costCents, 0);
+    expect(sum).toBeLessThanOrEqual(cost);
+    expect(blockSum).toBeLessThanOrEqual(cost);
   });
 });
 
