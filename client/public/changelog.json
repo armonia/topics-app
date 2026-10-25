@@ -1,5 +1,28 @@
 [
   {
+    "version": "2.3.27",
+    "date": "2026-10-25",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "aggiorna durate shard dal nightly del 2026-10-25 [skip ci]",
+          "en": "",
+          "scope": "e2e",
+          "breaking": false
+        },
+        {
+          "it": "ramo già squashato su main risponde nothing, non dirty-checkout (#442)",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        }
+      ]
+    }
+  },
+  {
     "version": "2.3.26",
     "date": "2026-10-25",
     "sections": {

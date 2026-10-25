@@ -2,6 +2,12 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.3.27 — 2026-10-25
+
+### Sotto il cofano
+- **e2e** · aggiorna durate shard dal nightly del 2026-10-25 [skip ci]
+- ramo già squashato su main risponde nothing, non dirty-checkout (#442)
+
 ## 2.3.26 — 2026-10-25
 
 ### Sotto il cofano
