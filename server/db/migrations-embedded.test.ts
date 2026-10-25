@@ -12,6 +12,7 @@
 // exact SQL). Fix a failure with:  bun run scripts/gen-migrations-manifest.ts
 
 import { test, expect } from "bun:test";
+import { Database } from "bun:sqlite";
 import { mkdtempSync, readdirSync, readFileSync, rmSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
@@ -52,6 +53,21 @@ test("embedded manifest matches disk 1:1 on version + name + SQL content", () =>
     // Exact byte-for-byte SQL — catches an EDITED migration whose manifest text
     // is stale, not just added/removed files.
     expect(e!.sql, `SQL content drift for ${d.name} — regenerate the manifest`).toBe(d.sql);
+  }
+});
+
+/** @covers KANBAN-75 */
+test("the reservation migration adds its task-scoped column on a synthetic database", () => {
+  const migration = EMBEDDED_MIGRATIONS.find((entry) => entry.name.includes("no-local-checks-reservation"));
+  expect(migration).toBeDefined();
+  const db = new Database(":memory:");
+  try {
+    db.run("CREATE TABLE task_attempts (id TEXT PRIMARY KEY, task_id TEXT NOT NULL)");
+    db.exec(migration!.sql);
+    const columns = db.query<{ name: string }, []>("PRAGMA table_info(task_attempts)").all();
+    expect(columns.map((column) => column.name)).toContain("no_local_checks_reservation_gb");
+  } finally {
+    db.close();
   }
 });
 

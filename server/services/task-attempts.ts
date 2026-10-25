@@ -40,7 +40,7 @@ interface Row {
   created_at: string;
   ended_at: string | null;
   selected_at: string | null;
-  read_only_reservation_gb?: number | null;
+  no_local_checks_reservation_gb?: number | null;
 }
 
 function toAttempt(r: Row): TaskAttempt {
@@ -71,7 +71,7 @@ export interface CreateAttemptInput {
   taskId: string;
   idx: number;
   model?: string | null;
-  readOnlyReservationGB?: number | null;
+  noLocalChecksReservationGB?: number | null;
 }
 
 /** Ciò che si sa solo DOPO il setup: topic, worktree, branch. */
@@ -101,9 +101,9 @@ export interface TaskAttemptStore {
   list(taskId: string): TaskAttempt[];
   bind(id: string, patch: BindAttemptPatch): TaskAttempt | null;
   finish(id: string, patch: FinishAttemptPatch): TaskAttempt | null;
-  /** Keeps an admission reservation attached to the session that owns it. */
-  setReadOnlyReservation(taskId: string, topicId: string, reservationGB: number | null): void;
-  getReadOnlyReservation(taskId: string, topicId: string): number | null;
+  /** Stores the active admission reservation by task id, independent of its topic. */
+  setNoLocalChecksReservation(taskId: string, reservationGB: number | null): void;
+  getNoLocalChecksReservation(taskId: string): number | null;
   /** Quanti tentativi di questo task hanno ancora un turno vivo. */
   runningCount(taskId: string): number;
   /**
@@ -117,10 +117,10 @@ export interface TaskAttemptStore {
 }
 
 export function createTaskAttemptStore(db: Database): TaskAttemptStore {
-  let hasReadOnlyReservationColumn = false;
+  let hasNoLocalChecksReservationColumn = false;
   try {
-    hasReadOnlyReservationColumn = (db.prepare("PRAGMA table_info(task_attempts)").all() as Array<{ name: string }>)
-      .some((column) => column.name === "read_only_reservation_gb");
+    hasNoLocalChecksReservationColumn = (db.prepare("PRAGMA table_info(task_attempts)").all() as Array<{ name: string }>)
+      .some((column) => column.name === "no_local_checks_reservation_gb");
   } catch { /* older or minimal schemas keep the original attempt shape */ }
 
   const one = (id: string): TaskAttempt | null => {
@@ -129,14 +129,14 @@ export function createTaskAttemptStore(db: Database): TaskAttemptStore {
   };
 
   return {
-    create({ taskId, idx, model, readOnlyReservationGB }) {
+    create({ taskId, idx, model, noLocalChecksReservationGB }) {
       const id = randomUUID();
       const now = new Date().toISOString();
-      if (hasReadOnlyReservationColumn) {
+      if (hasNoLocalChecksReservationColumn) {
         db.prepare(
-          `INSERT INTO task_attempts (id, task_id, idx, model, state, created_at, read_only_reservation_gb)
+          `INSERT INTO task_attempts (id, task_id, idx, model, state, created_at, no_local_checks_reservation_gb)
            VALUES (?, ?, ?, ?, 'running', ?, ?)`,
-        ).run(id, taskId, idx, model ?? null, now, readOnlyReservationGB ?? null);
+        ).run(id, taskId, idx, model ?? null, now, noLocalChecksReservationGB ?? null);
       } else {
         db.prepare(
           `INSERT INTO task_attempts (id, task_id, idx, model, state, created_at)
@@ -192,23 +192,26 @@ export function createTaskAttemptStore(db: Database): TaskAttemptStore {
       return one(id);
     },
 
-    setReadOnlyReservation(taskId, topicId, reservationGB) {
-      if (!hasReadOnlyReservationColumn) return;
-      const r = db.prepare(
-        "SELECT id FROM task_attempts WHERE task_id = ? AND topic_id = ? ORDER BY idx DESC LIMIT 1",
-      ).get(taskId, topicId) as { id: string } | undefined;
-      if (!r) return;
-      db.prepare("UPDATE task_attempts SET read_only_reservation_gb = ? WHERE id = ?")
-        .run(reservationGB, r.id);
+    setNoLocalChecksReservation(taskId, reservationGB) {
+      if (!hasNoLocalChecksReservationColumn) return;
+      if (reservationGB == null) {
+        db.prepare("UPDATE task_attempts SET no_local_checks_reservation_gb = NULL WHERE task_id = ?")
+          .run(taskId);
+        return;
+      }
+      db.prepare(
+        `UPDATE task_attempts SET no_local_checks_reservation_gb = ?
+         WHERE id = (SELECT id FROM task_attempts WHERE task_id = ? ORDER BY idx DESC LIMIT 1)`,
+      ).run(reservationGB, taskId);
     },
 
-    getReadOnlyReservation(taskId, topicId) {
-      if (!hasReadOnlyReservationColumn) return null;
+    getNoLocalChecksReservation(taskId) {
+      if (!hasNoLocalChecksReservationColumn) return null;
       const r = db.prepare(
-        "SELECT read_only_reservation_gb FROM task_attempts WHERE task_id = ? AND topic_id = ? ORDER BY idx DESC LIMIT 1",
-      ).get(taskId, topicId) as { read_only_reservation_gb?: number | null } | undefined;
-      return typeof r?.read_only_reservation_gb === "number" && Number.isFinite(r.read_only_reservation_gb)
-        ? r.read_only_reservation_gb
+        "SELECT no_local_checks_reservation_gb FROM task_attempts WHERE task_id = ? ORDER BY idx DESC LIMIT 1",
+      ).get(taskId) as { no_local_checks_reservation_gb?: number | null } | undefined;
+      return typeof r?.no_local_checks_reservation_gb === "number" && Number.isFinite(r.no_local_checks_reservation_gb)
+        ? r.no_local_checks_reservation_gb
         : null;
     },
 

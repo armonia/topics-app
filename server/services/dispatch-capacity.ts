@@ -359,10 +359,12 @@ export const DISPATCH_MEM_FLOOR_NATIVE_GB = 6;
 
 export const DISPATCH_MEM_EMERGENCY_FLOOR_GB = 2;
 
-/** Native sessions reserve 1 GB; the CLI peak is 420 MB and rounds up to 1 GB. */
-export function readOnlyMemoryReservationGB(agentsAreProcesses: boolean): number {
-  const runtimeGB = agentsAreProcesses ? 0.42 : 1;
-  return Math.max(1, runtimeGB);
+/** Measured peak for one CLI agent, in GB. */
+export const CLI_AGENT_PEAK_GB = 0.42;
+
+/** Reserve the measured CLI peak or 1 GB for a native session. */
+export function noLocalChecksMemoryReservationGB(agentsAreProcesses: boolean): number {
+  return agentsAreProcesses ? CLI_AGENT_PEAK_GB : 1;
 }
 
 /**
@@ -666,9 +668,9 @@ export interface MemoryFloorHold {
   cardGB: number;
   reservedGB: number;
   reservedCards: number;
-  /** Read-only dispatch reservations stay separate from check-card pricing. */
-  readOnlyReservedGB?: number;
-  readOnlyReservedCards?: number;
+  /** Reservations for cards on boards without local checks. */
+  noLocalChecksReservedGB?: number;
+  noLocalChecksReservedCards?: number;
   /**
    * Is any of our work going to SPEND here memory the reading cannot see yet -
    * the SAME list `reservedGB` is priced from, so branch and figure agree. A
@@ -735,9 +737,8 @@ const NOTHING_HOLDS: ResourceFloorVerdict = { reason: null, kind: null, memoryFi
  * the window is not full (at boot too). One line for both directions: time is
  * the hysteresis.
  *
- * The machine-wide verdict never grants a card exemption. The dispatcher applies
- * the read-only exception after checking that card's board settings; the disk
- * floor and an incomplete memory window remain holds for every card.
+ * The dispatcher checks board eligibility before applying the memory-floor
+ * exception. The disk floor always holds, and the emergency memory floor does too.
  */
 export function dispatchResourceVerdict(
   worktreesPath: string,
@@ -768,7 +769,10 @@ export function dispatchResourceVerdict(
   if (!mem.measurable) return NOTHING_HOLDS;
   const floor = agentsAreProcesses ? DISPATCH_MEM_FLOOR_GB : DISPATCH_MEM_FLOOR_NATIVE_GB;
   const gb = (n: number) => n.toFixed(1);
+  /** The first card keeps main's exception, except below the emergency floor. */
+  const exempt = !hold.ourWorkRunning;
   if (mem.heldGB == null) {
+    if (exempt) return { reason: null, kind: null, memoryFirstCardExempt: true };
     const seconds = Math.min(Math.round(MEM_WINDOW_MS / 1000), Math.max(0, Math.round(mem.coveredMs / 1000)));
     return {
       reason: `Memoria: la sto misurando da ${seconds} s su ${Math.round(MEM_WINDOW_MS / 1000)}, e non parto su una lettura sola. Niente è andato perso.`,
@@ -777,11 +781,14 @@ export function dispatchResourceVerdict(
     };
   }
   const cardGB = Math.max(0, hold.cardGB);
-  const reservedGB = Math.max(0, hold.reservedGB) + Math.max(0, hold.readOnlyReservedGB ?? 0);
-  const reservedCards = Math.max(0, hold.reservedCards) + Math.max(0, hold.readOnlyReservedCards ?? 0);
+  const reservedGB = Math.max(0, hold.reservedGB) + Math.max(0, hold.noLocalChecksReservedGB ?? 0);
+  const reservedCards = Math.max(0, hold.reservedCards) + Math.max(0, hold.noLocalChecksReservedCards ?? 0);
   const line = hold.spendingHere || reservedGB > 0 ? floor + cardGB + reservedGB : floor;
   const low = mem.heldGB;
   if (low >= line) return NOTHING_HOLDS;
+  if (exempt && low >= DISPATCH_MEM_EMERGENCY_FLOOR_GB) {
+    return { reason: null, kind: null, memoryFirstCardExempt: true, availableGB: low };
+  }
   const n = reservedCards;
   const kept = reservedGB > 0
     ? ` (il pavimento, il prezzo di una card e ${gb(reservedGB)} GB tenuti per ${n === 1 ? "l'agente al lavoro" : `i ${n} agenti al lavoro`})`

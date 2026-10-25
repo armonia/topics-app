@@ -4,7 +4,7 @@
  * @covers KANBAN-75
  */
 import { describe, expect, test } from "bun:test";
-import { dispatchResourceVerdict, readOnlyMemoryReservationGB, type MemoryFloorHold } from "./dispatch-capacity";
+import { dispatchResourceVerdict, noLocalChecksMemoryReservationGB, type MemoryFloorHold } from "./dispatch-capacity";
 import type { HeldMemory } from "./mem-signal";
 
 /** A full 2-minute window whose lowest reading is `gb`. */
@@ -16,23 +16,22 @@ describe("the machine-wide resource floor", () => {
   const idle: MemoryFloorHold = { cardGB: 4, reservedGB: 0, reservedCards: 0, spendingHere: false, ourWorkRunning: false };
   const atWork: MemoryFloorHold = { ...idle, spendingHere: true, ourWorkRunning: true };
 
-  test("the global floor never grants a card-specific exception", () => {
+  test("the idle machine keeps main's first-card exception above the emergency floor", () => {
     const v = dispatchResourceVerdict("/tmp", disk, held(4.8), false, idle);
-    expect(v.reason).toContain("Memoria quasi finita");
-    expect(v.kind).toBe("memory");
-    expect(v.memoryFirstCardExempt).toBe(false);
+    expect(v.reason).toBeNull();
+    expect(v.memoryFirstCardExempt).toBe(true);
   });
 
   test("native and CLI floors remain at 6 GB and 12 GB", () => {
-    expect(dispatchResourceVerdict("/tmp", disk, held(5.9), false, idle).kind).toBe("memory");
+    expect(dispatchResourceVerdict("/tmp", disk, held(5.9), false, atWork).kind).toBe("memory");
     expect(dispatchResourceVerdict("/tmp", disk, held(6), false, idle).reason).toBeNull();
-    expect(dispatchResourceVerdict("/tmp", disk, held(11.9), true, idle).kind).toBe("memory");
+    expect(dispatchResourceVerdict("/tmp", disk, held(11.9), true, atWork).kind).toBe("memory");
     expect(dispatchResourceVerdict("/tmp", disk, held(12), true, idle).reason).toBeNull();
   });
 
-  test("read-only reservations round both runtimes up to 1 GB", () => {
-    expect(readOnlyMemoryReservationGB(false)).toBe(1);
-    expect(readOnlyMemoryReservationGB(true)).toBe(1);
+  test("no-local-checks reservations use 1 GB native and the measured 420 MB CLI peak", () => {
+    expect(noLocalChecksMemoryReservationGB(false)).toBe(1);
+    expect(noLocalChecksMemoryReservationGB(true)).toBe(0.42);
   });
 
   test("a live agent still raises the normal floor line", () => {
@@ -42,11 +41,18 @@ describe("the machine-wide resource floor", () => {
     expect(v.memoryFirstCardExempt).toBe(false);
   });
 
-  test("an incomplete memory window holds the machine-wide floor", () => {
+  test("the emergency floor holds even the idle machine's first card", () => {
+    const v = dispatchResourceVerdict("/tmp", disk, held(1.9), false, idle);
+    expect(v.reason).toContain("Memoria quasi finita");
+    expect(v.kind).toBe("memory");
+    expect(v.memoryFirstCardExempt).toBe(false);
+  });
+
+  test("the idle first card passes warm-up while active work waits for a full window", () => {
     const window = () => ({ measurable: true, latestGB: 20, heldGB: null, coveredMs: 40_000 });
     const unknown = dispatchResourceVerdict("/tmp", disk, window, false, idle);
-    expect(unknown.kind).toBe("memory_warmup");
-    expect(unknown.memoryFirstCardExempt).toBe(false);
+    expect(unknown.reason).toBeNull();
+    expect(unknown.memoryFirstCardExempt).toBe(true);
     const busy = dispatchResourceVerdict("/tmp", disk, window, false, atWork);
     expect(busy.kind).toBe("memory_warmup");
     expect(busy.reason).toContain("la sto misurando");

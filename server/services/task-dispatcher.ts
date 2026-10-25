@@ -33,7 +33,7 @@ import { attemptHasWork, formatFanoutComment } from "../../shared/task-attempt";
 import { shouldAnnounceResume, DEAD_SESSION_NOTE } from "../lib/dead-run-note";
 import { CODE_GATES_RULE, E2E_CI_CHECK, UNIT_CI_CHECK, isCiEvidenceCheck, ADMISSION_SPACING_MS, DISPATCH_CHIP_QUEUED, admissionVerdict, budgetShare, capMode, estimatedAgentCost, estimatedAgentMemCost, machineBudget, reservedCost, hasDeliveredWork, MAX_FANOUT, PARKED_STOPPED, PARKED_WAITED_OUT, PLAN_APPROVE_LABEL, PLAN_REVISE_LABEL, OUTBOUND_TOOLS_RULE, PREVIEW_RULE, RECOMMENDED_OPTION_RULE, VERSION_BUMP_RULE, readTaskWeight, statusEventEnters, type AdmissionVerdict, type BudgetGateState, type DispatchAdmission, type GlobalDispatchCap, type MachineBudgetSample } from "../../shared/board";
 import { decideNight, deadlineFrom } from "./night-mode";
-import { DISPATCH_MEM_EMERGENCY_FLOOR_GB, effectiveDispatchCap, readOnlyMemoryReservationGB, type MemoryFloorHold, type ResourceFloorKind, type ResourceFloorVerdict } from "./dispatch-capacity";
+import { DISPATCH_MEM_EMERGENCY_FLOOR_GB, effectiveDispatchCap, noLocalChecksMemoryReservationGB, type MemoryFloorHold, type ResourceFloorKind, type ResourceFloorVerdict } from "./dispatch-capacity";
 import { daySpendSentence, heldResumeBlock, publishDispatchBlock, setHeldResumeBlock, type DispatchBlockKind } from "./dispatch-block-signal";
 import { effectiveTopicsRouting, reusedSessionRouteConflict, reusedSessionRouting, taskModelMatchesSession, taskModelSelection, taskModelValue } from "../../shared/task-coding-models";
 import {
@@ -71,10 +71,9 @@ const DEFAULT_RETRY_CAP = 2;
 /** The tool a dispatched session is running, as the session tracker knows it. */
 export interface SessionActivity { name: string; input?: unknown; since: number }
 
-interface ReadOnlyMemoryExemption {
+interface NoLocalChecksMemoryExemption {
   availableGB: number;
   reservationGB: number;
-  topicId?: string;
 }
 
 /** How much of a tool input travels on the wire: the card cuts further. */
@@ -180,8 +179,8 @@ export interface DispatcherDeps {
    * exception without changing this machine-wide answer.
    */
   resourceBlock?: (hold: MemoryFloorHold) => ResourceFloorVerdict | null;
-  /** Memory reserved by one read-only admission, selected from the active runtime. */
-  readOnlyReservationGB?: () => number;
+  /** Memory reserved by one no-local-checks admission, selected from the active runtime. */
+  noLocalChecksReservationGB?: () => number;
   /**
    * WHAT TOPICS IS TAKING OF THIS MACHINE, for the cap "by resources": our own
    * core-units and gigabytes, what the others are taking, and the agents
@@ -1228,7 +1227,7 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
    *
    * EPISODES, not ticks, off the same transition that decides whether to log:
    * the floor is re-read every ten seconds, and counting readings would say
-   * how often we look. A card-specific read-only exception does not close this
+   * how often we look. A card-specific no-local-checks exception does not close this
    * machine-wide floor episode. In memory, zeroed by a restart - hence `since`.
    *
    * THE FIRST EPISODE OF EVERY BOOT IS THE WARM-UP: the memory window starts
@@ -1258,11 +1257,11 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
    *  filter `busyCount` applies), and a card parked on the pull request CI is
    *  charged nothing (KANBAN-76). A PRICE LIST, not a census - `localTurns()`
    *  is the census, and the two must not be confused. */
-  function localLaunches(excludeReadOnly = false): number[] {
+  function localLaunches(excludeNoLocalChecks = false): number[] {
     const offLane = (taskId: string) => { try { return deps.checksOffLane?.(taskId) ?? false; } catch { return false; } };
     return [...inFlight.entries()]
       .filter(([taskId, slot]) => !isNodeSessionKey(slot.sessionKey) && !offLane(taskId)
-        && !(excludeReadOnly && readOnlyExemptionReservations.has(taskId)))
+        && !(excludeNoLocalChecks && noLocalChecksExemptionReservations.has(taskId)))
       .map(([, slot]) => slot.sessionAt);
   }
   /**
@@ -1277,48 +1276,43 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
   function localTurns(): number {
     return [...inFlight.values()].filter((slot) => !isNodeSessionKey(slot.sessionKey)).length;
   }
-  function readOnlyReservationPrice(): number {
+  function noLocalChecksReservationPrice(): number {
     let price = 1;
-    try { price = deps.readOnlyReservationGB?.() ?? readOnlyMemoryReservationGB(false); } catch { /* use the minimum */ }
-    return Number.isFinite(price) ? Math.max(1, price) : 1;
+    try { price = deps.noLocalChecksReservationGB?.() ?? noLocalChecksMemoryReservationGB(false); } catch { /* use the minimum */ }
+    return Number.isFinite(price) && price > 0 ? price : 1;
   }
   function hasNoLocalChecks(task: Task): boolean {
     try {
       return deps.svc.getBoardSettings(task.projectId).reviewChecks.every(isCiEvidenceCheck);
     } catch { return false; }
   }
-  function readOnlyExemptionFor(task: Task, floor: ResourceFloorVerdict): ReadOnlyMemoryExemption | null {
-    if (task.machineId || !floor.reason || floor.kind !== "memory") return null;
+  function noLocalChecksExemptionFor(task: Task, floor: ResourceFloorVerdict): NoLocalChecksMemoryExemption | null {
+    // This reservation follows main's idle first-card exception; resumes keep the original floor gate.
+    if (task.status !== "todo" || task.machineId || !floor.memoryFirstCardExempt) return null;
     const availableGB = floor.availableGB;
     if (availableGB == null || !Number.isFinite(availableGB) || availableGB < DISPATCH_MEM_EMERGENCY_FLOOR_GB) return null;
-    if (readOnlyExemptionReservations.size > 0 || !hasNoLocalChecks(task)) return null;
-    return { availableGB, reservationGB: readOnlyReservationPrice() };
+    if (noLocalChecksExemptionReservations.size > 0 || !hasNoLocalChecks(task)) return null;
+    return { availableGB, reservationGB: noLocalChecksReservationPrice() };
   }
-  function activateReadOnlyExemption(taskId: string, exemption: ReadOnlyMemoryExemption, topicId?: string): boolean {
-    if (readOnlyExemptionReservations.size > 0 && !readOnlyExemptionReservations.has(taskId)) return false;
-    readOnlyExemptionReservations.set(taskId, { ...exemption, ...(topicId ? { topicId } : {}) });
-    if (topicId) persistReadOnlyReservation(taskId, topicId, exemption.reservationGB);
+  function activateNoLocalChecksExemption(taskId: string, exemption: NoLocalChecksMemoryExemption): boolean {
+    if (noLocalChecksExemptionReservations.size > 0 && !noLocalChecksExemptionReservations.has(taskId)) return false;
+    noLocalChecksExemptionReservations.set(taskId, exemption);
+    persistNoLocalChecksReservation(taskId, exemption.reservationGB);
     const gb = exemption.availableGB.toFixed(1).replace(".", ",");
     const line = `partita in esenzione: ${gb} GB liberi, board senza check locali`;
     log(line);
-    try { deps.svc.addComment({ taskId, author: "system", kind: "service", content: line, once: true }); }
+    try { deps.svc.addComment({ taskId, author: "system", kind: "service", content: line }); }
     catch { /* the reservation still governs admission */ }
     return true;
   }
-  function persistReadOnlyReservation(taskId: string, topicId: string, reservationGB: number): void {
-    const current = readOnlyExemptionReservations.get(taskId);
-    if (current) readOnlyExemptionReservations.set(taskId, { ...current, topicId });
-    try { deps.attempts?.setReadOnlyReservation(taskId, topicId, reservationGB); }
-    catch (err) { log(`read-only reservation was not persisted for ${taskId}`, err); }
+  function persistNoLocalChecksReservation(taskId: string, reservationGB: number): void {
+    try { deps.attempts?.setNoLocalChecksReservation(taskId, reservationGB); }
+    catch (err) { log(`no-local-checks reservation was not persisted for ${taskId}`, err); }
   }
-  function clearReadOnlyExemption(taskId: string, topicId?: string): void {
-    const current = readOnlyExemptionReservations.get(taskId);
-    const boundTopic = current?.topicId ?? topicId;
-    if (boundTopic) {
-      try { deps.attempts?.setReadOnlyReservation(taskId, boundTopic, null); }
-      catch (err) { log(`read-only reservation was not cleared for ${taskId}`, err); }
-    }
-    readOnlyExemptionReservations.delete(taskId);
+  function clearNoLocalChecksExemption(taskId: string): void {
+    try { deps.attempts?.setNoLocalChecksReservation(taskId, null); }
+    catch (err) { log(`no-local-checks reservation was not cleared for ${taskId}`, err); }
+    noLocalChecksExemptionReservations.delete(taskId);
   }
   /**
    * THE FLOOR, read with what the reading cannot see, and without saying it
@@ -1341,10 +1335,14 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
   function floorVerdict(): ResourceFloorVerdict {
     const price = agentMemPrice();
     const launches = localLaunches(true);
-    const readOnlyReservations = [...readOnlyExemptionReservations.values()];
-    const readOnlyReservedGB = readOnlyReservations.reduce((sum, reservation) => sum + reservation.reservationGB, 0);
+    const noLocalChecksReservations = [...noLocalChecksExemptionReservations.values()];
     const checks = (() => { try { return deps.checksRunning?.() ?? 0; } catch { return 0; } })();
     const resources = inResourcesMode();
+    // Resources mode charges this reservation in budgetVerdict; count mode
+    // charges it here, so neither path counts the same turn twice.
+    const noLocalChecksReservedGB = resources
+      ? 0
+      : noLocalChecksReservations.reduce((sum, reservation) => sum + reservation.reservationGB, 0);
     const reserved = resources ? 0 : reservedCost(launches, { coreUnits: 0, memGB: price }, Date.now()).memGB;
     // TWO QUESTIONS, AND EACH GETS ITS OWN CENSUS WHOLE.
     //
@@ -1367,9 +1365,9 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
       cardGB: price,
       reservedGB: reserved,
       reservedCards: resources ? 0 : launches.length,
-      readOnlyReservedGB,
-      readOnlyReservedCards: readOnlyReservations.length,
-      spendingHere: launches.length + Math.max(0, checks) + readOnlyReservations.length > 0,
+      noLocalChecksReservedGB,
+      noLocalChecksReservedCards: resources ? 0 : noLocalChecksReservations.length,
+      spendingHere: launches.length + Math.max(0, checks) + (resources ? 0 : noLocalChecksReservations.length) > 0,
       ourWorkRunning: localTurns() + Math.max(0, checks) > 0,
     }) ?? { reason: null, kind: null, memoryFirstCardExempt: false };
   }
@@ -1441,7 +1439,10 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
    * soon as the use drops. That difference is why the two publish as two
    * different kinds and why the floor wins when both hold.
    *
-   * The one exception (`firstAgentExempt`) is decided in
+   * The budget and memory floor keep their existing first-card exceptions, each
+   * declared by `firstAgentExempt` on this preview.
+   *
+   * The budget exception is decided in
    * `shared/machine-budget.ts`: with no agent running the first one starts even
    * on a loaded machine, or a developer who keeps their own Mac busy would own
    * a board that never starts and looks broken.
@@ -1493,7 +1494,7 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
     const now = Date.now();
     const regularReserved = reservedCost(localLaunches(true), { ...cost, memGB: agentMemPrice() }, now);
     const allReserved = reservedCost(localLaunches(), { ...cost, memGB: 0 }, now);
-    const readOnlyReservedGB = [...readOnlyExemptionReservations.values()]
+    const noLocalChecksReservedGB = [...noLocalChecksExemptionReservations.values()]
       .reduce((sum, reservation) => sum + reservation.reservationGB, 0);
     // The exemption is for a machine with none of OUR work on it, and a
     // pre-review check run is our work: a queue behind an 11 GB shard run is not
@@ -1503,7 +1504,7 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
       ...sample,
       running: sample.running + Math.max(0, checks),
       reservedCoreUnits: allReserved.coreUnits,
-      reservedMemGB: regularReserved.memGB + readOnlyReservedGB,
+      reservedMemGB: regularReserved.memGB + noLocalChecksReservedGB,
     };
     const verdict = admissionVerdict(gated, share, cost, budgetGate);
     // Read off the same function the verdict read, on the same sample: not a
@@ -1511,7 +1512,7 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
     const mem = { ourMemGB: Math.max(0, sample.ourMemGB), usableMemGB: machineBudget(gated, share).usableMemGB };
     return { verdict, sample, share, mem };
   }
-  function readOnlyBudgetBlock(reservationGB: number): string | null {
+  function noLocalChecksBudgetBlock(reservationGB: number): string | null {
     try {
       const gcap = deps.svc.getGlobalCap();
       if (capMode(gcap) !== "resources") return null;
@@ -1531,7 +1532,7 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
    * `floorVerdict()` and not `admissionBlock()`: that one logs the episode and
    * moves its dedup state, and a panel polling every 15 s must not.
    *
-   * A read-only exception is card-specific and never changes this machine-wide
+   * A no-local-checks exception is card-specific and never changes this machine-wide
    * preview. The budget's independent first-agent exception remains visible.
    */
   function admissionPreview(): DispatchAdmission | null {
@@ -1542,10 +1543,14 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
       if (drain) return held("drain", drain);
       const floor = (() => { try { return floorVerdict(); } catch { return null; } })();
       if (floor?.reason) return held("floor", floor.reason);
+      const firstCardExempt = floor?.memoryFirstCardExempt ?? false;
+      const firstCardPass: DispatchAdmission | null = firstCardExempt
+        ? { admit: true, blockedBy: null, firstAgentExempt: true, costCoreUnits: 0 }
+        : null;
       const gcap = deps.svc.getGlobalCap();
-      if (capMode(gcap) !== "resources") return null;
+      if (capMode(gcap) !== "resources") return firstCardPass;
       const computed = budgetVerdict(gcap);
-      if (!computed) return null;
+      if (!computed) return firstCardPass;
       const { verdict: v, mem } = computed;
       return {
         admit: v.admit,
@@ -1553,7 +1558,7 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
         // OR, not the budget's alone: the budget can admit on its own quota
         // while the only reason this card reached it is the floor standing
         // down, and a green there says the opposite of what happened.
-        firstAgentExempt: v.firstAgentExempt,
+        firstAgentExempt: v.firstAgentExempt || firstCardExempt,
         costCoreUnits: v.costCoreUnits,
         usedCoreUnits: v.usedCoreUnits,
         usableCoreUnits: v.usableCoreUnits,
@@ -1818,8 +1823,8 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
   // In-flight launches, keyed by taskId — presence means "a turn is running or
   // being set up for this task"; keeps reconcile/tick from double-launching.
   const inFlight = new Map<string, RunSlot>();
-  /** One read-only floor exemption may reserve memory for its full live turn. */
-  const readOnlyExemptionReservations = new Map<string, ReadOnlyMemoryExemption>();
+  /** One no-local-checks floor exemption may reserve memory for its full live turn. */
+  const noLocalChecksExemptionReservations = new Map<string, NoLocalChecksMemoryExemption>();
   /**
    * THE REMOTE LANE, whole, in `task-dispatcher-remote-node.ts`. What stays
    * here are its five seams: launch, liveness sweep, burial, poll, and the
@@ -2036,7 +2041,7 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
   function endRun(taskId: string, runId: number): void {
     if (ownsRun(taskId, runId)) {
       inFlight.delete(taskId);
-      clearReadOnlyExemption(taskId);
+      clearNoLocalChecksExemption(taskId);
     }
   }
 
@@ -2119,7 +2124,7 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
   // forgotten only when the card really starts again, and in the meantime it is
   // not repeated at every poll.
   const spendHeldNoted = new Set<string>();
-  const readOnlyBudgetHeldNoted = new Set<string>();
+  const noLocalChecksBudgetHeldNoted = new Set<string>();
   // Tasks already told "the machine is under the floor" / "the daily spend cap
   // is reached", and WHICH wait they were told about (`holdKey`). Same
   // discipline as the sets above: one line per EPISODE, not one per 10s poll - a
@@ -2808,7 +2813,6 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
     // quando lo sbatte, e il rosso arriva a lavoro già "finito".
     let checks: { name: string; cmd: string }[] = [];
     try { checks = deps.svc.getBoardSettings(task.projectId).reviewChecks; } catch { /* board senza gate */ }
-    const readOnlyExempt = readOnlyExemptionReservations.has(task.id);
     const ciE2e = checks.some((c) => c.cmd.trim() === E2E_CI_CHECK.cmd);
     const ciUnit = checks.some((c) => c.cmd.trim() === UNIT_CI_CHECK.cmd);
     checks = checks.filter((c) => !isCiEvidenceCheck(c));
@@ -2911,9 +2915,6 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
               `- PRE-REVIEW CHECKS: run the targeted tests for the code you changed. On delivery the board runs ${checks.length === 1 ? "this declared gate" : "these declared gates"} in your worktree — ${checks.map((c) => `\`${c.cmd}\``).join(", ")}. If one fails, review is refused and its output comes back to you.`,
             ]
           : []),
-        ...(readOnlyExempt
-          ? ["- La card è partita con poca memoria, quindi niente suite, build o test locali; se servono, usa la CI o `offload`."]
-          : []),
         ciE2e ? E2E_CI_KICKOFF_LINE : E2E_NOT_MEASURED_KICKOFF_LINE,
         ...(ciUnit ? [UNIT_CI_KICKOFF_LINE] : []),
         `- When the work is complete move the task to \`review\` with: update_task(task_id="${task.id}", status="review"). You can NOT take it to \`done\` (that needs the human's ok).`,
@@ -2936,7 +2937,7 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
     taskId: string,
     settings: { useWorktree: boolean; timeoutMin: number; idleMin: number; effort: string; mcp: string; model?: string; provider?: string; topicsRouting?: boolean; topicsRoutingStored?: boolean | null },
     resolved: { path: string; projectStoreId: string | null },
-    readOnlyExemption?: ReadOnlyMemoryExemption | null,
+    noLocalChecksExemption?: NoLocalChecksMemoryExemption | null,
   ): Promise<void> {
     const beforeLaunch = deps.svc.get(taskId)?.task;
     if (!beforeLaunch) return;
@@ -2984,7 +2985,7 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
         return;
       }
     }
-    if (readOnlyExemption && !activateReadOnlyExemption(taskId, readOnlyExemption)) {
+    if (noLocalChecksExemption && !activateNoLocalChecksExemption(taskId, noLocalChecksExemption)) {
       releaseAndEmit({
         taskId, requeue: true, rollbackAttempt: true,
         reason: "In attesa: una card in esenzione sta già usando la prenotazione di memoria.",
@@ -3188,13 +3189,13 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
             taskId,
             idx: gia + 1,
             model: chosenModel ?? null,
-            readOnlyReservationGB: readOnlyExemption?.reservationGB ?? null,
+            noLocalChecksReservationGB: noLocalChecksExemption?.reservationGB ?? null,
           });
           attemptId = a.id;
           let branch: string | null = null;
           try { branch = worktreeId ? (deps.worktreeBranch?.(worktreeId) ?? null) : null; } catch { /* etichetta, non un requisito */ }
           attemptStore.bind(a.id, { topicId, worktreeId: worktreeId ?? null, branch });
-          if (readOnlyExemption) persistReadOnlyReservation(taskId, topicId, readOnlyExemption.reservationGB);
+          if (noLocalChecksExemption) persistNoLocalChecksReservation(taskId, noLocalChecksExemption.reservationGB);
         } catch (err) { log(`storico: tentativo non registrato per ${taskId}`, err); }
       }
 
@@ -4423,7 +4424,7 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
    * provider hold, the per-card spend cap): the machine sentences on the card
    * do not describe them.
    */
-  function resumeHold(t: Task): { reason: string; kind: DispatchBlockKind | null; floor?: ResourceFloorKind | null; slot?: string; readOnlyExemption?: ReadOnlyMemoryExemption } | null {
+  function resumeHold(t: Task): { reason: string; kind: DispatchBlockKind | null; floor?: ResourceFloorKind | null; slot?: string; noLocalChecksExemption?: NoLocalChecksMemoryExemption } | null {
     // The provider wall's own slot rides along (see `taskPlanWait`), so the
     // note of this resume and the one the tick writes for the same wall are
     // the same row.
@@ -4434,16 +4435,16 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
     // The floor VERDICT, because the resume keys its wait on the resource and
     // decides on it whether the sentence is worth a line in the thread.
     const floor = admissionVerdictNow();
-    const readOnlyExemption = readOnlyExemptionFor(t, floor);
-    if (floor.reason && !readOnlyExemption) return { reason: floor.reason, kind: "resources", floor: floor.kind };
+    const noLocalChecksExemption = noLocalChecksExemptionFor(t, floor);
+    if (floor.reason && !noLocalChecksExemption) return { reason: floor.reason, kind: "resources", floor: floor.kind };
     const day = spendBrake.dayBlock();
     if (day) return { reason: daySpendSentence(day), kind: "spend" };
     const card = spendBrake.taskBlock(t.agentCostCents);
     if (card) return { reason: card, kind: null };
-    if (readOnlyExemption) {
-      const budget = readOnlyBudgetBlock(readOnlyExemption.reservationGB);
+    if (noLocalChecksExemption) {
+      const budget = noLocalChecksBudgetBlock(noLocalChecksExemption.reservationGB);
       if (budget) return { reason: budget, kind: "pressure" };
-      return { reason: "", kind: null, readOnlyExemption };
+      return { reason: "", kind: null, noLocalChecksExemption };
     }
     const pressure = pressureBlock();
     return pressure ? { reason: pressure, kind: "pressure" } : null;
@@ -4633,7 +4634,7 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
         return;
       }
     }
-    if (hold?.readOnlyExemption && !activateReadOnlyExemption(taskId, hold.readOnlyExemption, t.assignedTopicId)) {
+    if (hold?.noLocalChecksExemption && !activateNoLocalChecksExemption(taskId, hold.noLocalChecksExemption)) {
       const reason = "In attesa: una card in esenzione sta già usando la prenotazione di memoria.";
       try { emit(deps.svc.setDispatchState({ taskId, state: CHIP_QUEUED, error: reason })); } catch { /* best-effort */ }
       const delay = RESUME_SLOT_RETRY_MS + (resumeStagger++ % 8) * 250;
@@ -4667,9 +4668,6 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
       const content = opts?.continuation
         ? claimNudge(t.id, buildContinueNudge(t, attemptCap(t)))
         : buildResume(t, humanMessage);
-      const contentWithMemoryRule = readOnlyExemptionReservations.has(taskId)
-        ? `${content}\n\n- La card è partita con poca memoria, quindi niente suite, build o test locali; se servono, usa la CI o \`offload\`.`
-        : content;
       // Resume (human answer) or continuation (post-timeout nudge): the session
       // already carries the full envelope from kickoff — re-injecting CLAUDE.md
       // & co. only compounds cache write/read. Lean = role prompt + cwd only.
@@ -4681,7 +4679,7 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
           persistedDeadlineAt: delegatedDeadlineAt,
           clock,
           abortTurn: deps.abortTurn,
-          run: () => deps.runTurn(sessionKey, contentWithMemoryRule, {
+          run: () => deps.runTurn(sessionKey, content, {
             timeoutMs: Math.max(1, timeoutMin) * 60_000,
             idleMs: Math.max(1, idleMin) * 60_000,
             contextMode: "lean",
@@ -4724,14 +4722,21 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
     if (inFlight.has(taskId)) return;
     let persistedReservationGB: number | null = null;
     try {
-      persistedReservationGB = deps.attempts?.getReadOnlyReservation(taskId, t.assignedTopicId) ?? null;
+      persistedReservationGB = deps.attempts?.getNoLocalChecksReservation(taskId) ?? null;
     } catch { /* the live turn can still be adopted without its accounting row */ }
-    if (!t.machineId && persistedReservationGB != null && persistedReservationGB >= 1) {
-      readOnlyExemptionReservations.set(taskId, {
-        availableGB: 0,
-        reservationGB: persistedReservationGB,
-        topicId: t.assignedTopicId,
-      });
+    if (persistedReservationGB != null) {
+      const canRestoreReservation = !t.machineId
+        && persistedReservationGB > 0
+        && noLocalChecksExemptionReservations.size === 0
+        && hasNoLocalChecks(t);
+      if (canRestoreReservation) {
+        noLocalChecksExemptionReservations.set(taskId, {
+          availableGB: 0,
+          reservationGB: persistedReservationGB,
+        });
+      } else {
+        clearNoLocalChecksExemption(taskId);
+      }
     }
     // Nessun tetto qui, di proposito: il reattach ADOTTA un turno che sta già
     // girando nel broker. Rifiutarlo non risparmierebbe niente — lo lascerebbe
@@ -5254,19 +5259,19 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
         continue;
       }
       const taskFanOut = delegated ? 1 : (t.reuseBlockerContext && t.blockedByTaskId ? 1 : fanOut);
-      const readOnlyExemption = taskFanOut === 1 ? readOnlyExemptionFor(t, floorNow) : null;
-      if (readOnlyExemption) {
+      const noLocalChecksExemption = taskFanOut === 1 ? noLocalChecksExemptionFor(t, floorNow) : null;
+      if (noLocalChecksExemption) {
         const dayBlock = spendBrake.dayBlock();
-        const candidateBlock = dayBlock ?? readOnlyBudgetBlock(readOnlyExemption.reservationGB);
+        const candidateBlock = dayBlock ?? noLocalChecksBudgetBlock(noLocalChecksExemption.reservationGB);
         if (candidateBlock) {
-          noteHold(readOnlyBudgetHeldNoted, t, candidateBlock);
+          noteHold(noLocalChecksBudgetHeldNoted, t, candidateBlock);
           continue;
         }
-        readOnlyBudgetHeldNoted.delete(t.id);
+        noLocalChecksBudgetHeldNoted.delete(t.id);
       } else {
-        readOnlyBudgetHeldNoted.delete(t.id);
+        noLocalChecksBudgetHeldNoted.delete(t.id);
       }
-      if (floorBlock && !readOnlyExemption) {
+      if (floorBlock && !noLocalChecksExemption) {
         // THE REASON GOES ON THE CARD, not only into the server log. This
         // branch used to write the bare `queued` chip and leave the
         // explanation in a file nobody watching the board opens: the card fell
@@ -5560,7 +5565,7 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
           });
         } catch { /* best-effort */ }
       }
-      void launch(t.id, { useWorktree: settings.dispatchUseWorktree, ...launchSettings }, resolved, readOnlyExemption);
+      void launch(t.id, { useWorktree: settings.dispatchUseWorktree, ...launchSettings }, resolved, noLocalChecksExemption);
     }
   }
 
@@ -5685,7 +5690,7 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
     if (!ownsRun(taskId, runId)) return;
     const slot = inFlight.get(taskId)!;
     inFlight.delete(taskId);
-    clearReadOnlyExemption(taskId);
+    clearNoLocalChecksExemption(taskId);
     // A REMOTE run has no process, no session and no live turn to account for:
     // the accounting below would book a transcript that does not exist and end
     // a turn that never started here.
@@ -6248,7 +6253,7 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
       } else if (task.assignedTopicId && deps.abortTurn) {
         try { await deps.abortTurn(`topic:${task.assignedTopicId.slice(0, 8)}`, "superseded"); } catch { /* release still closes authority */ }
       }
-      clearReadOnlyExemption(task.id, task.assignedTopicId ?? undefined);
+      clearNoLocalChecksExemption(task.id);
       if (task.status === "todo") {
         try { emit(deps.svc.setDispatchState({ taskId: task.id, state: null, error: "delegated_capability_revoked" })); }
         catch { /* task may have moved */ }
