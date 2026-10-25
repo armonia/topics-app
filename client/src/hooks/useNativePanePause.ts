@@ -193,7 +193,10 @@ export function useNativePanePause(d: PauseDeps): NativePanePause {
       tauriInvoke<string>('browser_eval_js', { id: x.id, js: PAUSE_MEDIA_JS }).catch(() => ''),
       new Promise<string>((r) => setTimeout(() => r(''), STILL_TIMEOUT_MS)),
     ]);
-    if (seq !== pauseSeqRef.current) return;
+    if (seq !== pauseSeqRef.current) {
+      void tauriInvoke<string>('browser_eval_js', { id: x.id, js: RESUME_MEDIA_JS }).catch(() => '');
+      return;
+    }
     if (liveRef.current) {
       void tauriInvoke<string>('browser_eval_js', { id: x.id, js: RESUME_MEDIA_JS }).catch(() => '');
       setPauseState('live');
@@ -235,6 +238,7 @@ export function useNativePanePause(d: PauseDeps): NativePanePause {
     if (state === 'live') return;
     ++pauseSeqRef.current;
     if (state === 'pausing') {
+      void tauriInvoke<string>('browser_eval_js', { id: x.id, js: RESUME_MEDIA_JS }).catch(() => '');
       // Nothing is hidden yet: drop the still and stay live.
       setPauseState('live');
       revoke(pausedImageRef.current);

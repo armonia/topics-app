@@ -42,6 +42,8 @@ let inspectorOpen = false;
 let fullScreen = false;
 let pageState = '';
 let calls: Array<{ cmd: string; args: Record<string, unknown> }> = [];
+let deferMediaPause = false;
+let resolveMediaPause: (() => void) | null = null;
 let overlays: readonly OverlayRect[] = [];
 let occlusionListeners = new Set<(rects: OverlayRect[]) => void>();
 let sockets: Array<{ emit: (type: string, data?: string) => void }> = [];
@@ -73,6 +75,9 @@ beforeAll(() => {
       if (cmd === 'browser_devtools_open') return Promise.resolve(inspectorOpen);
       if (cmd === 'browser_eval_js') {
         const js = String(args.js ?? '');
+        if (deferMediaPause && js.includes('.pause()')) {
+          return new Promise<string>((resolve) => { resolveMediaPause = () => resolve(''); });
+        }
         return Promise.resolve(js.includes('fullscreenElement') ? (fullScreen ? '1' : '') : pageState);
       }
       if (cmd.startsWith('browser_take_') || cmd === 'browser_nav_entries') return Promise.resolve([]);
@@ -118,6 +123,8 @@ beforeEach(() => {
   fullScreen = false;
   pageState = '';
   calls = [];
+  deferMediaPause = false;
+  resolveMediaPause = null;
   overlays = [];
   occlusionListeners = new Set();
   sockets = [];
@@ -222,6 +229,30 @@ describe('useTauriBrowser: a heavy pane pauses and resumes', () => {
     resumeByFocus(bench);
     await settle();
     expect(calls.some((c) => c.cmd === 'browser_eval_js' && String(c.args.js).includes('.play()'))).toBe(true);
+    bench.harness.unmount();
+  });
+
+  test('focus returning while media pause is in flight restores media after the late pause', async () => {
+    const bench = await heavyPane();
+    deferMediaPause = true;
+    bench.props.hasFocus = false;
+    bench.harness.rerender();
+    await advance(PAUSE_DWELL_MS);
+
+    const pauseIndex = calls.findIndex((c) => c.cmd === 'browser_eval_js' && String(c.args.js).includes('.pause()'));
+    expect(pauseIndex).toBeGreaterThanOrEqual(0);
+    expect(resolveMediaPause).not.toBeNull();
+
+    resumeByFocus(bench);
+    await settle();
+    const firstResumeIndex = calls.findIndex((c) => c.cmd === 'browser_eval_js' && String(c.args.js).includes('.play()'));
+    expect(firstResumeIndex).toBeGreaterThan(pauseIndex);
+
+    resolveMediaPause!();
+    await settle();
+    const lastResumeIndex = calls.findLastIndex((c) => c.cmd === 'browser_eval_js' && String(c.args.js).includes('.play()'));
+    expect(lastResumeIndex).toBeGreaterThan(firstResumeIndex);
+    expect(bench.handle().paused).toBe(false);
     bench.harness.unmount();
   });
 
