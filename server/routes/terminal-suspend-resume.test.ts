@@ -179,7 +179,9 @@ describe("resumed terminal sends", () => {
     addEndedChild({ id, claudeSessionId });
     bufferText = `for shortcuts\n> ${filteredPrompt}`;
     const seeds: Array<{ childId: string; prompt: string; acceptSnippet?: string }> = [];
-    _setSeedPromptHandlerForTests((childId, prompt, acceptSnippet) => seeds.push({ childId, prompt, acceptSnippet }));
+    _setSeedPromptHandlerForTests((childId, prompt, acceptSnippet) => {
+      seeds.push({ childId, prompt, acceptSnippet });
+    });
     bridgeFrames.length = 0;
 
     const response = await requestSend(id, rawPrompt);
