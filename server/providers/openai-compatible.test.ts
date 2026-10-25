@@ -4,6 +4,7 @@
  *
  * @covers MP-DIRECT-01
  * @covers MP-DIRECT-03
+ * @covers USAGE-03
  */
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { OpenAICompatibleProvider, describeContextOverflow } from "./openai-compatible";
@@ -60,6 +61,26 @@ function collector(): { handler: StreamHandler; seen: Collected } {
 }
 
 describe("a configured endpoint streaming a chat", () => {
+  test("reports the last cumulative usage once for the model call", async () => {
+    globalThis.fetch = (async () => new Response(
+      sseStream([
+        JSON.stringify({ choices: [], usage: { prompt_tokens: 11, completion_tokens: 3 } }),
+        JSON.stringify({ choices: [], usage: { prompt_tokens: 11, completion_tokens: 7 } }),
+      ]),
+      { status: 200 },
+    )) as unknown as typeof fetch;
+
+    const provider = new OpenAICompatibleProvider({
+      type: "openai-compatible",
+      endpoint: endpoint({ modelFilter: ["qwen38-27b-200k"] }),
+    });
+    provider.start();
+    const { handler, seen } = collector();
+    await provider.sendChat("session-cumulative", "ciao", handler);
+
+    expect(seen.usage).toEqual([{ inputTokens: 11, outputTokens: 7 }]);
+  });
+
   test("sends the model, asks for usage, and reports both text and tokens", async () => {
     const requests: { url: string; init: RequestInit }[] = [];
     globalThis.fetch = (async (url: string, init: RequestInit) => {

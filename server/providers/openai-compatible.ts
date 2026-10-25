@@ -177,6 +177,19 @@ export class OpenAICompatibleProvider implements AIProvider {
     const timer = setTimeout(() => controller.abort(), this.timeout());
     let fullText = "";
     let lastUsage: { promptTokens: number; completionTokens: number } | undefined;
+    let usageReported = false;
+    const reportLastUsage = () => {
+      if (!lastUsage || usageReported) return;
+      usageReported = true;
+      handler.onCallUsage?.({
+        inputTokens: lastUsage.promptTokens,
+        outputTokens: lastUsage.completionTokens,
+        cacheRead: 0,
+        cacheCreation: 0,
+        cacheCreation1h: 0,
+        model,
+      });
+    };
 
     try {
       const response = await fetchCheckedEndpoint(`${this.endpoint.baseUrl}/chat/completions`, {
@@ -210,25 +223,19 @@ export class OpenAICompatibleProvider implements AIProvider {
           onToolStart: (id, name, args) => handler.onToolStart(id, name, args),
           onUsage: (usage) => {
             lastUsage = usage;
-            handler.onCallUsage?.({
-              inputTokens: usage.promptTokens,
-              outputTokens: usage.completionTokens,
-              cacheRead: 0,
-              cacheCreation: 0,
-              cacheCreation1h: 0,
-              model,
-            });
             const window = this.contextWindowFor(model);
             handler.onContextSize?.(usage.promptTokens, model, window);
           },
         },
         this.voice(),
       );
+      reportLastUsage();
       handler.onDone(lastUsage
         ? { usage: { inputTokens: lastUsage.promptTokens, outputTokens: lastUsage.completionTokens } }
         : undefined);
     } catch (error) {
       const err = error as { name?: string; message?: string };
+      reportLastUsage();
       if (err?.name === "AbortError") handler.onAborted?.();
       else if (error instanceof EndpointUrlError) handler.onError(err.message ?? String(error));
       else handler.onError(err?.message ?? String(error));
