@@ -30,6 +30,10 @@
  */
 import { describe, it, expect } from "bun:test";
 import { Database } from "bun:sqlite";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { createLifecycleHooks, type LifecycleHookPayload, type LifecycleHookRunner } from "./lifecycle-hooks";
 import { createTaskService, type TaskService } from "./tasks";
 import { createTaskDispatcher, type DispatcherDeps } from "./task-dispatcher";
 import { NODE_DEAD_POLLS } from "./task-dispatcher-remote-node";
@@ -101,6 +105,9 @@ interface NodeFakeOptions {
   cancelRun?: (runId: string) => Promise<void>;
   bundle?: Uint8Array | null;
   planted?: { planted: boolean; commit: string | null; reason: string | null };
+  /** The `node-run` hook runner; absent = the lane's own default. */
+  hooks?: LifecycleHookRunner;
+  projectPathOf?: (projectId: string) => string | null;
 }
 
 function nodeFake(o: NodeFakeOptions = {}) {
@@ -134,6 +141,8 @@ function nodeFake(o: NodeFakeOptions = {}) {
     nameOf: () => "Portatile",
     localMachineId: () => "questa-macchina",
     originUrlOf: async () => "git@github.com:acme/alpha.git",
+    ...(o.hooks ? { hooks: o.hooks } : {}),
+    ...(o.projectPathOf ? { projectPathOf: o.projectPathOf } : {}),
     plantBranch: async ({ branch, baseSha, bundle }) => {
       plantedWith.push({ branch, baseSha, bundleBytes: bundle ? bundle.length : null });
       return o.planted ?? { planted: true, commit: "c0ffeec0ffee", reason: null };
@@ -316,6 +325,144 @@ describe("la card parte sul nodo, non qui", () => {
     expect(h.calls).toEqual([]);
     expect(h.task().status).toBe("todo");
     expect(h.task().dispatchError).toBe("node_unreachable");
+  });
+});
+
+describe("l'hook node-run gira prima che la card parta sul nodo", () => {
+  /** A runner that records every call and answers with a fixed outcome. */
+  function hookFake(outcome: Awaited<ReturnType<LifecycleHookRunner["run"]>>, order?: string[]) {
+    const seen: { event: string; payload: LifecycleHookPayload }[] = [];
+    const runner: LifecycleHookRunner = {
+      run: async (event, payload) => {
+        order?.push("hook");
+        seen.push({ event, payload });
+        return outcome;
+      },
+    };
+    return { runner, seen };
+  }
+
+  it("via libera: la corsa parte con lo stesso corpo di sempre e l'hook riceve il carico completo", async () => {
+    const order: string[] = [];
+    const hook = hookFake({ ok: true }, order);
+    const h = harness({ hooks: hook.runner, projectPathOf: () => "/Users/me/alpha" });
+    h.seed();
+
+    await dispatch(h);
+
+    expect(hook.seen).toHaveLength(1);
+    expect(hook.seen[0].event).toBe("node-run");
+    expect(hook.seen[0].payload).toEqual({
+      hook_event_name: "node-run",
+      session_id: TASK,
+      cwd: "/Users/me/alpha",
+      task_id: TASK,
+      project_id: PID,
+      machine_id: MACHINE,
+      machine_name: "Portatile",
+      node_base_url: BASE_URL,
+      origin_url: "git@github.com:acme/alpha.git",
+    });
+    expect(h.calls.filter((c) => c === "create")).toHaveLength(1);
+    expect(h.created[0].body).toEqual({
+      originTaskId: TASK,
+      originUrl: "git@github.com:acme/alpha.git",
+      text: "porta a casa la corsia remota",
+      description: "con il ramo",
+      model: null,
+      effort: "medium",
+    });
+    expect(h.task().status).toBe("in_progress");
+    expect(h.task().dispatchState).toBe("working");
+  });
+
+  it("veto: nessuna corsa creata, la card torna in coda come un nodo muto e dice perché", async () => {
+    const hook = hookFake({ ok: false, reason: "il PC non si sveglia (wol senza risposta)" });
+    const h = harness({ hooks: hook.runner });
+    h.seed();
+
+    await dispatch(h);
+
+    expect(h.calls).toEqual([]);
+    const t = h.task();
+    expect(t.status).toBe("todo");
+    expect(t.dispatchError).toBe("node_unreachable");
+    expect(t.dispatchDeferredUntil).not.toBeNull();
+    expect(Date.parse(t.dispatchDeferredUntil!)).toBeGreaterThan(Date.now());
+    expect(t.dispatchAttempts).toBe(0);
+    expect(h.turns).toEqual([]);
+    expect(h.worktrees).toEqual([]);
+    const note = h.comments().map((c) => c.content).join("\n");
+    expect(note).toContain("il nodo «Portatile» non è pronto: il PC non si sveglia (wol senza risposta)");
+    // The slot is free again: the retry is not blocked by a ghost run.
+    expect(h.dispatcher.busyIds()).not.toContain(TASK);
+  });
+
+  it("l'hook gira prima di ogni chiamata al nodo, anche la cancellazione della corsa vecchia", async () => {
+    // A PC that sleeps cannot answer the cancel either: the hook that wakes it
+    // has to come first, then the cancel of the buried run, then the new run.
+    const trace: string[] = [];
+    let runs = 0;
+    let buried = false;
+    const hook = hookFake({ ok: true }, trace);
+    const h = harness({
+      hooks: hook.runner,
+      createRun: async () => { trace.push("create"); runs += 1; return { runId: `run-${runs}` }; },
+      cancelRun: async (runId) => { trace.push(`cancel:${runId}`); },
+      readRun: (runId) =>
+        runId === "run-1" && !buried
+          ? Promise.reject(Object.assign(new Error("giu"), { reason: "unreachable" }))
+          : Promise.resolve(report()),
+    });
+    h.seed();
+    await dispatch(h);
+    await poll(h, NODE_DEAD_POLLS);
+    buried = true;
+
+    expect(trace).toEqual(["hook", "create", "hook", "cancel:run-1", "create"]);
+  });
+
+  it("hooks.json con uno script che esce non zero: il motivo sullo stderr arriva sulla card", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "node-run-hook-"));
+    try {
+      const file = join(dir, "hooks.json");
+      writeFileSync(file, JSON.stringify({
+        hooks: [{ event: "node-run", cmd: "cat >/dev/null; echo 'bundle non inviato' >&2; exit 3", timeoutMs: 5000 }],
+      }));
+      const h = harness({ hooks: createLifecycleHooks({ file, log: () => {} }) });
+      h.seed();
+
+      await dispatch(h);
+      // The real command runs in a child process: give it a moment to answer.
+      for (let i = 0; i < 100 && h.task().status !== "todo"; i++) await new Promise((r) => setTimeout(r, 20));
+      await flush();
+
+      expect(h.calls).toEqual([]);
+      expect(h.task().status).toBe("todo");
+      expect(h.comments().map((c) => c.content).join("\n")).toContain("bundle non inviato");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("nessun hooks.json: la card parte esattamente come prima", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "node-run-nohooks-"));
+    const previous = process.env.TOPICS_HOME;
+    process.env.TOPICS_HOME = dir;
+    try {
+      // No `hooks` injected: the lane falls back to the shared runner, which reads the (absent) file.
+      const h = harness();
+      h.seed();
+
+      await dispatch(h);
+
+      expect(h.calls.filter((c) => c === "create")).toHaveLength(1);
+      expect(h.task().status).toBe("in_progress");
+      expect(h.task().dispatchState).toBe("working");
+    } finally {
+      if (previous === undefined) delete process.env.TOPICS_HOME; else process.env.TOPICS_HOME = previous;
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 });
 
