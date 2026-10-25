@@ -59,9 +59,12 @@ function fakeGit(responses: Record<string, Partial<GitRunResult>>) {
   const calls: string[][] = [];
   const run = async (_cwd: string, args: string[]): Promise<GitRunResult> => {
     calls.push(args);
-    // Key on the first two tokens (e.g. "merge --abort" vs "merge --no-ff").
-    const key = args.slice(0, 2).join(" ");
-    const r = responses[key] ?? responses[args[0]] ?? {};
+    // Key on the first two tokens (e.g. "merge --abort" vs "merge --no-ff"), past any leading `-c key=value`.
+    const sub = args[0] === "-c" ? args.slice(2) : args;
+    const key = sub.slice(0, 2).join(" ");
+    // `diff --quiet` defaults to "differs" (exit 1): an all-zero fake would claim
+    // every branch's content is already on main (squash check in the land).
+    const r = responses[key] ?? responses[sub[0]] ?? (key === "diff --quiet" ? { code: 1 } : {});
     return { code: r.code ?? 0, stdout: r.stdout ?? "", stderr: r.stderr ?? "" };
   };
   return { run, calls };

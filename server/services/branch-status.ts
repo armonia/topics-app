@@ -255,6 +255,35 @@ async function statusOfExistingRef(repoPath: string, ref: string, mainRef: strin
   return differs === 0 ? "merged" : "unmerged";
 }
 
+/**
+ * Content check for a branch whose commits are not ancestors of `mainRef`
+ * (squash-merged PR): true when every file the branch changed since its
+ * merge-base is identical on `mainRef`. A false positive here lets the land
+ * reap a branch whose work is NOT on main, so the check is deliberately strict:
+ *  - NUL-separated, untrimmed paths (`-z`): no quoting of non-ASCII or quotes,
+ *    no stripped trailing spaces;
+ *  - `--no-renames`: a rename lists both the old and the new path;
+ *  - NO noise filter (public/, package.json, ...): one extra file is harmless,
+ *    one missing file closes a card by mistake;
+ *  - paths are passed as literals, never as pathspec patterns.
+ * An empty list is NOT proof, so it answers false.
+ */
+export async function branchContentIsOnMain(
+  repoPath: string,
+  branch: string,
+  mainRef = "main",
+  runGit?: GitRunner,
+): Promise<boolean> {
+  const changed = (await gitOut(repoPath, ["diff", "--name-only", "-z", "--no-renames", `${mainRef}...${branch}`], runGit))
+    .split("\0")
+    .filter((p) => p.length > 0);
+  if (changed.length === 0) return false;
+  const literal = changed.map((p) => `:(literal)${p}`);
+  // macOS defaults to core.precomposeunicode=true, which rewrites argv pathspecs to NFC: a path stored
+  // in NFD (committed from Linux or the web) would then match nothing and `--quiet` would exit 0.
+  return (await gitExit(repoPath, ["-c", "core.precomposeunicode=false", "diff", "--quiet", branch, mainRef, "--", ...literal], runGit)) === 0;
+}
+
 /** Quanto ha prodotto un worktree rispetto al punto in cui ha forkato. */
 export interface WorktreeDiffStat {
   /** Il commit PROPRIO più recente, o `null` se il worktree non ne ha nessuno. */

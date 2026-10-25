@@ -32,7 +32,7 @@ import { join } from "path";
 import { createHash } from "crypto";
 import { worktreeRegistrationLost } from "./worktree-registration";
 import { commitIsIn, countOwnCommits, otherLocalBranches } from "./own-commits";
-import { commitStatusFromRepo } from "./branch-status";
+import { branchContentIsOnMain, commitStatusFromRepo } from "./branch-status";
 import { landedMergeRange } from "./task-diff-range";
 import { fetchRemoteBase } from "./worktree-base-ref";
 import { gitEnvFor } from "../lib/git-identity";
@@ -1169,6 +1169,15 @@ export function createTaskAutoMerge(deps: AutoMergeDeps) {
           return { status: "skipped", code: "branch-missing", reason: `branch '${branch}' non trovato o non confrontabile con '${defaultBranch}'` };
         }
         if (ahead.stdout.trim() === "0") {
+          return { status: "nothing", branch, deliveryDrift: drift };
+        }
+
+        // Squash-merged on GitHub: the branch commits are not ancestors of main,
+        // so `ahead` is > 0 even though main already holds the same content. If
+        // every real file the branch changed is identical on main there is
+        // nothing to land; stop before touching the (possibly dirty) checkout.
+        if (await branchContentIsOnMain(repoPath, branch, defaultBranch, runGit)) {
+          console.log(`[task-automerge] ${branch}: content already on ${defaultBranch} (squash-merged), nothing to land`);
           return { status: "nothing", branch, deliveryDrift: drift };
         }
 

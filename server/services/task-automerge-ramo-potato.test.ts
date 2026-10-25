@@ -3,9 +3,9 @@
  */
 import { describe, test, expect } from "bun:test";
 import { createTaskAutoMerge } from "./task-automerge";
-import { mkdtempSync, writeFileSync, rmSync } from "fs";
+import { mkdtempSync, writeFileSync, rmSync, mkdirSync } from "fs";
 import { tmpdir } from "os";
-import { join } from "path";
+import { join, dirname } from "path";
 import { gitEnv } from "../../tests/setup/bun-test-preload";
 
 /**
@@ -199,4 +199,202 @@ describe("card squashata: il contenuto e' su main ma lo sha no", () => {
       rmSync(repo, { recursive: true, force: true });
     }
   }, 30_000);
+});
+
+/**
+ * SQUASH ALREADY ON MAIN, BRANCH STILL ALIVE (card e9226ab7, PR #433).
+ *
+ * A GitHub squash merge puts the work on main as a brand-new commit: the branch
+ * commits are not ancestors of main, `ahead` stays > 0 and the land used to go
+ * on to the dirty shared checkout, answering "dirty-checkout" for work that
+ * was already entirely on main.
+ */
+describe("squash gia' su main, ramo vivo", () => {
+  /** main + a branch with two files; the branch is NOT merged: main gets a squash. */
+  function repoWithSquashedBranch(): { repo: string; branch: string } {
+    const repo = mkdtempSync(join(tmpdir(), "land-squash-"));
+    git(repo, "init", "-q", "-b", "main");
+    git(repo, "config", "user.email", "t@t.t");
+    git(repo, "config", "user.name", "t");
+    commit(repo, "base.txt", "base\n", "base");
+    commit(repo, "tracked.txt", "v0\n", "tracked");
+    const branch = "topics/squash-test";
+    git(repo, "checkout", "-q", "-b", branch);
+    commit(repo, "a.txt", "a\n", "work a");
+    commit(repo, "b.txt", "b\n", "work b");
+    git(repo, "checkout", "-q", "main");
+    // Squash: same content, one new commit, branch commits not ancestors.
+    git(repo, "merge", "--squash", branch);
+    git(repo, "commit", "-q", "-m", "squash of the card (#1)");
+    // The shared checkout is dirty on a tracked file.
+    writeFileSync(join(repo, "tracked.txt"), "someone else's WIP\n");
+    return { repo, branch };
+  }
+
+  test("contenuto del ramo gia' su main: «nothing», non «dirty-checkout»", async () => {
+    const { repo, branch } = repoWithSquashedBranch();
+    try {
+      const res = await land(repo, branch).tryMerge("t-sq-1", "Card squashata");
+      expect(res.status).toBe("nothing");
+    } finally {
+      rmSync(repo, { recursive: true, force: true });
+    }
+  }, 30_000);
+
+  test("main ha cambiato UN file del ramo dopo lo squash: si prosegue come prima (qui il riallineamento va in «conflict»)", async () => {
+    const { repo, branch } = repoWithSquashedBranch();
+    try {
+      // Commit a change to a.txt only; the dirty tracked.txt stays uncommitted.
+      writeFileSync(join(repo, "a.txt"), "a changed on main\n");
+      git(repo, "add", "a.txt");
+      git(repo, "commit", "-q", "-m", "later edit of a");
+      const res = await land(repo, branch).tryMerge("t-sq-2", "Card squashata");
+      // Content differs, so the shortcut must NOT fire: the land goes on and
+      // realigning the branch on main hits the add/add conflict on a.txt.
+      expect(res.status).not.toBe("nothing");
+      expect(res.status).toBe("conflict");
+    } finally {
+      rmSync(repo, { recursive: true, force: true });
+    }
+  }, 30_000);
+
+  test("il ramo ha lavoro NON su main: nessuna regressione, «dirty-checkout»", async () => {
+    const { repo, branch } = repoWithSquashedBranch();
+    try {
+      // Add real work to the branch via a side worktree, keeping the checkout on main.
+      const wt = mkdtempSync(join(tmpdir(), "land-squash-wt-"));
+      git(repo, "worktree", "add", "-q", "-f", wt, branch);
+      commit(wt, "c.txt", "new work\n", "work c");
+      git(repo, "worktree", "remove", "--force", wt);
+      const res = await land(repo, branch).tryMerge("t-sq-3", "Card squashata");
+      expect(res.status).toBe("skipped");
+      if (res.status !== "skipped") return;
+      expect(res.code).toBe("dirty-checkout");
+    } finally {
+      rmSync(repo, { recursive: true, force: true });
+    }
+  }, 30_000);
+});
+
+/**
+ * Adversarial squash shapes: each one must NOT be reported as "nothing" because
+ * the branch holds work that main lacks (reaping the branch would lose it), and
+ * the shapes that do match main must still be "nothing".
+ */
+describe("squash su main: casi avversari del confronto per contenuto", () => {
+  type Files = Record<string, string | Buffer | null>;
+
+  function applyFiles(repo: string, files: Files, msg: string): void {
+    for (const [name, body] of Object.entries(files)) {
+      const full = join(repo, name);
+      if (body === null) { rmSync(full, { force: true }); continue; }
+      mkdirSync(dirname(full), { recursive: true });
+      writeFileSync(full, body);
+    }
+    git(repo, "add", "-A");
+    git(repo, "commit", "-q", "-m", msg);
+  }
+
+  /** Base has a.ts; the branch applies `onBranch`, main receives `onMain` as a squash-like commit. */
+  async function landStatus(
+    onBranch: Files,
+    onMain: Files,
+    opts: { mainAdvancesAndBranchMerges?: Files; afterSquash?: Files; nfdCommits?: boolean } = {},
+  ): Promise<string> {
+    const repo = mkdtempSync(join(tmpdir(), "land-squash-adv-"));
+    try {
+      git(repo, "init", "-q", "-b", "main");
+      git(repo, "config", "user.email", "t@t.t");
+      git(repo, "config", "user.name", "t");
+      // Commits made off macOS keep NFD names; the land then runs with the macOS default (true).
+      if (opts.nfdCommits) git(repo, "config", "core.precomposeunicode", "false");
+      applyFiles(repo, { "a.ts": "a0\n", "keep.txt": "k\n" }, "base");
+      git(repo, "checkout", "-q", "-b", "topics/adv");
+      applyFiles(repo, onBranch, "branch work");
+      git(repo, "checkout", "-q", "main");
+      if (opts.mainAdvancesAndBranchMerges) {
+        // Main moves on, then the branch merges main into itself (a "merge main in" commit).
+        applyFiles(repo, opts.mainAdvancesAndBranchMerges, "main moves on");
+        git(repo, "checkout", "-q", "topics/adv");
+        git(repo, "merge", "-q", "--no-edit", "main");
+        git(repo, "checkout", "-q", "main");
+      }
+      applyFiles(repo, onMain, "squash (#1)");
+      if (opts.afterSquash) applyFiles(repo, opts.afterSquash, "later commit on main");
+      if (opts.nfdCommits) git(repo, "config", "core.precomposeunicode", "true");
+      const res = await land(repo, "topics/adv").tryMerge("t-adv", "Card avversaria");
+      return res.status;
+    } finally {
+      rmSync(repo, { recursive: true, force: true });
+    }
+  }
+
+  test("percorso con accento: il lavoro mancante non e' «nothing»", async () => {
+    const st = await landStatus({ "a.ts": "a1\n", "perché.md": "x\n" }, { "a.ts": "a1\n" });
+    expect(st).not.toBe("nothing");
+  }, 30_000);
+
+  test("percorso in NFD (commit fatto fuori da macOS): il lavoro mancante non e' «nothing»", async () => {
+    const st = await landStatus({ "a.ts": "a1\n", "perché.md": "x\n" }, { "a.ts": "a1\n" }, { nfdCommits: true });
+    expect(st).not.toBe("nothing");
+  }, 30_000);
+
+  test("percorso con virgolette: il lavoro mancante non e' «nothing»", async () => {
+    const st = await landStatus({ "a.ts": "a1\n", 'say"hi".ts': "x\n" }, { "a.ts": "a1\n" });
+    expect(st).not.toBe("nothing");
+  }, 30_000);
+
+  test("public/ e package.json non sono rumore: logo mancante non e' «nothing»", async () => {
+    const st = await landStatus(
+      { "a.ts": "a1\n", "client/public/logo.svg": "<svg/>\n", "package.json": "{\"dep\":1}\n" },
+      { "a.ts": "a1\n" },
+    );
+    expect(st).not.toBe("nothing");
+  }, 30_000);
+
+  test("rinomina: main ha la destinazione ma conserva l'origine, non e' «nothing»", async () => {
+    const st = await landStatus({ "a.ts": null, "c.ts": "a0\n" }, { "c.ts": "a0\n" });
+    expect(st).not.toBe("nothing");
+  }, 30_000);
+
+  test("spazio finale nel nome: non viene tagliato, lavoro mancante non e' «nothing»", async () => {
+    const st = await landStatus({ "a.ts": "a1\n", "t ": "x\n" }, { "a.ts": "a1\n" });
+    expect(st).not.toBe("nothing");
+  }, 30_000);
+
+  test("regge ancora: cancellazione identica su main e' «nothing»", async () => {
+    expect(await landStatus({ "a.ts": null }, { "a.ts": null })).toBe("nothing");
+  }, 30_000);
+
+  test("regge ancora: nomi con spazi e accenti presenti su main sono «nothing»", async () => {
+    const files = { "a.ts": "a1\n", "con spazio é.md": "x\n" };
+    expect(await landStatus(files, files)).toBe("nothing");
+  }, 30_000);
+
+  test("merge di main dentro il ramo: conta solo il lavoro del ramo, gia' su main e' «nothing»", async () => {
+    const st = await landStatus({ "a.ts": "a1\n" }, { "a.ts": "a1\n" }, {
+      mainAdvancesAndBranchMerges: { "x.ts": "from main\n" },
+    });
+    expect(st).toBe("nothing");
+  }, 30_000);
+
+  test("merge di main dentro il ramo, ma il lavoro del ramo manca su main: non e' «nothing»", async () => {
+    const st = await landStatus({ "a.ts": "a1\n", "b.ts": "b\n" }, { "a.ts": "a1\n" }, {
+      mainAdvancesAndBranchMerges: { "x.ts": "from main\n" },
+    });
+    expect(st).not.toBe("nothing");
+  }, 30_000);
+
+  test("revert su main di un file del ramo: il file non c'e' piu' su main, non e' «nothing»", async () => {
+    const st = await landStatus({ "a.ts": "a1\n", "b.ts": "b\n" }, { "a.ts": "a1\n", "b.ts": "b\n" }, {
+      afterSquash: { "b.ts": null },
+    });
+    expect(st).not.toBe("nothing");
+  }, 30_000);
+
+  test("file binario identico su main e' «nothing»; con byte diversi non lo e'", async () => {
+    const bytes = Buffer.from([0, 1, 2, 255, 254, 0, 10, 13]);
+    expect(await landStatus({ "img.bin": bytes }, { "img.bin": bytes })).toBe("nothing");
+    expect(await landStatus({ "img.bin": bytes }, { "img.bin": Buffer.from([0, 1, 2, 255, 0, 0, 10, 13]) })).not.toBe("nothing");
+  }, 60_000);
 });
