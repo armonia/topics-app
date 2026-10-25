@@ -25,8 +25,12 @@ import { createServer } from 'node:http';
 import { readFile, stat } from 'node:fs/promises';
 import { join, extname, resolve } from 'node:path';
 import { chromium } from 'playwright-core';
+import { glassProblems } from './demo-glass-probe.mjs';
 
 const root = resolve(process.argv[2] || 'landing/dist');
+/* `--mutant` drops the demo's solid-menu sheet and expects the glass probe to
+ * go red: proof the probe can see the defect it guards against. */
+const MUTANT = process.argv.includes('--mutant');
 
 const MIME = {
   '.html': 'text/html', '.js': 'text/javascript', '.mjs': 'text/javascript',
@@ -106,8 +110,14 @@ try {
   // stayed clean. "This Mac" is the device name the /api/auth/session mock gives.
   if (testo) {
     const identityRow = page.getByRole('button', { name: 'This Mac' }).first();
+    if (MUTANT) await page.evaluate(() => document.getElementById('landing-glass-solid')?.remove());
     if (await identityRow.click({ timeout: 10000 }).then(() => true, () => false)) {
       await page.waitForTimeout(2500);
+      const glass = await glassProblems(page);
+      if (MUTANT) {
+        if (!glass.length) problemi.push('mutant survived: without the solid-menu sheet the glass probe stayed green');
+        else console.log('check:demo --mutant — the glass probe went red as it should');
+      } else problemi.push(...glass);
     } else {
       problemi.push('the identity row («This Mac») is not drawn, so its menu could not be opened');
     }
