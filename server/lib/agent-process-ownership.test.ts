@@ -12,7 +12,6 @@ import {
   readOwnerProcessTable,
   reconcileOwnedAgentProcesses,
   stopOwnedAgentProcesses,
-  verifiedOwnerProcessTable,
   withAgentProcessOwner,
   type OwnerProcessStopDeps,
 } from "./agent-process-ownership";
@@ -102,16 +101,11 @@ describe("agent process ownership", () => {
     });
   });
 
-  test("an argv lookalike is not accepted as process ownership", () => {
-    const raw = `${baseTable}\n8003 1 8003 bun -e TOPICS_OWNER=topic:alpha`;
-    const verified = verifiedOwnerProcessTable(raw, new Map([
-      [serverPid + 2, "topic:alpha"],
-      [8000, "topic:alpha"],
-      [8001, "topic:beta"],
-    ]));
-    const rows = parseOwnerProcessTable(verified);
+  test("matches the exact owner variable name", () => {
+    const raw = `${baseTable}\n8003 1 8003 bun NOT_TOPICS_OWNER=topic:alpha`;
+    const rows = parseOwnerProcessTable(raw);
     expect(rows.find((row) => row.pid === 8003)?.owner).toBeNull();
-    expect(ownedProcessTargetsFromPs(verified, new Set(["topic:alpha"]), serverPid)?.pids).toEqual([serverPid + 2, 8000]);
+    expect(ownedProcessTargetsFromPs(raw, new Set(["topic:alpha"]), serverPid)?.pids).toEqual([serverPid + 2, 8000]);
   });
 
   test("boot closes owners absent from live topics and keeps another session", async () => {

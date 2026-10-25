@@ -18,6 +18,7 @@ describe("POST /side-question", () => {
     db.prepare("INSERT INTO messages VALUES (?, ?, ?, ?)").run("m-answer", parent.sessionKey, "assistant", "finished answer");
     let saved = 0;
     const discarded: string[] = [];
+    const stopped: string[] = [];
     const provider = { name: "claude-code", forkPoint: (_key: string, text: string) => ({ ref: "cli-session", at: "answer-uuid", text }), discardEphemeralSession: async (key: string) => { discarded.push(key); } };
     const ctx = {
       db,
@@ -43,7 +44,10 @@ describe("POST /side-question", () => {
       slugify: (value: string) => value.toLowerCase(),
       broadcastToAll: () => {},
     } as never;
-    const router = createForkRouter(ctx, { resolveProvider: () => provider as never });
+    const router = createForkRouter(ctx, {
+      resolveProvider: () => provider as never,
+      stopAgentProcesses: (sessionKey) => stopped.push(sessionKey),
+    });
     const url = new URL("http://topics.test/api/topics/parent/side-question");
     const response = await router(new Request(url, { method: "POST", headers: { "content-type": "application/json" }, body: "{}" }), url, url.pathname, "POST");
     expect(response?.status).toBe(201);
@@ -56,6 +60,7 @@ describe("POST /side-question", () => {
     const deleted = await router(new Request(`http://topics.test/api/topics/${branch.id}/side-question`, { method: "DELETE" }), new URL(`http://topics.test/api/topics/${branch.id}/side-question`), `/api/topics/${branch.id}/side-question`, "DELETE");
     expect(deleted?.status).toBe(200);
     expect(discarded).toEqual([branch.sessionKey]);
+    expect(stopped).toEqual([branch.sessionKey]);
     expect(db.query("SELECT id FROM topics WHERE id = ?").get(branch.id)).toBeNull();
     expect(db.query("SELECT session_key FROM chat_forks WHERE session_key = ?").get(branch.sessionKey)).toBeNull();
     expect(db.query("SELECT session_key FROM claude_code_sessions WHERE session_key = ?").get(branch.sessionKey)).toBeNull();

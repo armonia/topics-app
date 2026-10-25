@@ -10,6 +10,7 @@ import { stopAgentProcessesOf } from "./processes";
 
 export interface ForkDeps {
   resolveProvider: (topic?: Topic | null) => AIProvider;
+  stopAgentProcesses?: (sessionKey: string) => void;
 }
 
 /**
@@ -47,7 +48,7 @@ export function createForkRouter(ctx: AppContext, deps: ForkDeps): RouteHandler 
     getTopic: (id: string) => getTopicById(id) ?? null,
     isStreaming,
     resolveProvider: deps.resolveProvider,
-    stopAgentProcesses: stopAgentProcessesOf,
+    stopAgentProcesses: deps.stopAgentProcesses ?? stopAgentProcessesOf,
   };
   const bootSweep = cleanupStaleSideQuestions(cleanupDeps).then((removed) => {
     if (removed) console.log(`[fork] removed ${removed} stale side question(s)`);

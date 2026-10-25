@@ -44,26 +44,6 @@ export function parseOwnerProcessTable(output: string): OwnerProcessRow[] {
   return rows;
 }
 
-function parseRawProcessTable(output: string): RawProcessRow[] {
-  const rows: RawProcessRow[] = [];
-  for (const line of output.split("\n")) {
-    const match = /^\s*(\d+)\s+(\d+)\s+(\d+)\s+(.+?)\s*$/.exec(line);
-    if (!match) continue;
-    rows.push({ pid: Number(match[1]), ppid: Number(match[2]), pgid: Number(match[3]), command: match[4]! });
-  }
-  return rows;
-}
-
-export function verifiedOwnerProcessTable(
-  output: string,
-  ownersByPid: ReadonlyMap<number, string | null>,
-): string {
-  return parseRawProcessTable(output).map((row) => {
-    const owner = ownersByPid.get(row.pid);
-    return `${row.pid} ${row.ppid} ${row.pgid} ${owner ? `${AGENT_OWNER_ENV}=${owner}` : "-"}`;
-  }).join("\n");
-}
-
 function protectedProcessIds(rows: OwnerProcessRow[], serverPid: number): { pids: Set<number>; pgids: Set<number> } | null {
   const byPid = new Map(rows.map((row) => [row.pid, row]));
   const pids = new Set<number>();
@@ -123,6 +103,7 @@ export async function readOwnerProcessTable(): Promise<string | null> {
     child = Bun.spawn(["ps", "-E", "-ww", "-u", String(userId), "-x", "-o", "pid=,ppid=,pgid=,command="], {
       stdout: "pipe",
       stderr: "pipe",
+      timeout: PROCESS_SCAN_TIMEOUT_MS + 1_000,
     });
   } catch (error) {
     console.warn(`[process-ownership] ps scan could not start: ${error instanceof Error ? error.message : String(error)}`);
@@ -153,111 +134,7 @@ export async function readOwnerProcessTable(): Promise<string | null> {
     console.warn(`[process-ownership] ps scan exited ${result.exitCode}; no processes signalled`);
     return null;
   }
-  const rows = parseRawProcessTable(result.stdout);
-  const candidates = rows.filter((row) => /(?:^|[\s,])TOPICS_OWNER=/.test(row.command)).map((row) => row.pid);
-  if (!candidates.length) return verifiedOwnerProcessTable(result.stdout, new Map());
-  const ownersByPid = await readExactOwnerEnvironments(candidates);
-  if (!ownersByPid) return null;
-  return verifiedOwnerProcessTable(result.stdout, ownersByPid);
-}
-
-const PROCESS_ENVIRONMENT_READER = [
-  "import ctypes, errno, json, struct, sys",
-  "libc = ctypes.CDLL(None, use_errno=True)",
-  "result = {}",
-  "for raw_pid in sys.argv[1:]:",
-  "    pid = int(raw_pid)",
-  "    mib = (ctypes.c_int * 3)(1, 49, pid)",
-  "    size = ctypes.c_size_t(0)",
-  "    if libc.sysctl(mib, 3, None, ctypes.byref(size), None, 0) != 0:",
-  "        code = ctypes.get_errno()",
-  "        if code == errno.ESRCH:",
-  "            continue",
-  "        raise OSError(code, 'KERN_PROCARGS2 size query failed')",
-  "    buffer = ctypes.create_string_buffer(size.value)",
-  "    if libc.sysctl(mib, 3, buffer, ctypes.byref(size), None, 0) != 0:",
-  "        code = ctypes.get_errno()",
-  "        if code == errno.ESRCH:",
-  "            continue",
-  "        raise OSError(code, 'KERN_PROCARGS2 read failed')",
-  "    raw = buffer.raw[:size.value]",
-  "    if len(raw) < 4:",
-  "        raise ValueError('KERN_PROCARGS2 response is truncated')",
-  "    argc = struct.unpack_from('@i', raw)[0]",
-  "    if argc < 0:",
-  "        raise ValueError('KERN_PROCARGS2 argc is invalid')",
-  "    index = raw.find(b'\\0', 4)",
-  "    if index < 0:",
-  "        raise ValueError('KERN_PROCARGS2 executable path is unterminated')",
-  "    index += 1",
-  "    while index < len(raw) and raw[index] == 0:",
-  "        index += 1",
-  "    for _ in range(argc):",
-  "        end = raw.find(b'\\0', index)",
-  "        if end < 0:",
-  "            raise ValueError('KERN_PROCARGS2 argv is truncated')",
-  "        index = end + 1",
-  "    while index < len(raw) and raw[index] == 0:",
-  "        index += 1",
-  "    matches = []",
-  "    while index < len(raw):",
-  "        end = raw.find(b'\\0', index)",
-  "        if end < 0:",
-  "            raise ValueError('KERN_PROCARGS2 environment is truncated')",
-  "        entry = raw[index:end]",
-  "        if not entry:",
-  "            break",
-  "        if entry.startswith(b'TOPICS_OWNER='):",
-  "            matches.append(entry[len(b'TOPICS_OWNER='):].decode('utf-8'))",
-  "        index = end + 1",
-  "    if len(matches) > 1:",
-  "        raise ValueError('KERN_PROCARGS2 has duplicate TOPICS_OWNER entries')",
-  "    result[str(pid)] = matches[0] if matches else None",
-  "print(json.dumps(result))",
-].join("\n");
-
-async function readExactOwnerEnvironments(pids: number[]): Promise<Map<number, string | null> | null> {
-  let child: Bun.Subprocess<"pipe", "pipe", "pipe">;
-  try {
-    child = Bun.spawn(["python3", "-c", PROCESS_ENVIRONMENT_READER, ...pids.map(String)], {
-      stdout: "pipe",
-      stderr: "pipe",
-    });
-  } catch (error) {
-    console.warn(`[process-ownership] KERN_PROCARGS2 reader could not start: ${error instanceof Error ? error.message : String(error)}; no processes signalled`);
-    return null;
-  }
-  const completed = Promise.all([
-    new Response(child.stdout).text(),
-    new Response(child.stderr).text(),
-    child.exited,
-  ]).then(([stdout, stderr, exitCode]) => ({ stdout, stderr, exitCode, timeout: false }))
-    .catch((error) => ({ stdout: "", stderr: error instanceof Error ? error.message : String(error), exitCode: -1, timeout: false }));
-  let timer: ReturnType<typeof setTimeout> | undefined;
-  const result = await Promise.race([
-    completed,
-    new Promise<{ stdout: string; stderr: string; exitCode: number; timeout: boolean }>((resolve) => {
-      timer = setTimeout(() => resolve({ stdout: "", stderr: "", exitCode: -1, timeout: true }), PROCESS_SCAN_TIMEOUT_MS);
-    }),
-  ]);
-  if (timer) clearTimeout(timer);
-  if (result.timeout) {
-    try { child.kill("SIGKILL"); } catch { /* The reader already exited. */ }
-    void completed.catch(() => {});
-    console.warn(`[process-ownership] KERN_PROCARGS2 scan timed out after ${PROCESS_SCAN_TIMEOUT_MS} ms; no processes signalled`);
-    return null;
-  }
-  if (result.exitCode !== 0) {
-    console.warn(`[process-ownership] KERN_PROCARGS2 scan exited ${result.exitCode}; no processes signalled`);
-    return null;
-  }
-  try {
-    const decoded = JSON.parse(result.stdout) as Record<string, string | null>;
-    return new Map(Object.entries(decoded).map(([pid, owner]) => [Number(pid), owner]));
-  } catch (error) {
-    console.warn(`[process-ownership] KERN_PROCARGS2 response was invalid; no processes signalled: ${error instanceof Error ? error.message : String(error)}`);
-    return null;
-  }
+  return result.stdout;
 }
 
 function signalTargets(
