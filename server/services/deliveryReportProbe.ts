@@ -43,7 +43,7 @@ const MAX_ROOT_CANDIDATES = 48;
 const GIT_LOOKUP_TIMEOUT_MS = 1_500;
 const SHA_LOOKUP_CONCURRENCY = 4;
 
-const REPORTED_PATH = /(?:~\/|(?<![\w:/])\/(?!\/))[^\s`"'()<>{}\[\],;]+|(?:[\w.-]+\/)+[\w.-]+(?:\.[\w-]+)?/g;
+const REPORTED_PATH = /(?:~\/|(?<![\w:/])\/(?!\/))[^\s`"'()<>{}[\],;]+|(?:[\w.-]+\/)+[\w.-]+(?:\.[\w-]+)?/g;
 
 function reportPaths(reports: readonly string[]): { absolute: string[]; relative: string[] } {
   const absolute = new Set<string>();
@@ -126,12 +126,6 @@ async function ask(key: string, question: () => Promise<boolean | null>): Promis
   answers.set(key, { v: answer, at: Date.now() });
   return answer;
 }
-
-const shaExists = (sha: string) =>
-  ask(`sha:${ROOT}:${sha}`, async () => {
-    const r = await git(["cat-file", "-e", `${sha}^{commit}`], 20_000);
-    return r === null ? null : "out" in r;
-  }).then((answer) => answer ?? true);
 
 // `git log` exits 0 with EMPTY output when nothing matches, so here the answer
 // is in the text; a non-zero exit is not an answer at all.
