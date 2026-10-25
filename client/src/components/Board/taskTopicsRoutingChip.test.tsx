@@ -62,8 +62,8 @@ const realPopoverPosition = await import('../../lib/popoverPosition');
 const realFixedFrame = await import('../../lib/fixedFrame');
 const realContextMenuOrigin = await import('../../lib/contextMenuOrigin');
 
-// Bun parte dalla root e non carica i path `@/*` del tsconfig client: registra
-// prima i moduli reali, così il componente catturato non usa versioni finte.
+// Bun starts from the repo root and does not load the client tsconfig `@/*` paths:
+// register the real modules first, so the captured component never sees the fakes.
 mock.module('@/lib/popoverStyles', () => realPopoverStyles);
 mock.module('@/lib/exitGhost', () => realExitGhost);
 mock.module('@/lib/popoverPosition', () => realPopoverPosition);
