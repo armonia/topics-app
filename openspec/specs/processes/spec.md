@@ -499,6 +499,17 @@ esito (exit code, o «fermato») finché è fra i recenti (`MAX_RECENT = 10`,
 - **WHEN** l'utente preme Stop sulla riga
 - **THEN** il processo e i suoi figli terminano e la riga passa a «fermato»
 
+#### Scenario: la chiusura della card o della sessione ferma il gruppo registrato
+- **GIVEN** un comando di un agente nel gruppo registrato della sua sessione con `wake: true`
+- **WHEN** la card entra in `review` o `done`, oppure la sessione viene chiusa
+- **THEN** Topics manda SIGTERM al gruppo e SIGKILL dopo 10 s se resta vivo
+- **AND** rimuove il gruppo dal registro dopo la chiusura
+
+#### Scenario: un server dichiarato lungo vive oltre la chiusura del proprietario
+- **GIVEN** un comando di un agente con `wake: false`, usato per lasciare acceso un server
+- **WHEN** la card o la sessione viene chiusa, oppure Topics riparte
+- **THEN** il gruppo resta vivo e registrato per uno Stop manuale
+
 ### Requirement: CMDRUN-03 — Il comando sopravvive al riavvio del CLI e del server
 
 Il comando è figlio del server, non del CLI: un riavvio del CLI non lo tocca.
@@ -537,6 +548,12 @@ perché il comando lo tiene aperto in append e continua a scriverci in fondo.
 #### Scenario: nessun file d'uscita
 - **GIVEN** un comando riadottato il cui pid è sparito senza `<processId>.exit`
 - **THEN** la riga chiude come errore con esito «sconosciuto», mai come «done»
+
+#### Scenario: il boot chiude un gruppo rimasto senza sessione
+- **GIVEN** un gruppo registrato la cui sessione non esiste più e che non è dichiarato lungo con `wake: false`
+- **WHEN** Topics carica il registro all'avvio
+- **THEN** il gruppo viene chiuso con SIGTERM e SIGKILL dopo 10 s se resta vivo
+- **AND** la voce viene rimossa dal registro
 
 ### Requirement: CMDRUN-04 — A fine comando l'agente della topic viene svegliato, una volta sola
 

@@ -185,7 +185,8 @@ import { readNativeUsage } from "./server/providers/native-usage-registry";
 import { getAiBridgeClient } from "./server/lib/ai-bridge-client";
 import { automaticDispatchHooks } from "./server/services/task-auto-model";
 import { dispatchTopicBinding, resolveDispatchTopicIdentity } from "./server/services/dispatch-topic-identity";
-import { commandBackgroundWork, commandWakeState, createProcessesRouter, isChatServerTask, loadProcessRegistry, sessionsAwaitingCommandWake, settleEndedShells, startProcessDetection, stopCommandWakesOf } from "./server/routes/processes";
+import { commandBackgroundWork, commandWakeState, createProcessesRouter, isChatServerTask, loadProcessRegistry, sessionsAwaitingCommandWake, settleEndedShells, startProcessDetection, stopAgentProcessesOf } from "./server/routes/processes";
+import { reconcileAgentProcessGroups } from "./server/lib/agent-process-groups";
 import { startProcessExitWakes } from "./server/lib/process-exit-wake";
 import { startSubagentWakes } from "./server/services/subagent-wake";
 import { abandonCutTurn, adoptNativeChildrenAtBoot, configureNativeSubagents } from "./server/lib/native-subagents";
@@ -410,6 +411,12 @@ loadProcessRegistry();
 
 // Create app context (initializes SQLite database)
 const ctx = createAppContext(import.meta.dir);
+void reconcileAgentProcessGroups((sessionKey) => {
+  const topic = ctx.getTopicBySessionKey(sessionKey);
+  return !!topic && !topic.archived;
+}).then((stopped) => {
+  if (stopped) console.log(`[processes] stopped ${stopped} groups for closed sessions`);
+}).catch((err) => console.warn("[processes] stale group cleanup failed:", err));
 // Always built by `createAppContext`; optional on the type only for test contexts.
 const turnLedger = ctx.turnLedger!;
 
@@ -1010,7 +1017,7 @@ configureNativeSubagents({
   reopen: (topic) => { reopenTopicFully(reopenDepsFor(ctx, ctx.broadcastToAll), topic.id); },
   // Its own children are read by the module itself (`subagentWakeState`).
   backgroundWork: (sk) => commandWakeState(sk) !== "none" || sessionHasBackgroundWork(sk),
-  stopBackgroundWork: (sk) => { stopCommandWakesOf(sk); },
+  stopBackgroundWork: (sk) => { stopAgentProcessesOf(sk); },
   log: (m) => console.log(`[subagent-native] ${m}`),
   // The resume's own verdict (declared below, read only after the boot).
   cutTurnResumable: (sk) => cutTurnResumable(resumeCtx, sk),
@@ -1641,6 +1648,7 @@ const retirementConsequences: ReconcileDeps = {
       purgeFromUiState: (id) =>
         purgeTopicFromUiState(ctx.db, ctx.broadcastToAll, id, (c) => browserService.destroyContext(c)),
       parkClaudeSession: parkTopicSession,
+      stopAgentProcesses: stopAgentProcessesOf,
       recordRetirement: (id, at) => recordRetirement(ctx.db, "topic", id, at, "archive"),
     }, topicId);
     // Nessuna risposta HTTP da restituire qui: la purge fallita si logga, non

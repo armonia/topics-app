@@ -24,6 +24,7 @@ import { isTaskLabel } from "../../shared/task-labels";
 import { stopCauseOf, STOP_CAUSE_HEADER, type StopCause } from "../lib/abort-cause";
 import { ScheduledCardsError, type ScheduledCardsService } from "../services/scheduled-cards";
 import { invalidateProbeCache } from "../services/url-probe-cache";
+import { stopAgentProcessesOf } from "./processes";
 import type { TasksRouterOpts, emitReviewReadyEdge } from "./tasks";
 
 /**
@@ -709,6 +710,10 @@ export function createBoardRoutes(deps: BoardRouteDeps) {
           taskId: bReview.taskId, by: HUMAN, decision, comment,
           projectId: bReview.projectId, origin: actionOrigin,
         });
+        if (task.status === "done" && task.assignedTopicId) {
+          const sessionKey = ctx.getTopicById(task.assignedTopicId)?.sessionKey;
+          if (sessionKey) stopAgentProcessesOf(sessionKey);
+        }
         broadcastToAll({ type: "task:updated", projectId: bReview.projectId, task });
         // Reject re-kicks the SAME agent tab with the human's feedback (a
         // "Serve te" answer routes through here too), so the conversation
@@ -1169,6 +1174,10 @@ export function createBoardRoutes(deps: BoardRouteDeps) {
             patch: parsed.patch,
           });
           task = await captureDelivery(task, prevStatus);
+          if (prevStatus !== task.status && !task.parentTaskId && (task.status === "done" || task.status === "review") && task.assignedTopicId) {
+            const sessionKey = ctx.getTopicById(task.assignedTopicId)?.sessionKey;
+            if (sessionKey) stopAgentProcessesOf(sessionKey);
+          }
           broadcastToAll({ type: "task:updated", projectId, task });
           emitReviewReadyEdge(broadcastToAll, projectId, task, prevStatus, undefined,
             () => svc.get(taskId)?.comments);

@@ -75,6 +75,8 @@ export interface ArchiveTopicDeps {
    * day later. Injected like the two steps above; absent means step skipped.
    */
   cancelPendingAsk?: (sessionKey: string, reason: string) => void;
+  /** Stops all process groups owned by this session when its topic closes. */
+  stopAgentProcesses?: (sessionKey: string) => void;
 }
 
 export interface ArchiveTopicResult {
@@ -139,7 +141,10 @@ export function archiveTopicFully(deps: ArchiveTopicDeps, topicId: string): Arch
   // l'unica leva che le sessioni già trapelate hanno per tornare a posto senza
   // una query a mano. Il parcheggio è un no-op su una fase già dormant o
   // terminale, quindi il ripasso non costa broadcast per niente.
-  if (topic.sessionKey) deps.parkClaudeSession?.(topic.sessionKey);
+  if (topic.sessionKey) {
+    deps.parkClaudeSession?.(topic.sessionKey);
+    deps.stopAgentProcesses?.(topic.sessionKey);
+  }
 
   // 5. The open question goes with the topic. Same reason as step 4, one layer
   // up: an ask whose panel nobody can open any more is a wait for an answer

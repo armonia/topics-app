@@ -26,6 +26,7 @@ import { resolve, relative, isAbsolute, dirname } from "path";
 import { spawn } from "child_process";
 import { homedir } from "os";
 import { killProcessTree } from "../../lib/process-tree";
+import { agentProcessGroups, registerAgentProcessGroup } from "../../lib/agent-process-groups";
 import { registerNativeCommand } from "../../lib/native-command-registry";
 import { lowPriorityArgv } from "../../lib/low-priority";
 import { agentBaseEnv } from "../../lib/agent-env";
@@ -65,10 +66,8 @@ export interface ToolContext {
    */
   signal?: AbortSignal;
   /**
-   * The session this turn belongs to. The swap freezer needs it to know WHOSE
-   * command a child of the server is: a native `bash` runs in the server's own
-   * process group, so without an owner it is indistinguishable from Topics' own
-   * work (`server/lib/agent-tool-children.ts`).
+   * The session this turn belongs to, used to register and retire its command
+   * process groups alongside the session.
    */
   sessionKey?: string;
   /**
@@ -361,7 +360,16 @@ async function runCommand(
     // server/lib/low-priority.ts) and in the agent's environment (lib/agent-env.ts):
     // with no `env`, Bun hands it the server's launch environment, secrets included.
     const argv = lowPriorityArgv([cmd, ...args]);
-    const child = spawn(argv[0]!, argv.slice(1), { cwd, stdio: ["ignore", "pipe", "pipe"], env: agentBaseEnv() });
+    const child = spawn(argv[0]!, argv.slice(1), { cwd, stdio: ["ignore", "pipe", "pipe"], env: agentBaseEnv(), detached: true });
+    const groupId = child.pid && owner?.sessionKey
+      ? `native_bash:${owner.sessionKey}:${child.pid}`
+      : null;
+    if (groupId && child.pid) {
+      registerAgentProcessGroup({
+        id: groupId, pid: child.pid, pgid: child.pid, sessionKey: owner!.sessionKey!,
+        topicId: null, source: "native_bash", startedAt: new Date().toISOString(),
+      });
+    }
     let out = "";
     let annullato = false;
     let closed = false;
@@ -409,17 +417,15 @@ async function runCommand(
     child.stdout.on("data", cap);
     child.stderr.on("data", cap);
     const abbatti = () => {
-      // TUTTO L'ALBERO, non il solo figlio. Il comando gira in una shell, e chi
-      // lavora davvero (il compilatore, il server, il test runner) e' un suo
-      // discendente: un segnale al solo wrapper lasciava vivo il lavoro che il
-      // timeout doveva fermare, con la sua porta e la sua CPU.
-      killProcessTree(child.pid ?? 0).catch(() => { /* nessuno da uccidere */ });
+      if (groupId) void agentProcessGroups.stopById(groupId);
+      else if (child.pid) void killProcessTree(child.pid);
     };
     let drainTimer: ReturnType<typeof setTimeout> | undefined;
     const chiudi = (r: { out: string; code: number | null }) => {
       if (closed) return;
       closed = true;
       forgetCommand?.();
+      if (groupId) void agentProcessGroups.pruneIfGone(groupId);
       if (timer) clearTimeout(timer);
       if (drainTimer) clearTimeout(drainTimer);
       // The result travels on `onToolResult`: a tail still queued would land after it.

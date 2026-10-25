@@ -3,7 +3,7 @@
  * process row the panel draws with its log, its status, its Stop and, once it
  * ends, its outcome. Real spawns, short commands.
  *
- * @covers CMDRUN-01, CMDRUN-02
+ * @covers CMDRUN-01, CMDRUN-02, CMDRUN-03
  */
 import { afterAll, describe, expect, spyOn, test } from "bun:test";
 import * as fs from "fs";
@@ -16,7 +16,7 @@ import { join } from "path";
 const STATE = mkdtempSync(join(tmpdir(), "topics-cmd-state-"));
 const previousDataDir = process.env.DATA_DIR;
 process.env.DATA_DIR = STATE;
-const { createProcessesRouter, listOwnedScripts, logPathOf } = await import("./processes");
+const { createProcessesRouter, listOwnedScripts, logPathOf, stopAgentProcessesOf } = await import("./processes");
 
 const PROJECT = realpathSync(mkdtempSync(join(tmpdir(), "topics-cmd-project-")));
 mkdirSync(join(PROJECT, "sub"));
@@ -202,7 +202,53 @@ describe("POST /api/sessions/:sessionKey/commands/run", () => {
     );
     expect(group).toBe("");
   });
+
+  test("closing the session kills the registered command group, including orphaned children", async () => {
+    const router = makeRouter();
+    const { pid, processId } = await (await run(router, { command: "sh -c 'sleep 300 & sleep 300'" })).json() as { pid: number; processId: string };
+    try {
+      const groupMembers = () => {
+        const result = Bun.spawnSync(["ps", "-axo", "pid=,pgid=,command="]);
+        return result.stdout.toString().split("\n").flatMap((line) => {
+          const match = line.trim().match(/^(\d+)\s+(\d+)\s+(.+)$/);
+          return match && Number(match[2]) === pid ? [{ pid: Number(match[1]), command: match[3] }] : [];
+        });
+      };
+      const sleeps = await until(async () => groupMembers().filter((row) => /(?:^|\/)sleep 300$/.test(row.command.trim())), (rows) => rows.length >= 2);
+      expect(sleeps).toHaveLength(2);
+
+      const at = Date.now();
+      stopAgentProcessesOf(TOPIC.sessionKey);
+      const stopped = await until(() => rowOf(router, processId), (row) => row?.status !== "running");
+      expect(stopped).toMatchObject({ status: "error", stopped: true });
+      const tracked = [pid, ...sleeps.map((row) => row.pid)];
+      const remaining = await until(async () => tracked.filter((childPid) => !isPidGone(childPid)), (rows) => rows.length === 0, 11_000);
+      expect(remaining).toEqual([]);
+      expect(Date.now() - at).toBeLessThan(11_000);
+    } finally {
+      try { process.kill(-pid, "SIGKILL"); } catch {}
+    }
+  });
+
+  test("wake false keeps a declared long-lived server through owner closure", async () => {
+    const router = makeRouter();
+    const { pid, processId } = await (await run(router, { command: "sleep 30", wake: false })).json() as { pid: number; processId: string };
+    try {
+      stopAgentProcessesOf(TOPIC.sessionKey);
+      await Bun.sleep(100);
+      expect(isPidGone(pid)).toBe(false);
+      expect(await rowOf(router, processId)).toMatchObject({ status: "running" });
+    } finally {
+      await call(router, "POST", `/api/scripts/${processId}/stop`);
+      await until(() => rowOf(router, processId), (row) => row?.status !== "running");
+    }
+  });
 });
+
+function isPidGone(pid: number): boolean {
+  try { process.kill(pid, 0); return false; }
+  catch (error) { return (error as NodeJS.ErrnoException).code === "ESRCH"; }
+}
 
 // A script's log is written through the registry's folder once per output
 // chunk: the door that resolves it creates the folder and probes it each call.

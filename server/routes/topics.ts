@@ -25,7 +25,7 @@ import { createForkRouter } from "./fork";
 import { consumeFork } from "../lib/chat-fork-store";
 import { isSideQuestionTopicId } from "../../shared/chat-fork";
 import { createChatRouter } from "./chat";
-import { commandBackgroundWork, commandServices, commandWakeState, topicCommandProcesses } from "./processes";
+import { commandBackgroundWork, commandServices, commandWakeState, stopAgentProcessesOf, topicCommandProcesses } from "./processes";
 import type { LifecycleHookRunner } from "../services/lifecycle-hooks";
 import { e2eRoutesEnabled } from "./e2e";
 import { createPermissionRouter } from "./permission";
@@ -1931,6 +1931,7 @@ export function createTopicsRouter(
             purgeFromUiState: (id) =>
               purgeTopicFromUiState(ctx.db, broadcastToAll, id, (c) => browserService?.destroyContext(c)),
             parkClaudeSession: parkTopicSession,
+            stopAgentProcesses: stopAgentProcessesOf,
             recordRetirement: (id, at) => recordRetirement(ctx.db, "topic", id, at, "archive"),
             cancelPendingAsk: cancelAsk,
           }, params.id);

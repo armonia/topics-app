@@ -91,6 +91,16 @@ export async function getPidStartTimes(pids: number[]): Promise<Map<number, stri
   return out;
 }
 
+export function readProcessGroupId(pid: number): number | null {
+  try {
+    const result = Bun.spawnSync(["ps", "-o", "pgid=", "-p", String(pid)], { timeout: 3000, killSignal: "SIGKILL" });
+    const pgid = Number(new TextDecoder().decode(result.stdout).trim());
+    return Number.isSafeInteger(pgid) && pgid > 0 ? pgid : null;
+  } catch {
+    return null;
+  }
+}
+
 /**
  * SIGTERM a un pid e a tutti i suoi DISCENDENTI, poi un SIGKILL protetto
  * dall'identita' dopo la grazia.
@@ -111,6 +121,8 @@ export interface KillTreeDeps {
   descendants(pid: number): Promise<Set<number>>;
   startTimes(pids: number[]): Promise<Map<number, string>>;
   signal(pid: number, sig: "SIGTERM" | "SIGKILL"): void;
+  /** The server's current process group, read before signalling a group. */
+  serverPgid?(): number | null;
   /** Ritorna la maniglia del timer: chi la usa deve poterla staccare dal loop. */
   defer(fn: () => void, ms: number): { unref?: () => void };
 }
@@ -141,8 +153,10 @@ export async function killProcessTreeWith(pid: number, graceMs: number, deps: Ki
   // L'identita' si cattura PRIMA del segnale: dopo la grazia il numero da solo
   // puo' essere di un altro processo.
   const identity = await deps.startTimes(pids);
+  const serverPgid = deps.serverPgid ? deps.serverPgid() : readProcessGroupId(process.pid);
+  const safeGroup = !!opts?.group && !!serverPgid && pid !== serverPgid;
   for (const p of pids) { try { deps.signal(p, "SIGTERM"); } catch { /* gia' morto */ } }
-  if (opts?.group) { try { deps.signal(-pid, "SIGTERM"); } catch { /* no group left */ } }
+  if (safeGroup) { try { deps.signal(-pid, "SIGTERM"); } catch { /* no group left */ } }
   // UNREF. Il SIGKILL ritardato è una cortesia, non un impegno: un timer
   // referenziato tiene sveglio l'event loop per tutta la grazia a OGNI chiamata,
   // e `teardownAll()` allo spegnimento ne accende uno per anteprima — cinque
@@ -159,7 +173,8 @@ export async function killProcessTreeWith(pid: number, graceMs: number, deps: Ki
     // The group id is the leader's pid: skip it only when that pid now belongs
     // to another process. A leader gone with members left is the orphan case.
     const leader = identity.get(pid);
-    if (opts?.group && !(leader && still.has(pid) && still.get(pid) !== leader)) {
+    const currentServerPgid = deps.serverPgid ? deps.serverPgid() : readProcessGroupId(process.pid);
+    if (safeGroup && currentServerPgid && pid !== currentServerPgid && !(leader && still.has(pid) && still.get(pid) !== leader)) {
       try { deps.signal(-pid, "SIGKILL"); } catch { /* the group is gone */ }
     }
   }, graceMs);
@@ -173,6 +188,7 @@ export async function killProcessTree(pid: number, graceMs = 5000, opts?: KillTr
     descendants: (p) => getDescendantPids(p, { fresh: true }),
     startTimes: getPidStartTimes,
     signal: (p, sig) => { process.kill(p, sig); },
+    serverPgid: () => readProcessGroupId(process.pid),
     defer: (fn, ms) => setTimeout(fn, ms),
   }, opts);
 }

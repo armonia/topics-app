@@ -38,6 +38,7 @@ import { getTerminalSessionById } from "./terminal";
 import { createBoardRoutes } from "./tasks-board";
 import { applySpendCapPatch, hasSpendCapPatch, spendCapFields, spendSnapshot } from "./task-spend-caps";
 import { SPAWN_TIMEOUT, runBounded } from "../lib/bounded-spawn";
+import { stopAgentProcessesOf } from "./processes";
 
 /**
  * The global cap as the client reads it, in ONE place for the GET, the PATCH
@@ -594,6 +595,12 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
     },
   });
   const attempts = createTaskAttemptStore(db);
+
+  function stopClosedTaskProcesses(task: Pick<Task, "status" | "parentTaskId" | "assignedTopicId">, previousStatus: string | undefined, fallbackSessionKey?: string): void {
+    if (task.parentTaskId || previousStatus === task.status || (task.status !== "done" && task.status !== "review")) return;
+    const sessionKey = (task.assignedTopicId ? ctx.getTopicById(task.assignedTopicId)?.sessionKey : null) ?? fallbackSessionKey;
+    if (sessionKey) stopAgentProcessesOf(sessionKey);
+  }
 
   /**
    * UN TITOLO LEGGIBILE, in sottofondo, per una card appena nata.
@@ -2700,6 +2707,7 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
         patch: parsed.patch,
       });
       task = await captureDelivery(task, prevStatus);
+      stopClosedTaskProcesses(task, prevStatus, session.sessionKey);
       broadcastToAll({ type: "task:updated", projectId, task });
       // A registry-backed update changes a normal board card, not a parallel
       // status model. Preserve the board's queue accounting exactly: entering
@@ -3927,6 +3935,7 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
             messageId: ctx.isStreaming?.(decodeURIComponent(item.sessionKey))?.messageId ?? null,
           });
           task = await captureDelivery(task, prevStatus);
+          stopClosedTaskProcesses(task, prevStatus, sk);
           broadcastToAll({ type: "task:updated", projectId: sess.projectId, task });
           // È QUESTA la porta che conta per i tasti del banner: l'agente commenta
           // la domanda con `options` e poi si sposta in review da qui (MCP

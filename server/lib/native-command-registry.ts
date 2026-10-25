@@ -3,9 +3,9 @@
  * find them without importing the provider (and the provider can stay unaware of
  * the freezer).
  *
- * A native `bash` tool is a child of the SERVER, in the server's own process
- * group: the freezer needs its pid to know which pids of that tree belong to an
- * agent and which are Topics itself. It also needs a way to stop the tool's own
+ * A native `bash` tool is a child of the SERVER in its own process group: the
+ * freezer needs its pid to know which descendants belong to an agent and which
+ * are Topics itself. It also needs a way to stop the tool's own
  * clock: `runCommand` owns the timeout, and a command frozen for 200 s of its
  * 120 s budget would be killed by us for a pause we caused. `onFreeze` clears
  * the timer, `onThaw` re-arms the remaining time and writes the one line that
