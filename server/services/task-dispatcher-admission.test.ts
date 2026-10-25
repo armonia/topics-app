@@ -28,7 +28,7 @@
  */
 import { describe, it, expect, setSystemTime, afterEach, beforeAll, afterAll } from "bun:test";
 import { Database } from "bun:sqlite";
-import { UNIT_CI_CHECK, type MachineBudgetSample } from "../../shared/board";
+import type { MachineBudgetSample } from "../../shared/board";
 import { createTaskService, type TaskService } from "./tasks";
 import { createTaskDispatcher, type DispatcherDeps } from "./task-dispatcher";
 import { currentDispatchBlock } from "./dispatch-block-signal";
@@ -97,8 +97,6 @@ function seedTodo(db: Database, id: string, projectId = PID): void {
     [id, projectId, "task " + id, ts, ts],
   );
 }
-
-const SECOND_PID = "beta-def456";
 
 function addLocalReviewCheck(svc: TaskService, projectId = PID): void {
   svc.updateBoardSettings(projectId, { reviewChecks: [{ name: "unit", cmd: "bun test" }] });
