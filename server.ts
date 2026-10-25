@@ -1202,9 +1202,33 @@ const repoRootForCard = ({ projectId, assignedTopicId }: { taskId: string; proje
       return c?.path && existsSync(c.path) ? c.path : null;
     } catch { return null; }
   };
+const listKnownDeliveryRepoRoots = (): string[] => {
+  const roots = new Set<string>();
+  try {
+    for (const candidate of buildProjectCandidates({
+      projectStore: ctx.projectStore,
+      workspaceDir: DISPATCH_WORKSPACE_DIR,
+      extraPaths: dispatchExtraPaths,
+    })) {
+      if (existsSync(candidate.path)) roots.add(candidate.path);
+    }
+  } catch { /* best-effort source */ }
+  try {
+    for (const project of ctx.projectStore.list({ archived: true })) {
+      if (project.path && existsSync(project.path)) roots.add(project.path);
+    }
+  } catch { /* best-effort source */ }
+  try {
+    for (const worktree of ctx.worktreeStore.list()) {
+      if (worktree.absPath && existsSync(worktree.absPath)) roots.add(worktree.absPath);
+    }
+  } catch { /* best-effort source */ }
+  return [...roots];
+};
 const dispatcherSvc = createTaskService(ctx.db, {
   writeDeliverySheet: makeSheetWriter(ctx.OPENCLAW_DIR),
   repoRootFor: repoRootForCard,
+  listRepoRoots: listKnownDeliveryRepoRoots,
   onLateDeliveryNote: (taskId, projectId) => {
     const noted = dispatcherSvc.get(taskId, { projectId })?.task;
     if (noted) ctx.broadcastToAll({ type: "task:updated", projectId, task: noted });
@@ -2884,6 +2908,7 @@ const tasksRouter = createTasksRouter(ctx, taskDispatcher, {
     })
       .map((c) => c.path)
       .filter((p) => isSelectableProjectDir(p, { workspaceDir: DISPATCH_WORKSPACE_DIR, homeDir: homedir() })),
+  listRepoRoots: listKnownDeliveryRepoRoots,
 });
 // Auto-register servers Claude starts inside its PTY sessions (bare `bun run dev`
 // etc.) into the Processes panel, attributing listening ports by PTY process tree.

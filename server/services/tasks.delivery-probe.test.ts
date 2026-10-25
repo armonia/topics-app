@@ -69,6 +69,28 @@ describe("the delivery verifier probes the card's repository", () => {
     expect(asked[0]?.assignedTopicId).toBeNull();
     expect(built).toEqual(["/projects/of/the-board"]);
   });
+
+  test("the host project roots and the card worktree are sent to SHA preparation", async () => {
+    let searchedRoots: readonly string[] | undefined;
+    const probe: RepoProbe = {
+      ...silentProbe,
+      prepare: async (_reports, context) => {
+        searchedRoots = context?.knownRoots;
+        return silentProbe;
+      },
+    };
+    const service = createTaskService(db, {
+      repoRootFor: () => "/worktrees/of/the-card",
+      listRepoRoots: () => ["/projects/one", "/projects/two"],
+      probeFor: () => probe,
+    });
+    const task = service.create({ projectId: PID, text: "Cross-repo delivery", status: "in_progress" });
+
+    service.update({ taskId: task.id, actor: "agent", by: "agent-1", patch: { status: "review", summary: "Commit abc1234." } });
+    await deliveryNotesInFlight();
+
+    expect(searchedRoots).toEqual(["/worktrees/of/the-card", "/projects/one", "/projects/two"]);
+  });
 });
 
 describe("a note that died with the process is written at the next boot", () => {

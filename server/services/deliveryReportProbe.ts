@@ -11,9 +11,10 @@
  * into an error on someone's card.
  */
 import { execFile } from "node:child_process";
-import { existsSync, readFileSync, readdirSync } from "node:fs";
-import { join } from "node:path";
-import { gitQuestions, type RepoProbe } from "./deliveryReportChecks";
+import { existsSync, readFileSync, readdirSync, realpathSync, statSync } from "node:fs";
+import { homedir } from "node:os";
+import { dirname, isAbsolute, join, resolve, sep } from "node:path";
+import { gitQuestions, type RepoProbe, type RepoSearchContext } from "./deliveryReportChecks";
 
 const SERVER_ROOT = join(import.meta.dir, "..", "..");
 
@@ -37,6 +38,47 @@ export function probeForRoot(root: string): RepoProbe {
 /** How long a git answer stays fresh: enough to check one report, short enough
  *  that a commit made later is seen. */
 const TRACKED_TTL_MS = 30_000;
+const MAX_SHA_ROOTS = 20;
+const MAX_ROOT_CANDIDATES = 48;
+const GIT_LOOKUP_TIMEOUT_MS = 1_500;
+const SHA_LOOKUP_CONCURRENCY = 4;
+
+const REPORTED_PATH = /(?:~\/|(?<![\w:/])\/(?!\/))[^\s`"'()<>{}\[\],;]+|(?:[\w.-]+\/)+[\w.-]+(?:\.[\w-]+)?/g;
+
+function reportPaths(reports: readonly string[]): { absolute: string[]; relative: string[] } {
+  const absolute = new Set<string>();
+  const relativePaths = new Set<string>();
+  for (const report of reports) {
+    for (const match of report.matchAll(REPORTED_PATH)) {
+      const path = match[0]!.replace(/[.,;:!?]+$/, "").replace(/[)\]}>]+$/, "");
+      if (!path || path.includes("://")) continue;
+      (path.startsWith("~/") || isAbsolute(path) ? absolute : relativePaths).add(path);
+    }
+  }
+  return { absolute: [...absolute], relative: [...relativePaths] };
+}
+
+function nearestExistingDirectory(path: string): string | null {
+  let current = resolve(path);
+  for (let i = 0; i < 12; i++) {
+    try {
+      const stat = statSync(current);
+      if (stat.isDirectory()) return current;
+      current = dirname(current);
+    } catch {
+      const parent = dirname(current);
+      if (parent === current) return null;
+      current = parent;
+    }
+  }
+  return null;
+}
+
+function displayRoot(root: string, home: string): string {
+  if (root === home) return "~";
+  const prefix = home.endsWith(sep) ? home : `${home}${sep}`;
+  return root.startsWith(prefix) ? `~/${root.slice(prefix.length)}` : root;
+}
 
 /**
  * GIT IS NEVER ASKED ON THE SERVER'S LOOP. These questions ran inside the
@@ -53,7 +95,7 @@ const MIGRATIONS = join(ROOT, "server", "db", "migrations");
 
 /** Answers already given for this root, reused while fresh: a "no" for a sha is
  *  true for that root NOW, and a worktree gets commits later. */
-const answers = new Map<string, { v: boolean; at: number }>();
+const answers = new Map<string, { v: boolean | null; at: number }>();
 let tracked: { files: string[]; at: number } | null = null;
 
 /**
@@ -66,39 +108,38 @@ let tracked: { files: string[]; at: number } | null = null;
  * number); a failure to spawn (`ENOENT`, `EACCES`) or a timeout (`killed`,
  * `code` null) is not. Measured on Bun 1.3.8.
  */
-function git(args: string[], timeout: number): Promise<{ out: string } | { exit: number } | null> {
+function git(args: string[], timeout: number, cwd = ROOT): Promise<{ out: string } | { exit: number; stderr: string } | null> {
   return new Promise((resolve) => {
-    execFile("git", args, { cwd: ROOT, encoding: "utf8", timeout, maxBuffer: 64 << 20 }, (err, out) => {
+    execFile("git", args, { cwd, encoding: "utf8", timeout, maxBuffer: 64 << 20 }, (err, out, stderr) => {
       if (!err) return resolve({ out });
       const code = (err as { code?: unknown }).code;
-      resolve(typeof code === "number" ? { exit: code } : null);
+      resolve(typeof code === "number" ? { exit: code, stderr: String(stderr ?? "") } : null);
     });
   });
 }
 
 /** `null` = could not be asked, which never becomes an accusation. */
-async function ask(key: string, question: () => Promise<boolean | null>): Promise<boolean> {
+async function ask(key: string, question: () => Promise<boolean | null>): Promise<boolean | null> {
   const hit = answers.get(key);
   if (hit !== undefined && Date.now() - hit.at < TRACKED_TTL_MS) return hit.v;
   const answer = await question();
-  const v = answer === null ? true : answer;
-  answers.set(key, { v, at: Date.now() });
-  return v;
+  answers.set(key, { v: answer, at: Date.now() });
+  return answer;
 }
 
 const shaExists = (sha: string) =>
-  ask(`sha:${sha}`, async () => {
+  ask(`sha:${ROOT}:${sha}`, async () => {
     const r = await git(["cat-file", "-e", `${sha}^{commit}`], 20_000);
     return r === null ? null : "out" in r;
-  });
+  }).then((answer) => answer ?? true);
 
 // `git log` exits 0 with EMPTY output when nothing matches, so here the answer
 // is in the text; a non-zero exit is not an answer at all.
 const symbolInHistory = (name: string) =>
-  ask(`sym:${name}`, async () => {
+  ask(`sym:${ROOT}:${name}`, async () => {
     const r = await git(["log", "--all", "-S", name, "--format=%h", "-1"], 20_000);
     return r !== null && "out" in r ? r.out.trim().length > 0 : null;
-  });
+  }).then((answer) => answer ?? true);
 
 async function trackedFiles(): Promise<string[]> {
   if (tracked && Date.now() - tracked.at < TRACKED_TTL_MS) return tracked.files;
@@ -110,9 +151,15 @@ async function trackedFiles(): Promise<string[]> {
 
 /** What the checks read: the answers `prepare` gathered, and for anything it
  *  was not asked, "no accusation". Never git. */
-function answering(shas: ReadonlyMap<string, boolean>, symbols: ReadonlyMap<string, boolean>, files: readonly string[] | null): RepoProbe {
+function answering(
+  shas: ReadonlyMap<string, boolean>,
+  symbols: ReadonlyMap<string, boolean>,
+  files: readonly string[] | null,
+  shaLocations: ReadonlyMap<string, readonly string[]> = new Map(),
+): RepoProbe {
   return {
     shaExists: (sha) => shas.get(sha) ?? true,
+    shaSearchLocations: (sha) => shaLocations.get(sha) ?? [],
     symbolInHistory: (name) => symbols.get(name) ?? true,
     fileMatches: (citation) => {
       const c = citation.replace(/^\.?\//, "");
@@ -147,13 +194,75 @@ function answering(shas: ReadonlyMap<string, boolean>, symbols: ReadonlyMap<stri
 
 return {
   ...answering(new Map(), new Map(), null),
-  prepare: async (reports) => {
+  prepare: async (reports, context: RepoSearchContext = {}) => {
     const shas = new Map<string, boolean>();
+    const shaLocations = new Map<string, readonly string[]>();
     const symbols = new Map<string, boolean>();
     let files: string[] | null = null;
+    let home = resolve(context.homeDirectory ?? homedir());
+    try { home = realpathSync(home); } catch { /* keep the configured path */ }
+    const named = reportPaths(reports);
+    const candidates: string[] = [];
+    const addCandidate = (path: string) => {
+      const dir = nearestExistingDirectory(path);
+      if (dir && !candidates.includes(dir)) candidates.push(dir);
+    };
+
+    for (const path of named.absolute) addCandidate(path.startsWith("~/") ? join(home, path.slice(2)) : path);
+    for (const path of named.relative) addCandidate(join(home, path));
+    addCandidate(ROOT);
+    for (const path of context.knownRoots ?? []) if (typeof path === "string" && isAbsolute(path)) addCandidate(path);
+
+    let discoveryComplete = candidates.length <= MAX_ROOT_CANDIDATES;
+    const gitRoots: string[] = [];
+    let resolutionUnknown = false;
+    for (const candidate of candidates.slice(0, MAX_ROOT_CANDIDATES)) {
+      const r = await git(["-C", candidate, "rev-parse", "--show-toplevel"], GIT_LOOKUP_TIMEOUT_MS);
+      if (r === null) {
+        resolutionUnknown = true;
+        continue;
+      }
+      if ("out" in r) {
+        const root = resolve(r.out.trim());
+        if (root && !gitRoots.includes(root) && gitRoots.length >= MAX_SHA_ROOTS) {
+          discoveryComplete = false;
+          break;
+        }
+        if (root && !gitRoots.includes(root)) gitRoots.push(root);
+      } else if (!/not a git repository/i.test(r.stderr)) {
+        resolutionUnknown = true;
+      }
+    }
+    if (gitRoots.length === 0 && candidates.length === 0) discoveryComplete = false;
+    if (resolutionUnknown) discoveryComplete = false;
+    const displayedRoots = gitRoots.map((root) => displayRoot(root, home));
+
+    const searchSha = async (sha: string): Promise<void> => {
+      let found = false;
+      let complete = discoveryComplete;
+      const searched: string[] = [];
+      for (let i = 0; i < gitRoots.length && !found; i += SHA_LOOKUP_CONCURRENCY) {
+        const batch = gitRoots.slice(i, i + SHA_LOOKUP_CONCURRENCY);
+        const results = await Promise.all(batch.map(async (root) => ({
+          root,
+          answer: await ask(`sha:${root}:${sha}`, async () => {
+            const r = await git(["cat-file", "-e", `${sha}^{commit}`], GIT_LOOKUP_TIMEOUT_MS, root);
+            return r === null ? null : "out" in r;
+          }),
+        })));
+        for (const result of results) {
+          searched.push(displayRoot(result.root, home));
+          if (result.answer === true) found = true;
+          else if (result.answer === null) complete = false;
+        }
+      }
+      shas.set(sha, found || !complete || gitRoots.length === 0);
+      shaLocations.set(sha, searched.length > 0 ? searched : displayedRoots);
+    };
+
     for (const report of reports) {
       const q = gitQuestions(report);
-      for (const sha of q.shas) if (!shas.has(sha)) shas.set(sha, await shaExists(sha));
+      for (const sha of q.shas) if (!shas.has(sha)) await searchSha(sha);
       if (q.citesFiles && files === null) files = await trackedFiles();
       // Report by report, and inside one only until a symbol is found: the
       // `some` in `checkReport` stops there, so git is not asked what the check
@@ -165,7 +274,7 @@ return {
         if (found) break;
       }
     }
-    return answering(shas, symbols, files);
+    return answering(shas, symbols, files, shaLocations);
   },
 };
 }

@@ -43,9 +43,9 @@
  * @covers KANBAN-11
  */
 import { describe, expect, test, beforeAll, afterAll } from "bun:test";
-import { readFileSync, readdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { readFileSync, readdirSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { execFileSync } from "node:child_process";
 import { extractClaims, checkReport, declaredSymbols, type RepoProbe } from "./deliveryReportChecks";
 import { repoProbe, probeForRoot } from "./deliveryReportProbe";
@@ -117,6 +117,10 @@ const realProbe: RepoProbe = {
 type Fixture = Record<string, { title: string; reports: string[] }>;
 const BENCH: Fixture = JSON.parse(
   readFileSync(join(ROOT, "tests/fixtures/delivery-reports-reopened.json"), "utf8"),
+);
+type DeliveryReportFixture = Array<{ title: string; reports: string[] }>;
+const DELIVERY_REPORT_FIXTURE: DeliveryReportFixture = JSON.parse(
+  readFileSync(join(ROOT, "tests/fixtures/delivery-reports-multi-repo.json"), "utf8"),
 );
 
 describe("il banco: le cards riaperte, sui loro reports veri", () => {
@@ -462,5 +466,150 @@ describe("l'estrattore non scambia il rumore per una dichiarazione", () => {
     expect(checkReport("migration a **102**", probe).map((f) => f.code)).not.toContain("migration-missing");
     // Below the tip the accusation stands: that number would have a file.
     expect(checkReport("migration 099", probe).map((f) => f.code)).toContain("migration-missing");
+  });
+});
+
+describe("delivery SHA claims span the repositories named by the reports", () => {
+  let home: string;
+  let roots: Record<"card" | "jarvis" | "openclaw" | "topics" | "delegate", string>;
+  let commitByReportedSha: Map<string, string>;
+
+  function gitInRepo(root: string, ...args: string[]): string {
+    return execFileSync("git", args, { env: gitEnv(), cwd: root, encoding: "utf8" }).trim();
+  }
+
+  function initializeRepo(root: string): void {
+    mkdirSync(root, { recursive: true });
+    gitInRepo(root, "init", "-b", "main");
+    gitInRepo(root, "config", "user.name", "Synthetic fixture");
+    gitInRepo(root, "config", "user.email", "synthetic@example.invalid");
+  }
+
+  function commitFixture(root: string, file: string): string {
+    mkdirSync(dirname(join(root, file)), { recursive: true });
+    writeFileSync(join(root, file), "fixture commit\n");
+    gitInRepo(root, "add", "-A");
+    gitInRepo(root, "commit", "-m", `fixture ${file}`);
+    return gitInRepo(root, "rev-parse", "HEAD");
+  }
+
+  const mapReportedShas = (report: string): string => {
+    const alternatives = [...commitByReportedSha.keys()].sort((a, b) => b.length - a.length).join("|");
+    return report.replace(new RegExp(`\\b(${alternatives})\\b`, "g"), (sha) => commitByReportedSha.get(sha)!);
+  };
+
+  beforeAll(() => {
+    home = mkdtempSync(join(tmpdir(), "delivery-multi-repo-"));
+    roots = {
+      card: join(home, "Projects", "card-worktree"),
+      jarvis: join(home, ".claude", "jarvis"),
+      openclaw: join(home, ".openclaw"),
+      topics: join(home, "Projects", "topics-app"),
+      delegate: join(home, "Projects", "openclaw-delegate-router"),
+    };
+    for (const root of Object.values(roots)) initializeRepo(root);
+    commitFixture(roots.card, "proof.txt");
+    const sourceBySha: Record<string, keyof typeof roots> = {
+      "7b4778a": "jarvis",
+      "67a943e": "jarvis",
+      "47818b0": "jarvis",
+      "24fbf86": "jarvis",
+      "a100b56": "openclaw",
+      "1910b03": "openclaw",
+      "22e8b05": "openclaw",
+      "04d125e1b6": "topics",
+      "5952c74": "delegate",
+    };
+    commitByReportedSha = new Map(
+      Object.entries(sourceBySha).map(([sha, repo]) => [sha, commitFixture(roots[repo], `claims/${sha}.txt`)]),
+    );
+    expect(new Set(commitByReportedSha.values()).size).toBe(9);
+  });
+
+  afterAll(() => rmSync(home, { recursive: true, force: true }));
+
+  test("the seven real card excerpts contain twelve SHA-shaped references and nine commit claims", async () => {
+    expect(DELIVERY_REPORT_FIXTURE).toHaveLength(7);
+    const reports = DELIVERY_REPORT_FIXTURE.flatMap((card) => card.reports.map(mapReportedShas));
+    const rawShaOccurrences = DELIVERY_REPORT_FIXTURE
+      .flatMap((card) => card.reports)
+      .flatMap((report) => report.match(/\b[0-9a-f]{7,40}\b/gi) ?? []);
+    expect(rawShaOccurrences).toHaveLength(12);
+    const shaClaims = reports.flatMap((report) => extractClaims(report).filter((claim) => claim.kind === "sha"));
+    expect(shaClaims).toHaveLength(9);
+
+    const probe = await probeForRoot(roots.card).prepare!(reports, {
+      homeDirectory: home,
+      knownRoots: [roots.topics, roots.delegate],
+    });
+    const findings = reports.flatMap((report) => checkReport(report, probe));
+    expect(findings.filter((finding) => finding.code === "sha-missing")).toEqual([]);
+
+    const serialized = JSON.stringify(DELIVERY_REPORT_FIXTURE);
+    expect(serialized).not.toContain("@");
+    expect(serialized).not.toMatch(/\b(?:Attilio|Anna)\b/i);
+  });
+
+  test("a home-relative report path discovers its synthetic repository", async () => {
+    const root = join(home, "tools", "usage-hub");
+    initializeRepo(root);
+    const sha = commitFixture(root, "src/queue.mjs");
+    const report = `Test aggiornato (commit ${sha}) in tools/usage-hub/src/queue.mjs.`;
+    const probe = await probeForRoot(roots.card).prepare!([report], { homeDirectory: home });
+    expect(probe.shaExists(sha)).toBe(true);
+    expect(probe.shaSearchLocations?.(sha)).toContain("~/tools/usage-hub");
+  });
+
+  test("an absolute report path outside the home discovers its synthetic repository", async () => {
+    const root = mkdtempSync(join(tmpdir(), "delivery-absolute-only-"));
+    initializeRepo(root);
+    try {
+      const sha = commitFixture(root, "proof.txt");
+      const report = `Test aggiornato (commit ${sha}) in ${join(root, "proof.txt")}.`;
+      const probe = await probeForRoot(roots.card).prepare!([report], { homeDirectory: home });
+      expect(probe.shaExists(sha)).toBe(true);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test("a nested registered repository is searched separately from its parent", async () => {
+    const parent = join(home, "Projects", "nested-parent");
+    const nested = join(parent, "nested-project");
+    initializeRepo(parent);
+    initializeRepo(nested);
+    const sha = commitFixture(nested, "proof.txt");
+    const report = `Commit ${sha} in ${join(parent, "README.md")}.`;
+    const probe = await probeForRoot(roots.card).prepare!([report], {
+      homeDirectory: home,
+      knownRoots: [nested],
+    });
+    expect(probe.shaExists(sha)).toBe(true);
+  });
+
+  test("run, cron, card and task identifiers are ignored, while explicit commit and sha claims stay", () => {
+    const shas = (report: string) => extractClaims(report).filter((claim) => claim.kind === "sha").map((claim) => (claim as { value: string }).value);
+    expect(shas("run 5b137a57; cron 4295465f; card 1234abc; task 04d125e1b6; id=5952c74")).toEqual([]);
+    expect(shas("run commit 5b137a57; sha 4295465f; commit 04d125e1b6")).toEqual([
+      "5b137a57",
+      "4295465f",
+      "04d125e1b6",
+    ]);
+  });
+
+  test("an invented sha is still accused and the finding names every repository searched", async () => {
+    const sha = "0000000deadbee1";
+    const report = `Fatto (commit ${sha}).`;
+    const probe = await probeForRoot(roots.card).prepare!([report], {
+      homeDirectory: home,
+      knownRoots: [roots.jarvis, roots.openclaw, roots.topics, roots.delegate],
+    });
+    const finding = checkReport(report, probe).find((item) => item.code === "sha-missing");
+    expect(finding).toBeDefined();
+    expect(finding?.detail).toContain("~/Projects/card-worktree");
+    expect(finding?.detail).toContain("~/.claude/jarvis");
+    expect(finding?.detail).toContain("~/.openclaw");
+    expect(finding?.detail).toContain("~/Projects/topics-app");
+    expect(finding?.detail).toContain("~/Projects/openclaw-delegate-router");
   });
 });

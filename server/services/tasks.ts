@@ -341,6 +341,10 @@ interface ServiceOpts {
    * live.
    */
   repoRootFor?: (args: { taskId: string; projectId: string | undefined; assignedTopicId: string | null }) => string | null;
+  /** Complete host-known repository roots, including registered and archived projects. */
+  listRepoRoots?: () => string[];
+  /** Visible project directories, used as a fallback by older hosts. */
+  listProjectDirs?: () => string[];
   /** How a root becomes a probe (tests pass a fake). */
   probeFor?: (root: string) => RepoProbe;
   /**
@@ -3262,10 +3266,16 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       if (rows.length === 0) return;
 
       let probe: RepoProbe = repoProbe;
+      let knownRoots: string[] = [];
       try {
         const row = getTaskRow(taskId);
         const root = opts.repoRootFor?.({ taskId, projectId, assignedTopicId: (row?.assigned_topic_id as string | null) ?? null }) ?? null;
         if (root) probe = (opts.probeFor ?? probeForRoot)(root);
+        try { knownRoots = opts.listRepoRoots?.() ?? []; } catch { /* best-effort */ }
+        if (knownRoots.length === 0) {
+          try { knownRoots = opts.listProjectDirs?.() ?? []; } catch { /* best-effort */ }
+        }
+        if (root) knownRoots.unshift(root);
       } catch { /* the server's own checkout, as before */ }
       const reports = rows.map((r) => r.content ?? "");
       /** True when a note was written. */
@@ -3313,7 +3323,7 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
           if (writeNote(answers)) opts.onLateDeliveryNote?.(taskId, projectId);
         } catch { /* as below */ }
       };
-      trackDeliveryNote(probe.prepare(reports).then(late, () => {}));
+      trackDeliveryNote(probe.prepare(reports, { knownRoots }).then(late, () => {}));
     } catch {
       // See the docblock: a missing note is not a delivery failure.
     }
