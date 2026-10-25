@@ -4,7 +4,7 @@
  * @covers AICTRL-04, AICTRL-05, MSEL-06
  */
 import { describe, it, expect } from "bun:test";
-import { topicsRoutingBlocked, boardTopicsRoutingEnabled, cardBoardSettings, chatTopicsRoute } from "./topicsRoutingGate";
+import { topicsRoutingBlocked, boardTopicsRoutingEnabled, cardBoardSettings, cardRunsThroughTopics, chatTopicsRoute } from "./topicsRoutingGate";
 import type { ProvidersSnapshot } from "../types";
 
 function snapshot(providers: ProvidersSnapshot["providers"], defaultProvider: string | null = null): ProvidersSnapshot {
@@ -73,6 +73,25 @@ describe("boardTopicsRoutingEnabled", () => {
   it("switch esplicito vince sempre sul prefisso legacy del modello", () => {
     expect(boardTopicsRoutingEnabled(false, "topics:claude-sonnet-5")).toBe(false);
     expect(boardTopicsRoutingEnabled(true, "claude-sonnet-5")).toBe(true);
+  });
+});
+
+describe('card route label (AICTRL-01, MSEL-06)', () => {
+  /** @covers AICTRL-01, MSEL-06 */
+  it('uses the board OFF default for a card whose preference is null', () => {
+    const task = { model: 'claude-sonnet-5', topicsRouting: null };
+    const providers = snapshot([claudeReady, topicsReady]);
+    expect(cardRunsThroughTopics(task, providers, false)).toBe(false);
+    expect(cardRunsThroughTopics(task, providers, true)).toBe(true);
+  });
+
+  /** @covers AICTRL-01, MSEL-06 */
+  it('keeps a null-preference explicit Claude Code model direct', () => {
+    expect(cardRunsThroughTopics(
+      { model: 'claude-code:claude-sonnet-5', topicsRouting: null },
+      snapshot([claudeReady, topicsReady]),
+      false,
+    )).toBe(false);
   });
 });
 

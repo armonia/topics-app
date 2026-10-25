@@ -2,6 +2,20 @@ import { useEffect, useState } from 'react';
 import { AUTO_PROJECT_ID, boardApi, type BoardSettings } from '../lib/board';
 import { cardBoardSettings } from '../lib/topicsRoutingGate';
 
+const boardSettingsRequests = new Map<string, Promise<BoardSettings>>();
+
+function getBoardSettings(projectId: string): Promise<BoardSettings> {
+  const pending = boardSettingsRequests.get(projectId);
+  if (pending) return pending;
+  const request = boardApi.getSettings(projectId);
+  boardSettingsRequests.set(projectId, request);
+  const clear = () => {
+    if (boardSettingsRequests.get(projectId) === request) boardSettingsRequests.delete(projectId);
+  };
+  void request.then(clear, clear);
+  return request;
+}
+
 /** The board settings the task drawer judges a card with: its own board's.
  *  The all-boards view lists every board's cards inside a project pane that
  *  holds its own board's settings, so a card of another board fetches that
@@ -17,7 +31,7 @@ export function useCardBoardSettings(
   useEffect(() => {
     if (!cardBoardId || cardBoardId === paneBoardId) return;
     let alive = true;
-    boardApi.getSettings(cardBoardId)
+    getBoardSettings(cardBoardId)
       .then((settings) => { if (alive) setFetched({ projectId: cardBoardId, settings }); })
       .catch(() => { /* default unknown: the drawer judges the task alone */ });
     return () => { alive = false; };

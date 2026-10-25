@@ -51,6 +51,19 @@ async function settle(): Promise<void> {
 }
 
 describe('useCardBoardSettings', () => {
+  /** @covers AICTRL-05 */
+  test('cards from the same foreign board share one settings read', async () => {
+    const first = mountDrawer('beta');
+    const second = mountDrawer('beta');
+    expect(asked.map((a) => a.boardId)).toEqual(['beta']);
+    asked[0]!.answer(settingsWith('claude-sonnet-5'));
+    await settle();
+    expect(first.seen()).toEqual(settingsWith('claude-sonnet-5'));
+    expect(second.seen()).toEqual(settingsWith('claude-sonnet-5'));
+    first.unmount();
+    second.unmount();
+  });
+
   test("a card of another board: that board's settings are fetched and reach the drawer", async () => {
     const drawer = mountDrawer('beta');
     expect(asked.map((a) => a.boardId)).toEqual(['beta']);

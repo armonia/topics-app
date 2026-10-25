@@ -107,15 +107,14 @@ export function topicsRoutingBlocked(
   return topicsRoute(topicsRouting, { provider: 'topics', model: override?.model ?? null }, snapshot, 'chat').via !== 'topics';
 }
 
-/** MSEL-01, variant `chip`: whether a card's stored choice runs through Topics,
- *  for the «· via Topics» the board card writes after the model. The card's
- *  own preference (or the legacy prefix), card scope; a bare Claude model is a
- *  Claude Code target, as the dispatcher reads it. */
+/** MSEL-01: whether the card chip should say it runs through Topics. Resolve
+ *  the card preference against its own board default, just like dispatch. */
 export function cardRunsThroughTopics(
   task: { model?: string | null; topicsRouting?: boolean | null },
   snapshot: ProvidersSnapshot | null,
+  boardRoutingDefault?: boolean | null,
 ): boolean {
-  if (!task.model || !effectiveTopicsRouting(task.topicsRouting, task.model, 'task')) return false;
+  if (!task.model || !effectiveTopicsRouting(task.topicsRouting ?? boardRoutingDefault, task.model, 'task')) return false;
   const selection = taskModelSelection(task.model);
   const provider = selection.provider ?? (selection.model?.startsWith('claude-') ? 'claude-code' : null);
   return topicsRoute(true, { provider, model: selection.model ?? null }, snapshot, 'task').via === 'topics';
