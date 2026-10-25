@@ -209,6 +209,22 @@ describe('useTauriBrowser: a heavy pane pauses and resumes', () => {
     bench.harness.unmount();
   });
 
+  test('the page is silenced before the hide and gets its media back on resume', async () => {
+    const bench = await heavyPane();
+    calls = [];
+    await paused(bench, 'window');
+    const silence = calls.findIndex((c) => c.cmd === 'browser_eval_js' && String(c.args.js).includes('.pause()'));
+    const hide = calls.findIndex((c) => c.cmd === 'browser_set_visible' && c.args.visible === false);
+    expect(silence).toBeGreaterThanOrEqual(0);
+    expect(hide).toBeGreaterThan(silence);
+    calls = [];
+    noteWindowFocusEvent(true);
+    resumeByFocus(bench);
+    await settle();
+    expect(calls.some((c) => c.cmd === 'browser_eval_js' && String(c.args.js).includes('.play()'))).toBe(true);
+    bench.harness.unmount();
+  });
+
   test('a glance inside the dwell pays nothing', async () => {
     const bench = await heavyPane();
     calls = [];

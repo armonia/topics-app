@@ -47,6 +47,14 @@ const readPanePerf = (): Promise<readonly ShellWebviewRow[] | undefined> =>
  *  on screen would go black at the end of the dwell. */
 const FULL_SCREEN_JS =
   "(function(){try{return (document.fullscreenElement||document.webkitFullscreenElement)?'1':''}catch(e){return ''}})()";
+/** Hiding the view does not silence the page: WebKit keeps playing audio from a
+ *  hidden view, so a paused pane would still be heard. Before the hide, every
+ *  <audio>/<video> that is playing (the document and its same-origin frames) is
+ *  paused and remembered, and the resume replays exactly those. */
+const PAUSE_MEDIA_JS =
+  "(function(){try{var w=window,l=[];(function walk(d){d.querySelectorAll('audio,video').forEach(function(m){if(!m.paused&&!m.ended){m.pause();l.push(m)}});d.querySelectorAll('iframe').forEach(function(f){try{if(f.contentDocument)walk(f.contentDocument)}catch(e){}})})(document);w.__topicsPausedMedia=(w.__topicsPausedMedia||[]).concat(l);return String(l.length)}catch(e){return ''}})()";
+const RESUME_MEDIA_JS =
+  "(function(){try{var w=window,l=w.__topicsPausedMedia||[];w.__topicsPausedMedia=[];l.forEach(function(m){if(m.isConnected&&m.paused){var p=m.play();if(p&&p.catch)p.catch(function(){})}});return String(l.length)}catch(e){return ''}})()";
 /** origin + pathname: the page a heavy verdict is about. */
 function urlKeyOf(u: string): string {
   try { const p = new URL(u); return p.origin + p.pathname; } catch { return u; }
@@ -180,6 +188,19 @@ export function useNativePanePause(d: PauseDeps): NativePanePause {
       setStill(null);
       return;
     }
+    // Silence the page before its view is hidden: a hidden view keeps its audio.
+    await Promise.race([
+      tauriInvoke<string>('browser_eval_js', { id: x.id, js: PAUSE_MEDIA_JS }).catch(() => ''),
+      new Promise<string>((r) => setTimeout(() => r(''), STILL_TIMEOUT_MS)),
+    ]);
+    if (seq !== pauseSeqRef.current) return;
+    if (liveRef.current) {
+      void tauriInvoke<string>('browser_eval_js', { id: x.id, js: RESUME_MEDIA_JS }).catch(() => '');
+      setPauseState('live');
+      revoke(pausedImageRef.current);
+      setStill(null);
+      return;
+    }
     setPauseState('paused');
   }, [setPauseState, setStill]);
 
@@ -220,6 +241,8 @@ export function useNativePanePause(d: PauseDeps): NativePanePause {
       setStill(null);
       return;
     }
+    // Give the page back the media that was playing when it was silenced.
+    void tauriInvoke<string>('browser_eval_js', { id: x.id, js: RESUME_MEDIA_JS }).catch(() => '');
     if (!x.frozenRef.current) {
       // Adopt the pause still as the overlay freeze: from here the pane is in the
       // exact state `freeze()` leaves it in, and existing code owns the return.
