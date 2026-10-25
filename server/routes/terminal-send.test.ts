@@ -23,6 +23,11 @@ describe("resolveTerminalSend", () => {
     expect(r.data).toBe("");
   });
 
+  test("sent counts UTF-8 bytes, not JavaScript characters", () => {
+    const r = resolveTerminalSend("claude-code", "é🧭");
+    expect(r).toEqual({ data: "é🧭", sent: Buffer.byteLength("é🧭", "utf8"), dropped: false });
+  });
+
   test("a shell keeps the full input", () => {
     const r = resolveTerminalSend("shell", "a\x1ab");
     expect(r.dropped).toBe(false);

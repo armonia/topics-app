@@ -25,7 +25,7 @@ describe("every path meets the same session-typed filter", () => {
   });
 
   test("a rebound key is the same byte: origin never matters, session type does", () => {
-    const rebound = SUSPEND; // whatever keybindings.json binds, this byte arrives
+    const rebound = new TextDecoder().decode(Uint8Array.of(0x1a));
     expect(bridgeWriteForSession("claude-code", rebound)).toBeNull();
     expect(bridgeWriteForSession("shell", rebound)).toBe(SUSPEND);
   });

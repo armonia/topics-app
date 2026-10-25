@@ -25,6 +25,9 @@ import * as net from "node:net";
 import { join } from "node:path";
 import { createInterface } from "node:readline";
 import { cleanupTestDataDir, createTestAppContext, setupTestDataDir, testTmpDir } from "./helpers";
+import { getDatabase } from "../../server/db";
+import { getSubagent, setSubagentState } from "../../server/lib/subagent-store";
+import { transcriptHasPrompt } from "../../server/lib/claude-subagent-transcript";
 
 const TEST_ROOT = testTmpDir("terminal-ctrl-z");
 // Short on purpose: a unix socket path cannot exceed 104 characters.
@@ -37,6 +40,7 @@ let bridgeServer: net.Server;
 const bridgeSockets = new Set<net.Socket>();
 const creates: string[] = [];
 const writes: Array<{ id: string; data: string }> = [];
+const screens = new Map<string, string>();
 let sawList = false;
 let terminalRouter: (req: Request, url: URL, pathname: string, method: string) => Promise<Response | null> | Response | null;
 const savedEnv: Record<string, string | undefined> = {};
@@ -60,8 +64,15 @@ function startFakeBridge(): Promise<void> {
         creates.push(msg.id!);
         reply({ type: "created", id: msg.id, pid: 7000 + creates.length });
       }
-      else if (msg.type === "buffer") reply({ type: "buffer", id: msg.id, data: "" });
-      else if (msg.type === "write") writes.push({ id: msg.id!, data: msg.data ?? "" });
+      else if (msg.type === "buffer") {
+        const screen = screens.get(msg.id!) ?? "Welcome to Claude Code\n> ";
+        reply({ type: "buffer", id: msg.id, data: Buffer.from(screen, "utf8").toString("base64") });
+      }
+      else if (msg.type === "write") {
+        const data = msg.data ?? "";
+        writes.push({ id: msg.id!, data });
+        if (data && data !== "\r") screens.set(msg.id!, `Welcome to Claude Code\n> ${data}`);
+      }
     });
   });
   return new Promise((resolve) => bridgeServer.listen(SOCKET_PATH, () => resolve()));
@@ -81,6 +92,47 @@ async function createSession(type: string): Promise<string> {
   );
   expect(res?.status).toBe(200);
   return ((await res!.json()) as { id: string }).id;
+}
+
+async function spawnCliChild(parentId: string, prompt: string): Promise<{ agentId: string; response: Response }> {
+  const url = new URL(`http://h/api/sessions/${encodeURIComponent(parentId)}/agents/spawn`);
+  const response = await terminalRouter(
+    new Request(url, {
+      method: "POST",
+      headers: { "content-type": "application/json", "x-gateway-token": process.env.GATEWAY_TOKEN! },
+      body: JSON.stringify({ prompt, cwd: CWD, runtime: "claude-code" }),
+    }),
+    url,
+    url.pathname,
+    "POST",
+  );
+  expect(response?.status).toBe(200);
+  return { agentId: ((await response!.json()) as { agentId: string }).agentId, response: response! };
+}
+
+async function waitForWrite(id: string, predicate: (data: string) => boolean, timeoutMs = 5000, fromIndex = 0): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  const found = () => writes.slice(fromIndex).some((write) => write.id === id && predicate(write.data));
+  while (Date.now() < deadline && !found()) {
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+  expect(found(), "expected bridge write never arrived").toBe(true);
+}
+
+async function stopCliChild(parentId: string, agentId: string): Promise<void> {
+  // Avoid a detached result read after the test database closes.
+  setSubagentState(getDatabase(), agentId, "retired");
+  const url = new URL(`http://h/api/sessions/${encodeURIComponent(parentId)}/agents/${encodeURIComponent(agentId)}/stop`);
+  await terminalRouter(
+    new Request(url, {
+      method: "POST",
+      headers: { "content-type": "application/json", "x-gateway-token": process.env.GATEWAY_TOKEN! },
+      body: "{}",
+    }),
+    url,
+    url.pathname,
+    "POST",
+  );
 }
 
 /** What the bridge received for `id` up to the sentinel, once it arrives. */
@@ -178,16 +230,81 @@ test("the agents' /send takes text only: an array of bytes would carry ctrl+z pa
       url.pathname,
       "POST",
     );
-    return res!.status;
+    return { status: res!.status, body: await res!.json() as Record<string, unknown> };
   };
 
   // The node bridge hands `data` to node-pty, which writes `Buffer.from([26])`:
   // a raw 0x1A the string filter never saw.
-  expect(await send([26])).toBe(400);
-  expect(await send("\x1a")).toBe(200);
-  expect(await send(SENTINEL)).toBe(200);
+  expect(await send([26])).toMatchObject({ status: 400 });
+  expect(await send("\x1a")).toEqual({ status: 200, body: { ok: false, dropped: true, sent: 0 } });
+  expect(await send("a\x1ab")).toEqual({ status: 200, body: { ok: true, sent: 2 } });
+  expect(await send(SENTINEL)).toEqual({ status: 200, body: { ok: true, sent: SENTINEL.length } });
 
-  expect(await writesUntilSentinel(id)).toEqual([]);
+  expect(await writesUntilSentinel(id)).toEqual(["ab"]);
+}, 20_000);
+
+test("seed writes the filtered prompt once and fingerprints the same transcript text", async () => {
+  const parentId = await createSession("claude-code");
+  setEnv("GATEWAY_TOKEN", crypto.randomUUID());
+  const rawPrompt = "do it\x1a now";
+  const { agentId } = await spawnCliChild(parentId, rawPrompt);
+
+  try {
+    const row = getSubagent(getDatabase(), agentId);
+    expect(row?.promptSnippet).toBe("do it now");
+    expect(transcriptHasPrompt(
+      [JSON.stringify({ type: "user", message: { content: "do it now" } })],
+      row?.promptSnippet ?? "",
+    )).toBe(true);
+
+    await waitForWrite(agentId, (data) => data.includes("do it now"));
+    await new Promise((resolve) => setTimeout(resolve, 2300));
+    expect(writes.filter((write) => write.id === agentId && write.data.includes("do it now"))).toHaveLength(1);
+    expect(writes.some((write) => write.id === agentId && write.data.includes("\x1a"))).toBe(false);
+  } finally {
+    await stopCliChild(parentId, agentId);
+  }
+}, 20_000);
+
+test("send_to_agent drops an all-filtered prompt and counts the bytes written", async () => {
+  const parentId = await createSession("claude-code");
+  setEnv("GATEWAY_TOKEN", crypto.randomUUID());
+  const { agentId } = await spawnCliChild(parentId, "ready");
+  const { writeTopicsTerminal } = await import("../../server/routes/terminal");
+  const row = getSubagent(getDatabase(), agentId);
+  expect(row?.runtime).toBe("claude-code");
+
+  try {
+    await waitForWrite(agentId, (data) => data === "\r");
+    const url = new URL(`http://h/api/sessions/${encodeURIComponent(parentId)}/agents/${encodeURIComponent(agentId)}/send`);
+    const send = async (input: string) => {
+      const response = await terminalRouter(
+        new Request(url, {
+          method: "POST",
+          headers: { "content-type": "application/json", "x-gateway-token": process.env.GATEWAY_TOKEN! },
+          body: JSON.stringify({ input }),
+        }),
+        url,
+        url.pathname,
+        "POST",
+      );
+      return { status: response!.status, body: await response!.json() as Record<string, unknown> };
+    };
+
+    const start = writes.length;
+    expect(await send("\x1a")).toEqual({ status: 200, body: { ok: false, dropped: true, sent: 0 } });
+    expect(writeTopicsTerminal(agentId, SENTINEL)).toBe(true);
+    await waitForWrite(agentId, (data) => data === SENTINEL, 5000, start);
+    expect(writes.slice(start).filter((write) => write.id === agentId).map((write) => write.data)).toEqual([SENTINEL]);
+
+    const byteStart = writes.length;
+    expect(await send("a\x1abé")).toEqual({ status: 200, body: { ok: true, sent: Buffer.byteLength("abé", "utf8") } });
+    expect(writeTopicsTerminal(agentId, SENTINEL)).toBe(true);
+    await waitForWrite(agentId, (data) => data === SENTINEL, 5000, byteStart);
+    expect(writes.slice(byteStart).filter((write) => write.id === agentId).map((write) => write.data)).toEqual(["abé", "\r", SENTINEL]);
+  } finally {
+    await stopCliChild(parentId, agentId);
+  }
 }, 20_000);
 
 test("a shell keeps its ctrl+z: there job control suspends the foreground job", async () => {

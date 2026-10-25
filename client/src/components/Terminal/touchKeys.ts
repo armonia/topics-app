@@ -1,4 +1,4 @@
-import type { TerminalSessionType } from "../../../shared/terminal-session-types";
+import type { TerminalSessionType } from "../../../../shared/terminal-session-types";
 
 export interface TouchKey {
   label: string;
@@ -34,4 +34,8 @@ const CLAUDE_UNDO_KEY: TouchKey = { label: "Ctrl+_", data: UNDO, wide: true };
 export function touchKeysForSession(sessionType: TerminalSessionType | undefined): TouchKey[] {
   if (sessionType !== "claude-code" && sessionType !== "claude-code-team") return [...BASE_TOUCH_KEYS];
   return BASE_TOUCH_KEYS.map((key) => (key.label === "Ctrl+Z" ? CLAUDE_UNDO_KEY : key));
+}
+
+export function touchKeysForSessionInfo(sessionInfo: { type: TerminalSessionType } | undefined): TouchKey[] {
+  return touchKeysForSession(sessionInfo?.type);
 }

@@ -6,7 +6,7 @@ import { SearchAddon } from '@xterm/addon-search';
 import '@xterm/xterm/css/xterm.css';
 import { Copy, Check, RotateCw, Clock, AlertTriangle } from 'lucide-react';
 import { attachTerminalTouchScroll } from './touchScroll';
-import { touchKeysForSession } from './touchKeys';
+import { touchKeysForSessionInfo } from './touchKeys';
 import { createWriteCoalescer, BACKGROUND_FLUSH_MS, VISIBLE_FLUSH_MS, type WriteCoalescer } from './writeCoalescer';
 import { TerminalInputQueue, nextInputBands, INPUT_LOSS_MESSAGE_KEY, type InputLossReason } from './inputQueue';
 import { enqueueFit, cancelFit } from '../../lib/staggeredFit';
@@ -1302,7 +1302,7 @@ export function SingleTerminalPane({ sessionId, onStale, isActive = true }: Sing
           for the output. */}
       {isTouchDevice && !stale && !resting && (
         <div className="flex-shrink-0 flex items-center gap-1 coarse:gap-2 px-2 py-[5px] bg-[#111] border-b border-white/10 overflow-x-auto select-none">
-          {touchKeysForSession(sessionInfo?.type).map(({ label, data, wide }) => (
+          {touchKeysForSessionInfo(sessionInfo).map(({ label, data, wide }) => (
             <button
               key={label}
               aria-label={label}
