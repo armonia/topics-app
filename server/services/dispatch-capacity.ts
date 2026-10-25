@@ -389,6 +389,10 @@ export const DISPATCH_MEM_FLOOR_NATIVE_GB = 6;
  */
 export const GB_PER_AGENT_CLI = 3;
 export const GB_PER_AGENT_NATIVE = 1.5;
+/** Measured peak for one CLI agent, in GB. */
+export const CLI_AGENT_PEAK_GB = 0.42;
+/** Estimated: card-memory-peaks is populated only after checks run (review-checks.ts:509), so native no-check work has no measured peak. */
+export const NATIVE_NO_LOCAL_CHECK_RESERVATION_GB = 1;
 
 /**
  * Memoria REALMENTE disponibile, in GB: quella che la macchina puo' dare SENZA
