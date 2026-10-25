@@ -6,6 +6,7 @@ import { SearchAddon } from '@xterm/addon-search';
 import '@xterm/xterm/css/xterm.css';
 import { Copy, Check, RotateCw, Clock, AlertTriangle } from 'lucide-react';
 import { attachTerminalTouchScroll } from './touchScroll';
+import { touchKeysForSessionInfo } from './touchKeys';
 import { createWriteCoalescer, BACKGROUND_FLUSH_MS, VISIBLE_FLUSH_MS, type WriteCoalescer } from './writeCoalescer';
 import { TerminalInputQueue, nextInputBands, INPUT_LOSS_MESSAGE_KEY, type InputLossReason } from './inputQueue';
 import { enqueueFit, cancelFit } from '../../lib/staggeredFit';
@@ -39,17 +40,8 @@ import { TERMINAL_INPUT_DROPPED, TERMINAL_WS_CLOSE_DORMANT } from '../../../../s
 import { useSwapFreeze } from '../../state/swapFreeze';
 import { TerminalCover } from './TerminalCover';
 
-const TOUCH_KEYS: { label: string; data: string; wide?: boolean }[] = [
-  { label: 'Esc',    data: '\x1b' },
-  { label: 'Tab',    data: '\t' },
-  { label: '↑',      data: '\x1b[A' },
-  { label: '↓',      data: '\x1b[B' },
-  { label: '←',      data: '\x1b[D' },
-  { label: '→',      data: '\x1b[C' },
-  { label: 'Ctrl+C', data: '\x03', wide: true },
-  { label: 'Ctrl+D', data: '\x04', wide: true },
-  { label: 'Ctrl+Z', data: '\x1a', wide: true },
-];
+// The toolbar keys live in ./touchKeys so the set can vary by session type:
+// Ctrl+Z freezes a Claude Code pane, so Claude sessions get Ctrl+_ instead.
 
 const isTouchDevice = typeof window !== 'undefined' && 'ontouchstart' in window && navigator.maxTouchPoints > 0 && /Android|iPhone|iPad|iPod/.test(navigator.userAgent);
 
@@ -1310,7 +1302,7 @@ export function SingleTerminalPane({ sessionId, onStale, isActive = true }: Sing
           for the output. */}
       {isTouchDevice && !stale && !resting && (
         <div className="flex-shrink-0 flex items-center gap-1 coarse:gap-2 px-2 py-[5px] bg-[#111] border-b border-white/10 overflow-x-auto select-none">
-          {TOUCH_KEYS.map(({ label, data, wide }) => (
+          {touchKeysForSessionInfo(sessionInfo).map(({ label, data, wide }) => (
             <button
               key={label}
               aria-label={label}

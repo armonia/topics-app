@@ -28,3 +28,15 @@ export function withoutSuspendKey(sessionType: string | undefined, data: string)
   if (!data.includes("\x1a")) return data;
   return data.replaceAll("\x1b\x1a", "").replaceAll("\x1a", "");
 }
+
+/**
+ * Single choke point for every byte bound for a PTY (keyboard socket,
+ * /send, writeTopicsTerminal, live-terminals topics send, seeded prompts):
+ * the bytes that may be written, or null when nothing may go out. Keyed on
+ * the SESSION TYPE, never on the key or path that delivered the byte, so a
+ * ctrl+z rebound in keybindings.json meets the same filter.
+ */
+export function bridgeWriteForSession(sessionType: string | undefined, data: string): string | null {
+  const filtered = withoutSuspendKey(sessionType, data);
+  return filtered.length > 0 ? filtered : null;
+}

@@ -7,7 +7,7 @@ import { createInterface } from "readline";
 import { getDatabase } from "../db";
 import { ptyBridgeOverride, resolvePtyBridgeCommand } from "../lib/pty-bridge-selection";
 import { warnThrottled } from "../lib/warn-throttled";
-import { withoutSuspendKey } from "../lib/terminal-suspend-key";
+import { bridgeWriteForSession, withoutSuspendKey } from "../lib/terminal-suspend-key";
 import { shouldCompressFrame } from "../lib/ws-compression";
 import { createHash } from "crypto";
 import net from "net";
@@ -1080,6 +1080,21 @@ function noteDroppedInput(sessionId: string, err: unknown): void {
   console.warn(`[Terminal] keystroke dropped for ${sessionId}: ${String((err as Error)?.message ?? err)}`);
 }
 
+/**
+ * Decision for POST /api/terminal/sessions/:id/send, keyed on the session
+ * type: the suspend key that freezes Claude Code never counts as sent. The
+ * bridge receives `data`; when that is empty the route answers `dropped`
+ * instead of `ok` and writes nothing.
+ */
+export function resolveTerminalSend(
+  sessionType: string | undefined,
+  input: string,
+): { data: string; sent: number; dropped: boolean } {
+  const data = bridgeWriteForSession(sessionType, input);
+  if (data === null) return { data: "", sent: 0, dropped: true };
+  return { data, sent: Buffer.byteLength(data, "utf8"), dropped: false };
+}
+
 function sendToBridge(msg: any) {
   if (!bridgeSocket || bridgeSocket.destroyed) {
     throw new Error("Bridge not connected");
@@ -1088,11 +1103,9 @@ function sendToBridge(msg: any) {
   // sub-agent prompts): the one place the ctrl+z that freezes Claude Code
   // cannot slip past the filter. The why is in terminal-suspend-key.
   if (msg.type === "write") {
-    const data = withoutSuspendKey(sessions.get(msg.id)?.type, msg.data);
-    if (data !== msg.data) {
-      if (!data) return;
-      msg = { ...msg, data };
-    }
+    const data = bridgeWriteForSession(sessions.get(msg.id)?.type, msg.data);
+    if (data === null) return;
+    if (data !== msg.data) msg = { ...msg, data };
   }
   bridgeSocket.write(JSON.stringify(msg) + "\n");
 }
@@ -2655,12 +2668,41 @@ function cascadeKillChildren(parentSessionKey: string, caller: string) {
   }
 }
 
+/**
+ * Prompt bytes actually typed into a seeded child: filtered once with the
+ * child session type. The filtered text drives both the typing and the echo
+ * checks, so a prompt carrying ctrl+z cannot loop on retyping: the echo
+ * probe looks for what was really written.
+ */
+export function seedPromptForSession(sessionType: string | undefined, prompt: string): string {
+  return withoutSuspendKey(sessionType, prompt);
+}
+
+/** The transcript fingerprint must match the text the terminal actually received. */
+export function seedPromptFingerprintForSession(sessionType: string | undefined, prompt: string): string {
+  return normalizePromptSnippet(seedPromptForSession(sessionType, prompt));
+}
+
+type SeedPromptHandlerForTests = (childId: string, prompt: string, acceptSnippet?: string) => void | Promise<void>;
+let seedPromptHandlerForTests: SeedPromptHandlerForTests | null = null;
+
+/** Replace the asynchronous PTY seeder in route tests so they can inspect its inputs. */
+export function _setSeedPromptHandlerForTests(handler: SeedPromptHandlerForTests | null): void {
+  seedPromptHandlerForTests = handler;
+}
+
 /** Seed a freshly-spawned `claude` TUI with its first prompt. The TUI isn't
  *  ready to accept input the instant the PTY spawns, and Enter must arrive as a
  *  separate frame to submit — so we bounded-poll the scrollback for a readiness
  *  signal, then write the prompt and (after a beat) a lone CR. Fire-and-forget:
  *  the child runs async; the parent reads its output via read_agent. */
+
 async function seedAgentPrompt(childId: string, prompt: string, acceptSnippet?: string): Promise<void> {
+  if (seedPromptHandlerForTests) {
+    await seedPromptHandlerForTests(childId, prompt, acceptSnippet);
+    return;
+  }
+  const typedPrompt = seedPromptForSession(sessions.get(childId)?.type, prompt);
   const sleep = (ms: number) => new Promise(r => setTimeout(r, ms));
   const READY_HINTS = ["for shortcuts", "│ >", "╭─", "Bypassing", "Welcome to Claude"];
 
@@ -2696,21 +2738,21 @@ async function seedAgentPrompt(childId: string, prompt: string, acceptSnippet?: 
     if (!sessions.has(childId)) return;
     // The composer shows either the prompt's opening or, for a long one, a
     // `[Pasted text]` placeholder: both mean it is there (lib/subagent-seed.ts).
-    if (!composerHoldsPrompt(await getTerminalBuffer(childId), prompt)) {
+    if (!composerHoldsPrompt(await getTerminalBuffer(childId), typedPrompt)) {
       noteTerminalInput(childId);
-      sendToBridge({ type: "write", id: childId, data: prompt });
+      sendToBridge({ type: "write", id: childId, data: typedPrompt });
     }
     for (let i = 0; i < 6; i++) { // ~1.8s for the echo to render
       await sleep(300);
       if (!sessions.has(childId)) return;
-      if (composerHoldsPrompt(await getTerminalBuffer(childId), prompt)) { echoed = true; break; }
+      if (composerHoldsPrompt(await getTerminalBuffer(childId), typedPrompt)) { echoed = true; break; }
     }
   }
   if (!echoed) {
     // Never confirmed the echo (unusual composer, or a buffer we can't scrape).
     // Fire it blind so we still try rather than strand the agent, then submit.
     noteTerminalInput(childId);
-    sendToBridge({ type: "write", id: childId, data: prompt });
+    sendToBridge({ type: "write", id: childId, data: typedPrompt });
     await sleep(300);
   }
 
@@ -3478,9 +3520,11 @@ export function createTerminalRouter(ctx: AppContext, tracker?: ClaudeSessionTra
       // Text only: an array of bytes reached the node bridge intact (node-pty
       // does `Buffer.from`) and slipped past any content filter, ctrl+z included.
       if (typeof input !== "string" || !input) return errorResponse(400, "No input provided");
+      const send = resolveTerminalSend(session?.type, input);
+      if (send.dropped) return json({ ok: false, dropped: true, sent: 0 });
       noteTerminalInput(sendMatch.id);
-      sendToBridge({ type: "write", id: sendMatch.id, data: input });
-      return json({ ok: true, sent: input.length });
+      sendToBridge({ type: "write", id: sendMatch.id, data: send.data });
+      return json({ ok: true, sent: send.sent });
     }
 
     const resizeMatch = matchRoute(pathname, "/api/terminal/sessions/:id/resize") || matchRoute(pathname, "/api/terminal/:id/resize");
@@ -3862,7 +3906,7 @@ export function createTerminalRouter(ctx: AppContext, tracker?: ClaudeSessionTra
           // Fingerprint the opening prompt so transcript-discovery can find the
           // .jsonl claude actually writes (it ignores our pre-assigned
           // --session-id for sub-agents — see resolveChildTranscriptSessionId).
-          session.spawnPromptSnippet = normalizePromptSnippet(prompt);
+          session.spawnPromptSnippet = seedPromptFingerprintForSession(session.type, prompt);
           // The row that outlives the terminal: launch, name, limits, resume.
           insertSubagent(getDatabase(), {
             id, parentSessionKey: parentKey, name, model: launch.model, agentType: launch.agent, effort: launch.effort,
@@ -3941,7 +3985,7 @@ export function createTerminalRouter(ctx: AppContext, tracker?: ClaudeSessionTra
             }
             const sent = await sendToNativeChild(row, input);
             if (!sent.ok) return errorResponse(sent.status, sent.error);
-            return json({ ok: true, sent: input.length, ...(sent.resumed ? { resumed: true } : {}) });
+            return json({ ok: true, sent: Buffer.byteLength(input, "utf8"), ...(sent.resumed ? { resumed: true } : {}) });
           }
         }
         const child = resolveOwnedChild(parentKey, agentId);
@@ -3951,6 +3995,8 @@ export function createTerminalRouter(ctx: AppContext, tracker?: ClaudeSessionTra
           const row = getSubagent(getDatabase(), agentId);
           if (!row || row.parentSessionKey !== parentKey) return errorResponse(404, subAgentNotFound(agentId));
           if (!input) return errorResponse(400, "input (string) is required");
+          const cliSend = resolveTerminalSend("claude-code", input);
+          if (cliSend.dropped) return json({ ok: false, dropped: true, sent: 0 });
           const verdict = resumeVerdict(row);
           if (!verdict.ok) return errorResponse(verdict.status, `cannot resume sub-agent "${row.name}": ${verdict.reason}`);
           const refusal = subagentLimitRefusal(parentKey, { depth: spawnedAgentDepth(parentKey), childIds: liveChildrenOf(parentKey).map((c) => c.id) });
@@ -3961,13 +4007,13 @@ export function createTerminalRouter(ctx: AppContext, tracker?: ClaudeSessionTra
           childrenBeingResumed.add(row.id);
           try {
             // subagent-nativi: a child born on the CLI comes back on the engine when it can.
-            const moved = await moveCliChildToEngine(row, input, {
+            const moved = await moveCliChildToEngine(row, cliSend.data, {
               parentTopic: parentKey.startsWith("topic:") ? ctx.getTopicBySessionKey(parentKey) : null,
               parentCwd: sessions.get(parentKey)?.cwd ?? null,
               knownProject: (p) => !!ctx.projectStore.getByPath(p),
               profileOf: (cwd, agentType) => agentProfilesFor(cwd).get(agentType) ?? null,
             });
-            if (moved) return json({ ok: true, sent: input.length, resumed: true, runtime: "topics", sessionKey: moved.sessionKey });
+            if (moved) return json({ ok: true, sent: cliSend.sent, resumed: true, runtime: "topics", sessionKey: moved.sessionKey });
             try {
               await ensureBridge();
               const session = await createSession(row.id, row.name, row.cwd, undefined, 120, 30, undefined, "claude-code", true, row.claudeSessionId!, parentKey, "user");
@@ -3975,9 +4021,9 @@ export function createTerminalRouter(ctx: AppContext, tracker?: ClaudeSessionTra
               try { getDatabase().run("UPDATE terminal_sessions SET status = 'active' WHERE id = ?", [row.id]); } catch { /* the row was just written */ }
               noteChildSeeded(row.id, { working: true });
               broadcastTerminalSessions();
-              seedAgentPrompt(row.id, input, normalizePromptSnippet(input))
+              seedAgentPrompt(row.id, cliSend.data, seedPromptFingerprintForSession("claude-code", input))
                 .catch((err) => console.warn(`[Terminal] seedAgentPrompt failed for resumed ${row.id}:`, err));
-              return json({ ok: true, sent: input.length, resumed: true });
+              return json({ ok: true, sent: cliSend.sent, resumed: true });
             } catch (err) {
               return errorResponse(502, `Failed to resume sub-agent: ${err instanceof Error ? err.message : String(err)}`);
             }
@@ -3986,14 +4032,16 @@ export function createTerminalRouter(ctx: AppContext, tracker?: ClaudeSessionTra
           }
         }
         if (!input) return errorResponse(400, "input (string) is required");
+        const send = resolveTerminalSend(child.type, input);
+        if (send.dropped) return json({ ok: false, dropped: true, sent: 0 });
         noteTerminalInput(child.id);
-        sendToBridge({ type: "write", id: child.id, data: input });
+        sendToBridge({ type: "write", id: child.id, data: send.data });
         // Submit it: Enter as a separate frame so the TUI acts on the line.
         await new Promise(r => setTimeout(r, 120));
         noteTerminalInput(child.id);
         sendToBridge({ type: "write", id: child.id, data: "\r" });
         noteChildSteered(child.id);
-        return json({ ok: true, sent: input.length });
+        return json({ ok: true, sent: send.sent });
       }
 
       if (readM && method === "GET") {
