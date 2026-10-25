@@ -350,6 +350,7 @@ export interface CallUsage {
   cacheCreation: number;
   cacheCreation1h: number;
   model?: string;
+  fastMode?: boolean;
 }
 
 /**
@@ -448,6 +449,7 @@ export function splitCallUsage(usage: CallUsage, k: number): CallUsage {
     cacheCreation: Math.floor(usage.cacheCreation / d),
     cacheCreation1h: Math.floor(usage.cacheCreation1h / d),
     ...(usage.model ? { model: usage.model } : {}),
+    ...(typeof usage.fastMode === "boolean" ? { fastMode: usage.fastMode } : {}),
   };
 }
 

@@ -1,4 +1,6 @@
 /**
+ * @covers USAGE-01
+ * @covers USAGE-02
  * @covers USAGE-15
  */
 import { describe, it, expect, beforeEach, afterEach } from "bun:test";
@@ -129,5 +131,16 @@ describe("transcript-usage reader", () => {
     expect(r.read(path).inputTokens).toBe(10);
     appendFileSync(path, usageLine({ id: "msg_1", input: 10 }));
     expect(r.read(path).inputTokens).toBe(10); // duplicate block row, not new spend
+  });
+
+  it("prices a call at the fast rate declared by the transcript result", () => {
+    writeFileSync(
+      path,
+      usageLine({ id: "msg_fast", input: 1_000_000, output: 1_000_000, model: "claude-opus-5-5" }) +
+        JSON.stringify({ type: "result", fast_mode_state: "on" }) + "\n",
+    );
+
+    const r = createTranscriptUsageReader();
+    expect(r.read(path).costUsd).toBeCloseTo(48, 9);
   });
 });

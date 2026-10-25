@@ -253,6 +253,29 @@ describe("fast mode has its own prices, on the three models that have it", () =>
     expect(modelPrice("claude-opus-4-7")?.fast).toBeUndefined();
     expect(modelPrice("claude-sonnet-5-5")?.fast).toBeUndefined();
   });
+
+  test("a fast Opus 5.5 call uses its fast rates for fresh, cached, and output tokens", () => {
+    expect(calculateCostWithCache({
+      model: "claude-opus-5-5",
+      freshInputTokens: 1_000_000,
+      outputTokens: 1_000_000,
+      cacheReadTokens: 1_000_000,
+      cacheCreationTokens: 1_000_000,
+      cacheCreation1hTokens: 1_000_000,
+      fastMode: true,
+    })).toBeCloseTo(74.4, 9);
+
+    const fastCall: PricedCall = {
+      inputTokens: 1_000_000,
+      outputTokens: 1_000_000,
+      cacheRead: 0,
+      cacheCreation: 0,
+      cacheCreation1h: 0,
+      model: "claude-opus-5-5",
+      fastMode: true,
+    };
+    expect(callsCostUsd([fastCall], "unknown")).toBeCloseTo(48, 9);
+  });
 });
 
 /**

@@ -4169,12 +4169,14 @@ export class ClaudeCodeProvider implements AIProvider {
         // evento malformato è meglio che perdere in silenzio una chiamata vera.
         if (!callId || !billed.has(callId)) {
           if (callId) billed.add(callId);
-          handler.onCallUsage?.(callUsage);
+          const pricedCallUsage = { ...callUsage, fastMode: this.fastModeStatus?.state === "on" };
+          handler.onCallUsage?.(pricedCallUsage);
+          perCallUsageForActions = pricedCallUsage;
         }
         // Stessa chiamata, seconda domanda: QUALI azioni ha deciso. I tool_use
         // nuovi di questo evento sono quelle azioni — l'usage va spalmato su di
         // loro nel loop dei blocchi, una sola volta ciascuna (Trappola 1).
-        perCallUsageForActions = callUsage;
+        perCallUsageForActions ??= callUsage;
       }
     }
     if (parentToolUseId && eventContent && handler) {

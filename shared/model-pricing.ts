@@ -154,7 +154,8 @@ export function cacheReadRate(model: string | null | undefined): number {
  * the row except for Haiku 5.5 over 100k tokens, where the whole request,
  * cache reads included, moves to the second rate card.
  */
-export function ratesForPrompt(row: ModelPrice, promptTokens: number): { input: number; output: number } {
+export function ratesForPrompt(row: ModelPrice, promptTokens: number, fastMode = false): { input: number; output: number } {
+  if (fastMode && row.fast) return row.fast;
   if (row.longPrompt && promptTokens > row.longPrompt.over) {
     return { input: row.longPrompt.input, output: row.longPrompt.output };
   }
