@@ -97,15 +97,18 @@ SET cost_cents_before_reprice = cost_cents,
 WHERE id IN (SELECT id FROM _reprice);
 
 -- 3. The per-tool costs inside the two JSON columns, scaled by the message's
--- ratio so the tools still add up under the new total. Same pattern as 077:
+-- ratio so the tools still add up under the new total. Each one is truncated to
+-- whole cents, never rounded up or floored at one: tools that sum to the old
+-- total then sum to at most the new one (six 1-cent tools in a 6 cent turn
+-- repriced to 4 would otherwise add up to 6). Same pattern as 077:
 -- `json_group_array(json(value))` keeps the objects as objects.
 UPDATE messages
 SET tool_calls = (
   SELECT json_group_array(json(
     CASE WHEN json_extract(value, '$.costCents') IS NOT NULL
       THEN json_set(value, '$.costCents',
-             MAX(1, CAST(ROUND(json_extract(value, '$.costCents') * messages.cost_cents
-                   / messages.cost_cents_before_reprice) AS INTEGER)))
+             CAST(json_extract(value, '$.costCents') * 1.0 * messages.cost_cents
+                   / messages.cost_cents_before_reprice AS INTEGER))
       ELSE value END))
   FROM json_each(messages.tool_calls))
 WHERE id IN (SELECT id FROM _reprice)
@@ -119,8 +122,8 @@ SET blocks = (
   SELECT json_group_array(json(
     CASE WHEN json_extract(value, '$.toolCall.costCents') IS NOT NULL
       THEN json_set(value, '$.toolCall.costCents',
-             MAX(1, CAST(ROUND(json_extract(value, '$.toolCall.costCents') * messages.cost_cents
-                   / messages.cost_cents_before_reprice) AS INTEGER)))
+             CAST(json_extract(value, '$.toolCall.costCents') * 1.0 * messages.cost_cents
+                   / messages.cost_cents_before_reprice AS INTEGER))
       ELSE value END))
   FROM json_each(messages.blocks))
 WHERE id IN (SELECT id FROM _reprice)
