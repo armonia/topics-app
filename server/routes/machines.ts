@@ -448,7 +448,12 @@ export function createMachinesRouter(ctx: AppContext, opts: { revocations?: Dele
       // services/model-proxy.ts). The plaintext is returned once, never stored.
       const modelToken = matchRoute(pathname, "/api/machines/:id/model-token");
       if (modelToken && (method === "POST" || method === "DELETE")) {
-        if (!installationOwner(req)) return json({ error: "installation owner required", code: "owner_required" }, 403);
+        // The OWNER ROLE, not an installation person: no audit row needs a
+        // person here, and the operator script that wires the PC runs on this
+        // machine's loopback, which is the owner with no device (types.ts
+        // `requestIdentity`). Guests are refused, as on the node routes.
+        const identity = ctx.requestIdentity?.(req) ?? null;
+        if (identity && identity.role !== "owner") return json({ error: "owner required", code: "owner_required" }, 403);
         const machine = machineStore.get(modelToken.id);
         if (!machine) return errorResponse(404, "Machine not found");
         if (method === "DELETE") {

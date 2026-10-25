@@ -276,7 +276,7 @@ describe("token store", () => {
 });
 
 describe("minting route", () => {
-  function routerWith(machineList: Array<{ id: string; baseUrl: string | null }>, owner = true) {
+  function routerWith(machineList: Array<{ id: string; baseUrl: string | null }>, owner: boolean | "loopback" = true) {
     const store = {
       get: (id: string) => machineList.find((m) => m.id === id) ?? null,
       delete: (id: string) => machineList.some((m) => m.id === id),
@@ -297,8 +297,11 @@ describe("minting route", () => {
         return params;
       },
       broadcastToAll: () => {},
-      requestIdentity: owner ? undefined : () => ({ role: "guest", deviceId: null }),
-      db: { query: () => ({ get: () => ({ person_id: "p1" }) }) },
+      requestIdentity: owner === "loopback"
+        ? () => ({ role: "owner", deviceId: null })
+        : owner ? undefined : () => ({ role: "guest", deviceId: null }),
+      // "loopback" models a fresh install: nobody in installation_owners yet.
+      db: { query: () => ({ get: () => (owner === "loopback" ? null : { person_id: "p1" }) }) },
     };
     const router = createMachinesRouter(ctx as never);
     return (method: string, path: string) =>
@@ -314,6 +317,12 @@ describe("minting route", () => {
   test("the local machine (no baseUrl) cannot get one", async () => {
     const res = await routerWith([{ id: "local", baseUrl: null }])("POST", "/api/machines/local/model-token");
     expect(res!.status).toBe(400);
+  });
+
+  test("the machine itself (loopback owner, no device, no installation person) can mint: the setup script runs there", async () => {
+    const ctxRoute = routerWith([{ id: "m1", baseUrl: "https://pc:3333" }], "loopback");
+    const res = await ctxRoute("POST", "/api/machines/m1/model-token");
+    expect(res!.status).toBe(200);
   });
 
   test("a non-owner is refused", async () => {
