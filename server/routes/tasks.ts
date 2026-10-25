@@ -242,6 +242,10 @@ export interface TasksRouterOpts {
   workspaceDir?: string;
   /** Abort a running headless turn (human "stop" on a dispatched task). */
   abortTurn?: (sessionKey: string, cause: StopCause) => Promise<void>;
+  /** Stop command process groups owned by a card after it is done or archived. */
+  stopCardProcesses?: (cardId: string) => void | Promise<void>;
+  /** Stop process groups owned by a fan-out topic when its losing attempt is archived. */
+  stopTopicProcesses?: (topicId: string) => void | Promise<void>;
   /**
    * Kill the WHOLE process tree an agent's Bash tool spawned for this session
    * — not just the CLI turn. `abortTurn` cuts the turn (SIGINT to the CLI,
@@ -469,6 +473,16 @@ export interface TasksRouterOpts {
     /** The links of the wait, as soon as they exist: they go on the card. */
     onCiWait?: (links: { prUrl: string; runUrl?: string }) => void;
   }) => Promise<CheckRun[]>;
+}
+
+function requestCardProcessStop(opts: TasksRouterOpts | undefined, cardId: string): void {
+  try {
+    void Promise.resolve(opts?.stopCardProcesses?.(cardId)).catch((error) => {
+      console.warn(`[processes] stop after card closure failed for ${cardId}:`, error);
+    });
+  } catch (error) {
+    console.warn(`[processes] stop after card closure failed for ${cardId}:`, error);
+  }
 }
 
 /**
@@ -865,6 +879,13 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
       topic.archived = true;
       topic.updatedAt = at;
       ctx.saveSingleTopic(topic);
+      try {
+        void Promise.resolve(opts?.stopTopicProcesses?.(topic.id)).catch((err) => {
+          console.error(`[attempts] stop topic processes ${topic.id}`, err);
+        });
+      } catch (err) {
+        console.error(`[attempts] stop topic processes ${topic.id}`, err);
+      }
       broadcastToAll({ type: "topic:archived", topic });
       // And to the attention state, like the other archive paths: a lit attempt goes idle now, not at the next restart.
       setClosed(topicSubject(topic.id), { archived: true });
@@ -1760,7 +1781,9 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
         // that the work is finished: the status must say so, whatever state we
         // came from. Idempotent on cards already closed and still (the normal
         // case), so it adds no history rows to the path that already worked.
+        const statusBeforeSettle = svc.get(taskId, { projectId })?.task.status;
         const closed = svc.settleLanded({ taskId, by: "system", reason: `landed: the code is on main (${res.commit})` });
+        if (statusBeforeSettle !== "done" && closed?.status === "done") requestCardProcessStop(opts, taskId);
         // THE MERGE HAPPENED EVEN WHEN THE CARD DOES NOT CLOSE. `settleLanded`
         // refuses to close a parent that still has open steps (closing it would
         // make them unreachable: the feed is `rootsOnly`), and without this line
@@ -2699,6 +2722,7 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
         // coordinator depend on whichever task happens to own its Topic.
         patch: parsed.patch,
       });
+      if (prevStatus !== "done" && task.status === "done") requestCardProcessStop(opts, taskId);
       task = await captureDelivery(task, prevStatus);
       broadcastToAll({ type: "task:updated", projectId, task });
       // A registry-backed update changes a normal board card, not a parallel
@@ -3926,6 +3950,7 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
             // thread can put the summary under the step that produced it.
             messageId: ctx.isStreaming?.(decodeURIComponent(item.sessionKey))?.messageId ?? null,
           });
+          if (prevStatus !== "done" && task.status === "done") requestCardProcessStop(opts, item.taskId);
           task = await captureDelivery(task, prevStatus);
           broadcastToAll({ type: "task:updated", projectId: sess.projectId, task });
           // È QUESTA la porta che conta per i tasti del banner: l'agente commenta

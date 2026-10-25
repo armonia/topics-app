@@ -238,6 +238,51 @@ When a background shell dies — the CLI exits, the shell takes a SIGTERM — th
 - **THEN** it SHALL be running, and SHALL carry no completion time
 - **AND** any other status — done, exited, failed, unknown, empty or absent — SHALL be done and SHALL carry a completion time, so an unfamiliar status never leaves a spinner turning forever
 
+### Requirement: CARDPROCESS-01 — Card commands own a durable process group
+
+Commands launched for a task card, including `run_command` and equivalent agent command launches, SHALL run in a detached process group on POSIX systems. Each launch SHALL be registered before it is exposed as running, with its owner key, card id, process group id, leader pid, leader start time, and start time. The registry SHALL be stored in that Topics instance's data directory so another server instance cannot act on it. A process group SHALL be closed only from its registration; the server SHALL NOT scan processes by uid or command name. On Windows, `run_command` remains unavailable and returns its existing unsupported-platform response; `run_script` keeps its existing child-process tracking and stop behavior.
+
+#### Scenario: Card commands have isolated process groups
+- **GIVEN** a Topics server, an `ai-bridge` daemon, and commands launched by cards A and B
+- **WHEN** commands A and B start
+- **THEN** each card command SHALL have its own process group, distinct from the server, daemon, and other card commands
+- **AND** closing card A SHALL leave the daemon and all of card B's processes alive
+
+#### Scenario: Card closure stops its registered commands
+- **GIVEN** a card with one or more registered command groups
+- **WHEN** the card enters `done`, or its topic is archived or deleted
+- **THEN** each group registered to that card SHALL receive SIGTERM
+- **AND** after 10 seconds, any group still alive SHALL receive SIGKILL only after the registry is reread and its recorded pgid, leader pid, and leader start time still identify the same group
+- **AND** the process panel SHALL show `fermato` only after the group is confirmed dead; until then it SHALL show an honest closing or not-stopped state
+
+#### Scenario: Review does not close a card's commands
+- **GIVEN** a card with a registered command group
+- **WHEN** the card enters `review`
+- **THEN** the group SHALL remain alive
+
+#### Scenario: Wake suppression does not suppress cleanup
+- **GIVEN** a card command launched with `wake:false`
+- **WHEN** its card enters `done`, or its topic is archived or deleted
+- **THEN** the registered group SHALL still be closed
+- **AND** `wake:false` SHALL suppress only waking the agent
+
+#### Scenario: Reused owner keys do not redirect delayed termination
+- **GIVEN** a registered group for a card that has begun closing
+- **AND** a new command starts with the same owner key before the 10-second SIGKILL deadline
+- **WHEN** the old group's delayed SIGKILL is sent
+- **THEN** only the old group matching the original registration SHALL be eligible for termination
+
+#### Scenario: Boot reconciliation uses only this instance's registry
+- **GIVEN** two Topics servers with different data directories and live registered groups
+- **WHEN** the second server starts and reconciles cards that are already closed
+- **THEN** it SHALL inspect only its own registry and SHALL leave the first server's groups untouched
+- **AND** it SHALL close only groups whose registered card is already `done`, archived, or deleted
+
+#### Scenario: Process groups work on Linux and macOS
+- **GIVEN** a Linux or macOS server running a card command
+- **WHEN** the command starts and its card closes
+- **THEN** detached process groups and registered group shutdown SHALL work on that platform without a platform-specific test skip
+
 #### Scenario: A readable label and an honest clock
 - **GIVEN** a sub-agent session with no label of its own
 - **WHEN** it is mapped

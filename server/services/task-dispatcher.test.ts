@@ -3652,6 +3652,26 @@ describe("cancello: non si ridispaccia lavoro già su main", () => {
     h.dispatcher.shutdown();
   });
 
+  /** @covers CARDPROCESS-01 */
+  it("la chiusura automatica su main ferma i processi della card", async () => {
+    const stopped: string[] = [];
+    const h = harness({
+      deliveryLanded: async () => true,
+      stopCardProcesses: (taskId) => { stopped.push(taskId); },
+    });
+    h.svc.updateBoardSettings(PID, { autoDispatch: true });
+    h.svc.setGlobalCap({ auto: false, max: 2 });
+    seedTask(h.db, { id: "t1", status: "todo", deliveryCommit: "c2d20879".repeat(5) });
+
+    await h.dispatcher.tick(PID);
+    await flush();
+
+    expect(h.task("t1")!.status).toBe("done");
+    expect(stopped).toEqual(["t1"]);
+    expect(h.turns).toHaveLength(0);
+    h.dispatcher.shutdown();
+  });
+
   it("stessa card, commit NON su main: parte come sempre", async () => {
     // La controprova. Senza, «non parte» potrebbe essere vero per un'altra
     // ragione (la sonda mai chiamata, il claim rotto) e il test sopra passerebbe

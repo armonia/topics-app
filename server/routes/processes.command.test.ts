@@ -16,7 +16,8 @@ import { join } from "path";
 const STATE = mkdtempSync(join(tmpdir(), "topics-cmd-state-"));
 const previousDataDir = process.env.DATA_DIR;
 process.env.DATA_DIR = STATE;
-const { createProcessesRouter, listOwnedScripts, logPathOf } = await import("./processes");
+const { createProcessesRouter, listOwnedScripts, logPathOf, stopCardCommandProcesses } = await import("./processes");
+const { commandProcessGroup, processGroupAlive } = await import("../lib/command-process-groups");
 
 const PROJECT = realpathSync(mkdtempSync(join(tmpdir(), "topics-cmd-project-")));
 mkdirSync(join(PROJECT, "sub"));
@@ -32,9 +33,18 @@ afterAll(() => {
 
 const TOPIC = { id: "topic-cmd", sessionKey: "topic:cmd" };
 
-function makeRouter(opts: { globalSessionKey?: string } = {}) {
+function makeRouter(opts: { globalSessionKey?: string; cardId?: string; attemptCardId?: string; cardStatus?: string } = {}) {
   const ctx = {
     db: {
+      prepare: (sql: string) => ({
+        get: (value: string) => sql.includes("assigned_topic_id") && value === TOPIC.id && opts.cardId
+          ? { id: opts.cardId }
+          : sql.includes("task_attempts") && value === TOPIC.id && opts.attemptCardId
+            ? { id: opts.attemptCardId }
+            : sql.includes("SELECT status, archived") && value === opts.cardId
+              ? { status: opts.cardStatus ?? "in_progress", archived: 0 }
+              : null,
+      }),
       query: (sql: string) => ({
         get: (_scope: string, sessionKey: string) =>
           sql.includes("topics.session_key") && sessionKey === opts.globalSessionKey
@@ -64,7 +74,7 @@ async function call(router: ReturnType<typeof makeRouter>, method: string, path:
 const run = (router: ReturnType<typeof makeRouter>, body: unknown, sessionKey = TOPIC.sessionKey) =>
   call(router, "POST", `/api/sessions/${encodeURIComponent(sessionKey)}/commands/run`, body);
 
-type Row = { processId: string; source: string; status: string; exitCode?: number; topicId?: string; stopped?: boolean; command: string };
+type Row = { processId: string; source: string; status: string; exitCode?: number; topicId?: string; stopped?: boolean; closing?: boolean; stopFailed?: boolean; command: string };
 async function rowOf(router: ReturnType<typeof makeRouter>, processId: string): Promise<Row | undefined> {
   const { scripts } = await (await call(router, "GET", `/api/sessions/${encodeURIComponent(TOPIC.sessionKey)}/scripts`)).json() as { scripts: Row[] };
   return scripts.find((s) => s.processId === processId);
@@ -98,6 +108,14 @@ describe("POST /api/sessions/:sessionKey/commands/run", () => {
     const log = await logOf(router, processId);
     expect(log).toContain("tick 1");
     expect(log).toContain("tick 2");
+  });
+
+  test("a fan-out attempt topic registers its owning card", async () => {
+    const cardId = "fanout-card";
+    const router = makeRouter({ attemptCardId: cardId });
+    const { processId } = await (await run(router, { command: "sleep 1" })).json() as { processId: string };
+    expect(commandProcessGroup(processId)?.cardId).toBe(cardId);
+    await until(() => rowOf(router, processId), (row) => row?.status !== "running");
   });
 
   test("the outcome stays readable: exit 3 keeps the row, and its log", async () => {
@@ -196,11 +214,34 @@ describe("POST /api/sessions/:sessionKey/commands/run", () => {
     const row = await until(() => rowOf(router, processId), (r) => r?.status !== "running");
     expect(row).toMatchObject({ source: "command", status: "error", stopped: true });
     // Its own process group: nothing of it is left.
-    const group = await until(
-      async () => Bun.spawnSync(["pgrep", "-g", String(pid)]).stdout.toString().trim(),
-      (out) => out === "",
-    );
-    expect(group).toBe("");
+    const group = await until(() => Promise.resolve(processGroupAlive(pid)), (alive) => !alive);
+    expect(group).toBe(false);
+  });
+
+  test("card closure stops a wake:false Apple-shell orphan and marks stopped only after group death", async () => {
+    const cardId = "card-process-close";
+    const router = makeRouter({ cardId });
+    const shell = process.platform === "darwin" ? "/bin/zsh" : "/bin/sh";
+    const orphanShell = process.platform === "darwin" ? "/bin/zsh" : "/bin/sh";
+    const command = `${shell} -c 'trap "" TERM; ${orphanShell} -c "sleep 60; tail -f /dev/null"'`;
+    const { processId } = await (await run(router, { command, wake: false })).json() as { processId: string };
+    const group = commandProcessGroup(processId)!;
+    try {
+      expect(group).toMatchObject({ cardId, ownerKey: TOPIC.sessionKey, topicId: TOPIC.id });
+      expect((await rowOf(router, processId))?.stopped).toBeUndefined();
+      stopCardCommandProcesses(cardId);
+      const closing = await until(() => rowOf(router, processId), (row) => row?.closing === true);
+      expect(closing).toMatchObject({ status: "running", closing: true });
+      expect(closing?.stopped).toBeUndefined();
+
+      const stopped = await until(() => rowOf(router, processId), (row) => row?.stopped === true, 15_000);
+      expect(stopped).toMatchObject({ status: "error", stopped: true });
+      expect(processGroupAlive(group.pgid)).toBe(false);
+    } finally {
+      if (processGroupAlive(group.pgid)) {
+        try { process.kill(-group.pgid, "SIGKILL"); } catch {}
+      }
+    }
   });
 });
 

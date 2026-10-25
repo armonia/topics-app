@@ -524,6 +524,7 @@ export function createTopicsRouter(
      * Forwarded to the browser bridge; tests shrink it to a few ms.
      */
     paneWaitMs?: number;
+    stopTopicProcesses?: (topicId: string) => void;
   } = {},
 ): RouteHandler {
   const {
@@ -971,7 +972,7 @@ export function createTopicsRouter(
   const historyFindRouter = createHistoryFindRouter(ctx);
   const editRouter = createEditRouter(ctx, { resolveProvider, updateUnreadCount });
   // «Fork into a new chat»: a branch in a chat of its own, next to the in-chat branches of edit.ts.
-  const forkRouter = createForkRouter(ctx, { resolveProvider });
+  const forkRouter = createForkRouter(ctx, { resolveProvider, stopTopicProcesses: extra.stopTopicProcesses });
   // Il canale umano non chiede niente a questa closure: solo ctx.
   const permissionRouter = createPermissionRouter(ctx);
   // The two doors that leave the machine (mail and Google): same treatment as
@@ -1933,6 +1934,7 @@ export function createTopicsRouter(
             parkClaudeSession: parkTopicSession,
             recordRetirement: (id, at) => recordRetirement(ctx.db, "topic", id, at, "archive"),
             cancelPendingAsk: cancelAsk,
+            stopProcesses: extra.stopTopicProcesses,
           }, params.id);
           // Bug #12: if the purge fails we return 500 — topic is archived but
           // ui_state is stale, so client-side reload will see a phantom id.
@@ -2001,6 +2003,7 @@ export function createTopicsRouter(
       for (const topic of updatedTopics) {
         broadcastToAll({ type: "topic:archived", topic });
         if (archived) {
+          extra.stopTopicProcesses?.(topic.id);
           // Stesso passo 4 del percorso singolo (services/archive-topic.ts).
           // È QUESTA la strada che ha prodotto la perdita misurata: le 28
           // sessioni rimaste vive su chat chiuse portavano tutte la data di

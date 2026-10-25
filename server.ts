@@ -185,7 +185,7 @@ import { readNativeUsage } from "./server/providers/native-usage-registry";
 import { getAiBridgeClient } from "./server/lib/ai-bridge-client";
 import { automaticDispatchHooks } from "./server/services/task-auto-model";
 import { dispatchTopicBinding, resolveDispatchTopicIdentity } from "./server/services/dispatch-topic-identity";
-import { commandBackgroundWork, commandWakeState, createProcessesRouter, isChatServerTask, loadProcessRegistry, sessionsAwaitingCommandWake, settleEndedShells, startProcessDetection, stopCommandWakesOf } from "./server/routes/processes";
+import { commandBackgroundWork, commandWakeState, createProcessesRouter, isChatServerTask, loadProcessRegistry, sessionsAwaitingCommandWake, settleEndedShells, startProcessDetection, stopCardCommandProcesses, stopCommandWakesOf, stopTopicCommandProcesses } from "./server/routes/processes";
 import { startProcessExitWakes } from "./server/lib/process-exit-wake";
 import { startSubagentWakes } from "./server/services/subagent-wake";
 import { abandonCutTurn, adoptNativeChildrenAtBoot, configureNativeSubagents } from "./server/lib/native-subagents";
@@ -975,6 +975,7 @@ const topicsRouter = createTopicsRouter(ctx, browserService, paneAttachedTo, {
   hooks: defaultLifecycleHooks(),
   exposeGoalLoop: (l) => { goalLoop = l; },
   exposeAnswerRelay: (r) => { answerRelay = r; },
+  stopTopicProcesses: stopTopicCommandProcesses,
 });
 const orchestratorSessionsRouter = createOrchestratorSessionsRouter(ctx);
 const filesRouter = createFilesRouter(ctx);
@@ -1642,6 +1643,7 @@ const retirementConsequences: ReconcileDeps = {
         purgeTopicFromUiState(ctx.db, ctx.broadcastToAll, id, (c) => browserService.destroyContext(c)),
       parkClaudeSession: parkTopicSession,
       recordRetirement: (id, at) => recordRetirement(ctx.db, "topic", id, at, "archive"),
+      stopProcesses: stopTopicCommandProcesses,
     }, topicId);
     // Nessuna risposta HTTP da restituire qui: la purge fallita si logga, non
     // può fermare il ritiro (il task è finito comunque).
@@ -1870,6 +1872,7 @@ const memoryOwners = createMemoryOwnersReader({
 });
 
 const taskDispatcher = createTaskDispatcher({
+  stopCardProcesses: stopCardCommandProcesses,
   captureDelivery: (taskId) => capturaConsegna ? capturaConsegna(taskId) : Promise.resolve(false),
   uncommittedInWorktree: (taskId) =>
     sondaLavoroNonCommittato ? sondaLavoroNonCommittato(taskId) : Promise.resolve(null),
@@ -2703,6 +2706,8 @@ const landingQueue = createLandingQueue({ log: (m) => console.warn(m) });
 const tasksRouter = createTasksRouter(ctx, taskDispatcher, {
   scheduledCards,
   landings: landingQueue,
+  stopCardProcesses: stopCardCommandProcesses,
+  stopTopicProcesses: stopTopicCommandProcesses,
   repoRootFor: repoRootForCard,
   workspaceDir: DISPATCH_WORKSPACE_DIR,
   // Il titolo leggibile di una card dettata (`services/task-title.ts`). Si

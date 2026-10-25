@@ -20,7 +20,7 @@ import type { Actor, Task, UpdateTaskPatch } from "./tasks";
 
 /** The slice of the task service these five actions touch. */
 export type BoardActionService = {
-  get(taskId: string, opts?: { projectId?: string }): { task: Task } | null | undefined;
+  get(taskId: string, opts?: { projectId?: string }): { task: Task; children?: Task[] } | null | undefined;
   update(args: {
     taskId: string; actor: Actor; by: string; projectId?: string; patch: UpdateTaskPatch;
   }): Task;
@@ -49,6 +49,8 @@ export type BoardActionDeps = {
    * fixtures): the boot sweep catches up.
    */
   teardownTaskBrowserState?: (taskId: string) => { taskIds: string[] };
+  /** Stop process groups for children actually archived by this action. */
+  stopCardProcesses?: (cardId: string) => void | Promise<void>;
 };
 
 export type BoardActionTarget = { projectId: string; taskId: string };
@@ -92,6 +94,24 @@ export function interceptBoardAction(
     const decision = isRequeueParkedLabel(text)
       ? "requeue" as const
       : isPromoteParkedLabel(text) ? "promote" as const : "archive" as const;
+    const descendantsByChild = new Map<string, string[]>();
+    if (decision === "archive") {
+      const collectSubtree = (rootId: string): string[] => {
+        const ids: string[] = [];
+        const seen = new Set<string>();
+        const visit = (id: string) => {
+          if (seen.has(id)) return;
+          seen.add(id);
+          ids.push(id);
+          for (const child of svc.get(id)?.children ?? []) visit(child.id);
+        };
+        visit(rootId);
+        return ids;
+      };
+      for (const child of svc.get(taskId)?.children ?? []) {
+        descendantsByChild.set(child.id, collectSubtree(child.id));
+      }
+    }
     const outcome = svc.resolveParkedChildren({ taskId, decision, by: deps.by });
     if (!outcome) {
       return json({
@@ -111,6 +131,19 @@ export function interceptBoardAction(
       for (const c of outcome.children) {
         const torn = deps.teardownTaskBrowserState(c.id);
         broadcast({ type: "task:deleted", projectId, taskId: c.id, taskIds: torn.taskIds });
+      }
+    }
+    if (decision === "archive" && deps.stopCardProcesses) {
+      for (const c of outcome.children) {
+        for (const archivedId of descendantsByChild.get(c.id) ?? [c.id]) {
+          try {
+            void Promise.resolve(deps.stopCardProcesses(archivedId)).catch((error) => {
+              console.warn(`[processes] stop after parked child archive failed for ${archivedId}:`, error);
+            });
+          } catch (error) {
+            console.warn(`[processes] stop after parked child archive failed for ${archivedId}:`, error);
+          }
+        }
       }
     }
     if (dispatcher && outcome.task.status === "todo") dispatcher.onEnterTodo(projectId, taskId);

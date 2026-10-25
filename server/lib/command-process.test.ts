@@ -4,7 +4,7 @@
  * Windows; only macOS has `/bin/zsh` by default (the CI's Ubuntu runner does
  * not), and Windows has no POSIX shell at all.
  *
- * @covers CMDRUN-01, CMDRUN-03
+ * @covers CARDPROCESS-01, CMDRUN-01, CMDRUN-03
  */
 import { afterAll, describe, expect, test } from "bun:test";
 import { mkdtempSync, readFileSync, rmSync } from "fs";
@@ -37,12 +37,18 @@ describe("the shell a command runs in", () => {
   test("none on Windows: there is no POSIX shell to wrap the command in", () => {
     expect(commandArgv("true", "/x.exit", "win32")).toBeNull();
   });
+
+  test("selects process groups with the native ps option", () => {
+    expect(commandArgv("true", "/x.exit", "linux")?.[2]).toContain("ps -o pid=,pgid= --pgroup");
+    expect(commandArgv("true", "/x.exit", "darwin")?.[2]).toContain("ps -o pid=,pgid= -g");
+    expect(commandArgv("true", "/x.exit", "linux")?.[2]).toContain('"$_topics_pgid" = "$$"');
+    expect(commandArgv("true", "/x.exit", "darwin")?.[2]).toContain('"$_topics_pgid" = "$$"');
+  });
 });
 
 describe("the wrapper leaves the exit code beside the log", () => {
-  // The Linux wrapper is plain POSIX sh, so it runs on this machine too.
-  test("sh: an early exit in the command still writes its code", () => {
-    const r = runArgv((exitPath) => commandArgv("echo tick 1; exit 3; echo never", exitPath, "linux"));
+  test("an early exit in the command still writes its code", () => {
+    const r = runArgv((exitPath) => commandArgv("echo tick 1; exit 3; echo never", exitPath));
     expect(r).toMatchObject({ written: "3", code: 3 });
     expect(r.out).toBe("tick 1\n");
   });

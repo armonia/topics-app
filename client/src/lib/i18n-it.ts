@@ -2123,6 +2123,8 @@ const IT: Dict = {
   'processes.outcome.exit': 'exit {code}',
   'processes.outcome.stopped': 'fermato',
   'processes.outcome.unknown': 'esito sconosciuto',
+  'processes.outcome.closing': 'in chiusura',
+  'processes.outcome.notStopped': 'non fermato',
   // The command that REOPENS the column. It had no key: App.tsx hard-codes its
   // title and SidebarToggleButton falls back to a default one, so the first
   // place that needs it translated is the zoom frame, where the command is

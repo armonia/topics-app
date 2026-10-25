@@ -12,6 +12,30 @@ import { readFileSync, realpathSync, statSync } from "fs";
 import { resolve } from "path";
 import { isInsideDir } from "./path-containment";
 
+function waitForGroupMembersScript(platform: NodeJS.Platform): string {
+  const groupSelector = platform === "linux" ? "--pgroup" : "-g";
+  return [
+    "_topics_group_has_peers() {",
+    '  _topics_fifo="${TMPDIR:-/tmp}/topics-command-group-$$"',
+    '  while ! mkfifo "$_topics_fifo" 2>/dev/null; do _topics_fifo="${_topics_fifo}x"; done',
+    `  ps -o pid=,pgid= ${groupSelector} "$$" > "$_topics_fifo" &`,
+    '  _topics_scan=$!',
+    '  exec 3< "$_topics_fifo"',
+    '  _topics_found=0',
+    '  while IFS=" " read -r _topics_pid _topics_pgid; do',
+    '    if [ "$_topics_pgid" = "$$" ] && [ "$_topics_pid" != "$$" ] && [ "$_topics_pid" != "$_topics_scan" ]; then _topics_found=1; fi',
+    '  done <&3',
+    '  exec 3<&-',
+    '  if wait "$_topics_scan"; then :; else rm -f "$_topics_fifo"; return 1; fi',
+    '  rm -f "$_topics_fifo"',
+    '  [ "$_topics_found" -eq 1 ]',
+    "}",
+    "_topics_wait_for_group_members() {",
+    "  while _topics_group_has_peers; do sleep 1; done",
+    "}",
+  ].join("\n");
+}
+
 /**
  * Is there a POSIX shell to run a command in? Not on Windows. The one answer
  * the three places that depend on it read: the spawn below, the bridge that
@@ -23,11 +47,9 @@ export function hasCommandShell(platform: NodeJS.Platform = process.platform): b
 }
 
 /**
- * The spawn, as argv. The command runs in an INNER shell so that an early
- * `exit` in it still leaves the outer one alive to write the code, and the
- * code goes to a file beside the log: after a server reload the process is
- * re-adopted by pid, without the handle `proc.exited` needed, and that file
- * is the only witness of how it ended.
+ * The supervisor shell keeps the group identity alive while a child shell
+ * runs the command. Its EXIT trap preserves the status, drains group peers,
+ * and writes the code beside the log, the only witness after a server reload.
  *
  * zsh on macOS, where it is the shell the agent's own Bash tool runs, so a
  * command behaves as it would there. `/bin/sh` on the other POSIX systems the
@@ -38,7 +60,15 @@ export function hasCommandShell(platform: NodeJS.Platform = process.platform): b
 export function commandArgv(command: string, exitPath: string, platform: NodeJS.Platform = process.platform): string[] | null {
   if (!hasCommandShell(platform)) return null;
   const shell = platform === "darwin" ? "/bin/zsh" : "/bin/sh";
-  return [shell, "-c", `${shell} -c "$1"; rc=$?; printf '%s\\n' "$rc" > "$2"; exit $rc`, "_", command, exitPath];
+  const script = `${waitForGroupMembersScript(platform)}\ntrap ':' TERM; trap 'rc=$?; trap - EXIT; wait; _topics_wait_for_group_members; printf "%s\\n" "$rc" > "$3"; exit "$rc"' EXIT; "$1" -c "$2"; exit "$?"`;
+  return [shell, "-c", script, "_", shell, command, exitPath];
+}
+
+/** Keep the registered group leader alive through TERM while its child command exits. */
+export function commandGroupArgv(argv: string[], platform: NodeJS.Platform = process.platform): string[] {
+  if (platform === "win32") return argv;
+  const shell = platform === "darwin" ? "/bin/zsh" : "/bin/sh";
+  return [shell, "-c", `${waitForGroupMembersScript(platform)}\ntrap ':' TERM; trap 'trap - EXIT; wait; _topics_wait_for_group_members' EXIT; "$@"`, "_", ...argv];
 }
 
 /**

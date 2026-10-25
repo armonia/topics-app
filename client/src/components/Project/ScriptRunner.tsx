@@ -67,30 +67,33 @@ function CommandRow({ sp, stopping, onOpen, onStop }: {
 }) {
   const tr = useT();
   const outcome = commandOutcome(sp);
-  const running = outcome.kind === 'running';
-  const failed = outcome.kind === 'exit' && outcome.code !== 0;
+  const running = outcome.kind === 'running' || outcome.kind === 'closing' || outcome.kind === 'not-stopped';
+  const closing = outcome.kind === 'closing';
+  const failed = (outcome.kind === 'exit' && outcome.code !== 0) || outcome.kind === 'not-stopped';
   const label = outcome.kind === 'exit' ? tr('processes.outcome.exit', { code: outcome.code })
     : outcome.kind === 'stopped' ? tr('processes.outcome.stopped')
-    : outcome.kind === 'unknown' ? tr('processes.outcome.unknown') : '';
+    : outcome.kind === 'unknown' ? tr('processes.outcome.unknown')
+    : outcome.kind === 'closing' ? tr('processes.outcome.closing')
+    : outcome.kind === 'not-stopped' ? tr('processes.outcome.notStopped') : '';
   return (
     <div
       data-testid="command-process-row"
       data-process-id={sp.processId}
       data-outcome={outcome.kind === 'exit' ? `exit:${outcome.code}` : outcome.kind}
       className={`flex items-center gap-1.5 ${TREE_ROW_CARD} px-2 py-1 group cursor-pointer ${stopping ? 'opacity-60' : ''}`}
-      onClick={() => { if (!stopping) onOpen?.(sp.processId, sp.scriptName); }}
+      onClick={() => { if (!stopping && !closing) onOpen?.(sp.processId, sp.scriptName); }}
       title={sp.command}
     >
-      {stopping ? (
+      {stopping || closing ? (
         <Spinner size="xs" tone="current" className="text-red-500 flex-shrink-0" />
       ) : running ? (
         <div className="w-[10px] h-[10px] flex-shrink-0 relative">
-          <div className="absolute inset-0 rounded-full bg-green-500 animate-pulse" />
+          <div className={`absolute inset-0 rounded-full ${failed ? 'bg-red-500' : 'bg-green-500'} animate-pulse`} />
         </div>
       ) : (
         <div className={`w-[10px] h-[10px] flex-shrink-0 rounded-full ${failed || outcome.kind === 'unknown' ? 'bg-red-500' : 'bg-app-text-faint'}`} />
       )}
-      <span className={`truncate ${running ? 'text-green-500 font-medium' : 'text-app-text-body'}`}>{sp.scriptName}</span>
+      <span className={`truncate ${running ? (failed ? 'text-red-500 font-medium' : 'text-green-500 font-medium') : 'text-app-text-body'}`}>{sp.scriptName}</span>
       <span
         className="text-mini uppercase tracking-wide px-1 py-px rounded bg-primary/15 text-primary flex-shrink-0"
         title={tr('scripts.commandFromAgent')}
@@ -99,7 +102,7 @@ function CommandRow({ sp, stopping, onOpen, onStop }: {
       </span>
       <AwaitedChip watchers={sp.watchers} />
       <span className="flex-1" />
-      {!running && (
+      {(!running || closing || outcome.kind === 'not-stopped') && (
         <span
           data-testid="command-outcome"
           className={`text-mini font-medium px-1 py-[1px] rounded-full flex-shrink-0 ${failed || outcome.kind === 'unknown' ? 'text-red-600 dark:text-red-400 bg-red-500/10' : 'text-app-text-muted bg-app-text-faint/15'}`}
@@ -107,7 +110,7 @@ function CommandRow({ sp, stopping, onOpen, onStop }: {
           {label}
         </span>
       )}
-      {running && !stopping && (
+      {running && !stopping && !closing && (
         <button
           onClick={(e) => onStop(sp.processId, e)}
           className="p-0.5 rounded hover:bg-red-500/20 text-app-text-faint hover:text-red-500 transition-colors opacity-40 group-hover:opacity-100"
@@ -221,6 +224,12 @@ export function ScriptRunner({ projectPath, onRunScript, onOpenProcessLog }: Scr
   // nessuna parte e il log — che il server ha ancora — non è più raggiungibile
   // da un click. Clicchi "build", fallisce mentre guardi la chat, e non lo sai.
   const failedMap = lastFailureByScript(runningScripts);
+  const latestEndedByScript = new Map<string, ScriptProcessInfo>();
+  for (const sp of runningScripts) {
+    if (sp.source === 'command' || sp.status === 'running') continue;
+    const previous = latestEndedByScript.get(sp.scriptName);
+    if (!previous || (sp.completedAt ?? '') > (previous.completedAt ?? '')) latestEndedByScript.set(sp.scriptName, sp);
+  }
 
   const detectedRows = runningScripts.filter(
     sp => sp.status === 'running' && sp.source === 'detected' && !scripts.some(x => x.name === sp.scriptName));
@@ -263,10 +272,14 @@ export function ScriptRunner({ projectPath, onRunScript, onOpenProcessLog }: Scr
       {scriptEntries.map((script) => {
         const { id, name, detail: cmd, from } = script;
         const running = runningMap.get(name);
+        const ended = latestEndedByScript.get(name);
+        const closing = (running ?? ended)?.closing === true;
+        const stopFailed = (running ?? ended)?.stopFailed === true;
+        const stopped = !running && ended?.stopped === true;
         // Un fallimento conta solo se lo script non è ripartito nel frattempo.
         const failed = running ? undefined : failedMap.get(name);
         const isStarting = startingScripts.has(name);
-        const isStopping = running ? stoppingScripts.has(running.processId) : false;
+        const isStopping = running ? stoppingScripts.has(running.processId) || closing : closing;
         const ports = running?.ports ?? [];
 
         return (
@@ -294,8 +307,10 @@ export function ScriptRunner({ projectPath, onRunScript, onOpenProcessLog }: Scr
                 <Spinner size="xs" tone="current" className="text-red-500 flex-shrink-0" />
               ) : running ? (
                 <div className="w-[10px] h-[10px] flex-shrink-0 relative">
-                  <div className="absolute inset-0 rounded-full bg-green-500 animate-pulse" />
+                  <div className={`absolute inset-0 rounded-full ${stopFailed ? 'bg-red-500' : 'bg-green-500'} animate-pulse`} />
                 </div>
+              ) : stopped ? (
+                <div className="w-[10px] h-[10px] flex-shrink-0 rounded-full bg-app-text-faint" />
               ) : isStarting ? (
                 <Spinner size="xs" tone="current" className="text-primary flex-shrink-0" />
               ) : failed ? (
@@ -303,12 +318,15 @@ export function ScriptRunner({ projectPath, onRunScript, onOpenProcessLog }: Scr
               ) : (
                 <Play size={10} className={`flex-shrink-0 ${getScriptColor(name)}`} />
               )}
-              <span className={`flex-1 truncate ${isStopping ? 'text-red-500/70' : running ? 'text-green-500 font-medium' : failed ? 'text-red-500' : 'text-app-text-body'}`}>
+              <span className={`flex-1 truncate ${isStopping ? 'text-red-500/70' : stopFailed ? 'text-red-500 font-medium' : running ? 'text-green-500 font-medium' : failed ? 'text-red-500' : 'text-app-text-body'}`}>
                 {name}
                 {piuManifest && (
                   <span className="ml-1.5 text-mini text-app-text-faint">{from}</span>
                 )}
               </span>
+              {closing && <span className="text-mini font-medium text-red-500 flex-shrink-0">{tr('processes.outcome.closing')}</span>}
+              {stopFailed && <span className="text-mini font-medium text-red-600 dark:text-red-400 flex-shrink-0">{tr('processes.outcome.notStopped')}</span>}
+              {stopped && <span className="text-mini font-medium text-app-text-muted flex-shrink-0">{tr('processes.outcome.stopped')}</span>}
               {failed && !isStopping && (
                 <button
                   onClick={(e) => { e.stopPropagation(); onOpenProcessLog?.(failed.processId, name); }}

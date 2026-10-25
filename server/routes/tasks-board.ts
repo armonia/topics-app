@@ -133,6 +133,30 @@ export function createBoardRoutes(deps: BoardRouteDeps) {
     checksRedGate,
   } = deps;
 
+  const requestCardProcessStop = (cardId: string): void => {
+    try {
+      void Promise.resolve(opts?.stopCardProcesses?.(cardId)).catch((error) => {
+        console.warn(`[processes] stop after card closure failed for ${cardId}:`, error);
+      });
+    } catch (error) {
+      console.warn(`[processes] stop after card closure failed for ${cardId}:`, error);
+    }
+  };
+
+  const cardSubtreeIds = (rootId: string): string[] => {
+    const ids: string[] = [];
+    const pending = [rootId];
+    const seen = new Set<string>();
+    while (pending.length) {
+      const taskId = pending.pop()!;
+      if (seen.has(taskId)) continue;
+      seen.add(taskId);
+      ids.push(taskId);
+      for (const child of svc.get(taskId)?.children ?? []) pending.push(child.id);
+    }
+    return ids;
+  };
+
   return async function boardRoutes(req: Request, pathname: string, method: string): Promise<Response | null> {
     // A recurrence body as sent: wrong types become empty values and the service refuses them.
     const scheduledBody = async () => {
@@ -575,6 +599,7 @@ export function createBoardRoutes(deps: BoardRouteDeps) {
           projectId: bMerge.projectId,
           by: HUMAN,
         });
+        requestCardProcessStop(bMerge.taskId);
         // The merged card is archived exactly like a DELETE, so its tabs go the
         // same way: without this they stayed alive until the next boot sweep.
         // Its subtasks have already moved under the survivor, so the subtree
@@ -684,7 +709,12 @@ export function createBoardRoutes(deps: BoardRouteDeps) {
         // route instead of this one.
         {
           const intercepted = interceptBoardAction(
-            { svc, dispatcher, broadcast: broadcastToAll, enqueueLand, checksRedGate, json, by: HUMAN, teardownTaskBrowserState: opts?.teardownTaskBrowserState },
+            {
+              svc, dispatcher, broadcast: broadcastToAll, enqueueLand,
+              checksRedGate, json, by: HUMAN,
+              teardownTaskBrowserState: opts?.teardownTaskBrowserState,
+              stopCardProcesses: opts?.stopCardProcesses,
+            },
             { projectId: bReview.projectId, taskId: bReview.taskId },
             comment,
             { force: body?.force },
@@ -705,10 +735,12 @@ export function createBoardRoutes(deps: BoardRouteDeps) {
             }).id;
           } catch { rejectCommentId = null; }
         }
+        const prevStatus = svc.get(bReview.taskId, { projectId: bReview.projectId })?.task.status;
         const task = svc.reviewDecision({
           taskId: bReview.taskId, by: HUMAN, decision, comment,
           projectId: bReview.projectId, origin: actionOrigin,
         });
+        if (prevStatus !== "done" && task.status === "done") requestCardProcessStop(bReview.taskId);
         broadcastToAll({ type: "task:updated", projectId: bReview.projectId, task });
         // Reject re-kicks the SAME agent tab with the human's feedback (a
         // "Serve te" answer routes through here too), so the conversation
@@ -1046,7 +1078,12 @@ export function createBoardRoutes(deps: BoardRouteDeps) {
         {
           const root = dispatcher ? svc.boundRootOf(bComments.taskId) : null;
           const intercepted = interceptBoardAction(
-            { svc, dispatcher, broadcast: broadcastToAll, enqueueLand, checksRedGate, json, by: HUMAN, teardownTaskBrowserState: opts?.teardownTaskBrowserState },
+            {
+              svc, dispatcher, broadcast: broadcastToAll, enqueueLand,
+              checksRedGate, json, by: HUMAN,
+              teardownTaskBrowserState: opts?.teardownTaskBrowserState,
+              stopCardProcesses: opts?.stopCardProcesses,
+            },
             { projectId: bComments.projectId, taskId: root?.id ?? bComments.taskId },
             typeof body?.content === "string" ? body.content : "",
             { force: body?.force },
@@ -1168,6 +1205,7 @@ export function createBoardRoutes(deps: BoardRouteDeps) {
             taskId, actor: "human", by: HUMAN, projectId, origin: actionOrigin,
             patch: parsed.patch,
           });
+          if (prevStatus !== "done" && task.status === "done") requestCardProcessStop(taskId);
           task = await captureDelivery(task, prevStatus);
           broadcastToAll({ type: "task:updated", projectId, task });
           emitReviewReadyEdge(broadcastToAll, projectId, task, prevStatus, undefined,
@@ -1215,7 +1253,9 @@ export function createBoardRoutes(deps: BoardRouteDeps) {
           // Read BEFORE the archive: the sweep needs the delivery branch, and
           // it runs after, when the card is already off the board.
           const deliveryBranch = got?.task.deliveryBranch ?? null;
+          const archivedTaskIds = cardSubtreeIds(taskId);
           const task = svc.archive({ taskId, projectId });
+          for (const archivedTaskId of archivedTaskIds) requestCardProcessStop(archivedTaskId);
           void opts?.teardownPreview?.(taskId).catch(() => {}); // reap preview on close
           // A card that leaves the board leaves its draft pull requests and its
           // origin branches too: nothing will ever land them, and nobody will
