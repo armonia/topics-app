@@ -33,6 +33,12 @@ describe("calculateCost — model pricing resolution", () => {
     expect(calculateCost("gpt-4o-2024-08-06", 1_000_000, 0)).toBe(2.5);
   });
 
+  test("provider prefixes and casing resolve to the exact model row", () => {
+    const canonical = ownModelPrice("claude-opus-5-5");
+    expect(ownModelPrice("anthropic/claude-opus-5-5")).toBe(canonical);
+    expect(ownModelPrice("Claude-Opus-5-5")).toBe(canonical);
+  });
+
   test("an unknown model is not billed (returns 0)", () => {
     expect(calculateCost("totally-unknown-model-xyz", 1_000_000, 1_000_000)).toBe(0);
   });

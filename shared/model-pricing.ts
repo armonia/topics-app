@@ -93,7 +93,7 @@ const PRICE_TABLE: Record<string, ModelPrice> = {
  * `shared/context-window.ts`.
  */
 function normalizeModel(model: string): string {
-  return model.toLowerCase().replace(/\[[^\]]*\]\s*$/, "").trim();
+  return model.trim().toLowerCase().replace(/^[^/]+\//, "").replace(/\[[^\]]*\]\s*$/, "").trim();
 }
 
 /**
