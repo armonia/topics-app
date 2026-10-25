@@ -113,6 +113,8 @@ export interface TaskAttemptStore {
   setNoLocalChecksReservation?(taskId: string, reservationGB: number | null): void;
   /** Read a task's no-local-check reservation after a restart. */
   getNoLocalChecksReservation?(taskId: string): number | null;
+  /** List persisted reservations so terminal task moves can release stale rows. */
+  listNoLocalChecksReservationTaskIds?(): string[];
   /** Drop persisted reservations for tasks that are no longer running. */
   clearInactiveNoLocalChecksReservations?(): void;
 }
@@ -226,6 +228,11 @@ export function createTaskAttemptStore(db: Database): TaskAttemptStore {
         "SELECT reservation_gb FROM task_no_local_check_reservations WHERE task_id = ?",
       ).get(taskId) as { reservation_gb: number | null } | undefined;
       return row?.reservation_gb ?? null;
+    },
+
+    listNoLocalChecksReservationTaskIds() {
+      return (db.query("SELECT task_id FROM task_no_local_check_reservations").all() as { task_id: string }[])
+        .map((row) => row.task_id);
     },
 
     clearInactiveNoLocalChecksReservations() {

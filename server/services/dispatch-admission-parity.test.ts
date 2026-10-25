@@ -9,8 +9,8 @@ import { budgetShare, capMode, E2E_CI_CHECK, UNIT_CI_CHECK, admissionVerdict, ty
 import { createTaskService, type TaskService } from "./tasks";
 import { createTaskDispatcher, type DispatcherDeps } from "./task-dispatcher";
 import { currentDispatchBlock } from "./dispatch-block-signal";
-import { dispatchResourceVerdict } from "./dispatch-capacity";
 import { createMemSignal } from "./mem-signal";
+import { createDispatchResourceBlock } from "./dispatch-resource-block";
 import type { TurnEndInfo } from "../providers/stop-reason";
 import { TASKS_DDL, TASKS_FK_STUBS_DDL, TASK_LABELS_DDL, APP_SETTINGS_DDL } from "../db/test-schema";
 import { createTaskAttemptStore } from "./task-attempts";
@@ -30,7 +30,7 @@ function freshDb(): Database {
   db.run(TASKS_DDL);
   db.run(TASKS_FK_STUBS_DDL);
   db.run(TASK_LABELS_DDL);
-  db.run(readFileSync(join(import.meta.dir, "../db/migrations/20261025110000-task-attempt-no-local-checks-reservation.sql"), "utf8"));
+  db.run(readFileSync(join(import.meta.dir, "../db/migrations/20261025210852-task-no-local-check-reservations.sql"), "utf8"));
   db.run(`CREATE TABLE board_settings (
     project_id TEXT PRIMARY KEY, require_approval_for_done INTEGER DEFAULT 0,
     require_review_before_done INTEGER DEFAULT 0, block_status_with_pending INTEGER DEFAULT 0,
@@ -48,7 +48,7 @@ function freshDb(): Database {
     state TEXT NOT NULL DEFAULT 'running', commit_sha TEXT, files_changed INTEGER,
     insertions INTEGER, deletions INTEGER, summary TEXT, error TEXT,
     agent_ms INTEGER NOT NULL DEFAULT 0, agent_tokens INTEGER NOT NULL DEFAULT 0,
-    created_at TEXT NOT NULL, ended_at TEXT, selected_at TEXT, no_local_checks_reservation_gb REAL,
+    created_at TEXT NOT NULL, ended_at TEXT, selected_at TEXT,
     UNIQUE (task_id, idx)
   )`);
   db.run(`CREATE TABLE task_comments (
@@ -145,6 +145,7 @@ function harness(overrides: Partial<DispatcherDeps> = {}) {
   svc.updateBoardSettings(PID, { autoDispatch: true, dispatchUseWorktree: false });
   return {
     db, svc, dispatcher, attempts, deps, startedAt, turns, prompts, logLines, machine,
+    status: (taskId: string) => db.query<{ status: string }, [string]>("SELECT status FROM tasks WHERE id = ?").get(taskId)?.status,
     commentsFor: (taskId: string) => db.query<{ content: string }, [string]>("SELECT content FROM task_comments WHERE task_id = ?").all(taskId).map((row) => row.content),
     lines: (needle: string) => logLines.filter((l) => l.includes(needle)),
   };
@@ -154,6 +155,43 @@ const flush = async (n = 12) => {
   for (let i = 0; i < n; i++) await Promise.resolve();
   await new Promise((r) => setTimeout(r, 0));
 };
+
+function sharedWindowHarness(mode: "resources" | "count", overrides: Partial<DispatcherDeps> = {}, swapUsedMB = 0, share = budgetShare({})) {
+  let reading = 20;
+  const signal = createMemSignal({
+    measurable: true,
+    probe: async () => ({ availGB: reading, swapins: 0, compressorPages: 0, pageSize: 16_384, swapUsedMB, swapTotalMB: 16_384, load1: 1 }),
+  });
+  const h = harness({
+    agentMemSamples: () => [],
+    agentCostSamples: () => [0.1],
+    heldMemory: () => signal.held(),
+    isCliRuntime: () => false,
+    resourceBlock: createDispatchResourceBlock({
+      worktreesPath: () => "/tmp",
+      readFreeGB: () => 500,
+      heldMemory: () => signal.held(),
+      isCliRuntime: () => overrides.isCliRuntime?.() ?? false,
+    }),
+    ...overrides,
+  });
+  if (mode === "resources") h.svc.setGlobalCap({ mode: "resources", budgetShare: share });
+  else h.svc.setGlobalCap({ auto: false, max: 4 });
+  h.machine.sample = () => ({ ...QUIET, availableMemGB: signal.held().heldGB, running: h.startedAt.length });
+  let t = Date.now();
+  const beat = async (gb: number) => {
+    setSystemTime(new Date(t));
+    reading = gb;
+    await signal.sample();
+    await h.dispatcher.tick(PID);
+    await flush();
+    t += 10_000;
+  };
+  const beats = async (values: number[]) => { for (const gb of values) await beat(gb); };
+  return { h, beat, beats };
+}
+
+const repeatMemoryReading = (gb: number, n: number) => Array<number>(n).fill(gb);
 
 /**
  * THE FLOOR READS THE LOWEST READING OF 2 MINUTES, and the life-of-turn
@@ -172,12 +210,12 @@ describe("the memory window on the floor and on the budget axis", () => {
       agentCostSamples: () => [0.1],
       heldMemory: () => signal.held(),
       isCliRuntime: () => false,
-      resourceBlock: (hold, reservationGB = 0) => dispatchResourceVerdict("/tmp", () => 500, () => {
-        const memory = signal.held();
-        return reservationGB > 0 && memory.heldGB != null
-          ? { ...memory, heldGB: Math.max(0, memory.heldGB - reservationGB) }
-          : memory;
-      }, overrides.isCliRuntime?.() ?? false, hold),
+      resourceBlock: createDispatchResourceBlock({
+        worktreesPath: () => "/tmp",
+        readFreeGB: () => 500,
+        heldMemory: () => signal.held(),
+        isCliRuntime: () => overrides.isCliRuntime?.() ?? false,
+      }),
       ...overrides,
     });
     if (mode === "resources") h.svc.setGlobalCap({ mode: "resources", budgetShare: share });
@@ -343,7 +381,7 @@ describe("the memory window on the floor and on the budget axis", () => {
   });
 
   for (const share of [budgetShare({}), 0.8]) {
-    it(`budget resources mode admits at 5 GB with one 4 GB turn in flight, share ${share}`, async () => {
+    it(`budget resources mode keeps the exempt candidate queued below its ${share} quota`, async () => {
       expect(capMode({ mode: "resources" })).toBe("resources");
       expect(budgetShare({})).toBe(0.6);
       const w = windowHarness("resources", { agentMemSamples: () => [4] }, 0, share);
@@ -357,8 +395,9 @@ describe("the memory window on the floor and on the budget axis", () => {
       await w.beats(repeat(5, 14));
       seedTodo(w.h.db, `budget-nocheck-${share}`);
       await w.beat(5);
-      expect(w.h.startedAt.length).toBe(2);
-      expect(w.h.commentsFor(`budget-nocheck-${share}`).some((c) => c.includes("Partenza in esenzione"))).toBe(true);
+      expect(w.h.startedAt.length).toBe(1);
+      expect(w.h.attempts.getNoLocalChecksReservation?.(`budget-nocheck-${share}`)).toBeNull();
+      expect(w.h.commentsFor(`budget-nocheck-${share}`).some((c) => /in coda|Memoria/.test(c))).toBe(true);
 
       if (share === 0.8) {
         const main = admissionVerdict(
@@ -374,7 +413,7 @@ describe("the memory window on the floor and on the budget axis", () => {
 
       await w.beats(repeat(20, 14));
       const preview = w.h.dispatcher.admissionPreview?.();
-      expect(preview?.ourMemGB).toBeCloseTo(3);
+      expect(preview?.ourMemGB).toBeCloseTo(2);
     });
   }
 
@@ -407,19 +446,14 @@ describe("the memory window on the floor and on the budget axis", () => {
 
   it("CLI exemption keeps the measured 0.42 GB price", async () => {
     const w = windowHarness("resources", {
+      checksRunning: () => 1,
       isCliRuntime: () => true,
       agentMemSamples: () => [4],
     }, 0, 0.8);
-    w.h.svc.updateBoardSettings(SECOND_PID, { autoDispatch: true, dispatchUseWorktree: false });
-    addLocalReviewCheck(w.h.svc, SECOND_PID);
-    await w.beats(repeat(20, 14));
-    seedTodo(w.h.db, "cli-checked", SECOND_PID);
-    await w.h.dispatcher.tick(SECOND_PID);
-    await flush();
     await w.beats(repeat(3, 14));
     seedTodo(w.h.db, "cli-nocheck");
     await w.beat(3);
-    expect(w.h.startedAt.length).toBe(2);
+    expect(w.h.startedAt.length).toBe(1);
     expect(w.h.commentsFor("cli-nocheck").some((c) => c.includes("prenotati 0.42 GB"))).toBe(true);
     await w.beats(repeat(20, 14));
     expect(w.h.dispatcher.admissionPreview?.()?.ourMemGB).toBeCloseTo(2.42);
@@ -514,7 +548,14 @@ describe("extra", () => {
     let checks = 1;
     const signal = createMemSignal({ measurable: true, probe: async () => ({ availGB: reading, swapins: 0, compressorPages: 0, pageSize: 16_384, swapUsedMB: 0, swapTotalMB: 16_384, load1: 1 }) });
     const h = harness({ agentMemSamples: () => [], agentCostSamples: () => [0.1], checksRunning: () => checks,
-      resourceBlock: (hold) => dispatchResourceVerdict("/tmp", () => 500, () => signal.held(), false, hold) });
+      heldMemory: () => signal.held(),
+      isCliRuntime: () => false,
+      resourceBlock: createDispatchResourceBlock({
+        worktreesPath: () => "/tmp",
+        readFreeGB: () => 500,
+        heldMemory: () => signal.held(),
+        isCliRuntime: () => false,
+      }) });
     h.svc.setGlobalCap({ auto: false, max: 4 });
     let t = Date.now();
     const beat = async () => { setSystemTime(new Date(t)); await signal.sample(); await h.dispatcher.tick(PID); await flush(); t += 10_000; };
@@ -523,7 +564,8 @@ describe("extra", () => {
     checks = 0;
     for (let i = 0; i < 2; i++) await beat();
     expect(h.startedAt.length).toBe(1);
-    expect(h.logLines.some((line) => line.includes("per deroga"))).toBe(true);
+    expect(h.attempts.getNoLocalChecksReservation?.("b2n")).toBe(1);
+    expect(h.commentsFor("b2n").some((line) => line.includes("Partenza in esenzione"))).toBe(true);
   });
 });
 
@@ -551,7 +593,12 @@ describe("no-local-check exception lifecycle", () => {
     const w = harness({
       heldMemory: () => signal.held(),
       isCliRuntime: () => false,
-      resourceBlock: (hold) => dispatchResourceVerdict("/tmp", () => 500, () => signal.held(), false, hold),
+      resourceBlock: createDispatchResourceBlock({
+        worktreesPath: () => "/tmp",
+        readFreeGB: () => 500,
+        heldMemory: () => signal.held(),
+        isCliRuntime: () => false,
+      }),
     });
     w.svc.updateBoardSettings(SECOND_PID, { autoDispatch: true, dispatchUseWorktree: false });
     addLocalReviewCheck(w.svc, SECOND_PID);
@@ -654,9 +701,260 @@ describe("no-local-check exception lifecycle", () => {
     expect(restored.filter((reservation) => reservation === null)).toHaveLength(1);
   });
 
-  it("restores the seat while dispatch is off, before any reattach runs", async () => {
+  it("uses the server resource composer for memory, runtime, and one reservation", () => {
+    let cliRuntime = false;
+    const memory = { measurable: true, latestGB: 6.5, heldGB: 6.5, coveredMs: 120_000 };
+    const block = createDispatchResourceBlock({
+      worktreesPath: () => "/tmp",
+      readFreeGB: () => 500,
+      heldMemory: () => memory,
+      isCliRuntime: () => cliRuntime,
+    });
+    const hold = { cardGB: 0, reservedGB: 0, reservedCards: 0, spendingHere: false, ourWorkRunning: true };
+
+    expect(block(hold).reason).toBeNull();
+    cliRuntime = true;
+    expect(block(hold).reason).toContain("6.5 GB");
+    cliRuntime = false;
+    expect(block(hold, 1).reason).toContain("5.5 GB");
+  });
+
+  it("admits the reserved no-check cost at the quota minimum", async () => {
+    const w = sharedWindowHarness("resources", { checksRunning: () => 1 }, 0, 0.8);
+    await w.beats(repeatMemoryReading(20, 14));
+    await w.beats(repeatMemoryReading(4.8, 14));
+    w.h.machine.sample = () => ({ ...QUIET, availableMemGB: 1.25, ourMemGB: 2, running: 1 });
+    seedTodo(w.h.db, "quota-at-reservation");
+
+    await w.h.dispatcher.tick(PID);
+    await flush();
+
+    expect(w.h.startedAt).toHaveLength(1);
+    expect(w.h.attempts.getNoLocalChecksReservation?.("quota-at-reservation")).toBe(1);
+    expect(w.h.commentsFor("quota-at-reservation").some((line) => line.includes("Partenza in esenzione"))).toBe(true);
+  });
+
+  it("holds the no-check start when free quota is below its reservation", async () => {
+    const w = sharedWindowHarness("resources", { checksRunning: () => 1 }, 0, 0.8);
+    await w.beats(repeatMemoryReading(20, 14));
+    await w.beats(repeatMemoryReading(4.8, 14));
+    w.h.machine.sample = () => ({ ...QUIET, availableMemGB: 1.24, ourMemGB: 2, running: 1 });
+    seedTodo(w.h.db, "quota-below-reservation");
+
+    await w.h.dispatcher.tick(PID);
+    await flush();
+
+    expect(w.h.startedAt).toHaveLength(0);
+    expect(w.h.attempts.getNoLocalChecksReservation?.("quota-below-reservation")).toBeNull();
+    expect(w.h.commentsFor("quota-below-reservation").join(" ")).toMatch(/in coda|Memoria/);
+  });
+
+  it("charges an occupied exempt seat once in resources mode", async () => {
+    let checks = 1;
+    const w = sharedWindowHarness("resources", { checksRunning: () => checks }, 0, 0.8);
+    await w.beats(repeatMemoryReading(20, 14));
+    await w.beats(repeatMemoryReading(4.8, 14));
+    seedTodo(w.h.db, "s3-exempt");
+    await w.h.dispatcher.tick(PID);
+    await flush();
+    expect(w.h.startedAt).toHaveLength(1);
+    expect(w.h.attempts.getNoLocalChecksReservation?.("s3-exempt")).toBe(1);
+
+    checks = 0;
+    await w.beats(repeatMemoryReading(6.5, 14));
+    w.h.svc.updateBoardSettings(SECOND_PID, { autoDispatch: true, dispatchUseWorktree: false });
+    addLocalReviewCheck(w.h.svc, SECOND_PID);
+    seedTodo(w.h.db, "s3-checked", SECOND_PID);
+    await w.h.dispatcher.tick(SECOND_PID);
+    await flush();
+
+    expect(w.h.dispatcher.isInFlight("s3-checked")).toBe(true);
+    expect(w.h.startedAt).toHaveLength(2);
+  });
+
+  it("keeps the real memory reading in a resources-mode queue reason", async () => {
+    const checks = 1;
+    let samples: number[] = [];
+    const w = sharedWindowHarness("resources", {
+      checksRunning: () => checks,
+      agentMemSamples: () => samples,
+    }, 0, 0.8);
+    await w.beats(repeatMemoryReading(20, 14));
+    await w.beats(repeatMemoryReading(4.8, 14));
+    seedTodo(w.h.db, "resources-reason-exempt");
+    await w.h.dispatcher.tick(PID);
+    await flush();
+    expect(w.h.attempts.getNoLocalChecksReservation?.("resources-reason-exempt")).toBe(1);
+
+    samples = [5.5];
+    w.h.svc.updateBoardSettings(SECOND_PID, { autoDispatch: true, dispatchUseWorktree: false });
+    addLocalReviewCheck(w.h.svc, SECOND_PID);
+    await w.beats(repeatMemoryReading(6.5, 14));
+    seedTodo(w.h.db, "resources-reading", SECOND_PID);
+    await w.h.dispatcher.tick(SECOND_PID);
+    await flush();
+
+    const reason = w.h.commentsFor("resources-reading").find((line) => line.includes("Memoria in risalita")) ?? "";
+    expect(reason).toContain("la lettura più bassa degli ultimi 2 minuti è 6.5 GB");
+    expect(reason).not.toContain("la lettura più bassa degli ultimi 2 minuti è 5.5 GB");
+    expect(w.h.dispatcher.isInFlight("resources-reading")).toBe(false);
+  });
+
+  it("starts one light card under heavyBusy, queues its peer, then reuses the released seat", async () => {
+    const w = sharedWindowHarness("count", { checksRunning: () => 0 });
+    w.h.svc.updateBoardSettings(SECOND_PID, { autoDispatch: true, dispatchUseWorktree: false });
+    seedTodo(w.h.db, "seat-heavy", SECOND_PID);
+    w.h.db.run("UPDATE tasks SET dispatch_weight = 'heavy' WHERE id = 'seat-heavy'");
+    await w.h.dispatcher.tick(SECOND_PID);
+    await flush();
+    expect(w.h.startedAt).toHaveLength(1);
+
+    await w.beats(repeatMemoryReading(5, 14));
+    expect(boardHasNoLocalChecks(w.h.svc.getBoardSettings(PID).reviewChecks)).toBe(true);
+    seedTodo(w.h.db, "seat-one");
+    seedTodo(w.h.db, "seat-two");
+    await w.h.dispatcher.tick(PID);
+    await flush();
+
+    expect(w.h.startedAt).toHaveLength(2);
+    expect(w.h.attempts.getNoLocalChecksReservation?.("seat-one")).toBe(1);
+    expect(w.h.attempts.getNoLocalChecksReservation?.("seat-two")).toBeNull();
+    expect(w.h.status("seat-two")).toBe("todo");
+    expect(w.h.commentsFor("seat-two").join(" ")).toMatch(/in coda|PESANTE|Memoria/);
+
+    w.h.svc.updateBoardSettings(PID, { autoDispatch: false, dispatchUseWorktree: false });
+    w.h.db.run("UPDATE tasks SET status = 'done', dispatch_state = NULL WHERE id = 'seat-one'");
+    w.h.dispatcher.onBlockerDone("seat-one");
+    expect(w.h.attempts.getNoLocalChecksReservation?.("seat-one")).toBeNull();
+
+    w.h.svc.updateBoardSettings(PID, { autoDispatch: true, dispatchUseWorktree: false });
+    await w.h.dispatcher.tick(PID);
+    await flush();
+    expect(w.h.startedAt).toHaveLength(3);
+    expect(w.h.attempts.getNoLocalChecksReservation?.("seat-two")).toBe(1);
+    expect(w.h.commentsFor("seat-two").some((line) => line.includes("Partenza in esenzione"))).toBe(true);
+  });
+
+  it("charges an occupied exempt seat once in count mode and reports the effective reading", async () => {
+    let checks = 1;
+    const w = sharedWindowHarness("count", { checksRunning: () => checks });
+    await w.beats(repeatMemoryReading(20, 14));
+    await w.beats(repeatMemoryReading(4.8, 14));
+    seedTodo(w.h.db, "count-exempt");
+    await w.h.dispatcher.tick(PID);
+    await flush();
+    expect(w.h.startedAt).toHaveLength(1);
+    expect(w.h.attempts.getNoLocalChecksReservation?.("count-exempt")).toBe(1);
+
+    checks = 0;
+    await w.beats(repeatMemoryReading(6.5, 14));
+    w.h.svc.updateBoardSettings(SECOND_PID, { autoDispatch: true, dispatchUseWorktree: false });
+    addLocalReviewCheck(w.h.svc, SECOND_PID);
+    seedTodo(w.h.db, "count-checked", SECOND_PID);
+    await w.h.dispatcher.tick(SECOND_PID);
+    await flush();
+
+    const reason = w.h.commentsFor("count-checked").find((line) => line.includes("Memoria quasi finita")) ?? "";
+    expect(reason).toContain("5.5 GB");
+    expect(reason).not.toContain("4.5 GB");
+    expect(w.h.startedAt).toHaveLength(1);
+  });
+
+  for (const outcome of ["finished", "closed manually", "errored", "died"] as const) {
+    it(`releases the one exempt seat after the first card ${outcome}`, async () => {
+      let checks = 1;
+      let finish: ((end?: TurnEndInfo) => void) | null = null;
+      const w = sharedWindowHarness("count", {
+        checksRunning: () => checks,
+        livenessGraceMs: 0,
+        isTurnAlive: outcome === "died" ? () => false : undefined,
+        runTurn: () => new Promise<TurnEndInfo | void>((resolve) => { finish = resolve; }),
+      });
+      w.h.svc.updateBoardSettings(PID, { autoDispatch: false, dispatchRetryCap: 1 });
+      await w.beats(repeatMemoryReading(20, 14));
+      await w.beats(repeatMemoryReading(4.8, 14));
+      w.h.svc.updateBoardSettings(PID, { autoDispatch: true, dispatchRetryCap: 1 });
+      seedTodo(w.h.db, "seat-first");
+      seedTodo(w.h.db, "seat-second");
+      await w.h.dispatcher.tick(PID);
+      await flush();
+
+      expect(w.h.startedAt).toHaveLength(1);
+      expect(w.h.attempts.getNoLocalChecksReservation?.("seat-first")).toBe(1);
+      expect(w.h.status("seat-second")).toBe("todo");
+      expect(w.h.commentsFor("seat-second").join(" ")).toMatch(/in coda|Memoria/);
+
+      if (outcome === "finished") {
+        w.h.db.run("UPDATE tasks SET status = 'review' WHERE id = 'seat-first'");
+        w.h.svc.updateBoardSettings(PID, { autoDispatch: false });
+        finish!({ end: "end_turn" });
+      } else if (outcome === "closed manually") {
+        w.h.db.run("UPDATE tasks SET status = 'done' WHERE id = 'seat-first'");
+        w.h.svc.updateBoardSettings(PID, { autoDispatch: false });
+        w.h.dispatcher.onBlockerDone("seat-first");
+        expect(w.h.attempts.getNoLocalChecksReservation?.("seat-first")).toBeNull();
+        finish!({ end: "end_turn" });
+      } else if (outcome === "errored") {
+        w.h.svc.updateBoardSettings(PID, { autoDispatch: false });
+        finish!({ end: "error", cause: "process-died" });
+      } else {
+        w.h.svc.updateBoardSettings(PID, { autoDispatch: false });
+        setSystemTime(new Date(Date.now() + 1_000));
+        await w.h.dispatcher.reconcile({ reason: "poll" });
+        setSystemTime(new Date(Date.now() + 1_000));
+        await w.h.dispatcher.reconcile({ reason: "poll" });
+      }
+      checks = 0;
+      await flush(30);
+      expect(w.h.dispatcher.isInFlight("seat-first")).toBe(false);
+      expect(w.h.attempts.getNoLocalChecksReservation?.("seat-first")).toBeNull();
+
+      w.h.svc.updateBoardSettings(PID, { autoDispatch: true });
+      await w.h.dispatcher.tick(PID);
+      await flush();
+      expect(w.h.startedAt).toHaveLength(2);
+      expect(w.h.dispatcher.isInFlight("seat-second")).toBe(true);
+    });
+  }
+
+  it("reopening the released card as heavy starts without inheriting its exempt note", async () => {
+    const memory = { measurable: true, latestGB: 20, heldGB: 20, coveredMs: 120_000 };
+    const w = harness({
+      heldMemory: () => memory,
+      isCliRuntime: () => false,
+      resourceBlock: createDispatchResourceBlock({
+        worktreesPath: () => "/tmp",
+        readFreeGB: () => 500,
+        heldMemory: () => memory,
+        isCliRuntime: () => false,
+      }),
+    });
+    w.svc.updateBoardSettings(PID, { autoDispatch: false, dispatchUseWorktree: false });
+    seedCutTurn(w.db, "reopened-heavy");
+    const attempt = w.attempts.create({ taskId: "reopened-heavy", idx: 1, model: null });
+    w.attempts.bind(attempt.id, { topicId: "topic-reopened-heavy", worktreeId: null, branch: null });
+    w.attempts.setNoLocalChecksReservation?.("reopened-heavy", 1);
+    await w.dispatcher.reconcile({ reason: "boot" });
+    await flush();
+    expect(w.attempts.getNoLocalChecksReservation?.("reopened-heavy")).toBe(1);
+    w.db.run("UPDATE tasks SET status = 'done', dispatch_state = NULL WHERE id = 'reopened-heavy'");
+    w.dispatcher.onBlockerDone("reopened-heavy");
+    expect(w.attempts.getNoLocalChecksReservation?.("reopened-heavy")).toBeNull();
+    w.svc.updateBoardSettings(PID, { autoDispatch: true, dispatchUseWorktree: false });
+    w.db.run("UPDATE tasks SET status = 'todo', assigned_topic_id = NULL WHERE id = 'reopened-heavy'");
+    w.db.run("UPDATE tasks SET dispatch_weight = 'heavy' WHERE id = 'reopened-heavy'");
+
+    await w.dispatcher.tick(PID);
+    await flush();
+
+    expect(w.dispatcher.isInFlight("reopened-heavy")).toBe(true);
+    expect(w.attempts.getNoLocalChecksReservation?.("reopened-heavy")).toBeNull();
+    expect(w.commentsFor("reopened-heavy").filter((line) => line.includes("Partenza in esenzione"))).toHaveLength(0);
+  });
+
+  it("keeps the persisted seat out of memory until dispatch allows a live reattach", async () => {
     const h = harness({ hasLiveSession: async () => true, reattach: () => new Promise<void>(() => {}) });
-    h.svc.setGlobalAutoDispatch(false);
+    h.svc.updateBoardSettings(PID, { autoDispatch: false, dispatchUseWorktree: false });
     h.svc.setGlobalCap({ mode: "resources", budgetShare: budgetShare({}) });
     seedCutTurn(h.db, "held-off-exempt");
     const attempt = h.attempts.create({ taskId: "held-off-exempt", idx: 1, model: null });
@@ -666,7 +964,14 @@ describe("no-local-check exception lifecycle", () => {
     await flush();
     expect(h.attempts.getNoLocalChecksReservation?.("held-off-exempt")).toBe(1);
     expect(h.dispatcher.isInFlight("held-off-exempt")).toBe(false);
-    expect(h.dispatcher.admissionPreview?.()?.ourMemGB).toBeCloseTo(3);
+    expect(h.dispatcher.admissionPreview?.()?.ourMemGB).toBeCloseTo(2);
     expect(h.svc.get("held-off-exempt")?.comments.some((comment) => comment.content.includes("Dispatch spento"))).toBe(true);
+
+    h.svc.updateBoardSettings(PID, { autoDispatch: true, dispatchUseWorktree: false });
+    await h.dispatcher.reconcile({ reason: "poll" });
+    await flush();
+    expect(h.dispatcher.isInFlight("held-off-exempt")).toBe(true);
+    expect(h.attempts.getNoLocalChecksReservation?.("held-off-exempt")).toBe(1);
+    expect(h.dispatcher.admissionPreview?.()?.ourMemGB).toBeCloseTo(3);
   });
 });

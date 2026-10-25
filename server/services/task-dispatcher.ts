@@ -69,6 +69,8 @@ import { hasCommandShell } from "../lib/command-process";
 
 /** Fallback retry cap when a board's setting can't be read (default 2). */
 const DEFAULT_RETRY_CAP = 2;
+/** The no-check exception must still have enough free quota for its reservation. */
+const NO_CHECK_MIN_QUOTA_MULTIPLIER = 1;
 
 /** The tool a dispatched session is running, as the session tracker knows it. */
 export interface SessionActivity { name: string; input?: unknown; since: number }
@@ -1341,7 +1343,7 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
       spendingHere: launches.length + Math.max(0, checks) > 0,
       ourWorkRunning: localTurns() + Math.max(0, checks)
         + noCheckExemptions.untrackedCount(new Set(inFlight.keys())) > 0,
-    }, noCheckExemptions.reservationGB()) ?? { reason: null, kind: null, memoryFirstCardExempt: false };
+    }, resources ? 0 : noCheckExemptions.reservationGB()) ?? { reason: null, kind: null, memoryFirstCardExempt: false };
   }
   function admissionVerdictNow(): ResourceFloorVerdict {
     try {
@@ -1508,10 +1510,14 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
     const normal = budgetVerdict(gcap, undefined, sample);
     const candidate = budgetVerdict(gcap, reservationGB, sample);
     if (!normal || !candidate) return { needed: false, allowed: true };
+    const minimumQuotaGB = reservationGB * NO_CHECK_MIN_QUOTA_MULTIPLIER;
     return {
       needed: normal.verdict.blockedBy === "memory" && !normal.verdict.firstAgentExempt,
       allowed: candidate.verdict.admit || (
         candidate.verdict.blockedBy === "memory"
+        && candidate.verdict.freeQuotaMemGB != null
+        && candidate.verdict.freeQuotaMemGB >= minimumQuotaGB
+        && candidate.verdict.costMemGB <= candidate.verdict.freeQuotaMemGB
         && candidate.mem.ourMemGB <= candidate.mem.usableMemGB
       ),
     };
@@ -1832,6 +1838,18 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
     noCheckExemptions.release(taskId);
     try { deps.attempts?.setNoLocalChecksReservation?.(taskId, null); }
     catch (err) { log(`prenotazione senza check non azzerata per ${taskId}`, err); }
+  }
+  function releaseInactiveNoCheckReservations(): void {
+    const taskIds = new Set(noCheckExemptions.taskIds());
+    try {
+      for (const taskId of deps.attempts?.listNoLocalChecksReservationTaskIds?.() ?? []) taskIds.add(taskId);
+    } catch { /* The in-memory ledger is still safe to sweep. */ }
+    for (const taskId of taskIds) {
+      if (inFlight.has(taskId)) continue;
+      try {
+        if (deps.svc.get(taskId)?.task.status !== "in_progress") clearNoCheckReservation(taskId);
+      } catch { /* A failed read must not release a live reservation. */ }
+    }
   }
   function noCheckReservationFor(task: Task): number | null {
     if (task.dispatchWeight === "heavy"
@@ -4846,6 +4864,7 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
   }
 
   async function tick(projectId: string): Promise<void> {
+    releaseInactiveNoCheckReservations();
     // Project-less tasks are never dispatchable (no cwd): they WAIT quietly on
     // the global board — parking them with "progetto non risolvibile" would be
     // the todo→backlog bounce all over again.
@@ -5788,6 +5807,7 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
   }
 
   function onBlockerDone(taskId: string): void {
+    clearNoCheckReservation(taskId);
     // The blocker completed: every todo that was waiting on it is now
     // claimable — give each one the normal enter-todo treatment (queued chip +
     // grace + tick). The periodic reconcile would catch them anyway; this makes
@@ -5933,6 +5953,7 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
   }
 
   async function reconcilePass(opts?: { reason?: "boot" | "poll" }): Promise<void> {
+    releaseInactiveNoCheckReservations();
     const reason = opts?.reason ?? "boot";
     // The notes below used to assume a restart: on the 10 s poll that is a
     // lie, and it was read as one (a restart that never happened).
@@ -6062,7 +6083,6 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
       // and the global dispatch switch still ON.
       let autoOn = false;
       try { autoOn = deps.svc.getBoardSettings(t.projectId).autoDispatch; } catch { /* treat as off */ }
-      restoreNoCheckReservation(t);
       // A card that was WAITING for a slot has a session as much as one that
       // was mid-turn: the wait lived in memory, the conversation and the
       // worktree did not. Requeueing it handed the next agent an EMPTY

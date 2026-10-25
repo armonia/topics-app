@@ -59,6 +59,10 @@ export class NoCheckExemptionLedger {
     return this.reservations.get(taskId) ?? null;
   }
 
+  taskIds(): string[] {
+    return [...this.reservations.keys()];
+  }
+
   untrackedCount(trackedTaskIds: ReadonlySet<string>): number {
     return [...this.reservations.keys()].filter((taskId) => !trackedTaskIds.has(taskId)).length;
   }
