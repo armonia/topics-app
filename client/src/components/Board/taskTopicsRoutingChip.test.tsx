@@ -1,11 +1,64 @@
 /** @covers AICTRL-01, MSEL-06 */
-import { describe, expect, test, mock } from 'bun:test';
+import { afterAll, describe, expect, test, mock } from 'bun:test';
 import type { ComponentProps } from 'react';
 import { readFileSync } from 'node:fs';
 import { DndContext } from '@dnd-kit/core';
 import { renderToStaticMarkup } from 'react-dom/server';
 import type { BoardSettings, BoardTask } from '../../lib/board';
 import type { ProvidersSnapshot } from '../../types';
+
+const {
+  getProvidersSnapshotState,
+  subscribeProvidersSnapshot,
+  refreshProvidersSnapshot,
+  reloadProvidersSnapshot,
+} = await import('../../lib/providersSnapshotStore');
+const realProvidersSnapshotStore = {
+  getProvidersSnapshotState,
+  subscribeProvidersSnapshot,
+  refreshProvidersSnapshot,
+  reloadProvidersSnapshot,
+};
+
+const {
+  POPOVER_MARGIN,
+  Z_POPOVER,
+  Z_CONTEXT_MENU,
+  Z_POPOVER_SCRIM,
+  Z_MODAL,
+  POPOVER_SURFACE,
+  POPOVER_PANEL,
+  POPOVER_LOOK,
+  POPOVER_ITEM,
+  DANGER_TEXT,
+  WARNING_TEXT,
+  SUCCESS_TEXT,
+  ACTIVE_TEXT,
+  POPOVER_ITEM_DANGER,
+  POPOVER_DIVIDER,
+  POPOVER_SHEET,
+} = await import('../../lib/popoverStyles');
+const realPopoverStyles = {
+  POPOVER_MARGIN,
+  Z_POPOVER,
+  Z_CONTEXT_MENU,
+  Z_POPOVER_SCRIM,
+  Z_MODAL,
+  POPOVER_SURFACE,
+  POPOVER_PANEL,
+  POPOVER_LOOK,
+  POPOVER_ITEM,
+  DANGER_TEXT,
+  WARNING_TEXT,
+  SUCCESS_TEXT,
+  ACTIVE_TEXT,
+  POPOVER_ITEM_DANGER,
+  POPOVER_DIVIDER,
+  POPOVER_SHEET,
+};
+
+const { ContextMenuPortal } = await import('../Shared/ContextMenuPortal');
+const realContextMenuPortal = { ContextMenuPortal };
 
 const snapshot: ProvidersSnapshot = {
   providers: [
@@ -17,15 +70,26 @@ const snapshot: ProvidersSnapshot = {
 };
 
 mock.module('../../lib/providersSnapshotStore', () => ({
+  ...realProvidersSnapshotStore,
   getProvidersSnapshotState: () => ({ snapshot, error: null }),
   subscribeProvidersSnapshot: () => () => {},
 }));
 mock.module('@/lib/popoverStyles', () => ({
+  ...realPopoverStyles,
   POPOVER_DIVIDER: 'my-1 h-px',
   POPOVER_ITEM: 'w-full',
   POPOVER_ITEM_DANGER: 'w-full text-red-600',
 }));
-mock.module('../Shared/ContextMenuPortal', () => ({ ContextMenuPortal: () => null }));
+mock.module('../Shared/ContextMenuPortal', () => ({
+  ...realContextMenuPortal,
+  ContextMenuPortal: () => null,
+}));
+
+afterAll(() => {
+  mock.module('../../lib/providersSnapshotStore', () => realProvidersSnapshotStore);
+  mock.module('@/lib/popoverStyles', () => realPopoverStyles);
+  mock.module('../Shared/ContextMenuPortal', () => realContextMenuPortal);
+});
 
 const { Column } = await import('./Card');
 
