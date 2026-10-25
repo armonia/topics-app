@@ -1103,11 +1103,9 @@ function sendToBridge(msg: any) {
   // sub-agent prompts): the one place the ctrl+z that freezes Claude Code
   // cannot slip past the filter. The why is in terminal-suspend-key.
   if (msg.type === "write") {
-    const data = withoutSuspendKey(sessions.get(msg.id)?.type, msg.data);
-    if (data !== msg.data) {
-      if (!data) return;
-      msg = { ...msg, data };
-    }
+    const data = bridgeWriteForSession(sessions.get(msg.id)?.type, msg.data);
+    if (data === null) return;
+    if (data !== msg.data) msg = { ...msg, data };
   }
   bridgeSocket.write(JSON.stringify(msg) + "\n");
 }
