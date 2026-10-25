@@ -113,14 +113,14 @@ export async function readOwnerProcessTable(): Promise<string | null> {
     console.warn(`[process-ownership] ps -E unavailable on ${process.platform}; no processes signalled`);
     return null;
   }
-  const uid = process.getuid?.();
-  if (uid === undefined) {
+  const userId = process.getuid?.();
+  if (userId === undefined) {
     console.warn("[process-ownership] current uid unavailable; no processes signalled");
     return null;
   }
   let child: Bun.Subprocess<"pipe", "pipe", "pipe">;
   try {
-    child = Bun.spawn(["ps", "-E", "-ww", "-u", String(uid), "-x", "-o", "pid=,ppid=,pgid=,command="], {
+    child = Bun.spawn(["ps", "-E", "-ww", "-u", String(userId), "-x", "-o", "pid=,ppid=,pgid=,command="], {
       stdout: "pipe",
       stderr: "pipe",
     });
@@ -161,7 +161,7 @@ export async function readOwnerProcessTable(): Promise<string | null> {
   return verifiedOwnerProcessTable(result.stdout, ownersByPid);
 }
 
-const PROCARGS_PYTHON = [
+const PROCESS_ENVIRONMENT_READER = [
   "import ctypes, errno, json, struct, sys",
   "libc = ctypes.CDLL(None, use_errno=True)",
   "result = {}",
@@ -219,7 +219,7 @@ const PROCARGS_PYTHON = [
 async function readExactOwnerEnvironments(pids: number[]): Promise<Map<number, string | null> | null> {
   let child: Bun.Subprocess<"pipe", "pipe", "pipe">;
   try {
-    child = Bun.spawn(["python3", "-c", PROCARGS_PYTHON, ...pids.map(String)], {
+    child = Bun.spawn(["python3", "-c", PROCESS_ENVIRONMENT_READER, ...pids.map(String)], {
       stdout: "pipe",
       stderr: "pipe",
     });
