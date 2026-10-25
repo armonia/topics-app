@@ -357,6 +357,14 @@ export const DISPATCH_MEM_FLOOR_GB = 12;
  */
 export const DISPATCH_MEM_FLOOR_NATIVE_GB = 6;
 
+export const DISPATCH_MEM_EMERGENCY_FLOOR_GB = 2;
+
+/** Native sessions reserve 1 GB; the CLI peak is 420 MB and rounds up to 1 GB. */
+export function readOnlyMemoryReservationGB(agentsAreProcesses: boolean): number {
+  const runtimeGB = agentsAreProcesses ? 0.42 : 1;
+  return Math.max(1, runtimeGB);
+}
+
 /**
  * Quanta RAM prenotare per UN agente quando decidi quanti posti ha la macchina.
  *
@@ -658,6 +666,9 @@ export interface MemoryFloorHold {
   cardGB: number;
   reservedGB: number;
   reservedCards: number;
+  /** Read-only dispatch reservations stay separate from check-card pricing. */
+  readOnlyReservedGB?: number;
+  readOnlyReservedCards?: number;
   /**
    * Is any of our work going to SPEND here memory the reading cannot see yet -
    * the SAME list `reservedGB` is priced from, so branch and figure agree. A
@@ -667,10 +678,7 @@ export interface MemoryFloorHold {
    * `floor + cardGB + 0` = 10 GB of a machine where nothing was spending.
    */
   spendingHere: boolean;
-  /** Is any of our work ALIVE here, the cards parked on the CI included. It
-   *  decides the EXEMPTION and nothing else: "none of our work on this machine"
-   *  is the whole condition for one card under the floor, and an off-lane agent
-   *  resident on this Mac is not none. */
+  /** Is any of our work alive here, including cards parked on remote CI. */
   ourWorkRunning: boolean;
 }
 
@@ -695,19 +703,16 @@ const MEMORY_NOT_MEASURABLE: HeldMemory = { measurable: false, latestGB: null, h
 export type ResourceFloorKind = "disk" | "memory" | "memory_warmup";
 
 /**
- * The floor's answer with the two facts a `string | null` cannot carry: which
- * floor spoke, and whether the memory floor stood down.
+ * The floor's answer with facts that a `string | null` cannot carry.
  */
 export interface ResourceFloorVerdict {
   /** The sentence for the card, or `null` when nothing holds. */
   reason: string | null;
   kind: ResourceFloorKind | null;
-  /**
-   * The memory floor WOULD have held and let one card through because none of
-   * our work is on the machine (`reason` is then `null`). Reported so the
-   * verdict declares it, the way the budget axis declares `firstAgentExempt`.
-   */
+  /** Retained for the budget preview shape; the machine-wide floor never sets it. */
   memoryFirstCardExempt: boolean;
+  /** Lowest reading in the 2-minute memory window, when available. */
+  availableGB?: number | null;
 }
 
 const NOTHING_HOLDS: ResourceFloorVerdict = { reason: null, kind: null, memoryFirstCardExempt: false };
@@ -730,30 +735,9 @@ const NOTHING_HOLDS: ResourceFloorVerdict = { reason: null, kind: null, memoryFi
  * the window is not full (at boot too). One line for both directions: time is
  * the hysteresis.
  *
- * THE MEMORY FLOOR STANDS DOWN FOR THE FIRST CARD, THE DISK NEVER DOES, and the
- * asymmetry is the whole point. A full disk does not reabsorb itself: no
- * exemption, the queue waits for a person. Memory does - it is the OTHER
- * applications holding it, and they give it back when they are done - but the
- * floor had no way out at all, and on a Mac somebody is using that does not
- * produce a wait, it produces a queue that never restarts. Measured on 1455
- * `[memsig]` lines over 25.7 h of 16-17/09/2026: `held2m >= 6 GB` happened ZERO
- * times, the instant reading cleared 6 GB 11 times out of 1444 (0.76%) and never
- * twice in a row, while the floor needs at least 12-13 consecutive readings
- * over the line. Seven cards sat still between 45 and 51 hours, 314 comments
- * saying "Memoria quasi finita", one single restart in 26 hours and only because
- * a person closed some apps. Every one of those samples printed `inFlight=0
- * checkRuns=0`: the RAM was not Topics'.
- *
- * So with NONE of our work on the machine one card goes through - the same
- * "zero" `firstAgentExempt` already counts for the budget axis, agents plus
- * pre-review check runs, which the caller folds into `hold.ourWorkRunning`. With
- * even one agent or one check run in flight the floor holds in full: the 10/09
- * incident was seven cards admitted together, not one.
- *
- * The exemption covers the WARM-UP branch too, and refusing it there would be
- * incoherent: holding on "I do not know yet" while admitting on a reading that
- * is measured and bad says the unknown is worse than the bad. It is still one
- * card - the moment it starts, `ourWorkRunning` is true and the next one waits.
+ * The machine-wide verdict never grants a card exemption. The dispatcher applies
+ * the read-only exception after checking that card's board settings; the disk
+ * floor and an incomplete memory window remain holds for every card.
  */
 export function dispatchResourceVerdict(
   worktreesPath: string,
@@ -784,10 +768,7 @@ export function dispatchResourceVerdict(
   if (!mem.measurable) return NOTHING_HOLDS;
   const floor = agentsAreProcesses ? DISPATCH_MEM_FLOOR_GB : DISPATCH_MEM_FLOOR_NATIVE_GB;
   const gb = (n: number) => n.toFixed(1);
-  /** Nothing of ours on the machine: one card goes through, and it is declared. */
-  const exempt = !hold.ourWorkRunning;
   if (mem.heldGB == null) {
-    if (exempt) return { reason: null, kind: null, memoryFirstCardExempt: true };
     const seconds = Math.min(Math.round(MEM_WINDOW_MS / 1000), Math.max(0, Math.round(mem.coveredMs / 1000)));
     return {
       reason: `Memoria: la sto misurando da ${seconds} s su ${Math.round(MEM_WINDOW_MS / 1000)}, e non parto su una lettura sola. Niente è andato perso.`,
@@ -796,20 +777,12 @@ export function dispatchResourceVerdict(
     };
   }
   const cardGB = Math.max(0, hold.cardGB);
-  const reservedGB = Math.max(0, hold.reservedGB);
-  // The "floor alone" branch is not dead: it decides whether the exemption
-  // below has anything to waive, and reading the line as floor + price on an
-  // idle machine would declare one on a Mac with 8 GB free and nothing
-  // running. Its condition is the PRICE LIST, the same list the figure comes
-  // from (see `spendingHere`): taking the branch from the census instead held
-  // at 7.0, 8.0 and 9.9 GB with two cards parked on the CI and a third asking.
-  const line = hold.spendingHere ? floor + cardGB + reservedGB : floor;
+  const reservedGB = Math.max(0, hold.reservedGB) + Math.max(0, hold.readOnlyReservedGB ?? 0);
+  const reservedCards = Math.max(0, hold.reservedCards) + Math.max(0, hold.readOnlyReservedCards ?? 0);
+  const line = hold.spendingHere || reservedGB > 0 ? floor + cardGB + reservedGB : floor;
   const low = mem.heldGB;
   if (low >= line) return NOTHING_HOLDS;
-  if (exempt) return { reason: null, kind: null, memoryFirstCardExempt: true };
-  // Past here `ourWorkRunning` is true, so the sentences below always describe a
-  // machine that is carrying some of our work.
-  const n = Math.max(0, hold.reservedCards);
+  const n = reservedCards;
   const kept = reservedGB > 0
     ? ` (il pavimento, il prezzo di una card e ${gb(reservedGB)} GB tenuti per ${n === 1 ? "l'agente al lavoro" : `i ${n} agenti al lavoro`})`
     : "";
@@ -829,13 +802,13 @@ export function dispatchResourceVerdict(
     reason: `${head} ${costo}, e sotto questa riga la macchina va in swap. ${tail}${who ? ` ${who}` : ""}`,
     kind: "memory",
     memoryFirstCardExempt: false,
+    availableGB: low,
   };
 }
 
 /**
  * The same verdict as a bare sentence, for every caller that only writes it.
- * The dispatcher reads `dispatchResourceVerdict`: it needs the kind to key the
- * wait and the exemption to declare it.
+ * The dispatcher reads `dispatchResourceVerdict` for the machine-wide block.
  */
 export function dispatchResourceBlock(
   ...args: Parameters<typeof dispatchResourceVerdict>

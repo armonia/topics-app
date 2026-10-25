@@ -3741,13 +3741,11 @@ metà stream API può perdere la connessione, e la CPU non è lì — con otto a
 volo gli agenti stessi valevano il 5,7% della macchina mentre i loro cancelli
 tenevano il resto. Quello che li trattiene è l'ammissione.
 
-**L'ECCEZIONE, e sta nel contratto.** A zero agenti vivi si ammette SEMPRE, per
-quanto carica sia la macchina, e il verdetto lo DICHIARA (`firstAgentExempt`).
-Senza, chi lavora sul proprio Mac tiene il budget superato da solo, la coda non
-parte mai, e il modo in cui lo si scopre è che qualcuno guarda dodici card ferme
-e conclude che il dispatcher è rotto. «Zero» SHALL contare anche le corse di
-check pre-review in volo: una coda ferma dietro uno shard da 11 GB non è una coda
-che non parte mai, parte quando lo shard finisce.
+**L'eccezione del budget è distinta dal pavimento RAM.** `firstAgentExempt`
+continua ad ammettere il primo agente quando la sola pressione del budget lo
+tratterrebbe, a zero agenti e check pre-review in volo. Non modifica il
+`dispatchResourceBlock`: sotto il pavimento RAM vale solo l'eccezione per card
+senza check locali descritta qui sotto.
 
 **Il pavimento resta sopra a tutto.** `dispatchResourceBlock` (disco e RAM sotto
 il pavimento) vale in ENTRAMBE le modalità e vince sul budget. Per questo il
@@ -3755,42 +3753,26 @@ motivo di coda del budget è un tipo A SÉ (`resource_pressure`, tono `waiting`)
 non il pavimento (`resource_floor`, tono `stalled`), e chiamarli con la stessa
 parola è la bugia che il chip esiste per non dire.
 
-**Ma il disco aspetta una persona e la memoria no**, e prima le due cose erano
-scritte in una frase sola. Un disco pieno non si riassorbe da solo: nessuna
-esenzione, nessun tetto di attesa, il motivo resta `resource_floor` con tono
-`stalled`. La memoria si riassorbe eccome — sono le altre applicazioni a tenerla
-e la riaprono quando finiscono — ma il pavimento non aveva nessuna uscita, e su
-un Mac che qualcuno sta usando questo NON produce un'attesa: produce una coda che
-non riparte mai. Misurato il 16-17/09/2026 su 25,7 ore di `[memsig]`: sette card
-ferme fra 45 e 51 ore, 314 commenti «Memoria quasi finita», una sola ripartenza in
-26 ore e per merito di una persona che ha chiuso delle app. In ogni campione
-`inFlight = 0` e `checkRuns = 0`: la RAM non era di Topics. Sul log INTERO (1584
-campioni) `held2m >= 6 GB` legge 241 volte, il 15,2%, di cui 238 a swap calmo —
-quindi il pavimento non è strutturalmente irraggiungibile, è raggiungibile solo
-quando qualcuno libera memoria a mano, che è la stessa frase scritta in un numero.
-Il tratto più lungo senza una sola lettura sopra la riga misura 16,2 ore.
+**Il disco resta sempre senza esenzione.** Un disco pieno non si riassorbe da
+solo: il motivo resta `resource_floor` con tono `stalled`. La memoria ammette una
+sola eccezione, legata alla card, dopo aver letto la stessa finestra completa di
+2 minuti usata dal pavimento globale.
 
-Quando NESSUN lavoro di Topics è in volo — zero agenti vivi e zero corse di check
-pre-review, lo stesso «zero» che `firstAgentExempt` conta già per l'asse budget —
-il pavimento sulla MEMORIA SHALL ammettere UNA card, e il verdetto SHALL
-dichiararlo come lo dichiara il budget. Con anche un solo agente o una sola corsa
-di check in volo il pavimento SHALL valere pieno: l'incidente del 10/09 erano
-sette card ammesse insieme, non una. L'esenzione SHALL valere sia per le
-ammissioni nuove sia per il `resume` di una card già al lavoro, perché il
-pavimento è valutato prima del budget e trattiene entrambi.
+Una card può usare l'eccezione solo se `getBoardSettings(projectId).reviewChecks`
+non contiene check locali: le righe CI remote riconosciute da
+`isCiEvidenceCheck` non contano. Il runtime nativo prenota 1 GB; il CLI prenota
+il suo peso misurato (240–420 MB), arrotondato a 1 GB se inferiore. La prenotazione
+vale per tutta la vita del turno in volo, con una sola card esente alla volta su
+tutte le board. Le card con check locali mantengono il prezzo e il pavimento
+normali: 6 GB nativo, 12 GB CLI. Una lettura minima sotto 2 GB blocca ogni card,
+anche una idonea all'eccezione; il disco non cambia.
 
-**Due domande, due censimenti, e ognuno decide la sua riga per intero.** «C'è del
-nostro VIVO qui?» decide l'esenzione, e una card parcheggiata sulla CI di GitHub
-conta: la sessione è viva e residente. «C'è del nostro che deve ancora SPENDERE
-qui?» decide la riga del pavimento, e quella stessa card non conta: ha già finito
-i suoi check locali, i suoi ~240 MB sono residenti adesso e sono già dentro la
-lettura, e non c'è nessuna fiammata futura da coprire. Il RAMO della riga
-(pavimento da solo, oppure pavimento + prezzo di una card + riserva) e la sua
-CIFRA SHALL uscire dallo STESSO elenco: prendere il ramo dal censimento e la cifra
-dal listino chiedeva `pavimento + prezzo + 0` = 10 GB a una macchina su cui
-nessuno stava spendendo niente, cioè la coda ferma per tutti i quindici minuti in
-cui una consegna aspetta la CI. Misurato con due card off-lane in volo e una terza
-in coda: `held2m` a 7,0 / 8,0 / 9,9 GB tratteneva, a 12,0 GB no.
+L'eccezione non modifica il verdetto globale pubblicato né il pannello: entrambi
+continuano a descrivere il pavimento della macchina, indipendentemente dalla
+board che ha fatto il giro. La card e il log riportano «partita in esenzione:
+X,X GB liberi, board senza check locali»; non si dichiara che le risorse siano
+rientrate sopra il pavimento. Il kickoff aggiunge che, con poca memoria, non si
+eseguono suite, build o test locali e si usano CI o `offload`.
 
 #### Scenario: con solo card sulla CI in volo la riga è il pavimento
 - **GIVEN** due card in volo i cui check aspettano solo la CI della pull request
@@ -3799,13 +3781,30 @@ in coda: `held2m` a 7,0 / 8,0 / 9,9 GB tratteneva, a 12,0 GB no.
 - **THEN** la card SHALL essere ammessa, e NON per esenzione
 - **AND** con la stessa lettura e un turno che sta ancora girando comandi qui la card NON SHALL essere ammessa
 
-#### Scenario: a Topics fermo una card parte anche sotto il pavimento
-- **GIVEN** il minimo su 2 minuti a 4,8 GB, sotto il pavimento nativo di 6 GB
-- **AND** zero agenti vivi e zero corse di check pre-review
+#### Scenario: swap pieno e 4 GB liberi ammettono una sola card senza check locali
+- **GIVEN** swap pieno e minimo su 2 minuti a 4 GB, sotto il pavimento nativo di 6 GB
+- **AND** una board con zero check locali, anche se dichiara righe solo CI
 - **WHEN** il dispatcher valuta la prima card in coda
-- **THEN** la card SHALL essere ammessa, e il motivo SHALL dire che è passata perché Topics non stava facendo niente
+- **THEN** la card SHALL essere ammessa con prenotazione da 1 GB e la riga «partita in esenzione: 4,0 GB liberi, board senza check locali» SHALL comparire nel log e nella card
+- **AND** il kickoff SHALL vietare suite, build e test locali e indicare CI o `offload`
 
-#### Scenario: con un agente al lavoro il pavimento vale pieno
+#### Scenario: una seconda board non riusa la prenotazione globale
+- **GIVEN** una card esente ancora in volo e un'altra board senza check locali
+- **WHEN** il dispatcher valuta la seconda card a 4 GB liberi
+- **THEN** la seconda card SHALL restare trattenuta dal pavimento e la prenotazione della prima SHALL restare conteggiata
+
+#### Scenario: i check locali disqualificano la card a 4 GB
+- **GIVEN** minimo su 2 minuti a 4 GB e una board con almeno un check locale
+- **WHEN** il dispatcher valuta la card
+- **THEN** la card NON SHALL essere ammessa e SHALL mantenere il motivo del pavimento normale
+
+#### Scenario: il pavimento d'emergenza vince sotto 2 GB
+- **GIVEN** minimo su 2 minuti a 1,8 GB
+- **AND** una card su una board senza check locali e una su una board con check locali
+- **WHEN** il dispatcher valuta entrambe
+- **THEN** entrambe SHALL restare trattenute e nessuna SHALL ricevere una riga di esenzione
+
+#### Scenario: con un agente al lavoro il pavimento normale vale pieno
 - **GIVEN** il minimo su 2 minuti a 4,8 GB e un agente vivo
 - **WHEN** il dispatcher valuta la card successiva
 - **THEN** la card NON SHALL essere ammessa, e il motivo SHALL restare quello del pavimento
@@ -3943,8 +3942,9 @@ check; `tests/unit/gate-slot-one-per-name.test.ts` per il cancello per nome;
 
 #### Scenario: a coda vuota il primo parte comunque
 - **GIVEN** la stessa macchina carica e ZERO agenti vivi
+- **AND** la memoria libera supera il pavimento del runtime
 - **WHEN** il dispatcher fa il suo giro
-- **THEN** un agente parte, e il verdetto dichiara l'esenzione invece di sostenere che la macchina è libera
+- **THEN** un agente parte per l'eccezione del budget, e il verdetto dichiara `firstAgentExempt`
 - **AND** con una corsa di check pre-review in volo non parte, perché la macchina ha già lavoro nostro
 
 #### Scenario: la notte del 14/09 non riparte

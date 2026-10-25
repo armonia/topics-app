@@ -13,23 +13,22 @@
  *  4. Overlapping reconcile passes are one pass.
  *  5. A card resumed by hand while the pass awaited the broker is not resumed
  *     (and counted) a second time.
- *  6. The first-agent exemption does not apply while our checks are running.
+ *  6. The budget's first-agent exception does not apply while our checks are running.
  *  7. The memory floor reads the lowest reading of a 2-minute window (D1-D7):
  *     single readings never reopen it, the window is empty at boot, a turn in
  *     flight is charged once (the budget axis in resources mode, the floor in
  *     count mode), and the budget axis reads the same window.
- *  8. A card whose checks only wait on the pull request CI reserves no memory.
+ *  8. CI-only rows qualify for the read-only path, which keeps its 1 GB reservation.
  *  9. A tick parked on the delivery probe does not start a second card after
  *     another board's tick started one in the gap.
- * 10. The memory floor's derogation for the first card (E1-E5), in COUNT mode
- *     where the floor is the only memory brake: what counts as "our work" (a
- *     card waiting on GitHub's CI counts), what the log says happened, and
- *     where the verdict declares it. The disk never gets one.
+ * 10. Card-specific read-only admission (E1-E5): local checks disqualify a
+ *     board, CI-only rows do not, one global reservation is kept, and the
+ *     machine-wide floor remains visible. The disk never gets an exception.
  * @covers KANBAN-75
  */
 import { describe, it, expect, setSystemTime, afterEach } from "bun:test";
 import { Database } from "bun:sqlite";
-import type { MachineBudgetSample } from "../../shared/board";
+import { UNIT_CI_CHECK, type MachineBudgetSample } from "../../shared/board";
 import { createTaskService, type TaskService } from "./tasks";
 import { createTaskDispatcher, type DispatcherDeps } from "./task-dispatcher";
 import { currentDispatchBlock } from "./dispatch-block-signal";
@@ -63,7 +62,8 @@ function freshDb(): Database {
     state TEXT NOT NULL DEFAULT 'running', commit_sha TEXT, files_changed INTEGER,
     insertions INTEGER, deletions INTEGER, summary TEXT, error TEXT,
     agent_ms INTEGER NOT NULL DEFAULT 0, agent_tokens INTEGER NOT NULL DEFAULT 0,
-    created_at TEXT NOT NULL, ended_at TEXT, selected_at TEXT, UNIQUE (task_id, idx)
+    created_at TEXT NOT NULL, ended_at TEXT, selected_at TEXT, read_only_reservation_gb REAL,
+    UNIQUE (task_id, idx)
   )`);
   db.run(`CREATE TABLE task_comments (
     id TEXT PRIMARY KEY, task_id TEXT NOT NULL, author TEXT NOT NULL DEFAULT 'user',
@@ -91,6 +91,12 @@ function seedTodo(db: Database, id: string, projectId = PID): void {
      VALUES (?, ?, ?, 'todo', ?, ?, 0, 2)`,
     [id, projectId, "task " + id, ts, ts],
   );
+}
+
+const SECOND_PID = "beta-def456";
+
+function addLocalReviewCheck(svc: TaskService, projectId = PID): void {
+  svc.updateBoardSettings(projectId, { reviewChecks: [{ name: "unit", cmd: "bun test" }] });
 }
 
 /** A card as the boot finds it: `in_progress` on a live topic, cut mid-turn. */
@@ -123,6 +129,7 @@ function harness(overrides: Partial<DispatcherDeps> = {}) {
   const svc: TaskService = createTaskService(db);
   const startedAt: number[] = [];
   const turns: string[] = [];
+  const prompts: string[] = [];
   const logLines: string[] = [];
   const machine: { sample: () => MachineBudgetSample | null } = { sample: () => ({ ...QUIET }) };
   const deps: DispatcherDeps = {
@@ -137,7 +144,7 @@ function harness(overrides: Partial<DispatcherDeps> = {}) {
     },
     createWorktree: async (storeId) => `wt-${storeId}`,
     topicExists: () => true,
-    runTurn: (sessionKey) => new Promise<TurnEndInfo | void>(() => { turns.push(sessionKey); }),
+    runTurn: (sessionKey, content) => new Promise<TurnEndInfo | void>(() => { turns.push(sessionKey); prompts.push(content); }),
     broadcast: () => {},
     graceMs: 0,
     retryBackoffMs: 0,
@@ -149,7 +156,8 @@ function harness(overrides: Partial<DispatcherDeps> = {}) {
   dispatchers.push(dispatcher);
   svc.updateBoardSettings(PID, { autoDispatch: true, dispatchUseWorktree: false });
   return {
-    db, svc, dispatcher, startedAt, turns, logLines, machine,
+    db, svc, dispatcher, startedAt, turns, prompts, logLines, machine,
+    commentsFor: (taskId: string) => db.query<{ content: string }, [string]>("SELECT content FROM task_comments WHERE task_id = ?").all(taskId).map((row) => row.content),
     lines: (needle: string) => logLines.filter((l) => l.includes(needle)),
   };
 }
@@ -294,11 +302,11 @@ describe("the exemption and the floor", () => {
  * signal over a fake probe; the harness's budget sample reads the same window.
  */
 describe("the memory window on the floor and on the budget axis", () => {
-  function windowHarness(mode: "resources" | "count", overrides: Partial<DispatcherDeps> = {}) {
+  function windowHarness(mode: "resources" | "count", overrides: Partial<DispatcherDeps> = {}, swapUsedMB = 0) {
     let reading = 20;
     const signal = createMemSignal({
       measurable: true,
-      probe: async () => ({ availGB: reading, swapins: 0, compressorPages: 0, pageSize: 16_384, swapUsedMB: 0, swapTotalMB: 16_384, load1: 1 }),
+      probe: async () => ({ availGB: reading, swapins: 0, compressorPages: 0, pageSize: 16_384, swapUsedMB, swapTotalMB: 16_384, load1: 1 }),
     });
     const h = harness({
       agentMemSamples: () => [],
@@ -327,36 +335,31 @@ describe("the memory window on the floor and on the budget axis", () => {
   }
   const repeat = (gb: number, n: number) => Array<number>(n).fill(gb);
 
-  it("D1, the 10:37 replay: ten minutes at 5.8, one reading at 14.5, then 5.5 start ONE card and no more", async () => {
-    // ONE, not zero, since KANBAN-75: with nothing of ours on the machine the
-    // memory floor stands down for the first card, because the RAM holding it is
-    // somebody else's and waiting does not get it back. The moment that card is
-    // running the floor is full again - which is what the other beats prove.
+  it("D1, the 10:37 replay: low memory throughout keeps a checked board held", async () => {
     const w = windowHarness("resources");
+    addLocalReviewCheck(w.h.svc);
     for (let i = 0; i < 3; i++) seedTodo(w.h.db, `d1-${i}`);
     await w.beats([...repeat(5.8, 60), 14.5, ...repeat(5.5, 18)]);
-    expect(w.h.startedAt).toHaveLength(1);
-    expect(w.startsSec()).toEqual([0]);
+    expect(w.h.startedAt).toHaveLength(0);
+    expect(w.startsSec()).toEqual([]);
     expect(currentDispatchBlock()?.reason ?? "").toContain("Memoria quasi finita");
   });
 
-  it("D2, the 11:03 shape: 5.5, 10.4, 5.5 start ONE card and no more", async () => {
+  it("D2, the 11:03 shape: a transient reading above the floor does not reopen the window", async () => {
     const w = windowHarness("resources");
+    addLocalReviewCheck(w.h.svc);
     for (let i = 0; i < 3; i++) seedTodo(w.h.db, `d2-${i}`);
     await w.beats([...repeat(5.5, 13), 10.4, ...repeat(5.5, 13)]);
-    expect(w.h.startedAt).toHaveLength(1);
-    expect(w.startsSec()).toEqual([0]);
+    expect(w.h.startedAt).toHaveLength(0);
+    expect(w.startsSec()).toEqual([]);
   });
 
-  it("D3, boot: the empty window lets the FIRST card through and holds the rest until it fills", async () => {
-    // The warm-up takes the same exemption as the floor: holding on "I do not
-    // know yet" while admitting on a reading that is measured and bad would say
-    // the unknown is worse than the bad. With that first card in flight the
-    // empty window holds everything else, which is the 120 s below.
+  it("D3, boot: the incomplete window holds until the floor has two minutes of readings", async () => {
     const w = windowHarness("resources");
+    addLocalReviewCheck(w.h.svc);
     for (let i = 0; i < 3; i++) seedTodo(w.h.db, `d3-${i}`);
     await w.beats(repeat(12, 12)); // 0 .. 110 s
-    expect(w.startsSec()).toEqual([0]);
+    expect(w.startsSec()).toEqual([]);
     expect(currentDispatchBlock()?.reason ?? "").toContain("la sto misurando da 110 s su 120");
     await w.beats(repeat(12, 2)); // 120, 130 s
     expect(w.h.startedAt.length).toBeGreaterThanOrEqual(2);
@@ -366,6 +369,7 @@ describe("the memory window on the floor and on the budget axis", () => {
   it("D4: a turn in flight does not starve the queue at 10 GB, and a window dipping to 9.5 holds it", async () => {
     for (const [low, expected] of [[10.2, 1], [9.5, 0]] as const) {
       const w = windowHarness("resources");
+      addLocalReviewCheck(w.h.svc);
       seedTodo(w.h.db, `d4-first-${low}`);
       await w.beats(repeat(20, 14));
       expect(w.h.startedAt).toHaveLength(1);
@@ -385,21 +389,19 @@ describe("the memory window on the floor and on the budget axis", () => {
     }
   });
 
-  it("D5: one window opening is bounded: exactly two starts, the third held by the budget axis, and no second memory episode", async () => {
+  it("D5: one window opening admits two checked cards and holds the third on budget", async () => {
     const w = windowHarness("resources");
+    addLocalReviewCheck(w.h.svc);
     for (let i = 0; i < 3; i++) seedTodo(w.h.db, `d5-${i}`);
     await w.beats(repeat(5.5, 13)); // a full window at the bite, 0 .. 120 s
     const bite = w.sec() - 10;
     const band = [10.4, 11.7, 11.0];
     await w.beats(Array.from({ length: 30 }, (_, i) => band[i % band.length]!));
     const starts = w.startsSec();
-    // Still two, and now they are a different two: the exempt first card at
-    // second 0 (nothing of ours was on the machine yet) and ONE more when the
-    // window opens. The bound this case exists for is unchanged - the opening
-    // does not drain the queue, and the third is held by the budget axis below.
+    // The full window admits two cards; budget holds the third.
     expect(starts).toHaveLength(2);
-    expect(starts[0]!).toBe(0);
-    expect(starts[1]!).toBeGreaterThanOrEqual(bite + 120);
+    expect(starts[0]!).toBeGreaterThanOrEqual(bite);
+    expect(starts[1]!).toBeGreaterThanOrEqual(starts[0]! + 10);
     expect(currentDispatchBlock()).toMatchObject({ kind: "pressure" });
     const afterFirst = w.h.logLines.slice(w.h.logLines.findIndex((l) => l.includes("coda ripartita")) + 1);
     expect(afterFirst.filter((l) => l.includes("coda ferma") && l.includes("Memoria"))).toHaveLength(0);
@@ -407,6 +409,7 @@ describe("the memory window on the floor and on the budget axis", () => {
 
   it("D6, count mode: the floor charges the turn in flight for its whole life", async () => {
     const w = windowHarness("count");
+    addLocalReviewCheck(w.h.svc);
     seedTodo(w.h.db, "d6-first");
     await w.beats(repeat(20, 13));
     expect(w.h.startedAt).toHaveLength(1);
@@ -420,14 +423,11 @@ describe("the memory window on the floor and on the budget axis", () => {
   });
 
   /**
-   * KANBAN-75: the memory floor's "first card" exemption, at the dispatcher's
-   * door and not only in the composer. The "zero" is OUR work: local turns plus
-   * pre-review check runs, the same zero `firstAgentExempt` counts on the budget
-   * axis. Measured 16-17/09/2026: 1455 `[memsig]` lines, `held2m >= 6 GB` zero
-   * times, seven cards still for 45-51 hours, every sample `inFlight=0
-   * checkRuns=0` - a queue that never restarts, not a queue that waits.
+   * KANBAN-75: the read-only card exception at the dispatcher's admission gate.
+   * Local review checks keep the normal floor; CI-only rows do not count as
+   * local checks. The exception reserves memory and remains global to the host.
    */
-  it("E1, COUNT MODE: under the floor with no work of ours ONE card starts; a check run alone holds it", async () => {
+  it("E1, COUNT MODE: a board with a local review check stays held under the floor", async () => {
     // COUNT MODE ON PURPOSE, and the mode is the whole point of the case. In
     // resources mode the budget axis blocks this same machine by itself - at
     // `availableMemGB` 4.8, share 0.8 and one turn running its free quota is
@@ -436,31 +436,78 @@ describe("the memory window on the floor and on the budget axis", () => {
     // and three todos never reach it), so every number below is the floor's.
     let checks = 1;
     const w = windowHarness("count", { checksRunning: () => checks });
+    addLocalReviewCheck(w.h.svc);
     for (let i = 0; i < 3; i++) seedTodo(w.h.db, `e1-${i}`);
     // A full window well under the 6 GB native floor, with a shard of ours running.
     await w.beats(repeat(4.8, 14));
     expect(w.h.startedAt).toHaveLength(0);
     expect(currentDispatchBlock()?.reason ?? "").toContain("Memoria quasi finita");
-    // The shard ends: nothing of ours is on the machine, and one card goes.
+    // Ending the shard does not change the board's local-check eligibility.
     checks = 0;
     await w.beats(repeat(4.8, 2));
-    expect(w.h.startedAt).toHaveLength(1);
-    // And exactly one: that card is now our work, so the floor is full again.
+    expect(w.h.startedAt).toHaveLength(0);
     await w.beats(repeat(4.8, 20));
-    expect(w.h.startedAt).toHaveLength(1);
+    expect(w.h.startedAt).toHaveLength(0);
   });
 
-  it("E3, COUNT MODE: a card waiting on the pull request CI is an agent in flight, and nothing starts behind it", async () => {
-    // THE STATE THIS REOPENS THE 10/09 INCIDENT FROM, and it is the normal state
-    // of a delivery: `routes/tasks.ts` releases the lane the moment the local
-    // checks pass, so a card spends about fifteen minutes with its checks
-    // off-lane while GitHub measures (KANBAN-93). The agent is alive and
-    // resident the whole time. Deciding the exemption on the reservation - which
-    // subtracts exactly those cards - counted it zero and re-armed the
-    // derogation on every 10 s tick: one off-lane card plus two todos started 2,
-    // and with a cap of 5 it started 5.
+  it("read-only admission at 4 GB is logged, visible on the card, and limited across boards", async () => {
+    const w = windowHarness("count", { readOnlyReservationGB: () => 0.42 }, 16_384);
+    seedTodo(w.h.db, "readonly-first");
+    await w.beats(repeat(4, 14));
+
+    const line = "partita in esenzione: 4,0 GB liberi, board senza check locali";
+    expect(w.h.startedAt).toHaveLength(1);
+    expect(w.h.lines(line)).toHaveLength(1);
+    expect(w.h.commentsFor("readonly-first")).toContain(line);
+    expect(w.h.prompts[0]).toContain("niente suite, build o test locali; se servono, usa la CI o `offload`");
+    expect(w.h.db.query<{ read_only_reservation_gb: number }, [string]>(
+      "SELECT read_only_reservation_gb FROM task_attempts WHERE task_id = ? ORDER BY idx DESC LIMIT 1",
+    ).get("readonly-first")?.read_only_reservation_gb).toBe(1);
+    expect(currentDispatchBlock()?.reason ?? "").toContain("Memoria quasi finita");
+    const machineBlock = currentDispatchBlock();
+
+    w.h.svc.updateBoardSettings(SECOND_PID, { autoDispatch: true, dispatchUseWorktree: false, reviewChecks: [] });
+    seedTodo(w.h.db, "readonly-second", SECOND_PID);
+    await w.h.dispatcher.tick(SECOND_PID);
+    await flush();
+
+    expect(w.h.startedAt).toHaveLength(1);
+    expect(currentDispatchBlock()).toEqual(machineBlock);
+    expect(w.h.dispatcher.admissionPreview?.()).toMatchObject({ admit: false, blockedBy: "floor", firstAgentExempt: false });
+  });
+
+  it("a board with local checks stays on the normal floor at 4 GB", async () => {
+    const w = windowHarness("count", {}, 16_384);
+    addLocalReviewCheck(w.h.svc);
+    seedTodo(w.h.db, "checked-at-four");
+    await w.beats(repeat(4, 14));
+
+    expect(w.h.startedAt).toHaveLength(0);
+    expect(currentDispatchBlock()?.reason ?? "").toContain("Memoria quasi finita");
+    expect(w.h.lines("partita in esenzione")).toHaveLength(0);
+  });
+
+  it("the 2 GB emergency floor holds read-only and checked boards alike", async () => {
+    const w = windowHarness("count", {}, 16_384);
+    w.h.svc.updateBoardSettings(SECOND_PID, { autoDispatch: true, dispatchUseWorktree: false });
+    addLocalReviewCheck(w.h.svc, SECOND_PID);
+    seedTodo(w.h.db, "emergency-readonly");
+    seedTodo(w.h.db, "emergency-checked", SECOND_PID);
+    await w.beats(repeat(1.8, 14));
+    await w.h.dispatcher.tick(SECOND_PID);
+    await flush();
+
+    expect(w.h.startedAt).toHaveLength(0);
+    expect(w.h.lines("partita in esenzione")).toHaveLength(0);
+    expect(currentDispatchBlock()?.reason ?? "").toContain("Memoria quasi finita");
+  });
+
+  it("E3, COUNT MODE: CI-only review rows do not count as local checks", async () => {
+    // CI evidence rows do not disqualify the board, but the first live exception
+    // keeps its global reservation until that card leaves the in-flight lane.
     const offLane = new Set<string>();
     const w = windowHarness("count", { checksOffLane: (id) => offLane.has(id) });
+    w.h.svc.updateBoardSettings(PID, { reviewChecks: [UNIT_CI_CHECK] });
     for (let i = 0; i < 3; i++) seedTodo(w.h.db, `e3-${i}`);
     await w.beats(repeat(4.8, 14));
     expect(w.h.startedAt).toHaveLength(1);
@@ -470,7 +517,7 @@ describe("the memory window on the floor and on the budget axis", () => {
     expect(w.h.startedAt).toHaveLength(1);
   });
 
-  it("E6, COUNT MODE: with only cards parked on the CI in flight the line is the floor, so 7 GB starts the next one", async () => {
+  it("E6, COUNT MODE: a read-only reservation remains charged while its card waits on CI", async () => {
     // THE BAND 6-10 GB, which is where this Mac lives while it frees up, and
     // the state the delivery cycle parks in for about fifteen minutes.
     //
@@ -491,18 +538,17 @@ describe("the memory window on the floor and on the budget axis", () => {
     const started = w.h.db.query<{ id: string }, []>("SELECT id FROM tasks WHERE status = 'in_progress'").all();
     expect(started).toHaveLength(1);
     offLane.add(started[0]!.id);
-    // The machine frees up to 7 GB: over the 6 GB floor, under the 10 the
-    // mixed line asked for. Fourteen beats to flush the 4.8 out of the window.
+    // The machine frees up to 7 GB, but its 1 GB read-only reservation remains.
+    // Fourteen beats flush the 4.8 reading out of the window.
     await w.beats(repeat(7, 14));
-    expect(w.h.startedAt).toHaveLength(2);
-    // And the uplift is NOT gone: the card that just started is spending here,
-    // so the line is 6 + 4 + 4 and the third one waits at the same 7 GB.
+    expect(w.h.startedAt).toHaveLength(1);
+    // The next card cannot reuse the only read-only exemption while it is held.
     await w.beats(repeat(7, 20));
-    expect(w.h.startedAt).toHaveLength(2);
-    expect(currentDispatchBlock()?.reason ?? "").toContain("sotto i 14.0 GB");
+    expect(w.h.startedAt).toHaveLength(1);
+    expect(currentDispatchBlock()?.reason ?? "").toContain("sotto i 11.0 GB");
   });
 
-  it("E4: the log says the queue moved BY DEROGATION, and says it once", async () => {
+  it("E4: the exemption is logged once without claiming the floor recovered", async () => {
     // The line the board's history is read from: the 16/09 audit dated "the
     // queue restarted at 23:38" from it, while `held2m` was 4.8 GB against a
     // floor of 6. And ONCE: the floor is read twice in a tick that starts a card
@@ -512,25 +558,18 @@ describe("the memory window on the floor and on the budget axis", () => {
     seedTodo(w.h.db, "e4-0");
     await w.beats(repeat(4.8, 14));
     expect(w.h.startedAt).toHaveLength(1);
-    expect(w.h.lines("per deroga")).toHaveLength(1);
+    expect(w.h.lines("partita in esenzione: 4,8 GB liberi, board senza check locali")).toHaveLength(1);
     expect(w.h.lines("le risorse sono rientrate sopra il pavimento")).toHaveLength(0);
   });
 
-  it("E5: the derogation is declared where the budget declares its own", async () => {
-    // KANBAN-75 asks for it "as the budget declares it", which is
-    // `DispatchAdmission.firstAgentExempt` - the field the client paints amber
-    // (`board.dispatch.verdictFirst`). No card in the queue, so the machine
-    // stays idle and under the floor while the panel asks.
+  it("E5: the global panel stays held under the floor without a card-specific exemption", async () => {
     const w = windowHarness("count");
     await w.beats(repeat(4.8, 14));
-    expect(w.h.dispatcher.admissionPreview?.()).toMatchObject({ admit: true, blockedBy: null, firstAgentExempt: true });
-    // And in resources mode it is an OR with the budget's, not the budget's
-    // alone: here the budget has 30 GB to look at and would answer plain green
-    // over a card that only got past the floor by derogation.
+    expect(w.h.dispatcher.admissionPreview?.()).toMatchObject({ admit: false, blockedBy: "floor", firstAgentExempt: false });
     const r = windowHarness("resources");
     r.h.machine.sample = () => ({ ...QUIET, availableMemGB: 30, running: 0 });
     await r.beats(repeat(4.8, 14));
-    expect(r.h.dispatcher.admissionPreview?.()).toMatchObject({ admit: true, blockedBy: null, firstAgentExempt: true });
+    expect(r.h.dispatcher.admissionPreview?.()).toMatchObject({ admit: false, blockedBy: "floor", firstAgentExempt: false });
   });
 
   it("E2: a full disk has no exemption - nothing starts even with the machine idle", async () => {

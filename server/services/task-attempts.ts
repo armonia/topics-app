@@ -40,6 +40,7 @@ interface Row {
   created_at: string;
   ended_at: string | null;
   selected_at: string | null;
+  read_only_reservation_gb?: number | null;
 }
 
 function toAttempt(r: Row): TaskAttempt {
@@ -70,6 +71,7 @@ export interface CreateAttemptInput {
   taskId: string;
   idx: number;
   model?: string | null;
+  readOnlyReservationGB?: number | null;
 }
 
 /** Ciò che si sa solo DOPO il setup: topic, worktree, branch. */
@@ -99,6 +101,9 @@ export interface TaskAttemptStore {
   list(taskId: string): TaskAttempt[];
   bind(id: string, patch: BindAttemptPatch): TaskAttempt | null;
   finish(id: string, patch: FinishAttemptPatch): TaskAttempt | null;
+  /** Keeps an admission reservation attached to the session that owns it. */
+  setReadOnlyReservation(taskId: string, topicId: string, reservationGB: number | null): void;
+  getReadOnlyReservation(taskId: string, topicId: string): number | null;
   /** Quanti tentativi di questo task hanno ancora un turno vivo. */
   runningCount(taskId: string): number;
   /**
@@ -112,19 +117,32 @@ export interface TaskAttemptStore {
 }
 
 export function createTaskAttemptStore(db: Database): TaskAttemptStore {
+  let hasReadOnlyReservationColumn = false;
+  try {
+    hasReadOnlyReservationColumn = (db.prepare("PRAGMA table_info(task_attempts)").all() as Array<{ name: string }>)
+      .some((column) => column.name === "read_only_reservation_gb");
+  } catch { /* older or minimal schemas keep the original attempt shape */ }
+
   const one = (id: string): TaskAttempt | null => {
     const r = db.prepare("SELECT * FROM task_attempts WHERE id = ?").get(id) as Row | undefined;
     return r ? toAttempt(r) : null;
   };
 
   return {
-    create({ taskId, idx, model }) {
+    create({ taskId, idx, model, readOnlyReservationGB }) {
       const id = randomUUID();
       const now = new Date().toISOString();
-      db.prepare(
-        `INSERT INTO task_attempts (id, task_id, idx, model, state, created_at)
-         VALUES (?, ?, ?, ?, 'running', ?)`,
-      ).run(id, taskId, idx, model ?? null, now);
+      if (hasReadOnlyReservationColumn) {
+        db.prepare(
+          `INSERT INTO task_attempts (id, task_id, idx, model, state, created_at, read_only_reservation_gb)
+           VALUES (?, ?, ?, ?, 'running', ?, ?)`,
+        ).run(id, taskId, idx, model ?? null, now, readOnlyReservationGB ?? null);
+      } else {
+        db.prepare(
+          `INSERT INTO task_attempts (id, task_id, idx, model, state, created_at)
+           VALUES (?, ?, ?, ?, 'running', ?)`,
+        ).run(id, taskId, idx, model ?? null, now);
+      }
       return one(id)!;
     },
 
@@ -172,6 +190,26 @@ export function createTaskAttemptStore(db: Database): TaskAttemptStore {
         id,
       );
       return one(id);
+    },
+
+    setReadOnlyReservation(taskId, topicId, reservationGB) {
+      if (!hasReadOnlyReservationColumn) return;
+      const r = db.prepare(
+        "SELECT id FROM task_attempts WHERE task_id = ? AND topic_id = ? ORDER BY idx DESC LIMIT 1",
+      ).get(taskId, topicId) as { id: string } | undefined;
+      if (!r) return;
+      db.prepare("UPDATE task_attempts SET read_only_reservation_gb = ? WHERE id = ?")
+        .run(reservationGB, r.id);
+    },
+
+    getReadOnlyReservation(taskId, topicId) {
+      if (!hasReadOnlyReservationColumn) return null;
+      const r = db.prepare(
+        "SELECT read_only_reservation_gb FROM task_attempts WHERE task_id = ? AND topic_id = ? ORDER BY idx DESC LIMIT 1",
+      ).get(taskId, topicId) as { read_only_reservation_gb?: number | null } | undefined;
+      return typeof r?.read_only_reservation_gb === "number" && Number.isFinite(r.read_only_reservation_gb)
+        ? r.read_only_reservation_gb
+        : null;
     },
 
     runningCount(taskId) {
