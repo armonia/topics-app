@@ -9,10 +9,6 @@ export interface OwnerProcessRow {
   owner: string | null;
 }
 
-interface RawProcessRow extends Omit<OwnerProcessRow, "owner"> {
-  command: string;
-}
-
 export interface OwnerProcessTargets {
   pids: number[];
   pgids: number[];
