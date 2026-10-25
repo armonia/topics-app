@@ -31,7 +31,7 @@ import { onHumanHoldChange } from "../lib/human-hold-events";
 import type { TaskAttemptStore } from "./task-attempts";
 import { attemptHasWork, formatFanoutComment } from "../../shared/task-attempt";
 import { shouldAnnounceResume, DEAD_SESSION_NOTE } from "../lib/dead-run-note";
-import { CODE_GATES_RULE, E2E_CI_CHECK, UNIT_CI_CHECK, isCiEvidenceCheck, ADMISSION_SPACING_MS, DISPATCH_CHIP_QUEUED, admissionVerdict, budgetShare, capMode, estimatedAgentCost, estimatedAgentMemCost, machineBudget, reservedCost, hasDeliveredWork, MAX_FANOUT, PARKED_STOPPED, PARKED_WAITED_OUT, PLAN_APPROVE_LABEL, PLAN_REVISE_LABEL, OUTBOUND_TOOLS_RULE, PREVIEW_RULE, RECOMMENDED_OPTION_RULE, VERSION_BUMP_RULE, readTaskWeight, statusEventEnters, type AdmissionVerdict, type BudgetGateState, type DispatchAdmission, type GlobalDispatchCap, type MachineBudgetSample } from "../../shared/board";
+import { AGENT_COST_FLOOR_MEM_GB, CODE_GATES_RULE, E2E_CI_CHECK, UNIT_CI_CHECK, isCiEvidenceCheck, ADMISSION_SPACING_MS, DISPATCH_CHIP_QUEUED, admissionVerdict, budgetShare, capMode, estimatedAgentCost, estimatedAgentMemCost, machineBudget, reservedCost, hasDeliveredWork, MAX_FANOUT, PARKED_STOPPED, PARKED_WAITED_OUT, PLAN_APPROVE_LABEL, PLAN_REVISE_LABEL, OUTBOUND_TOOLS_RULE, PREVIEW_RULE, RECOMMENDED_OPTION_RULE, VERSION_BUMP_RULE, readTaskWeight, statusEventEnters, type AdmissionVerdict, type BudgetGateState, type DispatchAdmission, type GlobalDispatchCap, type MachineBudgetSample } from "../../shared/board";
 import { decideNight, deadlineFrom } from "./night-mode";
 import { effectiveDispatchCap, type MemoryFloorHold, type ResourceFloorKind, type ResourceFloorVerdict } from "./dispatch-capacity";
 import { daySpendSentence, heldResumeBlock, publishDispatchBlock, setHeldResumeBlock, type DispatchBlockKind } from "./dispatch-block-signal";
@@ -1248,6 +1248,20 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
   function agentMemPrice(): number {
     return estimatedAgentMemCost((() => { try { return deps.agentMemSamples?.() ?? []; } catch { return []; } })());
   }
+  /** Price only the checks this board will actually run before review. */
+  function floorCardMemEstimate(projectId?: string): { memGB: number; hasReviewChecks: boolean } {
+    if (!projectId) return { memGB: agentMemPrice(), hasReviewChecks: true };
+    try {
+      const hasReviewChecks = deps.svc.getBoardSettings(projectId).reviewChecks.length > 0;
+      return {
+        memGB: hasReviewChecks ? agentMemPrice() : AGENT_COST_FLOOR_MEM_GB,
+        hasReviewChecks,
+      };
+    } catch {
+      // Match the delivery gate: an unavailable board setting means no configured checks.
+      return { memGB: AGENT_COST_FLOOR_MEM_GB, hasReviewChecks: false };
+    }
+  }
   /** Launch instants of the LOCAL turns in flight whose memory is still ours to
    *  reserve: a run riding on a node holds nothing on this machine (the same
    *  filter `busyCount` applies), and a card parked on the pull request CI is
@@ -1297,8 +1311,9 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
    * anything this Mac reads. In count mode the floor is the only memory brake,
    * so it charges N x price itself.
    */
-  function floorVerdict(): ResourceFloorVerdict {
-    const price = agentMemPrice();
+  function floorVerdict(projectId?: string): ResourceFloorVerdict {
+    const cardEstimate = floorCardMemEstimate(projectId);
+    const price = cardEstimate.memGB;
     const launches = localLaunches();
     const checks = (() => { try { return deps.checksRunning?.() ?? 0; } catch { return 0; } })();
     const resources = inResourcesMode();
@@ -1322,15 +1337,16 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
     // nothing on this Mac to spend them.
     return deps.resourceBlock?.({
       cardGB: price,
+      cardHasReviewChecks: cardEstimate.hasReviewChecks,
       reservedGB: reserved,
       reservedCards: resources ? 0 : launches.length,
       spendingHere: launches.length + Math.max(0, checks) > 0,
       ourWorkRunning: localTurns() + Math.max(0, checks) > 0,
     }) ?? { reason: null, kind: null, memoryFirstCardExempt: false };
   }
-  function admissionVerdictNow(): ResourceFloorVerdict {
+  function admissionVerdictNow(projectId?: string): ResourceFloorVerdict {
     try {
-      const verdict = floorVerdict();
+      const verdict = floorVerdict(projectId);
       const reason = verdict.reason;
       // SI DICE UNA VOLTA, e prima non si diceva affatto. Il chip sulla card
       // scrive «in coda» e il commento accanto rimanda «il perché sta nel log
@@ -1393,8 +1409,8 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
       return verdict;
     } catch { return { reason: null, kind: null, memoryFirstCardExempt: false }; }
   }
-  function admissionBlock(): string | null {
-    return admissionVerdictNow().reason;
+  function admissionBlock(projectId?: string): string | null {
+    return admissionVerdictNow(projectId).reason;
   }
 
   /**
@@ -4380,7 +4396,7 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
     if (drain) return { reason: drain, kind: null };
     // The floor VERDICT, because the resume keys its wait on the resource and
     // decides on it whether the sentence is worth a line in the thread.
-    const floor = admissionVerdictNow();
+    const floor = admissionVerdictNow(t.projectId);
     if (floor.reason) return { reason: floor.reason, kind: "resources", floor: floor.kind };
     const day = spendBrake.dayBlock();
     if (day) return { reason: daySpendSentence(day), kind: "spend" };
@@ -5045,7 +5061,7 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
     // nuovo ad aprire una worktree, cioè a consumare esattamente la risorsa che
     // sta finendo. Letto una volta per tick: la domanda è sulla macchina, non
     // sulla card, e chiederlo per ogni todo sarebbe una statfs per riga.
-    const floorNow = admissionVerdictNow();
+    const floorNow = admissionVerdictNow(projectId);
     const resourceFloor = floorNow.reason;
     const daySpendBlock = resourceFloor ? null : spendBrake.dayBlock();
     // The cap "by resources", ONCE per tick like the floor and after it: when
@@ -5357,7 +5373,7 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
       }
       if (!midPassFloor && startedThisTick > floorReadAfterStarts) {
         floorReadAfterStarts = startedThisTick;
-        midPassFloor = admissionBlock();
+        midPassFloor = admissionBlock(projectId);
       }
       if (midPassFloor) {
         queueChip(t);

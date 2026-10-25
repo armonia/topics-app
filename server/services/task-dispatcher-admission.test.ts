@@ -288,6 +288,62 @@ describe("the exemption and the floor", () => {
 
 });
 
+describe("the memory floor prices the candidate's configured review checks (KANBAN-75)", () => {
+  async function admissionWithConfiguredChecks(hasReviewChecks: boolean) {
+    const signal = createMemSignal({
+      measurable: true,
+      probe: async () => ({
+        availGB: 4.8, swapins: 0, compressorPages: 0, pageSize: 16_384,
+        swapUsedMB: 15_360, swapTotalMB: 15_360, load1: 1,
+      }),
+    });
+    const h = harness({
+      agentMemSamples: () => [12],
+      checksOffLane: (taskId) => taskId === "prior-delivery",
+      resourceBlock: (hold) => dispatchResourceVerdict("/tmp", () => 500, () => signal.held(), false, hold),
+    });
+    h.svc.setGlobalCap({ auto: false, max: 3 });
+    const candidateProject = "beta-def456";
+    h.svc.updateBoardSettings(PID, {
+      reviewChecks: [{ name: "typecheck", cmd: "bun run typecheck" }],
+    });
+    h.svc.updateBoardSettings(candidateProject, {
+      autoDispatch: true,
+      dispatchUseWorktree: false,
+      reviewChecks: hasReviewChecks ? [{ name: "typecheck", cmd: "bun run typecheck" }] : [],
+    });
+
+    seedTodo(h.db, "prior-delivery");
+    await h.dispatcher.tick(PID);
+    await flush();
+    expect(h.startedAt).toHaveLength(1);
+
+    seedTodo(h.db, "candidate", candidateProject);
+    const t0 = Date.now();
+    for (let i = 0; i < 14; i++) {
+      setSystemTime(new Date(t0 + i * 10_000));
+      await signal.sample();
+    }
+    setSystemTime(new Date(t0 + 140_000));
+    expect(signal.held().heldGB).toBe(4.8);
+    await h.dispatcher.tick(candidateProject);
+    await flush();
+
+    return { started: h.startedAt.length, block: currentDispatchBlock() };
+  }
+
+  it("admits an agent-only card below the 6 GB floor and holds the configured check at the same reading", async () => {
+    const withoutChecks = await admissionWithConfiguredChecks(false);
+    expect(withoutChecks.started).toBe(2);
+
+    const withChecks = await admissionWithConfiguredChecks(true);
+    expect(withChecks.started).toBe(1);
+    expect(withChecks.block).toMatchObject({ kind: "resources" });
+    expect(withChecks.block?.reason).toContain("Memoria quasi finita");
+    expect(withChecks.block?.reason).toContain("sotto il pavimento di 6 GB");
+  });
+});
+
 /**
  * THE FLOOR READS THE LOWEST READING OF 2 MINUTES, and the life-of-turn
  * reservation is charged once. The real floor composer fed by a real memory
@@ -461,6 +517,7 @@ describe("the memory window on the floor and on the budget axis", () => {
     // and with a cap of 5 it started 5.
     const offLane = new Set<string>();
     const w = windowHarness("count", { checksOffLane: (id) => offLane.has(id) });
+    w.h.svc.updateBoardSettings(PID, { reviewChecks: [{ name: "unit", cmd: "bun run test:unit" }] });
     for (let i = 0; i < 3; i++) seedTodo(w.h.db, `e3-${i}`);
     await w.beats(repeat(4.8, 14));
     expect(w.h.startedAt).toHaveLength(1);

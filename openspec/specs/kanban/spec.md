@@ -3773,11 +3773,11 @@ Il tratto più lungo senza una sola lettura sopra la riga misura 16,2 ore.
 Quando NESSUN lavoro di Topics è in volo — zero agenti vivi e zero corse di check
 pre-review, lo stesso «zero» che `firstAgentExempt` conta già per l'asse budget —
 il pavimento sulla MEMORIA SHALL ammettere UNA card, e il verdetto SHALL
-dichiararlo come lo dichiara il budget. Con anche un solo agente o una sola corsa
-di check in volo il pavimento SHALL valere pieno: l'incidente del 10/09 erano
-sette card ammesse insieme, non una. L'esenzione SHALL valere sia per le
+dichiararlo come lo dichiara il budget. L'esenzione SHALL valere sia per le
 ammissioni nuove sia per il `resume` di una card già al lavoro, perché il
-pavimento è valutato prima del budget e trattiene entrambi.
+pavimento è valutato prima del budget e trattiene entrambi. Con lavoro che
+spende memoria su questa macchina, il pavimento resta pieno: l'incidente del
+10/09 erano sette card ammesse insieme, non una.
 
 **Due domande, due censimenti, e ognuno decide la sua riga per intero.** «C'è del
 nostro VIVO qui?» decide l'esenzione, e una card parcheggiata sulla CI di GitHub
@@ -3791,6 +3791,18 @@ dal listino chiedeva `pavimento + prezzo + 0` = 10 GB a una macchina su cui
 nessuno stava spendendo niente, cioè la coda ferma per tutti i quindici minuti in
 cui una consegna aspetta la CI. Misurato con due card off-lane in volo e una terza
 in coda: `held2m` a 7,0 / 8,0 / 9,9 GB tratteneva, a 12,0 GB no.
+
+**LE CARD SENZA CHECK HANNO IL LORO PREZZO.** La fonte è la stessa che decide i
+check pre-review, `board_settings.review_checks`. Se la board non ne configura,
+la stima per la soglia di memoria SHALL essere il solo agente, al minimo già
+definito di 4 GB (`AGENT_COST_FLOOR_MEM_GB`). Se ne configura, SHALL restare la
+mediana attuale dei picchi, check compresi. Quando il lavoro vivo aspetta solo la
+CI remota e non spende RAM locale, una card senza check SHALL poter passare sotto
+il pavimento generale quando la memoria libera resta almeno al suo prezzo; una
+card con check alla stessa lettura SHALL restare trattenuta dal pavimento di 6
+GB. Con lavoro che spende RAM locale il pavimento e la prenotazione restano
+invariate. Il tetto per risorse e le soglie generali di 6 e 10 GB SHALL restare
+invariati.
 
 #### Scenario: con solo card sulla CI in volo la riga è il pavimento
 - **GIVEN** due card in volo i cui check aspettano solo la CI della pull request
@@ -3807,8 +3819,17 @@ in coda: `held2m` a 7,0 / 8,0 / 9,9 GB tratteneva, a 12,0 GB no.
 
 #### Scenario: con un agente al lavoro il pavimento vale pieno
 - **GIVEN** il minimo su 2 minuti a 4,8 GB e un agente vivo
+- **AND** la card candidata ha almeno un check pre-review configurato
 - **WHEN** il dispatcher valuta la card successiva
 - **THEN** la card NON SHALL essere ammessa, e il motivo SHALL restare quello del pavimento
+
+#### Scenario: una card senza check usa il prezzo del solo agente sotto il pavimento generale
+- **GIVEN** un agente vivo su un'altra board che aspetta solo la CI remota e non spende RAM locale
+- **AND** la board candidata non configura check pre-review
+- **AND** il minimo su 2 minuti è 4,8 GB e lo swap è pieno
+- **WHEN** il dispatcher valuta una card candidata
+- **THEN** la card SHALL essere ammessa usando il minimo di 4 GB del solo agente
+- **AND** con la stessa lettura e un check configurato sulla board candidata NON SHALL essere ammessa sotto il pavimento di 6 GB
 
 #### Scenario: il disco non ha esenzione
 - **GIVEN** meno di 12 GB liberi sul disco delle worktree e zero lavoro in volo

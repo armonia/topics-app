@@ -656,6 +656,8 @@ export function memoryTooTight(availableGB: number | null, floorGB = DISPATCH_ME
  */
 export interface MemoryFloorHold {
   cardGB: number;
+  /** Whether this candidate has configured pre-review checks. */
+  cardHasReviewChecks?: boolean;
   reservedGB: number;
   reservedCards: number;
   /**
@@ -797,13 +799,15 @@ export function dispatchResourceVerdict(
   }
   const cardGB = Math.max(0, hold.cardGB);
   const reservedGB = Math.max(0, hold.reservedGB);
+  // With no configured checks and no local spend, only the candidate's own estimate is needed.
+  const cardFloor = hold.cardHasReviewChecks === false ? Math.min(floor, cardGB) : floor;
   // The "floor alone" branch is not dead: it decides whether the exemption
   // below has anything to waive, and reading the line as floor + price on an
   // idle machine would declare one on a Mac with 8 GB free and nothing
   // running. Its condition is the PRICE LIST, the same list the figure comes
   // from (see `spendingHere`): taking the branch from the census instead held
   // at 7.0, 8.0 and 9.9 GB with two cards parked on the CI and a third asking.
-  const line = hold.spendingHere ? floor + cardGB + reservedGB : floor;
+  const line = hold.spendingHere ? floor + cardGB + reservedGB : cardFloor;
   const low = mem.heldGB;
   if (low >= line) return NOTHING_HOLDS;
   if (exempt) return { reason: null, kind: null, memoryFirstCardExempt: true };
@@ -813,8 +817,10 @@ export function dispatchResourceVerdict(
   const kept = reservedGB > 0
     ? ` (il pavimento, il prezzo di una card e ${gb(reservedGB)} GB tenuti per ${n === 1 ? "l'agente al lavoro" : `i ${n} agenti al lavoro`})`
     : "";
-  const head = low < floor
-    ? `Memoria quasi finita: la lettura più bassa degli ultimi 2 minuti è ${gb(low)} GB, sotto il pavimento di ${floor} GB.`
+  const reasonFloor = hold.spendingHere ? floor : cardFloor;
+  const reasonFloorGB = reasonFloor === floor ? `${floor}` : gb(reasonFloor);
+  const head = low < reasonFloor
+    ? `Memoria quasi finita: la lettura più bassa degli ultimi 2 minuti è ${gb(low)} GB, sotto il pavimento di ${reasonFloorGB} GB.`
     : `Memoria in risalita: la lettura più bassa degli ultimi 2 minuti è ${gb(low)} GB, sopra il pavimento di ${floor} GB ma sotto i ${gb(line)} GB che servono per una card in più${kept}.`;
   const costo = agentsAreProcesses
     ? "Ogni agente costa ~240 MB fermo e fino a 420 MB al lavoro"
