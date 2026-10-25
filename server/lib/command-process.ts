@@ -13,12 +13,12 @@ import { resolve } from "path";
 import { isInsideDir } from "./path-containment";
 
 function waitForGroupMembersScript(platform: NodeJS.Platform): string {
-  const groupSelector = platform === "linux" ? "--pgroup" : "-g";
+  const groupSelector = platform === "linux" ? '"-$$"' : '-g "$$"';
   return [
     "_topics_group_has_peers() {",
     '  _topics_fifo="${TMPDIR:-/tmp}/topics-command-group-$$"',
     '  while ! mkfifo "$_topics_fifo" 2>/dev/null; do _topics_fifo="${_topics_fifo}x"; done',
-    `  ps -o pid=,pgid= ${groupSelector} "$$" > "$_topics_fifo" &`,
+    `  ps -o pid=,pgid= ${groupSelector} > "$_topics_fifo" 2>/dev/null &`,
     '  _topics_scan=$!',
     '  exec 3< "$_topics_fifo"',
     '  _topics_found=0',

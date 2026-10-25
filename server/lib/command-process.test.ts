@@ -39,8 +39,8 @@ describe("the shell a command runs in", () => {
   });
 
   test("selects process groups with the native ps option", () => {
-    expect(commandArgv("true", "/x.exit", "linux")?.[2]).toContain("ps -o pid=,pgid= --pgroup");
-    expect(commandArgv("true", "/x.exit", "darwin")?.[2]).toContain("ps -o pid=,pgid= -g");
+    expect(commandArgv("true", "/x.exit", "linux")?.[2]).toContain('ps -o pid=,pgid= "-$$"');
+    expect(commandArgv("true", "/x.exit", "darwin")?.[2]).toContain('ps -o pid=,pgid= -g "$$"');
     expect(commandArgv("true", "/x.exit", "linux")?.[2]).toContain('"$_topics_pgid" = "$$"');
     expect(commandArgv("true", "/x.exit", "darwin")?.[2]).toContain('"$_topics_pgid" = "$$"');
   });
