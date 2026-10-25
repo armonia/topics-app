@@ -319,6 +319,8 @@ describe("nodes routes: ingress of a mirrored card", () => {
     const r = await mirror("origin-task-unknown", "https://github.com/acme/nowhere.git");
     expect(r.status).toBe(404);
     expect(r.body.error).toBe("no_such_repo");
+    // The client classifies on `code`: without it the coordinator sees a dead node and retries forever.
+    expect(r.body.code).toBe("no_such_repo");
     expect(ctx.projectStore.list().length).toBe(before);
   });
 

@@ -614,7 +614,8 @@ export function createNodesRouter(ctx: AppContext, opts: NodesRouterOpts): Route
       if (!originKey) return errorResponse(400, "originUrl must be a git remote URL");
 
       const project = await projectForOrigin(originKey);
-      if (!project) return json({ error: "no_such_repo", originUrl: body.originUrl }, 404);
+      // `code` is what the client classifies on; `error` stays for older callers.
+      if (!project) return json({ error: "no_such_repo", code: "no_such_repo", originUrl: body.originUrl }, 404);
 
       // One mirror per origin card. The key lives in `claude_task_id` (UNIQUE):
       // a live mirror is returned as is, an ARCHIVED one gives its key back so
