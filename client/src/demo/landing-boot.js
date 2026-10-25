@@ -274,6 +274,22 @@
     s.id = "landing-vibrancy";
     s.textContent = css;
     (document.head || document.documentElement).appendChild(s);
+    /* Menus and popovers get a SOLID fill here. `.native-frost` makes them 72%
+     * translucent over a `backdrop-filter` that only has something to work on
+     * under the native window vibrancy; in a plain browser the blur does not
+     * reach the panes behind, so the terminal/browser seam showed through the
+     * menu as a sharp step. The opaque popover colour the web build uses is the
+     * honest stand-in. `:is(.dark,:not(.dark))` lifts the specificity to the
+     * (0,3,1) of the dark vibrancy rule, and this sheet comes later. Gate:
+     * scripts/demo-glass-probe.mjs (check:demo). */
+    var g = document.createElement("style");
+    g.id = "landing-glass-solid";
+    g.textContent =
+      "html.native-frost:is(.dark,:not(.dark)) .glass-surface," +
+      "html.native-frost:is(.dark,:not(.dark)) [data-sheet-open]{" +
+        "background-color:var(--popover-bg);" +
+        "-webkit-backdrop-filter:none;backdrop-filter:none;}";
+    (document.head || document.documentElement).appendChild(g);
   })();
 
   /* ---- 1c-bis. Load the terminal's first-choice mono webfont ------------- *
