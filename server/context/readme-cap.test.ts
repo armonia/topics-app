@@ -108,3 +108,72 @@ describe("the README in the context block", () => {
     expect(block(dir, "template:CLAUDE.md")!.content).toBe(rules);
   });
 });
+
+/** The README as the cap sees it: a fence opens at 15k characters, the 20k cut lands inside it. */
+function fencedReadme(open: string, close: string, eol: string): string {
+  const body = (head: string, n: number) => longText(head, n).replace(/\n/g, eol);
+  return `${body("# Fenced", 15_000)}${eol}${open}${eol}${body("echo sample", 15_000)}${eol}${close}${eol}${body("## After", 10_000)}`;
+}
+
+/** Fence lines left open in what the model reads, whatever the line endings. */
+function openFences(text: string): number {
+  let open: string | null = null;
+  for (const line of text.split(/\r?\n/)) {
+    const m = /^ {0,3}(`{3,}|~{3,})(.*)$/.exec(line);
+    if (!m) continue;
+    if (open === null) open = m[1]!;
+    else if (m[1]![0] === open[0] && m[1]!.length >= open.length && m[2]!.trim() === "") open = null;
+  }
+  return open === null ? 0 : 1;
+}
+
+describe("the README cap closes the fence it cuts through", () => {
+  const cases: Array<[string, string, string, string]> = [
+    ["CRLF line endings", "```bash", "```", "\r\n"],
+    ["a tilde fence", "~~~bash", "~~~", "\n"],
+    ["a tilde fence with CRLF", "~~~bash", "~~~", "\r\n"],
+  ];
+  for (const [name, open, close, eol] of cases) {
+    it(`${name}: AGENTS.md after the cut is not read as code`, () => {
+      const dir = join(ROOT, `fence-${name.replace(/\W+/g, "-")}`);
+      mkdirSync(dir, { recursive: true });
+      writeFileSync(join(dir, "README.md"), fencedReadme(open, close, eol));
+      writeFileSync(join(dir, "AGENTS.md"), "# Agents\nAGENTS-RULE: never push to main.\n");
+      const sent = adaptEnvelope(envelopeFor(dir)).userContent;
+      expect(sent).toContain("AGENTS-RULE");
+      expect(openFences(sent.slice(0, sent.indexOf("AGENTS-RULE")))).toBe(0);
+    });
+  }
+
+  /** A README whose 20k cut lands inside a code block that holds `inner` (before the cut), then the head of what the model reads. */
+  const cutInside = (name: string, open: string | null, inner: string): string => {
+    const dir = join(ROOT, `inner-${name}`);
+    mkdirSync(dir, { recursive: true });
+    const fenced = open ? `${open}\n${longText("code", 2_000)}\n${inner}\n${longText("more code", 8_000)}` : `${inner}\n${longText("more text", 8_000)}`;
+    writeFileSync(join(dir, "README.md"), `${longText("# Title", 15_000)}\n${fenced}`);
+    const content = block(dir, "template:README.md")!.content;
+    return content.slice(0, content.indexOf("\n\n[README.md cut here"));
+  };
+
+  it("a four-backtick fence is closed by four backticks, not by the three inside it", () => {
+    expect(cutInside("four", "````md", "```").endsWith("\n````")).toBe(true);
+  });
+
+  it("a line with text after the backticks does not close the fence: the cut still closes it", () => {
+    expect(cutInside("text", "```bash", "```not a closer").endsWith("\n```")).toBe(true);
+  });
+
+  it("a line indented four spaces is not a fence: nothing is open, so the cut adds nothing", () => {
+    expect(cutInside("indent", null, "    ```not a fence").endsWith("\n```")).toBe(false);
+  });
+
+  it("a line end before the half of the cap is not worth cutting at: the head keeps most of the budget", () => {
+    const dir = join(ROOT, "early-line-end");
+    mkdirSync(dir, { recursive: true });
+    // One short line, then 30k characters with no line end: cutting at the early
+    // newline would throw away nearly the whole budget.
+    writeFileSync(join(dir, "README.md"), `# Title\n${"x".repeat(30_000)}`);
+    const content = block(dir, "template:README.md")!.content;
+    expect(content.indexOf("[README.md cut here")).toBeGreaterThan(README_MAX_CHARS - 100);
+  });
+});
