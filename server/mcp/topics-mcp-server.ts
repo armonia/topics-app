@@ -1472,7 +1472,10 @@ export async function callSendToAgent(
     throw new Error("send_to_agent: 'input' (string) is required");
   }
   const path = `/api/sessions/${encodeURIComponent(args.sessionKey)}/agents/${encodeURIComponent(toolArgs.agent_id)}/send`;
-  const res = await httpJson<{ ok?: boolean; resumed?: boolean }>(args, "POST", path, { input: toolArgs.input }, fetchImpl);
+  const res = await httpJson<{ ok?: boolean; dropped?: boolean; resumed?: boolean }>(args, "POST", path, { input: toolArgs.input }, fetchImpl);
+  if (res?.ok === false && res.dropped === true) {
+    return `not sent to ${toolArgs.agent_id}: the input contained only Ctrl+Z, so nothing was sent and no reply is expected`;
+  }
   const resumed = res?.resumed ? " (it had ended: resumed from where it was)" : "";
   return `sent to ${toolArgs.agent_id}${resumed} — its reply arrives like its first result (a chat is woken; otherwise read_agent(agent_id="${toolArgs.agent_id}"))`;
 }

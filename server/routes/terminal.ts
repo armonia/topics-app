@@ -2683,6 +2683,14 @@ export function seedPromptFingerprintForSession(sessionType: string | undefined,
   return normalizePromptSnippet(seedPromptForSession(sessionType, prompt));
 }
 
+type SeedPromptHandlerForTests = (childId: string, prompt: string, acceptSnippet?: string) => void | Promise<void>;
+let seedPromptHandlerForTests: SeedPromptHandlerForTests | null = null;
+
+/** Replace the asynchronous PTY seeder in route tests so they can inspect its inputs. */
+export function _setSeedPromptHandlerForTests(handler: SeedPromptHandlerForTests | null): void {
+  seedPromptHandlerForTests = handler;
+}
+
 /** Seed a freshly-spawned `claude` TUI with its first prompt. The TUI isn't
  *  ready to accept input the instant the PTY spawns, and Enter must arrive as a
  *  separate frame to submit — so we bounded-poll the scrollback for a readiness
@@ -2690,6 +2698,10 @@ export function seedPromptFingerprintForSession(sessionType: string | undefined,
  *  the child runs async; the parent reads its output via read_agent. */
 
 async function seedAgentPrompt(childId: string, prompt: string, acceptSnippet?: string): Promise<void> {
+  if (seedPromptHandlerForTests) {
+    await seedPromptHandlerForTests(childId, prompt, acceptSnippet);
+    return;
+  }
   const typedPrompt = seedPromptForSession(sessions.get(childId)?.type, prompt);
   const sleep = (ms: number) => new Promise(r => setTimeout(r, ms));
   const READY_HINTS = ["for shortcuts", "│ >", "╭─", "Bypassing", "Welcome to Claude"];

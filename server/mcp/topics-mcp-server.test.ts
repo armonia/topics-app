@@ -11,7 +11,7 @@
  * The HTTP layer is exercised via a tiny stub `fetch` so we don't have to
  * spin up the topics-app server. callOpenBrowserPane accepts the fetchImpl
  * as a parameter precisely to make this test possible.
- * @covers KANBAN-06, CMDRUN-01
+ * @covers KANBAN-06, CMDRUN-01, TERM-14
  */
 import { describe, test, expect } from "bun:test";
 import {
@@ -2183,6 +2183,22 @@ describe("callSpawnAgent", () => {
 });
 
 describe("callSendToAgent", () => {
+  test("does not claim a send or a reply when Ctrl+Z was the whole input", async () => {
+    const fetchImpl = stubFetch(async () =>
+      new Response(JSON.stringify({ ok: false, dropped: true, sent: 0 }), { status: 200 }),
+    );
+
+    const result = await callSendToAgent(
+      { baseUrl: "http://x", sessionKey: "s" },
+      { agent_id: "kid1", input: String.fromCharCode(26) },
+      fetchImpl,
+    );
+
+    expect(result).toContain("nothing was sent");
+    expect(result).toContain("only Ctrl+Z");
+    expect(result).not.toContain("reply arrives");
+  });
+
   test("POSTs input to the agent send endpoint", async () => {
     const seen: { url?: string; init?: RequestInit } = {};
     const fetchImpl = stubFetch(async (url, init) => {

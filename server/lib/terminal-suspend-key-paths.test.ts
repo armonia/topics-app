@@ -14,18 +14,18 @@ import { bridgeWriteForSession } from "./terminal-suspend-key";
 
 // Ctrl+Z and ESC, built without literal control bytes in source.
 const SUSPEND = String.fromCharCode(26);
-const ESC = String.fromCharCode(27);
+const ESCAPE = String.fromCharCode(27);
 
 describe("every path meets the same session-typed filter", () => {
   test("claude-code: suspend bytes never reach the PTY, surrounding text survives", () => {
     expect(bridgeWriteForSession("claude-code", SUSPEND)).toBeNull();
     expect(bridgeWriteForSession("claude-code-team", SUSPEND)).toBeNull();
-    expect(bridgeWriteForSession("claude-code", ESC + SUSPEND)).toBeNull();
+    expect(bridgeWriteForSession("claude-code", ESCAPE + SUSPEND)).toBeNull();
     expect(bridgeWriteForSession("claude-code", "a" + SUSPEND + "b")).toBe("ab");
   });
 
   test("a rebound key is the same byte: origin never matters, session type does", () => {
-    const rebound = new TextDecoder().decode(Uint8Array.of(0x1a));
+    const rebound = SUSPEND;
     expect(bridgeWriteForSession("claude-code", rebound)).toBeNull();
     expect(bridgeWriteForSession("shell", rebound)).toBe(SUSPEND);
   });

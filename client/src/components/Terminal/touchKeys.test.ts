@@ -4,14 +4,15 @@
  * The touch toolbar must not offer Ctrl+Z on Claude sessions: one tap
  * would freeze the pane for good. Shells keep it for job control.
  */
-import { describe, expect, test } from "bun:test";
-import { readFileSync } from "node:fs";
-import { resolve } from "node:path";
-import { touchKeysForSession, touchKeysForSessionInfo } from "./touchKeys";
+import { describe, expect, mock, test } from "bun:test";
+import { createElement } from "react";
+import { renderToStaticMarkup } from "react-dom/server";
+import { TopicsProvider } from "../../contexts/TopicsContext";
+import type { TerminalSessionInfo } from "../../types";
+import { touchKeysForSession } from "./touchKeys";
 
 // Ctrl+Z, built without a literal control byte in source.
 const SUSPEND = String.fromCharCode(26);
-const PANE_SOURCE = readFileSync(resolve(import.meta.dir, "SingleTerminalPane.tsx"), "utf8");
 
 describe("touchKeysForSession", () => {
   test("a claude-code session offers no suspend byte", () => {
@@ -32,10 +33,59 @@ describe("touchKeysForSession", () => {
     }
   });
 
-  test("the pane derives its rendered keys from the roster session metadata", () => {
-    expect(PANE_SOURCE).toContain("touchKeysForSessionInfo(sessionInfo).map");
-    const labels = touchKeysForSessionInfo({ type: "claude-code" }).map((key) => key.label);
-    expect(labels).toContain("Ctrl+_");
-    expect(labels).not.toContain("Ctrl+Z");
+  test("the rendered pane uses Claude keys from its roster entry", async () => {
+    const globals = globalThis as unknown as Record<string, unknown>;
+    const names = ["window", "document", "navigator", "localStorage"];
+    const descriptors = new Map(names.map((name) => [name, Object.getOwnPropertyDescriptor(globalThis, name)]));
+    const fakeDocument = {
+      documentElement: { classList: { contains: () => false } },
+      visibilityState: "visible",
+      activeElement: null,
+      hasFocus: () => true,
+      addEventListener: () => {},
+      removeEventListener: () => {},
+    };
+    Object.defineProperty(globalThis, "window", {
+      configurable: true,
+      value: { ontouchstart: true, addEventListener: () => {}, removeEventListener: () => {}, innerWidth: 390 },
+    });
+    Object.defineProperty(globalThis, "document", { configurable: true, value: fakeDocument });
+    Object.defineProperty(globalThis, "navigator", {
+      configurable: true,
+      value: { maxTouchPoints: 1, userAgent: "iPhone", language: "en-US" },
+    });
+    Object.defineProperty(globalThis, "localStorage", {
+      configurable: true,
+      value: { getItem: () => null, setItem: () => {} },
+    });
+
+    try {
+      mock.module("@/lib/openLink", () => ({ openLink: () => {}, isExternalLinkGesture: () => false }));
+      mock.module("@/lib/selectionStyles", () => ({ ROW_H: "", ROW_PX: "", ROW_GAP: "" }));
+      const { SingleTerminalPane } = await import("./SingleTerminalPane");
+      const session = {
+        id: "terminal-from-roster",
+        type: "claude-code",
+        name: "Claude",
+        cwd: "/project",
+        createdAt: "2026-10-25T10:00:00.000Z",
+      } as unknown as TerminalSessionInfo;
+      const html = renderToStaticMarkup(
+        createElement(TopicsProvider, {
+          topics: {},
+          terminalSessions: [session],
+          children: createElement(SingleTerminalPane, { sessionId: session.id }),
+        }),
+      );
+
+      expect(html).toContain('aria-label="Ctrl+_"');
+      expect(html).not.toContain('aria-label="Ctrl+Z"');
+    } finally {
+      for (const name of names) {
+        const descriptor = descriptors.get(name);
+        if (descriptor) Object.defineProperty(globalThis, name, descriptor);
+        else delete globals[name];
+      }
+    }
   });
 });

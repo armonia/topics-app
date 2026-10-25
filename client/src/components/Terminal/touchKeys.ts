@@ -7,17 +7,17 @@ export interface TouchKey {
 }
 
 // Control bytes built from codes: no literal control character in source.
-const ESC = String.fromCharCode(27);
+const ESCAPE = String.fromCharCode(27);
 const SUSPEND = String.fromCharCode(26);
 const UNDO = String.fromCharCode(31);
 
 const BASE_TOUCH_KEYS: TouchKey[] = [
-  { label: "Esc", data: ESC },
+  { label: "Esc", data: ESCAPE },
   { label: "Tab", data: String.fromCharCode(9) },
-  { label: String.fromCharCode(0x2191), data: ESC + "[A" },
-  { label: String.fromCharCode(0x2193), data: ESC + "[B" },
-  { label: String.fromCharCode(0x2190), data: ESC + "[D" },
-  { label: String.fromCharCode(0x2192), data: ESC + "[C" },
+  { label: String.fromCharCode(0x2191), data: ESCAPE + "[A" },
+  { label: String.fromCharCode(0x2193), data: ESCAPE + "[B" },
+  { label: String.fromCharCode(0x2190), data: ESCAPE + "[D" },
+  { label: String.fromCharCode(0x2192), data: ESCAPE + "[C" },
   { label: "Ctrl+C", data: String.fromCharCode(3), wide: true },
   { label: "Ctrl+D", data: String.fromCharCode(4), wide: true },
   { label: "Ctrl+Z", data: SUSPEND, wide: true },
