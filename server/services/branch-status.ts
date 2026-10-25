@@ -279,7 +279,9 @@ export async function branchContentIsOnMain(
     .filter((p) => p.length > 0);
   if (changed.length === 0) return false;
   const literal = changed.map((p) => `:(literal)${p}`);
-  return (await gitExit(repoPath, ["diff", "--quiet", branch, mainRef, "--", ...literal], runGit)) === 0;
+  // macOS defaults to core.precomposeunicode=true, which rewrites argv pathspecs to NFC: a path stored
+  // in NFD (committed from Linux or the web) would then match nothing and `--quiet` would exit 0.
+  return (await gitExit(repoPath, ["-c", "core.precomposeunicode=false", "diff", "--quiet", branch, mainRef, "--", ...literal], runGit)) === 0;
 }
 
 /** Quanto ha prodotto un worktree rispetto al punto in cui ha forkato. */

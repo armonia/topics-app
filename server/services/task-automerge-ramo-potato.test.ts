@@ -299,13 +299,15 @@ describe("squash su main: casi avversari del confronto per contenuto", () => {
   async function landStatus(
     onBranch: Files,
     onMain: Files,
-    opts: { mainAdvancesAndBranchMerges?: Files; afterSquash?: Files } = {},
+    opts: { mainAdvancesAndBranchMerges?: Files; afterSquash?: Files; nfdCommits?: boolean } = {},
   ): Promise<string> {
     const repo = mkdtempSync(join(tmpdir(), "land-squash-adv-"));
     try {
       git(repo, "init", "-q", "-b", "main");
       git(repo, "config", "user.email", "t@t.t");
       git(repo, "config", "user.name", "t");
+      // Commits made off macOS keep NFD names; the land then runs with the macOS default (true).
+      if (opts.nfdCommits) git(repo, "config", "core.precomposeunicode", "false");
       applyFiles(repo, { "a.ts": "a0\n", "keep.txt": "k\n" }, "base");
       git(repo, "checkout", "-q", "-b", "topics/adv");
       applyFiles(repo, onBranch, "branch work");
@@ -319,6 +321,7 @@ describe("squash su main: casi avversari del confronto per contenuto", () => {
       }
       applyFiles(repo, onMain, "squash (#1)");
       if (opts.afterSquash) applyFiles(repo, opts.afterSquash, "later commit on main");
+      if (opts.nfdCommits) git(repo, "config", "core.precomposeunicode", "true");
       const res = await land(repo, "topics/adv").tryMerge("t-adv", "Card avversaria");
       return res.status;
     } finally {
@@ -328,6 +331,11 @@ describe("squash su main: casi avversari del confronto per contenuto", () => {
 
   test("percorso con accento: il lavoro mancante non e' «nothing»", async () => {
     const st = await landStatus({ "a.ts": "a1\n", "perché.md": "x\n" }, { "a.ts": "a1\n" });
+    expect(st).not.toBe("nothing");
+  }, 30_000);
+
+  test("percorso in NFD (commit fatto fuori da macOS): il lavoro mancante non e' «nothing»", async () => {
+    const st = await landStatus({ "a.ts": "a1\n", "perché.md": "x\n" }, { "a.ts": "a1\n" }, { nfdCommits: true });
     expect(st).not.toBe("nothing");
   }, 30_000);
 
