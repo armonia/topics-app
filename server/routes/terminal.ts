@@ -2668,12 +2668,24 @@ function cascadeKillChildren(parentSessionKey: string, caller: string) {
   }
 }
 
+/**
+ * Prompt bytes actually typed into a seeded child: filtered once with the
+ * child session type. The filtered text drives both the typing and the echo
+ * checks, so a prompt carrying ctrl+z cannot loop on retyping: the echo
+ * probe looks for what was really written.
+ */
+export function seedPromptForSession(sessionType: string | undefined, prompt: string): string {
+  return withoutSuspendKey(sessionType, prompt);
+}
+
 /** Seed a freshly-spawned `claude` TUI with its first prompt. The TUI isn't
  *  ready to accept input the instant the PTY spawns, and Enter must arrive as a
  *  separate frame to submit — so we bounded-poll the scrollback for a readiness
  *  signal, then write the prompt and (after a beat) a lone CR. Fire-and-forget:
  *  the child runs async; the parent reads its output via read_agent. */
+
 async function seedAgentPrompt(childId: string, prompt: string, acceptSnippet?: string): Promise<void> {
+  const typedPrompt = seedPromptForSession(sessions.get(childId)?.type, prompt);
   const sleep = (ms: number) => new Promise(r => setTimeout(r, ms));
   const READY_HINTS = ["for shortcuts", "│ >", "╭─", "Bypassing", "Welcome to Claude"];
 
@@ -2709,21 +2721,21 @@ async function seedAgentPrompt(childId: string, prompt: string, acceptSnippet?: 
     if (!sessions.has(childId)) return;
     // The composer shows either the prompt's opening or, for a long one, a
     // `[Pasted text]` placeholder: both mean it is there (lib/subagent-seed.ts).
-    if (!composerHoldsPrompt(await getTerminalBuffer(childId), prompt)) {
+    if (!composerHoldsPrompt(await getTerminalBuffer(childId), typedPrompt)) {
       noteTerminalInput(childId);
-      sendToBridge({ type: "write", id: childId, data: prompt });
+      sendToBridge({ type: "write", id: childId, data: typedPrompt });
     }
     for (let i = 0; i < 6; i++) { // ~1.8s for the echo to render
       await sleep(300);
       if (!sessions.has(childId)) return;
-      if (composerHoldsPrompt(await getTerminalBuffer(childId), prompt)) { echoed = true; break; }
+      if (composerHoldsPrompt(await getTerminalBuffer(childId), typedPrompt)) { echoed = true; break; }
     }
   }
   if (!echoed) {
     // Never confirmed the echo (unusual composer, or a buffer we can't scrape).
     // Fire it blind so we still try rather than strand the agent, then submit.
     noteTerminalInput(childId);
-    sendToBridge({ type: "write", id: childId, data: prompt });
+    sendToBridge({ type: "write", id: childId, data: typedPrompt });
     await sleep(300);
   }
 
