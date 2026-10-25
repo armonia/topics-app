@@ -2,6 +2,11 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.3.29 — 2026-10-25
+
+### Sotto il cofano
+- fast mode al prezzo vero, usage SSE contata una volta, id con prefisso (#448)
+
 ## 2.3.28 — 2026-10-25
 
 ### Sotto il cofano

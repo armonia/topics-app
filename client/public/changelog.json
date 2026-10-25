@@ -1,5 +1,22 @@
 [
   {
+    "version": "2.3.29",
+    "date": "2026-10-25",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "fast mode al prezzo vero, usage SSE contata una volta, id con prefisso (#448)",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        }
+      ]
+    }
+  },
+  {
     "version": "2.3.28",
     "date": "2026-10-25",
     "sections": {
