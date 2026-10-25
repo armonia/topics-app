@@ -1,7 +1,8 @@
 /** @covers MP-TASK-01, MP-TASK-02, MSEL-06 */
 import { describe, expect, test } from 'bun:test';
+import { readFileSync } from 'node:fs';
 import type { ProviderSnapshotEntry, ProvidersSnapshot } from './types';
-import { availableTaskModels, effectiveTopicsRouting, isTopicsModelServed, reusedSessionRouteConflict, reusedSessionRouting, TOPICS_ROUTING_DEFAULT, topicsRoute, taskExecutionOptions, taskModelMatchesSession, taskModelSelection, taskModelValue, taskProviderForModel, topicsRoutingAvailable } from './task-coding-models';
+import { availableTaskModels, effectiveTopicsRouting, isTopicsModelServed, LEGACY_CLAUDE_CODE_TASK_CUTOFF, reusedSessionRouteConflict, reusedSessionRouting, TOPICS_ROUTING_DEFAULT, topicsRoute, taskExecutionOptions, taskModelMatchesSession, taskModelSelection, taskModelValue, taskProviderForModel, topicsRoutingAvailable } from './task-coding-models';
 
 function entry(name: string, models: string[], status: ProviderSnapshotEntry['status'] = 'ready'): ProviderSnapshotEntry {
   return { name, models, status, isDefault: false, requirements: [], fetchedAt: '2026-09-08T00:00:00Z' };
@@ -301,8 +302,8 @@ describe('topicsRoute, the one reading of the preference', () => {
     return { provider: s.provider ?? null, model: s.model ?? null };
   };
 
-  test('TOPICS_ROUTING_DEFAULT: ON for chats, OFF for cards and the board default', () => {
-    expect(TOPICS_ROUTING_DEFAULT).toEqual({ chat: true, task: false });
+  test('TOPICS_ROUTING_DEFAULT: ON for chats and cards, OFF for legacy task sessions', () => {
+    expect(TOPICS_ROUTING_DEFAULT).toEqual({ chat: true, task: true, taskSession: false });
   });
   test('chat, null, claude-code:claude-opus-5-5: topics', () => {
     expect(topicsRoute(null, target('claude-code:claude-opus-5-5'), fleet(), 'chat')).toEqual({ via: 'topics' });
@@ -324,8 +325,8 @@ describe('topicsRoute, the one reading of the preference', () => {
     const current = fleet('ready', 'claude-code');
     expect(topicsRoute(null, { provider: current.defaultProvider, model: null }, current, 'chat')).toEqual({ via: 'topics' });
   });
-  test('card, null, claude-code:claude-opus-5-5: direct/off', () => {
-    expect(topicsRoute(null, target('claude-code:claude-opus-5-5'), fleet(), 'task')).toEqual({ via: 'direct', reason: 'off' });
+  test('card, null, claude-code:claude-opus-5-5: topics', () => {
+    expect(topicsRoute(null, target('claude-code:claude-opus-5-5'), fleet(), 'task')).toEqual({ via: 'topics' });
   });
   test('card, true, codex:gpt-6.1-sol: direct/family', () => {
     expect(topicsRoute(true, target('codex:gpt-6.1-sol'), fleet(), 'task')).toEqual({ via: 'direct', reason: 'family' });
@@ -342,11 +343,50 @@ describe('topicsRoute, the one reading of the preference', () => {
     expect(topicsRoute(true, target('claude-code:claude-opus-5-5'), fleet('error'), 'chat')).toEqual({ via: 'direct', reason: 'engine-down' });
     expect(topicsRoute(true, target('claude-code:claude-opus-5-5'), fleet('loading'), 'chat')).toEqual({ via: 'direct', reason: 'engine-down' });
   });
-  test('effectiveTopicsRouting reads a never-written value with the scope default, a written one as written', () => {
+  test('effectiveTopicsRouting reads unset preferences from their scope defaults', () => {
     expect(effectiveTopicsRouting(null, null, 'chat')).toBe(true);
-    expect(effectiveTopicsRouting(undefined, 'claude-opus-5-5', 'task')).toBe(false);
+    expect(effectiveTopicsRouting(undefined, 'claude-opus-5-5', 'task')).toBe(true);
+    expect(effectiveTopicsRouting(null, null, 'taskSession')).toBe(false);
     expect(effectiveTopicsRouting(false, null, 'chat')).toBe(false);
     expect(effectiveTopicsRouting(true, null, 'task')).toBe(true);
+  });
+  /** @covers AICTRL-01, MSEL-06 */
+  test('AICTRL-01 documents the same default as MSEL-06 and the task resolver', () => {
+    const spec = readFileSync(new URL('../openspec/specs/ai-control/spec.md', import.meta.url), 'utf8');
+    expect(spec).toMatch(/acceso per le chat, per le card e per il default\s+della board/);
+  });
+  /** @covers AICTRL-01, MSEL-06 */
+  test('MSEL-06 limits direct Claude Code routing to pre-migration cards', () => {
+    const model = 'claude-code:claude-opus-5-5';
+    expect(effectiveTopicsRouting(null, model, 'task', '2026-09-15T00:00:00Z')).toBe(false);
+    expect(effectiveTopicsRouting(null, model, 'task', LEGACY_CLAUDE_CODE_TASK_CUTOFF)).toBe(true);
+    expect(effectiveTopicsRouting(null, model, 'task', '2026-10-25T00:00:00Z')).toBe(true);
+    expect(effectiveTopicsRouting(null, 'topics:claude-opus-5-5', 'task')).toBe(true);
+    expect(effectiveTopicsRouting(null, model, 'task')).toBe(true);
+    expect(effectiveTopicsRouting(null, 'claude-opus-5-5', 'task')).toBe(true);
+    expect(effectiveTopicsRouting(null, 'auto', 'task')).toBe(true);
+
+    const spec = readFileSync(new URL('../openspec/specs/model-selector/spec.md', import.meta.url), 'utf8');
+    const requirement = spec.slice(spec.indexOf('### Requirement: MSEL-06'), spec.indexOf('#### Scenario: chat esistente'));
+    const newCard = spec.slice(spec.indexOf('#### Scenario: card mai toccata creata dopo la migrazione'), spec.indexOf('#### Scenario: card storica mai toccata'));
+    const legacyCard = spec.slice(spec.indexOf('#### Scenario: card storica mai toccata'), spec.indexOf('#### Scenario: card Codex'));
+    expect(requirement).toContain('created_at < 2026-09-22T18:00:00Z');
+    expect(requirement).not.toMatch(/Per una card senza preferenza salvata, il prefisso esplicito `claude-code:<model>` SHALL conservare l'esecuzione diretta storica/);
+    expect(newCard).toContain('created_at = 2026-10-25T00:00:00Z');
+    expect(newCard).toContain('passa dal motore di Topics');
+    expect(legacyCard).toContain('created_at = 2026-09-15T00:00:00Z');
+    expect(legacyCard).toContain('esegue direttamente con Claude Code');
+  });
+  /** @covers MSEL-06 */
+  test('a pre-column session with null routing still runs direct', () => {
+    const legacySession = { provider: 'claude-code', model: 'claude-opus-5-5', topicsRouting: null };
+    expect(reusedSessionRouteConflict('claude-code:claude-opus-5-5', legacySession, false)).toBeNull();
+    expect(taskModelMatchesSession('claude-code:claude-opus-5-5', legacySession, false)).toBe(true);
+  });
+  /** @covers MSEL-06 */
+  test('a null-preference legacy topics card keeps the specific switch-off conflict', () => {
+    const legacySession = { provider: 'claude-code', model: 'claude-opus-5-5', topicsRouting: null };
+    expect(reusedSessionRouteConflict('topics:claude-opus-5-5', legacySession, null)).toBe('switch-off');
   });
   test('reuse: a never-written card adopts the session switch, a written one defends its own', () => {
     expect(reusedSessionRouting('claude-code:claude-opus-5-5', { topicsRouting: false }, null)).toBe(false);

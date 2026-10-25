@@ -190,7 +190,6 @@ describe('il chip del triage', () => {
 describe('the card route label', () => {
   test('subscribes to the snapshot instead of reading it once during render', () => {
     expect(src).toContain('useSyncExternalStore(subscribeProvidersSnapshot,');
-    expect(src.includes('cardRunsThroughTopics(task, getProvidersSnapshotState().snapshot) &&')).toBe(false);
   });
 });
 

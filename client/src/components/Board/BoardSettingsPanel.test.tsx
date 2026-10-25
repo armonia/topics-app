@@ -44,7 +44,8 @@ describe("BoardSettingsPanel monta lo switch di instradamento", () => {
 
   test("board mai toccata col prefisso legacy: lo switch si legge ON", () => {
     expect(boardTopicsRoutingSwitch(SETTINGS, () => {}).enabled).toBe(true);
-    expect(boardTopicsRoutingSwitch({ ...SETTINGS, dispatchModel: "claude-opus-5" }, () => {}).enabled).toBe(false);
+    // Without the legacy prefix a never-touched board follows the default, which is ON for cards too.
+    expect(boardTopicsRoutingSwitch({ ...SETTINGS, dispatchModel: "claude-opus-5" }, () => {}).enabled).toBe(true);
   });
 
   test("una scelta esplicita batte sempre il prefisso legacy", () => {

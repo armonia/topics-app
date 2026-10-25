@@ -11,8 +11,10 @@ L'interruttore «Esegui in Topics», in una fascia **sopra** il selettore, SHALL
 dire se i turni passano dal motore di Topics. Non è una voce della lista dei
 provider, e cambiarlo SHALL NOT alterare il provider né il modello selezionati.
 
-**Il valore mai scritto vale acceso per le chat, spento per le card e per il
-default della board** (MSEL-06). Nessun dato viene riscritto per questo.
+**Il valore mai scritto vale acceso per le chat, per le card e per il default
+della board** (MSEL-06). Per una card con preferenza mai scritta, il prefisso
+storico `claude-code:<model>` conserva l'esecuzione diretta; `topics:<model>`
+conserva l'instradamento. Nessun dato viene riscritto per questo.
 
 **Cosa significano le due posizioni:**
 

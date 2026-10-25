@@ -9,7 +9,7 @@ import { fmtUpdatedAt } from './format';
 function UpdatedAgoText({ iso }: { iso: string }) {
   // Subscription only: the tick count says "render again", the text is
   // computed from the real time, as the card always did.
-  useSyncExternalStore(subscribeMinuteClock, getMinuteClockSnapshot);
+  useSyncExternalStore(subscribeMinuteClock, getMinuteClockSnapshot, getMinuteClockSnapshot);
   return fmtUpdatedAt(iso);
 }
 

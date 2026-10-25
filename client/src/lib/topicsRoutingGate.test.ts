@@ -4,7 +4,7 @@
  * @covers AICTRL-04, AICTRL-05, MSEL-06
  */
 import { describe, it, expect } from "bun:test";
-import { topicsRoutingBlocked, boardTopicsRoutingEnabled, cardBoardSettings, chatTopicsRoute } from "./topicsRoutingGate";
+import { topicsRoutingBlocked, boardTopicsRoutingEnabled, cardBoardSettings, cardRunsThroughTopics, chatTopicsRoute } from "./topicsRoutingGate";
 import type { ProvidersSnapshot } from "../types";
 
 function snapshot(providers: ProvidersSnapshot["providers"], defaultProvider: string | null = null): ProvidersSnapshot {
@@ -65,14 +65,51 @@ describe("boardTopicsRoutingEnabled", () => {
     expect(boardTopicsRoutingEnabled(null, "topics:claude-sonnet-5")).toBe(true);
   });
 
-  it("board mai toccata (null) senza prefisso legacy: letta OFF", () => {
-    expect(boardTopicsRoutingEnabled(null, "claude-sonnet-5")).toBe(false);
-    expect(boardTopicsRoutingEnabled(null, null)).toBe(false);
+  it("board mai toccata (null) senza prefisso legacy: letta ON come la chat", () => {
+    expect(boardTopicsRoutingEnabled(null, "claude-sonnet-5")).toBe(true);
+    expect(boardTopicsRoutingEnabled(null, null)).toBe(true);
   });
 
   it("switch esplicito vince sempre sul prefisso legacy del modello", () => {
     expect(boardTopicsRoutingEnabled(false, "topics:claude-sonnet-5")).toBe(false);
     expect(boardTopicsRoutingEnabled(true, "claude-sonnet-5")).toBe(true);
+  });
+});
+
+describe('card route label (AICTRL-01, MSEL-06)', () => {
+  /** @covers AICTRL-01, MSEL-06 */
+  it('uses the board OFF default for a card whose preference is null', () => {
+    const task = { model: 'claude-sonnet-5', topicsRouting: null };
+    const providers = snapshot([claudeReady, topicsReady]);
+    expect(cardRunsThroughTopics(task, providers, false)).toBe(false);
+    expect(cardRunsThroughTopics(task, providers, true)).toBe(true);
+  });
+
+  /** @covers AICTRL-01, MSEL-06 */
+  it('uses the board OFF default for a null-preference Claude Code selection', () => {
+    expect(cardRunsThroughTopics(
+      { model: 'claude-code:claude-sonnet-5', topicsRouting: null },
+      snapshot([claudeReady, topicsReady]),
+      false,
+    )).toBe(false);
+  });
+
+  /** @covers AICTRL-01, MSEL-06 */
+  it('routes a new null-preference Claude Code card through Topics when the board default is null', () => {
+    expect(cardRunsThroughTopics(
+      { model: 'claude-code:claude-sonnet-5', topicsRouting: null, createdAt: '2026-10-25T00:00:00Z' },
+      snapshot([claudeReady, topicsReady]),
+      null,
+    )).toBe(true);
+  });
+
+  /** @covers AICTRL-01, MSEL-06 */
+  it('keeps only a pre-migration Claude Code card direct when both preferences are null', () => {
+    expect(cardRunsThroughTopics(
+      { model: 'claude-code:claude-sonnet-5', topicsRouting: null, createdAt: '2026-09-15T00:00:00Z' },
+      snapshot([claudeReady, topicsReady]),
+      null,
+    )).toBe(false);
   });
 });
 

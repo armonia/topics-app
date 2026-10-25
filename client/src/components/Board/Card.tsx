@@ -10,7 +10,7 @@ import { ProjectFavicon } from '../Shared/ProjectFavicon';
 import { useToast } from '../Shared/Toast';
 import { questionToProse } from '../../../../shared/question-prose';
 import { isSettledParkedQuestion } from '../../../../shared/parked-question';
-import { STATUS_LABEL, blockedByChip, boardApi, commentAuthorLabel, isAgentWorking, isProjectlessId, nothingDeliveredWins, parseQuestionBlock, reopenedChip, showsLandingDebt, subtaskWorkChip, systemDeliveryChip, waitingOnThisChip, whoCloses, type BoardTask, type TaskStatus, priorityAwaitingAgent } from '../../lib/board';
+import { STATUS_LABEL, blockedByChip, boardApi, commentAuthorLabel, isAgentWorking, isProjectlessId, nothingDeliveredWins, parseQuestionBlock, reopenedChip, showsLandingDebt, subtaskWorkChip, systemDeliveryChip, waitingOnThisChip, whoCloses, type BoardSettings, type BoardTask, type TaskStatus, priorityAwaitingAgent } from '../../lib/board';
 import { columnSlice, COLUMN_PAGE } from '../../lib/boardOrder';
 import { recallColumnPages, rememberColumnPages } from '../../lib/columnPages';
 import { cardCommentsFromRow, cardDetailNeed, isMachineVoice, selectCardComments, showsCardThread, type CardComments } from './cardComments';
@@ -57,10 +57,11 @@ import { SwapFreezeLabel } from '../Shared/SwapFreezeLabel';
 import { useSwapFreeze } from '../../state/swapFreeze';
 import { taskHasWork, uncommittedChipCount } from './chipKey';
 import { runInitiatorName } from './taskFilter';
-import { POPOVER_DIVIDER, POPOVER_ITEM, POPOVER_ITEM_DANGER } from '@/lib/popoverStyles';
+import { POPOVER_DIVIDER, POPOVER_ITEM, POPOVER_ITEM_DANGER } from '../../lib/popoverStyles';
 import { BoardCommandHint } from './BoardCommandHint';
 import { getProvidersSnapshotState, subscribeProvidersSnapshot } from '../../lib/providersSnapshotStore';
 import { cardRunsThroughTopics } from '../../lib/topicsRoutingGate';
+import { useCardBoardSettings } from '../../hooks/useCardBoardSettings';
 import { readVirtualViewport, scrollParentOf } from '../../lib/boardVirtualViewport';
 import { VirtualizedCards } from './VirtualizedCards';
 
@@ -81,6 +82,9 @@ type ColumnProps = {
   cardError: { taskId: string; message: string } | null;
   onCardError: (taskId: string, message: string | null) => void;
   onOpenTopic?: (topicId: string) => void;
+  /** The current pane settings, used when a card belongs to this board. */
+  paneBoardId: string;
+  paneSettings: BoardSettings | null;
   /** La sessione dell'agente esiste ancora? Risolta QUI e passata alla card come
    *  stringa, non come funzione: una card memoizzata confronta le props in modo
    *  superficiale, e un risolutore nuovo a ogni render della board le
@@ -116,7 +120,7 @@ type ColumnProps = {
   viewKey?: string;
 };
 
-const ColumnBody = memo(function ColumnBody({ status, tasks, onOpen, onCreate, canCreate, showProject, cardError, onCardError, onRefetch, onOpenTopic, resolveSession, tasksById, projectPathById, liveById, awaitingHuman, justMoved, justCreated, archived = false, draft, onOpenSettings, layout = 'grid', viewKey, setNodeRef, isOver, dragging, activeId }: ColumnProps & {
+const ColumnBody = memo(function ColumnBody({ status, tasks, onOpen, onCreate, canCreate, showProject, cardError, onCardError, onRefetch, onOpenTopic, paneBoardId, paneSettings, resolveSession, tasksById, projectPathById, liveById, awaitingHuman, justMoved, justCreated, archived = false, draft, onOpenSettings, layout = 'grid', viewKey, setNodeRef, isOver, dragging, activeId }: ColumnProps & {
   setNodeRef: (element: HTMLElement | null) => void; isOver: boolean; dragging: boolean;
 }) {
   const tr = useT();
@@ -171,6 +175,8 @@ const ColumnBody = memo(function ColumnBody({ status, tasks, onOpen, onCreate, c
       error={cardError?.taskId === t.id ? cardError.message : null}
       onError={onCardError}
       sessionState={resolveSession?.(t.assignedTopicId) ?? 'unknown'}
+      paneBoardId={paneBoardId}
+      paneSettings={paneSettings}
       parentTitle={t.parentTaskId ? tasksById.get(t.parentTaskId)?.text : undefined}
       projectPath={projectPathById.get(t.projectId)}
       live={liveById.get(t.id)}
@@ -181,7 +187,7 @@ const ColumnBody = memo(function ColumnBody({ status, tasks, onOpen, onCreate, c
       justCreated={justCreated.has(t.id)}
       archived={archived}
     />
-  ), [onOpen, showProject, onRefetch, onOpenTopic, cardError, onCardError, resolveSession, tasksById, projectPathById, liveById, awaitingHuman, justMoved, justCreated, archived]);
+  ), [onOpen, showProject, onRefetch, onOpenTopic, cardError, onCardError, resolveSession, paneBoardId, paneSettings, tasksById, projectPathById, liveById, awaitingHuman, justMoved, justCreated, archived]);
 
   // Responsive columns. The board is a scroll-snap carousel at EVERY breakpoint:
   // each column `snap-center`s to the middle as its own "slide", so whenever the
@@ -398,6 +404,7 @@ function openCardMenuAt(target: LongPressTarget): void {
 // few values it draws with, stable unless this card moves (61 -> 32 renders per
 // pointer move, board-drag-renders.spec.ts).
 export const Card = memo(function Card(props: CardProps) {
+  const cardSettings = useCardBoardSettings(props.task.projectId, props.paneBoardId, props.paneSettings);
   // Sortable: the source card is dimmed (the DragOverlay carries the visual)
   // but its NEIGHBOURS get the reflow transform — the list opens a gap under
   // the pointer, so dropping "between two cards" reads as such. The ACTIVE
@@ -413,6 +420,7 @@ export const Card = memo(function Card(props: CardProps) {
   return (
     <CardBody
       {...props}
+      boardTopicsRoutingDefault={cardSettings?.dispatchTopicsRouting ?? null}
       setNodeRef={setNodeRef}
       dragAttributes={attributes}
       dragListeners={listeners}
@@ -465,18 +473,22 @@ type CardProps = {
   /** La card viene dall'ARCHIVIO (vista `?archived=1`): il gesto in coda al
    *  menu non è più archiviare — è già archiviata — ma riportarla indietro. */
   archived?: boolean;
+  paneBoardId: string;
+  paneSettings: BoardSettings | null;
 };
 
-const CardBody = memo(function CardBody({ task, onOpen, showProject, error, onError, onRefetch, onOpenTopic, sessionState = 'unknown', parentTitle, projectPath, live, awaiting, justMovedTo, justCreated, archived = false, setNodeRef, dragAttributes: attributes, dragListeners: listeners, isDragging, dragTransform, dragTransition: transition }: CardProps & CardDragProps) {
+const CardBody = memo(function CardBody({ task, onOpen, showProject, error, onError, onRefetch, onOpenTopic, sessionState = 'unknown', parentTitle, projectPath, live, awaiting, justMovedTo, justCreated, archived = false, paneBoardId: _paneBoardId, paneSettings: _paneSettings, setNodeRef, dragAttributes: attributes, dragListeners: listeners, isDragging, dragTransform, dragTransition: transition, boardTopicsRoutingDefault }: CardProps & CardDragProps & { boardTopicsRoutingDefault: boolean | null }) {
   // MSEL-01: subscribed, so a snapshot that lands after the first paint adds
   // «· via Topics»; the boolean re-renders the card only when it flips.
-  const runsThroughTopics = useSyncExternalStore(subscribeProvidersSnapshot, () => cardRunsThroughTopics(task, getProvidersSnapshotState().snapshot));
+  const getRunsThroughTopics = () => cardRunsThroughTopics(task, getProvidersSnapshotState().snapshot, boardTopicsRoutingDefault);
+  const runsThroughTopics = useSyncExternalStore(subscribeProvidersSnapshot, getRunsThroughTopics, getRunsThroughTopics);
   // The chip's model in the one closed format, «label · who» (model selector
   // revision §3.8): a string, so the card re-renders only when it changes.
   const tm = useT();
-  const modelLine = useSyncExternalStore(subscribeProvidersSnapshot, () => taskTriggerLine(task.model, {
+  const getModelLine = () => taskTriggerLine(task.model, {
     snapshot: getProvidersSnapshotState().snapshot, tr: tm, surface: 'task', viaTopics: runsThroughTopics,
-  }));
+  });
+  const modelLine = useSyncExternalStore(subscribeProvidersSnapshot, getModelLine, getModelLine);
 
   // Review context. The comment PAIR (`selectCardComments`) — the thread's last
   // word as a quick-reply with option buttons when it's a question block and

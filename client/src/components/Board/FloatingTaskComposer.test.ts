@@ -21,23 +21,24 @@ describe('lo switch della superficie legge lo stato effettivo, non solo il local
     expect(surfaceTopicsRoutingEnabled(undefined, false, 'topics:claude-opus-5', null)).toBe(false);
   });
 
-  test('board mai toccata: il prefisso legacy del suo modello accende lo switch', () => {
+  test('board mai toccata: lo switch è acceso di default, col prefisso legacy o senza', () => {
     // Il caso che il vecchio `!!` sbagliava: nessuna scelta da nessuna parte, e il modello della board porta ancora `topics:`. allow-italian: nomina il caso sbagliato prima
     expect(surfaceTopicsRoutingEnabled(null, null, null, 'topics:claude-opus-5')).toBe(true);
-    expect(surfaceTopicsRoutingEnabled(null, null, null, 'claude-opus-5')).toBe(false);
+    expect(surfaceTopicsRoutingEnabled(null, null, null, 'claude-opus-5')).toBe(true);
   });
 
+  /** @covers MSEL-06 */
   test('il modello scelto QUI copre quello della board', () => {
-    expect(surfaceTopicsRoutingEnabled(null, null, 'claude-opus-5', 'topics:claude-opus-5')).toBe(false);
-    expect(surfaceTopicsRoutingEnabled(null, null, 'topics:claude-opus-5', 'claude-opus-5')).toBe(true);
+    expect(surfaceTopicsRoutingEnabled(null, null, 'claude-opus-5', 'claude-code:claude-opus-5')).toBe(true);
+    expect(surfaceTopicsRoutingEnabled(null, null, 'topics:claude-opus-5', 'claude-code:claude-opus-5')).toBe(true);
   });
 
-  test("`auto` non e' un modello: non porta nessun prefisso legacy", () => {
-    expect(surfaceTopicsRoutingEnabled(null, null, null, 'auto')).toBe(false);
+  test("`auto` non e' un modello: non porta nessun prefisso legacy, e resta il default acceso", () => {
+    expect(surfaceTopicsRoutingEnabled(null, null, null, 'auto')).toBe(true);
   });
 
-  test('board globale (nessun default, nessun modello): resta spento', () => {
-    expect(surfaceTopicsRoutingEnabled(null, null, null, null)).toBe(false);
+  test('board globale (nessun default, nessun modello): resta acceso', () => {
+    expect(surfaceTopicsRoutingEnabled(null, null, null, null)).toBe(true);
   });
 });
 

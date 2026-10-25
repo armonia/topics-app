@@ -29,15 +29,15 @@ export interface DispatchTopicIdentity {
  *  reach the target (Codex, or a model the engine does not run), the topic
  *  is still created and runs direct, with the switch still written. */
 export function resolveDispatchTopicIdentity(
-  o: { provider?: string; model?: string | null; topicsRouting?: boolean | null },
+  o: { provider?: string; model?: string | null; topicsRouting?: boolean | null; createdAt?: string | null },
   snapshot: ProvidersSnapshot | null,
 ): DispatchTopicIdentity {
   const { model } = taskModelSelection(o.model);
-  const topicsRouting = effectiveTopicsRouting(o.topicsRouting, o.model, 'task');
+  const topicsRouting = effectiveTopicsRouting(o.topicsRouting, o.model, 'task', o.createdAt);
   const target = o.provider
     ? automaticTaskProvider(o.provider, model, snapshot)
     : taskProviderForModel(o.model, snapshot, topicsRouting);
-  const route = topicsRoute(topicsRouting, { provider: target, model: model ?? null }, snapshot, 'task', o.model);
+  const route = topicsRoute(topicsRouting, { provider: target, model: model ?? null }, snapshot, 'task', o.model, o.createdAt);
   // Scoperta in corso non e' un no: si aspetta, come col warm-up di Codex. allow-italian: perche' qui si aspetta invece di proseguire
   if (route.via === 'pending') throw new TaskProviderPendingError('topics');
   // Automatico + ON: "topics" e' il MOTORE, non un bersaglio scelto da qualcuno. Scriverlo come provider del topic e' il modo esatto in cui l'instradamento diventava identita'. allow-italian: perche' il pin resta vuoto
@@ -62,10 +62,10 @@ export function dispatchTopicBinding(
   defaultProvider: string | null | undefined,
   snapshot?: ProvidersSnapshot | null,
 ): { model?: string | null; provider?: string | null; topicsRouting?: boolean | null } {
-  // Same reading as the chat resolver: a Claude model with no runtime pinned targets the engine.
-  const on = effectiveTopicsRouting(topic.topicsRouting, null, 'task');
+  // A null routing value belongs to a legacy session, whose historical route was direct.
+  const on = effectiveTopicsRouting(topic.topicsRouting, null, 'taskSession');
   const autoTarget = on && topic.model?.startsWith('claude-') ? 'topics' : defaultProvider ?? null;
-  const route = topic.provider || !on ? null : topicsRoute(true, { provider: autoTarget, model: topic.model ?? null }, snapshot ?? null, 'task');
+  const route = topic.provider || !on ? null : topicsRoute(true, { provider: autoTarget, model: topic.model ?? null }, snapshot ?? null, 'taskSession');
   return {
     model: topic.model,
     provider: topic.provider ?? (route?.via === 'topics' ? 'topics' : defaultProvider),

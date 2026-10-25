@@ -196,9 +196,17 @@ SHALL restare `provider` più `model`.
 ### Requirement: MSEL-06: «Esegui in Topics» è acceso dove si può
 
 La preferenza mai scritta (`null`) SHALL valere acceso per le chat, anche per
-quelle che esistono già, e spenta per le card e per il default della board.
-Nessun dato SHALL essere riscritto per questo. Il default per ambito SHALL
-stare in una costante sola (`TOPICS_ROUTING_DEFAULT`).
+quelle che esistono già, e acceso per le card e per il default della board
+(25/10, card e9226ab7: il default task è coerente con la chat). L'unica
+eccezione storica riguarda una card con `created_at < 2026-09-22T18:00:00Z`:
+se non ha una preferenza salvata e il suo modello porta il prefisso
+`claude-code:<model>`, SHALL restare a esecuzione diretta. Lo stesso prefisso
+su una card creata alla soglia o dopo SHALL usare il default task ON.
+`topics:<model>` e `auto` SHALL usare il default dell'ambito; oggi il default
+task ON coincide con la vecchia scelta `topics:`. Nessun dato SHALL essere
+riscritto per questo. I default SHALL stare in una costante sola
+(`TOPICS_ROUTING_DEFAULT`), con la lettura delle sessioni task storiche
+separata dal default ON delle card nuove.
 
 Con la preferenza accesa, il bersaglio SHALL essere risolto prima come a
 preferenza spenta (Automatico diventa il default), e solo dopo si decide la
@@ -210,6 +218,12 @@ turno. La preferenza SHALL NOT bloccare l'invio, e SHALL NOT parcheggiare una
 card perché il suo bersaglio non è instradabile.
 
 Ogni lettura della preferenza SHALL passare da una funzione sola, `topicsRoute`.
+
+Una sessione task nata prima della colonna `topicsRouting` SHALL leggere il suo
+valore `null` come il default task storico, OFF. Un task dipendente mai scelto
+senza prefisso legacy SHALL adottare la strada della sessione; una scelta scritta
+o un prefisso `topics:` in conflitto SHALL parcheggiare il task con il motivo
+dello switch.
 
 #### Scenario: chat esistente su Claude Code, mai toccata
 - **GIVEN** una chat con `provider: claude-code`, un modello servito dal motore, preferenza `null`
@@ -229,10 +243,15 @@ Ogni lettura della preferenza SHALL passare da una funzione sola, `topicsRoute`.
 - **THEN** il turno parte, diretto su Codex
 - **AND** la fascia dice «diretto»
 
-#### Scenario: card mai toccata
-- **GIVEN** una card con preferenza `null` e il default della board `null`, su `claude-code:claude-opus-5-5`
+#### Scenario: card mai toccata creata dopo la migrazione
+- **GIVEN** una card con `created_at = 2026-10-25T00:00:00Z`, preferenza `null`, default della board `null` e modello `claude-code:claude-opus-5-5`
 - **WHEN** il dispatcher la avvia
-- **THEN** la card gira su Claude Code diretto, come oggi
+- **THEN** la card passa dal motore di Topics (default acceso) (25/10, card e9226ab7)
+
+#### Scenario: card storica mai toccata
+- **GIVEN** una card con `created_at = 2026-09-15T00:00:00Z`, preferenza `null`, default della board `null` e modello `claude-code:claude-opus-5-5`
+- **WHEN** il dispatcher la avvia
+- **THEN** la card esegue direttamente con Claude Code
 
 #### Scenario: card Codex con la preferenza accesa
 - **GIVEN** una card `codex:gpt-6.1-sol` con la preferenza accesa

@@ -58,9 +58,9 @@ function freshDb(): Database {
 
 const PID = "alpha-abc123";
 let seq = 0;
-function seedTask(db: Database, o: { id?: string; model?: string | null; topicsRouting?: boolean | null } = {}): string {
+function seedTask(db: Database, o: { id?: string; model?: string | null; topicsRouting?: boolean | null; createdAt?: string } = {}): string {
   const id = o.id ?? `t${++seq}`;
-  const ts = new Date(Date.now() + ++seq).toISOString();
+  const ts = o.createdAt ?? new Date(Date.now() + ++seq).toISOString();
   db.run(
     `INSERT INTO tasks (id, project_id, text, status, created_at, updated_at, dispatch_attempts, model, topics_routing)
      VALUES (?, ?, ?, 'todo', ?, ?, 0, ?, ?)`,
@@ -150,11 +150,37 @@ describe("AICTRL-05: default board dello switch di instradamento", () => {
     expect(h.topicsCreated[0]?.topicsRouting).toBe(true);
   });
 
-  it("senza nessuno dei tre, resta spento", async () => {
+  it("senza nessuno dei tre, resta acceso (default task ON come la chat)", async () => {
     const h = harness();
     h.svc.updateBoardSettings(PID, { autoDispatch: true, dispatchUseWorktree: true });
     h.svc.setGlobalCap({ auto: false, max: 5 });
     seedTask(h.db, { id: "t1", model: "claude-sonnet-5" });
+
+    await h.dispatcher.tick(PID);
+    await flush();
+
+    expect(h.topicsCreated[0]?.topicsRouting).toBe(true);
+  });
+
+  /** @covers AICTRL-01, MSEL-06 */
+  it("a new picker-selected Claude Code card dispatches with routing ON", async () => {
+    const h = harness();
+    h.svc.updateBoardSettings(PID, { autoDispatch: true, dispatchUseWorktree: true });
+    h.svc.setGlobalCap({ auto: false, max: 5 });
+    seedTask(h.db, { id: "new-claude-card", model: "claude-code:claude-sonnet-5", createdAt: "2026-10-25T00:00:00Z" });
+
+    await h.dispatcher.tick(PID);
+    await flush();
+
+    expect(h.topicsCreated[0]?.topicsRouting).toBe(true);
+  });
+
+  /** @covers AICTRL-01, MSEL-06 */
+  it("a pre-migration Claude Code card keeps its historical direct route", async () => {
+    const h = harness();
+    h.svc.updateBoardSettings(PID, { autoDispatch: true, dispatchUseWorktree: true });
+    h.svc.setGlobalCap({ auto: false, max: 5 });
+    seedTask(h.db, { id: "legacy-claude-card", model: "claude-code:claude-sonnet-5", createdAt: "2026-09-15T00:00:00Z" });
 
     await h.dispatcher.tick(PID);
     await flush();
@@ -164,19 +190,17 @@ describe("AICTRL-05: default board dello switch di instradamento", () => {
 });
 
 /**
- * MSEL-06, the reused session (its scenario in the spec). A dependent
- * card continues its blocker's topic, which keeps its own switch. A card whose
- * preference was never written (task and board both null) adopts the
- * session's route instead of parking; a written one that differs still parks;
- * and a session from before the column existed (null) gets the card's
- * effective value written before the turn.
+ * MSEL-06, the reused session (its scenario in the spec). A dependent card
+ * continues its blocker's topic and adopts that session's route when its own
+ * preference was never written. A null session predates the column and keeps
+ * the historical OFF route, which is written before the turn.
  */
 describe("a card reusing a session", () => {
   type Routing = boolean | null;
-  async function reuse(card: Routing, session: Routing, board: Routing = null) {
+  async function reuse(card: Routing, session: Routing, board: Routing = null, cardModel = "claude-code:claude-sonnet-5") {
     const events: string[] = [];
     const h = harness({
-      topicModelSelection: () => ({ provider: "claude-code", model: "claude-sonnet-5", ...(session === null ? {} : { topicsRouting: session }) }),
+      topicModelSelection: () => ({ provider: "claude-code", model: "claude-sonnet-5", topicsRouting: session }),
       setTopicRouting: (id, value) => { events.push(`write ${id}=${value}`); },
       runTurn: (sessionKey) => { events.push(`turn ${sessionKey}`); return new Promise<TurnEndInfo | void>(() => {}); },
     });
@@ -191,8 +215,8 @@ describe("a card reusing a session", () => {
     );
     h.db.run(
       `INSERT INTO tasks (id, project_id, text, status, created_at, updated_at, dispatch_attempts, model, topics_routing, blocked_by_task_id, reuse_blocker_context)
-       VALUES ('d1', ?, 'dependent', 'todo', ?, ?, 0, 'claude-code:claude-sonnet-5', ?, 'b1', 1)`,
-      [PID, ts, ts, card === null ? null : (card ? 1 : 0)],
+       VALUES ('d1', ?, 'dependent', 'todo', ?, ?, 0, ?, ?, 'b1', 1)`,
+      [PID, ts, ts, cardModel, card === null ? null : (card ? 1 : 0)],
     );
     await h.dispatcher.tick(PID);
     await flush(40);
@@ -216,6 +240,23 @@ describe("a card reusing a session", () => {
     expect(events.some((e) => e.startsWith("write"))).toBe(false);
   });
 
+  /** @covers MSEL-06 */
+  it("an explicit OFF card reuses a pre-column null session as direct", async () => {
+    const { task, events } = await reuse(false, null);
+    expect(task.dispatchState).not.toBe("blocked");
+    expect(task.dispatchError ?? null).toBeNull();
+    expect(events[0]).toBe("write topic-s=false");
+    expect(events[1]?.startsWith("turn ")).toBe(true);
+  });
+
+  /** @covers AICTRL-01, MSEL-06 */
+  it("a legacy topics prefix against a pre-column session keeps the switch-off reason", async () => {
+    const { task, events } = await reuse(null, null, null, "topics:claude-sonnet-5");
+    expect(task.dispatchState).toBe("blocked");
+    expect(task.dispatchError).toBe("This task has Topics routing on, but the previous session runs with the switch off. Turn the switch off or turn off session reuse before starting the task.");
+    expect(events).toHaveLength(0);
+  });
+
   it("a card written ON reusing a session with 0 parks with the switch-off reason, as before", async () => {
     const { task, events } = await reuse(true, false);
     expect(task).toMatchObject({ dispatchState: "blocked" });
@@ -228,7 +269,7 @@ describe("a card reusing a session", () => {
     expect(task).toMatchObject({ dispatchState: "blocked" });
   });
 
-  it("a never-written card reusing a session from before the column (null): the effective value is written before the turn", async () => {
+  it("a null session predating the column writes its historical OFF route before the turn", async () => {
     const { task, events } = await reuse(null, null);
     expect(task.dispatchState).not.toBe("blocked");
     expect(events[0]).toBe("write topic-s=false");
