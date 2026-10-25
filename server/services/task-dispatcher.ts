@@ -1632,7 +1632,7 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
       // Same switch the launch reads: the task's, then the board's, then the legacy prefix.
       let boardRouting: boolean | null = null;
       try { boardRouting = deps.svc.getBoardSettings(task.projectId).dispatchTopicsRouting; } catch { /* no board row: the task decides */ }
-      const topicsRouting = effectiveTopicsRouting(task.topicsRouting ?? boardRouting, selected, "task");
+      const topicsRouting = effectiveTopicsRouting(task.topicsRouting ?? boardRouting, selected, "task", task.createdAt);
       // MSEL-06: the switch no longer narrows the Automatic ballot (GPT stays a
       // candidate with it ON), so a free runtime elsewhere is a way out either way.
       if (!topicId && !selection.model && !selection.provider && deps.automaticModelAvailable?.()) return null;
@@ -5434,6 +5434,7 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
           t.topicsRouting ?? settings.dispatchTopicsRouting,
           t.model ?? (settings.dispatchModel && settings.dispatchModel !== "auto" ? settings.dispatchModel : undefined),
           "task",
+          t.createdAt,
         ),
         // MSEL-06: the stored value travels too, `null` included, until the
         // reuse gate has read it (a never-written preference adopts the session's).

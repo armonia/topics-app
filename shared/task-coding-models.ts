@@ -37,14 +37,13 @@ export class TaskProviderPendingError extends Error {
   }
 }
 
-/**
- * MSEL-06: what a "Run in Topics" preference that was NEVER written means, per
- * scope. Here and only here. Both a chat and a card (and the board default)
- * read it ON, so the task default matches the chat one: an explicit OFF
- * still opts out. No data is rewritten for this: a `null` column stays
- * `null`, only how it is read changes.
- */
-export const TOPICS_ROUTING_DEFAULT = { chat: true, task: true } as const;
+/** MSEL-06: an unset preference defaults on for new chats and tasks. A null
+ *  value on a persisted task session predates the routing column and keeps its
+ *  historical off behavior. */
+export const TOPICS_ROUTING_DEFAULT = { chat: true, task: true, taskSession: false } as const;
+
+/** A Claude Code prefix kept old cards direct only before this migration. */
+export const LEGACY_CLAUDE_CODE_TASK_CUTOFF = '2026-09-22T18:00:00Z';
 
 export type TopicsRouteScope = keyof typeof TOPICS_ROUTING_DEFAULT;
 
@@ -181,18 +180,21 @@ export function topicsRoutingAvailable(
   return topicsRoute(true, { provider, model }, snapshot, 'chat').via === 'topics';
 }
 
-/** AICTRL-04 + MSEL-06: explicit values win. A task with no saved preference
- * keeps the old meaning of its runtime prefix: `topics:<model>` is ON and
- * `claude-code:<model>` is direct. Other unset values use the scope default. */
+/** AICTRL-04 + MSEL-06: a stored value wins. Only a card created before the
+ * routing-column migration keeps `claude-code:<model>` as an unset OFF choice;
+ * newer cards use the task default. A persisted legacy session has its own OFF
+ * default because its null value predates the column. */
 export function effectiveTopicsRouting(
   topicsRouting: boolean | null | undefined,
   modelValue?: string | null,
   scope: TopicsRouteScope = 'task',
+  taskCreatedAt?: string | null,
 ): boolean {
   if (topicsRouting != null) return topicsRouting;
   const legacyProvider = taskModelSelection(modelValue).provider;
-  if (legacyProvider === 'topics') return true;
-  if (scope === 'task' && legacyProvider === 'claude-code') return false;
+  const createdAtMs = taskCreatedAt ? Date.parse(taskCreatedAt) : Number.NaN;
+  if (scope === 'task' && legacyProvider === 'claude-code'
+      && Number.isFinite(createdAtMs) && createdAtMs < Date.parse(LEGACY_CLAUDE_CODE_TASK_CUTOFF)) return false;
   return TOPICS_ROUTING_DEFAULT[scope];
 }
 
@@ -218,9 +220,10 @@ export function topicsRoute(
   snapshot: ProvidersSnapshot | null | undefined,
   scope: TopicsRouteScope,
   modelValue?: string | null,
+  taskCreatedAt?: string | null,
 ): TopicsRoute {
   const engineOnly = target.provider === 'topics';
-  if (!engineOnly && !effectiveTopicsRouting(stored, modelValue, scope)) return { via: 'direct', reason: 'off' };
+  if (!engineOnly && !effectiveTopicsRouting(stored, modelValue, scope, taskCreatedAt)) return { via: 'direct', reason: 'off' };
   if (target.provider !== null && !CLAUDE_CODING_PROVIDERS.includes(target.provider)) return { via: 'direct', reason: 'family' };
   const engine = snapshot?.providers.find((entry) => entry.name === 'topics');
   if (!engine || engine.status !== 'ready') {
@@ -297,7 +300,7 @@ export function reusedSessionRouting(
   session: { topicsRouting?: boolean | null } | null | undefined,
   stored: boolean | null | undefined,
 ): boolean {
-  const sessionRouting = session?.topicsRouting ?? false;
+  const sessionRouting = effectiveTopicsRouting(session?.topicsRouting, null, 'taskSession');
   if (stored == null && taskModelSelection(value).provider !== 'topics') return sessionRouting;
   return effectiveTopicsRouting(stored, value, 'task');
 }
@@ -318,7 +321,7 @@ export function reusedSessionRouteConflict(
   topicsRouting: boolean | null | undefined,
 ): 'switch-on' | 'switch-off' | 'engine' | 'direct' | null {
   if (!session) return null;
-  const sessionRouting = session.topicsRouting ?? false;
+  const sessionRouting = effectiveTopicsRouting(session.topicsRouting, null, 'taskSession');
   if (reusedSessionRouting(value, session, topicsRouting) !== sessionRouting) return sessionRouting ? 'switch-on' : 'switch-off';
   const selected = taskModelSelection(value);
   if (sessionRouting || !selected.provider) return null;

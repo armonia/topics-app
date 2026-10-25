@@ -86,11 +86,29 @@ describe('card route label (AICTRL-01, MSEL-06)', () => {
   });
 
   /** @covers AICTRL-01, MSEL-06 */
-  it('keeps a null-preference explicit Claude Code model direct', () => {
+  it('uses the board OFF default for a null-preference Claude Code selection', () => {
     expect(cardRunsThroughTopics(
       { model: 'claude-code:claude-sonnet-5', topicsRouting: null },
       snapshot([claudeReady, topicsReady]),
       false,
+    )).toBe(false);
+  });
+
+  /** @covers AICTRL-01, MSEL-06 */
+  it('routes a new null-preference Claude Code card through Topics when the board default is null', () => {
+    expect(cardRunsThroughTopics(
+      { model: 'claude-code:claude-sonnet-5', topicsRouting: null, createdAt: '2026-10-25T00:00:00Z' },
+      snapshot([claudeReady, topicsReady]),
+      null,
+    )).toBe(true);
+  });
+
+  /** @covers AICTRL-01, MSEL-06 */
+  it('keeps only a pre-migration Claude Code card direct when both preferences are null', () => {
+    expect(cardRunsThroughTopics(
+      { model: 'claude-code:claude-sonnet-5', topicsRouting: null, createdAt: '2026-09-15T00:00:00Z' },
+      snapshot([claudeReady, topicsReady]),
+      null,
     )).toBe(false);
   });
 });

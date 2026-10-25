@@ -110,11 +110,11 @@ export function topicsRoutingBlocked(
 /** MSEL-01: whether the card chip should say it runs through Topics. Resolve
  *  the card preference against its own board default, just like dispatch. */
 export function cardRunsThroughTopics(
-  task: { model?: string | null; topicsRouting?: boolean | null },
+  task: { model?: string | null; topicsRouting?: boolean | null; createdAt?: string | null },
   snapshot: ProvidersSnapshot | null,
   boardRoutingDefault?: boolean | null,
 ): boolean {
-  if (!task.model || !effectiveTopicsRouting(task.topicsRouting ?? boardRoutingDefault, task.model, 'task')) return false;
+  if (!task.model || !effectiveTopicsRouting(task.topicsRouting ?? boardRoutingDefault, task.model, 'task', task.createdAt)) return false;
   const selection = taskModelSelection(task.model);
   const provider = selection.provider ?? (selection.model?.startsWith('claude-') ? 'claude-code' : null);
   return topicsRoute(true, { provider, model: selection.model ?? null }, snapshot, 'task').via === 'topics';

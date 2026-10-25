@@ -1,11 +1,11 @@
 /**
  * MSEL-06, the one-reading scenario (tasks 1.2).
  *
- * The same `null` preference and the same target must give the same route in
- * every reader: the menu, the send gate, the chat resolver, the identity of a
- * dispatched topic, the dispatcher's reuse gate and the automatic picker. Each
- * row below runs the real reader, not a copy of its rule. The scope decides
- * the default (chat ON, card ON), so the table is run once per scope.
+ * A new card's `null` preference and resolved target must give the same route
+ * in each card reader. Session readers use an ON session in that comparison;
+ * their separate legacy-null case stays OFF. Each row runs the real reader,
+ * not a copy of its rule. The scope decides the default, so the table runs once
+ * per scope.
  *
  * A second test runs the `git grep` of design §2.1 and fails when a file that
  * mentions the preference is neither a reader below nor a passage that copies
@@ -88,7 +88,7 @@ describe("one reading, the same route in every reader", () => {
     }
   });
 
-  test("task scope: a null preference reads ON, and every card reader runs Opus through Topics on Claude Code", async () => {
+  test("task scope: a new null-preference card runs Opus through Topics on Claude Code", async () => {
     const expected = topicsRoute(null, target, SNAPSHOT, "task").via;
     expect(expected).toBe("topics");
     const effective = effectiveTopicsRouting(null, VALUE, "task");
@@ -101,15 +101,24 @@ describe("one reading, the same route in every reader", () => {
       effectiveTopicsRouting: effective ? "topics" : "direct",
       taskProviderForModel: taskProviderForModel(VALUE, SNAPSHOT, effective) === "topics" ? "topics" : "direct",
       resolveDispatchTopicIdentity: resolveDispatchTopicIdentity({ provider: "claude-code", model: "claude-opus-5-5", topicsRouting: null }, SNAPSHOT).executor === "topics" ? "topics" : "direct",
-      dispatchTopicBinding: dispatchTopicBinding({ model: "claude-opus-5-5", topicsRouting: null }, "claude-code", SNAPSHOT).provider === "topics" ? "topics" : "direct",
-      reusedSessionRouting: reusedSessionRouting(VALUE, { topicsRouting: null }, null) ? "topics" : "direct",
-      reusedSessionRouteConflict: reusedSessionRouteConflict(VALUE, { provider: "claude-code", topicsRouting: null }, null) === null ? expected : "topics",
-      taskModelMatchesSession: taskModelMatchesSession(VALUE, { provider: "claude-code", model: "claude-opus-5-5", topicsRouting: null }, null) ? expected : "topics",
+      dispatchTopicBinding: dispatchTopicBinding({ model: "claude-opus-5-5", topicsRouting: true }, "claude-code", SNAPSHOT).provider === "topics" ? "topics" : "direct",
+      reusedSessionRouting: reusedSessionRouting(VALUE, { topicsRouting: true }, null) ? "topics" : "direct",
+      reusedSessionRouteConflict: reusedSessionRouteConflict(VALUE, { provider: "claude-code", topicsRouting: true }, null) === null ? expected : "direct",
+      taskModelMatchesSession: taskModelMatchesSession(VALUE, { provider: "claude-code", model: "claude-opus-5-5", topicsRouting: true }, null) ? expected : "direct",
       pickAutomaticTaskModel: resolveDispatchTopicIdentity({ provider: plan.provider, model: plan.model, topicsRouting: null }, SNAPSHOT).executor === "topics" ? "topics" : "direct",
       surfaceTopicsRoutingEnabled: surfaceTopicsRoutingEnabled(null, null, VALUE, null) ? "topics" : "direct",
       boardTopicsRoutingEnabled: boardTopicsRoutingEnabled(null, null) ? "topics" : "direct",
     };
     for (const [reader, via] of Object.entries(readers)) expect([reader, via]).toEqual([reader, expected]);
+  });
+
+  /** @covers AICTRL-01, MSEL-06 */
+  test("a legacy session with null routing stays OFF while an untouched dependent adopts it", () => {
+    const session = { provider: "claude-code", model: "claude-opus-5-5", topicsRouting: null };
+    expect(dispatchTopicBinding({ model: "claude-opus-5-5", topicsRouting: null }, "claude-code", SNAPSHOT).provider).toBe("claude-code");
+    expect(reusedSessionRouting(VALUE, session, null)).toBe(false);
+    expect(reusedSessionRouteConflict(VALUE, session, null)).toBeNull();
+    expect(taskModelMatchesSession(VALUE, session, null)).toBe(true);
   });
 });
 

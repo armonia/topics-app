@@ -57,7 +57,7 @@ import { SwapFreezeLabel } from '../Shared/SwapFreezeLabel';
 import { useSwapFreeze } from '../../state/swapFreeze';
 import { taskHasWork, uncommittedChipCount } from './chipKey';
 import { runInitiatorName } from './taskFilter';
-import { POPOVER_DIVIDER, POPOVER_ITEM, POPOVER_ITEM_DANGER } from '@/lib/popoverStyles';
+import { POPOVER_DIVIDER, POPOVER_ITEM, POPOVER_ITEM_DANGER } from '../../lib/popoverStyles';
 import { BoardCommandHint } from './BoardCommandHint';
 import { getProvidersSnapshotState, subscribeProvidersSnapshot } from '../../lib/providersSnapshotStore';
 import { cardRunsThroughTopics } from '../../lib/topicsRoutingGate';
@@ -480,13 +480,15 @@ type CardProps = {
 const CardBody = memo(function CardBody({ task, onOpen, showProject, error, onError, onRefetch, onOpenTopic, sessionState = 'unknown', parentTitle, projectPath, live, awaiting, justMovedTo, justCreated, archived = false, paneBoardId: _paneBoardId, paneSettings: _paneSettings, setNodeRef, dragAttributes: attributes, dragListeners: listeners, isDragging, dragTransform, dragTransition: transition, boardTopicsRoutingDefault }: CardProps & CardDragProps & { boardTopicsRoutingDefault: boolean | null }) {
   // MSEL-01: subscribed, so a snapshot that lands after the first paint adds
   // «· via Topics»; the boolean re-renders the card only when it flips.
-  const runsThroughTopics = useSyncExternalStore(subscribeProvidersSnapshot, () => cardRunsThroughTopics(task, getProvidersSnapshotState().snapshot, boardTopicsRoutingDefault));
+  const getRunsThroughTopics = () => cardRunsThroughTopics(task, getProvidersSnapshotState().snapshot, boardTopicsRoutingDefault);
+  const runsThroughTopics = useSyncExternalStore(subscribeProvidersSnapshot, getRunsThroughTopics, getRunsThroughTopics);
   // The chip's model in the one closed format, «label · who» (model selector
   // revision §3.8): a string, so the card re-renders only when it changes.
   const tm = useT();
-  const modelLine = useSyncExternalStore(subscribeProvidersSnapshot, () => taskTriggerLine(task.model, {
+  const getModelLine = () => taskTriggerLine(task.model, {
     snapshot: getProvidersSnapshotState().snapshot, tr: tm, surface: 'task', viaTopics: runsThroughTopics,
-  }));
+  });
+  const modelLine = useSyncExternalStore(subscribeProvidersSnapshot, getModelLine, getModelLine);
 
   // Review context. The comment PAIR (`selectCardComments`) — the thread's last
   // word as a quick-reply with option buttons when it's a question block and

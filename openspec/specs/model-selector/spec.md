@@ -197,13 +197,16 @@ SHALL restare `provider` più `model`.
 
 La preferenza mai scritta (`null`) SHALL valere acceso per le chat, anche per
 quelle che esistono già, e acceso per le card e per il default della board
-(25/10, card e9226ab7: il default task è coerente con la chat). Per una card
-senza preferenza salvata, il prefisso esplicito `claude-code:<model>` SHALL
-conservare l'esecuzione diretta storica, mentre `topics:<model>` SHALL
-conservare l'instradamento legacy. Un valore `null` senza prefisso esplicito,
-incluso `auto`, SHALL usare il default dell'ambito. Nessun dato SHALL essere
-riscritto per questo. Il default per ambito SHALL stare in una costante sola
-(`TOPICS_ROUTING_DEFAULT`).
+(25/10, card e9226ab7: il default task è coerente con la chat). L'unica
+eccezione storica riguarda una card con `created_at < 2026-09-22T18:00:00Z`:
+se non ha una preferenza salvata e il suo modello porta il prefisso
+`claude-code:<model>`, SHALL restare a esecuzione diretta. Lo stesso prefisso
+su una card creata alla soglia o dopo SHALL usare il default task ON.
+`topics:<model>` e `auto` SHALL usare il default dell'ambito; oggi il default
+task ON coincide con la vecchia scelta `topics:`. Nessun dato SHALL essere
+riscritto per questo. I default SHALL stare in una costante sola
+(`TOPICS_ROUTING_DEFAULT`), con la lettura delle sessioni task storiche
+separata dal default ON delle card nuove.
 
 Con la preferenza accesa, il bersaglio SHALL essere risolto prima come a
 preferenza spenta (Automatico diventa il default), e solo dopo si decide la
@@ -240,10 +243,15 @@ dello switch.
 - **THEN** il turno parte, diretto su Codex
 - **AND** la fascia dice «diretto»
 
-#### Scenario: card mai toccata
-- **GIVEN** una card con preferenza `null` e il default della board `null`, su `claude-code:claude-opus-5-5`
+#### Scenario: card mai toccata creata dopo la migrazione
+- **GIVEN** una card con `created_at = 2026-10-25T00:00:00Z`, preferenza `null`, default della board `null` e modello `claude-code:claude-opus-5-5`
 - **WHEN** il dispatcher la avvia
 - **THEN** la card passa dal motore di Topics (default acceso) (25/10, card e9226ab7)
+
+#### Scenario: card storica mai toccata
+- **GIVEN** una card con `created_at = 2026-09-15T00:00:00Z`, preferenza `null`, default della board `null` e modello `claude-code:claude-opus-5-5`
+- **WHEN** il dispatcher la avvia
+- **THEN** la card esegue direttamente con Claude Code
 
 #### Scenario: card Codex con la preferenza accesa
 - **GIVEN** una card `codex:gpt-6.1-sol` con la preferenza accesa

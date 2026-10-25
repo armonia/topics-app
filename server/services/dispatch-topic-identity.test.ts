@@ -7,7 +7,7 @@
 import { describe, expect, it } from 'bun:test';
 import { readFileSync } from 'fs';
 import { join } from 'path';
-import { resolveDispatchTopicIdentity } from './dispatch-topic-identity';
+import { dispatchTopicBinding, resolveDispatchTopicIdentity } from './dispatch-topic-identity';
 import { resolveTopicProvider } from '../providers/resolve-topic-provider';
 import type { ProvidersSnapshot } from '../../shared/types';
 
@@ -116,10 +116,30 @@ describe('identità del topic dispacciato', () => {
   });
 
   /** @covers AICTRL-01, MSEL-06 */
-  it('a null-preference card with an explicit Claude Code prefix stays direct', () => {
+  it('a new null-preference card with a Claude Code prefix routes through Topics', () => {
     const id = resolveDispatchTopicIdentity({ model: 'claude-code:claude-opus-5', topicsRouting: null }, FLEET);
+    expect(id.topicsRouting).toBe(true);
+    expect(id.executor).toBe('topics');
+  });
+
+  /** @covers AICTRL-01, MSEL-06 */
+  it('a pre-migration null-preference Claude Code card stays direct', () => {
+    const id = resolveDispatchTopicIdentity({
+      model: 'claude-code:claude-opus-5', topicsRouting: null, createdAt: '2026-09-15T00:00:00Z',
+    }, FLEET);
     expect(id.topicsRouting).toBe(false);
     expect(id.executor).toBe('claude-code');
+  });
+
+  /** @covers AICTRL-01, MSEL-06 */
+  it('a legacy session with null routing binds directly to Claude Code', () => {
+    const binding = dispatchTopicBinding(
+      { model: 'claude-opus-5', topicsRouting: null },
+      'claude-code',
+      FLEET,
+    );
+    expect(binding.provider).toBe('claude-code');
+    expect(binding.topicsRouting).toBeNull();
   });
 
   it('il motore in scoperta fa aspettare la card, non la parcheggia', () => {
