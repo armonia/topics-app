@@ -245,6 +245,7 @@ import { hostname as osHostname, totalmem as osTotalmem } from "node:os";
 import { createNodeClient, readDelegatedNodeToken, readNodeToken } from "./server/services/node-client";
 import { appendDelegatedRunAudit, delegatedPolicyForTask } from "./server/lib/delegated-agent-start";
 import { createNodeBranchPlanter } from "./server/services/node-branch-plant";
+import { projectPathOfAnyId } from "./server/lib/project-identity";
 import { createDelegatedRevocationRetry } from "./server/services/delegated-revocation-retry";
 import { initVapid } from "./server/push-service";
 import { startDevBundleReload, readBundleRev, stampBundleRev } from "./server/lib/dev-bundle-reload";
@@ -1795,8 +1796,11 @@ const nodeClient = createNodeClient({
   version: SERVER_VERSION,
   hostname: osHostname(),
 });
+// A card carries its BOARD id, the store wants the UUID: resolve either.
+const projectPathForNode = (projectId: string) =>
+  projectPathOfAnyId(ctx.db, (storeId) => ctx.projectStore.get(storeId)?.path, projectId);
 const nodeBranchPlanter = createNodeBranchPlanter({
-  repoPathOf: (projectId) => ctx.projectStore.get(projectId)?.path ?? null,
+  repoPathOf: projectPathForNode,
 });
 
 /**
@@ -2191,7 +2195,7 @@ const taskDispatcher = createTaskDispatcher({
     plantBranch: (input) => nodeBranchPlanter.plantBranch(input),
     // The `node-run` hook starts in the project's checkout on this machine,
     // the same path the planter reads the origin from and plants into.
-    projectPathOf: (projectId) => ctx.projectStore.get(projectId)?.path ?? null,
+    projectPathOf: projectPathForNode,
   },
   // Usage consumed by the dispatched session so far, from its Claude Code
   // transcript (jsonl_path is kept fresh by the session tracker). The reader

@@ -62,3 +62,20 @@ export function canonicalProjectIdentity(
 export function projectAliasPlaceholders(identity: CanonicalProjectIdentity): string {
   return identity.aliases.map(() => "?").join(",");
 }
+
+/**
+ * The checkout of a project, given EITHER of its two names.
+ *
+ * A card's `project_id` is the board id (`topics-app-ar3jt5`, from the path),
+ * while `projectStore.get` wants the store id (a UUID). The remote-node lane
+ * asked the store directly with the card's id, so on a real board it found no
+ * checkout, no `origin`, and parked every card meant for a node. It never
+ * showed: the lane's tests use stores keyed by the same id the card carries.
+ */
+export function projectPathOfAnyId(
+  db: Pick<Database, "query">,
+  getPath: (storeId: string) => string | null | undefined,
+  projectId: string,
+): string | null {
+  return getPath(canonicalProjectIdentity(db, projectId).storeId) ?? null;
+}
