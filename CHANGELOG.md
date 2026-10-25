@@ -2,6 +2,12 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.3.30 — 2026-10-25
+
+### Sotto il cofano
+- Default routing task ON, coerente con la chat (#443)
+- i quattro rilievi dopo #398 (ctrl+z per sessione, /send onesta, barra mobile, seed) (#444)
+
 ## 2.3.29 — 2026-10-25
 
 ### Sotto il cofano

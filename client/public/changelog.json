@@ -1,5 +1,27 @@
 [
   {
+    "version": "2.3.30",
+    "date": "2026-10-25",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Default routing task ON, coerente con la chat (#443)",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "i quattro rilievi dopo #398 (ctrl+z per sessione, /send onesta, barra mobile, seed) (#444)",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        }
+      ]
+    }
+  },
+  {
     "version": "2.3.29",
     "date": "2026-10-25",
     "sections": {
