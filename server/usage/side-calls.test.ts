@@ -96,6 +96,15 @@ describe("sideCallOf", () => {
     });
   });
 
+  test("an all-zero usage is not a measurement: NULL, not a free call", () => {
+    // The native engine answers like this, with no content, when it has no credentials.
+    const call = sideCallOf({
+      provider: "topics", options: { purpose: "card-title" }, runModel: "claude-sonnet-5-5", durationMs: 1, at: 1,
+      result: { content: "", usage: { promptTokens: 0, completionTokens: 0, cacheReadTokens: 0, cacheCreationTokens: 0, model: "claude-sonnet-5-5" } },
+    });
+    expect(call).toMatchObject({ measured: false, promptTokens: null, completionTokens: null, costUsd: null });
+  });
+
   test("a measured call on a model without a price: tokens kept, cost NULL, not zero", () => {
     const call = sideCallOf({ provider: "muse", options: undefined, result: { content: "x", usage: { promptTokens: 58_614, completionTokens: 15, model: "muse-wonder-1.0" } }, runModel: "", durationMs: 1, at: 1 });
     expect(call).toMatchObject({ measured: true, promptTokens: 58_614, completionTokens: 15, costUsd: null });
