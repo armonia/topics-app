@@ -7,7 +7,7 @@ import { createInterface } from "readline";
 import { getDatabase } from "../db";
 import { ptyBridgeOverride, resolvePtyBridgeCommand } from "../lib/pty-bridge-selection";
 import { warnThrottled } from "../lib/warn-throttled";
-import { withoutSuspendKey } from "../lib/terminal-suspend-key";
+import { bridgeWriteForSession, withoutSuspendKey } from "../lib/terminal-suspend-key";
 import { shouldCompressFrame } from "../lib/ws-compression";
 import { createHash } from "crypto";
 import net from "net";
@@ -1078,6 +1078,21 @@ function noteDroppedInput(sessionId: string, err: unknown): void {
   }
   droppedInput.set(sessionId, { n: 1, since: now });
   console.warn(`[Terminal] keystroke dropped for ${sessionId}: ${String((err as Error)?.message ?? err)}`);
+}
+
+/**
+ * Decision for POST /api/terminal/sessions/:id/send, keyed on the session
+ * type: the suspend key that freezes Claude Code never counts as sent. The
+ * bridge receives `data`; when that is empty the route answers `dropped`
+ * instead of `ok` and writes nothing.
+ */
+export function resolveTerminalSend(
+  sessionType: string | undefined,
+  input: string,
+): { data: string; sent: number; dropped: boolean } {
+  const data = bridgeWriteForSession(sessionType, input);
+  if (data === null) return { data: "", sent: 0, dropped: true };
+  return { data, sent: data.length, dropped: false };
 }
 
 function sendToBridge(msg: any) {
@@ -3478,9 +3493,11 @@ export function createTerminalRouter(ctx: AppContext, tracker?: ClaudeSessionTra
       // Text only: an array of bytes reached the node bridge intact (node-pty
       // does `Buffer.from`) and slipped past any content filter, ctrl+z included.
       if (typeof input !== "string" || !input) return errorResponse(400, "No input provided");
+      const send = resolveTerminalSend(session?.type, input);
+      if (send.dropped) return json({ ok: false, dropped: true, sent: 0 });
       noteTerminalInput(sendMatch.id);
-      sendToBridge({ type: "write", id: sendMatch.id, data: input });
-      return json({ ok: true, sent: input.length });
+      sendToBridge({ type: "write", id: sendMatch.id, data: send.data });
+      return json({ ok: true, sent: send.sent });
     }
 
     const resizeMatch = matchRoute(pathname, "/api/terminal/sessions/:id/resize") || matchRoute(pathname, "/api/terminal/:id/resize");
