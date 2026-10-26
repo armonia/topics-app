@@ -800,6 +800,8 @@ export interface TaskService {
      * niente gate, cioè il comportamento che c'era prima del peso.
      */
     machineIdle?: boolean;
+    /** Only a validated light no-local-check exemption may share with a heavy turn. */
+    noCheckExemption?: boolean;
   }): Task | null;
   /**
    * C'è un task `heavy` con un agente vivo su questa macchina adesso?
@@ -2475,7 +2477,12 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
           // believed only while the row carries the same sentence: the published
           // block is refreshed only by a tick that reaches it, and a board with
           // no todos or a paused one leaves it at a floor that has cleared.
-          dispatchBlock: inCoda ? currentDispatchBlock() : heldResume ? heldResumeBlock(r.id, r.dispatch_error) : null,
+          // Una card in attesa di memoria porta il codice, non la frase del
+          // pavimento (KANBAN-97): resta un blocco della macchina, o la card
+          // ricadrebbe sul ramo dello slot.
+          dispatchBlock: inCoda
+            ? (r.dispatch_error === "waiting-memory" ? { kind: "resources", reason: "waiting-memory" } : currentDispatchBlock())
+            : heldResume ? heldResumeBlock(r.id, r.dispatch_error) : null,
           parentStatus: r.parent_task_id ? (b.parentStatus.get(r.parent_task_id) ?? null) : null,
           projectless: r.project_id === UNASSIGNED_PROJECT_ID,
           openSubtasks: r.status === "review" ? (b.openChildren.get(r.id) ?? 0) : 0,
@@ -4915,7 +4922,7 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       return liveAgentCount(db, scope?.projectId ?? null);
     },
 
-    claim({ taskId, cap, maxAttempts, agentId, scope, machineIdle }): Task | null {
+    claim({ taskId, cap, maxAttempts, agentId, scope, machineIdle, noCheckExemption }): Task | null {
       const row = getTaskRow(taskId);
       if (!row) throw new TaskServiceError("not_found", `task ${taskId} not found`);
       // PESO — due regole, entrambe dentro il claim perché è l'unico punto in cui
@@ -4932,7 +4939,8 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       //
       // Entrambe si applicano PRIMA del conteggio degli slot: un no del peso non
       // è «non c'è posto», è «non adesso», e il chiamante lo dice diversamente.
-      if (heavyInFlight()) return null;
+      if (heavyInFlight() && !noCheckExemption) return null;
+      if (noCheckExemption && readTaskWeight(row.dispatch_weight) === "heavy") return null;
       if (readTaskWeight(row.dispatch_weight) === "heavy" && machineIdle === false) return null;
       // Concurrency cap: count the AGENTI VIVI, not the card. Per-board by
       // default; scope 'global' counts across EVERY board so a machine-wide cap

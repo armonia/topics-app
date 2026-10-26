@@ -27,7 +27,7 @@ import type { AIProvider } from "../providers";
 import { resolvePrincipals } from "../lib/principals";
 import { liveAgentStartCapability, queueDelegatedRun } from "../lib/delegated-agent-start";
 import type { OutboundMessage } from "../../shared/ws-outbound";
-import { budgetShare, capMode, isAgentWorking, isCiEvidenceCheck, type CheckRun, isThreadSpeech, PARKED_WAITED_OUT, pendingQuestion, TASK_STATUSES, type DispatchAdmission, type GlobalDispatchCap, type PendingQuestionComment, type TaskStatus } from "../../shared/board";
+import { budgetShare, capMode, isAgentWorking, isCiEvidenceCheck, type CheckRun, isThreadSpeech, PARKED_WAITED_OUT, pendingQuestion, TASK_STATUSES, type DispatchAdmission, type DispatchMemoryQueueSnapshot, type GlobalDispatchCap, type PendingQuestionComment, type TaskStatus } from "../../shared/board";
 import { toFeedTask } from "../../shared/board-feed";
 import { selectTaskSessionPeek } from "../../shared/task-session-peek";
 import { AGENT_AUTHOR, AGENT_AUTHOR_PREFIX } from "../../shared/comment-author";
@@ -38,6 +38,7 @@ import { getTerminalSessionById } from "./terminal";
 import { createBoardRoutes } from "./tasks-board";
 import { applySpendCapPatch, hasSpendCapPatch, spendCapFields, spendSnapshot } from "./task-spend-caps";
 import { SPAWN_TIMEOUT, runBounded } from "../lib/bounded-spawn";
+import { decodeMemoryQueueRef } from "../services/dispatch-memory-reference";
 
 /**
  * The global cap as the client reads it, in ONE place for the GET, the PATCH
@@ -2816,8 +2817,12 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
       || pathname.startsWith("/api/all-boards/")
       || pathname.startsWith("/api/boards/")
       || pathname.startsWith("/api/orchestrator-sessions/")
-      || pathname === "/api/system/dispatch-capacity";
+      || pathname === "/api/system/dispatch-capacity"
+      || pathname === "/api/dispatch/memory-queue";
     if (identita?.role === "guest" && miePath) {
+      if (pathname === "/api/dispatch/memory-queue") {
+        return json({ error: "dispatch data is not available to guests", code: "guest_forbidden" }, 403);
+      }
       const deviceId = identita.deviceId;
       if (!deviceId) return json({ error: "guest without an identity", code: "forbidden" }, 403);
 
@@ -2923,7 +2928,23 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
     const isBoard = pathname.startsWith("/api/boards/");
     const isAllBoards = pathname.startsWith("/api/all-boards/");
     const isCapacity = pathname === "/api/system/dispatch-capacity";
-    if (!isSession && !isOrchestratorSession && !isBoard && !isAllBoards && !isCapacity) return null;
+    const isMemoryQueue = pathname === "/api/dispatch/memory-queue";
+    if (!isSession && !isOrchestratorSession && !isBoard && !isAllBoards && !isCapacity && !isMemoryQueue) return null;
+
+    // GET /api/dispatch/memory-queue — the dispatcher's read-only memory view.
+    // Keep this route on the same global identity and origin gate as every API
+    // request; guests are rejected above because this is machine-wide data.
+    if (isMemoryQueue && method === "GET") {
+      const memoryQueueDispatcher = dispatcher as (TaskDispatcher & {
+        memoryQueueSnapshot?: () => DispatchMemoryQueueSnapshot;
+      }) | undefined;
+      try {
+        const snapshot = memoryQueueDispatcher?.memoryQueueSnapshot?.();
+        return snapshot
+          ? json(snapshot)
+          : json({ error: "dispatch memory queue unavailable", code: "dispatcher_unavailable" }, 503);
+      } catch (error) { return fail(error); }
+    }
 
     // GET /api/all-boards/tasks — the global cross-project feed (human overview).
     // Read-only: per-task mutations still go to /api/boards/:projectId/... using
@@ -2988,7 +3009,9 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
     const sessionPeek = matchRoute(pathname, "/api/all-boards/tasks/:taskId/peek");
     if (sessionPeek && method === "GET") {
       try {
-        const task = svc.get(sessionPeek.taskId)?.task;
+        const taskId = decodeMemoryQueueRef(sessionPeek.taskId);
+        if (!taskId) return json({ error: "invalid task reference", code: "invalid_reference" }, 400);
+        const task = svc.get(taskId)?.task;
         if (!task?.assignedTopicId) return json({ peek: null });
         const topic = ctx.getTopicById(task.assignedTopicId);
         if (!topic) return json({ peek: null });
@@ -3005,7 +3028,11 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
 
     const allTaskItem = matchRoute(pathname, "/api/all-boards/tasks/:taskId");
     if (allTaskItem && method === "GET") {
-      try { return json({ task: svc.get(allTaskItem.taskId)?.task ?? null }); }
+      try {
+        const taskId = decodeMemoryQueueRef(allTaskItem.taskId);
+        if (!taskId) return json({ error: "invalid task reference", code: "invalid_reference" }, 400);
+        return json({ task: svc.get(taskId)?.task ?? null });
+      }
       catch (e) { return fail(e); }
     }
 
