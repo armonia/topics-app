@@ -1796,6 +1796,15 @@ export interface BoardSettings {
   /** AICTRL-05: default board dello switch, asse separato da `dispatchModel`, che non tocca mai. `null` = nessuna scelta qui: decide il task, o in ultimo il prefisso legacy. allow-italian: ordine di risoluzione del default */
   dispatchTopicsRouting: boolean | null;
   /**
+   * Default execution machine of this board. `null` (the default) = no rule: a
+   * card runs here unless it names a machine itself. A machine id = every card
+   * CREATED on this board without an explicit `machineId` gets this one (a
+   * paired node, or the local machine meaning "here"). Existing cards are not
+   * touched. Written only for a paired node whose repository the node can find
+   * by its git origin, see the PATCH route.
+   */
+  dispatchMachineId: string | null;
+  /**
    * Lingua in cui rispondono gli agenti dispatchati su questa board.
    * 'inherit' (il default NULL) → vale la preferenza globale
    * (`app_settings.output_language`), che e' anche quella di chat e terminale:

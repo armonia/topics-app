@@ -19,6 +19,7 @@ import { hashToken } from "../../server/lib/device-auth";
 import { resolveDelegatedCredential } from "../../server/lib/identity";
 import { createNodeClient, readDelegatedNodeToken } from "../../server/services/node-client";
 import { setupTestDataDir, cleanupTestDataDir, createTestAppContext, testTmpDir } from "./helpers";
+import { projectIdForPath } from "../../shared/board";
 
 const ROOT = testTmpDir("nodes-routes");
 const REPO = join(ROOT, "repo");
@@ -45,6 +46,8 @@ function git(cwd: string, ...args: string[]): string {
 let ctx: AppContext;
 let router: RouteHandler;
 let projectId: string;
+/** The board id of the same project: what a card carries (hash of the path). */
+let boardId: string;
 let mainSha: string;
 let deliverySha: string;
 let failNodeBoardDelete = false;
@@ -116,6 +119,7 @@ beforeAll(async () => {
   ctx = await createTestAppContext();
   ctx.requestIp = () => "127.0.0.1";
   projectId = ctx.projectStore.create({ name: "widgets", slug: "widgets", path: REPO }).id;
+  boardId = projectIdForPath(REPO);
   delegatedMachineId = ctx.machineStore.upsertLocal().id;
   const now = Date.now();
   ctx.db.run(
@@ -296,13 +300,16 @@ describe("nodes routes: ingress of a mirrored card", () => {
   test("POST crea la card specchiata in todo con la nota d'origine, e un secondo POST torna lo stesso runId", async () => {
     const first = await mirror("origin-task-1");
     expect(first.status).toBe(201);
-    expect(first.body.projectId).toBe(projectId);
+    // On the BOARD, like any card: the node's dispatcher resolves a checkout by
+    // board id only, and the store UUID parked the run (PC node, 2026-10-26).
+    expect(first.body.projectId).toBe(boardId);
+    expect(boardId).not.toBe(projectId);
     const runId = first.body.runId as string;
 
     const { createTaskService } = await import("../../server/services/tasks");
     const got = createTaskService(ctx.db).get(runId)!;
     expect(got.task.status).toBe("todo");
-    expect(got.task.projectId).toBe(projectId);
+    expect(got.task.projectId).toBe(boardId);
     const service = got.comments.filter((c) => c.kind === "service");
     expect(service.length).toBe(1);
     expect(service[0].content).toContain("github.com/acme/widgets");
@@ -314,11 +321,27 @@ describe("nodes routes: ingress of a mirrored card", () => {
     expect(createTaskService(ctx.db).get(runId)!.comments.filter((c) => c.kind === "service").length).toBe(1);
   });
 
+  test("a mirror runs on THIS machine even when its board has a default machine", async () => {
+    // With a board default the service gives an absent machineId the default: a
+    // mirror born that way would leave again, toward the default machine.
+    ctx.db.run("INSERT OR REPLACE INTO board_settings (project_id, dispatch_machine_id) VALUES (?, ?)", [boardId, delegatedMachineId]);
+    try {
+      const r = await mirror("origin-task-board-default");
+      expect(r.status).toBe(201);
+      const { createTaskService } = await import("../../server/services/tasks");
+      expect(createTaskService(ctx.db).get(r.body.runId as string)!.task.machineId ?? null).toBeNull();
+    } finally {
+      ctx.db.run("DELETE FROM board_settings WHERE project_id = ?", [boardId]);
+    }
+  });
+
   test("un'origine che nessun progetto conosce risponde no_such_repo e non crea progetti", async () => {
     const before = ctx.projectStore.list().length;
     const r = await mirror("origin-task-unknown", "https://github.com/acme/nowhere.git");
     expect(r.status).toBe(404);
     expect(r.body.error).toBe("no_such_repo");
+    // The client classifies on `code`: without it the coordinator sees a dead node and retries forever.
+    expect(r.body.code).toBe("no_such_repo");
     expect(ctx.projectStore.list().length).toBe(before);
   });
 
@@ -327,7 +350,7 @@ describe("nodes routes: ingress of a mirrored card", () => {
     const runId = body.runId as string;
     const { createTaskService } = await import("../../server/services/tasks");
     const svc = createTaskService(ctx.db);
-    svc.update({ taskId: runId, actor: "human", by: "user", patch: { status: "review" }, projectId });
+    svc.update({ taskId: runId, actor: "human", by: "user", patch: { status: "review" }, projectId: boardId });
     svc.recordDelivery({ taskId: runId, branch: DELIVERY_BRANCH, commit: deliverySha, stat: { filesChanged: 1, insertions: 1, deletions: 0 } });
 
     const resp = await call("GET", `/api/nodes/runs/${runId}`);
