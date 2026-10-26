@@ -326,6 +326,49 @@ describe("la card parte sul nodo, non qui", () => {
     expect(h.task().status).toBe("todo");
     expect(h.task().dispatchError).toBe("node_unreachable");
   });
+
+  it("la card rimandata indietro porta al nodo il feedback della review e la consegna precedente", async () => {
+    // ff293eda, 26/10: the reviewer twice asked the PC for one line in the README; the node was
+    // only ever given the title and the description, rewrote the file from scratch every round
+    // and never wrote the line. A local card reads its thread through `get_task`; a node cannot.
+    const h = harness();
+    h.seed();
+    h.svc.addComment({ taskId: TASK, author: "agent", kind: "delivery", content: "README riscritto, 38 righe" });
+    h.svc.addComment({ taskId: TASK, author: "attilio", content: "Manca il prerequisito git config user.name/user.email" });
+    h.svc.addComment({ taskId: TASK, author: "system", kind: "service", content: "Task in coda per una nuova sessione." });
+    h.svc.addComment({ taskId: TASK, author: "system", content: "Consegnato dal nodo «Portatile»: il ramo è stato piantato" });
+
+    await dispatch(h);
+
+    const sent = (h.created[0].body as { description: string }).description;
+    expect(sent.startsWith("con il ramo")).toBe(true);
+    expect(sent).toContain("Manca il prerequisito git config user.name/user.email");
+    expect(sent).toContain("README riscritto, 38 righe");
+    // The dispatcher's own bookkeeping is not the reviewer's voice.
+    expect(sent).not.toContain("Task in coda per una nuova sessione");
+    expect(sent).not.toContain("Consegnato dal nodo");
+  });
+
+  it("a un dispositivo ospite confinato la discussione del proprietario NON viaggia", async () => {
+    const h = harness({}, { delegatedPolicyForTask: () => delegatedPolicy() });
+    h.seed();
+    h.db.run("UPDATE tasks SET delegated_start_capability_id = 'capability-confined' WHERE id = ?", [TASK]);
+    h.svc.addComment({ taskId: TASK, author: "attilio", content: "nota privata del proprietario" });
+
+    await dispatch(h);
+
+    expect(h.created).toHaveLength(1);
+    expect((h.created[0].body as { description: string }).description).toBe("con il ramo");
+  });
+
+  it("una card senza discussione parte con la sua descrizione, identica", async () => {
+    const h = harness();
+    h.seed();
+
+    await dispatch(h);
+
+    expect((h.created[0].body as { description: string }).description).toBe("con il ramo");
+  });
 });
 
 describe("l'hook node-run gira prima che la card parta sul nodo", () => {
