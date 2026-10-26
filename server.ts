@@ -3153,8 +3153,8 @@ const probeNodes = createNodeProbe({
     hostname: osHostname(),
   }),
   tokenOf: (machineId) => readNodeToken(ctx.STATE_DIR, machineId),
-  refresh: (node) => ctx.machineStore.upsertNode({ hostname: node.hostname, name: node.name, baseUrl: node.baseUrl }),
-  onRevived: (machine) => ctx.broadcastToAll({ type: "machine:upserted", machine, payload_version: 1 }),
+  touch: (machineId) => ctx.machineStore.touchNode(machineId),
+  onRefreshed: (machine) => ctx.broadcastToAll({ type: "machine:upserted", machine, payload_version: 1 }),
   isCloud: isCloudBaseUrl,
   log: (message, err) => console.warn(`[Heartbeat] ${message}`, err),
 });

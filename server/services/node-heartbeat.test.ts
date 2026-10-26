@@ -23,7 +23,7 @@ type Answer = "not_found" | "unreachable" | "unauthorized" | "server_error" | "o
 function setup(rows: Machine[], answers: Record<string, Answer>, tokens: Record<string, string | null> = {}) {
   const asked: string[] = [];
   const refreshed: string[] = [];
-  const revived: string[] = [];
+  const announced: string[] = [];
   const release: Array<() => void> = [];
   const client: Pick<NodeClient, "readRun"> = {
     readRun: async ({ baseUrl, runId }) => {
@@ -41,23 +41,25 @@ function setup(rows: Machine[], answers: Record<string, Answer>, tokens: Record<
     list: () => rows,
     client,
     tokenOf: (id) => (id in tokens ? tokens[id]! : "tok"),
-    refresh: (node) => { refreshed.push(node.id); return { ...node, status: "online" }; },
-    onRevived: (m) => revived.push(m.id),
+    touch: (id) => { refreshed.push(id); return { ...rows.find((r) => r.id === id)!, status: "online" }; },
+    onRefreshed: (m) => announced.push(m.id),
     isCloud: (baseUrl) => baseUrl === "claude-cloud://",
   });
-  return { probe, asked, refreshed, revived, release };
+  return { probe, asked, refreshed, announced, release };
 }
 
 const settle = () => new Promise<void>((resolve) => setTimeout(resolve, 0));
 
 describe("il battito di un nodo accoppiato", () => {
-  it("un nodo che risponde «run non trovato» è vivo: il battito si scrive, e se era offline torna in lista", async () => {
+  it("un nodo che risponde «run non trovato» è vivo: il battito si scrive e la lista lo sa, anche se era offline", async () => {
     const s = setup([machine({ id: "pc", status: "offline" }), machine({ id: "mini", status: "online" })], {});
     s.probe();
     await settle();
 
     expect(s.refreshed.sort()).toEqual(["mini", "pc"]);
-    expect(s.revived).toEqual(["pc"]); // only the one that was offline is announced
+    // Both are announced, the one that was already online too: the sweep of the same tick may have
+    // flipped it after this probe read the list.
+    expect(s.announced.sort()).toEqual(["mini", "pc"]);
   });
 
   it("un nodo che non risponde, o che non riconosce più questo dispositivo, non prende il battito", async () => {
@@ -70,6 +72,7 @@ describe("il battito di un nodo accoppiato", () => {
 
     expect(s.asked).toHaveLength(3);
     expect(s.refreshed).toEqual([]);
+    expect(s.announced).toEqual([]);
   });
 
   it("uno che non risponde non ferma gli altri", async () => {

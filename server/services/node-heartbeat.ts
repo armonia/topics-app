@@ -29,10 +29,14 @@ export interface NodeProbeDeps {
   client: Pick<NodeClient, "readRun">;
   /** The device token of a node, `null` when this server holds none. */
   tokenOf: (machineId: string) => string | null;
-  /** Writes the heartbeat of a node and returns its row. */
-  refresh: (node: Machine & { baseUrl: string }) => Machine;
-  /** A node that was «offline» answered: the people looking at the list must see it come back. */
-  onRevived: (machine: Machine) => void;
+  /** Writes the heartbeat of a node (the row, nothing else) and returns it; `null` when the row is gone. */
+  touch: (machineId: string) => Machine | null;
+  /**
+   * A node answered and its row was refreshed: tell the people looking at the list. Every time, not
+   * only on a comeback: the sweep of the same tick may have flipped the row offline after the probe
+   * read it, and an announcement decided from that older read would leave the screen saying offline.
+   */
+  onRefreshed: (machine: Machine) => void;
   isCloud: (baseUrl: string | null) => boolean;
   log?: (message: string, err?: unknown) => void;
 }
@@ -49,8 +53,8 @@ async function probeOnce(deps: NodeProbeDeps): Promise<void> {
       if (!(isNodeError(err) && err.reason === "not_found")) return;
     }
     try {
-      const row = deps.refresh(node);
-      if (node.status === "offline") deps.onRevived(row);
+      const row = deps.touch(node.id);
+      if (row) deps.onRefreshed(row);
     } catch (err) {
       deps.log?.(`nodo: battito di ${node.name} non scritto`, err);
     }
