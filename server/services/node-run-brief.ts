@@ -32,14 +32,21 @@ const THREAD_OPENING = [
   "Your checkout is clean. A previous delivery described below is NOT in it, so do the whole task again with the feedback applied; do not assume the files already contain it.",
 ].join("\n");
 
+/** A cut comment keeps its END too: the request a reviewer closes on is usually the last paragraph. */
+const CLIP_TAIL_CHARS = 600;
+
 function clip(text: string): string {
   const t = text.trim();
-  return t.length > MAX_COMMENT_CHARS ? `${t.slice(0, MAX_COMMENT_CHARS)}\n[...cut: ${t.length - MAX_COMMENT_CHARS} characters more on the card]` : t;
+  if (t.length <= MAX_COMMENT_CHARS) return t;
+  const head = MAX_COMMENT_CHARS - CLIP_TAIL_CHARS;
+  return `${t.slice(0, head)}\n[...cut: ${t.length - MAX_COMMENT_CHARS} characters of the middle are on the card...]\n${t.slice(-CLIP_TAIL_CHARS)}`;
 }
 
 function entry(c: TaskComment): string {
   const who = c.kind === "delivery" ? `${c.author}, previous delivery` : c.author;
-  return `[${who}, ${c.createdAt}]\n${clip(c.content)}`;
+  // Files live on this machine: the node cannot open them, but it must know they exist.
+  const files = c.media?.length ? `\n[+${c.media.length} attached file(s), not carried to this machine]` : "";
+  return `[${who}, ${c.createdAt}]\n${clip(c.content)}${files}`;
 }
 
 /**

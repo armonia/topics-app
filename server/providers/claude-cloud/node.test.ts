@@ -167,6 +167,38 @@ describe("nodo cloud", () => {
     expect(r.deliveryBranch).toBe(pushed);
   });
 
+  // Second-model check, round 2: a stale branch with the asked-for name must not outrank the push
+  // the session declares, and two branches under one prefix must not be settled by alphabetical luck.
+  test("il ramo che la sessione dichiara spinto batte quello col nome atteso", async () => {
+    const cloud = fakeCloud();
+    const node = createCloudNodeClient({ api: cloud.api, repoPathOfTask: () => checkout });
+    const { runId } = await node.createRun({ body: { ...body, originUrl: origin } });
+    await node.readRun({ runId });
+    cloud.work();
+    const real = `${cloud.branch()}-zzz-current`;
+    const tip = cloud.work(real);
+    cloud.events.push({ type: "system", subtype: "vcs_state_changed", uuid: "v2", kind: "push", branch: real });
+    cloud.events.push({ type: "result", subtype: "success", uuid: "r7", result: "fatto" });
+    const r = await node.readRun({ runId });
+    expect(r.deliveryBranch).toBe(real);
+    expect(r.deliveryCommit).toBe(tip);
+  });
+
+  test("più rami sotto il prefisso e nessun evento: non ne sceglie uno, li nomina", async () => {
+    const cloud = fakeCloud();
+    const node = createCloudNodeClient({ api: cloud.api, repoPathOfTask: () => checkout });
+    const { runId } = await node.createRun({ body: { ...body, originUrl: origin } });
+    await node.readRun({ runId });
+    cloud.work(`${cloud.branch()}-aaa-foreign`);
+    cloud.work(`${cloud.branch()}-zzz-current`);
+    cloud.events.push({ type: "result", subtype: "success", uuid: "r8", result: "fatto" });
+    const r = await node.readRun({ runId });
+    expect(r.deliveryBranch).toBeNull();
+    expect(r.dispatchError).toBe("cloud_no_branch");
+    expect(r.reason).toContain("aaa-foreign");
+    expect(r.reason).toContain("zzz-current");
+  });
+
   test("la sessione non ha spinto niente: review senza ramo, col nome che si cercava", async () => {
     const cloud = fakeCloud();
     const node = createCloudNodeClient({ api: cloud.api, repoPathOfTask: () => checkout });

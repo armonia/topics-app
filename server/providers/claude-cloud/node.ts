@@ -391,16 +391,20 @@ export function createCloudNodeClient(deps: CloudNodeDeps) {
       let branch: string | null = null;
       let commit: string | null = null;
       let unreachable = false;
-      for (const b of [run.branch, ...run.pushedBranches].filter(Boolean)) {
+      let ambiguous: string[] = [];
+      // What the session itself says it pushed (the latest first) outranks the name we asked for.
+      for (const b of [...new Set([...run.pushedBranches].reverse().concat(run.branch))].filter(Boolean)) {
         const sha = await remoteSha(run.originUrl, `refs/heads/${b}`);
         if (sha === undefined) { unreachable = true; continue; }
         if (sha) { branch = b; commit = sha; break; }
       }
-      // Neither the asked-for name nor a declared push exists: the harness may have suffixed it.
+      // Neither a declared push nor the asked-for name exists: the harness may have suffixed it.
       if (!branch && !unreachable && run.branch) {
         const found = await suffixedBranches(run.originUrl, run.branch);
         if (found === undefined) unreachable = true;
-        else if (found[0]) { branch = found[0].name; commit = found[0].sha; }
+        // Several branches under one prefix: picking one would deliver somebody else's work, a person decides.
+        else if (found.length === 1) { branch = found[0]!.name; commit = found[0]!.sha; }
+        else ambiguous = found.map((f) => f.name);
       }
       // A mute origin does not mean «branch not pushed»: retry on the next round, up to 10.
       if (!branch && unreachable && ++run.originFails < ORIGIN_RETRIES) {
@@ -416,7 +420,9 @@ export function createCloudNodeClient(deps: CloudNodeDeps) {
         return { status: "review", dispatchState: "needs_input", dispatchError: "cloud_origin_unreachable", comments, reason: `origin non risponde, e il ramo \`${run.branch}\` non si è potuto cercare`, ...EMPTY };
       }
       if (!branch) {
-        return { status: "review", dispatchState: "needs_input", dispatchError: "cloud_no_branch", comments, reason: `la sessione non ha spinto il ramo \`${run.branch}\` su origin`, ...EMPTY };
+        return { status: "review", dispatchState: "needs_input", dispatchError: "cloud_no_branch", comments, reason: ambiguous.length
+          ? `la sessione ha spinto più rami che iniziano per \`${run.branch}-\` (${ambiguous.map((b) => `\`${b}\``).join(", ")}): non ne scelgo uno io`
+          : `la sessione non ha spinto il ramo \`${run.branch}\` su origin`, ...EMPTY };
       }
       try {
         run.bundle = await prepareBundle(run, branch);

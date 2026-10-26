@@ -19,6 +19,12 @@ function comment(over: Partial<TaskComment>): TaskComment {
 }
 
 describe("nodeRunDescription", () => {
+  it("un allegato non viaggia, ma il nodo sa che c'è", () => {
+    const out = nodeRunDescription("d", [comment({ content: "guarda lo screenshot", media: ["/Users/x/uploads/a.png", "/Users/x/uploads/b.png"] })]);
+    expect(out).toContain("2 attached file(s)");
+    expect(out).not.toContain("/Users/x/uploads");
+  });
+
   it("senza parole dette la descrizione passa identica, anche vuota", () => {
     expect(nodeRunDescription("la mia descrizione", [])).toBe("la mia descrizione");
     expect(nodeRunDescription(null, [])).toBe("");
@@ -45,8 +51,11 @@ describe("nodeRunDescription", () => {
   });
 
   it("un commento enorme è tagliato, e i più vecchi cadono prima dei nuovi", () => {
-    const huge = comment({ content: "A".repeat(MAX_COMMENT_CHARS * 3) });
-    expect(nodeRunDescription("", [huge]).length).toBeLessThan(MAX_COMMENT_CHARS + 1_500);
+    const huge = comment({ content: `${"A".repeat(MAX_COMMENT_CHARS * 3)}\nLA RICHIESTA IN CODA` });
+    const cut = nodeRunDescription("", [huge]);
+    expect(cut.length).toBeLessThan(MAX_COMMENT_CHARS + 1_500);
+    // The end of a long comment is where the reviewer asks for the thing.
+    expect(cut).toContain("LA RICHIESTA IN CODA");
 
     const old = Array.from({ length: 20 }, (_, i) => comment({ content: `vecchio-${i} ${"b".repeat(MAX_COMMENT_CHARS - 20)}` }));
     const newest = comment({ content: "L'ULTIMO FEEDBACK" });
