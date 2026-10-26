@@ -82,10 +82,15 @@ try {
 const page = await browser.newPage({ viewport: { width: 1280, height: 800 } });
 
 const errori = [];
+let probing = false;
 page.on('pageerror', (e) => errori.push(`uncaught: ${e.message}`));
 page.on('console', (m) => {
   if (m.type() !== 'error') return;
   const t = m.text().split('\n')[0];
+  // The glass probe flips the theme in place, which makes the demo terminal
+  // replay its canned frames; xterm warns about the multi-byte glyph it
+  // re-reads mid-sequence. A side effect of the probe, not of the boot.
+  if (probing && /xterm\.js: Parsing error/.test(t)) return;
   if (/Failed to load resource/.test(t)) return;   // covered by the response hook
   errori.push(`console: ${t}`);
 });
@@ -113,7 +118,10 @@ try {
     if (MUTANT) await page.evaluate(() => document.getElementById('landing-glass-solid')?.remove());
     if (await identityRow.click({ timeout: 10000 }).then(() => true, () => false)) {
       await page.waitForTimeout(2500);
+      probing = true;
       const glass = await glassProblems(page, browser);
+      await page.waitForTimeout(3000);
+      probing = false;
       if (MUTANT) {
         if (!glass.length) problemi.push('mutant survived: without the solid-menu sheet the glass probe stayed green');
         else console.log('check:demo --mutant — the glass probe went red as it should');
