@@ -45,6 +45,11 @@ export const REASONS: Record<string, string> = {
     "riscrittura (`bun run scripts/scrub-history.ts` per misurare, `--check` per l'esito), " +
     "che e' l'unico momento in cui serve. Se un giorno si scaricasse la storia intera in CI, " +
     "questa riga va tolta e il cancello cablato.",
+  "check:quality-bar":
+    "legge lo stato di GitHub (ultimo CI su main, issue bug aperte) e il log del server di " +
+    "chi lo lancia: in CI il primo sarebbe il run stesso e il secondo non esiste. Lo esegue " +
+    "`scripts/qa-gate.sh`, la barra locale; il suo test unitario (un mutante per misura) gira " +
+    "invece nella suite.",
   "check:sidecars":
     "guarda l'ALLESTIMENTO di questa postazione, non il codice: dice se " +
     "desktop-tauri/src-tauri/binaries c'e', cioe' se il crate Tauri e' compilabile qui. In CI " +
