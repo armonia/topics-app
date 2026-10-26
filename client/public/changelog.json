@@ -1,5 +1,76 @@
 [
   {
+    "version": "2.3.34",
+    "date": "2026-10-26",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [
+        {
+          "it": "porta cache TTL a 1h e keepalive a 4 min (#481)",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        }
+      ],
+      "internal": [
+        {
+          "it": "Chiudi i comandi di una card insieme alla card (#454)",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Coda per memoria della kanban: una card locale alla volta quando la memoria è poca (#465)",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Main di nuovo verde: avviso postcss-selector-parser e tetto di bloat del dispatcher (#476)",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Le card su Cloud Claude non aspettano più la memoria del Mac (#473)",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "i token dei nodi appaiati in nodes/ non entrano nel repo (#475)",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "il B7 della parità di ammissione misura dal t0 dell'harness (#477)",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "GET /__daemon/idle, «c'è un turno in volo?» di sola lettura (card fe19d3f9) (#469)",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "Card dei nodi: «review» senza ramo aspetta tre giri prima di consegnare vuoto (#478)",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Nodo remoto: il feedback della review arriva al nodo, il cloud consegna il ramo col suo suffisso (#480)",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Archiving a done card no longer reopens it (card 47b63de2) (#471)",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
     "version": "2.3.33",
     "date": "2026-10-26",
     "sections": {
