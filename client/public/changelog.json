@@ -1,5 +1,37 @@
 [
   {
+    "version": "2.3.35",
+    "date": "2026-10-26",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Il prezzo di una card in memoria è quello della sua board (#482)",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Dopo un riavvio il nodo non rimanda più la consegna vecchia come nuova (#485)",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il PC accoppiato non scade più offline cinque minuti dopo l'accoppiamento (#486)",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "guard against empty --setting-sources in Claude spawns (card 803aca76) (#483)",
+          "en": "",
+          "scope": "args",
+          "breaking": false
+        }
+      ]
+    }
+  },
+  {
     "version": "2.3.34",
     "date": "2026-10-26",
     "sections": {
