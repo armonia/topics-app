@@ -19,6 +19,8 @@ const MIN_STEP = 10;     // luminance levels (0-255) the seam must show to be me
 const STEP_RATIO = 0.12; // a bare 72% fill leaks 0.28 of the step
 const BAND = [2, 8];     // columns, on each side of the edge, averaged
 
+const MENU = '[data-testid="profile-menu"].glass-surface'; // the identity menu
+
 const DECODE = async (b64) => {
   const img = new Image();
   img.src = 'data:image/png;base64,' + b64;
@@ -59,10 +61,10 @@ async function shoot(page, decoder, clip) {
 
 /** One scheme: returns { behind, with, x } or null when the seam is too faint to judge. */
 async function measureOnce(page, decoder, clip) {
-  await page.evaluate(() => document.querySelectorAll('[data-popover]').forEach((e) => { e.style.visibility = 'hidden'; }));
+  await page.evaluate((sel) => document.querySelectorAll(sel).forEach((e) => { e.style.visibility = 'hidden'; }), MENU);
   await page.waitForTimeout(150);
   const behind = await shoot(page, decoder, clip);
-  await page.evaluate(() => document.querySelectorAll('[data-popover]').forEach((e) => { e.style.visibility = ''; }));
+  await page.evaluate((sel) => document.querySelectorAll(sel).forEach((e) => { e.style.visibility = ''; }), MENU);
   await page.waitForTimeout(150);
   const shown = await shoot(page, decoder, clip);
 
@@ -81,9 +83,9 @@ async function measureOnce(page, decoder, clip) {
  */
 export async function glassProblems(page) {
   const problems = [];
-  const menu = page.locator('[role="menu"].glass-surface').first();
+  const menu = page.locator(MENU).first();
   if (!(await menu.waitFor({ state: 'visible', timeout: 5000 }).then(() => true, () => false))) {
-    return ['glass: no .glass-surface menu is open, so the seam under it could not be measured'];
+    return ['glass: the identity menu is not open, so the seam under it could not be measured'];
   }
   const box = await menu.boundingBox();
   if (!box) return ['glass: the menu has no box'];
