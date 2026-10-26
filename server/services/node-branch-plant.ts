@@ -12,7 +12,8 @@
  * tempting repair is to ask for a full-history bundle, and it is the wrong one:
  * it downloads a whole repository over a device channel to hide a checkout that
  * is simply behind. So the base is CHECKED first (`git cat-file -e`) and its
- * absence is written on the card as a reason a person can act on.
+ * absence is written on the card as a reason a person can act on, after ONE
+ * bounded `git fetch origin` that covers the common case (this clone is behind).
  *
  * Git lives here and not in the dispatcher on purpose: the dispatcher only
  * calls `deps.node.plantBranch`, which keeps every subprocess out of the lane
@@ -96,14 +97,25 @@ export function createNodeBranchPlanter(deps: NodeBranchPlantDeps): NodeBranchPl
       }
       // The precondition, checked BEFORE the fetch: see the header. `^{commit}`
       // so a sha that exists as another object type is not read as a commit.
-      const known = await runGit(repo, ["cat-file", "-e", `${baseSha}^{commit}`]);
-      if (known.code !== 0) {
+      const hasBase = async () => (await runGit(repo, ["cat-file", "-e", `${baseSha}^{commit}`])).code === 0;
+      let known = await hasBase();
+      if (!known) {
+        // The node forks from the `origin/main` IT fetched, which for a public
+        // repo can be newer than this checkout's last fetch: the base is then
+        // missing here only because this clone is behind. ONE bounded fetch of
+        // origin (never a prompt, never a full-history bundle from the node),
+        // then the check is asked again.
+        await runGit(repo, ["fetch", "--no-tags", "origin"], { env: { GIT_TERMINAL_PROMPT: "0" } });
+        known = await hasBase();
+      }
+      if (!known) {
         return {
           planted: false,
           commit: null,
           reason:
-            `il commit di base ${baseSha.slice(0, 8)} non è in questo checkout: il bundle del nodo contiene solo ` +
-            "il lavoro dopo quel punto, quindi non si applica. Allinea questo repo (fetch del ramo di base) e riprova.",
+            `il commit di base ${baseSha.slice(0, 8)} non è in questo checkout, nemmeno dopo un fetch di origin: ` +
+            "il bundle del nodo contiene solo il lavoro dopo quel punto, quindi non si applica. " +
+            "Allinea questo repo (fetch del ramo di base) e riprova.",
         };
       }
       if (!bundle || bundle.length === 0) {

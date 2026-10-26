@@ -3593,6 +3593,15 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
     return rowToTask(getTaskRow(taskId));
   }
 
+  /** `board_settings.dispatch_machine_id` of a board, or null when it has no row or no rule. */
+  function boardDispatchMachineId(projectId: string): string | null {
+    try {
+      const r = db.prepare("SELECT dispatch_machine_id FROM board_settings WHERE project_id = ?").get(projectId) as
+        { dispatch_machine_id: string | null } | null;
+      return r?.dispatch_machine_id ?? null;
+    } catch { return null; } // reduced schema without the column: no rule
+  }
+
   const service: TaskService = {
     create(input: CreateTaskInput): Task {
       const text = (input.text ?? "").trim();
@@ -3653,7 +3662,8 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
         // "Priorità automatica": no explicit choice at creation = the
         // dispatched agent evaluates and sets one at kickoff.
         input.priority === undefined ? 1 : 0,
-        input.machineId ?? null,
+        // No explicit machine = the board's default one (NULL when it has none).
+        input.machineId === undefined ? boardDispatchMachineId(input.projectId) : input.machineId,
         input.topicsRouting === undefined || input.topicsRouting === null ? null : (input.topicsRouting ? 1 : 0),
       );
       return rowToTask(getTaskRow(id));
@@ -6492,6 +6502,7 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
         dispatchModel: r?.dispatch_model ?? "auto",
         // AICTRL-05: default board dello switch; NULL = nessuna scelta su questa board (ordine di risoluzione in shared/board.ts). allow-italian: dice cosa significa NULL in colonna
         dispatchTopicsRouting: r?.dispatch_topics_routing == null ? null : !!r.dispatch_topics_routing,
+        dispatchMachineId: r?.dispatch_machine_id ?? null,
         language: r?.language ?? "inherit",
         // NULL = 1: una board che non ha mai sentito parlare di fan-out dispaccia
         // un agente per task, com'è sempre stato.
@@ -6558,6 +6569,11 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       if (patch.dispatchTopicsRouting !== undefined) {
         sets.push("dispatch_topics_routing = ?");
         params.push(patch.dispatchTopicsRouting === null ? null : (patch.dispatchTopicsRouting ? 1 : 0));
+      }
+      // Empty or null clears it: a board with no rule runs its cards here.
+      if (patch.dispatchMachineId !== undefined) {
+        sets.push("dispatch_machine_id = ?");
+        params.push((patch.dispatchMachineId ?? "").trim() || null);
       }
       if (patch.language !== undefined) { sets.push("language = ?"); params.push(patch.language && patch.language !== "inherit" ? patch.language : null); }
       // Tetto a 5: oltre, il fan-out non è più "confronto fra alternative" ma un

@@ -3039,7 +3039,8 @@ export async function handleMessage(
   }
 }
 
-async function main(): Promise<void> {
+/** The stdio loop. Exported so the compiled sidecar can become the bridge (`sidecar-entry.ts`). */
+export async function runTopicsMcpServer(): Promise<void> {
   const parsed = parseArgs(process.argv.slice(2));
   const args: ParsedArgs = { ...parsed, topicsHome: parsed.topicsHome ?? topicsHome() };
   const rl = createInterface({ input: process.stdin });
@@ -3068,9 +3069,9 @@ async function main(): Promise<void> {
   rl.on("close", () => process.exit(0));
 }
 
-// Only run main() when executed directly (not when imported by the test file).
+// Only run the loop when executed directly (not when imported by the test file).
 if (import.meta.main) {
-  main().catch((e) => {
+  runTopicsMcpServer().catch((e) => {
     // Surface boot errors on stderr — the CLI host will log them.
     console.error("[topics-mcp-server] fatal:", e instanceof Error ? e.message : e);
     process.exit(1);

@@ -4039,8 +4039,10 @@ essere quello locale di sempre, invariato. Non SHALL esserci nessun `push` verso
 `origin` e nessun remoto condiviso.
 
 Il bundle SHALL presupporre che questo checkout ABBIA il `baseSha`: se non ce
-l'ha, il motivo SHALL essere scritto sulla card e NON SHALL esserci un ripiego a
-bundle di storia intera. Se il nodo non conosce il repository per la sua origine
+l'ha, SHALL partire UN solo `git fetch --no-tags origin` (mai un prompt), perché
+il nodo forca dall'`origin/main` che ha appena scaricato e questo clone può
+essere solo indietro. Se il commit manca ancora, il motivo SHALL essere scritto
+sulla card e NON SHALL esserci un ripiego a bundle di storia intera. Se il nodo non conosce il repository per la sua origine
 git, la risposta SHALL essere un `no_such_repo` dichiarato e NESSUN progetto
 SHALL essere creato sul nodo.
 
