@@ -758,7 +758,8 @@ describe("a todo card held by the machine for an hour", () => {
     h.floor.memGB = 4.2;
     await poll(60_000);
     expect(h.framesOf("drawer")).toBe(framesBefore);
-    expect(h.lastFrame("drawer")!.queueReason).toMatchObject({ kind: "resource_floor", params: { reason: "waiting-memory" } });
+    expect(h.lastFrame("drawer")!.queueReason).toMatchObject({ kind: "resource_floor", tone: "waiting" });
+    expect(h.lastFrame("drawer")!.queueReason!.key).toMatch(/^board\.queue\.memory\./);
 
     // The spend cap takes over from the floor.
     h.floor.memGB = null;
