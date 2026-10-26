@@ -391,7 +391,13 @@ export const GB_PER_AGENT_CLI = 3;
 export const GB_PER_AGENT_NATIVE = 1.5;
 /** Measured peak for one CLI agent, in GB. */
 export const CLI_AGENT_PEAK_GB = 0.42;
-/** Estimated: card-memory-peaks is populated only after checks run (review-checks.ts:509), so native no-check work has no measured peak. */
+/**
+ * What one native card with no local check weighs, server included. Measured
+ * 26/10/2026 on the live server, 328 samples over 45 minutes with a turn in
+ * flight: the whole process tree p50 0.83, p95 1.04, max 1.15 GB, children of
+ * the server never above 104 MB. The card-memory-peaks ledger cannot say it
+ * (it is fed only after a local check runs, review-checks.ts:509).
+ */
 export const NATIVE_NO_LOCAL_CHECK_RESERVATION_GB = 1;
 
 /**

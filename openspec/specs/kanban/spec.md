@@ -4005,9 +4005,31 @@ toolbar e coerente con gli altri dropdown dell'app (stessa primitiva `Menu`:
 flip/clamp, Escape, esclusività fra popover). Resta valido KANBAN-12: una sola
 porta alle impostazioni, e nessuna riga sotto la toolbar.
 
+**Il prezzo di una card in memoria è quello della sua board**, non una cifra
+della macchina. Una board che lavora IN PLACE e non dichiara check locali (le
+sole prove della CI di GitHub non lo sono) prezza le sue card all'agente e ai
+suoi comandi leggeri: 1 GB col runtime nativo, il picco del processo col CLI.
+Ogni altra board, e ogni card segnata pesante, paga il listino dei picchi dei
+check: tra 4 e 6 GB, quattro a registro vuoto. La prenotazione dei turni in volo
+SHALL contare ogni turno al prezzo della SUA board, per tutta la vita del
+turno. Davanti a un blocco di MEMORIA (il pavimento, o l'asse memoria del tetto
+per risorse) una card leggera SHALL ripetere la stessa domanda col proprio
+prezzo e passare solo se vi passerebbe: disco pieno, freno di spesa, asse CPU
+con la sua isteresi e finestra del piano NON SHALL essere alleggeriti. Il
+pavimento (6 GB nativo) e la sua finestra di due minuti non cambiano. Misurato
+il 26/10/2026: l'albero del server con un turno in volo sta a 1,04 GB (p95)
+contro i 4,0 del vecchio prezzo, e i giri di check delle board con worktree a
+4,3 GB (p95), quindi il listino resta per loro. L'istantanea della coda memoria
+porta il prezzo di ogni card, e `GET /api/system/dispatch-capacity?board=<id>`
+risponde per quella board; senza board vale il prezzo caro.
+
 MISURA: `shared/machine-budget.test.ts` per il controllore puro (budget contro
 libero, ammissione uno per tick con isteresi, ordine di congelamento, due
 letture per decidere, e il rigioco delle otto card del 07/09);
+`server/services/dispatch-card-price.test.ts` e
+`server/services/task-dispatcher-card-price.test.ts` per la riga di memoria
+della board (classe, prenotazione per turno, ripresa, solo la memoria
+alleggerita, coda e capacità per board);
 `server/services/budget-governor.test.ts` per il congelamento vero;
 `server/services/task-dispatcher-pressure.test.ts` per i due versi dentro il
 dispatcher; `server/services/task-dispatcher-admission.test.ts` per le porte

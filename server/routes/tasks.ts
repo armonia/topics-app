@@ -3056,7 +3056,10 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
       // gate have to answer from ONE number, or the slider promises a share the
       // dispatcher is not applying.
       let admission: DispatchAdmission | null = null;
-      try { admission = dispatcher?.admissionPreview?.() ?? null; } catch { /* best-effort */ }
+      // `?board=<id>` asks the same question for one board's price: a light
+      // board (in place, no local check) and a repo board are not held by the same line.
+      const board = new URL(req.url).searchParams.get("board");
+      try { admission = dispatcher?.admissionPreview?.(board) ?? null; } catch { /* best-effort */ }
       return json({
         ...computeDispatchCapacity(running, undefined, resolveAgentRuntime() === "cli", undefined, {
           share: budgetShare(svc.getGlobalCap()),
