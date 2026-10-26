@@ -145,9 +145,9 @@ test("the group leader stays verifiable after its command leaves a child behind"
   }
 });
 
-// Chiusa appena nata, come una Stop subito dopo il Run: il TERM può arrivare
-// fra il trap del leader e l'exec del comando, dove prima si perdeva e il
-// gruppo viveva fino al SIGKILL dopo la grazia.
+// Closed as it starts, like a Stop right after Run: the TERM can land between
+// the leader's trap and the command's exec, where it used to be lost and the
+// group lived until the SIGKILL after the grace.
 test("a group closed as it starts ends on TERM, not on the delayed SIGKILL", async () => {
   for (let attempt = 0; attempt < 3; attempt++) {
     const processId = crypto.randomUUID();

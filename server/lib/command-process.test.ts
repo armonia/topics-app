@@ -59,9 +59,9 @@ describe("the wrapper leaves the exit code beside the log", () => {
   });
 });
 
-// Il registro scrive il file di stop prima del SIGTERM al gruppo: un TERM
-// arrivato fra il trap del leader e l'exec del comando si perdeva, e il comando
-// partiva lo stesso fino al SIGKILL dopo la grazia.
+// The registry writes the stop file before SIGTERM reaches the group: a TERM
+// that landed between the leader's trap and the command's exec was lost, and
+// the command started anyway, living until the SIGKILL after the grace.
 describe("a stop requested while the command is starting", () => {
   test("the command never runs, and the wrapper writes the TERM status", () => {
     const ran = join(DIR, "ran-command");

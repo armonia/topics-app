@@ -37,16 +37,16 @@ function waitForGroupMembersScript(platform: NodeJS.Platform): string {
 }
 
 /**
- * Il comando parte da una /bin/sh di guardia che, dopo il proprio exec, guarda
- * il file di stop scritto dal registro prima del SIGTERM al gruppo.
+ * The command starts from a guard /bin/sh that, after its own exec, looks for
+ * the stop file the registry writes before it sends SIGTERM to the group.
  *
- * Il leader intercetta TERM (`trap ':'`) per restare vivo e scrivere il codice
- * d'uscita. Un TERM che arriva fra quel trap e l'exec del figlio cade nel trap
- * ereditato dal fork e si perde: il comando partiva lo stesso e viveva fino al
- * SIGKILL dopo la grazia. Dopo l'exec TERM è di nuovo al default, quindi o il
- * TERM arriva qui e uccide la guardia, o è arrivato prima e il file c'è già.
- * 143 è il codice di una shell il cui figlio muore di TERM. La guardia è sempre
- * /bin/sh: zsh rileggerebbe `.zshenv` una volta in più.
+ * The leader traps TERM (`trap ':'`) to stay alive and write the exit code. A
+ * TERM that lands between that trap and the child's exec hits the handler the
+ * fork inherited and is lost: the command started anyway and lived until the
+ * SIGKILL after the grace. After the exec TERM is back to its default, so
+ * either the TERM arrives here and kills the guard, or it came earlier and the
+ * file is already there. 143 is what a shell reports for a child killed by
+ * TERM. The guard is always /bin/sh: zsh would read `.zshenv` once more.
  */
 const START_UNLESS_STOPPING = `/bin/sh -c 'if [ -e "$1" ]; then exit 143; fi; shift; exec "$@"' _`;
 

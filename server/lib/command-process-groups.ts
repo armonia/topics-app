@@ -60,9 +60,9 @@ function registryPath(): string {
 }
 
 /**
- * Il file che il wrapper del comando guarda prima di avviarlo
- * (`START_UNLESS_STOPPING` in `command-process.ts`): scritto prima del SIGTERM,
- * così un TERM arrivato mentre il comando nasceva non lo lascia partire.
+ * The file the command wrapper checks before it starts the command
+ * (`START_UNLESS_STOPPING` in `command-process.ts`): written before SIGTERM,
+ * so a TERM that arrives while the command is starting does not let it run.
  */
 export function commandProcessGroupStopPath(processId: string): string {
   return join(dirname(registryPath()), `command-process-group-${encodeURIComponent(processId)}.stop`);
