@@ -27,6 +27,8 @@ describe("nodeRunDescription", () => {
       comment({ kind: "service", content: "Task in coda" }),
       comment({ kind: "status", content: "todo→in_progress" }),
       comment({ kind: "review-note", content: "check verdi" }),
+      // Written by the system as plain `comment`s (seen on ff293eda): still not anybody's voice.
+      comment({ author: "system", content: "Consegnato dal nodo «PC Windows»: il ramo è stato piantato" }),
     ])).toBe("d");
   });
 

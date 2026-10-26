@@ -336,6 +336,7 @@ describe("la card parte sul nodo, non qui", () => {
     h.svc.addComment({ taskId: TASK, author: "agent", kind: "delivery", content: "README riscritto, 38 righe" });
     h.svc.addComment({ taskId: TASK, author: "attilio", content: "Manca il prerequisito git config user.name/user.email" });
     h.svc.addComment({ taskId: TASK, author: "system", kind: "service", content: "Task in coda per una nuova sessione." });
+    h.svc.addComment({ taskId: TASK, author: "system", content: "Consegnato dal nodo «Portatile»: il ramo è stato piantato" });
 
     await dispatch(h);
 
@@ -345,6 +346,7 @@ describe("la card parte sul nodo, non qui", () => {
     expect(sent).toContain("README riscritto, 38 righe");
     // The dispatcher's own bookkeeping is not the reviewer's voice.
     expect(sent).not.toContain("Task in coda per una nuova sessione");
+    expect(sent).not.toContain("Consegnato dal nodo");
   });
 
   it("a un dispositivo ospite confinato la discussione del proprietario NON viaggia", async () => {

@@ -42,15 +42,17 @@ function entry(c: TaskComment): string {
 /**
  * The description a node receives: the card's own, then its thread.
  *
- * Only what was SAID is carried (`comment` and `delivery`). The dispatcher's
- * bookkeeping (`service`), the transitions (`status`) and the machine's review
- * evidence (`review-note`) are this board's business and would only crowd out
- * the words that matter. A card with nothing said keeps its description as it
- * was, byte for byte.
+ * Only what was SAID is carried: a person's or an agent's `comment`, and the
+ * `delivery` statement. The dispatcher's bookkeeping (`service`, and the
+ * `comment`s the system itself writes: «Consegnato dal nodo...», «Consegna senza
+ * riassunto...»), the transitions (`status`) and the machine's review evidence
+ * (`review-note`) are this board's business and would only crowd out the words
+ * that matter. A card with nothing said keeps its description as it was, byte
+ * for byte.
  */
 export function nodeRunDescription(description: string | null | undefined, thread: readonly TaskComment[]): string {
   const own = description ?? "";
-  const said = thread.filter((c) => (c.kind === "comment" || c.kind === "delivery") && c.content.trim());
+  const said = thread.filter((c) => c.content.trim() && (c.kind === "delivery" || (c.kind === "comment" && c.author !== "system")));
   if (said.length === 0) return own;
   // Newest first until the budget is spent, so what falls off is the oldest talk.
   const kept: string[] = [];
