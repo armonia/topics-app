@@ -44,8 +44,8 @@ function entry(c: TaskComment): string {
  *
  * Only what was SAID is carried: a person's or an agent's `comment`, and the
  * `delivery` statement. The dispatcher's bookkeeping (`service`, and the
- * `comment`s the system itself writes: «Consegnato dal nodo...», «Consegna senza
- * riassunto...»), the transitions (`status`) and the machine's review evidence
+ * `comment`s the system itself writes, like «delivered by node X, branch
+ * planted»), the transitions (`status`) and the machine's review evidence
  * (`review-note`) are this board's business and would only crowd out the words
  * that matter. A card with nothing said keeps its description as it was, byte
  * for byte.
