@@ -19,7 +19,10 @@ import type { TaskComment } from "../../shared/board";
 
 /** One comment is cut here: a pasted log must not push the reviewer's words out of the brief. */
 export const MAX_COMMENT_CHARS = 2_000;
-/** The whole thread stops here and drops its OLDEST comments first. */
+/**
+ * The comments of the thread stop here and drop the OLDEST first. The opening and the markers around
+ * them add about 700 characters on top, so the whole description is this plus the card's own text.
+ */
 export const MAX_THREAD_CHARS = 8_000;
 
 const THREAD_OPENING = [

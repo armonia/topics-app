@@ -218,14 +218,19 @@ export function createCloudNodeClient(deps: CloudNodeDeps) {
   /**
    * The branches on origin named like the one we asked for plus a suffix (`<branch>-<anything>`).
    * The cloud harness appends its own to the branch of a session, so the bare name never exists.
-   * `undefined` = origin did not answer, `[]` = none. Sorted, so a card with two suffixed branches
-   * always resolves to the same one.
+   * Each comes with its tip, from the SAME answer: asking again for the sha would leave a gap in which a
+   * mute origin reads as «branch not pushed». `undefined` = origin did not answer, `[]` = none. Sorted by
+   * name, so a card with two suffixed branches always resolves to the same one.
    */
-  async function suffixedBranches(originUrl: string, branch: string): Promise<string[] | undefined> {
+  async function suffixedBranches(originUrl: string, branch: string): Promise<Array<{ name: string; sha: string }> | undefined> {
     const r = await git(["ls-remote", originUrl, `refs/heads/${branch}-*`]);
     if (r.code !== 0) return undefined;
     const prefix = "refs/heads/";
-    return r.stdout.split("\n").map((l) => l.split(/\s+/)[1] ?? "").filter((n) => n.startsWith(prefix)).map((n) => n.slice(prefix.length)).sort();
+    return r.stdout.split("\n")
+      .map((l) => l.split(/\s+/))
+      .filter(([sha, ref]) => !!sha && !!ref && ref.startsWith(prefix))
+      .map(([sha, ref]) => ({ name: ref!.slice(prefix.length), sha: sha! }))
+      .sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
   }
 
   async function defaultBranch(originUrl: string): Promise<string> {
@@ -395,10 +400,7 @@ export function createCloudNodeClient(deps: CloudNodeDeps) {
       if (!branch && !unreachable && run.branch) {
         const found = await suffixedBranches(run.originUrl, run.branch);
         if (found === undefined) unreachable = true;
-        else if (found[0]) {
-          const sha = await remoteSha(run.originUrl, `refs/heads/${found[0]}`);
-          if (sha) { branch = found[0]; commit = sha; }
-        }
+        else if (found[0]) { branch = found[0].name; commit = found[0].sha; }
       }
       // A mute origin does not mean «branch not pushed»: retry on the next round, up to 10.
       if (!branch && unreachable && ++run.originFails < ORIGIN_RETRIES) {

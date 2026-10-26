@@ -144,6 +144,29 @@ describe("nodo cloud", () => {
     expect(r.deliveryCommit).toBe(tip);
   });
 
+  // Found by the second-model check of this change: the prefix answer came, and a second call for the
+  // tip of the branch hit a mute origin, which read as «branch not pushed».
+  test("origin cade subito dopo la ricerca per prefisso: il ramo si consegna lo stesso", async () => {
+    const cloud = fakeCloud();
+    let globAnswered = false;
+    const git: GitRun = async (args, cwd) => {
+      if (args[0] === "ls-remote" && globAnswered) return { code: 128, stdout: "", stderr: "unable to access" };
+      const r = Bun.spawnSync(["git", ...args], { cwd, env: process.env });
+      if (args[0] === "ls-remote" && args.some((a) => a.endsWith("-*"))) globAnswered = true;
+      return { code: r.exitCode, stdout: r.stdout.toString(), stderr: r.stderr.toString() };
+    };
+    const node = createCloudNodeClient({ api: cloud.api, repoPathOfTask: () => checkout, git });
+    const { runId } = await node.createRun({ body: { ...body, originUrl: origin } });
+    await node.readRun({ runId });
+    const pushed = `${cloud.branch()}-jkf907`;
+    cloud.work(pushed);
+    cloud.events.push({ type: "result", subtype: "success", uuid: "r6", result: "fatto" });
+    const r = await node.readRun({ runId });
+    expect(globAnswered).toBe(true);
+    expect(r.dispatchError).toBeNull();
+    expect(r.deliveryBranch).toBe(pushed);
+  });
+
   test("la sessione non ha spinto niente: review senza ramo, col nome che si cercava", async () => {
     const cloud = fakeCloud();
     const node = createCloudNodeClient({ api: cloud.api, repoPathOfTask: () => checkout });
