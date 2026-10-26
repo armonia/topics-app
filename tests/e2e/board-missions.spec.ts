@@ -101,6 +101,7 @@ test.describe("Board: missions to the side session", () => {
   });
 
   test("MISSIONS-01: a mission lands in the project chat composer, bar included", async ({ page }) => {
+    test.info().annotations.push({ type: "spec", description: "KANBAN-100" });
     await page.setViewportSize({ width: 1280, height: 900 });
     await withDevInstall(page, true);
     await page.goto("/");
@@ -133,6 +134,7 @@ test.describe("Board: missions to the side session", () => {
   });
 
   test("MISSIONS-02: outside a development install the command is not in the DOM", async ({ page }) => {
+    test.info().annotations.push({ type: "spec", description: "KANBAN-101" });
     await page.setViewportSize({ width: 1280, height: 900 });
     await withDevInstall(page, false);
     await page.goto("/");
