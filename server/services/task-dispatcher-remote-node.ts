@@ -25,6 +25,7 @@ import type { DelegatedRunPolicy } from "../lib/delegated-agent-start";
 import type { PlantBranchInput, PlantBranchResult } from "./node-branch-plant";
 import type { OutboundMessage } from "../../shared/ws-outbound";
 import { defaultLifecycleHooks, type HookOutcome, type LifecycleHookRunner } from "./lifecycle-hooks";
+import { nodeRunDescription } from "./node-run-brief";
 
 /**
  * THE REMOTE LANE'S HOST CAPABILITY: how this board talks to a paired node, and
@@ -103,6 +104,8 @@ export interface NodeSlot {
   /** A created run whose cancellation was not confirmed must keep its exact id until retry succeeds. */
   cancelPending?: boolean;
   cancelReason?: "audit_binding_failed";
+  /** Polls that saw the run in review with no branch and no reason (see `NODE_BRANCH_GRACE_POLLS`). */
+  reviewWithoutBranch?: number;
 }
 
 /**
@@ -130,6 +133,15 @@ export function isNodeSessionKey(sessionKey: string): boolean {
  * its hysteresis against.
  */
 export const NODE_DEAD_POLLS = 30;
+
+/**
+ * Polls a run may sit in review with no branch, and no reason for it, before the
+ * card lands empty. On the node the system delivery writes the status and then
+ * the branch, about half a second apart: on 26/10 a poll that fell in between
+ * read "review, no branch" and the card landed here empty while the commit sat
+ * on the node. A run that really has no branch pays this many ticks.
+ */
+export const NODE_BRANCH_GRACE_POLLS = 3;
 
 /** How long a card waits before trying a silent node again. */
 const NODE_RETRY_MINUTES = 5;
@@ -385,7 +397,10 @@ export function createRemoteNodeLane(host: RemoteNodeHost): RemoteNodeLane {
           originTaskId: task.id,
           originUrl,
           text: task.text,
-          description: task.description ?? "",
+          // The node cannot `get_task` a card that lives here: the thread (review feedback,
+          // previous delivery) travels with it, or a rerun repeats the first round. Not to a
+          // confined guest device: the owner's discussion is not part of what it was granted.
+          description: policy ? task.description ?? "" : nodeRunDescription(task.description, svc.get(task.id)?.comments ?? []),
           model: policy?.model ?? task.model ?? settings.model ?? null,
           effort: policy ? settings.effort : (settings.effort && settings.effort !== "auto" ? settings.effort : null),
         },
@@ -749,7 +764,14 @@ export function createRemoteNodeLane(host: RemoteNodeHost): RemoteNodeLane {
       if (!still || still.runId !== slot.runId || still.node?.runId !== node.runId) continue;
       node.fails = 0;
       mirrorNodeReport(taskId, node, report);
-      if (report.status === "review") await landNodeDelivery(taskId, node, report);
+      if (report.status !== "review") continue;
+      // A paired node never sends `reason`: review with no branch and no error may be
+      // the half second between the node's two writes, so give it a few polls.
+      if (!report.deliveryBranch && !report.reason && !report.dispatchError) {
+        node.reviewWithoutBranch = (node.reviewWithoutBranch ?? 0) + 1;
+        if (node.reviewWithoutBranch < NODE_BRANCH_GRACE_POLLS) continue;
+      }
+      await landNodeDelivery(taskId, node, report);
     }
   }
 
