@@ -15,7 +15,7 @@
  * behaviour as mermaid's code-block placeholder; once loaded, the modules are
  * cached and every subsequent mount renders math synchronously.
  */
-import { memo, useEffect, useMemo, useState, type ReactNode } from 'react';
+import { memo, useEffect, useMemo, useReducer, useRef, useState, type ReactNode } from 'react';
 import ReactMarkdown, { type Components } from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import type { PluggableList } from 'unified';
@@ -23,7 +23,7 @@ import { openLink, isExternalLinkGesture } from '../lib/openLink';
 import { openTaskInApp } from '../lib/openTaskLink';
 import { deepLinkClickRoute, openTabInApp } from '../lib/tabLink';
 import { openDeepLinkFromClick } from '../lib/deepLinkClick';
-import { completePartialMarkdown, openFenceStart, splitMarkdownBlocks } from '../lib/markdownBlocks';
+import { completePartialMarkdown, createTailGate, openFenceStart, splitMarkdownBlocks } from '../lib/markdownBlocks';
 import { MarkdownBlockContext } from './Chat/markdownBlockContext';
 import { useToast } from './Shared/Toast';
 
@@ -219,16 +219,34 @@ export const ChatMarkdown = memo(function ChatMarkdown({ components, children, s
     return placed;
   }, [children]);
 
+  // A tail that cannot be cut is parsed less often as it grows (see createTailGate).
+  const gate = useRef<ReturnType<typeof createTailGate> | undefined>(undefined);
+  gate.current ??= createTailGate();
+  const [, catchUp] = useReducer((n: number) => n + 1, 0);
+  const lastSource = blocks[blocks.length - 1]?.source ?? '';
+  const tailSource = streaming ? gate.current.pick(lastSource, true) : lastSource;
+  const behind = streaming && gate.current.behind(lastSource);
+  useEffect(() => {
+    if (!behind) return;
+    // The stream may pause on a stale frame: come back and draw the real text.
+    const timer = setTimeout(() => {
+      gate.current?.release();
+      catchUp();
+    }, 120);
+    return () => clearTimeout(timer);
+  }, [behind, children]);
+
   return (
     <>
       {blocks.map((block, i) => {
         const tail = streaming && i === blocks.length - 1;
+        const source = tail ? tailSource : block.source;
         return (
           <MarkdownBlock
             key={i}
-            source={tail ? completePartialMarkdown(block.source) : block.source}
+            source={tail ? completePartialMarkdown(source) : block.source}
             offset={block.at}
-            openFenceFrom={tail ? openFenceStart(block.source) : null}
+            openFenceFrom={tail ? openFenceStart(source) : null}
             remarkPlugins={extensions.remark}
             rehypePlugins={extensions.rehype}
             components={merged}
