@@ -21,6 +21,7 @@ import { createMachineStore, type MachineStore } from "../services/machine-store
 import { createTaskService, type TaskService } from "../services/tasks";
 import { createTasksRouter } from "./tasks";
 import { call, makeCtx } from "./tasks-test-support";
+import { gitEnv } from "../../tests/setup/bun-test-preload";
 
 const GIT_BOARD = "git-board-abc123";
 const BARE_BOARD = "bare-board-abc123";
@@ -29,7 +30,8 @@ const scratch: string[] = [];
 function repo(withOrigin: boolean): string {
   const dir = mkdtempSync(join(tmpdir(), "board-machine-"));
   scratch.push(dir);
-  const git = (...args: string[]) => Bun.spawnSync(["git", "-C", dir, ...args], { stdout: "ignore", stderr: "ignore" });
+  const git = (...args: string[]) =>
+    Bun.spawnSync(["git", "-C", dir, ...args], { env: gitEnv(), stdout: "ignore", stderr: "ignore" });
   git("init", "-q");
   if (withOrigin) git("remote", "add", "origin", "https://github.com/acme/app.git");
   return dir;

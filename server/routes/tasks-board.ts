@@ -283,7 +283,7 @@ export function createBoardRoutes(deps: BoardRouteDeps) {
         // null or "" clears the rule and needs no check.
         const wantedMachine = body?.dispatchMachineId;
         if (wantedMachine !== undefined && wantedMachine !== null && typeof wantedMachine !== "string") {
-          return json({ error: "dispatchMachineId deve essere un id di computer, oppure vuoto per toglierlo.", code: "invalid_machine" }, 400);
+          return json({ error: "dispatchMachineId must be a machine id, or null/empty to clear the rule", code: "invalid_machine" }, 400);
         }
         if (typeof wantedMachine === "string" && wantedMachine.trim()) {
           const identity = canonicalProjectIdentity(ctx.db, projectId);

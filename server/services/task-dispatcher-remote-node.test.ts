@@ -868,13 +868,13 @@ describe("lo specchio: stato, commenti e il ramo che torna", () => {
 });
 
 describe("il bundle presuppone il commit di base", () => {
-  it("base assente: niente fetch, niente ripiego a storia intera, un motivo da leggere", async () => {
+  it("base assente anche dopo UN fetch di origin: niente bundle a storia intera, un motivo da leggere", async () => {
     const ranGit: string[][] = [];
     const planter = createNodeBranchPlanter({
       repoPathOf: () => "/tmp/alpha",
       runGit: async (_cwd, args) => {
         ranGit.push(args);
-        // `cat-file -e` says no: this checkout does not have the base commit.
+        // `cat-file -e` says no, before and after the fetch: the base is not on origin either.
         if (args[0] === "cat-file") return { code: 1, stdout: "", stderr: "" };
         return { code: 0, stdout: "", stderr: "" };
       },
@@ -890,8 +890,10 @@ describe("il bundle presuppone il commit di base", () => {
 
     expect(out.planted).toBe(false);
     expect(out.reason).toContain("abcdef01");
-    // The point of the rule: no fetch, and no request for a whole-history bundle.
-    expect(ranGit.some((a) => a[0] === "fetch")).toBe(false);
-    expect(ranGit.map((a) => a[0])).toEqual(["cat-file"]);
+    expect(out.reason).toContain("fetch di origin");
+    // The rule (cd9f7cfed8): ONE bounded fetch of origin when this clone is behind,
+    // the check asked again, and never a whole-history bundle nor a second fetch.
+    expect(ranGit.map((a) => a[0])).toEqual(["cat-file", "fetch", "cat-file"]);
+    expect(ranGit[1]).toEqual(["fetch", "--no-tags", "origin"]);
   });
 });
