@@ -23,6 +23,7 @@ import type {
   SubtaskWork,
   QueueReason,
   TaskWeight,
+  DispatchMemoryQueueCard,
 } from "../../shared/board";
 
 export interface Task {
@@ -90,6 +91,8 @@ export interface Task {
   dispatchState: string | null;
   dispatchAttempts: number;
   dispatchError: string | null;
+  /** Transient queue position carried by task:updated, never persisted. */
+  dispatchQueue?: DispatchMemoryQueueCard | null;
   /** Agent-declared external-condition wait: while this timestamp is in the
    *  future the task sits in `todo` (chip `waiting`) and is NOT dispatch-eligible;
    *  the tick re-claims it once the window passes. null = no wait. */
