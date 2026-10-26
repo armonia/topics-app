@@ -480,3 +480,4 @@ output/
 # La riga `relay-secret` sopra copre solo il file del vecchio schema:
 # `server/services/relay-config.ts` scrive QUESTO nome, e il repo e` pubblico.
 relay-identity.json
+!docs/archive/devreap-astro-noclient-2026-10-26.md
