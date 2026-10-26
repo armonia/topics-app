@@ -582,6 +582,8 @@ export function createNodesRouter(ctx: AppContext, opts: NodesRouterOpts): Route
         const task = db.transaction(() => {
           const created = svc.create({
             projectId: boardId,
+            // Runs HERE: a board default machine must not send a mirror out again.
+            machineId: null,
             text,
             description: typeof body.description === "string" ? body.description : null,
             status: "todo",
@@ -644,6 +646,8 @@ export function createNodesRouter(ctx: AppContext, opts: NodesRouterOpts): Route
       try {
         const task = svc.create({
           projectId: boardId,
+          // Runs HERE: a board default machine must not send a mirror out again.
+          machineId: null,
           text,
           description: typeof body.description === "string" ? body.description : null,
           status: "todo",

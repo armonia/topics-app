@@ -321,6 +321,20 @@ describe("nodes routes: ingress of a mirrored card", () => {
     expect(createTaskService(ctx.db).get(runId)!.comments.filter((c) => c.kind === "service").length).toBe(1);
   });
 
+  test("a mirror runs on THIS machine even when its board has a default machine", async () => {
+    // With a board default the service gives an absent machineId the default: a
+    // mirror born that way would leave again, toward the default machine.
+    ctx.db.run("INSERT OR REPLACE INTO board_settings (project_id, dispatch_machine_id) VALUES (?, ?)", [boardId, delegatedMachineId]);
+    try {
+      const r = await mirror("origin-task-board-default");
+      expect(r.status).toBe(201);
+      const { createTaskService } = await import("../../server/services/tasks");
+      expect(createTaskService(ctx.db).get(r.body.runId as string)!.task.machineId ?? null).toBeNull();
+    } finally {
+      ctx.db.run("DELETE FROM board_settings WHERE project_id = ?", [boardId]);
+    }
+  });
+
   test("un'origine che nessun progetto conosce risponde no_such_repo e non crea progetti", async () => {
     const before = ctx.projectStore.list().length;
     const r = await mirror("origin-task-unknown", "https://github.com/acme/nowhere.git");
