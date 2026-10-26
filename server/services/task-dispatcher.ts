@@ -105,6 +105,8 @@ function cut(v: string): string {
 /** What the dispatcher needs from the outside world — all injected. */
 export interface DispatcherDeps {
   svc: TaskService;
+  /** Stop command process groups when an automated landing closes a card. */
+  stopCardProcesses?: (cardId: string) => void | Promise<void>;
   /**
    * Resolve a board-hash projectId to its filesystem path and (if the project
    * is registered in the ProjectStore) the store UUID needed for worktrees.
@@ -5284,7 +5286,11 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
           // Solo se si è CHIUSA davvero. `settleLanded` rifiuta di chiudere un
           // padre con step aperti: quella card non è finita, ha una checklist da
           // muovere, e saltarla la lascerebbe ferma per sempre.
-          if (chiusa) continue;
+          if (chiusa) {
+            try { await deps.stopCardProcesses?.(t.id); }
+            catch (err) { log(`chiusura dei processi della card atterrata fallita per ${t.id}`, err); }
+            continue;
+          }
         }
       }
       // The claim is the status CAS (todo → in_progress + chip 'starting');
