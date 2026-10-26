@@ -376,3 +376,30 @@ describe("gateway and cloud spellings of a model id", () => {
     expect(wrong).toEqual([]);
   });
 });
+
+describe("model ids as Topics writes them on a card: <runtime>:<model>", () => {
+  // @covers shared/model-pricing normalizeModel
+  // Topics stores a card's model as `claude-code:<model>` or `topics:<model>`.
+  // The old rule that drops a trailing `:suffix` cut the MODEL and kept the
+  // runtime, so `claude-code:claude-opus-5-5` became `claude-code`, priced null
+  // and the spend brake counted 0 cents instead of the real price.
+  test.each([
+    ["claude-code:claude-opus-5-5", "claude-opus-5-5"],
+    ["topics:claude-sonnet-5-5", "claude-sonnet-5-5"],
+    ["claude-code:claude-haiku-5-5", "claude-haiku-5-5"],
+    ["Topics:Claude-Opus-5-5", "claude-opus-5-5"],
+    ["codex:gpt-o3", "gpt-o3"],
+  ])("%s is priced as %s", (stored, bare) => {
+    expect(modelPrice(stored)).not.toBeNull();
+    expect(modelPrice(stored)).toEqual(modelPrice(bare));
+    expect(ownModelPrice(stored)).toEqual(ownModelPrice(bare));
+  });
+
+  test("a window suffix after the runtime prefix still goes away", () => {
+    expect(modelPrice("claude-code:claude-opus-5-5:1m")).toEqual(modelPrice("claude-opus-5-5"));
+  });
+
+  test("a model whose own name has a colon keeps it (gpt-oss:20b is not a runtime)", () => {
+    expect(modelPrice("gpt-oss:20b")).toEqual(modelPrice("gpt-oss"));
+  });
+});

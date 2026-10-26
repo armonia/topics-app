@@ -20,6 +20,9 @@
  * 0.05x on Opus 5.5 and Sonnet 5.5, 0.1x on every other model. Cache writes
  * are 1.25x (5 minutes) and 2x (one hour) on every Claude model.
  */
+
+import { bareModelId } from "./modelMaker";
+
 export interface ModelPrice {
   input: number;
   output: number;
@@ -104,8 +107,9 @@ export function pricedModelIds(): string[] {
  * Stripping only one of these is how `claude-haiku-4.5` was priced as Haiku 5.5.
  */
 function normalizeModel(model: string): string {
-  const stripped = model
-    .toLowerCase()
+  // A card stores `<runtime>:<model>` (`claude-code:...`, `topics:...`): the runtime
+  // goes first, or the `:suffix` rule below would cut the model and keep the runtime.
+  const stripped = bareModelId(model)
     .replace(/\[[^\]]*\]\s*$/, "")
     .trim()
     .replace(/-v\d+:\d+$/, "")
