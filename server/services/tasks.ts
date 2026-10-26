@@ -4027,9 +4027,29 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       }
       if (patch.reuseBlockerContext !== undefined) put("reuse_blocker_context", patch.reuseBlockerContext ? 1 : 0);
       if (patch.planFirst !== undefined) put("plan_first", patch.planFirst ? 1 : 0);
+      // AN ARCHIVED CARD THAT GOES BACK TO DONE KEEPS THE DAY IT WAS CLOSED.
+      //
+      // Archiving 2939 closed cards put 49 back in backlog (card 47b63de2):
+      // `release` writes status in raw SQL and left `completed_at` where it was.
+      // Putting them back with a PATCH stamped them closed today — 2026-07-14
+      // became 2026-10-26 on a22b3191, and every count of cards closed today
+      // with it. An archived card is not worked on: done there is a restore,
+      // not a new closing. The explicit date is the way back for a card whose
+      // date has already been overwritten.
+      if (patch.completedAt !== undefined) {
+        if (!row.archived) {
+          throw new TaskServiceError("invalid_input", "completedAt si scrive solo su una card archiviata: su una card viva la data di chiusura la mette il passaggio a done");
+        }
+        if ((patch.status ?? current) !== "done") {
+          throw new TaskServiceError("invalid_input", "completedAt vale solo per una card in done");
+        }
+      }
+      const closedAt = () =>
+        patch.completedAt ?? (row.archived && row.completed_at ? row.completed_at : now());
+      if (patch.status === undefined && patch.completedAt !== undefined) put("completed_at", patch.completedAt);
       if (patch.status !== undefined) {
         put("status", patch.status);
-        put("completed_at", patch.status === "done" ? now() : null);
+        put("completed_at", patch.status === "done" ? closedAt() : null);
         // Chi chiude, e chi riapre — i due fatti che la board deve poter dire da
         // sé (il thread non basta: chi guarda la colonna vede solo il buco).
         if (patch.status === "done") {
