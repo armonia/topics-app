@@ -33,6 +33,11 @@
  * list wherever it lives: it is the one that takes the machine by itself. The
  * floor and its two-minute window are untouched: they are the part that keeps
  * the Mac out of swap.
+ *
+ * AND ONCE THE BOARD'S CARDS HAVE BEEN WEIGHED, THE WEIGHT WINS over both
+ * constants (`dispatch-card-weight.ts`): a board that ran three cards in the
+ * last 72 hours prices the next one at what they measured. A heavy card still
+ * pays the list.
  */
 import { estimatedAgentMemCost, reservedCost, type ReviewCheck } from "../../shared/board";
 import { boardHasNoLocalChecks, reservationForRuntime } from "./dispatch-no-check-exemption";
@@ -67,6 +72,8 @@ export function createCardPrices(deps: {
   isCliRuntime(): boolean;
   board(projectId: string): CardPriceBoard | null | undefined;
   taskOf(taskId: string): CardPriceTask | null | undefined;
+  /** The board's measured card weight in GB, or null while it has too few cards (`measuredGB`). */
+  measured?(projectId: string): number | null;
 }) {
   const safeBoard = (projectId: string | null | undefined): CardPriceBoard | null => {
     if (!projectId) return null;
@@ -81,6 +88,11 @@ export function createCardPrices(deps: {
 
   /** One more card of that board, in GB. No board in hand means the dearer price. */
   function priceFor(projectId?: string | null, dispatchWeight?: string | null): number {
+    if (dispatchWeight !== "heavy" && projectId) {
+      let measured: number | null = null;
+      try { measured = deps.measured?.(projectId) ?? null; } catch { /* unmeasured: the board's kind decides */ }
+      if (measured != null && Number.isFinite(measured) && measured > 0) return measured;
+    }
     if (weightFor(projectId, dispatchWeight) === "light") return reservationForRuntime(deps.isCliRuntime());
     return estimatedAgentMemCost(safePeaks());
   }

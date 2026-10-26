@@ -1615,10 +1615,9 @@ describe("attesa dichiarata: rimborso del tentativo e contatore separato", () =>
   /** Il tetto dei tentativi VERO della board (default 2): è quello che mordeva. */
   const CAP = 2;
   /**
-   * Un giro completo: la claim spende il tentativo, poi qualcuno dichiara l'attesa.
-   * La meccanica della serie (rimborso, chiave, orologio, azzeramenti) si misura
-   * sul tetto LARGO, quello dei rimandi della macchina; il tetto dei rimandi
-   * dell'agente ha i suoi test qui sotto.
+   * One full round: the claim spends the attempt, then somebody declares the wait.
+   * The mechanics of the series (refund, key, clock, resets) are measured on the
+   * WIDE cap, the machine's; the agent's cap has its own cases below.
    */
   const attende = (id: string, reason: string, minutes = 15, source: "agent" | "machine" = "machine") => {
     const claimed = s.claim({ taskId: id, cap: 5, maxAttempts: CAP });
@@ -1699,7 +1698,7 @@ describe("attesa dichiarata: rimborso del tentativo e contatore separato", () =>
 
   test("il rimando dell'AGENTE si ferma al secondo: la card chiede invece di aprire un altro turno", () => {
     const t = s.create({ projectId: PID, text: "aspetta la CI", status: "todo" });
-    const prima = s.deferForWait({ taskId: t.id, reason: "la CI sta girando", minutes: 15, by: "claude" }); // senza `source`: agente
+    const prima = s.deferForWait({ taskId: t.id, reason: "la CI sta girando", minutes: 15, by: "claude" }); // no `source`: the agent
     expect(AGENT_WAIT_STREAK_CAP).toBe(1);
     expect(prima.status).toBe("todo");
     expect(prima.dispatchState).toBe("waiting");
@@ -1708,7 +1707,7 @@ describe("attesa dichiarata: rimborso del tentativo e contatore separato", () =>
     const seconda = attende(t.id, "la CI sta girando", 15, "agent");
     expect(seconda.status).toBe("backlog");
     expect(seconda.dispatchState).toBe(PARKED_WAITED_OUT);
-    expect(seconda.dispatchDeferredUntil).toBeNull();  // non riparte da solo: nessun terzo turno
+    expect(seconda.dispatchDeferredUntil).toBeNull();  // no restart on its own: no third turn
     expect(seconda.dispatchAttempts).toBe(0);
     expect(seconda.waitStreak).toBe(2);
     expect(seconda.dispatchError ?? "").toContain("2 attese di fila");

@@ -591,20 +591,20 @@ export function isMachineNote(content: string): boolean {
 export const WAIT_STREAK_CAP = 6;
 
 /**
- * IL TETTO SUI RIMANDI DELL'AGENTE: al secondo rimando la card si ferma e chiede.
+ * THE CAP ON AN AGENT'S WAITS: on the second one the card stops and asks.
  *
- * `WAIT_STREAK_CAP` frena le attese della MACCHINA (il nodo che non risponde
- * rimanda la card ogni cinque minuti senza aprire un turno): quelle non costano
- * token, e sei di fila sono mezz'ora. Un rimando dichiarato dall'agente con
- * `wait_for_condition` invece ne costa uno intero: ogni volta che la finestra
- * scade riparte un turno che rilegge la card, il thread e il repo per scoprire
- * che la condizione non c'è ancora, e la dichiara di nuovo. La stima della
- * Regia sui turni dei rimandi (capire-token, T6) è -28% di token con il tetto
- * alla seconda dichiarazione.
+ * `WAIT_STREAK_CAP` brakes the MACHINE's waits (a silent node puts the card
+ * back every five minutes without opening a turn): those cost no tokens, and
+ * six in a row are half an hour. A wait the agent declares with
+ * `wait_for_condition` costs a whole turn instead: every time the window
+ * expires a turn starts, reads the card, the thread and the repo again to find
+ * the condition still missing, and declares it again. The estimate on the
+ * turns spent on such waits (capire-token, T6) is -28% tokens with the cap on
+ * the second declaration.
  *
- * Uno: la prima attesa passa (una CI che gira, un servizio che torna su), la
- * seconda per la stessa ragione vuol dire che la condizione non arriva da sola,
- * e la domanda va a una persona invece che a un altro turno pagato.
+ * One: the first wait goes through (a CI running, a service coming back), a
+ * second one for the same reason means the condition is not arriving by
+ * itself, and the question goes to a person instead of another paid turn.
  */
 export const AGENT_WAIT_STREAK_CAP = 1;
 

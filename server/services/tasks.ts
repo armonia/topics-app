@@ -880,10 +880,10 @@ export interface TaskService {
    * della serie (`WAIT_SERIES_MAX_MS`). Sfondato un tetto il task si parcheggia
    * in backlog con chip `waited_out`: fermo, non fallito.
    *
-   * IL CONTEGGIO DIPENDE DA CHI RIMANDA. Un rimando dell'agente costa un turno
-   * intero alla ripartenza, e si ferma al secondo (`AGENT_WAIT_STREAK_CAP`);
-   * un rimando della macchina (`source: "machine"`, il nodo che non risponde)
-   * non apre nessun turno e tiene il tetto largo (`WAIT_STREAK_CAP`).
+   * THE COUNT DEPENDS ON WHO WAITS. An agent's wait costs a whole turn when
+   * it restarts, and stops at the second one (`AGENT_WAIT_STREAK_CAP`); a
+   * machine's wait (`source: "machine"`, the silent node) opens no turn and
+   * keeps the wide cap (`WAIT_STREAK_CAP`).
    */
   deferForWait(args: { taskId: string; reason: string; minutes?: number; by?: string; source?: "agent" | "machine" }): Task;
   /** Overwrite the topic binding of a claimed task (dispatcher: placeholder → real topic). */

@@ -114,7 +114,7 @@ import { createMemoryOwnersReader } from "./server/services/memory-owners-probe"
 import { createDispatchMemoryHistory } from "./server/services/dispatch-memory-history";
 import { createDispatchMemoryInputs, createDispatchResourceBlockFromInputs } from "./server/services/dispatch-memory-inputs";
 import { fleetLoadSync, fleetSessionCoreUnits, procFootprintKB, procResidentKB, registeredFleetSocketPaths } from "./server/lib/fleet-usage";
-import { recentCardMemPeaksGB } from "./server/lib/card-memory-peaks";
+import { cardMemPeakGB, recentCardMemPeaksGB, treeFootprintKB } from "./server/lib/card-memory-peaks";
 import { machineCores } from "./server/lib/machine-cores";
 import { createBudgetGovernor, freezableRuns, liveCheckTreeGB, setActiveBudgetGovernor, signalProcessTree } from "./server/services/budget-governor";
 import { createSwapBrake, killCheckTree, stopReviewChecks } from "./server/services/review-checks-brakes";
@@ -2043,6 +2043,7 @@ const taskDispatcher = createTaskDispatcher({
   agentMemSamples: () => {
     try { return recentCardMemPeaksGB(); } catch { return []; }
   },
+  cardCheckPeakGB: cardMemPeakGB,
   ...dispatchMemoryInputs,
   // Corse di check pre-review in volo: ogni barra vale uno slot nel freno.
   // Letto dalla closure: il checksGate nasce dentro `createTasksRouter`, che e'
@@ -5536,6 +5537,11 @@ const dispatchTimer = setInterval(() => {
     const now = Date.now();
     if (now - memsigAt < MEMSIG_EVERY_MS) return;
     memsigAt = now;
+    // The same minute weighs the local cards in flight: the server's whole tree
+    // against its idle baseline (`dispatch-card-weight.ts`).
+    void treeFootprintKB(process.pid)
+      .then((kb) => taskDispatcher.sampleCardWeight(kb == null ? null : (kb * 1024) / 1e9))
+      .catch((err) => console.error("[card-weight] sample failed", err));
     return memoryOwners.sample().then(() => {
       const samples = memSignal.samples();
       console.log(formatMemorySignalLine({

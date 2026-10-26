@@ -535,11 +535,11 @@ describe("task-dispatcher", () => {
 
     await h.dispatcher.tick(PID);
     await flush();
-    expect(h.task("t1")!.dispatchState).toBe("working"); // il secondo turno parte: il primo rimando era legittimo
+    expect(h.task("t1")!.dispatchState).toBe("working"); // the second turn starts: the first wait was legitimate
     const parked = h.dispatcher.deferWait("t1", "il servizio X è giù", 30);
     expect(parked.status).toBe("backlog");
     expect(parked.dispatchState).toBe(PARKED_WAITED_OUT);
-    expect(h.events.filter((e) => e.type === "task:parked")).toHaveLength(1); // la domanda arriva all'umano
+    expect(h.events.filter((e) => e.type === "task:parked")).toHaveLength(1); // the question reaches the human
     h.finishTurn();
     await flush();
 
