@@ -13,7 +13,7 @@
 import { lazy, useCallback, useEffect, useState } from 'react';
 import { CreditCard, Server } from 'lucide-react';
 import { FormLevel } from './FormLevel';
-import { nodeRequestsLabel, nodesTail, planTail, type LicensePlan, type Tail } from './formLevelTails';
+import { nodeRequestsLabel, nodesTail, planRowLabel, planRowTail, type LicensePlan, type Tail } from './formLevelTails';
 import { SEGNALE_ATTESA } from './chromeSignals';
 import { NotificationBadge } from '../Shared/NotificationBadge';
 import { apiFetch } from '@/lib/shell/net';
@@ -84,11 +84,11 @@ export function PlanLevel({ defaultOpen = false }: { defaultOpen?: boolean }) {
   return (
     <FormLevel
       icon={CreditCard}
-      label={tr('settings.section.plan')}
+      label={planRowLabel(read?.plan ?? null, tr)}
       testId="topics-menu-plan"
       defaultOpen={defaultOpen}
       onOpenChange={onOpenChange}
-      tail={<TailText testId="topics-menu-plan-tail" tail={read ? planTail(read.plan, read.at, tr) : null} />}
+      tail={<TailText testId="topics-menu-plan-tail" tail={read ? planRowTail(read.plan, read.at, tr) : null} />}
     >
       <PlanSection />
     </FormLevel>

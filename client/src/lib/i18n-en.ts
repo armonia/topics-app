@@ -3021,6 +3021,12 @@ const EN = {
   // The tails of the user menu's form levels, and their frame (the 02/10/2026 change).
   'userMenu.none': 'None',
   'userMenu.plan.free': 'Free',
+  'userMenu.plan.rowFree': 'Free plan',
+  'userMenu.plan.rowTeam': 'Team plan',
+  'userMenu.plan.seats': '{n} seats',
+  'userMenu.plan.seatsOne': '1 seat',
+  'statusBar.friends.noneOnline': 'No friends online',
+  'statusBar.me.thisDevice': 'This device',
   'userMenu.plan.team': 'Team · {n} seats',
   'userMenu.plan.teamOne': 'Team · 1 seat',
   'userMenu.plan.expiresIn': 'Expires in {n} d',

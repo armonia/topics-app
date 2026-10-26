@@ -138,6 +138,8 @@ function FriendsSection({ friends, width, onClose }: {
             ? tr('statusBar.friends.pendingCount', { n: pending })
             : tr('statusBar.friends.online', { n: online.length })}
         </span>
+      ) : friends.rows.length > 0 ? (
+        <span data-testid="friends-count" className={`flex-shrink-0 ${CHIP_INK_DIM}`}>{tr('statusBar.friends.noneOnline')}</span>
       ) : undefined}
     >
       {pending > 0 && (
@@ -220,8 +222,8 @@ function OrgsSection({ orgs, width, onClose }: {
       minWidth={244}
       maxWidth={width}
       tail={
-        <span data-testid="orgs-count" className={`flex-shrink-0 tabular-nums ${online > 0 ? SEGNALE_OK : CHIP_INK_DIM}`}>
-          {orgs.length === 0 ? '0' : tr('statusBar.orgs.presence', { n: online, tot: people.length })}
+        <span data-testid="orgs-count" className={`min-w-0 max-w-[60%] truncate tabular-nums ${online > 0 ? SEGNALE_OK : CHIP_INK_DIM}`}>
+          {orgs.length === 0 ? '0' : orgs.length === 1 ? tr('statusBar.orgs.presence', { n: online, tot: people.length }) : orgs.map((o) => o.nome).join(', ')}
         </span>
       }
     >

@@ -3372,6 +3372,12 @@ const IT: Dict = {
   // The tails of the user menu's form levels, and their frame (the 02/10/2026 change).
   'userMenu.none': 'Nessuno',
   'userMenu.plan.free': 'Gratuito',
+  'userMenu.plan.rowFree': 'Piano Gratuito',
+  'userMenu.plan.rowTeam': 'Piano Team',
+  'userMenu.plan.seats': '{n} posti',
+  'userMenu.plan.seatsOne': '1 posto',
+  'statusBar.friends.noneOnline': 'Nessun amico online',
+  'statusBar.me.thisDevice': 'Questo dispositivo',
   'userMenu.plan.team': 'Team · {n} posti',
   'userMenu.plan.teamOne': 'Team · 1 posto',
   'userMenu.plan.expiresIn': 'Scade tra {n} g',

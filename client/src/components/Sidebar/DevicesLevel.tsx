@@ -114,6 +114,8 @@ export function DevicesLevel({ devices, failed = false, width, onReadDevices, de
             />
           )}
         </>
+      ) : computer ? (
+        <span data-testid="devices-this" className={`min-w-0 truncate ${CHIP_INK_DIM}`}>{tr('statusBar.me.thisDevice')}</span>
       ) : undefined}
     >
       {remote > 0 && (
