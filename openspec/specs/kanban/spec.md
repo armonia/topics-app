@@ -4115,6 +4115,17 @@ tetto del NODO a decidere quando parte. Su questa board lo slot remoto NON SHALL
 consumare posti: con una card remota in `working`, `busyCount()` e il `running`
 di `GET /api/system/dispatch-capacity` SHALL restare a zero.
 
+I cancelli che misurano QUESTA macchina NON SHALL trattenere una card remota (nodo
+o Cloud Claude): il pavimento di memoria, il budget per risorse e la sua rampa,
+l'attesa del task pesante, la sessione esterna su una board in-place e il tetto
+locale valgono solo per le card che girano qui. Una card remota in `working` NON
+SHALL contare nel censimento locale (`liveAgents`, `busyCount`) né come task
+pesante in volo, nemmeno mentre il nodo non ha ancora risposto. Il disco pieno
+(la consegna si pianta in questo checkout), il freno di spesa e la finestra del
+piano SHALL invece valere anche per lei. Remota vuol dire una macchina CON un
+indirizzo: una riga di `machines` senza `base_url` (un vecchio hostname di questo
+Mac) resta locale per ogni cancello.
+
 A ogni giro di riconciliazione lo stato e i commenti di servizio del nodo SHALL
 essere SPECCHIATI sulla card locale, senza duplicati: la deduplica SHALL passare
 dall'ancora di KANBAN-72, cioè dall'id del commento sul nodo. La chat del nodo
@@ -4140,6 +4151,7 @@ un motivo dichiarato (`node_unreachable`) e un `dispatch_deferred_until`: la car
 NON SHALL mai partire su questa macchina perché il nodo non ha risposto.
 
 MISURA: `bun test server/services/task-dispatcher-remote-node.test.ts
+server/services/task-dispatcher-remote-local-gates.test.ts
 tests/integration/nodes-routes.test.ts server/services/node-client.test.ts` verde,
 e `npx playwright test tests/e2e/board-remote-node.spec.ts` verde: la corsia
 remota non spende il tetto locale, il giro del bundle pianta il ramo su un repo
