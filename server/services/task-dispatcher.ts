@@ -1889,6 +1889,7 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
     log, emit, inFlight, beginRun, endRun, ownsRun, bindRunSession, releaseAndEmit, deferWait,
     delegatedPolicyForTask: deps.delegatedPolicyForTask,
     recordDelegatedPhase: deps.recordDelegatedPhase,
+    languageOf: langFor,
   });
   let nextRunId = 1;
   /**

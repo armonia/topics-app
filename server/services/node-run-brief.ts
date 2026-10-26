@@ -16,6 +16,8 @@
  * road that reaches all of them without waiting for each to be updated.
  */
 import type { TaskComment } from "../../shared/board";
+import type { OutputLanguage } from "../../shared/types";
+import { languageDirective } from "../lib/topics-agent-prompt";
 
 /** One comment is cut here: a pasted log must not push the reviewer's words out of the brief. */
 export const MAX_COMMENT_CHARS = 2_000;
@@ -82,4 +84,32 @@ export function nodeRunDescription(description: string | null | undefined, threa
     ...kept.reverse(),
     "--- END OF THREAD ---",
   ].join("\n").trim();
+}
+
+/**
+ * The board's language, as the closing block of what a node receives.
+ *
+ * A local card gets it twice, in `rolePrompt` and in the envelope's `languageLine`. A node gets
+ * neither: the cloud builds its prompt from the title and the description alone, and the
+ * CLAUDE.md that carries the rule on this machine is not in the public repository. On 26/10, with
+ * the language set to Italian, three Cloud Claude cards delivered in Italian and the fourth in
+ * English: nothing had asked for Italian, so the session picked. Same road as the thread, for the
+ * same reason: every node hands the description to its agent.
+ *
+ * `auto` adds nothing: the card's own text is the language, and the description stays byte for byte.
+ */
+export function nodeRunLanguage(lang: OutputLanguage): string {
+  if (lang === "auto") return "";
+  return [
+    "--- LANGUAGE ---",
+    languageDirective(lang),
+    "This covers every comment you write on the card and your closing summary (the delivery). THE CODE IS ANOTHER MATTER: identifiers, strings and code comments are always English.",
+  ].join("\n");
+}
+
+/** The description plus the language block, when there is one. */
+export function withNodeRunLanguage(description: string, lang: OutputLanguage | null | undefined): string {
+  const block = lang ? nodeRunLanguage(lang) : "";
+  if (!block) return description;
+  return description.trim() ? `${description.trim()}\n\n${block}` : block;
 }
