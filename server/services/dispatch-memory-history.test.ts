@@ -1,5 +1,5 @@
 /**
- * @covers dispatch-memory-history
+ * @covers KANBAN-97
  */
 import { describe, expect, test } from "bun:test";
 import {
