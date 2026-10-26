@@ -18,7 +18,7 @@
  * @covers WORKTREE-12
  */
 import { describe, test, expect, beforeEach, afterEach } from "bun:test";
-import { mkdtempSync, mkdirSync, rmSync, existsSync, chmodSync, writeFileSync } from "node:fs";
+import { mkdtempSync, mkdirSync, rmSync, existsSync, chmodSync, writeFileSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createWorktreeManager, WorktreeOperationError, WorktreeRefusalError, type WorktreeManagerGcDeps } from "./worktree-manager";
@@ -262,4 +262,114 @@ describe("worktree-manager.knownWorktreePort(): only a worktree gets a port", ()
     // The main checkout used to get portForPath too: the port the NEXT worktree claims.
     expect(m.knownWorktreePort("/srv/code/proj")).toBeNull();
   });
+});
+
+/**
+ * GIT-CRYPT IN A WORKTREE (card 30154f66).
+ *
+ * git-crypt 0.8.0 looks for its key in `<git-dir>/git-crypt/keys/default`, and a
+ * worktree has a git-dir of its own, so the smudge filter run by the checkout
+ * inside `git worktree add` exited 1 and the worktree never existed: the
+ * dispatcher retried twice and parked the card in backlog.
+ *
+ * The filter here is a stand-in script with the same contract (exit 1 when the
+ * key is missing from the git-dir of the repo it runs in), so the test needs no
+ * git-crypt binary. Repo and folders live in a `mkdtemp`.
+ */
+describe("worktree-manager.create(): a repo with a git-crypt filter", () => {
+  let root: string, repo: string, wtBase: string;
+  let origDir: string | undefined;
+
+  function initRepo(withKey: boolean) {
+    git(root, "init", "--quiet", "repo");
+    git(repo, "config", "user.email", "t@t.t");
+    git(repo, "config", "user.name", "t");
+    git(repo, "symbolic-ref", "HEAD", "refs/heads/main");
+    const filter = join(root, "fake-git-crypt");
+    writeFileSync(filter, '#!/bin/sh\ntest -f "$(git rev-parse --absolute-git-dir)/git-crypt/keys/default" || { echo "git-crypt: Error: Unable to open key file" >&2; exit 1; }\ncat\n');
+    chmodSync(filter, 0o755);
+    git(repo, "config", "filter.git-crypt.smudge", filter);
+    git(repo, "config", "filter.git-crypt.clean", filter);
+    git(repo, "config", "filter.git-crypt.required", "true");
+    writeFileSync(join(repo, ".gitattributes"), "AGENTS.md filter=git-crypt\n");
+    writeFileSync(join(repo, "AGENTS.md"), "agent rules\n");
+    // The commit runs the clean filter, which needs the key; a locked repo loses it right after.
+    const key = join(repo, ".git", "git-crypt", "keys", "default");
+    mkdirSync(join(repo, ".git", "git-crypt", "keys"), { recursive: true });
+    writeFileSync(key, "key");
+    git(repo, "add", "-A");
+    expect(git(repo, "commit", "-q", "-m", "base").code).toBe(0);
+    if (!withKey) rmSync(key);
+  }
+
+  beforeEach(() => {
+    root = mkdtempSync(join(tmpdir(), "wt-mgr-crypt-"));
+    repo = join(root, "repo");
+    repoForStore = repo;
+    wtBase = join(root, "worktrees");
+    mkdirSync(wtBase, { recursive: true });
+    origDir = process.env.TOPICS_WORKTREES_DIR;
+    process.env.TOPICS_WORKTREES_DIR = wtBase;
+  });
+  afterEach(() => {
+    if (origDir === undefined) delete process.env.TOPICS_WORKTREES_DIR; else process.env.TOPICS_WORKTREES_DIR = origDir;
+    try { rmSync(root, { recursive: true, force: true }); } catch { /* best-effort */ }
+  });
+
+  async function createAndSettle(name: string, mode: "branch" | "reuse" | "detached" = "branch") {
+    const patches: Array<Partial<Worktree>> = [];
+    const m = createWorktreeManager(fakeCtx(), {
+      projectStore: fakeProjectStore(),
+      worktreeStore: {
+        get: () => null, delete: () => true, list: () => [], listNamesForProject: () => new Set(),
+        create: (input: unknown) => ({ id: "w9", status: "pending", ...(input as object) }) as Worktree,
+        update: (_id: string, patch: Partial<Worktree>) => { patches.push(patch); return { id: "w9", ...patch } as Worktree; },
+      } as unknown as WorktreeStore,
+    });
+    await m.create({ projectId: "proj-1", name, mode, baseRef: "main" });
+    for (let i = 0; i < 250 && m.isMaterialising("w9"); i++) await new Promise((r) => setTimeout(r, 20));
+    return { abs: join(wtBase, "proj", name), status: patches.at(-1)?.status, error: patches.at(-1)?.errorMessage };
+  }
+
+  test("the key lives in the common dir only: worktree add succeeds and AGENTS.md reads, in branch and detached modes", async () => {
+    initRepo(true);
+    for (const [name, mode] of [["by-branch", "branch"], ["by-detach", "detached"]] as const) {
+      const r = await createAndSettle(name, mode);
+      expect(r.error ?? null).toBeNull();
+      expect(r.status).toBe("ready");
+      expect(readFileSync(join(r.abs, "AGENTS.md"), "utf8")).toBe("agent rules\n");
+      expect(git(r.abs, "status", "--porcelain").out).toBe("");
+    }
+  }, 20_000);
+
+  test("removing the worktree leaves the repo's key alone", async () => {
+    initRepo(true);
+    const r = await createAndSettle("keeper");
+    expect(r.status).toBe("ready");
+    expect(git(repo, "worktree", "remove", "--force", r.abs).code).toBe(0);
+    expect(existsSync(join(repo, ".git", "git-crypt", "keys", "default"))).toBe(true);
+  }, 10_000);
+
+  test("a locked repo (no key anywhere): the row goes to error, no folder and no branch are left to trip the retry", async () => {
+    initRepo(false);
+    const r = await createAndSettle("locked");
+    expect(r.status).toBe("error");
+    expect(existsSync(r.abs)).toBe(false);
+    expect(git(repo, "branch", "--list", "topics/locked").out).toBe("");
+    expect(git(repo, "worktree", "list", "--porcelain").out).not.toContain("locked");
+  }, 10_000);
+
+  test("a repo without git-crypt: same single `worktree add` as ever", async () => {
+    git(root, "init", "--quiet", "repo");
+    git(repo, "config", "user.email", "t@t.t");
+    git(repo, "config", "user.name", "t");
+    git(repo, "symbolic-ref", "HEAD", "refs/heads/main");
+    writeFileSync(join(repo, "AGENTS.md"), "agent rules\n");
+    git(repo, "add", "-A");
+    git(repo, "commit", "-q", "-m", "base");
+    const r = await createAndSettle("plain");
+    expect(r.status).toBe("ready");
+    expect(readFileSync(join(r.abs, "AGENTS.md"), "utf8")).toBe("agent rules\n");
+    expect(existsSync(join(repo, ".git", "worktrees", "plain", "git-crypt"))).toBe(false);
+  }, 10_000);
 });
