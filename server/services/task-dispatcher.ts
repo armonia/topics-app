@@ -1366,7 +1366,7 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
       reservedGB: reserved,
       reservedCards: resources ? 0 : launches.length + exemptReservedCards,
       spendingHere: launches.length + exemptReservedCards + Math.max(0, checks) > 0,
-      ourWorkRunning: (localMemorySeatOccupied() ? 1 : 0) + Math.max(0, checks)
+      ourWorkRunning: (localMemorySeatTaken() ? 1 : 0) + Math.max(0, checks)
         + noCheckExemptions.untrackedCount(new Set(inFlight.keys())) > 0,
     }) ?? { reason: null, kind: null, memoryFirstCardExempt: false };
   }
@@ -1801,7 +1801,7 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
   const inFlight = new Map<string, RunSlot>();
   const noCheckExemptions = new NoCheckExemptionLedger();
   let memorySeatTaskId: string | null = null;
-  function localMemorySeatOccupied(): boolean {
+  function localMemorySeatTaken(): boolean {
     return memorySeatTaskId !== null || localTurns() > 0;
   }
   try { deps.attempts?.clearInactiveNoLocalChecksReservations?.(); }
@@ -1812,7 +1812,7 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
     task: (taskId) => deps.svc.get(taskId)?.task,
     checks: (projectId) => deps.svc.getBoardSettings(projectId).reviewChecks,
     inFlight: (taskId) => inFlight.has(taskId),
-    localMemorySeatOccupied,
+    localMemorySeatTaken,
     heldMemory: () => deps.heldMemory?.() ?? null,
     isCliRuntime: () => deps.isCliRuntime?.() ?? false,
     comments: (taskId) => deps.svc.get(taskId)?.comments ?? [],
@@ -2245,7 +2245,7 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
     isRemoteTask,
     isMemoryWaiter: (task) => task.status === "todo"
       && task.dispatchState === CHIP_QUEUED && task.dispatchError === WAITING_MEMORY,
-    localMemorySeatOccupied,
+    localMemorySeatTaken,
     checksRunning: () => { try { return deps.checksRunning?.() ?? 0; } catch { return 0; } },
     dispatch: (projectId) => tick(projectId),
     notifyQueue: notifyMemoryQueue,
@@ -5633,7 +5633,7 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
       }
       const reserveMemorySeat = !remoteTask
         && (manualMemoryStartSelected || (memoryHold && (floorNow.memoryFirstCardExempt || useNoCheckExemption)));
-      if (reserveMemorySeat && localMemorySeatOccupied() && memorySeatTaskId !== t.id) {
+      if (reserveMemorySeat && localMemorySeatTaken() && memorySeatTaskId !== t.id) {
         if (claimNoCheckReservationGB > 0) clearNoCheckReservation(t.id);
         queueChip(t, WAITING_MEMORY);
         continue;

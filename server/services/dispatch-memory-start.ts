@@ -10,7 +10,7 @@ export function createDispatchMemoryStartController(deps: {
   isInFlight(taskId: string): boolean;
   isRemoteTask(task: Task): boolean;
   isMemoryWaiter(task: Task): boolean;
-  localMemorySeatOccupied(): boolean;
+  localMemorySeatTaken(): boolean;
   checksRunning(): number;
   dispatch(projectId: string): Promise<void>;
   notifyQueue(): void;
@@ -35,7 +35,7 @@ export function createDispatchMemoryStartController(deps: {
     }
     if (!deps.isMemoryWaiter(task)) return { ok: false, code: "not_memory_queued" };
     if (deps.isRemoteTask(task)) return { ok: false, code: "not_local_task" };
-    if ((owner && owner !== taskId) || deps.localMemorySeatOccupied() || deps.checksRunning() > 0) {
+    if ((owner && owner !== taskId) || deps.localMemorySeatTaken() || deps.checksRunning() > 0) {
       return { ok: false, code: "memory_slot_busy" };
     }
 

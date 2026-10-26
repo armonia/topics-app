@@ -10,7 +10,7 @@ export function createNoCheckReservationManager(deps: {
   task(taskId: string): Task | null | undefined;
   checks(projectId: string): readonly ReviewCheck[];
   inFlight(taskId: string): boolean;
-  localMemorySeatOccupied(): boolean;
+  localMemorySeatTaken(): boolean;
   heldMemory(): HeldMemory | null;
   isCliRuntime(): boolean;
   comments(taskId: string): readonly { content: string }[];
@@ -51,7 +51,7 @@ export function createNoCheckReservationManager(deps: {
   }
 
   function reservationFor(task: Task): number | null {
-    if (task.dispatchWeight === "heavy" || ledger.hasAny() || deps.localMemorySeatOccupied()
+    if (task.dispatchWeight === "heavy" || ledger.hasAny() || deps.localMemorySeatTaken()
       || !attempts?.setNoLocalChecksReservation || !attempts.getNoLocalChecksReservation) return null;
     let checks: readonly ReviewCheck[];
     try { checks = deps.checks(task.projectId); } catch { return null; }
