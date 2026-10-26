@@ -115,7 +115,7 @@ describe("worktree-manager.del(): la cartella prima della riga", () => {
   // root ignores the permission bits: `chmod 0555` does not stop `rm -rf` there
   // (the cloud VM and most containers run as root). Skipped with the reason in
   // the title; as a normal user the test stays able to go red.
-  test.skipIf(process.getuid?.() === 0)("cartella che non si puo' togliere: la riga RESTA, il ramo resta, si lancia e si notifica (saltato come root)", async () => {
+  test.skipIf(process.getuid?.() === 0 || process.platform === "win32")("cartella che non si puo' togliere: la riga RESTA, il ramo resta, si lancia e si notifica (saltato come root)", async () => {
     const absPath = mount("stuck");
     rmSync(join(repo, ".git", "worktrees", "stuck"), { recursive: true, force: true });
     // Read-only parent: the children can be emptied, the folder itself cannot
@@ -285,7 +285,10 @@ describe("worktree-manager.create(): a repo with a git-crypt filter", () => {
     git(repo, "config", "user.email", "t@t.t");
     git(repo, "config", "user.name", "t");
     git(repo, "symbolic-ref", "HEAD", "refs/heads/main");
-    const filter = join(root, "fake-git-crypt");
+    // Windows git runs filters through sh: forward slashes, no CRLF rewriting of the fixture files.
+    git(repo, "config", "core.autocrlf", "false");
+    git(repo, "config", "core.eol", "lf");
+    const filter = join(root, "fake-git-crypt").replace(/\\/g, "/");
     writeFileSync(filter, '#!/bin/sh\ntest -f "$(git rev-parse --absolute-git-dir)/git-crypt/keys/default" || { echo "git-crypt: Error: Unable to open key file" >&2; exit 1; }\ncat\n');
     chmodSync(filter, 0o755);
     git(repo, "config", "filter.git-crypt.smudge", filter);
@@ -364,6 +367,7 @@ describe("worktree-manager.create(): a repo with a git-crypt filter", () => {
     git(repo, "config", "user.email", "t@t.t");
     git(repo, "config", "user.name", "t");
     git(repo, "symbolic-ref", "HEAD", "refs/heads/main");
+    git(repo, "config", "core.autocrlf", "false");
     writeFileSync(join(repo, "AGENTS.md"), "agent rules\n");
     git(repo, "add", "-A");
     git(repo, "commit", "-q", "-m", "base");

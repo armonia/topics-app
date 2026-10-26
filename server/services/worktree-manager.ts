@@ -39,7 +39,7 @@ import {
 } from "../utils/worktree-naming";
 import { makeSerialQueue } from "../lib/serial-queue";
 import { provisionTauriSidecars } from "./worktree-sidecars";
-import { existsSync, mkdirSync, statSync, symlinkSync } from "node:fs";
+import { existsSync, mkdirSync, statSync, cpSync } from "node:fs";
 import { rm } from "node:fs/promises";
 import { topicsHome } from "./daemon-state";
 import { installArgv, missingPackageManager } from "../lib/project-scripts";
@@ -296,7 +296,7 @@ export function createWorktreeManager(
    * exits 1 ("Unable to open key file"), and the worktree never exists. The
    * dispatcher retried and parked the card in backlog.
    *
-   * With git-crypt in the repo: add the worktree without a checkout, symlink the
+   * With git-crypt in the repo: add the worktree without a checkout, copy the
    * common repo's `git-crypt` folder into the worktree's git-dir, then check out.
    * Without git-crypt the path is the usual single command.
    */
@@ -310,7 +310,8 @@ export function createWorktreeManager(
     try {
       const gitDir = resolve(absPath, (await runGit(absPath, ["rev-parse", "--git-dir"])).stdout.trim());
       const link = join(gitDir, "git-crypt");
-      if (!existsSync(link)) symlinkSync(commonDir, link, process.platform === "win32" ? "junction" : "dir");
+      // Copy, never link: on Windows `worktree remove` follows a junction and deletes the real key.
+      if (!existsSync(link)) cpSync(commonDir, link, { recursive: true });
       await runGit(absPath, ["reset", "--hard", "--quiet"]);
     } catch (err) {
       // Half-made worktree: drop the folder and its registration so the card leaves no residue.
@@ -320,7 +321,7 @@ export function createWorktreeManager(
       if (addArgs[0] === "-b") await runGit(projectPath, ["branch", "-D", addArgs[1]!]).catch(() => {});
       throw err;
     }
-    console.log(`[WorktreeManager] git-crypt key dir linked into worktree git-dir { worktree: ${absPath} }`);
+    console.log(`[WorktreeManager] git-crypt key dir copied into worktree git-dir { worktree: ${absPath} }`);
   }
 
   /** `<common-dir>/git-crypt` when the repo has git-crypt initialised, else null. */
