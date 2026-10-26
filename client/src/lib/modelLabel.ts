@@ -167,13 +167,11 @@ type LabelSnapshot = { providers: Array<{ name: string; label?: string; modelInf
  * settings, the card chip, the card composer, the drawer and the board
  * settings. No context window: that is on the open row.
  *
- * `topicsMarked`: the surface already draws the «Topics» mark next to the text
- * (the chat chip), so the routed text drops its own «via Topics» instead of
- * saying it twice. Without the mark the text keeps it.
+ * Routed labels always name Topics in their text.
  */
 export function modelTriggerText(
   value: { provider: string | null | undefined; model: string | null | undefined },
-  ctx: { snapshot: LabelSnapshot; tr: Translate; surface: TriggerSurface; viaTopics?: boolean; topicsMarked?: boolean; automaticWho?: string | null },
+  ctx: { snapshot: LabelSnapshot; tr: Translate; surface: TriggerSurface; viaTopics?: boolean; automaticWho?: string | null },
 ): TriggerText {
   const { snapshot, tr } = ctx;
   const engineLabel = (name: string) => snapshot?.providers.find((entry) => entry.name === name)?.label ?? providerLabel(name);
@@ -187,7 +185,7 @@ export function modelTriggerText(
   }
   const { name } = splitModelId(value.model);
   const label = catalogModelLabel(snapshot, value.provider, name);
-  const who = ctx.viaTopics ? (ctx.topicsMarked ? '' : tr('ai.selector.route.topics'))
+  const who = ctx.viaTopics ? tr('ai.selector.route.topics')
     : value.provider ? tr('ai.selector.route.via', { engine: engineLabel(value.provider) }) : '';
   return { label, who };
 }

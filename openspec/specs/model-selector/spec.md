@@ -280,27 +280,27 @@ dello switch.
 - **GIVEN** una preferenza `null` e lo stesso bersaglio
 - **THEN** menu, cancello d'invio, resolver della chat, identità del topic dispacciato, dispatcher e picker automatico danno la stessa strada
 
-### Requirement: MSEL-07: La preferenza si vede e si spiega in una riga
+### Requirement: MSEL-07: La preferenza si vede e la spiegazione resta raggiungibile
 
 In cima al pannello SHALL esserci una fascia con:
+- l'icona Route;
 - il titolo «Esegui in Topics»;
 - un interruttore;
-- una riga di spiegazione leggibile senza passare col mouse, anche sul telefono.
+- tutto su una sola riga, con interruttore compatto a destra;
+- la spiegazione «Gli altri vanno diretti» nel tooltip dell'app, visibile al passaggio
+  del mouse e al fuoco da tastiera, associata al controllo con `aria-describedby`.
+  Su touch, il tocco porta il fuoco alla fascia e rende visibile lo stesso tooltip.
 
-La riga SHALL dire cosa fa (Claude gira dentro Topics col tuo abbonamento,
-senza aprire un processo Claude Code per chat) e cosa resta fuori («Gli altri
-vanno diretti»: emendamento del 04/10, perché sotto la fascia ci sono anche Meta,
-Mistral e le altre aziende). La riga SHALL NOT promettere né la stessa quota né meno
-memoria: la quota è la stessa solo con MSEL-11, e per jcode la memoria non
-cambia.
+Quando il bersaglio attuale va diretto con la preferenza accesa, la fascia SHALL
+mostrare nella stessa riga il motivo in `SEGNALE_ATTESA`, troncato quando manca
+spazio. La spiegazione nel tooltip SHALL restare disponibile anche in questo caso.
+La spiegazione SHALL NOT promettere né la stessa quota né meno memoria: la quota è
+la stessa solo con MSEL-11, e per jcode la memoria non cambia.
 
-Quando il valore attuale va diretto pur con la preferenza accesa, la fascia
-SHALL dire perché.
-
-Il trigger del composer SHALL mostrare un segno quando la strada del valore
-attuale passa da Topics. Ogni trigger chiuso SHALL scrivere il valore nello
-stesso formato, «etichetta · chi esegue» («Automatico · chi decide» per la scelta
-automatica).
+Il chip del composer SHALL scrivere «etichetta · via Topics» quando passa da
+Topics, con «· via Topics» in colore accent e senza pillola o icona separata.
+Le altre route SHALL restare nel formato «etichetta · via motore»; Automatico
+SHALL nominare chi decide.
 
 #### Scenario: Automatico nomina il predefinito, non il motore attuale
 - **GIVEN** una chat su Codex con GPT-6.1-Sol e il predefinito delle Impostazioni su Claude Code
@@ -317,12 +317,20 @@ automatica).
 - **GIVEN** la preferenza accesa e GPT-6.1-Sol selezionato
 - **WHEN** l'utente apre il selettore
 - **THEN** la fascia dice che questo modello va diretto perché Codex non passa da Topics
+- **AND** il motivo resta su una sola riga, troncabile, in colore ambra
+- **AND** il tooltip mostra «Gli altri vanno diretti»
 - **AND** l'interruttore resta cliccabile
 
-#### Scenario: sul telefono
+#### Scenario: aiuto su touch
 - **GIVEN** un viewport di 390 px
-- **WHEN** l'utente apre il selettore
-- **THEN** la riga di spiegazione è visibile senza nessun gesto
+- **WHEN** l'utente tocca la fascia
+- **THEN** la fascia riceve il fuoco e mostra il tooltip «Gli altri vanno diretti»
+
+#### Scenario: chip instradato
+- **GIVEN** Opus 5.5 instradato attraverso Topics
+- **WHEN** il selettore del composer è chiuso
+- **THEN** il chip dice «Opus 5.5 · via Topics» con la coda in colore accent
+- **AND** il chip non mostra una pillola o un'icona Route separata
 
 ### Requirement: MSEL-08: Tastiera e telefono
 

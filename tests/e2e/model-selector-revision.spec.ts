@@ -274,7 +274,8 @@ test.describe("desktop 1440 × 900, with keys", () => {
 
   test("the panel's text: the band says who goes direct, no «≈», nothing under 10 px (AC-12, AC-32, AC-36)", async ({ page, request }) => {
     await openSelector(page, request, KEYS);
-    await expect(page.getByTestId("model-selector-routing-line")).toContainText("Gli altri vanno diretti");
+    await page.getByTestId("model-selector-routing").focus();
+    await expect(page.getByTestId("app-tooltip")).toContainText("Gli altri vanno diretti.");
     for (const older of await panel(page).getByTestId("model-section-older").all()) await older.click();
     expect(await panel(page).innerText()).not.toContain("≈");
     const small = await panel(page).evaluate((root) => [...root.querySelectorAll<HTMLElement>("*")]

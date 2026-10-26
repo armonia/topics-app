@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { AlertTriangle, ChevronDown, Loader2, Route } from 'lucide-react';
+import { AlertTriangle, ChevronDown, Loader2 } from 'lucide-react';
 import { useT } from '../../hooks/useT';
 import { useProvidersSnapshot } from '../../hooks/useProvidersSnapshot';
 import { ModelSelector } from '../Shared/ModelSelector/ModelSelector';
@@ -159,7 +159,6 @@ export function ProviderModelPicker({ override, defaultProviderLabel, pinnedMode
     chip.addEventListener(OPEN_MODEL_SELECTOR_EVENT, onDoor);
     return () => chip.removeEventListener(OPEN_MODEL_SELECTOR_EVENT, onDoor);
   }, []);
-  // MSEL-07: a mark on the chip when the current choice runs through Topics.
   const route = useMemo(
     () => chatTopicsRoute(topicsRouting, override, defaultProviderLabel, snapshot, pinnedModel),
     [topicsRouting, override, defaultProviderLabel, snapshot, pinnedModel],
@@ -173,8 +172,12 @@ export function ProviderModelPicker({ override, defaultProviderLabel, pinnedMode
     ? tr('ai.selector.chipNone')
     : triggerLine(modelTriggerText(
       chatProvider || !pinnedModel ? value : { provider: appDefault, model: pinnedModel },
-      { snapshot, tr, surface: 'chat', viaTopics: route.via === 'topics', topicsMarked: route.via === 'topics', automaticWho },
+      { snapshot, tr, surface: 'chat', viaTopics: route.via === 'topics', automaticWho },
     ));
+  const topicsTail = ` · ${tr('ai.selector.route.topics')}`;
+  const routedChipLabel = route.via === 'topics' && chipText.endsWith(topicsTail)
+    ? chipText.slice(0, -topicsTail.length)
+    : null;
   const failed = loadState === 'failed' || loadState === 'broken';
   const chipTitle = loadState === 'failed'
     ? tr('chat.picker.menuFailed')
@@ -202,21 +205,8 @@ export function ProviderModelPicker({ override, defaultProviderLabel, pinnedMode
         }`}
         title={chipTitle}
       >
-        {route.via === 'topics' && (
-          // Small pill that makes the routing state legible at a glance (MSEL-07).
-          <span
-            data-testid="model-route-mark"
-            title={tr('ai.selector.route.topics')}
-            className="inline-flex shrink-0 items-center gap-0.5 rounded px-1 py-0.5 bg-primary/10 text-primary"
-          >
-            <Route className="h-2.5 w-2.5" aria-hidden="true" />
-            <span className="text-mini font-semibold leading-none" aria-label={tr('ai.selector.route.topics')}>
-              Topics
-            </span>
-          </span>
-        )}
         <span data-testid="provider-model-picker-label" className="max-w-[220px] truncate @max-[380px]:max-w-[110px]">
-          {chipText}
+          {routedChipLabel !== null ? <>{routedChipLabel}<span className="text-primary">{topicsTail}</span></> : chipText}
         </span>
         {loadState === 'loading' ? (
           <Loader2 className="h-3 w-3 shrink-0 animate-spin" />

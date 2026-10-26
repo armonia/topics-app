@@ -1,8 +1,7 @@
 /**
- * @covers CHAT-DEF-03, MSEL-04
+ * @covers CHAT-DEF-03, MSEL-07
  *
- * The chat chip's text when the choice runs through Topics: the «Topics» pill
- * is already drawn next to it, so the text must not say «via Topics» again.
+ * The chat chip names the route in the text, with the Topics suffix in accent.
  *
  * Rendered in a child process with the snapshot hook mocked there, so the mock
  * cannot outlive this file (`mock.module` is not retracted by `mock.restore`).
@@ -26,18 +25,20 @@ function chip(topicsRouting: boolean) {
     const markup = renderToStaticMarkup(React.createElement(ProviderModelPicker, {
       override: { provider: 'claude-code', model: 'claude-opus-5-5' }, onChange: () => {}, topicsRouting: ${topicsRouting},
     }));
-    const label = />([^<]*)<\\/span><svg/.exec(markup.slice(markup.indexOf('provider-model-picker-label')))?.[1] ?? null;
-    process.stdout.write(JSON.stringify({ label, pill: markup.includes('data-testid="model-route-mark"') }));
+    const labelMarkup = /provider-model-picker-label"[^>]*>(.*?)<\\/span><svg/.exec(markup)?.[1] ?? '';
+    const label = labelMarkup.replace(/<[^>]*>/g, '') || null;
+    const accent = /<span class="text-primary"> · via Topics<\\/span>/.test(markup);
+    process.stdout.write(JSON.stringify({ label, pill: markup.includes('data-testid="model-route-mark"'), accent }));
   `;
   const child = Bun.spawnSync([process.execPath, '-e', script], { stdout: 'pipe', stderr: 'pipe', cwd: resolve(import.meta.dir, '../../..') });
   expect(child.exitCode, new TextDecoder().decode(child.stderr)).toBe(0);
-  return JSON.parse(new TextDecoder().decode(child.stdout)) as { label: string | null; pill: boolean };
+  return JSON.parse(new TextDecoder().decode(child.stdout)) as { label: string | null; pill: boolean; accent: boolean };
 }
 
-test('with the «Topics» chip lit the trigger text does not repeat «via Topics»', () => {
-  expect(chip(true)).toEqual({ label: 'Opus 5.5', pill: true });
+test('with the Topics route the chip names it in the accent suffix, without a pill', () => {
+  expect(chip(true)).toEqual({ label: 'Opus 5.5 · via Topics', pill: false, accent: true });
 });
 
-test('without the chip the trigger still names the engine', () => {
-  expect(chip(false)).toEqual({ label: 'Opus 5.5 · via Claude Code', pill: false });
+test('without the Topics route the trigger still names the engine', () => {
+  expect(chip(false)).toEqual({ label: 'Opus 5.5 · via Claude Code', pill: false, accent: false });
 });

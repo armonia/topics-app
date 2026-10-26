@@ -2,6 +2,7 @@ import { useEffect, useId, useLayoutEffect, useRef, useState, type ReactNode } f
 import { createPortal } from 'react-dom';
 import { useExitGhost } from '../../lib/exitGhost';
 import { toFixed } from '../../lib/fixedFrame';
+import { Z_MODAL } from '../../lib/popoverStyles';
 
 /**
  * IL TOOLTIP DELL'APP. Nessun `title=` nativo dove l'informazione conta.
@@ -37,13 +38,17 @@ export interface TooltipProps {
   /** Sopra invece che sotto, quando sotto non c'è spazio per natura (una barra
    *  a fondo pagina). Il ribaltamento automatico resta comunque attivo. */
   side?: 'top' | 'bottom';
+  /** Places this tooltip above the popover surface that contains its trigger. */
+  abovePopover?: boolean;
+  /** Uses a layout box when a contents wrapper is skipped by browser tab order. */
+  wrapperClassName?: string;
   /** Spegne il tooltip senza smontare il figlio: per i casi in cui il
    *  contenuto non c'è (nessun dettaglio da dare) e un rettangolo vuoto
    *  sarebbe peggio del silenzio. */
   disabled?: boolean;
 }
 
-export function Tooltip({ content, children, side = 'bottom', disabled = false }: TooltipProps) {
+export function Tooltip({ content, children, side = 'bottom', disabled = false, abovePopover = false, wrapperClassName }: TooltipProps) {
   const [aperto, setAperto] = useState(false);
   const [pos, setPos] = useState<{ top: number; left: number } | null>(null);
   const wrapRef = useRef<HTMLSpanElement | null>(null);
@@ -130,7 +135,7 @@ export function Tooltip({ content, children, side = 'bottom', disabled = false }
         // della board: i chip in eccesso finivano oltre il bordo invece che
         // dentro il menu. Chi misura deve selezionare i FIGLI VERI (per
         // testid o classe), non `children`.
-        className="contents"
+        className={wrapperClassName ?? 'contents'}
         onMouseEnter={apri}
         onMouseLeave={chiudi}
         // Il fuoco da tastiera lo apre SUBITO: chi tabula ha già dichiarato
@@ -154,10 +159,11 @@ export function Tooltip({ content, children, side = 'bottom', disabled = false }
           // `text-app-text` on top it gave nearly black text on a nearly black
           // background. Same fix, same reason as `TooltipDelegate`: the two must
           // look identical or they read as two different components.
-          className="pointer-events-none fixed z-[100] max-w-xs rounded-lg border border-app-border bg-elevated px-2.5 py-1.5 text-mini leading-snug text-app-text shadow-lg popover-enter"
+          className="pointer-events-none fixed max-w-xs rounded-lg border border-app-border bg-elevated px-2.5 py-1.5 text-mini leading-snug text-app-text shadow-lg popover-enter"
           style={{
             top: pos?.top ?? -9999,
             left: pos?.left ?? -9999,
+            zIndex: abovePopover ? Z_MODAL : 100,
             // Invisibile finché non ha una posizione: un fotogramma nell'angolo
             // in alto a sinistra si vede, ed è il difetto classico dei tooltip
             // fatti in casa.

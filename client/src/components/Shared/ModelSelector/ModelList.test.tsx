@@ -20,6 +20,7 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { ModelList, type ModelListProps } from './ModelList';
+import { SEGNALE_ATTESA } from '../../Sidebar/chromeSignals';
 import { AUDIT_KEYS, AUDIT_NO_KEYS, CLAUDE_CODE, CODEX_ENTRY, MEASURED, entry, snapshotOf } from './fixtures';
 import type { ProvidersSnapshot } from '../../../types';
 
@@ -41,29 +42,56 @@ const band = (markup: string) => {
     checked: /aria-checked="true"/.test(m),
     disabled: /\sdisabled(=""|\s|>)/.test(m),
     line: /data-testid="model-selector-routing-line"[^>]*>([^<]*)</.exec(m)?.[1] ?? '',
+    warningClass: /data-testid="model-selector-routing-line" class="([^"]+)"/.exec(m)?.[1] ?? '',
+    describedBy: /aria-describedby="([^"]+)"/.exec(m)?.[1] ?? '',
+    labelledBy: /aria-labelledby="([^"]+)"/.exec(m)?.[1] ?? '',
+    label: (() => {
+      const id = /aria-labelledby="([^"]+)"/.exec(m)?.[1];
+      const start = id ? markup.indexOf(`id="${id}"`) : -1;
+      return start < 0 ? '' : />([^<]*)</.exec(markup.slice(start))?.[1] ?? '';
+    })(),
+    descriptions: (() => {
+      const ids = /aria-describedby="([^"]+)"/.exec(m)?.[1]?.split(/\s+/) ?? [];
+      return ids.map((id) => {
+        const start = markup.indexOf(`id="${id}"`);
+        return start < 0 ? '' : /class="sr-only">([^<]*)</.exec(markup.slice(start))?.[1] ?? '';
+      });
+    })(),
+    focusRing: m.includes('focus-visible:outline'),
   };
 };
 /** The wrapper of one row: its button, the 1M switch and the recovery action. */
 const rowOf = (markup: string, model: string) => new RegExp(`<div[^>]*data-testid="model-row-wrap"[^>]*><button[^>]*data-model="${model.replace(/[.[\]]/g, '\\$&')}"[^>]*>.*?</button>(?:<button[^>]*>.*?</button>)*</div>`, 's').exec(markup)?.[0] ?? '';
 
 describe('«Esegui in Topics» (MSEL-07)', () => {
-  test('on, with a model the engine serves: the band is lit and explains in a line', () => {
+  test('on, with a model the engine serves: the compact band keeps its help in a tooltip description', () => {
     const b = band(draw({ value: { provider: 'claude-code', model: 'claude-opus-5-5' }, topicsRouting: { enabled: true, onToggle: () => {} } }));
     expect(b).toMatchObject({ present: true, route: 'topics', checked: true, disabled: false });
-    // AC-32: the band says everything else goes direct, in one line.
-    expect(b.line).toBe('Gli altri vanno diretti.');
+    expect(b.line).toBe('');
+    expect(b.descriptions).toEqual(['Gli altri vanno diretti.']);
+    expect(b.describedBy).not.toBe('');
+    expect(b.label).toBe('Esegui in Topics');
+    expect(b.labelledBy).not.toBe('');
+    expect(b.focusRing).toBe(true);
   });
 
   test('on, with GPT-6.1-Sol: the band says it goes direct and why, and stays clickable', () => {
     const b = band(draw({ value: { provider: 'codex', model: 'gpt-6.1-sol' }, topicsRouting: { enabled: true, onToggle: () => {} } }));
     expect(b).toMatchObject({ route: 'direct', checked: true, disabled: false });
     expect(b.line).toBe('Questo modello va diretto: Codex non passa da Topics.');
+    expect(b.warningClass).toContain('truncate');
+    expect(b.warningClass).toContain(SEGNALE_ATTESA);
+    expect(b.label).toBe('Esegui in Topics');
+    expect(b.descriptions).toEqual([
+      'Gli altri vanno diretti.',
+      'Questo modello va diretto: Codex non passa da Topics.',
+    ]);
   });
 
-  test('the line never promises the same quota nor less memory', () => {
+  test('the tooltip hint never promises the same quota nor less memory', () => {
     const b = band(draw({ topicsRouting: { enabled: false, onToggle: () => {} } }));
     expect(b.route).toBe('off');
-    expect(b.line.toLowerCase()).not.toMatch(/quota|memoria|memory/);
+    expect(b.descriptions[0]?.toLowerCase()).not.toMatch(/quota|memoria|memory/);
   });
 
   test('without the prop there is no band (the default model of one provider)', () => {
@@ -236,4 +264,3 @@ describe('the chat surfaces open the one selector (MSEL-01)', () => {
     expect(inline).not.toContain('<ModelSelector');
   });
 });
-

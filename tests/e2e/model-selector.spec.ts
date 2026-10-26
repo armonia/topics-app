@@ -149,18 +149,36 @@ test.describe("desktop, 1280 × 900", () => {
     await expect(panel(page)).toHaveCount(0);
     await expect(picker).toHaveAttribute("data-model", "gpt-6.1-sol");
     await expect(picker).toBeFocused();
-    // MSEL-07: GPT goes direct, said in the band; the chip has no route mark.
-    await expect(picker.getByTestId("model-route-mark")).toHaveCount(0);
+    // MSEL-07: the direct executor remains named in the chip text.
+    await expect(picker.getByTestId("provider-model-picker-label")).toHaveText("GPT-6.1-Sol · via Codex");
     await picker.click();
     const band = page.getByTestId("model-selector-routing");
     await expect(band).toHaveAttribute("data-route", "direct");
     await expect(band).toHaveAttribute("aria-checked", "true");
+    await expect(band).toHaveAccessibleName("Esegui in Topics");
+    await expect(band).toHaveAccessibleDescription(/Questo modello va diretto: Codex non passa da Topics\./);
     await expect(page.getByTestId("model-selector-routing-line")).toContainText("Codex");
     await expect(band).toBeEnabled();
-    // Back to Opus: through Topics, and the chip shows the mark.
+    await search.focus();
+    await page.keyboard.press("Shift+Tab");
+    await expect(band).toBeFocused();
+    await expect(page.getByTestId("app-tooltip")).toContainText("Gli altri vanno diretti.");
+    const outline = await band.evaluate((el) => getComputedStyle(el).outlineStyle);
+    expect(outline).not.toBe("none");
+    await page.keyboard.press("Space");
+    await expect(band).toHaveAttribute("aria-checked", "false");
+    await expect(band).toHaveAccessibleName("Esegui in Topics");
+    await expect(band).toHaveAttribute("data-route", "off");
+    await page.keyboard.press("Enter");
+    await expect(band).toHaveAttribute("aria-checked", "true");
+    await expect(band).toHaveAttribute("data-route", "direct");
+    // Back to Opus: through Topics, named by its accent suffix in the chip.
     // On the label: the middle of a narrow row is the 1M switch, a sibling.
     await modelRow(page, "claude-opus-5-5").click({ position: { x: 12, y: 10 } });
-    await expect(picker.getByTestId("model-route-mark")).toBeVisible();
+    const chipLabel = picker.getByTestId("provider-model-picker-label");
+    await expect(chipLabel).toHaveText("Opus 5.5 · via Topics");
+    await expect(chipLabel.locator(".text-primary")).toHaveText(" · via Topics");
+    await expect(picker.getByTestId("model-route-mark")).toHaveCount(0);
     await picker.click();
     await expect(band).toHaveAttribute("data-route", "topics");
     await page.keyboard.press("Escape");
@@ -240,7 +258,7 @@ test.describe("desktop, 1280 × 900", () => {
 test.describe("phone, 390 × 844", () => {
   test.use({ viewport: { width: 390, height: 844 }, hasTouch: true });
 
-  test("a sheet from the bottom, 44px rows, no focus in the search, the line readable", async ({ page, request }) => {
+  test("a sheet from the bottom, 44px rows, no search focus, touch can open the hint", async ({ page, request }) => {
     const picker = await openChat(page, request);
     await picker.click();
     await expect(panel(page)).toHaveAttribute("data-layout", "list");
@@ -249,12 +267,15 @@ test.describe("phone, 390 × 844", () => {
     expect(Math.round(box!.width)).toBe(390);
     expect(Math.round(box!.y + box!.height)).toBeGreaterThanOrEqual(840);
     await expect(page.getByTestId("model-selector-search")).not.toBeFocused();
-    await expect(page.getByTestId("model-selector-routing-line")).toBeInViewport();
+    const band = page.getByTestId("model-selector-routing");
+    await expect(band).toHaveAttribute("aria-describedby");
     const height = await modelRow(page, "claude-opus-5-5").evaluate((el) => el.getBoundingClientRect().height);
     expect(height).toBeGreaterThanOrEqual(44);
     await shot(page, "phone-light");
     await page.emulateMedia({ colorScheme: "dark" });
     await shot(page, "phone-dark");
+    await band.tap();
+    await expect(page.getByTestId("app-tooltip")).toContainText("Gli altri vanno diretti.");
     // Scrolling the list keeps the heading of the company in sight.
     const sections = panel(page).getByTestId("model-selector-sections");
     await sections.evaluate((el) => { el.scrollTop = 240; });
