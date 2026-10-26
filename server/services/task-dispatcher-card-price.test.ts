@@ -88,6 +88,8 @@ interface HarnessOptions {
   budget?: MachineBudgetSample;
   /** Check commands of the repo board; none by default. */
   repoChecks?: ReviewCheck[];
+  /** The probe of a delivery commit: a card that carries one parks on it. */
+  deliveryLanded?: DispatcherDeps["deliveryLanded"];
 }
 
 function harness(o: HarnessOptions) {
@@ -120,6 +122,7 @@ function harness(o: HarnessOptions) {
         false, hold,
       );
     },
+    ...(o.deliveryLanded ? { deliveryLanded: o.deliveryLanded } : {}),
     ...(o.budget ? { budgetSample: () => o.budget!, agentCostSamples: () => [1, 1, 1] } : {}),
     graceMs: 0,
     retryBackoffMs: 0,
@@ -358,6 +361,68 @@ describe("la riga della card leggera alleggerisce solo la memoria", () => {
     expect(h.dispatcher.admissionPreview?.(QUIET)?.usedCoreUnits).toBeGreaterThan(6);
     expect(h.task("second").status).toBe("todo");
     expect(h.turns).toHaveLength(1);
+  });
+});
+
+describe("la riga si rilegge subito prima della partenza", () => {
+  /** A probe that answers when the test says so: the awaited gap of a delivered card. */
+  function parkedProbe() {
+    let release: ((landed: boolean | null) => void) | null = null;
+    return {
+      deliveryLanded: () => new Promise<boolean | null>((r) => { release = r; }),
+      isParked: () => release !== null,
+      answer: (landed: boolean | null) => release!(landed),
+    };
+  }
+  const waitForProbe = async (probe: ReturnType<typeof parkedProbe>) => {
+    for (let i = 0; i < 50 && !probe.isParked(); i++) await Promise.resolve();
+  };
+
+  it("un disco che si riempie mentre la card aspetta la sonda la tiene ferma, anche dopo una partenza dello stesso giro", async () => {
+    // Lines: 8 GB for the 2nd card, 9 for the 3rd. At 9.5 both fit.
+    const probe = parkedProbe();
+    const h = await withOneQuietTurn({ held: 9.5, deliveryLanded: probe.deliveryLanded });
+    h.seed("plain", QUIET);
+    h.seed("delivered", QUIET);
+    h.db.run("UPDATE tasks SET delivery_commit = 'abc1234def5678' WHERE id = 'delivered'");
+
+    // `plain` starts, `delivered` parks on the probe with its light pass in hand.
+    const tick = h.dispatcher.tick(QUIET);
+    await waitForProbe(probe);
+    expect(probe.isParked()).toBe(true);
+    expect(h.turns).toHaveLength(2);
+
+    h.setDisk(1);
+    probe.answer(false);
+    await tick;
+    await h.flush();
+
+    expect(h.task("delivered").status).toBe("todo");
+    expect(h.turns).toHaveLength(2);
+  });
+
+  it("una card partita su un'altra board mentre la sonda risponde alza la riga: la seconda non parte contro una lettura che ne ammette una", async () => {
+    // One light turn in flight, 8.5 GB: one more fits (line 8), two do not (line 9).
+    const probe = parkedProbe();
+    const h = await withOneQuietTurn({ held: 8.5, deliveryLanded: probe.deliveryLanded });
+    h.svc.updateBoardSettings("other-quiet", { autoDispatch: true, dispatchUseWorktree: false, reviewChecks: [], dispatchFanOut: 1 });
+    h.seed("delivered", QUIET);
+    h.db.run("UPDATE tasks SET delivery_commit = 'abc1234def5678' WHERE id = 'delivered'");
+    h.seed("other", "other-quiet");
+
+    const first = h.dispatcher.tick(QUIET);
+    await waitForProbe(probe);
+    expect(probe.isParked()).toBe(true);
+    await h.dispatch("other-quiet");
+    expect(h.task("other").status).toBe("in_progress");
+    expect(h.turns).toHaveLength(2);
+
+    probe.answer(false);
+    await first;
+    await h.flush();
+
+    expect(h.task("delivered").status).toBe("todo");
+    expect(h.turns).toHaveLength(2);
   });
 });
 

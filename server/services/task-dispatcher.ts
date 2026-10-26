@@ -5670,6 +5670,14 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
         queueChip(t, midPassMemoryHold ? WAITING_MEMORY : undefined);
         continue;
       }
+      // The light pass was granted before the awaits of this iteration (the
+      // delivery probe). A disk filled, or a card another board started in that
+      // gap, must hold this one like any other: ask again, with nothing awaited
+      // between this look and the claim.
+      if (lightPass && !lightMemoryPass(t)) {
+        queueChip(t);
+        continue;
+      }
       let claimNoCheckReservationGB = 0;
       if (useNoCheckExemption) {
         const latestReservationGB = noCheckReservationFor(t);
