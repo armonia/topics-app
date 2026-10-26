@@ -9,12 +9,18 @@
  *       { "event": "task-deliver", "cmd": "bun run typecheck" }
  *     ] }
  *
- * The vocabulary is CLOSED (HOOKS-01): four events, and an entry on any other
+ * The vocabulary is CLOSED (HOOKS-01): five events, and an entry on any other
  * name is dropped with a warning that names it, the way the control-tool
  * vocabulary drops what it does not know. The command gets the payload as
  * JSON on stdin with the field names of the incoming Claude Code hooks
  * (`hook_event_name`, `session_id`, `cwd`, `tool_name`, `tool_input`), so a
  * script written for one can read the other.
+ *
+ * `node-run` fires on the coordinator just before a card is sent to a paired
+ * node (payload: `task_id`, `project_id`, `machine_id`, `machine_name`,
+ * `node_base_url`, `origin_url`), so a script can wake the machine and bring
+ * its repository up to date. A veto defers the card like a silent node. Its
+ * ceiling is 300 s, the others stay at 60 s.
  *
  * THE VERDICT IS THE EXIT CODE, and only that (HOOKS-02). Non-zero blocks the
  * action and what the command wrote on stderr is the reason the human reads.
@@ -37,7 +43,7 @@ import { join } from "node:path";
 import { killProcessTree } from "../lib/process-tree";
 import { topicsHome } from "./daemon-state";
 
-export const HOOK_EVENTS = ["pre-tool", "turn-end", "task-deliver", "worktree-create"] as const;
+export const HOOK_EVENTS = ["pre-tool", "turn-end", "task-deliver", "worktree-create", "node-run"] as const;
 export type HookEvent = (typeof HOOK_EVENTS)[number];
 
 export interface HookEntry {
@@ -71,6 +77,12 @@ export interface LifecycleHookRunner {
 export const DEFAULT_HOOK_TIMEOUT_MS = 10_000;
 export const MAX_HOOK_TIMEOUT_MS = 60_000;
 /**
+ * `node-run` runs right before a card is sent to a paired node, and its job is
+ * slow by nature: waking a sleeping PC takes up to ~90 s, then a git bundle
+ * has to travel. It gets its own, higher ceiling; every other event keeps 60 s.
+ */
+export const MAX_NODE_RUN_HOOK_TIMEOUT_MS = 300_000;
+/**
  * How long the runner waits for the exit event after the kill before it
  * answers on its own. Capped by the timeout itself so that a short ceiling
  * stays short: a 300 ms hook must not take a 2 s grace to be declared over.
@@ -82,9 +94,13 @@ export function isHookEvent(name: unknown): name is HookEvent {
   return typeof name === "string" && (HOOK_EVENTS as ReadonlyArray<string>).includes(name);
 }
 
-function clampTimeout(ms: number | undefined): number {
+export function maxTimeoutFor(event: HookEvent): number {
+  return event === "node-run" ? MAX_NODE_RUN_HOOK_TIMEOUT_MS : MAX_HOOK_TIMEOUT_MS;
+}
+
+function clampTimeout(ms: number | undefined, event: HookEvent): number {
   if (typeof ms !== "number" || !Number.isFinite(ms) || ms <= 0) return DEFAULT_HOOK_TIMEOUT_MS;
-  return Math.min(Math.round(ms), MAX_HOOK_TIMEOUT_MS);
+  return Math.min(Math.round(ms), maxTimeoutFor(event));
 }
 
 /**
@@ -134,7 +150,7 @@ export function parseHooksConfig(raw: string | null | undefined): { hooks: HookE
     if (e.tool !== undefined && (e.event !== "pre-tool" || typeof e.tool !== "string")) {
       warnings.push(`hooks[${i}] (${e.event}) declares "tool", which only a pre-tool hook may use as a string; ignored`);
     }
-    const entry: HookEntry = { event: e.event, cmd: e.cmd, timeoutMs: clampTimeout(e.timeoutMs as number | undefined) };
+    const entry: HookEntry = { event: e.event, cmd: e.cmd, timeoutMs: clampTimeout(e.timeoutMs as number | undefined, e.event) };
     if (e.event === "pre-tool" && typeof e.tool === "string" && e.tool) entry.tool = e.tool;
     hooks.push(entry);
   });
@@ -159,7 +175,7 @@ export function runHookCommand(
   payload: LifecycleHookPayload,
   deps: { spawn: HookSpawn; log: (message: string) => void },
 ): Promise<HookOutcome> {
-  const timeoutMs = clampTimeout(entry.timeoutMs);
+  const timeoutMs = clampTimeout(entry.timeoutMs, entry.event);
   const label = `${entry.event} hook \`${entry.cmd}\``;
   return new Promise<HookOutcome>((resolve) => {
     let settled = false;

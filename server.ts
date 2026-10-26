@@ -23,7 +23,8 @@ import { appendFrozenNote, stdoutFileOf } from "./server/lib/background-shell-ou
 import { backgroundBashFor, foregroundBashFor } from "./server/lib/background-bash-record";
 import { listNativeCommands, nativeCommandByPid } from "./server/lib/native-command-registry";
 import { listSessionCliPids } from "./server/providers/session-pids";
-import { getAccessToken } from "./server/providers/native/auth";
+import { getAccessToken, recoverAfter401 } from "./server/providers/native/auth";
+import { createModelProxyListener, modelProxyPort } from "./server/services/model-proxy";
 import { releaseHoldIfFreed } from "./server/providers/native/usage-window";
 import { existsSync, readFileSync, mkdirSync, statSync, readlinkSync, realpathSync } from "fs";
 import { timingSafeEqual } from "crypto";
@@ -244,6 +245,7 @@ import { hostname as osHostname, totalmem as osTotalmem } from "node:os";
 import { createNodeClient, readDelegatedNodeToken, readNodeToken } from "./server/services/node-client";
 import { appendDelegatedRunAudit, delegatedPolicyForTask } from "./server/lib/delegated-agent-start";
 import { createNodeBranchPlanter } from "./server/services/node-branch-plant";
+import { projectPathOfAnyId } from "./server/lib/project-identity";
 import { createDelegatedRevocationRetry } from "./server/services/delegated-revocation-retry";
 import { initVapid } from "./server/push-service";
 import { startDevBundleReload, readBundleRev, stampBundleRev } from "./server/lib/dev-bundle-reload";
@@ -1794,8 +1796,11 @@ const nodeClient = createNodeClient({
   version: SERVER_VERSION,
   hostname: osHostname(),
 });
+// A card carries its BOARD id, the store wants the UUID: resolve either.
+const projectPathForNode = (projectId: string) =>
+  projectPathOfAnyId(ctx.db, (storeId) => ctx.projectStore.get(storeId)?.path, projectId);
 const nodeBranchPlanter = createNodeBranchPlanter({
-  repoPathOf: (projectId) => ctx.projectStore.get(projectId)?.path ?? null,
+  repoPathOf: projectPathForNode,
 });
 
 /**
@@ -2188,6 +2193,9 @@ const taskDispatcher = createTaskDispatcher({
     localMachineId: () => ctx.machineStore.upsertLocal().id,
     originUrlOf: (projectId) => nodeBranchPlanter.originUrlOf(projectId),
     plantBranch: (input) => nodeBranchPlanter.plantBranch(input),
+    // The `node-run` hook starts in the project's checkout on this machine,
+    // the same path the planter reads the origin from and plants into.
+    projectPathOf: projectPathForNode,
   },
   // Usage consumed by the dispatched session so far, from its Claude Code
   // transcript (jsonl_path is kept fresh by the session tracker). The reader
@@ -5075,6 +5083,23 @@ const serverTunnelHttp = portaTunnelHttp
   : null;
 if (serverTunnelHttp) {
   console.log(`[Tunnel] porta in chiaro su 127.0.0.1:${portaTunnelHttp} — chi entra da qui NON e' locale`); // allow-italian: log line, same language as its TLS twin above
+}
+
+// The model proxy for paired nodes: a listener of its own on loopback that
+// serves only POST /v1/messages[/count_tokens] with a per-machine token. It is
+// NEVER the main port: the node's reverse ssh tunnel lands on loopback, and on
+// the main port loopback means owner.
+const portaModelProxy = modelProxyPort(process.env);
+const serverModelProxy = portaModelProxy
+  ? createModelProxyListener(portaModelProxy, {
+      stateDir: ctx.STATE_DIR,
+      machineExists: (machineId) => ctx.machineStore.get(machineId) !== null,
+      getAccessToken,
+      recoverAfter401,
+    })
+  : null;
+if (serverModelProxy) {
+  console.log(`[ModelProxy] listening on 127.0.0.1:${portaModelProxy} (Messages API only, per-machine token)`);
 }
 
 // Stale stream cleanup
