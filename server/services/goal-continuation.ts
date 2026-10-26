@@ -556,7 +556,7 @@ export function goalContinuationForChatRoute(deps: {
     // off. `complete` is a single one-shot: no tools, no session.
     judge: async (prompt, info) => {
       const provider = deps.resolveProvider(ctx.getTopicById(info.topicId));
-      const cheap = provider.name === "claude-code" ? { model: "claude-haiku-4-5" } : undefined;
+      const cheap = provider.name === "claude-code" ? { model: "claude-haiku-5-5" } : undefined;
       const answer = await provider.complete([{ role: "user", content: prompt }], { ...cheap, purpose: "goal-judge" });
       return answer.content ?? "";
     },

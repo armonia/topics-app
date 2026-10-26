@@ -17,7 +17,9 @@
  * installation owner approves the checkout and policy.
  */
 import type { AppContext, RouteHandler } from "../types";
+import type { ProvidersSnapshot } from "../../shared/types";
 import { createTaskService, TaskServiceError, type Task } from "../services/tasks";
+import { taskModelIsCurrent } from "../services/task-model-catalog";
 import { defaultRunGit, type GitRunner } from "../services/own-commits";
 import type { DelegatedNodeBinding } from "../services/node-client";
 import { actingPersonId } from "../lib/orgs";
@@ -45,6 +47,8 @@ export interface NodesRouterOpts {
   onEnterTodo?: (projectId: string, taskId: string) => void;
   /** Runtime-ready coding models on this node; injectable for two-installation tests. */
   taskModels?: () => string[];
+  /** Current coding-provider catalogs used to reject stale mirrored task models. */
+  taskModelSnapshot?: () => ProvidersSnapshot | null;
   /** Shared server-side retry loop; tests may omit it and get the same service locally. */
   revocations?: DelegatedRevocationRetry;
 }
@@ -612,6 +616,16 @@ export function createNodesRouter(ctx: AppContext, opts: NodesRouterOpts): Route
       if (!text) return errorResponse(400, "text required");
       const originKey = normalizeRemoteUrl(body.originUrl);
       if (!originKey) return errorResponse(400, "originUrl must be a git remote URL");
+
+      const model = typeof body.model === "string" ? body.model : null;
+      const snapshot = opts.taskModelSnapshot?.() ?? getSnapshotManager().getSnapshot();
+      const testCatalog = opts.taskModels?.() ?? [];
+      if (model && !testCatalog.includes(model) && !taskModelIsCurrent(model, snapshot)) {
+        return json({
+          error: "Il modello scelto non è nel catalogo attuale o appartiene a una generazione superata.",
+          code: "invalid_task_model",
+        }, 400);
+      }
 
       const project = await projectForOrigin(originKey);
       if (!project) return json({ error: "no_such_repo", originUrl: body.originUrl }, 404);

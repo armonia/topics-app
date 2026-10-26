@@ -23,10 +23,10 @@ import type {
   StreamHandler,
 } from "./types";
 
-// Model families that support extended thinking. Claude 3.7 + all Claude 4.x.
-const THINKING_MODELS = /^claude-(3-7|sonnet-4|opus-4|haiku-4)/;
+// Model families that support extended thinking. Claude 3.7 + Claude 4.x/5.x.
+const THINKING_MODELS = /^claude-(3-7|sonnet-[45]|opus-[45]|haiku-[45])/;
 
-const DEFAULT_MODEL = "claude-sonnet-4-6";
+const DEFAULT_MODEL = "claude-sonnet-5-5";
 // Output ceiling. Must always exceed any thinking budget we send (legacy
 // `budget_tokens` < `max_tokens` is a hard API constraint on pre-4.6 models).
 const DEFAULT_MAX_TOKENS = 16384;
@@ -36,16 +36,12 @@ const LEGACY_THINKING_BUDGET = 8000;
 
 // Public model aliases that resolve to actual Anthropic API models. Order
 // matters: the first entry is what the picker shows first when this provider
-// is the default. Sonnet 4.6 leads because it's the recommended balanced choice.
+// is the default. Sonnet 5.5 leads because it's the recommended balanced choice.
 const KNOWN_MODELS = [
-  "claude-sonnet-4-6",
-  "claude-opus-4-8",
-  "claude-opus-4-7",
-  "claude-opus-4-6",
+  "claude-sonnet-5-5",
+  "claude-opus-5-5",
   "claude-haiku-5-5",
-  "claude-haiku-4-5",
-  "claude-sonnet-4-5",
-  "claude-opus-4-5",
+  "claude-fable-5-1",
 ];
 
 export class ClaudeProvider implements AIProvider {

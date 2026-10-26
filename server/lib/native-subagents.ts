@@ -114,7 +114,7 @@ export function engineLaunchOf(
  * not run is dropped by the chat route, which falls back to the default.
  */
 const ENGINE_ALIASES: Record<string, string> = {
-  opus: "claude-opus-5-5", sonnet: "claude-sonnet-5-5", fable: "claude-fable-5-1", haiku: "claude-haiku-4-5-20251001",
+  opus: "claude-opus-5-5", sonnet: "claude-sonnet-5-5", fable: "claude-fable-5-1", haiku: "claude-haiku-5-5",
 };
 
 export function engineModelOf(model: string | null): string | null {

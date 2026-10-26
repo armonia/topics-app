@@ -60,7 +60,7 @@ describe("the model and the tools, in the engine's names (SUBAGENT-08, 09)", () 
   test("the aliases the tool accepts become ids the engine serves", () => {
     expect(engineModelOf("sonnet")).toBe("claude-sonnet-5-5");
     expect(engineModelOf("opus[1m]")).toBe("claude-opus-5-5[1m]");
-    expect(engineModelOf("haiku")).toBe("claude-haiku-4-5-20251001");
+    expect(engineModelOf("haiku")).toBe("claude-haiku-5-5");
     expect(engineModelOf("claude-sonnet-5-5[1m]")).toBe("claude-sonnet-5-5[1m]");
     expect(engineModelOf(null)).toBeNull();
   });

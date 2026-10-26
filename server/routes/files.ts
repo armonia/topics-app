@@ -1354,7 +1354,7 @@ export function createFilesRouter(ctx: AppContext): RouteHandler {
               { role: "system", content: buildSystemPrompt(esempi) },
               { role: "user", content: buildUserPrompt(statText, diffText) },
             ],
-            { model: "claude-haiku-4-5", purpose: "commit-message" },
+            { model: "claude-haiku-5-5", purpose: "commit-message" },
           ).catch(() => null),
           new Promise<typeof scaduto>(r => setTimeout(() => r(scaduto), 30_000)),
         ]);

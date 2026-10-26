@@ -24,6 +24,7 @@ import { isTaskLabel } from "../../shared/task-labels";
 import { stopCauseOf, STOP_CAUSE_HEADER, type StopCause } from "../lib/abort-cause";
 import { ScheduledCardsError, type ScheduledCardsService } from "../services/scheduled-cards";
 import { invalidateProbeCache } from "../services/url-probe-cache";
+import { taskModelIsCurrent } from "../services/task-model-catalog";
 import type { TasksRouterOpts, emitReviewReadyEdge } from "./tasks";
 
 /**
@@ -405,6 +406,13 @@ export function createBoardRoutes(deps: BoardRouteDeps) {
       }
       if (method === "POST") {
         const body = (await readJSON(req)) as any;
+        if (body?.model !== undefined && body.model !== null
+          && !taskModelIsCurrent(body.model, opts?.taskModelSnapshot?.() ?? null)) {
+          return json({
+            error: "Il modello scelto non è nel catalogo attuale o appartiene a una generazione superata.",
+            code: "invalid_task_model",
+          }, 400);
+        }
         try {
           const effectiveProjectId = resolveBoardId(projectId, body?.text, body?.description);
           const task = svc.create({

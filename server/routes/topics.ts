@@ -1797,7 +1797,7 @@ export function createTopicsRouter(
         // Provider/model are spawn-time flags for the claude-code CLI (same
         // as effort below): track changes so we can force an idle respawn.
         let spawnConfigChanged = false;
-        const configBefore = { autonomy: topic.autonomyLevel, model: topic.model }; // see `owedChangesOf`
+        const configBefore = { autonomy: topic.autonomyLevel, model: topic.model ?? null }; // see `owedChangesOf`
         if (body.autonomyLevel !== undefined) {
           const valid: Topic['autonomyLevel'][] = ['ask', 'auto-apply', 'yolo'];
           // Un livello sconosciuto è un ERRORE del chiamante, non un `ask`.
@@ -1829,6 +1829,7 @@ export function createTopicsRouter(
           topic.model = body.model || null;
           spawnConfigChanged ||= (topic.model ?? null) !== prev;
         }
+        const topicModelChanged = (topic.model ?? null) !== configBefore.model;
         if (body.topicsRouting !== undefined) {
           // AICTRL-01: the switch never rewrites provider/model, but it does
           // change which engine executes the next turn, so it needs the same
@@ -1892,6 +1893,14 @@ export function createTopicsRouter(
         topic.updatedAt = new Date().toISOString();
         saveSingleTopic(topic);
         broadcastToAll({ type: "topic:updated", topic });
+        if (topicModelChanged) {
+          // Keep the currently bound card aligned with the model configured on its topic.
+          const boundTask = taskSvc.taskForTopic(topic.id);
+          if (boundTask) {
+            const task = taskSvc.setModel({ taskId: boundTask.id, model: topic.model ?? null });
+            broadcastToAll({ type: "task:updated", projectId: boundTask.projectId, task });
+          }
+        }
         // Effort tier AND model/provider are fixed at CLI spawn time — drop the
         // idle pooled process so the next turn respawns with the new `--effort`
         // / `--model`. Fire-and-forget: failures are non-fatal (the change still

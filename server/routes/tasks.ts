@@ -27,6 +27,7 @@ import type { AIProvider } from "../providers";
 import { resolvePrincipals } from "../lib/principals";
 import { liveAgentStartCapability, queueDelegatedRun } from "../lib/delegated-agent-start";
 import type { OutboundMessage } from "../../shared/ws-outbound";
+import type { ProvidersSnapshot } from "../../shared/types";
 import { budgetShare, capMode, isAgentWorking, isCiEvidenceCheck, type CheckRun, isThreadSpeech, PARKED_WAITED_OUT, pendingQuestion, TASK_STATUSES, type DispatchAdmission, type GlobalDispatchCap, type PendingQuestionComment, type TaskStatus } from "../../shared/board";
 import { toFeedTask } from "../../shared/board-feed";
 import { selectTaskSessionPeek } from "../../shared/task-session-peek";
@@ -220,6 +221,8 @@ const AGENT_COMMENT_MAX_CHARS = 600;
 
 export interface TasksRouterOpts {
   scheduledCards?: ScheduledCardsService;
+  /** Current coding-provider catalogs used to reject stale task model choices. */
+  taskModelSnapshot?: () => ProvidersSnapshot | null;
   /**
    * The repository a delivery report is verified against, and how a root
    * becomes a probe (tests pass a fake). Handed to the router's OWN task

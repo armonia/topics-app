@@ -22,13 +22,12 @@ import { createReadStream, statSync } from "fs";
 
 /** Used when the scan cannot run or comes back empty. Newest-known-first. */
 export const FALLBACK_MODELS = [
-  "claude-opus-5",
-  "claude-opus-5[1m]",
-  "claude-sonnet-5",
-  "claude-sonnet-5[1m]",
+  "claude-opus-5-5",
+  "claude-opus-5-5[1m]",
+  "claude-sonnet-5-5",
+  "claude-sonnet-5-5[1m]",
   "claude-haiku-5-5",
-  "claude-haiku-4-5",
-  "claude-fable-5",
+  "claude-fable-5-1",
 ];
 
 /** Family order in the picker: strongest first, matching the CLI's own order. */

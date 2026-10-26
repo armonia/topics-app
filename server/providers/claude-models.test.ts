@@ -130,10 +130,13 @@ describe("scanCliForModelIds", () => {
   });
 });
 
-describe("Haiku 5.5 in the catalog", () => {
-  test("the fallback list carries Haiku 5.5 and still admits Haiku 4.5", () => {
+describe("Claude 5.5 defaults in the catalog", () => {
+  test("the fallback list carries current Claude models without older generations", () => {
     expect(FALLBACK_MODELS).toContain("claude-haiku-5-5");
-    expect(FALLBACK_MODELS).toContain("claude-haiku-4-5");
+    expect(FALLBACK_MODELS).toContain("claude-opus-5-5");
+    expect(FALLBACK_MODELS).toContain("claude-sonnet-5-5");
+    expect(FALLBACK_MODELS).toContain("claude-fable-5-1");
+    expect(FALLBACK_MODELS.some((model) => /-(3|4)-/.test(model))).toBe(false);
   });
 
   test("Haiku 5.5 is current and Haiku 4.5 older, both stay in the list", () => {
@@ -143,7 +146,7 @@ describe("Haiku 5.5 in the catalog", () => {
     const g = claudeModelGenerations(models);
     expect(g["claude-haiku-5-5"]!.generation).toBe("current");
     expect(g["claude-haiku-4-5"]!.generation).toBe("older");
-    expect(claudeModelGenerations(FALLBACK_MODELS)["claude-haiku-4-5"]!.generation).toBe("older");
+    expect(claudeModelGenerations(FALLBACK_MODELS)["claude-haiku-4-5"]).toBeUndefined();
   });
 });
 
@@ -153,7 +156,7 @@ describe("FALLBACK_MODELS", () => {
   });
 
   test("offers the 1M window, which is what the hand-typed list never did", () => {
-    expect(FALLBACK_MODELS).toContain("claude-opus-5[1m]");
+    expect(FALLBACK_MODELS).toContain("claude-opus-5-5[1m]");
   });
 });
 

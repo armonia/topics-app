@@ -2702,6 +2702,12 @@ sondaLavoroNonCommittato = async (taskId: string) => {
 const landingQueue = createLandingQueue({ log: (m) => console.warn(m) });
 const tasksRouter = createTasksRouter(ctx, taskDispatcher, {
   scheduledCards,
+  taskModelSnapshot: () => {
+    // The board validates against the same provider catalogs shown by the picker.
+    // eslint-disable-next-line @typescript-eslint/no-require-imports -- lazy to preserve provider startup order
+    const { getSnapshotManager } = require("./server/providers/snapshot-manager") as typeof import("./server/providers/snapshot-manager");
+    return getSnapshotManager().getSnapshot();
+  },
   landings: landingQueue,
   repoRootFor: repoRootForCard,
   workspaceDir: DISPATCH_WORKSPACE_DIR,
@@ -3042,6 +3048,12 @@ const nodesRouter = createNodesRouter(ctx, {
   deleteBoardTask: deleteDelegatedBoardTask,
   revocations: delegatedRevocations,
   onEnterTodo: (projectId, taskId) => taskDispatcher.onEnterTodo(projectId, taskId),
+  taskModelSnapshot: () => {
+    // Keep node catalog lookup lazy with the other server bootstrap routes.
+    // eslint-disable-next-line @typescript-eslint/no-require-imports -- lazy to preserve provider startup order
+    const { getSnapshotManager } = require("./server/providers/snapshot-manager") as typeof import("./server/providers/snapshot-manager");
+    return getSnapshotManager().getSnapshot();
+  },
   // The browser acceptance server intentionally has no live coding account.
   // Give only that hermetic process one inert catalogue value so it can prove
   // the authorization handshake without probing or invoking an LLM.
