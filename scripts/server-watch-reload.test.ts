@@ -39,6 +39,7 @@ import {
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { slackMs } from "../tests/helpers/time-slack";
+import { gitEnv } from "../tests/setup/bun-test-preload";
 
 const SCRIPTS = resolve(import.meta.dir);
 
@@ -128,7 +129,7 @@ async function startRig(opts: {
   ageTree(app, secondsAgo(600));
   writeFileSync(join(home, "daemon-state.json"), JSON.stringify({ token: "b".repeat(64), port: 3333 }));
   const git = (...args: string[]) => {
-    const r = Bun.spawnSync(["git", "-C", app, "-c", "user.name=t", "-c", "user.email=t@t", "-c", "commit.gpgsign=false", ...args]);
+    const r = Bun.spawnSync(["git", "-C", app, "-c", "user.name=t", "-c", "user.email=t@t", "-c", "commit.gpgsign=false", ...args], { env: gitEnv() });
     if (r.exitCode !== 0) throw new Error(`git ${args.join(" ")}: ${r.stderr.toString()}`);
   };
   if (opts.git) {
