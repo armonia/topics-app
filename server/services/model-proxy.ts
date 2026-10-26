@@ -158,7 +158,7 @@ function upstreamHeaders(req: Request, accessToken: string): Headers {
 }
 
 /** The body as bytes, or `null` when it exceeds the cap (stops reading at the cap). */
-async function readCapped(req: Request, cap: number): Promise<Uint8Array | null> {
+async function readCapped(req: Request, cap: number): Promise<Uint8Array<ArrayBuffer> | null> {
   const declared = Number(req.headers.get("content-length"));
   if (Number.isFinite(declared) && declared > cap) return null;
   if (!req.body) return new Uint8Array(0);

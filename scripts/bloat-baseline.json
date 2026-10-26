@@ -629,6 +629,20 @@
 
     "server/services/task-dispatcher-held-resume-quiet.test.ts": 875,
 
+    "server/services/task-dispatcher-remote-node.test.ts": {
+      "lines": 897,
+      "why": [
+        "2026-10-26, pc-nodo (PR #457): 750 on main -> 897, +147 the node-run hook's cases (green light, veto deferred like a silent node with no attempt burned, a runner that throws, the hook before the cancel of the old run, the payload) on the lane's own fake node and clock, which a second file would have to copy."
+      ]
+    },
+
+    "server/services/task-dispatcher-remote-node.ts": {
+      "lines": 831,
+      "why": [
+        "2026-10-26, pc-nodo (PR #457): 797 on main -> 831, +34 the node-run hook that wakes a sleeping node before any call to it (two optional NodeDeps fields, the call and its veto). The hook runner lives in server/services/lifecycle-hooks.ts; the lane stays whole in one file as its header says."
+      ]
+    },
+
     "server/services/task-dispatcher.test.ts": 4978,
 
     "server/services/task-dispatcher.ts": 6298,
