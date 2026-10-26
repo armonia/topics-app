@@ -13,7 +13,9 @@ provider, e cambiarlo SHALL NOT alterare il provider né il modello selezionati.
 
 **Il valore mai scritto vale acceso per le chat, per le card e per il default
 della board** (MSEL-06). Per una card con preferenza mai scritta, il prefisso
-storico `claude-code:<model>` conserva l'esecuzione diretta; `topics:<model>`
+storico `claude-code:<model>` conserva l'esecuzione diretta solo se la card è
+stata creata prima del 2026-09-22 (la data della card entra in ogni superficie:
+chip, cassetto e dispatcher); `topics:<model>`
 conserva l'instradamento. Nessun dato viene riscritto per questo.
 
 **Cosa significano le due posizioni:**
