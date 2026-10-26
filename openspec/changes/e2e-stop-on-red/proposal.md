@@ -24,10 +24,18 @@ circa 15, e i job ubuntu delle altre CI aspettano con p90 di 16,7 minuti.
   chiude `failure` con «fermato: unit rosso, la e2e non è il guasto» e il link
   del job rosso. Il run resta `failure`, mai `cancelled`.
 - Su main lo script è la shell normale. Ogni dubbio (API illeggibile, meno di
-  250 richieste rimaste sul token, rosso di un altro tentativo) fa girare lo
-  step fino in fondo. Con unit e gates verdi smette di chiedere: circa 40
-  richieste a run, sul limite di 1.000 l'ora del GITHUB_TOKEN.
-- `scripts/e2e-stop-on-red.test.sh` (26 controlli, `curl` finto) gira nel job `gates`.
+  250 richieste rimaste sul token) fa girare lo step fino in fondo. Con unit e
+  gates verdi smette di chiedere: circa 40 richieste a run sulle 5.000 l'ora
+  del GITHUB_TOKEN (misurato dall'intestazione sul run 40245465850).
+- «Re-run job» su un solo shard: GitHub elenca unit e gates non rilanciati come
+  copie nel nuovo tentativo (stesso `run_attempt`, `started_at` vecchio). Lo
+  script le scarta, quindi lo shard rilanciato non si ferma su un rosso che
+  qualcuno ha scelto di scavalcare. «Re-run failed jobs» rifà unit, e se è di
+  nuovo rosso ferma gli shard.
+- La board (`server/services/ci-evidence.ts`): uno shard fermato da unit o gates
+  rossi aspetta il job `check` e poi nomina il job rosso (come KANBAN-86),
+  invece di dire «e2e rossi» e lasciare la riga unit «non misurata».
+- `scripts/e2e-stop-on-red.test.sh` (29 controlli, `curl` finto) gira nel job `gates`.
 
 ## Barra
 
@@ -39,7 +47,7 @@ Comandi: `python3 openspec/changes/e2e-stop-on-red/bar.py stop|green <run>`.
 | b | PR verde, durate come prima | `green` exit 0 | (link) |
 | c | mutante senza fermata + test rotto | `stop` exit 1 | (link) |
 
-In locale: `bash scripts/e2e-stop-on-red.test.sh` exit 0, e 10 mutanti dello
+In locale: `bash scripts/e2e-stop-on-red.test.sh` exit 0, e 11 mutanti dello
 script tutti rossi. Sul run rosso 40238524332 di prima (25/10) `stop` esce 1:
 shard finiti 520-792 s dopo il rosso.
 
@@ -47,12 +55,13 @@ shard finiti 520-792 s dopo il rosso.
 
 - Saltare la e2e sulle PR in bozza (13% dei minuti): un'altra PR.
 - Il piano Team: no, per ora (Attilio, 25/10).
-- La board legge uno shard fermato come e2e rossa, non come «non misurata».
 
 ## Conseguenze da sapere
 
 - «Re-run failed jobs» dopo un unit flaky rifà anche gli shard fermati: circa
   17 minuti invece di 7.
+- Su una PR rossa per unit o gates la riga e2e della board resta rossa
+  (`failure`, come richiesto) ma punta al job vero.
 
 ## Deciso da me
 

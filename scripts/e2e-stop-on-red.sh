@@ -7,9 +7,9 @@
 #
 # GitHub hands it the path of the step's script. It runs that script exactly
 # as the default shell would (`bash -e <script>`), and on a pull request it
-# asks the API, every E2E_STOP_POLL_SECONDS, how the `unit` and `gates` jobs of
-# this run attempt are doing. When one of them concluded `failure`, the step
-# is stopped and exits 1 with a line saying which job is the red one.
+# asks the API, every E2E_STOP_POLL_SECONDS, how the `unit` and `gates` jobs
+# that ran in this attempt are doing. When one of them concluded `failure`, the
+# step is stopped and exits 1 with a line saying which job is the red one.
 #
 # WHY. Measured on 199 pull request runs (22-25/10/2026): in 82 of them unit or
 # gates was red after a median of 6.6-8.1 minutes, and the eight e2e shards ran
@@ -33,11 +33,16 @@
 #   - not a pull request, or no token: plain `exec bash -e <script>`;
 #   - unit and gates both completed without a failure: the watch ends, and a
 #     mark in RUNNER_TEMP stops the next steps of the shard from asking again;
-#   - neither job found in this attempt (a single job re-run): no watch;
+#   - neither job ran in this attempt: no watch. That is "Re-run job" on one
+#     shard: GitHub lists the jobs it did not re-run as COPIES in the new
+#     attempt (new id, same run_attempt as the shard, the old started_at and
+#     conclusion), and a copied red is the verdict someone chose to look past
+#     (runs 40191266179, 40197979566). After "Re-run failed jobs" a red unit is
+#     re-run, so it is watched again;
 #   - the API unreadable E2E_STOP_MAX_ERRORS times in a row, or fewer than
 #     E2E_STOP_RATE_RESERVE requests left on the token: the watch ends with a
-#     warning. The GITHUB_TOKEN of a repository has 1,000 requests an hour,
-#     shared with auto-bump and the releases; this watch costs about 40 a run.
+#     warning. The token had 5,000 requests an hour on run 40245465850, shared
+#     with every workflow of the repository; this watch costs about 40 a run.
 #
 # The token arrives as E2E_STOP_TOKEN and is removed from the environment
 # before the step runs: Playwright, the test server and whatever they spawn
@@ -72,24 +77,25 @@ fi
 work="$(mktemp -d "$state/e2e-stop-on-red.XXXXXX")"
 reason="$work/reason"
 
-# One line per watched job of this attempt: name, status, conclusion, url.
-# Exit 1 when the API could not be read; the rate limit left is in $work/left.
+# One line per watched job: name, status, conclusion, url. Exit 1 when the API
+# could not be read; the rate limit left is in $work/left.
 query() {
   local code
   code="$(curl -sS --max-time 20 -o "$work/body" -D "$work/headers" -w '%{http_code}' \
     -H "Authorization: Bearer $token" \
     -H "Accept: application/vnd.github+json" \
     -H "X-GitHub-Api-Version: 2022-11-28" \
-    "${GITHUB_API_URL:-https://api.github.com}/repos/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}/jobs?per_page=100" 2>"$work/curl.err")" || return 1
+    "${GITHUB_API_URL:-https://api.github.com}/repos/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}/jobs?filter=all&per_page=100" 2>"$work/curl.err")" || return 1
   [ "$code" = "200" ] || return 1
   tr -d '\r' <"$work/headers" | awk -F': *' 'tolower($1) == "x-ratelimit-remaining" { print $2 }' >"$work/left"
   tr -d '\r' <"$work/headers" | awk -F': *' 'tolower($1) == "x-ratelimit-limit" { print $2 }' >"$work/limit"
-  # run_attempt: on "re-run failed jobs" the jobs that were not re-run are
-  # listed with the attempt that ran them, and their old verdict is not this
-  # attempt's business.
+  # The unit and gates jobs of this attempt that RAN in it: a copy carries the
+  # started_at of the earlier attempt it was copied from (see the top).
   jq -r --argjson attempt "$attempt" '
-    .jobs[]
+    .jobs as $all
+    | $all[]
     | select(.run_attempt == $attempt and (.name == "unit" or .name == "gates"))
+    | select(. as $j | any($all[]; .run_attempt < $attempt and .name == $j.name and .started_at == $j.started_at) | not)
     | [.name, .status, (.conclusion // "none"), .html_url] | @tsv' "$work/body"
 }
 
@@ -121,7 +127,12 @@ watch() {
         return
       fi
       if [ -z "$jobs" ]; then
-        say "no unit or gates job in attempt $attempt: not watching"
+        if [ "$attempt" -gt 1 ]; then
+          say "unit and gates did not run in attempt $attempt (a re-run of single jobs): not watching"
+        else
+          # On a first attempt both jobs always exist: they were renamed.
+          echo "::warning title=E2E senza fermata::no job named unit or gates in this run: this shard will not stop when they are red (renamed in ci.yml?)."
+        fi
         : >"$done_mark"
         return
       fi
@@ -146,7 +157,7 @@ watch() {
   done
 }
 
-say "watching unit and gates of attempt $attempt every ${interval}s: a red one stops this step"
+say "watching unit and gates every ${interval}s: a red one stops this step"
 
 # Job control gives the step and the watch a process group each, so a stop
 # reaches every process of the step (the client build in the background, npx,

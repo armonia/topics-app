@@ -860,8 +860,10 @@ jobs:
     # agents, Auto-fix and the CI monitor, and nobody would fix the red. On a
     # push to main the script is the plain shell (every commit keeps its
     # whole verdict for auto-bump), and any doubt (API unreadable, rate limit
-    # low, the red of another attempt) runs the step to the end. The why and
-    # the cases are in the script and in scripts/e2e-stop-on-red.test.sh.
+    # low) runs the step to the end. So does a shard re-run on its own: the
+    # red unit it finds is a copy GitHub left there, not a verdict of this
+    # attempt. The why and the cases are in the script and in
+    # scripts/e2e-stop-on-red.test.sh.
     #
     # `actions: read` is what the jobs API asks; `contents: read` is the
     # checkout. Listing them drops every other permission of the token here.

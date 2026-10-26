@@ -9,7 +9,7 @@
 # stop the step within one poll, with the job named in the log. And every
 # other path must leave the step exactly as GitHub's default shell runs it:
 # same exit code, same `bash -e`, no token in its environment, and no stop
-# when the API is unreadable or the red belongs to another run attempt.
+# when the API is unreadable or the red is a copy left by a re-run of one shard.
 #
 # E2E_STOP_SCRIPT lets a mutant copy be tested instead of the real script.
 
@@ -59,14 +59,19 @@ chmod +x "$WORK/bin/curl"
 
 # The jobs of a run as the API lists them: unit and gates with the given
 # status/conclusion, plus the jobs that are not watched.
-jobs_json() { # unit_status unit_conclusion gates_status gates_conclusion [attempt]
-  local a="${5:-1}"
+json_or_null() { [ "$1" = null ] && echo null || echo "\"$1\""; }
+# One job as the API lists it: name status conclusion attempt started_at id.
+job_json() {
+  printf '{"name": "%s", "status": "%s", "conclusion": %s, "run_attempt": %s, "started_at": "%s", "html_url": "https://github.com/o/r/actions/runs/1/job/%s"}' \
+    "$1" "$2" "$(json_or_null "$3")" "$4" "$5" "$6"
+}
+jobs_json() { # unit_status unit_conclusion gates_status gates_conclusion
   cat <<EOF
 {"total_count": 4, "jobs": [
-  {"name": "unit", "status": "$1", "conclusion": $([ "$2" = null ] && echo null || echo "\"$2\""), "run_attempt": $a, "html_url": "https://github.com/o/r/actions/runs/1/job/11"},
-  {"name": "gates", "status": "$3", "conclusion": $([ "$4" = null ] && echo null || echo "\"$4\""), "run_attempt": $a, "html_url": "https://github.com/o/r/actions/runs/1/job/12"},
-  {"name": "check", "status": "queued", "conclusion": null, "run_attempt": $a, "html_url": "https://github.com/o/r/actions/runs/1/job/13"},
-  {"name": "e2e (1)", "status": "in_progress", "conclusion": "failure", "run_attempt": $a, "html_url": "https://github.com/o/r/actions/runs/1/job/14"}
+  $(job_json unit "$1" "$2" 1 2026-10-25T10:00:01Z 11),
+  $(job_json gates "$3" "$4" 1 2026-10-25T10:00:02Z 12),
+  $(job_json check queued null 1 2026-10-25T10:00:03Z 13),
+  $(job_json "e2e (1)" in_progress failure 1 2026-10-25T10:00:04Z 14)
 ]}
 EOF
 }
@@ -88,7 +93,7 @@ run_step() {
     GITHUB_EVENT_NAME="${EVENT:-pull_request}" GITHUB_REPOSITORY=o/r GITHUB_RUN_ID=1 \
     GITHUB_RUN_ATTEMPT="${ATTEMPT:-1}" GITHUB_API_URL=https://api.github.test \
     RUNNER_TEMP="$CASE/tmp" E2E_STOP_TOKEN="${TOKEN-secret-token}" \
-    E2E_STOP_POLL_SECONDS=0.3 E2E_STOP_GRACE_SECONDS=2 E2E_STOP_MAX_ERRORS=3 \
+    E2E_STOP_POLL_SECONDS=0.3 E2E_STOP_GRACE_SECONDS="${GRACE:-2}" E2E_STOP_MAX_ERRORS=3 \
     bash "$SCRIPT" "$CASE/step.sh" >"$CASE/out" 2>&1
   RC=$?
   SECS=$((SECONDS - t0))
@@ -109,7 +114,9 @@ calls() { cat "$FAKE_API/calls" 2>/dev/null || echo 0; }
 said() { grep -qF -- "$1" "$CASE/out"; }
 
 # 1. A red unit stops a long step at the next poll, and the whole process
-# group goes with it: the step's own background child included.
+# group goes with it: the step's own background child included. The grace is
+# long here, so a SIGTERM that reached only the step's shell (and left the
+# child to the SIGKILL after the grace) shows up as a slow stop.
 new_case red-unit
 jobs_json completed failure in_progress null >"$FAKE_API/body.3"
 cat >"$CASE/step.sh" <<EOF
@@ -117,13 +124,13 @@ sleep 60 &
 echo \$! >"$CASE/grandchild"
 wait
 EOF
-run_step
+GRACE=20 run_step
 check "red unit: exit 1" [ "$RC" -eq 1 ]
-check "red unit: stopped within seconds, not after the 60 s step ($SECS s)" [ "$SECS" -le 5 ]
+check "red unit: stopped by the first SIGTERM, not after the 60 s step nor the 20 s grace ($SECS s)" [ "$SECS" -le 4 ]
 check "red unit: the log names the red job and where to look" said "fermato: unit rosso, la e2e non è il guasto. Il rosso da guardare è qui: https://github.com/o/r/actions/runs/1/job/11"
 check "red unit: the line is an error annotation" said "::error title=E2E fermata::"
 check "red unit: the step's background child is gone too" bash -c '! kill -0 "$(cat "$1")" 2>/dev/null' _ "$CASE/grandchild"
-check "red unit: it asked the jobs of this run, with the token" bash -c 'grep -qx "https://api.github.test/repos/o/r/actions/runs/1/jobs?per_page=100" "$1/url" && grep -qx "Authorization: Bearer secret-token" "$1/auth"' _ "$FAKE_API"
+check "red unit: it asked the jobs of this run, with the token" bash -c 'grep -qx "https://api.github.test/repos/o/r/actions/runs/1/jobs?filter=all&per_page=100" "$1/url" && grep -qx "Authorization: Bearer secret-token" "$1/auth"' _ "$FAKE_API"
 
 # 2. A red gates job stops it the same way.
 new_case red-gates
@@ -150,7 +157,8 @@ check "green siblings: the step's own exit code (7)" [ "$RC" -eq 7 ]
 check "green siblings: no stop line" bash -c '! grep -q "fermato" "$1"' _ "$CASE/out"
 check "green siblings: the watch ends at the green answer (2 calls, not one per poll)" [ "$(calls)" -eq 2 ]
 check "green siblings: and says so, with the requests left" said "unit success, gates success: not red, watch over (900/1000 API requests left)"
-echo 'exit 0' >"$CASE/step.sh"
+# Long enough for a few polls: without the mark it would ask again.
+echo 'sleep 1.5; exit 0' >"$CASE/step.sh"
 run_step
 check "next step after green: exit 0 and no further API call" bash -c '[ "$1" -eq 0 ] && [ "$2" -eq 2 ]' _ "$RC" "$(calls)"
 
@@ -173,13 +181,48 @@ echo 'echo "token=[${E2E_STOP_TOKEN:-}]"' >"$CASE/step.sh"
 run_step
 check "token: not in the step's environment" said "token=[]"
 
-# 8. A red of ANOTHER attempt is not this attempt's red: after "re-run failed
-# jobs", unit keeps the failure of attempt 1 until it runs again.
-new_case other-attempt
-jobs_json completed failure completed success 1 >"$FAKE_API/body"
+# 8. Re-runs. GitHub lists the jobs it did not re-run as copies in the new
+# attempt: same run_attempt as the shard, the started_at of the original.
+# "Re-run failed jobs" after a red unit re-runs unit, and a red again stops
+# the shard; "Re-run job" on one shard copies the red unit, and the copy is a
+# verdict someone chose to look past.
+new_case rerun-failed
+rerun_failed() { # conclusion of the re-run unit
+  cat <<EOF
+{"total_count": 4, "jobs": [
+  $(job_json unit completed failure 1 2026-10-25T10:00:01Z 11),
+  $(job_json gates completed success 1 2026-10-25T10:00:02Z 12),
+  $(job_json unit "$([ "$1" = null ] && echo in_progress || echo completed)" "$1" 2 2026-10-25T11:00:01Z 21),
+  $(job_json gates completed success 2 2026-10-25T10:00:02Z 22)
+]}
+EOF
+}
+rerun_failed null >"$FAKE_API/body"
+rerun_failed failure >"$FAKE_API/body.3"
+echo 'sleep 60' >"$CASE/step.sh"
+ATTEMPT=2 run_step
+check "re-run failed jobs: the re-run unit red again stops the shard" bash -c '[ "$1" -eq 1 ] && [ "$2" -ge 3 ] && grep -qF "job/21" "$3"' _ "$RC" "$(calls)" "$CASE/out"
+new_case rerun-one-shard
+cat >"$FAKE_API/body" <<EOF
+{"total_count": 4, "jobs": [
+  $(job_json unit completed failure 1 2026-10-25T10:00:01Z 11),
+  $(job_json gates completed success 1 2026-10-25T10:00:02Z 12),
+  $(job_json unit completed failure 2 2026-10-25T10:00:01Z 21),
+  $(job_json gates completed success 2 2026-10-25T10:00:02Z 22)
+]}
+EOF
 echo 'sleep 2; exit 0' >"$CASE/step.sh"
 ATTEMPT=2 run_step
-check "other attempt: not stopped, exit 0" bash -c '[ "$1" -eq 0 ] && ! grep -q "fermato" "$2"' _ "$RC" "$CASE/out"
+check "re-run of one shard: the copied red unit does not stop it, exit 0" bash -c '[ "$1" -eq 0 ] && ! grep -q "fermato" "$2"' _ "$RC" "$CASE/out"
+check "re-run of one shard: says why it is not watching" said "unit and gates did not run in attempt 2"
+
+# 8b. On a first attempt a run without unit and gates means they were renamed:
+# the shard cannot stop any more, and that is said on every shard.
+new_case renamed
+printf '{"jobs": [%s]}' "$(job_json "unit tests" completed failure 1 2026-10-25T10:00:01Z 11)" >"$FAKE_API/body"
+echo 'sleep 1; exit 0' >"$CASE/step.sh"
+run_step
+check "renamed jobs: exit 0 and a warning" bash -c '[ "$1" -eq 0 ] && grep -qF "no job named unit or gates" "$2"' _ "$RC" "$CASE/out"
 
 # 9. The API unreadable: the step runs to the end, with a warning.
 new_case api-down
