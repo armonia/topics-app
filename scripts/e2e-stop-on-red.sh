@@ -42,7 +42,7 @@
 #   - the API unreadable E2E_STOP_MAX_ERRORS times in a row, or fewer than
 #     E2E_STOP_RATE_RESERVE requests left on the token: the watch ends with a
 #     warning. The token had 5,000 requests an hour on run 40245465850, shared
-#     with every workflow of the repository; this watch costs about 40 a run.
+#     with every workflow of the repository; this watch costs about 90 a run (9 shards, one request each 45 s).
 #
 # The token arrives as E2E_STOP_TOKEN and is removed from the environment
 # before the step runs: Playwright, the test server and whatever they spawn

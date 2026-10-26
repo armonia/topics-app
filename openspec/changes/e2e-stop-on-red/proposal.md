@@ -25,7 +25,7 @@ circa 15, e i job ubuntu delle altre CI aspettano con p90 di 16,7 minuti.
   del job rosso. Il run resta `failure`, mai `cancelled`.
 - Su main lo script è la shell normale. Ogni dubbio (API illeggibile, meno di
   250 richieste rimaste sul token) fa girare lo step fino in fondo. Con unit e
-  gates verdi smette di chiedere: circa 40 richieste a run sulle 5.000 l'ora
+  gates verdi smette di chiedere: circa 90 richieste a run sulle 5.000 l'ora
   del GITHUB_TOKEN (misurato dall'intestazione sul run 40245465850).
 - «Re-run job» su un solo shard: GitHub elenca unit e gates non rilanciati come
   copie nel nuovo tentativo (stesso `run_attempt`, `started_at` vecchio). Lo
@@ -62,6 +62,11 @@ shard finiti 520-792 s dopo il rosso.
   17 minuti invece di 7.
 - Su una PR rossa per unit o gates la riga e2e della board resta rossa
   (`failure`, come richiesto) ma punta al job vero.
+
+- Limiti noti (verificatore): il puntatore al job rosso sulla card compare anche
+  se uno shard è rosso per conto suo mentre unit/gates sono rossi; il log di uno
+  shard fermato stampa fino a 15 s di ✘ ECONNREFUSED, perché il SIGTERM chiude
+  prima il test server.
 
 ## Deciso da me
 
