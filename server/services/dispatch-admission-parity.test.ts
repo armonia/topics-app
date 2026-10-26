@@ -61,7 +61,10 @@ describe("the memory window on the floor and on the budget axis", () => {
       t += 10_000;
     };
     const beats = async (values: number[]) => { for (const gb of values) await beat(gb); };
-    return { h, beat, beats };
+    // t0 goes back with the harness: a test that reads its own Date.now() after
+    // this one can land a millisecond later, and every start then measures 1 ms
+    // early (139.999 instead of 140 on CI, 26/10).
+    return { h, beat, beats, t0 };
   }
   const repeat = (gb: number, n: number) => Array<number>(n).fill(gb);
   const mainMemoryReason = (heldGB: number, lineGB: number, reservedGB = 0) => {
@@ -321,7 +324,7 @@ describe("the memory window on the floor and on the budget axis", () => {
     const w = windowHarness("count", {
       runTurn: () => new Promise<void>((resolve) => { finish = () => resolve(); }),
     });
-    const t0 = Date.now();
+    const t0 = w.t0;
     await w.beats(repeat(5, 14));
     seedTodo(w.h.db, "b7");
     await w.beat(5);
