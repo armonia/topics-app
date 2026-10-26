@@ -222,6 +222,11 @@ export function estimatedAgentCost(recentCoreUnits: readonly number[]): number {
  *
  * The ceiling stops one delivery that ran four shards at once from pricing
  * every future agent out of the machine.
+ *
+ * Re-measured 26/10/2026: 22 check rounds of 24-26/10 peaked at p50 1.5, p90 4.0,
+ * p95 4.3, max 4.8 GB, so four still covers the card that runs the repo gates.
+ * It does not describe a board that works in place and runs no local check: that
+ * one is priced apart, see `server/services/dispatch-card-price.ts`.
  */
 export const AGENT_COST_FLOOR_MEM_GB = 4;
 export const AGENT_COST_CEILING_MEM_GB = 6;
