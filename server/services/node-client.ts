@@ -176,7 +176,12 @@ export interface NodeClient {
     baseUrl: string;
     token: string;
     runId: string;
-    sinceCommentSeq?: number;
+    /**
+     * Cursor: the `createdAt` of the last comment already seen. The node
+     * returns the comments created AT OR AFTER it (`?since=`), so the caller
+     * dedupes by comment id. Nodes have no comment sequence number.
+     */
+    since?: string;
     delegation?: NodeRunBinding;
   }): Promise<NodeRunReport>;
   fetchBundle(input: { baseUrl: string; token: string; runId: string; delegation?: NodeRunBinding }): Promise<BundleResult>;
@@ -266,7 +271,7 @@ async function readErrorBody(res: Response): Promise<{ error?: string; code?: st
 /**
  * An HTTP answer that is not ok, named. The node's gate writes `code` next to
  * `error` (server.ts, the `host_not_allowed` branch), and the runs route is
- * expected to do the same with `no_such_repo`: the code wins over the status
+ * does the same with `no_such_repo` (older nodes send only `error`): the code wins over the status
  * whenever it is there, because the status alone cannot tell a wrong host
  * from a revoked device (both 403).
  */
@@ -277,7 +282,8 @@ async function nodeErrorFromResponse(res: Response, what: string): Promise<NodeE
   if (body.code === "host_not_allowed" || (res.status === 403 && body.error === "host not allowed")) {
     return new NodeError("host_not_allowed", msg, res.status);
   }
-  if (body.code === "no_such_repo") return new NodeError("no_such_repo", msg, res.status);
+  // A released 2.3.30 node answers `{ error: "no_such_repo" }` with no `code`.
+  if (body.code === "no_such_repo" || body.error === "no_such_repo") return new NodeError("no_such_repo", msg, res.status);
   if (res.status === 401 || res.status === 403) return new NodeError("unauthorized", msg, res.status);
   if (res.status === 404) return new NodeError("not_found", msg, res.status);
   return new NodeError("server_error", msg, res.status);
@@ -456,8 +462,8 @@ export function createNodeClient(deps: NodeClientDeps): NodeClient {
       return { runId: out.runId };
     },
 
-    async readRun({ baseUrl, token, runId, sinceCommentSeq, delegation }) {
-      const qs = sinceCommentSeq !== undefined ? `?sinceCommentSeq=${encodeURIComponent(String(sinceCommentSeq))}` : "";
+    async readRun({ baseUrl, token, runId, since, delegation }) {
+      const qs = since ? `?since=${encodeURIComponent(since)}` : "";
       const out = await callJson<Partial<NodeRunReport>>(
         `${runUrl(baseUrl, runId, !!delegation)}${qs}`,
         { method: "GET", headers: headersFor(token, delegatedHeaders(delegation)) },

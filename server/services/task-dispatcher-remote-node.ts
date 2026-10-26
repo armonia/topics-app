@@ -24,6 +24,7 @@ import type { BundleResult, CreateRunBody, NodeRunBinding, NodeRunReport } from 
 import type { DelegatedRunPolicy } from "../lib/delegated-agent-start";
 import type { PlantBranchInput, PlantBranchResult } from "./node-branch-plant";
 import type { OutboundMessage } from "../../shared/ws-outbound";
+import { defaultLifecycleHooks, type HookOutcome, type LifecycleHookRunner } from "./lifecycle-hooks";
 
 /**
  * THE REMOTE LANE'S HOST CAPABILITY: how this board talks to a paired node, and
@@ -69,6 +70,13 @@ export interface NodeDeps {
   /** The git remote the node resolves its own project by (never a path: the ids differ). */
   originUrlOf: (projectId: string) => Promise<string | null>;
   plantBranch: (input: PlantBranchInput) => Promise<PlantBranchResult>;
+  /** The checkout of a project on THIS machine: the `cwd` the `node-run` hook starts in. */
+  projectPathOf?: (projectId: string) => string | null;
+  /**
+   * Runs the `node-run` hook before a card is sent to the node (wake the PC,
+   * bring its repo up to date). Absent = the shared runner reading `hooks.json`.
+   */
+  hooks?: LifecycleHookRunner;
 }
 
 /**
@@ -319,6 +327,32 @@ export function createRemoteNodeLane(host: RemoteNodeHost): RemoteNodeLane {
     }
     const runNo = host.beginRun(task.id, "");
     try {
+      // THE `node-run` HOOK COMES BEFORE ANY CALL TO THE NODE, the cancel of
+      // the previous run included: it is what wakes a sleeping machine. A veto
+      // is deferred like a silent node (no attempt burned) with the hook's own
+      // words as the reason. Awaiting here is safe: `launch` is fired without
+      // await by the tick, and the slot is already ours.
+      const hooks = node.hooks ?? defaultLifecycleHooks();
+      const verdict: HookOutcome = await hooks.run("node-run", {
+        hook_event_name: "node-run",
+        session_id: task.id,
+        cwd: node.projectPathOf?.(task.projectId) ?? "",
+        task_id: task.id,
+        project_id: task.projectId,
+        machine_id: machineId,
+        machine_name: name,
+        node_base_url: baseUrl,
+        origin_url: originUrl,
+      }).catch((err): HookOutcome => {
+        // A runner that throws said nothing: same rule as a hook that never answered.
+        log(`nodo: l'hook node-run per ${task.id} non si è avviato`, err);
+        return { ok: true };
+      });
+      if (!verdict.ok) {
+        host.endRun(task.id, runNo);
+        deferForSilentNode(task, `il nodo «${name}» non è pronto: ${verdict.reason}`);
+        return;
+      }
       // THE OLD RUN DIES BEFORE A NEW ONE IS BORN. A run this board buried may
       // still be working over there, and two live runs on one card means two
       // deliveries and two branches (KANBAN-77).

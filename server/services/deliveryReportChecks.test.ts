@@ -42,16 +42,34 @@
  *
  * @covers KANBAN-11
  */
-import { describe, expect, test, beforeAll, afterAll } from "bun:test";
-import { readFileSync, readdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { describe, expect, test } from "bun:test";
+import { readFileSync, readdirSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { execFileSync } from "node:child_process";
 import { extractClaims, checkReport, declaredSymbols, type RepoProbe } from "./deliveryReportChecks";
-import { repoProbe, probeForRoot } from "./deliveryReportProbe";
+import { probeForRoot } from "./deliveryReportProbe";
 import { gitEnv } from "../../tests/setup/bun-test-preload";
 
 const ROOT = join(import.meta.dir, "..", "..");
+
+function createIsolatedRepo(prefix: string): string {
+  const parent = mkdtempSync(join(tmpdir(), `${prefix}-`));
+  const repo = join(parent, "repo");
+  mkdirSync(repo, { recursive: true });
+  execFileSync("git", ["init", "-b", "main"], { env: gitEnv(), cwd: repo, stdio: "ignore" });
+  execFileSync("git", ["config", "user.name", "Delivery probe test"], { env: gitEnv(), cwd: repo, stdio: "ignore" });
+  execFileSync("git", ["config", "user.email", "delivery-probe@example.invalid"], { env: gitEnv(), cwd: repo, stdio: "ignore" });
+  return parent;
+}
+
+function addTestCommit(parent: string, file: string, content = "fixture\n"): void {
+  const repo = join(parent, "repo");
+  mkdirSync(dirname(join(repo, file)), { recursive: true });
+  writeFileSync(join(repo, file), content);
+  execFileSync("git", ["add", "-A"], { env: gitEnv(), cwd: repo, stdio: "ignore" });
+  execFileSync("git", ["commit", "-m", `fixture ${file}`], { env: gitEnv(), cwd: repo, stdio: "ignore" });
+}
 
 /** Every tracked file, once: a citation is resolved by suffix. */
 const tracked: string[] = execFileSync("git", ["ls-files"], { env: gitEnv(), cwd: ROOT, encoding: "utf8", maxBuffer: 64 << 20 })
@@ -231,6 +249,28 @@ describe("cosa il cancello dice di se stesso", () => {
     expect(c).toContainEqual({ kind: "sha", value: "fee32d7e" });
   });
 
+  test("le frasi di consegna con un verbo restano accuse anche dopo card, task o caso", () => {
+    const shas = (report: string) => extractClaims(report)
+      .filter((claim) => claim.kind === "sha")
+      .map((claim) => (claim as { value: string }).value);
+    const cases = [
+      ["Card chiusa, il fix di fee32d7e (matchMedia).", "fee32d7e"],
+      ["Task completato: fix in a1b2c3d4, test verdi.", "a1b2c3d4"],
+      ["In questo caso la correzione e' 9f8e7d6c.", "9f8e7d6c"],
+      ["Ho fatto bun run check, poi il fix 7c6b5a49 ha chiuso il buco.", "7c6b5a49"],
+    ] as const;
+    const missing: RepoProbe = {
+      ...realProbe,
+      shaExists: () => false,
+      shaSearchLocations: () => ["~/repo"],
+      symbolInHistory: () => true,
+    };
+    for (const [report, sha] of cases) {
+      expect(shas(report)).toContain(sha);
+      expect(checkReport(report, missing).map((finding) => finding.code)).toContain("sha-missing");
+    }
+  });
+
   test("e non trasforma in sha tutto cio' che sembra esadecimale", () => {
     // The other side of it: widening the extraction is the fastest way to make
     // the gate accuse honest work. The shape has to earn it.
@@ -271,22 +311,40 @@ const prepared = async (probe: RepoProbe, ...reports: string[]): Promise<RepoPro
 
 describe("la sonda vera distingue «no» da «non lo so»", () => {
   test("uno sha inventato non esiste, e lo dice", async () => {
-    const p = await prepared(repoProbe, "Fatto (commit 0000000deadbee1).");
-    expect(p.shaExists("0000000deadbee1")).toBe(false);
+    const parent = createIsolatedRepo("delivery-probe-missing");
+    try {
+      const p = await prepared(probeForRoot(join(parent, "repo")), "Fatto (commit 0000000deadbee1).");
+      expect(p.shaExists("0000000deadbee1")).toBe(false);
+    } finally {
+      rmSync(parent, { recursive: true, force: true });
+    }
   });
 
   test("uno sha vero esiste", async () => {
     const head = execFileSync("git", ["rev-parse", "--short", "HEAD"], { env: gitEnv(), cwd: ROOT, encoding: "utf8" }).trim();
-    const p = await prepared(repoProbe, `Fatto (commit ${head}).`);
-    expect(p.shaExists(head)).toBe(true);
+    const parent = mkdtempSync(join(tmpdir(), "delivery-probe-real-"));
+    const repo = join(parent, "repo");
+    try {
+      execFileSync("git", ["clone", "--shared", ROOT, repo], { env: gitEnv(), stdio: "ignore" });
+      const p = await prepared(probeForRoot(repo), `Fatto (commit ${head}).`);
+      expect(p.shaExists(head)).toBe(true);
+    } finally {
+      rmSync(parent, { recursive: true, force: true });
+    }
   });
 
   test("un percorso citato per nome corto si risolve", async () => {
     // The false positive that accused 20 existing paths: reports cite files
     // the way people talk about them, not from the repository root.
-    const p = await prepared(repoProbe, "Toccati `tasks.ts` e `questo/file/non/esiste.ts`.");
-    expect(p.fileMatches("tasks.ts")).toBe(true);
-    expect(p.fileMatches("questo/file/non/esiste.ts")).toBe(false);
+    const parent = createIsolatedRepo("delivery-probe-path");
+    try {
+      addTestCommit(parent, "tasks.ts");
+      const p = await prepared(probeForRoot(join(parent, "repo")), "Toccati `tasks.ts` e `questo/file/non/esiste.ts`.");
+      expect(p.fileMatches("tasks.ts")).toBe(true);
+      expect(p.fileMatches("questo/file/non/esiste.ts")).toBe(false);
+    } finally {
+      rmSync(parent, { recursive: true, force: true });
+    }
   });
 
   /**
@@ -307,30 +365,24 @@ describe("la sonda vera distingue «no» da «non lo so»", () => {
    * you can arrange in it.
    */
   describe("i simboli, su una storia nota", () => {
-    let repo: string;
-    let probe: RepoProbe;
-
-    beforeAll(() => {
-      repo = mkdtempSync(join(tmpdir(), "topics-probe-history-"));
-      const git = (...a: string[]) => execFileSync("git", a, { env: gitEnv(), cwd: repo, encoding: "utf8" }).trim();
-      git("init", "-b", "main");
-      git("config", "user.email", "t@t.t");
-      git("config", "user.name", "t");
-      writeFileSync(join(repo, "a.ts"), "export const keptSymbol = 1;\nexport const goneSymbol = 2;\n");
-      git("add", "-A");
-      git("commit", "-m", "uno");
-      writeFileSync(join(repo, "a.ts"), "export const keptSymbol = 1;\n");
-      git("add", "-A");
-      git("commit", "-m", "due");
+    function createHistory(): { parent: string; repo: string; probe: RepoProbe } {
+      const parent = createIsolatedRepo("topics-probe-history");
+      const repo = join(parent, "repo");
+      addTestCommit(parent, "a.ts", "export const keptSymbol = 1;\nexport const goneSymbol = 2;\n");
+      addTestCommit(parent, "a.ts", "export const keptSymbol = 1;\n");
       // Written and never committed: the worktree-only case, on purpose.
       writeFileSync(join(repo, "b.ts"), "export const worktreeOnlySymbol = 3;\n");
-      probe = probeForRoot(repo);
-    });
-    afterAll(() => rmSync(repo, { recursive: true, force: true }));
+      return { parent, repo, probe: probeForRoot(repo) };
+    }
 
     test("un simbolo mai scritto non compare nella storia", async () => {
-      const p = await prepared(probe, "Nuovo `simboloCheNessunoHaMaiScritto`.");
-      expect(p.symbolInHistory("simboloCheNessunoHaMaiScritto")).toBe(false);
+      const { parent, probe } = createHistory();
+      try {
+        const p = await prepared(probe, "Nuovo `simboloCheNessunoHaMaiScritto`.");
+        expect(p.symbolInHistory("simboloCheNessunoHaMaiScritto")).toBe(false);
+      } finally {
+        rmSync(parent, { recursive: true, force: true });
+      }
     });
 
     test("un simbolo scritto e poi cancellato resta nella storia", async () => {
@@ -339,10 +391,15 @@ describe("la sonda vera distingue «no» da «non lo so»", () => {
       // tip. `goneSymbol` is in no file any more and must still answer yes.
       // One report each: inside a report git stops at the first symbol found.
       // And each report does ask: a symbol it did not ask answers yes too.
-      expect([declaredSymbols("Vedi `goneSymbol`."), declaredSymbols("Vedi `keptSymbol`.")]).toEqual([["goneSymbol"], ["keptSymbol"]]);
-      const p = await prepared(probe, "Vedi `goneSymbol`.", "Vedi `keptSymbol`.");
-      expect(p.symbolInHistory("goneSymbol")).toBe(true);
-      expect(p.symbolInHistory("keptSymbol")).toBe(true);
+      const { parent, probe } = createHistory();
+      try {
+        expect([declaredSymbols("Vedi `goneSymbol`."), declaredSymbols("Vedi `keptSymbol`.")]).toEqual([["goneSymbol"], ["keptSymbol"]]);
+        const p = await prepared(probe, "Vedi `goneSymbol`.", "Vedi `keptSymbol`.");
+        expect(p.symbolInHistory("goneSymbol")).toBe(true);
+        expect(p.symbolInHistory("keptSymbol")).toBe(true);
+      } finally {
+        rmSync(parent, { recursive: true, force: true });
+      }
     });
 
     test("un simbolo che vive solo nel worktree viene rilevato, ed e' giusto cosi'", async () => {
@@ -352,9 +409,14 @@ describe("la sonda vera distingue «no» da «non lo so»", () => {
       // which is exactly the defect `review_needs_commit` exists to stop, seen
       // from another side. This test found it on its own: the first run cited a
       // symbol from the test file, not yet committed, and the check rejected it.
-      const sha = execFileSync("git", ["rev-parse", "--short", "HEAD"], { env: gitEnv(), cwd: repo, encoding: "utf8" }).trim();
-      const r = `Fatto (commit ${sha}). Vedi \`worktreeOnlySymbol\`.`;
-      expect(checkReport(r, await prepared(probe, r)).map((x) => x.code)).toContain("symbol-never-written");
+      const { parent, repo, probe } = createHistory();
+      try {
+        const sha = execFileSync("git", ["rev-parse", "--short", "HEAD"], { env: gitEnv(), cwd: repo, encoding: "utf8" }).trim();
+        const r = `Fatto (commit ${sha}). Vedi \`worktreeOnlySymbol\`.`;
+        expect(checkReport(r, await prepared(probe, r)).map((x) => x.code)).toContain("symbol-never-written");
+      } finally {
+        rmSync(parent, { recursive: true, force: true });
+      }
     });
   });
 });
@@ -444,6 +506,23 @@ describe("l'estrattore non scambia il rumore per una dichiarazione", () => {
     expect(shas("Portato in main con `ea5b230f`: nessun conflitto")).toEqual(["ea5b230f"]);
     expect(shas("Commit e2fefb66a1b2c3d4e5f60718293a4b5c6d7e8f90 landato"))
       .toEqual(["e2fefb66a1b2c3d4e5f60718293a4b5c6d7e8f90"]);
+  });
+
+  test("commit id e Commit ID restano SHA da verificare", () => {
+    const missingProbe: RepoProbe = {
+      shaExists: () => false,
+      migrations: () => [],
+      readMigration: () => "",
+      fileMatches: () => true,
+      readLine: () => null,
+      symbolInHistory: () => true,
+    };
+    for (const report of [
+      "Fatto, commit id 0000000deadbee1.",
+      "Commit ID: 0000000deadbee1",
+    ]) {
+      expect(checkReport(report, missingProbe).map((finding) => finding.code)).toContain("sha-missing");
+    }
   });
 
   test("un numero di migration più alto di ogni migration sequenziale non è un'accusa", () => {

@@ -23,7 +23,8 @@ import { appendFrozenNote, stdoutFileOf } from "./server/lib/background-shell-ou
 import { backgroundBashFor, foregroundBashFor } from "./server/lib/background-bash-record";
 import { listNativeCommands, nativeCommandByPid } from "./server/lib/native-command-registry";
 import { listSessionCliPids } from "./server/providers/session-pids";
-import { getAccessToken } from "./server/providers/native/auth";
+import { getAccessToken, recoverAfter401 } from "./server/providers/native/auth";
+import { createModelProxyListener, modelProxyPort } from "./server/services/model-proxy";
 import { releaseHoldIfFreed } from "./server/providers/native/usage-window";
 import { existsSync, readFileSync, mkdirSync, statSync, readlinkSync, realpathSync } from "fs";
 import { timingSafeEqual } from "crypto";
@@ -244,6 +245,7 @@ import { hostname as osHostname, totalmem as osTotalmem } from "node:os";
 import { createNodeClient, readDelegatedNodeToken, readNodeToken } from "./server/services/node-client";
 import { appendDelegatedRunAudit, delegatedPolicyForTask } from "./server/lib/delegated-agent-start";
 import { createNodeBranchPlanter } from "./server/services/node-branch-plant";
+import { projectPathOfAnyId } from "./server/lib/project-identity";
 import { createDelegatedRevocationRetry } from "./server/services/delegated-revocation-retry";
 import { initVapid } from "./server/push-service";
 import { startDevBundleReload, readBundleRev, stampBundleRev } from "./server/lib/dev-bundle-reload";
@@ -1202,9 +1204,33 @@ const repoRootForCard = ({ projectId, assignedTopicId }: { taskId: string; proje
       return c?.path && existsSync(c.path) ? c.path : null;
     } catch { return null; }
   };
+const listKnownDeliveryRepoRoots = (): string[] => {
+  const roots = new Set<string>();
+  try {
+    for (const candidate of buildProjectCandidates({
+      projectStore: ctx.projectStore,
+      workspaceDir: DISPATCH_WORKSPACE_DIR,
+      extraPaths: dispatchExtraPaths,
+    })) {
+      if (existsSync(candidate.path)) roots.add(candidate.path);
+    }
+  } catch { /* best-effort source */ }
+  try {
+    for (const project of ctx.projectStore.list({ archived: true })) {
+      if (project.path && existsSync(project.path)) roots.add(project.path);
+    }
+  } catch { /* best-effort source */ }
+  try {
+    for (const worktree of ctx.worktreeStore.list()) {
+      if (worktree.absPath && existsSync(worktree.absPath)) roots.add(worktree.absPath);
+    }
+  } catch { /* best-effort source */ }
+  return [...roots];
+};
 const dispatcherSvc = createTaskService(ctx.db, {
   writeDeliverySheet: makeSheetWriter(ctx.OPENCLAW_DIR),
   repoRootFor: repoRootForCard,
+  listRepoRoots: listKnownDeliveryRepoRoots,
   onLateDeliveryNote: (taskId, projectId) => {
     const noted = dispatcherSvc.get(taskId, { projectId })?.task;
     if (noted) ctx.broadcastToAll({ type: "task:updated", projectId, task: noted });
@@ -1794,8 +1820,11 @@ const nodeClient = createNodeClient({
   version: SERVER_VERSION,
   hostname: osHostname(),
 });
+// A card carries its BOARD id, the store wants the UUID: resolve either.
+const projectPathForNode = (projectId: string) =>
+  projectPathOfAnyId(ctx.db, (storeId) => ctx.projectStore.get(storeId)?.path, projectId);
 const nodeBranchPlanter = createNodeBranchPlanter({
-  repoPathOf: (projectId) => ctx.projectStore.get(projectId)?.path ?? null,
+  repoPathOf: projectPathForNode,
 });
 
 /**
@@ -2188,6 +2217,9 @@ const taskDispatcher = createTaskDispatcher({
     localMachineId: () => ctx.machineStore.upsertLocal().id,
     originUrlOf: (projectId) => nodeBranchPlanter.originUrlOf(projectId),
     plantBranch: (input) => nodeBranchPlanter.plantBranch(input),
+    // The `node-run` hook starts in the project's checkout on this machine,
+    // the same path the planter reads the origin from and plants into.
+    projectPathOf: projectPathForNode,
   },
   // Usage consumed by the dispatched session so far, from its Claude Code
   // transcript (jsonl_path is kept fresh by the session tracker). The reader
@@ -2884,6 +2916,7 @@ const tasksRouter = createTasksRouter(ctx, taskDispatcher, {
     })
       .map((c) => c.path)
       .filter((p) => isSelectableProjectDir(p, { workspaceDir: DISPATCH_WORKSPACE_DIR, homeDir: homedir() })),
+  listRepoRoots: listKnownDeliveryRepoRoots,
 });
 // Auto-register servers Claude starts inside its PTY sessions (bare `bun run dev`
 // etc.) into the Processes panel, attributing listening ports by PTY process tree.
@@ -5075,6 +5108,23 @@ const serverTunnelHttp = portaTunnelHttp
   : null;
 if (serverTunnelHttp) {
   console.log(`[Tunnel] porta in chiaro su 127.0.0.1:${portaTunnelHttp} — chi entra da qui NON e' locale`); // allow-italian: log line, same language as its TLS twin above
+}
+
+// The model proxy for paired nodes: a listener of its own on loopback that
+// serves only POST /v1/messages[/count_tokens] with a per-machine token. It is
+// NEVER the main port: the node's reverse ssh tunnel lands on loopback, and on
+// the main port loopback means owner.
+const portaModelProxy = modelProxyPort(process.env);
+const serverModelProxy = portaModelProxy
+  ? createModelProxyListener(portaModelProxy, {
+      stateDir: ctx.STATE_DIR,
+      machineExists: (machineId) => ctx.machineStore.get(machineId) !== null,
+      getAccessToken,
+      recoverAfter401,
+    })
+  : null;
+if (serverModelProxy) {
+  console.log(`[ModelProxy] listening on 127.0.0.1:${portaModelProxy} (Messages API only, per-machine token)`);
 }
 
 // Stale stream cleanup

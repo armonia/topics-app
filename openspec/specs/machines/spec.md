@@ -91,3 +91,16 @@ hanno tre nomi distinti.
 #### Scenario: una macchina ancora nominata da una card
 - **GIVEN** un task il cui `machine_id` è quella macchina
 - **THEN** la cancellazione SHALL essere un conflitto dichiarato
+
+### Requirement: MACHINE-03 — Il gettone del proxy dei modelli si conia solo per un proprietario identificato
+
+`POST /api/machines/:id/model-token` SHALL rifiutare con 403 (`owner_required`)
+una richiesta senza identità risolta e una richiesta da ospite. Il loopback, che
+il cancello globale materializza come proprietario senza dispositivo, SHALL
+coniare.
+
+MISURA: `bun test server/routes/machines.model-token.test.ts` verde.
+
+#### Scenario: nessuna identità
+- **GIVEN** `requestIdentity` restituisce null
+- **THEN** la risposta SHALL essere 403

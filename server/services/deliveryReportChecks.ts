@@ -42,6 +42,7 @@ export type Finding = {
   /** Stable key, so a caller can act on the kind rather than the prose. */
   code:
     | "sha-missing"
+    | "sha-unverifiable"
     | "migration-missing"
     | "migration-belongs-elsewhere"
     | "file-missing"
@@ -51,11 +52,22 @@ export type Finding = {
   detail: string;
 };
 
+export interface RepoSearchContext {
+  /** Additional repository directories known to the server. */
+  knownRoots?: readonly string[];
+  /** Home used when a report names a path with `~` or a home-relative path. */
+  homeDirectory?: string;
+}
+
 /** Everything this module needs from the repository. Injected so the checks
  *  are pure and a test bench does not need a real git history. */
 export interface RepoProbe {
   /** `git cat-file -e <sha>^{commit}` */
   shaExists(sha: string): boolean;
+  /** Repositories searched before a missing-SHA finding is reported. */
+  shaSearchLocations?(sha: string): readonly string[];
+  /** Required repositories that could not be searched for this SHA. */
+  shaSearchUnverifiableLocations?(sha: string): readonly string[];
   /** File names under `server/db/migrations`. */
   migrations(): readonly string[];
   /**
@@ -84,7 +96,7 @@ export interface RepoProbe {
    * all answer "no accusation". The probes injected in the tests answer inline
    * and do not need it.
    */
-  prepare?(reports: readonly string[]): Promise<RepoProbe>;
+  prepare?(reports: readonly string[], context?: RepoSearchContext): Promise<RepoProbe>;
 }
 
 /** The symbols a report declares: the ones `symbolInHistory` is asked about. */
@@ -142,6 +154,11 @@ export function extractClaims(report: string): Claim[] {
     for (const s of m[1]!.split(/\s*\+\s*/)) push({ kind: "sha", value: s.toLowerCase() });
   }
 
+  // "commit id" is a commit label, not a run or task identifier.
+  for (const m of report.matchAll(/\bcommit\s+id\s*[:=#]?\s*`?([0-9a-f]{7,40})`?/gi)) {
+    push({ kind: "sha", value: m[1]!.toLowerCase() });
+  }
+
   /**
    * Bare shas, written with no "commit" in front of them.
    *
@@ -175,6 +192,9 @@ export function extractClaims(report: string): Claim[] {
     const start = m.index! + m[1]!.length;
     if (report[start - 1] === "-" || report[start + v.length] === "-") continue;
     if (/md5|sha256|digest|hash/i.test(report.slice(Math.max(0, start - 12), start))) continue;
+    // A board/run label excludes a token only when it directly names that token.
+    const preceding = report.slice(Math.max(0, start - 40), start).trimEnd();
+    if (/(?:\b(?:run|cron|id|card|task|replay|case|caso|turno)\s*(?:[:=#]\s*)?|\bcaso\s+vero\s*)$/i.test(preceding)) continue;
     push({ kind: "sha", value: v });
   }
 
@@ -256,8 +276,19 @@ export function checkReport(report: string, probe: RepoProbe): Finding[] {
   //    delivered BEFORE that, and cards past the window, are not recoverable and
   //    this check cannot separate them retroactively.
   for (const c of claims) {
-    if (c.kind === "sha" && !probe.shaExists(c.value)) {
-      findings.push({ code: "sha-missing", detail: `il commit ${c.value} non esiste in nessun ref` });
+    if (c.kind === "sha") {
+      const unverifiable = probe.shaSearchUnverifiableLocations?.(c.value) ?? [];
+      if (unverifiable.length > 0) {
+        findings.push({
+          code: "sha-unverifiable",
+          detail: `il commit ${c.value} non e' verificabile nei repo citati: ${unverifiable.join(", ")}`,
+        });
+        continue;
+      }
+      if (probe.shaExists(c.value)) continue;
+      const locations = probe.shaSearchLocations?.(c.value) ?? [];
+      const where = locations.length > 0 ? ` nei repo cercati: ${locations.join(", ")}` : " in nessun ref";
+      findings.push({ code: "sha-missing", detail: `il commit ${c.value} non esiste${where}` });
     }
   }
 

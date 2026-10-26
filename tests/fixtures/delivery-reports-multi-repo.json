@@ -1,0 +1,46 @@
+[
+  {
+    "title": "[Jarvis] lavori-watch vede la coda e le consegne sospese, e le riprova",
+    "reports": [
+      "Punti 2-6 fatti, commit 1910b03 su main di ~/.openclaw (il punto 1 era già in 22e8b05) … i due replay 5b137a57 e 9735e0 dentro la suite."
+    ]
+  },
+  {
+    "title": "[Hub] Coda delle deleghe: chi l'ha chiesto, niente doppi lanci, nota alla sessione",
+    "reports": [
+      "Terzo giro chiuso, commit 67a943e (main di ~/.claude/jarvis) … commit 47818b0."
+    ]
+  },
+  {
+    "title": "[Jarvis] Un lavoro accodato si dice «non partito» e non parte due volte",
+    "reports": [
+      "Codice invariato (5952c74), 28 test verdi."
+    ]
+  },
+  {
+    "title": "Riflessione notturna: falso allarme del controllo delle 03:50",
+    "reports": [
+      "Commit a100b56 in ~/.openclaw; test verdi con mutanti."
+    ]
+  },
+  {
+    "title": "Risposte dei sottoagenti persistenti perse a 30 min: patch a 3 punti, sospesa fino a verifica",
+    "reports": [
+      "Corretti i 5 punti (commit 24fbf86, non pushato).",
+      "Il test ora esegue il codice patchato sul caso vero 5b137a57 (2/2 → 0/0, quattro mutanti rossi)."
+    ]
+  },
+  {
+    "title": "Comando usage-hub consumo con previsioni e spie",
+    "reports": [
+      "Taratura completata: 4 soglie alzate in consumo.mjs, test 14/14, mutanti 4/4, commit 7b4778a.",
+      "Il cron 4295465f del 27/10 ora applica se trova ancora i valori originali, altrimenti solo verifica."
+    ]
+  },
+  {
+    "title": "Seguiti revisioni PR 427, 435, 431, 430",
+    "reports": [
+      "Commit 04d125e1b6."
+    ]
+  }
+]

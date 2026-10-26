@@ -10,10 +10,10 @@
       "budgetMs": null
     },
     "shell": {
-      "recorded": false,
-      "measuredOn": null,
-      "p95Ms": null,
-      "budgetMs": null
+      "recorded": true,
+      "measuredOn": "2026-10-26",
+      "p95Ms": 160,
+      "budgetMs": 200
     }
   }
 }

@@ -116,6 +116,8 @@ const NO_OWN_COMMIT =
   `or this branch lost the commits it had, and then ${NEEDS_A_NEW_COMMIT}`;
 const E2E_JOB = /^e2e( \(\d+\))?$/;
 const PREPARE_JOB = "prepare-e2e";
+/** The jobs whose red stops the e2e shards of a pull request (scripts/e2e-stop-on-red.sh). */
+const SHARD_STOPPERS = new Set(["unit", "gates"]);
 /** The job and step of ci.yml whose conclusion is the unit verdict. */
 export const UNIT_JOB = "check";
 export const UNIT_STEP = "Unit + integration tests";
@@ -149,7 +151,7 @@ export type GithubJob = {
 export type CiEvidence =
   | { kind: "pending"; run: GithubRun | null }
   | { kind: "pass"; run: GithubRun; jobs: GithubJob[] }
-  | { kind: "fail"; run: GithubRun; jobs: GithubJob[]; failed: GithubJob[] }
+  | { kind: "fail"; run: GithubRun; jobs: GithubJob[]; failed: GithubJob[]; redElsewhere?: string }
   | { kind: "notMeasured"; run: GithubRun | null; reason: string };
 
 /** `git@github.com:owner/name.git` or `https://github.com/owner/name(.git)` to `owner/name`. */
@@ -199,7 +201,21 @@ export function readE2eEvidence(sha: string, runs: GithubRun[], jobs: GithubJob[
   }
   if (!e2e.every((j) => j.status === "completed")) return { kind: "pending", run };
   const failed = e2e.filter((j) => j.conclusion === "failure");
-  if (failed.length) return { kind: "fail", run, jobs: e2e, failed };
+  if (failed.length) {
+    // ON A PULL REQUEST THE SHARDS STOP THEMSELVES WHEN unit OR gates IS RED
+    // (scripts/e2e-stop-on-red.sh) and end `failure` about a minute after that
+    // red. Read as a plain e2e red, this row closed the round first: the card
+    // said "e2e rossi" and never named gates, and the unit row, still waiting
+    // for the `check` job, read NOT MEASURED, "not a red of the code", on a
+    // run whose unit tests were red. So the row waits for `check` (the job the
+    // unit row reads), then points at the job that is red, as KANBAN-86 does.
+    const stoppers = jobs.filter((j) => SHARD_STOPPERS.has(j.name) && j.conclusion === "failure");
+    if (stoppers.length === 0) return { kind: "fail", run, jobs: e2e, failed };
+    const check = jobs.find((j) => j.name === UNIT_JOB);
+    if (run.status !== "completed" && check?.status !== "completed") return { kind: "pending", run };
+    const redElsewhere = runRedElsewhere(run, jobs.filter((j) => !E2E_JOB.test(j.name))) ?? undefined;
+    return { kind: "fail", run, jobs: e2e, failed, redElsewhere };
+  }
   if (e2e.every((j) => j.conclusion === "success")) return { kind: "pass", run, jobs: e2e };
   const odd = e2e.filter((j) => j.conclusion !== "success").map((j) => `${j.name} ${j.conclusion ?? "none"}`);
   return { kind: "notMeasured", run, reason: `e2e jobs without a verdict: ${odd.join(", ")}` };
@@ -335,10 +351,13 @@ export function ciCheckRun(check: ReviewCheck, outcome: Exclude<CiEvidence, { ki
     };
   }
   const repoFlag = ctx.repo ? ` -R ${ctx.repo}` : "";
+  const elsewhere = outcome.redElsewhere;
   return {
     name: check.name, cmd: check.cmd, ok: false, code: 1, ms, timedOut: false,
+    ...(elsewhere ? { ciRunRed: elsewhere } : {}),
     tail: [
       `${label} red on the pull request CI: ${outcome.failed.map((j) => j.name).join(", ")}`,
+      ...(elsewhere ? [`look there first, the shards stop when unit or gates is red: ${elsewhere}`] : []),
       ...contextLines(outcome.run, ctx),
       jobList,
       ...outcome.failed.map((j) => `log of ${j.name}: gh run view --job ${j.id} --log-failed${repoFlag}`),

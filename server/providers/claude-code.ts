@@ -95,6 +95,7 @@ import { claudeTranscriptPath, findClaudeTranscript } from "../lib/claude-transc
 import { restoreSweptTranscript } from "../lib/transcript-keeper";
 import { PARTIAL_ARGS_EMIT_MS, extractPrimaryToolArg } from "./partial-tool-input";
 import { handoffFromStore } from "./handoff";
+import { topicsMcpBridgeLaunch } from "../lib/topics-mcp-bridge-argv";
 import { hasPriorMessagesInDB, loadActiveBranchForReplay, renderRecapPrologue, renderReplayPrologue } from "./claude/history-replay";
 
 // ============ Config ============
@@ -279,7 +280,6 @@ export function buildSafeEnv(): Record<string, string> {
 // `os.tmpdir()/topics-mcp/` are bounded by sessionKey, not by run.
 
 const MCP_CONFIG_DIR = join(tmpdir(), "topics-mcp");
-const MCP_SERVER_SCRIPT = join(import.meta.dir, "..", "mcp", "topics-mcp-server.ts");
 
 export function topicsAppBaseUrl(): string {
   const port = process.env.PORT || "3333";
@@ -358,20 +358,17 @@ function resolveInheritedMcpServers(): Record<string, unknown> | null {
  * where every `ps` printed it, and that is how it reached dozens of transcripts.
  */
 export function topicsMcpBridgeSpec(sessionKey: string, profile?: string): { command: string; args: string[] } {
-  return {
-    command: process.execPath, // bun
-    args: [
-      "run",
-      MCP_SERVER_SCRIPT,
-      `--base-url=${topicsAppBaseUrl()}`,
-      `--session-key=${sessionKey}`,
-      // Tool profile: "dispatch" trims the bridge to what a board agent needs
-      // (task tools + browser verification + processes) — fewer tool schemas
-      // in the agent's per-call context. Absent = full toolset (interactive).
-      ...(profile ? [`--profile=${profile}`] : []),
-      `--topics-home=${topicsHome()}`,
-    ],
-  };
+  // Checkout: Bun runs the script. Compiled binary: the binary itself, with a
+  // flag (see `topics-mcp-bridge-argv.ts` for the second server it used to start).
+  return topicsMcpBridgeLaunch([
+    `--base-url=${topicsAppBaseUrl()}`,
+    `--session-key=${sessionKey}`,
+    // Tool profile: "dispatch" trims the bridge to what a board agent needs
+    // (task tools + browser verification + processes) — fewer tool schemas
+    // in the agent's per-call context. Absent = full toolset (interactive).
+    ...(profile ? [`--profile=${profile}`] : []),
+    `--topics-home=${topicsHome()}`,
+  ]);
 }
 
 export function writeMcpConfigForSession(
