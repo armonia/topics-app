@@ -32,7 +32,7 @@ describe("system", () => {
     expect(Array.isArray(p.system)).toBe(true);
     const blocks = p.system as Anthropic.TextBlockParam[];
     expect(blocks[0]!.text).toBe("sei un assistente");
-    expect(cc(blocks[0])).toEqual({ type: "ephemeral" });
+    expect(cc(blocks[0])).toEqual({ type: "ephemeral", ttl: "1h" });
   });
 
   test("con più blocchi il marker cade sull'ULTIMO — è lì che finisce il prefisso", () => {
@@ -45,7 +45,7 @@ describe("system", () => {
     applyPromptCache(p);
     const blocks = p.system as Anthropic.TextBlockParam[];
     expect(cc(blocks[0])).toBeUndefined();
-    expect(cc(blocks[1])).toEqual({ type: "ephemeral" });
+    expect(cc(blocks[1])).toEqual({ type: "ephemeral", ttl: "1h" });
   });
 
   test("un system vuoto non viene marcato", () => {
@@ -66,7 +66,7 @@ describe("tools", () => {
     applyPromptCache(p);
     const tools = p.tools as Anthropic.Tool[];
     expect(cc(tools[0])).toBeUndefined();
-    expect(cc(tools[1])).toEqual({ type: "ephemeral" });
+    expect(cc(tools[1])).toEqual({ type: "ephemeral", ttl: "1h" });
   });
 
   test("senza tool non succede nulla", () => {
@@ -89,7 +89,7 @@ describe("messages", () => {
     expect(typeof p.messages[0]!.content).toBe("string");
     const last = p.messages[2]!.content as Anthropic.ContentBlockParam[];
     expect(Array.isArray(last)).toBe(true);
-    expect(cc(last[0])).toEqual({ type: "ephemeral" });
+    expect(cc(last[0])).toEqual({ type: "ephemeral", ttl: "1h" });
   });
 
   test("un contenuto già a blocchi viene marcato sull'ultimo blocco", () => {
@@ -107,7 +107,7 @@ describe("messages", () => {
     applyPromptCache(p);
     const blocks = p.messages[0]!.content as Anthropic.ContentBlockParam[];
     expect(cc(blocks[0])).toBeUndefined();
-    expect(cc(blocks[1])).toEqual({ type: "ephemeral" });
+    expect(cc(blocks[1])).toEqual({ type: "ephemeral", ttl: "1h" });
   });
 });
 
