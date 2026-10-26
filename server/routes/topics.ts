@@ -1442,6 +1442,15 @@ export function createTopicsRouter(
         sortOrder: Object.keys(data.topics).length,
         provider: body.provider || null,
       };
+      // One-call create: model and effort are accepted here with the same rules
+      // as PATCH, so a chat with its model, effort and first prompt
+      // (`initialMessage`) is a single POST instead of POST + PATCH + /api/chat.
+      if (typeof body.model === "string" && body.model) topic.model = body.model;
+      if (body.effort !== undefined && body.effort !== null && body.effort !== "" && body.effort !== "default") {
+        const tier = String(body.effort).trim().toLowerCase();
+        if (!(EFFORT_TIERS as readonly string[]).includes(tier)) return json({ error: "invalid effort tier" }, 400);
+        topic.effort = tier;
+      }
       // Set projectPath if explicitly provided (e.g. creating from within a project).
       // CANONICO: la stessa cartella raggiunta da un link non deve diventare un
       // secondo progetto (due board, due voci in sidebar). Vedi canonical-project-path.

@@ -151,6 +151,13 @@ for c in "${STATICI[@]}" check:deadcode-blindspots typecheck lint; do
   riferisci "$c"
 done
 
+# The quality bar reads CI main, open bug issues and the server error log, so
+# it lives outside the static lanes (network, and it runs a test).
+if [ "$VELOCE" = "0" ]; then
+  echo "== quality bar =="
+  esegui check:quality-bar bun run check:quality-bar
+fi
+
 if [ "$VELOCE" = "0" ]; then
   echo "== unit + integrazione =="
   esegui test:unit bun run test:unit

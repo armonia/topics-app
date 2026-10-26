@@ -90,7 +90,7 @@ beforeAll(async () => {
     },
     broadcastToAll: () => {},
     worktreeStore: {},
-    projectStore: { getByPath: () => null },
+    projectStore: { getByPath: (path: string) => (path === join(tempRoot, "project") ? { path } : null) },
     getTopicBySessionKey: () => null,
   } as unknown as AppContext;
   router = createTerminalRouter(ctx);
@@ -217,5 +217,52 @@ describe("resumed terminal sends", () => {
     expect(received).toBe(input);
     configureNativeSubagents(null);
     _resetNativeSubagents();
+  });
+});
+
+describe("resumed terminal sends with the engine ready", () => {
+  test("moves an ended CLI child to the engine with the filtered prompt and its byte count", async () => {
+    const id = crypto.randomUUID();
+    const rawPrompt = `é${SUSPEND}🧭`;
+    const filteredPrompt = "é🧭";
+    addEndedChild({ id, claudeSessionId: crypto.randomUUID() });
+    const received: string[] = [];
+    configureNativeSubagents({
+      route: async (req) => {
+        const body = await req.json() as { sessionKey: string; clientMessageId: string; messages: Array<{ content: string }> };
+        received.push(...body.messages.map((message) => message.content));
+        recordTurnStart(body.sessionKey, "resume-moved-turn", { byPerson: false, key: body.clientMessageId });
+        return new Response(null, { status: 200 });
+      },
+      isBusy: () => false,
+      getTopicBySessionKey: () => null,
+      saveTopic: () => {},
+      loadMessages: () => [],
+      engineReady: () => true,
+    });
+    let seeded = false;
+    _setSeedPromptHandlerForTests(() => { seeded = true; });
+    bridgeFrames.length = 0;
+
+    try {
+      const response = await requestSend(id, rawPrompt);
+      expect(response.status).toBe(200);
+      expect(await response.json()).toMatchObject({
+        ok: true,
+        sent: Buffer.byteLength(filteredPrompt, "utf8"),
+        resumed: true,
+        runtime: "topics",
+      });
+      await Bun.sleep(50);
+      expect(received.length).toBeGreaterThan(0);
+      expect(received.join("\n")).toContain(filteredPrompt);
+      expect(received.join("\n")).not.toContain(SUSPEND);
+      expect(seeded).toBe(false);
+      expect(bridgeFrames.some((frame) => frame.type === "create")).toBe(false);
+    } finally {
+      _setSeedPromptHandlerForTests(null);
+      configureNativeSubagents(null);
+      _resetNativeSubagents();
+    }
   });
 });

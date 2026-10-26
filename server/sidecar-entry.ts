@@ -16,6 +16,7 @@
  * Nothing imports this file: it is declared as an entry in `knip.jsonc`.
  */
 import { AI_BRIDGE_DAEMON_FLAG } from "./lib/ai-bridge-daemon-argv";
+import { TOPICS_MCP_BRIDGE_FLAG } from "./lib/topics-mcp-bridge-argv";
 
 if (process.argv.includes("--native-selftest")) {
   const { loadNativeModule, nativeModuleLoadError } = await import("./lib/native-addon");
@@ -35,6 +36,12 @@ if (process.argv.includes("--native-selftest")) {
   // The daemon reads its own flags (`--socket`, `--store-dir`, `--parent-pid`)
   // straight off process.argv and starts listening on import.
   await import("./ai-bridge.mjs");
+} else if (process.argv.includes(TOPICS_MCP_BRIDGE_FLAG)) {
+  // runtime-dep-ok: a STATIC specifier, embedded like the daemon above. The
+  // agent CLI spawns this as its stdio MCP server; without the branch the
+  // binary started a second Topics server instead (`topics-mcp-bridge-argv.ts`).
+  const { runTopicsMcpServer } = await import("./mcp/topics-mcp-server.ts");
+  await runTopicsMcpServer();
 } else {
   await import("../server.ts");
 }

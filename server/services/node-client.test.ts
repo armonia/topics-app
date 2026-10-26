@@ -230,6 +230,13 @@ describe("node-client · i guasti hanno un nome", () => {
     expect(await reasonOf(new Response("boom", { status: 500 }))).toBe("server_error");
     expect(await reasonOf(jsonResponse({ error: "no repo for that origin", code: "no_such_repo" }, 404))).toBe("no_such_repo");
   });
+
+  test("no_such_repo nella forma VERA del nodo: quella rilasciata (2.3.30) manda solo error, quella nuova anche code", async () => {
+    const originUrl = "https://github.com/acme/nowhere.git";
+    // Exactly what POST /api/nodes/runs answers, nothing added by the test.
+    expect(await reasonOf(jsonResponse({ error: "no_such_repo", originUrl }, 404))).toBe("no_such_repo");
+    expect(await reasonOf(jsonResponse({ error: "no_such_repo", code: "no_such_repo", originUrl }, 404))).toBe("no_such_repo");
+  });
 });
 
 describe("node-client · corse", () => {
@@ -250,14 +257,14 @@ describe("node-client · corse", () => {
     ]);
     const c = client(fetch);
     expect(await c.createRun({ baseUrl: BASE, token: TOKEN, body })).toEqual({ runId: "run-9" });
-    const report = await c.readRun({ baseUrl: BASE, token: TOKEN, runId: "run-9", sinceCommentSeq: 3 });
+    const report = await c.readRun({ baseUrl: BASE, token: TOKEN, runId: "run-9", since: "2026-09-06T10:00:00.000Z" });
     expect(report.status).toBe("working");
     expect(report.comments).toHaveLength(1);
     await c.cancelRun({ baseUrl: BASE, token: TOKEN, runId: "run-9" });
 
     expect(calls.map((x) => [x.init.method, x.url])).toEqual([
       ["POST", `${BASE}/api/nodes/runs`],
-      ["GET", `${BASE}/api/nodes/runs/run-9?sinceCommentSeq=3`],
+      ["GET", `${BASE}/api/nodes/runs/run-9?since=2026-09-06T10%3A00%3A00.000Z`],
       ["DELETE", `${BASE}/api/nodes/runs/run-9`],
     ]);
     for (const call of calls) {
@@ -265,6 +272,12 @@ describe("node-client · corse", () => {
       expect(headerOf(call, "user-agent")).toBe("Topics/9.9.9 (this-machine)");
     }
     expect(JSON.parse(String(calls[0].init.body))).toEqual(body);
+  });
+
+  test("readRun senza cursore non manda nessuna query", async () => {
+    const { fetch, calls } = fakeFetch([jsonResponse({ status: "working", comments: [] })]);
+    await client(fetch).readRun({ baseUrl: BASE, token: TOKEN, runId: "run-9" });
+    expect(calls[0].url).toBe(`${BASE}/api/nodes/runs/run-9`);
   });
 
   test("la corsa delegata usa il percorso confinato senza inviare la policy dichiarata dal chiamante", async () => {

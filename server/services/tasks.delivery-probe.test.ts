@@ -10,13 +10,15 @@
  * @covers KANBAN-11
  */
 import { test, expect, describe, beforeEach } from "bun:test";
-import { chmodSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { execFileSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Database } from "bun:sqlite";
 import { createTaskService, deliveryNotesInFlight, type TaskService } from "./tasks";
 import { freshDb, PID } from "./tasks-test-db";
 import type { RepoProbe } from "./deliveryReportChecks";
+import { gitEnv } from "../../tests/setup/bun-test-preload";
 
 const silentProbe: RepoProbe = {
   shaExists: () => true,
@@ -68,6 +70,28 @@ describe("the delivery verifier probes the card's repository", () => {
 
     expect(asked[0]?.assignedTopicId).toBeNull();
     expect(built).toEqual(["/projects/of/the-board"]);
+  });
+
+  test("the host project roots and the card worktree are sent to SHA preparation", async () => {
+    let searchedRoots: readonly string[] | undefined;
+    const probe: RepoProbe = {
+      ...silentProbe,
+      prepare: async (_reports, context) => {
+        searchedRoots = context?.knownRoots;
+        return silentProbe;
+      },
+    };
+    const service = createTaskService(db, {
+      repoRootFor: () => "/worktrees/of/the-card",
+      listRepoRoots: () => ["/projects/one", "/projects/two"],
+      probeFor: () => probe,
+    });
+    const task = service.create({ projectId: PID, text: "Cross-repo delivery", status: "in_progress" });
+
+    service.update({ taskId: task.id, actor: "agent", by: "agent-1", patch: { status: "review", summary: "Commit abc1234." } });
+    await deliveryNotesInFlight();
+
+    expect(searchedRoots).toEqual(["/worktrees/of/the-card", "/projects/one", "/projects/two"]);
   });
 });
 
@@ -171,4 +195,94 @@ describe("the verifier's git does not hold the server's loop", () => {
     const src = readFileSync(join(import.meta.dir, "deliveryReportProbe.ts"), "utf8");
     expect(src.split("\n").filter((l) => /execFileSync|spawnSync|execSync/.test(l))).toEqual([]);
   });
+
+  test("a slow or broken cited repo is unverifiable only for its own report", async () => {
+    const scratch = mkdtempSync(join(tmpdir(), "delivery-sha-fault-"));
+    const bin = join(scratch, "bin");
+    const home = join(scratch, "home");
+    const roots = {
+      card: join(home, "card"),
+      healthy: join(home, "healthy"),
+      slow: join(home, "slow"),
+      lateSlow: join(home, "late-slow"),
+      broken: join(home, "broken"),
+    };
+    mkdirSync(bin, { recursive: true });
+    for (const root of Object.values(roots)) {
+      mkdirSync(root, { recursive: true });
+      execFileSync("/usr/bin/git", ["init", "-q", "-b", "main"], { cwd: root, env: gitEnv() });
+      execFileSync("/usr/bin/git", ["config", "user.name", "Probe fixture"], { cwd: root, env: gitEnv() });
+      execFileSync("/usr/bin/git", ["config", "user.email", "probe@example.invalid"], { cwd: root, env: gitEnv() });
+      writeFileSync(join(root, "proof.txt"), root);
+      execFileSync("/usr/bin/git", ["add", "-A"], { cwd: root, env: gitEnv() });
+      execFileSync("/usr/bin/git", ["commit", "-qm", "fixture"], { cwd: root, env: gitEnv() });
+    }
+    const cardSha = execFileSync("/usr/bin/git", ["-C", roots.card, "rev-parse", "HEAD"], { encoding: "utf8" }).trim();
+    const sharedSha = execFileSync("/usr/bin/git", ["-C", roots.healthy, "rev-parse", "HEAD"], { encoding: "utf8" }).trim();
+    const replicas = Array.from({ length: 4 }, (_, index) => join(home, `healthy-replica-${index}`));
+    for (const root of replicas) {
+      execFileSync("/usr/bin/git", ["clone", "-q", "--shared", roots.healthy, root], { env: gitEnv() });
+    }
+    const shim = join(bin, "git");
+    writeFileSync(shim, [
+      "#!/usr/bin/python3",
+      "import json, os, sys, time",
+      "args = sys.argv[1:]",
+      "root = args[1] if len(args) > 1 and args[0] == '-C' else os.getcwd()",
+      "slow_roots = {os.path.realpath(path) for path in json.loads(os.environ.get('SLOW_GIT_ROOTS', '[]'))}",
+      "if root == os.environ.get('BROKEN_GIT_ROOT') and 'rev-parse' in args:",
+      "    sys.stderr.write('fatal: injected resolution failure\\n')",
+      "    sys.exit(128)",
+      "if os.path.realpath(root) in slow_roots and 'cat-file' in args:",
+      "    time.sleep(2)",
+      "os.execv('/usr/bin/git', ['/usr/bin/git', *args])",
+      "",
+    ].join("\n"));
+    chmodSync(shim, 0o755);
+    const reports = [
+      `Commit ${sharedSha}. Repo: ${[...replicas.map((root) => join(root, "proof.txt")), join(roots.lateSlow, "proof.txt")].join(" ")}.`,
+      `Commit 0000000deadbee1. File cambiato in ${join(roots.slow, "proof.txt")}. Inoltre commit 0000000deadbee4 resta inventato.`,
+      `Commit ${cardSha}. File cambiato in ${join(roots.slow, "proof.txt")}.`,
+      `Commit 0000000deadbee2. File cambiato in ${join(roots.broken, "proof.txt")}.`,
+      "Fatto (commit 0000000deadbee3).",
+    ];
+    const child = Bun.spawn(
+      [process.execPath, join(import.meta.dir, "tasks.delivery-probe.slow-git.fixture.ts"), roots.card, "sha", JSON.stringify(Object.values(roots)), JSON.stringify(reports)],
+      {
+        env: {
+          ...process.env,
+          PATH: `${bin}:${process.env.PATH}`,
+          BROKEN_GIT_ROOT: roots.broken,
+          SLOW_GIT_ROOTS: JSON.stringify([roots.slow, roots.lateSlow]),
+          GIT_CONFIG_GLOBAL: "/dev/null",
+          GIT_CONFIG_NOSYSTEM: "1",
+        },
+        stdout: "pipe",
+        stderr: "pipe",
+      },
+    );
+    try {
+      const output = await new Response(child.stdout).text();
+      const errors = await new Response(child.stderr).text();
+      const exit = await child.exited;
+      expect(exit, errors).toBe(0);
+      const result = JSON.parse(output.trim().split("\n").at(-1) ?? "{}") as {
+        codes: string[][];
+        searches: Array<{ sha: string; exists: boolean; unverifiable: string[] } | null>;
+      };
+      expect(result.codes, JSON.stringify(result)).toEqual([
+        ["sha-unverifiable"],
+        ["sha-unverifiable", "sha-missing"],
+        ["sha-unverifiable"],
+        ["sha-unverifiable"],
+        ["sha-missing"],
+      ]);
+      expect(result.searches[0]?.exists).toBe(true);
+      expect(result.searches[0]?.unverifiable?.some((location) => location.endsWith("/home/late-slow"))).toBe(true);
+      expect(result.searches[2]?.exists).toBe(true);
+      expect(result.searches[2]?.unverifiable?.some((location) => location.endsWith("/home/slow"))).toBe(true);
+    } finally {
+      rmSync(scratch, { recursive: true, force: true });
+    }
+  }, 30_000);
 });
