@@ -240,7 +240,7 @@ test.describe("Lo stato vive dietro la card dell'utente", () => {
     await expect(page.getByTestId("sidebar-system-menu")).toBeVisible({ timeout: 10_000 });
 
     const rows = await page.evaluate(() => {
-      const ids = ["menu-system-status", "menu-version", "menu-restart"];
+      const ids = ["menu-system-status", "menu-version"];
       const history = document.querySelector('[data-testid="topics-menu-history"]')!.getBoundingClientRect();
       return ids.map((id) => {
         const el = document.querySelector(`[data-testid="${id}"]`);

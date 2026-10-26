@@ -791,9 +791,6 @@
       "LARGHEZZA",
       "pannello"
     ],
-    "client/src/components/Sidebar/SidebarSystemMenu.tsx": [
-      "VOCE"
-    ],
     "client/src/components/Sidebar/SystemStatusPanel.tsx": [
       "formatUptime"
     ],

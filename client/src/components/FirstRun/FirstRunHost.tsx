@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { ExternalLink, Monitor, UserRound, WandSparkles } from 'lucide-react';
+import { ArrowRight, Check, ExternalLink, FolderTree, Globe2, KeyRound, Monitor, UserRound, WandSparkles } from 'lucide-react';
 import { useT } from '@/hooks/useT';
 import { appSettingsApi, peopleApi, providersApi, systemApi, type AppBehaviorSettings, type CliAgentPresence } from '@/lib/api';
 import { openUserMenu } from '@/lib/openUserMenu';
@@ -28,6 +28,8 @@ export function FirstRunHost() {
   const [name, setName] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // The welcome plays before the setup, every time the screen opens.
+  const [intro, setIntro] = useState(true);
 
   const load = useCallback(async (force = false) => {
     const settings = await appSettingsApi.get();
@@ -52,13 +54,14 @@ export function FirstRunHost() {
     };
     setData(next);
     setName(owner?.displayName ?? '');
-    if (force || shouldShowFirstRun(settings.firstRunDoneAt, owner?.displayName ?? null)) setVisible(true);
+    if (force || shouldShowFirstRun(settings.firstRunDoneAt, owner?.displayName ?? null)) { setIntro(true); setVisible(true); }
   }, []);
 
   useEffect(() => {
     let live = true;
     void load().catch(() => { if (live) setError(translateRef.current('firstRun.loadError')); });
     const reopen = () => {
+      setIntro(true);
       setVisible(true);
       setError(null);
       void load(true).catch(() => { if (live) setError(translateRef.current('firstRun.loadError')); });
@@ -116,12 +119,55 @@ export function FirstRunHost() {
   const keyProvider: ApiProviderName = 'claude';
   const declaredModel = defaultProvider?.defaultModel ?? defaultProvider?.models[0] ?? null;
 
+  const installedCount = agentRows.filter((agent) => agent.installed).length;
+  const highlights = [
+    { icon: FolderTree, title: t('firstRun.intro.topics'), body: t('firstRun.intro.topicsBody') },
+    { icon: Globe2, title: t('firstRun.intro.browser'), body: t('firstRun.intro.browserBody') },
+    { icon: KeyRound, title: t('firstRun.intro.keys'), body: t('firstRun.intro.keysBody') },
+  ];
+  const step = (i: number) => ({ '--i': i }) as React.CSSProperties;
+
+  if (intro) {
+    return (
+      <div ref={overlayRef} className={`${MODAL_OVERLAY} items-start overflow-auto p-4 sm:p-8`} data-testid="first-run-backdrop">
+        <section role="dialog" aria-modal="true" aria-labelledby="first-run-title" data-testid="first-run" data-step="intro" className={`${MODAL_PANEL} relative my-auto w-full max-w-3xl overflow-hidden p-6 text-app-text sm:p-10`}>
+          <div aria-hidden="true" className="first-run-glow pointer-events-none absolute -top-24 left-1/2 h-64 w-[28rem] -translate-x-1/2 rounded-full bg-primary/30 blur-3xl" />
+          <div className="relative">
+            <p className="first-run-rise mb-2 text-mini font-medium uppercase tracking-widest text-primary" style={step(0)}>{t('firstRun.intro.kicker')}</p>
+            <h1 id="first-run-title" className="first-run-rise text-display-sm font-semibold sm:text-4xl" style={step(1)}>{t('firstRun.intro.title')}</h1>
+            <p className="first-run-rise mt-3 max-w-xl text-prose text-app-text-muted" style={step(2)}>{t('firstRun.intro.lead')}</p>
+            <ul className="mt-8 grid gap-3 sm:grid-cols-3">
+              {highlights.map(({ icon: Icon, title, body }, index) => (
+                <li key={title} className="first-run-rise rounded-xl border border-app-border bg-app-bg/40 p-4" style={step(3 + index)}>
+                  <Icon size={20} className="mb-2 text-primary" />
+                  <h2 className="text-compact font-semibold">{title}</h2>
+                  <p className="mt-1 text-mini text-app-text-muted">{body}</p>
+                </li>
+              ))}
+            </ul>
+            <p className="first-run-rise mt-6 text-mini text-app-text-muted" style={step(6)}>{t('firstRun.intro.versus')}</p>
+            <footer className="first-run-rise mt-8 flex items-center justify-end gap-3" style={step(7)}>
+              <button type="button" data-testid="first-run-skip" onClick={() => void close()} disabled={busy} className="rounded-md px-4 py-2 text-compact text-app-text-muted hover:bg-app-hover">{t('firstRun.skip')}</button>
+              <button type="button" data-testid="first-run-start" onClick={() => setIntro(false)} className="inline-flex items-center gap-2 rounded-md bg-primary px-5 py-2 text-compact font-medium text-white">
+                {t('firstRun.intro.start')}<ArrowRight size={16} />
+              </button>
+            </footer>
+          </div>
+        </section>
+      </div>
+    );
+  }
+
   return (
     <div ref={overlayRef} className={`${MODAL_OVERLAY} items-start overflow-auto p-4 sm:p-8`} data-testid="first-run-backdrop">
-      <section role="dialog" aria-modal="true" aria-labelledby="first-run-title" data-testid="first-run" className={`${MODAL_PANEL} my-auto w-full max-w-4xl p-5 text-app-text sm:p-8`}>
+      <section role="dialog" aria-modal="true" aria-labelledby="first-run-title" data-testid="first-run" data-step="setup" className={`${MODAL_PANEL} my-auto w-full max-w-4xl p-5 text-app-text sm:p-8`}>
         <header className="mb-6">
           <h1 id="first-run-title" className="text-display-sm font-semibold">{t('firstRun.title')}</h1>
           <p className="mt-2 text-prose text-app-text-muted">{t('firstRun.subtitle')}</p>
+          <p data-testid="first-run-summary" className="mt-3 inline-flex items-center gap-1.5 rounded-full bg-app-hover px-3 py-1 text-mini text-app-text-muted">
+            <Check size={12} className={installedCount > 0 ? 'text-green-600' : 'text-app-text-muted'} />
+            {t('firstRun.summary', { n: installedCount })}
+          </p>
         </header>
         <div className="grid gap-4 md:grid-cols-2">
           <article className="rounded-xl border border-app-border p-4">

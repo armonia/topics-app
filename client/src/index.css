@@ -5047,3 +5047,26 @@ details[open] > :not(summary) {
      `lib/motion.ts` torna null), quindi qui basta spegnere le classi CSS. */
   .morph-char, .morph-block, .reveal-in { animation: none; }
 }
+
+/* First-run intro: each line rises in turn, the glow behind the title drifts.
+ * The delay is set per element (--i), so the sequence is data, not classes. */
+@keyframes firstRunRise {
+  from { opacity: 0; transform: translateY(14px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+@keyframes firstRunGlow {
+  0%, 100% { transform: translate3d(-8%, 0, 0) scale(1); opacity: 0.55; }
+  50% { transform: translate3d(8%, -6%, 0) scale(1.12); opacity: 0.85; }
+}
+.first-run-rise {
+  opacity: 0;
+  animation: firstRunRise 520ms var(--ease-standard) forwards;
+  animation-delay: calc(var(--i, 0) * 110ms);
+}
+.first-run-glow {
+  animation: firstRunGlow 7s ease-in-out infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  .first-run-rise { opacity: 1; animation: none; }
+  .first-run-glow { animation: none; }
+}
