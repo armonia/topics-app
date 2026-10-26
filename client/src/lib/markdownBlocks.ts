@@ -172,3 +172,43 @@ function closeInlineMarks(source: string): string {
 
   return text;
 }
+
+/** A tail up to this long is parsed at every flush; a longer one is parsed less often. */
+export const TAIL_PARSE_CAP = 3000;
+/** The longest a long tail waits between two parses, in flushes (about 0.4 s at 60 fps). */
+export const TAIL_MAX_SKIP = 24;
+
+/**
+ * Keeps the parse work of the tail block flat when the tail itself cannot be cut:
+ * one long code fence, list or paragraph has no safe cut point, so its parse
+ * would grow with its length at every flush. Past `TAIL_PARSE_CAP` the tail is
+ * parsed once every ceil(length / cap) flushes and the flushes in between draw
+ * the last parsed text, so the average work per flush stays about one cap while
+ * the screen lags by a few frames at most. A tail that is not a continuation of
+ * the last parsed one (a cut moved) or a stream that ended is parsed at once.
+ */
+export function createTailGate() {
+  let parsed = '';
+  let skipped = 0;
+  return {
+    /** The text to draw for this flush. */
+    pick(tail: string, streaming: boolean): string {
+      const every = Math.min(TAIL_MAX_SKIP, Math.ceil(tail.length / TAIL_PARSE_CAP));
+      if (!streaming || every <= 1 || parsed === '' || !tail.startsWith(parsed) || skipped + 1 >= every) {
+        parsed = tail;
+        skipped = 0;
+        return tail;
+      }
+      skipped++;
+      return parsed;
+    },
+    /** The next pick parses, whatever the wait. */
+    release(): void {
+      skipped = TAIL_MAX_SKIP;
+    },
+    /** True while the drawn text is behind the real one: a timer must come back to catch up. */
+    behind(tail: string): boolean {
+      return parsed !== tail;
+    },
+  };
+}
