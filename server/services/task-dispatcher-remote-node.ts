@@ -106,6 +106,8 @@ export interface NodeSlot {
   cancelReason?: "audit_binding_failed";
   /** Polls that saw the run in review with no branch and no reason (see `NODE_BRANCH_GRACE_POLLS`). */
   reviewWithoutBranch?: number;
+  /** Rounds in a row in which the old mirror of the previous delivery could not be cancelled. */
+  retireFails?: number;
 }
 
 /**
@@ -133,6 +135,12 @@ export function isNodeSessionKey(sessionKey: string): boolean {
  * its hysteresis against.
  */
 export const NODE_DEAD_POLLS = 30;
+/**
+ * A node that answers but will not drop the old mirror of the previous delivery: after this many
+ * rounds the card is parked with the fix in words, because re-queueing it would only be handed the
+ * same mirror back for ever.
+ */
+export const NODE_RETIRE_TRIES = 5;
 
 /**
  * Polls a run may sit in review with no branch, and no reason for it, before the
@@ -727,6 +735,53 @@ export function createRemoteNodeLane(host: RemoteNodeHost): RemoteNodeLane {
   }
 
   /**
+   * The note a retired mirror leaves, replaced (not repeated) if it happens again.
+   */
+  const NODE_OLD_MIRROR_NOTE = "La corsa sul nodo era la copia della consegna precedente";
+
+  /**
+   * Is this report the PREVIOUS round's delivery coming back? A run that has just been created cannot
+   * already have delivered, so a first answer in review whose delivery comment this card has already
+   * taken in (the anchor is the node's comment id) is the old mirror. It happens after a restart of this
+   * server: `lastNodeRun` lives in memory, nobody cancels the old run, and the node answers `createRun`
+   * with the live mirror of the card as it is (ff293eda, 26/10: the old branch was landed again).
+   */
+  function isPreviousDelivery(taskId: string, report: NodeRunReport): boolean {
+    const anchored = new Set<string>();
+    for (const c of svc.get(taskId)?.comments ?? []) if (c.messageId) anchored.add(c.messageId);
+    return report.comments.some((c) => c.kind === "delivery" && anchored.has(c.id));
+  }
+
+  /**
+   * Cancel the old mirror on the node and send the card back to the queue, attempt refunded: the next
+   * dispatch creates a NEW run, with the thread as it is now. `false` = the cancel did not go through,
+   * and then nothing else happens: re-queueing would hand the same mirror back.
+   */
+  async function retirePreviousMirror(taskId: string, node: NodeSlot): Promise<boolean> {
+    try {
+      await host.client!.cancelRun({ baseUrl: node.baseUrl, token: node.token, runId: node.runId, delegation: node.delegation });
+    } catch (err) {
+      log(`nodo: la copia vecchia ${node.runId} non si è cancellata`, err);
+      return false;
+    }
+    lastNodeRun.delete(taskId);
+    // The slot goes first, as in `landNodeDelivery`: a card still «in flight» is never dispatched again.
+    inFlight.delete(taskId);
+    try {
+      svc.addComment({
+        taskId, author: "system", kind: "service",
+        replaces: NODE_OLD_MIRROR_NOTE,
+        content:
+          `${NODE_OLD_MIRROR_NOTE} (il nodo la conservava): l'ho cancellata, la card riparte da capo ` +
+          "con la discussione di adesso.",
+      });
+    } catch { /* dedupe/best-effort */ }
+    try { releaseAndEmit({ taskId, requeue: true, rollbackAttempt: true }); }
+    catch (err) { log(`nodo: la card ${taskId} non è tornata in coda dopo la copia vecchia`, err); }
+    return true;
+  }
+
+  /**
    * ONE POLL PER REMOTE SLOT, every reconcile tick. This is the whole life
    * signal of a remote run: there is no promise to await and no process to
    * probe (KANBAN-76, KANBAN-77).
@@ -763,6 +818,19 @@ export function createRemoteNodeLane(host: RemoteNodeHost): RemoteNodeLane {
       const still = inFlight.get(taskId);
       if (!still || still.runId !== slot.runId || still.node?.runId !== node.runId) continue;
       node.fails = 0;
+      if (!node.primed && report.status === "review" && isPreviousDelivery(taskId, report)) {
+        if (await retirePreviousMirror(taskId, node)) continue;
+        node.retireFails = (node.retireFails ?? 0) + 1;
+        if (node.retireFails >= NODE_RETIRE_TRIES && task) {
+          inFlight.delete(taskId);
+          parkNodeCard(
+            task,
+            `Il nodo «${nodeName(node.machineId)}» ha ancora la copia della consegna precedente (corsa \`${node.runId.slice(0, 8)}\`) ` +
+              "e non la cancella: cancellala là, poi rimetti la card in coda.",
+          );
+        }
+        continue;
+      }
       mirrorNodeReport(taskId, node, report);
       if (report.status !== "review") continue;
       // A paired node never sends `reason`: review with no branch and no error may be
