@@ -6,7 +6,7 @@ import { readJsonStateFile } from "./state-file";
 import { resolveStateDir, stateDirTarget } from "./data-dir";
 
 export const COMMAND_GROUP_TERM_GRACE_MS = 10_000;
-const COMMAND_GROUP_CONFIRM_MS = 1_500;
+export const COMMAND_GROUP_CONFIRM_MS = 1_500;
 const COMMAND_GROUP_POLL_MS = 100;
 const DARWIN_PROC_INFO_SIZE = 136;
 

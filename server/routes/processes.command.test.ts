@@ -17,7 +17,9 @@ const STATE = mkdtempSync(join(tmpdir(), "topics-cmd-state-"));
 const previousDataDir = process.env.DATA_DIR;
 process.env.DATA_DIR = STATE;
 const { createProcessesRouter, listOwnedScripts, logPathOf, stopCardCommandProcesses } = await import("./processes");
-const { commandProcessGroup, processGroupAlive } = await import("../lib/command-process-groups");
+const {
+  COMMAND_GROUP_CONFIRM_MS, COMMAND_GROUP_TERM_GRACE_MS, commandProcessGroup, processGroupAlive,
+} = await import("../lib/command-process-groups");
 
 const PROJECT = realpathSync(mkdtempSync(join(tmpdir(), "topics-cmd-project-")));
 const RUN_COMMAND_RELEASE = join(PROJECT, "run-command.release");
@@ -226,6 +228,13 @@ describe("POST /api/sessions/:sessionKey/commands/run", () => {
     expect(group).toBe(false);
   });
 
+  // The orphan ignores TERM by design, so it only dies on the SIGKILL that
+  // follows the full grace, and the row turns stopped after the KILL is
+  // confirmed. Every wait is derived from those two constants, plus a margin
+  // wide enough for a loaded machine, so a longer grace cannot outgrow them.
+  const LOAD_MARGIN_MS = 20_000;
+  const ORPHAN_STOPPED_WITHIN_MS = COMMAND_GROUP_TERM_GRACE_MS + COMMAND_GROUP_CONFIRM_MS + LOAD_MARGIN_MS;
+
   test("card closure stops a wake:false Apple-shell orphan and marks stopped only after group death", async () => {
     const cardId = "card-process-close";
     const router = makeRouter({ cardId });
@@ -238,11 +247,12 @@ describe("POST /api/sessions/:sessionKey/commands/run", () => {
       expect(group).toMatchObject({ cardId, ownerKey: TOPIC.sessionKey, topicId: TOPIC.id });
       expect((await rowOf(router, processId))?.stopped).toBeUndefined();
       stopCardCommandProcesses(cardId);
-      const retiringRow = await until(() => rowOf(router, processId), (row) => row?.closing === true);
+      // The closing state lasts the whole grace: that is the window to see it in.
+      const retiringRow = await until(() => rowOf(router, processId), (row) => row?.closing === true, COMMAND_GROUP_TERM_GRACE_MS);
       expect(retiringRow).toMatchObject({ status: "running", closing: true });
       expect(retiringRow?.stopped).toBeUndefined();
 
-      const stopped = await until(() => rowOf(router, processId), (row) => row?.stopped === true, 15_000);
+      const stopped = await until(() => rowOf(router, processId), (row) => row?.stopped === true, ORPHAN_STOPPED_WITHIN_MS);
       expect(stopped).toMatchObject({ status: "error", stopped: true });
       expect(processGroupAlive(group.pgid)).toBe(false);
     } finally {
@@ -250,7 +260,7 @@ describe("POST /api/sessions/:sessionKey/commands/run", () => {
         try { process.kill(-group.pgid, "SIGKILL"); } catch {}
       }
     }
-  });
+  }, COMMAND_GROUP_TERM_GRACE_MS + ORPHAN_STOPPED_WITHIN_MS + LOAD_MARGIN_MS);
 });
 
 // A script's log is written through the registry's folder once per output
