@@ -1825,6 +1825,13 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
   const noCheckReservationFor = noCheckReservations.reservationFor;
   const restoreNoCheckReservation = noCheckReservations.restore;
   const noteNoCheckExemptionStart = noCheckReservations.noteStart;
+  /** Seat and claim are one synchronous step: a holder outside `inFlight` and not `in_progress` is an orphan. */
+  function releaseOrphanMemorySeat(): void {
+    const taskId = memorySeatTaskId;
+    if (!taskId || inFlight.has(taskId)) return;
+    try { if (deps.svc.get(taskId)?.task.status !== "in_progress") memorySeatTaskId = null; }
+    catch { /* A failed read must not release a live seat. */ }
+  }
   /**
    * THE REMOTE LANE, whole, in `task-dispatcher-remote-node.ts`. What stays
    * here are its five seams: launch, liveness sweep, burial, poll, and the
@@ -4856,6 +4863,7 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
 
   async function dispatchTick(projectId: string): Promise<void> {
     releaseInactiveNoCheckReservations();
+    releaseOrphanMemorySeat();
     // Project-less tasks are never dispatchable (no cwd): they WAIT quietly on
     // the global board — parking them with "progetto non risolvibile" would be
     // the todo→backlog bounce all over again.
@@ -5357,11 +5365,8 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
       const memoryHold = (resourceFloor != null && (floorNow.kind === "memory" || floorNow.kind === "memory_warmup"))
         || (!!pressure && lastPressureAxis === "memory")
         || floorNow.memoryFirstCardExempt;
-      if (!manualMemoryStartSelected && !remoteTask && floorNow.memoryFirstCardExempt && t.dispatchWeight === "heavy") {
-        queueChip(t, WAITING_MEMORY);
-        continue;
-      }
-      if (!remoteTask && memorySeatTaskId && memorySeatTaskId !== t.id && memoryHold) {
+      if (!remoteTask && ((!manualMemoryStartSelected && floorNow.memoryFirstCardExempt && t.dispatchWeight === "heavy")
+        || (memorySeatTaskId && memorySeatTaskId !== t.id && memoryHold))) {
         queueChip(t, WAITING_MEMORY);
         continue;
       }
@@ -5408,8 +5413,7 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
           || (sent.reason !== block.reason && clock() - sent.at >= HELD_RESUME_REFRESH_MS);
         const memoryWait = resourceFloor != null && (floorNow.kind === "memory" || floorNow.kind === "memory_warmup");
         const wrote = queueChip(t, memoryWait ? WAITING_MEMORY : undefined);
-        // In attesa di memoria la card legge solo il codice: cifre nuove non
-        // cambiano niente da rimandare.
+        // In attesa di memoria la card legge solo il codice: cifre nuove non cambiano niente.
         if (stale && !wrote && !memoryWait) {
           try { const fresh = deps.svc.get(t.id)?.task; if (fresh) emit(fresh); } catch { /* the task may have moved */ }
         }
@@ -5642,14 +5646,18 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
       }
       if (reserveMemorySeat) memorySeatTaskId = t.id;
       const forced = heavyCall.get(t.id) === "forced";
-      const claimed = deps.svc.claim({
-        taskId: t.id,
-        cap: claimCap,
-        maxAttempts: delegated ? 1 : settings.dispatchRetryCap,
-        scope: capScope,
-        machineIdle: forced ? true : loadGate?.ok,
-        noCheckExemption: claimNoCheckReservationGB > 0,
-      });
+      let claimed: Task | null;
+      try {
+        claimed = deps.svc.claim({
+          taskId: t.id, cap: claimCap, maxAttempts: delegated ? 1 : settings.dispatchRetryCap,
+          scope: capScope, machineIdle: forced ? true : loadGate?.ok, noCheckExemption: claimNoCheckReservationGB > 0,
+        });
+      } catch (err) {
+        // A claim that throws (row deleted during this pass) releases what was taken for it.
+        if (memorySeatTaskId === t.id) memorySeatTaskId = null;
+        if (claimNoCheckReservationGB > 0) clearNoCheckReservation(t.id);
+        throw err;
+      }
       if (!claimed) {
         if (memorySeatTaskId === t.id) memorySeatTaskId = null;
         if (claimNoCheckReservationGB > 0) clearNoCheckReservation(t.id);

@@ -333,6 +333,50 @@ describe("the dispatch memory seat", () => {
     expect(w.h.attempts.getNoLocalChecksReservation?.("heavy-idle")).toBeNull();
   });
 
+  it("releases the seat when the claim throws because the card was deleted", async () => {
+    const w = sharedWindowHarness("count", { checksRunning: () => 0 });
+    addLocalReviewCheck(w.h.svc);
+    await w.beats(repeatMemoryReading(4.7, 14));
+    seedTodo(w.h.db, "deleted-before-claim");
+    seedTodo(w.h.db, "memory-waiter");
+    w.h.db.run(
+      "UPDATE tasks SET dispatch_state = 'queued', dispatch_error = 'waiting-memory' WHERE id = ?",
+      ["memory-waiter"],
+    );
+    const claim = w.h.svc.claim.bind(w.h.svc);
+    w.h.svc.claim = (input) => {
+      if (input.taskId === "deleted-before-claim") w.h.db.run("DELETE FROM tasks WHERE id = ?", [input.taskId]);
+      return claim(input);
+    };
+
+    await expect(w.h.dispatcher.tick(PID)).rejects.toThrow("not found");
+    expect(w.h.startedAt).toHaveLength(0);
+
+    // No tick in between: the seat must already be free when the claim threw.
+    expect(await w.h.dispatcher.startAnyway(PID, "memory-waiter")).toEqual({ ok: true });
+    await flush();
+    expect(w.h.dispatcher.isInFlight("memory-waiter")).toBe(true);
+  });
+
+  it("after a claim that threw on a deleted card, the next tick starts another local card", async () => {
+    const w = sharedWindowHarness("count", { checksRunning: () => 0 });
+    addLocalReviewCheck(w.h.svc);
+    await w.beats(repeatMemoryReading(4.7, 14));
+    seedTodo(w.h.db, "deleted-before-claim");
+    const claim = w.h.svc.claim.bind(w.h.svc);
+    w.h.svc.claim = (input) => {
+      if (input.taskId === "deleted-before-claim") w.h.db.run("DELETE FROM tasks WHERE id = ?", [input.taskId]);
+      return claim(input);
+    };
+    await expect(w.h.dispatcher.tick(PID)).rejects.toThrow("not found");
+
+    seedTodo(w.h.db, "next-local-card");
+    await w.h.dispatcher.tick(PID);
+    await flush();
+    expect(w.h.startedAt).toHaveLength(1);
+    expect(w.h.dispatcher.isInFlight("next-local-card")).toBe(true);
+  });
+
   it("releases a light-card seat when its live task becomes heavy", async () => {
     const w = sharedWindowHarness("count", { checksRunning: () => 1 });
     await w.beats(repeatMemoryReading(4.8, 14));
