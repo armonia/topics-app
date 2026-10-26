@@ -195,7 +195,7 @@ export interface RemoteNodeHost {
     args: Parameters<TaskService["release"]>[0],
     opts?: { announce?: boolean },
   ) => Task;
-  deferWait: (taskId: string, reason: string, minutes?: number) => Task;
+  deferWait: (taskId: string, reason: string, minutes?: number, source?: "agent" | "machine") => Task;
   delegatedPolicyForTask?: (taskId: string) => DelegatedRunPolicy | null;
   recordDelegatedPhase?: (input: {
     taskId: string;
@@ -270,7 +270,7 @@ export function createRemoteNodeLane(host: RemoteNodeHost): RemoteNodeLane {
    */
   function deferForSilentNode(task: Task, why: string): void {
     try {
-      const after = host.deferWait(task.id, why, NODE_RETRY_MINUTES);
+      const after = host.deferWait(task.id, why, NODE_RETRY_MINUTES, "machine");
       // The sentinel goes ONLY on a card that is still waiting in the queue.
       // Past its own cap the wait parks the card and announces the park with
       // its own chip (`waited_out`) and note: overwriting that would hide "the

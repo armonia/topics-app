@@ -6,7 +6,7 @@
 import { test, expect, describe, beforeEach } from "bun:test";
 import { Database } from "bun:sqlite";
 import { ARCHIVE_PARKED_LABEL, commentAsksHuman, createTaskService, deliveryNotesInFlight, isLandActionLabel, isPublishActionLabel, LAND_ACTION_LABEL, PUBLISH_ACTION_LABEL, projectIdForPath, REQUEUE_PARKED_LABEL, TaskServiceError, type TaskService } from "./tasks";
-import { PARKED_WAITED_OUT, WAIT_SERIES_MAX_MS, WAIT_STREAK_CAP, parseQuestionBlock, pendingQuestion } from "../../shared/board";
+import { AGENT_WAIT_STREAK_CAP, PARKED_WAITED_OUT, WAIT_SERIES_MAX_MS, WAIT_STREAK_CAP, parseQuestionBlock, pendingQuestion } from "../../shared/board";
 import { freshDb, svc, PID } from "./tasks-test-db";
 
 describe("reserved action labels", () => {
@@ -1614,11 +1614,16 @@ describe("attesa dichiarata: rimborso del tentativo e contatore separato", () =>
 
   /** Il tetto dei tentativi VERO della board (default 2): è quello che mordeva. */
   const CAP = 2;
-  /** Un giro completo: la claim spende il tentativo, poi l'agent dichiara l'attesa. */
-  const attende = (id: string, reason: string, minutes = 15) => {
+  /**
+   * Un giro completo: la claim spende il tentativo, poi qualcuno dichiara l'attesa.
+   * La meccanica della serie (rimborso, chiave, orologio, azzeramenti) si misura
+   * sul tetto LARGO, quello dei rimandi della macchina; il tetto dei rimandi
+   * dell'agente ha i suoi test qui sotto.
+   */
+  const attende = (id: string, reason: string, minutes = 15, source: "agent" | "machine" = "machine") => {
     const claimed = s.claim({ taskId: id, cap: 5, maxAttempts: CAP });
     expect(claimed).not.toBeNull();
-    return s.deferForWait({ taskId: id, reason, minutes, by: "claude" });
+    return s.deferForWait({ taskId: id, reason, minutes, by: "claude", source });
   };
   /** Il tempo passa oltre la finestra, così la claim successiva è ammessa. */
   const passa = (minuti: number) => { clock.t += minuti * 60_000; };
@@ -1690,6 +1695,42 @@ describe("attesa dichiarata: rimborso del tentativo e contatore separato", () =>
     expect(nota.toLowerCase()).not.toContain("fallit");
     // E la stessa riga è nel thread, non solo nel tooltip.
     expect(s.get(t.id)!.comments.map((c) => c.content).join("\n")).toContain("la decisione torna a te");
+  });
+
+  test("il rimando dell'AGENTE si ferma al secondo: la card chiede invece di aprire un altro turno", () => {
+    const t = s.create({ projectId: PID, text: "aspetta la CI", status: "todo" });
+    const prima = s.deferForWait({ taskId: t.id, reason: "la CI sta girando", minutes: 15, by: "claude" }); // senza `source`: agente
+    expect(AGENT_WAIT_STREAK_CAP).toBe(1);
+    expect(prima.status).toBe("todo");
+    expect(prima.dispatchState).toBe("waiting");
+    passa(16);
+
+    const seconda = attende(t.id, "la CI sta girando", 15, "agent");
+    expect(seconda.status).toBe("backlog");
+    expect(seconda.dispatchState).toBe(PARKED_WAITED_OUT);
+    expect(seconda.dispatchDeferredUntil).toBeNull();  // non riparte da solo: nessun terzo turno
+    expect(seconda.dispatchAttempts).toBe(0);
+    expect(seconda.waitStreak).toBe(2);
+    expect(seconda.dispatchError ?? "").toContain("2 attese di fila");
+    expect(seconda.dispatchError ?? "").toContain("la decisione torna a te");
+  });
+
+  test("il tetto dell'agente è per ragione: una condizione NUOVA è un primo rimando", () => {
+    const t = s.create({ projectId: PID, text: "aspetta", status: "todo" });
+    attende(t.id, "la CI sta girando", 15, "agent"); passa(16);
+    const altra = attende(t.id, "aspetto la risposta di Attilio", 15, "agent");
+    expect(altra.status).toBe("todo");
+    expect(altra.waitStreak).toBe(1);
+  });
+
+  test("il rimando della MACCHINA tiene il tetto largo: il nodo muto non apre turni", () => {
+    const t = s.create({ projectId: PID, text: "gira sul nodo", status: "todo" });
+    for (let i = 1; i <= WAIT_STREAK_CAP; i++) {
+      const atteso = attende(t.id, "il nodo non risponde", 5, "machine");
+      expect(atteso.status).toBe("todo");
+      passa(6);
+    }
+    expect(attende(t.id, "il nodo non risponde", 5, "machine").dispatchState).toBe(PARKED_WAITED_OUT);
   });
 
   test("l'altro tetto è l'OROLOGIO: due attese lunghissime fermano il task quanto sette corte", () => {

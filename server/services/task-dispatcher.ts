@@ -590,8 +590,10 @@ export interface TaskDispatcher {
    * it releases its slot instead of holding it. The live turn is still winding
    * down; onTurnEnd sees the `waiting` chip and leaves it be, and the periodic
    * tick re-dispatches once the window elapses. Returns the updated task.
+   * `source: "machine"` is a wait no agent declared (a silent node): it keeps
+   * the wide streak cap, because its retry opens no turn (`AGENT_WAIT_STREAK_CAP`).
    */
-  deferWait(taskId: string, reason: string, minutes?: number): Task;
+  deferWait(taskId: string, reason: string, minutes?: number, source?: "agent" | "machine"): Task;
   /**
    * Lo stato della modalità notturna della board, per l'interfaccia. Sola
    * lettura, e passa dallo STESSO calcolo del gate del `tick`: la card delle
@@ -3034,7 +3036,7 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
         PREVIEW_RULE,
         `- On delivery, BEFORE moving to review: ONE summary comment with comment_task (1-2 sentences: what you did THIS turn, where to look). The server refuses the review if you have not commented in this turn.`,
         `- IF you committed code on your branch (landable work), in that delivery comment offer ONLY the option: comment_task(..., options=["${LAND_ACTION_LABEL}"]). If the human picks it, the SYSTEM does the LOCAL merge onto main (no push). You NEVER do a git merge/push by hand. Publishing online (push + deploy) is a SEPARATE step, decided and run by the human from the board's "Pubblica" control with a diff preview — do NOT propose it, it is not an option of the task. Do NOT offer the option without committed code (a question, a plan, headless-only work).`,
-        `- If you have to WAIT for an external condition (a service coming back up, machine load dropping, a time window): do NOT sleep on a poller holding the slot. Declare the wait with wait_for_condition(task_id="${task.id}", reason=<what you are waiting for>, minutes=<when to retry, default 15>): the task goes back to the queue with that note, the slot frees up for others, and the system re-dispatches it by itself when the window elapses. It is NOT a delivery: do not send it to review "empty".`,
+        `- If you have to WAIT for an external condition (a service coming back up, machine load dropping, a time window): do NOT sleep on a poller holding the slot. Declare the wait with wait_for_condition(task_id="${task.id}", reason=<what you are waiting for>, minutes=<when to retry, default 15>): the task goes back to the queue with that note, the slot frees up for others, and the system re-dispatches it by itself when the window elapses. Declare it ONCE per condition, with a window long enough: a second wait for the same condition parks the card for the human. It is NOT a delivery: do not send it to review "empty".`,
         // I cancelli del codice si nominano SEMPRE, board o no. Prima stavano
         // solo dentro il ramo `checks.length` qui sotto, cioè: nessuna board
         // dichiarava comandi → nessun kickoff nominava un cancello → tre card
@@ -5925,11 +5927,11 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
     notifyMemoryQueue();
   }
 
-  function deferWait(taskId: string, reason: string, minutes?: number): Task {
+  function deferWait(taskId: string, reason: string, minutes?: number, source: "agent" | "machine" = "agent"): Task {
     // A pending grace timer would re-tick this task the moment it lands in todo,
     // defeating the wait — clear it (harmless if none is set).
     clearGrace(taskId);
-    const t = deps.svc.deferForWait({ taskId, reason, minutes, by: "agent" });
+    const t = deps.svc.deferForWait({ taskId, reason, minutes, by: "agent", source });
     emit(t);
     // Il park dell'attesa sfondata è l'UNICO park terminale che non passa da
     // `releaseAndEmit`: lo decide il service, guardando i tetti della serie, e
