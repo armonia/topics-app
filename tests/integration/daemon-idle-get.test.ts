@@ -1,23 +1,23 @@
 /**
- * `GET /__daemon/idle`: «c'e' un turno in volo?», e basta.
+ * `GET /__daemon/idle`: "is a turn in flight?", and nothing else.
  *
- * Il riavvio condizionato dell'hub deve poter chiedere prima di impegnarsi.
- * `POST /__daemon/restart-when-idle` risponde alla stessa domanda ma apre
- * un'attesa e poi manda il SIGTERM: per leggere lo stato non c'era un cammino
- * che non lo cambiasse. Questo e' quel cammino, ed e' provato sul server VERO
- * (la rotta vive inline in `server.ts`, che si avvia all'import): un test su una
- * replica del corpo del handler non vedrebbe un `waitForDispatcherQuiescent`
- * aggiunto per errore a monte.
+ * The conditional restart in the hub must be able to ask before committing.
+ * `POST /__daemon/restart-when-idle` answers the same question but opens a wait
+ * and then sends the SIGTERM: there was no way to read the state that did not
+ * also change it. This is that way, and it is proven on the REAL server (the
+ * route lives inline in `server.ts`, which boots on import): a test on a replica
+ * of the handler body would not see a `waitForDispatcherQuiescent` added by
+ * mistake upstream of it.
  *
- * Tre cose da tenere ferme:
- *   · la risposta ha la forma promessa (`idle`, `inFlight`, `holding`,
- *     `unrecoverable`, `alreadyWaiting`) e con il server a riposo dice «idle»;
- *   · stessa porta degli altri `/__daemon/*`: senza bearer, 401;
- *   · e' DAVVERO di sola lettura: dopo piu' GET nessuna attesa e' partita
- *     (`alreadyWaiting` resta false) e il processo e' ancora vivo. Un GET che
- *     avviasse l'attesa su un server a riposo lo vedrebbe uscire dal `for(;;)`
- *     al primo giro e mandarsi il SIGTERM da solo: e' il mutante che questo
- *     test deve far diventare rosso.
+ * Three things to pin down:
+ *   - the answer has the promised shape (`idle`, `inFlight`, `holding`,
+ *     `unrecoverable`, `alreadyWaiting`) and a server at rest says "idle";
+ *   - same door as the other `/__daemon/*` routes: no bearer, 401;
+ *   - it is REALLY read-only: after several GETs no wait has started
+ *     (`alreadyWaiting` stays false) and the process is still alive. A GET that
+ *     started the wait on a server at rest would see it leave the `for(;;)` on
+ *     the first lap and SIGTERM itself: that is the mutant this test must turn
+ *     red.
  *
  * @covers RGATE-08
  */
@@ -31,7 +31,7 @@ let server: RealServer;
 let token = "";
 let pid = 0;
 
-/** Il server scrive lo stato (con il token) in `$TOPICS_HOME`, che `spawnRealServer` pone qui. */
+/** The server writes its state (with the token) under `$TOPICS_HOME`, which `spawnRealServer` places here. */
 function readDaemonState(): { pid: number; token: string } {
   return JSON.parse(fs.readFileSync(join(ROOT, "topics-home", "daemon-state.json"), "utf-8"));
 }
@@ -78,8 +78,8 @@ describe("GET /__daemon/idle", () => {
       const res = await fetch(`${server.baseUrl}/__daemon/idle`, { headers: bearer() });
       expect((await res.json()).alreadyWaiting).toBe(false);
     }
-    // L'attesa di un server a riposo termina al primo giro (<= 500 ms) e il
-    // SIGTERM parte subito dopo: un secondo e mezzo di margine, poi si guarda.
+    // The wait of a server at rest ends on the first lap (<= 500 ms) and the
+    // SIGTERM follows at once: a second and a half of margin, then look.
     await new Promise((r) => setTimeout(r, 1_500));
     expect(alive()).toBe(true);
     const health = await fetch(`${server.baseUrl}/__daemon/healthz`, { headers: bearer() });

@@ -3615,25 +3615,25 @@ const opzioniServer = {
         });
       }
       if (method === "GET" && pathname === "/__daemon/idle") {
-        // «C'e' un turno in volo?» — SOLA LETTURA. Chi vuole un riavvio
-        // condizionato (l'hub del Mac) deve poter chiedere prima, senza
-        // impegnarsi: `restart-when-idle` apre un'attesa e poi manda il SIGTERM,
-        // e per saperne lo stato non c'era altro modo che avviarla.
+        // "Is a turn in flight?" - READ-ONLY. Whoever wants a conditional restart
+        // (the Mac hub) must be able to ask first, without committing:
+        // `restart-when-idle` opens a wait and then sends the SIGTERM, and the
+        // only way to learn the state was to start it.
         //
-        // Qui NON si chiama `waitForDispatcherQuiescent`, non si fa
-        // `drain`/`undrain` e non si manda nessun segnale: si leggono gli stessi
-        // predicati che il cancello usa (`whatIsStillWorking`, che compone
-        // `describeInFlight` e `chatsHolding`). Un GET che ne cambiasse lo stato
-        // chiuderebbe la porta del dispatcher o riavvierebbe il server a chi
-        // voleva solo guardare: il test lo tiene fermo.
+        // This does NOT call `waitForDispatcherQuiescent`, does no
+        // `drain`/`undrain` and sends no signal: it reads the predicates the gate
+        // uses (`whatIsStillWorking`, which composes `describeInFlight` and
+        // `chatsHolding`). A GET that changed their state would close the
+        // dispatcher door or restart the server for someone who only wanted to
+        // look: the test holds that still.
         const { busy: holding, cards, unadoptable } = await whatIsStillWorking();
         return new Response(JSON.stringify({
           idle: holding === null,
           inFlight: taskDispatcher.busyCount(),
-          // `null` = niente trattiene. Stessa frase che mette nel log il cancello.
+          // `null` = nothing is holding. Same sentence the gate puts in the log.
           holding,
-          // Chi non torna dopo un riavvio: la stessa somma che il cancello
-          // passa a `quiescenceVerdict` come `unrecoverable`.
+          // Whoever does not come back after a restart: the same sum the gate
+          // passes to `quiescenceVerdict` as `unrecoverable`.
           unrecoverable: cards + unadoptable,
           alreadyWaiting: attesaQuiescenza.inProgress() !== null,
         }), { status: 200, headers: { "content-type": "application/json" } });
