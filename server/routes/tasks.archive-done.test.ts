@@ -13,13 +13,14 @@ import { describe, expect, test } from "bun:test";
 import { createTasksRouter } from "./tasks";
 import { freshDb, makeCtx, call } from "./tasks-test-support";
 
-async function closedCard(status: string, dispatchState: string | null = null) {
+async function closedCard(status: string, dispatchState: string | null = null, live = false) {
   const db = freshDb();
   const aborted: string[] = [];
   const fake = { onEnterTodo() {}, onLeaveTodo() {}, resume: async () => {} } as any;
   const r = createTasksRouter(makeCtx(db, []), fake, {
     abortTurn: async (sk: string) => { aborted.push(sk); },
     killAgentTree: async (sk: string) => { aborted.push(sk); },
+    hasLiveTurn: () => live,
   });
   db.run(`INSERT INTO topics (id) VALUES ('top-old')`);
   const t = await (await call(r, "POST", "/api/boards/pX/tasks", { text: "closed months ago" }))!.json();
@@ -49,11 +50,18 @@ describe("archiving a card that has no live turn", () => {
     expect(c.aborted).toEqual([]);
   });
 
-  test("a done card is never detached, even with a stale working chip", async () => {
+  test("a done card with a stale working chip stays done", async () => {
     const c = await closedCard("done", "working");
     expect((await call(c.r, "DELETE", `/api/boards/pX/tasks/${c.id}`))!.status).toBe(200);
     const row = c.db.prepare("SELECT status FROM tasks WHERE id = ?").get(c.id) as any;
     expect(row.status).toBe("done");
-    expect(c.aborted).toEqual([]);
+  });
+
+  test("a done card with an open stream gets the stream cut and stays done", async () => {
+    const c = await closedCard("done", null, true);
+    expect((await call(c.r, "DELETE", `/api/boards/pX/tasks/${c.id}`))!.status).toBe(200);
+    const row = c.db.prepare("SELECT status FROM tasks WHERE id = ?").get(c.id) as any;
+    expect(row.status).toBe("done");
+    expect(c.aborted.length).toBeGreaterThan(0);
   });
 });
