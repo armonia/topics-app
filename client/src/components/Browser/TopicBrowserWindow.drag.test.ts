@@ -9,6 +9,8 @@ const windowSource = readFileSync(`${import.meta.dir}/TopicBrowserWindow.tsx`, '
 const moveStart = windowSource.indexOf('const startMove');
 const resizeStart = windowSource.indexOf('const startResize', moveStart);
 const moveSource = windowSource.slice(moveStart, resizeStart);
+const runResizeStart = windowSource.indexOf('const runResize');
+const resizeSource = windowSource.slice(runResizeStart, windowSource.indexOf('/** Hand the active sheet', runResizeStart));
 const placeholderSource = readFileSync(`${import.meta.dir}/NativeBrowserPlaceholder.tsx`, 'utf8');
 
 describe('topic browser window drag wiring', () => {
@@ -26,5 +28,17 @@ describe('topic browser window drag wiring', () => {
     expect(moveSource).toContain('requestReflow(state.activeContextId, true)');
     expect(placeholderSource).toContain('ce.detail?.atAnimationFrame');
     expect(placeholderSource).toContain('updateBounds();');
+  });
+
+  it('resizes live: no native-view hide gate, store committed once per frame', () => {
+    expect(runResizeStart).toBeGreaterThanOrEqual(0);
+    expect(windowSource).not.toContain('topics:pane-resize-start');
+    expect(resizeSource).toContain('setPointerCapture');
+    expect(resizeSource).toContain('createAnimationFrameCoalescer');
+    expect(resizeSource).toContain('topicBrowserWindow.setWidth(topicId, width)');
+    expect(resizeSource).toContain('topicBrowserWindow.resizeFloating(topicId');
+    // The page's bounds leave in the same frame as the DOM's new size.
+    expect(windowSource).toContain('useLayoutEffect(() => {');
+    expect(windowSource).toContain('requestReflow(state.activeContextId ?? undefined, true)');
   });
 });
