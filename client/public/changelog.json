@@ -1,5 +1,48 @@
 [
   {
+    "version": "2.3.33",
+    "date": "2026-10-26",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Evita falsi allarmi SHA nelle consegne multi-repo (#452)",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "i test che mancavano a #444 (#464)",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "topics/doleful-hood (card eba16167) (#446)",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "Sposta i check statici su GitHub CI (#459)",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Mobile e2e: no tab strip on the phone, only the pane name (card f0613e3b) (#458)",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Card su «Cloud Claude»: una card gira in una sessione cloud di Claude, non sul Mac (#466)",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
     "version": "2.3.32",
     "date": "2026-10-26",
     "sections": {
