@@ -18,7 +18,7 @@
  * watcher's windows are shrunk through its own environment (the server cap, the
  * exit margin, the ask cadence), never by editing the script.
  *
- * @covers RGATE-05, RGATE-06
+ * @covers RGATE-05, RGATE-06, RGATE-09
  */
 import { afterEach, describe, expect, it } from "bun:test";
 import {
@@ -46,6 +46,8 @@ interface Rig {
   root: string;
   log: () => string;
   curlCalls: () => number;
+  /** The URL of every curl call, in order. */
+  curlUrls: () => string[];
   termReceived: () => boolean;
   serverAlive: () => boolean;
   fswatchArgs: () => string[];
@@ -56,6 +58,8 @@ interface Rig {
   heartbeat: (mtime: Date) => void;
   openCurl: () => void;
   dateServerBirth: (mtime: Date) => void;
+  /** Commit the whole fake app, as a land moves HEAD of the production checkout. */
+  commit: (message: string) => void;
 }
 
 const cleanups: (() => Promise<void>)[] = [];
@@ -102,6 +106,8 @@ async function startRig(opts: {
   env?: Record<string, string>;
   /** How many curl calls answer 000 before the first 202 (two per ask: https, http). */
   curlFailFirst?: number;
+  /** The fake app is a git checkout with one commit, as production is. */
+  git?: boolean;
 }): Promise<Rig> {
   const root = mkdtempSync(join(tmpdir(), "topics-watch-reload-"));
   const app = join(root, "app");
@@ -121,6 +127,15 @@ async function startRig(opts: {
   writeFileSync(join(app, "shared", "unused.ts"), "export const unused = 1;\n");
   ageTree(app, secondsAgo(600));
   writeFileSync(join(home, "daemon-state.json"), JSON.stringify({ token: "b".repeat(64), port: 3333 }));
+  const git = (...args: string[]) => {
+    const r = Bun.spawnSync(["git", "-C", app, "-c", "user.name=t", "-c", "user.email=t@t", "-c", "commit.gpgsign=false", ...args]);
+    if (r.exitCode !== 0) throw new Error(`git ${args.join(" ")}: ${r.stderr.toString()}`);
+  };
+  if (opts.git) {
+    git("init", "-q");
+    git("add", "-A");
+    git("commit", "-qm", "base");
+  }
 
   const trigger = join(root, "event");
   const argsFile = join(root, "fswatch-args");
@@ -133,7 +148,7 @@ while :; do
   sleep 0.05
 done
 `);
-  script(join(bin, "curl"), `echo call >> "${callsFile}"
+  script(join(bin, "curl"), `echo "\${@: -1}" >> "${callsFile}"
 n=$(( $(wc -l < "${callsFile}") ))
 if [ -f "${openFile}" ] || [ "$n" -gt ${opts.curlFailFirst ?? 0} ]; then printf 202; else printf 000; fi
 `);
@@ -182,6 +197,7 @@ if [ -f "${openFile}" ] || [ "$n" -gt ${opts.curlFailFirst ?? 0} ]; then printf 
     root: app,
     log: () => read(logPath),
     curlCalls: () => read(callsFile).split("\n").filter(Boolean).length,
+    curlUrls: () => read(callsFile).split("\n").filter(Boolean),
     termReceived: () => existsSync(termFile),
     serverAlive: () => isAlive(server.pid),
     fswatchArgs: () => read(argsFile).split("\n").filter(Boolean),
@@ -197,6 +213,10 @@ if [ -f "${openFile}" ] || [ "$n" -gt ${opts.curlFailFirst ?? 0} ]; then printf 
     },
     openCurl: () => writeFileSync(openFile, "1"),
     dateServerBirth: (mtime) => utimesSync(pidPath, mtime, mtime),
+    commit: (message) => {
+      git("add", "-A");
+      git("commit", "-qm", message);
+    },
   };
   await until(() => rig.fswatchArgs().length > 0, () => `watcher did not start:\n${rig.log()}`);
   return rig;
@@ -309,5 +329,29 @@ describe("the watcher asks only for code the server has not loaded (RGATE-06)", 
     rig.write("server/module.ts", "export const ready = false;\n");
     rig.event();
     await until(() => rig.curlCalls() > 0, () => `an edit to a server module did not ask a restart:\n${rig.log()}`);
+  }, slackMs(30_000));
+});
+
+describe("a land restarts at zero turns, a save does not (RGATE-09)", () => {
+  // 2026-10-26 20:41: the approve of card 405071b3 fast-forwarded the production
+  // checkout, the watcher asked a plain `restart-when-idle`, and the chats in
+  // flight were cut after their minute.
+  it("a change that moved HEAD asks with zeroTurns=1", async () => {
+    const rig = await startRig({ git: true });
+    rig.write("server/module.ts", "export const ready = false;\n");
+    rig.commit("land");
+    rig.event();
+    await until(() => rig.log().includes("aspetto che il server"), () => `the land did not ask a restart:\n${rig.log()}`);
+    expect(rig.curlUrls().at(-1)).toEndWith("/__daemon/restart-when-idle?zeroTurns=1");
+    expect(rig.log()).toContain("riavvio a zero turni");
+  }, slackMs(30_000));
+
+  it("a save in the same checkout, with HEAD where it was, asks the plain restart", async () => {
+    const rig = await startRig({ git: true });
+    rig.write("server/module.ts", "export const ready = false;\n");
+    rig.event();
+    await until(() => rig.log().includes("aspetto che il server"), () => `the save did not ask a restart:\n${rig.log()}`);
+    expect(rig.curlUrls().at(-1)).toEndWith("/__daemon/restart-when-idle");
+    expect(rig.log()).not.toContain("riavvio a zero turni");
   }, slackMs(30_000));
 });
