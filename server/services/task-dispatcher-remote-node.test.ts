@@ -36,7 +36,7 @@ import { join } from "node:path";
 import { createLifecycleHooks, type LifecycleHookPayload, type LifecycleHookRunner } from "./lifecycle-hooks";
 import { createTaskService, type TaskService } from "./tasks";
 import { createTaskDispatcher, type DispatcherDeps } from "./task-dispatcher";
-import { NODE_DEAD_POLLS } from "./task-dispatcher-remote-node";
+import { NODE_BRANCH_GRACE_POLLS, NODE_DEAD_POLLS } from "./task-dispatcher-remote-node";
 import { createNodeBranchPlanter } from "./node-branch-plant";
 import type { NodeRunBinding, NodeRunReport } from "./node-client";
 import type { DelegatedRunPolicy } from "../lib/delegated-agent-start";
@@ -864,6 +864,62 @@ describe("lo specchio: stato, commenti e il ramo che torna", () => {
     expect(h.task().status).toBe("review");
     expect(h.task().deliveryBranch).toBeNull();
     expect(h.comments().some((c) => c.content.includes("il commit di base 1234abcd non è in questo checkout"))).toBe(true);
+  });
+});
+
+describe("review senza ramo: il nodo scrive lo stato e poi il ramo", () => {
+  // 26/10, a real run on the PC: the node's system delivery writes "review" and
+  // the branch half a second later. A poll that fell in between read "review, no
+  // branch" and the card landed here empty, with the commit left on the node.
+  it("il ramo che arriva al giro dopo si pianta", async () => {
+    let round = 0;
+    const h = harness({
+      bundle: new Uint8Array([1, 2]),
+      readRun: () => {
+        round++;
+        return Promise.resolve(round === 1
+          ? report({ status: "review" })
+          : report({ status: "review", deliveryBranch: "topics/lilac-henge", deliveryCommit: "937a26e", baseSha: "502414bd" }));
+      },
+    });
+    h.seed();
+    await dispatch(h);
+
+    await poll(h);
+    expect(h.task().status).toBe("in_progress");
+    expect(h.plantedWith).toEqual([]);
+
+    await poll(h);
+    expect(h.task().status).toBe("review");
+    expect(h.task().deliveryBranch).toBe("topics/lilac-henge");
+    expect(h.plantedWith).toEqual([{ branch: "topics/lilac-henge", baseSha: "502414bd", bundleBytes: 2 }]);
+  });
+
+  it("senza ramo per davvero arriva in review dopo la tolleranza, col motivo", async () => {
+    const h = harness({ readRun: () => Promise.resolve(report({ status: "review" })) });
+    h.seed();
+    await dispatch(h);
+
+    for (let i = 1; i < NODE_BRANCH_GRACE_POLLS; i++) {
+      await poll(h);
+      expect(h.task().status).toBe("in_progress");
+    }
+    await poll(h);
+    expect(h.task().status).toBe("review");
+    expect(h.comments().some((c) => c.content.includes("il nodo non ha consegnato nessun ramo"))).toBe(true);
+    expect(h.dispatcher.busyIds()).not.toContain(TASK);
+  });
+
+  it("un motivo dichiarato (il cloud) non aspetta", async () => {
+    const h = harness({
+      readRun: () => Promise.resolve(report({ status: "review", reason: "la sessione cloud è finita con un errore" })),
+    });
+    h.seed();
+    await dispatch(h);
+
+    await poll(h);
+    expect(h.task().status).toBe("review");
+    expect(h.comments().some((c) => c.content.includes("la sessione cloud è finita con un errore"))).toBe(true);
   });
 });
 
