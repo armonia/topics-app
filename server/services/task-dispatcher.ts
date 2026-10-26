@@ -5408,7 +5408,9 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
           || (sent.reason !== block.reason && clock() - sent.at >= HELD_RESUME_REFRESH_MS);
         const memoryWait = resourceFloor != null && (floorNow.kind === "memory" || floorNow.kind === "memory_warmup");
         const wrote = queueChip(t, memoryWait ? WAITING_MEMORY : undefined);
-        if (stale && !wrote) {
+        // In attesa di memoria la card legge solo il codice: cifre nuove non
+        // cambiano niente da rimandare.
+        if (stale && !wrote && !memoryWait) {
           try { const fresh = deps.svc.get(t.id)?.task; if (fresh) emit(fresh); } catch { /* the task may have moved */ }
         }
         if (stale || wrote) floorBlockSent.set(t.id, { ...block, at: clock() });

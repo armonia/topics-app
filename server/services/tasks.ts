@@ -2473,8 +2473,11 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
           // believed only while the row carries the same sentence: the published
           // block is refreshed only by a tick that reaches it, and a board with
           // no todos or a paused one leaves it at a floor that has cleared.
+          // Una card in attesa di memoria porta il codice, non la frase del
+          // pavimento (KANBAN-97): resta un blocco della macchina, o la card
+          // ricadrebbe sul ramo dello slot.
           dispatchBlock: inCoda
-            ? (r.dispatch_error === "waiting-memory" ? null : currentDispatchBlock())
+            ? (r.dispatch_error === "waiting-memory" ? { kind: "resources", reason: "waiting-memory" } : currentDispatchBlock())
             : heldResume ? heldResumeBlock(r.id, r.dispatch_error) : null,
           parentStatus: r.parent_task_id ? (b.parentStatus.get(r.parent_task_id) ?? null) : null,
           projectless: r.project_id === UNASSIGNED_PROJECT_ID,
