@@ -57,6 +57,7 @@ async function openApp(page: Page): Promise<void> {
 
 test.describe.serial("The phone, without the tab strip", () => {
   test("NOSTRIP-01: no strip on screen, and the surface name in its place", async ({ page }) => {
+    test.info().annotations.push({ type: "spec", description: "NOSTRIP-01" });
     await openApp(page);
 
     // `:visible`, not the bare count: inactive panes stay mounted behind their
@@ -73,6 +74,7 @@ test.describe.serial("The phone, without the tab strip", () => {
   });
 
   test("NOSTRIP-02: the surface is switched from the list", async ({ page }) => {
+    test.info().annotations.push({ type: "spec", description: "NOSTRIP-02" });
     await openApp(page);
     await expect(page.locator(PANE_TITLE).first()).toHaveText(alpha.name);
 
@@ -87,6 +89,7 @@ test.describe.serial("The phone, without the tab strip", () => {
   });
 
   test("NOSTRIP-03: the board carries no strip either", async ({ page }) => {
+    test.info().annotations.push({ type: "spec", description: "NOSTRIP-03" });
     await openApp(page);
 
     await page.locator(BOARD).first().click();

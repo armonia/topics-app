@@ -77,3 +77,31 @@ carrying the same set of panes — no split cells, and no pane lost in the trans
 - **THEN** no split group cell is rendered anywhere on the page
 - **AND** exactly one visible tab bar remains in the whole page
 - **AND** the set of pane ids in that single strip equals the set recorded on desktop
+
+### Requirement: NOSTRIP-01 — The phone draws no tab strip over a topic, and names the surface instead
+
+Below 768px the topics column is full screen and already lists the open surfaces,
+so the system SHALL NOT draw the top tab strip and SHALL show the name of the
+current surface in its place (the project strip stays, see PROJECT-TABS-MOBILE-01).
+
+#### Scenario: A topic on a phone viewport
+- **WHEN** a topic is open at a phone viewport
+- **THEN** no `panel-tab-bar` is visible
+- **AND** the name of the current surface is shown in the mobile pane title
+
+### Requirement: NOSTRIP-02 — On the phone the surface is switched from the list
+
+The system SHALL keep switching surface possible from the topics list when the strip is absent.
+
+#### Scenario: Switching from the drawer list
+- **GIVEN** a topic with two surfaces on a phone viewport
+- **WHEN** the user picks the other surface in the list
+- **THEN** that surface is shown and the pane title changes to its name
+
+### Requirement: NOSTRIP-03 — The board carries no strip either
+
+The system SHALL apply the same rule with the board in front: no tab strip on the phone.
+
+#### Scenario: Board on a phone viewport
+- **WHEN** the board is open at a phone viewport
+- **THEN** no `panel-tab-bar` is visible
