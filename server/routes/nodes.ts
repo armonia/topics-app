@@ -17,7 +17,9 @@
  * installation owner approves the checkout and policy.
  */
 import type { AppContext, RouteHandler } from "../types";
+import type { ProvidersSnapshot } from "../../shared/types";
 import { createTaskService, TaskServiceError, type Task } from "../services/tasks";
+import { STALE_TASK_MODEL_ERROR, taskModelIsCurrent } from "../services/task-model-catalog";
 import { defaultRunGit, type GitRunner } from "../services/own-commits";
 import type { DelegatedNodeBinding } from "../services/node-client";
 import { actingPersonId } from "../lib/orgs";
@@ -47,6 +49,8 @@ export interface NodesRouterOpts {
   onEnterTodo?: (projectId: string, taskId: string) => void;
   /** Runtime-ready coding models on this node; injectable for two-installation tests. */
   taskModels?: () => string[];
+  /** Current coding-provider catalogs, used to refuse a stale mirrored card model (MP-TASK-03). */
+  taskModelSnapshot?: () => ProvidersSnapshot | null;
   /** Shared server-side retry loop; tests may omit it and get the same service locally. */
   revocations?: DelegatedRevocationRetry;
 }
@@ -622,6 +626,12 @@ export function createNodesRouter(ctx: AppContext, opts: NodesRouterOpts): Route
       if (!text) return errorResponse(400, "text required");
       const originKey = normalizeRemoteUrl(body.originUrl);
       if (!originKey) return errorResponse(400, "originUrl must be a git remote URL");
+      // A model this node runs (`taskModels`) is current here by definition.
+      const model = typeof body.model === "string" ? body.model : null;
+      if (model && !opts.taskModels?.().includes(model)
+        && !taskModelIsCurrent(model, opts.taskModelSnapshot?.() ?? getSnapshotManager().getSnapshot())) {
+        return json(STALE_TASK_MODEL_ERROR, 400);
+      }
 
       const project = await projectForOrigin(originKey);
       // `code` is what the client classifies on; `error` stays for older callers.

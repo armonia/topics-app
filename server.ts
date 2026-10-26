@@ -2785,6 +2785,11 @@ sondaLavoroNonCommittato = async (taskId: string) => {
 const landingQueue = createLandingQueue({ log: (m) => console.warn(m) });
 const tasksRouter = createTasksRouter(ctx, taskDispatcher, {
   scheduledCards,
+  taskModelSnapshot: () => {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports -- lazy to preserve provider startup order
+    const { getSnapshotManager } = require("./server/providers/snapshot-manager") as typeof import("./server/providers/snapshot-manager");
+    return getSnapshotManager().getSnapshot();
+  },
   landings: landingQueue,
   stopCardProcesses: stopCardCommandProcesses,
   stopTopicProcesses: stopTopicCommandProcesses,
