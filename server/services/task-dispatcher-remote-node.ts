@@ -147,6 +147,7 @@ const CHIP_WAITING = "waiting";
  */
 export interface RemoteRunSlot {
   runId: number;
+  sessionKey: string;
   node?: NodeSlot;
 }
 
@@ -325,7 +326,10 @@ export function createRemoteNodeLane(host: RemoteNodeHost): RemoteNodeLane {
         return;
       }
     }
-    const runNo = host.beginRun(task.id, "");
+    // A node key from the first instant, before the node has named its run:
+    // every local census reads the key, and an empty one counted this run as a
+    // turn of THIS machine while the hook and `createRun` were still answering.
+    const runNo = host.beginRun(task.id, nodeSessionKey(machineId, "pending"));
     try {
       // THE `node-run` HOOK COMES BEFORE ANY CALL TO THE NODE, the cancel of
       // the previous run included: it is what wakes a sleeping machine. A veto
@@ -554,7 +558,8 @@ export function createRemoteNodeLane(host: RemoteNodeHost): RemoteNodeLane {
    * silence alone buries nothing (KANBAN-77).
    */
   function sweepVerdict(slot: RemoteRunSlot): "local" | "wait" | "bury" {
-    if (!slot.node) return "local";
+    // Still waiting for the node to name its run: nothing local to probe.
+    if (!slot.node) return isNodeSessionKey(slot.sessionKey) ? "wait" : "local";
     return slot.node.fails >= NODE_DEAD_POLLS ? "bury" : "wait";
   }
 

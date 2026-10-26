@@ -1272,11 +1272,24 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
   function agentMemPrice(): number {
     return estimatedAgentMemCost((() => { try { return deps.agentMemSamples?.() ?? []; } catch { return []; } })());
   }
+  /**
+   * A card that runs on ANOTHER machine (a paired node, or the Cloud Claude
+   * runtime): `remoteLaunch` takes it over and this Mac spends no process, no
+   * worktree and no gigabyte on it. Every gate that measures THIS machine's RAM
+   * and CPU (the memory floor, the resources budget, the heavy hold, the ramp)
+   * describes nothing about it, so they hold local cards only; a full disk, the
+   * spend brakes and the plan window still hold it. The machine must answer at
+   * an address, the same population `RUNS_HERE_SQL` leaves out of the census: a
+   * stale row of this Mac (one per hostname) has none. An unknown local id or
+   * address reads as local: the gates stay on rather than open.
+   */
   function isRemoteTask(task: Task): boolean {
     if (!task.machineId) return false;
     let localMachine: string | null = null;
+    let address: string | null = null;
     try { localMachine = deps.node?.localMachineId?.() ?? null; } catch { /* Treat an unknown local id conservatively. */ }
-    return localMachine !== null && task.machineId !== localMachine;
+    try { address = deps.node?.baseUrlOf(task.machineId) ?? null; } catch { /* Same: no address, no exemption. */ }
+    return localMachine !== null && task.machineId !== localMachine && !!address;
   }
   /** Launch instants of the LOCAL turns in flight whose memory is still ours to
    *  reserve: a run riding on a node holds nothing on this machine (the same
@@ -5050,6 +5063,10 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
       return;
     }
 
+    // Which todos run on another machine, read once per tick: the local id
+    // comes from a store call, and the answer cannot change inside the pass.
+    const remoteIds = new Set(todos.filter(isRemoteTask).map((t) => t.id));
+    const remoteCard = (t: Task) => remoteIds.has(t.id);
     // GUARD — somebody else is already working this repo. `externalSessionsAt`
     // reports the live Claude sessions Topics didn't start (a bare `claude` in
     // a terminal). Read ONCE per tick: the census is TTL-cached upstream, and
@@ -5067,6 +5084,7 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
       // once the external session goes quiet — no human intervention, no
       // re-queue. One system note per hold episode, not per poll.
       for (const t of todos) {
+        if (remoteCard(t)) continue;
         if (inFlight.has(t.id) || graceTimers.has(t.id)) continue;
         if (externallyHeldNoted.has(t.id)) continue;
         externallyHeldNoted.add(t.id);
@@ -5079,7 +5097,10 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
           });
         } catch { /* task may have moved */ }
       }
-      return;
+      // The fight is over THIS working tree; a card that runs elsewhere has no
+      // part in it.
+      todos = todos.filter(remoteCard);
+      if (todos.length === 0) return;
     }
     // Not holding this tick (repo free, or worktree mode isolates us): forget
     // the episode so a FUTURE hold notes again instead of staying silent.
@@ -5096,7 +5117,7 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
     })();
     const loadGate = heavyLoadGate();
     const eligibleNoCheckTaskExists = heavyBusy && todos.some((task) =>
-      !inFlight.has(task.id) && noCheckReservationFor(task) !== null,
+      !inFlight.has(task.id) && !remoteCard(task) && noCheckReservationFor(task) !== null,
     );
     if (heavyBusy && !eligibleNoCheckTaskExists) {
       // Un pesante in volo blocca OGNI claim, non solo gli altri pesanti: è il
@@ -5112,13 +5133,17 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
       // macchina si è liberata. Il tetto esiste per l'attesa che potrebbe non
       // finire mai, non per quella che finisce quando finisce un turno.
       for (const t of todos) {
+        if (remoteCard(t)) continue;
         noteHeavyHold(
           t,
           "In coda: c'è un task PESANTE al lavoro e si prende la macchina da solo. " +
             "Riparto appena ha finito. Non devi fare nulla.",
         );
       }
-      return;
+      // A heavy turn takes THIS machine; a card running elsewhere does not
+      // compete with it, so only the remote cards go on to the claim.
+      todos = todos.filter(remoteCard);
+      if (todos.length === 0) return;
     }
     const nowMs = clock();
     // La chiamata del freno, decisa UNA volta per tick e per task.
@@ -5133,14 +5158,17 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
     //  'hold'   → pesante, niente margine: aspetta e TIENE la testa della coda.
     //  'forced' → pesante, niente margine, ma l'attesa ha sfondato il tetto:
     //             parte comunque, e nel thread c'è scritto perché.
+    // Remote cards first: the local gates below stop the whole pass (heavy
+    // hold, full cap), and a card that runs elsewhere must not wait behind them.
+    todos = [...todos.filter(remoteCard), ...todos.filter((t) => !remoteCard(t))];
     const heavyCall = new Map<string, "go" | "hold" | "forced">();
     for (const t of todos) {
-      if (heavyBusy) {
+      if (heavyBusy && !remoteCard(t)) {
         // The ordinary heavyBusy path returns before touching load timers.
         heavyCall.set(t.id, t.dispatchWeight === "heavy" ? "hold" : "go");
         continue;
       }
-      if (t.dispatchWeight !== "heavy" || loadGate?.ok !== false) {
+      if (t.dispatchWeight !== "heavy" || loadGate?.ok !== false || remoteCard(t)) {
         // Non trattenuto: l'attesa (se c'era) è finita, e il prossimo hold
         // ricomincia a contare da capo invece di ereditare quella vecchia.
         heavyHoldSince.delete(t.id);
@@ -5348,7 +5376,7 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
         continue;
       }
       const manualMemoryStartSelected = manualMemoryStart.selectedTask(projectId) === t.id;
-      const remoteTask = isRemoteTask(t);
+      const remoteTask = remoteCard(t);
       const candidateReservationGB = manualMemoryStartSelected || remoteTask ? null : noCheckReservationFor(t);
       const candidateBudget = candidateReservationGB == null
         ? { needed: false, allowed: false }
@@ -5372,7 +5400,7 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
         queueChip(t, WAITING_MEMORY);
         continue;
       }
-      if (heavyBusy && !useNoCheckExemption) {
+      if (heavyBusy && !useNoCheckExemption && !remoteTask) {
         noteHeavyHold(
           t,
           "In coda: c'è un task PESANTE al lavoro e si prende la macchina da solo. " +
@@ -5386,9 +5414,17 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
           || (pressure && lastPressureAxis === "memory"));
       const manualMemoryBypass = manualMemoryStartSelected
         && (floorNow.kind === "memory" || floorNow.kind === "memory_warmup");
-      const remoteMemoryFloor = remoteTask && resourceFloor != null
-        && (floorNow.kind === "memory" || floorNow.kind === "memory_warmup");
-      if (floorBlock && !bypassMemoryBlock && !manualMemoryBypass && !remoteMemoryFloor) {
+      if (remoteTask) {
+        // The memory floor and the budget measure THIS machine's RAM and CPU: a
+        // remote card answers only to a full disk (its delivery is planted in
+        // this checkout) and to the day spend brake, which the floor's reading
+        // skips.
+        const diskFull = resourceFloor != null && floorNow.kind === "disk";
+        if (diskFull || (resourceFloor ? spendBrake.dayBlock() : daySpendBlock)) {
+          queueChip(t);
+          continue;
+        }
+      } else if (floorBlock && !bypassMemoryBlock && !manualMemoryBypass) {
         // THE REASON GOES ON THE CARD, not only into the server log. This
         // branch used to write the bare `queued` chip and leave the
         // explanation in a file nobody watching the board opens: the card fell
@@ -5436,7 +5472,7 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
       // another board or from a resume. The rest of the queue gets the `queued`
       // chip, like a full cap would give it, and its turn comes with a fresher
       // reading.
-      if (rampActive && rampHeld()) {
+      if (!remoteTask && rampActive && rampHeld()) {
         queueChip(t);
         continue;
       }
@@ -5519,7 +5555,7 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
       // Un task che riusa il contesto del blocker vive nella chat DI QUELLO:
       // non si può fan-outtare una conversazione sola in N tentativi. Vince il
       // riuso (è una scelta esplicita dell'umano sul task), il fan-out cede.
-      const taskFanOut = useNoCheckExemption || delegated
+      const taskFanOut = useNoCheckExemption || delegated || remoteTask
         ? 1
         : (t.reuseBlockerContext && t.blockedByTaskId ? 1 : fanOut);
       // N agenti = N slot. `claim` conta le RIGHE in_progress (una, per un
@@ -5528,7 +5564,7 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
       // I gate in volo si sottraggono anche qui: il claimCap deve riflettere i
       // posti DAVVERO liberi, non solo quelli non occupati da agenti.
       const claimCap = effectiveCap - reservedSlots - gateRuns - (taskFanOut - 1);
-      if (claimCap < 1) {
+      if (!remoteTask && claimCap < 1) {
         // Macchina piena: da qui in poi aspettano tutti, e lo si dice a
         // ciascuno prima di uscire. Il `break` senza una riga era il difetto:
         // la coda restava ferma e le card non lo raccontavano.
@@ -5578,20 +5614,19 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
       // awaits and another board's tick can start a card in that gap. The floor
       // again once this pass has started a card: it was read once at the top,
       // and a count-mode tick claims every free slot against that one reading.
-      if (rampActive && rampHeld()) {
+      if (!remoteTask && rampActive && rampHeld()) {
         queueChip(t);
         continue;
       }
-      if (!midPassFloor && startedThisTick > floorReadAfterStarts) {
+      if (!remoteTask && !midPassFloor && startedThisTick > floorReadAfterStarts) {
         floorReadAfterStarts = startedThisTick;
         const verdict = admissionVerdictNow();
         midPassFloor = verdict.reason;
         midPassFloorKind = verdict.kind;
       }
       const midPassMemoryHold = midPassFloor != null && (midPassFloorKind === "memory" || midPassFloorKind === "memory_warmup");
-      if (midPassFloor && !useNoCheckExemption
-        && !(manualMemoryStartSelected && midPassMemoryHold)
-        && !(remoteTask && midPassMemoryHold)) {
+      if (!remoteTask && midPassFloor && !useNoCheckExemption
+        && !(manualMemoryStartSelected && midPassMemoryHold)) {
         queueChip(t, midPassMemoryHold ? WAITING_MEMORY : undefined);
         continue;
       }
@@ -5634,7 +5669,8 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
         }
         claimNoCheckReservationGB = latestReservationGB;
       }
-      if (!noCheckReservationAtRead
+      if (!remoteTask
+        && !noCheckReservationAtRead
         && noCheckExemptions.hasAny()
         && !noCheckExemptions.has(t.id)) {
         const freshBlock = currentMachineBlock();
@@ -5657,6 +5693,7 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
         claimed = deps.svc.claim({
           taskId: t.id, cap: claimCap, maxAttempts: delegated ? 1 : settings.dispatchRetryCap,
           scope: capScope, machineIdle: forced ? true : loadGate?.ok, noCheckExemption: claimNoCheckReservationGB > 0,
+          remote: remoteTask,
         });
       } catch (err) {
         // A claim that throws (row deleted during this pass) releases what was taken for it.
@@ -5672,6 +5709,7 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
         // con un altro claim nello stesso istante (che si risolve da sé al tick
         // dopo, e commentarla sarebbe rumore). Si distinguono ri-contando gli
         // agenti vivi: se sono già almeno quanti il tetto ne ammette, è il tetto.
+        if (remoteTask) continue;
         const vivi = aliveAgents();
         if (vivi == null || vivi >= claimCap) noteCapFull(t, vivi);
         continue;
@@ -5711,9 +5749,11 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
         } catch { /* The start remains valid if its note cannot be written. */ }
       }
       // A claim that went through IS a new dispatch, fan-out or single: the
-      // ramp counts cards, because one card is one reading of the machine.
+      // ramp counts cards, because one card is one reading of the machine. A
+      // remote start reads nothing here and leaves the ramp alone, but it still
+      // makes the next LOCAL card re-read the floor: the probe above awaits.
       startedThisTick++;
-      lastAdmissionAt = Date.now();
+      if (!remoteTask) lastAdmissionAt = Date.now();
       // Worktree dispatch with a live external session: the agent's files are
       // isolated, but the BRANCH it will land on is contended. Say so in the
       // thread so the reviewer knows before approving a merge.
