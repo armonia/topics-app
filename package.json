@@ -49,6 +49,7 @@
     "check:ref-callbacks": "bun run scripts/check-ref-callbacks.ts",
     "check:nul": "bun run scripts/check-nul-bytes.ts",
     "check:api-door": "bun run scripts/check-api-door.ts",
+    "check:quality-bar": "bun run scripts/quality-bar.ts",
     "check:emdash": "bun run scripts/check-emdash.ts",
     "check:repo-pulito": "bun run scripts/check-repo-pulito.ts",
     "hooks:git": "bash scripts/install-graphify-hooks.sh",
