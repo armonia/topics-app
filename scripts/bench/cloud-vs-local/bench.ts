@@ -16,12 +16,15 @@ const EFFORT = "low";
 const REPO = "armonia/topics-app";
 const REPO_DIR = join(import.meta.dir, "../../..");
 
+// BENCH_TASK=heavy aggiunge il typecheck di tutto il repo, il passo che in una card vera pesa.
+const HEAVY = process.env.BENCH_TASK === "heavy";
 export const TASK = [
   "Compito di misura, senza modifiche al repo:",
   "1. esegui `bun install --frozen-lockfile` nella radice del repo;",
   "2. esegui `bun test shared/` e leggi il risultato;",
+  ...(HEAVY ? ["2b. esegui `bunx tsc --noEmit -p tsconfig.server.json` e conta gli errori (anche zero);"] : []),
   "3. apri `shared/board.ts` e dimmi in una riga cosa contiene.",
-  "Rispondi in 3 righe: test passati, falliti, la riga su board.ts.",
+  `Rispondi in ${HEAVY ? 4 : 3} righe: test passati, falliti,${HEAVY ? " errori di tsc," : ""} la riga su board.ts.`,
   "Non modificare file, non fare commit, non fare push, non aprire PR.",
 ].join("\n");
 
@@ -74,10 +77,11 @@ async function localCard(i: number) {
   const out = await new Response(p.stdout).text();
   const code = await p.exited;
   writeFileSync(join(outDir, `local-${i}.ndjson`), out);
-  const last = out.trim().split("\n").at(-1) ?? "";
-  let outcome = code === 0 ? "done" : "error";
-  try { if (JSON.parse(last).type !== "result") outcome = "error"; } catch { outcome = "error"; }
-  return { i, mode: "local", ms: Date.now() - t0, outcome, exit: code, tail: last.slice(-400) };
+  // Il result non è per forza l'ultima riga: dopo può arrivare un task_summary.
+  const result = out.split("\n").filter((l) => l.includes('"type":"result"')).at(-1) ?? "";
+  let outcome = "error";
+  try { if (code === 0 && JSON.parse(result).subtype === "success") outcome = "done"; } catch {}
+  return { i, mode: "local", ms: Date.now() - t0, outcome, exit: code, tail: result.slice(-400) };
 }
 
 const results = await Promise.all(Array.from({ length: N }, (_, i) => (mode === "cloud" ? cloudCard(i) : localCard(i))));

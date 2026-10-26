@@ -3,7 +3,7 @@
 #   - phys_footprint sommato su radice e discendenti (proc_pid_rusage, veloce; non RSS)
 #   - pressione di memoria del sistema (1 normale, 2 warn, 4 critico) e swap usato
 # Uso: sample.py <pid-radice> <csv> [secondi]
-import csv, ctypes, subprocess, sys, time
+import csv, ctypes, os, subprocess, sys, time
 
 class RUsageV2(ctypes.Structure):
     _fields_ = [("ri_uuid", ctypes.c_uint8 * 16)] + [(n, ctypes.c_uint64) for n in (
@@ -50,7 +50,14 @@ with open(path, "w", newline="") as f:
         if footprint(root) == 0 and subprocess.run(["kill", "-0", str(root)], capture_output=True).returncode != 0:
             break
         fp = sum(footprint(p) for p in pids) / 2**20
-        w.writerow([round(time.time() - t0, 1), len(pids), round(fp, 1), sysctl("kern.memorystatus_vm_pressure_level"),
+        pressure = sysctl("kern.memorystatus_vm_pressure_level")
+        w.writerow([round(time.time() - t0, 1), len(pids), round(fp, 1), pressure,
                     round(swap_used_mb()), sysctl("vm.loadavg").split()[1]])
         f.flush()
+        # GUARD=1: il Mac è di Attilio mentre lo usa. A pressione 2 si ferma la fase e lo si scrive.
+        if os.environ.get("GUARD") == "1" and int(pressure or 1) >= 2:
+            w.writerow(["guard", "pressione 2: fase fermata", "", pressure, "", ""])
+            for p in reversed(pids):
+                subprocess.run(["kill", str(p)], capture_output=True)
+            break
         time.sleep(step)

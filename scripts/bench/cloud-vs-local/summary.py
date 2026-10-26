@@ -10,12 +10,14 @@ for name in ("idle-1", "cloud", "idle-2", "local"):
     if not os.path.exists(p):
         continue
     rows = list(csv.DictReader(open(p)))
+    guard = any(r["t"] == "guard" for r in rows)
+    rows = [r for r in rows if r["t"] != "guard"]
     if not rows:
         continue
     fp = [float(r["footprint_mb"]) for r in rows]
     sw = [float(r["swap_used_mb"]) for r in rows]
     print(f"{name:8} {rows[-1]['t']:>6}s {statistics.median(fp):>10.0f} {max(fp):>10.0f} "
-          f"{max(int(r['pressure']) for r in rows):>9} {sw[-1] - sw[0]:>+10.0f} {max(float(r['load1']) for r in rows):>8.1f}")
+          f"{max(int(r['pressure']) for r in rows):>9} {sw[-1] - sw[0]:>+10.0f} {max(float(r['load1']) for r in rows):>8.1f}" + ("  FERMATA a pressione 2" if guard else ""))
 for m in ("cloud", "local"):
     p = os.path.join(d, f"{m}-results.json")
     if os.path.exists(p):

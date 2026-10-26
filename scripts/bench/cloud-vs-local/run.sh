@@ -10,7 +10,7 @@ phase() {  # phase <nome> <comando...>
   name=$1; shift
   "$@" > "$out/$name.out" 2>&1 &
   pid=$!
-  python3 "$here/sample.py" "$pid" "$out/$name.csv" 3 &
+  GUARD=${GUARD_PHASE:-0} python3 "$here/sample.py" "$pid" "$out/$name.csv" "${STEP:-3}" &
   spid=$!
   wait "$pid" || echo "$name: uscito $?" >> "$out/errors.log"
   wait "$spid" || true
@@ -19,7 +19,7 @@ phase() {  # phase <nome> <comando...>
 phase idle-1 sleep 60
 phase cloud bun "$here/bench.ts" cloud "$out"
 phase idle-2 sleep 60
-phase local bun "$here/bench.ts" local "$out"
+GUARD_PHASE=1 phase local bun "$here/bench.ts" local "$out"
 python3 "$here/summary.py" "$out" > "$out/summary.txt"
 cat "$out/summary.txt"
 # i worktree delle card locali non servono più
