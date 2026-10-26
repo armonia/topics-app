@@ -1639,9 +1639,12 @@ export const E2E_CI_CHECK: ReviewCheck = { name: "e2e-ci", cmd: "github-ci:e2e" 
  */
 export const UNIT_CI_CHECK: ReviewCheck = { name: "unit-ci", cmd: "github-ci:unit" };
 
+/** The typecheck, lint and static guard-rail evidence row from the `gates` CI job. */
+export const GATES_CI_CHECK: ReviewCheck = { name: "gates-ci", cmd: "github-ci:gates" };
+
 export function isCiEvidenceCheck(check: { cmd: string }): boolean {
   const cmd = check.cmd.trim();
-  return cmd === E2E_CI_CHECK.cmd || cmd === UNIT_CI_CHECK.cmd;
+  return cmd === E2E_CI_CHECK.cmd || cmd === UNIT_CI_CHECK.cmd || cmd === GATES_CI_CHECK.cmd;
 }
 
 /**
