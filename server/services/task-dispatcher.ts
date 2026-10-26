@@ -1560,7 +1560,11 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
       allowed: candidate.verdict.admit,
     };
   }
-  /** The capacity route uses the same gate order without mutating hysteresis. */
+  /**
+   * The capacity route uses the same gate order without mutating hysteresis.
+   * With a board it prices that board's usual card; a card flagged heavy keeps
+   * the full price whatever the board says (`cardWeightOf`).
+   */
   function admissionPreview(projectId?: string | null): DispatchAdmission | null {
     return buildDispatchAdmissionPreview({
       drainBlock,
@@ -5675,7 +5679,7 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
       // gap, must hold this one like any other: ask again, with nothing awaited
       // between this look and the claim.
       if (lightPass && !lightMemoryPass(t)) {
-        queueChip(t);
+        queueChip(t, WAITING_MEMORY);
         continue;
       }
       let claimNoCheckReservationGB = 0;

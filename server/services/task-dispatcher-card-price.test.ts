@@ -423,6 +423,8 @@ describe("la riga si rilegge subito prima della partenza", () => {
 
     expect(h.task("delivered").status).toBe("todo");
     expect(h.turns).toHaveLength(2);
+    // Still in the memory queue the dashboard lists, not a bare "queued".
+    expect(h.task("delivered").dispatchError).toBe("waiting-memory");
   });
 });
 
