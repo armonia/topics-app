@@ -228,6 +228,8 @@ export interface TasksRouterOpts {
    * dispatcher's. Wired only there, the fix verified nothing (2026-09-04).
    */
   repoRootFor?: (args: { taskId: string; projectId: string | undefined; assignedTopicId: string | null }) => string | null;
+  /** Complete repository roots known to the host, including non-selectable projects. */
+  listRepoRoots?: () => string[];
   probeFor?: (root: string) => RepoProbe;
   /**
    * The landing queue, owned by the host so a planned restart can see the
@@ -585,6 +587,8 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
   const svc = createTaskService(db, {
     writeDeliverySheet: makeSheetWriter(ctx.OPENCLAW_DIR),
     repoRootFor: opts?.repoRootFor,
+    listRepoRoots: opts?.listRepoRoots,
+    listProjectDirs: opts?.listProjectDirs,
     probeFor: opts?.probeFor,
     // The delivery note that waited on git lands after the PATCH broadcast:
     // the same second emit every other late `addComment` in this file makes.

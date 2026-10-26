@@ -859,6 +859,22 @@ difetto: una verifica che conferma ciò che non ha esaminato.
 - **WHEN** il rapporto viene verificato
 - **THEN** non viene prodotto nessun rilievo
 
+#### Scenario: SHA trovati nei repo nominati o noti non accusano una consegna
+
+- **GIVEN** un rapporto che cita un commit presente in un repo diverso dal worktree
+  della card, attraverso un percorso assoluto, con `~` o relativo alla home
+- **AND** il server conosce anche i percorsi dei progetti registrati
+- **AND** il rapporto cita esadecimali preceduti da `run`, `cron`, `id`, `card` o
+  `task`, oltre a SHA preceduti esplicitamente da `commit` o `sha`
+- **WHEN** il rapporto viene verificato
+- **THEN** il controllo cerca fino a 20 root Git con `git cat-file -e` e un timeout
+  di 1500 ms per lookup
+- **AND** un commit trovato in uno di quei repo non produce un rilievo
+- **AND** gli ID di run, cron, card e task non diventano claim di commit
+- **AND** uno SHA inventato resta segnalato e il rilievo nomina i repo cercati
+- **AND** un lookup incompleto o il superamento del limite non produce un falso
+  rilievo
+
 ### Requirement: KANBAN-12 — La topbar della board ha UNA linea in meno e UNA porta sola
 
 Tre vincoli sulla barra in cima alla board Kanban. Due sono **rimozioni**, ed è
