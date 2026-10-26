@@ -13,17 +13,17 @@ export function createDispatchMemoryQueueSnapshot(deps: {
   heldMemory?(): HeldMemory | null;
   memoryHistory?(): DispatchMemoryHistoryPoint[];
   memoryConsumers?(): Array<{ label: string; gb: number }>;
-  costGB(): number;
+  costGB(task?: Pick<Task, "projectId" | "dispatchWeight">): number;
   startGB(): number;
 }): () => DispatchMemoryQueueSnapshot {
   return () => {
     const memory = (() => { try { return deps.memoryReading?.(); } catch { return undefined; } })();
     const held = (() => { try { return deps.heldMemory?.(); } catch { return null; } })();
-    const costGB = deps.costGB();
+    const priceOf = (task: Task): number => { try { return deps.costGB(task); } catch { return deps.costGB(); } };
     const active = deps.activeTaskIds().flatMap((taskId) => {
       try {
         const task = deps.svc.get(taskId)?.task;
-        return task ? [{ task, weightGB: costGB }] : [];
+        return task ? [{ task, weightGB: priceOf(task) }] : [];
       } catch { return []; }
     });
     let waiting: Task[] = [];
@@ -43,7 +43,7 @@ export function createDispatchMemoryQueueSnapshot(deps: {
       reason: "waiting-memory" as const,
       position: active.length + index + 1,
       total,
-      costGB,
+      costGB: priceOf(task),
     }));
     const consumers = (() => {
       try {

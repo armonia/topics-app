@@ -645,7 +645,12 @@
 
     "server/services/task-dispatcher.test.ts": 4978,
 
-    "server/services/task-dispatcher.ts": 6658,
+    "server/services/task-dispatcher.ts": {
+      "lines": 6710,
+      "why": [
+        "2026-10-26, per-board card price: 6658 on main -> 6710, +52 the wiring of the price (the price table is its own module, server/services/dispatch-card-price.ts): the reservation priced per launched turn, the stateless light-card re-ask (lightMemoryPass) with its call sites and the fresh look right before the claim, and the board argument of the capacity preview. The gates stay in the dispatcher because they close over its launch map and its hysteresis state."
+      ]
+    },
 
     "server/services/tasks.delivery.test.ts": 1056,
 
