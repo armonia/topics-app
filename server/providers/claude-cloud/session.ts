@@ -87,7 +87,7 @@ export class CloudSessionRunner {
       let page;
       try {
         page = await this.api.events(s.sid, s.cursor);
-      } catch (e) {
+      } catch {
         // Un errore di rete non chiude il turno: conta come silenzio, ci pensa lo stallo.
         page = { data: [], has_more: false };
       }

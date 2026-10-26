@@ -415,4 +415,3 @@ export function createCloudNodeClient(deps: CloudNodeDeps) {
   };
 }
 
-export type CloudNodeClient = ReturnType<typeof createCloudNodeClient>;
