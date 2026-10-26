@@ -339,6 +339,8 @@ describe("the cap by resources: over the budget nothing starts, under it it does
   it("the preview carries the numbers the gate decided on, reservation included", async () => {
     const h = harness();
     boardOn(h);
+    // A local check keeps the board at the full price list this test pins.
+    h.svc.updateBoardSettings(PID, { reviewChecks: [{ name: "unit", cmd: "bun test" }] });
     h.svc.setGlobalCap({ mode: "resources", budgetShare: 0.5 });
     h.machine.pressure = { ...QUIET, ourCoreUnits: 1, running: 2 };
     seedTask(h.db, "rs1");

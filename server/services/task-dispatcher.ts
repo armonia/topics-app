@@ -31,13 +31,14 @@ import { onHumanHoldChange } from "../lib/human-hold-events";
 import type { TaskAttemptStore } from "./task-attempts";
 import { attemptHasWork, formatFanoutComment } from "../../shared/task-attempt";
 import { shouldAnnounceResume, DEAD_SESSION_NOTE } from "../lib/dead-run-note";
-import { CODE_GATES_RULE, E2E_CI_CHECK, UNIT_CI_CHECK, isCiEvidenceCheck, ADMISSION_SPACING_MS, DISPATCH_CHIP_QUEUED, admissionVerdict, budgetShare, capMode, estimatedAgentCost, estimatedAgentMemCost, machineBudget, reservedCost, hasDeliveredWork, MAX_FANOUT, PARKED_STOPPED, PARKED_WAITED_OUT, PLAN_APPROVE_LABEL, PLAN_REVISE_LABEL, OUTBOUND_TOOLS_RULE, PREVIEW_RULE, RECOMMENDED_OPTION_RULE, VERSION_BUMP_RULE, readTaskWeight, statusEventEnters, type AdmissionVerdict, type BudgetGateState, type DispatchAdmission, type DispatchMemoryQueueSnapshot, type GlobalDispatchCap, type MachineBudgetSample } from "../../shared/board";
+import { CODE_GATES_RULE, E2E_CI_CHECK, UNIT_CI_CHECK, isCiEvidenceCheck, ADMISSION_SPACING_MS, DISPATCH_CHIP_QUEUED, admissionVerdict, budgetShare, capMode, estimatedAgentCost, machineBudget, reservedCost, hasDeliveredWork, MAX_FANOUT, PARKED_STOPPED, PARKED_WAITED_OUT, PLAN_APPROVE_LABEL, PLAN_REVISE_LABEL, OUTBOUND_TOOLS_RULE, PREVIEW_RULE, RECOMMENDED_OPTION_RULE, VERSION_BUMP_RULE, readTaskWeight, statusEventEnters, type AdmissionVerdict, type BudgetGateState, type DispatchAdmission, type DispatchMemoryQueueSnapshot, type GlobalDispatchCap, type MachineBudgetSample } from "../../shared/board";
 import { decideNight, deadlineFrom } from "./night-mode";
 import { DISPATCH_MEM_FLOOR_GB, DISPATCH_MEM_FLOOR_NATIVE_GB, effectiveDispatchCap, type MemoryFloorHold, type ResourceFloorKind, type ResourceFloorVerdict } from "./dispatch-capacity";
 import type { HeldMemory } from "./mem-signal";
 import type { DispatchMemoryHistoryPoint } from "./dispatch-memory-history";
 import { NoCheckExemptionLedger } from "./dispatch-no-check-exemption";
 import { createNoCheckReservationManager } from "./dispatch-no-check-reservations";
+import { createCardPrices } from "./dispatch-card-price";
 import { daySpendSentence, heldResumeBlock, publishDispatchBlock, setHeldResumeBlock, type DispatchBlockKind } from "./dispatch-block-signal";
 import { effectiveTopicsRouting, reusedSessionRouteConflict, reusedSessionRouting, taskModelMatchesSession, taskModelSelection, taskModelValue } from "../../shared/task-coding-models";
 import {
@@ -658,7 +659,7 @@ export interface TaskDispatcher {
    * sample. Read by GET /api/system/dispatch-capacity, so the panel's verdict
    * is the gate's and not a second opinion.
    */
-  admissionPreview?(): DispatchAdmission | null;
+  admissionPreview?(projectId?: string | null): DispatchAdmission | null;
   /** Read-only data for the dispatch memory dashboard. */
   memoryQueueSnapshot(): DispatchMemoryQueueSnapshot;
   /** Start one selected memory-waiting card, preserving all other admission gates. */
@@ -1268,9 +1269,15 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
    * live stop from an abandoned one.
    */
   let admissionLastSeenAt = admissionCountingSince;
-  /** What one more agent is priced at in memory: the same price list the budget reads. */
-  function agentMemPrice(): number {
-    return estimatedAgentMemCost((() => { try { return deps.agentMemSamples?.() ?? []; } catch { return []; } })());
+  /** What one more card is priced at in memory, per board (`dispatch-card-price.ts`); no board in hand reads the dearer price. */
+  const cardPrices = createCardPrices({
+    peaks: () => deps.agentMemSamples?.() ?? [],
+    isCliRuntime: () => deps.isCliRuntime?.() ?? false,
+    board: (projectId) => deps.svc.getBoardSettings(projectId),
+    taskOf: (taskId) => deps.svc.get(taskId)?.task,
+  });
+  function agentMemPrice(projectId?: string | null): number {
+    return cardPrices.priceFor(projectId);
   }
   /**
    * A card that runs on ANOTHER machine (a paired node, or the Cloud Claude
@@ -1305,11 +1312,11 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
       .filter(([taskId, slot]) => !isNodeSessionKey(slot.sessionKey) && !offLane(taskId));
   }
   /** The memory price list excludes exempt turns; their smaller reservation is charged separately. */
-  function regularLocalLaunches(cleanupReservations = true): number[] {
+  function regularLocalLaunchEntries(cleanupReservations = true): [string, number][] {
     if (cleanupReservations) releaseInvalidNoCheckReservations();
     return localLaunchEntries()
       .filter(([taskId]) => !noCheckExemptions.has(taskId))
-      .map(([, slot]) => slot.sessionAt);
+      .map(([taskId, slot]) => [taskId, slot.sessionAt]);
   }
   /**
    * HOW MANY LOCAL TURNS ARE ALIVE ON THIS MACHINE - the census, byte-identical
@@ -1350,15 +1357,16 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
    * so it charges N x price itself.
    */
   let lastMemoryStartGB: number | null = null;
-  function floorVerdict(cleanupReservations = true): ResourceFloorVerdict {
-    const price = agentMemPrice();
-    const launches = regularLocalLaunches(cleanupReservations);
+  function floorVerdict(cleanupReservations = true, projectId?: string | null): ResourceFloorVerdict {
+    const price = agentMemPrice(projectId);
+    const launchEntries = regularLocalLaunchEntries(cleanupReservations);
+    const launches = launchEntries.map(([, at]) => at);
     const checks = (() => { try { return deps.checksRunning?.() ?? 0; } catch { return 0; } })();
     const resources = inResourcesMode();
     const exemptTaskIds = noCheckExemptions.taskIds();
     const exemptReservedGB = noCheckExemptions.reservationGB();
     const exemptReservedCards = exemptTaskIds.length;
-    const reserved = resources ? 0 : reservedCost(launches, { coreUnits: 0, memGB: price }, Date.now()).memGB + exemptReservedGB;
+    const reserved = resources ? 0 : cardPrices.reservedMemGB(launchEntries, Date.now()) + exemptReservedGB;
     // TWO QUESTIONS, AND EACH GETS ITS OWN CENSUS WHOLE.
     //
     // `ourWorkRunning` is the SAME "zero" the budget axis counts for
@@ -1494,6 +1502,7 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
     gcap: GlobalDispatchCap,
     noCheckCandidateReservationGB?: number,
     sampleOverride?: MachineBudgetSample | null,
+    projectId?: string | null,
   ): {
     verdict: AdmissionVerdict;
     sample: MachineBudgetSample;
@@ -1507,7 +1516,7 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
     const share = budgetShare(gcap);
     const fullCost = {
       coreUnits: estimatedAgentCost((() => { try { return deps.agentCostSamples?.() ?? []; } catch { return []; } })()),
-      memGB: agentMemPrice(),
+      memGB: agentMemPrice(projectId),
     };
     const cost = { ...fullCost, memGB: noCheckCandidateReservationGB ?? fullCost.memGB };
     // WHAT WE HAVE ALREADY PROMISED. An agent's cost lands minutes after its
@@ -1519,7 +1528,7 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
     // launch instant, so the ledger is the in-flight map itself.
     const now = Date.now();
     const reservedCpu = reservedCost(localLaunches(), fullCost, now).coreUnits;
-    const reservedMemory = reservedCost(regularLocalLaunches(), fullCost, now).memGB
+    const reservedMemory = cardPrices.reservedMemGB(regularLocalLaunchEntries(), now)
       + noCheckExemptions.reservationGB();
     // The exemption is for a machine with none of OUR work on it, and a
     // pre-review check run is our work: a queue behind an 11 GB shard run is not
@@ -1552,14 +1561,33 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
     };
   }
   /** The capacity route uses the same gate order without mutating hysteresis. */
-  function admissionPreview(): DispatchAdmission | null {
+  function admissionPreview(projectId?: string | null): DispatchAdmission | null {
     return buildDispatchAdmissionPreview({
       drainBlock,
-      floorVerdict,
+      floorVerdict: () => floorVerdict(true, projectId),
       globalCap: () => deps.svc.getGlobalCap(),
-      budgetVerdict: (cap) => budgetVerdict(cap),
+      budgetVerdict: (cap) => budgetVerdict(cap, undefined, undefined, projectId),
       memoryClause,
     });
+  }
+  /**
+   * A LIGHT CARD IS HELD BY THE MEMORY GATES ONLY IF IT WOULD STILL BE HELD AT
+   * ITS OWN PRICE. The machine verdict above is one state machine per machine
+   * (its log lines, its episodes, its hysteresis) and reads the dearer price, so
+   * it stays flat; this asks the same two questions again for one board's price,
+   * without moving any of that state. Memory only: a full disk, the CPU axis, the
+   * spend brake and the drain are not hers to lift.
+   */
+  function lightMemoryPass(t: Pick<Task, "projectId" | "dispatchWeight">): boolean {
+    const projectId = t.projectId;
+    try {
+      if (cardPrices.weightFor(projectId, t.dispatchWeight) !== "light") return false;
+      if (spendBrake.dayBlock()) return false;
+      if (floorVerdict(false, projectId).reason) return false;
+      const gcap = deps.svc.getGlobalCap();
+      if (capMode(gcap) !== "resources") return true;
+      return budgetVerdict(gcap, undefined, undefined, projectId)?.verdict.admit ?? true;
+    } catch { return false; }
   }
   function pressureBlock(): string | null {
     try {
@@ -2244,7 +2272,7 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
     heldMemory: deps.heldMemory,
     memoryHistory: deps.memoryHistory,
     memoryConsumers: deps.memoryConsumers,
-    costGB: agentMemPrice,
+    costGB: (task) => cardPrices.priceFor(task?.projectId, task?.dispatchWeight),
     startGB: () => {
       try {
         const current = floorVerdict(false).startGB;
@@ -4539,13 +4567,17 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
     // The floor VERDICT, because the resume keys its wait on the resource and
     // decides on it whether the sentence is worth a line in the thread.
     const floor = admissionVerdictNow();
-    if (floor.reason) return { reason: floor.reason, kind: "resources", floor: floor.kind };
+    if (floor.reason && !(floor.kind === "memory" && lightMemoryPass(t))) {
+      return { reason: floor.reason, kind: "resources", floor: floor.kind };
+    }
     const day = spendBrake.dayBlock();
     if (day) return { reason: daySpendSentence(day), kind: "spend" };
     const card = spendBrake.taskBlock(t.agentCostCents);
     if (card) return { reason: card, kind: null };
     const pressure = pressureBlock();
-    return pressure ? { reason: pressure, kind: "pressure" } : null;
+    return pressure && !(lastPressureAxis === "memory" && lightMemoryPass(t))
+      ? { reason: pressure, kind: "pressure" }
+      : null;
   }
 
   async function resume(taskId: string, humanMessage: string, opts?: { continuation?: boolean; commentIds?: string[] }): Promise<void> {
@@ -5414,6 +5446,14 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
           || (pressure && lastPressureAxis === "memory"));
       const manualMemoryBypass = manualMemoryStartSelected
         && (floorNow.kind === "memory" || floorNow.kind === "memory_warmup");
+      // A light card (in place, no local check) is not held by a line drawn for
+      // a card that runs the repo gates: it waits only if it would still wait
+      // at its own price. Asked only while a memory hold is in hand, so a quiet
+      // queue pays no extra floor read per card; the answer itself already
+      // refuses on disk, spend and CPU (`lightMemoryPass`). The seat above still applies.
+      const lightPass = !remoteTask && !useNoCheckExemption && !manualMemoryStartSelected
+        && ((resourceFloor != null && floorNow.kind === "memory") || (!!pressure && lastPressureAxis === "memory"))
+        && lightMemoryPass(t);
       if (remoteTask) {
         // The memory floor and the budget measure THIS machine's RAM and CPU: a
         // remote card answers only to a full disk (its delivery is planted in
@@ -5424,7 +5464,7 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
           queueChip(t);
           continue;
         }
-      } else if (floorBlock && !bypassMemoryBlock && !manualMemoryBypass) {
+      } else if (floorBlock && !bypassMemoryBlock && !manualMemoryBypass && !lightPass) {
         // THE REASON GOES ON THE CARD, not only into the server log. This
         // branch used to write the bare `queued` chip and leave the
         // explanation in a file nobody watching the board opens: the card fell
@@ -5626,7 +5666,7 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
       }
       const midPassMemoryHold = midPassFloor != null && (midPassFloorKind === "memory" || midPassFloorKind === "memory_warmup");
       if (!remoteTask && midPassFloor && !useNoCheckExemption
-        && !(manualMemoryStartSelected && midPassMemoryHold)) {
+        && !(manualMemoryStartSelected && midPassMemoryHold) && !lightPass) {
         queueChip(t, midPassMemoryHold ? WAITING_MEMORY : undefined);
         continue;
       }
