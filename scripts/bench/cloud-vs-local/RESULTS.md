@@ -30,3 +30,11 @@ Il freno: se la pressione arriva a 2, la fase locale si ferma (il Mac lo sta usa
 
 Sessioni cloud dei giri: in `bench{1,2,3}/cloud-results.json` (scratchpad della sessione del 26/10).
 Si rifà con `CLOUD_ACCOUNT=auto-3 OFFLOAD=local BENCH_TASK=heavy STEP=1 sh run.sh <cartella>`.
+
+## Stop su una sessione vera (26/10, `stop-probe.ts`)
+
+Sessione Haiku su `armonia/topics-app` con `sleep 240`, stop a 17 s: l'`interrupt`
+(`control_request`, `cancel_queued`) chiude il turno con `result/error_during_execution` in meno di
+un secondo, e `POST /v1/sessions/<id>/archive` la porta a `session_status: "archived"`. Nel flusso
+compaiono due `control_request` che non sono permessi (`interrupt`, `end_session`): ora si
+filtrano (`isPermissionAsk`).

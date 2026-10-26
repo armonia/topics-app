@@ -28,6 +28,17 @@ export interface PermissionAsk {
   input: unknown;
 }
 
+/**
+ * Un permesso da chiedere a una persona. Nello stesso flusso passano anche control_request
+ * che non lo sono: il nostro `interrupt` e l'`end_session` dell'archivio (visti il 26/10 su una
+ * sessione vera). Presi per domande, la card direbbe «chiede il permesso per tool».
+ */
+export function isPermissionAsk(ev: CloudEvent): boolean {
+  if (ev.type !== "control_request" || typeof ev.request_id !== "string") return false;
+  const req = (ev.request ?? {}) as { subtype?: string; tool_name?: string };
+  return req.subtype === "can_use_tool" || (req.subtype === undefined && typeof req.tool_name === "string");
+}
+
 export function applyEvent(
   ev: CloudEvent,
   st: TurnState,
@@ -72,7 +83,7 @@ export function applyEvent(
     }
     case "control_request": {
       const id = String(ev.request_id ?? "");
-      if (!id || st.asked.has(id)) return;
+      if (!id || st.asked.has(id) || !isPermissionAsk(ev)) return;
       st.asked.add(id);
       const req = (ev.request ?? {}) as { tool_name?: string; input?: unknown };
       onPermission?.({ requestId: id, toolName: req.tool_name ?? "tool", input: req.input });

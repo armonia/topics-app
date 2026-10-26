@@ -121,6 +121,11 @@ function instantiateProvider(config: ProviderConfig): AIProvider {
       const { AcpProvider } = require("./acp");
       return new AcpProvider(config);
     }
+    case "claude-cloud": {
+      // Le sessioni cloud di Claude Code: la VM è di Anthropic, qui resta il polling.
+      const { ClaudeCloudProvider } = require("./claude-cloud/provider");
+      return new ClaudeCloudProvider(config);
+    }
     case "native": {
       // The in-house runtime: no process to spawn, the session lives inside
       // this server. It registers under the name `topics`.
@@ -537,6 +542,23 @@ export async function initProviders(): Promise<AIProvider[]> {
       }
     } catch (err: any) {
       console.warn(`[Providers] Failed to init native runtime: ${err?.message ?? err}`);
+    }
+  }
+
+  // Le sessioni cloud di Claude Code: bastano le credenziali di Claude Code nel Portachiavi.
+  // Un account di vdm al posto di quello loggato: TOPICS_CLAUDE_CLOUD_ACCOUNT=auto-N.
+  if (!_providers.has("claude-cloud")) {
+    try {
+      // eslint-disable-next-line @typescript-eslint/no-require-imports -- loaded only to probe the credential
+      const { cloudCredentialsPresent } = require("./claude-cloud/node");
+      if (cloudCredentialsPresent()) {
+        const p = createProvider({ type: "claude-cloud", account: process.env.TOPICS_CLAUDE_CLOUD_ACCOUNT || undefined });
+        p.start();
+        _providers.set(p.name, p);
+        started.push(p);
+      }
+    } catch (err: any) {
+      console.warn(`[Providers] Failed to init claude-cloud: ${err?.message ?? err}`);
     }
   }
 

@@ -875,7 +875,11 @@ export interface NativeProviderConfig {
   model?: string;
 }
 
+export type { ClaudeCloudProviderConfig } from "./claude-cloud/provider";
+import type { ClaudeCloudProviderConfig } from "./claude-cloud/provider";
+
 export type ProviderConfig =
+  | ClaudeCloudProviderConfig
   | OpenClawProviderConfig
   | ClaudeProviderConfig
   | ClaudeCodeProviderConfig

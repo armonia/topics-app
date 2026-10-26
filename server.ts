@@ -246,6 +246,12 @@ import { createNodeClient, readDelegatedNodeToken, readNodeToken } from "./serve
 import { appendDelegatedRunAudit, delegatedPolicyForTask } from "./server/lib/delegated-agent-start";
 import { createNodeBranchPlanter } from "./server/services/node-branch-plant";
 import { projectPathOfAnyId } from "./server/lib/project-identity";
+import { CloudApi } from "./server/providers/claude-cloud/api";
+import { credsFor } from "./server/providers/claude-cloud/creds";
+import {
+  CLOUD_NODE_BASE_URL, CLOUD_NODE_HOSTNAME, CLOUD_NODE_NAME, CLOUD_NODE_TOKEN,
+  cloudCredentialsPresent, createCloudNodeClient, isCloudBaseUrl,
+} from "./server/providers/claude-cloud/node";
 import { createDelegatedRevocationRetry } from "./server/services/delegated-revocation-retry";
 import { initVapid } from "./server/push-service";
 import { startDevBundleReload, readBundleRev, stampBundleRev } from "./server/lib/dev-bundle-reload";
@@ -1802,6 +1808,28 @@ const projectPathForNode = (projectId: string) =>
 const nodeBranchPlanter = createNodeBranchPlanter({
   repoPathOf: projectPathForNode,
 });
+/**
+ * The Claude cloud as a node (KANBAN-76 lane): a card on the «Cloud Claude» machine runs in a
+ * Claude Code cloud session, and this server only polls it. The machine row exists only where
+ * Claude Code's credentials do, so the picker never offers a cloud nobody can reach.
+ */
+const cloudNode = createCloudNodeClient({
+  api: new CloudApi(credsFor(process.env.TOPICS_CLAUDE_CLOUD_ACCOUNT || undefined)),
+  repoPathOfTask: (taskId) => {
+    const projectId = dispatcherSvc.get(taskId)?.task.projectId;
+    return projectId ? projectPathForNode(projectId) ?? null : null;
+  },
+  statePath: join(ctx.STATE_DIR, "claude-cloud-runs.json"),
+});
+const cloudEnabled = cloudCredentialsPresent();
+if (cloudEnabled) {
+  // Un nodo accoppiato che si chiama proprio «claude-cloud» resta suo: non gli si riscrive l'indirizzo.
+  const existing = ctx.machineStore.getByHostname(CLOUD_NODE_HOSTNAME);
+  if (!existing || isCloudBaseUrl(existing.baseUrl)) {
+    try { ctx.machineStore.upsertNode({ hostname: CLOUD_NODE_HOSTNAME, name: existing?.name ?? CLOUD_NODE_NAME, baseUrl: CLOUD_NODE_BASE_URL }); }
+    catch (err) { console.warn("[claude-cloud] riga della macchina cloud non scritta", err); }
+  }
+}
 
 /**
  * THE MEMORY SIGNAL, one probe with a 2-minute history for every memory reader:
@@ -2180,13 +2208,17 @@ const taskDispatcher = createTaskDispatcher({
   // deleted from the board, or a token file removed by hand, has to STOP being
   // usable at once, and a copy held in a closure would keep the node reachable
   // long after somebody decided it should not be.
+  // The «Cloud Claude» machine is a node too: same lane, but its four calls go to the
+  // Claude Code sessions API (`providers/claude-cloud/node.ts`), never to a paired Topics.
   node: {
-    createRun: (input) => nodeClient.createRun(input),
-    readRun: (input) => nodeClient.readRun(input),
-    fetchBundle: (input) => nodeClient.fetchBundle(input),
-    cancelRun: (input) => nodeClient.cancelRun(input),
+    createRun: (input) => isCloudBaseUrl(input.baseUrl) ? cloudNode.createRun(input) : nodeClient.createRun(input),
+    readRun: (input) => isCloudBaseUrl(input.baseUrl) ? cloudNode.readRun(input) : nodeClient.readRun(input),
+    fetchBundle: (input) => isCloudBaseUrl(input.baseUrl) ? cloudNode.fetchBundle(input) : nodeClient.fetchBundle(input),
+    cancelRun: (input) => isCloudBaseUrl(input.baseUrl) ? cloudNode.cancelRun(input) : nodeClient.cancelRun(input),
     baseUrlOf: (machineId) => ctx.machineStore.get(machineId)?.baseUrl ?? null,
-    tokenOf: (machineId) => readNodeToken(ctx.STATE_DIR, machineId),
+    tokenOf: (machineId) => isCloudBaseUrl(ctx.machineStore.get(machineId)?.baseUrl)
+      ? CLOUD_NODE_TOKEN
+      : readNodeToken(ctx.STATE_DIR, machineId),
     delegatedTokenOf: (machineId, capabilityId) =>
       readDelegatedNodeToken(ctx.STATE_DIR, machineId, capabilityId),
     nameOf: (machineId) => ctx.machineStore.get(machineId)?.name ?? null,
@@ -3066,6 +3098,14 @@ function tickHeartbeat() {
   try {
     const local = ctx.machineStore.upsertLocal();
     ctx.broadcastToAll({ type: "machine:upserted", machine: local, payload_version: 1 });
+    // La macchina cloud non manda heartbeat: è viva finché c'è la sua riga, quindi la
+    // rinfreschiamo noi, o dopo 5 minuti la card direbbe «non risponde» su un servizio vivo.
+    // Solo se il cloud è acceso QUI: una riga rimasta da un avvio di prima, a cloud spento,
+    // deve diventare «non risponde» col giro normale invece di restare in linea.
+    const cloud = cloudEnabled ? ctx.machineStore.getByHostname(CLOUD_NODE_HOSTNAME) : null;
+    if (cloud && isCloudBaseUrl(cloud.baseUrl)) {
+      ctx.machineStore.upsertNode({ hostname: CLOUD_NODE_HOSTNAME, name: cloud.name, baseUrl: CLOUD_NODE_BASE_URL });
+    }
     const flipped = ctx.machineStore.markStaleOffline(STALE_THRESHOLD_MS);
     for (const m of flipped) {
       ctx.broadcastToAll({ type: "machine:updated", machine: m, payload_version: 1 });

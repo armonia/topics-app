@@ -109,6 +109,8 @@
  * mantenerne due copie, e la copia di test sarebbe quella che invecchia.
  */
 
+import { setCloudApiBase } from "../providers/claude-cloud/api";
+import { CLOUD_NODE_BASE_URL, CLOUD_NODE_HOSTNAME, CLOUD_NODE_NAME } from "../providers/claude-cloud/node";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "fs";
 import { dirname, join } from "path";
 import type { AppContext, RouteHandler } from "../types";
@@ -716,6 +718,17 @@ export function createE2eRouter(ctx: AppContext, hooks: E2eRouterHooks = {}): Ro
       } catch (e) {
         return json({ error: (e as Error).message }, 400);
       }
+    }
+
+    // The Claude cloud, played by a fake: `apiBase` moves the sessions API to a server the
+    // spec runs (`tests/e2e/helpers/fake-claude-cloud.ts`), and the «Cloud Claude» machine is
+    // written as the boot writes it where Claude Code's credentials exist. With the API moved,
+    // `credsFor` hands out a dummy token: the real one never travels to a fake.
+    if (method === "POST" && pathname === "/api/test/claude-cloud") {
+      const body = (await req.json().catch(() => null)) as { apiBase?: string | null } | null;
+      setCloudApiBase(body?.apiBase ?? null);
+      const machine = ctx.machineStore.upsertNode({ hostname: CLOUD_NODE_HOSTNAME, name: CLOUD_NODE_NAME, baseUrl: CLOUD_NODE_BASE_URL });
+      return json({ ok: true, machine });
     }
 
     const dispatchState = /^\/api\/test\/tasks\/([^/]+)\/dispatch-state$/.exec(pathname);

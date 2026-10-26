@@ -631,7 +631,7 @@ export function createRemoteNodeLane(host: RemoteNodeHost): RemoteNodeLane {
     const task = svc.get(taskId)?.task;
     if (!task) return;
     const branch = report.deliveryBranch;
-    let planted: PlantBranchResult = { planted: false, commit: null, reason: "il nodo non ha consegnato nessun ramo" };
+    let planted: PlantBranchResult = { planted: false, commit: null, reason: report.reason || "il nodo non ha consegnato nessun ramo" };
     if (branch) {
       let bundle: Uint8Array | null = null;
       let fetchFailed: string | null = null;
@@ -686,6 +686,12 @@ export function createRemoteNodeLane(host: RemoteNodeHost): RemoteNodeLane {
         catch { /* audit never blocks delivery */ }
       }
       emit(delivered);
+      // The review rewrites the chip and clears dispatch_error: a node that closed on an error
+      // (the Claude cloud does) gets its code back, so the card does not read like a success.
+      if (report.dispatchError) {
+        try { emit(svc.setDispatchState({ taskId, state: delivered.dispatchState ?? "needs_input", error: report.dispatchError })); }
+        catch (err) { log(`nodo: errore non specchiato su ${taskId}`, err); }
+      }
       // Same edge the local system delivery emits: without it the review-ready
       // notification never fires for a card that never passed through the route.
       try {

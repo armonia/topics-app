@@ -4,12 +4,26 @@
 // Forma misurata il 26/10/2026 su sessioni vere (payload dal --debug-file della CLI).
 
 export const CLOUD_BETA = "ccr-byoc-2025-07-29";
-const API = "https://api.anthropic.com";
+const DEFAULT_API = "https://api.anthropic.com";
+
+/**
+ * Where the sessions API answers. Only the e2e suite moves it (`POST /api/test/claude-cloud`),
+ * to a fake that plays a session without reaching Anthropic.
+ */
+let apiBase = DEFAULT_API;
+export function setCloudApiBase(base: string | null): void {
+  apiBase = base?.replace(/\/$/, "") || DEFAULT_API;
+}
+export function cloudApiIsReal(): boolean {
+  return apiBase === DEFAULT_API;
+}
 
 export interface CloudCreds {
   accessToken: string;
   orgUuid: string;
 }
+/** Ciò che riceve un'API finta al posto del token vero. */
+const FAKE_CREDS: CloudCreds = { accessToken: "e2e-fake", orgUuid: "e2e-fake" };
 
 export interface CloudSource {
   /** es. "armonia/topics-app" */
@@ -52,8 +66,11 @@ export class CloudApi {
   ) {}
 
   private async call<T>(method: string, path: string, body?: unknown): Promise<T> {
-    const c = await this.creds();
-    const res = await this.fetchImpl(API + path, {
+    // La base si legge PRIMA di chiedere le credenziali, e il token vero si chiede solo per
+    // l'API vera: così nessun cambio di base a metà strada può portarlo altrove.
+    const base = apiBase;
+    const c = base === DEFAULT_API ? await this.creds() : FAKE_CREDS;
+    const res = await this.fetchImpl(base + path, {
       method,
       headers: {
         Authorization: `Bearer ${c.accessToken}`,
@@ -126,6 +143,22 @@ export class CloudApi {
         { type: "user", uuid: crypto.randomUUID(), session_id: sid, parent_tool_use_id: null, message: { role: "user", content: text } },
       ],
     });
+  }
+
+  /**
+   * Ferma la sessione: interrompe il turno in corso (lo stesso `interrupt` della CLI) e la
+   * archivia, così non riparte se qualcuno le scrive. Le due chiamate valgono anche da sole.
+   */
+  async stopSession(sid: string): Promise<void> {
+    const errors: unknown[] = [];
+    await this.call("POST", `/v1/sessions/${sid}/events`, {
+      events: [{ type: "control_request", uuid: crypto.randomUUID(), session_id: sid, request_id: crypto.randomUUID(), request: { subtype: "interrupt", cancel_queued: true } }],
+    }).catch((e) => errors.push(e));
+    // Come la CLI (`archiveSession`): 409 = già archiviata, va bene uguale.
+    await this.call("POST", `/v1/sessions/${sid}/archive`, {}).catch((e) => {
+      if (!(e instanceof CloudApiError && e.status === 409)) errors.push(e);
+    });
+    if (errors.length === 2) throw errors[1];
   }
 
   /** Risposta a un `control_request` (permesso di un tool). Stesso giro di `cloud-rispondi`. */

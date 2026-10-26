@@ -22,7 +22,7 @@ function fakeApi(pages: CloudEvent[][], opts: { failAfter?: number } = {}) {
   const posts: unknown[] = [];
   let served = 0;
   const f: FetchLike = async (url, init) => {
-    const path = url.replace("https://api.anthropic.com", "");
+    const path = url.replace(/^https?:\/\/[^/]+/, "");
     const json = (b: unknown) => new Response(JSON.stringify(b), { status: 200 });
     if (path === "/v1/environment_providers") return json({ environments: [{ environment_id: "env_x", kind: "anthropic_cloud", state: "active" }] });
     if (init?.method === "POST" && path === "/v1/sessions") { posts.push(JSON.parse(String(init.body))); return json({ id: "session_t" }); }
