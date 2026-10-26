@@ -1,5 +1,49 @@
 [
   {
+    "version": "2.3.32",
+    "date": "2026-10-26",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "su una PR gli shard e2e si fermano quando unit o gates sono rossi (#455)",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "Prezzi dei modelli: il freno di spesa riconosce i modelli scritti come claude-code:<modello> (#450)",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Proxy dei modelli: nessun token senza un'identità riconosciuta (#463)",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "la coda non tagliabile si ri-parsa a costo piatto, e il budget INP del guscio è registrato (#462)",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "Barra di qualità: check:quality-bar in qa-gate.sh e creazione chat con model ed effort in un POST (#460)",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "aggiorna durate shard dal nightly del 2026-10-26 [skip ci]",
+          "en": "",
+          "scope": "e2e",
+          "breaking": false
+        }
+      ]
+    }
+  },
+  {
     "version": "2.3.31",
     "date": "2026-10-26",
     "sections": {
