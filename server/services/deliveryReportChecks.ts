@@ -154,6 +154,11 @@ export function extractClaims(report: string): Claim[] {
     for (const s of m[1]!.split(/\s*\+\s*/)) push({ kind: "sha", value: s.toLowerCase() });
   }
 
+  // "commit id" is a commit label, not a run or task identifier.
+  for (const m of report.matchAll(/\bcommit\s+id\s*[:=#]?\s*`?([0-9a-f]{7,40})`?/gi)) {
+    push({ kind: "sha", value: m[1]!.toLowerCase() });
+  }
+
   /**
    * Bare shas, written with no "commit" in front of them.
    *

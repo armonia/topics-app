@@ -43,30 +43,6 @@ const MAX_ROOT_CANDIDATES = 64;
 const GIT_LOOKUP_TIMEOUT_MS = 1_500;
 const SHA_LOOKUP_CONCURRENCY = 4;
 const DISCOVERED_ROOT_TTL_MS = 5 * 60_000;
-const discoveredRoots = new Map<string, number>();
-
-function rememberRoot(root: string): void {
-  discoveredRoots.delete(root);
-  discoveredRoots.set(root, Date.now());
-  while (discoveredRoots.size > MAX_SHA_ROOTS) {
-    const oldest = discoveredRoots.keys().next().value as string | undefined;
-    if (!oldest) break;
-    discoveredRoots.delete(oldest);
-  }
-}
-
-function recentRoots(): string[] {
-  const now = Date.now();
-  const roots: string[] = [];
-  for (const [root, at] of discoveredRoots) {
-    if (now - at >= DISCOVERED_ROOT_TTL_MS || !existsSync(root)) {
-      discoveredRoots.delete(root);
-      continue;
-    }
-    roots.unshift(root);
-  }
-  return roots;
-}
 
 const REPORTED_PATH = /(?:~\/|(?<![\w:/])\/(?!\/))[^\s`"'()<>{}[\],;]+|(?:[\w.-]+\/)+[\w.-]+(?:\.[\w-]+)?/g;
 
@@ -101,9 +77,26 @@ function rootMentionIndex(report: string, root: string): number {
   const name = basename(root);
   if (!name || name === "." || name === "..") return -1;
   const fullPathIndex = report.indexOf(root);
-  if (fullPathIndex >= 0) return fullPathIndex;
-  const boundary = new RegExp(`(?:^|[\\s/\\\\\`'"(])${escapeRegExp(name)}(?=$|[\\s/\\\\\`'":,;.)])`, "i");
-  return boundary.exec(report)?.index ?? -1;
+  if (fullPathIndex >= 0) return fullPathIndex + root.length - name.length;
+  const boundary = new RegExp(`(?:^|[\\s/\\\\\`'"(])(${escapeRegExp(name)})(?=$|[\\s/\\\\\`'":,;.)])`, "i");
+  const match = boundary.exec(report);
+  return match ? match.index + match[0].length - match[1]!.length : -1;
+}
+
+function nestedPathAfterMention(report: string, root: string, mention: number): string | null {
+  const suffix = report.slice(mention + basename(root).length).match(/^\/([^\s`"'()<>{}[\],;]+)/)?.[1];
+  const path = suffix?.replace(/[.,;:!?]+$/, "").replace(/[)\]}>]+$/, "");
+  return path || null;
+}
+
+function isGitRoot(path: string): boolean {
+  return existsSync(join(path, ".git"));
+}
+
+function isWithinRoot(path: string, root: string): boolean {
+  const target = resolve(path);
+  const base = resolve(root);
+  return target === base || target.startsWith(base.endsWith(sep) ? base : `${base}${sep}`);
 }
 
 function shaPositions(report: string, shas: readonly string[]): Array<{ sha: string; start: number }> {
@@ -141,9 +134,10 @@ function shasForMention(report: string, position: number, positions: readonly { 
   const paragraphEnd = nextParagraph < 0 ? report.length : nextParagraph;
   const inParagraph = positions.filter((item) => item.start >= paragraphStart && item.start < paragraphEnd);
   if (inParagraph.length === 0) return new Set();
-
-  const closest = Math.min(...inParagraph.map((item) => Math.abs(item.start - position)));
-  return new Set(inParagraph.filter((item) => Math.abs(item.start - position) === closest).map((item) => item.sha));
+  // A path after a commit describes that preceding claim, even when its text is long.
+  const preceding = inParagraph.filter((item) => item.start < position).at(-1);
+  const associated = preceding ?? inParagraph[0];
+  return new Set(associated ? [associated.sha] : []);
 }
 
 function nearestExistingDirectory(path: string): string | null {
@@ -191,6 +185,30 @@ function displayRoot(root: string, home: string): string {
  */
 function buildProbe(ROOT: string): RepoProbe {
 const MIGRATIONS = join(ROOT, "server", "db", "migrations");
+
+const discoveredRoots = new Map<string, number>();
+function rememberRoot(root: string): void {
+  discoveredRoots.delete(root);
+  discoveredRoots.set(root, Date.now());
+  while (discoveredRoots.size > MAX_SHA_ROOTS) {
+    const oldest = discoveredRoots.keys().next().value as string | undefined;
+    if (!oldest) break;
+    discoveredRoots.delete(oldest);
+  }
+}
+
+function recentRoots(): string[] {
+  const now = Date.now();
+  const roots: string[] = [];
+  for (const [root, at] of discoveredRoots) {
+    if (now - at >= DISCOVERED_ROOT_TTL_MS || !existsSync(root)) {
+      discoveredRoots.delete(root);
+      continue;
+    }
+    roots.unshift(root);
+  }
+  return roots;
+}
 
 /** Answers already given for this root, reused while fresh: a "no" for a sha is
  *  true for that root NOW, and a worktree gets commits later. */
@@ -335,9 +353,11 @@ return {
       candidateByPath.set(key, hit);
     };
 
-    const knownRoots = [...new Set([...(context.knownRoots ?? []), ...recentRoots()]
+    const hostRoots = [...new Set((context.knownRoots ?? [])
       .filter((path): path is string => typeof path === "string" && isAbsolute(path))
       .map((path) => resolve(path)))];
+    const knownRoots = [...new Set([...hostRoots.filter(isGitRoot), ...recentRoots()])];
+    const pathIsExpected = (path: string) => hostRoots.some((root) => isWithinRoot(path, root));
     const shasByReport = reports.map((report) => [...new Set(gitQuestions(report).shas)]);
     const allShas = [...new Set(shasByReport.flat())];
     for (let i = 0; i < reports.length; i++) {
@@ -345,10 +365,11 @@ return {
       const positions = shaPositions(report, shasByReport[i]!);
       const named = reportPaths(report);
       for (const mention of named.absolute) {
+        const path = mention.path.startsWith("~/") ? join(home, mention.path.slice(2)) : mention.path;
         addCandidate(
-          mention.path.startsWith("~/") ? join(home, mention.path.slice(2)) : mention.path,
+          path,
           i,
-          false,
+          pathIsExpected(path),
           false,
           false,
           shasForMention(report, mention.start, positions),
@@ -356,12 +377,18 @@ return {
       }
       for (const mention of named.relative) {
         const citedShas = shasForMention(report, mention.start, positions);
-        addCandidate(join(home, mention.path), i, false, false, false, citedShas);
-        addCandidate(join(ROOT, mention.path), i, false, false, false, citedShas);
+        const homePath = join(home, mention.path);
+        const serverPath = join(ROOT, mention.path);
+        addCandidate(homePath, i, pathIsExpected(homePath), false, false, citedShas);
+        addCandidate(serverPath, i, pathIsExpected(serverPath), false, false, citedShas);
       }
       for (const path of knownRoots) {
         const mention = rootMentionIndex(report, path);
-        if (mention >= 0) addCandidate(path, i, true, true, false, shasForMention(report, mention, positions));
+        if (mention < 0) continue;
+        const citedShas = shasForMention(report, mention, positions);
+        addCandidate(path, i, true, true, false, citedShas);
+        const nested = nestedPathAfterMention(report, path, mention);
+        if (nested) addCandidate(join(path, nested), i, true, false, false, citedShas);
       }
     }
     addCandidate(ROOT, undefined, false, true, true, new Set(allShas));
