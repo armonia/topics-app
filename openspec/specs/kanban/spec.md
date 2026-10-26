@@ -5224,3 +5224,28 @@ a un modello. A riquadro chiuso non SHALL partire alcun polling.
 - **GIVEN** una card senza sessione assegnata
 - **WHEN** si passa sulla card
 - **THEN** non SHALL apparire alcun riquadro di sessione
+
+### Requirement: KANBAN-97 — La coda memoria è leggibile e una card può partire per scelta umana
+
+**GET /api/dispatch/memory-queue SHALL restituire** la lettura memoria corrente e il suo orario, la sola soglia effettiva di avvio, le card in attesa con motivo `waiting-memory`, posizione nell'ordine reale di ammissione e totale, card in esecuzione con peso stimato, i principali consumatori con nomi leggibili e fino a due ore di letture tenute in memoria. Nessun dato della serie viene scritto nel database.
+
+Il dispatcher SHALL inviare via `task:updated` il codice e la posizione di coda quando cambiano. Una card trattenuta dalla memoria SHALL avere `dispatchError: "waiting-memory"`, senza prosa tecnica, identificativi di processo o soglie multiple.
+
+**POST /api/boards/:projectId/tasks/:taskId/start-anyway SHALL avviare solo la card scelta**, anche sotto la soglia memoria, conservandone il costo reale e tutte le altre guardie. Doppie richieste SHALL produrre un solo avvio e un solo commento «Partita per scelta dell'utente.»; una card non trattenuta dalla memoria SHALL ricevere HTTP 409.
+
+Con zero lavoro Topics in esecuzione, il posto memoria già previsto SHALL restare limitato a una card per giro anche sulle board con check locali; la soglia e il tetto «per risorse» restano invariati.
+
+#### Scenario: una card parte e le altre restano in ordine
+- **GIVEN** memoria a 4,7 GB, una board con check locali e quattro card ordinate dal dispatcher
+- **WHEN** il dispatcher esegue un giro
+- **THEN** parte una card e la seconda è in coda come posizione 2 di 4 con motivo `waiting-memory`
+
+#### Scenario: avvio manuale singolo
+- **GIVEN** una card trattenuta dalla memoria
+- **WHEN** l'owner invia due richieste concorrenti di avvio manuale
+- **THEN** parte quella card una sola volta e compare un solo commento
+
+#### Scenario: risposta senza dettagli tecnici
+- **GIVEN** memoria simulata a 4,7 GB
+- **WHEN** si legge l'API della coda
+- **THEN** la risposta contiene una soglia, posizioni, consumatori leggibili e nessun identificativo o frase tecnica del pavimento

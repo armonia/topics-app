@@ -12,17 +12,12 @@ export interface DispatchResourceBlockDeps {
 
 export function createDispatchResourceBlock(
   deps: DispatchResourceBlockDeps,
-): (hold: MemoryFloorHold, noCheckReservationGB?: number) => ResourceFloorVerdict {
-  return (hold, noCheckReservationGB = 0) =>
+): (hold: MemoryFloorHold) => ResourceFloorVerdict {
+  return (hold) =>
     dispatchResourceVerdict(
       deps.worktreesPath(),
       deps.readFreeGB,
-      () => {
-        const memory = deps.heldMemory();
-        return noCheckReservationGB > 0 && memory.heldGB != null
-          ? { ...memory, heldGB: Math.max(0, memory.heldGB - noCheckReservationGB) }
-          : memory;
-      },
+      deps.heldMemory,
       deps.isCliRuntime(),
       hold,
       deps.memoryOwners?.() ?? [],

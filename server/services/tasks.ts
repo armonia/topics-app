@@ -2473,7 +2473,9 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
           // believed only while the row carries the same sentence: the published
           // block is refreshed only by a tick that reaches it, and a board with
           // no todos or a paused one leaves it at a floor that has cleared.
-          dispatchBlock: inCoda ? currentDispatchBlock() : heldResume ? heldResumeBlock(r.id, r.dispatch_error) : null,
+          dispatchBlock: inCoda
+            ? (r.dispatch_error === "waiting-memory" ? null : currentDispatchBlock())
+            : heldResume ? heldResumeBlock(r.id, r.dispatch_error) : null,
           parentStatus: r.parent_task_id ? (b.parentStatus.get(r.parent_task_id) ?? null) : null,
           projectless: r.project_id === UNASSIGNED_PROJECT_ID,
           openSubtasks: r.status === "review" ? (b.openChildren.get(r.id) ?? 0) : 0,
