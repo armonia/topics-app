@@ -123,7 +123,7 @@ watch() {
       errors=0
       red="$(printf '%s\n' "$jobs" | awk -F'\t' '$2 == "completed" && $3 == "failure"')"
       if [ -n "$red" ]; then
-        : # MUTANTE barra (c): la fermata è tolta
+        stop_step "$red"
         return
       fi
       if [ -z "$jobs" ]; then

@@ -84,6 +84,6 @@ describe('buildChangelog', () => {
       new Map([['b', '9.9.9']]),
       '9.9.9',
     );
-    expect(noiseOnly).toEqual(['rotto apposta']);
+    expect(noiseOnly).toEqual([]);
   });
 });
