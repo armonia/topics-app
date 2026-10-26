@@ -107,10 +107,12 @@ import { createExternalSessionsRouter } from "./server/routes/external-sessions"
 import { createTaskDispatcher } from "./server/services/task-dispatcher";
 import { isChecksHold as isChecksHoldOf, sweepStaleChecksLights as sweepStaleChecksLightsOf } from "./server/services/checks-lights";
 import { refreshLiveJobQuotas } from "./server/services/agent-job-quota";
-import { availableMemGB, budgetSample, computeDispatchCapacity, dispatchResourceVerdict, probeVm, setAvailableMemReader } from "./server/services/dispatch-capacity";
+import { availableMemGB, budgetSample, computeDispatchCapacity, probeVm, setAvailableMemReader } from "./server/services/dispatch-capacity";
 import { createMemSignal, fileMemSampleStore, formatMemorySignalLine } from "./server/services/mem-signal";
 import { OUR_APP_MARKERS } from "./server/services/memory-owners";
 import { createMemoryOwnersReader } from "./server/services/memory-owners-probe";
+import { createDispatchMemoryHistory } from "./server/services/dispatch-memory-history";
+import { createDispatchMemoryInputs, createDispatchResourceBlockFromInputs } from "./server/services/dispatch-memory-inputs";
 import { fleetLoadSync, fleetSessionCoreUnits, procFootprintKB, procResidentKB, registeredFleetSocketPaths } from "./server/lib/fleet-usage";
 import { recentCardMemPeaksGB } from "./server/lib/card-memory-peaks";
 import { machineCores } from "./server/lib/machine-cores";
@@ -186,7 +188,7 @@ import { readNativeUsage } from "./server/providers/native-usage-registry";
 import { getAiBridgeClient } from "./server/lib/ai-bridge-client";
 import { automaticDispatchHooks } from "./server/services/task-auto-model";
 import { dispatchTopicBinding, resolveDispatchTopicIdentity } from "./server/services/dispatch-topic-identity";
-import { commandBackgroundWork, commandWakeState, createProcessesRouter, isChatServerTask, loadProcessRegistry, sessionsAwaitingCommandWake, settleEndedShells, startProcessDetection, stopCommandWakesOf } from "./server/routes/processes";
+import { commandBackgroundWork, commandWakeState, createProcessesRouter, isChatServerTask, loadProcessRegistry, sessionsAwaitingCommandWake, settleEndedShells, startProcessDetection, stopCardCommandProcesses, stopCommandWakesOf, stopTopicCommandProcesses } from "./server/routes/processes";
 import { startProcessExitWakes } from "./server/lib/process-exit-wake";
 import { startSubagentWakes } from "./server/services/subagent-wake";
 import { abandonCutTurn, adoptNativeChildrenAtBoot, configureNativeSubagents } from "./server/lib/native-subagents";
@@ -246,6 +248,12 @@ import { createNodeClient, readDelegatedNodeToken, readNodeToken } from "./serve
 import { appendDelegatedRunAudit, delegatedPolicyForTask } from "./server/lib/delegated-agent-start";
 import { createNodeBranchPlanter } from "./server/services/node-branch-plant";
 import { projectPathOfAnyId } from "./server/lib/project-identity";
+import { CloudApi } from "./server/providers/claude-cloud/api";
+import { credentialsFor } from "./server/providers/claude-cloud/creds";
+import {
+  CLOUD_NODE_BASE_URL, CLOUD_NODE_HOST, CLOUD_NODE_NAME, CLOUD_NODE_TOKEN,
+  cloudCredentialsPresent, createCloudNodeClient, isCloudBaseUrl,
+} from "./server/providers/claude-cloud/node";
 import { createDelegatedRevocationRetry } from "./server/services/delegated-revocation-retry";
 import { initVapid } from "./server/push-service";
 import { startDevBundleReload, readBundleRev, stampBundleRev } from "./server/lib/dev-bundle-reload";
@@ -977,6 +985,7 @@ const topicsRouter = createTopicsRouter(ctx, browserService, paneAttachedTo, {
   hooks: defaultLifecycleHooks(),
   exposeGoalLoop: (l) => { goalLoop = l; },
   exposeAnswerRelay: (r) => { answerRelay = r; },
+  stopTopicProcesses: stopTopicCommandProcesses,
 });
 const orchestratorSessionsRouter = createOrchestratorSessionsRouter(ctx);
 const filesRouter = createFilesRouter(ctx);
@@ -1668,6 +1677,7 @@ const retirementConsequences: ReconcileDeps = {
         purgeTopicFromUiState(ctx.db, ctx.broadcastToAll, id, (c) => browserService.destroyContext(c)),
       parkClaudeSession: parkTopicSession,
       recordRetirement: (id, at) => recordRetirement(ctx.db, "topic", id, at, "archive"),
+      stopProcesses: stopTopicCommandProcesses,
     }, topicId);
     // Nessuna risposta HTTP da restituire qui: la purge fallita si logga, non
     // può fermare il ritiro (il task è finito comunque).
@@ -1826,6 +1836,28 @@ const projectPathForNode = (projectId: string) =>
 const nodeBranchPlanter = createNodeBranchPlanter({
   repoPathOf: projectPathForNode,
 });
+/**
+ * The Claude cloud as a node (KANBAN-76 lane): a card on the «Cloud Claude» machine runs in a
+ * Claude Code cloud session, and this server only polls it. The machine row exists only where
+ * Claude Code's credentials do, so the picker never offers a cloud nobody can reach.
+ */
+const cloudNode = createCloudNodeClient({
+  api: new CloudApi(credentialsFor(process.env.TOPICS_CLAUDE_CLOUD_ACCOUNT || undefined)),
+  repoPathOfTask: (taskId) => {
+    const projectId = dispatcherSvc.get(taskId)?.task.projectId;
+    return projectId ? projectPathForNode(projectId) ?? null : null;
+  },
+  statePath: join(ctx.STATE_DIR, "claude-cloud-runs.json"),
+});
+const cloudEnabled = cloudCredentialsPresent();
+if (cloudEnabled) {
+  // Un nodo accoppiato che si chiama proprio «claude-cloud» resta suo: non gli si riscrive l'indirizzo.
+  const existing = ctx.machineStore.getByHostname(CLOUD_NODE_HOST);
+  if (!existing || isCloudBaseUrl(existing.baseUrl)) {
+    try { ctx.machineStore.upsertNode({ hostname: CLOUD_NODE_HOST, name: existing?.name ?? CLOUD_NODE_NAME, baseUrl: CLOUD_NODE_BASE_URL }); }
+    catch (err) { console.warn("[claude-cloud] riga della macchina cloud non scritta", err); }
+  }
+}
 
 /**
  * THE MEMORY SIGNAL, one probe with a 2-minute history for every memory reader:
@@ -1863,13 +1895,18 @@ const memSignal = createMemSignal({
   measurable: process.platform === "darwin",
   store: fileMemSampleStore(join(resolveStateDir(process.cwd()), "mem-samples.json")),
 });
+const dispatchMemoryHistory = createDispatchMemoryHistory();
+function recordDispatchMemoryHistory(): void {
+  const sample = memSignal.samples().at(-1);
+  if (sample?.availGB != null) dispatchMemoryHistory.record(sample.at, sample.availGB);
+}
 // Created here, before the listener opens: the socket open handler sends its
 // frame, and the port starts accepting during the boot's first await.
 const memoryPressureSignal = createMemoryPressureSignal(
   (frame) => broadcastToAll(frame),
   memSignal.swap().sustained,
 );
-void memSignal.sample();
+void memSignal.sample().then(recordDispatchMemoryHistory);
 // The capacity reading takes its memory from this sample instead of a
 // synchronous `vm_stat` per request; the sync probe stays only as the fallback
 // when no fresh sample exists (see `setAvailableMemReader`).
@@ -1898,7 +1935,19 @@ const memoryOwners = createMemoryOwnersReader({
   },
 });
 
+const dispatchMemoryInputs = createDispatchMemoryInputs({
+  heldMemory: () => memSignal.held(),
+  runtime: resolveAgentRuntime,
+  memoryReading: () => {
+    const sample = memSignal.samples().at(-1);
+    return { freeGB: sample?.availGB ?? null, at: sample?.at ?? null };
+  },
+  memoryHistory: () => dispatchMemoryHistory.read(),
+  memoryOwners: () => memoryOwners.latest(),
+});
+
 const taskDispatcher = createTaskDispatcher({
+  stopCardProcesses: stopCardCommandProcesses,
   captureDelivery: (taskId) => capturaConsegna ? capturaConsegna(taskId) : Promise.resolve(false),
   uncommittedInWorktree: (taskId) =>
     sondaLavoroNonCommittato ? sondaLavoroNonCommittato(taskId) : Promise.resolve(null),
@@ -1993,6 +2042,7 @@ const taskDispatcher = createTaskDispatcher({
   agentMemSamples: () => {
     try { return recentCardMemPeaksGB(); } catch { return []; }
   },
+  ...dispatchMemoryInputs,
   // Corse di check pre-review in volo: ogni barra vale uno slot nel freno.
   // Letto dalla closure: il checksGate nasce dentro `createTasksRouter`, che e'
   // dopo questa chiamata, ma prima del primo tick o resume. Zero finche' non
@@ -2095,15 +2145,11 @@ const taskDispatcher = createTaskDispatcher({
   // riga di SQLite già in cache.
   // `hold` is the dispatcher's: the price of one card, the memory kept for the
   // turns in flight, and whether any of our work is on the machine.
-  resourceBlock: (hold) =>
-    dispatchResourceVerdict(
-      ctx.worktreeManager.worktreesDir(),
-      undefined,
-      () => memSignal.held(),
-      resolveAgentRuntime() === "cli",
-      hold,
-      memoryOwners.latest(),
-    ),
+  resourceBlock: createDispatchResourceBlockFromInputs({
+    worktreesPath: () => ctx.worktreeManager.worktreesDir(),
+    inputs: dispatchMemoryInputs,
+    memoryOwners: () => memoryOwners.latest(),
+  }),
   // Il ramo di una card nasce da MAIN, non dall'HEAD del checkout condiviso, e
   // da qui in poi la stessa nascita la usa anche un sotto-agente isolato
   // (WORKTREE-14): il corpo sta in `worktree-for-agent.ts`, il perché del
@@ -2204,13 +2250,17 @@ const taskDispatcher = createTaskDispatcher({
   // deleted from the board, or a token file removed by hand, has to STOP being
   // usable at once, and a copy held in a closure would keep the node reachable
   // long after somebody decided it should not be.
+  // The «Cloud Claude» machine is a node too: same lane, but its four calls go to the
+  // Claude Code sessions API (`providers/claude-cloud/node.ts`), never to a paired Topics.
   node: {
-    createRun: (input) => nodeClient.createRun(input),
-    readRun: (input) => nodeClient.readRun(input),
-    fetchBundle: (input) => nodeClient.fetchBundle(input),
-    cancelRun: (input) => nodeClient.cancelRun(input),
+    createRun: (input) => isCloudBaseUrl(input.baseUrl) ? cloudNode.createRun(input) : nodeClient.createRun(input),
+    readRun: (input) => isCloudBaseUrl(input.baseUrl) ? cloudNode.readRun(input) : nodeClient.readRun(input),
+    fetchBundle: (input) => isCloudBaseUrl(input.baseUrl) ? cloudNode.fetchBundle(input) : nodeClient.fetchBundle(input),
+    cancelRun: (input) => isCloudBaseUrl(input.baseUrl) ? cloudNode.cancelRun(input) : nodeClient.cancelRun(input),
     baseUrlOf: (machineId) => ctx.machineStore.get(machineId)?.baseUrl ?? null,
-    tokenOf: (machineId) => readNodeToken(ctx.STATE_DIR, machineId),
+    tokenOf: (machineId) => isCloudBaseUrl(ctx.machineStore.get(machineId)?.baseUrl)
+      ? CLOUD_NODE_TOKEN
+      : readNodeToken(ctx.STATE_DIR, machineId),
     delegatedTokenOf: (machineId, capabilityId) =>
       readDelegatedNodeToken(ctx.STATE_DIR, machineId, capabilityId),
     nameOf: (machineId) => ctx.machineStore.get(machineId)?.name ?? null,
@@ -2735,6 +2785,8 @@ const landingQueue = createLandingQueue({ log: (m) => console.warn(m) });
 const tasksRouter = createTasksRouter(ctx, taskDispatcher, {
   scheduledCards,
   landings: landingQueue,
+  stopCardProcesses: stopCardCommandProcesses,
+  stopTopicProcesses: stopTopicCommandProcesses,
   repoRootFor: repoRootForCard,
   workspaceDir: DISPATCH_WORKSPACE_DIR,
   // Il titolo leggibile di una card dettata (`services/task-title.ts`). Si
@@ -2880,6 +2932,7 @@ const tasksRouter = createTasksRouter(ctx, taskDispatcher, {
   // Human "stop" on a dispatched task cuts the running turn (same abort path
   // as the dispatcher's wall-clock timeout).
   abortTurn: abortHeadlessTurn,
+  hasLiveTurn: (sk) => activeStreams.has(sk),
   killAgentTree: killAgentProcessTree,
   // Collega il gate dei check al freno del dispatcher: appena il gate esiste,
   // `checksGateRunningCount` punta al suo `runningCount()` e il dispatcher
@@ -3091,6 +3144,14 @@ function tickHeartbeat() {
   try {
     const local = ctx.machineStore.upsertLocal();
     ctx.broadcastToAll({ type: "machine:upserted", machine: local, payload_version: 1 });
+    // La macchina cloud non manda heartbeat: è viva finché c'è la sua riga, quindi la
+    // rinfreschiamo noi, o dopo 5 minuti la card direbbe «non risponde» su un servizio vivo.
+    // Solo se il cloud è acceso QUI: una riga rimasta da un avvio di prima, a cloud spento,
+    // deve diventare «non risponde» col giro normale invece di restare in linea.
+    const cloud = cloudEnabled ? ctx.machineStore.getByHostname(CLOUD_NODE_HOST) : null;
+    if (cloud && isCloudBaseUrl(cloud.baseUrl)) {
+      ctx.machineStore.upsertNode({ hostname: CLOUD_NODE_HOST, name: cloud.name, baseUrl: CLOUD_NODE_BASE_URL });
+    }
     const flipped = ctx.machineStore.markStaleOffline(STALE_THRESHOLD_MS);
     for (const m of flipped) {
       ctx.broadcastToAll({ type: "machine:updated", machine: m, payload_version: 1 });
@@ -3613,6 +3674,30 @@ const opzioniServer = {
         return new Response(JSON.stringify({ ok: true }), {
           status: 202, headers: { "content-type": "application/json" },
         });
+      }
+      if (method === "GET" && pathname === "/__daemon/idle") {
+        // "Is a turn in flight?" - READ-ONLY. Whoever wants a conditional restart
+        // (the Mac hub) must be able to ask first, without committing:
+        // `restart-when-idle` opens a wait and then sends the SIGTERM, and the
+        // only way to learn the state was to start it.
+        //
+        // This does NOT call `waitForDispatcherQuiescent`, does no
+        // `drain`/`undrain` and sends no signal: it reads the predicates the gate
+        // uses (`whatIsStillWorking`, which composes `describeInFlight` and
+        // `chatsHolding`). A GET that changed their state would close the
+        // dispatcher door or restart the server for someone who only wanted to
+        // look: the test holds that still.
+        const { busy: holding, cards, unadoptable } = await whatIsStillWorking();
+        return new Response(JSON.stringify({
+          idle: holding === null,
+          inFlight: taskDispatcher.busyCount(),
+          // `null` = nothing is holding. Same sentence the gate puts in the log.
+          holding,
+          // Whoever does not come back after a restart: the same sum the gate
+          // passes to `quiescenceVerdict` as `unrecoverable`.
+          unrecoverable: cards + unadoptable,
+          alreadyWaiting: attesaQuiescenza.inProgress() !== null,
+        }), { status: 200, headers: { "content-type": "application/json" } });
       }
       if (method === "POST" && pathname === "/__daemon/restart-when-idle") {
         // Graceful restart that WAITS for agent turns to finish first — the
@@ -5420,6 +5505,7 @@ const MEMSIG_EVERY_MS = 60_000;
 let memsigAt = 0;
 const dispatchTimer = setInterval(() => {
   void memSignal.sample().then(() => {
+    recordDispatchMemoryHistory();
     memoryPressureSignal.update(memSignal.swap().sustained);
     // THE BRAKE FIRST, THE FREEZER AFTER, ON ONE WINDOW. The brake kills a check
     // round (memory back, no verdict lost); the freezer only stops an agent's

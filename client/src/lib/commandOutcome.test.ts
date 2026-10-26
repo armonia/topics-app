@@ -20,9 +20,13 @@ function sp(over: Partial<ScriptProcessInfo>): ScriptProcessInfo {
 
 test('running, exit N, stopped and unknown are four different things', () => {
   expect(commandOutcome(sp({}))).toEqual({ kind: 'running' });
+  expect(commandOutcome(sp({ closing: true }))).toEqual({ kind: 'closing' });
+  expect(commandOutcome(sp({ stopFailed: true }))).toEqual({ kind: 'not-stopped' });
   expect(commandOutcome(sp({ status: 'done', exitCode: 0 }))).toEqual({ kind: 'exit', code: 0 });
   expect(commandOutcome(sp({ status: 'error', exitCode: 3 }))).toEqual({ kind: 'exit', code: 3 });
   expect(commandOutcome(sp({ status: 'error', exitCode: -1, stopped: true }))).toEqual({ kind: 'stopped' });
+  expect(commandOutcome(sp({ status: 'done', exitCode: 0, closing: true }))).toEqual({ kind: 'closing' });
+  expect(commandOutcome(sp({ status: 'done', exitCode: 0, stopFailed: true }))).toEqual({ kind: 'not-stopped' });
   expect(commandOutcome(sp({ status: 'error' }))).toEqual({ kind: 'unknown' });
 });
 

@@ -1903,6 +1903,8 @@ const EN = {
   'processes.outcome.exit': 'exit {code}',
   'processes.outcome.stopped': 'stopped',
   'processes.outcome.unknown': 'unknown outcome',
+  'processes.outcome.closing': 'stopping',
+  'processes.outcome.notStopped': 'still running',
   'sidebar.expand': 'Reopen the sidebar',
   'sidebar.tree': 'Sidebar',
   'sidebar.archivedMore.one': 'Show the last archived chat',

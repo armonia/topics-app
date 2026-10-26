@@ -1639,9 +1639,12 @@ export const E2E_CI_CHECK: ReviewCheck = { name: "e2e-ci", cmd: "github-ci:e2e" 
  */
 export const UNIT_CI_CHECK: ReviewCheck = { name: "unit-ci", cmd: "github-ci:unit" };
 
+/** The typecheck, lint and static guard-rail evidence row from the `gates` CI job. */
+export const GATES_CI_CHECK: ReviewCheck = { name: "gates-ci", cmd: "github-ci:gates" };
+
 export function isCiEvidenceCheck(check: { cmd: string }): boolean {
   const cmd = check.cmd.trim();
-  return cmd === E2E_CI_CHECK.cmd || cmd === UNIT_CI_CHECK.cmd;
+  return cmd === E2E_CI_CHECK.cmd || cmd === UNIT_CI_CHECK.cmd || cmd === GATES_CI_CHECK.cmd;
 }
 
 /**
@@ -1968,6 +1971,41 @@ export interface DispatchCapacity {
    * the door open), or no reading (an old server): no verdict is drawn then.
    */
   admission?: DispatchAdmission | null;
+}
+
+/**
+ * Read-only memory admission data returned by GET /api/dispatch/memory-queue.
+ * `taskId` and `boardId` are reversible opaque references suitable for routing
+ * back to task detail/actions without exposing UUID-shaped identifiers.
+ * `position` follows the next round-robin dispatch pass and counts cards
+ * already running ahead of this waiter, so a queue of four reads 2 of 4 after
+ * the first card starts. `startGB` is the effective memory cutoff used by the
+ * gate. `costGB` and `weightGB` use the dispatcher's live per-card memory cost
+ * estimate, not a measured process footprint or the smaller first-card seat.
+ * The same per-card state rides task:updated for dashboards and task details;
+ * queue history and memory owners stay in process memory and are never stored.
+ */
+export type DispatchMemoryQueueReason = "waiting-memory";
+
+export interface DispatchMemoryQueueCard {
+  reason: DispatchMemoryQueueReason;
+  position: number;
+  total: number;
+  costGB: number;
+}
+
+export interface DispatchMemoryQueueItem extends DispatchMemoryQueueCard {
+  taskId: string;
+  boardId: string;
+}
+
+export interface DispatchMemoryQueueSnapshot {
+  reading: { freeGB: number | null; at: string | null };
+  threshold: { startGB: number };
+  queue: DispatchMemoryQueueItem[];
+  running: Array<{ taskId: string; title: string; weightGB: number }>;
+  consumers: Array<{ label: string; gb: number }>;
+  history: Array<{ at: string; freeGB: number }>;
 }
 
 /**

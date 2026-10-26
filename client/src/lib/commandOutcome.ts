@@ -12,11 +12,15 @@ import type { ScriptProcessInfo } from './api';
 
 export type CommandOutcome =
   | { kind: 'running' }
+  | { kind: 'closing' }
+  | { kind: 'not-stopped' }
   | { kind: 'exit'; code: number }
   | { kind: 'stopped' }
   | { kind: 'unknown' };
 
-export function commandOutcome(sp: Pick<ScriptProcessInfo, 'status' | 'exitCode' | 'stopped'>): CommandOutcome {
+export function commandOutcome(sp: Pick<ScriptProcessInfo, 'status' | 'exitCode' | 'stopped' | 'closing' | 'stopFailed'>): CommandOutcome {
+  if (sp.closing) return { kind: 'closing' };
+  if (sp.stopFailed) return { kind: 'not-stopped' };
   if (sp.status === 'running') return { kind: 'running' };
   if (sp.stopped) return { kind: 'stopped' };
   return typeof sp.exitCode === 'number' ? { kind: 'exit', code: sp.exitCode } : { kind: 'unknown' };

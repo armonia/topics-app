@@ -4,6 +4,8 @@
 import { test, expect, describe } from "bun:test";
 import {
   ARCHIVE_PARKED_LABEL,
+  E2E_CI_CHECK,
+  GATES_CI_CHECK,
   LAND_ACTION_LABEL,
   PARKED_STOPPED,
   PLAN_APPROVE_LABEL,
@@ -15,9 +17,11 @@ import {
   REQUEUE_PARKED_LABEL,
   STATUS_EVENT_REASON_MAX,
   TAKE_OVER_PARKED_LABEL,
+  UNIT_CI_CHECK,
   deriveQueueReason,
   deriveSubtaskWork,
   formatStatusEvent,
+  isCiEvidenceCheck,
   isAncestorAtWork,
   hasPlanApproveOption,
   isBoardActionLabel,
@@ -38,6 +42,23 @@ import { queueReasonKeys } from "./board";
 import EN from "../client/src/lib/i18n-en";
 import IT from "../client/src/lib/i18n-it";
 import { interpolate } from "../client/src/lib/i18n";
+
+/** @covers KANBAN-84 */
+describe("CI evidence check classification", () => {
+  /** @covers KANBAN-84 */
+  test("github-ci:gates is CI evidence and a local command is not", () => {
+    expect(isCiEvidenceCheck({ cmd: "github-ci:gates" })).toBe(true);
+    expect(isCiEvidenceCheck({ cmd: "bun run typecheck" })).toBe(false);
+  });
+
+  /** @covers KANBAN-84 */
+  test("a board with only CI evidence rows has no local checks for admission", () => {
+    const checks = [E2E_CI_CHECK, UNIT_CI_CHECK, GATES_CI_CHECK];
+    const localChecks = checks.filter((check) => !isCiEvidenceCheck(check));
+
+    expect(localChecks).toEqual([]);
+  });
+});
 
 /**
  * The catalogue lookup a person's screen does, minus React. The Italian one

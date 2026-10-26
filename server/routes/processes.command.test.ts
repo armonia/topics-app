@@ -16,9 +16,13 @@ import { join } from "path";
 const STATE = mkdtempSync(join(tmpdir(), "topics-cmd-state-"));
 const previousDataDir = process.env.DATA_DIR;
 process.env.DATA_DIR = STATE;
-const { createProcessesRouter, listOwnedScripts, logPathOf } = await import("./processes");
+const { createProcessesRouter, listOwnedScripts, logPathOf, stopCardCommandProcesses } = await import("./processes");
+const {
+  COMMAND_GROUP_CONFIRM_MS, COMMAND_GROUP_TERM_GRACE_MS, commandProcessGroup, processGroupAlive,
+} = await import("../lib/command-process-groups");
 
 const PROJECT = realpathSync(mkdtempSync(join(tmpdir(), "topics-cmd-project-")));
+const RUN_COMMAND_RELEASE = join(PROJECT, "run-command.release");
 mkdirSync(join(PROJECT, "sub"));
 // A link inside the project that points out of it: the third way out.
 symlinkSync(tmpdir(), join(PROJECT, "out"));
@@ -32,9 +36,18 @@ afterAll(() => {
 
 const TOPIC = { id: "topic-cmd", sessionKey: "topic:cmd" };
 
-function makeRouter(opts: { globalSessionKey?: string } = {}) {
+function makeRouter(opts: { globalSessionKey?: string; cardId?: string; attemptCardId?: string; cardStatus?: string } = {}) {
   const ctx = {
     db: {
+      prepare: (sql: string) => ({
+        get: (value: string) => sql.includes("assigned_topic_id") && value === TOPIC.id && opts.cardId
+          ? { id: opts.cardId }
+          : sql.includes("task_attempts") && value === TOPIC.id && opts.attemptCardId
+            ? { id: opts.attemptCardId }
+            : sql.includes("SELECT status, archived") && value === opts.cardId
+              ? { status: opts.cardStatus ?? "in_progress", archived: 0 }
+              : null,
+      }),
       query: (sql: string) => ({
         get: (_scope: string, sessionKey: string) =>
           sql.includes("topics.session_key") && sessionKey === opts.globalSessionKey
@@ -64,7 +77,7 @@ async function call(router: ReturnType<typeof makeRouter>, method: string, path:
 const run = (router: ReturnType<typeof makeRouter>, body: unknown, sessionKey = TOPIC.sessionKey) =>
   call(router, "POST", `/api/sessions/${encodeURIComponent(sessionKey)}/commands/run`, body);
 
-type Row = { processId: string; source: string; status: string; exitCode?: number; topicId?: string; stopped?: boolean; command: string };
+type Row = { processId: string; source: string; status: string; exitCode?: number; topicId?: string; stopped?: boolean; closing?: boolean; stopFailed?: boolean; command: string };
 async function rowOf(router: ReturnType<typeof makeRouter>, processId: string): Promise<Row | undefined> {
   const { scripts } = await (await call(router, "GET", `/api/sessions/${encodeURIComponent(TOPIC.sessionKey)}/scripts`)).json() as { scripts: Row[] };
   return scripts.find((s) => s.processId === processId);
@@ -85,13 +98,20 @@ async function logOf(router: ReturnType<typeof makeRouter>, processId: string): 
 describe("POST /api/sessions/:sessionKey/commands/run", () => {
   test("the command starts and becomes a running row of the topic", async () => {
     const router = makeRouter();
-    const resp = await run(router, { command: "echo tick 1; sleep 1; echo tick 2" });
+    const command = `while [ ! -f '${RUN_COMMAND_RELEASE}' ]; do sleep 0.05; done; echo tick 1; echo tick 2`;
+    const resp = await run(router, { command });
+    if (resp.status !== 200) throw new Error(`run_command failed: ${await resp.text()}`);
     expect(resp.status).toBe(200);
     const { processId } = await resp.json() as { processId: string };
     expect(processId).toBeTruthy();
 
-    const row = await rowOf(router, processId);
-    expect(row).toMatchObject({ source: "command", topicId: TOPIC.id, status: "running" });
+    try {
+      const row = await rowOf(router, processId);
+      if (row?.status !== "running") throw new Error(`run_command row: ${JSON.stringify(row)}; output: ${await logOf(router, processId)}`);
+      expect(row).toMatchObject({ source: "command", topicId: TOPIC.id, status: "running" });
+    } finally {
+      writeFileSync(RUN_COMMAND_RELEASE, "");
+    }
 
     const done = await until(() => rowOf(router, processId), (r) => r?.status !== "running");
     expect(done).toMatchObject({ status: "done", exitCode: 0 });
@@ -100,10 +120,18 @@ describe("POST /api/sessions/:sessionKey/commands/run", () => {
     expect(log).toContain("tick 2");
   });
 
+  test("a fan-out attempt topic registers its owning card", async () => {
+    const cardId = "fanout-card";
+    const router = makeRouter({ attemptCardId: cardId });
+    const { processId } = await (await run(router, { command: "sleep 1" })).json() as { processId: string };
+    expect(commandProcessGroup(processId)?.cardId).toBe(cardId);
+    await until(() => rowOf(router, processId), (row) => row?.status !== "running");
+  });
+
   test("the outcome stays readable: exit 3 keeps the row, and its log", async () => {
     const router = makeRouter();
     const { processId } = await (await run(router, { command: "echo tick 1; echo tick 2; exit 3" })).json() as { processId: string };
-    const row = await until(() => rowOf(router, processId), (r) => r?.status !== "running");
+    const row = await until(() => rowOf(router, processId), (r) => r?.status !== "running", 15_000);
     expect(row).toMatchObject({ source: "command", status: "error", exitCode: 3 });
     expect(await logOf(router, processId)).toContain("tick 2");
   });
@@ -196,12 +224,43 @@ describe("POST /api/sessions/:sessionKey/commands/run", () => {
     const row = await until(() => rowOf(router, processId), (r) => r?.status !== "running");
     expect(row).toMatchObject({ source: "command", status: "error", stopped: true });
     // Its own process group: nothing of it is left.
-    const group = await until(
-      async () => Bun.spawnSync(["pgrep", "-g", String(pid)]).stdout.toString().trim(),
-      (out) => out === "",
-    );
-    expect(group).toBe("");
+    const group = await until(() => Promise.resolve(processGroupAlive(pid)), (alive) => !alive);
+    expect(group).toBe(false);
   });
+
+  // The orphan ignores TERM by design, so it only dies on the SIGKILL that
+  // follows the full grace, and the row turns stopped after the KILL is
+  // confirmed. Every wait is derived from those two constants, plus a margin
+  // wide enough for a loaded machine, so a longer grace cannot outgrow them.
+  const LOAD_MARGIN_MS = 20_000;
+  const ORPHAN_STOPPED_WITHIN_MS = COMMAND_GROUP_TERM_GRACE_MS + COMMAND_GROUP_CONFIRM_MS + LOAD_MARGIN_MS;
+
+  test("card closure stops a wake:false Apple-shell orphan and marks stopped only after group death", async () => {
+    const cardId = "card-process-close";
+    const router = makeRouter({ cardId });
+    const shell = process.platform === "darwin" ? "/bin/zsh" : "/bin/sh";
+    const orphanShell = process.platform === "darwin" ? "/bin/zsh" : "/bin/sh";
+    const command = `${shell} -c 'trap "" TERM; ${orphanShell} -c "sleep 60; tail -f /dev/null"'`;
+    const { processId } = await (await run(router, { command, wake: false })).json() as { processId: string };
+    const group = commandProcessGroup(processId)!;
+    try {
+      expect(group).toMatchObject({ cardId, ownerKey: TOPIC.sessionKey, topicId: TOPIC.id });
+      expect((await rowOf(router, processId))?.stopped).toBeUndefined();
+      stopCardCommandProcesses(cardId);
+      // The closing state lasts the whole grace: that is the window to see it in.
+      const retiringRow = await until(() => rowOf(router, processId), (row) => row?.closing === true, COMMAND_GROUP_TERM_GRACE_MS);
+      expect(retiringRow).toMatchObject({ status: "running", closing: true });
+      expect(retiringRow?.stopped).toBeUndefined();
+
+      const stopped = await until(() => rowOf(router, processId), (row) => row?.stopped === true, ORPHAN_STOPPED_WITHIN_MS);
+      expect(stopped).toMatchObject({ status: "error", stopped: true });
+      expect(processGroupAlive(group.pgid)).toBe(false);
+    } finally {
+      if (processGroupAlive(group.pgid)) {
+        try { process.kill(-group.pgid, "SIGKILL"); } catch {}
+      }
+    }
+  }, COMMAND_GROUP_TERM_GRACE_MS + ORPHAN_STOPPED_WITHIN_MS + LOAD_MARGIN_MS);
 });
 
 // A script's log is written through the registry's folder once per output

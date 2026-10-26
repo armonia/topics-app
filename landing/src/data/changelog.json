@@ -1,5 +1,19 @@
 [
   {
+    "version": "2.3.34",
+    "date": "2026-10-26",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [
+        {
+          "text": "porta cache TTL a 1h e keepalive a 4 min (#481)",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
     "version": "2.3.23",
     "date": "2026-10-24",
     "sections": {

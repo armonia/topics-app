@@ -97,6 +97,9 @@
         // altrettanto stretta: `scripts/bench/*.ts` e non `scripts/**`, così un
         // file morto dentro bench/ resta visibile.
         "scripts/bench/*.ts!",
+        // Il banco cloud contro locale e la sonda dello stop delle sessioni cloud:
+        // si lanciano a mano, i numeri stanno in cloud-vs-local/RESULTS.md.
+        "scripts/bench/cloud-vs-local/*.ts!",
         // `bun scripts/webrtc-probe.ts` — la sonda del percorso WebRTC: si lancia a
         // mano quando si vuole vedere encode/trasporto dal vivo, nessuno la importa.
         "scripts/webrtc-probe.ts!",

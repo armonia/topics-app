@@ -110,6 +110,15 @@ const OWNED_BY_TASK = `EXISTS (
      AND ${topicSessionKeyMatchesSql("ts.parent_session_key", "t.assigned_topic_id")})`;
 
 /**
+ * "This task's agent lives on THIS machine." A card that names a paired node or
+ * Cloud Claude (a machine row with a `base_url`) runs over there and spends no
+ * process here, so no cap or weight rule of this machine may count it. Every
+ * row this Mac itself ever had (one per hostname) has a null `base_url`.
+ */
+export const RUNS_HERE_SQL =
+  "NOT EXISTS (SELECT 1 FROM machines m WHERE m.id = tasks.machine_id AND m.base_url IS NOT NULL)";
+
+/**
  * Quanti TASK hanno un agente vivo. `projectId` assente = a macchina intera
  * (lo scope `global` del claim: N board non possono moltiplicarsi in N×tetto).
  */
@@ -117,10 +126,10 @@ export function dispatchedTaskCount(db: Database, projectId?: string | null): nu
   const sql = projectId
     ? `SELECT COUNT(*) AS c FROM tasks
         WHERE project_id = ? AND status = 'in_progress'
-          AND dispatch_state IN ${LIVE_DISPATCH_STATES} AND archived = 0`
+          AND dispatch_state IN ${LIVE_DISPATCH_STATES} AND archived = 0 AND ${RUNS_HERE_SQL}`
     : `SELECT COUNT(*) AS c FROM tasks
         WHERE status = 'in_progress'
-          AND dispatch_state IN ${LIVE_DISPATCH_STATES} AND archived = 0`;
+          AND dispatch_state IN ${LIVE_DISPATCH_STATES} AND archived = 0 AND ${RUNS_HERE_SQL}`;
   const stmt = db.prepare(sql);
   const row = (projectId ? stmt.get(projectId) : stmt.get()) as { c?: number } | undefined;
   return row?.c ?? 0;
