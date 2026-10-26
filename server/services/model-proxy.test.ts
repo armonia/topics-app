@@ -41,12 +41,12 @@ beforeAll(() => {
       const status = upstreamStatuses.shift() ?? 200;
       if (status !== 200) return new Response(JSON.stringify({ type: "error" }), { status });
       if (sse) {
-        const enc = new TextEncoder();
+        const encoder = new TextEncoder();
         return new Response(new ReadableStream({
           async start(c) {
-            c.enqueue(enc.encode("event: ping\ndata: 1\n\n"));
+            c.enqueue(encoder.encode("event: ping\ndata: 1\n\n"));
             await Bun.sleep(600);
-            c.enqueue(enc.encode("event: ping\ndata: 2\n\n"));
+            c.enqueue(encoder.encode("event: ping\ndata: 2\n\n"));
             c.close();
           },
         }), { headers: { "content-type": "text/event-stream" } });

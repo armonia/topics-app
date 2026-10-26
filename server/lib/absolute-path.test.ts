@@ -1,3 +1,10 @@
+/**
+ * A project path is absolute in the shape of the machine the server runs on:
+ * `C:\...` and `E:\...` on Windows, `/...` elsewhere. Before, Windows refused
+ * every folder, and a PC node could register no project at all.
+ *
+ * @covers PROJECT-01
+ */
 import { describe, expect, test } from "bun:test";
 import { isAbsoluteServerPath } from "./absolute-path";
 

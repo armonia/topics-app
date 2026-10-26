@@ -7,6 +7,8 @@
  * Mac's last fetch. The base commit is then missing on the Mac only because the
  * clone is behind, and ONE fetch of origin must repair it. When origin does not
  * have it either, the card gets the reason, not a full-history bundle.
+ *
+ * @covers KANBAN-76
  */
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { execFileSync } from "node:child_process";

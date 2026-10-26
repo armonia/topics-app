@@ -1,3 +1,10 @@
+/**
+ * The Topics MCP bridge of an agent CLI: Bun runs the script in a checkout, the
+ * compiled binary becomes the bridge with a flag. Without it the card that runs
+ * on a paired node (installed Windows binary) had no Topics tools at all.
+ *
+ * @covers KANBAN-76
+ */
 import { describe, expect, test } from "bun:test";
 import { resolve } from "node:path";
 import { TOPICS_MCP_BRIDGE_FLAG, topicsMcpBridgeLaunch } from "./topics-mcp-bridge-argv";
@@ -12,9 +19,9 @@ describe("topicsMcpBridgeLaunch", () => {
 
   test("compiled binary: no script on disk, the binary is asked to be the bridge", () => {
     // What Topics 2.3.30 for Windows saw: the embedded path does not exist.
-    const exe = "C:\\Users\\u\\AppData\\Local\\Topics\\topics-server.exe";
-    const got = topicsMcpBridgeLaunch(flags, { moduleDir: "B:/~BUN/root", execPath: exe, exists: () => false });
-    expect(got.command).toBe(exe);
+    const executable = "C:\\Users\\u\\AppData\\Local\\Topics\\topics-server.exe";
+    const got = topicsMcpBridgeLaunch(flags, { moduleDir: "B:/~BUN/root", execPath: executable, exists: () => false });
+    expect(got.command).toBe(executable);
     expect(got.args).toEqual([TOPICS_MCP_BRIDGE_FLAG, ...flags]);
     expect(got.args).not.toContain("run");
   });

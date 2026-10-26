@@ -1,3 +1,10 @@
+/**
+ * A card carries its BOARD id, the project store wants the UUID: the node lane
+ * resolves the checkout from either, or a card created on the board would find
+ * no repository to plant its branch in.
+ *
+ * @covers KANBAN-76
+ */
 import { describe, expect, test } from "bun:test";
 import { Database } from "bun:sqlite";
 import { projectIdForPath } from "../../shared/board";
