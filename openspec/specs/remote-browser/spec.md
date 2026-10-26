@@ -2672,6 +2672,13 @@ la finestra saliva di altrettanto oltre la chat, e in orizzontale usciva dallo s
 - **WHEN** l'utente trascina il bordo sinistro verso sinistra, senza ancora rilasciare
 - **THEN** la finestra è già più larga e il bordo destro del composer non supera il bordo sinistro della finestra
 
+#### Scenario: espansa, la pagina remota cambia larghezza durante il trascinamento
+- **GIVEN** una finestra espansa con una pagina aperta
+- **WHEN** l'utente trascina il bordo sinistro senza fermarsi e senza rilasciare
+- **THEN** la pagina remota ha già cambiato `window.innerWidth` almeno due volte prima del rilascio
+  (la misura parte al massimo ogni 50 ms, non dopo una pausa del puntatore)
+- **AND** dopo il rilascio la pagina ha l'ultima larghezza della finestra
+
 #### Scenario: una scheda diventa tab e torna indietro
 - **GIVEN** una finestra con due schede, attiva la prima
 - **WHEN** l'utente sceglie «Apri come tab»
