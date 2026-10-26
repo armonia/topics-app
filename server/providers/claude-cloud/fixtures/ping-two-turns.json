@@ -1,0 +1,74 @@
+[
+ {
+  "type": "user",
+  "uuid": "edc12f42-7bac-4544-a580-8b19bd308097",
+  "parent_tool_use_id": null,
+  "message": {
+   "role": "user",
+   "content": "Rispondi solo con la parola: ok. Non eseguire comandi.\n"
+  }
+ },
+ {
+  "type": "system",
+  "subtype": "init",
+  "uuid": "b6d98883-b853-4198-b9a9-d6d4c45269a3"
+ },
+ {
+  "type": "assistant",
+  "uuid": "876c01e3-bc00-494d-80ba-c0ce44cee178",
+  "parent_tool_use_id": null,
+  "message": {
+   "role": "assistant",
+   "content": [
+    {
+     "text": "ok",
+     "type": "text"
+    }
+   ]
+  }
+ },
+ {
+  "type": "result",
+  "subtype": "success",
+  "uuid": "3f3b028e-a905-4709-b9ce-051c83b35e92",
+  "result": "ok",
+  "duration_ms": 3985,
+  "total_cost_usd": 0.0894325
+ },
+ {
+  "type": "user",
+  "uuid": "42205ca2-3d88-4ab2-bb34-d23e65734875",
+  "parent_tool_use_id": null,
+  "message": {
+   "role": "user",
+   "content": "Ora rispondi solo: ok2"
+  }
+ },
+ {
+  "type": "system",
+  "subtype": "init",
+  "uuid": "fd6df556-fa5b-4c59-baa5-ba1d5a02f8c3"
+ },
+ {
+  "type": "assistant",
+  "uuid": "0469088f-b8ee-410e-8df8-e0aba9c44e5d",
+  "parent_tool_use_id": null,
+  "message": {
+   "role": "assistant",
+   "content": [
+    {
+     "text": "ok2",
+     "type": "text"
+    }
+   ]
+  }
+ },
+ {
+  "type": "result",
+  "subtype": "success",
+  "uuid": "c3898c53-821b-4077-978c-83b1eefa2420",
+  "result": "ok2",
+  "duration_ms": 4353,
+  "total_cost_usd": 0.14882410000000001
+ }
+]
