@@ -96,7 +96,7 @@ export function interceptBoardAction(
       : isPromoteParkedLabel(text) ? "promote" as const : "archive" as const;
     const descendantsByChild = new Map<string, string[]>();
     if (decision === "archive") {
-      const collectSubtree = (rootId: string): string[] => {
+      const collectDescendants = (rootId: string): string[] => {
         const ids: string[] = [];
         const seen = new Set<string>();
         const visit = (id: string) => {
@@ -109,7 +109,7 @@ export function interceptBoardAction(
         return ids;
       };
       for (const child of svc.get(taskId)?.children ?? []) {
-        descendantsByChild.set(child.id, collectSubtree(child.id));
+        descendantsByChild.set(child.id, collectDescendants(child.id));
       }
     }
     const outcome = svc.resolveParkedChildren({ taskId, decision, by: deps.by });

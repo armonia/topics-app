@@ -1,5 +1,6 @@
-import { mkdirSync } from "node:fs";
+import { mkdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
+import { dlopen, FFIType, ptr } from "bun:ffi";
 import { writeFileAtomic } from "./atomic-write";
 import { readJsonStateFile } from "./state-file";
 import { resolveStateDir, stateDirTarget } from "./data-dir";
@@ -7,6 +8,16 @@ import { resolveStateDir, stateDirTarget } from "./data-dir";
 export const COMMAND_GROUP_TERM_GRACE_MS = 10_000;
 const COMMAND_GROUP_CONFIRM_MS = 1_500;
 const COMMAND_GROUP_POLL_MS = 100;
+const DARWIN_PROC_INFO_SIZE = 136;
+
+const darwinProcLibrary = process.platform === "darwin"
+  ? dlopen("/usr/lib/libproc.dylib", {
+    proc_pidinfo: {
+      args: [FFIType.i32, FFIType.i32, FFIType.u64, FFIType.ptr, FFIType.i32],
+      returns: FFIType.i32,
+    },
+  })
+  : null;
 
 export interface CommandProcessGroup {
   processId: string;
@@ -17,7 +28,7 @@ export interface CommandProcessGroup {
   leaderPid: number;
   leaderStartTime: string;
   startedAt: string;
-  closingAt?: string;
+  retiringAt?: string;
   stopFailed?: boolean;
 }
 
@@ -28,22 +39,22 @@ export interface ProcessGroupIdentity {
 }
 
 export interface CommandProcessGroupHooks {
-  onClosing?: (group: CommandProcessGroup) => void;
+  onRetiring?: (group: CommandProcessGroup) => void;
   onSettled?: (group: CommandProcessGroup, stopped: boolean) => void;
 }
 
 type GroupFile = { groups?: unknown };
 
-const groupDirectories = new Map<string, string>();
-const closingGroups = new Map<string, Promise<boolean>>();
+const groupFolders = new Map<string, string>();
+const retiringGroups = new Map<string, Promise<boolean>>();
 
 function registryPath(): string {
   const target = stateDirTarget(process.cwd());
-  let directory = groupDirectories.get(target);
+  let directory = groupFolders.get(target);
   if (!directory) {
     directory = join(resolveStateDir(process.cwd()), ".state");
     mkdirSync(directory, { recursive: true });
-    groupDirectories.set(target, directory);
+    groupFolders.set(target, directory);
   }
   return join(directory, "command-process-groups.json");
 }
@@ -100,13 +111,29 @@ function identityMatches(group: CommandProcessGroup): boolean {
 export function readProcessGroupIdentity(pid: number): ProcessGroupIdentity | null {
   if (process.platform === "win32" || !Number.isInteger(pid) || pid <= 0) return null;
   try {
-    const result = Bun.spawnSync(["ps", "-o", "pid=,pgid=,lstart=", "-p", String(pid)], {
-      stdout: "pipe", stderr: "ignore", timeout: 3_000, killSignal: "SIGKILL",
-    });
-    const line = new TextDecoder().decode(result.stdout).trim().split("\n")[0]?.trim() ?? "";
-    const match = line.match(/^(\d+)\s+(\d+)\s+(.+)$/);
-    if (!match) return null;
-    return { pid: Number(match[1]), pgid: Number(match[2]), startTime: match[3]!.trim() };
+    if (process.platform === "linux") {
+      const stat = readFileSync(`/proc/${pid}/stat`, "utf8");
+      const commandEnd = stat.lastIndexOf(")");
+      if (commandEnd < 0) return null;
+      const fields = stat.slice(commandEnd + 1).trim().split(/\s+/);
+      const processId = Number(stat.slice(0, stat.indexOf(" ")));
+      const pgid = Number(fields[2]);
+      const startTime = fields[19];
+      if (processId !== pid || !Number.isInteger(pgid) || !startTime) return null;
+      return { pid: processId, pgid, startTime };
+    }
+
+    if (process.platform === "darwin" && darwinProcLibrary) {
+      const info = Buffer.alloc(DARWIN_PROC_INFO_SIZE);
+      const size = darwinProcLibrary.symbols.proc_pidinfo(pid, 3, 0, ptr(info), info.length);
+      if (size < DARWIN_PROC_INFO_SIZE || info.readUInt32LE(12) !== pid) return null;
+      const pgid = info.readUInt32LE(100);
+      const startTime = `${info.readBigUInt64LE(120)}:${info.readBigUInt64LE(128)}`;
+      if (pgid <= 0 || startTime === "0:0") return null;
+      return { pid, pgid, startTime };
+    }
+
+    return null;
   } catch {
     return null;
   }
@@ -202,20 +229,20 @@ async function closeRegisteredCommandProcessGroup(
     return true;
   }
   if (!identityMatches(registered)) {
-    const failed = { ...registered, stopFailed: true, closingAt: undefined };
+    const failed = { ...registered, stopFailed: true, retiringAt: undefined };
     replaceGroup(path, registered, failed);
     hooks.onSettled?.(failed, false);
     return false;
   }
 
-  const closingAt = `${Date.now()}-${crypto.randomUUID()}`;
-  const closing = { ...registered, closingAt, stopFailed: false };
-  if (!replaceGroup(path, registered, closing)) return false;
-  hooks.onClosing?.(closing);
-  const beforeTerm = readGroups(path).find((row) => row.processId === closing.processId);
-  if (!beforeTerm || !sameGroup(beforeTerm, closing) || beforeTerm.closingAt !== closingAt) {
-    const stopped = !processGroupAlive(closing.pgid);
-    hooks.onSettled?.(closing, stopped);
+  const retiringAt = `${Date.now()}-${crypto.randomUUID()}`;
+  const retiring = { ...registered, retiringAt, stopFailed: false };
+  if (!replaceGroup(path, registered, retiring)) return false;
+  hooks.onRetiring?.(retiring);
+  const beforeTerm = readGroups(path).find((row) => row.processId === retiring.processId);
+  if (!beforeTerm || !sameGroup(beforeTerm, retiring) || beforeTerm.retiringAt !== retiringAt) {
+    const stopped = !processGroupAlive(retiring.pgid);
+    hooks.onSettled?.(retiring, stopped);
     return stopped;
   }
   if (!processGroupAlive(beforeTerm.pgid)) {
@@ -224,43 +251,43 @@ async function closeRegisteredCommandProcessGroup(
     return true;
   }
   if (!identityMatches(beforeTerm)) {
-    const failed = { ...beforeTerm, stopFailed: true, closingAt: undefined };
+    const failed = { ...beforeTerm, stopFailed: true, retiringAt: undefined };
     replaceGroup(path, beforeTerm, failed);
     hooks.onSettled?.(failed, false);
     return false;
   }
-  try { signalGroup(closing.pgid, "SIGTERM"); } catch (error) {
+  try { signalGroup(retiring.pgid, "SIGTERM"); } catch (error) {
     if ((error as NodeJS.ErrnoException).code !== "ESRCH") {
-      const failed = { ...closing, stopFailed: true, closingAt: undefined };
-      replaceGroup(path, closing, failed);
+      const failed = { ...retiring, stopFailed: true, retiringAt: undefined };
+      replaceGroup(path, retiring, failed);
       hooks.onSettled?.(failed, false);
       return false;
     }
   }
 
-  if (await waitForGroupExit(closing.pgid, COMMAND_GROUP_TERM_GRACE_MS)) {
-    replaceGroup(path, closing, null);
-    hooks.onSettled?.(closing, true);
+  if (await waitForGroupExit(retiring.pgid, COMMAND_GROUP_TERM_GRACE_MS)) {
+    replaceGroup(path, retiring, null);
+    hooks.onSettled?.(retiring, true);
     return true;
   }
 
   // Re-read the same instance file and match the original entry before SIGKILL.
-  const current = readGroups(path).find((row) => row.processId === closing.processId);
-  if (!current || !sameGroup(current, closing) || current.closingAt !== closingAt) return false;
+  const current = readGroups(path).find((row) => row.processId === retiring.processId);
+  if (!current || !sameGroup(current, retiring) || current.retiringAt !== retiringAt) return false;
   if (!processGroupAlive(current.pgid)) {
     replaceGroup(path, current, null);
     hooks.onSettled?.(current, true);
     return true;
   }
   if (!identityMatches(current)) {
-    const failed = { ...current, stopFailed: true, closingAt: undefined };
+    const failed = { ...current, stopFailed: true, retiringAt: undefined };
     replaceGroup(path, current, failed);
     hooks.onSettled?.(failed, false);
     return false;
   }
   try { signalGroup(current.pgid, "SIGKILL"); } catch (error) {
     if ((error as NodeJS.ErrnoException).code !== "ESRCH") {
-      const failed = { ...current, stopFailed: true, closingAt: undefined };
+      const failed = { ...current, stopFailed: true, retiringAt: undefined };
       replaceGroup(path, current, failed);
       hooks.onSettled?.(failed, false);
       return false;
@@ -270,7 +297,7 @@ async function closeRegisteredCommandProcessGroup(
   const stopped = await waitForGroupExit(current.pgid, COMMAND_GROUP_CONFIRM_MS);
   if (stopped) replaceGroup(path, current, null);
   else {
-    const failed = { ...current, stopFailed: true, closingAt: undefined };
+    const failed = { ...current, stopFailed: true, retiringAt: undefined };
     replaceGroup(path, current, failed);
     hooks.onSettled?.(failed, false);
     return false;
@@ -283,15 +310,15 @@ export function closeCommandProcessGroup(
   expected: CommandProcessGroup,
   hooks: CommandProcessGroupHooks = {},
 ): Promise<boolean> {
-  const existing = closingGroups.get(expected.processId);
+  const existing = retiringGroups.get(expected.processId);
   if (existing) return existing;
-  const closing = closeRegisteredCommandProcessGroup(expected, hooks);
-  closingGroups.set(expected.processId, closing);
+  const retiring = closeRegisteredCommandProcessGroup(expected, hooks);
+  retiringGroups.set(expected.processId, retiring);
   const clear = () => {
-    if (closingGroups.get(expected.processId) === closing) closingGroups.delete(expected.processId);
+    if (retiringGroups.get(expected.processId) === retiring) retiringGroups.delete(expected.processId);
   };
-  void closing.then(clear, clear);
-  return closing;
+  void retiring.then(clear, clear);
+  return retiring;
 }
 
 export async function closeCommandProcessGroups(

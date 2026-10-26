@@ -68,7 +68,7 @@ function CommandRow({ sp, stopping, onOpen, onStop }: {
   const tr = useT();
   const outcome = commandOutcome(sp);
   const running = outcome.kind === 'running' || outcome.kind === 'closing' || outcome.kind === 'not-stopped';
-  const closing = outcome.kind === 'closing';
+  const isRetiring = outcome.kind === 'closing';
   const failed = (outcome.kind === 'exit' && outcome.code !== 0) || outcome.kind === 'not-stopped';
   const label = outcome.kind === 'exit' ? tr('processes.outcome.exit', { code: outcome.code })
     : outcome.kind === 'stopped' ? tr('processes.outcome.stopped')
@@ -81,10 +81,10 @@ function CommandRow({ sp, stopping, onOpen, onStop }: {
       data-process-id={sp.processId}
       data-outcome={outcome.kind === 'exit' ? `exit:${outcome.code}` : outcome.kind}
       className={`flex items-center gap-1.5 ${TREE_ROW_CARD} px-2 py-1 group cursor-pointer ${stopping ? 'opacity-60' : ''}`}
-      onClick={() => { if (!stopping && !closing) onOpen?.(sp.processId, sp.scriptName); }}
+      onClick={() => { if (!stopping && !isRetiring) onOpen?.(sp.processId, sp.scriptName); }}
       title={sp.command}
     >
-      {stopping || closing ? (
+      {stopping || isRetiring ? (
         <Spinner size="xs" tone="current" className="text-red-500 flex-shrink-0" />
       ) : running ? (
         <div className="w-[10px] h-[10px] flex-shrink-0 relative">
@@ -102,7 +102,7 @@ function CommandRow({ sp, stopping, onOpen, onStop }: {
       </span>
       <AwaitedChip watchers={sp.watchers} />
       <span className="flex-1" />
-      {(!running || closing || outcome.kind === 'not-stopped') && (
+      {(!running || isRetiring || outcome.kind === 'not-stopped') && (
         <span
           data-testid="command-outcome"
           className={`text-mini font-medium px-1 py-[1px] rounded-full flex-shrink-0 ${failed || outcome.kind === 'unknown' ? 'text-red-600 dark:text-red-400 bg-red-500/10' : 'text-app-text-muted bg-app-text-faint/15'}`}
@@ -110,7 +110,7 @@ function CommandRow({ sp, stopping, onOpen, onStop }: {
           {label}
         </span>
       )}
-      {running && !stopping && !closing && (
+      {running && !stopping && !isRetiring && (
         <button
           onClick={(e) => onStop(sp.processId, e)}
           className="p-0.5 rounded hover:bg-red-500/20 text-app-text-faint hover:text-red-500 transition-colors opacity-40 group-hover:opacity-100"
@@ -273,13 +273,13 @@ export function ScriptRunner({ projectPath, onRunScript, onOpenProcessLog }: Scr
         const { id, name, detail: cmd, from } = script;
         const running = runningMap.get(name);
         const ended = latestEndedByScript.get(name);
-        const closing = (running ?? ended)?.closing === true;
+        const isRetiring = (running ?? ended)?.closing === true;
         const stopFailed = (running ?? ended)?.stopFailed === true;
         const stopped = !running && ended?.stopped === true;
         // Un fallimento conta solo se lo script non è ripartito nel frattempo.
         const failed = running ? undefined : failedMap.get(name);
         const isStarting = startingScripts.has(name);
-        const isStopping = running ? stoppingScripts.has(running.processId) || closing : closing;
+        const isStopping = running ? stoppingScripts.has(running.processId) || isRetiring : isRetiring;
         const ports = running?.ports ?? [];
 
         return (
@@ -324,7 +324,7 @@ export function ScriptRunner({ projectPath, onRunScript, onOpenProcessLog }: Scr
                   <span className="ml-1.5 text-mini text-app-text-faint">{from}</span>
                 )}
               </span>
-              {closing && <span className="text-mini font-medium text-red-500 flex-shrink-0">{tr('processes.outcome.closing')}</span>}
+              {isRetiring && <span className="text-mini font-medium text-red-500 flex-shrink-0">{tr('processes.outcome.closing')}</span>}
               {stopFailed && <span className="text-mini font-medium text-red-600 dark:text-red-400 flex-shrink-0">{tr('processes.outcome.notStopped')}</span>}
               {stopped && <span className="text-mini font-medium text-app-text-muted flex-shrink-0">{tr('processes.outcome.stopped')}</span>}
               {failed && !isStopping && (

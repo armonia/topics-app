@@ -47,7 +47,7 @@ export function createCommandGroupHooks<T extends CommandGroupRow>(
   deps: CommandGroupLifecycleDeps<T>,
 ): CommandProcessGroupHooks {
   return {
-    onClosing(group) {
+    onRetiring(group) {
       const row = deps.find(group.processId);
       if (!row) return;
       if (row.cmd) {

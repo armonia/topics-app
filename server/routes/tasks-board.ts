@@ -143,7 +143,7 @@ export function createBoardRoutes(deps: BoardRouteDeps) {
     }
   };
 
-  const cardSubtreeIds = (rootId: string): string[] => {
+  const cardTreeIds = (rootId: string): string[] => {
     const ids: string[] = [];
     const pending = [rootId];
     const seen = new Set<string>();
@@ -1253,7 +1253,7 @@ export function createBoardRoutes(deps: BoardRouteDeps) {
           // Read BEFORE the archive: the sweep needs the delivery branch, and
           // it runs after, when the card is already off the board.
           const deliveryBranch = got?.task.deliveryBranch ?? null;
-          const archivedTaskIds = cardSubtreeIds(taskId);
+          const archivedTaskIds = cardTreeIds(taskId);
           const task = svc.archive({ taskId, projectId });
           for (const archivedTaskId of archivedTaskIds) requestCardProcessStop(archivedTaskId);
           void opts?.teardownPreview?.(taskId).catch(() => {}); // reap preview on close

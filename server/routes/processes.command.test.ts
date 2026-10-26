@@ -20,6 +20,7 @@ const { createProcessesRouter, listOwnedScripts, logPathOf, stopCardCommandProce
 const { commandProcessGroup, processGroupAlive } = await import("../lib/command-process-groups");
 
 const PROJECT = realpathSync(mkdtempSync(join(tmpdir(), "topics-cmd-project-")));
+const RUN_COMMAND_RELEASE = join(PROJECT, "run-command.release");
 mkdirSync(join(PROJECT, "sub"));
 // A link inside the project that points out of it: the third way out.
 symlinkSync(tmpdir(), join(PROJECT, "out"));
@@ -95,13 +96,20 @@ async function logOf(router: ReturnType<typeof makeRouter>, processId: string): 
 describe("POST /api/sessions/:sessionKey/commands/run", () => {
   test("the command starts and becomes a running row of the topic", async () => {
     const router = makeRouter();
-    const resp = await run(router, { command: "echo tick 1; sleep 1; echo tick 2" });
+    const command = `while [ ! -f '${RUN_COMMAND_RELEASE}' ]; do sleep 0.05; done; echo tick 1; echo tick 2`;
+    const resp = await run(router, { command });
+    if (resp.status !== 200) throw new Error(`run_command failed: ${await resp.text()}`);
     expect(resp.status).toBe(200);
     const { processId } = await resp.json() as { processId: string };
     expect(processId).toBeTruthy();
 
-    const row = await rowOf(router, processId);
-    expect(row).toMatchObject({ source: "command", topicId: TOPIC.id, status: "running" });
+    try {
+      const row = await rowOf(router, processId);
+      if (row?.status !== "running") throw new Error(`run_command row: ${JSON.stringify(row)}; output: ${await logOf(router, processId)}`);
+      expect(row).toMatchObject({ source: "command", topicId: TOPIC.id, status: "running" });
+    } finally {
+      writeFileSync(RUN_COMMAND_RELEASE, "");
+    }
 
     const done = await until(() => rowOf(router, processId), (r) => r?.status !== "running");
     expect(done).toMatchObject({ status: "done", exitCode: 0 });
@@ -121,7 +129,7 @@ describe("POST /api/sessions/:sessionKey/commands/run", () => {
   test("the outcome stays readable: exit 3 keeps the row, and its log", async () => {
     const router = makeRouter();
     const { processId } = await (await run(router, { command: "echo tick 1; echo tick 2; exit 3" })).json() as { processId: string };
-    const row = await until(() => rowOf(router, processId), (r) => r?.status !== "running");
+    const row = await until(() => rowOf(router, processId), (r) => r?.status !== "running", 15_000);
     expect(row).toMatchObject({ source: "command", status: "error", exitCode: 3 });
     expect(await logOf(router, processId)).toContain("tick 2");
   });
@@ -230,9 +238,9 @@ describe("POST /api/sessions/:sessionKey/commands/run", () => {
       expect(group).toMatchObject({ cardId, ownerKey: TOPIC.sessionKey, topicId: TOPIC.id });
       expect((await rowOf(router, processId))?.stopped).toBeUndefined();
       stopCardCommandProcesses(cardId);
-      const closing = await until(() => rowOf(router, processId), (row) => row?.closing === true);
-      expect(closing).toMatchObject({ status: "running", closing: true });
-      expect(closing?.stopped).toBeUndefined();
+      const retiringRow = await until(() => rowOf(router, processId), (row) => row?.closing === true);
+      expect(retiringRow).toMatchObject({ status: "running", closing: true });
+      expect(retiringRow?.stopped).toBeUndefined();
 
       const stopped = await until(() => rowOf(router, processId), (row) => row?.stopped === true, 15_000);
       expect(stopped).toMatchObject({ status: "error", stopped: true });

@@ -52,7 +52,7 @@ function startGroup(command = "exec sleep 90"): { proc: ReturnType<typeof Bun.sp
   return { proc, pgid: identity.pgid, record: makeRecord(identity) };
 }
 
-async function startTermIgnoringGroup(): Promise<{ proc: ReturnType<typeof Bun.spawn>; pgid: number; record: ReturnType<typeof makeRecord> }> {
+async function startTermResistantGroup(): Promise<{ proc: ReturnType<typeof Bun.spawn>; pgid: number; record: ReturnType<typeof makeRecord> }> {
   const proc = Bun.spawn(["/usr/bin/python3", "-c", "import signal,time; signal.signal(signal.SIGTERM, signal.SIG_IGN); print('ready', flush=True); time.sleep(90)"], {
     stdin: "ignore", stdout: "pipe", stderr: "ignore", detached: true,
   });
@@ -146,16 +146,16 @@ test("the group leader stays verifiable after its command leaves a child behind"
 });
 
 test("a reused owner key cannot redirect the delayed SIGKILL to a new process", async () => {
-  const old = await startTermIgnoringGroup();
+  const old = await startTermResistantGroup();
   old.record = { ...old.record, ownerKey: "same-session" };
   registerCommandProcessGroup(old.record);
-  let enteredClosing!: () => void;
-  const closing = new Promise<void>((resolve) => { enteredClosing = resolve; });
+  let enteredShutdown!: () => void;
+  const shutdownEntered = new Promise<void>((resolve) => { enteredShutdown = resolve; });
   const closeStarted = Date.now();
-  const stop = closeCommandProcessGroup(old.record, { onClosing: () => enteredClosing() });
-  await closing;
+  const stop = closeCommandProcessGroup(old.record, { onRetiring: () => enteredShutdown() });
+  await shutdownEntered;
 
-  const fresh = await startTermIgnoringGroup();
+  const fresh = await startTermResistantGroup();
   fresh.record = { ...fresh.record, ownerKey: "same-session", cardId: "card-b" };
   registerCommandProcessGroup(fresh.record);
 
@@ -171,7 +171,7 @@ test("closing rechecks its registration after publishing the closing state", asy
   registerCommandProcessGroup(original.record);
 
   const closed = await closeCommandProcessGroup(original.record, {
-    onClosing: () => registerCommandProcessGroup({
+    onRetiring: () => registerCommandProcessGroup({
       ...replacement.record,
       processId: original.record.processId,
     }),
