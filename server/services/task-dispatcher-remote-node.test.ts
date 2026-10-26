@@ -36,7 +36,7 @@ import { join } from "node:path";
 import { createLifecycleHooks, type LifecycleHookPayload, type LifecycleHookRunner } from "./lifecycle-hooks";
 import { createTaskService, type TaskService } from "./tasks";
 import { createTaskDispatcher, type DispatcherDeps } from "./task-dispatcher";
-import { NODE_BRANCH_GRACE_POLLS, NODE_DEAD_POLLS } from "./task-dispatcher-remote-node";
+import { NODE_BRANCH_GRACE_POLLS, NODE_DEAD_POLLS, NODE_RETIRE_TRIES } from "./task-dispatcher-remote-node";
 import { createNodeBranchPlanter } from "./node-branch-plant";
 import type { NodeRunBinding, NodeRunReport } from "./node-client";
 import type { DelegatedRunPolicy } from "../lib/delegated-agent-start";
@@ -996,3 +996,129 @@ describe("il bundle presuppone il commit di base", () => {
     expect(ranGit[1]).toEqual(["fetch", "--no-tags", "origin"]);
   });
 });
+
+describe("la copia vecchia che il nodo restituisce dopo un riavvio", () => {
+  // ff293eda, 26/10: after the production restart the Mac no longer remembered the previous run
+  // (`lastNodeRun` lives in memory), so it could not cancel it; the node answers `createRun` with the
+  // live mirror of the card as it is, already in review, and the card landed the OLD delivery again.
+  const old = { id: "c-old", author: "agent", kind: "delivery", content: "consegna vecchia", createdAt: "2026-10-26T10:00:00.000Z" };
+  const fresh = { id: "c-new", author: "agent", kind: "delivery", content: "consegna nuova", createdAt: "2026-10-26T11:00:00.000Z" };
+
+  it("già in review al primo giro, con una consegna che la card ha già: cancella la copia e riparte da capo", async () => {
+    const h = harness({
+      readRun: async (runId) => runId === "run-1"
+        ? report({ status: "review", dispatchState: "delivered", deliveryBranch: "topics/vecchio", deliveryCommit: "aaa", baseSha: "bbb", comments: [old] })
+        : report({ status: "review", dispatchState: "delivered", deliveryBranch: "topics/nuovo", deliveryCommit: "ccc", baseSha: "bbb", comments: [fresh] }),
+      bundle: new Uint8Array([1]),
+    });
+    h.seed();
+    h.svc.addComment({ taskId: TASK, author: "system", kind: "delivery", content: "consegna vecchia", messageId: "c-old" });
+
+    await dispatch(h);
+    await poll(h);
+
+    // The old delivery is not landed again: the copy is cancelled once and the card goes out again in
+    // the same round, onto a NEW run (like after a burial).
+    expect(h.plantedWith).toEqual([]);
+    expect(h.calls.filter((c) => c === "create" || c.startsWith("cancel:"))).toEqual(["create", "cancel:run-1", "create"]);
+    expect(h.task().status).toBe("in_progress");
+    expect(h.task().dispatchAttempts).toBe(1); // refunded, then spent again by the new run
+    expect(h.comments().filter((c) => c.content.includes("copia della consegna precedente"))).toHaveLength(1);
+
+    // And the new run is the one that lands.
+    await poll(h);
+    expect(h.plantedWith.map((p) => p.branch)).toEqual(["topics/nuovo"]);
+    expect(h.task().status).toBe("review");
+  });
+
+  it("già in review al primo giro ma con una consegna che la card non ha mai visto: è una corsa veloce, atterra", async () => {
+    const h = harness({
+      readRun: async () => report({ status: "review", dispatchState: "delivered", deliveryBranch: "topics/veloce", deliveryCommit: "ddd", baseSha: "bbb", comments: [fresh] }),
+      bundle: new Uint8Array([1]),
+    });
+    h.seed();
+
+    await dispatch(h);
+    await poll(h);
+
+    expect(h.calls.some((c) => c.startsWith("cancel"))).toBe(false);
+    expect(h.plantedWith.map((p) => p.branch)).toEqual(["topics/veloce"]);
+    expect(h.task().status).toBe("review");
+  });
+
+  it("una corsa vera in attesa del ramo (la sua consegna è già specchiata) non è scambiata per una copia vecchia", async () => {
+    // The first answer only SEEDS the comments it carries; a delivery that appears from the second
+    // answer on is written on the card with its anchor. The round that still waits for the branch
+    // then sees it anchored, and must not take its own run for the old mirror: only the FIRST answer
+    // of a run can be that.
+    let round = 0;
+    const h = harness({
+      readRun: async () => {
+        round += 1;
+        if (round === 1) return report();
+        const withBranch = round >= 3;
+        return report({
+          status: "review", dispatchState: "delivered", comments: [fresh],
+          deliveryBranch: withBranch ? "topics/in-ritardo" : null, deliveryCommit: withBranch ? "eee" : null, baseSha: "bbb",
+        });
+      },
+      bundle: new Uint8Array([1]),
+    });
+    h.seed();
+
+    await dispatch(h);
+    await poll(h, 4);
+
+    expect(h.calls.some((c) => c.startsWith("cancel"))).toBe(false);
+    expect(h.plantedWith.map((p) => p.branch)).toEqual(["topics/in-ritardo"]);
+  });
+
+  it("la copia vecchia che non si riesce a cancellare non fa atterrare la vecchia consegna, e si riprova", async () => {
+    let cancelWorks = false;
+    const h = harness({
+      readRun: async () => report({ status: "review", dispatchState: "delivered", deliveryBranch: "topics/vecchio", deliveryCommit: "aaa", baseSha: "bbb", comments: [old] }),
+      cancelRun: async () => { if (!cancelWorks) throw new Error("giù"); },
+      bundle: new Uint8Array([1]),
+    });
+    h.seed();
+    h.svc.addComment({ taskId: TASK, author: "system", kind: "delivery", content: "consegna vecchia", messageId: "c-old" });
+
+    await dispatch(h);
+    await poll(h, 3);
+    expect(h.plantedWith).toEqual([]);
+    expect(h.task().status).toBe("in_progress");
+    expect(h.calls.filter((c) => c === "create")).toHaveLength(1);
+
+    cancelWorks = true;
+    await poll(h);
+    expect(h.plantedWith).toEqual([]);
+    expect(h.calls.filter((c) => c === "create")).toHaveLength(2);
+  });
+
+  it("un nodo che risponde ma non cancella mai la copia vecchia: dopo qualche giro la card si parcheggia con la spiegazione", async () => {
+    let cancels = 0;
+    const h = harness({
+      readRun: async () => report({ status: "review", dispatchState: "delivered", deliveryBranch: "topics/vecchio", deliveryCommit: "aaa", baseSha: "bbb", comments: [old] }),
+      cancelRun: async () => { cancels += 1; throw new Error("403"); },
+      bundle: new Uint8Array([1]),
+    });
+    h.seed();
+    h.svc.addComment({ taskId: TASK, author: "system", kind: "delivery", content: "consegna vecchia", messageId: "c-old" });
+
+    await dispatch(h);
+    await poll(h, NODE_RETIRE_TRIES - 1);
+    expect(h.task().dispatchState).toBe("working"); // still trying
+
+    await poll(h);
+    expect(h.task().dispatchState).toBe("blocked");
+    expect(h.task().dispatchError ?? "").toContain("non la cancella");
+    expect(h.plantedWith).toEqual([]);
+
+    // Parked means parked: the slot is gone, so nothing asks the node or tries the cancel again.
+    expect(cancels).toBe(NODE_RETIRE_TRIES);
+    await poll(h, 3);
+    expect(cancels).toBe(NODE_RETIRE_TRIES);
+    expect(h.calls.filter((c) => c === "create")).toHaveLength(1);
+  });
+});
+

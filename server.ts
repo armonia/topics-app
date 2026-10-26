@@ -245,6 +245,7 @@ import { createMachinesRouter, revokeRemoteDelegatedCapability } from "./server/
 import { createNodesRouter } from "./server/routes/nodes";
 import { hostname as osHostname, totalmem as osTotalmem } from "node:os";
 import { createNodeClient, readDelegatedNodeToken, readNodeToken } from "./server/services/node-client";
+import { createNodeProbe } from "./server/services/node-heartbeat";
 import { appendDelegatedRunAudit, delegatedPolicyForTask } from "./server/lib/delegated-agent-start";
 import { createNodeBranchPlanter } from "./server/services/node-branch-plant";
 import { projectPathOfAnyId } from "./server/lib/project-identity";
@@ -2932,6 +2933,7 @@ const tasksRouter = createTasksRouter(ctx, taskDispatcher, {
   // Human "stop" on a dispatched task cuts the running turn (same abort path
   // as the dispatcher's wall-clock timeout).
   abortTurn: abortHeadlessTurn,
+  hasLiveTurn: (sk) => activeStreams.has(sk),
   killAgentTree: killAgentProcessTree,
   // Collega il gate dei check al freno del dispatcher: appena il gate esiste,
   // `checksGateRunningCount` punta al suo `runningCount()` e il dispatcher
@@ -3139,6 +3141,23 @@ void delegatedRevocations.tick({ force: true }).catch((err) => console.error("[d
 // `offline`. Cheap (one indexed UPDATE + one indexed SELECT per tick).
 const HEARTBEAT_INTERVAL_MS = 30_000;
 const STALE_THRESHOLD_MS = 5 * 60_000;
+// A paired node (the PC) never calls us, so the ticker asks it (`node-heartbeat.ts`). The probe has
+// its own client: a short deadline, because a hung tunnel must not hold a round for ever.
+const probeNodes = createNodeProbe({
+  list: () => ctx.machineStore.list(),
+  client: createNodeClient({
+    fetch: (input, init) => fetch(input, { ...init, signal: AbortSignal.timeout(5_000) }),
+    now: () => Date.now(),
+    wait: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
+    version: SERVER_VERSION,
+    hostname: osHostname(),
+  }),
+  tokenOf: (machineId) => readNodeToken(ctx.STATE_DIR, machineId),
+  touch: (machineId) => ctx.machineStore.touchNode(machineId),
+  onRefreshed: (machine) => ctx.broadcastToAll({ type: "machine:upserted", machine, payload_version: 1 }),
+  isCloud: isCloudBaseUrl,
+  log: (message, err) => console.warn(`[Heartbeat] ${message}`, err),
+});
 function tickHeartbeat() {
   try {
     const local = ctx.machineStore.upsertLocal();
@@ -3151,6 +3170,7 @@ function tickHeartbeat() {
     if (cloud && isCloudBaseUrl(cloud.baseUrl)) {
       ctx.machineStore.upsertNode({ hostname: CLOUD_NODE_HOST, name: cloud.name, baseUrl: CLOUD_NODE_BASE_URL });
     }
+    probeNodes();
     const flipped = ctx.machineStore.markStaleOffline(STALE_THRESHOLD_MS);
     for (const m of flipped) {
       ctx.broadcastToAll({ type: "machine:updated", machine: m, payload_version: 1 });

@@ -249,6 +249,8 @@ export interface TasksRouterOpts {
   stopCardProcesses?: (cardId: string) => void | Promise<void>;
   /** Stop process groups owned by a fan-out topic when its losing attempt is archived. */
   stopTopicProcesses?: (topicId: string) => void | Promise<void>;
+  /** Is this session's turn running right now (open stream)? Absent means unknown, hence no. */
+  hasLiveTurn?: (sessionKey: string) => boolean;
   /**
    * Kill the WHOLE process tree an agent's Bash tool spawned for this session
    * — not just the CLI turn. `abortTurn` cuts the turn (SIGINT to the CLI,
@@ -1508,7 +1510,13 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
     let running: TaskAttempt[] = [];
     try { running = attempts.list(t.id).filter((a) => a.state === "running"); }
     catch { /* tabella assente (host degradato) ⇒ nessun fan-out */ }
-    if (!t.assignedTopicId && !isAgentWorking(t.dispatchState) && running.length === 0) return false;
+    // A live turn exists if the card declares an agent at work, has `running`
+    // attempts, or its topic has an open stream right now. `assignedTopicId`
+    // alone is NOT enough: the topic stays bound to the card forever, even one
+    // closed months ago (card 47b63de2). The stream has to be asked, because
+    // after a land `dispatch_state` is already cleared and the process still runs.
+    const streamLive = !!t.assignedTopicId && opts?.hasLiveTurn?.("topic:" + t.assignedTopicId.slice(0, 8)) === true;
+    if (!isAgentWorking(t.dispatchState) && running.length === 0 && !streamLive) return false;
     // Dedup: il tentativo 1 è anche il topic legato al task.
     const keys = new Set<string>();
     for (const id of [t.assignedTopicId, ...running.map((a) => a.topicId)]) {
@@ -3048,7 +3056,10 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
       // gate have to answer from ONE number, or the slider promises a share the
       // dispatcher is not applying.
       let admission: DispatchAdmission | null = null;
-      try { admission = dispatcher?.admissionPreview?.() ?? null; } catch { /* best-effort */ }
+      // `?board=<id>` asks the same question for one board's price: a light
+      // board (in place, no local check) and a repo board are not held by the same line.
+      const board = new URL(req.url).searchParams.get("board");
+      try { admission = dispatcher?.admissionPreview?.(board) ?? null; } catch { /* best-effort */ }
       return json({
         ...computeDispatchCapacity(running, undefined, resolveAgentRuntime() === "cli", undefined, {
           share: budgetShare(svc.getGlobalCap()),
