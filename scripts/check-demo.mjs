@@ -28,8 +28,8 @@ import { chromium } from 'playwright-core';
 import { glassProblems } from './demo-glass-probe.mjs';
 
 const root = resolve(process.argv[2] || 'landing/dist');
-/* `--mutant` drops the demo's solid-menu sheet and expects the glass probe to
- * go red: proof the probe can see the defect it guards against. */
+/* `--mutant` paints every menu 72% translucent with no blur and expects the
+ * glass probe to go red: proof the probe can see the defect it guards against. */
 const MUTANT = process.argv.includes('--mutant');
 
 const MIME = {
@@ -115,7 +115,8 @@ try {
   // stayed clean. "This Mac" is the device name the /api/auth/session mock gives.
   if (testo) {
     const identityRow = page.getByRole('button', { name: 'This Mac' }).first();
-    if (MUTANT) await page.evaluate(() => document.getElementById('landing-glass-solid')?.remove());
+    // The defect itself: a 72% translucent menu whose backdrop is not blurred.
+    if (MUTANT) await page.addStyleTag({ content: '.glass-surface{background-color:rgb(237 239 243 / .72) !important;backdrop-filter:none !important;-webkit-backdrop-filter:none !important}' });
     if (await identityRow.click({ timeout: 10000 }).then(() => true, () => false)) {
       await page.waitForTimeout(2500);
       probing = true;
@@ -123,7 +124,7 @@ try {
       await page.waitForTimeout(3000);
       probing = false;
       if (MUTANT) {
-        if (!glass.length) problemi.push('mutant survived: without the solid-menu sheet the glass probe stayed green');
+        if (!glass.length) problemi.push('mutant survived: with an unblurred translucent menu the glass probe stayed green');
         else console.log('check:demo --mutant — the glass probe went red as it should');
       } else problemi.push(...glass);
     } else {
