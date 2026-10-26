@@ -143,7 +143,8 @@ interface CloudRun {
   failed: boolean;
   resultText: string;
   resultId?: string;
-  publishedBranch?: string;
+  /** Branches the session itself says it pushed, in the order it pushed them. */
+  pushedBranches: string[];
   asks: Map<string, { tool: string; answered: boolean }>;
   lastEventAt: number;
   /** Consecutive rounds in which origin did not answer the delivered-branch lookup. */
@@ -165,6 +166,9 @@ function prompt(body: CreateRunBody, branch: string, revision: string): string {
     "",
     "---",
     `Lavora su un ramo nuovo \`${branch}\`, creato da \`${revision}\`. Committa il lavoro e fai push di quel ramo su origin.`,
+    // The cloud harness may force its own name or a suffix on a session's branch (ff0bb951): that one
+    // wins. What counts is that it reaches origin, because work left only in the VM is lost (b5ab4b4c).
+    "Se la tua sessione ti impone un altro nome di ramo, o un suffisso, usa quello. In ogni caso, prima di chiudere, fai push del ramo con `git push -u origin HEAD`: il lavoro che resta solo nella sessione si perde.",
     "Non aprire pull request e non toccare altri rami.",
     "Chiudi con un riassunto breve: cosa hai cambiato e come l'hai verificato.",
   ].join("\n");
@@ -201,7 +205,7 @@ export function createCloudNodeClient(deps: CloudNodeDeps) {
   }
 
   function newRun(p: PersistedRun): CloudRun {
-    return { ...p, reported: false, done: false, failed: false, resultText: "", asks: new Map(), lastEventAt: now(), originFails: 0 };
+    return { ...p, reported: false, done: false, failed: false, resultText: "", pushedBranches: [], asks: new Map(), lastEventAt: now(), originFails: 0 };
   }
 
   /** `undefined` = origin did not answer (retry), `null` = the branch is not there. */
@@ -209,6 +213,19 @@ export function createCloudNodeClient(deps: CloudNodeDeps) {
     const r = await git(["ls-remote", originUrl, ref]);
     if (r.code !== 0) return undefined;
     return r.stdout.split(/\s+/)[0] || null;
+  }
+
+  /**
+   * The branches on origin named like the one we asked for plus a suffix (`<branch>-<anything>`).
+   * The cloud harness appends its own to the branch of a session, so the bare name never exists.
+   * `undefined` = origin did not answer, `[]` = none. Sorted, so a card with two suffixed branches
+   * always resolves to the same one.
+   */
+  async function suffixedBranches(originUrl: string, branch: string): Promise<string[] | undefined> {
+    const r = await git(["ls-remote", originUrl, `refs/heads/${branch}-*`]);
+    if (r.code !== 0) return undefined;
+    const prefix = "refs/heads/";
+    return r.stdout.split("\n").map((l) => l.split(/\s+/)[1] ?? "").filter((n) => n.startsWith(prefix)).map((n) => n.slice(prefix.length)).sort();
   }
 
   async function defaultBranch(originUrl: string): Promise<string> {
@@ -261,8 +278,13 @@ export function createCloudNodeClient(deps: CloudNodeDeps) {
       run.failed = ev.subtype !== "success";
       run.resultText = typeof ev.result === "string" ? ev.result : run.resultText;
       run.resultId = typeof ev.uuid === "string" ? ev.uuid : run.resultId;
-    } else if (ev.type === "system" && ev.subtype === "code_change_published" && typeof ev.branch === "string") {
-      run.publishedBranch = ev.branch;
+    } else if (
+      ev.type === "system" && typeof ev.branch === "string" &&
+      (ev.subtype === "code_change_published" || (ev.subtype === "vcs_state_changed" && ev.kind === "push"))
+    ) {
+      // `vcs_state_changed` with kind «push» is what a real session emits (measured on ff0bb951);
+      // `code_change_published` is the older name this file already knew.
+      if (!run.pushedBranches.includes(ev.branch)) run.pushedBranches.push(ev.branch);
     } else if (isPermissionAsk(ev) && typeof ev.request_id === "string") {
       const req = (ev.request ?? {}) as { tool_name?: string };
       run.asks.set(ev.request_id, { tool: req.tool_name ?? "tool", answered: false });
@@ -364,10 +386,19 @@ export function createCloudNodeClient(deps: CloudNodeDeps) {
       let branch: string | null = null;
       let commit: string | null = null;
       let unreachable = false;
-      for (const b of [run.branch, run.publishedBranch].filter(Boolean) as string[]) {
+      for (const b of [run.branch, ...run.pushedBranches].filter(Boolean)) {
         const sha = await remoteSha(run.originUrl, `refs/heads/${b}`);
         if (sha === undefined) { unreachable = true; continue; }
         if (sha) { branch = b; commit = sha; break; }
+      }
+      // Neither the asked-for name nor a declared push exists: the harness may have suffixed it.
+      if (!branch && !unreachable && run.branch) {
+        const found = await suffixedBranches(run.originUrl, run.branch);
+        if (found === undefined) unreachable = true;
+        else if (found[0]) {
+          const sha = await remoteSha(run.originUrl, `refs/heads/${found[0]}`);
+          if (sha) { branch = found[0]; commit = sha; }
+        }
       }
       // A mute origin does not mean «branch not pushed»: retry on the next round, up to 10.
       if (!branch && unreachable && ++run.originFails < ORIGIN_RETRIES) {
