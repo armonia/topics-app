@@ -106,6 +106,8 @@ export interface NodeSlot {
   cancelReason?: "audit_binding_failed";
   /** Polls that saw the run in review with no branch and no reason (see `NODE_BRANCH_GRACE_POLLS`). */
   reviewWithoutBranch?: number;
+  /** Rounds in a row in which the old mirror of the previous delivery could not be cancelled. */
+  retireFails?: number;
 }
 
 /**
@@ -133,6 +135,12 @@ export function isNodeSessionKey(sessionKey: string): boolean {
  * its hysteresis against.
  */
 export const NODE_DEAD_POLLS = 30;
+/**
+ * A node that answers but will not drop the old mirror of the previous delivery: after this many
+ * rounds the card is parked with the fix in words, because re-queueing it would only be handed the
+ * same mirror back for ever.
+ */
+export const NODE_RETIRE_TRIES = 5;
 
 /**
  * Polls a run may sit in review with no branch, and no reason for it, before the
@@ -811,7 +819,16 @@ export function createRemoteNodeLane(host: RemoteNodeHost): RemoteNodeLane {
       if (!still || still.runId !== slot.runId || still.node?.runId !== node.runId) continue;
       node.fails = 0;
       if (!node.primed && report.status === "review" && isPreviousDelivery(taskId, report)) {
-        if (!(await retirePreviousMirror(taskId, node))) node.fails++;
+        if (await retirePreviousMirror(taskId, node)) continue;
+        node.retireFails = (node.retireFails ?? 0) + 1;
+        if (node.retireFails >= NODE_RETIRE_TRIES && task) {
+          inFlight.delete(taskId);
+          parkNodeCard(
+            task,
+            `Il nodo «${nodeName(node.machineId)}» ha ancora la copia della consegna precedente (corsa \`${node.runId.slice(0, 8)}\`) ` +
+              "e non la cancella: cancellala là, poi rimetti la card in coda.",
+          );
+        }
         continue;
       }
       mirrorNodeReport(taskId, node, report);

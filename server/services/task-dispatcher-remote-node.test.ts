@@ -36,7 +36,7 @@ import { join } from "node:path";
 import { createLifecycleHooks, type LifecycleHookPayload, type LifecycleHookRunner } from "./lifecycle-hooks";
 import { createTaskService, type TaskService } from "./tasks";
 import { createTaskDispatcher, type DispatcherDeps } from "./task-dispatcher";
-import { NODE_BRANCH_GRACE_POLLS, NODE_DEAD_POLLS } from "./task-dispatcher-remote-node";
+import { NODE_BRANCH_GRACE_POLLS, NODE_DEAD_POLLS, NODE_RETIRE_TRIES } from "./task-dispatcher-remote-node";
 import { createNodeBranchPlanter } from "./node-branch-plant";
 import type { NodeRunBinding, NodeRunReport } from "./node-client";
 import type { DelegatedRunPolicy } from "../lib/delegated-agent-start";
@@ -1093,6 +1093,32 @@ describe("la copia vecchia che il nodo restituisce dopo un riavvio", () => {
     await poll(h);
     expect(h.plantedWith).toEqual([]);
     expect(h.calls.filter((c) => c === "create")).toHaveLength(2);
+  });
+
+  it("un nodo che risponde ma non cancella mai la copia vecchia: dopo qualche giro la card si parcheggia con la spiegazione", async () => {
+    let cancels = 0;
+    const h = harness({
+      readRun: async () => report({ status: "review", dispatchState: "delivered", deliveryBranch: "topics/vecchio", deliveryCommit: "aaa", baseSha: "bbb", comments: [old] }),
+      cancelRun: async () => { cancels += 1; throw new Error("403"); },
+      bundle: new Uint8Array([1]),
+    });
+    h.seed();
+    h.svc.addComment({ taskId: TASK, author: "system", kind: "delivery", content: "consegna vecchia", messageId: "c-old" });
+
+    await dispatch(h);
+    await poll(h, NODE_RETIRE_TRIES - 1);
+    expect(h.task().dispatchState).toBe("working"); // still trying
+
+    await poll(h);
+    expect(h.task().dispatchState).toBe("blocked");
+    expect(h.task().dispatchError ?? "").toContain("non la cancella");
+    expect(h.plantedWith).toEqual([]);
+
+    // Parked means parked: the slot is gone, so nothing asks the node or tries the cancel again.
+    expect(cancels).toBe(NODE_RETIRE_TRIES);
+    await poll(h, 3);
+    expect(cancels).toBe(NODE_RETIRE_TRIES);
+    expect(h.calls.filter((c) => c === "create")).toHaveLength(1);
   });
 });
 
