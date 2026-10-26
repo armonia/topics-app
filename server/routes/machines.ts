@@ -450,10 +450,12 @@ export function createMachinesRouter(ctx: AppContext, opts: { revocations?: Dele
       if (modelToken && (method === "POST" || method === "DELETE")) {
         // The OWNER ROLE, not an installation person: no audit row needs a
         // person here, and the operator script that wires the PC runs on this
-        // machine's loopback, which is the owner with no device (types.ts
-        // `requestIdentity`). Guests are refused, as on the node routes.
+        // machine's loopback, which the global gate materialises as an owner
+        // with no device (types.ts `requestIdentity`). Guests are refused, as
+        // on the node routes, and so is a request with no identity at all:
+        // minting a credential must never rest on "nobody said who".
         const identity = ctx.requestIdentity?.(req) ?? null;
-        if (identity && identity.role !== "owner") return json({ error: "owner required", code: "owner_required" }, 403);
+        if (!identity || identity.role !== "owner") return json({ error: "owner required", code: "owner_required" }, 403);
         const machine = machineStore.get(modelToken.id);
         if (!machine) return errorResponse(404, "Machine not found");
         if (method === "DELETE") {
