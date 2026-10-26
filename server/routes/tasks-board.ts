@@ -1318,9 +1318,17 @@ export function createBoardRoutes(deps: BoardRouteDeps) {
           // nessuno (vedi `detachLiveAgent`). Prima di archiviare, quindi.
           const got = svc.get(taskId, { projectId });
           if (got) {
-            // The server sends this DELETE itself for a delegation another
-            // machine revoked, and says so: that stop is not a person's (C9).
-            detachLiveAgent(got.task, NOTE_ARCHIVED_BY_HUMAN, stopCauseOf(req, req.headers.get(STOP_CAUSE_HEADER)));
+            const cause = stopCauseOf(req, req.headers.get(STOP_CAUSE_HEADER));
+            if (got.task.status === "done") {
+              // A done card is never parked: `release` would reopen it in
+              // backlog with a false comment (card 47b63de2). A stream still
+              // open on it is cut all the same, so no agent works for nobody.
+              cutLiveTurn(got.task, NOTE_ARCHIVED_BY_HUMAN, cause);
+            } else {
+              // The server sends this DELETE itself for a delegation another
+              // machine revoked, and says so: that stop is not a person's (C9).
+              detachLiveAgent(got.task, NOTE_ARCHIVED_BY_HUMAN, cause);
+            }
           }
           // Read BEFORE the archive: the sweep needs the delivery branch, and
           // it runs after, when the card is already off the board.
