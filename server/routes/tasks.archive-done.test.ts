@@ -2,7 +2,7 @@
  * ARCHIVING A DONE CARD DOES NOT REOPEN IT (card 47b63de2).
  *
  * Archiving 2939 closed cards, 49 went from done back to backlog with a false
- * comment ("Archiviato da te mentre l'agent lavorava: turno interrotto"). The
+ * comment ("archived by you while the agent was working: turn interrupted"). The
  * DELETE detached the agent even from cards with no turn: `cutLiveTurn`
  * answered true just because the card still had an `assigned_topic_id`, and
  * `release` put it back in backlog.
