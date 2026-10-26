@@ -1,3 +1,10 @@
+/**
+ * Delivery-report SHA checks across several repositories: a commit cited in a
+ * report is verified against the repo it belongs to, never reported as missing
+ * because another root lacks it.
+ *
+ * @covers KANBAN-11
+ */
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { chmodSync, existsSync, readFileSync, mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
