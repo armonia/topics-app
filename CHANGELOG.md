@@ -2,6 +2,11 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.3.31 — 2026-10-26
+
+### Sotto il cofano
+- Il PC come seconda macchina di Topics: proxy dei modelli, hook node-run, ponte MCP nel binario (#457)
+
 ## 2.3.30 — 2026-10-25
 
 ### Sotto il cofano

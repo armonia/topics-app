@@ -1,5 +1,21 @@
 [
   {
+    "version": "2.3.31",
+    "date": "2026-10-26",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Il PC come seconda macchina di Topics: proxy dei modelli, hook node-run, ponte MCP nel binario (#457)",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
     "version": "2.3.30",
     "date": "2026-10-25",
     "sections": {
