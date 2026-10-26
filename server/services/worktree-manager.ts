@@ -288,17 +288,17 @@ export function createWorktreeManager(
   }
 
   /**
-   * `git worktree add`, che regge anche i repo con git-crypt.
+   * `git worktree add`, git-crypt aware.
    *
-   * git-crypt (0.8.0) cerca la chiave in `<git-dir>/git-crypt/keys/default`, e
-   * un worktree ha un git-dir suo (`.git/worktrees/<nome>`) dove la chiave non
-   * c'e': il checkout dentro `worktree add` fa girare il filtro smudge, che
-   * esce 1 («Unable to open key file»), e il worktree non nasce. Il dispatcher
-   * riprovava e parcheggiava la card in backlog.
+   * git-crypt (0.8.0) looks for its key in `<git-dir>/git-crypt/keys/default`,
+   * and a worktree has a git-dir of its own (`.git/worktrees/<name>`) where the
+   * key is not: the checkout inside `worktree add` runs the smudge filter, which
+   * exits 1 ("Unable to open key file"), and the worktree never exists. The
+   * dispatcher retried and parked the card in backlog.
    *
-   * Con git-crypt nel repo: worktree senza checkout, symlink della cartella
-   * `git-crypt` del repo comune dentro il git-dir del worktree, poi il checkout.
-   * Senza git-crypt il percorso e' quello di sempre, un solo comando.
+   * With git-crypt in the repo: add the worktree without a checkout, symlink the
+   * common repo's `git-crypt` folder into the worktree's git-dir, then check out.
+   * Without git-crypt the path is the usual single command.
    */
   async function addWorktree(projectPath: string, absPath: string, addArgs: string[]): Promise<void> {
     const commonDir = await gitCryptDir(projectPath);
@@ -313,17 +313,17 @@ export function createWorktreeManager(
       if (!existsSync(link)) symlinkSync(commonDir, link, process.platform === "win32" ? "junction" : "dir");
       await runGit(absPath, ["reset", "--hard", "--quiet"]);
     } catch (err) {
-      // Mezzo worktree: via la cartella e la registrazione, cosi' la card non lascia residui.
+      // Half-made worktree: drop the folder and its registration so the card leaves no residue.
       await runGit(projectPath, ["worktree", "remove", "--force", absPath]).catch(() => {});
       await runGit(projectPath, ["worktree", "prune"]).catch(() => {});
-      // Il ramo creato da `-b` va tolto, o il tentativo dopo muore su «branch already exists».
+      // The branch made by `-b` goes too, or the next attempt dies on "branch already exists".
       if (addArgs[0] === "-b") await runGit(projectPath, ["branch", "-D", addArgs[1]!]).catch(() => {});
       throw err;
     }
     console.log(`[WorktreeManager] git-crypt key dir linked into worktree git-dir { worktree: ${absPath} }`);
   }
 
-  /** `<common-dir>/git-crypt` se il repo ha git-crypt inizializzato, altrimenti null. */
+  /** `<common-dir>/git-crypt` when the repo has git-crypt initialised, else null. */
   async function gitCryptDir(projectPath: string): Promise<string | null> {
     try {
       const { stdout } = await runGit(projectPath, ["rev-parse", "--git-common-dir"]);
