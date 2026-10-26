@@ -1,7 +1,7 @@
-// Quattro card con lo stesso compito, in cloud (adattatore claude-cloud) o in locale
-// (la CLI come la lancia il provider claude-code: stream-json in un worktree a sé).
-// Uso: bun bench.ts cloud|local <cartella-risultati>
-// Le card cloud usano l'account di CLOUD_ACCOUNT (vdm auto-N) o quello loggato.
+// Four cards with the same task, in the cloud (claude-cloud adapter) or locally
+// (the CLI as the claude-code provider launches it: stream-json in a worktree of its own).
+// Usage: bun bench.ts cloud|local <results-folder>
+// Cloud cards use the CLOUD_ACCOUNT account (vdm auto-N) or the logged-in one.
 
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
@@ -16,7 +16,7 @@ const EFFORT = "low";
 const REPO = "armonia/topics-app";
 const REPO_DIR = join(import.meta.dir, "../../..");
 
-// BENCH_TASK=heavy aggiunge il typecheck di tutto il repo, il passo che in una card vera pesa.
+// BENCH_TASK=heavy adds the typecheck of the whole repo, the step that weighs on a real card.
 const HEAVY = process.env.BENCH_TASK === "heavy";
 export const TASK = [
   "Compito di misura, senza modifiche al repo:",
@@ -54,7 +54,7 @@ async function cloudCard(i: number) {
     model: MODEL,
     effort: EFFORT,
     title: `Misura carico card cloud ${i}`,
-    // Solo i comandi del compito; il resto no.
+    // Only the task's own commands; nothing else.
     onPermission: async (a) => {
       const cmd = String((a.input as { command?: string } | undefined)?.command ?? "");
       return /^(bun (install|test)|cat|ls|head|sed -n)\b/.test(cmd) ? { allow: true } : { allow: false, message: "fuori dal compito" };
@@ -65,7 +65,7 @@ async function cloudCard(i: number) {
 }
 
 async function localCard(i: number) {
-  // Worktree pulito come quello di una card: stesso commit, niente node_modules.
+  // Clean worktree like a card's: same commit, no node_modules.
   const wt = join(outDir, `wt-${i}`);
   Bun.spawnSync(["git", "-C", REPO_DIR, "worktree", "add", "--detach", wt, "origin/main"]);
   const t0 = Date.now();
@@ -77,7 +77,7 @@ async function localCard(i: number) {
   const out = await new Response(p.stdout).text();
   const code = await p.exited;
   writeFileSync(join(outDir, `local-${i}.ndjson`), out);
-  // Il result non è per forza l'ultima riga: dopo può arrivare un task_summary.
+  // The result is not necessarily the last line: a task_summary can arrive after it.
   const result = out.split("\n").filter((l) => l.includes('"type":"result"')).at(-1) ?? "";
   let outcome = "error";
   try { if (code === 0 && JSON.parse(result).subtype === "success") outcome = "done"; } catch {}

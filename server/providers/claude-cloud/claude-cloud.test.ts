@@ -17,7 +17,7 @@ function recorder() {
   return { log, h };
 }
 
-/** API finta: serve una coda di pagine di eventi e registra ciò che riceve. */
+/** Fake API: serves a queue of event pages and records what it receives. */
 function fakeApi(pages: CloudEvent[][], opts: { failAfter?: number } = {}) {
   const posts: unknown[] = [];
   let served = 0;
@@ -83,8 +83,8 @@ describe("runner", () => {
     expect(resp.response.response.behavior).toBe("allow");
   });
 
-  // Mutazione della barra: il polling smette di vedere eventi a metà sessione.
-  // La card deve risultare ferma, mai consegnata.
+  // Bar mutation: polling stops seeing events mid-session.
+  // The card must come out stalled, never delivered.
   test("polling morto a metà = stalled, mai done", async () => {
     const { api } = fakeApi(
       [[{ type: "assistant", uuid: "a1", message: { content: [{ type: "text", text: "inizio" }] } }]],

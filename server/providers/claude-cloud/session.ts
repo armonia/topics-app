@@ -1,6 +1,6 @@
-// Una card che gira in una sessione cloud: crea, segue gli eventi, manda messaggi,
-// gira i permessi. Ha la forma di `AIProvider.sendChat` (un turno per chiamata, fine
-// sul `result`), ma non è ancora registrata fra i provider: è il prototipo da misurare.
+// A card that runs in a cloud session: creates it, follows the events, sends messages,
+// forwards permissions. It has the shape of `AIProvider.sendChat` (one turn per call, ending
+// on the `result`), but is not yet registered among the providers: it is the prototype to measure.
 
 import type { StreamHandler } from "../types";
 import { CloudApi, type CloudSource } from "./api";
@@ -12,11 +12,11 @@ export interface CloudTurnOptions {
   model: string;
   effort?: string;
   title?: string;
-  /** Decide un permesso. Senza: nega, perché nessuno lo sta guardando. */
+  /** Decides a permission. Without it: deny, because nobody is watching. */
   onPermission?: (ask: PermissionAsk) => Promise<{ allow: boolean; message?: string }>;
-  /** Intervallo del polling mentre il turno lavora (default 2 s). */
+  /** Polling interval while the turn is working (default 2 s). */
   pollMs?: number;
-  /** Turno senza eventi nuovi per così tanto = fermo (default 15 min). */
+  /** A turn with no new events for this long = stalled (default 15 min). */
   stallMs?: number;
   signal?: AbortSignal;
 }
@@ -25,7 +25,7 @@ export interface CloudTurnResult {
   sessionId: string;
   deliveredBranch?: string;
   deliveredUrl?: string;
-  /** `stalled` = il polling non vede più nulla: la card va in needs_input, mai in delivered */
+  /** `stalled` = polling no longer sees anything: the card goes to needs_input, never to delivered */
   outcome: "done" | "error" | "stalled" | "aborted";
 }
 
@@ -41,7 +41,7 @@ export class CloudSessionRunner {
 
   constructor(private readonly api: CloudApi) {}
 
-  /** Un turno: il primo crea la sessione, i successivi le scrivono. */
+  /** One turn: the first creates the session, later ones write to it. */
   async sendTurn(sessionKey: string, message: string, h: StreamHandler, o: CloudTurnOptions): Promise<CloudTurnResult> {
     let s = this.sessions.get(sessionKey);
     if (!s) {
@@ -58,7 +58,7 @@ export class CloudSessionRunner {
       s = { sid };
       this.sessions.set(sessionKey, s);
     } else {
-      // Salta gli eventi vecchi: il turno nuovo parte da dopo l'ultimo visto.
+      // Skip old events: the new turn starts after the last one seen.
       await this.drain(s);
       await this.api.sendMessage(s.sid, message);
     }
@@ -88,13 +88,13 @@ export class CloudSessionRunner {
       try {
         page = await this.api.events(s.sid, s.cursor);
       } catch {
-        // Un errore di rete non chiude il turno: conta come silenzio, ci pensa lo stallo.
+        // A network error does not end the turn: it counts as silence, the stall handling takes care of it.
         page = { data: [], has_more: false };
       }
       if (page.last_id) s.cursor = page.last_id;
       if (page.data.length) lastNews = Date.now();
       for (const ev of page.data) {
-        // L'eco del messaggio appena mandato non è un evento del turno.
+        // The echo of the message just sent is not an event of the turn.
         if (ev.type === "user" && typeof (ev.message as { content?: unknown })?.content === "string") continue;
         applyEvent(ev, st, handler, (a) => asks.push(a));
       }

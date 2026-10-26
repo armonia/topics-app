@@ -28,7 +28,7 @@ import { canonicalTmpRoot, removeTmpDir } from "./helpers/file-project";
 import { startFakeClaudeCloud, type FakeClaudeCloud } from "./helpers/fake-claude-cloud";
 
 hermetic(test);
-// Il video È la prova della barra: si tiene anche quando il test passa.
+// The video IS the proof of the bar: it is kept even when the test passes.
 test.use({ video: "on" });
 test.describe.configure({ timeout: 150_000 });
 
@@ -84,7 +84,7 @@ test("una card su «Cloud Claude» gira nel cloud e torna in review col suo ramo
   let cloudMachineId: string | null = null;
   let original: { autoDispatch: boolean; dispatchUseWorktree: boolean } | null = null;
   try {
-    // Il progetto: un checkout con origin, come un repo su GitHub.
+    // The project: a checkout with an origin, like a GitHub repo.
     mkdirSync(ROOT, { recursive: true });
     git(ROOT, ["init", "--bare", "-q", "-b", "main", ORIGIN]);
     git(ROOT, ["clone", "-q", ORIGIN, PROJECT_PATH]);
@@ -107,7 +107,7 @@ test("una card su «Cloud Claude» gira nel cloud e torna in review col suo ramo
     await resetProjectPanes(page.request, PROJECT_PATH);
     await seedProjectPane(page.request, PROJECT_PATH);
 
-    // La card nasce ferma: la scelta del posto la fa una persona, nella scheda.
+    // The card starts out idle: choosing the place is a person's job, in the card's panel.
     const created = await request.post(`${BASE}/api/boards/${PROJECT_ID}/tasks`, { data: { text: CARD_TEXT, status: "backlog" } });
     expect(created.ok(), await created.text()).toBe(true);
     taskId = ((await created.json()) as { id: string }).id;
@@ -139,7 +139,7 @@ test("una card su «Cloud Claude» gira nel cloud e torna in review col suo ramo
     await didascalia(page, "Dalla colonna: «su Cloud Claude»");
     await beat(page, 1800);
 
-    // Il via: in coda e dispatcher acceso.
+    // The go: queued and dispatcher on.
     const go = await request.patch(`${BASE}/api/boards/${PROJECT_ID}/settings`, { data: { autoDispatch: true, dispatchUseWorktree: false } });
     expect(go.ok(), await go.text()).toBe(true);
     const queued = await request.patch(`${BASE}/api/boards/${PROJECT_ID}/tasks/${taskId}`, { data: { status: "todo" } });
@@ -158,7 +158,7 @@ test("una card su «Cloud Claude» gira nel cloud e torna in review col suo ramo
     const delivery = done.comments.find((c) => c.content.includes(`https://claude.ai/code/${session.id}`));
     expect(delivery?.content).toContain(SUMMARY);
 
-    // La prova vera: il ramo della sessione è in QUESTO checkout, col file che ha scritto.
+    // The real proof: the session's branch is in THIS checkout, with the file it wrote.
     expect(git(PROJECT_PATH, ["show", `${session.branch}:CIAO.md`])).toBe("ciao dal cloud");
 
     await cardEl.getByText(CARD_TEXT).click();

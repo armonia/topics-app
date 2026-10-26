@@ -1,7 +1,7 @@
-// Client dell'API delle sessioni cloud di Claude Code: la stessa che usa la CLI
-// (`claude --cloud`, `claude -p --cloud <sid>`). Non è documentata: tutto ciò che
-// dipende dalla sua forma sta in questo file, così se cambia si tocca un posto solo.
-// Forma misurata il 26/10/2026 su sessioni vere (payload dal --debug-file della CLI).
+// Client for the Claude Code cloud sessions API: the same one the CLI uses
+// (`claude --cloud`, `claude -p --cloud <sid>`). It is undocumented: everything that
+// depends on its shape lives in this file, so if it changes only one place is touched.
+// Shape measured on 26/10/2026 on real sessions (payloads from the CLI's --debug-file).
 
 export const CLOUD_BETA = "ccr-byoc-2025-07-29";
 const DEFAULT_API = "https://api.anthropic.com";
@@ -22,13 +22,13 @@ export interface CloudCreds {
   accessToken: string;
   orgUuid: string;
 }
-/** Ciò che riceve un'API finta al posto del token vero. */
+/** What a fake API receives in place of the real token. */
 const FAKE_CREDS: CloudCreds = { accessToken: "e2e-fake", orgUuid: "e2e-fake" };
 
 export interface CloudSource {
-  /** es. "armonia/topics-app" */
+  /** e.g. "armonia/topics-app" */
   repo: string;
-  /** ramo da cui la VM clona: deve esistere su origin prima del lancio */
+  /** branch the VM clones from: it must exist on origin before launch */
   revision: string;
 }
 
@@ -36,14 +36,14 @@ export interface CreateSessionInput {
   title: string;
   prompt: string;
   source: CloudSource;
-  /** ramo su cui la sessione consegna (la CLI lo chiama outcome) */
+  /** branch the session delivers on (the CLI calls it outcome) */
   deliveryBranch: string;
   model: string;
   effort?: string;
   environmentId: string;
 }
 
-/** Un evento della sessione: stessa forma dei messaggi stream-json della CLI. */
+/** A session event: same shape as the CLI's stream-json messages. */
 export interface CloudEvent {
   type: string;
   subtype?: string;
@@ -66,8 +66,8 @@ export class CloudApi {
   ) {}
 
   private async call<T>(method: string, path: string, body?: unknown): Promise<T> {
-    // La base si legge PRIMA di chiedere le credenziali, e il token vero si chiede solo per
-    // l'API vera: così nessun cambio di base a metà strada può portarlo altrove.
+    // The base is read BEFORE asking for credentials, and the real token is requested only for
+    // the real API: so no base change midway can carry it elsewhere.
     const base = apiBase;
     const c = base === DEFAULT_API ? await this.creds() : FAKE_CREDS;
     const res = await this.fetchImpl(base + path, {
@@ -131,7 +131,7 @@ export class CloudApi {
     return this.call("GET", `/v1/sessions/${sid}`);
   }
 
-  /** Eventi dopo `afterId` (uuid dell'ultimo visto). Pagina vuota = niente di nuovo. */
+  /** Events after `afterId` (uuid of the last one seen). Empty page = nothing new. */
   events(sid: string, afterId?: string): Promise<EventsPage> {
     const q = `?limit=1000${afterId ? `&after_id=${encodeURIComponent(afterId)}` : ""}`;
     return this.call("GET", `/v1/sessions/${sid}/events${q}`);
@@ -146,22 +146,22 @@ export class CloudApi {
   }
 
   /**
-   * Ferma la sessione: interrompe il turno in corso (lo stesso `interrupt` della CLI) e la
-   * archivia, così non riparte se qualcuno le scrive. Le due chiamate valgono anche da sole.
+   * Stops the session: interrupts the running turn (the CLI's same `interrupt`) and
+   * archives it, so it does not restart if someone writes to it. Either call also works alone.
    */
   async stopSession(sid: string): Promise<void> {
     const errors: unknown[] = [];
     await this.call("POST", `/v1/sessions/${sid}/events`, {
       events: [{ type: "control_request", uuid: crypto.randomUUID(), session_id: sid, request_id: crypto.randomUUID(), request: { subtype: "interrupt", cancel_queued: true } }],
     }).catch((e) => errors.push(e));
-    // Come la CLI (`archiveSession`): 409 = già archiviata, va bene uguale.
+    // Like the CLI (`archiveSession`): 409 = already archived, which is fine.
     await this.call("POST", `/v1/sessions/${sid}/archive`, {}).catch((e) => {
       if (!(e instanceof CloudApiError && e.status === 409)) errors.push(e);
     });
     if (errors.length === 2) throw errors[1];
   }
 
-  /** Risposta a un `control_request` (permesso di un tool). Stesso giro di `cloud-rispondi`. */
+  /** Reply to a `control_request` (a tool permission). Same flow as `cloud-rispondi`. */
   async respondPermission(sid: string, requestId: string, allow: boolean, message?: string): Promise<void> {
     const response = allow ? { behavior: "allow" } : { behavior: "deny", message: message ?? "negato da Topics" };
     await this.call("POST", `/v1/sessions/${sid}/events`, {

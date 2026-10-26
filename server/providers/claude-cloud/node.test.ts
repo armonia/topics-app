@@ -29,7 +29,7 @@ beforeAll(() => {
 });
 afterAll(() => { setCloudApiBase(null); rmSync(root, { recursive: true, force: true }); });
 
-/** Il finto cloud: crea la sessione, e quando il test lo dice «lavora» spingendo un ramo su origin. */
+/** The fake cloud: creates the session, and when the test says "work" pushes a branch to origin. */
 function fakeCloud() {
   const events: CloudEvent[] = [];
   let created: { session_context: { outcomes: Array<{ git_info: { branches: string[] } }>; model: string } } | null = null;
@@ -82,7 +82,7 @@ describe("nodo cloud", () => {
     expect(cloud.branch()).toMatch(/^claude\/card-abcdef12-/);
     expect(cloud.model()).toBe("claude-sonnet-5-5");
 
-    // Il primo rapporto resta vuoto: la corsia lo usa per adescare i commenti.
+    // The first report stays empty: the lane uses it to lure comments.
     const r0 = await node.readRun({ runId });
     expect(r0.status).toBe("in_progress");
     expect(r0.comments).toEqual([]);
@@ -122,7 +122,7 @@ describe("nodo cloud", () => {
   });
 
   test("checkout indietro rispetto a origin: il ramo si pianta lo stesso", async () => {
-    // Qualcuno spinge su main dopo il nostro ultimo fetch: il checkout non ha quel commit.
+    // Someone pushes to main after our last fetch: the checkout does not have that commit.
     const other = join(root, "other");
     sh(["clone", "-q", origin, other]);
     writeFileSync(join(other, "c.txt"), "altrove\n");
@@ -150,19 +150,19 @@ describe("nodo cloud", () => {
     const cloud = fakeCloud();
     const a = createCloudNodeClient({ api: cloud.api, repoPathOfTask: () => checkout, statePath });
     const first = await a.createRun({ body: { ...body, originUrl: origin } });
-    // Il processo riparte: client nuovo, stessa cartella di stato.
+    // The process restarts: new client, same state folder.
     const b = createCloudNodeClient({ api: cloud.api, repoPathOfTask: () => checkout, statePath });
     const again = await b.createRun({ body: { ...body, originUrl: origin } });
     expect(again.runId).toBe(first.runId);
     expect(cloud.creates).toEqual(["session_n"]);
-    // Annullata sul serio: la sessione riceve l'interruzione e l'archivio, e non si riprende più.
+    // Truly cancelled: the session receives the interrupt and the archive, and is never resumed.
     await b.cancelRun({ runId: again.runId });
     expect(cloud.posts).toEqual(["/v1/sessions/session_n/events", "/v1/sessions/session_n/archive"]);
     await b.createRun({ body: { ...body, originUrl: origin } });
     expect(cloud.creates).toEqual(["session_n", "session_n"]);
   });
 
-  // Mutazione della barra: la sessione smette di mandare eventi. La card è ferma, mai consegnata.
+  // Bar mutation: the session stops sending events. The card is stalled, never delivered.
   test("sessione muta oltre la soglia: review come ferma, senza ramo", async () => {
     const cloud = fakeCloud();
     let t = 1_000;
@@ -244,7 +244,7 @@ describe("nodo cloud", () => {
     const node = createCloudNodeClient({ api: cloud.api, repoPathOfTask: () => checkout });
     const { runId } = await node.createRun({ body: { ...body, originUrl: origin } });
     await node.readRun({ runId });
-    // Forme copiate da una sessione vera del 26/10.
+    // Shapes copied from a real session of 26/10.
     cloud.events.push({ type: "control_request", uuid: "x1", request_id: "r-int", request: { subtype: "interrupt", cancel_queued: true } });
     cloud.events.push({ type: "control_request", uuid: "x2", request_id: "r-end", request: { subtype: "end_session", reason: "archived" } });
     cloud.events.push({ type: "control_request", uuid: "x3", request_id: "r-ask", request: { subtype: "can_use_tool", tool_name: "Bash" } });
@@ -298,7 +298,7 @@ describe("nodo cloud", () => {
     expect(githubSlug("https://github.com.evil.example/o/r.git")).toBeNull();
     expect(githubSlug("/srv/mirrors/github.com/o/r.git")).toBeNull();
     expect(githubSlug("https://github.com-lavoro/o/r")).toBeNull();
-    // Un alias è GitHub solo se ssh lo risolve lì: senza config, questi sono domini veri.
+    // An alias is GitHub only if ssh resolves it there: without config, these are real domains.
     expect(githubSlug("git@github.com-evil.com:o/r.git")).toBeNull();
     expect(githubSlug("ssh://git@github.com-attacker.example/o/r.git")).toBeNull();
     expect(githubSlug("GIT@GITHUB.COM:O/R.GIT")).toBe("O/R");

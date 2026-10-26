@@ -1,17 +1,17 @@
-// Traduce gli eventi di una sessione cloud nei callback di StreamHandler, così la
-// vista chat di Topics li mostra come una sessione locale. Funzione pura sullo stato
-// del turno: niente rete, niente orologio, quindi si prova con eventi registrati.
+// Translates the events of a cloud session into StreamHandler callbacks, so the
+// Topics chat view shows them like a local session. Pure function over the turn's
+// state: no network, no clock, so it is tested with recorded events.
 
 import type { StreamHandler } from "../types";
 import type { CloudEvent } from "./api";
 
 export interface TurnState {
   text: string;
-  /** tool_use già annunciati, per non ripeterli se la pagina ritorna */
+  /** tool_use already announced, so they are not repeated if the page comes back */
   tools: Set<string>;
-  /** control_request già girati a Topics */
+  /** control_request already forwarded to Topics */
   asked: Set<string>;
-  /** ramo consegnato (da `code_change_published`) */
+  /** delivered branch (from `code_change_published`) */
   deliveredBranch?: string;
   deliveredUrl?: string;
   done: boolean;
@@ -21,7 +21,7 @@ export function newTurnState(): TurnState {
   return { text: "", tools: new Set(), asked: new Set(), done: false };
 }
 
-/** Un permesso chiesto dalla sessione: Topics risponde con CloudApi.respondPermission. */
+/** A permission asked by the session: Topics replies with CloudApi.respondPermission. */
 export interface PermissionAsk {
   requestId: string;
   toolName: string;
@@ -29,9 +29,9 @@ export interface PermissionAsk {
 }
 
 /**
- * Un permesso da chiedere a una persona. Nello stesso flusso passano anche control_request
- * che non lo sono: il nostro `interrupt` e l'`end_session` dell'archivio (visti il 26/10 su una
- * sessione vera). Presi per domande, la card direbbe «chiede il permesso per tool».
+ * A permission to ask a person. The same stream also carries control_request
+ * that are not one: our own `interrupt` and the archive's `end_session` (seen on 26/10 on a
+ * real session). Taken for questions, the card would say «asks permission for tool».
  */
 export function isPermissionAsk(ev: CloudEvent): boolean {
   if (ev.type !== "control_request" || typeof ev.request_id !== "string") return false;
@@ -48,7 +48,7 @@ export function applyEvent(
 ): void {
   switch (ev.type) {
     case "assistant": {
-      // Gli eventi dei sottoagenti hanno parent_tool_use_id: non sono il testo del turno.
+      // Subagent events have parent_tool_use_id: they are not the turn's text.
       if (ev.parent_tool_use_id) return;
       const content = (ev.message as { content?: unknown[] } | undefined)?.content ?? [];
       for (const block of content as Array<Record<string, unknown>>) {
@@ -112,6 +112,6 @@ export function applyEvent(
       return;
     }
     default:
-      return; // env_manager_log, rate_limit_event, task_*: per ora non servono alla chat
+      return; // env_manager_log, rate_limit_event, task_*: not needed by the chat for now
   }
 }

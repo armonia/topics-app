@@ -1,4 +1,4 @@
-// Prova su una sessione vera: interrupt + archive la fermano davvero?
+// Probe on a real session: do interrupt + archive really stop it?
 import { CloudApi } from "../../../server/providers/claude-cloud/api";
 import { credsFor } from "../../../server/providers/claude-cloud/creds";
 

@@ -1,9 +1,9 @@
-// Il provider `claude-cloud` per le CHAT: un topic che lo sceglie parla con una sessione
-// cloud di Claude Code invece che con una CLI su questo Mac. Le card non passano di qui:
-// girano sul nodo «Cloud Claude» della corsia remota (./node.ts), che sa consegnare un ramo.
+// The `claude-cloud` provider for CHATS: a topic that picks it talks to a Claude Code
+// cloud session instead of a CLI on this Mac. Cards do not go through here:
+// they run on the «Cloud Claude» node of the remote lane (./node.ts), which can deliver a branch.
 //
-// Niente "coding-tasks" fra le capacità: la sessione cloud non ha il ponte MCP di Topics,
-// quindi non può aggiornare una card da sé. Così non compare nei picker dei task.
+// No "coding-tasks" among the capabilities: the cloud session has no Topics MCP bridge,
+// so it cannot update a card by itself. That way it does not show up in the task pickers.
 
 import type { AIProvider, ChatMessage, CompletionResult, ProviderCapability, ProviderDiagnostic, StreamHandler } from "../types";
 import { getTopicWorkspaceForSession } from "../../lib/agent-workspace";
@@ -15,7 +15,7 @@ import { CloudSessionRunner } from "./session";
 
 export interface ClaudeCloudProviderConfig {
   type: "claude-cloud";
-  /** Account di vdm (auto-N); assente = l'account loggato in Claude Code. */
+  /** vdm account (auto-N); absent = the account logged into Claude Code. */
   account?: string;
   model?: string;
 }
@@ -52,8 +52,8 @@ export class ClaudeCloudProvider implements AIProvider {
       handler.onError("claude-cloud: il topic deve stare in un repo con origin su GitHub (la sessione clona da lì)");
       return {};
     }
-    // Il ramo del topic se è su origin, altrimenti quello di default: la VM clona da GitHub,
-    // non da questo disco, quindi un ramo solo locale non esiste per lei.
+    // The topic's branch if it is on origin, otherwise the default one: the VM clones from GitHub,
+    // not from this disk, so a local-only branch does not exist for it.
     const local = await gitOut(["rev-parse", "--abbrev-ref", "HEAD"], cwd!);
     const pushed = local && local !== "HEAD" ? await gitOut(["ls-remote", "origin", `refs/heads/${local}`], cwd!) : null;
     const revision = pushed ? local! : ((await gitOut(["symbolic-ref", "--short", "refs/remotes/origin/HEAD"], cwd!))?.replace(/^origin\//, "") ?? "main");
@@ -84,7 +84,7 @@ export class ClaudeCloudProvider implements AIProvider {
   }
 
   async complete(_messages: ChatMessage[]): Promise<CompletionResult> {
-    // Una chiamata di servizio (titoli, riassunti) non vale una VM: la fanno gli altri provider.
+    // A service call (titles, summaries) is not worth a VM: the other providers handle it.
     throw new Error("claude-cloud non fa completamenti di servizio");
   }
 

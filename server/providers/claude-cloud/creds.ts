@@ -1,6 +1,6 @@
-// Credenziali per l'API delle sessioni: il token OAuth dell'account loggato in Claude Code
-// (Portachiavi) o, con `account`, quello di un account di vdm, che vdm rinnova da solo.
-// Si rilegge a ogni chiamata perché il token ruota; non si stampa mai.
+// Credentials for the sessions API: the OAuth token of the account logged into Claude Code
+// (Keychain) or, with `account`, that of a vdm account, which vdm renews by itself.
+// Re-read on every call because the token rotates; never printed.
 
 import { readFileSync } from "node:fs";
 import { homedir } from "node:os";
@@ -34,7 +34,7 @@ async function orgFor(account: string | undefined, token: string): Promise<strin
   if (!account) {
     org = JSON.parse(readFileSync(join(homedir(), ".claude.json"), "utf8")).oauthAccount.organizationUuid;
   } else {
-    // ~/.claude.json descrive solo l'account loggato: per gli altri l'org la dice il profilo.
+    // ~/.claude.json only describes the logged-in account: for the others the org comes from the profile.
     const res = await fetch("https://api.anthropic.com/api/oauth/profile", {
       headers: { Authorization: `Bearer ${token}`, "anthropic-version": "2023-06-01", "anthropic-beta": "oauth-2025-04-20" },
       signal: AbortSignal.timeout(20_000),

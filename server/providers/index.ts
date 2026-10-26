@@ -122,7 +122,7 @@ function instantiateProvider(config: ProviderConfig): AIProvider {
       return new AcpProvider(config);
     }
     case "claude-cloud": {
-      // Le sessioni cloud di Claude Code: la VM è di Anthropic, qui resta il polling.
+      // Claude Code cloud sessions: the VM belongs to Anthropic, only the polling stays here.
       const { ClaudeCloudProvider } = require("./claude-cloud/provider");
       return new ClaudeCloudProvider(config);
     }
@@ -545,8 +545,8 @@ export async function initProviders(): Promise<AIProvider[]> {
     }
   }
 
-  // Le sessioni cloud di Claude Code: bastano le credenziali di Claude Code nel Portachiavi.
-  // Un account di vdm al posto di quello loggato: TOPICS_CLAUDE_CLOUD_ACCOUNT=auto-N.
+  // Claude Code cloud sessions: Claude Code's credentials in the Keychain are enough.
+  // A vdm account instead of the logged-in one: TOPICS_CLAUDE_CLOUD_ACCOUNT=auto-N.
   if (!_providers.has("claude-cloud")) {
     try {
       // eslint-disable-next-line @typescript-eslint/no-require-imports -- loaded only to probe the credential

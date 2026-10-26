@@ -1,8 +1,8 @@
-// Il cloud di Claude come NODO della corsia remota (KANBAN-76): una card con la macchina
-// «Cloud Claude» non gira qui, gira in una sessione cloud, e di qui resta solo il polling.
-// La corsia (task-dispatcher-remote-node.ts) fa già tutto il resto: specchia stato e commenti,
-// pianta il ramo consegnato, porta la card in review, la rimette in coda dopo un riavvio.
-// Questo file traduce le quattro chiamate del NodeDeps in quelle dell'API delle sessioni.
+// Claude's cloud as a NODE of the remote lane (KANBAN-76): a card with the «Cloud Claude»
+// machine does not run here, it runs in a cloud session, and only the polling stays on this side.
+// The lane (task-dispatcher-remote-node.ts) already does everything else: mirrors state and comments,
+// plants the delivered branch, moves the card to review, requeues it after a restart.
+// This file translates the four NodeDeps calls into those of the sessions API.
 
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
@@ -13,11 +13,11 @@ import { CloudApi, cloudApiIsReal, type CloudEvent } from "./api";
 import { isPermissionAsk } from "./events";
 import { runBounded } from "../../lib/bounded-spawn";
 
-/** Il base_url della riga `machines` del cloud: non è un indirizzo, è un segnaposto. */
+/** The base_url of the cloud's `machines` row: not an address, a placeholder. */
 export const CLOUD_NODE_BASE_URL = "claude-cloud://";
 export const CLOUD_NODE_HOSTNAME = "claude-cloud";
 export const CLOUD_NODE_NAME = "Cloud Claude";
-/** La corsia rifiuta un nodo senza token: per il cloud l'autenticazione è il login di Claude Code. */
+/** The lane refuses a node without a token: for the cloud, authentication is the Claude Code login. */
 export const CLOUD_NODE_TOKEN = "claude-cloud";
 
 /**
@@ -26,9 +26,9 @@ export const CLOUD_NODE_TOKEN = "claude-cloud";
  */
 export function cloudCredentialsPresent(): boolean {
   if (process.platform !== "darwin" || process.env.TOPICS_CLAUDE_CLOUD === "0") return false;
-  // Il server di test non legge il Portachiavi di login (test-server.ts): niente cloud lì.
+  // The test server does not read the login Keychain (test-server.ts): no cloud there.
   if (process.env.TOPICS_CREDENTIALS_KEYCHAIN === "0") return false;
-  // Sincrono e una volta sola, al boot (server.ts, providers/index.ts): decide se la riga esiste.
+  // Synchronous and once only, at boot (server.ts, providers/index.ts): decides whether the row exists.
   const probe = Bun.spawnSync(["security", "find-generic-password", "-s", "Claude Code-credentials"], { stdout: "ignore", stderr: "ignore", timeout: 5_000 });
   return probe.exitCode === 0;
 }
@@ -42,10 +42,10 @@ const MODEL_ALIASES: Record<string, string> = {
   sonnet: "claude-sonnet-5-5",
   haiku: "claude-haiku-5-5",
 };
-/** Qualità prima: senza un modello Claude esplicito sulla card, Opus. */
+/** Quality first: without an explicit Claude model on the card, Opus. */
 export const CLOUD_DEFAULT_MODEL = "claude-opus-5-5";
 
-/** «claude-code:sonnet», «sonnet», «claude-sonnet-5-5» → id completo; un modello non Claude → default. */
+/** «claude-code:sonnet», «sonnet», «claude-sonnet-5-5» → full id; a non-Claude model → default. */
 export function cloudModelFor(selection: string | null | undefined): string {
   const raw = (selection ?? "").split(":").at(-1)!.trim().toLowerCase();
   if (MODEL_ALIASES[raw]) return MODEL_ALIASES[raw];
@@ -54,16 +54,16 @@ export function cloudModelFor(selection: string | null | undefined): string {
 
 /**
  * «git@github.com:o/r.git», «https://github.com/o/r», «ssh://git@ssh.github.com:443/o/r.git»,
- * alias ssh «git@github.com-lavoro:o/r» → «o/r». Qualunque altro host → null: l'host si
- * confronta intero, mai come sottostringa (notgithub.com, github.com.evil.example, un
- * percorso locale con «github.com» dentro sono altri repo).
+ * ssh alias «git@github.com-work:o/r» → «o/r». Any other host → null: the host is
+ * compared whole, never as a substring (notgithub.com, github.com.evil.example, a local
+ * path with «github.com» inside are other repos).
  */
 const GITHUB_HOSTS = new Set(["github.com", "www.github.com", "ssh.github.com"]);
 
 /**
- * Un alias ssh («github.com-lavoro») è GitHub solo se ~/.ssh/config lo porta lì: lo dice
- * `ssh -G`, che risolve senza connettersi. Il nome da solo non prova niente
- * (`github.com-evil.com` è un dominio vero).
+ * An ssh alias («github.com-work») is GitHub only if ~/.ssh/config takes it there: that is told by
+ * `ssh -G`, which resolves without connecting. The name alone proves nothing
+ * (`github.com-evil.com` is a real domain).
  */
 async function sshAliasIsGithub(alias: string): Promise<boolean> {
   if (!/^[\w.-]+$/.test(alias)) return false;
@@ -93,13 +93,13 @@ function parseOrigin(originUrl: string): ParsedOrigin | null {
   return m ? { host: host.toLowerCase(), slug: `${m[1]}/${m[2]}`, viaSsh } : null;
 }
 
-/** Solo gli host GitHub scritti per intero; un alias ssh non lo è (vedi `resolveGithubSlug`). */
+/** Only GitHub hosts written in full; an ssh alias is not one (see `resolveGithubSlug`). */
 export function githubSlug(originUrl: string): string | null {
   const o = parseOrigin(originUrl);
   return o && GITHUB_HOSTS.has(o.host) ? o.slug : null;
 }
 
-/** Come `githubSlug`, più gli alias ssh che `ssh -G` risolve su GitHub. */
+/** Like `githubSlug`, plus the ssh aliases that `ssh -G` resolves to GitHub. */
 export async function resolveGithubSlug(originUrl: string): Promise<string | null> {
   const o = parseOrigin(originUrl);
   if (!o) return null;
@@ -109,7 +109,7 @@ export async function resolveGithubSlug(originUrl: string): Promise<string | nul
 
 export type GitRun = (args: string[], cwd?: string) => Promise<{ code: number; stdout: string; stderr: string }>;
 
-/** Un origin che non risponde non deve fermare il giro di tutte le card remote: 60 s e via. */
+/** An origin that does not answer must not stop the round of all remote cards: 60 s and move on. */
 const GIT_TIMEOUT_MS = 60_000;
 const realGit: GitRun = async (args, cwd) => {
   const r = await runBounded(["git", ...args], { cwd, stdout: "pipe", stderr: "pipe", timeoutMs: GIT_TIMEOUT_MS, env: { ...process.env, GIT_TERMINAL_PROMPT: "0" } });
@@ -118,16 +118,16 @@ const realGit: GitRun = async (args, cwd) => {
 
 export interface CloudNodeDeps {
   api: CloudApi;
-  /** Il checkout della card, per costruire il bundle del ramo consegnato. */
+  /** The card's checkout, to build the bundle of the delivered branch. */
   repoPathOfTask: (taskId: string) => string | null;
   git?: GitRun;
-  /** Silenzio dopo il quale una sessione non finita è ferma (default 15 min). */
+  /** Silence after which an unfinished session is stalled (default 15 min). */
   stallMs?: number;
   now?: () => number;
   /**
-   * Dove restano le corse vive fra un riavvio e l'altro. La corsia ricorda l'ultima corsa solo
-   * in memoria: dopo un riavvio rimette la card in coda e chiama `createRun` senza cancellare
-   * niente. Un nodo accoppiato è idempotente su `originTaskId`; questo file lo è grazie a qui.
+   * Where live runs are kept between restarts. The lane remembers the last run only
+   * in memory: after a restart it requeues the card and calls `createRun` without cancelling
+   * anything. A paired node is idempotent on `originTaskId`; this file is so thanks to this.
    */
   statePath?: string;
 }
@@ -137,7 +137,7 @@ interface CloudRun {
   originUrl: string;
   branch: string;
   cursor?: string;
-  /** La corsia «adesca» il primo rapporto e non lo scrive: il primo resta vuoto apposta. */
+  /** The lane "lures" the first report and does not write it: the first one stays empty on purpose. */
   reported: boolean;
   done: boolean;
   failed: boolean;
@@ -146,13 +146,13 @@ interface CloudRun {
   publishedBranch?: string;
   asks: Map<string, { tool: string; answered: boolean }>;
   lastEventAt: number;
-  /** Giri di fila in cui origin non ha risposto alla ricerca del ramo consegnato. */
+  /** Consecutive rounds in which origin did not answer the delivered-branch lookup. */
   originFails: number;
-  /** Una card che il cloud non può prendere: si chiude in review col motivo, senza sessione. */
+  /** A card the cloud cannot take: it closes in review with the reason, without a session. */
   refused?: string;
-  /** La sessione è finita e consegnata: un cancel dopo non la deve archiviare. */
+  /** The session is finished and delivered: a cancel afterwards must not archive it. */
   finished?: boolean;
-  /** Il bundle pronto, calcolato quando la sessione finisce (base = ciò che il checkout ha già). */
+  /** The ready bundle, computed when the session finishes (base = what the checkout already has). */
   bundle?: { base: string; result: BundleResult };
 }
 
@@ -204,7 +204,7 @@ export function createCloudNodeClient(deps: CloudNodeDeps) {
     return { ...p, reported: false, done: false, failed: false, resultText: "", asks: new Map(), lastEventAt: now(), originFails: 0 };
   }
 
-  /** `undefined` = origin non ha risposto (si riprova), `null` = il ramo non c'è. */
+  /** `undefined` = origin did not answer (retry), `null` = the branch is not there. */
   async function remoteSha(originUrl: string, ref: string): Promise<string | null | undefined> {
     const r = await git(["ls-remote", originUrl, ref]);
     if (r.code !== 0) return undefined;
@@ -216,18 +216,18 @@ export function createCloudNodeClient(deps: CloudNodeDeps) {
     return r.stdout.match(/ref: refs\/heads\/(\S+)\s+HEAD/)?.[1] ?? "main";
   }
 
-  /** Ferma la sessione e smette di seguirla. Best effort: l'API non dice se si è fermata. */
+  /** Stops the session and stops following it. Best effort: the API does not say whether it stopped. */
   async function stop(sid: string) {
     runs.delete(sid);
     forget(sid);
-    try { await deps.api.stopSession(sid); } catch { /* già chiusa */ }
+    try { await deps.api.stopSession(sid); } catch { /* already closed */ }
   }
 
   /**
-   * Il bundle del ramo consegnato, contro un commit che il checkout HA già: la base è il
-   * merge-base fra la punta del ramo e l'HEAD del checkout, non l'HEAD di origin al lancio
-   * (un checkout indietro rispetto a origin non lo avrebbe, e l'impianto rifiuterebbe).
-   * Repo nudo temporaneo con gli oggetti del checkout in prestito: il checkout non si tocca.
+   * The bundle of the delivered branch, against a commit the checkout ALREADY has: the base is the
+   * merge-base between the branch tip and the checkout's HEAD, not origin's HEAD at launch
+   * (a checkout behind origin would not have it, and the plumbing would refuse).
+   * Temporary bare repo with the checkout's objects borrowed: the checkout is left untouched.
    */
   async function prepareBundle(run: CloudRun, branch: string): Promise<{ base: string; result: BundleResult }> {
     const repo = deps.repoPathOfTask(run.taskId);
@@ -267,7 +267,7 @@ export function createCloudNodeClient(deps: CloudNodeDeps) {
       const req = (ev.request ?? {}) as { tool_name?: string };
       run.asks.set(ev.request_id, { tool: req.tool_name ?? "tool", answered: false });
     } else if (ev.type === "control_cancel_request" && typeof ev.request_id === "string") {
-      // La sessione ha ritirato la domanda: non aspetta più nessuno.
+      // The session withdrew the question: it is no longer waiting for anyone.
       const a = run.asks.get(ev.request_id);
       if (a) a.answered = true;
     } else if (ev.type === "control_response") {
@@ -283,15 +283,15 @@ export function createCloudNodeClient(deps: CloudNodeDeps) {
   return {
     async createRun(input: { body: CreateRunBody }): Promise<{ runId: string }> {
       const { body } = input;
-      // Dopo un riavvio la corsia rilancia la stessa card: la sessione viva si riprende.
+      // After a restart the lane relaunches the same card: the live session is resumed.
       for (const [sid, p] of Object.entries(loadPersisted())) {
         if (p.taskId !== body.originTaskId) continue;
         if (!runs.has(sid)) runs.set(sid, newRun(p));
         return { runId: sid };
       }
       const slug = await resolveGithubSlug(body.originUrl);
-      // Fuori da GitHub la sessione cloud non può clonare (il finto della suite e2e sì). Non è
-      // un nodo muto da riprovare: la card va in review col motivo.
+      // Outside GitHub the cloud session cannot clone (the e2e suite's fake can). This is not
+      // a mute node to retry: the card goes to review with the reason.
       if (!slug && cloudApiIsReal()) {
         const sid = `refused-${crypto.randomUUID()}`;
         runs.set(sid, { ...newRun({ taskId: body.originTaskId, originUrl: body.originUrl, branch: "" }), refused: `il cloud di Claude clona solo da GitHub, e l'origin di questo progetto è ${body.originUrl}` });
@@ -340,8 +340,8 @@ export function createCloudNodeClient(deps: CloudNodeDeps) {
       }
       if (first) return { status: "in_progress", dispatchState: "working", dispatchError: null, comments, ...EMPTY };
 
-      // Una VM in pausa o un polling che non vede più niente: la card è ferma, mai consegnata.
-      // Una domanda aperta non è silenzio: la sessione aspetta una persona, non è ferma.
+      // A paused VM or a polling that no longer sees anything: the card is stalled, never delivered.
+      // An open question is not silence: the session is waiting for a person, it is not stalled.
       const waitingOnPerson = [...run.asks.values()].some((a) => !a.answered);
       if (!run.done && !waitingOnPerson && now() - run.lastEventAt > stallMs) {
         const minutes = Math.round(stallMs / 60_000);
@@ -360,7 +360,7 @@ export function createCloudNodeClient(deps: CloudNodeDeps) {
         });
         return { status: "review", dispatchState: "needs_input", dispatchError: "cloud_session_failed", comments, reason: "la sessione cloud è finita con un errore", ...EMPTY };
       }
-      // Il ramo consegnato si guarda su origin: è lì che la sessione l'ha spinto.
+      // The delivered branch is looked up on origin: that is where the session pushed it.
       let branch: string | null = null;
       let commit: string | null = null;
       let unreachable = false;
@@ -369,7 +369,7 @@ export function createCloudNodeClient(deps: CloudNodeDeps) {
         if (sha === undefined) { unreachable = true; continue; }
         if (sha) { branch = b; commit = sha; break; }
       }
-      // Origin muto non vuol dire «ramo non spinto»: si riprova al prossimo giro, fino a 10.
+      // A mute origin does not mean «branch not pushed»: retry on the next round, up to 10.
       if (!branch && unreachable && ++run.originFails < ORIGIN_RETRIES) {
         return { status: "in_progress", dispatchState: "working", dispatchError: null, comments, ...EMPTY };
       }
@@ -388,7 +388,7 @@ export function createCloudNodeClient(deps: CloudNodeDeps) {
       try {
         run.bundle = await prepareBundle(run, branch);
         run.finished = true;
-        runs.set(input.runId, run); // solo per fetchBundle, che arriva subito dopo
+        runs.set(input.runId, run); // only for fetchBundle, which comes right after
       } catch (err) {
         const why = err instanceof Error ? err.message : String(err);
         return { status: "review", dispatchState: "needs_input", dispatchError: "cloud_bundle_failed", comments, reason: `il ramo \`${branch}\` è su origin ma non si è potuto preparare qui (${why})`, ...EMPTY };
@@ -405,8 +405,8 @@ export function createCloudNodeClient(deps: CloudNodeDeps) {
 
     async cancelRun(input: { runId: string }): Promise<void> {
       if (input.runId.startsWith("refused-")) { runs.delete(input.runId); return; }
-      // Una sessione già finita e consegnata non si tocca: la nota di consegna la linka, e
-      // archiviarla perché la card torna indietro toglierebbe a chi rivede la sua storia.
+      // A session already finished and delivered is not touched: the delivery note links it, and
+      // archiving it because the card goes back would take its history away from whoever reviews.
       const live = runs.get(input.runId);
       if (live?.finished) { runs.delete(input.runId); return; }
       if (!live && !(input.runId in loadPersisted())) return;
