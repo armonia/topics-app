@@ -49,6 +49,11 @@ export interface TopicBrowserPosition {
   bottom: number;
 }
 
+export interface TopicBrowserSize {
+  width: number;
+  height: number;
+}
+
 export interface TopicBrowserSheet {
   contextId: string;
   url: string;
@@ -60,6 +65,9 @@ export interface TopicBrowserWindowState {
   mode: TopicBrowserMode;
   /** null = the default corner. */
   minPos: TopicBrowserPosition | null;
+  /** Size of the minimized window, dragged from its edges; null = the default
+   *  size (`MIN_WINDOW_SIZE`). */
+  minSize: TopicBrowserSize | null;
   /** px; null = the default width. Spelled out (the design calls it `expWidth`)
    *  because `exp` is not an English word and `check:identifier-language` reads
    *  identifiers, not the design. The MODE literal 'exp' is data, so it stays. */
@@ -74,6 +82,7 @@ export interface TopicBrowserWindowState {
 export const EMPTY_TOPIC_BROWSER_WINDOW: TopicBrowserWindowState = {
   mode: 'hidden',
   minPos: null,
+  minSize: null,
   expandedWidth: null,
   tabs: [],
   activeContextId: null,
@@ -83,6 +92,13 @@ export const EMPTY_TOPIC_BROWSER_WINDOW: TopicBrowserWindowState = {
 /** Default size of the minimized window, and the bounds of the expanded one.
  *  They live here because the position/width reducers clamp against them. */
 export const MIN_WINDOW_SIZE = { width: 420, height: 320 } as const;
+/** How far the minimized window can be shrunk or grown from its edges. The
+ *  floor keeps the bar's buttons and a readable page; the area itself is the
+ *  real ceiling (`resolveMinRect` clips to it), this one only rejects garbage. */
+export const MIN_WINDOW_SIZE_BOUNDS = {
+  min: { width: 280, height: 200 },
+  max: { width: 4096, height: 4096 },
+} as const;
 export const EXPANDED_WIDTH_BOUNDS = { min: MIN_EXPANDED_WIDTH, max: 1200 } as const;
 
 // ── pure reducer ops (unit-tested; no I/O) ───────────────────────────────────
@@ -205,6 +221,33 @@ export function move(state: TopicBrowserWindowState, pos: TopicBrowserPosition):
   const bottom = Math.max(0, Math.round(pos.bottom));
   if (state.minPos && state.minPos.right === right && state.minPos.bottom === bottom) return state;
   return { ...state, minPos: { right, bottom } };
+}
+
+const clampSize = (size: TopicBrowserSize): TopicBrowserSize => ({
+  width: Math.round(Math.max(MIN_WINDOW_SIZE_BOUNDS.min.width, Math.min(MIN_WINDOW_SIZE_BOUNDS.max.width, size.width))),
+  height: Math.round(Math.max(MIN_WINDOW_SIZE_BOUNDS.min.height, Math.min(MIN_WINDOW_SIZE_BOUNDS.max.height, size.height))),
+});
+
+/** The size the minimized window asks for: its own, or the default. */
+export function floatingSizeOf(state: TopicBrowserWindowState): TopicBrowserSize {
+  return state.minSize ?? MIN_WINDOW_SIZE;
+}
+
+/** Resize the minimized window. Position and size travel together: dragging the
+ *  left or top edge grows the window AWAY from its bottom-right anchor, dragging
+ *  the right or bottom edge moves the anchor too. Null size restores the default. */
+export function resizeFloating(
+  state: TopicBrowserWindowState,
+  size: TopicBrowserSize | null,
+  pos?: TopicBrowserPosition,
+): TopicBrowserWindowState {
+  const moved = pos ? move(state, pos) : state;
+  const nextSize = size ? clampSize(size) : null;
+  const same = nextSize === null
+    ? moved.minSize === null
+    : !!moved.minSize && moved.minSize.width === nextSize.width && moved.minSize.height === nextSize.height;
+  if (same) return moved;
+  return { ...moved, minSize: nextSize };
 }
 
 /** Width of the expanded window, clamped; null restores the default. */
@@ -350,7 +393,7 @@ export function resolveComposerAvoidance(
 export function resolveMinRect(
   state: TopicBrowserWindowState,
   area: { width: number; height: number; composer?: ComposerBand },
-  size: { width: number; height: number } = MIN_WINDOW_SIZE,
+  size: { width: number; height: number } = floatingSizeOf(state),
 ): { left: number; top: number; width: number; height: number } {
   const width = Math.min(size.width, area.width);
   const height = Math.min(size.height, area.height);
@@ -401,10 +444,18 @@ export function sanitizeTopicBrowserWindow(v: unknown): TopicBrowserWindowState 
         return { right: Math.max(0, Math.round(p.right)), bottom: Math.max(0, Math.round(p.bottom)) };
       })()
     : null;
+  const minSize = o.minSize && typeof o.minSize === 'object'
+    ? (() => {
+        const z = o.minSize as Record<string, unknown>;
+        if (typeof z.width !== 'number' || typeof z.height !== 'number') return null;
+        if (!Number.isFinite(z.width) || !Number.isFinite(z.height)) return null;
+        return clampSize({ width: z.width, height: z.height });
+      })()
+    : null;
   const expandedWidth = typeof o.expandedWidth === 'number' && Number.isFinite(o.expandedWidth)
     ? Math.round(Math.max(EXPANDED_WIDTH_BOUNDS.min, Math.min(EXPANDED_WIDTH_BOUNDS.max, o.expandedWidth)))
     : null;
-  return { mode, minPos, expandedWidth, tabs, activeContextId, promoted };
+  return { mode, minPos, minSize, expandedWidth, tabs, activeContextId, promoted };
 }
 
 // ── persistence (ui-state, per-topic key) — mirrors taskBrowserTabs ───────────
@@ -729,6 +780,8 @@ export const topicBrowserWindow = {
   setMode: (topicId: string, mode: TopicBrowserMode) => commit(topicId, setMode(getTopicWindow(topicId), mode)),
   move: (topicId: string, pos: TopicBrowserPosition) => commit(topicId, move(getTopicWindow(topicId), pos)),
   setWidth: (topicId: string, width: number | null) => commit(topicId, setWidth(getTopicWindow(topicId), width)),
+  resizeFloating: (topicId: string, size: TopicBrowserSize | null, pos?: TopicBrowserPosition) =>
+    commit(topicId, resizeFloating(getTopicWindow(topicId), size, pos)),
   promoteToTab: (topicId: string, contextId: string) => commit(topicId, promoteToTab(getTopicWindow(topicId), contextId)),
   releasePromoted: (topicId: string, contextId: string) => commit(topicId, releasePromoted(getTopicWindow(topicId), contextId)),
   reconcilePromoted: (topicId: string, isLive: (contextId: string) => boolean) =>
