@@ -8,11 +8,13 @@
  * project chat next to the kanban, and that does not exist outside a
  * development install.
  *
- * This spec measures those two sentences instead of describing them:
+ * This spec measures those sentences instead of describing them:
  *  1. in a development install the command is there, and a mission lands in the
  *     composer of a project chat WITH its finishing bar inside the text, since
  *     that line is what separates a mission from a prompt;
- *  2. outside development it is neither hidden nor disabled: it is not in the DOM.
+ *  2. outside development it is neither hidden nor disabled: it is not in the DOM;
+ *  3. a draft already in that chat is kept and the mission queues under it, since
+ *     that half sentence is somebody's work and a menu click must not eat it.
  *
  * The gate is `server.devReload` (the `topics-dev.json` flag in STATE_DIR) read
  * from `/api/system/status`. Here the REAL response is fetched and only that one
@@ -31,6 +33,9 @@ hermetic(test);
 
 const PROJECT_PATH = canonicalTmpDir("e2e-missions");
 const TOPIC_NAME = "E2E-Missions";
+/** Stands for half a sentence somebody was still writing when they picked a mission. */
+// allow-italian: it is the person's own text, quoted as they would have typed it.
+const DRAFT = "mezza frase che stavo scrivendo";
 
 let projectTopicId: string | null = null;
 
@@ -146,5 +151,45 @@ test.describe("Board: missions to the side session", () => {
     // ...and the rest of the board chrome is intact, so the count above is not
     // vacuous.
     await expect(page.locator('[data-testid^="kanban-column-body-"]').first()).toBeVisible({ timeout: 10000 });
+  });
+
+  test("MISSIONS-03: a draft already in the chat is kept, the mission queues under it", async ({ page }) => {
+    test.info().annotations.push({ type: "spec", description: "KANBAN-100" });
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await withDevInstall(page, true);
+
+    // The draft is seeded where the composer itself persists it while somebody
+    // types (`draft:<topicId>` in localStorage, written by ChatPane on every
+    // keystroke): same channel, without a first pass to open the chat and type
+    // in it, which this test does not measure. Installed before any app code
+    // runs, so the pane reads it exactly as it reads a draft left yesterday.
+    await page.addInitScript(
+      ([id, draft]) => localStorage.setItem(`draft:${id}`, draft),
+      [projectTopicId as string, DRAFT],
+    );
+
+    await page.goto("/");
+    await openProjectBoard(page);
+
+    await page.getByTestId("missions-button").click();
+    await page.getByTestId("mission-inbox-zero").click();
+
+    const composer = page.getByRole("textbox", {
+      name: new RegExp(`(Campo del messaggio per|Message input for) ${TOPIC_NAME}$`),
+    });
+    await expect(composer).toBeVisible({ timeout: 15000 });
+
+    // Anchored at the start, and the mission immediately after the blank line:
+    // an implementation that replaced the draft, or that put the mission above
+    // it, fails here. A plain "contains the mission" would stay green on both,
+    // which is the whole point of this test.
+    // allow-italian: the draft is the person's text and the mission ships in Italian.
+    await expect(composer, "the draft keeps the top of the composer, the mission follows it")
+      .toHaveValue(new RegExp(`^${DRAFT}\\n\\nMISSIONE . inbox 0`));
+    await expect(composer, "the bar still travels inside the text").toHaveValue(/COME SI SA CHE . FINITA/);
+
+    // Nothing was sent: the text is still in the field waiting for a person, and
+    // the thread has no message in it.
+    await expect(page.locator('[data-testid="chat-message"]')).toHaveCount(0);
   });
 });

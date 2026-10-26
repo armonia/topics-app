@@ -5290,6 +5290,11 @@ route dedicata e alcun profilo MCP. Il testo NON SHALL essere inviato: a mandare
 La board SHALL restare visibile: la sessione è accanto, non al posto suo. Una bozza già presente
 nella chat bersaglio SHALL essere conservata, con la missione accodata.
 
+#### Scenario: una bozza già scritta resta, la missione le va sotto
+- **GIVEN** una chat di progetto con una bozza già nel composer
+- **WHEN** si sceglie la missione «inbox 0»
+- **THEN** il composer SHALL contenere prima la bozza intatta e poi il testo della missione, e nulla SHALL essere inviato
+
 #### Scenario: una missione arriva nel composer con la sua barra
 - **GIVEN** un'installazione di sviluppo, la kanban di un progetto e una chat di quel progetto
 - **WHEN** si apre il menu «Missioni» e si sceglie «inbox 0»
