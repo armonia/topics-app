@@ -37,6 +37,7 @@ const LOCAL = "questa-macchina";
 const REMOTE_CARD = "card-sul-nodo";
 const LOCAL_CARD = "card-locale";
 const LOCAL_CARD_2 = "card-locale-2";
+const REMOTE_CARD_2 = "card-sul-nodo-2";
 
 const FLOOR_TEXT = "Memoria quasi finita: 5.5 GB disponibili, sotto il pavimento di 6 GB. Riprendo appena si libera memoria: niente è andato perso.";
 
@@ -88,7 +89,7 @@ function harness(floor: ResourceFloorVerdict) {
   const worktrees: string[] = [];
   const turns: string[] = [];
   const readings: MemoryFloorHold[] = [];
-  let now = Date.UTC(2026, 8, 6, 10, 0, 0);
+  const now = Date.UTC(2026, 8, 6, 10, 0, 0);
   let nextRun = 0;
 
   const deps: DispatcherDeps = {
@@ -168,6 +169,22 @@ describe("il pavimento di memoria del Mac non trattiene le card dei nodi", () =>
     expect(h.task(REMOTE_CARD).dispatchState).toBe("working");
     // ... and the local card, the control, is held by the same floor.
     expect(h.task(LOCAL_CARD).status).toBe("todo");
+    expect(h.worktrees).toEqual([]);
+    expect(h.turns).toEqual([]);
+  });
+
+  it("a metà giro una seconda card del nodo non aspetta il pavimento locale", async () => {
+    const h = harness(BLOCKED);
+    h.seed(REMOTE_CARD, NODE);
+    h.seed(REMOTE_CARD_2, NODE);
+
+    await dispatch(h);
+
+    expect(h.created).toHaveLength(2);
+    expect(h.created.map((body) => (body as { originTaskId: string }).originTaskId))
+      .toEqual([REMOTE_CARD, REMOTE_CARD_2]);
+    expect(h.task(REMOTE_CARD).status).toBe("in_progress");
+    expect(h.task(REMOTE_CARD_2).status).toBe("in_progress");
     expect(h.worktrees).toEqual([]);
     expect(h.turns).toEqual([]);
   });

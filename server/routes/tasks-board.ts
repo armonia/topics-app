@@ -24,6 +24,7 @@ import { isTaskLabel } from "../../shared/task-labels";
 import { stopCauseOf, STOP_CAUSE_HEADER, type StopCause } from "../lib/abort-cause";
 import { ScheduledCardsError, type ScheduledCardsService } from "../services/scheduled-cards";
 import { invalidateProbeCache } from "../services/url-probe-cache";
+import { decodeMemoryQueueRef } from "../services/dispatch-memory-reference";
 import type { TasksRouterOpts, emitReviewReadyEdge } from "./tasks";
 
 /**
@@ -507,6 +508,48 @@ export function createBoardRoutes(deps: BoardRouteDeps) {
         if (!task) return json({ error: "task not found", code: "not_found" }, 404);
         broadcastToAll({ type: "task:created", projectId: bRestore.projectId, task });
         return json(task);
+      } catch (e) { return fail(e); }
+    }
+
+    // POST /api/boards/:projectId/tasks/:taskId/start-anyway — ask the
+    // dispatcher to admit only this memory-held card, preserving its normal
+    // claim and every gate other than the memory threshold.
+    const bStartAnyway = matchRoute(pathname, "/api/boards/:projectId/tasks/:taskId/start-anyway");
+    if (bStartAnyway && method === "POST") {
+      const projectId = decodeMemoryQueueRef(bStartAnyway.projectId);
+      const taskId = decodeMemoryQueueRef(bStartAnyway.taskId);
+      if (!projectId || !taskId) return json({ error: "invalid task reference", code: "invalid_reference" }, 400);
+      const task = svc.get(taskId, { projectId })?.task;
+      if (!task) return json({ error: "task not found", code: "not_found" }, 404);
+      const startDispatcher = dispatcher as (TaskDispatcher & {
+        startAnyway?: (projectId: string, taskId: string) => Promise<{ ok: boolean; code?: string }>;
+      }) | undefined;
+      if (!startDispatcher?.startAnyway) {
+        return json({ error: "dispatcher unavailable", code: "dispatcher_unavailable" }, 503);
+      }
+      try {
+        const result = await startDispatcher.startAnyway(projectId, taskId);
+        if (!result.ok) {
+          const code = result.code ?? "start_rejected";
+          return json(
+            { error: "task cannot be started", code },
+            code === "not_found" || code === "task_not_found" ? 404 : 409,
+          );
+        }
+        // `once` makes concurrent retries leave one trace on the card even
+        // when the dispatcher correctly treats both requests as accepted.
+        svc.addComment({
+          taskId: task.id,
+          projectId,
+          author: "system",
+          kind: "service",
+          content: "Partita per scelta dell'utente.",
+          once: true,
+          origin: actionOrigin,
+        });
+        const updated = svc.get(task.id, { projectId })?.task ?? task;
+        broadcastToAll({ type: "task:updated", projectId, task: updated });
+        return json({ task: updated }, 202);
       } catch (e) { return fail(e); }
     }
 

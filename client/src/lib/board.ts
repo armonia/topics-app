@@ -528,6 +528,7 @@ export interface BoardTask {
   dispatchState: string | null;
   /** Why the last dispatch attempt was released/parked (visible feedback). */
   dispatchError: string | null;
+  dispatchQueue?: import('../../../shared/board').DispatchMemoryQueueCard | null;
   /** Parent task when this is a nested subtask (unlimited depth). */
   parentTaskId: string | null;
   /** Reviewable output (http/https URL) shown in the task's review panel.

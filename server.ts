@@ -107,10 +107,11 @@ import { createTaskDispatcher } from "./server/services/task-dispatcher";
 import { isChecksHold as isChecksHoldOf, sweepStaleChecksLights as sweepStaleChecksLightsOf } from "./server/services/checks-lights";
 import { refreshLiveJobQuotas } from "./server/services/agent-job-quota";
 import { availableMemGB, budgetSample, computeDispatchCapacity, probeVm, setAvailableMemReader } from "./server/services/dispatch-capacity";
-import { createDispatchResourceBlock } from "./server/services/dispatch-resource-block";
 import { createMemSignal, fileMemSampleStore, formatMemorySignalLine } from "./server/services/mem-signal";
 import { OUR_APP_MARKERS } from "./server/services/memory-owners";
 import { createMemoryOwnersReader } from "./server/services/memory-owners-probe";
+import { createDispatchMemoryHistory } from "./server/services/dispatch-memory-history";
+import { createDispatchMemoryInputs, createDispatchResourceBlockFromInputs } from "./server/services/dispatch-memory-inputs";
 import { fleetLoadSync, fleetSessionCoreUnits, procFootprintKB, procResidentKB, registeredFleetSocketPaths } from "./server/lib/fleet-usage";
 import { recentCardMemPeaksGB } from "./server/lib/card-memory-peaks";
 import { machineCores } from "./server/lib/machine-cores";
@@ -1835,13 +1836,18 @@ const memSignal = createMemSignal({
   measurable: process.platform === "darwin",
   store: fileMemSampleStore(join(resolveStateDir(process.cwd()), "mem-samples.json")),
 });
+const dispatchMemoryHistory = createDispatchMemoryHistory();
+function recordDispatchMemoryHistory(): void {
+  const sample = memSignal.samples().at(-1);
+  if (sample?.availGB != null) dispatchMemoryHistory.record(sample.at, sample.availGB);
+}
 // Created here, before the listener opens: the socket open handler sends its
 // frame, and the port starts accepting during the boot's first await.
 const memoryPressureSignal = createMemoryPressureSignal(
   (frame) => broadcastToAll(frame),
   memSignal.swap().sustained,
 );
-void memSignal.sample();
+void memSignal.sample().then(recordDispatchMemoryHistory);
 // The capacity reading takes its memory from this sample instead of a
 // synchronous `vm_stat` per request; the sync probe stays only as the fallback
 // when no fresh sample exists (see `setAvailableMemReader`).
@@ -1868,6 +1874,17 @@ const memoryOwners = createMemoryOwnersReader({
     try { marks.push(ctx.worktreeManager.worktreesDir()); } catch { /* not mounted yet */ }
     return marks;
   },
+});
+
+const dispatchMemoryInputs = createDispatchMemoryInputs({
+  heldMemory: () => memSignal.held(),
+  runtime: resolveAgentRuntime,
+  memoryReading: () => {
+    const sample = memSignal.samples().at(-1);
+    return { freeGB: sample?.availGB ?? null, at: sample?.at ?? null };
+  },
+  memoryHistory: () => dispatchMemoryHistory.read(),
+  memoryOwners: () => memoryOwners.latest(),
 });
 
 const taskDispatcher = createTaskDispatcher({
@@ -1965,8 +1982,7 @@ const taskDispatcher = createTaskDispatcher({
   agentMemSamples: () => {
     try { return recentCardMemPeaksGB(); } catch { return []; }
   },
-  heldMemory: () => memSignal.held(),
-  isCliRuntime: () => resolveAgentRuntime() === "cli",
+  ...dispatchMemoryInputs,
   // Corse di check pre-review in volo: ogni barra vale uno slot nel freno.
   // Letto dalla closure: il checksGate nasce dentro `createTasksRouter`, che e'
   // dopo questa chiamata, ma prima del primo tick o resume. Zero finche' non
@@ -2069,10 +2085,9 @@ const taskDispatcher = createTaskDispatcher({
   // riga di SQLite già in cache.
   // `hold` is the dispatcher's: the price of one card, the memory kept for the
   // turns in flight, and whether any of our work is on the machine.
-  resourceBlock: createDispatchResourceBlock({
+  resourceBlock: createDispatchResourceBlockFromInputs({
     worktreesPath: () => ctx.worktreeManager.worktreesDir(),
-    heldMemory: () => memSignal.held(),
-    isCliRuntime: () => resolveAgentRuntime() === "cli",
+    inputs: dispatchMemoryInputs,
     memoryOwners: () => memoryOwners.latest(),
   }),
   // Il ramo di una card nasce da MAIN, non dall'HEAD del checkout condiviso, e
@@ -5370,6 +5385,7 @@ const MEMSIG_EVERY_MS = 60_000;
 let memsigAt = 0;
 const dispatchTimer = setInterval(() => {
   void memSignal.sample().then(() => {
+    recordDispatchMemoryHistory();
     memoryPressureSignal.update(memSignal.swap().sustained);
     // THE BRAKE FIRST, THE FREEZER AFTER, ON ONE WINDOW. The brake kills a check
     // round (memory back, no verdict lost); the freezer only stops an agent's

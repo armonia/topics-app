@@ -14,11 +14,16 @@
  * `waitingOnCount`.
  * @covers KANBAN-07
  */
-import { test, expect, describe, beforeEach } from "bun:test";
+import { test, expect, describe, beforeEach, beforeAll, afterAll } from "bun:test";
 import { Database } from "bun:sqlite";
 import { createTaskService, type TaskService } from "./tasks";
 import { setDispatchBlock, setHeldResumeBlock } from "./dispatch-block-signal";
 import { freshDb as schemaDb } from "./tasks-test-db";
+import { cleanupTestDataDir, setupTestDataDir, testTmpDir } from "../../tests/integration/helpers";
+
+const STATE_ROOT = testTmpDir("tasks-queue-reason");
+beforeAll(() => setupTestDataDir(`${STATE_ROOT}/data`));
+afterAll(() => cleanupTestDataDir(STATE_ROOT));
 
 /**
  * Lo schema e' quello condiviso; l'INTERRUTTORE ACCESO no, ed e' una scelta di
@@ -101,21 +106,19 @@ describe("la ragione della coda arriva dal server, con la card", () => {
     expect(s.get(t.id)!.task.queueReason!.kind).toBe("slot");
   });
 
-  test("un resume trattenuto in In corso dice il blocco della SUA attesa, non quello pubblicato", () => {
-    const floor = "Memoria quasi finita: 4,1 GB disponibili.";
+  test("un resume trattenuto in memory keeps the reason code", () => {
+    const floor = "waiting-memory";
     const t = s.create({ projectId: PID, text: "Ripresa trattenuta" });
     mv(s, t.id, "in_progress");
     s.setDispatchState({ taskId: t.id, state: "queued", error: floor });
     try {
-      // The published block is the tick's, refreshed only on boards it reaches:
-      // alone it says nothing about this card.
-      setDispatchBlock({ kind: "resources", reason: floor });
+      const technical = "Memoria quasi finita: runtime nativo, pavimento 6 GB, prezzo 4 GB.";
+      setDispatchBlock({ kind: "resources", reason: technical });
       expect(s.get(t.id)!.task.queueReason).toBeNull();
-      // The hold's own block, with the row saying the same sentence: the reason.
       setHeldResumeBlock(t.id, { kind: "resources", reason: floor });
-      expect(s.get(t.id)!.task.queueReason).toMatchObject({ kind: "resource_floor", tone: "stalled" });
-      // The row says another sentence (the cap alone, or another writer of the
-      // chip): the leftover entry does not speak.
+      const held = s.get(t.id)!.task.queueReason;
+      expect(held).toMatchObject({ kind: "resource_floor", tone: "stalled", params: { reason: "waiting-memory" } });
+      expect(JSON.stringify(held)).not.toContain(technical);
       s.setDispatchState({ taskId: t.id, state: "queued", error: null });
       expect(s.get(t.id)!.task.queueReason).toBeNull();
       // An agent really at work on the same card is untouched by the block.
