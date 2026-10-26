@@ -2,6 +2,23 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.3.34 — 2026-10-26
+
+### Prestazioni
+- porta cache TTL a 1h e keepalive a 4 min (#481)
+
+### Sotto il cofano
+- Chiudi i comandi di una card insieme alla card (#454)
+- Coda per memoria della kanban: una card locale alla volta quando la memoria è poca (#465)
+- Main di nuovo verde: avviso postcss-selector-parser e tetto di bloat del dispatcher (#476)
+- Le card su Cloud Claude non aspettano più la memoria del Mac (#473)
+- i token dei nodi appaiati in nodes/ non entrano nel repo (#475)
+- il B7 della parità di ammissione misura dal t0 dell'harness (#477)
+- GET /__daemon/idle, «c'è un turno in volo?» di sola lettura (card fe19d3f9) (#469)
+- Card dei nodi: «review» senza ramo aspetta tre giri prima di consegnare vuoto (#478)
+- Nodo remoto: il feedback della review arriva al nodo, il cloud consegna il ramo col suo suffisso (#480)
+- Archiving a done card no longer reopens it (card 47b63de2) (#471)
+
 ## 2.3.33 — 2026-10-26
 
 ### Sotto il cofano

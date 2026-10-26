@@ -147,7 +147,10 @@ function harness(overrides: Partial<DispatcherDeps> = {}) {
   };
   const dispatcher = createTaskDispatcher(deps);
   dispatchers.push(dispatcher);
-  svc.updateBoardSettings(PID, { autoDispatch: true, dispatchUseWorktree: false });
+  // A local check keeps the board at the full price list: these scenarios pin
+  // the line of the card that runs the repo gates (a board with no check is
+  // priced apart, `dispatch-card-price.test.ts`).
+  svc.updateBoardSettings(PID, { autoDispatch: true, dispatchUseWorktree: false, reviewChecks: [{ name: "unit", cmd: "bun test" }] });
   return {
     db, svc, dispatcher, startedAt, turns, logLines, machine,
     lines: (needle: string) => logLines.filter((l) => l.includes(needle)),

@@ -61,7 +61,10 @@ describe("the memory window on the floor and on the budget axis", () => {
       t += 10_000;
     };
     const beats = async (values: number[]) => { for (const gb of values) await beat(gb); };
-    return { h, beat, beats };
+    // t0 goes back with the harness: a test that reads its own Date.now() after
+    // this one can land a millisecond later, and every start then measures 1 ms
+    // early (139.999 instead of 140 on CI, 26/10).
+    return { h, beat, beats, t0 };
   }
   const repeat = (gb: number, n: number) => Array<number>(n).fill(gb);
   const mainMemoryReason = (heldGB: number, lineGB: number, reservedGB = 0) => {
@@ -82,7 +85,11 @@ describe("the memory window on the floor and on the budget axis", () => {
     B2: { whileChecks: 0, afterChecks: 1, exemptionLog: 1, falseRecoveryLines: 0 },
     B3: { firstStarts: 1, totalStarts: 1, reasonLineGB: 10 },
     B4: { firstStarts: 1, totalStarts: 2, reason: "" },
-    B5: { firstStarts: 1, totalStarts: 1, reasonLineGB: 14, reservedGB: 4 },
+    // B5 is the one baseline this change moves on purpose (per-board card price,
+    // `dispatch-card-price.ts`): on main the no-check turn in flight reserved the
+    // checked card's 4 GB and the line was 6 + 4 + 4 = 14; it now reserves its own
+    // board's price, 1 GB, so the line is 6 + 4 + 1 = 11.
+    B5: { firstStarts: 1, startsAtLine: 2, startsUnderLine: 1, reasonLineGB: 11, reservedGB: 1 },
     B6: { checkedStarts: 1, totalStarts: 1, exemptionLogs: 0 },
     B7: { starts: 2, exemptionLogs: 0, startSeconds: [140, 150] },
   } as const;
@@ -168,7 +175,7 @@ describe("the memory window on the floor and on the budget axis", () => {
     });
   }
 
-  for (const gb of [12, 13.5]) {
+  for (const gb of [10.5, 12, 13.5]) {
     it(`B5 count mode, first card (no-check board) spending here, checked card at ${gb} GB`, async () => {
       const w = windowHarness("count");
       await w.beats(repeat(5, 14));
@@ -181,8 +188,13 @@ describe("the memory window on the floor and on the budget axis", () => {
       seedTodo(w.h.db, `b5-checked-${gb}`, SECOND_PID);
       await w.h.dispatcher.tick(SECOND_PID);
       await flush();
-      expect(w.h.startedAt.length).toBe(MAIN.B5.totalStarts);
-      expect(currentDispatchBlock()?.reason).toBe(mainMemoryReason(gb, MAIN.B5.reasonLineGB, MAIN.B5.reservedGB));
+      if (gb >= MAIN.B5.reasonLineGB) {
+        expect(w.h.startedAt.length).toBe(MAIN.B5.startsAtLine);
+        expect(currentDispatchBlock()?.reason ?? "").toBe("");
+      } else {
+        expect(w.h.startedAt.length).toBe(MAIN.B5.startsUnderLine);
+        expect(currentDispatchBlock()?.reason).toBe(mainMemoryReason(gb, MAIN.B5.reasonLineGB, MAIN.B5.reservedGB));
+      }
     });
   }
 
@@ -321,7 +333,7 @@ describe("the memory window on the floor and on the budget axis", () => {
     const w = windowHarness("count", {
       runTurn: () => new Promise<void>((resolve) => { finish = () => resolve(); }),
     });
-    const t0 = Date.now();
+    const t0 = w.t0;
     await w.beats(repeat(5, 14));
     seedTodo(w.h.db, "b7");
     await w.beat(5);
