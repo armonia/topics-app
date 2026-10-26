@@ -78,6 +78,7 @@ async function openProjectBoard(page: Page) {
 }
 
 test("una card su «Cloud Claude» gira nel cloud e torna in review col suo ramo", async ({ page, request }) => {
+  test.info().annotations.push({ type: "spec", description: "KANBAN-76" });
   let cloud: FakeClaudeCloud | null = null;
   let topicId: string | null = null;
   let taskId: string | null = null;

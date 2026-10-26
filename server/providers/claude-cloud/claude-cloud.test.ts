@@ -1,3 +1,6 @@
+/**
+ * @covers KANBAN-76
+ */
 import { describe, expect, test } from "bun:test";
 import fixture from "./fixtures/ping-two-turns.json";
 import { CloudApi, type CloudEvent, type FetchLike } from "./api";

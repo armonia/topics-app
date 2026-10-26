@@ -18,12 +18,12 @@ export function cloudApiIsReal(): boolean {
   return apiBase === DEFAULT_API;
 }
 
-export interface CloudCreds {
+export interface CloudCredentials {
   accessToken: string;
   orgUuid: string;
 }
 /** What a fake API receives in place of the real token. */
-const FAKE_CREDS: CloudCreds = { accessToken: "e2e-fake", orgUuid: "e2e-fake" };
+const FAKE_CREDENTIALS: CloudCredentials = { accessToken: "e2e-fake", orgUuid: "e2e-fake" };
 
 export interface CloudSource {
   /** e.g. "armonia/topics-app" */
@@ -61,7 +61,7 @@ export type FetchLike = (url: string, init?: RequestInit) => Promise<Response>;
 
 export class CloudApi {
   constructor(
-    private readonly creds: () => Promise<CloudCreds>,
+    private readonly creds: () => Promise<CloudCredentials>,
     private readonly fetchImpl: FetchLike = fetch,
   ) {}
 
@@ -69,7 +69,7 @@ export class CloudApi {
     // The base is read BEFORE asking for credentials, and the real token is requested only for
     // the real API: so no base change midway can carry it elsewhere.
     const base = apiBase;
-    const c = base === DEFAULT_API ? await this.creds() : FAKE_CREDS;
+    const c = base === DEFAULT_API ? await this.creds() : FAKE_CREDENTIALS;
     const res = await this.fetchImpl(base + path, {
       method,
       headers: {

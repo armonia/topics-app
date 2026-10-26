@@ -247,9 +247,9 @@ import { appendDelegatedRunAudit, delegatedPolicyForTask } from "./server/lib/de
 import { createNodeBranchPlanter } from "./server/services/node-branch-plant";
 import { projectPathOfAnyId } from "./server/lib/project-identity";
 import { CloudApi } from "./server/providers/claude-cloud/api";
-import { credsFor } from "./server/providers/claude-cloud/creds";
+import { credentialsFor } from "./server/providers/claude-cloud/creds";
 import {
-  CLOUD_NODE_BASE_URL, CLOUD_NODE_HOSTNAME, CLOUD_NODE_NAME, CLOUD_NODE_TOKEN,
+  CLOUD_NODE_BASE_URL, CLOUD_NODE_HOST, CLOUD_NODE_NAME, CLOUD_NODE_TOKEN,
   cloudCredentialsPresent, createCloudNodeClient, isCloudBaseUrl,
 } from "./server/providers/claude-cloud/node";
 import { createDelegatedRevocationRetry } from "./server/services/delegated-revocation-retry";
@@ -1814,7 +1814,7 @@ const nodeBranchPlanter = createNodeBranchPlanter({
  * Claude Code's credentials do, so the picker never offers a cloud nobody can reach.
  */
 const cloudNode = createCloudNodeClient({
-  api: new CloudApi(credsFor(process.env.TOPICS_CLAUDE_CLOUD_ACCOUNT || undefined)),
+  api: new CloudApi(credentialsFor(process.env.TOPICS_CLAUDE_CLOUD_ACCOUNT || undefined)),
   repoPathOfTask: (taskId) => {
     const projectId = dispatcherSvc.get(taskId)?.task.projectId;
     return projectId ? projectPathForNode(projectId) ?? null : null;
@@ -1824,9 +1824,9 @@ const cloudNode = createCloudNodeClient({
 const cloudEnabled = cloudCredentialsPresent();
 if (cloudEnabled) {
   // Un nodo accoppiato che si chiama proprio «claude-cloud» resta suo: non gli si riscrive l'indirizzo.
-  const existing = ctx.machineStore.getByHostname(CLOUD_NODE_HOSTNAME);
+  const existing = ctx.machineStore.getByHostname(CLOUD_NODE_HOST);
   if (!existing || isCloudBaseUrl(existing.baseUrl)) {
-    try { ctx.machineStore.upsertNode({ hostname: CLOUD_NODE_HOSTNAME, name: existing?.name ?? CLOUD_NODE_NAME, baseUrl: CLOUD_NODE_BASE_URL }); }
+    try { ctx.machineStore.upsertNode({ hostname: CLOUD_NODE_HOST, name: existing?.name ?? CLOUD_NODE_NAME, baseUrl: CLOUD_NODE_BASE_URL }); }
     catch (err) { console.warn("[claude-cloud] riga della macchina cloud non scritta", err); }
   }
 }
@@ -3102,9 +3102,9 @@ function tickHeartbeat() {
     // rinfreschiamo noi, o dopo 5 minuti la card direbbe «non risponde» su un servizio vivo.
     // Solo se il cloud è acceso QUI: una riga rimasta da un avvio di prima, a cloud spento,
     // deve diventare «non risponde» col giro normale invece di restare in linea.
-    const cloud = cloudEnabled ? ctx.machineStore.getByHostname(CLOUD_NODE_HOSTNAME) : null;
+    const cloud = cloudEnabled ? ctx.machineStore.getByHostname(CLOUD_NODE_HOST) : null;
     if (cloud && isCloudBaseUrl(cloud.baseUrl)) {
-      ctx.machineStore.upsertNode({ hostname: CLOUD_NODE_HOSTNAME, name: cloud.name, baseUrl: CLOUD_NODE_BASE_URL });
+      ctx.machineStore.upsertNode({ hostname: CLOUD_NODE_HOST, name: cloud.name, baseUrl: CLOUD_NODE_BASE_URL });
     }
     const flipped = ctx.machineStore.markStaleOffline(STALE_THRESHOLD_MS);
     for (const m of flipped) {

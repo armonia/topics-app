@@ -5,7 +5,7 @@
 import { readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import { cloudApiIsReal, type CloudCreds } from "./api";
+import { cloudApiIsReal, type CloudCredentials } from "./api";
 import { runBounded } from "../../lib/bounded-spawn";
 
 interface OAuthBlob {
@@ -46,7 +46,7 @@ async function orgFor(account: string | undefined, token: string): Promise<strin
   return org;
 }
 
-export function credsFor(account?: string): () => Promise<CloudCreds> {
+export function credentialsFor(account?: string): () => Promise<CloudCredentials> {
   return async () => {
     // A fake API (e2e) never sees the real token.
     if (!cloudApiIsReal()) return { accessToken: "e2e-fake", orgUuid: "e2e-fake" };

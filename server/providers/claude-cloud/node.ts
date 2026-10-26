@@ -15,7 +15,7 @@ import { runBounded } from "../../lib/bounded-spawn";
 
 /** The base_url of the cloud's `machines` row: not an address, a placeholder. */
 export const CLOUD_NODE_BASE_URL = "claude-cloud://";
-export const CLOUD_NODE_HOSTNAME = "claude-cloud";
+export const CLOUD_NODE_HOST = "claude-cloud";
 export const CLOUD_NODE_NAME = "Cloud Claude";
 /** The lane refuses a node without a token: for the cloud, authentication is the Claude Code login. */
 export const CLOUD_NODE_TOKEN = "claude-cloud";
@@ -69,8 +69,8 @@ async function sshAliasIsGithub(alias: string): Promise<boolean> {
   if (!/^[\w.-]+$/.test(alias)) return false;
   const r = await runBounded(["ssh", "-G", "--", alias], { stdout: "pipe", stderr: "ignore", timeoutMs: 5_000 });
   if (r.exitCode !== 0) return false;
-  const hostname = r.stdout.match(/^hostname (\S+)$/m)?.[1]?.toLowerCase();
-  return !!hostname && GITHUB_HOSTS.has(hostname);
+  const host = r.stdout.match(/^hostname (\S+)$/m)?.[1]?.toLowerCase();
+  return !!host && GITHUB_HOSTS.has(host);
 }
 
 interface ParsedOrigin { host: string; slug: string; viaSsh: boolean }

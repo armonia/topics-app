@@ -8,7 +8,7 @@
 import type { AIProvider, ChatMessage, CompletionResult, ProviderCapability, ProviderDiagnostic, StreamHandler } from "../types";
 import { getTopicWorkspaceForSession } from "../../lib/agent-workspace";
 import { CloudApi } from "./api";
-import { credsFor } from "./creds";
+import { credentialsFor } from "./creds";
 import { cloudModelFor, resolveGithubSlug } from "./node";
 import { runBounded } from "../../lib/bounded-spawn";
 import { CloudSessionRunner } from "./session";
@@ -33,7 +33,7 @@ export class ClaudeCloudProvider implements AIProvider {
   private ready = false;
 
   constructor(private readonly config: ClaudeCloudProviderConfig) {
-    this.runner = new CloudSessionRunner(new CloudApi(credsFor(config.account)));
+    this.runner = new CloudSessionRunner(new CloudApi(credentialsFor(config.account)));
   }
 
   get connected(): boolean { return this.ready; }
@@ -90,7 +90,7 @@ export class ClaudeCloudProvider implements AIProvider {
 
   async diagnose(): Promise<ProviderDiagnostic> {
     try {
-      await credsFor(this.config.account)();
+      await credentialsFor(this.config.account)();
       return { name: this.name, status: "ready", requirements: [] };
     } catch (err) {
       return { name: this.name, status: "error", requirements: [], lastError: err instanceof Error ? err.message : String(err) };

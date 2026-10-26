@@ -6,7 +6,7 @@
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { CloudApi } from "../../../server/providers/claude-cloud/api";
-import { credsFor } from "../../../server/providers/claude-cloud/creds";
+import { credentialsFor } from "../../../server/providers/claude-cloud/creds";
 import { CloudSessionRunner } from "../../../server/providers/claude-cloud/session";
 import type { StreamHandler } from "../../../server/providers/types";
 
@@ -45,7 +45,7 @@ const quiet = (log: string[]): StreamHandler =>
   }) as unknown as StreamHandler;
 
 async function cloudCard(i: number) {
-  const runner = new CloudSessionRunner(new CloudApi(credsFor(process.env.CLOUD_ACCOUNT)));
+  const runner = new CloudSessionRunner(new CloudApi(credentialsFor(process.env.CLOUD_ACCOUNT)));
   const log: string[] = [];
   const t0 = Date.now();
   const r = await runner.sendTurn(`bench-${i}`, TASK, quiet(log), {

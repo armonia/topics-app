@@ -1,8 +1,8 @@
 // Probe on a real session: do interrupt + archive really stop it?
 import { CloudApi } from "../../../server/providers/claude-cloud/api";
-import { credsFor } from "../../../server/providers/claude-cloud/creds";
+import { credentialsFor } from "../../../server/providers/claude-cloud/creds";
 
-const api = new CloudApi(credsFor());
+const api = new CloudApi(credentialsFor());
 const sid = await api.createSession({
   title: "prova stop (Topics)",
   prompt: "Esegui il comando `sleep 240` con Bash e poi rispondi solo «finito». Non fare altro.",
