@@ -3674,6 +3674,30 @@ const opzioniServer = {
           status: 202, headers: { "content-type": "application/json" },
         });
       }
+      if (method === "GET" && pathname === "/__daemon/idle") {
+        // "Is a turn in flight?" - READ-ONLY. Whoever wants a conditional restart
+        // (the Mac hub) must be able to ask first, without committing:
+        // `restart-when-idle` opens a wait and then sends the SIGTERM, and the
+        // only way to learn the state was to start it.
+        //
+        // This does NOT call `waitForDispatcherQuiescent`, does no
+        // `drain`/`undrain` and sends no signal: it reads the predicates the gate
+        // uses (`whatIsStillWorking`, which composes `describeInFlight` and
+        // `chatsHolding`). A GET that changed their state would close the
+        // dispatcher door or restart the server for someone who only wanted to
+        // look: the test holds that still.
+        const { busy: holding, cards, unadoptable } = await whatIsStillWorking();
+        return new Response(JSON.stringify({
+          idle: holding === null,
+          inFlight: taskDispatcher.busyCount(),
+          // `null` = nothing is holding. Same sentence the gate puts in the log.
+          holding,
+          // Whoever does not come back after a restart: the same sum the gate
+          // passes to `quiescenceVerdict` as `unrecoverable`.
+          unrecoverable: cards + unadoptable,
+          alreadyWaiting: attesaQuiescenza.inProgress() !== null,
+        }), { status: 200, headers: { "content-type": "application/json" } });
+      }
       if (method === "POST" && pathname === "/__daemon/restart-when-idle") {
         // Graceful restart that WAITS for agent turns to finish first — the
         // safe way to apply a server fix without cutting a working agent
