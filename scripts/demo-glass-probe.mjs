@@ -81,7 +81,7 @@ async function measureOnce(page, decoder, clip) {
 /**
  * @returns {Promise<string[]>} problems; empty when the menu hides the seam.
  */
-export async function glassProblems(page) {
+export async function glassProblems(page, browser) {
   const problems = [];
   const menu = page.locator(MENU).first();
   if (!(await menu.waitFor({ state: 'visible', timeout: 5000 }).then(() => true, () => false))) {
@@ -90,7 +90,7 @@ export async function glassProblems(page) {
   const box = await menu.boundingBox();
   if (!box) return ['glass: the menu has no box'];
   const clip = { x: Math.floor(box.x), y: Math.floor(box.y), width: Math.floor(box.width), height: Math.floor(box.height) };
-  const decoder = await page.context().newPage();
+  const decoder = await browser.newPage();
   await decoder.setContent('<canvas></canvas>');
   try {
     const wasDark = await page.evaluate(() => document.documentElement.classList.contains('dark'));

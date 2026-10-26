@@ -113,7 +113,7 @@ try {
     if (MUTANT) await page.evaluate(() => document.getElementById('landing-glass-solid')?.remove());
     if (await identityRow.click({ timeout: 10000 }).then(() => true, () => false)) {
       await page.waitForTimeout(2500);
-      const glass = await glassProblems(page);
+      const glass = await glassProblems(page, browser);
       if (MUTANT) {
         if (!glass.length) problemi.push('mutant survived: without the solid-menu sheet the glass probe stayed green');
         else console.log('check:demo --mutant — the glass probe went red as it should');
