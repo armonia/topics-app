@@ -43,9 +43,9 @@ Comandi: `python3 openspec/changes/e2e-stop-on-red/bar.py stop|green <run>`.
 
 | | cosa | atteso | run |
 |---|---|---|---|
-| a | commit che rompe un test unit, poi revert | `stop` exit 0 | (link) |
-| b | PR verde, durate come prima | `green` exit 0 | (link) |
-| c | mutante senza fermata + test rotto | `stop` exit 1 | (link) |
+| a | commit che rompe un test unit, poi revert | `stop` exit 0 | [40251091028](https://github.com/armonia/topics-app/actions/runs/40251091028): 9 shard `failure` entro 57 s, «fermato» |
+| b | PR verde, durate come prima | `green` exit 0 | [40249331514](https://github.com/armonia/topics-app/actions/runs/40249331514): shard mediano 16,7 min contro 17,0 |
+| c | mutante senza fermata + test rotto | `stop` exit 1 | [40252373214](https://github.com/armonia/topics-app/actions/runs/40252373214): shard fino in fondo, 443-825 s dopo il rosso |
 
 In locale: `bash scripts/e2e-stop-on-red.test.sh` exit 0, e 11 mutanti dello
 script tutti rossi. Sul run rosso 40238524332 di prima (25/10) `stop` esce 1:
