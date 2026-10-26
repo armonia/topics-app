@@ -6,16 +6,17 @@ import { readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { cloudApiIsReal, type CloudCreds } from "./api";
+import { runBounded } from "../../lib/bounded-spawn";
 
 interface OAuthBlob {
   accessToken: string;
 }
 
-function keychainOAuth(): OAuthBlob {
+async function keychainOAuth(): Promise<OAuthBlob> {
   if (process.env.TOPICS_CREDENTIALS_KEYCHAIN === "0") throw new Error("Portachiavi spento per questo processo (TOPICS_CREDENTIALS_KEYCHAIN=0)");
-  const r = Bun.spawnSync(["security", "find-generic-password", "-s", "Claude Code-credentials", "-w"]);
+  const r = await runBounded(["security", "find-generic-password", "-s", "Claude Code-credentials", "-w"], { stdout: "pipe", stderr: "ignore", timeoutMs: 10_000 });
   if (r.exitCode !== 0) throw new Error("voce «Claude Code-credentials» assente nel Portachiavi");
-  return JSON.parse(r.stdout.toString()).claudeAiOauth as OAuthBlob;
+  return JSON.parse(r.stdout).claudeAiOauth as OAuthBlob;
 }
 
 function accountOAuth(account: string): OAuthBlob {
@@ -49,7 +50,7 @@ export function credsFor(account?: string): () => Promise<CloudCreds> {
   return async () => {
     // A fake API (e2e) never sees the real token.
     if (!cloudApiIsReal()) return { accessToken: "e2e-fake", orgUuid: "e2e-fake" };
-    const { accessToken } = account ? accountOAuth(account) : keychainOAuth();
+    const { accessToken } = account ? accountOAuth(account) : await keychainOAuth();
     return { accessToken, orgUuid: await orgFor(account, accessToken) };
   };
 }

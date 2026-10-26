@@ -9,7 +9,8 @@ import type { AIProvider, ChatMessage, CompletionResult, ProviderCapability, Pro
 import { getTopicWorkspaceForSession } from "../../lib/agent-workspace";
 import { CloudApi } from "./api";
 import { credsFor } from "./creds";
-import { cloudModelFor, githubSlug } from "./node";
+import { cloudModelFor, resolveGithubSlug } from "./node";
+import { runBounded } from "../../lib/bounded-spawn";
 import { CloudSessionRunner } from "./session";
 
 export interface ClaudeCloudProviderConfig {
@@ -20,9 +21,8 @@ export interface ClaudeCloudProviderConfig {
 }
 
 async function gitOut(args: string[], cwd: string): Promise<string | null> {
-  const p = Bun.spawn(["git", ...args], { cwd, stdout: "pipe", stderr: "ignore", env: { ...process.env, GIT_TERMINAL_PROMPT: "0" } });
-  const [out, code] = await Promise.all([new Response(p.stdout).text(), p.exited]);
-  return code === 0 ? out.trim() : null;
+  const r = await runBounded(["git", ...args], { cwd, stdout: "pipe", stderr: "ignore", timeoutMs: 30_000, env: { ...process.env, GIT_TERMINAL_PROMPT: "0" } });
+  return r.exitCode === 0 ? r.stdout.trim() : null;
 }
 
 export class ClaudeCloudProvider implements AIProvider {
@@ -47,7 +47,7 @@ export class ClaudeCloudProvider implements AIProvider {
   async sendChat(sessionKey: string, message: string, handler: StreamHandler, options?: { model?: string }): Promise<{ runId?: string }> {
     const cwd = getTopicWorkspaceForSession(sessionKey);
     const origin = cwd ? await gitOut(["remote", "get-url", "origin"], cwd) : null;
-    const slug = origin ? githubSlug(origin) : null;
+    const slug = origin ? await resolveGithubSlug(origin) : null;
     if (!slug) {
       handler.onError("claude-cloud: il topic deve stare in un repo con origin su GitHub (la sessione clona da lì)");
       return {};

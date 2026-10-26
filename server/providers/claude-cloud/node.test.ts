@@ -223,7 +223,7 @@ describe("nodo cloud", () => {
     let originDown = false;
     const git: GitRun = async (args, cwd) => {
       if (originDown && args[0] === "ls-remote" && !args.includes("--symref")) return { code: 128, stdout: "", stderr: "unable to access" };
-      const r = Bun.spawnSync(["git", ...args], { cwd });
+      const r = Bun.spawnSync(["git", ...args], { cwd, env: process.env });
       return { code: r.exitCode, stdout: r.stdout.toString(), stderr: r.stderr.toString() };
     };
     const node = createCloudNodeClient({ api: cloud.api, repoPathOfTask: () => checkout, git });

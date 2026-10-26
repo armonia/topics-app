@@ -11,6 +11,7 @@ import { dirname, join } from "node:path";
 import type { BundleResult, CreateRunBody, NodeRunComment, NodeRunReport } from "../../services/node-client";
 import { CloudApi, cloudApiIsReal, type CloudEvent } from "./api";
 import { isPermissionAsk } from "./events";
+import { runBounded } from "../../lib/bounded-spawn";
 
 /** Il base_url della riga `machines` del cloud: non è un indirizzo, è un segnaposto. */
 export const CLOUD_NODE_BASE_URL = "claude-cloud://";
@@ -27,7 +28,8 @@ export function cloudCredentialsPresent(): boolean {
   if (process.platform !== "darwin" || process.env.TOPICS_CLAUDE_CLOUD === "0") return false;
   // Il server di test non legge il Portachiavi di login (test-server.ts): niente cloud lì.
   if (process.env.TOPICS_CREDENTIALS_KEYCHAIN === "0") return false;
-  const probe = Bun.spawnSync(["security", "find-generic-password", "-s", "Claude Code-credentials"], { stdout: "ignore", stderr: "ignore" });
+  // Sincrono e una volta sola, al boot (server.ts, providers/index.ts): decide se la riga esiste.
+  const probe = Bun.spawnSync(["security", "find-generic-password", "-s", "Claude Code-credentials"], { stdout: "ignore", stderr: "ignore", timeout: 5_000 });
   return probe.exitCode === 0;
 }
 
@@ -63,15 +65,17 @@ const GITHUB_HOSTS = new Set(["github.com", "www.github.com", "ssh.github.com"])
  * `ssh -G`, che risolve senza connettersi. Il nome da solo non prova niente
  * (`github.com-evil.com` è un dominio vero).
  */
-function sshAliasIsGithub(alias: string): boolean {
+async function sshAliasIsGithub(alias: string): Promise<boolean> {
   if (!/^[\w.-]+$/.test(alias)) return false;
-  const r = Bun.spawnSync(["ssh", "-G", "--", alias], { stdout: "pipe", stderr: "ignore", timeout: 5_000 });
+  const r = await runBounded(["ssh", "-G", "--", alias], { stdout: "pipe", stderr: "ignore", timeoutMs: 5_000 });
   if (r.exitCode !== 0) return false;
-  const hostname = r.stdout.toString().match(/^hostname (\S+)$/m)?.[1]?.toLowerCase();
+  const hostname = r.stdout.match(/^hostname (\S+)$/m)?.[1]?.toLowerCase();
   return !!hostname && GITHUB_HOSTS.has(hostname);
 }
 
-export function githubSlug(originUrl: string): string | null {
+interface ParsedOrigin { host: string; slug: string; viaSsh: boolean }
+
+function parseOrigin(originUrl: string): ParsedOrigin | null {
   const raw = originUrl.trim();
   let host: string;
   let path: string;
@@ -85,11 +89,22 @@ export function githubSlug(originUrl: string): string | null {
     if (!["https:", "http:", "ssh:", "git+ssh:", "git:"].includes(u.protocol)) return null;
     [host, path, viaSsh] = [u.hostname, u.pathname, u.protocol === "ssh:" || u.protocol === "git+ssh:"];
   }
-  host = host.toLowerCase();
-  const ok = GITHUB_HOSTS.has(host) || (viaSsh && sshAliasIsGithub(host));
-  if (!ok) return null;
   const m = path.replace(/^\/+/, "").match(/^([^/]+)\/([^/]+?)(?:\.git)?\/?$/i);
-  return m ? `${m[1]}/${m[2]}` : null;
+  return m ? { host: host.toLowerCase(), slug: `${m[1]}/${m[2]}`, viaSsh } : null;
+}
+
+/** Solo gli host GitHub scritti per intero; un alias ssh non lo è (vedi `resolveGithubSlug`). */
+export function githubSlug(originUrl: string): string | null {
+  const o = parseOrigin(originUrl);
+  return o && GITHUB_HOSTS.has(o.host) ? o.slug : null;
+}
+
+/** Come `githubSlug`, più gli alias ssh che `ssh -G` risolve su GitHub. */
+export async function resolveGithubSlug(originUrl: string): Promise<string | null> {
+  const o = parseOrigin(originUrl);
+  if (!o) return null;
+  if (GITHUB_HOSTS.has(o.host)) return o.slug;
+  return o.viaSsh && (await sshAliasIsGithub(o.host)) ? o.slug : null;
 }
 
 export type GitRun = (args: string[], cwd?: string) => Promise<{ code: number; stdout: string; stderr: string }>;
@@ -97,9 +112,8 @@ export type GitRun = (args: string[], cwd?: string) => Promise<{ code: number; s
 /** Un origin che non risponde non deve fermare il giro di tutte le card remote: 60 s e via. */
 const GIT_TIMEOUT_MS = 60_000;
 const realGit: GitRun = async (args, cwd) => {
-  const p = Bun.spawn(["git", ...args], { cwd, stdout: "pipe", stderr: "pipe", timeout: GIT_TIMEOUT_MS, env: { ...process.env, GIT_TERMINAL_PROMPT: "0" } });
-  const [stdout, stderr, code] = await Promise.all([new Response(p.stdout).text(), new Response(p.stderr).text(), p.exited]);
-  return { code, stdout, stderr };
+  const r = await runBounded(["git", ...args], { cwd, stdout: "pipe", stderr: "pipe", timeoutMs: GIT_TIMEOUT_MS, env: { ...process.env, GIT_TERMINAL_PROMPT: "0" } });
+  return { code: r.exitCode ?? 124, stdout: r.stdout, stderr: r.stderr || r.spawnError || (r.timedOut ? "timeout" : "") };
 };
 
 export interface CloudNodeDeps {
@@ -275,7 +289,7 @@ export function createCloudNodeClient(deps: CloudNodeDeps) {
         if (!runs.has(sid)) runs.set(sid, newRun(p));
         return { runId: sid };
       }
-      const slug = githubSlug(body.originUrl);
+      const slug = await resolveGithubSlug(body.originUrl);
       // Fuori da GitHub la sessione cloud non può clonare (il finto della suite e2e sì). Non è
       // un nodo muto da riprovare: la card va in review col motivo.
       if (!slug && cloudApiIsReal()) {
