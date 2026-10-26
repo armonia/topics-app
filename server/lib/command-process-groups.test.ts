@@ -18,7 +18,7 @@ process.env.TOPICS_HOME = `${instanceA}-home`;
 delete process.env.DATA_DIR;
 
 const {
-  captureProcessGroup, closeCommandProcessGroup, processGroupAlive,
+  COMMAND_GROUP_TERM_GRACE_MS, captureProcessGroup, closeCommandProcessGroup, commandProcessGroupStopPath, processGroupAlive,
   processGroupIdentityMatches, readProcessGroupIdentity, registerCommandProcessGroup,
 } = await import("./command-process-groups");
 const { commandArgv, readExitCode } = await import("./command-process");
@@ -110,7 +110,7 @@ test("the group leader stays verifiable after its command leaves a child behind"
   const processId = crypto.randomUUID();
   const exitPath = join(instanceA, `${processId}.exit`);
   const childPath = join(instanceA, `${processId}.child`);
-  const argv = commandArgv(`/bin/sh -c 'sleep 90 >/dev/null 2>&1 & echo $! > ${childPath}; exit 0'`, exitPath);
+  const argv = commandArgv(`/bin/sh -c 'sleep 90 >/dev/null 2>&1 & echo $! > ${childPath}; exit 0'`, exitPath, commandProcessGroupStopPath(processId));
   if (!argv) throw new Error("POSIX command shell is unavailable");
   const proc = Bun.spawn(argv, { stdin: "ignore", stdout: "ignore", stderr: "ignore", detached: true });
   live.push({ proc, pgid: proc.pid });
@@ -142,6 +142,34 @@ test("the group leader stays verifiable after its command leaves a child behind"
     if (childIdentity && processGroupIdentityMatches(childIdentity)) {
       try { process.kill(childIdentity.pid, "SIGKILL"); } catch {}
     }
+  }
+});
+
+// Chiusa appena nata, come una Stop subito dopo il Run: il TERM può arrivare
+// fra il trap del leader e l'exec del comando, dove prima si perdeva e il
+// gruppo viveva fino al SIGKILL dopo la grazia.
+test("a group closed as it starts ends on TERM, not on the delayed SIGKILL", async () => {
+  for (let attempt = 0; attempt < 3; attempt++) {
+    const processId = crypto.randomUUID();
+    const exitPath = join(instanceA, `${processId}.exit`);
+    const stopPath = commandProcessGroupStopPath(processId);
+    const argv = commandArgv("sleep 30 & sleep 30; wait", exitPath, stopPath);
+    if (!argv) throw new Error("POSIX command shell is unavailable");
+    const proc = Bun.spawn(argv, { stdin: "ignore", stdout: "ignore", stderr: "ignore", detached: true });
+    live.push({ proc, pgid: proc.pid });
+    const identity = captureProcessGroup(proc.pid);
+    if (!identity) throw new Error(`could not capture group for ${proc.pid}`);
+    const record = {
+      processId, ownerKey: "session-early", cardId: "card-early", topicId: "topic-early",
+      pgid: identity.pgid, leaderPid: identity.pid, leaderStartTime: identity.startTime,
+      startedAt: new Date().toISOString(),
+    };
+    registerCommandProcessGroup(record);
+    const started = Date.now();
+    expect(await closeCommandProcessGroup(record)).toBe(true);
+    expect(Date.now() - started).toBeLessThan(COMMAND_GROUP_TERM_GRACE_MS);
+    expect(processGroupAlive(identity.pgid)).toBe(false);
+    expect(existsSync(stopPath)).toBe(false);
   }
 });
 

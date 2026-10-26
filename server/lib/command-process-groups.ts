@@ -1,5 +1,5 @@
-import { mkdirSync, readFileSync } from "node:fs";
-import { join } from "node:path";
+import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { dirname, join } from "node:path";
 import { dlopen, FFIType, ptr } from "bun:ffi";
 import { writeFileAtomic } from "./atomic-write";
 import { readJsonStateFile } from "./state-file";
@@ -57,6 +57,23 @@ function registryPath(): string {
     groupFolders.set(target, directory);
   }
   return join(directory, "command-process-groups.json");
+}
+
+/**
+ * Il file che il wrapper del comando guarda prima di avviarlo
+ * (`START_UNLESS_STOPPING` in `command-process.ts`): scritto prima del SIGTERM,
+ * così un TERM arrivato mentre il comando nasceva non lo lascia partire.
+ */
+export function commandProcessGroupStopPath(processId: string): string {
+  return join(dirname(registryPath()), `command-process-group-${encodeURIComponent(processId)}.stop`);
+}
+
+function markGroupStopping(processId: string): void {
+  try { writeFileSync(commandProcessGroupStopPath(processId), ""); } catch {}
+}
+
+function clearGroupStopping(processId: string): void {
+  try { rmSync(commandProcessGroupStopPath(processId), { force: true }); } catch {}
 }
 
 function validGroup(value: unknown): value is CommandProcessGroup {
@@ -183,6 +200,7 @@ export function forgetCommandProcessGroup(processId: string): void {
   const path = registryPath();
   const groups = readGroups(path).filter((row) => row.processId !== processId);
   writeGroups(path, groups);
+  clearGroupStopping(processId);
 }
 
 export function forgetCommandProcessGroupIfGone(processId: string): boolean {
@@ -199,6 +217,7 @@ function replaceGroup(path: string, expected: CommandProcessGroup, next: Command
   if (next) groups[index] = next;
   else groups.splice(index, 1);
   writeGroups(path, groups);
+  if (!next) clearGroupStopping(expected.processId);
   return true;
 }
 
@@ -256,6 +275,7 @@ async function closeRegisteredCommandProcessGroup(
     hooks.onSettled?.(failed, false);
     return false;
   }
+  markGroupStopping(retiring.processId);
   try { signalGroup(retiring.pgid, "SIGTERM"); } catch (error) {
     if ((error as NodeJS.ErrnoException).code !== "ESRCH") {
       const failed = { ...retiring, stopFailed: true, retiringAt: undefined };

@@ -255,6 +255,12 @@ Commands launched for a task card, including `run_command` and equivalent agent 
 - **AND** after 10 seconds, any group still alive SHALL receive SIGKILL only after the registry is reread and its recorded pgid, leader pid, and leader start time still identify the same group
 - **AND** the process panel SHALL show `fermato` only after the group is confirmed dead; until then it SHALL show an honest closing or not-stopped state
 
+#### Scenario: A stop that arrives while the command starts is not lost
+- **GIVEN** a registered command group whose command is still starting
+- **WHEN** the group is closed before the command has been executed
+- **THEN** the stop SHALL be recorded beside the registry before SIGTERM is sent
+- **AND** the command SHALL NOT start once that record exists, so the group ends on SIGTERM instead of waiting for the delayed SIGKILL
+
 #### Scenario: Review does not close a card's commands
 - **GIVEN** a card with a registered command group
 - **WHEN** the card enters `review`

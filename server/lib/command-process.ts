@@ -37,6 +37,20 @@ function waitForGroupMembersScript(platform: NodeJS.Platform): string {
 }
 
 /**
+ * Il comando parte da una /bin/sh di guardia che, dopo il proprio exec, guarda
+ * il file di stop scritto dal registro prima del SIGTERM al gruppo.
+ *
+ * Il leader intercetta TERM (`trap ':'`) per restare vivo e scrivere il codice
+ * d'uscita. Un TERM che arriva fra quel trap e l'exec del figlio cade nel trap
+ * ereditato dal fork e si perde: il comando partiva lo stesso e viveva fino al
+ * SIGKILL dopo la grazia. Dopo l'exec TERM è di nuovo al default, quindi o il
+ * TERM arriva qui e uccide la guardia, o è arrivato prima e il file c'è già.
+ * 143 è il codice di una shell il cui figlio muore di TERM. La guardia è sempre
+ * /bin/sh: zsh rileggerebbe `.zshenv` una volta in più.
+ */
+const START_UNLESS_STOPPING = `/bin/sh -c 'if [ -e "$1" ]; then exit 143; fi; shift; exec "$@"' _`;
+
+/**
  * Is there a POSIX shell to run a command in? Not on Windows. The one answer
  * the three places that depend on it read: the spawn below, the bridge that
  * offers `run_command` (`toolsForProfile`) and the system prompt that sends
@@ -57,18 +71,18 @@ export function hasCommandShell(platform: NodeJS.Platform = process.platform): b
  * Windows, which has no POSIX shell to wrap the command in: `run_command` is
  * not offered there (`toolsForProfile`).
  */
-export function commandArgv(command: string, exitPath: string, platform: NodeJS.Platform = process.platform): string[] | null {
+export function commandArgv(command: string, exitPath: string, stopPath: string, platform: NodeJS.Platform = process.platform): string[] | null {
   if (!hasCommandShell(platform)) return null;
   const shell = platform === "darwin" ? "/bin/zsh" : "/bin/sh";
-  const script = `${waitForGroupMembersScript(platform)}\ntrap ':' TERM; trap 'rc=$?; trap - EXIT; wait; _topics_wait_for_group_members; printf "%s\\n" "$rc" > "$3"; exit "$rc"' EXIT; "$1" -c "$2"; exit "$?"`;
-  return [shell, "-c", script, "_", shell, command, exitPath];
+  const script = `${waitForGroupMembersScript(platform)}\ntrap ':' TERM; trap 'rc=$?; trap - EXIT; wait; _topics_wait_for_group_members; printf "%s\\n" "$rc" > "$3"; exit "$rc"' EXIT; ${START_UNLESS_STOPPING} "$4" "$1" -c "$2"; exit "$?"`;
+  return [shell, "-c", script, "_", shell, command, exitPath, stopPath];
 }
 
 /** Keep the registered group leader alive through TERM while its child command exits. */
-export function commandGroupArgv(argv: string[], platform: NodeJS.Platform = process.platform): string[] {
+export function commandGroupArgv(argv: string[], stopPath: string, platform: NodeJS.Platform = process.platform): string[] {
   if (platform === "win32") return argv;
   const shell = platform === "darwin" ? "/bin/zsh" : "/bin/sh";
-  return [shell, "-c", `${waitForGroupMembersScript(platform)}\ntrap ':' TERM; trap 'trap - EXIT; wait; _topics_wait_for_group_members' EXIT; "$@"`, "_", ...argv];
+  return [shell, "-c", `${waitForGroupMembersScript(platform)}\n_topics_stop=$1; shift; trap ':' TERM; trap 'trap - EXIT; wait; _topics_wait_for_group_members' EXIT; ${START_UNLESS_STOPPING} "$_topics_stop" "$@"`, "_", stopPath, ...argv];
 }
 
 /**

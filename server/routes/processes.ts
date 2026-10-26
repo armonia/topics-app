@@ -29,7 +29,7 @@ import { openTail, readFileEnd, readTail, shrinkLog, type FileTail } from "../li
 import { stdoutTargetOf, type UnresolvedReason } from "../lib/command-redirect";
 import { commandArgv, commandGroupArgv, confineCommandCwd, endedWhileAway, readExitCode } from "../lib/command-process";
 import {
-  captureProcessGroup, closeCommandProcessGroup,
+  captureProcessGroup, closeCommandProcessGroup, commandProcessGroupStopPath,
   commandProcessGroup, forgetCommandProcessGroupIfGone, processGroupAlive, processGroupIdentityMatches,
   registerCommandProcessGroup, type ProcessGroupIdentity,
 } from "../lib/command-process-groups";
@@ -1028,7 +1028,7 @@ function startCommandProcess(o: {
   origin?: "person";
 }): { processId: string; scriptName: string; pid: number | null; startedAt: string; wake: boolean } | null {
   const processId = crypto.randomUUID();
-  const argv = commandArgv(o.command, exitPathOf(processId));
+  const argv = commandArgv(o.command, exitPathOf(processId), commandProcessGroupStopPath(processId));
   if (!argv) return null; // no POSIX shell here (Windows)
   // The environment of the agent's own Bash, not the server's: its secrets
   // would reach the log, the panel and the wake row (`lib/agent-env.ts`).
@@ -2116,7 +2116,7 @@ export function createProcessesRouter(ctx: AppContext): RouteHandler {
     const command = rilevato.argv.join(" ");
     const base = rilevato.argv;
     const ptyArgv = useTty ? wrapPty(base) : base;
-    const argv = owner ? commandGroupArgv(ptyArgv) : ptyArgv;
+    const argv = owner ? commandGroupArgv(ptyArgv, commandProcessGroupStopPath(processId)) : ptyArgv;
 
     const proc = Bun.spawn(argv, {
       cwd: projectPath,
