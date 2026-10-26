@@ -79,7 +79,7 @@ test.describe.serial("The phone, without the tab strip", () => {
     await expect(page.locator(PANE_TITLE).first()).toHaveText(alpha.name);
 
     await page.locator(DRAWER_TOGGLE).first().click();
-    // La riga del topic non ha un data-topic-id: si cerca per nome dentro la colonna.
+    // The topic row has no data-topic-id: it is found by name inside the column.
     const row = page.getByTestId("sidebar-topic-list").getByText(beta.name).first();
     await expect(row).toBeVisible({ timeout: 10000 });
     await row.click();
