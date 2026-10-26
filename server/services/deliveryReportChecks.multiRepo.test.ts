@@ -323,9 +323,9 @@ describe("delivery SHA claims span the repositories named by the reports", () =>
   });
 
   test.serial("cinquanta percorsi e menzioni non repo non disarmano lo SHA", async () => {
-    const directories = Array.from({ length: 50 }, (_, index) => join(home, "paths", `p-${index}`));
-    for (const directory of directories) mkdirSync(directory, { recursive: true });
-    const mentions = [...directories.map((directory) => join(directory, "missing.ts")), join(roots.card, ".git", "hooks", "pre-push")];
+    const folders = Array.from({ length: 50 }, (_, index) => join(home, "paths", `p-${index}`));
+    for (const directory of folders) mkdirSync(directory, { recursive: true });
+    const mentions = [...folders.map((directory) => join(directory, "missing.ts")), join(roots.card, ".git", "hooks", "pre-push")];
     if (existsSync("/private/var/root")) mentions.push("/private/var/root");
     const report = `Fatto (commit 0000000deadbee1). ${mentions.join(" ")}`;
     const probe = await probeForRoot(freshCardRoot()).prepare!([report], { homeDirectory: home, knownRoots: Object.values(roots) });
@@ -354,12 +354,12 @@ describe("delivery SHA claims span the repositories named by the reports", () =>
   });
 
   test.serial("il repo citato resta prioritario oltre 48 altri candidati", async () => {
-    const directories = Array.from({ length: 50 }, (_, index) => join(home, "many-paths", `p-${index}`));
-    for (const directory of directories) mkdirSync(directory, { recursive: true });
+    const folders = Array.from({ length: 50 }, (_, index) => join(home, "many-paths", `p-${index}`));
+    for (const directory of folders) mkdirSync(directory, { recursive: true });
     const citedRoot = join(home, "cited-after-many-paths");
     initializeRepo(citedRoot);
     const sha = commitFixture(citedRoot, "proof.txt");
-    const paths = [...directories.map((directory) => join(directory, "missing.ts")), join(citedRoot, "proof.txt")];
+    const paths = [...folders.map((directory) => join(directory, "missing.ts")), join(citedRoot, "proof.txt")];
     const report = `Commit ${sha} in ${paths.join(" ")}.`;
     const probe = await probeForRoot(freshCardRoot()).prepare!([report], { homeDirectory: home });
     expect(probe.shaExists(sha)).toBe(true);

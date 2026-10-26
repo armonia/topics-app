@@ -69,7 +69,7 @@ function normalizeCandidate(path: string): string {
   return gitDir > 0 ? parts.slice(0, gitDir).join(sep) || sep : parts.join(sep);
 }
 
-function escapeRegExp(value: string): string {
+function escapePattern(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
@@ -78,7 +78,7 @@ function rootMentionIndex(report: string, root: string): number {
   if (!name || name === "." || name === "..") return -1;
   const fullPathIndex = report.indexOf(root);
   if (fullPathIndex >= 0) return fullPathIndex + root.length - name.length;
-  const boundary = new RegExp(`(?:^|[\\s/\\\\\`'"(])(${escapeRegExp(name)})(?=$|[\\s/\\\\\`'":,;.)])`, "i");
+  const boundary = new RegExp(`(?:^|[\\s/\\\\\`'"(])(${escapePattern(name)})(?=$|[\\s/\\\\\`'":,;.)])`, "i");
   const match = boundary.exec(report);
   return match ? match.index + match[0].length - match[1]!.length : -1;
 }
@@ -115,12 +115,12 @@ function shaPositions(report: string, shas: readonly string[]): Array<{ sha: str
 }
 
 function shasNearPosition(report: string, position: number, positions: readonly { sha: string; start: number }[]): Set<string> {
-  const boundaries = /[!?;\n]|\.(?=\s|$)/g;
+  const sentenceEnds = /[!?;\n]|\.(?=\s|$)/g;
   let start = 0;
   let match: RegExpExecArray | null;
-  while ((match = boundaries.exec(report)) !== null && match.index < position) start = match.index + match[0].length;
-  boundaries.lastIndex = position;
-  const endMatch = boundaries.exec(report);
+  while ((match = sentenceEnds.exec(report)) !== null && match.index < position) start = match.index + match[0].length;
+  sentenceEnds.lastIndex = position;
+  const endMatch = sentenceEnds.exec(report);
   const end = endMatch?.index ?? report.length;
   return new Set(positions.filter((item) => item.start >= start && item.start < end).map((item) => item.sha));
 }
@@ -401,8 +401,8 @@ return {
       candidate.reportIndexes.size > 0 && !candidate.cardRoot && candidate.expectedReports.size === 0 && !candidate.gitMarker);
     const card = candidates.find((candidate) => candidate.cardRoot);
     const optional = candidates.filter((candidate) => candidate.reportIndexes.size === 0 && !candidate.cardRoot);
-    const prioritized = [...citedRepos, ...(card ? [card] : []), ...optional, ...citedOther];
-    const selected = prioritized.slice(0, MAX_ROOT_CANDIDATES);
+    const ordered = [...citedRepos, ...(card ? [card] : []), ...optional, ...citedOther];
+    const selected = ordered.slice(0, MAX_ROOT_CANDIDATES);
     if (card && !selected.includes(card)) selected[selected.length - 1] = card;
     const selectedSet = new Set(selected);
     const omitted = candidates.filter((candidate) => !selectedSet.has(candidate));
