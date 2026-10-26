@@ -3,7 +3,7 @@
  * A pointer sample is only a proposal; position commits once when the gesture ends.
  */
 import { describe, expect, it } from 'bun:test';
-import { createAnimationFrameCoalescer, resolveTopicBrowserDragPosition } from './topicBrowserDrag';
+import { createAnimationFrameCoalescer, resolveTopicBrowserDragPosition, resolveTopicBrowserResize } from './topicBrowserDrag';
 
 function fakeFrames() {
   let nextId = 0;
@@ -86,5 +86,50 @@ describe('topic browser window dragging', () => {
     expect(applied).toEqual([24]);
     expect(frames.pending()).toBe(0);
     expect(frames.canceled).toHaveLength(1);
+  });
+});
+
+describe('topic browser window resizing', () => {
+  const base = {
+    areaWidth: 1000,
+    areaHeight: 800,
+    start: { left: 500, top: 400, width: 420, height: 320 },
+    minWidth: 280,
+    minHeight: 200,
+    minimumBottom: 0,
+  };
+
+  it('a dragged left/top corner grows away from the bottom-right anchor', () => {
+    expect(resolveTopicBrowserResize({ ...base, edges: { left: true, top: true }, deltaX: -100, deltaY: -50 })).toEqual({
+      position: { right: 80, bottom: 80 },
+      size: { width: 520, height: 370 },
+    });
+  });
+
+  it('a dragged right/bottom corner moves the anchor, the left/top edges stay', () => {
+    expect(resolveTopicBrowserResize({ ...base, edges: { right: true, bottom: true }, deltaX: 40, deltaY: 30 })).toEqual({
+      position: { right: 40, bottom: 50 },
+      size: { width: 460, height: 350 },
+    });
+  });
+
+  it('stops at the area and at the minimum size, without dragging the opposite edge', () => {
+    const grown = resolveTopicBrowserResize({ ...base, edges: { left: true, top: true }, deltaX: -5000, deltaY: -5000 });
+    expect(grown).toEqual({ position: { right: 80, bottom: 80 }, size: { width: 920, height: 720 } });
+    const shrunk = resolveTopicBrowserResize({ ...base, edges: { left: true }, deltaX: 5000, deltaY: 0 });
+    expect(shrunk).toEqual({ position: { right: 80, bottom: 80 }, size: { width: 280, height: 320 } });
+  });
+
+  it('the bottom edge does not go below the composer floor', () => {
+    const r = resolveTopicBrowserResize({
+      ...base,
+      start: { left: 500, top: 100, width: 420, height: 320 },
+      edges: { bottom: true },
+      deltaX: 0,
+      deltaY: 1000,
+      minimumBottom: 200,
+    });
+    expect(r.position.bottom).toBe(200);
+    expect(r.size.height).toBe(500);
   });
 });

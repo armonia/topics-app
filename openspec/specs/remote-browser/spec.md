@@ -2598,7 +2598,8 @@ Ogni topic SHALL avere al più UNA finestra browser, con le schede aperte da que
 topic. La finestra SHALL stare in uno di questi stati:
 
 - **minimizzato**: flottante sopra l'area della topic, con dimensione predefinita,
-  trascinabile; la chat SHALL restare larga e scorrere sotto;
+  trascinabile e ridimensionabile da ogni bordo e angolo; la chat SHALL restare
+  larga e scorrere sotto;
 - **espanso**: agganciata al lato destro dell'area della topic; la chat SHALL
   cedere lo spazio che la finestra occupa, e la larghezza SHALL regolarsi
   trascinando il bordo sinistro;
@@ -2619,7 +2620,12 @@ Una scheda SHALL poter diventare **tab**: una pane browser nel layout, con lo st
 poter tornare nella finestra senza ricaricare. Una scheda NON SHALL essere nella
 finestra e nel layout nello stesso momento.
 
-Stato, posizione e larghezza SHALL persistere per topic e SHALL sincronizzarsi tra i
+Ogni ridimensionamento SHALL essere dal vivo: la finestra, la pagina che contiene
+e, da espansa, la chat che cede lo spazio SHALL seguire il puntatore a ogni frame,
+senza nascondere la pagina durante il gesto. Le maniglie SHALL stare sul bordo
+esterno della finestra, dove la pagina nativa non le copre.
+
+Stato, posizione, dimensione e larghezza SHALL persistere per topic e SHALL sincronizzarsi tra i
 dispositivi con la stessa semantica LWW delle altre chiavi ui-state. La finestra e
 le sue schede NON SHALL entrare in `pane-store-v2` finché restano nella finestra.
 
@@ -2654,6 +2660,17 @@ la finestra saliva di altrettanto oltre la chat, e in orizzontale usciva dallo s
 - **GIVEN** una finestra minimizzata trascinata nell'angolo in basso a sinistra
 - **WHEN** l'utente cambia topic e torna, oppure ricarica l'app
 - **THEN** la finestra è di nuovo in quell'angolo
+
+#### Scenario: minimizzata, si ridimensiona dall'angolo dal vivo
+- **GIVEN** una finestra minimizzata
+- **WHEN** l'utente trascina l'angolo in alto a sinistra verso l'alto e a sinistra
+- **THEN** la finestra si allarga già durante il trascinamento, con l'angolo in basso a destra fermo
+- **AND** dopo una ricarica la finestra ha la stessa dimensione
+
+#### Scenario: espansa, la chat segue il bordo dal vivo
+- **GIVEN** una finestra espansa
+- **WHEN** l'utente trascina il bordo sinistro verso sinistra, senza ancora rilasciare
+- **THEN** la finestra è già più larga e il bordo destro del composer non supera il bordo sinistro della finestra
 
 #### Scenario: una scheda diventa tab e torna indietro
 - **GIVEN** una finestra con due schede, attiva la prima
