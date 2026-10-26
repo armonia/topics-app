@@ -299,7 +299,7 @@ describe("minting route", () => {
       broadcastToAll: () => {},
       requestIdentity: owner === "loopback"
         ? () => ({ role: "owner", deviceId: null })
-        : owner ? undefined : () => ({ role: "guest", deviceId: null }),
+        : () => ({ role: owner ? "owner" : "guest", deviceId: "d1" }),
       // "loopback" models a fresh install: nobody in installation_owners yet.
       db: { query: () => ({ get: () => (owner === "loopback" ? null : { person_id: "p1" }) }) },
     };
