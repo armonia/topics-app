@@ -2,6 +2,7 @@
  * `POST /api/machines/:id/model-token` mints the key a node uses against the
  * model proxy. The role check must not rest on "nobody said who": a request
  * with no resolved identity is refused, the loopback owner still mints.
+ * @covers MACHINE-03
  */
 
 import { describe, expect, test, beforeAll, afterAll } from "bun:test";
