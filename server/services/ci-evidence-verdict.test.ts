@@ -10,6 +10,7 @@ import { describe, expect, test } from "bun:test";
 import { E2E_CI_CHECK, UNIT_CI_CHECK } from "../../shared/board";
 import { CI_E2E_DEADLINE_MS, awaitCiEvidence, runRedElsewhere, UNIT_JOB, UNIT_STEP, type GithubJob } from "./ci-evidence";
 import { checkJob, e2eRow, fakeClock, fakePort, green, input, job, run, step } from "./ci-evidence.testkit";
+import { formatChecksComment } from "./review-checks";
 
 /**
  * A run that ENDED without a verdict is a dead end: the same commit reads the
@@ -371,5 +372,53 @@ describe("a card does not call itself green on a commit whose CI run is red", ()
     // A run that concluded success is trusted over a stray job conclusion:
     // GitHub computed it over every job, `continue-on-error` included.
     expect(runRedElsewhere(run(), [budgetRed, ...green])).toBeNull();
+  });
+});
+
+/**
+ * On a pull request the e2e shards stop themselves when unit or gates is red
+ * (scripts/e2e-stop-on-red.sh) and end `failure` about a minute later. What
+ * the card says is what the agent fixes: it has to name the red job, never send
+ * the agent to the shards, and never call a red unit run "not measured".
+ * @covers KANBAN-86
+ */
+describe("shards stopped by a red unit or gates send the card to that job", () => {
+  const stopped = green.map((j) => (j.name.startsWith("e2e (") ? { ...j, conclusion: "failure" } : j));
+  const going = run({ status: "in_progress", conclusion: null });
+
+  test("gates red: the card names gates and its step, not the e2e", async () => {
+    const gatesRed = job("gates", "failure", { steps: [step("Bundle size budget", "failure")] });
+    const checkRed = checkJob("success", { status: "completed", conclusion: "failure" });
+    const { port } = fakePort({
+      runs: async () => ({ ok: true, value: [going] }),
+      jobs: async () => ({ ok: true, value: [job("unit", "success"), gatesRed, checkRed, ...stopped] }),
+    });
+    const rows = await awaitCiEvidence({ ...input, checks: [UNIT_CI_CHECK, E2E_CI_CHECK] }, { port, ...fakeClock(), stopping: () => false });
+    expect(rows.map((r) => r.ok)).toEqual([true, false]);
+    expect(rows[1]!.ciRunRed).toContain('job gates at the step "Bundle size budget" (failure)');
+    const card = formatChecksComment(rows);
+    expect(card).toContain("la CI della PR è rossa fuori da questa riga");
+    expect(card).not.toContain("e2e rossi");
+  });
+
+  test("unit red, shards stopped before `check` is listed: the card says the unit tests are red", async () => {
+    const unitRed = job("unit", "failure", { steps: [step("Unit + integration tests (one process per file)", "failure")] });
+    let polls = 0;
+    const { port } = fakePort({
+      runs: async () => ({ ok: true, value: [going] }),
+      jobs: async () => {
+        polls += 1;
+        // `check` waits for a runner: the stopped shards are done first.
+        const check = polls >= 3 ? [checkJob("failure", { status: "completed", conclusion: "failure" })] : [];
+        return { ok: true, value: [unitRed, job("gates", "success"), ...check, ...stopped] };
+      },
+    });
+    const rows = await awaitCiEvidence({ ...input, checks: [UNIT_CI_CHECK, E2E_CI_CHECK] }, { port, ...fakeClock(), stopping: () => false });
+    expect(polls).toBeGreaterThanOrEqual(3);
+    expect(rows.map((r) => r.notMeasured)).toEqual([undefined, undefined]);
+    expect(rows[0]!.ok).toBe(false);
+    const card = formatChecksComment(rows);
+    expect(card).toContain("test unit rossi");
+    expect(card).not.toContain("NON MISURATI");
   });
 });
