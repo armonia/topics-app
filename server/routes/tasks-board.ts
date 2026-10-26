@@ -1317,7 +1317,9 @@ export function createBoardRoutes(deps: BoardRouteDeps) {
           // archiviare senza tagliare il turno lascia un agente che lavora per
           // nessuno (vedi `detachLiveAgent`). Prima di archiviare, quindi.
           const got = svc.get(taskId, { projectId });
-          if (got) {
+          // A `done` card has no agent to detach, and `release` would reopen it
+          // in backlog with a false comment (card 47b63de2).
+          if (got && got.task.status !== "done") {
             // The server sends this DELETE itself for a delegation another
             // machine revoked, and says so: that stop is not a person's (C9).
             detachLiveAgent(got.task, NOTE_ARCHIVED_BY_HUMAN, stopCauseOf(req, req.headers.get(STOP_CAUSE_HEADER)));
