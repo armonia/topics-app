@@ -273,3 +273,29 @@ raccoglie la spazzata al boot.
 - **GIVEN** un processo col gestore SIGTERM del server che lancia il browser del server e lo vede uscire
 - **WHEN** riceve SIGTERM
 - **THEN** il gestore del server SHALL girare e il processo uscire 0, non 143
+
+### Requirement: RGATE-08 — Si può chiedere «c'è un turno in volo?» senza impegnarsi a riavviare
+
+`POST /__daemon/restart-when-idle` risponde a quella domanda, ma apre un'attesa
+e poi manda il SIGTERM: chi voleva solo SAPERE (l'hub che decide se riavviare il
+Mac, un operatore) non aveva un cammino che non cambiasse lo stato. Il server
+SHALL esporre `GET /__daemon/idle`, di SOLA LETTURA, dietro lo stesso loopback e
+lo stesso bearer degli altri `/__daemon/*`.
+
+La risposta SHALL dire `idle`, `inFlight` (`taskDispatcher.busyCount()`),
+`holding` (la frase di `whatIsStillWorking`, `null` se niente trattiene),
+`unrecoverable` (card in volo più chat non riadottabili: la somma che il
+cancello passa a `quiescenceVerdict`) e `alreadyWaiting` (se un'attesa di
+riavvio è già in corso). SHALL leggere gli stessi predicati del cancello e NON
+SHALL avviare un'attesa, toccare la porta del dispatcher (`drain`/`undrain`) né
+mandare segnali.
+
+#### Scenario: server a riposo
+- **GIVEN** un server senza turni in volo e senza attese di riavvio
+- **WHEN** arriva `GET /__daemon/idle` con il token del daemon
+- **THEN** la risposta SHALL essere 200 con `idle: true`, `holding: null`, `alreadyWaiting: false`
+- **AND** il server SHALL essere ancora in vita dopo la risposta, senza attesa avviata
+
+#### Scenario: senza token
+- **WHEN** arriva `GET /__daemon/idle` senza il bearer del daemon
+- **THEN** la risposta SHALL essere 401

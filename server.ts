@@ -3614,6 +3614,30 @@ const opzioniServer = {
           status: 202, headers: { "content-type": "application/json" },
         });
       }
+      if (method === "GET" && pathname === "/__daemon/idle") {
+        // «C'e' un turno in volo?» — SOLA LETTURA. Chi vuole un riavvio
+        // condizionato (l'hub del Mac) deve poter chiedere prima, senza
+        // impegnarsi: `restart-when-idle` apre un'attesa e poi manda il SIGTERM,
+        // e per saperne lo stato non c'era altro modo che avviarla.
+        //
+        // Qui NON si chiama `waitForDispatcherQuiescent`, non si fa
+        // `drain`/`undrain` e non si manda nessun segnale: si leggono gli stessi
+        // predicati che il cancello usa (`whatIsStillWorking`, che compone
+        // `describeInFlight` e `chatsHolding`). Un GET che ne cambiasse lo stato
+        // chiuderebbe la porta del dispatcher o riavvierebbe il server a chi
+        // voleva solo guardare: il test lo tiene fermo.
+        const { busy: holding, cards, unadoptable } = await whatIsStillWorking();
+        return new Response(JSON.stringify({
+          idle: holding === null,
+          inFlight: taskDispatcher.busyCount(),
+          // `null` = niente trattiene. Stessa frase che mette nel log il cancello.
+          holding,
+          // Chi non torna dopo un riavvio: la stessa somma che il cancello
+          // passa a `quiescenceVerdict` come `unrecoverable`.
+          unrecoverable: cards + unadoptable,
+          alreadyWaiting: attesaQuiescenza.inProgress() !== null,
+        }), { status: 200, headers: { "content-type": "application/json" } });
+      }
       if (method === "POST" && pathname === "/__daemon/restart-when-idle") {
         // Graceful restart that WAITS for agent turns to finish first — the
         // safe way to apply a server fix without cutting a working agent
