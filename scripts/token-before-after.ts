@@ -1,28 +1,28 @@
 #!/usr/bin/env bun
 /**
- * token-before-after — i token di un turno della chat, prima e dopo un riavvio.
+ * token-before-after - the tokens of one chat turn, before and after a restart.
  *
- * Le correzioni dello studio token (prezzi 5.5, schemi MCP a richiesta,
- * contesto rimandato, storia a 110k, cache a un'ora, immagini potate) si
- * giudicano su un numero solo: quanto pesa un turno dell'assistente prima del
- * riavvio sul main nuovo e quanto dopo. Questo script lo legge da `messages`,
- * in SOLA LETTURA, così si può lanciare sul DB di produzione col server acceso.
+ * The fixes from the token study (5.5 prices, on-demand MCP schemas, resent
+ * context, history capped at 110k, one-hour cache, pruned images) are judged on
+ * a single number: how much an assistant turn weighs before the restart onto
+ * the new main and how much after. This script reads it from `messages`, READ
+ * ONLY, so it can run against the production DB while the server is up.
  *
  *   bun scripts/token-before-after.ts --cut 2026-10-26T15:17:42Z
  *   bun scripts/token-before-after.ts --cut 2026-10-26T15:17:42Z --hours 24 --json
  *
- * `--cut` è l'istante del riavvio (ISO; senza fuso è letto come UTC, come le
- * colonne `timestamp`). Il "prima" è la finestra di `--hours` ore (48 per
- * default) che finisce al cut, il "dopo" quella che parte dal cut.
+ * `--cut` is the instant of the restart (ISO; without a zone it is read as UTC,
+ * like the `timestamp` columns). "Before" is the window of `--hours` hours (48
+ * by default) that ends at the cut, "after" the one that starts at the cut.
  *
- * Conta solo le righe che il server ha davvero misurato: ruolo `assistant`,
- * non parziali, `usage_prompt_tokens` non NULL. NULL vuol dire «non lo
- * sappiamo» (migration 070) e farne uno zero abbasserebbe la media.
+ * It counts only the rows the server actually measured: role `assistant`, not
+ * partial, `usage_prompt_tokens` not NULL. NULL means "we do not know"
+ * (migration 070) and turning it into a zero would lower the average.
  *
- * Le parti seguono le convenzioni di `messages`: `usage_prompt_tokens` CONTIENE
- * già la rilettura di cache (`shared/token-cost.ts`), e le due scritture di
- * cache, a 5 minuti e a un'ora, sono quote disgiunte (migration 070). Il costo
- * in token equivalenti è `costTokens`, lo stesso numero della UI.
+ * The parts follow the conventions of `messages`: `usage_prompt_tokens`
+ * ALREADY INCLUDES the cache re-read (`shared/token-cost.ts`), and the two
+ * cache writes, 5-minute and one-hour, are disjoint shares (migration 070). The
+ * cost in equivalent tokens is `costTokens`, the same number as the UI.
  */
 import { Database } from "bun:sqlite";
 import { existsSync } from "node:fs";
@@ -44,7 +44,7 @@ interface Side {
   from: string;
   to: string;
   turns: number;
-  /** Medie per turno. */
+  /** Averages per turn. */
   prompt: number;
   fresh: number;
   cacheRead: number;
@@ -53,10 +53,10 @@ interface Side {
   output: number;
   costTokens: number;
   costCents: number;
-  /** Mediane per turno: un turno agentico enorme non deve decidere da solo. */
+  /** Medians per turn: one huge agentic turn must not decide on its own. */
   medianPrompt: number;
   medianCostTokens: number;
-  /** Quota del prompt servita dalla cache, sul totale della finestra. */
+  /** Share of the prompt served from cache, over the whole window. */
   cacheHitShare: number;
 }
 

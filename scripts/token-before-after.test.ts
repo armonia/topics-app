@@ -1,6 +1,8 @@
 /**
- * token-before-after gira davvero su un DB temporaneo: il cut divide le righe,
- * le righe non misurate restano fuori e i numeri sono fatti a mano qui sotto.
+ * token-before-after really runs against a temporary DB: the cut splits the
+ * rows, the unmeasured rows stay out and the numbers below are worked out by hand.
+ *
+ * @covers USAGE-25
  */
 import { afterAll, beforeAll, describe, expect, it } from "bun:test";
 import { Database } from "bun:sqlite";
@@ -23,12 +25,12 @@ beforeAll(() => {
     usage_prompt_tokens INTEGER, usage_completion_tokens INTEGER, cost_cents INTEGER,
     cache_read_tokens INTEGER, cache_creation_tokens INTEGER, cache_creation_1h_tokens INTEGER)`);
   const insert = db.prepare(`INSERT INTO messages VALUES (?, 's', ?, ?, ?, ?, ?, ?, ?, ?, ?)`);
-  // Prima: due turni da 100k di prompt, metà letta dalla cache.
+  // Before: two turns of 100k prompt, half of it read from the cache.
   insert.run("b1", "assistant", 0, "2026-10-26T10:00:00.000Z", 100_000, 1_000, 50, 50_000, 10_000, 0);
   insert.run("b2", "assistant", 0, "2026-10-26T14:59:59.999Z", 100_000, 3_000, 70, 50_000, 10_000, 0);
-  // Dopo: un turno da 60k, quasi tutto riletto, scrittura a un'ora.
+  // After: one 60k turn, almost all re-read, one-hour write.
   insert.run("a1", "assistant", 0, CUT, 60_000, 2_000, 20, 54_000, 0, 5_000);
-  // Fuori conto: utente, parziale, non misurato, fuori finestra.
+  // Not counted: user, partial, unmeasured, outside the window.
   insert.run("u1", "user", 0, "2026-10-26T16:00:00.000Z", 1, 1, 1, 1, 1, 1);
   insert.run("p1", "assistant", 1, "2026-10-26T16:00:00.000Z", 999_999, 1, 1, 0, 0, 0);
   insert.run("n1", "assistant", 0, "2026-10-26T16:00:00.000Z", null, 1, 1, null, null, null);
@@ -53,7 +55,7 @@ describe("token-before-after", () => {
     expect(before.fresh).toBe(40_000);
     expect(before.cacheRead).toBe(50_000);
     expect(before.output).toBe(2_000);
-    // 50k fresco+scritto + 2k output + 0,1 × 50k riletti.
+    // 50k fresh+written + 2k output + 0.1 × 50k re-read.
     expect(before.costTokens).toBe(57_000);
     expect(before.costCents).toBe(60);
     expect(before.cacheHitShare).toBe(0.5);
