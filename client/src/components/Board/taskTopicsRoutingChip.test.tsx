@@ -195,4 +195,20 @@ describe('the card routing chip in its board column', () => {
     expect(html).toContain('Sonnet 5 · via Claude Code');
     expect(html).not.toContain('Sonnet 5 · via Topics');
   });
+
+  test('renders an untouched pre-cutoff card as direct with an unset board default', () => {
+    const legacyTask = { ...task, createdAt: '2026-09-15T00:00:00Z' };
+    const html = renderToStaticMarkup(
+      <DndContext>
+        <Column
+          {...props}
+          tasks={[legacyTask]}
+          paneSettings={{ dispatchTopicsRouting: null } as BoardSettings}
+          tasksById={new Map([[legacyTask.id, legacyTask]])}
+        />
+      </DndContext>,
+    );
+    expect(html).toContain('Sonnet 5 · via Claude Code');
+    expect(html).not.toContain('Sonnet 5 · via Topics');
+  });
 });

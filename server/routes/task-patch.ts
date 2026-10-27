@@ -90,6 +90,20 @@ const asPriority = (raw: unknown): FieldRead => {
   return n >= PRIORITY_MIN && n <= PRIORITY_MAX ? ok(n) : no(`${PRIORITY_RULE}, ricevuto ${n}`);
 };
 
+/**
+ * An instant in the past, as `now()` writes it: `YYYY-MM-DDTHH:MM:SS(.sss)Z`.
+ * Kept verbatim, so the date put back is byte for byte the one that was lost.
+ */
+const ISO_UTC_RE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d{1,3})?Z$/;
+const asPastIsoUtc = (raw: unknown): FieldRead => {
+  const read = asString(raw);
+  if (!read.ok) return read;
+  const s = read.value as string;
+  const t = Date.parse(s);
+  if (!ISO_UTC_RE.test(s) || Number.isNaN(t)) return no(`attesa una data ISO in UTC (2026-07-14T09:30:00.000Z), ricevuto "${s}"`);
+  return t <= Date.now() ? ok(s) : no(`una data di chiusura non sta nel futuro, ricevuto "${s}"`);
+};
+
 /** Stato: uno dei cinque della board. */
 const asStatus = (raw: unknown): FieldRead => {
   const read = asString(raw);
@@ -137,6 +151,10 @@ const HUMAN_FIELDS: Record<string, FieldSpec> = {
   planFirst: { to: "planFirst", read: asBoolean },
   parentTaskId: { to: "parentTaskId", read: asRefOrNull },
   parent_task_id: { to: "parentTaskId", read: asRefOrNull },
+  // Only on an ARCHIVED done card: the service refuses it anywhere else
+  // (card 600feca6, the 49 cards archiving put back in backlog).
+  completedAt: { to: "completedAt", read: asPastIsoUtc },
+  completed_at: { to: "completedAt", read: asPastIsoUtc },
 };
 
 /**
@@ -181,7 +199,6 @@ const REDIRECTED: Record<string, string> = {
   project_id: "il progetto di un task non si cambia da qui",
   createdAt: "campo di sola lettura",
   updatedAt: "campo di sola lettura",
-  completedAt: "campo di sola lettura",
   dispatchState: "lo stato di dispatch lo scrive il dispatcher",
   deliveryBranch: "il ramo di consegna lo scrive il sistema al passaggio in review",
   landingState: "l'esito del land lo scrive il sistema",
