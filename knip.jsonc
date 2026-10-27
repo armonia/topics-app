@@ -140,6 +140,7 @@
         "scripts/install-db-snapshot.ts!",
     "scripts/new-migration.ts!",           // `bun run migration:new <slug>` — crea la migration col prefisso timestamp
     "scripts/token-before-after.ts!",  // misura i token prima e dopo sul DB vero (card 65deecdf)
+    "scripts/restore-archived-completed-at.ts!", // riporta a done le card archiviate riaperte senza toccare completed_at (card 600feca6)
         // Congela la coda di review dell'11/08 come fixture della derivazione
         // delle etichette (`bun run scripts/build-review-queue-fixture.ts`).
         // Si rilancia solo per rigenerare il file: legge il DB vero e git, quindi
