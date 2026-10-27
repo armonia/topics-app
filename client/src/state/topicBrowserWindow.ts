@@ -41,7 +41,6 @@ export {
   MIN_WINDOW_SIZE,
   MIN_WINDOW_SIZE_BOUNDS,
   EXPANDED_WIDTH_BOUNDS,
-  FLOAT_MARGIN_PX,
   floatingSizeOf,
   resolveComposerAvoidance,
   resolveMinRect,
