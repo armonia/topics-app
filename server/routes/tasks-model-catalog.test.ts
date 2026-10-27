@@ -1,6 +1,7 @@
 /** @covers MP-TASK-03 */
 import { expect, test } from "bun:test";
 import type { ProvidersSnapshot } from "../../shared/types";
+import { taskModelIsCurrent } from "../services/task-model-catalog";
 import { createNodesRouter } from "./nodes";
 import { createTasksRouter } from "./tasks";
 import { call, freshDb, makeCtx } from "./tasks-test-support";
@@ -85,4 +86,40 @@ test("without a provider snapshot nothing is judged", async () => {
   const r = createTasksRouter(makeCtx(freshDb(), []), undefined, { taskModelSnapshot: () => null });
   const response = await call(r, "POST", "/api/boards/p-model/tasks", { text: "Task", model: "claude-sonnet-4-6" });
   expect(response?.status).toBe(201);
+});
+
+test("a family alias is never a retired generation", () => {
+  for (const model of ["opus", "sonnet", "haiku", "fable", "opus[1m]", "claude-code:sonnet"]) {
+    expect(taskModelIsCurrent(model, snapshot)).toBe(true);
+  }
+  expect(taskModelIsCurrent("claude-opus-5-9", snapshot)).toBe(false);
+});
+
+test("only a catalog that lists models can call a model stale", () => {
+  const withoutCodex = snapshot;
+  const emptyCodex = {
+    ...snapshot,
+    providers: [...snapshot.providers, { name: "codex", status: "unavailable", models: [], requirements: [] }],
+  } as unknown as ProvidersSnapshot;
+  const loadingCodex = {
+    ...snapshot,
+    providers: [...snapshot.providers, { name: "codex", status: "loading", models: [], capabilities: [], requirements: [] }],
+  } as unknown as ProvidersSnapshot;
+
+  // Codex not installed, not signed in, or not discovered yet: nothing to judge against.
+  for (const catalog of [withoutCodex, emptyCodex, loadingCodex]) {
+    expect(taskModelIsCurrent("codex:gpt-5.5", catalog)).toBe(true);
+    expect(taskModelIsCurrent("gpt-5.5", catalog)).toBe(true);
+  }
+
+  // A Codex that lists its models does refuse one it does not list.
+  const listedCodex = {
+    ...snapshot,
+    providers: [...snapshot.providers, { name: "codex", status: "ready", models: ["gpt-5.5"], requirements: [] }],
+  } as unknown as ProvidersSnapshot;
+  expect(taskModelIsCurrent("codex:gpt-5.5", listedCodex)).toBe(true);
+  expect(taskModelIsCurrent("codex:gpt-3", listedCodex)).toBe(false);
+
+  // Claude catalogs list models in every setup: a retired Opus stays refused on its runtime.
+  expect(taskModelIsCurrent("claude-code:claude-sonnet-4-6", emptyCodex)).toBe(false);
 });
