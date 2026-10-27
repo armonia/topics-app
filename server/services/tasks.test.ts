@@ -6,7 +6,8 @@
 import { test, expect, describe, beforeEach } from "bun:test";
 import { Database } from "bun:sqlite";
 import { ARCHIVE_PARKED_LABEL, commentAsksHuman, createTaskService, deliveryNotesInFlight, isLandActionLabel, isPublishActionLabel, LAND_ACTION_LABEL, PUBLISH_ACTION_LABEL, projectIdForPath, REQUEUE_PARKED_LABEL, TaskServiceError, type TaskService } from "./tasks";
-import { AGENT_WAIT_STREAK_CAP, PARKED_WAITED_OUT, WAIT_SERIES_MAX_MS, WAIT_STREAK_CAP, parseQuestionBlock, pendingQuestion } from "../../shared/board";
+import { AGENT_WAIT_STREAK_CAP } from "../../shared/agent-wait-cap";
+import { PARKED_WAITED_OUT, WAIT_SERIES_MAX_MS, WAIT_STREAK_CAP, parseQuestionBlock, pendingQuestion } from "../../shared/board";
 import { freshDb, svc, PID } from "./tasks-test-db";
 
 describe("reserved action labels", () => {
@@ -1704,14 +1705,14 @@ describe("attesa dichiarata: rimborso del tentativo e contatore separato", () =>
     expect(prima.dispatchState).toBe("waiting");
     passa(16);
 
-    const seconda = attende(t.id, "la CI sta girando", 15, "agent");
-    expect(seconda.status).toBe("backlog");
-    expect(seconda.dispatchState).toBe(PARKED_WAITED_OUT);
-    expect(seconda.dispatchDeferredUntil).toBeNull();  // no restart on its own: no third turn
-    expect(seconda.dispatchAttempts).toBe(0);
-    expect(seconda.waitStreak).toBe(2);
-    expect(seconda.dispatchError ?? "").toContain("2 attese di fila");
-    expect(seconda.dispatchError ?? "").toContain("la decisione torna a te");
+    const second = attende(t.id, "la CI sta girando", 15, "agent");
+    expect(second.status).toBe("backlog");
+    expect(second.dispatchState).toBe(PARKED_WAITED_OUT);
+    expect(second.dispatchDeferredUntil).toBeNull();  // no restart on its own: no third turn
+    expect(second.dispatchAttempts).toBe(0);
+    expect(second.waitStreak).toBe(2);
+    expect(second.dispatchError ?? "").toContain("2 attese di fila");
+    expect(second.dispatchError ?? "").toContain("la decisione torna a te");
   });
 
   test("il tetto dell'agente è per ragione: una condizione NUOVA è un primo rimando", () => {

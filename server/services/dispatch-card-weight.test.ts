@@ -7,6 +7,8 @@
  *  3. a board prices from its measured cards only from the third one, over 72
  *     hours, and the price never goes under one CLI agent's peak;
  *  4. a turn never read, an unknown baseline or a broken reading is no vote.
+ *
+ * @covers KANBAN-75
  */
 import { describe, it, expect } from "bun:test";
 import {

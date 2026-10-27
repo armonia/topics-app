@@ -49,12 +49,13 @@ import {
   ARCHIVE_PARKED_LABEL, DEPLOY_ACTION_LABEL, DISPATCH_CHIP_QUEUED, HUMAN_AUTHOR, clampGlobalCap,
   MAX_FANOUT, PARKED_STOPPED, PARKED_WAITED_OUT, PREVIEW_CARD_MAX_RATIO, QUEUE_REASON_UNKNOWN,
   PARKED_REQUEUE_NOTE_LIKE, PROMOTE_PARKED_LABEL, REQUEUE_PARKED_LABEL, TAKE_OVER_PARKED_LABEL, TASK_STATUSES,
-  AGENT_WAIT_STREAK_CAP, WAITING_MEMORY_REASON, WAIT_SERIES_MAX_MS, WAIT_STREAK_CAP,
+  WAITING_MEMORY_REASON, WAIT_SERIES_MAX_MS, WAIT_STREAK_CAP,
   deriveQueueReason, deriveSubtaskWork, formatStatusEvent, hasPlanApproveOption, isAgentWorking,
   isUnattributedSubtask, noteParkedChildrenResolved, parseQuestionBlock, questionAsksHuman,
   readTaskWeight, statusEventEnters, waitReasonKey,
 } from "../../shared/board";
 import type { ParkedChildrenDecision } from "../../shared/board";
+import { AGENT_WAIT_STREAK_CAP } from "../../shared/agent-wait-cap";
 import { EFFORT_TIERS } from "../../shared/effort";
 // Il vocabolario delle etichette e la regola che le deriva: una sola
 // dichiarazione, letta anche dal client e dalla derivazione alla consegna.
@@ -5118,15 +5119,15 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       // A limitare le attese ci pensano i loro tetti, qui sotto.
       const rimborso = "dispatch_attempts = MAX(dispatch_attempts - 1, 0),";
 
-      const tetto = source === "machine" ? WAIT_STREAK_CAP : AGENT_WAIT_STREAK_CAP;
-      if (streak > tetto || serieMs >= WAIT_SERIES_MAX_MS) {
+      const ceiling = source === "machine" ? WAIT_STREAK_CAP : AGENT_WAIT_STREAK_CAP;
+      if (streak > ceiling || serieMs >= WAIT_SERIES_MAX_MS) {
         return parkWaitedOut(this, { row, streak, serieMs, chiave, since, detto, ts, refundAttempt: true });
       }
 
       const note =
         (detto ? `In attesa: ${detto}. ` : "In attesa di una condizione esterna. ") +
         `Rilascio lo slot, il task torna in coda e riprovo tra ~${mins} min` +
-        (streak > 1 ? ` (attesa ${streak} di ${tetto}).` : ".");
+        (streak > 1 ? ` (attesa ${streak} di ${ceiling}).` : ".");
       // Note first (author = the agent by default) so the "perché è fermo" trail
       // survives clearing the topic link.
       try { this.addComment({ taskId, author: by ?? "agent", content: note }); } catch { /* dedupe/best-effort */ }

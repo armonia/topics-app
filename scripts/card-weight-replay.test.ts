@@ -1,5 +1,11 @@
+/**
+ * The replay of the `[memsig]` log against the real memory floor
+ * (`card-weight-replay.ts`).
+ *
+ * @covers KANBAN-75
+ */
 import { describe, it, expect } from "bun:test";
-import { admittedCards, parseMemsig, replay } from "./card-weight-replay";
+import { admittedCards, parseMemorySignal, replay } from "./card-weight-replay";
 
 /** A `[memsig]` line as the server prints it, behind a log prefix. */
 const line = (iso: string, held: string, inFlight = 0) =>
@@ -7,7 +13,7 @@ const line = (iso: string, held: string, inFlight = 0) =>
 
 describe("card-weight-replay", () => {
   it("legge held2m, l'istante e le card in volo, e salta le righe senza misura", () => {
-    const got = parseMemsig([
+    const got = parseMemorySignal([
       line("2026-10-26T10:00:00.000Z", "8.0", 1),
       line("2026-10-26T10:01:00.000Z", "?"),
       "un'altra riga del log",
@@ -25,7 +31,7 @@ describe("card-weight-replay", () => {
   });
 
   it("la media è sulle ultime N ore, contate dalla riga più nuova", () => {
-    const samples = parseMemsig([
+    const samples = parseMemorySignal([
       line("2026-10-23T09:00:00.000Z", "30"), // outside the 72 hours
       line("2026-10-26T10:00:00.000Z", "8.0"),
       line("2026-10-26T10:01:00.000Z", "6.5"),
@@ -36,7 +42,7 @@ describe("card-weight-replay", () => {
   });
 
   it("--add-back rende a ogni card in volo il suo peso prima di decidere", () => {
-    const samples = parseMemsig(line("2026-10-26T10:00:00.000Z", "6.5", 2));
+    const samples = parseMemorySignal(line("2026-10-26T10:00:00.000Z", "6.5", 2));
     expect(replay(samples, [0.5])[0]!.mean).toBe(1);                   // 6.5 < 6 + 0.5 + 0.5
     expect(replay(samples, [0.5], { addBackGB: 0.5 })[0]!.mean).toBe(3); // 7.5: lines 7 and 7.5 pass, 8 does not
   });

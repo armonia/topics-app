@@ -30,11 +30,11 @@
 import { readFileSync } from "node:fs";
 import { dispatchResourceVerdict } from "../server/services/dispatch-capacity";
 
-export interface MemsigSample { at: number; heldGB: number; availGB: number | null; inFlight: number }
+export interface MemorySignalSample { at: number; heldGB: number; availGB: number | null; inFlight: number }
 
 /** The `[memsig]` lines of a log, in order; lines without a measured `held2m` are skipped. */
-export function parseMemsig(text: string): MemsigSample[] {
-  const out: MemsigSample[] = [];
+export function parseMemorySignal(text: string): MemorySignalSample[] {
+  const out: MemorySignalSample[] = [];
   for (const line of text.split("\n")) {
     const i = line.indexOf("[memsig]");
     if (i < 0) continue;
@@ -68,7 +68,7 @@ export function admittedCards(heldGB: number, priceGB: number, o: { cli?: boolea
 export interface ReplayRow { priceGB: number; samples: number; mean: number; atLeastTwo: number }
 
 /** The replay over the last `hours` of the samples (counted back from the newest one). */
-export function replay(samples: readonly MemsigSample[], prices: readonly number[], o: {
+export function replay(samples: readonly MemorySignalSample[], prices: readonly number[], o: {
   hours?: number; cli?: boolean; max?: number; addBackGB?: number;
 } = {}): ReplayRow[] {
   const newest = samples.reduce((m, s) => Math.max(m, s.at), -Infinity);
@@ -89,7 +89,7 @@ function main(argv: string[]): number {
     console.error("uso: bun scripts/card-weight-replay.ts <log...> [--price=GB]... [--hours=72] [--cli] [--max=9] [--add-back=GB] [--min-mean=N]");
     return 2;
   }
-  const samples = parseMemsig(files.map((f) => readFileSync(f, "utf8")).join("\n")).sort((a, b) => a.at - b.at);
+  const samples = parseMemorySignal(files.map((f) => readFileSync(f, "utf8")).join("\n")).sort((a, b) => a.at - b.at);
   const prices = flag("price").map(Number);
   const rows = replay(samples, prices.length ? prices : [4, 1, 0.5], {
     hours: num("hours", 72), cli: argv.includes("--cli"), max: num("max", 9), addBackGB: num("add-back", 0),
