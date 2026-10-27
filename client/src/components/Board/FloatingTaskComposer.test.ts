@@ -10,35 +10,38 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { surfaceTopicsRoutingEnabled } from '../../lib/topicsRoutingGate';
 
+const surface = (topicsRouting: boolean | null | undefined, boardDefault: boolean | null | undefined, model: string | null | undefined, boardModel: string | null | undefined) =>
+  surfaceTopicsRoutingEnabled({ topicsRouting, model }, boardDefault, boardModel);
+
 describe('lo switch della superficie legge lo stato effettivo, non solo il locale', () => {
   test('la scelta locale vince su tutto, accesa o spenta che sia', () => {
-    expect(surfaceTopicsRoutingEnabled(false, true, null, 'topics:claude-opus-5')).toBe(false);
-    expect(surfaceTopicsRoutingEnabled(true, false, 'claude-opus-5', null)).toBe(true);
+    expect(surface(false, true, null, 'topics:claude-opus-5')).toBe(false);
+    expect(surface(true, false, 'claude-opus-5', null)).toBe(true);
   });
 
   test('senza scelta locale decide il default della board', () => {
-    expect(surfaceTopicsRoutingEnabled(null, true, null, null)).toBe(true);
-    expect(surfaceTopicsRoutingEnabled(undefined, false, 'topics:claude-opus-5', null)).toBe(false);
+    expect(surface(null, true, null, null)).toBe(true);
+    expect(surface(undefined, false, 'topics:claude-opus-5', null)).toBe(false);
   });
 
   test('board mai toccata: lo switch è acceso di default, col prefisso legacy o senza', () => {
     // Il caso che il vecchio `!!` sbagliava: nessuna scelta da nessuna parte, e il modello della board porta ancora `topics:`. allow-italian: nomina il caso sbagliato prima
-    expect(surfaceTopicsRoutingEnabled(null, null, null, 'topics:claude-opus-5')).toBe(true);
-    expect(surfaceTopicsRoutingEnabled(null, null, null, 'claude-opus-5')).toBe(true);
+    expect(surface(null, null, null, 'topics:claude-opus-5')).toBe(true);
+    expect(surface(null, null, null, 'claude-opus-5')).toBe(true);
   });
 
   /** @covers MSEL-06 */
   test('il modello scelto QUI copre quello della board', () => {
-    expect(surfaceTopicsRoutingEnabled(null, null, 'claude-opus-5', 'claude-code:claude-opus-5')).toBe(true);
-    expect(surfaceTopicsRoutingEnabled(null, null, 'topics:claude-opus-5', 'claude-code:claude-opus-5')).toBe(true);
+    expect(surface(null, null, 'claude-opus-5', 'claude-code:claude-opus-5')).toBe(true);
+    expect(surface(null, null, 'topics:claude-opus-5', 'claude-code:claude-opus-5')).toBe(true);
   });
 
   test("`auto` non e' un modello: non porta nessun prefisso legacy, e resta il default acceso", () => {
-    expect(surfaceTopicsRoutingEnabled(null, null, null, 'auto')).toBe(true);
+    expect(surface(null, null, null, 'auto')).toBe(true);
   });
 
   test('board globale (nessun default, nessun modello): resta acceso', () => {
-    expect(surfaceTopicsRoutingEnabled(null, null, null, null)).toBe(true);
+    expect(surface(null, null, null, null)).toBe(true);
   });
 });
 
@@ -47,10 +50,12 @@ describe('il filo fra le due superfici e la cascata', () => {
   const here = dirname(fileURLToPath(import.meta.url));
   const composer = readFileSync(join(here, 'FloatingTaskComposer.tsx'), 'utf8');
   const drawer = readFileSync(join(here, 'TaskDetail.tsx'), 'utf8');
+  const composerRoutingLine = composer.split('\n').find((line) => line.includes('const composerRouting = surfaceTopicsRoutingEnabled'))?.trim();
+  const drawerRoutingLine = drawer.split('\n').find((line) => line.includes('const drawerRouting = surfaceTopicsRoutingEnabled'))?.trim();
 
-  test('il composer chiama la funzione condivisa con i suoi quattro operandi', () => {
+  test('il composer chiama la funzione condivisa con i valori della card nuova', () => {
     expect(composer).toContain("import { surfaceTopicsRoutingEnabled } from '../../lib/topicsRoutingGate';");
-    expect(composer).toContain('surfaceTopicsRoutingEnabled(topicsRouting, boardTopicsRoutingDefault, model, boardDispatchModel)');
+    expect(composerRoutingLine).toBe('const composerRouting = surfaceTopicsRoutingEnabled({ topicsRouting, model }, boardTopicsRoutingDefault, boardDispatchModel);');
     expect(composer).toContain('const boardTopicsRoutingDefault = boardSettings?.dispatchTopicsRouting ?? null;');
     expect(composer).toContain('const boardDispatchModel = boardSettings?.dispatchModel ?? null;');
   });
@@ -58,7 +63,7 @@ describe('il filo fra le due superfici e la cascata', () => {
   test('il cassetto chiama la stessa, con il task al posto del locale', () => {
     // Computed once, before the drawer's early returns, for the switch and the
     // chip's closed text alike (model selector revision §3.8): `task?.`.
-    expect(drawer).toContain('surfaceTopicsRoutingEnabled(task?.topicsRouting, boardTopicsRoutingDefault, task?.model, boardDispatchModel)');
+    expect(drawerRoutingLine).toBe('const drawerRouting = surfaceTopicsRoutingEnabled(task ?? {}, boardTopicsRoutingDefault, boardDispatchModel);');
     expect(drawer.includes('enabled: !!task.topicsRouting')).toBe(false);
   });
 });

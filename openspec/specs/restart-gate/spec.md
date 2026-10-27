@@ -299,3 +299,33 @@ mandare segnali.
 #### Scenario: senza token
 - **WHEN** arriva `GET /__daemon/idle` senza il bearer del daemon
 - **THEN** la risposta SHALL essere 401
+
+### Requirement: RGATE-09 — Un land riavvia a zero turni, un salvataggio no
+
+L'attesa corta di una chat riadottabile (RGATE-01) esiste per il ricaricamento a
+caldo mentre qualcuno salva sotto `server/`. Un LAND non è quel caso: nessuno lo
+aspetta al secondo. Il 26/10/2026 alle 20:41 l'approve della card 405071b3 ha
+portato il checkout di produzione a origin/main più il merge commit, il
+sorvegliante ha chiesto `restart-when-idle` e il server 49004 era su alle 20:42:
+le chat in volo tagliate dopo il loro minuto. L'hub riavvia già su un cambio di
+fseventsd solo a zero turni; il land SHALL fare lo stesso.
+
+Lo script SHALL riconoscere un land da un salvataggio dal commit: un land sposta
+`HEAD` del checkout, un salvataggio no. Su un land SHALL chiedere
+`POST /__daemon/restart-when-idle?zeroTurns=1`; su un salvataggio la richiesta
+resta quella di sempre.
+
+Chiesto a zero turni, il cancello SHALL contare fra chi non torna anche ogni
+chat con un turno IN CORSO (stream o broker), riadottabile o no: il riavvio si
+rinvia e non la taglia, per quanto duri. Una chat ferma su una DOMANDA resta
+fuori: non è un turno in volo e la domanda sopravvive al riavvio. La richiesta
+a zero turni SHALL valere anche se si unisce a un'attesa già in corso.
+
+#### Scenario: il land sposta HEAD
+- **GIVEN** un cambio dei sorgenti del server arrivato con un commit nuovo nel checkout
+- **THEN** lo script SHALL chiedere `restart-when-idle?zeroTurns=1`
+- **AND** una chat riadottabile in volo SHALL rinviare il riavvio, non essere tagliata
+
+#### Scenario: un salvataggio senza commit
+- **GIVEN** un cambio dei sorgenti del server con `HEAD` fermo
+- **THEN** lo script SHALL chiedere `restart-when-idle` senza `zeroTurns`, con il minuto delle chat di sempre
