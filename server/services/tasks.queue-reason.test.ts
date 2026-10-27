@@ -17,7 +17,7 @@
 import { test, expect, describe, beforeEach, beforeAll, afterAll } from "bun:test";
 import { Database } from "bun:sqlite";
 import { createTaskService, type TaskService } from "./tasks";
-import { setDispatchBlock, setHeldResumeBlock } from "./dispatch-block-signal";
+import { setDispatchBlock, setHeldResumeBlock, setMemoryWait } from "./dispatch-block-signal";
 import { freshDb as schemaDb } from "./tasks-test-db";
 import { cleanupTestDataDir, setupTestDataDir, testTmpDir } from "../../tests/integration/helpers";
 
@@ -117,8 +117,16 @@ describe("la ragione della coda arriva dal server, con la card", () => {
       expect(s.get(t.id)!.task.queueReason).toBeNull();
       setHeldResumeBlock(t.id, { kind: "resources", reason: floor });
       const held = s.get(t.id)!.task.queueReason;
-      expect(held).toMatchObject({ kind: "resource_floor", tone: "stalled", params: { reason: "waiting-memory" } });
+      // No reading yet: it says it waits for memory, without a number and without the code.
+      expect(held).toMatchObject({ kind: "resource_floor", tone: "waiting", key: "board.queue.memory.measuring" });
       expect(JSON.stringify(held)).not.toContain(technical);
+      expect(JSON.stringify(held)).not.toContain("waiting-memory");
+      // With the gate's numbers it says them: what it needs, and what is free.
+      setMemoryWait({ needGB: 10.04, freeGB: 1.43 });
+      expect(s.get(t.id)!.task.queueReason).toMatchObject({
+        kind: "resource_floor", tone: "waiting", key: "board.queue.memory.measured",
+        params: { need: 10, free: 1.4, missing: 8.6 },
+      });
       s.setDispatchState({ taskId: t.id, state: "queued", error: null });
       expect(s.get(t.id)!.task.queueReason).toBeNull();
       // An agent really at work on the same card is untouched by the block.
@@ -127,7 +135,62 @@ describe("la ragione della coda arriva dal server, con la card", () => {
     } finally {
       setDispatchBlock(null);
       setHeldResumeBlock(t.id, null);
+      setMemoryWait(null);
     }
+  });
+
+  test("una card in Todo nella coda della memoria dice i GB che servono e quelli liberi", () => {
+    const t = s.create({ projectId: PID, text: "Aspetta memoria" });
+    mv(s, t.id, "todo");
+    s.setDispatchState({ taskId: t.id, state: "queued", error: "waiting-memory" });
+    try {
+      setMemoryWait({ needGB: 4, freeGB: 1.4 });
+      expect(s.get(t.id)!.task.queueReason).toMatchObject({
+        kind: "resource_floor", tone: "waiting", key: "board.queue.memory.measured",
+        params: { need: 4, free: 1.4 },
+      });
+      // The window still filling: no free figure, no invented one.
+      setMemoryWait({ needGB: 4, freeGB: null });
+      expect(s.get(t.id)!.task.queueReason).toMatchObject({ key: "board.queue.memory.measuring" });
+      expect(s.get(t.id)!.task.queueReason!.params).toBeUndefined();
+    } finally {
+      setMemoryWait(null);
+    }
+  });
+
+  test("una card in corso senza agente dice DOVE lavora, o da quanto è ferma", () => {
+    const t = s.create({ projectId: PID, text: "In corso senza agente" });
+    mv(s, t.id, "in_progress");
+    // Minutes, then hours, from the last write on the row (the age is read
+    // against the real clock, the service's one is fixed in August).
+    db.run("UPDATE tasks SET updated_at = ? WHERE id = ?", [new Date(Date.now() - 5 * 60_000).toISOString(), t.id]);
+    expect(s.get(t.id)!.task.queueReason).toMatchObject({
+      kind: "no_agent", tone: "stalled", key: "board.queue.noAgent.minutes", params: { n: 5 },
+    });
+    db.run("UPDATE tasks SET updated_at = ? WHERE id = ?", [new Date(Date.now() - 3 * 3600_000).toISOString(), t.id]);
+    expect(s.get(t.id)!.task.queueReason).toMatchObject({ key: "board.queue.noAgent.hours", params: { n: 3 } });
+
+    // A pull request the card points at.
+    s.update({ taskId: t.id, actor: "human", by: "attilio", patch: { outputUrl: "https://github.com/armonia/topics-app/pull/465" } });
+    expect(s.get(t.id)!.task.queueReason).toMatchObject({
+      kind: "no_agent", tone: "waiting", key: "board.queue.noAgent.pr", params: { where: "#465" },
+    });
+
+    // A cloud session linked in the thread wins over the PR.
+    s.addComment({ taskId: t.id, author: "user", content: "Parte qui: https://claude.ai/code/session_01AbC123 (cloud)" });
+    expect(s.get(t.id)!.task.queueReason).toMatchObject({
+      kind: "no_agent", tone: "waiting", key: "board.queue.noAgent.cloud",
+      params: { where: "https://claude.ai/code/session_01AbC123" },
+    });
+
+    // A paired computer that answers at an address wins over both.
+    // The bench keeps `machines` as an FK stub (id, base_url): the two names are added.
+    for (const col of ["name", "hostname"]) db.run(`ALTER TABLE machines ADD COLUMN ${col} TEXT`);
+    db.run("INSERT INTO machines (id, name, hostname, base_url) VALUES ('pc-1', 'PC di Attilio', 'pc-attilio', 'http://10.0.0.2:3000')");
+    s.update({ taskId: t.id, actor: "human", by: "attilio", patch: { machineId: "pc-1" } });
+    expect(s.get(t.id)!.task.queueReason).toMatchObject({
+      kind: "no_agent", tone: "waiting", key: "board.queue.noAgent.node", params: { where: "PC di Attilio" },
+    });
   });
 
   test("la fila si conta su TUTTE le board: il tetto agenti è machine-wide", () => {

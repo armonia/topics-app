@@ -1316,7 +1316,10 @@ export function createBoardRoutes(deps: BoardRouteDeps) {
           // writes that on the card and hands it back to the agent, which
           // beats a mute closure. Fire-and-forget: the PATCH does not wait on
           // git, or dragging a card would block the interface.
-          if (prevStatus !== "done" && task.status === "done" && task.deliveryBranch) {
+          // An ARCHIVED card going back to done is a restore (card 600feca6):
+          // archiving already closed its branch as "will not land".
+          const archived = (ctx.db.query("SELECT archived FROM tasks WHERE id = ?").get(taskId) as { archived?: number } | null)?.archived === 1;
+          if (prevStatus !== "done" && task.status === "done" && task.deliveryBranch && !archived) {
             enqueueLandOnDone(projectId, taskId, task.deliveryBranch);
           }
           return json(task);

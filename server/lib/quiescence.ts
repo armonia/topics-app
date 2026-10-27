@@ -316,6 +316,33 @@ export function quiescenceVerdict(args: {
 }
 
 /**
+ * WHO DOES NOT COME BACK, when the restart was asked "at zero turns" (RGATE-09).
+ *
+ * The short wait for a chat the broker re-adopts exists for the hot reload
+ * while someone develops: without it a save under server/ would never restart
+ * a server with a conversation open. A LAND is not that. On 2026-10-26 20:41
+ * the approve of card 405071b3 fast-forwarded the production checkout, the
+ * watcher asked `restart-when-idle`, and server 49004 was up at 20:42: the
+ * chats in flight were cut after their minute, for a merge nobody was waiting
+ * on by the second. The hub already restarts on an fseventsd change only at
+ * zero turns; a land asks the same, and then a chat that is WORKING holds like
+ * one that would not come back: deferred, never cut.
+ *
+ * A chat parked on a QUESTION stays out of it. It is not a turn in flight, the
+ * question outlives the restart, and holding for it froze every deploy for as
+ * long as nobody answered (two hours on topic:18b232ac, 11/10).
+ */
+export function unrecoverableHolders(args: {
+  cards: number;
+  unadoptable: number;
+  /** Chats with a turn running (stream or broker), card sessions and questions excluded. */
+  workingChats: number;
+  zeroTurns: boolean;
+}): number {
+  return args.cards + (args.zeroTurns ? args.workingChats : args.unadoptable);
+}
+
+/**
  * THE DOOR OF THE DISPATCHER WHILE A RESTART WAITS.
  *
  * A planned restart closes the door first (`drain`): with a queue behind a full
