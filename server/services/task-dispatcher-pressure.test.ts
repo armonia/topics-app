@@ -388,7 +388,8 @@ describe("the cap by resources: over the budget nothing starts, under it it does
       await h.dispatcher.resume("rh1", "continua");
       expect(h.topicsCreated).toHaveLength(0);
       expect(h.task("rh1")!.dispatchError).toBe("waiting-memory");
-      expect(h.task("rh1")!.queueReason).toMatchObject({ kind: "resource_floor", tone: "stalled" });
+      expect(h.task("rh1")!.queueReason).toMatchObject({ kind: "resource_floor", tone: "waiting" });
+      expect(h.task("rh1")!.queueReason!.key).toMatch(/^board\.queue\.memory\./);
       // The floor clears while the cap is full: the re-evaluation holds on the cap
       // alone, and the card has no machine reason left.
       floor.reason = null;

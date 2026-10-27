@@ -40,7 +40,7 @@ import { NoCheckExemptionLedger } from "./dispatch-no-check-exemption";
 import { createNoCheckReservationManager } from "./dispatch-no-check-reservations";
 import { createCardPrices } from "./dispatch-card-price";
 import { createCardWeightMeter } from "./dispatch-card-weight";
-import { daySpendSentence, heldResumeBlock, publishDispatchBlock, setHeldResumeBlock, type DispatchBlockKind } from "./dispatch-block-signal";
+import { daySpendSentence, heldResumeBlock, publishDispatchBlock, setHeldResumeBlock, setMemoryWait, type DispatchBlockKind } from "./dispatch-block-signal";
 import { effectiveTopicsRouting, reusedSessionRouteConflict, reusedSessionRouting, taskModelMatchesSession, taskModelSelection, taskModelValue } from "../../shared/task-coding-models";
 import {
   bookSessionCost,
@@ -1408,6 +1408,12 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
     try {
       const verdict = floorVerdict();
       if (Number.isFinite(verdict.startGB)) lastMemoryStartGB = verdict.startGB!;
+      // The numbers the card waiting for memory prints («servono 7 GB, liberi
+      // 1,4»): the same line and the same window this verdict was taken on.
+      const held = (() => { try { return deps.heldMemory?.() ?? null; } catch { return null; } })();
+      setMemoryWait(Number.isFinite(verdict.startGB) && held?.measurable
+        ? { needGB: verdict.startGB!, freeGB: held.heldGB }
+        : null);
       const reason = verdict.reason;
       // SI DICE UNA VOLTA, e prima non si diceva affatto. Il chip sulla card
       // scrive «in coda» e il commento accanto rimanda «il perché sta nel log
@@ -1902,6 +1908,7 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
     log, emit, inFlight, beginRun, endRun, ownsRun, bindRunSession, releaseAndEmit, deferWait,
     delegatedPolicyForTask: deps.delegatedPolicyForTask,
     recordDelegatedPhase: deps.recordDelegatedPhase,
+    languageOf: langFor,
   });
   let nextRunId = 1;
   /**
