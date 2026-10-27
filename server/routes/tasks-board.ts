@@ -26,7 +26,7 @@ import { isTaskLabel } from "../../shared/task-labels";
 import { stopCauseOf, STOP_CAUSE_HEADER, type StopCause } from "../lib/abort-cause";
 import { ScheduledCardsError, type ScheduledCardsService } from "../services/scheduled-cards";
 import { invalidateProbeCache } from "../services/url-probe-cache";
-import { STALE_TASK_MODEL_ERROR, taskModelIsCurrent } from "../services/task-model-catalog";
+import { STALE_TASK_MODEL_ERROR, isStaleModelChange, taskModelIsCurrent } from "../services/task-model-catalog";
 import { decodeMemoryQueueRef } from "../services/dispatch-memory-reference";
 import type { TasksRouterOpts, emitReviewReadyEdge } from "./tasks";
 
@@ -451,9 +451,7 @@ export function createBoardRoutes(deps: BoardRouteDeps) {
       }
       if (method === "POST") {
         const body = (await readJSON(req)) as any;
-        if (!taskModelIsCurrent(body?.model, opts?.taskModelSnapshot?.() ?? null)) {
-          return json(STALE_TASK_MODEL_ERROR, 400);
-        }
+        if (!taskModelIsCurrent(body?.model, opts?.taskModelSnapshot?.() ?? null)) return json(STALE_TASK_MODEL_ERROR, 400);
         try {
           const effectiveProjectId = resolveBoardId(projectId, body?.text, body?.description);
           // Absent = the board's default machine (see `TaskService.create`);
@@ -1258,13 +1256,7 @@ export function createBoardRoutes(deps: BoardRouteDeps) {
         // 200, ed è indistinguibile dall'aver funzionato. Vedi task-patch.ts.
         const parsed = parseTaskPatch(body, "human", acceptPreview);
         if (!parsed.ok) return json(unapplicableFieldsBody(parsed.errors), 400);
-        // Only a CHANGED model is judged: a card already on an older model can
-        // still be edited, it just cannot be moved onto another stale one.
-        if (parsed.patch.model !== undefined
-          && (parsed.patch.model ?? "").trim() !== (svc.get(taskId, { projectId })?.task.model ?? "").trim()
-          && !taskModelIsCurrent(parsed.patch.model, opts?.taskModelSnapshot?.() ?? null)) {
-          return json(STALE_TASK_MODEL_ERROR, 400);
-        }
+        if (isStaleModelChange(parsed.patch.model, () => svc.get(taskId, { projectId })?.task.model, opts)) return json(STALE_TASK_MODEL_ERROR, 400);
         // THE MACHINE MUST EXIST. `machine_id` has a FK to `machines`, so an
         // unknown id would surface as a 500 with SQLite's own words; and a
         // TYPO would be worse than an error - the card would sit in the queue

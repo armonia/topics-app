@@ -40,3 +40,30 @@ export function taskModelIsCurrent(value: unknown, snapshot: ProvidersSnapshot |
     return generations[selection.model!]?.generation === "current";
   });
 }
+
+/** Where a router reads its model facts from: its own runnable list and the provider catalogs. */
+export interface TaskModelSources {
+  taskModels?: () => string[];
+  taskModelSnapshot?: () => ProvidersSnapshot | null;
+}
+
+/**
+ * Whether the model of a mirrored card is refused here; lives in the service so
+ * the route is a single line (nodes.ts sits at the bloat ceiling).
+ * A model this node runs (`taskModels`) is current here by definition.
+ */
+export function isStaleMirroredModel(model: unknown, sources: TaskModelSources, fallback: () => ProvidersSnapshot | null): boolean {
+  if (typeof model !== "string" || !model || sources.taskModels?.().includes(model)) return false;
+  return !taskModelIsCurrent(model, sources.taskModelSnapshot?.() ?? fallback());
+}
+
+/**
+ * Whether PATCHing a card onto `next` is refused; one line in the route. Only a
+ * CHANGED model is judged: a card already on an older model can still be
+ * edited, it just cannot be moved onto another stale one.
+ */
+export function isStaleModelChange(next: unknown, current: () => string | null | undefined, sources: TaskModelSources = {}): boolean {
+  if (next === undefined) return false;
+  if (String(next ?? "").trim() === (current() ?? "").trim()) return false;
+  return !taskModelIsCurrent(next, sources.taskModelSnapshot?.() ?? null);
+}
