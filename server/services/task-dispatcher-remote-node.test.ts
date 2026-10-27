@@ -57,7 +57,7 @@ function freshDb(): Database {
     dispatch_use_worktree INTEGER NOT NULL DEFAULT 1, dispatch_timeout_min INTEGER NOT NULL DEFAULT 20,
     dispatch_mcp TEXT,
     dispatch_retry_cap INTEGER, dispatch_retry_backoff_s INTEGER,
-    max_agents_auto INTEGER, dispatch_fanout INTEGER
+    max_agents_auto INTEGER, dispatch_fanout INTEGER, language TEXT
   )`);
   db.run(`CREATE TABLE task_comments (
     id TEXT PRIMARY KEY, task_id TEXT NOT NULL, author TEXT NOT NULL DEFAULT 'user',
@@ -212,7 +212,8 @@ function harness(nodeOverrides: NodeFakeOptions = {}, depOverrides: Partial<Disp
   };
   const dispatcher = createTaskDispatcher(deps);
 
-  svc.updateBoardSettings(PID, { autoDispatch: true, dispatchUseWorktree: true, dispatchFanOut: 1 });
+  // `auto` said out loud: the global preference of whoever runs the suite must not reach the body.
+  svc.updateBoardSettings(PID, { autoDispatch: true, dispatchUseWorktree: true, dispatchFanOut: 1, language: "auto" });
   svc.setGlobalCap({ auto: false, max: 9 });
 
   return {
@@ -359,6 +360,35 @@ describe("la card parte sul nodo, non qui", () => {
 
     expect(h.created).toHaveLength(1);
     expect((h.created[0].body as { description: string }).description).toBe("con il ramo");
+  });
+
+  it("con la board in italiano il nodo riceve la direttiva di lingua, per commenti e consegna", async () => {
+    // 26/10, 22:30-22:34: four Cloud Claude cards, language set to Italian, one delivered in English.
+    // The cloud's prompt is the title plus this description: nothing else of ours reaches it.
+    const h = harness();
+    h.svc.updateBoardSettings(PID, { language: "it" });
+    h.seed();
+
+    await dispatch(h);
+
+    const sent = (h.created[0].body as { description: string }).description;
+    expect(sent.startsWith("con il ramo")).toBe(true);
+    expect(sent).toContain("Rispondi sempre in italiano");
+    expect(sent).toContain("every comment you write on the card and your closing summary");
+    expect(sent).toContain("code comments are always English");
+  });
+
+  it("la lingua arriva anche dopo il thread, e anche a un dispositivo ospite", async () => {
+    const h = harness({}, { delegatedPolicyForTask: () => delegatedPolicy() });
+    h.svc.updateBoardSettings(PID, { language: "en" });
+    h.seed();
+    h.db.run("UPDATE tasks SET delegated_start_capability_id = 'capability-confined' WHERE id = ?", [TASK]);
+
+    await dispatch(h);
+
+    const sent = (h.created[0].body as { description: string }).description;
+    expect(sent.startsWith("con il ramo\n\n--- LANGUAGE ---")).toBe(true);
+    expect(sent).toContain("Always answer in English");
   });
 
   it("una card senza discussione parte con la sua descrizione, identica", async () => {

@@ -2,6 +2,32 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.3.38 — 2026-10-27
+
+### Sotto il cofano
+- il modello dichiarato in ogni passo dei workflow e dei sottoagenti (card f50e49ae) (#472)
+
+## 2.3.37 — 2026-10-27
+
+### Sotto il cofano
+- Una card archiviata che torna a done tiene la sua data di chiusura (card 600feca6) (#491)
+
+## 2.3.36 — 2026-10-27
+
+### Sotto il cofano
+- Anche un land riavvia la produzione solo a zero turni (card a66a41b2) (#490)
+- Kanban chiara su cosa aspetta e perché (card ddd5d334) (#496)
+- Lingua italiana anche su Cloud Claude (card c798d16d) (#495)
+- Le card vecchie restano dirette anche nel cassetto e nel router (card e9226ab7) (#470)
+
+## 2.3.35 — 2026-10-26
+
+### Sotto il cofano
+- Il prezzo di una card in memoria è quello della sua board (#482)
+- Dopo un riavvio il nodo non rimanda più la consegna vecchia come nuova (#485)
+- Il PC accoppiato non scade più offline cinque minuti dopo l'accoppiamento (#486)
+- **args** · guard against empty --setting-sources in Claude spawns (card 803aca76) (#483)
+
 ## 2.3.34 — 2026-10-26
 
 ### Prestazioni

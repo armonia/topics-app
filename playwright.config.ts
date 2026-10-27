@@ -51,6 +51,11 @@ const NIGHTLY_ONLY_SPECS = [
   // lato server (la centratura, l'ordine input-rivendicazione) e' stato portato
   // in `browser-viewport-centered`, che gira su ogni PR.
   "browser-viewport-arbiter",
+  // Stessa famiglia: legge l'innerWidth vero della pagina della finestra della
+  // topic mentre se ne trascina il bordo, quindi il server deve lanciare un
+  // Chromium headless. La parte senza Chromium (finestra e chat che seguono il
+  // puntatore) resta nel gate in `topic-browser-window`.
+  "topic-browser-resize-live",
   // Stessa famiglia, stessa ragione: il prologo aspetta che il server lanci un
   // Chromium headless e ci navighi dentro due volte prima di poter filmare.
   "browser-forget-site-shared",

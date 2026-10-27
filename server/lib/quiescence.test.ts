@@ -6,10 +6,10 @@
  * l'implementazione vecchia (`while (busyCount() > 0)`) per costruzione — con
  * `cards: 0` quel predicato usciva subito, cioè `null`, cioè «riavvia pure».
  *
- * @covers HOLD-05, RGATE-01, RGATE-02, RGATE-03, RGATE-04, RGATE-07
+ * @covers HOLD-05, RGATE-01, RGATE-02, RGATE-03, RGATE-04, RGATE-07, RGATE-09
  */
 import { test, expect, describe } from "bun:test";
-import { cardTurnsHoldingReload, chatsHolding, describeInFlight, dispatchDoor, sharedWait, unadoptableStreams, unfinishedStreams, providerSurvivesRestart, turnSurvivesRestart, quiescenceVerdict, reloadHeldNotice } from "./quiescence";
+import { cardTurnsHoldingReload, chatsHolding, describeInFlight, dispatchDoor, sharedWait, unadoptableStreams, unfinishedStreams, providerSurvivesRestart, turnSurvivesRestart, quiescenceVerdict, reloadHeldNotice, unrecoverableHolders } from "./quiescence";
 
 describe("dispatchDoor: the door follows who is holding the restart (RGATE-04)", () => {
   test("a chat holds: open, whatever the cards - refusing card turns buys the restart nothing", () => {
@@ -744,5 +744,30 @@ describe("turnSurvivesRestart", () => {
       { sessionKey: "topic:card", survivesRestart: turnSurvivesRestart({ providerReattaches: false, boardCard: true }) },
     ];
     expect(unadoptableStreams(streams)).toEqual(["topic:card"]);
+  });
+});
+
+/**
+ * A LAND RESTARTS AT ZERO TURNS (RGATE-09). 2026-10-26 20:41: the approve of
+ * card 405071b3 landed on the production checkout and the chats in flight were
+ * cut after their minute. Asked at zero turns, a working chat defers like a card.
+ */
+describe("unrecoverableHolders: a restart at zero turns does not cut a working chat (RGATE-09)", () => {
+  const CHAT = 60_000;
+  const verdict = (zeroTurns: boolean, now: number) => quiescenceVerdict({
+    busy: "1 chat", now, startedAt: 0, chatCapMs: CHAT,
+    unrecoverable: unrecoverableHolders({ cards: 0, unadoptable: 0, workingChats: 1, zeroTurns }),
+  });
+
+  test("a re-adoptable chat is cut after its minute by a save, deferred forever by a land", () => {
+    expect(verdict(false, CHAT)).toBe("scaduto");
+    for (const now of [0, CHAT, CHAT * 10_000]) expect(verdict(true, now)).toBe("rinvia");
+  });
+
+  test("cards and unadoptable chats hold the same in both modes, and a question holds no more at zero turns", () => {
+    expect(unrecoverableHolders({ cards: 2, unadoptable: 1, workingChats: 1, zeroTurns: false })).toBe(3);
+    expect(unrecoverableHolders({ cards: 2, unadoptable: 1, workingChats: 1, zeroTurns: true })).toBe(3);
+    // Parked on a question only: no working chat, so the chat minute still applies.
+    expect(unrecoverableHolders({ cards: 0, unadoptable: 0, workingChats: 0, zeroTurns: true })).toBe(0);
   });
 });
