@@ -985,6 +985,10 @@ export interface ScriptProcessInfo {
   topicId?: string | null;
   /** For `source: 'command'`: ended by a Stop, not by itself. */
   stopped?: boolean;
+  /** The registered process group is receiving TERM. */
+  closing?: boolean;
+  /** The registered group could not be verified dead. */
+  stopFailed?: boolean;
   /** Chi sta ASPETTANDO la fine di questo processo (`wait_for_process`).
    *  Assente quando nessuno aspetta: e' il caso normale. */
   watchers?: { label: string; since: string; until?: string }[];

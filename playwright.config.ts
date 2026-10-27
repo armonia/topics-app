@@ -422,6 +422,7 @@ export default defineConfig({
         "**/browser-mobile-keyboard.spec.ts",
         "**/browser-dom-tap-once.spec.ts",
         "**/mobile-chrome-bar.spec.ts",
+        "**/mobile-no-tab-strip.spec.ts",
         "**/mobile-list-under-chrome.spec.ts",
         "**/mobile-screens-under-chrome.spec.ts",
         "**/mobile-bottom-bar-geometry.spec.ts",
@@ -525,7 +526,7 @@ export default defineConfig({
       // Due spec, stesso telefono: la prima misura la CHROME (cosa c'è in alto e
       // in basso), la seconda il BORDO (chi si prende il trascinamento che parte
       // dal margine dello schermo, il cassetto o la cronologia).
-      testMatch: ["**/mobile-chrome-bar.spec.ts", "**/mobile-edge-swipe-no-history.spec.ts"],
+      testMatch: ["**/mobile-chrome-bar.spec.ts", "**/mobile-edge-swipe-no-history.spec.ts", "**/mobile-no-tab-strip.spec.ts"],
       use: {
         browserName: "chromium",
         hasTouch: true,
@@ -620,6 +621,9 @@ export default defineConfig({
         // The board on a phone: the bar that does not scroll, the 44px search,
         // the columns that fill and the room under the last card (05/10).
         "**/board-mobile-phone.spec.ts",
+        // A card that runs on «Cloud Claude»: the board as the desktop shell shows it, and the one
+        // card scenario that can be filmed on this Mac (no agent runs here, the cloud is a fake).
+        "**/board-cloud-card.spec.ts",
         // The conversation of a task follows its last answer while the drawer narrows: WebKit moves
         // scrollTop for the anchor before any ResizeObserver runs, and that is what the second net guards.
         "**/task-conversation-follow.spec.ts",

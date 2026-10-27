@@ -31,10 +31,15 @@ import { onHumanHoldChange } from "../lib/human-hold-events";
 import type { TaskAttemptStore } from "./task-attempts";
 import { attemptHasWork, formatFanoutComment } from "../../shared/task-attempt";
 import { shouldAnnounceResume, DEAD_SESSION_NOTE } from "../lib/dead-run-note";
-import { CODE_GATES_RULE, E2E_CI_CHECK, UNIT_CI_CHECK, isCiEvidenceCheck, ADMISSION_SPACING_MS, DISPATCH_CHIP_QUEUED, admissionVerdict, budgetShare, capMode, estimatedAgentCost, estimatedAgentMemCost, machineBudget, reservedCost, hasDeliveredWork, MAX_FANOUT, PARKED_STOPPED, PARKED_WAITED_OUT, PLAN_APPROVE_LABEL, PLAN_REVISE_LABEL, OUTBOUND_TOOLS_RULE, PREVIEW_RULE, RECOMMENDED_OPTION_RULE, VERSION_BUMP_RULE, readTaskWeight, statusEventEnters, type AdmissionVerdict, type BudgetGateState, type DispatchAdmission, type GlobalDispatchCap, type MachineBudgetSample } from "../../shared/board";
+import { CODE_GATES_RULE, E2E_CI_CHECK, UNIT_CI_CHECK, isCiEvidenceCheck, ADMISSION_SPACING_MS, DISPATCH_CHIP_QUEUED, admissionVerdict, budgetShare, capMode, estimatedAgentCost, machineBudget, reservedCost, hasDeliveredWork, MAX_FANOUT, PARKED_STOPPED, PARKED_WAITED_OUT, PLAN_APPROVE_LABEL, PLAN_REVISE_LABEL, OUTBOUND_TOOLS_RULE, PREVIEW_RULE, RECOMMENDED_OPTION_RULE, VERSION_BUMP_RULE, readTaskWeight, statusEventEnters, type AdmissionVerdict, type BudgetGateState, type DispatchAdmission, type DispatchMemoryQueueSnapshot, type GlobalDispatchCap, type MachineBudgetSample } from "../../shared/board";
 import { decideNight, deadlineFrom } from "./night-mode";
-import { effectiveDispatchCap, type MemoryFloorHold, type ResourceFloorKind, type ResourceFloorVerdict } from "./dispatch-capacity";
-import { daySpendSentence, heldResumeBlock, publishDispatchBlock, setHeldResumeBlock, type DispatchBlockKind } from "./dispatch-block-signal";
+import { DISPATCH_MEM_FLOOR_GB, DISPATCH_MEM_FLOOR_NATIVE_GB, effectiveDispatchCap, type MemoryFloorHold, type ResourceFloorKind, type ResourceFloorVerdict } from "./dispatch-capacity";
+import type { HeldMemory } from "./mem-signal";
+import type { DispatchMemoryHistoryPoint } from "./dispatch-memory-history";
+import { NoCheckExemptionLedger } from "./dispatch-no-check-exemption";
+import { createNoCheckReservationManager } from "./dispatch-no-check-reservations";
+import { createCardPrices } from "./dispatch-card-price";
+import { daySpendSentence, heldResumeBlock, publishDispatchBlock, setHeldResumeBlock, setMemoryWait, type DispatchBlockKind } from "./dispatch-block-signal";
 import { effectiveTopicsRouting, reusedSessionRouteConflict, reusedSessionRouting, taskModelMatchesSession, taskModelSelection, taskModelValue } from "../../shared/task-coding-models";
 import {
   bookSessionCost,
@@ -53,6 +58,9 @@ import {
   type TurnEndInfo,
 } from "../providers/stop-reason";
 import { createRemoteNodeLane, isNodeSessionKey, type NodeDeps, type NodeSlot } from "./task-dispatcher-remote-node";
+import { createDispatchMemoryQueuePublisher, createDispatchMemoryQueueSnapshot } from "./dispatch-memory-queue";
+import { createDispatchMemoryStartController } from "./dispatch-memory-start";
+import { buildDispatchAdmissionPreview } from "./dispatch-admission-preview";
 import { WorktreeRefusalError } from "./worktree-manager";
 import { providerHold, holdAsksAPerson, holdUntilLabel, planUsage } from "../lib/provider-hold";
 import { PLAN_DISPATCH_HOLD_AT, providerHoldKey, providerHoldLabel } from "../../shared/provider-hold";
@@ -67,6 +75,7 @@ import { hasCommandShell } from "../lib/command-process";
 
 /** Fallback retry cap when a board's setting can't be read (default 2). */
 const DEFAULT_RETRY_CAP = 2;
+const WAITING_MEMORY = "waiting-memory" as const;
 
 /** The tool a dispatched session is running, as the session tracker knows it. */
 export interface SessionActivity { name: string; input?: unknown; since: number }
@@ -105,6 +114,8 @@ function cut(v: string): string {
 /** What the dispatcher needs from the outside world — all injected. */
 export interface DispatcherDeps {
   svc: TaskService;
+  /** Stop command process groups when an automated landing closes a card. */
+  stopCardProcesses?: (cardId: string) => void | Promise<void>;
   /**
    * Resolve a board-hash projectId to its filesystem path and (if the project
    * is registered in the ProjectStore) the store UUID needed for worktrees.
@@ -174,6 +185,16 @@ export interface DispatcherDeps {
    * standing down for the first card is a fact only this answer carries.
    */
   resourceBlock?: (hold: MemoryFloorHold) => ResourceFloorVerdict | null;
+  /** The same two-minute low-memory window used by the normal resource floor. */
+  heldMemory?: () => HeldMemory | null;
+  /** Latest measured memory reading and timestamp from the existing probe. */
+  memoryReading?: () => { freeGB: number | null; at: number | null };
+  /** Process-local ring maintained by the existing memory sampling beat. */
+  memoryHistory?: () => DispatchMemoryHistoryPoint[];
+  /** Cached process owners; this callback must not start another probe. */
+  memoryConsumers?: () => Array<{ label: string; gb: number }>;
+  /** Whether the selected agent runtime is the CLI process runtime. */
+  isCliRuntime?: () => boolean;
   /**
    * WHAT TOPICS IS TAKING OF THIS MACHINE, for the cap "by resources": our own
    * core-units and gigabytes, what the others are taking, and the agents
@@ -638,7 +659,11 @@ export interface TaskDispatcher {
    * sample. Read by GET /api/system/dispatch-capacity, so the panel's verdict
    * is the gate's and not a second opinion.
    */
-  admissionPreview?(): DispatchAdmission | null;
+  admissionPreview?(projectId?: string | null): DispatchAdmission | null;
+  /** Read-only data for the dispatch memory dashboard. */
+  memoryQueueSnapshot(): DispatchMemoryQueueSnapshot;
+  /** Start one selected memory-waiting card, preserving all other admission gates. */
+  startAnyway(projectId: string, taskId: string): Promise<{ ok: boolean; code?: string }>;
   /** Cancel all timers (test teardown / shutdown). */
   shutdown(): void;
   /** True while a launch for this task is in flight (test/introspection). */
@@ -1244,9 +1269,34 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
    * live stop from an abandoned one.
    */
   let admissionLastSeenAt = admissionCountingSince;
-  /** What one more agent is priced at in memory: the same price list the budget reads. */
-  function agentMemPrice(): number {
-    return estimatedAgentMemCost((() => { try { return deps.agentMemSamples?.() ?? []; } catch { return []; } })());
+  /** What one more card is priced at in memory, per board (`dispatch-card-price.ts`); no board in hand reads the dearer price. */
+  const cardPrices = createCardPrices({
+    peaks: () => deps.agentMemSamples?.() ?? [],
+    isCliRuntime: () => deps.isCliRuntime?.() ?? false,
+    board: (projectId) => deps.svc.getBoardSettings(projectId),
+    taskOf: (taskId) => deps.svc.get(taskId)?.task,
+  });
+  function agentMemPrice(projectId?: string | null): number {
+    return cardPrices.priceFor(projectId);
+  }
+  /**
+   * A card that runs on ANOTHER machine (a paired node, or the Cloud Claude
+   * runtime): `remoteLaunch` takes it over and this Mac spends no process, no
+   * worktree and no gigabyte on it. Every gate that measures THIS machine's RAM
+   * and CPU (the memory floor, the resources budget, the heavy hold, the ramp)
+   * describes nothing about it, so they hold local cards only; a full disk, the
+   * spend brakes and the plan window still hold it. The machine must answer at
+   * an address, the same population `RUNS_HERE_SQL` leaves out of the census: a
+   * stale row of this Mac (one per hostname) has none. An unknown local id or
+   * address reads as local: the gates stay on rather than open.
+   */
+  function isRemoteTask(task: Task): boolean {
+    if (!task.machineId) return false;
+    let localMachine: string | null = null;
+    let address: string | null = null;
+    try { localMachine = deps.node?.localMachineId?.() ?? null; } catch { /* Treat an unknown local id conservatively. */ }
+    try { address = deps.node?.baseUrlOf(task.machineId) ?? null; } catch { /* Same: no address, no exemption. */ }
+    return localMachine !== null && task.machineId !== localMachine && !!address;
   }
   /** Launch instants of the LOCAL turns in flight whose memory is still ours to
    *  reserve: a run riding on a node holds nothing on this machine (the same
@@ -1254,10 +1304,19 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
    *  charged nothing (KANBAN-76). A PRICE LIST, not a census - `localTurns()`
    *  is the census, and the two must not be confused. */
   function localLaunches(): number[] {
+    return localLaunchEntries().map(([, slot]) => slot.sessionAt);
+  }
+  function localLaunchEntries(): [string, RunSlot][] {
     const offLane = (taskId: string) => { try { return deps.checksOffLane?.(taskId) ?? false; } catch { return false; } };
     return [...inFlight.entries()]
-      .filter(([taskId, slot]) => !isNodeSessionKey(slot.sessionKey) && !offLane(taskId))
-      .map(([, slot]) => slot.sessionAt);
+      .filter(([taskId, slot]) => !isNodeSessionKey(slot.sessionKey) && !offLane(taskId));
+  }
+  /** The memory price list excludes exempt turns; their smaller reservation is charged separately. */
+  function regularLocalLaunchEntries(cleanupReservations = true): [string, number][] {
+    if (cleanupReservations) releaseInvalidNoCheckReservations();
+    return localLaunchEntries()
+      .filter(([taskId]) => !noCheckExemptions.has(taskId))
+      .map(([taskId, slot]) => [taskId, slot.sessionAt]);
   }
   /**
    * HOW MANY LOCAL TURNS ARE ALIVE ON THIS MACHINE - the census, byte-identical
@@ -1297,12 +1356,17 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
    * anything this Mac reads. In count mode the floor is the only memory brake,
    * so it charges N x price itself.
    */
-  function floorVerdict(): ResourceFloorVerdict {
-    const price = agentMemPrice();
-    const launches = localLaunches();
+  let lastMemoryStartGB: number | null = null;
+  function floorVerdict(cleanupReservations = true, projectId?: string | null): ResourceFloorVerdict {
+    const price = agentMemPrice(projectId);
+    const launchEntries = regularLocalLaunchEntries(cleanupReservations);
+    const launches = launchEntries.map(([, at]) => at);
     const checks = (() => { try { return deps.checksRunning?.() ?? 0; } catch { return 0; } })();
     const resources = inResourcesMode();
-    const reserved = resources ? 0 : reservedCost(launches, { coreUnits: 0, memGB: price }, Date.now()).memGB;
+    const exemptTaskIds = noCheckExemptions.taskIds();
+    const exemptReservedGB = noCheckExemptions.reservationGB();
+    const exemptReservedCards = exemptTaskIds.length;
+    const reserved = resources ? 0 : cardPrices.reservedMemGB(launchEntries, Date.now()) + exemptReservedGB;
     // TWO QUESTIONS, AND EACH GETS ITS OWN CENSUS WHOLE.
     //
     // `ourWorkRunning` is the SAME "zero" the budget axis counts for
@@ -1323,14 +1387,22 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
     return deps.resourceBlock?.({
       cardGB: price,
       reservedGB: reserved,
-      reservedCards: resources ? 0 : launches.length,
-      spendingHere: launches.length + Math.max(0, checks) > 0,
-      ourWorkRunning: localTurns() + Math.max(0, checks) > 0,
+      reservedCards: resources ? 0 : launches.length + exemptReservedCards,
+      spendingHere: launches.length + exemptReservedCards + Math.max(0, checks) > 0,
+      ourWorkRunning: (localMemorySeatTaken() ? 1 : 0) + Math.max(0, checks)
+        + noCheckExemptions.untrackedCount(new Set(inFlight.keys())) > 0,
     }) ?? { reason: null, kind: null, memoryFirstCardExempt: false };
   }
   function admissionVerdictNow(): ResourceFloorVerdict {
     try {
       const verdict = floorVerdict();
+      if (Number.isFinite(verdict.startGB)) lastMemoryStartGB = verdict.startGB!;
+      // The numbers the card waiting for memory prints («servono 7 GB, liberi
+      // 1,4»): the same line and the same window this verdict was taken on.
+      const held = (() => { try { return deps.heldMemory?.() ?? null; } catch { return null; } })();
+      setMemoryWait(Number.isFinite(verdict.startGB) && held?.measurable
+        ? { needGB: verdict.startGB!, freeGB: held.heldGB }
+        : null);
       const reason = verdict.reason;
       // SI DICE UNA VOLTA, e prima non si diceva affatto. Il chip sulla card
       // scrive «in coda» e il commento accanto rimanda «il perché sta nel log
@@ -1393,10 +1465,6 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
       return verdict;
     } catch { return { reason: null, kind: null, memoryFirstCardExempt: false }; }
   }
-  function admissionBlock(): string | null {
-    return admissionVerdictNow().reason;
-  }
-
   /**
    * THE CAP "BY RESOURCES", read NOW: why Topics is over the budget it was
    * given, or `null` when it is under it, when the mode is off, or when nothing
@@ -1436,7 +1504,12 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
    * same reservation for the turns still warming up: the panel cannot say
    * "would start" on numbers the gate did not decide on.
    */
-  function budgetVerdict(gcap: GlobalDispatchCap): {
+  function budgetVerdict(
+    gcap: GlobalDispatchCap,
+    noCheckCandidateReservationGB?: number,
+    sampleOverride?: MachineBudgetSample | null,
+    projectId?: string | null,
+  ): {
     verdict: AdmissionVerdict;
     sample: MachineBudgetSample;
     share: number;
@@ -1444,13 +1517,14 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
      *  (reservation included): the two numbers of the footprint clause. */
     mem: { ourMemGB: number; usableMemGB: number };
   } | null {
-    const sample = deps.budgetSample?.() ?? null;
+    const sample = sampleOverride === undefined ? deps.budgetSample?.() ?? null : sampleOverride;
     if (!sample) return null;
     const share = budgetShare(gcap);
-    const cost = {
+    const fullCost = {
       coreUnits: estimatedAgentCost((() => { try { return deps.agentCostSamples?.() ?? []; } catch { return []; } })()),
-      memGB: agentMemPrice(),
+      memGB: agentMemPrice(projectId),
     };
+    const cost = { ...fullCost, memGB: noCheckCandidateReservationGB ?? fullCost.memGB };
     // WHAT WE HAVE ALREADY PROMISED. An agent's cost lands minutes after its
     // launch (it reads the card before it launches a gate), so the turns in
     // flight are counted at their estimate: on the CPU for the warm-up window,
@@ -1459,79 +1533,71 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
     // already spent, and the queue drains into swap. `sessionAt` is the
     // launch instant, so the ledger is the in-flight map itself.
     const now = Date.now();
-    const reserved = reservedCost(localLaunches(), cost, now);
+    const reservedCpu = reservedCost(localLaunches(), fullCost, now).coreUnits;
+    const reservedMemory = cardPrices.reservedMemGB(regularLocalLaunchEntries(), now)
+      + noCheckExemptions.reservationGB();
     // The exemption is for a machine with none of OUR work on it, and a
     // pre-review check run is our work: a queue behind an 11 GB shard run is not
     // a queue that never starts (see `firstAgentExempt`).
     const checks = (() => { try { return deps.checksRunning?.() ?? 0; } catch { return 0; } })();
     const gated: MachineBudgetSample = {
       ...sample,
-      running: sample.running + Math.max(0, checks),
-      reservedCoreUnits: reserved.coreUnits,
-      reservedMemGB: reserved.memGB,
+      running: sample.running + Math.max(0, checks) + noCheckExemptions.untrackedCount(new Set(inFlight.keys())),
+      ourMemGB: Math.max(0, sample.ourMemGB) + noCheckExemptions.reservationGB(),
+      reservedCoreUnits: reservedCpu,
+      reservedMemGB: reservedMemory,
     };
     const verdict = admissionVerdict(gated, share, cost, budgetGate);
     // Read off the same function the verdict read, on the same sample: not a
     // second copy of the arithmetic.
-    const mem = { ourMemGB: Math.max(0, sample.ourMemGB), usableMemGB: machineBudget(gated, share).usableMemGB };
+    const mem = { ourMemGB: gated.ourMemGB, usableMemGB: machineBudget(gated, share).usableMemGB };
     return { verdict, sample, share, mem };
   }
+  function noCheckBudgetDecision(reservationGB: number): { needed: boolean; allowed: boolean } {
+    let gcap: GlobalDispatchCap;
+    try { gcap = deps.svc.getGlobalCap(); } catch { return { needed: false, allowed: true }; }
+    if (capMode(gcap) !== "resources") return { needed: false, allowed: true };
+    const sample = deps.budgetSample?.() ?? null;
+    const normal = budgetVerdict(gcap, undefined, sample);
+    const candidate = budgetVerdict(gcap, reservationGB, sample);
+    if (!normal || !candidate) return { needed: false, allowed: true };
+    return {
+      needed: normal.verdict.blockedBy === "memory" && !normal.verdict.firstAgentExempt,
+      allowed: candidate.verdict.admit,
+    };
+  }
   /**
-   * THE PANEL'S VERDICT, IN THE TICK'S ORDER. The tick stops at a drain and at
-   * the floor before the budget is ever asked, so the preview does too: it used
-   * to run only the budget, and on the night the 6 GB floor was the one brake
-   * that fired the panel said in green "a new agent would start" while every
-   * card said "the machine has no room". The floor holds in count mode as well,
-   * so it is the one verdict a count-mode reading carries.
-   *
-   * `floorVerdict()` and not `admissionBlock()`: that one logs the episode and
-   * moves its dedup state, and a panel polling every 15 s must not.
-   *
-   * THE FLOOR'S DEROGATION IS DECLARED HERE, in `firstAgentExempt`, because
-   * that is where the budget axis declares its own and the client already
-   * paints it amber (`board.dispatch.verdictFirst`, `dispatchLoad.ts`). The
-   * whole verdict and not just its sentence: reading the sentence alone drew
-   * NOTHING at all in count mode - where the floor is the only memory brake -
-   * and in resources mode drew the BUDGET's green over a card that got through
-   * only by derogation, which is a green on a machine still under the line.
+   * The capacity route uses the same gate order without mutating hysteresis.
+   * With a board it prices that board's usual card; a card flagged heavy keeps
+   * the full price whatever the board says (`cardWeightOf`).
    */
-  function admissionPreview(): DispatchAdmission | null {
+  function admissionPreview(projectId?: string | null): DispatchAdmission | null {
+    return buildDispatchAdmissionPreview({
+      drainBlock,
+      floorVerdict: () => floorVerdict(true, projectId),
+      globalCap: () => deps.svc.getGlobalCap(),
+      budgetVerdict: (cap) => budgetVerdict(cap, undefined, undefined, projectId),
+      memoryClause,
+    });
+  }
+  /**
+   * A LIGHT CARD IS HELD BY THE MEMORY GATES ONLY IF IT WOULD STILL BE HELD AT
+   * ITS OWN PRICE. The machine verdict above is one state machine per machine
+   * (its log lines, its episodes, its hysteresis) and reads the dearer price, so
+   * it stays flat; this asks the same two questions again for one board's price,
+   * without moving any of that state. Memory only: a full disk, the CPU axis, the
+   * spend brake and the drain are not hers to lift.
+   */
+  function lightMemoryPass(t: Pick<Task, "projectId" | "dispatchWeight">): boolean {
+    const projectId = t.projectId;
     try {
-      const held = (blockedBy: "floor" | "drain", reason: string): DispatchAdmission =>
-        ({ admit: false, blockedBy, firstAgentExempt: false, costCoreUnits: 0, reason });
-      const drain = drainBlock();
-      if (drain) return held("drain", drain);
-      const floor = (() => { try { return floorVerdict(); } catch { return null; } })();
-      if (floor?.reason) return held("floor", floor.reason);
-      // A pass owed to the derogation, shaped like the budget's: no axis holds,
-      // and the amber says the machine is not actually calm.
-      const exempt = floor?.memoryFirstCardExempt ?? false;
-      const exemptPass: DispatchAdmission | null = exempt
-        ? { admit: true, blockedBy: null, firstAgentExempt: true, costCoreUnits: 0 }
-        : null;
+      if (cardPrices.weightFor(projectId, t.dispatchWeight) !== "light") return false;
+      if (spendBrake.dayBlock()) return false;
+      if (floorVerdict(false, projectId).reason) return false;
       const gcap = deps.svc.getGlobalCap();
-      if (capMode(gcap) !== "resources") return exemptPass;
-      const computed = budgetVerdict(gcap);
-      if (!computed) return exemptPass;
-      const { verdict: v, mem } = computed;
-      return {
-        admit: v.admit,
-        blockedBy: v.blockedBy,
-        // OR, not the budget's alone: the budget can admit on its own quota
-        // while the only reason this card reached it is the floor standing
-        // down, and a green there says the opposite of what happened.
-        firstAgentExempt: v.firstAgentExempt || exempt,
-        costCoreUnits: v.costCoreUnits,
-        usedCoreUnits: v.usedCoreUnits,
-        usableCoreUnits: v.usableCoreUnits,
-        pendingAdmissions: v.pendingAdmissions,
-        costMemGB: v.costMemGB,
-        freeQuotaMemGB: v.freeQuotaMemGB,
-        ourMemGB: mem.ourMemGB,
-        usableMemGB: mem.usableMemGB,
-        memClause: memoryClause(v, mem),
-      };
-    } catch { return null; }
+      if (capMode(gcap) !== "resources") return true;
+      return budgetVerdict(gcap, undefined, undefined, projectId)?.verdict.admit ?? true;
+    } catch { return false; }
   }
   function pressureBlock(): string | null {
     try {
@@ -1711,9 +1777,10 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
    * 10 s poll, rewrote the same chip 360 times an hour on each held card.
    * Returns whether it wrote (and sent) the card.
    */
-  function queueChip(task: Task): boolean {
-    if (task.dispatchState === CHIP_QUEUED && !task.dispatchError) return false;
-    try { emit(deps.svc.setDispatchState({ taskId: task.id, state: CHIP_QUEUED })); return true; } catch { return false; }
+  function queueChip(task: Task, error?: string): boolean {
+    const nextError = error ?? null;
+    if (task.dispatchState === CHIP_QUEUED && (task.dispatchError ?? null) === nextError) return false;
+    try { emit(deps.svc.setDispatchState({ taskId: task.id, state: CHIP_QUEUED, error: nextError })); return true; } catch { return false; }
   }
 
   /** A hold may arrive while the async model picker runs, before any resources exist. */
@@ -1785,6 +1852,39 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
   // In-flight launches, keyed by taskId — presence means "a turn is running or
   // being set up for this task"; keeps reconcile/tick from double-launching.
   const inFlight = new Map<string, RunSlot>();
+  const noCheckExemptions = new NoCheckExemptionLedger();
+  let memorySeatTaskId: string | null = null;
+  function localMemorySeatTaken(): boolean {
+    return memorySeatTaskId !== null || localTurns() > 0;
+  }
+  try { deps.attempts?.clearInactiveNoLocalChecksReservations?.(); }
+  catch (err) { log("prenotazioni senza check non ripulite all'avvio", err); }
+  const noCheckReservations = createNoCheckReservationManager({
+    ledger: noCheckExemptions,
+    attempts: deps.attempts,
+    task: (taskId) => deps.svc.get(taskId)?.task,
+    checks: (projectId) => deps.svc.getBoardSettings(projectId).reviewChecks,
+    inFlight: (taskId) => inFlight.has(taskId),
+    localMemorySeatTaken,
+    heldMemory: () => deps.heldMemory?.() ?? null,
+    isCliRuntime: () => deps.isCliRuntime?.() ?? false,
+    comments: (taskId) => deps.svc.get(taskId)?.comments ?? [],
+    addComment: (input) => { deps.svc.addComment(input); },
+    log,
+  });
+  const clearNoCheckReservation = noCheckReservations.clear;
+  const releaseInvalidNoCheckReservations = noCheckReservations.releaseInvalid;
+  const releaseInactiveNoCheckReservations = noCheckReservations.releaseInactive;
+  const noCheckReservationFor = noCheckReservations.reservationFor;
+  const restoreNoCheckReservation = noCheckReservations.restore;
+  const noteNoCheckExemptionStart = noCheckReservations.noteStart;
+  /** Seat and claim are one synchronous step: a holder outside `inFlight` and not `in_progress` is an orphan. */
+  function releaseOrphanMemorySeat(): void {
+    const taskId = memorySeatTaskId;
+    if (!taskId || inFlight.has(taskId)) return;
+    try { if (deps.svc.get(taskId)?.task.status !== "in_progress") memorySeatTaskId = null; }
+    catch { /* A failed read must not release a live seat. */ }
+  }
   /**
    * THE REMOTE LANE, whole, in `task-dispatcher-remote-node.ts`. What stays
    * here are its five seams: launch, liveness sweep, burial, poll, and the
@@ -1795,6 +1895,7 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
     log, emit, inFlight, beginRun, endRun, ownsRun, bindRunSession, releaseAndEmit, deferWait,
     delegatedPolicyForTask: deps.delegatedPolicyForTask,
     recordDelegatedPhase: deps.recordDelegatedPhase,
+    languageOf: langFor,
   });
   let nextRunId = 1;
   /**
@@ -1999,7 +2100,12 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
   }
   /** Release the slot — but only if it's still ours (a zombie never evicts a live run). */
   function endRun(taskId: string, runId: number): void {
-    if (ownsRun(taskId, runId)) inFlight.delete(taskId);
+    if (!ownsRun(taskId, runId)) return;
+    inFlight.delete(taskId);
+    if (memorySeatTaskId === taskId) memorySeatTaskId = null;
+    manualMemoryStart.clearAdmittedWhenIdle(taskId);
+    clearNoCheckReservation(taskId);
+    notifyMemoryQueue();
   }
 
   /**
@@ -2147,10 +2253,64 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
     return queued.flatMap((q) => q.commentIds);
   }
 
-  /** Broadcast the updated task so live boards move the chip. */
-  function emit(task: Task): void {
-    try { deps.broadcast({ type: "task:updated", projectId: task.projectId, task }); } catch { /* best-effort */ }
-  }
+  const memoryQueueSnapshot = createDispatchMemoryQueueSnapshot({
+    svc: deps.svc,
+    activeTaskIds: () => [...inFlight.entries()]
+      .filter(([, slot]) => !slot.node && !isNodeSessionKey(slot.sessionKey))
+      .map(([taskId]) => taskId),
+    canWait: (task) => {
+      if (task.dispatchError !== WAITING_MEMORY || task.dispatchState !== CHIP_QUEUED) return false;
+      try {
+        const settings = deps.svc.getBoardSettings(task.projectId);
+        if (!settings.autoDispatch || settings.dispatchPaused || draining) return false;
+        if (settings.nightMode) {
+          const action = evaluateNight(settings).decision.action;
+          if (action === "wait" || action === "expire") return false;
+        }
+        if (task.assignedTopicId || task.dispatchAttempts >= settings.dispatchRetryCap) return false;
+        if (task.dispatchDeferredUntil && task.dispatchDeferredUntil > new Date().toISOString()) return false;
+        if (deps.svc.isDispatchBlocked(task.id)) return false;
+        return !taskPlanWait(task, task.model ?? (settings.dispatchModel !== "auto" ? settings.dispatchModel : undefined), true);
+      } catch { return false; }
+    },
+    boardOrder: (projectIds) => {
+      try {
+        const dispatchBoards = deps.svc.boardsWithQueuedTodos();
+        return dispatchBoards.length ? rotateFrom(dispatchBoards, boardCursor) : projectIds;
+      } catch { return projectIds; }
+    },
+    memoryReading: deps.memoryReading,
+    heldMemory: deps.heldMemory,
+    memoryHistory: deps.memoryHistory,
+    memoryConsumers: deps.memoryConsumers,
+    costGB: (task) => cardPrices.priceFor(task?.projectId, task?.dispatchWeight),
+    startGB: () => {
+      try {
+        const current = floorVerdict(false).startGB;
+        if (Number.isFinite(current)) return current!;
+      } catch { /* The last successful threshold remains usable. */ }
+      if (lastMemoryStartGB != null) return lastMemoryStartGB;
+      return deps.isCliRuntime?.() ? DISPATCH_MEM_FLOOR_GB : DISPATCH_MEM_FLOOR_NATIVE_GB;
+    },
+  });
+  const memoryQueuePublisher = createDispatchMemoryQueuePublisher({
+    snapshot: memoryQueueSnapshot,
+    getTask: (taskId) => deps.svc.get(taskId)?.task,
+    broadcast: (task) => deps.broadcast({ type: "task:updated", projectId: task.projectId, task }),
+  });
+  function emit(task: Task): void { memoryQueuePublisher.emit(task); }
+  function notifyMemoryQueue(): void { memoryQueuePublisher.notify(); }
+  const manualMemoryStart = createDispatchMemoryStartController({
+    getTask: (projectId, taskId) => deps.svc.get(taskId, { projectId })?.task,
+    isInFlight: (taskId) => inFlight.has(taskId),
+    isRemoteTask,
+    isMemoryWaiter: (task) => task.status === "todo"
+      && task.dispatchState === CHIP_QUEUED && task.dispatchError === WAITING_MEMORY,
+    localMemorySeatTaken,
+    checksRunning: () => { try { return deps.checksRunning?.() ?? 0; } catch { return 0; } },
+    dispatch: (projectId) => tick(projectId),
+    notifyQueue: notifyMemoryQueue,
+  });
 
   /**
    * C'è margine per un task PESANTE adesso?
@@ -2314,6 +2474,11 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
     args: Parameters<TaskService["release"]>[0],
     opts?: { announce?: boolean },
   ): Task {
+    if (!inFlight.has(args.taskId)) {
+      if (memorySeatTaskId === args.taskId) memorySeatTaskId = null;
+      manualMemoryStart.clearAdmittedWhenIdle(args.taskId);
+      clearNoCheckReservation(args.taskId);
+    }
     // Il topic dell'agente si RITIRA insieme al task, qualunque sia l'esito.
     //
     // `release()` slega il task dal topic — ma il topic resta «aperto» per
@@ -2610,6 +2775,31 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
     } catch { /* best-effort */ }
   }
 
+  function currentMachineBlock(): { key: string; reason: string } | null {
+    const floor = admissionVerdictNow();
+    if (floor.reason) return { key: `resources:${floor.kind}`, reason: floor.reason };
+    const day = spendBrake.dayBlock();
+    if (day) return { key: "spend", reason: daySpendSentence(day) };
+    const pressure = pressureBlock();
+    return pressure ? { key: "pressure", reason: pressure } : null;
+  }
+
+  function noteCurrentMachineBlock(task: Task, block: { key: string; reason: string }): void {
+    if (floorHeldNoted.get(task.id) === block.key) return;
+    floorHeldNoted.set(task.id, block.key);
+    queueChip(task);
+    try {
+      deps.svc.addComment({
+        taskId: task.id,
+        author: "system",
+        kind: "service",
+        content: block.reason,
+        replaces: [...RESUME_WAIT_OPENINGS],
+        once: true,
+      });
+    } catch { /* the task may have moved */ }
+  }
+
   function startLiveTurn(task: Task, sessionKey: string, t0: number, usage0: SessionUsage | null, model: string | null): void {
     const frame = (task.agentMs ?? 0) === 0 ? framingSnapshot(task.id) : null;
     liveTurns.set(task.id, {
@@ -2895,7 +3085,7 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
     resolved: { path: string; projectStoreId: string | null },
   ): Promise<void> {
     const beforeLaunch = deps.svc.get(taskId)?.task;
-    if (!beforeLaunch) return;
+    if (!beforeLaunch) { clearNoCheckReservation(taskId); return; }
     const delegated = delegatedPolicy(beforeLaunch);
     if (delegated === null) {
       releaseAndEmit({
@@ -3143,6 +3333,13 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
           try { branch = worktreeId ? (deps.worktreeBranch?.(worktreeId) ?? null) : null; } catch { /* etichetta, non un requisito */ }
           attemptStore.bind(a.id, { topicId, worktreeId: worktreeId ?? null, branch });
         } catch (err) { log(`storico: tentativo non registrato per ${taskId}`, err); }
+      }
+      const noCheckReservationGB = noCheckExemptions.get(taskId);
+      if (noCheckReservationGB != null) {
+        const noCheckAttemptId = attemptId ?? attemptStore?.list(taskId).find((attempt) => attempt.state === "running")?.id;
+        try { attemptStore?.setNoLocalChecksReservation?.(taskId, noCheckReservationGB); }
+        catch (err) { log(`prenotazione senza check non persistita per ${taskId}`, err); }
+        if (noCheckAttemptId) noteNoCheckExemptionStart(taskId, noCheckAttemptId, noCheckReservationGB);
       }
 
       // Point the claim at the REAL topic (claim bound a placeholder) and flip
@@ -4381,13 +4578,17 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
     // The floor VERDICT, because the resume keys its wait on the resource and
     // decides on it whether the sentence is worth a line in the thread.
     const floor = admissionVerdictNow();
-    if (floor.reason) return { reason: floor.reason, kind: "resources", floor: floor.kind };
+    if (floor.reason && !(floor.kind === "memory" && lightMemoryPass(t))) {
+      return { reason: floor.reason, kind: "resources", floor: floor.kind };
+    }
     const day = spendBrake.dayBlock();
     if (day) return { reason: daySpendSentence(day), kind: "spend" };
     const card = spendBrake.taskBlock(t.agentCostCents);
     if (card) return { reason: card, kind: null };
     const pressure = pressureBlock();
-    return pressure ? { reason: pressure, kind: "pressure" } : null;
+    return pressure && !(lastPressureAxis === "memory" && lightMemoryPass(t))
+      ? { reason: pressure, kind: "pressure" }
+      : null;
   }
 
   async function resume(taskId: string, humanMessage: string, opts?: { continuation?: boolean; commentIds?: string[] }): Promise<void> {
@@ -4448,9 +4649,12 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
     // the probes, so sixteen queued resumes retrying every few seconds do not
     // each spawn a `vm_stat` to learn that it is not their turn yet. No note in
     // the thread: a wait of seconds is a chip, not an episode.
-    const rampWait = inResourcesMode() && rampHeld();
-    const hold = rampWait ? null : resumeHold(t);
-    const floorBlock = hold?.reason ?? null;
+      const rampWait = inResourcesMode() && rampHeld();
+      const hold = rampWait ? null : resumeHold(t);
+      const floorBlock = hold?.reason ?? null;
+      const memoryWait = hold?.kind === "resources"
+        && (hold.floor === "memory" || hold.floor === "memory_warmup");
+      const rowReason = memoryWait ? WAITING_MEMORY : floorBlock;
     // Le corse dei gate occupano slot come gli agenti: un resume che trovasse
     // un posto «libero» ignorando i gate lancerebbe un agente in piu' proprio
     // mentre la macchina e' gia' al limite per i check.
@@ -4490,7 +4694,7 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
       const kind = hold?.kind ?? null;
       const key = holdKey(kind, floorBlock, hold?.floor ?? null);
       const last = heldWritten.get(taskId);
-      const rowSays = t.dispatchState === CHIP_QUEUED && (t.dispatchError ?? null) === floorBlock;
+      const rowSays = t.dispatchState === CHIP_QUEUED && (t.dispatchError ?? null) === rowReason;
       const sameHold = rowSays || (last != null
         && clock() - last.at < HELD_RESUME_REFRESH_MS
         && t.dispatchState === CHIP_QUEUED
@@ -4502,14 +4706,14 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
         // refetches on every socket 'open') holds `queueReason: null`. The row
         // is right, so it is not rewritten: the card is only re-sent, once per
         // card per boot, the first time this process can name the reason.
-        const relearned = heldResumeBlock(taskId, floorBlock) === null && kind != null;
-        setHeldResumeBlock(taskId, kind ? { kind, reason: hold!.reason } : null);
+        const relearned = heldResumeBlock(taskId, rowReason) === null && kind != null;
+        setHeldResumeBlock(taskId, kind ? { kind, reason: rowReason! } : null);
         if (relearned) { try { emit(deps.svc.get(taskId)?.task ?? t); } catch { /* best-effort */ } }
-        if (last?.reason !== floorBlock || last.key !== key) heldWritten.set(taskId, { at: clock(), key, reason: floorBlock });
+        if (last?.reason !== rowReason || last.key !== key) heldWritten.set(taskId, { at: clock(), key, reason: rowReason });
       } else if (!sameHold) {
-        setHeldResumeBlock(taskId, kind ? { kind, reason: hold!.reason } : null);
-        try { emit(deps.svc.setDispatchState({ taskId, state: CHIP_QUEUED, error: floorBlock })); } catch { /* best-effort */ }
-        heldWritten.set(taskId, { at: clock(), key, reason: floorBlock });
+        setHeldResumeBlock(taskId, kind ? { kind, reason: rowReason! } : null);
+        try { emit(deps.svc.setDispatchState({ taskId, state: CHIP_QUEUED, error: rowReason })); } catch { /* best-effort */ }
+        heldWritten.set(taskId, { at: clock(), key, reason: rowReason });
       }
       // THE WARM-UP NEVER GOES IN THE THREAD. It lasts 120 s, it is guaranteed
       // at every boot, and the chip already carries it: what a comment adds is
@@ -4519,7 +4723,7 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
       // AND THE REGISTER DECAYS ON THE KEY, not only when the block lifts: a
       // card already noted under one wait got nothing when the wait BECAME
       // another one, which is how a card held at boot never read its floor.
-      const noteKey = hold?.floor === "memory_warmup" ? null : key;
+      const noteKey = memoryWait ? null : key;
       if (!rampWait && noteKey && waitingForSlot.get(taskId) !== noteKey) {
         waitingForSlot.set(taskId, noteKey);
         try {
@@ -4642,7 +4846,18 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
   // resume if the reattach dep reports the session vanished (TOCTOU).
   async function reattachTask(taskId: string): Promise<void> {
     const t = deps.svc.get(taskId)?.task;
-    if (!t || !t.assignedTopicId || t.status !== "in_progress") return;
+    if (!t || !t.assignedTopicId || t.status !== "in_progress") {
+      clearNoCheckReservation(taskId);
+      return;
+    }
+    const wasReserved = noCheckExemptions.has(taskId);
+    const restored = restoreNoCheckReservation(t);
+    if (restored && !wasReserved) {
+      const attempt = deps.attempts?.list(taskId).find((entry) =>
+        entry.state === "running" && entry.topicId === t.assignedTopicId,
+      );
+      if (attempt) noteNoCheckExemptionStart(taskId, attempt.id, noCheckExemptions.get(taskId)!);
+    }
     const policy = delegatedPolicy(t);
     if (policy === null) {
       await cancelDelegatedTask(t, "delegated_authority_invalid");
@@ -4700,6 +4915,13 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
   }
 
   async function tick(projectId: string): Promise<void> {
+    try { await dispatchTick(projectId); }
+    finally { notifyMemoryQueue(); }
+  }
+
+  async function dispatchTick(projectId: string): Promise<void> {
+    releaseInactiveNoCheckReservations();
+    releaseOrphanMemorySeat();
     // Project-less tasks are never dispatchable (no cwd): they WAIT quietly on
     // the global board — parking them with "progetto non risolvibile" would be
     // the todo→backlog bounce all over again.
@@ -4779,6 +5001,8 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
         catch (err) { log(`re-list after heal failed for ${projectId}`, err); return; }
       }
     }
+    const manualTaskId = manualMemoryStart.selectedTask(projectId);
+    if (manualTaskId) todos = todos.filter((task) => task.id === manualTaskId);
     const nowIso = new Date().toISOString();
     // Budget dei tentativi finito = NON riproverà MAI più, e finché lo si scarta
     // in silenzio la card resta in colonna «coda» fingendosi lavorabile: nessun
@@ -4882,6 +5106,10 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
       return;
     }
 
+    // Which todos run on another machine, read once per tick: the local id
+    // comes from a store call, and the answer cannot change inside the pass.
+    const remoteIds = new Set(todos.filter(isRemoteTask).map((t) => t.id));
+    const remoteCard = (t: Task) => remoteIds.has(t.id);
     // GUARD — somebody else is already working this repo. `externalSessionsAt`
     // reports the live Claude sessions Topics didn't start (a bare `claude` in
     // a terminal). Read ONCE per tick: the census is TTL-cached upstream, and
@@ -4899,6 +5127,7 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
       // once the external session goes quiet — no human intervention, no
       // re-queue. One system note per hold episode, not per poll.
       for (const t of todos) {
+        if (remoteCard(t)) continue;
         if (inFlight.has(t.id) || graceTimers.has(t.id)) continue;
         if (externallyHeldNoted.has(t.id)) continue;
         externallyHeldNoted.add(t.id);
@@ -4911,7 +5140,10 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
           });
         } catch { /* task may have moved */ }
       }
-      return;
+      // The fight is over THIS working tree; a card that runs elsewhere has no
+      // part in it.
+      todos = todos.filter(remoteCard);
+      if (todos.length === 0) return;
     }
     // Not holding this tick (repo free, or worktree mode isolates us): forget
     // the episode so a FUTURE hold notes again instead of staying silent.
@@ -4927,7 +5159,10 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
       catch (err) { log("lettura dei task pesanti in volo fallita", err); return false; }
     })();
     const loadGate = heavyLoadGate();
-    if (heavyBusy) {
+    const eligibleNoCheckTaskExists = heavyBusy && todos.some((task) =>
+      !inFlight.has(task.id) && !remoteCard(task) && noCheckReservationFor(task) !== null,
+    );
+    if (heavyBusy && !eligibleNoCheckTaskExists) {
       // Un pesante in volo blocca OGNI claim, non solo gli altri pesanti: è il
       // senso stesso del peso — quel task si prende la macchina da solo. Niente
       // di questa board parte finché non ha finito, e la coda riparte da sé al
@@ -4941,13 +5176,17 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
       // macchina si è liberata. Il tetto esiste per l'attesa che potrebbe non
       // finire mai, non per quella che finisce quando finisce un turno.
       for (const t of todos) {
+        if (remoteCard(t)) continue;
         noteHeavyHold(
           t,
           "In coda: c'è un task PESANTE al lavoro e si prende la macchina da solo. " +
             "Riparto appena ha finito. Non devi fare nulla.",
         );
       }
-      return;
+      // A heavy turn takes THIS machine; a card running elsewhere does not
+      // compete with it, so only the remote cards go on to the claim.
+      todos = todos.filter(remoteCard);
+      if (todos.length === 0) return;
     }
     const nowMs = clock();
     // La chiamata del freno, decisa UNA volta per tick e per task.
@@ -4962,9 +5201,17 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
     //  'hold'   → pesante, niente margine: aspetta e TIENE la testa della coda.
     //  'forced' → pesante, niente margine, ma l'attesa ha sfondato il tetto:
     //             parte comunque, e nel thread c'è scritto perché.
+    // Remote cards first: the local gates below stop the whole pass (heavy
+    // hold, full cap), and a card that runs elsewhere must not wait behind them.
+    todos = [...todos.filter(remoteCard), ...todos.filter((t) => !remoteCard(t))];
     const heavyCall = new Map<string, "go" | "hold" | "forced">();
     for (const t of todos) {
-      if (t.dispatchWeight !== "heavy" || loadGate?.ok !== false) {
+      if (heavyBusy && !remoteCard(t)) {
+        // The ordinary heavyBusy path returns before touching load timers.
+        heavyCall.set(t.id, t.dispatchWeight === "heavy" ? "hold" : "go");
+        continue;
+      }
+      if (t.dispatchWeight !== "heavy" || loadGate?.ok !== false || remoteCard(t)) {
         // Non trattenuto: l'attesa (se c'era) è finita, e il prossimo hold
         // ricomincia a contare da capo invece di ereditare quella vecchia.
         heavyHoldSince.delete(t.id);
@@ -4980,7 +5227,7 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
     const heldForMs = (t: Task) => { const s = heavyHoldSince.get(t.id); return s == null ? 0 : Math.max(0, nowMs - s); };
     // Chi NON è più trattenuto dal peso dimentica l'episodio, così una prossima
     // attesa lo dice di nuovo invece di restare muta.
-    for (const t of todos) { if (!heldForLoad(t)) heavyHeldNoted.delete(t.id); }
+    if (!heavyBusy) for (const t of todos) { if (!heldForLoad(t)) heavyHeldNoted.delete(t.id); }
 
     // Effective concurrency cap for this tick: ONE machine-wide budget counted
     // across EVERY board (scope 'global'), so N boards can't multiply into N×cap
@@ -5017,6 +5264,7 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
     let startedThisTick = 0;
     /** The floor re-read once this pass has started a card (see the claim). */
     let midPassFloor: string | null = null;
+    let midPassFloorKind: ResourceFloorKind | null = null;
     let floorReadAfterStarts = 0;
 
     // Le corse dei check pre-review valgono slot: ogni barra in volo satura
@@ -5083,6 +5331,7 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
     // install) this is the only extra read of the loop: no sum over the spend
     // ledger, and the per-card check below leaves immediately.
     const caps = spendBrake.caps();
+    const noCheckReservationAtRead = noCheckExemptions.hasAny();
 
     // Chi NON è più trattenuto dal tetto dimentica l'episodio, così una prossima
     // attesa lo dice di nuovo invece di restare muta. Si guarda chi è PARTITO
@@ -5169,7 +5418,64 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
         noteSpendHold(t, caps.perTaskCents);
         continue;
       }
-      if (floorBlock) {
+      const manualMemoryStartSelected = manualMemoryStart.selectedTask(projectId) === t.id;
+      const remoteTask = remoteCard(t);
+      const candidateReservationGB = manualMemoryStartSelected || remoteTask ? null : noCheckReservationFor(t);
+      const candidateBudget = candidateReservationGB == null
+        ? { needed: false, allowed: false }
+        : noCheckBudgetDecision(candidateReservationGB);
+      const exemptionDaySpend = candidateReservationGB != null
+        ? spendBrake.dayBlock()
+        : null;
+      const noCheckExemption = candidateReservationGB != null
+        && floorNow.kind !== "disk"
+        && !exemptionDaySpend
+        && candidateBudget.allowed;
+      const needsNoCheckExemption = heavyBusy
+        || (!!resourceFloor && floorNow.kind === "memory")
+        || candidateBudget.needed;
+      const useNoCheckExemption = noCheckExemption && needsNoCheckExemption;
+      const memoryHold = (resourceFloor != null && (floorNow.kind === "memory" || floorNow.kind === "memory_warmup"))
+        || (!!pressure && lastPressureAxis === "memory")
+        || floorNow.memoryFirstCardExempt;
+      if (!remoteTask && ((!manualMemoryStartSelected && floorNow.memoryFirstCardExempt && t.dispatchWeight === "heavy")
+        || (memorySeatTaskId && memorySeatTaskId !== t.id && memoryHold))) {
+        queueChip(t, WAITING_MEMORY);
+        continue;
+      }
+      if (heavyBusy && !useNoCheckExemption && !remoteTask) {
+        noteHeavyHold(
+          t,
+          "In coda: c'è un task PESANTE al lavoro e si prende la macchina da solo. " +
+            "Riparto appena ha finito. Non devi fare nulla.",
+        );
+        continue;
+      }
+      const bypassMemoryBlock = useNoCheckExemption
+        && !exemptionDaySpend
+        && ((resourceFloor && floorNow.kind === "memory")
+          || (pressure && lastPressureAxis === "memory"));
+      const manualMemoryBypass = manualMemoryStartSelected
+        && (floorNow.kind === "memory" || floorNow.kind === "memory_warmup");
+      // A light card (in place, no local check) is not held by a line drawn for
+      // a card that runs the repo gates: it waits only if it would still wait
+      // at its own price. Asked only while a memory hold is in hand, so a quiet
+      // queue pays no extra floor read per card; the answer itself already
+      // refuses on disk, spend and CPU (`lightMemoryPass`). The seat above still applies.
+      const lightPass = !remoteTask && !useNoCheckExemption && !manualMemoryStartSelected
+        && ((resourceFloor != null && floorNow.kind === "memory") || (!!pressure && lastPressureAxis === "memory"))
+        && lightMemoryPass(t);
+      if (remoteTask) {
+        // The memory floor and the budget measure THIS machine's RAM and CPU: a
+        // remote card answers only to a full disk (its delivery is planted in
+        // this checkout) and to the day spend brake, which the floor's reading
+        // skips.
+        const diskFull = resourceFloor != null && floorNow.kind === "disk";
+        if (diskFull || (resourceFloor ? spendBrake.dayBlock() : daySpendBlock)) {
+          queueChip(t);
+          continue;
+        }
+      } else if (floorBlock && !bypassMemoryBlock && !manualMemoryBypass && !lightPass) {
         // THE REASON GOES ON THE CARD, not only into the server log. This
         // branch used to write the bare `queued` chip and leave the
         // explanation in a file nobody watching the board opens: the card fell
@@ -5194,12 +5500,14 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
         const sent = floorBlockSent.get(t.id);
         const stale = !sent || sent.key !== block.key
           || (sent.reason !== block.reason && clock() - sent.at >= HELD_RESUME_REFRESH_MS);
-        const wrote = queueChip(t);
-        if (stale && !wrote) {
+        const memoryWait = resourceFloor != null && (floorNow.kind === "memory" || floorNow.kind === "memory_warmup");
+        const wrote = queueChip(t, memoryWait ? WAITING_MEMORY : undefined);
+        // In attesa di memoria la card legge solo il codice: cifre nuove non cambiano niente.
+        if (stale && !wrote && !memoryWait) {
           try { const fresh = deps.svc.get(t.id)?.task; if (fresh) emit(fresh); } catch { /* the task may have moved */ }
         }
         if (stale || wrote) floorBlockSent.set(t.id, { ...block, at: clock() });
-        if (floorNote && floorNoteKey && floorHeldNoted.get(t.id) !== floorNoteKey) {
+        if (!memoryWait && floorNote && floorNoteKey && floorHeldNoted.get(t.id) !== floorNoteKey) {
           floorHeldNoted.set(t.id, floorNoteKey);
           try {
             // THE SAME SLOT AS THE RESUME'S NOTE: same machine state, same
@@ -5215,7 +5523,7 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
       // another board or from a resume. The rest of the queue gets the `queued`
       // chip, like a full cap would give it, and its turn comes with a fresher
       // reading.
-      if (rampActive && rampHeld()) {
+      if (!remoteTask && rampActive && rampHeld()) {
         queueChip(t);
         continue;
       }
@@ -5284,7 +5592,11 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
           // Solo se si è CHIUSA davvero. `settleLanded` rifiuta di chiudere un
           // padre con step aperti: quella card non è finita, ha una checklist da
           // muovere, e saltarla la lascerebbe ferma per sempre.
-          if (chiusa) continue;
+          if (chiusa) {
+            try { await deps.stopCardProcesses?.(t.id); }
+            catch (err) { log(`chiusura dei processi della card atterrata fallita per ${t.id}`, err); }
+            continue;
+          }
         }
       }
       // The claim is the status CAS (todo → in_progress + chip 'starting');
@@ -5294,14 +5606,16 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
       // Un task che riusa il contesto del blocker vive nella chat DI QUELLO:
       // non si può fan-outtare una conversazione sola in N tentativi. Vince il
       // riuso (è una scelta esplicita dell'umano sul task), il fan-out cede.
-      const taskFanOut = delegated ? 1 : (t.reuseBlockerContext && t.blockedByTaskId ? 1 : fanOut);
+      const taskFanOut = useNoCheckExemption || delegated || remoteTask
+        ? 1
+        : (t.reuseBlockerContext && t.blockedByTaskId ? 1 : fanOut);
       // N agenti = N slot. `claim` conta le RIGHE in_progress (una, per un
       // fan-out), quindi la prenotazione va fatta qui: il claim passa solo se
       // restano almeno N posti liberi.
       // I gate in volo si sottraggono anche qui: il claimCap deve riflettere i
       // posti DAVVERO liberi, non solo quelli non occupati da agenti.
       const claimCap = effectiveCap - reservedSlots - gateRuns - (taskFanOut - 1);
-      if (claimCap < 1) {
+      if (!remoteTask && claimCap < 1) {
         // Macchina piena: da qui in poi aspettano tutti, e lo si dice a
         // ciascuno prima di uscire. Il `break` senza una riga era il difetto:
         // la coda restava ferma e le card non lo raccontavano.
@@ -5351,32 +5665,110 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
       // awaits and another board's tick can start a card in that gap. The floor
       // again once this pass has started a card: it was read once at the top,
       // and a count-mode tick claims every free slot against that one reading.
-      if (rampActive && rampHeld()) {
+      if (!remoteTask && rampActive && rampHeld()) {
         queueChip(t);
         continue;
       }
-      if (!midPassFloor && startedThisTick > floorReadAfterStarts) {
+      if (!remoteTask && !midPassFloor && startedThisTick > floorReadAfterStarts) {
         floorReadAfterStarts = startedThisTick;
-        midPassFloor = admissionBlock();
+        const verdict = admissionVerdictNow();
+        midPassFloor = verdict.reason;
+        midPassFloorKind = verdict.kind;
       }
-      if (midPassFloor) {
-        queueChip(t);
+      const midPassMemoryHold = midPassFloor != null && (midPassFloorKind === "memory" || midPassFloorKind === "memory_warmup");
+      if (!remoteTask && midPassFloor && !useNoCheckExemption
+        && !(manualMemoryStartSelected && midPassMemoryHold) && !lightPass) {
+        queueChip(t, midPassMemoryHold ? WAITING_MEMORY : undefined);
         continue;
       }
+      // The light pass was granted before the awaits of this iteration (the
+      // delivery probe). A disk filled, or a card another board started in that
+      // gap, must hold this one like any other: ask again, with nothing awaited
+      // between this look and the claim.
+      if (lightPass && !lightMemoryPass(t)) {
+        queueChip(t, WAITING_MEMORY);
+        continue;
+      }
+      let claimNoCheckReservationGB = 0;
+      if (useNoCheckExemption) {
+        const latestReservationGB = noCheckReservationFor(t);
+        const latestFloor = floorVerdict();
+        const latestBudget = latestReservationGB == null
+          ? { needed: false, allowed: false }
+          : noCheckBudgetDecision(latestReservationGB);
+        const latestDaySpend = latestReservationGB != null
+          ? spendBrake.dayBlock()
+          : null;
+        const stillNeedsExemption = heavyBusy
+          || (latestFloor.kind === "memory" && !!latestFloor.reason)
+          || latestBudget.needed;
+        if (latestReservationGB == null
+          || !stillNeedsExemption
+          || !latestBudget.allowed
+          || latestFloor.kind === "disk"
+          || latestDaySpend) {
+          if (latestReservationGB == null && noCheckExemptions.hasAny() && !noCheckExemptions.has(t.id)) {
+            const freshBlock = currentMachineBlock();
+            if (freshBlock) noteCurrentMachineBlock(t, freshBlock);
+            else queueChip(t);
+          } else if (floorBlock || midPassFloor) queueChip(t);
+          else if (heavyBusy) noteHeavyHold(t, "In coda: c'è un task PESANTE al lavoro e si prende la macchina da solo. Riparto appena ha finito. Non devi fare nulla.");
+          continue;
+        }
+        if (!noCheckExemptions.reserve(t.id, latestReservationGB)) {
+          queueChip(t);
+          continue;
+        }
+        try { deps.attempts?.setNoLocalChecksReservation?.(t.id, latestReservationGB); }
+        catch (err) {
+          clearNoCheckReservation(t.id);
+          log(`prenotazione senza check non persistita per ${t.id}`, err);
+          queueChip(t);
+          continue;
+        }
+        claimNoCheckReservationGB = latestReservationGB;
+      }
+      if (!remoteTask
+        && !noCheckReservationAtRead
+        && noCheckExemptions.hasAny()
+        && !noCheckExemptions.has(t.id)) {
+        const freshBlock = currentMachineBlock();
+        if (freshBlock) {
+          noteCurrentMachineBlock(t, freshBlock);
+          continue;
+        }
+      }
+      const reserveMemorySeat = !remoteTask
+        && (manualMemoryStartSelected || (memoryHold && (floorNow.memoryFirstCardExempt || useNoCheckExemption)));
+      if (reserveMemorySeat && localMemorySeatTaken() && memorySeatTaskId !== t.id) {
+        if (claimNoCheckReservationGB > 0) clearNoCheckReservation(t.id);
+        queueChip(t, WAITING_MEMORY);
+        continue;
+      }
+      if (reserveMemorySeat) memorySeatTaskId = t.id;
       const forced = heavyCall.get(t.id) === "forced";
-      const claimed = deps.svc.claim({
-        taskId: t.id,
-        cap: claimCap,
-        maxAttempts: delegated ? 1 : settings.dispatchRetryCap,
-        scope: capScope,
-        machineIdle: forced ? true : loadGate?.ok,
-      });
+      let claimed: Task | null;
+      try {
+        claimed = deps.svc.claim({
+          taskId: t.id, cap: claimCap, maxAttempts: delegated ? 1 : settings.dispatchRetryCap,
+          scope: capScope, machineIdle: forced ? true : loadGate?.ok, noCheckExemption: claimNoCheckReservationGB > 0,
+          remote: remoteTask,
+        });
+      } catch (err) {
+        // A claim that throws (row deleted during this pass) releases what was taken for it.
+        if (memorySeatTaskId === t.id) memorySeatTaskId = null;
+        if (claimNoCheckReservationGB > 0) clearNoCheckReservation(t.id);
+        throw err;
+      }
       if (!claimed) {
+        if (memorySeatTaskId === t.id) memorySeatTaskId = null;
+        if (claimNoCheckReservationGB > 0) clearNoCheckReservation(t.id);
         // Il CAS ha detto di no. Due ragioni possibili, e solo una va raccontata:
         // il tetto pieno (che dura, e la card deve dirlo) oppure una corsa persa
         // con un altro claim nello stesso istante (che si risolve da sé al tick
         // dopo, e commentarla sarebbe rumore). Si distinguono ri-contando gli
         // agenti vivi: se sono già almeno quanti il tetto ne ammette, è il tetto.
+        if (remoteTask) continue;
         const vivi = aliveAgents();
         if (vivi == null || vivi >= claimCap) noteCapFull(t, vivi);
         continue;
@@ -5407,10 +5799,20 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
         } catch { /* il task può essersi mosso */ }
       }
       emit(claimed); // chip → starting
+      if (manualMemoryStartSelected) {
+        try {
+          deps.svc.addComment({
+            taskId: t.id, author: "system", kind: "service",
+            content: "Partita per scelta dell'utente.", once: true,
+          });
+        } catch { /* The start remains valid if its note cannot be written. */ }
+      }
       // A claim that went through IS a new dispatch, fan-out or single: the
-      // ramp counts cards, because one card is one reading of the machine.
+      // ramp counts cards, because one card is one reading of the machine. A
+      // remote start reads nothing here and leaves the ramp alone, but it still
+      // makes the next LOCAL card re-read the floor: the probe above awaits.
       startedThisTick++;
-      lastAdmissionAt = Date.now();
+      if (!remoteTask) lastAdmissionAt = Date.now();
       // Worktree dispatch with a live external session: the agent's files are
       // isolated, but the BRANCH it will land on is contended. Say so in the
       // thread so the reviewer knows before approving a merge.
@@ -5520,11 +5922,14 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
     //
     // Si spegne SOLO `queued`, e solo senza un turno in volo: `starting` e
     // `working` sono un processo vero, e li' lo stato lo chiude `onTurnEnd`.
-    if (inFlight.has(taskId)) return;
-    try {
-      if (deps.svc.get(taskId)?.task?.dispatchState !== CHIP_QUEUED) return;
-      emit(deps.svc.setDispatchState({ taskId, state: null }));
-    } catch { /* best-effort: la riga puo' essere gia' sparita */ }
+    if (!inFlight.has(taskId)) {
+      try {
+        if (deps.svc.get(taskId)?.task?.dispatchState === CHIP_QUEUED) {
+          emit(deps.svc.setDispatchState({ taskId, state: null }));
+        }
+      } catch { /* Best-effort: the row may already have disappeared. */ }
+    }
+    notifyMemoryQueue();
   }
 
   function deferWait(taskId: string, reason: string, minutes?: number): Task {
@@ -5554,6 +5959,10 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
   }
 
   function onBlockerDone(taskId: string): void {
+    if (!inFlight.has(taskId)) {
+      if (memorySeatTaskId === taskId) memorySeatTaskId = null;
+      clearNoCheckReservation(taskId);
+    }
     // The blocker completed: every todo that was waiting on it is now
     // claimable — give each one the normal enter-todo treatment (queued chip +
     // grace + tick). The periodic reconcile would catch them anyway; this makes
@@ -5594,6 +6003,9 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
     // the accounting below would book a transcript that does not exist and end
     // a turn that never started here.
     if (slot.node) { remote.buryRun(taskId, slot.node); return; }
+    if (memorySeatTaskId === taskId) memorySeatTaskId = null;
+    clearNoCheckReservation(taskId);
+    notifyMemoryQueue();
     const lt = liveTurns.get(taskId);
     endLiveTurn(taskId);
     // I token si scrivono SEMPRE, anche senza un turno vivo in mano: quel ramo
@@ -5699,6 +6111,7 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
   }
 
   async function reconcilePass(opts?: { reason?: "boot" | "poll" }): Promise<void> {
+    releaseInactiveNoCheckReservations();
     const reason = opts?.reason ?? "boot";
     // The notes below used to assume a restart: on the 10 s poll that is a
     // lie, and it was read as one (a restart that never happened).
@@ -5764,6 +6177,7 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
       // review/done card (chip null or needs_input) into In Progress is NOT an
       // orphan — leave it be.
       if (!RECOVERABLE_DISPATCH_STATES.has(t.dispatchState ?? "")) {
+        clearNoCheckReservation(t.id);
         // ...ma se e' stato IL SERVER a tagliarla (solo allora la card porta
         // `interrupted_at`, scritto dallo spegnimento), il salto va detto: qui
         // non passera' mai piu' nessun recupero, e finora era un `continue`
@@ -5935,6 +6349,9 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
               slot: !rejection && reason === "boot" && t.dispatchState === CHIP_QUEUED ? BOOT_QUEUED_NOTE : undefined,
             });
           } catch { /* dedupe/best-effort */ }
+          // A brokerless restart starts a new turn, so its old exemption slot
+          // must not remain attached to a dead run.
+          clearNoCheckReservation(t.id);
           // Sets inFlight synchronously → the 10s poll can never double-fire.
           if (rejection) void resume(t.id, rejection.text, { commentIds: rejection.commentIds });
           else void resume(t.id, "", { continuation: true });
@@ -6138,20 +6555,20 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
       clearSlotWait(task.id, false);
       const remoteCancellation = await remote.cancelTask(task.id);
       if (remoteCancellation === true) {
+        clearNoCheckReservation(task.id);
         recordDelegated(task.id, "cancelled", { outcome });
         return true;
       }
       if (remoteCancellation === false) return false;
       const slot = inFlight.get(task.id);
       if (slot) {
-        inFlight.delete(task.id);
-        endLiveTurn(task.id);
         if (slot.sessionKey && deps.abortTurn) {
           try { await deps.abortTurn(slot.sessionKey, "superseded"); } catch { /* release still closes authority */ }
         }
       } else if (task.assignedTopicId && deps.abortTurn) {
+        clearNoCheckReservation(task.id);
         try { await deps.abortTurn(`topic:${task.assignedTopicId.slice(0, 8)}`, "superseded"); } catch { /* release still closes authority */ }
-      }
+      } else clearNoCheckReservation(task.id);
       if (task.status === "todo") {
         try { emit(deps.svc.setDispatchState({ taskId: task.id, state: null, error: "delegated_capability_revoked" })); }
         catch { /* task may have moved */ }
@@ -6245,7 +6662,8 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
     taskForSession: taskWaitingOnSession,
     sessionsInFlight: () => [...inFlight.values()].map((slot) => slot.sessionKey).filter((sk): sk is string => typeof sk === "string" && !!sk),
     tick, onEnterTodo, onLeaveTodo, deferWait, onBlockerDone, resume, reconcile, markInterrupted,
-    revokeDelegatedCapability, shutdown, nightStatus, admissionPreview,
+    revokeDelegatedCapability, shutdown, nightStatus, admissionPreview, memoryQueueSnapshot,
+    startAnyway: manualMemoryStart.startAnyway,
     // The episode IN FLIGHT is added at read time, not on every tick: a
     // counter that only grows when an episode closes would read zero exactly
     // while the queue is stuck, which is the one moment anyone looks at it.

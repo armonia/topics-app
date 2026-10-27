@@ -1,5 +1,215 @@
 [
   {
+    "version": "2.3.38",
+    "date": "2026-10-27",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "il modello dichiarato in ogni passo dei workflow e dei sottoagenti (card f50e49ae) (#472)",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        }
+      ]
+    }
+  },
+  {
+    "version": "2.3.37",
+    "date": "2026-10-27",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Una card archiviata che torna a done tiene la sua data di chiusura (card 600feca6) (#491)",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
+    "version": "2.3.36",
+    "date": "2026-10-27",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Anche un land riavvia la produzione solo a zero turni (card a66a41b2) (#490)",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Kanban chiara su cosa aspetta e perché (card ddd5d334) (#496)",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Lingua italiana anche su Cloud Claude (card c798d16d) (#495)",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Le card vecchie restano dirette anche nel cassetto e nel router (card e9226ab7) (#470)",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
+    "version": "2.3.35",
+    "date": "2026-10-26",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Il prezzo di una card in memoria è quello della sua board (#482)",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Dopo un riavvio il nodo non rimanda più la consegna vecchia come nuova (#485)",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il PC accoppiato non scade più offline cinque minuti dopo l'accoppiamento (#486)",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "guard against empty --setting-sources in Claude spawns (card 803aca76) (#483)",
+          "en": "",
+          "scope": "args",
+          "breaking": false
+        }
+      ]
+    }
+  },
+  {
+    "version": "2.3.34",
+    "date": "2026-10-26",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [
+        {
+          "it": "porta cache TTL a 1h e keepalive a 4 min (#481)",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        }
+      ],
+      "internal": [
+        {
+          "it": "Chiudi i comandi di una card insieme alla card (#454)",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Coda per memoria della kanban: una card locale alla volta quando la memoria è poca (#465)",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Main di nuovo verde: avviso postcss-selector-parser e tetto di bloat del dispatcher (#476)",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Le card su Cloud Claude non aspettano più la memoria del Mac (#473)",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "i token dei nodi appaiati in nodes/ non entrano nel repo (#475)",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "il B7 della parità di ammissione misura dal t0 dell'harness (#477)",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "GET /__daemon/idle, «c'è un turno in volo?» di sola lettura (card fe19d3f9) (#469)",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "Card dei nodi: «review» senza ramo aspetta tre giri prima di consegnare vuoto (#478)",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Nodo remoto: il feedback della review arriva al nodo, il cloud consegna il ramo col suo suffisso (#480)",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Archiving a done card no longer reopens it (card 47b63de2) (#471)",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
+    "version": "2.3.33",
+    "date": "2026-10-26",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Evita falsi allarmi SHA nelle consegne multi-repo (#452)",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "i test che mancavano a #444 (#464)",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "topics/doleful-hood (card eba16167) (#446)",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "Sposta i check statici su GitHub CI (#459)",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Mobile e2e: no tab strip on the phone, only the pane name (card f0613e3b) (#458)",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Card su «Cloud Claude»: una card gira in una sessione cloud di Claude, non sul Mac (#466)",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
     "version": "2.3.32",
     "date": "2026-10-26",
     "sections": {

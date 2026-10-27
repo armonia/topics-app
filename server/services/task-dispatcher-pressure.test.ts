@@ -339,6 +339,8 @@ describe("the cap by resources: over the budget nothing starts, under it it does
   it("the preview carries the numbers the gate decided on, reservation included", async () => {
     const h = harness();
     boardOn(h);
+    // A local check keeps the board at the full price list this test pins.
+    h.svc.updateBoardSettings(PID, { reviewChecks: [{ name: "unit", cmd: "bun test" }] });
     h.svc.setGlobalCap({ mode: "resources", budgetShare: 0.5 });
     h.machine.pressure = { ...QUIET, ourCoreUnits: 1, running: 2 };
     seedTask(h.db, "rs1");
@@ -385,8 +387,9 @@ describe("the cap by resources: over the budget nothing starts, under it it does
       // Still holding: the reason is on the row and on the card, no tick needed.
       await h.dispatcher.resume("rh1", "continua");
       expect(h.topicsCreated).toHaveLength(0);
-      expect(h.task("rh1")!.dispatchError).toContain("4.1 GB disponibili");
-      expect(h.task("rh1")!.queueReason).toMatchObject({ kind: "resource_floor", tone: "stalled" });
+      expect(h.task("rh1")!.dispatchError).toBe("waiting-memory");
+      expect(h.task("rh1")!.queueReason).toMatchObject({ kind: "resource_floor", tone: "waiting" });
+      expect(h.task("rh1")!.queueReason!.key).toMatch(/^board\.queue\.memory\./);
       // The floor clears while the cap is full: the re-evaluation holds on the cap
       // alone, and the card has no machine reason left.
       floor.reason = null;

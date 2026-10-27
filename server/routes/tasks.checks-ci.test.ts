@@ -16,9 +16,9 @@ import { join } from "node:path";
 import { createTasksRouter } from "./tasks";
 import { freshDb, makeCtx, call } from "./tasks-test-support";
 import { ChecksInterruptedError, type ChecksGate } from "../services/checks-gate";
-import { ciNotMeasured } from "../services/ci-evidence";
+import { ciCheckRun, ciNotMeasured, GATES_JOB, GATES_STEPS, type GithubJob } from "../services/ci-evidence";
 import { _resetReviewChecksStop } from "../services/review-checks-brakes";
-import { E2E_CI_CHECK, UNIT_CI_CHECK, type CheckRun, type ReviewCheck } from "../../shared/board";
+import { E2E_CI_CHECK, GATES_CI_CHECK, UNIT_CI_CHECK, type CheckRun, type ReviewCheck } from "../../shared/board";
 
 type CiReader = (input: {
   cwd: string; sha: string; taskId: string; checks: ReviewCheck[];
@@ -211,6 +211,94 @@ describe("a delivery on a board that declares the CI e2e row", () => {
     expect(d.calls.checks).toEqual([[UNIT_CI_CHECK.cmd, E2E_CI_CHECK.cmd]]);
     expect((d.runs() as CheckRun[]).map((r) => r.cmd)).toEqual(["true", UNIT_CI_CHECK.cmd, E2E_CI_CHECK.cmd]);
     expect((await d.read()).status).toBe("review");
+  }, 30_000);
+
+  /** @covers KANBAN-84 */
+  test("a board with only CI rows runs no local commands, and green gates plus unit enter review", async () => {
+    const greenGates: CheckRun = { name: GATES_CI_CHECK.name, cmd: GATES_CI_CHECK.cmd, ok: true, code: 0, ms: 5, timedOut: false, tail: "gates green" };
+    const greenUnit: CheckRun = { name: UNIT_CI_CHECK.name, cmd: UNIT_CI_CHECK.cmd, ok: true, code: 0, ms: 5, timedOut: false, tail: "unit tests green" };
+    const d = await deliveryWith([UNIT_CI_CHECK.cmd, GATES_CI_CHECK.cmd], async () => [greenUnit, greenGates]);
+    const response = (await d.deliver())!;
+
+    expect(response.status).toBe(200);
+    expect(d.calls.checks).toEqual([[UNIT_CI_CHECK.cmd, GATES_CI_CHECK.cmd]]);
+    expect((d.runs() as CheckRun[]).map((row) => row.cmd)).toEqual([UNIT_CI_CHECK.cmd, GATES_CI_CHECK.cmd]);
+    expect((await d.read()).status).toBe("review");
+  }, 30_000);
+
+  /** @covers KANBAN-84 */
+  test("an in-progress gates verdict waits instead of refusing review", async () => {
+    let settle: (run: CheckRun) => void = () => {};
+    const greenGates: CheckRun = { name: GATES_CI_CHECK.name, cmd: GATES_CI_CHECK.cmd, ok: true, code: 0, ms: 5, timedOut: false, tail: "gates green" };
+    const d = await deliveryWith([GATES_CI_CHECK.cmd], () => new Promise<CheckRun>((resolve) => { settle = resolve; }));
+
+    const waiting = (await d.deliver(300))!;
+    expect(waiting.status).toBe(202);
+    expect((await waiting.json()).code).toBe("review_checks_running");
+    for (let i = 0; i < 200 && d.calls.ci === 0; i++) await Bun.sleep(10);
+    expect(d.calls.ci).toBe(1);
+    expect((await d.read()).status).toBe("in_progress");
+    expect((await d.read()).checksState).not.toBe("fail");
+
+    settle(greenGates);
+    let done = (await d.deliver())!;
+    for (let i = 0; i < 20 && done.status === 202; i++) done = (await d.deliver())!;
+    expect(done.status).toBe(200);
+    expect((await d.read()).status).toBe("review");
+  }, 30_000);
+
+  /** @covers KANBAN-84 */
+  test("each red gates step refuses review with an Italian reason that has no job id", async () => {
+    for (const [index, failedStep] of Object.values(GATES_STEPS).entries()) {
+      if (index > 0) { db = freshDb(); broadcasts = []; }
+      const gateJob: GithubJob = {
+        id: 4242,
+        name: GATES_JOB,
+        status: "completed",
+        conclusion: "failure",
+        steps: Object.values(GATES_STEPS).map((name) => ({
+          name,
+          status: "completed",
+          conclusion: name === failedStep ? "failure" : "success",
+        })),
+      };
+      const redGates = ciCheckRun(GATES_CI_CHECK, {
+        kind: "fail",
+        run: {
+          id: 55,
+          head_sha: "abc1234",
+          event: "pull_request",
+          path: ".github/workflows/ci.yml",
+          status: "completed",
+          conclusion: "failure",
+          html_url: "https://github.com/o/r/actions/runs/55",
+        },
+        jobs: [gateJob],
+        failed: [gateJob],
+      }, 5, { repo: "o/r" });
+      const d = await deliveryWith([GATES_CI_CHECK.cmd], async () => redGates);
+      const response = (await d.deliver())!;
+      const body = await response.json();
+
+      expect(response.status).toBe(409);
+      expect(body.error).toContain(`passo rosso sulla CI della PR: ${failedStep}`);
+      expect(body.error).not.toMatch(/--job\s+\d+/);
+      expect(body.error).not.toContain("4242");
+      expect((await d.read()).status).toBe("in_progress");
+      expect((await d.read()).checksState).toBe("fail");
+    }
+  }, 30_000);
+
+  /** @covers KANBAN-84 */
+  test("a missing gates verdict is NOT MEASURED and cannot enter review", async () => {
+    const d = await deliveryWith([GATES_CI_CHECK.cmd], async () => ciNotMeasured(GATES_CI_CHECK, "the CI run finished without the gates job"));
+    const response = (await d.deliver())!;
+    const body = await response.json();
+
+    expect(response.status).toBe(409);
+    expect(body.error).toContain("without the gates job");
+    expect((await d.read()).status).toBe("in_progress");
+    expect((await d.read()).checksState).toBe("unknown");
   }, 30_000);
 
   test("a red unit step from the CI is a fail that says unit, and a missing unit row is never a pass", async () => {

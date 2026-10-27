@@ -35,8 +35,9 @@ import { isAutoCapturedPreview, isDeliverySheetPath } from "../../shared/media-k
 import { NUDGE_CLAIM_MS, gateNudge } from "./nudge-gate";
 import { readChecksMemFloorGB, readGlobalCap, readSpendCaps } from "./dispatch-capacity";
 import { checksMemFloorGB } from "../../shared/checks-memory-floor";
-import { currentDispatchBlock, heldResumeBlock } from "./dispatch-block-signal";
-import { liveAgentCount } from "./agent-census";
+import { currentDispatchBlock, currentMemoryWait, heldResumeBlock } from "./dispatch-block-signal";
+import { readElsewhere } from "./task-elsewhere";
+import { liveAgentCount, RUNS_HERE_SQL } from "./agent-census";
 
 // The statuses and the thread's shape live in `shared/board.ts`, so the client
 // reads them from the same declaration instead of rewriting them. `export type
@@ -48,7 +49,7 @@ import {
   ARCHIVE_PARKED_LABEL, DEPLOY_ACTION_LABEL, DISPATCH_CHIP_QUEUED, HUMAN_AUTHOR, clampGlobalCap,
   MAX_FANOUT, PARKED_STOPPED, PARKED_WAITED_OUT, PREVIEW_CARD_MAX_RATIO, QUEUE_REASON_UNKNOWN,
   PARKED_REQUEUE_NOTE_LIKE, PROMOTE_PARKED_LABEL, REQUEUE_PARKED_LABEL, TAKE_OVER_PARKED_LABEL, TASK_STATUSES,
-  WAIT_SERIES_MAX_MS, WAIT_STREAK_CAP,
+  WAITING_MEMORY_REASON, WAIT_SERIES_MAX_MS, WAIT_STREAK_CAP,
   deriveQueueReason, deriveSubtaskWork, formatStatusEvent, hasPlanApproveOption, isAgentWorking,
   isUnattributedSubtask, noteParkedChildrenResolved, parseQuestionBlock, questionAsksHuman,
   readTaskWeight, statusEventEnters, waitReasonKey,
@@ -59,7 +60,7 @@ import { EFFORT_TIERS } from "../../shared/effort";
 // dichiarazione, letta anche dal client e dalla derivazione alla consegna.
 import { CLOSER_LABELS, KIND_LABELS, deriveCloser, deriveKind, isCloserLabel, isKindLabel, isTaskLabel, normalizeLabels, type LabelSource, type TaskFile, type TaskLabel, type TaskLabelRow } from "../../shared/task-labels";
 import { findNeighbours, type Neighbour } from "../../shared/task-similarity";
-import type { TaskStatus, TaskComment, CardComment, BoardSettings, BoardSettingsPatch, BlockerRef, QueueReason, SubtaskWork, TaskWeight, GlobalDispatchCap, GlobalCapPatch, TaskActionOrigin } from "../../shared/board";
+import type { TaskStatus, TaskComment, CardComment, BoardSettings, BoardSettingsPatch, BlockerRef, QueueContext, QueueReason, SubtaskWork, TaskWeight, GlobalDispatchCap, GlobalCapPatch, TaskActionOrigin } from "../../shared/board";
 import { budgetShare } from "../../shared/board";
 import { sliceCodePoints } from "../lib/code-points";
 import { allWideRows } from "../lib/wide-rows";
@@ -800,6 +801,15 @@ export interface TaskService {
      * niente gate, cioè il comportamento che c'era prima del peso.
      */
     machineIdle?: boolean;
+    /** Only a validated light no-local-check exemption may share with a heavy turn. */
+    noCheckExemption?: boolean;
+    /**
+     * The card runs on another machine (a paired node, Cloud Claude). The
+     * weight rules and the cap measure THIS machine, so a remote claim skips
+     * them: it is still the status CAS, with the same attempts, deferral and
+     * blocker guards.
+     */
+    remote?: boolean;
   }): Task | null;
   /**
    * C'è un task `heavy` con un agente vivo su questa macchina adesso?
@@ -1485,7 +1495,7 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
     !!db.query(
       `SELECT 1 AS h FROM tasks
         WHERE status = 'in_progress' AND dispatch_state IN ('starting','working')
-          AND archived = 0 AND dispatch_weight = 'heavy' LIMIT 1`,
+          AND archived = 0 AND dispatch_weight = 'heavy' AND ${RUNS_HERE_SQL} LIMIT 1`,
     ).get();
 
   // The model shown on a task must ALWAYS reflect what actually ran: task.model
@@ -1947,6 +1957,8 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
      * pays no read at all.
      */
     nodeNames: Map<string, string>;
+    /** Where an In-progress card with no agent here works (`task-elsewhere.ts`). */
+    elsewhere: Map<string, NonNullable<QueueContext["elsewhere"]>>;
     peopleNames: Map<string, string>;
     deviceNames: Map<string, string>;
     autoDispatch: boolean;
@@ -2295,6 +2307,8 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       previewImages: previewImagesFor(ids),
       queue: null,
       nodeNames: new Map(),
+      // Only the In-progress cards no agent is in: the `no_agent` branch.
+      elsewhere: readElsewhere(db, rows.filter((r) => r.status === "in_progress" && !isAgentWorking(r.dispatch_state))),
       peopleNames: new Map(),
       deviceNames: new Map(),
       autoDispatch: false,
@@ -2428,6 +2442,7 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
           blockedBy: r.blocked_by_task_id ? (b.blockers.get(r.blocked_by_task_id) ?? null) : null,
           assignedTo: r.assigned_to ?? null,
           machineId: r.machine_id ?? null,
+          updatedAt: r.updated_at ?? null,
         },
         {
           now: b.nowIso,
@@ -2475,7 +2490,14 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
           // believed only while the row carries the same sentence: the published
           // block is refreshed only by a tick that reaches it, and a board with
           // no todos or a paused one leaves it at a floor that has cleared.
-          dispatchBlock: inCoda ? currentDispatchBlock() : heldResume ? heldResumeBlock(r.id, r.dispatch_error) : null,
+          // Una card in attesa di memoria porta il codice, non la frase del
+          // pavimento (KANBAN-97): resta un blocco della macchina, o la card
+          // ricadrebbe sul ramo dello slot.
+          dispatchBlock: inCoda
+            ? (r.dispatch_error === WAITING_MEMORY_REASON ? { kind: "resources", reason: WAITING_MEMORY_REASON } : currentDispatchBlock())
+            : heldResume ? heldResumeBlock(r.id, r.dispatch_error) : null,
+          memoryWait: r.dispatch_error === WAITING_MEMORY_REASON ? currentMemoryWait() : null,
+          elsewhere: b.elsewhere.get(r.id) ?? null,
           parentStatus: r.parent_task_id ? (b.parentStatus.get(r.parent_task_id) ?? null) : null,
           projectless: r.project_id === UNASSIGNED_PROJECT_ID,
           openSubtasks: r.status === "review" ? (b.openChildren.get(r.id) ?? 0) : 0,
@@ -4013,9 +4035,29 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       }
       if (patch.reuseBlockerContext !== undefined) put("reuse_blocker_context", patch.reuseBlockerContext ? 1 : 0);
       if (patch.planFirst !== undefined) put("plan_first", patch.planFirst ? 1 : 0);
+      // AN ARCHIVED CARD THAT GOES BACK TO DONE KEEPS THE DAY IT WAS CLOSED.
+      //
+      // Archiving 2939 closed cards put 49 back in backlog (card 47b63de2):
+      // `release` writes status in raw SQL and left `completed_at` where it was.
+      // Putting them back with a PATCH stamped them closed today — 2026-07-14
+      // became 2026-10-26 on a22b3191, and every count of cards closed today
+      // with it. An archived card is not worked on: done there is a restore,
+      // not a new closing. The explicit date is the way back for a card whose
+      // date has already been overwritten.
+      if (patch.completedAt !== undefined) {
+        if (!row.archived) {
+          throw new TaskServiceError("invalid_input", "completedAt si scrive solo su una card archiviata: su una card viva la data di chiusura la mette il passaggio a done");
+        }
+        if ((patch.status ?? current) !== "done") {
+          throw new TaskServiceError("invalid_input", "completedAt vale solo per una card in done");
+        }
+      }
+      const closedAt = () =>
+        patch.completedAt ?? (row.archived && row.completed_at ? row.completed_at : now());
+      if (patch.status === undefined && patch.completedAt !== undefined) put("completed_at", patch.completedAt);
       if (patch.status !== undefined) {
         put("status", patch.status);
-        put("completed_at", patch.status === "done" ? now() : null);
+        put("completed_at", patch.status === "done" ? closedAt() : null);
         // Chi chiude, e chi riapre — i due fatti che la board deve poter dire da
         // sé (il thread non basta: chi guarda la colonna vede solo il buco).
         if (patch.status === "done") {
@@ -4915,7 +4957,7 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       return liveAgentCount(db, scope?.projectId ?? null);
     },
 
-    claim({ taskId, cap, maxAttempts, agentId, scope, machineIdle }): Task | null {
+    claim({ taskId, cap, maxAttempts, agentId, scope, machineIdle, noCheckExemption, remote }): Task | null {
       const row = getTaskRow(taskId);
       if (!row) throw new TaskServiceError("not_found", `task ${taskId} not found`);
       // PESO — due regole, entrambe dentro il claim perché è l'unico punto in cui
@@ -4932,8 +4974,9 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       //
       // Entrambe si applicano PRIMA del conteggio degli slot: un no del peso non
       // è «non c'è posto», è «non adesso», e il chiamante lo dice diversamente.
-      if (heavyInFlight()) return null;
-      if (readTaskWeight(row.dispatch_weight) === "heavy" && machineIdle === false) return null;
+      if (!remote && heavyInFlight() && !noCheckExemption) return null;
+      if (noCheckExemption && readTaskWeight(row.dispatch_weight) === "heavy") return null;
+      if (!remote && readTaskWeight(row.dispatch_weight) === "heavy" && machineIdle === false) return null;
       // Concurrency cap: count the AGENTI VIVI, not the card. Per-board by
       // default; scope 'global' counts across EVERY board so a machine-wide cap
       // holds no matter how many boards dispatch at once. The task itself is
@@ -4946,8 +4989,7 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       // vale N processi, e un tetto che non li vede lascia partire un altro
       // task su una macchina già piena. Il claim e la rotta di spawn leggono la
       // stessa funzione apposta: due query diverse sarebbero due tetti.
-      const running = liveAgentCount(db, scope === "global" ? null : row.project_id);
-      if (running >= cap) return null;
+      if (!remote && liveAgentCount(db, scope === "global" ? null : row.project_id) >= cap) return null;
       const ts = now();
       const res = db.prepare(
         `UPDATE tasks

@@ -26,6 +26,7 @@ import { isTaskLabel } from "../../shared/task-labels";
 import { stopCauseOf, STOP_CAUSE_HEADER, type StopCause } from "../lib/abort-cause";
 import { ScheduledCardsError, type ScheduledCardsService } from "../services/scheduled-cards";
 import { invalidateProbeCache } from "../services/url-probe-cache";
+import { decodeMemoryQueueRef } from "../services/dispatch-memory-reference";
 import type { TasksRouterOpts, emitReviewReadyEdge } from "./tasks";
 
 /**
@@ -134,6 +135,30 @@ export function createBoardRoutes(deps: BoardRouteDeps) {
     fail,
     checksRedGate,
   } = deps;
+
+  const requestCardProcessStop = (cardId: string): void => {
+    try {
+      void Promise.resolve(opts?.stopCardProcesses?.(cardId)).catch((error) => {
+        console.warn(`[processes] stop after card closure failed for ${cardId}:`, error);
+      });
+    } catch (error) {
+      console.warn(`[processes] stop after card closure failed for ${cardId}:`, error);
+    }
+  };
+
+  const cardTreeIds = (rootId: string): string[] => {
+    const ids: string[] = [];
+    const pending = [rootId];
+    const seen = new Set<string>();
+    while (pending.length) {
+      const taskId = pending.pop()!;
+      if (seen.has(taskId)) continue;
+      seen.add(taskId);
+      ids.push(taskId);
+      for (const child of svc.get(taskId)?.children ?? []) pending.push(child.id);
+    }
+    return ids;
+  };
 
   return async function boardRoutes(req: Request, pathname: string, method: string): Promise<Response | null> {
     // A recurrence body as sent: wrong types become empty values and the service refuses them.
@@ -539,6 +564,48 @@ export function createBoardRoutes(deps: BoardRouteDeps) {
       } catch (e) { return fail(e); }
     }
 
+    // POST /api/boards/:projectId/tasks/:taskId/start-anyway — ask the
+    // dispatcher to admit only this memory-held card, preserving its normal
+    // claim and every gate other than the memory threshold.
+    const bStartAnyway = matchRoute(pathname, "/api/boards/:projectId/tasks/:taskId/start-anyway");
+    if (bStartAnyway && method === "POST") {
+      const projectId = decodeMemoryQueueRef(bStartAnyway.projectId);
+      const taskId = decodeMemoryQueueRef(bStartAnyway.taskId);
+      if (!projectId || !taskId) return json({ error: "invalid task reference", code: "invalid_reference" }, 400);
+      const task = svc.get(taskId, { projectId })?.task;
+      if (!task) return json({ error: "task not found", code: "not_found" }, 404);
+      const startDispatcher = dispatcher as (TaskDispatcher & {
+        startAnyway?: (projectId: string, taskId: string) => Promise<{ ok: boolean; code?: string }>;
+      }) | undefined;
+      if (!startDispatcher?.startAnyway) {
+        return json({ error: "dispatcher unavailable", code: "dispatcher_unavailable" }, 503);
+      }
+      try {
+        const result = await startDispatcher.startAnyway(projectId, taskId);
+        if (!result.ok) {
+          const code = result.code ?? "start_rejected";
+          return json(
+            { error: "task cannot be started", code },
+            code === "not_found" || code === "task_not_found" ? 404 : 409,
+          );
+        }
+        // `once` makes concurrent retries leave one trace on the card even
+        // when the dispatcher correctly treats both requests as accepted.
+        svc.addComment({
+          taskId: task.id,
+          projectId,
+          author: "system",
+          kind: "service",
+          content: "Partita per scelta dell'utente.",
+          once: true,
+          origin: actionOrigin,
+        });
+        const updated = svc.get(task.id, { projectId })?.task ?? task;
+        broadcastToAll({ type: "task:updated", projectId, task: updated });
+        return json({ task: updated }, 202);
+      } catch (e) { return fail(e); }
+    }
+
     // POST /api/boards/:projectId/tasks/:taskId/stop — the human pulls the
     // plug on a running dispatch ("ho sbagliato qualcosa"). Order matters:
     // park FIRST (backlog + reason), THEN cut the turn — so when the aborted
@@ -604,6 +671,7 @@ export function createBoardRoutes(deps: BoardRouteDeps) {
           projectId: bMerge.projectId,
           by: HUMAN,
         });
+        requestCardProcessStop(bMerge.taskId);
         // The merged card is archived exactly like a DELETE, so its tabs go the
         // same way: without this they stayed alive until the next boot sweep.
         // Its subtasks have already moved under the survivor, so the subtree
@@ -713,7 +781,12 @@ export function createBoardRoutes(deps: BoardRouteDeps) {
         // route instead of this one.
         {
           const intercepted = interceptBoardAction(
-            { svc, dispatcher, broadcast: broadcastToAll, enqueueLand, checksRedGate, json, by: HUMAN, teardownTaskBrowserState: opts?.teardownTaskBrowserState },
+            {
+              svc, dispatcher, broadcast: broadcastToAll, enqueueLand,
+              checksRedGate, json, by: HUMAN,
+              teardownTaskBrowserState: opts?.teardownTaskBrowserState,
+              stopCardProcesses: opts?.stopCardProcesses,
+            },
             { projectId: bReview.projectId, taskId: bReview.taskId },
             comment,
             { force: body?.force },
@@ -734,10 +807,12 @@ export function createBoardRoutes(deps: BoardRouteDeps) {
             }).id;
           } catch { rejectCommentId = null; }
         }
+        const prevStatus = svc.get(bReview.taskId, { projectId: bReview.projectId })?.task.status;
         const task = svc.reviewDecision({
           taskId: bReview.taskId, by: HUMAN, decision, comment,
           projectId: bReview.projectId, origin: actionOrigin,
         });
+        if (prevStatus !== "done" && task.status === "done") requestCardProcessStop(bReview.taskId);
         broadcastToAll({ type: "task:updated", projectId: bReview.projectId, task });
         // Reject re-kicks the SAME agent tab with the human's feedback (a
         // "Serve te" answer routes through here too), so the conversation
@@ -1075,7 +1150,12 @@ export function createBoardRoutes(deps: BoardRouteDeps) {
         {
           const root = dispatcher ? svc.boundRootOf(bComments.taskId) : null;
           const intercepted = interceptBoardAction(
-            { svc, dispatcher, broadcast: broadcastToAll, enqueueLand, checksRedGate, json, by: HUMAN, teardownTaskBrowserState: opts?.teardownTaskBrowserState },
+            {
+              svc, dispatcher, broadcast: broadcastToAll, enqueueLand,
+              checksRedGate, json, by: HUMAN,
+              teardownTaskBrowserState: opts?.teardownTaskBrowserState,
+              stopCardProcesses: opts?.stopCardProcesses,
+            },
             { projectId: bComments.projectId, taskId: root?.id ?? bComments.taskId },
             typeof body?.content === "string" ? body.content : "",
             { force: body?.force },
@@ -1197,6 +1277,7 @@ export function createBoardRoutes(deps: BoardRouteDeps) {
             taskId, actor: "human", by: HUMAN, projectId, origin: actionOrigin,
             patch: parsed.patch,
           });
+          if (prevStatus !== "done" && task.status === "done") requestCardProcessStop(taskId);
           task = await captureDelivery(task, prevStatus);
           broadcastToAll({ type: "task:updated", projectId, task });
           emitReviewReadyEdge(broadcastToAll, projectId, task, prevStatus, undefined,
@@ -1224,7 +1305,10 @@ export function createBoardRoutes(deps: BoardRouteDeps) {
           // writes that on the card and hands it back to the agent, which
           // beats a mute closure. Fire-and-forget: the PATCH does not wait on
           // git, or dragging a card would block the interface.
-          if (prevStatus !== "done" && task.status === "done" && task.deliveryBranch) {
+          // An ARCHIVED card going back to done is a restore (card 600feca6):
+          // archiving already closed its branch as "will not land".
+          const archived = (ctx.db.query("SELECT archived FROM tasks WHERE id = ?").get(taskId) as { archived?: number } | null)?.archived === 1;
+          if (prevStatus !== "done" && task.status === "done" && task.deliveryBranch && !archived) {
             enqueueLandOnDone(projectId, taskId, task.deliveryBranch);
           }
           return json(task);
@@ -1237,14 +1321,24 @@ export function createBoardRoutes(deps: BoardRouteDeps) {
           // nessuno (vedi `detachLiveAgent`). Prima di archiviare, quindi.
           const got = svc.get(taskId, { projectId });
           if (got) {
-            // The server sends this DELETE itself for a delegation another
-            // machine revoked, and says so: that stop is not a person's (C9).
-            detachLiveAgent(got.task, NOTE_ARCHIVED_BY_HUMAN, stopCauseOf(req, req.headers.get(STOP_CAUSE_HEADER)));
+            const cause = stopCauseOf(req, req.headers.get(STOP_CAUSE_HEADER));
+            if (got.task.status === "done") {
+              // A done card is never parked: `release` would reopen it in
+              // backlog with a false comment (card 47b63de2). A stream still
+              // open on it is cut all the same, so no agent works for nobody.
+              cutLiveTurn(got.task, NOTE_ARCHIVED_BY_HUMAN, cause);
+            } else {
+              // The server sends this DELETE itself for a delegation another
+              // machine revoked, and says so: that stop is not a person's (C9).
+              detachLiveAgent(got.task, NOTE_ARCHIVED_BY_HUMAN, cause);
+            }
           }
           // Read BEFORE the archive: the sweep needs the delivery branch, and
           // it runs after, when the card is already off the board.
           const deliveryBranch = got?.task.deliveryBranch ?? null;
+          const archivedTaskIds = cardTreeIds(taskId);
           const task = svc.archive({ taskId, projectId });
+          for (const archivedTaskId of archivedTaskIds) requestCardProcessStop(archivedTaskId);
           void opts?.teardownPreview?.(taskId).catch(() => {}); // reap preview on close
           // A card that leaves the board leaves its draft pull requests and its
           // origin branches too: nothing will ever land them, and nobody will

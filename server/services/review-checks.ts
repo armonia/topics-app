@@ -22,7 +22,7 @@
 // Le FORME (comando dichiarato, esito) stanno in `shared/board.ts`: le legge
 // anche il client per renderizzare il gate. Qui resta l'esecuzione.
 export type { ReviewCheck, CheckRun } from "../../shared/board";
-import { MAX_CHECKS, NOT_MEASURED_EXIT, UNIT_CI_CHECK, isCiEvidenceCheck, type ReviewCheck, type CheckRun } from "../../shared/board";
+import { GATES_CI_CHECK, MAX_CHECKS, NOT_MEASURED_EXIT, UNIT_CI_CHECK, isCiEvidenceCheck, type ReviewCheck, type CheckRun } from "../../shared/board";
 import { hasSlotWaiting, parseSlotAcquired } from "../../shared/slot-acquired";
 import { registerFreezableRun, type FreezableRun } from "./budget-governor";
 import { killCheckTree, memoryWaiter, throwIfInterrupted, throwIfStopping, type MemoryFloor } from "./review-checks-brakes";
@@ -34,6 +34,7 @@ import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { recordCardMemPeak, treeFootprintKB } from "../lib/card-memory-peaks";
 import { lowPriorityArgv } from "../lib/low-priority";
+import { GATES_STEPS } from "./ci-evidence";
 
 /**
  * Quanti check al massimo: oltre, la "verifica" diventa una pipeline CI travestita.
@@ -808,6 +809,12 @@ function ciRedWhy(row: CheckRun): string {
   // run itself, elsewhere (KANBAN-86). Saying "e2e rossi" here would send whoever
   // reads it looking at four green shards.
   if (row.ciRunRed) return `la CI della PR è rossa fuori da questa riga (${row.ciRunRed})`;
+  if (row.cmd.trim() === GATES_CI_CHECK.cmd) {
+    const failedSteps = Object.values(GATES_STEPS).filter((name) => row.tail.includes(`${name} failure`));
+    return failedSteps.length
+      ? `passo rosso sulla CI della PR: ${failedSteps.join(", ")}`
+      : "il job gates è rosso sulla CI della PR";
+  }
   return row.cmd.trim() === UNIT_CI_CHECK.cmd ? "test unit rossi sulla CI della PR" : "e2e rossi sulla CI della PR";
 }
 

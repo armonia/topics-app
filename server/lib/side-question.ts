@@ -8,6 +8,7 @@ export interface SideQuestionCleanupDeps {
   getTopic: (id: string) => Topic | null;
   isStreaming: (sessionKey: string) => unknown;
   resolveProvider: (topic: Topic) => AIProvider;
+  stopProcesses?: (topicId: string) => void;
   now?: () => number;
 }
 
@@ -29,6 +30,7 @@ export async function deleteSideQuestion(
   const provider = deps.resolveProvider(topic) as AIProvider & { discardEphemeralSession?: (key: string) => Promise<void> };
   if (!provider.discardEphemeralSession) throw new Error("Claude provider cannot discard ephemeral sessions");
   await provider.discardEphemeralSession(topic.sessionKey);
+  deps.stopProcesses?.(topic.id);
 
   const tables = deps.db.query("SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%'").all() as Array<{ name: string }>;
   const transaction = deps.db.transaction(() => {

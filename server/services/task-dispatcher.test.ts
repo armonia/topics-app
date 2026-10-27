@@ -3652,6 +3652,26 @@ describe("cancello: non si ridispaccia lavoro già su main", () => {
     h.dispatcher.shutdown();
   });
 
+  /** @covers CARDPROCESS-01 */
+  it("la chiusura automatica su main ferma i processi della card", async () => {
+    const stopped: string[] = [];
+    const h = harness({
+      deliveryLanded: async () => true,
+      stopCardProcesses: (taskId) => { stopped.push(taskId); },
+    });
+    h.svc.updateBoardSettings(PID, { autoDispatch: true });
+    h.svc.setGlobalCap({ auto: false, max: 2 });
+    seedTask(h.db, { id: "t1", status: "todo", deliveryCommit: "c2d20879".repeat(5) });
+
+    await h.dispatcher.tick(PID);
+    await flush();
+
+    expect(h.task("t1")!.status).toBe("done");
+    expect(stopped).toEqual(["t1"]);
+    expect(h.turns).toHaveLength(0);
+    h.dispatcher.shutdown();
+  });
+
   it("stessa card, commit NON su main: parte come sempre", async () => {
     // La controprova. Senza, «non parte» potrebbe essere vero per un'altra
     // ragione (la sonda mai chiamata, il claim rotto) e il test sopra passerebbe
@@ -4674,10 +4694,12 @@ describe("il pavimento delle risorse si spiega", () => {
    * for the card mapper to read.
    */
   it("scrive il motivo nel thread, una volta per episodio, e lo pubblica per la card", async () => {
+    // Il disco: per la memoria la card porta il codice `waiting-memory` e
+    // nessuna riga nel thread (KANBAN-97, test sotto).
     let bloccato = true;
     let gb = 8.7;
     const h = harness({
-      resourceBlock: () => asFloor(bloccato ? `Memoria quasi finita: ${(gb -= 0.1).toFixed(1)} GB disponibili, sotto il pavimento di 12 GB.` : null),
+      resourceBlock: () => asFloor(bloccato ? `Disco quasi pieno: ${(gb -= 0.1).toFixed(1)} GB liberi, sotto il pavimento di 12 GB.` : null),
     });
     accendiDispatch(h.db);
     seedTask(h.db, { id: "t1", status: "todo" });
@@ -4686,7 +4708,7 @@ describe("il pavimento delle risorse si spiega", () => {
     await h.dispatcher.tick(PID);
     await h.dispatcher.tick(PID);
 
-    const note = (h.svc.get("t1")?.comments ?? []).filter((c) => c.content.includes("Memoria quasi finita"));
+    const note = (h.svc.get("t1")?.comments ?? []).filter((c) => c.content.includes("Disco quasi pieno"));
     expect(note).toHaveLength(1);
     // Non è una parola dell'agente: è contabilità, e come tale non deve
     // spostare il gate di review né coprire una domanda aperta.
@@ -4694,7 +4716,7 @@ describe("il pavimento delle risorse si spiega", () => {
     // E il blocco è leggibile da chi disegna la card: senza, la ragione
     // ricadrebbe sul ramo della fila con la frase dello slot.
     expect(currentDispatchBlock()).toMatchObject({ kind: "resources" });
-    expect(currentDispatchBlock()!.reason).toContain("GB disponibili");
+    expect(currentDispatchBlock()!.reason).toContain("GB liberi");
 
     // Rientrato il blocco, la card riparte e il segnale si spegne: un segnale
     // che sopravvive al fatto che descrive è peggio di nessun segnale.
@@ -4708,9 +4730,27 @@ describe("il pavimento delle risorse si spiega", () => {
     seedTask(h.db, { id: "t2", status: "todo" });
     await h.dispatcher.tick(PID);
     expect(currentDispatchBlock()).toMatchObject({ kind: "resources" });
-    expect((h.svc.get("t2")?.comments ?? []).filter((c) => c.content.includes("Memoria quasi finita"))).toHaveLength(1);
+    expect((h.svc.get("t2")?.comments ?? []).filter((c) => c.content.includes("Disco quasi pieno"))).toHaveLength(1);
     // E la prima card non si è riempita di doppioni per strada.
-    expect((h.svc.get("t1")?.comments ?? []).filter((c) => c.content.includes("Memoria quasi finita"))).toHaveLength(1);
+    expect((h.svc.get("t1")?.comments ?? []).filter((c) => c.content.includes("Disco quasi pieno"))).toHaveLength(1);
+  });
+
+  it("a memory hold puts the code on the card and no line in the thread (KANBAN-97)", async () => {
+    let gb = 8.7;
+    const h = harness({
+      resourceBlock: () => asFloor(`Memoria quasi finita: ${(gb -= 0.1).toFixed(1)} GB disponibili, sotto il pavimento di 12 GB.`),
+    });
+    accendiDispatch(h.db);
+    seedTask(h.db, { id: "t1", status: "todo" });
+
+    await h.dispatcher.tick(PID);
+    await h.dispatcher.tick(PID);
+
+    const t1 = h.svc.get("t1")!;
+    expect(t1.task.dispatchState).toBe("queued");
+    expect(t1.task.dispatchError).toBe("waiting-memory");
+    expect(t1.comments.filter((c) => c.content.includes("Memoria"))).toHaveLength(0);
+    expect(h.topicsCreated).toHaveLength(0);
   });
 
   it("dice anche quando riparte, o l'ultima riga resterebbe un allarme per sempre", async () => {
