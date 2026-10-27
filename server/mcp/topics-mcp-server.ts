@@ -410,7 +410,7 @@ const TOOLS = [
   {
     name: "wait_for_condition",
     description:
-      "Declare that YOUR task must WAIT for an external condition (a service to come back, machine load to drop, a time window) instead of holding your dispatch slot with a poller. The task goes back to the queue (todo) with your reason as a note and a 'waiting' chip, your slot is freed for other tasks, and the system re-dispatches this task automatically after `minutes`. Use this INSTEAD of sleeping/polling; do NOT move a waiting task to 'review' — it produced nothing yet.",
+      "Declare that YOUR task must WAIT for an external condition (a service to come back, machine load to drop, a time window) instead of holding your dispatch slot with a poller. The task goes back to the queue (todo) with your reason as a note and a 'waiting' chip, your slot is freed for other tasks, and the system re-dispatches this task automatically after `minutes`. Use this INSTEAD of sleeping/polling; do NOT move a waiting task to 'review' — it produced nothing yet. Declare a wait ONCE per condition, with a window long enough for it to arrive: a second wait for the same condition parks the task in the backlog for a human to decide.",
     inputSchema: {
       type: "object",
       properties: {
@@ -2306,7 +2306,7 @@ export async function callWaitForCondition(
   // rifiuto crede di dover solo aspettare: chiude il turno convinto che il task
   // riparta da solo, e quello resta fermo in backlog senza che nessuno lo sappia.
   if (res?.dispatchState === PARKED_WAITED_OUT) {
-    return `task ${toolArgs.task_id} has waited on this same condition too many times, so it is now PARKED in the backlog for a human to decide. It will NOT be re-dispatched automatically. Your turn is done: do not move it to review, and do not call wait_for_condition again.`;
+    return `task ${toolArgs.task_id} has already waited on this same condition, so it is now PARKED in the backlog for a human to decide. It will NOT be re-dispatched automatically. Your turn is done: do not move it to review, and do not call wait_for_condition again.`;
   }
   const until = res?.dispatchDeferredUntil ? ` until ${res.dispatchDeferredUntil}` : "";
   return `task ${toolArgs.task_id} released to the queue, waiting${until}. It will be re-dispatched automatically. Your turn is done — do not move it to review.`;
