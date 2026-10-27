@@ -361,8 +361,8 @@ test.describe("il menu utente apre i livelli di lato", () => {
       "account-identity", "topics-menu-plan", "profile-menu-friends", "profile-menu-devices",
       "topics-menu-appearance",
     ]);
-    // The plan says itself without opening anything.
-    await expect(menu.getByTestId("topics-menu-plan-tail")).toHaveText("Gratuito", { timeout: 10_000 });
+    // The plan says itself without opening anything: the label names it.
+    await expect(menu.getByTestId("topics-menu-plan")).toHaveText("Piano Gratuito", { timeout: 10_000 });
   });
 
   test("il pulsante mostra quanti agenti stanno lavorando, ed è il numero della lista", async ({ page, request }) => {
