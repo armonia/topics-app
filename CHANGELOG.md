@@ -2,6 +2,11 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.3.37 — 2026-10-27
+
+### Sotto il cofano
+- Una card archiviata che torna a done tiene la sua data di chiusura (card 600feca6) (#491)
+
 ## 2.3.36 — 2026-10-27
 
 ### Sotto il cofano
