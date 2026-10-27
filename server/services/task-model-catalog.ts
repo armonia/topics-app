@@ -39,8 +39,13 @@ export function taskModelIsCurrent(value: unknown, snapshot: ProvidersSnapshot |
   }
   const generations = claudeModelGenerations(catalogs.flatMap(({ models }) => models));
 
+  // A bare runtime (`codex`, `muse:auto`) names no model, so nothing can be stale.
+  if (!selection.model) return true;
+  // A retired Claude id stays retired under any runtime prefix: an empty catalog
+  // for that prefix (`codex:claude-opus-4-8`) must not let it through.
+  if (generations[selection.model]?.generation === "older") return false;
+
   const eligible = catalogs.filter(({ name }) => !selection.provider || name === selection.provider);
-  if (!selection.model) return eligible.length > 0;
 
   const listed = eligible.filter(({ models }) => models.length > 0);
   if (listed.length === 0) return true;

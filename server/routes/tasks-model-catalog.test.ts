@@ -123,3 +123,11 @@ test("only a catalog that lists models can call a model stale", () => {
   // Claude catalogs list models in every setup: a retired Opus stays refused on its runtime.
   expect(taskModelIsCurrent("claude-code:claude-sonnet-4-6", emptyCodex)).toBe(false);
 });
+
+test("a runtime prefix neither launders a retired Claude id nor blocks a bare runtime", () => {
+  // No Codex entry on this machine: the prefix has no catalog of its own.
+  expect(taskModelIsCurrent("codex:claude-sonnet-4-6", snapshot)).toBe(false);
+  expect(taskModelIsCurrent("muse:claude-sonnet-4-6", snapshot)).toBe(false);
+  expect(taskModelIsCurrent("codex", snapshot)).toBe(true);
+  expect(taskModelIsCurrent("muse:auto", snapshot)).toBe(true);
+});
