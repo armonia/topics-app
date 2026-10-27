@@ -52,6 +52,7 @@ import { UpdatedAgo } from './UpdatedAgo';
 import { StatusIcon, DispatchChip, QueueReasonChip, TaskIdChip, LabelChip } from './atoms';
 import { LiveEffortChip, LiveToolLine, RETRY_NOW_MESSAGE, RetryWaitChip } from './CardLive';
 import { SessionPeek } from './SessionPeek';
+import { createSessionPeekIntent } from './sessionPeekIntent';
 import { SwapIce } from '../Shared/SwapIce';
 import { SwapFreezeLabel } from '../Shared/SwapFreezeLabel';
 import { useSwapFreeze } from '../../state/swapFreeze';
@@ -514,7 +515,7 @@ const CardBody = memo(function CardBody({ task, onOpen, showProject, error, onEr
   // crowds the card header). Cursor-positioned, portaled, viewport-clamped.
   const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number; includePeek?: boolean } | null>(null);
   const [sessionPeekOpen, setSessionPeekOpen] = useState(false);
-  const sessionPeekTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [peekIntent] = useState(() => createSessionPeekIntent(() => setSessionPeekOpen(true)));
   const cardElementRef = useRef<HTMLDivElement | null>(null);
   const touchMenuPeekRef = useRef(false);
   // Il menu della tessera si apriva SOLO col tasto destro: sulla board da
@@ -531,22 +532,13 @@ const CardBody = memo(function CardBody({ task, onOpen, showProject, error, onEr
       openContextMenuAt(target);
     } else openCardMenuAt(target);
   }, { enabled: isTouch });
-  const scheduleSessionPeek = useCallback(() => {
-    if (!task.assignedTopicId) return;
-    if (sessionPeekTimer.current) clearTimeout(sessionPeekTimer.current);
-    sessionPeekTimer.current = setTimeout(() => {
-      sessionPeekTimer.current = null;
-      setSessionPeekOpen(true);
-    }, 400);
-  }, [task.assignedTopicId]);
   const closeSessionPeek = useCallback(() => {
-    if (sessionPeekTimer.current) clearTimeout(sessionPeekTimer.current);
-    sessionPeekTimer.current = null;
+    peekIntent.cancel();
     setSessionPeekOpen(false);
-  }, []);
-  useEffect(() => () => {
-    if (sessionPeekTimer.current) clearTimeout(sessionPeekTimer.current);
-  }, []);
+  }, [peekIntent]);
+  // The session can reach the card while the pointer already rests on it (`sessionPeekIntent.ts`).
+  useEffect(() => { peekIntent.sessionChanged(!!task.assignedTopicId); }, [peekIntent, task.assignedTopicId]);
+  useEffect(() => () => peekIntent.leave(), [peekIntent]);
   // Stable, so dnd-kit does not see the node unregistered and registered again on every render.
   const setCardRef = useCallback((node: HTMLDivElement | null) => { cardElementRef.current = node; setNodeRef(node); }, [setNodeRef]);
   /**
@@ -1037,8 +1029,8 @@ const CardBody = memo(function CardBody({ task, onOpen, showProject, error, onEr
         onOpen(task.id);
       }}
       ref={setCardRef}
-      onMouseEnter={scheduleSessionPeek}
-      onMouseLeave={closeSessionPeek}
+      onMouseEnter={() => peekIntent.enter(!!task.assignedTopicId)}
+      onMouseLeave={() => { peekIntent.leave(); setSessionPeekOpen(false); }}
       // Keyboard focus only: a mouse press focuses too, and the click that follows opens the session.
       onFocusCapture={(event) => { if (task.assignedTopicId && (event.target as HTMLElement).matches(':focus-visible')) setSessionPeekOpen(true); }}
       onBlurCapture={(event) => {
