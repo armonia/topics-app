@@ -554,7 +554,7 @@ test.describe("TOPIC-BROWSER-01 la finestra browser della topic", () => {
     }
   });
 
-  test("TOPIC-BROWSER-01v: minimizzata si ridimensiona dall'angolo, dal vivo, e la misura sopravvive a una ricarica", async ({ page, request }) => {
+  test("TOPIC-BROWSER-01y: minimizzata si ridimensiona dall'angolo, dal vivo, e la misura sopravvive a una ricarica", async ({ page, request }) => {
     const topic = await createTopic(request, `E2E-TBW-Resize-${Date.now()}`);
     try {
       await seedWindow(request, topic.id, {
@@ -598,7 +598,7 @@ test.describe("TOPIC-BROWSER-01 la finestra browser della topic", () => {
     }
   });
 
-  test("TOPIC-BROWSER-01w: espansa, trascinando il bordo la chat cede lo spazio dal vivo", async ({ page, request }) => {
+  test("TOPIC-BROWSER-01z: espansa, trascinando il bordo la chat cede lo spazio dal vivo", async ({ page, request }) => {
     const topic = await createTopic(request, `E2E-TBW-ExpResize-${Date.now()}`);
     try {
       await seedWindow(request, topic.id, {

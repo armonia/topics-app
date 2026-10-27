@@ -15,7 +15,7 @@ test.afterAll(async ({ request }) => {
 /**
  * Dragging the border of the topic's browser window, the PAGE follows the hand.
  *
- * `topic-browser-window` (01v/01w) proves that the window and the chat follow
+ * `topic-browser-window` (01y/01z) proves that the window and the chat follow
  * the pointer, and nothing about the page inside: the pane measured itself
  * with a ResizeObserver and sent the size after a 150 ms debounce, so as long
  * as the hand kept moving the remote page kept its old width and reflowed
@@ -62,7 +62,7 @@ test.describe("TOPIC-BROWSER-01 la pagina della finestra segue il trascinamento"
     await resetPaneStore(request, []);
   });
 
-  test("TOPIC-BROWSER-01x: espansa, la pagina remota cambia larghezza durante il trascinamento, non solo al rilascio", async ({ page, request }) => {
+  test("TOPIC-BROWSER-01k: espansa, la pagina remota cambia larghezza durante il trascinamento, non solo al rilascio", async ({ page, request }) => {
     // The server launches a headless Chromium for the page: see the file docstring.
     test.setTimeout(180_000);
     const contextId = `tbw-live-remote-${Date.now()}`;

@@ -47,9 +47,11 @@ import { useT } from '../../hooks/useT';
 import { RemoteBrowserPanel } from './RemoteBrowserPanel';
 import { useSurfaceFocus } from './useSurfaceFocus';
 import { useAreaRect, type AreaRef, type Rect } from './useAreaRect';
+import { FLOATING_HANDLES, handleBox } from './topicBrowserResizeHandles';
+import { useComposerBand } from './useComposerBand';
+import { raiseNativeView, requestReflow } from './topicBrowserNativeView';
 import {
   EMPTY_TOPIC_BROWSER_WINDOW,
-  type ComposerBand,
   EXPANDED_WIDTH_BOUNDS,
   MIN_WINDOW_SIZE_BOUNDS,
   floatingSizeOf,
@@ -76,7 +78,6 @@ import {
 } from '../../state/pane/adapters/paneConfig';
 import { OPEN_TAB_EVENT, type OpenTabDetail } from '../../lib/openLink';
 import { toFixed } from '../../lib/fixedFrame';
-import { tauriInvoke } from '../../lib/shell/tauri';
 import { suppressTextSelection } from '../../lib/dragSelectionGuard';
 import {
   createAnimationFrameCoalescer,
@@ -99,48 +100,10 @@ const PROMOTION_GRACE_MS = 5000;
 const BAR_ONLY_HEIGHT = 36;
 /** A pointer that travelled less than this was a click, not a drag. */
 const DRAG_THRESHOLD_PX = 3;
-/** The resize handles: how far they reach OUT of the window, over the DOM
- *  around it, and how far IN (only grabbable where no native page covers it). */
-const HANDLE_OUT_PX = 6;
-const HANDLE_IN_PX = 2;
-/** Side of a corner handle, the one that drags two edges at once. */
-const HANDLE_CORNER_PX = 14;
-
 const frameScheduler = {
   request: (callback: () => void) => window.requestAnimationFrame(callback),
   cancel: (frameId: number) => window.cancelAnimationFrame(frameId),
 };
-
-/** The handles of a floating window: four edges and four corners. */
-const FLOATING_HANDLES: { key: string; edges: TopicBrowserResizeEdges; cursor: string }[] = [
-  { key: 'left', edges: { left: true }, cursor: 'ew-resize' },
-  { key: 'right', edges: { right: true }, cursor: 'ew-resize' },
-  { key: 'top', edges: { top: true }, cursor: 'ns-resize' },
-  { key: 'bottom', edges: { bottom: true }, cursor: 'ns-resize' },
-  { key: 'top-left', edges: { top: true, left: true }, cursor: 'nwse-resize' },
-  { key: 'bottom-right', edges: { bottom: true, right: true }, cursor: 'nwse-resize' },
-  { key: 'top-right', edges: { top: true, right: true }, cursor: 'nesw-resize' },
-  { key: 'bottom-left', edges: { bottom: true, left: true }, cursor: 'nesw-resize' },
-];
-
-/** Where a handle sits, in viewport px, around the window's box. An edge spans
- *  the whole side; the corners are drawn after the edges, so they win where the
- *  two overlap. */
-function handleBox(box: Rect, edges: TopicBrowserResizeEdges): Rect {
-  const corner = (edges.left || edges.right) && (edges.top || edges.bottom);
-  const size = corner ? HANDLE_CORNER_PX : HANDLE_OUT_PX + HANDLE_IN_PX;
-  const horizontal = edges.left
-    ? { left: box.left - HANDLE_OUT_PX, width: size }
-    : edges.right
-      ? { left: box.left + box.width + HANDLE_OUT_PX - size, width: size }
-      : { left: box.left, width: box.width };
-  const vertical = edges.top
-    ? { top: box.top - HANDLE_OUT_PX, height: size }
-    : edges.bottom
-      ? { top: box.top + box.height + HANDLE_OUT_PX - size, height: size }
-      : { top: box.top, height: box.height };
-  return { ...horizontal, ...vertical };
-}
 
 export interface TopicBrowserWindowProps {
   topicId: string;
@@ -148,71 +111,6 @@ export interface TopicBrowserWindowProps {
   areaRef: AreaRef;
   /** Where a promoted tab belongs, so the right layout claims the open. */
   projectPath?: string;
-}
-
-/** Where the composer lies inside the area, in px from the area's top.
- *
- *  Measured, never assumed: the composer grows with the text, carries the
- *  queue box and the strips above it, slides on a transform when the
- *  transcript pushes it, and sits in the MIDDLE while the topic is empty.
- *  The floating window keeps off that band, so the send button stays
- *  clickable. Null while there is nothing to measure. */
-function useComposerBand(areaRef: AreaRef): ComposerBand | null {
-  const [band, setBand] = useState<ComposerBand | null>(null);
-  useEffect(() => {
-    const root = areaRef.current;
-    if (!root) return;
-    let composer: Element | null = null;
-    const sizes = new ResizeObserver(() => read());
-    // The composer slides with an INLINE transform and changes class when it
-    // docks: neither is a resize, and both move its top edge.
-    const styles = new MutationObserver(() => read());
-    // The composer is a direct child of the pane root: watching the root's own
-    // child list catches it appearing, without walking the transcript.
-    const mounts = new MutationObserver(() => read());
-    const areaSize = new ResizeObserver(() => read());
-
-    function read(): void {
-      // Re-read the ref: an observer can fire in the same frame the pane
-      // unmounts, and then there is no area left to measure against.
-      const host = areaRef.current;
-      if (!host) return;
-      const next = host.querySelector('[data-testid="chat-input-area"]');
-      if (next !== composer) {
-        sizes.disconnect();
-        styles.disconnect();
-        composer = next;
-        if (composer) {
-          sizes.observe(composer);
-          styles.observe(composer, { attributes: true, attributeFilter: ['style', 'class'] });
-        }
-      }
-      const box = (composer?.querySelector('form') ?? composer)?.getBoundingClientRect();
-      const bounds = host.getBoundingClientRect();
-      setBand(
-        box && box.height > 0
-          ? {
-              top: Math.max(0, Math.round(box.top - bounds.top)),
-              bottom: Math.max(0, Math.round(box.bottom - bounds.top)),
-              centered: composer?.getAttribute('data-composer-centered') === 'true',
-            }
-          : null,
-      );
-    }
-
-    read();
-    mounts.observe(root, { childList: true });
-    areaSize.observe(root);
-    window.addEventListener('resize', read);
-    return () => {
-      sizes.disconnect();
-      styles.disconnect();
-      mounts.disconnect();
-      areaSize.disconnect();
-      window.removeEventListener('resize', read);
-    };
-  }, [areaRef]);
-  return band;
 }
 
 /** The window state of ONE topic, re-read on every change of the store. */
@@ -224,29 +122,6 @@ function useTopicWindowState(topicId: string): TopicBrowserWindowState {
     return subscribeTopicWindows(read);
   }, [topicId]);
   return topicId ? state : EMPTY_TOPIC_BROWSER_WINDOW;
-}
-
-/**
- * Put the window's page above the sibling native views.
- *
- * Z order among native views is CREATION order, and nothing but an explicit
- * reorder changes it (`tools/wkzprobe z`): a window opened before a browser
- * pane would float UNDER that pane, which is the one thing a floating window
- * may not do. The raise is a no-op outside the desktop shell, and a declared
- * gap on WebView2 and WebKitGTK (see `browser-platform-parity`).
- */
-function raiseNativeView(contextId: string): void {
-  if (!contextId) return;
-  void tauriInvoke('browser_raise', { id: contextId }).catch(() => {});
-}
-
-/** Tell the native views to re-measure: a window that MOVED without changing
- *  size fires no ResizeObserver, so nothing else would. */
-function requestReflow(contextId?: string, atAnimationFrame = false): void {
-  // Targeted when we know whose page moved: an untargeted request makes every
-  // native view in the app re-send its bounds, and here only one moved.
-  const detail = contextId || atAnimationFrame ? { contextId, atAnimationFrame } : undefined;
-  window.dispatchEvent(new CustomEvent('browser:reflow-request', { detail }));
 }
 
 export function TopicBrowserWindow({ topicId, areaRef, projectPath }: TopicBrowserWindowProps): React.ReactElement | null {
