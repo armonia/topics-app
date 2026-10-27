@@ -442,6 +442,12 @@ export interface UpdateTaskPatch {
    *  The gate on the media allowlist lives in the route layer (like comment media). */
   previewImage?: string | null;
   /**
+   * When an ARCHIVED done card was closed (ISO, UTC). Refused on a live card,
+   * where moving to done stamps it. It repairs a date a restore overwrote
+   * (card 600feca6).
+   */
+  completedAt?: string;
+  /**
    * THE DELIVERY, in words. Required when an AGENT moves the card to `review`,
    * ignored on every other transition.
    *

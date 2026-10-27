@@ -1,5 +1,52 @@
 [
   {
+    "version": "2.3.37",
+    "date": "2026-10-27",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Una card archiviata che torna a done tiene la sua data di chiusura (card 600feca6) (#491)",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
+    "version": "2.3.36",
+    "date": "2026-10-27",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Anche un land riavvia la produzione solo a zero turni (card a66a41b2) (#490)",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Kanban chiara su cosa aspetta e perché (card ddd5d334) (#496)",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Lingua italiana anche su Cloud Claude (card c798d16d) (#495)",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Le card vecchie restano dirette anche nel cassetto e nel router (card e9226ab7) (#470)",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
     "version": "2.3.35",
     "date": "2026-10-26",
     "sections": {
