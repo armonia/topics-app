@@ -1,5 +1,59 @@
 [
   {
+    "version": "2.3.39",
+    "date": "2026-10-27",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "aggiorna durate shard dal nightly del 2026-10-27 [skip ci]",
+          "en": "",
+          "scope": "e2e",
+          "breaking": false
+        },
+        {
+          "it": "Finestra browser della topic ridimensionabile, con la pagina che segue dal vivo (#502)",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "i repo con git-crypt non fanno piu' fallire l'avvio dell'agente (card 30154f66) (#468)",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "Script per misurare i token prima e dopo un riavvio (card 65deecdf) (#494)",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Peso misurato delle card al posto dei 4 GB fissi (card 263fc3c0) (#497)",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "una migrazione nuova riporta i costi dei tool sotto il totale del messaggio (card a3af291b) (#498)",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "Menu utente della sidebar: carico, nodi, versione col riavvio, Disponi pannelli (card 1fa57533) (#504)",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "La sbirciata della card si apre anche se la sessione arriva sotto il puntatore fermo (D5e) (#505)",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
     "version": "2.3.38",
     "date": "2026-10-27",
     "sections": {

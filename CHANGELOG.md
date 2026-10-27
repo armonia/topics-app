@@ -2,6 +2,18 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.3.39 — 2026-10-27
+
+### Sotto il cofano
+- **e2e** · aggiorna durate shard dal nightly del 2026-10-27 [skip ci]
+- Finestra browser della topic ridimensionabile, con la pagina che segue dal vivo (#502)
+- i repo con git-crypt non fanno piu' fallire l'avvio dell'agente (card 30154f66) (#468)
+- Script per misurare i token prima e dopo un riavvio (card 65deecdf) (#494)
+- Peso misurato delle card al posto dei 4 GB fissi (card 263fc3c0) (#497)
+- una migrazione nuova riporta i costi dei tool sotto il totale del messaggio (card a3af291b) (#498)
+- Menu utente della sidebar: carico, nodi, versione col riavvio, Disponi pannelli (card 1fa57533) (#504)
+- La sbirciata della card si apre anche se la sessione arriva sotto il puntatore fermo (D5e) (#505)
+
 ## 2.3.38 — 2026-10-27
 
 ### Sotto il cofano
