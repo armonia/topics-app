@@ -6,6 +6,7 @@
 import { test, expect, describe, beforeEach } from "bun:test";
 import { Database } from "bun:sqlite";
 import { ARCHIVE_PARKED_LABEL, commentAsksHuman, createTaskService, deliveryNotesInFlight, isLandActionLabel, isPublishActionLabel, LAND_ACTION_LABEL, PUBLISH_ACTION_LABEL, projectIdForPath, REQUEUE_PARKED_LABEL, TaskServiceError, type TaskService } from "./tasks";
+import { AGENT_WAIT_STREAK_CAP } from "../../shared/agent-wait-cap";
 import { PARKED_WAITED_OUT, WAIT_SERIES_MAX_MS, WAIT_STREAK_CAP, parseQuestionBlock, pendingQuestion } from "../../shared/board";
 import { freshDb, svc, PID } from "./tasks-test-db";
 
@@ -1614,11 +1615,15 @@ describe("attesa dichiarata: rimborso del tentativo e contatore separato", () =>
 
   /** Il tetto dei tentativi VERO della board (default 2): è quello che mordeva. */
   const CAP = 2;
-  /** Un giro completo: la claim spende il tentativo, poi l'agent dichiara l'attesa. */
-  const attende = (id: string, reason: string, minutes = 15) => {
+  /**
+   * One full round: the claim spends the attempt, then somebody declares the wait.
+   * The mechanics of the series (refund, key, clock, resets) are measured on the
+   * WIDE cap, the machine's; the agent's cap has its own cases below.
+   */
+  const attende = (id: string, reason: string, minutes = 15, source: "agent" | "machine" = "machine") => {
     const claimed = s.claim({ taskId: id, cap: 5, maxAttempts: CAP });
     expect(claimed).not.toBeNull();
-    return s.deferForWait({ taskId: id, reason, minutes, by: "claude" });
+    return s.deferForWait({ taskId: id, reason, minutes, by: "claude", source });
   };
   /** Il tempo passa oltre la finestra, così la claim successiva è ammessa. */
   const passa = (minuti: number) => { clock.t += minuti * 60_000; };
@@ -1690,6 +1695,42 @@ describe("attesa dichiarata: rimborso del tentativo e contatore separato", () =>
     expect(nota.toLowerCase()).not.toContain("fallit");
     // E la stessa riga è nel thread, non solo nel tooltip.
     expect(s.get(t.id)!.comments.map((c) => c.content).join("\n")).toContain("la decisione torna a te");
+  });
+
+  test("il rimando dell'AGENTE si ferma al secondo: la card chiede invece di aprire un altro turno", () => {
+    const t = s.create({ projectId: PID, text: "aspetta la CI", status: "todo" });
+    const prima = s.deferForWait({ taskId: t.id, reason: "la CI sta girando", minutes: 15, by: "claude" }); // no `source`: the agent
+    expect(AGENT_WAIT_STREAK_CAP).toBe(1);
+    expect(prima.status).toBe("todo");
+    expect(prima.dispatchState).toBe("waiting");
+    passa(16);
+
+    const second = attende(t.id, "la CI sta girando", 15, "agent");
+    expect(second.status).toBe("backlog");
+    expect(second.dispatchState).toBe(PARKED_WAITED_OUT);
+    expect(second.dispatchDeferredUntil).toBeNull();  // no restart on its own: no third turn
+    expect(second.dispatchAttempts).toBe(0);
+    expect(second.waitStreak).toBe(2);
+    expect(second.dispatchError ?? "").toContain("2 attese di fila");
+    expect(second.dispatchError ?? "").toContain("la decisione torna a te");
+  });
+
+  test("il tetto dell'agente è per ragione: una condizione NUOVA è un primo rimando", () => {
+    const t = s.create({ projectId: PID, text: "aspetta", status: "todo" });
+    attende(t.id, "la CI sta girando", 15, "agent"); passa(16);
+    const altra = attende(t.id, "aspetto la risposta di Attilio", 15, "agent");
+    expect(altra.status).toBe("todo");
+    expect(altra.waitStreak).toBe(1);
+  });
+
+  test("il rimando della MACCHINA tiene il tetto largo: il nodo muto non apre turni", () => {
+    const t = s.create({ projectId: PID, text: "gira sul nodo", status: "todo" });
+    for (let i = 1; i <= WAIT_STREAK_CAP; i++) {
+      const atteso = attende(t.id, "il nodo non risponde", 5, "machine");
+      expect(atteso.status).toBe("todo");
+      passa(6);
+    }
+    expect(attende(t.id, "il nodo non risponde", 5, "machine").dispatchState).toBe(PARKED_WAITED_OUT);
   });
 
   test("l'altro tetto è l'OROLOGIO: due attese lunghissime fermano il task quanto sette corte", () => {

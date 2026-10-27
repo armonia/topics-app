@@ -501,7 +501,9 @@ describe("task-dispatcher", () => {
       // Il terzo giro è quello che prima non partiva nemmeno.
       expect(h.task("t1")!.dispatchState).toBe("working");
 
-      h.dispatcher.deferWait("t1", "il servizio X è giù", 30);
+      // A machine wait, so the WIDE streak cap: the refund is what this pins,
+      // and an agent's second wait parks by design (next test).
+      h.dispatcher.deferWait("t1", "il servizio X è giù", 30, "machine");
       h.finishTurn();
       await flush();
       const dopo = h.task("t1")!;
@@ -516,6 +518,39 @@ describe("task-dispatcher", () => {
     const finale = h.task("t1")!;
     expect(finale.dispatchState).not.toBe("failed");
     expect(finale.status).not.toBe("backlog");
+  });
+
+  it("il secondo rimando dell'agente ferma la card e la chiede: nessun terzo turno parte", async () => {
+    const h = harness();
+    h.svc.updateBoardSettings(PID, { autoDispatch: true, dispatchRetryCap: 2 });
+    h.svc.setGlobalCap({ auto: false, max: 2 });
+    seedTask(h.db, { id: "t1", status: "todo", text: "Aspetta che la CI torni su" });
+
+    await h.dispatcher.tick(PID);
+    await flush();
+    expect(h.dispatcher.deferWait("t1", "il servizio X è giù", 30).status).toBe("todo");
+    h.finishTurn();
+    await flush();
+    h.db.run("UPDATE tasks SET dispatch_deferred_until = ? WHERE id = 't1'", [new Date(Date.now() - 1000).toISOString()]);
+
+    await h.dispatcher.tick(PID);
+    await flush();
+    expect(h.task("t1")!.dispatchState).toBe("working"); // the second turn starts: the first wait was legitimate
+    const parked = h.dispatcher.deferWait("t1", "il servizio X è giù", 30);
+    expect(parked.status).toBe("backlog");
+    expect(parked.dispatchState).toBe(PARKED_WAITED_OUT);
+    expect(h.events.filter((e) => e.type === "task:parked")).toHaveLength(1); // the question reaches the human
+    h.finishTurn();
+    await flush();
+
+    const turns = h.turns.length;
+    await h.dispatcher.tick(PID);
+    await flush();
+    const t = h.task("t1")!;
+    expect(t.status).toBe("backlog");
+    expect(t.dispatchState).toBe(PARKED_WAITED_OUT);
+    expect(h.dispatcher.isInFlight("t1")).toBe(false);
+    expect(h.turns.length).toBe(turns);
   });
 
   it("sfondato il tetto delle attese la card resta `waited_out`: onTurnEnd non la azzera", async () => {

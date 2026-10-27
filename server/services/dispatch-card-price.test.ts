@@ -52,6 +52,7 @@ function prices(o: {
   tasks?: Record<string, CardPriceTask>;
   peaks?: number[];
   cli?: boolean;
+  measured?: Record<string, number>;
 } = {}) {
   const boards: Record<string, CardPriceBoard> = o.boards ?? { quiet: IN_PLACE_NO_CHECK, repo: { dispatchUseWorktree: true, reviewChecks: [] } };
   return createCardPrices({
@@ -59,6 +60,7 @@ function prices(o: {
     isCliRuntime: () => o.cli ?? false,
     board: (projectId) => boards[projectId],
     taskOf: (taskId) => o.tasks?.[taskId],
+    measured: (projectId) => o.measured?.[projectId] ?? null,
   });
 }
 
@@ -105,6 +107,34 @@ describe("priceFor: quanto pesa una card in più", () => {
       taskOf: () => undefined,
     });
     expect(noPeaks.priceFor("repo")).toBe(4);
+  });
+});
+
+describe("priceFor: il peso misurato della board vince sulle costanti", () => {
+  it("una board misurata paga quello che hanno pesato le sue card, leggera o standard", () => {
+    const p = prices({ measured: { quiet: 0.5, repo: 0.6 } });
+    expect(p.priceFor("quiet")).toBe(0.5);
+    expect(p.priceFor("repo")).toBe(0.6);
+  });
+
+  it("una card pesante paga il listino anche su una board misurata", () => {
+    expect(prices({ measured: { quiet: 0.5, repo: 0.6 } }).priceFor("repo", "heavy")).toBe(4);
+  });
+
+  it("finché la board non ha misure, o la misura salta, vale il prezzo della sua classe", () => {
+    expect(prices({ measured: { quiet: 0.5 } }).priceFor("repo")).toBe(4);
+    const broken = createCardPrices({
+      peaks: () => [], isCliRuntime: () => false,
+      board: () => ({ dispatchUseWorktree: false, reviewChecks: [] }),
+      taskOf: () => undefined,
+      measured: () => { throw new Error("misura illeggibile"); },
+    });
+    expect(broken.priceFor("quiet")).toBe(NATIVE_NO_LOCAL_CHECK_RESERVATION_GB);
+  });
+
+  it("la prenotazione dei turni in volo usa lo stesso peso misurato", () => {
+    const p = prices({ measured: { repo: 0.5 }, tasks: { t1: { projectId: "repo" } } });
+    expect(p.reservedMemGB([["t1", 1_000_000]], 1_000_000)).toBeCloseTo(0.5, 6);
   });
 });
 

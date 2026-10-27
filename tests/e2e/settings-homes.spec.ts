@@ -287,7 +287,8 @@ test.describe("ogni modulo vive dove si usa", () => {
       .filter((id) => /^(topics-menu-|profile-menu-)/.test(id) && !id.endsWith("-tail")));
     expect(ids[0]).toBe("topics-menu-plan");
     expect(ids[1]).toBe("profile-menu-friends");
-    await expect(menu.getByTestId("topics-menu-plan-tail")).toHaveText("Gratuito", { timeout: 15_000 });
+    // The label names the plan; a free plan has no tail.
+    await expect(menu.getByTestId("topics-menu-plan")).toHaveText("Piano Gratuito", { timeout: 15_000 });
 
     const level = await openUserMenuLevel(page, "plan");
     const field = level.getByRole("textbox", { name: "Gettone di licenza" });
