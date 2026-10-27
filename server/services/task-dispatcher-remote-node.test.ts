@@ -317,6 +317,22 @@ describe("la card parte sul nodo, non qui", () => {
     expect(h.topics).toEqual([]);
   });
 
+  it("nodo muto due volte: la card resta in coda, il tetto dei rimandi dell'agente non la ferma", async () => {
+    // The node's retry opens no turn, so it keeps the wide streak cap; the
+    // agent's cap (one wait, then the card asks) would park it on the second.
+    const h = harness({ createRun: () => Promise.reject(Object.assign(new Error("boom"), { reason: "unreachable" })) });
+    h.seed();
+    await dispatch(h);
+    h.db.run("UPDATE tasks SET dispatch_deferred_until = ? WHERE id = ?", [new Date(Date.now() - 1000).toISOString(), TASK]);
+
+    await dispatch(h);
+
+    const t = h.task();
+    expect(t.waitStreak).toBe(2);
+    expect(t.status).toBe("todo");
+    expect(t.dispatchError).toBe("node_unreachable");
+  });
+
   it("nodo mai accoppiato: stessa risposta, senza nemmeno provare", async () => {
     const h = harness({ paired: false });
     h.seed();

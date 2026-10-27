@@ -39,6 +39,7 @@ import type { DispatchMemoryHistoryPoint } from "./dispatch-memory-history";
 import { NoCheckExemptionLedger } from "./dispatch-no-check-exemption";
 import { createNoCheckReservationManager } from "./dispatch-no-check-reservations";
 import { createCardPrices } from "./dispatch-card-price";
+import { createCardWeightMeter } from "./dispatch-card-weight";
 import { daySpendSentence, heldResumeBlock, publishDispatchBlock, setHeldResumeBlock, setMemoryWait, type DispatchBlockKind } from "./dispatch-block-signal";
 import { effectiveTopicsRouting, reusedSessionRouteConflict, reusedSessionRouting, taskModelMatchesSession, taskModelSelection, taskModelValue } from "../../shared/task-coding-models";
 import {
@@ -220,6 +221,8 @@ export interface DispatcherDeps {
    *  memory of one more agent, and an empty list prices it at the floor (never
    *  at zero). */
   agentMemSamples?: () => number[];
+  /** One card's pre-review check peak in GB, folded into its measured weight (`dispatch-card-weight.ts`). */
+  cardCheckPeakGB?: (taskId: string) => number | null;
   /** Delete a worktree we created (called when its attempt is discarded — requeue/park/setup-fail). */
   deleteWorktree?: (worktreeId: string) => Promise<void>;
   /**
@@ -590,8 +593,11 @@ export interface TaskDispatcher {
    * it releases its slot instead of holding it. The live turn is still winding
    * down; onTurnEnd sees the `waiting` chip and leaves it be, and the periodic
    * tick re-dispatches once the window elapses. Returns the updated task.
+   * `source: "machine"` is a wait no agent declared (a silent node): its retry
+   * opens no turn, so it keeps the wide streak cap, while an agent's wait stops
+   * at the second one (`AGENT_WAIT_STREAK_CAP`).
    */
-  deferWait(taskId: string, reason: string, minutes?: number): Task;
+  deferWait(taskId: string, reason: string, minutes?: number, source?: "agent" | "machine"): Task;
   /**
    * Lo stato della modalità notturna della board, per l'interfaccia. Sola
    * lettura, e passa dallo STESSO calcolo del gate del `tick`: la card delle
@@ -662,6 +668,8 @@ export interface TaskDispatcher {
   admissionPreview?(projectId?: string | null): DispatchAdmission | null;
   /** Read-only data for the dispatch memory dashboard. */
   memoryQueueSnapshot(): DispatchMemoryQueueSnapshot;
+  /** One reading of the server's process tree in GB, on the `[memsig]` minute: it weighs the local cards in flight. */
+  sampleCardWeight(treeGB: number | null): void;
   /** Start one selected memory-waiting card, preserving all other admission gates. */
   startAnyway(projectId: string, taskId: string): Promise<{ ok: boolean; code?: string }>;
   /** Cancel all timers (test teardown / shutdown). */
@@ -1269,8 +1277,11 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
    * live stop from an abandoned one.
    */
   let admissionLastSeenAt = admissionCountingSince;
+  /** What the board's cards weighed once they ran (`dispatch-card-weight.ts`), fed by the host's minute reading. */
+  const cardWeights = createCardWeightMeter({ now: () => deps.now?.() ?? Date.now(), checkPeakGB: (taskId) => deps.cardCheckPeakGB?.(taskId) ?? null });
   /** What one more card is priced at in memory, per board (`dispatch-card-price.ts`); no board in hand reads the dearer price. */
   const cardPrices = createCardPrices({
+    measured: (projectId) => cardWeights.measuredGB(projectId),
     peaks: () => deps.agentMemSamples?.() ?? [],
     isCliRuntime: () => deps.isCliRuntime?.() ?? false,
     board: (projectId) => deps.svc.getBoardSettings(projectId),
@@ -1586,12 +1597,14 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
    * (its log lines, its episodes, its hysteresis) and reads the dearer price, so
    * it stays flat; this asks the same two questions again for one board's price,
    * without moving any of that state. Memory only: a full disk, the CPU axis, the
-   * spend brake and the drain are not hers to lift.
+   * spend brake and the drain are not hers to lift. "Light" is any card priced
+   * under the machine verdict's price: a light board, or a board whose cards were
+   * measured lighter (`dispatch-card-weight.ts`).
    */
   function lightMemoryPass(t: Pick<Task, "projectId" | "dispatchWeight">): boolean {
     const projectId = t.projectId;
     try {
-      if (cardPrices.weightFor(projectId, t.dispatchWeight) !== "light") return false;
+      if (cardPrices.priceFor(projectId, t.dispatchWeight) >= agentMemPrice()) return false;
       if (spendBrake.dayBlock()) return false;
       if (floorVerdict(false, projectId).reason) return false;
       const gcap = deps.svc.getGlobalCap();
@@ -2102,6 +2115,7 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
   function endRun(taskId: string, runId: number): void {
     if (!ownsRun(taskId, runId)) return;
     inFlight.delete(taskId);
+    cardWeights.finish(taskId);
     if (memorySeatTaskId === taskId) memorySeatTaskId = null;
     manualMemoryStart.clearAdmittedWhenIdle(taskId);
     clearNoCheckReservation(taskId);
@@ -3041,7 +3055,7 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
         PREVIEW_RULE,
         `- On delivery, BEFORE moving to review: ONE summary comment with comment_task (1-2 sentences: what you did THIS turn, where to look). The server refuses the review if you have not commented in this turn.`,
         `- IF you committed code on your branch (landable work), in that delivery comment offer ONLY the option: comment_task(..., options=["${LAND_ACTION_LABEL}"]). If the human picks it, the SYSTEM does the LOCAL merge onto main (no push). You NEVER do a git merge/push by hand. Publishing online (push + deploy) is a SEPARATE step, decided and run by the human from the board's "Pubblica" control with a diff preview — do NOT propose it, it is not an option of the task. Do NOT offer the option without committed code (a question, a plan, headless-only work).`,
-        `- If you have to WAIT for an external condition (a service coming back up, machine load dropping, a time window): do NOT sleep on a poller holding the slot. Declare the wait with wait_for_condition(task_id="${task.id}", reason=<what you are waiting for>, minutes=<when to retry, default 15>): the task goes back to the queue with that note, the slot frees up for others, and the system re-dispatches it by itself when the window elapses. It is NOT a delivery: do not send it to review "empty".`,
+        `- If you have to WAIT for an external condition (a service coming back up, machine load dropping, a time window): do NOT sleep on a poller holding the slot. Declare the wait with wait_for_condition(task_id="${task.id}", reason=<what you are waiting for>, minutes=<when to retry, default 15>): the task goes back to the queue with that note, the slot frees up for others, and the system re-dispatches it by itself when the window elapses. Declare it ONCE per condition, with a window long enough: a second wait for the same condition parks the card for the human. It is NOT a delivery: do not send it to review "empty".`,
         // I cancelli del codice si nominano SEMPRE, board o no. Prima stavano
         // solo dentro il ramo `checks.length` qui sotto, cioè: nessuna board
         // dichiarava comandi → nessun kickoff nominava un cancello → tre card
@@ -5932,11 +5946,11 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
     notifyMemoryQueue();
   }
 
-  function deferWait(taskId: string, reason: string, minutes?: number): Task {
+  function deferWait(taskId: string, reason: string, minutes?: number, source: "agent" | "machine" = "agent"): Task {
     // A pending grace timer would re-tick this task the moment it lands in todo,
     // defeating the wait — clear it (harmless if none is set).
     clearGrace(taskId);
-    const t = deps.svc.deferForWait({ taskId, reason, minutes, by: "agent" });
+    const t = deps.svc.deferForWait({ taskId, reason, minutes, by: "agent", source });
     emit(t);
     // Il park dell'attesa sfondata è l'UNICO park terminale che non passa da
     // `releaseAndEmit`: lo decide il service, guardando i tetti della serie, e
@@ -6003,6 +6017,7 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
     // the accounting below would book a transcript that does not exist and end
     // a turn that never started here.
     if (slot.node) { remote.buryRun(taskId, slot.node); return; }
+    cardWeights.finish(taskId);
     if (memorySeatTaskId === taskId) memorySeatTaskId = null;
     clearNoCheckReservation(taskId);
     notifyMemoryQueue();
@@ -6663,6 +6678,8 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
     sessionsInFlight: () => [...inFlight.values()].map((slot) => slot.sessionKey).filter((sk): sk is string => typeof sk === "string" && !!sk),
     tick, onEnterTodo, onLeaveTodo, deferWait, onBlockerDone, resume, reconcile, markInterrupted,
     revokeDelegatedCapability, shutdown, nightStatus, admissionPreview, memoryQueueSnapshot,
+    sampleCardWeight: (treeGB) => cardWeights.sample(treeGB, [...inFlight].filter(([, slot]) => !slot.node && !isNodeSessionKey(slot.sessionKey))
+      .flatMap(([taskId]) => { try { const projectId = deps.svc.get(taskId)?.task.projectId; return projectId ? [{ taskId, projectId }] : []; } catch { return []; } })),
     startAnyway: manualMemoryStart.startAnyway,
     // The episode IN FLIGHT is added at read time, not on every tick: a
     // counter that only grows when an episode closes would read zero exactly

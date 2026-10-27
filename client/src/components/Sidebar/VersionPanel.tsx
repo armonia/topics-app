@@ -13,7 +13,7 @@
  * about.
  */
 import { useState } from 'react';
-import { Download, RefreshCw, Check, AlertCircle, Rocket, Sparkles, ChevronRight } from 'lucide-react';
+import { Download, RefreshCw, Check, AlertCircle, Rocket, Sparkles, ChevronRight, RotateCcw } from 'lucide-react';
 import { updateTitle, useUpdater } from '@/lib/updater';
 import { useSidecarIntegrity, shouldWarnAboutSidecars } from '@/lib/sidecarIntegrity';
 import { useServiceWorkerUpdate } from '@/hooks/useServiceWorkerUpdate';
@@ -42,6 +42,7 @@ export function VersionPanel({
   buildDate,
   buildSha,
   onOpenChangelog,
+  restart,
 }: {
   /** The running CLIENT bundle version (moves on every deploy). */
   appVersion: string;
@@ -59,6 +60,9 @@ export function VersionPanel({
   buildSha?: string;
   /** Open the full "Novità" changelog modal (and close this level). */
   onOpenChangelog: () => void;
+  /** The restart lives here, with the number it would change: it used to be a
+   *  flat row under the menu that every visit to the menu had to read past. */
+  restart?: { run: () => void; busy: boolean; label: string; highlight: boolean; desktop: boolean };
 }) {
   const tr = useT();
   const { available, status, check, download, install } = useUpdater();
@@ -161,6 +165,21 @@ export function VersionPanel({
           <ChevronRight size={12} className="ml-auto" />
         </button>
       </div>
+
+      {restart && (
+        <button
+          type="button"
+          onClick={restart.run}
+          disabled={restart.busy}
+          data-testid="menu-restart"
+          className={`w-full flex items-center gap-1.5 px-2 py-1.5 rounded text-mini font-medium hover:bg-app-hover transition-colors ${restart.highlight ? 'text-primary' : 'text-app-text'}`}
+        >
+          {restart.desktop
+            ? <RotateCcw size={12} className={restart.busy ? 'animate-spin' : ''} />
+            : <RefreshCw size={12} className={restart.busy ? 'animate-spin' : ''} />}
+          <span>{restart.label}</span>
+        </button>
+      )}
 
       {/* Half applied update: the app is new, one of its binaries is not. */}
       {shouldWarnAboutSidecars(sidecars) && (

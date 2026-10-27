@@ -17,6 +17,7 @@ import { isTauri } from '../lib/shell';
 import { readBrowserLayout, subscribeBrowserLayout } from '../lib/browserLayoutPref';
 import { lastUserGestureAt, onUserGesture } from '../lib/userGesture';
 import { logBrowserTransport } from '../lib/browserWebrtcLog';
+import { createLiveResizeThrottle, type LiveResizeThrottle } from '../lib/liveResizeThrottle';
 
 export type ConnectionState = 'connecting' | 'connected' | 'disconnected' | 'fallback-http';
 
@@ -104,7 +105,7 @@ interface RemoteBrowser extends RemoteBrowserState, InteractionHandlers {
   imgRef: React.RefObject<HTMLImageElement | null>;
   /** The <video> element for the WebRTC track — rendered when `webrtcActive`. */
   videoRef: React.RefObject<HTMLVideoElement | null>;
-  /** Callback ref for the pane content element — wires a debounced ResizeObserver
+  /** Callback ref for the pane content element — wires a throttled ResizeObserver
    *  that streams the pane's real size (+DPR) to the server (kills the letterbox). */
   containerRef: (el: HTMLElement | null) => void;
   // Phase 30 BROWSER-CHAT-04 — take-control + select-element actions.
@@ -385,7 +386,7 @@ export function useRemoteBrowser(contextId: string, isVisible = true): RemoteBro
   // (dedup guard). See containerRef + sendResize below.
   const containerElRef = useRef<HTMLElement | null>(null);
   const resizeObserverRef = useRef<ResizeObserver | null>(null);
-  const resizeDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const resizeThrottleRef = useRef<LiveResizeThrottle | null>(null);
   const lastSentSizeRef = useRef<{ w: number; h: number; dsf: number }>({ w: 0, h: 0, dsf: 0 });
   /** When this pane last told the server "I am the one using this page". */
   const lastViewportClaimRef = useRef<number>(0);
@@ -510,22 +511,23 @@ export function useRemoteBrowser(contextId: string, isVisible = true): RemoteBro
     if (w > 0 && h > 0) sendResize(w, h, { force: true });
   }), [sendResize]);
 
-  // Callback ref for the pane content element: wires a debounced (~150ms)
-  // ResizeObserver that reports size changes via sendResize. Re-attaching (or
-  // null on unmount) tears down the previous observer + timer.
+  // Callback ref for the pane content element: wires a ResizeObserver that
+  // reports size changes via sendResize, THROTTLED and not debounced: while the
+  // pane is being dragged wider the remote page follows it, at most every 50 ms,
+  // and the last size always leaves (lib/liveResizeThrottle). Re-attaching (or
+  // null on unmount) tears down the previous observer + pending send.
   const containerRef = useCallback((el: HTMLElement | null) => {
     if (resizeObserverRef.current) { resizeObserverRef.current.disconnect(); resizeObserverRef.current = null; }
-    if (resizeDebounceRef.current) { clearTimeout(resizeDebounceRef.current); resizeDebounceRef.current = null; }
+    if (resizeThrottleRef.current) { resizeThrottleRef.current.cancel(); resizeThrottleRef.current = null; }
     containerElRef.current = el;
     if (!el || typeof ResizeObserver === 'undefined') return;
     const measure = () => {
       const { w, h } = paneBox(el, lastSentSizeRef.current);
       sendResize(w, h);
     };
-    const ro = new ResizeObserver(() => {
-      if (resizeDebounceRef.current) clearTimeout(resizeDebounceRef.current);
-      resizeDebounceRef.current = setTimeout(measure, 150);
-    });
+    const throttle = createLiveResizeThrottle(measure);
+    resizeThrottleRef.current = throttle;
+    const ro = new ResizeObserver(() => throttle.schedule());
     ro.observe(el);
     resizeObserverRef.current = ro;
     measure(); // initial size (also force-re-sent on ws.onopen)

@@ -2,6 +2,11 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.3.38 — 2026-10-27
+
+### Sotto il cofano
+- il modello dichiarato in ogni passo dei workflow e dei sottoagenti (card f50e49ae) (#472)
+
 ## 2.3.37 — 2026-10-27
 
 ### Sotto il cofano

@@ -14,7 +14,7 @@
 import { describe, expect, test } from 'bun:test';
 import { t, missingKeys, ensureLocaleLoaded, type Locale } from '../../lib/i18n';
 import {
-  calendarTail, claudePlanCompact, claudeSubscription, nodeRequestsLabel, nodesTail, planTail, providersCountTail, claudePlanWarning, runsOnClaudePlan,
+  calendarTail, claudePlanCompact, claudeSubscription, nodeRequestsLabel, nodesTail, planRowLabel, planRowTail, planTail, providersCountTail, claudePlanWarning, runsOnClaudePlan,
   subscriptionLabel, toolsTail, usageLine, weekUsageLine,
 } from './formLevelTails';
 import type { ProvidersSnapshot } from '../../types';
@@ -249,5 +249,20 @@ describe('the week after the five hours', () => {
     expect(weekUsageLine({ utilization: 77.6, resetsAtMs: 1 }, () => 'sab 13:00', it)).toBe('Settimana al 78% · riparte sab 13:00');
     expect(weekUsageLine({ utilization: 12, resetsAtMs: null }, () => 'x', it)).toBe('Settimana al 12%');
     expect(weekUsageLine(null, () => 'x', it)).toBeNull();
+  });
+});
+
+describe('plan row', () => {
+  test('the label names the plan and the tail keeps the seats', () => {
+    const team = { plan: 'team', seats: 5, expiresAt: null } as const;
+    expect(planRowLabel(team, it)).toBe('Piano Team');
+    expect(planRowTail(team, NOW, it)).toEqual({ text: '5 posti', warn: false });
+  });
+
+  test('the free plan has a label and no tail; a near expiry warns alone', () => {
+    const free = { plan: 'free', seats: 1, expiresAt: null } as const;
+    expect(planRowLabel(free, it)).toBe('Piano Gratuito');
+    expect(planRowTail(free, NOW, it)).toBeNull();
+    expect(planRowTail({ plan: 'team', seats: 5, expiresAt: NOW + 3 * DAY }, NOW, it)?.warn).toBe(true);
   });
 });

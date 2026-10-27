@@ -32,7 +32,8 @@ import { pendingRemoteRequests } from '@/lib/remoteNodeRequests';
 import { NotificationBadge } from '../Shared/NotificationBadge';
 import { MachinesLevel } from './FormLevels';
 import { nodeRequestsLabel } from './formLevelTails';
-import { deviceRevokedLine, deviceSeenLine } from '@/lib/deviceAudit';
+import { deviceRevokedLine, deviceSeenLine, deviceWhen } from '@/lib/deviceAudit';
+import { nodesOf, useMachines } from '@/state/machinesStore';
 import { useActiveLocale, useT } from '@/hooks/useT';
 
 const ROW = 'flex items-center gap-2 px-3 py-1 text-mini coarse:min-h-11 coarse:text-compact';
@@ -54,6 +55,10 @@ export function DevicesLevel({ devices, failed = false, width, onReadDevices, de
 }) {
   const tr = useT();
   const locale = useActiveLocale();
+  // The paired nodes are computers the board spans: listed right under this one
+  // with their live state, so a node that stopped answering shows here and not
+  // only in a form two levels away.
+  const nodes = nodesOf(useMachines());
   const [remote, setRemote] = useState(0);
   // Bumped by the requests line: the Machines level opens on it, fresh.
   const [machinesAsked, setMachinesAsked] = useState(0);
@@ -114,6 +119,8 @@ export function DevicesLevel({ devices, failed = false, width, onReadDevices, de
             />
           )}
         </>
+      ) : computer ? (
+        <span data-testid="devices-this" className={`min-w-0 truncate ${CHIP_INK_DIM}`}>{tr('statusBar.me.thisDevice')}</span>
       ) : undefined}
     >
       {remote > 0 && (
@@ -157,6 +164,16 @@ export function DevicesLevel({ devices, failed = false, width, onReadDevices, de
               <span className={`h-1.5 w-1.5 flex-shrink-0 rounded-full ${PALLINO_OK}`} />
             </div>
           )}
+          {nodes.map((n) => (
+            <div key={n.id} data-testid="device-node-row" data-connected={n.status === 'online' ? 'true' : 'false'} className={ROW}>
+              <Server size={12} className="flex-shrink-0 text-app-text-muted" />
+              <span className="min-w-0 flex-1 truncate text-app-text">{n.name}</span>
+              <span className="flex-shrink-0 text-app-text-muted">
+                {n.status === 'online' ? tr('devices.nodeOnline') : tr('devices.nodeSeen', { when: deviceWhen(Date.parse(n.lastHeartbeatAt) || null, tr, locale) })}
+              </span>
+              <span className={`h-1.5 w-1.5 flex-shrink-0 rounded-full ${n.status === 'online' ? PALLINO_OK : 'bg-app-text-muted'}`} />
+            </div>
+          ))}
           {active.map((d) => (
             <DeviceRow key={d.id} device={d} people={people} locale={locale} run={run} />
           ))}

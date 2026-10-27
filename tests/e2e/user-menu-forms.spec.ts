@@ -7,8 +7,8 @@
  * providers, tools and calendar live where they are used, drawn by one host
  * (SETHOME-01). What a regression would break first:
  *
- *  · the plan row answers without opening anything («Gratuito»), and no row of
- *    the menu speaks for a form that left it;
+ *  · the plan row answers without opening anything: its label names the plan
+ *    («Piano Gratuito»), and no row of the menu speaks for a form that left it;
  *  · a level opened by HOVER, once used (a press, a key), stays when the
  *    pointer leaves it: for its own confirmation, and with a half-typed key;
  *  · a form in its panel still behaves like a form: every key typed into a
@@ -86,15 +86,17 @@ test.describe("il menu utente è la casa di ogni impostazione", () => {
     await request.post("/api/test/plan-usage", { data: { clear: true } });
   });
 
-  test("USERMENU-10: a menu aperto Piano dice «Gratuito», e del pannello e dei moduli usciti non resta niente", async ({ page }) => {
+  test("USERMENU-10: a menu aperto la riga dice «Piano Gratuito», e del pannello e dei moduli usciti non resta niente", async ({ page }) => {
     test.info().annotations.push({ type: "spec", description: "USERMENU-10" });
     await claudeMaxMachine(page);
     await goToApp(page);
     await openProfileMenu(page);
     const menu = page.getByTestId("profile-menu");
 
-    await expect(menu.getByTestId("topics-menu-plan-tail")).toHaveText("Gratuito", { timeout: 15_000 });
-    await expect(menu.getByTestId("topics-menu-plan-tail")).not.toHaveAttribute("data-warn", "true");
+    // The label names the plan, so a free plan has nothing to add on the right:
+    // the tail is there only for seats or an expiry that is close.
+    await expect(menu.getByTestId("topics-menu-plan")).toHaveText("Piano Gratuito", { timeout: 15_000 });
+    await expect(menu.getByTestId("topics-menu-plan-tail")).toHaveCount(0);
     // The forms that left for where they are used have no row, and no tail.
     for (const gone of ["providers", "tools", "calendar", "nodes"]) {
       await expect(menu.getByTestId(`topics-menu-${gone}`)).toHaveCount(0);
@@ -186,9 +188,12 @@ test.describe("il menu utente è la casa di ogni impostazione", () => {
     });
     await goToApp(page);
     await openProfileMenu(page);
+    // The label says «Piano Team»; a near expiry is what the tail adds, alone
+    // (the seats come back on it once the licence is not about to end).
     const tail = page.getByTestId("topics-menu-plan-tail");
-    await expect(tail).toHaveText("Scade tra 12 g · Team · 5 posti", { timeout: 15_000 });
+    await expect(tail).toHaveText("Scade tra 12 g", { timeout: 15_000 });
     await expect(tail).toHaveAttribute("data-warn", "true");
+    await expect(page.getByTestId("topics-menu-plan")).toContainText("Piano Team");
 
     const level = await openUserMenuLevel(page, "plan");
     await level.getByRole("button", { name: "Togli la licenza" }).click();
@@ -201,11 +206,14 @@ test.describe("il menu utente è la casa di ogni impostazione", () => {
     await expect(page.getByTestId("profile-menu")).toBeVisible();
   });
 
-  test("USERMENU-06f: in un menu da 288 px l'avviso di scadenza della coda del Piano si vede intero", async ({ page }) => {
+  test("USERMENU-06f: in un menu da 288 px l'avviso di scadenza del Piano si vede intero, anche con molti posti", async ({ page }) => {
     test.info().annotations.push({ type: "spec", description: "USERMENU-06" });
-    // Enough seats to overflow the tail: what the ellipsis cuts must not be the
-    // warning. Measured on the glyphs, not read off textContent, which holds
-    // the whole string whether it is visible or not.
+    // The seats used to ride in the same tail as the warning, so enough of them
+    // pushed the expiry out of its box and the ellipsis cut the one thing that
+    // asks for attention. The label names the plan now and the tail carries the
+    // warning alone: with 12500 seats it must still be whole. Measured on the
+    // box, not read off textContent, which holds the whole string whether it is
+    // visible or not.
     const expiresAt = Date.now() + 12 * 86_400_000 + 3_600_000;
     await page.route("**/api/license", async (route) => {
       if (route.request().method() !== "GET") { await route.fallback(); return; }
@@ -216,24 +224,16 @@ test.describe("il menu utente è la casa di ogni impostazione", () => {
     const menu = page.getByTestId("profile-menu");
     const tail = menu.getByTestId("topics-menu-plan-tail");
     await expect(tail).toHaveAttribute("data-warn", "true", { timeout: 15_000 });
-    expect(Math.round((await menu.boundingBox())!.width)).toBe(288);
+    await expect(tail).toHaveText("Scade tra 12 g");
+    const menuBox = (await menu.boundingBox())!;
+    expect(Math.round(menuBox.width)).toBe(288);
     const m = await tail.evaluate((el) => {
-      const node = el.firstChild as Text;
-      const warning = "Scade tra 12 g";
-      const at = node.data.indexOf(warning);
-      const range = document.createRange();
-      range.setStart(node, at);
-      range.setEnd(node, at + warning.length);
-      const glyphs = range.getBoundingClientRect();
       const box = el.getBoundingClientRect();
-      return { at, glyphsRight: glyphs.right, boxRight: box.right, truncated: el.scrollWidth > el.clientWidth };
+      return { truncated: el.scrollWidth > el.clientWidth, right: box.right };
     });
-    // The case is real only if the tail does overflow.
-    expect(m.truncated).toBe(true);
-    expect(m.at).toBeGreaterThanOrEqual(0);
-    // The ellipsis takes a few pixels at the right end of the box: the warning
-    // must end before it.
-    expect(m.glyphsRight).toBeLessThanOrEqual(m.boxRight - 8);
+    expect(m.truncated).toBe(false);
+    // Whole and inside the menu, not pushed past its edge by the label.
+    expect(m.right).toBeLessThanOrEqual(menuBox.x + menuBox.width);
   });
 
   test("USERMENU-06c: ⌘, apre il menu utente con il fuoco sulla prima riga, e l'ingranaggio del campanello porta a Notifiche", async ({ page }) => {
@@ -395,11 +395,11 @@ test.describe("un livello aperto col passaggio del mouse, una volta usato, resta
 test.describe("sul telefono un modulo è un foglio", () => {
   test.use({ viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true });
 
-  test("USERMENU-10b: a 390 Piano apre un foglio largo quanto lo schermo, con la coda già scritta", async ({ page }) => {
+  test("USERMENU-10b: a 390 Piano apre un foglio largo quanto lo schermo, con la riga già scritta", async ({ page }) => {
     test.info().annotations.push({ type: "spec", description: "USERMENU-10" });
     await goToApp(page);
     await openProfileMenu(page);
-    await expect(page.getByTestId("sidebar-topics-menu-panel").getByTestId("topics-menu-plan-tail")).toHaveText("Gratuito", { timeout: 15_000 });
+    await expect(page.getByTestId("sidebar-topics-menu-panel").getByTestId("topics-menu-plan")).toHaveText("Piano Gratuito", { timeout: 15_000 });
     const sheet = await openUserMenuLevel(page, "plan");
     await expect(sheet.getByTestId("topics-menu-plan-form")).toBeVisible();
     const box = await sheet.evaluate((el) => {

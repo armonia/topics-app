@@ -55,6 +55,7 @@ import {
   readTaskWeight, statusEventEnters, waitReasonKey,
 } from "../../shared/board";
 import type { ParkedChildrenDecision } from "../../shared/board";
+import { AGENT_WAIT_STREAK_CAP } from "../../shared/agent-wait-cap";
 import { EFFORT_TIERS } from "../../shared/effort";
 // Il vocabolario delle etichette e la regola che le deriva: una sola
 // dichiarazione, letta anche dal client e dalla derivazione alla consegna.
@@ -880,8 +881,13 @@ export interface TaskService {
    * LORO — attese consecutive per la stessa ragione (`WAIT_STREAK_CAP`) e durata
    * della serie (`WAIT_SERIES_MAX_MS`). Sfondato un tetto il task si parcheggia
    * in backlog con chip `waited_out`: fermo, non fallito.
+   *
+   * THE COUNT DEPENDS ON WHO WAITS. An agent's wait costs a whole turn when
+   * it restarts, and stops at the second one (`AGENT_WAIT_STREAK_CAP`); a
+   * machine's wait (`source: "machine"`, the silent node) opens no turn and
+   * keeps the wide cap (`WAIT_STREAK_CAP`).
    */
-  deferForWait(args: { taskId: string; reason: string; minutes?: number; by?: string }): Task;
+  deferForWait(args: { taskId: string; reason: string; minutes?: number; by?: string; source?: "agent" | "machine" }): Task;
   /** Overwrite the topic binding of a claimed task (dispatcher: placeholder → real topic). */
   bindTopic(args: { taskId: string; topicId: string; freshSession?: boolean }): Task;
   /** Update just the dispatch state/error (queued|starting|working|needs_input). */
@@ -5087,7 +5093,7 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       return rowToTask(getTaskRow(taskId));
     },
 
-    deferForWait({ taskId, reason, minutes, by }): Task {
+    deferForWait({ taskId, reason, minutes, by, source }): Task {
       const row = getTaskRow(taskId);
       if (!row) throw new TaskServiceError("not_found", `task ${taskId} not found`);
       const mins = clampInt(minutes ?? 15, 1, 1440);
@@ -5113,14 +5119,15 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       // A limitare le attese ci pensano i loro tetti, qui sotto.
       const rimborso = "dispatch_attempts = MAX(dispatch_attempts - 1, 0),";
 
-      if (streak > WAIT_STREAK_CAP || serieMs >= WAIT_SERIES_MAX_MS) {
+      const ceiling = source === "machine" ? WAIT_STREAK_CAP : AGENT_WAIT_STREAK_CAP;
+      if (streak > ceiling || serieMs >= WAIT_SERIES_MAX_MS) {
         return parkWaitedOut(this, { row, streak, serieMs, chiave, since, detto, ts, refundAttempt: true });
       }
 
       const note =
         (detto ? `In attesa: ${detto}. ` : "In attesa di una condizione esterna. ") +
         `Rilascio lo slot, il task torna in coda e riprovo tra ~${mins} min` +
-        (streak > 1 ? ` (attesa ${streak} di ${WAIT_STREAK_CAP}).` : ".");
+        (streak > 1 ? ` (attesa ${streak} di ${ceiling}).` : ".");
       // Note first (author = the agent by default) so the "perché è fermo" trail
       // survives clearing the topic link.
       try { this.addComment({ taskId, author: by ?? "agent", content: note }); } catch { /* dedupe/best-effort */ }
