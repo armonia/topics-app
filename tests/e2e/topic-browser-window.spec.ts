@@ -554,6 +554,82 @@ test.describe("TOPIC-BROWSER-01 la finestra browser della topic", () => {
     }
   });
 
+  test("TOPIC-BROWSER-01y: minimizzata si ridimensiona dall'angolo, dal vivo, e la misura sopravvive a una ricarica", async ({ page, request }) => {
+    const topic = await createTopic(request, `E2E-TBW-Resize-${Date.now()}`);
+    try {
+      await seedWindow(request, topic.id, {
+        mode: "min", minPos: { right: 40, bottom: 40 }, expandedWidth: null,
+        tabs: [sheet("tbw-resize-1")], activeContextId: "tbw-resize-1", promoted: [],
+      });
+      await goToApp(page);
+      await waitForTopicVisible(page, topic.id);
+      await selectTopic(page, topic.id);
+      const windowEl = page.locator('[data-testid="topic-browser-window"]');
+      await expect(windowEl).toBeVisible({ timeout: 10000 });
+      const before = (await windowEl.boundingBox())!;
+
+      const corner = (await page.locator('[data-testid="topic-browser-resize-top-left"]').boundingBox())!;
+      const grabX = corner.x + corner.width / 2;
+      const grabY = corner.y + corner.height / 2;
+      await page.mouse.move(grabX, grabY);
+      await page.mouse.down();
+      await page.mouse.move(grabX - 60, grabY - 40, { steps: 6 });
+      // LIVE: the window already follows the pointer before the release.
+      await expect.poll(async () => (await windowEl.boundingBox())!.width).toBeGreaterThan(before.width + 40);
+      await page.mouse.move(grabX - 160, grabY - 100, { steps: 6 });
+      await page.mouse.up();
+
+      const resized = (await windowEl.boundingBox())!;
+      expect(resized.width).toBeGreaterThan(before.width + 140);
+      expect(resized.height).toBeGreaterThan(before.height + 80);
+      // The bottom-right corner stayed where it was.
+      expect(resized.x + resized.width).toBeCloseTo(before.x + before.width, 0);
+      expect(resized.y + resized.height).toBeCloseTo(before.y + before.height, 0);
+
+      await page.reload();
+      await waitForTopicVisible(page, topic.id);
+      await selectTopic(page, topic.id);
+      await expect(windowEl).toBeVisible({ timeout: 10000 });
+      const reloaded = (await windowEl.boundingBox())!;
+      expect(reloaded.width).toBeCloseTo(resized.width, 0);
+      expect(reloaded.height).toBeCloseTo(resized.height, 0);
+    } finally {
+      await deleteTopic(request, topic.id).catch(() => {});
+    }
+  });
+
+  test("TOPIC-BROWSER-01z: espansa, trascinando il bordo la chat cede lo spazio dal vivo", async ({ page, request }) => {
+    const topic = await createTopic(request, `E2E-TBW-ExpResize-${Date.now()}`);
+    try {
+      await seedWindow(request, topic.id, {
+        mode: "exp", minPos: null, expandedWidth: 420,
+        tabs: [sheet("tbw-exp-resize-1")], activeContextId: "tbw-exp-resize-1", promoted: [],
+      });
+      await goToApp(page);
+      await waitForTopicVisible(page, topic.id);
+      await selectTopic(page, topic.id);
+      const windowEl = page.locator('[data-testid="topic-browser-window"]');
+      await expect(windowEl).toHaveAttribute("data-mode", "exp", { timeout: 10000 });
+      const before = (await windowEl.boundingBox())!;
+
+      const handle = (await page.locator('[data-testid="topic-browser-resize-handle"]').boundingBox())!;
+      const grabX = handle.x + handle.width / 2;
+      const grabY = handle.y + handle.height / 2;
+      await page.mouse.move(grabX, grabY);
+      await page.mouse.down();
+      await page.mouse.move(grabX - 120, grabY, { steps: 8 });
+      // Mid-drag: the window is wider AND the chat already ends where it begins.
+      await expect.poll(async () => (await windowEl.boundingBox())!.width).toBeGreaterThan(before.width + 100);
+      const win = (await windowEl.boundingBox())!;
+      const input = (await page.locator('[data-testid="chat-input-area"]').first().boundingBox())!;
+      expect(input.x + input.width).toBeLessThanOrEqual(win.x + 2);
+      await page.mouse.up();
+      expect((await windowEl.boundingBox())!.width).toBeCloseTo(win.width, 0);
+    } finally {
+      await deleteTopic(request, topic.id).catch(() => {});
+    }
+  });
+
   test("TOPIC-BROWSER-01j: cambiando topic la pagina della finestra e' parcheggiata, non distrutta", async ({ page, request }) => {
     // Unmounting the window took RemoteBrowserPanel down with it, and with it
     // the page: coming back reloaded the site and lost the history. Parked
