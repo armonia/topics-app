@@ -134,7 +134,7 @@ export function FirstRunHost() {
           <div aria-hidden="true" className="first-run-glow pointer-events-none absolute -top-24 left-1/2 h-64 w-[28rem] -translate-x-1/2 rounded-full bg-primary/30 blur-3xl" />
           <div className="relative">
             <p className="first-run-rise mb-2 text-mini font-medium uppercase tracking-widest text-primary" style={step(0)}>{t('firstRun.intro.kicker')}</p>
-            <h1 id="first-run-title" className="first-run-rise text-display-sm font-semibold sm:text-4xl" style={step(1)}>{t('firstRun.intro.title')}</h1>
+            <h1 id="first-run-title" className="first-run-rise text-display-sm font-semibold" style={step(1)}>{t('firstRun.intro.title')}</h1>
             <p className="first-run-rise mt-3 max-w-xl text-prose text-app-text-muted" style={step(2)}>{t('firstRun.intro.lead')}</p>
             <ul className="mt-8 grid gap-3 sm:grid-cols-3">
               {highlights.map(({ icon: Icon, title, body }, index) => (

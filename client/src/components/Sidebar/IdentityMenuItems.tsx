@@ -213,6 +213,10 @@ function OrgsSection({ orgs, width, onClose }: {
   const people = mergePeople(orgs.map((o) => o.people));
   const online = people.filter((p) => p.presente).length;
   const only = orgs.length === 1 ? orgs[0] : null;
+  // One organisation says how many are online; several name themselves.
+  const tailText = orgs.length === 0
+    ? '0'
+    : only ? tr('statusBar.orgs.presence', { n: online, tot: people.length }) : orgs.map((o) => o.nome).join(', ');
 
   return (
     <SubmenuItem
@@ -223,7 +227,7 @@ function OrgsSection({ orgs, width, onClose }: {
       maxWidth={width}
       tail={
         <span data-testid="orgs-count" className={`min-w-0 max-w-[60%] truncate tabular-nums ${online > 0 ? SEGNALE_OK : CHIP_INK_DIM}`}>
-          {orgs.length === 0 ? '0' : orgs.length === 1 ? tr('statusBar.orgs.presence', { n: online, tot: people.length }) : orgs.map((o) => o.nome).join(', ')}
+          {tailText}
         </span>
       }
     >

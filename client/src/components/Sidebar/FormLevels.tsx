@@ -76,7 +76,7 @@ const readPlan = async (signal: AbortSignal) => {
   return { plan: await r.json() as LicensePlan, at: Date.now() };
 };
 
-/** WHAT YOU PAY FOR, right under who you are: «Gratuito», «Team · 5 posti». */
+/** WHAT YOU PAY FOR, right under who you are: «Piano Gratuito», «Piano Team» with its seats. */
 export function PlanLevel({ defaultOpen = false }: { defaultOpen?: boolean }) {
   const tr = useT();
   const [read, again] = useMenuRead(readPlan);

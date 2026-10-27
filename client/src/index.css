@@ -3520,6 +3520,7 @@ html.native-frost.dark :is(.raised-control-overlay .raised-control:hover, .raise
 .anims-paused .drawer-enter,
 .anims-paused .morph-char,
 .anims-paused .morph-block,
+.anims-paused .first-run-rise,
 /* The frost's glint is the same shape (one-shot, first frame at opacity 0) and
    it is pure decoration: switched off it is simply absent, which is what a
    window nobody is looking at should cost. */
@@ -5058,15 +5059,18 @@ details[open] > :not(summary) {
   0%, 100% { transform: translate3d(-8%, 0, 0) scale(1); opacity: 0.55; }
   50% { transform: translate3d(8%, -6%, 0) scale(1.12); opacity: 0.85; }
 }
+/* No `opacity: 0` on the class itself: `fill-mode: both` holds the first frame
+ * through the delay, and the element's own styles are the visible ones. A class
+ * that was hidden here would stay hidden under `.anims-paused`, where this
+ * entry is switched off (`animation: none`) rather than paused. */
 .first-run-rise {
-  opacity: 0;
-  animation: firstRunRise 520ms var(--ease-standard) forwards;
+  animation: firstRunRise 520ms var(--ease-standard) both;
   animation-delay: calc(var(--i, 0) * 110ms);
 }
 .first-run-glow {
   animation: firstRunGlow 7s ease-in-out infinite;
 }
 @media (prefers-reduced-motion: reduce) {
-  .first-run-rise { opacity: 1; animation: none; }
+  .first-run-rise { animation: none; }
   .first-run-glow { animation: none; }
 }
