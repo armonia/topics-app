@@ -200,11 +200,28 @@ deferring() {
   [ $(( $(exec 9>&-; date +%s) - _m )) -lt "$DEFER_STALE_S" ]
 }
 
+# A LAND RESTARTS AT ZERO TURNS, A SAVE DOES NOT (RGATE-09).
+#
+# On 2026-10-26 20:41 the approve of card 405071b3 fast-forwarded this checkout
+# to origin/main plus its merge commit; the watcher asked `restart-when-idle`
+# and server 49004 was up at 20:42, the chats in flight cut after their minute.
+# That minute exists for the hot reload while someone saves under server/, and
+# a land is not that: nobody is waiting on it by the second. The hub already
+# restarts on an fseventsd change only at zero turns; a land asks the same.
+#
+# A land is told from a save by the commit: a land moves HEAD, a save does not.
+# HEAD_SEEN is the commit of the last tree the watcher took as loaded, updated
+# wherever LAST_HASH is. Outside a git checkout both reads are empty and every
+# change is a save, as before.
+git_head() { (exec 9>&-; git -C "$APP_DIR" rev-parse -q --verify HEAD 2>/dev/null); }
+
 # POST /__daemon/restart-when-idle once. Exit 0 only on a 202. The token and the
 # port are read again on every call: a token read while the file was being
 # written is the most common reason a first ask fails (2026-08-18).
+# $1 = "zero" asks the restart at zero turns (a land, see above).
 ask_restart_when_idle() {
-  local dstate="${TOPICS_HOME:-$HOME/.topics}/daemon-state.json" token port scheme resp
+  local dstate="${TOPICS_HOME:-$HOME/.topics}/daemon-state.json" token port scheme resp query=""
+  [ "${1:-}" = zero ] && query="?zeroTurns=1"
   [ -r "$dstate" ] || return 1
   command -v curl >/dev/null 2>&1 || return 1
   token=$(exec 9>&-; sed -n 's/.*"token"[[:space:]]*:[[:space:]]*"\([0-9a-f]\{64\}\)".*/\1/p' "$dstate" | head -1)
@@ -213,7 +230,7 @@ ask_restart_when_idle() {
   for scheme in https http; do
     resp=$(exec 9>&-; curl -sk -m "$ASK_TIMEOUT_S" -o /dev/null -w "%{http_code}" -X POST \
       -H "Authorization: Bearer $token" \
-      "$scheme://127.0.0.1:$port/__daemon/restart-when-idle" 9>&- 2>/dev/null)
+      "$scheme://127.0.0.1:$port/__daemon/restart-when-idle$query" 9>&- 2>/dev/null)
     [ "$resp" = "202" ] && return 0
   done
   return 1
@@ -258,6 +275,7 @@ terminate_server() {
 }
 
 LAST_HASH=$(exec 9>&-; src_hash)
+HEAD_SEEN=$(git_head)
 BOOT_SEEN=$(exec 9>&-; file_mtime "${TOPICS_HOME:-$HOME/.topics}/daemon-state.json")
 echo "[start-prod] server hot-reload watch ON (graceful, debounce 2s, impronta ${LAST_HASH:0:8}, pid $$)"
 
@@ -328,6 +346,7 @@ while read -r _; do
           _newer=$(exec 9>&-; first_source_not_older_than "$DSTATE_BOOT")
           if [ -z "$_newer" ]; then
             LAST_HASH=$(exec 9>&-; src_hash)
+            HEAD_SEEN=$(git_head)
             echo "[start-prod] server (ri)partito alle $(exec 9>&-; epoch_clock "$BOOT_NOW"): impronta dei sorgenti riletta, nessun riavvio per modifiche gia' caricate"
             continue
           fi
@@ -387,6 +406,7 @@ while read -r _; do
           # after the spawn, so every source not newer than it was loaded.
           if [ -z "$(exec 9>&-; first_source_not_older_than "$SERVER_PIDFILE")" ]; then
             LAST_HASH=$NOW_HASH
+            HEAD_SEEN=$(git_head)
             echo "[start-prod] il server $SP e' nato dopo l'ultima modifica ai sorgenti: gira gia' su questo codice, nessun riavvio"
             continue
           fi
@@ -405,6 +425,13 @@ while read -r _; do
             continue
           fi
           LAST_HASH=$NOW_HASH
+          HEAD_NOW=$(git_head)
+          ASK_MODE=""
+          if [ "$HEAD_NOW" != "$HEAD_SEEN" ]; then
+            ASK_MODE=zero
+            echo "[start-prod] il checkout e' passato a ${HEAD_NOW:0:10} (era ${HEAD_SEEN:0:10}): e' un land, il riavvio si chiede a zero turni"
+          fi
+          HEAD_SEEN=$HEAD_NOW
           # ASK FIRST, AND KEEP ASKING. Cut only a server that never answers.
           #
           # A bare SIGTERM cuts the agent turns in flight (18/08: «Turno
@@ -427,7 +454,7 @@ while read -r _; do
           ASK_SAID=0
           RELOAD_ASKED=0
           while kill -0 "$SP" 2>/dev/null; do
-            if ask_restart_when_idle; then
+            if ask_restart_when_idle "$ASK_MODE"; then
               RELOAD_ASKED=1
               break
             fi
@@ -440,7 +467,11 @@ while read -r _; do
             sleep "$ASK_EVERY_S" 9>&-
           done
           if [ "$RELOAD_ASKED" = 1 ]; then
-            echo "[start-prod] server source changed → riavvio quando i turni finiscono (restart-when-idle)"
+            if [ "$ASK_MODE" = zero ]; then
+              echo "[start-prod] server source changed (land) → riavvio a zero turni: nessuna chat in volo viene tagliata (restart-when-idle?zeroTurns=1)"
+            else
+              echo "[start-prod] server source changed → riavvio quando i turni finiscono (restart-when-idle)"
+            fi
             echo "[start-prod]   aspetto che il server $SP si chiuda da solo (cap suo: $((QCAP_S / 60)) min)"
             # The SIGTERM is the server's own, sent when its turns are done.
             # Only a server that outlives its window WITHOUT declaring a

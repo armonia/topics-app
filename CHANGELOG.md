@@ -2,6 +2,14 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.3.35 — 2026-10-26
+
+### Sotto il cofano
+- Il prezzo di una card in memoria è quello della sua board (#482)
+- Dopo un riavvio il nodo non rimanda più la consegna vecchia come nuova (#485)
+- Il PC accoppiato non scade più offline cinque minuti dopo l'accoppiamento (#486)
+- **args** · guard against empty --setting-sources in Claude spawns (card 803aca76) (#483)
+
 ## 2.3.34 — 2026-10-26
 
 ### Prestazioni

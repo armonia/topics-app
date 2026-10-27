@@ -4,8 +4,9 @@
  * @covers AICTRL-04, AICTRL-05, MSEL-06
  */
 import { describe, it, expect } from "bun:test";
-import { topicsRoutingBlocked, boardTopicsRoutingEnabled, cardBoardSettings, cardRunsThroughTopics, chatTopicsRoute } from "./topicsRoutingGate";
+import { topicsRoutingBlocked, boardTopicsRoutingEnabled, cardBoardSettings, cardRunsThroughTopics, chatTopicsRoute, surfaceTopicsRoutingEnabled } from "./topicsRoutingGate";
 import type { ProvidersSnapshot } from "../types";
+import { effectiveTopicsRouting, taskModelSelection, topicsRoute } from "../../../shared/task-coding-models";
 
 function snapshot(providers: ProvidersSnapshot["providers"], defaultProvider: string | null = null): ProvidersSnapshot {
   return { providers, defaultProvider, generatedAt: new Date().toISOString() };
@@ -77,6 +78,31 @@ describe("boardTopicsRoutingEnabled", () => {
 });
 
 describe('card route label (AICTRL-01, MSEL-06)', () => {
+  /** @covers MSEL-06 */
+  it('keeps the old card direct in both the drawer and the task router', () => {
+    const task = { model: 'claude-code:claude-sonnet-5', topicsRouting: null, createdAt: '2026-09-15T00:00:00Z' };
+    const providers = snapshot([claudeReady, topicsReady]);
+    const selection = taskModelSelection(task.model);
+    const engineRouting = effectiveTopicsRouting(task.topicsRouting, task.model, 'task', task.createdAt);
+
+    expect(engineRouting).toBe(false);
+    expect(topicsRoute(engineRouting, { provider: selection.provider ?? null, model: selection.model ?? null }, providers, 'task'))
+      .toEqual({ via: 'direct', reason: 'off' });
+    expect(surfaceTopicsRoutingEnabled(task, null, null)).toBe(false);
+    expect(cardRunsThroughTopics(task, providers)).toBe(false);
+  });
+
+  /** @covers MSEL-06 */
+  it('routes a new card through Topics and lets an explicit card preference win', () => {
+    const providers = snapshot([claudeReady, topicsReady]);
+    const task = { model: 'claude-code:claude-sonnet-5', topicsRouting: null, createdAt: '2026-10-25T00:00:00Z' };
+
+    expect(surfaceTopicsRoutingEnabled(task, null, null)).toBe(true);
+    expect(surfaceTopicsRoutingEnabled({ ...task, topicsRouting: false }, true, null)).toBe(false);
+    expect(surfaceTopicsRoutingEnabled({ ...task, topicsRouting: true }, false, null)).toBe(true);
+    expect(cardRunsThroughTopics(task, providers)).toBe(true);
+  });
+
   /** @covers AICTRL-01, MSEL-06 */
   it('uses the board OFF default for a card whose preference is null', () => {
     const task = { model: 'claude-sonnet-5', topicsRouting: null };
