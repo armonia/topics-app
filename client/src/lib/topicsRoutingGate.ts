@@ -11,15 +11,15 @@ export function boardTopicsRoutingEnabled(
   return effectiveTopicsRouting(dispatchTopicsRouting, dispatchModel, 'task');
 }
 
-/** La cascata scelta locale > default board > prefisso legacy, per composer e cassetto: una funzione sola, perche' due copie divergono al primo cambio. `'auto'` non e' un modello e non porta nessun prefisso. allow-italian: ordine di risoluzione e trappola di `auto` */
+/** Resolve a card's saved route against its board default. Passing the card
+ *  keeps the creation-date compatibility rule attached to every card surface. */
 export function surfaceTopicsRoutingEnabled(
-  explicit: boolean | null | undefined,
+  task: { topicsRouting?: boolean | null; model?: string | null; createdAt?: string | null },
   boardDefault: boolean | null | undefined,
-  model: string | null | undefined,
   boardModel: string | null | undefined,
 ): boolean {
   const boardLegacy = boardModel && boardModel !== 'auto' ? boardModel : undefined;
-  return effectiveTopicsRouting(explicit ?? boardDefault, model ?? boardLegacy, 'task');
+  return effectiveTopicsRouting(task.topicsRouting ?? boardDefault, task.model ?? boardLegacy, 'task', task.createdAt);
 }
 
 /** La riga dello switch come la passa il pannello: stato canonico e un toggle che scrive SOLO il proprio asse, mai `dispatchModel`. allow-italian: la regola «un toggle, un asse» */
@@ -114,7 +114,7 @@ export function cardRunsThroughTopics(
   snapshot: ProvidersSnapshot | null,
   boardRoutingDefault?: boolean | null,
 ): boolean {
-  if (!task.model || !effectiveTopicsRouting(task.topicsRouting ?? boardRoutingDefault, task.model, 'task', task.createdAt)) return false;
+  if (!task.model || !surfaceTopicsRoutingEnabled(task, boardRoutingDefault, null)) return false;
   const selection = taskModelSelection(task.model);
   const provider = selection.provider ?? (selection.model?.startsWith('claude-') ? 'claude-code' : null);
   return topicsRoute(true, { provider, model: selection.model ?? null }, snapshot, 'task').via === 'topics';

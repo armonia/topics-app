@@ -35,7 +35,8 @@ import { isAutoCapturedPreview, isDeliverySheetPath } from "../../shared/media-k
 import { NUDGE_CLAIM_MS, gateNudge } from "./nudge-gate";
 import { readChecksMemFloorGB, readGlobalCap, readSpendCaps } from "./dispatch-capacity";
 import { checksMemFloorGB } from "../../shared/checks-memory-floor";
-import { currentDispatchBlock, heldResumeBlock } from "./dispatch-block-signal";
+import { currentDispatchBlock, currentMemoryWait, heldResumeBlock } from "./dispatch-block-signal";
+import { readElsewhere } from "./task-elsewhere";
 import { liveAgentCount, RUNS_HERE_SQL } from "./agent-census";
 
 // The statuses and the thread's shape live in `shared/board.ts`, so the client
@@ -48,7 +49,7 @@ import {
   ARCHIVE_PARKED_LABEL, DEPLOY_ACTION_LABEL, DISPATCH_CHIP_QUEUED, HUMAN_AUTHOR, clampGlobalCap,
   MAX_FANOUT, PARKED_STOPPED, PARKED_WAITED_OUT, PREVIEW_CARD_MAX_RATIO, QUEUE_REASON_UNKNOWN,
   PARKED_REQUEUE_NOTE_LIKE, PROMOTE_PARKED_LABEL, REQUEUE_PARKED_LABEL, TAKE_OVER_PARKED_LABEL, TASK_STATUSES,
-  WAIT_SERIES_MAX_MS, WAIT_STREAK_CAP,
+  WAITING_MEMORY_REASON, WAIT_SERIES_MAX_MS, WAIT_STREAK_CAP,
   deriveQueueReason, deriveSubtaskWork, formatStatusEvent, hasPlanApproveOption, isAgentWorking,
   isUnattributedSubtask, noteParkedChildrenResolved, parseQuestionBlock, questionAsksHuman,
   readTaskWeight, statusEventEnters, waitReasonKey,
@@ -59,7 +60,7 @@ import { EFFORT_TIERS } from "../../shared/effort";
 // dichiarazione, letta anche dal client e dalla derivazione alla consegna.
 import { CLOSER_LABELS, KIND_LABELS, deriveCloser, deriveKind, isCloserLabel, isKindLabel, isTaskLabel, normalizeLabels, type LabelSource, type TaskFile, type TaskLabel, type TaskLabelRow } from "../../shared/task-labels";
 import { findNeighbours, type Neighbour } from "../../shared/task-similarity";
-import type { TaskStatus, TaskComment, CardComment, BoardSettings, BoardSettingsPatch, BlockerRef, QueueReason, SubtaskWork, TaskWeight, GlobalDispatchCap, GlobalCapPatch, TaskActionOrigin } from "../../shared/board";
+import type { TaskStatus, TaskComment, CardComment, BoardSettings, BoardSettingsPatch, BlockerRef, QueueContext, QueueReason, SubtaskWork, TaskWeight, GlobalDispatchCap, GlobalCapPatch, TaskActionOrigin } from "../../shared/board";
 import { budgetShare } from "../../shared/board";
 import { sliceCodePoints } from "../lib/code-points";
 import { allWideRows } from "../lib/wide-rows";
@@ -1956,6 +1957,8 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
      * pays no read at all.
      */
     nodeNames: Map<string, string>;
+    /** Where an In-progress card with no agent here works (`task-elsewhere.ts`). */
+    elsewhere: Map<string, NonNullable<QueueContext["elsewhere"]>>;
     peopleNames: Map<string, string>;
     deviceNames: Map<string, string>;
     autoDispatch: boolean;
@@ -2304,6 +2307,8 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       previewImages: previewImagesFor(ids),
       queue: null,
       nodeNames: new Map(),
+      // Only the In-progress cards no agent is in: the `no_agent` branch.
+      elsewhere: readElsewhere(db, rows.filter((r) => r.status === "in_progress" && !isAgentWorking(r.dispatch_state))),
       peopleNames: new Map(),
       deviceNames: new Map(),
       autoDispatch: false,
@@ -2437,6 +2442,7 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
           blockedBy: r.blocked_by_task_id ? (b.blockers.get(r.blocked_by_task_id) ?? null) : null,
           assignedTo: r.assigned_to ?? null,
           machineId: r.machine_id ?? null,
+          updatedAt: r.updated_at ?? null,
         },
         {
           now: b.nowIso,
@@ -2488,8 +2494,10 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
           // pavimento (KANBAN-97): resta un blocco della macchina, o la card
           // ricadrebbe sul ramo dello slot.
           dispatchBlock: inCoda
-            ? (r.dispatch_error === "waiting-memory" ? { kind: "resources", reason: "waiting-memory" } : currentDispatchBlock())
+            ? (r.dispatch_error === WAITING_MEMORY_REASON ? { kind: "resources", reason: WAITING_MEMORY_REASON } : currentDispatchBlock())
             : heldResume ? heldResumeBlock(r.id, r.dispatch_error) : null,
+          memoryWait: r.dispatch_error === WAITING_MEMORY_REASON ? currentMemoryWait() : null,
+          elsewhere: b.elsewhere.get(r.id) ?? null,
           parentStatus: r.parent_task_id ? (b.parentStatus.get(r.parent_task_id) ?? null) : null,
           projectless: r.project_id === UNASSIGNED_PROJECT_ID,
           openSubtasks: r.status === "review" ? (b.openChildren.get(r.id) ?? 0) : 0,
