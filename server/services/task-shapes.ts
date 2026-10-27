@@ -23,6 +23,7 @@ import type {
   SubtaskWork,
   QueueReason,
   TaskWeight,
+  DispatchMemoryQueueCard,
 } from "../../shared/board";
 
 export interface Task {
@@ -90,6 +91,8 @@ export interface Task {
   dispatchState: string | null;
   dispatchAttempts: number;
   dispatchError: string | null;
+  /** Transient queue position carried by task:updated, never persisted. */
+  dispatchQueue?: DispatchMemoryQueueCard | null;
   /** Agent-declared external-condition wait: while this timestamp is in the
    *  future the task sits in `todo` (chip `waiting`) and is NOT dispatch-eligible;
    *  the tick re-claims it once the window passes. null = no wait. */
@@ -438,6 +441,12 @@ export interface UpdateTaskPatch {
   /** Screenshot for the card (absolute path); empty string / null clears it.
    *  The gate on the media allowlist lives in the route layer (like comment media). */
   previewImage?: string | null;
+  /**
+   * When an ARCHIVED done card was closed (ISO, UTC). Refused on a live card,
+   * where moving to done stamps it. It repairs a date a restore overwrote
+   * (card 600feca6).
+   */
+  completedAt?: string;
   /**
    * THE DELIVERY, in words. Required when an AGENT moves the card to `review`,
    * ignored on every other transition.

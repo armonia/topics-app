@@ -55,6 +55,8 @@ export interface ArchiveTopicDeps {
    * Iniettata perché il tracker vive in server.ts; assente ⇒ passo saltato.
    */
   parkClaudeSession?: (sessionKey: string) => void;
+  /** Stop only registered command groups owned by this archived topic. */
+  stopProcesses?: (topicId: string) => void;
   /**
    * Timbra il fatto (`services/retirement.ts#recordRetirement` legata al db).
    * Iniettata per lo stesso motivo della purge: il servizio dichiara di averne
@@ -103,6 +105,7 @@ export interface ArchiveTopicResult {
 export function archiveTopicFully(deps: ArchiveTopicDeps, topicId: string): ArchiveTopicResult {
   const topic = deps.getTopicById(topicId);
   if (!topic) return { ok: false, notFound: true };
+  deps.stopProcesses?.(topicId);
   const alreadyArchived = topic.archived;
 
   const now = new Date().toISOString();

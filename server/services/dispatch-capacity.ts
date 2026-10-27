@@ -389,6 +389,16 @@ export const DISPATCH_MEM_FLOOR_NATIVE_GB = 6;
  */
 export const GB_PER_AGENT_CLI = 3;
 export const GB_PER_AGENT_NATIVE = 1.5;
+/** Measured peak for one CLI agent, in GB. */
+export const CLI_AGENT_PEAK_GB = 0.42;
+/**
+ * What one native card with no local check weighs, server included. Measured
+ * 26/10/2026 on the live server, 328 samples over 45 minutes with a turn in
+ * flight: the whole process tree p50 0.83, p95 1.04, max 1.15 GB, children of
+ * the server never above 104 MB. The card-memory-peaks ledger cannot say it
+ * (it is fed only after a local check runs, review-checks.ts:509).
+ */
+export const NATIVE_NO_LOCAL_CHECK_RESERVATION_GB = 1;
 
 /**
  * Memoria REALMENTE disponibile, in GB: quella che la macchina puo' dare SENZA
@@ -706,8 +716,10 @@ export interface ResourceFloorVerdict {
    * The memory floor WOULD have held and let one card through because none of
    * our work is on the machine (`reason` is then `null`). Reported so the
    * verdict declares it, the way the budget axis declares `firstAgentExempt`.
-   */
+  */
   memoryFirstCardExempt: boolean;
+  /** The exact memory line used for the next local admission, when measurable. */
+  startGB?: number;
 }
 
 const NOTHING_HOLDS: ResourceFloorVerdict = { reason: null, kind: null, memoryFirstCardExempt: false };
@@ -784,29 +796,30 @@ export function dispatchResourceVerdict(
   if (!mem.measurable) return NOTHING_HOLDS;
   const floor = agentsAreProcesses ? DISPATCH_MEM_FLOOR_GB : DISPATCH_MEM_FLOOR_NATIVE_GB;
   const gb = (n: number) => n.toFixed(1);
+  const cardGB = Math.max(0, hold.cardGB);
+  const reservedGB = Math.max(0, hold.reservedGB);
+  const line = hold.spendingHere ? floor + cardGB + reservedGB : floor;
   /** Nothing of ours on the machine: one card goes through, and it is declared. */
   const exempt = !hold.ourWorkRunning;
   if (mem.heldGB == null) {
-    if (exempt) return { reason: null, kind: null, memoryFirstCardExempt: true };
+    if (exempt) return { reason: null, kind: null, memoryFirstCardExempt: true, startGB: line };
     const seconds = Math.min(Math.round(MEM_WINDOW_MS / 1000), Math.max(0, Math.round(mem.coveredMs / 1000)));
     return {
       reason: `Memoria: la sto misurando da ${seconds} s su ${Math.round(MEM_WINDOW_MS / 1000)}, e non parto su una lettura sola. Niente è andato perso.`,
       kind: "memory_warmup",
       memoryFirstCardExempt: false,
+      startGB: line,
     };
   }
-  const cardGB = Math.max(0, hold.cardGB);
-  const reservedGB = Math.max(0, hold.reservedGB);
   // The "floor alone" branch is not dead: it decides whether the exemption
   // below has anything to waive, and reading the line as floor + price on an
   // idle machine would declare one on a Mac with 8 GB free and nothing
   // running. Its condition is the PRICE LIST, the same list the figure comes
   // from (see `spendingHere`): taking the branch from the census instead held
   // at 7.0, 8.0 and 9.9 GB with two cards parked on the CI and a third asking.
-  const line = hold.spendingHere ? floor + cardGB + reservedGB : floor;
   const low = mem.heldGB;
-  if (low >= line) return NOTHING_HOLDS;
-  if (exempt) return { reason: null, kind: null, memoryFirstCardExempt: true };
+  if (low >= line) return { ...NOTHING_HOLDS, startGB: line };
+  if (exempt) return { reason: null, kind: null, memoryFirstCardExempt: true, startGB: line };
   // Past here `ourWorkRunning` is true, so the sentences below always describe a
   // machine that is carrying some of our work.
   const n = Math.max(0, hold.reservedCards);
@@ -829,6 +842,7 @@ export function dispatchResourceVerdict(
     reason: `${head} ${costo}, e sotto questa riga la macchina va in swap. ${tail}${who ? ` ${who}` : ""}`,
     kind: "memory",
     memoryFirstCardExempt: false,
+    startGB: line,
   };
 }
 

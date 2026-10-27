@@ -528,6 +528,7 @@ export interface BoardTask {
   dispatchState: string | null;
   /** Why the last dispatch attempt was released/parked (visible feedback). */
   dispatchError: string | null;
+  dispatchQueue?: import('../../../shared/board').DispatchMemoryQueueCard | null;
   /** Parent task when this is a nested subtask (unlimited depth). */
   parentTaskId: string | null;
   /** Reviewable output (http/https URL) shown in the task's review panel.
@@ -1018,11 +1019,14 @@ export function hasCodeQuestion(
  * `updatedAt` alone the drawer kept the block of the moment it was opened while
  * the card beside it had moved on. A short deferral's `min` is left out: it is a
  * countdown from `now`, new at every read of the list, and would re-read the
- * drawer (task, attempts, diff) once a minute for nothing that changed.
+ * drawer (task, attempts, diff) once a minute for nothing that changed. The
+ * memory wait's gigabytes (`need`, `free`, `missing`) and an idle card's age
+ * (`n` on `no_agent`) are left out for the same reason: readings, not changes.
  */
 export function taskDetailBump(t: Pick<BoardTask, 'updatedAt' | 'queueReason'>): string {
   if (!t.queueReason) return t.updatedAt;
-  const { min: _countdown, ...params } = t.queueReason.params ?? {};
+  const { min: _countdown, need: _need, free: _free, missing: _missing, ...params } = t.queueReason.params ?? {};
+  if (t.queueReason.kind === 'no_agent') delete params.n;
   return `${t.updatedAt}|${JSON.stringify({ ...t.queueReason, params })}`;
 }
 

@@ -102,6 +102,48 @@ jobs:
       - name: Unit + integration tests (one process per file)
         run: bun run scripts/slot.ts test:unit -- "bun run scripts/test-unit-shards.ts"
 
+  # Process groups are a POSIX contract, so keep the focused real-process tests
+  # on both supported CI operating systems instead of relying on Linux alone.
+  process-groups:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: .bun-version
+
+      - name: Setup Node (node-pty native bridge used by route imports)
+        uses: actions/setup-node@v5
+        with:
+          node-version: 20
+
+      - name: Install server deps
+        run: bun install --frozen-lockfile --ignore-scripts
+
+      - name: Rebuild node-pty
+        run: npm rebuild node-pty
+
+      - name: Restore executable bit on node-pty helpers
+        run: bun run scripts/fix-node-pty-exec-bit.ts
+
+      - name: Process group registry tests
+        run: bun test server/lib/command-process-groups.test.ts --timeout 500000
+
+      - name: Command process tests
+        run: bun test server/lib/command-process.test.ts --timeout 500000
+
+      - name: Card command route tests
+        run: bun test server/routes/processes.command.test.ts --timeout 500000
+
+      - name: Card status process cleanup tests
+        run: bun test server/routes/tasks.process-groups.test.ts --timeout 500000
+
   # EVERY MEASUREMENT THAT IS NOT THE UNIT SUITE, STARTED WITH THE UNIT JOBS.
   #
   # This job was `check` and waited for `unit` (`needs: unit`) although only its

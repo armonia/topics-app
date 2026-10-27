@@ -501,6 +501,28 @@ describe("buildClaudeOneshotArgs — la fotografia", () => {
   });
 });
 
+// Guard: --setting-sources must never be empty in any Topics spawn.
+// An empty value bypasses ~/.claude/settings.json, which carries ANTHROPIC_BASE_URL
+// pointing to the local proxy. Without it, calls go directly to Anthropic and bypass
+// the rate-limiting proxy entirely (measured: card 803aca76, 0/713 calls through proxy).
+describe("proxy routing guard — --setting-sources must never be empty", () => {
+  test("buildClaudeArgs keeps user,project,local so settings.json routes the proxy", () => {
+    const args = buildClaudeArgs({ ...BASE, toolSearch: null });
+    const idx = args.indexOf("--setting-sources");
+    expect(idx).toBeGreaterThan(-1);
+    expect(args[idx + 1]).toBe("user,project,local");
+    expect(args[idx + 1]).not.toBe("");
+  });
+
+  test("buildClaudeOneshotArgs keeps user,project,local so settings.json routes the proxy", () => {
+    const args = buildClaudeOneshotArgs({ permissionMode: "bypassPermissions", model: "m" });
+    const idx = args.indexOf("--setting-sources");
+    expect(idx).toBeGreaterThan(-1);
+    expect(args[idx + 1]).toBe("user,project,local");
+    expect(args[idx + 1]).not.toBe("");
+  });
+});
+
 describe("buildCodexArgs — la fotografia", () => {
   const BRIDGE = { command: "/usr/local/bin/bun", args: ["/srv/topics/mcp.ts", "--session", "topic:7"] };
 

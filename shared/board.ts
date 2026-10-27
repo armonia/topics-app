@@ -965,7 +965,7 @@ export const QUEUE_REASON_MESSAGE_KEYS: Record<QueueReasonKind, string[]> = {
   parent_idle: ['board.queue.parentIdle'],
   heavy_hold: ['board.queue.heavyHold.alone', 'board.queue.heavyHold.blocking'],
   heavy_busy: ['board.queue.heavyBusy'],
-  resource_floor: ['board.queue.resourceFloor'],
+  resource_floor: ['board.queue.resourceFloor', 'board.queue.memory.measured', 'board.queue.memory.measuring'],
   resource_pressure: ['board.queue.resourcePressure'],
   spend_cap: ['board.queue.spendCap'],
   node_unreachable: ['board.queue.nodeUnreachable'],
@@ -976,7 +976,10 @@ export const QUEUE_REASON_MESSAGE_KEYS: Record<QueueReasonKind, string[]> = {
     'board.queue.parked.backlog', 'board.queue.parked.backlogBecause',
     'board.queue.parked.review', 'board.queue.parked.reviewBecause',
   ],
-  no_agent: ['board.queue.noAgent'],
+  no_agent: [
+    'board.queue.noAgent', 'board.queue.noAgent.minutes', 'board.queue.noAgent.hours',
+    'board.queue.noAgent.node', 'board.queue.noAgent.cloud', 'board.queue.noAgent.pr',
+  ],
   unknown: ['board.queue.unknown'],
 };
 
@@ -1057,6 +1060,22 @@ export interface QueueContext {
    * not the published one (`heldResumeBlock` in `dispatch-block-signal.ts`).
    */
   dispatchBlock?: { kind: 'resources' | 'pressure' | 'spend' | 'plan'; reason: string } | null;
+  /**
+   * THE MEMORY GATE'S TWO NUMBERS, for a card held by the memory queue (its row
+   * says `waiting-memory`): the line one more card needs and the lowest free
+   * reading of the window, `null` while the window fills. Measured by the
+   * dispatcher each round (`dispatch-block-signal.ts`). Absent = no reading:
+   * the card says it waits for memory without a number, never a stale one.
+   */
+  memoryWait?: { needGB: number; freeGB: number | null } | null;
+  /**
+   * WHERE an In-progress card works when no agent of this machine is in it.
+   * `node` = a paired computer, `cloud` = a Claude cloud session (the cloud
+   * node, or a session link in the thread), `pr` = a pull request the card
+   * points at. Resolved by the mapper, which can read the node names and the
+   * thread; `null` = nothing says it works anywhere.
+   */
+  elsewhere?: { where: 'node' | 'cloud' | 'pr'; label: string } | null;
   /** Lo stato del padre, per uno step. `null` = non è uno step, o padre sparito. */
   parentStatus: TaskStatus | string | null;
   /** Vero quando il task non ha una board con una directory (`_none`). */
@@ -1218,6 +1237,8 @@ export function deriveQueueReason(
      * waits, the other goes and looks at the node.
      */
     machineId?: string | null;
+    /** Last write on the row: how long an In-progress card has had no agent. */
+    updatedAt?: string | null;
   },
   ctx: QueueContext,
 ): QueueReason | null {
@@ -1304,7 +1325,7 @@ export function deriveQueueReason(
     // starts the moment the floor clears, and "nothing starts until you turn
     // dispatch back on" would be the false sentence.
     if (task.status === 'in_progress' && task.dispatchState === 'queued' && !task.parentTaskId && ctx.dispatchBlock) {
-      return machineBlockReason(ctx.dispatchBlock);
+      return machineBlockReason(ctx.dispatchBlock, ctx.memoryWait);
     }
     // `queued` compreso: fuori da `todo` quel chip non è la parola vaga che
     // questa funzione sostituisce, è un agente che sta per nascere.
@@ -1318,7 +1339,7 @@ export function deriveQueueReason(
     if (task.status === 'in_progress') {
       // Presa da una persona: «in corso» è vero, e non c'è niente da dire.
       if (task.assignedTo) return null;
-      return { kind: 'no_agent', tone: 'stalled', key: 'board.queue.noAgent' };
+      return noAgentReason(task.updatedAt ?? null, ctx);
     }
 
     // In Backlog si TACE, di regola: quella colonna è il parcheggio, e dirlo
@@ -1442,7 +1463,7 @@ export function deriveQueueReason(
   // by a person. The spend one is second because the tick reads it second
   // (`admissionBlock() ?? dayBlock()`), and a machine out of RAM does not start
   // anything even with the ledger at zero.
-  if (ctx.dispatchBlock) return machineBlockReason(ctx.dispatchBlock);
+  if (ctx.dispatchBlock) return machineBlockReason(ctx.dispatchBlock, ctx.memoryWait);
 
   return {
     kind: 'slot', tone: 'queued',
@@ -1453,7 +1474,27 @@ export function deriveQueueReason(
 
 /** The reason of a block that holds the whole machine, one mapping for every
  *  column that can be held by it (a Todo card, and a held resume in progress). */
-function machineBlockReason(block: NonNullable<QueueContext['dispatchBlock']>): QueueReason {
+function machineBlockReason(
+  block: NonNullable<QueueContext['dispatchBlock']>,
+  memoryWait?: QueueContext['memoryWait'],
+): QueueReason {
+  // THE MEMORY QUEUE says its two numbers, not its code. Its row carries
+  // `waiting-memory` (KANBAN-97) where the floor carries a sentence, and the
+  // generic branch printed "the machine is out of room" with the code itself
+  // at the end of the tooltip: ten cards so on 26/10, and none of them said
+  // how far the machine was from starting it. Tone `waiting`: the memory is
+  // the other applications', and they give it back without anybody's move.
+  if (block.kind === 'resources' && block.reason === WAITING_MEMORY_REASON) {
+    const need = memoryWait && Number.isFinite(memoryWait.needGB) ? roundGB(memoryWait.needGB) : null;
+    const free = memoryWait?.freeGB != null && Number.isFinite(memoryWait.freeGB) ? roundGB(memoryWait.freeGB) : null;
+    if (need != null && free != null) {
+      return {
+        kind: 'resource_floor', tone: 'waiting', key: 'board.queue.memory.measured',
+        params: { need, free, missing: roundGB(Math.max(0, memoryWait!.needGB - memoryWait!.freeGB!)) },
+      };
+    }
+    return { kind: 'resource_floor', tone: 'waiting', key: 'board.queue.memory.measuring' };
+  }
   // THE THIRD KIND is the one that does come back on its own, and that is why
   // it is not folded into the floor: «per risorse» holds the queue while the
   // machine is over the chosen threshold, and load drops by itself the moment
@@ -1479,6 +1520,41 @@ function machineBlockReason(block: NonNullable<QueueContext['dispatchBlock']>): 
     key,
     params: { reason: block.reason },
   };
+}
+
+/** The code a card held by the memory queue carries in `dispatch_error`. */
+export const WAITING_MEMORY_REASON: DispatchMemoryQueueReason = 'waiting-memory';
+
+/** One decimal, as a number: the catalogue's `{need}` and `{free}`. */
+function roundGB(gb: number): number {
+  return Math.round(gb * 10) / 10;
+}
+
+/**
+ * An In-progress card with no agent of this machine in it: WHERE it works, or
+ * for how long nothing has moved.
+ *
+ * The bare "no agent" was the same word on two cards that ask opposite things
+ * (26/10): one whose work runs in a cloud session, which needs nobody, and one
+ * that is simply stopped, which needs somebody to put it back in Todo. Where
+ * it runs comes first because it is the answer to "is anyone on it"; the time
+ * since the last write is the number that tells a stop of minutes from one of
+ * a day.
+ */
+function noAgentReason(updatedAt: string | null, ctx: QueueContext): QueueReason {
+  const away = ctx.elsewhere;
+  if (away) {
+    return {
+      kind: 'no_agent', tone: 'waiting', key: `board.queue.noAgent.${away.where}`,
+      params: { where: away.label },
+    };
+  }
+  const ms = updatedAt ? new Date(ctx.now).getTime() - new Date(updatedAt).getTime() : Number.NaN;
+  if (!Number.isFinite(ms) || ms < 0) return { kind: 'no_agent', tone: 'stalled', key: 'board.queue.noAgent' };
+  const min = Math.max(1, Math.round(ms / 60000));
+  return min < 60
+    ? { kind: 'no_agent', tone: 'stalled', key: 'board.queue.noAgent.minutes', params: { n: min } }
+    : { kind: 'no_agent', tone: 'stalled', key: 'board.queue.noAgent.hours', params: { n: Math.round(min / 60) } };
 }
 
 export const TASK_ACTION_ORIGINS = ['interface', 'mcp', 'api', 'system'] as const;
@@ -1971,6 +2047,41 @@ export interface DispatchCapacity {
    * the door open), or no reading (an old server): no verdict is drawn then.
    */
   admission?: DispatchAdmission | null;
+}
+
+/**
+ * Read-only memory admission data returned by GET /api/dispatch/memory-queue.
+ * `taskId` and `boardId` are reversible opaque references suitable for routing
+ * back to task detail/actions without exposing UUID-shaped identifiers.
+ * `position` follows the next round-robin dispatch pass and counts cards
+ * already running ahead of this waiter, so a queue of four reads 2 of 4 after
+ * the first card starts. `startGB` is the effective memory cutoff used by the
+ * gate. `costGB` and `weightGB` use the dispatcher's live per-card memory cost
+ * estimate, not a measured process footprint or the smaller first-card seat.
+ * The same per-card state rides task:updated for dashboards and task details;
+ * queue history and memory owners stay in process memory and are never stored.
+ */
+export type DispatchMemoryQueueReason = "waiting-memory";
+
+export interface DispatchMemoryQueueCard {
+  reason: DispatchMemoryQueueReason;
+  position: number;
+  total: number;
+  costGB: number;
+}
+
+export interface DispatchMemoryQueueItem extends DispatchMemoryQueueCard {
+  taskId: string;
+  boardId: string;
+}
+
+export interface DispatchMemoryQueueSnapshot {
+  reading: { freeGB: number | null; at: string | null };
+  threshold: { startGB: number };
+  queue: DispatchMemoryQueueItem[];
+  running: Array<{ taskId: string; title: string; weightGB: number }>;
+  consumers: Array<{ label: string; gb: number }>;
+  history: Array<{ at: string; freeGB: number }>;
 }
 
 /**

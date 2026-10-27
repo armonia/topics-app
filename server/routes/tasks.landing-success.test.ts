@@ -81,6 +81,8 @@ describe("un land riuscito: cosa chiude e chi ferma", () => {
       // is not a style detail. `onTurnEnd` on a card still `in_progress`
       // resumes the agent, so cutting before closing would restart it — paying
       // again for the very turn being avoided.
+      // The turn really runs: after the land `dispatch_state` is cleared, the stream says so.
+      hasLiveTurn: () => true,
       abortTurn: async (key: string, cause: string) => {
         aborted.push(key);
         causes.push(cause);

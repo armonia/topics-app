@@ -3765,11 +3765,13 @@ e conclude che il dispatcher è rotto. «Zero» SHALL contare anche le corse di
 check pre-review in volo: una coda ferma dietro uno shard da 11 GB non è una coda
 che non parte mai, parte quando lo shard finisce.
 
-**Il pavimento resta sopra a tutto.** `dispatchResourceBlock` (disco e RAM sotto
-il pavimento) vale in ENTRAMBE le modalità e vince sul budget. Per questo il
-motivo di coda del budget è un tipo A SÉ (`resource_pressure`, tono `waiting`) e
-non il pavimento (`resource_floor`, tono `stalled`), e chiamarli con la stessa
-parola è la bugia che il chip esiste per non dire.
+**Il disco resta sopra a tutto; l'esenzione di memoria precede il pavimento
+ordinario.** Un disco sotto il pavimento SHALL bloccare in ENTRAMBE le modalità,
+senza esenzione, e SHALL vincere sul budget. Il pavimento ordinario di memoria
+resta invariato, salvo il ramo per le board senza check locali descritto sotto.
+Per questo il motivo di coda del budget è un tipo A SÉ (`resource_pressure`,
+tono `waiting`) e non il pavimento (`resource_floor`, tono `stalled`), e
+chiamarli con la stessa parola è la bugia che il chip esiste per non dire.
 
 **Ma il disco aspetta una persona e la memoria no**, e prima le due cose erano
 scritte in una frase sola. Un disco pieno non si riassorbe da solo: nessuna
@@ -3788,12 +3790,12 @@ Il tratto più lungo senza una sola lettura sopra la riga misura 16,2 ore.
 
 Quando NESSUN lavoro di Topics è in volo — zero agenti vivi e zero corse di check
 pre-review, lo stesso «zero» che `firstAgentExempt` conta già per l'asse budget —
-il pavimento sulla MEMORIA SHALL ammettere UNA card, e il verdetto SHALL
-dichiararlo come lo dichiara il budget. Con anche un solo agente o una sola corsa
-di check in volo il pavimento SHALL valere pieno: l'incidente del 10/09 erano
-sette card ammesse insieme, non una. L'esenzione SHALL valere sia per le
-ammissioni nuove sia per il `resume` di una card già al lavoro, perché il
-pavimento è valutato prima del budget e trattiene entrambi.
+la deroga storica della prima card SHALL restare invariata, e il verdetto SHALL
+dichiararla come dichiara il budget. Questa deroga resta valida anche per il
+`resume` di una card già al lavoro. Con un agente o una corsa di check in volo il
+pavimento ordinario SHALL valere pieno, salvo l'esenzione per board senza check
+locali definita sotto; l'incidente del 10/09 erano sette card ammesse insieme,
+non una.
 
 **Due domande, due censimenti, e ognuno decide la sua riga per intero.** «C'è del
 nostro VIVO qui?» decide l'esenzione, e una card parcheggiata sulla CI di GitHub
@@ -3808,12 +3810,39 @@ nessuno stava spendendo niente, cioè la coda ferma per tutti i quindici minuti 
 cui una consegna aspetta la CI. Misurato con due card off-lane in volo e una terza
 in coda: `held2m` a 7,0 / 8,0 / 9,9 GB tratteneva, a 12,0 GB no.
 
+**ESENZIONE LIMITATA PER BOARD SENZA CHECK LOCALI.** Una board è senza check
+locali quando ogni suo check è una prova CI (`isCiEvidenceCheck`); anche una
+board senza check soddisfa il criterio. Prima del pavimento ordinario di memoria,
+una card normale di questa board SHALL poter partire in esenzione solo se nessun
+altro posto esente è occupato, `held2m >= 2 GB` e `held2m − prenotazione >= 2
+GB`. Questa regola NON dipende da `ourWorkRunning`. Una card `dispatch_weight =
+heavy` non è mai esente; una card normale può invece passare il blocco `heavyBusy`
+di un'altra card heavy.
+
+La prenotazione è 1 GB per il runtime nativo, valore stimato e non misurato, e
+0,42 GB per la CLI, il picco misurato esistente. Il posto resta occupato per
+l'intero turno e la prenotazione si sottrae una sola volta dalla memoria
+disponibile per le ammissioni successive, sia in modalità `count` sia in
+`resources`. Non SHALL accendere `spendingHere` né aggiungersi al prezzo pieno
+della candidata. Per l'asse memoria del budget, la candidata esente costa la sua
+prenotazione e i posti esenti già occupati si sommano a `ourMemGB`; l'asse CPU
+non cambia. Per ogni card non esente il verdetto di budget resta quello di main.
+
+Il pavimento di emergenza di 2 GB è una condizione di questa sola esenzione; non
+modifica la deroga storica della prima card né il pavimento ordinario. Ogni
+partenza esente SHALL lasciare una riga distinta sulla board con l'id del
+tentativo, anche quando la stessa card riparte entro 10 secondi. Il posto SHALL
+liberarsi a fine turno (done, fail, abort, revoca o sepoltura). Se persiste dopo
+un riavvio, SHALL essere legato al task id; al reattach si ripristina solo se il
+posto è libero e la board è ancora senza check locali, altrimenti si azzera.
+
 #### Scenario: con solo card sulla CI in volo la riga è il pavimento
 - **GIVEN** due card in volo i cui check aspettano solo la CI della pull request
+- **AND** la card candidata appartiene a una board con check locali
 - **AND** il minimo su 2 minuti a 7 GB, sopra il pavimento di 6 GB
 - **WHEN** il dispatcher valuta la card successiva
 - **THEN** la card SHALL essere ammessa, e NON per esenzione
-- **AND** con la stessa lettura e un turno che sta ancora girando comandi qui la card NON SHALL essere ammessa
+- **AND** con la stessa lettura, un turno che sta ancora girando comandi qui e una board candidata con check locali la card NON SHALL essere ammessa
 
 #### Scenario: a Topics fermo una card parte anche sotto il pavimento
 - **GIVEN** il minimo su 2 minuti a 4,8 GB, sotto il pavimento nativo di 6 GB
@@ -3822,9 +3851,53 @@ in coda: `held2m` a 7,0 / 8,0 / 9,9 GB tratteneva, a 12,0 GB no.
 - **THEN** la card SHALL essere ammessa, e il motivo SHALL dire che è passata perché Topics non stava facendo niente
 
 #### Scenario: con un agente al lavoro il pavimento vale pieno
-- **GIVEN** il minimo su 2 minuti a 4,8 GB e un agente vivo
+- **GIVEN** il minimo su 2 minuti a 4,8 GB, un agente vivo e una candidata su board con check locali
 - **WHEN** il dispatcher valuta la card successiva
 - **THEN** la card NON SHALL essere ammessa, e il motivo SHALL restare quello del pavimento
+
+#### Scenario: una board senza check locali ammette un solo posto esente
+- **GIVEN** runtime nativo, un agente con check locali in volo e `held2m` stabile a 5 GB per 2 minuti
+- **AND** una card normale su una board i cui check sono tutti prove CI, o che non ha check
+- **WHEN** il dispatcher valuta la card
+- **THEN** la card SHALL partire in esenzione e scrivere una riga con l'id del tentativo
+- **AND** una seconda card senza check locali SHALL restare ferma finché il posto esente è occupato
+
+#### Scenario: i 2 GB proteggono solo il ramo esente
+- **GIVEN** un agente con check locali in volo, una candidata normale su board senza check locali e `held2m` a 1,9 GB
+- **WHEN** il dispatcher valuta la candidata
+- **THEN** la nuova esenzione SHALL essere rifiutata perché `held2m` è sotto 2 GB
+- **AND** il pavimento ordinario SHALL trattenere la card
+- **AND** con Mac fermo e board con check locali gli esiti a 5 GB e 1,9 GB SHALL restare quelli di main, inclusa la deroga storica della prima card
+
+#### Scenario: il budget resources usa la prenotazione della card esente
+- **GIVEN** modalità `resources`, share predefinita del 60%, runtime nativo, una card in volo prezzata a 4 GB e `held2m` a 5 GB
+- **AND** una candidata normale su una board senza check locali, senza un altro posto esente occupato
+- **WHEN** il dispatcher valuta il budget e il pavimento
+- **THEN** la candidata esente SHALL passare anche l'asse memoria del budget, usando 1 GB come `costMemGB`
+- **AND** il posto esente SHALL ridurre la memoria disponibile e aumentare `ourMemGB` per le ammissioni successive, senza cambiare l'asse CPU
+
+#### Scenario: la prenotazione non prezza di nuovo la card esente
+- **GIVEN** un posto esente occupato con prenotazione da 1 GB e una candidata non esente su board con check locali
+- **WHEN** il dispatcher valuta la candidata
+- **THEN** la memoria disponibile SHALL ridursi di 1 GB una sola volta
+- **AND** `spendingHere` e il prezzo della candidata SHALL restare quelli di main
+
+#### Scenario: l'esenzione supera heavyBusy solo per una card normale
+- **GIVEN** una card heavy in volo su un'altra board, `held2m` a 5 GB e un posto esente libero
+- **WHEN** una card normale su una board senza check locali viene valutata
+- **THEN** la card normale SHALL partire in esenzione
+- **AND** una candidata heavy SHALL restare ferma
+
+#### Scenario: il posto esente si libera e si ripristina solo se ancora valido
+- **GIVEN** un posto esente occupato da una card
+- **WHEN** il turno termina con done, fail, abort, revoca o sepoltura
+- **THEN** il posto SHALL essere liberato
+- **AND** dopo un riavvio il posto SHALL essere ripristinato al reattach solo se è libero e la board è ancora senza check locali; altrimenti SHALL essere azzerato
+
+#### Scenario: ogni ripartenza esente lascia la propria riga
+- **GIVEN** la stessa card esente riparte con un diverso id di tentativo entro 10 secondi
+- **WHEN** entrambe le partenze vengono ammesse
+- **THEN** la board SHALL contenere due righe distinte, ciascuna con il proprio id di tentativo
 
 #### Scenario: il disco non ha esenzione
 - **GIVEN** meno di 12 GB liberi sul disco delle worktree e zero lavoro in volo
@@ -3932,9 +4005,31 @@ toolbar e coerente con gli altri dropdown dell'app (stessa primitiva `Menu`:
 flip/clamp, Escape, esclusività fra popover). Resta valido KANBAN-12: una sola
 porta alle impostazioni, e nessuna riga sotto la toolbar.
 
+**Il prezzo di una card in memoria è quello della sua board**, non una cifra
+della macchina. Una board che lavora IN PLACE e non dichiara check locali (le
+sole prove della CI di GitHub non lo sono) prezza le sue card all'agente e ai
+suoi comandi leggeri: 1 GB col runtime nativo, il picco del processo col CLI.
+Ogni altra board, e ogni card segnata pesante, paga il listino dei picchi dei
+check: tra 4 e 6 GB, quattro a registro vuoto. La prenotazione dei turni in volo
+SHALL contare ogni turno al prezzo della SUA board, per tutta la vita del
+turno. Davanti a un blocco di MEMORIA (il pavimento, o l'asse memoria del tetto
+per risorse) una card leggera SHALL ripetere la stessa domanda col proprio
+prezzo e passare solo se vi passerebbe: disco pieno, freno di spesa, asse CPU
+con la sua isteresi e finestra del piano NON SHALL essere alleggeriti. Il
+pavimento (6 GB nativo) e la sua finestra di due minuti non cambiano. Misurato
+il 26/10/2026: l'albero del server con un turno in volo sta a 1,04 GB (p95)
+contro i 4,0 del vecchio prezzo, e i giri di check delle board con worktree a
+4,3 GB (p95), quindi il listino resta per loro. L'istantanea della coda memoria
+porta il prezzo di ogni card, e `GET /api/system/dispatch-capacity?board=<id>`
+risponde per quella board; senza board vale il prezzo caro.
+
 MISURA: `shared/machine-budget.test.ts` per il controllore puro (budget contro
 libero, ammissione uno per tick con isteresi, ordine di congelamento, due
 letture per decidere, e il rigioco delle otto card del 07/09);
+`server/services/dispatch-card-price.test.ts` e
+`server/services/task-dispatcher-card-price.test.ts` per la riga di memoria
+della board (classe, prenotazione per turno, ripresa, solo la memoria
+alleggerita, coda e capacità per board);
 `server/services/budget-governor.test.ts` per il congelamento vero;
 `server/services/task-dispatcher-pressure.test.ts` per i due versi dentro il
 dispatcher; `server/services/task-dispatcher-admission.test.ts` per le porte
@@ -4042,6 +4137,17 @@ tetto del NODO a decidere quando parte. Su questa board lo slot remoto NON SHALL
 consumare posti: con una card remota in `working`, `busyCount()` e il `running`
 di `GET /api/system/dispatch-capacity` SHALL restare a zero.
 
+I cancelli che misurano QUESTA macchina NON SHALL trattenere una card remota (nodo
+o Cloud Claude): il pavimento di memoria, il budget per risorse e la sua rampa,
+l'attesa del task pesante, la sessione esterna su una board in-place e il tetto
+locale valgono solo per le card che girano qui. Una card remota in `working` NON
+SHALL contare nel censimento locale (`liveAgents`, `busyCount`) né come task
+pesante in volo, nemmeno mentre il nodo non ha ancora risposto. Il disco pieno
+(la consegna si pianta in questo checkout), il freno di spesa e la finestra del
+piano SHALL invece valere anche per lei. Remota vuol dire una macchina CON un
+indirizzo: una riga di `machines` senza `base_url` (un vecchio hostname di questo
+Mac) resta locale per ogni cancello.
+
 A ogni giro di riconciliazione lo stato e i commenti di servizio del nodo SHALL
 essere SPECCHIATI sulla card locale, senza duplicati: la deduplica SHALL passare
 dall'ancora di KANBAN-72, cioè dall'id del commento sul nodo. La chat del nodo
@@ -4067,6 +4173,7 @@ un motivo dichiarato (`node_unreachable`) e un `dispatch_deferred_until`: la car
 NON SHALL mai partire su questa macchina perché il nodo non ha risposto.
 
 MISURA: `bun test server/services/task-dispatcher-remote-node.test.ts
+server/services/task-dispatcher-remote-local-gates.test.ts
 tests/integration/nodes-routes.test.ts server/services/node-client.test.ts` verde,
 e `npx playwright test tests/e2e/board-remote-node.spec.ts` verde: la corsia
 remota non spende il tetto locale, il giro del bundle pianta il ramo su un repo
@@ -5167,3 +5274,28 @@ a un modello. A riquadro chiuso non SHALL partire alcun polling.
 - **GIVEN** una card senza sessione assegnata
 - **WHEN** si passa sulla card
 - **THEN** non SHALL apparire alcun riquadro di sessione
+
+### Requirement: KANBAN-97 — La coda memoria è leggibile e una card può partire per scelta umana
+
+**GET /api/dispatch/memory-queue SHALL restituire** la lettura memoria corrente e il suo orario, la sola soglia effettiva di avvio, le card in attesa con motivo `waiting-memory`, posizione nell'ordine reale di ammissione e totale, card in esecuzione con peso stimato, i principali consumatori con nomi leggibili e fino a due ore di letture tenute in memoria. Nessun dato della serie viene scritto nel database.
+
+Il dispatcher SHALL inviare via `task:updated` il codice e la posizione di coda quando cambiano. Una card trattenuta dalla memoria SHALL avere `dispatchError: "waiting-memory"`, senza prosa tecnica, identificativi di processo o soglie multiple.
+
+**POST /api/boards/:projectId/tasks/:taskId/start-anyway SHALL avviare solo la card scelta**, anche sotto la soglia memoria, conservandone il costo reale e tutte le altre guardie. Doppie richieste SHALL produrre un solo avvio e un solo commento «Partita per scelta dell'utente.»; una card non trattenuta dalla memoria SHALL ricevere HTTP 409.
+
+Con zero lavoro Topics in esecuzione, il posto memoria già previsto SHALL restare limitato a una card per giro anche sulle board con check locali; la soglia e il tetto «per risorse» restano invariati.
+
+#### Scenario: una card parte e le altre restano in ordine
+- **GIVEN** memoria a 4,7 GB, una board con check locali e quattro card ordinate dal dispatcher
+- **WHEN** il dispatcher esegue un giro
+- **THEN** parte una card e la seconda è in coda come posizione 2 di 4 con motivo `waiting-memory`
+
+#### Scenario: avvio manuale singolo
+- **GIVEN** una card trattenuta dalla memoria
+- **WHEN** l'owner invia due richieste concorrenti di avvio manuale
+- **THEN** parte quella card una sola volta e compare un solo commento
+
+#### Scenario: risposta senza dettagli tecnici
+- **GIVEN** memoria simulata a 4,7 GB
+- **WHEN** si legge l'API della coda
+- **THEN** la risposta contiene una soglia, posizioni, consumatori leggibili e nessun identificativo o frase tecnica del pavimento

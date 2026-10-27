@@ -8,7 +8,7 @@
  * la sposta bene non serve altra idraulica — e se un giorno qualcuno la
  * "ottimizza" via, qui diventa rosso.
  *
- * @covers KANBAN-13
+ * @covers KANBAN-13, CARDPROCESS-01
  */
 import { test, expect, describe, beforeEach, afterAll } from "bun:test";
 import { Database } from "bun:sqlite";
@@ -105,11 +105,11 @@ function call(router: any, method: string, path: string, body?: any) {
 describe("route del fan-out", () => {
   let db: Database, topics: Map<string, Topic>, broadcasts: any[], deleted: string[];
   let router: any, svc: ReturnType<typeof createTaskService>, attempts: ReturnType<typeof createTaskAttemptStore>;
-  let previewed: string[];
+  let previewed: string[], stoppedTopics: string[];
 
   beforeEach(() => {
     db = freshDb();
-    broadcasts = []; deleted = []; previewed = [];
+    broadcasts = []; deleted = []; previewed = []; stoppedTopics = [];
     topics = new Map([
       ["topic-1", { id: "topic-1", name: "t1", projectPath: "/Users/x/Projects/alpha" }],
       ["topic-2", { id: "topic-2", name: "t2", projectPath: "/Users/x/Projects/alpha" }],
@@ -120,6 +120,7 @@ describe("route del fan-out", () => {
     router = createTasksRouter(makeCtx(db, topics, broadcasts, deleted), undefined, {
       taskDeliveryRef: async () => ({ branch: "task/wt-2", commit: "deadbeef" }),
       preparePreview: async (taskId: string) => { previewed.push(taskId); },
+      stopTopicProcesses: (topicId: string) => { stoppedTopics.push(topicId); },
     });
   });
 
@@ -177,6 +178,7 @@ describe("route del fan-out", () => {
     expect(deleted).toEqual(["wt-1"]);
     expect(topics.get("topic-1")!.archived).toBe(true);
     expect(topics.get("topic-2")!.archived).toBeUndefined();
+    expect(stoppedTopics).toEqual(["topic-1"]);
     expect(broadcasts.some((b) => b.type === "topic:archived" && b.topic.id === "topic-1")).toBe(true);
 
     // La fotografia di consegna si ri-scatta sul vincitore: `captureDelivery`

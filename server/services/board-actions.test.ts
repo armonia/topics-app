@@ -94,18 +94,22 @@ describe("interceptBoardAction", () => {
 
   test("archiviare i figli ne smonta le tab, e il frame dice quali chiavi dimenticare", () => {
     const torn: string[] = [];
+    const stopped: string[] = [];
     for (const [label, expected] of [
       [ARCHIVE_PARKED_LABEL, ["c1"]],
       [REQUEUE_PARKED_LABEL, []],
       [PROMOTE_PARKED_LABEL, []],
     ] as const) {
       torn.length = 0;
+      stopped.length = 0;
       const h = harness();
       h.deps.teardownTaskBrowserState = (id) => { torn.push(id); return { taskIds: [id, `${id}-figlio`] }; };
+      h.deps.stopCardProcesses = (id) => { stopped.push(id); };
       interceptBoardAction(h.deps, target, label);
       // Only an ARCHIVED child loses its tabs: a requeued or promoted one is
       // still on the board and its tabs are still in use.
       expect(torn).toEqual([...expected]);
+      expect(stopped).toEqual([...expected]);
       const deleted = h.events.filter((e) => (e as { type?: string }).type === "task:deleted");
       expect(deleted).toEqual(expected.map((id) => ({ type: "task:deleted", projectId: "p1", taskId: id, taskIds: [id, `${id}-figlio`] })));
     }

@@ -145,6 +145,12 @@ export interface NodeRunReport {
   deliveryCommit: string | null;
   baseSha: string | null;
   stat: unknown;
+  /**
+   * Why a run in review brings no branch, in words for the card. A paired node never sends
+   * it; the Claude cloud does (error, silence, refused origin), and without it the card
+   * would read «the node delivered no branch» over a session that failed.
+   */
+  reason?: string | null;
 }
 
 export type BundleResult = { empty: true } | { empty: false; bytes: Uint8Array };

@@ -34,7 +34,7 @@ function withGrants(db: Database): void {
 
 function withAgentStart(db: Database): void {
   db.run("ALTER TABLE machines ADD COLUMN name TEXT");
-  db.run("ALTER TABLE machines ADD COLUMN base_url TEXT");
+  // The FK stub already carries `base_url`: the local census reads it.
   db.run(`CREATE TABLE agent_start_capabilities (
     id TEXT PRIMARY KEY, recipient_kind TEXT, recipient_id TEXT, project_id TEXT,
     machine_id TEXT, repository_key TEXT, model TEXT, effort TEXT,

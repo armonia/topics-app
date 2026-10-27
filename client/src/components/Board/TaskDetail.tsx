@@ -1421,7 +1421,7 @@ export function TaskDetail({ projectId, taskId, initialStatus, initialTitle, bum
   // "auto" selects across compatible connected providers; an explicit id pins it.
   const modelBtnRef = useRef<HTMLButtonElement>(null);
   const [modelMenuOpen, setModelMenuOpen] = useState(false);
-  const drawerRouting = surfaceTopicsRoutingEnabled(task?.topicsRouting, boardTopicsRoutingDefault, task?.model, boardDispatchModel);
+  const drawerRouting = surfaceTopicsRoutingEnabled(task ?? {}, boardTopicsRoutingDefault, boardDispatchModel);
   const modelTrigger = useTaskModelTrigger(task?.model || null, drawerRouting, 'task', boardDispatchModel);
   // Le etichette del drawer: toggle, e una sola visibilita' per volta (accendere
   // `invisibile` spegne `visibile`, che e' cio' che fa `normalizeLabels` anche

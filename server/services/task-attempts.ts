@@ -109,6 +109,14 @@ export interface TaskAttemptStore {
   select(taskId: string, attemptId: string): { winner: TaskAttempt; losers: TaskAttempt[] } | null;
   /** Rimuove le righe di un task (il fan-out riparte pulito su un re-dispatch). */
   clear(taskId: string): void;
+  /** Persist the memory reserved by a no-local-check exemption for this task. */
+  setNoLocalChecksReservation?(taskId: string, reservationGB: number | null): void;
+  /** Read a task's no-local-check reservation after a restart. */
+  getNoLocalChecksReservation?(taskId: string): number | null;
+  /** List persisted reservations so terminal task moves can release stale rows. */
+  listNoLocalChecksReservationTaskIds?(): string[];
+  /** Drop persisted reservations for tasks that are no longer running. */
+  clearInactiveNoLocalChecksReservations?(): void;
 }
 
 export function createTaskAttemptStore(db: Database): TaskAttemptStore {
@@ -202,6 +210,36 @@ export function createTaskAttemptStore(db: Database): TaskAttemptStore {
 
     clear(taskId) {
       db.prepare("DELETE FROM task_attempts WHERE task_id = ?").run(taskId);
+    },
+
+    setNoLocalChecksReservation(taskId, reservationGB) {
+      if (reservationGB == null) {
+        db.prepare("DELETE FROM task_no_local_check_reservations WHERE task_id = ?").run(taskId);
+      } else {
+        db.prepare(
+          `INSERT INTO task_no_local_check_reservations (task_id, reservation_gb) VALUES (?, ?)
+           ON CONFLICT(task_id) DO UPDATE SET reservation_gb = excluded.reservation_gb`,
+        ).run(taskId, reservationGB);
+      }
+    },
+
+    getNoLocalChecksReservation(taskId) {
+      const row = db.prepare(
+        "SELECT reservation_gb FROM task_no_local_check_reservations WHERE task_id = ?",
+      ).get(taskId) as { reservation_gb: number | null } | undefined;
+      return row?.reservation_gb ?? null;
+    },
+
+    listNoLocalChecksReservationTaskIds() {
+      return (db.query("SELECT task_id FROM task_no_local_check_reservations").all() as { task_id: string }[])
+        .map((row) => row.task_id);
+    },
+
+    clearInactiveNoLocalChecksReservations() {
+      db.prepare(
+        `DELETE FROM task_no_local_check_reservations
+          WHERE task_id IN (SELECT id FROM tasks WHERE status != 'in_progress')`,
+      ).run();
     },
   };
 }

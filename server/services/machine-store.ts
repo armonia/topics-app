@@ -43,6 +43,12 @@ export interface MachineStore {
    * `baseUrl` is where it answers; the device token never comes through here.
    */
   upsertNode(input: { hostname: string; name: string; baseUrl: string }): Machine;
+  /**
+   * Heartbeat only: mark the row online and stamp the time, touching nothing else. A probe that
+   * wrote the whole row back from an older read could undo a rename or a re-pairing done meanwhile.
+   * `null` when the row is gone.
+   */
+  touchNode(id: string): Machine | null;
   /** How many tasks still name this machine. Feeds the MACHINE-01 conflict. */
   countTasks(id: string): number;
   delete(id: string): boolean;
@@ -103,6 +109,10 @@ export function createMachineStore(db: Database, baseDir: string): MachineStore 
       UPDATE machines SET
         name = $name, base_url = $base_url, status = 'online',
         last_heartbeat_at = $now, last_seen_at = $now, updated_at = $now
+      WHERE id = $id
+    `),
+    touchNode: db.prepare(`
+      UPDATE machines SET status = 'online', last_heartbeat_at = $now, last_seen_at = $now, updated_at = $now
       WHERE id = $id
     `),
     countTopics: db.prepare(`SELECT COUNT(*) as n FROM topics WHERE machine_id = ?`),
@@ -199,6 +209,11 @@ export function createMachineStore(db: Database, baseDir: string): MachineStore 
       const row = stmts.getById.get(id);
       if (!row) throw new Error("upsertNode: row missing after write");
       return rowToMachine(row);
+    },
+    touchNode(id) {
+      stmts.touchNode.run({ $id: id, $now: new Date().toISOString() });
+      const row = stmts.getById.get(id);
+      return row ? rowToMachine(row) : null;
     },
     countTasks(id) {
       return (stmts.countTasks.get(id) as { n: number } | null)?.n ?? 0;
