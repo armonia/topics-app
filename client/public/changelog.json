@@ -1,5 +1,22 @@
 [
   {
+    "version": "2.3.38",
+    "date": "2026-10-27",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "il modello dichiarato in ogni passo dei workflow e dei sottoagenti (card f50e49ae) (#472)",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        }
+      ]
+    }
+  },
+  {
     "version": "2.3.37",
     "date": "2026-10-27",
     "sections": {
