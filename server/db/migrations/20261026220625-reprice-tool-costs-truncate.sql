@@ -1,0 +1,31 @@
+-- The per-tool costs of the 5.5 reprice, brought back under the message total.
+--
+-- 20261024180000-reprice-5-5-history scaled each tool's `costCents` by the
+-- message's ratio (new cost / old cost), ROUNDED and floored at one cent. On a
+-- turn of many cheap tools that adds up to more than the message: six 1-cent
+-- tools in a 6 cent turn repriced to 4 stay six 1-cent tools, 6 cents of tools
+-- in a 4 cent message. That migration is already applied (production, 24/10),
+-- so it is corrected here and not edited.
+--
+-- THE WORK IS NOT IN THIS FILE. `messages.blocks` is a zstd blob above 512
+-- bytes (`encodeCol`, shared/message-blob.ts) and SQLite cannot read zstd: the
+-- first version of this migration was two UPDATEs guarded by `json_valid`, and
+-- on a copy of the live DB it changed 0 rows, because 1,898 of the 2,065
+-- repriced rows store `blocks` as a blob. The correction is
+-- `truncateToolCostsToTotal` in server/db/migration-steps.ts, which the runner
+-- calls in this migration's transaction (key: this file name). It decodes
+-- both `tool_calls` and `blocks`, text or blob, and writes back in the form it
+-- read.
+--
+-- What it does: on every repriced row (`cost_cents_before_reprice` not null)
+-- whose tools add up to MORE than `cost_cents`, each tool is scaled by
+-- cost_cents / (sum of the tools) and truncated to whole cents, so the
+-- truncated parts add up to at most `cost_cents`. A row whose tools already fit
+-- is not written, so a second run finds nothing to change: idempotent. The
+-- tools' costs before the reprice are gone (the old migration overwrote them),
+-- which is why the truncated value cannot be recomputed from them.
+--
+-- The file still holds one statement because `db.exec` refuses a file with
+-- none ("Query contained no valid SQL statement"); the registry row is written
+-- by the runner after the step.
+SELECT 1;
