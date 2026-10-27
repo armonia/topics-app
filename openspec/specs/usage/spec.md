@@ -922,3 +922,23 @@ counted in that chat's project.
 - **GIVEN** a metered completion
 - **WHEN** it answers
 - **THEN** the caller SHALL have the answer before the row is written
+
+### Requirement: USAGE-25 — The before/after restart comparison counts only measured turns, priced with the one cost rule
+
+The restart comparison (`scripts/token-before-after.ts`) SHALL read the `messages` table read-only, so it can run against the production database while the server is up. It SHALL split the rows at the given cut instant into a window before it and a window after it; a cut written without a zone SHALL be read as UTC, like the stored timestamps. It SHALL count only assistant rows that are not partial and whose `usage_prompt_tokens` is not NULL: a NULL means "not measured" and SHALL NOT be turned into a zero, which would lower the average. Each counted turn SHALL be priced with `costTokens`, the number the UI shows.
+
+#### Scenario: The cut splits the rows and unmeasured rows stay out
+- **GIVEN** assistant rows on both sides of the cut, plus a user row, a partial row, a row with NULL prompt tokens and a row outside the window
+- **WHEN** the comparison runs
+- **THEN** each side SHALL count only its measured rows
+- **AND** every average and cost SHALL be that of the measured rows alone
+
+#### Scenario: A cut without a zone is UTC
+- **GIVEN** a cut written without a zone
+- **WHEN** the comparison runs
+- **THEN** the cut it reports SHALL be the same instant read as UTC
+
+#### Scenario: A missing cut stops the run
+- **GIVEN** no `--cut` option
+- **WHEN** the comparison runs
+- **THEN** it SHALL exit 1 and name the missing option
