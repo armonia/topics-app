@@ -1620,6 +1620,14 @@ const IT: Dict = {
   'board.settings.deployCommandSuggestion': 'Il progetto ha già uno script `deploy`: {cmd}',
   'board.settings.deployCommandUseSuggestion': 'Usa questo',
   'board.settings.autoDispatch': 'Auto-dispatch',
+  'board.dash.hero': '{running} al lavoro · {queued} in coda',
+  'board.dash.memoryFree': 'Memoria libera del Mac: {free} su {total}.',
+  'board.dash.memoryWait': 'Ne parte un’altra quando il Mac ha {start} liberi (adesso {free}).',
+  'board.dash.queue': 'In coda · {n}',
+  'board.dash.queueEmpty': 'Nessuna card in coda.',
+  'board.dash.waiting': 'In coda',
+  'board.dash.since': 'da {time}',
+  'board.dash.holders': 'Chi tiene la memoria del Mac · {total}',
   'board.settings.title': 'Impostazioni della board',
   // I titoli delle sezioni: dieci righe di seguito erano un elenco senza
   // gerarchia, e la prima (l'interruttore GLOBALE) sembrava di questa board.

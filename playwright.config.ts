@@ -799,6 +799,9 @@ export default defineConfig({
         // commit that showed its composer: the run that lost a message was a
         // WebKit one (chat-composer-draft-race).
         "**/chat-composer-draft-race.spec.ts",
+        // The dispatch dashboard panel: the DOM reading runs in both engines, the
+        // webkit run also gives the screenshot taken on the engine the app ships in.
+        "**/board-dispatch-dashboard.spec.ts",
       ],
       use: {
         browserName: "webkit",
