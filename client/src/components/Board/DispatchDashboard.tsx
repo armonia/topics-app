@@ -75,7 +75,9 @@ export function DispatchDashboardView({ capacity, snapshot, queue }: {
       </div>
       {free !== null && (
         <p className="text-mini text-app-text-secondary" data-testid="dispatch-dashboard-memory">
-          {startGB !== null && queue.length > 0
+          {capacity?.admission?.blockedBy === 'cpu' && queue.length > 0
+            ? tr('board.dash.cpuWait')
+            : startGB !== null && queue.length > 0
             ? tr('board.dash.memoryWait', { free: gb(free, lang), start: gb(startGB, lang) })
             : tr('board.dash.memoryFree', { free: gb(free, lang), total: total !== null ? gb(total, lang) : '' })}
         </p>

@@ -1623,6 +1623,7 @@ const IT: Dict = {
   'board.dash.hero': '{running} al lavoro · {queued} in coda',
   'board.dash.memoryFree': 'Memoria libera del Mac: {free} su {total}.',
   'board.dash.memoryWait': 'Ne parte un’altra quando il Mac ha {start} liberi (adesso {free}).',
+  'board.dash.cpuWait': 'Le card in coda aspettano che il Mac sia meno occupato.',
   'board.dash.queue': 'In coda · {n}',
   'board.dash.queueEmpty': 'Nessuna card in coda.',
   'board.dash.waiting': 'In coda',

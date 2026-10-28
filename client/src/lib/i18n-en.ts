@@ -1452,6 +1452,7 @@ const EN = {
   'board.dash.hero': '{running} working · {queued} queued',
   'board.dash.memoryFree': 'Free memory on the Mac: {free} of {total}.',
   'board.dash.memoryWait': 'Another one starts when the Mac has {start} free (now {free}).',
+  'board.dash.cpuWait': 'Queued cards wait for the Mac to be less busy.',
   'board.dash.queue': 'Queued · {n}',
   'board.dash.queueEmpty': 'No cards queued.',
   'board.dash.waiting': 'Queued',
