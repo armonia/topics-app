@@ -7,7 +7,10 @@
  * takes the database and every proof of it at once. This module copies the
  * day's snapshot to a different host over `scp` (the home Windows PC, woken
  * first by a configurable command), reads the copy back over the same channel
- * and only then writes a receipt. `verifyOffsite` later checks the receipt
+ * and only then writes a receipt. The wake command returns as soon as the magic
+ * packet is sent, while the PC is still booting: the copy waits for the host's
+ * ssh port to answer (`waitForSsh`) before the first `scp`, or `scp` dies with
+ * «Connection closed» and the night is lost. `verifyOffsite` later checks the receipt
  * without touching the network: the read-back already happened at copy time,
  * so a green check means bytes that were seen coming back, not bytes assumed
  * sent.
@@ -44,6 +47,58 @@ export const RECEIPT_FILE = "offsite.json";
 export const MAX_AGE_DAYS = 2;
 
 export type Transfer = (args: string[]) => { status: number | null; stderr: string };
+
+/**
+ * How long the copy waits for the host's ssh port after the wake command, and
+ * how it asks. `probe` runs one `ssh` with the given args and returns its exit
+ * code (null when it could not run). Tests replace it or shorten the times.
+ */
+export interface SshWait {
+  /** Give up after this many ms without an answer. */
+  waitMs: number;
+  /** Pause between two tries, in ms. */
+  everyMs: number;
+  probe: (args: string[]) => number | null;
+}
+
+export const DEFAULT_SSH_WAIT: SshWait = {
+  waitMs: 90_000,
+  everyMs: 3_000,
+  probe: (args) => spawnSync("ssh", args, { timeout: 15_000 }).status,
+};
+
+/** Synchronous pause: `copyOffsite` is synchronous and the job is a plain script. */
+const sleepSync = (ms: number): void => {
+  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+};
+
+/** `[user@]host` of an scp destination: everything before the first `:`. */
+export function sshTarget(dest: string): string {
+  return dest.slice(0, dest.indexOf(":"));
+}
+
+/**
+ * Waits until `ssh <target> true` succeeds, then returns the number of tries.
+ * The wake command returns while the PC is still booting, so the first scp
+ * after it used to die with «Connection closed». Throws, naming the host, when
+ * no try answers within `waitMs`: the caller then writes no receipt and the
+ * restore check stays red with a reason.
+ */
+export function waitForSsh(dest: string, ssh: SshWait = DEFAULT_SSH_WAIT, sleep: (ms: number) => void = sleepSync): number {
+  const target = sshTarget(dest);
+  const args = ["-o", "ConnectTimeout=5", "-o", "BatchMode=yes", target, "true"];
+  const deadline = Date.now() + ssh.waitMs;
+  let tries = 0;
+  for (;;) {
+    tries++;
+    if (ssh.probe(args) === 0) return tries;
+    if (Date.now() >= deadline) break;
+    sleep(ssh.everyMs);
+  }
+  throw new Error(
+    `off-disk host ${target} does not answer ssh after ${ssh.waitMs / 1000} s (${tries} tries): no off-disk copy`,
+  );
+}
 
 const SCP_OPTS = ["-q", "-o", "BatchMode=yes", "-o", "ConnectTimeout=15"];
 
@@ -118,7 +173,8 @@ function destHost(dest: string): string | null {
  * Copies `<backupsDir>/<name>` to the off-disk destination, reads it back
  * over the same channel, and writes the receipt on hash match. Throws on a
  * same-machine destination, a failed transfer, or a read-back that differs;
- * in those cases no receipt is written.
+ * in those cases no receipt is written. After the wake command it waits for
+ * the host's ssh port (`waitForSsh`), so the upload starts on a booted host.
  */
 export function copyOffsite(
   backupsDir: string,
@@ -126,14 +182,17 @@ export function copyOffsite(
   cfg: OffsiteConfig,
   now: Date = new Date(),
   transfer: Transfer = defaultTransfer,
+  ssh: SshWait = DEFAULT_SSH_WAIT,
 ): OffsiteReceipt {
   if (LOCAL_HOSTS.has(destHost(cfg.dest) ?? "")) {
     throw new Error("off-disk destination is this machine");
   }
   if (cfg.wake) {
-    // Idempotent by contract; a host that stays down fails below at scp time.
+    // Idempotent by contract; a host that stays down fails below at ssh or scp time.
     spawnSync("/bin/sh", ["-c", cfg.wake], { timeout: 180_000 });
   }
+  // Still before the receipt is removed: a host that never answers changes nothing on disk.
+  waitForSsh(cfg.dest, ssh);
   const slot = offsiteSlot(now);
   const localFile = join(backupsDir, name);
   const remote = `${cfg.dest}/${slot}`;
