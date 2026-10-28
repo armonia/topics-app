@@ -61,7 +61,7 @@ function SectionLabel({ children, right }: { children: React.ReactNode; right?: 
   return (
     <div className="mb-1 flex items-baseline justify-between gap-2 text-mini font-medium uppercase tracking-wide text-app-text-secondary">
       <span>{children}</span>
-      {right && <span className="normal-case tracking-normal font-normal text-app-text-muted">{right}</span>}
+      {right && <span className="normal-case tracking-normal font-normal text-app-text-secondary">{right}</span>}
     </div>
   );
 }
@@ -145,7 +145,7 @@ export function MemoryChart({ history, startGB, now, width: initialWidth = 372, 
           for (let i = 1; i < points.length; i++) if (Math.abs(points[i]!.t - t) < Math.abs(points[best]!.t - t)) best = i;
           setHover(best);
         }}>
-        <g className="text-app-text-muted" fontSize="10" fill="currentColor">
+        <g className="text-app-text-secondary" fontSize="10" fill="currentColor">
           {ticks.map((v) => (
             <g key={v}>
               <line x1={PL} x2={W - PR} y1={y(v)} y2={y(v)} stroke="var(--border)" />
@@ -164,7 +164,7 @@ export function MemoryChart({ history, startGB, now, width: initialWidth = 372, 
         <circle cx={x(last.t)} cy={y(last.v)} r="4" fill="var(--primary)" stroke="var(--popover-bg, var(--bg-surface))" strokeWidth="2" />
         <text x={x(last.t)} y={lastLabelY} textAnchor="end" fontSize="10.5" fontWeight="600" fill="currentColor" className="text-app-text">{gb(last.v)}</text>
         {hasRunning && (
-          <g className="text-app-text-muted" fontSize="10" fill="currentColor">
+          <g className="text-app-text-secondary" fontSize="10" fill="currentColor">
             {/* the height stops at 2 cards, the written number is the real one */}
             {bars.map((b, i) => <rect key={i} x={b.x} y={SY + SH - (Math.min(b.c, 2) / 2) * SH} width={b.w} height={(Math.min(b.c, 2) / 2) * SH} fill="var(--primary)" fillOpacity=".28" />)}
             <line x1={PL} x2={W - PR} y1={SY + SH} y2={SY + SH} stroke="var(--border)" />
@@ -174,7 +174,7 @@ export function MemoryChart({ history, startGB, now, width: initialWidth = 372, 
             <text x={PL - 5} y={SY + SH - 2} textAnchor="end">{tr('board.dash.chartCards')}</text>
           </g>
         )}
-        <g className="text-app-text-muted" fontSize="10" fill="currentColor">
+        <g className="text-app-text-secondary" fontSize="10" fill="currentColor">
           <text x={x(t0)} y={axisY}>{tr('board.dash.chartAgo', { min: mins })}</text>
           {mins >= 20 && <text x={(x(t0) + x(tEnd)) / 2} y={axisY} textAnchor="middle">{tr('board.dash.chartAgo', { min: Math.round(mins / 2) })}</text>}
           <text x={x(tEnd)} y={axisY} textAnchor="end">{tr('board.dash.chartNow')}</text>
