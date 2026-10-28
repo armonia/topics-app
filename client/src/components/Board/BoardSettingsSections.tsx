@@ -51,7 +51,7 @@ export function SettingsPanelHead({ onClose }: { onClose: () => void }) {
 export function GlobalSettingsSection({ dispatchOn, onToggleDispatch, tasks }: {
   dispatchOn: boolean | null;
   onToggleDispatch: () => void;
-  /** Le card della board, da cui il cruscotto ricava la coda. Assenti = niente cruscotto. */
+  /** The board's cards, from which the dashboard derives the queue. Absent = no dashboard. */
   tasks?: readonly BoardTask[];
 }) {
   const tr = useT();

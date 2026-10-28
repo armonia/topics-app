@@ -1,9 +1,9 @@
 /**
- * Il cruscotto in testa al pannello auto-dispatch dice quante card lavorano,
- * quali aspettano e in che ordine, e chi tiene la memoria: con i testi neutri
- * del server e nessun gergo. Sopra la prima versione, le tre migliorie del
- * disegno: grafico della memoria, riga di stato dal vivo, coda con progetto,
- * età e «Avvia comunque» sulla prima.
+ * The dashboard at the top of the auto-dispatch panel says how many cards work,
+ * which wait and in what order, and who holds the memory: with the server's
+ * neutral texts and no jargon. On top of the first version, the three design
+ * improvements: memory chart, live status row, queue with project,
+ * age and Start anyway on the first card.
  *
  * @covers KANBAN-79
  */
@@ -57,17 +57,17 @@ describe('cruscotto auto-dispatch', () => {
     expect(ko).toContain('1 card è ferma per un guasto');
     const ko2 = text(renderToStaticMarkup(<DispatchDashboardView capacity={capacity} snapshot={snapshot} queue={queue} broken={2} now={NOW} />));
     expect(ko2).toContain('2 card sono ferme per un guasto');
-    // Una card che il server dà per incagliata non «parte da sola».
+    // A card the server considers stuck does not "start by itself".
     const st = text(renderToStaticMarkup(<DispatchDashboardView capacity={capacity} snapshot={snapshot} queue={[{ ...queue[0]!, stalled: true }, queue[1]!]} dispatchOn now={NOW} />));
     expect(st).toContain('1 card in coda non parte da sola');
     expect(st).not.toContain('partono da sole');
-    // Con l'interruttore ancora da leggere non promette niente.
+    // With the switch still unread it promises nothing.
     const unknown = text(renderToStaticMarkup(<DispatchDashboardView capacity={capacity} snapshot={snapshot} queue={queue} dispatchOn={null} now={NOW} />));
     expect(unknown).not.toContain('partono da sole');
     const off = text(renderToStaticMarkup(<DispatchDashboardView capacity={capacity} snapshot={snapshot} queue={queue} dispatchOn={false} now={NOW} />));
     expect(off).toContain('Auto-dispatch spento: le 2 in coda partono quando lo accendi.');
     expect(off).not.toContain('partono da sole');
-    // e a dispatch spento la riga della memoria non promette «ne parte un'altra»
+    // and with dispatch off the memory row does not promise that another one starts
     expect(off).not.toContain('Ne parte un’altra');
     const none = text(renderToStaticMarkup(<DispatchDashboardView capacity={capacity} snapshot={snapshot} queue={[]} now={NOW} />));
     expect(none).toContain('Nessuna card è ferma per un guasto.');
@@ -80,10 +80,10 @@ describe('cruscotto auto-dispatch', () => {
     expect(text(html)).toContain('da 19 min');
     expect(html.match(/data-testid="dispatch-dashboard-start-now"/g)?.length).toBe(1);
     expect(html.indexOf('dispatch-dashboard-start-now')).toBeLessThan(html.indexOf('Tray del PC'));
-    // Fuori dall'attesa di memoria il server risponde 409: il bottone non c'è.
+    // Outside the memory wait the server answers 409: there is no button.
     const other = renderToStaticMarkup(<DispatchDashboardView capacity={idle} snapshot={snapshot} queue={[{ ...queue[0]!, memoryWaiter: false }, queue[1]!]} now={NOW} onStartNow={() => {}} />);
     expect(other).not.toContain('dispatch-dashboard-start-now');
-    // Con una card al lavoro il server rifiuta (posto preso): il bottone è spento e dice perché.
+    // With a card at work the server refuses (seat taken): the button is disabled and says why.
     const busy = renderToStaticMarkup(<DispatchDashboardView capacity={capacity} snapshot={snapshot} queue={queue} now={NOW} onStartNow={() => {}} />);
     expect(busy).toMatch(/data-testid="dispatch-dashboard-start-now"[^>]*disabled=""/);
     expect(busy).toContain('C’è già una card al lavoro sul Mac');
@@ -108,7 +108,7 @@ describe('cruscotto auto-dispatch', () => {
     expect(mem!.memoryWaiter).toBe(true);
     const [cpu] = queuedCards([{ ...base, id: 'c', text: 'c', status: 'todo', dispatchState: 'queued', dispatchError: null } as BoardTask], tr, NOW);
     expect(cpu!.memoryWaiter).toBe(false);
-    // L'ordine del dispatcher: priorità, poi la più vecchia (non l'ultimo aggiornamento).
+    // The dispatcher's order: priority, then the oldest (not the last update).
     const order = queuedCards([
       { ...base, id: 'old-low', text: 'old-low', status: 'todo', dispatchState: 'queued', priority: 1, createdAt: '2026-10-28T09:00:00Z', updatedAt: '2026-10-28T11:59:00Z' } as BoardTask,
       { ...base, id: 'new-high', text: 'new-high', status: 'todo', dispatchState: 'queued', priority: 4, createdAt: '2026-10-28T11:00:00Z', updatedAt: '2026-10-28T11:00:00Z' } as BoardTask,
@@ -136,12 +136,12 @@ describe('cruscotto auto-dispatch', () => {
     expect(html).toContain('stroke-dasharray="4 3"');
     expect(html).toContain('1 card');
     expect(html).toContain('29 min fa');
-    // Il numero di card scritto è quello vero, anche oltre le 2 che danno l'altezza.
+    // The written card count is the real one, even beyond the 2 that set the height.
     const three = history.map((p, i) => ({ ...p, running: i > 15 ? 3 : 0 }));
     expect(renderToStaticMarkup(<MemoryChart history={three} startGB={3.5} now={NOW} />)).toContain('3 card');
-    // Frena la CPU: la soglia si disegna ma non promette che ne parta un'altra.
+    // The CPU is the brake: the threshold is drawn but does not promise another one will start.
     expect(renderToStaticMarkup(<MemoryChart history={history} startGB={3.5} now={NOW} cpuHolds />)).not.toContain('ne parte un’altra');
-    // «ora» è adesso: con il campionatore fermo da 20 minuti la scala arriva comunque a 49 min fa.
+    // "now" is now: with the sampler stopped for 20 minutes the scale still reaches 49 min ago.
     expect(renderToStaticMarkup(<MemoryChart history={history} startGB={3.5} now={NOW + 20 * 60_000} />)).toContain('49 min fa');
     const empty = renderToStaticMarkup(<MemoryChart history={[]} startGB={3.5} now={NOW} />);
     expect(empty).toContain('dispatch-chart-empty');

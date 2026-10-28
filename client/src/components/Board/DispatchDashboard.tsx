@@ -1,20 +1,20 @@
 /**
- * IL CRUSCOTTO DEI CONSUMI in testa al pannello «Impostazioni della board».
+ * THE CONSUMPTION DASHBOARD at the top of the board settings panel.
  *
- * Disegno scelto da Attilio (mock «come partono le card», pannello c): prima di
- * girare le manopole si legge cosa sta succedendo — quante card lavorano, quante
- * aspettano e in che ordine, quanta memoria ha il Mac e chi la tiene.
+ * Design chosen by Attilio (the "how cards start" mock, panel c): before
+ * turning the knobs you read what is happening — how many cards work, how many
+ * wait and in what order, how much memory the Mac has and who holds it.
  *
- * Il 28/10 Attilio ha tenuto la prima versione del pannello e ci ha voluto sopra
- * tre migliorie del disegno: il grafico della memoria nell'ultima ora, la riga di
- * stato «nessuna card è ferma per un guasto» col pallino dal vivo, e la coda
- * numerata con progetto, età e «Avvia comunque» sulla prima.
+ * On 28/10 Attilio kept the first version of the panel and wanted on top of it
+ * three improvements from the design: the memory chart for the last hour, the
+ * status row "no card is stopped by a fault" with the live dot, and the
+ * numbered queue with project, age and Start anyway on the first card.
  *
- * Tutti i numeri arrivano dalle stesse sorgenti che il dispatcher usa per
- * decidere (`/system/dispatch-capacity` nello store del tetto, e
- * `/dispatch/memory-queue`, che porta anche la serie della memoria libera):
- * il pannello non rifà nessun conto. I testi di attesa sono quelli neutri del
- * server (`queueReason`), non una frase nostra.
+ * Every number comes from the same sources the dispatcher uses to decide
+ * (`/system/dispatch-capacity` in the cap store, and
+ * `/dispatch/memory-queue`, which also carries the free-memory series):
+ * the panel recomputes nothing. The waiting texts are the server's neutral
+ * ones (`queueReason`), not a phrase of ours.
  */
 import { useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from 'react';
 import { Hourglass, Play } from 'lucide-react';
@@ -30,16 +30,16 @@ import { DANGER_TEXT } from '../../lib/popoverStyles';
 const LANG = 'it-IT';
 const gb = (n: number) => `${n.toLocaleString(LANG, { maximumFractionDigits: 1 })} GB`;
 
-// ── lo snapshot della coda di memoria: UNA lettura ogni 15 s per tutte le superfici ──
+// ── the memory-queue snapshot: ONE read every 15 s for every surface ──
 let snap: DispatchMemoryQueueSnapshot | null = null;
-/** Quando è arrivata l'ultima lettura buona: senza, «dal vivo» sarebbe una promessa. */
+/** When the last good read arrived: without it, the live dot would be a promise. */
 let snapAt = 0;
 const listeners = new Set<() => void>();
 let timer: ReturnType<typeof setInterval> | null = null;
 function loadSnapshot() {
   req<DispatchMemoryQueueSnapshot>('/dispatch/memory-queue').then(
     (s) => { snap = s; snapAt = Date.now(); listeners.forEach((l) => l()); },
-    () => { /* senza dispatcher il cruscotto resta sulla sola capacità */ },
+    () => { /* without a dispatcher the dashboard shows capacity only */ },
   );
 }
 function subscribeSnapshot(l: () => void) {
@@ -50,13 +50,13 @@ function subscribeSnapshot(l: () => void) {
     if (listeners.size === 0 && timer) { clearInterval(timer); timer = null; }
   };
 }
-/** La lettura è viva se è arrivata negli ultimi due giri (15 s l'uno) più margine. */
+/** The read is live if it arrived within the last two rounds (15 s each) plus margin. */
 const snapshotIsLive = (now: number) => snap !== null && now - snapAt < 45_000;
 function useMemoryQueueSnapshot(): DispatchMemoryQueueSnapshot | null {
   return useSyncExternalStore(subscribeSnapshot, () => snap, () => null);
 }
 
-/** Titolo di sezione, lo stesso maiuscoletto delle altre sezioni del pannello. */
+/** Section title, the same small caps as the panel's other sections. */
 function SectionLabel({ children, right }: { children: React.ReactNode; right?: string }) {
   return (
     <div className="mb-1 flex items-baseline justify-between gap-2 text-mini font-medium uppercase tracking-wide text-app-text-secondary">
@@ -66,18 +66,18 @@ function SectionLabel({ children, right }: { children: React.ReactNode; right?: 
   );
 }
 
-// ── il grafico: memoria libera, ultima ora, con la soglia e le card al lavoro ──
-// Lo spazio del disegno è largo quanto il grafico sullo schermo: i testi restano
-// a 10 px veri anche nel pannello stretto (400) e nel foglio del telefono.
+// ── the chart: free memory, last hour, with the threshold and the working cards ──
+// The drawing space is as wide as the chart on screen: the labels stay
+// at a true 10 px in the narrow panel (400) and in the phone sheet too.
 const PL = 30, PR = 8, PT = 8, CH = 84, SY = 98, SH = 16, VH_CARDS = 136, VH_PLAIN = 112;
 
 export function MemoryChart({ history, startGB, now, width: initialWidth = 372, cpuHolds = false }: {
   history: DispatchMemoryQueueSnapshot['history'];
   startGB: number | null;
   now: number;
-  /** Frena la CPU, non la memoria: la soglia resta disegnata ma non promette «ne parte un'altra». */
+  /** The CPU is the brake, not memory: the threshold is still drawn but does not promise that another one starts. */
   cpuHolds?: boolean;
-  /** Larghezza prima della misura (e nel render statico dei test). */
+  /** Width before the measurement (and in the tests' static render). */
   width?: number;
 }) {
   const tr = useT();
@@ -93,14 +93,14 @@ export function MemoryChart({ history, startGB, now, width: initialWidth = 372, 
   }, []);
   const pts = history
     .map((p) => ({ t: Date.parse(p.at), v: p.freeGB, r: p.running }))
-    .filter((p) => p.t >= now - 3_660_000); // un'ora piena, col minuto di bordo
-  // Il contenitore misurato è SEMPRE questo div: se fosse il <p> del vuoto, all'arrivo
-  // della serie l'osservatore resterebbe attaccato a un nodo sparito.
+    .filter((p) => p.t >= now - 3_660_000); // a full hour, plus the edge minute
+  // The measured container is ALWAYS this div: if it were the empty-state <p>, when
+  // the series arrived the observer would stay attached to a node that is gone.
   if (pts.length < 2) {
     return <div ref={wrap}><p className="text-mini text-app-text-secondary" data-testid="dispatch-chart-empty">{tr('board.dash.chartEmpty')}</p></div>;
   }
-  // L'asse arriva ad ADESSO, non all'ultimo campione: se il campionatore si ferma
-  // la linea finisce prima di «ora», invece di spacciare un dato vecchio per attuale.
+  // The axis runs to NOW, not to the last sample: if the sampler stops
+  // the line ends before "now", instead of passing old data off as current.
   const t0 = pts[0]!.t, tEnd = Math.max(now, pts[pts.length - 1]!.t), span = Math.max(60_000, tEnd - t0);
   const YMAX = chartMax(pts.map((p) => p.v), startGB);
   const ticks = [0, 1, 2, 3].map((k) => (YMAX / 3) * k);
@@ -110,8 +110,8 @@ export function MemoryChart({ history, startGB, now, width: initialWidth = 372, 
   const area = `${line}L${x(pts[pts.length - 1]!.t)} ${y(0)}L${x(t0)} ${y(0)}Z`;
   const last = pts[pts.length - 1]!;
   const hasRunning = pts.some((p) => p.r !== undefined);
-  // un rettangolo per tratto con lo stesso numero di card: un rettangolo al minuto
-  // lascia cuciture chiare fra un minuto e l'altro
+  // one rect per run with the same card count: one rect per minute
+  // leaves light seams between one minute and the next
   const bars: Array<{ x: number; w: number; c: number }> = [];
   if (hasRunning) {
     for (let i = 0; i < pts.length - 1;) {
@@ -127,9 +127,9 @@ export function MemoryChart({ history, startGB, now, width: initialWidth = 372, 
   const axisY = VH - 3;
   const mins = Math.round(span / 60_000);
   const h = hover === null ? null : pts[hover]!;
-  // Il valore di adesso sotto il punto, o sopra quando cadrebbe nella fascia delle card.
+  // The current value under the point, or above it when it would fall in the card strip.
   const lastLabelY = y(last.v) + 16 > PT + CH - 2 ? y(last.v) - 8 : y(last.v) + 16;
-  // Un'etichetta «N card» solo dove c'è posto, e mai sopra quella prima.
+  // An "N cards" label only where there is room, and never over the previous one.
   let labelEnd = -Infinity;
   const labelled = bars.map((b) => { const ok = b.x >= labelEnd && b.w >= 30; if (ok) labelEnd = b.x + 36; return ok; });
   return (
@@ -139,7 +139,7 @@ export function MemoryChart({ history, startGB, now, width: initialWidth = 372, 
         onMouseMove={(e) => {
           const r = e.currentTarget.getBoundingClientRect();
           const px = ((e.clientX - r.left) / r.width) * W;
-          // Il punto più vicino nel TEMPO: i campioni non sono equidistanti.
+          // The nearest point in TIME: samples are not evenly spaced.
           const t = t0 + ((px - PL) / (W - PL - PR)) * span;
           let best = 0;
           for (let i = 1; i < pts.length; i++) if (Math.abs(pts[i]!.t - t) < Math.abs(pts[best]!.t - t)) best = i;
@@ -165,10 +165,10 @@ export function MemoryChart({ history, startGB, now, width: initialWidth = 372, 
         <text x={x(last.t)} y={lastLabelY} textAnchor="end" fontSize="10.5" fontWeight="600" fill="currentColor" className="text-app-text">{gb(last.v)}</text>
         {hasRunning && (
           <g className="text-app-text-muted" fontSize="10" fill="currentColor">
-            {/* l'altezza si ferma a 2 card, il numero scritto è quello vero */}
+            {/* the height stops at 2 cards, the written number is the real one */}
             {bars.map((b, i) => <rect key={i} x={b.x} y={SY + SH - (Math.min(b.c, 2) / 2) * SH} width={b.w} height={(Math.min(b.c, 2) / 2) * SH} fill="var(--primary)" fillOpacity=".28" />)}
             <line x1={PL} x2={W - PR} y1={SY + SH} y2={SY + SH} stroke="var(--border)" />
-            {/* una tacca dove cambia il numero di card al lavoro, con il numero */}
+            {/* a tick where the number of working cards changes, with the number */}
             {bars.map((b, i) => <line key={`s${i}`} x1={b.x} x2={b.x} y1={SY - 3} y2={SY + SH} stroke="currentColor" />)}
             {bars.map((b, i) => labelled[i] && <text key={`l${i}`} x={b.x + 3} y={SY + 6 + (b.c > 1 ? 4 : 0)} fontSize="9.5" fill="currentColor" className="text-app-text-body">{tr('board.dash.chartN', { n: b.c })}</text>)}
             <text x={PL - 5} y={SY + SH - 2} textAnchor="end">{tr('board.dash.chartCards')}</text>
@@ -190,7 +190,7 @@ export function MemoryChart({ history, startGB, now, width: initialWidth = 372, 
   );
 }
 
-/** Perché «Avvia comunque» non è partita, dal `code` del server. */
+/** Why Start anyway did not start, from the server's `code`. */
 export type StartFailure = { id: string; code: string | null };
 const START_ERR: Record<string, string> = {
   memory_slot_busy: 'board.dash.startErr.busy',
@@ -201,20 +201,20 @@ const START_ERR: Record<string, string> = {
 
 export function DispatchDashboardView({ capacity, snapshot, queue, broken = 0, now, onStartNow, starting, dispatchOn, live, startFailure }: {
   capacity: DispatchCapacity | null;
-  /** La lettura del server è fresca; assente = c'è uno snapshot. */
+  /** The server's read is fresh; absent = there is a snapshot. */
   live?: boolean;
-  /** L'ultimo «Avvia comunque» rifiutato; si mostra solo finché quella card è ancora in coda. */
+  /** The last rejected Start anyway; shown only while that card is still queued. */
   startFailure?: StartFailure | null;
-  /** L'interruttore globale: spento, la coda NON parte da sola, e la riga di stato lo dice. */
+  /** The global switch: off, the queue does NOT start by itself, and the status row says so. */
   dispatchOn?: boolean | null;
   snapshot: DispatchMemoryQueueSnapshot | null;
   queue: QueuedCard[];
-  /** Card ferme per un guasto vero (non per un'attesa). */
+  /** Cards stopped by a real fault (not by a wait). */
   broken?: number;
   now: number;
-  /** «Avvia comunque» sulla prima in coda; assente = niente bottone. */
+  /** Start anyway on the first queued card; absent = no button. */
   onStartNow?: (card: QueuedCard) => void;
-  /** La card che sta partendo per «Avvia comunque». */
+  /** The card that is starting through Start anyway. */
   starting?: string | null;
 }) {
   const tr = useT();
@@ -227,12 +227,12 @@ export function DispatchDashboardView({ capacity, snapshot, queue, broken = 0, n
   const cpuHolds = capacity?.admission?.blockedBy === 'cpu';
   const stalled = queue.filter((q) => q.stalled).length;
   const isLive = live ?? snapshot !== null;
-  // Il server tiene un solo posto «a mano» e lo rifiuta finché un turno locale è in volo
-  // (dispatch-memory-start: `localMemorySeatTaken`): con card al lavoro il bottone non
-  // può riuscire, e lo dice invece di rispondere con un errore.
+  // The server keeps one single manual seat and refuses it while a local turn is in flight
+  // (dispatch-memory-start: `localMemorySeatTaken`): with cards at work the button cannot
+  // succeed, and it says so instead of answering with an error.
   const seatBusy = running > 0;
   const failure = startFailure && queue.some((q) => q.id === startFailure.id) ? startFailure : null;
-  // Lo stato in una riga, e il colore dice se serve fare qualcosa.
+  // The state in one row, and the color says whether something needs doing.
   const status: { tone: 'ok' | 'warn' | 'bad'; text: string } = broken
     ? { tone: 'bad', text: tr(broken === 1 ? 'board.dash.broken1' : 'board.dash.broken', { n: broken }) }
     : !queue.length ? { tone: 'ok', text: tr('board.dash.noBrokenEmpty') }
@@ -252,7 +252,7 @@ export function DispatchDashboardView({ capacity, snapshot, queue, broken = 0, n
           </span>
         )}
       </div>
-      {/* La riga di stato: un'attesa non è un guasto, e qui si dice quale delle due. */}
+      {/* The status row: a wait is not a fault, and this says which of the two it is. */}
       <p className="flex items-center gap-1.5 font-medium text-app-text" data-testid="dispatch-dashboard-ok">
         <i className={`h-[7px] w-[7px] shrink-0 rounded-full ${status.tone === 'bad' ? 'bg-rose-500' : status.tone === 'warn' ? 'bg-amber-500' : 'bg-emerald-600'}`} />
         {status.text}
@@ -328,7 +328,7 @@ export function DispatchDashboardView({ capacity, snapshot, queue, broken = 0, n
   );
 }
 
-/** Il cruscotto vivo: capacità dallo store, coda e serie dal server ogni 15 s. */
+/** The live dashboard: capacity from the store, queue and series from the server every 15 s. */
 export function DispatchDashboard({ tasks, dispatchOn }: { tasks: readonly BoardTask[]; dispatchOn?: boolean | null }) {
   const tr = useT();
   const { capacity } = useGlobalDispatchCap();
@@ -337,16 +337,16 @@ export function DispatchDashboard({ tasks, dispatchOn }: { tasks: readonly Board
   const [starting, setStarting] = useState<string | null>(null);
   const [startFailure, setStartFailure] = useState<StartFailure | null>(null);
   useEffect(() => { const id = setInterval(() => setNow(Date.now()), 30_000); return () => clearInterval(id); }, []);
-  // Un guasto vero: il dispatcher parcheggia la card con `failed` (l'agente non ha
-  // consegnato) o `blocked` (configurazione da sistemare). Un'attesa non lo è.
+  // A real fault: the dispatcher parks the card with `failed` (the agent did not
+  // deliver) or `blocked` (configuration to fix). A wait is not one.
   const broken = tasks.filter((t) => !t.parentTaskId && t.status !== 'done' && (t.dispatchState === 'failed' || t.dispatchState === 'blocked')).length;
-  // Il nome del progetto dall'id (`<cartella>-<hash>`); le card senza progetto non ne mostrano.
+  // The project name from the id (`<folder>-<hash>`); cards without a project show none.
   const projectName = (t: BoardTask) => (isProjectlessId(t.projectId) ? null : projectNameFromId(t.projectId));
   const start = (card: QueuedCard) => {
     if (starting) return;
     setStarting(card.id);
     setStartFailure(null);
-    // La card cambia stato da sola: il server la trasmette (`task:updated`) e la coda si rilegge.
+    // The card changes state by itself: the server broadcasts it (`task:updated`) and the queue rereads.
     boardApi.startAnyway(card.projectId, card.id)
       .then(() => loadSnapshot(), (e: unknown) => setStartFailure({ id: card.id, code: (e as { code?: string } | null)?.code ?? null }))
       .finally(() => setStarting(null));

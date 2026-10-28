@@ -41,7 +41,7 @@ export function BoardSettingsPanel({ projectId, settings: s, dispatchOn, models,
   onChanged: (s: BoardSettings) => void;
   onClose: () => void;
   onError: (e: string) => void;
-  /** Le card della board: il cruscotto ne ricava la coda. */
+  /** The board's cards: the dashboard derives the queue from them. */
   tasks?: readonly BoardTask[];
 }) {
   const tr = useT();

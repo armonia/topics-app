@@ -1,29 +1,29 @@
 /**
- * I conti puri del cruscotto (coda, età, tetto dell'asse), fuori dal file dei
- * componenti perché il fast refresh vuole lì solo componenti.
+ * The dashboard's pure computations (queue, age, axis top), outside the
+ * components file because fast refresh wants only components there.
  */
 import type { BoardTask } from '../../lib/board';
 import { WAITING_MEMORY_REASON } from '../../../../shared/board';
 import { queueReasonText } from '../../../../shared/queue-reason-text';
 
-/** Una card in coda, come la riga la disegna. */
+/** A queued card, as the row draws it. */
 export interface QueuedCard {
   id: string;
   title: string;
-  /** Il progetto della card, per nome; `null` = non si sa. */
+  /** The card's project, by name; `null` = unknown. */
   project: string | null;
-  /** Millisecondi da quando aspetta (dall'ultimo aggiornamento). */
+  /** Milliseconds it has been waiting (since the last update). */
   waitingMs: number;
-  /** Frase neutra decisa dal server, già tradotta; `null` = il server non ne ha. */
+  /** Neutral phrase decided by the server, already translated; `null` = the server has none. */
   reason: string | null;
-  /** Aspetta solo memoria libera: è la sola attesa che «Avvia comunque» può saltare. */
+  /** Waits only for free memory: the one wait Start anyway can skip. */
   memoryWaiter: boolean;
-  /** Il server la dà per incagliata (tono `stalled`): non parte da sola. */
+  /** The server considers it stuck (tone `stalled`): it does not start by itself. */
   stalled: boolean;
   projectId: string;
 }
 
-/** Le card che aspettano un posto, nell'ordine in cui il dispatcher le serve. */
+/** The cards waiting for a seat, in the order the dispatcher serves them. */
 export function queuedCards(
   tasks: readonly BoardTask[],
   tr: (k: string, p?: Record<string, string | number>) => string,
@@ -32,9 +32,9 @@ export function queuedCards(
 ): QueuedCard[] {
   return tasks
     .filter((t) => !t.parentTaskId && (t.dispatchState === 'queued' || t.dispatchState === 'waiting'))
-    // La disciplina di coda del dispatcher (task-dispatcher, il tick): prima la
-    // priorità, poi la più vecchia. È l'ordine in cui partiranno, e la «1ª» è
-    // quella a cui va «Avvia comunque».
+    // The dispatcher's queue discipline (task-dispatcher, the tick): priority first,
+    // then the oldest. It is the order they will start in, and "1st" is
+    // the one Start anyway goes to.
     .sort((a, b) => b.priority - a.priority || a.createdAt.localeCompare(b.createdAt))
     .map((t) => {
       const text = t.queueReason ? queueReasonText(t.queueReason, tr) : null;
@@ -44,7 +44,7 @@ export function queuedCards(
         project: projectName(t),
         waitingMs: Math.max(0, now - Date.parse(t.updatedAt)),
         reason: text ? `${text.head} · ${text.detail}` : null,
-        // Lo stesso test del server (`isMemoryWaiter`): fuori da qui risponde 409.
+        // The same test as the server (`isMemoryWaiter`): outside it the server answers 409.
         memoryWaiter: t.status === 'todo' && t.dispatchState === 'queued' && t.dispatchError === WAITING_MEMORY_REASON,
         stalled: t.queueReason?.tone === 'stalled',
         projectId: t.projectId,
@@ -52,13 +52,13 @@ export function queuedCards(
     });
 }
 
-/** «19 min» / «2 h 5 min»: quanto aspetta, mai un timestamp. */
+/** "19 min" / "2 h 5 min": how long it has waited, never a timestamp. */
 export function waitingLabel(ms: number): string {
   const min = Math.max(1, Math.round(ms / 60_000));
   return min < 60 ? `${min} min` : `${Math.floor(min / 60)} h ${min % 60} min`;
 }
 
-/** Il tetto dell'asse: almeno 6 GB, poi il pari sopra il massimo, così un Mac largo non schiaccia la curva in alto. */
+/** The axis top: at least 6 GB, then the multiple of 3 above the max, so a large Mac does not squash the curve at the top. */
 export function chartMax(values: readonly number[], startGB: number | null): number {
   const top = Math.max(6, startGB ?? 0, ...values);
   return top <= 6 ? 6 : Math.ceil(top / 3) * 3;

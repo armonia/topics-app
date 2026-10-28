@@ -1,14 +1,14 @@
 /**
- * board-dispatch-dashboard.spec.ts - il pannello «Impostazioni della board» si
- * apre sul cruscotto dei consumi: la prima versione (riepilogo, memoria, chi la
- * tiene, Auto-dispatch e tetto) con sopra le tre migliorie del disegno.
+ * board-dispatch-dashboard.spec.ts - the board settings panel
+ * opens on the consumption dashboard: the first version (summary, memory, who
+ * holds it, Auto-dispatch and cap) with the three design improvements on top.
  *
- * DASH-01  la prima versione resta; grafico della memoria con soglia e fascia
- *          delle card, riga di stato dal vivo, coda numerata con progetto, età
- *          e «Avvia comunque» sulla prima, che chiama `start-anyway` per lei.
+ * DASH-01  the first version stays; memory chart with threshold and card
+ *          strip, live status row, numbered queue with project, age
+ *          and Start anyway on the first card, which calls `start-anyway` for it.
  *
- * Gli screenshot vanno in `DASH_SHOTS` (default: test-results/) per il
- * confronto affiancato con la prima versione.
+ * The screenshots go to `DASH_SHOTS` (default: test-results/) for the
+ * side-by-side comparison with the first version.
  *
  * @covers KANBAN-79
  */
@@ -97,7 +97,7 @@ async function openBoard(page: Page) {
 const gear = (page: Page) => page.getByTestId("kanban-board").getByTitle("Impostazioni auto-dispatch");
 
 async function stubQueue(page: Page) {
-  // Sessanta minuti di memoria libera e di card al lavoro, come la serie del server.
+  // Sixty minutes of free memory and working cards, like the server's series.
   const free = [4.6,4.5,4.7,4.4,4.3,4.5,4.6,4.4,4.3,4.4,4.5,4.4,4.3,4.2,4.4,4.5,4.3,4.2,4.3,4.4,4.3,4.2,4.1,4.3,4.2,4.2,
     3.8,3.9,3.7,3.8,3.6,3.7,3.9,3.8,3.7,3.6,3.8,3.7,3.6,3.7,3.2,3.1,3.0,2.9,3.0,3.1,3.0,2.9,2.8,2.7,2.6,2.7,2.8,2.9,3.0,2.9,2.8,2.8,2.9,2.8,2.8];
   const end = Date.now();
@@ -127,7 +127,7 @@ test.describe("Il pannello auto-dispatch è un cruscotto dei consumi", () => {
     topicIds.push(topic.id);
   });
 
-  /** Tre card in coda per memoria, nell'ordine in cui le crea il test (la più vecchia è la prima). */
+  /** Three cards queued for memory, in the order the test creates them (the oldest is first). */
   const QUEUED = ["Comando usage-hub consumo con previsioni e spie", "Un lavoro accodato si dice «non partito»", "Tray: PC al lavoro visibile in barra"];
   const created: string[] = [];
   test.beforeEach(async ({ request }) => {
@@ -135,13 +135,13 @@ test.describe("Il pannello auto-dispatch è un cruscotto dei consumi", () => {
     for (const text of QUEUED) {
       const id = (await apiCreateTask(request, projectId, text, "todo")).split(":")[1]!;
       created.push(id);
-      // Come le mette il dispatcher quando aspettano memoria libera: è l'attesa che «Avvia comunque» salta.
+      // As the dispatcher sets them when they wait for free memory: the wait Start anyway skips.
       const r = await request.post(`${E2E_BASE}/api/test/tasks/${id}/dispatch-state`, { data: { state: "queued", error: "waiting-memory" } });
       expect(r.ok(), `dispatch-state queued per «${text}»`).toBe(true);
     }
   });
 
-  // Ogni test parte con le SUE tre card: quelle del test prima toglierebbero il conto.
+  // Each test starts with ITS three cards: the previous test's would throw the count off.
   test.afterEach(async ({ request }) => {
     const projectId = boardIdForPath(DIR);
     for (const id of created.splice(0)) await request.delete(`${E2E_BASE}/api/boards/${projectId}/tasks/${id}`).catch(() => {});
@@ -162,8 +162,8 @@ test.describe("Il pannello auto-dispatch è un cruscotto dei consumi", () => {
   test("DASH-01: la prima versione resta, con grafico, riga di stato e coda nuova sopra", async ({ page }) => {
     await stubMachine(page, 2);
     await stubQueue(page);
-    // «Avvia comunque» va al server vero (`start-anyway`); qui si ferma la richiesta e si guarda
-    // che parta per la card giusta: farla partire davvero lancerebbe un agente.
+    // Start anyway goes to the real server (`start-anyway`); here the request is stopped and we check
+    // that it starts for the right card: really starting it would launch an agent.
     const started: string[] = [];
     await page.route((url) => url.pathname.endsWith("/start-anyway"), (route) => {
       started.push(new URL(route.request().url()).pathname);
@@ -175,19 +175,19 @@ test.describe("Il pannello auto-dispatch è un cruscotto dei consumi", () => {
     const menu = page.getByTestId("board-settings-menu");
     const dash = menu.getByTestId("dispatch-dashboard");
     await expect(dash).toBeVisible();
-    // La prima versione, com'era.
+    // The first version, as it was.
     await expect(menu.getByText("Impostazioni della board", { exact: true })).toBeVisible();
     await expect(dash.getByTestId("dispatch-dashboard-hero")).toHaveText("2 al lavoro · 3 in coda");
-    // Auto-dispatch spento nell'ambiente di prova: la riga dice la memoria, non promette che ne parta un'altra.
+    // Auto-dispatch off in the test env: the row states the memory, it does not promise another one will start.
     await expect(dash.getByTestId("dispatch-dashboard-memory")).toHaveText("Memoria libera del Mac: 2,8 GB su 32 GB.");
     await expect(dash.getByTestId("dispatch-dashboard-holders")).toContainText("Jarvis e altre sessioni di Claude");
     await expect(dash.getByText("Chi tiene la memoria del Mac · 32 GB")).toBeVisible();
     await expect(page.locator("label", { hasText: "Auto-dispatch" }).getByRole("checkbox")).toBeVisible();
     await expect(menu.getByText("Agent in parallelo", { exact: true })).toBeVisible();
     await expect(menu.getByTestId("global-cap-running")).toBeVisible();
-    // Le tre migliorie.
+    // The three improvements.
     await expect(dash.getByTestId("dispatch-dashboard-live")).toHaveText("dal vivo");
-    // L'ambiente di prova parte con l'Auto-dispatch spento: la riga non promette che partano da sole.
+    // The test env starts with Auto-dispatch off: the row does not promise they start by themselves.
     await expect(dash.getByTestId("dispatch-dashboard-ok")).toHaveText("Auto-dispatch spento: le 3 in coda partono quando lo accendi.");
     const chart = dash.getByTestId("dispatch-chart");
     await expect(chart).toBeVisible();
@@ -200,14 +200,14 @@ test.describe("Il pannello auto-dispatch è un cruscotto dei consumi", () => {
     await expect(rows.first()).toContainText("da 1 min");
     await expect(dash.getByTestId("dispatch-dashboard-start-now")).toHaveCount(1);
     await expect(rows.first().getByTestId("dispatch-dashboard-start-now")).toBeVisible();
-    // L'ordine: riepilogo, grafico, coda, chi tiene la memoria.
+    // The order: summary, chart, queue, who holds the memory.
     const ys = await Promise.all(["dispatch-dashboard-memory", "dispatch-chart-block", "dispatch-dashboard-queue", "dispatch-dashboard-holders"]
       .map(async (id) => (await dash.getByTestId(id).boundingBox())!.y));
     expect([...ys].sort((p, q) => p - q), `ordine dei blocchi ${ys.join(",")}`).toEqual(ys);
     await menu.screenshot({ path: join(SHOTS, "pannello.png") });
     await menu.getByTestId("global-cap-running").scrollIntoViewIfNeeded();
     await menu.screenshot({ path: join(SHOTS, "pannello-sotto.png") });
-    // Due card al lavoro: il server rifiuterebbe (il posto è preso), il bottone è spento e dice perché.
+    // Two cards at work: the server would refuse (seat taken), the button is disabled and says why.
     const button = rows.first().getByTestId("dispatch-dashboard-start-now");
     await expect(button).toBeDisabled();
     await expect(button).toHaveAttribute("title", /già una card al lavoro/);
