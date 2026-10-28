@@ -1,16 +1,16 @@
 # workflow-per-progetto: colonne della board configurabili, con triage, AI review e human review
 
-## Da decidere
+## Deciso da Attilio (28/10, tutte e tre come consigliate)
 
-1. **Un livello per progetto, con un default globale; la cartella in una fase due (consigliata):** copre il caso
+1. **Un livello per progetto, con un default globale; la cartella in una fase due (scelta):** copre il caso
    di Attilio (lo stesso workflow su ogni progetto, cambiabile dove serve) e il livello cartella non ha ancora un
    caso d'uso: oggi una sottocartella è già un'altra board (`projectId` = hash del percorso). Alternativa: tre
    livelli subito, con la ricerca risalendo da cartella a progetto a globale.
 2. **Da AI review chiude chi ha aperto la card, con la prova; in human review arrivano solo le card marcate
-   «serve l'occhio di Attilio» (consigliata):** è la regola del 28/10 («in review solo ciò che deve vedere lui»)
+   «serve l'occhio di Attilio» (scelta):** è la regola del 28/10 («in review solo ciò che deve vedere lui»)
    e svuota la colonna di ciò che oggi gli finisce in coda per abitudine. Alternativa: ogni card passa comunque da
    human review e l'AI review resta un passaggio consultivo.
-3. **Il triage solo per le card che arrivano da persone e da chat (consigliata):** spesso mancano barra e
+3. **Il triage solo per le card che arrivano da persone e da chat (scelta):** spesso mancano barra e
    priorità; una card aperta da un agente con titolo, barra e priorità va dritta in todo. Alternativa: tutto passa dal triage, anche le card già complete.
 
 ## Perché
