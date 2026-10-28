@@ -2,5 +2,9 @@ schema: spec-driven
 skip_specs: true
 created: 2026-10-28
 name: revisione-ui-task-topic
-status: studio
+status: deciso
 richiesta: "dovremmo rivedere ui ux sia di un task sia di un topics (card 7d221b53, 25/10): icona accordion evitabile, sotto agenti in una parte che non si capisce, loader banale e schiacciato sopra e sotto, spazio sotto input troppo alto, scritte dei tool che compaiono subito invece dello streaming, font dei terminali, preview dei task nella board con soli dettagli tecnici, il task come sessione chat pulitissima"
+x-deciso:
+  da: Attilio
+  il: 2026-10-29
+  risposta: "1, 2 e 3 come consigliate"

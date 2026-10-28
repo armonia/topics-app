@@ -2,13 +2,13 @@
 
 Card 7d221b53, chiesta da Attilio il 25/10. Questo documento è lo studio: niente codice dell'interfaccia. Ogni difetto ha lo stato di oggi su `origin/main` (3f1056509d, v2.3.40), una immagine, la copertura delle change esistenti e la correzione proposta in una riga. Le card piccole nascono dopo il tuo sì.
 
-## Da decidere
+## Deciso da Attilio (29/10, tutte e tre come consigliate)
 
 1. **Task = card + topic nascosto, resta così; si cura la proiezione.** Consigliata: la separazione c'è già (vedi «Il task come chat pulita»), il difetto è cosa il drawer mostra, non il modello. Alternativa: far nascere ogni task come topic visibile in sidebar con la card come sua vista; costa una migrazione del modello e rompe «la board non sporca la sidebar».
 2. **Sette card piccole, una per difetto, in quest'ordine:** loader, spazio sotto l'input, accordion, anteprime board, drawer pulito, terminale, streaming del testo. Consigliata: ordine di costo crescente, le prime tre sono CSS e un componente. Alternativa: partire dal drawer pulito, che è quello che hai descritto con più forza.
 3. **Font del terminale: una pila sola per chat e terminale, con JetBrains Mono incluso nel bundle.** Consigliata: oggi il font non viene caricato da nessuna parte, dove non è installato cade su Menlo. Alternativa: non includere nulla e usare solo `ui-monospace` (peso zero, ma l'aspetto cambia per macchina).
 
-Ok / ok ma 2 no.
+Le sette card sono sulla board topics-app, in fila nell'ordine del punto 2.
 
 ## Come ho misurato
 
