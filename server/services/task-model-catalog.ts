@@ -37,13 +37,17 @@ export function taskModelIsCurrent(value: unknown, snapshot: ProvidersSnapshot |
   for (const entry of snapshot.providers) {
     if (entry.name === "topics") catalogs.push({ name: entry.name, models: entry.models });
   }
-  const generations = claudeModelGenerations(catalogs.flatMap(({ models }) => models));
+  const listedModels = catalogs.flatMap(({ models }) => models);
+  const generations = claudeModelGenerations(listedModels);
 
   // A bare runtime (`codex`, `muse:auto`) names no model, so nothing can be stale.
   if (!selection.model) return true;
-  // A retired Claude id stays retired under any runtime prefix: an empty catalog
-  // for that prefix (`codex:claude-opus-4-8`) must not let it through.
-  if (generations[selection.model]?.generation === "older") return false;
+  // A retired Claude id stays retired under any runtime prefix, listed or not:
+  // it is judged against the newest of its family that any catalog lists, after
+  // the spellings a person can type (`codex: claude-sonnet-4-6[1m]`, a date suffix,
+  // upper case) are reduced to the plain id.
+  const claudeId = selection.model.trim().toLowerCase().replace(/\[1m\]$/, "").replace(/-\d{8}$/, "");
+  if (claudeId.startsWith("claude-") && claudeModelGenerations([...listedModels, claudeId])[claudeId]?.generation === "older") return false;
 
   const eligible = catalogs.filter(({ name }) => !selection.provider || name === selection.provider);
 

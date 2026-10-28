@@ -131,3 +131,13 @@ test("a runtime prefix neither launders a retired Claude id nor blocks a bare ru
   expect(taskModelIsCurrent("codex", snapshot)).toBe(true);
   expect(taskModelIsCurrent("muse:auto", snapshot)).toBe(true);
 });
+
+test("a retired Claude id is refused under a prefix even when no catalog lists it, in any spelling", () => {
+  // claude-sonnet-4-5 is older than the listed claude-sonnet-5-5 but appears in no catalog.
+  for (const model of ["codex:claude-sonnet-4-5", "muse:claude-sonnet-4-5", "codex: claude-sonnet-4-6",
+    "codex:claude-sonnet-4-6[1m]", "codex:claude-sonnet-4-6-20250101", "muse:CLAUDE-SONNET-4-5"]) {
+    expect(taskModelIsCurrent(model, snapshot)).toBe(false);
+  }
+  expect(taskModelIsCurrent("codex:claude-sonnet-5-5", snapshot)).toBe(true);
+});
+
