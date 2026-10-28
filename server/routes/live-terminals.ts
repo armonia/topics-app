@@ -4,6 +4,7 @@
  *   GET  /api/live-terminals                 → { terminals, generatedAt }
  *   GET  /api/live-terminals/:id/screen      → { id, text }
  *   POST /api/live-terminals/:id/send        { text, enter? = true } → { ok }
+ *                                            404 terminale sparito · 422 terminale che non accetta quell'invio
  *
  * `:id` is the listed one, URL-encoded (`tmux:%258`, `terminal:ttys004`,
  * `topics:<uuid>`). See `lib/live-terminals.ts`.
@@ -15,7 +16,7 @@
  * agent on the Mac enters via loopback like for the rest of the APIs.
  */
 import type { AppContext, RouteHandler } from "../types";
-import type { LiveTerminalsService } from "../lib/live-terminals";
+import { SendRefusedError, type LiveTerminalsService } from "../lib/live-terminals";
 
 /** Anything longer than this is not something to type into a prompt. */
 const MAX_SEND_CHARS = 16_000;
@@ -48,7 +49,14 @@ export function createLiveTerminalsRouter(ctx: AppContext, service: LiveTerminal
       const enter = body?.enter !== false;
       if (!text && !enter) return errorResponse(400, "nothing to send");
       if (text.length > MAX_SEND_CHARS) return errorResponse(413, "text too long");
-      const ok = await service.send(id, text, { enter });
+      let ok: boolean;
+      try {
+        ok = await service.send(id, text, { enter });
+      } catch (err) {
+        // Il terminale c'è ma rifiuta l'invio: non è «sparito», chi scrive deve saperlo.
+        if (err instanceof SendRefusedError) return errorResponse(422, err.message);
+        throw err;
+      }
       if (!ok) return errorResponse(404, "terminal not found");
       return json({ ok: true });
     }

@@ -209,9 +209,18 @@ export interface LiveTerminalsDeps {
 export interface LiveTerminalsService {
   list(opts?: { force?: boolean }): Promise<LiveTerminal[]>;
   screen(id: string): Promise<LiveScreen | null>;
-  /** `enter` = press Enter after the text. Returns false when the terminal is gone. */
+  /**
+   * `enter` = press Enter after the text. Returns false when the terminal is gone,
+   * and throws SendRefusedError when the terminal is there but cannot take that input.
+   */
   send(id: string, text: string, opts?: { enter?: boolean }): Promise<boolean>;
 }
+
+/**
+ * Il terminale esiste, ma non accetta questo invio (Terminal.app: solo testo
+ * con Invio). Va detto a chi scrive: un 404 farebbe credere che il terminale sia sparito.
+ */
+export class SendRefusedError extends Error {}
 
 const TERMINAL_LIST_TIMEOUT_MS = 1500;
 const TERMINAL_PAUSE_MS = 60_000;
@@ -418,6 +427,10 @@ export function createLiveTerminals(deps: LiveTerminalsDeps): LiveTerminalsServi
     const p = parseId(id);
     if (!p) return false;
     const enter = opts?.enter ?? true;
+    // Prima del try: il try trasforma ogni errore in «sparito», e qui il terminale c'è.
+    if (p.source === "terminal" && !enter) {
+      throw new SendRefusedError("Terminal.app accepts text only with Enter (enter must be true)");
+    }
     try {
       if (p.source === "topics") return deps.topicsSend(p.key, enter ? text + "\r" : text);
       if (p.source === "tmux") {
@@ -429,7 +442,6 @@ export function createLiveTerminals(deps: LiveTerminalsDeps): LiveTerminalsServi
         if (enter) await run("tmux", [...base, "Enter"]);
         return true;
       }
-      if (!enter) return false;
       const res = await run("osascript", ["-e", TERMINAL_SEND_SCRIPT, `/dev/${p.key}`, text]);
       return res.trim() === "ok";
     } catch {
