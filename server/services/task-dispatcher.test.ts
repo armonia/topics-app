@@ -5088,4 +5088,23 @@ describe("task-dispatcher: the card nobody owns (f2289637)", () => {
     await flush();
     expect(unowned(h)).toEqual([]);
   });
+
+  it("announces it with the global auto-dispatch switch OFF, and leaves the activity_log row", async () => {
+    const rows: any[] = [];
+    const h = harness({ recordActivity: (entry) => { rows.push(entry); } });
+    // No updateBoardSettings, no global switch: the sweep must not depend on them.
+    expect(h.svc.getGlobalAutoDispatch()).toBe(false);
+    backlogCard(h, "stale", "agent:jarvis", 12);
+    await h.dispatcher.reconcile();
+    await flush();
+    expect(unowned(h)).toEqual([
+      expect.objectContaining({ taskId: "stale", createdBy: "agent:jarvis", waitedMinutes: 12 }),
+    ]);
+    expect(rows).toEqual([
+      expect.objectContaining({
+        category: "board", level: "warn", entityType: "task", entityId: "stale", actor: "agent:jarvis",
+        metadata: expect.objectContaining({ projectId: PID, createdBy: "agent:jarvis", waitedMinutes: 12 }),
+      }),
+    ]);
+  });
 });

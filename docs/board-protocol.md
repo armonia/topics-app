@@ -441,7 +441,9 @@ queste regole.
 
 - **`created_by`** (migration `20261028163640`): chi ha aperto la card, come testo.
   `human` = una persona dall'interfaccia (la UI manda `X-Topics-Action-Origin:
-  interface` e il corpo non può dire altro); `agent:<nome>` = un agente o uno
+  interface` e il corpo non può dire altro; l'intestazione la sceglie il chiamante,
+  quindi vale solo senza credenziale d'agente: chi presenta il token del demone o
+  del gateway è sempre automazione, e `human` nel corpo non lo accetta nessuno); `agent:<nome>` = un agente o uno
   script; `cron:<nome>` = una pianificazione. Chi chiama la board dall'API può
   dire chi è con `createdBy` nel corpo della POST (`agent:jarvis`); se non lo dice
   o lo scrive male prende `agent:api`, perché la UI non arriva mai senza
@@ -459,5 +461,6 @@ queste regole.
   riscatta solo se qualcuno la tocca di nuovo. L'evento esce sul socket
   (`task:unowned`, non disegnato dalla board) e come riga di `activity_log`
   (`category=board`, `level=warn`), che un coordinatore non collegato legge con
-  `GET /api/activity/log?category=board`. Come tutto il `reconcile`, tace con
-  l'auto-dispatch globale spento.
+  `GET /api/activity/log?category=board`. Il controllo sta prima del
+  cancello dell'auto-dispatch globale: una card senza padrone lo è anche a
+  macchina spenta, quindi l'evento esce comunque.

@@ -28,7 +28,7 @@
 import { LAND_ACTION_LABEL, UNASSIGNED_PROJECT_ID, commentAsksHuman, type Task, type TaskService } from "./tasks";
 import { type SessionUsage } from "./transcript-usage";
 import { onHumanHoldChange } from "../lib/human-hold-events";
-import { logActivity } from "../db/activity-log";
+import { logActivity, type ActivityLogEntry } from "../db/activity-log";
 import type { TaskAttemptStore } from "./task-attempts";
 import { attemptHasWork, formatFanoutComment } from "../../shared/task-attempt";
 import { shouldAnnounceResume, DEAD_SESSION_NOTE } from "../lib/dead-run-note";
@@ -116,6 +116,8 @@ function cut(v: string): string {
 /** What the dispatcher needs from the outside world — all injected. */
 export interface DispatcherDeps {
   svc: TaskService;
+  /** Where `task:unowned` leaves its activity_log row (the real writer when unset). */
+  recordActivity?: (entry: ActivityLogEntry) => void;
   /** Stop command process groups when an automated landing closes a card. */
   stopCardProcesses?: (cardId: string) => void | Promise<void>;
   /**
@@ -6445,6 +6447,31 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
         for (const t of deps.svc.list({ scope: "all", status: "review" })) settleStrandedReviewChip(t);
       } catch (err) { log("sweep of the active chip on review cards failed", err); }
     }
+    // 1-quinquies) A CARD NOBODY OWNS, in backlog past ten minutes. This is the
+    //    coordinator's event, not a banner: `task:unowned` on the socket for a
+    //    connected one, and an activity_log row for one that is not (Jarvis
+    //    reads `GET /api/activity/log?category=board`). `sweepUnownedBacklog`
+    //    stamps each card before returning it, so a card is reported once per
+    //    round and the 10 s poll does not repeat itself. Its own `try`: the
+    //    event is information and must never take the sweeps above or the
+    //    tick below down with it. It sits BEFORE the global auto-dispatch gate:
+    //    a card nobody owns is just as unowned with the switch off (maybe more).
+    try {
+      for (const t of deps.svc.sweepUnownedBacklog()) {
+        const waitedMinutes = Math.floor(Math.max(0, Date.now() - Date.parse(t.updatedAt)) / 60_000);
+        log(`card senza padrone in backlog da ${waitedMinutes} min: ${t.id}`);
+        deps.broadcast({
+          type: "task:unowned", projectId: t.projectId, taskId: t.id, taskTitle: t.text || "Task",
+          createdBy: t.createdBy ?? null, waitedMinutes,
+        });
+        (deps.recordActivity ?? logActivity)({
+          category: "board", level: "warn", title: "card senza padrone in backlog",
+          detail: `${t.text || "Task"} (${waitedMinutes} min)`,
+          entityType: "task", entityId: t.id, actor: t.createdBy ?? undefined,
+          metadata: { projectId: t.projectId, createdBy: t.createdBy ?? null, waitedMinutes },
+        });
+      }
+    } catch (err) { log("avviso card senza padrone fallito", err); }
     // 1-bis) LE CHECKLIST FERME CHE NESSUNO STA GUARDANDO. La domanda sui figli
     //    fermi si arma su due EVENTI (un figlio che si ferma, il turno del padre
     //    che finisce), e una card che si era fermata prima non ne vedrà mai un
@@ -6521,30 +6548,6 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
         emit(t);
       }
     } catch (err) { log("sweep delle serie di attese fallito", err); }
-    // 1-quinquies) A CARD NOBODY OWNS, in backlog past ten minutes. This is the
-    //    coordinator's event, not a banner: `task:unowned` on the socket for a
-    //    connected one, and an activity_log row for one that is not (Jarvis
-    //    reads `GET /api/activity/log?category=board`). `sweepUnownedBacklog`
-    //    stamps each card before returning it, so a card is reported once per
-    //    round and the 10 s poll does not repeat itself. Its own `try`: the
-    //    event is information and must never take the sweeps above or the
-    //    tick below down with it.
-    try {
-      for (const t of deps.svc.sweepUnownedBacklog()) {
-        const waitedMinutes = Math.floor(Math.max(0, Date.now() - Date.parse(t.updatedAt)) / 60_000);
-        log(`card senza padrone in backlog da ${waitedMinutes} min: ${t.id}`);
-        deps.broadcast({
-          type: "task:unowned", projectId: t.projectId, taskId: t.id, taskTitle: t.text || "Task",
-          createdBy: t.createdBy ?? null, waitedMinutes,
-        });
-        logActivity({
-          category: "board", level: "warn", title: "card senza padrone in backlog",
-          detail: `${t.text || "Task"} (${waitedMinutes} min)`,
-          entityType: "task", entityId: t.id, actor: t.createdBy ?? undefined,
-          metadata: { projectId: t.projectId, createdBy: t.createdBy ?? null, waitedMinutes },
-        });
-      }
-    } catch (err) { log("avviso card senza padrone fallito", err); }
     // 2) Opportunistically fill free slots on every board that has queued todos.
     //
     //    UNA PROIEZIONE, NON I TASK. Qui serve un insieme di id di board, e si

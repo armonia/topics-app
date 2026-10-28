@@ -1473,7 +1473,6 @@ const CardBody = memo(function CardBody({ task, onOpen, showProject, error, onEr
           {runInitiator && (
             <span
               data-testid="card-run-initiator"
-
               title={tr('board.card.runInitiatorTitle', { name: runInitiator })}
               className="flex items-center gap-1 rounded bg-violet-500/15 px-1.5 py-0.5 text-compact leading-4 text-violet-800 dark:text-violet-300 md:text-mini"
             ><UserRound className="h-3 w-3 shrink-0" /> {tr('board.card.runInitiator', { name: runInitiator })}</span>
