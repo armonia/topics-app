@@ -39,7 +39,7 @@ import {
 } from "../utils/worktree-naming";
 import { makeSerialQueue } from "../lib/serial-queue";
 import { provisionTauriSidecars } from "./worktree-sidecars";
-import { existsSync, mkdirSync, statSync } from "node:fs";
+import { existsSync, mkdirSync, statSync, cpSync } from "node:fs";
 import { rm } from "node:fs/promises";
 import { topicsHome } from "./daemon-state";
 import { installArgv, missingPackageManager } from "../lib/project-scripts";
@@ -288,6 +288,54 @@ export function createWorktreeManager(
   }
 
   /**
+   * `git worktree add`, git-crypt aware.
+   *
+   * git-crypt (0.8.0) looks for its key in `<git-dir>/git-crypt/keys/default`,
+   * and a worktree has a git-dir of its own (`.git/worktrees/<name>`) where the
+   * key is not: the checkout inside `worktree add` runs the smudge filter, which
+   * exits 1 ("Unable to open key file"), and the worktree never exists. The
+   * dispatcher retried and parked the card in backlog.
+   *
+   * With git-crypt in the repo: add the worktree without a checkout, copy the
+   * common repo's `git-crypt` folder into the worktree's git-dir, then check out.
+   * Without git-crypt the path is the usual single command.
+   */
+  async function addWorktree(projectPath: string, absPath: string, addArgs: string[]): Promise<void> {
+    const commonDir = await gitCryptDir(projectPath);
+    if (!commonDir) {
+      await runGit(projectPath, ["worktree", "add", ...addArgs]);
+      return;
+    }
+    await runGit(projectPath, ["worktree", "add", "--no-checkout", ...addArgs]);
+    try {
+      const gitDir = resolve(absPath, (await runGit(absPath, ["rev-parse", "--git-dir"])).stdout.trim());
+      const link = join(gitDir, "git-crypt");
+      // Copy, never link: on Windows `worktree remove` follows a junction and deletes the real key.
+      if (!existsSync(link)) cpSync(commonDir, link, { recursive: true });
+      await runGit(absPath, ["reset", "--hard", "--quiet"]);
+    } catch (err) {
+      // Half-made worktree: drop the folder and its registration so the card leaves no residue.
+      await runGit(projectPath, ["worktree", "remove", "--force", absPath]).catch(() => {});
+      await runGit(projectPath, ["worktree", "prune"]).catch(() => {});
+      // The branch made by `-b` goes too, or the next attempt dies on "branch already exists".
+      if (addArgs[0] === "-b") await runGit(projectPath, ["branch", "-D", addArgs[1]!]).catch(() => {});
+      throw err;
+    }
+    console.log(`[WorktreeManager] git-crypt key dir copied into worktree git-dir { worktree: ${absPath} }`);
+  }
+
+  /** `<common-dir>/git-crypt` when the repo has git-crypt initialised, else null. */
+  async function gitCryptDir(projectPath: string): Promise<string | null> {
+    try {
+      const { stdout } = await runGit(projectPath, ["rev-parse", "--git-common-dir"]);
+      const dir = join(resolve(projectPath, stdout.trim()), "git-crypt");
+      return existsSync(dir) ? dir : null;
+    } catch {
+      return null;
+    }
+  }
+
+  /**
    * Refuse to create a worktree from inside another worktree. Detect by
    * inspecting the resolved `.git` path: a real repo has `<root>/.git/` as
    * a directory; a worktree has `<root>/.git` as a file pointing at the
@@ -434,20 +482,13 @@ export function createWorktreeManager(
     const start = Date.now();
     if (input.mode === "branch") {
       // git worktree add -b topics/<name> <abs_path> <base_ref>
-      await runGit(projectPath, [
-        "worktree",
-        "add",
-        "-b",
-        branchName!,
-        absPath,
-        input.baseRef,
-      ]);
+      await addWorktree(projectPath, absPath, ["-b", branchName!, absPath, input.baseRef]);
     } else if (input.mode === "reuse") {
       // git worktree add <abs_path> <existing_branch>
-      await runGit(projectPath, ["worktree", "add", absPath, input.baseRef]);
+      await addWorktree(projectPath, absPath, [absPath, input.baseRef]);
     } else {
       // detached
-      await runGit(projectPath, ["worktree", "add", "--detach", absPath, input.baseRef]);
+      await addWorktree(projectPath, absPath, ["--detach", absPath, input.baseRef]);
     }
     const ms = Date.now() - start;
     console.log(

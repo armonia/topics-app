@@ -294,19 +294,22 @@ interface NativeSession {
 /**
  * How often a waiting session re-reads its prefix through the prompt cache.
  *
- * The native loop's cache lives 5 minutes. On 18-24/10, 10 of 51 native turns
- * started 5 to 15 minutes after the previous one and each wrote its whole
- * prefix to the cache again (280k-416k tokens, 3.31M in all), at 1.25x the
- * input price; a cache read costs 0.05x-0.1x. 4.5 minutes stays inside the 5.
+ * The native loop's breakpoints now use a 1h TTL (see `prompt-cache.ts`), so
+ * a keepalive is rarely needed. It remains as a safety net for the 5m window
+ * that a read opens when it lands right before the 1h expires. 4 minutes
+ * fires well inside that window even for turns that take up to ~1 minute.
+ *
+ * History: 18-24/10 — 10 of 51 turns started 5-15 min after the previous one
+ * and rewrote 280k-416k tokens each (3.31M total) at 1.25x input price.
  */
-const KEEP_ALIVE_EVERY_MS = 270_000;
+const KEEP_ALIVE_EVERY_MS = 240_000;
 
 /**
  * The prompt cache's life, counted from the START of the request that last
  * read or wrote it (Anthropic's prompt-caching docs), not from the end of
- * its answer.
+ * its answer. Matches the 1h TTL set in prompt-cache.ts.
  */
-const CACHE_LIFETIME_MS = 300_000;
+const CACHE_LIFETIME_MS = 3_600_000;
 
 /** Ends a session's keep-alive chain: its timer, and any tick still in flight. */
 function endKeepAlive(session: NativeSession): void {

@@ -349,7 +349,7 @@ export function FloatingTaskComposer({ projectId, global, onCreated, onError, hi
   const boardSettings = useComposerBoardSettings(global, targetProject, projectId, paneSettings);
   const boardTopicsRoutingDefault = boardSettings?.dispatchTopicsRouting ?? null;
   const boardDispatchModel = boardSettings?.dispatchModel ?? null;
-  const composerRouting = surfaceTopicsRoutingEnabled(topicsRouting, boardTopicsRoutingDefault, model, boardDispatchModel);
+  const composerRouting = surfaceTopicsRoutingEnabled({ topicsRouting, model }, boardTopicsRoutingDefault, boardDispatchModel);
   const modelTrigger = useTaskModelTrigger(model, composerRouting, 'task', boardDispatchModel);
   const targetRef = projects?.find((p) => p.projectId === targetProject) ?? null;
   // Readable before the index loads: the stored id minus its hash suffix.

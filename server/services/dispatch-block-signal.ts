@@ -54,6 +54,39 @@ export function currentDispatchBlock(): DispatchBlock | null {
 }
 
 /**
+ * THE MEMORY GATE IN NUMBERS, for the card that waits on it.
+ *
+ * A card held by the memory queue carries the code `waiting-memory` on its row
+ * (KANBAN-97), not a sentence: the chip read "the machine is out of room" with
+ * the code itself at the end of the tooltip, and nobody looking at the board
+ * could tell how far the machine was from starting it. The two numbers the gate
+ * decides on travel here, measured by the dispatcher each round: the line a
+ * card needs (`needGB`, the floor plus the price of a card plus what is held
+ * for the turns just started) and the lowest free reading of the window
+ * (`freeGB`, `null` while the window is still filling).
+ *
+ * Same discipline as `current`: a process singleton, overwritten every round,
+ * `null` with no dispatcher. The card then says it is waiting for memory
+ * without a number, never with a stale one.
+ */
+export interface MemoryWait {
+  needGB: number;
+  freeGB: number | null;
+}
+
+let memoryWait: MemoryWait | null = null;
+
+/** The gate's numbers for this round; `null` when it could not measure. */
+export function setMemoryWait(next: MemoryWait | null): void {
+  memoryWait = next;
+}
+
+/** What a card waiting for memory needs, and what the machine has. */
+export function currentMemoryWait(): MemoryWait | null {
+  return memoryWait;
+}
+
+/**
  * A RESUME HELD BY THE MACHINE carries its own block, not the one above.
  *
  * `resume` puts the `queued` chip on an In-progress card when the floor, the

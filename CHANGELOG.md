@@ -2,6 +2,67 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.3.40 — 2026-10-28
+
+### Sotto il cofano
+- **e2e** · aggiorna durate shard dal nightly del 2026-10-28 [skip ci]
+- Guardia contro i modelli vecchi, T5 (card b3aeafd9) (#492)
+
+## 2.3.39 — 2026-10-27
+
+### Sotto il cofano
+- **e2e** · aggiorna durate shard dal nightly del 2026-10-27 [skip ci]
+- Finestra browser della topic ridimensionabile, con la pagina che segue dal vivo (#502)
+- i repo con git-crypt non fanno piu' fallire l'avvio dell'agente (card 30154f66) (#468)
+- Script per misurare i token prima e dopo un riavvio (card 65deecdf) (#494)
+- Peso misurato delle card al posto dei 4 GB fissi (card 263fc3c0) (#497)
+- una migrazione nuova riporta i costi dei tool sotto il totale del messaggio (card a3af291b) (#498)
+- Menu utente della sidebar: carico, nodi, versione col riavvio, Disponi pannelli (card 1fa57533) (#504)
+- La sbirciata della card si apre anche se la sessione arriva sotto il puntatore fermo (D5e) (#505)
+
+## 2.3.38 — 2026-10-27
+
+### Sotto il cofano
+- il modello dichiarato in ogni passo dei workflow e dei sottoagenti (card f50e49ae) (#472)
+
+## 2.3.37 — 2026-10-27
+
+### Sotto il cofano
+- Una card archiviata che torna a done tiene la sua data di chiusura (card 600feca6) (#491)
+
+## 2.3.36 — 2026-10-27
+
+### Sotto il cofano
+- Anche un land riavvia la produzione solo a zero turni (card a66a41b2) (#490)
+- Kanban chiara su cosa aspetta e perché (card ddd5d334) (#496)
+- Lingua italiana anche su Cloud Claude (card c798d16d) (#495)
+- Le card vecchie restano dirette anche nel cassetto e nel router (card e9226ab7) (#470)
+
+## 2.3.35 — 2026-10-26
+
+### Sotto il cofano
+- Il prezzo di una card in memoria è quello della sua board (#482)
+- Dopo un riavvio il nodo non rimanda più la consegna vecchia come nuova (#485)
+- Il PC accoppiato non scade più offline cinque minuti dopo l'accoppiamento (#486)
+- **args** · guard against empty --setting-sources in Claude spawns (card 803aca76) (#483)
+
+## 2.3.34 — 2026-10-26
+
+### Prestazioni
+- porta cache TTL a 1h e keepalive a 4 min (#481)
+
+### Sotto il cofano
+- Chiudi i comandi di una card insieme alla card (#454)
+- Coda per memoria della kanban: una card locale alla volta quando la memoria è poca (#465)
+- Main di nuovo verde: avviso postcss-selector-parser e tetto di bloat del dispatcher (#476)
+- Le card su Cloud Claude non aspettano più la memoria del Mac (#473)
+- i token dei nodi appaiati in nodes/ non entrano nel repo (#475)
+- il B7 della parità di ammissione misura dal t0 dell'harness (#477)
+- GET /__daemon/idle, «c'è un turno in volo?» di sola lettura (card fe19d3f9) (#469)
+- Card dei nodi: «review» senza ramo aspetta tre giri prima di consegnare vuoto (#478)
+- Nodo remoto: il feedback della review arriva al nodo, il cloud consegna il ramo col suo suffisso (#480)
+- Archiving a done card no longer reopens it (card 47b63de2) (#471)
+
 ## 2.3.33 — 2026-10-26
 
 ### Sotto il cofano

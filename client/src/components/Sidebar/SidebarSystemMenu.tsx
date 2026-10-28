@@ -1,5 +1,5 @@
 import { lazy, Suspense, useCallback, useEffect, useState } from 'react';
-import { Activity, Coins, Gauge, MonitorCog, RefreshCw, RotateCcw, Tag } from 'lucide-react';
+import { Activity, Coins, Gauge, MonitorCog, Tag } from 'lucide-react';
 import { getVersion, relaunch, reloadAllWindows } from '@/lib/shell/app';
 import { isDesktop } from '@/lib/shell';
 import { useSystemStatus } from '@/hooks/useSystemStatus';
@@ -132,15 +132,6 @@ const importProjectUsagePanel = async () => {
   return { default: Component };
 };
 const ProjectUsagePanel = lazy(importProjectUsagePanel);
-
-/** A row of this menu. The two sizes are the finger and the mouse, and the
- *  predicate is the same one the header uses: a `md:` breakpoint here would be
- *  a second mechanism deciding the same thing, and two mechanisms in one row
- *  diverge. */
-function item(isMobile: boolean): string {
-  return 'w-full flex items-center gap-2.5 px-3 text-app-text hover:bg-app-hover transition-colors '
-    + (isMobile ? 'py-3 text-body-lg' : 'py-1.5 text-compact coarse:py-3 coarse:text-body-lg');
-}
 
 export interface SidebarSystemMenuProps {
   /** Apre il changelog. La versione viaggia col gesto perché la modale la
@@ -290,9 +281,6 @@ export function SidebarSystemMenu({ onOpenChangelog, isMobile = false, signals =
     void reloadAllWindows();
   };
 
-  const VOCE = item(isMobile);
-  const glyph = isMobile ? 18 : 14;
-
   return (
     <div data-testid="sidebar-system-menu">
       {/* ONE ROW FOR THE WORK AND ITS COST, and a LEVEL, not an accordion.
@@ -328,7 +316,16 @@ export function SidebarSystemMenu({ onOpenChangelog, isMobile = false, signals =
               className="flex flex-shrink-0 items-center gap-1.5 text-app-text-secondary tabular-nums"
             >
               {load?.misurato && (
-                <span className="h-2 w-2 rounded-full" style={{ backgroundColor: busyDotColor(busyTone(Math.round(load.livello * 100))) }} />
+                <span
+                  data-testid="system-load-gauge"
+                  className="h-1.5 w-7 flex-shrink-0 overflow-hidden rounded-full bg-app-border"
+                  title={tr('statusBar.system.loadTitle', { n: Math.round(load.livello * 100) })}
+                >
+                  <span
+                    className="block h-full rounded-full"
+                    style={{ width: `${Math.max(6, Math.min(100, Math.round(load.livello * 100)))}%`, backgroundColor: busyDotColor(busyTone(Math.round(load.livello * 100))) }}
+                  />
+                </span>
               )}
               {load?.totalMB != null && <span>{formatMemoryMB(load.totalMB, { partial: load.partial })}</span>}
               {load?.totalCpu != null && <span>{Math.round(load.totalCpu)}%</span>}
@@ -416,6 +413,9 @@ export function SidebarSystemMenu({ onOpenChangelog, isMobile = false, signals =
         onOpenChange={setMostraVersione}
         tail={
           <span className="flex flex-shrink-0 items-center gap-1.5 text-compact tabular-nums">
+            {updateAvailable && (
+              <span data-testid="menu-version-update-dot" title={tr('statusBar.updateAvailable')} className="h-1.5 w-1.5 rounded-full bg-primary" />
+            )}
             <VersionChip
               appVersion={version}
               shellVersion={versioneGuscio}
@@ -436,27 +436,17 @@ export function SidebarSystemMenu({ onOpenChangelog, isMobile = false, signals =
             buildDate={typeof __BUILD_TIME__ !== 'undefined' && __BUILD_TIME__ ? formatBuildDate(__BUILD_TIME__) : ''}
             buildSha={typeof __BUILD_SHA__ !== 'undefined' ? __BUILD_SHA__ : ''}
             onOpenChangelog={() => { setMostraVersione(false); onOpenChangelog(version); }}
+            restart={{
+              run: restart,
+              busy: riavviando,
+              desktop: isDesktop,
+              highlight: updateAvailable,
+              label: isDesktop ? tr('statusBar.restartApp') : updateAvailable ? tr('statusBar.updateAvailable') : tr('statusBar.reload'),
+            }}
           />
         </Suspense>
       </SubmenuItem>
 
-      {/* RESTART, and it says which of the two things it does. On the desktop
-          it replaces the process (the way an update lands); in a browser it
-          clears the caches and reloads. Same intention, two machines. */}
-      <button
-        type="button"
-        onClick={restart}
-        disabled={riavviando}
-        className={`${VOCE} ${updateAvailable ? 'text-primary' : ''}`}
-        data-testid="menu-restart"
-      >
-        {isDesktop
-          ? <RotateCcw size={glyph} className={`flex-shrink-0 ${riavviando ? 'animate-spin' : ''}`} />
-          : <RefreshCw size={glyph} className={`flex-shrink-0 ${riavviando ? 'animate-spin' : ''}`} />}
-        <span className="flex-1 text-left">
-          {isDesktop ? tr('statusBar.restartApp') : updateAvailable ? tr('statusBar.updateAvailable') : tr('statusBar.reload')}
-        </span>
-      </button>
     </div>
   );
 }

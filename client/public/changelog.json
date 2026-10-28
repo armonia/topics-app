@@ -1,5 +1,248 @@
 [
   {
+    "version": "2.3.40",
+    "date": "2026-10-28",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "aggiorna durate shard dal nightly del 2026-10-28 [skip ci]",
+          "en": "",
+          "scope": "e2e",
+          "breaking": false
+        },
+        {
+          "it": "Guardia contro i modelli vecchi, T5 (card b3aeafd9) (#492)",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
+    "version": "2.3.39",
+    "date": "2026-10-27",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "aggiorna durate shard dal nightly del 2026-10-27 [skip ci]",
+          "en": "",
+          "scope": "e2e",
+          "breaking": false
+        },
+        {
+          "it": "Finestra browser della topic ridimensionabile, con la pagina che segue dal vivo (#502)",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "i repo con git-crypt non fanno piu' fallire l'avvio dell'agente (card 30154f66) (#468)",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "Script per misurare i token prima e dopo un riavvio (card 65deecdf) (#494)",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Peso misurato delle card al posto dei 4 GB fissi (card 263fc3c0) (#497)",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "una migrazione nuova riporta i costi dei tool sotto il totale del messaggio (card a3af291b) (#498)",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "Menu utente della sidebar: carico, nodi, versione col riavvio, Disponi pannelli (card 1fa57533) (#504)",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "La sbirciata della card si apre anche se la sessione arriva sotto il puntatore fermo (D5e) (#505)",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
+    "version": "2.3.38",
+    "date": "2026-10-27",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "il modello dichiarato in ogni passo dei workflow e dei sottoagenti (card f50e49ae) (#472)",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        }
+      ]
+    }
+  },
+  {
+    "version": "2.3.37",
+    "date": "2026-10-27",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Una card archiviata che torna a done tiene la sua data di chiusura (card 600feca6) (#491)",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
+    "version": "2.3.36",
+    "date": "2026-10-27",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Anche un land riavvia la produzione solo a zero turni (card a66a41b2) (#490)",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Kanban chiara su cosa aspetta e perché (card ddd5d334) (#496)",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Lingua italiana anche su Cloud Claude (card c798d16d) (#495)",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Le card vecchie restano dirette anche nel cassetto e nel router (card e9226ab7) (#470)",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
+    "version": "2.3.35",
+    "date": "2026-10-26",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Il prezzo di una card in memoria è quello della sua board (#482)",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Dopo un riavvio il nodo non rimanda più la consegna vecchia come nuova (#485)",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il PC accoppiato non scade più offline cinque minuti dopo l'accoppiamento (#486)",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "guard against empty --setting-sources in Claude spawns (card 803aca76) (#483)",
+          "en": "",
+          "scope": "args",
+          "breaking": false
+        }
+      ]
+    }
+  },
+  {
+    "version": "2.3.34",
+    "date": "2026-10-26",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [
+        {
+          "it": "porta cache TTL a 1h e keepalive a 4 min (#481)",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        }
+      ],
+      "internal": [
+        {
+          "it": "Chiudi i comandi di una card insieme alla card (#454)",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Coda per memoria della kanban: una card locale alla volta quando la memoria è poca (#465)",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Main di nuovo verde: avviso postcss-selector-parser e tetto di bloat del dispatcher (#476)",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Le card su Cloud Claude non aspettano più la memoria del Mac (#473)",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "i token dei nodi appaiati in nodes/ non entrano nel repo (#475)",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "il B7 della parità di ammissione misura dal t0 dell'harness (#477)",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "GET /__daemon/idle, «c'è un turno in volo?» di sola lettura (card fe19d3f9) (#469)",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "Card dei nodi: «review» senza ramo aspetta tre giri prima di consegnare vuoto (#478)",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Nodo remoto: il feedback della review arriva al nodo, il cloud consegna il ramo col suo suffisso (#480)",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Archiving a done card no longer reopens it (card 47b63de2) (#471)",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
     "version": "2.3.33",
     "date": "2026-10-26",
     "sections": {

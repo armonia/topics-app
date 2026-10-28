@@ -132,6 +132,9 @@ describe("la serie di attese sfonda il tetto senza che nessun turno riparta", ()
  * itself had asked for, with a note claiming one wait in a row four hours old
  * on a wait that is neither a series nor expired.
  */
+// The second declaration of a series is a MACHINE one here (`source: "machine"`):
+// an agent's second wait parks at once (`AGENT_WAIT_STREAK_CAP`), and these
+// cases are about the duration judge, which only a longer series reaches.
 describe("il tetto sulla durata non scavalca la sveglia che l'agente ha chiesto", () => {
   let db: Database; let s: TaskService;
   const clock = { t: T0 };
@@ -183,7 +186,7 @@ describe("il tetto sulla durata non scavalca la sveglia che l'agente ha chiesto"
     const id = longWait(15, "aspetto che la CI finisca");
     clock.t += 3 * ORA;
     s.claim({ taskId: id, cap: 5, maxAttempts: 2 });
-    s.deferForWait({ taskId: id, reason: "aspetto che la CI finisca", minutes: 15, by: "claude" });
+    s.deferForWait({ taskId: id, reason: "aspetto che la CI finisca", minutes: 15, by: "claude", source: "machine" });
     expect(s.get(id)!.task.waitStreak).toBe(2);
 
     clock.t += 61 * 60_000; // series: 4h01 old, wake-up 46 minutes past
@@ -199,7 +202,7 @@ describe("il tetto sulla durata non scavalca la sveglia che l'agente ha chiesto"
     s.claim({ taskId: id, cap: 5, maxAttempts: 2 });
     // The second wait asks for two hours: the series tops the cap at 4h, but
     // at 5h there is a turn the agent has already booked to look.
-    s.deferForWait({ taskId: id, reason: "aspetto che la CI finisca", minutes: 120, by: "claude" });
+    s.deferForWait({ taskId: id, reason: "aspetto che la CI finisca", minutes: 120, by: "claude", source: "machine" });
 
     clock.t += 61 * 60_000; // 4h01 of series, wake-up in 59 minutes
     expect(s.sweepWaitedOut()).toEqual([]);
@@ -223,7 +226,7 @@ describe("il tetto sulla durata non scavalca la sveglia che l'agente ha chiesto"
     const id = longWait(15, "aspetto che la ci finisca");
     clock.t += 3 * ORA;
     s.claim({ taskId: id, cap: 5, maxAttempts: 2 });
-    s.deferForWait({ taskId: id, reason: "aspetto che la ci finisca", minutes: 15, by: "claude" });
+    s.deferForWait({ taskId: id, reason: "aspetto che la ci finisca", minutes: 15, by: "claude", source: "machine" });
     expect(s.get(id)!.task.waitStreak).toBe(2);
 
     // A turn ran and ended with children still open: the series is over.
@@ -334,7 +337,7 @@ describe("un turno ripartito senza ridichiarare l'attesa chiude la serie", () =>
     // again and the backstop must still fire. Without this the fix above would
     // be indistinguishable from deleting the sweep.
     const id = waitThenTurn();
-    s.deferForWait({ taskId: id, reason: "aspetto che la CI finisca", minutes: 15, by: "claude" });
+    s.deferForWait({ taskId: id, reason: "aspetto che la CI finisca", minutes: 15, by: "claude", source: "machine" });
     expect(s.get(id)!.task.waitStreak).toBe(2);
     clock.t += 5 * ORA;
     expect(s.sweepWaitedOut().map((t) => t.id)).toEqual([id]);

@@ -2,6 +2,7 @@ import { Database } from "bun:sqlite";
 import { readFileSync, readdirSync, existsSync, mkdirSync } from "fs";
 import { join } from "path";
 import type { EmbeddedMigration } from "./db/migrations-embedded";
+import { MIGRATION_STEPS } from "./db/migration-steps";
 import { resolveDataDir } from "./lib/data-dir";
 import { instrumentSlowStatements } from "./lib/db-slow-log";
 
@@ -368,6 +369,9 @@ function runMigrations(db: Database, baseDir: string): void {
       // Run the entire migration in a transaction
       db.transaction(() => {
         db.exec(sql);
+        // What SQL cannot do (read a zstd blob): code keyed by this file name,
+        // in the same transaction. See db/migration-steps.ts.
+        MIGRATION_STEPS[file]?.(db);
         // Diverse migration storiche si registrano da sole con uno STEM
         // (`'ui-state'`, `'push-subscriptions'`). Quando la chiave era il
         // numero, l'`INSERT OR IGNORE` del runner qui sotto ci rimbalzava

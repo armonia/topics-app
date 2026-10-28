@@ -61,14 +61,16 @@ function fakeCloud() {
     posts,
     branch: () => created!.session_context.outcomes[0].git_info.branches[0],
     model: () => created!.session_context.model,
-    work() {
+    /** `pushAs`: the name the session really pushes, when its harness gives it another one. */
+    work(name?: string) {
+      const pushAs = name ?? this.branch();
       rmSync(cloudWork, { recursive: true, force: true });
       sh(["clone", "-q", origin, cloudWork]);
-      sh(["switch", "-q", "-c", this.branch()], cloudWork);
+      sh(["switch", "-q", "-c", pushAs], cloudWork);
       writeFileSync(join(cloudWork, "b.txt"), "fatto nel cloud\n");
       sh(["add", "."], cloudWork);
       sh(["commit", "-q", "-m", "lavoro cloud"], cloudWork);
-      sh(["push", "-q", "origin", this.branch()], cloudWork);
+      sh(["push", "-q", "origin", pushAs], cloudWork);
       return sh(["rev-parse", "HEAD"], cloudWork);
     },
   };
@@ -107,6 +109,106 @@ describe("nodo cloud", () => {
     });
     expect(planted).toMatchObject({ planted: true, commit: tip });
     expect(sh(["show", `${r1.deliveryBranch}:b.txt`], checkout)).toBe("fatto nel cloud");
+  });
+
+  // card ff0bb951, 26/10: the cloud harness forces its own suffix on the branch of the session
+  // (`...-6864` became `...-6864-jkf907`); the node looked for the bare name and reported the branch as missing.
+  test("il cloud aggiunge un suffisso al ramo: si trova per prefisso, anche senza eventi", async () => {
+    const cloud = fakeCloud();
+    const node = createCloudNodeClient({ api: cloud.api, repoPathOfTask: () => checkout });
+    const { runId } = await node.createRun({ body: { ...body, originUrl: origin } });
+    await node.readRun({ runId });
+    const pushed = `${cloud.branch()}-jkf907`;
+    const tip = cloud.work(pushed);
+    cloud.events.push({ type: "result", subtype: "success", uuid: "r3", result: "fatto" });
+    const r = await node.readRun({ runId });
+    expect(r.status).toBe("review");
+    expect(r.dispatchError).toBeNull();
+    expect(r.deliveryBranch).toBe(pushed);
+    expect(r.deliveryCommit).toBe(tip);
+    const bundle = await node.fetchBundle({ runId });
+    expect(bundle.empty).toBe(false);
+  });
+
+  test("il ramo spinto ha un altro nome: lo dichiara l'evento push della sessione", async () => {
+    const cloud = fakeCloud();
+    const node = createCloudNodeClient({ api: cloud.api, repoPathOfTask: () => checkout });
+    const { runId } = await node.createRun({ body: { ...body, originUrl: origin } });
+    await node.readRun({ runId });
+    const tip = cloud.work("claude/un-altro-nome-x1y2");
+    // Shape measured on the real session of ff0bb951: `vcs_state_changed` with kind «push».
+    cloud.events.push({ type: "system", subtype: "vcs_state_changed", uuid: "v1", kind: "push", branch: "claude/un-altro-nome-x1y2" });
+    cloud.events.push({ type: "result", subtype: "success", uuid: "r4", result: "fatto" });
+    const r = await node.readRun({ runId });
+    expect(r.deliveryBranch).toBe("claude/un-altro-nome-x1y2");
+    expect(r.deliveryCommit).toBe(tip);
+  });
+
+  // Found by the second-model check of this change: the prefix answer came, and a second call for the
+  // tip of the branch hit a mute origin, which read as «branch not pushed».
+  test("origin cade subito dopo la ricerca per prefisso: il ramo si consegna lo stesso", async () => {
+    const cloud = fakeCloud();
+    let globAnswered = false;
+    const git: GitRun = async (args, cwd) => {
+      if (args[0] === "ls-remote" && globAnswered) return { code: 128, stdout: "", stderr: "unable to access" };
+      const r = Bun.spawnSync(["git", ...args], { cwd, env: process.env });
+      if (args[0] === "ls-remote" && args.some((a) => a.endsWith("-*"))) globAnswered = true;
+      return { code: r.exitCode, stdout: r.stdout.toString(), stderr: r.stderr.toString() };
+    };
+    const node = createCloudNodeClient({ api: cloud.api, repoPathOfTask: () => checkout, git });
+    const { runId } = await node.createRun({ body: { ...body, originUrl: origin } });
+    await node.readRun({ runId });
+    const pushed = `${cloud.branch()}-jkf907`;
+    cloud.work(pushed);
+    cloud.events.push({ type: "result", subtype: "success", uuid: "r6", result: "fatto" });
+    const r = await node.readRun({ runId });
+    expect(globAnswered).toBe(true);
+    expect(r.dispatchError).toBeNull();
+    expect(r.deliveryBranch).toBe(pushed);
+  });
+
+  // Second-model check, round 2: a stale branch with the asked-for name must not outrank the push
+  // the session declares, and two branches under one prefix must not be settled by alphabetical luck.
+  test("il ramo che la sessione dichiara spinto batte quello col nome atteso", async () => {
+    const cloud = fakeCloud();
+    const node = createCloudNodeClient({ api: cloud.api, repoPathOfTask: () => checkout });
+    const { runId } = await node.createRun({ body: { ...body, originUrl: origin } });
+    await node.readRun({ runId });
+    cloud.work();
+    const real = `${cloud.branch()}-zzz-current`;
+    const tip = cloud.work(real);
+    cloud.events.push({ type: "system", subtype: "vcs_state_changed", uuid: "v2", kind: "push", branch: real });
+    cloud.events.push({ type: "result", subtype: "success", uuid: "r7", result: "fatto" });
+    const r = await node.readRun({ runId });
+    expect(r.deliveryBranch).toBe(real);
+    expect(r.deliveryCommit).toBe(tip);
+  });
+
+  test("più rami sotto il prefisso e nessun evento: non ne sceglie uno, li nomina", async () => {
+    const cloud = fakeCloud();
+    const node = createCloudNodeClient({ api: cloud.api, repoPathOfTask: () => checkout });
+    const { runId } = await node.createRun({ body: { ...body, originUrl: origin } });
+    await node.readRun({ runId });
+    cloud.work(`${cloud.branch()}-aaa-foreign`);
+    cloud.work(`${cloud.branch()}-zzz-current`);
+    cloud.events.push({ type: "result", subtype: "success", uuid: "r8", result: "fatto" });
+    const r = await node.readRun({ runId });
+    expect(r.deliveryBranch).toBeNull();
+    expect(r.dispatchError).toBe("cloud_no_branch");
+    expect(r.reason).toContain("aaa-foreign");
+    expect(r.reason).toContain("zzz-current");
+  });
+
+  test("la sessione non ha spinto niente: review senza ramo, col nome che si cercava", async () => {
+    const cloud = fakeCloud();
+    const node = createCloudNodeClient({ api: cloud.api, repoPathOfTask: () => checkout });
+    const { runId } = await node.createRun({ body: { ...body, originUrl: origin } });
+    await node.readRun({ runId });
+    cloud.events.push({ type: "result", subtype: "success", uuid: "r5", result: "non riesco a riprodurlo" });
+    const r = await node.readRun({ runId });
+    expect(r.deliveryBranch).toBeNull();
+    expect(r.dispatchError).toBe("cloud_no_branch");
+    expect(r.reason).toContain(cloud.branch());
   });
 
   test("sessione in errore anche dopo aver spinto: review senza ramo, col motivo", async () => {

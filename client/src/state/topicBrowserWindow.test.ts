@@ -15,6 +15,8 @@ import {
   setMode,
   move,
   setWidth,
+  resizeFloating,
+  MIN_WINDOW_SIZE_BOUNDS,
   promoteToTab,
   returnFromTab,
   releasePromoted,
@@ -116,6 +118,30 @@ describe('setMode / move / setWidth', () => {
     expect(s.expandedWidth).toBe(EXPANDED_WIDTH_BOUNDS.max);
     expect(setWidth(s, 10).expandedWidth).toBe(EXPANDED_WIDTH_BOUNDS.min);
     expect(setWidth(s, null).expandedWidth).toBeNull();
+  });
+});
+
+describe('resizeFloating (the minimized window is resized from its edges)', () => {
+  test('size and anchor travel together, clamped and rounded', () => {
+    const s = resizeFloating(EMPTY_TOPIC_BROWSER_WINDOW, { width: 640.6, height: 480.2 }, { right: 10, bottom: 20 });
+    expect(s.minSize).toEqual({ width: 641, height: 480 });
+    expect(s.minPos).toEqual({ right: 10, bottom: 20 });
+    expect(resizeFloating(s, { width: 641, height: 480 }, { right: 10, bottom: 20 })).toBe(s);
+    expect(resizeFloating(s, { width: 1, height: 1 }).minSize).toEqual(MIN_WINDOW_SIZE_BOUNDS.min);
+    expect(resizeFloating(s, null).minSize).toBeNull();
+  });
+
+  test('resolveMinRect uses the stored size, and the area still caps it', () => {
+    const s = resizeFloating(EMPTY_TOPIC_BROWSER_WINDOW, { width: 900, height: 700 }, { right: 0, bottom: 0 });
+    expect(resolveMinRect(s, { width: 1440, height: 900 })).toEqual({ left: 540, top: 200, width: 900, height: 700 });
+    expect(resolveMinRect(s, { width: 800, height: 600 })).toEqual({ left: 0, top: 0, width: 800, height: 600 });
+  });
+
+  test('the size survives the wire, and garbage does not', () => {
+    const base = { mode: 'min', tabs: [{ contextId: 'a' }], activeContextId: 'a' };
+    expect(sanitizeTopicBrowserWindow({ ...base, minSize: { width: 700, height: 500 } })!.minSize).toEqual({ width: 700, height: 500 });
+    expect(sanitizeTopicBrowserWindow({ ...base, minSize: { width: 'x', height: 500 } })!.minSize).toBeNull();
+    expect(sanitizeTopicBrowserWindow(base)!.minSize).toBeNull();
   });
 });
 

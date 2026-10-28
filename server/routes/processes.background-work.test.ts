@@ -13,7 +13,7 @@
  * state folder (`tests/integration/helpers/process-registry-life.ts`): the
  * registry is module state, loaded once per process.
  *
- * @covers BGVIS-07
+ * @covers BGVIS-07, CARDPROCESS-01
  */
 import { afterAll, describe, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "fs";
@@ -108,7 +108,8 @@ describe("a run_command process on the chat's background line", () => {
     // A Stop from the panel ends it like an exit: gone from the line, pushed.
     await until(() => tasksOf().length === 0);
     expect(tasksOf()).toEqual([]);
-    expect(pushes()).toHaveLength(2);
+    // Starting, honest closing state, and confirmed group death each refresh the line.
+    expect(pushes()).toHaveLength(3);
   }, 20_000);
 
   test("with no description the name is the command's first line, cut", async () => {
