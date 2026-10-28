@@ -278,17 +278,20 @@
      * translucent over a `backdrop-filter` that only has something to work on
      * under the native window vibrancy; in a plain browser the blur does not
      * reach the panes behind, so the terminal/browser seam showed through the
-     * menu as a sharp step. The opaque popover colour the web build uses is the
-     * honest stand-in. `:is(.dark,:not(.dark))` lifts the specificity to the
-     * (0,3,1) of the dark vibrancy rule, and this sheet comes later. Gate:
-     * scripts/demo-glass-probe.mjs (check:demo). */
+     * menu. The opaque popover colour the web build uses is the honest stand-in.
+     * `!important` and not a specificity trick: boot.js runs BEFORE the bundle's
+     * stylesheet is linked, so a rule of equal weight loses on source order
+     * (the dark vibrancy rule is (0,3,1) like ours). The first version relied on
+     * `:is(.dark,:not(.dark))` plus being "later", never won in any browser, and
+     * passed its probe only because Chromium blurs the backdrop anyway. Gate:
+     * scripts/demo-glass-probe.mjs (check:demo, Chromium and WebKit). */
     var g = document.createElement("style");
     g.id = "landing-glass-solid";
     g.textContent =
-      "html.native-frost:is(.dark,:not(.dark)) .glass-surface," +
-      "html.native-frost:is(.dark,:not(.dark)) [data-sheet-open]{" +
-        "background-color:var(--popover-bg);" +
-        "-webkit-backdrop-filter:none;backdrop-filter:none;}";
+      "html.native-frost .glass-surface," +
+      "html.native-frost [data-sheet-open]{" +
+        "background-color:var(--popover-bg) !important;" +
+        "-webkit-backdrop-filter:none !important;backdrop-filter:none !important;}";
     (document.head || document.documentElement).appendChild(g);
   })();
 

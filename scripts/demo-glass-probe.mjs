@@ -13,7 +13,9 @@
  * shots. The step is the MEDIAN over rows, so text rows of the menu do not
  * count. The menu must keep at most STEP_RATIO of the step behind it.
  *
- * Imported by scripts/check-demo.mjs; not run on its own.
+ * Imported by scripts/check-demo.mjs, which runs it in Chromium AND WebKit: the
+ * two resolve the menu's rules differently, and a green Chromium once hid a
+ * see-through menu in Safari. Not run on its own.
  */
 const MIN_STEP = 10;     // luminance levels (0-255) the seam must show to be measurable
 const STEP_RATIO = 0.12; // a bare 72% fill leaks 0.28 of the step

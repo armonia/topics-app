@@ -24,12 +24,13 @@
 import { createServer } from 'node:http';
 import { readFile, stat } from 'node:fs/promises';
 import { join, extname, resolve } from 'node:path';
-import { chromium } from 'playwright-core';
+import { chromium, webkit } from 'playwright-core';
 import { glassProblems } from './demo-glass-probe.mjs';
 
 const root = resolve(process.argv[2] || 'landing/dist');
 /* `--mutant` paints every menu 72% translucent with no blur and expects the
- * glass probe to go red: proof the probe can see the defect it guards against. */
+ * glass probe to go red: proof the probe can see the defect it guards against.
+ * Its selector is heavier than the demo's solid-fill sheet so it overrides it. */
 const MUTANT = process.argv.includes('--mutant');
 
 const MIME = {
@@ -60,79 +61,111 @@ const server = createServer(async (req, res) => {
 await new Promise((ok) => server.listen(0, '127.0.0.1', ok));
 const base = `http://127.0.0.1:${server.address().port}`;
 
-/* Launch is bounded on both paths. Playwright's own default is 180 s per
+/* Launch is bounded on every path. Playwright's own default is 180 s per
  * launch, so a machine with no usable browser used to sit here for up to six
  * minutes (bundled Chromium, then the real Chrome) before saying anything. */
 const LAUNCH_TIMEOUT = 30000;
-let browser;
-try {
-  browser = await chromium.launch({ timeout: LAUNCH_TIMEOUT });
-} catch (bundledErr) {
-  // No bundled chromium (playwright-core ships none): use the real Chrome.
+
+async function launchChromium() {
   try {
-    browser = await chromium.launch({ channel: 'chrome', timeout: LAUNCH_TIMEOUT });
-  } catch (chromeErr) {
+    return await chromium.launch({ timeout: LAUNCH_TIMEOUT });
+  } catch (bundledErr) {
+    // No bundled chromium (playwright-core ships none): use the real Chrome.
+    try {
+      return await chromium.launch({ channel: 'chrome', timeout: LAUNCH_TIMEOUT });
+    } catch (chromeErr) {
+      server.close();
+      console.error('check:demo — no browser could be launched:');
+      console.error('  · bundled chromium: ' + String(bundledErr.message).split('\n')[0]);
+      console.error('  · chrome channel:   ' + String(chromeErr.message).split('\n')[0]);
+      process.exit(1);
+    }
+  }
+}
+
+/* The demo is a public landing: it has to look right in Safari too, and WebKit
+ * resolves stylesheets and backdrop-filter by its own rules. The glass probe
+ * once passed on Chromium alone while the menu stayed see-through in WebKit. */
+async function launchWebkit() {
+  try {
+    return await webkit.launch({ timeout: LAUNCH_TIMEOUT });
+  } catch (err) {
     server.close();
-    console.error('check:demo — no browser could be launched:');
-    console.error('  · bundled chromium: ' + String(bundledErr.message).split('\n')[0]);
-    console.error('  · chrome channel:   ' + String(chromeErr.message).split('\n')[0]);
+    console.error('check:demo — WebKit could not be launched (npx playwright install webkit):');
+    console.error('  · ' + String(err.message).split('\n')[0]);
     process.exit(1);
   }
 }
-const page = await browser.newPage({ viewport: { width: 1280, height: 800 } });
-
-const errori = [];
-let probing = false;
-page.on('pageerror', (e) => errori.push(`uncaught: ${e.message}`));
-page.on('console', (m) => {
-  if (m.type() !== 'error') return;
-  const t = m.text().split('\n')[0];
-  // The glass probe flips the theme in place, which makes the demo terminal
-  // replay its canned frames; xterm warns about the multi-byte glyph it
-  // re-reads mid-sequence. A side effect of the probe, not of the boot.
-  if (probing && /xterm\.js: Parsing error/.test(t)) return;
-  if (/Failed to load resource/.test(t)) return;   // covered by the response hook
-  errori.push(`console: ${t}`);
-});
-page.on('response', (r) => {
-  if (r.status() >= 400 && !ATTESI_404.test(r.url())) errori.push(`HTTP ${r.status()} ${r.url()}`);
-});
 
 const target = `${base}/app/index.html`;
 const problemi = [];
+const errori = [];
 let testo = '';
-try {
+
+/** Boots the demo in one engine, opens the identity menu and runs the glass probe. */
+async function runEngine(engine, browser) {
+  const tag = (m) => (engine === 'chromium' ? m : `[${engine}] ${m}`);
+  const page = await browser.newPage({ viewport: { width: 1280, height: 800 } });
+  let probing = false;
+  page.on('pageerror', (e) => errori.push(tag(`uncaught: ${e.message}`)));
+  page.on('console', (m) => {
+    if (m.type() !== 'error') return;
+    const t = m.text().split('\n')[0];
+    // The glass probe flips the theme in place, which makes the demo terminal
+    // replay its canned frames; xterm warns about the multi-byte glyph it
+    // re-reads mid-sequence. A side effect of the probe, not of the boot.
+    if (probing && /xterm\.js: Parsing error/.test(t)) return;
+    if (/Failed to load resource/.test(t)) return;   // covered by the response hook
+    // WebKit's own notes about the page, not faults of the demo: an unknown
+    // viewport key, and the notification permission asked outside a gesture.
+    if (engine === 'webkit' && /Viewport argument key "interactive-widget"|Notification prompting can only be done from a user gesture/.test(t)) return;
+    errori.push(tag(`console: ${t}`));
+  });
+  page.on('response', (r) => {
+    if (r.status() >= 400 && !ATTESI_404.test(r.url())) errori.push(tag(`HTTP ${r.status()} ${r.url()}`));
+  });
+
   await page.goto(target, { waitUntil: 'load' });
   await page.waitForTimeout(8000);
   // An explicit 20 s cap instead of Playwright's default (30 s in 1.59): a page
   // that has not drawn its text by then fails, with the reason on its own line.
-  testo = (await page.locator('body').innerText({ timeout: 20000 }).catch((e) => {
-    problemi.push(`reading the page text failed after at most 20 s: ${String(e.message).split('\n')[0]}`);
+  const t = (await page.locator('body').innerText({ timeout: 20000 }).catch((e) => {
+    problemi.push(tag(`reading the page text failed after at most 20 s: ${String(e.message).split('\n')[0]}`));
     return '';
   })).replace(/\s+/g, ' ').trim();
+  testo = testo || t;
   // The boot alone does not read every mock: the identity band's menu asks for
   // the address book and the friendships, and threw on `[]` while the boot
   // stayed clean. "This Mac" is the device name the /api/auth/session mock gives.
-  if (testo) {
-    const identityRow = page.getByRole('button', { name: 'This Mac' }).first();
-    // The defect itself: a 72% translucent menu whose backdrop is not blurred.
-    if (MUTANT) await page.addStyleTag({ content: '.glass-surface{background-color:rgb(237 239 243 / .72) !important;backdrop-filter:none !important;-webkit-backdrop-filter:none !important}' });
-    if (await identityRow.click({ timeout: 10000 }).then(() => true, () => false)) {
-      await page.waitForTimeout(2500);
-      probing = true;
-      const glass = await glassProblems(page, browser);
-      await page.waitForTimeout(3000);
-      probing = false;
-      if (MUTANT) {
-        if (!glass.length) problemi.push('mutant survived: with an unblurred translucent menu the glass probe stayed green');
-        else console.log('check:demo --mutant — the glass probe went red as it should');
-      } else problemi.push(...glass);
-    } else {
-      problemi.push('the identity row («This Mac») is not drawn, so its menu could not be opened');
+  if (!t) return;
+  const identityRow = page.getByRole('button', { name: 'This Mac' }).first();
+  // The defect itself: a 72% translucent menu whose backdrop is not blurred.
+  if (MUTANT) await page.addStyleTag({ content: 'html .glass-surface.glass-surface.glass-surface{background-color:rgb(237 239 243 / .72) !important;backdrop-filter:none !important;-webkit-backdrop-filter:none !important}' });
+  if (await identityRow.click({ timeout: 10000 }).then(() => true, () => false)) {
+    await page.waitForTimeout(2500);
+    probing = true;
+    const glass = (await glassProblems(page, browser)).map(tag);
+    await page.waitForTimeout(3000);
+    probing = false;
+    if (MUTANT) {
+      if (!glass.length) problemi.push(tag('mutant survived: with an unblurred translucent menu the glass probe stayed green'));
+      else console.log(`check:demo --mutant (${engine}) — the glass probe went red as it should`);
+    } else problemi.push(...glass);
+  } else {
+    problemi.push(tag('the identity row («This Mac») is not drawn, so its menu could not be opened'));
+  }
+}
+
+try {
+  for (const [engine, launch] of [['chromium', launchChromium], ['webkit', launchWebkit]]) {
+    const browser = await launch();
+    try {
+      await runEngine(engine, browser);
+    } finally {
+      await browser.close();
     }
   }
 } finally {
-  await browser.close();
   server.close();
 }
 
