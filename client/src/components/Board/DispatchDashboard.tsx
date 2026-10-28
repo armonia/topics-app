@@ -1,17 +1,17 @@
 /**
- * IL CRUSCOTTO DEI CONSUMI in testa al pannello «Impostazioni auto-dispatch».
+ * IL CRUSCOTTO DEI CONSUMI in testa al pannello «Come partono le card».
  *
  * Disegno scelto da Attilio (mock «come partono le card», pannello c): prima di
  * girare le manopole si legge cosa sta succedendo — quante card lavorano, quante
  * aspettano e in che ordine, quanta memoria ha il Mac e chi la tiene.
  *
- * Tutti i numeri arrivano dalle stesse due sorgenti che il dispatcher usa per
+ * Tutti i numeri arrivano dalle stesse sorgenti che il dispatcher usa per
  * decidere (`/system/dispatch-capacity` nello store del tetto, e
- * `/dispatch/memory-queue`): il pannello non rifà nessun conto. I testi di
- * attesa sono quelli neutri del server (`queueReason`), non una frase nostra.
+ * `/dispatch/memory-queue`, che porta anche la serie della memoria libera):
+ * il pannello non rifà nessun conto. I testi di attesa sono quelli neutri del
+ * server (`queueReason`), non una frase nostra.
  */
-import { useEffect, useState } from 'react';
-import { Hourglass } from 'lucide-react';
+import { useEffect, useState, useSyncExternalStore } from 'react';
 import { useT } from '../../hooks/useT';
 import { req } from '../../lib/board';
 import type { BoardTask, DispatchCapacity } from '../../lib/board';
@@ -45,7 +45,8 @@ export function queuedCards(tasks: readonly BoardTask[], tr: (k: string, p?: Rec
     });
 }
 
-const gb = (n: number, lang: string) => `${n.toLocaleString(lang, { maximumFractionDigits: 1 })} GB`;
+const LANG = 'it-IT';
+const gb = (n: number) => `${n.toLocaleString(LANG, { maximumFractionDigits: 1 })} GB`;
 
 /** «19 min» / «2 h 5 min»: quanto aspetta, mai un timestamp. */
 export function waitingLabel(ms: number): string {
@@ -53,92 +54,253 @@ export function waitingLabel(ms: number): string {
   return min < 60 ? `${min} min` : `${Math.floor(min / 60)} h ${min % 60} min`;
 }
 
-export function DispatchDashboardView({ capacity, snapshot, queue }: {
+// ── lo snapshot della coda di memoria: UNA lettura ogni 15 s per tutte le superfici ──
+let snap: DispatchMemoryQueueSnapshot | null = null;
+const listeners = new Set<() => void>();
+let timer: ReturnType<typeof setInterval> | null = null;
+function loadSnapshot() {
+  req<DispatchMemoryQueueSnapshot>('/dispatch/memory-queue').then(
+    (s) => { snap = s; listeners.forEach((l) => l()); },
+    () => { /* senza dispatcher il cruscotto resta sulla sola capacità */ },
+  );
+}
+function subscribeSnapshot(l: () => void) {
+  listeners.add(l);
+  if (listeners.size === 1) { loadSnapshot(); timer = setInterval(loadSnapshot, 15_000); }
+  return () => {
+    listeners.delete(l);
+    if (listeners.size === 0 && timer) { clearInterval(timer); timer = null; }
+  };
+}
+export function useMemoryQueueSnapshot(): DispatchMemoryQueueSnapshot | null {
+  return useSyncExternalStore(subscribeSnapshot, () => snap, () => null);
+}
+
+/** Etichetta di sezione, come nel disegno: maiuscoletto 11 px con il riquadro a destra. */
+function SectionHead({ left, right }: { left: string; right?: string }) {
+  return (
+    <div className="mb-1.5 mt-3 flex items-center justify-between text-[11px] font-semibold uppercase tracking-[.05em] text-app-text-muted">
+      <span>{left}</span>{right && <span className="normal-case tracking-normal font-normal">{right}</span>}
+    </div>
+  );
+}
+
+// ── il grafico: memoria libera, ultima ora, con la soglia e le card al lavoro ──
+const W = 606, PL = 30, PR = 8, PT = 8, CH = 96, SY = 110, SH = 18, YMAX = 6;
+
+export function MemoryChart({ history, startGB, now }: {
+  history: DispatchMemoryQueueSnapshot['history'];
+  startGB: number | null;
+  now: number;
+}) {
+  const tr = useT();
+  const [hover, setHover] = useState<number | null>(null);
+  const pts = history
+    .map((p) => ({ t: Date.parse(p.at), v: p.freeGB, r: p.running }))
+    .filter((p) => p.t >= now - 3_600_000);
+  if (pts.length < 2) {
+    return <p className="text-mini text-app-text-muted" data-testid="dispatch-chart-empty">{tr('board.dash.chartEmpty')}</p>;
+  }
+  const t0 = pts[0]!.t, span = Math.max(60_000, pts[pts.length - 1]!.t - t0);
+  const x = (t: number) => PL + ((t - t0) / span) * (W - PL - PR);
+  const y = (v: number) => PT + CH - (Math.min(v, YMAX) / YMAX) * CH;
+  const line = pts.map((p, i) => `${i ? 'L' : 'M'}${x(p.t).toFixed(1)} ${y(p.v).toFixed(1)}`).join('');
+  const area = `${line}L${x(pts[pts.length - 1]!.t)} ${y(0)}L${x(t0)} ${y(0)}Z`;
+  const last = pts[pts.length - 1]!;
+  const hasRunning = pts.some((p) => p.r !== undefined);
+  // un rettangolo per tratto con lo stesso numero di card
+  const bars: Array<{ x: number; w: number; c: number; first: boolean }> = [];
+  if (hasRunning) {
+    let prev = 0;
+    for (let i = 0; i < pts.length - 1; i++) {
+      const c = pts[i]!.r ?? 0;
+      if (c) bars.push({ x: x(pts[i]!.t), w: x(pts[i + 1]!.t) - x(pts[i]!.t), c: Math.min(c, 2), first: c !== prev });
+      prev = c;
+    }
+  }
+  const mins = Math.round(span / 60_000);
+  const h = hover === null ? null : pts[hover]!;
+  return (
+    <div className="relative" data-testid="dispatch-chart">
+      <svg viewBox={`0 0 ${W} ${hasRunning ? 152 : 124}`} className="block w-full" role="img" aria-label={tr('board.dash.chartTitle')}
+        onMouseLeave={() => setHover(null)}
+        onMouseMove={(e) => {
+          const r = e.currentTarget.getBoundingClientRect();
+          const px = ((e.clientX - r.left) / r.width) * W;
+          const i = Math.round(((px - PL) / (W - PL - PR)) * (pts.length - 1));
+          setHover(Math.max(0, Math.min(pts.length - 1, i)));
+        }}>
+        <g className="text-app-text-muted" fontSize="10" fill="currentColor">
+          {[0, 2, 4, 6].map((v) => (
+            <g key={v}>
+              <line x1={PL} x2={W - PR} y1={y(v)} y2={y(v)} stroke="currentColor" strokeOpacity=".18" />
+              <text x={PL - 6} y={y(v) + 3.5} textAnchor="end">{v} GB</text>
+            </g>
+          ))}
+        </g>
+        <path d={area} fill="#2a78d6" fillOpacity=".14" />
+        {startGB !== null && (
+          <g>
+            <line x1={PL} x2={W - PR} y1={y(startGB)} y2={y(startGB)} stroke="currentColor" strokeDasharray="4 3" className="text-app-text-secondary" />
+            <text x={PL + 6} y={y(startGB) + 14} fontSize="10.5" fill="currentColor" className="text-app-text-secondary">{tr('board.dash.chartThreshold', { start: gb(startGB) })}</text>
+          </g>
+        )}
+        <path d={line} fill="none" stroke="#2a78d6" strokeWidth="2" strokeLinejoin="round" />
+        <circle cx={x(last.t)} cy={y(last.v)} r="4.5" fill="#2a78d6" />
+        <text x={x(last.t)} y={y(last.v) + 17} textAnchor="end" fontSize="11" fontWeight="600" fill="currentColor" className="text-app-text">{gb(last.v)}</text>
+        {hasRunning && (
+          <g className="text-app-text-muted" fontSize="10" fill="currentColor">
+            {bars.map((b, i) => <rect key={i} x={b.x} y={SY + SH - (b.c / 2) * SH} width={b.w} height={(b.c / 2) * SH} fill="#2a78d6" fillOpacity=".35" />)}
+            {bars.filter((b) => b.first).map((b, i) => <text key={`l${i}`} x={b.x + 4} y={SY + 8 + (b.c > 1 ? 6 : 0)} fontSize="10" fill="currentColor" className="text-app-text-body">{tr('board.dash.chartN', { n: b.c })}</text>)}
+            <line x1={PL} x2={W - PR} y1={SY + SH} y2={SY + SH} stroke="currentColor" strokeOpacity=".18" />
+            <text x={PL - 6} y={SY + SH - 2} textAnchor="end">{tr('board.dash.chartCards')}</text>
+          </g>
+        )}
+        <g className="text-app-text-muted" fontSize="10" fill="currentColor">
+          <text x={x(t0)} y={hasRunning ? 146 : 118}>{tr('board.dash.chartAgo', { min: mins })}</text>
+          <text x={x(last.t)} y={hasRunning ? 146 : 118} textAnchor="end">{tr('board.dash.chartNow')}</text>
+        </g>
+        {h && <line x1={x(h.t)} x2={x(h.t)} y1={PT} y2={SY + SH} stroke="currentColor" className="text-app-text-muted" />}
+      </svg>
+      {h && (
+        <div className="pointer-events-none absolute -top-7 left-1/2 -translate-x-1/2 whitespace-nowrap rounded-md border border-app-border-light bg-app-surface px-2 py-1 text-[11.5px] shadow">
+          {tr('board.dash.chartTip', { ago: Math.max(0, Math.round((last.t - h.t) / 60_000)), free: gb(h.v) })}
+        </div>
+      )}
+    </div>
+  );
+}
+
+export function DispatchDashboardView({ capacity, snapshot, queue, dispatchOn, onToggleDispatch, broken = 0, now }: {
   capacity: DispatchCapacity | null;
   snapshot: DispatchMemoryQueueSnapshot | null;
   queue: QueuedCard[];
+  dispatchOn?: boolean | null;
+  onToggleDispatch?: () => void;
+  /** Card ferme per un guasto vero (non per un'attesa). */
+  broken?: number;
+  now: number;
 }) {
   const tr = useT();
-  const lang = 'it-IT';
   const running = capacity?.running ?? 0;
   const free = capacity?.availableMemGB ?? snapshot?.reading.freeGB ?? null;
-  const total = capacity?.totalMemGB ?? null;
   const startGB = snapshot?.threshold.startGB ?? null;
-  const consumers = snapshot?.consumers ?? [];
-  const biggest = Math.max(1, ...consumers.map((c) => c.gb));
+  const cpuHolds = capacity?.admission?.blockedBy === 'cpu';
+  const keepGB = startGB !== null && capacity?.agentCostMemGB != null ? Math.max(0, startGB - capacity.agentCostMemGB) : null;
   return (
-    <section data-testid="dispatch-dashboard" className="space-y-2 rounded-md bg-white/5 p-2.5">
-      <div className="flex items-baseline justify-between gap-2">
-        <div className="text-base font-semibold text-app-text" data-testid="dispatch-dashboard-hero">
-          {tr('board.dash.hero', { running, queued: queue.length })}
+    <section data-testid="dispatch-dashboard" className="space-y-0">
+      {onToggleDispatch && (
+        <div className="mb-3 mt-0.5 flex items-center justify-between text-app-text-muted">
+          <span>{tr('board.settings.sec.global')}</span>
+          <label className="inline-flex cursor-pointer items-center gap-2 text-app-text-body" title={tr('board.settings.dispatchOnTitle')}>
+            <span>{tr('board.dash.switch')}<span className="sr-only"> {tr('board.settings.autoDispatch')}</span></span>
+            <input type="checkbox" checked={!!dispatchOn} onChange={onToggleDispatch} className="peer sr-only" />
+            <span aria-hidden className="relative h-[18px] w-[30px] shrink-0 rounded-full bg-app-text-faint/40 transition-colors after:absolute after:left-[2px] after:top-[2px] after:h-[14px] after:w-[14px] after:rounded-full after:bg-white after:shadow after:transition-transform peer-checked:bg-primary peer-checked:after:translate-x-3" />
+          </label>
         </div>
-      </div>
-      {free !== null && (
-        <p className="text-mini text-app-text-secondary" data-testid="dispatch-dashboard-memory">
-          {capacity?.admission?.blockedBy === 'cpu' && queue.length > 0
-            ? tr('board.dash.cpuWait')
-            : startGB !== null && queue.length > 0
-            ? tr('board.dash.memoryWait', { free: gb(free, lang), start: gb(startGB, lang) })
-            : tr('board.dash.memoryFree', { free: gb(free, lang), total: total !== null ? gb(total, lang) : '' })}
-        </p>
       )}
-      <div>
-        <div className="mb-1 text-mini font-medium uppercase tracking-wide text-app-text-secondary">
-          {tr('board.dash.queue', { n: queue.length })}
+
+      <div className="rounded-[10px] border border-app-border-subtle bg-app-surface px-3.5 py-3" data-testid="dispatch-dashboard-hero-card">
+        <div className="flex items-end justify-between gap-4">
+          <div className="text-[22px] font-semibold leading-[1.15] tracking-[-.01em] text-app-text" data-testid="dispatch-dashboard-hero">
+            {tr('board.dash.hero', { running, queued: queue.length })}
+          </div>
+          <span className="inline-flex items-center gap-1 text-[11.5px] text-app-text-muted"><i className="h-1.5 w-1.5 rounded-full bg-emerald-600" />{tr('board.dash.live')}</span>
         </div>
+        <div className="mt-1 flex items-center gap-1.5 text-[13px] font-medium text-app-text" data-testid="dispatch-dashboard-ok">
+          <i className={`h-[7px] w-[7px] shrink-0 rounded-full ${broken ? 'bg-rose-500' : 'bg-emerald-600'}`} />
+          {broken
+            ? tr('board.dash.broken', { n: broken })
+            : tr('board.dash.noBroken', { queued: queue.length })}
+        </div>
+        {free !== null && (
+          <p className="mt-1 text-[12.5px] text-app-text-secondary" data-testid="dispatch-dashboard-memory">
+            {cpuHolds && queue.length > 0
+              ? tr('board.dash.cpuWait')
+              : startGB !== null && queue.length > 0
+                ? tr('board.dash.memoryWait', { start: gb(startGB), free: free.toLocaleString(LANG, { maximumFractionDigits: 1 }) }) + (keepGB !== null ? ` ${tr('board.dash.keep', { keep: keepGB.toLocaleString(LANG, { maximumFractionDigits: 1 }) })}` : '')
+                : tr('board.dash.memoryFree', { free: gb(free), total: capacity?.totalMemGB != null ? gb(capacity.totalMemGB) : '' })}
+          </p>
+        )}
+      </div>
+
+      <div className="mt-3 border-t border-app-border-subtle pt-1">
+        <SectionHead left={tr('board.dash.chartTitle')} right={tr('board.dash.chartSub')} />
+        <MemoryChart history={snapshot?.history ?? []} startGB={startGB} now={now} />
+      </div>
+
+      <div className="mt-3 border-t border-app-border-subtle pt-1">
+        <SectionHead left={tr('board.dash.queue', { n: queue.length })} right={queue.length ? tr('board.dash.queueSub') : undefined} />
         {queue.length === 0 ? (
-          <p className="text-mini text-app-text-secondary" data-testid="dispatch-dashboard-queue-empty">{tr('board.dash.queueEmpty')}</p>
+          <p className="text-mini text-app-text-muted" data-testid="dispatch-dashboard-queue-empty">{tr('board.dash.queueEmpty')}</p>
         ) : (
-          <ol className="space-y-1" data-testid="dispatch-dashboard-queue">
+          <ol data-testid="dispatch-dashboard-queue">
             {queue.map((q, i) => (
-              <li key={q.id} className="flex items-start gap-1.5" data-testid="dispatch-dashboard-queue-row">
-                <span className="w-5 shrink-0 text-mini text-app-text-secondary">{i + 1}ª</span>
-                <span className="min-w-0 flex-1">
-                  <span className="block truncate" title={q.title}>{q.title}</span>
-                  <span className="flex items-center gap-1 text-mini text-app-text-secondary">
-                    <Hourglass className="h-3 w-3 shrink-0" />
-                    <span className="truncate">{q.reason ?? tr('board.dash.waiting')}</span>
-                    <span className="shrink-0">· {tr('board.dash.since', { time: waitingLabel(q.waitingMs) })}</span>
-                  </span>
-                </span>
+              <li key={q.id} data-testid="dispatch-dashboard-queue-row" title={q.reason ?? undefined}
+                className="grid min-h-[33px] grid-cols-[26px_1fr_auto] items-center gap-2 rounded-md px-1.5 py-[5px] text-xs [&+&]:border-t [&+&]:border-app-border-subtle">
+                <span className="text-app-text-muted">{i + 1}ª</span>
+                <span className="truncate text-app-text-body">{q.title}</span>
+                <span className="text-right text-[11.5px] text-app-text-muted">{tr('board.dash.since', { time: waitingLabel(q.waitingMs) })}</span>
               </li>
             ))}
           </ol>
         )}
       </div>
-      {consumers.length > 0 && (
-        <div>
-          <div className="mb-1 text-mini font-medium uppercase tracking-wide text-app-text-secondary">
-            {tr('board.dash.holders', { total: total !== null ? gb(total, lang) : '' })}
-          </div>
-          <ul className="space-y-0.5" data-testid="dispatch-dashboard-holders">
-            {consumers.map((c) => (
-              <li key={c.label} className="flex items-center gap-2 text-mini">
-                <span className="min-w-0 flex-1 truncate">{c.label}</span>
-                <span className="h-1.5 w-16 shrink-0 overflow-hidden rounded bg-white/10">
-                  <i className="block h-full bg-sky-500/80" style={{ width: `${Math.round((c.gb / biggest) * 100)}%` }} />
-                </span>
-                <span className="w-14 shrink-0 text-right tabular-nums">{gb(c.gb, lang)}</span>
-              </li>
-            ))}
-          </ul>
-        </div>
-      )}
     </section>
   );
 }
 
-/** Il cruscotto vivo: legge la capacità dallo store e la coda dal server ogni 15 s. */
-export function DispatchDashboard({ tasks }: { tasks: readonly BoardTask[] }) {
+/** Colori delle serie del disegno (palette validata). */
+const SERIES = ['#2a78d6', '#e87ba4', '#9a9ea6', '#6250d6', '#1baf7a'];
+
+/** «Macchine»: il Mac con la barra a pezzi di chi tiene la memoria, come nel disegno. */
+export function DispatchMachines({ capacity, snapshot }: { capacity: DispatchCapacity | null; snapshot: DispatchMemoryQueueSnapshot | null }) {
+  const tr = useT();
+  const total = capacity?.totalMemGB ?? null;
+  const consumers = snapshot?.consumers ?? [];
+  const free = capacity?.availableMemGB ?? snapshot?.reading.freeGB ?? null;
+  if (total === null || consumers.length === 0) return null;
+  const cpu = capacity?.machineCpuPct;
+  return (
+    <div className="mt-3 border-t border-app-border-subtle pt-1" data-testid="dispatch-machines">
+      <SectionHead left={tr('board.dash.machines')} />
+      <div className="rounded-[10px] border border-app-border-subtle bg-app-surface p-3">
+        <div className="flex items-baseline justify-between text-[13px] font-medium text-app-text">
+          <span>{tr('board.dash.thisMac')}</span>
+          {free !== null && <span>{tr('board.dash.freeOf', { free: gb(free) })}</span>}
+        </div>
+        <div className="mt-0.5 text-xs text-app-text-muted">{gb(total).replace(',0', '')}{cpu != null ? ` · ${tr('board.dash.cpu', { pct: Math.round(cpu) })}` : ''}</div>
+        <div className="mt-2 flex h-2 overflow-hidden rounded-full bg-app-hover" data-testid="dispatch-machines-bar">
+          {consumers.map((c, i) => <i key={c.label} title={`${c.label} ${gb(c.gb)}`} style={{ width: `${(c.gb / total) * 100}%`, background: SERIES[i % SERIES.length] }} />)}
+        </div>
+        <ul className="mt-2 grid grid-cols-2 gap-x-4 gap-y-1 text-xs" data-testid="dispatch-dashboard-holders">
+          {consumers.map((c, i) => (
+            <li key={c.label} className="flex items-center gap-1.5 text-app-text-body">
+              <i className="h-[9px] w-[9px] shrink-0 rounded-[3px]" style={{ background: SERIES[i % SERIES.length] }} />
+              <span className="min-w-0 flex-1 truncate">{c.label}</span>
+              <em className="not-italic tabular-nums text-app-text">{c.gb.toLocaleString(LANG, { maximumFractionDigits: 1 })}</em>
+            </li>
+          ))}
+        </ul>
+        <div className="mt-2 text-xs text-app-text-body">{tr('board.dash.here', { n: capacity?.running ?? 0 })}</div>
+      </div>
+    </div>
+  );
+}
+
+/** Il cruscotto vivo: capacità dallo store, coda e serie dal server ogni 15 s. */
+export function DispatchDashboard({ tasks, dispatchOn, onToggleDispatch }: { tasks: readonly BoardTask[]; dispatchOn?: boolean | null; onToggleDispatch?: () => void }) {
   const tr = useT();
   const { capacity } = useGlobalDispatchCap();
-  const [snapshot, setSnapshot] = useState<DispatchMemoryQueueSnapshot | null>(null);
-  useEffect(() => {
-    let alive = true;
-    const load = () => { req<DispatchMemoryQueueSnapshot>('/dispatch/memory-queue').then((s) => { if (alive) setSnapshot(s); }, () => { /* senza dispatcher il cruscotto resta sulla sola capacità */ }); };
-    load();
-    const id = setInterval(load, 15_000);
-    return () => { alive = false; clearInterval(id); };
-  }, []);
-  return <DispatchDashboardView capacity={capacity} snapshot={snapshot} queue={queuedCards(tasks, tr, Date.now())} />;
+  const snapshot = useMemoryQueueSnapshot();
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => { const id = setInterval(() => setNow(Date.now()), 30_000); return () => clearInterval(id); }, []);
+  const broken = tasks.filter((t) => t.status === 'in_progress' && !t.parentTaskId && !!t.dispatchError).length;
+  return <DispatchDashboardView capacity={capacity} snapshot={snapshot} queue={queuedCards(tasks, tr, now)} dispatchOn={dispatchOn} onToggleDispatch={onToggleDispatch} broken={broken} now={now} />;
+}
+
+export function DispatchMachinesLive() {
+  const { capacity } = useGlobalDispatchCap();
+  const snapshot = useMemoryQueueSnapshot();
+  return <DispatchMachines capacity={capacity} snapshot={snapshot} />;
 }

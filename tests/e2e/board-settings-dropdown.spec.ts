@@ -232,9 +232,10 @@ test.describe("Impostazioni della board: un dropdown sul ⚙, due freni dentro",
     expect(Math.abs(m.x + m.width - (g.x + g.width)), "il bordo destro del pannello non sta sul ⚙").toBeLessThanOrEqual(12);
     expect(m.y, "il pannello non sta sotto il ⚙").toBeGreaterThanOrEqual(g.y + g.height - 1);
     // A band was as wide as the board; a dropdown has a reading width of its
-    // own (the shell caps it at 400px plus the surface's hairline).
-    expect(m.width, "largo come una banda, non come un dropdown").toBeLessThanOrEqual(404);
-    expect(b.width - m.width, "il pannello copre la barra da parte a parte").toBeGreaterThan(200);
+    // own (the shell caps it at 640px, the width of the dashboard design, plus
+    // the surface's hairline).
+    expect(m.width, "largo come una banda, non come un dropdown").toBeLessThanOrEqual(644);
+    expect(b.width - m.width, "il pannello copre la barra da parte a parte").toBeGreaterThan(100);
     expect(m.height, "un dropdown senza tetto: piu' alto del viewport").toBeLessThanOrEqual(800 * 0.7 + 16);
 
     // Floating: the columns did not move, and the panel is not in the board's subtree.

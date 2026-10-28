@@ -18,12 +18,16 @@ import { projectRow } from "./helpers/project-row";
 import { mkdirSync, rmSync, writeFileSync } from "fs";
 import { join } from "path";
 import { hermetic } from "./fixtures/hermetic";
+import { apiCreateTask } from "./helpers/board-topbar";
+import { E2E_BASE } from "./helpers/test-server";
+import { canonicalTmpRoot } from "./helpers/file-project";
+import { projectIdForPath as boardIdForPath } from "../../shared/board";
 
 hermetic(test);
 
 const STAMP = Date.now();
 const NAME = "dispatchdash";
-const ROOT = `/tmp/e2e-${NAME}-${STAMP}`;
+const ROOT = `${canonicalTmpRoot()}/e2e-${NAME}-${STAMP}`;
 const DIR = `${ROOT}/${NAME}`;
 
 const SHOTS = process.env.DASH_SHOTS ?? join(process.cwd(), "test-results", "dispatch-dashboard");
@@ -35,7 +39,7 @@ async function stubMachine(page: Page, running: number, recommended = 4) {
       status: 200,
       contentType: "application/json",
       body: JSON.stringify({
-        recommended, cores: 12, totalMemGB: 32, availableMemGB: 18, load1: 3.2, running,
+        recommended, cores: 12, totalMemGB: 32, availableMemGB: 2.8, load1: 3.2, running,
         // The whole Mac: 41% CPU, 44% memory (1 - 18/32). The one number is 44.
         machineCpuPct: 41, machineMemPct: 44,
         oursCores: running * 0.6, budgetCores: 6,
@@ -92,6 +96,11 @@ async function openBoard(page: Page) {
 const gear = (page: Page) => page.getByTestId("kanban-board").getByTitle("Impostazioni auto-dispatch");
 
 async function stubQueue(page: Page) {
+  // Sessanta minuti di memoria libera e di card al lavoro, come la serie del server.
+  const free = [4.6,4.5,4.7,4.4,4.3,4.5,4.6,4.4,4.3,4.4,4.5,4.4,4.3,4.2,4.4,4.5,4.3,4.2,4.3,4.4,4.3,4.2,4.1,4.3,4.2,4.2,
+    3.8,3.9,3.7,3.8,3.6,3.7,3.9,3.8,3.7,3.6,3.8,3.7,3.6,3.7,3.2,3.1,3.0,2.9,3.0,3.1,3.0,2.9,2.8,2.7,2.6,2.7,2.8,2.9,3.0,2.9,2.8,2.8,2.9,2.8,2.8];
+  const end = Date.now();
+  const history = free.map((freeGB, i) => ({ at: new Date(end - (free.length - 1 - i) * 60_000).toISOString(), freeGB, running: i < 26 ? 0 : i < 39 ? 1 : 2 }));
   await page.route((url) => url.pathname === "/api/dispatch/memory-queue", (route) =>
     route.fulfill({
       status: 200, contentType: "application/json",
@@ -99,11 +108,10 @@ async function stubQueue(page: Page) {
         reading: { freeGB: 2.8, at: null }, threshold: { startGB: 3.5 },
         queue: [], running: [],
         consumers: [
-          { label: "App aperte", gb: 10.3 }, { label: "macOS", gb: 6.6 },
-          { label: "Strumenti di sviluppo", gb: 5.8 }, { label: "Jarvis e altre sessioni di Claude", gb: 5.6 },
-          { label: "Le 2 card al lavoro", gb: 0.9 },
+          { label: "Card di Topics", gb: 0.9 }, { label: "App aperte", gb: 10.3 },
+          { label: "Jarvis e sessioni", gb: 5.6 }, { label: "macOS", gb: 6.6 }, { label: "Strumenti di sviluppo", gb: 5.8 },
         ],
-        history: [],
+        history,
       }),
     }));
 }
@@ -118,6 +126,17 @@ test.describe("Il pannello auto-dispatch è un cruscotto dei consumi", () => {
     topicIds.push(topic.id);
   });
 
+  /** Tre card «in coda», nell'ordine in cui le crea il test (la più vecchia è la prima). */
+  const QUEUED = ["Comando usage-hub consumo con previsioni e spie", "Un lavoro accodato si dice «non partito»", "Tray: PC al lavoro visibile in barra"];
+  test.beforeEach(async ({ request }) => {
+    const projectId = boardIdForPath(DIR);
+    for (const text of QUEUED) {
+      const id = (await apiCreateTask(request, projectId, text, "in_progress")).split(":")[1]!;
+      const r = await request.post(`${E2E_BASE}/api/test/tasks/${id}/dispatch-state`, { data: { state: "queued" } });
+      expect(r.ok(), `dispatch-state queued per «${text}»`).toBe(true);
+    }
+  });
+
   test.afterAll(async ({ request }) => {
     for (const id of topicIds) await deleteTopic(request, id).catch(() => {});
     rmSync(ROOT, { recursive: true, force: true });
@@ -127,10 +146,10 @@ test.describe("Il pannello auto-dispatch è un cruscotto dei consumi", () => {
     await resetPaneStore(page.request, []);
     await resetProjectPanes(page.request, DIR);
     await seedProjectPane(page.request, DIR);
-    await page.setViewportSize({ width: 1600, height: 800 });
+    await page.setViewportSize({ width: 1600, height: 1800 });
   });
 
-  test("DASH-01: hero, chi tiene la memoria, il tetto resta", async ({ page }) => {
+  test("DASH-01: hero, grafico, coda in ordine, macchine, il tetto resta", async ({ page }) => {
     await stubMachine(page, 2);
     await stubQueue(page);
     await page.goto("/");
@@ -139,10 +158,41 @@ test.describe("Il pannello auto-dispatch è un cruscotto dei consumi", () => {
     const menu = page.getByTestId("board-settings-menu");
     const dash = menu.getByTestId("dispatch-dashboard");
     await expect(dash).toBeVisible();
-    await expect(dash.getByTestId("dispatch-dashboard-hero")).toHaveText("2 al lavoro · 0 in coda");
-    await expect(dash.getByTestId("dispatch-dashboard-holders")).toContainText("10,3 GB");
-    await expect(dash.getByTestId("dispatch-dashboard-queue-empty")).toBeVisible();
+    await expect(menu.getByText("Come partono le card", { exact: true })).toBeVisible();
+    await expect(dash.getByTestId("dispatch-dashboard-hero")).toHaveText("2 al lavoro · 3 in coda");
+    await expect(dash.getByTestId("dispatch-chart")).toBeVisible();
+    const rows = dash.getByTestId("dispatch-dashboard-queue-row");
+    await expect(rows).toHaveCount(3);
+    await expect(rows.first()).toContainText("Comando usage-hub");
+    await expect(menu.getByTestId("dispatch-machines-bar")).toBeVisible();
+    await expect(menu.getByTestId("dispatch-dashboard-holders")).toContainText("10,3");
     await expect(menu.getByTestId("global-cap-running")).toBeVisible();
+    // l'interruttore è lo stesso di sempre: label «Auto-dispatch» ancora raggiungibile
+    await expect(page.locator("label", { hasText: "Auto-dispatch" }).getByRole("checkbox")).toBeVisible();
+    // Misura sul DOM (non a occhio): posizione, misure e corpo del testo di ogni blocco, relativi al pannello.
+    const geo = await menu.evaluate((root) => {
+      const base = (root.querySelector('[data-testid="board-settings-panel"]') ?? root) as HTMLElement;
+      const b = base.getBoundingClientRect();
+      const pick = (name: string, el: Element | null) => {
+        if (!el) return [name, null] as const;
+        const r = el.getBoundingClientRect(), cs = getComputedStyle(el);
+        return [name, { x: Math.round(r.left - b.left), y: Math.round(r.top - b.top), w: Math.round(r.width), h: Math.round(r.height), fs: cs.fontSize, fw: cs.fontWeight }] as const;
+      };
+      const q = (s: string) => root.querySelector(s);
+      const rows = root.querySelectorAll('[data-testid="dispatch-dashboard-queue-row"]');
+      return Object.fromEntries([
+        ["panel", { x: 0, y: 0, w: Math.round(b.width), h: Math.round(b.height) }] as const,
+        pick("head", base.firstElementChild?.firstElementChild ?? null),
+        pick("hero", q('[data-testid="dispatch-dashboard-hero-card"]')),
+        pick("heroBig", q('[data-testid="dispatch-dashboard-hero"]')),
+        pick("chart", q('[data-testid="dispatch-chart"]')),
+        pick("queueRow1", rows[0] ?? null),
+        pick("queueRow2", rows[1] ?? null),
+        pick("machines", q('[data-testid="dispatch-machines"]')),
+      ]);
+    });
+    writeFileSync(join(SHOTS, "geo-dopo.json"), JSON.stringify(geo, null, 1));
     await menu.screenshot({ path: join(SHOTS, "pannello.png") });
+    await page.screenshot({ path: join(SHOTS, "pagina.png") });
   });
 });

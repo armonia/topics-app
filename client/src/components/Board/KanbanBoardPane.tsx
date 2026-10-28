@@ -2001,7 +2001,7 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, loadHi
         anchorRef={settingsBtnRef}
         onClose={() => setShowSettings(false)}
         align="right"
-        minWidth={340}
+        minWidth={560}
         unmanagedFocus
         ariaLabel={tr('board.settings.title')}
         testId="board-settings-menu"

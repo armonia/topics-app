@@ -19,6 +19,7 @@ import { useT } from '../../hooks/useT';
 import { Select } from '../Shared/Select';
 import { MAX_CHECKS, boardApi, type BoardSettings, type BoardSettingsPatch, type BoardTask, type ReviewCheck } from '../../lib/board';
 import { NightModeCard } from './NightModeCard';
+import { DispatchDashboard } from './DispatchDashboard';
 import { EFFORTS, FANOUT_CHOICES } from './constants';
 import { useTaskModelTrigger } from '../../hooks/useTaskModelTrigger';
 import { TaskModelSelector } from '../Shared/ModelSelector/TaskModelSelector';
@@ -58,7 +59,8 @@ export function BoardSettingsPanel({ projectId, settings: s, dispatchOn, models,
   const topicsRoutingSwitch = boardTopicsRoutingSwitch(s, (p) => { void patch(p); });
   return (
     <div className={SETTINGS_PANEL_SHELL} data-testid="board-settings-panel">
-      <SettingsPanelHead onClose={onClose} />
+      <SettingsPanelHead onClose={onClose} dashboard={!!tasks} />
+      {tasks && <DispatchDashboard tasks={tasks} dispatchOn={dispatchOn} onToggleDispatch={onToggleDispatch} />}
 
       {/* PRIMA sezione, e la sola che NON è di questa board: l'interruttore e il
           tetto sono quelli globali, gli stessi del ▾ in testata. Senza il titolo
@@ -66,7 +68,7 @@ export function BoardSettingsPanel({ projectId, settings: s, dispatchOn, models,
           di questo progetto» — cioè come un'impostazione che qui non esiste.
           Le righe stanno in `BoardSettingsSections.tsx` perché il pannello della
           board generale monta le STESSE: un blocco, due pannelli. */}
-      <SettingsSection label={tr('board.settings.sec.global')} first>
+      <SettingsSection label={tr(tasks ? 'board.settings.sec.howMany' : 'board.settings.sec.global')} first>
         <GlobalSettingsSection dispatchOn={dispatchOn} onToggleDispatch={onToggleDispatch} tasks={tasks} />
         {dispatchOn && (
           <p className="text-mini text-amber-300/80">{tr('board.settings.dispatchOnActive')}</p>

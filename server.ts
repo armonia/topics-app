@@ -1899,7 +1899,11 @@ const memSignal = createMemSignal({
 const dispatchMemoryHistory = createDispatchMemoryHistory();
 function recordDispatchMemoryHistory(): void {
   const sample = memSignal.samples().at(-1);
-  if (sample?.availGB != null) dispatchMemoryHistory.record(sample.at, sample.availGB);
+  if (sample?.availGB != null) {
+    let running: number | undefined;
+    try { running = taskDispatcher.busyCount(); } catch { /* the dispatcher is built after the first sample */ }
+    dispatchMemoryHistory.record(sample.at, sample.availGB, running);
+  }
 }
 // Created here, before the listener opens: the socket open handler sends its
 // frame, and the port starts accepting during the boot's first await.
