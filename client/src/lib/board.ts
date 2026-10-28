@@ -749,7 +749,9 @@ async function parseOrThrow<T>(resp: Response): Promise<T> {
   const text = await resp.text().catch(() => '');
   let parsed: unknown;
   try { parsed = text ? JSON.parse(text) : undefined; } catch { parsed = undefined; }
-  if (!resp.ok) throw new Error((parsed as { error?: string } | undefined)?.error || text || resp.statusText);
+  // The server's `code` rides on the error: the caller can say why in the
+  // reader's language instead of the server's English text.
+  if (!resp.ok) throw Object.assign(new Error((parsed as { error?: string } | undefined)?.error || text || resp.statusText), { code: (parsed as { code?: string } | undefined)?.code, status: resp.status });
   return parsed as T;
 }
 
@@ -1220,6 +1222,11 @@ export const boardApi = {
   /** Move a root task (and its subtree) to another board. */
   move: (projectId: string, taskId: string, toProjectId: string) =>
     req<BoardTask>(`/boards/${enc(projectId)}/tasks/${enc(taskId)}/move`, { method: 'POST', body: JSON.stringify({ toProjectId }) }),
+  /** Start anyway: starts a card queued for memory NOW. It skips only the
+   *  memory threshold: disk, spend and CPU still apply (409 if the card is not
+   *  waiting for memory or the seat is already taken). */
+  startAnyway: (projectId: string, taskId: string) =>
+    req<{ task: BoardTask }>(`/boards/${enc(projectId)}/tasks/${enc(taskId)}/start-anyway`, { method: 'POST' }),
   /** Stop a running dispatch: parks the task and aborts the agent's turn. */
   stop: (projectId: string, taskId: string) =>
     req<BoardTask>(`/boards/${enc(projectId)}/tasks/${enc(taskId)}/stop`, { method: 'POST', body: JSON.stringify({}) }),
