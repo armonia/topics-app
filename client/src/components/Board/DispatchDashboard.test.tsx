@@ -9,7 +9,8 @@
  */
 import { describe, test, expect } from 'bun:test';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { DispatchDashboardView, MemoryChart, chartMax, queuedCards, waitingLabel, type QueuedCard } from './DispatchDashboard';
+import { DispatchDashboardView, MemoryChart } from './DispatchDashboard';
+import { chartMax, queuedCards, waitingLabel, type QueuedCard } from './dispatchDashboardModel';
 import type { BoardTask, DispatchCapacity } from '../../lib/board';
 import type { DispatchMemoryQueueSnapshot } from '../../../../shared/board';
 
