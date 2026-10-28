@@ -1,13 +1,14 @@
 /**
- * board-dispatch-dashboard.spec.ts - il pannello «Impostazioni auto-dispatch»
- * si apre sul cruscotto dei consumi: card al lavoro, card in coda con il testo
- * neutro del server, memoria del Mac e chi la tiene.
+ * board-dispatch-dashboard.spec.ts - il pannello «Impostazioni della board» si
+ * apre sul cruscotto dei consumi: la prima versione (riepilogo, memoria, chi la
+ * tiene, Auto-dispatch e tetto) con sopra le tre migliorie del disegno.
  *
- * DASH-01  hero «N al lavoro · M in coda», chi tiene la memoria, e il tetto
- *          (il resto del pannello) è ancora lì sotto.
+ * DASH-01  la prima versione resta; grafico della memoria con soglia e fascia
+ *          delle card, riga di stato dal vivo, coda numerata con progetto, età
+ *          e «Avvia comunque» sulla prima, che chiama `start-anyway` per lei.
  *
- * Lo screenshot va in `DASH_SHOTS` (default: test-results/) per il confronto
- * affiancato con il disegno.
+ * Gli screenshot vanno in `DASH_SHOTS` (default: test-results/) per il
+ * confronto affiancato con la prima versione.
  *
  * @covers KANBAN-79
  */
@@ -106,12 +107,10 @@ async function stubQueue(page: Page) {
       status: 200, contentType: "application/json",
       body: JSON.stringify({
         reading: { freeGB: 2.8, at: null }, threshold: { startGB: 3.5 },
-        // Il server prezza ogni card in coda (costGB): da lì «3 restano alle tue app».
-        queue: [1, 2, 3].map((i) => ({ taskId: `q${i}`, boardId: "b", reason: "waiting-memory", position: 2 + i, total: 5, costGB: 0.5 })),
-        running: [{ taskId: "r1", title: "a", weightGB: 0.5 }, { taskId: "r2", title: "b", weightGB: 0.4 }],
+        queue: [], running: [],
         consumers: [
-          { label: "Card di Topics", gb: 0.9 }, { label: "App aperte", gb: 10.3 },
-          { label: "Jarvis e sessioni", gb: 5.6 }, { label: "macOS", gb: 6.6 }, { label: "Strumenti di sviluppo", gb: 5.8 },
+          { label: "App aperte", gb: 10.3 }, { label: "macOS", gb: 6.6 }, { label: "Strumenti di sviluppo", gb: 5.8 },
+          { label: "Jarvis e altre sessioni di Claude", gb: 5.6 }, { label: "Le 2 card al lavoro", gb: 0.9 },
         ],
         history,
       }),
@@ -128,15 +127,24 @@ test.describe("Il pannello auto-dispatch è un cruscotto dei consumi", () => {
     topicIds.push(topic.id);
   });
 
-  /** Tre card «in coda», nell'ordine in cui le crea il test (la più vecchia è la prima). */
+  /** Tre card in coda per memoria, nell'ordine in cui le crea il test (la più vecchia è la prima). */
   const QUEUED = ["Comando usage-hub consumo con previsioni e spie", "Un lavoro accodato si dice «non partito»", "Tray: PC al lavoro visibile in barra"];
+  const created: string[] = [];
   test.beforeEach(async ({ request }) => {
     const projectId = boardIdForPath(DIR);
     for (const text of QUEUED) {
-      const id = (await apiCreateTask(request, projectId, text, "in_progress")).split(":")[1]!;
-      const r = await request.post(`${E2E_BASE}/api/test/tasks/${id}/dispatch-state`, { data: { state: "queued" } });
+      const id = (await apiCreateTask(request, projectId, text, "todo")).split(":")[1]!;
+      created.push(id);
+      // Come le mette il dispatcher quando aspettano memoria libera: è l'attesa che «Avvia comunque» salta.
+      const r = await request.post(`${E2E_BASE}/api/test/tasks/${id}/dispatch-state`, { data: { state: "queued", error: "waiting-memory" } });
       expect(r.ok(), `dispatch-state queued per «${text}»`).toBe(true);
     }
+  });
+
+  // Ogni test parte con le SUE tre card: quelle del test prima toglierebbero il conto.
+  test.afterEach(async ({ request }) => {
+    const projectId = boardIdForPath(DIR);
+    for (const id of created.splice(0)) await request.delete(`${E2E_BASE}/api/boards/${projectId}/tasks/${id}`).catch(() => {});
   });
 
   test.afterAll(async ({ request }) => {
@@ -151,61 +159,87 @@ test.describe("Il pannello auto-dispatch è un cruscotto dei consumi", () => {
     await page.setViewportSize({ width: 1600, height: 1800 });
   });
 
-  test("DASH-01: hero, grafico, coda in ordine, macchine, il tetto resta", async ({ page }) => {
+  test("DASH-01: la prima versione resta, con grafico, riga di stato e coda nuova sopra", async ({ page }) => {
     await stubMachine(page, 2);
     await stubQueue(page);
+    // «Avvia comunque» va al server vero (`start-anyway`); qui si ferma la richiesta e si guarda
+    // che parta per la card giusta: farla partire davvero lancerebbe un agente.
+    const started: string[] = [];
+    await page.route((url) => url.pathname.endsWith("/start-anyway"), (route) => {
+      started.push(new URL(route.request().url()).pathname);
+      return route.fulfill({ status: 202, contentType: "application/json", body: JSON.stringify({ task: null }) });
+    });
     await page.goto("/");
     await openBoard(page);
     await gear(page).click();
     const menu = page.getByTestId("board-settings-menu");
     const dash = menu.getByTestId("dispatch-dashboard");
     await expect(dash).toBeVisible();
-    await expect(menu.getByText("Come partono le card", { exact: true })).toBeVisible();
+    // La prima versione, com'era.
+    await expect(menu.getByText("Impostazioni della board", { exact: true })).toBeVisible();
     await expect(dash.getByTestId("dispatch-dashboard-hero")).toHaveText("2 al lavoro · 3 in coda");
-    await expect(dash.getByTestId("dispatch-chart")).toBeVisible();
+    // Auto-dispatch spento nell'ambiente di prova: la riga dice la memoria, non promette che ne parta un'altra.
+    await expect(dash.getByTestId("dispatch-dashboard-memory")).toHaveText("Memoria libera del Mac: 2,8 GB su 32 GB.");
+    await expect(dash.getByTestId("dispatch-dashboard-holders")).toContainText("Jarvis e altre sessioni di Claude");
+    await expect(dash.getByText("Chi tiene la memoria del Mac · 32 GB")).toBeVisible();
+    await expect(page.locator("label", { hasText: "Auto-dispatch" }).getByRole("checkbox")).toBeVisible();
+    await expect(menu.getByText("Agent in parallelo", { exact: true })).toBeVisible();
+    await expect(menu.getByTestId("global-cap-running")).toBeVisible();
+    // Le tre migliorie.
+    await expect(dash.getByTestId("dispatch-dashboard-live")).toHaveText("dal vivo");
+    // L'ambiente di prova parte con l'Auto-dispatch spento: la riga non promette che partano da sole.
+    await expect(dash.getByTestId("dispatch-dashboard-ok")).toHaveText("Auto-dispatch spento: le 3 in coda partono quando lo accendi.");
+    const chart = dash.getByTestId("dispatch-chart");
+    await expect(chart).toBeVisible();
+    await expect(chart).toContainText("3,5 GB liberi: ne parte un’altra");
+    await expect(chart).toContainText("2 card");
     const rows = dash.getByTestId("dispatch-dashboard-queue-row");
     await expect(rows).toHaveCount(3);
-    await expect(rows.first()).toContainText("Comando usage-hub");
-    await expect(menu.getByTestId("dispatch-machines-bar")).toBeVisible();
-    await expect(menu.getByTestId("dispatch-dashboard-holders")).toContainText("10,3");
-    await expect(menu.getByTestId("global-cap-running")).toBeVisible();
-    // l'interruttore è lo stesso di sempre: label «Auto-dispatch» ancora raggiungibile
-    await expect(page.locator("label", { hasText: "Auto-dispatch" }).getByRole("checkbox")).toBeVisible();
-    // Misura sul DOM (non a occhio): posizione, misure, colori, sfondo effettivo, bordi e
-    // corpo del testo di ogni blocco, relativi al pannello. Stessi campi della misura del disegno.
-    const geo = await menu.evaluate((root) => {
-      const base = (root.querySelector('[data-testid="board-settings-panel"]') ?? root) as HTMLElement;
-      const b = root.getBoundingClientRect();
-      const eff = (el: Element) => { for (let e: Element | null = el; e; e = e.parentElement) { const c = getComputedStyle(e).backgroundColor; if (c && c !== "rgba(0, 0, 0, 0)" && c !== "transparent") return c; } return "none"; };
-      const pick = (el: Element | null | undefined) => {
-        if (!el) return null;
-        const r = el.getBoundingClientRect(), cs = getComputedStyle(el);
-        return { x: Math.round(r.left - b.left), y: Math.round(r.top - b.top), w: Math.round(r.width), h: Math.round(r.height),
-          bg: cs.backgroundColor, effBg: eff(el), color: cs.color, fs: cs.fontSize, fw: cs.fontWeight, lh: cs.lineHeight, ls: cs.letterSpacing,
-          pad: cs.padding, border: `${cs.borderTopWidth} ${cs.borderTopStyle} ${cs.borderTopColor}`, radius: cs.borderTopLeftRadius, shadow: cs.boxShadow === "none" ? "" : cs.boxShadow.slice(0, 60) };
-      };
-      const t = (id: string) => root.querySelector(`[data-testid="${id}"]`);
-      const all = (id: string) => root.querySelectorAll(`[data-testid="${id}"]`);
-      const rows = all("dispatch-dashboard-queue-row"), heads = all("dispatch-section-head");
-      const row = rows[0];
-      const els: Record<string, Element | null | undefined> = {
-        panel: root, head: base.firstElementChild?.firstElementChild, sub: t("dispatch-dashboard-sub"), subLeft: t("dispatch-dashboard-sub")?.firstElementChild,
-        switchLabel: t("dispatch-dashboard-sub")?.querySelector("label"), hero: t("dispatch-dashboard-hero-card"), heroBig: t("dispatch-dashboard-hero"),
-        heroSep: t("dispatch-dashboard-hero")?.querySelector("[data-sep]"), live: t("dispatch-dashboard-live"), ok: t("dispatch-dashboard-ok"), line: t("dispatch-dashboard-memory"),
-        lineStrong: t("dispatch-dashboard-memory")?.querySelector("strong"), block1: t("dispatch-chart-block"), secHead1: heads[0], secHead2: heads[1],
-        chart: t("dispatch-chart")?.querySelector("svg"), qrow1: row, qrowPos: row?.children[0], qrowT: row?.children[1], qrowTag: row?.querySelector("[data-board-tag]"),
-        qrowSince: row?.lastElementChild, qrow2: rows[1], secHead3: heads[2], choose: t("dispatch-choose"), chooseOn: t("dispatch-choose")?.querySelector('[aria-pressed="true"],[aria-checked="true"]'),
-        chooseOff: t("dispatch-choose")?.querySelector('[aria-pressed="false"],[aria-checked="false"]'), effect: t("dispatch-effect"),
-        mach: t("dispatch-machines")?.querySelector("[data-mach]"), machHead: t("dispatch-mach-head"), machSub: t("dispatch-mach-sub"), stack: t("dispatch-machines-bar"),
-        leg: t("dispatch-dashboard-holders")?.firstElementChild, machFoot: t("dispatch-mach-foot"),
-      };
-      return Object.fromEntries(Object.entries(els).map(([k, el]) => [k, pick(el)]));
-    });
-    writeFileSync(join(SHOTS, "geo-dopo.json"), JSON.stringify(geo, null, 1));
+    for (let i = 0; i < QUEUED.length; i++) await expect(rows.nth(i)).toContainText(QUEUED[i]!);
+    await expect(rows.first().getByTestId("dispatch-dashboard-queue-project")).toHaveText(NAME);
+    await expect(rows.first()).toContainText("da 1 min");
+    await expect(dash.getByTestId("dispatch-dashboard-start-now")).toHaveCount(1);
+    await expect(rows.first().getByTestId("dispatch-dashboard-start-now")).toBeVisible();
+    // L'ordine: riepilogo, grafico, coda, chi tiene la memoria.
+    const ys = await Promise.all(["dispatch-dashboard-memory", "dispatch-chart-block", "dispatch-dashboard-queue", "dispatch-dashboard-holders"]
+      .map(async (id) => (await dash.getByTestId(id).boundingBox())!.y));
+    expect([...ys].sort((p, q) => p - q), `ordine dei blocchi ${ys.join(",")}`).toEqual(ys);
     await menu.screenshot({ path: join(SHOTS, "pannello.png") });
-    await page.screenshot({ path: join(SHOTS, "pagina.png") });
-    // La parte bassa del pannello (il pannello scorre): le macchine.
-    await menu.getByTestId("dispatch-machines").scrollIntoViewIfNeeded();
+    await menu.getByTestId("global-cap-running").scrollIntoViewIfNeeded();
     await menu.screenshot({ path: join(SHOTS, "pannello-sotto.png") });
+    // Due card al lavoro: il server rifiuterebbe (il posto è preso), il bottone è spento e dice perché.
+    const button = rows.first().getByTestId("dispatch-dashboard-start-now");
+    await expect(button).toBeDisabled();
+    await expect(button).toHaveAttribute("title", /già una card al lavoro/);
+    expect(started).toHaveLength(0);
+  });
+
+  test("DASH-02: Mac libero, «Avvia comunque» chiama start-anyway per la prima; un rifiuto si legge in italiano", async ({ page }) => {
+    await stubMachine(page, 0);
+    await stubQueue(page);
+    const started: string[] = [];
+    let refuse = false;
+    await page.route((url) => url.pathname.endsWith("/start-anyway"), (route) => {
+      started.push(new URL(route.request().url()).pathname);
+      return refuse
+        ? route.fulfill({ status: 409, contentType: "application/json", body: JSON.stringify({ error: "task cannot be started", code: "start_rejected" }) })
+        : route.fulfill({ status: 202, contentType: "application/json", body: JSON.stringify({ task: null }) });
+    });
+    await page.goto("/");
+    await openBoard(page);
+    await gear(page).click();
+    const dash = page.getByTestId("board-settings-menu").getByTestId("dispatch-dashboard");
+    const rows = dash.getByTestId("dispatch-dashboard-queue-row");
+    await expect(rows).toHaveCount(3);
+    const button = rows.first().getByTestId("dispatch-dashboard-start-now");
+    await expect(button).toBeEnabled();
+    await button.click();
+    await expect.poll(() => started.length).toBe(1);
+    expect(started[0], "parte la prima della coda, sulla sua board").toMatch(new RegExp(`/api/boards/${boardIdForPath(DIR)}/tasks/[^/]+/start-anyway$`));
+    await expect(dash.getByTestId("dispatch-dashboard-start-error")).toHaveCount(0);
+    refuse = true;
+    await button.click();
+    await expect(rows.first().getByTestId("dispatch-dashboard-start-error")).toHaveText("Non è partita: il Mac non la regge adesso (disco, spesa o CPU)");
+    await expect(dash).not.toContainText("task cannot be started");
   });
 });

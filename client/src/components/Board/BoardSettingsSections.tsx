@@ -16,17 +16,17 @@ import { Bot, X } from 'lucide-react';
 import { useT } from '../../hooks/useT';
 import { GlobalCapControl } from './GlobalCapControl';
 import { SpendCapControl } from './SpendCapControl';
-import { CapSectionHead, DispatchDashboard, DispatchMachinesLive } from './DispatchDashboard';
+import { DispatchDashboard } from './DispatchDashboard';
 import type { BoardTask } from '../../lib/board';
 
 /** The panel is not "Auto-dispatch": it holds effort, model, language, worktree,
  *  fan-out, night mode, auto-merge, MCP. Naming it after its first row made that
  *  name look like a title AND a switch at the same time. */
-export function SettingsPanelHead({ onClose, dashboard }: { onClose: () => void; dashboard?: boolean }) {
+export function SettingsPanelHead({ onClose }: { onClose: () => void }) {
   const tr = useT();
   return (
-    <div className={`flex items-center justify-between ${dashboard ? 'mb-[3px]' : ''}`}>
-      <span className={`font-semibold text-app-text ${dashboard ? "text-[16px] leading-6" : ""}`}>{tr(dashboard ? 'board.settings.headline' : 'board.settings.title')}</span>
+    <div className="flex items-center justify-between">
+      <span className="font-semibold text-app-text">{tr('board.settings.title')}</span>
       <button
         aria-label={tr('board.settings.close')}
         onClick={onClose}
@@ -57,9 +57,10 @@ export function GlobalSettingsSection({ dispatchOn, onToggleDispatch, tasks }: {
   const tr = useT();
   return (
     <>
+      {tasks && <DispatchDashboard tasks={tasks} dispatchOn={dispatchOn} />}
       {/* The whole row is the checkbox's label, and it is the target: 24 tall
           with the mouse, 44 under a finger (usability audit, 04/10: 16). */}
-      {!tasks && <label
+      <label
         className="flex min-h-6 cursor-pointer items-center justify-between gap-3 coarse:min-h-11"
         title={tr('board.settings.dispatchOnTitle')}
       >
@@ -68,16 +69,14 @@ export function GlobalSettingsSection({ dispatchOn, onToggleDispatch, tasks }: {
             What it does lives in the `title`, not in the name. */}
         <span className="flex items-center gap-1.5"><Bot className="h-3.5 w-3.5 text-app-text-secondary" /> {tr('board.settings.autoDispatch')}</span>
         <input type="checkbox" checked={!!dispatchOn} onChange={onToggleDispatch} className="h-3.5 w-3.5 shrink-0 accent-emerald-500" />
-      </label>}
+      </label>
 
       {/* THE CAP, IN HERE. It used to live only in the ▾ menu next to the title,
           and this panel merely named it in a `title` — a tooltip, which does not
           exist on a phone. Whoever opened the settings saw no limit at all. It
           is the SAME component the menu mounts, on the same store: what you
           change here shows up there without a reload, and the other way round. */}
-      {/* Col cruscotto la testa della sezione la dà `CapSectionHead`: il titolo
-          interno del tetto direbbe la stessa cosa una seconda volta. */}
-      <div className={tasks ? 'pb-2 [&_[data-testid=global-cap-control]>p:first-child]:hidden' : 'border-y border-app-border-subtle py-2'}>
+      <div className="border-y border-app-border-subtle py-2">
         <GlobalCapControl />
       </div>
 
@@ -89,7 +88,6 @@ export function GlobalSettingsSection({ dispatchOn, onToggleDispatch, tasks }: {
       <div className="border-b border-app-border-subtle pb-2">
         <SpendCapControl />
       </div>
-      {tasks && <DispatchMachinesLive />}
     </>
   );
 }
@@ -106,7 +104,7 @@ export function GlobalSettingsSection({ dispatchOn, onToggleDispatch, tasks }: {
  * `Menu` becomes a full-width sheet this must not narrow.
  */
 export const SETTINGS_PANEL_SHELL =
-  'mx-auto w-full max-w-[640px] space-y-2 overflow-y-auto overscroll-contain px-4 py-3.5 text-compact leading-4 text-app-text-heading max-h-[min(70vh,640px)]';
+  'mx-auto w-full max-w-[400px] space-y-2 overflow-y-auto overscroll-contain px-3 py-2.5 text-compact leading-4 text-app-text-heading max-h-[min(70vh,640px)]';
 
 /**
  * The settings panel for the GENERAL board, which has no project and therefore
@@ -120,10 +118,8 @@ export function GlobalOnlySettingsPanel({ dispatchOn, onToggleDispatch, onClose,
   tasks?: readonly BoardTask[];
 }) {
   return (
-    <div className={`${SETTINGS_PANEL_SHELL} ${tasks ? 'pt-2.5' : ''}`}>
-      <SettingsPanelHead onClose={onClose} dashboard={!!tasks} />
-      {tasks && <DispatchDashboard tasks={tasks} dispatchOn={dispatchOn} onToggleDispatch={onToggleDispatch} />}
-      {tasks && <div className="!mt-3 border-t border-app-border-subtle pt-1"><CapSectionHead /></div>}
+    <div className={SETTINGS_PANEL_SHELL}>
+      <SettingsPanelHead onClose={onClose} />
       <GlobalSettingsSection dispatchOn={dispatchOn} onToggleDispatch={onToggleDispatch} tasks={tasks} />
     </div>
   );

@@ -19,7 +19,6 @@ import { useT } from '../../hooks/useT';
 import { Select } from '../Shared/Select';
 import { MAX_CHECKS, boardApi, type BoardSettings, type BoardSettingsPatch, type BoardTask, type ReviewCheck } from '../../lib/board';
 import { NightModeCard } from './NightModeCard';
-import { CapSectionHead, DispatchDashboard } from './DispatchDashboard';
 import { EFFORTS, FANOUT_CHOICES } from './constants';
 import { useTaskModelTrigger } from '../../hooks/useTaskModelTrigger';
 import { TaskModelSelector } from '../Shared/ModelSelector/TaskModelSelector';
@@ -58,9 +57,8 @@ export function BoardSettingsPanel({ projectId, settings: s, dispatchOn, models,
   if (!s) return null;
   const topicsRoutingSwitch = boardTopicsRoutingSwitch(s, (p) => { void patch(p); });
   return (
-    <div className={`${SETTINGS_PANEL_SHELL} ${tasks ? 'pt-2.5' : ''}`} data-testid="board-settings-panel">
-      <SettingsPanelHead onClose={onClose} dashboard={!!tasks} />
-      {tasks && <DispatchDashboard tasks={tasks} dispatchOn={dispatchOn} onToggleDispatch={onToggleDispatch} />}
+    <div className={SETTINGS_PANEL_SHELL} data-testid="board-settings-panel">
+      <SettingsPanelHead onClose={onClose} />
 
       {/* PRIMA sezione, e la sola che NON è di questa board: l'interruttore e il
           tetto sono quelli globali, gli stessi del ▾ in testata. Senza il titolo
@@ -68,21 +66,12 @@ export function BoardSettingsPanel({ projectId, settings: s, dispatchOn, models,
           di questo progetto» — cioè come un'impostazione che qui non esiste.
           Le righe stanno in `BoardSettingsSections.tsx` perché il pannello della
           board generale monta le STESSE: un blocco, due pannelli. */}
-      {tasks ? (
-        // Col cruscotto la sezione prende la sua testa («Quante card insieme sul Mac · al
-        // massimo N»), e il titolo interno del tetto, che direbbe la stessa cosa, si tace.
-        <div className="!mt-3 space-y-2 border-t border-app-border-subtle pt-1">
-          <CapSectionHead />
-          <GlobalSettingsSection dispatchOn={dispatchOn} onToggleDispatch={onToggleDispatch} tasks={tasks} />
-        </div>
-      ) : (
-        <SettingsSection label={tr('board.settings.sec.global')} first>
-          <GlobalSettingsSection dispatchOn={dispatchOn} onToggleDispatch={onToggleDispatch} tasks={tasks} />
-          {dispatchOn && (
-            <p className="text-mini text-amber-300/80">{tr('board.settings.dispatchOnActive')}</p>
-          )}
-        </SettingsSection>
-      )}
+      <SettingsSection label={tr('board.settings.sec.global')} first>
+        <GlobalSettingsSection dispatchOn={dispatchOn} onToggleDispatch={onToggleDispatch} tasks={tasks} />
+        {dispatchOn && (
+          <p className="text-mini text-amber-300/80">{tr('board.settings.dispatchOnActive')}</p>
+        )}
+      </SettingsSection>
 
       <SettingsSection label={tr('board.settings.sec.agent')}>
       {/* IL FRENO DI QUESTA BOARD, e sta nella sezione «di questa board» e non
