@@ -1,5 +1,22 @@
 [
   {
+    "version": "2.3.41",
+    "date": "2026-10-28",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Terminal.app senza Invio risponde 422, non 404 (#507)",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        }
+      ]
+    }
+  },
+  {
     "version": "2.3.40",
     "date": "2026-10-28",
     "sections": {
