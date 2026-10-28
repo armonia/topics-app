@@ -2016,12 +2016,14 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, loadHi
             onChanged={setSettings}
             onClose={() => setShowSettings(false)}
             onError={setError}
+            tasks={tasks}
           />
         ) : (
           <GlobalOnlySettingsPanel
             dispatchOn={dispatchOn}
             onToggleDispatch={toggleDispatch}
             onClose={() => setShowSettings(false)}
+            tasks={tasks}
           />
         )}
       </Menu>

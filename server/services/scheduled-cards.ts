@@ -191,7 +191,7 @@ export function createScheduledCards(db: Database, tasks: TaskService, now: () =
         if (repeatedWallTime) { outcome = "skipped"; reason = "Occorrenza già gestita per questo orario locale."; }
         else if (open) { outcome = "skipped"; reason = "La card precedente è ancora aperta."; }
         else {
-          const task = tasks.create({ projectId: card.project_id, text: card.text, status: card.status, description: null });
+          const task = tasks.create({ projectId: card.project_id, text: card.text, status: card.status, description: null, createdBy: "cron:scheduled-card" });
           taskId = task.id;
           const labels = normalizeLabels(JSON.parse(card.labels_json) as unknown[]);
           const addLabel = db.prepare("INSERT INTO task_labels (task_id, label, source, created_at) VALUES (?, ?, 'human', ?)");

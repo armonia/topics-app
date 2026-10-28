@@ -16,6 +16,8 @@ import { Bot, X } from 'lucide-react';
 import { useT } from '../../hooks/useT';
 import { GlobalCapControl } from './GlobalCapControl';
 import { SpendCapControl } from './SpendCapControl';
+import { DispatchDashboard } from './DispatchDashboard';
+import type { BoardTask } from '../../lib/board';
 
 /** The panel is not "Auto-dispatch": it holds effort, model, language, worktree,
  *  fan-out, night mode, auto-merge, MCP. Naming it after its first row made that
@@ -46,13 +48,16 @@ export function SettingsPanelHead({ onClose }: { onClose: () => void }) {
  * mounted behind `hasProject`, so on the board without a project the only
  * surface left was the ▾, the very surface this change exists to stop relying on.
  */
-export function GlobalSettingsSection({ dispatchOn, onToggleDispatch }: {
+export function GlobalSettingsSection({ dispatchOn, onToggleDispatch, tasks }: {
   dispatchOn: boolean | null;
   onToggleDispatch: () => void;
+  /** The board's cards, from which the dashboard derives the queue. Absent = no dashboard. */
+  tasks?: readonly BoardTask[];
 }) {
   const tr = useT();
   return (
     <>
+      {tasks && <DispatchDashboard tasks={tasks} dispatchOn={dispatchOn} />}
       {/* The whole row is the checkbox's label, and it is the target: 24 tall
           with the mouse, 44 under a finger (usability audit, 04/10: 16). */}
       <label
@@ -106,15 +111,16 @@ export const SETTINGS_PANEL_SHELL =
  * no per-board rows: the machine-wide block, alone, behind the same ⚙ and in the
  * same place as on a project board. One gesture finds the cap on every board.
  */
-export function GlobalOnlySettingsPanel({ dispatchOn, onToggleDispatch, onClose }: {
+export function GlobalOnlySettingsPanel({ dispatchOn, onToggleDispatch, onClose, tasks }: {
   dispatchOn: boolean | null;
   onToggleDispatch: () => void;
   onClose: () => void;
+  tasks?: readonly BoardTask[];
 }) {
   return (
     <div className={SETTINGS_PANEL_SHELL}>
       <SettingsPanelHead onClose={onClose} />
-      <GlobalSettingsSection dispatchOn={dispatchOn} onToggleDispatch={onToggleDispatch} />
+      <GlobalSettingsSection dispatchOn={dispatchOn} onToggleDispatch={onToggleDispatch} tasks={tasks} />
     </div>
   );
 }

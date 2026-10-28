@@ -64,7 +64,7 @@ export function createDispatchMemoryQueueSnapshot(deps: {
       queue,
       running: active.map(({ task, weightGB }) => ({ taskId: encodeMemoryQueueRef(task.id), title: memoryQueueTitle(task.text), weightGB })),
       consumers,
-      history: history.map((point) => ({ at: new Date(point.at).toISOString(), freeGB: point.freeGB })),
+      history: history.map((point) => ({ at: new Date(point.at).toISOString(), freeGB: point.freeGB, ...(point.running === undefined ? {} : { running: point.running }) })),
     };
   };
 }

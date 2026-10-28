@@ -17,7 +17,7 @@ import { useRef, useState } from 'react';
 import { ChevronDown, PauseCircle, Sparkles } from 'lucide-react';
 import { useT } from '../../hooks/useT';
 import { Select } from '../Shared/Select';
-import { MAX_CHECKS, boardApi, type BoardSettings, type BoardSettingsPatch, type ReviewCheck } from '../../lib/board';
+import { MAX_CHECKS, boardApi, type BoardSettings, type BoardSettingsPatch, type BoardTask, type ReviewCheck } from '../../lib/board';
 import { NightModeCard } from './NightModeCard';
 import { EFFORTS, FANOUT_CHOICES } from './constants';
 import { useTaskModelTrigger } from '../../hooks/useTaskModelTrigger';
@@ -29,7 +29,7 @@ import {
   SETTINGS_PANEL_SHELL,
 } from './BoardSettingsSections';
 
-export function BoardSettingsPanel({ projectId, settings: s, dispatchOn, models, onToggleDispatch, onChanged, onClose, onError }: {
+export function BoardSettingsPanel({ projectId, settings: s, dispatchOn, models, onToggleDispatch, onChanged, onClose, onError, tasks }: {
   projectId: string;
   /** Owned by the board (per-project config) — this panel only renders and patches it. */
   settings: BoardSettings | null;
@@ -41,6 +41,8 @@ export function BoardSettingsPanel({ projectId, settings: s, dispatchOn, models,
   onChanged: (s: BoardSettings) => void;
   onClose: () => void;
   onError: (e: string) => void;
+  /** The board's cards: the dashboard derives the queue from them. */
+  tasks?: readonly BoardTask[];
 }) {
   const tr = useT();
   const [modelOpen, setModelOpen] = useState(false);
@@ -65,7 +67,7 @@ export function BoardSettingsPanel({ projectId, settings: s, dispatchOn, models,
           Le righe stanno in `BoardSettingsSections.tsx` perché il pannello della
           board generale monta le STESSE: un blocco, due pannelli. */}
       <SettingsSection label={tr('board.settings.sec.global')} first>
-        <GlobalSettingsSection dispatchOn={dispatchOn} onToggleDispatch={onToggleDispatch} />
+        <GlobalSettingsSection dispatchOn={dispatchOn} onToggleDispatch={onToggleDispatch} tasks={tasks} />
         {dispatchOn && (
           <p className="text-mini text-amber-300/80">{tr('board.settings.dispatchOnActive')}</p>
         )}

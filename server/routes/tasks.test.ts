@@ -443,6 +443,34 @@ describe("board router (human, project-scoped)", () => {
     expect(got.comments[0].origin).toBe("api");
   });
 
+  test("created_by: the interface is human, a direct caller is automation and may name itself", async () => {
+    const ui = await (await call(router, "POST", "/api/boards/pX/tasks", { text: "from the ui", createdBy: "agent:spoof" }, {
+      "X-Topics-Action-Origin": "interface",
+    }))!.json();
+    // The interface cannot be talked out of being a person, whatever the body says.
+    expect(ui.createdBy).toBe("human");
+
+    const named = await (await call(router, "POST", "/api/boards/pX/tasks", { text: "from jarvis", createdBy: "agent:jarvis" }))!.json();
+    expect(named.createdBy).toBe("agent:jarvis");
+    const cron = await (await call(router, "POST", "/api/boards/pX/tasks", { text: "from a cron", createdBy: "cron:nightly" }))!.json();
+    expect(cron.createdBy).toBe("cron:nightly");
+
+    // Nobody named, or a malformed name: still automation, never an empty label.
+    const anon = await (await call(router, "POST", "/api/boards/pX/tasks", { text: "from curl" }))!.json();
+    expect(anon.createdBy).toBe("agent:api");
+    const bad = await (await call(router, "POST", "/api/boards/pX/tasks", { text: "bad name", createdBy: "x; DROP" }))!.json();
+    expect(bad.createdBy).toBe("agent:api");
+
+    // And it is on the card when read back.
+    const got = await (await call(router, "GET", `/api/boards/pX/tasks/${named.id}`))!.json();
+    expect(got.task.createdBy).toBe("agent:jarvis");
+  });
+
+  test("created_by: the session surface (MCP create_task) writes agent:session", async () => {
+    const t = await (await call(router, "POST", "/api/sessions/s1/tasks", { text: "from an agent" }))!.json();
+    expect(t.createdBy).toBe("agent:session");
+  });
+
   test("action origin is assigned by the route and cannot claim a privileged source", async () => {
     const task = await (await call(router, "POST", "/api/boards/pX/tasks", { text: "origin" }))!.json();
     await call(router, "POST", `/api/boards/pX/tasks/${task.id}/comments`, { content: "from ui" }, {

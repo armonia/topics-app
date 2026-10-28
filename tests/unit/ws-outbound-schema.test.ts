@@ -275,6 +275,7 @@ describe('outbound registry contract', () => {
       'task:deleted',
       'task:parked',
       'task:review-ready',
+      'task:unowned',
       'task:updated',
       'task:usage-live',
       'terminal:activity',
@@ -427,8 +428,9 @@ describe('outbound registry contract', () => {
   // «History» tab only at its next open, where `notification:new` had brought
   // them live. Owner-only. Sender `server/attention/store.ts`
   // (`recordHistoryRow`), listener `useNotificationHistory`.
+  // 105 -> 106: `task:unowned`, the coordinator's event for a card nobody owns.
   test('all 104 v3 outbound types are present', () => {
-    expect(REGISTERED_OUTBOUND_TYPES.length).toBe(105);
+    expect(REGISTERED_OUTBOUND_TYPES.length).toBe(106);
   });
 });
 

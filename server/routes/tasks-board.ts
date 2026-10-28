@@ -28,6 +28,7 @@ import { ScheduledCardsError, type ScheduledCardsService } from "../services/sch
 import { invalidateProbeCache } from "../services/url-probe-cache";
 import { STALE_TASK_MODEL_ERROR, isStaleModelChange, taskModelIsCurrent } from "../services/task-model-catalog";
 import { decodeMemoryQueueRef } from "../services/dispatch-memory-reference";
+import { resolveCreatedBy } from "../lib/created-by";
 import type { TasksRouterOpts, emitReviewReadyEdge } from "./tasks";
 
 /**
@@ -476,6 +477,8 @@ export function createBoardRoutes(deps: BoardRouteDeps) {
             blockedByTaskId: typeof body?.blockedByTaskId === "string" ? body.blockedByTaskId : null,
             reuseBlockerContext: body?.reuseBlockerContext === true,
             machineId: bornMachine,
+            // Who opened it: the interface marks itself, anyone else is automation.
+            createdBy: resolveCreatedBy(req, body),
           });
           // THE BIRTH ATTACHMENTS, BEFORE THE DISPATCH.
           //

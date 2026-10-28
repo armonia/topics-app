@@ -2081,7 +2081,7 @@ export interface DispatchMemoryQueueSnapshot {
   queue: DispatchMemoryQueueItem[];
   running: Array<{ taskId: string; title: string; weightGB: number }>;
   consumers: Array<{ label: string; gb: number }>;
-  history: Array<{ at: string; freeGB: number }>;
+  history: Array<{ at: string; freeGB: number; running?: number }>;
 }
 
 /**

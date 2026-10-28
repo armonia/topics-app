@@ -2,6 +2,11 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.3.41 — 2026-10-28
+
+### Sotto il cofano
+- Terminal.app senza Invio risponde 422, non 404 (#507)
+
 ## 2.3.40 — 2026-10-28
 
 ### Sotto il cofano

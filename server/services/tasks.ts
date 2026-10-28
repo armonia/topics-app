@@ -35,6 +35,7 @@ import { isAutoCapturedPreview, isDeliverySheetPath } from "../../shared/media-k
 import { NUDGE_CLAIM_MS, gateNudge } from "./nudge-gate";
 import { readChecksMemFloorGB, readGlobalCap, readSpendCaps } from "./dispatch-capacity";
 import { checksMemFloorGB } from "../../shared/checks-memory-floor";
+import { parseCreatedBy, UNOWNED_BACKLOG_MS } from "../../shared/created-by";
 import { currentDispatchBlock, currentMemoryWait, heldResumeBlock } from "./dispatch-block-signal";
 import { readElsewhere } from "./task-elsewhere";
 import { liveAgentCount, RUNS_HERE_SQL } from "./agent-census";
@@ -70,7 +71,7 @@ import type { Task, CreateTaskInput, UpdateTaskPatch, ListTasksInput } from "./t
 import { markTargetNotificationsSeen } from "../db/notification-log";
 import { withCardAttention } from "../attention/card-sync";
 import {
-  CHECKS_RUNNING_SQL, CHILD_AGENT_COMING, PARKED_CHILDREN_CANDIDATES_SQL, PARKED_IN_SERIES_SQL, QUEUED_ROOT_BOARDS_SQL,
+  CHECKS_RUNNING_SQL, CHILD_AGENT_COMING, PARKED_CHILDREN_CANDIDATES_SQL, PARKED_IN_SERIES_SQL, QUEUED_ROOT_BOARDS_SQL, UNOWNED_BACKLOG_SQL,
 } from "../lib/task-timer-reads";
 
 export type Actor = "human" | "agent";
@@ -662,6 +663,16 @@ export interface TaskService {
    * parking it would cut that turn in half.
    */
   sweepWaitedOut(args?: { eligible?: (projectId: string) => boolean; busy?: (taskId: string) => boolean }): Task[];
+  /**
+   * Cards that sat in backlog past `UNOWNED_BACKLOG_MS` with nobody on them
+   * (`UNOWNED_BACKLOG_SQL`). Each one is returned ONCE per round: the sweep
+   * stamps `unowned_alerted_at` before returning it, without touching
+   * `updated_at`, so the next pass skips it until somebody touches the card
+   * again. It changes nothing else on the card: telling the coordinator is the
+   * caller's job. No board filter: an unowned card is unowned whatever the
+   * board's dispatch switch says.
+   */
+  sweepUnownedBacklog(): Task[];
   /**
    * Esegue la risposta umana allo stallo. `requeue` manda i figli parcheggiati
    * in `todo`; `archive` li archivia; `promote` toglie loro il padre e li mette
@@ -2624,6 +2635,8 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       // WHERE it runs. `null` is «this machine», which is what every card
       // written before the column existed says (KANBAN-76).
       machineId: r.machine_id ?? null,
+      // WHO opened it; NULL for every card written before the column.
+      createdBy: r.created_by ?? null,
       // Delegation metadata is rare. Absence means an ordinary owner run, not
       // a UI state, so five repeated null keys on every board card carry no
       // information. A delegated row still gets the complete audit identity.
@@ -3689,8 +3702,8 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       if (input.blockedByTaskId) assertBlockerValid(id, input.blockedByTaskId);
 
       db.prepare(
-        `INSERT INTO tasks (id, project_id, text, description, status, priority, kanban_order, assigned_to, chat_id, created_at, completed_at, updated_at, claude_task_id, parent_task_id, plan_first, model, blocked_by_task_id, reuse_blocker_context, created_by_topic_id, priority_auto, machine_id, topics_routing)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        `INSERT INTO tasks (id, project_id, text, description, status, priority, kanban_order, assigned_to, chat_id, created_at, completed_at, updated_at, claude_task_id, parent_task_id, plan_first, model, blocked_by_task_id, reuse_blocker_context, created_by_topic_id, priority_auto, machine_id, topics_routing, created_by)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       ).run(
         id, input.projectId, text, input.description ?? null, status, priority, order,
         input.assignedTo ?? null, input.chatId ?? null, ts, ts, input.idempotencyKey ?? null,
@@ -3703,6 +3716,7 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
         // No explicit machine = the board's default one (NULL when it has none).
         input.machineId === undefined ? boardDispatchMachineId(input.projectId) : input.machineId,
         input.topicsRouting === undefined || input.topicsRouting === null ? null : (input.topicsRouting ? 1 : 0),
+        parseCreatedBy(input.createdBy),
       );
       return rowToTask(getTaskRow(id));
     },
@@ -5652,6 +5666,32 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
         } catch { /* a card may have moved underneath: the next pass picks it up */ }
       }
       return parkedCards;
+    },
+
+    sweepUnownedBacklog(): Task[] {
+      // Same clock as the rest of the service (`now()`, injectable), so a test
+      // with a fake clock and the live server read the same minute.
+      const ts = now();
+      const cutoff = new Date(Date.parse(ts) - UNOWNED_BACKLOG_MS).toISOString();
+      let candidates: Array<{ id: string; project_id: string }> = [];
+      try {
+        candidates = db.prepare(UNOWNED_BACKLOG_SQL).all(cutoff) as Array<{ id: string; project_id: string }>;
+      } catch { return []; }
+      const alerted: Task[] = [];
+      for (const c of candidates) {
+        // The stamp goes in the SAME statement that re-checks the predicate's
+        // moving parts, so two passes (or a card that just got an owner) cannot
+        // both report it. `updated_at` stays put: the stamp is not a touch.
+        const res = db.prepare(
+          `UPDATE tasks SET unowned_alerted_at = ?
+            WHERE id = ? AND status = 'backlog' AND assigned_to IS NULL AND assigned_topic_id IS NULL
+              AND (unowned_alerted_at IS NULL OR unowned_alerted_at < updated_at)`,
+        ).run(ts, c.id);
+        if (!res.changes) continue;
+        const row = getTaskRow(c.id);
+        if (row) alerted.push(rowToTask(row));
+      }
+      return alerted;
     },
 
     resolveParkedChildren({ taskId, decision, by }): { task: Task; children: Task[] } | null {
