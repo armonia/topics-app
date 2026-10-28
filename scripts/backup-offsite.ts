@@ -78,20 +78,31 @@ export function sshTarget(dest: string): string {
 }
 
 /**
- * Waits until `ssh <target> true` succeeds, then returns the number of tries.
- * The wake command returns while the PC is still booting, so the first scp
- * after it used to die with «Connection closed». Throws, naming the host, when
- * no try answers within `waitMs`: the caller then writes no receipt and the
- * restore check stays red with a reason.
+ * True when one probe shows that ssh reached the host and ran the command.
+ * ssh itself exits 255 when it cannot connect or log in, and null when the
+ * probe timed out; any other code is the remote shell's own. The home PC is
+ * Windows, where the default shell is cmd.exe: there `true` does not exist and
+ * exits 1 even though the port is perfectly alive, so «exit 0» is not the test,
+ * «ssh got through» is.
+ */
+export const sshAnswered = (status: number | null): boolean => status !== null && status !== 255;
+
+/**
+ * Waits until `ssh <target> "exit 0"` gets through, then returns the number of
+ * tries. The command is `exit 0` because cmd.exe, PowerShell and sh all know
+ * it (`true` is sh only). The wake command returns while the PC is still
+ * booting, so the first scp after it used to die with «Connection closed».
+ * Throws, naming the host, when no try answers within `waitMs`: the caller then
+ * writes no receipt and the restore check stays red with a reason.
  */
 export function waitForSsh(dest: string, ssh: SshWait = DEFAULT_SSH_WAIT, sleep: (ms: number) => void = sleepSync): number {
   const target = sshTarget(dest);
-  const args = ["-o", "ConnectTimeout=5", "-o", "BatchMode=yes", target, "true"];
+  const args = ["-o", "ConnectTimeout=5", "-o", "BatchMode=yes", target, "exit 0"];
   const deadline = Date.now() + ssh.waitMs;
   let tries = 0;
   for (;;) {
     tries++;
-    if (ssh.probe(args) === 0) return tries;
+    if (sshAnswered(ssh.probe(args))) return tries;
     if (Date.now() >= deadline) break;
     sleep(ssh.everyMs);
   }

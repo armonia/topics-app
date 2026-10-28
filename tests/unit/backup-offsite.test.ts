@@ -33,6 +33,7 @@ import {
   copyOffsite,
   loadOffsiteConfig,
   offsiteSlot,
+  sshAnswered,
   sshTarget,
   verifyOffsite,
   waitForSsh,
@@ -195,9 +196,11 @@ describe("verifyOffsite", () => {
 });
 
 /**
- * A fake `ssh` script: it counts its calls in a file and exits 0 from the
- * `answerOn`-th call on, 255 before that (a PC still booting refuses the
- * port). Its `probe` spawns it by absolute path, because Bun's `spawnSync`
+ * A fake `ssh` script that behaves like the home Windows PC: it counts its
+ * calls in a file, exits 255 before the `answerOn`-th call (a PC still booting
+ * refuses the port), and from then on runs the remote command through a
+ * cmd.exe-like shell that knows `exit 0` and `echo` but not `true` (exit 1,
+ * as the real host does). Its `probe` spawns it by absolute path, because Bun's `spawnSync`
  * does not pick up a PATH changed at runtime.
  */
 function fakeSsh(answerOn: number): { probe: SshWait["probe"]; argsFile: string; calls: () => number } {
@@ -213,8 +216,10 @@ function fakeSsh(answerOn: number): { probe: SshWait["probe"]; argsFile: string;
       "n=$((n + 1))",
       `echo "$n" > "${countFile}"`,
       `echo "$*" >> "${argsFile}"`,
-      `if [ "$n" -ge ${answerOn} ]; then exit 0; fi`,
-      "exit 255",
+      `if [ "$n" -lt ${answerOn} ]; then exit 255; fi`,
+      // the remote command is the last argument; cmd.exe has no «true»
+      "for last; do :; done",
+      'case "$last" in "exit 0"|echo*) exit 0 ;; *) echo "\\"$last\\" is not recognised as a command" >&2; exit 1 ;; esac',
       "",
     ].join("\n"),
   );
@@ -249,7 +254,7 @@ describe("waitForSsh", () => {
     expect(receipt.name).toBe(SNAPSHOT);
     const firstTry = readFileSync(ssh.argsFile, "utf8").split("\n")[0];
     expect(firstTry).toContain("ConnectTimeout=5");
-    expect(firstTry).toContain("backup@host.example.test true");
+    expect(firstTry).toContain("backup@host.example.test exit 0");
   });
 
   test("a host that never answers fails by name, and no byte moves", () => {
@@ -284,6 +289,13 @@ describe("waitForSsh", () => {
       everyMs: 5,
     });
     expect(tries).toBe(1);
+  });
+
+  test("a live Windows host that rejects the command still counts as answering; a refused port does not", () => {
+    expect(sshAnswered(0)).toBe(true);
+    expect(sshAnswered(1)).toBe(true);
+    expect(sshAnswered(255)).toBe(false);
+    expect(sshAnswered(null)).toBe(false);
   });
 });
 
