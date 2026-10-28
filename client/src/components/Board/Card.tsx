@@ -1011,7 +1011,7 @@ const CardBody = memo(function CardBody({ task, onOpen, showProject, error, onEr
   const waitingOnThis = waitingOnThisChip(task, tr);
   const runInitiator = runInitiatorName(task);
   // WHO opened the card (`createdBy`): the answer to "whose is this, who closes it".
-  const openedBy = openedByLabel(task.createdBy, tr);
+  const openedBy = openedByLabel(task.createdBy, task.status, tr);
   // LA RIGA DEI CHIP ESISTE SE C'È ALMENO UN CHIP, e questo elenco è la lista
   // di quelli possibili: chi ne aggiunge uno e non lo scrive qui ottiene un
   // chip che non si monta MAI, con il dato giusto nel DB, giusto nella rotta e

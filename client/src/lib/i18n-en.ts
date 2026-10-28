@@ -2716,7 +2716,6 @@ const EN = {
   'share.agentStart.catalogState.expired': 'Verification expired',
   'share.agentStart.catalogState.revoked': 'Verification revoked',
   'share.agentStart.catalogState.failed': 'Verification not completed',
-  'board.card.createdByHuman': 'opened by you',
   'board.card.createdByAgent': 'opened by {name}',
   'board.card.createdByCron': 'opened by schedule {name}',
   'board.card.createdByTitle': 'Who opened this card, and so who has to close it: {who}',

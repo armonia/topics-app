@@ -1,8 +1,5 @@
-import { CREATED_BY_HUMAN, parseCreatedBy } from "../../shared/created-by";
+import { API_CALLER_CREATED_BY, CREATED_BY_HUMAN, parseCreatedBy } from "../../shared/created-by";
 import { agentAuthOk } from "./agent-auth";
-
-/** Default for a board-API caller that is not the interface and names nobody. */
-export const API_CALLER_CREATED_BY = "agent:api";
 
 /**
  * Which `created_by` a card gets, from the request that creates it.

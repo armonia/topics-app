@@ -13,6 +13,9 @@
 
 export const CREATED_BY_HUMAN = "human";
 
+/** What a board-API caller that names nobody gets: «some script», not a name. */
+export const API_CALLER_CREATED_BY = "agent:api";
+
 /**
  * How long a card opened by an agent or a schedule may sit in backlog with
  * nobody on it before the coordinator is told (`task:unowned`). Ten minutes:

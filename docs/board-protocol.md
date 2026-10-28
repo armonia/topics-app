@@ -450,8 +450,11 @@ queste regole.
   intestazione. Le card nate dalla superficie agente (`create_task` MCP) prendono
   `agent:session`, quelle del coordinatore globale `agent:coordinator`, quelle di
   `scheduled-cards` `cron:scheduled-card`. NULL = card nata prima del campo o da
-  un percorso interno. La card lo mostra come «aperta da …». Serve a una cosa:
-  sapere chi deve chiuderla (`created_by_topic_id` resta il legame col topic).
+  un percorso interno. La card lo mostra come «aperta da …» solo dove dice qualcosa: una card
+  non chiusa aperta da un agente o da una pianificazione con un nome (niente per
+  `human`, per il `agent:api` anonimo, per `done`, per NULL: una card senza chip
+  resta alta com'era). Serve a una cosa: sapere chi deve chiuderla
+  (`created_by_topic_id` resta il legame col topic).
 - **`task:unowned`**: una card in backlog da oltre 10 minuti (`UNOWNED_BACKLOG_MS`)
   senza assegnatario, senza topic dell'agente, senza padre, senza bloccante e
   senza chip di dispatch, aperta da un agente o da una pianificazione (le card

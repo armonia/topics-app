@@ -3068,7 +3068,6 @@ const IT: Dict = {
   'share.agentStart.catalogState.expired': 'Verifica scaduta',
   'share.agentStart.catalogState.revoked': 'Verifica revocata',
   'share.agentStart.catalogState.failed': 'Verifica non completata',
-  'board.card.createdByHuman': 'aperta da te',
   'board.card.createdByAgent': 'aperta da {name}',
   'board.card.createdByCron': 'aperta dalla pianificazione {name}',
   'board.card.createdByTitle': 'Chi ha aperto questa card, e quindi chi deve chiuderla: {who}',

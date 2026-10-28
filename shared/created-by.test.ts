@@ -20,11 +20,14 @@ test("splitCreatedBy returns kind and name", () => {
   expect(splitCreatedBy(null)).toBeNull();
 });
 
-test("the card says who opened it, and says nothing when nobody is known", () => {
+test("the card names a named agent or schedule on an open card, and nothing else", () => {
   const tr = (key: string, p?: Record<string, string | number>) => `${key}|${p?.name ?? ""}`;
-  expect(openedByLabel("human", tr)).toBe("board.card.createdByHuman|");
-  expect(openedByLabel("agent:jarvis", tr)).toBe("board.card.createdByAgent|jarvis");
-  expect(openedByLabel("cron:nightly", tr)).toBe("board.card.createdByCron|nightly");
-  expect(openedByLabel(null, tr)).toBeNull();
-  expect(openedByLabel("garbage", tr)).toBeNull();
+  expect(openedByLabel("agent:jarvis", "review", tr)).toBe("board.card.createdByAgent|jarvis");
+  expect(openedByLabel("cron:nightly", "backlog", tr)).toBe("board.card.createdByCron|nightly");
+  // A person's own card, the anonymous API fallback, a closed card, no author: no chip.
+  expect(openedByLabel("human", "review", tr)).toBeNull();
+  expect(openedByLabel("agent:api", "review", tr)).toBeNull();
+  expect(openedByLabel("agent:jarvis", "done", tr)).toBeNull();
+  expect(openedByLabel(null, "review", tr)).toBeNull();
+  expect(openedByLabel("garbage", "review", tr)).toBeNull();
 });
