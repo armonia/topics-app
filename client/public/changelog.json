@@ -1,5 +1,27 @@
 [
   {
+    "version": "2.3.40",
+    "date": "2026-10-28",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "aggiorna durate shard dal nightly del 2026-10-28 [skip ci]",
+          "en": "",
+          "scope": "e2e",
+          "breaking": false
+        },
+        {
+          "it": "Guardia contro i modelli vecchi, T5 (card b3aeafd9) (#492)",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
     "version": "2.3.39",
     "date": "2026-10-27",
     "sections": {

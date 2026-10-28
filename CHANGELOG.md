@@ -2,6 +2,12 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.3.40 — 2026-10-28
+
+### Sotto il cofano
+- **e2e** · aggiorna durate shard dal nightly del 2026-10-28 [skip ci]
+- Guardia contro i modelli vecchi, T5 (card b3aeafd9) (#492)
+
 ## 2.3.39 — 2026-10-27
 
 ### Sotto il cofano
