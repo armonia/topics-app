@@ -106,15 +106,17 @@ let testo = '';   // first engine's text, for the boot summary line only
 async function runEngine(engine, browser) {
   const tag = (m) => (engine === 'chromium' ? m : `[${engine}] ${m}`);
   const page = await browser.newPage({ viewport: { width: 1280, height: 800 } });
-  let probing = false;
+  let probed = false;   // true from the moment the probe flips the theme, until the page closes
   page.on('pageerror', (e) => errori.push(tag(`uncaught: ${e.message}`)));
   page.on('console', (m) => {
     if (m.type() !== 'error') return;
     const t = m.text().split('\n')[0];
     // The glass probe flips the theme in place, which makes the demo terminal
     // replay its canned frames; xterm warns about the multi-byte glyph it
-    // re-reads mid-sequence. A side effect of the probe, not of the boot.
-    if (probing && /xterm\.js: Parsing error/.test(t)) return;
+    // re-reads mid-sequence. A side effect of the probe, not of the boot, and
+    // the replay is timer-driven: on a loaded runner it lands well after the
+    // probe returns (CI run 40745674687, chromium), so the window does not close.
+    if (probed && /xterm\.js: Parsing error/.test(t)) return;
     if (/Failed to load resource/.test(t)) return;   // covered by the response hook
     // WebKit's own notes about the page, not faults of the demo: an unknown
     // viewport key, and the notification permission asked outside a gesture.
@@ -163,10 +165,9 @@ async function runEngine(engine, browser) {
   if (MUTANT) await page.addStyleTag({ content: 'html .glass-surface.glass-surface.glass-surface{background-color:rgb(237 239 243 / .72) !important;backdrop-filter:none !important;-webkit-backdrop-filter:none !important}' });
   if (await identityRow.click({ timeout: 10000 }).then(() => true, () => false)) {
     await page.waitForTimeout(2500);
-    probing = true;
+    probed = true;
     const glass = (await glassProblems(page, browser)).map(tag);
     await page.waitForTimeout(3000);
-    probing = false;
     if (MUTANT) {
       if (!glass.length) problemi.push(tag('mutant survived: with an unblurred translucent menu the glass probe stayed green'));
       else console.log(`check:demo --mutant (${engine}) — the glass probe went red as it should`);
