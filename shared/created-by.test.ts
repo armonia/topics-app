@@ -1,3 +1,7 @@
+/**
+ * The created_by grammar and the «aperta da ...» label read from it.
+ * @covers KANBAN-05
+ */
 import { test, expect } from "bun:test";
 import { parseCreatedBy, splitCreatedBy } from "./created-by";
 import { openedByLabel } from "../client/src/components/Board/createdByLabel";
