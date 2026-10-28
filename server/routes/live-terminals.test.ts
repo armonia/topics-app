@@ -1,7 +1,8 @@
 /**
- * La rotta di invio verso i terminali: il terminale sparito è 404, il terminale
- * che c'è ma non accetta testo senza Invio (Terminal.app) è 422 con il motivo.
- * Con il 404 di prima, chi scriveva credeva che il terminale fosse sparito.
+ * The send route to terminals: a terminal that is gone is 404, a terminal that is
+ * there but does not accept text without Enter (Terminal.app) is 422, with the reason.
+ * Before, the 404 made whoever was writing believe the terminal had vanished.
+ * @covers LIVETERM-03
  */
 import { test, expect } from "bun:test";
 import { createLiveTerminalsRouter } from "./live-terminals";
@@ -16,7 +17,7 @@ const ctx = {
   readJSON: async (req: Request) => req.json(),
 } as unknown as AppContext;
 
-/** Un servizio vero sopra un runner finto: si vede cosa arriva a osascript. */
+/** A real service on top of a fake runner: it shows what reaches osascript. */
 function terminalService(osascriptAnswer: string) {
   const calls: Array<[string, string[]]> = [];
   const run: Runner = async (file, args) => {

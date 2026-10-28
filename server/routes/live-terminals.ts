@@ -4,7 +4,7 @@
  *   GET  /api/live-terminals                 → { terminals, generatedAt }
  *   GET  /api/live-terminals/:id/screen      → { id, text }
  *   POST /api/live-terminals/:id/send        { text, enter? = true } → { ok }
- *                                            404 terminale sparito · 422 terminale che non accetta quell'invio
+ *                                            404 terminal gone · 422 terminal that refuses that input
  *
  * `:id` is the listed one, URL-encoded (`tmux:%258`, `terminal:ttys004`,
  * `topics:<uuid>`). See `lib/live-terminals.ts`.
@@ -53,7 +53,7 @@ export function createLiveTerminalsRouter(ctx: AppContext, service: LiveTerminal
       try {
         ok = await service.send(id, text, { enter });
       } catch (err) {
-        // Il terminale c'è ma rifiuta l'invio: non è «sparito», chi scrive deve saperlo.
+        // The terminal is there but refuses the input: it is not "gone", and the writer must know that.
         if (err instanceof SendRefusedError) return errorResponse(422, err.message);
         throw err;
       }

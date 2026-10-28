@@ -217,8 +217,8 @@ export interface LiveTerminalsService {
 }
 
 /**
- * Il terminale esiste, ma non accetta questo invio (Terminal.app: solo testo
- * con Invio). Va detto a chi scrive: un 404 farebbe credere che il terminale sia sparito.
+ * The terminal exists, but it does not accept this input (Terminal.app: text only
+ * with Enter). Whoever writes must be told: a 404 would make them think the terminal is gone.
  */
 export class SendRefusedError extends Error {}
 
@@ -427,7 +427,7 @@ export function createLiveTerminals(deps: LiveTerminalsDeps): LiveTerminalsServi
     const p = parseId(id);
     if (!p) return false;
     const enter = opts?.enter ?? true;
-    // Prima del try: il try trasforma ogni errore in «sparito», e qui il terminale c'è.
+    // Before the try: the try turns every error into "gone", and this terminal is still there.
     if (p.source === "terminal" && !enter) {
       throw new SendRefusedError("Terminal.app accepts text only with Enter (enter must be true)");
     }

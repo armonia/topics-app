@@ -31,9 +31,16 @@ serie. Spenta, il ramo NON SHALL esserci; riaccesa, SHALL tornare senza ricarica
 SHALL esporre gli stessi terminali della tendina, e gli strumenti MCP `session_list`,
 `session_read`, `session_send` SHALL usarli. Un id che non ha la forma della sua sorgente NON SHALL
 raggiungere tmux né osascript. Un `tell application "Terminal"` NON SHALL partire se Terminal non è
-già aperto.
+già aperto. Un terminale che c'è ma non accetta quell'invio (Terminal.app senza Invio) SHALL rispondere
+422 con il motivo: il 404 dice «sparito», e lì il terminale c'è.
 
 #### Scenario: un id storto
 
 - **WHEN** un client scrive a `tmux:-t`
 - **THEN** la risposta è 404 e tmux non viene chiamato
+
+#### Scenario: un terminale che c'è ma rifiuta l'invio
+
+- **GIVEN** una tab di Terminal.app aperta
+- **WHEN** un client scrive `ciao` senza Invio a `terminal:<tty>`
+- **THEN** la risposta è 422 con il motivo, e non 404
