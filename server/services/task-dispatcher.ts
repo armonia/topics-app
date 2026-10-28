@@ -28,6 +28,7 @@
 import { LAND_ACTION_LABEL, UNASSIGNED_PROJECT_ID, commentAsksHuman, type Task, type TaskService } from "./tasks";
 import { type SessionUsage } from "./transcript-usage";
 import { onHumanHoldChange } from "../lib/human-hold-events";
+import { logActivity } from "../db/activity-log";
 import type { TaskAttemptStore } from "./task-attempts";
 import { attemptHasWork, formatFanoutComment } from "../../shared/task-attempt";
 import { shouldAnnounceResume, DEAD_SESSION_NOTE } from "../lib/dead-run-note";
@@ -6520,6 +6521,30 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
         emit(t);
       }
     } catch (err) { log("sweep delle serie di attese fallito", err); }
+    // 1-quinquies) A CARD NOBODY OWNS, in backlog past ten minutes. This is the
+    //    coordinator's event, not a banner: `task:unowned` on the socket for a
+    //    connected one, and an activity_log row for one that is not (Jarvis
+    //    reads `GET /api/activity/log?category=board`). `sweepUnownedBacklog`
+    //    stamps each card before returning it, so a card is reported once per
+    //    round and the 10 s poll does not repeat itself. Its own `try`: the
+    //    event is information and must never take the sweeps above or the
+    //    tick below down with it.
+    try {
+      for (const t of deps.svc.sweepUnownedBacklog()) {
+        const waitedMinutes = Math.floor(Math.max(0, Date.now() - Date.parse(t.updatedAt)) / 60_000);
+        log(`card senza padrone in backlog da ${waitedMinutes} min: ${t.id}`);
+        deps.broadcast({
+          type: "task:unowned", projectId: t.projectId, taskId: t.id, taskTitle: t.text || "Task",
+          createdBy: t.createdBy ?? null, waitedMinutes,
+        });
+        logActivity({
+          category: "board", level: "warn", title: "card senza padrone in backlog",
+          detail: `${t.text || "Task"} (${waitedMinutes} min)`,
+          entityType: "task", entityId: t.id, actor: t.createdBy ?? undefined,
+          metadata: { projectId: t.projectId, createdBy: t.createdBy ?? null, waitedMinutes },
+        });
+      }
+    } catch (err) { log("avviso card senza padrone fallito", err); }
     // 2) Opportunistically fill free slots on every board that has queued todos.
     //
     //    UNA PROIEZIONE, NON I TASK. Qui serve un insieme di id di board, e si

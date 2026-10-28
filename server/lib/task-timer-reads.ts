@@ -31,6 +31,32 @@ export const PARKED_IN_SERIES_SQL = `SELECT id, project_id FROM tasks
               AND dispatch_deferred_until <= ?
             ORDER BY wait_since`;
 
+/**
+ * Root cards that sit in backlog with nobody on them and were last touched
+ * before the cutoff, read by `sweepUnownedBacklog` on every reconcile (10 s).
+ * Binds: cutoff. "Nobody" = no assignee, no agent topic, no blocker, no dispatch
+ * chip (a parked card has its own announce); a person's own parking
+ * (`created_by = 'human'`) is not unowned. The `unowned_alerted_at` clause is the
+ * dedupe: fire again only if the card was touched after the last alert.
+ *
+ * The first three terms are the predicate of idx_tasks_backlog_unowned
+ * (migration 20261028163640), word for word: the planner uses a partial index
+ * only for the same text.
+ */
+export const UNOWNED_BACKLOG_SQL = `SELECT id, project_id FROM tasks
+            WHERE archived = 0
+              AND status = 'backlog'
+              AND parent_task_id IS NULL
+              AND updated_at <= ?
+              AND assigned_to IS NULL
+              AND assigned_topic_id IS NULL
+              AND blocked_by_task_id IS NULL
+              AND dispatch_state IS NULL
+              AND created_by IS NOT NULL
+              AND created_by <> 'human'
+              AND (unowned_alerted_at IS NULL OR unowned_alerted_at < updated_at)
+            ORDER BY updated_at`;
+
 /** Cards with a running checks light. Run by `clearStaleChecksRuns` every 30 s. */
 export const CHECKS_RUNNING_SQL = "SELECT id FROM tasks WHERE checks_state = 'running'";
 

@@ -158,7 +158,11 @@ export const TASKS_DDL = `CREATE TABLE IF NOT EXISTS tasks (
   run_initiator_person_id TEXT,
   run_initiator_device_id TEXT,
   -- 20260922180000: AICTRL-01 routing switch. NULL = never set explicitly.
-  topics_routing INTEGER CHECK (topics_routing IN (0, 1))
+  topics_routing INTEGER CHECK (topics_routing IN (0, 1)),
+  -- 20261028163640: who opened the card (human | agent:<name> | cron:<name>) and
+  -- when the coordinator was last told it sits in backlog with no owner.
+  created_by TEXT,
+  unowned_alerted_at TEXT
 )`;
 
 /**

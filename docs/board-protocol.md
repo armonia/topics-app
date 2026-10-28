@@ -436,3 +436,28 @@ queste regole.
      una correzione a mano non viene più sovrascritta dalla consegna successiva.
      Vale per famiglia: chi chiude e che genere è sono due domande indipendenti,
      e correggere la prima non congela la seconda.
+
+## Chi ha aperto la card, e la card che nessuno ha preso
+
+- **`created_by`** (migration `20261028163640`): chi ha aperto la card, come testo.
+  `human` = una persona dall'interfaccia (la UI manda `X-Topics-Action-Origin:
+  interface` e il corpo non può dire altro); `agent:<nome>` = un agente o uno
+  script; `cron:<nome>` = una pianificazione. Chi chiama la board dall'API può
+  dire chi è con `createdBy` nel corpo della POST (`agent:jarvis`); se non lo dice
+  o lo scrive male prende `agent:api`, perché la UI non arriva mai senza
+  intestazione. Le card nate dalla superficie agente (`create_task` MCP) prendono
+  `agent:session`, quelle del coordinatore globale `agent:coordinator`, quelle di
+  `scheduled-cards` `cron:scheduled-card`. NULL = card nata prima del campo o da
+  un percorso interno. La card lo mostra come «aperta da …». Serve a una cosa:
+  sapere chi deve chiuderla (`created_by_topic_id` resta il legame col topic).
+- **`task:unowned`**: una card in backlog da oltre 10 minuti (`UNOWNED_BACKLOG_MS`)
+  senza assegnatario, senza topic dell'agente, senza padre, senza bloccante e
+  senza chip di dispatch, aperta da un agente o da una pianificazione (le card
+  `human` sono il parcheggio di una persona e non scattano). Lo controlla il
+  `reconcile` del dispatcher (già ogni 10 s, nessun cron nuovo), una volta per
+  giro: `unowned_alerted_at` è il dedupe e non tocca `updated_at`, quindi la card
+  riscatta solo se qualcuno la tocca di nuovo. L'evento esce sul socket
+  (`task:unowned`, non disegnato dalla board) e come riga di `activity_log`
+  (`category=board`, `level=warn`), che un coordinatore non collegato legge con
+  `GET /api/activity/log?category=board`. Come tutto il `reconcile`, tace con
+  l'auto-dispatch globale spento.

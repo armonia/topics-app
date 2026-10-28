@@ -977,6 +977,23 @@ const taskParkedSchema = z.looseObject({
   reason: z.optional(z.string()),
 });
 
+// A card has sat in backlog past UNOWNED_BACKLOG_MS with nobody on it: no
+// assignee, no agent topic, no parent, no blocker, and not a person's own
+// parking (`createdBy` says who opened it). It is the coordinator's event, not
+// a banner: the board does not draw it. The durable trace is the activity_log
+// row of the same moment, so a coordinator that was not connected reads it
+// there (`GET /api/activity/log?category=board`).
+const taskUnownedSchema = z.looseObject({
+  type: z.literal('task:unowned'),
+  projectId: z.string(),
+  taskId: z.string(),
+  taskTitle: z.string(),
+  /** `agent:<name>` / `cron:<name>`; `human` cards never raise this. */
+  createdBy: z.nullable(z.string()),
+  /** Minutes the card has waited since its last touch, rounded down. */
+  waitedMinutes: z.number(),
+});
+
 // Anteprima LIVE del consumo mentre il turno gira (ogni 4s, mai persistita): la
 // card somma `baseMs` + (adesso − turnStartedAt), quindi il tempo mostrato è
 // solo ESECUZIONE — le pause tra un turno e l'altro non entrano mai nel conto.
@@ -1513,6 +1530,7 @@ const OUTBOUND_SCHEMAS = {
   'task:deleted': taskDeletedSchema,
   'task:review-ready': taskReviewReadySchema,
   'task:parked': taskParkedSchema,
+  'task:unowned': taskUnownedSchema,
   'task:usage-live': taskUsageLiveSchema,
   'task:awaiting-human': taskAwaitingHumanSchema,
   'board:dispatch': boardDispatchSchema,
@@ -1646,6 +1664,7 @@ export const OUTBOUND_FRAME_CLASSES: Record<OutboundType, OutboundFrameClass> = 
   'task:created': 'board',
   'task:deleted': 'board',
   'task:parked': 'board',
+  'task:unowned': 'board',
   'task:review-ready': 'board',
   'task:updated': 'board',
   'task:usage-live': 'board',

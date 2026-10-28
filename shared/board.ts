@@ -602,6 +602,14 @@ export const WAIT_STREAK_CAP = 6;
 export const WAIT_SERIES_MAX_MS = 4 * 60 * 60 * 1000;
 
 /**
+ * How long a card opened by an agent or a schedule may sit in backlog with
+ * nobody on it before the coordinator is told (`task:unowned`). Ten minutes:
+ * long enough for whoever opened it to hand it on, short enough that a request
+ * that became a card cannot be forgotten for the afternoon (28/10).
+ */
+export const UNOWNED_BACKLOG_MS = 10 * 60 * 1000;
+
+/**
  * La ragione ridotta alla sua identità: è questo che decide se un'attesa
  * CONTINUA la serie o ne apre una nuova.
  *
