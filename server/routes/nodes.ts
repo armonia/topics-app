@@ -17,7 +17,10 @@
  * installation owner approves the checkout and policy.
  */
 import type { AppContext, RouteHandler } from "../types";
+import type { ProvidersSnapshot } from "../../shared/types";
 import { createTaskService, TaskServiceError, type Task } from "../services/tasks";
+import { STALE_TASK_MODEL_ERROR, isStaleMirroredModel } from "../services/task-model-catalog";
+import { deliveryFacts } from "../services/delivery-facts";
 import { defaultRunGit, type GitRunner } from "../services/own-commits";
 import type { DelegatedNodeBinding } from "../services/node-client";
 import { actingPersonId } from "../lib/orgs";
@@ -28,6 +31,8 @@ import { isLoopbackAddress } from "../lib/auth-gate";
 import { isLocalTransport } from "../lib/tunnel";
 import { createDelegatedRevocationRetry, type DelegatedRevocationRetry } from "../services/delegated-revocation-retry";
 import { SPAWN_TIMEOUT, spawnBounded } from "../lib/bounded-spawn";
+import { projectIdForPath } from "../../shared/board";
+import { canonicalProjectIdentity, projectPathOfAnyId } from "../lib/project-identity";
 
 const RUN_KEY_PREFIX = "node-run:";
 
@@ -45,6 +50,8 @@ export interface NodesRouterOpts {
   onEnterTodo?: (projectId: string, taskId: string) => void;
   /** Runtime-ready coding models on this node; injectable for two-installation tests. */
   taskModels?: () => string[];
+  /** Current coding-provider catalogs, used to refuse a stale mirrored card model (MP-TASK-03). */
+  taskModelSnapshot?: () => ProvidersSnapshot | null;
   /** Shared server-side retry loop; tests may omit it and get the same service locally. */
   revocations?: DelegatedRevocationRetry;
 }
@@ -87,44 +94,6 @@ function stripCtrl(input: unknown): string | null {
   // eslint-disable-next-line no-control-regex -- removes control characters from text that came from outside, on purpose
   const s = input.replace(/[\x00-\x1f\x7f]/g, "").trim();
   return s || null;
-}
-
-/**
- * Where a delivery branch forked from, and how much is on it. `baseSha` is the
- * merge base with the default branch: it is what the origin board must already
- * have for the bundle to apply, and what it plants an empty branch on when the
- * card produced no commits.
- */
-interface DeliveryFacts {
-  baseSha: string | null;
-  commitCount: number;
-}
-
-async function defaultBranchOf(runGit: GitRunner, repoPath: string): Promise<string> {
-  const head = await runGit(repoPath, ["symbolic-ref", "--short", "-q", "refs/remotes/origin/HEAD"]);
-  const remoteHead = head.stdout.trim();
-  if (head.code === 0 && remoteHead) return remoteHead.replace(/^origin\//, "");
-  for (const candidate of ["main", "master"]) {
-    const r = await runGit(repoPath, ["rev-parse", "--verify", "-q", `refs/heads/${candidate}`]);
-    if (r.code === 0) return candidate;
-  }
-  return "main";
-}
-
-async function deliveryFacts(runGit: GitRunner, repoPath: string, branch: string | null): Promise<DeliveryFacts> {
-  const base = await defaultBranchOf(runGit, repoPath);
-  const branchExists = branch
-    ? (await runGit(repoPath, ["rev-parse", "--verify", "-q", `refs/heads/${branch}`])).code === 0
-    : false;
-  if (!branch || !branchExists) {
-    const tip = await runGit(repoPath, ["rev-parse", "--verify", "-q", `refs/heads/${base}`]);
-    return { baseSha: tip.code === 0 ? tip.stdout.trim() || null : null, commitCount: 0 };
-  }
-  const mb = await runGit(repoPath, ["merge-base", `refs/heads/${base}`, `refs/heads/${branch}`]);
-  if (mb.code !== 0) return { baseSha: null, commitCount: 0 };
-  const baseSha = mb.stdout.trim();
-  const count = await runGit(repoPath, ["rev-list", "--count", `${baseSha}..refs/heads/${branch}`]);
-  return { baseSha, commitCount: count.code === 0 ? Number(count.stdout.trim()) || 0 : 0 };
 }
 
 function statOf(task: Task): { filesChanged: number; insertions: number; deletions: number } | null {
@@ -186,8 +155,9 @@ export function createNodesRouter(ctx: AppContext, opts: NodesRouterOpts): Route
     return null;
   }
 
+  // A card's project is its BOARD id; the store wants the UUID. Both names work here.
   function repoPathOf(task: Task): string | null {
-    return projectStore.get(task.projectId)?.path ?? null;
+    return projectPathOfAnyId(db, (id) => projectStore.get(id)?.path, task.projectId);
   }
 
   type NodeAuthorization = DelegatedNodeBinding & {
@@ -312,7 +282,7 @@ export function createNodesRouter(ctx: AppContext, opts: NodesRouterOpts): Route
       || req.headers.get("X-Topics-Delegated-Capability") !== binding.capabilityId
       || !repositoryAuthorized(binding.machineId, binding.repositoryKey)) return null;
     const got = svc.get(runId)?.task;
-    if (!got || got.projectId !== binding.projectId) return null;
+    if (!got || canonicalProjectIdentity(db, got.projectId).storeId !== canonicalProjectIdentity(db, binding.projectId).storeId) return null;
     const path = repoPathOf(got);
     if (!path) return null;
     const origin = await runGit(path, ["remote", "get-url", "origin"]);
@@ -570,10 +540,17 @@ export function createNodesRouter(ctx: AppContext, opts: NodesRouterOpts): Route
         return json({ runId: task.id, projectId: task.projectId });
       }
 
+      // The mirror lives on the project's BOARD (id from the path), like every
+      // card: the dispatcher finds a checkout only by board id, and a card keyed
+      // by the store UUID was parked with "cannot resolve project path" (PC
+      // node, 2026-10-26). The authorization row keeps the store id.
+      const boardId = projectIdForPath(project.path);
       try {
         const task = db.transaction(() => {
           const created = svc.create({
-            projectId: project.id,
+            projectId: boardId,
+            // Runs HERE: a board default machine must not send a mirror out again.
+            machineId: null,
             text,
             description: typeof body.description === "string" ? body.description : null,
             status: "todo",
@@ -595,9 +572,9 @@ export function createNodesRouter(ctx: AppContext, opts: NodesRouterOpts): Route
           );
           return created;
         })();
-        broadcastToAll({ type: "task:created", projectId: project.id, task });
-        opts.onEnterTodo?.(project.id, task.id);
-        return json({ runId: task.id, projectId: project.id }, 201);
+        broadcastToAll({ type: "task:created", projectId: boardId, task });
+        opts.onEnterTodo?.(boardId, task.id);
+        return json({ runId: task.id, projectId: boardId }, 201);
       } catch (e) {
         return fail(e);
       }
@@ -612,9 +589,11 @@ export function createNodesRouter(ctx: AppContext, opts: NodesRouterOpts): Route
       if (!text) return errorResponse(400, "text required");
       const originKey = normalizeRemoteUrl(body.originUrl);
       if (!originKey) return errorResponse(400, "originUrl must be a git remote URL");
+      if (isStaleMirroredModel(body.model, opts, () => getSnapshotManager().getSnapshot())) return json(STALE_TASK_MODEL_ERROR, 400);
 
       const project = await projectForOrigin(originKey);
-      if (!project) return json({ error: "no_such_repo", originUrl: body.originUrl }, 404);
+      // `code` is what the client classifies on; `error` stays for older callers.
+      if (!project) return json({ error: "no_such_repo", code: "no_such_repo", originUrl: body.originUrl }, 404);
 
       // One mirror per origin card. The key lives in `claude_task_id` (UNIQUE):
       // a live mirror is returned as is, an ARCHIVED one gives its key back so
@@ -630,9 +609,13 @@ export function createNodesRouter(ctx: AppContext, opts: NodesRouterOpts): Route
       }
       if (prior) db.run("UPDATE tasks SET claude_task_id = NULL WHERE id = ?", [prior.id]);
 
+      // On the BOARD, not the store UUID: see the delegated route above.
+      const boardId = projectIdForPath(project.path);
       try {
         const task = svc.create({
-          projectId: project.id,
+          projectId: boardId,
+          // Runs HERE: a board default machine must not send a mirror out again.
+          machineId: null,
           text,
           description: typeof body.description === "string" ? body.description : null,
           status: "todo",
@@ -644,11 +627,11 @@ export function createNodesRouter(ctx: AppContext, opts: NodesRouterOpts): Route
           author: "system",
           kind: "service",
           content: `Card specchiata da ${originKey} (task ${originTaskId}).`, // allow-italian: board notes are written in Italian like every other service comment
-          projectId: project.id,
+          projectId: boardId,
         });
-        broadcastToAll({ type: "task:created", projectId: project.id, task });
-        opts.onEnterTodo?.(project.id, task.id);
-        return json({ runId: task.id, projectId: project.id }, 201);
+        broadcastToAll({ type: "task:created", projectId: boardId, task });
+        opts.onEnterTodo?.(boardId, task.id);
+        return json({ runId: task.id, projectId: boardId }, 201);
       } catch (e) {
         return fail(e);
       }

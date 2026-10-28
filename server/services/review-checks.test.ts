@@ -22,7 +22,7 @@ import {
   type CheckRun,
   checksVerdict,
 } from "./review-checks";
-import { E2E_CI_CHECK } from "../../shared/board";
+import { E2E_CI_CHECK, GATES_CI_CHECK } from "../../shared/board";
 
 /**
  * THE WINDOWS BELOW ARE RATIOS, AND THE RATIO IS WHAT THEY PROVE.
@@ -724,5 +724,25 @@ describe("the CI e2e row speaks of the CI, not of a command", () => {
     expect(formatChecksComment(runs)).toContain("e2e rossi sulla CI della PR");
     expect(formatChecksComment(runs)).not.toContain("exit 1");
     expect(formatChecksThreadSummary(runs)).toContain("e2e rossi sulla CI della PR");
+  });
+});
+
+/** @covers KANBAN-84 */
+describe("the CI gates row names the red workflow step", () => {
+  test("the refusal is Italian, identifies the failed step and omits the job id", () => {
+    const failedStep = "Static guard rails (any in 6 ratcheted files / NUL / unreferenced code (an import from a test counts as a use) / eslint-disable / test skip / long dash / bloat / UI language / E2E sleeps)";
+    const row: CheckRun = {
+      name: GATES_CI_CHECK.name,
+      cmd: GATES_CI_CHECK.cmd,
+      ok: false,
+      code: 1,
+      ms: 10,
+      timedOut: false,
+      tail: `job gates: failure; steps: ${failedStep} failure; log: gh run view --job 4242`,
+    };
+
+    const summary = formatChecksThreadSummary([row]);
+    expect(summary).toContain(`passo rosso sulla CI della PR: ${failedStep}`);
+    expect(summary).not.toContain("4242");
   });
 });

@@ -410,7 +410,7 @@ const TOOLS = [
   {
     name: "wait_for_condition",
     description:
-      "Declare that YOUR task must WAIT for an external condition (a service to come back, machine load to drop, a time window) instead of holding your dispatch slot with a poller. The task goes back to the queue (todo) with your reason as a note and a 'waiting' chip, your slot is freed for other tasks, and the system re-dispatches this task automatically after `minutes`. Use this INSTEAD of sleeping/polling; do NOT move a waiting task to 'review' — it produced nothing yet.",
+      "Declare that YOUR task must WAIT for an external condition (a service to come back, machine load to drop, a time window) instead of holding your dispatch slot with a poller. The task goes back to the queue (todo) with your reason as a note and a 'waiting' chip, your slot is freed for other tasks, and the system re-dispatches this task automatically after `minutes`. Use this INSTEAD of sleeping/polling; do NOT move a waiting task to 'review' — it produced nothing yet. Declare a wait ONCE per condition, with a window long enough for it to arrive: a second wait for the same condition parks the task in the backlog for a human to decide.",
     inputSchema: {
       type: "object",
       properties: {
@@ -2306,7 +2306,7 @@ export async function callWaitForCondition(
   // rifiuto crede di dover solo aspettare: chiude il turno convinto che il task
   // riparta da solo, e quello resta fermo in backlog senza che nessuno lo sappia.
   if (res?.dispatchState === PARKED_WAITED_OUT) {
-    return `task ${toolArgs.task_id} has waited on this same condition too many times, so it is now PARKED in the backlog for a human to decide. It will NOT be re-dispatched automatically. Your turn is done: do not move it to review, and do not call wait_for_condition again.`;
+    return `task ${toolArgs.task_id} has already waited on this same condition, so it is now PARKED in the backlog for a human to decide. It will NOT be re-dispatched automatically. Your turn is done: do not move it to review, and do not call wait_for_condition again.`;
   }
   const until = res?.dispatchDeferredUntil ? ` until ${res.dispatchDeferredUntil}` : "";
   return `task ${toolArgs.task_id} released to the queue, waiting${until}. It will be re-dispatched automatically. Your turn is done — do not move it to review.`;
@@ -3039,7 +3039,8 @@ export async function handleMessage(
   }
 }
 
-async function main(): Promise<void> {
+/** The stdio loop. Exported so the compiled sidecar can become the bridge (`sidecar-entry.ts`). */
+export async function runTopicsMcpServer(): Promise<void> {
   const parsed = parseArgs(process.argv.slice(2));
   const args: ParsedArgs = { ...parsed, topicsHome: parsed.topicsHome ?? topicsHome() };
   const rl = createInterface({ input: process.stdin });
@@ -3068,9 +3069,9 @@ async function main(): Promise<void> {
   rl.on("close", () => process.exit(0));
 }
 
-// Only run main() when executed directly (not when imported by the test file).
+// Only run the loop when executed directly (not when imported by the test file).
 if (import.meta.main) {
-  main().catch((e) => {
+  runTopicsMcpServer().catch((e) => {
     // Surface boot errors on stderr — the CLI host will log them.
     console.error("[topics-mcp-server] fatal:", e instanceof Error ? e.message : e);
     process.exit(1);

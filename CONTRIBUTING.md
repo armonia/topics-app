@@ -350,6 +350,13 @@ Two things the sidecar needs that a naïve `--compile` drops, both handled:
   creates `server/db/migrations/<UTC timestamp>-<slug>.sql` and regenerates the
   manifest for you.
 
+  **A data migration that has to read `messages.blocks` cannot be SQL alone**: above
+  512 bytes that column is a zstd blob and `json_valid(blocks)` is 0 for it, so an
+  `UPDATE ... WHERE json_valid(blocks)` silently skips most real rows. Put the work in
+  `server/db/migration-steps.ts`, keyed by the migration file name: the runner calls it
+  in the same transaction, right after the SQL (the file still needs one statement), and
+  the test must store its fixtures through `encodeCol`.
+
   The prefix is a UTC timestamp (`YYYYMMDDHHMMSS`, e.g.
   `20260812050317-notification-log.sql`), **not a counter**. A counter is picked when
   the migration is *born* and only verified when it *lands*, and in between the other

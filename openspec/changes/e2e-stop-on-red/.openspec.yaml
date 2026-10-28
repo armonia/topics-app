@@ -1,0 +1,6 @@
+schema: spec-driven
+skip_specs: true
+name: e2e-stop-on-red
+status: approved
+approvato: 2026-10-25
+risposta: "Sì, con PR (Consigliata) · piano Team: no, per ora"

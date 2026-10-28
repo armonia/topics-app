@@ -24,8 +24,8 @@ function payload(over: Partial<LifecycleHookPayload> = {}): LifecycleHookPayload
 }
 
 describe("parseHooksConfig is tolerant and its vocabulary is closed", () => {
-  test("the four events are exactly these", () => {
-    expect([...HOOK_EVENTS]).toEqual(["pre-tool", "turn-end", "task-deliver", "worktree-create"]);
+  test("the five events are exactly these", () => {
+    expect([...HOOK_EVENTS]).toEqual(["pre-tool", "turn-end", "task-deliver", "worktree-create", "node-run"]);
   });
 
   test("broken JSON: zero hooks and exactly one warning", () => {
@@ -64,6 +64,20 @@ describe("parseHooksConfig is tolerant and its vocabulary is closed", () => {
     }));
     expect(hooks[0]!.timeoutMs).toBe(10_000);
     expect(hooks[1]!.timeoutMs).toBe(60_000);
+  });
+
+  test("node-run alone may wait up to 300 s: waking a sleeping PC and sending a bundle is slow", () => {
+    const { hooks, warnings } = parseHooksConfig(JSON.stringify({
+      hooks: [
+        { event: "node-run", cmd: "true", timeoutMs: 600_000 },
+        { event: "node-run", cmd: "true", timeoutMs: 120_000 },
+        { event: "node-run", cmd: "true" },
+        { event: "task-deliver", cmd: "true", timeoutMs: 300_000 },
+        { event: "worktree-create", cmd: "true", timeoutMs: 120_000 },
+      ],
+    }));
+    expect(warnings).toEqual([]);
+    expect(hooks.map((h) => h.timeoutMs)).toEqual([300_000, 120_000, 10_000, 60_000, 60_000]);
   });
 
   test("an entry without a command is dropped with a warning", () => {

@@ -27,7 +27,8 @@ import type { AIProvider } from "../providers";
 import { resolvePrincipals } from "../lib/principals";
 import { liveAgentStartCapability, queueDelegatedRun } from "../lib/delegated-agent-start";
 import type { OutboundMessage } from "../../shared/ws-outbound";
-import { budgetShare, capMode, isAgentWorking, isCiEvidenceCheck, type CheckRun, isThreadSpeech, PARKED_WAITED_OUT, pendingQuestion, TASK_STATUSES, type DispatchAdmission, type GlobalDispatchCap, type PendingQuestionComment, type TaskStatus } from "../../shared/board";
+import type { ProvidersSnapshot } from "../../shared/types";
+import { budgetShare, capMode, isAgentWorking, isCiEvidenceCheck, type CheckRun, isThreadSpeech, PARKED_WAITED_OUT, pendingQuestion, TASK_STATUSES, type DispatchAdmission, type DispatchMemoryQueueSnapshot, type GlobalDispatchCap, type PendingQuestionComment, type TaskStatus } from "../../shared/board";
 import { toFeedTask } from "../../shared/board-feed";
 import { selectTaskSessionPeek } from "../../shared/task-session-peek";
 import { AGENT_AUTHOR, AGENT_AUTHOR_PREFIX } from "../../shared/comment-author";
@@ -38,6 +39,7 @@ import { getTerminalSessionById } from "./terminal";
 import { createBoardRoutes } from "./tasks-board";
 import { applySpendCapPatch, hasSpendCapPatch, spendCapFields, spendSnapshot } from "./task-spend-caps";
 import { SPAWN_TIMEOUT, runBounded } from "../lib/bounded-spawn";
+import { decodeMemoryQueueRef } from "../services/dispatch-memory-reference";
 
 /**
  * The global cap as the client reads it, in ONE place for the GET, the PATCH
@@ -220,6 +222,8 @@ const AGENT_COMMENT_MAX_CHARS = 600;
 
 export interface TasksRouterOpts {
   scheduledCards?: ScheduledCardsService;
+  /** Current coding-provider catalogs, used to refuse a stale or unknown card model (MP-TASK-03). */
+  taskModelSnapshot?: () => ProvidersSnapshot | null;
   /**
    * The repository a delivery report is verified against, and how a root
    * becomes a probe (tests pass a fake). Handed to the router's OWN task
@@ -228,6 +232,8 @@ export interface TasksRouterOpts {
    * dispatcher's. Wired only there, the fix verified nothing (2026-09-04).
    */
   repoRootFor?: (args: { taskId: string; projectId: string | undefined; assignedTopicId: string | null }) => string | null;
+  /** Complete repository roots known to the host, including non-selectable projects. */
+  listRepoRoots?: () => string[];
   probeFor?: (root: string) => RepoProbe;
   /**
    * The landing queue, owned by the host so a planned restart can see the
@@ -242,6 +248,12 @@ export interface TasksRouterOpts {
   workspaceDir?: string;
   /** Abort a running headless turn (human "stop" on a dispatched task). */
   abortTurn?: (sessionKey: string, cause: StopCause) => Promise<void>;
+  /** Stop command process groups owned by a card after it is done or archived. */
+  stopCardProcesses?: (cardId: string) => void | Promise<void>;
+  /** Stop process groups owned by a fan-out topic when its losing attempt is archived. */
+  stopTopicProcesses?: (topicId: string) => void | Promise<void>;
+  /** Is this session's turn running right now (open stream)? Absent means unknown, hence no. */
+  hasLiveTurn?: (sessionKey: string) => boolean;
   /**
    * Kill the WHOLE process tree an agent's Bash tool spawned for this session
    * — not just the CLI turn. `abortTurn` cuts the turn (SIGINT to the CLI,
@@ -471,6 +483,16 @@ export interface TasksRouterOpts {
   }) => Promise<CheckRun[]>;
 }
 
+function requestCardProcessStop(opts: TasksRouterOpts | undefined, cardId: string): void {
+  try {
+    void Promise.resolve(opts?.stopCardProcesses?.(cardId)).catch((error) => {
+      console.warn(`[processes] stop after card closure failed for ${cardId}:`, error);
+    });
+  } catch (error) {
+    console.warn(`[processes] stop after card closure failed for ${cardId}:`, error);
+  }
+}
+
 /**
  * Run git in `cwd`, capturing stdout/stderr/exit. Never throws (code 1 on spawn
  * failure) and disables the credential prompt so a push that needs auth fails
@@ -585,6 +607,8 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
   const svc = createTaskService(db, {
     writeDeliverySheet: makeSheetWriter(ctx.OPENCLAW_DIR),
     repoRootFor: opts?.repoRootFor,
+    listRepoRoots: opts?.listRepoRoots,
+    listProjectDirs: opts?.listProjectDirs,
     probeFor: opts?.probeFor,
     // The delivery note that waited on git lands after the PATCH broadcast:
     // the same second emit every other late `addComment` in this file makes.
@@ -865,6 +889,13 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
       topic.archived = true;
       topic.updatedAt = at;
       ctx.saveSingleTopic(topic);
+      try {
+        void Promise.resolve(opts?.stopTopicProcesses?.(topic.id)).catch((err) => {
+          console.error(`[attempts] stop topic processes ${topic.id}`, err);
+        });
+      } catch (err) {
+        console.error(`[attempts] stop topic processes ${topic.id}`, err);
+      }
       broadcastToAll({ type: "topic:archived", topic });
       // And to the attention state, like the other archive paths: a lit attempt goes idle now, not at the next restart.
       setClosed(topicSubject(topic.id), { archived: true });
@@ -1482,7 +1513,13 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
     let running: TaskAttempt[] = [];
     try { running = attempts.list(t.id).filter((a) => a.state === "running"); }
     catch { /* tabella assente (host degradato) ⇒ nessun fan-out */ }
-    if (!t.assignedTopicId && !isAgentWorking(t.dispatchState) && running.length === 0) return false;
+    // A live turn exists if the card declares an agent at work, has `running`
+    // attempts, or its topic has an open stream right now. `assignedTopicId`
+    // alone is NOT enough: the topic stays bound to the card forever, even one
+    // closed months ago (card 47b63de2). The stream has to be asked, because
+    // after a land `dispatch_state` is already cleared and the process still runs.
+    const streamLive = !!t.assignedTopicId && opts?.hasLiveTurn?.("topic:" + t.assignedTopicId.slice(0, 8)) === true;
+    if (!isAgentWorking(t.dispatchState) && running.length === 0 && !streamLive) return false;
     // Dedup: il tentativo 1 è anche il topic legato al task.
     const keys = new Set<string>();
     for (const id of [t.assignedTopicId, ...running.map((a) => a.topicId)]) {
@@ -1760,7 +1797,9 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
         // that the work is finished: the status must say so, whatever state we
         // came from. Idempotent on cards already closed and still (the normal
         // case), so it adds no history rows to the path that already worked.
+        const statusBeforeSettle = svc.get(taskId, { projectId })?.task.status;
         const closed = svc.settleLanded({ taskId, by: "system", reason: `landed: the code is on main (${res.commit})` });
+        if (statusBeforeSettle !== "done" && closed?.status === "done") requestCardProcessStop(opts, taskId);
         // THE MERGE HAPPENED EVEN WHEN THE CARD DOES NOT CLOSE. `settleLanded`
         // refuses to close a parent that still has open steps (closing it would
         // make them unreachable: the feed is `rootsOnly`), and without this line
@@ -2699,6 +2738,7 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
         // coordinator depend on whichever task happens to own its Topic.
         patch: parsed.patch,
       });
+      if (prevStatus !== "done" && task.status === "done") requestCardProcessStop(opts, taskId);
       task = await captureDelivery(task, prevStatus);
       broadcastToAll({ type: "task:updated", projectId, task });
       // A registry-backed update changes a normal board card, not a parallel
@@ -2788,8 +2828,12 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
       || pathname.startsWith("/api/all-boards/")
       || pathname.startsWith("/api/boards/")
       || pathname.startsWith("/api/orchestrator-sessions/")
-      || pathname === "/api/system/dispatch-capacity";
+      || pathname === "/api/system/dispatch-capacity"
+      || pathname === "/api/dispatch/memory-queue";
     if (identita?.role === "guest" && miePath) {
+      if (pathname === "/api/dispatch/memory-queue") {
+        return json({ error: "dispatch data is not available to guests", code: "guest_forbidden" }, 403);
+      }
       const deviceId = identita.deviceId;
       if (!deviceId) return json({ error: "guest without an identity", code: "forbidden" }, 403);
 
@@ -2895,7 +2939,23 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
     const isBoard = pathname.startsWith("/api/boards/");
     const isAllBoards = pathname.startsWith("/api/all-boards/");
     const isCapacity = pathname === "/api/system/dispatch-capacity";
-    if (!isSession && !isOrchestratorSession && !isBoard && !isAllBoards && !isCapacity) return null;
+    const isMemoryQueue = pathname === "/api/dispatch/memory-queue";
+    if (!isSession && !isOrchestratorSession && !isBoard && !isAllBoards && !isCapacity && !isMemoryQueue) return null;
+
+    // GET /api/dispatch/memory-queue — the dispatcher's read-only memory view.
+    // Keep this route on the same global identity and origin gate as every API
+    // request; guests are rejected above because this is machine-wide data.
+    if (isMemoryQueue && method === "GET") {
+      const memoryQueueDispatcher = dispatcher as (TaskDispatcher & {
+        memoryQueueSnapshot?: () => DispatchMemoryQueueSnapshot;
+      }) | undefined;
+      try {
+        const snapshot = memoryQueueDispatcher?.memoryQueueSnapshot?.();
+        return snapshot
+          ? json(snapshot)
+          : json({ error: "dispatch memory queue unavailable", code: "dispatcher_unavailable" }, 503);
+      } catch (error) { return fail(error); }
+    }
 
     // GET /api/all-boards/tasks — the global cross-project feed (human overview).
     // Read-only: per-task mutations still go to /api/boards/:projectId/... using
@@ -2960,7 +3020,9 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
     const sessionPeek = matchRoute(pathname, "/api/all-boards/tasks/:taskId/peek");
     if (sessionPeek && method === "GET") {
       try {
-        const task = svc.get(sessionPeek.taskId)?.task;
+        const taskId = decodeMemoryQueueRef(sessionPeek.taskId);
+        if (!taskId) return json({ error: "invalid task reference", code: "invalid_reference" }, 400);
+        const task = svc.get(taskId)?.task;
         if (!task?.assignedTopicId) return json({ peek: null });
         const topic = ctx.getTopicById(task.assignedTopicId);
         if (!topic) return json({ peek: null });
@@ -2977,7 +3039,11 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
 
     const allTaskItem = matchRoute(pathname, "/api/all-boards/tasks/:taskId");
     if (allTaskItem && method === "GET") {
-      try { return json({ task: svc.get(allTaskItem.taskId)?.task ?? null }); }
+      try {
+        const taskId = decodeMemoryQueueRef(allTaskItem.taskId);
+        if (!taskId) return json({ error: "invalid task reference", code: "invalid_reference" }, 400);
+        return json({ task: svc.get(taskId)?.task ?? null });
+      }
       catch (e) { return fail(e); }
     }
 
@@ -2993,7 +3059,10 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
       // gate have to answer from ONE number, or the slider promises a share the
       // dispatcher is not applying.
       let admission: DispatchAdmission | null = null;
-      try { admission = dispatcher?.admissionPreview?.() ?? null; } catch { /* best-effort */ }
+      // `?board=<id>` asks the same question for one board's price: a light
+      // board (in place, no local check) and a repo board are not held by the same line.
+      const board = new URL(req.url).searchParams.get("board");
+      try { admission = dispatcher?.admissionPreview?.(board) ?? null; } catch { /* best-effort */ }
       return json({
         ...computeDispatchCapacity(running, undefined, resolveAgentRuntime() === "cli", undefined, {
           share: budgetShare(svc.getGlobalCap()),
@@ -3926,6 +3995,7 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
             // thread can put the summary under the step that produced it.
             messageId: ctx.isStreaming?.(decodeURIComponent(item.sessionKey))?.messageId ?? null,
           });
+          if (prevStatus !== "done" && task.status === "done") requestCardProcessStop(opts, item.taskId);
           task = await captureDelivery(task, prevStatus);
           broadcastToAll({ type: "task:updated", projectId: sess.projectId, task });
           // È QUESTA la porta che conta per i tasti del banner: l'agente commenta

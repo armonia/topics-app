@@ -58,6 +58,25 @@ export function planTail(plan: LicensePlan | null, now: number, tr: Translate): 
   return { text: `${expiry} · ${base}`, warn: true };
 }
 
+/** The Plan row's label: the plan's name where the word «Plan» is, not a «Team» on the right. */
+export function planRowLabel(plan: LicensePlan | null, tr: Translate): string {
+  return plan?.plan === 'team' ? tr('userMenu.plan.rowTeam') : tr(plan ? 'userMenu.plan.rowFree' : 'settings.section.plan');
+}
+
+/** What the Plan row adds to its label: the seats of a team, or the expiry that is close. */
+export function planRowTail(plan: LicensePlan | null, now: number, tr: Translate): Tail | null {
+  if (!plan) return null;
+  const seats = plan.plan === 'team'
+    ? (plan.seats === 1 ? tr('userMenu.plan.seatsOne') : tr('userMenu.plan.seats', { n: plan.seats }))
+    : null;
+  if (!scadenzaVicina(plan.expiresAt, now)) return seats === null ? null : { text: seats, warn: false };
+  const days = giorniAllaScadenza(plan.expiresAt, now) ?? 0;
+  const expiry = days < 0
+    ? tr('userMenu.plan.expired')
+    : days === 0 ? tr('userMenu.plan.expiresToday') : tr('userMenu.plan.expiresIn', { n: days });
+  return { text: expiry, warn: true };
+}
+
 /**
  * THE CLAUDE SUBSCRIPTION AS A PERSON NAMES IT.
  *

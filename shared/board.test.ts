@@ -4,6 +4,8 @@
 import { test, expect, describe } from "bun:test";
 import {
   ARCHIVE_PARKED_LABEL,
+  E2E_CI_CHECK,
+  GATES_CI_CHECK,
   LAND_ACTION_LABEL,
   PARKED_STOPPED,
   PLAN_APPROVE_LABEL,
@@ -15,9 +17,11 @@ import {
   REQUEUE_PARKED_LABEL,
   STATUS_EVENT_REASON_MAX,
   TAKE_OVER_PARKED_LABEL,
+  UNIT_CI_CHECK,
   deriveQueueReason,
   deriveSubtaskWork,
   formatStatusEvent,
+  isCiEvidenceCheck,
   isAncestorAtWork,
   hasPlanApproveOption,
   isBoardActionLabel,
@@ -38,6 +42,23 @@ import { queueReasonKeys } from "./board";
 import EN from "../client/src/lib/i18n-en";
 import IT from "../client/src/lib/i18n-it";
 import { interpolate } from "../client/src/lib/i18n";
+
+/** @covers KANBAN-84 */
+describe("CI evidence check classification", () => {
+  /** @covers KANBAN-84 */
+  test("github-ci:gates is CI evidence and a local command is not", () => {
+    expect(isCiEvidenceCheck({ cmd: "github-ci:gates" })).toBe(true);
+    expect(isCiEvidenceCheck({ cmd: "bun run typecheck" })).toBe(false);
+  });
+
+  /** @covers KANBAN-84 */
+  test("a board with only CI evidence rows has no local checks for admission", () => {
+    const checks = [E2E_CI_CHECK, UNIT_CI_CHECK, GATES_CI_CHECK];
+    const localChecks = checks.filter((check) => !isCiEvidenceCheck(check));
+
+    expect(localChecks).toEqual([]);
+  });
+});
 
 /**
  * The catalogue lookup a person's screen does, minus React. The Italian one
@@ -464,6 +485,59 @@ describe("perché questa card è ferma", () => {
     // «Serve a me» scrive l'assegnatario: lì «in corso» è vero, e un chip
     // «ferma» sarebbe un allarme addosso a chi sta lavorando.
     expect(deriveQueueReason({ ...base, status: "in_progress", assignedTo: "io" }, ctx)).toBeNull();
+  });
+
+  /**
+   * THE WORDS ATTILIO READS, 26/10: ten cards waiting for memory said the
+   * machine had no room, with the code `waiting-memory` at the end of the
+   * tooltip, and two In-progress cards said "no agent" whether the work ran in
+   * a cloud session or had simply stopped.
+   */
+  const say = (t: Record<string, unknown>, c: Record<string, unknown> = {}) => {
+    const r = deriveQueueReason({ ...base, ...t } as never, { ...ctx, ...c } as never)!;
+    return { ...r, ...queueReasonText(r, sayItalian) };
+  };
+  const memory = { dispatchBlock: { kind: "resources", reason: "waiting-memory" } };
+
+  test("aspetta memoria: dice i GB che servono e quelli liberi, con la virgola", () => {
+    const r = say({ dispatchState: "queued", dispatchError: "waiting-memory" }, { ...memory, memoryWait: { needGB: 4, freeGB: 1.43 } });
+    expect(r).toMatchObject({ kind: "resource_floor", tone: "waiting", head: "aspetta memoria", detail: "servono 4 GB, liberi 1,4" });
+    expect(r.title).toContain("ne mancano 2,6");
+    expect(r.title).toContain("Riparte da sola");
+    expect(r.title).not.toContain("waiting-memory");
+    // The same wait on a held resume in progress reads the same.
+    const held = say({ status: "in_progress", dispatchState: "queued", dispatchError: "waiting-memory" }, { ...memory, memoryWait: { needGB: 4, freeGB: 1.43 } });
+    expect(held.detail).toBe("servono 4 GB, liberi 1,4");
+  });
+
+  test("aspetta memoria senza lettura: lo dice, senza inventare un numero", () => {
+    for (const memoryWait of [null, { needGB: 4, freeGB: null }]) {
+      const r = say({ dispatchState: "queued", dispatchError: "waiting-memory" }, { ...memory, memoryWait });
+      expect(r).toMatchObject({ kind: "resource_floor", tone: "waiting", head: "aspetta memoria", detail: "la sto misurando" });
+      expect(r.title).not.toMatch(/\{\w+\}/);
+      expect(r.title).not.toContain("waiting-memory");
+    }
+  });
+
+  test("in corso senza agente: dice da quanto è ferma", () => {
+    const ago = (min: number) => new Date(new Date(NOW).getTime() - min * 60_000).toISOString();
+    expect(say({ status: "in_progress", updatedAt: ago(12) })).toMatchObject({
+      kind: "no_agent", tone: "stalled", head: "ferma", detail: "nessun agente da 12 min",
+    });
+    const hours = say({ status: "in_progress", updatedAt: ago(185) });
+    expect(hours.detail).toBe("nessun agente da 3 h");
+    expect(hours.title).toContain("rimettila in Todo");
+  });
+
+  test("in corso che lavora fuori: dice dove, e che non serve far niente", () => {
+    const where = (elsewhere: Record<string, string>) => say({ status: "in_progress" }, { elsewhere });
+    const node = where({ where: "node", label: "PC di Attilio" });
+    expect(node).toMatchObject({ kind: "no_agent", tone: "waiting", head: "altrove", detail: "lavora su PC di Attilio" });
+    expect(node.title).toContain("Non devi fare niente");
+    const cloud = where({ where: "cloud", label: "https://claude.ai/code/session_01AbC" });
+    expect(cloud).toMatchObject({ head: "altrove", detail: "sessione cloud" });
+    expect(cloud.title).toContain("https://claude.ai/code/session_01AbC");
+    expect(where({ where: "pr", label: "#465" }).detail).toBe("sulla PR #465");
   });
 
   // A RESUME HELD BY THE MACHINE: `resume` writes `queued` on an In-progress card

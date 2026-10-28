@@ -30,9 +30,13 @@
  */
 import { describe, it, expect } from "bun:test";
 import { Database } from "bun:sqlite";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { createLifecycleHooks, type LifecycleHookPayload, type LifecycleHookRunner } from "./lifecycle-hooks";
 import { createTaskService, type TaskService } from "./tasks";
 import { createTaskDispatcher, type DispatcherDeps } from "./task-dispatcher";
-import { NODE_DEAD_POLLS } from "./task-dispatcher-remote-node";
+import { NODE_BRANCH_GRACE_POLLS, NODE_DEAD_POLLS, NODE_RETIRE_TRIES } from "./task-dispatcher-remote-node";
 import { createNodeBranchPlanter } from "./node-branch-plant";
 import type { NodeRunBinding, NodeRunReport } from "./node-client";
 import type { DelegatedRunPolicy } from "../lib/delegated-agent-start";
@@ -53,7 +57,7 @@ function freshDb(): Database {
     dispatch_use_worktree INTEGER NOT NULL DEFAULT 1, dispatch_timeout_min INTEGER NOT NULL DEFAULT 20,
     dispatch_mcp TEXT,
     dispatch_retry_cap INTEGER, dispatch_retry_backoff_s INTEGER,
-    max_agents_auto INTEGER, dispatch_fanout INTEGER
+    max_agents_auto INTEGER, dispatch_fanout INTEGER, language TEXT
   )`);
   db.run(`CREATE TABLE task_comments (
     id TEXT PRIMARY KEY, task_id TEXT NOT NULL, author TEXT NOT NULL DEFAULT 'user',
@@ -101,6 +105,9 @@ interface NodeFakeOptions {
   cancelRun?: (runId: string) => Promise<void>;
   bundle?: Uint8Array | null;
   planted?: { planted: boolean; commit: string | null; reason: string | null };
+  /** The `node-run` hook runner; absent = the lane's own default. */
+  hooks?: LifecycleHookRunner;
+  projectPathOf?: (projectId: string) => string | null;
 }
 
 function nodeFake(o: NodeFakeOptions = {}) {
@@ -134,6 +141,8 @@ function nodeFake(o: NodeFakeOptions = {}) {
     nameOf: () => "Portatile",
     localMachineId: () => "questa-macchina",
     originUrlOf: async () => "git@github.com:acme/alpha.git",
+    ...(o.hooks ? { hooks: o.hooks } : {}),
+    ...(o.projectPathOf ? { projectPathOf: o.projectPathOf } : {}),
     plantBranch: async ({ branch, baseSha, bundle }) => {
       plantedWith.push({ branch, baseSha, bundleBytes: bundle ? bundle.length : null });
       return o.planted ?? { planted: true, commit: "c0ffeec0ffee", reason: null };
@@ -203,7 +212,8 @@ function harness(nodeOverrides: NodeFakeOptions = {}, depOverrides: Partial<Disp
   };
   const dispatcher = createTaskDispatcher(deps);
 
-  svc.updateBoardSettings(PID, { autoDispatch: true, dispatchUseWorktree: true, dispatchFanOut: 1 });
+  // `auto` said out loud: the global preference of whoever runs the suite must not reach the body.
+  svc.updateBoardSettings(PID, { autoDispatch: true, dispatchUseWorktree: true, dispatchFanOut: 1, language: "auto" });
   svc.setGlobalCap({ auto: false, max: 9 });
 
   return {
@@ -307,6 +317,22 @@ describe("la card parte sul nodo, non qui", () => {
     expect(h.topics).toEqual([]);
   });
 
+  it("nodo muto due volte: la card resta in coda, il tetto dei rimandi dell'agente non la ferma", async () => {
+    // The node's retry opens no turn, so it keeps the wide streak cap; the
+    // agent's cap (one wait, then the card asks) would park it on the second.
+    const h = harness({ createRun: () => Promise.reject(Object.assign(new Error("boom"), { reason: "unreachable" })) });
+    h.seed();
+    await dispatch(h);
+    h.db.run("UPDATE tasks SET dispatch_deferred_until = ? WHERE id = ?", [new Date(Date.now() - 1000).toISOString(), TASK]);
+
+    await dispatch(h);
+
+    const t = h.task();
+    expect(t.waitStreak).toBe(2);
+    expect(t.status).toBe("todo");
+    expect(t.dispatchError).toBe("node_unreachable");
+  });
+
   it("nodo mai accoppiato: stessa risposta, senza nemmeno provare", async () => {
     const h = harness({ paired: false });
     h.seed();
@@ -316,6 +342,216 @@ describe("la card parte sul nodo, non qui", () => {
     expect(h.calls).toEqual([]);
     expect(h.task().status).toBe("todo");
     expect(h.task().dispatchError).toBe("node_unreachable");
+  });
+
+  it("la card rimandata indietro porta al nodo il feedback della review e la consegna precedente", async () => {
+    // ff293eda, 26/10: the reviewer twice asked the PC for one line in the README; the node was
+    // only ever given the title and the description, rewrote the file from scratch every round
+    // and never wrote the line. A local card reads its thread through `get_task`; a node cannot.
+    const h = harness();
+    h.seed();
+    h.svc.addComment({ taskId: TASK, author: "agent", kind: "delivery", content: "README riscritto, 38 righe" });
+    h.svc.addComment({ taskId: TASK, author: "attilio", content: "Manca il prerequisito git config user.name/user.email" });
+    h.svc.addComment({ taskId: TASK, author: "system", kind: "service", content: "Task in coda per una nuova sessione." });
+    h.svc.addComment({ taskId: TASK, author: "system", content: "Consegnato dal nodo «Portatile»: il ramo è stato piantato" });
+
+    await dispatch(h);
+
+    const sent = (h.created[0].body as { description: string }).description;
+    expect(sent.startsWith("con il ramo")).toBe(true);
+    expect(sent).toContain("Manca il prerequisito git config user.name/user.email");
+    expect(sent).toContain("README riscritto, 38 righe");
+    // The dispatcher's own bookkeeping is not the reviewer's voice.
+    expect(sent).not.toContain("Task in coda per una nuova sessione");
+    expect(sent).not.toContain("Consegnato dal nodo");
+  });
+
+  it("a un dispositivo ospite confinato la discussione del proprietario NON viaggia", async () => {
+    const h = harness({}, { delegatedPolicyForTask: () => delegatedPolicy() });
+    h.seed();
+    h.db.run("UPDATE tasks SET delegated_start_capability_id = 'capability-confined' WHERE id = ?", [TASK]);
+    h.svc.addComment({ taskId: TASK, author: "attilio", content: "nota privata del proprietario" });
+
+    await dispatch(h);
+
+    expect(h.created).toHaveLength(1);
+    expect((h.created[0].body as { description: string }).description).toBe("con il ramo");
+  });
+
+  it("con la board in italiano il nodo riceve la direttiva di lingua, per commenti e consegna", async () => {
+    // 26/10, 22:30-22:34: four Cloud Claude cards, language set to Italian, one delivered in English.
+    // The cloud's prompt is the title plus this description: nothing else of ours reaches it.
+    const h = harness();
+    h.svc.updateBoardSettings(PID, { language: "it" });
+    h.seed();
+
+    await dispatch(h);
+
+    const sent = (h.created[0].body as { description: string }).description;
+    expect(sent.startsWith("con il ramo")).toBe(true);
+    expect(sent).toContain("Rispondi sempre in italiano");
+    expect(sent).toContain("every comment you write on the card and your closing summary");
+    expect(sent).toContain("code comments are always English");
+  });
+
+  it("la lingua arriva anche dopo il thread, e anche a un dispositivo ospite", async () => {
+    const h = harness({}, { delegatedPolicyForTask: () => delegatedPolicy() });
+    h.svc.updateBoardSettings(PID, { language: "en" });
+    h.seed();
+    h.db.run("UPDATE tasks SET delegated_start_capability_id = 'capability-confined' WHERE id = ?", [TASK]);
+
+    await dispatch(h);
+
+    const sent = (h.created[0].body as { description: string }).description;
+    expect(sent.startsWith("con il ramo\n\n--- LANGUAGE ---")).toBe(true);
+    expect(sent).toContain("Always answer in English");
+  });
+
+  it("una card senza discussione parte con la sua descrizione, identica", async () => {
+    const h = harness();
+    h.seed();
+
+    await dispatch(h);
+
+    expect((h.created[0].body as { description: string }).description).toBe("con il ramo");
+  });
+});
+
+describe("l'hook node-run gira prima che la card parta sul nodo", () => {
+  /** A runner that records every call and answers with a fixed outcome. */
+  function hookFake(outcome: Awaited<ReturnType<LifecycleHookRunner["run"]>>, order?: string[]) {
+    const seen: { event: string; payload: LifecycleHookPayload }[] = [];
+    const runner: LifecycleHookRunner = {
+      run: async (event, payload) => {
+        order?.push("hook");
+        seen.push({ event, payload });
+        return outcome;
+      },
+    };
+    return { runner, seen };
+  }
+
+  it("via libera: la corsa parte con lo stesso corpo di sempre e l'hook riceve il carico completo", async () => {
+    const order: string[] = [];
+    const hook = hookFake({ ok: true }, order);
+    const h = harness({ hooks: hook.runner, projectPathOf: () => "/Users/me/alpha" });
+    h.seed();
+
+    await dispatch(h);
+
+    expect(hook.seen).toHaveLength(1);
+    expect(hook.seen[0].event).toBe("node-run");
+    expect(hook.seen[0].payload).toEqual({
+      hook_event_name: "node-run",
+      session_id: TASK,
+      cwd: "/Users/me/alpha",
+      task_id: TASK,
+      project_id: PID,
+      machine_id: MACHINE,
+      machine_name: "Portatile",
+      node_base_url: BASE_URL,
+      origin_url: "git@github.com:acme/alpha.git",
+    });
+    expect(h.calls.filter((c) => c === "create")).toHaveLength(1);
+    expect(h.created[0].body).toEqual({
+      originTaskId: TASK,
+      originUrl: "git@github.com:acme/alpha.git",
+      text: "porta a casa la corsia remota",
+      description: "con il ramo",
+      model: null,
+      effort: "medium",
+    });
+    expect(h.task().status).toBe("in_progress");
+    expect(h.task().dispatchState).toBe("working");
+  });
+
+  it("veto: nessuna corsa creata, la card torna in coda come un nodo muto e dice perché", async () => {
+    const hook = hookFake({ ok: false, reason: "il PC non si sveglia (wol senza risposta)" });
+    const h = harness({ hooks: hook.runner });
+    h.seed();
+
+    await dispatch(h);
+
+    expect(h.calls).toEqual([]);
+    const t = h.task();
+    expect(t.status).toBe("todo");
+    expect(t.dispatchError).toBe("node_unreachable");
+    expect(t.dispatchDeferredUntil).not.toBeNull();
+    expect(Date.parse(t.dispatchDeferredUntil!)).toBeGreaterThan(Date.now());
+    expect(t.dispatchAttempts).toBe(0);
+    expect(h.turns).toEqual([]);
+    expect(h.worktrees).toEqual([]);
+    const note = h.comments().map((c) => c.content).join("\n");
+    expect(note).toContain("il nodo «Portatile» non è pronto: il PC non si sveglia (wol senza risposta)");
+    // The slot is free again: the retry is not blocked by a ghost run.
+    expect(h.dispatcher.busyIds()).not.toContain(TASK);
+  });
+
+  it("l'hook gira prima di ogni chiamata al nodo, anche la cancellazione della corsa vecchia", async () => {
+    // A PC that sleeps cannot answer the cancel either: the hook that wakes it
+    // has to come first, then the cancel of the buried run, then the new run.
+    const trace: string[] = [];
+    let runs = 0;
+    let buried = false;
+    const hook = hookFake({ ok: true }, trace);
+    const h = harness({
+      hooks: hook.runner,
+      createRun: async () => { trace.push("create"); runs += 1; return { runId: `run-${runs}` }; },
+      cancelRun: async (runId) => { trace.push(`cancel:${runId}`); },
+      readRun: (runId) =>
+        runId === "run-1" && !buried
+          ? Promise.reject(Object.assign(new Error("giu"), { reason: "unreachable" }))
+          : Promise.resolve(report()),
+    });
+    h.seed();
+    await dispatch(h);
+    await poll(h, NODE_DEAD_POLLS);
+    buried = true;
+
+    expect(trace).toEqual(["hook", "create", "hook", "cancel:run-1", "create"]);
+  });
+
+  it("hooks.json con uno script che esce non zero: il motivo sullo stderr arriva sulla card", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "node-run-hook-"));
+    try {
+      const file = join(dir, "hooks.json");
+      writeFileSync(file, JSON.stringify({
+        hooks: [{ event: "node-run", cmd: "cat >/dev/null; echo 'bundle non inviato' >&2; exit 3", timeoutMs: 5000 }],
+      }));
+      const h = harness({ hooks: createLifecycleHooks({ file, log: () => {} }) });
+      h.seed();
+
+      await dispatch(h);
+      // The real command runs in a child process: give it a moment to answer.
+      for (let i = 0; i < 100 && h.task().status !== "todo"; i++) await new Promise((r) => setTimeout(r, 20));
+      await flush();
+
+      expect(h.calls).toEqual([]);
+      expect(h.task().status).toBe("todo");
+      expect(h.comments().map((c) => c.content).join("\n")).toContain("bundle non inviato");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("nessun hooks.json: la card parte esattamente come prima", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "node-run-nohooks-"));
+    const previous = process.env.TOPICS_HOME;
+    process.env.TOPICS_HOME = dir;
+    try {
+      // No `hooks` injected: the lane falls back to the shared runner, which reads the (absent) file.
+      const h = harness();
+      h.seed();
+
+      await dispatch(h);
+
+      expect(h.calls.filter((c) => c === "create")).toHaveLength(1);
+      expect(h.task().status).toBe("in_progress");
+      expect(h.task().dispatchState).toBe("working");
+    } finally {
+      if (previous === undefined) delete process.env.TOPICS_HOME; else process.env.TOPICS_HOME = previous;
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 });
 
@@ -720,14 +956,70 @@ describe("lo specchio: stato, commenti e il ramo che torna", () => {
   });
 });
 
+describe("review senza ramo: il nodo scrive lo stato e poi il ramo", () => {
+  // 26/10, a real run on the PC: the node's system delivery writes "review" and
+  // the branch half a second later. A poll that fell in between read "review, no
+  // branch" and the card landed here empty, with the commit left on the node.
+  it("il ramo che arriva al giro dopo si pianta", async () => {
+    let round = 0;
+    const h = harness({
+      bundle: new Uint8Array([1, 2]),
+      readRun: () => {
+        round++;
+        return Promise.resolve(round === 1
+          ? report({ status: "review" })
+          : report({ status: "review", deliveryBranch: "topics/lilac-henge", deliveryCommit: "937a26e", baseSha: "502414bd" }));
+      },
+    });
+    h.seed();
+    await dispatch(h);
+
+    await poll(h);
+    expect(h.task().status).toBe("in_progress");
+    expect(h.plantedWith).toEqual([]);
+
+    await poll(h);
+    expect(h.task().status).toBe("review");
+    expect(h.task().deliveryBranch).toBe("topics/lilac-henge");
+    expect(h.plantedWith).toEqual([{ branch: "topics/lilac-henge", baseSha: "502414bd", bundleBytes: 2 }]);
+  });
+
+  it("senza ramo per davvero arriva in review dopo la tolleranza, col motivo", async () => {
+    const h = harness({ readRun: () => Promise.resolve(report({ status: "review" })) });
+    h.seed();
+    await dispatch(h);
+
+    for (let i = 1; i < NODE_BRANCH_GRACE_POLLS; i++) {
+      await poll(h);
+      expect(h.task().status).toBe("in_progress");
+    }
+    await poll(h);
+    expect(h.task().status).toBe("review");
+    expect(h.comments().some((c) => c.content.includes("il nodo non ha consegnato nessun ramo"))).toBe(true);
+    expect(h.dispatcher.busyIds()).not.toContain(TASK);
+  });
+
+  it("un motivo dichiarato (il cloud) non aspetta", async () => {
+    const h = harness({
+      readRun: () => Promise.resolve(report({ status: "review", reason: "la sessione cloud è finita con un errore" })),
+    });
+    h.seed();
+    await dispatch(h);
+
+    await poll(h);
+    expect(h.task().status).toBe("review");
+    expect(h.comments().some((c) => c.content.includes("la sessione cloud è finita con un errore"))).toBe(true);
+  });
+});
+
 describe("il bundle presuppone il commit di base", () => {
-  it("base assente: niente fetch, niente ripiego a storia intera, un motivo da leggere", async () => {
+  it("base assente anche dopo UN fetch di origin: niente bundle a storia intera, un motivo da leggere", async () => {
     const ranGit: string[][] = [];
     const planter = createNodeBranchPlanter({
       repoPathOf: () => "/tmp/alpha",
       runGit: async (_cwd, args) => {
         ranGit.push(args);
-        // `cat-file -e` says no: this checkout does not have the base commit.
+        // `cat-file -e` says no, before and after the fetch: the base is not on origin either.
         if (args[0] === "cat-file") return { code: 1, stdout: "", stderr: "" };
         return { code: 0, stdout: "", stderr: "" };
       },
@@ -743,8 +1035,136 @@ describe("il bundle presuppone il commit di base", () => {
 
     expect(out.planted).toBe(false);
     expect(out.reason).toContain("abcdef01");
-    // The point of the rule: no fetch, and no request for a whole-history bundle.
-    expect(ranGit.some((a) => a[0] === "fetch")).toBe(false);
-    expect(ranGit.map((a) => a[0])).toEqual(["cat-file"]);
+    expect(out.reason).toContain("fetch di origin");
+    // The rule (cd9f7cfed8): ONE bounded fetch of origin when this clone is behind,
+    // the check asked again, and never a whole-history bundle nor a second fetch.
+    expect(ranGit.map((a) => a[0])).toEqual(["cat-file", "fetch", "cat-file"]);
+    expect(ranGit[1]).toEqual(["fetch", "--no-tags", "origin"]);
   });
 });
+
+describe("la copia vecchia che il nodo restituisce dopo un riavvio", () => {
+  // ff293eda, 26/10: after the production restart the Mac no longer remembered the previous run
+  // (`lastNodeRun` lives in memory), so it could not cancel it; the node answers `createRun` with the
+  // live mirror of the card as it is, already in review, and the card landed the OLD delivery again.
+  const old = { id: "c-old", author: "agent", kind: "delivery", content: "consegna vecchia", createdAt: "2026-10-26T10:00:00.000Z" };
+  const fresh = { id: "c-new", author: "agent", kind: "delivery", content: "consegna nuova", createdAt: "2026-10-26T11:00:00.000Z" };
+
+  it("già in review al primo giro, con una consegna che la card ha già: cancella la copia e riparte da capo", async () => {
+    const h = harness({
+      readRun: async (runId) => runId === "run-1"
+        ? report({ status: "review", dispatchState: "delivered", deliveryBranch: "topics/vecchio", deliveryCommit: "aaa", baseSha: "bbb", comments: [old] })
+        : report({ status: "review", dispatchState: "delivered", deliveryBranch: "topics/nuovo", deliveryCommit: "ccc", baseSha: "bbb", comments: [fresh] }),
+      bundle: new Uint8Array([1]),
+    });
+    h.seed();
+    h.svc.addComment({ taskId: TASK, author: "system", kind: "delivery", content: "consegna vecchia", messageId: "c-old" });
+
+    await dispatch(h);
+    await poll(h);
+
+    // The old delivery is not landed again: the copy is cancelled once and the card goes out again in
+    // the same round, onto a NEW run (like after a burial).
+    expect(h.plantedWith).toEqual([]);
+    expect(h.calls.filter((c) => c === "create" || c.startsWith("cancel:"))).toEqual(["create", "cancel:run-1", "create"]);
+    expect(h.task().status).toBe("in_progress");
+    expect(h.task().dispatchAttempts).toBe(1); // refunded, then spent again by the new run
+    expect(h.comments().filter((c) => c.content.includes("copia della consegna precedente"))).toHaveLength(1);
+
+    // And the new run is the one that lands.
+    await poll(h);
+    expect(h.plantedWith.map((p) => p.branch)).toEqual(["topics/nuovo"]);
+    expect(h.task().status).toBe("review");
+  });
+
+  it("già in review al primo giro ma con una consegna che la card non ha mai visto: è una corsa veloce, atterra", async () => {
+    const h = harness({
+      readRun: async () => report({ status: "review", dispatchState: "delivered", deliveryBranch: "topics/veloce", deliveryCommit: "ddd", baseSha: "bbb", comments: [fresh] }),
+      bundle: new Uint8Array([1]),
+    });
+    h.seed();
+
+    await dispatch(h);
+    await poll(h);
+
+    expect(h.calls.some((c) => c.startsWith("cancel"))).toBe(false);
+    expect(h.plantedWith.map((p) => p.branch)).toEqual(["topics/veloce"]);
+    expect(h.task().status).toBe("review");
+  });
+
+  it("una corsa vera in attesa del ramo (la sua consegna è già specchiata) non è scambiata per una copia vecchia", async () => {
+    // The first answer only SEEDS the comments it carries; a delivery that appears from the second
+    // answer on is written on the card with its anchor. The round that still waits for the branch
+    // then sees it anchored, and must not take its own run for the old mirror: only the FIRST answer
+    // of a run can be that.
+    let round = 0;
+    const h = harness({
+      readRun: async () => {
+        round += 1;
+        if (round === 1) return report();
+        const withBranch = round >= 3;
+        return report({
+          status: "review", dispatchState: "delivered", comments: [fresh],
+          deliveryBranch: withBranch ? "topics/in-ritardo" : null, deliveryCommit: withBranch ? "eee" : null, baseSha: "bbb",
+        });
+      },
+      bundle: new Uint8Array([1]),
+    });
+    h.seed();
+
+    await dispatch(h);
+    await poll(h, 4);
+
+    expect(h.calls.some((c) => c.startsWith("cancel"))).toBe(false);
+    expect(h.plantedWith.map((p) => p.branch)).toEqual(["topics/in-ritardo"]);
+  });
+
+  it("la copia vecchia che non si riesce a cancellare non fa atterrare la vecchia consegna, e si riprova", async () => {
+    let cancelWorks = false;
+    const h = harness({
+      readRun: async () => report({ status: "review", dispatchState: "delivered", deliveryBranch: "topics/vecchio", deliveryCommit: "aaa", baseSha: "bbb", comments: [old] }),
+      cancelRun: async () => { if (!cancelWorks) throw new Error("giù"); },
+      bundle: new Uint8Array([1]),
+    });
+    h.seed();
+    h.svc.addComment({ taskId: TASK, author: "system", kind: "delivery", content: "consegna vecchia", messageId: "c-old" });
+
+    await dispatch(h);
+    await poll(h, 3);
+    expect(h.plantedWith).toEqual([]);
+    expect(h.task().status).toBe("in_progress");
+    expect(h.calls.filter((c) => c === "create")).toHaveLength(1);
+
+    cancelWorks = true;
+    await poll(h);
+    expect(h.plantedWith).toEqual([]);
+    expect(h.calls.filter((c) => c === "create")).toHaveLength(2);
+  });
+
+  it("un nodo che risponde ma non cancella mai la copia vecchia: dopo qualche giro la card si parcheggia con la spiegazione", async () => {
+    let cancels = 0;
+    const h = harness({
+      readRun: async () => report({ status: "review", dispatchState: "delivered", deliveryBranch: "topics/vecchio", deliveryCommit: "aaa", baseSha: "bbb", comments: [old] }),
+      cancelRun: async () => { cancels += 1; throw new Error("403"); },
+      bundle: new Uint8Array([1]),
+    });
+    h.seed();
+    h.svc.addComment({ taskId: TASK, author: "system", kind: "delivery", content: "consegna vecchia", messageId: "c-old" });
+
+    await dispatch(h);
+    await poll(h, NODE_RETIRE_TRIES - 1);
+    expect(h.task().dispatchState).toBe("working"); // still trying
+
+    await poll(h);
+    expect(h.task().dispatchState).toBe("blocked");
+    expect(h.task().dispatchError ?? "").toContain("non la cancella");
+    expect(h.plantedWith).toEqual([]);
+
+    // Parked means parked: the slot is gone, so nothing asks the node or tries the cancel again.
+    expect(cancels).toBe(NODE_RETIRE_TRIES);
+    await poll(h, 3);
+    expect(cancels).toBe(NODE_RETIRE_TRIES);
+    expect(h.calls.filter((c) => c === "create")).toHaveLength(1);
+  });
+});
+

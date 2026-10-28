@@ -20,6 +20,9 @@
  * 0.05x on Opus 5.5 and Sonnet 5.5, 0.1x on every other model. Cache writes
  * are 1.25x (5 minutes) and 2x (one hour) on every Claude model.
  */
+
+import { bareModelId } from "./modelMaker";
+
 export interface ModelPrice {
   input: number;
   output: number;
@@ -86,20 +89,41 @@ const PRICE_TABLE: Record<string, ModelPrice> = {
   "gpt-o3-mini": price(1.1, 4.4),
 };
 
+/** The ids of the table, for the test that checks every one resolves to its own row. */
+export function pricedModelIds(): string[] {
+  return Object.keys(PRICE_TABLE);
+}
+
 /**
- * Normalises provider namespaces and serving suffixes before matching. Claude
- * decimal release aliases use hyphens only when that spelling names a row in
- * this table; unrelated dotted model ids keep their identity.
+ * Normalises a model id before matching. Strips what a gateway or cloud wraps
+ * around the name, none of which changes the model or its price:
+ * - the window suffix (`claude-opus-5-5[1m]`), same as `shared/context-window.ts`;
+ * - routing suffixes (`:nitro`, `:floor`, `:batch`) and Bedrock's `-v1:0`;
+ * - every namespace (`openrouter/anthropic/`, `azure/`) and Bedrock's
+ *   `us.anthropic.` / `anthropic.` prefix;
+ * - Vertex's `@20250514`, which is the same dated id as `-20250514`;
+ * - dotted Claude versions (`4.5`), spelled `4-5` in the table, only when that
+ *   names a row; other dotted ids (`gpt-4.1`) keep their identity.
+ * Stripping only one of these is how `claude-haiku-4.5` was priced as Haiku 5.5.
  */
 function normalizeModel(model: string): string {
-  const normalized = model.trim().toLowerCase().replace(/^[^/]+\//, "").replace(/\[[^\]]*\]\s*$/, "").trim();
-  const dottedVersion = normalized.replace(
+  // A card stores `<runtime>:<model>` (`claude-code:...`, `topics:...`): the runtime
+  // goes first, or the `:suffix` rule below would cut the model and keep the runtime.
+  const stripped = bareModelId(model)
+    .replace(/\[[^\]]*\]\s*$/, "")
+    .trim()
+    .replace(/-v\d+:\d+$/, "")
+    .replace(/:[a-z0-9-]+$/, "")
+    .replace(/^.*\//, "")
+    .replace(/^(?:[a-z]{2,4}\.)?anthropic\./, "")
+    .replace(/@(\d{8})$/, "-$1");
+  const hyphenated = stripped.replace(
     /(claude-(?:opus|sonnet|haiku|fable|mythos)-\d+)\.(\d+)(?=$|-)/g,
     "$1-$2",
   );
-  if (dottedVersion === normalized) return normalized;
-  const rowId = dottedVersion.replace(/-\d{8}$/, "");
-  return PRICE_TABLE[dottedVersion] || PRICE_TABLE[rowId] ? dottedVersion : normalized;
+  // `claude-haiku-4.50` names no row: it keeps its dot instead of landing on 4-5.
+  const rowId = hyphenated.replace(/-\d{8}$/, "");
+  return PRICE_TABLE[hyphenated] || PRICE_TABLE[rowId] ? hyphenated : stripped;
 }
 
 /**

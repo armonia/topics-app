@@ -102,6 +102,48 @@ jobs:
       - name: Unit + integration tests (one process per file)
         run: bun run scripts/slot.ts test:unit -- "bun run scripts/test-unit-shards.ts"
 
+  # Process groups are a POSIX contract, so keep the focused real-process tests
+  # on both supported CI operating systems instead of relying on Linux alone.
+  process-groups:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: .bun-version
+
+      - name: Setup Node (node-pty native bridge used by route imports)
+        uses: actions/setup-node@v5
+        with:
+          node-version: 20
+
+      - name: Install server deps
+        run: bun install --frozen-lockfile --ignore-scripts
+
+      - name: Rebuild node-pty
+        run: npm rebuild node-pty
+
+      - name: Restore executable bit on node-pty helpers
+        run: bun run scripts/fix-node-pty-exec-bit.ts
+
+      - name: Process group registry tests
+        run: bun test server/lib/command-process-groups.test.ts --timeout 500000
+
+      - name: Command process tests
+        run: bun test server/lib/command-process.test.ts --timeout 500000
+
+      - name: Card command route tests
+        run: bun test server/routes/processes.command.test.ts --timeout 500000
+
+      - name: Card status process cleanup tests
+        run: bun test server/routes/tasks.process-groups.test.ts --timeout 500000
+
   # EVERY MEASUREMENT THAT IS NOT THE UNIT SUITE, STARTED WITH THE UNIT JOBS.
   #
   # This job was `check` and waited for `unit` (`needs: unit`) although only its
@@ -681,6 +723,15 @@ jobs:
         if: ${{ !cancelled() && steps.setup.outcome == 'success' }}
         run: bash scripts/graphify-regen.test.sh
 
+      # The shell that stops an e2e shard when unit or gates is red. Its two
+      # failures are opposite and both silent in the e2e job itself: a stop
+      # that no longer stops (the minutes come back), or a pass-through that
+      # changes a step's exit code (an e2e red would read green). A fake curl
+      # plays the jobs API; about 20 s.
+      - name: Guardie della fermata degli shard e2e (e2e-stop-on-red)
+        if: ${{ !cancelled() && steps.setup.outcome == 'success' }}
+        run: bash scripts/e2e-stop-on-red.test.sh
+
   # THE VERDICT OF THE RUN'S TESTS AND GATES, IN THE JOB AND STEP THE BOARD READS.
   #
   # The board reads the unit verdict of a pull request from the step "Unit +
@@ -838,6 +889,32 @@ jobs:
     # board's e2e row reads every job matching `^e2e( \(\d+\))?$`
     # (E2E_JOB in server/services/ci-evidence.ts), so a red in the touched
     # specs is still a red of that row, not a job nobody reads.
+    #
+    # ON A PULL REQUEST A SHARD STOPS WHEN `unit` OR `gates` IS RED.
+    # The long steps below run in `scripts/e2e-stop-on-red.sh` instead of the
+    # default shell: it runs the same `bash -e <script>`, and every 45 s it
+    # reads the jobs of this run attempt; when unit or gates concluded
+    # `failure` it stops the step, which fails with "fermato: unit rosso, la
+    # e2e non è il guasto" and the link of the red job. Measured on 199 PR
+    # runs (22-25/10/2026): unit or gates was red in 82, after a median of
+    # 6.6-8.1 minutes, and the shards ran on to the end for 25% of all the PR
+    # minutes, holding slots of the 20 the organisation can run at once.
+    #
+    # Not `needs: [unit, gates]`: a green run would start the e2e 7 minutes
+    # later. Not `gh run cancel`: a cancelled run reads as superseded to the
+    # agents, Auto-fix and the CI monitor, and nobody would fix the red. On a
+    # push to main the script is the plain shell (every commit keeps its
+    # whole verdict for auto-bump), and any doubt (API unreadable, rate limit
+    # low) runs the step to the end. So does a shard re-run on its own: the
+    # red unit it finds is a copy GitHub left there, not a verdict of this
+    # attempt. The why and the cases are in the script and in
+    # scripts/e2e-stop-on-red.test.sh.
+    #
+    # `actions: read` is what the jobs API asks; `contents: read` is the
+    # checkout. Listing them drops every other permission of the token here.
+    permissions:
+      contents: read
+      actions: read
     strategy:
       fail-fast: false
       matrix:
@@ -928,7 +1005,13 @@ jobs:
           key: apt-playwright-${{ runner.arch }}-${{ steps.runner-image.outputs.id }}-${{ hashFiles('bun.lock') }}
           restore-keys: apt-playwright-${{ runner.arch }}-
 
+      # This step and the two Playwright steps stop when unit or gates is red
+      # (see the top of this job). The token is removed from the environment
+      # before the step's own script runs.
       - name: Build client, and install Playwright browsers (Chromium + WebKit) meanwhile
+        shell: bash scripts/e2e-stop-on-red.sh {0}
+        env:
+          E2E_STOP_TOKEN: ${{ github.token }}
         run: |
           build_log="$RUNNER_TEMP/build-client.log"
           bun run build:client > "$build_log" 2>&1 &
@@ -977,6 +1060,7 @@ jobs:
 
       - name: Run E2E tests (Playwright)
         if: ${{ matrix.shard != 0 }}
+        shell: bash scripts/e2e-stop-on-red.sh {0}
         # Usa il piano per durata (shard-N.txt) se disponibile; altrimenti fallback
         # a --shard=i/N di Playwright, che riparte per numero di test.
         # Il piano e' scritto con selettori regex (specSelector in e2e-plan-shards.ts)
@@ -994,6 +1078,7 @@ jobs:
         env:
           CHROMIUM_PATH: ${{ steps.chromium.outputs.path }}
           E2E_TIER: pr
+          E2E_STOP_TOKEN: ${{ github.token }}
 
       # IL TIER PR NON E' TUTTA LA SUITE, e cio' che salta non ha nessun altro cancello
       # bloccante: 161 test (22 spec via `testIgnore` + 12 taggati @nightly) girano solo
@@ -1007,6 +1092,7 @@ jobs:
       # own tier, which made shard 1 the slowest job of every pull request.
       - name: E2E dei file toccati, anche fuori dal tier PR
         if: ${{ matrix.shard == 0 && github.event_name == 'pull_request' }}
+        shell: bash scripts/e2e-stop-on-red.sh {0}
         run: |
           # The PR checkout is ONE commit deep: the merge commit, without its parents.
           # A `--depth=100` fetch of the base is not enough, `git merge-base` still
@@ -1020,6 +1106,7 @@ jobs:
           bun run check:e2e-touched --base="origin/${{ github.base_ref }}"
         env:
           CHROMIUM_PATH: ${{ steps.chromium.outputs.path }}
+          E2E_STOP_TOKEN: ${{ github.token }}
 
       # LA PROVA DELLA BRINA, anche quando e' verde. Le asserzioni di
       # `swap-freeze-ice.spec.ts` sono numeriche (alpha sotto il testo, disegni

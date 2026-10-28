@@ -1291,6 +1291,20 @@ linear in its own size.
 - **GIVEN** a message with every construct and every prefix of it, streaming or settled
 - **THEN** the HTML drawn in blocks SHALL equal the HTML of one markdown component over the whole text, apart from the newline react-markdown writes between top-level blocks
 
+### Requirement: STREAMB-05 — A tail that cannot be cut is parsed at a flat cost per flush
+
+A code fence, a list or a paragraph has no safe cut point, so its block is the whole
+tail and its parse would grow with its length at every flush. While streaming, a tail
+longer than 3000 characters SHALL be parsed once every ceil(length / 3000) flushes
+(at most 24), the flushes in between draw the last parsed text, and a timer catches up
+within 120 ms when the stream pauses. A tail that is not a continuation of the last
+parsed one, and a stream that ended, are parsed at once.
+
+#### Scenario: a 20k-character reply with no cut point
+- **GIVEN** a 20000-character reply that is one fence, one list or one paragraph, streamed 80 characters at a time
+- **WHEN** the late flushes are compared with the flushes at 30% of the reply
+- **THEN** the mean characters parsed per flush SHALL stay under 3600 and within 2x of the early ones
+
 ### Requirement: INTERACTION-01 — The slowest interactions of a session are measured by the browser, kept, and judged against a budget
 
 The page SHALL observe `PerformanceObserver({ type: 'event', durationThreshold: 16 })`

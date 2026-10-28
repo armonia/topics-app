@@ -28,7 +28,9 @@
  */
 import type Anthropic from "@anthropic-ai/sdk";
 
-const EPHEMERAL = { type: "ephemeral" as const };
+// 1h TTL: cache write a 2x but only once per hour; 5m would require a keepalive
+// under every ~4 min to avoid cold writes on tasks with gaps > 5 min between turns.
+const EPHEMERAL = { type: "ephemeral" as const, ttl: "1h" as const };
 
 /** Massimo di breakpoint accettati dall'API. Qui è un'asserzione, non un budget da spendere. */
 export const MAX_CACHE_BREAKPOINTS = 4;

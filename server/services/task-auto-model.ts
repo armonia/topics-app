@@ -9,7 +9,7 @@ import { EFFORT_TIERS } from '../../shared/effort';
 import { PLAN_DISPATCH_HOLD_AT, providerHoldKey } from '../../shared/provider-hold';
 import type { ProvidersSnapshot } from '../../shared/types';
 import { isProviderHeld, planUsage } from '../lib/provider-hold';
-import { familyOf } from '../providers/claude-models';
+import { claudeModelGenerations, familyOf } from '../providers/claude-models';
 import type { AIProvider } from '../providers/types';
 import { readCodexModels } from '../providers/codex/models';
 import { pickCodingTaskPlan, type CodingModel } from './task-auto-plan';
@@ -35,11 +35,15 @@ type HeldCheck = (provider: string) => boolean;
  *  Claude. ACP sessions currently omit the Topics bridge, so they are not
  *  automatic task candidates either. */
 export function automaticTaskModels(snapshot: ProvidersSnapshot | null, codexModels: ReturnType<typeof readCodexModels>, isHeld: HeldCheck = () => false): CodingModel[] {
+  const claudeCatalog = (snapshot?.providers ?? [])
+    .filter(entry => CLAUDE_TASK_RUNTIMES.has(entry.name))
+    .flatMap(entry => entry.models);
+  const generations = claudeModelGenerations(claudeCatalog);
   return (snapshot?.providers ?? []).flatMap((entry): CodingModel[] => {
     if (entry.status !== 'ready' || isHeld(entry.name)) return [];
     if (entry.name === 'codex') return codexModels.filter(model => entry.models.includes(model.slug)).map(model => ({ ...model, provider: entry.name }));
     if (!CLAUDE_TASK_RUNTIMES.has(entry.name)) return [];
-    return entry.models.filter(model => model.startsWith('claude-')).map(slug => ({
+    return entry.models.filter(model => model.startsWith('claude-') && generations[model]?.generation === 'current').map(slug => ({
       slug, provider: entry.name, description: CLAUDE_DESCRIPTIONS[familyOf(slug.replace(DATED_SUFFIX, '')) ?? ''] ?? 'Available Claude coding model.',
       defaultEffort: 'medium', efforts: [...EFFORT_TIERS],
     }));

@@ -22,7 +22,7 @@ let home: string;
 let workspace: string;
 
 const MIN = 60_000;
-const EVERY = 270_000;
+const EVERY = 240_000;
 
 const sse = (events: unknown[]) => events.map((e) => `data: ${JSON.stringify(e)}\n\n`).join("");
 const answer = sse([
@@ -127,7 +127,7 @@ afterAll(() => {
 });
 
 describe("the native prompt-cache keep-alive", () => {
-  test("pings at 4.5, 9 and 13.5 minutes with the turn's own prefix, then stops", async () => {
+  test("pings at 4, 8 and 12 minutes with the turn's own prefix, then stops", async () => {
     const p = provider();
     await p.sendChat("topic:keepalive-pings", "first question", quiet);
     expect(turns.length).toBe(1);
@@ -160,7 +160,7 @@ describe("the native prompt-cache keep-alive", () => {
     await advance(EVERY);
     await advance(EVERY);
     expect(pings.length).toBe(3);
-    // 18 minutes is past the session's 15: the session is about to be evicted
+    // 16 minutes is past the session's 15: the session is about to be evicted
     // and rebuilt, a different prefix.
     await advance(EVERY * 3);
     expect(pings.length).toBe(3);
@@ -185,7 +185,7 @@ describe("the native prompt-cache keep-alive", () => {
     await p.sendChat("topic:keepalive-running", "first", quiet);
     await advance(3 * MIN);
     // The second turn runs from minute 3 to minute 5: the first chain's tick
-    // at 4.5 falls inside it.
+    // at 4 falls inside it.
     turnDelayMs = 2 * MIN;
     await p.sendChat("topic:keepalive-running", "second", quiet);
     turnDelayMs = 0;
@@ -240,9 +240,10 @@ describe("the native prompt-cache keep-alive", () => {
     p.stop();
   });
 
-  test("a last request older than the cache's life starts no pings: they would write, not read", async () => {
+  test("a last request older than the 1h cache's life starts no pings: they would write, not read", async () => {
     const p = provider();
-    turnDelayMs = 6 * MIN;
+    // A turn that takes over 1 hour: the cache is cold by the time it ends.
+    turnDelayMs = 61 * 60 * 1_000;
     await p.sendChat("topic:keepalive-expired", "a long answer", quiet);
     turnDelayMs = 0;
     await advance(EVERY * 3);
@@ -277,12 +278,13 @@ describe("the native prompt-cache keep-alive", () => {
     p.stop();
   });
 
-  test("a timer that fires late (the Mac asleep) does not ping a cache already gone", async () => {
+  test("a timer that fires late (the Mac asleep) does not ping an expired session", async () => {
     const p = provider();
     await p.sendChat("topic:keepalive-asleep", "first", quiet);
-    // Asleep for 10 minutes: the timer due 4.5 minutes in fires at 14.5 by
-    // the wall clock, long past the cache's 5.
-    const restore = wallClockAhead(10 * MIN);
+    // Asleep for 12 min: the timer due 4 min in fires at 16 min by the wall
+    // clock, past the session's 15 min TTL. Cache (1h) is still alive, but
+    // pinging a session about to be evicted is pointless.
+    const restore = wallClockAhead(12 * MIN);
     try {
       await advance(EVERY);
       expect(pings.length).toBe(0);
@@ -293,14 +295,14 @@ describe("the native prompt-cache keep-alive", () => {
   });
 
   test("a timer that fires late past the session's 15 minutes does not ping", async () => {
-    // Request at 0, answer at 3: pings at 4.5, 9, 13.5, and one due at 18,
+    // Request at 0, answer at 1: pings at 4, 8, 12, and one due at 16,
     // 15 minutes after the answer. It fires 24 s late: the cache is still
-    // alive (4.9 minutes) but the session is past its life.
+    // alive (well within 1h) but the session is past its 15 min life.
     const p = provider();
-    turnDelayMs = 3 * MIN;
+    turnDelayMs = 1 * MIN;
     await p.sendChat("topic:keepalive-late-ttl", "first", quiet);
     turnDelayMs = 0;
-    await advance(EVERY - 3 * MIN);
+    await advance(EVERY - 1 * MIN);
     await advance(EVERY);
     await advance(EVERY);
     expect(pings.length).toBe(3);

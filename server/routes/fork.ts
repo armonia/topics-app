@@ -9,6 +9,7 @@ import { isGlobalOrchestratorSession } from "../services/global-orchestrator-ses
 
 export interface ForkDeps {
   resolveProvider: (topic?: Topic | null) => AIProvider;
+  stopTopicProcesses?: (topicId: string) => void;
 }
 
 /**
@@ -46,6 +47,7 @@ export function createForkRouter(ctx: AppContext, deps: ForkDeps): RouteHandler 
     getTopic: (id: string) => getTopicById(id) ?? null,
     isStreaming,
     resolveProvider: deps.resolveProvider,
+    stopProcesses: deps.stopTopicProcesses,
   };
   const bootSweep = cleanupStaleSideQuestions(cleanupDeps).then((removed) => {
     if (removed) console.log(`[fork] removed ${removed} stale side question(s)`);

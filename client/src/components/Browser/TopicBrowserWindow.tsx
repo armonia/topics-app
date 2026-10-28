@@ -19,9 +19,14 @@
  *    sends the native page's bounds once per animation frame. The placeholder
  *    handles that targeted reflow without waiting for its slower safety poll.
  *
- * 3. Resizing an expanded window still freezes native views through the
- *    `topics:pane-resize-*` gate. Moving the minimized window does not: its page
- *    stays visible and follows the frame-coalesced bounds updates.
+ * 3. Resizing is LIVE, like moving: no gesture on this window goes through the
+ *    `topics:pane-resize-*` gate, which parks the native page at zero size for
+ *    the whole drag. The size is committed to the store once per animation
+ *    frame, so the chat beside an expanded window cedes its width in the same
+ *    frame, and the page's bounds follow from a layout effect, before paint.
+ *    The handles sit OUTSIDE the window's box, over the DOM around it: the
+ *    native page composites above the DOM, and a handle drawn over it can
+ *    never be grabbed.
  *
  * Promotion is the layout's own door, not a private one: "open as tab" fires
  * the same `browser:open-tab` event a clicked link fires, with the SAME
@@ -32,7 +37,7 @@
  * because a remount inside the close grace cancels the teardown
  * (`useTauriBrowser`, BROWSER_CLOSE_GRACE_MS).
  */
-import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import { useActiveTabInView } from '../../hooks/useActiveTabInView';
 import { createPortal } from 'react-dom';
 import { POPOVER_SURFACE, Z_CONTEXT_MENU, Z_POPOVER_SCRIM } from '@/lib/popoverStyles';
@@ -42,11 +47,14 @@ import { useT } from '../../hooks/useT';
 import { RemoteBrowserPanel } from './RemoteBrowserPanel';
 import { useSurfaceFocus } from './useSurfaceFocus';
 import { useAreaRect, type AreaRef, type Rect } from './useAreaRect';
+import { FLOATING_HANDLES, handleBox } from './topicBrowserResizeHandles';
+import { useComposerBand } from './useComposerBand';
+import { raiseNativeView, requestReflow } from './topicBrowserNativeView';
 import {
   EMPTY_TOPIC_BROWSER_WINDOW,
-  MIN_WINDOW_SIZE,
-  type ComposerBand,
   EXPANDED_WIDTH_BOUNDS,
+  MIN_WINDOW_SIZE_BOUNDS,
+  floatingSizeOf,
   getTopicWindow,
   resolveMinRect,
   resolveComposerAvoidance,
@@ -70,9 +78,13 @@ import {
 } from '../../state/pane/adapters/paneConfig';
 import { OPEN_TAB_EVENT, type OpenTabDetail } from '../../lib/openLink';
 import { toFixed } from '../../lib/fixedFrame';
-import { tauriInvoke } from '../../lib/shell/tauri';
 import { suppressTextSelection } from '../../lib/dragSelectionGuard';
-import { createAnimationFrameCoalescer, resolveTopicBrowserDragPosition } from '../../lib/topicBrowserDrag';
+import {
+  createAnimationFrameCoalescer,
+  resolveTopicBrowserDragPosition,
+  resolveTopicBrowserResize,
+  type TopicBrowserResizeEdges,
+} from '../../lib/topicBrowserDrag';
 import { DEFAULT_EXPANDED_WIDTH, expandedInsetFor, canExpandInArea } from './topicBrowserWindowLazy';
 import { TabSheet, TAB_SHEET_ANCHOR_ATTR } from '../Shared/TabSheet';
 import { prefetchTabSheet } from '../Shared/tabSheetLazy';
@@ -88,6 +100,10 @@ const PROMOTION_GRACE_MS = 5000;
 const BAR_ONLY_HEIGHT = 36;
 /** A pointer that travelled less than this was a click, not a drag. */
 const DRAG_THRESHOLD_PX = 3;
+const frameScheduler = {
+  request: (callback: () => void) => window.requestAnimationFrame(callback),
+  cancel: (frameId: number) => window.cancelAnimationFrame(frameId),
+};
 
 export interface TopicBrowserWindowProps {
   topicId: string;
@@ -95,71 +111,6 @@ export interface TopicBrowserWindowProps {
   areaRef: AreaRef;
   /** Where a promoted tab belongs, so the right layout claims the open. */
   projectPath?: string;
-}
-
-/** Where the composer lies inside the area, in px from the area's top.
- *
- *  Measured, never assumed: the composer grows with the text, carries the
- *  queue box and the strips above it, slides on a transform when the
- *  transcript pushes it, and sits in the MIDDLE while the topic is empty.
- *  The floating window keeps off that band, so the send button stays
- *  clickable. Null while there is nothing to measure. */
-function useComposerBand(areaRef: AreaRef): ComposerBand | null {
-  const [band, setBand] = useState<ComposerBand | null>(null);
-  useEffect(() => {
-    const root = areaRef.current;
-    if (!root) return;
-    let composer: Element | null = null;
-    const sizes = new ResizeObserver(() => read());
-    // The composer slides with an INLINE transform and changes class when it
-    // docks: neither is a resize, and both move its top edge.
-    const styles = new MutationObserver(() => read());
-    // The composer is a direct child of the pane root: watching the root's own
-    // child list catches it appearing, without walking the transcript.
-    const mounts = new MutationObserver(() => read());
-    const areaSize = new ResizeObserver(() => read());
-
-    function read(): void {
-      // Re-read the ref: an observer can fire in the same frame the pane
-      // unmounts, and then there is no area left to measure against.
-      const host = areaRef.current;
-      if (!host) return;
-      const next = host.querySelector('[data-testid="chat-input-area"]');
-      if (next !== composer) {
-        sizes.disconnect();
-        styles.disconnect();
-        composer = next;
-        if (composer) {
-          sizes.observe(composer);
-          styles.observe(composer, { attributes: true, attributeFilter: ['style', 'class'] });
-        }
-      }
-      const box = (composer?.querySelector('form') ?? composer)?.getBoundingClientRect();
-      const bounds = host.getBoundingClientRect();
-      setBand(
-        box && box.height > 0
-          ? {
-              top: Math.max(0, Math.round(box.top - bounds.top)),
-              bottom: Math.max(0, Math.round(box.bottom - bounds.top)),
-              centered: composer?.getAttribute('data-composer-centered') === 'true',
-            }
-          : null,
-      );
-    }
-
-    read();
-    mounts.observe(root, { childList: true });
-    areaSize.observe(root);
-    window.addEventListener('resize', read);
-    return () => {
-      sizes.disconnect();
-      styles.disconnect();
-      mounts.disconnect();
-      areaSize.disconnect();
-      window.removeEventListener('resize', read);
-    };
-  }, [areaRef]);
-  return band;
 }
 
 /** The window state of ONE topic, re-read on every change of the store. */
@@ -171,42 +122,6 @@ function useTopicWindowState(topicId: string): TopicBrowserWindowState {
     return subscribeTopicWindows(read);
   }, [topicId]);
   return topicId ? state : EMPTY_TOPIC_BROWSER_WINDOW;
-}
-
-/**
- * Put the window's page above the sibling native views.
- *
- * Z order among native views is CREATION order, and nothing but an explicit
- * reorder changes it (`tools/wkzprobe z`): a window opened before a browser
- * pane would float UNDER that pane, which is the one thing a floating window
- * may not do. The raise is a no-op outside the desktop shell, and a declared
- * gap on WebView2 and WebKitGTK (see `browser-platform-parity`).
- */
-function raiseNativeView(contextId: string): void {
-  if (!contextId) return;
-  void tauriInvoke('browser_raise', { id: contextId }).catch(() => {});
-}
-
-/** Tell the native views to re-measure: a window that MOVED without changing
- *  size fires no ResizeObserver, so nothing else would. */
-function requestReflow(contextId?: string, atAnimationFrame = false): void {
-  // Targeted when we know whose page moved: an untargeted request makes every
-  // native view in the app re-send its bounds, and here only one moved.
-  const detail = contextId || atAnimationFrame ? { contextId, atAnimationFrame } : undefined;
-  window.dispatchEvent(new CustomEvent('browser:reflow-request', { detail }));
-}
-
-/** Freeze every native view for the length of a gesture, through the events the
- *  drag gate already listens to. Returns the release. */
-function freezeNativeViews(): () => void {
-  window.dispatchEvent(new CustomEvent('topics:pane-resize-start'));
-  let released = false;
-  return () => {
-    if (released) return;
-    released = true;
-    window.dispatchEvent(new CustomEvent('topics:pane-resize-end'));
-    requestReflow();
-  };
 }
 
 export function TopicBrowserWindow({ topicId, areaRef, projectPath }: TopicBrowserWindowProps): React.ReactElement | null {
@@ -232,8 +147,9 @@ export function TopicBrowserWindow({ topicId, areaRef, projectPath }: TopicBrows
   // The menu closes as before; an inert copy fades out (lib/exitGhost).
   const addMenuRef = useRef<HTMLDivElement | null>(null);
   useExitGhost(addMenuRef, addOpen && menuAnchor !== null);
-  // Expanded resizing keeps its live width; minimized movement stays on the DOM.
-  const [dragWidth, setDragWidth] = useState<number | null>(null);
+  // A resize in progress: the bounds of the native page are sent at once, from
+  // the layout effect below, instead of two frames later.
+  const liveResize = useRef(false);
   const windowElement = useRef<HTMLDivElement | null>(null);
   // The active pointer gesture is fully released if the window unmounts.
   const dragCleanup = useRef<(() => void) | null>(null);
@@ -283,7 +199,8 @@ export function TopicBrowserWindow({ topicId, areaRef, projectPath }: TopicBrows
 
   const active = state.tabs.find((t) => t.contextId === state.activeContextId) ?? state.tabs[0] ?? null;
 
-  const expandedWidth = dragWidth ?? state.expandedWidth ?? DEFAULT_EXPANDED_WIDTH;
+  const expandedWidth = state.expandedWidth ?? DEFAULT_EXPANDED_WIDTH;
+  const floatingSize = floatingSizeOf(state);
 
   // Every page of this topic is a tab of the layout right now: the window keeps
   // the bar, and nothing else. Without it the «+» that takes them back would be
@@ -296,7 +213,7 @@ export function TopicBrowserWindow({ topicId, areaRef, projectPath }: TopicBrows
   const rect = useMemo<Rect | null>(() => {
     if (!area || area.width < 1 || area.height < 1) return null;
     if (barOnly) {
-      const local = resolveMinRect(state, { width: area.width, height: area.height, composer: band ?? undefined }, { width: MIN_WINDOW_SIZE.width, height: BAR_ONLY_HEIGHT });
+      const local = resolveMinRect(state, { width: area.width, height: area.height, composer: band ?? undefined }, { width: floatingSize.width, height: BAR_ONLY_HEIGHT });
       return { left: area.left + local.left, top: area.top + local.top, width: local.width, height: local.height };
     }
     // Docking needs room for BOTH the window and the chat. In a split
@@ -314,22 +231,28 @@ export function TopicBrowserWindow({ topicId, areaRef, projectPath }: TopicBrows
     const local = resolveMinRect(
       state,
       { width: area.width, height: area.height, composer: band ?? undefined },
-      MIN_WINDOW_SIZE,
+      floatingSize,
     );
     return { left: area.left + local.left, top: area.top + local.top, width: local.width, height: local.height };
-  }, [area, state, expandedWidth, barOnly, band]);
+  }, [area, state, expandedWidth, floatingSize, barOnly, band]);
 
   // The last geometry the window really had, so a parked window can come back
   // where it was instead of jumping to a corner for one frame.
-  const lastRect = useRef<Rect | null>(null);
-  if (rect) lastRect.current = rect;
+  // Derived state, not a ref: a ref read during render is invisible to React.
+  const [lastRect, setLastRect] = useState<Rect | null>(null);
+  if (rect && rect !== lastRect) setLastRect(rect);
 
   // Every geometry change is a reflow request: the page inside is composited by
-  // the OS at a rectangle it was told once.
-  useEffect(() => {
+  // the OS at a rectangle it was told once. A layout effect, so that during a
+  // resize the new bounds leave in the same frame the DOM took its new size.
+  useLayoutEffect(() => {
     // Parked: there is no geometry to announce, and raising a view that is off
     // screen would put it over the topic the person is actually looking at.
     if (!rect) return;
+    if (liveResize.current) {
+      requestReflow(state.activeContextId ?? undefined, true);
+      return;
+    }
     requestReflow(state.activeContextId ?? undefined);
     if (state.activeContextId) raiseNativeView(state.activeContextId);
   }, [rect?.left, rect?.top, rect?.width, rect?.height, state.activeContextId, rect]);
@@ -347,8 +270,8 @@ export function TopicBrowserWindow({ topicId, areaRef, projectPath }: TopicBrows
     // across the transcript under the window.
     const unlockSelection = suppressTextSelection();
     const windowSize = barOnly
-      ? { width: MIN_WINDOW_SIZE.width, height: BAR_ONLY_HEIGHT }
-      : MIN_WINDOW_SIZE;
+      ? { width: floatingSize.width, height: BAR_ONLY_HEIGHT }
+      : floatingSize;
     const start = resolveMinRect(state, { width: area.width, height: area.height, composer: band ?? undefined }, windowSize);
     const originX = e.clientX;
     const originY = e.clientY;
@@ -361,10 +284,7 @@ export function TopicBrowserWindow({ topicId, areaRef, projectPath }: TopicBrows
     let latest = { right: area.width - start.left - start.width, bottom: area.height - start.top - start.height };
     let moving = false;
     const frames = createAnimationFrameCoalescer<{ right: number; bottom: number }>(
-      {
-        request: (callback) => window.requestAnimationFrame(callback),
-        cancel: (frameId) => window.cancelAnimationFrame(frameId),
-      },
+      frameScheduler,
       (position) => {
         const node = windowElement.current;
         if (!node) return;
@@ -429,38 +349,95 @@ export function TopicBrowserWindow({ topicId, areaRef, projectPath }: TopicBrows
     window.addEventListener('pointerup', onUp);
     window.addEventListener('pointercancel', onUp);
     dragCleanup.current = finish;
-  }, [state, area, topicId, band, barOnly]);
+  }, [state, area, topicId, band, barOnly, floatingSize]);
 
-  const startResize = useCallback((e: React.PointerEvent) => {
-    if (state.mode !== 'exp' || !area) return;
+  /** Run one resize gesture: `apply` is called at most once per animation
+   *  frame with the pointer's travel, and commits the new geometry to the store,
+   *  so everything that reads it (this window, the chat that cedes its width,
+   *  the native page) follows the pointer live. */
+  const runResize = useCallback((e: React.PointerEvent, apply: (deltaX: number, deltaY: number) => void) => {
+    if (e.button !== 0) return;
+    e.preventDefault();
+    e.stopPropagation();
+    // Captured, so a pointer that runs over the page (an iframe on the web)
+    // keeps reporting to the handle.
+    e.currentTarget.setPointerCapture(e.pointerId);
     const unlockSelection = suppressTextSelection();
-    dragCleanup.current = unlockSelection;
     const originX = e.clientX;
-    const startWidth = expandedWidth;
-    let release: (() => void) | null = null;
-    let latest = startWidth;
-    const onMove = (ev: PointerEvent): void => {
-      if (!release && Math.abs(ev.clientX - originX) < DRAG_THRESHOLD_PX) return;
-      release ??= freezeNativeViews();
-      latest = Math.max(
-        EXPANDED_WIDTH_BOUNDS.min,
-        Math.min(EXPANDED_WIDTH_BOUNDS.max, Math.min(area.width, startWidth - (ev.clientX - originX))),
-      );
-      setDragWidth(latest);
+    const originY = e.clientY;
+    let moving = false;
+    const frames = createAnimationFrameCoalescer<{ x: number; y: number }>(frameScheduler, ({ x, y }) => apply(x, y));
+    const update = (ev: PointerEvent): void => {
+      const deltaX = ev.clientX - originX;
+      const deltaY = ev.clientY - originY;
+      if (!moving && Math.abs(deltaX) + Math.abs(deltaY) < DRAG_THRESHOLD_PX) return;
+      moving = true;
+      liveResize.current = true;
+      frames.schedule({ x: deltaX, y: deltaY });
     };
-    const onUp = (): void => {
+    const finish = (): void => {
       window.removeEventListener('pointermove', onMove);
       window.removeEventListener('pointerup', onUp);
       window.removeEventListener('pointercancel', onUp);
+      frames.cancel();
       unlockSelection();
-      setDragWidth(null);
-      topicBrowserWindow.setWidth(topicId, latest);
-      release?.();
+      liveResize.current = false;
+      dragCleanup.current = null;
+    };
+    const onMove = (ev: PointerEvent): void => {
+      if (ev.pointerId === e.pointerId) update(ev);
+    };
+    const onUp = (ev: PointerEvent): void => {
+      if (ev.pointerId !== e.pointerId) return;
+      update(ev);
+      frames.flush();
+      finish();
+      // One settled measure once the gesture is over, and the raise the live
+      // frames skipped.
+      if (!moving) return;
+      requestReflow(state.activeContextId ?? undefined);
+      if (state.activeContextId) raiseNativeView(state.activeContextId);
     };
     window.addEventListener('pointermove', onMove);
     window.addEventListener('pointerup', onUp);
     window.addEventListener('pointercancel', onUp);
-  }, [state.mode, area, expandedWidth, topicId]);
+    dragCleanup.current = finish;
+  }, [state.activeContextId]);
+
+  /** Drag the left edge of the expanded window. */
+  const startResize = useCallback((e: React.PointerEvent) => {
+    if (state.mode !== 'exp' || !area) return;
+    const startWidth = expandedInsetFor(area.width, expandedWidth) || expandedWidth;
+    runResize(e, (deltaX) => {
+      const width = Math.max(
+        EXPANDED_WIDTH_BOUNDS.min,
+        Math.min(EXPANDED_WIDTH_BOUNDS.max, Math.min(area.width, startWidth - deltaX)),
+      );
+      topicBrowserWindow.setWidth(topicId, width);
+    });
+  }, [state.mode, area, expandedWidth, topicId, runResize]);
+
+  /** Drag an edge or a corner of the floating window. */
+  const startFloatingResize = useCallback((e: React.PointerEvent, edges: TopicBrowserResizeEdges) => {
+    if (state.mode === 'exp' || !area || barOnly) return;
+    const composer = { width: area.width, height: area.height, composer: band ?? undefined };
+    const start = resolveMinRect(state, composer, floatingSize);
+    const guard = resolveComposerAvoidance({ height: area.height, composer: band ?? undefined }, start.height);
+    runResize(e, (deltaX, deltaY) => {
+      const next = resolveTopicBrowserResize({
+        areaWidth: area.width,
+        areaHeight: area.height,
+        start,
+        edges,
+        deltaX,
+        deltaY,
+        minWidth: Math.min(MIN_WINDOW_SIZE_BOUNDS.min.width, start.width),
+        minHeight: Math.min(MIN_WINDOW_SIZE_BOUNDS.min.height, start.height),
+        minimumBottom: guard.floor,
+      });
+      topicBrowserWindow.resizeFloating(topicId, next.size, next.position);
+    });
+  }, [state, area, band, barOnly, floatingSize, topicId, runResize]);
 
   /** Hand the active sheet to the layout, with the same contextId. */
   const openAsTab = useCallback((contextId: string, url: string) => {
@@ -500,6 +477,7 @@ export function TopicBrowserWindow({ topicId, areaRef, projectPath }: TopicBrows
   );
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- the anchor is a DOM measure taken once per open, not derived state; closing clears it and cannot loop
     if (!addOpen) { setMenuAnchor(null); return; }
     const anchor = addButtonRef.current?.getBoundingClientRect();
     if (!anchor) return;
@@ -537,7 +515,7 @@ export function TopicBrowserWindow({ topicId, areaRef, projectPath }: TopicBrows
   if (!barOnly && !state.tabs.length) return null;
 
 
-  const box = rect ?? lastRect.current;
+  const box = rect ?? lastRect;
   // One answer for the whole render: if the area cannot host a docked window,
   // `exp` is not what this window IS, whatever the persisted state says. The
   // rect above already falls back to floating, so the flag must agree or
@@ -545,7 +523,16 @@ export function TopicBrowserWindow({ topicId, areaRef, projectPath }: TopicBrows
   const canExpand = !!area && canExpandInArea(area.width);
   const expanded = state.mode === 'exp' && canExpand && !barOnly;
 
+  // Drawn beside the window, not in it: see point 3 of the header.
+  // From `rect`, not `box`: a parked window has no edges to grab.
+  const handles = rect && !parked && !barOnly
+    ? (expanded
+        ? [{ key: 'left', edges: { left: true }, cursor: 'col-resize', testId: 'topic-browser-resize-handle' }]
+        : FLOATING_HANDLES.map((h) => ({ ...h, testId: `topic-browser-resize-${h.key}` })))
+    : [];
+
   return createPortal(
+    <>
     <div
       ref={windowElement}
       data-testid="topic-browser-window"
@@ -560,19 +547,12 @@ export function TopicBrowserWindow({ topicId, areaRef, projectPath }: TopicBrows
       style={{
         left: box?.left ?? 0,
         top: box?.top ?? 0,
-        width: box?.width ?? MIN_WINDOW_SIZE.width,
-        height: box?.height ?? MIN_WINDOW_SIZE.height,
+        width: box?.width ?? floatingSize.width,
+        height: box?.height ?? floatingSize.height,
         borderRadius: expanded ? 0 : 10,
         display: parked ? 'none' : undefined,
       }}
     >
-      {expanded && (
-        <div
-          data-testid="topic-browser-resize-handle"
-          onPointerDown={startResize}
-          className="absolute left-0 top-0 h-full w-1.5 cursor-col-resize z-10 hover:bg-primary/30"
-        />
-      )}
       <div
         data-testid="topic-browser-bar"
         // A press inside a tab's sheet reaches the bar through the React tree
@@ -766,7 +746,21 @@ export function TopicBrowserWindow({ topicId, areaRef, projectPath }: TopicBrows
           </div>
         ))}
       </div>
-    </div>,
+    </div>
+    {rect && handles.map((h) => {
+      const at = handleBox(rect, h.edges);
+      return (
+        <div
+          key={h.key}
+          data-testid={h.testId}
+          data-edge={h.key}
+          onPointerDown={(e) => (expanded ? startResize(e) : startFloatingResize(e, h.edges))}
+          className="fixed z-30 hover:bg-primary/30 active:bg-primary/30 rounded-sm"
+          style={{ left: at.left, top: at.top, width: at.width, height: at.height, cursor: h.cursor, touchAction: 'none' }}
+        />
+      );
+    })}
+    </>,
     document.body,
   );
 }

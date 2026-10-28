@@ -18,9 +18,32 @@ import { existsSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { createTaskService } from "./tasks";
 import { freshDb, PID } from "./tasks-test-db";
+import { checkReport } from "./deliveryReportChecks";
+import { probeForRoot } from "./deliveryReportProbe";
 
 const [root, mode] = [process.argv[2]!, process.argv[3] ?? "single"];
 const marks = process.env.MARKS!;
+
+if (mode === "sha") {
+  const knownRoots = JSON.parse(process.argv[4]!) as string[];
+  const reports = JSON.parse(process.argv[5]!) as string[];
+  const probe = await probeForRoot(root).prepare!(reports, { knownRoots });
+  const codes = reports.map((report) => checkReport(report, probe)
+    .filter((finding) => finding.code.startsWith("sha-"))
+    .map((finding) => finding.code));
+  const searches = reports.map((report) => {
+    const sha = report.match(/[0-9a-f]{7,40}/i)?.[0];
+    return sha ? {
+      sha,
+      exists: probe.shaExists(sha),
+      locations: probe.shaSearchLocations?.(sha),
+      unverifiable: probe.shaSearchUnverifiableLocations?.(sha),
+    } : null;
+  });
+  console.log(JSON.stringify({ codes, searches }));
+  process.exit(0);
+}
+
 const db = freshDb();
 const s = createTaskService(db, { repoRootFor: () => root });
 const t = s.create({ projectId: PID, text: "Una card", status: "in_progress" });

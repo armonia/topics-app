@@ -23,6 +23,9 @@ async function resetFirstRun(page: Page, ownerName: string) {
 async function clearFirstRun(page: Page) {
   await resetFirstRun(page, 'Proprietario');
   await expect(page.getByTestId('first-run')).toBeVisible();
+  // The welcome plays first; the setup is one press away.
+  await page.getByTestId('first-run-start').click();
+  await expect(page.getByTestId('first-run')).toHaveAttribute('data-step', 'setup');
 }
 
 test.describe('first-run @covers FIRST-RUN-01', () => {

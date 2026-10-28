@@ -210,12 +210,11 @@ describe("a held resume writes its chip when the hold changes, not at every retr
     }
     expect([...sentences].sort()).toEqual(["Memoria in risalita", "Memoria quasi finita"]);
     for (const id of ids) {
-      // Two, not one: the first hold, and the refresh of its numbers a minute later.
-      expect(h.framesOf(id)).toBe(2);
+      expect(h.framesOf(id)).toBe(1);
       expect(updatedAt.get(id)!.size).toBeLessThanOrEqual(2);
       // Quiet, not blind: still queued, and the card still reads the floor.
       expect(h.task(id).dispatchState).toBe("queued");
-      expect(h.task(id).dispatchError).toStartWith("Memoria ");
+      expect(h.task(id).dispatchError).toBe("waiting-memory");
       expect(h.task(id).queueReason).toMatchObject({ kind: "resource_floor" });
     }
     // Nothing started while the floor held.
@@ -235,25 +234,23 @@ describe("a held resume writes its chip when the hold changes, not at every retr
 
     await h.dispatcher.resume("switch", "continua");
     expect(h.framesOf("switch")).toBe(1);
-    expect(h.task("switch").dispatchError).toStartWith("Memoria quasi finita: la lettura più bassa degli ultimi 2 minuti è 5.7 GB");
+    expect(h.task("switch").dispatchError).toBe("waiting-memory");
     h.floor.memGB = 5.9;
     await retry();
     expect(h.framesOf("switch")).toBe(1);
 
-    // Climbing back is another sentence of the SAME episode: no frame now...
     h.floor.memGB = 6.4;
     await retry();
     expect(h.framesOf("switch")).toBe(1);
-    // ...and the minute refresh brings the sentence of now.
     await retry(60_000);
-    expect(h.framesOf("switch")).toBe(2);
-    expect(h.task("switch").dispatchError).toStartWith("Memoria in risalita: la lettura più bassa degli ultimi 2 minuti è 6.4 GB");
+    expect(h.framesOf("switch")).toBe(1);
+    expect(h.task("switch").dispatchError).toBe("waiting-memory");
     expect(h.task("switch").queueReason).toMatchObject({ kind: "resource_floor" });
 
     // Another resource inside the same kind: the disk fills, written at once.
     h.floor.diskGB = 5;
     await retry();
-    expect(h.framesOf("switch")).toBe(3);
+    expect(h.framesOf("switch")).toBe(2);
     expect(h.task("switch").dispatchError).toStartWith("Disco quasi pieno: 5.0 GB");
     expect(h.task("switch").queueReason).toMatchObject({ kind: "resource_floor" });
     h.floor.diskGB = 100;
@@ -264,7 +261,7 @@ describe("a held resume writes its chip when the hold changes, not at every retr
     spend.getSpendCaps = () => ({ perTaskCents: 0, perDayCents: 1_000 });
     spend.agentSpend = () => ({ cents24h: 1_200, centsTotal: 1_200, unpricedCostTokens24h: 0, unpricedCostTokensTotal: 0 });
     await retry();
-    expect(h.framesOf("switch")).toBe(4);
+    expect(h.framesOf("switch")).toBe(3);
     expect(h.task("switch").dispatchError).toStartWith("Tetto di spesa giornaliero raggiunto");
     expect(h.task("switch").queueReason).toMatchObject({ kind: "spend_cap" });
 
@@ -272,8 +269,8 @@ describe("a held resume writes its chip when the hold changes, not at every retr
     spend.getSpendCaps = () => ({ perTaskCents: 0, perDayCents: 0 });
     h.floor.memGB = 5.2;
     await retry();
-    expect(h.framesOf("switch")).toBe(5);
-    expect(h.task("switch").dispatchError).toContain("ultimi 2 minuti è 5.2 GB");
+    expect(h.framesOf("switch")).toBe(4);
+    expect(h.task("switch").dispatchError).toBe("waiting-memory");
     expect(h.task("switch").queueReason).toMatchObject({ kind: "resource_floor" });
   });
 
@@ -283,7 +280,7 @@ describe("a held resume writes its chip when the hold changes, not at every retr
    * pass through the hold, between two retries. Card 0fcb7b87 asked for this
    * count on the case it came from (89919742, a held resume in In progress).
    */
-  it("an hour held with a comment every five minutes: one write on a steady floor, one a minute on a moving one", async () => {
+  it("an hour held with a comment every five minutes: one write, steady or moving, since the row carries the waiting-memory code and no figures (KANBAN-97)", async () => {
     const hour = async (readings: number[]) => {
       const h = harness();
       heldCard(h.db, "talked");
@@ -308,8 +305,7 @@ describe("a held resume writes its chip when the hold changes, not at every retr
     };
     // The first retry writes; after it only the eleven comments move the row.
     expect(await hour([4.8])).toEqual({ writes: 1, frames: 1, stamps: 12 });
-    // Moving figures: the minute refresh (60 writes), plus the same eleven comments.
-    expect(await hour([4.2, 3.9, 3.5])).toEqual({ writes: 60, frames: 60, stamps: 71 });
+    expect(await hour([4.2, 3.9, 3.5])).toEqual({ writes: 1, frames: 1, stamps: 12 });
   });
 
   it("another writer rewrites the chip between two retries: the next retry puts the hold back", async () => {
@@ -328,7 +324,7 @@ describe("a held resume writes its chip when the hold changes, not at every retr
     h.floor.memGB = 5.8;
     await h.dispatcher.resume("rewritten", "");
     expect(h.task("rewritten").dispatchState).toBe("queued");
-    expect(h.task("rewritten").dispatchError).toStartWith("Memoria quasi finita: la lettura più bassa degli ultimi 2 minuti è 5.8 GB");
+    expect(h.task("rewritten").dispatchError).toBe("waiting-memory");
     expect(h.task("rewritten").queueReason).toMatchObject({ kind: "resource_floor" });
   });
 
@@ -343,45 +339,33 @@ describe("a held resume writes its chip when the hold changes, not at every retr
    * while `dispatch_error` beside them was refreshed every 60 s with the right
    * text - chip and conversation saying two different things.
    */
-  it("the warm-up writes no line in the thread, and the floor's reason arrives when the window fills", async () => {
+  it("the warm-up and the memory floor write the waiting-memory code and no line in the thread, and another resource does (KANBAN-97)", async () => {
     const h = harness();
     h.floor.warming = true;
     heldCard(h.db, "boot");
     const t0 = Date.now();
 
     await h.dispatcher.resume("boot", "continua");
-    // The chip says it - that channel is not the one that was broken.
-    expect(h.task("boot").dispatchError).toContain("la sto misurando");
+    expect(h.task("boot").dispatchError).toBe("waiting-memory");
     // The thread does not: it lasts 120 s, the chip already says it, and a
     // permanent line about an empty window is the wrong half of the story.
     expect(h.serviceNotes("boot")).toEqual([]);
 
-    // The window fills and the floor bites: another wait, so the card gets it.
     h.floor.warming = false;
     h.floor.memGB = 4.8;
     setSystemTime(new Date(t0 + 6_000));
     await h.dispatcher.resume("boot", "");
-    const notes = h.serviceNotes("boot");
-    expect(notes.length).toBe(1);
-    expect(notes[0]).toStartWith("Memoria quasi finita: la lettura più bassa degli ultimi 2 minuti è 4.8 GB");
-    // AND THE CHIP MOVES WITH IT, which is the half the dedup key decides and
-    // the only half a mutation can reach: the warm-up writes no thread line at
-    // all, so with the old key - the reason's first word, shared by "Memoria:
-    // la sto misurando" and "Memoria quasi finita" - the note above still got
-    // through and nothing here failed. What stayed wrong was the row: the wait
-    // was believed unchanged, so the chip kept saying "I am measuring it" for up
-    // to HELD_RESUME_REFRESH_MS (60 s) after the floor had already bitten.
-    expect(h.task("boot").dispatchError).toStartWith("Memoria quasi finita");
+    expect(h.serviceNotes("boot")).toEqual([]);
+    expect(h.task("boot").dispatchError).toBe("waiting-memory");
+    expect(h.task("boot").queueReason).toMatchObject({ kind: "resource_floor" });
 
-    // And it stays one: the same wait is not re-said at every retry.
     setSystemTime(new Date(t0 + 12_000));
     h.floor.memGB = 4.9;
     await h.dispatcher.resume("boot", "");
-    expect(h.serviceNotes("boot").length).toBe(1);
+    expect(h.serviceNotes("boot")).toEqual([]);
 
-    // Another resource IS another wait, and the card gets it (KANBAN-91). It
-    // takes the place of the memory line instead of stacking under it: the
-    // note is the card's wait NOW, one slot per card (see RESUME_WAIT_OPENINGS).
+    // Another resource IS another wait, and the card gets it (KANBAN-91): one
+    // slot per card (see RESUME_WAIT_OPENINGS).
     setSystemTime(new Date(t0 + 18_000));
     h.floor.memGB = null;
     h.floor.diskGB = 2;
@@ -424,18 +408,18 @@ describe("a held card across restarts", () => {
     expect(bootNotes(h, "booted")).toHaveLength(1);
   });
 
-  it("the memory floor across boots, with other figures each time: one note, the current one", async () => {
+  it("the disk floor across boots, with other figures each time: one note, the current one (memory writes none, KANBAN-97)", async () => {
     const h = harness();
     heldCard(h.db, "floor");
     const t0 = Date.now();
     let d = h.dispatcher;
     for (const [boot, gb] of [4.8, 5.1, 4.2].entries()) {
       setSystemTime(new Date(t0 + boot * 35 * 60_000));
-      h.floor.memGB = gb;
+      h.floor.diskGB = gb;
       if (boot > 0) d = h.restart();
       await d.resume("floor", "");
     }
-    const floorNotes = h.serviceNotes("floor").filter((c) => c.startsWith("Memoria"));
+    const floorNotes = h.serviceNotes("floor").filter((c) => c.startsWith("Disco"));
     expect(floorNotes).toHaveLength(1);
     expect(floorNotes[0]).toContain("4.2 GB");
   });
@@ -465,11 +449,12 @@ describe("a held card across restarts", () => {
     // allow-italian: a person and an agent writing the same opening in the thread
     h.svc.addComment({ taskId: "pile", author: "user", content: "Memoria quasi finita: lo so, ho chiuso Chrome." });
     h.svc.addComment({ taskId: "pile", author: "agent-1", content: "Memoria quasi finita: aspetto." });
-    h.floor.memGB = 4.8;
+    h.floor.diskGB = 4.8;
     await h.dispatcher.resume("pile", "");
     const all = h.svc.get("pile")!.comments.map((c) => `${c.author}|${c.content}`);
-    expect(all.filter((c) => c.startsWith("system|Memoria"))).toHaveLength(1);
-    expect(all.filter((c) => c.startsWith("system|Memoria"))[0]).toContain("4.8 GB");
+    expect(all.filter((c) => c.startsWith("system|Memoria"))).toHaveLength(0);
+    expect(all.filter((c) => c.startsWith("system|Disco"))).toHaveLength(1);
+    expect(all.filter((c) => c.startsWith("system|Disco"))[0]).toContain("4.8 GB");
     expect(all.some((c) => c.startsWith("user|Memoria quasi finita: lo so"))).toBe(true);
     expect(all.some((c) => c.startsWith("agent-1|Memoria quasi finita: aspetto"))).toBe(true);
   });
@@ -581,7 +566,7 @@ describe("a held card across restarts", () => {
    */
   it("a new episode with the same words after a human comment lands below it, and the slot keeps one row", async () => {
     const h = harness();
-    h.floor.memGB = 4.8;
+    h.floor.diskGB = 4.8;
     heldCard(h.db, "again");
     const t0 = Date.now();
     await h.dispatcher.resume("again", "");
@@ -592,11 +577,11 @@ describe("a held card across restarts", () => {
     h.svc.addComment({ taskId: "again", author: "user", content: "rifai il test" }); // allow-italian: a person's message
     // A new episode, same reading, same words: after a restart, like prod.
     h.db.run("UPDATE tasks SET status = 'in_progress', dispatch_state = NULL, dispatch_error = NULL WHERE id = 'again'");
-    h.floor.memGB = 4.8;
+    h.floor.diskGB = 4.8;
     await h.restart().resume("again", "");
     const thread = h.svc.get("again")!.comments.filter((c) => c.kind !== "status").map((c) => `${c.author}|${c.content.slice(0, 24)}`);
-    expect(thread.filter((c) => c.startsWith("system|Memoria"))).toHaveLength(1);
-    expect(thread[thread.length - 1]).toStartWith("system|Memoria");
+    expect(thread.filter((c) => c.startsWith("system|Disco"))).toHaveLength(1);
+    expect(thread[thread.length - 1]).toStartWith("system|Disco");
   });
 });
 
@@ -614,11 +599,11 @@ describe("the tick's wait note on a todo card", () => {
     let d = h.dispatcher;
     for (const [i, gb] of [4.8, 5.1, 4.2].entries()) {
       setSystemTime(new Date(t0 + i * 35 * 60_000));
-      h.floor.memGB = gb;
+      h.floor.diskGB = gb;
       if (i > 0) d = h.restart();
       await d.tick(PID);
     }
-    const notes = h.serviceNotes("queue1").filter((c) => c.startsWith("Memoria"));
+    const notes = h.serviceNotes("queue1").filter((c) => c.startsWith("Disco"));
     expect(notes).toHaveLength(1);
     expect(notes[0]).toContain("4.2 GB");
   });
@@ -632,17 +617,17 @@ describe("the tick's wait note on a todo card", () => {
    */
   it("a held resume dragged back to Todo keeps one wait note, the tick's, and the late retry leaves it there", async () => {
     const h = harness();
-    h.floor.memGB = 4.8;
+    h.floor.diskGB = 4.8;
     heldCard(h.db, "back");
     const t0 = Date.now();
     await h.dispatcher.resume("back", "");
-    const memory = () => h.serviceNotes("back").filter((c) => c.startsWith("Memoria"));
+    const memory = () => h.serviceNotes("back").filter((c) => c.startsWith("Disco"));
     expect(memory()).toHaveLength(1);
 
     // A person drags it back to Todo, which unbinds its topic.
     h.db.run("UPDATE tasks SET status = 'todo', assigned_topic_id = NULL WHERE id = 'back'");
     setSystemTime(new Date(t0 + 60_000));
-    h.floor.memGB = 5.1;
+    h.floor.diskGB = 5.1;
     await h.dispatcher.tick(PID);
     expect(memory()).toHaveLength(1);
     expect(memory()[0]).toContain("5.1 GB");
@@ -669,7 +654,7 @@ describe("the tick's wait note on a todo card", () => {
  * written in `dispatch-block-signal.ts`.
  */
 describe("a todo card held by the machine for an hour", () => {
-  it("a steady floor and a comment every five minutes: one write, one frame, updated_at moved only by the comments", async () => {
+  it("a steady floor and a comment every five minutes: one write, two frames (the chip, then its memory queue position), updated_at moved only by the comments", async () => {
     const h = harness();
     h.floor.memGB = 4.8;
     todo(h, "hour");
@@ -682,13 +667,13 @@ describe("a todo card held by the machine for an hour", () => {
       stamps.add(h.task("hour").updatedAt);
     }
     expect(h.writesOf("hour")).toBe(1);
-    expect(h.framesOf("hour")).toBe(1);
+    expect(h.framesOf("hour")).toBe(2);
     // The first poll (chip and note in the same instant) and the eleven comments.
     expect(stamps.size).toBe(12);
     expect(h.task("hour").dispatchState).toBe("queued");
     expect(h.task("hour").status).toBe("todo");
     expect(h.task("hour").queueReason).toMatchObject({ kind: "resource_floor" });
-    expect(h.serviceNotes("hour").filter((c) => c.startsWith("Memoria"))).toHaveLength(1);
+    expect(h.serviceNotes("hour").filter((c) => c.startsWith("Memoria"))).toHaveLength(0);
   });
 
   it("a moving reading under the floor re-sends the card at most once a minute, and never writes it again", async () => {
@@ -707,7 +692,7 @@ describe("a todo card held by the machine for an hour", () => {
     expect(h.lastFrame("moving")!.queueReason).toMatchObject({ kind: "resource_floor" });
   });
 
-  it("another block reaches the card at the next poll without a write, and the lift reaches it once, from any board", async () => {
+  it("another block reaches the card at the next poll, and the lift reaches it once, from any board", async () => {
     const OTHER = "beta-def456";
     const h = harness();
     h.svc.updateBoardSettings(OTHER, { autoDispatch: true, dispatchUseWorktree: false });
@@ -722,26 +707,26 @@ describe("a todo card held by the machine for an hour", () => {
 
     await poll();
     await poll();
-    expect(h.framesOf("kinds")).toBe(1);
+    expect(h.framesOf("kinds")).toBe(2);
 
     // The floor clears and the 24h spend holds the queue: another block, sent at once.
     h.floor.memGB = null;
     daySpend(h, true);
     await poll();
-    expect(h.framesOf("kinds")).toBe(2);
+    expect(h.framesOf("kinds")).toBe(4);
     expect(h.lastFrame("kinds")!.queueReason).toMatchObject({ kind: "spend_cap" });
     await poll();
-    expect(h.framesOf("kinds")).toBe(2);
+    expect(h.framesOf("kinds")).toBe(4);
 
     // The spend clears too. The first tick to see it is another board's, whose
     // queue is empty: the held card on this board still learns it, once.
     daySpend(h, false);
     await poll(OTHER);
-    expect(h.framesOf("kinds")).toBe(3);
+    expect(h.framesOf("kinds")).toBe(5);
     expect(h.lastFrame("kinds")!.queueReason).toMatchObject({ kind: "slot" });
     await poll(OTHER);
-    expect(h.framesOf("kinds")).toBe(3);
-    expect(h.writesOf("kinds")).toBe(1);
+    expect(h.framesOf("kinds")).toBe(5);
+    expect(h.writesOf("kinds")).toBe(2);
   });
 
   /**
@@ -751,7 +736,7 @@ describe("a todo card held by the machine for an hour", () => {
    * floor after the spend cap took over, and the figures of the minute it was
    * opened, while the card beside it had moved on. Found by the verifier.
    */
-  it("a drawer opened on the held card re-reads it when the figures change, the block changes and the block lifts", async () => {
+  it("a drawer opened on the held card re-reads it when the block changes and the block lifts, not for memory figures", async () => {
     const OTHER = "beta-def456";
     const h = harness();
     h.svc.updateBoardSettings(OTHER, { autoDispatch: true, dispatchUseWorktree: false });
@@ -769,12 +754,12 @@ describe("a todo card held by the machine for an hour", () => {
     await poll();
     const opened = drawerSignal();
 
-    // Other figures under the same floor, sent with the minute refresh.
+    const framesBefore = h.framesOf("drawer");
     h.floor.memGB = 4.2;
     await poll(60_000);
-    expect(JSON.stringify(h.lastFrame("drawer")!.queueReason)).toContain("4.2");
-    const figures = drawerSignal();
-    expect(figures).not.toBe(opened);
+    expect(h.framesOf("drawer")).toBe(framesBefore);
+    expect(h.lastFrame("drawer")!.queueReason).toMatchObject({ kind: "resource_floor", tone: "waiting" });
+    expect(h.lastFrame("drawer")!.queueReason!.key).toMatch(/^board\.queue\.memory\./);
 
     // The spend cap takes over from the floor.
     h.floor.memGB = null;
@@ -782,14 +767,14 @@ describe("a todo card held by the machine for an hour", () => {
     await poll();
     expect(h.lastFrame("drawer")!.queueReason).toMatchObject({ kind: "spend_cap" });
     const spend = drawerSignal();
-    expect(spend).not.toBe(figures);
+    expect(spend).not.toBe(opened);
 
     // And it lifts, seen by another board's tick.
     daySpend(h, false);
     await poll(10_000, OTHER);
     expect(h.lastFrame("drawer")!.queueReason).toMatchObject({ kind: "slot" });
     expect(drawerSignal()).not.toBe(spend);
-    expect(h.writesOf("drawer")).toBe(1);
+    expect(h.writesOf("drawer")).toBe(2);
   });
 
   it("the ramp does not rewrite a queued chip at every start", async () => {
@@ -837,7 +822,7 @@ describe("a todo card held by the machine for an hour", () => {
     expect(h.task("mid-2").status).toBe("in_progress");
     expect(h.task("mid-3").dispatchState).toBe("queued");
     expect(h.writesOf("mid-3")).toBe(1);
-    expect(h.framesOf("mid-3")).toBe(1);
+    expect(h.framesOf("mid-3")).toBe(2);
   });
 });
 

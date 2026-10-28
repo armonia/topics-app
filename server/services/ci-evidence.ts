@@ -1,5 +1,5 @@
 /**
- * The e2e and unit evidence of a delivery, read from the pull request CI (KANBAN-84).
+ * The e2e, unit and static-check evidence of a delivery, read from pull request CI (KANBAN-84).
  *
  * WHY IT EXISTS. Until 15/09/2026 the board's sixth check was
  * `bun run check:e2e-touched`, which runs Playwright with Chromium inside the
@@ -65,7 +65,7 @@
  * never throws.
  */
 import { spawn } from "node:child_process";
-import { NOT_MEASURED_EXIT, UNIT_CI_CHECK, type CheckRun, type ReviewCheck } from "../../shared/board";
+import { GATES_CI_CHECK, NOT_MEASURED_EXIT, UNIT_CI_CHECK, type CheckRun, type ReviewCheck } from "../../shared/board";
 import { lowPriorityArgv } from "../lib/low-priority";
 import { ChecksInterruptedError } from "./checks-gate";
 import { reviewChecksStopping } from "./review-checks-brakes";
@@ -116,9 +116,18 @@ const NO_OWN_COMMIT =
   `or this branch lost the commits it had, and then ${NEEDS_A_NEW_COMMIT}`;
 const E2E_JOB = /^e2e( \(\d+\))?$/;
 const PREPARE_JOB = "prepare-e2e";
+/** The jobs whose red stops the e2e shards of a pull request (scripts/e2e-stop-on-red.sh). */
+const SHARD_STOPPERS = new Set(["unit", "gates"]);
 /** The job and step of ci.yml whose conclusion is the unit verdict. */
 export const UNIT_JOB = "check";
 export const UNIT_STEP = "Unit + integration tests";
+/** The job and exact steps in ci.yml whose result backs the local static-check rows. */
+export const GATES_JOB = "gates";
+export const GATES_STEPS = {
+  typecheck: "Typecheck (client + server ratchet + e2e)",
+  lint: "Lint client + relay worker + server (eslint)",
+  staticGuardRails: "Static guard rails (any in 6 ratcheted files / NUL / unreferenced code (an import from a test counts as a use) / eslint-disable / test skip / long dash / bloat / UI language / E2E sleeps)",
+} as const;
 
 export type GithubRun = {
   id: number;
@@ -149,7 +158,7 @@ export type GithubJob = {
 export type CiEvidence =
   | { kind: "pending"; run: GithubRun | null }
   | { kind: "pass"; run: GithubRun; jobs: GithubJob[] }
-  | { kind: "fail"; run: GithubRun; jobs: GithubJob[]; failed: GithubJob[] }
+  | { kind: "fail"; run: GithubRun; jobs: GithubJob[]; failed: GithubJob[]; redElsewhere?: string }
   | { kind: "notMeasured"; run: GithubRun | null; reason: string };
 
 /** `git@github.com:owner/name.git` or `https://github.com/owner/name(.git)` to `owner/name`. */
@@ -199,7 +208,21 @@ export function readE2eEvidence(sha: string, runs: GithubRun[], jobs: GithubJob[
   }
   if (!e2e.every((j) => j.status === "completed")) return { kind: "pending", run };
   const failed = e2e.filter((j) => j.conclusion === "failure");
-  if (failed.length) return { kind: "fail", run, jobs: e2e, failed };
+  if (failed.length) {
+    // ON A PULL REQUEST THE SHARDS STOP THEMSELVES WHEN unit OR gates IS RED
+    // (scripts/e2e-stop-on-red.sh) and end `failure` about a minute after that
+    // red. Read as a plain e2e red, this row closed the round first: the card
+    // said "e2e rossi" and never named gates, and the unit row, still waiting
+    // for the `check` job, read NOT MEASURED, "not a red of the code", on a
+    // run whose unit tests were red. So the row waits for `check` (the job the
+    // unit row reads), then points at the job that is red, as KANBAN-86 does.
+    const stoppers = jobs.filter((j) => SHARD_STOPPERS.has(j.name) && j.conclusion === "failure");
+    if (stoppers.length === 0) return { kind: "fail", run, jobs: e2e, failed };
+    const check = jobs.find((j) => j.name === UNIT_JOB);
+    if (run.status !== "completed" && check?.status !== "completed") return { kind: "pending", run };
+    const redElsewhere = runRedElsewhere(run, jobs.filter((j) => !E2E_JOB.test(j.name))) ?? undefined;
+    return { kind: "fail", run, jobs: e2e, failed, redElsewhere };
+  }
   if (e2e.every((j) => j.conclusion === "success")) return { kind: "pass", run, jobs: e2e };
   const odd = e2e.filter((j) => j.conclusion !== "success").map((j) => `${j.name} ${j.conclusion ?? "none"}`);
   return { kind: "notMeasured", run, reason: `e2e jobs without a verdict: ${odd.join(", ")}` };
@@ -236,6 +259,45 @@ export function readUnitEvidence(sha: string, runs: GithubRun[], jobs: GithubJob
       ? `the ${UNIT_JOB} job concluded ${job.conclusion ?? "without a conclusion"} before the step "${UNIT_STEP}" finished`
       : `the ${UNIT_JOB} job concluded ${job.conclusion ?? "without a conclusion"} without running the step "${UNIT_STEP}"`,
   };
+}
+
+/** The selected static-check steps of job `gates`; an active job remains pending. */
+export function readGatesEvidence(sha: string, runs: GithubRun[], jobs: GithubJob[]): CiEvidence {
+  const run = latestCiRun(sha, runs);
+  if (!run) return { kind: "pending", run: null };
+  if (run.status === "completed" && run.conclusion === "cancelled") {
+    return { kind: "notMeasured", run, reason: "the latest CI run for this commit was cancelled or superseded" };
+  }
+  const gate = jobs.find((candidate) => candidate.name === GATES_JOB);
+  if (!gate) {
+    return run.status === "completed"
+      ? { kind: "notMeasured", run, reason: `the CI run finished without the ${GATES_JOB} job` }
+      : { kind: "pending", run };
+  }
+  if (gate.status !== "completed") return { kind: "pending", run };
+
+  const steps = Object.values(GATES_STEPS).map((name) => ({ name, step: gate.steps?.find((candidate) => candidate.name === name) }));
+  const missing = steps.filter(({ step }) => !step).map(({ name }) => name);
+  if (missing.length) {
+    return { kind: "notMeasured", run, reason: `the ${GATES_JOB} job finished without the steps ${missing.join(", ")}` };
+  }
+
+  const failedSteps = steps.filter(({ step }) => step?.conclusion === "failure");
+  if (failedSteps.length || gate.conclusion === "failure") {
+    return { kind: "fail", run, jobs: [gate], failed: [gate] };
+  }
+
+  const unfinished = steps.filter(({ step }) => step?.status !== "completed" || step.conclusion !== "success");
+  if (unfinished.length) {
+    return {
+      kind: "notMeasured", run,
+      reason: `${GATES_JOB} finished without a successful verdict from ${unfinished.map(({ name }) => name).join(", ")}`,
+    };
+  }
+  if (gate.conclusion !== "success") {
+    return { kind: "notMeasured", run, reason: `${GATES_JOB} concluded ${gate.conclusion ?? "without a conclusion"}` };
+  }
+  return { kind: "pass", run, jobs: [gate] };
 }
 
 /**
@@ -296,10 +358,13 @@ function contradictedByItsRun(row: CheckRun, why: string): CheckRun {
 }
 
 const isUnitRow = (check: ReviewCheck): boolean => check.cmd.trim() === UNIT_CI_CHECK.cmd;
+const isGatesRow = (check: ReviewCheck): boolean => check.cmd.trim() === GATES_CI_CHECK.cmd;
 
 /** The outcome a declared CI row reads from the same run. */
 export function readCiEvidence(check: ReviewCheck, sha: string, runs: GithubRun[], jobs: GithubJob[]): CiEvidence {
-  return isUnitRow(check) ? readUnitEvidence(sha, runs, jobs) : readE2eEvidence(sha, runs, jobs);
+  if (isUnitRow(check)) return readUnitEvidence(sha, runs, jobs);
+  if (isGatesRow(check)) return readGatesEvidence(sha, runs, jobs);
+  return readE2eEvidence(sha, runs, jobs);
 }
 
 type RunContext = { repo?: string; prUrl?: string };
@@ -324,9 +389,16 @@ export function ciNotMeasured(check: ReviewCheck, reason: string, extra: RunCont
 export function ciCheckRun(check: ReviewCheck, outcome: Exclude<CiEvidence, { kind: "pending" }>, ms: number, ctx: RunContext = {}): CheckRun {
   if (outcome.kind === "notMeasured") return ciNotMeasured(check, outcome.reason, { ...ctx, ms, run: outcome.run });
   const unit = isUnitRow(check);
-  const label = unit ? "unit tests" : "e2e";
+  const gates = isGatesRow(check);
+  const label = unit ? "unit tests" : gates ? "typecheck, lint and static guard rails" : "e2e";
+  const gateSteps = gates ? Object.values(GATES_STEPS).map((name) => {
+    const step = outcome.jobs.find((job) => job.name === GATES_JOB)?.steps?.find((candidate) => candidate.name === name);
+    return `${name} ${step?.conclusion ?? "without a conclusion"}`;
+  }) : [];
   const jobList = unit
     ? `step "${UNIT_STEP}" of job ${UNIT_JOB}: ${outcome.kind === "pass" ? "success" : "failure"}`
+    : gates
+      ? `job ${GATES_JOB}: ${outcome.jobs[0]?.conclusion ?? outcome.kind}; steps: ${gateSteps.join(", ")}`
     : `jobs: ${outcome.jobs.map((j) => `${j.name} ${j.conclusion}`).join(", ")}`;
   if (outcome.kind === "pass") {
     return {
@@ -335,13 +407,19 @@ export function ciCheckRun(check: ReviewCheck, outcome: Exclude<CiEvidence, { ki
     };
   }
   const repoFlag = ctx.repo ? ` -R ${ctx.repo}` : "";
+  const elsewhere = outcome.redElsewhere;
+  const failureDetails = gates
+    ? ["Log: apri il job gates nei controlli della pull request."]
+    : outcome.failed.map((j) => `log of ${j.name}: gh run view --job ${j.id} --log-failed${repoFlag}`);
   return {
     name: check.name, cmd: check.cmd, ok: false, code: 1, ms, timedOut: false,
+    ...(elsewhere ? { ciRunRed: elsewhere } : {}),
     tail: [
       `${label} red on the pull request CI: ${outcome.failed.map((j) => j.name).join(", ")}`,
+      ...(elsewhere ? [`look there first, the shards stop when unit or gates is red: ${elsewhere}`] : []),
       ...contextLines(outcome.run, ctx),
       jobList,
-      ...outcome.failed.map((j) => `log of ${j.name}: gh run view --job ${j.id} --log-failed${repoFlag}`),
+      ...failureDetails,
     ].join("\n"),
   };
 }
