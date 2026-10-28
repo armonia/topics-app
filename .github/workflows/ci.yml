@@ -216,9 +216,11 @@ jobs:
       # a real Chromium (browser-dom-cobrowse.test.ts and the other ones of
       # test:heavy) are skipped unless TOPICS_HEAVY_TESTS=1, which no workflow
       # sets. `id: setup` also gates every measuring step below.
-      - name: Install Playwright browsers (Chromium)
+      # WebKit too: check:demo boots the landing demo in both engines (the glass
+      # menu was see-through in Safari while the probe only looked at Chromium).
+      - name: Install Playwright browsers (Chromium and WebKit)
         id: setup
-        run: npx playwright install --with-deps chromium
+        run: npx playwright install --with-deps chromium webkit
 
       # All three projects in one step. Each `typecheck:*` script uses the
       # LOCALLY pinned tsc (5.9.3) — `bunx tsc` could fetch a newer major whose
@@ -552,6 +554,9 @@ jobs:
         run: |
           bun run build:landing
           bun run check:demo landing/public
+          # Same boot with an unblurred 72% translucent menu: the glass probe has
+          # to go red, or it cannot see the defect it guards against.
+          bun run check:demo landing/public --mutant
 
       # Le LATENZE delle rotte calde, contro una baseline dichiarata: stesso
       # mestiere di `check:bundle`, altro asse. Gira dopo la suite perche' vuole
