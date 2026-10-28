@@ -25,8 +25,12 @@ import { createServer } from 'node:http';
 import { readFile, stat } from 'node:fs/promises';
 import { join, extname, resolve } from 'node:path';
 import { chromium } from 'playwright-core';
+import { glassProblems } from './demo-glass-probe.mjs';
 
 const root = resolve(process.argv[2] || 'landing/dist');
+/* `--mutant` paints every menu 72% translucent with no blur and expects the
+ * glass probe to go red: proof the probe can see the defect it guards against. */
+const MUTANT = process.argv.includes('--mutant');
 
 const MIME = {
   '.html': 'text/html', '.js': 'text/javascript', '.mjs': 'text/javascript',
@@ -78,10 +82,15 @@ try {
 const page = await browser.newPage({ viewport: { width: 1280, height: 800 } });
 
 const errori = [];
+let probing = false;
 page.on('pageerror', (e) => errori.push(`uncaught: ${e.message}`));
 page.on('console', (m) => {
   if (m.type() !== 'error') return;
   const t = m.text().split('\n')[0];
+  // The glass probe flips the theme in place, which makes the demo terminal
+  // replay its canned frames; xterm warns about the multi-byte glyph it
+  // re-reads mid-sequence. A side effect of the probe, not of the boot.
+  if (probing && /xterm\.js: Parsing error/.test(t)) return;
   if (/Failed to load resource/.test(t)) return;   // covered by the response hook
   errori.push(`console: ${t}`);
 });
@@ -106,8 +115,18 @@ try {
   // stayed clean. "This Mac" is the device name the /api/auth/session mock gives.
   if (testo) {
     const identityRow = page.getByRole('button', { name: 'This Mac' }).first();
+    // The defect itself: a 72% translucent menu whose backdrop is not blurred.
+    if (MUTANT) await page.addStyleTag({ content: '.glass-surface{background-color:rgb(237 239 243 / .72) !important;backdrop-filter:none !important;-webkit-backdrop-filter:none !important}' });
     if (await identityRow.click({ timeout: 10000 }).then(() => true, () => false)) {
       await page.waitForTimeout(2500);
+      probing = true;
+      const glass = await glassProblems(page, browser);
+      await page.waitForTimeout(3000);
+      probing = false;
+      if (MUTANT) {
+        if (!glass.length) problemi.push('mutant survived: with an unblurred translucent menu the glass probe stayed green');
+        else console.log('check:demo --mutant — the glass probe went red as it should');
+      } else problemi.push(...glass);
     } else {
       problemi.push('the identity row («This Mac») is not drawn, so its menu could not be opened');
     }

@@ -552,6 +552,9 @@ jobs:
         run: |
           bun run build:landing
           bun run check:demo landing/public
+          # Same boot with an unblurred 72% translucent menu: the glass probe has
+          # to go red, or it cannot see the defect it guards against.
+          bun run check:demo landing/public --mutant
 
       # Le LATENZE delle rotte calde, contro una baseline dichiarata: stesso
       # mestiere di `check:bundle`, altro asse. Gira dopo la suite perche' vuole
