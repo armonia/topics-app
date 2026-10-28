@@ -27,8 +27,8 @@ import { useGlobalDispatchCap } from '../../state/globalDispatchCap';
 import { chartMax, queuedCards, waitingLabel, type QueuedCard } from './dispatchDashboardModel';
 import { DANGER_TEXT } from '../../lib/popoverStyles';
 
-const LANG = 'it-IT';
-const gb = (n: number) => `${n.toLocaleString(LANG, { maximumFractionDigits: 1 })} GB`;
+const LOCALE = 'it-IT';
+const gb = (n: number) => `${n.toLocaleString(LOCALE, { maximumFractionDigits: 1 })} GB`;
 
 // ── the memory-queue snapshot: ONE read every 15 s for every surface ──
 let snap: DispatchMemoryQueueSnapshot | null = null;
@@ -91,47 +91,47 @@ export function MemoryChart({ history, startGB, now, width: initialWidth = 372, 
     ro.observe(el);
     return () => ro.disconnect();
   }, []);
-  const pts = history
+  const points = history
     .map((p) => ({ t: Date.parse(p.at), v: p.freeGB, r: p.running }))
     .filter((p) => p.t >= now - 3_660_000); // a full hour, plus the edge minute
   // The measured container is ALWAYS this div: if it were the empty-state <p>, when
   // the series arrived the observer would stay attached to a node that is gone.
-  if (pts.length < 2) {
+  if (points.length < 2) {
     return <div ref={wrap}><p className="text-mini text-app-text-secondary" data-testid="dispatch-chart-empty">{tr('board.dash.chartEmpty')}</p></div>;
   }
   // The axis runs to NOW, not to the last sample: if the sampler stops
   // the line ends before "now", instead of passing old data off as current.
-  const t0 = pts[0]!.t, tEnd = Math.max(now, pts[pts.length - 1]!.t), span = Math.max(60_000, tEnd - t0);
-  const YMAX = chartMax(pts.map((p) => p.v), startGB);
-  const ticks = [0, 1, 2, 3].map((k) => (YMAX / 3) * k);
+  const t0 = points[0]!.t, tEnd = Math.max(now, points[points.length - 1]!.t), span = Math.max(60_000, tEnd - t0);
+  const AXIS_TOP = chartMax(points.map((p) => p.v), startGB);
+  const ticks = [0, 1, 2, 3].map((k) => (AXIS_TOP / 3) * k);
   const x = (t: number) => PL + ((t - t0) / span) * (W - PL - PR);
-  const y = (v: number) => PT + CH - (Math.min(v, YMAX) / YMAX) * CH;
-  const line = pts.map((p, i) => `${i ? 'L' : 'M'}${x(p.t).toFixed(1)} ${y(p.v).toFixed(1)}`).join('');
-  const area = `${line}L${x(pts[pts.length - 1]!.t)} ${y(0)}L${x(t0)} ${y(0)}Z`;
-  const last = pts[pts.length - 1]!;
-  const hasRunning = pts.some((p) => p.r !== undefined);
+  const y = (v: number) => PT + CH - (Math.min(v, AXIS_TOP) / AXIS_TOP) * CH;
+  const line = points.map((p, i) => `${i ? 'L' : 'M'}${x(p.t).toFixed(1)} ${y(p.v).toFixed(1)}`).join('');
+  const area = `${line}L${x(points[points.length - 1]!.t)} ${y(0)}L${x(t0)} ${y(0)}Z`;
+  const last = points[points.length - 1]!;
+  const hasRunning = points.some((p) => p.r !== undefined);
   // one rect per run with the same card count: one rect per minute
   // leaves light seams between one minute and the next
   const bars: Array<{ x: number; w: number; c: number }> = [];
   if (hasRunning) {
-    for (let i = 0; i < pts.length - 1;) {
-      const c = pts[i]!.r ?? 0;
+    for (let i = 0; i < points.length - 1;) {
+      const c = points[i]!.r ?? 0;
       let j = i;
-      while (j < pts.length - 1 && (pts[j + 1]!.r ?? 0) === c) j++;
-      const end = Math.min(j + 1, pts.length - 1);
-      if (c) bars.push({ x: x(pts[i]!.t), w: x(pts[end]!.t) - x(pts[i]!.t), c });
+      while (j < points.length - 1 && (points[j + 1]!.r ?? 0) === c) j++;
+      const end = Math.min(j + 1, points.length - 1);
+      if (c) bars.push({ x: x(points[i]!.t), w: x(points[end]!.t) - x(points[i]!.t), c });
       i = j + 1;
     }
   }
   const VH = hasRunning ? VH_CARDS : VH_PLAIN;
   const axisY = VH - 3;
   const mins = Math.round(span / 60_000);
-  const h = hover === null ? null : pts[hover]!;
+  const h = hover === null ? null : points[hover]!;
   // The current value under the point, or above it when it would fall in the card strip.
   const lastLabelY = y(last.v) + 16 > PT + CH - 2 ? y(last.v) - 8 : y(last.v) + 16;
   // An "N cards" label only where there is room, and never over the previous one.
   let labelEnd = -Infinity;
-  const labelled = bars.map((b) => { const ok = b.x >= labelEnd && b.w >= 30; if (ok) labelEnd = b.x + 36; return ok; });
+  const showLabel = bars.map((b) => { const ok = b.x >= labelEnd && b.w >= 30; if (ok) labelEnd = b.x + 36; return ok; });
   return (
     <div ref={wrap} className="relative" data-testid="dispatch-chart">
       <svg viewBox={`0 0 ${W} ${VH}`} width="100%" height={VH} className="block" role="img" aria-label={tr('board.dash.chartTitle')}
@@ -142,7 +142,7 @@ export function MemoryChart({ history, startGB, now, width: initialWidth = 372, 
           // The nearest point in TIME: samples are not evenly spaced.
           const t = t0 + ((px - PL) / (W - PL - PR)) * span;
           let best = 0;
-          for (let i = 1; i < pts.length; i++) if (Math.abs(pts[i]!.t - t) < Math.abs(pts[best]!.t - t)) best = i;
+          for (let i = 1; i < points.length; i++) if (Math.abs(points[i]!.t - t) < Math.abs(points[best]!.t - t)) best = i;
           setHover(best);
         }}>
         <g className="text-app-text-muted" fontSize="10" fill="currentColor">
@@ -170,7 +170,7 @@ export function MemoryChart({ history, startGB, now, width: initialWidth = 372, 
             <line x1={PL} x2={W - PR} y1={SY + SH} y2={SY + SH} stroke="var(--border)" />
             {/* a tick where the number of working cards changes, with the number */}
             {bars.map((b, i) => <line key={`s${i}`} x1={b.x} x2={b.x} y1={SY - 3} y2={SY + SH} stroke="currentColor" />)}
-            {bars.map((b, i) => labelled[i] && <text key={`l${i}`} x={b.x + 3} y={SY + 6 + (b.c > 1 ? 4 : 0)} fontSize="9.5" fill="currentColor" className="text-app-text-body">{tr('board.dash.chartN', { n: b.c })}</text>)}
+            {bars.map((b, i) => showLabel[i] && <text key={`l${i}`} x={b.x + 3} y={SY + 6 + (b.c > 1 ? 4 : 0)} fontSize="9.5" fill="currentColor" className="text-app-text-body">{tr('board.dash.chartN', { n: b.c })}</text>)}
             <text x={PL - 5} y={SY + SH - 2} textAnchor="end">{tr('board.dash.chartCards')}</text>
           </g>
         )}

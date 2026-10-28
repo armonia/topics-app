@@ -3,7 +3,7 @@
  * opens on the consumption dashboard: the first version (summary, memory, who
  * holds it, Auto-dispatch and cap) with the three design improvements on top.
  *
- * DASH-01  the first version stays; memory chart with threshold and card
+ * DISPATCHDASH-01  the first version stays; memory chart with threshold and card
  *          strip, live status row, numbered queue with project, age
  *          and Start anyway on the first card, which calls `start-anyway` for it.
  *
@@ -159,7 +159,7 @@ test.describe("Il pannello auto-dispatch è un cruscotto dei consumi", () => {
     await page.setViewportSize({ width: 1600, height: 1800 });
   });
 
-  test("DASH-01: la prima versione resta, con grafico, riga di stato e coda nuova sopra", async ({ page }) => {
+  test("DISPATCHDASH-01: la prima versione resta, con grafico, riga di stato e coda nuova sopra", async ({ page }) => {
     await stubMachine(page, 2);
     await stubQueue(page);
     // Start anyway goes to the real server (`start-anyway`); here the request is stopped and we check
@@ -214,7 +214,7 @@ test.describe("Il pannello auto-dispatch è un cruscotto dei consumi", () => {
     expect(started).toHaveLength(0);
   });
 
-  test("DASH-02: Mac libero, «Avvia comunque» chiama start-anyway per la prima; un rifiuto si legge in italiano", async ({ page }) => {
+  test("DISPATCHDASH-02: Mac libero, «Avvia comunque» chiama start-anyway per la prima; un rifiuto si legge in italiano", async ({ page }) => {
     await stubMachine(page, 0);
     await stubQueue(page);
     const started: string[] = [];
