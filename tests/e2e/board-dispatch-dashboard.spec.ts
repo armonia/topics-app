@@ -106,7 +106,9 @@ async function stubQueue(page: Page) {
       status: 200, contentType: "application/json",
       body: JSON.stringify({
         reading: { freeGB: 2.8, at: null }, threshold: { startGB: 3.5 },
-        queue: [], running: [],
+        // Il server prezza ogni card in coda (costGB): da lì «3 restano alle tue app».
+        queue: [1, 2, 3].map((i) => ({ taskId: `q${i}`, boardId: "b", reason: "waiting-memory", position: 2 + i, total: 5, costGB: 0.5 })),
+        running: [{ taskId: "r1", title: "a", weightGB: 0.5 }, { taskId: "r2", title: "b", weightGB: 0.4 }],
         consumers: [
           { label: "Card di Topics", gb: 0.9 }, { label: "App aperte", gb: 10.3 },
           { label: "Jarvis e sessioni", gb: 5.6 }, { label: "macOS", gb: 6.6 }, { label: "Strumenti di sviluppo", gb: 5.8 },
@@ -169,30 +171,41 @@ test.describe("Il pannello auto-dispatch è un cruscotto dei consumi", () => {
     await expect(menu.getByTestId("global-cap-running")).toBeVisible();
     // l'interruttore è lo stesso di sempre: label «Auto-dispatch» ancora raggiungibile
     await expect(page.locator("label", { hasText: "Auto-dispatch" }).getByRole("checkbox")).toBeVisible();
-    // Misura sul DOM (non a occhio): posizione, misure e corpo del testo di ogni blocco, relativi al pannello.
+    // Misura sul DOM (non a occhio): posizione, misure, colori, sfondo effettivo, bordi e
+    // corpo del testo di ogni blocco, relativi al pannello. Stessi campi della misura del disegno.
     const geo = await menu.evaluate((root) => {
       const base = (root.querySelector('[data-testid="board-settings-panel"]') ?? root) as HTMLElement;
-      const b = base.getBoundingClientRect();
-      const pick = (name: string, el: Element | null) => {
-        if (!el) return [name, null] as const;
+      const b = root.getBoundingClientRect();
+      const eff = (el: Element) => { for (let e: Element | null = el; e; e = e.parentElement) { const c = getComputedStyle(e).backgroundColor; if (c && c !== "rgba(0, 0, 0, 0)" && c !== "transparent") return c; } return "none"; };
+      const pick = (el: Element | null | undefined) => {
+        if (!el) return null;
         const r = el.getBoundingClientRect(), cs = getComputedStyle(el);
-        return [name, { x: Math.round(r.left - b.left), y: Math.round(r.top - b.top), w: Math.round(r.width), h: Math.round(r.height), fs: cs.fontSize, fw: cs.fontWeight }] as const;
+        return { x: Math.round(r.left - b.left), y: Math.round(r.top - b.top), w: Math.round(r.width), h: Math.round(r.height),
+          bg: cs.backgroundColor, effBg: eff(el), color: cs.color, fs: cs.fontSize, fw: cs.fontWeight, lh: cs.lineHeight, ls: cs.letterSpacing,
+          pad: cs.padding, border: `${cs.borderTopWidth} ${cs.borderTopStyle} ${cs.borderTopColor}`, radius: cs.borderTopLeftRadius, shadow: cs.boxShadow === "none" ? "" : cs.boxShadow.slice(0, 60) };
       };
-      const q = (s: string) => root.querySelector(s);
-      const rows = root.querySelectorAll('[data-testid="dispatch-dashboard-queue-row"]');
-      return Object.fromEntries([
-        ["panel", { x: 0, y: 0, w: Math.round(b.width), h: Math.round(b.height) }] as const,
-        pick("head", base.firstElementChild?.firstElementChild ?? null),
-        pick("hero", q('[data-testid="dispatch-dashboard-hero-card"]')),
-        pick("heroBig", q('[data-testid="dispatch-dashboard-hero"]')),
-        pick("chart", q('[data-testid="dispatch-chart"]')),
-        pick("queueRow1", rows[0] ?? null),
-        pick("queueRow2", rows[1] ?? null),
-        pick("machines", q('[data-testid="dispatch-machines"]')),
-      ]);
+      const t = (id: string) => root.querySelector(`[data-testid="${id}"]`);
+      const all = (id: string) => root.querySelectorAll(`[data-testid="${id}"]`);
+      const rows = all("dispatch-dashboard-queue-row"), heads = all("dispatch-section-head");
+      const row = rows[0];
+      const els: Record<string, Element | null | undefined> = {
+        panel: root, head: base.firstElementChild?.firstElementChild, sub: t("dispatch-dashboard-sub"), subLeft: t("dispatch-dashboard-sub")?.firstElementChild,
+        switchLabel: t("dispatch-dashboard-sub")?.querySelector("label"), hero: t("dispatch-dashboard-hero-card"), heroBig: t("dispatch-dashboard-hero"),
+        heroSep: t("dispatch-dashboard-hero")?.querySelector("[data-sep]"), live: t("dispatch-dashboard-live"), ok: t("dispatch-dashboard-ok"), line: t("dispatch-dashboard-memory"),
+        lineStrong: t("dispatch-dashboard-memory")?.querySelector("strong"), block1: t("dispatch-chart-block"), secHead1: heads[0], secHead2: heads[1],
+        chart: t("dispatch-chart")?.querySelector("svg"), qrow1: row, qrowPos: row?.children[0], qrowT: row?.children[1], qrowTag: row?.querySelector("[data-board-tag]"),
+        qrowSince: row?.lastElementChild, qrow2: rows[1], secHead3: heads[2], choose: t("dispatch-choose"), chooseOn: t("dispatch-choose")?.querySelector('[aria-pressed="true"],[aria-checked="true"]'),
+        chooseOff: t("dispatch-choose")?.querySelector('[aria-pressed="false"],[aria-checked="false"]'), effect: t("dispatch-effect"),
+        mach: t("dispatch-machines")?.querySelector("[data-mach]"), machHead: t("dispatch-mach-head"), machSub: t("dispatch-mach-sub"), stack: t("dispatch-machines-bar"),
+        leg: t("dispatch-dashboard-holders")?.firstElementChild, machFoot: t("dispatch-mach-foot"),
+      };
+      return Object.fromEntries(Object.entries(els).map(([k, el]) => [k, pick(el)]));
     });
     writeFileSync(join(SHOTS, "geo-dopo.json"), JSON.stringify(geo, null, 1));
     await menu.screenshot({ path: join(SHOTS, "pannello.png") });
     await page.screenshot({ path: join(SHOTS, "pagina.png") });
+    // La parte bassa del pannello (il pannello scorre): le macchine.
+    await menu.getByTestId("dispatch-machines").scrollIntoViewIfNeeded();
+    await menu.screenshot({ path: join(SHOTS, "pannello-sotto.png") });
   });
 });

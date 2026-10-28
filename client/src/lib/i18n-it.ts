@@ -1625,8 +1625,8 @@ const IT: Dict = {
   'board.dash.switch': 'Le card partono da sole',
   'board.dash.noBroken': 'Nessuna card è ferma per un guasto: le {queued} in coda partono da sole.',
   'board.dash.broken': '{n} card ferme per un guasto: guarda il motivo sulla card.',
-  'board.dash.memoryWait': 'Ne parte un’altra quando il Mac ha {start} liberi (adesso {free}).',
-  'board.dash.keep': '{keep} GB restano alle tue app.',
+  'board.dash.memoryWait': 'Ne parte un’altra quando il Mac ha {start} (adesso {free})',
+  'board.dash.keep': ': {keep} restano alle tue app',
   'board.dash.memoryFree': 'Memoria libera del Mac: {free} su {total}.',
   'board.dash.cpuWait': 'Le card in coda aspettano che il Mac sia meno occupato.',
   'board.dash.chartTitle': 'Memoria libera del Mac · ultima ora',
@@ -1647,6 +1647,10 @@ const IT: Dict = {
   'board.dash.freeOf': '{free} liberi',
   'board.dash.cpu': 'CPU al {pct}%',
   'board.dash.here': 'Qui: {n} card al lavoro',
+  'board.dash.startFree': '{start} liberi',
+  'board.dash.legFree': 'Libera',
+  'board.dash.machWeight': 'Gli agenti delle card pesano {gb} su {total}.',
+  'board.dash.capMax': 'al massimo {n}',
   'board.settings.title': 'Impostazioni della board',
   // I titoli delle sezioni: dieci righe di seguito erano un elenco senza
   // gerarchia, e la prima (l'interruttore GLOBALE) sembrava di questa board.

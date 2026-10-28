@@ -28,13 +28,24 @@ const queue: QueuedCard[] = [
 describe('cruscotto auto-dispatch', () => {
   test('hero, coda in ordine con testo neutro, memoria e chi la tiene', () => {
     const html = renderToStaticMarkup(<DispatchDashboardView capacity={capacity} snapshot={snapshot} queue={queue} now={NOW} />);
-    expect(html).toContain('2 al lavoro · 2 in coda');
-    expect(html).toContain('3,5 GB liberi');
+    const text = html.replace(/<[^>]+>/g, '');
+    expect(text).toContain('2 al lavoro · 2 in coda');
+    expect(html).toContain('<strong class="font-semibold text-app-text">3,5 GB liberi</strong>');
+    // Il riepilogo è una scheda bianca sul grigio del pannello: `bg-app-surface` non
+    // esiste fra i colori e lasciava lo sfondo trasparente (bocciato a vista il 28/10).
+    expect(html).toMatch(/data-testid="dispatch-dashboard-hero-card"/);
+    expect(html).toMatch(/class="[^"]*\bbg-surface\b[^"]*" data-testid="dispatch-dashboard-hero-card"/);
+    expect(html).not.toContain('bg-app-surface');
     expect(html.indexOf('Comando usage-hub')).toBeLessThan(html.indexOf('Tray del PC'));
     expect(html).toContain('aspetta memoria libera');
     expect(html).toContain('da 19 min');
     expect(html).toContain('title="In coda · aspetta memoria libera"');
     expect(html).not.toMatch(/ferma · la macchina|0x[0-9a-f]+|Sonnet 4/i);
+  });
+  test('il server prezza la card in coda: «3 restano alle tue app»', () => {
+    const priced = { ...snapshot, queue: [{ taskId: 'q', boardId: 'b', reason: 'waiting-memory' as const, position: 3, total: 4, costGB: 0.5 }] };
+    const text = renderToStaticMarkup(<DispatchDashboardView capacity={capacity} snapshot={priced} queue={queue} now={NOW} />).replace(/<[^>]+>/g, '');
+    expect(text).toContain('Ne parte un’altra quando il Mac ha 3,5 GB liberi (adesso 2,8): 3 restano alle tue app.');
   });
   test('se frena la CPU non dice «parte a 3,5 GB»', () => {
     const cpu = { ...capacity, admission: { admit: false, blockedBy: 'cpu' } } as unknown as DispatchCapacity;

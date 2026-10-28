@@ -16,7 +16,7 @@ import { Bot, X } from 'lucide-react';
 import { useT } from '../../hooks/useT';
 import { GlobalCapControl } from './GlobalCapControl';
 import { SpendCapControl } from './SpendCapControl';
-import { DispatchDashboard, DispatchMachinesLive } from './DispatchDashboard';
+import { CapSectionHead, DispatchDashboard, DispatchMachinesLive } from './DispatchDashboard';
 import type { BoardTask } from '../../lib/board';
 
 /** The panel is not "Auto-dispatch": it holds effort, model, language, worktree,
@@ -25,7 +25,7 @@ import type { BoardTask } from '../../lib/board';
 export function SettingsPanelHead({ onClose, dashboard }: { onClose: () => void; dashboard?: boolean }) {
   const tr = useT();
   return (
-    <div className="flex items-center justify-between">
+    <div className={`flex items-center justify-between ${dashboard ? 'mb-[3px]' : ''}`}>
       <span className={`font-semibold text-app-text ${dashboard ? "text-[16px] leading-6" : ""}`}>{tr(dashboard ? 'board.settings.headline' : 'board.settings.title')}</span>
       <button
         aria-label={tr('board.settings.close')}
@@ -75,7 +75,9 @@ export function GlobalSettingsSection({ dispatchOn, onToggleDispatch, tasks }: {
           exist on a phone. Whoever opened the settings saw no limit at all. It
           is the SAME component the menu mounts, on the same store: what you
           change here shows up there without a reload, and the other way round. */}
-      <div className="border-y border-app-border-subtle py-2">
+      {/* Col cruscotto la testa della sezione la dà `CapSectionHead`: il titolo
+          interno del tetto direbbe la stessa cosa una seconda volta. */}
+      <div className={tasks ? 'pb-2 [&_[data-testid=global-cap-control]>p:first-child]:hidden' : 'border-y border-app-border-subtle py-2'}>
         <GlobalCapControl />
       </div>
 
@@ -118,9 +120,10 @@ export function GlobalOnlySettingsPanel({ dispatchOn, onToggleDispatch, onClose,
   tasks?: readonly BoardTask[];
 }) {
   return (
-    <div className={SETTINGS_PANEL_SHELL}>
+    <div className={`${SETTINGS_PANEL_SHELL} ${tasks ? 'pt-2.5' : ''}`}>
       <SettingsPanelHead onClose={onClose} dashboard={!!tasks} />
       {tasks && <DispatchDashboard tasks={tasks} dispatchOn={dispatchOn} onToggleDispatch={onToggleDispatch} />}
+      {tasks && <div className="!mt-3 border-t border-app-border-subtle pt-1"><CapSectionHead /></div>}
       <GlobalSettingsSection dispatchOn={dispatchOn} onToggleDispatch={onToggleDispatch} tasks={tasks} />
     </div>
   );
