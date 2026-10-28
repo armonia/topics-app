@@ -599,6 +599,8 @@ export interface BoardTask {
    * choice is human, there is no `auto` node, and nothing moves a card by load.
    */
   machineId: string | null;
+  /** Who opened the card: `human`, `agent:<name>`, `cron:<name>` (`shared/created-by.ts`); absent/null = born before the field. */
+  createdBy?: string | null;
   /** Lo sforzo con cui il task ha girato davvero (dal topic dell'agente). Con la
    *  board su `auto` lo sceglie il classificatore, e questo è l'unico posto in
    *  cui la scelta si legge: è la leva di costo più pesante che abbiamo. */

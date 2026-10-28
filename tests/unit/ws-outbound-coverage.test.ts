@@ -64,6 +64,13 @@ const UNCONSUMED: Record<string, string> = {
   // `OPEN` per sempre e la board mostrava lo stato di prima del guasto finche'
   // non si ricaricava. Adesso `useWebSocket` lo consuma davvero (il cane da
   // guardia sul `lastPongAt`), e il test qui sotto lo pretende.
+  //
+  // f2289637: the coordinator's event, not the board's. The reader is whoever
+  // coordinates (Jarvis, or a connected coordinator session), and what it needs
+  // is the activity_log row written at the same moment, so a reader that was not
+  // connected loses nothing. Drawing it on the board would put a banner on
+  // cards a person already sees in their column.
+  "task:unowned": "event for the coordinator; durable trace in activity_log (category board)",
 };
 
 /** Sorgenti del CLIENT: quelli che possono ascoltare. Test esclusi. */

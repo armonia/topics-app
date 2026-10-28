@@ -23,6 +23,7 @@ import {
   OLDEST_WORKING_BOARD_SQL,
   PARKED_CHILDREN_CANDIDATES_SQL,
   PARKED_IN_SERIES_SQL,
+  UNOWNED_BACKLOG_SQL,
   QUEUED_ROOT_BOARDS_SQL,
   WORKING_TASKS_COUNT_SQL,
 } from "./lib/task-timer-reads";
@@ -119,6 +120,7 @@ describe("tasks reads on a timer", () => {
     ["working count", WORKING_TASKS_COUNT_SQL, "idx_tasks_working"],
     ["oldest working board", OLDEST_WORKING_BOARD_SQL, "idx_tasks_working"],
     ["wait sweep", PARKED_IN_SERIES_SQL, "idx_tasks_waiting"],
+    ["unowned backlog sweep", UNOWNED_BACKLOG_SQL, "idx_tasks_backlog_unowned"],
   ])("%s reads its partial index, not the table", (_name, sql, index) => {
     const steps = plan(sql);
     expect(steps.join(" / ")).toContain(index);

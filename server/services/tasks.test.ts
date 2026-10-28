@@ -2317,7 +2317,10 @@ describe("la lista e il dettaglio dicono la stessa cosa, campo per campo", () =>
          model_effort = 'low',
          -- 20260922180000: AICTRL-01 routing switch. Same reason as the
          -- columns above: left NULL it would fall outside this comparison.
-         topics_routing = 1
+         topics_routing = 1,
+         -- 20261028163640: who opened the card, and when the coordinator was
+         -- last told it sat unowned. Same reason as the columns above.
+         created_by = 'agent:jarvis', unowned_alerted_at = '2020-01-01T00:00:00.000Z'
        WHERE id = ?`,
       [
         // UNA DESCRIZIONE CON CARATTERI FUORI DAL PIANO BASE. `substr` di SQLite

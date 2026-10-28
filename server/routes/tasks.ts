@@ -3610,6 +3610,7 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
             status: "backlog",
             idempotencyKey: typeof body?.idempotency_key === "string" ? body.idempotency_key : null,
             createdByTopicId: globalSession.topicId,
+            createdBy: "agent:coordinator",
           });
           broadcastToAll({ type: "task:created", projectId, task });
           titoloInSottofondo(task, projectId);
@@ -3776,6 +3777,7 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
             // durevole che uno step è della TUA checklist, e regge il requeue
             // che azzera `assigned_topic_id` mentre il turno gira.
             createdByTopicId: sess.topicId,
+            createdBy: "agent:session",
           });
           broadcastToAll({ type: "task:created", projectId: sess.projectId, task });
           // ANCHE QUI, ed e' la meta' che la prima versione aveva scordato.
