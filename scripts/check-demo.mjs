@@ -100,7 +100,7 @@ async function launchWebkit() {
 const target = `${base}/app/index.html`;
 const problemi = [];
 const errori = [];
-let testo = '';
+let testo = '';   // first engine's text, for the boot summary line only
 
 /** Boots the demo in one engine, opens the identity menu and runs the glass probe. */
 async function runEngine(engine, browser) {
@@ -125,7 +125,17 @@ async function runEngine(engine, browser) {
     if (r.status() >= 400 && !ATTESI_404.test(r.url())) errori.push(tag(`HTTP ${r.status()} ${r.url()}`));
   });
 
-  await page.goto(target, { waitUntil: 'load' });
+  // One retry: on a loaded machine the first navigation can time out before the
+  // bundle is even served. A second failure is reported against its engine
+  // instead of escaping as an anonymous uncaught exception.
+  let reached = false;
+  for (let attempt = 0; attempt < 2 && !reached; attempt++) {
+    reached = await page.goto(target, { waitUntil: 'load', timeout: 45000 }).then(() => true, (e) => {
+      if (attempt === 1) problemi.push(tag(`loading the demo failed twice: ${String(e.message).split('\n')[0]}`));
+      return false;
+    });
+  }
+  if (!reached) return;
   await page.waitForTimeout(8000);
   // An explicit 20 s cap instead of Playwright's default (30 s in 1.59): a page
   // that has not drawn its text by then fails, with the reason on its own line.
@@ -134,10 +144,20 @@ async function runEngine(engine, browser) {
     return '';
   })).replace(/\s+/g, ' ').trim();
   testo = testo || t;
+  // Every engine answers for itself: an empty or gated page in one engine must
+  // not hide behind the text the other engine drew.
+  /* «Authorise this device» is the pairing gate: the demo has no server to pair
+   * with, so reaching it means the identity mock stopped matching the client. */
+  if (/Authorise this device|Autorizza questo dispositivo/.test(t)) {
+    problemi.push(tag('the demo stops at the pairing gate — /api/auth/session mock out of date'));
+  }
+  if (t.length < 200) {
+    problemi.push(tag(`the app rendered almost nothing (${t.length} chars of text)`));
+    return;
+  }
   // The boot alone does not read every mock: the identity band's menu asks for
   // the address book and the friendships, and threw on `[]` while the boot
   // stayed clean. "This Mac" is the device name the /api/auth/session mock gives.
-  if (!t) return;
   const identityRow = page.getByRole('button', { name: 'This Mac' }).first();
   // The defect itself: a 72% translucent menu whose backdrop is not blurred.
   if (MUTANT) await page.addStyleTag({ content: 'html .glass-surface.glass-surface.glass-surface{background-color:rgb(237 239 243 / .72) !important;backdrop-filter:none !important;-webkit-backdrop-filter:none !important}' });
@@ -170,13 +190,6 @@ try {
 }
 
 problemi.unshift(...errori);
-/* «Authorise this device» is the pairing gate: the demo has no server to pair
- * with, so reaching it means the identity mock stopped matching the client. */
-if (/Authorise this device|Autorizza questo dispositivo/.test(testo)) {
-  problemi.push('the demo stops at the pairing gate — /api/auth/session mock out of date');
-}
-if (testo.length < 200) problemi.push(`the app rendered almost nothing (${testo.length} chars of text)`);
-
 if (problemi.length) {
   console.error(`check:demo — the demo in ${root}/app does NOT boot clean:`);
   for (const p of [...new Set(problemi)].slice(0, 15)) console.error('  · ' + p);
