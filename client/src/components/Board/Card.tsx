@@ -1851,7 +1851,9 @@ const CardBody = memo(function CardBody({ task, onOpen, showProject, error, onEr
         {live?.retry && task.dispatchState === 'working' && (
           <RetryWaitChip retry={live.retry} disabled={busy} onRetryNow={() => steer(RETRY_NOW_MESSAGE)} />
         )}
-        {live && !live.retry && task.dispatchState === 'working' ? (
+        {/* Modello e durata NON stanno sulla card in lavorazione: sono nel
+            dettaglio. Qui resta solo lo stato (attesa, triage, sessione). */}
+        {task.status === 'in_progress' ? null : live && !live.retry && task.dispatchState === 'working' ? (
           <LiveEffortChip usage={live} />
         ) : (task.model || task.agentMs > 0 || task.agentTokens > 0) ? (
           // The model always lives here, in the time/effort chip — never as a

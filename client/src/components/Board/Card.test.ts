@@ -214,3 +214,9 @@ describe('the card is the containing block of its frost', () => {
     expect(src).toContain('<SwapIce freeze={swapFreeze} size="card" />');
   });
 });
+
+describe('modello e durata fuori dalla card in lavorazione', () => {
+  test('il piede non disegna il chip di modello e tempo su una card in_progress', () => {
+    expect(src).toContain("task.status === 'in_progress' ? null : live && !live.retry");
+  });
+});
