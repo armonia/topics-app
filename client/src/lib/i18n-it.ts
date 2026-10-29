@@ -1560,6 +1560,7 @@ const IT: Dict = {
   'board.card.systemNote': 'Nota di sistema',
   'board.card.noSummary': 'Nessun riassunto della consegna: sotto c’è solo la cronaca della macchina',
   'board.card.commentMore': 'Mostra tutto',
+  'board.card.noteShow': 'mostra',
   'board.card.commentLess': 'Mostra meno',
   /**
    * NIENTE CONSEGNATO, detto dalla colonna.

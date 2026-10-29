@@ -163,10 +163,18 @@ describe('the parked card', () => {
  * and in progress the card was a stopwatch.
  */
 describe('the progress word', () => {
-  test('draws in in_progress with the same clamp as the review', () => {
-    expect(src).toContain("task.status === 'in_progress' && showsQuestion && lastComment && (");
+  test('in lavorazione mostra una riga sola, mai il testo intero', () => {
+    expect(src).toContain('data-testid="card-progress-line"');
     const block = src.slice(src.indexOf('data-testid="card-progress-word"'));
-    expect(block.slice(0, 600)).toContain("line-clamp-[10]");
+    expect(block.slice(0, 500)).toContain('truncate');
+    expect(block.slice(0, 500)).not.toContain('line-clamp-[10]');
+  });
+
+  test('la nota di sistema e\' ripiegata sotto «mostra», mai sola nel corpo', () => {
+    const block = src.slice(src.indexOf('data-testid="card-progress-word"'));
+    const note = block.slice(block.indexOf('card-system-note-toggle'));
+    expect(note.slice(0, 900)).toContain('notaAperta');
+    expect(src).toContain("tr('board.card.noteShow')");
   });
 });
 

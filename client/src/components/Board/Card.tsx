@@ -660,6 +660,15 @@ const CardBody = memo(function CardBody({ task, onOpen, showProject, error, onEr
   const lastComment = rowThread?.latest ?? thread?.latest ?? null;
   /** Chi parla non e' una persona ne' un agente: vedi `isMachineVoice`. */
   const notesOfMachine = lastComment ? isMachineVoice(lastComment) : false;
+  // Riga di avanzamento per una card in lavorazione: l'ultimo passo del tool,
+  // o la prima riga dell'agente. Una sola riga, mai il testo intero. Una nota
+  // della macchina non diventa mai la riga: va sotto «mostra».
+  const progressLine = live?.lastTool
+    ? `${live.lastTool.name}${live.lastTool.input ? ` · ${live.lastTool.input}` : ''}`
+    : showsQuestion && lastComment && !notesOfMachine
+      ? (stripMarkdown(lastComment.content).split('\n').find((l) => l.trim()) ?? '').trim()
+      : '';
+  const [notaAperta, setNotaAperta] = useState(false);
   const humanContext = rowThread ? rowThread.humanContext : thread?.humanContext ?? null;
   // Plain text: the context row is a single clamped line, so markdown blocks
   // would only leak their syntax into it.
@@ -1758,22 +1767,31 @@ const CardBody = memo(function CardBody({ task, onOpen, showProject, error, onEr
           writes it; the card showed a stopwatch and the words stayed in the
           thread. Same clamp and fold as the review's word, no request pair:
           there is no answer to pair a request with yet. */}
-      {task.status === 'in_progress' && showsQuestion && lastComment && (
-        <div className="mt-2" data-testid="card-progress-word">
-          <div
-            className={`text-compact leading-relaxed text-app-text-heading ${COMPACT_MD_CLS} ${commentoAperto ? '' : 'line-clamp-[10]'}`}
-            title={`${commentAuthorLabel(lastComment.author).label}: ${stripMarkdown(lastComment.content)}`}
-          >
-            <ChatMarkdown components={{}}>{questionToProse(lastComment.content)}</ChatMarkdown>
-          </div>
-          {lastComment.content.length > COMMENTO_PIEGA_CHARS && (
-            <button
-              data-testid="card-comment-toggle"
-              onClick={(e) => { e.stopPropagation(); setCommentoAperto((v) => !v); }}
-              className="text-compact leading-4 md:text-mini text-app-text-muted underline-offset-2 hover:text-app-text hover:underline"
-            >
-              {commentoAperto ? tr('board.card.commentLess') : tr('board.card.commentMore')}
-            </button>
+      {task.status === 'in_progress' && (progressLine || (showsQuestion && notesOfMachine)) && (
+        <div className="mt-2 space-y-1" data-testid="card-progress-word">
+          {progressLine && (
+            <p
+              data-testid="card-progress-line"
+              className="truncate text-compact leading-snug text-app-text-heading"
+              title={progressLine}
+            >{progressLine}</p>
+          )}
+          {/* La nota della macchina non sta mai da sola nel corpo: è ripiegata. */}
+          {showsQuestion && notesOfMachine && lastComment && (
+            <div>
+              <button
+                data-testid="card-system-note-toggle"
+                onClick={(e) => { e.stopPropagation(); setNotaAperta((v) => !v); }}
+                className="text-compact leading-4 md:text-mini text-app-text-muted underline-offset-2 hover:text-app-text hover:underline"
+              >
+                {notaAperta ? tr('board.card.commentLess') : tr('board.card.noteShow')}
+              </button>
+              {notaAperta && (
+                <p data-testid="card-system-note" className="mt-1 break-words text-compact leading-snug text-app-text-muted">
+                  <Cpu className="mr-1 inline h-2.5 w-2.5 align-middle" />{tr('board.card.systemNote')}: {stripMarkdown(lastComment.content)}
+                </p>
+              )}
+            </div>
           )}
         </div>
       )}
