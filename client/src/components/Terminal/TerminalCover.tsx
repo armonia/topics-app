@@ -39,14 +39,17 @@ export function TerminalCover({ copy, ref }: { copy: TerminalScreenCopy | null; 
       ref={ref}
       data-testid="terminal-text"
       aria-hidden="true"
-      className="pointer-events-none absolute inset-x-0 top-0 bottom-0 flex flex-col justify-start overflow-hidden whitespace-pre text-prose text-app-text-muted"
+      className="pointer-events-none absolute flex flex-col justify-start overflow-hidden whitespace-pre text-prose text-app-text-muted"
       style={{
         fontFamily: TERMINAL_FONT_FAMILY,
         lineHeight: TERMINAL_LINE_HEIGHT,
-        // Same gap as the xterm host, on top and sides. xterm draws from the top,
-        // so the cover does too: a bottom-anchored cover lines up only when full.
-        padding: `${TERMINAL_PADDING_PX}px ${TERMINAL_PADDING_PX}px 0`,
-        height: `round(down, 100%, ${rowPx}px)`,
+        // The same inset as the xterm host, as position and not as padding: the
+        // box itself starts at the gap, so its top is xterm's top. xterm draws
+        // from the top, so the cover does too.
+        top: TERMINAL_PADDING_PX,
+        left: TERMINAL_PADDING_PX,
+        right: TERMINAL_PADDING_PX,
+        height: `round(down, calc(100% - ${2 * TERMINAL_PADDING_PX}px), ${rowPx}px)`,
       }}
     >
       {copy.text}
