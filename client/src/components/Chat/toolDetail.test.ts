@@ -380,4 +380,12 @@ describe('toolDetail — browser openings (CHAT-BROWSER-03)', () => {
     expect(buildToolDisplayLabel(d)).toEqual({ name: 'Browser', summary: 'Vite App', tooltip: 'http://localhost:5173/x' });
     expect(buildToolDisplayLabel({ type: 'browser', url: 'http://localhost:5173/x' }).summary).toBe('localhost:5173');
   });
+
+  test('a sub-agent row does not repeat its type when the description is just the type', () => {
+    const repeated = buildToolDisplayLabel({ type: 'sub_agent', via: 'task', subAgentType: 'general-purpose', description: 'general-purpose' } as never);
+    expect(repeated.name).toBe('general-purpose');
+    expect(repeated.summary).toBeUndefined();
+    const described = buildToolDisplayLabel({ type: 'sub_agent', via: 'task', subAgentType: 'Explore', description: 'cerca il bug' } as never);
+    expect(described.summary).toBe('cerca il bug');
+  });
 });
