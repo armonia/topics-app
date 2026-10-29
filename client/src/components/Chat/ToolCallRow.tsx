@@ -429,9 +429,19 @@ export const ToolCallRow = memo(function ToolCallRow({ toolCall, label, sessionK
         <>
         {/* Il posto del chevron c'è sempre — occupato o vuoto — o le righe con
             corpo e quelle senza partirebbero da due colonne diverse. */}
-        {hasBody ? (
-          revealing ? <Loader2 size={12} className="animate-spin text-app-text-muted flex-shrink-0" />
-            : effectiveOpen ? <ChevronDown size={12} className="text-app-text-muted flex-shrink-0" /> : <ChevronRight size={12} className="text-app-text-muted flex-shrink-0" />
+        {/* The chevron is a hover/focus cue: hidden until the row is hovered
+            or focused, but its 12px column is always reserved so nothing
+            shifts when it appears. Touch (`coarse:`) shows it always, since
+            there is no hover to wait for. The `revealing` spinner is a state
+            and always shows. */}
+        {hasBody && revealing ? (
+          <Loader2 size={12} className="animate-spin text-app-text-muted flex-shrink-0" />
+        ) : hasBody ? (
+          <span className="w-3 flex-shrink-0 inline-flex justify-center" aria-hidden="true">
+            {effectiveOpen
+              ? <ChevronDown size={12} className="text-app-text-muted opacity-0 transition-opacity group-hover/tool:opacity-100 group-focus-within/tool:opacity-100 coarse:opacity-100" />
+              : <ChevronRight size={12} className="text-app-text-muted opacity-0 transition-opacity group-hover/tool:opacity-100 group-focus-within/tool:opacity-100 coarse:opacity-100" />}
+          </span>
         ) : (
           <span className="w-3 flex-shrink-0" aria-hidden="true" />
         )}
