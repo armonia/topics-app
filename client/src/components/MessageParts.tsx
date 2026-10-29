@@ -1,4 +1,5 @@
 import { costTokens, partsFromMessage } from '../../../shared/token-cost';
+import { TurnLoader } from './Chat/TurnLoader';
 import { StreamTokenRateIndicator } from './Chat/StreamTokenRateIndicator';
 import { useT } from '../hooks/useT';
 import { useEffect, useState } from 'react';
@@ -68,8 +69,11 @@ export function TurnActivityIndicator({
   cacheCreationTokens,
   cacheCreation1hTokens,
   model,
+  runningTool,
 }: {
   since?: number;
+  /** Short label of the tool running now ("Esegue: ..."); null when none. */
+  runningTool?: string | null;
   /** Serve solo per lo stato "lento": senza, l'indicatore resta quello normale. */
   sessionKey?: string;
   onMessage?: (handler: (msg: WSMessage) => void) => () => void;
@@ -246,25 +250,14 @@ export function TurnActivityIndicator({
         : `${phraseAt(clock.workedMs)}…`;
   return (
     <>
-    <div
-      data-testid="chat-streaming-indicator"
-      data-slow={state === 'slow' ? 'true' : undefined}
-      data-retry={state === 'retry' ? 'true' : undefined}
-      data-waiting={state === 'waiting' ? 'true' : undefined}
-      className="flex items-center gap-2 text-mini leading-none select-none"
-      role="status"
-      aria-live="polite"
-      aria-label={
-        state === 'waiting'
-          ? tr('turn.waitingYou')
-          : state === 'retry'
-            ? retryLabel
-          : state === 'slow'
-            ? tr('turn.slow')
-            : tr('turn.working')
-      }
-    >
-      {/* THE SAME glyph as the sidebar and the tabs: the ring whose sweep
+    <TurnLoader
+      tool={runningTool}
+      runningLabel={tr('turn.running')}
+      phraseClassName={state === 'working' ? 'turn-activity-phrase font-medium' : 'font-medium text-amber-600 dark:text-amber-400'}
+      phrase={label}
+      icon={
+        <>
+{/* THE SAME glyph as the sidebar and the tabs: the ring whose sweep
           travels while it works, and the same ring frozen amber when the ball
           is in the human's court. There used to be a pulsing dot here, a third
           language for what the other two surfaces already said their own way,
@@ -277,21 +270,23 @@ export function TurnActivityIndicator({
       ) : (
         <OrbitLoader className="shrink-0" state={state === 'waiting' ? 'waiting' : 'working'} />
       )}
-      <span
-        // `turn-activity-phrase` è lo shimmer del lavoro in corso: dipinge il
-        // testo con un gradiente in `background-clip` e mette il fill a
-        // trasparente, quindi qualunque colore Tailwind sopra sparirebbe. Negli
-        // stati d'attesa la classe non si mette proprio — così l'ambra si vede
-        // e l'animazione non suggerisce un'attività che non c'è.
-        className={
-          state === 'working'
-            ? 'turn-activity-phrase font-medium'
-            : 'font-medium text-amber-600 dark:text-amber-400'
-        }
-        data-testid="turn-phrase"
-      >
-        {label}
-      </span>
+        </>
+      }
+      data-slow={state === 'slow' ? 'true' : undefined}
+      data-retry={state === 'retry' ? 'true' : undefined}
+      data-waiting={state === 'waiting' ? 'true' : undefined}
+      role="status"
+      aria-live="polite"
+      aria-label={
+        state === 'waiting'
+          ? tr('turn.waitingYou')
+          : state === 'retry'
+            ? retryLabel
+          : state === 'slow'
+            ? tr('turn.slow')
+            : tr('turn.working')
+      }
+    >
       {/* Mentre la domanda aspetta, accanto a «in attesa della tua risposta»
           NON ci va nessun numero. Anche fermo, un cronometro lì è un pezzo di
           cronaca in mezzo a una richiesta: chi legge lo prende per il tempo che
@@ -360,7 +355,7 @@ export function TurnActivityIndicator({
       )}
       {/* The speed of the answer, in line with the other numbers of the turn. */}
       {sessionKey && state !== 'waiting' && <StreamTokenRateIndicator sessionKey={sessionKey} />}
-    </div>
+    </TurnLoader>
     {/* Un turno fermo su una domanda si CHIUDE come un messaggio qualunque.
         Tecnicamente non è finito — la riga resta `partial`, il processo è vivo
         e aspetta — ma a schermo restava a mezz'aria: niente striscia di

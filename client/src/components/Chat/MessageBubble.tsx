@@ -11,6 +11,7 @@ import { MessageMetaFooter } from './MessageMetaFooter';
 import { isWorkOnlyAssistant } from './coalesceToolRun';
 import { MessageContent } from '../MessageContent';
 import { TurnActivityIndicator } from '../MessageParts';
+import { runningToolLabel } from './runningToolLabel';
 import { isAwaitingHuman } from '../../../../shared/types';
 import { turnIsOnlyError } from './turnError';
 import { goalLoopRowOf } from './goalLoopRow';
@@ -652,6 +653,7 @@ export const MessageBubble = memo(function MessageBubble({
                 cacheCreationTokens={msg.cacheCreationTokens}
                 cacheCreation1hTokens={msg.cacheCreation1hTokens}
                 model={msg.model}
+                runningTool={runningToolLabel(msg)}
               />
             </div>
           )}
