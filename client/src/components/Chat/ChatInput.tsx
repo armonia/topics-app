@@ -1448,7 +1448,7 @@ export function ChatInput({
       {othersTyping && (
         <div
           data-testid="others-typing-indicator"
-          className={`${isMobile ? 'mx-2' : 'mx-3'} absolute bottom-0 left-0 right-0 mb-1 px-3 flex items-center gap-2 pointer-events-none`}
+          className={`mx-2 absolute bottom-0 left-0 right-0 mb-1 px-3 flex items-center gap-2 pointer-events-none`}
         >
           <div className="flex gap-1 flex-shrink-0">
             <span className="w-1.5 h-1.5 bg-blue-500 rounded-full animate-bounce" style={{ animationDelay: '0ms' }} />
@@ -1562,7 +1562,7 @@ export function ChatInput({
 
             {/* Row 0a: Editing indicator (inside card) */}
             {editingMessage && (
-              <div className="mx-3 mt-2 flex items-center gap-1.5">
+              <div className="mx-2 mt-2 flex items-center gap-1.5">
                 <div className="w-0.5 h-5 bg-amber-500 rounded-full flex-shrink-0" />
                 <div className="flex-1 min-w-0">
                   <div className="text-mini text-amber-600 dark:text-amber-400 font-medium">
@@ -1577,7 +1577,7 @@ export function ChatInput({
 
             {/* Row 0b: Reply preview (inside card) */}
             {replyingTo && (
-              <div data-testid="chat-reply-preview" className="mx-3 mt-2 flex items-center gap-1.5">
+              <div data-testid="chat-reply-preview" className="mx-2 mt-2 flex items-center gap-1.5">
                 <div className="w-0.5 h-5 bg-primary rounded-full flex-shrink-0" />
                 <div className="flex-1 min-w-0">
                   <div className="text-mini text-app-text-tertiary font-medium">
