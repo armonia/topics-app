@@ -987,3 +987,13 @@ coda è vuota e rifiuta i tasti, quindi la fascia della perdita resta.
 - **WHEN** l'avviso compare
 - **THEN** NON SHALL invitare a riscrivere
 - **AND** SHALL invitare a riscrivere solo dopo che l'aggancio è tornato
+
+### Requirement: TERM-FONT-01 — Il terminale disegna in JetBrains Mono, dal bundle, con 12 px di respiro
+
+The terminal SHALL draw in JetBrains Mono shipped with the client bundle (`font-display: swap`), using the same monospace stack as the chat code, with 12 px of inner padding and a 1.25 line height. The shade blocks (░▒▓) SHALL come from that face, not from a system fallback.
+
+#### Scenario: Il font è caricato e il padding è 12 px
+- **GIVEN** a terminal pane is open
+- **WHEN** the page has loaded
+- **THEN** `document.fonts` reports JetBrains Mono as loaded
+- **AND** the terminal container has `padding-top: 12px`
