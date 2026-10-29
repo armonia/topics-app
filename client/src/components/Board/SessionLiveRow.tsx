@@ -14,7 +14,9 @@
  * and the button that jumped to the other pane has nowhere left to jump.
  */
 import { useEffect, useState } from 'react';
-import { Spinner } from '../Shared/Spinner';
+import { OrbitLoader } from '../Layout/StreamingIndicator';
+import { TurnLoader } from '../Chat/TurnLoader';
+import { useT } from '../../hooks/useT';
 import { fmtLive } from './format';
 import { startVisibleInterval } from '../../state/documentVisibility';
 
@@ -29,19 +31,25 @@ export function Ticker({ since }: { since: string }) {
   return <>{Number.isFinite(ms) && ms > 0 ? fmtLive(ms) : '0s'}</>;
 }
 
-export function SessionLiveRow({ phase, since }: {
+export function SessionLiveRow({ phase, since, tool }: {
   /** Already-translated dispatch phase ("queued...", "starting agent...", ...). */
   phase: string;
   /** Start of the current run, when it is actually running: drives the ticker. */
   since?: string | null;
+  /** Short label of the tool running now, when known. */
+  tool?: string | null;
 }) {
+  const tr = useT();
   return (
-    <div className="flex items-center justify-center gap-1.5 py-1 text-center text-mini text-app-text-secondary" data-testid="task-session-live">
-      <Spinner size="sm" tone="current" className="shrink-0" />
-      <span className="min-w-0">
-        {phase}
-        {since && <span className="whitespace-nowrap"> <Ticker since={since} /></span>}
-      </span>
-    </div>
+    <TurnLoader
+      testId="task-session-live"
+      icon={<OrbitLoader className="shrink-0" state="working" />}
+      phrase={phase}
+      phraseClassName="font-medium text-app-text-secondary"
+      tool={tool}
+      runningLabel={tr('turn.running')}
+    >
+      {since && <span className="tabular-nums text-app-text-muted whitespace-nowrap"><Ticker since={since} /></span>}
+    </TurnLoader>
   );
 }
