@@ -639,7 +639,10 @@ export const MessageBubble = memo(function MessageBubble({
             <div
               data-testid="message-meta-row"
               data-live="true"
-              className="text-mini mt-0.5 min-h-[27px] flex items-center whitespace-nowrap overflow-x-auto scrollbar-none justify-start"
+              // The loader inside has 8px padding above and below (27px tall); this
+              // box keeps the finished row's 14px footprint and lets it overflow,
+              // so the end of the turn moves nothing (chat-scroll-at-rest).
+              className="text-mini mt-0.5 h-[14px] flex items-start whitespace-nowrap justify-start"
             >
               <TurnActivityIndicator
                 since={Date.parse(msg.timestamp)}
@@ -660,12 +663,7 @@ export const MessageBubble = memo(function MessageBubble({
           {!liveTurn && (!isWorkOnlyAssistant(msg) || hasTurnMetrics) && msg.timestamp && !(msg.role === 'user' && (msg.queued || msg.partial)) && (
             <div
               data-testid="message-meta-row"
-              className={`text-mini mt-0.5 ${
-                // Same height as the live loader row it replaces (8px padding
-                // above and below the 11px line), so the end of a turn moves
-                // nothing: chat-scroll-at-rest pins that.
-                msg.role === 'assistant' && isLast !== false ? 'min-h-[27px]' : 'min-h-[14px]'
-              } transition-opacity flex items-center gap-1.5 whitespace-nowrap overflow-x-auto scrollbar-none ${
+              className={`text-mini mt-0.5 min-h-[14px] transition-opacity flex items-center gap-1.5 whitespace-nowrap overflow-x-auto scrollbar-none ${
                 msg.role === 'user' ? 'justify-end' : 'justify-start'
               } ${
                 // La riga di servizio (ora, durata, costo) e' una delle cose che
