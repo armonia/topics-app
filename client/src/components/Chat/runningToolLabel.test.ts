@@ -1,3 +1,6 @@
+/**
+ * @covers USAGE-20
+ */
 import { describe, expect, test } from 'bun:test';
 import { runningToolLabel } from './runningToolLabel';
 
