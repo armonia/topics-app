@@ -39,6 +39,7 @@ import { openTopicInApp } from '../../lib/deepLinkEntry';
 import { TERMINAL_INPUT_DROPPED, TERMINAL_WS_CLOSE_DORMANT } from '../../../../shared/terminal-messages';
 import { useSwapFreeze } from '../../state/swapFreeze';
 import { TerminalCover } from './TerminalCover';
+import { TERMINAL_FONT_FAMILY, TERMINAL_LINE_HEIGHT, TERMINAL_PADDING_PX } from '../../lib/terminalFont';
 
 // The toolbar keys live in ./touchKeys so the set can vary by session type:
 // Ctrl+Z freezes a Claude Code pane, so Claude sessions get Ctrl+_ instead.
@@ -438,7 +439,8 @@ export function SingleTerminalPane({ sessionId, onStale, isActive = true }: Sing
     const term = new Terminal({
       theme: getTerminalTheme(isDarkRef.current),
       fontSize: 13,
-      fontFamily: "'JetBrains Mono', 'Fira Code', 'SF Mono', Menlo, monospace",
+      fontFamily: TERMINAL_FONT_FAMILY,
+      lineHeight: TERMINAL_LINE_HEIGHT,
       cursorBlink: true,
       cursorStyle: 'bar',
       scrollback: 5000,
@@ -1355,6 +1357,7 @@ export function SingleTerminalPane({ sessionId, onStale, isActive = true }: Sing
         <div
           ref={containerRef}
           className="absolute inset-0"
+          style={{ padding: TERMINAL_PADDING_PX }}
           onClick={() => termRef.current?.term.focus()}
         />
         {/* The last screen, or the skeleton, until xterm has drawn the replay. */}
