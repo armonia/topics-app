@@ -6534,3 +6534,17 @@ letti e scritti in cache, in uscita, e se ha compattato.
 - **WHEN** si confrontano le costanti nuove con 0,75 / 0,55
 - **THEN** le compattazioni sono al massimo la metà e i token riscritti in cache
   almeno il 40% in meno
+
+### Requirement: COMPOSER-BAR-01 — The session controls are a bar inside the composer card
+
+The chat composer SHALL carry its session controls (autonomy, speed, context,
+model, effort) as a bar under the text field and INSIDE the same card. The form
+around the card SHALL keep an 8px margin, the same gap the task drawer composer
+uses, so the card ends at most 20px from the bottom of the chat area.
+
+#### Scenario: the card ends close to the bottom
+
+- **GIVEN** an open chat topic
+- **WHEN** the composer is measured
+- **THEN** the controls bar SHALL lie within the card box
+- **AND** the distance from the card bottom to the input area bottom SHALL be at most 20px
