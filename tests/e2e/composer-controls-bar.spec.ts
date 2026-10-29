@@ -1,4 +1,5 @@
 /**
+ * @covers COMPOSER-BAR-01
  * Card 067a1f5b: the session controls sit in a bar INSIDE the composer card,
  * and the form keeps an 8px margin, so the card ends close to the window bottom.
  */
