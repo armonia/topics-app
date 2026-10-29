@@ -1467,20 +1467,16 @@ export function ChatInput({
           invia subito) solo in quella nascosta delle due. Adesso vivono sulla
           bolla che riguardano — vedi `QueuedTurns`. */}
 
-      {/* Il composer: LA CARD è solo il campo di testo, e i controlli stanno
-          FUORI, sotto. La card portava dentro anche loro, e finiva per
-          disegnare un riquadro attorno a due cose diverse — quello che scrivi e
-          gli interruttori della sessione — come se fossero la stessa. Il bordo
-          adesso recinta soltanto ciò in cui si scrive.
-          Il `<form>` resta il contenitore di entrambi (l'invio parte da lui) ma
-          non ha più nessun vestito: niente bordo, niente fondo, niente ombra. */}
+      {/* The composer: ONE card holds the field and, in a bar underneath it,
+          the session controls (card 067a1f5b). The form has no chrome of its
+          own and an 8px margin, the same gap the task drawer composer uses. */}
       <form
         onSubmit={onSubmit}
         // @container: the action-bar row below keys its shrink/scroll
         // behavior off THIS element's width (the pane/tab), not the
         // viewport — panes can be resized far narrower than any viewport
         // breakpoint would ever fire at.
-        className={`relative @container ${isMobile ? 'm-2' : 'm-3'} flex-shrink-0 min-w-0 max-w-full`}
+        className={`relative @container m-2 flex-shrink-0 min-w-0 max-w-full`}
         // L'HOME INDICATOR LO SCAVALCA IL COMPOSER, non la pane.
         //
         // «Il bordo dell'input nelle chat tocca i bordi sull'iPhone»: il suo
@@ -1786,9 +1782,8 @@ export function ChatInput({
                 })()}
               </div>
             </div>
-          </div>
 
-            {/* FUORI DALLA CARD: le condizioni con cui il messaggio parte.
+            {/* DENTRO LA CARD, in barra sotto il campo (card 067a1f5b): le condizioni con cui il messaggio parte.
                 Non sono il messaggio — chi risponde, quanto può fare da sé,
                 quanto ci pensa — quindi non stanno nel recinto di quello che
                 scrivi. Dentro la card restano i tre gesti che agiscono su di
@@ -1802,7 +1797,7 @@ export function ChatInput({
                 (misurato da `chat-layout-audit`, sotto il minimo WCAG 2.2 di
                 24px), con l'icona da 16px in un box storto. */}
             {!isGlobalOrchestrator && (
-              <div className="flex items-center gap-0.5 min-w-0 px-0.5 pt-1.5 overflow-x-auto scrollbar-hide">
+              <div className="flex items-center gap-0.5 min-w-0 px-1.5 pb-1.5 overflow-x-auto scrollbar-hide" data-testid="composer-controls">
               {/* I PERMESSI PER PRIMI: è l'unica leva di questa riga che
                   decide se l'agente può toccare i tuoi file, ed è quindi la
                   cosa da guardare prima di premere invio — non l'ultima
@@ -1945,6 +1940,7 @@ export function ChatInput({
               />
               </div>
             )}
+          </div>
 
             {/* Popover menus (anchored to form) */}
             {/* The «/» menu (CMDUI-01, CMDUI-07): the shell every «type, see,
