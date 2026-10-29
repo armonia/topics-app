@@ -169,6 +169,24 @@ describe("checks under load: the semaphore, the memory floor, the shutdown", () 
     expect(existsSync(marker)).toBe(false);
   }, 150_000);
 
+  test("a run frozen past its cap is not timed out: the deadline stops with the process", async () => {
+    const cap = stretched(800);
+    const round = runReviewChecks(
+      [{ name: "frozen-probe", cmd: `sleep ${(cap + 1500) / 1000}` }],
+      { cwd, taskId: "frozen-cap-probe", timeoutMs: cap },
+    );
+    let run = freezableRuns().find((r) => r.taskId === "frozen-cap-probe");
+    for (let i = 0; !run && i < 200; i++) { await Bun.sleep(10); run = freezableRuns().find((r) => r.taskId === "frozen-cap-probe"); }
+    expect(run).toBeDefined();
+    // Fake freeze: the callbacks only, no signal, as the governor would call them.
+    run!.onFreeze?.();
+    await Bun.sleep(cap + 700);
+    run!.onThaw?.();
+    const [res] = await round;
+    expect(res!.timedOut).toBe(false);
+    expect(res!.ok).toBe(true);
+  }, 30_000);
+
   test("a timed-out command takes the grandchild its shell orphaned with it, and the round returns", async () => {
     const started = join(cwd, "timeout-probe-started");
     const at = Date.now();
