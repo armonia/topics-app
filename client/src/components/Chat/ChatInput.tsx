@@ -1467,9 +1467,9 @@ export function ChatInput({
           invia subito) solo in quella nascosta delle due. Adesso vivono sulla
           bolla che riguardano — vedi `QueuedTurns`. */}
 
-      {/* The composer: ONE card holds the field and, in a bar underneath it,
-          the session controls (card 067a1f5b). The form has no chrome of its
-          own and an 8px margin, the same gap the task drawer composer uses. */}
+      {/* The composer: the card is the text field only, the session controls
+          sit OUTSIDE it in a low bar underneath (card 067a1f5b). The form has
+          no chrome of its own and an 8px margin, like the task drawer. */}
       <form
         onSubmit={onSubmit}
         // @container: the action-bar row below keys its shrink/scroll
@@ -1782,8 +1782,9 @@ export function ChatInput({
                 })()}
               </div>
             </div>
+          </div>
 
-            {/* DENTRO LA CARD, in barra sotto il campo (card 067a1f5b): le condizioni con cui il messaggio parte.
+            {/* FUORI DALLA CARD, in una barra bassa (card 067a1f5b): le condizioni con cui il messaggio parte.
                 Non sono il messaggio — chi risponde, quanto può fare da sé,
                 quanto ci pensa — quindi non stanno nel recinto di quello che
                 scrivi. Dentro la card restano i tre gesti che agiscono su di
@@ -1797,7 +1798,7 @@ export function ChatInput({
                 (misurato da `chat-layout-audit`, sotto il minimo WCAG 2.2 di
                 24px), con l'icona da 16px in un box storto. */}
             {!isGlobalOrchestrator && (
-              <div className="flex items-center gap-0.5 min-w-0 px-1.5 pb-1.5 overflow-x-auto scrollbar-hide" data-testid="composer-controls">
+              <div className="flex items-center gap-0.5 min-w-0 px-0.5 pt-0.5 overflow-x-auto scrollbar-hide" data-testid="composer-controls">
               {/* I PERMESSI PER PRIMI: è l'unica leva di questa riga che
                   decide se l'agente può toccare i tuoi file, ed è quindi la
                   cosa da guardare prima di premere invio — non l'ultima
@@ -1940,7 +1941,6 @@ export function ChatInput({
               />
               </div>
             )}
-          </div>
 
             {/* Popover menus (anchored to form) */}
             {/* The «/» menu (CMDUI-01, CMDUI-07): the shell every «type, see,

@@ -24,12 +24,12 @@ test.describe("composer controls bar", () => {
     await resetPaneStore(request, [topicId]);
   });
 
-  test("controls live inside the card, which ends at most 20px from the bottom", async ({ page }) => {
+  test("controls sit OUTSIDE the card in a low band, effort always visible", async ({ page }) => {
     await goToApp(page);
     await page.keyboard.press("Escape");
     await openTopic(page, new RegExp(topicName));
     const card = page.getByTestId("composer-card");
-    const bar = card.getByTestId("composer-controls");
+    const bar = page.getByTestId("composer-controls");
     await expect(bar).toBeVisible();
     const [cardBox, barBox, area] = [
       await card.boundingBox(),
@@ -37,9 +37,12 @@ test.describe("composer controls bar", () => {
       await page.getByTestId("chat-input-area").boundingBox(),
     ];
     expect(cardBox && barBox && area).toBeTruthy();
-    // The bar is under the field and fully inside the card.
-    expect(barBox!.y + barBox!.height).toBeLessThanOrEqual(cardBox!.y + cardBox!.height + 0.5);
-    const gap = area!.y + area!.height - (cardBox!.y + cardBox!.height);
-    expect(gap).toBeLessThanOrEqual(20);
+    // The bar is below the card's border, not inside it.
+    expect(barBox!.y).toBeGreaterThanOrEqual(cardBox!.y + cardBox!.height - 0.5);
+    // The band under the field was 50px (12 margin + 6 padding + 32 bar); now lower.
+    const band = area!.y + area!.height - (cardBox!.y + cardBox!.height);
+    expect(band).toBeLessThanOrEqual(44);
+    // The current effort shows in the bar without opening any menu.
+    await expect(bar.getByTestId("session-effort-badge")).toBeVisible();
   });
 });

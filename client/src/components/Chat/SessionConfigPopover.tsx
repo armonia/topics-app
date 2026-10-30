@@ -18,7 +18,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useT } from '../../hooks/useT';
 import { createPortal } from 'react-dom';
-import { SlidersHorizontal, RotateCcw } from 'lucide-react';
+import { RotateCcw } from 'lucide-react';
 import { useDismissable } from '@/hooks/useDismissable';
 import { POPOVER_PANEL, POPOVER_MARGIN, Z_POPOVER } from '@/lib/popoverStyles';
 import { useExitGhost } from '@/lib/exitGhost';
@@ -168,22 +168,20 @@ export function SessionConfigPopover({
             fisso e il testo centrato non si muove un pixel, in nessuno dei tre
             stati. */}
         <span className="w-[42px] flex items-center justify-center">
-          {shownTier ? (
-            <span
-              data-testid="session-effort-badge"
-              data-effort-source={effort ? 'override' : 'default'}
-              className={`w-full text-center text-mini uppercase tracking-wide px-1 py-0.5 rounded font-semibold tabular-nums ${
-                // L'override è una scelta TUA e si vede; il default del provider
-                // è un fatto, e sta smorzato. Due pesi diversi per due cose
-                // diverse, senza bisogno di leggere il pannello per distinguerle.
-                effort ? 'bg-primary/30 text-primary' : 'bg-app-hover/60 text-app-text-muted'
-              }`}
-            >
-              {shownTier}
-            </span>
-          ) : (
-            <SlidersHorizontal size={16} />
-          )}
+          {/* Always a badge, never the bare icon: with provider Automatic no
+              tier is known yet, and the bar must still say what governs the
+              effort without opening the menu (card 067a1f5b). */}
+          <span
+            data-testid="session-effort-badge"
+            data-effort-source={effort ? 'override' : 'default'}
+            className={`w-full text-center text-mini uppercase tracking-wide px-1 py-0.5 rounded font-semibold tabular-nums ${
+              // An override is YOUR choice and shows; the provider default is a
+              // fact and stays muted.
+              effort ? 'bg-primary/30 text-primary' : 'bg-app-hover/60 text-app-text-muted'
+            }`}
+          >
+            {shownTier ?? 'auto'}
+          </span>
         </span>
       </button>
 

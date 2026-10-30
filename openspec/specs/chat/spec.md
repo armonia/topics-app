@@ -6535,16 +6535,18 @@ letti e scritti in cache, in uscita, e se ha compattato.
 - **THEN** le compattazioni sono al massimo la metà e i token riscritti in cache
   almeno il 40% in meno
 
-### Requirement: COMPOSER-BAR-01 — The session controls are a bar inside the composer card
+### Requirement: COMPOSER-BAR-01 — The session controls are a low bar under the field
 
 The chat composer SHALL carry its session controls (autonomy, speed, context,
-model, effort) as a bar under the text field and INSIDE the same card. The form
-around the card SHALL keep an 8px margin, the same gap the task drawer composer
-uses, so the card ends at most 20px from the bottom of the chat area.
+model, effort) in a bar OUTSIDE the field's card, directly underneath it. The
+band under the card SHALL be at most 44px high (it was 50px), the form keeping
+an 8px margin like the task drawer composer. The bar SHALL always show the
+current effort next to the model, with provider Automatic too.
 
-#### Scenario: the card ends close to the bottom
+#### Scenario: a low band and a visible effort
 
 - **GIVEN** an open chat topic
 - **WHEN** the composer is measured
-- **THEN** the controls bar SHALL lie within the card box
-- **AND** the distance from the card bottom to the input area bottom SHALL be at most 20px
+- **THEN** the controls bar SHALL start at or below the card's bottom edge
+- **AND** the band from the card bottom to the input area bottom SHALL be at most 44px
+- **AND** the effort badge SHALL be visible in the bar without opening a menu
