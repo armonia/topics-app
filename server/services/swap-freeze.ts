@@ -29,7 +29,8 @@
  * measuring the other's effect.
  *
  * CALM IS NOT A THAW. Calm is what a freeze produces; thawing on it restarts the
- * thrash and refreezes 120 s later. A tree is continued on ROOM, on NO EFFECT
+ * thrash and refreezes 120 s later. A tree is continued on ROOM (memory gained
+ * since its freeze, or a calm that outlasts a whole episode), on NO EFFECT
  * (the thrash was not its), at TEN MINUTES, or when its owner is gone - and at
  * shutdown and at boot, from the ledger.
  */
@@ -38,7 +39,6 @@ import {
   FREEZE_MAX_MS,
   FREEZE_MIN_CORES,
   FREEZE_MIN_GB,
-  FREEZE_ROOM_FLOOR_GB,
   NO_EFFECT_FROM_MS,
   NO_EFFECT_RATIO,
   NO_EFFECT_TO_MS,
@@ -75,7 +75,7 @@ export interface FreezeCandidate {
   frozenCount: number;
 }
 
-export type VictimSkip = "belowFloor" | "exhausted" | null;
+export type VictimSkip = "belowFloor" | "exhausted" | "onlyTurn" | null;
 
 /**
  * THE HEAVIEST, measured on FOOTPRINT and not on resident memory: footprint is
@@ -84,10 +84,19 @@ export type VictimSkip = "belowFloor" | "exhausted" | null;
  * The CPU term names one specific
  * failure: an idle 2 GB background process is the heaviest tree on the machine
  * and freezing it stops no page activity at all.
+ *
+ * `inFlight` is how much work of Topics is running (turns of agents plus check
+ * runs). At one, the tree here is the only thing of ours on the machine:
+ * stopping it lets nothing of ours finish and gives back none of the memory
+ * the other apps hold. It is the same "first card" the dispatcher admits under
+ * its memory floor (`memoryFirstCardExempt`), so one rule holds for both brakes
+ * instead of admitting a card and freezing it a minute later (card cda99908,
+ * finding 26). Unknown = no such limit.
  */
-export function pickVictim(candidates: readonly FreezeCandidate[]): { victim: FreezeCandidate | null; skipped: VictimSkip } {
+export function pickVictim(candidates: readonly FreezeCandidate[], inFlight = Number.POSITIVE_INFINITY): { victim: FreezeCandidate | null; skipped: VictimSkip } {
   const heavy = candidates.filter((c) => c.footprintGB >= FREEZE_MIN_GB && c.cpuCores >= FREEZE_MIN_CORES);
   if (heavy.length === 0) return { victim: null, skipped: "belowFloor" };
+  if (inFlight <= 1) return { victim: null, skipped: "onlyTurn" };
   const open = heavy.filter((c) => c.frozenCount < FREEZES_PER_TREE);
   if (open.length === 0) return { victim: null, skipped: "exhausted" };
   const victim = open.reduce((a, b) => (b.footprintGB > a.footprintGB || (b.footprintGB === a.footprintGB && b.cpuCores > a.cpuCores) ? b : a));
@@ -100,7 +109,11 @@ export function thawReason(i: {
   frozenAt: number;
   ownerGone: boolean;
   sustained: boolean;
+  /** How long the swap has been calm without a break, 0 while sustained. */
+  calmForMs: number;
   heldGB: number | null;
+  /** The two-minute held reading on the beat of the freeze. */
+  heldGBAtFreeze: number | null;
   residentGBAtFreeze: number;
   pagesReadBackPerS: number | null;
   pagesReadBackAtFreeze: number | null;
@@ -109,7 +122,16 @@ export function thawReason(i: {
 }): ThawReason | null {
   if (i.ownerGone) return "owner gone";
   const age = i.now - i.frozenAt;
-  if (!i.sustained && i.heldGB != null && i.heldGB >= FREEZE_ROOM_FLOOR_GB + i.residentGBAtFreeze) return "room";
+  // ROOM IS RELATIVE TO THE FREEZE. A stop gives no memory back, so an
+  // absolute floor (6 GB plus the tree) was only ever reached when the OTHER
+  // apps let go: 13 thaws measured, none of them for room (card cda99908,
+  // finding 27). Room is now the machine having gained what the tree will
+  // take back since it was stopped, or a calm that outlasted a whole episode.
+  if (!i.sustained) {
+    if (i.calmForMs >= SWAP_EPISODE_CALM_MS) return "room";
+    const backGB = Math.max(i.residentGBAtFreeze, FREEZE_MIN_GB);
+    if (i.heldGB != null && i.heldGBAtFreeze != null && i.heldGB - i.heldGBAtFreeze >= backGB) return "room";
+  }
   if (
     !i.effectAlreadyRead && age >= NO_EFFECT_FROM_MS && age < NO_EFFECT_TO_MS &&
     i.pagesReadBackPerS != null && i.pagesReadBackAtFreeze != null && i.pagesReadBackAtFreeze > 0 &&
@@ -130,6 +152,7 @@ interface FrozenTree {
   n: number;
   footprintGB: number;
   residentGBAtFreeze: number;
+  heldGBAtFreeze: number | null;
   pagesReadBackAtFreeze: number | null;
   debtAtFreeze: number | null;
   effectAlreadyRead: boolean;
@@ -165,6 +188,8 @@ export interface SwapFreezerDeps {
   outsidePeers: (pids: readonly number[]) => Promise<number[] | null>;
   ledger: SwapFreezeLedger;
   log: (line: string) => void;
+  /** Turns of agents plus check runs of Topics in flight (see `pickVictim`). */
+  ourWorkInFlight?: () => number;
   /** The card's thread, when the session works on one. */
   note?: (taskId: string, text: string) => void;
   /** Notifications and the WS frame. */
@@ -235,6 +260,7 @@ export function createSwapFreezer(deps: SwapFreezerDeps): SwapFreezer {
   let disabled = false;
   let saidExhausted = false;
   let saidNothing = false;
+  let saidOnlyTurn = false;
   /**
    * Pids whose "skipped" or "unrecognised" line has already been written. The
    * beat runs every 10 s for the whole swap episode and those facts do not
@@ -338,7 +364,10 @@ export function createSwapFreezer(deps: SwapFreezerDeps): SwapFreezer {
         frozenAt: tree.frozenAt,
         ownerGone,
         sustained: i.swap.sustained,
+        // `calmSince` is from the previous beats: this beat's tick sets it after the pass.
+        calmForMs: i.swap.sustained || calmSince == null ? 0 : t - calmSince,
         heldGB: i.held.heldGB,
+        heldGBAtFreeze: tree.heldGBAtFreeze,
         residentGBAtFreeze: tree.residentGBAtFreeze,
         pagesReadBackPerS: i.swap.pagesReadBackPerS,
         pagesReadBackAtFreeze: tree.pagesReadBackAtFreeze,
@@ -353,7 +382,10 @@ export function createSwapFreezer(deps: SwapFreezerDeps): SwapFreezer {
         );
       }
       if (reason) {
-        if (reason === "no effect") noEffectThisEpisode.add(tree.root.pid);
+        // A tree that reached the ten minutes bought nothing more than one that
+        // had no effect: frozen again at once, its second turn ended at the
+        // wall too in every case measured (card cda99908, finding 27).
+        if (reason === "no effect" || reason === "max") noEffectThisEpisode.add(tree.root.pid);
         thawedThisBeat = true;
         await thaw(tree, reason);
       }
@@ -436,7 +468,7 @@ export function createSwapFreezer(deps: SwapFreezerDeps): SwapFreezer {
     return { candidates, foreground: foreground.map((f) => ({ pid: f.pid, command: f.command })) };
   }
 
-  async function freeze(candidate: FreezeCandidate, swap: SwapVerdict): Promise<boolean> {
+  async function freeze(candidate: FreezeCandidate, swap: SwapVerdict, held: HeldMemory): Promise<boolean> {
     // A FRESH table for the signal itself: a child forked between the walk and
     // the signal is exactly the child that keeps working while its parent is
     // stopped (the shape `killProcessTree` already pays a `ps` for).
@@ -566,6 +598,7 @@ export function createSwapFreezer(deps: SwapFreezerDeps): SwapFreezer {
       n,
       footprintGB: candidate.footprintGB,
       residentGBAtFreeze: candidate.residentGB,
+      heldGBAtFreeze: held.heldGB,
       pagesReadBackAtFreeze: swap.pagesReadBackPerS,
       debtAtFreeze: swap.debtGBPerMin,
       effectAlreadyRead: false,
@@ -605,7 +638,7 @@ export function createSwapFreezer(deps: SwapFreezerDeps): SwapFreezer {
             // The "already said" lines are forgotten only after a real calm:
             // swap flickers, and every calm beat used to say everything again.
             calmSince ??= now();
-            if (now() - calmSince >= SWAP_EPISODE_CALM_MS) { episodeSince = null; saidNothing = false; saidExhausted = false; namedPids.clear(); }
+            if (now() - calmSince >= SWAP_EPISODE_CALM_MS) { episodeSince = null; saidNothing = false; saidOnlyTurn = false; saidExhausted = false; namedPids.clear(); }
           }
           return;
         }
@@ -635,7 +668,14 @@ export function createSwapFreezer(deps: SwapFreezerDeps): SwapFreezer {
         for (const pid of namedPids.keys()) if (!livePids.has(pid)) namedPids.delete(pid);
         const { candidates, foreground } = await measure(table, guard);
         for (const f of foreground) logOncePerPid(f.pid, "foreground", `[freeze] skipped "${oneLine(f.command)}" (pid ${f.pid}): foreground Bash, never frozen`);
-        let { victim, skipped } = pickVictim(candidates);
+        const inFlight = (() => {
+          if (!deps.ourWorkInFlight) return Number.POSITIVE_INFINITY;
+          // A chat's background command counts as work even when the census
+          // only knows the board: every session with a tree here is one.
+          const sessionsHere = new Set(candidates.map((c) => c.root.sessionKey)).size;
+          try { return Math.max(deps.ourWorkInFlight(), sessionsHere); } catch { return Number.POSITIVE_INFINITY; }
+        })();
+        let { victim, skipped } = pickVictim(candidates, inFlight);
         // A tree serving somebody outside itself is skipped for the next heaviest.
         const tried = new Set<ToolRoot>();
         while (victim) {
@@ -646,12 +686,16 @@ export function createSwapFreezer(deps: SwapFreezerDeps): SwapFreezer {
             ? `[freeze] skipped "${oneLine(victim.root.command)}": lsof did not answer, so who is connected to it was never measured`
             : `[freeze] skipped "${oneLine(victim.root.command)}": ${peers.length} established peer(s) outside its tree`,
           peers === null ? "mute" : String(peers.length));
-          ({ victim, skipped } = pickVictim(candidates.filter((c) => !tried.has(c.root))));
+          ({ victim, skipped } = pickVictim(candidates.filter((c) => !tried.has(c.root)), inFlight));
         }
         if (!victim) {
           if (skipped === "exhausted" && !saidExhausted) {
             saidExhausted = true;
             deps.log(`[freeze] every candidate has been frozen ${FREEZES_PER_TREE} times on this incarnation: it runs to the end`);
+          }
+          if (skipped === "onlyTurn" && !saidOnlyTurn) {
+            saidOnlyTurn = true;
+            deps.log("[freeze] swap sustained, but the only work of Topics in flight is this tree: stopping it frees nothing of the others, not frozen");
           }
           if (skipped === "belowFloor" && !saidNothing) {
             saidNothing = true;
@@ -659,7 +703,7 @@ export function createSwapFreezer(deps: SwapFreezerDeps): SwapFreezer {
           }
           return;
         }
-        await freeze(victim, swap);
+        await freeze(victim, swap, held);
       } catch (err) {
         deps.log(`[freeze] beat failed: ${String(err)}`);
       } finally {

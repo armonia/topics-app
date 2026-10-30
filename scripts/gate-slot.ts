@@ -116,15 +116,59 @@ function alive(pid: number): boolean {
   try { process.kill(pid, 0); return true; } catch { return false; }
 }
 
-/** A slot whose holder is gone is free: a killed run must not park a slot forever. */
-function reapStale(dir: string): void {
+/**
+ * WHICH OF THESE PIDS ARE STOPPED (`ps` state `T`), so a frozen holder stops
+ * holding.
+ *
+ * `kill(pid, 0)` answers "alive" for a process under SIGSTOP, and both freezers
+ * of the server stop whole trees: the load governor a check round (`slot.ts`
+ * included), the swap freezer an agent's background command. A holder frozen
+ * that way kept its name file and its numbered slot, so every other run of the
+ * same gate waited the full name deadline and then started "alongside", all at
+ * once, on a machine that was frozen precisely because it was loaded (card
+ * cda99908, findings 2 and 15). A stopped holder is doing no work: its place
+ * goes to the next run, and when it is continued it finishes without a file,
+ * one overlap instead of a stampede.
+ *
+ * Fails toward the old reading: if `ps` does not answer, nobody is stopped.
+ */
+function stoppedByPs(pids: readonly number[]): Set<number> {
+  const out = new Set<number>();
+  if (pids.length === 0) return out;
+  try {
+    const r = Bun.spawnSync(["ps", "-o", "pid=,stat=", "-p", pids.join(",")], { stdout: "pipe", stderr: "ignore" });
+    for (const line of r.stdout.toString().split("\n")) {
+      const m = line.trim().match(/^(\d+)\s+(\S+)/);
+      if (m && m[2]!.startsWith("T")) out.add(Number(m[1]));
+    }
+  } catch { /* no answer: nobody is stopped */ }
+  return out;
+}
+
+type StoppedProbe = (pids: readonly number[]) => ReadonlySet<number>;
+
+/**
+ * A slot whose holder is gone is free: a killed run must not park a slot
+ * forever. Nor must a STOPPED one (see `stoppedByPs`): one `ps` per pass, for
+ * the live holders only.
+ */
+function reapStale(dir: string, stopped: StoppedProbe = stoppedByPs): void {
+  const live: { path: string; pid: number }[] = [];
   for (const name of readdirSync(dir)) {
     if (!name.endsWith(".pid")) continue;
     const p = join(dir, name);
     try {
       const pid = Number(readFileSync(p, "utf8").trim());
       if (!Number.isFinite(pid) || !alive(pid)) unlinkSync(p);
+      // An output claim stays with a stopped writer: it will write again.
+      else if (pid !== process.pid && !name.startsWith("out-")) live.push({ path: p, pid });
     } catch { /* someone else reaped it first */ }
+  }
+  if (live.length === 0) return;
+  const frozen = stopped(live.map((l) => l.pid));
+  for (const l of live) {
+    if (!frozen.has(l.pid)) continue;
+    try { unlinkSync(l.path); } catch { /* someone else reaped it first */ }
   }
 }
 
@@ -142,7 +186,9 @@ function takeFile(path: string): (() => void) | null {
     return () => {
       if (released) return;
       released = true;
-      try { unlinkSync(path); } catch { /* already reaped */ }
+      // Only OUR file: a holder that was stopped had its file reaped and taken
+      // by the next run, and unlinking that one would let a third run in.
+      try { if (readFileSync(path, "utf8").trim() === String(process.pid)) unlinkSync(path); } catch { /* already reaped */ }
     };
   } catch { return null; }
 }
@@ -179,6 +225,8 @@ interface AcquireOptions {
   nameMaxWaitMs?: number;
   /** Where the wait notices go. Silent by default in a test process. */
   onWait?: (message: string) => void;
+  /** Which holders are stopped. `ps` by default; a test passes its own. */
+  stopped?: StoppedProbe;
 }
 
 /**
@@ -200,7 +248,7 @@ export function acquireSlot(slots: number, label: string, opts: AcquireOptions =
     let releaseName: (() => void) | null = null;
     let announcedName = false;
     for (;;) {
-      reapStale(dir);
+      reapStale(dir, opts.stopped);
       releaseName = takeFile(nameLockPath(dir, label));
       if (releaseName) break;
       if (Date.now() >= nameDeadline) {
@@ -220,7 +268,7 @@ export function acquireSlot(slots: number, label: string, opts: AcquireOptions =
     // two, as before: those callers must not start waiting twice as long.
     const deadline = opts.nameMaxWaitMs == null ? startedAt + maxWaitMs : Date.now() + maxWaitMs;
     for (;;) {
-      reapStale(dir);
+      reapStale(dir, opts.stopped);
       for (let i = 0; i < slots; i++) {
         const release = takeFile(join(dir, `${i}.pid`));
         if (release) return withName(release);
