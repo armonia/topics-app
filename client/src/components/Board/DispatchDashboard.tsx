@@ -263,7 +263,7 @@ export function DispatchDashboardView({ capacity, snapshot, queue, broken = 0, n
         <span className="min-w-0 flex-1 basis-40">{status.text}</span>
         {dispatchOn === false && onTurnOn && (
           <button type="button" data-testid="dispatch-dashboard-turn-on" onClick={onTurnOn}
-            className="inline-flex shrink-0 items-center rounded-md border border-amber-500/50 bg-surface px-2 py-0.5 text-mini font-medium text-app-text enabled:hover:bg-app-hover coarse:min-h-11">
+            className="inline-flex min-h-6 shrink-0 items-center rounded-md border border-amber-500/50 bg-surface px-2 py-1 text-mini font-medium text-app-text enabled:hover:bg-app-hover coarse:min-h-11">
             {tr('board.dash.turnOn')}
           </button>
         )}
