@@ -10,7 +10,7 @@
 import { describe, test, expect } from 'bun:test';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { DispatchDashboardView, MemoryChart } from './DispatchDashboard';
-import { chartMax, queuedCards, waitingLabel, type QueuedCard } from './dispatchDashboardModel';
+import { chartMax, overflowedCards, queuedCards, waitingLabel, type QueuedCard } from './dispatchDashboardModel';
 import type { BoardTask, DispatchCapacity } from '../../lib/board';
 import type { DispatchMemoryQueueSnapshot } from '../../../../shared/board';
 
@@ -154,5 +154,20 @@ describe('cruscotto auto-dispatch', () => {
   test('quanto aspetta', () => {
     expect(waitingLabel(10_000)).toBe('1 min');
     expect(waitingLabel(125 * 60_000)).toBe('2 h 5 min');
+  });
+});
+
+describe('cruscotto auto-dispatch: le card spostate perché il Mac era pieno', () => {
+  test('una riga sola per card: dove è andata e perché', () => {
+    const tasks = [
+      { id: 'm', text: 'Sistema il login', status: 'in_progress', machineId: 'cloud', runComputerName: 'Cloud Claude', overflowedAt: '2026-10-30T10:02:00Z' },
+      { id: 'n', text: 'Scelta a mano', status: 'todo', machineId: 'pc', runComputerName: 'PC Windows' },
+      { id: 'd', text: 'Già chiusa', status: 'done', machineId: 'cloud', runComputerName: 'Cloud Claude', overflowedAt: '2026-10-30T09:00:00Z' },
+    ] as unknown as BoardTask[];
+    const moved = overflowedCards(tasks);
+    expect(moved).toEqual([{ id: 'm', title: 'Sistema il login', node: 'Cloud Claude' }]);
+    const html = renderToStaticMarkup(<DispatchDashboardView capacity={capacity} snapshot={snapshot} queue={[]} moved={moved} now={NOW} />);
+    expect(text(html)).toContain('Sistema il login· spostata su Cloud Claude: Mac pieno');
+    expect(html.match(/data-testid="dispatch-dashboard-moved-row"/g)).toHaveLength(1);
   });
 });

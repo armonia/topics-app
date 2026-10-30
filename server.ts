@@ -2277,6 +2277,14 @@ const taskDispatcher = createTaskDispatcher({
     // the same path the planter reads the origin from and plants into.
     projectPathOf: projectPathForNode,
   },
+  // THE OVERFLOW (`dispatch-overflow.ts`): where a card held by this Mac's
+  // memory floor can go. The cloud has no heartbeat: it is there while its
+  // login is; a paired node only while its heartbeat says online.
+  overflowMachines: () => ctx.machineStore.list()
+    .filter((m) => !!m.baseUrl)
+    .map((m) => isCloudBaseUrl(m.baseUrl)
+      ? { id: m.id, name: m.name, kind: "cloud" as const, online: cloudEnabled }
+      : { id: m.id, name: m.name, kind: "node" as const, online: m.status === "online" }),
   // Usage consumed by the dispatched session so far, from its Claude Code
   // transcript (jsonl_path is kept fresh by the session tracker). The reader
   // (transcript-usage.ts) is incremental (per-path byte offset — the live

@@ -146,6 +146,8 @@ const HUMAN_FIELDS: Record<string, FieldSpec> = {
   // a machine that will never answer.
   machineId: { to: "machineId", read: asRefOrNull },
   machine_id: { to: "machineId", read: asRefOrNull },
+  // "This Mac only": the overflow dispatch never moves the card elsewhere.
+  stayLocal: { to: "stayLocal", read: asBoolean },
   blockedByTaskId: { to: "blockedByTaskId", read: asRefOrNull },
   reuseBlockerContext: { to: "reuseBlockerContext", read: asBoolean },
   planFirst: { to: "planFirst", read: asBoolean },

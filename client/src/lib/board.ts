@@ -595,10 +595,15 @@ export interface BoardTask {
   /** AICTRL-01 routing switch; null = never set explicitly (legacy topics: fallback). */
   topicsRouting?: boolean | null;
   /**
-   * The paired node this card runs on. `null` = this machine (KANBAN-76): the
-   * choice is human, there is no `auto` node, and nothing moves a card by load.
+   * The paired node this card runs on. `null` = this machine (KANBAN-76). The
+   * choice is human, except the overflow: a card held by this Mac's memory
+   * floor for two minutes moves by itself, and then `overflowedAt` says so.
    */
   machineId: string | null;
+  /** "This Mac only": the overflow never moves it (absent on an older server). */
+  stayLocal?: boolean;
+  /** When the overflow moved it off this machine because the Mac was full. */
+  overflowedAt?: string;
   /** Who opened the card: `human`, `agent:<name>`, `cron:<name>` (`shared/created-by.ts`); absent/null = born before the field. */
   createdBy?: string | null;
   /** Lo sforzo con cui il task ha girato davvero (dal topic dell'agente). Con la
@@ -854,6 +859,8 @@ export interface UpdateTaskBody {
   /** The paired node the card runs on; null (or an empty string) clears it back
    *  to this machine. An unknown id is refused with `unknown_machine`. */
   machineId?: string | null;
+  /** "This Mac only": the overflow never moves the card when the Mac is full. */
+  stayLocal?: boolean;
   /** Gate: don't dispatch until this root task is done; null clears it. */
   blockedByTaskId?: string | null;
   /** When blocked, hand the new agent the blocker's session context. */
