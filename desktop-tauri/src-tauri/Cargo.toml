@@ -6,15 +6,8 @@ authors = ["Armonia <hi@armonia.io>"]
 license = "MIT"
 repository = "https://github.com/armonia/topics-app"
 edition = "2021"
-# 1.90 perche `tauri` 2.12 dichiara MSRV 1.90 (edition 2024 nelle sue crate): una
-# soglia piu bassa qui sarebbe una promessa che la catena di dipendenze non
-# mantiene. Prima era 1.80, per `std::sync::LazyLock` (stabile in 1.80.0) usato nel
-# codice di questo crate: allora il vincolo era il nostro codice, ora sono le
-# dipendenze. Non si vede dai workflow, che usano `dtolnay/rust-toolchain@stable`
-# e non buildano mai sul minimo; lo dice `cargo clippy` (lint `incompatible_msrv`),
-# che confronta ogni chiamata con QUESTO numero: tenerlo onesto e cio che rende
-# utile il lint. L'edition di questo crate resta 2021: il salto di edition non
-# compra niente e riscriverebbe 13k righe di lib.rs.
+# `tauri` 2.12 richiede Rust 1.90: è la sua MSRV, con edizione 2024 nelle sue crate.
+# Prima il minimo era 1.80 per `std::sync::LazyLock`, usato nel nostro crate.
 rust-version = "1.90.0"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html

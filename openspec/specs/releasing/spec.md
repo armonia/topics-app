@@ -298,9 +298,10 @@ risolto, non una copia della logica: il prossimo salto di versione è giudicato
 dal codice che porta, e lo stesso test su una versione vecchia SHALL andare
 rosso. Topics oggi non istanzia nessun `Channel` (né `@tauri-apps/api` né
 `ipc::Channel` nel guscio): la prova fissa la garanzia per il giorno in cui un
-flusso ci passa. Il `bundle.global.js` entra nella pagina solo con
-`app.withGlobalTauri = true`, che Topics non imposta: la garanzia copre la
-classe, non l'uso in pagina, e va estesa a `@tauri-apps/api` quando lo si adotta.
+flusso ci passa. La garanzia copre la classe nel file `bundle.global.js`,
+iniettato nella pagina solo con `app.withGlobalTauri = true`, che Topics non
+imposta, quindi non prova l'uso in pagina e va estesa a `@tauri-apps/api` quando
+lo si adotta.
 
 #### Scenario: il primo messaggio lancia
 - **GIVEN** un `onmessage` che lancia sul primo messaggio
