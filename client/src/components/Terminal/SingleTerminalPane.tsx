@@ -1354,12 +1354,17 @@ export function SingleTerminalPane({ sessionId, onStale, isActive = true }: Sing
           contain: 'layout paint',
         }}
       >
+        {/* The gap is on this outer box, not on the one xterm mounts into: FitAddon
+            sizes the rows and columns from the mount's own box, so padding on it
+            is counted as rows and columns that do not fit. */}
         <div
-          ref={containerRef}
+          data-testid="terminal-gap-box"
           className="absolute inset-0"
           style={{ padding: TERMINAL_PADDING_PX }}
           onClick={() => termRef.current?.term.focus()}
-        />
+        >
+          <div ref={containerRef} className="h-full w-full" />
+        </div>
         {/* The last screen, or the skeleton, until xterm has drawn the replay. */}
         {!replayDrawn && (scrollbackSeed || !stale) && <TerminalCover ref={seedRef} copy={scrollbackSeed} />}
         {/* Copy button for non-touch */}

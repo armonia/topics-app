@@ -3,9 +3,9 @@
 
 @custom-variant dark (&:where(.dark, .dark *));
 
-/* JetBrains Mono, one monospace face for chat code and the terminal. The
- * full file, not a fontsource subset: the subsets stop before U+2580-259F, so
- * the shade blocks (░▒▓) the terminal draws would fall back to a system font.
+/* JetBrains Mono, one monospace face for chat code and the terminal. The files
+ * are a subset (ASCII, Latin-1, punctuation, arrows, box drawing and block
+ * elements), so the shade blocks ░▒▓ come from this face and not a system font.
  * swap: text shows at once in the fallback, then switches, never blocks. */
 @font-face {
   font-family: 'JetBrains Mono';
