@@ -2,6 +2,15 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.3.42 — 2026-10-29
+
+### Sotto il cofano
+- chi l'ha aperta (created_by) e avviso se resta in backlog senza padrone (#508)
+- backup fuori disco: aspetta la porta ssh del PC prima dello scp (#509)
+- Menu in vetro della demo: fondo pieno che vince in WebKit, sonda su Chromium e WebKit (#511)
+- Pannello della board: prima versione con grafico della memoria, riga di stato e coda con «Avvia comunque» (#506)
+- Studio revisione UI/UX di task e topic (card 7d221b53), solo documentazione (#512)
+
 ## 2.3.41 — 2026-10-28
 
 ### Sotto il cofano
