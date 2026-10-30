@@ -11,6 +11,7 @@ import { MessageMetaFooter } from './MessageMetaFooter';
 import { isWorkOnlyAssistant } from './coalesceToolRun';
 import { MessageContent } from '../MessageContent';
 import { TurnActivityIndicator } from '../MessageParts';
+import { runningToolLabel } from './runningToolLabel';
 import { isAwaitingHuman } from '../../../../shared/types';
 import { turnIsOnlyError } from './turnError';
 import { goalLoopRowOf } from './goalLoopRow';
@@ -638,7 +639,10 @@ export const MessageBubble = memo(function MessageBubble({
             <div
               data-testid="message-meta-row"
               data-live="true"
-              className="text-mini mt-0.5 min-h-[14px] flex items-center whitespace-nowrap overflow-x-auto scrollbar-none justify-start"
+              // The loader inside has 8px padding above and below (27px tall); this
+              // box keeps the finished row's 14px footprint and lets it overflow,
+              // so the end of the turn moves nothing (chat-scroll-at-rest).
+              className="text-mini mt-0.5 h-[14px] flex items-start whitespace-nowrap justify-start"
             >
               <TurnActivityIndicator
                 since={Date.parse(msg.timestamp)}
@@ -652,6 +656,7 @@ export const MessageBubble = memo(function MessageBubble({
                 cacheCreationTokens={msg.cacheCreationTokens}
                 cacheCreation1hTokens={msg.cacheCreation1hTokens}
                 model={msg.model}
+                runningTool={runningToolLabel(msg)}
               />
             </div>
           )}

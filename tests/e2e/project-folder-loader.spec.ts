@@ -302,16 +302,15 @@ test.describe("Project folder loader", () => {
         layers: [...glyph.children].map((layer) => ({
           tag: layer.tagName.toLowerCase(),
           radius: getComputedStyle(layer).borderRadius,
-          spinning: layer.classList.contains("animate-orbit-spin"),
+          spinning: layer.classList.contains("animate-spark-breathe"),
         })),
       };
     });
     expect(orbit, "the loader slot holds a glyph").not.toBeNull();
     expect(orbit!.square, "a ring is square, a bar is not").toBe(true);
-    expect(orbit!.layers.length, "track + sweep").toBe(2);
-    expect(orbit!.layers[0].radius, "the track is a disc").toBe("50%");
-    expect(orbit!.layers[1].tag, "the sweep is the lucide arc").toBe("svg");
-    expect(orbit!.layers.filter((l) => l.spinning).length, "only the sweep turns").toBe(1);
+    expect(orbit!.layers.length, "one star").toBe(1);
+    expect(orbit!.layers[0].tag, "the star is the lucide Sparkle").toBe("svg");
+    expect(orbit!.layers[0].spinning, "the star breathes").toBe(true);
 
     // The live number wears the live voice, so it cannot be read as the grey
     // "agg. X fa" receipt sitting on the same row.

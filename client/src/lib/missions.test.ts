@@ -2,7 +2,7 @@
  * @covers MISSION-01
  */
 import { describe, expect, test } from 'bun:test';
-import { MISSIONS, missionPrompt } from './missions';
+import { MISSIONS, draftWithMission, missionPrompt } from './missions';
 import { pickMissionSession } from './missionTarget';
 import type { Topic } from '@/types';
 
@@ -22,6 +22,26 @@ describe('le missioni', () => {
       expect(text).toContain(m.name);
       expect(text).toContain('topics-app');
     }
+  });
+
+  test('a draft already in the composer is kept, with the mission queued under it', () => {
+    const text = missionPrompt(MISSIONS[0], 'topics-app');
+    // The exact string, not a `toContain`: a check that only looks for the
+    // mission would stay green on an implementation that threw the draft away.
+    expect(draftWithMission('mezza frase che stavo scrivendo', text))
+      .toBe(`mezza frase che stavo scrivendo\n\n${text}`);
+    // allow-italian: the draft stands for what a person was typing, in their language.
+  });
+
+  test('an empty or whitespace-only field is not a draft: the mission starts at the top', () => {
+    const text = missionPrompt(MISSIONS[0], 'topics-app');
+    expect(draftWithMission('', text)).toBe(text);
+    expect(draftWithMission('   \n\n ', text)).toBe(text);
+  });
+
+  test('trailing blank lines in the draft do not pile up before the mission', () => {
+    const text = missionPrompt(MISSIONS[0], 'topics-app');
+    expect(draftWithMission('bozza\n\n\n', text)).toBe(`bozza\n\n${text}`);
   });
 
   test('gli id sono unici: il menu ci fa la key e l\'e2e ci punta', () => {
