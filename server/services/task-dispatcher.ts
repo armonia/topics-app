@@ -1250,6 +1250,9 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
    *  still under the line, and saying "le risorse sono rientrate" there is a lie
    *  on the one line the board's history is read from. */
   let lastAdmissionBlock: ResourceFloorKind | "exempt" | null = null;
+  /** A derogation is on offer but no launch has used it yet: no log line until one does. */
+  let memoryExemptionPending = false;
+  let budgetExemptionPending = false;
   /**
    * HOW LONG THE QUEUE WAS HELD, so it can be said with a number. It MEASURES
    * and nothing else: under the floor no card starts and `dispatchFanOut`
@@ -1457,7 +1460,10 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
       const state: ResourceFloorKind | "exempt" | null =
         verdict.kind ?? (verdict.memoryFirstCardExempt ? "exempt" : null);
       if (state !== lastAdmissionBlock) {
-        if (state === "exempt") log("pavimento memoria ancora sotto la riga, ma nessun lavoro di Topics è in volo: passa UNA card per deroga, e il pavimento torna pieno appena è partita");
+        // The derogation line is written when a launch really uses it (`beginRun`),
+        // not when the verdict flips: with every card blocked nothing started.
+        memoryExemptionPending = state === "exempt";
+        if (state === "exempt") { /* said at the launch */ }
         else if (state) log(`coda ferma — ${reason}`);
         else if (lastAdmissionBlock) log("coda ripartita: le risorse sono rientrate sopra il pavimento");
         // The same comparison that decides the log line counts the episode:
@@ -1628,9 +1634,10 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
         // Not a block, but not a free machine either: the log says why the
         // first one went through, once, or the next "why did that start on a
         // loaded Mac" costs somebody a read of the shared contract.
-        if (!firstAgentExemptNoted) log("budget superato ma nessun agent al lavoro: il primo parte comunque");
+        if (!firstAgentExemptNoted) budgetExemptionPending = true;
         firstAgentExemptNoted = true;
       } else {
+        budgetExemptionPending = false;
         firstAgentExemptNoted = false;
       }
       const reason = verdict.admit ? null : machineBudgetMessage(verdict, sample.cores, share, mem);
@@ -2091,6 +2098,14 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
   /** Claim the slot for a new run. Returns its id — the owner's proof. */
   function beginRun(taskId: string, sessionKey: string): number {
     heldOffNoted.delete(taskId);
+    if (memoryExemptionPending) {
+      memoryExemptionPending = false;
+      log(`pavimento memoria ancora sotto la riga, ma nessun lavoro di Topics è in volo: la card ${taskId} parte per deroga, e il pavimento torna pieno appena è partita`);
+    }
+    if (budgetExemptionPending) {
+      budgetExemptionPending = false;
+      log(`budget superato ma nessun agent al lavoro: il primo parte comunque (card ${taskId})`);
+    }
     const runId = nextRunId++;
     // Un turno che PARTE rende senza senso il ritentativo che lo aspettava: se
     // restasse in `retryWaits` bloccherebbe il recupero orfani fino allo scadere

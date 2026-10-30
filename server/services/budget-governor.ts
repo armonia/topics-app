@@ -90,6 +90,19 @@ export interface GovernorDeps {
   /** One line in the card's thread, so the person does not read the pause as a
    *  hung agent. Best effort: a note that fails must not stop the freeze. */
   note?: (taskId: string, text: string) => void;
+  /** Background commands agents launched inside their own tree (typecheck,
+   *  tests): the freezable roots the swap freezer also sees, already filtered
+   *  of anything guarded. Without it the governor only sees server-run checks,
+   *  which today are none. */
+  agentCommands?: () => Promise<AgentCommandRef[]>;
+}
+
+export interface AgentCommandRef {
+  pid: number;
+  name: string;
+  taskId?: string;
+  /** Epoch ms when known; otherwise the governor uses when it first saw the pid. */
+  startedAt?: number;
 }
 
 export interface BudgetGovernor {
@@ -121,10 +134,32 @@ export function createBudgetGovernor(deps: GovernorDeps): BudgetGovernor {
   /** Runs whose card already got the note: one per run, not one per freeze. */
   const noted = new Set<string>();
 
+  /** Agent command trees seen on the latest sample, keyed by `cmd:<pid>`. */
+  const agentRuns = new Map<string, FreezableRun>();
+  const firstSeen = new Map<number, number>();
+  const kindOf = (id: string) => (agentRuns.has(id) ? ("agent-command" as const) : ("check" as const));
+  const allRuns = (): FreezableRun[] => [...freezableRuns(), ...agentRuns.values()];
+
+  async function refreshAgentCommands(): Promise<void> {
+    if (!deps.agentCommands) return;
+    let refs: AgentCommandRef[];
+    try { refs = await deps.agentCommands(); } catch { return; }
+    const now = Date.now();
+    const live = new Set<number>();
+    for (const r of refs) {
+      live.add(r.pid);
+      if (!firstSeen.has(r.pid)) firstSeen.set(r.pid, now);
+      const id = `cmd:${r.pid}`;
+      agentRuns.set(id, { id, pid: r.pid, name: r.name, taskId: r.taskId, startedAt: r.startedAt ?? firstSeen.get(r.pid)! });
+    }
+    for (const [id, run] of [...agentRuns]) if (!live.has(run.pid) && !state.frozen.includes(id)) agentRuns.delete(id);
+    for (const pid of [...firstSeen.keys()]) if (!live.has(pid)) firstSeen.delete(pid);
+  }
+
   const targets = (): FreezeTarget[] =>
-    freezableRuns()
+    allRuns()
       .filter((r) => !r.queued && !immune.has(r.id))
-      .map((r) => ({ id: r.id, kind: "check" as const, startedAt: r.startedAt }));
+      .map((r) => ({ id: r.id, kind: kindOf(r.id), startedAt: r.startedAt }));
 
   /** Fail open: a run frozen past the cap is continued and left alone. */
   async function releaseExpired(): Promise<void> {
@@ -142,15 +177,16 @@ export function createBudgetGovernor(deps: GovernorDeps): BudgetGovernor {
     const reading = (() => { try { return deps.read(); } catch { return null; } })();
     await releaseExpired();
     if (!reading) return;
-    const all = freezableRuns();
-    const plan = freezePlan({ used: reading.used, budget: reading.budget, targets: [...targets(), ...all.filter((r) => state.frozen.includes(r.id) && (r.queued || immune.has(r.id))).map((r) => ({ id: r.id, kind: "check" as const, startedAt: r.startedAt }))] }, state);
+    await refreshAgentCommands();
+    const all = allRuns();
+    const plan = freezePlan({ used: reading.used, budget: reading.budget, targets: [...targets(), ...all.filter((r) => state.frozen.includes(r.id) && (r.queued || immune.has(r.id))).map((r) => ({ id: r.id, kind: kindOf(r.id), startedAt: r.startedAt }))] }, state);
     state = plan.state;
     if (plan.freeze) await apply(plan.freeze, "SIGSTOP");
     if (plan.thaw) await apply(plan.thaw, "SIGCONT");
   }
 
   async function apply(id: string, sig: "SIGSTOP" | "SIGCONT"): Promise<void> {
-    const run = runs.get(id);
+    const run = runs.get(id) ?? agentRuns.get(id);
     if (!run) return;
     try {
       await deps.signalTree(run.pid, sig);

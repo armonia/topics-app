@@ -13,6 +13,7 @@ import { providerHoldFrame, wireHoldToResume } from "./server/lib/provider-hold-
 import { createResumeSweepClock } from "./server/lib/resume-sweep-clock";
 import { resolveStateDir } from "./server/lib/data-dir";
 import { createSwapFreezer } from "./server/services/swap-freeze";
+import { containsAgentCli, descendantPids, guardSet, toolRoots } from "./server/lib/agent-tool-children";
 import { createSwapFreezeLedger, fileLedgerIo, thawLedgerAtBoot } from "./server/services/swap-freeze-ledger";
 import { setActiveSwapFreezer, setSwapFreezeBroadcast, announceSwapFreeze, swapFreezeViews, isSwapFreezeHold, swapFrozenMsSince } from "./server/lib/swap-freeze-hold";
 import { createMemoryPressureSignal } from "./server/services/memory-pressure";
@@ -5380,6 +5381,18 @@ const budgetGovernor = createBudgetGovernor({
     } catch { return null; }
   },
   signalTree: signalProcessTree,
+  agentCommands: async () => {
+    // Same roots and same refusals as the swap freezer: background commands of
+    // an agent, never a tree that holds an agent CLI or a guarded process.
+    const table = await readProcessTable();
+    if (!table) return [];
+    const guard = guardSet(table, { serverPid: process.pid, sidecarPids: sidecarPidsNow(table), cliPids: [...getAgentPtyCliPids().map((p) => p.pid), ...listSessionCliPids().map((p) => p.pid)] });
+    const { roots } = toolRoots({ rows: table, sessions: agentSessionRefs(), natives: [] });
+    return roots
+      .filter((r) => r.kind === "claude-background")
+      .filter((r) => { const tree = descendantPids(table, r.pid); return containsAgentCli(table, tree) === null && ![...tree].some((p) => guard.has(p)); })
+      .map((r) => ({ pid: r.pid, name: r.command.slice(0, 60), taskId: r.taskId ?? undefined, startedAt: r.recordedAt }));
+  },
   log: (m) => console.log(`[budget] ${m}`),
   note: (taskId, text) => {
     try { dispatcherSvc.addComment({ taskId, author: "system", kind: "service", content: text }); }

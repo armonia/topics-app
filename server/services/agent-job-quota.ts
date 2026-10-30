@@ -64,8 +64,8 @@
 // giusto in cui sbagliare.
 
 import os from "node:os";
-import { accessSync, constants, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
-import { delimiter, join } from "node:path";
+import { accessSync, constants, existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { basename, delimiter, join } from "node:path";
 import type { Database } from "bun:sqlite";
 import { readTaskWeight, type TaskWeight } from "../../shared/board";
 import { readGlobalCap, sizingDispatchCap, structuralDispatchCapacity } from "./dispatch-capacity";
@@ -347,6 +347,7 @@ export function writeLiveQuota(sessionKey: string, jobs: number): boolean {
     const tmp = join(dir, `jobs.${process.pid}.tmp`);
     writeFileSync(tmp, `${n}\n`);
     renameSync(tmp, join(dir, "jobs"));
+    lastWritten.set(dir, n);
     return true;
   } catch {
     return false;
@@ -505,16 +506,54 @@ export function applyJobQuota(db: Database, sessionKey: string, env: Record<stri
  *
  * Torna quanti file ha aggiornato.
  */
+/** Last number written per channel dir: an unchanged value is not rewritten. */
+const lastWritten = new Map<string, number>();
+/** A channel folder untouched for this long, whose session is not live, is garbage. */
+export const QUOTA_DIR_MAX_AGE_MS = 60 * 60_000;
+const QUOTA_GC_EVERY_MS = 10 * 60_000;
+let lastGcAt = 0;
+
+/**
+ * Removes the channel folders of sessions that are no longer live. The age
+ * floor keeps a folder just created by `applyJobQuota` before the session shows
+ * up in the census. Returns how many folders it removed.
+ */
+export function gcQuotaChannels(liveSessionKeys: Iterable<string>, now = Date.now()): number {
+  const keep = new Set([...liveSessionKeys].map((k) => basename(quotaChannelDir(k))));
+  let removed = 0;
+  try {
+    for (const name of readdirSync(rootChannel())) {
+      if (keep.has(name)) continue;
+      const dir = join(rootChannel(), name);
+      try {
+        if (now - statSync(dir).mtimeMs < QUOTA_DIR_MAX_AGE_MS) continue;
+        rmSync(dir, { recursive: true, force: true });
+        lastWritten.delete(dir);
+        removed++;
+      } catch { /* one stubborn folder must not stop the sweep */ }
+    }
+  } catch { /* no root yet */ }
+  return removed;
+}
+
 export function refreshLiveJobQuotas(db: Database): number {
   let vive: Array<{ sessionKey: string; weight: TaskWeight | null }> = [];
   try { vive = liveDispatchedSessions(db); } catch { return 0; }
+  const nowMs = Date.now();
+  if (nowMs - lastGcAt >= QUOTA_GC_EVERY_MS) {
+    lastGcAt = nowMs;
+    gcQuotaChannels(vive.map((a) => a.sessionKey), nowMs);
+  }
   if (!vive.length) return 0;
   const peers = countLiveDispatchedAgents(db);
   const cap = capOfConcurrency(db);
   const cores = Math.max(1, os.cpus().length);
   let scritti = 0;
   for (const a of vive) {
-    if (writeLiveQuota(a.sessionKey, computeJobQuota({ cores, cap, weight: a.weight, peers }))) scritti++;
+    const jobs = computeJobQuota({ cores, cap, weight: a.weight, peers });
+    const dir = quotaChannelDir(a.sessionKey);
+    if (lastWritten.get(dir) === jobs && existsSync(join(dir, "jobs"))) continue;
+    if (writeLiveQuota(a.sessionKey, jobs)) scritti++;
   }
   return scritti;
 }

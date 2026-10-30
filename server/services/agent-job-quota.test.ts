@@ -5,7 +5,7 @@ import { test, expect, describe, afterEach } from "bun:test";
 import { Database } from "bun:sqlite";
 import os from "node:os";
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync, existsSync } from "node:fs";
+import { utimesSync, mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync, existsSync } from "node:fs";
 import { delimiter, join } from "node:path";
 import {
   applyJobQuota,
@@ -21,6 +21,7 @@ import {
   refreshLiveJobQuotas,
   resolveJobQuotaEnv,
   writeLiveQuota,
+  gcQuotaChannels,
 } from "./agent-job-quota";
 import { structuralDispatchCapacity } from "./dispatch-capacity";
 
@@ -598,5 +599,29 @@ describe("resolveJobQuotaEnv — cosa finisce davvero nell'ambiente del figlio",
     const env = resolveJobQuotaEnv(db, "topic:agente");
     expect(env).not.toBeNull();
     expect(Number(env!.CARGO_BUILD_JOBS)).toBeGreaterThanOrEqual(1);
+  });
+});
+
+describe("channel folders do not pile up", () => {
+  test("a folder of a finished session goes away, a live or a fresh one stays", () => {
+    temporaryRoot();
+    writeLiveQuota("topic:old", 2);
+    writeLiveQuota("topic:live", 2);
+    writeLiveQuota("topic:fresh", 2);
+    const old = new Date(Date.now() - 3 * 3_600_000);
+    utimesSync(quotaChannelDir("topic:old"), old, old);
+    utimesSync(quotaChannelDir("topic:live"), old, old);
+    expect(gcQuotaChannels(["topic:live"])).toBe(1);
+    expect(existsSync(quotaChannelDir("topic:old"))).toBe(false);
+    expect(existsSync(quotaChannelDir("topic:live"))).toBe(true);
+    expect(existsSync(quotaChannelDir("topic:fresh"))).toBe(true);
+  });
+
+  test("an unchanged number is not rewritten on the next refresh", () => {
+    temporaryRoot();
+    const db = dbVivo();
+    aliveAgent(db, 1);
+    expect(refreshLiveJobQuotas(db)).toBe(1);
+    expect(refreshLiveJobQuotas(db)).toBe(0);
   });
 });

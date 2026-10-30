@@ -72,8 +72,8 @@ import {
 } from "../lib/subagent-runtime";
 export { noteSubAgentStopHook, retireIdleSubAgents, _forgetSubAgentMemory } from "../lib/subagent-runtime";
 import { composerHoldsPrompt, trustCursorOnYes, trustDialogShowing } from "../lib/subagent-seed";
-import { boardSpawnRefusal, liveAgentCount } from "../services/agent-census";
-import { effectiveDispatchCap, readGlobalCap, computeDispatchCapacity } from "../services/dispatch-capacity";
+import { boardSpawnRefusal, liveAgentCount, spawnDoorCap } from "../services/agent-census";
+import { readGlobalCap, computeDispatchCapacity } from "../services/dispatch-capacity";
 import { resolveAgentRuntime } from "../services/app-settings";
 import { deriveClaudeSessionTitle } from "../lib/claude-transcript-title";
 import { topicsAgentSystemPrompt, resolveClaudeEffort, resolveCodexReasoningEffort, topicEffortFor } from "../lib/topics-agent-prompt";
@@ -2526,7 +2526,7 @@ function boardAgentCap(): number {
     // residui. È lo stesso conteggio che `boardSpawnRefusal` confronta col
     // tetto due righe più in là, quindi le due letture non possono divergere.
     const db = getDatabase();
-    return effectiveDispatchCap(readGlobalCap(db), computeDispatchCapacity(liveAgentCount(db, null), undefined, resolveAgentRuntime() === "cli").recommended);
+    return spawnDoorCap(readGlobalCap(db), computeDispatchCapacity(liveAgentCount(db, null), undefined, resolveAgentRuntime() === "cli").recommended);
   } catch {
     // Nessuna lettura possibile: si torna al default del menu (3). Un tetto
     // sconosciuto non autorizza a non averne uno.

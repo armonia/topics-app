@@ -443,7 +443,7 @@ export const THAW_FRACTION = 0.7;
  * an eslint. Freezing the expensive thing and holding the queue is the whole
  * win; SIGSTOP on the cheap thing would only buy a broken stream.
  */
-export type FreezeKind = "check" | "agent";
+export type FreezeKind = "check" | "agent-command" | "agent";
 
 export interface FreezeTarget {
   /** Stable id (the check run's id, the task id): the plan speaks in these. */
@@ -544,11 +544,11 @@ export function governorReading(sample: MachineBudgetSample, share: number): { u
   return { used: sample.ourCoreUnits, budget: machineBudget(sample, share).usableCoreUnits };
 }
 
-/** Checks before agents; inside a kind, the one that started last. */
+/** Checks, then the commands agents launched, then agents; inside a kind, the one that started last. */
 function nextVictim(targets: readonly FreezeTarget[], frozen: readonly string[]): FreezeTarget | null {
   const taken = new Set(frozen);
   const free = targets.filter((t) => !taken.has(t.id));
-  const rank = (t: FreezeTarget) => (t.kind === "check" ? 0 : 1);
+  const rank = (t: FreezeTarget) => (t.kind === "check" ? 0 : t.kind === "agent-command" ? 1 : 2);
   free.sort((a, b) => rank(a) - rank(b) || b.startedAt - a.startedAt);
   return free[0] ?? null;
 }

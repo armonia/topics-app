@@ -409,3 +409,11 @@ describe("la chiave e' `topic:` + i primi 8 caratteri, non l'id intero", () => {
     expect(orphanChatChildSessions(db)).toEqual([]);
   });
 });
+
+describe("the sub-agent door follows the dispatcher mode", () => {
+  test("in resources mode the count does not apply, in count mode it does", async () => {
+    const { spawnDoorCap } = await import("./agent-census");
+    expect(spawnDoorCap({ auto: false, max: 4, mode: "resources" } as never, null)).toBe(Infinity);
+    expect(spawnDoorCap({ auto: false, max: 4, mode: "count" } as never, null)).toBe(4);
+  });
+});

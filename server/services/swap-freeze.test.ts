@@ -288,6 +288,25 @@ describe("F5: the heaviest background command, and nothing else", () => {
     const heavy = c({ footprintGB: 2, cpuCores: 0.2 });
     const withMoreCpu = c({ footprintGB: 2, cpuCores: 0.9 });
     expect(pickVictim([heavy, withMoreCpu]).victim).toBe(withMoreCpu);
+    // The newest heavy tree goes first so the older ones can finish, whatever it weighs.
+    const older = c({ footprintGB: 5, cpuCores: 0.9, startedAt: 1000 });
+    const youngest = c({ footprintGB: 1, cpuCores: 0.2, startedAt: 2000 });
+    expect(pickVictim([older, youngest]).victim).toBe(youngest);
+  });
+});
+
+describe("the CPU base does not outlive its episode", () => {
+  test("a base read hours ago is ignored: the first new beat has no rate, the next one has", async () => {
+    const procs = [...BASE, ...shell(51000, "bun batteria.ts", { cores: 0.5, footprintGB: 2.1, residentGB: 1.4 })];
+    const sessions = [session({ backgroundBash: [{ command: "bun batteria.ts", startedAt: T0 }] })];
+    const w = world({ procs, sessions });
+    await w.beat();
+    w.advance(3 * 3_600_000);
+    await w.beat();
+    expect(w.signals.filter((s) => s.sig === "SIGSTOP")).toEqual([]);
+    w.advance(10_000);
+    await w.beat();
+    expect(w.signals.filter((s) => s.sig === "SIGSTOP").map((s) => Math.abs(s.pid))).toContain(51000);
   });
 });
 

@@ -26,6 +26,7 @@
 // sarebbero due tetti che divergono al primo cambio di predicato.
 
 import type { Database } from "bun:sqlite";
+import { capMode, effectiveDispatchCap, type GlobalDispatchCap } from "../../shared/board";
 
 /** Il chip di dispatch che dice «questo task ha un agente dentro un turno adesso». */
 const LIVE_DISPATCH_STATES = "('starting','working')";
@@ -353,4 +354,15 @@ export function boardSpawnRefusal(
   const cap = Math.max(1, Math.floor(args.cap) || 1);
   if (live >= cap) return { ok: false, code: "cap", live, cap };
   return { ok: true };
+}
+
+/**
+ * The cap the sub-agent door applies, with the same rule as the dispatcher:
+ * in "by resources" mode the NUMBER does not apply (the pressure gate and the
+ * memory floor are the brake), so a child is never refused on a count the
+ * dispatcher itself ignores.
+ */
+export function spawnDoorCap(cap: GlobalDispatchCap, recommended: number | null): number {
+  if (capMode(cap) === "resources") return Infinity;
+  return effectiveDispatchCap(cap, recommended);
 }

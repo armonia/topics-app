@@ -161,3 +161,37 @@ describe("review defects", () => {
     expect(h.signals.filter((x) => x.startsWith("SIGSTOP"))).toHaveLength(1);
   });
 });
+
+describe("agent command targets", () => {
+  it("freezes the newest command an agent launched, not the oldest one", async () => {
+    const signals: string[] = [];
+    const box = { reading: { used: 12, budget: 9.6 } };
+    const g = createBudgetGovernor({
+      read: () => box.reading,
+      signalTree: async (pid, sig) => { signals.push(`${sig}:${pid}`); },
+      log: () => {},
+      agentCommands: async () => [
+        { pid: 11, name: "old typecheck", startedAt: 1000 },
+        { pid: 22, name: "new typecheck", startedAt: 2000 },
+      ],
+    });
+    await g.sampleOnce();
+    await g.sampleOnce();
+    expect(signals).toEqual(["SIGSTOP:22"]);
+    expect(g.frozenIds()).toEqual(["cmd:22"]);
+  });
+
+  it("a check still goes before an agent command", async () => {
+    const signals: string[] = [];
+    const g = createBudgetGovernor({
+      read: () => ({ used: 12, budget: 9.6 }),
+      signalTree: async (pid, sig) => { signals.push(`${sig}:${pid}`); },
+      log: () => {},
+      agentCommands: async () => [{ pid: 22, name: "cmd", startedAt: 9000 }],
+    });
+    registerFreezableRun({ id: "lint", pid: 5, name: "lint", startedAt: 1 });
+    await g.sampleOnce();
+    await g.sampleOnce();
+    expect(signals).toEqual(["SIGSTOP:5"]);
+  });
+});

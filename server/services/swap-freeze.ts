@@ -73,12 +73,19 @@ export interface FreezeCandidate {
   residentGB: number;
   cpuCores: number;
   frozenCount: number;
+  /** Epoch ms the root started; 0 when unknown. */
+  startedAt?: number;
+}
+
+/** `ps -o lstart=` text ("Thu Oct  9 09:00:00 2025") as epoch ms; 0 for anything else. */
+function startedAtOf(lstart: string): number {
+  return /^\w{3} \w{3} +\d{1,2} \d\d:\d\d:\d\d \d{4}$/.test(lstart.trim()) ? Date.parse(lstart) || 0 : 0;
 }
 
 export type VictimSkip = "belowFloor" | "exhausted" | null;
 
 /**
- * THE HEAVIEST, measured on FOOTPRINT and not on resident memory: footprint is
+ * THE NEWEST OF THE HEAVY ones; heaviness is measured on FOOTPRINT and not on resident memory: footprint is
  * what survives compression, and `rss` reads small exactly while a tree thrashes
  * (memory note `memoria-numeri-che-mentono`, allow-italian: the note's own filename).
  * The CPU term names one specific
@@ -90,7 +97,14 @@ export function pickVictim(candidates: readonly FreezeCandidate[]): { victim: Fr
   if (heavy.length === 0) return { victim: null, skipped: "belowFloor" };
   const open = heavy.filter((c) => c.frozenCount < FREEZES_PER_TREE);
   if (open.length === 0) return { victim: null, skipped: "exhausted" };
-  const victim = open.reduce((a, b) => (b.footprintGB > a.footprintGB || (b.footprintGB === a.footprintGB && b.cpuCores > a.cpuCores) ? b : a));
+  // The newest heavy tree goes first so the older ones can finish; footprint and
+  // CPU are only the entry threshold, and break ties between equal start times.
+  const victim = open.reduce((a, b) => {
+    const sa = a.startedAt ?? 0;
+    const sb = b.startedAt ?? 0;
+    if (sb !== sa) return sb > sa ? b : a;
+    return b.footprintGB > a.footprintGB || (b.footprintGB === a.footprintGB && b.cpuCores > a.cpuCores) ? b : a;
+  });
   return { victim, skipped: null };
 }
 
@@ -415,7 +429,9 @@ export function createSwapFreezer(deps: SwapFreezerDeps): SwapFreezer {
         residentKB += deps.residentKB(pid) ?? 0;
         cpuSeconds += byPid.get(pid)?.cpuSeconds ?? 0;
       }
-      const base = cpuBase.get(root.pid);
+      const rawBase = cpuBase.get(root.pid);
+      // A base older than two action windows (measuring only runs between them) belongs to another episode: treat it as absent.
+      const base = rawBase && t - rawBase.at <= 2 * SWAP_ACTION_SPACING_MS ? rawBase : undefined;
       cpuBase.set(root.pid, { at: t, seconds: cpuSeconds });
       // The FIRST sustained beat of a tree has no base, so its decision comes
       // ten seconds later rather than on a rate nobody measured.
@@ -430,6 +446,7 @@ export function createSwapFreezer(deps: SwapFreezerDeps): SwapFreezer {
         footprintGB: (footprintKB * 1024) / 1e9,
         residentGB: (residentKB * 1024) / 1e9,
         cpuCores,
+        startedAt: startedAtOf(rootLstart),
         frozenCount: deps.ledger.freezeCount({ pid: root.pid, lstart: rootLstart }),
       });
     }
@@ -605,7 +622,7 @@ export function createSwapFreezer(deps: SwapFreezerDeps): SwapFreezer {
             // The "already said" lines are forgotten only after a real calm:
             // swap flickers, and every calm beat used to say everything again.
             calmSince ??= now();
-            if (now() - calmSince >= SWAP_EPISODE_CALM_MS) { episodeSince = null; saidNothing = false; saidExhausted = false; namedPids.clear(); }
+            if (now() - calmSince >= SWAP_EPISODE_CALM_MS) { episodeSince = null; saidNothing = false; saidExhausted = false; namedPids.clear(); cpuBase.clear(); }
           }
           return;
         }
@@ -633,6 +650,7 @@ export function createSwapFreezer(deps: SwapFreezerDeps): SwapFreezer {
         const livePids = new Set(table.map((r) => r.pid));
         deps.ledger.pruneCounts((c) => livePids.has(c.pid));
         for (const pid of namedPids.keys()) if (!livePids.has(pid)) namedPids.delete(pid);
+        for (const pid of cpuBase.keys()) if (!livePids.has(pid)) cpuBase.delete(pid);
         const { candidates, foreground } = await measure(table, guard);
         for (const f of foreground) logOncePerPid(f.pid, "foreground", `[freeze] skipped "${oneLine(f.command)}" (pid ${f.pid}): foreground Bash, never frozen`);
         let { victim, skipped } = pickVictim(candidates);
