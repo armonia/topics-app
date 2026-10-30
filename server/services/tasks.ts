@@ -824,6 +824,15 @@ export interface TaskService {
     remote?: boolean;
   }): Task | null;
   /**
+   * The overflow dispatch's move (`dispatch-overflow.ts`): the card goes to
+   * `machineId` and is stamped `overflowed_at`, in ONE compare-and-set. It
+   * applies only to a card still waiting here: in `todo`, unbound, not marked
+   * "this Mac only", and running on this machine (`machine_id` NULL or
+   * `localMachineId`). `null` = it did not apply (it moved, a person picked a
+   * machine meanwhile), and the caller leaves it alone.
+   */
+  overflowToMachine(args: { taskId: string; machineId: string; localMachineId: string | null }): Task | null;
+  /**
    * C'è un task `heavy` con un agente vivo su questa macchina adesso?
    *
    * Lo stesso predicato che il CAS di `claim` applica, esposto perché il filtro
@@ -2635,6 +2644,10 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       // WHERE it runs. `null` is «this machine», which is what every card
       // written before the column existed says (KANBAN-76).
       machineId: r.machine_id ?? null,
+      // "This Mac only": absent column (old harness) reads as unmarked.
+      stayLocal: !!r.stay_local,
+      // Only while it still runs where the overflow sent it.
+      ...(r.overflowed_at && r.machine_id ? { overflowedAt: r.overflowed_at } : {}),
       // WHO opened it; NULL for every card written before the column.
       createdBy: r.created_by ?? null,
       // Delegation metadata is rare. Absence means an ordinary owner run, not
@@ -4027,7 +4040,11 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       if (patch.machineId !== undefined) {
         const node = (patch.machineId ?? "").trim();
         put("machine_id", node || null);
+        // A person chose the machine: the overflow's «moved because the Mac
+        // was full» no longer describes it.
+        put("overflowed_at", null);
       }
+      if (patch.stayLocal !== undefined) put("stay_local", patch.stayLocal ? 1 : 0);
       if (patch.blockedByTaskId !== undefined) {
         if (patch.blockedByTaskId) assertBlockerValid(taskId, patch.blockedByTaskId);
         put("blocked_by_task_id", patch.blockedByTaskId || null);
@@ -4975,6 +4992,18 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
 
     liveAgents(scope): number {
       return liveAgentCount(db, scope?.projectId ?? null);
+    },
+
+    overflowToMachine({ taskId, machineId, localMachineId }): Task | null {
+      const ts = now();
+      const res = db.prepare(
+        `UPDATE tasks SET machine_id = ?, overflowed_at = ?, updated_at = ?
+          WHERE id = ? AND status = 'todo' AND assigned_topic_id IS NULL AND archived = 0
+            AND stay_local = 0 AND (machine_id IS NULL OR machine_id = ?)`,
+      ).run(machineId, ts, ts, taskId, localMachineId ?? "");
+      if (res.changes === 0) return null;
+      const row = getTaskRow(taskId);
+      return row ? rowToTask(row) : null;
     },
 
     claim({ taskId, cap, maxAttempts, agentId, scope, machineIdle, noCheckExemption, remote }): Task | null {
@@ -6602,6 +6631,9 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
         // AICTRL-05: default board dello switch; NULL = nessuna scelta su questa board (ordine di risoluzione in shared/board.ts). allow-italian: dice cosa significa NULL in colonna
         dispatchTopicsRouting: r?.dispatch_topics_routing == null ? null : !!r.dispatch_topics_routing,
         dispatchMachineId: r?.dispatch_machine_id ?? null,
+        // ON unless a person switched it off: an absent column or row is the default.
+        dispatchOverflow: r?.dispatch_overflow == null ? true : !!r.dispatch_overflow,
+        dispatchStayLocal: !!r?.dispatch_stay_local,
         language: r?.language ?? "inherit",
         // NULL = 1: una board che non ha mai sentito parlare di fan-out dispaccia
         // un agente per task, com'è sempre stato.
@@ -6674,6 +6706,8 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
         sets.push("dispatch_machine_id = ?");
         params.push((patch.dispatchMachineId ?? "").trim() || null);
       }
+      if (patch.dispatchOverflow !== undefined) { sets.push("dispatch_overflow = ?"); params.push(patch.dispatchOverflow ? 1 : 0); }
+      if (patch.dispatchStayLocal !== undefined) { sets.push("dispatch_stay_local = ?"); params.push(patch.dispatchStayLocal ? 1 : 0); }
       if (patch.language !== undefined) { sets.push("language = ?"); params.push(patch.language && patch.language !== "inherit" ? patch.language : null); }
       // Tetto a 5: oltre, il fan-out non è più "confronto fra alternative" ma un
       // modo di saturare la macchina — e ogni tentativo è un agente vero che

@@ -162,7 +162,11 @@ export const TASKS_DDL = `CREATE TABLE IF NOT EXISTS tasks (
   -- 20261028163640: who opened the card (human | agent:<name> | cron:<name>) and
   -- when the coordinator was last told it sits in backlog with no owner.
   created_by TEXT,
-  unowned_alerted_at TEXT
+  unowned_alerted_at TEXT,
+  -- 20261030181324: overflow dispatch. The card's "this Mac only" mark, and
+  -- when the dispatcher moved it off this machine.
+  stay_local INTEGER NOT NULL DEFAULT 0,
+  overflowed_at TEXT
 )`;
 
 /**

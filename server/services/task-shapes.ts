@@ -203,9 +203,22 @@ export interface Task {
    * WHERE the card runs (KANBAN-76). `null` = this machine, which is every
    * card that exists today. A non-null id names a PAIRED node: the dispatcher
    * mirrors the card onto it instead of opening a worktree here. The choice is
-   * a person's; nothing moves a card to a quieter node by itself.
+   * a person's, with one exception: the overflow moves a card held by this
+   * machine's memory floor (`dispatch-overflow.ts`), and stamps `overflowedAt`.
    */
   machineId: string | null;
+  /**
+   * "This Mac only": the card touches this machine itself (local processes,
+   * OpenClaw, sessions, macOS), so the overflow dispatch never moves it. An
+   * explicit mark set by a person, never guessed from the text.
+   */
+  stayLocal: boolean;
+  /**
+   * ON THE WIRE only when set: when the dispatcher moved the card off this
+   * machine because its memory floor held it (`dispatch-overflow.ts`). With
+   * `runComputerName` it is the chip's «moved to Cloud: Mac full».
+   */
+  overflowedAt?: string;
   /** WHO opened the card: `human`, `agent:<name>`, `cron:<name>`; `null` = born before the field. */
   createdBy: string | null;
   /** The effort the task actually ran with (from the agent's topic). Read
@@ -472,6 +485,8 @@ export interface UpdateTaskPatch {
   topicsRouting?: boolean | null;
   /** Move the card to a paired node; null clears (= this machine). */
   machineId?: string | null;
+  /** The "this Mac only" mark: the overflow dispatch never moves the card. */
+  stayLocal?: boolean;
   /** Dependency; null clears. Validated: exists, not self, no cycle. */
   blockedByTaskId?: string | null;
   reuseBlockerContext?: boolean;

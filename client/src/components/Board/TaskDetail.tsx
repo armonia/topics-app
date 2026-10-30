@@ -1480,6 +1480,14 @@ export function TaskDetail({ projectId, taskId, initialStatus, initialTitle, bum
     catch (e) { showError(e); }
     finally { setBusy(false); }
   };
+  // "This Mac only": the overflow never moves the card when the Mac is full.
+  const toggleStayLocal = async () => {
+    if (!task || busy) return;
+    setBusy(true);
+    try { await boardApi.update(projectId, taskId, { stayLocal: !task.stayLocal }); setError(null); await load(); onChanged(); }
+    catch (e) { showError(e); }
+    finally { setBusy(false); }
+  };
 
   // Project selector (header chip): move the task to another board, open the
   // current project's window, or scaffold a new workspace project. The list is
@@ -2418,6 +2426,16 @@ export function TaskDetail({ projectId, taskId, initialStatus, initialTitle, bum
               {nodes.length === 0 && (
                 <p className="px-2.5 pb-1.5 pt-1 text-mini leading-snug text-app-text-muted">{tr('board.task.node.empty')}</p>
               )}
+              <button
+                role="menuitemcheckbox" aria-checked={!!task.stayLocal} disabled={busy}
+                data-testid="task-stay-local"
+                onClick={toggleStayLocal}
+                title={tr('board.task.node.stayLocalTitle')}
+                className={`${POPOVER_ITEM} border-t border-white/10 disabled:opacity-40`}
+              >
+                <span className="min-w-0 flex-1">{tr('board.task.node.stayLocal')}</span>
+                {task.stayLocal && <Check className="h-3 w-3 shrink-0 text-emerald-400" />}
+              </button>
             </Menu>
             {/* Who is working it stays in the row for the same reason the wait
                 does: on a card in progress with no topic and no chip, this is

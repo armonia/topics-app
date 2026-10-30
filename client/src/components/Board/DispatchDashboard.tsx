@@ -24,7 +24,7 @@ import { projectNameFromId } from '../../lib/boardProjectsStore';
 import type { BoardTask, DispatchCapacity } from '../../lib/board';
 import type { DispatchMemoryQueueSnapshot } from '../../../../shared/board';
 import { useGlobalDispatchCap } from '../../state/globalDispatchCap';
-import { chartMax, queuedCards, waitingLabel, type QueuedCard } from './dispatchDashboardModel';
+import { chartMax, overflowedCards, queuedCards, waitingLabel, type MovedCard, type QueuedCard } from './dispatchDashboardModel';
 import { DANGER_TEXT } from '../../lib/popoverStyles';
 
 const LOCALE = 'it-IT';
@@ -199,7 +199,7 @@ const START_ERR: Record<string, string> = {
   dispatcher_unavailable: 'board.dash.startErr.noDispatcher',
 };
 
-export function DispatchDashboardView({ capacity, snapshot, queue, broken = 0, now, onStartNow, starting, dispatchOn, live, startFailure }: {
+export function DispatchDashboardView({ capacity, snapshot, queue, moved = [], broken = 0, now, onStartNow, starting, dispatchOn, live, startFailure }: {
   capacity: DispatchCapacity | null;
   /** The server's read is fresh; absent = there is a snapshot. */
   live?: boolean;
@@ -209,6 +209,8 @@ export function DispatchDashboardView({ capacity, snapshot, queue, broken = 0, n
   dispatchOn?: boolean | null;
   snapshot: DispatchMemoryQueueSnapshot | null;
   queue: QueuedCard[];
+  /** Cards the overflow moved to another machine because the Mac was full. */
+  moved?: MovedCard[];
   /** Cards stopped by a real fault (not by a wait). */
   broken?: number;
   now: number;
@@ -308,6 +310,16 @@ export function DispatchDashboardView({ capacity, snapshot, queue, broken = 0, n
           </ol>
         )}
       </div>
+      {moved.length > 0 && (
+        <ul className="space-y-0.5" data-testid="dispatch-dashboard-moved">
+          {moved.map((m) => (
+            <li key={m.id} className="flex items-center gap-1.5 text-mini text-app-text-secondary" data-testid="dispatch-dashboard-moved-row">
+              <span className="min-w-0 truncate" title={m.title}>{m.title}</span>
+              <span className="shrink-0">· {tr('board.task.node.overflowed', { node: m.node })}</span>
+            </li>
+          ))}
+        </ul>
+      )}
       {consumers.length > 0 && (
         <div>
           <SectionLabel>{tr('board.dash.holders', { total: total !== null ? gb(total) : '' })}</SectionLabel>
@@ -351,6 +363,6 @@ export function DispatchDashboard({ tasks, dispatchOn }: { tasks: readonly Board
       .then(() => loadSnapshot(), (e: unknown) => setStartFailure({ id: card.id, code: (e as { code?: string } | null)?.code ?? null }))
       .finally(() => setStarting(null));
   };
-  return <DispatchDashboardView capacity={capacity} snapshot={snapshot} queue={queuedCards(tasks, tr, now, projectName)} broken={broken}
+  return <DispatchDashboardView capacity={capacity} snapshot={snapshot} queue={queuedCards(tasks, tr, now, projectName)} moved={overflowedCards(tasks)} broken={broken}
     now={now} onStartNow={start} starting={starting} dispatchOn={dispatchOn} live={snapshotIsLive(now)} startFailure={startFailure} />;
 }
