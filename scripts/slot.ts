@@ -45,7 +45,7 @@
  *         TOPICS_GATE_KILL_GRACE_MS  SIGTERM → SIGKILL window (default 10s)
  */
 import { spawn } from "node:child_process";
-import { acquireSlot, defaultNameMaxWaitMs, slotCount, GATE_HELD_ENV, slotAcquiredLine } from "./gate-slot.ts";
+import { acquireSlot, defaultNameMaxWaitMs, reclaimAfterStop, slotCount, GATE_HELD_ENV, slotAcquiredLine, type SlotHold } from "./gate-slot.ts";
 import { slotWaitingLine } from "../shared/slot-acquired.ts";
 
 /**
@@ -81,7 +81,7 @@ if (!cmd) {
 }
 
 const slots = slotCount();
-let release: (() => void) | null = null;
+let release: SlotHold | null = null;
 const queuedSince = Date.now();
 // The wrapped gates (test:unit, typecheck, lint, deadcode) wait for another
 // run of themselves longer than for a free slot (30 min against 10): see
@@ -149,6 +149,15 @@ for (const sig of ["SIGINT", "SIGTERM", "SIGHUP"] as const) {
   process.on(sig, () => { signalTree(sig); release?.(); });
 }
 process.on("exit", () => release?.());
+// Continued after a freeze: if a waiter took the place meanwhile, stop the
+// command again until this run holds one (see `reclaimAfterStop`).
+process.on("SIGCONT", () => {
+  if (done || !release) return;
+  release = reclaimAfterStop(release, slots, label, signalTree, {
+    nameMaxWaitMs: defaultNameMaxWaitMs(),
+    onWait: (message) => console.error(`${message} (continued after a freeze, its place was taken)`),
+  });
+});
 
 if (MAX_RUN_MS > 0) {
   timer = setTimeout(() => {

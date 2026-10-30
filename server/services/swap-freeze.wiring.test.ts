@@ -64,6 +64,14 @@ describe("the freezer is wired in the one order that works", () => {
     expect(release).toBeLessThan(kill);
   });
 
+  test("the freezer is told how much of our work is in flight (card cda99908, finding 26)", () => {
+    // Without it `inFlight` is unknown, read as "no limit": the only card of
+    // Topics is frozen again a minute after the exemption admitted it.
+    const start = at(server, "const swapFreezer = createSwapFreezer({", "the freezer");
+    const block = server.slice(start, server.indexOf("\n});", start));
+    expect(block).toContain("ourWorkInFlight: () => turniInVolo() + (checksGateRunningCount?.() ?? 0),");
+  });
+
   test("the silence clocks read the hold", () => {
     at(server, "isFrozen: () => isSwapFreezeHold(sessionKey)", "the stall detector's hold");
     at(server, "frozenMsSince: (sk, since) => swapFrozenMsSince(sk, since)", "the sweeper's subtraction");

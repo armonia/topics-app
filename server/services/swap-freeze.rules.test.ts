@@ -32,6 +32,16 @@ describe("pickVictim", () => {
     expect(pickVictim([only], 1)).toEqual({ victim: null, skipped: "onlyTurn" });
     expect(pickVictim([only], 2).victim).toBe(only);
   });
+
+  test("two trees of the one turn: the heavier is stopped so the other can finish (review of 30/10)", () => {
+    const tree = (pid: number, footprintGB: number): FreezeCandidate => ({
+      root: { kind: "claude-background", pid, pgid: pid, sessionKey: "s", command: "x", topicId: null, terminalId: null, taskId: "card" },
+      treePids: [pid], xpcPids: [], footprintGB, residentGB: 1, cpuCores: 1, frozenCount: 0,
+    });
+    const light = tree(1, 1);
+    const heavy = tree(2, 3);
+    expect(pickVictim([light, heavy], 1).victim).toBe(heavy);
+  });
 });
 
 describe("thawReason", () => {

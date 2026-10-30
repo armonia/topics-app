@@ -91,12 +91,14 @@ export type VictimSkip = "belowFloor" | "exhausted" | "onlyTurn" | null;
  * the other apps hold. It is the same "first card" the dispatcher admits under
  * its memory floor (`memoryFirstCardExempt`), so one rule holds for both brakes
  * instead of admitting a card and freezing it a minute later (card cda99908,
- * finding 26). Unknown = no such limit.
+ * finding 26). Unknown = no such limit. Every tree here is work too: with two
+ * trees of the one turn, stopping the heavier lets the other finish, so the
+ * rule holds only for a lone tree.
  */
 export function pickVictim(candidates: readonly FreezeCandidate[], inFlight = Number.POSITIVE_INFINITY): { victim: FreezeCandidate | null; skipped: VictimSkip } {
   const heavy = candidates.filter((c) => c.footprintGB >= FREEZE_MIN_GB && c.cpuCores >= FREEZE_MIN_CORES);
   if (heavy.length === 0) return { victim: null, skipped: "belowFloor" };
-  if (inFlight <= 1) return { victim: null, skipped: "onlyTurn" };
+  if (Math.max(inFlight, candidates.length) <= 1) return { victim: null, skipped: "onlyTurn" };
   const open = heavy.filter((c) => c.frozenCount < FREEZES_PER_TREE);
   if (open.length === 0) return { victim: null, skipped: "exhausted" };
   const victim = open.reduce((a, b) => (b.footprintGB > a.footprintGB || (b.footprintGB === a.footprintGB && b.cpuCores > a.cpuCores) ? b : a));
@@ -672,8 +674,10 @@ export function createSwapFreezer(deps: SwapFreezerDeps): SwapFreezer {
           if (!deps.ourWorkInFlight) return Number.POSITIVE_INFINITY;
           // A chat's background command counts as work even when the census
           // only knows the board: every session with a tree here is one.
+          // Counted on ALL the trees, so the retries below (a filtered list)
+          // do not mistake the last one left for the only one there is.
           const sessionsHere = new Set(candidates.map((c) => c.root.sessionKey)).size;
-          try { return Math.max(deps.ourWorkInFlight(), sessionsHere); } catch { return Number.POSITIVE_INFINITY; }
+          try { return Math.max(deps.ourWorkInFlight(), sessionsHere, candidates.length); } catch { return Number.POSITIVE_INFINITY; }
         })();
         let { victim, skipped } = pickVictim(candidates, inFlight);
         // A tree serving somebody outside itself is skipped for the next heaviest.

@@ -127,22 +127,34 @@ function alive(pid: number): boolean {
  * same gate waited the full name deadline and then started "alongside", all at
  * once, on a machine that was frozen precisely because it was loaded (card
  * cda99908, findings 2 and 15). A stopped holder is doing no work: its place
- * goes to the next run, and when it is continued it finishes without a file,
- * one overlap instead of a stampede.
+ * goes to the next run, and when it is continued it queues again for it before
+ * its command goes on (`reclaimAfterStop`).
  *
  * Fails toward the old reading: if `ps` does not answer, nobody is stopped.
  */
-function stoppedByPs(pids: readonly number[]): Set<number> {
+export function stoppedByPs(pids: readonly number[]): Set<number> {
   const out = new Set<number>();
-  if (pids.length === 0) return out;
+  for (const [pid, stat] of psStates(pids)) if (stat.startsWith("T")) out.add(pid);
+  return out;
+}
+
+/** The `ps` state of each pid that answered; empty when `ps` does not. */
+export function psStates(pids: readonly number[]): Map<number, string> {
+  if (pids.length === 0) return new Map();
   try {
     const r = Bun.spawnSync(["ps", "-o", "pid=,stat=", "-p", pids.join(",")], { stdout: "pipe", stderr: "ignore" });
-    for (const line of r.stdout.toString().split("\n")) {
-      const m = line.trim().match(/^(\d+)\s+(\S+)/);
-      if (m && m[2]!.startsWith("T")) out.add(Number(m[1]));
-    }
-  } catch { /* no answer: nobody is stopped */ }
-  return out;
+    return parsePsStates(r.stdout.toString());
+  } catch { return new Map(); /* no answer: nobody is stopped */ }
+}
+
+/** `ps -o pid=,stat=` lines, as pid -> state. */
+export function parsePsStates(out: string): Map<number, string> {
+  const states = new Map<number, string>();
+  for (const line of out.split("\n")) {
+    const m = line.trim().match(/^(\d+)\s+(\S+)/);
+    if (m) states.set(Number(m[1]), m[2]!);
+  }
+  return states;
 }
 
 type StoppedProbe = (pids: readonly number[]) => ReadonlySet<number>;
@@ -153,23 +165,34 @@ type StoppedProbe = (pids: readonly number[]) => ReadonlySet<number>;
  * the live holders only.
  */
 function reapStale(dir: string, stopped: StoppedProbe = stoppedByPs): void {
-  const live: { path: string; pid: number }[] = [];
+  const live: { path: string; raw: string; pid: number }[] = [];
   for (const name of readdirSync(dir)) {
     if (!name.endsWith(".pid")) continue;
     const p = join(dir, name);
     try {
-      const pid = Number(readFileSync(p, "utf8").trim());
-      if (!Number.isFinite(pid) || !alive(pid)) unlinkSync(p);
+      const raw = readFileSync(p, "utf8").trim();
+      const pid = Number(raw);
+      if (!Number.isFinite(pid) || !alive(pid)) unlinkIfStill(p, raw);
       // An output claim stays with a stopped writer: it will write again.
-      else if (pid !== process.pid && !name.startsWith("out-")) live.push({ path: p, pid });
+      else if (pid !== process.pid && !name.startsWith("out-")) live.push({ path: p, raw, pid });
     } catch { /* someone else reaped it first */ }
   }
   if (live.length === 0) return;
   const frozen = stopped(live.map((l) => l.pid));
-  for (const l of live) {
-    if (!frozen.has(l.pid)) continue;
-    try { unlinkSync(l.path); } catch { /* someone else reaped it first */ }
-  }
+  for (const l of live) if (frozen.has(l.pid)) unlinkIfStill(l.path, l.raw);
+}
+
+/**
+ * Removes a lock file only while it still says what this pass read in it.
+ *
+ * Every waiter reaps, and between the read and the unlink there is a `ps`.
+ * Waiters that all read the same stopped holder used to unlink in turn, each
+ * one the file the previous one had just TAKEN: up to four `typecheck` at once
+ * behind one frozen holder (review of card cda99908, 30/10). Reading again
+ * narrows that window from a `ps` to two system calls.
+ */
+function unlinkIfStill(path: string, raw: string): void {
+  try { if (readFileSync(path, "utf8").trim() === raw) unlinkSync(path); } catch { /* someone else reaped it first */ }
 }
 
 /**
@@ -188,9 +211,13 @@ function takeFile(path: string): (() => void) | null {
       released = true;
       // Only OUR file: a holder that was stopped had its file reaped and taken
       // by the next run, and unlinking that one would let a third run in.
-      try { if (readFileSync(path, "utf8").trim() === String(process.pid)) unlinkSync(path); } catch { /* already reaped */ }
+      try { if (ours(path)) unlinkSync(path); } catch { /* already reaped */ }
     };
   } catch { return null; }
+}
+
+function ours(path: string): boolean {
+  try { return readFileSync(path, "utf8").trim() === String(process.pid); } catch { return false; }
 }
 
 /**
@@ -229,11 +256,18 @@ interface AcquireOptions {
   stopped?: StoppedProbe;
 }
 
+/** What `acquireSlot` hands back: the release, plus whether the place is still this run's. */
+export interface SlotHold {
+  (): void;
+  /** True when the slot or the name file was reaped while this run was stopped. */
+  lost: () => boolean;
+}
+
 /**
  * Returns the release function, or null when it gave up and the caller should
  * run anyway (unthrottled). Never throws: see the header.
  */
-export function acquireSlot(slots: number, label: string, opts: AcquireOptions = {}): (() => void) | null {
+export function acquireSlot(slots: number, label: string, opts: AcquireOptions = {}): SlotHold | null {
   const dir = slotDir();
   const maxWaitMs = opts.maxWaitMs ?? defaultMaxWaitMs();
   const notify = opts.onWait ?? ((m: string) => console.error(m));
@@ -247,9 +281,10 @@ export function acquireSlot(slots: number, label: string, opts: AcquireOptions =
     // holding half the pair.
     let releaseName: (() => void) | null = null;
     let announcedName = false;
+    const namePath = nameLockPath(dir, label);
     for (;;) {
       reapStale(dir, opts.stopped);
-      releaseName = takeFile(nameLockPath(dir, label));
+      releaseName = takeFile(namePath);
       if (releaseName) break;
       if (Date.now() >= nameDeadline) {
         notify(`[slot] ${label}: another ${label} has been running for ${Math.round((opts.nameMaxWaitMs ?? maxWaitMs) / 60_000)} min, running alongside it.`);
@@ -261,7 +296,10 @@ export function acquireSlot(slots: number, label: string, opts: AcquireOptions =
       }
       Bun.sleepSync(POLL_MS);
     }
-    const withName = (release: () => void): (() => void) => () => { release(); releaseName?.(); };
+    const withName = (release: () => void, slotPath: string): SlotHold =>
+      Object.assign(() => { release(); releaseName?.(); }, {
+        lost: () => !ours(slotPath) || (releaseName != null && !ours(namePath)),
+      });
     // With a name wait of its own, the count gets its own wait from here: time
     // spent behind the same gate is not time spent behind the others. Without
     // one (the bun-test preload, the e2e shards) there is ONE deadline for the
@@ -270,8 +308,9 @@ export function acquireSlot(slots: number, label: string, opts: AcquireOptions =
     for (;;) {
       reapStale(dir, opts.stopped);
       for (let i = 0; i < slots; i++) {
-        const release = takeFile(join(dir, `${i}.pid`));
-        if (release) return withName(release);
+        const slotPath = join(dir, `${i}.pid`);
+        const release = takeFile(slotPath);
+        if (release) return withName(release, slotPath);
       }
       if (Date.now() >= deadline) {
         notify(`[slot] ${label}: ${Math.round(maxWaitMs / 60_000)} min of waiting, running anyway (unthrottled).`);
@@ -290,6 +329,36 @@ export function acquireSlot(slots: number, label: string, opts: AcquireOptions =
   } catch (e) {
     notify(`[slot] ${label}: throttle unavailable (${e instanceof Error ? e.message : e}), running unthrottled.`);
     return null;
+  }
+}
+
+/**
+ * A RUN CONTINUED AFTER A FREEZE QUEUES AGAIN for the place it lost.
+ *
+ * A stopped holder is reaped (`stoppedByPs`) so the gate does not wait on it,
+ * but the freeze ends: the swap freezer and the load governor both continue
+ * the tree, and the run used to go on next to the one that had taken its name,
+ * two `typecheck` at once (card cda99908, finding 15). Called by `slot.ts` on
+ * SIGCONT: if the place is gone, the command is stopped again (`pause`), the
+ * run waits like any other, and the command goes on once it holds a place.
+ *
+ * Returns what to release at the end: the same hold when nothing was lost,
+ * the new one, or null when the new wait gave up (unthrottled, as any wait).
+ */
+export function reclaimAfterStop(
+  hold: SlotHold,
+  slots: number,
+  label: string,
+  pause: (sig: "SIGSTOP" | "SIGCONT") => void,
+  opts: AcquireOptions = {},
+): SlotHold | null {
+  if (!hold.lost()) return hold;
+  pause("SIGSTOP");
+  try {
+    hold();
+    return acquireSlot(slots, label, opts);
+  } finally {
+    pause("SIGCONT");
   }
 }
 
