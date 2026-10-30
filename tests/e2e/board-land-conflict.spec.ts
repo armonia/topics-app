@@ -207,6 +207,8 @@ test.describe("Board · il land in conflitto dice perché la card torna indietro
     // della fusione finale — e all'agente servono due istruzioni diverse
     // (server/routes/tasks.ts, ramo `res.status === "conflict"`), quindi le due
     // ragioni sono due frasi diverse e questa spec ancora la sua.
+    // Status events are chronicle (card e6e4d61d): they live under Details.
+    await drawer.getByTestId("task-details-toggle").click();
     const evento = drawer.getByTestId("task-status-event")
       .filter({ hasText: "ha fatto conflitto" });
     await expect(evento).toBeVisible({ timeout: 20000 });
