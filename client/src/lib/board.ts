@@ -818,6 +818,8 @@ export interface CreateTaskBody {
   blockedByTaskId?: string | null;
   /** When blocked, hand the new agent the blocker's session context. */
   reuseBlockerContext?: boolean;
+  /** "Mac only" at birth: the overflow dispatch never moves the card off this Mac. */
+  stayLocal?: boolean;
   /**
    * Il link (parent o blocker) arriva da una proposta di intake ACCETTATA: il
    * server scrive il perché nei thread di entrambe le card. Senza questo flag

@@ -253,8 +253,9 @@ import { CloudApi } from "./server/providers/claude-cloud/api";
 import { credentialsFor } from "./server/providers/claude-cloud/creds";
 import {
   CLOUD_NODE_BASE_URL, CLOUD_NODE_HOST, CLOUD_NODE_NAME, CLOUD_NODE_TOKEN,
-  cloudCredentialsPresent, createCloudNodeClient, isCloudBaseUrl,
+  cloudCredentialsPresent, createCloudNodeClient, isCloudBaseUrl, resolveGithubSlug,
 } from "./server/providers/claude-cloud/node";
+import { ensureBranchOnOrigin } from "./server/services/branch-on-origin";
 import { createDelegatedRevocationRetry } from "./server/services/delegated-revocation-retry";
 import { initVapid } from "./server/push-service";
 import { startDevBundleReload, readBundleRev, stampBundleRev } from "./server/lib/dev-bundle-reload";
@@ -2160,8 +2161,8 @@ const taskDispatcher = createTaskDispatcher({
   // da qui in poi la stessa nascita la usa anche un sotto-agente isolato
   // (WORKTREE-14): il corpo sta in `worktree-for-agent.ts`, il perché del
   // ripiego su HEAD in `worktree-base-ref.ts`.
-  createWorktree: (projectStoreId) =>
-    createAgentWorktree(agentWorktreeDeps("dispatch"), projectStoreId, worktreeReadyMs()),
+  createWorktree: (projectStoreId, opts) =>
+    createAgentWorktree(agentWorktreeDeps("dispatch"), projectStoreId, worktreeReadyMs(), opts),
   worktreeSetupResult: (worktreeId) => ctx.worktreeManager.setupResult(worktreeId),
   deleteWorktree: async (worktreeId) => { await ctx.worktreeManager.delete(worktreeId); },
   // C'e' qualcosa da perdere in questo worktree? Serve al dispatcher per NON
@@ -2273,6 +2274,9 @@ const taskDispatcher = createTaskDispatcher({
     localMachineId: () => ctx.machineStore.upsertLocal().id,
     originUrlOf: (projectId) => nodeBranchPlanter.originUrlOf(projectId),
     plantBranch: (input) => nodeBranchPlanter.plantBranch(input),
+    // A card that already has a branch carries it to the node: pushed first,
+    // from this machine's checkout (`branch-on-origin.ts`).
+    ensureBranchOnOrigin: ({ projectId, branch }) => ensureBranchOnOrigin(projectPathForNode(projectId), branch),
     // The `node-run` hook starts in the project's checkout on this machine,
     // the same path the planter reads the origin from and plants into.
     projectPathOf: projectPathForNode,
@@ -2280,6 +2284,11 @@ const taskDispatcher = createTaskDispatcher({
   // THE OVERFLOW (`dispatch-overflow.ts`): where a card held by this Mac's
   // memory floor can go. The cloud has no heartbeat: it is there while its
   // login is; a paired node only while its heartbeat says online.
+  // Cloud Claude clones only from GitHub: the overflow asks before choosing it.
+  githubOriginOf: async (projectId) => {
+    const origin = await nodeBranchPlanter.originUrlOf(projectId);
+    return !!origin && !!(await resolveGithubSlug(origin));
+  },
   overflowMachines: () => ctx.machineStore.list()
     .filter((m) => !!m.baseUrl)
     .map((m) => isCloudBaseUrl(m.baseUrl)

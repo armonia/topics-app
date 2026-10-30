@@ -8,7 +8,15 @@
  *     before two minutes it stays;
  *  2. a card (or a board) marked "this Mac only" stays held, whatever the wait;
  *  3. Cloud offline (or without credit) and the PC online: the card goes to the PC;
- *  4. the board switch off: nothing moves.
+ *  4. the board switch off: nothing moves;
+ *  5. a card that already has a delivery branch starts FROM it over there: the
+ *     branch is pushed first and rides `createRun` as `baseBranch`; a branch
+ *     that cannot reach origin keeps the card here;
+ *  6. Cloud only for a GitHub origin and a Claude model, otherwise the PC;
+ *  7. the two-minute clock measures an UNBROKEN hold: a round in which another
+ *     wait held the card, or a trip out of Todo, starts it again;
+ *  8. a machine at its slots takes nothing more, and a round moves at most
+ *     `OVERFLOW_MAX_PER_ROUND` cards.
  *
  * Harness: the node fake and the injected floor of
  * `task-dispatcher-remote-node-floor.test.ts`, with a clock the test moves.
@@ -19,7 +27,10 @@ import { createTaskService, type TaskService } from "./tasks";
 import { createTaskDispatcher, type DispatcherDeps } from "./task-dispatcher";
 import type { ResourceFloorVerdict } from "./dispatch-capacity";
 import type { TurnEndInfo } from "../providers/stop-reason";
-import { OVERFLOW_AFTER_MS, overflowEligible, pickOverflowMachine, type OverflowMachine } from "./dispatch-overflow";
+import {
+  OVERFLOW_AFTER_MS, OVERFLOW_MAX_PER_ROUND, OVERFLOW_SLOTS, cloudRunsModel, overflowEligible, pickOverflowMachine,
+  type OverflowChoice, type OverflowMachine,
+} from "./dispatch-overflow";
 import { TASKS_DDL, TASKS_FK_STUBS_DDL, TASK_LABELS_DDL } from "../db/test-schema";
 
 const PID = "alpha-abc123";
@@ -70,10 +81,19 @@ function freshDb(): Database {
 const ADDRESS: Record<string, string> = { [CLOUD]: "claude-cloud://", [PC]: "https://pc.local" };
 const NAME: Record<string, string> = { [CLOUD]: "Cloud Claude", [PC]: "PC Windows" };
 
-function harness(opts: { cloudOnline?: boolean; pcOnline?: boolean; cloudCredit?: boolean } = {}) {
+function harness(opts: {
+  cloudOnline?: boolean; pcOnline?: boolean; cloudCredit?: boolean; github?: boolean;
+  /** The Mac under its memory floor (default) or free. */
+  floor?: boolean;
+  /** What pushing a card's own branch answers (default: it reaches origin). */
+  ensure?: (branch: string) => { ok: true } | { ok: false; reason: string };
+} = {}) {
   const db = freshDb();
   const svc: TaskService = createTaskService(db);
   const created: Array<{ baseUrl: string; originTaskId: string }> = [];
+  const bodies: Array<{ originTaskId: string; baseBranch?: string | null }> = [];
+  const pushed: string[] = [];
+  const worktrees: Array<{ baseBranch?: string } | undefined> = [];
   const turns: string[] = [];
   let now = Date.UTC(2026, 9, 30, 10, 0, 0);
   let nextRun = 0;
@@ -90,15 +110,16 @@ function harness(opts: { cloudOnline?: boolean; pcOnline?: boolean; cloudCredit?
       db.run("INSERT OR IGNORE INTO topics (id) VALUES (?)", [id]);
       return { topicId: id, sessionKey: `topic:${id}` };
     },
-    createWorktree: async () => "wt-1",
+    createWorktree: async (_store, wopts) => { worktrees.push(wopts); return "wt-1"; },
     deleteWorktree: async () => {},
     runTurn: (sessionKey) => { turns.push(sessionKey); return new Promise<TurnEndInfo | void>(() => {}); },
     broadcast: () => {},
     // The Mac stays under its floor for the whole test: only a move gets the card out.
-    resourceBlock: () => BLOCKED,
+    resourceBlock: () => (opts.floor === false ? null : BLOCKED),
     node: {
       createRun: async ({ baseUrl, body }) => {
         created.push({ baseUrl, originTaskId: body.originTaskId });
+        bodies.push({ originTaskId: body.originTaskId, baseBranch: body.baseBranch });
         nextRun += 1;
         return { runId: `run-${nextRun}` };
       },
@@ -114,8 +135,10 @@ function harness(opts: { cloudOnline?: boolean; pcOnline?: boolean; cloudCredit?
       localMachineId: () => LOCAL,
       originUrlOf: async () => "git@github.com:acme/alpha.git",
       plantBranch: async () => ({ planted: true, commit: "c0ffeec0ffee", reason: null }),
+      ensureBranchOnOrigin: async ({ branch }) => { pushed.push(branch); return opts.ensure?.(branch) ?? { ok: true }; },
     },
     overflowMachines: machines,
+    githubOriginOf: async () => opts.github ?? true,
     cloudCredit: () => opts.cloudCredit ?? true,
     now: () => now,
     graceMs: 0,
@@ -126,18 +149,19 @@ function harness(opts: { cloudOnline?: boolean; pcOnline?: boolean; cloudCredit?
   svc.updateBoardSettings(PID, { autoDispatch: true, dispatchUseWorktree: true, dispatchFanOut: 1 });
   svc.setGlobalCap({ auto: false, max: 9 });
 
-  const seed = (id: string, extra: { machineId?: string | null; stayLocal?: boolean } = {}) => {
+  const seed = (id: string, extra: { machineId?: string | null; stayLocal?: boolean; deliveryBranch?: string; model?: string; costCents?: number; baseBranch?: string } = {}) => {
     const ts = new Date(now).toISOString();
     db.run(
-      `INSERT INTO tasks (id, project_id, text, description, status, created_at, updated_at, dispatch_attempts, machine_id, stay_local)
-       VALUES (?, ?, 'una card in coda', 'sotto il pavimento', 'todo', ?, ?, 0, ?, ?)`,
-      [id, PID, ts, ts, extra.machineId ?? null, extra.stayLocal ? 1 : 0],
+      `INSERT INTO tasks (id, project_id, text, description, status, created_at, updated_at, dispatch_attempts, machine_id, stay_local,
+                          delivery_branch, model, agent_cost_cents, base_branch)
+       VALUES (?, ?, 'una card in coda', 'sotto il pavimento', 'todo', ?, ?, 0, ?, ?, ?, ?, ?, ?)`,
+      [id, PID, ts, ts, extra.machineId ?? null, extra.stayLocal ? 1 : 0, extra.deliveryBranch ?? null, extra.model ?? null, extra.costCents ?? 0, extra.baseBranch ?? null],
     );
   };
   const flush = async (n = 12) => { for (let i = 0; i < n; i++) await Promise.resolve(); };
   const tick = async () => { await dispatcher.tick(PID); await flush(); };
   const advance = (ms: number) => { now += ms; };
-  return { svc, created, turns, seed, tick, advance, task: (id: string) => svc.get(id)!.task };
+  return { db, svc, created, bodies, pushed, worktrees, turns, seed, tick, advance, task: (id: string) => svc.get(id)!.task };
 }
 
 /** Held once, then past the two minutes: the round the move must happen in. */
@@ -190,6 +214,15 @@ describe("overflow: una card ferma per la memoria del Mac va dove il pavimento n
     expect(h.created).toEqual([]);
   });
 
+  it("una card nata «solo Mac» (marcata alla creazione) resta ferma", async () => {
+    const h = harness();
+    const born = h.svc.create({ projectId: PID, text: "riavvia OpenClaw", status: "todo", stayLocal: true });
+    expect(born.stayLocal).toBe(true);
+    await holdPastThreshold(h);
+    expect(h.task(born.id).machineId).toBeNull();
+    expect(h.created).toEqual([]);
+  });
+
   it("una board marcata «solo Mac» tiene ferme le sue card", async () => {
     const h = harness();
     h.svc.updateBoardSettings(PID, { dispatchStayLocal: true });
@@ -239,13 +272,167 @@ describe("overflow: una card ferma per la memoria del Mac va dove il pavimento n
   });
 });
 
+describe("overflow: il ramo della card, l'origin, il modello", () => {
+  it("sul nodo PC la card specchio con un ramo base fa nascere il worktree da lì, non da main", async () => {
+    const h = harness({ floor: false });
+    h.seed("specchio", { baseBranch: "topics/endless-calf" });
+    h.seed("altra");
+    await h.tick();
+    expect(h.worktrees).toContainEqual({ baseBranch: "topics/endless-calf" });
+    expect(h.worktrees).toContainEqual(undefined);
+  });
+
+  it("una card con un ramo di consegna va su Cloud partendo DA quel ramo, pushato prima", async () => {
+    const h = harness();
+    h.seed(CARD, { deliveryBranch: "topics/endless-calf" });
+    await holdPastThreshold(h);
+    // The push answers asynchronously: the move comes in the next round.
+    await h.tick();
+    expect(h.task(CARD).machineId).toBe(CLOUD);
+    expect(h.pushed).toContain("topics/endless-calf");
+    expect(h.bodies).toEqual([{ originTaskId: CARD, baseBranch: "topics/endless-calf" }]);
+  });
+
+  it("una card senza ramo parte dal default: nessun baseBranch, nessun push", async () => {
+    const h = harness();
+    h.seed(CARD);
+    await holdPastThreshold(h);
+    expect(h.bodies).toEqual([{ originTaskId: CARD, baseBranch: undefined }]);
+    expect(h.pushed).toEqual([]);
+  });
+
+  it("un ramo che non arriva su origin tiene la card sul Mac", async () => {
+    const h = harness({ ensure: () => ({ ok: false, reason: "push rifiutato: non-fast-forward" }) });
+    h.seed(CARD, { deliveryBranch: "topics/endless-calf" });
+    await holdPastThreshold(h);
+    for (let i = 0; i < 3; i++) { h.advance(70_000); await h.tick(); }
+    expect(h.task(CARD).machineId).toBeNull();
+    expect(h.task(CARD).status).toBe("todo");
+    expect(h.created).toEqual([]);
+  });
+
+  it("anche una card mandata a mano sul PC parte dal suo ramo; se non si può pushare, si ferma con il motivo", async () => {
+    const h = harness();
+    h.seed("a-mano", { machineId: PC, deliveryBranch: "topics/endless-calf" });
+    await h.tick();
+    expect(h.bodies).toEqual([{ originTaskId: "a-mano", baseBranch: "topics/endless-calf" }]);
+
+    const k = harness({ ensure: () => ({ ok: false, reason: "push rifiutato" }) });
+    k.seed("a-mano", { machineId: PC, deliveryBranch: "topics/endless-calf" });
+    await k.tick();
+    expect(k.created).toEqual([]);
+    expect(k.task("a-mano").status).not.toBe("in_progress");
+    expect(k.svc.get("a-mano")!.comments.map((c) => c.content).join("\n")).toContain("topics/endless-calf");
+  });
+
+  it("origin non su GitHub: il Cloud rifiuterebbe, la card va sul PC", async () => {
+    const h = harness({ github: false });
+    h.seed(CARD);
+    await holdPastThreshold(h);
+    expect(h.task(CARD).machineId).toBe(PC);
+  });
+
+  it("modello non Claude (Codex): niente Cloud, la card va sul PC", async () => {
+    const h = harness();
+    h.seed(CARD, { model: "codex:gpt-5.5" });
+    await holdPastThreshold(h);
+    expect(h.task(CARD).machineId).toBe(PC);
+  });
+
+  it("modello non Claude e PC offline: resta sul Mac", async () => {
+    const h = harness({ pcOnline: false });
+    h.seed(CARD, { model: "codex:gpt-5.5" });
+    await holdPastThreshold(h);
+    expect(h.task(CARD).machineId).toBeNull();
+  });
+});
+
+describe("overflow: l'orologio dei 2 minuti misura una attesa ininterrotta", () => {
+  it("un giro fermato da un'altra attesa (tetto di spesa) riparte da zero", async () => {
+    const h = harness();
+    h.seed(CARD, { costCents: 500 });
+    await h.tick(); // held by memory: the clock starts
+    h.advance(90_000);
+    h.svc.getSpendCaps = () => ({ perTaskCents: 100, perDayCents: 0 });
+    await h.tick(); // held by the spend cap, not by memory: the clock stops
+    h.svc.getSpendCaps = () => ({ perTaskCents: 0, perDayCents: 0 });
+    h.advance(60_000); // 150 s since the first hold, 60 s since this one
+    await h.tick();
+    expect(h.task(CARD).machineId).toBeNull();
+    h.advance(OVERFLOW_AFTER_MS + 1_000);
+    await h.tick();
+    expect(h.task(CARD).machineId).toBe(CLOUD);
+  });
+
+  it("una card che esce da Todo e ci torna riparte da zero", async () => {
+    const h = harness();
+    h.seed(CARD);
+    await h.tick();
+    h.advance(90_000);
+    h.db.run("UPDATE tasks SET status = 'backlog' WHERE id = ?", [CARD]);
+    await h.tick();
+    h.db.run("UPDATE tasks SET status = 'todo' WHERE id = ?", [CARD]);
+    h.advance(60_000);
+    await h.tick();
+    expect(h.task(CARD).machineId).toBeNull();
+    h.advance(OVERFLOW_AFTER_MS + 1_000);
+    await h.tick();
+    expect(h.task(CARD).machineId).toBe(CLOUD);
+  });
+});
+
+describe("overflow: lo spazio sulle altre macchine", () => {
+  it("un giro sposta al massimo OVERFLOW_MAX_PER_ROUND card", async () => {
+    const h = harness();
+    const ids = ["c-1", "c-2", "c-3"];
+    for (const id of ids) h.seed(id);
+    await holdPastThreshold(h);
+    expect(ids.filter((id) => h.task(id).machineId === CLOUD)).toHaveLength(OVERFLOW_MAX_PER_ROUND);
+    await h.tick();
+    expect(ids.filter((id) => h.task(id).machineId === CLOUD)).toHaveLength(3);
+  });
+
+  it("il PC pieno ai suoi posti non prende la terza card", async () => {
+    const h = harness({ cloudOnline: false });
+    const ids = ["c-1", "c-2", "c-3"];
+    for (const id of ids) h.seed(id);
+    await holdPastThreshold(h);
+    await h.tick();
+    h.advance(60_000);
+    await h.tick();
+    expect(ids.filter((id) => h.task(id).machineId === PC)).toHaveLength(OVERFLOW_SLOTS.node);
+    expect(ids.filter((id) => h.task(id).machineId === null)).toHaveLength(3 - OVERFLOW_SLOTS.node);
+  });
+});
+
 describe("overflow: le due regole pure", () => {
   const m = (id: string, kind: "cloud" | "node", online: boolean): OverflowMachine => ({ id, name: id, kind, online });
 
+  const ok: OverflowChoice = { cloudCredit: true, githubOrigin: true, model: null, load: () => 0 };
+  const both = [m("pc", "node", true), m("cloud", "cloud", true)];
+
   it("Cloud con credito prima, poi il primo nodo online", () => {
-    expect(pickOverflowMachine([m("pc", "node", true), m("cloud", "cloud", true)], { cloudCredit: true })?.id).toBe("cloud");
-    expect(pickOverflowMachine([m("pc", "node", true), m("cloud", "cloud", true)], { cloudCredit: false })?.id).toBe("pc");
-    expect(pickOverflowMachine([m("pc", "node", false), m("cloud", "cloud", false)], { cloudCredit: true })).toBeNull();
+    expect(pickOverflowMachine(both, ok)?.id).toBe("cloud");
+    expect(pickOverflowMachine(both, { ...ok, cloudCredit: false })?.id).toBe("pc");
+    expect(pickOverflowMachine([m("pc", "node", false), m("cloud", "cloud", false)], ok)).toBeNull();
+  });
+
+  it("Cloud solo con origin GitHub e modello Claude: altrimenti il PC", () => {
+    expect(pickOverflowMachine(both, { ...ok, githubOrigin: false })?.id).toBe("pc");
+    expect(pickOverflowMachine(both, { ...ok, model: "codex:gpt-5.5" })?.id).toBe("pc");
+    expect(pickOverflowMachine(both, { ...ok, model: "claude-code:sonnet" })?.id).toBe("cloud");
+    expect(pickOverflowMachine([m("cloud", "cloud", true)], { ...ok, model: "codex" })).toBeNull();
+  });
+
+  it("una macchina ai suoi posti non prende altro", () => {
+    expect(pickOverflowMachine(both, { ...ok, load: (id) => (id === "cloud" ? OVERFLOW_SLOTS.cloud : 0) })?.id).toBe("pc");
+    expect(pickOverflowMachine(both, { ...ok, load: (id) => (id === "cloud" ? OVERFLOW_SLOTS.cloud : OVERFLOW_SLOTS.node) })).toBeNull();
+    expect(pickOverflowMachine([{ ...m("pc", "node", true), slots: 5 }], { ...ok, load: () => 4 })?.id).toBe("pc");
+  });
+
+  it("i modelli che il cloud esegue", () => {
+    for (const yes of [null, "", "opus", "claude-code:sonnet", "claude-opus-5-5", "claude-code"]) expect(cloudRunsModel(yes)).toBe(true);
+    for (const no of ["codex", "codex:gpt-5.5", "gpt-5.5", "openai:o5", "gemini-3"]) expect(cloudRunsModel(no)).toBe(false);
   });
 
   it("solo le card che girerebbero qui, senza marcatura, con l'interruttore acceso", () => {

@@ -324,7 +324,9 @@ export function createCloudNodeClient(deps: CloudNodeDeps) {
         runs.set(sid, { ...newRun({ taskId: body.originTaskId, originUrl: body.originUrl, branch: "" }), refused: `il cloud di Claude clona solo da GitHub, e l'origin di questo progetto è ${body.originUrl}` });
         return { runId: sid };
       }
-      const revision = await defaultBranch(body.originUrl);
+      // A card that already has a branch starts from it, not from main: started from main, the
+      // delivery lacked that branch's commits and conflicted with them at the land (df5fd8c5).
+      const revision = body.baseBranch?.trim() || await defaultBranch(body.originUrl);
       const branch = `claude/card-${body.originTaskId.slice(0, 8)}-${crypto.randomUUID().slice(0, 4)}`;
       const sid = await deps.api.createSession({
         title: body.text.slice(0, 60),

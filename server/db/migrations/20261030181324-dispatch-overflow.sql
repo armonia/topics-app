@@ -25,3 +25,8 @@ ALTER TABLE tasks ADD COLUMN stay_local INTEGER NOT NULL DEFAULT 0;
 -- tasks.overflowed_at: when the dispatcher moved the card off this machine. The
 -- chip reads it to say where it went and why; a person choosing a machine clears it.
 ALTER TABLE tasks ADD COLUMN overflowed_at TEXT;
+-- tasks.base_branch: on a node's MIRROR card, the branch its worktree is born
+-- from (the origin card's own delivery branch, already on origin). NULL = main,
+-- as always. Without it a card sent back after a review and moved to another
+-- machine restarted from main and conflicted with its own commits (df5fd8c5).
+ALTER TABLE tasks ADD COLUMN base_branch TEXT;

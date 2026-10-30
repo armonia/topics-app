@@ -321,6 +321,24 @@ describe("nodes routes: ingress of a mirrored card", () => {
     expect(createTaskService(ctx.db).get(runId)!.comments.filter((c) => c.kind === "service").length).toBe(1);
   });
 
+  // df5fd8c5, 30/10: a card with a branch of its own restarted from main on the other machine.
+  test("il ramo base della card d'origine arriva sulla card specchio; un nome non valido è rifiutato", async () => {
+    const ok = await call("POST", "/api/nodes/runs", {
+      originTaskId: "origin-task-base", originUrl: ORIGIN_HTTPS, text: "mirror with base", baseBranch: "topics/endless-calf",
+    });
+    expect(ok.status).toBe(201);
+    const { createTaskService } = await import("../../server/services/tasks");
+    expect(createTaskService(ctx.db).get((await ok.json() as any).runId)!.task.baseBranch).toBe("topics/endless-calf");
+
+    const bad = await call("POST", "/api/nodes/runs", {
+      originTaskId: "origin-task-bad-base", originUrl: ORIGIN_HTTPS, text: "mirror with bad base", baseBranch: "--upload-pack=x",
+    });
+    expect(bad.status).toBe(400);
+
+    const none = await mirror("origin-task-no-base");
+    expect(createTaskService(ctx.db).get(none.body.runId as string)!.task.baseBranch).toBeUndefined();
+  });
+
   test("a mirror runs on THIS machine even when its board has a default machine", async () => {
     // With a board default the service gives an absent machineId the default: a
     // mirror born that way would leave again, toward the default machine.
