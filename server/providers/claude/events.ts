@@ -514,8 +514,8 @@ export type PartialToolEvent =
   | { kind: "input_delta"; index: number; chunk: string }
   /** L'input è completo: quel che c'è nel buffer è tutto. */
   | { kind: "block_stop"; index: number }
-  /** Il modello è entrato in un blocco di ragionamento. Il testo arriva dopo (o
-   *  mai, in diretta): questo è l'unico segnale che c'è mentre ragiona. */
+  /** The model entered a reasoning block. The text arrives later (or
+   *  never, live): this is the only signal available while it reasons. */
   | { kind: "thinking_start"; index: number };
 
 /**
