@@ -5333,3 +5333,48 @@ Con zero lavoro Topics in esecuzione, il posto memoria già previsto SHALL resta
 - **GIVEN** memoria simulata a 4,7 GB
 - **WHEN** si legge l'API della coda
 - **THEN** la risposta contiene una soglia, posizioni, consumatori leggibili e nessun identificativo o frase tecnica del pavimento
+
+### Requirement: KANBAN-100 - Le missioni sono laterali: il testo arriva in una chat di progetto normale, barra inclusa
+
+La chrome della kanban di un progetto SHALL offrire un solo comando «Missioni» che apre un menu di
+preset. Ogni voce SHALL mostrare, prima della scelta, il nome, cosa fa e la riga che dice come si sa
+che la missione è finita: è quella riga a distinguere una missione da un prompt.
+
+Scegliere una missione SHALL consegnare il testo del preset, barra inclusa, al composer di una chat
+di progetto NORMALE aperta accanto alla board, senza creare alcun tipo di sessione nuovo, alcuna
+route dedicata e alcun profilo MCP. Il testo NON SHALL essere inviato: a mandare è chi usa l'app.
+La board SHALL restare visibile: la sessione è accanto, non al posto suo. Una bozza già presente
+nella chat bersaglio SHALL essere conservata, con la missione accodata.
+
+#### Scenario: una bozza già scritta resta, la missione le va sotto
+- **GIVEN** una chat di progetto con una bozza già nel composer
+- **WHEN** si sceglie la missione «inbox 0»
+- **THEN** il composer SHALL contenere prima la bozza intatta e poi il testo della missione, e nulla SHALL essere inviato
+
+#### Scenario: una missione arriva nel composer con la sua barra
+- **GIVEN** un'installazione di sviluppo, la kanban di un progetto e una chat di quel progetto
+- **WHEN** si apre il menu «Missioni» e si sceglie «inbox 0»
+- **THEN** il menu SHALL mostrare la riga di fine della missione, il composer della chat di progetto SHALL contenere il testo della missione con la sua barra, non inviato, e la board SHALL restare visibile
+
+### Requirement: KANBAN-101 - Fuori da un'installazione di sviluppo il comando delle missioni non esiste
+
+Il comando «Missioni» SHALL essere renderizzato solo quando `/api/system/status` riporta
+`server.devReload`, cioè il file `topics-dev.json` in STATE_DIR, assente per costruzione in
+un'installazione standalone. Senza quel flag il comando NON SHALL essere presente nel DOM: non
+nascosto e non disabilitato. Il resto della chrome della board SHALL restare intatto.
+
+#### Scenario: installazione utente, nessun comando
+- **GIVEN** un'installazione senza il flag di sviluppo
+- **WHEN** si apre la kanban di un progetto
+- **THEN** il comando delle missioni SHALL avere zero nodi nel DOM e le colonne della board SHALL essere visibili
+
+### Requirement: KANBAN-102 — The drawer column carries words and one status line
+
+The column of a task drawer SHALL show only words (the person, the agent, the
+questions) and ONE status line that rewrites itself while the agent works. The
+dispatcher's system chronicle SHALL live under «Details», never in the column.
+
+#### Scenario: a working task
+- **WHEN** the drawer of a working task is open
+- **THEN** the column SHALL show zero system chronicle rows and one live status line
+- **AND** the chronicle SHALL be readable under «Details»
