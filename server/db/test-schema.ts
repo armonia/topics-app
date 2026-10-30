@@ -162,7 +162,11 @@ export const TASKS_DDL = `CREATE TABLE IF NOT EXISTS tasks (
   -- 20261028163640: who opened the card (human | agent:<name> | cron:<name>) and
   -- when the coordinator was last told it sits in backlog with no owner.
   created_by TEXT,
-  unowned_alerted_at TEXT
+  unowned_alerted_at TEXT,
+  -- 20261030225403: the workflow column the card sits in (NULL = the default
+  -- column of its status) and the question a delivery carries for the person.
+  stage TEXT,
+  human_ask TEXT
 )`;
 
 /**

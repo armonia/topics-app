@@ -36,7 +36,9 @@ export const PARKED_IN_SERIES_SQL = `SELECT id, project_id FROM tasks
  * before the cutoff, read by `sweepUnownedBacklog` on every reconcile (10 s).
  * Binds: cutoff. "Nobody" = no assignee, no agent topic, no blocker, no dispatch
  * chip (a parked card has its own announce); a person's own parking
- * (`created_by = 'human'`) is not unowned. The `unowned_alerted_at` clause is the
+ * (`created_by = 'human'`) is not unowned, unless it sits in TRIAGE (`stage`,
+ * migration 20261030225403): there it is waiting for the triage pass, which is
+ * the coordinator's job, whoever opened it. The `unowned_alerted_at` clause is the
  * dedupe: fire again only if the card was touched after the last alert.
  *
  * The first three terms are the predicate of idx_tasks_backlog_unowned
@@ -52,8 +54,7 @@ export const UNOWNED_BACKLOG_SQL = `SELECT id, project_id FROM tasks
               AND assigned_topic_id IS NULL
               AND blocked_by_task_id IS NULL
               AND dispatch_state IS NULL
-              AND created_by IS NOT NULL
-              AND created_by <> 'human'
+              AND ((created_by IS NOT NULL AND created_by <> 'human') OR stage = 'triage')
               AND (unowned_alerted_at IS NULL OR unowned_alerted_at < updated_at)
             ORDER BY updated_at`;
 

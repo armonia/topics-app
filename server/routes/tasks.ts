@@ -17,6 +17,7 @@
  * Both go through the service's projectId guard, so a caller can only touch
  * tasks on the project it named/owns (no cross-project IDOR).
  */
+import { STAGE_AI_REVIEW, awaitsHuman } from "../../shared/workflow";
 import { existsSync, mkdirSync, realpathSync, statSync, writeFileSync } from "node:fs";
 import { basename, join } from "node:path";
 import { cpus, homedir } from "node:os";
@@ -124,6 +125,11 @@ const ERROR_STATUS: Record<string, number> = {
   agent_cannot_complete: 409,
   open_subtasks: 409,
   review_needs_summary: 409,
+  // The two gates of a board workflow (shared/workflow.ts): closing an AI
+  // review without the proof, reaching Human review without the question.
+  // State refusals like the one above, not permissions.
+  ai_review_needs_proof: 409,
+  human_review_needs_ask: 409,
   // A card the board ALREADY labelled `visibile` has a surface someone will
   // look at, so it delivers with a preview. 409 like the other review gates:
   // the delivery is refused for its state, not for a missing permission.
@@ -154,7 +160,7 @@ const ERROR_STATUS: Record<string, number> = {
 export function emitReviewReadyEdge(
   broadcast: (m: OutboundMessage) => void,
   projectId: string,
-  task: { id: string; text: string; status: string } | undefined | null,
+  task: { id: string; text: string; status: string; stage?: string | null } | undefined | null,
   prevStatus: string | undefined,
   reason?: string,
   /**
@@ -166,8 +172,17 @@ export function emitReviewReadyEdge(
    * be a query for nothing.
    */
   resolveComments?: () => readonly PendingQuestionComment[] | null | undefined,
+  /**
+   * The column the card was in. A card that moves from AI review to Human
+   * review does not change status, and it is exactly the moment it starts
+   * waiting on the person.
+   */
+  prevStage?: string | null,
 ): void {
-  if (task && task.status === "review" && prevStatus !== "review") {
+  // Only what waits on a PERSON rings: a card in AI review goes back to whoever
+  // opened it (`awaitsHuman`, rule of 28/10).
+  const entered = !!task && task.status === "review" && (prevStatus !== "review" || prevStage === STAGE_AI_REVIEW);
+  if (task && entered && awaitsHuman(task)) {
     let question: { text: string; options: string[] } | null = null;
     // Best-effort: a thread read that fails must not swallow the edge (a banner
     // without buttons is still far better than no banner at all).
@@ -3981,7 +3996,8 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
         const parsed = parseTaskPatch(body, "agent", acceptPreview);
         if (!parsed.ok) return json(unapplicableFieldsBody(parsed.errors), 400);
         try {
-          const prevStatus = svc.get(item.taskId, { projectId: sess.projectId })?.task.status;
+          const prev = svc.get(item.taskId, { projectId: sess.projectId })?.task;
+          const prevStatus = prev?.status;
           let task = svc.update({
             taskId: item.taskId,
             actor: "agent",
@@ -4005,8 +4021,15 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
           // update_task). Al momento del fronte la domanda è l'ultima riga del
           // thread — esattamente ciò che la card mostra come quick-reply.
           emitReviewReadyEdge(broadcastToAll, sess.projectId, task, prevStatus, undefined,
-            () => svc.get(task.id)?.comments);
+            () => svc.get(task.id)?.comments, prev?.stage ?? null);
           triggerUrlProbe(item.taskId, task.outputUrl ?? null, sess.projectId);
+          // AN AI REVIEW CLOSED BY WHOEVER OPENED THE CARD is the same «done»
+          // a person's approval is: what was waiting on it starts, and the
+          // delivery lands if the board lands on done.
+          if (prevStatus === "review" && prev?.stage === STAGE_AI_REVIEW && task.status === "done") {
+            dispatcher?.onBlockerDone(item.taskId);
+            if (task.deliveryBranch) enqueueLandOnDone(sess.projectId, item.taskId, task.deliveryBranch);
+          }
           return json(task);
         } catch (e) { return fail(e); }
       }

@@ -1,0 +1,213 @@
+/**
+ * BOARD WORKFLOWS on the task service (openspec/changes/workflow-per-progetto).
+ *
+ * The stage rides on top of the status: a board with no workflow row behaves
+ * exactly as before; on the `armonia` preset a card from a person is born in
+ * Triage, a delivery on a card an agent opened goes back to that agent (AI
+ * review) and only a delivery with a question for the person reaches Human
+ * review. The agent that opened the card is the one that closes it, with the
+ * proof (rule of 28/10: «chi apre chiude»).
+ */
+import { test, expect, describe, beforeEach } from "bun:test";
+import { Database } from "bun:sqlite";
+import type { TaskService } from "./tasks";
+import { freshDb, svc, PID } from "./tasks-test-db";
+import { readBoardWorkflow, writeBoardWorkflow } from "./board-workflow";
+import { awaitsHuman, columnOfTask } from "../../shared/workflow";
+import { UNOWNED_BACKLOG_MS } from "../../shared/created-by";
+
+const WORKFLOWS_DDL = `CREATE TABLE board_workflows (scope TEXT PRIMARY KEY, preset TEXT NOT NULL, updated_at TEXT NOT NULL)`;
+const OPENER = "topic-opener";
+const WORKER = "topic-worker";
+const OTHER = "topic-other";
+
+function setup(): { db: Database; s: TaskService } {
+  const db = freshDb();
+  db.run(WORKFLOWS_DDL);
+  for (const id of [OPENER, WORKER, OTHER]) db.run("INSERT INTO topics (id) VALUES (?)", [id]);
+  return { db, s: svc(db, { t: Date.parse("2026-10-30T10:00:00.000Z") }) };
+}
+
+/** A card an agent opened, then claimed by another agent's topic. */
+function agentCard(db: Database, s: TaskService, extra: Record<string, unknown> = {}) {
+  const t = s.create({
+    projectId: PID, text: "card opened by an agent", status: "todo",
+    createdBy: "agent:session", createdByTopicId: OPENER, ...extra,
+  });
+  db.run("UPDATE tasks SET status = 'in_progress', assigned_topic_id = ?, dispatch_state = 'working' WHERE id = ?", [WORKER, t.id]);
+  return t;
+}
+
+const deliver = (s: TaskService, id: string, extra: Record<string, unknown> = {}) =>
+  s.update({ taskId: id, actor: "agent", by: `agent:${WORKER}`, agentTopicId: WORKER, patch: { status: "review", summary: "done, see the test", ...extra } });
+
+describe("storage: project wins over global, nothing = default", () => {
+  let db: Database;
+  beforeEach(() => { ({ db } = setup()); });
+
+  test("no row: the five columns of before", () => {
+    expect(readBoardWorkflow(db, PID).preset).toBe("default");
+  });
+  test("the global row applies to every board, the project row wins", () => {
+    writeBoardWorkflow(db, "*", "armonia", "2026-10-30T10:00:00.000Z");
+    expect(readBoardWorkflow(db, PID)).toMatchObject({ preset: "armonia", source: "global" });
+    writeBoardWorkflow(db, PID, "default", "2026-10-30T10:00:00.000Z");
+    expect(readBoardWorkflow(db, PID)).toMatchObject({ preset: "default", source: "project" });
+    writeBoardWorkflow(db, PID, null, "2026-10-30T10:00:00.000Z");
+    expect(readBoardWorkflow(db, PID).source).toBe("global");
+  });
+  test("a database without the table reads as default instead of failing", () => {
+    const bare = freshDb();
+    expect(readBoardWorkflow(bare, PID).preset).toBe("default");
+  });
+});
+
+describe("a board on the default workflow does not change", () => {
+  let db: Database; let s: TaskService;
+  beforeEach(() => { ({ db, s } = setup()); });
+
+  test("no stage is ever written, and the card reads as before", () => {
+    const h = s.create({ projectId: PID, text: "from a person", createdBy: "human" });
+    expect(h.stage).toBeUndefined();
+    const a = agentCard(db, s);
+    const r = deliver(s, a.id);
+    expect(r.status).toBe("review");
+    expect(r.stage).toBeUndefined();
+    expect("stage" in r).toBe(false);
+    expect(awaitsHuman(r)).toBe(true);
+    // The gate of before holds: the agent that opened it cannot close it.
+    expect(() => s.update({ taskId: a.id, actor: "agent", by: "x", agentTopicId: OPENER, patch: { status: "done", summary: "proof" } }))
+      .toThrow(/agents deliver|non è più assegnato/);
+  });
+});
+
+describe("armonia: triage, AI review, human review", () => {
+  let db: Database; let s: TaskService;
+  beforeEach(() => {
+    ({ db, s } = setup());
+    writeBoardWorkflow(db, PID, "armonia", "2026-10-30T10:00:00.000Z");
+  });
+  const columns = () => readBoardWorkflow(db, PID).columns;
+
+  test("a card from a person is born in Triage; a complete card from an agent is not", () => {
+    const h = s.create({ projectId: PID, text: "from a person", createdBy: "human" });
+    expect(h.stage).toBe("triage");
+    expect(columnOfTask(columns(), h)?.id).toBe("triage");
+    const done = s.create({ projectId: PID, text: "shaped", createdBy: "agent:jarvis", priority: 1, description: "bar: tests green" });
+    expect(done.stage).toBeUndefined();
+    const raw = s.create({ projectId: PID, text: "raw", createdBy: "agent:jarvis" });
+    expect(raw.stage).toBe("triage");
+  });
+
+  test("triage sends the card to Todo: stage todo moves the status and clears the stage", () => {
+    const h = s.create({ projectId: PID, text: "from a person", createdBy: "human" });
+    const t = s.update({ taskId: h.id, actor: "agent", by: "agent:coordinator", agentTopicId: OTHER, patch: { stage: "todo", priority: 1 } });
+    expect(t.status).toBe("todo");
+    expect(t.stage).toBeUndefined();
+    expect(t.priority).toBe(1);
+  });
+
+  test("a stage that is not on the board, or contradicts the status, is refused", () => {
+    const h = s.create({ projectId: PID, text: "x", createdBy: "human" });
+    expect(() => s.update({ taskId: h.id, actor: "human", by: "u", patch: { stage: "qa" } })).toThrow(/not a column/);
+    expect(() => s.update({ taskId: h.id, actor: "human", by: "u", patch: { stage: "human_review", status: "todo" } })).toThrow(/holds cards in status/);
+  });
+
+  test("a delivery on a card an agent opened goes to AI review, which does not wait on the person", () => {
+    const a = agentCard(db, s);
+    const r = deliver(s, a.id);
+    expect(r.status).toBe("review");
+    expect(r.stage).toBe("ai_review");
+    expect(columnOfTask(columns(), r)?.id).toBe("ai_review");
+    expect(awaitsHuman(r)).toBe(false);
+  });
+
+  test("with a question for the person it reaches Human review", () => {
+    const a = agentCard(db, s);
+    const r = deliver(s, a.id, { humanAsk: "is the copy of the empty state right?" });
+    expect(r.stage).toBe("human_review");
+    expect(r.humanAsk).toBe("is the copy of the empty state right?");
+    expect(awaitsHuman(r)).toBe(true);
+  });
+
+  test("a card a person opened goes to the person", () => {
+    const h = s.create({ projectId: PID, text: "from a person", createdBy: "human", status: "todo" });
+    db.run("UPDATE tasks SET status = 'in_progress', assigned_topic_id = ? WHERE id = ?", [WORKER, h.id]);
+    expect(deliver(s, h.id).stage).toBe("human_review");
+  });
+
+  test("whoever opened the card closes it from AI review, with the proof in the thread", () => {
+    const a = agentCard(db, s);
+    deliver(s, a.id);
+    expect(() => s.update({ taskId: a.id, actor: "agent", by: `agent:${OPENER}`, agentTopicId: OPENER, patch: { status: "done" } }))
+      .toThrow(/proof/);
+    const closed = s.update({ taskId: a.id, actor: "agent", by: `agent:${OPENER}`, agentTopicId: OPENER, patch: { status: "done", summary: "bun test exit 0, screenshot in the thread" } });
+    expect(closed.status).toBe("done");
+    expect(closed.stage).toBeUndefined();
+    const thread = s.get(a.id)!.comments.map((c) => c.content);
+    expect(thread).toContain("bun test exit 0, screenshot in the thread");
+  });
+
+  test("nobody else closes it: not the worker, not another agent", () => {
+    const a = agentCard(db, s);
+    deliver(s, a.id);
+    for (const topic of [WORKER, OTHER]) {
+      expect(() => s.update({ taskId: a.id, actor: "agent", by: `agent:${topic}`, agentTopicId: topic, patch: { status: "done", summary: "proof" } }))
+        .toThrow();
+    }
+  });
+
+  test("a card in Human review stays a person's: the opener cannot close it", () => {
+    const a = agentCard(db, s);
+    deliver(s, a.id, { humanAsk: "look at this" });
+    expect(() => s.update({ taskId: a.id, actor: "agent", by: `agent:${OPENER}`, agentTopicId: OPENER, patch: { status: "done", summary: "proof" } }))
+      .toThrow(/agents deliver|non è più assegnato/);
+  });
+
+  test("the opener can hand it to the person, but only with the question", () => {
+    const a = agentCard(db, s);
+    deliver(s, a.id);
+    expect(() => s.update({ taskId: a.id, actor: "agent", by: `agent:${OPENER}`, agentTopicId: OPENER, patch: { stage: "human_review" } }))
+      .toThrow(/human_ask|question/);
+    const t = s.update({ taskId: a.id, actor: "agent", by: `agent:${OPENER}`, agentTopicId: OPENER, patch: { stage: "human_review", humanAsk: "which of the two layouts?" } });
+    expect(t.status).toBe("review");
+    expect(t.stage).toBe("human_review");
+    expect(awaitsHuman(t)).toBe(true);
+  });
+
+  test("an agent never names ai_review itself", () => {
+    const a = agentCard(db, s);
+    deliver(s, a.id, { humanAsk: "q" });
+    expect(() => s.update({ taskId: a.id, actor: "agent", by: `agent:${OPENER}`, agentTopicId: OPENER, patch: { stage: "ai_review" } }))
+      .toThrow(/ai_review/);
+  });
+
+  test("a person can still drag anything anywhere, and the stage follows", () => {
+    const a = agentCard(db, s);
+    deliver(s, a.id);
+    const back = s.update({ taskId: a.id, actor: "human", by: "u", patch: { status: "todo" } });
+    expect(back.stage).toBeUndefined();
+    const toAi = s.update({ taskId: a.id, actor: "human", by: "u", patch: { stage: "human_review" } });
+    expect(toAi.status).toBe("review");
+    expect(toAi.stage).toBe("human_review");
+    const done = s.update({ taskId: a.id, actor: "human", by: "u", patch: { status: "done" } });
+    expect(done.status).toBe("done");
+  });
+});
+
+describe("triage is the coordinator's: a card left in Triage is reported like an unowned one", () => {
+  test("a person's card in Triage past ten minutes is reported; on the default workflow it is not", () => {
+    const db = freshDb();
+    db.run(WORKFLOWS_DDL);
+    const clock = { t: Date.parse("2026-10-30T10:00:00.000Z") };
+    const s = svc(db, clock);
+    const plain = s.create({ projectId: PID, text: "parked by a person", createdBy: "human" });
+    writeBoardWorkflow(db, PID, "armonia", "2026-10-30T10:00:00.000Z");
+    const triage = s.create({ projectId: PID, text: "to be triaged", createdBy: "human" });
+    expect(triage.stage).toBe("triage");
+    clock.t += UNOWNED_BACKLOG_MS + 1000;
+    expect(s.sweepUnownedBacklog().map((t) => t.id)).toEqual([triage.id]);
+    expect(s.sweepUnownedBacklog()).toEqual([]);
+    expect(plain.stage).toBeUndefined();
+  });
+});

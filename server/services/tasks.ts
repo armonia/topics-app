@@ -36,6 +36,8 @@ import { NUDGE_CLAIM_MS, gateNudge } from "./nudge-gate";
 import { readChecksMemFloorGB, readGlobalCap, readSpendCaps } from "./dispatch-capacity";
 import { checksMemFloorGB } from "../../shared/checks-memory-floor";
 import { parseCreatedBy, UNOWNED_BACKLOG_MS } from "../../shared/created-by";
+import { STAGE_AI_REVIEW, STAGE_HUMAN_REVIEW, stageAtBirth, stageForDelivery, type WorkflowColumn } from "../../shared/workflow";
+import { readBoardWorkflow } from "./board-workflow";
 import { currentDispatchBlock, currentMemoryWait, heldResumeBlock } from "./dispatch-block-signal";
 import { readElsewhere } from "./task-elsewhere";
 import { liveAgentCount, RUNS_HERE_SQL } from "./agent-census";
@@ -2637,6 +2639,10 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       machineId: r.machine_id ?? null,
       // WHO opened it; NULL for every card written before the column.
       createdBy: r.created_by ?? null,
+      // The workflow column, only when it is not the default one: a board with
+      // the default workflow sends the same row as before.
+      ...(r.stage ? { stage: r.stage } : {}),
+      ...(r.human_ask ? { humanAsk: r.human_ask } : {}),
       // Delegation metadata is rare. Absence means an ordinary owner run, not
       // a UI state, so five repeated null keys on every board card carry no
       // information. A delegated row still gets the complete audit identity.
@@ -3653,6 +3659,22 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
     } catch { return null; } // reduced schema without the column: no rule
   }
 
+  /**
+   * A stage named by a caller, checked against the board's workflow: it must
+   * be one of its columns, and agree with the status the card is getting.
+   * Returns what to store (`null` for a plain column, whose id is its status).
+   */
+  function checkedStage(columns: readonly WorkflowColumn[], stage: string, status: TaskStatus | undefined): string | null {
+    const col = columns.find((c) => c.id === stage);
+    if (!col) {
+      throw new TaskServiceError("invalid_input", `stage "${stage}" is not a column of this board's workflow (${columns.map((c) => c.id).join(", ")})`);
+    }
+    if (status !== undefined && status !== col.base) {
+      throw new TaskServiceError("invalid_input", `stage "${stage}" holds cards in status "${col.base}", not "${status}"`);
+    }
+    return col.id === col.base ? null : col.id;
+  }
+
   const service: TaskService = {
     create(input: CreateTaskInput): Task {
       const text = (input.text ?? "").trim();
@@ -3701,6 +3723,22 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       // be inside an existing chain, so the cycle walk is trivially safe).
       if (input.blockedByTaskId) assertBlockerValid(id, input.blockedByTaskId);
 
+      // THE COLUMN IT IS BORN IN. A subtask is a step of its parent's
+      // checklist, never a card of the board, so it has no column of its own.
+      let birthStage: string | null = null;
+      if (!input.parentTaskId) {
+        const columns = readBoardWorkflow(db, input.projectId).columns;
+        if (input.stage) {
+          birthStage = checkedStage(columns, input.stage, status);
+        } else if (input.stage === undefined) {
+          birthStage = stageAtBirth(columns, {
+            status,
+            createdBy: parseCreatedBy(input.createdBy),
+            complete: input.priority !== undefined && !!(input.description ?? "").trim(),
+          });
+        }
+      }
+
       db.prepare(
         `INSERT INTO tasks (id, project_id, text, description, status, priority, kanban_order, assigned_to, chat_id, created_at, completed_at, updated_at, claude_task_id, parent_task_id, plan_first, model, blocked_by_task_id, reuse_blocker_context, created_by_topic_id, priority_auto, machine_id, topics_routing, created_by)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
@@ -3718,6 +3756,9 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
         input.topicsRouting === undefined || input.topicsRouting === null ? null : (input.topicsRouting ? 1 : 0),
         parseCreatedBy(input.createdBy),
       );
+      // Its own statement, and only when there is a stage: a board on the
+      // default workflow writes the same row as before.
+      if (birthStage) db.prepare("UPDATE tasks SET stage = ? WHERE id = ?").run(birthStage, id);
       return rowToTask(getTaskRow(id));
     },
 
@@ -3848,6 +3889,54 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
         throw new TaskServiceError("invalid_input", "Il modello è fissato alla sessione già assegnata a questo task. Non è possibile cambiarlo dal task dopo l'avvio.");
       }
 
+      // THE WORKFLOW COLUMN (`shared/workflow.ts`). The stage rides on top of
+      // the status: naming a column moves the card to its base status, and a
+      // status change without a column puts it in the default column of the
+      // new status, except a delivery, which the board's workflow routes
+      // (`stageForDelivery`: back to whoever opened it, or to the person).
+      // `nextStage === undefined` = this call does not touch the stage.
+      let nextStage: string | null | undefined;
+      const wantsStage = patch.stage !== undefined ? ((patch.stage ?? "").trim() || null) : undefined;
+      const humanAsk: string | null = patch.humanAsk !== undefined
+        ? ((patch.humanAsk ?? "").trim() || null)
+        : (row.human_ask ?? null);
+      // The ONE agent that may close a card: the one that opened it, while the
+      // card is in AI review. It is the rule of 28/10 («chi apre chiude»),
+      // and the only exception to `agent_cannot_complete` below.
+      const closesOwnAiReview = actor === "agent" && !!agentTopicId && current === "review"
+        && row.stage === STAGE_AI_REVIEW && row.created_by_topic_id === agentTopicId;
+      if (wantsStage !== undefined || (patch.status !== undefined && patch.status !== current)) {
+        const columns = readBoardWorkflow(db, row.project_id).columns;
+        if (wantsStage) {
+          if (actor === "agent") {
+            // AI review is where the SERVER routes a delivery; an agent naming
+            // it could send its own work to itself and close it.
+            if (wantsStage === STAGE_AI_REVIEW) {
+              throw new TaskServiceError("invalid_input", "ai_review is decided by the server when a card is delivered: move it to status 'review' with a `summary` (and `human_ask` if the person has to look at it).");
+            }
+            // A stage move by an agent: on a card in triage (the triage pass),
+            // on its own card, or on one it opened.
+            const triaging = current === "backlog";
+            const mine = row.assigned_topic_id === agentTopicId || row.created_by_topic_id === agentTopicId
+              || (!!agentTopicId && isOwnStep(taskId, agentTopicId));
+            if (!triaging && !(agentTopicId && mine)) {
+              throw new TaskServiceError("task_not_yours", "this card is neither in triage nor yours: you cannot move it to another column. Write a comment instead.");
+            }
+            // Human review takes only what the person has to see, and says what.
+            if (wantsStage === STAGE_HUMAN_REVIEW && !humanAsk) {
+              throw new TaskServiceError("human_review_needs_ask", "a card reaches Human review with a question for the person: send `human_ask` with what they have to look at or decide.");
+            }
+          }
+          nextStage = checkedStage(columns, wantsStage, patch.status);
+          const col = columns.find((c) => c.id === wantsStage)!;
+          if (patch.status === undefined && col.base !== current) patch = { ...patch, status: col.base };
+        } else if (wantsStage === null) {
+          nextStage = null;
+        } else {
+          nextStage = patch.status === "review" ? stageForDelivery(columns, { createdBy: row.created_by, humanAsk }) : null;
+        }
+      }
+
       if (patch.status !== undefined) {
         if (!STATUSES.includes(patch.status)) throw new TaskServiceError("invalid_input", `invalid status "${patch.status}"`);
         // Il task NON è più tuo: un agente a cui il dispatcher ha tolto il task
@@ -3888,6 +3977,7 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
           actor === "agent" && agentTopicId
           && (boundElsewhere || releasedByDispatcher)
           && !isOwnStep(taskId, agentTopicId)
+          && !closesOwnAiReview
         ) {
           throw new TaskServiceError(
             "task_not_yours",
@@ -3898,11 +3988,24 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
         // ONE carve-out: its own checklist steps (strict descendants of the
         // task bound to its topic) close directly — they are the agent's plan,
         // not the deliverable the human reviews.
-        if (patch.status === "done" && actor === "agent" && !(agentTopicId && isOwnStep(taskId, agentTopicId))) {
+        if (patch.status === "done" && actor === "agent" && !(agentTopicId && isOwnStep(taskId, agentTopicId)) && !closesOwnAiReview) {
           throw new TaskServiceError(
             "agent_cannot_complete",
-            "agents deliver to 'review' for human approval; only a human moves 'review' → 'done' (exception: subtask steps of YOUR assigned task). Set status to 'review' instead.",
+            "agents deliver to 'review' for human approval; only a human moves 'review' → 'done' (exceptions: subtask steps of YOUR assigned task, and a card YOU opened that sits in AI review). Set status to 'review' instead.",
           );
+        }
+        // Closing an AI review is a decision on somebody else's work, and it
+        // says on what it rests: the proof goes into the thread before the
+        // card moves, like a delivery's summary.
+        if (patch.status === "done" && closesOwnAiReview) {
+          const proof = (patch.summary ?? "").trim();
+          if (!proof) {
+            throw new TaskServiceError(
+              "ai_review_needs_proof",
+              "closing an AI review needs the proof: call update_task again with `summary` = what you checked and where it can be seen (the command and its exit, the screenshot, the commit).",
+            );
+          }
+          this.addComment({ taskId, author: by, content: proof, projectId: projectId ?? row.project_id, kind: "comment", messageId: messageId ?? null });
         }
         // Una card chiusa da un UMANO non la riapre un agente.
         //
@@ -4260,6 +4363,14 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       // ricomincia ad aspettare da capo, e mostrare l'attesa precedente sarebbe
       // una misura vera di una domanda sbagliata.
       if (patch.status === "review" && current !== "review") put("review_at", now());
+      // The column. Written only when it changes something: a card that never
+      // had a stage keeps the column untouched (and a reduced schema without
+      // it keeps working on the default workflow).
+      if (nextStage !== undefined && (nextStage !== null || row.stage != null)) put("stage", nextStage);
+      // The question for the person belongs to one delivery: a card that goes
+      // back to work drops it, the next delivery says its own.
+      if (patch.humanAsk !== undefined) put("human_ask", humanAsk);
+      else if (row.human_ask != null && patch.status !== undefined && patch.status !== "review" && patch.status !== "done") put("human_ask", null);
       put("updated_at", now());
 
       db.prepare(`UPDATE tasks SET ${sets.join(", ")} WHERE id = ?`).run(...params, taskId);
