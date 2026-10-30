@@ -87,6 +87,11 @@ export interface GovernorDeps {
   /** SIGSTOP / SIGCONT on a whole process tree. */
   signalTree: (pid: number, sig: "SIGSTOP" | "SIGCONT") => Promise<void>;
   log: (message: string) => void;
+  /** The trees of the commands agents run inside their own session (the roots
+   *  `swap-freeze` censuses), already filtered of anything that must never be
+   *  signalled. They are frozen after every check, newest first. Optional: no
+   *  census, no such targets. */
+  agentCommands?: () => FreezableRun[] | Promise<FreezableRun[]>;
   /** One line in the card's thread, so the person does not read the pause as a
    *  hung agent. Best effort: a note that fails must not stop the freeze. */
   note?: (taskId: string, text: string) => void;
@@ -121,10 +126,29 @@ export function createBudgetGovernor(deps: GovernorDeps): BudgetGovernor {
   /** Runs whose card already got the note: one per run, not one per freeze. */
   const noted = new Set<string>();
 
-  const targets = (): FreezeTarget[] =>
-    freezableRuns()
+  /** The agent commands seen on the last sample, by id: `apply` needs the pid of a frozen one. */
+  let commandRuns = new Map<string, FreezableRun>();
+
+  const targets = (): FreezeTarget[] => [
+    ...freezableRuns()
       .filter((r) => !r.queued && !immune.has(r.id))
-      .map((r) => ({ id: r.id, kind: "check" as const, startedAt: r.startedAt }));
+      .map((r) => ({ id: r.id, kind: "check" as const, startedAt: r.startedAt })),
+    ...[...commandRuns.values()]
+      .filter((r) => !immune.has(r.id))
+      .map((r) => ({ id: r.id, kind: "agent-command" as const, startedAt: r.startedAt })),
+  ];
+
+  const runOf = (id: string): FreezableRun | undefined => runs.get(id) ?? commandRuns.get(id);
+
+  async function refreshCommands(): Promise<void> {
+    if (!deps.agentCommands) return;
+    let list: FreezableRun[];
+    try { list = await deps.agentCommands(); } catch { return; }
+    // A command frozen now must stay addressable until it is thawed, even if the census misses it for a beat.
+    const next = new Map(list.map((r) => [r.id, r] as const));
+    for (const id of state.frozen) { const old = commandRuns.get(id); if (old && !next.has(id)) next.set(id, old); }
+    commandRuns = next;
+  }
 
   /** Fail open: a run frozen past the cap is continued and left alone. */
   async function releaseExpired(): Promise<void> {
@@ -142,6 +166,7 @@ export function createBudgetGovernor(deps: GovernorDeps): BudgetGovernor {
     const reading = (() => { try { return deps.read(); } catch { return null; } })();
     await releaseExpired();
     if (!reading) return;
+    await refreshCommands();
     const all = freezableRuns();
     const plan = freezePlan({ used: reading.used, budget: reading.budget, targets: [...targets(), ...all.filter((r) => state.frozen.includes(r.id) && (r.queued || immune.has(r.id))).map((r) => ({ id: r.id, kind: "check" as const, startedAt: r.startedAt }))] }, state);
     state = plan.state;
@@ -150,7 +175,7 @@ export function createBudgetGovernor(deps: GovernorDeps): BudgetGovernor {
   }
 
   async function apply(id: string, sig: "SIGSTOP" | "SIGCONT"): Promise<void> {
-    const run = runs.get(id);
+    const run = runOf(id);
     if (!run) return;
     try {
       await deps.signalTree(run.pid, sig);

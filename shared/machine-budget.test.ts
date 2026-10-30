@@ -427,3 +427,22 @@ test("the eight cards of the card do not start together any more", () => {
   expect(started).toBe(5);
   expect(ourCoreUnits).toBeLessThanOrEqual(cores * share);
 });
+
+describe("freezePlan: agent commands rank between checks and agents", () => {
+  test("picks a check, then a command, then an agent; newest first inside a kind", () => {
+    const targets = [
+      { id: "agent", kind: "agent" as const, startedAt: 9000 },
+      { id: "cmd-old", kind: "agent-command" as const, startedAt: 1000 },
+      { id: "cmd-new", kind: "agent-command" as const, startedAt: 2000 },
+      { id: "check", kind: "check" as const, startedAt: 10 },
+    ];
+    let state = EMPTY_FREEZE_STATE;
+    const order: string[] = [];
+    for (let i = 0; i < 8; i++) {
+      const plan = freezePlan({ used: 30, budget: 9.6, targets }, state);
+      state = plan.state;
+      if (plan.freeze) order.push(plan.freeze);
+    }
+    expect(order).toEqual(["check", "cmd-new", "cmd-old", "agent"]);
+  });
+});

@@ -280,7 +280,7 @@ describe("F5: the heaviest background command, and nothing else", () => {
   test("the pure rule on its own: floor, CPU, ties and the two-freeze limit", () => {
     const c = (over: Partial<FreezeCandidate>): FreezeCandidate => ({
       root: { kind: "claude-background", pid: 1, pgid: 1, sessionKey: "s", command: "x", topicId: null, terminalId: null, taskId: null },
-      treePids: [1], xpcPids: [], footprintGB: 1, residentGB: 1, cpuCores: 1, frozenCount: 0, ...over,
+      treePids: [1], xpcPids: [], footprintGB: 1, residentGB: 1, cpuCores: 1, frozenCount: 0, startedAt: 0, ...over,
     });
     expect(pickVictim([c({ footprintGB: 0.49 })]).skipped).toBe("belowFloor");
     expect(pickVictim([c({ cpuCores: 0.05 })]).skipped).toBe("belowFloor");
@@ -288,6 +288,31 @@ describe("F5: the heaviest background command, and nothing else", () => {
     const heavy = c({ footprintGB: 2, cpuCores: 0.2 });
     const withMoreCpu = c({ footprintGB: 2, cpuCores: 0.9 });
     expect(pickVictim([heavy, withMoreCpu]).victim).toBe(withMoreCpu);
+  });
+
+  test("[28] among the heavy, the NEWEST is the victim: footprint is only the entry threshold", () => {
+    const c = (over: Partial<FreezeCandidate>): FreezeCandidate => ({
+      root: { kind: "claude-background", pid: 1, pgid: 1, sessionKey: "s", command: "x", topicId: null, terminalId: null, taskId: null },
+      treePids: [1], xpcPids: [], footprintGB: 1, residentGB: 1, cpuCores: 1, frozenCount: 0, startedAt: 0, ...over,
+    });
+    const oldAndHeavy = c({ footprintGB: 4, startedAt: 1_000 });
+    const newAndLight = c({ footprintGB: 0.8, startedAt: 2_000 });
+    expect(pickVictim([oldAndHeavy, newAndLight]).victim).toBe(newAndLight);
+    expect(pickVictim([newAndLight, oldAndHeavy]).victim).toBe(newAndLight);
+    // below the threshold the newest still does not qualify
+    const newAndTiny = c({ footprintGB: 0.1, startedAt: 3_000 });
+    expect(pickVictim([oldAndHeavy, newAndTiny]).victim).toBe(oldAndHeavy);
+  });
+
+  test("[24] a CPU base from another episode is absent: the first beat after a long gap measures nothing", async () => {
+    const w = world({ procs: [...BASE, ...shell(51000, "bun batteria.ts", { cores: 0.5, footprintGB: 2.1 })], sessions: [session({ backgroundBash: [{ command: "bun batteria.ts", startedAt: T0 }] })] });
+    await w.beat();
+    w.advance(3_600_000);
+    await w.beat();
+    expect(w.signals).toEqual([]);
+    w.advance(10_000);
+    await w.beat();
+    expect(w.signals.some((s) => s.sig === "SIGSTOP")).toBe(true);
   });
 });
 

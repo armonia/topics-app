@@ -161,3 +161,54 @@ describe("review defects", () => {
     expect(h.signals.filter((x) => x.startsWith("SIGSTOP"))).toHaveLength(1);
   });
 });
+
+describe("agent commands as targets", () => {
+  const command = (id: string, pid: number, startedAt: number) => ({ id, pid, name: id, startedAt });
+
+  it("with no check registered the newest agent command is frozen, one at a time", async () => {
+    const signals: string[] = [];
+    const cmds = [command("cmd-old", 10, 1000), command("cmd-new", 20, 2000)];
+    const governor = createBudgetGovernor({
+      read: () => ({ used: 12, budget: 9.6 }),
+      signalTree: async (pid, sig) => { signals.push(`${sig}:${pid}`); },
+      log: () => {},
+      agentCommands: () => cmds,
+    });
+    await governor.sampleOnce();
+    await governor.sampleOnce();
+    expect(signals).toEqual(["SIGSTOP:20"]);
+    expect(governor.frozenIds()).toEqual(["cmd-new"]);
+  });
+
+  it("a check goes before any agent command, even a newer command", async () => {
+    const signals: string[] = [];
+    addRun("lint", 100, 1000);
+    const governor = createBudgetGovernor({
+      read: () => ({ used: 12, budget: 9.6 }),
+      signalTree: async (pid, sig) => { signals.push(`${sig}:${pid}`); },
+      log: () => {},
+      agentCommands: () => [command("cmd-new", 20, 5000)],
+    });
+    await governor.sampleOnce();
+    await governor.sampleOnce();
+    expect(signals).toEqual(["SIGSTOP:100"]);
+  });
+
+  it("a frozen agent command is continued when the use comes down, even if the census no longer lists it", async () => {
+    const signals: string[] = [];
+    const box = { reading: { used: 12, budget: 9.6 }, cmds: [command("cmd", 20, 2000)] };
+    const governor = createBudgetGovernor({
+      read: () => box.reading,
+      signalTree: async (pid, sig) => { signals.push(`${sig}:${pid}`); },
+      log: () => {},
+      agentCommands: () => box.cmds,
+    });
+    await governor.sampleOnce();
+    await governor.sampleOnce();
+    box.cmds = [];
+    box.reading = { used: 5, budget: 9.6 };
+    await governor.sampleOnce();
+    await governor.sampleOnce();
+    expect(signals).toEqual(["SIGSTOP:20", "SIGCONT:20"]);
+  });
+});
