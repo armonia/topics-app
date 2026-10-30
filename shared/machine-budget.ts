@@ -512,8 +512,10 @@ export function freezePlan(
     }
   }
   if (underSamples >= FREEZE_SAMPLES && frozen.length) {
-    const id = frozen[frozen.length - 1]!;
-    return { state: { overSamples: 0, underSamples: 0, frozen: frozen.slice(0, -1) }, freeze: null, thaw: id };
+    // Oldest run first: whoever started earlier finishes earlier.
+    const started = new Map(input.targets.map((t) => [t.id, t.startedAt]));
+    const id = [...frozen].sort((a, b) => (started.get(a) ?? 0) - (started.get(b) ?? 0))[0]!;
+    return { state: { overSamples: 0, underSamples: 0, frozen: frozen.filter((f) => f !== id) }, freeze: null, thaw: id };
   }
   return { state: { overSamples, underSamples, frozen }, freeze: null, thaw: null };
 }

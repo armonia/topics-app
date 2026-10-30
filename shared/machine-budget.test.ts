@@ -316,15 +316,15 @@ describe("freezing what is already running", () => {
     expect(freeze()).toBe(null);
   });
 
-  test("thawing waits for two samples under 70% and undoes the last first", () => {
+  test("thawing waits for two samples under 70% and thaws the oldest first", () => {
     const targets = checks(3);
     let s: FreezeState = { overSamples: 0, underSamples: 0, frozen: ["check-1", "check-2"] };
     const low = { used: 6, budget: 9.6, targets };
     expect(freezePlan(low, s).thaw).toBe(null);
     s = freezePlan(low, s).state;
     const p = freezePlan(low, s);
-    expect(p.thaw).toBe("check-2");
-    expect(p.state.frozen).toEqual(["check-1"]);
+    expect(p.thaw).toBe("check-1");
+    expect(p.state.frozen).toEqual(["check-2"]);
   });
 
   test("under the budget but over the thaw line, nothing moves", () => {
@@ -380,7 +380,7 @@ describe("the governor reads the CPU only: low memory freezes nothing", () => {
   test("a check frozen for the CPU thaws when the CPU comes down, with memory still under the floor", () => {
     const heldForCpu: FreezeState = { overSamples: 0, underSamples: 0, frozen: ["check-old", "check-new"] };
     const { state, thawed } = replay(governorReading(machine(0.4, 2), 0.6), 8, heldForCpu);
-    expect(thawed).toEqual(["check-new", "check-old"]);
+    expect(thawed).toEqual(["check-old", "check-new"]);
     expect(state.frozen).toEqual([]);
   });
 
