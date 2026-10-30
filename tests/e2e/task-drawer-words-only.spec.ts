@@ -56,6 +56,7 @@ test.describe("Task drawer: words and one status line", () => {
   });
 
   test("no system chronicle in the column, one live status line, chronicle under Details", async ({ page }) => {
+    test.info().annotations.push({ type: "spec", description: "KANBAN-102" });
     await goToApp(page);
     await page.goto(`/task/${taskId}`);
     const column = page.getByTestId("task-conversation-scroll");

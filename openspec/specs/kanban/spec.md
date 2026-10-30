@@ -5367,3 +5367,14 @@ nascosto e non disabilitato. Il resto della chrome della board SHALL restare int
 - **GIVEN** un'installazione senza il flag di sviluppo
 - **WHEN** si apre la kanban di un progetto
 - **THEN** il comando delle missioni SHALL avere zero nodi nel DOM e le colonne della board SHALL essere visibili
+
+### Requirement: KANBAN-102 — The drawer column carries words and one status line
+
+The column of a task drawer SHALL show only words (the person, the agent, the
+questions) and ONE status line that rewrites itself while the agent works. The
+dispatcher's system chronicle SHALL live under «Details», never in the column.
+
+#### Scenario: a working task
+- **WHEN** the drawer of a working task is open
+- **THEN** the column SHALL show zero system chronicle rows and one live status line
+- **AND** the chronicle SHALL be readable under «Details»
