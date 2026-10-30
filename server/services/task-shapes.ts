@@ -225,6 +225,13 @@ export interface Task {
    * along by `CreateRunBody.baseBranch`).
    */
   baseBranch?: string;
+  /**
+   * ON THE WIRE only when set: the delivery branch the card had when it went
+   * back to the queue (review/done -> todo, a reject). Going back clears
+   * `deliveryBranch` with the rest of the snapshot; this is what a run on
+   * another machine starts FROM (`carriedBranch`).
+   */
+  priorBranch?: string;
   /** WHO opened the card: `human`, `agent:<name>`, `cron:<name>`; `null` = born before the field. */
   createdBy: string | null;
   /** The effort the task actually ran with (from the agent's topic). Read

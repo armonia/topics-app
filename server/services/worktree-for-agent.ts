@@ -48,7 +48,7 @@ export interface AgentWorktreeDeps {
     worktreeId: string,
     timeoutMs: number,
   ) => Promise<{ id: string; status: string; errorMessage?: string | null }>;
-  /** Iniettato nei test della base da un ramo (`resolveBranchBaseRef`). Default: `git` vero. */
+  /** Injected by the tests of a base from a branch (`resolveBranchBaseRef`). Default: the real `git`. */
   runGit?: GitRunner;
   /** Where the fallback to `HEAD` is said out loud, prefix included by the
    *  caller (a card's birth and a sub-agent's want different labels). */

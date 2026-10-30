@@ -2,12 +2,14 @@
  * A card's own branch reaches origin before the card runs elsewhere, and a
  * node's mirror is born from it (df5fd8c5, 30/10/2026): real git, a bare
  * origin and two checkouts (this Mac and the other machine).
+ *
+ * @covers KANBAN-76
  */
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { ensureBranchOnOrigin, isPlainBranchName } from "./branch-on-origin";
+import { carriedBranch, ensureBranchOnOrigin, isPlainBranchName } from "./branch-on-origin";
 import { resolveBranchBaseRef } from "./worktree-for-agent";
 import { nodeRunBaseBranch } from "../routes/nodes";
 
@@ -89,5 +91,14 @@ describe("il ramo della card su origin", () => {
     expect(nodeRunBaseBranch("topics/endless-calf")).toBe("topics/endless-calf");
     expect(nodeRunBaseBranch("--upload-pack=x")).toBeUndefined();
     expect(nodeRunBaseBranch(42)).toBeUndefined();
+  });
+});
+
+describe("carriedBranch", () => {
+  test("the live delivery branch first, then the one kept on the way back to the queue, else none", () => {
+    expect(carriedBranch({ deliveryBranch: "topics/a", priorBranch: "topics/b" })).toBe("topics/a");
+    expect(carriedBranch({ deliveryBranch: null, priorBranch: "topics/b" })).toBe("topics/b");
+    expect(carriedBranch({ deliveryBranch: " ", priorBranch: undefined })).toBeNull();
+    expect(carriedBranch({})).toBeNull();
   });
 });

@@ -2289,11 +2289,17 @@ const taskDispatcher = createTaskDispatcher({
     const origin = await nodeBranchPlanter.originUrlOf(projectId);
     return !!origin && !!(await resolveGithubSlug(origin));
   },
-  overflowMachines: () => ctx.machineStore.list()
-    .filter((m) => !!m.baseUrl)
-    .map((m) => isCloudBaseUrl(m.baseUrl)
-      ? { id: m.id, name: m.name, kind: "cloud" as const, online: cloudEnabled }
-      : { id: m.id, name: m.name, kind: "node" as const, online: m.status === "online" }),
+  // The cloud row is online only while the account has an active cloud
+  // environment (the heartbeat asks, `tickHeartbeat`); a node asleep is still a
+  // choice when a `node-run` hook is there to wake it.
+  overflowMachines: () => {
+    const wakeable = defaultLifecycleHooks().declares?.("node-run") ?? false;
+    return ctx.machineStore.list()
+      .filter((m) => !!m.baseUrl)
+      .map((m) => isCloudBaseUrl(m.baseUrl)
+        ? { id: m.id, name: m.name, kind: "cloud" as const, online: cloudEnabled && m.status === "online" && cloudNode.environmentReady()?.ok !== false }
+        : { id: m.id, name: m.name, kind: "node" as const, online: m.status === "online", wakeable });
+  },
   // Usage consumed by the dispatched session so far, from its Claude Code
   // transcript (jsonl_path is kept fresh by the session tracker). The reader
   // (transcript-usage.ts) is incremental (per-path byte offset — the live
@@ -3193,9 +3199,22 @@ function tickHeartbeat() {
     // rinfreschiamo noi, o dopo 5 minuti la card direbbe «non risponde» su un servizio vivo.
     // Solo se il cloud è acceso QUI: una riga rimasta da un avvio di prima, a cloud spento,
     // deve diventare «non risponde» col giro normale invece di restare in linea.
+    // And only while the account has an active cloud environment: without one the node
+    // answers but can start nothing (30/10: the Keychain login moved to an account with no
+    // environments), and "online" sent cards there. Asked from here, at most every 5 minutes.
     const cloud = cloudEnabled ? ctx.machineStore.getByHostname(CLOUD_NODE_HOST) : null;
     if (cloud && isCloudBaseUrl(cloud.baseUrl)) {
-      ctx.machineStore.upsertNode({ hostname: CLOUD_NODE_HOST, name: cloud.name, baseUrl: CLOUD_NODE_BASE_URL });
+      void cloudNode.probeEnvironment();
+      const env = cloudNode.environmentReady();
+      if (env && !env.ok) {
+        const off = ctx.machineStore.markNodeOffline(cloud.id);
+        if (off) {
+          console.warn(`[claude-cloud] offline: ${env.reason}`);
+          ctx.broadcastToAll({ type: "machine:updated", machine: off, payload_version: 1 });
+        }
+      } else {
+        ctx.machineStore.upsertNode({ hostname: CLOUD_NODE_HOST, name: cloud.name, baseUrl: CLOUD_NODE_BASE_URL });
+      }
     }
     probeNodes();
     const flipped = ctx.machineStore.markStaleOffline(STALE_THRESHOLD_MS);

@@ -60,6 +60,7 @@ import {
   type TurnEndInfo,
 } from "../providers/stop-reason";
 import { createRemoteNodeLane, isNodeSessionKey, type NodeDeps, type NodeSlot } from "./task-dispatcher-remote-node";
+import { carriedBranch } from "./branch-on-origin";
 import { OVERFLOW_AFTER_MS, OVERFLOW_MAX_PER_ROUND, overflowEligible, overflowNote, pickOverflowMachine, type OverflowMachine } from "./dispatch-overflow";
 import { createDispatchMemoryQueuePublisher, createDispatchMemoryQueueSnapshot } from "./dispatch-memory-queue";
 import { createDispatchMemoryStartController } from "./dispatch-memory-start";
@@ -2285,7 +2286,7 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
   const overflowBranch = new Map<string, { branch: string; ok: boolean; reason: string; at: number }>();
   const overflowBranchPending = new Set<string>();
   function overflowBranchReady(t: Task): boolean | null {
-    const branch = t.deliveryBranch;
+    const branch = carriedBranch(t);
     if (!branch) return true;
     const ensure = deps.node?.ensureBranchOnOrigin;
     // No way to push: the card cannot carry its branch, so it does not leave.
@@ -2343,7 +2344,7 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
    */
   function overflowHeldCard(
     t: Task,
-    settings: { dispatchOverflow?: boolean; dispatchStayLocal?: boolean; model?: string | null },
+    settings: { dispatchOverflow?: boolean; dispatchStayLocal?: boolean; dispatchModel?: string | null },
     round: { moved: number; load: Map<string, number> },
   ): boolean {
     if (!deps.overflowMachines || !deps.node) return false;
@@ -2364,7 +2365,8 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
     const target = pickOverflowMachine(machines, {
       cloudCredit,
       githubOrigin: origin.github,
-      model: t.model ?? settings.model ?? null,
+      // The model the run would use: the card's, else the board's (`auto` = no choice).
+      model: t.model ?? (settings.dispatchModel && settings.dispatchModel !== "auto" ? settings.dispatchModel : null),
       load: (id) => remoteLoad(id) + (round.load.get(id) ?? 0),
     });
     if (!target) return false;

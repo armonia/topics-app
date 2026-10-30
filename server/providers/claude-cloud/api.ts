@@ -69,7 +69,9 @@ export class CloudApi {
     // The base is read BEFORE asking for credentials, and the real token is requested only for
     // the real API: so no base change midway can carry it elsewhere.
     const base = apiBase;
-    const c = base === DEFAULT_API ? await this.creds() : FAKE_CREDENTIALS;
+    let c: CloudCredentials;
+    try { c = base === DEFAULT_API ? await this.creds() : FAKE_CREDENTIALS; }
+    catch (err) { throw new CloudSetupError(`credenziali del cloud non leggibili: ${err instanceof Error ? err.message : String(err)}`); }
     const res = await this.fetchImpl(base + path, {
       method,
       headers: {
@@ -84,6 +86,11 @@ export class CloudApi {
     });
     if (!res.ok) {
       const text = await res.text().catch(() => "");
+      // A token the API refuses is the account, not a silent service: retrying in
+      // five minutes gets the same answer (30/10/2026, a Keychain login switched).
+      if (res.status === 401 || res.status === 403) {
+        throw new CloudSetupError(`l'API del cloud rifiuta l'account (${res.status} su ${path.split("?")[0]})`);
+      }
       throw new CloudApiError(res.status, `${method} ${path.split("?")[0]} → ${res.status} ${text.slice(0, 200)}`);
     }
     return (await res.json()) as T;
@@ -95,7 +102,7 @@ export class CloudApi {
       "/v1/environment_providers",
     );
     const env = r.environments.find((e) => e.kind === "anthropic_cloud" && e.state === "active");
-    if (!env) throw new Error("nessun ambiente cloud attivo sull'account");
+    if (!env) throw new CloudSetupError("nessun ambiente cloud attivo sull'account");
     return env.environment_id;
   }
 
@@ -174,6 +181,21 @@ export class CloudApi {
         },
       ],
     });
+  }
+}
+
+/**
+ * The cloud cannot run anything for THIS account: no active cloud environment,
+ * credentials that do not read, a token the API refuses. Not a silent node: on
+ * 30/10/2026 seven cards waited 31 minutes for "the node does not answer" while
+ * the node answered and the Keychain login had moved to an account without
+ * cloud environments. `reason` is what the remote lane reads (`nodeFailureReason`).
+ */
+export class CloudSetupError extends Error {
+  readonly reason = "cloud_setup";
+  constructor(message: string) {
+    super(message);
+    this.name = "CloudSetupError";
   }
 }
 
