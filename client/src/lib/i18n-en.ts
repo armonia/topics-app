@@ -1457,6 +1457,8 @@ const EN = {
   'board.dash.noBrokenEmpty': 'No card is stuck on a fault.',
   'board.dash.broken': '{n} cards stuck on a fault: see the reason on the card.',
   'board.dash.dispatchOff': 'Auto-dispatch is off: the {queued} queued start when you turn it on.',
+  'board.dash.dispatchOffEmpty': 'Auto-dispatch is off: cards do not start by themselves.',
+  'board.dash.turnOn': 'Turn on',
   'board.dash.memoryFree': 'Free memory on the Mac: {free} of {total}.',
   'board.dash.memoryWait': 'Another one starts when the Mac has {start} free (now {free}).',
   'board.dash.cpuWait': 'Queued cards wait for the Mac to be less busy.',
