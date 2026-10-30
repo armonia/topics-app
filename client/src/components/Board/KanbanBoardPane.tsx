@@ -2017,6 +2017,7 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, loadHi
             onClose={() => setShowSettings(false)}
             onError={setError}
             tasks={tasks}
+            onOpenTask={(id) => { setShowSettings(false); openTask(id); }}
           />
         ) : (
           <GlobalOnlySettingsPanel
@@ -2024,6 +2025,7 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, loadHi
             onToggleDispatch={toggleDispatch}
             onClose={() => setShowSettings(false)}
             tasks={tasks}
+            onOpenTask={(id) => { setShowSettings(false); openTask(id); }}
           />
         )}
       </Menu>

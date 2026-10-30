@@ -24,7 +24,7 @@ import { projectNameFromId } from '../../lib/boardProjectsStore';
 import type { BoardTask, DispatchCapacity } from '../../lib/board';
 import type { DispatchMemoryQueueSnapshot } from '../../../../shared/board';
 import { useGlobalDispatchCap } from '../../state/globalDispatchCap';
-import { chartMax, queuedCards, waitingLabel, type QueuedCard } from './dispatchDashboardModel';
+import { brokenCards, chartMax, queuedCards, waitingLabel, type BrokenCard, type QueuedCard } from './dispatchDashboardModel';
 import { DANGER_TEXT } from '../../lib/popoverStyles';
 import { admissionVerdictText, verdictSentence } from './dispatchLoad';
 
@@ -217,6 +217,8 @@ interface DashboardInput {
   queue: QueuedCard[];
   /** Cards stopped by a real fault (not by a wait). */
   broken?: number;
+  /** Which of them: the first few, and how many were left out. Absent = the box names none. */
+  brokenList?: { listed: readonly BrokenCard[]; more: number };
   /** The global switch: off, the queue does NOT start by itself, and the status row says so. */
   dispatchOn?: boolean | null;
 }
@@ -253,7 +255,9 @@ function useAnswer({ capacity, snapshot, queue, broken = 0, dispatchOn }: Dashbo
  * The controls come right after it; the detail (chart, queue, who holds the
  * memory) is `DispatchDetailsView`, below the controls.
  */
-export function DispatchSummaryView({ capacity, snapshot, queue, broken = 0, dispatchOn, live, onTurnOn }: DashboardInput & {
+export function DispatchSummaryView({ capacity, snapshot, queue, broken = 0, brokenList, dispatchOn, live, onTurnOn, onOpenTask }: DashboardInput & {
+  /** Opens the card's drawer: the stopped cards in the red box are links. */
+  onOpenTask?: (id: string) => void;
   /** The server's read is fresh; absent = there is a snapshot. */
   live?: boolean;
   /** Turns auto-dispatch on: the button sits in the warning box while it is off. */
@@ -288,6 +292,22 @@ export function DispatchSummaryView({ capacity, snapshot, queue, broken = 0, dis
             onClick={onTurnOn}
             className="inline-flex min-h-6 shrink-0 items-center rounded-md bg-amber-500/25 px-2 py-0.5 text-mini font-semibold hover:bg-amber-500/40 coarse:min-h-11"
           >{tr('board.dash.turnOn')}</button>
+        )}
+        {answer.tone === 'bad' && brokenList && brokenList.listed.length > 0 && (
+          <ul className="basis-full space-y-0.5 pl-[15px] font-normal" data-testid="dispatch-dashboard-broken-list">
+            {brokenList.listed.map((c) => (
+              <li key={c.id} className="min-w-0">
+                <button
+                  type="button"
+                  data-testid="dispatch-dashboard-broken-card"
+                  title={c.title}
+                  onClick={() => onOpenTask?.(c.id)}
+                  className="block min-h-6 max-w-full truncate text-left underline underline-offset-2 hover:opacity-80 coarse:min-h-11"
+                >{c.title}</button>
+              </li>
+            ))}
+            {brokenList.more > 0 && <li data-testid="dispatch-dashboard-broken-more">+{brokenList.more}</li>}
+          </ul>
         )}
       </div>
     </section>
@@ -408,16 +428,16 @@ function useDashboardData(tasks: readonly BoardTask[]) {
   useEffect(() => { const id = setInterval(() => setNow(Date.now()), 30_000); return () => clearInterval(id); }, []);
   // A real fault: the dispatcher parks the card with `failed` (the agent did not
   // deliver) or `blocked` (configuration to fix). A wait is not one.
-  const broken = tasks.filter((t) => !t.parentTaskId && t.status !== 'done' && (t.dispatchState === 'failed' || t.dispatchState === 'blocked')).length;
+  const brokenAll = brokenCards(tasks);
   // The project name from the id (`<folder>-<hash>`); cards without a project show none.
   const projectName = (t: BoardTask) => (isProjectlessId(t.projectId) ? null : projectNameFromId(t.projectId));
-  return { capacity, snapshot, now, broken, queue: queuedCards(tasks, tr, now, projectName) };
+  return { capacity, snapshot, now, broken: brokenAll.total, brokenList: brokenAll, queue: queuedCards(tasks, tr, now, projectName) };
 }
 
 /** The live summary, for the top of the panel. */
-export function DispatchSummary({ tasks, dispatchOn, onTurnOn }: { tasks: readonly BoardTask[]; dispatchOn?: boolean | null; onTurnOn?: () => void }) {
+export function DispatchSummary({ tasks, dispatchOn, onTurnOn, onOpenTask }: { tasks: readonly BoardTask[]; dispatchOn?: boolean | null; onTurnOn?: () => void; onOpenTask?: (id: string) => void }) {
   const d = useDashboardData(tasks);
-  return <DispatchSummaryView capacity={d.capacity} snapshot={d.snapshot} queue={d.queue} broken={d.broken} dispatchOn={dispatchOn} live={snapshotIsLive(d.now)} onTurnOn={onTurnOn} />;
+  return <DispatchSummaryView capacity={d.capacity} snapshot={d.snapshot} queue={d.queue} broken={d.broken} brokenList={d.brokenList} dispatchOn={dispatchOn} live={snapshotIsLive(d.now)} onTurnOn={onTurnOn} onOpenTask={onOpenTask} />;
 }
 
 /** The live detail (chart, queue, holders), for below the controls. */
