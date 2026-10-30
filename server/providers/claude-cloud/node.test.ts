@@ -35,7 +35,10 @@ afterAll(() => { setCloudApiBase(null); rmSync(root, { recursive: true, force: t
 /** The fake cloud: creates the session, and when the test says "work" pushes a branch to origin. */
 function fakeCloud() {
   const events: CloudEvent[] = [];
-  let created: { session_context: { outcomes: Array<{ git_info: { branches: string[] } }>; model: string } } | null = null;
+  let created: {
+    session_context: { sources: Array<{ revision: string }>; outcomes: Array<{ git_info: { branches: string[] } }>; model: string };
+    events: Array<{ data: { message: { content: string } } }>;
+  } | null = null;
   const creates: string[] = [];
   const posts: string[] = [];
   const f: FetchLike = async (url, init) => {
@@ -61,6 +64,8 @@ function fakeCloud() {
     posts,
     branch: () => created!.session_context.outcomes[0].git_info.branches[0],
     model: () => created!.session_context.model,
+    revision: () => created!.session_context.sources[0].revision,
+    prompt: () => created!.events[0].data.message.content,
     /** `pushAs`: the name the session really pushes, when its harness gives it another one. */
     work(name?: string) {
       const pushAs = name ?? this.branch();
@@ -109,6 +114,23 @@ describe("nodo cloud", () => {
     });
     expect(planted).toMatchObject({ planted: true, commit: tip });
     expect(sh(["show", `${r1.deliveryBranch}:b.txt`], checkout)).toBe("fatto nel cloud");
+  });
+
+  // card df5fd8c5, 30/10: moved to the cloud with a branch of its own, the session started from main
+  // and the delivery lacked that branch's three commits (5 files in conflict at the land).
+  test("una card con un ramo suo: la sessione parte da quel ramo, non dal default", async () => {
+    const cloud = fakeCloud();
+    const node = createCloudNodeClient({ api: cloud.api, repoPathOfTask: () => checkout });
+    await node.createRun({ body: { ...body, originTaskId: "df5fd8c5aaaa", originUrl: origin, baseBranch: "topics/endless-calf" } });
+    expect(cloud.revision()).toBe("topics/endless-calf");
+    expect(cloud.prompt()).toContain("creato da `topics/endless-calf`");
+  });
+
+  test("senza ramo suo la sessione parte dal ramo di default di origin", async () => {
+    const cloud = fakeCloud();
+    const node = createCloudNodeClient({ api: cloud.api, repoPathOfTask: () => checkout });
+    await node.createRun({ body: { ...body, originTaskId: "0123456789ab", originUrl: origin } });
+    expect(cloud.revision()).toBe("main");
   });
 
   // card ff0bb951, 26/10: the cloud harness forces its own suffix on the branch of the session

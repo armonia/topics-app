@@ -480,6 +480,8 @@ export function createBoardRoutes(deps: BoardRouteDeps) {
             blockedByTaskId: typeof body?.blockedByTaskId === "string" ? body.blockedByTaskId : null,
             reuseBlockerContext: body?.reuseBlockerContext === true,
             machineId: bornMachine,
+            // "This Mac only" at birth: the overflow dispatch never moves it.
+            stayLocal: body?.stayLocal === true,
             // Who opened it: the interface marks itself, anyone else is automation.
             createdBy: resolveCreatedBy(req, body),
           });

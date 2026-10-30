@@ -219,6 +219,12 @@ export interface Task {
    * `runComputerName` it is the chip's «moved to Cloud: Mac full».
    */
   overflowedAt?: string;
+  /**
+   * ON THE WIRE only when set: on a node's MIRROR card, the branch its worktree
+   * is born from instead of main (the origin card's own delivery branch, sent
+   * along by `CreateRunBody.baseBranch`).
+   */
+  baseBranch?: string;
   /** WHO opened the card: `human`, `agent:<name>`, `cron:<name>`; `null` = born before the field. */
   createdBy: string | null;
   /** The effort the task actually ran with (from the agent's topic). Read
@@ -429,6 +435,10 @@ export interface CreateTaskInput {
   topicsRouting?: boolean | null;
   /** Run this card on a paired node (KANBAN-76). Omit/null = this machine. */
   machineId?: string | null;
+  /** The "this Mac only" mark, set at birth: the overflow dispatch never moves the card. */
+  stayLocal?: boolean;
+  /** A node's mirror card: the branch its worktree starts from (default main). */
+  baseBranch?: string | null;
   /** Wait for this task before dispatching (exists, not self, no cycle). */
   blockedByTaskId?: string | null;
   /** Reuse the blocker agent's conversation at dispatch. */
