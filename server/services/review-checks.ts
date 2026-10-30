@@ -595,11 +595,17 @@ async function runOne(check: ReviewCheck, opts: RunOneOpts): Promise<CheckRun> {
     // Queued behind another run of the same gate (the waiting line): the
     // deadline is not running, and it starts from the acquired line.
     let queued = false;
+    let frozenAt = 0;
     const armTimer = () => {
       if (timer) clearTimeout(timer);
-      if (timedOut || queued) return;
+      if (timedOut || queued || frozenAt) return;
       const left = Math.max(0, clockFrom + capMs - Date.now());
-      timer = setTimeout(() => { timedOut = true; killTree(); }, left);
+      timer = setTimeout(() => {
+        // A frozen run never times out: its clock is stopped (see onFreeze).
+        if (frozenAt) return;
+        timedOut = true;
+        killTree();
+      }, left);
     };
     armTimer();
     /* THE CLOCK STOPS WHILE THE RUN IS FROZEN, and this is the whole reason the
@@ -610,7 +616,6 @@ async function runOne(check: ReviewCheck, opts: RunOneOpts): Promise<CheckRun> {
      * a red gate that nobody caused is the worst kind of noise on a delivery.
      * Same rule the board already applies to the slot queue, which is why
      * `clockFrom` exists here at all. */
-    let frozenAt = 0;
     const entry: FreezableRun | null = proc.pid
       ? {
           id: `${opts.taskId ?? "check"}:${check.name}:${proc.pid}`,
@@ -620,7 +625,13 @@ async function runOne(check: ReviewCheck, opts: RunOneOpts): Promise<CheckRun> {
           startedAt: started,
           roundStartedAt: opts.roundStartedAt,
           commit: opts.commit,
-          onFreeze: () => { frozenAt = Date.now(); },
+          onFreeze: () => {
+            // The deadline stops with the process: a timer left armed would
+            // fire during the pause and invent a red.
+            frozenAt = Date.now();
+            if (timer) clearTimeout(timer);
+            timer = null;
+          },
           onThaw: () => {
             if (!frozenAt) return;
             clockFrom += Date.now() - frozenAt;
@@ -661,10 +672,12 @@ async function runOne(check: ReviewCheck, opts: RunOneOpts): Promise<CheckRun> {
         if (q !== null) {
           queuedMs = q;
           queued = false;
+          if (entry) entry.queued = false;
           clockFrom = Date.now();
           armTimer();
         } else if (!queued && hasSlotWaiting(err)) {
           queued = true;
+          if (entry) entry.queued = true;
           if (timer) clearTimeout(timer);
         }
       }
