@@ -24,6 +24,7 @@ test.describe("Task drawer: words and one status line", () => {
   test.use({ viewport: { width: 1440, height: 900 } });
   let topicId = "";
   let taskId = "";
+  let spokenId = "";
 
   test.beforeAll(async ({ request }) => {
     mkdirSync(PROJECT_PATH, { recursive: true });
@@ -34,7 +35,11 @@ test.describe("Task drawer: words and one status line", () => {
       expect(r.ok()).toBe(true);
     };
     await row({ role: "user", content: "fix it" });
-    await row({ role: "assistant", content: AGENT_WORDS, blocks: [{ kind: "text", text: AGENT_WORDS }] });
+    const spoken = await request.post(`${E2E_BASE}/api/test/topics/${topicId}/session-row`, {
+      data: { role: "assistant", content: AGENT_WORDS, blocks: [{ kind: "text", text: AGENT_WORDS }] },
+    });
+    expect(spoken.ok()).toBe(true);
+    spokenId = ((await spoken.json()) as { message: { id: string } }).message.id;
     await row({
       role: "assistant", content: "",
       blocks: [{ kind: "tool", toolCall: { id: `wo-${STAMP}`, name: "Bash", args: { command: "bun test" }, status: "running" } }],
@@ -44,6 +49,10 @@ test.describe("Task drawer: words and one status line", () => {
     taskId = ((await res.json()) as { id: string }).id;
     const bind = await request.post(`${E2E_BASE}/api/test/tasks/${taskId}/bind-topic`, { data: { topicId, dispatchState: "working" } });
     expect(bind.ok()).toBe(true);
+    const words = await request.post(`${E2E_BASE}/api/test/tasks/${taskId}/anchored-comment`, {
+      data: { content: AGENT_WORDS, author: "agent", messageId: spokenId },
+    });
+    expect(words.ok()).toBe(true);
     const note = await request.post(`${E2E_BASE}/api/test/tasks/${taskId}/anchored-comment`, {
       data: { content: SYSTEM_LINE, author: "system", messageId: "m-system" },
     });
