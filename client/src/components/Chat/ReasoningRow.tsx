@@ -31,7 +31,9 @@ export function ReasoningRow({ content, partial, defaultCollapsed = true, messag
     setCollapsed(false);
   }
   const disclose = useDisclosureToggle();
-  if (!content) return null;
+  // A partial turn that has entered reasoning keeps its row (count 0) from the
+  // start, so the row is already in its final place when the text arrives.
+  if (!content && !partial) return null;
   const length = content.length;
 
   return (

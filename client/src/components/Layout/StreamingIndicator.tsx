@@ -1,9 +1,8 @@
 /**
  * Streaming indicators — the canonical "working now" affordance for a row/tab,
- * rendered as a ring with a gradient sweep travelling around it (see
- * OrbitLoader), NOT a row of dots and no longer the three-column equaliser.
- * The sweep has no head and no end, so it reads as "alive, computing" rather
- * than as a determinate progress bar about to finish.
+ * rendered as a breathing four-pointed star (see SparkLoader), NOT a row of
+ * dots and not a spinning ring. It promises no quantity, so it reads as
+ * "alive, computing" rather than as a progress bar about to finish.
  *
  * Every variant renders through ONE wrapper (LoaderSlot), so the loader is
  * pixel-identical across surfaces — a project (parent) tab and its chat /
@@ -34,7 +33,7 @@
  * from the same loading facade and the same component so they can't drift.
  */
 
-import { LoaderCircle } from 'lucide-react';
+import { Sparkle } from 'lucide-react';
 import { useTopicLoading, useTopicAwaitingInput, useTopicInProgress, useTopicBackgroundTasks, useProjectLoading, useProjectAwaitingInput, useTerminalLoading, useTerminalBackgroundTasks, useBrowserLoading } from '../../state/signals';
 import { useT } from '../../hooks/useT';
 import { loaderArcClass, loaderStateFor, type LoaderState } from './loaderState';
@@ -42,75 +41,35 @@ import { useSharedNow } from '../../state/useSharedNow';
 import { deriveWorkLongevity, formatElapsedCompact } from '../../state/workLongevity';
 
 /**
- * THE ORBIT — a faint full ring with lucide's `LoaderCircle` arc turning on top
- * of it, forever.
+ * THE SPARK: lucide's four-pointed `Sparkle`, breathing (scale 0.85 to 1 with a
+ * slight turn, about 1.6s, ease-in-out). It replaced a ring with a turning arc,
+ * which read as the old generic "loading" and not as an assistant thinking.
  *
- * It replaces the hand-rolled conic sweep, which replaced a three-column
- * equaliser, which replaced a 2x3 matrix of little squares. The sweep was a
- * gradient painted into a masked disc: it dissolved at its tail, so at 12px the
- * only thing left with a definite edge was the head, and the glyph read as a
- * smudge that got brighter on one side. The card asked for a loader that is
- * both nicer and MORE SUITABLE, and the suitable part is the one that decides
- * it: a shape with two crisp round caps says "arc going round" at any size,
- * on any background, at any theme.
+ * It is a lucide component and not an SVG of ours on purpose: every other glyph
+ * in this app comes from that set, and a bespoke one drifts in stroke weight
+ * the moment the set updates.
  *
- * It is a lucide component and not an SVG of ours on purpose — every other
- * glyph in this app comes from that set, and a bespoke one drifts in stroke
- * weight and cap shape the moment the set updates.
- *
- * GEOMETRY — the glyph is 12x12 inside the 16px slot, so the margin is
- * (16 - 12) / 2 = 2 on both axes: whole pixels, which is the rule the tab
- * geometry test enforces (a glyph born on a quarter pixel rasterises blurred).
- * The TRACK is a real 2px ring cut out of a disc by a donut mask rather than a
- * `border`, so it takes the same `currentColor 22%` wash as a disabled panel of
- * the SplitMiniMap and cannot drift from it.
- *
- * TWO LAYERS, same family as before: the track is always there and never moves,
- * and over it turns the arc. The silhouette never changes size, so the glyph
- * never "disappears" at any point of the cycle.
- *
- * Only `transform: rotate` animates: no reflow, no main-thread work. Timings and
- * the `prefers-reduced-motion` branch live in `index.css` (`orbit-spin`).
+ * GEOMETRY: 12x12 inside the 16px slot, so the margin is 2 on both axes, whole
+ * pixels (the tab geometry test enforces it). Only `transform` and `opacity`
+ * animate. The waiting state is the same star, still and amber. Timings and the
+ * `prefers-reduced-motion` branch live in `index.css` (`spark-breathe`).
  */
-/** Ring diameter. 12 in a 16px slot leaves an integer 2px margin per side. */
+/** Glyph size. 12 in a 16px slot leaves an integer 2px margin per side. */
 const GLYPH = 12;
-/** Ring thickness, cut by the donut mask below. */
-const STROKE = 2;
 
-/** Keeps only the outer STROKE px of the disc: a ring, from a background a
- *  `border` could not carry (a colour-mix wash that inverts with the theme). */
-const DONUT_MASK = `radial-gradient(closest-side, transparent calc(100% - ${STROKE}px), #000 calc(100% - ${STROKE}px))`;
-
-/** The track: the same water as a disabled panel of the SplitMiniMap, so the
- *  two glyphs of the family cannot drift apart. */
-const TRACK_WASH = 'color-mix(in srgb, currentColor 22%, transparent)';
-
-/** `onFill`: the glyph sits on an attention fill, and its arc takes the fill's ink (`loaderArcClass`).
- *  `size`: the tab slot draws the same ring at 20 around a count (TABSLOT-02). */
-export function OrbitLoader({ className = '', state = 'working', onFill = false, size = GLYPH }: { className?: string; state?: LoaderState; onFill?: boolean; size?: number }) {
-  const box = { width: size, height: size } as const;
-  // Stroke width in lucide's 24-unit box, scaled so the arc lands at the
-  // track's STROKE px at any size: the arc has to be the loud layer.
+/** `onFill`: the glyph sits on an attention fill and takes the fill's ink (`loaderArcClass`).
+ *  `size`: the tab slot draws the same star at 20 around a count (TABSLOT-02). */
+export function SparkLoader({ className = '', state = 'working', onFill = false, size = GLYPH }: { className?: string; state?: LoaderState; onFill?: boolean; size?: number }) {
   return (
     <span
-      className={`relative inline-block ${className}`}
-      style={box}
+      className={`relative inline-flex items-center justify-center ${className}`}
+      style={{ width: size, height: size }}
       aria-hidden="true"
     >
-      <span
-        style={{
-          position: 'absolute',
-          inset: 0,
-          borderRadius: '50%',
-          background: TRACK_WASH,
-          WebkitMaskImage: DONUT_MASK,
-          maskImage: DONUT_MASK,
-        }}
-      />
-      <LoaderCircle
+      <Sparkle
         size={size}
-        strokeWidth={(STROKE / size) * 24}
-        className={`absolute inset-0 ${loaderArcClass(state, onFill)}`}
+        strokeWidth={2}
+        className={`absolute inset-0 fill-current ${loaderArcClass(state, onFill)}`}
       />
     </span>
   );
@@ -152,7 +111,7 @@ export function LoaderSlot({ title, className = '', size = 16, state = 'working'
       aria-label={tip}
       data-loader-state={state}
     >
-      <OrbitLoader state={state} onFill={onFill} />
+      <SparkLoader state={state} onFill={onFill} />
     </span>
   );
 }

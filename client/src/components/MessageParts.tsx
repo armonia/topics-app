@@ -1,8 +1,9 @@
 import { costTokens, partsFromMessage } from '../../../shared/token-cost';
+import { TurnLoader } from './Chat/TurnLoader';
 import { StreamTokenRateIndicator } from './Chat/StreamTokenRateIndicator';
 import { useT } from '../hooks/useT';
 import { useEffect, useState } from 'react';
-import { OrbitLoader } from './Layout/StreamingIndicator';
+import { SparkLoader } from './Layout/StreamingIndicator';
 import { MessageMetaFooter } from './Chat/MessageMetaFooter';
 import { turnClock, formatTurnElapsed } from '../state/turnClock';
 import { phraseAt } from '../lib/thinkingPhrases';
@@ -68,8 +69,11 @@ export function TurnActivityIndicator({
   cacheCreationTokens,
   cacheCreation1hTokens,
   model,
+  runningTool,
 }: {
   since?: number;
+  /** Short label of the tool running now ("Esegue: ..."); null when none. */
+  runningTool?: string | null;
   /** Serve solo per lo stato "lento": senza, l'indicatore resta quello normale. */
   sessionKey?: string;
   onMessage?: (handler: (msg: WSMessage) => void) => () => void;
@@ -246,12 +250,31 @@ export function TurnActivityIndicator({
         : `${phraseAt(clock.workedMs)}…`;
   return (
     <>
-    <div
-      data-testid="chat-streaming-indicator"
+    <TurnLoader
+      tool={runningTool}
+      runningLabel={tr('turn.running')}
+      phraseClassName={state === 'working' ? 'turn-activity-phrase font-medium' : 'font-medium text-amber-600 dark:text-amber-400'}
+      phrase={label}
+      icon={
+        <>
+{/* THE SAME glyph as the sidebar and the tabs: the ring whose sweep
+          travels while it works, and the same ring frozen amber when the ball
+          is in the human's court. There used to be a pulsing dot here, a third
+          language for what the other two surfaces already said their own way,
+          and from outside the chat they looked like different states. The glyph
+          lives in ONE place (`StreamingIndicator`), so they can no longer
+          drift. The "slow" state keeps the amber dot: it is the only one that
+          is NOT "working", and it deserves to look different. */}
+      {state === 'slow' || state === 'retry' ? (
+        <span className="turn-activity-dot inline-block w-1.5 h-1.5 rounded-full shrink-0 bg-amber-500" />
+      ) : (
+        <SparkLoader className="shrink-0" state={state === 'waiting' ? 'waiting' : 'working'} />
+      )}
+        </>
+      }
       data-slow={state === 'slow' ? 'true' : undefined}
       data-retry={state === 'retry' ? 'true' : undefined}
       data-waiting={state === 'waiting' ? 'true' : undefined}
-      className="flex items-center gap-2 text-mini leading-none select-none"
       role="status"
       aria-live="polite"
       aria-label={
@@ -264,34 +287,6 @@ export function TurnActivityIndicator({
             : tr('turn.working')
       }
     >
-      {/* THE SAME glyph as the sidebar and the tabs: the ring whose sweep
-          travels while it works, and the same ring frozen amber when the ball
-          is in the human's court. There used to be a pulsing dot here, a third
-          language for what the other two surfaces already said their own way,
-          and from outside the chat they looked like different states. The glyph
-          lives in ONE place (`StreamingIndicator`), so they can no longer
-          drift. The "slow" state keeps the amber dot: it is the only one that
-          is NOT "working", and it deserves to look different. */}
-      {state === 'slow' || state === 'retry' ? (
-        <span className="turn-activity-dot inline-block w-1.5 h-1.5 rounded-full shrink-0 bg-amber-500" />
-      ) : (
-        <OrbitLoader className="shrink-0" state={state === 'waiting' ? 'waiting' : 'working'} />
-      )}
-      <span
-        // `turn-activity-phrase` è lo shimmer del lavoro in corso: dipinge il
-        // testo con un gradiente in `background-clip` e mette il fill a
-        // trasparente, quindi qualunque colore Tailwind sopra sparirebbe. Negli
-        // stati d'attesa la classe non si mette proprio — così l'ambra si vede
-        // e l'animazione non suggerisce un'attività che non c'è.
-        className={
-          state === 'working'
-            ? 'turn-activity-phrase font-medium'
-            : 'font-medium text-amber-600 dark:text-amber-400'
-        }
-        data-testid="turn-phrase"
-      >
-        {label}
-      </span>
       {/* Mentre la domanda aspetta, accanto a «in attesa della tua risposta»
           NON ci va nessun numero. Anche fermo, un cronometro lì è un pezzo di
           cronaca in mezzo a una richiesta: chi legge lo prende per il tempo che
@@ -360,7 +355,7 @@ export function TurnActivityIndicator({
       )}
       {/* The speed of the answer, in line with the other numbers of the turn. */}
       {sessionKey && state !== 'waiting' && <StreamTokenRateIndicator sessionKey={sessionKey} />}
-    </div>
+    </TurnLoader>
     {/* Un turno fermo su una domanda si CHIUDE come un messaggio qualunque.
         Tecnicamente non è finito — la riga resta `partial`, il processo è vivo
         e aspetta — ma a schermo restava a mezz'aria: niente striscia di

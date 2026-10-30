@@ -32,7 +32,7 @@ describe("loaderStateFor", () => {
 describe("loaderArcClass", () => {
   test("the working arc is the primary ink, turning", () => {
     const arc = loaderArcClass("working", false);
-    expect(arc).toContain("animate-orbit-spin");
+    expect(arc).toContain("animate-spark-breathe");
     expect(arc).toContain("text-[var(--primary)]");
   });
 
@@ -40,7 +40,7 @@ describe("loaderArcClass", () => {
     // A folder with a finished child (blue fill) and one at work: a blue arc on
     // the blue fill is about 1.3:1 and the glyph vanishes.
     const arc = loaderArcClass("working", true);
-    expect(arc).toContain("animate-orbit-spin");
+    expect(arc).toContain("animate-spark-breathe");
     expect(arc).toContain(ON_FILL_TEXT_SOFT);
     expect(arc).not.toContain("text-[var(--primary)]");
   });

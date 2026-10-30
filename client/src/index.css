@@ -3313,7 +3313,7 @@ html.native-frost.dark :is(.raised-control-overlay .raised-control:hover, .raise
  * Keyframes from the reference desktop client we studied:
  *   · `timeline-blur-in`    — content swap entry (24px blur → 0 in 120ms)
  *   · `timeline-blur-out`   — exit (faster, 80ms)
- * (the "working now" cue is `orbit-spin` below, defined with OrbitLoader.)
+ * (the "working now" cue is `spark-breathe` below, defined with SparkLoader.)
  * Plus three Material easing curves.
  */
 @keyframes timeline-blur-in {
@@ -3329,7 +3329,7 @@ html.native-frost.dark :is(.raised-control-overlay .raised-control:hover, .raise
 .animate-timeline-in { animation: timeline-blur-in 120ms cubic-bezier(0, 0, 0.2, 1) both; }
 .animate-timeline-out { animation: timeline-blur-out 80ms cubic-bezier(0.4, 0, 1, 1) both; }
 
-/* THE ORBIT — the "I am working" cue (OrbitLoader in StreamingIndicator).
+/* THE SPARK — the "I am working" cue (SparkLoader in StreamingIndicator).
  *
  * Third shape of this glyph, and the reason for the change is on the card that
  * asked for it: the loader had to become "something more modern and designed".
@@ -3350,22 +3350,13 @@ html.native-frost.dark :is(.raised-control-overlay .raised-control:hover, .raise
  * 1.15s and not half a second: below the second the ring "runs" and reads like a
  * progress bar about to finish; slower it reads like something thinking, which
  * is what is actually happening. */
-@keyframes orbit-spin {
-  to { transform: rotate(360deg); }
+@keyframes spark-breathe {
+  0%, 100% { transform: scale(0.85) rotate(-8deg); opacity: 0.75; }
+  50%      { transform: scale(1) rotate(8deg); opacity: 1; }
 }
-.animate-orbit-spin {
-  animation: orbit-spin 1.15s linear infinite;
+.animate-spark-breathe {
+  animation: spark-breathe 1.6s ease-in-out infinite;
 }
-
-/* THE WAIT: same ring, sweep frozen into an amber arc, breathing slowly.
- * "Stopped" is the information — a turn parked on a question is not grinding —
- * but stopped does not mean off: the slow breath says the session is still
- * alive and the ball is yours. */
-@keyframes orbit-breath {
-  0%, 100% { opacity: 0.55; }
-  50%      { opacity: 1; }
-}
-.animate-orbit-breath { animation: orbit-breath 2.4s ease-in-out infinite; }
 
 /* THE TIME THAT IS PASSING RIGHT NOW, told by MOTION and not by colour.
  *
@@ -3406,8 +3397,7 @@ html.native-frost.dark :is(.raised-control-overlay .raised-control:hover, .raise
 @media (prefers-reduced-motion: reduce) {
   /* No movement, but the signal stays: the sweep stops on an angle, so the
      travel becomes a shape instead of a time. */
-  .animate-orbit-spin { animation: none; transform: rotate(112deg); }
-  .animate-orbit-breath { animation: none; opacity: 0.9; }
+  .animate-spark-breathe { animation: none; transform: none; opacity: 1; }
   /* Without motion the only thing left to separate a running number from a
      receipt is weight, so the live one settles on the FULL text ink while the
      receipt stays in its own quiet tone. Not the primary: the colour left this
@@ -3474,7 +3464,7 @@ html.native-frost.dark :is(.raised-control-overlay .raised-control:hover, .raise
 /* Pause EVERY keyframe animation while the window is backgrounded (driven by
  * useAnimationPause, which toggles `.anims-paused` on <html> on blur/hide). On
  * the big transparent-vibrancy desktop window the always-running loaders
- * (orbit-spin) and parked-session breathers (awaiting-pulse) otherwise keep the
+ * (spark-breathe) and parked-session breathers (awaiting-pulse) otherwise keep the
  * compositor working every frame with nobody watching. `animation-play-state` is
  * compositor-safe: the toggle costs one style recalc on blur/focus, never a
  * per-frame cost, and CSS *transitions* are unaffected. */

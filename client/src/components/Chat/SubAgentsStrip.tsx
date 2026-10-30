@@ -1,5 +1,6 @@
 import { memo, useState, type MouseEvent } from 'react';
-import { AlarmClock, CircleCheck, ExternalLink, Hourglass, Loader2, Server, Square, SquareTerminal, X } from 'lucide-react';
+import { AlarmClock, CircleCheck, ExternalLink, Hourglass, Server, Square, SquareTerminal, X } from 'lucide-react';
+import { SparkLoader } from '../Layout/StreamingIndicator';
 import { useT } from '../../hooks/useT';
 import { scriptsApi } from '../../lib/api';
 import { useToast } from '../Shared/Toast';
@@ -99,7 +100,7 @@ function AgentRow({ row }: { row: LiveAgentRow }) {
     <div data-testid="subagent-row" data-subagent-id={id} data-state={state} data-runtime={row.runtime} className="flex min-w-0 items-center">
       <button type="button" onClick={open} title={title} aria-label={title} className={ROW}>
         {state === 'working'
-          ? <Loader2 size={11} aria-hidden="true" className="animate-spin text-blue-500 flex-shrink-0" />
+          ? <SparkLoader className="flex-shrink-0" />
           : state === 'waiting'
             ? <Hourglass size={11} aria-hidden="true" className="text-amber-500 flex-shrink-0" />
             : <CircleCheck size={11} aria-hidden="true" className="text-blue-500 flex-shrink-0" />}
