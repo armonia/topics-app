@@ -118,3 +118,25 @@ export function missionPrompt(mission: Mission, projectName: string): string {
     "  entri nel merito tecnico di un singolo task e non fai partire agenti da qui.",
   ].join("\n");
 }
+
+/**
+ * A mission QUEUES UP behind a draft that is already there, it never replaces it.
+ *
+ * That text is somebody's work, half a sentence they were still writing, and
+ * dropping it for one click on a menu would be a silent theft: the click asked
+ * to ADD a job, not to clear the field. So the existing draft keeps the top of
+ * the composer and the mission arrives under it, one blank line between them,
+ * which is also the order in which they were written.
+ *
+ * Whitespace only is not a draft: a field holding a stray newline must not push
+ * the mission down with nothing above it.
+ *
+ * Its own function, and not the two inline lines it used to be, for one reason:
+ * this is the sentence a test can hold still. `tests/e2e/board-missions.spec.ts`
+ * (MISSIONS-03) proves it end to end through the real composer, and the cases
+ * next to it in `missions.test.ts` pin the exact string, so replacing the draft
+ * turns them red instead of passing unnoticed.
+ */
+export function draftWithMission(existingDraft: string, missionText: string): string {
+  return existingDraft.trim() ? `${existingDraft.trimEnd()}\n\n${missionText}` : missionText;
+}

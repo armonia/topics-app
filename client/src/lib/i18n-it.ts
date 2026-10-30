@@ -1620,6 +1620,7 @@ const IT: Dict = {
   'board.settings.deployCommandSuggestion': 'Il progetto ha già uno script `deploy`: {cmd}',
   'board.settings.deployCommandUseSuggestion': 'Usa questo',
   'board.settings.autoDispatch': 'Auto-dispatch',
+  'board.dash.turnOn': 'Accendi',
   'board.dash.hero': '{running} al lavoro · {queued} in coda',
   'board.dash.live': 'dal vivo',
   'board.dash.noBroken': 'Nessuna card è ferma per un guasto: le {queued} in coda partono da sole.',
