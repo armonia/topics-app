@@ -367,7 +367,8 @@ test.describe("Il carico del dispatcher si legge nell'header di In progress", ()
     // Mac is and nothing about where the gate reopens: the gate reads Topics'
     // share, the number is the whole Mac, and no point on it is a promise.
     const WAIT = "In attesa: il Mac è occupato al 79%";
-    await expect(page.getByTestId("global-cap-verdict")).toHaveText(WAIT);
+    // The panel says it once, in the answer on top (when cards wait); the old line at the bottom is gone.
+    await expect(page.getByTestId("global-cap-verdict")).toHaveCount(0);
     await page.keyboard.press("Escape");
 
     const g = gauge(page);

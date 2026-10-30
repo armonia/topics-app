@@ -16,7 +16,7 @@ import { Bot, X } from 'lucide-react';
 import { useT } from '../../hooks/useT';
 import { GlobalCapControl } from './GlobalCapControl';
 import { SpendCapControl } from './SpendCapControl';
-import { DispatchDashboard } from './DispatchDashboard';
+import { DispatchDetails, DispatchSummary } from './DispatchDashboard';
 import type { BoardTask } from '../../lib/board';
 
 /** The panel is not "Auto-dispatch": it holds effort, model, language, worktree,
@@ -57,7 +57,8 @@ export function GlobalSettingsSection({ dispatchOn, onToggleDispatch, tasks }: {
   const tr = useT();
   return (
     <>
-      {tasks && <DispatchDashboard tasks={tasks} dispatchOn={dispatchOn} onTurnOn={onToggleDispatch} />}
+      {/* ONE ANSWER ON TOP, then the controls; chart, queue and memory go below them. */}
+      {tasks && <DispatchSummary tasks={tasks} dispatchOn={dispatchOn} onTurnOn={onToggleDispatch} />}
       {/* The whole row is the checkbox's label, and it is the target: 24 tall
           with the mouse, 44 under a finger (usability audit, 04/10: 16). */}
       <label
@@ -77,7 +78,7 @@ export function GlobalSettingsSection({ dispatchOn, onToggleDispatch, tasks }: {
           is the SAME component the menu mounts, on the same store: what you
           change here shows up there without a reload, and the other way round. */}
       <div className="border-y border-app-border-subtle py-2">
-        <GlobalCapControl />
+        <GlobalCapControl quiet={!!tasks} />
       </div>
 
       {/* THE SPEND, and the spend caps, in the same place and for the same
@@ -88,6 +89,7 @@ export function GlobalSettingsSection({ dispatchOn, onToggleDispatch, tasks }: {
       <div className="border-b border-app-border-subtle pb-2">
         <SpendCapControl />
       </div>
+      {tasks && <DispatchDetails tasks={tasks} />}
     </>
   );
 }

@@ -345,13 +345,11 @@ test.describe("Impostazioni della board: un dropdown sul ⚙, due freni dentro",
     await expect(live).toHaveAttribute("data-band", "red");
     await expect(live).toHaveText("Topics usa il 62% del Mac, può arrivare al 50%");
 
-    // The verdict, on the same line, in the same percentage: one more agent
-    // would not fit even under the ceiling, so there is no honest resume point
-    // and none is printed.
-    const verdict = page.getByTestId("global-cap-verdict");
-    await expect(verdict).toHaveAttribute("data-admit", "false");
-    await expect(verdict).toHaveAttribute("data-blocked-by", "cpu");
-    await expect(verdict).toHaveText("In attesa: il Mac è occupato all'88%");
+    // The verdict is no longer repeated at the bottom of the panel: the one answer
+    // sits on top (and speaks only when a card waits). The busy line is a wait,
+    // so amber, never red.
+    await expect(page.getByTestId("global-cap-verdict")).toHaveCount(0);
+    await expect(busy).not.toHaveClass(/(?:red|rose)-/);
 
     // No technical word in the text a person reads without opening anything.
     const visible = await control.evaluate((node) => {
